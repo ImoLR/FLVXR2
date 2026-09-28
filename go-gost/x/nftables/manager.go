@@ -11,6 +11,7 @@ import (
 	"sync"
 
 	"github.com/google/nftables"
+	"github.com/google/nftables/binaryutil"
 	"github.com/google/nftables/expr"
 	"golang.org/x/sys/unix"
 )
@@ -20,6 +21,10 @@ const (
 	TableFamily      = nftables.TableFamilyINet
 	PreroutingChain  = "prerouting"
 	PostroutingChain = "postrouting"
+
+	// IPS_DST_NAT is the conntrack status bit set after destination NAT.
+	// Keep this local because x/sys does not export nf_conntrack_common.h.
+	conntrackStatusDNAT uint32 = 1 << 5
 )
 
 type Manager struct {
@@ -158,7 +163,9 @@ func (m *Manager) initChains() error {
 		m.conn.AddChain(chain)
 	}
 
-	// 检查并添加 MASQUERADE 规则（避免重复）
+	// Only masquerade connections DNATed by a prerouting rule. The legacy rule
+	// was an unconditional masquerade and rewrote unrelated host traffic too,
+	// including loopback DNS queries sent to systemd-resolved's 127.0.0.53 stub.
 	postroutingChain := &nftables.Chain{
 		Name:  PostroutingChain,
 		Table: m.table,
@@ -167,26 +174,70 @@ func (m *Manager) initChains() error {
 	if err != nil {
 		return fmt.Errorf("get postrouting rules: %w", err)
 	}
-	hasMasq := false
+	hasScopedMasq := false
 	for _, r := range rules {
-		for _, e := range r.Exprs {
-			if _, ok := e.(*expr.Masq); ok {
-				hasMasq = true
-				break
-			}
+		if !isMasqueradeRule(r) {
+			continue
 		}
-		if hasMasq {
-			break
+		if isDNATMasqueradeRule(r) {
+			hasScopedMasq = true
+			continue
 		}
+
+		// Migrate the unsafe rule created by older FLVXR2 releases.
+		m.conn.DelRule(r)
 	}
-	if !hasMasq {
+	if !hasScopedMasq {
 		m.conn.AddRule(&nftables.Rule{
 			Table: m.table,
 			Chain: postroutingChain,
-			Exprs: []expr.Any{&expr.Masq{}},
+			Exprs: newDNATMasqueradeExpressions(),
 		})
 	}
 	return m.conn.Flush()
+}
+
+func newDNATMasqueradeExpressions() []expr.Any {
+	mask := binaryutil.NativeEndian.PutUint32(conntrackStatusDNAT)
+	zero := binaryutil.NativeEndian.PutUint32(0)
+	return []expr.Any{
+		&expr.Ct{Register: 1, Key: expr.CtKeySTATUS},
+		&expr.Bitwise{
+			SourceRegister: 1,
+			DestRegister:   1,
+			Len:            4,
+			Mask:           mask,
+			Xor:            zero,
+		},
+		&expr.Cmp{Op: expr.CmpOpNeq, Register: 1, Data: zero},
+		&expr.Masq{},
+	}
+}
+
+func isDNATMasqueradeRule(rule *nftables.Rule) bool {
+	if rule == nil || !isMasqueradeRule(rule) {
+		return false
+	}
+
+	var hasStatus, hasDNATMask, hasNonZeroCompare bool
+	for _, e := range rule.Exprs {
+		switch v := e.(type) {
+		case *expr.Ct:
+			if v.Key == expr.CtKeySTATUS && !v.SourceRegister {
+				hasStatus = true
+			}
+		case *expr.Bitwise:
+			if v.Len == 4 && len(v.Mask) == 4 {
+				hasDNATMask = hasDNATMask || binaryutil.NativeEndian.Uint32(v.Mask)&conntrackStatusDNAT != 0
+			}
+		case *expr.Cmp:
+			if v.Register == 1 && v.Op == expr.CmpOpNeq &&
+				len(v.Data) == 4 && binaryutil.NativeEndian.Uint32(v.Data) == 0 {
+				hasNonZeroCompare = true
+			}
+		}
+	}
+	return hasStatus && hasDNATMask && hasNonZeroCompare
 }
 
 func (m *Manager) AddRule(forwardID, nodeID, userID, userTunnelID int64, protocol string, port int, target string, speedLimit int) error {
