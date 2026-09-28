@@ -1323,7 +1323,7 @@ export default function NodePage() {
     const version = selectedVersion || latestVersion;
     const releaseType = version || "latest";
 
-    return `https://github.com/iKeilo/FLVXR2/releases/download/${releaseType}/gost-{ARCH}`;
+    return `https://github.com/ImoLR/FLVXR2/releases/download/${releaseType}/gost-{ARCH}`;
   };
   // 获取地址前缀文本（升级地址/回退地址）
   const getAddressPrefix = (): string => {
@@ -1333,8 +1333,8 @@ export default function NodePage() {
 
       if (node?.version) {
         const currentVersion = node.version
-          .split(" ")[0]
-          .replace(/^gost\s*/i, "");
+          .replace(/^gost\s*/i, "")
+          .split(/\s+/)[0];
 
         return compareVersions(selectedVersion, currentVersion) > 0
           ? "升级地址"
@@ -1353,8 +1353,9 @@ export default function NodePage() {
       const node = nodeList.find((n) => n.id === upgradeTargetNodeId);
 
       if (node?.version) {
-        const currentVersion = node.version.split(" ")[0]; // 提取版本号部分，如 "gost 2.2.5-beta37" → "gost"
-        const versionOnly = currentVersion.replace(/^gost\s*/i, ""); // 提取纯版本号 "2.2.5-beta37"
+        const versionOnly = node.version
+          .replace(/^gost\s*/i, "")
+          .split(/\s+/)[0];
 
         return compareVersions(selectedVersion, versionOnly) > 0
           ? "升级"

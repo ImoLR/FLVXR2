@@ -8,7 +8,7 @@ set -e
 DOMESTIC_WEBDAV_URL="${DOMESTIC_WEBDAV_URL:-}"
 DOMESTIC_USER="${DOMESTIC_USER:-admin}"
 DOMESTIC_PASS="${DOMESTIC_PASS:-admin123}"
-GITHUB_REPO="iKeilo/FLVXR2"
+GITHUB_REPO="ImoLR/FLVXR2"
 
 if [ -z "$DOMESTIC_WEBDAV_URL" ]; then
     echo "DOMESTIC_WEBDAV_URL is required when using this optional sync script."

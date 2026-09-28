@@ -1,6 +1,6 @@
 # FLVX
 
-> **项目仓库**: https://github.com/iKeilo/FLVXR2
+> **项目仓库**: https://github.com/ImoLR/FLVXR2
 > 励志要做一个激进的FLVX分支以及融合怪
 
 Fork仓库参考以及部分代码来源
@@ -27,22 +27,22 @@ Fork仓库参考以及部分代码来源
 
 **交互式安装（最新版）：**
 ```bash
-bash <(curl -L https://raw.githubusercontent.com/iKeilo/FLVXR2/main/panel_install.sh)
+bash <(curl -fL https://github.com/ImoLR/FLVXR2/releases/latest/download/panel_install.sh)
 ```
 
 **指定版本安装：**
 ```bash
-bash <(curl -L https://raw.githubusercontent.com/iKeilo/FLVXR2/main/panel_install.sh) 3.0.13
+bash <(curl -fL https://github.com/ImoLR/FLVXR2/releases/download/3.0.27-fork.2/panel_install.sh) 3.0.27-fork.2
 ```
 
 **一键升级（无交互）：**
 ```bash
-bash <(curl -L https://raw.githubusercontent.com/iKeilo/FLVXR2/main/panel_install.sh) update
+bash <(curl -fL https://github.com/ImoLR/FLVXR2/releases/latest/download/panel_install.sh) update
 ```
 
 **一键卸载（无交互）：**
 ```bash
-bash <(curl -L https://raw.githubusercontent.com/iKeilo/FLVXR2/main/panel_install.sh) uninstall
+bash <(curl -fL https://github.com/ImoLR/FLVXR2/releases/latest/download/panel_install.sh) uninstall
 ```
 
 > ⚠️ 升级时会自动检测并兼容带 `v` 或不带 `v` 的版本号格式。
@@ -58,7 +58,7 @@ bash <(curl -L https://raw.githubusercontent.com/iKeilo/FLVXR2/main/panel_instal
 
 ## Original Project
 - **Name**: FLVX转发面板
-- **Source**: https://github.com/iKeilo/FLVXR2
+- **Upstream source**: https://github.com/iKeilo/FLVXR2
 - **License**: Apache License 2.0
 
 ## Modifications
@@ -119,4 +119,3 @@ This fork (FLVX) is no longer a light patch on top of the upstream project. It h
 |------------|----------------------------------------------------------------------|
 | BNB(USDT) | `0xC6D4FbD6a3f7d89Bb5f6a15F735B6281134a83be`                          |
 | Base(ETH)      | `0xC6D4FbD6a3f7d89Bb5f6a15F735B6281134a83be`                                  |
-

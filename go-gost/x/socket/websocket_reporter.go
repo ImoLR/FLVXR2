@@ -2213,19 +2213,27 @@ func (w *WebSocketReporter) handleUpgradeAgent(data interface{}) error {
 	var lastErr error
 
 	for i := range req.DownloadURLs {
-		downloadURL = strings.ReplaceAll(req.DownloadURLs[i], "{ARCH}", runtime.GOARCH)
-		if i < len(req.ChecksumURLs) {
-			checksumURL = strings.ReplaceAll(req.ChecksumURLs[i], "{ARCH}", runtime.GOARCH)
+		if i >= len(req.ChecksumURLs) || strings.TrimSpace(req.ChecksumURLs[i]) == "" {
+			lastErr = fmt.Errorf("下载源缺少 SHA-256 地址")
+			continue
 		}
+		candidateDownloadURL := strings.ReplaceAll(req.DownloadURLs[i], "{ARCH}", runtime.GOARCH)
+		candidateChecksumURL := strings.ReplaceAll(req.ChecksumURLs[i], "{ARCH}", runtime.GOARCH)
 
-		fmt.Printf("📦 尝试下载升级包：%s\n", downloadURL)
+		fmt.Printf("📦 尝试下载升级包：%s\n", candidateDownloadURL)
 
 		// 测试下载连接
-		resp, err := http.Head(downloadURL)
+		resp, err := http.Head(candidateDownloadURL)
 		if err == nil && resp.StatusCode == http.StatusOK {
 			resp.Body.Close()
+			downloadURL = candidateDownloadURL
+			checksumURL = candidateChecksumURL
 			fmt.Printf("✅ 下载源可用：%s\n", downloadURL)
 			break
+		}
+		if resp != nil {
+			resp.Body.Close()
+			lastErr = fmt.Errorf("%s 返回 HTTP %d", candidateDownloadURL, resp.StatusCode)
 		}
 		if err != nil {
 			lastErr = err
@@ -2303,29 +2311,30 @@ func (w *WebSocketReporter) handleUpgradeAgent(data interface{}) error {
 
 	w.sendUpgradeProgress("downloading", 100, fmt.Sprintf("下载完成 (%d bytes)", downloaded))
 
-	// Checksum 校验
-	if checksumURL != "" {
-		w.sendUpgradeProgress("verifying", 0, "校验文件完整性...")
-		checksumResp, err := http.Get(checksumURL)
-		if err == nil {
-			defer checksumResp.Body.Close()
-			if checksumResp.StatusCode == http.StatusOK {
-				checksumBody, err := io.ReadAll(checksumResp.Body)
-				if err == nil {
-					// 格式："<hash>  <filename>" 或 "<hash>"
-					expectedHash := strings.TrimSpace(strings.Split(string(checksumBody), " ")[0])
-					actualHash := hex.EncodeToString(hasher.Sum(nil))
-					if !strings.EqualFold(expectedHash, actualHash) {
-
-						os.Remove(tmpPath)
-						return fmt.Errorf("校验失败: 期望 %s, 实际 %s", expectedHash, actualHash)
-					}
-					fmt.Printf("✅ Checksum 校验通过: %s\n", actualHash)
-				}
-			}
-		}
-		w.sendUpgradeProgress("verifying", 100, "校验通过")
+	// Checksum is mandatory for panel-driven Agent upgrades.
+	w.sendUpgradeProgress("verifying", 0, "校验文件完整性...")
+	checksumResp, err := http.Get(checksumURL)
+	if err != nil {
+		os.Remove(tmpPath)
+		return fmt.Errorf("下载 SHA-256 失败：%v", err)
 	}
+	checksumBody, readErr := io.ReadAll(io.LimitReader(checksumResp.Body, 4096))
+	checksumResp.Body.Close()
+	if checksumResp.StatusCode != http.StatusOK {
+		os.Remove(tmpPath)
+		return fmt.Errorf("下载 SHA-256 失败，HTTP 状态码：%d", checksumResp.StatusCode)
+	}
+	if readErr != nil {
+		os.Remove(tmpPath)
+		return fmt.Errorf("读取 SHA-256 失败：%v", readErr)
+	}
+	actualHash := hex.EncodeToString(hasher.Sum(nil))
+	if err := verifySHA256Checksum(checksumBody, actualHash); err != nil {
+		os.Remove(tmpPath)
+		return err
+	}
+	fmt.Printf("✅ Checksum 校验通过: %s\n", actualHash)
+	w.sendUpgradeProgress("verifying", 100, "校验通过")
 
 	if err := os.Chmod(tmpPath, 0755); err != nil {
 		os.Remove(tmpPath)
@@ -2391,6 +2400,22 @@ func (w *WebSocketReporter) handleUpgradeAgent(data interface{}) error {
 
 	w.sendUpgradeProgress("installing", 100, "重启中...")
 	fmt.Println("🔄 重启脚本已启动, Agent 将在 1 秒后重启...")
+	return nil
+}
+
+func verifySHA256Checksum(checksumBody []byte, actualHash string) error {
+	fields := strings.Fields(string(checksumBody))
+	if len(fields) == 0 {
+		return fmt.Errorf("SHA-256 文件为空")
+	}
+	expectedHash := fields[0]
+	decoded, err := hex.DecodeString(expectedHash)
+	if err != nil || len(decoded) != sha256.Size {
+		return fmt.Errorf("SHA-256 文件格式无效")
+	}
+	if !strings.EqualFold(expectedHash, actualHash) {
+		return fmt.Errorf("校验失败: 期望 %s, 实际 %s", expectedHash, actualHash)
+	}
 	return nil
 }
 

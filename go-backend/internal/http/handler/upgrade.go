@@ -17,7 +17,7 @@ import (
 )
 
 const (
-	githubRepo     = "iKeilo/FLVXR2"
+	githubRepo     = "ImoLR/FLVXR2"
 	githubAPIBase  = "https://api.github.com"
 	githubHTMLBase = "https://github.com"
 	upgradeTimeout = 5 * time.Minute
@@ -28,8 +28,10 @@ const (
 )
 
 var (
-	stableVersionPattern = regexp.MustCompile(`^\d+(?:\.\d+)+$`)
-	testKeywordPattern   = regexp.MustCompile(`(?i)(alpha|beta|rc)`)
+	stableVersionPattern  = regexp.MustCompile(`^\d+(?:\.\d+)+(?:-fork\.\d+)?$`)
+	forkVersionPattern    = regexp.MustCompile(`^(\d+(?:\.\d+)+)-fork\.(\d+)$`)
+	previewVersionPattern = regexp.MustCompile(`^(\d+(?:\.\d+)+)-(alpha|beta|rc)[.-]?(\d*)$`)
+	testKeywordPattern    = regexp.MustCompile(`(?i)(alpha|beta|rc)`)
 )
 
 type githubRelease struct {
@@ -41,10 +43,6 @@ type githubRelease struct {
 }
 
 func normalizeReleaseChannel(channel string) string {
-	// 空字符串返回空，表示不指定通道（获取最新版本）
-	if channel == "" {
-		return ""
-	}
 	switch strings.ToLower(strings.TrimSpace(channel)) {
 	case releaseChannelDev:
 		return releaseChannelDev
@@ -101,6 +99,22 @@ func fetchGitHubReleases(perPage int) ([]githubRelease, error) {
 	return releases, nil
 }
 
+func releaseAssetURL(version, filename string) string {
+	return fmt.Sprintf("%s/%s/releases/download/%s/%s", githubHTMLBase, githubRepo, version, filename)
+}
+
+func latestReleaseAssetURL(filename string) string {
+	return fmt.Sprintf("%s/%s/releases/latest/download/%s", githubHTMLBase, githubRepo, filename)
+}
+
+func agentUpgradeCommandData(version string) map[string]interface{} {
+	return map[string]interface{}{
+		"downloadUrls": []string{releaseAssetURL(version, "gost-{ARCH}")},
+		"checksumUrls": []string{releaseAssetURL(version, "gost-{ARCH}.sha256")},
+		"version":      version,
+	}
+}
+
 func resolveLatestReleaseByChannel(channel string) (string, error) {
 	normalizedChannel := normalizeReleaseChannel(channel)
 	releases, err := fetchGitHubReleases(50)
@@ -108,21 +122,7 @@ func resolveLatestReleaseByChannel(channel string) (string, error) {
 		return "", err
 	}
 
-	// 如果 channel 为空，返回第一个非 draft 的 release（最新版本）
-	if normalizedChannel == "" {
-		for _, r := range releases {
-			if r.Draft {
-				continue
-			}
-			tag := strings.TrimSpace(r.TagName)
-			if tag != "" {
-				return tag, nil
-			}
-		}
-		return "", fmt.Errorf("未找到版本号")
-	}
-
-	// 否则按通道查找
+	// 按通道查找；空通道由 normalizeReleaseChannel 归一为 stable。
 	for _, r := range releases {
 		if r.Draft {
 			continue
@@ -170,18 +170,7 @@ func (h *Handler) nodeUpgrade(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	downloadURLs := []string{
-		fmt.Sprintf("https://github.com/%s/releases/download/%s/gost-{ARCH}", githubRepo, version),
-	}
-	checksumURLs := []string{
-		fmt.Sprintf("https://github.com/%s/releases/download/%s/gost-{ARCH}.sha256", githubRepo, version),
-	}
-
-	result, err := h.wsServer.SendCommand(req.ID, "UpgradeAgent", map[string]interface{}{
-		"downloadUrls": downloadURLs,
-		"checksumUrls": checksumURLs,
-		"version":      version,
-	}, upgradeTimeout)
+	result, err := h.wsServer.SendCommand(req.ID, "UpgradeAgent", agentUpgradeCommandData(version), upgradeTimeout)
 	if err != nil {
 		response.WriteJSON(w, response.Err(-2, fmt.Sprintf("升级失败：%v", err)))
 		return
@@ -232,18 +221,6 @@ func (h *Handler) nodeBatchUpgrade(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	downloadURLs := []string{
-		fmt.Sprintf("https://github.com/%s/releases/download/%s/gost-{ARCH}", githubRepo, version),
-	}
-	checksumURLs := []string{
-		fmt.Sprintf("https://github.com/%s/releases/download/%s/gost-{ARCH}.sha256", githubRepo, version),
-	}
-
-	if len(downloadURLs) == 0 {
-		response.WriteJSON(w, response.ErrDefault("构建下载源失败"))
-		return
-	}
-
 	type upgradeResult struct {
 		ID      int64  `json:"id"`
 		Success bool   `json:"success"`
@@ -261,10 +238,7 @@ func (h *Handler) nodeBatchUpgrade(w http.ResponseWriter, r *http.Request) {
 			sem <- struct{}{}
 			defer func() { <-sem }()
 
-			result, err := h.wsServer.SendCommand(nodeID, "UpgradeAgent", map[string]interface{}{
-				"downloadUrls": downloadURLs,
-				"checksumUrls": checksumURLs,
-			}, upgradeTimeout)
+			result, err := h.wsServer.SendCommand(nodeID, "UpgradeAgent", agentUpgradeCommandData(version), upgradeTimeout)
 			if err != nil {
 				results[index] = upgradeResult{ID: nodeID, Success: false, Message: err.Error()}
 				return
@@ -506,10 +480,10 @@ func (h *Handler) panelUpgrade(w http.ResponseWriter, r *http.Request) {
 
 		// 下载并执行 panel_install.sh
 		cmd := exec.Command("bash", "-c", `
-			curl -L https://raw.githubusercontent.com/iKeilo/FLVXR2/main/panel_install.sh -o /tmp/panel_install.sh && \
+			curl -fL "$1" -o /tmp/panel_install.sh && \
 			chmod +x /tmp/panel_install.sh && \
-			echo -e "2\n" | /tmp/panel_install.sh
-		`)
+			printf '2\n' | /tmp/panel_install.sh "$2"
+		`, "flvx-panel-upgrade", releaseAssetURL(targetVersion, "panel_install.sh"), targetVersion)
 		output, err := cmd.CombinedOutput()
 		if err != nil {
 			fmt.Printf("面板升级失败：%v\n输出：%s\n", err, string(output))
@@ -564,7 +538,7 @@ func (h *Handler) executePanelUpgrade(currentVersion, targetVersion string) erro
 		_ = os.Remove(backupComposeFile)
 	}()
 
-	latestComposeURL := fmt.Sprintf("https://github.com/%s/releases/download/%s/docker-compose-v4.yml", githubRepo, targetVersion)
+	latestComposeURL := releaseAssetURL(targetVersion, "docker-compose-v4.yml")
 	downloadURL := latestComposeURL
 
 	h.broadcastPanelUpgradeProgress("downloading", 10, "下载 docker-compose.yml...", false)
@@ -710,32 +684,123 @@ func waitForBackendHealthy() error {
 	return fmt.Errorf("等待后端服务健康检查超时")
 }
 
-func compareVersions(current, target string) int {
-	current = strings.TrimPrefix(current, "v")
-	target = strings.TrimPrefix(target, "v")
+type parsedVersion struct {
+	core         []int
+	stageRank    int
+	stageNumber  int
+	fork         bool
+	forkRevision int
+	valid        bool
+}
 
-	currentParts := strings.Split(current, ".")
-	targetParts := strings.Split(target, ".")
-
-	maxLen := len(currentParts)
-	if len(targetParts) > maxLen {
-		maxLen = len(targetParts)
+func parseNumericVersion(value string) ([]int, bool) {
+	parts := strings.Split(value, ".")
+	numbers := make([]int, len(parts))
+	for i, part := range parts {
+		if part == "" {
+			return nil, false
+		}
+		if _, err := fmt.Sscanf(part, "%d", &numbers[i]); err != nil {
+			return nil, false
+		}
+		if fmt.Sprintf("%d", numbers[i]) != part {
+			return nil, false
+		}
 	}
+	return numbers, true
+}
 
+func parseComparableVersion(value string) parsedVersion {
+	normalized := strings.ToLower(strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(value), "v")))
+	if match := forkVersionPattern.FindStringSubmatch(normalized); match != nil {
+		core, ok := parseNumericVersion(match[1])
+		var revision int
+		_, revisionErr := fmt.Sscanf(match[2], "%d", &revision)
+		return parsedVersion{core: core, stageRank: 4, fork: true, forkRevision: revision, valid: ok && revisionErr == nil}
+	}
+	if stableVersionPattern.MatchString(normalized) {
+		core, ok := parseNumericVersion(normalized)
+		return parsedVersion{core: core, stageRank: 4, valid: ok}
+	}
+	if match := previewVersionPattern.FindStringSubmatch(normalized); match != nil {
+		core, ok := parseNumericVersion(match[1])
+		stageRank := map[string]int{"alpha": 1, "beta": 2, "rc": 3}[match[2]]
+		var stageNumber int
+		if match[3] != "" {
+			if _, err := fmt.Sscanf(match[3], "%d", &stageNumber); err != nil {
+				ok = false
+			}
+		}
+		return parsedVersion{core: core, stageRank: stageRank, stageNumber: stageNumber, valid: ok}
+	}
+	return parsedVersion{}
+}
+
+func compareNumericParts(left, right []int) int {
+	maxLen := len(left)
+	if len(right) > maxLen {
+		maxLen = len(right)
+	}
 	for i := 0; i < maxLen; i++ {
-		var currNum, targetNum int
-		if i < len(currentParts) {
-			fmt.Sscanf(currentParts[i], "%d", &currNum)
+		var a, b int
+		if i < len(left) {
+			a = left[i]
 		}
-		if i < len(targetParts) {
-			fmt.Sscanf(targetParts[i], "%d", &targetNum)
+		if i < len(right) {
+			b = right[i]
 		}
-		if currNum < targetNum {
+		if a < b {
 			return -1
 		}
-		if currNum > targetNum {
+		if a > b {
 			return 1
 		}
+	}
+	return 0
+}
+
+func compareVersions(current, target string) int {
+	left := parseComparableVersion(current)
+	right := parseComparableVersion(target)
+	if !left.valid || !right.valid {
+		return 0
+	}
+
+	coreOrder := compareNumericParts(left.core, right.core)
+	if left.fork != right.fork && coreOrder != 0 {
+		// A fork maintenance release and an official release from a different
+		// base are separate lines, so neither is an automatic upgrade target.
+		return 0
+	}
+	if coreOrder != 0 {
+		return coreOrder
+	}
+	if left.fork && right.fork {
+		if left.forkRevision < right.forkRevision {
+			return -1
+		}
+		if left.forkRevision > right.forkRevision {
+			return 1
+		}
+		return 0
+	}
+	if left.fork != right.fork {
+		if left.fork {
+			return 1
+		}
+		return -1
+	}
+	if left.stageRank < right.stageRank {
+		return -1
+	}
+	if left.stageRank > right.stageRank {
+		return 1
+	}
+	if left.stageNumber < right.stageNumber {
+		return -1
+	}
+	if left.stageNumber > right.stageNumber {
+		return 1
 	}
 	return 0
 }

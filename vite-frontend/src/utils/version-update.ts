@@ -6,7 +6,9 @@ export const UPDATE_CHANNEL_CHANGED_EVENT = "updateReleaseChannelChanged";
 const CHANNEL_STABLE: UpdateReleaseChannel = "stable";
 const CHANNEL_DEV: UpdateReleaseChannel = "dev";
 
-const stableVersionPattern = /^\d+(?:\.\d+)+$/;
+const stableVersionPattern = /^\d+(?:\.\d+)+(?:-fork\.\d+)?$/;
+const forkVersionPattern = /^(\d+(?:\.\d+)+)-fork\.(\d+)$/;
+const previewVersionPattern = /^(\d+(?:\.\d+)+)-(alpha|beta|rc)[.-]?(\d*)$/;
 const testKeywordPattern = /(alpha|beta|rc|dev)/i;
 
 const VERSION_CACHE_TTL_MS = 10 * 60 * 1000;
@@ -79,52 +81,102 @@ const releaseChannelFromTag = (tag: string): ReleaseTagChannel => {
 };
 
 type VersionParts = {
-  numbers: number[];
+  core: number[];
   stageRank: number;
   stageNumber: number;
+  fork: boolean;
+  forkRevision: number;
+  valid: boolean;
 };
 
 const parseVersionParts = (version: string): VersionParts => {
   const normalized = normalizeTag(version).toLowerCase();
-  const numberMatches = normalized.match(/\d+/g) || [];
-  const numbers = numberMatches.map((item) => Number.parseInt(item, 10));
+  const parseCore = (value: string): number[] =>
+    value.split(".").map((item) => Number.parseInt(item, 10));
+  const forkMatch = normalized.match(forkVersionPattern);
 
-  let stageRank = 0;
-
-  if (normalized.includes("rc")) {
-    stageRank = 3;
-  } else if (normalized.includes("beta")) {
-    stageRank = 2;
-  } else if (normalized.includes("alpha")) {
-    stageRank = 1;
-  } else if (stableVersionPattern.test(normalized)) {
-    stageRank = 4;
+  if (forkMatch) {
+    return {
+      core: parseCore(forkMatch[1]),
+      stageRank: 4,
+      stageNumber: 0,
+      fork: true,
+      forkRevision: Number.parseInt(forkMatch[2], 10),
+      valid: true,
+    };
   }
 
-  const stageNumberMatch = normalized.match(/(?:alpha|beta|rc)[.-]?(\d+)/);
-  const stageNumber = stageNumberMatch
-    ? Number.parseInt(stageNumberMatch[1], 10)
-    : 0;
+  if (/^\d+(?:\.\d+)+$/.test(normalized)) {
+    return {
+      core: parseCore(normalized),
+      stageRank: 4,
+      stageNumber: 0,
+      fork: false,
+      forkRevision: 0,
+      valid: true,
+    };
+  }
+
+  const previewMatch = normalized.match(previewVersionPattern);
+
+  if (previewMatch) {
+    const ranks: Record<string, number> = { alpha: 1, beta: 2, rc: 3 };
+
+    return {
+      core: parseCore(previewMatch[1]),
+      stageRank: ranks[previewMatch[2]],
+      stageNumber: previewMatch[3] ? Number.parseInt(previewMatch[3], 10) : 0,
+      fork: false,
+      forkRevision: 0,
+      valid: true,
+    };
+  }
 
   return {
-    numbers,
-    stageRank,
-    stageNumber,
+    core: [],
+    stageRank: 0,
+    stageNumber: 0,
+    fork: false,
+    forkRevision: 0,
+    valid: false,
   };
 };
 
 export const compareVersions = (left: string, right: string): number => {
   const a = parseVersionParts(left);
   const b = parseVersionParts(right);
-  const maxLength = Math.max(a.numbers.length, b.numbers.length);
+
+  if (!a.valid || !b.valid) {
+    return 0;
+  }
+
+  const maxLength = Math.max(a.core.length, b.core.length);
+  let coreOrder = 0;
 
   for (let i = 0; i < maxLength; i += 1) {
-    const aValue = a.numbers[i] || 0;
-    const bValue = b.numbers[i] || 0;
+    const aValue = a.core[i] || 0;
+    const bValue = b.core[i] || 0;
 
     if (aValue !== bValue) {
-      return aValue - bValue;
+      coreOrder = aValue - bValue;
+      break;
     }
+  }
+
+  if (a.fork !== b.fork && coreOrder !== 0) {
+    return 0;
+  }
+
+  if (coreOrder !== 0) {
+    return coreOrder;
+  }
+
+  if (a.fork && b.fork) {
+    return a.forkRevision - b.forkRevision;
+  }
+
+  if (a.fork !== b.fork) {
+    return a.fork ? 1 : -1;
   }
 
   if (a.stageRank !== b.stageRank) {

@@ -191,8 +191,8 @@ func (e *systemUpgradeExecutor) helperScript() string {
 		// 提取当前版本号作为白名单
 		`NEW_VER=$(grep '^FLUX_VERSION=' .env | cut -d= -f2 | tr -d '\r' | tr -d '"' | tr -d "'" || true)`,
 
-		// 兼容 Nerdctl 和标准 Docker 的智能提取逻辑
-		`for img in $(docker images | grep -E 'ghcr.io/ikeilo' | awk '{if ($1 ~ /:/) print $1; else print $1":"$2}'); do`,
+		// 兼容 Nerdctl 和标准 Docker，并清理迁移前的上游旧镜像。
+		`for img in $(docker images | grep -E 'ghcr.io/(ikeilo|imolr)' | awk '{if ($1 ~ /:/) print $1; else print $1":"$2}'); do`,
 		`  TAG=$(echo "$img" | awk -F: '{print $NF}')`,
 		`  if [ -n "$NEW_VER" ] && [ "$TAG" = "$NEW_VER" ]; then`,
 		`    continue`,
@@ -422,7 +422,7 @@ func systemUpgradeVersionResponse(current, channel, latest string, lookupErr err
 	data := systemUpgradeVersionData{
 		CurrentVersion: current,
 		LatestVersion:  latest,
-		HasUpdate:      latest != "" && latest != current,
+		HasUpdate:      latest != "" && compareVersions(current, latest) < 0,
 		Channel:        channel,
 		Capability:     capability,
 	}
@@ -477,7 +477,7 @@ func (h *Handler) systemCheckUpdates(w http.ResponseWriter, r *http.Request) {
 	response.WriteJSON(w, response.OK(systemUpgradeCheckData{
 		CurrentVersion: current,
 		LatestVersion:  latest,
-		HasUpdate:      latest != "" && latest != current,
+		HasUpdate:      latest != "" && compareVersions(current, latest) < 0,
 		Channel:        channel,
 		Capability:     capability,
 		Releases:       releases,

@@ -359,12 +359,12 @@ jobs:
 
           **Panel (安装此版本 ${VERSION}):**
           \`\`\`bash
-          bash <(curl -L https://raw.githubusercontent.com/${{ github.repository }}/main/panel_install.sh) ${VERSION}
+          bash <(curl -fL https://github.com/${{ github.repository }}/releases/download/${VERSION}/panel_install.sh) ${VERSION}
           \`\`\`
 
           **安装最新版面板:**
           \`\`\`bash
-          bash <(curl -L https://raw.githubusercontent.com/${{ github.repository }}/main/panel_install.sh)
+          bash <(curl -fL https://github.com/${{ github.repository }}/releases/latest/download/panel_install.sh)
           \`\`\`" \
             --repo ${{ github.repository }}
 
@@ -479,4 +479,3 @@ jobs:
           gh release upload "${VERSION}" ./artifacts/offline-arm64.zip --clobber
 
           echo " ✅ GOST 二进制文件更新完成
-
