@@ -270,7 +270,8 @@ func (w *WebSocketReporter) run() {
 			if needConnect {
 				if err := w.connect(); err != nil {
 					wait := backoffWithJitter(w.curBackoff)
-					fmt.Printf("❌ WebSocket连接失败: %v，%v后重试\n", err, wait)
+					runtimeLogs.Logf("websocket-connect", networkErrorFingerprint("connect", err),
+						"❌ WebSocket连接失败: %v；将按指数退避重试", err)
 					// 指数退避：翻倍当前退避间隔，上限 maxBackoff
 					w.curBackoff *= 2
 					if w.curBackoff > maxBackoff {
@@ -283,7 +284,8 @@ func (w *WebSocketReporter) run() {
 						return
 					}
 				}
-				// 连接成功：归零退避
+				// 连接成功：只在此前失败过时记录一次恢复，并归零退避。
+				runtimeLogs.Recoverf("websocket-connect", "✅ WebSocket连接已恢复")
 				w.curBackoff = initialBackoff
 			}
 
@@ -1254,13 +1256,17 @@ func (w *WebSocketReporter) handleReceivedMessage(messageType int, message []byt
 
 // routeCommand 路由命令到对应的处理函数
 func (w *WebSocketReporter) routeCommand(cmd CommandMessage) {
-	jsonBytes, errs := json.Marshal(cmd)
-	if errs != nil {
-		fmt.Println("Error marshaling JSON:", errs)
-		return
+	// Periodic read-only probes are expected background traffic. Logging every
+	// request and every successful attempt can produce thousands of lines per
+	// hour, so keep command logging for state-changing and interactive commands.
+	if cmd.Type != "TcpPing" && cmd.Type != "ServiceMonitorCheck" {
+		jsonBytes, errs := json.Marshal(cmd)
+		if errs != nil {
+			fmt.Println("Error marshaling JSON:", errs)
+			return
+		}
+		fmt.Println("🔔 收到命令: ", string(jsonBytes))
 	}
-
-	fmt.Println("🔔 收到命令: ", string(jsonBytes))
 	var err error
 	var response CommandResponse
 	var needSaveConfig bool // 标记是否需要保存配置（只有状态变更命令才需要）
@@ -2571,9 +2577,10 @@ func getNetworkStats() NetworkStats {
 
 	ioCounters, err := psnet.IOCounters(true)
 	if err != nil {
-		fmt.Printf("获取网络统计失败: %v\n", err)
+		runtimeLogs.Logf("network-stats", err.Error(), "获取网络统计失败: %v", err)
 		return stats
 	}
+	runtimeLogs.Recoverf("network-stats", "✅ 网络统计读取已恢复")
 
 	for _, io := range ioCounters {
 		if io.Name == "lo" || strings.HasPrefix(io.Name, "lo") {
@@ -2683,7 +2690,50 @@ func getConnectionInfo() ConnectionInfo {
 	return connInfo
 }
 
-// fixServiceFile 修复旧版 service 日志配置 (null -> journal)
+const (
+	serviceLogRateLimitInterval = "30s"
+	serviceLogRateLimitBurst    = "200"
+)
+
+func hardenServiceUnitLogging(before string) string {
+	before = strings.ReplaceAll(before, "StandardOutput=null", "StandardOutput=journal")
+	before = strings.ReplaceAll(before, "StandardError=null", "StandardError=journal")
+
+	lines := strings.Split(before, "\n")
+	serviceStart, serviceEnd := -1, len(lines)
+	hasInterval, hasBurst := false, false
+	for i, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "[Service]" {
+			serviceStart = i
+			continue
+		}
+		if serviceStart >= 0 && i > serviceStart && strings.HasPrefix(trimmed, "[") {
+			serviceEnd = i
+			break
+		}
+		if serviceStart >= 0 {
+			hasInterval = hasInterval || strings.HasPrefix(trimmed, "LogRateLimitIntervalSec=")
+			hasBurst = hasBurst || strings.HasPrefix(trimmed, "LogRateLimitBurst=")
+		}
+	}
+	if serviceStart < 0 || hasInterval && hasBurst {
+		return before
+	}
+
+	missing := make([]string, 0, 2)
+	if !hasInterval {
+		missing = append(missing, "LogRateLimitIntervalSec="+serviceLogRateLimitInterval)
+	}
+	if !hasBurst {
+		missing = append(missing, "LogRateLimitBurst="+serviceLogRateLimitBurst)
+	}
+	lines = append(lines[:serviceEnd], append(missing, lines[serviceEnd:]...)...)
+	return strings.Join(lines, "\n")
+}
+
+// fixServiceFile repairs legacy output suppression and adds a per-unit safety
+// net. Program-level deduplication remains the primary protection.
 func fixServiceFile(serviceName string) {
 	serviceFile := "/etc/systemd/system/" + serviceName + ".service"
 	data, err := os.ReadFile(serviceFile)
@@ -2691,8 +2741,7 @@ func fixServiceFile(serviceName string) {
 		return
 	}
 	before := string(data)
-	after := strings.ReplaceAll(before, "StandardOutput=null", "StandardOutput=journal")
-	after = strings.ReplaceAll(after, "StandardError=null", "StandardError=journal")
+	after := hardenServiceUnitLogging(before)
 	if after == before {
 		return
 	}
@@ -2700,7 +2749,7 @@ func fixServiceFile(serviceName string) {
 		fmt.Printf("⚠️ 修复 service 文件失败: %v\n", err)
 		return
 	}
-	fmt.Println("🔧 已修复 service 日志配置 (null -> journal)")
+	fmt.Println("🔧 已加固 service 日志配置 (journal + rate limit)")
 	exec.Command("systemctl", "daemon-reload").Run()
 }
 
@@ -3053,35 +3102,28 @@ func tcpPingHost(ip string, port int, count int, timeoutMs int) (float64, float6
 	// 使用net.JoinHostPort来正确处理IPv4、IPv6和域名
 	// 它会自动为IPv6地址添加方括号
 	target := net.JoinHostPort(ip, fmt.Sprintf("%d", port))
-
-	fmt.Printf("🔍 开始TCP ping测试: %s，次数: %d，超时: %dms\n", target, count, timeoutMs)
+	requestedTarget := target
+	logKey := "tcp-probe:" + target
 
 	// 如果是域名，先解析一次DNS，避免每次连接都重新解析导致延迟累加
 	if net.ParseIP(ip) == nil {
-		// 是域名，需要解析
-		fmt.Printf("🔍 检测到域名，正在解析DNS...\n")
-		dnsStart := time.Now()
-
+		// Resolve once so repeated attempts do not multiply DNS traffic.
 		addrs, err := net.LookupHost(ip)
-		dnsDuration := time.Since(dnsStart)
-
 		if err != nil {
+			runtimeLogs.Logf(logKey, networkErrorFingerprint("dns", err),
+				"❌ TCP探测 %s DNS解析失败: %v", target, err)
 			return 0, 100.0, fmt.Errorf("DNS解析失败: %v", err)
 		}
 		if len(addrs) == 0 {
+			runtimeLogs.Logf(logKey, "dns-empty", "❌ TCP探测 %s DNS解析未返回地址", target)
 			return 0, 100.0, fmt.Errorf("DNS解析未返回任何IP地址")
 		}
 
-		fmt.Printf("✅ DNS解析完成 (%.2fms)，解析到 %d 个IP: %v\n",
-			dnsDuration.Seconds()*1000, len(addrs), addrs)
-
 		// 使用第一个解析到的IP进行测试
 		target = net.JoinHostPort(addrs[0], fmt.Sprintf("%d", port))
-		fmt.Printf("🎯 使用IP地址进行测试: %s\n", target)
-	} else {
-		fmt.Printf("🎯 使用IP地址进行测试: %s\n", target)
 	}
 
+	var lastErr error
 	for i := 0; i < count; i++ {
 		start := time.Now()
 
@@ -3091,9 +3133,8 @@ func tcpPingHost(ip string, port int, count int, timeoutMs int) (float64, float6
 		elapsed := time.Since(start)
 
 		if err != nil {
-			fmt.Printf("  第%d次连接失败: %v (%.2fms)\n", i+1, err, elapsed.Seconds()*1000)
+			lastErr = err
 		} else {
-			fmt.Printf("  第%d次连接成功: %.2fms\n", i+1, elapsed.Seconds()*1000)
 			conn.Close()
 			totalTime += elapsed.Seconds() * 1000 // 转换为毫秒
 			successCount++
@@ -3106,13 +3147,23 @@ func tcpPingHost(ip string, port int, count int, timeoutMs int) (float64, float6
 	}
 
 	if successCount == 0 {
+		fingerprint := networkErrorFingerprint("dial", lastErr)
+		runtimeLogs.Logf(logKey, fingerprint,
+			"❌ TCP探测 %s 全部 %d 次连接失败: %v", target, count, lastErr)
 		return 0, 100.0, fmt.Errorf("所有TCP连接尝试都失败")
 	}
 
 	avgTime := totalTime / float64(successCount)
 	packetLoss := float64(count-successCount) / float64(count) * 100
 
-	fmt.Printf("✅ TCP ping完成: 平均连接时间 %.2fms，失败率 %.1f%%\n", avgTime, packetLoss)
+	if successCount < count {
+		fingerprint := networkErrorFingerprint("partial", lastErr)
+		runtimeLogs.Logf(logKey, fingerprint,
+			"⚠️ TCP探测 %s 部分失败: %d/%d 成功，失败率 %.1f%%，最后错误: %v",
+			target, successCount, count, packetLoss, lastErr)
+	} else {
+		runtimeLogs.Recoverf(logKey, "✅ TCP探测 %s 已恢复", requestedTarget)
+	}
 
 	return avgTime, packetLoss, nil
 }
