@@ -140,6 +140,37 @@ func resolveLatestReleaseByChannel(channel string) (string, error) {
 	return "", fmt.Errorf("未找到%s版本号", releaseChannelLabel(normalizedChannel))
 }
 
+func releaseAssetURL(version, filename string) string {
+	return fmt.Sprintf("%s/%s/releases/download/%s/%s", githubHTMLBase, githubRepo, version, filename)
+}
+
+func (h *Handler) currentPanelAgentVersion(requested string) (string, error) {
+	current := strings.TrimSpace(h.GetFluxVersion())
+	if !stableVersionPattern.MatchString(current) {
+		return "", fmt.Errorf("当前 Panel 版本 %q 不是可发布的 Agent 版本", current)
+	}
+
+	requested = strings.TrimSpace(requested)
+	if requested != "" && requested != current {
+		return "", fmt.Errorf("节点版本必须与当前 Panel 版本 %s 一致", current)
+	}
+
+	return current, nil
+}
+
+func buildNodeInstallCommand(version, panelAddr, secret string) string {
+	return fmt.Sprintf("curl -fL %s -o ./install.sh && chmod +x ./install.sh && VERSION=%s ./install.sh -a %s -s %s",
+		releaseAssetURL(version, "install.sh"), version, panelAddr, secret)
+}
+
+func agentUpgradeCommandData(version string) map[string]interface{} {
+	return map[string]interface{}{
+		"downloadUrls": []string{releaseAssetURL(version, "gost-{ARCH}")},
+		"checksumUrls": []string{releaseAssetURL(version, "gost-{ARCH}.sha256")},
+		"version":      version,
+	}
+}
+
 func (h *Handler) nodeUpgrade(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		response.WriteJSON(w, response.ErrDefault("请求失败"))
@@ -160,29 +191,13 @@ func (h *Handler) nodeUpgrade(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	channel := normalizeReleaseChannel(req.Channel)
-	version := strings.TrimSpace(req.Version)
-	if version == "" {
-		var err error
-		version, err = resolveLatestReleaseByChannel(channel)
-		if err != nil {
-			response.WriteJSON(w, response.Err(-2, fmt.Sprintf("获取最新%s失败：%v", releaseChannelLabel(channel), err)))
-			return
-		}
+	version, err := h.currentPanelAgentVersion(req.Version)
+	if err != nil {
+		response.WriteJSON(w, response.Err(-2, err.Error()))
+		return
 	}
 
-	downloadURLs := []string{
-		fmt.Sprintf("https://github.com/%s/releases/download/%s/gost-{ARCH}", githubRepo, version),
-	}
-	checksumURLs := []string{
-		fmt.Sprintf("https://github.com/%s/releases/download/%s/gost-{ARCH}.sha256", githubRepo, version),
-	}
-
-	result, err := h.wsServer.SendCommand(req.ID, "UpgradeAgent", map[string]interface{}{
-		"downloadUrls": downloadURLs,
-		"checksumUrls": checksumURLs,
-		"version":      version,
-	}, upgradeTimeout)
+	result, err := h.wsServer.SendCommand(req.ID, "UpgradeAgent", agentUpgradeCommandData(version), upgradeTimeout)
 	if err != nil {
 		response.WriteJSON(w, response.Err(-2, fmt.Sprintf("升级失败：%v", err)))
 		return
@@ -222,26 +237,9 @@ func (h *Handler) nodeBatchUpgrade(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	channel := normalizeReleaseChannel(req.Channel)
-	version := strings.TrimSpace(req.Version)
-	if version == "" {
-		var err error
-		version, err = resolveLatestReleaseByChannel(channel)
-		if err != nil {
-			response.WriteJSON(w, response.Err(-2, fmt.Sprintf("获取最新%s失败：%v", releaseChannelLabel(channel), err)))
-			return
-		}
-	}
-
-	downloadURLs := []string{
-		fmt.Sprintf("https://github.com/%s/releases/download/%s/gost-{ARCH}", githubRepo, version),
-	}
-	checksumURLs := []string{
-		fmt.Sprintf("https://github.com/%s/releases/download/%s/gost-{ARCH}.sha256", githubRepo, version),
-	}
-
-	if len(downloadURLs) == 0 {
-		response.WriteJSON(w, response.ErrDefault("构建下载源失败"))
+	version, err := h.currentPanelAgentVersion(req.Version)
+	if err != nil {
+		response.WriteJSON(w, response.Err(-2, err.Error()))
 		return
 	}
 
@@ -262,10 +260,7 @@ func (h *Handler) nodeBatchUpgrade(w http.ResponseWriter, r *http.Request) {
 			sem <- struct{}{}
 			defer func() { <-sem }()
 
-			result, err := h.wsServer.SendCommand(nodeID, "UpgradeAgent", map[string]interface{}{
-				"downloadUrls": downloadURLs,
-				"checksumUrls": checksumURLs,
-			}, upgradeTimeout)
+			result, err := h.wsServer.SendCommand(nodeID, "UpgradeAgent", agentUpgradeCommandData(version), upgradeTimeout)
 			if err != nil {
 				results[index] = upgradeResult{ID: nodeID, Success: false, Message: err.Error()}
 				return
@@ -295,11 +290,9 @@ func (h *Handler) listReleases(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	channel := normalizeReleaseChannel(req.Channel)
-
-	releases, err := fetchGitHubReleases(50)
+	version, err := h.currentPanelAgentVersion("")
 	if err != nil {
-		response.WriteJSON(w, response.Err(-2, fmt.Sprintf("获取版本列表失败: %v", err)))
+		response.WriteJSON(w, response.Err(-2, err.Error()))
 		return
 	}
 
@@ -311,31 +304,13 @@ func (h *Handler) listReleases(w http.ResponseWriter, r *http.Request) {
 		Channel     string `json:"channel"`
 	}
 
-	items := make([]releaseItem, 0, len(releases))
-	for _, r := range releases {
-		if r.Draft {
-			continue
-		}
-		tag := strings.TrimSpace(r.TagName)
-		if tag == "" {
-			continue
-		}
-		itemChannel := releaseChannelFromTag(tag)
-		if itemChannel != channel {
-			continue
-		}
-		items = append(items, releaseItem{
-			Version:     tag,
-			Name:        r.Name,
-			PublishedAt: r.PublishedAt,
-			Prerelease:  itemChannel == releaseChannelDev,
-			Channel:     itemChannel,
-		})
-	}
-
-	sort.Slice(items, func(i, j int) bool {
-		return items[i].PublishedAt > items[j].PublishedAt
-	})
+	channel := releaseChannelFromTag(version)
+	items := []releaseItem{{
+		Version:    version,
+		Name:       version,
+		Prerelease: channel == releaseChannelDev,
+		Channel:    channel,
+	}}
 
 	response.WriteJSON(w, response.OK(items))
 }

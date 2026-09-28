@@ -121,27 +121,6 @@ get_architecture() {
     esac
 }
 
-# 自动检测下载源
-# 根据脚本下载 URL 判断使用哪个下载源
-detect_download_host() {
-    echo "https://github.com/${REPO}/releases/latest/download"
-}
-
-# 获取下载脚本的 URL
-SCRIPT_URL="${SCRIPT_URL:-}"
-if [ -z "$SCRIPT_URL" ]; then
-    # 尝试从 $0 获取
-    SCRIPT_URL="$0"
-fi
-
-# 检测下载源
-DOWNLOAD_HOST=$(detect_download_host "$SCRIPT_URL")
-
-# 添加默认值（如果 detect_download_host 返回空）
-if [[ -z "$DOWNLOAD_HOST" ]]; then
-    DOWNLOAD_HOST="https://github.com"
-fi
-
 # 获取最新版本号
 resolve_latest_release_tag() {
   local tag
@@ -180,12 +159,6 @@ resolve_version() {
 build_download_url() {
     local ARCH=$(get_architecture)
 
-    # 从仓库 main 分支下载（新增支持）
-    if [[ "$RESOLVED_VERSION" == "main" ]] || [[ "$RESOLVED_VERSION" == "dev" ]]; then
-        echo "https://raw.githubusercontent.com/${REPO}/main/go-gost/flux_agent"
-        return
-    fi
-    
     echo "https://github.com/${REPO}/releases/download/${RESOLVED_VERSION}/gost-${ARCH}"
 }
 
@@ -197,6 +170,7 @@ show_download_source() {
 
 # 解析版本并构建下载地址
 RESOLVED_VERSION=$(resolve_version) || exit 1
+DOWNLOAD_HOST="https://github.com/${REPO}/releases/download/${RESOLVED_VERSION}"
 DOWNLOAD_URL="$(build_download_url)"
 
 # 显示菜单
@@ -437,14 +411,12 @@ install_service() {
 
   [[ -f "$INSTALL_DIR/${SERVICE_NAME}" ]] && echo "🧹 删除旧文件 ${SERVICE_NAME}" && rm -f "$INSTALL_DIR/${SERVICE_NAME}"
 
-  # 显示下载源并下载（带备用源回滚）
+  # 显示下载源并下载
   show_download_source "$DOWNLOAD_URL"
   ARCH=$(get_architecture)
   
-  # 构建备用源列表
   DOWNLOAD_URLS=(
     "$DOWNLOAD_URL"
-    "https://github.com/${REPO}/releases/latest/download/gost-${ARCH}"
   )
   
   # 循环尝试每个下载源
@@ -456,7 +428,7 @@ install_service() {
   done
   
   if [[ ! -f "$INSTALL_DIR/${SERVICE_NAME}" || ! -s "$INSTALL_DIR/${SERVICE_NAME}" ]]; then
-    echo "❌ 下载失败，请检查网络或下载链接。"
+    echo "❌ 无法下载版本 ${RESOLVED_VERSION} 的 ${SERVICE_NAME}，停止安装。"
     exit 1
   fi
   chmod +x "$INSTALL_DIR/${SERVICE_NAME}"
@@ -613,22 +585,21 @@ update_service() {
     chmod +x "$SCRIPT_PATH"
     echo "✅ 安装脚本已更新覆盖"
   else
-    echo "⚠️ 安装脚本下载失败，但不影响服务更新"
+    echo "❌ 无法下载版本 ${RESOLVED_VERSION} 的 install.sh，停止更新"
     rm -f "${SCRIPT_PATH}.new" 2>/dev/null
+    return 1
   fi
 
   echo "📥 使用服务下载地址：$DOWNLOAD_URL"
   
   check_and_install_tcpkill
   
-  # 显示下载源并下载（带备用源回滚）
+  # 显示下载源并下载
   show_download_source "$DOWNLOAD_URL"
   ARCH=$(get_architecture)
   
-  # 构建备用源列表
   DOWNLOAD_URLS=(
     "$DOWNLOAD_URL"
-    "https://github.com/${REPO}/releases/latest/download/gost-${ARCH}"
   )
   
   # 循环尝试每个下载源
@@ -640,7 +611,7 @@ update_service() {
   done
   
   if [[ ! -f "$INSTALL_DIR/${SERVICE_NAME}.new" || ! -s "$INSTALL_DIR/${SERVICE_NAME}.new" ]]; then
-    echo "❌ 下载失败。"
+    echo "❌ 无法下载版本 ${RESOLVED_VERSION} 的 ${SERVICE_NAME}，停止更新。"
     return 1
   fi
 
@@ -731,7 +702,7 @@ main() {
         ;;
       2)
         update_service
-        exit 0
+        exit $?
         ;;
       3)
         uninstall_service

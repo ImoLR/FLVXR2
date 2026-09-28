@@ -906,10 +906,9 @@ func (h *Handler) nodeInstallDomestic(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	channel := normalizeReleaseChannel(req.Channel)
-	version, err := resolveLatestReleaseByChannel(channel)
+	version, err := h.currentPanelAgentVersion("")
 	if err != nil {
-		response.WriteJSON(w, response.Err(-2, fmt.Sprintf("获取最新版本失败：%v", err)))
+		response.WriteJSON(w, response.Err(-2, err.Error()))
 		return
 	}
 
@@ -928,8 +927,7 @@ func (h *Handler) nodeInstallDomestic(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cmd := fmt.Sprintf("curl -L https://raw.githubusercontent.com/%s/main/install.sh -o ./install.sh && chmod +x ./install.sh && VERSION=%s ./install.sh -a %s -s %s",
-		githubRepo, version, processServerAddress(resolvePanelInstallAddr(panelAddr)), secret)
+	cmd := buildNodeInstallCommand(version, processServerAddress(resolvePanelInstallAddr(panelAddr)), secret)
 	response.WriteJSON(w, response.OK(cmd))
 }
 
@@ -968,15 +966,13 @@ func (h *Handler) nodeInstallOverseas(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	channel := normalizeReleaseChannel(req.Channel)
-	version, err := resolveLatestReleaseByChannel(channel)
+	version, err := h.currentPanelAgentVersion("")
 	if err != nil {
-		response.WriteJSON(w, response.Err(-2, fmt.Sprintf("获取版本%s失败：%v", releaseChannelLabel(channel), err)))
+		response.WriteJSON(w, response.Err(-2, err.Error()))
 		return
 	}
 
-	cmd := fmt.Sprintf("curl -L https://raw.githubusercontent.com/%s/main/install.sh -o ./install.sh && chmod +x ./install.sh && VERSION=%s ./install.sh -a %s -s %s",
-		githubRepo, version, processServerAddress(resolvePanelInstallAddr(panelAddr)), secret)
+	cmd := buildNodeInstallCommand(version, processServerAddress(resolvePanelInstallAddr(panelAddr)), secret)
 	response.WriteJSON(w, response.OK(cmd))
 }
 
@@ -1015,15 +1011,13 @@ func (h *Handler) nodeInstallAlternative(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	channel := normalizeReleaseChannel(req.Channel)
-	version, err := resolveLatestReleaseByChannel(channel)
+	version, err := h.currentPanelAgentVersion("")
 	if err != nil {
-		response.WriteJSON(w, response.Err(-2, fmt.Sprintf("获取版本%s失败：%v", releaseChannelLabel(channel), err)))
+		response.WriteJSON(w, response.Err(-2, err.Error()))
 		return
 	}
 
-	cmd := fmt.Sprintf("curl -L https://raw.githubusercontent.com/%s/main/install.sh -o ./install.sh && chmod +x ./install.sh && VERSION=%s ./install.sh -a %s -s %s",
-		githubRepo, version, processServerAddress(resolvePanelInstallAddr(panelAddr)), secret)
+	cmd := buildNodeInstallCommand(version, processServerAddress(resolvePanelInstallAddr(panelAddr)), secret)
 	response.WriteJSON(w, response.OK(cmd))
 }
 
@@ -1069,6 +1063,11 @@ func (h *Handler) nodeInstallOffline(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		nodeName = ""
 	}
+	version, err := h.currentPanelAgentVersion("")
+	if err != nil {
+		response.WriteJSON(w, response.Err(-2, err.Error()))
+		return
+	}
 
 	type OfflineDeployPayload struct {
 		PanelAddr     string `json:"panelAddr"`
@@ -1082,8 +1081,8 @@ func (h *Handler) nodeInstallOffline(w http.ResponseWriter, r *http.Request) {
 		PanelAddr:     processServerAddress(resolvePanelInstallAddr(panelAddr)),
 		Secret:        secret,
 		NodeName:      nodeName,
-		AMD64Download: fmt.Sprintf("https://github.com/%s/releases/latest/download/offline-amd64.zip", githubRepo),
-		ARM64Download: fmt.Sprintf("https://github.com/%s/releases/latest/download/offline-arm64.zip", githubRepo),
+		AMD64Download: releaseAssetURL(version, "offline-amd64.zip"),
+		ARM64Download: releaseAssetURL(version, "offline-arm64.zip"),
 	}))
 }
 
