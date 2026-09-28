@@ -20,5 +20,5 @@ when a browser cannot establish or retain the cookie-authenticated WebSocket.
 - [x] Compare 3.0.27, fork.2, and commit `7ffb617` WebSocket-related source and deployment configuration.
 - [x] Implement an explicit WebSocket URL builder and authenticated-to-public fallback.
 - [x] Run frontend type/build validation and inspect the generated URL logic.
-- [ ] Commit, tag, push, and publish `3.0.27-fork.3` without changing fork.2.
-- [ ] Upgrade only the formal FLVXX panel and validate realtime metrics for several minutes.
+- [x] Commit, tag, push, and publish `3.0.27-fork.3` without changing fork.2.
+- [x] Upgrade only the formal FLVXX panel and validate realtime metrics for several minutes.
