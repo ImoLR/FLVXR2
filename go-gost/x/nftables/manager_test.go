@@ -11,7 +11,24 @@ import (
 	"github.com/google/nftables"
 	"github.com/google/nftables/binaryutil"
 	"github.com/google/nftables/expr"
+	"golang.org/x/sys/unix"
 )
+
+func requireNFTIntegration(t *testing.T) {
+	t.Helper()
+	if os.Getenv("FLVXR2_NFT_INTEGRATION") != "1" {
+		t.Skip("set FLVXR2_NFT_INTEGRATION=1 inside an isolated network namespace")
+	}
+}
+
+func removeTestTable(t *testing.T, manager *Manager) {
+	t.Helper()
+	manager.conn.DelTable(manager.table)
+	if err := manager.conn.Flush(); err != nil {
+		t.Errorf("remove test table: %v", err)
+	}
+	manager.conn.CloseLasting()
+}
 
 func TestDNATMasqueradeRuleIsScoped(t *testing.T) {
 	rule := &nftables.Rule{Exprs: newDNATMasqueradeExpressions()}
@@ -39,15 +56,13 @@ func TestUnconditionalMasqueradeRuleIsRejected(t *testing.T) {
 }
 
 func TestManagerDoesNotMasqueradeLoopbackTraffic(t *testing.T) {
-	if os.Getenv("FLVXR2_NFT_INTEGRATION") != "1" {
-		t.Skip("set FLVXR2_NFT_INTEGRATION=1 inside an isolated network namespace")
-	}
+	requireNFTIntegration(t)
 
 	manager, err := NewManager()
 	if err != nil {
 		t.Fatalf("initialize nftables manager: %v", err)
 	}
-	defer manager.conn.CloseLasting()
+	defer removeTestTable(t, manager)
 	postrouting := &nftables.Chain{Name: PostroutingChain, Table: manager.table}
 	rules, err := manager.conn.GetRules(manager.table, postrouting)
 	if err != nil {
@@ -82,5 +97,99 @@ func TestManagerDoesNotMasqueradeLoopbackTraffic(t *testing.T) {
 	}
 	if !source.IP.IsLoopback() {
 		t.Fatalf("host-local traffic was masqueraded: source=%s", source)
+	}
+}
+
+func TestManagerMigratesLegacyMasquerade(t *testing.T) {
+	requireNFTIntegration(t)
+
+	seed := &nftables.Conn{}
+	table := seed.AddTable(&nftables.Table{Name: TableName, Family: TableFamily})
+	chain := seed.AddChain(&nftables.Chain{
+		Name:     PostroutingChain,
+		Table:    table,
+		Hooknum:  nftables.ChainHookPostrouting,
+		Priority: nftables.ChainPriorityNATSource,
+		Type:     nftables.ChainTypeNAT,
+	})
+	seed.AddRule(&nftables.Rule{Table: table, Chain: chain, Exprs: []expr.Any{&expr.Masq{}}})
+	if err := seed.Flush(); err != nil {
+		t.Fatalf("seed legacy masquerade: %v", err)
+	}
+	seed.CloseLasting()
+
+	manager, err := NewManager()
+	if err != nil {
+		t.Fatalf("initialize nftables manager: %v", err)
+	}
+	defer removeTestTable(t, manager)
+	rules, err := manager.conn.GetRules(manager.table, &nftables.Chain{Name: PostroutingChain, Table: manager.table})
+	if err != nil {
+		t.Fatalf("read migrated postrouting rules: %v", err)
+	}
+	if len(rules) != 1 || !isDNATMasqueradeRule(rules[0]) {
+		t.Fatalf("legacy masquerade was not replaced by one DNAT-scoped rule: %#v", rules)
+	}
+}
+
+func TestManagerInstallsIPv4AndIPv6TCPAndUDPRules(t *testing.T) {
+	requireNFTIntegration(t)
+
+	manager, err := NewManager()
+	if err != nil {
+		t.Fatalf("initialize nftables manager: %v", err)
+	}
+	defer removeTestTable(t, manager)
+
+	tests := []struct {
+		id       int64
+		protocol string
+		port     int
+		target   string
+		family   uint32
+	}{
+		{id: 1, protocol: "tcp", port: 31001, target: "192.0.2.10:41001", family: unix.NFPROTO_IPV4},
+		{id: 2, protocol: "udp", port: 31002, target: "192.0.2.11:41002", family: unix.NFPROTO_IPV4},
+		{id: 3, protocol: "tcp", port: 31003, target: "[2001:db8::10]:41003", family: unix.NFPROTO_IPV6},
+		{id: 4, protocol: "udp", port: 31004, target: "[2001:db8::11]:41004", family: unix.NFPROTO_IPV6},
+	}
+	for _, tc := range tests {
+		if err := manager.AddRule(tc.id, 1, 1, 1, tc.protocol, tc.port, tc.target, 0); err != nil {
+			t.Fatalf("add %s rule for %s: %v", tc.protocol, tc.target, err)
+		}
+	}
+
+	rules, err := manager.conn.GetRules(manager.table, &nftables.Chain{Name: PreroutingChain, Table: manager.table})
+	if err != nil {
+		t.Fatalf("read prerouting rules: %v", err)
+	}
+	for _, tc := range tests {
+		proto := byte(unix.IPPROTO_TCP)
+		if tc.protocol == "udp" {
+			proto = byte(unix.IPPROTO_UDP)
+		}
+		port := []byte{byte(tc.port >> 8), byte(tc.port)}
+		found := false
+		for _, rule := range rules {
+			if !matchProtoInRule(rule, proto) || !matchPortInRule(rule, port) {
+				continue
+			}
+			for _, item := range rule.Exprs {
+				if nat, ok := item.(*expr.NAT); ok && nat.Type == expr.NATTypeDestNAT && nat.Family == tc.family {
+					found = true
+				}
+			}
+		}
+		if !found {
+			t.Errorf("missing %s DNAT rule on port %d for family %d", tc.protocol, tc.port, tc.family)
+		}
+	}
+
+	postrouting, err := manager.conn.GetRules(manager.table, &nftables.Chain{Name: PostroutingChain, Table: manager.table})
+	if err != nil {
+		t.Fatalf("read postrouting rules: %v", err)
+	}
+	if len(postrouting) != 1 || !isDNATMasqueradeRule(postrouting[0]) {
+		t.Fatalf("return path is not covered by one DNAT-scoped masquerade rule: %#v", postrouting)
 	}
 }
