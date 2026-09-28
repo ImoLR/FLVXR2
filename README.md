@@ -32,7 +32,7 @@ bash <(curl -fL https://github.com/ImoLR/FLVXR2/releases/latest/download/panel_i
 
 **指定版本安装：**
 ```bash
-bash <(curl -fL https://github.com/ImoLR/FLVXR2/releases/download/3.0.27-fork.2/panel_install.sh) 3.0.27-fork.2
+bash <(curl -fL https://github.com/ImoLR/FLVXR2/releases/download/3.0.27-fork.3/panel_install.sh) 3.0.27-fork.3
 ```
 
 **一键升级（无交互）：**

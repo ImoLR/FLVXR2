@@ -11,7 +11,7 @@ curl -fL https://github.com/ImoLR/FLVXR2/releases/latest/download/panel_install.
 
 Specific version:
 ```bash
-curl -fL https://github.com/ImoLR/FLVXR2/releases/download/3.0.27-fork.2/panel_install.sh -o panel_install.sh && chmod +x panel_install.sh && ./panel_install.sh 3.0.27-fork.2
+curl -fL https://github.com/ImoLR/FLVXR2/releases/download/3.0.27-fork.3/panel_install.sh -o panel_install.sh && chmod +x panel_install.sh && ./panel_install.sh 3.0.27-fork.3
 ```
 
 ### Node
@@ -23,7 +23,7 @@ curl -fL https://github.com/ImoLR/FLVXR2/releases/latest/download/install.sh -o 
 
 Specific version:
 ```bash
-curl -fL https://github.com/ImoLR/FLVXR2/releases/download/3.0.27-fork.2/install.sh -o install.sh && chmod +x install.sh && ./install.sh 3.0.27-fork.2
+curl -fL https://github.com/ImoLR/FLVXR2/releases/download/3.0.27-fork.3/install.sh -o install.sh && chmod +x install.sh && ./install.sh 3.0.27-fork.3
 ```
 
 ## Default Account

@@ -17,18 +17,23 @@ const MAX_STANDARD_RECONNECT_ATTEMPTS = 5;
 const STANDARD_RECONNECT_DELAY_MS = 3000;
 const MAX_STANDARD_RECONNECT_DELAY_MS = 15000;
 const FALLBACK_RECONNECT_DELAY_MS = 30000;
+const AUTHENTICATED_STREAM_TYPE = 0;
+const PUBLIC_STREAM_TYPE = 2;
 
-const getRealtimeWsUrl = (): string => {
+const getRealtimeWsUrl = (streamType: number): string => {
   const baseUrl =
     axios.defaults.baseURL ||
     (import.meta.env.VITE_API_BASE
       ? `${import.meta.env.VITE_API_BASE}/api/v1/`
       : "/api/v1/");
+  const url = new URL(baseUrl, window.location.origin);
 
-  return (
-    baseUrl.replace(/^http/, "ws").replace(/\/api\/v1\/$/, "") +
-    `/system-info?type=0`
-  );
+  url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+  url.pathname = url.pathname.replace(/\/api\/v1\/$/, "/system-info");
+  url.search = `type=${streamType}`;
+  url.hash = "";
+
+  return url.toString();
 };
 
 export const useNodeRealtime = ({
@@ -42,6 +47,7 @@ export const useNodeRealtime = ({
   const websocketRef = useRef<WebSocket | null>(null);
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const reconnectAttemptsRef = useRef(0);
+  const streamTypeRef = useRef(AUTHENTICATED_STREAM_TYPE);
   const onMessageRef = useRef(onMessage);
 
   useEffect(() => {
@@ -58,6 +64,7 @@ export const useNodeRealtime = ({
   const disconnect = useCallback(() => {
     clearReconnectTimer();
     reconnectAttemptsRef.current = 0;
+    streamTypeRef.current = AUTHENTICATED_STREAM_TYPE;
     setWsConnected(false);
     setWsConnecting(false);
     setUsingPollingFallback(false);
@@ -100,7 +107,11 @@ export const useNodeRealtime = ({
 
     try {
       setWsConnecting(true);
-      websocketRef.current = new WebSocket(getRealtimeWsUrl());
+      const attemptedStreamType = streamTypeRef.current;
+
+      websocketRef.current = new WebSocket(
+        getRealtimeWsUrl(attemptedStreamType),
+      );
 
       websocketRef.current.onopen = () => {
         reconnectAttemptsRef.current = 0;
@@ -127,6 +138,16 @@ export const useNodeRealtime = ({
         setWsConnecting(false);
 
         if (!enabled) {
+          return;
+        }
+
+        if (attemptedStreamType === AUTHENTICATED_STREAM_TYPE) {
+          streamTypeRef.current = PUBLIC_STREAM_TYPE;
+          reconnectTimerRef.current = setTimeout(() => {
+            reconnectTimerRef.current = null;
+            connect();
+          }, 250);
+
           return;
         }
 

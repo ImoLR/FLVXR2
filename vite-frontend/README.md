@@ -42,11 +42,11 @@ curl -fL https://github.com/ImoLR/FLVXR2/releases/latest/download/install.sh -o 
 
 面板端（以 2.1.0 为例）：
 ```bash
-curl -fL https://github.com/ImoLR/FLVXR2/releases/download/3.0.27-fork.2/panel_install.sh -o panel_install.sh && chmod +x panel_install.sh && ./panel_install.sh 3.0.27-fork.2
+curl -fL https://github.com/ImoLR/FLVXR2/releases/download/3.0.27-fork.3/panel_install.sh -o panel_install.sh && chmod +x panel_install.sh && ./panel_install.sh 3.0.27-fork.3
 ```
 节点端（以 2.1.0 为例）：
 ```bash
-curl -fL https://github.com/ImoLR/FLVXR2/releases/download/3.0.27-fork.2/install.sh -o install.sh && chmod +x install.sh && ./install.sh 3.0.27-fork.2
+curl -fL https://github.com/ImoLR/FLVXR2/releases/download/3.0.27-fork.3/install.sh -o install.sh && chmod +x install.sh && ./install.sh 3.0.27-fork.3
 ```
 
 #### PostgreSQL 部署（Docker Compose）
