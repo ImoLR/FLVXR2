@@ -17,7 +17,7 @@ import (
 )
 
 const (
-	githubRepo     = "iKeilo/FLVXR2"
+	githubRepo     = "ImoLR/FLVXR2"
 	githubAPIBase  = "https://api.github.com"
 	githubHTMLBase = "https://github.com"
 	upgradeTimeout = 5 * time.Minute
@@ -28,7 +28,8 @@ const (
 )
 
 var (
-	stableVersionPattern = regexp.MustCompile(`^\d+(?:\.\d+)+$`)
+	stableVersionPattern = regexp.MustCompile(`^\d+(?:\.\d+)+(?:-fork\.\d+)?$`)
+	forkVersionPattern   = regexp.MustCompile(`^(\d+(?:\.\d+)+)-fork\.(\d+)$`)
 	testKeywordPattern   = regexp.MustCompile(`(?i)(alpha|beta|rc)`)
 )
 
@@ -506,7 +507,7 @@ func (h *Handler) panelUpgrade(w http.ResponseWriter, r *http.Request) {
 
 		// 下载并执行 panel_install.sh
 		cmd := exec.Command("bash", "-c", `
-			curl -L https://raw.githubusercontent.com/iKeilo/FLVXR2/main/panel_install.sh -o /tmp/panel_install.sh && \
+			curl -L https://raw.githubusercontent.com/ImoLR/FLVXR2/main/panel_install.sh -o /tmp/panel_install.sh && \
 			chmod +x /tmp/panel_install.sh && \
 			echo -e "2\n" | /tmp/panel_install.sh
 		`)
@@ -713,6 +714,37 @@ func waitForBackendHealthy() error {
 func compareVersions(current, target string) int {
 	current = strings.TrimPrefix(current, "v")
 	target = strings.TrimPrefix(target, "v")
+
+	currentBase, currentFork, currentRevision := splitForkVersion(current)
+	targetBase, targetFork, targetRevision := splitForkVersion(target)
+	if currentFork || targetFork {
+		if compareNumericVersions(currentBase, targetBase) != 0 {
+			// Fork maintenance releases and official releases from different
+			// baselines are separate upgrade lines.
+			return 0
+		}
+		if currentRevision < targetRevision {
+			return -1
+		}
+		if currentRevision > targetRevision {
+			return 1
+		}
+		return 0
+	}
+
+	return compareNumericVersions(current, target)
+}
+
+func splitForkVersion(version string) (base string, fork bool, revision int) {
+	match := forkVersionPattern.FindStringSubmatch(version)
+	if match == nil {
+		return version, false, 0
+	}
+	fmt.Sscanf(match[2], "%d", &revision)
+	return match[1], true, revision
+}
+
+func compareNumericVersions(current, target string) int {
 
 	currentParts := strings.Split(current, ".")
 	targetParts := strings.Split(target, ".")

@@ -6,7 +6,8 @@ export const UPDATE_CHANNEL_CHANGED_EVENT = "updateReleaseChannelChanged";
 const CHANNEL_STABLE: UpdateReleaseChannel = "stable";
 const CHANNEL_DEV: UpdateReleaseChannel = "dev";
 
-const stableVersionPattern = /^\d+(?:\.\d+)+$/;
+const stableVersionPattern = /^\d+(?:\.\d+)+(?:-fork\.\d+)?$/;
+const forkVersionPattern = /^(\d+(?:\.\d+)+)-fork\.(\d+)$/;
 const testKeywordPattern = /(alpha|beta|rc|dev)/i;
 
 const VERSION_CACHE_TTL_MS = 10 * 60 * 1000;
@@ -114,25 +115,53 @@ const parseVersionParts = (version: string): VersionParts => {
 };
 
 export const compareVersions = (left: string, right: string): number => {
+  const normalizedLeft = normalizeTag(left).toLowerCase();
+  const normalizedRight = normalizeTag(right).toLowerCase();
+  const leftFork = normalizedLeft.match(forkVersionPattern);
+  const rightFork = normalizedRight.match(forkVersionPattern);
+
+  if (leftFork || rightFork) {
+    const leftBase = leftFork?.[1] || normalizedLeft;
+    const rightBase = rightFork?.[1] || normalizedRight;
+    const baseOrder = compareNumericVersions(leftBase, rightBase);
+
+    if (baseOrder !== 0) {
+      return 0;
+    }
+
+    const leftRevision = leftFork ? Number.parseInt(leftFork[2], 10) : 0;
+    const rightRevision = rightFork ? Number.parseInt(rightFork[2], 10) : 0;
+
+    return leftRevision - rightRevision;
+  }
+
   const a = parseVersionParts(left);
   const b = parseVersionParts(right);
-  const maxLength = Math.max(a.numbers.length, b.numbers.length);
+
+  return compareNumberArrays(a.numbers, b.numbers) ||
+    a.stageRank - b.stageRank ||
+    a.stageNumber - b.stageNumber;
+};
+
+const compareNumericVersions = (left: string, right: string): number => {
+  const leftNumbers = left.split(".").map((item) => Number.parseInt(item, 10));
+  const rightNumbers = right
+    .split(".")
+    .map((item) => Number.parseInt(item, 10));
+
+  return compareNumberArrays(leftNumbers, rightNumbers);
+};
+
+const compareNumberArrays = (left: number[], right: number[]): number => {
+  const maxLength = Math.max(left.length, right.length);
 
   for (let i = 0; i < maxLength; i += 1) {
-    const aValue = a.numbers[i] || 0;
-    const bValue = b.numbers[i] || 0;
+    const aValue = left[i] || 0;
+    const bValue = right[i] || 0;
 
     if (aValue !== bValue) {
       return aValue - bValue;
     }
-  }
-
-  if (a.stageRank !== b.stageRank) {
-    return a.stageRank - b.stageRank;
-  }
-
-  if (a.stageNumber !== b.stageNumber) {
-    return a.stageNumber - b.stageNumber;
   }
 
   return 0;

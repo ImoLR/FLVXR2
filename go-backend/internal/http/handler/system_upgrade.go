@@ -422,7 +422,7 @@ func systemUpgradeVersionResponse(current, channel, latest string, lookupErr err
 	data := systemUpgradeVersionData{
 		CurrentVersion: current,
 		LatestVersion:  latest,
-		HasUpdate:      latest != "" && latest != current,
+		HasUpdate:      latest != "" && compareVersions(current, latest) < 0,
 		Channel:        channel,
 		Capability:     capability,
 	}
@@ -477,7 +477,7 @@ func (h *Handler) systemCheckUpdates(w http.ResponseWriter, r *http.Request) {
 	response.WriteJSON(w, response.OK(systemUpgradeCheckData{
 		CurrentVersion: current,
 		LatestVersion:  latest,
-		HasUpdate:      latest != "" && latest != current,
+		HasUpdate:      latest != "" && compareVersions(current, latest) < 0,
 		Channel:        channel,
 		Capability:     capability,
 		Releases:       releases,

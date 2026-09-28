@@ -141,7 +141,7 @@ fi
 # 接收环境变量
 # Download source: FLVXR2 uses GitHub directly.
 GLOBAL_DOWNLOAD_URL="${GLOBAL_DOWNLOAD_URL:-}"
-DEFAULT_GITHUB_DOWNLOAD_URL="https://github.com/iKeilo/FLVXR2/releases/latest/download"
+DEFAULT_GITHUB_DOWNLOAD_URL="https://github.com/ImoLR/FLVXR2/releases/latest/download"
 DOWNLOAD_HOSTS=()
 if [ -n "$GLOBAL_DOWNLOAD_URL" ]; then
   DOWNLOAD_HOSTS+=("$GLOBAL_DOWNLOAD_URL")
@@ -166,5 +166,5 @@ done
 
 echo "All download sources failed. Please check network connectivity."
 echo "Manual install command:"
-echo "  curl -L https://github.com/iKeilo/FLVXR2/releases/latest/download/install.sh -o ./install.sh"
+echo "  curl -L https://github.com/ImoLR/FLVXR2/releases/latest/download/install.sh -o ./install.sh"
 exit 1
