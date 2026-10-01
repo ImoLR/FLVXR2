@@ -831,6 +831,16 @@ textarea:focus-visible {
     overflow-x: hidden;
   }
 
+  /* clip avoids turning these into scroll containers: with overscroll-behavior: none,
+     a non-scrollable #root would stop single-finger touch scrolling in newer Chromium. */
+  @supports (overflow-x: clip) {
+    html,
+    body,
+    #root {
+      overflow-x: clip;
+    }
+  }
+
   .flvx-h5-shell {
     min-height: 100dvh;
     overflow-x: hidden;

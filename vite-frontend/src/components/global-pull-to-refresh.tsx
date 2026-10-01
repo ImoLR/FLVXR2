@@ -33,7 +33,11 @@ export function GlobalPullToRefresh() {
         node = node.parentElement;
       }
 
-      return window.scrollY || document.documentElement.scrollTop;
+      return (
+        window.scrollY ||
+        document.documentElement.scrollTop ||
+        document.body.scrollTop
+      );
     };
 
     const onTouchStart = (e: TouchEvent) => {
