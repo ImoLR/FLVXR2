@@ -165,3 +165,87 @@ func TestGroupPermissionRemoveRevokesInheritedTunnelPermission(t *testing.T) {
 		t.Fatalf("expected user_tunnel revoked after permission remove, got %d", userTunnelCount)
 	}
 }
+
+func TestGroupTunnelUnassignRevokesInheritedTunnelPermission(t *testing.T) {
+	secret := "contract-jwt-secret"
+	router, repo := setupContractRouter(t, secret)
+	now := time.Now().UnixMilli()
+
+	if err := repo.DB().Exec(`
+		INSERT INTO user(id, user, pwd, role_id, exp_time, flow, in_flow, out_flow, flow_reset_time, num, created_time, updated_time, status)
+		VALUES(202, 'group_tunnel_unassign', '3c85cdebade1c51cf64ca9f3c09d182d', 1, 2727251700000, 99999, 0, 0, 1, 99999, ?, ?, 1)
+	`, now, now).Error; err != nil {
+		t.Fatalf("insert test user: %v", err)
+	}
+
+	tunnelIDs := make(map[string]int64)
+	for _, name := range []string{"unassign-keep", "unassign-removed", "unassign-manual"} {
+		if err := repo.DB().Exec(`
+			INSERT INTO tunnel(name, traffic_ratio, type, protocol, flow, created_time, updated_time, status, in_ip, inx)
+			VALUES(?, 1.0, 1, 'tls', 99999, ?, ?, 1, NULL, 0)
+		`, name, now, now).Error; err != nil {
+			t.Fatalf("insert tunnel %s: %v", name, err)
+		}
+		tunnelIDs[name] = mustLastInsertID(t, repo, name)
+	}
+	keepID, removedID, manualID := tunnelIDs["unassign-keep"], tunnelIDs["unassign-removed"], tunnelIDs["unassign-manual"]
+
+	// Manually assigned before the group grant, so it must survive the unassign.
+	if err := repo.DB().Exec(`
+		INSERT INTO user_tunnel(user_id, tunnel_id, num, flow, in_flow, out_flow, flow_reset_time, exp_time, status)
+		VALUES(202, ?, 99999, 99999, 0, 0, 1, 2727251700000, 1)
+	`, manualID).Error; err != nil {
+		t.Fatalf("insert manual user_tunnel: %v", err)
+	}
+
+	if err := repo.DB().Exec(`INSERT INTO user_group(name, created_time, updated_time, status) VALUES('ug-unassign-contract', ?, ?, 1)`, now, now).Error; err != nil {
+		t.Fatalf("insert user_group: %v", err)
+	}
+	userGroupID := mustLastInsertID(t, repo, "ug-unassign-contract")
+
+	if err := repo.DB().Exec(`INSERT INTO tunnel_group(name, created_time, updated_time, status) VALUES('tg-unassign-contract', ?, ?, 1)`, now, now).Error; err != nil {
+		t.Fatalf("insert tunnel_group: %v", err)
+	}
+	tunnelGroupID := mustLastInsertID(t, repo, "tg-unassign-contract")
+
+	adminToken, err := auth.GenerateToken(1, "admin_user", 0, secret)
+	if err != nil {
+		t.Fatalf("generate admin token: %v", err)
+	}
+
+	post := func(path, body string) {
+		t.Helper()
+		req := httptest.NewRequest(http.MethodPost, path, bytes.NewBufferString(body))
+		req.Header.Set("Authorization", adminToken)
+		res := httptest.NewRecorder()
+		router.ServeHTTP(res, req)
+		assertCode(t, res, 0)
+	}
+
+	post("/api/v1/group/tunnel/assign", `{"groupId":`+jsonNumber(tunnelGroupID)+`,"tunnelIds":[`+jsonNumber(keepID)+`,`+jsonNumber(removedID)+`,`+jsonNumber(manualID)+`]}`)
+	post("/api/v1/group/user/assign", `{"groupId":`+jsonNumber(userGroupID)+`,"userIds":[202]}`)
+	post("/api/v1/group/permission/assign", `{"userGroupId":`+jsonNumber(userGroupID)+`,"tunnelGroupId":`+jsonNumber(tunnelGroupID)+`}`)
+
+	for _, tid := range []int64{keepID, removedID, manualID} {
+		if c := mustQueryInt(t, repo, `SELECT COUNT(1) FROM user_tunnel WHERE user_id = 202 AND tunnel_id = ?`, tid); c != 1 {
+			t.Fatalf("expected user_tunnel for tunnel %d after permission assign, got %d", tid, c)
+		}
+	}
+
+	post("/api/v1/group/tunnel/assign", `{"groupId":`+jsonNumber(tunnelGroupID)+`,"tunnelIds":[`+jsonNumber(keepID)+`]}`)
+
+	if c := mustQueryInt(t, repo, `SELECT COUNT(1) FROM user_tunnel WHERE user_id = 202 AND tunnel_id = ?`, removedID); c != 0 {
+		t.Fatalf("expected removed tunnel revoked from user, got %d", c)
+	}
+	if c := mustQueryInt(t, repo, `SELECT COUNT(1) FROM user_tunnel WHERE user_id = 202 AND tunnel_id = ?`, keepID); c != 1 {
+		t.Fatalf("expected kept tunnel to remain granted, got %d", c)
+	}
+	if c := mustQueryInt(t, repo, `SELECT COUNT(1) FROM user_tunnel WHERE user_id = 202 AND tunnel_id = ?`, manualID); c != 1 {
+		t.Fatalf("expected manually assigned tunnel to remain, got %d", c)
+	}
+	if c := mustQueryInt(t, repo, `
+		SELECT COUNT(1) FROM group_permission_grant g JOIN user_tunnel ut ON ut.id = g.user_tunnel_id
+		WHERE g.tunnel_group_id = ? AND ut.tunnel_id <> ?`, tunnelGroupID, keepID); c != 0 {
+		t.Fatalf("expected no grants left for removed tunnels, got %d", c)
+	}
+}

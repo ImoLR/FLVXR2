@@ -2384,6 +2384,76 @@ func (r *Repository) RevokeGroupGrantsForRemovedUsersTx(tx *gorm.DB, userGroupID
 	return revoked, nil
 }
 
+// RevokeStaleTunnelGroupGrantsTx removes grants inherited through a tunnel group
+// for tunnels that are no longer members of it, and deletes group-created
+// user_tunnel rows left without any remaining grant.
+func (r *Repository) RevokeStaleTunnelGroupGrantsTx(tx *gorm.DB, tunnelGroupID int64, currentTunnelIDs []int64) ([]RevokedUserTunnelPair, error) {
+	if tx == nil {
+		return nil, errors.New("database unavailable")
+	}
+	currentSet := make(map[int64]struct{}, len(currentTunnelIDs))
+	for _, tid := range currentTunnelIDs {
+		if tid > 0 {
+			currentSet[tid] = struct{}{}
+		}
+	}
+
+	type grantRow struct {
+		ID             int64
+		UserTunnelID   int64
+		CreatedByGroup int
+		TunnelID       int64
+	}
+
+	var rows []grantRow
+	if err := tx.Model(&model.GroupPermissionGrant{}).
+		Select("group_permission_grant.id, group_permission_grant.user_tunnel_id, group_permission_grant.created_by_group, user_tunnel.tunnel_id").
+		Joins("JOIN user_tunnel ON user_tunnel.id = group_permission_grant.user_tunnel_id").
+		Where("group_permission_grant.tunnel_group_id = ?", tunnelGroupID).
+		Find(&rows).Error; err != nil {
+		return nil, err
+	}
+
+	staleGrantIDs := make([]int64, 0)
+	groupCreatedTunnelIDs := make(map[int64]struct{})
+	for _, row := range rows {
+		if _, ok := currentSet[row.TunnelID]; ok {
+			continue
+		}
+		staleGrantIDs = append(staleGrantIDs, row.ID)
+		if row.CreatedByGroup == 1 && row.UserTunnelID > 0 {
+			groupCreatedTunnelIDs[row.UserTunnelID] = struct{}{}
+		}
+	}
+	if len(staleGrantIDs) == 0 {
+		return nil, nil
+	}
+
+	if err := tx.Where("id IN ?", staleGrantIDs).Delete(&model.GroupPermissionGrant{}).Error; err != nil {
+		return nil, err
+	}
+
+	var revoked []RevokedUserTunnelPair
+
+	for userTunnelID := range groupCreatedTunnelIDs {
+		var remaining int64
+		if err := tx.Model(&model.GroupPermissionGrant{}).Where("user_tunnel_id = ?", userTunnelID).Count(&remaining).Error; err != nil {
+			return revoked, err
+		}
+		if remaining == 0 {
+			var ut model.UserTunnel
+			if lookupErr := tx.Select("user_id", "tunnel_id").Where("id = ?", userTunnelID).First(&ut).Error; lookupErr == nil {
+				revoked = append(revoked, RevokedUserTunnelPair{UserID: ut.UserID, TunnelID: ut.TunnelID})
+			}
+			if err := tx.Where("id = ?", userTunnelID).Delete(&model.UserTunnel{}).Error; err != nil {
+				return revoked, err
+			}
+		}
+	}
+
+	return revoked, nil
+}
+
 func (r *Repository) RevokeGroupPermissionPairTx(tx *gorm.DB, userGroupID, tunnelGroupID int64) ([]RevokedUserTunnelPair, error) {
 	if tx == nil {
 		return nil, errors.New("database unavailable")

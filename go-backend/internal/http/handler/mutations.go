@@ -4035,9 +4035,17 @@ func (h *Handler) groupTunnelAssign(w http.ResponseWriter, r *http.Request) {
 		response.WriteJSON(w, response.Err(-2, err.Error()))
 		return
 	}
+	revokedPairs, revokeErr := h.repo.RevokeStaleTunnelGroupGrantsTx(tx, req.GroupID, req.TunnelIDs)
+	if revokeErr != nil {
+		response.WriteJSON(w, response.Err(-2, revokeErr.Error()))
+		return
+	}
 	if err := tx.Commit().Error; err != nil {
 		response.WriteJSON(w, response.Err(-2, err.Error()))
 		return
+	}
+	for _, pair := range revokedPairs {
+		h.cleanupForwardsForUserTunnel(pair.UserID, pair.TunnelID)
 	}
 	_ = h.syncPermissionsByTunnelGroup(req.GroupID)
 	response.WriteJSON(w, response.OKEmpty())
