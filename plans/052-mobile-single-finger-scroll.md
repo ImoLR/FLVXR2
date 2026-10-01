@@ -35,7 +35,13 @@ horizontal overflow.
 - [x] Re-run the emulated single-finger swipe test on dashboard, forwards, nodes (all scroll
   down and back up; no horizontal overflow; desktop wheel scrolling unchanged)
 - [x] Build the frontend (output keeps the `hidden` fallback plus the `@supports` clip override)
-- [ ] Publish the independent `3.0.27-fork.7` release from the fork.6 line without changing earlier tags
-- [ ] Verify the CI build and all `3.0.27-fork.7` release assets
-- [ ] Upgrade only the production FLVXX frontend/backend to `3.0.27-fork.7` with a validated
-  rollback point, and confirm the served frontend contains the fix
+- [x] Publish the independent `3.0.27-fork.7` release from the fork.6 line without changing earlier tags
+- [x] Verify the CI build and all `3.0.27-fork.7` release assets (images pinned to
+  `ghcr.io/imolr/*:3.0.27-fork.7`, scripts pinned to `3.0.27-fork.7` / `ImoLR/FLVXR2`,
+  gost checksums OK, release marked Latest)
+- [x] Upgrade only the production FLVXX frontend/backend to `3.0.27-fork.7` with a validated
+  rollback point (`/opt/flvx-svc/rollback/pre-fork7-20261001T115048Z`), and confirm the
+  served frontend contains the fix (served CSS includes the `@supports (overflow-x:clip)`
+  override). Node state unchanged (24/25 online, node 24 was already offline); transient
+  redeploy failures during the restart were from nodes not yet reconnected and each node
+  redeployed its tunnels on reconnect.
