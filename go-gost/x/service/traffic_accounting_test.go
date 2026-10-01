@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-gost/core/observer"
 	"github.com/go-gost/core/observer/stats"
 	xstats "github.com/go-gost/x/observer/stats"
 )
@@ -113,7 +114,7 @@ func TestTrafficManagerResendsUnacknowledgedReportUnchanged(t *testing.T) {
 	m := newTestTrafficManager(post, &now)
 
 	m.AddTraffic("1_2_3_tcp", 300, 100)
-	m.collectAndReport() // not acknowledged
+	m.collectAndReport()              // not acknowledged
 	m.AddTraffic("1_2_3_tcp", 30, 10) // new traffic while the report is pending
 	m.AddTraffic("4_2_3_tcp", 5, 6)
 	now = now.Add(5 * time.Second)
@@ -172,5 +173,37 @@ func TestTrafficManagerRebuildsStalePendingReport(t *testing.T) {
 	}
 	if up, down := m.GetServiceTraffic("1_2_3_tcp"); up != 0 || down != 0 {
 		t.Fatalf("traffic left after acknowledgement: up=%d down=%d", up, down)
+	}
+}
+
+type nopObserver struct{}
+
+func (nopObserver) Observe(context.Context, []observer.Event, ...observer.Option) error { return nil }
+
+// TestObserveStatsFlushesTrafficWhenServiceStops: bytes counted after the last period must not
+// be lost when the service is closed, paused or replaced.
+func TestObserveStatsFlushesTrafficWhenServiceStops(t *testing.T) {
+	const name = "9001_2_3_tcp_flush_test"
+	st := xstats.NewStats(true)
+	s := &defaultService{
+		name:    name,
+		status:  &Status{stats: st},
+		options: options{observer: nopObserver{}, observerPeriod: time.Hour},
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { s.observeStats(ctx); close(done) }()
+
+	st.Add(stats.KindInputBytes, 1500)  // from the client
+	st.Add(stats.KindOutputBytes, 9000) // to the client
+	cancel()
+	<-done
+
+	up, down := GetGlobalTrafficManager().GetServiceTraffic(name)
+	if up != 9000 || down != 1500 {
+		t.Fatalf("traffic handed over on stop: up=%d down=%d, want up=9000 down=1500", up, down)
+	}
+	if st.Get(stats.KindInputBytes) != 0 || st.Get(stats.KindOutputBytes) != 0 {
+		t.Fatal("counters not drained after the final flush")
 	}
 }

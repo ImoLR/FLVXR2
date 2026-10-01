@@ -447,20 +447,38 @@ func (s *defaultService) observeStats(ctx context.Context) {
 			}
 
 		case <-ctx.Done():
+			// Serve cancels ctx only after the service's connections finished: hand over what
+			// they counted since the last tick instead of dropping it with the service.
+			s.flushServiceTraffic()
 			return
 		}
 	}
 }
 
+// flushServiceTraffic moves the bytes counted since the last report into the traffic manager.
+func (s *defaultService) flushServiceTraffic() {
+	st := s.status.Stats()
+	if st == nil {
+		return
+	}
+	inputBytes, outputBytes := takeServiceTraffic(st)
+	if outputBytes > 0 || inputBytes > 0 {
+		GetGlobalTrafficManager().AddTraffic(s.name, int64(outputBytes), int64(inputBytes))
+	}
+}
+
 // takeServiceTraffic returns the input/output bytes counted since the last call and removes
 // exactly those bytes from the counters, so traffic counted concurrently is kept for the next
-// call instead of being lost.
+// call instead of being lost. Counters it cannot drain are not reported: re-reporting their
+// running totals every period would bill the same bytes again and again.
 func takeServiceTraffic(st stats.Stats) (inputBytes, outputBytes uint64) {
-	inputBytes = st.Get(stats.KindInputBytes)
-	outputBytes = st.Get(stats.KindOutputBytes)
-	if xs, ok := st.(*xstats.Stats); ok {
-		xs.SubtractTraffic(inputBytes, outputBytes)
+	xs, ok := st.(*xstats.Stats)
+	if !ok || xs == nil {
+		return 0, 0
 	}
+	inputBytes = xs.Get(stats.KindInputBytes)
+	outputBytes = xs.Get(stats.KindOutputBytes)
+	xs.SubtractTraffic(inputBytes, outputBytes)
 	return inputBytes, outputBytes
 }
 

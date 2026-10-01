@@ -52,8 +52,9 @@ Related problems found while verifying:
   (serialized) enforcement runs so slow node commands cannot push the agent past its 5s
   timeout and make it resend committed bytes
 - [x] Forward traffic limit: no double-added delta; pause via the standard pause path
-- [ ] Agent stats: atomic subtract of the reported bytes + race test
-- [ ] Agent traffic manager: resend the same pending body until acknowledged (bounded)
+- [x] Agent stats: atomic subtract of the reported bytes + race test; hand the last period's
+  bytes over when a service stops (Serve cancels the observer after its connections ended)
+- [x] Agent traffic manager: resend the same pending body until acknowledged (bounded)
 - [ ] nftables: count in filter chains (forward/input/output -> `accounting`) by conntrack
   original dst port + direction (upload/download), speed limit as a bytes policer there,
   generation-tagged rules, final counters harvested on delete, safe deletion
