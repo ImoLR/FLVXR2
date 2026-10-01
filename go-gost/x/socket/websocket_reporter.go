@@ -179,27 +179,25 @@ const (
 )
 
 type WebSocketReporter struct {
-	url                  string
-	addr                 string // 保存服务器地址
-	secret               string // 保存密钥
-	version              string // 保存版本号
-	nodeID               int64  // 节点 ID
-	preferredWSScheme    string
-	conn                 *websocket.Conn
-	curBackoff           time.Duration // 当前重连退避间隔
-	pingInterval         time.Duration
-	configInterval       time.Duration
-	ctx                  context.Context
-	cancel               context.CancelFunc
-	connected            bool
-	connecting           bool                     // 正在连接状态
-	connMutex            sync.Mutex               // 连接状态锁
-	aesCrypto            *crypto.AESCrypto        // AES 加密器
-	publicIPReported     bool                     // 是否已上报公网 IP
-	serviceName          string                   // 服务名
-	nftablesMgr          NftablesManagerInterface // nftables manager (platform-specific)
-	nftablesPrevCounters map[string]uint64        // "forwardID_protocol" → last total bytes
-	nftablesPrevMu       sync.Mutex
+	url               string
+	addr              string // 保存服务器地址
+	secret            string // 保存密钥
+	version           string // 保存版本号
+	nodeID            int64  // 节点 ID
+	preferredWSScheme string
+	conn              *websocket.Conn
+	curBackoff        time.Duration // 当前重连退避间隔
+	pingInterval      time.Duration
+	configInterval    time.Duration
+	ctx               context.Context
+	cancel            context.CancelFunc
+	connected         bool
+	connecting        bool                     // 正在连接状态
+	connMutex         sync.Mutex               // 连接状态锁
+	aesCrypto         *crypto.AESCrypto        // AES 加密器
+	publicIPReported  bool                     // 是否已上报公网 IP
+	serviceName       string                   // 服务名
+	nftablesMgr       NftablesManagerInterface // nftables manager (platform-specific)
 }
 
 var wsDial = func(dialer *websocket.Dialer, rawURL string) (*websocket.Conn, *http.Response, error) {
@@ -220,16 +218,15 @@ func NewWebSocketReporter(serverURL string, secret string) *WebSocketReporter {
 	}
 
 	return &WebSocketReporter{
-		url:                  serverURL,
-		curBackoff:           initialBackoff,   // 当前退避间隔
-		pingInterval:         1 * time.Second,  // 指标上报间隔（每秒采集）
-		configInterval:       10 * time.Minute, // 配置上报间隔
-		ctx:                  ctx,
-		cancel:               cancel,
-		connected:            false,
-		connecting:           false,
-		aesCrypto:            aesCrypto,
-		nftablesPrevCounters: make(map[string]uint64),
+		url:            serverURL,
+		curBackoff:     initialBackoff,   // 当前退避间隔
+		pingInterval:   1 * time.Second,  // 指标上报间隔（每秒采集）
+		configInterval: 10 * time.Minute, // 配置上报间隔
+		ctx:            ctx,
+		cancel:         cancel,
+		connected:      false,
+		connecting:     false,
+		aesCrypto:      aesCrypto,
 	}
 }
 
@@ -952,75 +949,24 @@ func (w *WebSocketReporter) collectSystemInfo() SystemInfo {
 	}
 }
 
-// pollNftablesCounters 轮询 nftables 内核计数器，计算速率并注入流量统计
+// pollNftablesCounters 读取 nftables 转发自上次以来的上下行流量，注入实时速率与流量上报。
+// 上传 = 客户端发出的字节（conntrack 原方向），下载 = 客户端收到的字节（回复方向）。
 func (w *WebSocketReporter) pollNftablesCounters() {
 	if w.nftablesMgr == nil {
 		return
 	}
-
-	counters := w.nftablesMgr.RefreshCounters()
-	if len(counters) == 0 {
-		return
-	}
-
-	w.nftablesPrevMu.Lock()
-	defer w.nftablesPrevMu.Unlock()
-
-	if w.nftablesPrevCounters == nil {
-		w.nftablesPrevCounters = make(map[string]uint64)
-	}
-
-	// 收集按 forwardID 聚合的 delta（TCP+UDP 合并）
-	type deltaEntry struct {
-		forwardID    int64
-		userID       int64
-		userTunnelID int64
-		port         int
-		protocol     string
-		delta        uint64
-	}
-	var deltas []deltaEntry
-
-	for _, c := range counters {
-		key := fmt.Sprintf("%d_%s", c.ForwardID, c.Protocol)
-		total := c.Bytes
-		prev, exists := w.nftablesPrevCounters[key]
-		if exists {
-			var delta uint64
-			if total > prev {
-				delta = total - prev
-			} else if total < prev {
-				// 计数器被重置或回绕 — 用当前值作为首次 delta，尽量少计
-				delta = total
-			}
-			if delta > 0 {
-				deltas = append(deltas, deltaEntry{
-					forwardID:    c.ForwardID,
-					userID:       c.UserID,
-					userTunnelID: c.UserTunnelID,
-					port:         c.Port,
-					protocol:     c.Protocol,
-					delta:        delta,
-				})
-			}
+	for _, d := range w.nftablesMgr.CollectTraffic() {
+		if d.UploadBytes == 0 && d.DownloadBytes == 0 {
+			continue
 		}
-		w.nftablesPrevCounters[key] = total
-	}
-
-	// 注入流量统计
-	for _, d := range deltas {
 		// ForwardStatsManager → BandwidthCalculator 计算实时 InSpeed/OutSpeed
-		// nftables 内核计数器无法区分入站/出站方向，50/50 拆分让上下行都有显示。
-		// 总和（in+out）精确等于实际流量，但上下行各自数值仅供参考。
-		inHalf := d.delta / 2
-		outHalf := d.delta - inHalf // 确保奇数字节不丢失
-		stats.AddForwardTraffic(d.forwardID, d.userID, 0, "", 0, d.port, true, inHalf)
-		stats.AddForwardTraffic(d.forwardID, d.userID, 0, "", 0, d.port, false, outHalf)
+		stats.AddForwardTraffic(d.ForwardID, d.UserID, 0, "", 0, d.Port, true, d.UploadBytes)
+		stats.AddForwardTraffic(d.ForwardID, d.UserID, 0, "", 0, d.Port, false, d.DownloadBytes)
 
 		// GlobalTrafficManager → HTTP batch /flow/upload → 更新 DB in_flow/out_flow
-		// 使用真实的 userTunnelID（而非 0），确保隧道级流量统计和策略拦截正常
-		serviceName := fmt.Sprintf("%d_%d_%d_%s", d.forwardID, d.userID, d.userTunnelID, d.protocol)
-		service.GetGlobalTrafficManager().AddTraffic(serviceName, int64(inHalf), int64(outHalf))
+		// 与 gost 服务一致：U = 发往客户端（下载），D = 来自客户端（上传）
+		serviceName := fmt.Sprintf("%d_%d_%d_%s", d.ForwardID, d.UserID, d.UserTunnelID, d.Protocol)
+		service.GetGlobalTrafficManager().AddTraffic(serviceName, int64(d.DownloadBytes), int64(d.UploadBytes))
 	}
 }
 

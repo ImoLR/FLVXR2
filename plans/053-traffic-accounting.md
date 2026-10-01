@@ -40,6 +40,10 @@ Related problems found while verifying:
   tunnel metrics stay raw bytes (monitoring).
 - Old agents keep the 50/50 nftables split; with 单向 tunnels that bills half of the
   nftables total until the node agent is upgraded (no production tunnel uses 单向).
+- nftables counters see IP packets: billed bytes include IP/TCP headers and the other
+  direction's ACKs (a few % above the payload gost services count).
+- Rolling an agent back to fork.7: `nft delete table inet flvx_acct` (fork.7 does not know
+  the table; its policers would otherwise stay).
 
 ## Tasks
 - [x] Billing: `billTunnelFlow` with the new 单向/双向 semantics + unit tests
@@ -55,10 +59,20 @@ Related problems found while verifying:
 - [x] Agent stats: atomic subtract of the reported bytes + race test; hand the last period's
   bytes over when a service stops (Serve cancels the observer after its connections ended)
 - [x] Agent traffic manager: resend the same pending body until acknowledged (bounded)
-- [ ] nftables: count in filter chains (forward/input/output -> `accounting`) by conntrack
+- [x] nftables: count in filter chains (forward/input/output -> `accounting`) by conntrack
   original dst port + direction (upload/download), speed limit as a bytes policer there,
   generation-tagged rules, final counters harvested on delete, safe deletion
-- [ ] Reporter: per-direction deltas keyed by rule generation
+  (table `inet flvx_acct`: per-protocol vmaps `ct original proto-dst -> goto f<fwd>_<proto>_<gen>`
+  in filter hooks forward/input/output at priority 100 for DNATed connections; each forward
+  chain drops what exceeds `limit rate over <Mbps*128KiB>/s` and counts `ct direction`
+  original (upload) / reply (download). DNAT and accounting rules carry a
+  `flvx:fwd=..:proto=..:port=..:role=..:gen=..` comment; deletion goes by forward id only,
+  untagged legacy rules by protocol+port. Pause/delete sends `terminate` and the agent drops
+  the forward's DNAT conntrack entries so established connections stop, like gost's
+  TerminateConnections; a re-sync keeps them. fork.7 counted 60 bytes for 4 MB and did not
+  limit speed at all (netns test).)
+- [x] Reporter: per-direction deltas keyed by rule generation (`Manager.CollectTraffic`; D =
+  upload, U = download like gost services)
 - [ ] Frontend labels for 单向/双向
 - [ ] Backend/agent unit + contract tests, netns nftables integration tests, frontend build;
   compare failures with the fork.7 baseline

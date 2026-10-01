@@ -42,12 +42,35 @@ func (m *Manager) DeleteRule(forwardID int64, protocol string) error {
 	return errors.New("nftables not supported on this platform")
 }
 
+func (m *Manager) DeleteRuleWithPort(forwardID int64, protocol string, port int) error {
+	return errors.New("nftables not supported on this platform")
+}
+
 func (m *Manager) GetCounters() []CounterResult {
 	return nil
 }
 
-func (m *Manager) RefreshCounters() []CounterResult {
+// TrafficDelta is the traffic of one forward and protocol since the previous collection.
+type TrafficDelta struct {
+	ForwardID     int64
+	UserID        int64
+	UserTunnelID  int64
+	Protocol      string
+	Port          int
+	UploadBytes   uint64
+	DownloadBytes uint64
+}
+
+func (m *Manager) CollectTraffic() []TrafficDelta {
 	return nil
+}
+
+func (m *Manager) RemoveForward(forwardID int64, protocol string, ports []int, terminate bool) error {
+	return errors.New("nftables not supported on this platform")
+}
+
+func (m *Manager) TerminateConnections(protocol string, port int) (uint, error) {
+	return 0, errors.New("nftables not supported on this platform")
 }
 
 func (m *Manager) ResetCounters() error {

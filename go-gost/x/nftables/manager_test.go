@@ -24,6 +24,9 @@ func requireNFTIntegration(t *testing.T) {
 func removeTestTable(t *testing.T, manager *Manager) {
 	t.Helper()
 	manager.conn.DelTable(manager.table)
+	if manager.acctTable != nil {
+		manager.conn.DelTable(manager.acctTable)
+	}
 	if err := manager.conn.Flush(); err != nil {
 		t.Errorf("remove test table: %v", err)
 	}

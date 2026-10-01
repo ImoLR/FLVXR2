@@ -41,6 +41,9 @@ type DeleteNftablesRulesRequest struct {
 	ForwardIDs []int64  `json:"forward_ids"`
 	Protocols  []string `json:"protocols"`
 	Ports      []int    `json:"ports"`
+	// Terminate ends the forward's established connections as well (pause/delete). Without
+	// it (rule re-sync) established connections keep their current target.
+	Terminate bool `json:"terminate"`
 }
 
 // GetNftablesCountersRequest 获取计数器请求
@@ -126,18 +129,10 @@ func (w *WebSocketReporter) handleDeleteNftablesRules(data json.RawMessage) erro
 	var errs []error
 	for _, forwardID := range req.ForwardIDs {
 		for _, protocol := range protocols {
-			// 如果有端口信息，使用精确匹配删除
-			if len(req.Ports) > 0 {
-				for _, port := range req.Ports {
-					if err := w.nftablesMgr.DeleteRuleWithPort(forwardID, protocol, port); err != nil {
-						errs = append(errs, fmt.Errorf("delete rule forwardID=%d/%s:%d: %w", forwardID, protocol, port, err))
-					}
-				}
-			} else {
-				// 向后兼容：没有端口信息时使用 forwardID 删除
-				if err := w.nftablesMgr.DeleteRule(forwardID, protocol); err != nil {
-					errs = append(errs, fmt.Errorf("delete rule forwardID=%d/%s: %w", forwardID, protocol, err))
-				}
+			// Rules are removed by forward id (whatever port they use); the ports only
+			// matter for untagged rules of older agents.
+			if err := w.nftablesMgr.RemoveForward(forwardID, protocol, req.Ports, req.Terminate); err != nil {
+				errs = append(errs, fmt.Errorf("delete rule forwardID=%d/%s: %w", forwardID, protocol, err))
 			}
 		}
 	}
@@ -172,8 +167,5 @@ func (w *WebSocketReporter) handleResetNftablesCounters(data json.RawMessage) er
 	if err := w.nftablesMgr.ResetCounters(); err != nil {
 		return fmt.Errorf("reset counters: %w", err)
 	}
-	w.nftablesPrevMu.Lock()
-	w.nftablesPrevCounters = make(map[string]uint64)
-	w.nftablesPrevMu.Unlock()
 	return nil
 }

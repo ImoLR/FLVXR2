@@ -11,6 +11,11 @@ type NftablesManagerInterface interface {
 	DeleteRule(forwardID int64, protocol string) error
 	DeleteRuleWithPort(forwardID int64, protocol string, port int) error
 	GetCounters() []nftables.CounterResult
-	RefreshCounters() []nftables.CounterResult
+	// CollectTraffic returns the per-direction traffic counted since the previous call,
+	// including the final traffic of deleted rules.
+	CollectTraffic() []nftables.TrafficDelta
 	ResetCounters() error
+	// RemoveForward removes a forward's rules (identified by forward id, any port) and,
+	// with terminate, ends its established connections.
+	RemoveForward(forwardID int64, protocol string, ports []int, terminate bool) error
 }

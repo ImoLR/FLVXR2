@@ -13,6 +13,7 @@ import (
 	"github.com/google/nftables"
 	"github.com/google/nftables/binaryutil"
 	"github.com/google/nftables/expr"
+	"github.com/google/nftables/userdata"
 	"golang.org/x/sys/unix"
 )
 
@@ -22,16 +23,57 @@ const (
 	PreroutingChain  = "prerouting"
 	PostroutingChain = "postrouting"
 
+	// AccountingTableName holds the per-forward byte counters and speed limit policers.
+	//
+	// The DNAT rules in the "flvx" prerouting chain only see the first packet of each
+	// connection (NAT chains are consulted once per conntrack entry), so they can neither
+	// count traffic nor limit its speed. Every packet of a DNATed connection passes the
+	// filter hooks: forward for remote targets, input/output for targets on this host.
+	// Those hooks dispatch on the connection's original (pre-DNAT) destination port to a
+	// small chain per forward and protocol that polices and counts each direction.
+	//
+	// It is a table of its own: the "flvx" table is shared with the WireGuard path chains,
+	// and an older agent can be restored with `nft delete table inet flvx_acct`.
+	AccountingTableName = "flvx_acct"
+
 	// IPS_DST_NAT is the conntrack status bit set after destination NAT.
 	// Keep this local because x/sys does not export nf_conntrack_common.h.
 	conntrackStatusDNAT uint32 = 1 << 5
+
+	ctDirOriginal byte = 0 // IP_CT_DIR_ORIGINAL: client -> forward target (upload)
+	ctDirReply    byte = 1 // IP_CT_DIR_REPLY: forward target -> client (download)
+
+	// accountingPriority runs the accounting hooks after the usual filter chains (iptables
+	// filter 0, firewalld filter+10): packets they drop are neither counted nor policed.
+	accountingPriority = 100
+
+	ruleTagPrefix = "flvx:"
+)
+
+// Roles of the rules this manager creates; they are stored in the rule comment.
+const (
+	roleDNAT          = "dnat"
+	roleUpload        = "up"
+	roleDownload      = "down"
+	roleLimitUpload   = "limit-up"
+	roleLimitDownload = "limit-down"
 )
 
 type Manager struct {
 	conn  *nftables.Conn
 	table *nftables.Table
 	rules map[string]*RuleState
-	mu    sync.RWMutex
+	mu    sync.Mutex
+
+	// Accounting state; acctTable is nil when the accounting table could not be set up
+	// (forwarding still works, without counting and speed limits).
+	acctTable *nftables.Table
+	portMaps  map[string]*nftables.Set // protocol -> original dst port => goto forward chain
+	gen       uint64
+	// last holds the counter values already reported, by forward chain and role.
+	last map[string]counterValue
+	// pending holds the final traffic of removed forwards until the next CollectTraffic.
+	pending []TrafficDelta
 }
 
 type RuleState struct {
@@ -43,9 +85,10 @@ type RuleState struct {
 	Port         int
 	Target       string
 	SpeedLimit   int
-	Chain        *nftables.Chain
-	Rule         *nftables.Rule
-	CounterName  string
+	// Gen identifies this installation of the rule; a re-added rule gets a new one.
+	Gen uint64
+	// AcctChain is the accounting chain of this rule ("" when accounting is unavailable).
+	AcctChain string
 }
 
 type CounterResult struct {
@@ -58,6 +101,23 @@ type CounterResult struct {
 	Bytes        uint64 `json:"bytes"`
 }
 
+// TrafficDelta is the traffic of one forward and protocol since the previous collection.
+// Upload is what clients sent (conntrack original direction), download what they received.
+type TrafficDelta struct {
+	ForwardID     int64
+	UserID        int64
+	UserTunnelID  int64
+	Protocol      string
+	Port          int
+	UploadBytes   uint64
+	DownloadBytes uint64
+}
+
+type counterValue struct {
+	packets uint64
+	bytes   uint64
+}
+
 func NewManager() (*Manager, error) {
 	conn, err := nftables.New()
 	if err != nil {
@@ -66,6 +126,7 @@ func NewManager() (*Manager, error) {
 	m := &Manager{
 		conn:  conn,
 		rules: make(map[string]*RuleState),
+		last:  make(map[string]counterValue),
 	}
 	if err := m.initTable(); err != nil {
 		return nil, fmt.Errorf("init table: %w", err)
@@ -74,6 +135,11 @@ func NewManager() (*Manager, error) {
 	// 面板会通过 WebSocket 重新同步所有活跃规则
 	if err := m.clearStaleRules(); err != nil {
 		fmt.Printf("⚠️ clear stale rules failed: %v\n", err)
+	}
+	if err := m.initAccounting(); err != nil {
+		fmt.Printf("⚠️ nftables 流量统计/限速初始化失败，nftables 转发将不计流量、不限速: %v\n", err)
+		m.acctTable = nil
+		m.portMaps = nil
 	}
 	enableIPForwarding()
 	return m, nil
@@ -166,7 +232,8 @@ func (m *Manager) initChains() error {
 	return m.conn.Flush()
 }
 
-func newDNATMasqueradeExpressions() []expr.Any {
+// dnatStatusExpressions match connections whose destination was NATed.
+func dnatStatusExpressions() []expr.Any {
 	mask := binaryutil.NativeEndian.PutUint32(conntrackStatusDNAT)
 	zero := binaryutil.NativeEndian.PutUint32(0)
 	return []expr.Any{
@@ -179,8 +246,11 @@ func newDNATMasqueradeExpressions() []expr.Any {
 			Xor:            zero,
 		},
 		&expr.Cmp{Op: expr.CmpOpNeq, Register: 1, Data: zero},
-		&expr.Masq{},
 	}
+}
+
+func newDNATMasqueradeExpressions() []expr.Any {
+	return append(dnatStatusExpressions(), &expr.Masq{})
 }
 
 func isDNATMasqueradeRule(rule *nftables.Rule) bool {
@@ -209,6 +279,179 @@ func isDNATMasqueradeRule(rule *nftables.Rule) bool {
 	return hasStatus && hasDNATMask && hasNonZeroCompare
 }
 
+// initAccounting (re)creates the accounting table. Whatever a previous agent process left
+// there is dropped: the panel re-syncs every active forward.
+func (m *Manager) initAccounting() error {
+	table := &nftables.Table{Name: AccountingTableName, Family: TableFamily}
+	m.conn.AddTable(table)
+	m.conn.DelTable(table)
+	if err := m.conn.Flush(); err != nil {
+		return fmt.Errorf("reset accounting table: %w", err)
+	}
+
+	m.conn.AddTable(table)
+	portMaps := make(map[string]*nftables.Set, 2)
+	for _, protocol := range []string{"tcp", "udp"} {
+		set := &nftables.Set{
+			Table:    table,
+			Name:     protocol + "_ports",
+			IsMap:    true,
+			KeyType:  nftables.TypeInetService,
+			DataType: nftables.TypeVerdict,
+		}
+		if err := m.conn.AddSet(set, nil); err != nil {
+			return fmt.Errorf("add %s port map: %w", protocol, err)
+		}
+		portMaps[protocol] = set
+	}
+	hooks := []struct {
+		name string
+		hook *nftables.ChainHook
+	}{
+		{name: "forward", hook: nftables.ChainHookForward},
+		{name: "input", hook: nftables.ChainHookInput},
+		{name: "output", hook: nftables.ChainHookOutput},
+	}
+	for _, h := range hooks {
+		chain := m.conn.AddChain(&nftables.Chain{
+			Name:     h.name,
+			Table:    table,
+			Hooknum:  h.hook,
+			Priority: nftables.ChainPriorityRef(accountingPriority),
+			Type:     nftables.ChainTypeFilter,
+		})
+		for _, protocol := range []string{"tcp", "udp"} {
+			protoNum, _ := protocolNumber(protocol)
+			set := portMaps[protocol]
+			exprs := dnatStatusExpressions()
+			exprs = append(exprs,
+				&expr.Meta{Key: expr.MetaKeyL4PROTO, Register: 1},
+				&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: []byte{protoNum}},
+				// The original direction tuple keeps the destination the client connected
+				// to, i.e. the forward's listening port, in both directions.
+				&expr.Ct{Register: 1, Key: expr.CtKeyPROTODST, Direction: uint32(ctDirOriginal)},
+				&expr.Lookup{
+					SourceRegister: 1,
+					DestRegister:   0,
+					IsDestRegSet:   true,
+					SetName:        set.Name,
+					SetID:          set.ID,
+				},
+			)
+			m.conn.AddRule(&nftables.Rule{Table: table, Chain: chain, Exprs: exprs})
+		}
+	}
+	if err := m.conn.Flush(); err != nil {
+		return fmt.Errorf("create accounting table: %w", err)
+	}
+	m.acctTable = table
+	m.portMaps = portMaps
+	return nil
+}
+
+// ruleTag identifies a rule created by this manager. It is stored as the rule comment.
+type ruleTag struct {
+	ForwardID int64
+	Protocol  string
+	Port      int
+	Role      string
+	Gen       uint64
+}
+
+func (t ruleTag) String() string {
+	return fmt.Sprintf("%sfwd=%d:proto=%s:port=%d:role=%s:gen=%d", ruleTagPrefix, t.ForwardID, t.Protocol, t.Port, t.Role, t.Gen)
+}
+
+func (t ruleTag) userData() []byte {
+	return userdata.AppendString(nil, userdata.TypeComment, t.String())
+}
+
+func parseRuleTag(rule *nftables.Rule) (ruleTag, bool) {
+	if rule == nil || len(rule.UserData) == 0 {
+		return ruleTag{}, false
+	}
+	comment, ok := userdata.GetString(rule.UserData, userdata.TypeComment)
+	if !ok || !strings.HasPrefix(comment, ruleTagPrefix) {
+		return ruleTag{}, false
+	}
+	var tag ruleTag
+	seen := 0
+	for _, field := range strings.Split(strings.TrimPrefix(comment, ruleTagPrefix), ":") {
+		k, v, ok := strings.Cut(field, "=")
+		if !ok {
+			return ruleTag{}, false
+		}
+		var err error
+		switch k {
+		case "fwd":
+			tag.ForwardID, err = strconv.ParseInt(v, 10, 64)
+		case "proto":
+			tag.Protocol = v
+		case "port":
+			tag.Port, err = strconv.Atoi(v)
+		case "role":
+			tag.Role = v
+		case "gen":
+			tag.Gen, err = strconv.ParseUint(v, 10, 64)
+		default:
+			continue
+		}
+		if err != nil {
+			return ruleTag{}, false
+		}
+		seen++
+	}
+	if seen != 5 || tag.ForwardID <= 0 {
+		return ruleTag{}, false
+	}
+	return tag, true
+}
+
+func protocolNumber(protocol string) (byte, error) {
+	switch protocol {
+	case "tcp":
+		return unix.IPPROTO_TCP, nil
+	case "udp":
+		return unix.IPPROTO_UDP, nil
+	default:
+		return 0, fmt.Errorf("unsupported protocol: %s", protocol)
+	}
+}
+
+func portBytes(port int) []byte {
+	return []byte{byte(port >> 8), byte(port & 0xFF)}
+}
+
+// speedLimitBytesPerSecond converts a panel speed limit (Mbps) into the per-direction byte
+// rate of the policer, the same rate gost limiters use ("$ <speed/8>MB", 1MB = 1MiB).
+func speedLimitBytesPerSecond(speedLimit int) uint64 {
+	if speedLimit <= 0 {
+		return 0
+	}
+	return uint64(speedLimit) * 1024 * 1024 / 8
+}
+
+// policerBurstBytes lets a quarter second of traffic through at once, enough for TCP to
+// reach the limited rate on usual round trip times.
+func policerBurstBytes(rate uint64) uint32 {
+	burst := rate / 4
+	if burst < 64*1024 {
+		burst = 64 * 1024
+	}
+	if burst > 1<<31 {
+		burst = 1 << 31
+	}
+	return uint32(burst)
+}
+
+func accountingChainName(forwardID int64, protocol string, gen uint64) string {
+	return fmt.Sprintf("f%d_%s_%d", forwardID, protocol, gen)
+}
+
+func lastKey(chain, role string) string {
+	return chain + "/" + role
+}
+
 func (m *Manager) AddRule(forwardID, nodeID, userID, userTunnelID int64, protocol string, port int, target string, speedLimit int) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -219,68 +462,67 @@ func (m *Manager) AddRule(forwardID, nodeID, userID, userTunnelID int64, protoco
 	if _, exists := m.rules[key]; exists {
 		return fmt.Errorf("rule already exists: %s", key)
 	}
-
+	protoNum, err := protocolNumber(protocol)
+	if err != nil {
+		return err
+	}
+	if port <= 0 || port > 65535 {
+		return fmt.Errorf("invalid listen port: %d", port)
+	}
 	dnatAddr, dnatPort := parseTarget(target)
-
-	// Get prerouting chain
-	preroutingChain := &nftables.Chain{
-		Name:  PreroutingChain,
-		Table: m.table,
-	}
-
-	// Build match expressions: match protocol and ingress port
-	var ruleExprs []expr.Any
-
-	// Match protocol (tcp/udp)
-	var protoNum uint32
-	switch protocol {
-	case "tcp":
-		protoNum = unix.IPPROTO_TCP
-	case "udp":
-		protoNum = unix.IPPROTO_UDP
-	default:
-		return fmt.Errorf("unsupported protocol: %s", protocol)
-	}
-
-	ruleExprs = append(ruleExprs, &expr.Meta{Key: expr.MetaKeyL4PROTO, Register: 1})
-	ruleExprs = append(ruleExprs, &expr.Cmp{
-		Op:       expr.CmpOpEq,
-		Register: 1,
-		Data:     []byte{byte(protoNum)},
-	})
-
-	// Match ingress (listening) port
-	portBytes := []byte{byte(port >> 8), byte(port & 0xFF)}
-	ruleExprs = append(ruleExprs, &expr.Payload{
-		DestRegister: 1,
-		Base:         expr.PayloadBaseTransportHeader,
-		Offset:       2,
-		Len:          2,
-	})
-	ruleExprs = append(ruleExprs, &expr.Cmp{
-		Op:       expr.CmpOpEq,
-		Register: 1,
-		Data:     portBytes,
-	})
-
-	// Speed limit
-	if speedLimit > 0 {
-		ruleExprs = append(ruleExprs, &expr.Limit{
-			Type: expr.LimitTypePkts,
-			Rate: uint64(speedLimit),
-		})
-	}
-
-	// Counter
-	counterName := fmt.Sprintf("ctr_fwd_%d_%s", forwardID, protocol)
-	ruleExprs = append(ruleExprs, &expr.Counter{})
-
-	// DNAT: load target address and port into registers, then apply NAT
 	ip := net.ParseIP(dnatAddr)
 	if ip == nil {
 		return fmt.Errorf("invalid target IP: %s", dnatAddr)
 	}
+	if dnatPort <= 0 || dnatPort > 65535 {
+		return fmt.Errorf("invalid target port: %q", target)
+	}
 
+	m.gen++
+	rs := &RuleState{
+		ForwardID:    forwardID,
+		NodeID:       nodeID,
+		UserID:       userID,
+		UserTunnelID: userTunnelID,
+		Protocol:     protocol,
+		Port:         port,
+		Target:       target,
+		SpeedLimit:   speedLimit,
+		Gen:          m.gen,
+	}
+	dnatRule := &nftables.Rule{
+		Table:    m.table,
+		Chain:    &nftables.Chain{Name: PreroutingChain, Table: m.table},
+		Exprs:    dnatExpressions(protoNum, port, ip, dnatPort),
+		UserData: ruleTag{ForwardID: forwardID, Protocol: protocol, Port: port, Role: roleDNAT, Gen: rs.Gen}.userData(),
+	}
+
+	// Install DNAT and accounting in one transaction. If the accounting part is rejected
+	// (e.g. a kernel without some expression), keep forwarding working without it.
+	m.conn.AddRule(dnatRule)
+	acctChain, acctErr := m.queueAccounting(rs, port)
+	if acctErr == nil {
+		if err := m.conn.Flush(); err == nil {
+			rs.AcctChain = acctChain
+			m.rules[key] = rs
+			m.trackCounters(rs)
+			return nil
+		} else if acctChain == "" {
+			return fmt.Errorf("add rule: %w", err)
+		} else {
+			acctErr = err
+		}
+		m.conn.AddRule(dnatRule)
+	}
+	if err := m.conn.Flush(); err != nil {
+		return fmt.Errorf("add rule: %w", err)
+	}
+	fmt.Printf("⚠️ nftables 转发 %d/%s 已生效，但流量统计/限速规则添加失败（不计流量、不限速）: %v\n", forwardID, protocol, acctErr)
+	m.rules[key] = rs
+	return nil
+}
+
+func dnatExpressions(protoNum byte, port int, ip net.IP, dnatPort int) []expr.Any {
 	var natFamily uint32
 	var ipBytes []byte
 	if ip4 := ip.To4(); ip4 != nil {
@@ -290,227 +532,401 @@ func (m *Manager) AddRule(forwardID, nodeID, userID, userTunnelID int64, protoco
 		natFamily = unix.NFPROTO_IPV6
 		ipBytes = ip.To16()
 	}
-
-	// Load destination address into register 1
-	ruleExprs = append(ruleExprs, &expr.Immediate{
-		Register: 1,
-		Data:     ipBytes,
-	})
-	// Load destination port into register 2 (network byte order)
-	portNet := []byte{byte(dnatPort >> 8), byte(dnatPort & 0xFF)}
-	ruleExprs = append(ruleExprs, &expr.Immediate{
-		Register: 2,
-		Data:     portNet,
-	})
-	// Apply DNAT
-	ruleExprs = append(ruleExprs, &expr.NAT{
-		Type:        expr.NATTypeDestNAT,
-		Family:      natFamily,
-		RegAddrMin:  1,
-		RegProtoMin: 2,
-	})
-
-	rule := &nftables.Rule{
-		Table: m.table,
-		Chain: preroutingChain,
-		Exprs: ruleExprs,
+	return []expr.Any{
+		// Match protocol (tcp/udp) and the listening port.
+		&expr.Meta{Key: expr.MetaKeyL4PROTO, Register: 1},
+		&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: []byte{protoNum}},
+		&expr.Payload{
+			DestRegister: 1,
+			Base:         expr.PayloadBaseTransportHeader,
+			Offset:       2,
+			Len:          2,
+		},
+		&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: portBytes(port)},
+		// DNAT: target address in register 1, port (network byte order) in register 2.
+		&expr.Immediate{Register: 1, Data: ipBytes},
+		&expr.Immediate{Register: 2, Data: portBytes(dnatPort)},
+		&expr.NAT{
+			Type:        expr.NATTypeDestNAT,
+			Family:      natFamily,
+			RegAddrMin:  1,
+			RegProtoMin: 2,
+		},
 	}
-	m.conn.AddRule(rule)
+}
 
-	if err := m.conn.Flush(); err != nil {
-		return fmt.Errorf("add rule: %w", err)
+// queueAccounting adds the accounting chain of a rule and its port map entry to the
+// pending batch. It returns "" when accounting is unavailable.
+func (m *Manager) queueAccounting(rs *RuleState, port int) (string, error) {
+	if m.acctTable == nil || m.portMaps == nil {
+		return "", nil
 	}
+	set := m.portMaps[rs.Protocol]
+	if set == nil {
+		return "", fmt.Errorf("no port map for %s", rs.Protocol)
+	}
+	name := accountingChainName(rs.ForwardID, rs.Protocol, rs.Gen)
+	chain := m.conn.AddChain(&nftables.Chain{Name: name, Table: m.acctTable})
+	tag := func(role string) []byte {
+		return ruleTag{ForwardID: rs.ForwardID, Protocol: rs.Protocol, Port: port, Role: role, Gen: rs.Gen}.userData()
+	}
+	rate := speedLimitBytesPerSecond(rs.SpeedLimit)
+	directions := []struct {
+		dir         byte
+		limitRole   string
+		counterRole string
+	}{
+		{dir: ctDirOriginal, limitRole: roleLimitUpload, counterRole: roleUpload},
+		{dir: ctDirReply, limitRole: roleLimitDownload, counterRole: roleDownload},
+	}
+	for _, d := range directions {
+		match := []expr.Any{
+			&expr.Ct{Register: 1, Key: expr.CtKeyDIRECTION},
+			&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: []byte{d.dir}},
+		}
+		if rate > 0 {
+			// Drop what exceeds the limit before it is counted: the sender retransmits it.
+			m.conn.AddRule(&nftables.Rule{
+				Table: m.acctTable,
+				Chain: chain,
+				Exprs: append(append([]expr.Any{}, match...),
+					&expr.Limit{
+						Type:  expr.LimitTypePktBytes,
+						Rate:  rate,
+						Unit:  expr.LimitTimeSecond,
+						Burst: policerBurstBytes(rate),
+						Over:  true,
+					},
+					&expr.Verdict{Kind: expr.VerdictDrop},
+				),
+				UserData: tag(d.limitRole),
+			})
+		}
+		m.conn.AddRule(&nftables.Rule{
+			Table:    m.acctTable,
+			Chain:    chain,
+			Exprs:    append(append([]expr.Any{}, match...), &expr.Counter{}),
+			UserData: tag(d.counterRole),
+		})
+	}
+	if err := m.conn.SetAddElements(set, []nftables.SetElement{{
+		Key:         portBytes(port),
+		VerdictData: &expr.Verdict{Kind: expr.VerdictGoto, Chain: name},
+	}}); err != nil {
+		return "", fmt.Errorf("add port map element: %w", err)
+	}
+	return name, nil
+}
 
-	m.rules[key] = &RuleState{
-		ForwardID:    forwardID,
-		NodeID:       nodeID,
-		UserID:       userID,
-		UserTunnelID: userTunnelID,
-		Protocol:     protocol,
-		Port:         port,
-		Target:       target,
-		SpeedLimit:   speedLimit,
-		Chain:        preroutingChain,
-		Rule:         rule,
-		CounterName:  counterName,
+// trackCounters starts the reported values of a fresh accounting chain at zero, so bytes
+// counted before the first collection are reported too.
+func (m *Manager) trackCounters(rs *RuleState) {
+	if rs.AcctChain == "" {
+		return
 	}
-	return nil
+	m.last[lastKey(rs.AcctChain, roleUpload)] = counterValue{}
+	m.last[lastKey(rs.AcctChain, roleDownload)] = counterValue{}
 }
 
 func (m *Manager) UpdateRule(forwardID int64, protocol string, port int, target string, speedLimit int) error {
-	m.mu.RLock()
-	var userID, userTunnelID int64
+	m.mu.Lock()
+	var userID, userTunnelID, nodeID int64
 	if rs, exists := m.rules[ruleKey(forwardID, protocol)]; exists {
 		userID = rs.UserID
 		userTunnelID = rs.UserTunnelID
+		nodeID = rs.NodeID
 	}
-	m.mu.RUnlock()
+	m.mu.Unlock()
 
 	if err := m.DeleteRule(forwardID, protocol); err != nil {
 		return err
 	}
-	return m.AddRule(forwardID, 0, userID, userTunnelID, protocol, port, target, speedLimit)
+	return m.AddRule(forwardID, nodeID, userID, userTunnelID, protocol, port, target, speedLimit)
 }
 
+// DeleteRule removes every rule of a forward and protocol (whatever port it used) and
+// keeps the traffic counted since the last collection for the next CollectTraffic.
 func (m *Manager) DeleteRule(forwardID int64, protocol string) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	key := ruleKey(forwardID, protocol)
-	rs, exists := m.rules[key]
-	if !exists {
-		fmt.Printf("️ DeleteRule: rule not in memory map %s, attempting kernel deletion\n", key)
-		return m.deleteRuleFromKernel(forwardID, protocol)
-	}
-
-	// 从内存中移除，但不用 rs.Rule 删内核 — AddRule 不返回有效 handle
-	delete(m.rules, key)
-	if rs.Rule != nil && rs.Rule.Handle != 0 {
-		m.conn.DelRule(rs.Rule)
-		return m.conn.Flush()
-	}
-	return m.deleteRuleFromKernel(forwardID, protocol)
+	return m.RemoveForward(forwardID, protocol, nil, false)
 }
 
-// DeleteRuleWithPort 通过 forwardID+协议+端口删除规则（精确匹配）
+// DeleteRuleWithPort removes the rules of a forward and protocol; see RemoveForward.
 func (m *Manager) DeleteRuleWithPort(forwardID int64, protocol string, port int) error {
+	var ports []int
+	if port > 0 {
+		ports = []int{port}
+	}
+	return m.RemoveForward(forwardID, protocol, ports, false)
+}
+
+// RemoveForward removes the rules of a forward and protocol. Rules are identified by the
+// forward id they were created for, never by port alone: another forward may use the port
+// now, and the forward itself may have moved to another port. ports are only used to remove
+// untagged rules left by older agents. The traffic counted since the last collection is kept
+// for the next CollectTraffic. With terminate, established connections DNATed from the
+// removed ports are ended too (pause/delete), as gost forwards do with TerminateConnections.
+func (m *Manager) RemoveForward(forwardID int64, protocol string, ports []int, terminate bool) error {
 	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	key := ruleKey(forwardID, protocol)
-	_, exists := m.rules[key]
-	if !exists {
-		fmt.Printf("️ DeleteRuleWithPort: rule not in memory map %s, attempting kernel deletion\n", key)
-		return m.deleteRuleByPortFromKernel(protocol, port)
+	removedPorts, err := m.deleteRuleLocked(forwardID, protocol, ports)
+	m.mu.Unlock()
+	if err != nil || !terminate {
+		return err
 	}
-
-	// 从内存中移除，但不用 rs.Rule 删内核 — AddRule 不返回有效 handle
-	// 直接通过协议+端口扫描内核删除
-	delete(m.rules, key)
-	return m.deleteRuleByPortFromKernel(protocol, port)
-}
-
-// DeleteRuleByPort 通过协议+端口从内核删除规则（更精确的匹配）
-func (m *Manager) DeleteRuleByPort(protocol string, port int) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	// 先从内存 map 中移除
-	for key, rs := range m.rules {
-		if rs.Protocol == protocol && rs.Port == port {
-			delete(m.rules, key)
-			fmt.Printf("✅ Removed rule from memory map: %s\n", key)
-			break
-		}
-	}
-
-	// 内核通过协议+端口扫描删除（不依赖 handle）
-	return m.deleteRuleByPortFromKernel(protocol, port)
-}
-
-// deleteRuleByPortFromKernel 通过协议+端口直接从内核删除规则
-func (m *Manager) deleteRuleByPortFromKernel(protocol string, port int) error {
-	preroutingChain := &nftables.Chain{
-		Name:  PreroutingChain,
-		Table: m.table,
-	}
-	rules, err := m.conn.GetRules(m.table, preroutingChain)
-	if err != nil {
-		return fmt.Errorf("get prerouting rules: %w", err)
-	}
-
-	protoNum := uint8(unix.IPPROTO_TCP)
-	if protocol == "udp" {
-		protoNum = uint8(unix.IPPROTO_UDP)
-	}
-	portBytes := []byte{byte(port >> 8), byte(port & 0xFF)}
-
-	deleted := false
-	for _, rule := range rules {
-		if isMasqueradeRule(rule) {
+	protoNum, _ := protocolNumber(protocol)
+	for _, port := range removedPorts {
+		n, err := deleteDNATConntrackEntries(protoNum, uint16(port))
+		if err != nil {
+			fmt.Printf("⚠️ terminate %s connections of port %d: %v\n", protocol, port, err)
 			continue
 		}
-
-		// 分两遍独立匹配：先匹配协议，再匹配端口（不依赖表达式顺序）
-		protoMatch := matchProtoInRule(rule, byte(protoNum))
-		portMatch := matchPortInRule(rule, portBytes)
-
-		if protoMatch && portMatch {
-			m.conn.DelRule(rule)
-			deleted = true
-			fmt.Printf("✅ Deleted kernel rule: %s port %d\n", protocol, port)
+		if n > 0 {
+			fmt.Printf("✂️ terminated %d %s connections of forward %d (port %d)\n", n, protocol, forwardID, port)
 		}
-	}
-
-	if !deleted {
-		fmt.Printf("⚠️ No matching kernel rule found for %s port %d (total prerouting rules: %d)\n", protocol, port, len(rules))
-		for i, rule := range rules {
-			if !isMasqueradeRule(rule) {
-				fmt.Printf("  rule[%d] exprs: %d\n", i, len(rule.Exprs))
-			}
-		}
-	}
-
-	return m.conn.Flush()
-}
-
-// deleteRuleFromKernel 直接从内核删除规则，不依赖内存 map
-// 当没有端口信息时的兜底策略：仅匹配协议，并借助内存 map 补充端口匹配
-func (m *Manager) deleteRuleFromKernel(forwardID int64, protocol string) error {
-	preroutingChain := &nftables.Chain{
-		Name:  PreroutingChain,
-		Table: m.table,
-	}
-	rules, err := m.conn.GetRules(m.table, preroutingChain)
-	if err != nil {
-		return fmt.Errorf("get prerouting rules: %w", err)
-	}
-
-	protoNum := uint8(unix.IPPROTO_TCP)
-	if protocol == "udp" {
-		protoNum = uint8(unix.IPPROTO_UDP)
-	}
-
-	// 尝试从内存 map 中获取端口信息
-	portBytes := findPortInRulesMap(m.rules, forwardID, protocol)
-
-	deleted := false
-	for _, rule := range rules {
-		if isMasqueradeRule(rule) {
-			continue
-		}
-
-		if !matchProtoInRule(rule, byte(protoNum)) {
-			continue
-		}
-
-		// 如果有端口信息，精确匹配端口
-		if portBytes != nil {
-			if !matchPortInRule(rule, portBytes) {
-				continue
-			}
-		}
-
-		m.conn.DelRule(rule)
-		deleted = true
-		fmt.Printf("✅ Deleted kernel rule for forwardID=%d protocol=%s\n", forwardID, protocol)
-		break
-	}
-
-	if !deleted {
-		fmt.Printf("⚠️ No matching kernel rule found for forwardID=%d protocol=%s\n", forwardID, protocol)
-	}
-
-	return m.conn.Flush()
-}
-
-func findPortInRulesMap(rules map[string]*RuleState, forwardID int64, protocol string) []byte {
-	key := ruleKey(forwardID, protocol)
-	if rs, ok := rules[key]; ok {
-		port := rs.Port
-		return []byte{byte(port >> 8), byte(port & 0xFF)}
 	}
 	return nil
+}
+
+// deleteRuleLocked removes the forward's rules and returns the listening ports involved.
+func (m *Manager) deleteRuleLocked(forwardID int64, protocol string, ports []int) ([]int, error) {
+	protoNum, err := protocolNumber(protocol)
+	if err != nil {
+		return nil, err
+	}
+	key := ruleKey(forwardID, protocol)
+	rs := m.rules[key]
+	portSet := map[int]struct{}{}
+	addPort := func(p int) {
+		if p > 0 && p <= 65535 {
+			portSet[p] = struct{}{}
+		}
+	}
+	if rs != nil {
+		addPort(rs.Port)
+	}
+
+	// Harvest the final counters before the accounting chains go away.
+	m.harvestForward(forwardID, protocol, rs)
+
+	prerouting := &nftables.Chain{Name: PreroutingChain, Table: m.table}
+	rules, err := m.conn.GetRules(m.table, prerouting)
+	if err != nil {
+		return nil, fmt.Errorf("get prerouting rules: %w", err)
+	}
+	deleted := 0
+	for _, rule := range rules {
+		tag, ok := parseRuleTag(rule)
+		if !ok || tag.ForwardID != forwardID || tag.Protocol != protocol {
+			continue
+		}
+		if err := m.conn.DelRule(rule); err != nil {
+			return nil, fmt.Errorf("delete rule: %w", err)
+		}
+		addPort(tag.Port)
+		deleted++
+	}
+	if deleted == 0 {
+		// Rules of older agents carry no tag: match protocol and port, never touching tagged
+		// rules of other forwards.
+		for _, port := range ports {
+			for _, rule := range rules {
+				if _, tagged := parseRuleTag(rule); tagged || isMasqueradeRule(rule) {
+					continue
+				}
+				if matchProtoInRule(rule, protoNum) && matchPortInRule(rule, portBytes(port)) {
+					if err := m.conn.DelRule(rule); err != nil {
+						return nil, fmt.Errorf("delete rule: %w", err)
+					}
+					addPort(port)
+					deleted++
+				}
+			}
+		}
+	}
+
+	chains := m.queueAccountingRemoval(forwardID, protocol)
+	if err := m.conn.Flush(); err != nil {
+		return nil, fmt.Errorf("delete rules of forward %d/%s: %w", forwardID, protocol, err)
+	}
+	for _, c := range chains {
+		delete(m.last, lastKey(c.name, roleUpload))
+		delete(m.last, lastKey(c.name, roleDownload))
+		addPort(c.port)
+	}
+	delete(m.rules, key)
+	if deleted == 0 && len(chains) == 0 && rs == nil {
+		fmt.Printf("ℹ️ no nftables rule of forward %d/%s on this node\n", forwardID, protocol)
+	}
+	removed := make([]int, 0, len(portSet))
+	for p := range portSet {
+		removed = append(removed, p)
+	}
+	return removed, nil
+}
+
+// queueAccountingRemoval adds the removal of a forward's accounting chains (any
+// generation) and their port map entries to the pending batch.
+func (m *Manager) queueAccountingRemoval(forwardID int64, protocol string) []accountingChainRef {
+	if m.acctTable == nil {
+		return nil
+	}
+	chains, err := m.forwardAccountingChains(forwardID, protocol)
+	if err != nil {
+		fmt.Printf("⚠️ list accounting chains of forward %d/%s: %v\n", forwardID, protocol, err)
+		return nil
+	}
+	set := m.portMaps[protocol]
+	for _, c := range chains {
+		if set != nil && c.port > 0 {
+			if err := m.conn.SetDeleteElements(set, []nftables.SetElement{{Key: portBytes(c.port)}}); err != nil {
+				fmt.Printf("⚠️ remove port map element %s/%d: %v\n", protocol, c.port, err)
+			}
+		}
+		chain := &nftables.Chain{Name: c.name, Table: m.acctTable}
+		m.conn.FlushChain(chain)
+		m.conn.DelChain(chain)
+	}
+	return chains
+}
+
+type accountingChainRef struct {
+	name string
+	port int
+}
+
+// forwardAccountingChains lists the kernel accounting chains of a forward and protocol and
+// the port their map entry uses.
+func (m *Manager) forwardAccountingChains(forwardID int64, protocol string) ([]accountingChainRef, error) {
+	all, err := m.conn.ListChainsOfTableFamily(TableFamily)
+	if err != nil {
+		return nil, err
+	}
+	prefix := fmt.Sprintf("f%d_%s_", forwardID, protocol)
+	var out []accountingChainRef
+	for _, c := range all {
+		if c.Table == nil || c.Table.Name != AccountingTableName || !strings.HasPrefix(c.Name, prefix) {
+			continue
+		}
+		ref := accountingChainRef{name: c.Name}
+		rules, err := m.conn.GetRules(m.acctTable, &nftables.Chain{Name: c.Name, Table: m.acctTable})
+		if err == nil {
+			for _, rule := range rules {
+				if tag, ok := parseRuleTag(rule); ok && tag.ForwardID == forwardID {
+					ref.port = tag.Port
+					break
+				}
+			}
+		}
+		out = append(out, ref)
+	}
+	return out, nil
+}
+
+// readAccountingChain returns the upload/download counters of an accounting chain.
+func (m *Manager) readAccountingChain(name string) (map[string]counterValue, error) {
+	rules, err := m.conn.GetRules(m.acctTable, &nftables.Chain{Name: name, Table: m.acctTable})
+	if err != nil {
+		return nil, err
+	}
+	values := make(map[string]counterValue, 2)
+	for _, rule := range rules {
+		tag, ok := parseRuleTag(rule)
+		if !ok || (tag.Role != roleUpload && tag.Role != roleDownload) {
+			continue
+		}
+		for _, e := range rule.Exprs {
+			if c, ok := e.(*expr.Counter); ok {
+				values[tag.Role] = counterValue{packets: c.Packets, bytes: c.Bytes}
+				break
+			}
+		}
+	}
+	return values, nil
+}
+
+// counterDelta returns what a counter added since it was last reported and records the new
+// value. A counter below the reported value was reset; it is reported from zero.
+func (m *Manager) counterDelta(chain, role string, now counterValue) uint64 {
+	k := lastKey(chain, role)
+	prev := m.last[k]
+	m.last[k] = now
+	if now.bytes >= prev.bytes {
+		return now.bytes - prev.bytes
+	}
+	return now.bytes
+}
+
+// harvestForward queues the traffic a forward's accounting chains counted since the last
+// collection, so removing the rules does not lose it.
+func (m *Manager) harvestForward(forwardID int64, protocol string, rs *RuleState) {
+	if m.acctTable == nil || rs == nil || rs.AcctChain == "" {
+		return
+	}
+	values, err := m.readAccountingChain(rs.AcctChain)
+	if err != nil {
+		fmt.Printf("⚠️ read final counters of forward %d/%s: %v\n", forwardID, protocol, err)
+		return
+	}
+	d := TrafficDelta{
+		ForwardID:     rs.ForwardID,
+		UserID:        rs.UserID,
+		UserTunnelID:  rs.UserTunnelID,
+		Protocol:      rs.Protocol,
+		Port:          rs.Port,
+		UploadBytes:   m.counterDelta(rs.AcctChain, roleUpload, values[roleUpload]),
+		DownloadBytes: m.counterDelta(rs.AcctChain, roleDownload, values[roleDownload]),
+	}
+	if d.UploadBytes > 0 || d.DownloadBytes > 0 {
+		m.pending = append(m.pending, d)
+	}
+}
+
+// CollectTraffic returns the traffic counted since the previous call, per forward and
+// protocol, including the final traffic of rules removed in between.
+func (m *Manager) CollectTraffic() []TrafficDelta {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	out := m.pending
+	m.pending = nil
+	if m.acctTable == nil {
+		return out
+	}
+	for _, rs := range m.rules {
+		if rs.AcctChain == "" {
+			continue
+		}
+		values, err := m.readAccountingChain(rs.AcctChain)
+		if err != nil {
+			continue
+		}
+		d := TrafficDelta{
+			ForwardID:     rs.ForwardID,
+			UserID:        rs.UserID,
+			UserTunnelID:  rs.UserTunnelID,
+			Protocol:      rs.Protocol,
+			Port:          rs.Port,
+			UploadBytes:   m.counterDelta(rs.AcctChain, roleUpload, values[roleUpload]),
+			DownloadBytes: m.counterDelta(rs.AcctChain, roleDownload, values[roleDownload]),
+		}
+		if d.UploadBytes > 0 || d.DownloadBytes > 0 {
+			out = append(out, d)
+		}
+	}
+	return out
+}
+
+// TerminateConnections removes the conntrack entries of connections DNATed from the given
+// listening port, so a paused or deleted forward stops carrying established connections
+// (DNAT rules only apply to new connections).
+func (m *Manager) TerminateConnections(protocol string, port int) (uint, error) {
+	protoNum, err := protocolNumber(protocol)
+	if err != nil {
+		return 0, err
+	}
+	if port <= 0 || port > 65535 {
+		return 0, fmt.Errorf("invalid port: %d", port)
+	}
+	return deleteDNATConntrackEntries(protoNum, uint16(port))
 }
 
 func isMasqueradeRule(rule *nftables.Rule) bool {
@@ -547,249 +963,37 @@ func matchPortInRule(rule *nftables.Rule, portBytes []byte) bool {
 	return false
 }
 
-// ClearStaleDNATRules 清理所有不属于当前活跃转发的 DNAT 规则
-// 启动时调用，确保没有残留的无用规则
-func (m *Manager) ClearStaleDNATRules(activeForwardIDs map[int64]bool) error {
+// GetCounters returns the counted bytes of the installed rules as of the last collection.
+func (m *Manager) GetCounters() []CounterResult {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	preroutingChain := &nftables.Chain{
-		Name:  PreroutingChain,
-		Table: m.table,
-	}
-	rules, err := m.conn.GetRules(m.table, preroutingChain)
-	if err != nil {
-		return fmt.Errorf("get prerouting rules: %w", err)
-	}
-
-	deleted := 0
-	for _, rule := range rules {
-		// 跳过 MASQUERADE 规则
-		isMasq := false
-		for _, e := range rule.Exprs {
-			if _, ok := e.(*expr.Masq); ok {
-				isMasq = true
-				break
-			}
-		}
-		if isMasq {
-			continue
-		}
-
-		// 检查这条规则是否属于活跃转发
-		// 通过 counter name 中的 forwardID 来判断
-		isActive := false
-		for _, e := range rule.Exprs {
-			if ctr, ok := e.(*expr.Counter); ok {
-				// 检查内存中是否有对应的规则
-				for _, rs := range m.rules {
-					if rs.Rule != nil && rs.Rule.Handle == rule.Handle {
-						if activeForwardIDs[rs.ForwardID] {
-							isActive = true
-						}
-						break
-					}
-				}
-				_ = ctr // counter 本身不携带 forwardID 信息
-			}
-		}
-
-		// 如果不在活跃列表中，删除
-		if !isActive {
-			m.conn.DelRule(rule)
-			deleted++
-		}
-	}
-
-	if deleted > 0 {
-		fmt.Printf("🧹 Cleared %d stale DNAT rules\n", deleted)
-	}
-	return m.conn.Flush()
-}
-
-// GetAllKernelRules 获取内核中所有 DNAT 规则（用于调试）
-func (m *Manager) GetAllKernelRules() ([]*nftables.Rule, error) {
-	preroutingChain := &nftables.Chain{
-		Name:  PreroutingChain,
-		Table: m.table,
-	}
-	rules, err := m.conn.GetRules(m.table, preroutingChain)
-	if err != nil {
-		return nil, fmt.Errorf("get prerouting rules: %w", err)
-	}
-
-	var dnatRules []*nftables.Rule
-	for _, rule := range rules {
-		isMasq := false
-		for _, e := range rule.Exprs {
-			if _, ok := e.(*expr.Masq); ok {
-				isMasq = true
-				break
-			}
-		}
-		if !isMasq {
-			dnatRules = append(dnatRules, rule)
-		}
-	}
-	return dnatRules, nil
-}
-
-func (m *Manager) GetCounters() []CounterResult {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
 	var results []CounterResult
 	for _, rs := range m.rules {
-		if rs.Rule != nil {
-			for _, e := range rs.Rule.Exprs {
-				if ctr, ok := e.(*expr.Counter); ok {
-					results = append(results, CounterResult{
-						ForwardID:    rs.ForwardID,
-						UserID:       rs.UserID,
-						UserTunnelID: rs.UserTunnelID,
-						Protocol:     rs.Protocol,
-						Port:         rs.Port,
-						Packets:      ctr.Packets,
-						Bytes:        ctr.Bytes,
-					})
-				}
-			}
-		}
+		up := m.last[lastKey(rs.AcctChain, roleUpload)]
+		down := m.last[lastKey(rs.AcctChain, roleDownload)]
+		results = append(results, CounterResult{
+			ForwardID:    rs.ForwardID,
+			UserID:       rs.UserID,
+			UserTunnelID: rs.UserTunnelID,
+			Protocol:     rs.Protocol,
+			Port:         rs.Port,
+			Packets:      up.packets + down.packets,
+			Bytes:        up.bytes + down.bytes,
+		})
 	}
 	return results
 }
 
-// RefreshCounters fetches latest counter values from kernel via conn.GetRules().
-// It matches kernel rules to stored rules by protocol + port, and returns fresh counter data.
-func (m *Manager) RefreshCounters() []CounterResult {
-	rules, err := m.GetAllKernelRules()
-	if err != nil {
-		return m.GetCounters()
-	}
-
-	// Parse kernel rules: extract proto+port from Cmp expressions, counter values
-	type kernelEntry struct {
-		protocol string
-		port     int
-		packets  uint64
-		bytes    uint64
-	}
-	var kernelEntries []kernelEntry
-
-	for _, rule := range rules {
-		var protocol string
-		var port int
-		var packets, bytes uint64
-		protoFound := false
-		portFound := false
-		counterFound := false
-
-		for _, e := range rule.Exprs {
-			switch ex := e.(type) {
-			case *expr.Cmp:
-				// Proto match (1 byte) or port match (2 bytes)
-				if len(ex.Data) == 1 {
-					switch ex.Data[0] {
-					case unix.IPPROTO_TCP:
-						protocol = "tcp"
-						protoFound = true
-					case unix.IPPROTO_UDP:
-						protocol = "udp"
-						protoFound = true
-					}
-				} else if len(ex.Data) == 2 {
-					port = int(ex.Data[0])<<8 | int(ex.Data[1])
-					portFound = true
-				}
-			case *expr.Counter:
-				packets = ex.Packets
-				bytes = ex.Bytes
-				counterFound = true
-			}
-		}
-
-		if protoFound && portFound && counterFound {
-			kernelEntries = append(kernelEntries, kernelEntry{
-				protocol: protocol,
-				port:     port,
-				packets:  packets,
-				bytes:    bytes,
-			})
-		}
-	}
-
-	// Build port_protocol lookup from kernel entries
-	kernelMap := make(map[string]kernelEntry)
-	for _, ke := range kernelEntries {
-		key := fmt.Sprintf("%s_%d", ke.protocol, ke.port)
-		kernelMap[key] = ke
-	}
-
-	// Match against stored rules and return fresh counters
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
-	var results []CounterResult
-	for _, rs := range m.rules {
-		key := fmt.Sprintf("%s_%d", rs.Protocol, rs.Port)
-		if ke, ok := kernelMap[key]; ok {
-			// Update in-memory counter objects so GetCounters also returns fresh data
-			if rs.Rule != nil {
-				for _, e := range rs.Rule.Exprs {
-					if ctr, ok := e.(*expr.Counter); ok {
-						ctr.Packets = ke.packets
-						ctr.Bytes = ke.bytes
-						break
-					}
-				}
-			}
-			results = append(results, CounterResult{
-				ForwardID:    rs.ForwardID,
-				UserID:       rs.UserID,
-				UserTunnelID: rs.UserTunnelID,
-				Protocol:     ke.protocol,
-				Port:         ke.port,
-				Packets:      ke.packets,
-				Bytes:        ke.bytes,
-			})
-		} else {
-			// Fallback to in-memory counter
-			if rs.Rule != nil {
-				for _, e := range rs.Rule.Exprs {
-					if ctr, ok := e.(*expr.Counter); ok {
-						results = append(results, CounterResult{
-							ForwardID:    rs.ForwardID,
-							UserID:       rs.UserID,
-							UserTunnelID: rs.UserTunnelID,
-							Protocol:     rs.Protocol,
-							Port:         rs.Port,
-							Packets:      ctr.Packets,
-							Bytes:        ctr.Bytes,
-						})
-						break
-					}
-				}
-			}
-		}
-	}
-	return results
-}
-
+// ResetCounters is kept for the ResetNftablesCounters command. Counters are reported as
+// deltas, so it only moves what was counted so far into the next collection.
 func (m *Manager) ResetCounters() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-
 	for _, rs := range m.rules {
-		if rs.Rule != nil {
-			for i, e := range rs.Rule.Exprs {
-				if _, ok := e.(*expr.Counter); ok {
-					rs.Rule.Exprs[i] = &expr.Counter{}
-				}
-			}
-			m.conn.ReplaceRule(rs.Rule)
-		}
+		m.harvestForward(rs.ForwardID, rs.Protocol, rs)
 	}
-	return m.conn.Flush()
+	return nil
 }
 
 func ruleKey(forwardID int64, protocol string) string {
@@ -798,14 +1002,12 @@ func ruleKey(forwardID int64, protocol string) string {
 
 func parseTarget(target string) (string, int) {
 	target = strings.TrimSpace(target)
-	fmt.Printf("DEBUG parseTarget input: %q\n", target)
 	host, portStr, err := net.SplitHostPort(target)
 	if err != nil {
-		fmt.Printf("DEBUG parseTarget SplitHostPort failed: %v\n", err)
+		fmt.Printf("DEBUG parseTarget SplitHostPort(%q) failed: %v\n", target, err)
 		return "", 0
 	}
 	port, _ := strconv.Atoi(portStr)
-	fmt.Printf("DEBUG parseTarget result: host=%q port=%d\n", host, port)
 	return host, port
 }
 
@@ -833,21 +1035,14 @@ func (m *Manager) clearStaleRules() error {
 	deleted := 0
 	for _, rule := range rules {
 		// 保留 MASQUERADE 规则
-		isMasq := false
-		for _, e := range rule.Exprs {
-			if _, ok := e.(*expr.Masq); ok {
-				isMasq = true
-				break
-			}
-		}
-		if isMasq {
-			fmt.Printf("🔒 Keeping MASQUERADE rule\n")
+		if isMasqueradeRule(rule) {
 			continue
 		}
 		// 删除所有 DNAT 规则（面板会重新同步）
-		m.conn.DelRule(rule)
+		if err := m.conn.DelRule(rule); err != nil {
+			return fmt.Errorf("delete stale rule: %w", err)
+		}
 		deleted++
-		fmt.Printf("🗑️  Deleted stale DNAT rule (handle=%d)\n", rule.Handle)
 	}
 
 	if deleted > 0 {

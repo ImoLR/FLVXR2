@@ -32,6 +32,8 @@ type UpdateNftablesRulesRequest struct {
 type DeleteNftablesRulesRequest struct {
 	ForwardIDs []int64  `json:"forward_ids"`
 	Protocols  []string `json:"protocols"`
+	Ports      []int    `json:"ports"`
+	Terminate  bool     `json:"terminate"`
 }
 
 type GetNftablesCountersRequest struct {

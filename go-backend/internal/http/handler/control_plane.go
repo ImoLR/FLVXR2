@@ -2174,6 +2174,10 @@ type DeleteNftablesRulesRequest struct {
 	ForwardIDs []int64  `json:"forward_ids"`
 	Protocols  []string `json:"protocols"`
 	Ports      []int    `json:"ports"`
+	// Terminate also ends the forward's established connections (pause/delete). A rule
+	// re-sync leaves it unset so running connections keep going. Agents before
+	// 3.0.27-fork.8 ignore it.
+	Terminate bool `json:"terminate,omitempty"`
 }
 
 type WGForwardRulePlan struct {
@@ -2481,10 +2485,13 @@ func (h *Handler) deleteNftablesRules(forward *forwardRecord, ports []forwardPor
 		portNumbers = append(portNumbers, fp.Port)
 	}
 
+	// Callers stop the forward (pause, delete, mode switch, keep paused): its established
+	// connections end too, as TerminateConnections does for gost forwards.
 	payload := DeleteNftablesRulesRequest{
 		ForwardIDs: []int64{forward.ID},
 		Protocols:  []string{"tcp", "udp"},
 		Ports:      portNumbers,
+		Terminate:  true,
 	}
 
 	var errs []string
