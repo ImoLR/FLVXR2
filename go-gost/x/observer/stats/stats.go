@@ -66,9 +66,27 @@ func (s *Stats) Get(kind stats.Kind) uint64 {
 	return 0
 }
 
+// ResetTraffic overwrites the traffic counters.
+//
+// Deprecated: storing "current - reported" loses bytes added between the read and the
+// store; use SubtractTraffic to remove bytes that were already reported.
 func (s *Stats) ResetTraffic(reportedInputBytes, reportedOutputBytes uint64) {
 	s.inputBytes.Store(reportedInputBytes)
 	s.outputBytes.Store(reportedOutputBytes)
+}
+
+// SubtractTraffic atomically removes bytes that were read from the counters and reported.
+// Bytes added concurrently stay counted. Callers must not subtract more than they read.
+func (s *Stats) SubtractTraffic(inputBytes, outputBytes uint64) {
+	if s == nil {
+		return
+	}
+	if inputBytes > 0 {
+		s.inputBytes.Add(^(inputBytes - 1))
+	}
+	if outputBytes > 0 {
+		s.outputBytes.Add(^(outputBytes - 1))
+	}
 }
 
 func (s *Stats) Reset() {

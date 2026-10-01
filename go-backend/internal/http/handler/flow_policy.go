@@ -9,7 +9,6 @@ import (
 	"strings"
 	"time"
 
-	"go-backend/internal/store/model"
 	"go-backend/internal/store/repo"
 )
 
@@ -34,37 +33,6 @@ type gostConfigSnapshot struct {
 
 type namedConfigItem struct {
 	Name string `json:"name"`
-}
-
-func (h *Handler) processFlowItem(nodeID int64, item flowItem) {
-	serviceName := strings.TrimSpace(item.N)
-	if serviceName == "" || serviceName == "web_api" {
-		return
-	}
-
-	forwardID, userID, userTunnelID, ok := parseFlowServiceIDs(serviceName)
-	if ok {
-		inFlow, outFlow := h.scaleFlowByTunnel(forwardID, item.D, item.U)
-		_ = h.repo.AddFlow(forwardID, userID, userTunnelID, inFlow, outFlow)
-		if quota, quotaErr := h.repo.AddUserQuotaUsage(userID, inFlow+outFlow, time.Now()); quotaErr == nil {
-			h.enforceUserQuotaIfNeeded(userID, quota)
-		}
-		h.processPeerShareFlowFromForward(forwardID, nodeID, serviceName, item)
-
-		// ✅ 新增：检查 Forward 流量限制
-		h.enforceForwardTrafficLimit(forwardID, inFlow, outFlow)
-
-		if userTunnelID > 0 {
-			h.enforceFlowPolicies(userID, userTunnelID)
-		}
-		return
-	}
-
-	runtimeID, ok := parsePeerShareRuntimeServiceID(serviceName)
-	if !ok {
-		return
-	}
-	h.processPeerShareFlow(runtimeID, item)
 }
 
 func parseFlowServiceIDs(serviceName string) (int64, int64, int64, bool) {
@@ -139,75 +107,6 @@ func parsePeerShareIDFromFederationTunnelName(tunnelName string) (int64, bool) {
 	return shareID, true
 }
 
-func (h *Handler) processPeerShareFlow(runtimeID int64, item flowItem) {
-	if h == nil || h.repo == nil || runtimeID <= 0 {
-		return
-	}
-	runtime, err := h.repo.GetPeerShareRuntimeByID(runtimeID)
-	if err != nil || runtime == nil || runtime.ShareID <= 0 || runtime.Status != 1 {
-		return
-	}
-
-	delta := item.D + item.U
-	if delta <= 0 {
-		return
-	}
-
-	_ = h.repo.AddPeerShareCurrentFlow(runtime.ShareID, delta)
-
-	share, err := h.repo.GetPeerShare(runtime.ShareID)
-	if err != nil || share == nil {
-		return
-	}
-	if !isPeerShareFlowExceeded(share) {
-		return
-	}
-	h.enforcePeerShareFlowLimit(share.ID)
-}
-
-func (h *Handler) processPeerShareFlowFromForward(forwardID int64, nodeID int64, serviceName string, item flowItem) {
-	if h == nil || h.repo == nil || forwardID <= 0 {
-		return
-	}
-
-	delta := item.D + item.U
-	if delta <= 0 {
-		return
-	}
-
-	forward, err := h.getForwardRecord(forwardID)
-	if err != nil || forward == nil {
-		// Forward not found in local database - might be a federation port-forward
-		// Try to find by service name in peer_share_runtime
-		h.processPeerShareFlowByServiceName(nodeID, serviceName, item)
-		return
-	}
-	tunnelName, err := h.repo.GetTunnelName(forward.TunnelID)
-	if err != nil {
-		h.processPeerShareFlowByServiceName(nodeID, serviceName, item)
-		return
-	}
-	shareID, ok := parsePeerShareIDFromFederationTunnelName(tunnelName)
-	if !ok {
-		h.processPeerShareFlowByServiceName(nodeID, serviceName, item)
-		return
-	}
-
-	if err := h.repo.AddPeerShareCurrentFlow(shareID, delta); err != nil {
-		h.processPeerShareFlowByServiceName(nodeID, serviceName, item)
-		return
-	}
-
-	share, err := h.repo.GetPeerShare(shareID)
-	if err != nil || share == nil {
-		return
-	}
-	if !isPeerShareFlowExceeded(share) {
-		return
-	}
-	h.enforcePeerShareFlowLimit(share.ID)
-}
-
 func normalizeForwardRuntimeServiceName(serviceName string) string {
 	name := strings.TrimSpace(serviceName)
 	if strings.HasSuffix(name, "_tcp") {
@@ -217,67 +116,6 @@ func normalizeForwardRuntimeServiceName(serviceName string) string {
 		return strings.TrimSuffix(name, "_udp")
 	}
 	return name
-}
-
-func (h *Handler) processPeerShareFlowByServiceName(nodeID int64, serviceName string, item flowItem) {
-	if h == nil || h.repo == nil || strings.TrimSpace(serviceName) == "" {
-		return
-	}
-
-	delta := item.D + item.U
-	if delta <= 0 {
-		return
-	}
-
-	normalized := normalizeForwardRuntimeServiceName(serviceName)
-	var runtimes []model.PeerShareRuntime
-	var err error
-
-	// Try node-scoped query first if nodeID is valid
-	if nodeID > 0 {
-		runtimes, err = h.repo.ListActiveForwardPeerShareRuntimesByNodeAndServiceName(nodeID, normalized)
-		if err != nil {
-			return
-		}
-		if len(runtimes) == 0 && normalized != serviceName {
-			runtimes, err = h.repo.ListActiveForwardPeerShareRuntimesByNodeAndServiceName(nodeID, serviceName)
-			if err != nil {
-				return
-			}
-		}
-	}
-
-	// Fallback to global query if node-scoped query returned nothing or nodeID is invalid
-	if len(runtimes) == 0 {
-		runtimes, err = h.repo.ListActiveForwardPeerShareRuntimesByServiceName(normalized)
-		if err != nil {
-			return
-		}
-		if len(runtimes) == 0 && normalized != serviceName {
-			runtimes, err = h.repo.ListActiveForwardPeerShareRuntimesByServiceName(serviceName)
-			if err != nil {
-				return
-			}
-		}
-	}
-
-	if len(runtimes) != 1 {
-		if len(runtimes) > 1 {
-			log.Printf("WARN: ambiguous peer share runtime match for service=%s nodeID=%d count=%d", serviceName, nodeID, len(runtimes))
-		}
-		return
-	}
-	runtime := runtimes[0]
-
-	_ = h.repo.AddPeerShareCurrentFlow(runtime.ShareID, delta)
-
-	matchedShare, err := h.repo.GetPeerShare(runtime.ShareID)
-	if err != nil || matchedShare == nil {
-		return
-	}
-	if isPeerShareFlowExceeded(matchedShare) {
-		h.enforcePeerShareFlowLimit(matchedShare.ID)
-	}
 }
 
 func (h *Handler) enforcePeerShareFlowLimit(shareID int64) {
@@ -301,22 +139,6 @@ func (h *Handler) enforcePeerShareFlowLimit(shareID int64) {
 		}
 		_ = h.repo.MarkPeerShareRuntimeReleased(runtime.ID, now)
 	}
-}
-
-func (h *Handler) scaleFlowByTunnel(forwardID int64, inFlow int64, outFlow int64) (int64, int64) {
-	forward, err := h.getForwardRecord(forwardID)
-	if err != nil || forward == nil {
-		return inFlow, outFlow
-	}
-
-	tunnel, err := h.getTunnelRecord(forward.TunnelID)
-	if err != nil || tunnel == nil {
-		return inFlow, outFlow
-	}
-
-	scaledIn := int64(float64(inFlow)*tunnel.TrafficRatio) * tunnel.Flow
-	scaledOut := int64(float64(outFlow)*tunnel.TrafficRatio) * tunnel.Flow
-	return scaledIn, scaledOut
 }
 
 func (h *Handler) enforceFlowPolicies(userID int64, userTunnelID int64) {
@@ -630,8 +452,9 @@ func (h *Handler) speedLimiterExists(name string) bool {
 	return ok
 }
 
-// ✅ 新增：检查 Forward 流量限制
-func (h *Handler) enforceForwardTrafficLimit(forwardID int64, inFlow, outFlow int64) {
+// enforceForwardTrafficLimit pauses a forward whose counters reached its traffic limit.
+// It runs after the flow upload was committed, so the stored counters already include it.
+func (h *Handler) enforceForwardTrafficLimit(forwardID int64) {
 	if h == nil || h.repo == nil || forwardID <= 0 {
 		return
 	}
@@ -641,8 +464,7 @@ func (h *Handler) enforceForwardTrafficLimit(forwardID int64, inFlow, outFlow in
 		return // 未设置流量限制
 	}
 
-	// 计算累计流量（包含本次上报）
-	totalFlow := forward.InFlow + forward.OutFlow + inFlow + outFlow
+	totalFlow := forward.InFlow + forward.OutFlow
 	limitBytes := forward.TrafficLimit * bytesPerGB
 
 	if totalFlow >= limitBytes {
@@ -676,45 +498,37 @@ func (h *Handler) enforceForwardTrafficLimit(forwardID int64, inFlow, outFlow in
 	}
 }
 
-// ✅ 新增：暂停 Forward 规则
+// pauseForward marks a forward paused and stops it on its nodes the same way user and
+// user_tunnel policy pauses do: nftables rules are removed; gost services (whatever
+// user_tunnel id their names carry) are paused and their connections closed, so the
+// forward can be resumed with ResumeService.
 func (h *Handler) pauseForward(forwardID int64, reason string) error {
 	if h == nil || h.repo == nil {
 		return errors.New("invalid handler context")
 	}
 
-	// 更新数据库状态
-	now := time.Now().UnixMilli()
-	if err := h.repo.UpdateForwardStatus(forwardID, 0, now); err != nil {
-		return fmt.Errorf("update forward status: %w", err)
-	}
-
-	// 获取 Forward 信息
 	forward, err := h.getForwardRecord(forwardID)
 	if err != nil {
 		return fmt.Errorf("get forward record: %w", err)
 	}
 
-	// 获取入口端口
-	ports, err := h.listForwardPorts(forwardID)
-	if err != nil {
-		return fmt.Errorf("list forward ports: %w", err)
+	now := time.Now().UnixMilli()
+	if err := h.repo.UpdateForwardStatus(forwardID, 0, now); err != nil {
+		return fmt.Errorf("update forward status: %w", err)
 	}
 
-	// 通知 gost 删除服务
-	serviceBase := buildForwardServiceBaseWithResolvedUserTunnel(forwardID, forward.UserID, 0)
-	for _, fp := range ports {
-		node, nodeErr := h.getNodeRecord(fp.NodeID)
-		if nodeErr != nil {
-			log.Printf("WARN: pauseForward %d: get node %d failed: %v", forwardID, fp.NodeID, nodeErr)
-			continue
+	if strings.EqualFold(forward.Mode, "nftables") {
+		ports, portsErr := h.listForwardPorts(forward.ID)
+		if portsErr != nil {
+			log.Printf("WARN: pauseForward %d: list forward ports failed: %v", forwardID, portsErr)
+		} else if delErr := h.deleteNftablesRules(forward, ports); delErr != nil {
+			log.Printf("WARN: pauseForward %d: delete nftables rules failed: %v", forwardID, delErr)
 		}
-
-		serviceName := serviceBase
-		_, _ = h.sendNodeCommand(node.ID, "DeleteService", map[string]interface{}{
-			"services": []string{serviceName + "_tcp", serviceName + "_udp"},
-		}, false, true)
-
-		log.Printf("Forward %d: deleted service on node %d", forwardID, node.ID)
+	} else {
+		if ctlErr := h.controlForwardServices(forward, "PauseService", false); ctlErr != nil {
+			log.Printf("WARN: pauseForward %d: pause services failed: %v", forwardID, ctlErr)
+		}
+		_ = h.controlForwardServices(forward, "TerminateConnections", false)
 	}
 
 	log.Printf("Forward %d paused: %s", forwardID, reason)

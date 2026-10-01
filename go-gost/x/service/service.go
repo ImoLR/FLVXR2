@@ -420,8 +420,7 @@ func (s *defaultService) observeStats(ctx context.Context) {
 
 			isUpdated := st.IsUpdated()
 			if isUpdated {
-				inputBytes := st.Get(stats.KindInputBytes)
-				outputBytes := st.Get(stats.KindOutputBytes)
+				inputBytes, outputBytes := takeServiceTraffic(st)
 
 				evs := []observer.Event{
 					xstats.StatsEvent{
@@ -436,14 +435,9 @@ func (s *defaultService) observeStats(ctx context.Context) {
 				}
 
 				// 将流量累积到全局管理器，而不是立即上报
+				// (U = output = to the client, D = input = from the client)
 				if outputBytes > 0 || inputBytes > 0 {
-					globalManager := GetGlobalTrafficManager()
-					globalManager.AddTraffic(s.name, int64(outputBytes), int64(inputBytes))
-
-					// 立即归零流量计数（因为已经记录到全局管理器中）
-					if xstats, ok := st.(*xstats.Stats); ok {
-						xstats.ResetTraffic(st.Get(stats.KindInputBytes)-inputBytes, st.Get(stats.KindOutputBytes)-outputBytes)
-					}
+					GetGlobalTrafficManager().AddTraffic(s.name, int64(outputBytes), int64(inputBytes))
 				}
 
 				if err := s.options.observer.Observe(ctx, evs); err != nil {
@@ -456,6 +450,18 @@ func (s *defaultService) observeStats(ctx context.Context) {
 			return
 		}
 	}
+}
+
+// takeServiceTraffic returns the input/output bytes counted since the last call and removes
+// exactly those bytes from the counters, so traffic counted concurrently is kept for the next
+// call instead of being lost.
+func takeServiceTraffic(st stats.Stats) (inputBytes, outputBytes uint64) {
+	inputBytes = st.Get(stats.KindInputBytes)
+	outputBytes = st.Get(stats.KindOutputBytes)
+	if xs, ok := st.(*xstats.Stats); ok {
+		xs.SubtractTraffic(inputBytes, outputBytes)
+	}
+	return inputBytes, outputBytes
 }
 
 type ServiceEvent struct {

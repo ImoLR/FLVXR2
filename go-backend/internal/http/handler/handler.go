@@ -50,6 +50,8 @@ type Handler struct {
 
 	nftablesDomainMu    sync.Mutex
 	nftablesDomainCache map[int64]string
+
+	flowUploads *flowUploadDeduper
 }
 
 // GetForwardConnections 获取指定转发的当前连接数
@@ -121,6 +123,7 @@ func New(repo *repo.Repository, jwtSecret string, fluxVersion string) *Handler {
 		fluxVersion:         fluxVersion,
 		captchaTokens:       make(map[string]int64),
 		nftablesDomainCache: make(map[int64]string),
+		flowUploads:         newFlowUploadDeduper(flowUploadDedupeTTL, flowUploadDedupeMaxEntries),
 	}
 	h.healthCheck = health.NewChecker(repo, h.wsServer)
 	h.qualityProber = newTunnelQualityProber(h)
@@ -1172,31 +1175,6 @@ func (h *Handler) flowConfig(w http.ResponseWriter, r *http.Request) {
 	if err == nil && strings.TrimSpace(rawData) != "" {
 		h.cleanNodeConfigs(node.ID, rawData)
 	}
-	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-	_, _ = w.Write([]byte("ok"))
-}
-
-func (h *Handler) flowUpload(w http.ResponseWriter, r *http.Request) {
-	secret := r.URL.Query().Get("secret")
-	node, _ := h.repo.GetNodeBySecret(secret)
-	if node == nil {
-		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-		_, _ = w.Write([]byte("ok"))
-		return
-	}
-
-	raw, err := readAndDecryptFlowBody(r.Body, secret)
-	if err == nil && strings.TrimSpace(raw) != "" {
-		var items []flowItem
-		if json.Unmarshal([]byte(raw), &items) == nil {
-			nowMs := time.Now().UnixMilli()
-			h.recordTunnelMetricsFromFlowItems(node.ID, items, nowMs)
-			for _, item := range items {
-				h.processFlowItem(node.ID, item)
-			}
-		}
-	}
-
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	_, _ = w.Write([]byte("ok"))
 }

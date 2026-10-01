@@ -7,13 +7,39 @@ import (
 	"time"
 )
 
+// maxPendingReportAge bounds how long one unacknowledged report body is resent unchanged.
+// The panel remembers accepted bodies for longer (30 minutes), so a resend of a body it
+// already counted is recognized. After this age the bytes, which are still accumulated, go
+// into a fresh report.
+const maxPendingReportAge = 10 * time.Minute
+
 // GlobalTrafficManager 全局流量管理器（所有服务共享）
 type GlobalTrafficManager struct {
-	mu            sync.RWMutex
+	mu             sync.RWMutex
 	serviceTraffic map[string]*ServiceTraffic // key: 服务名, value: 流量数据
-	ctx           context.Context
-	cancel        context.CancelFunc
-	reportTicker  *time.Ticker
+	ctx            context.Context
+	cancel         context.CancelFunc
+	reportTicker   *time.Ticker
+
+	// pending is the last report the panel did not acknowledge. It is only used by the
+	// reporting goroutine.
+	pending *pendingTrafficReport
+	now     func() time.Time
+	post    func(ctx context.Context, body []byte) (bool, error)
+}
+
+type reportedTraffic struct {
+	up   int64
+	down int64
+}
+
+// pendingTrafficReport is a report that was sent without an "ok". It is resent byte for byte
+// (same ciphertext), so if the panel had committed it before the answer was lost, the panel
+// acknowledges the resend without counting it again.
+type pendingTrafficReport struct {
+	body     []byte
+	reported map[string]reportedTraffic
+	since    time.Time
 }
 
 // ServiceTraffic 单个服务的流量累积
@@ -38,6 +64,8 @@ func GetGlobalTrafficManager() *GlobalTrafficManager {
 			ctx:            ctx,
 			cancel:         cancel,
 			reportTicker:   time.NewTicker(5 * time.Second),
+			now:            time.Now,
+			post:           postTrafficReportBody,
 		}
 		// 启动定时上报协程
 		go globalManager.startReporting()
@@ -87,77 +115,76 @@ func (m *GlobalTrafficManager) startReporting() {
 
 // collectAndReport 收集所有服务流量并合并上报
 func (m *GlobalTrafficManager) collectAndReport() {
-	m.mu.Lock()
-	
-	// 如果没有流量，直接返回
-	if len(m.serviceTraffic) == 0 {
-		m.mu.Unlock()
-		return
+	now := m.now()
+	if m.pending != nil && now.Sub(m.pending.since) > maxPendingReportAge {
+		fmt.Printf("⚠️ 流量上报 %s 内未确认，改为重新汇总上报\n", maxPendingReportAge)
+		m.pending = nil
 	}
 
-	// 复制当前所有流量数据（避免长时间持锁）
-	trafficSnapshot := make(map[string]*ServiceTraffic)
-	reportData := make(map[string]struct {
-		up   int64
-		down int64
-	})
-
-	for name, traffic := range m.serviceTraffic {
-		traffic.mu.Lock()
-		if traffic.UpBytes > 0 || traffic.DownBytes > 0 {
-			trafficSnapshot[name] = traffic
-			reportData[name] = struct {
-				up   int64
-				down int64
-			}{
-				up:   traffic.UpBytes,
-				down: traffic.DownBytes,
-			}
+	if m.pending == nil {
+		reportData := m.snapshotTraffic()
+		// 如果没有需要上报的流量，返回
+		if len(reportData) == 0 {
+			return
 		}
-		traffic.mu.Unlock()
-	}
-	m.mu.Unlock()
 
-	// 如果没有需要上报的流量，返回
-	if len(reportData) == 0 {
-		return
+		// 构建上报数据数组（保持每个服务独立）
+		reportItems := make([]TrafficReportItem, 0, len(reportData))
+		for serviceName, data := range reportData {
+			reportItems = append(reportItems, TrafficReportItem{
+				N: serviceName, // 保持服务名不变
+				U: data.up,
+				D: data.down,
+			})
+		}
+		body, err := buildTrafficReportBody(reportItems)
+		if err != nil {
+			fmt.Printf("❌ 构建流量上报失败: %v\n", err)
+			return
+		}
+		m.pending = &pendingTrafficReport{body: body, reported: reportData, since: now}
 	}
 
-	// 构建上报数据数组（保持每个服务独立）
-	reportItems := make([]TrafficReportItem, 0, len(reportData))
 	var totalUp, totalDown int64
-	
-	for serviceName, data := range reportData {
-		reportItems = append(reportItems, TrafficReportItem{
-			N: serviceName, // 保持服务名不变
-			U: data.up,
-			D: data.down,
-		})
+	for _, data := range m.pending.reported {
 		totalUp += data.up
 		totalDown += data.down
 	}
 
 	// 批量发送上报请求（一次HTTP请求包含所有服务）
-	success, err := sendBatchTrafficReport(m.ctx, reportItems)
+	success, err := m.post(m.ctx, m.pending.body)
 	if err != nil {
-		fmt.Printf("❌ 全局流量上报失败: %v (总流量: ↑%d ↓%d, %d个服务)\n", err, totalUp, totalDown, len(reportItems))
+		fmt.Printf("❌ 全局流量上报失败: %v (总流量: ↑%d ↓%d, %d个服务)\n", err, totalUp, totalDown, len(m.pending.reported))
 		return
 	}
-
 	if !success {
-		fmt.Printf("⚠️ 全局流量上报未成功 (总流量: ↑%d ↓%d, %d个服务)\n", totalUp, totalDown, len(reportItems))
+		fmt.Printf("⚠️ 全局流量上报未成功 (总流量: ↑%d ↓%d, %d个服务)\n", totalUp, totalDown, len(m.pending.reported))
 		return
 	}
 
 	// 上报成功，清空已上报的流量
-	m.clearReportedTraffic(reportData)
+	m.clearReportedTraffic(m.pending.reported)
+	m.pending = nil
+}
+
+// snapshotTraffic copies the accumulated traffic of every service that has some.
+func (m *GlobalTrafficManager) snapshotTraffic() map[string]reportedTraffic {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	reportData := make(map[string]reportedTraffic)
+	for name, traffic := range m.serviceTraffic {
+		traffic.mu.Lock()
+		if traffic.UpBytes > 0 || traffic.DownBytes > 0 {
+			reportData[name] = reportedTraffic{up: traffic.UpBytes, down: traffic.DownBytes}
+		}
+		traffic.mu.Unlock()
+	}
+	return reportData
 }
 
 // clearReportedTraffic 清空已成功上报的流量
-func (m *GlobalTrafficManager) clearReportedTraffic(reportedData map[string]struct {
-	up   int64
-	down int64
-}) {
+func (m *GlobalTrafficManager) clearReportedTraffic(reportedData map[string]reportedTraffic) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -203,4 +230,3 @@ func (m *GlobalTrafficManager) GetServiceTraffic(serviceName string) (upBytes, d
 	}
 	return
 }
-

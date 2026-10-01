@@ -259,34 +259,44 @@ func (r *Repository) AddUserQuotaUsage(userID int64, usedBytes int64, now time.T
 	if userID <= 0 {
 		return nil, nil
 	}
-	result := &model.UserQuotaView{}
+	var result *model.UserQuotaView
 	err := r.db.Transaction(func(tx *gorm.DB) error {
-		q, err := r.loadOrCreateUserQuotaTx(tx, userID, now)
+		view, err := r.addUserQuotaUsageTx(tx, userID, usedBytes, now)
 		if err != nil {
 			return err
 		}
-		applyUserQuotaWindowRoll(q, now)
-		if usedBytes > 0 {
-			q.DailyUsedBytes += usedBytes
-			q.MonthlyUsedBytes += usedBytes
-		}
-		q.UpdatedTime = now.UnixMilli()
-		if err := tx.Model(&model.UserQuota{}).Where("user_id = ?", userID).Updates(map[string]interface{}{
-			"daily_used_bytes":   q.DailyUsedBytes,
-			"monthly_used_bytes": q.MonthlyUsedBytes,
-			"day_key":            q.DayKey,
-			"month_key":          q.MonthKey,
-			"updated_time":       q.UpdatedTime,
-		}).Error; err != nil {
-			return err
-		}
-		*result = *cloneUserQuotaView(*q)
+		result = view
 		return nil
 	})
 	if err != nil {
 		return nil, err
 	}
 	return normalizeUserQuotaView(result, now), nil
+}
+
+// addUserQuotaUsageTx rolls the user's quota windows and adds usedBytes inside tx.
+// The returned view is not normalized.
+func (r *Repository) addUserQuotaUsageTx(tx *gorm.DB, userID int64, usedBytes int64, now time.Time) (*model.UserQuotaView, error) {
+	q, err := r.loadOrCreateUserQuotaTx(tx, userID, now)
+	if err != nil {
+		return nil, err
+	}
+	applyUserQuotaWindowRoll(q, now)
+	if usedBytes > 0 {
+		q.DailyUsedBytes += usedBytes
+		q.MonthlyUsedBytes += usedBytes
+	}
+	q.UpdatedTime = now.UnixMilli()
+	if err := tx.Model(&model.UserQuota{}).Where("user_id = ?", userID).Updates(map[string]interface{}{
+		"daily_used_bytes":   q.DailyUsedBytes,
+		"monthly_used_bytes": q.MonthlyUsedBytes,
+		"day_key":            q.DayKey,
+		"month_key":          q.MonthKey,
+		"updated_time":       q.UpdatedTime,
+	}).Error; err != nil {
+		return nil, err
+	}
+	return cloneUserQuotaView(*q), nil
 }
 
 func (r *Repository) MarkUserQuotaDisabled(userID int64, pausedForwardIDs []int64, now int64) error {

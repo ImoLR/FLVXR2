@@ -224,40 +224,50 @@ func postJSONWithFallback(ctx context.Context, urls []string, requestBody []byte
 
 // sendBatchTrafficReport 批量发送多个服务的流量报告到HTTP接口
 func sendBatchTrafficReport(ctx context.Context, reportItems []TrafficReportItem) (bool, error) {
+	requestBody, err := buildTrafficReportBody(reportItems)
+	if err != nil {
+		return false, err
+	}
+	return postTrafficReportBody(ctx, requestBody)
+}
+
+// buildTrafficReportBody serializes (and, with a node secret, encrypts) a traffic report.
+// An encrypted body embeds a random nonce, so resending the same bytes lets the panel
+// recognize an upload it already counted.
+func buildTrafficReportBody(reportItems []TrafficReportItem) ([]byte, error) {
+	jsonData, err := json.Marshal(reportItems)
+	if err != nil {
+		return nil, fmt.Errorf("序列化报告数据失败: %v", err)
+	}
+
+	// 如果有加密器，则加密数据
+	if httpAESCrypto == nil {
+		return jsonData, nil
+	}
+	encryptedData, err := httpAESCrypto.Encrypt(jsonData)
+	if err != nil {
+		fmt.Printf("⚠️ 加密流量报告失败，发送原始数据: %v\n", err)
+		return jsonData, nil
+	}
+	// 创建加密消息包装器
+	encryptedMessage := map[string]interface{}{
+		"encrypted": true,
+		"data":      encryptedData,
+		"timestamp": time.Now().Unix(),
+	}
+	requestBody, err := json.Marshal(encryptedMessage)
+	if err != nil {
+		fmt.Printf("⚠️ 序列化加密流量报告失败，发送原始数据: %v\n", err)
+		return jsonData, nil
+	}
+	return requestBody, nil
+}
+
+// postTrafficReportBody posts a prepared traffic report body to the panel.
+func postTrafficReportBody(ctx context.Context, requestBody []byte) (bool, error) {
 	if httpReportURL == "" {
 		return false, fmt.Errorf("流量上报URL未设置")
 	}
-
-	jsonData, err := json.Marshal(reportItems)
-	if err != nil {
-		return false, fmt.Errorf("序列化报告数据失败: %v", err)
-	}
-
-	var requestBody []byte
-
-	// 如果有加密器，则加密数据
-	if httpAESCrypto != nil {
-		encryptedData, err := httpAESCrypto.Encrypt(jsonData)
-		if err != nil {
-			fmt.Printf("⚠️ 加密流量报告失败，发送原始数据: %v\n", err)
-			requestBody = jsonData
-		} else {
-			// 创建加密消息包装器
-			encryptedMessage := map[string]interface{}{
-				"encrypted": true,
-				"data":      encryptedData,
-				"timestamp": time.Now().Unix(),
-			}
-			requestBody, err = json.Marshal(encryptedMessage)
-			if err != nil {
-				fmt.Printf("⚠️ 序列化加密流量报告失败，发送原始数据: %v\n", err)
-				requestBody = jsonData
-			}
-		}
-	} else {
-		requestBody = jsonData
-	}
-
 	return postJSONWithFallback(
 		ctx,
 		strings.Split(httpReportURL, ","),
