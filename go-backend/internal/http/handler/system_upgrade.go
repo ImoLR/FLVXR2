@@ -32,6 +32,10 @@ var safeBackendContainerPattern = regexp.MustCompile(`^[A-Za-z0-9_.-]+$`)
 var enableIPv6ComposePattern = regexp.MustCompile(`(?im)^\s*enable_ipv6\s*:\s*['"]?true['"]?\s*(?:#.*)?$`)
 var systemUpgradeReleaseBaseURL = githubHTMLBase
 
+// panelImageCleanupPattern selects old panel images to remove after an upgrade:
+// current ImoLR panel images plus any legacy iKeilo images.
+const panelImageCleanupPattern = `ghcr\.io/(ikeilo/|imolr/flvxr2-svc-)`
+
 type systemUpgradeExecutor struct {
 	deployDir        string
 	backendContainer string
@@ -192,7 +196,7 @@ func (e *systemUpgradeExecutor) helperScript() string {
 		`NEW_VER=$(grep '^FLUX_VERSION=' .env | cut -d= -f2 | tr -d '\r' | tr -d '"' | tr -d "'" || true)`,
 
 		// 兼容 Nerdctl 和标准 Docker 的智能提取逻辑
-		`for img in $(docker images | grep -E 'ghcr.io/ikeilo' | awk '{if ($1 ~ /:/) print $1; else print $1":"$2}'); do`,
+		`for img in $(docker images | grep -E '` + panelImageCleanupPattern + `' | awk '{if ($1 ~ /:/) print $1; else print $1":"$2}'); do`,
 		`  TAG=$(echo "$img" | awk -F: '{print $NF}')`,
 		`  if [ -n "$NEW_VER" ] && [ "$TAG" = "$NEW_VER" ]; then`,
 		`    continue`,

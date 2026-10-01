@@ -672,9 +672,9 @@ update_panel() {
   sleep 10
   
   # 解决 Nerdctl/Docker 格式不兼容以及 $1 提取错误 (如 Tag 和 ID 粘连) 的问题
-  # 使用正则提取标准镜像格式：ghcr.io/ikeilo/<名称>:<版本>
+  # 使用正则提取标准镜像格式：ghcr.io/imolr/flvxr2-svc-<名称>:<版本>（兼容清理旧的 ghcr.io/ikeilo/<名称>:<版本>）
   # 排除当前最新版本 $UPDATE_VERSION
-  OLD_IMAGES=$(docker images 2>/dev/null | grep -v "WARNING" | grep -oE 'ghcr.io/ikeilo/[^:]+:[^[:space:]":]+' | grep -v ":${UPDATE_VERSION}$" | sort -u)
+  OLD_IMAGES=$(docker images 2>/dev/null | grep -v "WARNING" | grep -oE 'ghcr\.io/(ikeilo/|imolr/flvxr2-svc-)[^:]+:[^[:space:]":]+' | grep -v ":${UPDATE_VERSION}$" | sort -u)
   
   if [ -n "$OLD_IMAGES" ]; then
     echo " 发现旧版本面板镜像，正在强制删除："

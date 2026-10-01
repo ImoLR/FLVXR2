@@ -355,11 +355,6 @@ func (h *Handler) redeployNodeRuntime(nodeID int64) {
 	}
 }
 
-type PanelUpgradeRequest struct {
-	Version string `json:"version"`
-	Channel string `json:"channel"`
-}
-
 type PanelUpgradeCheckResponse struct {
 	CurrentVersion string `json:"currentVersion"`
 	LatestVersion  string `json:"latestVersion"`
@@ -451,52 +446,11 @@ func (h *Handler) panelReleases(w http.ResponseWriter, r *http.Request) {
 	response.WriteJSON(w, response.OK(items))
 }
 
+// panelUpgrade is the legacy upgrade endpoint. It shares the version-pinned
+// release flow of systemUpgrade instead of running the main-branch
+// panel_install.sh, which resolves releases from a different repository.
 func (h *Handler) panelUpgrade(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		response.WriteJSON(w, response.ErrDefault("请求失败"))
-		return
-	}
-
-	var req PanelUpgradeRequest
-	if err := decodeJSON(r.Body, &req); err != nil {
-		response.WriteJSON(w, response.ErrDefault("请求参数错误"))
-		return
-	}
-
-	channel := normalizeReleaseChannel(req.Channel)
-	targetVersion := strings.TrimSpace(req.Version)
-	if targetVersion == "" {
-		var err error
-		targetVersion, err = resolveLatestReleaseByChannel(channel)
-		if err != nil {
-			response.WriteJSON(w, response.Err(-2, fmt.Sprintf("获取最新版本失败：%v", err)))
-			return
-		}
-	}
-
-	currentVersion := h.GetFluxVersion()
-
-	// 使用 panel_install.sh 脚本升级（更可靠）
-	go func() {
-		fmt.Printf("开始升级面板：%s -> %s\n", currentVersion, targetVersion)
-
-		// 下载并执行 panel_install.sh
-		cmd := exec.Command("bash", "-c", `
-			curl -L https://raw.githubusercontent.com/ImoLR/FLVXR2/main/panel_install.sh -o /tmp/panel_install.sh && \
-			chmod +x /tmp/panel_install.sh && \
-			echo -e "2\n" | /tmp/panel_install.sh
-		`)
-		output, err := cmd.CombinedOutput()
-		if err != nil {
-			fmt.Printf("面板升级失败：%v\n输出：%s\n", err, string(output))
-			return
-		}
-		fmt.Printf("面板升级完成：%s\n", string(output))
-	}()
-
-	response.WriteJSON(w, response.OK(map[string]string{
-		"message": "升级任务已提交，面板正在后台升级，完成后将自动重启",
-	}))
+	h.systemUpgrade(w, r)
 }
 
 func (h *Handler) broadcastPanelUpgradeProgress(stage string, percent int, message string, hasError bool) {
