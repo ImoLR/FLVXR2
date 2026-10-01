@@ -42,13 +42,16 @@ Related problems found while verifying:
   nftables total until the node agent is upgraded (no production tunnel uses 单向).
 
 ## Tasks
-- [ ] Billing: `billTunnelFlow` with the new 单向/双向 semantics + unit tests
-- [ ] Flow ingestion: resolve forward owner/tunnel/user_tunnel from the DB (fallback to the
-  parsed ids only when the forward no longer exists), apply a whole upload batch in one
+- [x] Billing: `billTunnelFlow` with the new 单向/双向 semantics + unit tests
+- [x] Flow ingestion: resolve forward owner/tunnel/user_tunnel from the DB (fallback to the
+  parsed ids only when the forward no longer exists and the name is not a federation
+  runtime of another panel; deleted users are not billed), apply a whole upload batch in one
   transaction, enforcement after commit, tunnel metrics after commit
-- [ ] `/flow/upload`: non-`ok` for decrypt/parse/DB failures (unknown secret still `ok`);
-  de-duplicate identical encrypted bodies per node (resend after timeout)
-- [ ] Forward traffic limit: no double-added delta; pause via the standard pause path
+- [x] `/flow/upload`: non-`ok` for decrypt/parse/DB failures (unknown secret still `ok`);
+  de-duplicate identical encrypted bodies per node (resend after timeout); answer before the
+  (serialized) enforcement runs so slow node commands cannot push the agent past its 5s
+  timeout and make it resend committed bytes
+- [x] Forward traffic limit: no double-added delta; pause via the standard pause path
 - [ ] Agent stats: atomic subtract of the reported bytes + race test
 - [ ] Agent traffic manager: resend the same pending body until acknowledged (bounded)
 - [ ] nftables: count in filter chains (forward/input/output -> `accounting`) by conntrack

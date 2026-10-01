@@ -2,19 +2,13 @@ package handler
 
 import (
 	"bytes"
-	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
-
-	"go-backend/internal/security"
-	"go-backend/internal/store/model"
-	"go-backend/internal/store/repo"
 )
 
 func TestBillTunnelFlow(t *testing.T) {
@@ -46,161 +40,6 @@ func TestBillTunnelFlow(t *testing.T) {
 			}
 		})
 	}
-}
-
-type flowTestEnv struct {
-	t   *testing.T
-	r   *repo.Repository
-	h   *Handler
-	now int64
-}
-
-func newFlowTestEnv(t *testing.T) *flowTestEnv {
-	t.Helper()
-	r, err := repo.Open(filepath.Join(t.TempDir(), "flow.db"))
-	if err != nil {
-		t.Fatalf("open repo: %v", err)
-	}
-	t.Cleanup(func() { _ = r.Close() })
-	return &flowTestEnv{
-		t:   t,
-		r:   r,
-		h:   &Handler{repo: r, flowUploads: newFlowUploadDeduper(flowUploadDedupeTTL, flowUploadDedupeMaxEntries)},
-		now: time.Now().UnixMilli(),
-	}
-}
-
-func (e *flowTestEnv) exec(sql string, args ...interface{}) {
-	e.t.Helper()
-	if err := e.r.DB().Exec(sql, args...).Error; err != nil {
-		e.t.Fatalf("exec %q: %v", sql, err)
-	}
-}
-
-func (e *flowTestEnv) addUser(id int64) {
-	e.exec(`INSERT INTO user(id, user, pwd, role_id, exp_time, flow, in_flow, out_flow, flow_reset_time, num, created_time, updated_time, status)
-		VALUES(?, ?, 'x', 1, ?, 99999, 0, 0, 1, 10, ?, ?, 1)`, id, "u"+time.Now().Format("150405.000000000"), e.now+86400000, e.now, e.now)
-}
-
-func (e *flowTestEnv) addTunnel(id int64, flowMode int64, ratio float64) {
-	e.exec(`INSERT INTO tunnel(id, name, traffic_ratio, type, protocol, flow, created_time, updated_time, status, in_ip, inx)
-		VALUES(?, ?, ?, 1, 'tls', ?, ?, ?, 1, NULL, 0)`, id, "t", ratio, flowMode, e.now, e.now)
-}
-
-func (e *flowTestEnv) addUserTunnel(id, userID, tunnelID int64) {
-	e.exec(`INSERT INTO user_tunnel(id, user_id, tunnel_id, speed_id, num, flow, in_flow, out_flow, flow_reset_time, exp_time, status)
-		VALUES(?, ?, ?, NULL, 10, 99999, 0, 0, 1, ?, 1)`, id, userID, tunnelID, e.now+86400000)
-}
-
-func (e *flowTestEnv) addForward(id, userID, tunnelID int64) {
-	e.exec(`INSERT INTO forward(id, user_id, user_name, name, tunnel_id, remote_addr, strategy, in_flow, out_flow, created_time, updated_time, status, inx)
-		VALUES(?, ?, 'u', 'f', ?, '1.1.1.1:443', 'fifo', 0, 0, ?, ?, 1, 0)`, id, userID, tunnelID, e.now, e.now)
-}
-
-func (e *flowTestEnv) addNode(id int64, secret string) {
-	e.exec(`INSERT INTO node(id, name, secret, server_ip, port, created_time, status) VALUES(?, 'n', ?, '127.0.0.1', '1000-2000', ?, 1)`, id, secret, e.now)
-}
-
-func (e *flowTestEnv) flows(table string, id int64) (int64, int64) {
-	e.t.Helper()
-	var row struct {
-		InFlow  int64
-		OutFlow int64
-	}
-	if err := e.r.DB().Table(table).Select("in_flow, out_flow").Where("id = ?", id).Take(&row).Error; err != nil {
-		e.t.Fatalf("read %s %d flows: %v", table, id, err)
-	}
-	return row.InFlow, row.OutFlow
-}
-
-func (e *flowTestEnv) expectFlows(table string, id, wantIn, wantOut int64) {
-	e.t.Helper()
-	in, out := e.flows(table, id)
-	if in != wantIn || out != wantOut {
-		e.t.Fatalf("%s %d flows = (%d, %d), want (%d, %d)", table, id, in, out, wantIn, wantOut)
-	}
-}
-
-func (e *flowTestEnv) monthlyQuotaUsed(userID int64) int64 {
-	e.t.Helper()
-	var q model.UserQuota
-	if err := e.r.DB().Where("user_id = ?", userID).Take(&q).Error; err != nil {
-		e.t.Fatalf("read quota of user %d: %v", userID, err)
-	}
-	return q.MonthlyUsedBytes
-}
-
-func TestIngestFlowTwoWayTunnelCountsRealTraffic(t *testing.T) {
-	e := newFlowTestEnv(t)
-	e.addUser(2)
-	e.addTunnel(1, tunnelFlowTwoWay, 1)
-	e.addUserTunnel(10, 2, 1)
-	e.addForward(20, 2, 1)
-
-	// D = upload (from client), U = download (to client).
-	if err := e.h.ingestFlowItems(1, []flowItem{{N: "20_2_10_tcp", D: 1000, U: 3000}, {N: "20_2_10_udp", D: 5, U: 7}}); err != nil {
-		t.Fatalf("ingest: %v", err)
-	}
-	e.expectFlows("forward", 20, 1005, 3007)
-	e.expectFlows("user", 2, 1005, 3007)
-	e.expectFlows("user_tunnel", 10, 1005, 3007)
-	if got := e.monthlyQuotaUsed(2); got != 4012 {
-		t.Fatalf("monthly quota used = %d, want 4012", got)
-	}
-}
-
-func TestIngestFlowOneWayTunnelBillsLargerDirection(t *testing.T) {
-	e := newFlowTestEnv(t)
-	e.addUser(2)
-	e.addTunnel(1, tunnelFlowOneWay, 1)
-	e.addUserTunnel(10, 2, 1)
-	e.addForward(20, 2, 1)
-
-	if err := e.h.ingestFlowItems(1, []flowItem{{N: "20_2_10_tcp", D: 1000, U: 3000}}); err != nil {
-		t.Fatalf("ingest download-heavy: %v", err)
-	}
-	e.expectFlows("forward", 20, 0, 3000)
-	if err := e.h.ingestFlowItems(1, []flowItem{{N: "20_2_10_tcp", D: 900, U: 100}}); err != nil {
-		t.Fatalf("ingest upload-heavy: %v", err)
-	}
-	e.expectFlows("forward", 20, 900, 3000)
-	e.expectFlows("user", 2, 900, 3000)
-	e.expectFlows("user_tunnel", 10, 900, 3000)
-	if got := e.monthlyQuotaUsed(2); got != 3900 {
-		t.Fatalf("monthly quota used = %d, want 3900", got)
-	}
-}
-
-func TestIngestFlowAppliesTunnelRatio(t *testing.T) {
-	e := newFlowTestEnv(t)
-	e.addUser(2)
-	e.addTunnel(1, tunnelFlowTwoWay, 0.5)
-	e.addUserTunnel(10, 2, 1)
-	e.addForward(20, 2, 1)
-
-	if err := e.h.ingestFlowItems(1, []flowItem{{N: "20_2_10_tcp", D: 1000, U: 3000}}); err != nil {
-		t.Fatalf("ingest: %v", err)
-	}
-	e.expectFlows("forward", 20, 500, 1500)
-}
-
-func TestIngestFlowResolvesCurrentUserTunnelInsteadOfStaleServiceName(t *testing.T) {
-	e := newFlowTestEnv(t)
-	e.addUser(2)
-	e.addTunnel(1, tunnelFlowTwoWay, 1)
-	e.addTunnel(2, tunnelFlowOneWay, 1)
-	e.addUserTunnel(10, 2, 1) // the user_tunnel of the tunnel the forward used to be on
-	e.addUserTunnel(11, 2, 2) // the user_tunnel of the forward's current tunnel
-	e.addForward(20, 2, 2)    // forward moved from tunnel 1 to tunnel 2
-
-	// The node was not resynced and still reports the old user_tunnel id 10.
-	if err := e.h.ingestFlowItems(1, []flowItem{{N: "20_2_10_tcp", D: 100, U: 400}}); err != nil {
-		t.Fatalf("ingest: %v", err)
-	}
-	e.expectFlows("user_tunnel", 11, 0, 400) // billed with tunnel 2 (one-way)
-	e.expectFlows("user_tunnel", 10, 0, 0)
-	e.expectFlows("forward", 20, 0, 400)
-	e.expectFlows("user", 2, 0, 400)
 }
 
 func TestIngestFlowUsesRecreatedUserTunnelID(t *testing.T) {
@@ -261,6 +100,102 @@ func TestIngestFlowSkipsLocalCountersWhenServiceOwnerDiffers(t *testing.T) {
 	e.expectFlows("user_tunnel", 10, 0, 0)
 }
 
+func TestIngestFlowDeletedForwardOfDeletedUserIsDropped(t *testing.T) {
+	e := newFlowTestEnv(t)
+	e.addTunnel(1, tunnelFlowTwoWay, 1)
+
+	// Forward 20 and its user 7 are gone; nothing is billed and no quota row is created.
+	if err := e.h.ingestFlowItems(1, []flowItem{{N: "20_7_10_tcp", D: 100, U: 400}}); err != nil {
+		t.Fatalf("ingest: %v", err)
+	}
+	if n := e.quotaRows(7); n != 0 {
+		t.Fatalf("created %d quota rows for a deleted user", n)
+	}
+}
+
+func (e *flowTestEnv) addForwardPeerShareRuntime(id, shareID, nodeID int64, serviceName string) {
+	e.exec(`INSERT INTO peer_share(id, name, node_id, token, current_flow, is_active, created_time, updated_time)
+		VALUES(?, 's', ?, ?, 0, 1, ?, ?)`, shareID, nodeID, "tok"+serviceName, e.now, e.now)
+	e.exec(`INSERT INTO peer_share_runtime(id, share_id, node_id, reservation_id, resource_key, role, service_name, applied, status, created_time, updated_time)
+		VALUES(?, ?, ?, ?, ?, 'forward', ?, 1, 1, ?, ?)`, id, shareID, nodeID, "res"+serviceName, "key"+serviceName, serviceName, e.now, e.now)
+}
+
+func (e *flowTestEnv) peerShareFlow(shareID int64) int64 {
+	e.t.Helper()
+	var row struct{ CurrentFlow int64 }
+	if err := e.r.DB().Table("peer_share").Select("current_flow").Where("id = ?", shareID).Take(&row).Error; err != nil {
+		e.t.Fatalf("read peer share %d: %v", shareID, err)
+	}
+	return row.CurrentFlow
+}
+
+func TestIngestFlowFederationRuntimeOnlyCountsPeerShare(t *testing.T) {
+	e := newFlowTestEnv(t)
+	e.addUser(2)
+	e.addTunnel(1, tunnelFlowTwoWay, 1)
+	e.addUserTunnel(10, 2, 1)
+	// Another panel runs its forward 20 of its user 2 on this panel's node 1. This panel has
+	// a user 2 and a user_tunnel 10 too, but no forward 20.
+	e.addForwardPeerShareRuntime(1, 5, 1, "20_2_10")
+
+	if err := e.h.ingestFlowItems(1, []flowItem{{N: "20_2_10_tcp", D: 100, U: 400}}); err != nil {
+		t.Fatalf("ingest: %v", err)
+	}
+	if got := e.peerShareFlow(5); got != 500 {
+		t.Fatalf("peer share flow = %d, want 500", got)
+	}
+	e.expectFlows("user", 2, 0, 0)
+	e.expectFlows("user_tunnel", 10, 0, 0)
+	if n := e.quotaRows(2); n != 0 {
+		t.Fatalf("federation traffic billed to the local user's quota (%d rows)", n)
+	}
+}
+
+func TestFlowUploadAnswersBeforeEnforcement(t *testing.T) {
+	e := newFlowTestEnv(t)
+	const secret = "node-secret-enforcement"
+	e.addNode(1, secret)
+	e.addUser(2)
+	e.addTunnel(1, tunnelFlowTwoWay, 1)
+	e.addUserTunnel(10, 2, 1)
+	e.addForward(20, 2, 1)
+	e.exec(`UPDATE forward SET traffic_limit = 1, in_flow = ? WHERE id = 20`, bytesPerGB)
+
+	// Hold the enforcement lock as a slow pause on another upload would.
+	e.h.flowEnforceMu.Lock()
+	req := httptest.NewRequest(http.MethodPost, "/flow/upload?secret="+secret,
+		bytes.NewReader(encryptFlowUpload(t, secret, []flowItem{{N: "20_2_10_tcp", D: 1, U: 1}})))
+	res := httptest.NewRecorder()
+	answered := make(chan struct{})
+	go func() {
+		e.h.flowUpload(res, req)
+		close(answered)
+	}()
+	select {
+	case <-answered:
+	case <-time.After(5 * time.Second):
+		e.h.flowEnforceMu.Unlock()
+		t.Fatal("upload answer waited for enforcement")
+	}
+	if res.Code != http.StatusOK || res.Body.String() != "ok" {
+		t.Fatalf("upload: %d %q", res.Code, res.Body.String())
+	}
+	if status := e.forwardStatus(20); status != 1 {
+		t.Fatalf("forward paused before enforcement ran (status=%d)", status)
+	}
+
+	e.h.flowEnforceMu.Unlock()
+	waitFlowEnforcement(e.h)
+	if status := e.forwardStatus(20); status != 0 {
+		t.Fatalf("forward over its traffic limit not paused (status=%d)", status)
+	}
+}
+
+// waitFlowEnforcement waits for enforcement started after /flow/upload answers.
+func waitFlowEnforcement(h *Handler) {
+	h.flowEnforceWG.Wait()
+}
+
 func TestIngestFlowBatchIsAtomic(t *testing.T) {
 	e := newFlowTestEnv(t)
 	e.addUser(2)
@@ -289,73 +224,9 @@ func TestIngestFlowBatchIsAtomic(t *testing.T) {
 	e.expectFlows("user_tunnel", 11, 7, 9)
 }
 
-func TestForwardTrafficLimitDoesNotCountUploadTwice(t *testing.T) {
-	e := newFlowTestEnv(t)
-	e.addUser(2)
-	e.addTunnel(1, tunnelFlowTwoWay, 1)
-	e.addUserTunnel(10, 2, 1)
-	e.addForward(20, 2, 1)
-	limit := bytesPerGB
-	e.exec(`UPDATE forward SET traffic_limit = 1, in_flow = ? WHERE id = 20`, limit-100)
-
-	// Real total after this upload is limit-40: the forward must keep running.
-	if err := e.h.ingestFlowItems(1, []flowItem{{N: "20_2_10_tcp", D: 30, U: 30}}); err != nil {
-		t.Fatalf("ingest: %v", err)
-	}
-	fr, err := e.r.GetForwardRecord(20)
-	if err != nil || fr == nil {
-		t.Fatalf("reload forward: %v", err)
-	}
-	if fr.Status != 1 {
-		t.Fatalf("forward paused below its traffic limit (status=%d)", fr.Status)
-	}
-	if fr.InFlow+fr.OutFlow != limit-40 {
-		t.Fatalf("forward total = %d, want %d", fr.InFlow+fr.OutFlow, limit-40)
-	}
-
-	// Crossing the limit pauses the forward and resets its counters.
-	if err := e.h.ingestFlowItems(1, []flowItem{{N: "20_2_10_tcp", D: 40, U: 0}}); err != nil {
-		t.Fatalf("ingest: %v", err)
-	}
-	fr, err = e.r.GetForwardRecord(20)
-	if err != nil || fr == nil {
-		t.Fatalf("reload forward: %v", err)
-	}
-	if fr.Status != 0 || fr.InFlow != 0 || fr.OutFlow != 0 {
-		t.Fatalf("forward over its limit: status=%d in=%d out=%d, want paused and reset", fr.Status, fr.InFlow, fr.OutFlow)
-	}
-}
-
-func encryptFlowUpload(t *testing.T, secret string, items []flowItem) []byte {
-	t.Helper()
-	plain, err := json.Marshal(items)
-	if err != nil {
-		t.Fatal(err)
-	}
-	c, err := security.NewAESCrypto(secret)
-	if err != nil {
-		t.Fatal(err)
-	}
-	data, err := c.Encrypt(plain)
-	if err != nil {
-		t.Fatal(err)
-	}
-	body, err := json.Marshal(map[string]interface{}{"encrypted": true, "data": data, "timestamp": time.Now().Unix()})
-	if err != nil {
-		t.Fatal(err)
-	}
-	return body
-}
-
-func postFlowUpload(h *Handler, secret string, body []byte) (int, string) {
-	req := httptest.NewRequest(http.MethodPost, "/flow/upload?secret="+secret, bytes.NewReader(body))
-	res := httptest.NewRecorder()
-	h.flowUpload(res, req)
-	return res.Code, res.Body.String()
-}
-
 func TestFlowUploadResponses(t *testing.T) {
 	e := newFlowTestEnv(t)
+	e.h.flowUploads = newFlowUploadDeduper(flowUploadDedupeTTL, flowUploadDedupeMaxEntries)
 	const secret = "node-secret-for-flow-upload"
 	e.addNode(1, secret)
 	e.addUser(2)

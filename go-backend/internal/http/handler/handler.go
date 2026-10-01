@@ -51,7 +51,10 @@ type Handler struct {
 	nftablesDomainMu    sync.Mutex
 	nftablesDomainCache map[int64]string
 
-	flowUploads *flowUploadDeduper
+	flowUploads   *flowUploadDeduper
+	flowEnforceMu sync.Mutex
+	// flowEnforceWG tracks enforcement started after a /flow/upload answer (tests wait on it).
+	flowEnforceWG sync.WaitGroup
 }
 
 // GetForwardConnections 获取指定转发的当前连接数

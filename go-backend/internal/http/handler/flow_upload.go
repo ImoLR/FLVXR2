@@ -129,7 +129,12 @@ func (h *Handler) flowUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	process := func() error { return h.ingestFlowItems(node.ID, items) }
+	var enforce func()
+	process := func() error {
+		var commitErr error
+		enforce, commitErr = h.commitFlowItems(node.ID, items)
+		return commitErr
+	}
 	if dedupeKey != "" && h.flowUploads != nil {
 		err = h.flowUploads.run(strconv.FormatInt(node.ID, 10)+":"+dedupeKey, process)
 	} else {
@@ -141,6 +146,21 @@ func (h *Handler) flowUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeFlowUploadText(w, http.StatusOK, "ok")
+
+	// Pausing forwards waits for node answers; the agent gives up after 5s and would send the
+	// already committed bytes again, so the answer does not wait for enforcement.
+	if enforce != nil {
+		h.flowEnforceWG.Add(1)
+		go func() {
+			defer h.flowEnforceWG.Done()
+			defer func() {
+				if rec := recover(); rec != nil {
+					log.Printf("flow enforcement panicked node_id=%d: %v", node.ID, rec)
+				}
+			}()
+			enforce()
+		}()
+	}
 }
 
 var flowUploadFailureLog = struct {

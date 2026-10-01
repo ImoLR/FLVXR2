@@ -101,7 +101,9 @@ func addFlowDelta(m map[int64]repo.FlowCounterDelta, id, in, out int64) {
 	m[id] = d
 }
 
-func (b *flowIngestBatch) addLocalFlow(forwardID, userID, userTunnelID, in, out int64, forwardExists bool) {
+// addLocalFlow adds billed bytes to a forward (when it exists), its user, user_tunnel and the
+// user's daily/monthly quota (when the user exists).
+func (b *flowIngestBatch) addLocalFlow(forwardID, userID, userTunnelID, in, out int64, forwardExists, userExists bool) {
 	if forwardExists {
 		addFlowDelta(b.write.Forwards, forwardID, in, out)
 		if _, ok := b.seenForwards[forwardID]; !ok {
@@ -118,7 +120,7 @@ func (b *flowIngestBatch) addLocalFlow(forwardID, userID, userTunnelID, in, out 
 			b.policyChecks = append(b.policyChecks, check)
 		}
 	}
-	if userID > 0 {
+	if userID > 0 && userExists {
 		b.write.QuotaUsage[userID] += in + out
 		if _, ok := b.seenQuotaUsers[userID]; !ok {
 			b.seenQuotaUsers[userID] = struct{}{}
@@ -146,6 +148,7 @@ type flowIngestCache struct {
 	tunnelNames map[int64]string
 	userTunnels map[[2]int64]int64
 	utRecords   map[int64]*model.UserTunnel
+	users       map[int64]bool
 }
 
 func newFlowIngestCache(r *repo.Repository) *flowIngestCache {
@@ -156,7 +159,24 @@ func newFlowIngestCache(r *repo.Repository) *flowIngestCache {
 		tunnelNames: map[int64]string{},
 		userTunnels: map[[2]int64]int64{},
 		utRecords:   map[int64]*model.UserTunnel{},
+		users:       map[int64]bool{},
 	}
+}
+
+// userExists reports whether the user still exists.
+func (c *flowIngestCache) userExists(id int64) (bool, error) {
+	if id <= 0 {
+		return false, nil
+	}
+	if v, ok := c.users[id]; ok {
+		return v, nil
+	}
+	u, err := c.repo.GetUserByID(id)
+	if err != nil {
+		return false, err
+	}
+	c.users[id] = u != nil
+	return u != nil, nil
 }
 
 // forward returns (nil, nil) when the forward does not exist.
@@ -234,35 +254,55 @@ func (h *Handler) processFlowItem(nodeID int64, item flowItem) error {
 	return h.ingestFlowItems(nodeID, []flowItem{item})
 }
 
-// ingestFlowItems processes one agent flow upload. Every counter update of the upload is
-// written in a single transaction: if it fails nothing is written and the error is returned,
-// so the agent keeps the bytes and resends them. Tunnel metrics and enforcement (quota,
-// traffic limit, flow policy and peer share pauses) run only after a successful commit.
+// ingestFlowItems processes one agent flow upload and runs the follow-up enforcement before
+// returning; see commitFlowItems.
 func (h *Handler) ingestFlowItems(nodeID int64, items []flowItem) error {
+	enforce, err := h.commitFlowItems(nodeID, items)
+	if err != nil {
+		return err
+	}
+	if enforce != nil {
+		enforce()
+	}
+	return nil
+}
+
+// commitFlowItems writes every counter update of one agent flow upload in a single
+// transaction: if it fails nothing is written and the error is returned, so the agent keeps
+// the bytes and resends them. Tunnel metrics are recorded after a successful commit. The
+// returned function runs the follow-up enforcement (quota, traffic limit, flow policy and peer
+// share pauses); it may send node commands and take a while, so /flow/upload runs it after
+// answering the agent.
+func (h *Handler) commitFlowItems(nodeID int64, items []flowItem) (func(), error) {
 	if h == nil || h.repo == nil {
-		return errors.New("repository not initialized")
+		return nil, errors.New("repository not initialized")
 	}
 	if len(items) == 0 {
-		return nil
+		return nil, nil
 	}
 
 	batch := newFlowIngestBatch()
 	cache := newFlowIngestCache(h.repo)
 	for _, item := range items {
 		if err := h.planFlowItem(batch, cache, nodeID, item); err != nil {
-			return fmt.Errorf("resolve flow item %q: %w", item.N, err)
+			return nil, fmt.Errorf("resolve flow item %q: %w", item.N, err)
 		}
 	}
 
 	now := time.Now()
 	quotas, err := h.repo.ApplyFlowBatch(batch.write, now)
 	if err != nil {
-		return fmt.Errorf("apply flow batch: %w", err)
+		return nil, fmt.Errorf("apply flow batch: %w", err)
 	}
 
 	h.recordTunnelMetricsFromFlowItems(nodeID, items, now.UnixMilli())
-	h.enforceFlowBatch(batch, quotas)
-	return nil
+	return func() {
+		// Uploads of several nodes may finish together; checks of the same forward or user
+		// must not pause and reset it twice.
+		h.flowEnforceMu.Lock()
+		defer h.flowEnforceMu.Unlock()
+		h.enforceFlowBatch(batch, quotas)
+	}, nil
 }
 
 func (h *Handler) planFlowItem(b *flowIngestBatch, c *flowIngestCache, nodeID int64, item flowItem) error {
@@ -307,8 +347,7 @@ func (h *Handler) planForwardFlow(b *flowIngestBatch, c *flowIngestCache, nodeID
 		return err
 	}
 
-	switch {
-	case forward != nil && forward.UserID == parsedUserID:
+	if forward != nil && forward.UserID == parsedUserID {
 		userTunnelID, err := c.userTunnelID(forward.UserID, forward.TunnelID)
 		if err != nil {
 			return err
@@ -318,32 +357,56 @@ func (h *Handler) planForwardFlow(b *flowIngestBatch, c *flowIngestCache, nodeID
 			return err
 		}
 		in, out := billFlowForTunnel(tunnel, upload, download)
-		b.addLocalFlow(forward.ID, forward.UserID, userTunnelID, in, out, true)
-	case forward != nil:
-		// The service carries another owner than this panel's forward with the same id
-		// (e.g. a federation runtime with a colliding forward id): it is not this forward's
-		// traffic, so local counters are left alone. Peer share flow is matched below.
-	default:
-		var tunnel *tunnelRecord
-		if parsedUserTunnelID > 0 {
-			ut, err := c.userTunnelRecord(parsedUserTunnelID)
-			if err != nil {
-				return err
-			}
-			if ut != nil && ut.UserID == parsedUserID {
-				if tunnel, err = c.tunnel(ut.TunnelID); err != nil {
-					return err
-				}
-			}
-		}
-		in, out := billFlowForTunnel(tunnel, upload, download)
-		b.addLocalFlow(forwardID, parsedUserID, parsedUserTunnelID, in, out, false)
+		b.addLocalFlow(forward.ID, forward.UserID, userTunnelID, in, out, true, true)
+		return h.planForwardPeerShareFlow(b, c, nodeID, serviceName, forward, upload+download)
 	}
 
-	return h.planForwardPeerShareFlow(b, c, nodeID, serviceName, forward, upload+download)
+	// The name is not (or no longer) one of this panel's forwards. Peer share runtimes that
+	// another panel runs on this node use the same "{forward}_{user}_{user_tunnel}" format of
+	// that panel: their traffic only counts towards the peer share.
+	runtime, err := h.matchForwardPeerShareRuntime(nodeID, serviceName)
+	if err != nil {
+		return err
+	}
+	if runtime != nil {
+		b.addShareFlow(runtime.ShareID, upload+download)
+		return nil
+	}
+	if forward != nil {
+		// A forward with this id exists but belongs to someone else (e.g. the id was reused):
+		// it is not this forward's traffic.
+		return nil
+	}
+
+	// The forward was deleted while the node still had unreported bytes: bill them to the
+	// owner named by the service, with the tunnel of that user_tunnel when it still exists.
+	userExists, err := c.userExists(parsedUserID)
+	if err != nil {
+		return err
+	}
+	if !userExists {
+		return nil
+	}
+	var tunnel *tunnelRecord
+	userTunnelID := int64(0)
+	if parsedUserTunnelID > 0 {
+		ut, err := c.userTunnelRecord(parsedUserTunnelID)
+		if err != nil {
+			return err
+		}
+		if ut != nil && ut.UserID == parsedUserID {
+			userTunnelID = ut.ID
+			if tunnel, err = c.tunnel(ut.TunnelID); err != nil {
+				return err
+			}
+		}
+	}
+	in, out := billFlowForTunnel(tunnel, upload, download)
+	b.addLocalFlow(forwardID, parsedUserID, userTunnelID, in, out, false, true)
+	return nil
 }
 
-// planForwardPeerShareFlow attributes a forward service's raw traffic to a peer share: by the
+// planForwardPeerShareFlow attributes a local forward's raw traffic to a peer share: by the
 // forward's federation tunnel name ("Share-{id}-Port-{port}") or else by the runtime service name.
 func (h *Handler) planForwardPeerShareFlow(b *flowIngestBatch, c *flowIngestCache, nodeID int64, serviceName string, forward *forwardRecord, delta int64) error {
 	if delta <= 0 {
@@ -361,8 +424,21 @@ func (h *Handler) planForwardPeerShareFlow(b *flowIngestBatch, c *flowIngestCach
 }
 
 func (h *Handler) planPeerShareFlowByServiceName(b *flowIngestBatch, nodeID int64, serviceName string, delta int64) error {
+	runtime, err := h.matchForwardPeerShareRuntime(nodeID, serviceName)
+	if err != nil {
+		return err
+	}
+	if runtime != nil {
+		b.addShareFlow(runtime.ShareID, delta)
+	}
+	return nil
+}
+
+// matchForwardPeerShareRuntime finds the single active forward peer share runtime that runs
+// serviceName: on this node first, then on any node. Ambiguous matches return nil.
+func (h *Handler) matchForwardPeerShareRuntime(nodeID int64, serviceName string) (*model.PeerShareRuntime, error) {
 	if strings.TrimSpace(serviceName) == "" {
-		return nil
+		return nil, nil
 	}
 
 	normalized := normalizeForwardRuntimeServiceName(serviceName)
@@ -373,24 +449,24 @@ func (h *Handler) planPeerShareFlowByServiceName(b *flowIngestBatch, nodeID int6
 	if nodeID > 0 {
 		runtimes, err = h.repo.ListActiveForwardPeerShareRuntimesByNodeAndServiceName(nodeID, normalized)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		if len(runtimes) == 0 && normalized != serviceName {
 			runtimes, err = h.repo.ListActiveForwardPeerShareRuntimesByNodeAndServiceName(nodeID, serviceName)
 			if err != nil {
-				return err
+				return nil, err
 			}
 		}
 	}
 	if len(runtimes) == 0 {
 		runtimes, err = h.repo.ListActiveForwardPeerShareRuntimesByServiceName(normalized)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		if len(runtimes) == 0 && normalized != serviceName {
 			runtimes, err = h.repo.ListActiveForwardPeerShareRuntimesByServiceName(serviceName)
 			if err != nil {
-				return err
+				return nil, err
 			}
 		}
 	}
@@ -399,10 +475,10 @@ func (h *Handler) planPeerShareFlowByServiceName(b *flowIngestBatch, nodeID int6
 		if len(runtimes) > 1 {
 			log.Printf("WARN: ambiguous peer share runtime match for service=%s nodeID=%d count=%d", serviceName, nodeID, len(runtimes))
 		}
-		return nil
+		return nil, nil
 	}
-	b.addShareFlow(runtimes[0].ShareID, delta)
-	return nil
+	runtime := runtimes[0]
+	return &runtime, nil
 }
 
 func (h *Handler) enforceFlowBatch(b *flowIngestBatch, quotas map[int64]*model.UserQuotaView) {
