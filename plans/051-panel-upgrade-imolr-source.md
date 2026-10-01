@@ -27,5 +27,10 @@ release assets from `ImoLR/FLVXR2`. Two upgrade paths still depend on iKeilo:
 - [x] Extend image cleanup patterns in `helperScript` and `panel_install.sh`
 - [x] Add tests for the delegation and the cleanup pattern
 - [x] Run backend tests and compare with the fork.5 baseline (failure set identical)
-- [ ] Publish the independent `3.0.27-fork.6` release without changing earlier tags
-- [ ] Verify the CI build and all `3.0.27-fork.6` release assets
+- [x] Publish the independent `3.0.27-fork.6` release without changing earlier tags
+- [x] Verify the CI build and all `3.0.27-fork.6` release assets (images pinned to
+  `ghcr.io/imolr/*:3.0.27-fork.6`, scripts pinned to `3.0.27-fork.6` / `ImoLR/FLVXR2`,
+  gost checksums OK, release marked Latest)
+- [x] Upgrade only the production FLVXX frontend/backend to `3.0.27-fork.6` with a
+  validated rollback point (`/opt/flvx-svc/rollback/pre-fork6-20261001T105951Z`);
+  node online state unchanged (24/25, node 24 was already offline)
