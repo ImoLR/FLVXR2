@@ -114,4 +114,25 @@ Related problems found while verifying:
   raw `tunnel_metric` bytes from the same uploads): fork.7 2.000 -> fork.8 1.000. Backend
   healthy, 22/22 previously online nodes report fresh metrics; nodes 1, 24, 28 were already
   offline before the upgrade.)
-- [ ] Agent rollout per precedent (single-node canary) and document how to upgrade the rest
+- [x] Agent rollout per precedent (single-node canary) and document how to upgrade the rest
+  (Canary: node 47 "AWS HK" (exit-only for tunnel 73, `flvxx.service`, WorkingDirectory
+  /etc/flvxx, was 3.0.27-fork.5) upgraded at 07:50:50Z through the panel's version-locked
+  `/api/v1/node/upgrade` (fork.5 OTA: sha256-checked download, old binary kept as
+  `/etc/flvxx/flvxx.old`). It reconnected within seconds as `3.0.27-fork.8 (debian/amd64)`,
+  metrics fresh, forward 102 diagnosis entry->AWS HK 2.8 ms and AWS HK->target 19.5 ms OK.
+  Not rolled further: the entry nodes 2, 23, 32 (upstream 3.0.27/3.0.28 agents) carry all user
+  forwards incl. the live nftables forwards 6 and 98, an upgrade restarts every forward on the
+  node, and there is no SSH access here to recover a node that does not come back.)
+
+### Upgrading the remaining nodes (user)
+- Order: one entry node with an nftables forward first, off-peak (node 23 "Mkcloud 沪日ixp 440",
+  nftables forward 98), check it, then nodes 2 and 32, then the exit/chain nodes.
+- Panel: 节点 -> the node's 升级 (or 批量升级); the panel pins the agent to its own version
+  (3.0.27-fork.8). Or on the node: run the panel-generated install command (节点 -> 安装命令).
+- Check after each node: node online with version `3.0.27-fork.8`, its forwards pass 诊断 on
+  the 转发 page, the nftables forwards' traffic grows at about the real rate (headers add a few %),
+  and `nft list table inet flvx_acct` exists on the node.
+- Rollback of one node: `systemctl stop <svc> && cp /etc/<svc>/<svc>.old /etc/<svc>/<svc> &&
+  systemctl start <svc>` (node 47: svc = flvxx), then `nft delete table inet flvx_acct`.
+- Until a node runs fork.8 its nftables forwards keep the old behaviour (almost nothing
+  counted, no speed limit); its gost forwards are already billed correctly by the panel.
