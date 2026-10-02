@@ -29,8 +29,15 @@ Gaps:
 - [x] Header check against built dist in nginx:stable-alpine (`/`, `/index.html`,
       `/sw.js`, `/manifest.webmanifest`, `/dashboard` → no-cache; `assets/*.js` → immutable)
 - [x] Rebase on final fork.11 branch head and re-run `npm run build`
-- [ ] Push branch, tag `3.0.27-fork.12`, CI + release verified
+- [x] Push branch, tag `3.0.27-fork.12`, CI + release verified
 - [ ] Backup production (rollback dir, validated sqlite, image tags, metadata)
 - [ ] Upgrade `/opt/flvx-svc` to fork.12
 - [ ] Verify health, node metrics, live `/sw.js` + `/` headers are `no-cache`
 - [ ] Update memory, write report
+
+## Release
+- CI Build Check 37030675525 succeeded.
+- Build and Push Images 37030678090 succeeded.
+- Release `3.0.27-fork.12` is Latest, not a prerelease, and has the same 10 assets as fork.11.
+- Both compose assets use `ghcr.io/imolr/flvxr2-svc-{backend,frontend}:3.0.27-fork.12`.
+- Both install scripts pin `3.0.27-fork.12` and `ImoLR/FLVXR2`; both GOST checksums verified.
