@@ -100,7 +100,12 @@ Related problems found while verifying:
   user total == sum of the user's forwards; a second round adds exactly once more; user
   reset clears user, user_tunnels and all 4 forwards with 4 reset-log rows. Host ruleset
   unchanged, no namespaces left.)
-- [ ] Release `3.0.27-fork.8` and verify CI + assets
+- [x] Release `3.0.27-fork.8` and verify CI + assets
+  (CI Build Check run 36978812296 and Build and Push Images run 36978958823 green; release is
+  Latest, not prerelease, same 10 assets as fork.7; compose images
+  `ghcr.io/imolr/flvxr2-svc-{backend,frontend}:3.0.27-fork.8`; `REPO="ImoLR/FLVXR2"` and
+  `PINNED_VERSION="3.0.27-fork.8"` in install.sh and panel_install.sh; gost-amd64 sha256
+  b0ece359…a44c matches its .sha256 and reports `gost 3.0.27-fork.8`.)
 - [ ] Upgrade the production panel with a validated rollback point; verify `/flow/upload`
   ingestion at the real rate (no x2)
 - [ ] Agent rollout per precedent (single-node canary) and document how to upgrade the rest
