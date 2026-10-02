@@ -7309,7 +7309,7 @@ function ConnectionLimitField({
     <div className="space-y-2">
       <span className="text-sm font-medium text-foreground">连接数限制</span>
       <Input
-        description="留空表示不限制"
+        description="gost 与 nftables 均适用；留空表示不限制"
         placeholder="不限制"
         type="number"
         value={value > 0 ? value.toString() : ""}
@@ -7352,7 +7352,7 @@ function ClientIPLimitField({
         接入IP数限制
       </span>
       <Input
-        description="活跃来源 IP 数；留空表示不限制"
+        description="gost 与 nftables 均适用；nftables 约每秒更新；留空表示不限制"
         placeholder="不限制"
         type="number"
         value={value > 0 ? value.toString() : ""}

@@ -29,6 +29,7 @@ ip link add name c0 netns "$C" type veth peer name n0 netns "$N"
 ip link add name t0 netns "$T" type veth peer name n1 netns "$N"
 
 ip -n "$C" addr add 10.231.1.2/24 dev c0
+ip -n "$C" addr add 10.231.1.3/24 dev c0
 ip -n "$C" addr add fd31:1::2/64 dev c0 nodad
 ip -n "$C" link set c0 up
 ip -n "$C" route add default via 10.231.1.1
@@ -46,6 +47,11 @@ ip -n "$T" addr add fd31:2::2/64 dev t0 nodad
 ip -n "$T" link set t0 up
 ip -n "$T" route add default via 10.231.2.1
 ip -n "$T" -6 route add default via fd31:2::1
+
+# Shorten only this throwaway node namespace's conntrack cleanup for quota slot tests.
+ip netns exec "$N" sysctl -q -w net.netfilter.nf_conntrack_tcp_timeout_close=1
+ip netns exec "$N" sysctl -q -w net.netfilter.nf_conntrack_tcp_timeout_time_wait=2
+ip netns exec "$N" sysctl -q -w net.netfilter.nf_conntrack_tcp_timeout_syn_sent=2
 
 FLVXR2_NFT_INTEGRATION=1 FLVXR2_NFT_CLIENT_NS="$C" FLVXR2_NFT_TARGET_NS="$T" \
 	ip netns exec "$N" "$bin" -test.v -test.count=1 -test.run "${1:-.}"

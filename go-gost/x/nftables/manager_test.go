@@ -23,14 +23,23 @@ func requireNFTIntegration(t *testing.T) {
 
 func removeTestTable(t *testing.T, manager *Manager) {
 	t.Helper()
+	manager.mu.Lock()
+	if manager.quotaPollStop != nil {
+		close(manager.quotaPollStop)
+		manager.quotaPollStop = nil
+	}
 	manager.conn.DelTable(manager.table)
 	if manager.acctTable != nil {
 		manager.conn.DelTable(manager.acctTable)
+	}
+	if manager.quotaTable != nil {
+		manager.conn.DelTable(manager.quotaTable)
 	}
 	if err := manager.conn.Flush(); err != nil {
 		t.Errorf("remove test table: %v", err)
 	}
 	manager.conn.CloseLasting()
+	manager.mu.Unlock()
 }
 
 func TestDNATMasqueradeRuleIsScoped(t *testing.T) {
