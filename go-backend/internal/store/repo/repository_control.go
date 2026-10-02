@@ -415,12 +415,48 @@ func (r *Repository) ListActiveNftablesForwards() ([]model.ForwardRecord, error)
 	if r == nil || r.db == nil {
 		return nil, errors.New("repository not initialized")
 	}
-	var forwards []model.ForwardRecord
+	// model.ForwardRecord is a view struct without a table; query the real
+	// forward table and map, like ListForwardsByTunnelTx/ListForwardsForCNCheck.
+	var forwards []model.Forward
 	err := r.db.
-		Where("status = 1 AND mode = 'nftables'").
+		Where("status = 1 AND mode = ?", "nftables").
+		Order("id ASC").
 		Find(&forwards).Error
 	if err != nil {
 		return nil, err
 	}
-	return forwards, nil
+	rows := make([]model.ForwardRecord, 0, len(forwards))
+	for _, f := range forwards {
+		rows = append(rows, model.ForwardRecord{
+			ID:                  f.ID,
+			UserID:              f.UserID,
+			UserName:            f.UserName,
+			Name:                f.Name,
+			TunnelID:            f.TunnelID,
+			RemoteAddr:          f.RemoteAddr,
+			Strategy:            f.Strategy,
+			Status:              f.Status,
+			SpeedID:             f.SpeedID,
+			MaxConnections:      f.MaxConnections,
+			TrafficLimit:        f.TrafficLimit,
+			ExpiryTime:          f.ExpiryTime,
+			SpeedLimitEnabled:   f.SpeedLimitEnabled,
+			SpeedLimit:          f.SpeedLimit,
+			UploadSpeed:         f.UploadSpeed,
+			DownloadSpeed:       f.DownloadSpeed,
+			Mode:                f.Mode,
+			InFlow:              f.InFlow,
+			OutFlow:             f.OutFlow,
+			WGPathID:            f.WGPathID,
+			WGRuleType:          f.WGRuleType,
+			SourceCIDR:          f.SourceCIDR,
+			TargetCIDR:          f.TargetCIDR,
+			SNATEnabled:         f.SNATEnabled,
+			CNBlocked:           f.CNBlocked,
+			CNBlockedReason:     f.CNBlockedReason,
+			CNBlockedAutoPaused: f.CNBlockedAutoPaused,
+		})
+	}
+	attachForwardUserMaxConnections(r.db, rows)
+	return rows, nil
 }
