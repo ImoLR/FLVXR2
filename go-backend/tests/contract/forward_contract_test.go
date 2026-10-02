@@ -1270,12 +1270,18 @@ func TestNonAdminCannotSetSpeedIdOrPort(t *testing.T) {
 		res := httptest.NewRecorder()
 		router.ServeHTTP(res, req)
 		assertCode(t, res, 0)
-		var storedSpeedID sql.NullInt64
-		if err := repo.DB().Raw(`SELECT speed_id FROM forward WHERE name = ?`, "perm-forward-speed").Scan(&storedSpeedID).Error; err != nil {
+		var created struct {
+			ID      int64
+			SpeedID sql.NullInt64
+		}
+		if err := repo.DB().Raw(`SELECT id, speed_id FROM forward WHERE name = ?`, "perm-forward-speed").Scan(&created).Error; err != nil {
 			t.Fatalf("query created speed_id: %v", err)
 		}
-		if storedSpeedID.Valid {
-			t.Fatalf("expected non-admin speedId to be ignored, got %d", storedSpeedID.Int64)
+		if created.SpeedID.Valid {
+			t.Fatalf("expected non-admin speedId to be ignored, got %d", created.SpeedID.Int64)
+		}
+		if err := repo.DeleteForwardCascade(created.ID); err != nil {
+			t.Fatalf("clean up created forward: %v", err)
 		}
 	})
 
