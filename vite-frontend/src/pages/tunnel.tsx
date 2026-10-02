@@ -1423,7 +1423,17 @@ export default function TunnelPage() {
         : await createTunnel(data);
 
       if (response.code === 0) {
-        toast.success(isEdit ? "更新成功" : "创建成功");
+        const warnings = (
+          response.data as { warnings?: string[] } | null
+        )?.warnings;
+
+        if (warnings?.length) {
+          toast(`${isEdit ? "更新" : "创建"}成功；${warnings.join("；")}`, {
+            icon: "⚠️",
+          });
+        } else {
+          toast.success(isEdit ? "更新成功" : "创建成功");
+        }
         setModalOpen(false);
         if (isEdit) {
           // 后端返回更新后的完整隧道数据，直接使用
