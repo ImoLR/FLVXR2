@@ -11,7 +11,7 @@
 ## 实施清单
 
 - [x] 写入设计文档，核对 059 协议与隔离测试方式。
-- [ ] panel 下发 nft 配额字段并将 nft-only 入口列入预算目标，补充单元测试。
+- [x] panel 下发 nft 配额字段并将 nft-only 入口列入预算目标，补充单元测试。
 - [ ] agent 将 nft 用量并入既有 quota group，补充合并/预算测试。
 - [ ] agent 安装 nft 连接/IP/用户池门槛并轮询 conntrack，补充解析、归属和门槛测试。
 - [ ] 在 netns 完成真实 TCP 限额和共享池测试，更新 UI/059 说明。

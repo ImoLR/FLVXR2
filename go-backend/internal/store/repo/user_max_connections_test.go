@@ -76,6 +76,10 @@ func TestListQuotaGroupTargetsDeduplicatesUserNodePairs(t *testing.T) {
 	}
 
 	for i := 0; i < 2; i++ {
+		mode := "gost"
+		if i == 1 {
+			mode = "nftables"
+		}
 		forward := model.Forward{
 			UserID:      userID,
 			UserName:    "quota-target-user",
@@ -86,7 +90,7 @@ func TestListQuotaGroupTargetsDeduplicatesUserNodePairs(t *testing.T) {
 			CreatedTime: now,
 			UpdatedTime: now,
 			Status:      1,
-			Mode:        "gost",
+			Mode:        mode,
 		}
 		if err := r.DB().Create(&forward).Error; err != nil {
 			t.Fatalf("create forward %d: %v", i, err)
@@ -106,6 +110,27 @@ func TestListQuotaGroupTargetsDeduplicatesUserNodePairs(t *testing.T) {
 	target := targets[0]
 	if target.UserID != userID || target.NodeID != node.ID || target.MaxConnections != 9 || target.MaxClientIps != 4 || target.NodeVersion != "3.0.27-fork.13" {
 		t.Fatalf("unexpected target: %#v", target)
+	}
+
+	nftNode := node
+	nftNode.ID = 0
+	nftNode.Name = "nft-only-entry"
+	if err := r.DB().Create(&nftNode).Error; err != nil {
+		t.Fatal(err)
+	}
+	nftForward := model.Forward{UserID: userID, UserName: "quota-target-user", Name: "nft-only", TunnelID: 1, RemoteAddr: "127.0.0.1:80", Strategy: "fifo", CreatedTime: now, UpdatedTime: now, Status: 1, Mode: "nftables"}
+	if err := r.DB().Create(&nftForward).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := r.DB().Create(&model.ForwardPort{ForwardID: nftForward.ID, NodeID: nftNode.ID, Port: 21003}).Error; err != nil {
+		t.Fatal(err)
+	}
+	targets, err = r.ListQuotaGroupTargets()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(targets) != 2 || targets[1].NodeID != nftNode.ID {
+		t.Fatalf("nft-only entry missing from budget targets: %+v", targets)
 	}
 }
 

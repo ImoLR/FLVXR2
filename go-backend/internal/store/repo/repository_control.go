@@ -136,7 +136,7 @@ func (r *Repository) ListQuotaGroupTargets() ([]QuotaGroupTarget, error) {
 		Joins(`JOIN "user" AS u ON u.id = f.user_id`).
 		Joins("JOIN node AS n ON n.id = fp.node_id").
 		Where("f.status = ?", 1).
-		Where("COALESCE(f.mode, 'gost') NOT IN ?", []string{"nftables", "wg_path"}).
+		Where("COALESCE(f.mode, 'gost') != ?", "wg_path").
 		Where("n.is_remote = ?", 0).
 		Order("fp.node_id ASC, f.user_id ASC").
 		Scan(&targets).Error

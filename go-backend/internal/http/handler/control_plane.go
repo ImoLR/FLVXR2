@@ -2234,17 +2234,22 @@ func shortStableHash(value string) string {
 
 // NftablesRulePayload nftables rule payload (matches agent side)
 type NftablesRulePayload struct {
-	ForwardID    int64  `json:"forward_id"`
-	NodeID       int64  `json:"node_id"`
-	UserID       int64  `json:"user_id"`
-	UserTunnelID int64  `json:"user_tunnel_id"`
-	Protocol     string `json:"protocol"`
-	Port         int    `json:"port"`
-	Target       string `json:"target"`
-	SpeedLimit   int    `json:"speed_limit"`
-	ChainType    int    `json:"chain_type"`
-	NextHopIP    string `json:"next_hop_ip"`
-	NextHopPort  int    `json:"next_hop_port"`
+	ForwardID           int64  `json:"forward_id"`
+	NodeID              int64  `json:"node_id"`
+	UserID              int64  `json:"user_id"`
+	UserTunnelID        int64  `json:"user_tunnel_id"`
+	Protocol            string `json:"protocol"`
+	Port                int    `json:"port"`
+	Target              string `json:"target"`
+	SpeedLimit          int    `json:"speed_limit"`
+	MaxConnections      int    `json:"max_connections"`
+	MaxClientIps        int    `json:"max_client_ips"`
+	QuotaGroup          string `json:"quota_group,omitempty"`
+	GroupMaxConnections int    `json:"group_max_connections,omitempty"`
+	GroupMaxClientIps   int    `json:"group_max_client_ips,omitempty"`
+	ChainType           int    `json:"chain_type"`
+	NextHopIP           string `json:"next_hop_ip"`
+	NextHopPort         int    `json:"next_hop_port"`
 }
 
 // AddNftablesRulesRequest nftables rules create request
@@ -2376,6 +2381,13 @@ func (h *Handler) syncNftablesRules(forward *forwardRecord, tunnel *tunnelRecord
 
 	chainNodes, _ := h.listChainNodesForTunnel(forward.TunnelID)
 	rules := buildNftablesRulePayloads(forward, tunnel, ports, chainNodes, userTunnelID, speedLimit)
+	if h.quotaGroups != nil {
+		nodeIDs := make([]int64, 0, len(ports))
+		for _, fp := range ports {
+			nodeIDs = append(nodeIDs, fp.NodeID)
+		}
+		defer h.quotaGroups.InvalidateNodes(nodeIDs...)
+	}
 	fmt.Printf("[nft.debug] built %d rule payloads for forwardID=%d\n", len(rules), forward.ID)
 
 	// Group ports by node for batch operations
@@ -2470,20 +2482,40 @@ func buildNftablesRulePayloads(forward *forwardRecord, tunnel *tunnelRecord, por
 	for _, fp := range ports {
 		for _, protocol := range protocols {
 			for _, target := range targets {
+				quota := NftablesRulePayload{
+					MaxConnections: forward.MaxConnections,
+					MaxClientIps:   forward.MaxClientIps,
+				}
+				if forward.UserID > 0 && (forward.UserMaxConnections > 0 || forward.UserMaxClientIps > 0) {
+					quota.QuotaGroup = quotaGroupForUser(forward.UserID)
+					quota.GroupMaxConnections = forward.UserMaxConnections
+					quota.GroupMaxClientIps = forward.UserMaxClientIps
+					if quota.GroupMaxConnections <= 0 {
+						quota.GroupMaxConnections = -1
+					}
+					if quota.GroupMaxClientIps <= 0 {
+						quota.GroupMaxClientIps = -1
+					}
+				}
 				if tunnel.Type == 1 {
-					rules = append(rules, NftablesRulePayload{
-						ForwardID:    forward.ID,
-						NodeID:       fp.NodeID,
-						UserID:       forward.UserID,
-						UserTunnelID: userTunnelID,
-						Protocol:     protocol,
-						Port:         fp.Port,
-						Target:       target,
-						SpeedLimit:   spdLimit,
-						ChainType:    1,
-					})
+					quota.ForwardID = forward.ID
+					quota.NodeID = fp.NodeID
+					quota.UserID = forward.UserID
+					quota.UserTunnelID = userTunnelID
+					quota.Protocol = protocol
+					quota.Port = fp.Port
+					quota.Target = target
+					quota.SpeedLimit = spdLimit
+					quota.ChainType = 1
+					rules = append(rules, quota)
 				} else if tunnel.Type == 2 {
-					rules = append(rules, buildChainNftablesRule(forward.ID, forward.UserID, userTunnelID, chainNodes, fp, protocol, target, spdLimit))
+					chainRule := buildChainNftablesRule(forward.ID, forward.UserID, userTunnelID, chainNodes, fp, protocol, target, spdLimit)
+					chainRule.MaxConnections = quota.MaxConnections
+					chainRule.MaxClientIps = quota.MaxClientIps
+					chainRule.QuotaGroup = quota.QuotaGroup
+					chainRule.GroupMaxConnections = quota.GroupMaxConnections
+					chainRule.GroupMaxClientIps = quota.GroupMaxClientIps
+					rules = append(rules, chainRule)
 				}
 			}
 		}
