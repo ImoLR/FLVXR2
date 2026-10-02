@@ -1252,7 +1252,7 @@ func TestNonAdminCannotSetSpeedIdOrPort(t *testing.T) {
 	stopNode := startMockNodeSession(t, server.URL, "perm-secret")
 	defer stopNode()
 
-	t.Run("non-admin cannot set speedId on create", func(t *testing.T) {
+	t.Run("non-admin speedId is ignored on create", func(t *testing.T) {
 		createPayload := map[string]interface{}{
 			"name":       "perm-forward-speed",
 			"tunnelId":   tunnelID,
@@ -1269,7 +1269,14 @@ func TestNonAdminCannotSetSpeedIdOrPort(t *testing.T) {
 		req.Header.Set("Content-Type", "application/json")
 		res := httptest.NewRecorder()
 		router.ServeHTTP(res, req)
-		assertCodeMsg(t, res, -1, "普通用户无法设置限速规则")
+		assertCode(t, res, 0)
+		var storedSpeedID sql.NullInt64
+		if err := repo.DB().Raw(`SELECT speed_id FROM forward WHERE name = ?`, "perm-forward-speed").Scan(&storedSpeedID).Error; err != nil {
+			t.Fatalf("query created speed_id: %v", err)
+		}
+		if storedSpeedID.Valid {
+			t.Fatalf("expected non-admin speedId to be ignored, got %d", storedSpeedID.Int64)
+		}
 	})
 
 	t.Run("non-admin cannot set inPort out of range on create", func(t *testing.T) {
@@ -1339,7 +1346,7 @@ func TestNonAdminCannotSetSpeedIdOrPort(t *testing.T) {
 
 	forwardID := mustLastInsertID(t, repo, "perm-forward-ok")
 
-	t.Run("non-admin cannot update speedId", func(t *testing.T) {
+	t.Run("non-admin speedId is ignored on update", func(t *testing.T) {
 		updatePayload := map[string]interface{}{
 			"id":         forwardID,
 			"name":       "perm-forward-updated",
@@ -1356,7 +1363,14 @@ func TestNonAdminCannotSetSpeedIdOrPort(t *testing.T) {
 		req.Header.Set("Content-Type", "application/json")
 		res := httptest.NewRecorder()
 		router.ServeHTTP(res, req)
-		assertCodeMsg(t, res, -1, "普通用户无法修改限速规则")
+		assertCode(t, res, 0)
+		var storedSpeedID sql.NullInt64
+		if err := repo.DB().Raw(`SELECT speed_id FROM forward WHERE id = ?`, forwardID).Scan(&storedSpeedID).Error; err != nil {
+			t.Fatalf("query updated speed_id: %v", err)
+		}
+		if storedSpeedID.Valid {
+			t.Fatalf("expected stored speedId to remain unset, got %d", storedSpeedID.Int64)
+		}
 	})
 
 	t.Run("non-admin cannot update inPort out of range", func(t *testing.T) {
