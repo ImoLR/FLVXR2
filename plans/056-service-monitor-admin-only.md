@@ -1,7 +1,7 @@
 # Service Monitor Admin-Only Plan
 
 - [x] Inspect service-monitor backend, federation, frontend, and existing tests.
-- [ ] Restrict service-monitor mutations to admins and return empty read results to non-admins.
+- [x] Restrict service-monitor mutations to admins and return empty read results to non-admins.
 - [ ] Add handler coverage for non-admin denial/empty reads and preserved admin behavior.
 - [ ] Hide service-monitor UI and suppress its API calls for non-admin users.
 - [ ] Run targeted tests, full backend tests with baseline comparison, and frontend build.

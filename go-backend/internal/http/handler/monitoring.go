@@ -432,23 +432,16 @@ func (h *Handler) monitorServiceListHandler(w http.ResponseWriter, r *http.Reque
 		response.WriteJSON(w, response.ErrDefault("请求失败"))
 		return
 	}
-	scope, ok := h.resolveMonitorScope(w, r)
+	isAdmin, ok := h.serviceMonitorAdminStatus(w, r)
 	if !ok {
 		return
 	}
-
-	var monitors []model.ServiceMonitor
-	var err error
-	if scope.fullAccess {
-		monitors, err = h.repo.ListServiceMonitors()
-	} else {
-		nodeIDs, idsErr := h.getAccessibleNodeIDs(scope)
-		if idsErr != nil {
-			response.WriteJSON(w, response.Err(-2, idsErr.Error()))
-			return
-		}
-		monitors, err = h.repo.ListServiceMonitorsByNodeIDs(nodeIDs)
+	if !isAdmin {
+		response.WriteJSON(w, response.OK([]model.ServiceMonitor{}))
+		return
 	}
+
+	monitors, err := h.repo.ListServiceMonitors()
 	if err != nil {
 		response.WriteJSON(w, response.Err(-2, err.Error()))
 		return
@@ -472,7 +465,7 @@ func (h *Handler) monitorServiceCreate(w http.ResponseWriter, r *http.Request) {
 		response.WriteJSON(w, response.ErrDefault("请求失败"))
 		return
 	}
-	if !h.ensureMonitoringAccess(w, r) {
+	if !h.ensureServiceMonitorAdminAccess(w, r) {
 		return
 	}
 
@@ -581,7 +574,7 @@ func (h *Handler) monitorServiceUpdate(w http.ResponseWriter, r *http.Request) {
 		response.WriteJSON(w, response.ErrDefault("请求失败"))
 		return
 	}
-	if !h.ensureMonitoringAccess(w, r) {
+	if !h.ensureServiceMonitorAdminAccess(w, r) {
 		return
 	}
 
@@ -684,7 +677,7 @@ func (h *Handler) monitorServiceDelete(w http.ResponseWriter, r *http.Request) {
 		response.WriteJSON(w, response.ErrDefault("请求失败"))
 		return
 	}
-	if !h.ensureMonitoringAccess(w, r) {
+	if !h.ensureServiceMonitorAdminAccess(w, r) {
 		return
 	}
 
@@ -712,7 +705,7 @@ func (h *Handler) monitorServiceRun(w http.ResponseWriter, r *http.Request) {
 		response.WriteJSON(w, response.ErrDefault("请求失败"))
 		return
 	}
-	if !h.ensureMonitoringAccess(w, r) {
+	if !h.ensureServiceMonitorAdminAccess(w, r) {
 		return
 	}
 	if h.healthCheck == nil {
@@ -756,8 +749,12 @@ func (h *Handler) monitorServiceResultsHandler(w http.ResponseWriter, r *http.Re
 		response.WriteJSON(w, response.ErrDefault("请求失败"))
 		return
 	}
-	scope, ok := h.resolveMonitorScope(w, r)
+	isAdmin, ok := h.serviceMonitorAdminStatus(w, r)
 	if !ok {
+		return
+	}
+	if !isAdmin {
+		response.WriteJSON(w, response.OK([]model.ServiceMonitorResult{}))
 		return
 	}
 
@@ -768,7 +765,6 @@ func (h *Handler) monitorServiceResultsHandler(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	// Check the service monitor belongs to an accessible node
 	m, err := h.repo.GetServiceMonitor(monitorID)
 	if err != nil {
 		response.WriteJSON(w, response.Err(-2, err.Error()))
@@ -778,11 +774,6 @@ func (h *Handler) monitorServiceResultsHandler(w http.ResponseWriter, r *http.Re
 		response.WriteJSON(w, response.ErrDefault("监控不存在"))
 		return
 	}
-	if !scope.fullAccess && !h.checkNodeAccess(scope, m.NodeID) {
-		response.WriteJSON(w, response.Err(403, "你没有该监控的权限"))
-		return
-	}
-
 	// If start/end time range is provided, use time-based query (mirrors node metrics / tunnel quality pattern).
 	startStr := r.URL.Query().Get("start")
 	endStr := r.URL.Query().Get("end")
@@ -828,40 +819,25 @@ func (h *Handler) monitorServiceLatestResultsHandler(w http.ResponseWriter, r *h
 		response.WriteJSON(w, response.ErrDefault("请求失败"))
 		return
 	}
-	scope, ok := h.resolveMonitorScope(w, r)
+	isAdmin, ok := h.serviceMonitorAdminStatus(w, r)
 	if !ok {
 		return
 	}
-
-	if scope.fullAccess {
-		// Try in-memory cache first (updated every 1s)
-		if h.healthCheck != nil {
-			cached := h.healthCheck.GetLatestCached()
-			if len(cached) > 0 {
-				response.WriteJSON(w, response.OK(cached))
-				return
-			}
-		}
-		// Fallback to database
-		results, err := h.repo.GetLatestServiceMonitorResults()
-		if err != nil {
-			response.WriteJSON(w, response.Err(-2, err.Error()))
-			return
-		}
-		response.WriteJSON(w, response.OK(results))
-		return
-	}
-
-	nodeIDs, idsErr := h.getAccessibleNodeIDs(scope)
-	if idsErr != nil {
-		response.WriteJSON(w, response.Err(-2, idsErr.Error()))
-		return
-	}
-	if len(nodeIDs) == 0 {
+	if !isAdmin {
 		response.WriteJSON(w, response.OK([]model.ServiceMonitorResult{}))
 		return
 	}
-	results, err := h.repo.GetLatestServiceMonitorResultsByNodeIDs(nodeIDs)
+
+	// Try in-memory cache first (updated every 1s)
+	if h.healthCheck != nil {
+		cached := h.healthCheck.GetLatestCached()
+		if len(cached) > 0 {
+			response.WriteJSON(w, response.OK(cached))
+			return
+		}
+	}
+	// Fallback to database
+	results, err := h.repo.GetLatestServiceMonitorResults()
 	if err != nil {
 		response.WriteJSON(w, response.Err(-2, err.Error()))
 		return
@@ -874,7 +850,12 @@ func (h *Handler) monitorServiceLimitsHandler(w http.ResponseWriter, r *http.Req
 		response.WriteJSON(w, response.ErrDefault("请求失败"))
 		return
 	}
-	if !h.ensureMonitoringAccess(w, r) {
+	isAdmin, ok := h.serviceMonitorAdminStatus(w, r)
+	if !ok {
+		return
+	}
+	if !isAdmin {
+		response.WriteJSON(w, response.OK(monitoring.ServiceMonitorLimits{}))
 		return
 	}
 	response.WriteJSON(w, response.OK(h.resolveServiceMonitorLimits()))
@@ -944,6 +925,27 @@ func (h *Handler) ensureAdminAccess(w http.ResponseWriter, r *http.Request) bool
 	}
 	if roleID != 0 {
 		response.WriteJSON(w, response.Err(403, "权限不足，仅管理员可操作"))
+		return false
+	}
+	return true
+}
+
+func (h *Handler) serviceMonitorAdminStatus(w http.ResponseWriter, r *http.Request) (bool, bool) {
+	_, roleID, err := userRoleFromRequest(r)
+	if err != nil {
+		response.WriteJSON(w, response.Err(401, "未登录或token已过期"))
+		return false, false
+	}
+	return roleID == 0, true
+}
+
+func (h *Handler) ensureServiceMonitorAdminAccess(w http.ResponseWriter, r *http.Request) bool {
+	isAdmin, ok := h.serviceMonitorAdminStatus(w, r)
+	if !ok {
+		return false
+	}
+	if !isAdmin {
+		response.WriteJSON(w, response.Err(403, "仅管理员可管理服务监控"))
 		return false
 	}
 	return true
