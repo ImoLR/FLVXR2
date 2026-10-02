@@ -29,7 +29,76 @@ type quotaGroup struct {
 	maxClientIPs   int
 	connections    int
 	clientIPs      map[string]int
+	nftConnections int
+	nftClientIPs   map[string]int
 	services       int
+}
+
+// NftQuotaGroup keeps a quota group present while an nftables entry rule uses it.
+type NftQuotaGroup struct{ group *quotaGroup }
+
+type QuotaGroupState struct {
+	MaxConnections int
+	MaxClientIPs   int
+	Connections    int
+	ClientIPs      map[string]struct{}
+}
+
+func AttachNftQuotaGroup(group string, maxConnections, maxClientIPs int) *NftQuotaGroup {
+	if g := attachQuotaGroup(group, maxConnections, maxClientIPs); g != nil {
+		return &NftQuotaGroup{group: g}
+	}
+	return nil
+}
+
+func (h *NftQuotaGroup) Detach() {
+	if h != nil {
+		detachQuotaGroup(h.group)
+	}
+}
+
+// SetNftQuotaGroupUsage replaces the conntrack snapshot for one node-local group.
+func SetNftQuotaGroupUsage(group string, connections int, ips map[string]int) {
+	quotaGroupRegistry.Lock()
+	g := quotaGroupRegistry.groups[group]
+	quotaGroupRegistry.Unlock()
+	if g == nil {
+		return
+	}
+	copyIPs := make(map[string]int, len(ips))
+	for ip, count := range ips {
+		if count > 0 {
+			copyIPs[ip] = count
+		}
+	}
+	g.mu.Lock()
+	g.nftConnections = connections
+	g.nftClientIPs = copyIPs
+	g.mu.Unlock()
+}
+
+func GetQuotaGroupState(group string) (QuotaGroupState, bool) {
+	quotaGroupRegistry.Lock()
+	g := quotaGroupRegistry.groups[group]
+	quotaGroupRegistry.Unlock()
+	if g == nil {
+		return QuotaGroupState{}, false
+	}
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	state := QuotaGroupState{
+		MaxConnections: g.maxConnections,
+		MaxClientIPs:   g.maxClientIPs,
+		Connections:    g.connections + g.nftConnections,
+		ClientIPs:      make(map[string]struct{}, len(g.clientIPs)+len(g.nftClientIPs)),
+	}
+	for ip := range g.clientIPs {
+		state.ClientIPs[ip] = struct{}{}
+	}
+	for ip := range g.nftClientIPs {
+		state.ClientIPs[ip] = struct{}{}
+	}
+	return state, true
 }
 
 var quotaGroupRegistry = struct {
@@ -80,16 +149,26 @@ func (g *quotaGroup) acquire(clientIP string) (reason string, limit int, ok bool
 	g.mu.Lock()
 	defer g.mu.Unlock()
 
-	if g.maxConnections >= 0 && g.connections >= g.maxConnections {
+	if g.maxConnections >= 0 && g.connections+g.nftConnections >= g.maxConnections {
 		return "group connections", g.maxConnections, false
 	}
-	if g.maxClientIPs >= 0 && g.clientIPs[clientIP] == 0 && len(g.clientIPs) >= g.maxClientIPs {
+	if g.maxClientIPs >= 0 && g.clientIPs[clientIP] == 0 && g.nftClientIPs[clientIP] == 0 && len(g.clientIPs)+countNftOnlyIPs(g) >= g.maxClientIPs {
 		return "group client IPs", g.maxClientIPs, false
 	}
 
 	g.connections++
 	g.clientIPs[clientIP]++
 	return "", 0, true
+}
+
+func countNftOnlyIPs(g *quotaGroup) int {
+	count := 0
+	for ip := range g.nftClientIPs {
+		if g.clientIPs[ip] == 0 {
+			count++
+		}
+	}
+	return count
 }
 
 func (g *quotaGroup) release(clientIP string) {
@@ -165,17 +244,22 @@ func QuotaGroupUsages() []QuotaGroupUsage {
 	usages := make([]QuotaGroupUsage, 0, len(groups))
 	for _, item := range groups {
 		item.group.mu.Lock()
-		if item.group.services == 0 && item.group.connections == 0 {
+		if item.group.services == 0 && item.group.connections == 0 && item.group.nftConnections == 0 {
 			item.group.mu.Unlock()
 			continue
 		}
 		usage := QuotaGroupUsage{
 			Group:       item.name,
-			Connections: item.group.connections,
-			ClientIPs:   make([]string, 0, len(item.group.clientIPs)),
+			Connections: item.group.connections + item.group.nftConnections,
+			ClientIPs:   make([]string, 0, len(item.group.clientIPs)+len(item.group.nftClientIPs)),
 		}
 		for clientIP := range item.group.clientIPs {
 			usage.ClientIPs = append(usage.ClientIPs, clientIP)
+		}
+		for clientIP := range item.group.nftClientIPs {
+			if item.group.clientIPs[clientIP] == 0 {
+				usage.ClientIPs = append(usage.ClientIPs, clientIP)
+			}
 		}
 		item.group.mu.Unlock()
 		sort.Strings(usage.ClientIPs)

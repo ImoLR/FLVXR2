@@ -124,6 +124,53 @@ func TestQuotaGroupBudgetZeroAndUnlimitedEncoding(t *testing.T) {
 	}
 }
 
+func TestNftUsageMergesWithGostPool(t *testing.T) {
+	const group = "test-nft-gost-merged"
+	s := &defaultService{}
+	s.SetQuotaGroup(group, 2, 2)
+	handle := AttachNftQuotaGroup(group, 2, 2)
+	defer handle.Detach()
+	SetNftQuotaGroupUsage(group, 1, map[string]int{"192.0.2.1": 1})
+	defer SetNftQuotaGroupUsage(group, 0, nil)
+	release := mustAcquire(t, s, "192.0.2.1")
+	usage := findQuotaUsage(t, group)
+	if usage.Connections != 2 || len(usage.ClientIPs) != 1 || usage.ClientIPs[0] != "192.0.2.1" {
+		t.Fatalf("merged usage = %+v", usage)
+	}
+	if connRelease, reason, _, ok := s.acquireConnection("192.0.2.2"); ok {
+		connRelease()
+		t.Fatal("gost admitted a connection after nft filled the pool")
+	} else if reason != "group connections" {
+		t.Fatalf("rejection reason %q", reason)
+	}
+	release()
+	if err := SetQuotaGroupBudgets([]QuotaGroupBudget{{Group: group, MaxConnections: -1, MaxClientIPs: 1}}); err != nil {
+		t.Fatal(err)
+	}
+	release = mustAcquire(t, s, "192.0.2.1")
+	if connRelease, reason, _, ok := s.acquireConnection("192.0.2.2"); ok {
+		connRelease()
+		t.Fatal("gost admitted a new IP after nft filled the IP pool")
+	} else if reason != "group client IPs" {
+		t.Fatalf("rejection reason %q", reason)
+	}
+	state, ok := GetQuotaGroupState(group)
+	if !ok || state.MaxConnections != -1 || state.MaxClientIPs != 1 || state.Connections != 2 || len(state.ClientIPs) != 1 {
+		t.Fatalf("merged state = %+v, present=%v", state, ok)
+	}
+	release()
+	SetNftQuotaGroupUsage(group, 0, nil)
+	release = mustAcquire(t, s, "192.0.2.2")
+	release()
+	if err := SetQuotaGroupBudgets([]QuotaGroupBudget{{Group: group, MaxConnections: 0, MaxClientIPs: -1}}); err != nil {
+		t.Fatal(err)
+	}
+	if connRelease, _, _, ok := s.acquireConnection("192.0.2.3"); ok {
+		connRelease()
+		t.Fatal("zero budget admitted a connection")
+	}
+}
+
 func mustAcquire(t *testing.T, s *defaultService, clientIP string) func() {
 	t.Helper()
 	release, reason, limit, ok := s.acquireConnection(clientIP)
