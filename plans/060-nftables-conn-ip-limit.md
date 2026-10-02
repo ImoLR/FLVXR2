@@ -15,4 +15,18 @@
 - [x] agent 将 nft 用量并入既有 quota group，补充合并/预算测试。
 - [x] agent 安装 nft 连接/IP/用户池门槛并轮询 conntrack，补充解析、归属和门槛测试。
 - [x] 在 netns 完成真实 TCP 限额和共享池测试，更新 UI/059 说明。
-- [ ] 运行要求的各项目测试、比对既有失败、审查范围、推送分支并写中文总结。
+- [x] 运行要求的各项目测试、比对既有失败、审查范围。
+- [ ] 推送实施分支并写中文总结（不发布、不部署）。
+
+## 验证记录
+
+- `go-backend`: `go test ./...` 已运行；失败测试/子测试名称与 `/root/flvx-fork10/base.fails` 的 19 项基线精确一致，无新增失败。新测试确认 type 1/type 2 nft payload 的规则限额与组预算、nft-only 入口收到 `SetQuotaGroups` 预算。
+- `go-gost`: `go test ./...` 通过。
+- `go-gost/x`: `go test ./...` 通过，`go test -race ./service` 通过；新单元测试覆盖旧 JSON 兼容、TCP/UDP conntrack 归属、规则/组门槛和 gost+nft 去重上报。
+- `vite-frontend`: `npm run build` 通过。
+- `go-gost/x/nftables/netns_integration.sh`: 全部集成测试通过；本轮新增测试覆盖无限额零门槛开销、TCP 连接上限 2 与关闭后释放、IPv4/IPv6 TCP 与 UDP 来源 IP 上限、TCP+UDP 共用一条规则连接上限、两条 nft 规则共用用户连接池及预算 `0`/`-1` 更新。gost+nft 同节点共享池由 service 单元测试验证，未在 netns 中启动完整 gost 服务。
+- 所有 nftables/conntrack 写入均在脚本创建的临时 client、entry、target netns 内完成，退出后清理。脚本仅在临时 entry netns 缩短 TCP conntrack 超时以测试释放；主机默认参数保持 `CLOSE=10`、`TIME_WAIT=120`、`SYN_SENT=120` 秒。
+
+## 发布轮次待办（本轮不执行）
+
+- 待单独的 fork.13 发布轮次完成：标注 tag、验证 CI/镜像/发布资产；按既有流程备份生产 DB/compose/镜像并部署 panel；由用户安排入口 agent 升级，旧 agent 的 nft 转发继续工作但不执行新增 nft 限额。
