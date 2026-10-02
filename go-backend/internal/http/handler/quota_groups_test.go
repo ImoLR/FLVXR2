@@ -91,10 +91,10 @@ func TestComputeQuotaBudgetPlanSkipsKnownOldAndOfflineAgents(t *testing.T) {
 	if len(plan.Budgets) != 1 || len(plan.Budgets[4]) != 1 {
 		t.Fatalf("budgets = %#v, want only unknown-version node 4", plan.Budgets)
 	}
-	if quotaAgentSupport("3.0.28") != quotaAgentUnsupported || quotaAgentSupport("3.0.27-fork.12") != quotaAgentUnsupported {
+	if quotaAgentSupport("3.0.28 (debian/amd64)") != quotaAgentUnsupported || quotaAgentSupport("3.0.27-fork.12 (linux/amd64)") != quotaAgentUnsupported {
 		t.Fatal("known upstream/fork.12 agents must be skipped")
 	}
-	if quotaAgentSupport("3.0.27-fork.13") != quotaAgentSupported || quotaAgentSupport("custom-build") != quotaAgentUnknown {
+	if quotaAgentSupport("3.0.27-fork.13 (debian/amd64)") != quotaAgentSupported || quotaAgentSupport("custom-build") != quotaAgentUnknown {
 		t.Fatal("fork.13/unknown version classification mismatch")
 	}
 }

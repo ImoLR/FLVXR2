@@ -397,7 +397,11 @@ const (
 )
 
 func quotaAgentSupport(version string) quotaAgentSupportLevel {
-	version = strings.TrimPrefix(strings.TrimSpace(version), "v")
+	fields := strings.Fields(strings.TrimSpace(version))
+	if len(fields) == 0 {
+		return quotaAgentUnknown
+	}
+	version = strings.TrimPrefix(fields[0], "v")
 	if version == "" || !stableVersionPattern.MatchString(version) {
 		return quotaAgentUnknown
 	}
