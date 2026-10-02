@@ -277,6 +277,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("/api/v1/tunnel/user/update", h.userTunnelUpdate)
 	mux.HandleFunc("/api/v1/tunnel/user/batch-update-status", h.userTunnelBatchUpdateStatus)
 	mux.HandleFunc("/api/v1/forward/list", h.forwardList)
+	mux.HandleFunc("/api/v1/forward/client-ips", h.forwardClientIPs)
 	mux.HandleFunc("/api/v1/forward/create", h.forwardCreate)
 	mux.HandleFunc("/api/v1/forward/update", h.forwardUpdate)
 	mux.HandleFunc("/api/v1/forward/delete", h.forwardDelete)
