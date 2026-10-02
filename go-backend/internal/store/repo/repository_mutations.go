@@ -2139,22 +2139,25 @@ func (r *Repository) UpdateForwardPortBindIP(forwardID, nodeID int64, port int, 
 		Update("in_ip", sql.NullString{String: inIP, Valid: strings.TrimSpace(inIP) != ""}).Error
 }
 
-func (r *Repository) RollbackForwardFields(id, userID int64, userName, name string, tunnelID int64, remoteAddr, strategy string, status int, speedID interface{}, now int64) {
+func (r *Repository) RollbackForwardFields(id, userID int64, userName, name string, tunnelID int64, remoteAddr, strategy string, status int, speedID interface{}, cnBlocked bool, cnBlockedReason string, cnBlockedAutoPaused bool, now int64) {
 	if r == nil || r.db == nil {
 		return
 	}
 	_ = r.db.Model(&model.Forward{}).
 		Where("id = ?", id).
 		Updates(map[string]interface{}{
-			"user_id":      userID,
-			"user_name":    userName,
-			"name":         name,
-			"tunnel_id":    tunnelID,
-			"remote_addr":  remoteAddr,
-			"strategy":     strategy,
-			"status":       status,
-			"speed_id":     nullInt64FromInterface(speedID),
-			"updated_time": now,
+			"user_id":                userID,
+			"user_name":              userName,
+			"name":                   name,
+			"tunnel_id":              tunnelID,
+			"remote_addr":            remoteAddr,
+			"strategy":               strategy,
+			"status":                 status,
+			"speed_id":               nullInt64FromInterface(speedID),
+			"cn_blocked":             cnBlocked,
+			"cn_blocked_reason":      cnBlockedReason,
+			"cn_blocked_auto_paused": cnBlockedAutoPaused,
+			"updated_time":           now,
 		}).Error
 }
 

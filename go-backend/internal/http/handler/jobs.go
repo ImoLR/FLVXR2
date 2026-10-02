@@ -6,7 +6,13 @@ import (
 	"strings"
 	"time"
 
+	"go-backend/internal/cnlanding"
 	"go-backend/internal/store/repo"
+)
+
+const (
+	cnLandingInitialDelay = 5 * time.Second
+	cnLandingCheckPeriod  = 10 * time.Minute
 )
 
 func (h *Handler) StartBackgroundJobs() {
@@ -22,7 +28,7 @@ func (h *Handler) StartBackgroundJobs() {
 	ctx, cancel := context.WithCancel(context.Background())
 	h.jobsCancel = cancel
 	h.jobsStarted = true
-	h.jobsWG.Add(9)
+	h.jobsWG.Add(10)
 	h.jobsMu.Unlock()
 
 	go h.runHourlyStatsLoop(ctx)
@@ -32,8 +38,90 @@ func (h *Handler) StartBackgroundJobs() {
 	go h.runHealthChecks(ctx)
 	go h.runTunnelQualityProber(ctx)
 	go h.runNftablesDomainRefreshLoop(ctx)
+	go h.runCNLandingCheckLoop(ctx)
 	go h.runCancelExpiredOrdersLoop(ctx)
 	go h.runExpirePackageSubscriptionsLoop(ctx)
+}
+
+func (h *Handler) runCNLandingCheckLoop(ctx context.Context) {
+	defer h.jobsWG.Done()
+	timer := time.NewTimer(cnLandingInitialDelay)
+	defer timer.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-timer.C:
+			h.runCNLandingCheckJob()
+			timer.Reset(cnLandingCheckPeriod)
+		}
+	}
+}
+
+func (h *Handler) runCNLandingCheckJob() {
+	if h == nil || h.repo == nil {
+		return
+	}
+
+	forwards, err := h.repo.ListForwardsForCNCheck()
+	if err != nil {
+		log.Printf("[cn-landing] 查询转发失败: %v", err)
+		return
+	}
+	for i := range forwards {
+		forward := &forwards[i]
+		checkErr := h.checkForwardRecordLanding(context.Background(), forward)
+		if checkErr == nil {
+			continue
+		}
+		if cnlanding.IsResolutionFailure(checkErr) {
+			log.Printf("[cn-landing] forward=%d name=%q DNS检查暂时失败，保持现有状态: %v", forward.ID, forward.Name, checkErr)
+			continue
+		}
+		if !cnlanding.IsMainland(checkErr) {
+			log.Printf("[cn-landing] forward=%d name=%q 地址检查失败，保持现有状态: %v", forward.ID, forward.Name, checkErr)
+			continue
+		}
+
+		wasActive := forward.Status == 1
+		if wasActive {
+			if pauseErr := h.pauseForwardRuntimeForCNBlock(forward); pauseErr != nil {
+				log.Printf("[cn-landing] forward=%d name=%q 节点暂停失败，仍将记录数据库暂停: %v", forward.ID, forward.Name, pauseErr)
+			}
+		}
+		status := forward.Status
+		if wasActive {
+			status = 0
+		}
+		autoPaused := forward.CNBlockedAutoPaused || wasActive
+		if err := h.repo.SetForwardCNBlockState(forward.ID, true, checkErr.Error(), autoPaused, status, time.Now().UnixMilli()); err != nil {
+			log.Printf("[cn-landing] forward=%d name=%q 记录拦截状态失败: %v", forward.ID, forward.Name, err)
+			continue
+		}
+		log.Printf("[cn-landing] forward=%d name=%q user=%q target=%q status=%d reason=%q", forward.ID, forward.Name, forward.UserName, forward.RemoteAddr, status, checkErr.Error())
+	}
+}
+
+func (h *Handler) pauseForwardRuntimeForCNBlock(forward *forwardRecord) error {
+	if h == nil || forward == nil {
+		return nil
+	}
+	if strings.EqualFold(forward.Mode, "wg_path") {
+		ports, _ := h.listForwardPorts(forward.ID)
+		return h.syncWGForwardRule(forward, ports, "PauseService")
+	}
+	if strings.EqualFold(forward.Mode, "nftables") {
+		ports, _ := h.listForwardPorts(forward.ID)
+		return h.deleteNftablesRules(forward, ports)
+	}
+
+	pauseErr := h.controlForwardServices(forward, "PauseService", false)
+	terminateErr := h.controlForwardServices(forward, "TerminateConnections", false)
+	if pauseErr != nil {
+		return pauseErr
+	}
+	return terminateErr
 }
 
 func (h *Handler) StopBackgroundJobs() {

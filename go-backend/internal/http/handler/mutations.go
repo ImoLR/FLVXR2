@@ -3184,6 +3184,17 @@ func (h *Handler) forwardUpdate(w http.ResponseWriter, r *http.Request) {
 		response.WriteJSON(w, response.Err(-2, err.Error()))
 		return
 	}
+	if forward.CNBlocked {
+		status := forward.Status
+		if forward.CNBlockedAutoPaused {
+			status = 1
+		}
+		if err := h.repo.SetForwardCNBlockState(id, false, "", false, status, now); err != nil {
+			h.rollbackForwardMutation(forward, oldPorts)
+			response.WriteJSON(w, response.Err(-2, err.Error()))
+			return
+		}
+	}
 
 	var warnings []string
 
@@ -3450,7 +3461,21 @@ func (h *Handler) forwardResume(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 先更新状态为 1，避免 syncForwardServicesWithWarnings 末尾的暂停检查删除刚添加的规则
-	_ = h.repo.UpdateForwardStatus(id, 1, now)
+	wasCNBlocked := forward.CNBlocked
+	oldCNBlockedReason := forward.CNBlockedReason
+	oldCNBlockedAutoPaused := forward.CNBlockedAutoPaused
+	oldStatus := forward.Status
+	if wasCNBlocked {
+		if err := h.repo.SetForwardCNBlockState(id, false, "", false, 1, now); err != nil {
+			response.WriteJSON(w, response.Err(-2, err.Error()))
+			return
+		}
+		forward.CNBlocked = false
+		forward.CNBlockedReason = ""
+		forward.CNBlockedAutoPaused = false
+	} else {
+		_ = h.repo.UpdateForwardStatus(id, 1, now)
+	}
 	forward.Status = 1
 
 	// nftables mode: re-sync rules to resume traffic
@@ -3458,11 +3483,17 @@ func (h *Handler) forwardResume(w http.ResponseWriter, r *http.Request) {
 		log.Printf("[nft.debug] forwardResume: nft mode, calling syncForwardServicesWithWarnings forwardID=%d", forward.ID)
 		_, err := h.syncForwardServicesWithWarnings(forward, "UpdateService", true)
 		if err != nil {
+			if wasCNBlocked {
+				_ = h.repo.SetForwardCNBlockState(id, true, oldCNBlockedReason, oldCNBlockedAutoPaused, oldStatus, time.Now().UnixMilli())
+			}
 			response.WriteJSON(w, response.ErrDefault(err.Error()))
 			return
 		}
 	} else {
 		if err := h.controlForwardServices(forward, "ResumeService", false); err != nil {
+			if wasCNBlocked {
+				_ = h.repo.SetForwardCNBlockState(id, true, oldCNBlockedReason, oldCNBlockedAutoPaused, oldStatus, time.Now().UnixMilli())
+			}
 			response.WriteJSON(w, response.ErrDefault(err.Error()))
 			return
 		}
@@ -3688,14 +3719,35 @@ func (h *Handler) forwardBatchResume(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 		}
-		if strings.EqualFold(forward.Mode, "nftables") {
+		wasCNBlocked := forward.CNBlocked
+		oldCNBlockedReason := forward.CNBlockedReason
+		oldCNBlockedAutoPaused := forward.CNBlockedAutoPaused
+		oldStatus := forward.Status
+		if wasCNBlocked {
+			if err := h.repo.SetForwardCNBlockState(id, false, "", false, 1, now); err != nil {
+				f++
+				failures = appendBatchFailure(failures, id, forward.Name, err)
+				continue
+			}
+			forward.CNBlocked = false
+			forward.CNBlockedReason = ""
+			forward.CNBlockedAutoPaused = false
+		}
+		forward.Status = 1
+		if strings.EqualFold(forward.Mode, "nftables") || strings.EqualFold(forward.Mode, "wg_path") {
 			if err := h.syncForwardServices(forward, "UpdateService", true); err != nil {
+				if wasCNBlocked {
+					_ = h.repo.SetForwardCNBlockState(id, true, oldCNBlockedReason, oldCNBlockedAutoPaused, oldStatus, time.Now().UnixMilli())
+				}
 				f++
 				failures = appendBatchFailure(failures, id, forward.Name, err)
 				continue
 			}
 		} else {
 			if err := h.controlForwardServices(forward, "ResumeService", false); err != nil {
+				if wasCNBlocked {
+					_ = h.repo.SetForwardCNBlockState(id, true, oldCNBlockedReason, oldCNBlockedAutoPaused, oldStatus, time.Now().UnixMilli())
+				}
 				f++
 				failures = appendBatchFailure(failures, id, forward.Name, err)
 				continue
@@ -5661,6 +5713,7 @@ func (h *Handler) rollbackForwardMutation(oldForward *forwardRecord, oldPorts []
 		oldForward.ID, oldForward.UserID, oldForward.UserName, oldForward.Name,
 		oldForward.TunnelID, oldForward.RemoteAddr, oldForward.Strategy, oldForward.Status,
 		oldForward.SpeedID,
+		oldForward.CNBlocked, oldForward.CNBlockedReason, oldForward.CNBlockedAutoPaused,
 		time.Now().UnixMilli(),
 	)
 
