@@ -835,14 +835,16 @@ func (h *Handler) forwardList(w http.ResponseWriter, r *http.Request) {
 			// 获取转发的入口节点
 			ports, err := h.repo.ListForwardPorts(forwardID)
 			if err == nil && len(ports) > 0 {
-				// 使用第一个入口节点的连接数
-				nodeID := ports[0].NodeID
-				conns := h.GetForwardConnections(nodeID, forwardID)
-				items[i]["currentConnections"] = conns
+				nodeIDs := make([]int64, 0, len(ports))
+				for _, port := range ports {
+					nodeIDs = append(nodeIDs, port.NodeID)
+				}
+				items[i]["currentConnections"] = sumForwardConnections(nodeIDs, func(nodeID int64) int {
+					return h.GetForwardConnections(nodeID, forwardID)
+				})
 
 				// 获取实时带宽数据
 				if metric := h.wsServer.GetForwardMetric(forwardID); metric != nil {
-					fmt.Printf("[api.forward] forwardID=%d inSpeed=%d outSpeed=%d\n", forwardID, metric.InSpeed, metric.OutSpeed)
 					items[i]["inSpeed"] = metric.InSpeed
 					items[i]["outSpeed"] = metric.OutSpeed
 				} else {
@@ -861,6 +863,19 @@ func (h *Handler) forwardList(w http.ResponseWriter, r *http.Request) {
 		"items": items,
 		"total": total,
 	}))
+}
+
+func sumForwardConnections(nodeIDs []int64, getConnections func(int64) int) int {
+	seen := make(map[int64]struct{}, len(nodeIDs))
+	total := 0
+	for _, nodeID := range nodeIDs {
+		if _, ok := seen[nodeID]; ok {
+			continue
+		}
+		seen[nodeID] = struct{}{}
+		total += getConnections(nodeID)
+	}
+	return total
 }
 
 func (h *Handler) speedLimitList(w http.ResponseWriter, r *http.Request) {
