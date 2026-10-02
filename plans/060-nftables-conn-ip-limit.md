@@ -27,6 +27,7 @@
 - `go-gost/x/nftables/netns_integration.sh`: 全部集成测试通过；本轮新增测试覆盖无限额零门槛开销、TCP 连接上限 2 与关闭后释放、IPv4/IPv6 TCP 与 UDP 来源 IP 上限、TCP+UDP 共用一条规则连接上限、两条 nft 规则共用用户连接池及预算 `0`/`-1` 更新。gost+nft 同节点共享池由 service 单元测试验证，未在 netns 中启动完整 gost 服务。
 - 所有 nftables/conntrack 写入均在脚本创建的临时 client、entry、target netns 内完成，退出后清理。脚本仅在临时 entry netns 缩短 TCP conntrack 超时以测试释放；主机默认参数保持 `CLOSE=10`、`TIME_WAIT=120`、`SYN_SENT=120` 秒。
 
-## 发布轮次待办（本轮不执行）
+## fork.13 发布轮次
 
-- 待单独的 fork.13 发布轮次完成：标注 tag、验证 CI/镜像/发布资产；按既有流程备份生产 DB/compose/镜像并部署 panel；由用户安排入口 agent 升级，旧 agent 的 nft 转发继续工作但不执行新增 nft 限额。
+- [x] 标注 fork.13 tag、验证 CI/镜像/发布资产；按既有流程备份生产 DB/compose/镜像并部署 panel。
+- [ ] 由用户安排入口 agent 升级；旧 agent 的 nft 转发继续工作但不执行新增 nft 限额。

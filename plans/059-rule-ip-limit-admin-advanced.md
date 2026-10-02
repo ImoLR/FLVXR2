@@ -43,8 +43,8 @@
 - `vite-frontend`: `npm run build` 通过。
 - 隔离 netns E2E 通过：两个规则共享连接总额 2，第三条连接在任一规则均被拒绝并在关闭后释放；接入 IP 总额 1 时第二来源 IP 被拒绝并在释放后恢复。
 
-## 发布轮次待办（本轮不执行）
+## fork.13 发布轮次
 
-- 发布 `3.0.27-fork.13`，验证 CI、镜像和 release assets。
-- 按既有流程建立生产回滚点并升级 panel；由 AutoMigrate 增加两个 `NOT NULL DEFAULT 0` 整数字段，既有数据保持不变。
-- 由用户另行安排入口 agent 升级；升级前仍是旧 agent 的每 service 连接回退行为，不执行实时用户池和 IP 限制。
+- [x] 发布 `3.0.27-fork.13`，验证 CI、镜像和 release assets。
+- [x] 按既有流程建立生产回滚点并升级 panel；由 AutoMigrate 增加两个 `NOT NULL DEFAULT 0` 整数字段，既有数据保持不变。
+- [ ] 由用户另行安排入口 agent 升级；升级前仍是旧 agent 的每 service 连接回退行为，不执行实时用户池和 IP 限制。
