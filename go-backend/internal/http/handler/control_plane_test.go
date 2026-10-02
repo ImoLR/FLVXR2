@@ -406,6 +406,34 @@ func TestBuildForwardServiceConfigs_DefaultListenAddrWhenBindIPEmpty(t *testing.
 		t.Fatalf("expected udp addr [::]:22001, got %q", udpAddr)
 	}
 }
+
+func TestBuildForwardServiceConfigs_IncludesTunnelProtocolFilter(t *testing.T) {
+	forward := &forwardRecord{RemoteAddr: "1.2.3.4:80", Strategy: "fifo", TunnelID: 7}
+	tunnel := &tunnelRecord{HTTP: 1, TLS: 0, Socks: 1, BlockOther: 0}
+	node := &nodeRecord{TCPListenAddr: "0.0.0.0", UDPListenAddr: "0.0.0.0"}
+	services := buildForwardServiceConfigs("1_2_0", forward, tunnel, node, 22001, "", nil, "", false)
+	if len(services) != 2 {
+		t.Fatalf("expected 2 services, got %d", len(services))
+	}
+
+	for _, svc := range services {
+		metadata, ok := svc["metadata"].(map[string]interface{})
+		if !ok {
+			t.Fatalf("service %v has no metadata", svc["name"])
+		}
+		filter, ok := metadata["protocolFilter"].(map[string]interface{})
+		if !ok {
+			t.Fatalf("service %v has no protocolFilter metadata", svc["name"])
+		}
+		want := map[string]int{"http": 1, "tls": 0, "socks": 1, "blockOther": 0}
+		for key, value := range want {
+			if got, ok := filter[key].(int); !ok || got != value {
+				t.Errorf("service %v protocolFilter.%s: expected %d, got %#v", svc["name"], key, value, filter[key])
+			}
+		}
+	}
+}
+
 func TestBuildForwardServiceConfigs_BindIPAlreadyContainsPort(t *testing.T) {
 	forward := &forwardRecord{RemoteAddr: "1.2.3.4:80", Strategy: "fifo", TunnelID: 7}
 	node := &nodeRecord{TCPListenAddr: "[::]", UDPListenAddr: "[::]"}

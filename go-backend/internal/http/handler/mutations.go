@@ -1448,19 +1448,21 @@ func (h *Handler) tunnelCreate(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	// Apply protocol blocking settings to entry nodes
+	// Keep sending the legacy node-global command for older agents.
 	httpVal := asInt(req["http"], 0)
 	tlsVal := asInt(req["tls"], 0)
 	socksVal := asInt(req["socks"], 0)
 	blockOtherVal := asInt(req["blockOther"], 0)
+	entryNodeIDs := make([]int64, 0, len(runtimeState.InNodes))
 	for _, inNode := range runtimeState.InNodes {
 		if inNode.NodeID > 0 {
-			if currentStatus, _, _, _, _, _ := h.repo.GetNodeStatusFields(inNode.NodeID); currentStatus == 1 {
-				if err := h.applyNodeProtocolChange(inNode.NodeID, httpVal, tlsVal, socksVal, blockOtherVal); err != nil {
-					log.Printf("SetProtocol failed for node %d: %v", inNode.NodeID, err)
-				}
-			}
+			entryNodeIDs = append(entryNodeIDs, inNode.NodeID)
 		}
+	}
+	warnings := h.applyTunnelProtocolChangesWithWarnings(entryNodeIDs, httpVal, tlsVal, socksVal, blockOtherVal)
+	if len(warnings) > 0 {
+		response.WriteJSON(w, response.OK(map[string]interface{}{"warnings": warnings}))
+		return
 	}
 
 	response.WriteJSON(w, response.OKEmpty())
@@ -1711,10 +1713,17 @@ func (h *Handler) tunnelUpdate(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	warnings := make([]string, 0)
 	if forwards, fwdErr := h.listForwardsByTunnel(id); fwdErr == nil {
 		for i := range forwards {
-			_ = h.syncForwardServices(&forwards[i], "UpdateService", true)
+			syncWarnings, syncErr := h.syncForwardServicesWithWarnings(&forwards[i], "UpdateService", true)
+			warnings = append(warnings, syncWarnings...)
+			if syncErr != nil {
+				warnings = append(warnings, fmt.Sprintf("转发 %s 协议过滤下发失败: %v", forwards[i].Name, syncErr))
+			}
 		}
+	} else {
+		warnings = append(warnings, fmt.Sprintf("协议过滤转发同步失败: %v", fwdErr))
 	}
 
 	items, err := h.repo.ListTunnels()
@@ -1734,19 +1743,14 @@ func (h *Handler) tunnelUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Apply protocol blocking settings to entry nodes
+	// Keep sending the legacy node-global command for older agents.
 	httpVal := asInt(req["http"], 0)
 	tlsVal := asInt(req["tls"], 0)
 	socksVal := asInt(req["socks"], 0)
 	blockOtherVal := asInt(req["blockOther"], 0)
-	for _, nodeID := range newEntryNodeIDs {
-		if nodeID > 0 {
-			if currentStatus, _, _, _, _, _ := h.repo.GetNodeStatusFields(nodeID); currentStatus == 1 {
-				if err := h.applyNodeProtocolChange(nodeID, httpVal, tlsVal, socksVal, blockOtherVal); err != nil {
-					log.Printf("SetProtocol failed for node %d: %v", nodeID, err)
-				}
-			}
-		}
+	warnings = append(warnings, h.applyTunnelProtocolChangesWithWarnings(newEntryNodeIDs, httpVal, tlsVal, socksVal, blockOtherVal)...)
+	if len(warnings) > 0 {
+		updatedTunnel["warnings"] = warnings
 	}
 
 	response.WriteJSON(w, response.OK(updatedTunnel))

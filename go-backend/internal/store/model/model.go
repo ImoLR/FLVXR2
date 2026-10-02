@@ -850,6 +850,10 @@ type TunnelRecord struct {
 	Flow         int64
 	TrafficRatio float64
 	SpeedID      sql.NullInt64
+	HTTP         int
+	TLS          int
+	Socks        int
+	BlockOther   int
 }
 
 type UserQuotaView struct {

@@ -238,6 +238,10 @@ func (r *Repository) GetTunnelRecord(tunnelID int64) (*model.TunnelRecord, error
 		Flow:         t.Flow,
 		TrafficRatio: t.TrafficRatio,
 		SpeedID:      t.SpeedID,
+		HTTP:         t.HTTP,
+		TLS:          t.TLS,
+		Socks:        t.Socks,
+		BlockOther:   t.BlockOther,
 	}
 	if tr.Flow <= 0 {
 		tr.Flow = 1

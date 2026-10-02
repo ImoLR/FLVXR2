@@ -664,6 +664,42 @@ func (h *Handler) applyNodeProtocolChange(nodeID int64, httpVal, tlsVal, socksVa
 	return err
 }
 
+func (h *Handler) applyTunnelProtocolChangesWithWarnings(nodeIDs []int64, httpVal, tlsVal, socksVal, blockOtherVal int) []string {
+	warnings := make([]string, 0)
+	seen := make(map[int64]struct{}, len(nodeIDs))
+	for _, nodeID := range nodeIDs {
+		if nodeID <= 0 {
+			continue
+		}
+		if _, ok := seen[nodeID]; ok {
+			continue
+		}
+		seen[nodeID] = struct{}{}
+
+		node, err := h.getNodeRecord(nodeID)
+		nodeName := fmt.Sprintf("%d", nodeID)
+		if node != nil && strings.TrimSpace(node.Name) != "" {
+			nodeName = strings.TrimSpace(node.Name)
+		}
+		if err != nil {
+			warnings = append(warnings, fmt.Sprintf("节点 %s 协议过滤下发失败: %v", nodeName, err))
+			continue
+		}
+		if node.Status != 1 {
+			warnings = append(warnings, fmt.Sprintf("节点 %s 不在线，已跳过下发", nodeName))
+			continue
+		}
+		if err := h.applyNodeProtocolChange(nodeID, httpVal, tlsVal, socksVal, blockOtherVal); err != nil {
+			if isNodeOfflineOrTimeoutError(err) {
+				warnings = append(warnings, fmt.Sprintf("节点 %s 不在线，已跳过下发", nodeName))
+			} else {
+				warnings = append(warnings, fmt.Sprintf("节点 %s 协议过滤下发失败: %v", nodeName, err))
+			}
+		}
+	}
+	return warnings
+}
+
 func (h *Handler) sendNodeCommand(nodeID int64, commandType string, data interface{}, tolerateExists bool, tolerateNotFound bool) (ws.CommandResult, error) {
 	return h.sendNodeCommandWithTimeout(nodeID, commandType, data, defaultNodeCommandTimeout, tolerateExists, tolerateNotFound)
 }
@@ -1861,6 +1897,14 @@ func buildForwardServiceConfigs(baseName string, forward *forwardRecord, tunnel 
 		}
 		// 合并 metadata
 		meta := make(map[string]interface{})
+		if tunnel != nil {
+			meta["protocolFilter"] = map[string]interface{}{
+				"http":       tunnel.HTTP,
+				"tls":        tunnel.TLS,
+				"socks":      tunnel.Socks,
+				"blockOther": tunnel.BlockOther,
+			}
+		}
 		if tunnel != nil && tunnel.Type == 1 && strings.TrimSpace(node.InterfaceName) != "" {
 			meta["interface"] = node.InterfaceName
 		}
