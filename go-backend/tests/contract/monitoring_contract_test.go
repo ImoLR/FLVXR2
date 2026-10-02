@@ -909,6 +909,143 @@ func TestServiceMonitorLimitsEndpoint(t *testing.T) {
 	}
 }
 
+func TestServiceMonitorsAreAdminOnly(t *testing.T) {
+	secret := "monitoring-jwt-secret"
+	router, repo := setupContractRouter(t, secret)
+
+	adminToken, err := auth.GenerateToken(1, "admin_user", 0, secret)
+	if err != nil {
+		t.Fatalf("generate admin token: %v", err)
+	}
+	userToken, err := auth.GenerateToken(2, "normal_user", 1, secret)
+	if err != nil {
+		t.Fatalf("generate user token: %v", err)
+	}
+
+	now := time.Now().UnixMilli()
+	if err := repo.InsertMonitorPermission(2, now); err != nil {
+		t.Fatalf("grant monitor permission: %v", err)
+	}
+	monitor := &model.ServiceMonitor{
+		Name:        "Admin Monitor",
+		Type:        "tcp",
+		Target:      "127.0.0.1:1",
+		IntervalSec: 60,
+		TimeoutSec:  1,
+		Enabled:     1,
+		CreatedTime: now,
+		UpdatedTime: now,
+	}
+	if err := repo.CreateServiceMonitor(monitor); err != nil {
+		t.Fatalf("create service monitor: %v", err)
+	}
+	if err := repo.InsertServiceMonitorResult(&model.ServiceMonitorResult{
+		MonitorID: monitor.ID,
+		Timestamp: now,
+		Success:   1,
+		LatencyMs: 1,
+	}); err != nil {
+		t.Fatalf("insert service monitor result: %v", err)
+	}
+
+	request := func(t *testing.T, method, path, token string, body []byte) response.R {
+		t.Helper()
+		var req *http.Request
+		if body == nil {
+			req = httptest.NewRequest(method, path, nil)
+		} else {
+			req = httptest.NewRequest(method, path, bytes.NewReader(body))
+			req.Header.Set("Content-Type", "application/json")
+		}
+		req.Header.Set("Authorization", token)
+		res := httptest.NewRecorder()
+		router.ServeHTTP(res, req)
+
+		var out response.R
+		if err := json.NewDecoder(res.Body).Decode(&out); err != nil {
+			t.Fatalf("decode response: %v", err)
+		}
+		return out
+	}
+
+	createBody, _ := json.Marshal(map[string]interface{}{
+		"name": "Forbidden Monitor", "type": "tcp", "target": "127.0.0.1:1",
+		"intervalSec": 60, "timeoutSec": 1, "nodeId": 0, "enabled": 1,
+	})
+	updateBody, _ := json.Marshal(map[string]interface{}{
+		"id": monitor.ID, "name": "Forbidden Update", "type": "tcp", "target": "127.0.0.1:1",
+		"intervalSec": 60, "timeoutSec": 1, "nodeId": 0, "enabled": 1,
+	})
+	idBody, _ := json.Marshal(map[string]interface{}{"id": monitor.ID})
+	mutations := []struct {
+		name string
+		path string
+		body []byte
+	}{
+		{name: "create", path: "/api/v1/monitor/services/create", body: createBody},
+		{name: "update", path: "/api/v1/monitor/services/update", body: updateBody},
+		{name: "delete", path: "/api/v1/monitor/services/delete", body: idBody},
+		{name: "run", path: "/api/v1/monitor/services/run", body: idBody},
+	}
+	for _, tc := range mutations {
+		t.Run("non-admin cannot "+tc.name, func(t *testing.T) {
+			out := request(t, http.MethodPost, tc.path, userToken, tc.body)
+			if out.Code != 403 || out.Msg != "仅管理员可管理服务监控" {
+				t.Fatalf("expected admin-only 403, got code=%d msg=%q", out.Code, out.Msg)
+			}
+		})
+	}
+
+	arrayReads := []struct {
+		name string
+		path string
+	}{
+		{name: "list", path: "/api/v1/monitor/services"},
+		{name: "latest results", path: "/api/v1/monitor/services/latest-results"},
+		{name: "results", path: "/api/v1/monitor/services/" + jsonNumber(monitor.ID) + "/results"},
+	}
+	for _, tc := range arrayReads {
+		t.Run("non-admin gets empty "+tc.name, func(t *testing.T) {
+			out := request(t, http.MethodGet, tc.path, userToken, nil)
+			if out.Code != 0 {
+				t.Fatalf("expected code 0, got %d: %s", out.Code, out.Msg)
+			}
+			rows, ok := out.Data.([]interface{})
+			if !ok || len(rows) != 0 {
+				t.Fatalf("expected empty array, got %#v", out.Data)
+			}
+		})
+	}
+
+	t.Run("non-admin gets empty limits", func(t *testing.T) {
+		out := request(t, http.MethodGet, "/api/v1/monitor/services/limits", userToken, nil)
+		if out.Code != 0 {
+			t.Fatalf("expected code 0, got %d: %s", out.Code, out.Msg)
+		}
+		limits, ok := out.Data.(map[string]interface{})
+		if !ok || len(limits) == 0 {
+			t.Fatalf("expected limits object, got %#v", out.Data)
+		}
+		for key, value := range limits {
+			if value != float64(0) {
+				t.Fatalf("expected empty limit %q to be 0, got %#v", key, value)
+			}
+		}
+	})
+
+	t.Run("admin can read and run service monitor", func(t *testing.T) {
+		listOut := request(t, http.MethodGet, "/api/v1/monitor/services", adminToken, nil)
+		rows, ok := listOut.Data.([]interface{})
+		if listOut.Code != 0 || !ok || len(rows) != 1 {
+			t.Fatalf("expected admin monitor list, got code=%d data=%#v", listOut.Code, listOut.Data)
+		}
+		runOut := request(t, http.MethodPost, "/api/v1/monitor/services/run", adminToken, idBody)
+		if runOut.Code != 0 {
+			t.Fatalf("expected admin run success, got %d: %s", runOut.Code, runOut.Msg)
+		}
+	})
+}
+
 func TestMonitorNodeAndTunnelListEndpoints(t *testing.T) {
 	secret := "monitoring-jwt-secret"
 	router, repo := setupContractRouter(t, secret)
@@ -1363,36 +1500,17 @@ func TestMonitoringPermissionRequired(t *testing.T) {
 		t.Fatalf("generate user token: %v", err)
 	}
 
-	createBody, _ := json.Marshal(map[string]interface{}{
-		"name":        "NonAdmin Monitor",
-		"type":        "tcp",
-		"target":      "127.0.0.1:1",
-		"intervalSec": 60,
-		"timeoutSec":  5,
-		"nodeId":      0,
-		"enabled":     1,
-	})
-
 	forbidden := []struct {
 		name   string
 		method string
 		path   string
-		body   []byte
 	}{
-		{"service list", http.MethodGet, "/api/v1/monitor/services", nil},
-		{"service create", http.MethodPost, "/api/v1/monitor/services/create", createBody},
-		{"node metrics", http.MethodGet, "/api/v1/monitor/nodes/1/metrics", nil},
+		{"node metrics", http.MethodGet, "/api/v1/monitor/nodes/1/metrics"},
 	}
 
 	for _, tc := range forbidden {
 		t.Run(tc.name+" forbidden without grant", func(t *testing.T) {
-			var req *http.Request
-			if tc.body != nil {
-				req = httptest.NewRequest(tc.method, tc.path, bytes.NewReader(tc.body))
-				req.Header.Set("Content-Type", "application/json")
-			} else {
-				req = httptest.NewRequest(tc.method, tc.path, nil)
-			}
+			req := httptest.NewRequest(tc.method, tc.path, nil)
 			req.Header.Set("Authorization", userToken)
 			res := httptest.NewRecorder()
 			router.ServeHTTP(res, req)
@@ -1413,36 +1531,18 @@ func TestMonitoringPermissionRequired(t *testing.T) {
 		t.Fatalf("insert monitor permission: %v", err)
 	}
 
-	allowed := []struct {
-		name   string
-		method string
-		path   string
-		body   []byte
-	}{
-		{"service list", http.MethodGet, "/api/v1/monitor/services", nil},
-		{"service create", http.MethodPost, "/api/v1/monitor/services/create", createBody},
-	}
+	t.Run("node list allowed with grant", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/monitor/nodes", nil)
+		req.Header.Set("Authorization", userToken)
+		res := httptest.NewRecorder()
+		router.ServeHTTP(res, req)
 
-	for _, tc := range allowed {
-		t.Run(tc.name+" allowed with grant", func(t *testing.T) {
-			var req *http.Request
-			if tc.body != nil {
-				req = httptest.NewRequest(tc.method, tc.path, bytes.NewReader(tc.body))
-				req.Header.Set("Content-Type", "application/json")
-			} else {
-				req = httptest.NewRequest(tc.method, tc.path, nil)
-			}
-			req.Header.Set("Authorization", userToken)
-			res := httptest.NewRecorder()
-			router.ServeHTTP(res, req)
-
-			var out response.R
-			if err := json.NewDecoder(res.Body).Decode(&out); err != nil {
-				t.Fatalf("decode response: %v", err)
-			}
-			if out.Code != 0 {
-				t.Fatalf("expected code 0 with grant, got %d msg=%q", out.Code, out.Msg)
-			}
-		})
-	}
+		var out response.R
+		if err := json.NewDecoder(res.Body).Decode(&out); err != nil {
+			t.Fatalf("decode response: %v", err)
+		}
+		if out.Code != 0 {
+			t.Fatalf("expected node list access with grant, got %d msg=%q", out.Code, out.Msg)
+		}
+	})
 }
