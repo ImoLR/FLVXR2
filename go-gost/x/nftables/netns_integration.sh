@@ -31,6 +31,7 @@ ip link add name t0 netns "$T" type veth peer name n1 netns "$N"
 ip -n "$C" addr add 10.231.1.2/24 dev c0
 ip -n "$C" addr add 10.231.1.3/24 dev c0
 ip -n "$C" addr add fd31:1::2/64 dev c0 nodad
+ip -n "$C" addr add fd31:1::3/64 dev c0 nodad
 ip -n "$C" link set c0 up
 ip -n "$C" route add default via 10.231.1.1
 ip -n "$C" -6 route add default via fd31:1::1

@@ -18,7 +18,7 @@ import (
 const heldQuotaClientPy = `
 import socket, struct, sys
 source, dest, port = sys.argv[1], sys.argv[2], int(sys.argv[3])
-s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+s = socket.socket(socket.AF_INET6 if ':' in source else socket.AF_INET, socket.SOCK_STREAM)
 s.settimeout(3)
 s.bind((source, 0)); s.connect((dest, port))
 s.sendall(b'p')
@@ -36,7 +36,7 @@ s.close()
 const probeQuotaClientPy = `
 import socket, struct, sys
 source, dest, port = sys.argv[1], sys.argv[2], int(sys.argv[3])
-s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+s = socket.socket(socket.AF_INET6 if ':' in source else socket.AF_INET, socket.SOCK_STREAM)
 s.settimeout(1.5)
 s.bind((source, 0))
 try:
@@ -70,7 +70,11 @@ type heldQuotaConn struct {
 
 func holdQuotaConnection(t *testing.T, ns, source string, port int) *heldQuotaConn {
 	t.Helper()
-	cmd := nsPython(ns, heldQuotaClientPy, source, nodeIP4, fmt.Sprint(port))
+	dest := nodeIP4
+	if strings.Contains(source, ":") {
+		dest = nodeIP6
+	}
+	cmd := nsPython(ns, heldQuotaClientPy, source, dest, fmt.Sprint(port))
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		t.Fatal(err)
@@ -115,7 +119,11 @@ func (h *heldQuotaConn) close() {
 
 func probeQuotaConnection(t *testing.T, ns, source string, port int) bool {
 	t.Helper()
-	out, err := nsPython(ns, probeQuotaClientPy, source, nodeIP4, fmt.Sprint(port)).CombinedOutput()
+	dest := nodeIP4
+	if strings.Contains(source, ":") {
+		dest = nodeIP6
+	}
+	out, err := nsPython(ns, probeQuotaClientPy, source, dest, fmt.Sprint(port)).CombinedOutput()
 	if err != nil {
 		t.Fatalf("quota probe: %v (%s)", err, out)
 	}
@@ -192,6 +200,25 @@ func TestNftQuotaRealConntrackGates(t *testing.T) {
 		}
 		if !probeQuotaConnection(t, clientNS, firstIP, 31022) {
 			t.Fatal("same active IP was rejected")
+		}
+		a.ping(t)
+	})
+
+	t.Run("IPv6 rule IP cap", func(t *testing.T) {
+		startPyServer(t, targetNS, echoServerPy, targetIP6, "41027")
+		if err := m.AddRule(207, 1, 7, 1, "tcp", 31027, "["+targetIP6+"]:41027", 0, RuleQuota{MaxClientIPs: 1}); err != nil {
+			t.Fatal(err)
+		}
+		defer m.RemoveForward(207, "tcp", nil, false)
+		a := holdQuotaConnection(t, clientNS, "fd31:1::2", 31027)
+		if err := m.ReconcileQuota(); err != nil {
+			t.Fatal(err)
+		}
+		if probeQuotaConnection(t, clientNS, "fd31:1::3", 31027) {
+			t.Fatal("second IPv6 source passed rule IP cap")
+		}
+		if !probeQuotaConnection(t, clientNS, "fd31:1::2", 31027) {
+			t.Fatal("active IPv6 source was rejected")
 		}
 		a.ping(t)
 	})
