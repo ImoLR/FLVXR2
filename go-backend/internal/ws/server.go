@@ -69,11 +69,12 @@ type CommandResult struct {
 }
 
 type Server struct {
-	repo         *repo.Repository
-	jwtSecret    string
-	upgrader     websocket.Upgrader
-	onNodeOnline func(nodeID int64)
-	onNodeMetric func(nodeID int64, info SystemInfo)
+	repo          *repo.Repository
+	jwtSecret     string
+	upgrader      websocket.Upgrader
+	onNodeOnline  func(nodeID int64)
+	onNodeOffline func(nodeID int64)
+	onNodeMetric  func(nodeID int64, info SystemInfo)
 
 	mu                    sync.RWMutex
 	admins                map[*connWrap]struct{}
@@ -89,27 +90,34 @@ type Server struct {
 }
 
 type SystemInfo struct {
-	Uptime                 uint64          `json:"uptime"`
-	BytesReceived          uint64          `json:"bytes_received"`
-	BytesTransmitted       uint64          `json:"bytes_transmitted"`
-	PeriodBytesReceived    uint64          `json:"period_bytes_received"`
-	PeriodBytesTransmitted uint64          `json:"period_bytes_transmitted"`
-	BaselineRecordedAt     int64           `json:"baseline_recorded_at"`
-	NextResetAt            int64           `json:"next_reset_at"`
-	RenewalCycle           string          `json:"renewal_cycle,omitempty"`
-	CPUUsage               float64         `json:"cpu_usage"`
-	MemoryUsage            float64         `json:"memory_usage"`
-	DiskUsage              float64         `json:"disk_usage"`
-	Load1                  float64         `json:"load1"`
-	Load5                  float64         `json:"load5"`
-	Load15                 float64         `json:"load15"`
-	TCPConns               int64           `json:"tcp_conns"`
-	UDPConns               int64           `json:"udp_conns"`
-	NetInSpeed             int64           `json:"net_in_speed"`
-	NetOutSpeed            int64           `json:"net_out_speed"`
-	ServiceName            string          `json:"service_name,omitempty"`
-	ServiceConnections     map[string]int  `json:"serviceConnections"`
-	ForwardMetrics         []ForwardMetric `json:"forward_metrics,omitempty"`
+	Uptime                 uint64            `json:"uptime"`
+	BytesReceived          uint64            `json:"bytes_received"`
+	BytesTransmitted       uint64            `json:"bytes_transmitted"`
+	PeriodBytesReceived    uint64            `json:"period_bytes_received"`
+	PeriodBytesTransmitted uint64            `json:"period_bytes_transmitted"`
+	BaselineRecordedAt     int64             `json:"baseline_recorded_at"`
+	NextResetAt            int64             `json:"next_reset_at"`
+	RenewalCycle           string            `json:"renewal_cycle,omitempty"`
+	CPUUsage               float64           `json:"cpu_usage"`
+	MemoryUsage            float64           `json:"memory_usage"`
+	DiskUsage              float64           `json:"disk_usage"`
+	Load1                  float64           `json:"load1"`
+	Load5                  float64           `json:"load5"`
+	Load15                 float64           `json:"load15"`
+	TCPConns               int64             `json:"tcp_conns"`
+	UDPConns               int64             `json:"udp_conns"`
+	NetInSpeed             int64             `json:"net_in_speed"`
+	NetOutSpeed            int64             `json:"net_out_speed"`
+	ServiceName            string            `json:"service_name,omitempty"`
+	ServiceConnections     map[string]int    `json:"serviceConnections"`
+	ForwardMetrics         []ForwardMetric   `json:"forward_metrics,omitempty"`
+	QuotaGroups            []QuotaGroupUsage `json:"quotaGroups,omitempty"`
+}
+
+type QuotaGroupUsage struct {
+	Group       string   `json:"group"`
+	Connections int      `json:"connections"`
+	ClientIps   []string `json:"clientIps"`
 }
 
 // ForwardMetric 转发规则指标
@@ -131,6 +139,15 @@ func (s *Server) SetNodeOnlineHook(fn func(nodeID int64)) {
 	}
 	s.mu.Lock()
 	s.onNodeOnline = fn
+	s.mu.Unlock()
+}
+
+func (s *Server) SetNodeOfflineHook(fn func(nodeID int64)) {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	s.onNodeOffline = fn
 	s.mu.Unlock()
 }
 
@@ -413,6 +430,12 @@ func (s *Server) handleNode(w http.ResponseWriter, r *http.Request, nodeID int64
 			s.failPendingForNode(nodeID, "节点连接已断开")
 			_ = s.repo.UpdateNodeStatus(nodeID, 0)
 			s.broadcastStatus(nodeID, 0)
+			s.mu.RLock()
+			offlineHook := s.onNodeOffline
+			s.mu.RUnlock()
+			if offlineHook != nil {
+				go offlineHook(nodeID)
+			}
 		}
 		_ = conn.Close()
 	}()
@@ -471,8 +494,8 @@ func (s *Server) handleNode(w http.ResponseWriter, r *http.Request, nodeID int64
 							go onMetric(nodeID, sysInfo)
 						}
 					}
-					// 广播内层 data 给前端（保持平坦结构兼容性）
-					s.broadcastTyped(nodeID, "metric", string(envelope.Data))
+					// 配额组包含活跃客户端 IP，仅供面板内存聚合，不广播给前端。
+					s.broadcastTyped(nodeID, "metric", metricDataForBroadcast(envelope.Data))
 				}
 				continue
 			case "ReportPublicIP":
@@ -521,13 +544,29 @@ func (s *Server) handleNode(w http.ResponseWriter, r *http.Request, nodeID int64
 				if onMetric != nil {
 					go onMetric(nodeID, sysInfo)
 				}
-				s.broadcastTyped(nodeID, "metric", msg)
+				s.broadcastTyped(nodeID, "metric", metricDataForBroadcast([]byte(msg)))
 				continue
 			}
 		}
 
 		s.broadcastInfo(nodeID, msg)
 	}
+}
+
+func metricDataForBroadcast(raw []byte) string {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &fields); err != nil {
+		return string(raw)
+	}
+	if _, ok := fields["quotaGroups"]; !ok {
+		return string(raw)
+	}
+	delete(fields, "quotaGroups")
+	filtered, err := json.Marshal(fields)
+	if err != nil {
+		return string(raw)
+	}
+	return string(filtered)
 }
 
 func looksLikeSystemInfoMessage(msg string) bool {

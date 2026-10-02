@@ -331,6 +331,37 @@ func (h *Handler) userUpdate(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	quotaLimitsChanged := oldUser == nil || oldUser.MaxConnections != maxConnections || oldUser.MaxClientIps != maxClientIps
+	warnings := make([]string, 0)
+	if quotaLimitsChanged {
+		forwards, listErr := h.repo.ListActiveForwardsByUser(id)
+		if listErr != nil {
+			warnings = append(warnings, fmt.Sprintf("用户连接配额转发同步失败: %v", listErr))
+		} else {
+			for _, item := range forwards {
+				forward, getErr := h.getForwardRecord(item.ID)
+				if getErr != nil || forward == nil {
+					if getErr != nil {
+						warnings = append(warnings, fmt.Sprintf("转发 %s 配额下发失败: %v", item.Name, getErr))
+					}
+					continue
+				}
+				syncWarnings, syncErr := h.syncForwardServicesWithWarnings(forward, "UpdateService", true)
+				warnings = append(warnings, syncWarnings...)
+				if syncErr != nil {
+					warnings = append(warnings, fmt.Sprintf("转发 %s 配额下发失败: %v", forward.Name, syncErr))
+				}
+			}
+		}
+		if h.quotaGroups != nil {
+			h.quotaGroups.Trigger()
+		}
+	}
+
+	if len(warnings) > 0 {
+		response.WriteJSON(w, response.OK(map[string]interface{}{"warnings": warnings}))
+		return
+	}
 	response.WriteJSON(w, response.OKEmpty())
 }
 

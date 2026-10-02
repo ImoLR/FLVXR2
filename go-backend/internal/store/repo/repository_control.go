@@ -110,6 +110,42 @@ func (r *Repository) ListActiveForwardIDsByNode(nodeID int64) ([]int64, error) {
 	return ids, nil
 }
 
+// QuotaGroupTarget describes one user quota pool hosted by an entry node.
+// One row is returned per user/node pair, regardless of how many forwarding
+// services for the user are present on that node.
+type QuotaGroupTarget struct {
+	UserID         int64
+	NodeID         int64
+	MaxConnections int
+	MaxClientIps   int
+	NodeStatus     int
+	NodeVersion    string
+}
+
+func (r *Repository) ListQuotaGroupTargets() ([]QuotaGroupTarget, error) {
+	if r == nil || r.db == nil {
+		return nil, errors.New("repository not initialized")
+	}
+
+	var targets []QuotaGroupTarget
+	err := r.db.Table("forward_port AS fp").
+		Select(`DISTINCT f.user_id AS user_id, fp.node_id AS node_id,
+			u.max_connections AS max_connections, u.max_client_ips AS max_client_ips,
+			n.status AS node_status, COALESCE(n.version, '') AS node_version`).
+		Joins("JOIN forward AS f ON f.id = fp.forward_id").
+		Joins(`JOIN "user" AS u ON u.id = f.user_id`).
+		Joins("JOIN node AS n ON n.id = fp.node_id").
+		Where("f.status = ?", 1).
+		Where("COALESCE(f.mode, 'gost') NOT IN ?", []string{"nftables", "wg_path"}).
+		Where("n.is_remote = ?", 0).
+		Order("fp.node_id ASC, f.user_id ASC").
+		Scan(&targets).Error
+	if err != nil {
+		return nil, err
+	}
+	return targets, nil
+}
+
 func (r *Repository) ListForwardPorts(forwardID int64) ([]model.ForwardPortRecord, error) {
 	if r == nil || r.db == nil {
 		return nil, errors.New("repository not initialized")

@@ -35,6 +35,7 @@ type Handler struct {
 	bestExit         *bestExitManager
 	fluxVersion      string
 	cnLandingChecker *cnlanding.Checker
+	quotaGroups      *quotaCoordinator
 
 	captchaMu     sync.Mutex
 	captchaTokens map[string]int64
@@ -133,7 +134,14 @@ func New(repo *repo.Repository, jwtSecret string, fluxVersion string) *Handler {
 	}
 	h.healthCheck = health.NewChecker(repo, h.wsServer)
 	h.qualityProber = newTunnelQualityProber(h)
+	h.quotaGroups = newQuotaCoordinator(repo, func(nodeID int64, budgets []quotaGroupBudget) error {
+		_, err := h.wsServer.SendCommand(nodeID, "SetQuotaGroups", budgets, 5*time.Second)
+		return err
+	})
 	h.wsServer.SetNodeOnlineHook(h.onNodeOnline)
+	h.wsServer.SetNodeOfflineHook(func(nodeID int64) {
+		h.quotaGroups.NodeOffline(nodeID)
+	})
 	h.wsServer.SetNodeMetricHook(func(nodeID int64, info ws.SystemInfo) {
 		metricInfo := metrics.SystemInfo{
 			Uptime:                 info.Uptime,
@@ -156,6 +164,7 @@ func New(repo *repo.Repository, jwtSecret string, fluxVersion string) *Handler {
 			NetOutSpeed:            info.NetOutSpeed,
 		}
 		h.metrics.RecordNodeMetric(nodeID, metricInfo)
+		h.quotaGroups.Observe(nodeID, info.QuotaGroups)
 	})
 	h.nodeGroupHandler = NewNodeGroupHandler(repo)
 	h.nodeTagHandler = NewNodeTagHandler(repo)
@@ -671,6 +680,15 @@ func (h *Handler) userList(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		response.WriteJSON(w, response.Err(-2, err.Error()))
 		return
+	}
+	if h.quotaGroups != nil {
+		usageByUser := h.quotaGroups.LiveUsage()
+		for _, item := range users {
+			userID := asInt64(item["id"], 0)
+			usage := usageByUser[userID]
+			item["activeConnections"] = usage.Connections
+			item["activeClientIps"] = usage.ClientIps
+		}
 	}
 
 	keyword := strings.ToLower(strings.TrimSpace(req.Keyword))

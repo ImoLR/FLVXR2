@@ -323,6 +323,21 @@ func (h *Handler) syncForwardServicesWithWarnings(forward *forwardRecord, method
 		fmt.Printf("[nft.debug] syncForwardServicesWithWarnings: nft mode branch, forwardID=%d\n", forward.ID)
 		return nil, h.syncNftablesRules(forward, tunnel, ports, userTunnelID, speed)
 	}
+	if h.quotaGroups != nil {
+		nodeIDs := make([]int64, 0, len(ports))
+		seenNodeIDs := make(map[int64]struct{}, len(ports))
+		for _, fp := range ports {
+			if fp.NodeID <= 0 {
+				continue
+			}
+			if _, ok := seenNodeIDs[fp.NodeID]; ok {
+				continue
+			}
+			seenNodeIDs[fp.NodeID] = struct{}{}
+			nodeIDs = append(nodeIDs, fp.NodeID)
+		}
+		defer h.quotaGroups.InvalidateNodes(nodeIDs...)
+	}
 
 	// ✅ 动态限速器名称
 	var dynamicLimiterName string
@@ -1922,6 +1937,22 @@ func buildForwardServiceConfigs(baseName string, forward *forwardRecord, tunnel 
 		}
 		if maxConnections > 0 {
 			meta["maxConnections"] = maxConnections
+		}
+		if forward.MaxClientIps > 0 {
+			meta["maxClientIps"] = forward.MaxClientIps
+		}
+		if forward.UserID > 0 && (forward.UserMaxConnections > 0 || forward.UserMaxClientIps > 0) {
+			groupMaxConnections := forward.UserMaxConnections
+			if groupMaxConnections <= 0 {
+				groupMaxConnections = -1
+			}
+			groupMaxClientIps := forward.UserMaxClientIps
+			if groupMaxClientIps <= 0 {
+				groupMaxClientIps = -1
+			}
+			meta["quotaGroup"] = quotaGroupForUser(forward.UserID)
+			meta["groupMaxConnections"] = groupMaxConnections
+			meta["groupMaxClientIps"] = groupMaxClientIps
 		}
 		if len(meta) > 0 {
 			service["metadata"] = meta

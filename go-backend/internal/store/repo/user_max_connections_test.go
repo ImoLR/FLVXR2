@@ -1,6 +1,7 @@
 package repo
 
 import (
+	"database/sql"
 	"fmt"
 	"path/filepath"
 	"testing"
@@ -44,6 +45,67 @@ func TestQuotaColumnsAutoMigrateWithZeroDefaults(t *testing.T) {
 		if !found {
 			t.Fatalf("%s.max_client_ips was not migrated", table)
 		}
+	}
+}
+
+func TestListQuotaGroupTargetsDeduplicatesUserNodePairs(t *testing.T) {
+	r, err := Open(filepath.Join(t.TempDir(), "quota-targets.db"))
+	if err != nil {
+		t.Fatalf("open repo: %v", err)
+	}
+	defer r.Close()
+
+	now := time.Now().UnixMilli()
+	userID, err := r.CreateUser("quota-target-user", "pwd", 1, now+86400000, 100, 1, 10, 9, 4, 1, now, 0, 0, 0, nil)
+	if err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+	node := model.Node{
+		Name:          "entry-node",
+		Secret:        "quota-target-secret",
+		ServerIP:      "127.0.0.1",
+		Port:          "20000-30000",
+		Version:       sql.NullString{String: "3.0.27-fork.13", Valid: true},
+		CreatedTime:   now,
+		Status:        1,
+		TCPListenAddr: "0.0.0.0",
+		UDPListenAddr: "0.0.0.0",
+	}
+	if err := r.DB().Create(&node).Error; err != nil {
+		t.Fatalf("create node: %v", err)
+	}
+
+	for i := 0; i < 2; i++ {
+		forward := model.Forward{
+			UserID:      userID,
+			UserName:    "quota-target-user",
+			Name:        fmt.Sprintf("forward-%d", i),
+			TunnelID:    1,
+			RemoteAddr:  "127.0.0.1:80",
+			Strategy:    "fifo",
+			CreatedTime: now,
+			UpdatedTime: now,
+			Status:      1,
+			Mode:        "gost",
+		}
+		if err := r.DB().Create(&forward).Error; err != nil {
+			t.Fatalf("create forward %d: %v", i, err)
+		}
+		if err := r.DB().Create(&model.ForwardPort{ForwardID: forward.ID, NodeID: node.ID, Port: 21000 + i}).Error; err != nil {
+			t.Fatalf("create forward port %d: %v", i, err)
+		}
+	}
+
+	targets, err := r.ListQuotaGroupTargets()
+	if err != nil {
+		t.Fatalf("list quota group targets: %v", err)
+	}
+	if len(targets) != 1 {
+		t.Fatalf("targets = %#v, want one deduplicated user/node pair", targets)
+	}
+	target := targets[0]
+	if target.UserID != userID || target.NodeID != node.ID || target.MaxConnections != 9 || target.MaxClientIps != 4 || target.NodeVersion != "3.0.27-fork.13" {
+		t.Fatalf("unexpected target: %#v", target)
 	}
 }
 

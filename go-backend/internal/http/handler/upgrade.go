@@ -319,6 +319,9 @@ func (h *Handler) onNodeOnline(nodeID int64) {
 	// 节点重新上线时自动下发隧道和转发规则
 	// 适用于：续费后上线、网络恢复、节点重启、升级后重连
 	h.redeployNodeRuntime(nodeID)
+	if h.quotaGroups != nil {
+		h.quotaGroups.NodeOnline(nodeID)
+	}
 }
 
 func (h *Handler) redeployNodeRuntime(nodeID int64) {

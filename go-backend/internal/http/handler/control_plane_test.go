@@ -435,6 +435,69 @@ func TestBuildForwardServiceConfigs_IncludesTunnelProtocolFilter(t *testing.T) {
 	}
 }
 
+func TestBuildForwardServiceConfigs_IncludesRuleAndUserQuotaMetadata(t *testing.T) {
+	forward := &forwardRecord{
+		ID:                 1,
+		UserID:             42,
+		RemoteAddr:         "1.2.3.4:80",
+		Strategy:           "fifo",
+		TunnelID:           7,
+		MaxConnections:     3,
+		MaxClientIps:       2,
+		UserMaxConnections: 10,
+		UserMaxClientIps:   5,
+	}
+	node := &nodeRecord{TCPListenAddr: "0.0.0.0", UDPListenAddr: "0.0.0.0"}
+	services := buildForwardServiceConfigs("1_42_0", forward, nil, node, 22001, "", nil, "", false)
+	if len(services) != 2 {
+		t.Fatalf("expected 2 services, got %d", len(services))
+	}
+
+	for _, svc := range services {
+		metadata, ok := svc["metadata"].(map[string]interface{})
+		if !ok {
+			t.Fatalf("service %v has no metadata", svc["name"])
+		}
+		want := map[string]interface{}{
+			"maxConnections":      3,
+			"maxClientIps":        2,
+			"quotaGroup":          "user-42",
+			"groupMaxConnections": 10,
+			"groupMaxClientIps":   5,
+		}
+		for key, value := range want {
+			if got := metadata[key]; got != value {
+				t.Errorf("service %v metadata %s: expected %#v, got %#v", svc["name"], key, value, got)
+			}
+		}
+	}
+}
+
+func TestBuildForwardServiceConfigs_KeepsLegacyFallbackAndUnlimitedEncoding(t *testing.T) {
+	forward := &forwardRecord{
+		ID:                 1,
+		UserID:             42,
+		RemoteAddr:         "1.2.3.4:80",
+		Strategy:           "fifo",
+		TunnelID:           7,
+		MaxConnections:     0,
+		UserMaxConnections: 10,
+		UserMaxClientIps:   0,
+	}
+	node := &nodeRecord{TCPListenAddr: "0.0.0.0", UDPListenAddr: "0.0.0.0"}
+	services := buildForwardServiceConfigs("1_42_0", forward, nil, node, 22001, "", nil, "", false)
+
+	for _, svc := range services {
+		metadata := svc["metadata"].(map[string]interface{})
+		if got := metadata["maxConnections"]; got != 10 {
+			t.Errorf("legacy maxConnections fallback = %#v, want 10", got)
+		}
+		if got := metadata["groupMaxClientIps"]; got != -1 {
+			t.Errorf("unlimited groupMaxClientIps = %#v, want -1", got)
+		}
+	}
+}
+
 func TestBuildForwardServiceConfigs_BindIPAlreadyContainsPort(t *testing.T) {
 	forward := &forwardRecord{RemoteAddr: "1.2.3.4:80", Strategy: "fifo", TunnelID: 7}
 	node := &nodeRecord{TCPListenAddr: "[::]", UDPListenAddr: "[::]"}
