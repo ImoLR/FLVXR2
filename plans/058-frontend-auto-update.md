@@ -31,9 +31,9 @@ Gaps:
 - [x] Rebase on final fork.11 branch head and re-run `npm run build`
 - [x] Push branch, tag `3.0.27-fork.12`, CI + release verified
 - [x] Backup production (rollback dir, validated sqlite, image tags, metadata)
-- [ ] Upgrade `/opt/flvx-svc` to fork.12
-- [ ] Verify health, node metrics, live `/sw.js` + `/` headers are `no-cache`
-- [ ] Update memory, write report
+- [x] Upgrade `/opt/flvx-svc` to fork.12
+- [x] Verify health, node metrics, live `/sw.js` + `/` headers are `no-cache`
+- [ ] Leave memory unchanged and write the coordinator handoff report
 
 ## Release
 - CI Build Check 37030675525 succeeded.
@@ -47,3 +47,13 @@ Gaps:
 - Compose and `.env` copied; SQLite online backup `quick_check` is `ok`.
 - Fork.11 images retained as `local/flvxx-{backend,frontend}:pre-fork12-20261002T160919Z`.
 - `ROLLBACK-METADATA.md` records checksums, counts, image IDs, and restore commands.
+
+## Production rollout and verification
+- `/opt/flvx-svc` uses the fork.12 v6 compose asset and `FLUX_VERSION=3.0.27-fork.12`.
+- Backend is healthy; backend and frontend are running with zero restarts on fork.12 images.
+- `/sw.js`, `/`, `/index.html`, `/manifest.webmanifest`, and `/dashboard` return
+  `Cache-Control: no-cache`; `/assets/index-kkitNXKK.js` returns `public, immutable`.
+- Served `sw.js` SHA-256 changed from `aca70adb...` (fork.11) to `d249828c...` (fork.12),
+  and its changed precache revision is `596efbd8...` to `abace8e4...`.
+- In 15 seconds `node_metric` advanced from 1,988,981 to 1,989,381 rows and its latest
+  timestamp advanced from 16:14:20Z to 16:14:38Z; 22 nodes reported in the latest 120 seconds.
