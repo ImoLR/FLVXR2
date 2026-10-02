@@ -190,3 +190,27 @@ func findQuotaUsage(t *testing.T, group string) QuotaGroupUsage {
 	t.Fatalf("quota usage for %s not found", group)
 	return QuotaGroupUsage{}
 }
+
+func TestServiceClientIPCountsWithAndWithoutLimit(t *testing.T) {
+	for _, limit := range []int{0, 2} {
+		s := &defaultService{}
+		s.SetMaxClientIPs(limit)
+		releaseA := mustAcquire(t, s, "198.51.100.1")
+		releaseA2 := mustAcquire(t, s, "198.51.100.1")
+		releaseB := mustAcquire(t, s, "2001:db8::1")
+		counts := s.ClientIPCounts()
+		if counts["198.51.100.1"] != 2 || counts["2001:db8::1"] != 1 {
+			t.Fatalf("limit %d counts = %v", limit, counts)
+		}
+		counts["198.51.100.1"] = 100 // snapshot must not mutate live state
+		releaseA()
+		if got := s.ClientIPCounts()["198.51.100.1"]; got != 1 {
+			t.Fatalf("limit %d remaining connections = %d", limit, got)
+		}
+		releaseA2()
+		releaseB()
+		if got := s.ClientIPCounts(); len(got) != 0 {
+			t.Fatalf("limit %d retained closed IPs: %v", limit, got)
+		}
+	}
+}

@@ -230,15 +230,21 @@ func (s *defaultService) CurrentConns() int {
 	return int(s.conns.Load())
 }
 
+// ClientIPCounts returns the active source-IP connection counts for this service.
+func (s *defaultService) ClientIPCounts() map[string]int {
+	s.quotaMu.Lock()
+	defer s.quotaMu.Unlock()
+	counts := make(map[string]int, len(s.clientIPs))
+	for ip, count := range s.clientIPs {
+		counts[ip] = count
+	}
+	return counts
+}
+
 func (s *defaultService) acquireConnection(clientIP string) (release func(), reason string, limit int, ok bool) {
 	maxConns := int(s.maxConns.Load())
 	maxClientIPs := int(s.maxClientIPs.Load())
 	group := s.quotaGroup
-	if maxConns <= 0 && maxClientIPs <= 0 && group == nil {
-		s.conns.Add(1)
-		return func() { s.conns.Add(-1) }, "", 0, true
-	}
-
 	s.quotaMu.Lock()
 	if maxConns > 0 && int(s.conns.Load()) >= maxConns {
 		s.quotaMu.Unlock()
@@ -252,23 +258,19 @@ func (s *defaultService) acquireConnection(clientIP string) (release func(), rea
 		s.quotaMu.Unlock()
 		return nil, reason, limit, false
 	}
-	if maxClientIPs > 0 {
-		if s.clientIPs == nil {
-			s.clientIPs = make(map[string]int)
-		}
-		s.clientIPs[clientIP]++
+	if s.clientIPs == nil {
+		s.clientIPs = make(map[string]int)
 	}
+	s.clientIPs[clientIP]++
 	s.conns.Add(1)
 	s.quotaMu.Unlock()
 
 	return func() {
 		s.quotaMu.Lock()
-		if maxClientIPs > 0 {
-			if count := s.clientIPs[clientIP]; count <= 1 {
-				delete(s.clientIPs, clientIP)
-			} else {
-				s.clientIPs[clientIP] = count - 1
-			}
+		if count := s.clientIPs[clientIP]; count <= 1 {
+			delete(s.clientIPs, clientIP)
+		} else {
+			s.clientIPs[clientIP] = count - 1
 		}
 		s.conns.Add(-1)
 		group.release(clientIP)

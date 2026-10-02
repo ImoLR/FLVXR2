@@ -76,3 +76,22 @@ func TestQuotaGateDecisions(t *testing.T) {
 		t.Fatalf("-1 pool must be unlimited: %+v", gate)
 	}
 }
+
+func TestLiveConntrackAttributionIncludesUncappedForward(t *testing.T) {
+	rules := map[string]*RuleState{
+		"51/tcp": {ForwardID: 51, Protocol: "tcp", Port: 31001},
+		"51/udp": {ForwardID: 51, Protocol: "udp", Port: 31001},
+	}
+	flows := []*netlink.ConntrackFlow{
+		quotaTestFlow(unix.IPPROTO_TCP, 31001, "198.51.100.1"),
+		quotaTestFlow(unix.IPPROTO_UDP, 31001, "198.51.100.1"),
+		quotaTestFlow(unix.IPPROTO_TCP, 31001, "2001:db8::1"),
+	}
+	if got := attributeQuotaFlows(rules, flows); len(got) != 0 {
+		t.Fatalf("quota-only attribution unexpectedly included unlimited rule: %v", got)
+	}
+	got := attributeLiveFlows(rules, flows)[51]
+	if got.connections != 3 || got.ips["198.51.100.1"] != 2 || got.ips["2001:db8::1"] != 1 {
+		t.Fatalf("live attribution = %+v", got)
+	}
+}

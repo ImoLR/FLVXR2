@@ -221,6 +221,7 @@ func (m *Manager) finishQuotaRemovalLocked(forwardID int64, protocol string) {
 		return
 	}
 	delete(m.quotaForwards, forwardID)
+	delete(m.liveQuotaUsage, forwardID)
 	qf.group.Detach()
 	if len(m.quotaForwards) == 0 {
 		m.quotaTable = nil
@@ -322,15 +323,12 @@ func (m *Manager) ReconcileQuota() error {
 	if !needed {
 		return nil
 	}
-	var flows []*netlink.ConntrackFlow
-	for _, family := range []netlink.InetFamily{netlink.FAMILY_V4, netlink.FAMILY_V6} {
-		items, err := netlink.ConntrackTableList(netlink.ConntrackTable, family)
-		if err != nil {
-			return fmt.Errorf("read conntrack family %d: %w", family, err)
-		}
-		flows = append(flows, items...)
+	flows, err := readQuotaConntrackFlows()
+	if err != nil {
+		return err
 	}
 	usage := attributeQuotaFlows(m.rules, flows)
+	m.liveQuotaUsage = usage
 	groupUsage := aggregateQuotaGroups(usage, m.quotaForwards)
 	for group, current := range groupUsage {
 		service.SetNftQuotaGroupUsage(group, current.connections, current.ips)
@@ -346,6 +344,51 @@ func (m *Manager) ReconcileQuota() error {
 		}
 	}
 	return nil
+}
+
+func readQuotaConntrackFlows() ([]*netlink.ConntrackFlow, error) {
+	var flows []*netlink.ConntrackFlow
+	for _, family := range []netlink.InetFamily{netlink.FAMILY_V4, netlink.FAMILY_V6} {
+		items, err := netlink.ConntrackTableList(netlink.ConntrackTable, family)
+		if err != nil {
+			return nil, fmt.Errorf("read conntrack family %d: %w", family, err)
+		}
+		flows = append(flows, items...)
+	}
+	return flows, nil
+}
+
+// GetForwardConnectionCounts returns the per-forward counts from the quota poll.
+func (m *Manager) GetForwardConnectionCounts() map[int64]int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	counts := make(map[int64]int, len(m.liveQuotaUsage))
+	for id, usage := range m.liveQuotaUsage {
+		counts[id] = usage.connections
+	}
+	return counts
+}
+
+// GetForwardClientIPs reads current conntrack entries using the same forward attribution as quotas.
+func (m *Manager) GetForwardClientIPs(ids []int64) (map[int64]map[string]int, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	selected := make(map[int64]struct{}, len(ids))
+	for _, id := range ids {
+		selected[id] = struct{}{}
+	}
+	flows, err := readQuotaConntrackFlows()
+	if err != nil {
+		return nil, err
+	}
+	usage := attributeLiveFlows(m.rules, flows)
+	result := make(map[int64]map[string]int)
+	for id, item := range usage {
+		if _, ok := selected[id]; ok {
+			result[id] = item.ips
+		}
+	}
+	return result, nil
 }
 
 func aggregateQuotaGroups(usage map[int64]quotaUsage, forwards map[int64]*quotaForward) map[string]quotaUsage {
@@ -368,9 +411,17 @@ func aggregateQuotaGroups(usage map[int64]quotaUsage, forwards map[int64]*quotaF
 }
 
 func attributeQuotaFlows(rules map[string]*RuleState, flows []*netlink.ConntrackFlow) map[int64]quotaUsage {
+	return attributeFlows(rules, flows, false)
+}
+
+func attributeLiveFlows(rules map[string]*RuleState, flows []*netlink.ConntrackFlow) map[int64]quotaUsage {
+	return attributeFlows(rules, flows, true)
+}
+
+func attributeFlows(rules map[string]*RuleState, flows []*netlink.ConntrackFlow, includeUncapped bool) map[int64]quotaUsage {
 	byPort := make(map[string]*RuleState, len(rules))
 	for _, rs := range rules {
-		if !quotaEnabled(rs.Quota) {
+		if !includeUncapped && !quotaEnabled(rs.Quota) {
 			continue
 		}
 		proto, _ := protocolNumber(rs.Protocol)

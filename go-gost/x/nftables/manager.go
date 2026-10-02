@@ -73,10 +73,11 @@ type Manager struct {
 	// last holds the counter values already reported, by forward chain and role.
 	last map[string]counterValue
 	// pending holds the final traffic of removed forwards until the next CollectTraffic.
-	pending       []TrafficDelta
-	quotaTable    *nftables.Table
-	quotaForwards map[int64]*quotaForward
-	quotaPollStop chan struct{}
+	pending        []TrafficDelta
+	quotaTable     *nftables.Table
+	quotaForwards  map[int64]*quotaForward
+	quotaPollStop  chan struct{}
+	liveQuotaUsage map[int64]quotaUsage
 }
 
 type RuleState struct {

@@ -945,7 +945,7 @@ func (w *WebSocketReporter) collectSystemInfo() SystemInfo {
 		NetInSpeed:             netInSpeed,
 		NetOutSpeed:            netOutSpeed,
 		ServiceName:            w.serviceName,
-		ServiceConnections:     collectServiceConnections(),
+		ServiceConnections:     w.collectServiceConnections(),
 		ForwardMetrics:         collectForwardMetrics(),
 		QuotaGroups:            service.QuotaGroupUsages(),
 	}
@@ -1003,7 +1003,7 @@ func collectForwardMetrics() []ForwardMetric {
 }
 
 // collectServiceConnections 收集每个服务的当前连接数
-func collectServiceConnections() map[string]int {
+func (w *WebSocketReporter) collectServiceConnections() map[string]int {
 	result := make(map[string]int)
 	svcReg := registry.ServiceRegistry()
 	if svcReg == nil {
@@ -1013,6 +1013,11 @@ func collectServiceConnections() map[string]int {
 	for name, svc := range allServices {
 		if ds, ok := svc.(interface{ CurrentConns() int }); ok {
 			result[name] = ds.CurrentConns()
+		}
+	}
+	if w.nftablesMgr != nil {
+		for id, count := range w.nftablesMgr.GetForwardConnectionCounts() {
+			result[fmt.Sprintf("%d_nft", id)] = count
 		}
 	}
 	return result
@@ -1206,7 +1211,7 @@ func (w *WebSocketReporter) routeCommand(cmd CommandMessage) {
 	// Periodic read-only probes are expected background traffic. Logging every
 	// request and every successful attempt can produce thousands of lines per
 	// hour, so keep command logging for state-changing and interactive commands.
-	if cmd.Type != "TcpPing" && cmd.Type != "ServiceMonitorCheck" {
+	if cmd.Type != "TcpPing" && cmd.Type != "ServiceMonitorCheck" && cmd.Type != "GetServiceClientIPs" {
 		jsonBytes, errs := json.Marshal(cmd)
 		if errs != nil {
 			fmt.Println("Error marshaling JSON:", errs)
@@ -1249,6 +1254,9 @@ func (w *WebSocketReporter) routeCommand(cmd CommandMessage) {
 	case "SetQuotaGroups":
 		err = w.handleSetQuotaGroups(cmd.Data)
 		response.Type = "SetQuotaGroupsResponse"
+	case "GetServiceClientIPs":
+		response.Data, err = w.handleGetServiceClientIPs(cmd.Data)
+		response.Type = "GetServiceClientIPsResponse"
 
 	// Traffic 相关命令
 	case "ResetTraffic":
