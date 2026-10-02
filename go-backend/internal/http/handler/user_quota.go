@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"strings"
@@ -85,6 +86,9 @@ func (h *Handler) applyUserQuotaRelease(release *repo.UserQuotaRelease, now int6
 		if err := h.ensureUserTunnelForwardAllowed(forward.UserID, forward.TunnelID, now); err != nil {
 			continue
 		}
+		if err := h.checkForwardRecordLanding(context.Background(), forward); err != nil {
+			continue
+		}
 		if strings.EqualFold(forward.Mode, "nftables") {
 			_ = h.syncForwardServices(forward, "UpdateService", true)
 		} else {
@@ -143,7 +147,7 @@ func (h *Handler) userQuotaHistory(w http.ResponseWriter, r *http.Request) {
 		response.WriteJSON(w, response.ErrDefault("请求方法错误"))
 		return
 	}
-	
+
 	var req struct {
 		UserID int64 `json:"userId"`
 		Limit  int   `json:"limit"`
@@ -162,13 +166,13 @@ func (h *Handler) userQuotaHistory(w http.ResponseWriter, r *http.Request) {
 	if req.Limit > 200 {
 		req.Limit = 200
 	}
-	
+
 	histories, err := h.repo.GetUserQuotaHistory(req.UserID, req.Limit)
 	if err != nil {
 		response.WriteJSON(w, response.Err(-2, err.Error()))
 		return
 	}
-	
+
 	response.WriteJSON(w, response.OK(histories))
 }
 
@@ -178,7 +182,7 @@ func (h *Handler) userQuotaHistoryDelete(w http.ResponseWriter, r *http.Request)
 		response.WriteJSON(w, response.ErrDefault("请求方法错误"))
 		return
 	}
-	
+
 	var req struct {
 		ID int64 `json:"id"`
 	}
@@ -190,12 +194,12 @@ func (h *Handler) userQuotaHistoryDelete(w http.ResponseWriter, r *http.Request)
 		response.WriteJSON(w, response.ErrDefault("历史记录 ID 不能为空"))
 		return
 	}
-	
+
 	if err := h.repo.DeleteUserQuotaHistory(req.ID); err != nil {
 		response.WriteJSON(w, response.Err(-2, err.Error()))
 		return
 	}
-	
+
 	response.WriteJSON(w, response.OKEmpty())
 }
 

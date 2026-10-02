@@ -1716,6 +1716,9 @@ func (h *Handler) tunnelUpdate(w http.ResponseWriter, r *http.Request) {
 	warnings := make([]string, 0)
 	if forwards, fwdErr := h.listForwardsByTunnel(id); fwdErr == nil {
 		for i := range forwards {
+			if forwards[i].Status != 1 {
+				continue
+			}
 			syncWarnings, syncErr := h.syncForwardServicesWithWarnings(&forwards[i], "UpdateService", true)
 			warnings = append(warnings, syncWarnings...)
 			if syncErr != nil {
@@ -2347,6 +2350,9 @@ func (h *Handler) redeployTunnelAndForwards(tunnelID int64) error {
 		wg.Add(1)
 		go func(f *model.ForwardRecord) {
 			defer wg.Done()
+			if f.Status != 1 {
+				return
+			}
 			if err := h.syncForwardServices(f, "UpdateService", true); err != nil {
 				mu.Lock()
 				syncErr = err
@@ -2855,6 +2861,10 @@ func (h *Handler) forwardCreate(w http.ResponseWriter, r *http.Request) {
 		response.WriteJSON(w, response.ErrDefault("转发名称和目标地址不能为空"))
 		return
 	}
+	if err := h.checkForwardLanding(r.Context(), remoteAddr, mode, targetCIDR); err != nil {
+		response.WriteJSON(w, response.ErrDefault(err.Error()))
+		return
+	}
 
 	// ✅ 新增：验证到期时间
 	if expiryTimeVal, ok := req["expiryTime"]; ok && expiryTimeVal != nil {
@@ -3069,6 +3079,10 @@ func (h *Handler) forwardUpdate(w http.ResponseWriter, r *http.Request) {
 	remoteAddr := strings.TrimSpace(asString(req["remoteAddr"]))
 	if remoteAddr == "" {
 		remoteAddr = forward.RemoteAddr
+	}
+	if err := h.checkForwardLanding(r.Context(), remoteAddr, mode, targetCIDR); err != nil {
+		response.WriteJSON(w, response.ErrDefault(err.Error()))
+		return
 	}
 	strategy := strings.TrimSpace(asString(req["strategy"]))
 	if strategy == "" {
@@ -3424,6 +3438,10 @@ func (h *Handler) forwardResume(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	now := time.Now().UnixMilli()
+	if err := h.checkForwardRecordLanding(r.Context(), forward); err != nil {
+		response.WriteJSON(w, response.ErrDefault(err.Error()))
+		return
+	}
 	if !strings.EqualFold(forward.Mode, "wg_path") {
 		if err := h.ensureUserTunnelForwardAllowed(forward.UserID, forward.TunnelID, now); err != nil {
 			response.WriteJSON(w, response.ErrDefault(err.Error()))
@@ -3658,10 +3676,17 @@ func (h *Handler) forwardBatchResume(w http.ResponseWriter, r *http.Request) {
 			failures = appendBatchFailure(failures, id, "", accessErr)
 			continue
 		}
-		if err := h.ensureUserTunnelForwardAllowed(forward.UserID, forward.TunnelID, now); err != nil {
+		if err := h.checkForwardRecordLanding(r.Context(), forward); err != nil {
 			f++
 			failures = appendBatchFailure(failures, id, forward.Name, err)
 			continue
+		}
+		if !strings.EqualFold(forward.Mode, "wg_path") {
+			if err := h.ensureUserTunnelForwardAllowed(forward.UserID, forward.TunnelID, now); err != nil {
+				f++
+				failures = appendBatchFailure(failures, id, forward.Name, err)
+				continue
+			}
 		}
 		if strings.EqualFold(forward.Mode, "nftables") {
 			if err := h.syncForwardServices(forward, "UpdateService", true); err != nil {
@@ -3768,6 +3793,11 @@ func (h *Handler) forwardBatchChangeTunnel(w http.ResponseWriter, r *http.Reques
 		if accessErr != nil {
 			fail++
 			failures = appendBatchFailure(failures, id, "", accessErr)
+			continue
+		}
+		if err := h.checkForwardRecordLanding(r.Context(), forward); err != nil {
+			fail++
+			failures = appendBatchFailure(failures, id, forward.Name, err)
 			continue
 		}
 		if forward.TunnelID == req.TargetTunnelID {
@@ -5784,7 +5814,7 @@ func (h *Handler) syncUserTunnelForwards(userID, tunnelID int64) error {
 	}
 	for i := range forwards {
 		f := &forwards[i]
-		if f.UserID == userID {
+		if f.UserID == userID && f.Status == 1 {
 			if err := h.syncForwardServices(f, "UpdateService", true); err != nil {
 				return err
 			}

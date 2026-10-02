@@ -767,20 +767,22 @@ func (r *Repository) GetUserPackageForwards(userID int64) ([]model.UserForwardDe
 	}
 
 	type fwdRow struct {
-		ID         int64
-		Name       string
-		TunnelID   int64
-		TunnelName string
-		RemoteAddr string
-		InFlow     int64
-		OutFlow    int64
-		Status     int
-		CreatedAt  int64
+		ID              int64
+		Name            string
+		TunnelID        int64
+		TunnelName      string
+		RemoteAddr      string
+		InFlow          int64
+		OutFlow         int64
+		Status          int
+		CreatedAt       int64
+		CNBlocked       bool
+		CNBlockedReason string
 	}
 
 	var rows []fwdRow
 	err := r.db.Model(&model.Forward{}).
-		Select("forward.id, forward.name, forward.tunnel_id, COALESCE(tunnel.name, '') AS tunnel_name, forward.remote_addr, forward.in_flow, forward.out_flow, forward.status, forward.created_time AS created_at").
+		Select("forward.id, forward.name, forward.tunnel_id, COALESCE(tunnel.name, '') AS tunnel_name, forward.remote_addr, forward.in_flow, forward.out_flow, forward.status, forward.created_time AS created_at, COALESCE(forward.cn_blocked, false) AS cn_blocked, COALESCE(forward.cn_blocked_reason, '') AS cn_blocked_reason").
 		Joins("LEFT JOIN tunnel ON tunnel.id = forward.tunnel_id").
 		Where("forward.user_id = ?", userID).
 		Order("forward.id ASC").
@@ -800,6 +802,7 @@ func (r *Repository) GetUserPackageForwards(userID int64) ([]model.UserForwardDe
 			TunnelName: row.TunnelName, InIP: inIP, InPort: inPort,
 			RemoteAddr: row.RemoteAddr, InFlow: row.InFlow, OutFlow: row.OutFlow,
 			Status: row.Status, CreatedAt: row.CreatedAt,
+			CNBlocked: row.CNBlocked, CNBlockedReason: row.CNBlockedReason,
 		})
 	}
 	return items, nil
@@ -1199,11 +1202,13 @@ func (r *Repository) ListForwards() ([]map[string]interface{}, error) {
 		TargetCIDR        string
 		SNATEnabled       bool
 		PathName          string
+		CNBlocked         bool
+		CNBlockedReason   string
 	}
 
 	var rows []fwdRow
 	err := r.db.Model(&model.Forward{}).
-		Select("forward.id, forward.user_id, forward.user_name, COALESCE(user.name, '') AS user_remark, forward.name, forward.tunnel_id, COALESCE(tunnel.name, '') AS tunnel_name, COALESCE(tunnel.traffic_ratio, 1.0) AS traffic_ratio, forward.remote_addr, COALESCE(forward.strategy, 'fifo') AS strategy, forward.in_flow, forward.out_flow, forward.created_time, forward.status, forward.inx, forward.speed_id, COALESCE(forward.max_connections, 0) AS max_connections, COALESCE(forward.traffic_limit, 0) AS traffic_limit, forward.expiry_time, COALESCE(forward.speed_limit_enabled, false) AS speed_limit_enabled, COALESCE(forward.speed_limit, 0) AS speed_limit, forward.mode, COALESCE(forward.wg_path_id, 0) AS wg_path_id, COALESCE(forward.wg_rule_type, '') AS wg_rule_type, COALESCE(forward.source_cidr, '') AS source_cidr, COALESCE(forward.target_cidr, '') AS target_cidr, COALESCE(forward.snat_enabled, true) AS snat_enabled, COALESCE(path_tunnel.name, '') AS path_name").
+		Select("forward.id, forward.user_id, forward.user_name, COALESCE(user.name, '') AS user_remark, forward.name, forward.tunnel_id, COALESCE(tunnel.name, '') AS tunnel_name, COALESCE(tunnel.traffic_ratio, 1.0) AS traffic_ratio, forward.remote_addr, COALESCE(forward.strategy, 'fifo') AS strategy, forward.in_flow, forward.out_flow, forward.created_time, forward.status, forward.inx, forward.speed_id, COALESCE(forward.max_connections, 0) AS max_connections, COALESCE(forward.traffic_limit, 0) AS traffic_limit, forward.expiry_time, COALESCE(forward.speed_limit_enabled, false) AS speed_limit_enabled, COALESCE(forward.speed_limit, 0) AS speed_limit, forward.mode, COALESCE(forward.wg_path_id, 0) AS wg_path_id, COALESCE(forward.wg_rule_type, '') AS wg_rule_type, COALESCE(forward.source_cidr, '') AS source_cidr, COALESCE(forward.target_cidr, '') AS target_cidr, COALESCE(forward.snat_enabled, true) AS snat_enabled, COALESCE(path_tunnel.name, '') AS path_name, COALESCE(forward.cn_blocked, false) AS cn_blocked, COALESCE(forward.cn_blocked_reason, '') AS cn_blocked_reason").
 		Joins("LEFT JOIN tunnel ON tunnel.id = forward.tunnel_id").
 		Joins("LEFT JOIN path_tunnel ON path_tunnel.id = forward.wg_path_id").
 		Joins("LEFT JOIN user ON user.id = forward.user_id").
@@ -1238,6 +1243,8 @@ func (r *Repository) ListForwards() ([]map[string]interface{}, error) {
 			"targetCidr":        row.TargetCIDR,
 			"snatEnabled":       row.SNATEnabled,
 			"pathName":          row.PathName,
+			"cnBlocked":         row.CNBlocked,
+			"cnBlockedReason":   row.CNBlockedReason,
 		}
 		if row.SpeedID.Valid {
 			item["speedId"] = row.SpeedID.Int64
@@ -1293,11 +1300,13 @@ func (r *Repository) ListForwardsPage(page, pageSize int) ([]map[string]interfac
 		TargetCIDR        string
 		SNATEnabled       bool
 		PathName          string
+		CNBlocked         bool
+		CNBlockedReason   string
 	}
 
 	var rows []fwdRow
 	err := r.db.Model(&model.Forward{}).
-		Select("forward.id, forward.user_id, forward.user_name, COALESCE(user.name, '') AS user_remark, forward.name, forward.tunnel_id, COALESCE(tunnel.name, '') AS tunnel_name, COALESCE(tunnel.traffic_ratio, 1.0) AS traffic_ratio, forward.remote_addr, COALESCE(forward.strategy, 'fifo') AS strategy, forward.in_flow, forward.out_flow, forward.created_time, forward.status, forward.inx, forward.speed_id, COALESCE(forward.max_connections, 0) AS max_connections, COALESCE(forward.traffic_limit, 0) AS traffic_limit, forward.expiry_time, COALESCE(forward.speed_limit_enabled, false) AS speed_limit_enabled, COALESCE(forward.speed_limit, 0) AS speed_limit, forward.mode, COALESCE(forward.wg_path_id, 0) AS wg_path_id, COALESCE(forward.wg_rule_type, '') AS wg_rule_type, COALESCE(forward.source_cidr, '') AS source_cidr, COALESCE(forward.target_cidr, '') AS target_cidr, COALESCE(forward.snat_enabled, true) AS snat_enabled, COALESCE(path_tunnel.name, '') AS path_name").
+		Select("forward.id, forward.user_id, forward.user_name, COALESCE(user.name, '') AS user_remark, forward.name, forward.tunnel_id, COALESCE(tunnel.name, '') AS tunnel_name, COALESCE(tunnel.traffic_ratio, 1.0) AS traffic_ratio, forward.remote_addr, COALESCE(forward.strategy, 'fifo') AS strategy, forward.in_flow, forward.out_flow, forward.created_time, forward.status, forward.inx, forward.speed_id, COALESCE(forward.max_connections, 0) AS max_connections, COALESCE(forward.traffic_limit, 0) AS traffic_limit, forward.expiry_time, COALESCE(forward.speed_limit_enabled, false) AS speed_limit_enabled, COALESCE(forward.speed_limit, 0) AS speed_limit, forward.mode, COALESCE(forward.wg_path_id, 0) AS wg_path_id, COALESCE(forward.wg_rule_type, '') AS wg_rule_type, COALESCE(forward.source_cidr, '') AS source_cidr, COALESCE(forward.target_cidr, '') AS target_cidr, COALESCE(forward.snat_enabled, true) AS snat_enabled, COALESCE(path_tunnel.name, '') AS path_name, COALESCE(forward.cn_blocked, false) AS cn_blocked, COALESCE(forward.cn_blocked_reason, '') AS cn_blocked_reason").
 		Joins("LEFT JOIN tunnel ON tunnel.id = forward.tunnel_id").
 		Joins("LEFT JOIN path_tunnel ON path_tunnel.id = forward.wg_path_id").
 		Joins("LEFT JOIN user ON user.id = forward.user_id").
@@ -1334,6 +1343,8 @@ func (r *Repository) ListForwardsPage(page, pageSize int) ([]map[string]interfac
 			"targetCidr":        row.TargetCIDR,
 			"snatEnabled":       row.SNATEnabled,
 			"pathName":          row.PathName,
+			"cnBlocked":         row.CNBlocked,
+			"cnBlockedReason":   row.CNBlockedReason,
 		}
 		if row.SpeedID.Valid {
 			item["speedId"] = row.SpeedID.Int64
@@ -3396,7 +3407,11 @@ func (r *Repository) UpdateUserForwardsStatus(userID int64, status int, now int6
 	if r == nil || r.db == nil {
 		return errors.New("repository not initialized")
 	}
-	return r.db.Model(&model.Forward{}).Where("user_id = ?", userID).Updates(map[string]interface{}{
+	query := r.db.Model(&model.Forward{}).Where("user_id = ?", userID)
+	if status == 1 {
+		query = query.Where("cn_blocked = ?", false)
+	}
+	return query.Updates(map[string]interface{}{
 		"status":       status,
 		"updated_time": now,
 	}).Error

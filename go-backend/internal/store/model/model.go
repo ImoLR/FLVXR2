@@ -45,33 +45,36 @@ func (User) TableName() string { return "user" }
 
 // Forward maps to the "forward" table.
 type Forward struct {
-	ID                int64         `gorm:"primaryKey;autoIncrement"`
-	UserID            int64         `gorm:"column:user_id;not null"`
-	UserName          string        `gorm:"column:user_name;type:varchar(100);not null"`
-	Name              string        `gorm:"type:varchar(100);not null"`
-	TunnelID          int64         `gorm:"column:tunnel_id;not null"`
-	RemoteAddr        string        `gorm:"column:remote_addr;type:text;not null"`
-	Strategy          string        `gorm:"type:varchar(100);not null;default:'fifo'"`
-	InFlow            int64         `gorm:"not null;default:0"`
-	OutFlow           int64         `gorm:"column:out_flow;not null;default:0"`
-	CreatedTime       int64         `gorm:"column:created_time;not null"`
-	UpdatedTime       int64         `gorm:"column:updated_time;not null"`
-	Status            int           `gorm:"not null"`
-	Inx               int           `gorm:"not null;default:0"`
-	SpeedID           sql.NullInt64 `gorm:"column:speed_id"`
-	MaxConnections    int           `gorm:"column:max_connections;not null;default:0"`
-	TrafficLimit      int64         `gorm:"column:traffic_limit;not null;default:0"`
-	ExpiryTime        sql.NullInt64 `gorm:"column:expiry_time"`
-	SpeedLimitEnabled bool          `gorm:"column:speed_limit_enabled;not null;default:false"`
-	SpeedLimit        int           `gorm:"column:speed_limit;not null;default:0"`
-	UploadSpeed       int           `gorm:"column:upload_speed;not null;default:0"`
-	DownloadSpeed     int           `gorm:"column:download_speed;not null;default:0"`
-	Mode              string        `gorm:"type:varchar(20);not null;default:'gost'"`
-	WGPathID          int64         `gorm:"column:wg_path_id;not null;default:0;index"`
-	WGRuleType        string        `gorm:"column:wg_rule_type;type:varchar(20);not null;default:'port'"`
-	SourceCIDR        string        `gorm:"column:source_cidr;type:varchar(100);not null;default:''"`
-	TargetCIDR        string        `gorm:"column:target_cidr;type:varchar(100);not null;default:''"`
-	SNATEnabled       bool          `gorm:"column:snat_enabled;not null;default:true"`
+	ID                  int64         `gorm:"primaryKey;autoIncrement"`
+	UserID              int64         `gorm:"column:user_id;not null"`
+	UserName            string        `gorm:"column:user_name;type:varchar(100);not null"`
+	Name                string        `gorm:"type:varchar(100);not null"`
+	TunnelID            int64         `gorm:"column:tunnel_id;not null"`
+	RemoteAddr          string        `gorm:"column:remote_addr;type:text;not null"`
+	Strategy            string        `gorm:"type:varchar(100);not null;default:'fifo'"`
+	InFlow              int64         `gorm:"not null;default:0"`
+	OutFlow             int64         `gorm:"column:out_flow;not null;default:0"`
+	CreatedTime         int64         `gorm:"column:created_time;not null"`
+	UpdatedTime         int64         `gorm:"column:updated_time;not null"`
+	Status              int           `gorm:"not null"`
+	Inx                 int           `gorm:"not null;default:0"`
+	SpeedID             sql.NullInt64 `gorm:"column:speed_id"`
+	MaxConnections      int           `gorm:"column:max_connections;not null;default:0"`
+	TrafficLimit        int64         `gorm:"column:traffic_limit;not null;default:0"`
+	ExpiryTime          sql.NullInt64 `gorm:"column:expiry_time"`
+	SpeedLimitEnabled   bool          `gorm:"column:speed_limit_enabled;not null;default:false"`
+	SpeedLimit          int           `gorm:"column:speed_limit;not null;default:0"`
+	UploadSpeed         int           `gorm:"column:upload_speed;not null;default:0"`
+	DownloadSpeed       int           `gorm:"column:download_speed;not null;default:0"`
+	Mode                string        `gorm:"type:varchar(20);not null;default:'gost'"`
+	WGPathID            int64         `gorm:"column:wg_path_id;not null;default:0;index"`
+	WGRuleType          string        `gorm:"column:wg_rule_type;type:varchar(20);not null;default:'port'"`
+	SourceCIDR          string        `gorm:"column:source_cidr;type:varchar(100);not null;default:''"`
+	TargetCIDR          string        `gorm:"column:target_cidr;type:varchar(100);not null;default:''"`
+	SNATEnabled         bool          `gorm:"column:snat_enabled;not null;default:true"`
+	CNBlocked           bool          `gorm:"column:cn_blocked;not null;default:false"`
+	CNBlockedReason     string        `gorm:"column:cn_blocked_reason;type:text;not null;default:''"`
+	CNBlockedAutoPaused bool          `gorm:"column:cn_blocked_auto_paused;not null;default:false"`
 }
 
 func (Forward) TableName() string { return "forward" }
@@ -815,31 +818,34 @@ type ImportResult struct {
 
 // ForwardRecord is a minimal forward view used by control plane and flow policy.
 type ForwardRecord struct {
-	ID                 int64
-	UserID             int64
-	UserName           string
-	Name               string
-	TunnelID           int64
-	RemoteAddr         string
-	Strategy           string
-	Status             int
-	SpeedID            sql.NullInt64
-	MaxConnections     int
-	UserMaxConnections int
-	TrafficLimit       int64
-	ExpiryTime         sql.NullInt64
-	SpeedLimitEnabled  bool
-	SpeedLimit         int
-	UploadSpeed        int
-	DownloadSpeed      int
-	Mode               string
-	InFlow             int64
-	OutFlow            int64
-	WGPathID           int64
-	WGRuleType         string
-	SourceCIDR         string
-	TargetCIDR         string
-	SNATEnabled        bool
+	ID                  int64
+	UserID              int64
+	UserName            string
+	Name                string
+	TunnelID            int64
+	RemoteAddr          string
+	Strategy            string
+	Status              int
+	SpeedID             sql.NullInt64
+	MaxConnections      int
+	UserMaxConnections  int
+	TrafficLimit        int64
+	ExpiryTime          sql.NullInt64
+	SpeedLimitEnabled   bool
+	SpeedLimit          int
+	UploadSpeed         int
+	DownloadSpeed       int
+	Mode                string
+	InFlow              int64
+	OutFlow             int64
+	WGPathID            int64
+	WGRuleType          string
+	SourceCIDR          string
+	TargetCIDR          string
+	SNATEnabled         bool
+	CNBlocked           bool
+	CNBlockedReason     string
+	CNBlockedAutoPaused bool
 }
 
 // TunnelRecord is a minimal tunnel view used by control plane.
@@ -950,17 +956,19 @@ type UserTunnelDetail struct {
 
 // UserForwardDetail is a joined view of forward + tunnel.
 type UserForwardDetail struct {
-	ID         int64
-	Name       string
-	TunnelID   int64
-	TunnelName string
-	InIP       string
-	InPort     sql.NullInt64
-	RemoteAddr string
-	InFlow     int64
-	OutFlow    int64
-	Status     int
-	CreatedAt  int64
+	ID              int64
+	Name            string
+	TunnelID        int64
+	TunnelName      string
+	InIP            string
+	InPort          sql.NullInt64
+	RemoteAddr      string
+	CNBlocked       bool
+	CNBlockedReason string
+	InFlow          int64
+	OutFlow         int64
+	Status          int
+	CreatedAt       int64
 }
 
 type NodeMetric struct {

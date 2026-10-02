@@ -258,6 +258,11 @@ func (h *Handler) syncForwardServicesWithWarnings(forward *forwardRecord, method
 	if h == nil || forward == nil {
 		return nil, errors.New("invalid forward sync context")
 	}
+	if !strings.EqualFold(strings.TrimSpace(method), "DeleteService") {
+		if err := h.checkForwardRecordLanding(context.Background(), forward); err != nil {
+			return nil, err
+		}
+	}
 
 	// nftables mode handling
 	ports, err := h.listForwardPorts(forward.ID)
@@ -529,6 +534,11 @@ func (h *Handler) deleteForwardServiceBasesOnNode(nodeID int64, bases []string) 
 func (h *Handler) controlForwardServices(forward *forwardRecord, commandType string, tolerateNotFound bool) error {
 	if h == nil || forward == nil {
 		return errors.New("invalid forward control context")
+	}
+	if strings.EqualFold(strings.TrimSpace(commandType), "ResumeService") {
+		if err := h.checkForwardRecordLanding(context.Background(), forward); err != nil {
+			return err
+		}
 	}
 	// nftables/WG modes skip gost service control
 	if strings.EqualFold(forward.Mode, "nftables") || strings.EqualFold(forward.Mode, "wg_path") {

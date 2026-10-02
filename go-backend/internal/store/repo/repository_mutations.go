@@ -2753,7 +2753,11 @@ func (r *Repository) BatchUpdateForwardStatus(ids []int64, status int) (int, int
 	f := 0
 	now := time.Now().UnixMilli()
 	for _, id := range ids {
-		if err := r.db.Model(&model.Forward{}).Where("id = ?", id).Updates(map[string]interface{}{"status": status, "updated_time": now}).Error; err != nil {
+		query := r.db.Model(&model.Forward{}).Where("id = ?", id)
+		if status == 1 {
+			query = query.Where("cn_blocked = ?", false)
+		}
+		if err := query.Updates(map[string]interface{}{"status": status, "updated_time": now}).Error; err != nil {
 			f++
 		} else {
 			s++

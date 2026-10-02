@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"go-backend/internal/auth"
+	"go-backend/internal/cnlanding"
 	"go-backend/internal/health"
 	"go-backend/internal/http/middleware"
 	"go-backend/internal/http/response"
@@ -26,13 +27,14 @@ import (
 )
 
 type Handler struct {
-	repo        *repo.Repository
-	jwtSecret   string
-	wsServer    *ws.Server
-	metrics     *metrics.IngestionService
-	healthCheck *health.Checker
-	bestExit    *bestExitManager
-	fluxVersion string
+	repo             *repo.Repository
+	jwtSecret        string
+	wsServer         *ws.Server
+	metrics          *metrics.IngestionService
+	healthCheck      *health.Checker
+	bestExit         *bestExitManager
+	fluxVersion      string
+	cnLandingChecker *cnlanding.Checker
 
 	captchaMu     sync.Mutex
 	captchaTokens map[string]int64
@@ -124,6 +126,7 @@ func New(repo *repo.Repository, jwtSecret string, fluxVersion string) *Handler {
 		healthCheck:         nil,
 		bestExit:            newBestExitManager(),
 		fluxVersion:         fluxVersion,
+		cnLandingChecker:    cnlanding.New(nil),
 		captchaTokens:       make(map[string]int64),
 		nftablesDomainCache: make(map[int64]string),
 		flowUploads:         newFlowUploadDeduper(flowUploadDedupeTTL, flowUploadDedupeMaxEntries),
@@ -1432,17 +1435,19 @@ func (h *Handler) userPackage(w http.ResponseWriter, r *http.Request) {
 	forwardOut := make([]map[string]interface{}, 0, len(forwards))
 	for _, f := range forwards {
 		item := map[string]interface{}{
-			"id":          f.ID,
-			"name":        f.Name,
-			"tunnelId":    f.TunnelID,
-			"tunnelName":  f.TunnelName,
-			"inIp":        f.InIP,
-			"inPort":      nil,
-			"remoteAddr":  f.RemoteAddr,
-			"inFlow":      f.InFlow,
-			"outFlow":     f.OutFlow,
-			"status":      f.Status,
-			"createdTime": f.CreatedAt,
+			"id":              f.ID,
+			"name":            f.Name,
+			"tunnelId":        f.TunnelID,
+			"tunnelName":      f.TunnelName,
+			"inIp":            f.InIP,
+			"inPort":          nil,
+			"remoteAddr":      f.RemoteAddr,
+			"cnBlocked":       f.CNBlocked,
+			"cnBlockedReason": f.CNBlockedReason,
+			"inFlow":          f.InFlow,
+			"outFlow":         f.OutFlow,
+			"status":          f.Status,
+			"createdTime":     f.CreatedAt,
 		}
 		if f.InPort.Valid {
 			item["inPort"] = f.InPort.Int64
@@ -1924,6 +1929,10 @@ func (h *Handler) backupImport(w http.ResponseWriter, r *http.Request) {
 				typesToImport = append(typesToImport, key)
 			}
 		}
+	}
+	if err := h.checkForwardImportLanding(r.Context(), rawJSON, typesToImport); err != nil {
+		response.WriteJSON(w, response.ErrDefault(err.Error()))
+		return
 	}
 
 	result, err := h.repo.ImportRaw(rawJSON, typesToImport)
