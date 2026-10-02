@@ -42,6 +42,7 @@ type options struct {
 	observer       observer.Observer
 	observerPeriod time.Duration
 	logger         logger.Logger
+	protocolFilter *protocolBlockFlags
 }
 
 var isTls = 0
@@ -52,15 +53,32 @@ var isSocks = 0
 
 var isBlockOther = 0
 
-var needWrap = false
+type protocolBlockFlags struct {
+	http       int
+	tls        int
+	socks      int
+	blockOther int
+}
 
-// SetProtocolBlock sets protocol blocking switches and recomputes wrapper need
+func (f protocolBlockFlags) needsWrap() bool {
+	return f.http+f.tls+f.socks+f.blockOther > 0
+}
+
+func globalProtocolBlockFlags() protocolBlockFlags {
+	return protocolBlockFlags{
+		http:       isHttp,
+		tls:        isTls,
+		socks:      isSocks,
+		blockOther: isBlockOther,
+	}
+}
+
+// SetProtocolBlock updates the legacy process-global protocol switches.
 func SetProtocolBlock(httpOn int, tlsOn int, socksOn int, blockOtherOn int) {
 	isHttp = httpOn
 	isTls = tlsOn
 	isSocks = socksOn
 	isBlockOther = blockOtherOn
-	needWrap = isTls+isSocks+isHttp+isBlockOther > 0
 }
 
 type Option func(opts *options)
@@ -69,7 +87,6 @@ func init() {
 	// NOTE: This package can be imported by tests/tools that don't have a local
 	// config.json. Missing config should not crash the process.
 	_, _ = LoadConfig("config.json")
-	needWrap = isTls+isSocks+isHttp+isBlockOther > 0
 }
 
 func AdmissionOption(admission admission.Admission) Option {
@@ -132,6 +149,20 @@ func LoggerOption(logger logger.Logger) Option {
 	}
 }
 
+// ProtocolFilterOption pins protocol blocking to this service. Providing all
+// zero values explicitly disables detection for the service and prevents the
+// legacy process-global setting from leaking into it.
+func ProtocolFilterOption(httpOn int, tlsOn int, socksOn int, blockOtherOn int) Option {
+	return func(opts *options) {
+		opts.protocolFilter = &protocolBlockFlags{
+			http:       httpOn,
+			tls:        tlsOn,
+			socks:      socksOn,
+			blockOther: blockOtherOn,
+		}
+	}
+}
+
 func MaxConnsOption(maxConns int) Option {
 	return func(opts *options) {
 		// We store maxConns on the service struct, not options.
@@ -180,6 +211,19 @@ func (s *defaultService) SetMaxConns(n int) {
 // CurrentConns returns the current number of active connections.
 func (s *defaultService) CurrentConns() int {
 	return int(s.conns.Load())
+}
+
+func (s *defaultService) wrapProtocolDetection(conn net.Conn) net.Conn {
+	if s.options.protocolFilter != nil {
+		if !s.options.protocolFilter.needsWrap() {
+			return conn
+		}
+		return wrapConnPDetectionWithFlags(conn, *s.options.protocolFilter)
+	}
+	if !globalProtocolBlockFlags().needsWrap() {
+		return conn
+	}
+	return wrapConnPDetection(conn)
 }
 
 func (s *defaultService) Addr() net.Addr {
@@ -316,9 +360,7 @@ func (s *defaultService) Serve() error {
 				}()
 			}
 
-			if needWrap {
-				conn = wrapConnPDetection(conn)
-			}
+			conn = s.wrapProtocolDetection(conn)
 
 			if err := s.handler.Handle(ctx, conn); err != nil {
 				if !errors.Is(err, net.ErrClosed) {
@@ -500,18 +542,31 @@ func wrapConnPDetection(conn net.Conn) net.Conn {
 	}
 }
 
+func wrapConnPDetectionWithFlags(conn net.Conn, flags protocolBlockFlags) net.Conn {
+	return &detectConn{
+		Conn:           conn,
+		reader:         bufio.NewReader(conn),
+		protocolFilter: &flags,
+	}
+}
+
 type detectConn struct {
 	net.Conn
-	reader        *bufio.Reader
-	detected      bool
-	skipDetection bool // skip detection on next reads (used to skip relay header)
+	reader         *bufio.Reader
+	detected       bool
+	skipDetection  bool // skip detection on next reads (used to skip relay header)
+	protocolFilter *protocolBlockFlags
 }
 
 func (c *detectConn) Read(b []byte) (int, error) {
 	n, err := c.reader.Read(b)
 	if n > 0 && !c.detected && !c.skipDetection {
 		c.detected = true
-		if detectProtocol(b[:n], c.Conn) {
+		flags := globalProtocolBlockFlags()
+		if c.protocolFilter != nil {
+			flags = *c.protocolFilter
+		}
+		if detectProtocol(b[:n], c.Conn, flags) {
 			c.Conn.Close()
 			return 0, fmt.Errorf("connection blocked")
 		}
@@ -532,23 +587,27 @@ func ResetDetection(conn net.Conn) {
 	}
 }
 
-func detectProtocol(data []byte, conn net.Conn) (blocked bool) {
+func detectProtocol(data []byte, conn net.Conn, flags protocolBlockFlags) (blocked bool) {
 	if conn != nil && (conn.RemoteAddr().Network() == "udp" || conn.RemoteAddr().Network() == "udp4" || conn.RemoteAddr().Network() == "udp6") {
 		return false
 	}
-	return IsProtocolBlocked(data)
+	return isProtocolBlocked(data, flags)
 }
 
 func IsProtocolBlocked(data []byte) bool {
+	return isProtocolBlocked(data, globalProtocolBlockFlags())
+}
+
+func isProtocolBlocked(data []byte, flags protocolBlockFlags) bool {
 	if detectHTTP(data) {
-		if isHttp == 1 {
+		if flags.http == 1 {
 			fmt.Printf("🚫 BLOCK HTTP\n")
 			return true
 		}
 		return false
 	}
 	if detectTLS(data) {
-		if isTls == 1 {
+		if flags.tls == 1 {
 			fmt.Printf("🚫 BLOCK TLS/Reality/AnyTLS\n")
 			return true
 		}
@@ -556,13 +615,13 @@ func IsProtocolBlocked(data []byte) bool {
 		return false
 	}
 	if detectSOCKS(data) {
-		if isSocks == 1 {
+		if flags.socks == 1 {
 			fmt.Printf("🚫 BLOCK SOCKS\n")
 			return true
 		}
 		return false
 	}
-	if isBlockOther == 1 {
+	if flags.blockOther == 1 {
 		fmt.Printf("🚫 BLOCK OTHER (unknown protocol)\n")
 		return true
 	}

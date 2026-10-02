@@ -17,7 +17,7 @@
 - [x] 从 `2991b893` 创建 `maintenance/3.0.27-fork.9-protocol-filter`，记录范围与混合版本兼容策略。
 - [x] 安全保真地持久化 agent 协议配置，并添加未知字段、原子替换和权限单元测试。
 - [x] Panel 在入口 forward service 中携带隧道过滤值，更新时复用 forward sync 并向调用方返回离线/失败 warning；添加生成配置测试并核实重连收敛路径。
-- [ ] Agent 按 service 使用过滤值，零值不包装；添加同节点双 service 隔离和 legacy 命令不覆盖测试。
+- [x] Agent 按 service 使用过滤值，零值不包装；添加同节点双 service 隔离和 legacy 命令不覆盖测试。
 - [ ] 在隧道表单添加仅支持 GOST 模式 TCP forward 的文字说明。
 - [ ] 运行 go-backend、go-gost、go-gost/x 全量 Go 测试和前端构建，并将后端失败与 `2991b893` 基线比较。
 - [ ] 推送分支并完成实施记录（不发布、不部署）。

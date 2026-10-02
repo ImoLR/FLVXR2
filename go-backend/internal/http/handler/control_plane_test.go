@@ -421,14 +421,15 @@ func TestBuildForwardServiceConfigs_IncludesTunnelProtocolFilter(t *testing.T) {
 		if !ok {
 			t.Fatalf("service %v has no metadata", svc["name"])
 		}
-		filter, ok := metadata["protocolFilter"].(map[string]interface{})
-		if !ok {
-			t.Fatalf("service %v has no protocolFilter metadata", svc["name"])
+		want := map[string]int{
+			"protocolFilter.http":       1,
+			"protocolFilter.tls":        0,
+			"protocolFilter.socks":      1,
+			"protocolFilter.blockOther": 0,
 		}
-		want := map[string]int{"http": 1, "tls": 0, "socks": 1, "blockOther": 0}
 		for key, value := range want {
-			if got, ok := filter[key].(int); !ok || got != value {
-				t.Errorf("service %v protocolFilter.%s: expected %d, got %#v", svc["name"], key, value, filter[key])
+			if got, ok := metadata[key].(int); !ok || got != value {
+				t.Errorf("service %v metadata %s: expected %d, got %#v", svc["name"], key, value, metadata[key])
 			}
 		}
 	}

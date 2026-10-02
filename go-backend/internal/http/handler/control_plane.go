@@ -1898,12 +1898,10 @@ func buildForwardServiceConfigs(baseName string, forward *forwardRecord, tunnel 
 		// 合并 metadata
 		meta := make(map[string]interface{})
 		if tunnel != nil {
-			meta["protocolFilter"] = map[string]interface{}{
-				"http":       tunnel.HTTP,
-				"tls":        tunnel.TLS,
-				"socks":      tunnel.Socks,
-				"blockOther": tunnel.BlockOther,
-			}
+			meta["protocolFilter.http"] = tunnel.HTTP
+			meta["protocolFilter.tls"] = tunnel.TLS
+			meta["protocolFilter.socks"] = tunnel.Socks
+			meta["protocolFilter.blockOther"] = tunnel.BlockOther
 		}
 		if tunnel != nil && tunnel.Type == 1 && strings.TrimSpace(node.InterfaceName) != "" {
 			meta["interface"] = node.InterfaceName

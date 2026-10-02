@@ -114,6 +114,8 @@ func ParseService(cfg *config.ServiceConfig) (service.Service, error) {
 	var limiterRefreshInterval time.Duration
 	var limiterCleanupInterval time.Duration
 	var limiterScope string
+	var protocolFilterConfigured bool
+	var protocolFilterHTTP, protocolFilterTLS, protocolFilterSOCKS, protocolFilterBlockOther int
 
 	enableStats := true
 	observerPeriod = 5 * time.Second
@@ -151,6 +153,19 @@ func ParseService(cfg *config.ServiceConfig) (service.Service, error) {
 		limiterRefreshInterval = mdutil.GetDuration(md, parsing.MDKeyLimiterRefreshInterval)
 		limiterCleanupInterval = mdutil.GetDuration(md, parsing.MDKeyLimiterCleanupInterval)
 		limiterScope = mdutil.GetString(md, parsing.MDKeyLimiterScope)
+
+		protocolFilterConfigured = mdutil.IsExists(md,
+			parsing.MDKeyProtocolFilterHTTP,
+			parsing.MDKeyProtocolFilterTLS,
+			parsing.MDKeyProtocolFilterSOCKS,
+			parsing.MDKeyProtocolFilterBlockOther,
+		)
+		if protocolFilterConfigured {
+			protocolFilterHTTP = int(mdutil.GetFloat(md, parsing.MDKeyProtocolFilterHTTP))
+			protocolFilterTLS = int(mdutil.GetFloat(md, parsing.MDKeyProtocolFilterTLS))
+			protocolFilterSOCKS = int(mdutil.GetFloat(md, parsing.MDKeyProtocolFilterSOCKS))
+			protocolFilterBlockOther = int(mdutil.GetFloat(md, parsing.MDKeyProtocolFilterBlockOther))
+		}
 	}
 
 	if enableStats {
@@ -380,7 +395,7 @@ func ParseService(cfg *config.ServiceConfig) (service.Service, error) {
 		observer = registry.ObserverRegistry().Get("console")
 	}
 
-	s := xservice.NewService(cfg.Name, ln, h,
+	serviceOptions := []xservice.Option{
 		xservice.AdmissionOption(xadmission.AdmissionGroup(admissions...)),
 		xservice.PreUpOption(preUp),
 		xservice.PreDownOption(preDown),
@@ -391,7 +406,16 @@ func ParseService(cfg *config.ServiceConfig) (service.Service, error) {
 		xservice.ObserverOption(observer),
 		xservice.ObserverPeriodOption(observerPeriod),
 		xservice.LoggerOption(serviceLogger),
-	)
+	}
+	if protocolFilterConfigured {
+		serviceOptions = append(serviceOptions, xservice.ProtocolFilterOption(
+			protocolFilterHTTP,
+			protocolFilterTLS,
+			protocolFilterSOCKS,
+			protocolFilterBlockOther,
+		))
+	}
+	s := xservice.NewService(cfg.Name, ln, h, serviceOptions...)
 
 	// 设置连接数限制
 	if cfg.Metadata != nil {

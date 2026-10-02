@@ -29,4 +29,9 @@ const (
 	MDKeyNetnsOut = "netns.out"
 
 	MDKeyDialTimeout = "dialTimeout"
+
+	MDKeyProtocolFilterHTTP       = "protocolFilter.http"
+	MDKeyProtocolFilterTLS        = "protocolFilter.tls"
+	MDKeyProtocolFilterSOCKS      = "protocolFilter.socks"
+	MDKeyProtocolFilterBlockOther = "protocolFilter.blockOther"
 )
