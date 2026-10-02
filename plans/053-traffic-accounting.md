@@ -106,6 +106,12 @@ Related problems found while verifying:
   `ghcr.io/imolr/flvxr2-svc-{backend,frontend}:3.0.27-fork.8`; `REPO="ImoLR/FLVXR2"` and
   `PINNED_VERSION="3.0.27-fork.8"` in install.sh and panel_install.sh; gost-amd64 sha256
   b0ece359…a44c matches its .sha256 and reports `gost 3.0.27-fork.8`.)
-- [ ] Upgrade the production panel with a validated rollback point; verify `/flow/upload`
+- [x] Upgrade the production panel with a validated rollback point; verify `/flow/upload`
   ingestion at the real rate (no x2)
+  (rollback point `/opt/flvx-svc/rollback/pre-fork8-20261002T074448Z`: compose + .env, online backup `gost.db.validated`
+  quick_check ok, sha256 1489b0e2…0fb6, images retagged `local/flvxx-{backend,frontend}:pre-fork8-*`.
+  Billed/raw over 180 s via `/tmp/flvx-flow/fork8/rate.py` (forward/user/user_tunnel growth vs
+  raw `tunnel_metric` bytes from the same uploads): fork.7 2.000 -> fork.8 1.000. Backend
+  healthy, 22/22 previously online nodes report fresh metrics; nodes 1, 24, 28 were already
+  offline before the upgrade.)
 - [ ] Agent rollout per precedent (single-node canary) and document how to upgrade the rest
