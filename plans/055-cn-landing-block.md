@@ -27,10 +27,10 @@
 - [x] 合并 `maintenance/3.0.27-fork.10-svc-monitor-admin`（计划 056，服务监控仅管理员）到本分支（合并提交 `2dc51519`），范围审计通过，无 node_modules。
 - [x] 后端全量测试与 `f65e7e3f` 基线对比：19 个失败名称逐项一致，无新增；定向测试（cnlanding、巡检、合约、服务监控仅管理员）通过；前端 `npm run build` 通过。
 - [x] 升级前预览生产 27 条 forward：无 wg_path 规则，按当前 DNS 无一命中中国大陆。
-- [ ] 打 annotated tag `3.0.27-fork.10` 并推送。
-- [ ] CI Build Check 与 Build and Push Images 通过。
-- [ ] 校验 release（非 prerelease、Latest、资产与 fork.9 一致、compose 镜像、PINNED_VERSION/REPO、gost sha256）。
-- [ ] 生产备份/回滚点（`/opt/flvx-svc/rollback/pre-fork10-*`）。
-- [ ] 升级 `/opt/flvx-svc` 到 fork.10。
-- [ ] 生产验证：健康、node_metric、新列、首次巡检结果、API 字段、恢复拒绝、服务监控非管理员 403。
-- [ ] 中文总结报告。
+- [x] 打 annotated tag `3.0.27-fork.10` 并推送（`0055663c`）。
+- [x] CI Build Check（37016380197、37016360163）与 Build and Push Images（37016383581）通过。
+- [x] 校验 release（非 prerelease、Latest、资产与 fork.9 一致、compose 镜像、PINNED_VERSION/REPO、gost sha256）。
+- [x] 生产备份/回滚点 `/opt/flvx-svc/rollback/pre-fork10-20261002T140611Z/`（quick_check ok，镜像 tag `local/flvxx-*:pre-fork10-20261002T140611Z`）。
+- [x] 升级 `/opt/flvx-svc` 到 fork.10。
+- [x] 生产验证：健康、22/22 在线节点 node_metric 新鲜、新列存在、首次巡检 0 条命中（与预览一致）、列表 API 含 `cnBlocked`、非管理员创建服务监控 403 且无数据写入；恢复拒绝在隔离沙箱（fork.10 镜像 + 备份副本，`--network none`）中验证。
+- [x] 中文总结报告（`/root/flvx-workers/runs/cn-landing-block-r2/summary.md`）。
