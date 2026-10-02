@@ -1,9 +1,12 @@
 package socket
 
 import (
+	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -123,5 +126,76 @@ func TestFormatWebSocketDialErrorIncludesHTTPStatus(t *testing.T) {
 	}
 	if !strings.Contains(msg, "forbidden") {
 		t.Fatalf("expected response body in message, got %s", msg)
+	}
+}
+
+func TestUpdateProtocolSettingsPreservesConfigAndMode(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.json")
+	original := []byte(`{
+  "addr": "panel.example.com:443",
+  "secret": "keep-secret",
+  "node_id": 47,
+  "service_name": "flvxx",
+  "domestic_download_host": "mirror.example.com",
+  "unknown": {"nested": true},
+  "http": 0,
+  "tls": 1,
+  "socks": 0,
+  "block_other": 1
+}`)
+	if err := os.WriteFile(path, original, 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := updateProtocolSettings(path, 1, 0, 1, 0); err != nil {
+		t.Fatalf("update protocol settings: %v", err)
+	}
+
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := info.Mode().Perm(); got != 0600 {
+		t.Fatalf("expected mode 0600, got %04o", got)
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got map[string]json.RawMessage
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatalf("unmarshal updated config: %v", err)
+	}
+	wantJSON := map[string]string{
+		"addr":                   `"panel.example.com:443"`,
+		"secret":                 `"keep-secret"`,
+		"node_id":                `47`,
+		"service_name":           `"flvxx"`,
+		"domestic_download_host": `"mirror.example.com"`,
+		"http":                   `1`,
+		"tls":                    `0`,
+		"socks":                  `1`,
+		"block_other":            `0`,
+	}
+	for key, want := range wantJSON {
+		if gotValue := string(got[key]); gotValue != want {
+			t.Errorf("%s: expected %s, got %s", key, want, gotValue)
+		}
+	}
+	var unknown struct {
+		Nested bool `json:"nested"`
+	}
+	if err := json.Unmarshal(got["unknown"], &unknown); err != nil || !unknown.Nested {
+		t.Errorf("unknown field was not preserved: value=%s err=%v", got["unknown"], err)
+	}
+
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 || entries[0].Name() != "config.json" {
+		t.Fatalf("expected only atomically replaced config.json, got %#v", entries)
 	}
 }

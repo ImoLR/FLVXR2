@@ -14,7 +14,7 @@
 ## 清单
 
 - [x] 从 `2991b893` 创建 `maintenance/3.0.27-fork.9-protocol-filter`，记录范围与混合版本兼容策略。
-- [ ] 安全保真地持久化 agent 协议配置，并添加未知字段、原子替换和权限单元测试。
+- [x] 安全保真地持久化 agent 协议配置，并添加未知字段、原子替换和权限单元测试。
 - [ ] Panel 在入口 forward service 中携带隧道过滤值，更新时复用 forward sync 并向调用方返回离线/失败 warning；添加生成配置测试并核实重连收敛路径。
 - [ ] Agent 按 service 使用过滤值，零值不包装；添加同节点双 service 隔离和 legacy 命令不覆盖测试。
 - [ ] 在隧道表单添加仅支持 GOST 模式 TCP forward 的文字说明。

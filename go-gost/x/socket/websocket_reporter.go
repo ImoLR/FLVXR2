@@ -2380,33 +2380,66 @@ func (w *WebSocketReporter) handleRollbackAgent(data interface{}) error {
 func (w *WebSocketReporter) updateLocalConfigJSON(httpVal int, tlsVal int, socksVal int, blockOtherVal int) error {
 	configDir := getConfigDir(w.serviceName)
 	path := configDir + "/config.json"
+	return updateProtocolSettings(path, httpVal, tlsVal, socksVal, blockOtherVal)
+}
 
-	// 读取现有配置
-	type LocalConfig struct {
-		Addr       string `json:"addr"`
-		Secret     string `json:"secret"`
-		Http       int    `json:"http"`
-		Tls        int    `json:"tls"`
-		Socks      int    `json:"socks"`
-		BlockOther int    `json:"block_other"`
+func updateProtocolSettings(path string, httpVal int, tlsVal int, socksVal int, blockOtherVal int) error {
+	info, err := os.Stat(path)
+	if err != nil {
+		return err
 	}
 
-	var cfg LocalConfig
-	if b, err := os.ReadFile(path); err == nil {
-		_ = json.Unmarshal(b, &cfg)
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	cfg := make(map[string]json.RawMessage)
+	if err := json.Unmarshal(b, &cfg); err != nil {
+		return err
 	}
 
-	cfg.Http = httpVal
-	cfg.Tls = tlsVal
-	cfg.Socks = socksVal
-	cfg.BlockOther = blockOtherVal
+	values := map[string]int{
+		"http":        httpVal,
+		"tls":         tlsVal,
+		"socks":       socksVal,
+		"block_other": blockOtherVal,
+	}
+	for key, value := range values {
+		raw, err := json.Marshal(value)
+		if err != nil {
+			return err
+		}
+		cfg[key] = raw
+	}
 
-	// 写回
 	data, err := json.MarshalIndent(cfg, "", "  ")
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, data, 0644)
+
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".config.json-*")
+	if err != nil {
+		return err
+	}
+	tmpPath := tmp.Name()
+	defer os.Remove(tmpPath)
+
+	if err := tmp.Chmod(info.Mode().Perm()); err != nil {
+		tmp.Close()
+		return err
+	}
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmpPath, path)
 }
 
 // handleCall 处理服务端的call回调消息
