@@ -74,6 +74,16 @@ Related problems found while verifying:
 - [x] Reporter: per-direction deltas keyed by rule generation (`Manager.CollectTraffic`; D =
   upload, U = download like gost services)
 - [x] Frontend labels for 单向/双向 (tunnel form, WG path form, dashboard badge tooltip, usage docs)
+- [x] User-level resets also reset the user's rules (user-approved): manual/batch 归零,
+  monthly `flow_reset_time` reset and the auto-renew reset to base zero every forward of the
+  user in the same transaction (forward rows locked first, like `ApplyFlowBatch`) and write a
+  `forward_traffic_reset_log` row ("用户流量归零联动：<reason>") for each forward that had
+  traffic. Forward-level and single user_tunnel resets are unchanged; the monthly user reset
+  still leaves user_tunnels to their own reset day. Also fixed: the monthly reset wrote its
+  `user_quota_history` rows with `user_id = 0` (snapshot selected `id`, struct field is
+  `UserID`). UI: hint on the user total (user list, user dashboard, history modals) and the
+  reset confirmations now state the real scope (the old text claimed tunnel traffic was kept).
+  Existing data is not touched.
 - [ ] Backend/agent unit + contract tests, netns nftables integration tests, frontend build;
   compare failures with the fork.7 baseline
 - [ ] Local end-to-end check (panel on :16365 + agent in network namespaces) for gost and

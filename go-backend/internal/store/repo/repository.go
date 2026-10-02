@@ -3331,7 +3331,12 @@ func (r *Repository) CreateStatisticsFlow(userID, flow, totalFlow int64, timeTex
 	}).Error
 }
 
-func (r *Repository) ResetUserMonthlyFlow(day int, lastDay int) ([]model.UserFlowSnapshot, error) {
+// ResetUserMonthlyFlow is the automatic monthly user reset (user.flow_reset_time == day; on
+// the last day of the month also every larger reset day). In one transaction it clears the
+// totals of the due users and the traffic of all their forwards (with forward_traffic_reset_log
+// rows), and returns the users' totals before the reset for the user_quota_history.
+// user_tunnel counters keep their own reset day (ResetUserTunnelMonthlyFlow).
+func (r *Repository) ResetUserMonthlyFlow(day int, lastDay int, nowMs int64) ([]model.UserFlowSnapshot, error) {
 	if r == nil || r.db == nil {
 		return nil, errors.New("repository not initialized")
 	}
@@ -3339,32 +3344,36 @@ func (r *Repository) ResetUserMonthlyFlow(day int, lastDay int) ([]model.UserFlo
 	todayStart := time.Now().Truncate(24 * time.Hour).UnixMilli()
 
 	var snapshots []model.UserFlowSnapshot
-	query := r.db.Model(&model.User{}).Select("id, in_flow, out_flow").
-		Where("flow_reset_time != 0").
-		Where("updated_time IS NULL OR updated_time < ?", todayStart)
-	if day == lastDay {
-		query = query.Where("flow_reset_time = ? OR flow_reset_time > ?", day, lastDay)
-	} else {
-		query = query.Where("flow_reset_time = ?", day)
-	}
-	if err := query.Find(&snapshots).Error; err != nil {
+	err := r.db.Transaction(func(tx *gorm.DB) error {
+		query := tx.Model(&model.User{}).Select("id AS user_id, in_flow, out_flow").
+			Where("flow_reset_time != 0").
+			Where("updated_time IS NULL OR updated_time < ?", todayStart)
+		if day == lastDay {
+			query = query.Where("flow_reset_time = ? OR flow_reset_time > ?", day, lastDay)
+		} else {
+			query = query.Where("flow_reset_time = ?", day)
+		}
+		if err := query.Order("id ASC").Find(&snapshots).Error; err != nil {
+			return err
+		}
+		if len(snapshots) == 0 {
+			return nil
+		}
+		ids := make([]int64, 0, len(snapshots))
+		for _, s := range snapshots {
+			ids = append(ids, s.UserID)
+			if err := resetUserForwardsTx(tx, s.UserID, nowMs, 1, "system", userResetForwardReason("自动周期归零")); err != nil {
+				return err
+			}
+		}
+		return tx.Model(&model.User{}).
+			Where("id IN ?", ids).
+			Updates(map[string]interface{}{"in_flow": 0, "out_flow": 0}).Error
+	})
+	if err != nil {
 		return nil, err
 	}
-
-	updates := map[string]interface{}{"in_flow": 0, "out_flow": 0}
-	if day == lastDay {
-		err := r.db.Model(&model.User{}).
-			Where("flow_reset_time != 0").
-			Where("updated_time IS NULL OR updated_time < ?", todayStart).
-			Where("(flow_reset_time = ? OR flow_reset_time > ?)", day, lastDay).
-			Updates(updates).Error
-		return snapshots, err
-	}
-	return snapshots, r.db.Model(&model.User{}).
-		Where("flow_reset_time != 0").
-		Where("updated_time IS NULL OR updated_time < ?", todayStart).
-		Where("flow_reset_time = ?", day).
-		Updates(updates).Error
+	return snapshots, nil
 }
 
 func (r *Repository) ResetUserTunnelMonthlyFlow(day int, lastDay int) error {

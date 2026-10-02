@@ -18,6 +18,7 @@ import { PageEmptyState } from "@/components/page-state";
 import { AnnouncementBanner } from "@/pages/dashboard/components/announcement-banner";
 import { FlowChartCard } from "@/pages/dashboard/components/flow-chart-card";
 import { MetricCard } from "@/pages/dashboard/components/metric-card";
+import { USER_TOTAL_FLOW_HINT } from "@/utils/flow-hints";
 import {
   formatNodeRenewalTime,
   getNodeRenewalCycleLabel,
@@ -154,7 +155,10 @@ export default function DashboardPage() {
     window.addEventListener("storage", handleStorageChange);
 
     return () => {
-      window.removeEventListener("storeEnabledChanged", handleStoreEnabledChanged);
+      window.removeEventListener(
+        "storeEnabledChanged",
+        handleStoreEnabledChanged,
+      );
       window.removeEventListener("storage", handleStorageChange);
     };
   }, []);
@@ -590,7 +594,7 @@ export default function DashboardPage() {
             title={
               <button
                 className="inline-flex items-center cursor-pointer hover:text-primary transition-colors"
-                title="流量历史记录"
+                title={`流量历史记录\n${USER_TOTAL_FLOW_HINT}`}
                 type="button"
                 onClick={() => setQuotaHistoryModalOpen(true)}
               >
@@ -1155,6 +1159,7 @@ export default function DashboardPage() {
             </Button>
           </ModalHeader>
           <ModalBody className="py-6">
+            <p className="text-xs text-default-500">{USER_TOTAL_FLOW_HINT}</p>
             {quotaHistory.length > 0 ? (
               <div className="space-y-3 max-h-80 overflow-y-auto">
                 {quotaHistory.map((item) => (

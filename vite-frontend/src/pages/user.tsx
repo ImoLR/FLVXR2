@@ -106,6 +106,10 @@ import { PageLoadingState } from "@/components/page-state";
 import { useLocalStorageState } from "@/hooks/use-local-storage-state";
 import { usePullToRefresh } from "@/hooks/usePullToRefresh";
 import { removeItemsById, replaceItemById } from "@/utils/list-state";
+import {
+  USER_RESET_FLOW_SCOPE_HINT,
+  USER_TOTAL_FLOW_HINT,
+} from "@/utils/flow-hints";
 
 // 扩展 User 类型，添加流量历史相关字段
 type UserWithHistory = User & {
@@ -2015,7 +2019,12 @@ export default function UserPage() {
                     流量限制
                   </TableColumn>
                   <TableColumn className="whitespace-nowrap flex-shrink-0 w-[150px] text-left">
-                    已用流量
+                    <span
+                      className="cursor-help underline decoration-dotted underline-offset-4"
+                      title={USER_TOTAL_FLOW_HINT}
+                    >
+                      已用流量
+                    </span>
                   </TableColumn>
                   <TableColumn className="whitespace-nowrap flex-shrink-0 w-[80px] text-left">
                     规则数
@@ -2453,7 +2462,10 @@ export default function UserPage() {
                         <CardBody className="pt-0 pb-3 md:pt-0 md:pb-3">
                           <div className="grid grid-cols-2 gap-x-3 gap-y-1.5">
                             <div className="flex justify-between text-sm items-center">
-                              <span className="text-default-600 text-xs">
+                              <span
+                                className="text-default-600 text-xs"
+                                title={USER_TOTAL_FLOW_HINT}
+                              >
                                 已用流量
                               </span>
                               <div className="flex items-center gap-1">
@@ -4081,7 +4093,7 @@ export default function UserPage() {
                   的流量吗？
                 </p>
                 <p className="text-small text-default-500 mt-1">
-                  该操作只会归零账号流量不会归零隧道权限流量，归零后该用户的上下行流量将归零，此操作不可撤销。
+                  {USER_RESET_FLOW_SCOPE_HINT}
                 </p>
                 <div className="mt-2 p-2 bg-warning-50 dark:bg-warning-100/10 rounded text-xs">
                   <div className="text-warning-700 dark:text-warning-300">
@@ -4310,8 +4322,11 @@ export default function UserPage() {
             批量归零流量
           </ModalHeader>
           <ModalBody>
-            <p className="text-sm text-default-600 mb-3">
+            <p className="text-sm text-default-600 mb-1">
               确认要归零以下 {batchResetUserList.length} 个用户的流量吗？
+            </p>
+            <p className="text-xs text-default-500 mb-3">
+              {USER_RESET_FLOW_SCOPE_HINT}
             </p>
             <div className="max-h-60 overflow-y-auto space-y-2 pr-2">
               {batchResetUserList.map((user) => (
@@ -4400,6 +4415,7 @@ export default function UserPage() {
             </Button>
           </ModalHeader>
           <ModalBody className="py-6">
+            <p className="text-xs text-default-500">{USER_TOTAL_FLOW_HINT}</p>
             {historyModalUser &&
             historyModalUser.quotaHistory &&
             historyModalUser.quotaHistory.length > 0 ? (

@@ -177,57 +177,139 @@ func (r *Repository) DeleteUserCascade(userID int64) error {
 	})
 }
 
-func (r *Repository) ResetUserFlowByUser(userID int64, now int64) {
-	if r == nil || r.db == nil {
-		return
+// UserResetForwardReasonPrefix starts the forward_traffic_reset_log reason of forwards that
+// were cleared because their owner's traffic was reset.
+const UserResetForwardReasonPrefix = "用户流量归零联动"
+
+// userResetForwardReason is the forward_traffic_reset_log reason for a user-level reset
+// triggered by userReason (for example "管理员手动归零").
+func userResetForwardReason(userReason string) string {
+	if strings.TrimSpace(userReason) == "" {
+		return UserResetForwardReasonPrefix
 	}
+	return UserResetForwardReasonPrefix + "：" + userReason
+}
 
-	var user model.User
-	var quota model.UserQuota
-
-	if err := r.db.Where("id = ?", userID).First(&user).Error; err != nil {
-		return
+// resetUserForwardsTx clears in_flow/out_flow of every forward owned by userID, so that the
+// user's total and the per-rule numbers restart together. Forwards that had traffic get a
+// forward_traffic_reset_log row with the cleared amounts.
+//
+// Forward rows are locked first (same order as ApplyFlowBatch: forward, user, user_tunnel,
+// user_quota), so a concurrent flow upload is either fully before or fully after the reset.
+func resetUserForwardsTx(tx *gorm.DB, userID, nowMs, operatorID int64, operatorName, reason string) error {
+	if userID <= 0 {
+		return nil
 	}
-
-	_ = r.db.Where("user_id = ?", userID).First(&quota).Error
-
-	inFlowBefore := user.InFlow
-	outFlowBefore := user.OutFlow
-	totalBytes := inFlowBefore + outFlowBefore
-
-	_ = r.db.Model(&model.User{}).
-		Where("id = ?", userID).
+	if err := tx.Model(&model.Forward{}).Where("user_id = ?", userID).
+		UpdateColumn("in_flow", gorm.Expr("in_flow")).Error; err != nil {
+		return err
+	}
+	var forwards []model.Forward
+	if err := tx.Select("id", "name", "user_id", "user_name", "in_flow", "out_flow").
+		Where("user_id = ? AND (in_flow <> 0 OR out_flow <> 0)", userID).
+		Order("id ASC").
+		Find(&forwards).Error; err != nil {
+		return err
+	}
+	if len(forwards) == 0 {
+		return nil
+	}
+	ids := make([]int64, 0, len(forwards))
+	for _, f := range forwards {
+		ids = append(ids, f.ID)
+		entry := &model.ForwardTrafficResetLog{
+			ForwardID:     f.ID,
+			ForwardName:   f.Name,
+			UserID:        f.UserID,
+			UserName:      f.UserName,
+			ResetTime:     nowMs,
+			InFlowBefore:  f.InFlow,
+			OutFlowBefore: f.OutFlow,
+			OperatorID:    operatorID,
+			OperatorName:  operatorName,
+			Reason:        reason,
+			CreatedTime:   nowMs,
+		}
+		if err := tx.Create(entry).Error; err != nil {
+			return err
+		}
+		if err := cleanupForwardTrafficResetLogsTx(tx, f.ID); err != nil {
+			return err
+		}
+	}
+	return tx.Model(&model.Forward{}).Where("id IN ?", ids).
 		Updates(map[string]interface{}{
 			"in_flow":      0,
 			"out_flow":     0,
-			"updated_time": sql.NullInt64{Int64: now, Valid: true},
+			"updated_time": nowMs,
 		}).Error
+}
 
-	_ = r.db.Model(&model.UserQuota{}).
-		Where("user_id = ?", userID).
-		Updates(map[string]interface{}{
-			"monthly_used_bytes": 0,
-			"updated_time":       now,
-		}).Error
-
-	if totalBytes > 0 {
-		history := &model.UserQuotaHistory{
-			UserID:        userID,
-			PeriodType:    "monthly",
-			PeriodKey:     quota.MonthKey,
-			InFlowBefore:  inFlowBefore,
-			OutFlowBefore: outFlowBefore,
-			UsedBytes:     totalBytes,
-			ResetTime:     now,
-			CreatedTime:   now,
-			ResetReason:   "管理员手动归零",
-		}
-		r.db.Create(history)
+// ResetUserFlowByUser is the manual user reset (管理员手动归零): it clears the user's total,
+// monthly quota usage, every user_tunnel and every forward of the user in one transaction
+// and keeps the cleared amounts in user_quota_history / forward_traffic_reset_log.
+func (r *Repository) ResetUserFlowByUser(userID, now, operatorID int64, operatorName string) error {
+	if r == nil || r.db == nil {
+		return errors.New("repository not initialized")
 	}
+	const reason = "管理员手动归零"
+	return r.db.Transaction(func(tx *gorm.DB) error {
+		var exists int64
+		if err := tx.Model(&model.User{}).Where("id = ?", userID).Count(&exists).Error; err != nil {
+			return err
+		}
+		if exists == 0 {
+			return gorm.ErrRecordNotFound
+		}
+		if err := resetUserForwardsTx(tx, userID, now, operatorID, operatorName, userResetForwardReason(reason)); err != nil {
+			return err
+		}
 
-	_ = r.db.Model(&model.UserTunnel{}).
-		Where("user_id = ?", userID).
-		Updates(map[string]interface{}{"in_flow": 0, "out_flow": 0}).Error
+		var user model.User
+		if err := tx.Select("id", "in_flow", "out_flow").Where("id = ?", userID).First(&user).Error; err != nil {
+			return err
+		}
+		if err := tx.Model(&model.User{}).
+			Where("id = ?", userID).
+			Updates(map[string]interface{}{
+				"in_flow":      0,
+				"out_flow":     0,
+				"updated_time": sql.NullInt64{Int64: now, Valid: true},
+			}).Error; err != nil {
+			return err
+		}
+
+		if totalBytes := user.InFlow + user.OutFlow; totalBytes > 0 {
+			var quota model.UserQuota
+			_ = tx.Where("user_id = ?", userID).Limit(1).Find(&quota).Error
+			history := &model.UserQuotaHistory{
+				UserID:        userID,
+				PeriodType:    "monthly",
+				PeriodKey:     quota.MonthKey,
+				InFlowBefore:  user.InFlow,
+				OutFlowBefore: user.OutFlow,
+				UsedBytes:     totalBytes,
+				ResetTime:     now,
+				CreatedTime:   now,
+				ResetReason:   reason,
+			}
+			if err := tx.Create(history).Error; err != nil {
+				return err
+			}
+		}
+
+		if err := tx.Model(&model.UserTunnel{}).
+			Where("user_id = ?", userID).
+			Updates(map[string]interface{}{"in_flow": 0, "out_flow": 0}).Error; err != nil {
+			return err
+		}
+		return tx.Model(&model.UserQuota{}).
+			Where("user_id = ?", userID).
+			Updates(map[string]interface{}{
+				"monthly_used_bytes": 0,
+				"updated_time":       now,
+			}).Error
+	})
 }
 
 func (r *Repository) ResetUserFlowByUserTunnel(userTunnelID int64) {
@@ -694,18 +776,25 @@ func (r *Repository) UpdateUserBuyTrafficConfig(userID int64, autoBuyTraffic int
 		Updates(updates).Error
 }
 
+// ResetUserFlowToBase restores the user's flow quota to baseFlow after an automatic renewal
+// and clears the user's total together with the traffic of all the user's forwards.
 func (r *Repository) ResetUserFlowToBase(userID, baseFlow, now int64) error {
 	if r == nil || r.db == nil {
 		return errors.New("repository not initialized")
 	}
-	return r.db.Model(&model.User{}).
-		Where("id = ?", userID).
-		Updates(map[string]interface{}{
-			"flow":         baseFlow,
-			"in_flow":      0,
-			"out_flow":     0,
-			"updated_time": sql.NullInt64{Int64: now, Valid: true},
-		}).Error
+	return r.db.Transaction(func(tx *gorm.DB) error {
+		if err := resetUserForwardsTx(tx, userID, now, 1, "system", userResetForwardReason("自动续费重置")); err != nil {
+			return err
+		}
+		return tx.Model(&model.User{}).
+			Where("id = ?", userID).
+			Updates(map[string]interface{}{
+				"flow":         baseFlow,
+				"in_flow":      0,
+				"out_flow":     0,
+				"updated_time": sql.NullInt64{Int64: now, Valid: true},
+			}).Error
+	})
 }
 
 func (r *Repository) ListAutoBuyTrafficCandidates(nowMs int64) ([]model.User, error) {
@@ -3178,21 +3267,24 @@ func (r *Repository) cleanupForwardTrafficResetLogs(forwardID int64) error {
 	if r == nil || r.db == nil {
 		return errors.New("repository not initialized")
 	}
+	return cleanupForwardTrafficResetLogsTx(r.db, forwardID)
+}
 
+func cleanupForwardTrafficResetLogsTx(tx *gorm.DB, forwardID int64) error {
 	var count int64
-	if err := r.db.Model(&model.ForwardTrafficResetLog{}).Where("forward_id = ?", forwardID).Count(&count).Error; err != nil {
+	if err := tx.Model(&model.ForwardTrafficResetLog{}).Where("forward_id = ?", forwardID).Count(&count).Error; err != nil {
 		return err
 	}
 
 	if count > 30 {
 		var oldestLog model.ForwardTrafficResetLog
-		if err := r.db.Where("forward_id = ?", forwardID).
+		if err := tx.Where("forward_id = ?", forwardID).
 			Order("created_time ASC").
 			First(&oldestLog).Error; err != nil {
 			return err
 		}
 
-		return r.db.Where("forward_id = ? AND created_time <= ?", forwardID, oldestLog.CreatedTime).
+		return tx.Where("forward_id = ? AND created_time <= ?", forwardID, oldestLog.CreatedTime).
 			Delete(&model.ForwardTrafficResetLog{}).Error
 	}
 

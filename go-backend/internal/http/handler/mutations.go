@@ -493,7 +493,15 @@ func (h *Handler) userResetFlow(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if typeVal == 1 {
-		h.repo.ResetUserFlowByUser(id, time.Now().UnixMilli())
+		actorUserID, _, _ := userRoleFromRequest(r)
+		if err := h.repo.ResetUserFlowByUser(id, time.Now().UnixMilli(), actorUserID, h.repo.GetUsernameByID(actorUserID)); err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				response.WriteJSON(w, response.ErrDefault("用户不存在"))
+				return
+			}
+			response.WriteJSON(w, response.ErrDefault("流量归零失败："+err.Error()))
+			return
+		}
 	} else {
 		h.repo.ResetUserFlowByUserTunnel(id)
 	}
@@ -564,16 +572,22 @@ func (h *Handler) userBatchResetFlow(w http.ResponseWriter, r *http.Request) {
 	}
 
 	resetTime := time.Now().UnixMilli()
+	actorUserID, _, _ := userRoleFromRequest(r)
+	actorUserName := h.repo.GetUsernameByID(actorUserID)
 	successCount := 0
+	failCount := 0
 
 	for _, id := range req.IDs {
-		h.repo.ResetUserFlowByUser(id, resetTime)
+		if err := h.repo.ResetUserFlowByUser(id, resetTime, actorUserID, actorUserName); err != nil {
+			failCount++
+			continue
+		}
 		successCount++
 	}
 
 	response.WriteJSON(w, response.OK(map[string]int{
 		"successCount": successCount,
-		"failCount":    0,
+		"failCount":    failCount,
 	}))
 }
 
