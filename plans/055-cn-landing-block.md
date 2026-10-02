@@ -21,3 +21,16 @@
 - 实现后全量：`cd go-backend && go test ./... -count=1`；第一次出现 1 个额外的端口占用瞬时失败，该用例单独连续运行 5 次全部通过；再次全量运行与基线的 19 个失败名称逐项一致，无新增失败。
 - 前端：`cd vite-frontend && npm run build`，通过（3194 个模块完成转换）。
 - 范围审计：`git diff --check f65e7e3f..HEAD` 通过；未修改 `go-gost/`、安装脚本、协议过滤、依赖或生产环境，未纳入非本任务的 `plans/048-aws-hk-fork4-agent-canary.md`。
+
+## Rollout（Round 2：3.0.27-fork.10）
+
+- [x] 合并 `maintenance/3.0.27-fork.10-svc-monitor-admin`（计划 056，服务监控仅管理员）到本分支（合并提交 `2dc51519`），范围审计通过，无 node_modules。
+- [x] 后端全量测试与 `f65e7e3f` 基线对比：19 个失败名称逐项一致，无新增；定向测试（cnlanding、巡检、合约、服务监控仅管理员）通过；前端 `npm run build` 通过。
+- [x] 升级前预览生产 27 条 forward：无 wg_path 规则，按当前 DNS 无一命中中国大陆。
+- [ ] 打 annotated tag `3.0.27-fork.10` 并推送。
+- [ ] CI Build Check 与 Build and Push Images 通过。
+- [ ] 校验 release（非 prerelease、Latest、资产与 fork.9 一致、compose 镜像、PINNED_VERSION/REPO、gost sha256）。
+- [ ] 生产备份/回滚点（`/opt/flvx-svc/rollback/pre-fork10-*`）。
+- [ ] 升级 `/opt/flvx-svc` 到 fork.10。
+- [ ] 生产验证：健康、node_metric、新列、首次巡检结果、API 字段、恢复拒绝、服务监控非管理员 403。
+- [ ] 中文总结报告。
