@@ -841,6 +841,21 @@ textarea:focus-visible {
     }
   }
 
+  /* Radix dialogs/selects lock scrolling with body[data-scroll-locked] { overflow: hidden }.
+     Because html is not overflow: visible here, that turns body into a viewport-high scroll
+     container, the document collapses and the page jumps to the top. Keep body unclipped
+     vertically; react-remove-scroll still blocks background touch/wheel scrolling. */
+  html body[data-scroll-locked] {
+    overflow: visible !important;
+  }
+
+  @supports (overflow-x: clip) {
+    html body[data-scroll-locked] {
+      overflow-x: clip !important;
+      overflow-y: visible !important;
+    }
+  }
+
   .flvx-h5-shell {
     min-height: 100dvh;
     overflow-x: hidden;
