@@ -92,8 +92,14 @@ Related problems found while verifying:
   accounting. go-gost/x `go test ./...` and `-race` on nftables/routing/service/socket: pass.
   `netns_integration.sh`: 16/16 pass, no leftover namespaces, host ruleset has no flvx
   tables. `npm run build`: ok.)
-- [ ] Local end-to-end check (panel on :16365 + agent in network namespaces) for gost and
+- [x] Local end-to-end check (panel on :16365 + agent in network namespaces) for gost and
   nftables forwards against known transfer sizes
+  (`/tmp/flvx-flow/fork8/e2e/run.sh`: panel + agent in an isolated node netns, client/target
+  netns; 8 MB up / 16 MB down per forward. 双向 gost 8000000/16000000 (1.000x), 双向
+  nftables 1.003x/1.002x (IP headers), 单向 gost/nftables in=0, out=16.0 MB / 1.002x;
+  user total == sum of the user's forwards; a second round adds exactly once more; user
+  reset clears user, user_tunnels and all 4 forwards with 4 reset-log rows. Host ruleset
+  unchanged, no namespaces left.)
 - [ ] Release `3.0.27-fork.8` and verify CI + assets
 - [ ] Upgrade the production panel with a validated rollback point; verify `/flow/upload`
   ingestion at the real rate (no x2)
