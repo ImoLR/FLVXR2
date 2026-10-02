@@ -251,6 +251,14 @@ export interface ForwardApiItem {
   [key: string]: unknown;
 }
 
+export interface ForwardClientIPsApiData {
+  ips: Array<{ ip: string; connections: number; nodes: string[] }>;
+  ipCount: number;
+  connectionCount: number;
+  truncated: boolean;
+  nodeErrors: Array<{ nodeName: string; reason: string }>;
+}
+
 export interface UserTunnelApiItem {
   id: number;
   name: string;

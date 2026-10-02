@@ -2,6 +2,7 @@ import type {
   BatchOperationResult,
   ForwardDiagnosisApiData,
   ForwardApiItem,
+  ForwardClientIPsApiData,
   GroupPermissionApiItem,
   NodeGroupApiItem,
   NodeGroupMutationPayload,
@@ -376,6 +377,8 @@ export const getForwardList = (params?: { current?: number; size?: number }) =>
     "/forward/list",
     params || {},
   );
+export const getForwardClientIPs = (id: number) =>
+  Network.post<ForwardClientIPsApiData>("/forward/client-ips", { id });
 export const updateForward = (data: ForwardMutationPayload) =>
   Network.post("/forward/update", data);
 export const deleteForward = (id: number) =>

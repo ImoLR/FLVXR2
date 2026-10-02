@@ -20,6 +20,16 @@ type fakeClientIPNft struct {
 	counts map[int64]map[string]int
 }
 
+func (f *fakeClientIPNft) GetForwardConnectionCounts() map[int64]int {
+	counts := make(map[int64]int)
+	for id, ips := range f.counts {
+		for _, n := range ips {
+			counts[id] += n
+		}
+	}
+	return counts
+}
+
 func (f *fakeClientIPNft) GetForwardClientIPs(ids []int64) (map[int64]map[string]int, error) {
 	out := make(map[int64]map[string]int)
 	for _, id := range ids {
@@ -44,6 +54,9 @@ func TestGetServiceClientIPsCommandGostAndNft(t *testing.T) {
 	services := data["services"].(map[string]serviceClientIPSnapshot)
 	if services[name].ConnectionCount != 2 || services["909202_nft"].ConnectionCount != 3 || services["909202_nft"].IPCount != 1 {
 		t.Fatalf("unexpected service and nft snapshots: %+v", services)
+	}
+	if got := w.collectServiceConnections()["909202_nft"]; got != 3 {
+		t.Fatalf("nft live connections in telemetry = %d, want 3", got)
 	}
 }
 

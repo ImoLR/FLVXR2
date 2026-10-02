@@ -1,5 +1,6 @@
 ﻿import type {
   ForwardApiItem,
+  ForwardClientIPsApiData,
   PathTunnelApiItem,
   PathTunnelDetailApiItem,
   SpeedLimitApiItem,
@@ -60,6 +61,7 @@ import { Checkbox } from "@/shadcn-bridge/heroui/checkbox";
 import {
   createForward,
   getForwardList,
+	getForwardClientIPs,
   getSpeedLimitList,
   getPeerShareList,
   getPeerRemoteUsageList,
@@ -991,6 +993,13 @@ const SortableTableRow = ({
             <span className="mr-1">↓</span>
             {formatSpeed(forward.outSpeed || 0)}
           </span>
+          <span
+            className="block w-full min-w-[80px] min-h-[20px] px-1.5 py-0.5 rounded text-[10px] font-medium bg-teal-500/10 text-teal-600 dark:text-teal-400"
+            title="当前连接数"
+          >
+            <span className="mr-1">⇄</span>
+            {forward.currentConnections ?? 0} 连接
+          </span>
         </div>
       </TableCell>
       <TableCell className={`whitespace-nowrap ${rowBg}`}>
@@ -1314,6 +1323,13 @@ const SortableCompactTableRow = ({
             <span className="mr-1">↓</span>
             {formatSpeed(forward.outSpeed || 0)}
           </span>
+          <span
+            className="block w-full min-w-[80px] min-h-[20px] px-1.5 py-0.5 rounded text-[10px] font-medium bg-teal-500/10 text-teal-600 dark:text-teal-400"
+            title="当前连接数"
+          >
+            <span className="mr-1">⇄</span>
+            {forward.currentConnections ?? 0} 连接
+          </span>
         </div>
       </TableCell>
       <TableCell className={`whitespace-nowrap ${rowBg}`}>
@@ -1614,6 +1630,41 @@ export default function ForwardPage() {
     useState<ForwardGroupCollapsedMap>({});
   const [groupPreferenceHydrated, setGroupPreferenceHydrated] = useState(false);
   const [advancedOptionsOpen, setAdvancedOptionsOpen] = useState(false);
+  const [liveClientIPs, setLiveClientIPs] = useState<ForwardClientIPsApiData | null>(null);
+  const [liveClientIPsLoading, setLiveClientIPsLoading] = useState(false);
+  const [liveClientIPsError, setLiveClientIPsError] = useState("");
+  const liveClientIPsRequest = useRef(0);
+  const refreshLiveClientIPs = useCallback(async () => {
+    if (!form.id) return;
+    const request = ++liveClientIPsRequest.current;
+    setLiveClientIPsLoading(true);
+    const res = await getForwardClientIPs(form.id);
+    if (request !== liveClientIPsRequest.current) return;
+    setLiveClientIPsLoading(false);
+    if (res.code === 0) {
+      setLiveClientIPs(res.data);
+      setLiveClientIPsError("");
+    } else {
+      setLiveClientIPs(null);
+      setLiveClientIPsError(res.msg || "读取当前连接 IP 失败");
+    }
+  }, [form.id]);
+
+  useEffect(() => {
+    if (!isAdmin || !modalOpen || !isEdit || !advancedOptionsOpen || !form.id) {
+      liveClientIPsRequest.current++;
+      setLiveClientIPs(null);
+      setLiveClientIPsError("");
+      setLiveClientIPsLoading(false);
+      return;
+    }
+    void refreshLiveClientIPs();
+    const timer = window.setInterval(() => void refreshLiveClientIPs(), 5000);
+    return () => {
+      window.clearInterval(timer);
+      liveClientIPsRequest.current++;
+    };
+  }, [isAdmin, modalOpen, isEdit, advancedOptionsOpen, form.id, refreshLiveClientIPs]);
   const parseNodeIPs = (node?: Node): string[] => {
     if (!node) {
       return [];
@@ -4584,6 +4635,9 @@ export default function ForwardPage() {
               </div>
             </div>
           </div>
+          <div className="text-[11px] text-default-500 px-1 pb-1 truncate" title="实时带宽和当前连接数">
+            ↑ {formatSpeed(forward.inSpeed || 0)} · ↓ {formatSpeed(forward.outSpeed || 0)} · {forward.currentConnections ?? 0} 连接
+          </div>
           {/* 底部 Chip 区 */}
           <div className="flex items-center justify-between pt-2 border-t border-divider gap-1 whitespace-nowrap">
             <div className="flex items-center gap-1">
@@ -5838,6 +5892,44 @@ export default function ForwardPage() {
                             }
                           />
                         </div>
+                        {isEdit && form.id && (
+                          <div className="rounded-lg border border-divider p-3 space-y-2">
+                            <div className="flex items-center justify-between gap-2">
+                              <div>
+                                <div className="text-sm font-medium text-foreground">当前连接 IP</div>
+                                <div className="text-xs text-default-500">
+                                  {liveClientIPs
+                                    ? `当前${liveClientIPs.truncated ? "至少" : ""} ${liveClientIPs.ipCount} 个 IP · ${liveClientIPs.connectionCount} 个连接`
+                                    : liveClientIPsLoading ? "读取中..." : "当前无连接"}
+                                </div>
+                              </div>
+                              <Button size="sm" variant="flat" isLoading={liveClientIPsLoading} onPress={() => void refreshLiveClientIPs()}>
+                                刷新
+                              </Button>
+                            </div>
+                            {liveClientIPsError && <div className="text-xs text-danger">{liveClientIPsError}</div>}
+                            {liveClientIPs?.ips.length ? (
+                              <div className="max-h-48 overflow-y-auto text-xs divide-y divide-divider">
+                                <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] gap-2 py-1 text-default-500">
+                                  <span>IP</span><span>连接数</span><span>入口节点</span>
+                                </div>
+                                {liveClientIPs.ips.map((item) => (
+                                  <div key={item.ip} className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] gap-2 py-1.5 items-center">
+                                    <span className="font-mono truncate" title={item.ip}>{item.ip}</span>
+                                    <span>{item.connections} 连接</span>
+                                    <span className="truncate text-default-500" title={item.nodes.join("、")}>{item.nodes.join("、")}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            ) : !liveClientIPsLoading && !liveClientIPsError && <div className="text-xs text-default-500">当前无连接</div>}
+                            {liveClientIPs?.truncated && <div className="text-xs text-default-500">仅显示前 500 个</div>}
+                            {liveClientIPs?.nodeErrors.map((item) => (
+                              <div key={item.nodeName} className="text-xs text-warning-600 dark:text-warning-400">
+                                {item.nodeName}：{item.reason}
+                              </div>
+                            ))}
+                          </div>
+                        )}
                       </div>
                     )}
                     </div>
