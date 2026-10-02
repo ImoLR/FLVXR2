@@ -28,7 +28,8 @@ Gaps:
 - [x] `tsc --noEmit`, eslint, `npm run build` OK
 - [x] Header check against built dist in nginx:stable-alpine (`/`, `/index.html`,
       `/sw.js`, `/manifest.webmanifest`, `/dashboard` → no-cache; `assets/*.js` → immutable)
-- [ ] Rebase on final fork.11 branch head, push branch, tag `3.0.27-fork.12`, CI + release verified
+- [x] Rebase on final fork.11 branch head and re-run `npm run build`
+- [ ] Push branch, tag `3.0.27-fork.12`, CI + release verified
 - [ ] Backup production (rollback dir, validated sqlite, image tags, metadata)
 - [ ] Upgrade `/opt/flvx-svc` to fork.12
 - [ ] Verify health, node metrics, live `/sw.js` + `/` headers are `no-cache`
