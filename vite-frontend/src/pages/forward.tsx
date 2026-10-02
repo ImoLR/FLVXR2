@@ -147,6 +147,8 @@ interface Forward {
   targetCidr?: string;
   snatEnabled?: boolean;
   pathName?: string;
+  cnBlocked?: boolean;
+  cnBlockedReason?: string;
 }
 interface Tunnel {
   id: number;
@@ -600,7 +602,25 @@ const mapForwardApiItems = (items: ForwardApiItem[]): Forward[] => {
     targetCidr: (forward as any).targetCidr || "",
     snatEnabled: (forward as any).snatEnabled ?? true,
     pathName: (forward as any).pathName || "",
+    cnBlocked: forward.cnBlocked === true,
+    cnBlockedReason:
+      typeof forward.cnBlockedReason === "string"
+        ? forward.cnBlockedReason
+        : "",
   }));
+};
+
+const ForwardCNBlockedWarning = ({ forward }: { forward: Forward }) => {
+  if (!forward.cnBlocked) return null;
+
+  return (
+    <div
+      className="mt-1 whitespace-normal text-xs font-medium leading-snug text-warning-600 dark:text-warning-400"
+      title={forward.cnBlockedReason || undefined}
+    >
+      ⚠ 该规则的落地地址位于中国大陆，已被暂停，请更改落地地址
+    </div>
+  );
 };
 const SortableTunnelGroupContainer = ({
   groupUserId,
@@ -835,18 +855,21 @@ const SortableTableRow = ({
           </span>
         </TableCell>
       )}
-      <TableCell className={`whitespace-nowrap text-foreground ${rowBg}`}>
-        <span
-          className="cursor-pointer hover:text-primary transition-colors text-foreground"
-          onClick={() => copyToClipboard(forward.name, "规则名称")}
-        >
-          {forward.name}
-          {forward.mode === "nftables" && (
-            <span className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800">
-              nft
-            </span>
-          )}
-        </span>
+      <TableCell className={`text-foreground ${rowBg}`}>
+        <div className="min-w-[180px] max-w-[320px]">
+          <span
+            className="cursor-pointer hover:text-primary transition-colors text-foreground"
+            onClick={() => copyToClipboard(forward.name, "规则名称")}
+          >
+            {forward.name}
+            {forward.mode === "nftables" && (
+              <span className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800">
+                nft
+              </span>
+            )}
+          </span>
+          <ForwardCNBlockedWarning forward={forward} />
+        </div>
       </TableCell>
       <TableCell className={rowBg}>
         <div className="flex items-center gap-1.5 overflow-hidden">
@@ -1144,18 +1167,21 @@ const SortableCompactTableRow = ({
           </span>
         </TableCell>
       )}
-      <TableCell className={`whitespace-nowrap text-foreground ${rowBg}`}>
-        <span
-          className="cursor-pointer hover:text-primary transition-colors text-foreground"
-          onClick={() => copyToClipboard(forward.name, "规则名称")}
-        >
-          {forward.name}
-          {forward.mode === "nftables" && (
-            <span className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800">
-              nft
-            </span>
-          )}
-        </span>
+      <TableCell className={`text-foreground ${rowBg}`}>
+        <div className="min-w-[180px] max-w-[320px]">
+          <span
+            className="cursor-pointer hover:text-primary transition-colors text-foreground"
+            onClick={() => copyToClipboard(forward.name, "规则名称")}
+          >
+            {forward.name}
+            {forward.mode === "nftables" && (
+              <span className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800">
+                nft
+              </span>
+            )}
+          </span>
+          <ForwardCNBlockedWarning forward={forward} />
+        </div>
       </TableCell>
       <TableCell className={`whitespace-nowrap ${rowBg}`}>
         <div className="flex items-center">
@@ -2572,6 +2598,17 @@ export default function ForwardPage() {
       };
     });
   };
+  const setLandingTargetBackendError = (message: string) => {
+    if (!/(中国大陆|落地地址|落地网段|域名.+解析失败)/.test(message)) {
+      return;
+    }
+    const field =
+      form.mode === "wg_path" && form.wgRuleType === "cidr"
+        ? "targetCidr"
+        : "remoteAddr";
+
+    setErrors((current) => ({ ...current, [field]: message }));
+  };
   // 提交表单
   const handleSubmit = async () => {
     if (!validateForm()) return;
@@ -2690,7 +2727,10 @@ export default function ForwardPage() {
         setModalOpen(false);
         await refreshForwardList(false);
       } else {
-        toast.error(res.msg || "操作失败");
+        const message = res.msg || "操作失败";
+
+        setLandingTargetBackendError(message);
+        toast.error(message);
       }
     } catch {
       toast.error("操作失败");
@@ -4420,6 +4460,7 @@ export default function ForwardPage() {
               </div>
             </div>
           </div>
+          <ForwardCNBlockedWarning forward={forward} />
         </CardHeader>
         {/* 卡片视图卡片布局显示 */}
         <CardBody className="flex flex-1 flex-col pt-0 pb-3 md:pt-0 md:pb-3">
@@ -5590,10 +5631,16 @@ export default function ForwardPage() {
                             value={form.targetCidr}
                             variant="bordered"
                             onChange={(e) =>
-                              setForm((prev) => ({
-                                ...prev,
-                                targetCidr: e.target.value,
-                              }))
+                              {
+                                setForm((prev) => ({
+                                  ...prev,
+                                  targetCidr: e.target.value,
+                                }));
+                                setErrors((current) => ({
+                                  ...current,
+                                  targetCidr: "",
+                                }));
+                              }
                             }
                           />
                         </>
@@ -5625,10 +5672,16 @@ export default function ForwardPage() {
                       value={form.remoteAddr}
                       variant="bordered"
                       onChange={(e) =>
-                        setForm((prev) => ({
-                          ...prev,
-                          remoteAddr: e.target.value,
-                        }))
+                        {
+                          setForm((prev) => ({
+                            ...prev,
+                            remoteAddr: e.target.value,
+                          }));
+                          setErrors((current) => ({
+                            ...current,
+                            remoteAddr: "",
+                          }));
+                        }
                       }
                     />
                     {getAddressCount(form.remoteAddr) > 1 && (

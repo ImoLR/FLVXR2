@@ -14,6 +14,8 @@ func (h *Handler) checkForwardLanding(ctx context.Context, remoteAddr, mode, tar
 	}
 	if !strings.EqualFold(strings.TrimSpace(mode), "wg_path") {
 		targetCIDR = ""
+	} else if strings.TrimSpace(targetCIDR) != "" {
+		remoteAddr = ""
 	}
 	return checker.Check(ctx, remoteAddr, targetCIDR)
 }

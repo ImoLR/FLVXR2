@@ -48,12 +48,16 @@ func TestRunCNLandingCheckJobPausesPositiveMatchButNotDNSFailure(t *testing.T) {
 		VALUES
 			(101, 1, 'admin_user', 'mainland-active', 0, '1.0.1.1:443', 'fifo', 0, 0, ?, ?, 1, 0),
 			(102, 1, 'admin_user', 'dns-failure-active', 0, 'temporary.example:443', 'fifo', 0, 0, ?, ?, 1, 1),
-			(103, 1, 'admin_user', 'dns-failure-flagged', 0, 'flagged.example:443', 'fifo', 0, 0, ?, ?, 0, 2)
-	`, now, now, now, now, now, now).Error; err != nil {
+			(103, 1, 'admin_user', 'dns-failure-flagged', 0, 'flagged.example:443', 'fifo', 0, 0, ?, ?, 0, 2),
+			(104, 1, 'admin_user', 'wg-mainland-cidr', 0, '1.0.0.0/8', 'fifo', 0, 0, ?, ?, 1, 3)
+	`, now, now, now, now, now, now, now, now).Error; err != nil {
 		t.Fatalf("insert forwards: %v", err)
 	}
 	if err := r.DB().Exec(`UPDATE forward SET cn_blocked = 1, cn_blocked_reason = 'existing reason', cn_blocked_auto_paused = 1 WHERE id = 103`).Error; err != nil {
 		t.Fatalf("flag DNS failure forward: %v", err)
+	}
+	if err := r.DB().Exec(`UPDATE forward SET mode = 'wg_path', target_cidr = '1.0.0.0/8' WHERE id = 104`).Error; err != nil {
+		t.Fatalf("configure WG CIDR forward: %v", err)
 	}
 
 	h.runCNLandingCheckJob()
@@ -83,6 +87,14 @@ func TestRunCNLandingCheckJobPausesPositiveMatchButNotDNSFailure(t *testing.T) {
 	}
 	if flaggedDNSFailure.Status != 0 || !flaggedDNSFailure.CNBlocked || !flaggedDNSFailure.CNBlockedAutoPaused || flaggedDNSFailure.CNBlockedReason != "existing reason" {
 		t.Fatalf("flagged DNS failure changed state: status:%d blocked:%v auto:%v reason:%q", flaggedDNSFailure.Status, flaggedDNSFailure.CNBlocked, flaggedDNSFailure.CNBlockedAutoPaused, flaggedDNSFailure.CNBlockedReason)
+	}
+
+	var wgCIDR model.Forward
+	if err := r.DB().First(&wgCIDR, 104).Error; err != nil {
+		t.Fatalf("load WG CIDR forward: %v", err)
+	}
+	if wgCIDR.Status != 0 || !wgCIDR.CNBlocked || !wgCIDR.CNBlockedAutoPaused {
+		t.Fatalf("WG CIDR state = status:%d blocked:%v auto:%v, want paused and flagged", wgCIDR.Status, wgCIDR.CNBlocked, wgCIDR.CNBlockedAutoPaused)
 	}
 }
 

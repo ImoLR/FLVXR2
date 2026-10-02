@@ -242,6 +242,8 @@ export interface ForwardApiItem {
   speedLimit?: number;
   inSpeed?: number; // 新增：实时上行速度 (bytes/s)
   outSpeed?: number; // 新增：实时下行速度 (bytes/s)
+  cnBlocked?: boolean;
+  cnBlockedReason?: string;
   [key: string]: unknown;
 }
 
