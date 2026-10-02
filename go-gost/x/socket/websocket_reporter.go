@@ -1879,7 +1879,13 @@ func (w *WebSocketReporter) handleSetQuotaGroups(data interface{}) error {
 	if len(budgets) == 0 {
 		return fmt.Errorf("配额组列表不能为空")
 	}
-	return service.SetQuotaGroupBudgets(budgets)
+	if err := service.SetQuotaGroupBudgets(budgets); err != nil {
+		return err
+	}
+	if w.nftablesMgr != nil {
+		return w.nftablesMgr.ReconcileQuota()
+	}
+	return nil
 }
 
 func (w *WebSocketReporter) handleResetTraffic(data interface{}) error {

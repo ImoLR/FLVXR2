@@ -1,4 +1,4 @@
-﻿//go:build linux
+//go:build linux
 
 package socket
 
@@ -18,17 +18,22 @@ type AddNftablesRulesRequest struct {
 
 // NftablesRulePayload 单条 nftables 规则数据
 type NftablesRulePayload struct {
-	ForwardID    int64  `json:"forward_id"`
-	NodeID       int64  `json:"node_id"`
-	UserID       int64  `json:"user_id"`
-	UserTunnelID int64  `json:"user_tunnel_id"`
-	Protocol     string `json:"protocol"`
-	Port         int    `json:"port"`
-	Target       string `json:"target"`
-	SpeedLimit   int    `json:"speed_limit"`
-	ChainType    int    `json:"chain_type"`
-	NextHopIP    string `json:"next_hop_ip"`
-	NextHopPort  int    `json:"next_hop_port"`
+	ForwardID           int64  `json:"forward_id"`
+	NodeID              int64  `json:"node_id"`
+	UserID              int64  `json:"user_id"`
+	UserTunnelID        int64  `json:"user_tunnel_id"`
+	Protocol            string `json:"protocol"`
+	Port                int    `json:"port"`
+	Target              string `json:"target"`
+	SpeedLimit          int    `json:"speed_limit"`
+	MaxConnections      int    `json:"max_connections"`
+	MaxClientIps        int    `json:"max_client_ips"`
+	QuotaGroup          string `json:"quota_group"`
+	GroupMaxConnections int    `json:"group_max_connections"`
+	GroupMaxClientIps   int    `json:"group_max_client_ips"`
+	ChainType           int    `json:"chain_type"`
+	NextHopIP           string `json:"next_hop_ip"`
+	NextHopPort         int    `json:"next_hop_port"`
 }
 
 // UpdateNftablesRulesRequest nftables 规则更新请求
@@ -80,7 +85,7 @@ func (w *WebSocketReporter) handleAddNftablesRules(data json.RawMessage) error {
 		if rule.ChainType > 0 && rule.NextHopIP != "" {
 			target = net.JoinHostPort(rule.NextHopIP, strconv.Itoa(rule.NextHopPort))
 		}
-		if err := w.nftablesMgr.AddRule(rule.ForwardID, rule.NodeID, rule.UserID, rule.UserTunnelID, rule.Protocol, rule.Port, target, rule.SpeedLimit); err != nil {
+		if err := w.nftablesMgr.AddRule(rule.ForwardID, rule.NodeID, rule.UserID, rule.UserTunnelID, rule.Protocol, rule.Port, target, rule.SpeedLimit, nftRuleQuota(rule)); err != nil {
 			return fmt.Errorf("add rule for forward %d/%s (target=%q): %w", rule.ForwardID, rule.Protocol, target, err)
 		}
 	}
@@ -103,11 +108,16 @@ func (w *WebSocketReporter) handleUpdateNftablesRules(data json.RawMessage) erro
 		if rule.ChainType > 0 && rule.NextHopIP != "" {
 			target = net.JoinHostPort(rule.NextHopIP, strconv.Itoa(rule.NextHopPort))
 		}
-		if err := w.nftablesMgr.UpdateRule(rule.ForwardID, rule.Protocol, rule.Port, target, rule.SpeedLimit); err != nil {
+		if err := w.nftablesMgr.UpdateRule(rule.ForwardID, rule.Protocol, rule.Port, target, rule.SpeedLimit, nftRuleQuota(rule)); err != nil {
 			return fmt.Errorf("update rule for forward %d/%s: %w", rule.ForwardID, rule.Protocol, err)
 		}
 	}
 	return nil
+}
+
+func nftRuleQuota(rule NftablesRulePayload) nftables.RuleQuota {
+	return nftables.RuleQuota{MaxConnections: rule.MaxConnections, MaxClientIPs: rule.MaxClientIps,
+		Group: rule.QuotaGroup, GroupMaxConnections: rule.GroupMaxConnections, GroupMaxClientIPs: rule.GroupMaxClientIps}
 }
 
 // handleDeleteNftablesRules 处理删除 nftables 规则命令

@@ -73,7 +73,10 @@ type Manager struct {
 	// last holds the counter values already reported, by forward chain and role.
 	last map[string]counterValue
 	// pending holds the final traffic of removed forwards until the next CollectTraffic.
-	pending []TrafficDelta
+	pending       []TrafficDelta
+	quotaTable    *nftables.Table
+	quotaForwards map[int64]*quotaForward
+	quotaPollStop chan struct{}
 }
 
 type RuleState struct {
@@ -89,6 +92,17 @@ type RuleState struct {
 	Gen uint64
 	// AcctChain is the accounting chain of this rule ("" when accounting is unavailable).
 	AcctChain string
+	Quota     RuleQuota
+}
+
+// RuleQuota uses the existing service quota-group wire encoding: -1 means
+// unlimited, while 0 means full. Rule caps use 0 for unlimited.
+type RuleQuota struct {
+	MaxConnections      int
+	MaxClientIPs        int
+	Group               string
+	GroupMaxConnections int
+	GroupMaxClientIPs   int
 }
 
 type CounterResult struct {
@@ -124,9 +138,10 @@ func NewManager() (*Manager, error) {
 		return nil, fmt.Errorf("open nftables: %w", err)
 	}
 	m := &Manager{
-		conn:  conn,
-		rules: make(map[string]*RuleState),
-		last:  make(map[string]counterValue),
+		conn:          conn,
+		rules:         make(map[string]*RuleState),
+		last:          make(map[string]counterValue),
+		quotaForwards: make(map[int64]*quotaForward),
 	}
 	if err := m.initTable(); err != nil {
 		return nil, fmt.Errorf("init table: %w", err)
@@ -135,6 +150,9 @@ func NewManager() (*Manager, error) {
 	// 面板会通过 WebSocket 重新同步所有活跃规则
 	if err := m.clearStaleRules(); err != nil {
 		fmt.Printf("⚠️ clear stale rules failed: %v\n", err)
+	}
+	if err := m.clearStaleQuota(); err != nil {
+		return nil, fmt.Errorf("clear stale quota: %w", err)
 	}
 	if err := m.initAccounting(); err != nil {
 		fmt.Printf("⚠️ nftables 流量统计/限速初始化失败，nftables 转发将不计流量、不限速: %v\n", err)
@@ -452,7 +470,7 @@ func lastKey(chain, role string) string {
 	return chain + "/" + role
 }
 
-func (m *Manager) AddRule(forwardID, nodeID, userID, userTunnelID int64, protocol string, port int, target string, speedLimit int) error {
+func (m *Manager) AddRule(forwardID, nodeID, userID, userTunnelID int64, protocol string, port int, target string, speedLimit int, limits ...RuleQuota) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -479,6 +497,10 @@ func (m *Manager) AddRule(forwardID, nodeID, userID, userTunnelID int64, protoco
 	}
 
 	m.gen++
+	quota := RuleQuota{}
+	if len(limits) > 0 {
+		quota = limits[0]
+	}
 	rs := &RuleState{
 		ForwardID:    forwardID,
 		NodeID:       nodeID,
@@ -489,6 +511,10 @@ func (m *Manager) AddRule(forwardID, nodeID, userID, userTunnelID int64, protoco
 		Target:       target,
 		SpeedLimit:   speedLimit,
 		Gen:          m.gen,
+		Quota:        quota,
+	}
+	if err := m.prepareQuotaLocked(rs); err != nil {
+		return fmt.Errorf("prepare quota: %w", err)
 	}
 	dnatRule := &nftables.Rule{
 		Table:    m.table,
@@ -500,14 +526,19 @@ func (m *Manager) AddRule(forwardID, nodeID, userID, userTunnelID int64, protoco
 	// Install DNAT and accounting in one transaction. If the accounting part is rejected
 	// (e.g. a kernel without some expression), keep forwarding working without it.
 	m.conn.AddRule(dnatRule)
+	m.queueQuotaDispatchLocked(rs)
 	acctChain, acctErr := m.queueAccounting(rs, port)
 	if acctErr == nil {
 		if err := m.conn.Flush(); err == nil {
 			rs.AcctChain = acctChain
 			m.rules[key] = rs
 			m.trackCounters(rs)
+			if qf := m.quotaForwards[forwardID]; qf != nil {
+				qf.ports[protocol] = port
+			}
+			m.startQuotaPollLocked()
 			return nil
-		} else if acctChain == "" {
+		} else if acctChain == "" || quotaEnabled(quota) {
 			return fmt.Errorf("add rule: %w", err)
 		} else {
 			acctErr = err
@@ -519,6 +550,10 @@ func (m *Manager) AddRule(forwardID, nodeID, userID, userTunnelID int64, protoco
 	}
 	fmt.Printf("⚠️ nftables 转发 %d/%s 已生效，但流量统计/限速规则添加失败（不计流量、不限速）: %v\n", forwardID, protocol, acctErr)
 	m.rules[key] = rs
+	if qf := m.quotaForwards[forwardID]; qf != nil {
+		qf.ports[protocol] = port
+	}
+	m.startQuotaPollLocked()
 	return nil
 }
 
@@ -628,20 +663,25 @@ func (m *Manager) trackCounters(rs *RuleState) {
 	m.last[lastKey(rs.AcctChain, roleDownload)] = counterValue{}
 }
 
-func (m *Manager) UpdateRule(forwardID int64, protocol string, port int, target string, speedLimit int) error {
+func (m *Manager) UpdateRule(forwardID int64, protocol string, port int, target string, speedLimit int, limits ...RuleQuota) error {
 	m.mu.Lock()
 	var userID, userTunnelID, nodeID int64
+	quota := RuleQuota{}
 	if rs, exists := m.rules[ruleKey(forwardID, protocol)]; exists {
 		userID = rs.UserID
 		userTunnelID = rs.UserTunnelID
 		nodeID = rs.NodeID
+		quota = rs.Quota
 	}
 	m.mu.Unlock()
+	if len(limits) > 0 {
+		quota = limits[0]
+	}
 
 	if err := m.DeleteRule(forwardID, protocol); err != nil {
 		return err
 	}
-	return m.AddRule(forwardID, nodeID, userID, userTunnelID, protocol, port, target, speedLimit)
+	return m.AddRule(forwardID, nodeID, userID, userTunnelID, protocol, port, target, speedLimit, quota)
 }
 
 // DeleteRule removes every rule of a forward and protocol (whatever port it used) and
@@ -744,6 +784,7 @@ func (m *Manager) deleteRuleLocked(forwardID int64, protocol string, ports []int
 	}
 
 	chains := m.queueAccountingRemoval(forwardID, protocol)
+	m.queueQuotaRemovalLocked(forwardID, protocol)
 	if err := m.conn.Flush(); err != nil {
 		return nil, fmt.Errorf("delete rules of forward %d/%s: %w", forwardID, protocol, err)
 	}
@@ -753,6 +794,7 @@ func (m *Manager) deleteRuleLocked(forwardID int64, protocol string, ports []int
 		addPort(c.port)
 	}
 	delete(m.rules, key)
+	m.finishQuotaRemovalLocked(forwardID, protocol)
 	if deleted == 0 && len(chains) == 0 && rs == nil {
 		fmt.Printf("ℹ️ no nftables rule of forward %d/%s on this node\n", forwardID, protocol)
 	}

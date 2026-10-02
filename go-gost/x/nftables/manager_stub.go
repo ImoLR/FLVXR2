@@ -1,4 +1,4 @@
-﻿//go:build !linux
+//go:build !linux
 
 package nftables
 
@@ -7,6 +7,14 @@ import "errors"
 type Manager struct{}
 
 type RuleState struct{}
+
+type RuleQuota struct {
+	MaxConnections      int
+	MaxClientIPs        int
+	Group               string
+	GroupMaxConnections int
+	GroupMaxClientIPs   int
+}
 
 type CounterResult struct {
 	ForwardID    int64  `json:"forward_id"`
@@ -30,13 +38,15 @@ func (m *Manager) initChains() error {
 	return errors.New("nftables not supported on this platform")
 }
 
-func (m *Manager) AddRule(forwardID, nodeID, userID, userTunnelID int64, protocol string, port int, target string, speedLimit int) error {
+func (m *Manager) AddRule(forwardID, nodeID, userID, userTunnelID int64, protocol string, port int, target string, speedLimit int, limits ...RuleQuota) error {
 	return errors.New("nftables not supported on this platform")
 }
 
-func (m *Manager) UpdateRule(forwardID int64, protocol string, port int, target string, speedLimit int) error {
+func (m *Manager) UpdateRule(forwardID int64, protocol string, port int, target string, speedLimit int, limits ...RuleQuota) error {
 	return errors.New("nftables not supported on this platform")
 }
+
+func (m *Manager) ReconcileQuota() error { return nil }
 
 func (m *Manager) DeleteRule(forwardID int64, protocol string) error {
 	return errors.New("nftables not supported on this platform")
