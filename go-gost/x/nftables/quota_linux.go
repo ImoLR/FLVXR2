@@ -221,7 +221,7 @@ func (m *Manager) finishQuotaRemovalLocked(forwardID int64, protocol string) {
 		return
 	}
 	delete(m.quotaForwards, forwardID)
-	delete(m.liveQuotaUsage, forwardID)
+	delete(m.liveUsage, forwardID)
 	qf.group.Detach()
 	if len(m.quotaForwards) == 0 {
 		m.quotaTable = nil
@@ -328,7 +328,8 @@ func (m *Manager) ReconcileQuota() error {
 		return err
 	}
 	usage := attributeQuotaFlows(m.rules, flows)
-	m.liveQuotaUsage = usage
+	m.liveUsage = attributeLiveFlows(m.rules, flows)
+	m.liveUsageAt = time.Now()
 	groupUsage := aggregateQuotaGroups(usage, m.quotaForwards)
 	for group, current := range groupUsage {
 		service.SetNftQuotaGroupUsage(group, current.connections, current.ips)
@@ -358,12 +359,21 @@ func readQuotaConntrackFlows() ([]*netlink.ConntrackFlow, error) {
 	return flows, nil
 }
 
-// GetForwardConnectionCounts returns the per-forward counts from the quota poll.
+// GetForwardConnectionCounts reuses the quota poll when available and reads
+// conntrack for forwards without quota polling.
 func (m *Manager) GetForwardConnectionCounts() map[int64]int {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	counts := make(map[int64]int, len(m.liveQuotaUsage))
-	for id, usage := range m.liveQuotaUsage {
+	if len(m.rules) > 0 && time.Since(m.liveUsageAt) > 1500*time.Millisecond {
+		flows, err := readQuotaConntrackFlows()
+		if err != nil {
+			return nil
+		}
+		m.liveUsage = attributeLiveFlows(m.rules, flows)
+		m.liveUsageAt = time.Now()
+	}
+	counts := make(map[int64]int, len(m.liveUsage))
+	for id, usage := range m.liveUsage {
 		counts[id] = usage.connections
 	}
 	return counts
@@ -382,6 +392,8 @@ func (m *Manager) GetForwardClientIPs(ids []int64) (map[int64]map[string]int, er
 		return nil, err
 	}
 	usage := attributeLiveFlows(m.rules, flows)
+	m.liveUsage = usage
+	m.liveUsageAt = time.Now()
 	result := make(map[int64]map[string]int)
 	for id, item := range usage {
 		if _, ok := selected[id]; ok {

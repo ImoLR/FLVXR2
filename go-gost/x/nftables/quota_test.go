@@ -5,6 +5,7 @@ package nftables
 import (
 	"net"
 	"testing"
+	"time"
 
 	"github.com/go-gost/x/service"
 	"github.com/vishvananda/netlink"
@@ -93,5 +94,16 @@ func TestLiveConntrackAttributionIncludesUncappedForward(t *testing.T) {
 	got := attributeLiveFlows(rules, flows)[51]
 	if got.connections != 3 || got.ips["198.51.100.1"] != 2 || got.ips["2001:db8::1"] != 1 {
 		t.Fatalf("live attribution = %+v", got)
+	}
+}
+
+func TestLiveConnectionCountIncludesUnlimitedNftForward(t *testing.T) {
+	m := &Manager{
+		rules:       map[string]*RuleState{"51/tcp": {ForwardID: 51, Protocol: "tcp", Port: 31001}},
+		liveUsage:   map[int64]quotaUsage{51: {connections: 2, ips: map[string]int{"198.51.100.1": 2}}},
+		liveUsageAt: time.Now(),
+	}
+	if got := m.GetForwardConnectionCounts()[51]; got != 2 {
+		t.Fatalf("unlimited nft forward connection count = %d, want 2", got)
 	}
 }
