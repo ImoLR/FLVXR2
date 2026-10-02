@@ -22,11 +22,11 @@ Audit of other repo queries into `ForwardRecord` / view structs: none found
 - [x] Repo-level test (SQLite) covering active/inactive nftables + non-nftables forwards
 - [x] Full `go test ./...` and compare with 19 known pre-existing failures
 - [x] Preview: list production nftables forwards and which will be re-synced
-- [ ] Commit, push branch, tag `3.0.27-fork.11`, CI + release verified
-- [ ] Backup production (rollback dir, validated sqlite, image tags, metadata)
-- [ ] Upgrade `/opt/flvx-svc` to fork.11
-- [ ] Verify health, node metrics, nftables-dns job run, error gone
-- [ ] Update memory, write report
+- [x] Commit, push branch, tag `3.0.27-fork.11`, CI + release verified
+- [x] Backup production (rollback dir, validated sqlite, image tags, metadata)
+- [x] Upgrade `/opt/flvx-svc` to fork.11
+- [x] Verify health, node metrics, nftables-dns job run, error gone
+- [x] Update memory, write report
 
 ## Preview (production DB snapshot, 2026-10-02 ~23:10Z)
 6 nftables forwards; only those with status=1 and a domain in remote_addr are re-synced
@@ -48,3 +48,25 @@ The job's first run is 10 min after backend start (`time.After(10 * time.Minute)
   production error (`no such table: forward_records`) and passes with the fix.
 - `go test ./... -count=1`: 19 failing tests/subtests, identical set to `/root/flvx-fork10/base.fails`
   (pre-existing; no new failures).
+
+## Release
+- Fix commit `56330442` on `maintenance/3.0.27-fork.11-nft-dns-refresh`; annotated tag `3.0.27-fork.11`.
+- CI Build Check 37026408751 success; Build and Push Images 37026445891 success.
+- Release https://github.com/ImoLR/FLVXR2/releases/tag/3.0.27-fork.11: not prerelease, Latest,
+  same 10 assets as fork.10, compose images `ghcr.io/imolr/flvxr2-svc-{backend,frontend}:3.0.27-fork.11`,
+  `PINNED_VERSION="3.0.27-fork.11"` / `REPO="ImoLR/FLVXR2"` in both scripts, gost-amd64/arm64 sha256 OK.
+
+## Production rollout
+- Rollback point `/opt/flvx-svc/rollback/pre-fork11-20261002T153138Z/` (compose, .env,
+  `gost.db.validated` quick_check ok, ROLLBACK-METADATA.md), images
+  `local/flvxx-{backend,frontend}:pre-fork11-20261002T153138Z`.
+- Upgraded 2026-10-02 15:32Z; backend healthy, restarts 0; 22/22 online nodes fresh node_metric.
+
+## Verification (production)
+- `no such table: forward_records`: 0 occurrences since the 15:32Z restart.
+- First job run 15:42:00Z: `[nftables-dns] forward 98 域名IP已更新: 179.253.252.112:36661` —
+  matches the preview exactly (only forward 98 re-synced; sync to node 23 returned no error).
+- Second run ~15:52Z: no log line (cached IP unchanged, no re-push), as designed.
+- Node 23 keeps reporting forward metrics; no backend errors since 15:43Z. Post-restart
+  "节点不在线" redeploy errors only concern long-offline nodes 1/24/28 (known).
+- No user rules edited, paused or resumed.
