@@ -36,9 +36,10 @@ type User struct {
 	TrafficFlow             int64         `gorm:"column:traffic_flow;default:0"`                // 流量快餐累计 (GB)
 	SpeedLimit              int           `gorm:"column:speed_limit;default:0"`                 // 限速 MB/s (0=不限)
 	SpeedLimitID            sql.NullInt64 `gorm:"column:speed_limit_id"`
-	MaxRules                int           `gorm:"column:max_rules;default:0"`       // 最大规则数 (0=不限)
-	MaxConnections          int           `gorm:"column:max_connections;default:0"` // 最大连接数 (0=不限)
-	MaxIPAccess             int           `gorm:"column:max_ip_access;default:0"`   // 单 IP 接入限制 (0=不限)
+	MaxRules                int           `gorm:"column:max_rules;default:0"`               // 最大规则数 (0=不限)
+	MaxConnections          int           `gorm:"column:max_connections;default:0"`         // 最大连接数 (0=不限)
+	MaxClientIps            int           `gorm:"column:max_client_ips;not null;default:0"` // 最大活跃接入 IP 数 (0=不限)
+	MaxIPAccess             int           `gorm:"column:max_ip_access;default:0"`           // 单 IP 接入限制 (0=不限)
 }
 
 func (User) TableName() string { return "user" }
@@ -60,6 +61,7 @@ type Forward struct {
 	Inx                 int           `gorm:"not null;default:0"`
 	SpeedID             sql.NullInt64 `gorm:"column:speed_id"`
 	MaxConnections      int           `gorm:"column:max_connections;not null;default:0"`
+	MaxClientIps        int           `gorm:"column:max_client_ips;not null;default:0"`
 	TrafficLimit        int64         `gorm:"column:traffic_limit;not null;default:0"`
 	ExpiryTime          sql.NullInt64 `gorm:"column:expiry_time"`
 	SpeedLimitEnabled   bool          `gorm:"column:speed_limit_enabled;not null;default:false"`
@@ -652,6 +654,8 @@ type UserBackup struct {
 	DisabledByQuota int    `json:"disabledByQuota,omitempty"`
 	QuotaDisabledAt int64  `json:"quotaDisabledAt,omitempty"`
 	Num             int    `json:"num"`
+	MaxConnections  int    `json:"maxConnections,omitempty"`
+	MaxClientIps    int    `json:"maxClientIps,omitempty"`
 	CreatedTime     int64  `json:"createdTime"`
 	UpdatedTime     int64  `json:"updatedTime,omitempty"`
 	Status          int    `json:"status"`
@@ -714,21 +718,23 @@ type ChainTunnelBackup struct {
 }
 
 type ForwardBackup struct {
-	ID           int64                `json:"id"`
-	UserID       int64                `json:"userId"`
-	UserName     string               `json:"userName"`
-	Name         string               `json:"name"`
-	TunnelID     int64                `json:"tunnelId"`
-	RemoteAddr   string               `json:"remoteAddr"`
-	Strategy     string               `json:"strategy"`
-	InFlow       int64                `json:"inFlow"`
-	OutFlow      int64                `json:"outFlow"`
-	CreatedTime  int64                `json:"createdTime"`
-	UpdatedTime  int64                `json:"updatedTime"`
-	Status       int                  `json:"status"`
-	Inx          int                  `json:"inx"`
-	SpeedID      *int64               `json:"speedId,omitempty"`
-	ForwardPorts *[]ForwardPortBackup `json:"forwardPorts,omitempty"`
+	ID             int64                `json:"id"`
+	UserID         int64                `json:"userId"`
+	UserName       string               `json:"userName"`
+	Name           string               `json:"name"`
+	TunnelID       int64                `json:"tunnelId"`
+	RemoteAddr     string               `json:"remoteAddr"`
+	Strategy       string               `json:"strategy"`
+	InFlow         int64                `json:"inFlow"`
+	OutFlow        int64                `json:"outFlow"`
+	CreatedTime    int64                `json:"createdTime"`
+	UpdatedTime    int64                `json:"updatedTime"`
+	Status         int                  `json:"status"`
+	Inx            int                  `json:"inx"`
+	SpeedID        *int64               `json:"speedId,omitempty"`
+	MaxConnections int                  `json:"maxConnections,omitempty"`
+	MaxClientIps   int                  `json:"maxClientIps,omitempty"`
+	ForwardPorts   *[]ForwardPortBackup `json:"forwardPorts,omitempty"`
 }
 
 type ForwardPortBackup struct {
@@ -829,6 +835,8 @@ type ForwardRecord struct {
 	SpeedID             sql.NullInt64
 	MaxConnections      int
 	UserMaxConnections  int
+	MaxClientIps        int
+	UserMaxClientIps    int
 	TrafficLimit        int64
 	ExpiryTime          sql.NullInt64
 	SpeedLimitEnabled   bool

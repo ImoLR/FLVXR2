@@ -55,6 +55,7 @@ func (r *Repository) ListForwardsByTunnelTx(tx *gorm.DB, tunnelID int64) ([]mode
 			Status:              f.Status,
 			SpeedID:             f.SpeedID,
 			MaxConnections:      f.MaxConnections,
+			MaxClientIps:        f.MaxClientIps,
 			Mode:                f.Mode,
 			WGPathID:            f.WGPathID,
 			WGRuleType:          f.WGRuleType,
@@ -71,7 +72,7 @@ func (r *Repository) ListForwardsByTunnelTx(tx *gorm.DB, tunnelID int64) ([]mode
 			rows[i].Strategy = "fifo"
 		}
 	}
-	attachForwardUserMaxConnections(tx, rows)
+	attachForwardUserLimits(tx, rows)
 	return rows, nil
 }
 
@@ -438,6 +439,7 @@ func (r *Repository) ListActiveNftablesForwards() ([]model.ForwardRecord, error)
 			Status:              f.Status,
 			SpeedID:             f.SpeedID,
 			MaxConnections:      f.MaxConnections,
+			MaxClientIps:        f.MaxClientIps,
 			TrafficLimit:        f.TrafficLimit,
 			ExpiryTime:          f.ExpiryTime,
 			SpeedLimitEnabled:   f.SpeedLimitEnabled,
@@ -457,6 +459,6 @@ func (r *Repository) ListActiveNftablesForwards() ([]model.ForwardRecord, error)
 			CNBlockedAutoPaused: f.CNBlockedAutoPaused,
 		})
 	}
-	attachForwardUserMaxConnections(r.db, rows)
+	attachForwardUserLimits(r.db, rows)
 	return rows, nil
 }

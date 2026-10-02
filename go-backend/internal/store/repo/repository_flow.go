@@ -63,6 +63,7 @@ func (r *Repository) ListActiveForwardsByUser(userID int64) ([]model.ForwardReco
 			Status:         f.Status,
 			SpeedID:        f.SpeedID,
 			MaxConnections: f.MaxConnections,
+			MaxClientIps:   f.MaxClientIps,
 			Mode:           f.Mode,
 		})
 	}
@@ -71,7 +72,7 @@ func (r *Repository) ListActiveForwardsByUser(userID int64) ([]model.ForwardReco
 			rows[i].Strategy = "fifo"
 		}
 	}
-	attachForwardUserMaxConnections(r.db, rows)
+	attachForwardUserLimits(r.db, rows)
 	return rows, nil
 }
 
@@ -97,6 +98,7 @@ func (r *Repository) ListActiveForwardsByUserTunnel(userID, tunnelID int64) ([]m
 			Status:         f.Status,
 			SpeedID:        f.SpeedID,
 			MaxConnections: f.MaxConnections,
+			MaxClientIps:   f.MaxClientIps,
 			Mode:           f.Mode,
 		})
 	}
@@ -105,7 +107,7 @@ func (r *Repository) ListActiveForwardsByUserTunnel(userID, tunnelID int64) ([]m
 			rows[i].Strategy = "fifo"
 		}
 	}
-	attachForwardUserMaxConnections(r.db, rows)
+	attachForwardUserLimits(r.db, rows)
 	return rows, nil
 }
 
@@ -131,6 +133,7 @@ func (r *Repository) ListForwardsByUserAndTunnel(userID, tunnelID int64) ([]mode
 			Status:         f.Status,
 			SpeedID:        f.SpeedID,
 			MaxConnections: f.MaxConnections,
+			MaxClientIps:   f.MaxClientIps,
 			Mode:           f.Mode,
 		})
 	}
@@ -139,7 +142,7 @@ func (r *Repository) ListForwardsByUserAndTunnel(userID, tunnelID int64) ([]mode
 			rows[i].Strategy = "fifo"
 		}
 	}
-	attachForwardUserMaxConnections(r.db, rows)
+	attachForwardUserLimits(r.db, rows)
 	return rows, nil
 }
 
@@ -166,6 +169,7 @@ func (r *Repository) GetForwardRecord(forwardID int64) (*model.ForwardRecord, er
 		Status:              f.Status,
 		SpeedID:             f.SpeedID,
 		MaxConnections:      f.MaxConnections,
+		MaxClientIps:        f.MaxClientIps,
 		TrafficLimit:        f.TrafficLimit,
 		ExpiryTime:          f.ExpiryTime,
 		SpeedLimitEnabled:   f.SpeedLimitEnabled,
@@ -186,11 +190,11 @@ func (r *Repository) GetForwardRecord(forwardID int64) (*model.ForwardRecord, er
 		fr.Strategy = "fifo"
 	}
 	rows := []model.ForwardRecord{fr}
-	attachForwardUserMaxConnections(r.db, rows)
+	attachForwardUserLimits(r.db, rows)
 	return &rows[0], nil
 }
 
-func attachForwardUserMaxConnections(tx *gorm.DB, rows []model.ForwardRecord) {
+func attachForwardUserLimits(tx *gorm.DB, rows []model.ForwardRecord) {
 	if tx == nil || len(rows) == 0 {
 		return
 	}
@@ -210,15 +214,18 @@ func attachForwardUserMaxConnections(tx *gorm.DB, rows []model.ForwardRecord) {
 		return
 	}
 	var users []model.User
-	if err := tx.Select("id", "max_connections").Where("id IN ?", userIDs).Find(&users).Error; err != nil {
+	if err := tx.Select("id", "max_connections", "max_client_ips").Where("id IN ?", userIDs).Find(&users).Error; err != nil {
 		return
 	}
-	limits := make(map[int64]int, len(users))
+	connectionLimits := make(map[int64]int, len(users))
+	clientIPLimits := make(map[int64]int, len(users))
 	for _, user := range users {
-		limits[user.ID] = user.MaxConnections
+		connectionLimits[user.ID] = user.MaxConnections
+		clientIPLimits[user.ID] = user.MaxClientIps
 	}
 	for i := range rows {
-		rows[i].UserMaxConnections = limits[rows[i].UserID]
+		rows[i].UserMaxConnections = connectionLimits[rows[i].UserID]
+		rows[i].UserMaxClientIps = clientIPLimits[rows[i].UserID]
 	}
 }
 

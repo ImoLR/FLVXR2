@@ -29,6 +29,7 @@ func (r *Repository) ListForwardsForCNCheck() ([]model.ForwardRecord, error) {
 			Status:              f.Status,
 			SpeedID:             f.SpeedID,
 			MaxConnections:      f.MaxConnections,
+			MaxClientIps:        f.MaxClientIps,
 			TrafficLimit:        f.TrafficLimit,
 			ExpiryTime:          f.ExpiryTime,
 			SpeedLimitEnabled:   f.SpeedLimitEnabled,
@@ -48,7 +49,7 @@ func (r *Repository) ListForwardsForCNCheck() ([]model.ForwardRecord, error) {
 			CNBlockedAutoPaused: f.CNBlockedAutoPaused,
 		})
 	}
-	attachForwardUserMaxConnections(r.db, rows)
+	attachForwardUserLimits(r.db, rows)
 	return rows, nil
 }
 

@@ -37,7 +37,7 @@ func (r *Repository) UserExistsExcluding(username string, excludeID int64) (bool
 	return cnt > 0, err
 }
 
-func (r *Repository) CreateUser(username, pwdHash string, roleID int, expTime, flow, flowResetTime int64, num, maxConnections, status int, now int64, renewalAmount, balance, autoRenew int64, speedLimitID interface{}) (int64, error) {
+func (r *Repository) CreateUser(username, pwdHash string, roleID int, expTime, flow, flowResetTime int64, num, maxConnections, maxClientIps, status int, now int64, renewalAmount, balance, autoRenew int64, speedLimitID interface{}) (int64, error) {
 	if r == nil || r.db == nil {
 		return 0, errors.New("repository not initialized")
 	}
@@ -52,6 +52,7 @@ func (r *Repository) CreateUser(username, pwdHash string, roleID int, expTime, f
 		FlowResetTime:  flowResetTime,
 		Num:            num,
 		MaxConnections: maxConnections,
+		MaxClientIps:   maxClientIps,
 		CreatedTime:    now,
 		UpdatedTime:    sql.NullInt64{Int64: now, Valid: true},
 		Status:         status,
@@ -79,14 +80,14 @@ func (r *Repository) GetUserRoleID(userID int64) (int, error) {
 	return user.RoleID, nil
 }
 
-func (r *Repository) UpdateUserWithPassword(id int64, username, pwdHash, name string, flow int64, num, maxConnections int, expTime, flowResetTime int64, status int, now int64, renewalAmount, balance, autoRenew int64, speedLimitID interface{}) error {
+func (r *Repository) UpdateUserWithPassword(id int64, username, pwdHash, name string, flow int64, num, maxConnections, maxClientIps int, expTime, flowResetTime int64, status int, now int64, renewalAmount, balance, autoRenew int64, speedLimitID interface{}) error {
 	if r == nil || r.db == nil {
 		return errors.New("repository not initialized")
 	}
 	// 使用 Select 强制更新所有字段，包括零值
 	return r.db.Model(&model.User{}).
 		Where("id = ?", id).
-		Select("user", "name", "pwd", "flow", "num", "max_connections", "exp_time", "flow_reset_time", "status", "updated_time", "renewal_amount", "balance", "auto_renew", "speed_limit_id").
+		Select("user", "name", "pwd", "flow", "num", "max_connections", "max_client_ips", "exp_time", "flow_reset_time", "status", "updated_time", "renewal_amount", "balance", "auto_renew", "speed_limit_id").
 		Updates(map[string]interface{}{
 			"user":            username,
 			"name":            name,
@@ -94,6 +95,7 @@ func (r *Repository) UpdateUserWithPassword(id int64, username, pwdHash, name st
 			"flow":            flow,
 			"num":             num,
 			"max_connections": maxConnections,
+			"max_client_ips":  maxClientIps,
 			"exp_time":        expTime,
 			"flow_reset_time": flowResetTime,
 			"status":          status,
@@ -105,20 +107,21 @@ func (r *Repository) UpdateUserWithPassword(id int64, username, pwdHash, name st
 		}).Error
 }
 
-func (r *Repository) UpdateUserWithoutPassword(id int64, username, name string, flow int64, num, maxConnections int, expTime, flowResetTime int64, status int, now int64, renewalAmount, balance, autoRenew int64, speedLimitID interface{}) error {
+func (r *Repository) UpdateUserWithoutPassword(id int64, username, name string, flow int64, num, maxConnections, maxClientIps int, expTime, flowResetTime int64, status int, now int64, renewalAmount, balance, autoRenew int64, speedLimitID interface{}) error {
 	if r == nil || r.db == nil {
 		return errors.New("repository not initialized")
 	}
 	// 使用 Select 强制更新所有字段，包括零值
 	return r.db.Model(&model.User{}).
 		Where("id = ?", id).
-		Select("user", "name", "flow", "num", "max_connections", "exp_time", "flow_reset_time", "status", "updated_time", "renewal_amount", "balance", "auto_renew", "speed_limit_id").
+		Select("user", "name", "flow", "num", "max_connections", "max_client_ips", "exp_time", "flow_reset_time", "status", "updated_time", "renewal_amount", "balance", "auto_renew", "speed_limit_id").
 		Updates(map[string]interface{}{
 			"user":            username,
 			"name":            name,
 			"flow":            flow,
 			"num":             num,
 			"max_connections": maxConnections,
+			"max_client_ips":  maxClientIps,
 			"exp_time":        expTime,
 			"flow_reset_time": flowResetTime,
 			"status":          status,
@@ -1317,7 +1320,7 @@ func (r *Repository) GetMinForwardPort(forwardID int64) sql.NullInt64 {
 	return p
 }
 
-func (r *Repository) UpdateForward(id int64, name string, tunnelID int64, remoteAddr, strategy string, now int64, speedID interface{}, maxConnections int, trafficLimit int64, expiryTime interface{}, speedLimitEnabled bool, speedLimit int, mode string, wgPathID int64, wgRuleType, sourceCIDR, targetCIDR string, snatEnabled bool) error {
+func (r *Repository) UpdateForward(id int64, name string, tunnelID int64, remoteAddr, strategy string, now int64, speedID interface{}, maxConnections, maxClientIps int, trafficLimit int64, expiryTime interface{}, speedLimitEnabled bool, speedLimit int, mode string, wgPathID int64, wgRuleType, sourceCIDR, targetCIDR string, snatEnabled bool) error {
 	if r == nil || r.db == nil {
 		return errors.New("repository not initialized")
 	}
@@ -1330,6 +1333,7 @@ func (r *Repository) UpdateForward(id int64, name string, tunnelID int64, remote
 			"strategy":            strategy,
 			"speed_id":            nullInt64FromInterface(speedID),
 			"max_connections":     maxConnections,
+			"max_client_ips":      maxClientIps,
 			"traffic_limit":       trafficLimit,
 			"expiry_time":         nullInt64FromInterface(expiryTime),
 			"speed_limit_enabled": speedLimitEnabled,
@@ -2139,7 +2143,7 @@ func (r *Repository) UpdateForwardPortBindIP(forwardID, nodeID int64, port int, 
 		Update("in_ip", sql.NullString{String: inIP, Valid: strings.TrimSpace(inIP) != ""}).Error
 }
 
-func (r *Repository) RollbackForwardFields(id, userID int64, userName, name string, tunnelID int64, remoteAddr, strategy string, status int, speedID interface{}, cnBlocked bool, cnBlockedReason string, cnBlockedAutoPaused bool, now int64) {
+func (r *Repository) RollbackForwardFields(id, userID int64, userName, name string, tunnelID int64, remoteAddr, strategy string, status int, speedID interface{}, maxConnections, maxClientIps int, cnBlocked bool, cnBlockedReason string, cnBlockedAutoPaused bool, now int64) {
 	if r == nil || r.db == nil {
 		return
 	}
@@ -2154,6 +2158,8 @@ func (r *Repository) RollbackForwardFields(id, userID int64, userName, name stri
 			"strategy":               strategy,
 			"status":                 status,
 			"speed_id":               nullInt64FromInterface(speedID),
+			"max_connections":        maxConnections,
+			"max_client_ips":         maxClientIps,
 			"cn_blocked":             cnBlocked,
 			"cn_blocked_reason":      cnBlockedReason,
 			"cn_blocked_auto_paused": cnBlockedAutoPaused,
@@ -2696,7 +2702,7 @@ func (r *Repository) EnsureUserTunnelGrant(userID, tunnelID int64) (int64, bool,
 	return ut.ID, true, nil
 }
 
-func (r *Repository) CreateForwardTx(userID int64, userName, name string, tunnelID int64, remoteAddr, strategy string, now int64, inx int, entryNodeIDs []int64, port int, inIp string, speedID interface{}, maxConnections int, trafficLimit int64, expiryTime interface{}, speedLimitEnabled bool, speedLimit int, mode string, wgPathID int64, wgRuleType, sourceCIDR, targetCIDR string, snatEnabled bool) (int64, error) {
+func (r *Repository) CreateForwardTx(userID int64, userName, name string, tunnelID int64, remoteAddr, strategy string, now int64, inx int, entryNodeIDs []int64, port int, inIp string, speedID interface{}, maxConnections, maxClientIps int, trafficLimit int64, expiryTime interface{}, speedLimitEnabled bool, speedLimit int, mode string, wgPathID int64, wgRuleType, sourceCIDR, targetCIDR string, snatEnabled bool) (int64, error) {
 	if r == nil || r.db == nil {
 		return 0, errors.New("repository not initialized")
 	}
@@ -2718,6 +2724,7 @@ func (r *Repository) CreateForwardTx(userID int64, userName, name string, tunnel
 			Inx:               inx,
 			SpeedID:           nullInt64FromInterface(speedID),
 			MaxConnections:    maxConnections,
+			MaxClientIps:      maxClientIps,
 			TrafficLimit:      trafficLimit,
 			ExpiryTime:        nullInt64FromInterface(expiryTime),
 			SpeedLimitEnabled: speedLimitEnabled,

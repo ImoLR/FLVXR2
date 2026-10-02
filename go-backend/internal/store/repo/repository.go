@@ -1030,6 +1030,7 @@ func (r *Repository) ListUsers() ([]map[string]interface{}, error) {
 			"autoBuyTrafficPackageId": u.AutoBuyTrafficPackageID,
 			"baseFlow":                u.BaseFlow,
 			"maxConnections":          u.MaxConnections,
+			"maxClientIps":            u.MaxClientIps,
 		}
 		if u.SpeedLimitID.Valid {
 			item["speedLimitId"] = u.SpeedLimitID.Int64
@@ -1191,6 +1192,7 @@ func (r *Repository) ListForwards() ([]map[string]interface{}, error) {
 		Inx               int
 		SpeedID           sql.NullInt64
 		MaxConnections    int
+		MaxClientIps      int
 		TrafficLimit      int64
 		ExpiryTime        sql.NullInt64
 		SpeedLimitEnabled bool
@@ -1208,7 +1210,7 @@ func (r *Repository) ListForwards() ([]map[string]interface{}, error) {
 
 	var rows []fwdRow
 	err := r.db.Model(&model.Forward{}).
-		Select("forward.id, forward.user_id, forward.user_name, COALESCE(user.name, '') AS user_remark, forward.name, forward.tunnel_id, COALESCE(tunnel.name, '') AS tunnel_name, COALESCE(tunnel.traffic_ratio, 1.0) AS traffic_ratio, forward.remote_addr, COALESCE(forward.strategy, 'fifo') AS strategy, forward.in_flow, forward.out_flow, forward.created_time, forward.status, forward.inx, forward.speed_id, COALESCE(forward.max_connections, 0) AS max_connections, COALESCE(forward.traffic_limit, 0) AS traffic_limit, forward.expiry_time, COALESCE(forward.speed_limit_enabled, false) AS speed_limit_enabled, COALESCE(forward.speed_limit, 0) AS speed_limit, forward.mode, COALESCE(forward.wg_path_id, 0) AS wg_path_id, COALESCE(forward.wg_rule_type, '') AS wg_rule_type, COALESCE(forward.source_cidr, '') AS source_cidr, COALESCE(forward.target_cidr, '') AS target_cidr, COALESCE(forward.snat_enabled, true) AS snat_enabled, COALESCE(path_tunnel.name, '') AS path_name, COALESCE(forward.cn_blocked, false) AS cn_blocked, COALESCE(forward.cn_blocked_reason, '') AS cn_blocked_reason").
+		Select("forward.id, forward.user_id, forward.user_name, COALESCE(user.name, '') AS user_remark, forward.name, forward.tunnel_id, COALESCE(tunnel.name, '') AS tunnel_name, COALESCE(tunnel.traffic_ratio, 1.0) AS traffic_ratio, forward.remote_addr, COALESCE(forward.strategy, 'fifo') AS strategy, forward.in_flow, forward.out_flow, forward.created_time, forward.status, forward.inx, forward.speed_id, COALESCE(forward.max_connections, 0) AS max_connections, COALESCE(forward.max_client_ips, 0) AS max_client_ips, COALESCE(forward.traffic_limit, 0) AS traffic_limit, forward.expiry_time, COALESCE(forward.speed_limit_enabled, false) AS speed_limit_enabled, COALESCE(forward.speed_limit, 0) AS speed_limit, forward.mode, COALESCE(forward.wg_path_id, 0) AS wg_path_id, COALESCE(forward.wg_rule_type, '') AS wg_rule_type, COALESCE(forward.source_cidr, '') AS source_cidr, COALESCE(forward.target_cidr, '') AS target_cidr, COALESCE(forward.snat_enabled, true) AS snat_enabled, COALESCE(path_tunnel.name, '') AS path_name, COALESCE(forward.cn_blocked, false) AS cn_blocked, COALESCE(forward.cn_blocked_reason, '') AS cn_blocked_reason").
 		Joins("LEFT JOIN tunnel ON tunnel.id = forward.tunnel_id").
 		Joins("LEFT JOIN path_tunnel ON path_tunnel.id = forward.wg_path_id").
 		Joins("LEFT JOIN user ON user.id = forward.user_id").
@@ -1233,6 +1235,7 @@ func (r *Repository) ListForwards() ([]map[string]interface{}, error) {
 			"inFlow": row.InFlow, "outFlow": row.OutFlow,
 			"createdTime": row.CreatedTime, "status": row.Status, "inx": int64(row.Inx),
 			"maxConnections":    row.MaxConnections,
+			"maxClientIps":      row.MaxClientIps,
 			"trafficLimit":      row.TrafficLimit,
 			"speedLimitEnabled": row.SpeedLimitEnabled,
 			"speedLimit":        row.SpeedLimit,
@@ -1289,6 +1292,7 @@ func (r *Repository) ListForwardsPage(page, pageSize int) ([]map[string]interfac
 		Inx               int
 		SpeedID           sql.NullInt64
 		MaxConnections    int
+		MaxClientIps      int
 		TrafficLimit      int64
 		ExpiryTime        sql.NullInt64
 		SpeedLimitEnabled bool
@@ -1306,7 +1310,7 @@ func (r *Repository) ListForwardsPage(page, pageSize int) ([]map[string]interfac
 
 	var rows []fwdRow
 	err := r.db.Model(&model.Forward{}).
-		Select("forward.id, forward.user_id, forward.user_name, COALESCE(user.name, '') AS user_remark, forward.name, forward.tunnel_id, COALESCE(tunnel.name, '') AS tunnel_name, COALESCE(tunnel.traffic_ratio, 1.0) AS traffic_ratio, forward.remote_addr, COALESCE(forward.strategy, 'fifo') AS strategy, forward.in_flow, forward.out_flow, forward.created_time, forward.status, forward.inx, forward.speed_id, COALESCE(forward.max_connections, 0) AS max_connections, COALESCE(forward.traffic_limit, 0) AS traffic_limit, forward.expiry_time, COALESCE(forward.speed_limit_enabled, false) AS speed_limit_enabled, COALESCE(forward.speed_limit, 0) AS speed_limit, forward.mode, COALESCE(forward.wg_path_id, 0) AS wg_path_id, COALESCE(forward.wg_rule_type, '') AS wg_rule_type, COALESCE(forward.source_cidr, '') AS source_cidr, COALESCE(forward.target_cidr, '') AS target_cidr, COALESCE(forward.snat_enabled, true) AS snat_enabled, COALESCE(path_tunnel.name, '') AS path_name, COALESCE(forward.cn_blocked, false) AS cn_blocked, COALESCE(forward.cn_blocked_reason, '') AS cn_blocked_reason").
+		Select("forward.id, forward.user_id, forward.user_name, COALESCE(user.name, '') AS user_remark, forward.name, forward.tunnel_id, COALESCE(tunnel.name, '') AS tunnel_name, COALESCE(tunnel.traffic_ratio, 1.0) AS traffic_ratio, forward.remote_addr, COALESCE(forward.strategy, 'fifo') AS strategy, forward.in_flow, forward.out_flow, forward.created_time, forward.status, forward.inx, forward.speed_id, COALESCE(forward.max_connections, 0) AS max_connections, COALESCE(forward.max_client_ips, 0) AS max_client_ips, COALESCE(forward.traffic_limit, 0) AS traffic_limit, forward.expiry_time, COALESCE(forward.speed_limit_enabled, false) AS speed_limit_enabled, COALESCE(forward.speed_limit, 0) AS speed_limit, forward.mode, COALESCE(forward.wg_path_id, 0) AS wg_path_id, COALESCE(forward.wg_rule_type, '') AS wg_rule_type, COALESCE(forward.source_cidr, '') AS source_cidr, COALESCE(forward.target_cidr, '') AS target_cidr, COALESCE(forward.snat_enabled, true) AS snat_enabled, COALESCE(path_tunnel.name, '') AS path_name, COALESCE(forward.cn_blocked, false) AS cn_blocked, COALESCE(forward.cn_blocked_reason, '') AS cn_blocked_reason").
 		Joins("LEFT JOIN tunnel ON tunnel.id = forward.tunnel_id").
 		Joins("LEFT JOIN path_tunnel ON path_tunnel.id = forward.wg_path_id").
 		Joins("LEFT JOIN user ON user.id = forward.user_id").
@@ -1333,6 +1337,7 @@ func (r *Repository) ListForwardsPage(page, pageSize int) ([]map[string]interfac
 			"inFlow": row.InFlow, "outFlow": row.OutFlow,
 			"createdTime": row.CreatedTime, "status": row.Status, "inx": int64(row.Inx),
 			"maxConnections":    row.MaxConnections,
+			"maxClientIps":      row.MaxClientIps,
 			"trafficLimit":      row.TrafficLimit,
 			"speedLimitEnabled": row.SpeedLimitEnabled,
 			"speedLimit":        row.SpeedLimit,
@@ -2569,6 +2574,7 @@ func (r *Repository) exportUsers() ([]model.UserBackup, error) {
 			ID: u.ID, User: u.User, Pwd: u.Pwd, RoleID: u.RoleID,
 			ExpTime: u.ExpTime, Flow: u.Flow, InFlow: u.InFlow, OutFlow: u.OutFlow,
 			FlowResetTime: u.FlowResetTime, Num: u.Num,
+			MaxConnections: u.MaxConnections, MaxClientIps: u.MaxClientIps,
 			CreatedTime: u.CreatedTime, Status: u.Status,
 		}
 		if quota := quotaMap[u.ID]; quota != nil {
@@ -2697,6 +2703,7 @@ func (r *Repository) exportForwards() ([]model.ForwardBackup, error) {
 			TunnelID: f.TunnelID, RemoteAddr: f.RemoteAddr, Strategy: f.Strategy,
 			InFlow: f.InFlow, OutFlow: f.OutFlow, CreatedTime: f.CreatedTime,
 			UpdatedTime: f.UpdatedTime, Status: f.Status, Inx: f.Inx,
+			MaxConnections: f.MaxConnections, MaxClientIps: f.MaxClientIps,
 		}
 		ports, err := r.exportForwardPorts(f.ID)
 		if err != nil {
@@ -2917,25 +2924,27 @@ func importUsers(tx *gorm.DB, users []model.UserBackup, now int64) (int, error) 
 	count := 0
 	for _, u := range users {
 		item := model.User{
-			ID:            u.ID,
-			User:          u.User,
-			Pwd:           u.Pwd,
-			RoleID:        u.RoleID,
-			ExpTime:       u.ExpTime,
-			Flow:          u.Flow,
-			InFlow:        u.InFlow,
-			OutFlow:       u.OutFlow,
-			FlowResetTime: u.FlowResetTime,
-			Num:           u.Num,
-			CreatedTime:   u.CreatedTime,
-			UpdatedTime:   sql.NullInt64{Int64: now, Valid: true},
-			Status:        u.Status,
+			ID:             u.ID,
+			User:           u.User,
+			Pwd:            u.Pwd,
+			RoleID:         u.RoleID,
+			ExpTime:        u.ExpTime,
+			Flow:           u.Flow,
+			InFlow:         u.InFlow,
+			OutFlow:        u.OutFlow,
+			FlowResetTime:  u.FlowResetTime,
+			Num:            u.Num,
+			MaxConnections: u.MaxConnections,
+			MaxClientIps:   u.MaxClientIps,
+			CreatedTime:    u.CreatedTime,
+			UpdatedTime:    sql.NullInt64{Int64: now, Valid: true},
+			Status:         u.Status,
 		}
 		err := tx.Clauses(clause.OnConflict{
 			Columns: []clause.Column{{Name: "id"}},
 			DoUpdates: clause.AssignmentColumns([]string{
 				"user", "pwd", "role_id", "exp_time", "flow", "in_flow", "out_flow",
-				"flow_reset_time", "num", "updated_time", "status",
+				"flow_reset_time", "num", "max_connections", "max_client_ips", "updated_time", "status",
 			}),
 		}).Create(&item).Error
 		if err != nil {
@@ -3080,26 +3089,40 @@ func importTunnels(tx *gorm.DB, tunnels []model.TunnelBackup, now int64) (int, e
 func importForwards(tx *gorm.DB, forwards []model.ForwardBackup, now int64) (int, error) {
 	count := 0
 	for _, f := range forwards {
+		if f.MaxConnections > 0 || f.MaxClientIps > 0 {
+			var owner model.User
+			if err := tx.Select("id", "max_connections", "max_client_ips").Where("id = ?", f.UserID).First(&owner).Error; err != nil {
+				return count, err
+			}
+			if owner.MaxConnections > 0 && f.MaxConnections > owner.MaxConnections {
+				return count, fmt.Errorf("forward %d maxConnections exceeds user total %d", f.ID, owner.MaxConnections)
+			}
+			if owner.MaxClientIps > 0 && f.MaxClientIps > owner.MaxClientIps {
+				return count, fmt.Errorf("forward %d maxClientIps exceeds user total %d", f.ID, owner.MaxClientIps)
+			}
+		}
 		item := model.Forward{
-			ID:          f.ID,
-			UserID:      f.UserID,
-			UserName:    f.UserName,
-			Name:        f.Name,
-			TunnelID:    f.TunnelID,
-			RemoteAddr:  f.RemoteAddr,
-			Strategy:    f.Strategy,
-			InFlow:      f.InFlow,
-			OutFlow:     f.OutFlow,
-			CreatedTime: f.CreatedTime,
-			UpdatedTime: now,
-			Status:      f.Status,
-			Inx:         f.Inx,
+			ID:             f.ID,
+			UserID:         f.UserID,
+			UserName:       f.UserName,
+			Name:           f.Name,
+			TunnelID:       f.TunnelID,
+			RemoteAddr:     f.RemoteAddr,
+			Strategy:       f.Strategy,
+			InFlow:         f.InFlow,
+			OutFlow:        f.OutFlow,
+			CreatedTime:    f.CreatedTime,
+			UpdatedTime:    now,
+			Status:         f.Status,
+			Inx:            f.Inx,
+			MaxConnections: f.MaxConnections,
+			MaxClientIps:   f.MaxClientIps,
 		}
 		err := tx.Clauses(clause.OnConflict{
 			Columns: []clause.Column{{Name: "id"}},
 			DoUpdates: clause.AssignmentColumns([]string{
 				"user_id", "user_name", "name", "tunnel_id", "remote_addr", "strategy",
-				"in_flow", "out_flow", "updated_time", "status", "inx",
+				"in_flow", "out_flow", "updated_time", "status", "inx", "max_connections", "max_client_ips",
 			}),
 		}).Create(&item).Error
 		if err != nil {

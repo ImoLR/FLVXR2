@@ -105,6 +105,7 @@ func (h *Handler) userCreate(w http.ResponseWriter, r *http.Request) {
 	flow := asInt64(req["flow"], 100)
 	num := asInt(req["num"], 10)
 	maxConnections := normalizeUserMaxConnections(asInt(req["maxConnections"], 0))
+	maxClientIps := normalizeUserMaxConnections(asInt(req["maxClientIps"], 0))
 	expTime := asInt64(req["expTime"], time.Now().Add(365*24*time.Hour).UnixMilli())
 	flowResetTime := asInt64(req["flowResetTime"], 1)
 	dailyQuotaGB := asInt64(req["dailyQuotaGB"], 0)
@@ -128,7 +129,7 @@ func (h *Handler) userCreate(w http.ResponseWriter, r *http.Request) {
 	roleID := 1
 	now := time.Now().UnixMilli()
 
-	userID, err := h.repo.CreateUser(username, security.MD5(pwd), roleID, expTime, flow, flowResetTime, num, maxConnections, status, now, renewalAmount, balance, int64(autoRenew), nullableInt(speedLimitID))
+	userID, err := h.repo.CreateUser(username, security.MD5(pwd), roleID, expTime, flow, flowResetTime, num, maxConnections, maxClientIps, status, now, renewalAmount, balance, int64(autoRenew), nullableInt(speedLimitID))
 	if err != nil {
 		response.WriteJSON(w, response.Err(-2, err.Error()))
 		return
@@ -229,6 +230,7 @@ func (h *Handler) userUpdate(w http.ResponseWriter, r *http.Request) {
 	flow := asInt64(req["flow"], 100)
 	num := asInt(req["num"], 10)
 	maxConnections := normalizeUserMaxConnections(asInt(req["maxConnections"], 0))
+	maxClientIps := normalizeUserMaxConnections(asInt(req["maxClientIps"], 0))
 	expTime := asInt64(req["expTime"], time.Now().Add(365*24*time.Hour).UnixMilli())
 	flowResetTime := asInt64(req["flowResetTime"], 1)
 	status := asInt(req["status"], 1)
@@ -259,13 +261,13 @@ func (h *Handler) userUpdate(w http.ResponseWriter, r *http.Request) {
 
 	if strings.TrimSpace(pwd) == "" {
 		// 在参数里增加了 name
-		if err := h.repo.UpdateUserWithoutPassword(id, username, name, flow, num, maxConnections, expTime, flowResetTime, status, now, renewalAmount, balance, int64(autoRenew), nullableInt(speedLimitID)); err != nil {
+		if err := h.repo.UpdateUserWithoutPassword(id, username, name, flow, num, maxConnections, maxClientIps, expTime, flowResetTime, status, now, renewalAmount, balance, int64(autoRenew), nullableInt(speedLimitID)); err != nil {
 			response.WriteJSON(w, response.Err(-2, err.Error()))
 			return
 		}
 	} else {
 		// 在参数里增加了 name
-		if err := h.repo.UpdateUserWithPassword(id, username, security.MD5(pwd), name, flow, num, maxConnections, expTime, flowResetTime, status, now, renewalAmount, balance, int64(autoRenew), nullableInt(speedLimitID)); err != nil {
+		if err := h.repo.UpdateUserWithPassword(id, username, security.MD5(pwd), name, flow, num, maxConnections, maxClientIps, expTime, flowResetTime, status, now, renewalAmount, balance, int64(autoRenew), nullableInt(speedLimitID)); err != nil {
 			response.WriteJSON(w, response.Err(-2, err.Error()))
 			return
 		}
@@ -2866,27 +2868,27 @@ func (h *Handler) forwardCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// ✅ 新增：验证到期时间
-	if expiryTimeVal, ok := req["expiryTime"]; ok && expiryTimeVal != nil {
-		expiryTime := asInt64(expiryTimeVal, 0)
-		now := time.Now().UnixMilli()
-		if expiryTime > 0 && expiryTime <= now {
-			response.WriteJSON(w, response.ErrDefault("到期时间不能早于或等于当前时间"))
-			return
+	// 高级功能仅管理员可设置。普通用户提交的旧缓存字段会在后面静默忽略。
+	if roleID == 0 {
+		if expiryTimeVal, ok := req["expiryTime"]; ok && expiryTimeVal != nil {
+			expiryTime := asInt64(expiryTimeVal, 0)
+			now := time.Now().UnixMilli()
+			if expiryTime > 0 && expiryTime <= now {
+				response.WriteJSON(w, response.ErrDefault("到期时间不能早于或等于当前时间"))
+				return
+			}
 		}
 	}
-	if roleID != 0 {
-		if speedIDVal, ok := req["speedId"]; ok && speedIDVal != nil {
-			response.WriteJSON(w, response.Err(-1, "普通用户无法设置限速规则"))
+	hasSpeedID := false
+	var speedID *int64
+	if roleID == 0 {
+		_, hasSpeedID = req["speedId"]
+		speedID = asAnyToInt64Ptr(req["speedId"])
+		speedID, err = h.normalizeSpeedLimitReference(speedID)
+		if err != nil {
+			response.WriteJSON(w, response.Err(-2, err.Error()))
 			return
 		}
-	}
-	_, hasSpeedID := req["speedId"]
-	speedID := asAnyToInt64Ptr(req["speedId"])
-	speedID, err = h.normalizeSpeedLimitReference(speedID)
-	if err != nil {
-		response.WriteJSON(w, response.Err(-2, err.Error()))
-		return
 	}
 	port := asInt(req["inPort"], 0)
 	if port <= 0 {
@@ -2895,7 +2897,10 @@ func (h *Handler) forwardCreate(w http.ResponseWriter, r *http.Request) {
 	if port <= 0 {
 		port = 10000
 	}
-	inIp := strings.TrimSpace(asString(req["inIp"]))
+	inIp := ""
+	if roleID == 0 {
+		inIp = strings.TrimSpace(asString(req["inIp"]))
+	}
 	if inIp != "" && len(entryNodes) > 1 {
 		response.WriteJSON(w, response.ErrDefault("多入口隧道的转发不支持自定义监听IP"))
 		return
@@ -2924,20 +2929,33 @@ func (h *Handler) forwardCreate(w http.ResponseWriter, r *http.Request) {
 	if userName == "" {
 		userName = "user"
 	}
-	trafficLimit := asInt64(req["trafficLimit"], 0)
-	expiryTime := asAnyToInt64Ptr(req["expiryTime"])
-	speedLimitEnabled := asBool(req["speedLimitEnabled"], false)
-	speedLimit := asInt(req["speedLimit"], 0)
-	maxConnections := asInt(req["maxConnections"], 0)
-	if maxConnections <= 0 || (!hasSpeedID && speedID == nil) {
-		if user, userErr := h.repo.GetUserByID(userID); userErr == nil && user != nil {
-			if maxConnections <= 0 {
-				maxConnections = user.MaxConnections
-			}
-			if !hasSpeedID && speedID == nil && user.SpeedLimitID.Valid {
-				speedID = &user.SpeedLimitID.Int64
-			}
+	trafficLimit := int64(0)
+	var expiryTime *int64
+	speedLimitEnabled := false
+	speedLimit := 0
+	maxConnections := 0
+	maxClientIps := 0
+	if roleID == 0 {
+		trafficLimit = asInt64(req["trafficLimit"], 0)
+		expiryTime = asAnyToInt64Ptr(req["expiryTime"])
+		speedLimitEnabled = asBool(req["speedLimitEnabled"], false)
+		speedLimit = asInt(req["speedLimit"], 0)
+		maxConnections = normalizeUserMaxConnections(asInt(req["maxConnections"], 0))
+		maxClientIps = normalizeUserMaxConnections(asInt(req["maxClientIps"], 0))
+	}
+	owner, ownerErr := h.repo.GetUserByID(userID)
+	if ownerErr != nil {
+		response.WriteJSON(w, response.Err(-2, ownerErr.Error()))
+		return
+	}
+	if roleID == 0 {
+		if err := validateForwardRuleCaps(owner, maxConnections, maxClientIps); err != nil {
+			response.WriteJSON(w, response.ErrDefault(err.Error()))
+			return
 		}
+	}
+	if !hasSpeedID && speedID == nil && owner != nil && owner.SpeedLimitID.Valid {
+		speedID = &owner.SpeedLimitID.Int64
 	}
 	if !hasSpeedID && speedID == nil && tunnelID > 0 {
 		if tunnel, tunnelErr := h.getTunnelRecord(tunnelID); tunnelErr == nil && tunnel != nil && tunnel.SpeedID.Valid {
@@ -2949,9 +2967,7 @@ func (h *Handler) forwardCreate(w http.ResponseWriter, r *http.Request) {
 		response.WriteJSON(w, response.Err(-2, err.Error()))
 		return
 	}
-	maxConnections = normalizeUserMaxConnections(maxConnections)
-
-	forwardID, err := h.repo.CreateForwardTx(userID, userName, name, tunnelID, remoteAddr, defaultString(asString(req["strategy"]), "fifo"), now, inx, entryNodes, port, inIp, nullableInt(speedID), maxConnections, trafficLimit, expiryTime, speedLimitEnabled, speedLimit, mode, wgPathID, wgRuleType, sourceCIDR, targetCIDR, snatEnabled)
+	forwardID, err := h.repo.CreateForwardTx(userID, userName, name, tunnelID, remoteAddr, defaultString(asString(req["strategy"]), "fifo"), now, inx, entryNodes, port, inIp, nullableInt(speedID), maxConnections, maxClientIps, trafficLimit, expiryTime, speedLimitEnabled, speedLimit, mode, wgPathID, wgRuleType, sourceCIDR, targetCIDR, snatEnabled)
 	if err != nil {
 		response.WriteJSON(w, response.Err(-2, err.Error()))
 		return
@@ -3088,23 +3104,20 @@ func (h *Handler) forwardUpdate(w http.ResponseWriter, r *http.Request) {
 	if strategy == "" {
 		strategy = forward.Strategy
 	}
-	rawSpeedID, hasSpeedID := req["speedId"]
-	requestedSpeedID := asAnyToInt64Ptr(rawSpeedID)
-	if actorRole != 0 && hasSpeedID && requestedSpeedID != nil && !sameSpeedLimitSelection(forward.SpeedID, requestedSpeedID) {
-		response.WriteJSON(w, response.Err(-1, "普通用户无法修改限速规则"))
-		return
-	}
-	speedID := requestedSpeedID
-	speedID, err = h.normalizeSpeedLimitReference(speedID)
-	if err != nil {
-		response.WriteJSON(w, response.Err(-2, err.Error()))
-		return
-	}
 	newSpeedID := forward.SpeedID
-	if speedID != nil {
-		newSpeedID = sql.NullInt64{Int64: *speedID, Valid: true}
-	} else if _, ok := req["speedId"]; ok {
-		newSpeedID = sql.NullInt64{Valid: false}
+	if actorRole == 0 {
+		rawSpeedID, hasSpeedID := req["speedId"]
+		requestedSpeedID := asAnyToInt64Ptr(rawSpeedID)
+		requestedSpeedID, err = h.normalizeSpeedLimitReference(requestedSpeedID)
+		if err != nil {
+			response.WriteJSON(w, response.Err(-2, err.Error()))
+			return
+		}
+		if requestedSpeedID != nil {
+			newSpeedID = sql.NullInt64{Int64: *requestedSpeedID, Valid: true}
+		} else if hasSpeedID {
+			newSpeedID = sql.NullInt64{Valid: false}
+		}
 	}
 
 	port := asInt(req["inPort"], 0)
@@ -3119,7 +3132,7 @@ func (h *Handler) forwardUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 	hasInIP := false
 	inIp := ""
-	if rawInIP, ok := req["inIp"]; ok {
+	if rawInIP, ok := req["inIp"]; ok && actorRole == 0 {
 		hasInIP = true
 		inIp = asString(rawInIP)
 	}
@@ -3157,30 +3170,33 @@ func (h *Handler) forwardUpdate(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	now := time.Now().UnixMilli()
-	maxConnections := asInt(req["maxConnections"], forward.MaxConnections)
-	if _, ok := req["maxConnections"]; !ok {
-		maxConnections = forward.MaxConnections
-	}
-	trafficLimit := asInt64(req["trafficLimit"], forward.TrafficLimit)
-	if _, ok := req["trafficLimit"]; !ok {
-		trafficLimit = forward.TrafficLimit
-	}
-	var newExpiryTime interface{}
-	if _, ok := req["expiryTime"]; ok {
-		newExpiryTime = asAnyToInt64Ptr(req["expiryTime"])
-	} else {
-		newExpiryTime = forward.ExpiryTime
-	}
-	speedLimitEnabled := asBool(req["speedLimitEnabled"], forward.SpeedLimitEnabled)
-	if _, ok := req["speedLimitEnabled"]; !ok {
-		speedLimitEnabled = forward.SpeedLimitEnabled
-	}
-	speedLimit := asInt(req["speedLimit"], forward.SpeedLimit)
-	if _, ok := req["speedLimit"]; !ok {
-		speedLimit = forward.SpeedLimit
+	maxConnections := forward.MaxConnections
+	maxClientIps := forward.MaxClientIps
+	trafficLimit := forward.TrafficLimit
+	var newExpiryTime interface{} = forward.ExpiryTime
+	speedLimitEnabled := forward.SpeedLimitEnabled
+	speedLimit := forward.SpeedLimit
+	if actorRole == 0 {
+		maxConnections = normalizeUserMaxConnections(asInt(req["maxConnections"], forward.MaxConnections))
+		maxClientIps = normalizeUserMaxConnections(asInt(req["maxClientIps"], forward.MaxClientIps))
+		trafficLimit = asInt64(req["trafficLimit"], forward.TrafficLimit)
+		if _, ok := req["expiryTime"]; ok {
+			newExpiryTime = asAnyToInt64Ptr(req["expiryTime"])
+		}
+		speedLimitEnabled = asBool(req["speedLimitEnabled"], forward.SpeedLimitEnabled)
+		speedLimit = asInt(req["speedLimit"], forward.SpeedLimit)
+		owner, ownerErr := h.repo.GetUserByID(forward.UserID)
+		if ownerErr != nil {
+			response.WriteJSON(w, response.Err(-2, ownerErr.Error()))
+			return
+		}
+		if err := validateForwardRuleCaps(owner, maxConnections, maxClientIps); err != nil {
+			response.WriteJSON(w, response.ErrDefault(err.Error()))
+			return
+		}
 	}
 
-	if err := h.repo.UpdateForward(id, name, tunnelID, remoteAddr, strategy, now, newSpeedID, maxConnections, trafficLimit, newExpiryTime, speedLimitEnabled, speedLimit, mode, wgPathID, wgRuleType, sourceCIDR, targetCIDR, snatEnabled); err != nil {
+	if err := h.repo.UpdateForward(id, name, tunnelID, remoteAddr, strategy, now, newSpeedID, maxConnections, maxClientIps, trafficLimit, newExpiryTime, speedLimitEnabled, speedLimit, mode, wgPathID, wgRuleType, sourceCIDR, targetCIDR, snatEnabled); err != nil {
 		response.WriteJSON(w, response.Err(-2, err.Error()))
 		return
 	}
@@ -5712,7 +5728,7 @@ func (h *Handler) rollbackForwardMutation(oldForward *forwardRecord, oldPorts []
 	h.repo.RollbackForwardFields(
 		oldForward.ID, oldForward.UserID, oldForward.UserName, oldForward.Name,
 		oldForward.TunnelID, oldForward.RemoteAddr, oldForward.Strategy, oldForward.Status,
-		oldForward.SpeedID,
+		oldForward.SpeedID, oldForward.MaxConnections, oldForward.MaxClientIps,
 		oldForward.CNBlocked, oldForward.CNBlockedReason, oldForward.CNBlockedAutoPaused,
 		time.Now().UnixMilli(),
 	)
@@ -6014,6 +6030,19 @@ func normalizeUserMaxConnections(value int) int {
 		return 99999
 	}
 	return value
+}
+
+func validateForwardRuleCaps(user *model.User, maxConnections, maxClientIps int) error {
+	if user == nil {
+		return nil
+	}
+	if user.MaxConnections > 0 && maxConnections > user.MaxConnections {
+		return fmt.Errorf("规则连接数限制不能超过用户总连接数限制（%d）", user.MaxConnections)
+	}
+	if user.MaxClientIps > 0 && maxClientIps > user.MaxClientIps {
+		return fmt.Errorf("规则接入 IP 数限制不能超过用户总接入 IP 数限制（%d）", user.MaxClientIps)
+	}
+	return nil
 }
 
 func asAnyToInt64Ptr(v interface{}) *int64 {
@@ -6547,7 +6576,7 @@ func (h *Handler) userRegister(w http.ResponseWriter, r *http.Request) {
 	}
 	now := time.Now().UnixMilli()
 	expTime := time.Now().Add(72 * time.Hour).UnixMilli()
-	userID, err := h.repo.CreateUser(req.User, security.MD5(req.Password), 1, expTime, 0, 1, 0, 0, 1, now, 0, 0, 0, nil)
+	userID, err := h.repo.CreateUser(req.User, security.MD5(req.Password), 1, expTime, 0, 1, 0, 0, 0, 1, now, 0, 0, 0, nil)
 	if err != nil {
 		response.WriteJSON(w, response.Err(-2, err.Error()))
 		return

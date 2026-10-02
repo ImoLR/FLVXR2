@@ -1478,6 +1478,8 @@ func (h *Handler) userPackage(w http.ResponseWriter, r *http.Request) {
 			"autoBuyTrafficPackageId": user.AutoBuyTrafficPackageID,
 			"baseFlow":                user.BaseFlow,
 			"trafficFlow":             user.TrafficFlow,
+			"maxConnections":          user.MaxConnections,
+			"maxClientIps":            user.MaxClientIps,
 		},
 		"tunnelPermissions": tunnelOut,
 		"forwards":          forwardOut,

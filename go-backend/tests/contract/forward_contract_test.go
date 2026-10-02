@@ -749,7 +749,7 @@ func TestForwardCreateInheritsUserSpeedLimitContract(t *testing.T) {
 	}
 	speedID := mustLastInsertID(t, repo, "user-default-speed-limit")
 
-	userID, err := repo.CreateUser("speed-user", "pwd", 1, now+86400000, 100, 1, 10, 0, 1, now, 0, 0, 0, speedID)
+	userID, err := repo.CreateUser("speed-user", "pwd", 1, now+86400000, 100, 1, 10, 0, 0, 1, now, 0, 0, 0, speedID)
 	if err != nil {
 		t.Fatalf("create user with speed limit: %v", err)
 	}
@@ -771,7 +771,7 @@ func TestForwardCreateInheritsUserSpeedLimitContract(t *testing.T) {
 		t.Fatal("created user not returned by ListUsers")
 	}
 
-	if err := repo.UpdateUserWithoutPassword(userID, "speed-user", "", 100, 10, 0, now+86400000, 1, 1, now, 0, 0, 0, nil); err != nil {
+	if err := repo.UpdateUserWithoutPassword(userID, "speed-user", "", 100, 10, 0, 0, now+86400000, 1, 1, now, 0, 0, 0, nil); err != nil {
 		t.Fatalf("clear user speed limit: %v", err)
 	}
 	user, err := repo.GetUserByID(userID)
@@ -781,7 +781,7 @@ func TestForwardCreateInheritsUserSpeedLimitContract(t *testing.T) {
 	if user == nil || user.SpeedLimitID.Valid {
 		t.Fatalf("expected user speed limit to be cleared, got %#v", user)
 	}
-	if err := repo.UpdateUserWithoutPassword(userID, "speed-user", "", 100, 10, 0, now+86400000, 1, 1, now, 0, 0, 0, speedID); err != nil {
+	if err := repo.UpdateUserWithoutPassword(userID, "speed-user", "", 100, 10, 0, 0, now+86400000, 1, 1, now, 0, 0, 0, speedID); err != nil {
 		t.Fatalf("restore user speed limit: %v", err)
 	}
 
