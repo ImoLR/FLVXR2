@@ -303,34 +303,6 @@ const formatTunnelTrafficRatio = (value?: number): string => {
 
   return `${parseFloat(ratio.toFixed(2))}x`;
 };
-const formatExpiryTime = (expiryTime: number | null | undefined): string => {
-  if (!expiryTime || expiryTime <= 0) {
-    return "永久";
-  }
-  const date = new Date(expiryTime);
-  const now = new Date();
-  const diffDays = Math.ceil(
-    (expiryTime - now.getTime()) / (1000 * 60 * 60 * 24),
-  );
-  const month = (date.getMonth() + 1).toString().padStart(2, "0");
-  const day = date.getDate().toString().padStart(2, "0");
-  const dateStr = `${month}/${day}`;
-
-  if (diffDays <= 0) {
-    return `${dateStr} (已过期)`;
-  }
-  if (diffDays <= 7) {
-    return `${dateStr} (剩余${diffDays}天)`;
-  }
-
-  return dateStr;
-};
-const isExpirySoon = (expiryTime: number): boolean => {
-  const now = new Date().getTime();
-  const diffDays = Math.ceil((expiryTime - now) / (1000 * 60 * 60 * 24));
-
-  return diffDays <= 7;
-};
 const buildForwardGroupOrderLocalKey = (tokenUserId: number): string => {
   return `${FORWARD_GROUP_ORDER_LOCAL_STORAGE_PREFIX}:u:${tokenUserId}`;
 };
@@ -1002,19 +974,6 @@ const SortableTableRow = ({
           </span>
         </div>
       </TableCell>
-      <TableCell className={`whitespace-nowrap ${rowBg}`}>
-        <ConnectionCountCell
-          current={forward.currentConnections ?? 0}
-          max={forward.maxConnections ?? 0}
-        />
-      </TableCell>
-      <TableCell className={`whitespace-nowrap ${rowBg}`}>
-        <span
-          className={`text-sm font-medium ${forward.expiryTime && forward.expiryTime > 0 && isExpirySoon(forward.expiryTime) ? "text-danger-600 dark:text-danger-400 font-bold" : "text-foreground"}`}
-        >
-          {formatExpiryTime(forward.expiryTime)}
-        </span>
-      </TableCell>
       <TableCell className={rowBg}>
         <div className="flex items-center gap-2.5 whitespace-nowrap">
           <div
@@ -1331,19 +1290,6 @@ const SortableCompactTableRow = ({
             {forward.currentConnections ?? 0} 连接
           </span>
         </div>
-      </TableCell>
-      <TableCell className={`whitespace-nowrap ${rowBg}`}>
-        <ConnectionCountCell
-          current={forward.currentConnections ?? 0}
-          max={forward.maxConnections ?? 0}
-        />
-      </TableCell>
-      <TableCell className={`whitespace-nowrap ${rowBg}`}>
-        <span
-          className={`text-sm font-medium ${forward.expiryTime && forward.expiryTime > 0 && isExpirySoon(forward.expiryTime) ? "text-danger-600 dark:text-danger-400 font-bold" : "text-foreground"}`}
-        >
-          {formatExpiryTime(forward.expiryTime)}
-        </span>
       </TableCell>
       <TableCell className={rowBg}>
         <div className="flex items-center gap-2.5 whitespace-nowrap">
@@ -4497,9 +4443,6 @@ export default function ForwardPage() {
                   </span>
                 )}
               </div>
-              <div className="inline-flex items-center justify-center px-2 py-0.5 rounded text-xs font-medium flex-shrink-0 bg-danger-500/10 text-danger-600 dark:text-danger-400">
-                {formatExpiryTime(forward.expiryTime)}
-              </div>
             </div>
           </div>
           <div className="flex-1 min-w-0 w-full pl-0.5">
@@ -5052,12 +4995,6 @@ export default function ForwardPage() {
                         <TableColumn className="whitespace-nowrap flex-shrink-0 w-[140px] text-left">
                           实时带宽
                         </TableColumn>
-                        <TableColumn className="whitespace-nowrap flex-shrink-0 w-[90px] text-left">
-                          连接数
-                        </TableColumn>
-                        <TableColumn className="whitespace-nowrap flex-shrink-0 w-[80px] text-left">
-                          有效期
-                        </TableColumn>
                         <TableColumn className="whitespace-nowrap flex-shrink-0 w-[80px] text-left">
                           状态
                         </TableColumn>
@@ -5380,12 +5317,6 @@ export default function ForwardPage() {
                                         </TableColumn>
                                         <TableColumn className="whitespace-nowrap flex-shrink-0 w-[140px] text-left">
                                           实时带宽
-                                        </TableColumn>
-                                        <TableColumn className="whitespace-nowrap flex-shrink-0 w-[90px] text-left">
-                                          连接数
-                                        </TableColumn>
-                                        <TableColumn className="whitespace-nowrap flex-shrink-0 w-[100px] text-left">
-                                          有效期
                                         </TableColumn>
                                         <TableColumn className="whitespace-nowrap flex-shrink-0 w-[100px] text-left">
                                           状态
@@ -7350,26 +7281,6 @@ export default function ForwardPage() {
   );
 }
 // ─── Connection Count Cell (list display) ──────────────────────────────────
-function ConnectionCountCell({
-  current,
-  max,
-}: {
-  current: number;
-  max: number;
-}) {
-  // 都是 0 时显示 0/暂无
-  if (current === 0 && max === 0) {
-    return <span className="text-sm text-default-400">0/暂无</span>;
-  }
-  const maxText = max > 0 ? max.toString() : "不限";
-
-  // 有连接或有限制时显示 current/max
-  return (
-    <span className="text-sm text-default-600">
-      {current}/{maxText}
-    </span>
-  );
-}
 // ─── Connection Limit Field (form input) ───────────────────────────────────
 function ConnectionLimitField({
   value,
