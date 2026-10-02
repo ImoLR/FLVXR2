@@ -30,7 +30,7 @@ Gaps:
       `/sw.js`, `/manifest.webmanifest`, `/dashboard` → no-cache; `assets/*.js` → immutable)
 - [x] Rebase on final fork.11 branch head and re-run `npm run build`
 - [x] Push branch, tag `3.0.27-fork.12`, CI + release verified
-- [ ] Backup production (rollback dir, validated sqlite, image tags, metadata)
+- [x] Backup production (rollback dir, validated sqlite, image tags, metadata)
 - [ ] Upgrade `/opt/flvx-svc` to fork.12
 - [ ] Verify health, node metrics, live `/sw.js` + `/` headers are `no-cache`
 - [ ] Update memory, write report
@@ -41,3 +41,9 @@ Gaps:
 - Release `3.0.27-fork.12` is Latest, not a prerelease, and has the same 10 assets as fork.11.
 - Both compose assets use `ghcr.io/imolr/flvxr2-svc-{backend,frontend}:3.0.27-fork.12`.
 - Both install scripts pin `3.0.27-fork.12` and `ImoLR/FLVXR2`; both GOST checksums verified.
+
+## Production rollback point
+- `/opt/flvx-svc/rollback/pre-fork12-20261002T160919Z/`
+- Compose and `.env` copied; SQLite online backup `quick_check` is `ok`.
+- Fork.11 images retained as `local/flvxx-{backend,frontend}:pre-fork12-20261002T160919Z`.
+- `ROLLBACK-METADATA.md` records checksums, counts, image IDs, and restore commands.
