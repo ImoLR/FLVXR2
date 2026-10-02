@@ -1038,6 +1038,11 @@ export default function DashboardPage() {
                           <div className="flex flex-wrap items-center gap-2 mt-1">
                             <span
                               className={`px-2 py-1 rounded-md text-xs font-medium ${tunnel.tunnelFlow === 1 ? "bg-blue-100 dark:bg-blue-500/20 text-blue-700 dark:text-blue-300" : "bg-orange-100 dark:bg-orange-500/20 text-orange-700 dark:text-orange-300"}`}
+                              title={
+                                tunnel.tunnelFlow === 1
+                                  ? "单向计费：只计上传、下载中较大的一方×倍率"
+                                  : "双向计费：(上传+下载)×倍率"
+                              }
                             >
                               {tunnel.tunnelFlow === 1
                                 ? "单向计费"

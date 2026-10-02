@@ -216,6 +216,7 @@ export function WGPathManager({
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
         <Select
+          description="双向：(上传+下载)×倍率；单向：只计上传、下载中较大的一方×倍率"
           label="流量计算"
           selectedKeys={new Set([flow])}
           variant="bordered"
@@ -223,8 +224,8 @@ export function WGPathManager({
             setFlow(Array.from(keys)[0]?.toString() || "1")
           }
         >
-          <SelectItem key="1">单向计算</SelectItem>
-          <SelectItem key="2">双向计算</SelectItem>
+          <SelectItem key="1">单向计算（上传、下载取较大者）</SelectItem>
+          <SelectItem key="2">双向计算（上传+下载）</SelectItem>
         </Select>
         <Input
           label="流量倍率"

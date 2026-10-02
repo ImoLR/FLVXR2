@@ -149,6 +149,7 @@ export const getTunnelTypeDisplay = (type: number) => {
   }
 };
 
+// 计费：双向 = (上传+下载)×倍率；单向 = 每次上报只计上传、下载中较大的一方×倍率。
 export const getTunnelFlowDisplay = (flow: number) => {
   switch (flow) {
     case 1:

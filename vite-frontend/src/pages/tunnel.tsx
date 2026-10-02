@@ -3297,6 +3297,7 @@ export default function TunnelPage() {
                   </div>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <Select
+                      description="双向：(上传+下载)×倍率；单向：每次上报只计上传、下载中较大的一方×倍率"
                       errorMessage={errors.flow}
                       isInvalid={!!errors.flow}
                       label="流量计算"
@@ -3314,7 +3315,7 @@ export default function TunnelPage() {
                         }
                       }}
                     >
-                      <SelectItem key="1">单向计算（仅上传）</SelectItem>
+                      <SelectItem key="1">单向计算（上传、下载取较大者）</SelectItem>
                       <SelectItem key="2">双向计算（上传+下载）</SelectItem>
                     </Select>
                     <Input

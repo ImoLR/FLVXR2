@@ -73,7 +73,7 @@ Related problems found while verifying:
   limit speed at all (netns test).)
 - [x] Reporter: per-direction deltas keyed by rule generation (`Manager.CollectTraffic`; D =
   upload, U = download like gost services)
-- [ ] Frontend labels for 单向/双向
+- [x] Frontend labels for 单向/双向 (tunnel form, WG path form, dashboard badge tooltip, usage docs)
 - [ ] Backend/agent unit + contract tests, netns nftables integration tests, frontend build;
   compare failures with the fork.7 baseline
 - [ ] Local end-to-end check (panel on :16365 + agent in network namespaces) for gost and
