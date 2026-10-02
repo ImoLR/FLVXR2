@@ -14,5 +14,10 @@
 ## 任务
 - [x] 删除表格两列 + 卡片有效期标签 + 无用辅助函数
 - [x] `tsc --noEmit`、`npm run build` 通过;`eslint forward.tsx` 与基线一致(333 个原有问题,无新增)
-- [ ] 发布 `3.0.27-fork.14`(CI + release 资产校验)
+- [x] 发布 `3.0.27-fork.14`(CI + release 资产校验)
 - [ ] 生产面板备份 + 升级到 fork.14 并验证前端已是新构建
+
+## 发布记录
+- `c80651bd` 的 [CI Build Check](https://github.com/ImoLR/FLVXR2/actions/runs/37065619669) 通过;注解标签 `3.0.27-fork.14` 指向该提交。
+- [Build and Push Images](https://github.com/ImoLR/FLVXR2/actions/runs/37065834273) 通过;[release](https://github.com/ImoLR/FLVXR2/releases/tag/3.0.27-fork.14) 为 Latest、非 prerelease,10 个资产与 fork.13 一致。
+- 两份 compose 的面板镜像均固定为 `ghcr.io/imolr/flvxr2-svc-*:3.0.27-fork.14`;两脚本的 `REPO`/`PINNED_VERSION` 正确,amd64/arm64 GOST SHA256 均通过。
