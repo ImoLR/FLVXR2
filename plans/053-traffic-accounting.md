@@ -84,8 +84,14 @@ Related problems found while verifying:
   `UserID`). UI: hint on the user total (user list, user dashboard, history modals) and the
   reset confirmations now state the real scope (the old text claimed tunnel traffic was kept).
   Existing data is not touched.
-- [ ] Backend/agent unit + contract tests, netns nftables integration tests, frontend build;
+- [x] Backend/agent unit + contract tests, netns nftables integration tests, frontend build;
   compare failures with the fork.7 baseline
+  (go-backend `go test ./...`: 19 failing tests/subtests, the identical set fails on the fork.7
+  baseline 9fbfc5a5 — federation dual panel, connectIp diagnosis/reconstruct, backup export
+  route, legacy node migrations, renewal anchor TZ, service monitor; none touch flow
+  accounting. go-gost/x `go test ./...` and `-race` on nftables/routing/service/socket: pass.
+  `netns_integration.sh`: 16/16 pass, no leftover namespaces, host ruleset has no flvx
+  tables. `npm run build`: ok.)
 - [ ] Local end-to-end check (panel on :16365 + agent in network namespaces) for gost and
   nftables forwards against known transfer sizes
 - [ ] Release `3.0.27-fork.8` and verify CI + assets
