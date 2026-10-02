@@ -82,6 +82,7 @@ import {
 import { Card, CardBody, CardHeader } from "@/shadcn-bridge/heroui/card";
 import { Progress } from "@/shadcn-bridge/heroui/progress";
 import { useNodeRealtime } from "@/pages/node/use-node-realtime";
+import { getAdminFlag } from "@/utils/session";
 
 interface MonitorViewProps {
   nodeMap: Map<
@@ -578,6 +579,7 @@ const DEFAULT_SERVICE_MONITOR_LIMITS: ServiceMonitorLimitsApiData = {
 };
 
 export function MonitorView({ nodeMap, viewMode = "grid" }: MonitorViewProps) {
+  const isAdmin = getAdminFlag();
   const [detailNodeId, setDetailNodeId] = useState<number | null>(null);
   const [selectedNodeId, setSelectedNodeId] = useState<number | null>(null);
   const [metrics, setMetrics] = useState<NodeMetricApiItem[]>([]);
@@ -886,6 +888,7 @@ export function MonitorView({ nodeMap, viewMode = "grid" }: MonitorViewProps) {
 
   const loadServiceMonitors = useCallback(
     async (options?: { silent?: boolean }) => {
+      if (!isAdmin) return;
       const silent = options?.silent ?? false;
 
       if (!silent) setMonitorsLoading(true);
@@ -913,10 +916,11 @@ export function MonitorView({ nodeMap, viewMode = "grid" }: MonitorViewProps) {
         if (!silent) setMonitorsLoading(false);
       }
     },
-    [],
+    [isAdmin],
   );
 
   const loadServiceMonitorLimits = useCallback(async () => {
+    if (!isAdmin) return;
     try {
       const response = await getServiceMonitorLimits();
 
@@ -934,13 +938,14 @@ export function MonitorView({ nodeMap, viewMode = "grid" }: MonitorViewProps) {
     } catch {
       toast.error("加载服务监控限制失败，已使用默认值");
     }
-  }, []);
+  }, [isAdmin]);
 
   const loadMonitorResults = useCallback(
     async (
       monitorId: number,
       options?: { rangeMs?: number; limit?: number },
     ) => {
+      if (!isAdmin) return;
       try {
         const limit = options?.limit ?? 100;
         const response = await getServiceMonitorResults(monitorId, limit);
@@ -960,10 +965,11 @@ export function MonitorView({ nodeMap, viewMode = "grid" }: MonitorViewProps) {
         toast.error("加载监控记录失败");
       }
     },
-    [],
+    [isAdmin],
   );
 
   const loadLatestMonitorResults = useCallback(async () => {
+    if (!isAdmin) return;
     try {
       const response = await getServiceMonitorLatestResults();
 
@@ -1009,32 +1015,39 @@ export function MonitorView({ nodeMap, viewMode = "grid" }: MonitorViewProps) {
     } catch {
       setLatestResultsError("加载最新监控结果失败");
     }
-  }, []);
+  }, [isAdmin]);
 
   const loadResultsForModal = useCallback(async () => {
-    if (!resultsMonitorId) return;
+    if (!isAdmin || !resultsMonitorId) return;
     setResultsLoading(true);
     try {
       await loadMonitorResults(resultsMonitorId, { limit: resultsLimit });
     } finally {
       setResultsLoading(false);
     }
-  }, [loadMonitorResults, resultsLimit, resultsMonitorId]);
+  }, [isAdmin, loadMonitorResults, resultsLimit, resultsMonitorId]);
 
   useEffect(() => {
+    if (!isAdmin) return;
     void loadServiceMonitors();
     void loadServiceMonitorLimits();
     void loadLatestMonitorResults();
-  }, [loadLatestMonitorResults, loadServiceMonitorLimits, loadServiceMonitors]);
+  }, [
+    isAdmin,
+    loadLatestMonitorResults,
+    loadServiceMonitorLimits,
+    loadServiceMonitors,
+  ]);
 
   useEffect(() => {
+    if (!isAdmin) return;
     const timer = window.setInterval(() => {
       void loadServiceMonitors({ silent: true });
       void loadLatestMonitorResults();
     }, 5_000);
 
     return () => window.clearInterval(timer);
-  }, [loadLatestMonitorResults, loadServiceMonitors]);
+  }, [isAdmin, loadLatestMonitorResults, loadServiceMonitors]);
 
   useEffect(() => {
     if (selectedNodeId) {
@@ -1052,13 +1065,19 @@ export function MonitorView({ nodeMap, viewMode = "grid" }: MonitorViewProps) {
   }, [selectedNodeId, loadMetrics]);
 
   useEffect(() => {
-    if (!resultsModalOpen || !resultsMonitorId) return;
+    if (!isAdmin || !resultsModalOpen || !resultsMonitorId) return;
     void loadResultsForModal();
-  }, [resultsModalOpen, resultsMonitorId, resultsLimit, loadResultsForModal]);
+  }, [
+    isAdmin,
+    resultsModalOpen,
+    resultsMonitorId,
+    resultsLimit,
+    loadResultsForModal,
+  ]);
 
   // Auto-load results for the resolved default monitor when entering detail view
   useEffect(() => {
-    if (!detailNodeId) return;
+    if (!isAdmin || !detailNodeId) return;
     if (activeServiceMonitorId) return; // user already selected one
     // Find the first monitor belonging to this node (or panel-level)
     const firstMonitor = serviceMonitors.find(
@@ -1074,15 +1093,20 @@ export function MonitorView({ nodeMap, viewMode = "grid" }: MonitorViewProps) {
         rangeMs: serviceMonitorRangeMs,
       });
     }
-  }, [detailNodeId, serviceMonitors]);
+  }, [detailNodeId, isAdmin, serviceMonitors]);
 
   // Reload results for the active service monitor chart when time range changes
   useEffect(() => {
-    if (!activeServiceMonitorId) return;
+    if (!isAdmin || !activeServiceMonitorId) return;
     void loadMonitorResults(activeServiceMonitorId, {
       rangeMs: serviceMonitorRangeMs,
     });
-  }, [activeServiceMonitorId, serviceMonitorRangeMs, loadMonitorResults]);
+  }, [
+    activeServiceMonitorId,
+    isAdmin,
+    serviceMonitorRangeMs,
+    loadMonitorResults,
+  ]);
 
   const chartData = useMemo(
     () =>
@@ -1103,6 +1127,7 @@ export function MonitorView({ nodeMap, viewMode = "grid" }: MonitorViewProps) {
   );
 
   const handleOpenEditModal = (monitor?: ServiceMonitorApiItem) => {
+    if (!isAdmin) return;
     if (monitor) {
       if (!isSupportedMonitorType(monitor.type)) {
         toast.error("该监控类型已不支持，仅支持删除");
@@ -1135,6 +1160,7 @@ export function MonitorView({ nodeMap, viewMode = "grid" }: MonitorViewProps) {
   };
 
   const handleSubmitMonitor = async () => {
+    if (!isAdmin) return;
     if (!monitorForm.name || !monitorForm.target) {
       toast.error("请填写完整信息");
 
@@ -1213,6 +1239,7 @@ export function MonitorView({ nodeMap, viewMode = "grid" }: MonitorViewProps) {
   };
 
   const handleDeleteMonitor = async (id: number) => {
+    if (!isAdmin) return;
     if (!confirm("确定删除该监控项?")) return;
     try {
       const response = await deleteServiceMonitor(id);
@@ -1230,6 +1257,7 @@ export function MonitorView({ nodeMap, viewMode = "grid" }: MonitorViewProps) {
   };
 
   const handleRunMonitor = async (id: number) => {
+    if (!isAdmin) return;
     try {
       const response = await runServiceMonitor(id);
 
@@ -1277,6 +1305,7 @@ export function MonitorView({ nodeMap, viewMode = "grid" }: MonitorViewProps) {
   };
 
   const openResultsModal = (monitorId: number) => {
+    if (!isAdmin) return;
     setResultsMonitorId(monitorId);
     setResultsModalOpen(true);
   };
@@ -1438,15 +1467,17 @@ export function MonitorView({ nodeMap, viewMode = "grid" }: MonitorViewProps) {
             >
               节点 {onlineNodes.length}/{nodes.length}
             </Chip>
-            <Chip
-              className="rounded-md"
-              color="success"
-              size="sm"
-              variant="flat"
-            >
-              监控 成功 {monitorSummary.ok} / 失败 {monitorSummary.fail}
-            </Chip>
-            {monitorSummary.stale > 0 && (
+            {isAdmin && (
+              <Chip
+                className="rounded-md"
+                color="success"
+                size="sm"
+                variant="flat"
+              >
+                监控 成功 {monitorSummary.ok} / 失败 {monitorSummary.fail}
+              </Chip>
+            )}
+            {isAdmin && monitorSummary.stale > 0 && (
               <Chip
                 className="rounded-md"
                 color="warning"
@@ -1846,7 +1877,7 @@ export function MonitorView({ nodeMap, viewMode = "grid" }: MonitorViewProps) {
           />
 
           {/* Service monitors chart – same style as node metrics */}
-          {(() => {
+          {isAdmin && (() => {
             // Resolve which monitor is active
             const resolvedActiveMonitor =
               detailServiceMonitors.find(
@@ -2124,7 +2155,7 @@ export function MonitorView({ nodeMap, viewMode = "grid" }: MonitorViewProps) {
         classNames={{
           base: "!w-[calc(100%-32px)] !mx-auto sm:!w-full rounded-2xl overflow-hidden max-h-[85vh] sm:max-h-[90vh]",
         }}
-        isOpen={resultsModalOpen}
+        isOpen={isAdmin && resultsModalOpen}
         scrollBehavior="inside"
         size="xl"
         onClose={() => {
@@ -2288,7 +2319,7 @@ export function MonitorView({ nodeMap, viewMode = "grid" }: MonitorViewProps) {
         classNames={{
           base: "!w-[calc(100%-32px)] !mx-auto sm:!w-full rounded-2xl overflow-hidden max-h-[85vh] sm:max-h-[90vh]",
         }}
-        isOpen={editModalOpen}
+        isOpen={isAdmin && editModalOpen}
         scrollBehavior="inside"
         size="xl"
         onClose={() => setEditModalOpen(false)}
