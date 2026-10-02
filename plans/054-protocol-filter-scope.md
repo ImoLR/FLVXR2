@@ -19,5 +19,12 @@
 - [x] Panel 在入口 forward service 中携带隧道过滤值，更新时复用 forward sync 并向调用方返回离线/失败 warning；添加生成配置测试并核实重连收敛路径。
 - [x] Agent 按 service 使用过滤值，零值不包装；添加同节点双 service 隔离和 legacy 命令不覆盖测试。
 - [x] 在隧道表单添加仅支持 GOST 模式 TCP forward 的文字说明。
-- [ ] 运行 go-backend、go-gost、go-gost/x 全量 Go 测试和前端构建，并将后端失败与 `2991b893` 基线比较。
+- [x] 运行 go-backend、go-gost、go-gost/x 全量 Go 测试和前端构建，并将后端失败与 `2991b893` 基线比较。
 - [ ] 推送分支并完成实施记录（不发布、不部署）。
+
+## 验证结果
+
+- `go-gost`: `go test ./...` 通过。
+- `go-gost/x`: `go test ./...` 通过。
+- `vite-frontend`: `npm run build` 通过。
+- `go-backend`: `go test ./...` 当前分支与 `2991b893` 基线均为相同的 19 个已知失败项，无新增失败。
