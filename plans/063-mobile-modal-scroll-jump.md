@@ -15,5 +15,11 @@
 - [x] 本地复现(Playwright 安卓模拟,412×915):滚到 2500 → 打开编辑弹窗即变 0
 - [x] 修 CSS;复现脚本验证:打开 / 保存 / 取消后均停在 2500,弹窗打开时滑动背景不动
 - [x] `npm run build` 通过
-- [ ] 发布 `3.0.27-fork.15`(CI + release 资产校验)
+- [x] 发布 `3.0.27-fork.15`(CI + release 资产校验)
 - [ ] 生产面板备份 + 升级到 fork.15 并验证前端已是新构建
+
+## 发布记录
+- 已将 fork.15 rebase 到 fork.14 rollout-complete 提交 `b48c5107`,发布提交为 `9169a79d`;rebase 前后代码内容一致。
+- [CI Build Check](https://github.com/ImoLR/FLVXR2/actions/runs/37067728015) 四项检查通过;注解标签 `3.0.27-fork.15` 指向该发布提交。
+- [Build and Push Images](https://github.com/ImoLR/FLVXR2/actions/runs/37067861743) 通过;[release](https://github.com/ImoLR/FLVXR2/releases/tag/3.0.27-fork.15) 为 Latest、非 prerelease,10 个资产与 fork.14 一致。
+- 两份 compose 的镜像均固定为 `ghcr.io/imolr/flvxr2-svc-*:3.0.27-fork.15`;两脚本的 `REPO=ImoLR/FLVXR2`、`PINNED_VERSION` 正确,amd64/arm64 GOST SHA256 和全部资产的 GitHub SHA256 均通过。
