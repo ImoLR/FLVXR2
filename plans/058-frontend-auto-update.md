@@ -33,7 +33,7 @@ Gaps:
 - [x] Backup production (rollback dir, validated sqlite, image tags, metadata)
 - [x] Upgrade `/opt/flvx-svc` to fork.12
 - [x] Verify health, node metrics, live `/sw.js` + `/` headers are `no-cache`
-- [ ] Leave memory unchanged and write the coordinator handoff report
+- [x] Leave memory unchanged and write the coordinator handoff report
 
 ## Release
 - CI Build Check 37030675525 succeeded.
