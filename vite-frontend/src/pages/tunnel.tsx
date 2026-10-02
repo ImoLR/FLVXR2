@@ -4389,6 +4389,10 @@ export default function TunnelPage() {
                         仅放行第 1 行未勾选的协议，其余全部拦截
                       </div>
                     </div>
+                    <div className="text-xs text-warning-600 dark:text-warning-400 mt-2">
+                      仅对 GOST 模式的 TCP 转发生效；UDP 和 nftables
+                      模式转发不会过滤。
+                    </div>
                   </div>
                 </div>
                 <div className="mt-4">
