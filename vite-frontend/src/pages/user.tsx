@@ -1206,6 +1206,16 @@ export default function UserPage() {
 
       if (response.code === 0) {
         toast.success(isEdit ? "更新成功" : "创建成功");
+        const warningItems = Array.isArray((response as any).data?.warnings)
+          ? (response as any).data.warnings.filter(
+              (item: unknown): item is string =>
+                typeof item === "string" && item.trim() !== "",
+            )
+          : [];
+
+        warningItems.forEach((warning: string) =>
+          toast(warning, { icon: "⚠️", duration: 5000 }),
+        );
         onUserModalClose();
         const responseUser = normalizeUserItem((response as any).data || {});
 
