@@ -175,6 +175,9 @@ export interface UserApiItem {
   flow: number;
   num: number;
   maxConnections?: number;
+  maxClientIps?: number;
+  activeConnections?: number;
+  activeClientIps?: number;
   speedLimitId?: number | null;
   expTime?: number;
   flowResetTime?: number;
@@ -235,6 +238,7 @@ export interface ForwardApiItem {
   speedId?: number | null;
   inx?: number;
   maxConnections: number;
+  maxClientIps?: number;
   currentConnections?: number;
   trafficLimit?: number;
   expiryTime?: number | null;
@@ -520,6 +524,7 @@ export interface UserMutationPayload {
   flow?: number;
   num?: number;
   maxConnections?: number;
+  maxClientIps?: number;
   speedLimitId?: number | null;
   expTime?: number | string;
   flowResetTime?: number;
@@ -624,6 +629,7 @@ export interface ForwardMutationPayload {
   strategy?: string;
   speedId?: number | null;
   maxConnections?: number;
+  maxClientIps?: number;
   speedLimitEnabled?: boolean;
   speedLimit?: number;
   mode?: string;

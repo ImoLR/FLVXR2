@@ -165,9 +165,18 @@ const calculateTunnelUsedFlow = (tunnel: UserTunnel): number => {
   // 后端已按计费类型处理流量，前端直接使用入站+出站总和
   return inFlow + outFlow;
 };
+const formatUserPoolUsage = (user: User): string => {
+  const connectionLimit =
+    (user.maxConnections ?? 0) > 0 ? String(user.maxConnections) : "不限";
+  const clientIPLimit =
+    (user.maxClientIps ?? 0) > 0 ? String(user.maxClientIps) : "不限";
+
+  return `连接 ${user.activeConnections ?? 0}/${connectionLimit} · IP ${user.activeClientIps ?? 0}/${clientIPLimit}`;
+};
 const USER_SEARCH_DEBOUNCE_MS = 250;
 const USER_VIEW_MODE_KEY = "user_view_mode";
 const USER_LIMIT_MAX_VALUE = 99999;
+const USER_POOL_LIMIT_HINT = "所有规则及入口节点共享；留空或 0 表示不限制";
 const sanitizeIntegerDraft = (value: string, max = USER_LIMIT_MAX_VALUE) => {
   const digits = value.replace(/[^\d]/g, "");
 
@@ -210,6 +219,9 @@ const normalizeUserItem = (item: Partial<User>): UserWithHistory => {
     flow: Number(item.flow ?? 0),
     num: Number(item.num ?? 0),
     maxConnections: Number(item.maxConnections ?? 0),
+    maxClientIps: Number(item.maxClientIps ?? 0),
+    activeConnections: Number(item.activeConnections ?? 0),
+    activeClientIps: Number(item.activeClientIps ?? 0),
     expTime: item.expTime,
     flowResetTime: item.flowResetTime ?? 0,
     createdTime: item.createdTime,
@@ -295,6 +307,7 @@ export default function UserPage() {
     monthlyQuotaGB: number;
     num: number;
     maxConnections: number;
+    maxClientIps: number;
     speedLimitId: number | null;
     expTime: Date | null;
     flowResetTime: number;
@@ -317,6 +330,7 @@ export default function UserPage() {
     monthlyQuotaGB: 0,
     num: 10,
     maxConnections: 0,
+    maxClientIps: 0,
     speedLimitId: null,
     expTime: null,
     flowResetTime: 0,
@@ -334,6 +348,7 @@ export default function UserPage() {
     flow: "1000",
     num: "10",
     maxConnections: "",
+    maxClientIps: "",
   });
   const [userFormLoading, setUserFormLoading] = useState(false);
   const [autoBuyPackages, setAutoBuyPackages] = useState<
@@ -963,6 +978,7 @@ export default function UserPage() {
       monthlyQuotaGB: 0,
       num: 10,
       maxConnections: 0,
+      maxClientIps: 0,
       speedLimitId: null,
       expTime: null,
       flowResetTime: 0,
@@ -980,6 +996,7 @@ export default function UserPage() {
       flow: "1000",
       num: "10",
       maxConnections: "",
+      maxClientIps: "",
     });
     onUserModalOpen();
   };
@@ -1085,6 +1102,7 @@ export default function UserPage() {
       monthlyQuotaGB: user.monthlyQuotaGB ?? 0,
       num: user.num,
       maxConnections: user.maxConnections ?? 0,
+      maxClientIps: user.maxClientIps ?? 0,
       speedLimitId: normalizeSpeedId(user.speedLimitId),
       expTime: user.expTime ? new Date(user.expTime) : null,
       flowResetTime: user.flowResetTime ?? 0,
@@ -1104,6 +1122,8 @@ export default function UserPage() {
       num: user.num.toString(),
       maxConnections:
         (user.maxConnections ?? 0) > 0 ? String(user.maxConnections) : "",
+      maxClientIps:
+        (user.maxClientIps ?? 0) > 0 ? String(user.maxClientIps) : "",
     });
     onUserModalOpen();
   };
@@ -1161,11 +1181,16 @@ export default function UserPage() {
         userLimitDraft.maxConnections,
         "总连接数限制",
       );
+      const maxClientIps = parseOptionalUserLimit(
+        userLimitDraft.maxClientIps,
+        "总接入IP数限制",
+      );
       const submitData: any = {
         ...userForm,
         flow,
         num,
         maxConnections,
+        maxClientIps,
         balance: Math.round(userForm.balance * 100),
         renewalAmount: Math.round(userForm.renewalAmount * 100),
         expTime: userForm.expTime?.getTime() ?? 0,
@@ -2029,6 +2054,9 @@ export default function UserPage() {
                   <TableColumn className="whitespace-nowrap flex-shrink-0 w-[80px] text-left">
                     规则数
                   </TableColumn>
+                  <TableColumn className="whitespace-nowrap flex-shrink-0 w-[190px] text-left">
+                    实时用量
+                  </TableColumn>
                   <TableColumn className="whitespace-nowrap flex-shrink-0 w-[100px] text-left">
                     归零日期
                   </TableColumn>
@@ -2184,6 +2212,14 @@ export default function UserPage() {
                         <TableCell className="whitespace-nowrap">
                           <span className="text-sm text-foreground">
                             {user.num}个
+                          </span>
+                        </TableCell>
+                        <TableCell className="whitespace-nowrap">
+                          <span
+                            className="text-sm text-foreground"
+                            title="用户全部规则、全部入口节点的实时共享池用量"
+                          >
+                            {formatUserPoolUsage(user)}
                           </span>
                         </TableCell>
                         <TableCell className="whitespace-nowrap">
@@ -2574,6 +2610,17 @@ export default function UserPage() {
                                 {user.num}个
                               </span>
                             </div>
+                            <div className="col-span-2 flex justify-between text-sm items-center">
+                              <span className="text-default-600 text-xs">
+                                实时用量
+                              </span>
+                              <span
+                                className="font-medium text-xs"
+                                title="用户全部规则、全部入口节点的实时共享池用量"
+                              >
+                                {formatUserPoolUsage(user)}
+                              </span>
+                            </div>
                             <div className="flex justify-between text-sm items-center">
                               <span className="text-default-600 text-xs">
                                 续费金额
@@ -2828,7 +2875,7 @@ export default function UserPage() {
                 }
               />
               <Input
-                description="留空或 0 表示不限制"
+                description={USER_POOL_LIMIT_HINT}
                 label="总连接数限制"
                 max="99999"
                 min="0"
@@ -2839,6 +2886,21 @@ export default function UserPage() {
                   setUserLimitDraft((prev) => ({
                     ...prev,
                     maxConnections: sanitizeIntegerDraft(e.target.value),
+                  }))
+                }
+              />
+              <Input
+                description={USER_POOL_LIMIT_HINT}
+                label="总接入IP数限制"
+                max="99999"
+                min="0"
+                placeholder="不限制"
+                type="number"
+                value={userLimitDraft.maxClientIps}
+                onChange={(e) =>
+                  setUserLimitDraft((prev) => ({
+                    ...prev,
+                    maxClientIps: sanitizeIntegerDraft(e.target.value),
                   }))
                 }
               />

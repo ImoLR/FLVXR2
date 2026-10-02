@@ -133,6 +133,7 @@ interface Forward {
   inx?: number;
   speedId?: number | null;
   maxConnections?: number;
+  maxClientIps?: number;
   currentConnections?: number;
   trafficLimit?: number;
   expiryTime?: number | null;
@@ -183,6 +184,7 @@ interface ForwardForm {
   strategy: string;
   speedId: number | null;
   maxConnections: number;
+  maxClientIps: number;
   trafficLimit: number;
   expiryTime: number | null;
   speedLimitEnabled: boolean;
@@ -588,6 +590,7 @@ const mapForwardApiItems = (items: ForwardApiItem[]): Forward[] => {
         : undefined,
     serviceRunning: forward.status === 1,
     maxConnections: forward.maxConnections ?? 0,
+    maxClientIps: forward.maxClientIps ?? 0,
     currentConnections: forward.currentConnections ?? 0,
     trafficLimit: forward.trafficLimit ?? 0,
     expiryTime: forward.expiryTime ?? null,
@@ -1556,6 +1559,7 @@ export default function ForwardPage() {
     strategy: "fifo",
     speedId: null,
     maxConnections: 0,
+    maxClientIps: 0,
     trafficLimit: 0,
     expiryTime: null,
     speedLimitEnabled: false,
@@ -2388,6 +2392,7 @@ export default function ForwardPage() {
       strategy: "fifo",
       speedId: null,
       maxConnections: 0,
+      maxClientIps: 0,
       trafficLimit: 0,
       expiryTime: null,
       speedLimitEnabled: false,
@@ -2419,6 +2424,7 @@ export default function ForwardPage() {
       strategy: forward.strategy || "fifo",
       speedId: normalizeSpeedId(forward.speedId),
       maxConnections: forward.maxConnections ?? 0,
+      maxClientIps: forward.maxClientIps ?? 0,
       trafficLimit: forward.trafficLimit ?? 0,
       expiryTime: forward.expiryTime ?? null,
       speedLimitEnabled: forward.speedLimitEnabled ?? false,
@@ -2449,6 +2455,7 @@ export default function ForwardPage() {
       strategy: forward.strategy || "fifo",
       speedId: normalizeSpeedId(forward.speedId),
       maxConnections: forward.maxConnections ?? 0,
+      maxClientIps: forward.maxClientIps ?? 0,
       trafficLimit: forward.trafficLimit ?? 0,
       expiryTime: forward.expiryTime ?? null,
       speedLimitEnabled: forward.speedLimitEnabled ?? false,
@@ -2661,6 +2668,7 @@ export default function ForwardPage() {
           strategy: addressCount > 1 ? form.strategy : "fifo",
           speedId: normalizedSpeedId,
           maxConnections: form.maxConnections,
+          maxClientIps: form.maxClientIps,
           trafficLimit: form.trafficLimit,
           expiryTime: form.expiryTime,
           speedLimitEnabled: false,
@@ -2684,6 +2692,7 @@ export default function ForwardPage() {
           strategy: addressCount > 1 ? form.strategy : "fifo",
           speedId: normalizedSpeedId,
           maxConnections: form.maxConnections,
+          maxClientIps: form.maxClientIps,
           trafficLimit: form.trafficLimit,
           expiryTime: form.expiryTime,
           speedLimitEnabled: false,
@@ -5709,8 +5718,9 @@ export default function ForwardPage() {
                       </>
                     )}
                   </div>
-                  {/* 高级功能折叠面板 - 移到最底部 */}
-                  <div className="border border-divider rounded-lg overflow-hidden mt-4">
+                  {/* 高级功能仅管理员可见 */}
+                  {isAdmin && (
+                    <div className="border border-divider rounded-lg overflow-hidden mt-4">
                     <button
                       className="w-full flex items-center justify-between px-4 py-3 bg-default-100/50 hover:bg-default-100 transition-colors"
                       type="button"
@@ -5737,16 +5747,14 @@ export default function ForwardPage() {
                     </button>
                     {advancedOptionsOpen && (
                       <div className="p-4 space-y-4 bg-content1">
-                        {isAdmin && (
-                          <SpeedLimitRuleField
-                            availableSpeedLimits={availableSpeedLimits}
-                            selectedSpeedId={selectedSpeedId}
-                            onChange={(speedId) =>
-                              setForm((prev) => ({ ...prev, speedId }))
-                            }
-                          />
-                        )}
-                        {/* 连接数限制 & 流量控制 - 同一行 */}
+                        <SpeedLimitRuleField
+                          availableSpeedLimits={availableSpeedLimits}
+                          selectedSpeedId={selectedSpeedId}
+                          onChange={(speedId) =>
+                            setForm((prev) => ({ ...prev, speedId }))
+                          }
+                        />
+                        {/* 连接/IP 限制与流量控制 */}
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mb-2">
                           <ConnectionLimitField
                             value={form.maxConnections}
@@ -5754,6 +5762,15 @@ export default function ForwardPage() {
                               setForm((prev) => ({
                                 ...prev,
                                 maxConnections: val,
+                              }))
+                            }
+                          />
+                          <ClientIPLimitField
+                            value={form.maxClientIps}
+                            onChange={(val) =>
+                              setForm((prev) => ({
+                                ...prev,
+                                maxClientIps: val,
                               }))
                             }
                           />
@@ -5823,7 +5840,8 @@ export default function ForwardPage() {
                         </div>
                       </div>
                     )}
-                  </div>
+                    </div>
+                  )}
                 </div>
               </ModalBody>
               <ModalFooter>
@@ -7292,6 +7310,49 @@ function ConnectionLimitField({
       <span className="text-sm font-medium text-foreground">连接数限制</span>
       <Input
         description="留空表示不限制"
+        placeholder="不限制"
+        type="number"
+        value={value > 0 ? value.toString() : ""}
+        variant="bordered"
+        onChange={handleChange}
+      />
+    </div>
+  );
+}
+// ─── Client IP Limit Field (form input) ────────────────────────────────────
+function ClientIPLimitField({
+  value,
+  onChange,
+}: {
+  value: number;
+  onChange: (val: number) => void;
+}) {
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const raw = e.target.value.trim();
+
+    if (raw === "") {
+      onChange(0);
+
+      return;
+    }
+    const num = parseInt(raw, 10);
+
+    if (isNaN(num) || num < 0) {
+      onChange(0);
+    } else if (num > 9999) {
+      onChange(9999);
+    } else {
+      onChange(num);
+    }
+  };
+
+  return (
+    <div className="space-y-2">
+      <span className="text-sm font-medium text-foreground">
+        接入IP数限制
+      </span>
+      <Input
+        description="活跃来源 IP 数；留空表示不限制"
         placeholder="不限制"
         type="number"
         value={value > 0 ? value.toString() : ""}
