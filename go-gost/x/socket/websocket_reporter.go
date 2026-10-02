@@ -43,27 +43,28 @@ import (
 
 // SystemInfo 系统信息结构体
 type SystemInfo struct {
-	Uptime                 uint64          `json:"uptime"`
-	BytesReceived          uint64          `json:"bytes_received"`
-	BytesTransmitted       uint64          `json:"bytes_transmitted"`
-	PeriodBytesReceived    uint64          `json:"period_bytes_received"`    // 周期内接收流量
-	PeriodBytesTransmitted uint64          `json:"period_bytes_transmitted"` // 周期内发送流量
-	BaselineRecordedAt     int64           `json:"baseline_recorded_at"`     // 基线时间戳
-	NextResetAt            int64           `json:"next_reset_at"`            // 下次归零时间戳
-	RenewalCycle           string          `json:"renewal_cycle,omitempty"`  // 续费周期
-	CPUUsage               float64         `json:"cpu_usage"`
-	MemoryUsage            float64         `json:"memory_usage"`
-	DiskUsage              float64         `json:"disk_usage"`
-	Load1                  float64         `json:"load1"`
-	Load5                  float64         `json:"load5"`
-	Load15                 float64         `json:"load15"`
-	TCPConns               int64           `json:"tcp_conns"`
-	UDPConns               int64           `json:"udp_conns"`
-	NetInSpeed             int64           `json:"net_in_speed"`
-	NetOutSpeed            int64           `json:"net_out_speed"`
-	ServiceName            string          `json:"service_name,omitempty"` // 服务名
-	ServiceConnections     map[string]int  `json:"serviceConnections"`
-	ForwardMetrics         []ForwardMetric `json:"forward_metrics,omitempty"` // 转发规则指标
+	Uptime                 uint64                    `json:"uptime"`
+	BytesReceived          uint64                    `json:"bytes_received"`
+	BytesTransmitted       uint64                    `json:"bytes_transmitted"`
+	PeriodBytesReceived    uint64                    `json:"period_bytes_received"`    // 周期内接收流量
+	PeriodBytesTransmitted uint64                    `json:"period_bytes_transmitted"` // 周期内发送流量
+	BaselineRecordedAt     int64                     `json:"baseline_recorded_at"`     // 基线时间戳
+	NextResetAt            int64                     `json:"next_reset_at"`            // 下次归零时间戳
+	RenewalCycle           string                    `json:"renewal_cycle,omitempty"`  // 续费周期
+	CPUUsage               float64                   `json:"cpu_usage"`
+	MemoryUsage            float64                   `json:"memory_usage"`
+	DiskUsage              float64                   `json:"disk_usage"`
+	Load1                  float64                   `json:"load1"`
+	Load5                  float64                   `json:"load5"`
+	Load15                 float64                   `json:"load15"`
+	TCPConns               int64                     `json:"tcp_conns"`
+	UDPConns               int64                     `json:"udp_conns"`
+	NetInSpeed             int64                     `json:"net_in_speed"`
+	NetOutSpeed            int64                     `json:"net_out_speed"`
+	ServiceName            string                    `json:"service_name,omitempty"` // 服务名
+	ServiceConnections     map[string]int            `json:"serviceConnections"`
+	ForwardMetrics         []ForwardMetric           `json:"forward_metrics,omitempty"` // 转发规则指标
+	QuotaGroups            []service.QuotaGroupUsage `json:"quotaGroups,omitempty"`
 }
 
 // ForwardMetric 转发规则指标（与 stats 包保持一致）
@@ -946,6 +947,7 @@ func (w *WebSocketReporter) collectSystemInfo() SystemInfo {
 		ServiceName:            w.serviceName,
 		ServiceConnections:     collectServiceConnections(),
 		ForwardMetrics:         collectForwardMetrics(),
+		QuotaGroups:            service.QuotaGroupUsages(),
 	}
 }
 
@@ -1244,6 +1246,9 @@ func (w *WebSocketReporter) routeCommand(cmd CommandMessage) {
 	case "SetServiceMaxConnections":
 		err = w.handleSetServiceMaxConnections(cmd.Data)
 		response.Type = "SetServiceMaxConnectionsResponse"
+	case "SetQuotaGroups":
+		err = w.handleSetQuotaGroups(cmd.Data)
+		response.Type = "SetQuotaGroupsResponse"
 
 	// Traffic 相关命令
 	case "ResetTraffic":
@@ -1860,6 +1865,21 @@ func (w *WebSocketReporter) handleSetServiceMaxConnections(data interface{}) err
 	}
 
 	return nil
+}
+
+func (w *WebSocketReporter) handleSetQuotaGroups(data interface{}) error {
+	jsonData, err := json.Marshal(data)
+	if err != nil {
+		return fmt.Errorf("序列化配额组失败: %v", err)
+	}
+	var budgets []service.QuotaGroupBudget
+	if err := json.Unmarshal(jsonData, &budgets); err != nil {
+		return fmt.Errorf("解析配额组失败: %v", err)
+	}
+	if len(budgets) == 0 {
+		return fmt.Errorf("配额组列表不能为空")
+	}
+	return service.SetQuotaGroupBudgets(budgets)
 }
 
 func (w *WebSocketReporter) handleResetTraffic(data interface{}) error {

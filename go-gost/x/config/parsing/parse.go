@@ -34,4 +34,10 @@ const (
 	MDKeyProtocolFilterTLS        = "protocolFilter.tls"
 	MDKeyProtocolFilterSOCKS      = "protocolFilter.socks"
 	MDKeyProtocolFilterBlockOther = "protocolFilter.blockOther"
+
+	MDKeyMaxConnections      = "maxConnections"
+	MDKeyMaxClientIPs        = "maxClientIps"
+	MDKeyQuotaGroup          = "quotaGroup"
+	MDKeyGroupMaxConnections = "groupMaxConnections"
+	MDKeyGroupMaxClientIPs   = "groupMaxClientIps"
 )

@@ -171,13 +171,18 @@ func MaxConnsOption(maxConns int) Option {
 }
 
 type defaultService struct {
-	name     string
-	listener listener.Listener
-	handler  handler.Handler
-	status   *Status
-	options  options
-	maxConns int
-	conns    atomic.Int64
+	name            string
+	listener        listener.Listener
+	handler         handler.Handler
+	status          *Status
+	options         options
+	maxConns        atomic.Int64
+	maxClientIPs    atomic.Int64
+	conns           atomic.Int64
+	quotaMu         sync.Mutex
+	clientIPs       map[string]int
+	quotaGroup      *quotaGroup
+	quotaDetachOnce sync.Once
 }
 
 func NewService(name string, ln listener.Listener, h handler.Handler, opts ...Option) service.Service {
@@ -205,12 +210,70 @@ func NewService(name string, ln listener.Listener, h handler.Handler, opts ...Op
 
 // SetMaxConns sets the max connections limit for a running service.
 func (s *defaultService) SetMaxConns(n int) {
-	s.maxConns = n
+	s.maxConns.Store(int64(n))
+}
+
+// SetMaxClientIPs sets the per-service active client-IP limit. Zero disables
+// the rule-level limit.
+func (s *defaultService) SetMaxClientIPs(n int) {
+	s.maxClientIPs.Store(int64(n))
+}
+
+// SetQuotaGroup attaches this service to a node-wide quota group. Group budget
+// values use -1 for unlimited and 0 for full.
+func (s *defaultService) SetQuotaGroup(group string, maxConnections, maxClientIPs int) {
+	s.quotaGroup = attachQuotaGroup(group, maxConnections, maxClientIPs)
 }
 
 // CurrentConns returns the current number of active connections.
 func (s *defaultService) CurrentConns() int {
 	return int(s.conns.Load())
+}
+
+func (s *defaultService) acquireConnection(clientIP string) (release func(), reason string, limit int, ok bool) {
+	maxConns := int(s.maxConns.Load())
+	maxClientIPs := int(s.maxClientIPs.Load())
+	group := s.quotaGroup
+	if maxConns <= 0 && maxClientIPs <= 0 && group == nil {
+		s.conns.Add(1)
+		return func() { s.conns.Add(-1) }, "", 0, true
+	}
+
+	s.quotaMu.Lock()
+	if maxConns > 0 && int(s.conns.Load()) >= maxConns {
+		s.quotaMu.Unlock()
+		return nil, "rule connections", maxConns, false
+	}
+	if maxClientIPs > 0 && s.clientIPs[clientIP] == 0 && len(s.clientIPs) >= maxClientIPs {
+		s.quotaMu.Unlock()
+		return nil, "rule client IPs", maxClientIPs, false
+	}
+	if reason, limit, ok := group.acquire(clientIP); !ok {
+		s.quotaMu.Unlock()
+		return nil, reason, limit, false
+	}
+	if maxClientIPs > 0 {
+		if s.clientIPs == nil {
+			s.clientIPs = make(map[string]int)
+		}
+		s.clientIPs[clientIP]++
+	}
+	s.conns.Add(1)
+	s.quotaMu.Unlock()
+
+	return func() {
+		s.quotaMu.Lock()
+		if maxClientIPs > 0 {
+			if count := s.clientIPs[clientIP]; count <= 1 {
+				delete(s.clientIPs, clientIP)
+			} else {
+				s.clientIPs[clientIP] = count - 1
+			}
+		}
+		s.conns.Add(-1)
+		group.release(clientIP)
+		s.quotaMu.Unlock()
+	}, "", 0, true
 }
 
 func (s *defaultService) wrapProtocolDetection(conn net.Conn) net.Conn {
@@ -327,19 +390,18 @@ func (s *defaultService) Serve() error {
 			continue
 		}
 
-		if s.maxConns > 0 && int(s.conns.Load()) >= s.maxConns {
+		releaseQuota, quotaReason, quotaLimit, admitted := s.acquireConnection(clientIP)
+		if !admitted {
 			conn.Close()
-			log.Debugf("max connections reached (%d), rejecting %s", s.maxConns, clientAddr)
+			log.Debugf("%s reached (%d), rejecting %s", quotaReason, quotaLimit, clientAddr)
 			continue
 		}
-
-		s.conns.Add(1)
 
 		wg.Add(1)
 
 		go func() {
 			defer wg.Done()
-			defer s.conns.Add(-1)
+			defer releaseQuota()
 
 			if v := xmetrics.GetCounter(xmetrics.MetricServiceRequestsCounter,
 				metrics.Labels{"service": s.name, "client": clientIP}); v != nil {
@@ -389,6 +451,7 @@ func (s *defaultService) Close() error {
 	if closer, ok := s.handler.(io.Closer); ok {
 		closer.Close()
 	}
+	s.quotaDetachOnce.Do(func() { detachQuotaGroup(s.quotaGroup) })
 	return s.listener.Close()
 }
 

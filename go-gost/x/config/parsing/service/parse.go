@@ -416,25 +416,40 @@ func ParseService(cfg *config.ServiceConfig) (service.Service, error) {
 		))
 	}
 	s := xservice.NewService(cfg.Name, ln, h, serviceOptions...)
-
-	// 设置连接数限制
-	if cfg.Metadata != nil {
-		if mc, ok := cfg.Metadata["maxConnections"]; ok {
-			switch v := mc.(type) {
-			case float64:
-				if ds, ok := s.(interface{ SetMaxConns(int) }); ok {
-					ds.SetMaxConns(int(v))
-				}
-			case int:
-				if ds, ok := s.(interface{ SetMaxConns(int) }); ok {
-					ds.SetMaxConns(v)
-				}
-			}
-		}
-	}
+	applyQuotaMetadata(s, cfg.Metadata)
 
 	serviceLogger.Infof("listening on %s/%s", s.Addr().String(), s.Addr().Network())
 	return s, nil
+}
+
+func applyQuotaMetadata(target any, raw map[string]any) {
+	if target == nil || raw == nil {
+		return
+	}
+	md := metadata.NewMetadata(raw)
+	if setter, ok := target.(interface{ SetMaxConns(int) }); ok {
+		setter.SetMaxConns(int(mdutil.GetFloat(md, parsing.MDKeyMaxConnections)))
+	}
+	if setter, ok := target.(interface{ SetMaxClientIPs(int) }); ok {
+		setter.SetMaxClientIPs(int(mdutil.GetFloat(md, parsing.MDKeyMaxClientIPs)))
+	}
+	if setter, ok := target.(interface {
+		SetQuotaGroup(string, int, int)
+	}); ok {
+		maxConnections := xservice.UnlimitedQuota
+		if md.IsExists(parsing.MDKeyGroupMaxConnections) {
+			maxConnections = int(mdutil.GetFloat(md, parsing.MDKeyGroupMaxConnections))
+		}
+		maxClientIPs := xservice.UnlimitedQuota
+		if md.IsExists(parsing.MDKeyGroupMaxClientIPs) {
+			maxClientIPs = int(mdutil.GetFloat(md, parsing.MDKeyGroupMaxClientIPs))
+		}
+		setter.SetQuotaGroup(
+			mdutil.GetString(md, parsing.MDKeyQuotaGroup),
+			maxConnections,
+			maxClientIPs,
+		)
+	}
 }
 
 func parseForwarder(cfg *config.ForwarderConfig, log logger.Logger) (hop.Hop, error) {
