@@ -9,7 +9,8 @@
 - [x] 添加契约测试：13 路由普通用户 403、写请求数据库不变；管理员读取及兑换码/折扣码/支付配置写入成功，并提交。
 - [x] 完成后端 build、受影响包 vet、完整 go test；与上一轮 19 个失败项比较，新增失败为零。
 - [ ] 推送分支并确认 CI Build Check 成功；创建并推送 annotated tag `3.0.27-fork.17`；确认 Build and Push Images 成功及发布资产校验。
-- [ ] 创建生产回滚目录、compose/.env 副本、SQLite 在线备份与校验、镜像本地标签及回滚说明；安装 v6 发布资产并升级面板。
+- [x] 创建生产回滚目录、compose/.env 副本、SQLite 在线备份与校验、镜像本地标签及回滚说明。
+- [ ] 安装校验后的 v6 发布资产、更新 FLUX_VERSION 并升级面板。
 - [ ] 只读验证生产健康、所有升级前在线节点指标推进、管理员 4 路由成功及普通用户 6 读取路由 403。
 - [ ] 写中文总结 `/root/flvx-workers/runs/remove-license-r2/summary.md`，完成本计划、提交 `docs(plan): mark fork17 rollout complete` 并推送。
 
@@ -25,3 +26,5 @@
 ## 回滚原则
 
 升级前保存 `/opt/flvx-svc/rollback/pre-fork17-<UTC TS>/`。正常回滚恢复 compose/.env 并拉取 `ghcr.io/imolr/flvxr2-svc-{backend,frontend}:3.0.27-fork.16` 后重建对应容器；无 schema 变更，不恢复数据库以免丢失升级后的正常数据。
+
+- 生产回滚点 `/opt/flvx-svc/rollback/pre-fork17-20261004T123236Z/` 已建立：compose/.env 副本、`gost.db.validated` 在线备份（quick_check=ok）、62 张表行数及 schema、两个当前 fork.16 镜像的本地标签与 `ROLLBACK-METADATA.md`。备份时 22 个节点在线；生产容器仍为 fork.16。
