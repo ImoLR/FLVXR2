@@ -725,7 +725,7 @@ export default function AdminLayout({
           </ul>
         </nav>
 
-        {/* 底部版权信息和授权状态 */}
+        {/* 底部版权信息 */}
         <div className="px-5 py-2 pb-4 mt-auto flex-shrink-0 overflow-hidden whitespace-nowrap box-border">
           <div className="flex items-center gap-2">
             {!isMobile && (
