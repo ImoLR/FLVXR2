@@ -10,7 +10,7 @@
 - [x] 在生产数据库在线备份副本上完成 16365 本地冒烟与普通用户界面检查。
 - [x] 推送分支并确认 CI Build Check 成功。
 - [x] 发布注释标签 3.0.27-fork.16，确认镜像构建及发布资产、Latest 和校验和。
-- [ ] 创建生产 compose/.env/数据库/镜像回滚点并校验。
+- [x] 创建生产 compose/.env/数据库/镜像回滚点并校验。
 - [ ] 升级生产 backend/frontend，验证健康、节点上报、API 与前端授权清理。
 - [ ] 写中文总结，提交发布完成计划并推送。
 
@@ -33,3 +33,5 @@
 - CI Build Check [37200006153](https://github.com/ImoLR/FLVXR2/actions/runs/37200006153) 四项全部成功；注释标签 `3.0.27-fork.16` 指向通过验证的 `ae3920d6`，已推送。
 
 - [Build and Push Images 37200161525](https://github.com/ImoLR/FLVXR2/actions/runs/37200161525) 成功；Release 为非预发布且 Latest。10 项资产与 fork.15 一致，v4/v6 compose 镜像均固定 fork.16，两份脚本 PINNED_VERSION/REPO 正确，amd64/arm64 gost SHA256 均通过。
+
+- 生产回滚点 `/opt/flvx-svc/rollback/pre-fork16-20261004T121135Z/`：compose、.env、SQLite 在线备份 `gost.db.validated`，quick_check=ok，62 张表行数与 schema 已记录。保留 fork.15 两个本地镜像标签及 ROLLBACK-METADATA.md。
