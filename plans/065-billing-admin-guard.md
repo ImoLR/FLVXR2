@@ -12,7 +12,7 @@
 - [x] 创建生产回滚目录、compose/.env 副本、SQLite 在线备份与校验、镜像本地标签及回滚说明。
 - [x] 安装校验后的 v6 发布资产、更新 FLUX_VERSION 并升级面板。
 - [x] 只读验证生产健康、所有升级前在线节点指标推进、管理员 4 路由成功及普通用户 6 读取路由 403。
-- [ ] 写中文总结 `/root/flvx-workers/runs/remove-license-r2/summary.md`，完成本计划、提交 `docs(plan): mark fork17 rollout complete` 并推送。
+- [x] 写中文总结 `/root/flvx-workers/runs/remove-license-r2/summary.md`，完成本计划、提交 `docs(plan): mark fork17 rollout complete` 并推送。
 
 ## 验证与发布记录
 
@@ -32,3 +32,4 @@
 - 生产回滚点 `/opt/flvx-svc/rollback/pre-fork17-20261004T123236Z/` 已建立：compose/.env 副本、`gost.db.validated` 在线备份（quick_check=ok）、62 张表行数及 schema、两个当前 fork.16 镜像的本地标签与 `ROLLBACK-METADATA.md`。备份时 22 个节点在线；生产容器仍为 fork.16。
 - 生产已安装校验后的 v6 compose（与旧文件仅镜像版本不同），`.env` 仅替换 FLUX_VERSION 为 fork.17；升级前再次确认 22 个在线节点基线未变。仅执行 `docker compose pull backend frontend && docker compose up -d backend frontend`，两个面板容器重建成功。
 - 2026-10-04 12:38 UTC 完成升级，12:38:51 UTC 只读验证通过：backend healthy、frontend HTTP 200；22 个原在线节点均有重启后的新指标。管理员指定 4 路由 code=0；使用现有用户 ID 3 / role_id=1 在内存签发的 JWT，指定 6 个管理读取路由均 code=403（API envelope，HTTP 200）。未调用任何生产写接口、未变更用户密码或资料，schema 与备份完全一致。证据：运行目录 `production-verification.json`。
+- 中文总结已写入 `/root/flvx-workers/runs/remove-license-r2/summary.md`，包含文件改动、测试对比、发布/CI、备份/回滚、生产验证、破坏性操作及撤销方法、用户检查和未实施建议。
