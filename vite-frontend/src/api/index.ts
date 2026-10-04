@@ -757,57 +757,6 @@ export const getAnnouncement = () =>
 export const updateAnnouncement = (data: AnnouncementData) =>
   Network.post("/announcement/update", data);
 
-// License API
-export interface LicenseInfo {
-  valid: boolean;
-  expire_time?: number;
-  reason?: string;
-  configured: boolean;
-  has_license_key: boolean;
-  license_key: string;
-  domain: string;
-  tier?: "free" | "premium" | "blocked";
-  hmac_key?: string;
-  is_trial?: boolean;
-  trial_remaining_days?: number;
-  commercial_profile?: "evaluation" | "personal" | "business" | "enterprise" | "channel";
-  billing_allowed?: boolean;
-  commercial_allowed?: boolean;
-  multi_tenant_allowed?: boolean;
-  white_label_allowed?: boolean;
-  resale_allowed?: boolean;
-  entitlements?: {
-    personal_use_only: boolean;
-    commercial_allowed: boolean;
-    resale_allowed: boolean;
-    multi_tenant_allowed: boolean;
-    white_label_allowed: boolean;
-    api_access_allowed: boolean;
-    billing_allowed: boolean;
-    deployment_scope: string;
-    support_level: string;
-    team_size_limit: number;
-  };
-}
-
-export const getLicenseInfo = () => Network.post<LicenseInfo>("/license/info");
-export const updateLicenseConfig = (
-  licenseKey: string,
-  domain: string,
-  hmacKey?: string,
-  actualDomain?: string,
-  actualProtocol?: string,
-) =>
-  Network.post("/license/config", {
-    license_key: licenseKey,
-    domain,
-    hmac_key: hmacKey,
-    actual_domain: actualDomain,
-    actual_protocol: actualProtocol,
-  });
-export const transferLicense = (newDomain: string) =>
-  Network.post("/license/transfer", { new_domain: newDomain });
-
 export const getNodeMetrics = (
   nodeId: number,
   start?: number,

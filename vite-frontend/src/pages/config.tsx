@@ -13,23 +13,12 @@ import { Divider } from "@/shadcn-bridge/heroui/divider";
 import { Switch } from "@/shadcn-bridge/heroui/switch";
 import { Select, SelectItem } from "@/shadcn-bridge/heroui/select";
 import {
-  Modal,
-  ModalContent,
-  ModalHeader,
-  ModalBody,
-  ModalFooter,
-} from "@/shadcn-bridge/heroui/modal";
-import {
   updateConfigs,
   exportBackup,
   importBackup,
   getAnnouncement,
   updateAnnouncement,
   type AnnouncementData,
-  getLicenseInfo,
-  updateLicenseConfig,
-  transferLicense,
-  type LicenseInfo,
   setStoreStatus,
 } from "@/api";
 // 主题设置暂时放在这里，后续可以独立成一个页面或者组件
@@ -120,8 +109,7 @@ const CONFIG_ITEMS: ConfigItem[] = [
   {
     key: "global_app_bg_image",
     label: "全局页面背景",
-    description:
-      "全局默认背景，需要商业授权才能修改；未设置个人背景的账号会使用它。",
+    description: "全局默认背景，未设置个人背景的账号会使用它。",
     type: "input",
   },
   /* 暂时隐藏精简模式开关
@@ -261,33 +249,9 @@ export default function ConfigPage() {
     Partial<Record<BrandPreviewKey, boolean>>
   >({});
   const [exportMode, setExportMode] = useState<"core" | "full">("core");
-  const [licenseKey, setLicenseKey] = useState("");
-  const [licenseDomain, setLicenseDomain] = useState("");
-  const [hmacKey, setHmacKey] = useState("");
-  const [licenseSaving, setLicenseSaving] = useState(false);
-  const [licenseStatus, setLicenseStatus] = useState<LicenseInfo | null>(null);
   const [poweredBadgeVisible, setPoweredBadgeVisible] = useState(
     () => localStorage.getItem(POWERED_BADGE_VISIBILITY_KEY) !== "false",
   );
-  const [transferDomain, setTransferDomain] = useState("");
-  const [transferConfirmOpen, setTransferConfirmOpen] = useState(false);
-  const commercialAuthorized =
-    licenseStatus?.has_license_key === true &&
-    licenseStatus?.valid === true &&
-    licenseStatus?.tier !== "blocked";
-  const isCommercialConfigKey = (key: string) =>
-    [
-      "app_name",
-      "app_logo",
-      "app_favicon",
-      "global_app_bg_image",
-      "payment_enabled",
-      "registration_enabled",
-      "login_monitor_link",
-    ].includes(key);
-  const commercialDisabledTitle = commercialAuthorized
-    ? undefined
-    : "该功能需要商业授权";
 
   // 权限检查
   useEffect(() => {
@@ -338,122 +302,15 @@ export default function ConfigPage() {
     const timer = setTimeout(() => {
       loadConfigs(initialConfigs);
       loadAnnouncement();
-      loadLicenseInfo();
     }, 100);
 
     return () => clearTimeout(timer);
   }, []);
-  const loadLicenseInfo = async () => {
-    try {
-      const res = await getLicenseInfo();
-
-      if (res.code === 0 && res.data) {
-        setLicenseStatus(res.data);
-        if (res.data.has_license_key) {
-          setLicenseKey(res.data.license_key || "");
-          setLicenseDomain(res.data.domain || "");
-          setHmacKey(res.data.hmac_key || "");
-        }
-      } else {
-        setLicenseKey("");
-        setLicenseDomain("");
-      }
-    } catch {}
-  };
-  const handleLicenseSave = async () => {
-    if (!licenseDomain.trim()) {
-      toast.error("面板域名不能为空");
-
-      return;
-    }
-    setLicenseSaving(true);
-    try {
-      const res = await updateLicenseConfig(
-        licenseKey.trim(),
-        licenseDomain.trim(),
-        hmacKey.trim(),
-        window.location.hostname,
-        window.location.protocol,
-      );
-
-      if (res.code === 0) {
-        toast.success("授权配置已提交，正在后台验证...");
-
-        // 关键修复：保存成功后，延迟重新加载授权信息，获取最新的 license_key
-        setTimeout(async () => {
-          await loadLicenseInfo();
-          // 如果后端更新了授权码，同步更新输入框显示
-          if (
-            licenseStatus?.license_key &&
-            licenseStatus.license_key !== licenseKey.trim()
-          ) {
-            setLicenseKey(licenseStatus.license_key);
-          }
-          // 最后刷新页面
-          setTimeout(() => window.location.reload(), 800);
-        }, 1000);
-
-        return;
-      } else {
-        toast.error("保存失败：" + res.msg);
-      }
-    } catch {
-      toast.error("保存出错，请重试");
-    } finally {
-      setLicenseSaving(false);
-    }
-  };
   const handlePoweredBadgeVisibilityChange = (checked: boolean) => {
     setPoweredBadgeVisible(checked);
     localStorage.setItem(POWERED_BADGE_VISIBILITY_KEY, String(checked));
     window.dispatchEvent(new Event(POWERED_BADGE_VISIBILITY_EVENT));
     toast.success(checked ? "Powered 标识已显示" : "Powered 标识已关闭");
-  };
-  const handleTransferLicense = () => {
-    if (!transferDomain.trim()) {
-      toast.error("请输入新域名");
-
-      return;
-    }
-    setTransferConfirmOpen(true);
-  };
-  const confirmTransferLicense = async () => {
-    if (!licenseStatus?.has_license_key) {
-      toast.error("请先配置授权");
-
-      return;
-    }
-    setTransferConfirmOpen(false);
-    setLicenseSaving(true);
-    try {
-      const res = await transferLicense(transferDomain.trim());
-
-      if (res.code === 0) {
-        toast.success("授权配置已提交，正在后台验证...");
-
-        // 关键修复：保存成功后，延迟重新加载授权信息，获取最新的 license_key
-        setTimeout(async () => {
-          await loadLicenseInfo();
-          // 如果后端更新了授权码，同步更新输入框显示
-          if (
-            licenseStatus?.license_key &&
-            licenseStatus.license_key !== licenseKey.trim()
-          ) {
-            setLicenseKey(licenseStatus.license_key);
-          }
-          // 最后刷新页面
-          setTimeout(() => window.location.reload(), 800);
-        }, 1000);
-
-        return;
-      } else {
-        toast.error("保存失败：" + res.msg);
-      }
-    } catch {
-      toast.error("转让出错，请重试");
-    } finally {
-      setLicenseSaving(false);
-    }
   };
   const loadAnnouncement = async () => {
     setAnnouncementLoading(true);
@@ -503,11 +360,6 @@ export default function ConfigPage() {
   };
   // 快捷开关直接生效（不经过保存按钮）
   const handleDirectSwitchChange = async (key: string, checked: boolean) => {
-    if (isCommercialConfigKey(key) && !commercialAuthorized) {
-      toast.error("该功能需要商业授权");
-
-      return;
-    }
     const newValue = checked ? "true" : "false";
 
     const payload: Record<string, string> = { [key]: newValue };
@@ -573,15 +425,6 @@ export default function ConfigPage() {
 
       if (changedKeys.length === 0) {
         setHasChanges(false);
-
-        return;
-      }
-      if (
-        changedKeys.some((key) => isCommercialConfigKey(key)) &&
-        !commercialAuthorized
-      ) {
-        toast.error("站点品牌、商城、注册与探针入口需要商业授权");
-        setSaving(false);
 
         return;
       }
@@ -709,27 +552,13 @@ export default function ConfigPage() {
 
     return backgroundFileInputRef;
   };
-  const isGlobalBrandAssetKey = (key: BrandPreviewKey) =>
-    key === "app_logo" ||
-    key === "app_favicon" ||
-    key === "global_app_bg_image";
   const triggerBrandFilePicker = (key: BrandPreviewKey) => {
-    if (isGlobalBrandAssetKey(key) && !commercialAuthorized) {
-      toast.error("该品牌设置需要商业授权");
-
-      return;
-    }
     if (brandUploading[key]) {
       return;
     }
     getBrandInputRef(key).current?.click();
   };
   const clearBrandAsset = (key: BrandPreviewKey) => {
-    if (isGlobalBrandAssetKey(key) && !commercialAuthorized) {
-      toast.error("该品牌设置需要商业授权");
-
-      return;
-    }
     handleConfigChange(key, "");
     setPreviewLoadFailed((prev) => ({ ...prev, [key]: false }));
   };
@@ -737,12 +566,6 @@ export default function ConfigPage() {
     key: BrandPreviewKey,
     event: React.ChangeEvent<HTMLInputElement>,
   ) => {
-    if (isGlobalBrandAssetKey(key) && !commercialAuthorized) {
-      toast.error("该品牌设置需要商业授权");
-      event.target.value = "";
-
-      return;
-    }
     const file = event.target.files?.[0];
 
     if (!file) {
@@ -885,11 +708,10 @@ export default function ConfigPage() {
     const isLogo = key === "app_logo";
     const isBackground =
       key === "app_bg_image" || key === "global_app_bg_image";
-    const disabled = isGlobalBrandAssetKey(key) && !commercialAuthorized;
 
     return (
       <div
-        className={`rounded-lg border p-3 ${disabled ? "opacity-55 grayscale" : ""} ${
+        className={`rounded-lg border p-3 ${
           isChanged
             ? "border-warning-300"
             : "border-default-200 dark:border-default-100/30"
@@ -907,10 +729,8 @@ export default function ConfigPage() {
         <div className="flex flex-wrap items-center gap-2">
           <Button
             color="primary"
-            isDisabled={disabled}
             isLoading={uploading}
             size="sm"
-            title={commercialDisabledTitle}
             variant="flat"
             onPress={() => triggerBrandFilePicker(key)}
           >
@@ -927,9 +747,8 @@ export default function ConfigPage() {
                   : "上传 Favicon"}
           </Button>
           <Button
-            isDisabled={disabled || value.length === 0 || uploading}
+            isDisabled={value.length === 0 || uploading}
             size="sm"
-            title={commercialDisabledTitle}
             variant="flat"
             onPress={() => clearBrandAsset(key)}
           >
@@ -954,8 +773,6 @@ export default function ConfigPage() {
   const renderConfigItem = (item: ConfigItem) => {
     const isChanged =
       hasChanges && configs[item.key] !== originalConfigs[item.key];
-    const commercialLocked =
-      isCommercialConfigKey(item.key) && !commercialAuthorized;
 
     switch (item.type) {
       case "input":
@@ -1011,10 +828,8 @@ export default function ConfigPage() {
                 ? "border-warning-300 data-[hover=true]:border-warning-400"
                 : "",
             }}
-            isDisabled={commercialLocked}
             placeholder={item.placeholder}
             size="md"
-            title={commercialLocked ? commercialDisabledTitle : undefined}
             value={configs[item.key] || ""}
             variant="bordered"
             onChange={(e) => handleConfigChange(item.key, e.target.value)}
@@ -1028,10 +843,8 @@ export default function ConfigPage() {
                 wrapper: isChanged ? "border-warning-300" : "",
               }}
               color="primary"
-              isDisabled={commercialLocked}
               isSelected={configs[item.key] === "true"}
               size="md"
-              title={commercialLocked ? commercialDisabledTitle : undefined}
               onValueChange={(checked) =>
                 handleConfigChange(item.key, checked ? "true" : "false")
               }
@@ -1049,10 +862,8 @@ export default function ConfigPage() {
               wrapper: isChanged ? "border-warning-300" : "",
             }}
             color="primary"
-            isDisabled={commercialLocked}
             isSelected={configs[item.key] === "true"}
             size="md"
-            title={commercialLocked ? commercialDisabledTitle : undefined}
             onValueChange={(checked) =>
               handleConfigChange(item.key, checked ? "true" : "false")
             }
@@ -1294,11 +1105,7 @@ export default function ConfigPage() {
               ).map((item) => (
                 <div
                   key={item.key}
-                  className={`flex justify-between items-center py-1 ${
-                    isCommercialConfigKey(item.key) && !commercialAuthorized
-                      ? "opacity-50 grayscale"
-                      : ""
-                  }`}
+                  className="flex justify-between items-center py-1"
                 >
                   <div className="flex flex-col">
                     <span className="text-sm font-semibold text-gray-700 dark:text-gray-300">
@@ -1311,16 +1118,8 @@ export default function ConfigPage() {
                   <div className="flex-shrink-0">
                     <Switch
                       color="primary"
-                      isDisabled={
-                        isCommercialConfigKey(item.key) && !commercialAuthorized
-                      }
                       isSelected={configs[item.key] === "true"}
                       size="sm"
-                      title={
-                        isCommercialConfigKey(item.key) && !commercialAuthorized
-                          ? commercialDisabledTitle
-                          : undefined
-                      }
                       onValueChange={(checked) =>
                         handleDirectSwitchChange(item.key, checked)
                       }
@@ -1328,12 +1127,34 @@ export default function ConfigPage() {
                   </div>
                 </div>
               ))}
+              <div className="flex justify-between items-center py-1 gap-4">
+                <div className="flex flex-col">
+                  <span className="text-sm font-semibold text-gray-700 dark:text-gray-300">
+                    底部 Powered 标识
+                  </span>
+                  <span className="text-xs text-gray-400 dark:text-gray-500">
+                    显示整页底部居中的 Powered by FLVX 浮窗
+                  </span>
+                </div>
+                <div className="flex-shrink-0">
+                  <Switch
+                    color="primary"
+                    isSelected={poweredBadgeVisible}
+                    size="sm"
+                    onValueChange={handlePoweredBadgeVisibilityChange}
+                  >
+                    <span className="text-sm text-gray-700 dark:text-gray-300">
+                      {poweredBadgeVisible ? "显示" : "关闭"}
+                    </span>
+                  </Switch>
+                </div>
+              </div>
             </div>
           </CardBody>
         </Card>
       </div>
 
-      {/* 右栏：公告管理、导出数据、授权码配置 */}
+      {/* 右栏：公告管理、导出数据 */}
       <div className="space-y-6">
         <Card className="shadow-md dark:bg-content1">
           <CardHeader className="pb-6">
@@ -1504,196 +1325,6 @@ export default function ConfigPage() {
             </div>
           </CardBody>
         </Card>
-
-        {/* 授权配置 */}
-        <Card className="shadow-md dark:bg-content1">
-          <CardHeader className="pb-6">
-            <div className="flex justify-between items-center w-full gap-4">
-              <div>
-                <h2 className="text-xl font-semibold">授权配置</h2>
-                <p className="text-sm text-gray-600 dark:text-gray-400">
-                  输入域名和授权码激活商业授权服务。基础版不限制节点和转发规模，授权控制的是商城、支付与分发能力
-                </p>
-              </div>
-            </div>
-          </CardHeader>
-          <Divider />
-          <CardBody className="space-y-6 pt-8 md:pt-8">
-            <div className="space-y-5">
-              <div className="space-y-3">
-                <label className="text-sm font-semibold text-gray-700 dark:text-gray-300">
-                  面板域名
-                </label>
-                <Input
-                  classNames={{ input: "text-sm" }}
-                  placeholder="自己的面板域名"
-                  size="md"
-                  value={licenseDomain}
-                  variant="bordered"
-                  onChange={(e) => setLicenseDomain(e.target.value)}
-                />
-              </div>
-              <div className="space-y-3">
-                <label className="text-sm font-semibold text-gray-700 dark:text-gray-300">
-                  授权码
-                </label>
-                <Input
-                  classNames={{ input: "text-sm" }}
-                  placeholder="留空自动生成 7 天评估授权"
-                  size="md"
-                  value={licenseKey}
-                  variant="bordered"
-                  onChange={(e) => setLicenseKey(e.target.value)}
-                />
-              </div>
-              <div className="space-y-3">
-                <label className="text-sm font-semibold text-gray-700 dark:text-gray-300">
-                  flvx密钥
-                </label>
-                <Input
-                  classNames={{ input: "text-sm" }}
-                  placeholder="联系管理员获取（flvx_ 开头）"
-                  size="md"
-                  value={hmacKey}
-                  variant="bordered"
-                  onChange={(e) => setHmacKey(e.target.value)}
-                />
-                <p className="text-xs text-gray-400">
-                  管理员没主动要求就不用填，保存自动返回默认值
-                </p>
-              </div>
-            </div>
-            {commercialAuthorized && (
-              <div className="flex items-center justify-between gap-4 rounded-2xl border border-divider/60 bg-default-50/60 px-4 py-3">
-                <div>
-                  <p className="text-sm font-semibold text-gray-700 dark:text-gray-300">
-                    底部 Powered 标识
-                  </p>
-                  <p className="text-xs text-gray-500 dark:text-gray-400">
-                    商业授权版可关闭整页底部居中的 Powered by FLVX 浮窗
-                  </p>
-                </div>
-                <Switch
-                  color="primary"
-                  isSelected={poweredBadgeVisible}
-                  size="md"
-                  onValueChange={handlePoweredBadgeVisibilityChange}
-                >
-                  <span className="text-sm text-gray-700 dark:text-gray-300">
-                    {poweredBadgeVisible ? "显示" : "关闭"}
-                  </span>
-                </Switch>
-              </div>
-            )}
-            <div className="flex justify-between items-center pt-4 border-t border-divider/50">
-              <div className="flex items-center gap-2">
-                {licenseStatus && (
-                  <span
-                    className={`text-xs font-medium ${licenseStatus.tier === "premium" ? "text-green-600" : licenseStatus.tier === "blocked" ? "text-red-600" : "text-yellow-600"}`}
-                  >
-                    {licenseStatus.is_trial && licenseStatus.valid
-                      ? `体验版，剩余 ${licenseStatus.trial_remaining_days} 天`
-                      : licenseStatus.tier === "premium"
-                        ? `商业授权已启用，剩余 ${licenseStatus.expire_time ? Math.floor((licenseStatus.expire_time - Date.now()) / 86400000) : "？"} 天`
-                        : licenseStatus.tier === "blocked"
-                          ? `授权已阻断：${licenseStatus.reason || "未知原因"}`
-                          : "基础版（资源不限，商业结算与分发能力未授权）"}
-                  </span>
-                )}
-              </div>
-              <Button
-                color="primary"
-                isLoading={licenseSaving}
-                size="sm"
-                onPress={handleLicenseSave}
-              >
-                {licenseSaving ? "保存中" : "保存验证"}
-              </Button>
-            </div>
-          </CardBody>
-        </Card>
-
-        {/* 授权转让 */}
-        {licenseStatus?.valid &&
-          licenseStatus?.has_license_key &&
-          !licenseStatus?.is_trial && (
-            <Card className="shadow-md dark:bg-content1">
-              <CardHeader className="pb-6">
-                <div className="flex justify-between items-center w-full gap-4">
-                  <div>
-                    <h2 className="text-xl font-semibold">授权转让</h2>
-                    <p className="text-sm text-gray-600 dark:text-gray-400">
-                      转让授权到新域名，旧域名将立即失效
-                    </p>
-                  </div>
-                </div>
-              </CardHeader>
-              <Divider />
-              <CardBody className="space-y-6 pt-8 md:pt-8">
-                <div className="space-y-3">
-                  <label className="text-sm font-semibold text-gray-700 dark:text-gray-300">
-                    新域名
-                  </label>
-                  <Input
-                    classNames={{ input: "text-sm" }}
-                    placeholder="请输入转让后的新面板域名"
-                    size="md"
-                    value={transferDomain}
-                    variant="bordered"
-                    onChange={(e) => setTransferDomain(e.target.value)}
-                  />
-                  <p className="text-xs text-gray-400">
-                    转让后旧域名授权立即失效，每 3 天可转让一次
-                  </p>
-                </div>
-                <div className="text-gray-400 flex justify-end pt-4 border-t border-divider/50">
-                  <Button
-                    color="primary"
-                    isLoading={licenseSaving}
-                    size="sm"
-                    onPress={handleTransferLicense}
-                  >
-                    开始转让
-                  </Button>
-                </div>
-              </CardBody>
-            </Card>
-          )}
-        <Modal
-          isOpen={transferConfirmOpen}
-          onClose={() => setTransferConfirmOpen(false)}
-        >
-          <ModalContent>
-            <ModalHeader>确认转让授权</ModalHeader>
-            <ModalBody>
-              <p className="text-sm">
-                确认要转让授权到{" "}
-                <span className="font-semibold text-primary">
-                  {transferDomain}
-                </span>{" "}
-                吗？
-              </p>
-              <p className="text-xs text-danger mt-2">
-                转让后旧域名授权将立即失效，请认真核对域名
-              </p>
-            </ModalBody>
-            <ModalFooter>
-              <Button
-                color="default"
-                onPress={() => setTransferConfirmOpen(false)}
-              >
-                取消
-              </Button>
-              <Button
-                color="primary"
-                isLoading={licenseSaving}
-                onPress={confirmTransferLicense}
-              >
-                确认
-              </Button>
-            </ModalFooter>
-          </ModalContent>
-        </Modal>
       </div>
     </div>
   );

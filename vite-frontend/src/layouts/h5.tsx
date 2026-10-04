@@ -21,7 +21,6 @@ import { Input } from "@/shadcn-bridge/heroui/input";
 import { BrandLogo } from "@/components/brand-logo";
 import { SunFilledIcon, MoonFilledIcon } from "@/components/icons";
 import {
-  getLicenseInfo,
   getMonitorAccess,
   updatePassword,
   getStoreStatus,
@@ -70,15 +69,6 @@ export default function H5Layout({ children }: { children: React.ReactNode }) {
     () => localStorage.getItem(POWERED_BADGE_VISIBILITY_KEY) !== "false",
   );
   const restricted = isRestricted();
-  const [licenseInfo, setLicenseInfo] = useState<null | {
-    valid: boolean;
-    configured: boolean;
-    has_license_key: boolean;
-    reason?: string;
-    expire_time?: number;
-    tier?: string;
-  }>(null);
-
   const [passwordLoading, setPasswordLoading] = useState(false);
   const [passwordForm, setPasswordForm] = useState<PasswordForm>({
     newUsername: "",
@@ -315,17 +305,6 @@ export default function H5Layout({ children }: { children: React.ReactNode }) {
     setIsAdmin(getAdminFlag());
     setUsername(getSessionName() || "Admin");
 
-    const fetchLicense = () => {
-      getLicenseInfo().then((res) => {
-        if (res.code === 0) {
-          setLicenseInfo(res.data);
-        }
-      });
-    };
-
-    fetchLicense();
-    const licenseInterval = setInterval(fetchLicense, 5 * 60 * 1000);
-
     getStoreStatus()
       .then((res) => {
         if (res.code === 0 && res.data) {
@@ -375,7 +354,6 @@ export default function H5Layout({ children }: { children: React.ReactNode }) {
     }
 
     return () => {
-      clearInterval(licenseInterval);
       window.removeEventListener("paymentEnabledChanged", handlePaymentChange);
       window.removeEventListener("configUpdated", handleConfigUpdate);
       window.removeEventListener(
@@ -539,45 +517,9 @@ export default function H5Layout({ children }: { children: React.ReactNode }) {
   const bottomNavItems = primaryMobilePaths
     .map((path) => filteredMenuItems.find((item) => item.path === path))
     .filter(Boolean) as MenuItem[];
-  const showLicenseBanner = Boolean(isAdmin && licenseInfo);
-  const licenseBannerTone =
-    licenseInfo?.tier === "blocked" ||
-    (licenseInfo?.configured && !licenseInfo?.valid)
-      ? "danger"
-      : licenseInfo?.valid && licenseInfo?.tier !== "free"
-        ? "success"
-        : "warning";
-  const licenseBannerText = (() => {
-    if (!licenseInfo) return "";
-    if (
-      licenseInfo.tier === "free" ||
-      (!licenseInfo.has_license_key && !licenseInfo.tier)
-    ) {
-      return "基础授权：节点、隧道、端口与转发数量不受限制，商业结算与分发能力需单独授权";
-    }
-    if (licenseInfo.tier === "blocked") {
-      return licenseInfo.reason || "授权无效";
-    }
-    if (licenseInfo.configured && licenseInfo.valid) {
-      const daysLeft = licenseInfo.expire_time
-        ? Math.max(
-            0,
-            Math.floor(
-              (licenseInfo.expire_time - Date.now()) / (1000 * 60 * 60 * 24),
-            ),
-          )
-        : 0;
-
-      return `授权剩余 ${daysLeft} 天${daysLeft < 5 ? "，即将过期" : ""}`;
-    }
-
-    return licenseInfo.reason || "授权无效";
-  })();
 
   return (
-    <div
-      className={`flvx-mobile-shell ${showLicenseBanner ? "flvx-mobile-has-license" : ""}`}
-    >
+    <div className="flvx-mobile-shell">
       {/* 顶部导航栏 */}
       <header className="flvx-mobile-topbar">
         <div className="flex items-center gap-2 sm:gap-3">
@@ -602,109 +544,14 @@ export default function H5Layout({ children }: { children: React.ReactNode }) {
           <div className="flex items-center gap-1.5 sm:gap-2">
             {/* 注释掉左上角 logo <BrandLogo size={20} /> */}
             <a
-              className={`flvx-h5-brand-name text-sm font-bold truncate max-w-[90px] sm:max-w-none transition-colors cursor-pointer no-underline ${
-                licenseInfo?.has_license_key
-                  ? "text-foreground hover:text-primary-600 dark:hover:text-primary-300"
-                  : "text-foreground hover:text-primary-600 dark:hover:text-primary-300"
-              }`}
-              href={
-                licenseInfo?.has_license_key
-                  ? "/dashboard"
-                  : PROJECT_REPOSITORY_URL
-              }
-              rel={
-                licenseInfo?.has_license_key ? undefined : "noopener noreferrer"
-              }
-              target={licenseInfo?.has_license_key ? undefined : "_blank"}
-              title={
-                licenseInfo?.has_license_key ? "返回首页" : "访问 GitHub 仓库"
-              }
+              className="flvx-h5-brand-name text-sm font-bold truncate max-w-[90px] sm:max-w-none transition-colors cursor-pointer no-underline text-foreground hover:text-primary-600 dark:hover:text-primary-300"
+              href="/dashboard"
+              title="返回首页"
             >
               {siteConfig.name}
             </a>
           </div>
         </div>
-
-        {/* 授权信息 (仅管理员可见) */}
-        {isAdmin && (
-          <div className="flvx-h5-license-inline flex-1 flex justify-start items-center h-full mx-2 overflow-hidden">
-            {licenseInfo &&
-            (licenseInfo.tier === "free" ||
-              (!licenseInfo.has_license_key && !licenseInfo.tier)) ? (
-              <div className="flex items-center gap-1 text-xs text-yellow-600 dark:text-yellow-400 truncate">
-                <svg
-                  className="w-4 h-4 flex-shrink-0"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                  />
-                </svg>
-                <span className="truncate">
-                  基础授权：节点、隧道、端口与转发数量不受限制，商业结算与分发能力需单独授权
-                </span>
-              </div>
-            ) : licenseInfo && licenseInfo.tier === "blocked" ? (
-              <div className="flex items-center gap-1 text-xs text-red-600 dark:text-red-400 truncate">
-                <svg
-                  className="w-4 h-4 flex-shrink-0"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                  />
-                </svg>
-                <span className="truncate font-bold">
-                  {licenseInfo.reason || "授权无效"}
-                </span>
-              </div>
-            ) : (
-              licenseInfo &&
-              licenseInfo.configured && (
-                <div className="flex items-center justify-start h-full overflow-hidden whitespace-nowrap">
-                  {licenseInfo.valid ? (
-                    (() => {
-                      const daysLeft = licenseInfo.expire_time
-                        ? Math.max(
-                            0,
-                            Math.floor(
-                              (licenseInfo.expire_time - Date.now()) /
-                                (1000 * 60 * 60 * 24),
-                            ),
-                          )
-                        : 0;
-                      const isExpiringSoon = daysLeft < 5;
-                      const textColorClass = isExpiringSoon
-                        ? "text-red-500 font-bold dark:text-red-400"
-                        : "text-green-600 dark:text-green-400";
-
-                      return (
-                        <span className={`${textColorClass} text-xs truncate`}>
-                          授权剩余 {daysLeft} 天
-                          {isExpiringSoon ? " (即将过期)" : ""}
-                        </span>
-                      );
-                    })()
-                  ) : (
-                    <span className="text-red-600 dark:text-red-400 text-xs font-bold truncate">
-                      {licenseInfo.reason || "授权无效"}
-                    </span>
-                  )}
-                </div>
-              )
-            )}
-          </div>
-        )}
 
         {/* 顶部右侧 - 用户名下拉菜单 */}
         <div className="flex items-center gap-1">
@@ -870,29 +717,6 @@ export default function H5Layout({ children }: { children: React.ReactNode }) {
         id="h5-main"
       >
         <GlobalPullToRefresh />
-        {showLicenseBanner && (
-          <button
-            className={`flvx-h5-license-banner flvx-mobile-license-banner flvx-h5-license-banner-${licenseBannerTone}`}
-            title={licenseBannerText}
-            type="button"
-          >
-            <svg
-              aria-hidden="true"
-              className="h-4 w-4 flex-shrink-0"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-              />
-            </svg>
-            <span>{licenseBannerText}</span>
-          </button>
-        )}
         {children}
       </main>
 
@@ -931,7 +755,7 @@ export default function H5Layout({ children }: { children: React.ReactNode }) {
         </button>
       </nav>
 
-      {(!licenseInfo?.has_license_key || poweredBadgeVisible) && (
+      {poweredBadgeVisible && (
         <div className="flvx-powered-badge" aria-label="Powered by FLVX">
           Powered by{" "}
           <a href={PROJECT_REPOSITORY_URL} rel="noopener noreferrer" target="_blank">
