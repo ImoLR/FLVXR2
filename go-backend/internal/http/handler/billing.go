@@ -12,6 +12,9 @@ import (
 // ─── RedeemCode ──────────────────────────────────────────────────────
 
 func (h *Handler) createRedeemCodes(w http.ResponseWriter, r *http.Request) {
+	if !h.ensureAdminAccess(w, r) {
+		return
+	}
 	var req struct {
 		Type         string `json:"type"` // plan / balance
 		Code         string `json:"code"`
@@ -61,6 +64,9 @@ func (h *Handler) createRedeemCodes(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) listRedeemCodes(w http.ResponseWriter, r *http.Request) {
+	if !h.ensureAdminAccess(w, r) {
+		return
+	}
 	list, err := h.repo.ListRedeemCodes()
 	if err != nil {
 		response.WriteJSON(w, response.Err(-2, err.Error()))
@@ -73,6 +79,9 @@ func (h *Handler) listRedeemCodes(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) deleteRedeemCode(w http.ResponseWriter, r *http.Request) {
+	if !h.ensureAdminAccess(w, r) {
+		return
+	}
 	id := idFromBody(r, w)
 	if id <= 0 {
 		return
@@ -87,6 +96,9 @@ func (h *Handler) deleteRedeemCode(w http.ResponseWriter, r *http.Request) {
 // ─── DiscountCode ────────────────────────────────────────────────────
 
 func (h *Handler) createDiscountCode(w http.ResponseWriter, r *http.Request) {
+	if !h.ensureAdminAccess(w, r) {
+		return
+	}
 	var req struct {
 		Code      string  `json:"code"`
 		Type      string  `json:"type"`  // percent / amount
@@ -130,6 +142,9 @@ func (h *Handler) createDiscountCode(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) listDiscountCodes(w http.ResponseWriter, r *http.Request) {
+	if !h.ensureAdminAccess(w, r) {
+		return
+	}
 	list, err := h.repo.ListDiscountCodes()
 	if err != nil {
 		response.WriteJSON(w, response.Err(-2, err.Error()))
@@ -142,6 +157,9 @@ func (h *Handler) listDiscountCodes(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) deleteDiscountCode(w http.ResponseWriter, r *http.Request) {
+	if !h.ensureAdminAccess(w, r) {
+		return
+	}
 	id := idFromBody(r, w)
 	if id <= 0 {
 		return
@@ -156,6 +174,9 @@ func (h *Handler) deleteDiscountCode(w http.ResponseWriter, r *http.Request) {
 // ─── BalanceLog ──────────────────────────────────────────────────────
 
 func (h *Handler) listBalanceLogs(w http.ResponseWriter, r *http.Request) {
+	if !h.ensureAdminAccess(w, r) {
+		return
+	}
 	var req struct {
 		UserID int64 `json:"userId"`
 		Page   int   `json:"page"`
@@ -248,6 +269,9 @@ func (h *Handler) getBillingFeatureStatus(w http.ResponseWriter, r *http.Request
 }
 
 func (h *Handler) setBillingFeatureStatus(w http.ResponseWriter, r *http.Request) {
+	if !h.ensureAdminAccess(w, r) {
+		return
+	}
 	var req struct {
 		RedemptionEnabled *int `json:"redemptionEnabled"`
 		DiscountEnabled   *int `json:"discountEnabled"`

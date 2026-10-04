@@ -111,6 +111,9 @@ func (h *Handler) listOrders(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) listAllOrders(w http.ResponseWriter, r *http.Request) {
+	if !h.ensureAdminAccess(w, r) {
+		return
+	}
 	var req map[string]interface{}
 	if err := decodeJSON(r.Body, &req); err != nil {
 		response.WriteJSON(w, response.ErrDefault("请求参数错误"))

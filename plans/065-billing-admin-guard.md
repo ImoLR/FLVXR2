@@ -5,7 +5,7 @@
 ## 任务清单
 
 - [x] 核对工作区、AGENTS.md、发布/自主执行记忆；创建 fork.17 分支与本计划（保留未跟踪的 plans/048-*）。
-- [ ] 为 billing.go / payment.go / order.go 指定的 13 个 handler 添加管理员守卫并提交。
+- [x] 为 billing.go / payment.go / order.go 指定的 13 个 handler 添加管理员守卫并提交。
 - [ ] 添加契约测试：13 路由普通用户 403、写请求数据库不变；管理员读取及兑换码/折扣码/支付配置写入成功，并提交。
 - [ ] 完成后端 build、受影响包 vet、完整 go test；与上一轮 19 个失败项比较，新增失败为零。
 - [ ] 推送分支并确认 CI Build Check 成功；创建并推送 annotated tag `3.0.27-fork.17`；确认 Build and Push Images 成功及发布资产校验。

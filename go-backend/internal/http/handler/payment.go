@@ -12,6 +12,9 @@ import (
 )
 
 func (h *Handler) paymentStats(w http.ResponseWriter, r *http.Request) {
+	if !h.ensureAdminAccess(w, r) {
+		return
+	}
 	paidAmount, paidOrders, pendingOrders, err := h.repo.GetPaymentStats()
 	if err != nil {
 		response.WriteJSON(w, response.Err(-2, err.Error()))
@@ -25,6 +28,9 @@ func (h *Handler) paymentStats(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) listAllPaymentConfigs(w http.ResponseWriter, r *http.Request) {
+	if !h.ensureAdminAccess(w, r) {
+		return
+	}
 	list, err := h.repo.ListPaymentConfigs()
 	if err != nil {
 		response.WriteJSON(w, response.Err(-2, err.Error()))
@@ -37,6 +43,9 @@ func (h *Handler) listAllPaymentConfigs(w http.ResponseWriter, r *http.Request) 
 }
 
 func (h *Handler) deletePaymentConfig(w http.ResponseWriter, r *http.Request) {
+	if !h.ensureAdminAccess(w, r) {
+		return
+	}
 	var req map[string]interface{}
 	if err := decodeJSON(r.Body, &req); err != nil {
 		response.WriteJSON(w, response.ErrDefault("请求参数错误"))
@@ -162,6 +171,9 @@ func (h *Handler) getPaymentConfigs(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) savePaymentConfig(w http.ResponseWriter, r *http.Request) {
+	if !h.ensureAdminAccess(w, r) {
+		return
+	}
 	var req map[string]interface{}
 	if err := decodeJSON(r.Body, &req); err != nil {
 		response.WriteJSON(w, response.ErrDefault("请求参数错误"))
