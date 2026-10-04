@@ -6,7 +6,7 @@ type SubscriptionPackage struct {
 	Type                  string `gorm:"column:type;type:varchar(20);default:'subscription'" json:"type"` // subscription / traffic / balance
 	Name                  string `gorm:"column:name;type:varchar(100);not null" json:"name"`
 	Description           string `gorm:"column:description;type:varchar(500);default:''" json:"description"`
-	LicenseProfile        string `gorm:"column:license_profile;type:varchar(50);not null;default:'business'" json:"licenseProfile"`
+	LicenseProfile        string `gorm:"column:license_profile;type:varchar(50);not null;default:'business'" json:"-"`
 	Price                 int64  `gorm:"column:price;not null;default:0" json:"price"`           // 分
 	ValidityDays          int    `gorm:"column:validity_days;default:0" json:"validityDays"`     // 0=永久
 	TrafficLimit          int64  `gorm:"column:traffic_limit;default:0" json:"trafficLimit"`     // GB, 0=不限

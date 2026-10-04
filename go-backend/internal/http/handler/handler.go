@@ -363,9 +363,6 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("/api/v1/federation/node/delete", h.federationRemoteNodeDelete)
 	mux.HandleFunc("/api/v1/announcement/get", h.getAnnouncement)
 	mux.HandleFunc("/api/v1/announcement/update", h.updateAnnouncement)
-	mux.HandleFunc("/api/v1/license/info", h.licenseInfo)
-	mux.HandleFunc("/api/v1/license/config", h.licenseConfig)
-	mux.HandleFunc("/api/v1/license/transfer", h.licenseTransfer)
 
 	mux.HandleFunc("/api/v1/monitor/access", h.monitorAccessHandler)
 	mux.HandleFunc("/api/v1/monitor/public/nodes", h.monitorPublicNodeListHandler)
@@ -1241,9 +1238,6 @@ func (h *Handler) updateConfigs(w http.ResponseWriter, r *http.Request) {
 		if key == "" {
 			continue
 		}
-		if isCommercialConfigKey(key) && !h.ensureCommercialFeature(w, "billing") {
-			return
-		}
 
 		value, err := normalizeAndValidateConfigValue(key, v)
 		if err != nil {
@@ -1287,10 +1281,6 @@ func (h *Handler) updateSingleConfig(w http.ResponseWriter, r *http.Request) {
 	name := strings.TrimSpace(req.Name)
 	if name == "" {
 		response.WriteJSON(w, response.ErrDefault("配置名称不能为空"))
-		return
-	}
-
-	if isCommercialConfigKey(name) && !h.ensureCommercialFeature(w, "billing") {
 		return
 	}
 

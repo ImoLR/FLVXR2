@@ -18,16 +18,10 @@ func orderNo() string {
 }
 
 func (h *Handler) createOrder(w http.ResponseWriter, r *http.Request) {
-	if !h.ensureCommercialFeature(w, "billing") {
-		return
-	}
 	response.WriteJSON(w, response.ErrDefault("商品系统已升级，请使用套餐系统"))
 }
 
 func (h *Handler) payOrder(w http.ResponseWriter, r *http.Request) {
-	if !h.ensureCommercialFeature(w, "billing") {
-		return
-	}
 	var req map[string]interface{}
 	if err := decodeJSON(r.Body, &req); err != nil {
 		response.WriteJSON(w, response.ErrDefault("请求参数错误"))
@@ -77,9 +71,6 @@ func (h *Handler) payOrder(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) listOrders(w http.ResponseWriter, r *http.Request) {
-	if !h.ensureCommercialFeature(w, "billing") {
-		return
-	}
 	var req map[string]interface{}
 	if err := decodeJSON(r.Body, &req); err != nil {
 		response.WriteJSON(w, response.ErrDefault("请求参数错误"))
@@ -120,9 +111,6 @@ func (h *Handler) listOrders(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) listAllOrders(w http.ResponseWriter, r *http.Request) {
-	if !h.ensureCommercialFeature(w, "billing") {
-		return
-	}
 	var req map[string]interface{}
 	if err := decodeJSON(r.Body, &req); err != nil {
 		response.WriteJSON(w, response.ErrDefault("请求参数错误"))

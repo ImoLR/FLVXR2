@@ -22,7 +22,6 @@ import (
 	"go-backend/internal/auth"
 	"go-backend/internal/http/client"
 	"go-backend/internal/http/response"
-	"go-backend/internal/middleware"
 	"go-backend/internal/security"
 	"go-backend/internal/store/model"
 	"go-backend/internal/store/repo"
@@ -75,12 +74,6 @@ func (h *Handler) userCreate(w http.ResponseWriter, r *http.Request) {
 	_, _, err := userRoleFromRequest(r)
 	if err != nil {
 		response.WriteJSON(w, response.Err(401, "无效的token或token已过期"))
-		return
-	}
-
-	tier, _ := middleware.GetLicenseTier()
-	if tier == middleware.TierBlocked {
-		response.WriteJSON(w, response.Err(403, "授权无效，请联系管理员"))
 		return
 	}
 
@@ -178,12 +171,6 @@ func (h *Handler) userCreate(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) userUpdate(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		response.WriteJSON(w, response.ErrDefault("请求失败"))
-		return
-	}
-
-	tier, _ := middleware.GetLicenseTier()
-	if tier == middleware.TierBlocked {
-		response.WriteJSON(w, response.Err(403, "授权无效，无法操作"))
 		return
 	}
 
@@ -371,12 +358,6 @@ func (h *Handler) userToggleAutoRenew(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tier, _ := middleware.GetLicenseTier()
-	if tier == middleware.TierBlocked {
-		response.WriteJSON(w, response.Err(403, "授权无效，无法操作"))
-		return
-	}
-
 	var req map[string]interface{}
 	if err := decodeJSON(r.Body, &req); err != nil {
 		response.WriteJSON(w, response.ErrDefault("请求参数错误"))
@@ -402,12 +383,6 @@ func (h *Handler) userToggleAutoRenew(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) userToggleAutoBuyTraffic(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		response.WriteJSON(w, response.ErrDefault("请求失败"))
-		return
-	}
-
-	tier, _ := middleware.GetLicenseTier()
-	if tier == middleware.TierBlocked {
-		response.WriteJSON(w, response.Err(403, "授权无效，无法操作"))
 		return
 	}
 
@@ -469,12 +444,6 @@ func (h *Handler) userDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tier, _ := middleware.GetLicenseTier()
-	if tier == middleware.TierBlocked {
-		response.WriteJSON(w, response.Err(403, "授权无效，无法操作"))
-		return
-	}
-
 	id := idFromBody(r, w)
 	if id <= 0 {
 		return
@@ -504,12 +473,6 @@ func (h *Handler) userDelete(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) userResetFlow(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		response.WriteJSON(w, response.ErrDefault("请求失败"))
-		return
-	}
-
-	tier, _ := middleware.GetLicenseTier()
-	if tier == middleware.TierBlocked {
-		response.WriteJSON(w, response.Err(403, "授权无效，无法操作"))
 		return
 	}
 
@@ -544,12 +507,6 @@ func (h *Handler) userResetFlow(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) userBatchDelete(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		response.WriteJSON(w, response.ErrDefault("请求失败"))
-		return
-	}
-
-	tier, _ := middleware.GetLicenseTier()
-	if tier == middleware.TierBlocked {
-		response.WriteJSON(w, response.Err(403, "授权无效，无法操作"))
 		return
 	}
 
@@ -590,12 +547,6 @@ func (h *Handler) userBatchResetFlow(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tier, _ := middleware.GetLicenseTier()
-	if tier == middleware.TierBlocked {
-		response.WriteJSON(w, response.Err(403, "授权无效，无法操作"))
-		return
-	}
-
 	var req struct {
 		IDs []int64 `json:"ids"`
 	}
@@ -630,12 +581,6 @@ func (h *Handler) userUpdateOrder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tier, _ := middleware.GetLicenseTier()
-	if tier == middleware.TierBlocked {
-		response.WriteJSON(w, response.Err(403, "授权无效，无法操作"))
-		return
-	}
-
 	var req struct {
 		Users []struct {
 			ID  int64 `json:"id"`
@@ -655,12 +600,6 @@ func (h *Handler) userUpdateOrder(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) monitorPermissionBatchAssign(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		response.WriteJSON(w, response.ErrDefault("请求失败"))
-		return
-	}
-
-	tier, _ := middleware.GetLicenseTier()
-	if tier == middleware.TierBlocked {
-		response.WriteJSON(w, response.Err(403, "授权无效，无法操作"))
 		return
 	}
 
@@ -689,12 +628,6 @@ func (h *Handler) monitorPermissionBatchAssign(w http.ResponseWriter, r *http.Re
 func (h *Handler) monitorPermissionBatchRemove(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		response.WriteJSON(w, response.ErrDefault("请求失败"))
-		return
-	}
-
-	tier, _ := middleware.GetLicenseTier()
-	if tier == middleware.TierBlocked {
-		response.WriteJSON(w, response.Err(403, "授权无效，无法操作"))
 		return
 	}
 
@@ -727,12 +660,6 @@ func (h *Handler) nodeCreate(w http.ResponseWriter, r *http.Request) {
 	var req map[string]interface{}
 	if err := decodeJSON(r.Body, &req); err != nil {
 		response.WriteJSON(w, response.ErrDefault("请求参数错误"))
-		return
-	}
-
-	tier, _ := middleware.GetLicenseTier()
-	if tier == middleware.TierBlocked {
-		response.WriteJSON(w, response.Err(403, "授权无效，请联系管理员"))
 		return
 	}
 
@@ -816,12 +743,6 @@ func (h *Handler) nodeUpdate(w http.ResponseWriter, r *http.Request) {
 	var req map[string]interface{}
 	if err := decodeJSON(r.Body, &req); err != nil {
 		response.WriteJSON(w, response.ErrDefault("请求参数错误"))
-		return
-	}
-
-	tier, _ := middleware.GetLicenseTier()
-	if tier == middleware.TierBlocked {
-		response.WriteJSON(w, response.Err(403, "授权无效，无法操作"))
 		return
 	}
 
@@ -910,12 +831,6 @@ func (h *Handler) nodeDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tier, _ := middleware.GetLicenseTier()
-	if tier == middleware.TierBlocked {
-		response.WriteJSON(w, response.Err(403, "授权无效，无法操作"))
-		return
-	}
-
 	id := idFromBody(r, w)
 	if id <= 0 {
 		return
@@ -930,12 +845,6 @@ func (h *Handler) nodeDelete(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) nodeInstallDomestic(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		response.WriteJSON(w, response.ErrDefault("请求失败"))
-		return
-	}
-
-	tier, _ := middleware.GetLicenseTier()
-	if tier == middleware.TierBlocked {
-		response.WriteJSON(w, response.Err(403, "授权无效，无法操作"))
 		return
 	}
 
@@ -984,12 +893,6 @@ func (h *Handler) nodeInstallOverseas(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tier, _ := middleware.GetLicenseTier()
-	if tier == middleware.TierBlocked {
-		response.WriteJSON(w, response.Err(403, "授权无效，无法操作"))
-		return
-	}
-
 	var req struct {
 		ID      int64  `json:"id"`
 		Channel string `json:"channel"`
@@ -1029,12 +932,6 @@ func (h *Handler) nodeInstallAlternative(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	tier, _ := middleware.GetLicenseTier()
-	if tier == middleware.TierBlocked {
-		response.WriteJSON(w, response.Err(403, "授权无效，无法操作"))
-		return
-	}
-
 	var req struct {
 		ID      int64  `json:"id"`
 		Channel string `json:"channel"`
@@ -1071,12 +968,6 @@ func (h *Handler) nodeInstallAlternative(w http.ResponseWriter, r *http.Request)
 func (h *Handler) nodeInstallOffline(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		response.WriteJSON(w, response.ErrDefault("请求失败"))
-		return
-	}
-
-	tier, _ := middleware.GetLicenseTier()
-	if tier == middleware.TierBlocked {
-		response.WriteJSON(w, response.Err(403, "授权无效，无法操作"))
 		return
 	}
 
@@ -1139,12 +1030,6 @@ func (h *Handler) nodeUpdateOrder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tier, _ := middleware.GetLicenseTier()
-	if tier == middleware.TierBlocked {
-		response.WriteJSON(w, response.Err(403, "授权无效，无法操作"))
-		return
-	}
-
 	var req struct {
 		Nodes []struct {
 			ID  int64 `json:"id"`
@@ -1164,12 +1049,6 @@ func (h *Handler) nodeUpdateOrder(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) nodeRefreshExpiryReminder(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		response.WriteJSON(w, response.ErrDefault("请求失败"))
-		return
-	}
-
-	tier, _ := middleware.GetLicenseTier()
-	if tier == middleware.TierBlocked {
-		response.WriteJSON(w, response.Err(403, "授权无效，无法操作"))
 		return
 	}
 
@@ -1200,12 +1079,6 @@ func (h *Handler) nodeDismissExpiryReminder(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	tier, _ := middleware.GetLicenseTier()
-	if tier == middleware.TierBlocked {
-		response.WriteJSON(w, response.Err(403, "授权无效，无法操作"))
-		return
-	}
-
 	var req struct {
 		ID int64 `json:"id"`
 	}
@@ -1230,12 +1103,6 @@ func (h *Handler) nodeBatchDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tier, _ := middleware.GetLicenseTier()
-	if tier == middleware.TierBlocked {
-		response.WriteJSON(w, response.Err(403, "授权无效，无法操作"))
-		return
-	}
-
 	ids := idsFromBody(r, w)
 	if ids == nil {
 		return
@@ -1249,12 +1116,6 @@ func (h *Handler) nodeBatchDelete(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) nodeCheckStatus(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		response.WriteJSON(w, response.ErrDefault("请求失败"))
-		return
-	}
-
-	tier, _ := middleware.GetLicenseTier()
-	if tier == middleware.TierBlocked {
-		response.WriteJSON(w, response.Err(403, "授权无效，无法操作"))
 		return
 	}
 
@@ -1278,12 +1139,6 @@ func (h *Handler) tunnelCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := validateTunnelConnectIPConstraints(req); err != nil {
 		response.WriteJSON(w, response.ErrDefault(err.Error()))
-		return
-	}
-
-	tier, _ := middleware.GetLicenseTier()
-	if tier == middleware.TierBlocked {
-		response.WriteJSON(w, response.Err(403, "授权无效，请联系管理员"))
 		return
 	}
 
@@ -1590,12 +1445,6 @@ func (h *Handler) tunnelUpdate(w http.ResponseWriter, r *http.Request) {
 	var req map[string]interface{}
 	if err := decodeJSON(r.Body, &req); err != nil {
 		response.WriteJSON(w, response.ErrDefault("请求参数错误"))
-		return
-	}
-
-	tier, _ := middleware.GetLicenseTier()
-	if tier == middleware.TierBlocked {
-		response.WriteJSON(w, response.Err(403, "授权无效，无法操作"))
 		return
 	}
 
@@ -2138,12 +1987,6 @@ func (h *Handler) tunnelDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tier, _ := middleware.GetLicenseTier()
-	if tier == middleware.TierBlocked {
-		response.WriteJSON(w, response.Err(403, "授权无效，无法操作"))
-		return
-	}
-
 	id := idFromBody(r, w)
 	if id <= 0 {
 		return
@@ -2160,12 +2003,6 @@ func (h *Handler) tunnelDelete(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) tunnelDiagnose(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		response.WriteJSON(w, response.ErrDefault("请求失败"))
-		return
-	}
-
-	tier, _ := middleware.GetLicenseTier()
-	if tier == middleware.TierBlocked {
-		response.WriteJSON(w, response.Err(403, "授权无效，无法操作"))
 		return
 	}
 
@@ -2193,12 +2030,6 @@ func (h *Handler) tunnelUpdateOrder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tier, _ := middleware.GetLicenseTier()
-	if tier == middleware.TierBlocked {
-		response.WriteJSON(w, response.Err(403, "授权无效，无法操作"))
-		return
-	}
-
 	var req struct {
 		Tunnels []struct {
 			ID  int64 `json:"id"`
@@ -2216,12 +2047,6 @@ func (h *Handler) tunnelUpdateOrder(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) tunnelBatchDelete(w http.ResponseWriter, r *http.Request) {
-
-	tier, _ := middleware.GetLicenseTier()
-	if tier == middleware.TierBlocked {
-		response.WriteJSON(w, response.Err(403, "授权无效，无法操作"))
-		return
-	}
 
 	ids := idsFromBody(r, w)
 	if ids == nil {
@@ -2458,12 +2283,6 @@ func normalizeBatchFailureReason(reason string) string {
 
 func (h *Handler) tunnelBatchRedeploy(w http.ResponseWriter, r *http.Request) {
 
-	tier, _ := middleware.GetLicenseTier()
-	if tier == middleware.TierBlocked {
-		response.WriteJSON(w, response.Err(403, "授权无效，无法操作"))
-		return
-	}
-
 	ids := idsFromBody(r, w)
 	if ids == nil {
 		return
@@ -2509,12 +2328,6 @@ func (h *Handler) tunnelBatchRedeploy(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) userTunnelAssign(w http.ResponseWriter, r *http.Request) {
 
-	tier, _ := middleware.GetLicenseTier()
-	if tier == middleware.TierBlocked {
-		response.WriteJSON(w, response.Err(403, "授权无效，无法操作"))
-		return
-	}
-
 	var req map[string]interface{}
 	if err := decodeJSON(r.Body, &req); err != nil {
 		response.WriteJSON(w, response.ErrDefault("请求参数错误"))
@@ -2528,12 +2341,6 @@ func (h *Handler) userTunnelAssign(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) userTunnelBatchAssign(w http.ResponseWriter, r *http.Request) {
-
-	tier, _ := middleware.GetLicenseTier()
-	if tier == middleware.TierBlocked {
-		response.WriteJSON(w, response.Err(403, "授权无效，无法操作"))
-		return
-	}
 
 	var req struct {
 		UserID  int64 `json:"userId"`
@@ -2561,12 +2368,6 @@ func (h *Handler) userTunnelBatchAssign(w http.ResponseWriter, r *http.Request) 
 
 func (h *Handler) userTunnelRemove(w http.ResponseWriter, r *http.Request) {
 
-	tier, _ := middleware.GetLicenseTier()
-	if tier == middleware.TierBlocked {
-		response.WriteJSON(w, response.Err(403, "授权无效，无法操作"))
-		return
-	}
-
 	id := idFromBody(r, w)
 	if id <= 0 {
 		return
@@ -2585,12 +2386,6 @@ func (h *Handler) userTunnelRemove(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) userTunnelUpdate(w http.ResponseWriter, r *http.Request) {
-
-	tier, _ := middleware.GetLicenseTier()
-	if tier == middleware.TierBlocked {
-		response.WriteJSON(w, response.Err(403, "授权无效，无法操作"))
-		return
-	}
 
 	var req map[string]interface{}
 	if err := decodeJSON(r.Body, &req); err != nil {
@@ -2693,12 +2488,6 @@ func (h *Handler) userTunnelUpdate(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) userTunnelBatchUpdateStatus(w http.ResponseWriter, r *http.Request) {
-
-	tier, _ := middleware.GetLicenseTier()
-	if tier == middleware.TierBlocked {
-		response.WriteJSON(w, response.Err(403, "授权无效，无法操作"))
-		return
-	}
 
 	var req map[string]interface{}
 	if err := decodeJSON(r.Body, &req); err != nil {
@@ -2817,12 +2606,6 @@ func (h *Handler) forwardCreate(w http.ResponseWriter, r *http.Request) {
 	var req map[string]interface{}
 	if err := decodeJSON(r.Body, &req); err != nil {
 		response.WriteJSON(w, response.ErrDefault("请求参数错误"))
-		return
-	}
-
-	tier, _ := middleware.GetLicenseTier()
-	if tier == middleware.TierBlocked {
-		response.WriteJSON(w, response.Err(403, "授权无效，请联系管理员"))
 		return
 	}
 
@@ -3017,12 +2800,6 @@ func (h *Handler) forwardCreate(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) forwardUpdate(w http.ResponseWriter, r *http.Request) {
-
-	tier, _ := middleware.GetLicenseTier()
-	if tier == middleware.TierBlocked {
-		response.WriteJSON(w, response.Err(403, "授权无效，无法操作"))
-		return
-	}
 
 	var req map[string]interface{}
 	if err := decodeJSON(r.Body, &req); err != nil {
@@ -3327,12 +3104,6 @@ func (h *Handler) forwardUpdate(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) forwardDelete(w http.ResponseWriter, r *http.Request) {
 
-	tier, _ := middleware.GetLicenseTier()
-	if tier == middleware.TierBlocked {
-		response.WriteJSON(w, response.Err(403, "授权无效，无法操作"))
-		return
-	}
-
 	id := idFromBody(r, w)
 	if id <= 0 {
 		return
@@ -3380,12 +3151,6 @@ func (h *Handler) forwardDelete(w http.ResponseWriter, r *http.Request) {
 }
 func (h *Handler) forwardForceDelete(w http.ResponseWriter, r *http.Request) {
 
-	tier, _ := middleware.GetLicenseTier()
-	if tier == middleware.TierBlocked {
-		response.WriteJSON(w, response.Err(403, "授权无效，无法操作"))
-		return
-	}
-
 	id := idFromBody(r, w)
 	if id <= 0 {
 		return
@@ -3422,12 +3187,6 @@ func (h *Handler) forwardForceDelete(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) forwardPause(w http.ResponseWriter, r *http.Request) {
-
-	tier, _ := middleware.GetLicenseTier()
-	if tier == middleware.TierBlocked {
-		response.WriteJSON(w, response.Err(403, "授权无效，无法操作"))
-		return
-	}
 
 	id := idFromBody(r, w)
 	if id <= 0 {
@@ -3475,12 +3234,6 @@ func (h *Handler) forwardPause(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) forwardResume(w http.ResponseWriter, r *http.Request) {
-
-	tier, _ := middleware.GetLicenseTier()
-	if tier == middleware.TierBlocked {
-		response.WriteJSON(w, response.Err(403, "授权无效，无法操作"))
-		return
-	}
 
 	id := idFromBody(r, w)
 	if id <= 0 {
@@ -3551,12 +3304,6 @@ func (h *Handler) forwardResume(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) forwardDiagnose(w http.ResponseWriter, r *http.Request) {
 
-	tier, _ := middleware.GetLicenseTier()
-	if tier == middleware.TierBlocked {
-		response.WriteJSON(w, response.Err(403, "授权无效，无法操作"))
-		return
-	}
-
 	id := asInt64FromBodyKey(r, w, "forwardId")
 	if id <= 0 {
 		return
@@ -3586,12 +3333,6 @@ func (h *Handler) forwardDiagnose(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) forwardUpdateOrder(w http.ResponseWriter, r *http.Request) {
 
-	tier, _ := middleware.GetLicenseTier()
-	if tier == middleware.TierBlocked {
-		response.WriteJSON(w, response.Err(403, "授权无效，无法操作"))
-		return
-	}
-
 	var req struct {
 		Forwards []struct {
 			ID  int64 `json:"id"`
@@ -3609,12 +3350,6 @@ func (h *Handler) forwardUpdateOrder(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) forwardBatchDelete(w http.ResponseWriter, r *http.Request) {
-
-	tier, _ := middleware.GetLicenseTier()
-	if tier == middleware.TierBlocked {
-		response.WriteJSON(w, response.Err(403, "授权无效，无法操作"))
-		return
-	}
 
 	ids := idsFromBody(r, w)
 	if ids == nil {
@@ -3666,12 +3401,6 @@ func (h *Handler) forwardBatchDelete(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) forwardBatchPause(w http.ResponseWriter, r *http.Request) {
-
-	tier, _ := middleware.GetLicenseTier()
-	if tier == middleware.TierBlocked {
-		response.WriteJSON(w, response.Err(403, "授权无效，无法操作"))
-		return
-	}
 
 	ids := idsFromBody(r, w)
 	if ids == nil {
@@ -3727,12 +3456,6 @@ func (h *Handler) forwardBatchPause(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) forwardBatchResume(w http.ResponseWriter, r *http.Request) {
-
-	tier, _ := middleware.GetLicenseTier()
-	if tier == middleware.TierBlocked {
-		response.WriteJSON(w, response.Err(403, "授权无效，无法操作"))
-		return
-	}
 
 	ids := idsFromBody(r, w)
 	if ids == nil {
@@ -3812,12 +3535,6 @@ func (h *Handler) forwardBatchResume(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) forwardBatchRedeploy(w http.ResponseWriter, r *http.Request) {
 
-	tier, _ := middleware.GetLicenseTier()
-	if tier == middleware.TierBlocked {
-		response.WriteJSON(w, response.Err(403, "授权无效，无法操作"))
-		return
-	}
-
 	ids := idsFromBody(r, w)
 	if ids == nil {
 		return
@@ -3848,12 +3565,6 @@ func (h *Handler) forwardBatchRedeploy(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) forwardBatchChangeTunnel(w http.ResponseWriter, r *http.Request) {
-
-	tier, _ := middleware.GetLicenseTier()
-	if tier == middleware.TierBlocked {
-		response.WriteJSON(w, response.Err(403, "授权无效，无法操作"))
-		return
-	}
 
 	var req struct {
 		ForwardIDs     []int64 `json:"forwardIds"`
@@ -4001,12 +3712,6 @@ func (h *Handler) forwardBatchChangeTunnel(w http.ResponseWriter, r *http.Reques
 
 func (h *Handler) speedLimitCreate(w http.ResponseWriter, r *http.Request) {
 
-	tier, _ := middleware.GetLicenseTier()
-	if tier == middleware.TierBlocked {
-		response.WriteJSON(w, response.Err(403, "授权无效，无法操作"))
-		return
-	}
-
 	var req map[string]interface{}
 	if err := decodeJSON(r.Body, &req); err != nil {
 		response.WriteJSON(w, response.ErrDefault("请求参数错误"))
@@ -4033,12 +3738,6 @@ func (h *Handler) speedLimitCreate(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) speedLimitUpdate(w http.ResponseWriter, r *http.Request) {
-
-	tier, _ := middleware.GetLicenseTier()
-	if tier == middleware.TierBlocked {
-		response.WriteJSON(w, response.Err(403, "授权无效，无法操作"))
-		return
-	}
 
 	var req map[string]interface{}
 	if err := decodeJSON(r.Body, &req); err != nil {
@@ -4113,12 +3812,6 @@ func (h *Handler) speedLimitUpdate(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) speedLimitDelete(w http.ResponseWriter, r *http.Request) {
 
-	tier, _ := middleware.GetLicenseTier()
-	if tier == middleware.TierBlocked {
-		response.WriteJSON(w, response.Err(403, "授权无效，无法操作"))
-		return
-	}
-
 	id := idFromBody(r, w)
 	if id <= 0 {
 		return
@@ -4158,12 +3851,6 @@ func (h *Handler) groupUserDelete(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) groupTunnelAssign(w http.ResponseWriter, r *http.Request) {
 
-	tier, _ := middleware.GetLicenseTier()
-	if tier == middleware.TierBlocked {
-		response.WriteJSON(w, response.Err(403, "授权无效，无法操作"))
-		return
-	}
-
 	var req struct {
 		GroupID   int64   `json:"groupId"`
 		TunnelIDs []int64 `json:"tunnelIds"`
@@ -4199,12 +3886,6 @@ func (h *Handler) groupTunnelAssign(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) groupUserAssign(w http.ResponseWriter, r *http.Request) {
-
-	tier, _ := middleware.GetLicenseTier()
-	if tier == middleware.TierBlocked {
-		response.WriteJSON(w, response.Err(403, "授权无效，无法操作"))
-		return
-	}
 
 	var req struct {
 		GroupID int64   `json:"groupId"`
@@ -4247,12 +3928,6 @@ func (h *Handler) groupUserAssign(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) groupPermissionAssign(w http.ResponseWriter, r *http.Request) {
 
-	tier, _ := middleware.GetLicenseTier()
-	if tier == middleware.TierBlocked {
-		response.WriteJSON(w, response.Err(403, "授权无效，无法操作"))
-		return
-	}
-
 	var req struct {
 		UserGroupID   int64 `json:"userGroupId"`
 		TunnelGroupID int64 `json:"tunnelGroupId"`
@@ -4270,12 +3945,6 @@ func (h *Handler) groupPermissionAssign(w http.ResponseWriter, r *http.Request) 
 }
 
 func (h *Handler) groupPermissionRemove(w http.ResponseWriter, r *http.Request) {
-
-	tier, _ := middleware.GetLicenseTier()
-	if tier == middleware.TierBlocked {
-		response.WriteJSON(w, response.Err(403, "授权无效，无法操作"))
-		return
-	}
 
 	id := idFromBody(r, w)
 	if id <= 0 {
@@ -4319,12 +3988,6 @@ func (h *Handler) groupPermissionRemove(w http.ResponseWriter, r *http.Request) 
 
 func (h *Handler) groupCreate(w http.ResponseWriter, r *http.Request, table string) {
 
-	tier, _ := middleware.GetLicenseTier()
-	if tier == middleware.TierBlocked {
-		response.WriteJSON(w, response.Err(403, "授权无效，无法操作"))
-		return
-	}
-
 	var req map[string]interface{}
 	if err := decodeJSON(r.Body, &req); err != nil {
 		response.WriteJSON(w, response.ErrDefault("请求参数错误"))
@@ -4345,12 +4008,6 @@ func (h *Handler) groupCreate(w http.ResponseWriter, r *http.Request, table stri
 
 func (h *Handler) groupUpdate(w http.ResponseWriter, r *http.Request, table string) {
 
-	tier, _ := middleware.GetLicenseTier()
-	if tier == middleware.TierBlocked {
-		response.WriteJSON(w, response.Err(403, "授权无效，无法操作"))
-		return
-	}
-
 	var req map[string]interface{}
 	if err := decodeJSON(r.Body, &req); err != nil {
 		response.WriteJSON(w, response.ErrDefault("请求参数错误"))
@@ -4369,12 +4026,6 @@ func (h *Handler) groupUpdate(w http.ResponseWriter, r *http.Request, table stri
 }
 
 func (h *Handler) groupDelete(w http.ResponseWriter, r *http.Request, table string) {
-
-	tier, _ := middleware.GetLicenseTier()
-	if tier == middleware.TierBlocked {
-		response.WriteJSON(w, response.Err(403, "授权无效，无法操作"))
-		return
-	}
 
 	id := idFromBody(r, w)
 	if id <= 0 {
@@ -6344,12 +5995,6 @@ func (h *Handler) tunnelListCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tier, _ := middleware.GetLicenseTier()
-	if tier == middleware.TierBlocked {
-		response.WriteJSON(w, response.Err(403, "授权无效，无法操作"))
-		return
-	}
-
 	if !h.ensureAdminAccess(w, r) {
 		return
 	}
@@ -6379,12 +6024,6 @@ func (h *Handler) tunnelListCreate(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) tunnelListUpdate(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		response.WriteJSON(w, response.ErrDefault("请求失败"))
-		return
-	}
-
-	tier, _ := middleware.GetLicenseTier()
-	if tier == middleware.TierBlocked {
-		response.WriteJSON(w, response.Err(403, "授权无效，无法操作"))
 		return
 	}
 
@@ -6433,12 +6072,6 @@ func (h *Handler) tunnelListAssign(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tier, _ := middleware.GetLicenseTier()
-	if tier == middleware.TierBlocked {
-		response.WriteJSON(w, response.Err(403, "授权无效，无法操作"))
-		return
-	}
-
 	if !h.ensureAdminAccess(w, r) {
 		return
 	}
@@ -6470,12 +6103,6 @@ func (h *Handler) tunnelListAssign(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) tunnelListOrder(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		response.WriteJSON(w, response.ErrDefault("请求失败"))
-		return
-	}
-
-	tier, _ := middleware.GetLicenseTier()
-	if tier == middleware.TierBlocked {
-		response.WriteJSON(w, response.Err(403, "授权无效，无法操作"))
 		return
 	}
 
@@ -6512,12 +6139,6 @@ func (h *Handler) tunnelListOrder(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) tunnelListTunnelOrder(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		response.WriteJSON(w, response.ErrDefault("请求失败"))
-		return
-	}
-
-	tier, _ := middleware.GetLicenseTier()
-	if tier == middleware.TierBlocked {
-		response.WriteJSON(w, response.Err(403, "授权无效，无法操作"))
 		return
 	}
 

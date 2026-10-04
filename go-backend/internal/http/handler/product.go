@@ -11,29 +11,7 @@ import (
 	"go-backend/internal/store/model"
 )
 
-func normalizePackageLicenseProfile(profile string) string {
-	switch strings.ToLower(strings.TrimSpace(profile)) {
-	case "":
-		return "business"
-	case "trial", "evaluation", "eval":
-		return "evaluation"
-	case "personal", "community", "selfhost":
-		return "personal"
-	case "business", "commercial", "pro":
-		return "business"
-	case "enterprise", "corp":
-		return "enterprise"
-	case "channel", "reseller", "partner":
-		return "channel"
-	default:
-		return "business"
-	}
-}
-
 func (h *Handler) listPackages(w http.ResponseWriter, r *http.Request) {
-	if !h.ensureCommercialFeature(w, "billing") {
-		return
-	}
 	if r.Method != http.MethodPost {
 		response.WriteJSON(w, response.ErrDefault("请求失败"))
 		return
@@ -73,9 +51,6 @@ func (h *Handler) listPackages(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) createPackage(w http.ResponseWriter, r *http.Request) {
-	if !h.ensureCommercialFeature(w, "billing") {
-		return
-	}
 	if !h.ensureAdminAccess(w, r) {
 		return
 	}
@@ -83,7 +58,6 @@ func (h *Handler) createPackage(w http.ResponseWriter, r *http.Request) {
 		Type                  string  `json:"type"`
 		Name                  string  `json:"name"`
 		Description           string  `json:"description"`
-		LicenseProfile        string  `json:"licenseProfile"`
 		PriceYuan             float64 `json:"priceYuan"`
 		ValidityDays          int     `json:"validityDays"`
 		TrafficLimit          int64   `json:"trafficLimit"`
@@ -116,7 +90,6 @@ func (h *Handler) createPackage(w http.ResponseWriter, r *http.Request) {
 		Type:                  req.Type,
 		Name:                  req.Name,
 		Description:           req.Description,
-		LicenseProfile:        normalizePackageLicenseProfile(req.LicenseProfile),
 		Price:                 int64(req.PriceYuan * 100),
 		ValidityDays:          req.ValidityDays,
 		TrafficLimit:          req.TrafficLimit,
@@ -141,9 +114,6 @@ func (h *Handler) createPackage(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) updatePackage(w http.ResponseWriter, r *http.Request) {
-	if !h.ensureCommercialFeature(w, "billing") {
-		return
-	}
 	if !h.ensureAdminAccess(w, r) {
 		return
 	}
@@ -152,7 +122,6 @@ func (h *Handler) updatePackage(w http.ResponseWriter, r *http.Request) {
 		Type                  string  `json:"type"`
 		Name                  string  `json:"name"`
 		Description           string  `json:"description"`
-		LicenseProfile        string  `json:"licenseProfile"`
 		PriceYuan             float64 `json:"priceYuan"`
 		ValidityDays          int     `json:"validityDays"`
 		TrafficLimit          int64   `json:"trafficLimit"`
@@ -186,7 +155,6 @@ func (h *Handler) updatePackage(w http.ResponseWriter, r *http.Request) {
 		Type:                  req.Type,
 		Name:                  req.Name,
 		Description:           req.Description,
-		LicenseProfile:        normalizePackageLicenseProfile(req.LicenseProfile),
 		Price:                 int64(req.PriceYuan * 100),
 		ValidityDays:          req.ValidityDays,
 		TrafficLimit:          req.TrafficLimit,
@@ -211,9 +179,6 @@ func (h *Handler) updatePackage(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) deletePackage(w http.ResponseWriter, r *http.Request) {
-	if !h.ensureCommercialFeature(w, "billing") {
-		return
-	}
 	if !h.ensureAdminAccess(w, r) {
 		return
 	}
@@ -230,9 +195,6 @@ func (h *Handler) deletePackage(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) togglePackageAutoBuyTraffic(w http.ResponseWriter, r *http.Request) {
-	if !h.ensureCommercialFeature(w, "billing") {
-		return
-	}
 	if !h.ensureAdminAccess(w, r) {
 		return
 	}
@@ -260,9 +222,6 @@ func (h *Handler) togglePackageAutoBuyTraffic(w http.ResponseWriter, r *http.Req
 }
 
 func (h *Handler) listAutoBuyTrafficPackages(w http.ResponseWriter, r *http.Request) {
-	if !h.ensureCommercialFeature(w, "billing") {
-		return
-	}
 	if r.Method != http.MethodPost {
 		response.WriteJSON(w, response.ErrDefault("请求失败"))
 		return
@@ -279,9 +238,6 @@ func (h *Handler) listAutoBuyTrafficPackages(w http.ResponseWriter, r *http.Requ
 }
 
 func (h *Handler) getPackageDetail(w http.ResponseWriter, r *http.Request) {
-	if !h.ensureCommercialFeature(w, "billing") {
-		return
-	}
 	if r.Method != http.MethodPost {
 		response.WriteJSON(w, response.ErrDefault("请求失败"))
 		return
@@ -307,9 +263,6 @@ func (h *Handler) getPackageDetail(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) createPackageOrder(w http.ResponseWriter, r *http.Request) {
-	if !h.ensureCommercialFeature(w, "billing") {
-		return
-	}
 	if r.Method != http.MethodPost {
 		response.WriteJSON(w, response.ErrDefault("请求失败"))
 		return
@@ -440,9 +393,6 @@ func (h *Handler) createPackageOrder(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) assignPackageToUser(w http.ResponseWriter, r *http.Request) {
-	if !h.ensureCommercialFeature(w, "billing") {
-		return
-	}
 	if !h.ensureAdminAccess(w, r) {
 		return
 	}
@@ -488,9 +438,6 @@ func (h *Handler) assignPackageToUser(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) getStoreStatus(w http.ResponseWriter, r *http.Request) {
-	if !h.ensureCommercialFeature(w, "billing") {
-		return
-	}
 	if r.Method != http.MethodPost {
 		response.WriteJSON(w, response.ErrDefault("请求失败"))
 		return
@@ -506,9 +453,6 @@ func (h *Handler) getStoreStatus(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) setStoreStatus(w http.ResponseWriter, r *http.Request) {
-	if !h.ensureCommercialFeature(w, "billing") {
-		return
-	}
 	if !h.ensureAdminAccess(w, r) {
 		return
 	}

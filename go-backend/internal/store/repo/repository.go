@@ -25,7 +25,6 @@ import (
 )
 
 // hmacKey returns the HMAC secret key used for balance log signing.
-// Must match the key used by the license server.
 func hmacKey() string {
 	key := os.Getenv("HMAC_SECRET_KEY")
 	if key != "" {

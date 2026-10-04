@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"go-backend/internal/http/response"
-	licensemw "go-backend/internal/middleware"
 	"go-backend/internal/monitoring"
 	"go-backend/internal/store/model"
 )
@@ -1097,11 +1096,6 @@ func (h *Handler) monitorPublicNodeListHandler(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	if err := licensemw.CheckCommercialFeature("billing"); err != nil {
-		response.WriteJSON(w, response.OK([]monitorPublicNodeListItem{}))
-		return
-	}
-
 	cfg, err := h.repo.GetConfigByName("login_monitor_link")
 	if err != nil || cfg == nil || cfg.Value != "true" {
 		response.WriteJSON(w, response.OK([]monitorPublicNodeListItem{}))
@@ -1155,11 +1149,6 @@ type monitorPublicNodeMetricsItem struct {
 func (h *Handler) monitorPublicNodeMetricsHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		response.WriteJSON(w, response.ErrDefault("请求失败"))
-		return
-	}
-
-	if err := licensemw.CheckCommercialFeature("billing"); err != nil {
-		response.WriteJSON(w, response.OK([]monitorPublicNodeMetricsItem{}))
 		return
 	}
 

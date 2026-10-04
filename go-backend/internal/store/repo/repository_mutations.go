@@ -1472,8 +1472,7 @@ func (r *Repository) UpdatePackage(pkg *model.SubscriptionPackage, tunnelGroupID
 	defer tx.Rollback()
 	if err := tx.Model(pkg).Updates(map[string]interface{}{
 		"type": pkg.Type, "name": pkg.Name, "description": pkg.Description,
-		"license_profile": pkg.LicenseProfile,
-		"price":           pkg.Price, "validity_days": pkg.ValidityDays,
+		"price": pkg.Price, "validity_days": pkg.ValidityDays,
 		"traffic_limit": pkg.TrafficLimit, "port_count": pkg.PortCount,
 		"speed_limit": pkg.SpeedLimit, "max_rules": pkg.MaxRules,
 		"max_connections": pkg.MaxConnections, "max_ip_access": pkg.MaxIPAccess,

@@ -12,9 +12,6 @@ import (
 )
 
 func (h *Handler) paymentStats(w http.ResponseWriter, r *http.Request) {
-	if !h.ensureCommercialFeature(w, "billing") {
-		return
-	}
 	paidAmount, paidOrders, pendingOrders, err := h.repo.GetPaymentStats()
 	if err != nil {
 		response.WriteJSON(w, response.Err(-2, err.Error()))
@@ -28,9 +25,6 @@ func (h *Handler) paymentStats(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) listAllPaymentConfigs(w http.ResponseWriter, r *http.Request) {
-	if !h.ensureCommercialFeature(w, "billing") {
-		return
-	}
 	list, err := h.repo.ListPaymentConfigs()
 	if err != nil {
 		response.WriteJSON(w, response.Err(-2, err.Error()))
@@ -43,9 +37,6 @@ func (h *Handler) listAllPaymentConfigs(w http.ResponseWriter, r *http.Request) 
 }
 
 func (h *Handler) deletePaymentConfig(w http.ResponseWriter, r *http.Request) {
-	if !h.ensureCommercialFeature(w, "billing") {
-		return
-	}
 	var req map[string]interface{}
 	if err := decodeJSON(r.Body, &req); err != nil {
 		response.WriteJSON(w, response.ErrDefault("请求参数错误"))
@@ -144,9 +135,6 @@ func (h *Handler) completePayment(orderNo, txHash string) {
 }
 
 func (h *Handler) getPaymentConfigs(w http.ResponseWriter, r *http.Request) {
-	if !h.ensureCommercialFeature(w, "billing") {
-		return
-	}
 	if r.Method != http.MethodGet && r.Method != http.MethodPost {
 		response.WriteJSON(w, response.ErrDefault("请求失败"))
 		return
@@ -174,9 +162,6 @@ func (h *Handler) getPaymentConfigs(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) savePaymentConfig(w http.ResponseWriter, r *http.Request) {
-	if !h.ensureCommercialFeature(w, "billing") {
-		return
-	}
 	var req map[string]interface{}
 	if err := decodeJSON(r.Body, &req); err != nil {
 		response.WriteJSON(w, response.ErrDefault("请求参数错误"))

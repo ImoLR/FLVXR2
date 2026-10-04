@@ -9,7 +9,6 @@ type Config struct {
 	DatabaseURL string
 	JWTSecret   string
 	LogDir      string
-	LicenseKey  string
 	FluxVersion string
 }
 
@@ -21,7 +20,6 @@ func FromEnv() Config {
 		DatabaseURL: getEnv("DATABASE_URL", ""),
 		JWTSecret:   getEnv("JWT_SECRET", ""),
 		LogDir:      getEnv("LOG_DIR", "/app/logs"),
-		LicenseKey:  getEnv("LICENSE_KEY", ""),
 		FluxVersion: getEnv("FLUX_VERSION", "dev"),
 	}
 
