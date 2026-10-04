@@ -8,7 +8,7 @@
 - [x] 为 billing.go / payment.go / order.go 指定的 13 个 handler 添加管理员守卫并提交。
 - [x] 添加契约测试：13 路由普通用户 403、写请求数据库不变；管理员读取及兑换码/折扣码/支付配置写入成功，并提交。
 - [x] 完成后端 build、受影响包 vet、完整 go test；与上一轮 19 个失败项比较，新增失败为零。
-- [ ] 推送分支并确认 CI Build Check 成功；创建并推送 annotated tag `3.0.27-fork.17`；确认 Build and Push Images 成功及发布资产校验。
+- [x] 推送分支并确认 CI Build Check 成功；创建并推送 annotated tag `3.0.27-fork.17`；确认 Build and Push Images 成功及发布资产校验。
 - [x] 创建生产回滚目录、compose/.env 副本、SQLite 在线备份与校验、镜像本地标签及回滚说明。
 - [ ] 安装校验后的 v6 发布资产、更新 FLUX_VERSION 并升级面板。
 - [ ] 只读验证生产健康、所有升级前在线节点指标推进、管理员 4 路由成功及普通用户 6 读取路由 403。
@@ -22,6 +22,8 @@
 - 新增 `TestBillingAdminPermissions`：14 子测试覆盖 13 路由（支付配置新增/更新各一次），使用有效请求和预置记录；普通用户 code=403 且四个相关表全行列快照不变，管理员同请求 code=0，写请求实际生效。连同上一轮两项定向测试全部通过（0.256s），日志位于运行目录 `billing-contract-test.log`。
 - `go build ./...`、`go vet ./internal/http/handler ./tests/contract` 成功；`TMPDIR` / `GOTMPDIR` 均位于 `/root/flvx-tmp/remove-license-r2`。完整 `go test -json ./...` 退出 1，但失败集合与 round 1 的 19 项完全一致（新增 0、消失 0），新权限测试通过。证据：运行目录 `go-test-comparison.json`、`candidate-go-test.failnames` 和完整 JSON 日志。
 - 独立审查通过：实现范围、契约有效请求/快照断言、预备的生产在线备份和只读验证脚本均无阻断问题。
+- [CI Build Check 37201950251](https://github.com/ImoLR/FLVXR2/actions/runs/37201950251) 四项成功；注释标签 `3.0.27-fork.17` 指向通过 CI 的 `7319fe6b`，已推送。
+- [Build and Push Images 37202120077](https://github.com/ImoLR/FLVXR2/actions/runs/37202120077) 成功；Release 于 2026-10-04 12:36:29 UTC 发布，非预发布且 Latest。10 项资产名与 fork.16 相同，v4/v6 compose 的两个面板镜像均固定 fork.17，两份脚本 PINNED_VERSION / REPO 正确，amd64/arm64 GOST SHA256 均通过。证据：运行目录 `release-verification.json` 与 `release-assets/`。
 
 ## 回滚原则
 
