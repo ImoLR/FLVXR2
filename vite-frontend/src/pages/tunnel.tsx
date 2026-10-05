@@ -2609,7 +2609,7 @@ export default function TunnelPage() {
             </Button>
             <Select
               aria-label="隧道分组方式"
-              className="w-40"
+              classNames={{ base: "w-40 shrink-0" }}
               selectedKeys={[groupingMode]}
               size="sm"
               onSelectionChange={(keys) => {
