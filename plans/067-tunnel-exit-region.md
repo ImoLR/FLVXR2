@@ -22,19 +22,24 @@
 - [x] A/B：统一 IPv4 优先的公网识别结果、检测接口和回填日志，补齐单元/契约验证。
 - [x] C：节点表单三地址识别、人工值保护、识别提示及未设置地区 Chip。
 - [x] D：隧道分组胶囊菜单、全宽布局、分组标题及规则选择器提示。
-- [ ] E：基线/新版 1440/1920、明暗主题/390px、筛选/菜单/规则选择器/节点截图，逐张查看。
-- [ ] F：后端 build/vet/full test 对比基线、前端 build、全新副本回填和用户 3 隐私核验。
+- [x] E：基线/新版 1440/1920、明暗主题/390px、筛选/菜单/规则选择器/节点截图，逐张查看。
+  - r3 补齐 13 张 PNG（00 原图保留）；全部实际打开检查，记录 `r3/screens-reviewed.json`。真实隧道无未知/多地区，节点空地区仅浏览器 mock；无视觉代码修复。
+- [x] F：后端 build/vet/full test 对比基线、前端 build、全新副本回填和用户 3 隐私核验。
+  - r3 build/vet/npm build 通过；全量测试与 `/root/flvx-fork10/base.fails` 相同 19 失败、新增 0。新副本 25 节点地区/source/IP 与 r2 一致，节点 20 为 IPv6 回退；用户 3 隐私、detect 403、legacy ip、原有 in_ip 不变均 PASS（`r3/api-check.txt`）。
 - [ ] 提交并推送最终 HEAD，确认 CI Build Check 四个 job 全绿。
-- [ ] 写中文总结 `/root/flvx-workers/runs/tunnel-region-r2/summary.md`，列出证据与未实施建议。
+- [x] 写中文合并总结 `/root/flvx-workers/runs/tunnel-region-r3/summary.md`，列出 r2/r3 证据与未实施建议；r2 OOM 未单独产出总结，CI 状态在 r3 总结持续更新。
 
 ## Round 3（续验，不发布）
 
 - [x] 重读 r1/r2 证据与约束，确认端口无遗留进程；重任务串行，临时文件和构建产物放在 r3 目录。
 - [x] 完成后端 build/vet/full test（`-p 2`）及前端 build，核对 19 项既有失败。
   - r3 `backend-build.log`/`backend-vet.log` exit 0；`backend-test.jsonl` 完整结束，`test-comparison.txt` 为相同 19 项失败、新增 0；`frontend-build.log` 完整构建 exit 0（产物 `r3/new-dist/`）。
-- [ ] 新副本在 16365 复核回填/隐私；补齐全部截图并逐张查看。
-- [ ] 更新本计划、提交推送，等待最终 HEAD 的 CI（最多约 60 分钟）。
-- [ ] 停止本轮进程并写合并 r2/r3 的中文总结 `/root/flvx-workers/runs/tunnel-region-r3/summary.md`。
+- [x] 新副本在 16365 复核回填/隐私；补齐全部截图并逐张查看。
+  - 1440px region 为 2×518px，1920px 为 4×371px；390px 页面/规则 picker 均无横向溢出。未改变不分组/自定义分组两列 370px 的既有布局。
+- [x] 更新本计划并提交本地验证证据。
+- [ ] 推送最终 HEAD 并等待 CI（最多约 60 分钟）；以 r3 `summary.md`/`ci-final.json` 的 headSha、运行 ID 和状态为最终证据，未绿不勾选 CI。
+- [x] 停止本轮进程并写合并 r2/r3 的中文总结 `/root/flvx-workers/runs/tunnel-region-r3/summary.md`。
+  - paneld、静态服务、Chromium 均已结束，16365/13000/13001 无监听；未运行 Vite，未保存实体或操作生产。
 
 ## 数据集（首轮）
 
