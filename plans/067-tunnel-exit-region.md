@@ -10,11 +10,11 @@
 - [x] 节点地区字段、校验、管理员检测接口、创建检测与一次性异步回填（节点更新传播契约随隧道测试验证）。
 - [x] 批量派生隧道入口/出口地区，验证普通用户隐私及派生逻辑；节点地区 round-trip、不改写 in_ip/不重部署、非管理员检测 403 契约通过。
 - [x] 地区公共工具、节点表单/展示、Select 分组及规则表单/筛选器；表单支持搜索，表格采用 native optgroup 避免裁切，Escape 仅关闭菜单。
-- [x] 隧道页入口/地区分组、筛选持久化、地区标记与原有操作兼容（TypeScript 检查通过；真实数据浏览器验证随后进行）。
+- [x] 隧道页入口/地区分组、筛选持久化、地区标记与原有操作兼容；真实副本浏览器验证通过，另用浏览器模拟响应验证多入口勾选去重及多地区标签。
 - [x] 后端 `go build ./...`、所改包 `go vet` 通过；`go test ./...` 与新建基线 worktree 均为相同 19 个既有失败，新增 0；前端 `npm run build` 通过。
 - [x] 生产库在线备份副本在 16365 本地验证：25 节点回填，重启不重复；tunnel/forward_port in_ip 与原副本一致；用户 3 分组元数据无节点身份，检测接口 envelope code 403（沿用项目 HTTP 200 约定）；截图已保存。
-- [ ] 审查改动、推送分支，确认 CI Build Check 全绿。
-- [ ] 写入中文总结 `/root/flvx-workers/runs/tunnel-region/summary.md`。
+- [ ] 确认 CI Build Check 全绿：代码审查与分支推送已完成，GitHub 托管 runner 排队阻塞，尚未获得 CI 结果。
+- [x] 写入中文总结 `/root/flvx-workers/runs/tunnel-region/summary.md`（明确记录 CI 外部阻塞，未宣称本轮全部完成）。
 
 ## 数据集
 
@@ -23,6 +23,12 @@ DB-IP IP to Country Lite **2026-10**（2026-10-01 月度版，2026-10-05 下载�
 未剥离基线隧道名称中既有的 AWS HK / Misaka TW / Lightlayer TW 文本；新增入口标签只显示地区/城市。副本检测与名称预期不符：14 Lightlayer TW→HK；20 Vmsilo TW→CN（私网 IPv4 后回退 IPv6）；24 沪日ixp G口 bug鸡→HK。未人工改写数据。普通未压缩 paneld 比基线增大 6,735,643 bytes，低于 10 MB。
 
 本地截图：`/root/flvx-workers/runs/tunnel-region/tunnel-entry-region.png`、`tunnel-entry-region-list.png`、`forward-picker-open.png`、`node-region-form.png`。完整节点表、测试集合对照与浏览器记录均在同目录。
+
+## CI 外部阻塞（2026-10-05 20:08 UTC）
+
+GitHub 官方 [Actions 事件](https://www.githubstatus.com/api/v2/summary.json) 自 19:11 UTC 起报告托管 runner 分配延迟。实现提交的 [CI 37366904425](https://github.com/ImoLR/FLVXR2/actions/runs/37366904425) 四个 job 一直 queued，无执行日志；本地没有 PostgreSQL 17 镜像，未把未执行的 PostgreSQL 合约当作通过。本轮不满足“CI 全绿”的最终门禁，不进入发布。
+
+本记录提交后以最新分支 HEAD 的 CI 为准：`gh run list --branch maintenance/3.0.27-fork.19-tunnel-region --workflow ci-build.yml`，再 `gh run watch <最新运行ID> --exit-status`。恢复后须核对四个 job 全绿，再勾选 CI 清单；如出现新增失败，仅修复本任务回归。
 
 ## 下一轮（不在本轮执行）
 
