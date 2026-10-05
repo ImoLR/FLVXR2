@@ -15,6 +15,8 @@ interface OptionItem {
   key: string;
   label: string;
   section?: string;
+  sectionDescription?: string;
+  sectionTooltip?: string;
 }
 
 interface ClassNameMap {
@@ -58,6 +60,8 @@ SelectItem.displayName = "HeroSelectItem";
 
 export interface SelectSectionProps {
   title: string;
+  description?: string;
+  tooltip?: string;
   children?: React.ReactNode;
 }
 
@@ -78,7 +82,7 @@ function toSet(value?: SelectionValue) {
 function flattenOptionsFromNode(
   node: React.ReactNode,
   options: OptionItem[],
-  section?: string,
+  section?: SelectSectionProps,
 ) {
   React.Children.forEach(node, (child, index) => {
     if (child === null || child === undefined || typeof child === "boolean") {
@@ -99,7 +103,7 @@ function flattenOptionsFromNode(
       if (child.type === SelectSection) {
         const props = child.props as SelectSectionProps;
 
-        flattenOptionsFromNode(props.children, options, props.title);
+        flattenOptionsFromNode(props.children, options, props);
 
         return;
       }
@@ -110,7 +114,9 @@ function flattenOptionsFromNode(
 
         options.push({
           key,
-          section,
+          section: section?.title,
+          sectionDescription: section?.description,
+          sectionTooltip: section?.tooltip,
           label: props.textValue ?? extractText(props.children) ?? key,
         });
 
@@ -431,8 +437,14 @@ export function Select<T>({
                     <div
                       className="px-2 pt-2 pb-1 text-xs font-semibold text-default-600"
                       role="presentation"
+                      title={option.sectionTooltip}
                     >
                       {option.section}
+                      {option.sectionDescription && (
+                        <span className="block font-normal text-default-500">
+                          {option.sectionDescription}
+                        </span>
+                      )}
                     </div>
                   )}
                 <div
@@ -574,7 +586,11 @@ export function Select<T>({
             );
 
             return option.section ? (
-              <optgroup key={`section-${index}`} label={option.section}>
+              <optgroup
+                key={`section-${index}`}
+                label={option.section}
+                title={option.sectionTooltip || option.sectionDescription}
+              >
                 {options
                   .slice(index, sectionEnd < 0 ? options.length : sectionEnd)
                   .map(renderOption)}

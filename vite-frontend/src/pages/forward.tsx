@@ -5014,7 +5014,12 @@ export default function ForwardPage() {
                               全部隧道
                             </SelectItem>
                             {filterTunnelSections.map((section) => (
-                              <SelectSection key={section.key} title={section.label}>
+                              <SelectSection
+                                key={section.key}
+                                description={isAdmin && section.region === "" ? "出口节点未设置地区，可在节点页设置" : undefined}
+                                title={section.label}
+                                tooltip={section.region === MULTI_REGION ? exitRegionLabel(section.options.flatMap(({ tunnel }) => tunnel.exitRegions || [])) : undefined}
+                              >
                                 {section.options.map(({ key, tunnel }) => (
                                   <SelectItem key={key} textValue={`${tunnel.name}${tunnel.remark ? ` (${tunnel.remark})` : ""}${section.region === MULTI_REGION ? ` · ${exitRegionLabel(tunnel.exitRegions)}` : ""}`}>
                                     {tunnel.name}
@@ -5532,7 +5537,12 @@ export default function ForwardPage() {
                       }}
                     >
                       {tunnelPickerSections.map((section) => (
-                        <SelectSection key={section.key} title={section.label}>
+                        <SelectSection
+                          key={section.key}
+                          description={isAdmin && section.region === "" ? "出口节点未设置地区，可在节点页设置" : undefined}
+                          title={section.label}
+                          tooltip={section.region === MULTI_REGION ? exitRegionLabel(section.options.flatMap(({ tunnel }) => tunnel.exitRegions || [])) : undefined}
+                        >
                           {section.options.map(({ key, tunnel }) => {
                             const trafficRatio = allTunnels.find((item) => item.id === tunnel.id)?.trafficRatio;
                             const formattedRatio = formatTunnelTrafficRatio(trafficRatio);

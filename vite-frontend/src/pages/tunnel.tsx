@@ -40,6 +40,12 @@ import { Button } from "@/shadcn-bridge/heroui/button";
 import { Input, Textarea } from "@/shadcn-bridge/heroui/input";
 import { Select, SelectItem } from "@/shadcn-bridge/heroui/select";
 import {
+  Dropdown,
+  DropdownTrigger,
+  DropdownMenu,
+  DropdownItem,
+} from "@/shadcn-bridge/heroui/dropdown";
+import {
   Modal,
   ModalContent,
   ModalHeader,
@@ -93,6 +99,7 @@ import { useLocalStorageState } from "@/hooks/use-local-storage-state";
 import { getRoleId } from "@/utils/session";
 import { loadStoredOrder, saveOrder } from "@/utils/order-storage";
 import {
+  MULTI_REGION,
   compareRegions,
   exitRegionKey,
   exitRegionLabel,
@@ -213,7 +220,14 @@ interface BatchResultModalState {
 type TunnelGroupingMode = "region" | "custom" | "none";
 type TunnelDisplayItem =
   | { kind: "tunnel"; key: string; tunnel: Tunnel }
-  | { kind: "entry" | "region"; key: string; label: string; count: number };
+  | {
+      kind: "entry" | "region";
+      key: string;
+      label: string;
+      count: number;
+      region?: string;
+      title?: string;
+    };
 type TunnelDeleteAction = "replace" | "delete_forwards";
 const EMPTY_BATCH_RESULT_MODAL_STATE: BatchResultModalState = {
   failures: [],
@@ -2324,6 +2338,15 @@ export default function TunnelPage() {
             key,
             label: regionLabel(code),
             count: regionTunnels.length,
+            region: code,
+            title:
+              code === MULTI_REGION
+                ? exitRegionLabel(
+                    regionTunnels.flatMap(
+                      (tunnel) => tunnelRegions.get(tunnel.id)?.exitRegions || [],
+                    ),
+                  )
+                : undefined,
           });
           if (collapsedGroups.has(key)) return;
           regionTunnels.forEach((tunnel) => {
@@ -2343,7 +2366,8 @@ export default function TunnelPage() {
   ) => (
     <Button
       aria-expanded={!collapsedGroups.has(item.key)}
-      className={`w-full justify-start gap-2 rounded-none px-4 py-3 h-auto ${item.kind === "entry" ? "bg-default-100 text-base font-semibold" : "bg-default-50 pl-8 text-sm"}`}
+      className={`h-auto w-full justify-between gap-2 rounded-none border-b border-divider bg-default-100/50 px-4 py-2.5 text-foreground hover:bg-default-200/50 ${item.kind === "region" ? "pl-6" : ""}`}
+      title={item.title}
       variant="light"
       onPress={() =>
         setCollapsedGroups((previous) => {
@@ -2356,19 +2380,47 @@ export default function TunnelPage() {
         })
       }
     >
-      <span aria-hidden="true">
-        {collapsedGroups.has(item.key) ? "▸" : "▾"}
+      <span className="flex min-w-0 items-center gap-2">
+        <span
+          aria-hidden="true"
+          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-default-200 text-default-700"
+        >
+          <svg
+            className={`h-4 w-4 transition-transform ${collapsedGroups.has(item.key) ? "-rotate-90" : "rotate-0"}`}
+            fill="none"
+            stroke="currentColor"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth="2"
+            viewBox="0 0 24 24"
+          >
+            <path d="m6 9 6 6 6-6" />
+          </svg>
+        </span>
+        <span className="min-w-0 text-left whitespace-normal">
+          <span className="block text-sm font-semibold">{item.label}</span>
+          {isAdmin && item.kind === "region" && item.region === "" && (
+            <span className="block text-xs font-normal text-default-500">
+              出口节点未设置地区，可在节点页设置
+            </span>
+          )}
+        </span>
       </span>
-      <span>{item.label}</span>
-      <span className="text-xs font-normal text-default-500">
+      <span className="shrink-0 text-xs font-normal text-default-500">
         {item.count} 个隧道
       </span>
     </Button>
   );
   const renderExitRegion = (tunnel: Tunnel) => (
-    <span className="inline-flex rounded bg-default-100 px-2 py-0.5 text-xs font-medium text-default-700 whitespace-normal">
+    <Chip
+      className="bg-default-100 text-default-700 whitespace-normal"
+      color="default"
+      size="sm"
+      title={exitRegionLabel(tunnelRegions.get(tunnel.id)?.exitRegions)}
+      variant="flat"
+    >
       {exitRegionLabel(tunnelRegions.get(tunnel.id)?.exitRegions)}
-    </span>
+    </Chip>
   );
   const sortableTunnelIds = useMemo(
     () => (groupingMode === "region" ? [] : sortedTunnels.map((t) => t.id)),
@@ -2607,23 +2659,33 @@ export default function TunnelPage() {
             >
               {viewMode === "card" ? "卡片" : "列表"}
             </Button>
-            <Select
-              aria-label="隧道分组方式"
-              classNames={{ base: "w-40 shrink-0" }}
-              selectedKeys={[groupingMode]}
-              size="sm"
-              onSelectionChange={(keys) => {
-                const mode = Array.from(keys)[0];
-
-                if (mode === "region" || mode === "custom" || mode === "none") {
-                  setGroupingMode(mode);
-                }
-              }}
-            >
-              <SelectItem key="region">按入口/地区</SelectItem>
-              <SelectItem key="custom">自定义分组</SelectItem>
-              <SelectItem key="none">不分组</SelectItem>
-            </Select>
+            <Dropdown>
+              <DropdownTrigger>
+                <Button
+                  aria-label="隧道分组方式"
+                  color={viewMode === "card" ? "primary" : "warning"}
+                  size="sm"
+                  variant="flat"
+                >
+                  {groupingMode === "region"
+                    ? "按入口/地区"
+                    : groupingMode === "custom"
+                      ? "自定义分组"
+                      : "不分组"}
+                </Button>
+              </DropdownTrigger>
+              <DropdownMenu aria-label="隧道分组方式">
+                <DropdownItem onPress={() => setGroupingMode("region")}>
+                  按入口/地区
+                </DropdownItem>
+                <DropdownItem onPress={() => setGroupingMode("custom")}>
+                  自定义分组
+                </DropdownItem>
+                <DropdownItem onPress={() => setGroupingMode("none")}>
+                  不分组
+                </DropdownItem>
+              </DropdownMenu>
+            </Dropdown>
             {/* 分组管理按钮 */}
             <Button
               className="bg-purple-100 text-purple-700 hover:bg-purple-200 dark:bg-purple-900/30 dark:text-purple-300 dark:hover:bg-purple-900/45"
@@ -2695,8 +2757,11 @@ export default function TunnelPage() {
         </div>
       )}
       {groupingMode === "region" && (
-        <p className="mb-4 text-xs text-default-500">
-          多入口隧道会在每个入口下显示，批量操作按隧道去重。按入口/地区时不支持拖拽排序，请切换到自定义分组或不分组。
+        <p
+          className="mb-4 text-xs text-default-500"
+          title="多入口隧道会在每个入口下显示，批量操作按隧道去重。请切换到自定义分组或不分组进行拖拽排序。"
+        >
+          此模式不支持拖拽排序
         </p>
       )}
       {batchProgress.active && (
@@ -3136,7 +3201,17 @@ export default function TunnelPage() {
                     items={sortableTunnelIds}
                     strategy={rectSortingStrategy}
                   >
-                    <div className="flvx-card-grid grid gap-4">
+                    <div
+                      className="flvx-card-grid grid gap-4"
+                      style={
+                        groupingMode === "region"
+                          ? {
+                              gridTemplateColumns:
+                                "repeat(auto-fill, minmax(min(100%, 370px), 1fr))",
+                            }
+                          : undefined
+                      }
+                    >
                       {sortedTunnels.length === 0 && (
                         <p className="col-span-full py-8 text-center text-sm text-default-500">
                           未找到匹配的隧道，请调整筛选条件
