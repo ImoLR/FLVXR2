@@ -1,4 +1,6 @@
 export interface NodeApiItem {
+  region?: string;
+  regionCity?: string;
   id: number;
   name: string;
   status: number;
@@ -260,6 +262,8 @@ export interface ForwardClientIPsApiData {
 }
 
 export interface UserTunnelApiItem {
+  exitRegions?: string[];
+  entryGroups?: Array<{ key: string; label: string; region: string }>;
   id: number;
   name: string;
   remark?: string;
@@ -542,6 +546,8 @@ export interface UserMutationPayload {
 }
 
 export interface NodeMutationPayload {
+  region?: string;
+  regionCity?: string;
   id?: number | null;
   name?: string;
   status?: number;

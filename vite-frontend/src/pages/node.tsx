@@ -64,6 +64,7 @@ import {
 import { NodeListView } from "@/pages/node/node-list-view";
 import {
   createNode,
+  detectNodeRegion,
   getNodeList,
   updateNode,
   deleteNode,
@@ -85,6 +86,7 @@ import {
   deleteNodeTrafficResetLog,
   type ReleaseChannel,
 } from "@/api";
+import { REGION_CODES, compareRegions, regionLabel } from "@/utils/region";
 import { compareVersions } from "@/utils/version-update";
 import { PageLoadingState } from "@/components/page-state";
 import { timestampToCalendarDate, calendarDateToTimestamp } from "@/utils/date";
@@ -110,8 +112,11 @@ declare global {
   }
 }
 const NODE_FALLBACK_REFRESH_INTERVAL_MS = 15000;
+const REGION_OPTIONS = [...REGION_CODES].sort(compareRegions);
 
 interface Node {
+  region?: string;
+  regionCity?: string;
   id: number;
   inx?: number;
   name: string;
@@ -152,6 +157,8 @@ interface Node {
   };
 }
 interface NodeForm {
+  region: string;
+  regionCity: string;
   id: number | null;
   name: string;
   remark: string;
@@ -356,6 +363,8 @@ export default function NodePage() {
     id: null,
     name: "",
     remark: "",
+    region: "",
+    regionCity: "",
     expiryTime: 0,
     renewalCycle: "",
     groupId: null,
@@ -371,6 +380,43 @@ export default function NodePage() {
     tls: 0,
     socks: 0,
   });
+  const [regionDetectLoading, setRegionDetectLoading] = useState(false);
+  const regionDetectRevision = useRef(0);
+  const regionEdited = useRef(false);
+  const formRef = useRef(form);
+
+  formRef.current = form;
+  const invalidateRegionDetection = () => {
+    regionDetectRevision.current += 1;
+    setRegionDetectLoading(false);
+  };
+  const handleDetectRegion = async (automatic = false) => {
+    const current = formRef.current;
+    const ip = current.serverIpV4.trim() || current.serverIpV6.trim();
+
+    if (!ip || (automatic && (current.region || regionEdited.current))) return;
+    const revision = ++regionDetectRevision.current;
+
+    setRegionDetectLoading(true);
+    try {
+      const res = await detectNodeRegion(ip);
+      const latest = formRef.current;
+
+      if (revision !== regionDetectRevision.current ||
+          ip !== (latest.serverIpV4.trim() || latest.serverIpV6.trim()) ||
+          (automatic && (latest.region || regionEdited.current))) return;
+      if (res.code === 0 && res.data?.region) {
+        setForm((prev) => ({ ...prev, region: res.data.region }));
+        if (!automatic) toast.success(`已识别：${regionLabel(res.data.region)}`);
+      } else if (!automatic) {
+        toast(res.code === 0 ? "未能识别地区，请手动选择" : res.msg || "地区识别失败");
+      }
+    } catch {
+      if (!automatic && revision === regionDetectRevision.current) toast.error("地区识别失败，请手动选择");
+    } finally {
+      if (revision === regionDetectRevision.current) setRegionDetectLoading(false);
+    }
+  };
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [selectMode, setSelectMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
@@ -972,6 +1018,9 @@ export default function NodePage() {
     ) {
       newErrors.expiryTime = "请同时设置续费周期和续费基准时间";
     }
+    if (Array.from(form.regionCity.trim()).length > 50) {
+      newErrors.regionCity = "城市/备注不能超过50个字符";
+    }
     const v4 = form.serverIpV4.trim();
     const v6 = form.serverIpV6.trim();
     const intranet = form.intranetIp.trim();
@@ -1005,12 +1054,16 @@ export default function NodePage() {
     resetForm();
   };
   const handleEdit = (node: Node) => {
+    invalidateRegionDetection();
+    regionEdited.current = false;
     setDialogTitle("编辑节点");
     setIsEdit(true);
     setForm({
       id: node.id,
       name: node.name,
       remark: node.remark || "",
+      region: node.region || "",
+      regionCity: node.regionCity || "",
       expiryTime: node.expiryTime || 0,
       renewalCycle: node.renewalCycle || "",
       groupId: node.groupId || null,
@@ -1493,6 +1546,7 @@ export default function NodePage() {
       const data = {
         ...rest,
         remark: form.remark.trim(),
+        regionCity: form.regionCity.trim(),
         expiryTime: form.expiryTime,
         renewalCycle: form.renewalCycle,
         groupId: form.groupId,
@@ -1554,6 +1608,8 @@ export default function NodePage() {
                     ...n,
                     name: form.name,
                     remark: form.remark.trim(),
+                    region: form.region,
+                    regionCity: form.regionCity.trim(),
                     expiryTime: form.expiryTime,
                     renewalCycle: form.renewalCycle,
                     groupId: form.groupId,
@@ -1587,10 +1643,14 @@ export default function NodePage() {
     }
   };
   const resetForm = () => {
+    invalidateRegionDetection();
+    regionEdited.current = false;
     setForm({
       id: null,
       name: "",
       remark: "",
+      region: "",
+      regionCity: "",
       expiryTime: 0,
       renewalCycle: "",
       groupId: null,
@@ -2035,6 +2095,9 @@ export default function NodePage() {
               >
                 {node.name}
               </h3>
+            </div>
+            <div className="text-xs text-default-500">
+              {regionLabel(node.region)}{node.regionCity ? ` · ${node.regionCity}` : ""}
             </div>
           </div>
         </CardHeader>
@@ -3007,6 +3070,53 @@ export default function NodePage() {
                   }
                 />
               </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Select
+                    isSearchable
+                    label="地区"
+                    searchPlaceholder="搜索地区名称或代码"
+                    selectedKeys={[form.region || "unset"]}
+                    onSelectionChange={(keys) => {
+                      invalidateRegionDetection();
+                      regionEdited.current = true;
+                      const selected = String(Array.from(keys)[0] || "unset");
+
+                      setForm((prev) => ({ ...prev, region: selected === "unset" ? "" : selected }));
+                    }}
+                  >
+                    <SelectItem key="unset">未设置</SelectItem>
+                    {REGION_OPTIONS.map((code) => (
+                      <SelectItem key={code} textValue={`${regionLabel(code)} (${code})`}>
+                        {regionLabel(code)} ({code})
+                      </SelectItem>
+                    ))}
+                  </Select>
+                  <Button
+                    isDisabled={!form.serverIpV4.trim() && !form.serverIpV6.trim()}
+                    isLoading={regionDetectLoading}
+                    size="sm"
+                    variant="flat"
+                    onPress={() => handleDetectRegion()}
+                  >
+                    自动识别
+                  </Button>
+                  <p className="text-xs text-default-500">
+                    自动识别仅预填，可手动修正。离线数据：
+                    <a className="underline" href="https://db-ip.com" rel="noreferrer" target="_blank">DB-IP</a>
+                    {" · "}<a className="underline" href="https://creativecommons.org/licenses/by/4.0/" rel="noreferrer" target="_blank">CC BY 4.0</a>
+                  </p>
+                </div>
+                <Input
+                  errorMessage={errors.regionCity}
+                  isInvalid={!!errors.regionCity}
+                  label="城市/地区备注（可选）"
+                  placeholder="例如：葵涌、深圳"
+                  value={form.regionCity}
+                  variant="bordered"
+                  onChange={(event) => setForm((prev) => ({ ...prev, regionCity: event.target.value }))}
+                />
+              </div>
               <Select
                 description="将节点分配到指定分组（可选）"
                 label="分组"
@@ -3112,9 +3222,11 @@ export default function NodePage() {
                   placeholder="例如：test.example.com 8.8.8.8"
                   value={form.serverIpV4}
                   variant="bordered"
-                  onChange={(e) =>
-                    setForm((prev) => ({ ...prev, serverIpV4: e.target.value }))
-                  }
+                  onBlur={() => handleDetectRegion(true)}
+                  onChange={(e) => {
+                    invalidateRegionDetection();
+                    setForm((prev) => ({ ...prev, serverIpV4: e.target.value }));
+                  }}
                 />
                 <Input
                   classNames={{
@@ -3153,9 +3265,11 @@ export default function NodePage() {
                   placeholder="例如：2001:db8::10"
                   value={form.serverIpV6}
                   variant="bordered"
-                  onChange={(e) =>
-                    setForm((prev) => ({ ...prev, serverIpV6: e.target.value }))
-                  }
+                  onBlur={() => handleDetectRegion(true)}
+                  onChange={(e) => {
+                    invalidateRegionDetection();
+                    setForm((prev) => ({ ...prev, serverIpV6: e.target.value }));
+                  }}
                 />
               </div>
               <Accordion variant="bordered">

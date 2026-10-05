@@ -5,6 +5,8 @@ import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { useState, useRef, useEffect } from "react";
 
+import { regionLabel } from "@/utils/region";
+
 import { getConnectionStatusMeta } from "./display";
 import { getNodeRenewalSnapshot, formatNodeRenewalTime } from "./renewal";
 
@@ -35,6 +37,8 @@ import {
   getDistroColor,
 } from "@/components/distro-icon";
 interface Node {
+  region?: string;
+  regionCity?: string;
   id: number;
   inx?: number;
   name: string;
@@ -283,6 +287,9 @@ function SortableTableRow({
           >
             {node.name}
           </span>
+        </div>
+        <div className="mt-1 text-xs text-default-500">
+          {regionLabel(node.region)}{node.regionCity ? ` · ${node.regionCity}` : ""}
         </div>
       </TableCell>
       <TableCell className={`whitespace-nowrap ${rowBg}`}>
