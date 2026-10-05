@@ -752,21 +752,21 @@ func (h *Handler) nodeUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	currentStatus, currentHTTP, currentTLS, currentSocks, currentBlockOther, err := h.repo.GetNodeStatusFields(id)
+	oldNode, err := h.repo.GetNodeByID(id)
 	if err != nil {
-		if err == sql.ErrNoRows {
-			response.WriteJSON(w, response.ErrDefault("节点不存在"))
-			return
-		}
 		response.WriteJSON(w, response.Err(-2, err.Error()))
 		return
 	}
+	if oldNode == nil {
+		response.WriteJSON(w, response.ErrDefault("节点不存在"))
+		return
+	}
 
-	newHTTP := asInt(req["http"], currentHTTP)
-	newTLS := asInt(req["tls"], currentTLS)
-	newSocks := asInt(req["socks"], currentSocks)
-	newBlockOther := asInt(req["blockOther"], currentBlockOther)
-	if currentStatus == 1 && (newHTTP != currentHTTP || newTLS != currentTLS || newSocks != currentSocks || newBlockOther != currentBlockOther) {
+	newHTTP := asInt(req["http"], oldNode.HTTP)
+	newTLS := asInt(req["tls"], oldNode.TLS)
+	newSocks := asInt(req["socks"], oldNode.Socks)
+	newBlockOther := asInt(req["blockOther"], oldNode.BlockOther)
+	if oldNode.Status == 1 && (newHTTP != oldNode.HTTP || newTLS != oldNode.TLS || newSocks != oldNode.Socks || newBlockOther != oldNode.BlockOther) {
 		if err := h.applyNodeProtocolChange(id, newHTTP, newTLS, newSocks, newBlockOther); err != nil {
 			response.WriteJSON(w, response.ErrDefault(err.Error()))
 			return
@@ -822,7 +822,17 @@ func (h *Handler) nodeUpdate(w http.ResponseWriter, r *http.Request) {
 		response.WriteJSON(w, response.Err(-2, err.Error()))
 		return
 	}
-	response.WriteJSON(w, response.OKEmpty())
+	newNode := *oldNode
+	newNode.Name = asString(req["name"])
+	newNode.ServerIP = serverIP
+	newNode.ServerIPV4 = sql.NullString{String: asString(req["serverIpV4"]), Valid: strings.TrimSpace(asString(req["serverIpV4"])) != ""}
+	newNode.ServerIPV6 = sql.NullString{String: asString(req["serverIpV6"]), Valid: strings.TrimSpace(asString(req["serverIpV6"])) != ""}
+	newNode.IntranetIP = sql.NullString{String: asString(req["intranetIp"]), Valid: strings.TrimSpace(asString(req["intranetIp"])) != ""}
+	newNode.ExtraIPs = sql.NullString{String: asString(req["extraIPs"]), Valid: strings.TrimSpace(asString(req["extraIPs"])) != ""}
+	newNode.InterfaceName = sql.NullString{String: asString(req["interfaceName"]), Valid: strings.TrimSpace(asString(req["interfaceName"])) != ""}
+	newNode.TCPListenAddr = defaultString(asString(req["tcpListenAddr"]), "[::]")
+	newNode.UDPListenAddr = defaultString(asString(req["udpListenAddr"]), "[::]")
+	response.WriteJSON(w, response.OK(h.syncNodeUpdate(oldNode, &newNode)))
 }
 
 func (h *Handler) nodeDelete(w http.ResponseWriter, r *http.Request) {
@@ -2156,7 +2166,7 @@ func (h *Handler) reconstructTunnelState(tunnelID int64) (*tunnelCreateState, er
 	return state, nil
 }
 
-func (h *Handler) redeployTunnelAndForwards(tunnelID int64) error {
+func (h *Handler) redeployTunnelAndForwards(tunnelID int64, onForwardSync ...func(*model.ForwardRecord, error)) error {
 	tunnel, err := h.getTunnelRecord(tunnelID)
 	if err != nil {
 		return err
@@ -2203,18 +2213,30 @@ func (h *Handler) redeployTunnelAndForwards(tunnelID int64) error {
 	var mu sync.Mutex
 	var wg sync.WaitGroup
 	var syncErr error
+	workers := make(chan struct{}, 4)
 
 	for i := range forwards {
+		workers <- struct{}{}
 		wg.Add(1)
 		go func(f *model.ForwardRecord) {
 			defer wg.Done()
+			defer func() { <-workers }()
 			if f.Status != 1 {
 				return
 			}
-			if err := h.syncForwardServices(f, "UpdateService", true); err != nil {
-				mu.Lock()
+			var err error
+			if len(onForwardSync) > 0 {
+				err = h.syncNodeForwardServices(f)
+			} else {
+				err = h.syncForwardServices(f, "UpdateService", true)
+			}
+			mu.Lock()
+			defer mu.Unlock()
+			if err != nil {
 				syncErr = err
-				mu.Unlock()
+			}
+			for _, report := range onForwardSync {
+				report(f, err)
 			}
 		}(&forwards[i])
 	}

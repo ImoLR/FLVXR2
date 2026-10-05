@@ -298,26 +298,30 @@ func (h *Handler) pathApply(w http.ResponseWriter, r *http.Request) {
 		response.WriteJSON(w, response.ErrDefault("请求参数无效"))
 		return
 	}
-	detail, err := h.repo.GetPathTunnelDetail(req.ID)
-	if err != nil {
+	if err := h.applyWGPath(req.ID); err != nil {
 		response.WriteJSON(w, response.ErrDefault(err.Error()))
 		return
 	}
+	response.WriteJSON(w, response.OK(map[string]interface{}{"pathId": req.ID, "status": "active"}))
+}
+
+func (h *Handler) applyWGPath(pathID int64) error {
+	detail, err := h.repo.GetPathTunnelDetail(pathID)
+	if err != nil {
+		return err
+	}
 	if detail == nil {
-		response.WriteJSON(w, response.ErrDefault("Path 不存在"))
-		return
+		return errors.New("Path 不存在")
 	}
 	plans, expectedHash, err := h.buildWGPathPlans(detail)
 	if err != nil {
-		response.WriteJSON(w, response.ErrDefault(err.Error()))
-		return
+		return err
 	}
-	runtime := &model.PathRuntimeVersion{PathID: req.ID, ExpectedHash: expectedHash, Status: "applying"}
+	runtime := &model.PathRuntimeVersion{PathID: pathID, ExpectedHash: expectedHash, Status: "applying"}
 	if err := h.repo.CreatePathRuntimeVersion(runtime); err != nil {
-		response.WriteJSON(w, response.ErrDefault(err.Error()))
-		return
+		return err
 	}
-	_ = h.repo.UpdatePathTunnelStatus(req.ID, "applying")
+	_ = h.repo.UpdatePathTunnelStatus(pathID, "applying")
 	var errs []string
 	var actualHashes []string
 	for nodeID, plan := range plans {
@@ -333,13 +337,12 @@ func (h *Handler) pathApply(w http.ResponseWriter, r *http.Request) {
 	if len(errs) > 0 {
 		msg := strings.Join(errs, "; ")
 		_ = h.repo.UpdatePathRuntimeVersion(runtime.ID, "failed", strings.Join(actualHashes, ","), msg)
-		_ = h.repo.UpdatePathTunnelStatus(req.ID, "failed")
-		response.WriteJSON(w, response.ErrDefault(msg))
-		return
+		_ = h.repo.UpdatePathTunnelStatus(pathID, "failed")
+		return errors.New(msg)
 	}
 	_ = h.repo.UpdatePathRuntimeVersion(runtime.ID, "active", strings.Join(actualHashes, ","), "OK")
-	_ = h.repo.UpdatePathTunnelStatus(req.ID, "active")
-	response.WriteJSON(w, response.OK(map[string]interface{}{"pathId": req.ID, "status": "active"}))
+	_ = h.repo.UpdatePathTunnelStatus(pathID, "active")
+	return nil
 }
 
 func (h *Handler) pathRemove(w http.ResponseWriter, r *http.Request) {
