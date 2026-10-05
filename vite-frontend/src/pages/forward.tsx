@@ -4980,8 +4980,6 @@ export default function ForwardPage() {
                         <TableColumn className="whitespace-nowrap flex-shrink-0 w-[180px] text-left">
                           <Select
                             aria-label="按所属隧道筛选"
-                            isSearchable
-                            searchPlaceholder="搜索入口、地区或隧道"
                             className="w-full"
                             classNames={{
                               trigger:
