@@ -7,7 +7,7 @@
 - [x] 实现事务内入口地址 token 重写与单元测试。
 - [x] 实现节点变更分类、受限并发运行时同步、WG 路径及失败反馈，完成 handler 测试。
 - [x] 完成前端同步数量与失败提示，并通过构建。
-- [ ] 完成 Go build/vet/全量测试，与基线失败集合对比。
+- [x] 完成 Go build/vet/全量测试，与基线失败集合对比。
 - [x] 完成隔离 netns E2E 与生产数据库在线备份副本的无变化编辑验证。
 - [ ] 推送分支并确认 CI Build Check 成功。
 - [ ] 发布 annotated tag `3.0.27-fork.18`，验证发布工作流及全部资产。
@@ -19,3 +19,5 @@
 生产仅修改指定七条隧道的 `in_ip`；升级前备份 compose、.env、在线 SQLite 快照并保留旧镜像。
 
 验证记录：新增 repository/handler 测试通过；最终 netns E2E 验证出口换 IP 自动拨号、入口及规则列表同步、自定义域名保留、名称编辑零下发，监听修改同步 gost+nftables 且 gost 规则仅下发一次，两类流量均通。生产库副本节点 23 未变化编辑返回零同步，49 条 tunnel 与 26 条 forward_port 全行未变化。
+
+最终本地门禁：Go build 通过；修改包 vet 通过；新增 handler race 测试通过；npm build 通过。全量 Go 测试与精确基线 `2d0676e3` 以及历史清单均为同一 19 个失败，无新增/缺失。日志与比较结果保存在 `/root/flvx-workers/runs/node-auto-sync/`。
