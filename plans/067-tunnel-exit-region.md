@@ -13,7 +13,7 @@
 - [x] 隧道页入口/地区分组、筛选持久化、地区标记与原有操作兼容；真实副本浏览器验证通过，另用浏览器模拟响应验证多入口勾选去重及多地区标签。
 - [x] 后端 `go build ./...`、所改包 `go vet` 通过；`go test ./...` 与新建基线 worktree 均为相同 19 个既有失败，新增 0；前端 `npm run build` 通过。
 - [x] 生产库在线备份副本在 16365 本地验证：25 节点回填，重启不重复；tunnel/forward_port in_ip 与原副本一致；用户 3 分组元数据无节点身份，检测接口 envelope code 403（沿用项目 HTTP 200 约定）；截图已保存。
-- [ ] 确认 CI Build Check 全绿：分支已推送；r3 获得 Backend/PostgreSQL 成功结果，Frontend/Agent 因托管 runner 分配失败阻塞，详见下方 r3 CI 记录。
+- [x] 确认 CI Build Check 全绿：r3 提交 `78b718da` 的 CI `37374592949` 四项成功；见下方证据。完成记录提交的最终 HEAD CI 状态另存 r3 总结。
 - [x] 写入中文总结 `/root/flvx-workers/runs/tunnel-region/summary.md`（明确记录 CI 外部阻塞，未宣称本轮全部完成）。
 
 ## Round 2 (amendments)
@@ -26,7 +26,7 @@
   - r3 补齐 13 张 PNG（00 原图保留）；全部实际打开检查，记录 `r3/screens-reviewed.json`。真实隧道无未知/多地区，节点空地区仅浏览器 mock；无视觉代码修复。
 - [x] F：后端 build/vet/full test 对比基线、前端 build、全新副本回填和用户 3 隐私核验。
   - r3 build/vet/npm build 通过；全量测试与 `/root/flvx-fork10/base.fails` 相同 19 失败、新增 0。新副本 25 节点地区/source/IP 与 r2 一致，节点 20 为 IPv6 回退；用户 3 隐私、detect 403、legacy ip、原有 in_ip 不变均 PASS（`r3/api-check.txt`）。
-- [ ] 提交并推送最终 HEAD，确认 CI Build Check 四个 job 全绿。
+- [x] 提交并推送、确认 CI Build Check 四个 job 全绿：`78b718da` / run `37374592949` 成功；完成记录提交后继续核对最终 HEAD，见 r3 总结。
 - [x] 写中文合并总结 `/root/flvx-workers/runs/tunnel-region-r3/summary.md`，列出 r2/r3 证据与未实施建议；r2 OOM 未单独产出总结，CI 状态在 r3 总结持续更新。
 
 ## Round 3（续验，不发布）
@@ -38,7 +38,7 @@
   - 1440px region 为 2×518px，1920px 为 4×371px；390px 页面/规则 picker 均无横向溢出。未改变不分组/自定义分组两列 370px 的既有布局。
 - [x] 更新本计划并提交本地验证证据。
 - [x] 推送验证提交 `be1ca9e3` 并用 `gh run watch` 等待，失败 job 已重试一次；收尾文档提交后继续核对最终 HEAD（总等待最多约 60 分钟）。
-  - 最终状态以 r3 `summary.md`/`ci-final.json` 的 headSha、运行 ID 和状态为准；四项未全绿时上方 CI 清单保持未完成。
+  - 最终状态以 r3 `summary.md`/`ci-final.json` 的 headSha、运行 ID 和状态为准；清单以已验证运行作记录，最终 HEAD 的运行结果在总结中单独核对。
 - [x] 停止本轮进程并写合并 r2/r3 的中文总结 `/root/flvx-workers/runs/tunnel-region-r3/summary.md`。
   - paneld、静态服务、Chromium 均已结束，16365/13000/13001 无监听；未运行 Vite，未保存实体或操作生产。
 
@@ -50,7 +50,11 @@ DB-IP IP to Country Lite **2026-10**（2026-10-01 月度版，2026-10-05 下载�
 
 本地截图：`/root/flvx-workers/runs/tunnel-region/tunnel-entry-region.png`、`tunnel-entry-region-list.png`、`forward-picker-open.png`、`node-region-form.png`。完整节点表、测试集合对照与浏览器记录均在同目录。
 
-## Round 3 CI 证据（2026-10-05 21:13 UTC）
+## Round 3 CI 全绿（2026-10-05 21:25 UTC）
+
+提交 `78b718da` 的 [CI 37374592949](https://github.com/ImoLR/FLVXR2/actions/runs/37374592949) 最终 `completed/success`，Frontend、Backend、PostgreSQL Contract、Agent 四项均成功；累计等待约 43 分钟。证据：r3 `ci-78b718da-success.json/txt`、`ci-watch-final.log`。本提交只勾选完成项并记录此结果；推送后继续检查完成记录提交本身的 CI，最新 headSha/run ID/status 保存在 r3 `summary.md` 和 `ci-final.json`。
+
+## Round 3 CI 先前阻塞记录（2026-10-05 21:13 UTC）
 
 验证提交 `be1ca9e3` 的 [CI 37371273073](https://github.com/ImoLR/FLVXR2/actions/runs/37371273073) 已等待约 31 分钟、完成一次 `--failed` 重试（attempt 2）。Backend 和 PostgreSQL Contract 成功；Frontend/Agent 没有执行构建步骤，GitHub 注释为 `The job was not acquired by Runner of type hosted even after multiple attempts`，最终 run 为 failure（剩余两个 job 为 cancelled）。未把 runner 失败当作代码回归，未修改 CI 配置。原始证据：r3 `ci-attempt1.txt/json`、`ci-attempt2.txt/json`、`ci-watch.log`。
 
