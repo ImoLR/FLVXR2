@@ -109,6 +109,8 @@ type Node struct {
 	ID                           int64          `gorm:"primaryKey;autoIncrement"`
 	Name                         string         `gorm:"type:varchar(100);not null"`
 	Remark                       sql.NullString `gorm:"column:remark;type:text"`
+	Region                       string         `gorm:"column:region;type:varchar(8);not null;default:''"`
+	RegionCity                   string         `gorm:"column:region_city;type:varchar(50);not null;default:''"`
 	ExpiryTime                   sql.NullInt64  `gorm:"column:expiry_time"`
 	RenewalCycle                 sql.NullString `gorm:"column:renewal_cycle;type:varchar(20)"`
 	Secret                       string         `gorm:"type:varchar(100);not null"`

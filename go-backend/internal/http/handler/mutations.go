@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"go-backend/internal/auth"
+	"go-backend/internal/geoip"
 	"go-backend/internal/http/client"
 	"go-backend/internal/http/response"
 	"go-backend/internal/security"
@@ -687,6 +688,15 @@ func (h *Handler) nodeCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	region, err := repo.NormalizeNodeRegion(asString(req["region"]), asString(req["regionCity"]))
+	if err != nil {
+		response.WriteJSON(w, response.ErrDefault(err.Error()))
+		return
+	}
+	if region.Region == "" {
+		region.Region = geoip.DetectNodeAddresses(asString(req["serverIpV4"]), serverIP, asString(req["serverIpV6"]))
+	}
+
 	var groupID interface{}
 	if _, ok := req["groupId"]; ok {
 		if gID, ok := req["groupId"].(float64); ok {
@@ -728,6 +738,7 @@ func (h *Handler) nodeCreate(w http.ResponseWriter, r *http.Request) {
 		nullableText(asString(req["remoteConfig"])),
 		nullableText(asString(req["extraIPs"])),
 		actorUserID,
+		region,
 	); err != nil {
 		response.WriteJSON(w, response.Err(-2, err.Error()))
 		return
@@ -759,6 +770,19 @@ func (h *Handler) nodeUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 	if oldNode == nil {
 		response.WriteJSON(w, response.ErrDefault("节点不存在"))
+		return
+	}
+
+	regionCode, regionCity := oldNode.Region, oldNode.RegionCity
+	if value, ok := req["region"]; ok {
+		regionCode = asString(value)
+	}
+	if value, ok := req["regionCity"]; ok {
+		regionCity = asString(value)
+	}
+	region, err := repo.NormalizeNodeRegion(regionCode, regionCity)
+	if err != nil {
+		response.WriteJSON(w, response.ErrDefault(err.Error()))
 		return
 	}
 
@@ -818,12 +842,15 @@ func (h *Handler) nodeUpdate(w http.ResponseWriter, r *http.Request) {
 		defaultString(asString(req["tcpListenAddr"]), "[::]"),
 		defaultString(asString(req["udpListenAddr"]), "[::]"),
 		now,
+		region,
 	); err != nil {
 		response.WriteJSON(w, response.Err(-2, err.Error()))
 		return
 	}
 	newNode := *oldNode
 	newNode.Name = asString(req["name"])
+	newNode.Region = region.Region
+	newNode.RegionCity = region.City
 	newNode.ServerIP = serverIP
 	newNode.ServerIPV4 = sql.NullString{String: asString(req["serverIpV4"]), Valid: strings.TrimSpace(asString(req["serverIpV4"])) != ""}
 	newNode.ServerIPV6 = sql.NullString{String: asString(req["serverIpV6"]), Valid: strings.TrimSpace(asString(req["serverIpV6"])) != ""}

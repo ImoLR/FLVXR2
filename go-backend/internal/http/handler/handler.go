@@ -211,6 +211,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("/api/v1/user/my-subscription", h.userMySubscription)
 	mux.HandleFunc("/api/v1/user/updatePassword", h.updatePassword)
 	mux.HandleFunc("/api/v1/node/list", h.nodeList)
+	mux.HandleFunc("/api/v1/node/detect-region", h.nodeDetectRegion)
 	mux.HandleFunc("/api/v1/node/create", h.nodeCreate)
 	mux.HandleFunc("/api/v1/node/update", h.nodeUpdate)
 	mux.HandleFunc("/api/v1/node/delete", h.nodeDelete)
@@ -2228,6 +2229,8 @@ func (h *Handler) nodeInfo(w http.ResponseWriter, r *http.Request) {
 	response.WriteJSON(w, response.OK(map[string]interface{}{
 		"id":           node.ID,
 		"name":         node.Name,
+		"region":       node.Region,
+		"regionCity":   node.RegionCity,
 		"secret":       secret,
 		"renewalCycle": node.RenewalCycle.String,
 		"expiryTime":   node.ExpiryTime.Int64,

@@ -967,6 +967,8 @@ func (r *Repository) ListNodes(opts *ListNodesOptions) ([]map[string]interface{}
 	for _, n := range nodes {
 		items = append(items, map[string]interface{}{
 			"id": n.ID, "inx": n.Inx, "name": n.Name,
+			"region":       n.Region,
+			"regionCity":   n.RegionCity,
 			"remark":       nullableString(n.Remark),
 			"expiryTime":   nullableInt64(n.ExpiryTime),
 			"renewalCycle": nullableString(n.RenewalCycle),

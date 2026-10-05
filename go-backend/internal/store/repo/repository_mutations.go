@@ -380,7 +380,7 @@ func (r *Repository) GetUserDefaultsForTunnel(userID int64) (flow int64, num int
 	return user.Flow, user.Num, user.ExpTime, user.FlowResetTime, nil
 }
 
-func (r *Repository) CreateNode(name, secret, serverIP string, serverIPV4, serverIPV6, port, interfaceName, version, remark, expiryTime, renewalCycle, groupID interface{}, httpFlag, tlsFlag, socksFlag, blockOtherFlag int, now int64, status int, tcpAddr, udpAddr string, inx, isRemote int, remoteURL, remoteToken, remoteConfig, extraIPs interface{}, ownerUserID int64) error {
+func (r *Repository) CreateNode(name, secret, serverIP string, serverIPV4, serverIPV6, port, interfaceName, version, remark, expiryTime, renewalCycle, groupID interface{}, httpFlag, tlsFlag, socksFlag, blockOtherFlag int, now int64, status int, tcpAddr, udpAddr string, inx, isRemote int, remoteURL, remoteToken, remoteConfig, extraIPs interface{}, ownerUserID int64, region ...NodeRegion) error {
 	if r == nil || r.db == nil {
 		return errors.New("repository not initialized")
 	}
@@ -416,6 +416,10 @@ func (r *Repository) CreateNode(name, secret, serverIP string, serverIPV4, serve
 		RemoteToken:   nullStringFromInterface(remoteToken),
 		RemoteConfig:  nullStringFromInterface(remoteConfig),
 		OwnerUserID:   ownerUserID,
+	}
+	if len(region) > 0 {
+		node.Region = region[0].Region
+		node.RegionCity = region[0].City
 	}
 	return r.db.Create(&node).Error
 }
@@ -459,7 +463,7 @@ func (r *Repository) UpdateNodePublicIPs(nodeID int64, ipv4, ipv6 string) error 
 		}).Error
 }
 
-func (r *Repository) UpdateNode(id int64, name, serverIP string, serverIPV4, serverIPV6, intranetIP, port, interfaceName, extraIPs, remark, expiryTime, renewalCycle, groupID interface{}, httpFlag, tlsFlag, socksFlag, blockOtherFlag int, tcpAddr, udpAddr string, now int64) error {
+func (r *Repository) UpdateNode(id int64, name, serverIP string, serverIPV4, serverIPV6, intranetIP, port, interfaceName, extraIPs, remark, expiryTime, renewalCycle, groupID interface{}, httpFlag, tlsFlag, socksFlag, blockOtherFlag int, tcpAddr, udpAddr string, now int64, region ...NodeRegion) error {
 	if r == nil || r.db == nil {
 		return errors.New("repository not initialized")
 	}
@@ -483,6 +487,10 @@ func (r *Repository) UpdateNode(id int64, name, serverIP string, serverIPV4, ser
 		"udp_listen_addr":           udpAddr,
 		"updated_time":              sql.NullInt64{Int64: now, Valid: true},
 		"expiry_reminder_dismissed": 0,
+	}
+	if len(region) > 0 {
+		updates["region"] = region[0].Region
+		updates["region_city"] = region[0].City
 	}
 	if groupID != nil {
 		updates["group_id"] = groupID
