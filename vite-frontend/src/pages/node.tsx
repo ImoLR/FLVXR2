@@ -1505,7 +1505,46 @@ export default function NodePage() {
       const res = await apiCall(data);
 
       if (res.code === 0) {
-        toast.success(isEdit ? "更新成功" : "创建成功");
+        const syncResult = isEdit
+          ? (res.data as {
+              tunnelsUpdated?: number;
+              rulesUpdated?: number;
+              entryAddressesUpdated?: number;
+              failures?: {
+                type: string;
+                id: number;
+                name: string;
+                reason: string;
+              }[];
+            } | null)
+          : null;
+        const tunnelsUpdated = syncResult?.tunnelsUpdated ?? 0;
+        const rulesUpdated = syncResult?.rulesUpdated ?? 0;
+
+        toast.success(
+          tunnelsUpdated > 0 ||
+            rulesUpdated > 0 ||
+            (syncResult?.entryAddressesUpdated ?? 0) > 0
+            ? `节点已更新，已自动同步 ${tunnelsUpdated} 个隧道、${rulesUpdated} 条规则`
+            : isEdit
+              ? "更新成功"
+              : "创建成功",
+        );
+        if (syncResult?.failures?.length) {
+          const details = syncResult.failures
+            .slice(0, 3)
+            .map(
+              (failure) =>
+                `${failure.name || `#${failure.id}`}：${failure.reason}`,
+            )
+            .join("；");
+          const remaining = syncResult.failures.length > 3 ? "；…" : "";
+
+          toast(
+            `同步失败：${details}${remaining}，可稍后在隧道页手动重新部署`,
+            { icon: "⚠️", duration: 10000 },
+          );
+        }
         setDialogVisible(false);
         if (isEdit) {
           setNodeList((prev) =>
