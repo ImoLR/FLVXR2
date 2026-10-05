@@ -14,6 +14,7 @@ interface OptionItem {
   disabled?: boolean;
   key: string;
   label: string;
+  section?: string;
 }
 
 interface ClassNameMap {
@@ -23,6 +24,7 @@ interface ClassNameMap {
 }
 
 export interface SelectProps<T = unknown> extends FieldMetaProps {
+  "aria-label"?: string;
   children?: React.ReactNode | ((item: T) => React.ReactNode);
   className?: string;
   classNames?: ClassNameMap;
@@ -38,6 +40,8 @@ export interface SelectProps<T = unknown> extends FieldMetaProps {
   size?: "sm" | "md" | "lg";
   variant?: string;
   dropdownPlacement?: "bottom" | "top";
+  isSearchable?: boolean;
+  searchPlaceholder?: string;
 }
 
 export interface SelectItemProps {
@@ -52,6 +56,17 @@ export function SelectItem(_props: SelectItemProps) {
 
 SelectItem.displayName = "HeroSelectItem";
 
+export interface SelectSectionProps {
+  title: string;
+  children?: React.ReactNode;
+}
+
+export function SelectSection(_props: SelectSectionProps) {
+  return null;
+}
+
+SelectSection.displayName = "HeroSelectSection";
+
 function toSet(value?: SelectionValue) {
   if (!value) {
     return new Set<string>();
@@ -60,19 +75,31 @@ function toSet(value?: SelectionValue) {
   return new Set(Array.from(value).map((item) => String(item)));
 }
 
-function flattenOptionsFromNode(node: React.ReactNode, options: OptionItem[]) {
+function flattenOptionsFromNode(
+  node: React.ReactNode,
+  options: OptionItem[],
+  section?: string,
+) {
   React.Children.forEach(node, (child, index) => {
     if (child === null || child === undefined || typeof child === "boolean") {
       return;
     }
     if (Array.isArray(child)) {
-      flattenOptionsFromNode(child, options);
+      flattenOptionsFromNode(child, options, section);
 
       return;
     }
     if (React.isValidElement(child)) {
       if (child.type === React.Fragment) {
-        flattenOptionsFromNode(child.props.children, options);
+        flattenOptionsFromNode(child.props.children, options, section);
+
+        return;
+      }
+
+      if (child.type === SelectSection) {
+        const props = child.props as SelectSectionProps;
+
+        flattenOptionsFromNode(props.children, options, props.title);
 
         return;
       }
@@ -83,6 +110,7 @@ function flattenOptionsFromNode(node: React.ReactNode, options: OptionItem[]) {
 
         options.push({
           key,
+          section,
           label: props.textValue ?? extractText(props.children) ?? key,
         });
 
@@ -165,6 +193,9 @@ export function Select<T>({
   selectionMode = "single",
   size,
   dropdownPlacement = "bottom",
+  isSearchable = false,
+  searchPlaceholder = "搜索…",
+  "aria-label": ariaLabel,
 }: SelectProps<T>) {
   const generatedId = React.useId();
   const options = React.useMemo(
@@ -174,6 +205,25 @@ export function Select<T>({
   const containerRef = React.useRef<HTMLDivElement | null>(null);
   const listboxRef = React.useRef<HTMLDivElement | null>(null);
   const [isExpanded, setIsExpanded] = React.useState(false);
+  const [search, setSearch] = React.useState("");
+  const searchRef = React.useRef<HTMLInputElement | null>(null);
+  const triggerRef = React.useRef<HTMLButtonElement | null>(null);
+  const visibleOptions = React.useMemo(() => {
+    const keyword = search.trim().toLocaleLowerCase();
+
+    return keyword
+      ? options.filter((option) =>
+          `${option.section || ""} ${option.label}`
+            .toLocaleLowerCase()
+            .includes(keyword),
+        )
+      : options;
+  }, [options, search]);
+
+  React.useEffect(() => {
+    if (isExpanded && isSearchable) searchRef.current?.focus();
+    if (!isExpanded) setSearch("");
+  }, [isExpanded, isSearchable]);
   const selected = React.useMemo(() => toSet(selectedKeys), [selectedKeys]);
   const disabled = React.useMemo(() => toSet(disabledKeys), [disabledKeys]);
 
@@ -284,6 +334,16 @@ export function Select<T>({
     onSelectionChange(new Set([event.target.value]));
   };
 
+  const selectSingleOption = (key: string) => {
+    onSelectionChange?.(new Set([key]));
+    onChange?.({
+      target: { value: key },
+      currentTarget: { value: key },
+    } as React.ChangeEvent<HTMLSelectElement>);
+    setIsExpanded(false);
+    triggerRef.current?.focus();
+  };
+
   const renderMultipleListbox = () => {
     if (!isExpanded) {
       return null;
@@ -301,47 +361,105 @@ export function Select<T>({
         )}
         id={`${generatedId}-listbox`}
         role="listbox"
+        aria-label={
+          ariaLabel || (typeof label === "string" ? label : undefined)
+        }
+        aria-multiselectable={selectionMode === "multiple" || undefined}
+        onKeyDown={(event) => {
+          if (event.key === "Escape") {
+            setIsExpanded(false);
+            triggerRef.current?.focus();
+          }
+          if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+          event.preventDefault();
+          const buttons = Array.from(
+            listboxRef.current?.querySelectorAll<HTMLButtonElement>(
+              "button:not(:disabled)",
+            ) || [],
+          );
+          const index = buttons.indexOf(
+            document.activeElement as HTMLButtonElement,
+          );
+          const next =
+            event.key === "ArrowDown"
+              ? index + 1
+              : index < 0
+                ? buttons.length - 1
+                : index - 1;
+
+          buttons[(next + buttons.length) % buttons.length]?.focus();
+        }}
       >
-        {options.length === 0 ? (
+        {isSearchable && (
+          <input
+            ref={searchRef}
+            aria-label={searchPlaceholder}
+            className="sticky top-0 z-10 mb-1 h-8 w-full rounded border border-input bg-background px-2 text-sm font-normal text-foreground outline-none focus:ring-1 focus:ring-ring"
+            placeholder={searchPlaceholder}
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+          />
+        )}
+        {visibleOptions.length === 0 ? (
           <div
             className={cn("px-2 py-1 text-default-500", textSizeClass(size))}
           >
             暂无可选项
           </div>
         ) : (
-          options.map((option) => {
+          visibleOptions.map((option, index) => {
             const optionDisabled = isDisabled || disabled.has(option.key);
 
             return (
-              <div
-                key={option.key}
-                className={cn(
-                  "flex items-center gap-2 rounded-md px-2 py-1.5",
-                  optionDisabled
-                    ? "cursor-not-allowed opacity-60"
-                    : "hover:bg-default-100",
-                )}
-              >
-                <BaseCheckbox
-                  checked={selected.has(option.key)}
-                  disabled={optionDisabled}
-                  onCheckedChange={(value) =>
-                    updateMultipleSelection(option.key, value === true)
-                  }
-                />
-                <button
-                  className={cn(
-                    "min-w-0 flex-1 truncate text-left text-foreground",
-                    textSizeClass(size),
-                    optionDisabled ? "cursor-not-allowed" : "cursor-pointer",
+              <React.Fragment key={option.key}>
+                {option.section &&
+                  (index === 0 ||
+                    visibleOptions[index - 1].section !== option.section) && (
+                    <div
+                      className="px-2 pt-2 pb-1 text-xs font-semibold text-default-600"
+                      role="presentation"
+                    >
+                      {option.section}
+                    </div>
                   )}
-                  disabled={optionDisabled}
-                  type="button"
-                  onClick={() => updateMultipleSelection(option.key)}
+                <div
+                  className={cn(
+                    "flex items-center gap-2 rounded-md px-2 py-1.5",
+                    optionDisabled
+                      ? "cursor-not-allowed opacity-60"
+                      : "hover:bg-default-100",
+                  )}
                 >
-                  {option.label}
-                </button>
-              </div>
+                  {selectionMode === "multiple" && (
+                    <BaseCheckbox
+                      checked={selected.has(option.key)}
+                      disabled={optionDisabled}
+                      onCheckedChange={(value) =>
+                        updateMultipleSelection(option.key, value === true)
+                      }
+                    />
+                  )}
+                  <button
+                    className={cn(
+                      "min-w-0 flex-1 truncate text-left text-foreground",
+                      textSizeClass(size),
+                      optionDisabled ? "cursor-not-allowed" : "cursor-pointer",
+                      selected.has(option.key) && "font-semibold text-primary",
+                    )}
+                    aria-selected={selected.has(option.key)}
+                    disabled={optionDisabled}
+                    role="option"
+                    type="button"
+                    onClick={() =>
+                      selectionMode === "multiple"
+                        ? updateMultipleSelection(option.key)
+                        : selectSingleOption(option.key)
+                    }
+                  >
+                    {option.label}
+                  </button>
+                </div>
+              </React.Fragment>
             );
           })
         )}
@@ -359,9 +477,11 @@ export function Select<T>({
       isRequired={isRequired}
       label={label}
     >
-      {selectionMode === "multiple" ? (
+      {selectionMode === "multiple" || isSearchable ? (
         <div ref={containerRef} className={cn("relative w-full", className)}>
           <button
+            ref={triggerRef}
+            aria-label={ariaLabel}
             aria-controls={`${generatedId}-listbox`}
             aria-expanded={isExpanded}
             aria-haspopup="listbox"
@@ -374,6 +494,12 @@ export function Select<T>({
             id={generatedId}
             type="button"
             onClick={() => setIsExpanded((prev) => !prev)}
+            onKeyDown={(event) => {
+              if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+                event.preventDefault();
+                setIsExpanded(true);
+              }
+            }}
           >
             <span
               className={cn(
@@ -407,20 +533,43 @@ export function Select<T>({
           disabled={isDisabled}
           id={generatedId}
           required={isRequired}
+          aria-label={ariaLabel}
           value={singleValue}
           onChange={handleChange}
           onClick={onClick}
         >
           <option value="">{placeholder ?? "请选择"}</option>
-          {options.map((option) => (
-            <option
-              key={option.key}
-              disabled={disabled.has(option.key)}
-              value={option.key}
-            >
-              {option.label}
-            </option>
-          ))}
+          {options.map((option, index) => {
+            if (
+              option.section &&
+              index > 0 &&
+              options[index - 1].section === option.section
+            )
+              return null;
+            const renderOption = (item: OptionItem) => (
+              <option
+                key={item.key}
+                disabled={disabled.has(item.key)}
+                value={item.key}
+              >
+                {item.label}
+              </option>
+            );
+
+            const sectionEnd = options.findIndex(
+              (item, next) => next > index && item.section !== option.section,
+            );
+
+            return option.section ? (
+              <optgroup key={`section-${index}`} label={option.section}>
+                {options
+                  .slice(index, sectionEnd < 0 ? options.length : sectionEnd)
+                  .map(renderOption)}
+              </optgroup>
+            ) : (
+              renderOption(option)
+            );
+          })}
         </select>
       )}
     </FieldContainer>
