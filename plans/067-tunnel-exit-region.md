@@ -12,13 +12,17 @@
 - [x] 地区公共工具、节点表单/展示、Select 分组及规则表单/筛选器；表单支持搜索，表格采用 native optgroup 避免裁切，Escape 仅关闭菜单。
 - [x] 隧道页入口/地区分组、筛选持久化、地区标记与原有操作兼容（TypeScript 检查通过；真实数据浏览器验证随后进行）。
 - [x] 后端 `go build ./...`、所改包 `go vet` 通过；`go test ./...` 与新建基线 worktree 均为相同 19 个既有失败，新增 0；前端 `npm run build` 通过。
-- [ ] 生产库在线备份副本在 16365 本地验证回填、逐节点地区及用户隐私；截图。
+- [x] 生产库在线备份副本在 16365 本地验证：25 节点回填，重启不重复；tunnel/forward_port in_ip 与原副本一致；用户 3 分组元数据无节点身份，检测接口 envelope code 403（沿用项目 HTTP 200 约定）；截图已保存。
 - [ ] 审查改动、推送分支，确认 CI Build Check 全绿。
 - [ ] 写入中文总结 `/root/flvx-workers/runs/tunnel-region/summary.md`。
 
 ## 数据集
 
 DB-IP IP to Country Lite **2026-10**（2026-10-01 月度版，2026-10-05 下载），CC BY 4.0；[来源](https://db-ip.com/db/download/ip-to-country-lite)。710,834 条 IPv4/IPv6 范围转为无依赖二进制区间表，gzip 嵌入 **4,298,059 bytes**。归属、原始/嵌入 SHA-256 与刷新命令见 `go-backend/internal/geoip/DATASET.md`；不改写数据库地理归属。DNS 2 秒超时，私网/环回/CGNAT/特殊用途地址返回未知。
+
+未剥离基线隧道名称中既有的 AWS HK / Misaka TW / Lightlayer TW 文本；新增入口标签只显示地区/城市。副本检测与名称预期不符：14 Lightlayer TW→HK；20 Vmsilo TW→CN（私网 IPv4 后回退 IPv6）；24 沪日ixp G口 bug鸡→HK。未人工改写数据。普通未压缩 paneld 比基线增大 6,735,643 bytes，低于 10 MB。
+
+本地截图：`/root/flvx-workers/runs/tunnel-region/tunnel-entry-region.png`、`tunnel-entry-region-list.png`、`forward-picker-open.png`、`node-region-form.png`。完整节点表、测试集合对照与浏览器记录均在同目录。
 
 ## 下一轮（不在本轮执行）
 
