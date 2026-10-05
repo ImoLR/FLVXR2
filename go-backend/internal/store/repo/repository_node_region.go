@@ -8,6 +8,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"go-backend/internal/geoip"
 	"go-backend/internal/store/model"
 )
 
@@ -32,7 +33,7 @@ func NormalizeNodeRegion(region, city string) (NodeRegion, error) {
 
 // BackfillNodeRegions runs once after migration. Lookups never hold a database
 // transaction; the conditional write also protects an admin edit during lookup.
-func (r *Repository) BackfillNodeRegions(ctx context.Context, detect func(string, string, string) string) error {
+func (r *Repository) BackfillNodeRegions(ctx context.Context, detect func(string, string, string) geoip.DetectionResult) error {
 	cfg, err := r.GetConfigByName(nodeRegionBackfillKey)
 	if err != nil || (cfg != nil && cfg.Value == "done") {
 		return err
@@ -45,13 +46,16 @@ func (r *Repository) BackfillNodeRegions(ctx context.Context, detect func(string
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		region := detect(node.ServerIPV4.String, node.ServerIP, node.ServerIPV6.String)
-		result := r.db.WithContext(ctx).Model(&model.Node{}).Where("id = ? AND region = ?", node.ID, "").Update("region", region)
+		detection := detect(node.ServerIPV4.String, node.ServerIP, node.ServerIPV6.String)
+		result := r.db.WithContext(ctx).Model(&model.Node{}).Where("id = ? AND region = ?", node.ID, "").Update("region", detection.Region)
 		if result.Error != nil {
 			return result.Error
 		}
-		log.Printf("[node-region] node=%d name=%q ipv4=%q ip=%q ipv6=%q region=%q stored=%t", node.ID, node.Name,
-			node.ServerIPV4.String, node.ServerIP, node.ServerIPV6.String, region, result.RowsAffected > 0)
+		if detection.Region == "" {
+			log.Printf("[node-region] node %d %s: region empty (%s)", node.ID, node.Name, detection.Reason)
+		} else {
+			log.Printf("[node-region] node %d %s: region=%s via %s %s", node.ID, node.Name, detection.Region, detection.Source, detection.IP)
+		}
 	}
 	if err := ctx.Err(); err != nil {
 		return err

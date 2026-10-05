@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"go-backend/internal/geoip"
 	"go-backend/internal/store/model"
 )
 
@@ -46,7 +47,7 @@ func TestNodeRegionBackfillPreservesAdminAndRunsOnce(t *testing.T) {
 		}
 	}
 	calls := 0
-	detect := func(_, ip, _ string) string {
+	detect := func(_, ip, _ string) geoip.DetectionResult {
 		calls++
 		if ip == "1.1.1.1" {
 			if err := r.db.Model(&model.Node{}).Where("id = 3").Update("region", "JP").Error; err != nil {
@@ -54,9 +55,9 @@ func TestNodeRegionBackfillPreservesAdminAndRunsOnce(t *testing.T) {
 			}
 		}
 		if ip == "10.0.0.1" {
-			return ""
+			return geoip.DetectionResult{Reason: "IPv4 为内网地址，请手动选择地区"}
 		}
-		return "US"
+		return geoip.DetectionResult{Region: "US", IP: ip, Family: "v4", Source: "server_ip"}
 	}
 	if err := r.BackfillNodeRegions(context.Background(), detect); err != nil {
 		t.Fatal(err)

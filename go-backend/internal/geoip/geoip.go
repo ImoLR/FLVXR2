@@ -123,46 +123,120 @@ type resolver interface {
 	LookupNetIP(context.Context, string, string) ([]netip.Addr, error)
 }
 
-// DetectNodeRegion uses a literal IP or the first public DNS result. DNS has a
-// two-second deadline; no external geolocation service is contacted.
-func DetectNodeRegion(addr string) string {
-	return detect(addr, net.DefaultResolver)
+// DetectionResult describes the public address selected for country lookup.
+type DetectionResult struct {
+	Region string `json:"region"`
+	IP     string `json:"ip"`
+	Family string `json:"family"`
+	Source string `json:"source"`
+	Reason string `json:"reason"`
 }
 
-func detect(addr string, dns resolver) string {
-	addr = strings.TrimSpace(addr)
-	if addr == "" {
-		return ""
-	}
-	if ip, err := netip.ParseAddr(addr); err == nil {
-		return Lookup(ip)
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-	ips, err := dns.LookupNetIP(ctx, "ip", addr)
-	if err != nil {
-		return ""
-	}
-	for _, ip := range ips {
-		if public(ip) {
-			return Lookup(ip)
+// DetectNodeAddresses selects public IPv4 before IPv6. Each DNS family has a
+// shared two-second deadline; no external geolocation service is contacted.
+func DetectNodeAddresses(v4, general, v6 string) DetectionResult {
+	return detectNodeAddresses(v4, general, v6, net.DefaultResolver)
+}
+
+func detectNodeAddresses(v4, general, v6 string, dns resolver) DetectionResult {
+	v4, general, v6 = strings.TrimSpace(v4), strings.TrimSpace(general), strings.TrimSpace(v6)
+	privateV4, privateV6, dnsFailed := false, false, false
+	resultFor := func(ip netip.Addr, source, reason string) DetectionResult {
+		ip = ip.Unmap()
+		family := "v6"
+		if ip.Is4() {
+			family = "v4"
 		}
+		region := Lookup(ip)
+		if region == "" {
+			reason = "未查到该 IP 的地区"
+		}
+		return DetectionResult{Region: region, IP: ip.String(), Family: family, Source: source, Reason: reason}
 	}
-	return ""
-}
-
-// DetectNodeAddresses prefers IPv4, then the general address, then IPv6.
-func DetectNodeAddresses(v4, general, v6 string) string {
-	seen := make(map[string]bool, 3)
-	for _, addr := range []string{v4, general, v6} {
-		addr = strings.TrimSpace(addr)
-		if addr == "" || seen[addr] {
+	literal := func(addr string, wantV4 bool) netip.Addr {
+		ip, err := netip.ParseAddr(addr)
+		if err != nil || ip.Unmap().Is4() != wantV4 {
+			return netip.Addr{}
+		}
+		if public(ip) {
+			return ip.Unmap()
+		}
+		if wantV4 {
+			privateV4 = true
+		} else {
+			privateV6 = true
+		}
+		return netip.Addr{}
+	}
+	var domains []string
+	for _, addr := range []string{general, v4} {
+		if addr == "" || (len(domains) > 0 && domains[0] == addr) {
 			continue
 		}
-		seen[addr] = true
-		if region := DetectNodeRegion(addr); region != "" {
-			return region
+		if _, err := netip.ParseAddr(addr); err != nil {
+			domains = append(domains, addr)
 		}
 	}
-	return ""
+	lookup := func(wantV4 bool) netip.Addr {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		network := "ip6"
+		if wantV4 {
+			network = "ip4"
+		}
+		for _, domain := range domains {
+			ips, err := dns.LookupNetIP(ctx, network, domain)
+			if err != nil {
+				dnsFailed = true
+				continue
+			}
+			for _, ip := range ips {
+				if !ip.IsValid() || ip.Unmap().Is4() != wantV4 {
+					continue
+				}
+				if public(ip) {
+					return ip.Unmap()
+				}
+				if wantV4 {
+					privateV4 = true
+				} else {
+					privateV6 = true
+				}
+			}
+		}
+		return netip.Addr{}
+	}
+	for _, candidate := range []struct{ addr, source string }{{v4, "server_ip_v4"}, {general, "server_ip"}} {
+		if ip := literal(candidate.addr, true); ip.IsValid() {
+			return resultFor(ip, candidate.source, "")
+		}
+	}
+	if ip := lookup(true); ip.IsValid() {
+		return resultFor(ip, "dns_a", "")
+	}
+	fallbackReason := "未找到公网 IPv4，已改用 IPv6 识别"
+	if privateV4 {
+		fallbackReason = "IPv4 为内网地址，已改用 IPv6 识别"
+	} else if dnsFailed {
+		fallbackReason = "IPv4 域名解析失败，已改用 IPv6 识别"
+	}
+	for _, candidate := range []struct{ addr, source string }{{v6, "server_ip_v6"}, {general, "server_ip"}} {
+		if ip := literal(candidate.addr, false); ip.IsValid() {
+			return resultFor(ip, candidate.source, fallbackReason)
+		}
+	}
+	if ip := lookup(false); ip.IsValid() {
+		return resultFor(ip, "dns_aaaa", fallbackReason)
+	}
+	reason := "未找到公网地址，请手动选择地区"
+	if privateV4 && privateV6 {
+		reason = "IPv4/IPv6 均为内网地址，请手动选择地区"
+	} else if dnsFailed {
+		reason = "域名解析失败"
+	} else if privateV4 {
+		reason = "IPv4 为内网地址，请手动选择地区"
+	} else if privateV6 {
+		reason = "IPv6 为内网地址，请手动选择地区"
+	}
+	return DetectionResult{Reason: reason}
 }

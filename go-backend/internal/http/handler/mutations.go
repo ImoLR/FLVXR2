@@ -694,7 +694,7 @@ func (h *Handler) nodeCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if region.Region == "" {
-		region.Region = geoip.DetectNodeAddresses(asString(req["serverIpV4"]), serverIP, asString(req["serverIpV6"]))
+		region.Region = geoip.DetectNodeAddresses(asString(req["serverIpV4"]), asString(req["serverIp"]), asString(req["serverIpV6"])).Region
 	}
 
 	var groupID interface{}

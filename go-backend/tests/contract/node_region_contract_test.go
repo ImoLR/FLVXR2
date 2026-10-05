@@ -17,13 +17,75 @@ func TestNodeRegionDetectAdminOnlyContract(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	out := requestContractEnvelope(t, router, userToken, "/api/v1/node/detect-region", map[string]string{"ip": "8.8.8.8"})
+	out := requestContractEnvelope(t, router, userToken, "/api/v1/node/detect-region", map[string]string{"serverIpV4": "8.8.8.8"})
 	if out.Code != 403 {
 		t.Fatalf("non-admin detection = %+v", out)
 	}
-	out = requestContractEnvelope(t, router, mustAdminToken(t, secret), "/api/v1/node/detect-region", map[string]string{"ip": "10.0.0.1"})
-	if out.Code != 0 || out.Data.(map[string]interface{})["region"] != "" {
-		t.Fatalf("private detection = %+v", out)
+	for _, tc := range []struct {
+		name string
+		body map[string]string
+		want map[string]string
+	}{
+		{
+			name: "legacy IP", body: map[string]string{"ip": "8.8.8.8"},
+			want: map[string]string{"region": "US", "ip": "8.8.8.8", "family": "v4", "source": "server_ip", "reason": ""},
+		},
+		{
+			name: "IPv4 first", body: map[string]string{"serverIpV4": "168.95.1.1", "serverIp": "8.8.8.8", "serverIpV6": "2400:3200::1"},
+			want: map[string]string{"region": "TW", "ip": "168.95.1.1", "family": "v4", "source": "server_ip_v4", "reason": ""},
+		},
+		{
+			name: "IPv6 fallback", body: map[string]string{"serverIpV4": "10.0.0.1", "serverIpV6": "2400:3200::1"},
+			want: map[string]string{"region": "CN", "ip": "2400:3200::1", "family": "v6", "source": "server_ip_v6", "reason": "IPv4 为内网地址，已改用 IPv6 识别"},
+		},
+		{
+			name: "private addresses", body: map[string]string{"serverIpV4": "10.0.0.1", "serverIpV6": "fd00::1"},
+			want: map[string]string{"region": "", "ip": "", "family": "", "source": "", "reason": "IPv4/IPv6 均为内网地址，请手动选择地区"},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			out := requestContractEnvelope(t, router, mustAdminToken(t, secret), "/api/v1/node/detect-region", tc.body)
+			if out.Code != 0 {
+				t.Fatalf("detection = %+v", out)
+			}
+			data := out.Data.(map[string]interface{})
+			for key, want := range tc.want {
+				if got, ok := data[key].(string); !ok || got != want {
+					t.Errorf("%s = %#v, want %q", key, data[key], want)
+				}
+			}
+		})
+	}
+}
+
+func TestNodeCreateRegionDetectionContract(t *testing.T) {
+	const secret = "node-create-region"
+	router, repository := setupContractRouter(t, secret)
+	admin := mustAdminToken(t, secret)
+	for _, tc := range []struct {
+		name string
+		body map[string]string
+		want string
+	}{
+		{"IPv4 first", map[string]string{"serverIpV4": "168.95.1.1", "serverIpV6": "2400:3200::1"}, "TW"},
+		{"IPv6 fallback", map[string]string{"serverIpV4": "10.0.0.1", "serverIpV6": "2400:3200::1"}, "CN"},
+		{"manual region", map[string]string{"serverIpV4": "168.95.1.1", "region": "JP"}, "JP"},
+		{"intranet address excluded", map[string]string{"intranetIp": "8.8.8.8"}, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			tc.body["name"] = tc.name
+			out := requestContractEnvelope(t, router, admin, "/api/v1/node/create", tc.body)
+			if out.Code != 0 {
+				t.Fatalf("node create = %+v", out)
+			}
+			var node model.Node
+			if err := repository.DB().Where("name = ?", tc.name).First(&node).Error; err != nil {
+				t.Fatal(err)
+			}
+			if node.Region != tc.want {
+				t.Fatalf("node region = %q, want %q", node.Region, tc.want)
+			}
+		})
 	}
 }
 
