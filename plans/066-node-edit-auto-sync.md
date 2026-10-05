@@ -9,7 +9,7 @@
 - [x] 完成前端同步数量与失败提示，并通过构建。
 - [x] 完成 Go build/vet/全量测试，与基线失败集合对比。
 - [x] 完成隔离 netns E2E 与生产数据库在线备份副本的无变化编辑验证。
-- [ ] 推送分支并确认 CI Build Check 成功。
+- [x] 推送分支并确认 CI Build Check 成功。
 - [ ] 发布 annotated tag `3.0.27-fork.18`，验证发布工作流及全部资产。
 - [ ] 创建生产回滚点，升级 backend/frontend，完成只读健康验证。
 - [ ] 严格复核并事务修复节点 23 的七条隧道入口地址，通过列表 API 验证。
@@ -21,3 +21,5 @@
 验证记录：新增 repository/handler 测试通过；最终 netns E2E 验证出口换 IP 自动拨号、入口及规则列表同步、自定义域名保留、名称编辑零下发，监听修改同步 gost+nftables 且 gost 规则仅下发一次，两类流量均通。生产库副本节点 23 未变化编辑返回零同步，49 条 tunnel 与 26 条 forward_port 全行未变化。
 
 最终本地门禁：Go build 通过；修改包 vet 通过；新增 handler race 测试通过；npm build 通过。全量 Go 测试与精确基线 `2d0676e3` 以及历史清单均为同一 19 个失败，无新增/缺失。日志与比较结果保存在 `/root/flvx-workers/runs/node-auto-sync/`。
+
+CI Build Check：`37279826585`，提交 `51319508`，前端/后端/agent 构建及 PostgreSQL 合约测试全部成功；发布标签固定在该已验证提交，后续计划进度为文档提交。
