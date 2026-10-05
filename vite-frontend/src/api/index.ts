@@ -135,7 +135,7 @@ export const getNodeList = () => Network.post<NodeApiItem[]>("/node/list");
 export const getDashboardNodeExpiryList = () =>
   Network.post<NodeApiItem[]>("/node/list", {});
 export const updateNode = (data: NodeMutationPayload) =>
-  Network.post("/node/update", data);
+  Network.post("/node/update", data, { timeout: 0 });
 export const deleteNode = (id: number) => Network.post("/node/delete", { id });
 export const getNodeInstallCommand = (
   id: number,
