@@ -1401,6 +1401,10 @@ func (r *Repository) ListUserAccessibleTunnels(userID int64) ([]map[string]inter
 		tunnelIDs = append(tunnelIDs, rw.ID)
 	}
 	portRangeMap := r.getTunnelEntryPortRanges(tunnelIDs)
+	regionMap, err := r.loadTunnelRegions(tunnelIDs)
+	if err != nil {
+		return nil, err
+	}
 
 	items := make([]map[string]interface{}, 0, len(rows))
 	for _, rw := range rows {
@@ -1409,6 +1413,8 @@ func (r *Repository) ListUserAccessibleTunnels(userID int64) ([]map[string]inter
 			"name":         rw.Name,
 			"remark":       nullableString(rw.Remark),
 			"trafficRatio": rw.TrafficRatio,
+			"entryGroups":  regionMap[rw.ID].entryGroups(false),
+			"exitRegions":  regionMap[rw.ID].ExitRegions,
 		}
 		if pr, ok := portRangeMap[rw.ID]; ok {
 			item["portRangeMin"] = pr.min
@@ -1441,6 +1447,10 @@ func (r *Repository) ListEnabledTunnelSummaries() ([]map[string]interface{}, err
 		tunnelIDs = append(tunnelIDs, rw.ID)
 	}
 	portRangeMap := r.getTunnelEntryPortRanges(tunnelIDs)
+	regionMap, err := r.loadTunnelRegions(tunnelIDs)
+	if err != nil {
+		return nil, err
+	}
 
 	items := make([]map[string]interface{}, 0, len(rows))
 	for _, rw := range rows {
@@ -1449,6 +1459,8 @@ func (r *Repository) ListEnabledTunnelSummaries() ([]map[string]interface{}, err
 			"name":         rw.Name,
 			"remark":       nullableString(rw.Remark),
 			"trafficRatio": rw.TrafficRatio,
+			"entryGroups":  regionMap[rw.ID].entryGroups(true),
+			"exitRegions":  regionMap[rw.ID].ExitRegions,
 		}
 		if pr, ok := portRangeMap[rw.ID]; ok {
 			item["portRangeMin"] = pr.min
@@ -1732,9 +1744,16 @@ func (r *Repository) ListTunnels() ([]map[string]interface{}, error) {
 		}
 	}
 
+	regionMap, err := r.loadTunnelRegions(orderedIDs)
+	if err != nil {
+		return nil, err
+	}
+
 	result := make([]map[string]interface{}, 0, len(orderedIDs))
 	for _, id := range orderedIDs {
 		if t, ok := tunnelMap[id]; ok {
+			t["entryNodes"] = regionMap[id].EntryNodes
+			t["exitRegions"] = regionMap[id].ExitRegions
 			result = append(result, t)
 		}
 	}
