@@ -255,20 +255,31 @@ export function Select<T>({
 
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
+        if (isSearchable) {
+          // Radix dialogs dismiss on document capture; consume this earlier.
+          event.preventDefault();
+          event.stopPropagation();
+          triggerRef.current?.focus();
+        }
         setIsExpanded(false);
       }
     };
 
     document.addEventListener("mousedown", handlePointerDown);
     document.addEventListener("touchstart", handlePointerDown);
-    document.addEventListener("keydown", handleKeyDown);
+    if (isSearchable) {
+      window.addEventListener("keydown", handleKeyDown, true);
+    } else {
+      document.addEventListener("keydown", handleKeyDown);
+    }
 
     return () => {
       document.removeEventListener("mousedown", handlePointerDown);
       document.removeEventListener("touchstart", handlePointerDown);
+      window.removeEventListener("keydown", handleKeyDown, true);
       document.removeEventListener("keydown", handleKeyDown);
     };
-  }, [isExpanded]);
+  }, [isExpanded, isSearchable]);
 
   React.useEffect(() => {
     if (isDisabled) {
