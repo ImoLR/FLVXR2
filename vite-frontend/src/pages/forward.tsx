@@ -34,7 +34,7 @@ import { Card, CardBody, CardHeader } from "@/shadcn-bridge/heroui/card";
 import { Button } from "@/shadcn-bridge/heroui/button";
 import { Input } from "@/shadcn-bridge/heroui/input";
 import { Textarea } from "@/shadcn-bridge/heroui/input";
-import { Select, SelectItem } from "@/shadcn-bridge/heroui/select";
+import { Select, SelectItem, SelectSection } from "@/shadcn-bridge/heroui/select";
 import { DatePicker } from "@/shadcn-bridge/heroui/date-picker";
 import { DatePresets } from "@/shadcn-bridge/heroui/date-presets";
 import { useLocalStorageState } from "@/hooks/use-local-storage-state";
@@ -112,6 +112,7 @@ import { usePullToRefresh } from "@/hooks/usePullToRefresh";
 import { saveOrder } from "@/utils/order-storage";
 import { JwtUtil } from "@/utils/jwt";
 import { timestampToCalendarDate, calendarDateToTimestamp } from "@/utils/date";
+import { MULTI_REGION, compareRegions, exitRegionKey, exitRegionLabel, regionLabel } from "@/utils/region";
 interface Forward {
   id: number;
   name: string;
@@ -154,6 +155,8 @@ interface Forward {
   cnBlockedReason?: string;
 }
 interface Tunnel {
+  entryGroups?: Array<{ key: string; label: string; region: string }>;
+  exitRegions?: string[];
   id: number;
   name: string;
   type?: number;
@@ -166,6 +169,54 @@ interface Tunnel {
   remark?: string;
   trafficRatio?: number;
 }
+interface TunnelPickerSection {
+  key: string;
+  label: string;
+  entryLabel: string;
+  region: string;
+  options: Array<{ key: string; tunnel: Tunnel }>;
+}
+
+function buildTunnelPickerSections(tunnels: Tunnel[]): TunnelPickerSection[] {
+  const sections = new Map<string, TunnelPickerSection>();
+
+  tunnels.forEach((tunnel) => {
+    const entries = tunnel.entryGroups?.length
+      ? tunnel.entryGroups
+      : [{ key: "default", label: "默认入口", region: "" }];
+    const seenEntries = new Set<string>();
+
+    entries.forEach((entry) => {
+      if (seenEntries.has(entry.key)) return;
+      seenEntries.add(entry.key);
+      const region = exitRegionKey(tunnel.exitRegions);
+      const key = JSON.stringify([entry.key, region]);
+      const section = sections.get(key) || {
+        key,
+        label: `${entry.label} → ${regionLabel(region)}`,
+        entryLabel: entry.label,
+        region,
+        options: [],
+      };
+
+      section.options.push({ key: JSON.stringify([tunnel.id, entry.key]), tunnel });
+      sections.set(key, section);
+    });
+  });
+
+  return Array.from(sections.values()).sort((a, b) =>
+    a.entryLabel.localeCompare(b.entryLabel, "zh-CN") || compareRegions(a.region, b.region) || a.key.localeCompare(b.key),
+  );
+}
+
+function tunnelPickerKey(sections: TunnelPickerSection[], id: number | null, preferred: string): string[] {
+  const options = sections.flatMap((section) => section.options);
+  const option = options.find((item) => item.key === preferred && item.tunnel.id === id)
+    || options.find((item) => item.tunnel.id === id);
+
+  return option ? [option.key] : [];
+}
+
 interface Node {
   id: number;
   name?: string;
@@ -1406,6 +1457,12 @@ export default function ForwardPage() {
   const [forwards, setForwards] = useState<Forward[]>([]);
   const [tunnels, setTunnels] = useState<Tunnel[]>([]);
   const [allTunnels, setAllTunnels] = useState<Tunnel[]>([]);
+  const [formTunnelOptionKey, setFormTunnelOptionKey] = useState("");
+  const [filterTunnelOptionKey, setFilterTunnelOptionKey] = useState("");
+  const tunnelPickerSections = useMemo(() => buildTunnelPickerSections(tunnels), [tunnels]);
+  const tunnelPickerIds = useMemo(() => new Map(
+    tunnelPickerSections.flatMap((section) => section.options.map((option) => [option.key, option.tunnel.id] as const)),
+  ), [tunnelPickerSections]);
   const [wgPaths, setWGPaths] = useState<PathTunnelApiItem[]>([]);
   const [wgPathDetails, setWGPathDetails] = useState<
     Record<number, PathTunnelDetailApiItem>
@@ -4352,6 +4409,7 @@ export default function ForwardPage() {
 
     return tunnels.filter((tunnel) => tunnelIdsWithForwards.has(tunnel.id));
   }, [tunnels, forwards, searchParams.userId]);
+  const filterTunnelSections = useMemo(() => buildTunnelPickerSections(availableTunnels), [availableTunnels]);
   // 渲染规则卡片
   const renderForwardCard = (forward: Forward, listeners?: any) => {
     const rawInIp = forward.inIp ? forward.inIp.replace(/\s/g, "") : "默认IP";
@@ -4922,6 +4980,8 @@ export default function ForwardPage() {
                         <TableColumn className="whitespace-nowrap flex-shrink-0 w-[180px] text-left">
                           <Select
                             aria-label="按所属隧道筛选"
+                            isSearchable
+                            searchPlaceholder="搜索入口、地区或隧道"
                             className="w-full"
                             classNames={{
                               trigger:
@@ -4935,7 +4995,7 @@ export default function ForwardPage() {
                             selectedKeys={
                               searchParams.tunnelId &&
                               searchParams.tunnelId !== "all"
-                                ? [searchParams.tunnelId]
+                                ? tunnelPickerKey(filterTunnelSections, Number(searchParams.tunnelId), filterTunnelOptionKey)
                                 : []
                             }
                             size="sm"
@@ -4945,35 +5005,24 @@ export default function ForwardPage() {
                                 | string
                                 | undefined;
 
+                              setFilterTunnelOptionKey(key || "");
                               setSearchParams((prev) => ({
                                 ...prev,
-                                tunnelId: key || "all",
+                                tunnelId: key && tunnelPickerIds.has(key) ? String(tunnelPickerIds.get(key)) : "all",
                               }));
                             }}
                           >
                             <SelectItem key="all" textValue="全部隧道">
                               全部隧道
                             </SelectItem>
-                            {availableTunnels.map((tunnel) => (
-                              <SelectItem
-                                key={tunnel.id.toString()}
-                                textValue={
-                                  tunnel.remark
-                                    ? `${tunnel.name} (${tunnel.remark})`
-                                    : tunnel.name
-                                }
-                              >
-                                <div className="flex items-center gap-2">
-                                  <span className="font-medium text-foreground">
+                            {filterTunnelSections.map((section) => (
+                              <SelectSection key={section.key} title={section.label}>
+                                {section.options.map(({ key, tunnel }) => (
+                                  <SelectItem key={key} textValue={`${tunnel.name}${tunnel.remark ? ` (${tunnel.remark})` : ""}${section.region === MULTI_REGION ? ` · ${exitRegionLabel(tunnel.exitRegions)}` : ""}`}>
                                     {tunnel.name}
-                                  </span>
-                                  {tunnel.remark && (
-                                    <span className="text-default-400 text-xs">
-                                      ({tunnel.remark})
-                                    </span>
-                                  )}
-                                </div>
-                              </SelectItem>
+                                  </SelectItem>
+                                ))}
+                              </SelectSection>
                             ))}
                           </Select>
                         </TableColumn>
@@ -5466,56 +5515,35 @@ export default function ForwardPage() {
                       errorMessage={errors.tunnelId}
                       isInvalid={!!errors.tunnelId}
                       label="选择隧道"
+                      isSearchable
+                      searchPlaceholder="搜索入口、地区或隧道"
                       placeholder="请选择关联的隧道"
                       selectedKeys={
-                        form.tunnelId ? [form.tunnelId.toString()] : []
+                        tunnelPickerKey(tunnelPickerSections, form.tunnelId, formTunnelOptionKey)
                       }
                       variant="bordered"
                       onSelectionChange={(keys) => {
                         const selectedKey = Array.from(keys)[0] as string;
 
-                        if (selectedKey) {
-                          handleTunnelChange(selectedKey);
+                        const tunnelId = tunnelPickerIds.get(selectedKey);
+
+                        if (tunnelId !== undefined) {
+                          setFormTunnelOptionKey(selectedKey);
+                          handleTunnelChange(String(tunnelId));
                         }
                       }}
                     >
-                      {tunnels.map((tunnel) => {
-                        // 从 allTunnels 中获取 trafficRatio
-                        const allTunnel = allTunnels.find(
-                          (t) => t.id === tunnel.id,
-                        );
-                        const trafficRatio = allTunnel?.trafficRatio;
-                        // 调用统一个格式化函数，自带 x 后缀
-                        const formattedRatio =
-                          formatTunnelTrafficRatio(trafficRatio);
+                      {tunnelPickerSections.map((section) => (
+                        <SelectSection key={section.key} title={section.label}>
+                          {section.options.map(({ key, tunnel }) => {
+                            const trafficRatio = allTunnels.find((item) => item.id === tunnel.id)?.trafficRatio;
+                            const formattedRatio = formatTunnelTrafficRatio(trafficRatio);
+                            const text = `${tunnel.name} ^${formattedRatio}${tunnel.remark ? ` (${tunnel.remark})` : ""}${section.region === MULTI_REGION ? ` · ${exitRegionLabel(tunnel.exitRegions)}` : ""}`;
 
-                        return (
-                          <SelectItem
-                            key={tunnel.id.toString()}
-                            textValue={
-                              tunnel.remark
-                                ? `${tunnel.name} ^${formattedRatio} (${tunnel.remark})`
-                                : `${tunnel.name} ^${formattedRatio}`
-                            }
-                          >
-                            <div className="flex items-center gap-1">
-                              <span className="font-medium text-foreground">
-                                {tunnel.name}
-                              </span>
-                              {/* 倍率标识紧跟在隧道名后面 */}
-                              <span className="text-primary-600 font-bold text-[10px]">
-                                ^{formattedRatio}
-                              </span>
-                              {/* 备注放在最后面 */}
-                              {tunnel.remark && (
-                                <span className="text-default-400 text-xs ml-0.5">
-                                  ({tunnel.remark})
-                                </span>
-                              )}
-                            </div>
-                          </SelectItem>
-                        );
-                      })}
+                            return <SelectItem key={key} textValue={text}>{text}</SelectItem>;
+                          })}
+                        </SelectSection>
+                      ))}
                     </Select>
                     )}
                     {/* 转发模式选择 */}
