@@ -11,7 +11,7 @@
 - [x] 批量派生隧道入口/出口地区，验证普通用户隐私及派生逻辑；节点地区 round-trip、不改写 in_ip/不重部署、非管理员检测 403 契约通过。
 - [x] 地区公共工具、节点表单/展示、Select 分组及规则表单/筛选器；表单支持搜索，表格采用 native optgroup 避免裁切，Escape 仅关闭菜单。
 - [x] 隧道页入口/地区分组、筛选持久化、地区标记与原有操作兼容（TypeScript 检查通过；真实数据浏览器验证随后进行）。
-- [ ] 后端 build/vet/test 与基线失败集合对照，前端 build。
+- [x] 后端 `go build ./...`、所改包 `go vet` 通过；`go test ./...` 与新建基线 worktree 均为相同 19 个既有失败，新增 0；前端 `npm run build` 通过。
 - [ ] 生产库在线备份副本在 16365 本地验证回填、逐节点地区及用户隐私；截图。
 - [ ] 审查改动、推送分支，确认 CI Build Check 全绿。
 - [ ] 写入中文总结 `/root/flvx-workers/runs/tunnel-region/summary.md`。
