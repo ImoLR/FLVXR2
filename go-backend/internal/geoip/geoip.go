@@ -111,7 +111,9 @@ func Lookup(addr netip.Addr) string {
 		return ""
 	}
 	code := string(record[width*2:])
-	if code == "ZZ" {
+	// DB-IP also uses ZZ (unknown) and XK (not an ISO 3166-1 code).
+	// Neither is selectable in the fixed ISO region list.
+	if code == "ZZ" || code == "XK" {
 		return ""
 	}
 	return code
