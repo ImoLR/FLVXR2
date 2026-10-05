@@ -30,7 +30,8 @@
 ## Round 3（续验，不发布）
 
 - [x] 重读 r1/r2 证据与约束，确认端口无遗留进程；重任务串行，临时文件和构建产物放在 r3 目录。
-- [ ] 完成后端 build/vet/full test（`-p 2`）及前端 build，核对 19 项既有失败。
+- [x] 完成后端 build/vet/full test（`-p 2`）及前端 build，核对 19 项既有失败。
+  - r3 `backend-build.log`/`backend-vet.log` exit 0；`backend-test.jsonl` 完整结束，`test-comparison.txt` 为相同 19 项失败、新增 0；`frontend-build.log` 完整构建 exit 0（产物 `r3/new-dist/`）。
 - [ ] 新副本在 16365 复核回填/隐私；补齐全部截图并逐张查看。
 - [ ] 更新本计划、提交推送，等待最终 HEAD 的 CI（最多约 60 分钟）。
 - [ ] 停止本轮进程并写合并 r2/r3 的中文总结 `/root/flvx-workers/runs/tunnel-region-r3/summary.md`。
