@@ -27,6 +27,14 @@
 - [ ] 提交并推送最终 HEAD，确认 CI Build Check 四个 job 全绿。
 - [ ] 写中文总结 `/root/flvx-workers/runs/tunnel-region-r2/summary.md`，列出证据与未实施建议。
 
+## Round 3（续验，不发布）
+
+- [x] 重读 r1/r2 证据与约束，确认端口无遗留进程；重任务串行，临时文件和构建产物放在 r3 目录。
+- [ ] 完成后端 build/vet/full test（`-p 2`）及前端 build，核对 19 项既有失败。
+- [ ] 新副本在 16365 复核回填/隐私；补齐全部截图并逐张查看。
+- [ ] 更新本计划、提交推送，等待最终 HEAD 的 CI（最多约 60 分钟）。
+- [ ] 停止本轮进程并写合并 r2/r3 的中文总结 `/root/flvx-workers/runs/tunnel-region-r3/summary.md`。
+
 ## 数据集（首轮）
 
 DB-IP IP to Country Lite **2026-10**（2026-10-01 月度版，2026-10-05 下载），CC BY 4.0；[来源](https://db-ip.com/db/download/ip-to-country-lite)。710,834 条 IPv4/IPv6 范围转为无依赖二进制区间表，gzip 嵌入 **4,298,059 bytes**。归属、原始/嵌入 SHA-256 与刷新命令见 `go-backend/internal/geoip/DATASET.md`；不改写数据库地理归属。DNS 2 秒超时，私网/环回/CGNAT/特殊用途地址返回未知。
