@@ -18,6 +18,19 @@
 
 ## 数据集
 
+## Round 2 (amendments)
+
+- [x] 阅读指定记忆、首轮总结和项目规则，确认仅实现/提交/推送，不发布或修改生产。
+- [ ] A/B：统一 IPv4 优先的公网识别结果、检测接口和回填日志，补齐单元/契约验证。
+- [ ] C：节点表单三地址识别、人工值保护、识别提示及未设置地区 Chip。
+- [ ] D：隧道分组胶囊菜单、全宽布局、分组标题及规则选择器提示。
+- [ ] E：基线/新版 1440/1920、明暗主题/390px、筛选/菜单/规则选择器/节点截图，逐张查看。
+- [ ] F：后端 build/vet/full test 对比基线、前端 build、全新副本回填和用户 3 隐私核验。
+- [ ] 提交并推送最终 HEAD，确认 CI Build Check 四个 job 全绿。
+- [ ] 写中文总结 `/root/flvx-workers/runs/tunnel-region-r2/summary.md`，列出证据与未实施建议。
+
+## 数据集（首轮）
+
 DB-IP IP to Country Lite **2026-10**（2026-10-01 月度版，2026-10-05 下载），CC BY 4.0；[来源](https://db-ip.com/db/download/ip-to-country-lite)。710,834 条 IPv4/IPv6 范围转为无依赖二进制区间表，gzip 嵌入 **4,298,059 bytes**。归属、原始/嵌入 SHA-256 与刷新命令见 `go-backend/internal/geoip/DATASET.md`；不改写数据库地理归属。DNS 2 秒超时，私网/环回/CGNAT/特殊用途地址返回未知。
 
 未剥离基线隧道名称中既有的 AWS HK / Misaka TW / Lightlayer TW 文本；新增入口标签只显示地区/城市。副本检测与名称预期不符：14 Lightlayer TW→HK；20 Vmsilo TW→CN（私网 IPv4 后回退 IPv6）；24 沪日ixp G口 bug鸡→HK。未人工改写数据。普通未压缩 paneld 比基线增大 6,735,643 bytes，低于 10 MB。
