@@ -93,6 +93,12 @@ import { useLocalStorageState } from "@/hooks/use-local-storage-state";
 import { getRoleId } from "@/utils/session";
 import { loadStoredOrder, saveOrder } from "@/utils/order-storage";
 import {
+  compareRegions,
+  exitRegionKey,
+  exitRegionLabel,
+  regionLabel,
+} from "@/utils/region";
+import {
   buildBatchFailureMessage,
   extractBatchFailures,
   extractApiErrorMessage,
@@ -131,6 +137,13 @@ interface Tunnel {
   inx?: number;
   name: string;
   type: number;
+  entryNodes?: Array<{
+    id: number;
+    name: string;
+    region: string;
+    regionCity: string;
+  }>;
+  exitRegions?: string[];
   inNodeId: ChainTunnel[];
   outNodeId?: ChainTunnel[];
   chainNodes?: ChainTunnel[][];
@@ -163,6 +176,8 @@ interface Node {
   extraIPs?: string;
   remark?: string;
   isRemote?: number;
+  region?: string;
+  regionCity?: string;
 }
 interface TunnelForm {
   id?: number;
@@ -195,6 +210,10 @@ interface BatchResultModalState {
   summary: string;
   title: string;
 }
+type TunnelGroupingMode = "region" | "custom" | "none";
+type TunnelDisplayItem =
+  | { kind: "tunnel"; key: string; tunnel: Tunnel }
+  | { kind: "entry" | "region"; key: string; label: string; count: number };
 type TunnelDeleteAction = "replace" | "delete_forwards";
 const EMPTY_BATCH_RESULT_MODAL_STATE: BatchResultModalState = {
   failures: [],
@@ -204,9 +223,11 @@ const EMPTY_BATCH_RESULT_MODAL_STATE: BatchResultModalState = {
 };
 const SortableListRowItem = ({
   id,
+  disabled = false,
   children,
 }: {
-  id: number;
+  id: number | string;
+  disabled?: boolean;
   children: (props: any) => any;
 }) => {
   const {
@@ -216,7 +237,7 @@ const SortableListRowItem = ({
     transform,
     transition,
     isDragging,
-  } = useSortable({ id });
+  } = useSortable({ id, disabled });
   const style: React.CSSProperties = {
     transform: transform
       ? CSS.Transform.toString({
@@ -237,9 +258,11 @@ const SortableListRowItem = ({
 };
 const SortableItem = ({
   id,
+  disabled = false,
   children,
 }: {
-  id: number;
+  id: number | string;
+  disabled?: boolean;
   children: (listeners: any) => any;
 }) => {
   const {
@@ -249,7 +272,7 @@ const SortableItem = ({
     transform,
     transition,
     isDragging,
-  } = useSortable({ id });
+  } = useSortable({ id, disabled });
   const style: React.CSSProperties = {
     transform: transform
       ? CSS.Transform.toString({
@@ -264,7 +287,7 @@ const SortableItem = ({
   };
 
   return (
-    <div ref={setNodeRef} style={style} {...attributes}>
+    <div ref={setNodeRef} style={style} {...(disabled ? {} : attributes)}>
       {children(listeners)}
     </div>
   );
@@ -498,6 +521,15 @@ export default function TunnelPage() {
 
     return stored === "list" || stored === "card" ? stored : "card";
   });
+  const [groupingMode, setGroupingMode] =
+    useLocalStorageState<TunnelGroupingMode>("tunnel-grouping-mode", "region");
+  const [regionFilters, setRegionFilters] = useLocalStorageState<string[]>(
+    "tunnel-region-filters",
+    [],
+  );
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(
+    new Set(),
+  );
   // 视图模式切换
   const handleViewModeToggle = useCallback(() => {
     const newMode = viewMode === "card" ? "list" : "card";
@@ -519,31 +551,12 @@ export default function TunnelPage() {
     null,
   );
   const activeFilterCount =
-    (filterGroupId !== null ? 1 : 0) + (searchKeyword.trim() ? 1 : 0);
+    (groupingMode === "custom" && filterGroupId !== null ? 1 : 0) +
+    (searchKeyword.trim() ? 1 : 0) +
+    regionFilters.length;
   // 列表模式选中行
   const [selectedTunnelIds, setSelectedTunnelIds] = useState<Set<number>>(
     new Set(),
-  );
-  const selectAllTunnels = useCallback(() => {
-    const allIds = tunnels.map((t) => t.id);
-
-    setSelectedTunnelIds(new Set(allIds));
-  }, [tunnels]);
-  const deselectAllTunnels = useCallback(() => {
-    setSelectedTunnelIds(new Set());
-  }, []);
-  const isAllTunnelsSelected = useMemo(() => {
-    return tunnels.length > 0 && selectedTunnelIds.size === tunnels.length;
-  }, [tunnels, selectedTunnelIds]);
-  const handleSelectAllTunnelsToggle = useCallback(
-    (isSelected: boolean) => {
-      if (isSelected) {
-        selectAllTunnels();
-      } else {
-        deselectAllTunnels();
-      }
-    },
-    [selectAllTunnels, deselectAllTunnels],
   );
 
   useEffect(() => {
@@ -1835,7 +1848,8 @@ export default function TunnelPage() {
   const handleDragEnd = async (event: DragEndEvent) => {
     const { active, over } = event;
 
-    if (!active || !over || active.id === over.id) return;
+    if (groupingMode === "region" || !active || !over || active.id === over.id)
+      return;
     if (!tunnelOrder || tunnelOrder.length === 0) return;
     const activeId = Number(active.id);
     const overId = Number(over.id);
@@ -2091,13 +2105,68 @@ export default function TunnelPage() {
       coordinateGetter: sortableKeyboardCoordinates,
     }),
   );
+  const tunnelRegions = useMemo(() => {
+    const nodeById = new Map(nodes.map((node) => [node.id, node]));
+
+    return new Map(
+      tunnels.map((tunnel) => {
+        const entryNodes = tunnel.entryNodes?.length
+          ? tunnel.entryNodes
+          : (tunnel.inNodeId || []).map(({ nodeId }) => ({
+              id: nodeId,
+              name: nodeById.get(nodeId)?.name || "默认入口",
+            }));
+        const entries = Array.from(
+          new Map(
+            entryNodes.map((node) => [
+              node.id,
+              { key: `entry:${node.id}`, label: node.name || "默认入口" },
+            ]),
+          ).values(),
+        );
+        const exitRegions =
+          tunnel.exitRegions ??
+          Array.from(
+            new Set(
+              (tunnel.type === 1
+                ? tunnel.inNodeId
+                : tunnel.outNodeId || []
+              ).map(({ nodeId }) => nodeById.get(nodeId)?.region || ""),
+            ),
+          );
+
+        return [
+          tunnel.id,
+          {
+            entries: entries.length
+              ? entries
+              : [{ key: "entry:unknown", label: "默认入口" }],
+            exitRegions,
+            regionKey: exitRegionKey(exitRegions),
+          },
+        ] as const;
+      }),
+    );
+  }, [tunnels, nodes]);
+  const availableRegions = useMemo(() => {
+    const counts = new Map<string, number>();
+
+    tunnelRegions.forEach(({ regionKey }) => {
+      counts.set(regionKey, (counts.get(regionKey) || 0) + 1);
+    });
+    regionFilters.forEach((code) => {
+      if (!counts.has(code)) counts.set(code, 0);
+    });
+
+    return [...counts].sort(([a], [b]) => compareRegions(a, b));
+  }, [tunnelRegions, regionFilters]);
   // 根据排序顺序获取隧道列表
   const sortedTunnels = useMemo((): Tunnel[] => {
     if (!tunnels || tunnels.length === 0) return [];
     let filteredTunnels = tunnels;
 
     // 按分组筛选
-    if (filterGroupId !== null) {
+    if (groupingMode === "custom" && filterGroupId !== null) {
       if (filterGroupId === -1) {
         // -1 表示未分组
         filteredTunnels = filteredTunnels.filter(
@@ -2108,6 +2177,11 @@ export default function TunnelPage() {
           (t) => t.tunnelGroupId === filterGroupId,
         );
       }
+    }
+    if (regionFilters.length) {
+      filteredTunnels = filteredTunnels.filter((tunnel) =>
+        regionFilters.includes(tunnelRegions.get(tunnel.id)?.regionKey || ""),
+      );
     }
     // 按状态筛选
     if (tunnelFilterMode !== "all") {
@@ -2159,10 +2233,146 @@ export default function TunnelPage() {
     }
 
     return sortedByDb;
-  }, [tunnels, tunnelOrder, searchKeyword, tunnelFilterMode, filterGroupId]);
+  }, [
+    tunnels,
+    tunnelOrder,
+    searchKeyword,
+    tunnelFilterMode,
+    filterGroupId,
+    groupingMode,
+    regionFilters,
+    tunnelRegions,
+  ]);
+  const selectAllTunnels = useCallback(() => {
+    const allIds = sortedTunnels.map((t) => t.id);
+
+    setSelectedTunnelIds(new Set(allIds));
+  }, [sortedTunnels]);
+  const deselectAllTunnels = useCallback(() => {
+    setSelectedTunnelIds(new Set());
+  }, []);
+  const isAllTunnelsSelected = useMemo(() => {
+    return (
+      sortedTunnels.length > 0 &&
+      sortedTunnels.every((tunnel) => selectedTunnelIds.has(tunnel.id))
+    );
+  }, [sortedTunnels, selectedTunnelIds]);
+  const handleSelectAllTunnelsToggle = useCallback(
+    (isSelected: boolean) => {
+      if (isSelected) {
+        selectAllTunnels();
+      } else {
+        deselectAllTunnels();
+      }
+    },
+    [selectAllTunnels, deselectAllTunnels],
+  );
+
+  const displayItems = useMemo((): TunnelDisplayItem[] => {
+    if (groupingMode !== "region") {
+      return sortedTunnels.map((tunnel) => ({
+        kind: "tunnel",
+        key: String(tunnel.id),
+        tunnel,
+      }));
+    }
+    const entries = new Map<
+      string,
+      {
+        label: string;
+        regions: Map<string, Tunnel[]>;
+        count: number;
+      }
+    >();
+
+    sortedTunnels.forEach((tunnel) => {
+      const metadata = tunnelRegions.get(tunnel.id)!;
+
+      metadata.entries.forEach((entry) => {
+        if (!entries.has(entry.key)) {
+          entries.set(entry.key, {
+            label: entry.label,
+            regions: new Map(),
+            count: 0,
+          });
+        }
+        const group = entries.get(entry.key)!;
+        const regionTunnels = group.regions.get(metadata.regionKey) || [];
+
+        regionTunnels.push(tunnel);
+        group.regions.set(metadata.regionKey, regionTunnels);
+        group.count += 1;
+      });
+    });
+    const items: TunnelDisplayItem[] = [];
+
+    entries.forEach((entry, entryKey) => {
+      items.push({
+        kind: "entry",
+        key: entryKey,
+        label: entry.label,
+        count: entry.count,
+      });
+      if (collapsedGroups.has(entryKey)) return;
+      [...entry.regions]
+        .sort(([a], [b]) => compareRegions(a, b))
+        .forEach(([code, regionTunnels]) => {
+          const key = `${entryKey}/region:${code}`;
+
+          items.push({
+            kind: "region",
+            key,
+            label: regionLabel(code),
+            count: regionTunnels.length,
+          });
+          if (collapsedGroups.has(key)) return;
+          regionTunnels.forEach((tunnel) => {
+            items.push({
+              kind: "tunnel",
+              key: `${key}/tunnel:${tunnel.id}`,
+              tunnel,
+            });
+          });
+        });
+    });
+
+    return items;
+  }, [sortedTunnels, groupingMode, tunnelRegions, collapsedGroups]);
+  const renderGroupHeading = (
+    item: Exclude<TunnelDisplayItem, { kind: "tunnel" }>,
+  ) => (
+    <Button
+      aria-expanded={!collapsedGroups.has(item.key)}
+      className={`w-full justify-start gap-2 rounded-none px-4 py-3 h-auto ${item.kind === "entry" ? "bg-default-100 text-base font-semibold" : "bg-default-50 pl-8 text-sm"}`}
+      variant="light"
+      onPress={() =>
+        setCollapsedGroups((previous) => {
+          const next = new Set(previous);
+
+          if (next.has(item.key)) next.delete(item.key);
+          else next.add(item.key);
+
+          return next;
+        })
+      }
+    >
+      <span aria-hidden="true">
+        {collapsedGroups.has(item.key) ? "▸" : "▾"}
+      </span>
+      <span>{item.label}</span>
+      <span className="text-xs font-normal text-default-500">
+        {item.count} 个隧道
+      </span>
+    </Button>
+  );
+  const renderExitRegion = (tunnel: Tunnel) => (
+    <span className="inline-flex rounded bg-default-100 px-2 py-0.5 text-xs font-medium text-default-700 whitespace-normal">
+      {exitRegionLabel(tunnelRegions.get(tunnel.id)?.exitRegions)}
+    </span>
+  );
   const sortableTunnelIds = useMemo(
-    () => sortedTunnels.map((t) => t.id),
-    [sortedTunnels],
+    () => (groupingMode === "region" ? [] : sortedTunnels.map((t) => t.id)),
+    [sortedTunnels, groupingMode],
   );
   const deleteReplacementTunnels = useMemo(() => {
     if (!tunnelToDelete) {
@@ -2314,7 +2524,7 @@ export default function TunnelPage() {
 
   return (
     <AnimatedPage className="px-3 lg:px-6 py-8">
-      <div className="flex flex-row items-center mb-6 gap-3">
+      <div className="flex flex-row flex-wrap items-center mb-6 gap-3">
         <div className="flex items-center gap-2">
           <SearchBar
             isVisible={isSearchVisible}
@@ -2397,6 +2607,23 @@ export default function TunnelPage() {
             >
               {viewMode === "card" ? "卡片" : "列表"}
             </Button>
+            <Select
+              aria-label="隧道分组方式"
+              className="w-40"
+              selectedKeys={[groupingMode]}
+              size="sm"
+              onSelectionChange={(keys) => {
+                const mode = Array.from(keys)[0];
+
+                if (mode === "region" || mode === "custom" || mode === "none") {
+                  setGroupingMode(mode);
+                }
+              }}
+            >
+              <SelectItem key="region">按入口/地区</SelectItem>
+              <SelectItem key="custom">自定义分组</SelectItem>
+              <SelectItem key="none">不分组</SelectItem>
+            </Select>
             {/* 分组管理按钮 */}
             <Button
               className="bg-purple-100 text-purple-700 hover:bg-purple-200 dark:bg-purple-900/30 dark:text-purple-300 dark:hover:bg-purple-900/45"
@@ -2423,6 +2650,7 @@ export default function TunnelPage() {
                 onPress={() => {
                   setFilterGroupId(null);
                   setSearchKeyword("");
+                  setRegionFilters([]);
                 }}
               >
                 重置
@@ -2431,6 +2659,46 @@ export default function TunnelPage() {
           </>
         )}
       </div>
+      {tunnels.length > 0 && (
+        <div
+          aria-label="出口地区筛选"
+          className="mb-4 flex flex-wrap items-center gap-2"
+        >
+          <span className="text-sm text-default-500">出口地区</span>
+          <Button
+            aria-pressed={regionFilters.length === 0}
+            color={regionFilters.length === 0 ? "primary" : "default"}
+            size="sm"
+            variant="flat"
+            onPress={() => setRegionFilters([])}
+          >
+            全部
+          </Button>
+          {availableRegions.map(([code, count]) => (
+            <Button
+              key={code || "unknown"}
+              aria-pressed={regionFilters.includes(code)}
+              color={regionFilters.includes(code) ? "primary" : "default"}
+              size="sm"
+              variant="flat"
+              onPress={() =>
+                setRegionFilters((previous) =>
+                  previous.includes(code)
+                    ? previous.filter((item) => item !== code)
+                    : [...previous, code],
+                )
+              }
+            >
+              {regionLabel(code)} {count}
+            </Button>
+          ))}
+        </div>
+      )}
+      {groupingMode === "region" && (
+        <p className="mb-4 text-xs text-default-500">
+          多入口隧道会在每个入口下显示，批量操作按隧道去重。按入口/地区时不支持拖拽排序，请切换到自定义分组或不分组。
+        </p>
+      )}
       {batchProgress.active && (
         <div className="mb-4">
           <Alert
@@ -2450,7 +2718,10 @@ export default function TunnelPage() {
       {/* 隧道列表 */}
       {tunnels.length > 0 ? (
         viewMode === "list" ? (
-          <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
+          <DndContext
+            sensors={sensors}
+            onDragEnd={groupingMode === "region" ? undefined : handleDragEnd}
+          >
             <SortableContext
               items={sortableTunnelIds}
               strategy={verticalListSortingStrategy}
@@ -2469,7 +2740,7 @@ export default function TunnelPage() {
                         </div>
                       </th>
                       <th className="py-3 px-4 w-[56px] text-center align-middle">
-                        排序
+                        {groupingMode === "region" ? "" : "排序"}
                       </th>
                       <th className="py-3 px-4 w-[200px] align-middle">
                         隧道名称
@@ -2479,68 +2750,72 @@ export default function TunnelPage() {
                       </th>
                       {/* <th className="py-3 px-4 w-[120px] align-middle">分组名</th> */}
                       <th className="py-3 px-4 w-[140px] align-middle">
-                        <Select
-                          aria-label="按分组筛选"
-                          className="w-full min-w-[100px]"
-                          classNames={{
-                            trigger:
-                              "bg-transparent border-none shadow-none p-0 min-h-0 h-auto gap-1.5 hover:bg-default-100/50 transition-colors flex flex-row items-center justify-start",
-                            value:
-                              "text-sm text-default-600 font-semibold uppercase tracking-wider p-0 order-last",
-                            selectorIcon:
-                              "text-default-400 w-3.5 h-3.5 static order-first m-0",
-                            innerWrapper: "w-fit flex-none",
-                          }}
-                          placeholder="隧道分组"
-                          selectedKeys={
-                            filterGroupId === null
-                              ? []
-                              : [
-                                  filterGroupId === -1
-                                    ? "-1"
-                                    : String(filterGroupId),
-                                ]
-                          }
-                          size="sm"
-                          variant="flat"
-                          onSelectionChange={(keys) => {
-                            const selected = Array.from(keys)[0] as
-                              | string
-                              | undefined;
-
-                            if (!selected || selected === "all") {
-                              setFilterGroupId(null);
-                            } else if (selected === "-1") {
-                              setFilterGroupId(-1);
-                            } else {
-                              setFilterGroupId(parseInt(selected));
+                        {groupingMode === "custom" ? (
+                          <Select
+                            aria-label="按分组筛选"
+                            className="w-full min-w-[100px]"
+                            classNames={{
+                              trigger:
+                                "bg-transparent border-none shadow-none p-0 min-h-0 h-auto gap-1.5 hover:bg-default-100/50 transition-colors flex flex-row items-center justify-start",
+                              value:
+                                "text-sm text-default-600 font-semibold uppercase tracking-wider p-0 order-last",
+                              selectorIcon:
+                                "text-default-400 w-3.5 h-3.5 static order-first m-0",
+                              innerWrapper: "w-fit flex-none",
+                            }}
+                            placeholder="隧道分组"
+                            selectedKeys={
+                              filterGroupId === null
+                                ? []
+                                : [
+                                    filterGroupId === -1
+                                      ? "-1"
+                                      : String(filterGroupId),
+                                  ]
                             }
-                          }}
-                        >
-                          <SelectItem key="all" textValue="全部分组">
-                            全部分组
-                          </SelectItem>
-                          <SelectItem key="-1" textValue="未分组">
-                            未分组
-                          </SelectItem>
-                          {tunnelGroupsNew.map((group) => (
-                            <SelectItem
-                              key={String(group.id)}
-                              textValue={group.name}
-                            >
-                              <div className="flex items-center gap-2">
-                                <div
-                                  className="w-2 h-2 rounded-full"
-                                  style={{ backgroundColor: group.color }}
-                                />
-                                <span>{group.name}</span>
-                                <span className="text-default-400 text-xs ml-auto">
-                                  {group.tunnelCount}
-                                </span>
-                              </div>
+                            size="sm"
+                            variant="flat"
+                            onSelectionChange={(keys) => {
+                              const selected = Array.from(keys)[0] as
+                                | string
+                                | undefined;
+
+                              if (!selected || selected === "all") {
+                                setFilterGroupId(null);
+                              } else if (selected === "-1") {
+                                setFilterGroupId(-1);
+                              } else {
+                                setFilterGroupId(parseInt(selected));
+                              }
+                            }}
+                          >
+                            <SelectItem key="all" textValue="全部分组">
+                              全部分组
                             </SelectItem>
-                          ))}
-                        </Select>
+                            <SelectItem key="-1" textValue="未分组">
+                              未分组
+                            </SelectItem>
+                            {tunnelGroupsNew.map((group) => (
+                              <SelectItem
+                                key={String(group.id)}
+                                textValue={group.name}
+                              >
+                                <div className="flex items-center gap-2">
+                                  <div
+                                    className="w-2 h-2 rounded-full"
+                                    style={{ backgroundColor: group.color }}
+                                  />
+                                  <span>{group.name}</span>
+                                  <span className="text-default-400 text-xs ml-auto">
+                                    {group.tunnelCount}
+                                  </span>
+                                </div>
+                              </SelectItem>
+                            ))}
+                          </Select>
+                        ) : (
+                          "自定义分组"
+                        )}
                       </th>
                       <th className="py-3 px-4 w-[100px] align-middle">类型</th>
                       <th className="py-3 px-4 w-[100px] text-center align-middle">
@@ -2583,6 +2858,7 @@ export default function TunnelPage() {
                               onPress={() => {
                                 setFilterGroupId(null);
                                 setSearchKeyword("");
+                                setRegionFilters([]);
                               }}
                             >
                               归零筛选
@@ -2591,14 +2867,28 @@ export default function TunnelPage() {
                         </td>
                       </tr>
                     ) : (
-                      sortedTunnels.map((tunnel) => {
+                      displayItems.map((item) => {
+                        if (item.kind !== "tunnel") {
+                          return (
+                            <tr key={item.key}>
+                              <td colSpan={13}>{renderGroupHeading(item)}</td>
+                            </tr>
+                          );
+                        }
+                        const { tunnel } = item;
                         const typeDisplay = getTunnelTypeDisplay(tunnel.type);
                         const inCount = tunnel.inNodeId?.length || 0;
                         const outCount = tunnel.outNodeId?.length || 0;
                         const chainCount = tunnel.chainNodes?.length || 0;
 
                         return (
-                          <SortableListRowItem key={tunnel.id} id={tunnel.id}>
+                          <SortableListRowItem
+                            key={item.key}
+                            id={
+                              groupingMode === "region" ? item.key : tunnel.id
+                            }
+                            disabled={groupingMode === "region"}
+                          >
                             {({ setNodeRef, style, attributes, listeners }) => (
                               <tr
                                 ref={setNodeRef}
@@ -2631,21 +2921,23 @@ export default function TunnelPage() {
                                   </div>
                                 </td>
                                 <td className="py-3 px-4 text-center align-middle">
-                                  <div
-                                    {...attributes}
-                                    {...listeners}
-                                    className="cursor-grab active:cursor-grabbing inline-flex p-1 text-default-400 hover:text-default-600 transition-colors touch-manipulation"
-                                    style={{ touchAction: "none" }}
-                                  >
-                                    <svg
-                                      aria-hidden="true"
-                                      className="w-4 h-4"
-                                      fill="currentColor"
-                                      viewBox="0 0 20 20"
+                                  {groupingMode !== "region" && (
+                                    <div
+                                      {...attributes}
+                                      {...listeners}
+                                      className="cursor-grab active:cursor-grabbing inline-flex p-1 text-default-400 hover:text-default-600 transition-colors touch-manipulation"
+                                      style={{ touchAction: "none" }}
                                     >
-                                      <path d="M7 2a2 2 0 1 1 .001 4.001A2 2 0 0 1 7 2zm0 6a2 2 0 1 1 .001 4.001A2 2 0 0 1 7 8zm0 6a2 2 0 1 1 .001 4.001A2 2 0 0 1 7 14zm6-8a2 2 0 1 1-.001-4.001A2 2 0 0 1 13 6zm0 2a2 2 0 1 1 .001 4.001A2 2 0 0 1 13 8zm0 6a2 2 0 1 1 .001 4.001A2 2 0 0 1 13 14z" />
-                                    </svg>
-                                  </div>
+                                      <svg
+                                        aria-hidden="true"
+                                        className="w-4 h-4"
+                                        fill="currentColor"
+                                        viewBox="0 0 20 20"
+                                      >
+                                        <path d="M7 2a2 2 0 1 1 .001 4.001A2 2 0 0 1 7 2zm0 6a2 2 0 1 1 .001 4.001A2 2 0 0 1 7 8zm0 6a2 2 0 1 1 .001 4.001A2 2 0 0 1 7 14zm6-8a2 2 0 1 1-.001-4.001A2 2 0 0 1 13 6zm0 2a2 2 0 1 1 .001 4.001A2 2 0 0 1 13 8zm0 6a2 2 0 1 1 .001 4.001A2 2 0 0 1 13 14z" />
+                                      </svg>
+                                    </div>
+                                  )}
                                 </td>
                                 <td className="py-3 px-4 align-middle">
                                   <span
@@ -2658,6 +2950,9 @@ export default function TunnelPage() {
                                   >
                                     {tunnel.name}
                                   </span>
+                                  <div className="mt-1">
+                                    {renderExitRegion(tunnel)}
+                                  </div>
                                 </td>
                                 <td className="py-3 px-4 align-middle">
                                   {tunnel.tunnelGroupId &&
@@ -2833,13 +3128,32 @@ export default function TunnelPage() {
                 </span>
               </div>
               <div className="p-4">
-                <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
+                <DndContext
+                  sensors={sensors}
+                  onDragEnd={groupingMode === "region" ? undefined : handleDragEnd}
+                >
                   <SortableContext
                     items={sortableTunnelIds}
                     strategy={rectSortingStrategy}
                   >
                     <div className="flvx-card-grid grid gap-4">
-                      {sortedTunnels.map((tunnel) => {
+                      {sortedTunnels.length === 0 && (
+                        <p className="col-span-full py-8 text-center text-sm text-default-500">
+                          未找到匹配的隧道，请调整筛选条件
+                        </p>
+                      )}
+                      {displayItems.map((item) => {
+                        if (item.kind !== "tunnel") {
+                          return (
+                            <div
+                              key={item.key}
+                              className="col-span-full overflow-hidden rounded-lg"
+                            >
+                              {renderGroupHeading(item)}
+                            </div>
+                          );
+                        }
+                        const { tunnel } = item;
                         const typeDisplay = getTunnelTypeDisplay(tunnel.type);
                         const tunnelTypeChipClassName =
                           tunnel.type === 1
@@ -2847,7 +3161,13 @@ export default function TunnelPage() {
                             : "inline-flex items-center justify-center px-2 py-0.5 rounded text-xs font-medium bg-success-500/10 text-success-600 dark:text-success-400";
 
                         return (
-                          <SortableItem key={tunnel.id} id={tunnel.id}>
+                          <SortableItem
+                            key={item.key}
+                            id={
+                              groupingMode === "region" ? item.key : tunnel.id
+                            }
+                            disabled={groupingMode === "region"}
+                          >
                             {(listeners) => (
                               <Card
                                 key={tunnel.id}
@@ -2864,21 +3184,23 @@ export default function TunnelPage() {
                                         toggleSelect(tunnel.id)
                                       }
                                     />
-                                    <div
-                                      className="cursor-grab active:cursor-grabbing p-1 text-default-400 hover:text-default-600 transition-colors touch-manipulation flex-shrink-0"
-                                      {...listeners}
-                                      style={{ touchAction: "none" }}
-                                      title="拖拽排序"
-                                    >
-                                      <svg
-                                        aria-hidden="true"
-                                        className="w-4 h-4"
-                                        fill="currentColor"
-                                        viewBox="0 0 20 20"
+                                    {groupingMode !== "region" && (
+                                      <div
+                                        className="cursor-grab active:cursor-grabbing p-1 text-default-400 hover:text-default-600 transition-colors touch-manipulation flex-shrink-0"
+                                        {...listeners}
+                                        style={{ touchAction: "none" }}
+                                        title="拖拽排序"
                                       >
-                                        <path d="M7 2a2 2 0 1 1 .001 4.001A2 2 0 0 1 7 2zm0 6a2 2 0 1 1 .001 4.001A2 2 0 0 1 7 8zm0 6a2 2 0 1 1 .001 4.001A2 2 0 0 1 7 14zm6-8a2 2 0 1 1-.001-4.001A2 2 0 0 1 13 6zm0 2a2 2 0 1 1 .001 4.001A2 2 0 0 1 13 8zm0 6a2 2 0 1 1 .001 4.001A2 2 0 0 1 13 14z" />
-                                      </svg>
-                                    </div>
+                                        <svg
+                                          aria-hidden="true"
+                                          className="w-4 h-4"
+                                          fill="currentColor"
+                                          viewBox="0 0 20 20"
+                                        >
+                                          <path d="M7 2a2 2 0 1 1 .001 4.001A2 2 0 0 1 7 2zm0 6a2 2 0 1 1 .001 4.001A2 2 0 0 1 7 8zm0 6a2 2 0 1 1 .001 4.001A2 2 0 0 1 7 14zm6-8a2 2 0 1 1-.001-4.001A2 2 0 0 1 13 6zm0 2a2 2 0 1 1 .001 4.001A2 2 0 0 1 13 8zm0 6a2 2 0 1 1 .001 4.001A2 2 0 0 1 13 14z" />
+                                        </svg>
+                                      </div>
+                                    )}
                                   </div>
                                   {/* 隧道名称和类型 */}
                                   <div className="flex-1 min-w-0">
@@ -2895,7 +3217,8 @@ export default function TunnelPage() {
                                     >
                                       {tunnel.name}
                                     </h3>
-                                    <div className="flex items-center gap-1.5 mt-1">
+                                    <div className="flex flex-wrap items-center gap-1.5 mt-1">
+                                      {renderExitRegion(tunnel)}
                                       <div className={tunnelTypeChipClassName}>
                                         {typeDisplay.text}
                                       </div>
