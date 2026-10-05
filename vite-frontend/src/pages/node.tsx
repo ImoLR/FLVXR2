@@ -1,4 +1,8 @@
-import type { NodeGroupApiItem, OfflineDeployPayload } from "@/api/types";
+import type {
+  NodeGroupApiItem,
+  NodeRegionDetection,
+  OfflineDeployPayload,
+} from "@/api/types";
 
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import toast from "react-hot-toast";
@@ -381,42 +385,94 @@ export default function NodePage() {
     socks: 0,
   });
   const [regionDetectLoading, setRegionDetectLoading] = useState(false);
+  const [regionDetection, setRegionDetection] =
+    useState<NodeRegionDetection | null>(null);
   const regionDetectRevision = useRef(0);
   const regionEdited = useRef(false);
+  // 保留旧节点的兼容地址；地址输入编辑后，保存逻辑会从 IPv4/IPv6 重新派生。
+  const regionDetectServerIp = useRef("");
   const formRef = useRef(form);
 
   formRef.current = form;
   const invalidateRegionDetection = () => {
     regionDetectRevision.current += 1;
     setRegionDetectLoading(false);
+    setRegionDetection(null);
   };
   const handleDetectRegion = async (automatic = false) => {
     const current = formRef.current;
-    const ip = current.serverIpV4.trim() || current.serverIpV6.trim();
+    const addresses = {
+      serverIpV4: current.serverIpV4.trim(),
+      serverIp: regionDetectServerIp.current.trim(),
+      serverIpV6: current.serverIpV6.trim(),
+    };
 
-    if (!ip || (automatic && (current.region || regionEdited.current))) return;
+    if (!addresses.serverIpV4 && !addresses.serverIp && !addresses.serverIpV6) {
+      return;
+    }
     const revision = ++regionDetectRevision.current;
 
     setRegionDetectLoading(true);
     try {
-      const res = await detectNodeRegion(ip);
+      const res = await detectNodeRegion(addresses);
       const latest = formRef.current;
 
-      if (revision !== regionDetectRevision.current ||
-          ip !== (latest.serverIpV4.trim() || latest.serverIpV6.trim()) ||
-          (automatic && (latest.region || regionEdited.current))) return;
-      if (res.code === 0 && res.data?.region) {
-        setForm((prev) => ({ ...prev, region: res.data.region }));
-        if (!automatic) toast.success(`已识别：${regionLabel(res.data.region)}`);
-      } else if (!automatic) {
-        toast(res.code === 0 ? "未能识别地区，请手动选择" : res.msg || "地区识别失败");
+      if (
+        revision !== regionDetectRevision.current ||
+        addresses.serverIpV4 !== latest.serverIpV4.trim() ||
+        addresses.serverIp !== regionDetectServerIp.current.trim() ||
+        addresses.serverIpV6 !== latest.serverIpV6.trim()
+      ) return;
+      if (res.code === 0 && res.data) {
+        if (res.data.region && !REGION_CODES.includes(res.data.region)) {
+          setRegionDetection(null);
+          setErrors((prev) => ({
+            ...prev,
+            region: "识别结果包含无效地区代码，请手动选择",
+          }));
+
+          return;
+        }
+        setRegionDetection(res.data);
+        if (!latest.region || REGION_CODES.includes(latest.region)) {
+          setErrors((prev) => ({ ...prev, region: "" }));
+        }
+        if (res.data.region) {
+          if (!latest.region && !regionEdited.current) {
+            setForm((prev) => ({ ...prev, region: res.data.region }));
+          }
+          if (!automatic) toast.success(`已识别：${regionLabel(res.data.region)}`);
+        }
+      } else {
+        setRegionDetection({
+          region: "", ip: "", family: "", source: "",
+          reason: res.msg || "地区识别失败，请手动选择",
+        });
       }
     } catch {
-      if (!automatic && revision === regionDetectRevision.current) toast.error("地区识别失败，请手动选择");
+      if (revision === regionDetectRevision.current) {
+        setRegionDetection({
+          region: "", ip: "", family: "", source: "",
+          reason: "地区识别失败，请手动选择",
+        });
+      }
     } finally {
       if (revision === regionDetectRevision.current) setRegionDetectLoading(false);
     }
   };
+  let regionDetectHint = regionDetection?.reason || "";
+
+  if (regionDetection?.region) {
+    if (form.region !== regionDetection.region && (form.region || regionEdited.current)) {
+      regionDetectHint = `自动识别结果为 ${regionLabel(regionDetection.region)}，当前为手动设置`;
+    } else {
+      const viaDNS = regionDetection.source === "dns_a" || regionDetection.source === "dns_aaaa";
+      const family = regionDetection.family === "v6" ? "IPv6" : "IPv4";
+
+      regionDetectHint = `已按 ${viaDNS ? "域名解析 " : ""}${family} ${regionDetection.ip} 识别为 ${regionLabel(regionDetection.region)}`;
+      if (regionDetection.reason) regionDetectHint += `（${regionDetection.reason}）`;
+    }
+  }
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [selectMode, setSelectMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
@@ -1018,6 +1074,9 @@ export default function NodePage() {
     ) {
       newErrors.expiryTime = "请同时设置续费周期和续费基准时间";
     }
+    if (form.region && !REGION_CODES.includes(form.region)) {
+      newErrors.region = "请选择有效的地区代码";
+    }
     if (Array.from(form.regionCity.trim()).length > 50) {
       newErrors.regionCity = "城市/备注不能超过50个字符";
     }
@@ -1056,6 +1115,7 @@ export default function NodePage() {
   const handleEdit = (node: Node) => {
     invalidateRegionDetection();
     regionEdited.current = false;
+    regionDetectServerIp.current = node.serverIp || "";
     setDialogTitle("编辑节点");
     setIsEdit(true);
     setForm({
@@ -1645,6 +1705,7 @@ export default function NodePage() {
   const resetForm = () => {
     invalidateRegionDetection();
     regionEdited.current = false;
+    regionDetectServerIp.current = "";
     setForm({
       id: null,
       name: "",
@@ -2097,7 +2158,11 @@ export default function NodePage() {
               </h3>
             </div>
             <div className="text-xs text-default-500">
-              {regionLabel(node.region)}{node.regionCity ? ` · ${node.regionCity}` : ""}
+              {node.region ? regionLabel(node.region) : (
+                <Chip className="bg-default-100 text-default-500" color="default" size="sm" variant="flat">
+                  未设置地区
+                </Chip>
+              )}{node.regionCity ? ` · ${node.regionCity}` : ""}
             </div>
           </div>
         </CardHeader>
@@ -3074,14 +3139,16 @@ export default function NodePage() {
                 <div className="space-y-2">
                   <Select
                     isSearchable
+                    errorMessage={errors.region}
+                    isInvalid={!!errors.region}
                     label="地区"
                     searchPlaceholder="搜索地区名称或代码"
                     selectedKeys={[form.region || "unset"]}
                     onSelectionChange={(keys) => {
-                      invalidateRegionDetection();
                       regionEdited.current = true;
                       const selected = String(Array.from(keys)[0] || "unset");
 
+                      setErrors((prev) => ({ ...prev, region: "" }));
                       setForm((prev) => ({ ...prev, region: selected === "unset" ? "" : selected }));
                     }}
                   >
@@ -3092,8 +3159,12 @@ export default function NodePage() {
                       </SelectItem>
                     ))}
                   </Select>
+                  {regionDetectHint && (
+                    <p className="break-words text-xs text-default-500">{regionDetectHint}</p>
+                  )}
                   <Button
-                    isDisabled={!form.serverIpV4.trim() && !form.serverIpV6.trim()}
+                    color="primary"
+                    isDisabled={!form.serverIpV4.trim() && !regionDetectServerIp.current.trim() && !form.serverIpV6.trim()}
                     isLoading={regionDetectLoading}
                     size="sm"
                     variant="flat"
@@ -3225,6 +3296,7 @@ export default function NodePage() {
                   onBlur={() => handleDetectRegion(true)}
                   onChange={(e) => {
                     invalidateRegionDetection();
+                    regionDetectServerIp.current = "";
                     setForm((prev) => ({ ...prev, serverIpV4: e.target.value }));
                   }}
                 />
@@ -3268,6 +3340,7 @@ export default function NodePage() {
                   onBlur={() => handleDetectRegion(true)}
                   onChange={(e) => {
                     invalidateRegionDetection();
+                    regionDetectServerIp.current = "";
                     setForm((prev) => ({ ...prev, serverIpV6: e.target.value }));
                   }}
                 />

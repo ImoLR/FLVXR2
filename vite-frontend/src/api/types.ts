@@ -23,6 +23,20 @@ export interface NodeApiItem {
   [key: string]: unknown;
 }
 
+export interface NodeRegionDetection {
+  region: string;
+  ip: string;
+  family: "v4" | "v6" | "";
+  source:
+    | "server_ip_v4"
+    | "server_ip"
+    | "dns_a"
+    | "server_ip_v6"
+    | "dns_aaaa"
+    | "";
+  reason: string;
+}
+
 export interface NodeTLSTemplateApiItem {
   id: number;
   name: string;

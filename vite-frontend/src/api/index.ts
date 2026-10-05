@@ -12,6 +12,7 @@ import type {
   NodeTLSTemplateApiItem,
   NodeReleaseApiItem,
   NodeApiItem,
+  NodeRegionDetection,
   NodeTagApiItem,
   NodeTagMutationPayload,
   OfflineDeployPayload,
@@ -132,8 +133,11 @@ export const getUserPackageInfo = () =>
 export const createNode = (data: NodeMutationPayload) =>
   Network.post("/node/create", data);
 export const getNodeList = () => Network.post<NodeApiItem[]>("/node/list");
-export const detectNodeRegion = (ip: string) =>
-  Network.post<{ region: string }>("/node/detect-region", { ip });
+export const detectNodeRegion = (data: {
+  serverIpV4: string;
+  serverIp: string;
+  serverIpV6: string;
+}) => Network.post<NodeRegionDetection>("/node/detect-region", data);
 export const getDashboardNodeExpiryList = () =>
   Network.post<NodeApiItem[]>("/node/list", {});
 export const updateNode = (data: NodeMutationPayload) =>

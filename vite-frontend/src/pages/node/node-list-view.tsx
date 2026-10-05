@@ -289,7 +289,11 @@ function SortableTableRow({
           </span>
         </div>
         <div className="mt-1 text-xs text-default-500">
-          {regionLabel(node.region)}{node.regionCity ? ` · ${node.regionCity}` : ""}
+          {node.region ? regionLabel(node.region) : (
+            <Chip className="bg-default-100 text-default-500" color="default" size="sm" variant="flat">
+              未设置地区
+            </Chip>
+          )}{node.regionCity ? ` · ${node.regionCity}` : ""}
         </div>
       </TableCell>
       <TableCell className={`whitespace-nowrap ${rowBg}`}>
