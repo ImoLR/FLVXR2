@@ -14,7 +14,7 @@ pops up the keyboard on mobile). User request 2026-10-06.
 ## Tasks
 - [x] Remove the search props from the form tunnel picker
 - [x] `tsc --noEmit` + `npm run build` pass
-- [ ] CI Build Check green
+- [x] CI Build Check green ([37445966728](https://github.com/ImoLR/FLVXR2/actions/runs/37445966728), `1e66bbd2`)
 - [ ] Tag `3.0.27-fork.21`, Build and Push Images green, release assets verified
 - [ ] Production backup (`pre-fork21-<TS>`) + panel upgrade to fork.21
 - [ ] Verify served bundle no longer contains 「搜索入口、地区或隧道」, panel healthy
