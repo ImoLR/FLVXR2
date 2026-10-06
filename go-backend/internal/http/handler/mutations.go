@@ -1331,6 +1331,12 @@ func (h *Handler) tunnelCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	tunnelID := tunnel.ID
+	unlock, locked := h.tryLockTunnelRuntime(tunnelID)
+	if !locked {
+		response.WriteJSON(w, response.ErrDefault("隧道运行时正在同步，请稍后重试"))
+		return
+	}
+	defer unlock()
 	runtimeState.TunnelID = tunnelID
 	var federationBindings []repo.FederationTunnelBinding
 	var federationReleaseRefs []federationRuntimeReleaseRef
@@ -1494,6 +1500,8 @@ func (h *Handler) tunnelUpdate(w http.ResponseWriter, r *http.Request) {
 		response.WriteJSON(w, response.ErrDefault("隧道ID不能为空"))
 		return
 	}
+	unlock := h.lockTunnelRuntime(id)
+	defer unlock()
 	oldEntryNodeIDs, _ := h.tunnelEntryNodeIDs(id)
 
 	h.cleanupTunnelRuntime(id)
@@ -2028,6 +2036,8 @@ func (h *Handler) tunnelDelete(w http.ResponseWriter, r *http.Request) {
 	if id <= 0 {
 		return
 	}
+	unlock := h.lockTunnelRuntime(id)
+	defer unlock()
 	h.cleanupTunnelRuntime(id)
 	h.cleanupFederationRuntime(id)
 	if err := h.deleteTunnelByID(id); err != nil {
@@ -2099,6 +2109,7 @@ func (h *Handler) tunnelBatchDelete(w http.ResponseWriter, r *http.Request) {
 			failures = appendBatchFailure(failures, id, tunnelName, err)
 			continue
 		}
+		unlock := h.lockTunnelRuntime(id)
 		h.cleanupTunnelRuntime(id)
 		h.cleanupFederationRuntime(id)
 		if err := h.deleteTunnelByID(id); err != nil {
@@ -2107,6 +2118,7 @@ func (h *Handler) tunnelBatchDelete(w http.ResponseWriter, r *http.Request) {
 		} else {
 			success++
 		}
+		unlock()
 	}
 	response.WriteJSON(w, response.OK(batchOperationResult{SuccessCount: success, FailCount: fail, Failures: failures}))
 }
@@ -2194,86 +2206,73 @@ func (h *Handler) reconstructTunnelState(tunnelID int64) (*tunnelCreateState, er
 }
 
 func (h *Handler) redeployTunnelAndForwards(tunnelID int64, onForwardSync ...func(*model.ForwardRecord, error)) error {
+	unlock := h.lockTunnelRuntime(tunnelID)
+	defer unlock()
+
 	tunnel, err := h.getTunnelRecord(tunnelID)
 	if err != nil {
 		return err
 	}
-
+	var failures []error
+	nodeFailures := make(map[int64]error)
 	if tunnel.Type == 2 {
-		h.cleanupTunnelRuntime(tunnelID)
-		h.cleanupFederationRuntime(tunnelID)
 		state, err := h.reconstructTunnelState(tunnelID)
 		if err != nil {
 			return err
 		}
-		federationBindings, federationReleaseRefs, fedErr := h.applyFederationRuntime(state, h.federationLocalDomain())
-		if fedErr != nil {
-			return fedErr
-		}
-		tx := h.repo.BeginTx()
-		if tx.Error != nil {
-			h.releaseFederationRuntimeRefs(federationReleaseRefs)
-			return tx.Error
-		}
-		if replaceErr := h.repo.ReplaceFederationTunnelBindingsTx(tx, tunnelID, federationBindings); replaceErr != nil {
-			tx.Rollback()
-			h.releaseFederationRuntimeRefs(federationReleaseRefs)
-			return replaceErr
-		}
-		if commitErr := tx.Commit().Error; commitErr != nil {
-			h.releaseFederationRuntimeRefs(federationReleaseRefs)
-			return commitErr
-		}
-		_, _, applyErr := h.applyTunnelRuntime(state)
-		if applyErr != nil {
-			h.releaseFederationRuntimeRefs(federationReleaseRefs)
-			_ = h.repo.DeleteFederationTunnelBindingsByTunnel(tunnelID)
-			return applyErr
+		// Finish each downstream node before moving upstream. A failed node must
+		// never prevent the remaining nodes from receiving their configuration.
+		for _, nodeID := range tunnelRuntimeNodeOrder(state) {
+			err := h.replaceTunnelRuntimeOnNode(state, nodeID)
+			nodeFailures[nodeID] = err
+			if err != nil {
+				failures = append(failures, err)
+			}
 		}
 	}
 
 	forwards, err := h.listForwardsByTunnel(tunnelID)
 	if err != nil {
-		return err
-	}
-
-	var mu sync.Mutex
-	var wg sync.WaitGroup
-	var syncErr error
-	workers := make(chan struct{}, 4)
-
-	for i := range forwards {
-		workers <- struct{}{}
-		wg.Add(1)
-		go func(f *model.ForwardRecord) {
-			defer wg.Done()
-			defer func() { <-workers }()
-			if f.Status != 1 {
-				return
+		failures = append(failures, err)
+	} else {
+		for i := range forwards {
+			forward := &forwards[i]
+			if forward.Status != 1 {
+				continue
 			}
-			var err error
-			if len(onForwardSync) > 0 {
-				err = h.syncNodeForwardServices(f)
+			ports, portErr := h.listForwardPorts(forward.ID)
+			var forwardFailures []error
+			if portErr != nil {
+				forwardFailures = append(forwardFailures, portErr)
+			} else if len(ports) == 0 {
+				forwardFailures = append(forwardFailures, errors.New("转发入口端口不存在"))
 			} else {
-				err = h.syncForwardServices(f, "UpdateService", true)
+				seen := make(map[int64]struct{}, len(ports))
+				for _, port := range ports {
+					if _, ok := seen[port.NodeID]; ok {
+						continue
+					}
+					seen[port.NodeID] = struct{}{}
+					syncErr := h.syncForwardServicesOnNode(forward, port.NodeID)
+					nodeFailures[port.NodeID] = errors.Join(nodeFailures[port.NodeID], syncErr)
+					if syncErr != nil {
+						forwardFailures = append(forwardFailures, fmt.Errorf("节点 %d 转发 %s(%d) 下发失败: %w", port.NodeID, forward.Name, forward.ID, syncErr))
+					}
+				}
 			}
-			mu.Lock()
-			defer mu.Unlock()
-			if err != nil {
-				syncErr = err
+			forwardErr := errors.Join(forwardFailures...)
+			if forwardErr != nil {
+				failures = append(failures, forwardErr)
 			}
 			for _, report := range onForwardSync {
-				report(f, err)
+				report(forward, forwardErr)
 			}
-		}(&forwards[i])
+		}
 	}
-	wg.Wait()
-
-	if syncErr != nil {
-		return syncErr
+	for nodeID, nodeErr := range nodeFailures {
+		h.recordTunnelRuntimeResult(tunnelID, nodeID, nodeErr)
 	}
-
-	return nil
+	return errors.Join(failures...)
 }
 
 type batchFailureDetail struct {
@@ -4425,7 +4424,7 @@ func (h *Handler) federationLocalDomain() string {
 	return strings.TrimSpace(cfg.Value)
 }
 
-func (h *Handler) applyFederationRuntime(state *tunnelCreateState, localDomain string) ([]repo.FederationTunnelBinding, []federationRuntimeReleaseRef, error) {
+func (h *Handler) applyFederationRuntime(state *tunnelCreateState, localDomain string, onlyNodeID ...int64) ([]repo.FederationTunnelBinding, []federationRuntimeReleaseRef, error) {
 	bindings := make([]repo.FederationTunnelBinding, 0)
 	releaseRefs := make([]federationRuntimeReleaseRef, 0)
 	if h == nil || state == nil {
@@ -4436,6 +4435,9 @@ func (h *Handler) applyFederationRuntime(state *tunnelCreateState, localDomain s
 
 	for outIdx := range state.OutNodes {
 		outNode := state.OutNodes[outIdx]
+		if len(onlyNodeID) > 0 && outNode.NodeID != onlyNodeID[0] {
+			continue
+		}
 		node := state.Nodes[outNode.NodeID]
 		if node == nil || node.IsRemote != 1 {
 			continue
@@ -4508,6 +4510,9 @@ func (h *Handler) applyFederationRuntime(state *tunnelCreateState, localDomain s
 	for hopIdx := len(state.ChainHops) - 1; hopIdx >= 0; hopIdx-- {
 		for nodeIdx := range state.ChainHops[hopIdx] {
 			chainNode := state.ChainHops[hopIdx][nodeIdx]
+			if len(onlyNodeID) > 0 && chainNode.NodeID != onlyNodeID[0] {
+				continue
+			}
 			node := state.Nodes[chainNode.NodeID]
 			if node == nil || node.IsRemote != 1 {
 				continue
