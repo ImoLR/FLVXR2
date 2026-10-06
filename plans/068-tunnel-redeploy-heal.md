@@ -14,7 +14,7 @@
 - [x] 完成本地 netns E2E：重连抖动、入口离线重部署/恢复、双出口部分离线。
 - [x] 推送分支并确认 CI Build Check 通过。
 - [x] 发布注解标签 `3.0.27-fork.20`，确认镜像流水线与所有发布资产。
-- [ ] 备份生产 compose、环境、在线 SQLite 与镜像，记录回滚步骤。
+- [x] 备份生产 compose、环境、在线 SQLite 与镜像，记录回滚步骤。
 - [ ] 升级生产面板，验证健康、指标、列表 API 与重连日志。
 - [ ] 执行任务 P：诊断全部活跃 type-2 隧道，仅重部署符合条件的故障隧道并记录前后结果。
 - [ ] 写中文总结，提交 `docs(plan): mark fork20 rollout complete` 并推送。
@@ -45,3 +45,5 @@
 - 分支推送成功；CI Build Check `37425814691`（提交 `20941a11`）全部通过：后端、前端、agent 构建与 PostgreSQL 合同测试。fork.20 注解标签指向该已验证提交。
 
 - Build and Push Images `37426077264` 全部成功，无重跑；Release 于 `2026-10-06T07:02:02Z` 发布，为正式版且 Latest。与 fork.19 相同的 10 项资产全部下载核验：v4/v6 compose 镜像 tag、两脚本 PINNED_VERSION/REPO、amd64/arm64 gost SHA256 均正确；详见 `release-verification.json`。
+
+- 生产回滚点：`/opt/flvx-svc/rollback/pre-fork20-20261006T070315Z`，在线 SQLite 单次 backup 后 quick_check=ok。计数：user=12、node=25、tunnel=49、chain_tunnel=163、forward=26、forward_port=26、node_metric=1970473。旧镜像保留为 `local/flvxx-{backend,frontend}:pre-fork20-20261006T070315Z`；compose/.env/ROLLBACK-METADATA.md 完整；正常回滚仅恢复 fork.19 配置镜像，不需还原数据库。
