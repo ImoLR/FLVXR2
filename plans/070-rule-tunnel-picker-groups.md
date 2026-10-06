@@ -18,7 +18,7 @@
 - [x] 单 Chromium / 单 context 串行检查交互与明暗主题，生成并逐张查看 8 张截图，修正缺陷后重拍。
 - [x] 发布截图与中文 index.html 到指定 preview 的 picker 子目录，记录验证结果并提交。
 - [ ] 推送最终分支 HEAD，确认 CI Build Check 绿色（或如实记录 GitHub 阻塞状态）。
-- [ ] 停止本任务启动的进程，写中文 summary.md（变更行号、验证、截图、发布状态、回退、建议）。
+- [x] 停止本任务启动的进程，写中文 summary.md（变更行号、验证、截图、发布状态、回退、建议）。
 
 ## 证据位置
 
@@ -60,3 +60,10 @@
 - 新建指定 preview 的 picker 目录，发布 index.html + 8 PNG；逐文件 HTTP 200 与 SHA256/内容一致。未更改 preview unit 或其他目录。
 - 日志：`logs/browser-screens.log`、`logs/browser-report.json`、`logs/preview-verification.json`；脚本保留在任务目录，未新增仓库前端测试。
 - 前序代码 CI `989d0b0a`：[37450780523](https://github.com/ImoLR/FLVXR2/actions/runs/37450780523) 全部通过；最新 HEAD 推送后的状态另行确认。
+
+## 清理与交付
+
+- 已停止本任务 paneld 4185506 / 静态服务 4185507，Chromium/context 已关闭，未终止其他进程。
+- 停机后 node/tunnel/forward/forward_port/user 全部行与原始快照一致。
+- 中文 summary.md 已写到任务目录；最终 HEAD CI 结果将在推送完成后补入该外部总结，避免为了记录 run id 反复改变 HEAD。
+- 无 tag/release/生产变更；仅新增 picker 预览目录，未覆盖原有目录内容。
