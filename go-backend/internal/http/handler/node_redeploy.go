@@ -2,7 +2,6 @@ package handler
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 	"log"
@@ -62,6 +61,10 @@ func (s *nodeRedeployScheduler) Online(nodeID int64) {
 func (s *nodeRedeployScheduler) Offline(nodeID int64) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	// A delayed disconnect hook may arrive after the new connection's hook.
+	if s.online != nil && s.online(nodeID) {
+		return
+	}
 	if state := s.states[nodeID]; state != nil {
 		state.online, state.pending = false, false
 		state.generation++
@@ -226,8 +229,8 @@ func (h *Handler) retryTunnelNode(key tunnelNodeKey, now time.Time) {
 
 	// Check membership even for offline nodes: deleted/disabled tunnels must not
 	// leave pending work forever, or recreate runtime after a later reconnect.
-	tunnel, err := h.getTunnelRecord(key.tunnelID)
-	if errors.Is(err, sql.ErrNoRows) || (err == nil && (tunnel == nil || tunnel.Status != 1)) {
+	tunnel, err := h.repo.GetTunnelRecord(key.tunnelID)
+	if err == nil && (tunnel == nil || tunnel.Status != 1) {
 		h.recordTunnelRuntimeResult(key.tunnelID, key.nodeID, nil)
 		return
 	}
