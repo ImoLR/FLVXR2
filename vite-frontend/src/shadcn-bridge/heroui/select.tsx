@@ -260,6 +260,31 @@ export function Select<T>({
     if (isExpanded && showSearch) searchRef.current?.focus();
     if (!isExpanded) setSearch("");
   }, [isExpanded, showSearch]);
+  React.useLayoutEffect(() => {
+    if (!isExpanded || !isGrouped) return;
+    const resizeListbox = () => {
+      const trigger = triggerRef.current;
+      const listbox = listboxRef.current;
+
+      if (!trigger || !listbox) return;
+      const bounds = trigger.getBoundingClientRect();
+      const dialog = trigger.closest('[role="dialog"]')?.getBoundingClientRect();
+      const available = dropdownPlacement === "top"
+        ? bounds.top - Math.max(0, dialog?.top ?? 0) - 8
+        : Math.min(window.innerHeight, dialog?.bottom ?? window.innerHeight) - bounds.bottom - 8;
+
+      listbox.style.maxHeight = `${Math.max(0, Math.min(window.innerHeight * 0.6, 384, available))}px`;
+    };
+
+    resizeListbox();
+    window.addEventListener("resize", resizeListbox);
+    window.addEventListener("scroll", resizeListbox, true);
+
+    return () => {
+      window.removeEventListener("resize", resizeListbox);
+      window.removeEventListener("scroll", resizeListbox, true);
+    };
+  }, [isExpanded, isGrouped, dropdownPlacement]);
   React.useEffect(() => {
     if (!isExpanded || !isGrouped) return;
     const listbox = listboxRef.current;
@@ -269,6 +294,11 @@ export function Select<T>({
     const selectedOption = listbox?.querySelector<HTMLButtonElement>(
       'button[aria-selected="true"]:not(:disabled)',
     );
+    const selectedGroup = selectedOption?.closest('[role="group"]');
+
+    if (listbox && selectedGroup) {
+      listbox.scrollTop += selectedGroup.getBoundingClientRect().top - listbox.getBoundingClientRect().top - 1;
+    }
 
     focusGroupedOption(
       listbox,
@@ -422,6 +452,7 @@ export function Select<T>({
             ? "absolute left-0 z-50 w-full max-h-[min(60vh,24rem)] overflow-y-auto overscroll-contain whitespace-normal rounded-md border border-divider bg-background shadow-md"
             : "absolute left-0 z-50 w-full space-y-1 overflow-y-auto whitespace-normal rounded-md border border-divider bg-background p-2 shadow-md max-h-56",
           placementClasses,
+          isGrouped && classNames?.listbox,
         )}
         id={`${generatedId}-listbox`}
         role="listbox"
@@ -633,7 +664,15 @@ export function Select<T>({
       label={label}
     >
       {selectionMode === "multiple" || isSearchable || isGrouped ? (
-        <div ref={containerRef} className={cn("relative w-full", className)}>
+        <div
+          ref={containerRef}
+          className={cn("relative w-full", className)}
+          onBlur={isGrouped ? (event) => {
+            if (event.relatedTarget === triggerRef.current || !event.currentTarget.contains(event.relatedTarget)) {
+              setIsExpanded(false);
+            }
+          } : undefined}
+        >
           <button
             ref={triggerRef}
             aria-label={ariaLabel}

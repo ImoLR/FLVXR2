@@ -5510,6 +5510,7 @@ export default function ForwardPage() {
                     {/* 选择隧道 */}
                     {form.mode !== "wg_path" && (
                     <Select
+                      classNames={{ listbox: "md:w-[calc(200%+0.5rem)]" }}
                       description={
                         isEdit
                           ? "更改隧道将释放原端口并在新隧道分配端口"
