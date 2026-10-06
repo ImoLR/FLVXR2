@@ -66,8 +66,14 @@ GitHub 官方 [Actions 事件](https://www.githubstatus.com/api/v2/summary.json)
 
 本记录提交后以最新分支 HEAD 的 CI 为准：`gh run list --branch maintenance/3.0.27-fork.19-tunnel-region --workflow ci-build.yml`，再 `gh run watch <最新运行ID> --exit-status`。恢复后须核对四个 job 全绿，再勾选 CI 清单；如出现新增失败，仅修复本任务回归。
 
-## 下一轮（不在本轮执行）
+## Rollout（2026-10-06，release-only）
 
-- [ ] release-only：发布 `3.0.27-fork.19`，验证发布资产与 CI。
-- [ ] 生产备份并升级 `/opt/flvx-svc`，只读核验回填与普通用户隐私。
-- [ ] 完成 rollout 记录；回滚使用 fork.18 镜像与原 compose/.env，新增列可保留。
+- [x] release-only：发布 `3.0.27-fork.19`，验证发布资产与 CI。
+- [x] 生产备份并升级 `/opt/flvx-svc`，只读核验回填与普通用户隐私。
+- [x] 完成 rollout 记录；回滚使用 fork.18 镜像与原 compose/.env，新增列可保留。
+
+记录：
+- 标签 `3.0.27-fork.19`（annotated）指向 `6f37c80c`；"Build and Push Images" 运行 37420831985 全绿；Release 06:08:57Z，非 prerelease、Latest，资产集合与 fork.18 相同；compose 镜像 `ghcr.io/imolr/flvxr2-svc-*:3.0.27-fork.19`，两个脚本 `PINNED_VERSION="3.0.27-fork.19"`、`REPO="ImoLR/FLVXR2"`，gost-amd64/arm64 sha256 校验通过。
+- 回滚点 `/opt/flvx-svc/rollback/pre-fork19-20261006T060939Z/`（compose + .env、`gost.db.validated` quick_check=ok，计数 node 25 / tunnel 49 / forward 26 / forward_port 26 / user 12 / node_metric 1899750，ROLLBACK-METADATA.md）；本地镜像 `local/flvxx-{backend,frontend}:pre-fork19-20261006T060939Z`。
+- 06:10Z 升级到 fork.19：backend healthy、frontend 200；22/25 节点 node_metric 持续上报（1/24/28 为既有离线节点）；回填日志 25 行，25 个节点地区全部非空，与 prod-copy 结果一致（14→HK、20→CN via IPv6、24→HK），`node_region_backfill_v1=done`。
+- 管理员 tunnel/list(49)、forward/list、tunnel/user/tunnel(49)、node/list(25) 正常；内存非管理员 JWT（user 3）tunnel/user/tunnel 返回 12 条，仅 id/name/remark/端口/倍率/entryGroups(region,label,hash key)/exitRegions，无节点 id/IP 字段（3 条隧道名本身由管理员写入了节点名，属既有文本）；`/api/v1/node/detect-region` → 403。
