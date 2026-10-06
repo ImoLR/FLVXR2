@@ -5513,11 +5513,12 @@ export default function ForwardPage() {
                       description={
                         isEdit
                           ? "更改隧道将释放原端口并在新隧道分配端口"
-                          : "看括号内说明选择隧道"
+                          : "根据地区、倍率和备注选择隧道"
                       }
                       errorMessage={errors.tunnelId}
                       isInvalid={!!errors.tunnelId}
                       label="选择隧道"
+                      listboxVariant="grouped"
                       placeholder="请选择关联的隧道"
                       selectedKeys={
                         tunnelPickerKey(tunnelPickerSections, form.tunnelId, formTunnelOptionKey)
@@ -5544,9 +5545,18 @@ export default function ForwardPage() {
                           {section.options.map(({ key, tunnel }) => {
                             const trafficRatio = allTunnels.find((item) => item.id === tunnel.id)?.trafficRatio;
                             const formattedRatio = formatTunnelTrafficRatio(trafficRatio);
-                            const text = `${tunnel.name} ^${formattedRatio}${tunnel.remark ? ` (${tunnel.remark})` : ""}${section.region === MULTI_REGION ? ` · ${exitRegionLabel(tunnel.exitRegions)}` : ""}`;
+                            const text = `${tunnel.name}${section.region === MULTI_REGION ? ` · ${exitRegionLabel(tunnel.exitRegions)}` : ""}`;
 
-                            return <SelectItem key={key} textValue={text}>{text}</SelectItem>;
+                            return (
+                              <SelectItem
+                                key={key}
+                                description={tunnel.remark ? `备注：${tunnel.remark}` : undefined}
+                                endContent={<span className="rounded bg-default-100 px-1.5 py-0.5 text-xs font-normal text-default-500">{formattedRatio}</span>}
+                                textValue={text}
+                              >
+                                {text}
+                              </SelectItem>
+                            );
                           })}
                         </SelectSection>
                       ))}

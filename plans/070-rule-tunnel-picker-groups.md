@@ -12,7 +12,7 @@
 ## 任务
 
 - [x] 读取项目规则和两份 memory；确认 fork.21 HEAD、工作区、内存并创建 fork.22 分支。
-- [ ] 实现 opt-in grouped Select 与规则表单接入；完成静态审阅并提交。
+- [x] 实现 opt-in grouped Select 与规则表单接入；完成静态审阅并提交。
 - [ ] 串行运行 `npx tsc --noEmit` 和 `npm run build`，保存日志并提交记录。
 - [ ] 生产 SQLite 只读在线备份到任务目录；复用本地 paneld（仅 16365）与 dist 静态服务；浏览器拦截写请求。
 - [ ] 单 Chromium / 单 context 串行检查交互与明暗主题，生成并逐张查看 8 张截图，修正缺陷后重拍。

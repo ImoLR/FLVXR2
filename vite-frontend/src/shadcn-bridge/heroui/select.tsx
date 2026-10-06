@@ -1,5 +1,5 @@
 import * as React from "react";
-import { ChevronDownIcon } from "lucide-react";
+import { CheckIcon, ChevronDownIcon } from "lucide-react";
 
 import { FieldContainer, extractText, type FieldMetaProps } from "./shared";
 
@@ -14,6 +14,8 @@ interface OptionItem {
   disabled?: boolean;
   key: string;
   label: string;
+  description?: React.ReactNode;
+  endContent?: React.ReactNode;
   section?: string;
   sectionDescription?: string;
   sectionTooltip?: string;
@@ -44,11 +46,13 @@ export interface SelectProps<T = unknown> extends FieldMetaProps {
   dropdownPlacement?: "bottom" | "top";
   isSearchable?: boolean;
   searchPlaceholder?: string;
+  listboxVariant?: "grouped";
 }
 
 export interface SelectItemProps {
   children?: React.ReactNode;
   description?: React.ReactNode;
+  endContent?: React.ReactNode;
   textValue?: string;
 }
 
@@ -118,6 +122,8 @@ function flattenOptionsFromNode(
           sectionDescription: section?.description,
           sectionTooltip: section?.tooltip,
           label: props.textValue ?? extractText(props.children) ?? key,
+          description: props.description,
+          endContent: props.endContent,
         });
 
         return;
@@ -143,6 +149,8 @@ function getOptions<T>(
         options.push({
           key,
           label: props.textValue ?? extractText(props.children) ?? key,
+          description: props.description,
+          endContent: props.endContent,
         });
       }
     });
@@ -179,6 +187,24 @@ function textSizeClass(size: SelectProps["size"]) {
   return "text-sm";
 }
 
+function focusGroupedOption(
+  listbox: HTMLDivElement | null,
+  option?: HTMLButtonElement | null,
+) {
+  if (!listbox || !option) return;
+  option.focus({ preventScroll: true });
+  const heading = option.closest('[role="group"]')?.firstElementChild;
+  const headingHeight = heading?.getBoundingClientRect().height ?? 0;
+  const bounds = listbox.getBoundingClientRect();
+  const row = option.getBoundingClientRect();
+
+  if (row.top < bounds.top + headingHeight) {
+    listbox.scrollTop += row.top - bounds.top - headingHeight;
+  } else if (row.bottom > bounds.bottom) {
+    listbox.scrollTop += row.bottom - bounds.bottom;
+  }
+}
+
 export function Select<T>({
   children,
   className,
@@ -201,8 +227,11 @@ export function Select<T>({
   dropdownPlacement = "bottom",
   isSearchable = false,
   searchPlaceholder = "搜索…",
+  listboxVariant,
   "aria-label": ariaLabel,
 }: SelectProps<T>) {
+  const isGrouped = listboxVariant === "grouped" && selectionMode === "single";
+  const showSearch = isSearchable && !isGrouped;
   const generatedId = React.useId();
   const options = React.useMemo(
     () => getOptions(children, items),
@@ -214,6 +243,7 @@ export function Select<T>({
   const [search, setSearch] = React.useState("");
   const searchRef = React.useRef<HTMLInputElement | null>(null);
   const triggerRef = React.useRef<HTMLButtonElement | null>(null);
+  const groupedFocusLast = React.useRef(false);
   const visibleOptions = React.useMemo(() => {
     const keyword = search.trim().toLocaleLowerCase();
 
@@ -227,9 +257,24 @@ export function Select<T>({
   }, [options, search]);
 
   React.useEffect(() => {
-    if (isExpanded && isSearchable) searchRef.current?.focus();
+    if (isExpanded && showSearch) searchRef.current?.focus();
     if (!isExpanded) setSearch("");
-  }, [isExpanded, isSearchable]);
+  }, [isExpanded, showSearch]);
+  React.useEffect(() => {
+    if (!isExpanded || !isGrouped) return;
+    const listbox = listboxRef.current;
+    const buttons = listbox?.querySelectorAll<HTMLButtonElement>(
+      'button[role="option"]:not(:disabled)',
+    );
+    const selectedOption = listbox?.querySelector<HTMLButtonElement>(
+      'button[aria-selected="true"]:not(:disabled)',
+    );
+
+    focusGroupedOption(
+      listbox,
+      selectedOption || buttons?.[groupedFocusLast.current ? buttons.length - 1 : 0],
+    );
+  }, [isExpanded, isGrouped]);
   const selected = React.useMemo(() => toSet(selectedKeys), [selectedKeys]);
   const disabled = React.useMemo(() => toSet(disabledKeys), [disabledKeys]);
 
@@ -261,7 +306,7 @@ export function Select<T>({
 
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
-        if (isSearchable) {
+        if (isSearchable || isGrouped) {
           // Radix dialogs dismiss on document capture; consume this earlier.
           event.preventDefault();
           event.stopPropagation();
@@ -273,7 +318,7 @@ export function Select<T>({
 
     document.addEventListener("mousedown", handlePointerDown);
     document.addEventListener("touchstart", handlePointerDown);
-    if (isSearchable) {
+    if (isSearchable || isGrouped) {
       window.addEventListener("keydown", handleKeyDown, true);
     } else {
       document.addEventListener("keydown", handleKeyDown);
@@ -285,7 +330,7 @@ export function Select<T>({
       window.removeEventListener("keydown", handleKeyDown, true);
       document.removeEventListener("keydown", handleKeyDown);
     };
-  }, [isExpanded, isSearchable]);
+  }, [isExpanded, isSearchable, isGrouped]);
 
   React.useEffect(() => {
     if (isDisabled) {
@@ -373,7 +418,9 @@ export function Select<T>({
       <div
         ref={listboxRef}
         className={cn(
-          "absolute left-0 z-50 w-full space-y-1 overflow-y-auto whitespace-normal rounded-md border border-divider bg-background p-2 shadow-md max-h-56",
+          isGrouped
+            ? "absolute left-0 z-50 w-full max-h-[min(60vh,24rem)] overflow-y-auto overscroll-contain whitespace-normal rounded-md border border-divider bg-background shadow-md"
+            : "absolute left-0 z-50 w-full space-y-1 overflow-y-auto whitespace-normal rounded-md border border-divider bg-background p-2 shadow-md max-h-56",
           placementClasses,
         )}
         id={`${generatedId}-listbox`}
@@ -406,10 +453,16 @@ export function Select<T>({
                 ? buttons.length - 1
                 : index - 1;
 
-          buttons[(next + buttons.length) % buttons.length]?.focus();
+          const nextButton = buttons[(next + buttons.length) % buttons.length];
+
+          if (isGrouped) {
+            focusGroupedOption(listboxRef.current, nextButton);
+          } else {
+            nextButton?.focus();
+          }
         }}
       >
-        {isSearchable && (
+        {showSearch && (
           <input
             ref={searchRef}
             aria-label={searchPlaceholder}
@@ -425,6 +478,83 @@ export function Select<T>({
           >
             暂无可选项
           </div>
+        ) : isGrouped ? (
+          visibleOptions.map((option, index) => {
+            if (index > 0 && visibleOptions[index - 1].section === option.section) {
+              return null;
+            }
+            const sectionEnd = visibleOptions.findIndex(
+              (item, next) => next > index && item.section !== option.section,
+            );
+            const sectionOptions = visibleOptions.slice(
+              index,
+              sectionEnd < 0 ? visibleOptions.length : sectionEnd,
+            );
+            const headingId = `${generatedId}-section-${index}`;
+
+            return (
+              <div
+                key={option.key}
+                aria-labelledby={option.section ? headingId : undefined}
+                className={index > 0 ? "mt-3" : undefined}
+                role="group"
+              >
+                {option.section && (
+                  <div
+                    className="sticky top-0 z-10 border-l-4 border-primary bg-default-100 px-3 py-2 text-sm text-foreground"
+                    title={option.sectionTooltip}
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <span className="min-w-0 break-words font-semibold" id={headingId}>
+                        {option.section}
+                      </span>
+                      <span className="shrink-0 text-xs font-normal leading-5 text-default-500">
+                        {sectionOptions.length} 条
+                      </span>
+                    </div>
+                    {option.sectionDescription && (
+                      <span className="mt-1 block text-xs font-normal text-default-500">
+                        {option.sectionDescription}
+                      </span>
+                    )}
+                  </div>
+                )}
+                {sectionOptions.map((item) => (
+                  <button
+                    key={item.key}
+                    aria-selected={selected.has(item.key)}
+                    className={cn(
+                      "flex w-full items-start gap-2 py-2.5 pl-6 pr-3 text-left text-sm font-normal text-foreground outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary",
+                      selected.has(item.key) && "bg-primary/10",
+                      isDisabled || disabled.has(item.key)
+                        ? "cursor-not-allowed opacity-60"
+                        : "cursor-pointer hover:bg-primary/10",
+                    )}
+                    disabled={isDisabled || disabled.has(item.key)}
+                    role="option"
+                    tabIndex={-1}
+                    type="button"
+                    onClick={() => selectSingleOption(item.key)}
+                  >
+                    <span className="min-w-0 flex-1 break-words">
+                      {item.label}
+                      {item.description && (
+                        <span className="mt-1 block text-xs text-default-500">
+                          {item.description}
+                        </span>
+                      )}
+                    </span>
+                    {item.endContent && (
+                      <span className="shrink-0">{item.endContent}</span>
+                    )}
+                    <span className="h-5 w-4 shrink-0 text-primary">
+                      {selected.has(item.key) && <CheckIcon aria-hidden="true" className="h-5 w-4" />}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            );
+          })
         ) : (
           visibleOptions.map((option, index) => {
             const optionDisabled = isDisabled || disabled.has(option.key);
@@ -502,7 +632,7 @@ export function Select<T>({
       isRequired={isRequired}
       label={label}
     >
-      {selectionMode === "multiple" || isSearchable ? (
+      {selectionMode === "multiple" || isSearchable || isGrouped ? (
         <div ref={containerRef} className={cn("relative w-full", className)}>
           <button
             ref={triggerRef}
@@ -522,6 +652,7 @@ export function Select<T>({
             onKeyDown={(event) => {
               if (event.key === "ArrowDown" || event.key === "ArrowUp") {
                 event.preventDefault();
+                if (isGrouped) groupedFocusLast.current = event.key === "ArrowUp";
                 setIsExpanded(true);
               }
             }}
