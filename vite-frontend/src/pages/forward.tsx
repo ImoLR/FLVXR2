@@ -5518,8 +5518,6 @@ export default function ForwardPage() {
                       errorMessage={errors.tunnelId}
                       isInvalid={!!errors.tunnelId}
                       label="选择隧道"
-                      isSearchable
-                      searchPlaceholder="搜索入口、地区或隧道"
                       placeholder="请选择关联的隧道"
                       selectedKeys={
                         tunnelPickerKey(tunnelPickerSections, form.tunnelId, formTunnelOptionKey)
