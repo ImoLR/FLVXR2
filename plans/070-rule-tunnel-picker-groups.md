@@ -15,8 +15,8 @@
 - [x] 实现 opt-in grouped Select 与规则表单接入；完成静态审阅并提交。
 - [x] 串行运行 `npx tsc --noEmit` 和 `npm run build`，保存日志并提交记录。
 - [x] 生产 SQLite 只读在线备份到任务目录；复用本地 paneld（仅 16365）与 dist 静态服务；浏览器拦截写请求。
-- [ ] 单 Chromium / 单 context 串行检查交互与明暗主题，生成并逐张查看 8 张截图，修正缺陷后重拍。
-- [ ] 发布截图与中文 index.html 到指定 preview 的 picker 子目录，记录验证结果并提交。
+- [x] 单 Chromium / 单 context 串行检查交互与明暗主题，生成并逐张查看 8 张截图，修正缺陷后重拍。
+- [x] 发布截图与中文 index.html 到指定 preview 的 picker 子目录，记录验证结果并提交。
 - [ ] 推送最终分支 HEAD，确认 CI Build Check 绿色（或如实记录 GitHub 阻塞状态）。
 - [ ] 停止本任务启动的进程，写中文 summary.md（变更行号、验证、截图、发布状态、回退、建议）。
 
@@ -49,3 +49,14 @@
 - 修正后再次串行 tsc / build，均通过；日志已更新。
 
 - 最终只读复审发现 grouped 失焦回 trigger 与点击 toggle 竞争，已让 blur 仅处理离开容器，并允许 Shift+Tab 回 trigger 后用箭头重新进入列表。
+
+## 最终截图与验证
+
+- 代码 `172b9ebf`：`tsc --noEmit` 与完整 `npm run build`（含 PWA）通过。一轮构建在生成 PWA 前收到 SIGTERM（143），保留 `logs/build-interrupted.log`；单独重跑完整构建成功，未并行运行浏览器。
+- 8 张指定文件均由最终 dist 生成并逐张查看；桌面 1440×1080，手机 390×844。列表未超出弹窗/视口，手机无横向溢出，选中项正常显示；所有隧道行 computed font-weight=400。
+- 浏览器检查：箭头/Enter/Escape、Escape 保留编辑框、触发器再次点击收起、Tab 离开、返回 trigger 后箭头重入、外部点击关闭、ARIA group/option 与 aria-selected；无搜索输入框、展开后焦点为按钮；原生「转发模式」仍为 SELECT。无 pageerror，无写请求尝试。
+- 当前快照 49 隧道均有地区，且无备注/多地区数据。第 06 张仅在浏览器响应里把隧道 3 的 exitRegions 置空并加演示备注、隧道 4 设为 HK/TW，用于验证提示/第二行/多地区 tooltip 和后缀；第 07 张普通用户 3 仅模拟隧道 3 空地区，确认没有管理员提示。未保存。
+- 用户 3 的 12 条隧道仅有公开 entryGroups 元数据，分组不显示节点名/IP；截图可视内容亦不含节点名/IP。原有隧道名中 10/11/73 三条本身包含节点名，按范围保持原文，已在预览和总结披露。
+- 新建指定 preview 的 picker 目录，发布 index.html + 8 PNG；逐文件 HTTP 200 与 SHA256/内容一致。未更改 preview unit 或其他目录。
+- 日志：`logs/browser-screens.log`、`logs/browser-report.json`、`logs/preview-verification.json`；脚本保留在任务目录，未新增仓库前端测试。
+- 前序代码 CI `989d0b0a`：[37450780523](https://github.com/ImoLR/FLVXR2/actions/runs/37450780523) 全部通过；最新 HEAD 推送后的状态另行确认。
