@@ -2220,6 +2220,9 @@ func (h *Handler) redeployTunnelAndForwards(tunnelID int64, onForwardSync ...fun
 		if err != nil {
 			return err
 		}
+		if err := h.restoreFederationRuntimePorts(state); err != nil {
+			return err
+		}
 		// Finish each downstream node before moving upstream. A failed node must
 		// never prevent the remaining nodes from receiving their configuration.
 		for _, nodeID := range tunnelRuntimeNodeOrder(state) {
@@ -2238,6 +2241,18 @@ func (h *Handler) redeployTunnelAndForwards(tunnelID int64, onForwardSync ...fun
 		for i := range forwards {
 			forward := &forwards[i]
 			if forward.Status != 1 {
+				continue
+			}
+			// WG rules also live on their path exit, which has no forward_port.
+			// Preserve the existing full-path sync; reconnects remain node-scoped.
+			if strings.EqualFold(forward.Mode, "wg_path") {
+				syncErr := h.syncNodeForwardServices(forward)
+				if syncErr != nil {
+					failures = append(failures, syncErr)
+				}
+				for _, report := range onForwardSync {
+					report(forward, syncErr)
+				}
 				continue
 			}
 			ports, portErr := h.listForwardPorts(forward.ID)
@@ -2271,6 +2286,9 @@ func (h *Handler) redeployTunnelAndForwards(tunnelID int64, onForwardSync ...fun
 	}
 	for nodeID, nodeErr := range nodeFailures {
 		h.recordTunnelRuntimeResult(tunnelID, nodeID, nodeErr)
+		if nodeErr != nil {
+			fmt.Printf("redeploy: tunnel %d failed on node %d: %v\n", tunnelID, nodeID, nodeErr)
+		}
 	}
 	return errors.Join(failures...)
 }

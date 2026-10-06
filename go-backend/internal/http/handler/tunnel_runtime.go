@@ -75,7 +75,50 @@ func (h *Handler) redeployTunnelRuntimeOnNodeLocked(tunnelID, nodeID int64) erro
 	if _, ok := state.Nodes[nodeID]; !ok {
 		return errTunnelRuntimeInactive
 	}
+	if err := h.restoreFederationRuntimePorts(state); err != nil {
+		return err
+	}
 	return h.replaceTunnelRuntimeOnNode(state, nodeID)
+}
+
+// A remote reservation may have changed its port during an earlier full
+// redeploy. Reconnects reuse that binding without contacting federation peers.
+func (h *Handler) restoreFederationRuntimePorts(state *tunnelCreateState) error {
+	hasRemote := false
+	for _, node := range state.Nodes {
+		if node != nil && node.IsRemote == 1 {
+			hasRemote = true
+			break
+		}
+	}
+	if !hasRemote {
+		return nil
+	}
+	bindings, err := h.repo.ListActiveFederationTunnelBindingsByTunnel(state.TunnelID)
+	if err != nil {
+		return err
+	}
+	for _, binding := range bindings {
+		node := state.Nodes[binding.NodeID]
+		if node == nil || node.IsRemote != 1 || binding.AllocatedPort <= 0 {
+			continue
+		}
+		if binding.ChainType == 3 && binding.HopInx == 0 {
+			for i := range state.OutNodes {
+				if state.OutNodes[i].NodeID == binding.NodeID {
+					state.OutNodes[i].Port = binding.AllocatedPort
+				}
+			}
+		}
+		if binding.ChainType == 2 && binding.HopInx > 0 && binding.HopInx <= len(state.ChainHops) {
+			for i := range state.ChainHops[binding.HopInx-1] {
+				if state.ChainHops[binding.HopInx-1][i].NodeID == binding.NodeID {
+					state.ChainHops[binding.HopInx-1][i].Port = binding.AllocatedPort
+				}
+			}
+		}
+	}
+	return nil
 }
 
 // replaceTunnelRuntimeOnNode must be called with the tunnel lock held. Build
