@@ -16,8 +16,8 @@
 - [x] 发布注解标签 `3.0.27-fork.20`，确认镜像流水线与所有发布资产。
 - [x] 备份生产 compose、环境、在线 SQLite 与镜像，记录回滚步骤。
 - [x] 升级生产面板，验证健康、指标、列表 API 与重连日志。
-- [ ] 执行任务 P：诊断全部活跃 type-2 隧道，仅重部署符合条件的故障隧道并记录前后结果。
-- [ ] 写中文总结，提交 `docs(plan): mark fork20 rollout complete` 并推送。
+- [x] 执行任务 P：诊断全部活跃 type-2 隧道，仅重部署符合条件的故障隧道并记录前后结果。
+- [x] 写中文总结，提交 `docs(plan): mark fork20 rollout complete` 并推送。
 
 ## 实施及验证记录
 
@@ -49,3 +49,7 @@
 - 生产回滚点：`/opt/flvx-svc/rollback/pre-fork20-20261006T070315Z`，在线 SQLite 单次 backup 后 quick_check=ok。计数：user=12、node=25、tunnel=49、chain_tunnel=163、forward=26、forward_port=26、node_metric=1970473。旧镜像保留为 `local/flvxx-{backend,frontend}:pre-fork20-20261006T070315Z`；compose/.env/ROLLBACK-METADATA.md 完整；正常回滚仅恢复 fork.19 配置镜像，不需还原数据库。
 
 - 生产于 `2026-10-06T07:03:52Z` 启动 fork.20 后端，前端于 `07:03:57Z` 启动；后端 healthy、前端 running，FLUX_VERSION=fork.20。管理 node/tunnel/forward list 均 code=0（25/49/26），node_metric 持续前进。节点重连已输出新的成功统计，未见入口失败导致出口清理的迹象；接下来执行限定诊断修复。
+
+- 任务 P 完成：46 条活跃 type-2 隧道全部诊断，0 个符合“两端在线且所有 TCP 尝试失败”的候选，0 次手动重新部署。原案例 3、62 正常；50/53/55 仅入口24离线；54入口24及出口1离线，到离线出口的超时保持现状。07:07Z 再次逐条复核点名隧道，结果相同。35 条诊断无失败，11 条涉及既有离线节点。
+- 生产最终核验：22 个节点 done 汇总全部 failed=0，未见重部署失败/重试错误；业务表行数与备份相同，指标持续增长。未对生产隧道、节点、规则进行编辑/删除/手动重新部署，未升级任何节点。
+- 中文总结与完整回滚步骤：`/root/flvx-workers/runs/tunnel-redeploy-heal/summary.md`；任务 P 脱敏前后记录：同目录 `production-heal.json`。所有清单完成。
