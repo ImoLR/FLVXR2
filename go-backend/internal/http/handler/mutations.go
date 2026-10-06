@@ -2234,6 +2234,10 @@ func (h *Handler) redeployTunnelAndForwards(tunnelID int64, onForwardSync ...fun
 		}
 	}
 
+	// Forward-only failures are reported through the callback. If tunnel runtime
+	// also failed, retain the aggregate tunnel error so node-edit sync does not
+	// mistake the failed tunnel for a successful tunnel with only failed rules.
+	runtimeFailed := len(failures) > 0
 	forwards, err := h.listForwardsByTunnel(tunnelID)
 	if err != nil {
 		failures = append(failures, err)
@@ -2250,8 +2254,10 @@ func (h *Handler) redeployTunnelAndForwards(tunnelID int64, onForwardSync ...fun
 				if syncErr != nil {
 					failures = append(failures, syncErr)
 				}
-				for _, report := range onForwardSync {
-					report(forward, syncErr)
+				if !runtimeFailed || syncErr == nil {
+					for _, report := range onForwardSync {
+						report(forward, syncErr)
+					}
 				}
 				continue
 			}
@@ -2279,8 +2285,10 @@ func (h *Handler) redeployTunnelAndForwards(tunnelID int64, onForwardSync ...fun
 			if forwardErr != nil {
 				failures = append(failures, forwardErr)
 			}
-			for _, report := range onForwardSync {
-				report(forward, forwardErr)
+			if !runtimeFailed || forwardErr == nil {
+				for _, report := range onForwardSync {
+					report(forward, forwardErr)
+				}
 			}
 		}
 	}
