@@ -10,7 +10,7 @@
 - [x] 核对运行时调用链及 federation 行为，实现节点隔离、隧道互斥和全量尽力重部署。
 - [x] 实现重连去抖/串行、失败队列及退避自愈，增加结果日志。
 - [x] 增加 fake sender 测试并通过新测试的 race 检查。
-- [ ] 串行执行 build、相关包 vet、全量测试，对照基础提交失败集合。
+- [x] 串行执行 build、相关包 vet、全量测试，对照基础提交失败集合。
 - [ ] 完成本地 netns E2E：重连抖动、入口离线重部署/恢复、双出口部分离线。
 - [ ] 推送分支并确认 CI Build Check 通过。
 - [ ] 发布注解标签 `3.0.27-fork.20`，确认镜像流水线与所有发布资产。
@@ -30,3 +30,6 @@
 构建与测试使用 `/root/flvx-workers/tmp-go`，重型任务串行。生产回滚基线为 fork.19；本计划不更改 schema。
 
 - 新增 16 组 `TestTunnelRedeploy` 测试（含子测试）；定向测试通过，最新 `-race` 通过（19.879s），无竞争报告。测试额外覆盖已删除隧道重试移除、迟到离线通知、多入口 gost/nftables 转发过滤及最新 federation 端口只读恢复。
+
+- 本地 Go 1.24.4：`go build -p 1 ./...` 与 `go vet -p 1 ./internal/http/handler` 均通过；当前与 `58d2b972` 均运行 `go test -p 1 ./... -count=1`，失败集合完全一致（19 项，与历史清单一致），新增失败 0。门禁记录：`/root/flvx-workers/runs/tunnel-redeploy-heal/gates.json`。
+- 全量测试揭示 node_sync 原有“转发失败抑制隧道失败”分支与新的尽力部署冲突；已修复为运行时失败时汇总至隧道错误，保留成功规则计数，原有兼容性测试恢复通过。
