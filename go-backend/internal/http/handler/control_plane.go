@@ -254,7 +254,27 @@ func (h *Handler) syncForwardServices(forward *forwardRecord, method string, all
 	return err
 }
 
+// syncForwardServicesOnNode is used by redeploys so a multi-entry forward never
+// sends commands to a different node. Offline warnings must remain retryable.
+func (h *Handler) syncForwardServicesOnNode(forward *forwardRecord, nodeID int64) error {
+	if forward == nil || forward.Status != 1 {
+		return nil
+	}
+	warnings, err := h.syncForwardServicesWithWarningsOnNode(forward, "UpdateService", true, nodeID)
+	if err != nil {
+		return err
+	}
+	if len(warnings) > 0 {
+		return errors.New(strings.Join(warnings, "；"))
+	}
+	return nil
+}
+
 func (h *Handler) syncForwardServicesWithWarnings(forward *forwardRecord, method string, allowFallbackAdd bool) ([]string, error) {
+	return h.syncForwardServicesWithWarningsOnNode(forward, method, allowFallbackAdd, 0)
+}
+
+func (h *Handler) syncForwardServicesWithWarningsOnNode(forward *forwardRecord, method string, allowFallbackAdd bool, nodeID int64) ([]string, error) {
 	if h == nil || forward == nil {
 		return nil, errors.New("invalid forward sync context")
 	}
@@ -272,9 +292,21 @@ func (h *Handler) syncForwardServicesWithWarnings(forward *forwardRecord, method
 	if len(ports) == 0 {
 		return nil, errors.New("转发入口端口不存在")
 	}
+	if nodeID > 0 {
+		filtered := make([]forwardPortRecord, 0, len(ports))
+		for _, port := range ports {
+			if port.NodeID == nodeID {
+				filtered = append(filtered, port)
+			}
+		}
+		ports = filtered
+		if len(ports) == 0 || forward.Status != 1 {
+			return nil, nil
+		}
+	}
 
 	if strings.EqualFold(forward.Mode, "wg_path") {
-		return nil, h.syncWGForwardRule(forward, ports, method)
+		return nil, h.syncWGForwardRuleOnNode(forward, ports, method, nodeID)
 	}
 
 	tunnel, err := h.getTunnelRecord(forward.TunnelID)
@@ -321,7 +353,7 @@ func (h *Handler) syncForwardServicesWithWarnings(forward *forwardRecord, method
 	// nftables mode branch
 	if strings.EqualFold(forward.Mode, "nftables") {
 		fmt.Printf("[nft.debug] syncForwardServicesWithWarnings: nft mode branch, forwardID=%d\n", forward.ID)
-		return nil, h.syncNftablesRules(forward, tunnel, ports, userTunnelID, speed)
+		return nil, h.syncNftablesRules(forward, tunnel, ports, userTunnelID, speed, nodeID > 0)
 	}
 	if h.quotaGroups != nil {
 		nodeIDs := make([]int64, 0, len(ports))
@@ -739,7 +771,9 @@ func (h *Handler) sendNodeCommandWithTimeout(nodeID int64, commandType string, d
 	}
 
 	node, nodeErr := h.getNodeRecord(nodeID)
-	if nodeErr == nil && node != nil && node.IsRemote == 1 {
+	if h.nodeCommandSender != nil {
+		result, err = h.nodeCommandSender(nodeID, commandType, data, timeout)
+	} else if nodeErr == nil && node != nil && node.IsRemote == 1 {
 		result, err = h.sendRemoteNodeCommandWithTimeout(node, commandType, data, timeout)
 	} else {
 		result, err = h.wsServer.SendCommand(nodeID, commandType, data, timeout)
@@ -2288,6 +2322,10 @@ type WGForwardRulePlan struct {
 }
 
 func (h *Handler) syncWGForwardRule(forward *forwardRecord, ports []forwardPortRecord, method string) error {
+	return h.syncWGForwardRuleOnNode(forward, ports, method, 0)
+}
+
+func (h *Handler) syncWGForwardRuleOnNode(forward *forwardRecord, ports []forwardPortRecord, method string, onlyNodeID int64) error {
 	if h == nil || forward == nil {
 		return errors.New("invalid WG forward sync context")
 	}
@@ -2339,6 +2377,9 @@ func (h *Handler) syncWGForwardRule(forward *forwardRecord, ports []forwardPortR
 		targetNodes = append(targetNodes, exitNodeID)
 	}
 	for _, nodeID := range targetNodes {
+		if onlyNodeID > 0 && nodeID != onlyNodeID {
+			continue
+		}
 		node, err := h.getNodeRecord(nodeID)
 		if err != nil {
 			return err
@@ -2350,7 +2391,7 @@ func (h *Handler) syncWGForwardRule(forward *forwardRecord, ports []forwardPortR
 			nodePlan.Role = "exit"
 		}
 		if _, err := h.sendNodeCommand(node.ID, commandType, nodePlan, true, false); err != nil {
-			if isNodeOfflineOrTimeoutError(err) {
+			if onlyNodeID == 0 && isNodeOfflineOrTimeoutError(err) {
 				continue
 			}
 			return fmt.Errorf("节点 %s WG 规则下发失败: %w", node.Name, err)
@@ -2360,7 +2401,7 @@ func (h *Handler) syncWGForwardRule(forward *forwardRecord, ports []forwardPortR
 }
 
 // syncNftablesRules sync nftables forwarding rules to nodes
-func (h *Handler) syncNftablesRules(forward *forwardRecord, tunnel *tunnelRecord, ports []forwardPortRecord, userTunnelID int64, speedLimit *int) error {
+func (h *Handler) syncNftablesRules(forward *forwardRecord, tunnel *tunnelRecord, ports []forwardPortRecord, userTunnelID int64, speedLimit *int, reportOffline ...bool) error {
 	if h == nil || forward == nil {
 		return errors.New("invalid nftables sync context")
 	}
@@ -2443,7 +2484,7 @@ func (h *Handler) syncNftablesRules(forward *forwardRecord, tunnel *tunnelRecord
 				}
 			} else {
 				if _, err := h.sendNodeCommand(node.ID, "AddNftablesRules", payload, true, false); err != nil {
-					if isNodeOfflineOrTimeoutError(err) {
+					if isNodeOfflineOrTimeoutError(err) && (len(reportOffline) == 0 || !reportOffline[0]) {
 						fmt.Printf("[nft.debug] node %s offline/timeout, skipping\n", node.Name)
 					} else {
 						mu.Lock()

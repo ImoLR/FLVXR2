@@ -47,6 +47,13 @@ type Handler struct {
 
 	systemUpgradeMu sync.Mutex
 
+	tunnelRuntimeLocks sync.Map
+	nodeCommandSender  func(int64, string, interface{}, time.Duration) (ws.CommandResult, error)
+	nodeRedeployMu     sync.Mutex
+	nodeRedeploy       *nodeRedeployScheduler
+	redeployRetryMu    sync.Mutex
+	redeployPending    map[tunnelNodeKey]*tunnelNodeRetry
+
 	qualityProber    *tunnelQualityProber
 	nodeGroupHandler *NodeGroupHandler
 	nodeTagHandler   *NodeTagHandler
@@ -139,9 +146,7 @@ func New(repo *repo.Repository, jwtSecret string, fluxVersion string) *Handler {
 		return err
 	})
 	h.wsServer.SetNodeOnlineHook(h.onNodeOnline)
-	h.wsServer.SetNodeOfflineHook(func(nodeID int64) {
-		h.quotaGroups.NodeOffline(nodeID)
-	})
+	h.wsServer.SetNodeOfflineHook(h.onNodeOffline)
 	h.wsServer.SetNodeMetricHook(func(nodeID int64, info ws.SystemInfo) {
 		metricInfo := metrics.SystemInfo{
 			Uptime:                 info.Uptime,

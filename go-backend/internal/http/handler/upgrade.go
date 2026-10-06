@@ -2,6 +2,7 @@ package handler
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -316,9 +317,7 @@ func (h *Handler) listReleases(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) onNodeOnline(nodeID int64) {
-	// 节点重新上线时自动下发隧道和转发规则
-	// 适用于：续费后上线、网络恢复、节点重启、升级后重连
-	h.redeployNodeRuntime(nodeID)
+	h.scheduleNodeRedeploy(nodeID)
 	if h.quotaGroups != nil {
 		h.quotaGroups.NodeOnline(nodeID)
 	}
@@ -335,27 +334,61 @@ func (h *Handler) redeployNodeRuntime(nodeID int64) {
 		fmt.Printf("redeploy: list forwards for node %d failed: %v\n", nodeID, err)
 		return
 	}
-
-	tunnelFailed := make(map[int64]struct{})
+	forwardsByTunnel := make(map[int64][]int64)
+	seen := make(map[int64]bool)
 	for _, tunnelID := range tunnelIDs {
-		if err := h.redeployTunnelAndForwards(tunnelID); err != nil {
-			tunnelFailed[tunnelID] = struct{}{}
-			fmt.Printf("redeploy: tunnel %d failed on node %d: %v\n", tunnelID, nodeID, err)
-		}
+		seen[tunnelID] = true
 	}
-
 	for _, forwardID := range forwardIDs {
 		forward, getErr := h.getForwardRecord(forwardID)
 		if getErr != nil || forward == nil {
 			continue
 		}
-		if _, skipped := tunnelFailed[forward.TunnelID]; skipped {
-			continue
-		}
-		if err := h.syncForwardServices(forward, "UpdateService", true); err != nil {
-			fmt.Printf("redeploy: forward %d failed on node %d: %v\n", forwardID, nodeID, err)
+		forwardsByTunnel[forward.TunnelID] = append(forwardsByTunnel[forward.TunnelID], forwardID)
+		if !seen[forward.TunnelID] {
+			seen[forward.TunnelID] = true
+			tunnelIDs = append(tunnelIDs, forward.TunnelID)
 		}
 	}
+	tunnelsOK, tunnelsFailed, forwardsOK, forwardsFailed := 0, 0, 0, 0
+	for _, tunnelID := range tunnelIDs {
+		func() {
+			unlock := h.lockTunnelRuntime(tunnelID)
+			defer unlock()
+			tunnel, getErr := h.getTunnelRecord(tunnelID)
+			if getErr != nil || tunnel == nil || tunnel.Status != 1 {
+				return
+			}
+			var pairErr error
+			if tunnel.Type == 2 {
+				pairErr = h.redeployTunnelRuntimeOnNodeLocked(tunnelID, nodeID)
+				if errors.Is(pairErr, errTunnelRuntimeInactive) {
+					return
+				}
+				if pairErr != nil {
+					tunnelsFailed++
+					fmt.Printf("redeploy: tunnel %d failed on node %d: %v\n", tunnelID, nodeID, pairErr)
+				} else {
+					tunnelsOK++
+				}
+			}
+			for _, forwardID := range forwardsByTunnel[tunnelID] {
+				forward, getErr := h.getForwardRecord(forwardID)
+				if getErr != nil || forward == nil || forward.Status != 1 || forward.TunnelID != tunnelID {
+					continue
+				}
+				if syncErr := h.syncForwardServicesOnNode(forward, nodeID); syncErr != nil {
+					pairErr = syncErr
+					forwardsFailed++
+					fmt.Printf("redeploy: forward %d failed on node %d: %v\n", forwardID, nodeID, syncErr)
+				} else {
+					forwardsOK++
+				}
+			}
+			h.recordTunnelRuntimeResult(tunnelID, nodeID, pairErr)
+		}()
+	}
+	fmt.Printf("redeploy: node %d done: tunnels ok=%d failed=%d, forwards ok=%d failed=%d\n", nodeID, tunnelsOK, tunnelsFailed, forwardsOK, forwardsFailed)
 }
 
 type PanelUpgradeCheckResponse struct {
