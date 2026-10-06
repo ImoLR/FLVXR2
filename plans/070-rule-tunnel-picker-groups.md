@@ -73,3 +73,16 @@
 - 包含全部最终代码和截图验收记录的 `a7847b2f` 已推送，CI Build Check [37451697319](https://github.com/ImoLR/FLVXR2/actions/runs/37451697319) 四项全部通过。
 - 本完成记录仅更新 plan；推送该记录后仍会等待新的最终 HEAD CI，具体 SHA/run id 记录在任务目录 summary.md 与 logs/ci-final-head.json，不再为记录 run id 改变 HEAD。
 - 全部计划任务完成；无 release 或生产部署，等待用户查看截图。
+
+## 用户批准后的 fork.22 发布与生产部署
+
+用户已查看截图并批准「可以，就这么发布」。以下为独立的 release-only 执行记录；不修改代码、不升级节点、不修改生产业务数据。
+
+- [x] 确认发布代码 `17ed05fe6b9e58e93f04008199cb7e0e1ee17bd5` 的 CI Build Check [37451925796](https://github.com/ImoLR/FLVXR2/actions/runs/37451925796) 成功。
+- [ ] 在批准代码上创建并推送 annotated tag `3.0.27-fork.22`；等待镜像构建，核验正式 Latest release、资产集合、compose、安装脚本与 gost SHA256。
+- [ ] 备份生产 compose / .env、SQLite 在线一致性快照及行数，保留旧镜像本地标签并写回滚说明。
+- [ ] 安装 fork.22 v6 compose、更新 `FLUX_VERSION`，仅拉取并重建面板 backend / frontend。
+- [ ] 验证容器健康、日志、在线节点指标推进、规则列表 API，以及线上前端新 hash / grouped listbox / 无旧搜索提示。
+- [ ] 提交 `docs(plan): mark fork22 rollout complete` 并推送分支，写中文发布总结。
+
+发布证据与最终总结：`/root/flvx-workers/runs/fork22-release/`。
