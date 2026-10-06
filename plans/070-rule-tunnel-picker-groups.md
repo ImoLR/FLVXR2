@@ -81,7 +81,7 @@
 - [x] 确认发布代码 `17ed05fe6b9e58e93f04008199cb7e0e1ee17bd5` 的 CI Build Check [37451925796](https://github.com/ImoLR/FLVXR2/actions/runs/37451925796) 成功。
 - [x] 在批准代码上创建并推送 annotated tag `3.0.27-fork.22`；等待镜像构建，核验正式 Latest release、资产集合、compose、安装脚本与 gost SHA256。
 - [x] 备份生产 compose / .env、SQLite 在线一致性快照及行数，保留旧镜像本地标签并写回滚说明。
-- [ ] 安装 fork.22 v6 compose、更新 `FLUX_VERSION`，仅拉取并重建面板 backend / frontend。
+- [x] 安装 fork.22 v6 compose、更新 `FLUX_VERSION`，仅拉取并重建面板 backend / frontend。
 - [ ] 验证容器健康、日志、在线节点指标推进、规则列表 API，以及线上前端新 hash / grouped listbox / 无旧搜索提示。
 - [ ] 提交 `docs(plan): mark fork22 rollout complete` 并推送分支，写中文发布总结。
 
@@ -90,3 +90,5 @@
 - 2026-10-06 11:44:41 UTC：正式 [3.0.27-fork.22 Release](https://github.com/ImoLR/FLVXR2/releases/tag/3.0.27-fork.22) 发布并确认为 Latest / 非 prerelease；镜像流水线 [37456500636](https://github.com/ImoLR/FLVXR2/actions/runs/37456500636) 成功。10 项资产名称与 fork.21 完全一致；两个 compose 镜像、两个脚本的 PINNED_VERSION / REPO、amd64 / arm64 gost SHA256 均通过。
 
 - 生产回滚点：`/opt/flvx-svc/rollback/pre-fork22-20261006T114549Z/`，已保留 compose / .env、`gost.db.validated`、`backup-verification.json`、`ROLLBACK-METADATA.md` 与固定本地镜像的 override。SQLite 一次在线备份 `quick_check=ok`；25 节点 / 49 隧道 / 26 规则 / 26 forward_port / 12 用户 / 1,937,314 条 node_metric。旧镜像已标记 `local/flvxx-{backend,frontend}:pre-fork22-20261006T114549Z`，ID 与运行中的 fork.21 一致。
+
+- 2026-10-06T11:46:34Z：安装已核验的 v6 compose（仅两个镜像标签改变）并更新 FLUX_VERSION；`docker compose pull backend frontend` 与 `docker compose up -d backend frontend` 成功，backend 已 healthy，frontend 已启动。仅重建这两个面板容器。
