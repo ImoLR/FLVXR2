@@ -83,7 +83,7 @@
 - [x] 备份生产 compose / .env、SQLite 在线一致性快照及行数，保留旧镜像本地标签并写回滚说明。
 - [x] 安装 fork.22 v6 compose、更新 `FLUX_VERSION`，仅拉取并重建面板 backend / frontend。
 - [x] 验证容器健康、日志、在线节点指标推进、规则列表 API，以及线上前端新 hash / grouped listbox / 无旧搜索提示。
-- [ ] 提交 `docs(plan): mark fork22 rollout complete` 并推送分支，写中文发布总结。
+- [x] 提交 `docs(plan): mark fork22 rollout complete` 并推送分支，写中文发布总结。
 
 发布证据与最终总结：`/root/flvx-workers/runs/fork22-release/`。
 
@@ -97,3 +97,5 @@
 - `POST http://127.0.0.1:63666/api/v1/forward/list` 使用既定管理员 raw JWT：HTTP 200、code=0、26 条规则。
 - 线上 index 资源：JS `index-QPV1Xk1M.js` → `index-DXUcSvKt.js`，CSS `index-CukxkCo0.css` → `index-Cedp82yc.css`。通过 HTTP 下载该 index 实际引用的 JS，确认 `listboxVariant="grouped"` 对应判定与 opt-in、sticky 标题、`sectionOptions.length` +「条」均存在；所有线上 JS 均不含「搜索入口、地区或隧道」。新主包 SHA256 `15ee3e97dbe294fc19197e7532386e33e7365011a5fd0093cfe880d4f0f9ebe5`。
 - 验证命令首轮遇到容器 BusyBox grep 不支持 `--include`，仅调整任务目录内验证脚本为文件 glob 后完整重跑通过；无产品代码变更。未升级节点、未执行生产业务数据修改，未操作其他栈或 memory。
+
+- 发布与生产验收全部完成；中文总结已写入 `/root/flvx-workers/runs/fork22-release/summary.md`（发布/CI、备份及回滚命令、验证结果、操作影响、用户检查项和未实施建议）。最终提交及远程 SHA 以该总结的交付记录为准。
