@@ -668,7 +668,7 @@ export function Select<T>({
           ref={containerRef}
           className={cn("relative w-full", className)}
           onBlur={isGrouped ? (event) => {
-            if (event.relatedTarget === triggerRef.current || !event.currentTarget.contains(event.relatedTarget)) {
+            if (!event.currentTarget.contains(event.relatedTarget)) {
               setIsExpanded(false);
             }
           } : undefined}
@@ -691,7 +691,19 @@ export function Select<T>({
             onKeyDown={(event) => {
               if (event.key === "ArrowDown" || event.key === "ArrowUp") {
                 event.preventDefault();
-                if (isGrouped) groupedFocusLast.current = event.key === "ArrowUp";
+                if (isGrouped) {
+                  groupedFocusLast.current = event.key === "ArrowUp";
+                  if (isExpanded) {
+                    const buttons = listboxRef.current?.querySelectorAll<HTMLButtonElement>(
+                      'button[role="option"]:not(:disabled)',
+                    );
+
+                    focusGroupedOption(
+                      listboxRef.current,
+                      buttons?.[groupedFocusLast.current ? buttons.length - 1 : 0],
+                    );
+                  }
+                }
                 setIsExpanded(true);
               }
             }}

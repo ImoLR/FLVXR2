@@ -45,5 +45,7 @@
 
 - 已查看首轮桌面和 390px 截图：发现桌面列表被 Modal 下边界裁切，长名称在半列表单宽度内换行过多。
 - 仅 grouped 列表按 dialog / viewport 内可用高度收缩；仅规则表单通过 `classNames.listbox` 让桌面下拉跨越两列。触发器和其他字段布局不变。
-- 展开时将已选项所属分组带入视野；Tab 离开或返回触发器时关闭 grouped 列表。
+- 展开时将已选项所属分组带入视野；Tab 离开选择器时关闭 grouped 列表。
 - 修正后再次串行 tsc / build，均通过；日志已更新。
+
+- 最终只读复审发现 grouped 失焦回 trigger 与点击 toggle 竞争，已让 blur 仅处理离开容器，并允许 Shift+Tab 回 trigger 后用箭头重新进入列表。
