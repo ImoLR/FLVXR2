@@ -17,7 +17,7 @@
 - [x] 生产 SQLite 只读在线备份到任务目录；复用本地 paneld（仅 16365）与 dist 静态服务；浏览器拦截写请求。
 - [x] 单 Chromium / 单 context 串行检查交互与明暗主题，生成并逐张查看 8 张截图，修正缺陷后重拍。
 - [x] 发布截图与中文 index.html 到指定 preview 的 picker 子目录，记录验证结果并提交。
-- [ ] 推送最终分支 HEAD，确认 CI Build Check 绿色（或如实记录 GitHub 阻塞状态）。
+- [x] 推送最终分支 HEAD，确认 CI Build Check 绿色（或如实记录 GitHub 阻塞状态）。
 - [x] 停止本任务启动的进程，写中文 summary.md（变更行号、验证、截图、发布状态、回退、建议）。
 
 ## 证据位置
@@ -67,3 +67,9 @@
 - 停机后 node/tunnel/forward/forward_port/user 全部行与原始快照一致。
 - 中文 summary.md 已写到任务目录；最终 HEAD CI 结果将在推送完成后补入该外部总结，避免为了记录 run id 反复改变 HEAD。
 - 无 tag/release/生产变更；仅新增 picker 预览目录，未覆盖原有目录内容。
+
+## 分支 CI
+
+- 包含全部最终代码和截图验收记录的 `a7847b2f` 已推送，CI Build Check [37451697319](https://github.com/ImoLR/FLVXR2/actions/runs/37451697319) 四项全部通过。
+- 本完成记录仅更新 plan；推送该记录后仍会等待新的最终 HEAD CI，具体 SHA/run id 记录在任务目录 summary.md 与 logs/ci-final-head.json，不再为记录 run id 改变 HEAD。
+- 全部计划任务完成；无 release 或生产部署，等待用户查看截图。
