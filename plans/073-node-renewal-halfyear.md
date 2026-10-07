@@ -9,8 +9,8 @@
 - [x] 生产数据库在线备份到运行目录；本地副本验证半年提醒、节点显示、编辑预选及保存不变；桌面/手机检查四页并截图。
 - [x] 推送分支，CI Build Check 通过；创建注解标签 fork.25，验证镜像构建及全部 release 资产。
 - [x] 建立生产回滚点，安装 v6 compose，升级 backend/frontend。
-- [ ] 生产只读 API、指标、资源及桌面/手机浏览器验证。
-- [ ] 写中文总结，提交 `docs(plan): mark fork25 rollout complete` 并推送。
+- [x] 生产只读 API、指标、资源及桌面/手机浏览器验证。
+- [x] 写中文总结，提交 `docs(plan): mark fork25 rollout complete` 并推送。
 
 ## 全仓大小写检索结果
 
@@ -37,3 +37,8 @@
 - CI Build Check [37643873263](https://github.com/ImoLR/FLVXR2/actions/runs/37643873263) 四项通过；注解标签 `3.0.27-fork.25` 指向 `b37b72fe`。Images [37644121003](https://github.com/ImoLR/FLVXR2/actions/runs/37644121003) 成功；Release 2026-10-07 15:38:37 UTC 发布，Latest、非预发布，10 个资产与 fork.24 同名，全部 digest、两个安装脚本 PINNED_VERSION/REPO、v4/v6 compose 镜像引用、两架构 gost SHA256 及 offline zip 内二进制均通过；远端两镜像均有 amd64/arm64。
 
 - 生产回滚点 `/opt/flvx-svc/rollback/pre-fork25-20261007T153231Z`：compose/.env、online SQLite 366,944,256 B（quick_check=ok，62 表 counts）、旧镜像 local tags、ROLLBACK-METADATA.md 全部保留。已安装验证后的 v6 compose，FLUX_VERSION=fork.25，pull/up backend/frontend 成功，backend healthy。未执行生产 DB 修改、迁移或代理升级。
+
+- 生产 15:40:20/26 UTC 完成 backend/frontend 重建：backend healthy、frontend HTTP/UI 正常；25 个节点有重启后新指标。API 节点/隧道/规则返回 28/51/27 条。节点 31 周期 halfyear、expiryTime=1793289600000 与升级前完全相同。
+- 线上 JS `/assets/index-D9eLyLfO.js` 为 2,755,211 B（PWA 余量 2,487,669 B），已压缩并确认共享半年 normalizer 和 fork.25 版本。生产 1440/390 只读浏览器加载无错误，JWT 仅在内存中，写路由按 allowlist 拦截。
+- 观察到本任务之外的并发变更：节点 50 `vmsilo 沪港` 于 15:34:11 UTC 创建，早于 15:40 升级，故节点数从备份时 27 增至 28；未触碰此节点。
+- 最终中文总结：`/root/flvx-workers/runs/renewal-halfyear/summary.md`；截图、日志、校验结果均在同一运行目录。未提交不属于本任务的 plans/048。
