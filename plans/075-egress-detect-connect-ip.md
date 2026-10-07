@@ -41,3 +41,8 @@
 - 本地隔离 namespace/paneld:16365：合成节点 901 经 AES WebSocket 每 250 ms 上报 dual；SQLite 触发器统计探测字段仅写 1 次，入口 IPv6-only 自动下发下一跳 IPv4。单中继自定义 IPv4、单出口自定义 IPv6 均进入真实 AddChains 与普通诊断。浏览器捕获保存 payload 后回放本地 API，数据库/list/诊断回读一致。
 - 1440/390 节点、单中继、单出口表单共 6 张首轮截图 `screens/seed-*.png`；自动项显示检测族与时间，无错误/遗漏 API/横向溢出，已检测 IPv4 的上游不再显示缺失 IPv4 出站提示。Chrome 启动守卫记录可用 932.8 MiB、无其他 Chrome，paneld 已停止。
 - 最新源码 CI Build Check [37685660990](https://github.com/ImoLR/FLVXR2/actions/runs/37685660990) 四项成功。
+
+- 保存后的真实 API 响应再次在 1440/390 回读通过，新增 `screens/save-*.png` 6 张；Chrome 前可用 931.4 MiB，无其他 Chrome，无页面错误/横向溢出。
+- 注解标签 `3.0.27-fork.27` 指向 `81f6a158`；镜像发布 run [37686280668](https://github.com/ImoLR/FLVXR2/actions/runs/37686280668)，标签提交 CI run 37686258952。
+
+- 标签提交 CI [37686258952](https://github.com/ImoLR/FLVXR2/actions/runs/37686258952) 四项成功。生产回滚点 `/opt/flvx-svc/rollback/pre-fork27-20261007T210043Z`：在线 DB 366,944,256 B、quick_check=ok、62 表计数、compose/.env、fork.26 镜像本地标签。按规则执行 prune-backups.sh，仅保留 pre-fork27/pre-fork26，删除 pre-fork25 备份及不再保留的 fork.24 镜像。额外保存已校验 SHA256 的 fork.9 amd64 agent 回滚二进制。
