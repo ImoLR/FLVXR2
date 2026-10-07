@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -24,8 +25,11 @@ func TestTunnelPathLatencyDirectReusesLegacyPing(t *testing.T) {
 	e.exec(`UPDATE tunnel SET type = 2 WHERE id = 1`)
 	e.exec(`INSERT INTO chain_tunnel(tunnel_id, chain_type, node_id, inx, port) VALUES (1, '1', 1, 0, 1001), (1, '3', 2, 0, 1002)`)
 	calls := map[tunnelQualityPingKey]int{}
+	var mu sync.Mutex
 	round := newTunnelQualityProbeRound(func(id int64, ip string, port int, _ diagnosisExecOptions) (float64, float64, error) {
+		mu.Lock()
 		calls[tunnelQualityPingKey{id, ip, port}]++
+		mu.Unlock()
 		if id == 1 {
 			return 12.5, 3, nil
 		}
@@ -33,7 +37,9 @@ func TestTunnelPathLatencyDirectReusesLegacyPing(t *testing.T) {
 	})
 	p := newTunnelQualityProber(e.h)
 	defer p.Stop()
-	p.probeTunnel(1, round)
+	plan := p.planTunnel(1, round, e.h.getNodeRecord)
+	round.run(context.Background())
+	p.storeResult(plan.snapshot(round))
 	snapshot := p.GetAll()[0]
 	if snapshot.PathStatus != "ok" || snapshot.PathLatency != 12.5 || snapshot.EntryToExitLatency != 12.5 || snapshot.ExitToBingLatency != 99 || math.Abs(snapshot.PathLoss-3) > 0.0001 {
 		t.Fatalf("unexpected snapshot: %+v", snapshot)
@@ -109,7 +115,7 @@ func TestTunnelPathLatencyTimeout(t *testing.T) {
 	}
 }
 
-func TestTunnelPathLatencyFirstOnlinePerGroup(t *testing.T) {
+func TestTunnelPathLatencyOfflineMemberSkipped(t *testing.T) {
 	rows, nodes := pathLatencyFixture()
 	nodes[2].Status = 0
 	// First hop has an offline first node followed by two online nodes.
@@ -121,9 +127,98 @@ func TestTunnelPathLatencyFirstOnlinePerGroup(t *testing.T) {
 		return 10, 0, nil
 	}
 	_, _, status := probeTunnelPath(rows, "", lookup, ping, diagnosisExecOptions{})
-	want := []tunnelQualityPingKey{{1, "192.0.2.5", 3005}, {5, "192.0.2.3", 3003}, {3, "192.0.2.4", 3004}}
+	want := []tunnelQualityPingKey{{1, "192.0.2.5", 3005}, {1, "192.0.2.3", 3003}, {5, "192.0.2.3", 3003}, {3, "192.0.2.3", 3003}, {3, "192.0.2.4", 3004}}
 	if status != "ok" || !reflect.DeepEqual(calls, want) {
 		t.Fatalf("%s %v", status, calls)
+	}
+}
+
+func TestTunnelPathLatencyWholeGroupOffline(t *testing.T) {
+	rows, nodes := pathLatencyFixture()
+	rows = append(rows, chainNodeRecord{ChainType: 2, Inx: 1, NodeID: 5, Port: 3005})
+	nodes[2].Status, nodes[5].Status = 0, 0
+	ping := func(id int64, ip string, _ int, _ diagnosisExecOptions) (float64, float64, error) {
+		if id == 2 || id == 5 || ip == "192.0.2.2" || ip == "192.0.2.5" {
+			t.Fatal("offline endpoint was probed")
+		}
+		return 10, 0, nil
+	}
+	lat, loss, status := probeTunnelPath(rows, "", func(id int64) (*nodeRecord, error) { return nodes[id], nil }, ping, diagnosisExecOptions{})
+	if lat != 0 || loss != 100 || status != "timeout" {
+		t.Fatalf("%v %v %s", lat, loss, status)
+	}
+}
+
+func TestTunnelPathLatencyMinimumCompletePath(t *testing.T) {
+	rows, nodes := pathLatencyFixture()
+	nodes[6] = &nodeRecord{ID: 6, Status: 1, ServerIP: "192.0.2.6"}
+	rows = append(rows, chainNodeRecord{ChainType: 2, Inx: 1, NodeID: 5, Port: 3005}, chainNodeRecord{ChainType: 2, Inx: 2, NodeID: 6, Port: 3006})
+	type sample struct{ latency, loss float64 }
+	samples := map[tunnelQualityPingKey]sample{
+		{1, "192.0.2.2", 3002}: {1, 0},
+		{1, "192.0.2.5", 3005}: {9, 10},
+		{2, "192.0.2.3", 3003}: {20, 0},
+		{5, "192.0.2.3", 3003}: {2, 0},
+		{5, "192.0.2.6", 3006}: {3, 20},
+		{3, "192.0.2.4", 3004}: {20, 0},
+		{6, "192.0.2.4", 3004}: {1, 30},
+	}
+	calls := 0
+	ping := func(id int64, ip string, port int, _ diagnosisExecOptions) (float64, float64, error) {
+		calls++
+		value, ok := samples[tunnelQualityPingKey{id, ip, port}]
+		if !ok {
+			return 0, 100, errors.New("failed segment")
+		}
+		return value.latency, value.loss, nil
+	}
+	lat, loss, status := probeTunnelPath(rows, "", func(id int64) (*nodeRecord, error) { return nodes[id], nil }, ping, diagnosisExecOptions{})
+	// Independent layer minima incorrectly produce 1+2+1=4. The real minimum
+	// is entry→5→6→exit (9+3+1), carrying this path's 10%,20%,30% loss.
+	if status != "ok" || lat != 13 || math.Abs(loss-49.6) > 0.0001 || calls != 8 {
+		t.Fatalf("latency=%v loss=%v status=%s calls=%d", lat, loss, status, calls)
+	}
+}
+
+func TestTunnelPathLatencyMultipleEntriesAndExits(t *testing.T) {
+	rows := []chainNodeRecord{
+		{ChainType: 1, NodeID: 1}, {ChainType: 1, NodeID: 2},
+		{ChainType: 2, Inx: 1, NodeID: 3, Port: 3003}, {ChainType: 2, Inx: 1, NodeID: 4, Port: 3004},
+		{ChainType: 3, NodeID: 5, Port: 3005}, {ChainType: 3, NodeID: 6, Port: 3006},
+	}
+	lookup := func(id int64) (*nodeRecord, error) {
+		return &nodeRecord{ID: id, Status: 1, ServerIP: fmt.Sprintf("192.0.2.%d", id)}, nil
+	}
+	calls := 0
+	ping := func(id int64, ip string, _ int, _ diagnosisExecOptions) (float64, float64, error) {
+		calls++
+		if id == 2 && ip == "192.0.2.4" {
+			return 2, 0, nil
+		}
+		if id == 4 && ip == "192.0.2.6" {
+			return 3, 0, nil
+		}
+		return 10, 0, nil
+	}
+	lat, _, status := probeTunnelPath(rows, "", lookup, ping, diagnosisExecOptions{})
+	if status != "ok" || lat != 5 || calls != 8 {
+		t.Fatalf("latency=%v status=%s calls=%d", lat, status, calls)
+	}
+}
+
+func TestTunnelPathLatencyUnreachableLayerStillSamplesPairs(t *testing.T) {
+	rows, nodes := pathLatencyFixture()
+	calls := 0
+	ping := func(id int64, _ string, _ int, _ diagnosisExecOptions) (float64, float64, error) {
+		calls++
+		if id == 1 {
+			return 0, 100, errors.New("failed")
+		}
+		return 10, 0, nil
+	}
+	lat, loss, status := probeTunnelPath(rows, "", func(id int64) (*nodeRecord, error) { return nodes[id], nil }, ping, diagnosisExecOptions{})
+	if status != "timeout" || lat != 0 || loss != 100 || calls != 3 {
+		t.Fatalf("latency=%v loss=%v status=%s calls=%d", lat, loss, status, calls)
 	}
 }
 

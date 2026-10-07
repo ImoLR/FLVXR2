@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"errors"
 	"log"
 	"sync"
 	"time"
@@ -144,150 +145,189 @@ func (p *tunnelQualityProber) probeAll() {
 		}
 	}()
 	round := newTunnelQualityProbeRound(p.tcpPingNode)
-
-	// Probe tunnels concurrently with a worker limit
-	// (mirrors health.Checker worker pool pattern)
-	const maxWorkers = 4
-	sem := make(chan struct{}, maxWorkers)
-	var wg sync.WaitGroup
-	defer wg.Wait()
-
+	round.connected = h.wsServer.IsNodeConnected
+	lookup := p.roundNodeLookup()
+	plans := make([]tunnelQualityTunnelPlan, 0, len(tunnelIDs))
 	for _, tunnelID := range tunnelIDs {
-		select {
-		case <-p.ctx.Done():
+		if p.ctx.Err() != nil {
 			return
-		default:
 		}
+		plans = append(plans, p.planTunnel(tunnelID, round, lookup))
+	}
 
-		wg.Add(1)
-		sem <- struct{}{}
-		go func(tid int64) {
-			defer wg.Done()
-			defer func() { <-sem }()
-			p.probeTunnel(tid, round)
-		}(tunnelID)
+	round.run(p.ctx)
+	if p.ctx.Err() != nil {
+		return
+	}
+	for _, plan := range plans {
+		p.storeResult(plan.snapshot(round))
 	}
 }
 
-func (p *tunnelQualityProber) probeTunnel(tunnelID int64, round *tunnelQualityProbeRound) {
-	h := p.handler
-	if h == nil || h.repo == nil {
-		return
+// Cached records are immutable for this round. Local nodes must also have an
+// active websocket; remote nodes use the status supplied by federation.
+func (p *tunnelQualityProber) roundNodeLookup() func(int64) (*nodeRecord, error) {
+	type result struct {
+		node *nodeRecord
+		err  error
 	}
-
-	now := time.Now().UnixMilli()
-	snap := &tunnelQualitySnapshot{
-		TunnelID:  tunnelID,
-		Timestamp: now,
+	cache := make(map[int64]result)
+	return func(id int64) (*nodeRecord, error) {
+		if cached, ok := cache[id]; ok {
+			return cached.node, cached.err
+		}
+		node, err := p.handler.getNodeRecord(id)
+		if node != nil {
+			copy := *node
+			if !p.nodeOnline(node) {
+				copy.Status = 0
+			}
+			node = &copy
+		}
+		cache[id] = result{node, err}
+		return node, err
 	}
+}
 
-	// Get tunnel chain info
-	tunnel, err := h.getTunnelRecord(tunnelID)
-	if err != nil {
-		snap.ErrorMessage = "隧道不存在"
-		p.storeResult(snap)
-		return
-	}
-	if tunnel.Type == 2 {
-		snap.PathStatus = "timeout"
-		snap.PathLoss = 100
-		snap.PathUpdatedAt = now
-	}
+func (p *tunnelQualityProber) nodeOnline(node *nodeRecord) bool {
+	return node != nil && node.Status == 1 && (node.IsRemote == 1 || p.handler.wsServer.IsNodeConnected(node.ID))
+}
 
-	chainRows, err := h.listChainNodesForTunnel(tunnelID)
-	if err != nil || len(chainRows) == 0 {
-		snap.ErrorMessage = "隧道配置不完整"
-		p.storeResult(snap)
-		return
-	}
+type tunnelQualityTunnelPlan struct {
+	base         tunnelQualitySnapshot
+	tunnelType   int
+	direct       *tunnelQualityPingKey
+	directErr    error
+	publicNodeID int64
+	hasPublic    bool
+	publicErr    error
+	path         *tunnelPathPlan
+}
 
-	ipPreference := h.repo.GetTunnelIPPreference(tunnelID)
-	inNodes, _, outNodes := splitChainNodeGroups(chainRows)
-
-	options := diagnosisExecOptions{
+func tunnelQualityProbeOptions() diagnosisExecOptions {
+	return diagnosisExecOptions{
 		commandTimeout: tunnelQualityProbeTimeout,
 		pingTimeoutMS:  tunnelQualityPingTimeoutMs,
 		timeoutMessage: "探测超时",
 	}
+}
 
-	switch tunnel.Type {
-	case 1:
-		// Port forwarding: entry → exit test targets
-		if len(inNodes) > 0 {
-			lat, loss, _, err := round.tcpPingExitTest(inNodes[0].NodeID, options)
-			if err == nil {
-				snap.ExitToBingLatency = lat
-				snap.ExitToBingLoss = loss
-				snap.Success = true
+// Keep legacy entry/exit measurements on the first configured nodes. The path
+// graph is separate: its minimum must never replace monitor/history values.
+func (p *tunnelQualityProber) planTunnel(tunnelID int64, round *tunnelQualityProbeRound, lookup func(int64) (*nodeRecord, error)) tunnelQualityTunnelPlan {
+	plan := tunnelQualityTunnelPlan{base: tunnelQualitySnapshot{TunnelID: tunnelID, Timestamp: time.Now().UnixMilli()}}
+	h := p.handler
+	tunnel, err := h.getTunnelRecord(tunnelID)
+	if err != nil {
+		plan.base.ErrorMessage = "隧道不存在"
+		return plan
+	}
+	plan.tunnelType = tunnel.Type
+	if tunnel.Type == 2 {
+		plan.base.PathStatus = "timeout"
+		plan.base.PathLoss = 100
+		plan.base.PathUpdatedAt = plan.base.Timestamp
+	}
+	rows, err := h.listChainNodesForTunnel(tunnelID)
+	if err != nil || len(rows) == 0 {
+		plan.base.ErrorMessage = "隧道配置不完整"
+		return plan
+	}
+	ipPreference := h.repo.GetTunnelIPPreference(tunnelID)
+	entries, _, exits := splitChainNodeGroups(rows)
+	options := tunnelQualityProbeOptions()
+	if tunnel.Type == 2 {
+		plan.base.Success = true
+		if len(entries) > 0 && len(exits) > 0 {
+			target, targetErr := lookup(exits[0].NodeID)
+			if targetErr != nil || target == nil {
+				plan.base.ErrorMessage = "出口节点不可用"
+				plan.base.Success = false
 			} else {
-				snap.ErrorMessage = err.Error()
-			}
-		}
-	case 2:
-		// Tunnel forwarding: entry → exit + exit → Bing
-		probeOK := true
-
-		if len(inNodes) > 0 && len(outNodes) > 0 {
-			// Entry → Exit
-			targetNode, nodeErr := h.getNodeRecord(outNodes[0].NodeID)
-			if nodeErr == nil && targetNode != nil {
-				fromNode, _ := h.getNodeRecord(inNodes[0].NodeID)
-				targetIP, targetPort, resolveErr := resolveChainProbeTarget(fromNode, targetNode, outNodes[0].Port, ipPreference, outNodes[0].ConnectIPType)
-				if resolveErr == nil {
-					lat, loss, err := round.ping(inNodes[0].NodeID, targetIP, targetPort, options)
-					if err == nil {
-						snap.EntryToExitLatency = lat
-						snap.EntryToExitLoss = loss
-					} else {
-						snap.EntryToExitLatency = -1
-						snap.EntryToExitLoss = 100
-						probeOK = false
-					}
+				source, sourceErr := lookup(entries[0].NodeID)
+				ip, port, resolveErr := resolveChainProbeTarget(source, target, exits[0].Port, ipPreference, exits[0].ConnectIPType)
+				if resolveErr != nil {
+					plan.base.ErrorMessage = resolveErr.Error()
+					plan.base.Success = false
 				} else {
-					snap.ErrorMessage = resolveErr.Error()
-					probeOK = false
+					plan.direct = &tunnelQualityPingKey{entries[0].NodeID, ip, port}
+					if sourceErr != nil {
+						plan.directErr = sourceErr
+					} else if source == nil || source.Status != 1 || target.Status != 1 {
+						plan.directErr = errors.New("节点不在线")
+					} else {
+						localTargetID := target.ID
+						if target.IsRemote == 1 {
+							localTargetID = 0
+						}
+						round.planNodePing(*plan.direct, localTargetID, options)
+					}
 				}
-			} else {
-				snap.ErrorMessage = "出口节点不可用"
-				probeOK = false
 			}
 		}
-
-		// The representative path includes only chain segments. For a direct tunnel,
-		// the round cache reuses the entry → exit result above.
-		snap.PathLatency, snap.PathLoss, snap.PathStatus = probeTunnelPath(chainRows, ipPreference, h.getNodeRecord, round.ping, options)
-		snap.PathUpdatedAt = time.Now().UnixMilli()
-
-		// Exit → exit test targets
-		if len(outNodes) > 0 {
-			lat, loss, _, err := round.tcpPingExitTest(outNodes[0].NodeID, options)
-			if err == nil {
-				snap.ExitToBingLatency = lat
-				snap.ExitToBingLoss = loss
-			} else {
-				if snap.ErrorMessage == "" {
-					snap.ErrorMessage = err.Error()
-				}
-				probeOK = false
+		path := planTunnelPath(rows, ipPreference, lookup)
+		plan.path = &path
+		for _, segments := range path.segments {
+			for _, segment := range segments {
+				round.planNodePing(segment.key, segment.localTargetID, options)
 			}
 		}
-
-		snap.Success = probeOK
-	default:
-		// Unknown type: entry → exit test targets
-		if len(inNodes) > 0 {
-			lat, loss, _, err := round.tcpPingExitTest(inNodes[0].NodeID, options)
-			if err == nil {
-				snap.ExitToBingLatency = lat
-				snap.ExitToBingLoss = loss
-				snap.Success = true
-			} else {
-				snap.ErrorMessage = err.Error()
-			}
+		if len(exits) > 0 {
+			plan.publicNodeID, plan.hasPublic = exits[0].NodeID, true
+		}
+	} else if len(entries) > 0 {
+		plan.publicNodeID, plan.hasPublic = entries[0].NodeID, true
+	}
+	if plan.hasPublic {
+		node, err := lookup(plan.publicNodeID)
+		if err != nil {
+			plan.publicErr = err
+		} else if node == nil || node.Status != 1 {
+			plan.publicErr = errors.New("节点不在线")
+		} else {
+			round.planExitTest(plan.publicNodeID, options)
 		}
 	}
+	return plan
+}
 
-	p.storeResult(snap)
+func (plan tunnelQualityTunnelPlan) snapshot(round *tunnelQualityProbeRound) *tunnelQualitySnapshot {
+	snap := plan.base
+	options := tunnelQualityProbeOptions()
+	if plan.direct != nil {
+		latency, loss, err := float64(0), float64(100), plan.directErr
+		if err == nil {
+			latency, loss, err = round.result(plan.direct.nodeID, plan.direct.ip, plan.direct.port, options)
+		}
+		if err == nil {
+			snap.EntryToExitLatency, snap.EntryToExitLoss = latency, loss
+		} else {
+			snap.EntryToExitLatency, snap.EntryToExitLoss = -1, 100
+			snap.Success = false
+		}
+	}
+	if plan.path != nil {
+		snap.PathLatency, snap.PathLoss, snap.PathStatus = plan.path.probe(round.result, options)
+		snap.PathUpdatedAt = time.Now().UnixMilli()
+	}
+	if plan.hasPublic {
+		latency, loss, err := float64(0), float64(100), plan.publicErr
+		if err == nil {
+			latency, loss, err = round.exitTestResult(plan.publicNodeID)
+		}
+		if err == nil {
+			snap.ExitToBingLatency, snap.ExitToBingLoss = latency, loss
+			if plan.tunnelType != 2 {
+				snap.Success = true
+			}
+		} else {
+			if snap.ErrorMessage == "" {
+				snap.ErrorMessage = err.Error()
+			}
+			snap.Success = false
+		}
+	}
+	return &snap
 }
 
 func (p *tunnelQualityProber) tcpPingNode(nodeID int64, ip string, port int, options diagnosisExecOptions) (latency float64, loss float64, err error) {
@@ -299,6 +339,9 @@ func (p *tunnelQualityProber) tcpPingNode(nodeID int64, ip string, port int, opt
 	node, nodeErr := h.getNodeRecord(nodeID)
 	if nodeErr != nil {
 		return 0, 100, nodeErr
+	}
+	if !p.nodeOnline(node) {
+		return 0, 100, errors.New("节点不在线")
 	}
 
 	var pingData map[string]interface{}
@@ -318,18 +361,49 @@ func (p *tunnelQualityProber) tcpPingNode(nodeID int64, ip string, port int, opt
 	return avgTime, packetLoss, nil
 }
 
-// tcpPingExitTest tries exit test targets in order and returns the first successful result.
-// Returns the last error if all targets fail.
+type tunnelQualityExitResult struct {
+	tunnelQualityPingResult
+	targetHost string
+}
+
+// The complete ordered fallback is sampled once per exit node per round.
 func (r *tunnelQualityProbeRound) tcpPingExitTest(nodeID int64, options diagnosisExecOptions) (latency float64, loss float64, targetHost string, err error) {
-	var lastErr error
-	for _, t := range exitTestTargets {
-		lat, loss, perr := r.ping(nodeID, t.host, t.port, options)
-		if perr == nil {
-			return lat, loss, t.name, nil
+	result := &tunnelQualityExitResult{tunnelQualityPingResult: tunnelQualityPingResult{done: make(chan struct{}), loss: 100}}
+	value, loaded := r.publicResults.LoadOrStore(nodeID, result)
+	if loaded {
+		result = value.(*tunnelQualityExitResult)
+		select {
+		case <-result.done:
+		case <-r.ctx.Done():
+			return 0, 100, "", r.ctx.Err()
 		}
-		lastErr = perr
+	} else {
+		for _, target := range exitTestTargets {
+			result.latency, result.loss, result.err = r.ping(nodeID, target.host, target.port, options)
+			if result.err == nil {
+				result.targetHost = target.name
+				break
+			}
+			if r.ctx.Err() != nil {
+				break
+			}
+		}
+		if result.err != nil {
+			result.latency, result.loss = 0, 100
+		}
+		close(result.done)
 	}
-	return 0, 100, "", lastErr
+	return result.latency, result.loss, result.targetHost, result.err
+}
+
+func (r *tunnelQualityProbeRound) exitTestResult(nodeID int64) (float64, float64, error) {
+	value, ok := r.publicResults.Load(nodeID)
+	if !ok {
+		return 0, 100, errors.New("探测结果不存在")
+	}
+	result := value.(*tunnelQualityExitResult)
+	<-result.done
+	return result.latency, result.loss, result.err
 }
 
 func (p *tunnelQualityProber) storeResult(snap *tunnelQualitySnapshot) {
