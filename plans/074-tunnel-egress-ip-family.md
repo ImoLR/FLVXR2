@@ -11,7 +11,7 @@
 - [x] 注解标签 fork.26，镜像构建成功；校验 Latest/非预发布/资产集/compose/脚本/gost SHA256。
 - [x] 建立生产回滚点，升级 backend/frontend。
 - [x] 生产只读验证健康、指标、新列默认值、API 权限、JS；列出候选节点/隧道。
-- [ ] 中文总结写入运行目录，提交 `docs(plan): mark fork26 rollout complete` 并推送。
+- [x] 中文总结写入运行目录，提交 `docs(plan): mark fork26 rollout complete` 并推送。
 
 运行目录：`/root/flvx-workers/runs/tunnel-egress-family/`。临时目录均位于此目录；重型进程串行运行。
 
@@ -48,3 +48,5 @@
 - 新列 `egress_ip_family varchar(10) NOT NULL DEFAULT ''` 存在，28/28 节点均为空；节点地址及隧道/chain_tunnel 记录未改变。初次比较把随遥测更新的 node.updated_time 当作静态配置而报差异；逐字段核实仅该时间变化，排除运行时字段后全部一致，证据 prod-node-diff.json。
 - 线上主 JS `/assets/index-B2RxiZAI.js` 为 2,754,644 B，包含 fork.26 与新的出站/逐跳选择器文案，仍低于 PWA 5 MiB。
 - 生产候选仅 IPv6 入口节点：48「Leikwanhost 沪台IPLC」、50「vmsilo 沪港」；其作为双栈下一跳前驱的隧道组合为 0。未更改这两节点设置，未调用生产隧道保存/重新部署接口。服务重启时原有自动重连配置下发正常完成。
+
+- 清理本次 DB 副本、paneld、Go 临时文件和大型 release 下载，共 809,286,752 B；保留回滚备份、12 张截图、全部摘要/日志/校验清单。最终中文总结：`/root/flvx-workers/runs/tunnel-egress-family/summary.md`。
