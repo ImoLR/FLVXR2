@@ -6,8 +6,8 @@
 - [x] 后端模型/API/选择逻辑/自动保存/相关读取及 best-exit 修复，Go 单元测试通过并提交。
 - [x] 节点出站 IP 与逐节点连接类型 UI，TypeScript/build 通过并提交。
 - [x] 生产在线 SQLite 副本逐隧道逐跳对比 fork.25 与新逻辑；记录并解释全部差异。
-- [ ] 隔离本地 paneld:16365 验证表单保存、自动空值、IPv4 链配置；1440/390 截图。
-- [ ] 后端全量测试与 19 个已知失败基线集合一致；推送分支并确认 CI Build Check 绿色。
+- [x] 隔离本地 paneld:16365 验证表单保存、自动空值、IPv4 链配置；1440/390 截图。
+- [x] 后端全量测试与 19 个已知失败基线集合一致；推送分支并确认 CI Build Check 绿色。
 - [ ] 注解标签 fork.26，镜像构建成功；校验 Latest/非预发布/资产集/compose/脚本/gost SHA256。
 - [ ] 建立生产回滚点，升级 backend/frontend。
 - [ ] 生产只读验证健康、指标、新列默认值、API 权限、JS；列出候选节点/隧道。
@@ -30,3 +30,8 @@
 
 - 生产副本 2026-10-07 17:03 UTC：quick_check=ok，28 节点、51 隧道、166 chain_tunnel 行；使用 fork.25 与当前源码提取的 Go 函数比较全部 138 个相邻跳节点组合，差异 **0**（old→new 表为空），意外差异 **0**。运行目录 gate-input.json / gate-result.json / dial_gate.go 可复核。
 - 后端全量测试失败集合与已知基线完全一致：19/19，无新增、无缺失；原有 connect_ip 相关失败保留。
+
+- 本地隔离 namespace + SQLite 副本，paneld 仅 127.0.0.1:16365，合成节点 901–904 与隧道 76；模拟节点记录真实 AES WebSocket AddChains。所有构建、Go 测试、paneld、Chromium 串行运行。
+- 浏览器阶段使用本地 API 的真实响应快照，生成原始保存 payload；关闭 Chromium 后通过本地 API 执行，数据库与 API 重读确认：出站 dual、自动空类型、各节点独立 v4/v6 均正确。来源 901 仅 v6 入口且 egress=''，显式 v4 下发 `192.0.2.2:20502`。详见 local-api-checks.json。
+- 1440/390 节点表单、中继表单、多出口表单共 6 张首轮截图：screens/seed-*.png；3 个逐节点下拉框，未标记出站提示不阻止保存，无页面错误、遗漏请求或横向溢出。后续浏览器复查因主机可用内存低于 900 MiB 被守卫阻止启动；真实保存后的 API 重读已通过。
+- CI Build Check [37649719753](https://github.com/ImoLR/FLVXR2/actions/runs/37649719753) 四项成功（后端、前端、PG 契约、代理构建）。
