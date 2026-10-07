@@ -12,7 +12,7 @@
 - [x] 在线生产副本：fork.26 与新逻辑全部相邻跳对比为 0；记录假设全部 detected dual 的变化。
 - [x] 本地隔离 paneld:16365 + 遥测 harness + 配置/诊断验证；1440/390 节点与隧道表单截图。
 - [x] 后端全量测试：基线仅减少指定两项及其子测试；CI Build Check 成功。
-- [ ] 注解标签、Build and Push Images 成功；Latest/资产集/compose/安装脚本/sha256 校验。
+- [x] 注解标签、Build and Push Images 成功；Latest/资产集/compose/安装脚本/sha256 校验。
 - [ ] 生产回滚点与备份保留清理；升级 backend/frontend。
 - [ ] 生产只读健康/指标/列默认/API 权限/JS 验证。
 - [ ] 仅节点 47 OTA；确认在线、指标、forward 102 诊断与探测值，或记录失败及回滚。
@@ -46,3 +46,5 @@
 - 注解标签 `3.0.27-fork.27` 指向 `81f6a158`；镜像发布 run [37686280668](https://github.com/ImoLR/FLVXR2/actions/runs/37686280668)，标签提交 CI run 37686258952。
 
 - 标签提交 CI [37686258952](https://github.com/ImoLR/FLVXR2/actions/runs/37686258952) 四项成功。生产回滚点 `/opt/flvx-svc/rollback/pre-fork27-20261007T210043Z`：在线 DB 366,944,256 B、quick_check=ok、62 表计数、compose/.env、fork.26 镜像本地标签。按规则执行 prune-backups.sh，仅保留 pre-fork27/pre-fork26，删除 pre-fork25 备份及不再保留的 fork.24 镜像。额外保存已校验 SHA256 的 fork.9 amd64 agent 回滚二进制。
+
+- Release 2026-10-07T21:17:47Z 发布，Latest、非 prerelease，10 资产与 fork.26 同名；所有资产 SHA256/digest、两份 compose、两份安装脚本 PINNED_VERSION/REPO、两架构 gost 及 offline zip 内代理二进制均通过。backend/frontend 镜像均含 amd64/arm64。镜像流水线 37686280668 完整成功。
