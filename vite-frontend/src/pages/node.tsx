@@ -135,6 +135,7 @@ interface Node {
   intranetIp?: string;
   serverIpV4?: string;
   serverIpV6?: string;
+  egressIpFamily?: string;
   port: string;
   tcpListenAddr?: string;
   udpListenAddr?: string;
@@ -173,6 +174,7 @@ interface NodeForm {
   intranetIp: string;
   serverIpV4: string;
   serverIpV6: string;
+  egressIpFamily: "" | "v4" | "v6" | "dual";
   port: string;
   tcpListenAddr: string;
   udpListenAddr: string;
@@ -376,6 +378,7 @@ export default function NodePage() {
     intranetIp: "",
     serverIpV4: "",
     serverIpV6: "",
+    egressIpFamily: "",
     port: "10000-65535",
     tcpListenAddr: "[::]",
     udpListenAddr: "[::]",
@@ -1131,6 +1134,7 @@ export default function NodePage() {
       intranetIp: node.intranetIp || "",
       serverIpV4: node.serverIpV4 || "",
       serverIpV6: node.serverIpV6 || "",
+      egressIpFamily: (node.egressIpFamily || "") as NodeForm["egressIpFamily"],
       port: node.port || "10000-65535",
       tcpListenAddr: node.tcpListenAddr || "[::]",
       udpListenAddr: node.udpListenAddr || "[::]",
@@ -1677,6 +1681,7 @@ export default function NodePage() {
                     intranetIp: form.intranetIp?.trim(),
                     serverIpV4: form.serverIpV4,
                     serverIpV6: form.serverIpV6,
+                    egressIpFamily: form.egressIpFamily,
                     port: form.port,
                     tcpListenAddr: form.tcpListenAddr,
                     udpListenAddr: form.udpListenAddr,
@@ -1719,6 +1724,7 @@ export default function NodePage() {
       intranetIp: "",
       serverIpV4: "",
       serverIpV6: "",
+      egressIpFamily: "",
       port: "10000-65535",
       tcpListenAddr: "[::]",
       udpListenAddr: "[::]",
@@ -3346,6 +3352,25 @@ export default function NodePage() {
                   }}
                 />
               </div>
+              <Select
+                description="入口只有 IPv6 但能通过 IPv4 出网的机器，选双栈"
+                label="出站 IP"
+                selectedKeys={[form.egressIpFamily || "auto"]}
+                variant="bordered"
+                onSelectionChange={(keys) => {
+                  const value = Array.from(keys)[0] as string;
+
+                  setForm((prev) => ({
+                    ...prev,
+                    egressIpFamily: (value === "auto" ? "" : value) as NodeForm["egressIpFamily"],
+                  }));
+                }}
+              >
+                <SelectItem key="auto">自动（按入口地址推断）</SelectItem>
+                <SelectItem key="v4">仅 IPv4</SelectItem>
+                <SelectItem key="v6">仅 IPv6</SelectItem>
+                <SelectItem key="dual">双栈 (IPv4+IPv6)</SelectItem>
+              </Select>
               <Accordion variant="bordered">
                 <AccordionItem
                   key="advanced"

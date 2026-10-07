@@ -1,6 +1,7 @@
 export interface NodeApiItem {
   region?: string;
   regionCity?: string;
+  egressIpFamily?: "" | "v4" | "v6" | "dual";
   id: number;
   name: string;
   status: number;
@@ -562,6 +563,7 @@ export interface UserMutationPayload {
 export interface NodeMutationPayload {
   region?: string;
   regionCity?: string;
+  egressIpFamily?: "" | "v4" | "v6" | "dual";
   id?: number | null;
   name?: string;
   status?: number;

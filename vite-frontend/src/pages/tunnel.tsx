@@ -180,6 +180,7 @@ interface Node {
   serverIp?: string;
   serverIpV4?: string;
   serverIpV6?: string;
+  egressIpFamily?: string;
   extraIPs?: string;
   remark?: string;
   isRemote?: number;
@@ -312,18 +313,7 @@ const TUNNEL_VIEW_MODE_KEY = "tunnel_view_mode";
 const mapChainNodes = (nodes: any[]) =>
   (nodes || []).map((n) => ({
     ...n,
-    connectIpType:
-      n.connectIpType ||
-      n.connect_ip_type ||
-      n.allocatedIpType ||
-      n.allocated_ip_type ||
-      n.allocatedConnectIpType ||
-      n.allocated_connect_ip_type ||
-      n.ipType ||
-      n.ip_type ||
-      n.connectIp ||
-      n.connect_ip ||
-      "",
+    connectIpType: n.connectIpType ?? n.connect_ip_type ?? "",
     port: n.port || n.allocatedPort || n.allocated_port || 0,
   }));
 
@@ -1125,88 +1115,76 @@ export default function TunnelPage() {
       return { ...prev, chainNodes };
     });
   };
-  // 连接 IP 类型格式化显示
-  const formatConnectIpTypesToDisplay = (nodes: ChainTunnel[]): string => {
-    if (!nodes || nodes.length === 0) return "";
-    const types = nodes.map(
-      (n: any) => n.connectIpType || n.connect_ip_type || "",
-    );
-
-    if (types.every((t) => t === "")) return "";
-
-    return types.join(",");
-  };
-  const applyConnectIpTypesToChainGroup = (
-    groupIndex: number,
-    value: string,
-  ) => {
-    // 如果输入为空或只包含逗号/空格，清空该跳所有节点的 IP 类型
-    if (!value || value.split(",").every((s) => !s.trim())) {
-      setForm((prev) => {
-        const chainNodes = [...(prev.chainNodes || [])];
-        const currentGroup = chainNodes[groupIndex] || [];
-
-        chainNodes[groupIndex] = currentGroup.map((node) => ({
-          ...node,
-          connectIpType: "",
-        }));
-
-        return { ...prev, chainNodes };
-      });
-
-      return;
+  const nodeCanEgress = (node: Node, family: string): boolean => {
+    if (node.egressIpFamily) {
+      return node.egressIpFamily === "dual" || node.egressIpFamily === family;
     }
+    const v4 = node.serverIpV4?.trim();
+    const v6 = node.serverIpV6?.trim();
 
-    const types = value.split(",").map((s) => s.trim());
+    if (v4 || v6) return family === "v4" ? !!v4 : !!v6;
+    const legacy = node.serverIp?.trim().replace(/^\[|\]$/g, "") || "";
 
-    setForm((prev) => {
-      const chainNodes = [...(prev.chainNodes || [])];
-      const currentGroup = chainNodes[groupIndex] || [];
+    if (!legacy) return false;
+    if (legacy.includes(":")) return family === "v6";
+    if (/^\d{1,3}(\.\d{1,3}){3}$/.test(legacy)) return family === "v4";
 
-      chainNodes[groupIndex] = currentGroup.map((node, idx) => ({
-        ...node,
-        connectIpType: idx < types.length ? types[idx] : "",
-      }));
-
-      return { ...prev, chainNodes };
-    });
+    return true; // Legacy hostnames are treated as dual-stack by the backend.
   };
-  const formatOutNodeConnectIpTypes = (): string => {
-    const nodes = form.outNodeId || [];
+  const renderConnectIpSelectors = (
+    targets: ChainTunnel[],
+    previousHop: ChainTunnel[],
+    groupIndex?: number,
+  ) => (
+    <div className="space-y-2">
+      {targets.filter((target) => target.nodeId > 0).map((target) => {
+        const family = target.connectIpType || "";
+        const targetNode = nodes.find((node) => node.id === target.nodeId);
+        const unmarked = (family === "v4" || family === "v6") &&
+          previousHop.some((previous) => {
+            const node = nodes.find((item) => item.id === previous.nodeId);
 
-    if (!nodes || nodes.length === 0) return "";
-    const types = nodes.map(
-      (n: any) => n.connectIpType || n.connect_ip_type || "",
-    );
+            return node && !nodeCanEgress(node, family);
+          });
 
-    if (types.every((t) => t === "")) return "";
+        return (
+          <Select
+            key={target.nodeId}
+            description={unmarked
+              ? `上一跳未标记 ${family === "v4" ? "IPv4" : "IPv6"} 出站，请确认其可通过 ${family === "v4" ? "IPv4" : "IPv6"} 出网`
+              : "上一跳连接此节点使用的地址"}
+            label={`连接 IP 类型 · ${targetNode?.name || target.nodeId}`}
+            selectedKeys={[family || "auto"]}
+            size="sm"
+            variant="bordered"
+            onSelectionChange={(keys) => {
+              const value = Array.from(keys)[0] as string;
+              const connectIpType = value === "auto" ? "" : value;
+              const update = (items: ChainTunnel[]) => items.map((item) =>
+                item.nodeId === target.nodeId ? { ...item, connectIpType } : item,
+              );
 
-    return types.join(",");
-  };
-  const applyOutNodeConnectIpTypes = (value: string) => {
-    // 如果输入为空或只包含逗号/空格，清空所有节点的 IP 类型
-    if (!value || value.split(",").every((s) => !s.trim())) {
-      setForm((prev) => ({
-        ...prev,
-        outNodeId: (prev.outNodeId || []).map((node) => ({
-          ...node,
-          connectIpType: "",
-        })),
-      }));
+              setForm((prev) => {
+                if (groupIndex === undefined) {
+                  return { ...prev, outNodeId: update(prev.outNodeId || []) };
+                }
+                const chainNodes = [...(prev.chainNodes || [])];
 
-      return;
-    }
+                chainNodes[groupIndex] = update(chainNodes[groupIndex] || []);
 
-    const types = value.split(",").map((s) => s.trim());
-
-    setForm((prev) => ({
-      ...prev,
-      outNodeId: (prev.outNodeId || []).map((node, idx) => ({
-        ...node,
-        connectIpType: idx < types.length ? types[idx] : "",
-      })),
-    }));
-  };
+                return { ...prev, chainNodes };
+              });
+            }}
+          >
+            <SelectItem key="auto">自动</SelectItem>
+            <SelectItem key="v4">IPv4</SelectItem>
+            <SelectItem key="v6">IPv6</SelectItem>
+            <SelectItem key="lan">内网</SelectItem>
+          </Select>
+        );
+      })}
+    </div>
+  );
   // 获取所有转发链中已选择的节点 ID 列表
   const getSelectedChainNodeIds = (): number[] => {
     return (form.chainNodes || []).flatMap((group) =>
@@ -1289,26 +1267,6 @@ export default function TunnelPage() {
     return null;
   };
 
-  // 验证连接 IP 类型
-  const validateIpTypes = (value: string, nodeCount: number): string | null => {
-    if (!value || value.trim() === "") return null; // 允许全空（全自动分配）
-    const parts = value.split(",").map((s) => s.trim());
-
-    if (parts.length !== nodeCount)
-      return `节点数为 ${nodeCount}，需要输入 ${nodeCount} 个 IP 类型（用逗号分隔）`;
-    const validTypes = ["v4", "v6", "lan", "auto"];
-
-    for (const type of parts) {
-      if (type && type !== "") {
-        // 只验证非空值
-        if (!validTypes.includes(type.toLowerCase()))
-          return `无效的 IP 类型 "${type}"，只允许：${validTypes.join(", ")}`;
-      }
-      // 空值表示由后端自动分配，允许
-    }
-
-    return null;
-  };
   // 提交表单
   const handleSubmit = async () => {
     if (!validateForm()) return;
@@ -1329,15 +1287,6 @@ export default function TunnelPage() {
 
         return;
       }
-
-      const ipTypeValue = formatConnectIpTypesToDisplay(group);
-      const ipTypeError = validateIpTypes(ipTypeValue, group.length);
-
-      if (ipTypeError) {
-        toast.error(`转发链第${i + 1}跳：${ipTypeError}`);
-
-        return;
-      }
     }
 
     // 验证出口节点
@@ -1351,15 +1300,6 @@ export default function TunnelPage() {
 
       if (outPortError) {
         toast.error(`出口节点：${outPortError}`);
-
-        return;
-      }
-
-      const outIpTypeValue = formatOutNodeConnectIpTypes();
-      const outIpTypeError = validateIpTypes(outIpTypeValue, outNodes.length);
-
-      if (outIpTypeError) {
-        toast.error(`出口节点：${outIpTypeError}`);
 
         return;
       }
@@ -4252,60 +4192,13 @@ export default function TunnelPage() {
                                       }
                                     }}
                                   />
-                                  <Input
-                                    description="多节点可用逗号分隔，按选择节点顺序匹配，v4 对应公网 v4 地址，v6 对应公网 v6 地址，lan 对应内网地址，留空自动匹配"
-                                    label="连接 IP 类型"
-                                    placeholder="例：lan,v4,v6"
-                                    size="sm"
-                                    type="text"
-                                    value={
-                                      focusedInputs[
-                                        `chain_ipType_${groupIndex}`
-                                      ] ??
-                                      formatConnectIpTypesToDisplay(groupNodes)
-                                    }
-                                    variant="bordered"
-                                    onBlur={(e) => {
-                                      setFocusedInputs((prev) => {
-                                        const next = { ...prev };
-
-                                        delete next[
-                                          `chain_ipType_${groupIndex}`
-                                        ];
-
-                                        return next;
-                                      });
-                                      applyConnectIpTypesToChainGroup(
-                                        groupIndex,
-                                        e.target.value,
-                                      );
-                                    }}
-                                    onChange={(e) => {
-                                      setFocusedInputs((prev) => ({
-                                        ...prev,
-                                        [`chain_ipType_${groupIndex}`]:
-                                          e.target.value,
-                                      }));
-                                      applyConnectIpTypesToChainGroup(
-                                        groupIndex,
-                                        e.target.value,
-                                      );
-                                    }}
-                                    onFocus={() => {
-                                      const displayValue =
-                                        formatConnectIpTypesToDisplay(
-                                          groupNodes,
-                                        );
-
-                                      if (displayValue) {
-                                        setFocusedInputs((prev) => ({
-                                          ...prev,
-                                          [`chain_ipType_${groupIndex}`]:
-                                            displayValue,
-                                        }));
-                                      }
-                                    }}
-                                  />
+                                  {renderConnectIpSelectors(
+                                    groupNodes,
+                                    groupIndex > 0
+                                      ? (form.chainNodes || []).slice(0, groupIndex).filter((group) => group.some((node) => node.nodeId > 0)).slice(-1)[0] || form.inNodeId
+                                      : form.inNodeId,
+                                    groupIndex,
+                                  )}
                                 </div>
                                 <div className="mt-2 flex justify-end">
                                   <Button
@@ -4703,46 +4596,10 @@ export default function TunnelPage() {
                                   }
                                 }}
                               />
-                              <Input
-                                description="多节点可用逗号分隔，按选择节点顺序匹配，v4 对应公网 v4，v6 对应公网 v6，lan 对应内网，留空自动匹配"
-                                label="连接 IP 类型"
-                                placeholder="例：v4,v6,lan"
-                                size="sm"
-                                type="text"
-                                value={
-                                  focusedInputs[`out_ipType`] ??
-                                  formatOutNodeConnectIpTypes()
-                                }
-                                variant="bordered"
-                                onBlur={(e) => {
-                                  setFocusedInputs((prev) => {
-                                    const next = { ...prev };
-
-                                    delete next[`out_ipType`];
-
-                                    return next;
-                                  });
-                                  applyOutNodeConnectIpTypes(e.target.value);
-                                }}
-                                onChange={(e) => {
-                                  setFocusedInputs((prev) => ({
-                                    ...prev,
-                                    [`out_ipType`]: e.target.value,
-                                  }));
-                                  applyOutNodeConnectIpTypes(e.target.value);
-                                }}
-                                onFocus={() => {
-                                  const displayValue =
-                                    formatOutNodeConnectIpTypes();
-
-                                  if (displayValue) {
-                                    setFocusedInputs((prev) => ({
-                                      ...prev,
-                                      [`out_ipType`]: displayValue,
-                                    }));
-                                  }
-                                }}
-                              />
+                              {renderConnectIpSelectors(
+                                form.outNodeId || [],
+                                (form.chainNodes || []).filter((group) => group.some((node) => node.nodeId > 0)).slice(-1)[0] || form.inNodeId,
+                              )}
                             </div>
                           </>
                         );
