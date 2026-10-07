@@ -5276,7 +5276,7 @@ export default function ForwardPage() {
                   {sortedForwards.length} 个规则
                 </span>
               </div>
-              <div className={isMobile ? "p-2" : "p-4"}>
+              <div className="p-4">
                 <DndContext
                   collisionDetection={pointerWithin}
                   sensors={sensors}
@@ -5287,7 +5287,7 @@ export default function ForwardPage() {
                     items={sortableForwardIds}
                     strategy={rectSortingStrategy}
                   >
-                    <div className={isMobile ? "grid grid-cols-1 gap-3" : "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-4"}>
+                    <div className={isMobile ? "grid grid-cols-1 gap-4" : "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-4"}>
                       {paginatedForwards.map((forward) =>
                         forward && forward.id ? (
                           <SortableForwardCard
