@@ -72,7 +72,7 @@ v3 TypeScript 与生产构建均通过，主 JS 5,236,122 字节（原 5 MiB 上
 用户已批准 v3 截图（“可以就这么发布先吧”）。本轮仅发布已审核的 `4f7b1188` 并升级 `/opt/flvx-svc` 面板；不改应用代码、数据库数据、节点/agent、记忆文件或预览目录。运行资料与中文总结：`/root/flvx-workers/runs/fork24-release/`。
 
 - [x] 核对分支、代码 HEAD 与远端一致；CI Build Check `37633687383` 四项全绿，无需重跑。
-- [ ] 在 `4f7b1188` 创建并推送注解标签 `3.0.27-fork.24`，等待镜像工作流成功，核对正式 Latest release、资产、脚本/compose 固定版本和 gost SHA256。
+- [x] 在 `4f7b1188` 创建并推送注解标签 `3.0.27-fork.24`，等待镜像工作流成功，核对正式 Latest release、资产、脚本/compose 固定版本和 gost SHA256。
 - [x] 保存生产 compose/.env、SQLite 一次性在线验证备份（quick_check/行数）、旧镜像本地标签及回滚说明。
 - [ ] 安装 fork.24 v6 compose、更新 FLUX_VERSION，仅拉取并重建 backend/frontend。
 - [ ] 验证容器、日志、在线节点指标、管理员列表；重连稳定后观察探测日志至少 3 分钟，记录超时轮次与实测刷新间隔。
@@ -80,3 +80,5 @@ v3 TypeScript 与生产构建均通过，主 JS 5,236,122 字节（原 5 MiB 上
 - [ ] 写完整中文总结，提交 `docs(plan): mark fork24 rollout complete` 并推送分支。
 
 回滚点已建立：`/opt/flvx-svc/rollback/pre-fork24-20261007T142422Z/`，SQLite 在线备份 366,944,256 字节，quick_check=ok；12 用户、27 节点、51 隧道、28 规则，全部表行数及 SHA256 已记录。旧镜像保留为 `local/flvxx-{backend,frontend}:pre-fork24-20261007T142422Z`；回滚恢复 compose/.env 后使用 fork.23 镜像，无需恢复数据库。
+
+镜像工作流 `37635252669` 全部成功（无需重跑）；正式 Latest release 于 2026-10-07 14:28:27Z 发布，非 prerelease。10 个资产与 fork.23 同集合，全部下载 digest 匹配；两份 compose 固定 fork.24，两份脚本 PINNED_VERSION/REPO 正确，双架构 gost SHA256 与离线包内二进制一致。v6 compose 相较生产仅变更两个镜像版本。
