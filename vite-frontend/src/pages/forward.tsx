@@ -69,6 +69,8 @@ import {
   deleteForward,
   forceDeleteForward,
   userTunnel,
+  getUserTunnelLatency,
+  type UserTunnelLatencyApiItem,
   getNodeList,
   pauseForwardService,
   resumeForwardService,
@@ -175,6 +177,35 @@ interface TunnelPickerSection {
   entryLabel: string;
   region: string;
   options: Array<{ key: string; tunnel: Tunnel }>;
+}
+
+function TunnelPathLatency({
+  latency,
+  muted = false,
+}: {
+  latency?: UserTunnelLatencyApiItem;
+  muted?: boolean;
+}) {
+  if (!latency || Date.now() - latency.updatedAt > 60_000) return null;
+  const timedOut = latency.status === "timeout";
+  const text = timedOut
+    ? "超时"
+    : latency.latencyMs < 1 ? "<1ms" : `${Math.round(latency.latencyMs)}ms`;
+  const color = muted || timedOut
+    ? "text-default-500"
+    : latency.latencyMs <= 80 ? "text-success"
+      : latency.latencyMs <= 180 ? "text-warning" : "text-danger";
+
+  return (
+    <span
+      aria-label={`全程延迟：${text}`}
+      className={`inline-flex shrink-0 items-center gap-1 whitespace-nowrap text-xs font-normal tabular-nums ${color}`}
+      title="隧道全程延迟"
+    >
+      <span aria-hidden="true">{timedOut ? "○" : "●"}</span>
+      {text}
+    </span>
+  );
 }
 
 function buildTunnelPickerSections(tunnels: Tunnel[]): TunnelPickerSection[] {
@@ -1457,6 +1488,7 @@ export default function ForwardPage() {
   const [forwards, setForwards] = useState<Forward[]>([]);
   const [tunnels, setTunnels] = useState<Tunnel[]>([]);
   const [allTunnels, setAllTunnels] = useState<Tunnel[]>([]);
+  const [tunnelLatencies, setTunnelLatencies] = useState<Record<number, UserTunnelLatencyApiItem>>({});
   const [formTunnelOptionKey, setFormTunnelOptionKey] = useState("");
   const [filterTunnelOptionKey, setFilterTunnelOptionKey] = useState("");
   const tunnelPickerSections = useMemo(() => buildTunnelPickerSections(tunnels), [tunnels]);
@@ -1517,6 +1549,39 @@ export default function ForwardPage() {
   const [forwardOrder, setForwardOrder] = useState<number[]>([]);
   // 弹窗状态
   const [modalOpen, setModalOpen] = useState(false);
+  useEffect(() => {
+    if (!modalOpen) return;
+    let active = true;
+    let pending = false;
+    const refresh = async () => {
+      setTunnelLatencies((previous) => Object.fromEntries(
+        Object.entries(previous).filter(([, item]) => Date.now() - item.updatedAt <= 60_000),
+      ));
+      if (pending) return;
+      pending = true;
+      try {
+        const res = await getUserTunnelLatency();
+
+        if (active && res.code === 0) {
+          setTunnelLatencies(Object.fromEntries(
+            (res.data || [])
+              .filter((item) => Date.now() - item.updatedAt <= 60_000)
+              .map((item) => [item.tunnelId, item]),
+          ));
+        }
+      } finally {
+        pending = false;
+      }
+    };
+
+    void refresh();
+    const timer = window.setInterval(() => void refresh(), 10_000);
+
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, [modalOpen]);
   // isFilterModalOpen removed
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
   const [addressModalOpen, setAddressModalOpen] = useState(false);
@@ -5552,7 +5617,13 @@ export default function ForwardPage() {
                               <SelectItem
                                 key={key}
                                 description={tunnel.remark ? `备注：${tunnel.remark}` : undefined}
-                                endContent={<span className="rounded bg-default-100 px-1.5 py-0.5 text-xs font-normal text-default-500">{formattedRatio}</span>}
+                                endContent={
+                                  <span className="inline-flex items-center gap-2">
+                                    <TunnelPathLatency latency={tunnelLatencies[tunnel.id]} />
+                                    <span className="rounded bg-default-100 px-1.5 py-0.5 text-xs font-normal text-default-500">{formattedRatio}</span>
+                                  </span>
+                                }
+                                selectedEndContent={<TunnelPathLatency muted latency={tunnelLatencies[tunnel.id]} />}
                                 textValue={text}
                               >
                                 {text}

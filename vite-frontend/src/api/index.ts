@@ -374,6 +374,14 @@ export const batchUpdateUserTunnelStatus = (data: {
 }) => Network.post("/tunnel/user/batch-update-status", data);
 export const userTunnel = () =>
   Network.post<UserTunnelApiItem[]>("/tunnel/user/tunnel");
+export interface UserTunnelLatencyApiItem {
+  tunnelId: number;
+  latencyMs: number;
+  status: "ok" | "timeout";
+  updatedAt: number;
+}
+export const getUserTunnelLatency = () =>
+  Network.get<UserTunnelLatencyApiItem[]>("/tunnel/user/latency");
 
 // 转发CRUD操作 - 全部使用POST请求
 export const createForward = (data: ForwardMutationPayload) =>
