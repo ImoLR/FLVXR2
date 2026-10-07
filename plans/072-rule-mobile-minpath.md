@@ -75,8 +75,8 @@ v3 TypeScript 与生产构建均通过，主 JS 5,236,122 字节（原 5 MiB 上
 - [x] 在 `4f7b1188` 创建并推送注解标签 `3.0.27-fork.24`，等待镜像工作流成功，核对正式 Latest release、资产、脚本/compose 固定版本和 gost SHA256。
 - [x] 保存生产 compose/.env、SQLite 一次性在线验证备份（quick_check/行数）、旧镜像本地标签及回滚说明。
 - [x] 安装 fork.24 v6 compose、更新 FLUX_VERSION，仅拉取并重建 backend/frontend。
-- [ ] 验证容器、日志、在线节点指标、管理员列表；重连稳定后观察探测日志至少 3 分钟，记录超时轮次与实测刷新间隔。
-- [ ] 验证管理员最低路径延迟及 fork.23 多节点对照、用户 3 归属/四字段、monitor quality 原语义、线上前端资产与 v3 标记。
+- [x] 验证容器、日志、在线节点指标、管理员列表；重连稳定后观察探测日志至少 3 分钟，记录超时轮次与实测刷新间隔。
+- [x] 验证管理员最低路径延迟及 fork.23 多节点对照、用户 3 归属/四字段、monitor quality 原语义、线上前端资产与 v3 标记。
 - [ ] 写完整中文总结，提交 `docs(plan): mark fork24 rollout complete` 并推送分支。
 
 回滚点已建立：`/opt/flvx-svc/rollback/pre-fork24-20261007T142422Z/`，SQLite 在线备份 366,944,256 字节，quick_check=ok；12 用户、27 节点、51 隧道、28 规则，全部表行数及 SHA256 已记录。旧镜像保留为 `local/flvxx-{backend,frontend}:pre-fork24-20261007T142422Z`；回滚恢复 compose/.env 后使用 fork.23 镜像，无需恢复数据库。
@@ -84,3 +84,9 @@ v3 TypeScript 与生产构建均通过，主 JS 5,236,122 字节（原 5 MiB 上
 镜像工作流 `37635252669` 全部成功（无需重跑）；正式 Latest release 于 2026-10-07 14:28:27Z 发布，非 prerelease。10 个资产与 fork.23 同集合，全部下载 digest 匹配；两份 compose 固定 fork.24，两份脚本 PINNED_VERSION/REPO 正确，双架构 gost SHA256 与离线包内二进制一致。v6 compose 相较生产仅变更两个镜像版本。
 
 生产面板已于 14:29:57Z/14:30:03Z 分别启动 fork.24 后端/前端；后端 health=healthy，前端 running（无 Docker healthcheck）。只执行 backend/frontend 的 pull/up，未升级任何 agent、未运行安装脚本或操作其他栈。
+
+只读验收：51 隧道、28 规则接口均成功；管理员延迟 36 ok/11 timeout，用户 3 仅自身 12 条且精确四字段；24 在线节点 node_metric 全部推进，离线仍为 1/24/28。quality 51 条、success=39，字段及入口→出口/出口→bing 量级不变。线上 JS/CSS 已变为 index-CuKtVrdD.js / index-C9avZMpH.css，v3 阈值/灰徽标/蓝紫实时行正确，倍率无 `^`；bundle 中唯一 `^{` 位于 CSS 解析正则字符类，与倍率无关。
+
+生产实测 14:30:44–14:33:56Z（192 秒）出现 11 次 >10s 轮：10.091、10.107、10.826、14.705、10.468、10.549、10.904、10.049、10.112、10.128、11.222 秒；窗口无其他错误。19 轮接口时间戳差估算 9.597–14.691s、中位 10.091s，updatedAt 间隔中位 10.100s。较 fork.23 上线前 20.472–33.633s 明显改善，但严格每轮 ≤10s 尚未达成；本轮仅报告，不改代码。
+
+重点 12 隧道对照保存在运行目录 api/report.md：30/31/33 中位 66.42/60.33/67.99ms 高于历史单次 64.78/59.95/63.59ms，但本次 fork.23 升级前已为 69.95/61.99/329.35ms，跨时段受网络波动影响；API 不暴露候选边，不能在生产只读重建同轮首节点路径。38/55 入口 24 仍离线超时，其余重点隧道中位均低于历史值。完整范围（含瞬时尖峰）和回滚步骤见本轮 summary.md。
