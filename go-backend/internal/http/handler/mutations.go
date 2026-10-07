@@ -688,6 +688,11 @@ func (h *Handler) nodeCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	egressIPFamily, err := normalizeNodeEgressIPFamily(asString(req["egressIpFamily"]))
+	if err != nil {
+		response.WriteJSON(w, response.ErrDefault(err.Error()))
+		return
+	}
 	region, err := repo.NormalizeNodeRegion(asString(req["region"]), asString(req["regionCity"]))
 	if err != nil {
 		response.WriteJSON(w, response.ErrDefault(err.Error()))
@@ -738,6 +743,7 @@ func (h *Handler) nodeCreate(w http.ResponseWriter, r *http.Request) {
 		nullableText(asString(req["remoteConfig"])),
 		nullableText(asString(req["extraIPs"])),
 		actorUserID,
+		egressIPFamily,
 		region,
 	); err != nil {
 		response.WriteJSON(w, response.Err(-2, err.Error()))
@@ -773,6 +779,14 @@ func (h *Handler) nodeUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	egressIPFamily := oldNode.EgressIPFamily
+	if value, ok := req["egressIpFamily"]; ok {
+		egressIPFamily, err = normalizeNodeEgressIPFamily(asString(value))
+		if err != nil {
+			response.WriteJSON(w, response.ErrDefault(err.Error()))
+			return
+		}
+	}
 	regionCode, regionCity := oldNode.Region, oldNode.RegionCity
 	if value, ok := req["region"]; ok {
 		regionCode = asString(value)
@@ -842,6 +856,7 @@ func (h *Handler) nodeUpdate(w http.ResponseWriter, r *http.Request) {
 		defaultString(asString(req["tcpListenAddr"]), "[::]"),
 		defaultString(asString(req["udpListenAddr"]), "[::]"),
 		now,
+		egressIPFamily,
 		region,
 	); err != nil {
 		response.WriteJSON(w, response.Err(-2, err.Error()))
@@ -851,6 +866,7 @@ func (h *Handler) nodeUpdate(w http.ResponseWriter, r *http.Request) {
 	newNode.Name = asString(req["name"])
 	newNode.Region = region.Region
 	newNode.RegionCity = region.City
+	newNode.EgressIPFamily = egressIPFamily
 	newNode.ServerIP = serverIP
 	newNode.ServerIPV4 = sql.NullString{String: asString(req["serverIpV4"]), Valid: strings.TrimSpace(asString(req["serverIpV4"])) != ""}
 	newNode.ServerIPV6 = sql.NullString{String: asString(req["serverIpV6"]), Valid: strings.TrimSpace(asString(req["serverIpV6"])) != ""}
@@ -1356,9 +1372,6 @@ func (h *Handler) tunnelCreate(w http.ResponseWriter, r *http.Request) {
 		response.WriteJSON(w, response.Err(-2, err.Error()))
 		return
 	}
-	if typeVal == 2 {
-		_ = h.updateTunnelChainConnectIpType(tx, tunnelID, runtimeState.Nodes, runtimeState.IPPreference)
-	}
 	if err := tx.Commit().Error; err != nil {
 		h.releaseFederationRuntimeRefs(federationReleaseRefs)
 		response.WriteJSON(w, response.Err(-2, err.Error()))
@@ -1397,38 +1410,6 @@ func (h *Handler) tunnelCreate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	response.WriteJSON(w, response.OKEmpty())
-}
-
-func (h *Handler) updateTunnelChainConnectIpType(tx *gorm.DB, tunnelID int64, nodes map[int64]*nodeRecord, ipPreference string) error {
-	if h == nil || tx == nil || nodes == nil {
-		return nil
-	}
-
-	var chainTunnels []model.ChainTunnel
-	if err := tx.Where("tunnel_id = ?", tunnelID).Find(&chainTunnels).Error; err != nil {
-		return err
-	}
-
-	for _, ct := range chainTunnels {
-		if ct.ConnectIPType.Valid && ct.ConnectIPType.String != "" {
-			continue
-		}
-
-		fromNode := nodes[ct.NodeID]
-		if fromNode == nil {
-			continue
-		}
-
-		_, actualIPType, err := selectTunnelDialHost(fromNode, fromNode, ipPreference, "")
-		if err != nil || actualIPType == "" {
-			continue
-		}
-
-		if err := h.repo.UpdateChainTunnelConnectIpTypeTx(tx, tunnelID, ct.ChainType, ct.NodeID, actualIPType); err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 func (h *Handler) cleanupTunnelRuntime(tunnelID int64) {
@@ -1610,9 +1591,6 @@ func (h *Handler) tunnelUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if typeVal == 2 {
-		_ = h.updateTunnelChainConnectIpType(tx, id, runtimeState.Nodes, runtimeState.IPPreference)
-	}
 	if err := tx.Commit().Error; err != nil {
 		h.releaseFederationRuntimeRefs(federationReleaseRefs)
 		response.WriteJSON(w, response.Err(-2, err.Error()))
@@ -4947,12 +4925,32 @@ func selectTunnelDialHost(fromNode, toNode *nodeRecord, ipPreference string, con
 	if fromNode == nil || toNode == nil {
 		return "", "", errors.New("节点不存在")
 	}
-	fromV4 := nodeSupportsV4(fromNode)
-	fromV6 := nodeSupportsV6(fromNode)
+	fromV4 := nodeCanEgressV4(fromNode)
+	fromV6 := nodeCanEgressV6(fromNode)
 	toV4 := nodeSupportsV4(toNode)
 	toV6 := nodeSupportsV6(toNode)
 
 	effectivePreference := strings.TrimSpace(connectIpType)
+	// A hop selects the target's inbound address, independently of the source's
+	// inbound addresses or declared egress. Old stored choices remain explicit.
+	switch effectivePreference {
+	case "v4":
+		if toV4 {
+			if host := pickNodeAddressV4(toNode); host != "" {
+				return host, "v4", nil
+			}
+		}
+	case "v6":
+		if toV6 {
+			if host := pickNodeAddressV6(toNode); host != "" {
+				return host, "v6", nil
+			}
+		}
+	}
+	if effectivePreference == "v4" || effectivePreference == "v6" {
+		log.Printf("tunnel dial: target %s has no %s address; falling back to automatic selection", nodeDisplayName(toNode), effectivePreference)
+		effectivePreference = ""
+	}
 	if effectivePreference == "" {
 		effectivePreference = strings.TrimSpace(ipPreference)
 	}
@@ -5056,6 +5054,44 @@ func nodeDisplayName(node *nodeRecord) string {
 
 func isTLSTunnelProtocol(protocol string) bool {
 	return strings.EqualFold(strings.TrimSpace(defaultString(protocol, "tls")), "tls")
+}
+
+func normalizeNodeEgressIPFamily(value string) (string, error) {
+	value = strings.ToLower(strings.TrimSpace(value))
+	switch value {
+	case "", "v4", "v6", "dual":
+		return value, nil
+	default:
+		return "", errors.New("出站 IP 必须为自动、IPv4、IPv6 或双栈")
+	}
+}
+
+func nodeCanEgressV4(node *nodeRecord) bool {
+	if node == nil {
+		return false
+	}
+	switch node.EgressIPFamily {
+	case "v4", "dual":
+		return true
+	case "v6":
+		return false
+	default:
+		return nodeSupportsV4(node)
+	}
+}
+
+func nodeCanEgressV6(node *nodeRecord) bool {
+	if node == nil {
+		return false
+	}
+	switch node.EgressIPFamily {
+	case "v6", "dual":
+		return true
+	case "v4":
+		return false
+	default:
+		return nodeSupportsV6(node)
+	}
 }
 
 func nodeSupportsV4(node *nodeRecord) bool {

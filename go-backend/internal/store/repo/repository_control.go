@@ -255,12 +255,13 @@ func nodeRecordFromModel(n *model.Node) *model.NodeRecord {
 		return nil
 	}
 	rec := &model.NodeRecord{
-		ID:            n.ID,
-		Name:          n.Name,
-		ServerIP:      n.ServerIP,
-		Status:        n.Status,
-		PortRange:     n.Port,
-		TCPListenAddr: n.TCPListenAddr, UDPListenAddr: n.UDPListenAddr,
+		ID:             n.ID,
+		Name:           n.Name,
+		ServerIP:       n.ServerIP,
+		EgressIPFamily: n.EgressIPFamily,
+		Status:         n.Status,
+		PortRange:      n.Port,
+		TCPListenAddr:  n.TCPListenAddr, UDPListenAddr: n.UDPListenAddr,
 		IsRemote: n.IsRemote,
 	}
 	if n.ServerIPV4.Valid {

@@ -150,7 +150,7 @@ func evaluateBestExitOwner(owner chainNodeRecord, exits []chainNodeRecord, nodes
 			scores = append(scores, failedBestExitCandidate(owner.NodeID, exit, "exit node unavailable"))
 			continue
 		}
-		targetIP, targetPort, resolveErr := resolveBestExitProbeTarget(ownerNode, exitNode, exit.Port, ipPreference, exit.ConnectIP)
+		targetIP, targetPort, resolveErr := resolveBestExitProbeTarget(ownerNode, exitNode, exit.Port, ipPreference, exit.ConnectIPType)
 		if resolveErr != nil {
 			scores = append(scores, failedBestExitCandidate(owner.NodeID, exit, resolveErr.Error()))
 			continue
@@ -171,11 +171,11 @@ func evaluateBestExitOwner(owner chainNodeRecord, exits []chainNodeRecord, nodes
 	return scores
 }
 
-func resolveBestExitProbeTarget(fromNode, targetNode *nodeRecord, preferredPort int, ipPreference string, connectIP string) (string, int, error) {
+func resolveBestExitProbeTarget(fromNode, targetNode *nodeRecord, preferredPort int, ipPreference string, connectIPType string) (string, int, error) {
 	if targetNode == nil {
 		return "", 0, errors.New("目标节点不存在")
 	}
-	host, _, err := selectTunnelDialHost(fromNode, targetNode, ipPreference, connectIP)
+	host, _, err := selectTunnelDialHost(fromNode, targetNode, ipPreference, connectIPType)
 	if err != nil {
 		return "", 0, err
 	}
@@ -224,7 +224,7 @@ func chainRecordsToRuntimeTargets(rows []chainNodeRecord) []tunnelRuntimeNode {
 			Inx:           int(row.Inx),
 			ChainType:     row.ChainType,
 			Port:          row.Port,
-			ConnectIPType: row.ConnectIP,
+			ConnectIPType: row.ConnectIPType,
 		})
 	}
 	return out
