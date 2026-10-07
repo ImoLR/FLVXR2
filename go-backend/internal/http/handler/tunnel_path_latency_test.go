@@ -1,7 +1,6 @@
 package handler
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -193,6 +192,7 @@ func TestUserTunnelLatencyPermissionsAndFreshness(t *testing.T) {
 	}
 	mux := http.NewServeMux()
 	e.h.Register(mux)
+	wrapped := middleware.JWT(middleware.AuthOptions{JWTSecret: "latency-test-secret"})(mux)
 	for _, tc := range []struct {
 		name string
 		role int
@@ -200,9 +200,13 @@ func TestUserTunnelLatencyPermissionsAndFreshness(t *testing.T) {
 	}{{"admin", 0, []int64{1, 2, 6, 7}}, {"user", 1, []int64{1, 7}}} {
 		t.Run(tc.name, func(t *testing.T) {
 			req := httptest.NewRequest(http.MethodGet, "/api/v1/tunnel/user/latency", nil)
-			req = req.WithContext(context.WithValue(req.Context(), middleware.ClaimsContextKey, auth.Claims{Sub: "3", RoleID: tc.role}))
+			token, err := auth.GenerateToken(3, "latency-user", tc.role, "latency-test-secret")
+			if err != nil {
+				t.Fatal(err)
+			}
+			req.Header.Set("Authorization", token)
 			res := httptest.NewRecorder()
-			mux.ServeHTTP(res, req)
+			wrapped.ServeHTTP(res, req)
 			var envelope struct {
 				Code int
 				Data []map[string]interface{}
@@ -224,7 +228,7 @@ func TestUserTunnelLatencyPermissionsAndFreshness(t *testing.T) {
 	}
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/tunnel/user/latency", nil)
 	res := httptest.NewRecorder()
-	mux.ServeHTTP(res, req)
+	wrapped.ServeHTTP(res, req)
 	var failure struct{ Code int }
 	_ = json.Unmarshal(res.Body.Bytes(), &failure)
 	if failure.Code != 401 {

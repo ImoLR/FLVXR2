@@ -134,3 +134,39 @@ func collectTunnelIDs(t *testing.T, data interface{}) map[int64]bool {
 	}
 	return ids
 }
+
+func TestUserTunnelLatencyAuthenticationContract(t *testing.T) {
+	secret := "latency-contract-secret"
+	router, _ := setupContractRouter(t, secret)
+	for _, role := range []int{0, 1} {
+		token, err := auth.GenerateToken(3, "latency-user", role, secret)
+		if err != nil {
+			t.Fatal(err)
+		}
+		request := httptest.NewRequest(http.MethodGet, "/api/v1/tunnel/user/latency", nil)
+		request.Header.Set("Authorization", token)
+		result := httptest.NewRecorder()
+		router.ServeHTTP(result, request)
+		var payload struct {
+			Code int           `json:"code"`
+			Data []interface{} `json:"data"`
+		}
+		if err := json.Unmarshal(result.Body.Bytes(), &payload); err != nil || payload.Code != 0 || payload.Data == nil || len(payload.Data) != 0 {
+			t.Fatalf("role %d: expected empty array before probes, got %s", role, result.Body.String())
+		}
+		if role == 1 {
+			request = httptest.NewRequest(http.MethodPost, "/api/v1/tunnel/user/assign", nil)
+			request.Header.Set("Authorization", token)
+			result = httptest.NewRecorder()
+			router.ServeHTTP(result, request)
+			assertCode(t, result, 403)
+		}
+	}
+	for _, token := range []string{"", "invalid.token"} {
+		request := httptest.NewRequest(http.MethodGet, "/api/v1/tunnel/user/latency", nil)
+		request.Header.Set("Authorization", token)
+		result := httptest.NewRecorder()
+		router.ServeHTTP(result, request)
+		assertCode(t, result, 401)
+	}
+}
