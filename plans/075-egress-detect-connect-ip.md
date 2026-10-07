@@ -15,7 +15,7 @@
 - [x] 注解标签、Build and Push Images 成功；Latest/资产集/compose/安装脚本/sha256 校验。
 - [x] 生产回滚点与备份保留清理；升级 backend/frontend。
 - [x] 生产只读健康/指标/列默认/API 权限/JS 验证。
-- [ ] 仅节点 47 OTA；确认在线、指标、forward 102 诊断与探测值，或记录失败及回滚。
+- [x] 仅节点 47 OTA；确认在线、指标、forward 102 诊断与探测值，或记录失败及回滚。
 - [ ] 中文总结、清理本任务大型临时文件；提交完成计划并推送。
 
 ## 行为与应用路径
@@ -52,3 +52,6 @@
 - 已安装校验过的 v6 compose（仅两个镜像标签变化），FLUX_VERSION 更新为 fork.27，执行 pull/up backend/frontend，backend healthy，frontend running。
 
 - 生产 backend/frontend 于 2026-10-07 21:19:01/07 UTC 启动 fork.27；backend healthy，前端 HTTP/JS 正常。管理员列表 28 节点/53 隧道；非管理员 HTTP 200/code=403/data=null。新增列 28/28 为空串/0，22 节点指标晚于重启并推进，静态节点/隧道/链配置全部未变。线上主 JS 2,755,797 B，包含新文案与 fork.27 版本。
+
+- 仅节点 47「AWS HK」OTA fork.9 → fork.27，4.8 秒观察到新版本在线，10.8 秒确认指标恢复；egress_detected=dual，egress_detected_at=1791407997649（2026-10-07 21:19:57.649 UTC），随后指标继续推进而检测时间不重复更新。与备份逐节点比对，只有 47 的 agent 版本变化，其余 27 节点检测值仍空。服务名 flvxx，未触碰 flux_agent。
+- **Canary 未全通过项**：forward 102「hinet boil」入口节点 2 已离线，入口→47 报“节点不在线”；47→目标 TCP 成功，约 18.87 ms、丢包 0。节点 2 最后指标为 2026-10-07 20:13:36.142 UTC，在面板升级前的两份快照中已停止，非本次 canary 引起。未对节点 2/其他 agent 操作，未回滚健康的节点 47；完整规则诊断等待入口恢复后由用户复验。
