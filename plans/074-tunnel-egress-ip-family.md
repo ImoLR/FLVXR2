@@ -9,7 +9,7 @@
 - [x] 隔离本地 paneld:16365 验证表单保存、自动空值、IPv4 链配置；1440/390 截图。
 - [x] 后端全量测试与 19 个已知失败基线集合一致；推送分支并确认 CI Build Check 绿色。
 - [x] 注解标签 fork.26，镜像构建成功；校验 Latest/非预发布/资产集/compose/脚本/gost SHA256。
-- [ ] 建立生产回滚点，升级 backend/frontend。
+- [x] 建立生产回滚点，升级 backend/frontend。
 - [ ] 生产只读验证健康、指标、新列默认值、API 权限、JS；列出候选节点/隧道。
 - [ ] 中文总结写入运行目录，提交 `docs(plan): mark fork26 rollout complete` 并推送。
 
@@ -41,3 +41,5 @@
 - 额外核对 best-exit 调用修复影响：生产副本 `strategy=best` 为 0 行、自定义 `connect_ip` 为 0 行，当前运行链路不受该调用修正影响。
 
 - Release 2026-10-07T16:34:00Z 发布，Latest、非预发布，10 资产与 fork.25 同名，全部 SHA256/digest、两份 compose 镜像、安装脚本 PINNED_VERSION/REPO、两架构 gost 及 offline zip 内代理二进制校验通过。GHCR backend/frontend 均有 amd64/arm64。
+
+- 生产回滚点 `/opt/flvx-svc/rollback/pre-fork26-20261007T161704Z`：compose/.env、366,944,256 B 在线数据库（quick_check=ok、62 表 counts）、fork.25 本地镜像标签及 ROLLBACK-METADATA.md。安装已验证 v6 compose，仅改两个镜像版本和 FLUX_VERSION；pull/up backend/frontend 完成，backend healthy。
