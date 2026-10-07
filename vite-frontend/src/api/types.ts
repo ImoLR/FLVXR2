@@ -566,8 +566,6 @@ export interface NodeMutationPayload {
   region?: string;
   regionCity?: string;
   egressIpFamily?: "" | "v4" | "v6" | "dual";
-  egressDetected?: "" | "v4" | "v6" | "dual";
-  egressDetectedAt?: number;
   id?: number | null;
   name?: string;
   status?: number;

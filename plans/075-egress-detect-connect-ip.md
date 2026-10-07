@@ -11,7 +11,7 @@
 - [x] 节点探测展示、隧道自定义 IP 输入与读写；类型检查及生产构建。
 - [x] 在线生产副本：fork.26 与新逻辑全部相邻跳对比为 0；记录假设全部 detected dual 的变化。
 - [ ] 本地隔离 paneld:16365 + 遥测 harness + 配置/诊断验证；1440/390 节点与隧道表单截图。
-- [ ] 后端全量测试：基线仅减少指定两项及其子测试；CI Build Check 成功。
+- [x] 后端全量测试：基线仅减少指定两项及其子测试；CI Build Check 成功。
 - [ ] 注解标签、Build and Push Images 成功；Latest/资产集/compose/安装脚本/sha256 校验。
 - [ ] 生产回滚点与备份保留清理；升级 backend/frontend。
 - [ ] 生产只读健康/指标/列默认/API 权限/JS 验证。
@@ -35,3 +35,5 @@
 - 前端 `tsc --noEmit` 与 `npm run build` 通过，主 JS 2,753,064 B，PWA 5 MiB 余量 2,489,816 B。
 
 - 在线生产副本：quick_check=ok；28 节点、53 隧道、169 chain_tunnel 行，139 个相邻跳组合。提取 fork.26/当前 Go 函数比较，无检测数据差异 **0**；全部 detected=dual 的假设变化也为 **0**。生产非空 connect_ip 为 0。详见 gate-input.json / gate-result.json / dial_gate.go。
+
+- 全量 `go test -p 1 ./...` 的失败集合为 15/19：仅减少 `TestReconstructTunnelState_PreservesConnectIP`、`TestTunnelDiagnosisUsesConfiguredConnectIPContract` 与该诊断的两个子测试，无新增/额外缺失，基线文件未改。CI Build Check 37685225783 四项成功。追加真实质量/路径探测测试确认直连与含中继路径都使用自定义 IP；探测字段仅保留在前端只读节点类型。
