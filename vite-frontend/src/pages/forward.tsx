@@ -172,6 +172,17 @@ interface Tunnel {
   remark?: string;
   trafficRatio?: number;
 }
+
+function getConnectionColorClass(count: number, badge = false): string {
+  const [text, background] = count > 500
+    ? ["text-danger-600 dark:text-danger-400", "bg-danger-500/10"]
+    : count >= 300
+      ? ["text-warning-600 dark:text-warning-400", "bg-warning-500/10"]
+      : ["text-success-600 dark:text-success-400", "bg-success-500/10"];
+
+  return badge ? `${text} ${background}` : text;
+}
+
 interface TunnelPickerSection {
   key: string;
   label: string;
@@ -757,8 +768,8 @@ const SortableTunnelGroupContainer = ({
           </Button>
           <span className={titleClassName}>{tunnel.tunnelName}</span>
           {/* 隧道倍率标识 - 统一 10px 字体 */}
-          <span className="text-primary-600 font-bold text-[10px] mr-1.5">
-            ^{formatTunnelTrafficRatio(tunnel.tunnelTrafficRatio)}
+          <span className="shrink-0 whitespace-nowrap rounded bg-default-100 px-1.5 py-0.5 text-[10px] font-normal text-default-500 mr-1.5">
+            {formatTunnelTrafficRatio(tunnel.tunnelTrafficRatio)}
           </span>
         </div>
         <div className="flex items-center gap-2">
@@ -1049,7 +1060,7 @@ const SortableTableRow = ({
             {formatSpeed(forward.outSpeed || 0)}
           </span>
           <span
-            className="block w-full min-w-[80px] min-h-[20px] px-1.5 py-0.5 rounded text-[10px] font-medium bg-teal-500/10 text-teal-600 dark:text-teal-400"
+            className={`block w-full min-w-[80px] min-h-[20px] px-1.5 py-0.5 rounded text-[10px] font-medium ${getConnectionColorClass(forward.currentConnections ?? 0, true)}`}
             title="当前连接数"
           >
             <span className="mr-1">⇄</span>
@@ -1243,8 +1254,8 @@ const SortableCompactTableRow = ({
             {forward.tunnelName}
           </span>
           {/* 隧道倍率标识 - 统一 10px 字体 */}
-          <span className="text-primary-600 font-bold text-[10px] ml-1.5">
-            ^{formatTunnelTrafficRatio(forward.tunnelTrafficRatio)}
+          <span className="shrink-0 whitespace-nowrap rounded bg-default-100 px-1.5 py-0.5 text-[10px] font-normal text-default-500 ml-1.5">
+            {formatTunnelTrafficRatio(forward.tunnelTrafficRatio)}
           </span>
         </div>
       </TableCell>
@@ -1366,7 +1377,7 @@ const SortableCompactTableRow = ({
             {formatSpeed(forward.outSpeed || 0)}
           </span>
           <span
-            className="block w-full min-w-[80px] min-h-[20px] px-1.5 py-0.5 rounded text-[10px] font-medium bg-teal-500/10 text-teal-600 dark:text-teal-400"
+            className={`block w-full min-w-[80px] min-h-[20px] px-1.5 py-0.5 rounded text-[10px] font-medium ${getConnectionColorClass(forward.currentConnections ?? 0, true)}`}
             title="当前连接数"
           >
             <span className="mr-1">⇄</span>
@@ -4585,8 +4596,8 @@ export default function ForwardPage() {
                 <span className="truncate max-md:whitespace-normal max-md:break-all">
                   {normalizeForwardTunnelName(forward.tunnelName)}
                 </span>
-                <span className="text-primary-600 font-bold text-[10px] ml-1 max-md:shrink-0">
-                  ^{formatTunnelTrafficRatio(forward.tunnelTrafficRatio)}
+                <span className="shrink-0 whitespace-nowrap rounded bg-default-100 px-1.5 py-0.5 text-[10px] font-normal text-default-500 ml-1">
+                  {formatTunnelTrafficRatio(forward.tunnelTrafficRatio)}
                 </span>
               </span>
               {/* 隧道模式标识 */}
@@ -4725,7 +4736,11 @@ export default function ForwardPage() {
             </div>
           </div>
           <div className="text-[11px] text-default-500 px-1 pb-1 truncate max-md:whitespace-normal max-md:break-all" title="实时带宽和当前连接数">
-            ↑ {formatSpeed(forward.inSpeed || 0)} · ↓ {formatSpeed(forward.outSpeed || 0)} · {forward.currentConnections ?? 0} 连接
+            <span className="text-blue-600 dark:text-blue-400">↑ {formatSpeed(forward.inSpeed || 0)}</span>
+            {" · "}
+            <span className="text-purple-600 dark:text-purple-400">↓ {formatSpeed(forward.outSpeed || 0)}</span>
+            {" · "}
+            <span className={getConnectionColorClass(forward.currentConnections ?? 0)}>{forward.currentConnections ?? 0} 连接</span>
           </div>
           {/* 底部 Chip 区 */}
           <div className="flex items-center justify-between pt-2 border-t border-divider gap-1 whitespace-nowrap max-md:flex-wrap">
@@ -5127,7 +5142,7 @@ export default function ForwardPage() {
                         <TableColumn className="whitespace-nowrap flex-shrink-0 w-[180px] text-left">
                           规则名称
                           <span className="text-xs text-primary-500 font-normal">
-                            ^{sortedForwards.length}个
+                            {sortedForwards.length}个
                           </span>
                         </TableColumn>
                         {/* <TableColumn className="whitespace-nowrap flex-shrink-0 w-[180px] text-left">隧道倍率</TableColumn> */}
@@ -5512,7 +5527,7 @@ export default function ForwardPage() {
                                         <TableColumn className="whitespace-nowrap flex-shrink-0 w-[180px] text-left">
                                           规则名称
                                           <span className="text-xs text-primary-500 font-normal">
-                                            ^{tunnel.items.length}个
+                                            {tunnel.items.length}个
                                           </span>
                                         </TableColumn>
                                         {/* {isAdmin && <TableColumn className="whitespace-nowrap flex-shrink-0 w-[100px] text-left">速度限制</TableColumn>} */}
