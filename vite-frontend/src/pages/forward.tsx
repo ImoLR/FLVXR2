@@ -6,7 +6,7 @@
   SpeedLimitApiItem,
 } from "@/api/types";
 
-import { lazy, Suspense, useState, useEffect, useMemo, useRef, useCallback } from "react";
+import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import toast from "react-hot-toast";
 import {
   DndContext,
@@ -115,7 +115,6 @@ import { saveOrder } from "@/utils/order-storage";
 import { JwtUtil } from "@/utils/jwt";
 import { timestampToCalendarDate, calendarDateToTimestamp } from "@/utils/date";
 import { MULTI_REGION, compareRegions, exitRegionKey, exitRegionLabel, regionLabel } from "@/utils/region";
-const MobileForwardCard = lazy(() => import("@/pages/forward/mobile-card"));
 
 export interface Forward {
   id: number;
@@ -1513,7 +1512,16 @@ export default function ForwardPage() {
   const isMobile = useMobileBreakpoint();
   // searchKeyword removed
   // isSearchVisible removed
-  const [compactMode, setCompactMode] = useState(false);
+  const [configuredCompactMode, setCompactMode] = useState(false);
+  const [hasSavedViewMode, setHasSavedViewMode] = useState(() => {
+    try {
+      return !!localStorage.getItem("forward-view-mode");
+    } catch {
+      return false;
+    }
+  });
+  // 手机首次访问仅在客户端默认卡片，不改变管理员共享的精简模式配置。
+  const compactMode = isMobile && !hasSavedViewMode ? true : configuredCompactMode;
 
   // 用户切换时归零筛选条件
   useEffect(() => {
@@ -2227,6 +2235,7 @@ export default function ForwardPage() {
 
     // 保存列表/卡片状态
     setViewMode(nextView);
+    setHasSavedViewMode(true);
     try {
       localStorage.setItem("forward-view-mode", nextView);
     } catch {}
@@ -4500,43 +4509,6 @@ export default function ForwardPage() {
     const statusDisplay = getStatusDisplay(forward.status);
     const strategyDisplay = getStrategyDisplay(forward.strategy);
 
-    if (isMobile) {
-      return (
-        <Suspense fallback={null}>
-          <MobileForwardCard
-            {...{
-              forward,
-              listeners,
-              compactMode,
-              viewMode,
-              isAdmin,
-              selectedIds,
-              togglingIds,
-              statusDisplay,
-              strategyDisplay,
-              getStatusDisplay,
-              normalizeForwardTunnelName,
-              formatTunnelTrafficRatio,
-              getForwardDisplayFlow,
-              formatFlow,
-              formatSpeed,
-              copyToClipboard,
-              showAddressModal,
-              toggleSelect,
-              handleServiceToggle,
-              handleEdit,
-              handleCopy,
-              handleDiagnose,
-              handleDelete,
-              handleViewTrafficResetLogs,
-            }}
-          >
-            <ForwardCNBlockedWarning forward={forward} />
-          </MobileForwardCard>
-        </Suspense>
-      );
-    }
-
     return (
       <Card
         key={forward.id}
@@ -4609,11 +4581,11 @@ export default function ForwardPage() {
           </div>
           <div className="flex-1 min-w-0 w-full pl-0.5">
             <div className="flex items-center justify-between gap-2 mt-0.5">
-              <span className="text-xs text-foreground font-bold truncate flex items-center">
-                <span className="truncate">
+              <span className="text-xs text-foreground font-bold truncate flex items-center max-md:min-w-0 max-md:whitespace-normal">
+                <span className="truncate max-md:whitespace-normal max-md:break-all">
                   {normalizeForwardTunnelName(forward.tunnelName)}
                 </span>
-                <span className="text-primary-600 font-bold text-[10px] ml-1">
+                <span className="text-primary-600 font-bold text-[10px] ml-1 max-md:shrink-0">
                   ^{formatTunnelTrafficRatio(forward.tunnelTrafficRatio)}
                 </span>
               </span>
@@ -4637,8 +4609,8 @@ export default function ForwardPage() {
                 <span className="w-16 text-center">端口</span>
               </div>
               <div className="flex gap-1 items-center">
-                <div className="flex-1 min-w-0 h-8 bg-default-100/60 text-red-100/60 dark:bg-default-50/10 hover:bg-default-200 dark:hover:bg-default-100/20 rounded-md px-2 flex items-center transition-colors">
-                  <div className="flex items-center gap-1.5 w-full">
+                <div className="flex-1 min-w-0 h-8 max-md:h-auto max-md:min-h-8 max-md:py-1 bg-default-100/60 text-red-100/60 dark:bg-default-50/10 hover:bg-default-200 dark:hover:bg-default-100/20 rounded-md px-2 flex items-center transition-colors">
+                  <div className="flex items-center gap-1.5 w-full max-md:min-w-0">
                     <svg
                       className="w-3.5 h-3.5 text-primary hover:text-primary-600 cursor-pointer shrink-0 transition-colors"
                       fill="none"
@@ -4656,7 +4628,7 @@ export default function ForwardPage() {
                       <path d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" />
                     </svg>
                     <code
-                      className="text-xs font-medium text-foreground font-bold truncate block flex-1 cursor-pointer max-w-[100px]"
+                      className="text-xs font-medium text-foreground font-bold truncate block flex-1 cursor-pointer max-w-[100px] max-md:max-w-none max-md:min-w-0 max-md:whitespace-normal max-md:break-all"
                       title={inAddrNoPorts}
                       onClick={() =>
                         copyToClipboard(
@@ -4670,12 +4642,12 @@ export default function ForwardPage() {
                   </div>
                 </div>
                 <div
-                  className="w-16 h-8 bg-default-100/60 dark:bg-default-50/10 hover:bg-default-200 dark:hover:bg-default-100/20 rounded-md px-2 flex items-center justify-center cursor-pointer transition-colors"
+                  className="w-16 h-8 max-md:h-auto max-md:min-h-8 max-md:shrink-0 max-md:py-1 bg-default-100/60 dark:bg-default-50/10 hover:bg-default-200 dark:hover:bg-default-100/20 rounded-md px-2 flex items-center justify-center cursor-pointer transition-colors"
                   onClick={() =>
                     copyToClipboard(forward.inPort.toString(), "入口端口")
                   }
                 >
-                  <code className="text-xs font-medium text-foreground font-bold">
+                  <code className="text-xs font-medium text-foreground font-bold max-md:min-w-0 max-md:break-all">
                     {forward.inPort}
                   </code>
                 </div>
@@ -4684,12 +4656,24 @@ export default function ForwardPage() {
             {/* 落地信息区 */}
             <div className="space-y-1">
               <div className="flex gap-1 px-1 text-[11px] font-bold text-foreground uppercase tracking-wider">
-                <span className="flex-1 text-left">落地地址</span>
+                <span className="flex-1 text-left">
+                  落地地址
+                  {isMobile && hasMultipleAddresses(forward.remoteAddr) && (
+                    <button
+                      className="ml-1 inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-default-500/10 text-default-500"
+                      title="查看全部落地地址"
+                      type="button"
+                      onClick={() => showAddressModal(forward.remoteAddr, null, "落地地址")}
+                    >
+                      +{forward.remoteAddr.split(",").filter((address) => address.trim()).length - 1}
+                    </button>
+                  )}
+                </span>
                 <span className="w-16 text-center">端口</span>
               </div>
               <div className="flex gap-1 items-center">
-                <div className="flex-1 min-w-0 h-8 bg-default-100/60 dark:bg-default-50/10 hover:bg-default-200 dark:hover:bg-default-100/20 rounded-md px-2 flex items-center transition-colors">
-                  <div className="flex items-center gap-1.5 w-full">
+                <div className="flex-1 min-w-0 h-8 max-md:h-auto max-md:min-h-8 max-md:py-1 bg-default-100/60 dark:bg-default-50/10 hover:bg-default-200 dark:hover:bg-default-100/20 rounded-md px-2 flex items-center transition-colors">
+                  <div className="flex items-center gap-1.5 w-full max-md:min-w-0">
                     <svg
                       className="w-3.5 h-3.5 text-primary hover:text-primary-600 cursor-pointer shrink-0 transition-colors"
                       fill="none"
@@ -4707,7 +4691,7 @@ export default function ForwardPage() {
                       <path d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" />
                     </svg>
                     <code
-                      className="text-xs font-medium text-foreground font-bold truncate block flex-1 cursor-pointer max-w-[100px]"
+                      className="text-xs font-medium text-foreground font-bold truncate block flex-1 cursor-pointer max-w-[100px] max-md:max-w-none max-md:min-w-0 max-md:whitespace-normal max-md:break-all"
                       title={forward.remoteAddr
                         .split(",")[0]
                         .replace(/:\d+$/, "")}
@@ -4723,7 +4707,7 @@ export default function ForwardPage() {
                   </div>
                 </div>
                 <div
-                  className="w-16 h-8 bg-default-100/60 dark:bg-default-50/10 hover:bg-default-200 dark:hover:bg-default-100/20 rounded-md px-2 flex items-center justify-center cursor-pointer transition-colors"
+                  className="w-16 h-8 max-md:h-auto max-md:min-h-8 max-md:shrink-0 max-md:py-1 bg-default-100/60 dark:bg-default-50/10 hover:bg-default-200 dark:hover:bg-default-100/20 rounded-md px-2 flex items-center justify-center cursor-pointer transition-colors"
                   onClick={() =>
                     copyToClipboard(
                       forward.remoteAddr.split(",")[0].match(/:(\d+)$/)?.[1] ||
@@ -4732,7 +4716,7 @@ export default function ForwardPage() {
                     )
                   }
                 >
-                  <code className="text-xs font-medium text-foreground font-bold">
+                  <code className="text-xs font-medium text-foreground font-bold max-md:min-w-0 max-md:break-all">
                     {forward.remoteAddr.split(",")[0].match(/:(\d+)$/)?.[1] ||
                       "-"}
                   </code>
@@ -4740,12 +4724,12 @@ export default function ForwardPage() {
               </div>
             </div>
           </div>
-          <div className="text-[11px] text-default-500 px-1 pb-1 truncate" title="实时带宽和当前连接数">
+          <div className="text-[11px] text-default-500 px-1 pb-1 truncate max-md:whitespace-normal max-md:break-all" title="实时带宽和当前连接数">
             ↑ {formatSpeed(forward.inSpeed || 0)} · ↓ {formatSpeed(forward.outSpeed || 0)} · {forward.currentConnections ?? 0} 连接
           </div>
           {/* 底部 Chip 区 */}
-          <div className="flex items-center justify-between pt-2 border-t border-divider gap-1 whitespace-nowrap">
-            <div className="flex items-center gap-1">
+          <div className="flex items-center justify-between pt-2 border-t border-divider gap-1 whitespace-nowrap max-md:flex-wrap">
+            <div className="flex items-center gap-1 max-md:flex-wrap">
               <span className="inline-flex items-center justify-center px-2 py-0.5 rounded text-xs font-medium bg-blue-500/10 text-blue-600 dark:text-blue-400">
                 ↑{formatFlow(forward.inFlow || 0)}
               </span>
@@ -4759,7 +4743,7 @@ export default function ForwardPage() {
           </div>
           <div className="flex gap-1.5 mt-3">
             <Button
-              className="flex-1 min-h-8 flex-shrink-0"
+              className="flex-1 min-h-8 flex-shrink-0 max-md:min-w-0"
               color="primary"
               size="sm"
               variant="flat"
@@ -4768,7 +4752,7 @@ export default function ForwardPage() {
               编辑
             </Button>
             <Button
-              className="flex-1 min-h-8 flex-shrink-0"
+              className="flex-1 min-h-8 flex-shrink-0 max-md:min-w-0"
               color="warning"
               size="sm"
               variant="flat"
@@ -4777,7 +4761,7 @@ export default function ForwardPage() {
               复制
             </Button>
             <Button
-              className="flex-1 min-h-8 flex-shrink-0"
+              className="flex-1 min-h-8 flex-shrink-0 max-md:min-w-0"
               color="warning"
               size="sm"
               variant="flat"
@@ -4786,7 +4770,7 @@ export default function ForwardPage() {
               诊断
             </Button>
             <Button
-              className="flex-1 min-h-8 flex-shrink-0"
+              className="flex-1 min-h-8 flex-shrink-0 max-md:min-w-0"
               color="danger"
               size="sm"
               variant="flat"
