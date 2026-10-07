@@ -7,7 +7,7 @@
 - [x] 仅开启 minify，更新两份 AGENTS 构建说明，记录主 JS 大小。
 - [x] 完成 Go 相关包、全量基线对比、TypeScript 与生产构建验证。
 - [x] 生产数据库在线备份到运行目录；本地副本验证半年提醒、节点显示、编辑预选及保存不变；桌面/手机检查四页并截图。
-- [ ] 推送分支，CI Build Check 通过；创建注解标签 fork.25，验证镜像构建及全部 release 资产。
+- [x] 推送分支，CI Build Check 通过；创建注解标签 fork.25，验证镜像构建及全部 release 资产。
 - [ ] 建立生产回滚点，安装 v6 compose，升级 backend/frontend。
 - [ ] 生产只读 API、指标、资源及桌面/手机浏览器验证。
 - [ ] 写中文总结，提交 `docs(plan): mark fork25 rollout complete` 并推送。
@@ -33,3 +33,5 @@
 - 实测 fork.24 线上主 JS 5,242,299 B（余 581 B）；本地 minify 构建 2,752,478 B（余 2,490,402 B），treeshake 不变。
 
 - 本地数据库在线副本 quick_check=ok；隔离网络 namespace，paneld 仅 127.0.0.1:16365。节点 31 副本设置 3 天内到期；1440/390 下提醒显示半年付，节点信息正常，编辑预选半年，UI 保存后 DB 仍 halfyear。主页/规则/隧道/节点 8 次加载均无 console/page errors、空白页或拦截请求；截图见运行目录 screens。测试代理补齐只读路由及 WebSocket 后重跑通过，未修改应用来绕过检查。
+
+- CI Build Check [37643873263](https://github.com/ImoLR/FLVXR2/actions/runs/37643873263) 四项通过；注解标签 `3.0.27-fork.25` 指向 `b37b72fe`。Images [37644121003](https://github.com/ImoLR/FLVXR2/actions/runs/37644121003) 成功；Release 2026-10-07 15:38:37 UTC 发布，Latest、非预发布，10 个资产与 fork.24 同名，全部 digest、两个安装脚本 PINNED_VERSION/REPO、v4/v6 compose 镜像引用、两架构 gost SHA256 及 offline zip 内二进制均通过；远端两镜像均有 amd64/arm64。
