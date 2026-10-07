@@ -8,7 +8,7 @@
 - [x] 生产在线 SQLite 副本逐隧道逐跳对比 fork.25 与新逻辑；记录并解释全部差异。
 - [x] 隔离本地 paneld:16365 验证表单保存、自动空值、IPv4 链配置；1440/390 截图。
 - [x] 后端全量测试与 19 个已知失败基线集合一致；推送分支并确认 CI Build Check 绿色。
-- [ ] 注解标签 fork.26，镜像构建成功；校验 Latest/非预发布/资产集/compose/脚本/gost SHA256。
+- [x] 注解标签 fork.26，镜像构建成功；校验 Latest/非预发布/资产集/compose/脚本/gost SHA256。
 - [ ] 建立生产回滚点，升级 backend/frontend。
 - [ ] 生产只读验证健康、指标、新列默认值、API 权限、JS；列出候选节点/隧道。
 - [ ] 中文总结写入运行目录，提交 `docs(plan): mark fork26 rollout complete` 并推送。
@@ -28,10 +28,16 @@
 
 - 前端 `tsc --noEmit` 与 `npm run build` 通过，主 JS 2,751,911 B，距 5 MiB 限制剩 2,490,969 B；未调整依赖或打包策略。
 
-- 生产副本 2026-10-07 17:03 UTC：quick_check=ok，28 节点、51 隧道、166 chain_tunnel 行；使用 fork.25 与当前源码提取的 Go 函数比较全部 138 个相邻跳节点组合，差异 **0**（old→new 表为空），意外差异 **0**。运行目录 gate-input.json / gate-result.json / dial_gate.go 可复核。
+- 生产副本 2026-10-07 16:03 UTC：quick_check=ok，28 节点、51 隧道、166 chain_tunnel 行；使用 fork.25 与当前源码提取的 Go 函数比较全部 138 个相邻跳节点组合，差异 **0**（old→new 表为空），意外差异 **0**。运行目录 gate-input.json / gate-result.json / dial_gate.go 可复核。
 - 后端全量测试失败集合与已知基线完全一致：19/19，无新增、无缺失；原有 connect_ip 相关失败保留。
 
 - 本地隔离 namespace + SQLite 副本，paneld 仅 127.0.0.1:16365，合成节点 901–904 与隧道 76；模拟节点记录真实 AES WebSocket AddChains。所有构建、Go 测试、paneld、Chromium 串行运行。
 - 浏览器阶段使用本地 API 的真实响应快照，生成原始保存 payload；关闭 Chromium 后通过本地 API 执行，数据库与 API 重读确认：出站 dual、自动空类型、各节点独立 v4/v6 均正确。来源 901 仅 v6 入口且 egress=''，显式 v4 下发 `192.0.2.2:20502`。详见 local-api-checks.json。
-- 1440/390 节点表单、中继表单、多出口表单共 6 张首轮截图：screens/seed-*.png；3 个逐节点下拉框，未标记出站提示不阻止保存，无页面错误、遗漏请求或横向溢出。后续浏览器复查因主机可用内存低于 900 MiB 被守卫阻止启动；真实保存后的 API 重读已通过。
+- 1440/390 节点表单、中继表单、多出口表单共 6 张首轮截图：screens/seed-*.png；3 个逐节点下拉框，未标记出站提示不阻止保存，无页面错误、遗漏请求或横向溢出。后续浏览器曾因可用内存低于 900 MiB 被守卫阻止启动；待内存恢复后，真实保存结果在 1440/390 重新加载全部通过，新增 screens/save-*.png 6 张，无错误。
 - CI Build Check [37649719753](https://github.com/ImoLR/FLVXR2/actions/runs/37649719753) 四项成功（后端、前端、PG 契约、代理构建）。
+
+- 标签前最新提交 CI [37650449769](https://github.com/ImoLR/FLVXR2/actions/runs/37650449769) 四项成功；注解标签 `3.0.27-fork.26` 指向 `cb67b884`，构建发布 run [37650781150](https://github.com/ImoLR/FLVXR2/actions/runs/37650781150)。
+
+- 额外核对 best-exit 调用修复影响：生产副本 `strategy=best` 为 0 行、自定义 `connect_ip` 为 0 行，当前运行链路不受该调用修正影响。
+
+- Release 2026-10-07T16:34:00Z 发布，Latest、非预发布，10 资产与 fork.25 同名，全部 SHA256/digest、两份 compose 镜像、安装脚本 PINNED_VERSION/REPO、两架构 gost 及 offline zip 内代理二进制校验通过。GHCR backend/frontend 均有 amd64/arm64。
