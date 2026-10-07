@@ -26,7 +26,7 @@ vite-frontend/
 │   └── provider.tsx              # Toast/theme/provider composition
 ├── components.json               # shadcn/ui config
 ├── tailwind.config.js            # Compatibility config for migration scaffolding
-├── vite.config.ts                # base '/', host 0.0.0.0:3000; minify/treeshake disabled
+├── vite.config.ts                # base '/', host 0.0.0.0:3000; minify enabled, treeshake disabled
 └── package.json
 ```
 
@@ -47,7 +47,7 @@ vite-frontend/
 - **API Envelope**: Responses follow `{code, msg, data, ts}`.
 - **UI Imports**: Use `src/shadcn-bridge/heroui/*` in app pages/layouts for compatibility.
 - **Semantic Colors**: Keep `globals.css -> tailwind-theme.pcss` import intact or semantic classes break.
-- **Build profile**: `minify: false`, `treeshake: false` for debugging.
+- **Build profile**: `minify: true`, `treeshake: false` to stay below the PWA precache limit.
 - **Layout mode**: H5/mobile mode controlled by existing route/query and hook logic.
 
 ## ANTI-PATTERNS
@@ -58,7 +58,7 @@ vite-frontend/
 
 ## NOTES
 - Uses `rolldown-vite` (experimental Rust bundler) instead of standard Vite.
-- Build outputs are non-minified (debugging mode).
+- Build outputs are minified; treeshake remains disabled.
 - No test infrastructure exists (Vitest/Jest not configured).
 
 ## COMMANDS

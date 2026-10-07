@@ -97,11 +97,11 @@ docker compose -f docker-compose-v6.yml up -d
 - **Asymmetric Go Layout**: `go-backend` follows `cmd/<app>/main.go` while `go-gost` uses `root/main.go`.
 - **Frontend Hybrid Mode**: `App.tsx` detects "H5 mode" (mobile WebView) vs desktop, dictating layout strategy.
 - **Experimental Bundler**: `vite-frontend` uses `rolldown-vite` (Rust-based) instead of standard Vite.
-- **Non-minified Builds**: `vite.config.ts` sets `minify: false`, `treeshake: false` for debugging.
+- **Build Profile**: `vite.config.ts` sets `minify: true`, `treeshake: false` to keep bundles below the PWA precache limit.
 
 ## NOTES
 - LSP servers are not installed in this environment (gopls/typescript-language-server); rely on grep-based navigation.
-- `vite-frontend/vite.config.ts` sets `minify: false` and disables treeshake; expect larger bundles.
+- `vite-frontend/vite.config.ts` enables minification and disables treeshake; the PWA precache per-file limit is 5 MiB.
 - `vite-frontend` uses `rolldown-vite` (experimental Rust bundler) instead of standard Vite.
 - Install scripts (`install.sh`, `panel_install.sh`) self-delete after execution - common pattern in one-liner installs.
 - CI uses UPX compression (`--best --lzma`) on Go binaries before release.

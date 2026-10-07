@@ -65,7 +65,7 @@ export default defineConfig({
   build: {
     outDir: "dist",
     sourcemap: false,
-    minify: false,
+    minify: true,
     rollupOptions: {
       treeshake: false,
     },

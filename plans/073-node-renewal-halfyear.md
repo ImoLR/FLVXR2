@@ -4,8 +4,8 @@
 
 - [x] 阅读发布/自主工作流程和目录规则，从 `2a9b3924` 建立 `maintenance/3.0.27-fork.25-renewal-halfyear`。
 - [x] 修复所有不匹配的续费周期读取点并增加 Go 回归测试。
-- [ ] 仅开启 minify，更新两份 AGENTS 构建说明，记录主 JS 大小。
-- [ ] 完成 Go 相关包、全量基线对比、TypeScript 与生产构建验证。
+- [x] 仅开启 minify，更新两份 AGENTS 构建说明，记录主 JS 大小。
+- [x] 完成 Go 相关包、全量基线对比、TypeScript 与生产构建验证。
 - [ ] 生产数据库在线备份到运行目录；本地副本验证半年提醒、节点显示、编辑预选及保存不变；桌面/手机检查四页并截图。
 - [ ] 推送分支，CI Build Check 通过；创建注解标签 fork.25，验证镜像构建及全部 release 资产。
 - [ ] 建立生产回滚点，安装 v6 compose，升级 backend/frontend。
@@ -28,3 +28,6 @@
 待执行。运行产物：`/root/flvx-workers/runs/renewal-halfyear/`。
 
 - 新增 `TestNodeHalfYearRenewalReaders`：三种大小写的手动提醒推进 6 个月、自动推进 6 个月、流量重置候选查询及保存周期不变均通过。
+
+- Go repository 包通过；全量后端失败集合与 `/root/flvx-fork10/base.fails` 完全一致（19/19，无新增/缺失）。`npx tsc --noEmit`、`npm run build` 通过。
+- 实测 fork.24 线上主 JS 5,242,299 B（余 581 B）；本地 minify 构建 2,752,478 B（余 2,490,402 B），treeshake 不变。
