@@ -110,7 +110,7 @@ import {
 import { buildForwardOrder, FORWARD_ORDER_KEY } from "@/pages/forward/order";
 import { PageLoadingState } from "@/components/page-state";
 import { usePullToRefresh } from "@/hooks/usePullToRefresh";
-// import { useMobileBreakpoint } from "@/hooks/useMobileBreakpoint";
+import { useMobileBreakpoint } from "@/hooks/useMobileBreakpoint";
 import { saveOrder } from "@/utils/order-storage";
 import { JwtUtil } from "@/utils/jwt";
 import { timestampToCalendarDate, calendarDateToTimestamp } from "@/utils/date";
@@ -1508,7 +1508,7 @@ export default function ForwardPage() {
   );
   const [groupPage, setGroupPage] = useState(1);
   const [groupPageSize, setGroupPageSize] = useState(10);
-  //   const isMobile = useMobileBreakpoint();
+  const isMobile = useMobileBreakpoint();
   // searchKeyword removed
   // isSearchVisible removed
   const [compactMode, setCompactMode] = useState(false);
@@ -4498,6 +4498,132 @@ export default function ForwardPage() {
     const statusDisplay = getStatusDisplay(forward.status);
     const strategyDisplay = getStrategyDisplay(forward.strategy);
 
+    if (isMobile) {
+      const isCardMode = compactMode && viewMode === "direct";
+      const mobileStatus = isCardMode
+        ? statusDisplay
+        : getStatusDisplay(forward.serviceRunning ? 1 : 0);
+      const entryAddress = formatInAddress(forward.inIp, forward.inPort) || `默认IP:${forward.inPort}`;
+      const tunnelName = normalizeForwardTunnelName(forward.tunnelName);
+
+      return (
+        <Card
+          key={forward.id}
+          className={`min-w-0 h-full border-divider shadow-sm ${selectedIds.has(forward.id) ? "bg-primary-50/70 dark:bg-primary-900/40" : ""}`}
+        >
+          <CardHeader className="p-3 pb-2 gap-2">
+            <div className="flex items-center gap-2 min-w-0 w-full">
+              <Checkbox
+                aria-label={`选择规则 ${forward.name}`}
+                className="shrink-0"
+                isSelected={selectedIds.has(forward.id)}
+                onValueChange={() => toggleSelect(forward.id)}
+              />
+              <button
+                className="min-w-0 flex-1 truncate text-left text-sm font-bold text-foreground hover:text-primary"
+                title={forward.name}
+                type="button"
+                onClick={() => copyToClipboard(forward.name, "规则名称")}
+              >
+                {forward.name}
+              </button>
+              <span
+                className={`shrink-0 rounded px-1.5 py-0.5 text-xs font-medium ${mobileStatus.color === "success" ? "bg-success-500/10 text-success-600 dark:text-success-400" : mobileStatus.color === "warning" ? "bg-warning-500/10 text-warning-600 dark:text-warning-400" : mobileStatus.color === "danger" ? "bg-danger-500/10 text-danger-600 dark:text-danger-400" : "bg-default-100 text-default-500"}`}
+              >
+                {mobileStatus.text}
+              </span>
+              <Switch
+                aria-label={`${forward.serviceRunning ? "暂停" : "启用"}规则 ${forward.name}`}
+                isDisabled={togglingIds.has(forward.id) || (isCardMode && forward.status !== 1 && forward.status !== 0)}
+                isSelected={forward.serviceRunning}
+                size="sm"
+                onValueChange={() => handleServiceToggle(forward)}
+              />
+            </div>
+            <div className="flex items-center gap-2 min-w-0 w-full">
+              <button
+                className="min-w-0 flex-1 text-left text-xs text-default-600 break-all"
+                title={tunnelName}
+                type="button"
+                onClick={() => copyToClipboard(tunnelName, "隧道名称")}
+              >
+                隧道 · {tunnelName}
+                <span className="ml-1 text-primary font-semibold">^{formatTunnelTrafficRatio(forward.tunnelTrafficRatio)}</span>
+              </button>
+              <span className="shrink-0 rounded bg-default-100 px-1.5 py-0.5 text-xs text-default-500">
+                {strategyDisplay.text}
+              </span>
+              <Button
+                isIconOnly
+                aria-label="拖拽排序"
+                className="h-7 w-7 min-w-7 shrink-0 cursor-grab text-default-400 active:cursor-grabbing"
+                size="sm"
+                style={{ touchAction: "none" }}
+                title="拖拽排序"
+                variant="light"
+                {...listeners}
+              >
+                <svg aria-hidden="true" className="h-4 w-4" fill="currentColor" viewBox="0 0 20 20">
+                  <path d="M7 2a2 2 0 1 1 .001 4.001A2 2 0 0 1 7 2zm0 6a2 2 0 1 1 .001 4.001A2 2 0 0 1 7 8zm0 6a2 2 0 1 1 .001 4.001A2 2 0 0 1 7 14zm6-8a2 2 0 1 1-.001-4.001A2 2 0 0 1 13 6zm0 2a2 2 0 1 1 .001 4.001A2 2 0 0 1 13 8zm0 6a2 2 0 1 1 .001 4.001A2 2 0 0 1 13 14z" />
+                </svg>
+              </Button>
+            </div>
+            {(forward.mode === "nftables" || (isAdmin && !isCardMode)) && (
+              <div className="flex flex-wrap gap-1.5 text-xs text-default-500 break-all">
+                {isAdmin && !isCardMode && <span>用户 · {forward.userRemark?.trim() || forward.userName || "-"}</span>}
+                {forward.mode === "nftables" && <span className="rounded bg-primary-500/10 px-1.5 text-primary">nft</span>}
+              </div>
+            )}
+            <ForwardCNBlockedWarning forward={forward} />
+          </CardHeader>
+          <CardBody className="min-w-0 px-3 pb-3 pt-0 space-y-3">
+            <div className="space-y-2 rounded-lg bg-default-100/60 p-2.5 divide-y divide-divider">
+              {[
+                { label: "入口地址", value: forward.inIp || entryAddress, display: entryAddress, port: forward.inIp ? forward.inPort : null },
+                { label: "落地地址", value: forward.remoteAddr, display: formatRemoteAddress(forward.remoteAddr) || "-", port: null },
+              ].map((address) => (
+                <div key={address.label} className="space-y-1 min-w-0 not-first:pt-2">
+                  <div className="text-[11px] text-default-500">{address.label} · 端口</div>
+                  <button
+                    className="block w-full min-w-0 text-left font-mono text-xs leading-relaxed text-foreground break-all hover:text-primary"
+                    title={address.value}
+                    type="button"
+                    onClick={() => showAddressModal(address.value, address.port, address.label)}
+                  >
+                    {address.display}
+                  </button>
+                </div>
+              ))}
+            </div>
+            <div className="flex flex-wrap gap-1.5 text-[11px]">
+              {[
+                ["上行流量", `↑ ${formatFlow(forward.inFlow || 0)}`, "bg-primary-500/10 text-primary"],
+                ["下行流量", `↓ ${formatFlow(forward.outFlow || 0)}`, "bg-secondary-500/10 text-secondary"],
+                ["用量", `用量 ${formatFlow(isCardMode ? (forward.inFlow || 0) + (forward.outFlow || 0) : getForwardDisplayFlow(forward))}${isCardMode ? "" : " ▾"}`, "bg-default-100 text-default-600"],
+                ["上行带宽", `↑ ${formatSpeed(forward.inSpeed || 0)}`, "bg-primary-500/10 text-primary"],
+                ["下行带宽", `↓ ${formatSpeed(forward.outSpeed || 0)}`, "bg-secondary-500/10 text-secondary"],
+                ["当前连接数", `${forward.currentConnections ?? 0} 连接`, "bg-success-500/10 text-success-600 dark:text-success-400"],
+              ].map(([label, value, color]) => label === "用量" && !isCardMode ? (
+                <button key={label} className={`rounded px-2 py-1 hover:text-primary ${color}`} title="查看流量归零日志" type="button" onClick={() => handleViewTrafficResetLogs(forward)}>{value}</button>
+              ) : (
+                <span key={label} className={`rounded px-2 py-1 ${color}`} title={label}>{value}</span>
+              ))}
+            </div>
+            <div className="grid grid-cols-4 gap-1.5 border-t border-divider pt-3">
+              {([
+                ["编辑", "primary", handleEdit],
+                ["复制", "warning", handleCopy],
+                ["诊断", "secondary", handleDiagnose],
+                ["删除", "danger", handleDelete],
+              ] as const).map(([label, color, action]) => (
+                <Button key={label} className="min-w-0 px-1" color={color} size="sm" variant="flat" onPress={() => action(forward)}>{label}</Button>
+              ))}
+            </div>
+          </CardBody>
+        </Card>
+      );
+    }
+
     return (
       <Card
         key={forward.id}
@@ -4768,8 +4894,8 @@ export default function ForwardPage() {
   return (
     <AnimatedPage className="px-3 lg:px-6 py-8">
       {/* 页面头部 */}
-      <div className="flex items-center mb-6 gap-3">
-        <div className="flex items-center gap-2">
+      <div className="flex items-center mb-6 gap-3 max-md:flex-wrap">
+        <div className="flex items-center gap-2 max-md:flex-wrap max-md:min-w-0 max-md:w-full">
           {selectedIds.size > 0 ? (
             <>
               <Button
@@ -4929,6 +5055,61 @@ export default function ForwardPage() {
           )}
         </div>
       </div>
+      {isMobile && (isAdmin || compactMode) && (!compactMode || viewMode === "grouped") && (
+        <div className={`grid gap-2 mb-4 ${isAdmin && compactMode ? "grid-cols-2" : "grid-cols-1"}`}>
+          {isAdmin && (
+            <Select
+              aria-label="按用户筛选"
+              className="min-w-0"
+              label="所属用户"
+              selectedKeys={[searchParams.userId || "all"]}
+              size="sm"
+              variant="flat"
+              onSelectionChange={(keys) => {
+                const key = Array.from(keys)[0] as string | undefined;
+                setSearchParams((prev) => ({ ...prev, userId: key || "all" }));
+              }}
+            >
+              <SelectItem key="all" textValue="全部用户">全部用户</SelectItem>
+              {uniqueUsers.map((user) => <SelectItem key={String(user.id)} textValue={user.name}>{user.name}</SelectItem>)}
+            </Select>
+          )}
+          {compactMode && (
+            <Select
+              aria-label="按所属隧道筛选"
+              className="min-w-0"
+              label="隧道名称"
+              selectedKeys={searchParams.tunnelId !== "all" ? tunnelPickerKey(filterTunnelSections, Number(searchParams.tunnelId), filterTunnelOptionKey) : ["all"]}
+              size="sm"
+              variant="flat"
+              onSelectionChange={(keys) => {
+                const key = Array.from(keys)[0] as string | undefined;
+                setFilterTunnelOptionKey(key || "");
+                setSearchParams((prev) => ({
+                  ...prev,
+                  tunnelId: key && tunnelPickerIds.has(key) ? String(tunnelPickerIds.get(key)) : "all",
+                }));
+              }}
+            >
+              <SelectItem key="all" textValue="全部隧道">全部隧道</SelectItem>
+              {filterTunnelSections.map((section) => (
+                <SelectSection
+                  key={section.key}
+                  description={isAdmin && section.region === "" ? "出口节点未设置地区，可在节点页设置" : undefined}
+                  title={section.label}
+                  tooltip={section.region === MULTI_REGION ? exitRegionLabel(section.options.flatMap(({ tunnel }) => tunnel.exitRegions || [])) : undefined}
+                >
+                  {section.options.map(({ key, tunnel }) => (
+                    <SelectItem key={key} textValue={`${tunnel.name}${tunnel.remark ? ` (${tunnel.remark})` : ""}${section.region === MULTI_REGION ? ` · ${exitRegionLabel(tunnel.exitRegions)}` : ""}`}>
+                      {tunnel.name}
+                    </SelectItem>
+                  ))}
+                </SelectSection>
+              ))}
+            </Select>
+          )}
+        </div>
+      )}
       {batchProgress.active && (
         <div className="mb-4">
           <Alert
@@ -4970,6 +5151,17 @@ export default function ForwardPage() {
                     items={sortableForwardIds}
                     strategy={verticalListSortingStrategy}
                   >
+                    {isMobile ? (
+                      <div className="space-y-3 p-2">
+                        <div className="flex flex-wrap items-center justify-between gap-2 px-1 py-1 text-xs text-default-500">
+                          <Checkbox aria-label="全选" isSelected={isAllSelected} onValueChange={handleSelectAllToggle}>全选</Checkbox>
+                          <span>{sortedForwards.length} 个规则</span>
+                        </div>
+                        {paginatedForwards.map((forward) => (
+                          <SortableForwardCard key={forward.id} forward={forward} renderCard={renderForwardCard} />
+                        ))}
+                      </div>
+                    ) : (
                     <Table
                       aria-label="全部规则列表"
                       className={FORWARD_GROUPED_TABLE_MIN_WIDTH_CLASS}
@@ -5154,6 +5346,7 @@ export default function ForwardPage() {
                         )}
                       </TableBody>
                     </Table>
+                    )}
                   </SortableContext>
                 </DndContext>
               </div>
@@ -5174,19 +5367,19 @@ export default function ForwardPage() {
           <>
             {paginationUI}
             <div className="overflow-hidden rounded-xl border border-divider bg-content1 shadow-md">
-              <div className="flex items-center justify-between border-b border-divider bg-default-100/40 px-4 py-3">
-                <div className="flex items-center gap-2">
-                  <span className="text-sm font-semibold text-foreground">
+              <div className="flex items-center justify-between border-b border-divider bg-default-100/40 px-4 py-3 max-md:gap-2">
+                <div className="flex items-center gap-2 max-md:min-w-0">
+                  <span className="text-sm font-semibold text-foreground max-md:break-all">
                     {paginatedForwards[0]?.userRemark?.trim() ||
                       paginatedForwards[0]?.userName ||
                       "全部规则"}
                   </span>
                 </div>
-                <span className="text-xs text-default-500">
+                <span className="text-xs text-default-500 max-md:shrink-0">
                   {sortedForwards.length} 个规则
                 </span>
               </div>
-              <div className="p-4">
+              <div className={isMobile ? "p-2" : "p-4"}>
                 <DndContext
                   collisionDetection={pointerWithin}
                   sensors={sensors}
@@ -5197,7 +5390,7 @@ export default function ForwardPage() {
                     items={sortableForwardIds}
                     strategy={rectSortingStrategy}
                   >
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-4">
+                    <div className={isMobile ? "grid grid-cols-1 gap-3" : "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-4"}>
                       {paginatedForwards.map((forward) =>
                         forward && forward.id ? (
                           <SortableForwardCard
@@ -5240,17 +5433,17 @@ export default function ForwardPage() {
                   key={`grouped-table-${group.userId}-${group.userName}`}
                   className="overflow-hidden rounded-xl border border-divider bg-content1 shadow-md"
                 >
-                  <div className="flex items-center justify-between border-b border-divider bg-default-100/40 px-4 py-3">
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-semibold text-foreground">
+                  <div className="flex items-center justify-between border-b border-divider bg-default-100/40 px-4 py-3 max-md:gap-2">
+                    <div className="flex items-center gap-2 max-md:min-w-0">
+                      <span className="text-sm font-semibold text-foreground max-md:break-all">
                         {group.userName}
                       </span>
                     </div>
-                    <span className="text-xs text-default-500">
+                    <span className="text-xs text-default-500 max-md:shrink-0">
                       {groupForwardCount} 个规则
                     </span>
                   </div>
-                  <div className="space-y-4 p-4">
+                  <div className={isMobile ? "space-y-3 p-2" : "space-y-4 p-4"}>
                     <DndContext
                       collisionDetection={pointerWithin}
                       sensors={sensors}
@@ -5284,8 +5477,8 @@ export default function ForwardPage() {
                               collapsed={collapsed}
                               countClassName="text-xs text-default-600"
                               groupUserId={group.userId}
-                              headerClassName="flex items-center justify-between border-b border-divider bg-default-100/50 hover:bg-default-200/50 px-4 py-2.5"
-                              titleClassName="truncate text-sm font-semibold text-foreground"
+                              headerClassName="flex items-center justify-between border-b border-divider bg-default-100/50 hover:bg-default-200/50 px-4 py-2.5 max-md:px-2 max-md:gap-1"
+                              titleClassName={isMobile ? "min-w-0 break-all text-sm font-semibold text-foreground" : "truncate text-sm font-semibold text-foreground"}
                               tunnel={tunnel}
                               wrapperClassName="overflow-hidden rounded-lg border border-divider bg-content1"
                               onToggleCollapsed={() =>
@@ -5320,7 +5513,16 @@ export default function ForwardPage() {
                                     setSelectedIds(next);
                                   };
 
-                                  return (
+                                  return isMobile ? (
+                                    <SortableContext items={tunnelSortableForwardIds} strategy={verticalListSortingStrategy}>
+                                      <div className="space-y-3 p-2">
+                                        <Checkbox aria-label="本组全选" className="px-1 py-1" isSelected={isGroupSelected} onValueChange={handleGroupToggle}>本组全选</Checkbox>
+                                        {tunnel.items.map((forward) => (
+                                          <SortableForwardCard key={forward.id} forward={forward} renderCard={renderForwardCard} />
+                                        ))}
+                                      </div>
+                                    </SortableContext>
+                                  ) : (
                                     <Table
                                       aria-label={`${group.userName}-${tunnel.tunnelName}规则列表`}
                                       className={
@@ -6069,10 +6271,11 @@ export default function ForwardPage() {
                   key={item.id}
                   className="flex justify-between items-center p-3 border border-default-200 dark:border-default-100 rounded-lg"
                 >
-                  <code className="text-sm flex-1 mr-3 text-foreground">
+                  <code className="text-sm flex-1 mr-3 text-foreground max-md:min-w-0 max-md:break-all">
                     {item.address}
                   </code>
                   <Button
+                    className="max-md:shrink-0"
                     isLoading={item.copying}
                     size="sm"
                     variant="flat"
