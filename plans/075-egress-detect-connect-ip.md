@@ -9,7 +9,7 @@
 - [x] Panel 探测列、change-only 更新、API/备份与 additive 有效出站；相关单测。
 - [x] ConnectIP 运行时共享选择、诊断/探测/best-exit、校验与更新清空；修复两项既有失败。
 - [x] 节点探测展示、隧道自定义 IP 输入与读写；类型检查及生产构建。
-- [ ] 在线生产副本：fork.26 与新逻辑全部相邻跳对比为 0；记录假设全部 detected dual 的变化。
+- [x] 在线生产副本：fork.26 与新逻辑全部相邻跳对比为 0；记录假设全部 detected dual 的变化。
 - [ ] 本地隔离 paneld:16365 + 遥测 harness + 配置/诊断验证；1440/390 节点与隧道表单截图。
 - [ ] 后端全量测试：基线仅减少指定两项及其子测试；CI Build Check 成功。
 - [ ] 注解标签、Build and Push Images 成功；Latest/资产集/compose/安装脚本/sha256 校验。
@@ -33,3 +33,5 @@
 - 后端定向测试通过：additive/manual/no-detection 矩阵、API/备份往返、重复上报与重连仅 change-only 更新、literal IP/多节点校验、创建/更新/清空、自定义链配置/探测/best-exit。两个原基线测试及普通/流式诊断子测试均通过。
 
 - 前端 `tsc --noEmit` 与 `npm run build` 通过，主 JS 2,753,064 B，PWA 5 MiB 余量 2,489,816 B。
+
+- 在线生产副本：quick_check=ok；28 节点、53 隧道、169 chain_tunnel 行，139 个相邻跳组合。提取 fork.26/当前 Go 函数比较，无检测数据差异 **0**；全部 detected=dual 的假设变化也为 **0**。生产非空 connect_ip 为 0。详见 gate-input.json / gate-result.json / dial_gate.go。
