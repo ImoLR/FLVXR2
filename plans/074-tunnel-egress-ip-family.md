@@ -10,7 +10,7 @@
 - [x] 后端全量测试与 19 个已知失败基线集合一致；推送分支并确认 CI Build Check 绿色。
 - [x] 注解标签 fork.26，镜像构建成功；校验 Latest/非预发布/资产集/compose/脚本/gost SHA256。
 - [x] 建立生产回滚点，升级 backend/frontend。
-- [ ] 生产只读验证健康、指标、新列默认值、API 权限、JS；列出候选节点/隧道。
+- [x] 生产只读验证健康、指标、新列默认值、API 权限、JS；列出候选节点/隧道。
 - [ ] 中文总结写入运行目录，提交 `docs(plan): mark fork26 rollout complete` 并推送。
 
 运行目录：`/root/flvx-workers/runs/tunnel-egress-family/`。临时目录均位于此目录；重型进程串行运行。
@@ -24,7 +24,7 @@
 
 ## 发布与回滚记录
 
-待执行。
+详见以下记录及运行目录 backup.json、release/verification.json、prod-after.json。
 
 - 前端 `tsc --noEmit` 与 `npm run build` 通过，主 JS 2,751,911 B，距 5 MiB 限制剩 2,490,969 B；未调整依赖或打包策略。
 
@@ -43,3 +43,8 @@
 - Release 2026-10-07T16:34:00Z 发布，Latest、非预发布，10 资产与 fork.25 同名，全部 SHA256/digest、两份 compose 镜像、安装脚本 PINNED_VERSION/REPO、两架构 gost 及 offline zip 内代理二进制校验通过。GHCR backend/frontend 均有 amd64/arm64。
 
 - 生产回滚点 `/opt/flvx-svc/rollback/pre-fork26-20261007T161704Z`：compose/.env、366,944,256 B 在线数据库（quick_check=ok、62 表 counts）、fork.25 本地镜像标签及 ROLLBACK-METADATA.md。安装已验证 v6 compose，仅改两个镜像版本和 FLUX_VERSION；pull/up backend/frontend 完成，backend healthy。
+
+- 生产 backend/frontend 于 2026-10-07 16:36:17/22 UTC 启动 fork.26；backend healthy，前端 HTTP/资源正常；25 节点指标推进且晚于重启时间。管理员节点/隧道列表 28/51 条，非管理员节点列表 HTTP 200/code=403/data=null，未泄露新字段。
+- 新列 `egress_ip_family varchar(10) NOT NULL DEFAULT ''` 存在，28/28 节点均为空；节点地址及隧道/chain_tunnel 记录未改变。初次比较把随遥测更新的 node.updated_time 当作静态配置而报差异；逐字段核实仅该时间变化，排除运行时字段后全部一致，证据 prod-node-diff.json。
+- 线上主 JS `/assets/index-B2RxiZAI.js` 为 2,754,644 B，包含 fork.26 与新的出站/逐跳选择器文案，仍低于 PWA 5 MiB。
+- 生产候选仅 IPv6 入口节点：48「Leikwanhost 沪台IPLC」、50「vmsilo 沪港」；其作为双栈下一跳前驱的隧道组合为 0。未更改这两节点设置，未调用生产隧道保存/重新部署接口。服务重启时原有自动重连配置下发正常完成。
