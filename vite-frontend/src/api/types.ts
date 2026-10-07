@@ -9,7 +9,7 @@ export interface NodeApiItem {
   canDeploy?: boolean;
   remark?: string;
   expiryTime?: number;
-  renewalCycle?: "month" | "quarter" | "halfYear" | "" | "year";
+  renewalCycle?: "month" | "quarter" | "halfYear" | "halfyear" | "" | "year";
   expiryReminderDismissed?: number;
   syncError?: string;
   // 周期流量统计
@@ -568,7 +568,7 @@ export interface NodeMutationPayload {
   inx?: number;
   remark?: string;
   expiryTime?: number;
-  renewalCycle?: "month" | "quarter" | "halfYear" | "" | "year";
+  renewalCycle?: "month" | "quarter" | "halfYear" | "halfyear" | "" | "year";
   groupId?: number | null;
   serverIp?: string;
   intranetIp?: string;

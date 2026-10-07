@@ -97,6 +97,7 @@ import { timestampToCalendarDate, calendarDateToTimestamp } from "@/utils/date";
 import { getConnectionStatusMeta } from "@/pages/node/display";
 import {
   getNodeRenewalSnapshot,
+  normalizeNodeRenewalCycle,
   formatNodeRenewalTime,
   type NodeRenewalCycle,
 } from "@/pages/node/renewal";
@@ -1125,7 +1126,7 @@ export default function NodePage() {
       region: node.region || "",
       regionCity: node.regionCity || "",
       expiryTime: node.expiryTime || 0,
-      renewalCycle: node.renewalCycle || "",
+      renewalCycle: normalizeNodeRenewalCycle(node.renewalCycle),
       groupId: node.groupId || null,
       intranetIp: node.intranetIp || "",
       serverIpV4: node.serverIpV4 || "",

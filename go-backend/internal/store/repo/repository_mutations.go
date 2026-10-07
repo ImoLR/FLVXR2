@@ -877,12 +877,12 @@ func (r *Repository) RefreshNodeExpiryReminder(nodeID int64) error {
 	nextExpiry := baseTime
 
 	intervalMonths := 0
-	switch node.RenewalCycle {
+	switch strings.ToLower(strings.TrimSpace(node.RenewalCycle)) {
 	case "month":
 		intervalMonths = 1
 	case "quarter":
 		intervalMonths = 3
-	case "halfYear":
+	case "halfyear":
 		intervalMonths = 6
 	case "year":
 		intervalMonths = 12
@@ -3038,7 +3038,7 @@ func (r *Repository) AdvanceNodeRenewalCycles(now int64) ([]NodeRenewalResult, e
 		}
 
 		cycleMonths := 0
-		switch node.RenewalCycle.String {
+		switch strings.ToLower(strings.TrimSpace(node.RenewalCycle.String)) {
 		case "month":
 			cycleMonths = 1
 		case "quarter":

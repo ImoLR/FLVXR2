@@ -16,7 +16,11 @@ import {
   deleteUserQuotaHistory,
   type AnnouncementData,
 } from "@/api";
-import { getNodeRenewalSnapshot } from "@/pages/node/renewal";
+import {
+  getNodeRenewalSnapshot,
+  normalizeNodeRenewalCycle,
+  type NodeRenewalCycle,
+} from "@/pages/node/renewal";
 import { getAdminFlag } from "@/utils/session";
 
 export interface DashboardUserInfo {
@@ -75,15 +79,13 @@ export interface DashboardNodeExpiryItem {
   name: string;
   remark?: string;
   expiryTime?: number;
-  renewalCycle?: "month" | "quarter" | "year" | "";
+  renewalCycle?: NodeRenewalCycle;
 }
 
 const normalizeDashboardRenewalCycle = (
   value: unknown,
 ): DashboardNodeExpiryItem["renewalCycle"] => {
-  return value === "month" || value === "quarter" || value === "year"
-    ? value
-    : "";
+  return normalizeNodeRenewalCycle(value);
 };
 
 const DASHBOARD_POLL_INTERVAL_MS = 5000;

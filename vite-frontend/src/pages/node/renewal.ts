@@ -1,5 +1,22 @@
 export type NodeRenewalCycle = "" | "month" | "quarter" | "halfYear" | "year";
 
+export const normalizeNodeRenewalCycle = (value: unknown): NodeRenewalCycle => {
+  if (typeof value !== "string") return "";
+
+  switch (value.trim().toLowerCase()) {
+    case "month":
+      return "month";
+    case "quarter":
+      return "quarter";
+    case "halfyear":
+      return "halfYear";
+    case "year":
+      return "year";
+    default:
+      return "";
+  }
+};
+
 export interface NodeRenewalSnapshot {
   cycle: NodeRenewalCycle;
   anchorTime?: number;
@@ -19,7 +36,7 @@ const addMonths = (timestamp: number, months: number): number => {
 };
 
 const cycleToMonths = (cycle: NodeRenewalCycle): number => {
-  switch (cycle) {
+  switch (normalizeNodeRenewalCycle(cycle)) {
     case "month":
       return 1;
     case "quarter":
@@ -34,7 +51,7 @@ const cycleToMonths = (cycle: NodeRenewalCycle): number => {
 };
 
 export const getNodeRenewalCycleLabel = (cycle?: string): string => {
-  switch (cycle) {
+  switch (normalizeNodeRenewalCycle(cycle)) {
     case "month":
       return "月付";
     case "quarter":
@@ -53,13 +70,7 @@ export const getNodeRenewalSnapshot = (
   cycle?: string,
   warningDays = 7,
 ): NodeRenewalSnapshot => {
-  const normalizedCycle =
-    cycle === "month" ||
-    cycle === "quarter" ||
-    cycle === "halfYear" ||
-    cycle === "year"
-      ? cycle
-      : "";
+  const normalizedCycle = normalizeNodeRenewalCycle(cycle);
 
   if (!anchorTime || anchorTime <= 0 || !normalizedCycle) {
     return {
