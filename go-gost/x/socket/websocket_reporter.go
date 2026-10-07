@@ -43,6 +43,7 @@ import (
 
 // SystemInfo 系统信息结构体
 type SystemInfo struct {
+	EgressIPFamily         string                    `json:"egress_ip_family,omitempty"`
 	Uptime                 uint64                    `json:"uptime"`
 	BytesReceived          uint64                    `json:"bytes_received"`
 	BytesTransmitted       uint64                    `json:"bytes_transmitted"`
@@ -180,6 +181,7 @@ const (
 )
 
 type WebSocketReporter struct {
+	egress            egressDetector
 	url               string
 	addr              string // 保存服务器地址
 	secret            string // 保存密钥
@@ -233,6 +235,7 @@ func NewWebSocketReporter(serverURL string, secret string) *WebSocketReporter {
 
 // Start 启动WebSocket报告器
 func (w *WebSocketReporter) Start() {
+	go w.egress.run(w.ctx, (&net.Dialer{}).DialContext)
 	go w.run()
 }
 
@@ -926,6 +929,7 @@ func (w *WebSocketReporter) collectSystemInfo() SystemInfo {
 	}
 
 	return SystemInfo{
+		EgressIPFamily:         w.egress.family(),
 		Uptime:                 getUptime(),
 		BytesReceived:          networkStats.BytesReceived,
 		BytesTransmitted:       networkStats.BytesTransmitted,

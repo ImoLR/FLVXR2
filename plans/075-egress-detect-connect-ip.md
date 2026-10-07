@@ -5,7 +5,7 @@
 运行目录：`/root/flvx-workers/runs/egress-detect-connect-ip/`；TMPDIR/GOTMPDIR 使用其 `t/`，重型进程串行。
 
 - [x] 阅读 plan 074、仓库规则与发布记忆，从 `7af40d9b` 建立指定分支。
-- [ ] Agent TCP v4/v6 探测、异步缓存与 SystemInfo 字段；注入 dialer 单测、相关包测试和构建。
+- [x] Agent TCP v4/v6 探测、异步缓存与 SystemInfo 字段；注入 dialer 单测、相关包测试和构建。
 - [ ] Panel 探测列、change-only 更新、API/备份与 additive 有效出站；相关单测。
 - [ ] ConnectIP 运行时共享选择、诊断/探测/best-exit、校验与更新清空；修复两项既有失败。
 - [ ] 节点探测展示、隧道自定义 IP 输入与读写；类型检查及生产构建。
@@ -27,3 +27,5 @@
 ## 验证与发布记录
 
 实施时逐项补充。
+
+- Agent `go test -p 1 ./socket` 与 `go build -p 1 .` 通过；覆盖 v4/v6/dual/unknown、逐目标 fallback、3s deadline、上报省略与取消。
