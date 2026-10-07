@@ -118,6 +118,7 @@ interface ChainTunnel {
   inx?: number;
   port?: number;
   connectIpType?: string;
+  connectIp?: string;
 }
 interface BestExitStateItem {
   ownerNodeId: number;
@@ -181,6 +182,8 @@ interface Node {
   serverIpV4?: string;
   serverIpV6?: string;
   egressIpFamily?: string;
+  egressDetected?: "" | "v4" | "v6" | "dual";
+  egressDetectedAt?: number;
   extraIPs?: string;
   remark?: string;
   isRemote?: number;
@@ -314,6 +317,7 @@ const mapChainNodes = (nodes: any[]) =>
   (nodes || []).map((n) => ({
     ...n,
     connectIpType: n.connectIpType ?? n.connect_ip_type ?? "",
+    connectIp: n.connectIp ?? n.connect_ip ?? "",
     port: n.port || n.allocatedPort || n.allocated_port || 0,
   }));
 
@@ -1119,6 +1123,7 @@ export default function TunnelPage() {
     if (node.egressIpFamily) {
       return node.egressIpFamily === "dual" || node.egressIpFamily === family;
     }
+    if (node.egressDetected === "dual" || node.egressDetected === family) return true;
     const v4 = node.serverIpV4?.trim();
     const v6 = node.serverIpV6?.trim();
 
@@ -1140,7 +1145,7 @@ export default function TunnelPage() {
       {targets.filter((target) => target.nodeId > 0).map((target) => {
         const family = target.connectIpType || "";
         const targetNode = nodes.find((node) => node.id === target.nodeId);
-        const unmarked = (family === "v4" || family === "v6") &&
+        const unmarked = !target.connectIp?.trim() && (family === "v4" || family === "v6") &&
           previousHop.some((previous) => {
             const node = nodes.find((item) => item.id === previous.nodeId);
 
@@ -1148,8 +1153,8 @@ export default function TunnelPage() {
           });
 
         return (
+          <div key={target.nodeId} className="grid grid-cols-1 sm:grid-cols-2 gap-2">
           <Select
-            key={target.nodeId}
             description={unmarked
               ? `上一跳未标记 ${family === "v4" ? "IPv4" : "IPv6"} 出站，请确认其可通过 ${family === "v4" ? "IPv4" : "IPv6"} 出网`
               : "上一跳连接此节点使用的地址"}
@@ -1181,6 +1186,35 @@ export default function TunnelPage() {
             <SelectItem key="v6">IPv6</SelectItem>
             <SelectItem key="lan">内网</SelectItem>
           </Select>
+          {targets.filter((item) => item.nodeId > 0).length === 1 && (
+            <Input
+              description="填写 IPv4 或 IPv6 地址，将覆盖连接 IP 类型；端口保持不变"
+              label="自定义连接 IP（可选）"
+              maxLength={45}
+              placeholder="例如：192.0.2.10 或 2001:db8::10"
+              size="sm"
+              value={target.connectIp || ""}
+              variant="bordered"
+              onChange={(event) => {
+                const connectIp = event.target.value;
+                const update = (items: ChainTunnel[]) => items.map((item) =>
+                  item.nodeId === target.nodeId ? { ...item, connectIp } : item,
+                );
+
+                setForm((prev) => {
+                  if (groupIndex === undefined) {
+                    return { ...prev, outNodeId: update(prev.outNodeId || []) };
+                  }
+                  const chainNodes = [...(prev.chainNodes || [])];
+
+                  chainNodes[groupIndex] = update(chainNodes[groupIndex] || []);
+
+                  return { ...prev, chainNodes };
+                });
+              }}
+            />
+          )}
+          </div>
         );
       })}
     </div>
@@ -1319,6 +1353,7 @@ export default function TunnelPage() {
                 ...rest,
                 port: n.port, // 保留用户设置的端口（undefined 或 0 表示自动分配）
                 connectIpType: n.connectIpType || "",
+                connectIp: group.filter((item) => item.nodeId > 0).length === 1 ? (n.connectIp || "").trim() : "",
                 connect_ip_type: n.connectIpType || "",
               };
             }),
@@ -1334,6 +1369,7 @@ export default function TunnelPage() {
             ...rest,
             port: n.port, // 保留用户设置的端口（undefined 或 0 表示自动分配）
             connectIpType: n.connectIpType || "",
+            connectIp: outNodes.length === 1 ? (n.connectIp || "").trim() : "",
             connect_ip_type: n.connectIpType || "",
           };
         });

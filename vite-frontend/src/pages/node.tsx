@@ -136,6 +136,8 @@ interface Node {
   serverIpV4?: string;
   serverIpV6?: string;
   egressIpFamily?: string;
+  egressDetected?: "" | "v4" | "v6" | "dual";
+  egressDetectedAt?: number;
   port: string;
   tcpListenAddr?: string;
   udpListenAddr?: string;
@@ -3353,7 +3355,7 @@ export default function NodePage() {
                 />
               </div>
               <Select
-                description="入口只有 IPv6 但能通过 IPv4 出网的机器，选双栈"
+                description="自动合并入口地址与代理探测结果；手动设置优先"
                 label="出站 IP"
                 selectedKeys={[form.egressIpFamily || "auto"]}
                 variant="bordered"
@@ -3366,7 +3368,18 @@ export default function NodePage() {
                   }));
                 }}
               >
-                <SelectItem key="auto">自动（按入口地址推断）</SelectItem>
+                <SelectItem key="auto">
+                  {(() => {
+                    const node = nodeList.find((item) => item.id === form.id);
+                    const family = node?.egressDetected;
+                    const label = family === "dual" ? "双栈" : family === "v4" ? "IPv4" : "IPv6";
+                    const time = node?.egressDetectedAt
+                      ? new Date(node.egressDetectedAt).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false })
+                      : "";
+
+                    return family ? `自动（检测到：${label}${time ? `，${time}` : ""}）` : "自动（未检测，按入口地址推断）";
+                  })()}
+                </SelectItem>
                 <SelectItem key="v4">仅 IPv4</SelectItem>
                 <SelectItem key="v6">仅 IPv6</SelectItem>
                 <SelectItem key="dual">双栈 (IPv4+IPv6)</SelectItem>
