@@ -245,7 +245,7 @@ func (p *tunnelQualityProber) planTunnel(tunnelID int64, round *tunnelQualityPro
 				plan.base.Success = false
 			} else {
 				source, sourceErr := lookup(entries[0].NodeID)
-				ip, port, resolveErr := resolveChainProbeTarget(source, target, exits[0].Port, ipPreference, exits[0].ConnectIPType)
+				ip, port, resolveErr := resolveChainProbeTarget(source, target, exits[0].Port, ipPreference, exits[0].ConnectIPType, exits[0].ConnectIP)
 				if resolveErr != nil {
 					plan.base.ErrorMessage = resolveErr.Error()
 					plan.base.Success = false

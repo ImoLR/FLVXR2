@@ -2134,6 +2134,7 @@ func (h *Handler) reconstructTunnelState(tunnelID int64) (*tunnelCreateState, er
 			Strategy:      r.Strategy,
 			ChainType:     1,
 			ConnectIPType: r.ConnectIPType,
+			ConnectIP:     r.ConnectIP,
 		})
 		state.NodeIDList = append(state.NodeIDList, r.NodeID)
 	}
@@ -2146,6 +2147,7 @@ func (h *Handler) reconstructTunnelState(tunnelID int64) (*tunnelCreateState, er
 			ChainType:     3,
 			Port:          r.Port,
 			ConnectIPType: r.ConnectIPType,
+			ConnectIP:     r.ConnectIP,
 		})
 		state.NodeIDList = append(state.NodeIDList, r.NodeID)
 	}
@@ -2161,6 +2163,7 @@ func (h *Handler) reconstructTunnelState(tunnelID int64) (*tunnelCreateState, er
 				Inx:           int(r.Inx),
 				Port:          r.Port,
 				ConnectIPType: r.ConnectIPType,
+				ConnectIP:     r.ConnectIP,
 			})
 			state.NodeIDList = append(state.NodeIDList, r.NodeID)
 		}
@@ -4139,6 +4142,7 @@ type tunnelRuntimeNode struct {
 	ChainType     int
 	Port          int
 	ConnectIPType string
+	ConnectIP     string
 }
 
 type tunnelCreateState struct {
@@ -4174,6 +4178,7 @@ func (h *Handler) prepareTunnelCreateState(tx *gorm.DB, req map[string]interface
 			Strategy:      defaultString(asString(item["strategy"]), "round"),
 			ChainType:     1,
 			ConnectIPType: asString(item["connectIpType"]),
+			ConnectIP:     strings.TrimSpace(asString(item["connectIp"])),
 		})
 	}
 	if len(state.InNodes) == 0 {
@@ -4214,6 +4219,7 @@ func (h *Handler) prepareTunnelCreateState(tx *gorm.DB, req map[string]interface
 				ChainType:     3,
 				Port:          port,
 				ConnectIPType: asString(item["connectIpType"]),
+				ConnectIP:     strings.TrimSpace(asString(item["connectIp"])),
 			})
 		}
 		if len(state.OutNodes) == 0 {
@@ -4250,6 +4256,7 @@ func (h *Handler) prepareTunnelCreateState(tx *gorm.DB, req map[string]interface
 					ChainType:     2,
 					Port:          port,
 					ConnectIPType: asString(item["connectIpType"]),
+					ConnectIP:     strings.TrimSpace(asString(item["connectIp"])),
 				})
 			}
 			if len(hop) > 0 {
@@ -4340,28 +4347,29 @@ func buildTunnelInIP(inNodes []tunnelRuntimeNode, nodes map[int64]*nodeRecord, i
 }
 
 func validateTunnelConnectIPConstraints(req map[string]interface{}) error {
-	outNodes := asMapSlice(req["outNodeId"])
-	if len(outNodes) > 1 {
-		for _, item := range outNodes {
-			if strings.TrimSpace(asString(item["connectIp"])) != "" {
-				return fmt.Errorf("多出口隧道不支持设置自定义连接IP")
+	validate := func(nodes []map[string]interface{}, multipleMessage string) error {
+		for _, item := range nodes {
+			ip := strings.TrimSpace(asString(item["connectIp"]))
+			if ip == "" {
+				continue
+			}
+			if len(nodes) > 1 {
+				return errors.New(multipleMessage)
+			}
+			if len(ip) > 45 || net.ParseIP(ip) == nil {
+				return errors.New("自定义连接 IP 必须为有效的 IPv4 或 IPv6 地址（不含端口）")
 			}
 		}
+		return nil
 	}
-
+	if err := validate(asMapSlice(req["outNodeId"]), "多出口隧道不支持设置自定义连接IP"); err != nil {
+		return err
+	}
 	for hopIdx, hopRaw := range asAnySlice(req["chainNodes"]) {
-		hopNodes := asMapSlice(hopRaw)
-		if len(hopNodes) <= 1 {
-			continue
-		}
-
-		for _, item := range hopNodes {
-			if strings.TrimSpace(asString(item["connectIp"])) != "" {
-				return fmt.Errorf("转发链第%d跳有多个节点时不支持设置自定义连接IP", hopIdx+1)
-			}
+		if err := validate(asMapSlice(hopRaw), fmt.Sprintf("转发链第%d跳有多个节点时不支持设置自定义连接IP", hopIdx+1)); err != nil {
+			return err
 		}
 	}
-
 	return nil
 }
 
@@ -4558,7 +4566,7 @@ func (h *Handler) applyFederationRuntime(state *tunnelCreateState, localDomain s
 					h.releaseFederationRuntimeRefs(releaseRefs)
 					return nil, nil, errors.New("节点不存在")
 				}
-				host, _, hostErr := selectTunnelDialHost(node, targetNode, state.IPPreference, target.ConnectIPType)
+				host, _, hostErr := selectTunnelDialHost(node, targetNode, state.IPPreference, target.ConnectIPType, target.ConnectIP)
 				if hostErr != nil {
 					h.releaseFederationRuntimeRefs(releaseRefs)
 					return nil, nil, hostErr
@@ -4840,7 +4848,7 @@ func buildTunnelChainConfig(tunnelID int64, fromNodeID int64, targets []tunnelRu
 		if targetNode == nil {
 			return nil, errors.New("节点不存在")
 		}
-		host, _, err := selectTunnelDialHost(fromNode, targetNode, ipPreference, target.ConnectIPType)
+		host, _, err := selectTunnelDialHost(fromNode, targetNode, ipPreference, target.ConnectIPType, target.ConnectIP)
 		if err != nil {
 			return nil, err
 		}
@@ -4921,9 +4929,21 @@ func buildTunnelChainServiceConfig(tunnelID int64, chainNode tunnelRuntimeNode, 
 	return []map[string]interface{}{service}
 }
 
-func selectTunnelDialHost(fromNode, toNode *nodeRecord, ipPreference string, connectIpType string) (string, string, error) {
+func selectTunnelDialHost(fromNode, toNode *nodeRecord, ipPreference string, connectIpType string, connectIP ...string) (string, string, error) {
 	if fromNode == nil || toNode == nil {
 		return "", "", errors.New("节点不存在")
+	}
+	if len(connectIP) > 0 {
+		if host := strings.TrimSpace(connectIP[0]); host != "" {
+			ip := net.ParseIP(host)
+			if ip == nil || len(host) > 45 {
+				return "", "", errors.New("自定义连接 IP 必须为有效的 IPv4 或 IPv6 地址")
+			}
+			if ip.To4() != nil {
+				return host, "v4", nil
+			}
+			return host, "v6", nil
+		}
 	}
 	fromV4 := nodeCanEgressV4(fromNode)
 	fromV6 := nodeCanEgressV6(fromNode)
@@ -5076,7 +5096,7 @@ func nodeCanEgressV4(node *nodeRecord) bool {
 	case "v6":
 		return false
 	default:
-		return nodeSupportsV4(node)
+		return nodeSupportsV4(node) || node.EgressDetected == "v4" || node.EgressDetected == "dual"
 	}
 }
 
@@ -5090,7 +5110,7 @@ func nodeCanEgressV6(node *nodeRecord) bool {
 	case "v4":
 		return false
 	default:
-		return nodeSupportsV6(node)
+		return nodeSupportsV6(node) || node.EgressDetected == "v6" || node.EgressDetected == "dual"
 	}
 }
 
@@ -5190,7 +5210,7 @@ func (h *Handler) replaceTunnelChainsTx(tx *gorm.DB, tunnelID int64, req map[str
 				return pickErr
 			}
 		}
-		connectIp := asString(n["connectIp"])
+		connectIp := strings.TrimSpace(asString(n["connectIp"]))
 		connectIpType := asString(n["connectIpType"])
 		if err := h.repo.CreateChainTunnelTx(
 			tx,
@@ -5222,7 +5242,7 @@ func (h *Handler) replaceTunnelChainsTx(tx *gorm.DB, tunnelID int64, req map[str
 					return pickErr
 				}
 			}
-			connectIp := asString(n["connectIp"])
+			connectIp := strings.TrimSpace(asString(n["connectIp"]))
 			connectIpType := asString(n["connectIpType"])
 			if err := h.repo.CreateChainTunnelTx(
 				tx,

@@ -164,11 +164,11 @@ func TestBestExitUsesConnectIPType(t *testing.T) {
 	nodes := map[int64]*nodeRecord{1: from, 2: to}
 	config, err := buildTunnelChainConfig(1, 1, targets, nodes, "v6")
 	data, _ := json.Marshal(config)
-	if err != nil || !strings.Contains(string(data), "192.0.2.2:1234") {
+	if err != nil || !strings.Contains(string(data), "198.51.100.99:1234") {
 		t.Fatalf("chain: %s %v", data, err)
 	}
 	scores := evaluateBestExitOwner(chainNodeRecord{NodeID: 1}, rows, nodes, "v6", diagnosisExecOptions{}, func(id int64, ip string, port int, _ diagnosisExecOptions) (float64, float64, error) {
-		if id == 1 && (ip != "192.0.2.2" || port != 1234) {
+		if id == 1 && (ip != "198.51.100.99" || port != 1234) {
 			t.Fatalf("best exit probed %s:%d", ip, port)
 		}
 		return 1, 0, nil

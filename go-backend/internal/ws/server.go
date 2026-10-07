@@ -36,10 +36,11 @@ type connWrap struct {
 }
 
 type nodeSession struct {
-	nodeID int64
-	secret string
-	conn   *connWrap
-	crypto *security.AESCrypto // 缓存的 AES 加密器，避免每条消息重建
+	egressDetected string
+	nodeID         int64
+	secret         string
+	conn           *connWrap
+	crypto         *security.AESCrypto // 缓存的 AES 加密器，避免每条消息重建
 }
 
 type commandResponse struct {
@@ -90,6 +91,7 @@ type Server struct {
 }
 
 type SystemInfo struct {
+	EgressIPFamily         string            `json:"egress_ip_family,omitempty"`
 	Uptime                 uint64            `json:"uptime"`
 	BytesReceived          uint64            `json:"bytes_received"`
 	BytesTransmitted       uint64            `json:"bytes_transmitted"`
@@ -463,6 +465,7 @@ func (s *Server) handleNode(w http.ResponseWriter, r *http.Request, nodeID int64
 					// 解析 SystemInfo 并调用 hook
 					var sysInfo SystemInfo
 					if json.Unmarshal(envelope.Data, &sysInfo) == nil {
+						s.recordEgressDetection(ns, sysInfo.EgressIPFamily)
 						// 缓存服务连接数
 						s.mu.Lock()
 						s.serviceConnections[nodeID] = sysInfo.ServiceConnections
@@ -532,6 +535,7 @@ func (s *Server) handleNode(w http.ResponseWriter, r *http.Request, nodeID int64
 		if looksLikeSystemInfoMessage(msg) {
 			var sysInfo SystemInfo
 			if err := json.Unmarshal([]byte(msg), &sysInfo); err == nil {
+				s.recordEgressDetection(ns, sysInfo.EgressIPFamily)
 				// 缓存服务连接数
 				s.mu.Lock()
 				s.serviceConnections[nodeID] = sysInfo.ServiceConnections
@@ -958,4 +962,19 @@ func (s *Server) cleanupStaleMetrics(interval time.Duration) {
 		}
 		s.mu.Unlock()
 	}
+}
+
+// Called by the session read loop; unchanged telemetry never issues a DB update.
+func (s *Server) recordEgressDetection(ns *nodeSession, family string) {
+	if family != "v4" && family != "v6" && family != "dual" {
+		return
+	}
+	if ns.egressDetected == family {
+		return
+	}
+	if err := s.repo.UpdateNodeEgressDetected(ns.nodeID, family, time.Now().UnixMilli()); err != nil {
+		log.Printf("node %d egress detection: %v", ns.nodeID, err)
+		return
+	}
+	ns.egressDetected = family
 }

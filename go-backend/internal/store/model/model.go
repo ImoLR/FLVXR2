@@ -119,6 +119,8 @@ type Node struct {
 	ServerIPV4                   sql.NullString `gorm:"column:server_ip_v4;type:varchar(100)"`
 	ServerIPV6                   sql.NullString `gorm:"column:server_ip_v6;type:varchar(100)"`
 	EgressIPFamily               string         `gorm:"column:egress_ip_family;type:varchar(10);not null;default:''"`
+	EgressDetected               string         `gorm:"column:egress_detected;type:varchar(10);not null;default:''"`
+	EgressDetectedAt             int64          `gorm:"column:egress_detected_at;not null;default:0"`
 	ExtraIPs                     sql.NullString `gorm:"column:extra_ips;type:text"`
 	Port                         string         `gorm:"type:text;not null"`
 	InterfaceName                sql.NullString `gorm:"column:interface_name;type:varchar(200)"`
@@ -665,33 +667,35 @@ type UserBackup struct {
 }
 
 type NodeBackup struct {
-	ID             int64  `json:"id"`
-	Name           string `json:"name"`
-	Remark         string `json:"remark,omitempty"`
-	ExpiryTime     int64  `json:"expiryTime,omitempty"`
-	RenewalCycle   string `json:"renewalCycle,omitempty"`
-	Secret         string `json:"secret"`
-	ServerIP       string `json:"serverIp"`
-	ServerIPv4     string `json:"serverIpV4,omitempty"`
-	ServerIPv6     string `json:"serverIpV6,omitempty"`
-	EgressIPFamily string `json:"egressIpFamily,omitempty"`
-	ExtraIPs       string `json:"extraIPs,omitempty"`
-	Port           string `json:"port"`
-	InterfaceName  string `json:"interfaceName,omitempty"`
-	Version        string `json:"version,omitempty"`
-	HTTP           int    `json:"http"`
-	TLS            int    `json:"tls"`
-	Socks          int    `json:"socks"`
-	CreatedTime    int64  `json:"createdTime"`
-	UpdatedTime    int64  `json:"updatedTime,omitempty"`
-	Status         int    `json:"status"`
-	TCPListenAddr  string `json:"tcpListenAddr"`
-	UDPListenAddr  string `json:"udpListenAddr"`
-	Inx            int    `json:"inx"`
-	IsRemote       int    `json:"isRemote"`
-	RemoteURL      string `json:"remoteUrl,omitempty"`
-	RemoteToken    string `json:"remoteToken,omitempty"`
-	RemoteConfig   string `json:"remoteConfig,omitempty"`
+	ID               int64  `json:"id"`
+	Name             string `json:"name"`
+	Remark           string `json:"remark,omitempty"`
+	ExpiryTime       int64  `json:"expiryTime,omitempty"`
+	RenewalCycle     string `json:"renewalCycle,omitempty"`
+	Secret           string `json:"secret"`
+	ServerIP         string `json:"serverIp"`
+	ServerIPv4       string `json:"serverIpV4,omitempty"`
+	ServerIPv6       string `json:"serverIpV6,omitempty"`
+	EgressIPFamily   string `json:"egressIpFamily,omitempty"`
+	EgressDetected   string `json:"egressDetected,omitempty"`
+	EgressDetectedAt int64  `json:"egressDetectedAt,omitempty"`
+	ExtraIPs         string `json:"extraIPs,omitempty"`
+	Port             string `json:"port"`
+	InterfaceName    string `json:"interfaceName,omitempty"`
+	Version          string `json:"version,omitempty"`
+	HTTP             int    `json:"http"`
+	TLS              int    `json:"tls"`
+	Socks            int    `json:"socks"`
+	CreatedTime      int64  `json:"createdTime"`
+	UpdatedTime      int64  `json:"updatedTime,omitempty"`
+	Status           int    `json:"status"`
+	TCPListenAddr    string `json:"tcpListenAddr"`
+	UDPListenAddr    string `json:"udpListenAddr"`
+	Inx              int    `json:"inx"`
+	IsRemote         int    `json:"isRemote"`
+	RemoteURL        string `json:"remoteUrl,omitempty"`
+	RemoteToken      string `json:"remoteToken,omitempty"`
+	RemoteConfig     string `json:"remoteConfig,omitempty"`
 }
 
 type TunnelBackup struct {
@@ -896,23 +900,25 @@ type ForwardPortRecord struct {
 
 // NodeRecord is a node view used by control plane.
 type NodeRecord struct {
-	ID             int64
-	Name           string
-	ServerIP       string
-	ServerIPv4     string
-	ServerIPv6     string
-	EgressIPFamily string
-	IntranetIP     string
-	ExtraIPs       string
-	Status         int
-	PortRange      string
-	TCPListenAddr  string
-	UDPListenAddr  string
-	InterfaceName  string
-	IsRemote       int
-	RemoteURL      string
-	RemoteToken    string
-	RemoteConfig   string
+	ID               int64
+	Name             string
+	ServerIP         string
+	ServerIPv4       string
+	ServerIPv6       string
+	EgressIPFamily   string
+	EgressDetected   string
+	EgressDetectedAt int64
+	IntranetIP       string
+	ExtraIPs         string
+	Status           int
+	PortRange        string
+	TCPListenAddr    string
+	UDPListenAddr    string
+	InterfaceName    string
+	IsRemote         int
+	RemoteURL        string
+	RemoteToken      string
+	RemoteConfig     string
 }
 
 type ChainNodeRecord struct {

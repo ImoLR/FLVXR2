@@ -255,13 +255,15 @@ func nodeRecordFromModel(n *model.Node) *model.NodeRecord {
 		return nil
 	}
 	rec := &model.NodeRecord{
-		ID:             n.ID,
-		Name:           n.Name,
-		ServerIP:       n.ServerIP,
-		EgressIPFamily: n.EgressIPFamily,
-		Status:         n.Status,
-		PortRange:      n.Port,
-		TCPListenAddr:  n.TCPListenAddr, UDPListenAddr: n.UDPListenAddr,
+		ID:               n.ID,
+		Name:             n.Name,
+		ServerIP:         n.ServerIP,
+		EgressIPFamily:   n.EgressIPFamily,
+		EgressDetected:   n.EgressDetected,
+		EgressDetectedAt: n.EgressDetectedAt,
+		Status:           n.Status,
+		PortRange:        n.Port,
+		TCPListenAddr:    n.TCPListenAddr, UDPListenAddr: n.UDPListenAddr,
 		IsRemote: n.IsRemote,
 	}
 	if n.ServerIPV4.Valid {
@@ -498,4 +500,13 @@ func (r *Repository) ListActiveNftablesForwards() ([]model.ForwardRecord, error)
 	}
 	attachForwardUserLimits(r.db, rows)
 	return rows, nil
+}
+
+// UpdateNodeEgressDetected preserves the timestamp across duplicate reports/reconnects.
+func (r *Repository) UpdateNodeEgressDetected(nodeID int64, family string, now int64) error {
+	if family != "v4" && family != "v6" && family != "dual" {
+		return nil
+	}
+	return r.db.Model(&model.Node{}).Where("id = ? AND egress_detected <> ?", nodeID, family).
+		Updates(map[string]interface{}{"egress_detected": family, "egress_detected_at": now}).Error
 }

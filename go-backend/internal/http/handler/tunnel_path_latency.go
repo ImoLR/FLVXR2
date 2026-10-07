@@ -189,7 +189,7 @@ func planTunnelPath(rows []chainNodeRecord, ipPreference string, lookup func(int
 	for i := 1; i < len(groups); i++ {
 		for from, source := range groups[i-1] {
 			for to, target := range groups[i] {
-				ip, port, err := resolveChainProbeTarget(nodes[i-1][from], nodes[i][to], target.Port, ipPreference, target.ConnectIPType)
+				ip, port, err := resolveChainProbeTarget(nodes[i-1][from], nodes[i][to], target.Port, ipPreference, target.ConnectIPType, target.ConnectIP)
 				if err == nil {
 					localTargetID := target.NodeID
 					if nodes[i][to].IsRemote == 1 {
