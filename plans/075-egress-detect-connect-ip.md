@@ -10,7 +10,7 @@
 - [x] ConnectIP 运行时共享选择、诊断/探测/best-exit、校验与更新清空；修复两项既有失败。
 - [x] 节点探测展示、隧道自定义 IP 输入与读写；类型检查及生产构建。
 - [x] 在线生产副本：fork.26 与新逻辑全部相邻跳对比为 0；记录假设全部 detected dual 的变化。
-- [ ] 本地隔离 paneld:16365 + 遥测 harness + 配置/诊断验证；1440/390 节点与隧道表单截图。
+- [x] 本地隔离 paneld:16365 + 遥测 harness + 配置/诊断验证；1440/390 节点与隧道表单截图。
 - [x] 后端全量测试：基线仅减少指定两项及其子测试；CI Build Check 成功。
 - [ ] 注解标签、Build and Push Images 成功；Latest/资产集/compose/安装脚本/sha256 校验。
 - [ ] 生产回滚点与备份保留清理；升级 backend/frontend。
@@ -37,3 +37,7 @@
 - 在线生产副本：quick_check=ok；28 节点、53 隧道、169 chain_tunnel 行，139 个相邻跳组合。提取 fork.26/当前 Go 函数比较，无检测数据差异 **0**；全部 detected=dual 的假设变化也为 **0**。生产非空 connect_ip 为 0。详见 gate-input.json / gate-result.json / dial_gate.go。
 
 - 全量 `go test -p 1 ./...` 的失败集合为 15/19：仅减少 `TestReconstructTunnelState_PreservesConnectIP`、`TestTunnelDiagnosisUsesConfiguredConnectIPContract` 与该诊断的两个子测试，无新增/额外缺失，基线文件未改。CI Build Check 37685225783 四项成功。追加真实质量/路径探测测试确认直连与含中继路径都使用自定义 IP；探测字段仅保留在前端只读节点类型。
+
+- 本地隔离 namespace/paneld:16365：合成节点 901 经 AES WebSocket 每 250 ms 上报 dual；SQLite 触发器统计探测字段仅写 1 次，入口 IPv6-only 自动下发下一跳 IPv4。单中继自定义 IPv4、单出口自定义 IPv6 均进入真实 AddChains 与普通诊断。浏览器捕获保存 payload 后回放本地 API，数据库/list/诊断回读一致。
+- 1440/390 节点、单中继、单出口表单共 6 张首轮截图 `screens/seed-*.png`；自动项显示检测族与时间，无错误/遗漏 API/横向溢出，已检测 IPv4 的上游不再显示缺失 IPv4 出站提示。Chrome 启动守卫记录可用 932.8 MiB、无其他 Chrome，paneld 已停止。
+- 最新源码 CI Build Check [37685660990](https://github.com/ImoLR/FLVXR2/actions/runs/37685660990) 四项成功。
