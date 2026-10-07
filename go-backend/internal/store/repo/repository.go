@@ -1386,10 +1386,8 @@ func (r *Repository) ListUserAccessibleTunnels(userID int64) ([]map[string]inter
 		TrafficRatio float64
 	}
 	var rows []row
-	err := r.db.Model(&model.UserTunnel{}).
+	err := r.userAccessibleTunnels(userID).
 		Select("tunnel.id, tunnel.name, tunnel.remark, tunnel.traffic_ratio").
-		Joins("JOIN tunnel ON tunnel.id = user_tunnel.tunnel_id").
-		Where("user_tunnel.user_id = ? AND tunnel.status = 1", userID).
 		Order("tunnel.inx ASC, tunnel.id ASC").
 		Find(&rows).Error
 	if err != nil {
@@ -1423,6 +1421,27 @@ func (r *Repository) ListUserAccessibleTunnels(userID int64) ([]map[string]inter
 		items = append(items, item)
 	}
 	return items, nil
+}
+
+func (r *Repository) userAccessibleTunnels(userID int64) *gorm.DB {
+	return r.db.Model(&model.UserTunnel{}).
+		Joins("JOIN tunnel ON tunnel.id = user_tunnel.tunnel_id").
+		Where("user_tunnel.user_id = ? AND tunnel.status = 1", userID)
+}
+
+// ListUserTunnelLatencyIDs shares the picker's access query, without loading node
+// metadata. Administrators may read any type-2 tunnel with a fresh snapshot.
+func (r *Repository) ListUserTunnelLatencyIDs(userID int64, admin bool) ([]int64, error) {
+	if r == nil || r.db == nil {
+		return nil, errors.New("repository not initialized")
+	}
+	query := r.db.Model(&model.Tunnel{})
+	if !admin {
+		query = r.userAccessibleTunnels(userID)
+	}
+	var ids []int64
+	err := query.Where("tunnel.type = 2").Distinct("tunnel.id").Order("tunnel.id ASC").Pluck("tunnel.id", &ids).Error
+	return ids, err
 }
 
 func (r *Repository) ListEnabledTunnelSummaries() ([]map[string]interface{}, error) {

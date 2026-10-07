@@ -27,6 +27,10 @@ type tunnelQualitySnapshot struct {
 	Success            bool    `json:"success"`
 	ErrorMessage       string  `json:"errorMessage,omitempty"`
 	Timestamp          int64   `json:"timestamp"`
+	PathLatency        float64 `json:"-"`
+	PathLoss           float64 `json:"-"`
+	PathStatus         string  `json:"-"`
+	PathUpdatedAt      int64   `json:"-"`
 }
 
 // tunnelQualityProber runs periodic TCP ping probes against all enabled tunnels.
@@ -133,12 +137,20 @@ func (p *tunnelQualityProber) probeAll() {
 	if len(tunnelIDs) == 0 {
 		return
 	}
+	started := time.Now()
+	defer func() {
+		if elapsed := time.Since(started); elapsed > p.interval {
+			log.Printf("tunnel_quality_prober: round took %s (interval %s, tunnels %d)", elapsed.Round(time.Millisecond), p.interval, len(tunnelIDs))
+		}
+	}()
+	round := newTunnelQualityProbeRound(p.tcpPingNode)
 
 	// Probe tunnels concurrently with a worker limit
 	// (mirrors health.Checker worker pool pattern)
 	const maxWorkers = 4
 	sem := make(chan struct{}, maxWorkers)
 	var wg sync.WaitGroup
+	defer wg.Wait()
 
 	for _, tunnelID := range tunnelIDs {
 		select {
@@ -152,13 +164,12 @@ func (p *tunnelQualityProber) probeAll() {
 		go func(tid int64) {
 			defer wg.Done()
 			defer func() { <-sem }()
-			p.probeTunnel(tid)
+			p.probeTunnel(tid, round)
 		}(tunnelID)
 	}
-	wg.Wait()
 }
 
-func (p *tunnelQualityProber) probeTunnel(tunnelID int64) {
+func (p *tunnelQualityProber) probeTunnel(tunnelID int64, round *tunnelQualityProbeRound) {
 	h := p.handler
 	if h == nil || h.repo == nil {
 		return
@@ -176,6 +187,11 @@ func (p *tunnelQualityProber) probeTunnel(tunnelID int64) {
 		snap.ErrorMessage = "隧道不存在"
 		p.storeResult(snap)
 		return
+	}
+	if tunnel.Type == 2 {
+		snap.PathStatus = "timeout"
+		snap.PathLoss = 100
+		snap.PathUpdatedAt = now
 	}
 
 	chainRows, err := h.listChainNodesForTunnel(tunnelID)
@@ -198,7 +214,7 @@ func (p *tunnelQualityProber) probeTunnel(tunnelID int64) {
 	case 1:
 		// Port forwarding: entry → exit test targets
 		if len(inNodes) > 0 {
-			lat, loss, _, err := p.tcpPingExitTest(inNodes[0].NodeID, options)
+			lat, loss, _, err := round.tcpPingExitTest(inNodes[0].NodeID, options)
 			if err == nil {
 				snap.ExitToBingLatency = lat
 				snap.ExitToBingLoss = loss
@@ -218,7 +234,7 @@ func (p *tunnelQualityProber) probeTunnel(tunnelID int64) {
 				fromNode, _ := h.getNodeRecord(inNodes[0].NodeID)
 				targetIP, targetPort, resolveErr := resolveChainProbeTarget(fromNode, targetNode, outNodes[0].Port, ipPreference, outNodes[0].ConnectIPType)
 				if resolveErr == nil {
-					lat, loss, err := p.tcpPingNode(inNodes[0].NodeID, targetIP, targetPort, options)
+					lat, loss, err := round.ping(inNodes[0].NodeID, targetIP, targetPort, options)
 					if err == nil {
 						snap.EntryToExitLatency = lat
 						snap.EntryToExitLoss = loss
@@ -237,9 +253,14 @@ func (p *tunnelQualityProber) probeTunnel(tunnelID int64) {
 			}
 		}
 
+		// The representative path includes only chain segments. For a direct tunnel,
+		// the round cache reuses the entry → exit result above.
+		snap.PathLatency, snap.PathLoss, snap.PathStatus = probeTunnelPath(chainRows, ipPreference, h.getNodeRecord, round.ping, options)
+		snap.PathUpdatedAt = time.Now().UnixMilli()
+
 		// Exit → exit test targets
 		if len(outNodes) > 0 {
-			lat, loss, _, err := p.tcpPingExitTest(outNodes[0].NodeID, options)
+			lat, loss, _, err := round.tcpPingExitTest(outNodes[0].NodeID, options)
 			if err == nil {
 				snap.ExitToBingLatency = lat
 				snap.ExitToBingLoss = loss
@@ -255,7 +276,7 @@ func (p *tunnelQualityProber) probeTunnel(tunnelID int64) {
 	default:
 		// Unknown type: entry → exit test targets
 		if len(inNodes) > 0 {
-			lat, loss, _, err := p.tcpPingExitTest(inNodes[0].NodeID, options)
+			lat, loss, _, err := round.tcpPingExitTest(inNodes[0].NodeID, options)
 			if err == nil {
 				snap.ExitToBingLatency = lat
 				snap.ExitToBingLoss = loss
@@ -299,10 +320,10 @@ func (p *tunnelQualityProber) tcpPingNode(nodeID int64, ip string, port int, opt
 
 // tcpPingExitTest tries exit test targets in order and returns the first successful result.
 // Returns the last error if all targets fail.
-func (p *tunnelQualityProber) tcpPingExitTest(nodeID int64, options diagnosisExecOptions) (latency float64, loss float64, targetHost string, err error) {
+func (r *tunnelQualityProbeRound) tcpPingExitTest(nodeID int64, options diagnosisExecOptions) (latency float64, loss float64, targetHost string, err error) {
 	var lastErr error
 	for _, t := range exitTestTargets {
-		lat, loss, perr := p.tcpPingNode(nodeID, t.host, t.port, options)
+		lat, loss, perr := r.ping(nodeID, t.host, t.port, options)
 		if perr == nil {
 			return lat, loss, t.name, nil
 		}
