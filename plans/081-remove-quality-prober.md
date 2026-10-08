@@ -10,7 +10,7 @@
 - [x] 完成删除/保留/范围门禁、后端 build/vet/全量测试及 handler race；提交。
 - [x] 前端 build、tsc/lint 基线比较及 PWA 包体检查；提交。
 - [x] 推送并确认 HEAD CI 绿色，记录生产 fork.32 ≥30 分钟各节点 TCP 基线，再推送 annotated tag。
-- [ ] 验证镜像工作流、Latest 正式发布、资产集、固定版本及 SHA256；提交。
+- [x] 验证镜像工作流、Latest 正式发布、资产集、固定版本及 SHA256；提交。
 - [ ] 创建在线 DB/配置/镜像回滚点，验证 quick_check/计数并执行保留两份备份清理；提交。
 - [ ] 安装 fork.33 v6 compose、更新版本、pull/up，验证健康、API、指标推进及 schema 不变；提交。
 - [ ] 完成 ≥30 分钟生产观察、质量表停止写入、404、JS/日志验证及全部节点 TCP 前后对比。
@@ -25,3 +25,5 @@
 前端门禁：npm run build（含 tsc）通过；主 JS 2,739,492 B，距 5 MiB 上限 2,503,388 B。ESLint 无 --fix 基线比较：错误 96→96、警告 3529→3529，无新增错误；移除产生的 import 排版警告已修正并重新构建验证。
 
 发布：b0496fce 的 CI Build Check 37839682526 四项全成功；打标前已记录生产 fork.32 19:52:19Z—20:22:19Z（30 分钟）tcp_conns，面板自 16:41Z 连续运行。annotated tag 3.0.27-fork.33 指向该 HEAD，已推送。
+
+发布资产：Build and Push Images 37840030023 成功；fork.33 于 2026-10-08T20:49:06Z 发布，为 Latest、非 prerelease。十个资产与 fork.32 一致，v4/v6 compose 镜像及两安装脚本固定 fork.33/ImoLR/FLVXR2，两架构 gost SHA256 一致。
