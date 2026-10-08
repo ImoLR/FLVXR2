@@ -8,7 +8,7 @@
 - [x] 实现规则弹窗前 30 秒每 2 秒轮询、之后每 10 秒与 40 秒测速占位。
 - [x] fake ping/clock 测试 a–i、渐进发布与 race；build/vet/全量失败集对照 fork.30。
 - [x] 前端 tsc/build/PWA 门禁，桌面浅色和移动深色空/部分/完整截图并亲自检查。
-- [ ] 推送并确认 HEAD CI，通过后发布 fork.31，核验 Latest 与全部固定版本资产。
+- [x] 推送并确认 HEAD CI，通过后发布 fork.31，核验 Latest 与全部固定版本资产。
 - [ ] 保存升级前 15 分钟指标；在线备份、校验、prune 至两个备份；升级生产及健康检查。
 - [ ] 生产 90 秒需求/停止后过期验证、渐进出现时间、逐轮探测计数、升级后 15 分钟指标比较。
 - [ ] 中文总结、完成计划、提交并推送。
@@ -23,3 +23,5 @@
 最终后端门禁：build、handler/repository vet 通过；全量测试失败集与 fork.30 完全相同（15 项）；handler/repository 全包 race 无竞争，handler 仅 2 项既有失败，repository 通过。前端 tsc/build 通过，主 JS 2,755,342 B，低于 5 MiB。
 
 截图门禁：桌面 1440 浅色 + 手机 390 深色，空/部分/完整共 6 张，已逐张检查。48 个 type-2 占位依次降至 24、0，type-1 不显示；选择器 DOM 保持同一实例、无水平溢出、2 秒→10 秒轮询切换及关窗停止通过。预览 `/latency-fill/` 的中文图注明确为模拟数值；隔离网络仅 loopback，所有写路由阻断，临时服务已自动清理。
+
+发布：HEAD CI 37792058661 通过；annotated tag 3.0.27-fork.31 → b2d97a3f；镜像/发布流水线 37792406274 全部通过。Release 为 Latest、非预发布，10 个资产与 fork.30 一致；两份 compose 镜像、两份脚本 PINNED_VERSION/REPO 和两架构 gost SHA256 均校验通过。
