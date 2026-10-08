@@ -8,7 +8,7 @@
 - [x] 完成 lint、类型检查、构建、Go 全量失败集合对比；提交结果。
 - [x] 生产在线备份副本 + 本地 16365 面板 + 40 节点，旧新版各四种布局 30 秒实测、每秒更新检查、截图与后台暂停验证；提交结果。
 - [x] 推送分支并确认 CI Build Check 绿色。
-- [ ] 发布注释标签 3.0.27-fork.28；确认镜像流水线、Latest、资产集合、脚本固定版本/仓库、gost SHA256。
+- [x] 发布注释标签 3.0.27-fork.28；确认镜像流水线、Latest、资产集合、脚本固定版本/仓库、gost SHA256。
 - [ ] 生产升级前备份并保留最近两份；仅升级 backend/frontend。
 - [ ] 只读验证生产健康、指标前进、生产监控/节点页实时值、本地公开页实时值、非管理员节点列表 403；生产公开监控保持关闭。
 - [ ] 完成计划，提交 docs(plan): mark fork28 rollout complete 并推送；写中文总结。
@@ -74,3 +74,11 @@
 累计资源等待约 51 分钟，每分钟采样保存在第二轮 `memory-wait-r2.jsonl`；每次启动前均 ≥750 MiB、无其它 Chromium / worker 重任务，具体数值见 `launches.jsonl`。所有浏览器与 Node 驱动在 `MemoryMax=650M`、`MemorySwapMax=0` scope 内，全部 scope OOM=0；最终 old/new scope 统计见 `scope-old.json` / `scope-new.json`。未停止或调整其它服务/worker、swap、sysctl。
 
 首轮脚本的未跑通部分已修正：DOM 首次加载等待、截图 clip 导致的视口重置（旧新版均会受影响，改普通视口截图）、CDP 恢复可见方法、侧栏与页签同名定位、节点页周期流量字段、公开页清除登录状态后的日志空值。初次临时 npm build 的 tsc 在自行设置的 384 MiB Node 堆限制下退出，改用 Vite 生成仪表化资源；首轮产品 tsc/构建结果与本轮 CI 保持有效。早期一次旧模拟器样本出现约 2 秒显示间隔，未作为通过证据；改用各节点递增样本并记录原始帧后，180 秒观察及最终四场景均通过，未发现需要修改产品代码的缺陷。
+
+## 发布核验
+
+- 测量提交 `4d7600b6` 的 CI Build Check `37771670358` 全部成功。
+- 注释标签 `3.0.27-fork.28` 指向 `4d7600b6`，注释内容为同名版本；Build and Push Images `37771971356` 成功。
+- Release 为 Latest、非 prerelease，与 fork.27 资产名集合一致（10 个）；全部下载大小/摘要、两份 compose 镜像版本、两份脚本 PINNED_VERSION 与 `REPO=ImoLR/FLVXR2` 通过校验。
+- `ghcr.io/imolr/flvxr2-svc-{backend,frontend}:3.0.27-fork.28` 清单均含 linux/amd64 与 linux/arm64。两个 gost SHA256 文件与二进制、offline zip 内的 agent 均一致；只发布资产，不升级生产 agent。
+- 证据：首轮目录 `release/verification.json`，第二轮目录 `release-ci.json`、`backend-manifest.json`、`frontend-manifest.json`。
