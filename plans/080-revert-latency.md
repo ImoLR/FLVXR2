@@ -15,7 +15,7 @@
 - [x] 推送分支，确认 HEAD 的 CI Build Check 成功；创建并推送 annotated tag。
 - [x] 确认镜像工作流成功、Latest 正式发布、资源集/版本固定/哈希正确；提交。
 - [x] 记录升级前 30 分钟 tcp_conns；创建生产在线备份和旧镜像标签，验证后运行保留两份的清理脚本；提交。
-- [ ] 安装 fork.32 v6 compose、更新 FLUX_VERSION、拉取并重建 backend/frontend，确认健康且无结构变化；提交。
+- [x] 安装 fork.32 v6 compose、更新 FLUX_VERSION、拉取并重建 backend/frontend，确认健康且无结构变化；提交。
 - [ ] 完成 API/前端/原始 WS 广播验证、至少 5 分钟日志及质量更新检查、至少 10 分钟连接数对比。
 - [ ] 写中文总结（含破坏性动作与回滚方法、用户检查点、建议未实施），提交 `docs(plan): mark fork32 rollout complete` 并推送。
 
@@ -50,3 +50,7 @@ HEAD `c576029d` 的 CI Build Check [37808506936](https://github.com/ImoLR/FLVXR2
 ## 生产回滚点
 
 升级前 30 分钟 tcp_conns 已保存。在线备份 `/opt/flvx-svc/rollback/pre-fork32-20261008T164109Z/` 含 compose/.env、`gost.db.validated`（quick_check=ok）、全表计数、旧 fork.31 镜像本地标签和 ROLLBACK-METADATA.md；node/tunnel/forward/user = 26/53/25/10。已运行 prune-backups.sh，保留 pre-fork31 + pre-fork32，删除 pre-fork30 目录、其两个本地标签和 fork.29 镜像。正常回滚只需恢复 compose/.env 及 fork.31 镜像，不恢复 DB。
+
+## 生产升级
+
+已安装经过验证的 v6 compose、更新 FLUX_VERSION 并 pull/up backend/frontend。后端于 2026-10-08T16:41:46Z、前端 16:41:52Z 启动 fork.32，无重启，后端 healthy。管理员 node/tunnel/forward 列表 HTTP 200/code=0；25 节点上报、node_metric 推进、53 隧道有质量数据。138 项表/索引定义与升级前逐字一致。延迟 GET（管理员、63666）为 HTTP 404 / `404 page not found`；生产 JS 2,754,025 B，测速文案和路径接口消失、grouped 选择器及双向标签存在。继续十分钟观察和 WS 实测。
