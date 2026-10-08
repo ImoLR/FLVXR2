@@ -287,6 +287,24 @@ func TestUserTunnelLatencyPermissionsAndFreshness(t *testing.T) {
 	for _, id := range []int64{1, 3, 4, 5, 6, 7} {
 		e.addUserTunnel(id, 3, id)
 	}
+	for _, list := range []func() ([]map[string]interface{}, error){
+		e.r.ListEnabledTunnelSummaries,
+		func() ([]map[string]interface{}, error) { return e.r.ListUserAccessibleTunnels(3) },
+	} {
+		items, err := list()
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, item := range items {
+			want := 2
+			if item["id"] == int64(4) {
+				want = 1
+			}
+			if item["type"] != want {
+				t.Fatalf("picker cannot distinguish pending type-2 paths: %+v", item)
+			}
+		}
+	}
 	mux := http.NewServeMux()
 	e.h.Register(mux)
 	wrapped := middleware.JWT(middleware.AuthOptions{JWTSecret: "latency-test-secret"})(mux)

@@ -1385,12 +1385,13 @@ func (r *Repository) ListUserAccessibleTunnels(userID int64) ([]map[string]inter
 	type row struct {
 		ID           int64
 		Name         string
+		Type         int
 		Remark       sql.NullString
 		TrafficRatio float64
 	}
 	var rows []row
 	err := r.userAccessibleTunnels(userID).
-		Select("tunnel.id, tunnel.name, tunnel.remark, tunnel.traffic_ratio").
+		Select("tunnel.id, tunnel.name, tunnel.type, tunnel.remark, tunnel.traffic_ratio").
 		Order("tunnel.inx ASC, tunnel.id ASC").
 		Find(&rows).Error
 	if err != nil {
@@ -1412,6 +1413,7 @@ func (r *Repository) ListUserAccessibleTunnels(userID int64) ([]map[string]inter
 		item := map[string]interface{}{
 			"id":           rw.ID,
 			"name":         rw.Name,
+			"type":         rw.Type,
 			"remark":       nullableString(rw.Remark),
 			"trafficRatio": rw.TrafficRatio,
 			"entryGroups":  regionMap[rw.ID].entryGroups(false),
@@ -1455,11 +1457,12 @@ func (r *Repository) ListEnabledTunnelSummaries() ([]map[string]interface{}, err
 	type row struct {
 		ID           int64
 		Name         string
+		Type         int
 		Remark       sql.NullString
 		TrafficRatio float64
 	}
 	var rows []row
-	err := r.db.Model(&model.Tunnel{}).Select("id, name, remark, traffic_ratio").Where("status = 1").Order("inx ASC, id ASC").Find(&rows).Error
+	err := r.db.Model(&model.Tunnel{}).Select("id, name, type, remark, traffic_ratio").Where("status = 1").Order("inx ASC, id ASC").Find(&rows).Error
 	if err != nil {
 		return nil, err
 	}
@@ -1479,6 +1482,7 @@ func (r *Repository) ListEnabledTunnelSummaries() ([]map[string]interface{}, err
 		item := map[string]interface{}{
 			"id":           rw.ID,
 			"name":         rw.Name,
+			"type":         rw.Type,
 			"remark":       nullableString(rw.Remark),
 			"trafficRatio": rw.TrafficRatio,
 			"entryGroups":  regionMap[rw.ID].entryGroups(true),
