@@ -10,8 +10,8 @@
 - [x] 推送分支并确认 CI Build Check 绿色。
 - [x] 发布注释标签 3.0.27-fork.28；确认镜像流水线、Latest、资产集合、脚本固定版本/仓库、gost SHA256。
 - [x] 生产升级前备份并保留最近两份；仅升级 backend/frontend。
-- [ ] 只读验证生产健康、指标前进、生产监控/节点页实时值、本地公开页实时值、非管理员节点列表 403；生产公开监控保持关闭。
-- [ ] 完成计划，提交 docs(plan): mark fork28 rollout complete 并推送；写中文总结。
+- [x] 只读验证生产健康、指标前进、生产监控/节点页实时值、本地公开页实时值、非管理员节点列表 403；生产公开监控保持关闭。
+- [x] 完成计划，提交 docs(plan): mark fork28 rollout complete 并推送；写中文总结。
 
 证据目录：`/root/flvx-workers/runs/monitor-render/`，续跑日志 `/root/flvx-workers/runs/monitor-render-r2/`。重任务串行；第二轮按下述受限 scope 门槛执行。任何门禁不通过均不发布。
 
@@ -87,5 +87,15 @@
 
 - 回滚点 `/opt/flvx-svc/rollback/pre-fork28-20261008T120129Z/`：compose/.env 副本、SQLite 在线备份 `gost.db.validated`（366,944,256 B，quick_check=ok）、全表计数、ROLLBACK-METADATA.md；28 节点、53 隧道、25 转发、11 用户。
 - 旧 fork.27 镜像保留为 `local/flvxx-{backend,frontend}:pre-fork28-20261008T120129Z`。运行指定 prune-backups.sh 后只保留 pre-fork28 与 pre-fork27；已删除 pre-fork26 备份及其 fork.25 镜像，详见 `prune-backups.log`。
-- 安装已校验 fork.28 v6 compose，FLUX_VERSION 改为 3.0.27-fork.28；仅执行 `docker compose pull backend frontend` 和 `up -d backend frontend`。backend healthy、frontend running，待完成只读业务与浏览器验收。
+- 安装已校验 fork.28 v6 compose，FLUX_VERSION 改为 3.0.27-fork.28；仅执行 `docker compose pull backend frontend` 和 `up -d backend frontend`。backend healthy、frontend running，随后通过下述只读业务与浏览器验收。
 - 回滚：从上述目录恢复 docker-compose.yml/.env，重新 up -d backend frontend 使用 fork.27 镜像；无 schema 变更，常规回滚不恢复数据库，以保留升级后的实时数据。
+
+## 生产只读验收与收尾（已完成）
+
+- backend 于 2026-10-08 12:02:05Z 启动、frontend 于 12:02:11Z 启动，均为 fork.28；backend healthy、frontend running，首页/API 正常。
+- 12 秒采样中 25/25 在线节点 node_metric 时间戳前进；共 28 节点。升级前后比对的 node/tunnel/chain 配置字段一致，未升级 agent，未手工改生产业务数据。
+- 非管理员 `/api/v1/node/list` 仍为业务码 403（无数据）；公开指标仍为空，login_monitor_link 保持关闭。
+- 生产 Chromium 启动前 MemAvailable=1892.18 MiB，无其它 Chromium/worker 重任务；scope 650 MiB、swap=0，峰值 584.14 MiB，OOM=0。监控页/节点页分别捕获 195/198 条指标帧，覆盖 25 节点，显示值均变化，内部统计字段=0。截图：`/root/flvx-workers/runs/monitor-render/screens/prod-monitor.png`、`prod-node.png`。
+- 生产主 JS `/assets/index-ClNlBbvK.js` 为 2,756,832 B，SHA256 `4bcc058136731c3a6cac79b90ca1988ab2e0fc7814bb0851dd5d57c09b5ddca2`；含 fork.28 与可见性/批处理代码，不含临时 render/commit 计数。
+- 已删除自己的在线 DB 副本、临时 paneld、仪表化源码/构建、浏览器配置和下载的二进制/zip；保留截图、原始测量、脚本、校验日志及两份生产回滚备份。未触碰其它 stack/worker、memory 文件或计划 048。
+- 最终中文总结：`/root/flvx-workers/runs/monitor-render-r2/summary.md`；包含完整测量表、CI/发布、备份回滚、清理动作与未实施建议。
