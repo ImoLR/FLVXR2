@@ -29,7 +29,7 @@ billing must go back to the original panel formula.
   「流量限制(GB，双向)」 + formula description, user list column / mobile card
   「流量限制(双向)」 with tooltip, rule form 「流量控制（双向）」 + formula description
 - [x] go-backend `go test ./...` baseline comparison, frontend build, CI green
-- [ ] Release `3.0.27-fork.29` and verify published assets.
+- [x] Release `3.0.27-fork.29` and verify published assets.
 - [ ] Create validated production backup and prune to the newest two backups.
 - [ ] Upgrade production backend/frontend to fork.29.
 - [ ] Verify production health, APIs, served labels, and billed/raw ratio 2.000
@@ -41,6 +41,15 @@ billing must go back to the original panel formula.
   failing tests/subtests as `/root/flvx-workers/runs/monitor-render/baseline.json`;
   no new or missing failures. Billing/ingestion/regression targeted run: 19 tests passed.
 - Local frontend `npm run build`: passed (MemAvailable 1,847,780 KiB, no competing
-  heavy process at start); main JS 2,755,011 bytes, PWA precache 2,891.51 KiB.
+  heavy process at start); main JS 2,755,019 bytes, PWA precache 2,891.51 KiB.
 - CI Build Check on `7262c616`: passed, run [37775718199](https://github.com/ImoLR/FLVXR2/actions/runs/37775718199).
 - Evidence: `/root/flvx-workers/runs/fork29-flow-billing/`.
+
+## Release published
+- Annotated tag `3.0.27-fork.29` targets `0393ccf5`; tag-head CI
+  [37776147343](https://github.com/ImoLR/FLVXR2/actions/runs/37776147343) passed.
+- Build and Push Images [37776377406](https://github.com/ImoLR/FLVXR2/actions/runs/37776377406): all required jobs passed.
+- [Release](https://github.com/ImoLR/FLVXR2/releases/tag/3.0.27-fork.29) published
+  2026-10-08 12:40:08 UTC, Latest, non-prerelease; same 10 assets as fork.28.
+- v4/v6 compose images both pin `ghcr.io/imolr/flvxr2-svc-{backend,frontend}:3.0.27-fork.29`.
+  Both install scripts pin fork.29 and `REPO=ImoLR/FLVXR2`; AMD64/ARM64 GOST SHA256 verified.
