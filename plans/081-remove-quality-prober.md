@@ -11,7 +11,7 @@
 - [x] 前端 build、tsc/lint 基线比较及 PWA 包体检查；提交。
 - [x] 推送并确认 HEAD CI 绿色，记录生产 fork.32 ≥30 分钟各节点 TCP 基线，再推送 annotated tag。
 - [x] 验证镜像工作流、Latest 正式发布、资产集、固定版本及 SHA256；提交。
-- [ ] 创建在线 DB/配置/镜像回滚点，验证 quick_check/计数并执行保留两份备份清理；提交。
+- [x] 创建在线 DB/配置/镜像回滚点，验证 quick_check/计数并执行保留两份备份清理；提交。
 - [ ] 安装 fork.33 v6 compose、更新版本、pull/up，验证健康、API、指标推进及 schema 不变；提交。
 - [ ] 完成 ≥30 分钟生产观察、质量表停止写入、404、JS/日志验证及全部节点 TCP 前后对比。
 - [ ] 写中文总结，完成计划并提交 `docs(plan): mark fork33 rollout complete`、推送。
@@ -27,3 +27,5 @@
 发布：b0496fce 的 CI Build Check 37839682526 四项全成功；打标前已记录生产 fork.32 19:52:19Z—20:22:19Z（30 分钟）tcp_conns，面板自 16:41Z 连续运行。annotated tag 3.0.27-fork.33 指向该 HEAD，已推送。
 
 发布资产：Build and Push Images 37840030023 成功；fork.33 于 2026-10-08T20:49:06Z 发布，为 Latest、非 prerelease。十个资产与 fork.32 一致，v4/v6 compose 镜像及两安装脚本固定 fork.33/ImoLR/FLVXR2，两架构 gost SHA256 一致。
+
+回滚点：`/opt/flvx-svc/rollback/pre-fork33-20261008T205006Z`，包含 compose/.env、在线 gost.db.validated（quick_check=ok）、全表计数/结构、fork.32 镜像本地标签与 ROLLBACK-METADATA.md；node/tunnel/forward/user=26/53/25/10。已运行 prune-backups.sh，仅保留 pre-fork32/pre-fork33，删除 pre-fork31 备份目录/标签及 fork.30 镜像。
