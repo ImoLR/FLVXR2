@@ -231,6 +231,9 @@ func TestTunnelPathSessionProgressivePublish(t *testing.T) {
 		}
 	}
 	await(fast.port)
+	if len(p.GetAll()) != 0 {
+		t.Fatal("progressive path exposed unfinished legacy samples to monitor")
+	}
 	if snap := sessionSnapshot(t, p, 1); snap.PathLatency != 20 || snap.PathStatus != "ok" {
 		t.Fatalf("first path=%+v", snap)
 	}

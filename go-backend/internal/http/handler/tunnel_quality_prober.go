@@ -124,7 +124,7 @@ func (p *tunnelQualityProber) Stop() {
 func (p *tunnelQualityProber) GetAll() []tunnelQualitySnapshot {
 	var items []tunnelQualitySnapshot
 	p.cache.Range(func(_, value interface{}) bool {
-		if snap, ok := value.(*tunnelQualitySnapshot); ok {
+		if snap, ok := value.(*tunnelQualitySnapshot); ok && snap.Timestamp != 0 {
 			items = append(items, *snap)
 		}
 		return true

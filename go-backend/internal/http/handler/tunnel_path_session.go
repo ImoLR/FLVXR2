@@ -98,7 +98,9 @@ func (p *tunnelQualityProber) publishPath(plan tunnelQualityTunnelPlan, r *tunne
 	if plan.base.PathUpdatedAt == 0 {
 		return
 	}
-	snap := plan.base
+	// A path-only first snapshot has no legacy timestamp. GetAll keeps it
+	// hidden from monitor until the normal round stores legacy measurements.
+	snap := tunnelQualitySnapshot{TunnelID: plan.base.TunnelID}
 	if value, ok := p.cache.Load(snap.TunnelID); ok {
 		snap = *value.(*tunnelQualitySnapshot)
 	}
