@@ -54,3 +54,7 @@ HEAD `c576029d` 的 CI Build Check [37808506936](https://github.com/ImoLR/FLVXR2
 ## 生产升级
 
 已安装经过验证的 v6 compose、更新 FLUX_VERSION 并 pull/up backend/frontend。后端于 2026-10-08T16:41:46Z、前端 16:41:52Z 启动 fork.32，无重启，后端 healthy。管理员 node/tunnel/forward 列表 HTTP 200/code=0；25 节点上报、node_metric 推进、53 隧道有质量数据。138 项表/索引定义与升级前逐字一致。延迟 GET（管理员、63666）为 HTTP 404 / `404 page not found`；生产 JS 2,754,025 B，测速文案和路径接口消失、grouped 选择器及双向标签存在。继续十分钟观察和 WS 实测。
+
+## 生产观察进展
+
+真实浏览器类型 WS（15 秒）收到 474 条消息：forward_metrics 出现在节点 2/23/32，serviceConnections 出现在 25 个节点，quotaGroups 仍未广播。原质量探测持续写入全部 53 条隧道。观察到隧道 37/54 的“转发链目标不能为空”重部署重试；已在 fork.31 `demand-backend.log` 14:42:25Z 找到三个完全相同的节点/隧道错误，相关控制面代码无变化，按范围保留并在总结中单列。不能将全日志描述为零错误。
