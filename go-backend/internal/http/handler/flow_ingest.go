@@ -11,21 +11,20 @@ import (
 	"go-backend/internal/store/repo"
 )
 
-// Tunnel billing modes (tunnel.flow).
+// Tunnel billing modes (tunnel.flow). The mode is also the billing multiplier.
 const (
-	tunnelFlowOneWay int64 = 1 // 单向: only the larger direction is billed
-	tunnelFlowTwoWay int64 = 2 // 双向: upload + download are billed
+	tunnelFlowOneWay int64 = 1 // 单向: (upload + download) x ratio
+	tunnelFlowTwoWay int64 = 2 // 双向: (upload + download) x ratio x 2
 )
 
-// billTunnelFlow converts one flow report into billed (in_flow, out_flow) increments.
+// billTunnelFlow converts one flow report into billed (in_flow, out_flow) increments,
+// using the original panel formula: each direction x ratio x flow mode.
 //
 // upload is what the client sent (agent item D), download is what it received (agent item U).
-//   - 双向 (any mode other than 1): in = upload*ratio, out = download*ratio.
-//   - 单向 (mode 1): only the larger direction is billed, max(upload, download)*ratio. It is
-//     recorded in that direction's column (upload -> in_flow, download -> out_flow; a tie goes
-//     to in_flow) and the other column gets 0.
+//   - in = upload*ratio*mode, out = download*ratio*mode (ratio applied first, truncated, then
+//     multiplied by the mode), so 单向 bills (upload+download)*ratio and 双向 twice that.
 //
-// A ratio <= 0 is treated as 1, matching how tunnels are loaded.
+// A ratio <= 0 and a mode <= 0 are treated as 1.
 func billTunnelFlow(flowMode int64, ratio float64, upload, download int64) (int64, int64) {
 	if upload < 0 {
 		upload = 0
@@ -36,13 +35,10 @@ func billTunnelFlow(flowMode int64, ratio float64, upload, download int64) (int6
 	if ratio <= 0 {
 		ratio = 1
 	}
-	scale := func(v int64) int64 { return int64(float64(v) * ratio) }
-	if flowMode == tunnelFlowOneWay {
-		if upload >= download {
-			return scale(upload), 0
-		}
-		return 0, scale(download)
+	if flowMode <= 0 {
+		flowMode = 1
 	}
+	scale := func(v int64) int64 { return int64(float64(v)*ratio) * flowMode }
 	return scale(upload), scale(download)
 }
 
@@ -50,7 +46,7 @@ func billTunnelFlow(flowMode int64, ratio float64, upload, download int64) (int6
 // upload/download bytes are recorded.
 func billFlowForTunnel(tunnel *tunnelRecord, upload, download int64) (int64, int64) {
 	if tunnel == nil {
-		return billTunnelFlow(tunnelFlowTwoWay, 1, upload, download)
+		return billTunnelFlow(tunnelFlowOneWay, 1, upload, download)
 	}
 	return billTunnelFlow(tunnel.Flow, tunnel.TrafficRatio, upload, download)
 }

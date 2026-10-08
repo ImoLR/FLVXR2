@@ -6,8 +6,10 @@ import (
 )
 
 // Regression tests for the traffic accounting bugs fixed in 3.0.27-fork.8. They drive the
-// /flow/upload handler like an agent does and only use APIs that exist in 3.0.27-fork.7, where
-// every one of them fails.
+// /flow/upload handler like an agent does.
+//
+// Billing uses the original panel formula again since 3.0.27-fork.29: each direction x ratio x
+// tunnel flow mode (单向 = 1, 双向 = 2).
 //
 // Agent items: D = bytes received from the client (upload), U = bytes sent to it (download).
 
@@ -30,32 +32,32 @@ func TestRegressionTwoWayTunnelBillsRealTraffic(t *testing.T) {
 		flowItem{N: "20_2_10_tcp", D: 1000, U: 3000},
 		flowItem{N: "20_2_10_udp", D: 5, U: 7},
 	)
-	// fork.7 billed (up+down) x 2: (2010, 6014).
-	e.expectFlows("forward", 20, 1005, 3007)
-	e.expectFlows("user", 2, 1005, 3007)
-	e.expectFlows("user_tunnel", 10, 1005, 3007)
-	if got := e.monthlyQuotaUsed(2); got != 4012 {
-		t.Fatalf("monthly quota used = %d, want 4012", got)
+	// 双向: (up+down) x 2.
+	e.expectFlows("forward", 20, 2010, 6014)
+	e.expectFlows("user", 2, 2010, 6014)
+	e.expectFlows("user_tunnel", 10, 2010, 6014)
+	if got := e.monthlyQuotaUsed(2); got != 8024 {
+		t.Fatalf("monthly quota used = %d, want 8024", got)
 	}
 }
 
-func TestRegressionTwoWayTunnelAppliesRatioOnce(t *testing.T) {
+func TestRegressionTwoWayTunnelAppliesRatioThenDoubles(t *testing.T) {
 	e := newRegressionEnv(t, 2, 0.5)
 	e.upload(regressionSecret, flowItem{N: "20_2_10_tcp", D: 1000, U: 3000})
-	e.expectFlows("forward", 20, 500, 1500)
+	e.expectFlows("forward", 20, 1000, 3000)
 }
 
-func TestRegressionOneWayTunnelBillsLargerDirection(t *testing.T) {
+func TestRegressionOneWayTunnelBillsBothDirectionsOnce(t *testing.T) {
 	e := newRegressionEnv(t, 1, 1)
 	e.upload(regressionSecret, flowItem{N: "20_2_10_tcp", D: 1000, U: 3000})
-	// fork.7 billed up + down: (1000, 3000).
-	e.expectFlows("forward", 20, 0, 3000)
+	// 单向: up + down.
+	e.expectFlows("forward", 20, 1000, 3000)
 	e.upload(regressionSecret, flowItem{N: "20_2_10_tcp", D: 900, U: 100})
-	e.expectFlows("forward", 20, 900, 3000)
-	e.expectFlows("user", 2, 900, 3000)
-	e.expectFlows("user_tunnel", 10, 900, 3000)
-	if got := e.monthlyQuotaUsed(2); got != 3900 {
-		t.Fatalf("monthly quota used = %d, want 3900", got)
+	e.expectFlows("forward", 20, 1900, 3100)
+	e.expectFlows("user", 2, 1900, 3100)
+	e.expectFlows("user_tunnel", 10, 1900, 3100)
+	if got := e.monthlyQuotaUsed(2); got != 5000 {
+		t.Fatalf("monthly quota used = %d, want 5000", got)
 	}
 }
 
@@ -70,7 +72,7 @@ func TestRegressionStaleUserTunnelInServiceName(t *testing.T) {
 	e.addForward(20, 2, 2)    // moved from tunnel 1 to tunnel 2; the node was not resynced
 
 	e.upload(regressionSecret, flowItem{N: "20_2_10_tcp", D: 100, U: 400})
-	e.expectFlows("user_tunnel", 11, 100, 400)
+	e.expectFlows("user_tunnel", 11, 200, 800)
 	e.expectFlows("user_tunnel", 10, 0, 0)
 }
 
@@ -90,8 +92,8 @@ func TestRegressionFailedWriteIsNotAcknowledged(t *testing.T) {
 	if code, text := postFlowUpload(e.h, regressionSecret, body); code != http.StatusOK || text != "ok" {
 		t.Fatalf("resend after the failure: %d %q", code, text)
 	}
-	e.expectFlows("forward", 20, 100, 400)
-	e.expectFlows("user", 2, 100, 400)
+	e.expectFlows("forward", 20, 200, 800)
+	e.expectFlows("user", 2, 200, 800)
 }
 
 func TestRegressionUndecryptableUploadIsNotAcknowledged(t *testing.T) {
@@ -103,7 +105,7 @@ func TestRegressionUndecryptableUploadIsNotAcknowledged(t *testing.T) {
 }
 
 func TestRegressionForwardTrafficLimitCountsUploadOnce(t *testing.T) {
-	e := newRegressionEnv(t, 2, 1)
+	e := newRegressionEnv(t, 1, 1)
 	limit := bytesPerGB
 	e.exec(`UPDATE forward SET traffic_limit = 1, in_flow = ? WHERE id = 20`, limit-100)
 

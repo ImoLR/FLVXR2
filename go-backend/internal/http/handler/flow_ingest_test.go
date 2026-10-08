@@ -19,16 +19,15 @@ func TestBillTunnelFlow(t *testing.T) {
 		upload, download int64
 		wantIn, wantOut  int64
 	}{
-		{name: "two-way bills both directions once", mode: 2, ratio: 1, upload: 1000, download: 3000, wantIn: 1000, wantOut: 3000},
-		{name: "two-way applies ratio", mode: 2, ratio: 0.5, upload: 1000, download: 3000, wantIn: 500, wantOut: 1500},
-		{name: "two-way fractional ratio truncates", mode: 2, ratio: 1.5, upload: 3, download: 5, wantIn: 4, wantOut: 7},
-		{name: "one-way bills larger download only", mode: 1, ratio: 1, upload: 1000, download: 3000, wantIn: 0, wantOut: 3000},
-		{name: "one-way bills larger upload only", mode: 1, ratio: 1, upload: 5000, download: 200, wantIn: 5000, wantOut: 0},
-		{name: "one-way tie goes to upload", mode: 1, ratio: 1, upload: 700, download: 700, wantIn: 700, wantOut: 0},
-		{name: "one-way applies ratio", mode: 1, ratio: 2, upload: 10, download: 40, wantIn: 0, wantOut: 80},
-		{name: "unknown mode is two-way", mode: 3, ratio: 1, upload: 10, download: 40, wantIn: 10, wantOut: 40},
-		{name: "zero ratio treated as one", mode: 2, ratio: 0, upload: 10, download: 40, wantIn: 10, wantOut: 40},
-		{name: "negative bytes ignored", mode: 2, ratio: 1, upload: -10, download: 40, wantIn: 0, wantOut: 40},
+		{name: "two-way doubles both directions", mode: 2, ratio: 1, upload: 1000, download: 3000, wantIn: 2000, wantOut: 6000},
+		{name: "two-way applies ratio then doubles", mode: 2, ratio: 0.5, upload: 1000, download: 3000, wantIn: 1000, wantOut: 3000},
+		{name: "two-way truncates before doubling", mode: 2, ratio: 1.5, upload: 3, download: 5, wantIn: 8, wantOut: 14},
+		{name: "one-way bills both directions once", mode: 1, ratio: 1, upload: 1000, download: 3000, wantIn: 1000, wantOut: 3000},
+		{name: "one-way applies ratio", mode: 1, ratio: 2, upload: 10, download: 40, wantIn: 20, wantOut: 80},
+		{name: "other mode is the multiplier", mode: 3, ratio: 1, upload: 10, download: 40, wantIn: 30, wantOut: 120},
+		{name: "zero mode treated as one", mode: 0, ratio: 1, upload: 10, download: 40, wantIn: 10, wantOut: 40},
+		{name: "zero ratio treated as one", mode: 2, ratio: 0, upload: 10, download: 40, wantIn: 20, wantOut: 80},
+		{name: "negative bytes ignored", mode: 2, ratio: 1, upload: -10, download: 40, wantIn: 0, wantOut: 80},
 		{name: "no traffic", mode: 1, ratio: 1, upload: 0, download: 0, wantIn: 0, wantOut: 0},
 	}
 	for _, tc := range tests {
@@ -45,7 +44,7 @@ func TestBillTunnelFlow(t *testing.T) {
 func TestIngestFlowUsesRecreatedUserTunnelID(t *testing.T) {
 	e := newFlowTestEnv(t)
 	e.addUser(2)
-	e.addTunnel(1, tunnelFlowTwoWay, 1)
+	e.addTunnel(1, tunnelFlowOneWay, 1)
 	e.addUserTunnel(15, 2, 1) // re-created after a group revoke/re-grant; old id 10 is gone
 	e.addForward(20, 2, 1)
 
@@ -64,8 +63,8 @@ func TestIngestFlowAdminForwardWithoutUserTunnel(t *testing.T) {
 	if err := e.h.ingestFlowItems(1, []flowItem{{N: "20_1_0_tcp", D: 100, U: 400}}); err != nil {
 		t.Fatalf("ingest: %v", err)
 	}
-	e.expectFlows("forward", 20, 100, 400)
-	e.expectFlows("user", 1, 100, 400)
+	e.expectFlows("forward", 20, 200, 800) // 双向 bills each direction x2
+	e.expectFlows("user", 1, 200, 800)
 }
 
 func TestIngestFlowDeletedForwardFallsBackToParsedIDs(t *testing.T) {
@@ -78,15 +77,15 @@ func TestIngestFlowDeletedForwardFallsBackToParsedIDs(t *testing.T) {
 	if err := e.h.ingestFlowItems(1, []flowItem{{N: "20_2_10_tcp", D: 100, U: 400}}); err != nil {
 		t.Fatalf("ingest: %v", err)
 	}
-	e.expectFlows("user", 2, 0, 400) // billed with the user_tunnel's tunnel (one-way)
-	e.expectFlows("user_tunnel", 10, 0, 400)
+	e.expectFlows("user", 2, 100, 400) // billed with the user_tunnel's tunnel (one-way)
+	e.expectFlows("user_tunnel", 10, 100, 400)
 }
 
 func TestIngestFlowSkipsLocalCountersWhenServiceOwnerDiffers(t *testing.T) {
 	e := newFlowTestEnv(t) // user 1 is the seeded admin
 	e.exec(`UPDATE user SET in_flow = 0, out_flow = 0 WHERE id = 1`)
 	e.addUser(2)
-	e.addTunnel(1, tunnelFlowTwoWay, 1)
+	e.addTunnel(1, tunnelFlowOneWay, 1)
 	e.addUserTunnel(10, 2, 1)
 	e.addForward(20, 1, 1) // local forward 20 belongs to user 1
 
@@ -102,7 +101,7 @@ func TestIngestFlowSkipsLocalCountersWhenServiceOwnerDiffers(t *testing.T) {
 
 func TestIngestFlowDeletedForwardOfDeletedUserIsDropped(t *testing.T) {
 	e := newFlowTestEnv(t)
-	e.addTunnel(1, tunnelFlowTwoWay, 1)
+	e.addTunnel(1, tunnelFlowOneWay, 1)
 
 	// Forward 20 and its user 7 are gone; nothing is billed and no quota row is created.
 	if err := e.h.ingestFlowItems(1, []flowItem{{N: "20_7_10_tcp", D: 100, U: 400}}); err != nil {
@@ -132,7 +131,7 @@ func (e *flowTestEnv) peerShareFlow(shareID int64) int64 {
 func TestIngestFlowFederationRuntimeOnlyCountsPeerShare(t *testing.T) {
 	e := newFlowTestEnv(t)
 	e.addUser(2)
-	e.addTunnel(1, tunnelFlowTwoWay, 1)
+	e.addTunnel(1, tunnelFlowOneWay, 1)
 	e.addUserTunnel(10, 2, 1)
 	// Another panel runs its forward 20 of its user 2 on this panel's node 1. This panel has
 	// a user 2 and a user_tunnel 10 too, but no forward 20.
@@ -156,7 +155,7 @@ func TestFlowUploadAnswersBeforeEnforcement(t *testing.T) {
 	const secret = "node-secret-enforcement"
 	e.addNode(1, secret)
 	e.addUser(2)
-	e.addTunnel(1, tunnelFlowTwoWay, 1)
+	e.addTunnel(1, tunnelFlowOneWay, 1)
 	e.addUserTunnel(10, 2, 1)
 	e.addForward(20, 2, 1)
 	e.exec(`UPDATE forward SET traffic_limit = 1, in_flow = ? WHERE id = 20`, bytesPerGB)
@@ -200,7 +199,7 @@ func TestIngestFlowBatchIsAtomic(t *testing.T) {
 	e := newFlowTestEnv(t)
 	e.addUser(2)
 	e.addUser(3)
-	e.addTunnel(1, tunnelFlowTwoWay, 1)
+	e.addTunnel(1, tunnelFlowOneWay, 1)
 	e.addUserTunnel(10, 2, 1)
 	e.addUserTunnel(11, 3, 1)
 	e.addForward(20, 2, 1)
@@ -230,7 +229,7 @@ func TestFlowUploadResponses(t *testing.T) {
 	const secret = "node-secret-for-flow-upload"
 	e.addNode(1, secret)
 	e.addUser(2)
-	e.addTunnel(1, tunnelFlowTwoWay, 1)
+	e.addTunnel(1, tunnelFlowOneWay, 1)
 	e.addUserTunnel(10, 2, 1)
 	e.addForward(20, 2, 1)
 
