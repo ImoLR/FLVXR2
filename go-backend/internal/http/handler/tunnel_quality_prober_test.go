@@ -2,11 +2,17 @@ package handler
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"go-backend/internal/auth"
+	"go-backend/internal/http/middleware"
 	"math"
+	"net/http"
+	"net/http/httptest"
 	"reflect"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -31,7 +37,9 @@ func TestTunnelQualityRoundPublicFallbackShared(t *testing.T) {
 		round.planExitTest(1, options)
 	}
 	// A chain pair which resolves to the same endpoint also shares the ping.
-	round.planPing(tunnelQualityPingKey{1, exitTestTargets[0].host, 443}, options)
+	pathOptions := options
+	pathOptions.pingCount = 2
+	round.planPing(tunnelQualityPingKey{1, exitTestTargets[0].host, 443}, pathOptions)
 	round.run(context.Background())
 	latency, loss, err := round.exitTestResult(1)
 	wantHosts := []string{exitTestTargets[0].host, exitTestTargets[1].host, exitTestTargets[2].host}
@@ -144,6 +152,7 @@ func TestTunnelQualityPlanSkipsOfflineEndpoints(t *testing.T) {
 			})
 			p := newTunnelQualityProber(e.h)
 			defer p.Stop()
+			p.demandPath()
 			plan := p.planTunnel(1, round, e.h.getNodeRecord)
 			if len(round.planned) != 0 {
 				t.Fatal("offline pair was scheduled")
@@ -216,6 +225,7 @@ func TestTunnelQualityLowestPathKeepsLegacyMeasurements(t *testing.T) {
 	})
 	p := newTunnelQualityProber(e.h)
 	defer p.Stop()
+	p.demandPath()
 	plans := []tunnelQualityTunnelPlan{p.planTunnel(1, round, e.h.getNodeRecord), p.planTunnel(2, round, e.h.getNodeRecord)}
 	if len(round.planned) != 4 || len(round.publicTests) != 1 {
 		t.Fatalf("tasks=%v public=%v", round.planned, round.publicTests)
@@ -261,5 +271,204 @@ func TestTunnelQualityRoundDestinationDisconnectsAfterPlanning(t *testing.T) {
 	_, loss, err := round.result(key.nodeID, key.ip, key.port, diagnosisExecOptions{})
 	if err == nil || err.Error() != "节点不在线" || loss != 100 {
 		t.Fatalf("loss=%v err=%v", loss, err)
+	}
+}
+
+// Three layers of two online nodes, plus a zero-hop tunnel whose legacy key
+// shares one of the multi-hop path segments. No real agents or clock waits.
+func TestTunnelQualityPathDemandWindow(t *testing.T) {
+	e := newFlowTestEnv(t)
+	for id := int64(1); id <= 6; id++ {
+		e.addNode(id, fmt.Sprint(id))
+	}
+	for id := int64(1); id <= 2; id++ {
+		e.addTunnel(id, 1, 1)
+		e.exec(`UPDATE tunnel SET type=2 WHERE id=?`, id)
+	}
+	e.exec(`INSERT INTO chain_tunnel(tunnel_id, chain_type, node_id, inx, port) VALUES
+		(1,'1',1,0,1001),(1,'1',2,0,1002),
+		(1,'2',3,1,1003),(1,'2',4,1,1004),
+		(1,'3',5,0,1005),(1,'3',6,0,1006),
+		(2,'1',1,0,1001),(2,'3',3,0,1003)`)
+	p := newTunnelQualityProber(e.h)
+	defer p.Stop()
+	e.h.qualityProber = p
+	now := time.Now()
+	p.now = func() time.Time { return now }
+	request := func() []userTunnelLatency {
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/tunnel/user/latency", nil)
+		token, err := auth.GenerateToken(1, "admin", 0, "demand-test")
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Header.Set("Authorization", token)
+		res := httptest.NewRecorder()
+		middleware.JWT(middleware.AuthOptions{JWTSecret: "demand-test"})(http.HandlerFunc(e.h.userTunnelLatencyList)).ServeHTTP(res, req)
+		var body struct {
+			Code int
+			Data []userTunnelLatency
+		}
+		if err := json.Unmarshal(res.Body.Bytes(), &body); err != nil || body.Code != 0 {
+			t.Fatalf("response=%s err=%v", res.Body.String(), err)
+		}
+		if p.lastPathDemand.Load() != now.UnixNano() {
+			t.Fatal("endpoint did not record demand")
+		}
+		return body.Data
+	}
+	var previousPathAt int64
+	for _, stage := range []string{"idle", "demand", "within", "expired"} {
+		switch stage {
+		case "demand":
+			if items := request(); len(items) != 0 {
+				t.Fatalf("idle produced fake path results: %+v", items)
+			}
+		case "within":
+			now = now.Add(59 * time.Second)
+		case "expired":
+			now = now.Add(2 * time.Second)
+		}
+		var mu sync.Mutex
+		calls := map[tunnelQualityPingKey]int{}
+		round := newTunnelQualityProbeRound(func(id int64, ip string, port int, options diagnosisExecOptions) (float64, float64, error) {
+			mu.Lock()
+			calls[tunnelQualityPingKey{id, ip, port}] = options.pingCount
+			mu.Unlock()
+			return 12, 0, nil
+		})
+		plans := []tunnelQualityTunnelPlan{p.planTunnel(1, round, e.h.getNodeRecord), p.planTunnel(2, round, e.h.getNodeRecord)}
+		round.run(context.Background())
+		active := stage == "demand" || stage == "within"
+		wantCalls := 4 // Two direct keys and two public exit tests.
+		if active {
+			wantCalls = 11
+		} // Eight path keys, one extra direct, two public.
+		if len(calls) != wantCalls {
+			t.Fatalf("%s: executed=%v want=%d", stage, calls, wantCalls)
+		}
+		for key, count := range calls {
+			wantCount := 4
+			if active && key.port != 443 && key != *plans[0].direct && key != *plans[1].direct {
+				wantCount = 2
+			}
+			if count != wantCount {
+				t.Fatalf("%s: key=%+v count=%d want=%d", stage, key, count, wantCount)
+			}
+		}
+		for _, plan := range plans {
+			p.storeResult(plan.snapshot(round))
+		}
+		value, _ := p.cache.Load(int64(1))
+		snap := value.(*tunnelQualitySnapshot)
+		if active {
+			if snap.PathStatus != "ok" || snap.PathLatency != 24 {
+				t.Fatalf("%s: %+v", stage, snap)
+			}
+			previousPathAt = snap.PathUpdatedAt
+		} else if stage == "idle" {
+			if snap.PathStatus != "" || snap.PathUpdatedAt != 0 {
+				t.Fatalf("fake timeout: %+v", snap)
+			}
+		} else if snap.PathUpdatedAt != previousPathAt || snap.PathStatus != "ok" || snap.PathLatency != 24 {
+			t.Fatalf("idle round changed previous path: %+v", snap)
+		}
+		if stage == "demand" {
+			items := request()
+			if len(items) != 2 || items[0].LatencyMS != 24 || items[1].LatencyMS != 12 {
+				t.Fatalf("endpoint=%+v", items)
+			}
+		}
+	}
+}
+
+func TestTunnelQualityPlanPingKeepsLargerCount(t *testing.T) {
+	for _, counts := range [][]int{{4, 2}, {2, 4}, {0, 2}, {2, 0}} {
+		round := newTunnelQualityProbeRound(nil)
+		key := tunnelQualityPingKey{1, "192.0.2.2", 443}
+		for _, count := range counts {
+			options := tunnelQualityProbeOptions()
+			options.pingCount = count
+			round.planPing(key, options)
+		}
+		if round.planned[key].pingCount != 4 {
+			t.Fatalf("%v downgraded to %d", counts, round.planned[key].pingCount)
+		}
+	}
+}
+
+func TestTunnelQualityDemandWakeSerialRounds(t *testing.T) {
+	e := newFlowTestEnv(t)
+	e.addNode(1, "entry")
+	e.addNode(2, "exit")
+	e.exec(`UPDATE node SET is_remote=1`)
+	e.addTunnel(1, 1, 1)
+	e.exec(`UPDATE tunnel SET type=2 WHERE id=1`)
+	e.exec(`INSERT INTO chain_tunnel(tunnel_id, chain_type, node_id, inx, port) VALUES (1,'1',1,0,1001),(1,'3',2,0,1002)`)
+	p := newTunnelQualityProber(e.h)
+	p.interval = time.Hour // A round can only start via demand during this test.
+	var clock atomic.Int64
+	clock.Store(time.Now().UnixNano())
+	p.now = func() time.Time { return time.Unix(0, clock.Load()) }
+	started := make(chan struct{}, 20)
+	release := make(chan struct{}, 20)
+	var active, maxActive atomic.Int64
+	p.ping = func(int64, string, int, diagnosisExecOptions) (float64, float64, error) {
+		n := active.Add(1)
+		for old := maxActive.Load(); n > old; old = maxActive.Load() {
+			if maxActive.CompareAndSwap(old, n) {
+				break
+			}
+		}
+		started <- struct{}{}
+		select {
+		case <-release:
+		case <-p.ctx.Done():
+		}
+		active.Add(-1)
+		return 12, 0, nil
+	}
+	done := make(chan struct{})
+	go func() { p.loop(); close(done) }()
+	defer func() { p.Stop(); <-done }()
+	await := func(ch <-chan struct{}) {
+		t.Helper()
+		select {
+		case <-ch:
+		case <-time.After(time.Second):
+			t.Fatal("demand did not wake round immediately")
+		}
+	}
+	p.demandPath() // Also interrupts the initial five-second boot delay.
+	await(started)
+	await(started)
+	for i := 0; i < 100; i++ {
+		p.demandPath()
+	}
+	select {
+	case <-started:
+		t.Fatal("rounds overlapped while blocked")
+	case <-time.After(30 * time.Millisecond):
+	}
+	release <- struct{}{}
+	release <- struct{}{}
+	deadline := time.Now().Add(time.Second)
+	for p.lastPathProbe.Load() == 0 && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	if p.lastPathProbe.Load() == 0 {
+		t.Fatal("path completion not recorded")
+	}
+	p.demandPath()
+	select {
+	case <-started:
+		t.Fatal("queued/recent demand caused redundant round")
+	case <-time.After(30 * time.Millisecond):
+	}
+	clock.Add(int64(16 * time.Second))
+	p.demandPath()
+	await(started)
+	await(started)
+	if maxActive.Load() != 2 {
+		t.Fatalf("overlapping rounds: active pings=%d", maxActive.Load())
 	}
 }

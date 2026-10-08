@@ -37,6 +37,7 @@ func TestTunnelPathLatencyDirectReusesLegacyPing(t *testing.T) {
 	})
 	p := newTunnelQualityProber(e.h)
 	defer p.Stop()
+	p.demandPath()
 	plan := p.planTunnel(1, round, e.h.getNodeRecord)
 	round.run(context.Background())
 	p.storeResult(plan.snapshot(round))

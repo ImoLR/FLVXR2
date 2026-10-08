@@ -181,6 +181,7 @@ func TestCustomConnectIPQualityAndPath(t *testing.T) {
 			return 1, 0, nil
 		})
 		p := newTunnelQualityProber(e.h)
+		p.demandPath()
 		plan := p.planTunnel(1, round, e.h.getNodeRecord)
 		round.run(context.Background())
 		result := plan.snapshot(round)
