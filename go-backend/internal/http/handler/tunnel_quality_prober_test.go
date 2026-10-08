@@ -337,10 +337,11 @@ func TestTunnelQualityPathDemandWindow(t *testing.T) {
 			return 12, 0, nil
 		})
 		plans := []tunnelQualityTunnelPlan{p.planTunnel(1, round, e.h.getNodeRecord), p.planTunnel(2, round, e.h.getNodeRecord)}
+		p.preparePathRound(round, plans, p.pathSession)
 		round.run(context.Background())
 		active := stage == "demand" || stage == "within"
 		wantCalls := 4 // Two direct keys and two public exit tests.
-		if active {
+		if stage == "demand" {
 			wantCalls = 11
 		} // Eight path keys, one extra direct, two public.
 		if len(calls) != wantCalls {

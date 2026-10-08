@@ -271,6 +271,7 @@ func TestUserTunnelLatencyPermissionsAndFreshness(t *testing.T) {
 	p := newTunnelQualityProber(e.h)
 	defer p.Stop()
 	e.h.qualityProber = p
+	p.demandPath() // Seed snapshots inside an active global session.
 	now := time.Now().UnixMilli()
 	for id := int64(1); id <= 7; id++ {
 		e.addTunnel(id, 1, 1)
