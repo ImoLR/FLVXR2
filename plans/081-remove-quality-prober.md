@@ -8,7 +8,7 @@
 - [x] 删除后台质量探测、专用测试、API 和不再使用的仓储方法；提交。
 - [x] 删除隧道监控质量 UI/API 类型，保留非质量功能；提交。
 - [x] 完成删除/保留/范围门禁、后端 build/vet/全量测试及 handler race；提交。
-- [ ] 前端 build、tsc/lint 基线比较及 PWA 包体检查；提交。
+- [x] 前端 build、tsc/lint 基线比较及 PWA 包体检查；提交。
 - [ ] 推送并确认 HEAD CI 绿色，记录生产 fork.32 ≥30 分钟各节点 TCP 基线，再推送 annotated tag。
 - [ ] 验证镜像工作流、Latest 正式发布、资产集、固定版本及 SHA256；提交。
 - [ ] 创建在线 DB/配置/镜像回滚点，验证 quick_check/计数并执行保留两份备份清理；提交。
@@ -21,3 +21,5 @@
 前端：移除质量轮询、历史条、延迟/丢包 KPI、质量趋势和质量派生状态列；保留隧道列表/卡片、流量图及其独立时间范围、监控权限卡片。
 
 后端门禁：指定 grep 无命中（exit 1）；变更仅任务范围内 10 文件。build/vet 通过；GOMAXPROCS=2、-p 1 全量测试与 fork.32 相同 15 项失败，无新增；handler race 无数据竞争，仅两个既有失败。详见 scope-gate.log、gates.json、baseline-comparison.json、race.log。
+
+前端门禁：npm run build（含 tsc）通过；主 JS 2,739,492 B，距 5 MiB 上限 2,503,388 B。ESLint 无 --fix 基线比较：错误 96→96、警告 3529→3529，无新增错误；移除产生的 import 排版警告已修正并重新构建验证。
