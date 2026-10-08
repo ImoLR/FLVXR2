@@ -32,7 +32,7 @@ billing must go back to the original panel formula.
 - [x] Release `3.0.27-fork.29` and verify published assets.
 - [x] Create validated production backup and prune to the newest two backups.
 - [x] Upgrade production backend/frontend to fork.29.
-- [ ] Verify production health, APIs, served labels, and billed/raw ratio 2.000
+- [x] Verify production health, APIs, served labels, and billed/raw ratio 2.000
   (forward/user/user_tunnel growth vs raw `tunnel_metric` over at least 180 seconds).
 
 ## Release validation (2026-10-08)
@@ -73,4 +73,20 @@ billing must go back to the original panel formula.
 - Admin `/api/v1/forward/list` and `/api/v1/user/list`: HTTP 200, code=0.
 - Served `/assets/index-CXKQwfYB.js` contains 「流量限制(GB，双向)」,
   「流量控制（双向）」, 「双向计算（上传+下载）×2」; does not contain 「上传、下载取较大者」.
-- Read-only 180-second billing sample is running.
+- Read-only 180-second billing sample completed successfully (details below).
+
+## Rollout complete
+- Measurement window: 2026-10-08 12:42:32.672–12:45:32.674 UTC (180.005 s).
+  Each endpoint used one read-only SQLite transaction; raw metric cutoff was held fixed
+  across both snapshots to compare growth from the same uploads.
+- Raw `tunnel_metric` growth: **6,175 bytes**; billed `in_flow+out_flow` growth:
+  forward **12,350**, user **12,350**, user_tunnel **12,350** bytes.
+  All three billed/raw ratios: **2.000**. This was a low-traffic observation window.
+- All 53 tunnels remained flow=2, ratio=1. `node_metric` maximum timestamp advanced
+  from `1791463350142` to `1791463527306`; backend healthy, both containers running
+  with zero restarts; admin API and served-label checks passed again after sampling.
+- Backend log inspection: no errors/panics/fatal messages; normal metrics/reconnect
+  deployment messages only. No historical traffic data edits, node/agent upgrades,
+  memory edits or changes to other stacks.
+- Evidence: `rate-result.json`, `prod-verification.json`, `log-verification.json`,
+  `release-verification.json`, `baseline.json` in the task run directory.
