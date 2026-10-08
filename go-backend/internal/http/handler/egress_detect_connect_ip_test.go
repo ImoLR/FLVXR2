@@ -1,12 +1,13 @@
 package handler
 
 import (
-	"context"
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	"go-backend/internal/store/model"
+	"go-backend/internal/ws"
 )
 
 func TestDetectedEgressIsAdditive(t *testing.T) {
@@ -156,7 +157,7 @@ func TestCustomConnectIPSaveUpdateClear(t *testing.T) {
 	}
 }
 
-func TestCustomConnectIPQualityAndPath(t *testing.T) {
+func TestCustomConnectIPQuality(t *testing.T) {
 	for _, withHop := range []bool{false, true} {
 		e := newFlowTestEnv(t)
 		e.addNode(1, "entry")
@@ -168,32 +169,27 @@ func TestCustomConnectIPQualityAndPath(t *testing.T) {
 		if withHop {
 			e.exec("INSERT INTO chain_tunnel(tunnel_id,chain_type,node_id,inx,port,connect_ip,connect_ip_type) VALUES(1,'2',3,1,1003,'198.51.100.3','v6')")
 		}
-		round := newTunnelQualityProbeRound(func(id int64, ip string, port int, _ diagnosisExecOptions) (float64, float64, error) {
-			if id == 1 && withHop && port == 1003 {
-				if ip != "198.51.100.3" || port != 1003 {
-					t.Errorf("entry probe: %s:%d", ip, port)
-				}
-			} else if id == 1 || id == 3 {
-				if ip != "2001:db8:99::2" || port != 1002 {
-					t.Errorf("exit probe: %s:%d", ip, port)
-				}
+		entryProbes := 0
+		e.h.nodeCommandSender = func(id int64, method string, data interface{}, _ time.Duration) (ws.CommandResult, error) {
+			if method != "TcpPing" {
+				t.Fatalf("unexpected command: %s", method)
 			}
-			return 1, 0, nil
-		})
+			if id == 1 {
+				entryProbes++
+				target := data.(map[string]interface{})
+				if target["ip"] != "2001:db8:99::2" || target["port"] != 1002 {
+					t.Errorf("entry-to-exit probe: %+v", target)
+				}
+			} else if id != 2 {
+				t.Errorf("unexpected probe source: %d", id)
+			}
+			return ws.CommandResult{Success: true, Data: map[string]interface{}{"averageTime": 1, "packetLoss": 0}}, nil
+		}
 		p := newTunnelQualityProber(e.h)
-		p.demandPath()
-		plan := p.planTunnel(1, round, e.h.getNodeRecord)
-		round.run(context.Background())
-		result := plan.snapshot(round)
-		if result.PathStatus != "ok" {
-			t.Fatalf("path: %+v", result)
-		}
-		want := float64(1)
-		if withHop {
-			want = 2
-		}
-		if result.PathLatency != want {
-			t.Fatalf("path latency %v want %v", result.PathLatency, want)
+		p.probeTunnel(1)
+		results := p.GetAll()
+		if entryProbes != 1 || len(results) != 1 || !results[0].Success || results[0].EntryToExitLatency != 1 {
+			t.Fatalf("quality: entry probes=%d, results=%+v", entryProbes, results)
 		}
 		p.Stop()
 	}

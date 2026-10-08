@@ -16,7 +16,6 @@ interface OptionItem {
   label: string;
   description?: React.ReactNode;
   endContent?: React.ReactNode;
-  selectedEndContent?: React.ReactNode;
   section?: string;
   sectionDescription?: string;
   sectionTooltip?: string;
@@ -54,7 +53,6 @@ export interface SelectItemProps {
   children?: React.ReactNode;
   description?: React.ReactNode;
   endContent?: React.ReactNode;
-  selectedEndContent?: React.ReactNode;
   textValue?: string;
 }
 
@@ -126,7 +124,6 @@ function flattenOptionsFromNode(
           label: props.textValue ?? extractText(props.children) ?? key,
           description: props.description,
           endContent: props.endContent,
-          selectedEndContent: props.selectedEndContent,
         });
 
         return;
@@ -154,7 +151,6 @@ function getOptions<T>(
           label: props.textValue ?? extractText(props.children) ?? key,
           description: props.description,
           endContent: props.endContent,
-          selectedEndContent: props.selectedEndContent,
         });
       }
     });
@@ -724,7 +720,6 @@ export function Select<T>({
             >
               {selectedText}
             </span>
-            {isGrouped && options.find((option) => option.key === singleValue)?.selectedEndContent}
             <ChevronDownIcon
               className={cn(
                 "h-4 w-4 flex-shrink-0 text-default-500 transition-transform",

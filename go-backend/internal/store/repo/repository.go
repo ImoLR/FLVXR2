@@ -1385,13 +1385,14 @@ func (r *Repository) ListUserAccessibleTunnels(userID int64) ([]map[string]inter
 	type row struct {
 		ID           int64
 		Name         string
-		Type         int
 		Remark       sql.NullString
 		TrafficRatio float64
 	}
 	var rows []row
-	err := r.userAccessibleTunnels(userID).
-		Select("tunnel.id, tunnel.name, tunnel.type, tunnel.remark, tunnel.traffic_ratio").
+	err := r.db.Model(&model.UserTunnel{}).
+		Select("tunnel.id, tunnel.name, tunnel.remark, tunnel.traffic_ratio").
+		Joins("JOIN tunnel ON tunnel.id = user_tunnel.tunnel_id").
+		Where("user_tunnel.user_id = ? AND tunnel.status = 1", userID).
 		Order("tunnel.inx ASC, tunnel.id ASC").
 		Find(&rows).Error
 	if err != nil {
@@ -1413,7 +1414,6 @@ func (r *Repository) ListUserAccessibleTunnels(userID int64) ([]map[string]inter
 		item := map[string]interface{}{
 			"id":           rw.ID,
 			"name":         rw.Name,
-			"type":         rw.Type,
 			"remark":       nullableString(rw.Remark),
 			"trafficRatio": rw.TrafficRatio,
 			"entryGroups":  regionMap[rw.ID].entryGroups(false),
@@ -1428,27 +1428,6 @@ func (r *Repository) ListUserAccessibleTunnels(userID int64) ([]map[string]inter
 	return items, nil
 }
 
-func (r *Repository) userAccessibleTunnels(userID int64) *gorm.DB {
-	return r.db.Model(&model.UserTunnel{}).
-		Joins("JOIN tunnel ON tunnel.id = user_tunnel.tunnel_id").
-		Where("user_tunnel.user_id = ? AND tunnel.status = 1", userID)
-}
-
-// ListUserTunnelLatencyIDs shares the picker's access query, without loading node
-// metadata. Administrators may read any type-2 tunnel with a fresh snapshot.
-func (r *Repository) ListUserTunnelLatencyIDs(userID int64, admin bool) ([]int64, error) {
-	if r == nil || r.db == nil {
-		return nil, errors.New("repository not initialized")
-	}
-	query := r.db.Model(&model.Tunnel{})
-	if !admin {
-		query = r.userAccessibleTunnels(userID)
-	}
-	var ids []int64
-	err := query.Where("tunnel.type = 2").Distinct("tunnel.id").Order("tunnel.id ASC").Pluck("tunnel.id", &ids).Error
-	return ids, err
-}
-
 func (r *Repository) ListEnabledTunnelSummaries() ([]map[string]interface{}, error) {
 	if r == nil || r.db == nil {
 		return nil, errors.New("repository not initialized")
@@ -1457,12 +1436,11 @@ func (r *Repository) ListEnabledTunnelSummaries() ([]map[string]interface{}, err
 	type row struct {
 		ID           int64
 		Name         string
-		Type         int
 		Remark       sql.NullString
 		TrafficRatio float64
 	}
 	var rows []row
-	err := r.db.Model(&model.Tunnel{}).Select("id, name, type, remark, traffic_ratio").Where("status = 1").Order("inx ASC, id ASC").Find(&rows).Error
+	err := r.db.Model(&model.Tunnel{}).Select("id, name, remark, traffic_ratio").Where("status = 1").Order("inx ASC, id ASC").Find(&rows).Error
 	if err != nil {
 		return nil, err
 	}
@@ -1482,7 +1460,6 @@ func (r *Repository) ListEnabledTunnelSummaries() ([]map[string]interface{}, err
 		item := map[string]interface{}{
 			"id":           rw.ID,
 			"name":         rw.Name,
-			"type":         rw.Type,
 			"remark":       nullableString(rw.Remark),
 			"trafficRatio": rw.TrafficRatio,
 			"entryGroups":  regionMap[rw.ID].entryGroups(true),

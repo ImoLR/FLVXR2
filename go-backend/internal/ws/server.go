@@ -617,17 +617,6 @@ func looksLikeSystemInfoMessage(msg string) bool {
 	return false
 }
 
-// IsNodeConnected reports whether a local agent has a current command session.
-func (s *Server) IsNodeConnected(nodeID int64) bool {
-	if s == nil {
-		return false
-	}
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	node := s.nodes[nodeID]
-	return node != nil && node.conn != nil && node.conn.conn != nil
-}
-
 func (s *Server) SendCommand(nodeID int64, cmdType string, data interface{}, timeout time.Duration) (CommandResult, error) {
 	if s == nil {
 		return CommandResult{}, errors.New("server not initialized")

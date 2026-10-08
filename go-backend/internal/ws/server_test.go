@@ -3,8 +3,6 @@ package ws
 import (
 	"encoding/json"
 	"testing"
-
-	"github.com/gorilla/websocket"
 )
 
 func TestMetricDataForBroadcast(t *testing.T) {
@@ -37,24 +35,6 @@ func TestMetricDataForBroadcast(t *testing.T) {
 	for _, raw := range []string{` { "uptime" : 1 } `, `{broken`, `null`, `[]`} {
 		if got := metricDataForBroadcast([]byte(raw)); got != raw {
 			t.Fatalf("fast path changed %q to %q", raw, got)
-		}
-	}
-}
-
-func TestIsNodeConnected(t *testing.T) {
-	var absent *Server
-	if absent.IsNodeConnected(1) {
-		t.Fatal("nil server is connected")
-	}
-	s := &Server{nodes: map[int64]*nodeSession{
-		1: nil,
-		2: {},
-		3: {conn: &connWrap{}},
-		4: {conn: &connWrap{conn: &websocket.Conn{}}},
-	}}
-	for id := int64(0); id <= 4; id++ {
-		if got := s.IsNodeConnected(id); got != (id == 4) {
-			t.Fatalf("node %d connected=%v", id, got)
 		}
 	}
 }
