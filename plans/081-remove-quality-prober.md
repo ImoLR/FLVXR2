@@ -13,7 +13,7 @@
 - [x] 验证镜像工作流、Latest 正式发布、资产集、固定版本及 SHA256；提交。
 - [x] 创建在线 DB/配置/镜像回滚点，验证 quick_check/计数并执行保留两份备份清理；提交。
 - [x] 安装 fork.33 v6 compose、更新版本、pull/up，验证健康、API、指标推进及 schema 不变；提交。
-- [ ] 完成 ≥30 分钟生产观察、质量表停止写入、404、JS/日志验证及全部节点 TCP 前后对比。
+- [x] 完成 ≥30 分钟生产观察、质量表停止写入、404、JS/日志验证及全部节点 TCP 前后对比。
 - [ ] 写中文总结，完成计划并提交 `docs(plan): mark fork33 rollout complete`、推送。
 
 后台：ListEnabledTunnelIDs 仅探测器使用，仓储文件整体删除；专用 TestCustomConnectIPQuality 删除，其余诊断/connect-IP 测试保留。共用函数引用记录于 shared-callers.log。后台任务计数 12→11，避免退出等待已删除任务；监控路径仅匹配 metrics，删除的质量路径返回 404。
@@ -31,3 +31,5 @@
 回滚点：`/opt/flvx-svc/rollback/pre-fork33-20261008T205006Z`，包含 compose/.env、在线 gost.db.validated（quick_check=ok）、全表计数/结构、fork.32 镜像本地标签与 ROLLBACK-METADATA.md；node/tunnel/forward/user=26/53/25/10。已运行 prune-backups.sh，仅保留 pre-fork32/pre-fork33，删除 pre-fork31 备份目录/标签及 fork.30 镜像。
 
 生产升级：后端 2026-10-08T20:50:36Z、前端 20:50:42Z 启动 fork.33，后端 healthy、重启 0；25 节点持续上报，管理员节点/隧道/转发列表 26/53/25 均 HTTP 200/code=0。138 项表/索引定义一致。质量/质量历史接口均 404；生产 JS 2,741,523 B，不含质量趋势/质量 API，流量趋势、隧道监控、监控权限与最优出口存在。旧后端停止时质量表 356,600 行、max(timestamp)=1791492633772，已启动至少 30 分钟观察。
+
+完整观察：20:50:56Z—21:21:01Z（1805.061 秒），42 次检查均 healthy、指标新鲜、质量表 356,600 行/max timestamp 1791492633772/max ID 24775928 不变；138 项 schema 仍一致。30 分钟观察窗错误/探测器日志均 0，升级启动时两条节点 23/32 配额未连接提示与 fork.32 完全相同，无新增错误。前后各 ≥30 分钟全节点表见 metrics-table.md：入口 2/23/32 为 515.1→309.6、246.2→76.8、207.6→54.0；出口/中继多数下降，未用于隧道节点多数仅小幅波动，节点 24 无上报。
