@@ -31,7 +31,7 @@ billing must go back to the original panel formula.
 - [x] go-backend `go test ./...` baseline comparison, frontend build, CI green
 - [x] Release `3.0.27-fork.29` and verify published assets.
 - [x] Create validated production backup and prune to the newest two backups.
-- [ ] Upgrade production backend/frontend to fork.29.
+- [x] Upgrade production backend/frontend to fork.29.
 - [ ] Verify production health, APIs, served labels, and billed/raw ratio 2.000
   (forward/user/user_tunnel growth vs raw `tunnel_metric` over at least 180 seconds).
 
@@ -64,3 +64,13 @@ billing must go back to the original panel formula.
   and its local tags plus unused fork.26 images. No scratch production DB copies created.
 - Normal rollback: restore saved compose/.env, retag the saved local images to fork.28,
   then `docker compose up -d --pull never backend frontend`; leave live database intact.
+
+## Production upgrade checkpoint
+- Installed the verified fork.29 v6 compose and set `FLUX_VERSION=3.0.27-fork.29`;
+  `docker compose pull backend frontend && docker compose up -d backend frontend` succeeded.
+- Backend started 2026-10-08 12:42:02 UTC (healthy); frontend started 12:42:08 UTC
+  (running, HTTP 200; no frontend Docker healthcheck configured); both restart counts 0.
+- Admin `/api/v1/forward/list` and `/api/v1/user/list`: HTTP 200, code=0.
+- Served `/assets/index-CXKQwfYB.js` contains 「流量限制(GB，双向)」,
+  「流量控制（双向）」, 「双向计算（上传+下载）×2」; does not contain 「上传、下载取较大者」.
+- Read-only 180-second billing sample is running.
