@@ -1,3 +1,4 @@
+import { usePageVisible } from "@/hooks/use-page-visible";
 import type {
   MonitorTunnelApiItem,
   TunnelMetricApiItem,
@@ -53,6 +54,7 @@ import {
 } from "@/shadcn-bridge/heroui/table";
 
 interface TunnelMonitorViewProps {
+  active?: boolean;
   viewMode?: "list" | "grid";
   refreshTrigger?: number;
   onLoadingChange?: (loading: boolean) => void;
@@ -450,10 +452,13 @@ const TrafficChartCard = React.memo(function TrafficChartCard({
 });
 
 export function TunnelMonitorView({
+  active = true,
   viewMode = "grid",
   refreshTrigger,
   onLoadingChange,
 }: TunnelMonitorViewProps) {
+  const visible = usePageVisible();
+  const polling = active && visible;
   const [tunnels, setTunnels] = useState<MonitorTunnelApiItem[]>([]);
   const [tunnelsLoading, setTunnelsLoading] = useState(false);
 
@@ -472,7 +477,6 @@ export function TunnelMonitorView({
   >({});
   const initialHistoryFetched = useRef(false);
   const [qualityLoading, setQualityLoading] = useState(false);
-  const qualityTimerRef = useRef<number | null>(null);
 
   // Detail view state
   const [detailTunnelId, setDetailTunnelId] = useState<number | null>(null);
@@ -564,20 +568,21 @@ export function TunnelMonitorView({
   }, []);
 
   useEffect(() => {
-    void loadTunnels();
-  }, [loadTunnels, refreshTrigger]);
+    if (polling) void loadTunnels();
+  }, [loadTunnels, refreshTrigger, polling]);
 
   useEffect(() => {
+    if (!polling) return;
     const timer = window.setInterval(() => {
       void loadTunnels({ silent: true });
     }, 60_000);
 
     return () => window.clearInterval(timer);
-  }, [loadTunnels]);
+  }, [loadTunnels, polling]);
 
   // --- Initial history load ---
   useEffect(() => {
-    if (tunnels.length > 0 && !initialHistoryFetched.current) {
+    if (polling && tunnels.length > 0 && !initialHistoryFetched.current) {
       initialHistoryFetched.current = true;
       const fetchHistory = async () => {
         const end = Date.now();
@@ -625,7 +630,7 @@ export function TunnelMonitorView({
 
       void fetchHistory();
     }
-  }, [tunnels]);
+  }, [tunnels, polling]);
 
   // --- Load quality snapshots (auto-polling every 10s) ---
   const loadQuality = useCallback(async (options?: { silent?: boolean }) => {
@@ -670,20 +675,17 @@ export function TunnelMonitorView({
   }, []);
 
   useEffect(() => {
-    void loadQuality();
-  }, [loadQuality]);
+    if (polling) void loadQuality();
+  }, [loadQuality, polling]);
 
   useEffect(() => {
-    qualityTimerRef.current = window.setInterval(() => {
+    if (!polling) return;
+    const timer = window.setInterval(() => {
       void loadQuality({ silent: true });
     }, QUALITY_POLL_INTERVAL);
 
-    return () => {
-      if (qualityTimerRef.current) {
-        window.clearInterval(qualityTimerRef.current);
-      }
-    };
-  }, [loadQuality]);
+    return () => window.clearInterval(timer);
+  }, [loadQuality, polling]);
 
   // --- Load quality history for detail chart ---
   const loadQualityHistory = useCallback(
@@ -756,22 +758,22 @@ export function TunnelMonitorView({
   );
 
   useEffect(() => {
-    if (detailTunnelId) {
+    if (detailTunnelId && polling) {
       void loadQualityHistory(detailTunnelId);
       void loadTunnelMetrics(detailTunnelId);
     }
-  }, [detailTunnelId, loadQualityHistory, loadTunnelMetrics]);
+  }, [detailTunnelId, loadQualityHistory, loadTunnelMetrics, polling]);
 
   // Auto-refresh detail charts
   useEffect(() => {
-    if (!detailTunnelId) return;
+    if (!detailTunnelId || !polling) return;
     const timer = window.setInterval(() => {
       void loadQualityHistory(detailTunnelId, { silent: true });
       void loadTunnelMetrics(detailTunnelId, { silent: true });
     }, 30_000);
 
     return () => window.clearInterval(timer);
-  }, [detailTunnelId, loadQualityHistory, loadTunnelMetrics]);
+  }, [detailTunnelId, loadQualityHistory, loadTunnelMetrics, polling]);
 
   // Memoize chart data so React.memo sub-components see stable references
   const qualityChartData = useMemo(

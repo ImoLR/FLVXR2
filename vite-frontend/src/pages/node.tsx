@@ -1,3 +1,4 @@
+import { useBatchedRealtimeState } from "@/hooks/use-batched-realtime-state";
 import type {
   NodeGroupApiItem,
   NodeRegionDetection,
@@ -321,7 +322,7 @@ export default function NodePage() {
   const [nodeList, setNodeList] = useState<Node[]>([]);
   const [nodeOrder, setNodeOrder] = useState<number[]>([]);
   const [loading, setLoading] = useState(false);
-  const [realtimeNodeMetrics, setRealtimeNodeMetrics] = useState<
+  const [realtimeNodeMetrics, setRealtimeNodeMetrics] = useBatchedRealtimeState<
     Record<
       number,
       {
@@ -931,16 +932,23 @@ export default function NodePage() {
           },
         };
       });
-      setNodeList((prev) =>
-        prev.map((node) => {
+      setNodeList((prev) => {
+        if (
+          !prev.some(
+            (node) => node.id === nodeId && node.connectionStatus !== "online",
+          )
+        )
+          return prev;
+
+        return prev.map((node) => {
           if (node.id !== nodeId) return node;
 
           return {
             ...node,
             connectionStatus: "online",
           };
-        }),
-      );
+        });
+      });
     }
   };
   const { wsConnected, wsConnecting, usingPollingFallback } = useNodeRealtime({
@@ -2167,8 +2175,15 @@ export default function NodePage() {
               </h3>
             </div>
             <div className="text-xs text-default-500">
-              {node.region ? regionLabel(node.region) : (
-                <Chip className="bg-default-100 text-default-500" color="default" size="sm" variant="flat">
+              {node.region ? (
+                regionLabel(node.region)
+              ) : (
+                <Chip
+                  className="bg-default-100 text-default-500"
+                  color="default"
+                  size="sm"
+                  variant="flat"
+                >
                   未设置地区
                 </Chip>
               )}{node.regionCity ? ` · ${node.regionCity}` : ""}
