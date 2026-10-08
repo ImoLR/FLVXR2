@@ -9,7 +9,7 @@
 - [x] 生产在线备份副本 + 本地 16365 面板 + 40 节点，旧新版各四种布局 30 秒实测、每秒更新检查、截图与后台暂停验证；提交结果。
 - [x] 推送分支并确认 CI Build Check 绿色。
 - [x] 发布注释标签 3.0.27-fork.28；确认镜像流水线、Latest、资产集合、脚本固定版本/仓库、gost SHA256。
-- [ ] 生产升级前备份并保留最近两份；仅升级 backend/frontend。
+- [x] 生产升级前备份并保留最近两份；仅升级 backend/frontend。
 - [ ] 只读验证生产健康、指标前进、生产监控/节点页实时值、本地公开页实时值、非管理员节点列表 403；生产公开监控保持关闭。
 - [ ] 完成计划，提交 docs(plan): mark fork28 rollout complete 并推送；写中文总结。
 
@@ -82,3 +82,10 @@
 - Release 为 Latest、非 prerelease，与 fork.27 资产名集合一致（10 个）；全部下载大小/摘要、两份 compose 镜像版本、两份脚本 PINNED_VERSION 与 `REPO=ImoLR/FLVXR2` 通过校验。
 - `ghcr.io/imolr/flvxr2-svc-{backend,frontend}:3.0.27-fork.28` 清单均含 linux/amd64 与 linux/arm64。两个 gost SHA256 文件与二进制、offline zip 内的 agent 均一致；只发布资产，不升级生产 agent。
 - 证据：首轮目录 `release/verification.json`，第二轮目录 `release-ci.json`、`backend-manifest.json`、`frontend-manifest.json`。
+
+## 生产升级
+
+- 回滚点 `/opt/flvx-svc/rollback/pre-fork28-20261008T120129Z/`：compose/.env 副本、SQLite 在线备份 `gost.db.validated`（366,944,256 B，quick_check=ok）、全表计数、ROLLBACK-METADATA.md；28 节点、53 隧道、25 转发、11 用户。
+- 旧 fork.27 镜像保留为 `local/flvxx-{backend,frontend}:pre-fork28-20261008T120129Z`。运行指定 prune-backups.sh 后只保留 pre-fork28 与 pre-fork27；已删除 pre-fork26 备份及其 fork.25 镜像，详见 `prune-backups.log`。
+- 安装已校验 fork.28 v6 compose，FLUX_VERSION 改为 3.0.27-fork.28；仅执行 `docker compose pull backend frontend` 和 `up -d backend frontend`。backend healthy、frontend running，待完成只读业务与浏览器验收。
+- 回滚：从上述目录恢复 docker-compose.yml/.env，重新 up -d backend frontend 使用 fork.27 镜像；无 schema 变更，常规回滚不恢复数据库，以保留升级后的实时数据。
