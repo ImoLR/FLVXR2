@@ -1,0 +1,22 @@
+# Plan 080 — 移除隧道整条路径延迟并回退 fork.28 监控修改
+
+分支：`maintenance/3.0.27-fork.32-revert-latency`，起点 `54dea5bd`（fork.31）。目标发布 `3.0.27-fork.32` 并升级生产面板。
+
+范围：撤销 fork.23/24 A+B/30/31 路径延迟 UI、API、探测逻辑及相关测试；撤销 plan 076 的全部监控页面和 WS 广播修改。保留 fork.22 分组选择器、fork.24 移动卡片、fork.25–27 非延迟改动（尤其 connect_ip）、fork.29 计费和双向标签，以及 fork.10 服务监控权限。历史计划不改动；不涉及 agent、安装脚本、依赖、数据库结构或业务数据。
+
+## 检查清单
+
+- [x] 阅读仓库规则和两份流程记忆，确认 fork.31 起点、15 项失败基线，创建分支与计划。
+- [ ] 移除路径延迟，恢复原质量探测器并保留 connect_ip 及其适用测试；提交。
+- [ ] 恢复 fork.27 监控页面及原浏览器 WS 广播；提交。
+- [ ] 完成全部五项等价检查并保存命令、输出；提交。
+- [ ] 单进程完成后端 build、vet、完整测试及 handler/ws race，与 fork.31 基线比较。
+- [ ] 完成前端 build、tsc/lint 基线比较和 5 MiB 包体门禁；提交验证结果。
+- [ ] 推送分支，确认 HEAD 的 CI Build Check 成功；创建并推送 annotated tag。
+- [ ] 确认镜像工作流成功、Latest 正式发布、资源集/版本固定/哈希正确；提交。
+- [ ] 记录升级前 30 分钟 tcp_conns；创建生产在线备份和旧镜像标签，验证后运行保留两份的清理脚本；提交。
+- [ ] 安装 fork.32 v6 compose、更新 FLUX_VERSION、拉取并重建 backend/frontend，确认健康且无结构变化；提交。
+- [ ] 完成 API/前端/原始 WS 广播验证、至少 5 分钟日志及质量更新检查、至少 10 分钟连接数对比。
+- [ ] 写中文总结（含破坏性动作与回滚方法、用户检查点、建议未实施），提交 `docs(plan): mark fork32 rollout complete` 并推送。
+
+运行记录：`/root/flvx-workers/runs/revert-latency/`。所有临时文件（TMPDIR/GOTMPDIR）使用该目录下 `t/`；重任务前检查 MemAvailable ≥750 MiB，同时最多运行一个重任务。所有提交包含指定 Co-Authored-By。
