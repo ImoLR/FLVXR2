@@ -562,10 +562,16 @@ func metricDataForBroadcast(raw []byte) string {
 	if err := json.Unmarshal(raw, &fields); err != nil {
 		return string(raw)
 	}
-	if _, ok := fields["quotaGroups"]; !ok {
+	stripped := false
+	for _, key := range []string{"quotaGroups", "forward_metrics", "serviceConnections"} {
+		if _, ok := fields[key]; ok {
+			delete(fields, key)
+			stripped = true
+		}
+	}
+	if !stripped {
 		return string(raw)
 	}
-	delete(fields, "quotaGroups")
 	filtered, err := json.Marshal(fields)
 	if err != nil {
 		return string(raw)
