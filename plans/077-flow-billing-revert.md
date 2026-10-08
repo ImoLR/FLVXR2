@@ -23,6 +23,9 @@ billing must go back to the original panel formula.
 ## Tasks
 - [x] `billTunnelFlow`: original formula + unit tests; ingestion/regression tests updated
 - [x] UI labels (tunnel form, WG path form, dashboard badge tooltip) and usage docs
+- [x] Traffic limit fields labelled 双向 (user request 2026-10-08): user form
+  「流量限制(GB，双向)」 + formula description, user list column / mobile card
+  「流量限制(双向)」 with tooltip, rule form 「流量控制（双向）」 + formula description
 - [ ] go-backend `go test ./...` baseline comparison, frontend build, CI green
 - [ ] Release `3.0.27-fork.29` on top of the released fork.28, prod backup + upgrade,
   verify billed/raw ratio 2.000 on prod (forward/user growth vs raw `tunnel_metric`)

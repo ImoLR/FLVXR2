@@ -6,3 +6,7 @@ export const USER_TOTAL_FLOW_HINT =
 
 export const USER_RESET_FLOW_SCOPE_HINT =
   "归零会同时清零该用户的账号流量、全部隧道权限流量和全部规则流量（清零前的规则流量写入各规则的流量归零日志），此操作不可撤销。";
+
+// Traffic limits are compared with billed traffic; every production tunnel bills 双向.
+export const DUPLEX_FLOW_LIMIT_HINT =
+  "流量限制按双向计算：(上传+下载)×倍率×2";

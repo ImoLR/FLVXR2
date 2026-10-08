@@ -7659,9 +7659,11 @@ function TrafficLimitField({
 
   return (
     <div className="space-y-2">
-      <span className="text-sm font-medium text-foreground">流量控制</span>
+      <span className="text-sm font-medium text-foreground">
+        流量控制（双向）
+      </span>
       <Input
-        description="留空表示不限制，单位：GB"
+        description="按双向计算：(上传+下载)×倍率×2；留空表示不限制，单位：GB"
         placeholder="不限制"
         type="number"
         value={value > 0 ? value.toString() : ""}

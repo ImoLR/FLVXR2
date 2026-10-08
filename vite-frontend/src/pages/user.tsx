@@ -107,6 +107,7 @@ import { useLocalStorageState } from "@/hooks/use-local-storage-state";
 import { usePullToRefresh } from "@/hooks/usePullToRefresh";
 import { removeItemsById, replaceItemById } from "@/utils/list-state";
 import {
+  DUPLEX_FLOW_LIMIT_HINT,
   USER_RESET_FLOW_SCOPE_HINT,
   USER_TOTAL_FLOW_HINT,
 } from "@/utils/flow-hints";
@@ -2051,7 +2052,12 @@ export default function UserPage() {
                     备注
                   </TableColumn>
                   <TableColumn className="whitespace-nowrap flex-shrink-0 w-[100px] text-left">
-                    流量限制
+                    <span
+                      className="cursor-help underline decoration-dotted underline-offset-4"
+                      title={DUPLEX_FLOW_LIMIT_HINT}
+                    >
+                      流量限制(双向)
+                    </span>
                   </TableColumn>
                   <TableColumn className="whitespace-nowrap flex-shrink-0 w-[150px] text-left">
                     <span
@@ -2601,8 +2607,11 @@ export default function UserPage() {
                               </div>
                             </div>
                             <div className="flex justify-between text-sm items-center">
-                              <span className="text-default-600 text-xs">
-                                流量限制
+                              <span
+                                className="text-default-600 text-xs"
+                                title={DUPLEX_FLOW_LIMIT_HINT}
+                              >
+                                流量限制(双向)
                               </span>
                               <span
                                 className={`font-medium text-xs ${user.flow === 99999 ? "text-success" : ""}`}
@@ -2857,8 +2866,8 @@ export default function UserPage() {
               />
               <Input
                 isRequired
-                description="填 99999 表示不限制流量"
-                label="流量限制(GB)"
+                description="按双向计算：(上传+下载)×倍率×2；填 99999 表示不限制流量"
+                label="流量限制(GB，双向)"
                 max="99999"
                 min="1"
                 type="number"
