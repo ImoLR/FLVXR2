@@ -17,7 +17,7 @@
 - [x] 记录升级前 30 分钟 tcp_conns；创建生产在线备份和旧镜像标签，验证后运行保留两份的清理脚本；提交。
 - [x] 安装 fork.32 v6 compose、更新 FLUX_VERSION、拉取并重建 backend/frontend，确认健康且无结构变化；提交。
 - [x] 完成 API/前端/原始 WS 广播验证、至少 5 分钟日志及质量更新检查、至少 10 分钟连接数对比。
-- [ ] 写中文总结（含破坏性动作与回滚方法、用户检查点、建议未实施），提交 `docs(plan): mark fork32 rollout complete` 并推送。
+- [x] 写中文总结（含破坏性动作与回滚方法、用户检查点、建议未实施），提交 `docs(plan): mark fork32 rollout complete` 并推送。
 
 运行记录：`/root/flvx-workers/runs/revert-latency/`。所有临时文件（TMPDIR/GOTMPDIR）使用该目录下 `t/`；重任务前检查 MemAvailable ≥750 MiB，同时最多运行一个重任务。所有提交包含指定 Co-Authored-By。
 
@@ -64,3 +64,7 @@ HEAD `c576029d` 的 CI Build Check [37808506936](https://github.com/ImoLR/FLVXR2
 2026-10-08T16:42:48.255Z—16:52:58.258Z（610.003 秒）完成：53 隧道写入 1,564 条新质量记录，均 success；同隧道样本间隔 min/median/max = 13.663/14.881/49.827 秒。原 prober 不输出 round took，调度源码等价确认且数据持续推进；未为此修改旧调度。1,712 行观察日志中 path demand=0、prober 错误=0；9 行重部署错误均为已核对 fork.31 存在的 37/54 三项错误重复。138 项 schema 定义仍无变化。最终管理员 node/tunnel/forward 列表分别 26/53/25，后端 healthy、容器重启 0。
 
 连接数：升级前 16:11:08Z—16:41:08Z（30 分钟）对比以上 610 秒窗口；节点 2：609.4→475.7，18：352.1→252.0，42：304.0→311.0。前后 top 5 并集及全部节点、样本数保存于运行目录，仅作信息性对照。
+
+## 完成
+
+中文总结及完整五项门禁命令/输出已写入 `/root/flvx-workers/runs/revert-latency/summary.md`，包含发布、备份、删除清单与回滚、生产观察、连接数及未实施建议。测试、WS、观察进程均结束；未创建额外生产 DB 副本、未启动本地 paneld/Chromium。用户应刷新手机/桌面规则选择器和监控页检查还原外观。最后提交推送后继续核对 HEAD CI，结果存于运行目录。
