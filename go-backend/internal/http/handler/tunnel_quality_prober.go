@@ -5,12 +5,15 @@ import (
 	"errors"
 	"log"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"go-backend/internal/store/model"
 )
 
 const (
+	tunnelPathDemandWindow     = 60 * time.Second
+	tunnelPathWakeInterval     = 15 * time.Second
 	tunnelQualityProbeInterval = 10 * time.Second
 	tunnelQualityProbeTimeout  = 8 * time.Second
 	tunnelQualityPingTimeoutMs = 5000
@@ -37,23 +40,54 @@ type tunnelQualitySnapshot struct {
 // tunnelQualityProber runs periodic TCP ping probes against all enabled tunnels.
 // Design mirrors health.Checker: background goroutine with worker pool + scheduled cleanup.
 type tunnelQualityProber struct {
-	handler   *Handler
-	cache     sync.Map // tunnelID (int64) → *tunnelQualitySnapshot
-	ctx       context.Context
-	cancel    context.CancelFunc
-	interval  time.Duration
-	lastPrune int64
+	handler        *Handler
+	cache          sync.Map // tunnelID (int64) → *tunnelQualitySnapshot
+	ctx            context.Context
+	cancel         context.CancelFunc
+	interval       time.Duration
+	lastPrune      int64
+	now            func() time.Time
+	ping           tunnelQualityPingFunc
+	pathWake       chan struct{}
+	lastPathDemand atomic.Int64
+	lastPathProbe  atomic.Int64
+	pathProbing    bool // only accessed by the serial probe loop
 }
 
 // newTunnelQualityProber creates a new prober (not yet running).
 func newTunnelQualityProber(h *Handler) *tunnelQualityProber {
 	ctx, cancel := context.WithCancel(context.Background())
-	return &tunnelQualityProber{
+	p := &tunnelQualityProber{
 		handler:  h,
 		ctx:      ctx,
 		cancel:   cancel,
 		interval: tunnelQualityProbeInterval,
+		now:      time.Now,
+		pathWake: make(chan struct{}, 1),
 	}
+	p.ping = p.tcpPingNode
+	return p
+}
+
+func (p *tunnelQualityProber) demandPath() {
+	now := p.now()
+	p.lastPathDemand.Store(now.UnixNano())
+	if p.pathProbeDue(now) {
+		select {
+		case p.pathWake <- struct{}{}:
+		default:
+		}
+	}
+}
+
+func (p *tunnelQualityProber) pathProbeDue(now time.Time) bool {
+	last := p.lastPathProbe.Load()
+	return last == 0 || now.Sub(time.Unix(0, last)) >= tunnelPathWakeInterval
+}
+
+func (p *tunnelQualityProber) pathDemanded() bool {
+	last := p.lastPathDemand.Load()
+	return last != 0 && p.now().Sub(time.Unix(0, last)) <= tunnelPathDemandWindow
 }
 
 // Start launches the background probe loop (call from jobs.go).
@@ -84,6 +118,7 @@ func (p *tunnelQualityProber) loop() {
 	// Initial delay to let the system boot up
 	select {
 	case <-time.After(5 * time.Second):
+	case <-p.pathWake:
 	case <-p.ctx.Done():
 		return
 	}
@@ -98,6 +133,11 @@ func (p *tunnelQualityProber) loop() {
 		select {
 		case <-p.ctx.Done():
 			return
+		case <-p.pathWake:
+			// A request queued during a round must not cause a redundant round.
+			if p.pathDemanded() && p.pathProbeDue(p.now()) {
+				p.probeAll()
+			}
 		case <-ticker.C:
 			p.probeAll()
 			p.maybePrune()
@@ -144,7 +184,7 @@ func (p *tunnelQualityProber) probeAll() {
 			log.Printf("tunnel_quality_prober: round took %s (interval %s, tunnels %d)", elapsed.Round(time.Millisecond), p.interval, len(tunnelIDs))
 		}
 	}()
-	round := newTunnelQualityProbeRound(p.tcpPingNode)
+	round := newTunnelQualityProbeRound(p.ping)
 	round.connected = h.wsServer.IsNodeConnected
 	lookup := p.roundNodeLookup()
 	plans := make([]tunnelQualityTunnelPlan, 0, len(tunnelIDs))
@@ -159,8 +199,17 @@ func (p *tunnelQualityProber) probeAll() {
 	if p.ctx.Err() != nil {
 		return
 	}
+	probedPath := false
 	for _, plan := range plans {
 		p.storeResult(plan.snapshot(round))
+		probedPath = probedPath || plan.base.PathUpdatedAt != 0
+	}
+	if probedPath {
+		p.lastPathProbe.Store(p.now().UnixNano())
+	}
+	if probedPath != p.pathProbing {
+		log.Printf("tunnel_quality_prober: path demand active=%t", probedPath)
+		p.pathProbing = probedPath
 	}
 }
 
@@ -208,6 +257,7 @@ func tunnelQualityProbeOptions() diagnosisExecOptions {
 	return diagnosisExecOptions{
 		commandTimeout: tunnelQualityProbeTimeout,
 		pingTimeoutMS:  tunnelQualityPingTimeoutMs,
+		pingCount:      4,
 		timeoutMessage: "探测超时",
 	}
 }
@@ -215,7 +265,7 @@ func tunnelQualityProbeOptions() diagnosisExecOptions {
 // Keep legacy entry/exit measurements on the first configured nodes. The path
 // graph is separate: its minimum must never replace monitor/history values.
 func (p *tunnelQualityProber) planTunnel(tunnelID int64, round *tunnelQualityProbeRound, lookup func(int64) (*nodeRecord, error)) tunnelQualityTunnelPlan {
-	plan := tunnelQualityTunnelPlan{base: tunnelQualitySnapshot{TunnelID: tunnelID, Timestamp: time.Now().UnixMilli()}}
+	plan := tunnelQualityTunnelPlan{base: tunnelQualitySnapshot{TunnelID: tunnelID, Timestamp: p.now().UnixMilli()}}
 	h := p.handler
 	tunnel, err := h.getTunnelRecord(tunnelID)
 	if err != nil {
@@ -223,7 +273,8 @@ func (p *tunnelQualityProber) planTunnel(tunnelID int64, round *tunnelQualityPro
 		return plan
 	}
 	plan.tunnelType = tunnel.Type
-	if tunnel.Type == 2 {
+	pathDemanded := tunnel.Type == 2 && p.pathDemanded()
+	if pathDemanded {
 		plan.base.PathStatus = "timeout"
 		plan.base.PathLoss = 100
 		plan.base.PathUpdatedAt = plan.base.Timestamp
@@ -265,11 +316,15 @@ func (p *tunnelQualityProber) planTunnel(tunnelID int64, round *tunnelQualityPro
 				}
 			}
 		}
-		path := planTunnelPath(rows, ipPreference, lookup)
-		plan.path = &path
-		for _, segments := range path.segments {
-			for _, segment := range segments {
-				round.planNodePing(segment.key, segment.localTargetID, options)
+		if pathDemanded {
+			path := planTunnelPath(rows, ipPreference, lookup)
+			plan.path = &path
+			pathOptions := options
+			pathOptions.pingCount = 2
+			for _, segments := range path.segments {
+				for _, segment := range segments {
+					round.planNodePing(segment.key, segment.localTargetID, pathOptions)
+				}
 			}
 		}
 		if len(exits) > 0 {
@@ -409,6 +464,15 @@ func (r *tunnelQualityProbeRound) exitTestResult(nodeID int64) (float64, float64
 func (p *tunnelQualityProber) storeResult(snap *tunnelQualitySnapshot) {
 	if snap == nil {
 		return
+	}
+
+	// Idle legacy rounds leave the last actual path result (and its age) intact.
+	if snap.PathUpdatedAt == 0 {
+		if value, ok := p.cache.Load(snap.TunnelID); ok {
+			previous := value.(*tunnelQualitySnapshot)
+			snap.PathLatency, snap.PathLoss = previous.PathLatency, previous.PathLoss
+			snap.PathStatus, snap.PathUpdatedAt = previous.PathStatus, previous.PathUpdatedAt
+		}
 	}
 
 	// Update in-memory cache (latest per tunnel)

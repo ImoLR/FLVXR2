@@ -57,6 +57,12 @@ func newTunnelQualityProbeRound(ping tunnelQualityPingFunc) *tunnelQualityProbeR
 }
 
 func (r *tunnelQualityProbeRound) planPing(key tunnelQualityPingKey, options diagnosisExecOptions) {
+	if options.pingCount <= 0 {
+		options.pingCount = 4
+	}
+	if previous, ok := r.planned[key]; ok && previous.pingCount >= options.pingCount {
+		return
+	}
 	r.planned[key] = options
 }
 
@@ -79,6 +85,16 @@ func (r *tunnelQualityProbeRound) planExitTest(nodeID int64, options diagnosisEx
 }
 
 func (r *tunnelQualityProbeRound) run(ctx context.Context) {
+	// Preserve legacy samples even if a path shares a public fallback key.
+	// Unused fallback targets remain unplanned.
+	for nodeID, options := range r.publicTests {
+		for _, target := range exitTestTargets {
+			key := tunnelQualityPingKey{nodeID, target.host, target.port}
+			if _, ok := r.planned[key]; ok {
+				r.planPing(key, options)
+			}
+		}
+	}
 	r.ctx = ctx
 	var wg sync.WaitGroup
 	for key, options := range r.planned {
@@ -99,6 +115,9 @@ func (r *tunnelQualityProbeRound) run(ctx context.Context) {
 }
 
 func (r *tunnelQualityProbeRound) ping(nodeID int64, ip string, port int, options diagnosisExecOptions) (float64, float64, error) {
+	if planned, ok := r.planned[tunnelQualityPingKey{nodeID, ip, port}]; ok {
+		options = planned
+	}
 	result := &tunnelQualityPingResult{done: make(chan struct{})}
 	value, loaded := r.results.LoadOrStore(tunnelQualityPingKey{nodeID, ip, port}, result)
 	if loaded {
@@ -268,6 +287,7 @@ func (h *Handler) userTunnelLatencyList(w http.ResponseWriter, r *http.Request) 
 	items := make([]userTunnelLatency, 0, len(ids))
 	cutoff := time.Now().Add(-60 * time.Second).UnixMilli()
 	if h.qualityProber != nil {
+		h.qualityProber.demandPath()
 		for _, id := range ids {
 			value, ok := h.qualityProber.cache.Load(id)
 			if !ok {
