@@ -10,7 +10,7 @@
 - [x] 移除路径延迟，恢复原质量探测器并保留 connect_ip 及其适用测试；提交。
 - [x] 恢复 fork.27 监控页面及原浏览器 WS 广播；提交。
 - [x] 完成全部五项等价检查并保存命令、输出；提交。
-- [ ] 单进程完成后端 build、vet、完整测试及 handler/ws race，与 fork.31 基线比较。
+- [x] 单进程完成后端 build、vet、完整测试及 handler/ws race，与 fork.31 基线比较。
 - [ ] 完成前端 build、tsc/lint 基线比较和 5 MiB 包体门禁；提交验证结果。
 - [ ] 推送分支，确认 HEAD 的 CI Build Check 成功；创建并推送 annotated tag。
 - [ ] 确认镜像工作流成功、Latest 正式发布、资源集/版本固定/哈希正确；提交。
@@ -30,3 +30,7 @@
 ## 等价检查
 
 五项全通过，命令及原始输出：`/root/flvx-workers/runs/revert-latency/equivalence.log`。除逐文件 diff 外，独立从 fork.22 重放白名单提交构造预期文件：Repository 仅 513805cb/02f454f0/b0049ee0，forward 仅 bd6a4488/d69ebcd8/944f1c7d/2f9b850d/2efbd1d4/60caa2ea，WS 仅 b0049ee0；均逐字相同。生产模型、agent、脚本、依赖相对起点无改动。
+
+## 后端验证
+
+`GOMAXPROCS=2`、`-p 1` 串行执行；build/vet 通过。`go test ./... -count=1` 失败集合恰为 fork.31 的 15 项，无新增/消失。handler/ws 全包 race 无竞争报告；handler 仅两个既有失败（NonTLSProtocol_NoNodelay、AdvancesOverdueAnchorTimes），ws 通过。原始日志及比较 JSON 在运行目录。
