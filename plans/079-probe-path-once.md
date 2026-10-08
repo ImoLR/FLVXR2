@@ -27,3 +27,5 @@
 发布：HEAD CI 37792058661 通过；annotated tag 3.0.27-fork.31 → b2d97a3f；镜像/发布流水线 37792406274 全部通过。Release 为 Latest、非预发布，10 个资产与 fork.30 一致；两份 compose 镜像、两份脚本 PINNED_VERSION/REPO 和两架构 gost SHA256 均校验通过。
 
 生产升级：2026-10-08 14:38:25Z 后端启动 fork.31，healthy，前端 fork.31 运行；node/tunnel/forward 列表均 code=0，node_metric 持续推进。备份 `/opt/flvx-svc/rollback/pre-fork31-20261008T143752Z` quick_check=ok，含 compose/.env、全表计数和 fork.30 本地镜像标签。prune 保留 pre-fork30 + pre-fork31，删除 pre-fork29 及 fork.28 本地镜像。生产 JS 已确认含“测速中”（2,757,339 B）。
+
+生产需求验证：启动期会话为 104→1→9→0（9 个新进入计划的键），首次/全部值 24.002/40.005 s，受到在途传统 23.899 s 慢轮次和启动可用路径变化影响。待会话过期后稳定重测 90 s：首轮 113，随后 14 轮均 0；2.003 s 首批、9.002 s 全部 48 条（37 ok / 11 timeout），第 10–90 秒每次均 48 条且时间戳持续刷新。普通用户 3 中途查询 13.334 ms 返回其 12 条，四字段和权限集合精确匹配，没有新增路径 ping。最后轮询后 71.849 s 记录 inactive（包括当前传统轮次完成时间）；60 s 后无路径 ping。连接数 15 分钟后窗口仍在采集。
