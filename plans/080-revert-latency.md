@@ -12,7 +12,7 @@
 - [x] 完成全部五项等价检查并保存命令、输出；提交。
 - [x] 单进程完成后端 build、vet、完整测试及 handler/ws race，与 fork.31 基线比较。
 - [x] 完成前端 build、tsc/lint 基线比较和 5 MiB 包体门禁；提交验证结果。
-- [ ] 推送分支，确认 HEAD 的 CI Build Check 成功；创建并推送 annotated tag。
+- [x] 推送分支，确认 HEAD 的 CI Build Check 成功；创建并推送 annotated tag。
 - [ ] 确认镜像工作流成功、Latest 正式发布、资源集/版本固定/哈希正确；提交。
 - [ ] 记录升级前 30 分钟 tcp_conns；创建生产在线备份和旧镜像标签，验证后运行保留两份的清理脚本；提交。
 - [ ] 安装 fork.32 v6 compose、更新 FLUX_VERSION、拉取并重建 backend/frontend，确认健康且无结构变化；提交。
@@ -38,3 +38,7 @@
 ## 前端验证
 
 `npm run build`（含 tsc）通过；主 JS `index-KGi1s1kq.js` 为 2,751,994 B，距 5 MiB 上限 2,490,886 B。不带 --fix 的全量 ESLint 与从 54dea5bd 导出的源码比较：错误 96→96，新错误 0；警告 3657→3529。未修改格式、依赖或增加前端测试。
+
+## 发布启动
+
+HEAD `c576029d` 的 CI Build Check [37808506936](https://github.com/ImoLR/FLVXR2/actions/runs/37808506936) 四项全成功。annotated tag `3.0.27-fork.32` 指向该 HEAD，已推送，等待镜像发布工作流。
