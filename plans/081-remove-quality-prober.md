@@ -5,7 +5,7 @@
 运行证据：`/root/flvx-workers/runs/remove-quality-prober/`；所有临时文件放 `t/`。重任务串行，启动前 MemAvailable ≥750 MiB。
 
 - [x] 读取规则和流程、核对起点与基线、创建分支及计划。
-- [ ] 删除后台质量探测、专用测试、API 和不再使用的仓储方法；提交。
+- [x] 删除后台质量探测、专用测试、API 和不再使用的仓储方法；提交。
 - [ ] 删除隧道监控质量 UI/API 类型，保留非质量功能；提交。
 - [ ] 完成删除/保留/范围门禁、后端 build/vet/全量测试及 handler race；提交。
 - [ ] 前端 build、tsc/lint 基线比较及 PWA 包体检查；提交。
@@ -15,3 +15,5 @@
 - [ ] 安装 fork.33 v6 compose、更新版本、pull/up，验证健康、API、指标推进及 schema 不变；提交。
 - [ ] 完成 ≥30 分钟生产观察、质量表停止写入、404、JS/日志验证及全部节点 TCP 前后对比。
 - [ ] 写中文总结，完成计划并提交 `docs(plan): mark fork33 rollout complete`、推送。
+
+后台：ListEnabledTunnelIDs 仅探测器使用，仓储文件整体删除；专用 TestCustomConnectIPQuality 删除，其余诊断/connect-IP 测试保留。共用函数引用记录于 shared-callers.log。后台任务计数 12→11，避免退出等待已删除任务；监控路径仅匹配 metrics，删除的质量路径返回 404。

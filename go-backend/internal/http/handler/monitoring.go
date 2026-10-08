@@ -242,117 +242,6 @@ func (h *Handler) handleNodeMetricsLatest(w http.ResponseWriter, _ *http.Request
 	response.WriteJSON(w, response.OK(metric))
 }
 
-func (h *Handler) monitorTunnelQualityHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		response.WriteJSON(w, response.ErrDefault("请求失败"))
-		return
-	}
-	scope, ok := h.resolveMonitorScope(w, r)
-	if !ok {
-		return
-	}
-
-	var qualities []model.TunnelQuality
-	var err error
-	if scope.fullAccess {
-		// Try in-memory cache first
-		if h.qualityProber != nil {
-			items := h.qualityProber.GetAll()
-			if len(items) > 0 {
-				response.WriteJSON(w, response.OK(items))
-				return
-			}
-		}
-		qualities, err = h.repo.GetLatestTunnelQualities()
-	} else {
-		tunnelIDs, idsErr := h.getAccessibleTunnelIDs(scope)
-		if idsErr != nil {
-			response.WriteJSON(w, response.Err(-2, idsErr.Error()))
-			return
-		}
-		if len(tunnelIDs) == 0 {
-			response.WriteJSON(w, response.OK([]tunnelQualitySnapshot{}))
-			return
-		}
-		qualities, err = h.repo.GetLatestTunnelQualitiesByTunnelIDs(tunnelIDs)
-	}
-	if err != nil {
-		response.WriteJSON(w, response.Err(-2, err.Error()))
-		return
-	}
-
-	snapshots := make([]tunnelQualitySnapshot, 0, len(qualities))
-	for _, q := range qualities {
-		snapshots = append(snapshots, tunnelQualitySnapshot{
-			TunnelID:           q.TunnelID,
-			EntryToExitLatency: q.EntryToExitLatency,
-			ExitToBingLatency:  q.ExitToBingLatency,
-			EntryToExitLoss:    q.EntryToExitLoss,
-			ExitToBingLoss:     q.ExitToBingLoss,
-			Success:            q.Success == 1,
-			ErrorMessage:       q.ErrorMessage,
-			Timestamp:          q.Timestamp,
-		})
-	}
-	response.WriteJSON(w, response.OK(snapshots))
-}
-
-// monitorTunnelQualityHistory returns quality probe history for charting.
-// GET /api/v1/monitor/tunnels/{id}/quality?start=...&end=...
-// Mirrors monitorTunnelMetrics / monitorServiceResultsHandler pattern.
-func (h *Handler) monitorTunnelQualityHistory(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		response.WriteJSON(w, response.ErrDefault("请求失败"))
-		return
-	}
-	scope, ok := h.resolveMonitorScope(w, r)
-	if !ok {
-		return
-	}
-
-	tunnelIDStr := extractPathParam(r.URL.Path, "/api/v1/monitor/tunnels/", "/quality")
-	tunnelID, err := strconv.ParseInt(tunnelIDStr, 10, 64)
-	if err != nil || tunnelID <= 0 {
-		response.WriteJSON(w, response.ErrDefault("无效的隧道ID"))
-		return
-	}
-	if err := h.ensureTunnelPermission(scope.userID, scope.roleID, tunnelID); err != nil {
-		response.WriteJSON(w, response.Err(403, "你没有该隧道的权限"))
-		return
-	}
-
-	now := time.Now().UnixMilli()
-	startMs := now - defaultMetricsRangeMs
-	endMs := now
-
-	if s := r.URL.Query().Get("start"); s != "" {
-		if v, err := strconv.ParseInt(s, 10, 64); err == nil {
-			startMs = v
-		}
-	}
-	if e := r.URL.Query().Get("end"); e != "" {
-		if v, err := strconv.ParseInt(e, 10, 64); err == nil {
-			endMs = v
-		}
-	}
-	if startMs <= 0 || endMs <= 0 || endMs < startMs {
-		response.WriteJSON(w, response.ErrDefault("无效的时间范围"))
-		return
-	}
-	if endMs-startMs > maxMetricsRangeMs {
-		response.WriteJSON(w, response.ErrDefault("时间范围过大"))
-		return
-	}
-
-	results, err := h.repo.GetTunnelQualityHistory(tunnelID, startMs, endMs)
-	if err != nil {
-		response.WriteJSON(w, response.Err(-2, err.Error()))
-		return
-	}
-
-	response.WriteJSON(w, response.OK(results))
-}
-
 func (h *Handler) monitorTunnelMetrics(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		response.WriteJSON(w, response.ErrDefault("请求失败"))
@@ -370,11 +259,8 @@ func (h *Handler) monitorTunnelMetrics(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	rest := strings.TrimPrefix(path, prefix)
-
-	// Route: /api/v1/monitor/tunnels/{id}/quality
-	if strings.HasSuffix(rest, "/quality") {
-		h.monitorTunnelQualityHistory(w, r)
+	if !strings.HasSuffix(path, "/metrics") {
+		http.NotFound(w, r)
 		return
 	}
 

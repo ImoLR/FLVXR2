@@ -54,7 +54,6 @@ type Handler struct {
 	redeployRetryMu    sync.Mutex
 	redeployPending    map[tunnelNodeKey]*tunnelNodeRetry
 
-	qualityProber    *tunnelQualityProber
 	nodeGroupHandler *NodeGroupHandler
 	nodeTagHandler   *NodeTagHandler
 
@@ -140,7 +139,6 @@ func New(repo *repo.Repository, jwtSecret string, fluxVersion string) *Handler {
 		flowUploads:         newFlowUploadDeduper(flowUploadDedupeTTL, flowUploadDedupeMaxEntries),
 	}
 	h.healthCheck = health.NewChecker(repo, h.wsServer)
-	h.qualityProber = newTunnelQualityProber(h)
 	h.quotaGroups = newQuotaCoordinator(repo, func(nodeID int64, budgets []quotaGroupBudget) error {
 		_, err := h.wsServer.SendCommand(nodeID, "SetQuotaGroups", budgets, 5*time.Second)
 		return err
@@ -376,7 +374,6 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("/api/v1/monitor/nodes/", h.monitorNodeMetricsHandler)
 	mux.HandleFunc("/api/v1/monitor/nodes", h.monitorNodeListHandler)
 	mux.HandleFunc("/api/v1/monitor/tunnels", h.monitorTunnelListHandler)
-	mux.HandleFunc("/api/v1/monitor/tunnels/quality", h.monitorTunnelQualityHandler)
 	mux.HandleFunc("/api/v1/monitor/tunnels/", h.monitorTunnelMetrics)
 	mux.HandleFunc("/api/v1/monitor/services", h.monitorServiceListHandler)
 	mux.HandleFunc("/api/v1/monitor/services/create", h.monitorServiceCreate)
