@@ -28,6 +28,19 @@ billing must go back to the original panel formula.
 - [x] Traffic limit fields labelled 双向 (user request 2026-10-08): user form
   「流量限制(GB，双向)」 + formula description, user list column / mobile card
   「流量限制(双向)」 with tooltip, rule form 「流量控制（双向）」 + formula description
-- [ ] go-backend `go test ./...` baseline comparison, frontend build, CI green
-- [ ] Release `3.0.27-fork.29` on top of the released fork.28, prod backup + upgrade,
-  verify billed/raw ratio 2.000 on prod (forward/user growth vs raw `tunnel_metric`)
+- [x] go-backend `go test ./...` baseline comparison, frontend build, CI green
+- [ ] Release `3.0.27-fork.29` and verify published assets.
+- [ ] Create validated production backup and prune to the newest two backups.
+- [ ] Upgrade production backend/frontend to fork.29.
+- [ ] Verify production health, APIs, served labels, and billed/raw ratio 2.000
+  (forward/user/user_tunnel growth vs raw `tunnel_metric` over at least 180 seconds).
+
+## Release validation (2026-10-08)
+- Rebased code: `60caa2ea`, based on final fork.28 head `2b46d3dc`.
+- Backend full suite: `GOMAXPROCS=2 go test -p 1 ./...`; exactly the same 15
+  failing tests/subtests as `/root/flvx-workers/runs/monitor-render/baseline.json`;
+  no new or missing failures. Billing/ingestion/regression targeted run: 19 tests passed.
+- Local frontend `npm run build`: passed (MemAvailable 1,847,780 KiB, no competing
+  heavy process at start); main JS 2,755,011 bytes, PWA precache 2,891.51 KiB.
+- CI Build Check on `7262c616`: passed, run [37775718199](https://github.com/ImoLR/FLVXR2/actions/runs/37775718199).
+- Evidence: `/root/flvx-workers/runs/fork29-flow-billing/`.
