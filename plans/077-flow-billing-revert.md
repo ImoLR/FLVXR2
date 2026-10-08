@@ -30,7 +30,7 @@ billing must go back to the original panel formula.
   「流量限制(双向)」 with tooltip, rule form 「流量控制（双向）」 + formula description
 - [x] go-backend `go test ./...` baseline comparison, frontend build, CI green
 - [x] Release `3.0.27-fork.29` and verify published assets.
-- [ ] Create validated production backup and prune to the newest two backups.
+- [x] Create validated production backup and prune to the newest two backups.
 - [ ] Upgrade production backend/frontend to fork.29.
 - [ ] Verify production health, APIs, served labels, and billed/raw ratio 2.000
   (forward/user/user_tunnel growth vs raw `tunnel_metric` over at least 180 seconds).
@@ -53,3 +53,14 @@ billing must go back to the original panel formula.
   2026-10-08 12:40:08 UTC, Latest, non-prerelease; same 10 assets as fork.28.
 - v4/v6 compose images both pin `ghcr.io/imolr/flvxr2-svc-{backend,frontend}:3.0.27-fork.29`.
   Both install scripts pin fork.29 and `REPO=ImoLR/FLVXR2`; AMD64/ARM64 GOST SHA256 verified.
+
+## Production rollback point
+- `/opt/flvx-svc/rollback/pre-fork29-20261008T124111Z/`: compose, .env,
+  Python sqlite3 online backup `gost.db.validated`, `validation.json` and
+  `ROLLBACK-METADATA.md`; quick_check=ok, all table counts recorded
+  (user=10, node=28, tunnel=53, forward=25, user_tunnel=153).
+- Current fork.28 images retained as `local/flvxx-{backend,frontend}:pre-fork29-20261008T124111Z`.
+- Required prune retained pre-fork29 and pre-fork28; removed pre-fork27 backup
+  and its local tags plus unused fork.26 images. No scratch production DB copies created.
+- Normal rollback: restore saved compose/.env, retag the saved local images to fork.28,
+  then `docker compose up -d --pull never backend frontend`; leave live database intact.
