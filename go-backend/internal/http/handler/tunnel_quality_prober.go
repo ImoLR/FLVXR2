@@ -12,6 +12,7 @@ import (
 )
 
 const (
+	tunnelPathSettledTTL       = 5 * time.Minute
 	tunnelPathDemandWindow     = 60 * time.Second
 	tunnelPathWakeInterval     = 15 * time.Second
 	tunnelQualityProbeInterval = 10 * time.Second
@@ -51,7 +52,10 @@ type tunnelQualityProber struct {
 	pathWake       chan struct{}
 	lastPathDemand atomic.Int64
 	lastPathProbe  atomic.Int64
-	pathProbing    bool // only accessed by the serial probe loop
+	pathProbing    bool       // only accessed by the serial probe loop
+	pathMu         sync.Mutex // session state and path snapshot publication
+	pathSession    uint64
+	pathSegments   map[tunnelQualityPingKey]tunnelPathSegmentState
 }
 
 // newTunnelQualityProber creates a new prober (not yet running).
@@ -71,7 +75,21 @@ func newTunnelQualityProber(h *Handler) *tunnelQualityProber {
 
 func (p *tunnelQualityProber) demandPath() {
 	now := p.now()
+	p.pathMu.Lock()
+	last := p.lastPathDemand.Load()
+	if last == 0 || now.Sub(time.Unix(0, last)) > tunnelPathDemandWindow {
+		p.pathSession++
+		p.pathSegments = make(map[tunnelQualityPingKey]tunnelPathSegmentState)
+		p.lastPathProbe.Store(0)
+		p.cache.Range(func(key, value interface{}) bool {
+			snap := *value.(*tunnelQualitySnapshot)
+			snap.PathLatency, snap.PathLoss, snap.PathStatus, snap.PathUpdatedAt = 0, 0, "", 0
+			p.cache.Store(key, &snap)
+			return true
+		})
+	}
 	p.lastPathDemand.Store(now.UnixNano())
+	p.pathMu.Unlock()
 	if p.pathProbeDue(now) {
 		select {
 		case p.pathWake <- struct{}{}:
@@ -184,6 +202,9 @@ func (p *tunnelQualityProber) probeAll() {
 			log.Printf("tunnel_quality_prober: round took %s (interval %s, tunnels %d)", elapsed.Round(time.Millisecond), p.interval, len(tunnelIDs))
 		}
 	}()
+	p.pathMu.Lock()
+	session := p.pathSession
+	p.pathMu.Unlock()
 	round := newTunnelQualityProbeRound(p.ping)
 	round.connected = h.wsServer.IsNodeConnected
 	lookup := p.roundNodeLookup()
@@ -195,17 +216,21 @@ func (p *tunnelQualityProber) probeAll() {
 		plans = append(plans, p.planTunnel(tunnelID, round, lookup))
 	}
 
+	p.preparePathRound(round, plans, session)
 	round.run(p.ctx)
 	if p.ctx.Err() != nil {
 		return
 	}
 	probedPath := false
 	for _, plan := range plans {
-		p.storeResult(plan.snapshot(round))
 		probedPath = probedPath || plan.base.PathUpdatedAt != 0
+		// Progressive publication owns path fields; history remains once per round.
+		plan.path = nil
+		plan.base.PathLatency, plan.base.PathLoss, plan.base.PathStatus, plan.base.PathUpdatedAt = 0, 0, "", 0
+		p.storeResult(plan.snapshot(round))
 	}
 	if probedPath {
-		p.lastPathProbe.Store(p.now().UnixNano())
+		p.finishPathRound(round, session)
 	}
 	if probedPath != p.pathProbing {
 		log.Printf("tunnel_quality_prober: path demand active=%t", probedPath)
@@ -466,6 +491,7 @@ func (p *tunnelQualityProber) storeResult(snap *tunnelQualitySnapshot) {
 		return
 	}
 
+	p.pathMu.Lock()
 	// Idle legacy rounds leave the last actual path result (and its age) intact.
 	if snap.PathUpdatedAt == 0 {
 		if value, ok := p.cache.Load(snap.TunnelID); ok {
@@ -477,6 +503,7 @@ func (p *tunnelQualityProber) storeResult(snap *tunnelQualitySnapshot) {
 
 	// Update in-memory cache (latest per tunnel)
 	p.cache.Store(snap.TunnelID, snap)
+	p.pathMu.Unlock()
 
 	// Persist to database (history)
 	h := p.handler

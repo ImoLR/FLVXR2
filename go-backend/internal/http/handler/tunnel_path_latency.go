@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"go-backend/internal/http/response"
@@ -43,6 +44,8 @@ type tunnelQualityProbeRound struct {
 	ctx           context.Context
 	global        chan struct{}
 	sources       sync.Map
+	onResult      func(tunnelQualityPingKey, *tunnelQualityPingResult)
+	pathPinged    atomic.Int64
 }
 
 func newTunnelQualityProbeRound(ping tunnelQualityPingFunc) *tunnelQualityProbeRound {
@@ -84,7 +87,7 @@ func (r *tunnelQualityProbeRound) planExitTest(nodeID int64, options diagnosisEx
 	r.publicTests[nodeID] = options
 }
 
-func (r *tunnelQualityProbeRound) run(ctx context.Context) {
+func (r *tunnelQualityProbeRound) preservePublicSamples() {
 	// Preserve legacy samples even if a path shares a public fallback key.
 	// Unused fallback targets remain unplanned.
 	for nodeID, options := range r.publicTests {
@@ -95,6 +98,10 @@ func (r *tunnelQualityProbeRound) run(ctx context.Context) {
 			}
 		}
 	}
+}
+
+func (r *tunnelQualityProbeRound) run(ctx context.Context) {
+	r.preservePublicSamples()
 	r.ctx = ctx
 	var wg sync.WaitGroup
 	for key, options := range r.planned {
@@ -130,6 +137,9 @@ func (r *tunnelQualityProbeRound) ping(nodeID int64, ip string, port int, option
 	} else {
 		result.latency, result.loss, result.err = r.sample(nodeID, ip, port, options)
 		close(result.done)
+		if r.onResult != nil {
+			r.onResult(tunnelQualityPingKey{nodeID, ip, port}, result)
+		}
 	}
 	return result.latency, result.loss, result.err
 }
@@ -159,6 +169,9 @@ func (r *tunnelQualityProbeRound) sample(nodeID int64, ip string, port int, opti
 				return 0, 100, errors.New("节点不在线")
 			}
 		}
+	}
+	if options.pingCount == 2 {
+		r.pathPinged.Add(1)
 	}
 	return r.execute(nodeID, ip, port, options)
 }

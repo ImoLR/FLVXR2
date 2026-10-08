@@ -194,11 +194,15 @@ interface TunnelPickerSection {
 function TunnelPathLatency({
   latency,
   muted = false,
+  probing = false,
 }: {
   latency?: UserTunnelLatencyApiItem;
   muted?: boolean;
+  probing?: boolean;
 }) {
-  if (!latency || Date.now() - latency.updatedAt > 60_000) return null;
+  if (!latency || Date.now() - latency.updatedAt > 60_000) {
+    return probing ? <span className="shrink-0 whitespace-nowrap text-xs font-normal text-default-500">测速中…</span> : null;
+  }
   const timedOut = latency.status === "timeout";
   const text = timedOut
     ? "超时"
@@ -1570,10 +1574,16 @@ export default function ForwardPage() {
   const [forwardOrder, setForwardOrder] = useState<number[]>([]);
   // 弹窗状态
   const [modalOpen, setModalOpen] = useState(false);
+  const [pathProbing, setPathProbing] = useState(false);
   useEffect(() => {
     if (!modalOpen) return;
     let active = true;
     let pending = false;
+    const openedAt = Date.now();
+    let timer: number;
+
+    setPathProbing(true);
+    const probingTimer = window.setTimeout(() => setPathProbing(false), 40_000);
     const refresh = async () => {
       setTunnelLatencies((previous) => Object.fromEntries(
         Object.entries(previous).filter(([, item]) => Date.now() - item.updatedAt <= 60_000),
@@ -1592,15 +1602,18 @@ export default function ForwardPage() {
         }
       } finally {
         pending = false;
+        if (active) {
+          timer = window.setTimeout(() => void refresh(), Date.now() - openedAt < 30_000 ? 2_000 : 10_000);
+        }
       }
     };
 
     void refresh();
-    const timer = window.setInterval(() => void refresh(), 10_000);
 
     return () => {
       active = false;
-      window.clearInterval(timer);
+      window.clearTimeout(timer);
+      window.clearTimeout(probingTimer);
     };
   }, [modalOpen]);
   // isFilterModalOpen removed
@@ -5733,11 +5746,11 @@ export default function ForwardPage() {
                                 description={tunnel.remark ? `备注：${tunnel.remark}` : undefined}
                                 endContent={
                                   <span className="inline-flex items-center gap-2">
-                                    <TunnelPathLatency latency={tunnelLatencies[tunnel.id]} />
+                                    <TunnelPathLatency latency={tunnelLatencies[tunnel.id]} probing={tunnel.type === 2 && pathProbing} />
                                     <span className="rounded bg-default-100 px-1.5 py-0.5 text-xs font-normal text-default-500">{formattedRatio}</span>
                                   </span>
                                 }
-                                selectedEndContent={<TunnelPathLatency muted latency={tunnelLatencies[tunnel.id]} />}
+                                selectedEndContent={<TunnelPathLatency muted latency={tunnelLatencies[tunnel.id]} probing={tunnel.type === 2 && pathProbing} />}
                                 textValue={text}
                               >
                                 {text}
