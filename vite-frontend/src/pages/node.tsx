@@ -2175,15 +2175,8 @@ export default function NodePage() {
               </h3>
             </div>
             <div className="text-xs text-default-500">
-              {node.region ? (
-                regionLabel(node.region)
-              ) : (
-                <Chip
-                  className="bg-default-100 text-default-500"
-                  color="default"
-                  size="sm"
-                  variant="flat"
-                >
+              {node.region ? regionLabel(node.region) : (
+                <Chip className="bg-default-100 text-default-500" color="default" size="sm" variant="flat">
                   未设置地区
                 </Chip>
               )}{node.regionCity ? ` · ${node.regionCity}` : ""}

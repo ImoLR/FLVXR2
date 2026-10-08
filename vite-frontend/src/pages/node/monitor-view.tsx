@@ -198,15 +198,25 @@ function LiveDot() {
   );
 }
 
+type ServerProps = {
+  node: MonitorViewProps["nodeMap"] extends Map<number, infer N> ? N : never;
+  metric: RealtimeNodeMetric | null;
+  openDetail: (nodeId: number) => void;
+};
+
+const sameServerProps = (prev: ServerProps, next: ServerProps) =>
+  prev.metric === next.metric &&
+  prev.openDetail === next.openDetail &&
+  prev.node.id === next.node.id &&
+  prev.node.name === next.node.name &&
+  prev.node.version === next.node.version &&
+  prev.node.connectionStatus === next.node.connectionStatus;
+
 const ServerCard = React.memo(function ServerCard({
   node,
   metric,
   openDetail,
-}: {
-  node: any;
-  metric: RealtimeNodeMetric | null;
-  openDetail: (nodeId: number) => void;
-}) {
+}: ServerProps) {
   const isOnline = node.connectionStatus === "online";
   const distro = parseDistroFromVersion(node.version);
   const distroColor = getDistroColor(distro);
@@ -333,7 +343,7 @@ const ServerCard = React.memo(function ServerCard({
       </CardBody>
     </Card>
   );
-});
+}, sameServerProps);
 
 type MetricType =
   | "cpu"
@@ -573,11 +583,7 @@ const ServerRow = React.memo(function ServerRow({
   node,
   metric,
   openDetail,
-}: {
-  node: MonitorViewProps["nodeMap"] extends Map<number, infer N> ? N : never;
-  metric: RealtimeNodeMetric | null;
-  openDetail: (nodeId: number) => void;
-}) {
+}: ServerProps) {
   const isOnline = node.connectionStatus === "online";
 
   return (
@@ -723,7 +729,7 @@ const ServerRow = React.memo(function ServerRow({
       </TableCell>
     </TableRow>
   );
-});
+}, sameServerProps);
 
 export function MonitorView({ nodeMap, viewMode = "grid" }: MonitorViewProps) {
   const isAdmin = getAdminFlag();
