@@ -1,0 +1,17 @@
+# Plan 081 — 移除隧道质量探测并发布 fork.33
+
+起点：`2936f770`，分支：`maintenance/3.0.27-fork.33-remove-quality-prober`。
+范围仅限后台质量探测、对应监控 API/UI 和死代码；保留最优策略、诊断共用函数、流量趋势、监控权限、TunnelQuality 模型和 AutoMigrate。无 agent、依赖、安装脚本、DB 结构/业务数据改动。
+运行证据：`/root/flvx-workers/runs/remove-quality-prober/`；所有临时文件放 `t/`。重任务串行，启动前 MemAvailable ≥750 MiB。
+
+- [x] 读取规则和流程、核对起点与基线、创建分支及计划。
+- [ ] 删除后台质量探测、专用测试、API 和不再使用的仓储方法；提交。
+- [ ] 删除隧道监控质量 UI/API 类型，保留非质量功能；提交。
+- [ ] 完成删除/保留/范围门禁、后端 build/vet/全量测试及 handler race；提交。
+- [ ] 前端 build、tsc/lint 基线比较及 PWA 包体检查；提交。
+- [ ] 推送并确认 HEAD CI 绿色，记录生产 fork.32 ≥30 分钟各节点 TCP 基线，再推送 annotated tag。
+- [ ] 验证镜像工作流、Latest 正式发布、资产集、固定版本及 SHA256；提交。
+- [ ] 创建在线 DB/配置/镜像回滚点，验证 quick_check/计数并执行保留两份备份清理；提交。
+- [ ] 安装 fork.33 v6 compose、更新版本、pull/up，验证健康、API、指标推进及 schema 不变；提交。
+- [ ] 完成 ≥30 分钟生产观察、质量表停止写入、404、JS/日志验证及全部节点 TCP 前后对比。
+- [ ] 写中文总结，完成计划并提交 `docs(plan): mark fork33 rollout complete`、推送。
