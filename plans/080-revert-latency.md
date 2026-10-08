@@ -13,7 +13,7 @@
 - [x] 单进程完成后端 build、vet、完整测试及 handler/ws race，与 fork.31 基线比较。
 - [x] 完成前端 build、tsc/lint 基线比较和 5 MiB 包体门禁；提交验证结果。
 - [x] 推送分支，确认 HEAD 的 CI Build Check 成功；创建并推送 annotated tag。
-- [ ] 确认镜像工作流成功、Latest 正式发布、资源集/版本固定/哈希正确；提交。
+- [x] 确认镜像工作流成功、Latest 正式发布、资源集/版本固定/哈希正确；提交。
 - [ ] 记录升级前 30 分钟 tcp_conns；创建生产在线备份和旧镜像标签，验证后运行保留两份的清理脚本；提交。
 - [ ] 安装 fork.32 v6 compose、更新 FLUX_VERSION、拉取并重建 backend/frontend，确认健康且无结构变化；提交。
 - [ ] 完成 API/前端/原始 WS 广播验证、至少 5 分钟日志及质量更新检查、至少 10 分钟连接数对比。
@@ -42,3 +42,7 @@
 ## 发布启动
 
 HEAD `c576029d` 的 CI Build Check [37808506936](https://github.com/ImoLR/FLVXR2/actions/runs/37808506936) 四项全成功。annotated tag `3.0.27-fork.32` 指向该 HEAD，已推送，等待镜像发布工作流。
+
+## 发布资产验证
+
+[Build and Push Images 37808887224](https://github.com/ImoLR/FLVXR2/actions/runs/37808887224) 成功；[fork.32 Release](https://github.com/ImoLR/FLVXR2/releases/tag/3.0.27-fork.32) 于 2026-10-08T16:39:38Z 发布，为 Latest、非 prerelease。十个资产与 fork.31 相同；v4/v6 compose 均固定 fork.32，两安装脚本 PINNED_VERSION/REPO 正确，两架构 gost SHA256 一致。
