@@ -1,14 +1,6 @@
-import type {
-  MonitorTunnelApiItem,
-  TunnelMetricApiItem,
-} from "@/api/types";
+import type { MonitorTunnelApiItem, TunnelMetricApiItem } from "@/api/types";
 
-import React, {
-  useCallback,
-  useEffect,
-  useMemo,
-  useState,
-} from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   LineChart,
   Line,
@@ -27,10 +19,7 @@ import {
 } from "lucide-react";
 import toast from "react-hot-toast";
 
-import {
-  getMonitorTunnels,
-  getTunnelMetrics,
-} from "@/api";
+import { getMonitorTunnels, getTunnelMetrics } from "@/api";
 import { Button } from "@/shadcn-bridge/heroui/button";
 import { Card, CardBody, CardHeader } from "@/shadcn-bridge/heroui/card";
 import { Chip } from "@/shadcn-bridge/heroui/chip";
@@ -583,7 +572,6 @@ export function TunnelMonitorView({
             </TableHeader>
             <TableBody emptyContent="暂无隧道">
               {tunnels.map((tunnel) => {
-
                 return (
                   <TableRow
                     key={tunnel.id}
