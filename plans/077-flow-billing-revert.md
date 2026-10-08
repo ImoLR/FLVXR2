@@ -21,6 +21,8 @@ billing must go back to the original panel formula.
   2x the raw bytes.
 
 ## Tasks
+- [x] Release gate: fork.28 is origin-tagged, published Latest, and running in production;
+  rebase onto final fork.28 head `2b46d3dc` and push with force-with-lease (no conflicts).
 - [x] `billTunnelFlow`: original formula + unit tests; ingestion/regression tests updated
 - [x] UI labels (tunnel form, WG path form, dashboard badge tooltip) and usage docs
 - [x] Traffic limit fields labelled 双向 (user request 2026-10-08): user form
