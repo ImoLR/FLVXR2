@@ -810,17 +810,6 @@ export interface MonitorAccessApiData {
   reason?: string;
 }
 
-export interface TunnelQualityApiItem {
-  tunnelId: number;
-  entryToExitLatency: number;
-  exitToBingLatency: number;
-  entryToExitLoss: number;
-  exitToBingLoss: number;
-  success: boolean;
-  errorMessage?: string;
-  timestamp: number;
-}
-
 export interface NodeGroupApiItem {
   id: number;
   name: string;

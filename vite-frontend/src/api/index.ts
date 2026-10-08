@@ -58,7 +58,6 @@ import type {
   MonitorNodeApiItem,
   MonitorNodeMetricsApiItem,
   MonitorTunnelApiItem,
-  TunnelQualityApiItem,
   MonitorAccessApiData,
   MonitorPermissionApiItem,
   SystemUpgradeCheckApiData,
@@ -800,25 +799,6 @@ export const getTunnelMetrics = (
 
 export const getMonitorTunnels = () =>
   Network.get<MonitorTunnelApiItem[]>("/monitor/tunnels");
-
-export const getMonitorTunnelQuality = () =>
-  Network.get<TunnelQualityApiItem[]>("/monitor/tunnels/quality");
-
-export const getMonitorTunnelQualityHistory = (
-  tunnelId: number,
-  start?: number,
-  end?: number,
-) => {
-  const params: Record<string, string> = {};
-
-  if (start) params.start = String(start);
-  if (end) params.end = String(end);
-
-  return Network.get<TunnelQualityApiItem[]>(
-    `/monitor/tunnels/${tunnelId}/quality`,
-    params,
-  );
-};
 
 export const getServiceMonitorList = () =>
   Network.get<ServiceMonitorApiItem[]>("/monitor/services");
