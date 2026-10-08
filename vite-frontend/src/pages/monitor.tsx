@@ -1,4 +1,3 @@
-import { usePageVisible } from "@/hooks/use-page-visible";
 import type { MonitorNodeApiItem } from "@/api/types";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -22,7 +21,6 @@ type MonitorNode = {
 type MonitorTab = "nodes" | "tunnels";
 
 export default function MonitorPage() {
-  const visible = usePageVisible();
   const [nodes, setNodes] = useState<MonitorNodeApiItem[]>([]);
   const [nodesLoading, setNodesLoading] = useState(false);
   const [nodesError, setNodesError] = useState<string | null>(null);
@@ -97,18 +95,17 @@ export default function MonitorPage() {
   }, []);
 
   useEffect(() => {
-    if (visible) void loadNodes();
-  }, [loadNodes, visible]);
+    void loadNodes();
+  }, [loadNodes]);
   usePullToRefresh(loadNodes);
 
   useEffect(() => {
-    if (!visible) return;
     const timer = window.setInterval(() => {
       void loadNodes({ silent: true });
     }, 30_000);
 
     return () => window.clearInterval(timer);
-  }, [loadNodes, visible]);
+  }, [loadNodes]);
 
   const nodeMap = useMemo(() => {
     const list: MonitorNode[] = nodes
@@ -193,7 +190,6 @@ export default function MonitorPage() {
         </div>
         <div className={activeTab === "tunnels" ? "block" : "hidden"}>
           <TunnelMonitorView
-            active={activeTab === "tunnels"}
             refreshTrigger={tunnelRefreshTrigger}
             viewMode={viewMode}
             onLoadingChange={setTunnelsLoading}

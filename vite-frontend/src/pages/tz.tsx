@@ -1,4 +1,3 @@
-import { useBatchedRealtimeState } from "@/hooks/use-batched-realtime-state";
 import type { MonitorNodeMetricsApiItem } from "@/api/types";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -100,9 +99,7 @@ const emptyMetrics: NodeMetrics = {
 };
 
 export default function TZPage() {
-  const [nodes, setNodes] = useBatchedRealtimeState<
-    MonitorNodeMetricsApiItem[]
-  >([]);
+  const [nodes, setNodes] = useState<MonitorNodeMetricsApiItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<"list" | "grid">(() => {
@@ -134,9 +131,9 @@ export default function TZPage() {
 
       if (response.code === 0 && Array.isArray(response.data)) {
         setError(null);
-        setNodes(() => response.data);
+        setNodes(response.data);
       } else {
-        setNodes(() => []);
+        setNodes([]);
         setError(response.msg || "暂未开放公共监控");
       }
     } catch {
@@ -144,7 +141,7 @@ export default function TZPage() {
     } finally {
       setLoading(false);
     }
-  }, [setNodes]);
+  }, []);
 
   const handleRealtimeMessage = useCallback(
     (parsed: { id?: string | number; type?: string; data?: unknown }) => {
@@ -158,8 +155,7 @@ export default function TZPage() {
         setNodes((prev) => {
           const idx = prev.findIndex((n) => n.id === nodeId);
 
-          if (idx === -1 || prev[idx].status === (isOnline ? 1 : 0))
-            return prev;
+          if (idx === -1) return prev;
           const updated = [...prev];
 
           updated[idx] = { ...updated[idx], status: isOnline ? 1 : 0 };
@@ -212,7 +208,7 @@ export default function TZPage() {
         });
       }
     },
-    [setNodes],
+    [],
   );
 
   const { wsConnected, wsConnecting } = usePublicNodeRealtime({

@@ -27,14 +27,14 @@ export function Table({
   classNames,
   ...props
 }: TableProps) {
-  const styles = React.useMemo(() => ({
-    thClassName: classNames?.th,
-    tdClassName: classNames?.td,
-    trClassName: classNames?.tr,
-  }), [classNames?.th, classNames?.td, classNames?.tr]);
-
   return (
-    <TableStyleContext.Provider value={styles}>
+    <TableStyleContext.Provider
+      value={{
+        thClassName: classNames?.th,
+        tdClassName: classNames?.td,
+        trClassName: classNames?.tr,
+      }}
+    >
       <div
         className={cn("w-full overflow-auto rounded-md", classNames?.wrapper)}
       >

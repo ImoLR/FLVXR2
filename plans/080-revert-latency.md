@@ -8,7 +8,7 @@
 
 - [x] 阅读仓库规则和两份流程记忆，确认 fork.31 起点、15 项失败基线，创建分支与计划。
 - [x] 移除路径延迟，恢复原质量探测器并保留 connect_ip 及其适用测试；提交。
-- [ ] 恢复 fork.27 监控页面及原浏览器 WS 广播；提交。
+- [x] 恢复 fork.27 监控页面及原浏览器 WS 广播；提交。
 - [ ] 完成全部五项等价检查并保存命令、输出；提交。
 - [ ] 单进程完成后端 build、vet、完整测试及 handler/ws race，与 fork.31 基线比较。
 - [ ] 完成前端 build、tsc/lint 基线比较和 5 MiB 包体门禁；提交验证结果。
@@ -25,3 +25,4 @@
 
 - 路径延迟 UI/API/权限特例、Repository 辅助方法、会话和调度器及专用测试已移除。原质量探测器逐字恢复 fork.22，仅为出口解析加回 fork.27 的 `outNodes[0].ConnectIP`。保留并适配 `TestCustomConnectIPQuality`，有/无中继均验证原探测器直接探测自定义出口 IP；定向测试通过。
 - `forward.tsx` 反向应用 90753d66、6d838b4d，保留移动卡片和双向标签；API/select/auth/路由及可见性契约恢复 fork.22。`IsNodeConnected` 无其他调用，连同测试删除。
+- 六个监控相关文件逐字恢复 fork.27；两个 hooks 无范围外引用，已删除。恢复 WS 广播及测试，继续仅剥离 quotaGroups，保留 forward_metrics/serviceConnections。fork.10 管理员服务监控限制保持。

@@ -1,4 +1,3 @@
-import { useBatchedRealtimeState } from "@/hooks/use-batched-realtime-state";
 import type {
   NodeGroupApiItem,
   NodeRegionDetection,
@@ -322,7 +321,7 @@ export default function NodePage() {
   const [nodeList, setNodeList] = useState<Node[]>([]);
   const [nodeOrder, setNodeOrder] = useState<number[]>([]);
   const [loading, setLoading] = useState(false);
-  const [realtimeNodeMetrics, setRealtimeNodeMetrics] = useBatchedRealtimeState<
+  const [realtimeNodeMetrics, setRealtimeNodeMetrics] = useState<
     Record<
       number,
       {
@@ -932,23 +931,16 @@ export default function NodePage() {
           },
         };
       });
-      setNodeList((prev) => {
-        if (
-          !prev.some(
-            (node) => node.id === nodeId && node.connectionStatus !== "online",
-          )
-        )
-          return prev;
-
-        return prev.map((node) => {
+      setNodeList((prev) =>
+        prev.map((node) => {
           if (node.id !== nodeId) return node;
 
           return {
             ...node,
             connectionStatus: "online",
           };
-        });
-      });
+        }),
+      );
     }
   };
   const { wsConnected, wsConnecting, usingPollingFallback } = useNodeRealtime({

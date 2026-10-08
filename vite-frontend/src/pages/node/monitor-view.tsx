@@ -82,8 +82,6 @@ import {
 import { Card, CardBody, CardHeader } from "@/shadcn-bridge/heroui/card";
 import { Progress } from "@/shadcn-bridge/heroui/progress";
 import { useNodeRealtime } from "@/pages/node/use-node-realtime";
-import { useBatchedRealtimeState } from "@/hooks/use-batched-realtime-state";
-import { usePageVisible } from "@/hooks/use-page-visible";
 import { getAdminFlag } from "@/utils/session";
 
 interface MonitorViewProps {
@@ -198,33 +196,31 @@ function LiveDot() {
   );
 }
 
-type ServerProps = {
-  node: MonitorViewProps["nodeMap"] extends Map<number, infer N> ? N : never;
-  metric: RealtimeNodeMetric | null;
-  openDetail: (nodeId: number) => void;
-};
-
-const sameServerProps = (prev: ServerProps, next: ServerProps) =>
-  prev.metric === next.metric &&
-  prev.openDetail === next.openDetail &&
-  prev.node.id === next.node.id &&
-  prev.node.name === next.node.name &&
-  prev.node.version === next.node.version &&
-  prev.node.connectionStatus === next.node.connectionStatus;
-
-const ServerCard = React.memo(function ServerCard({
+function ServerCard({
   node,
   metric,
-  openDetail,
-}: ServerProps) {
+  onPress,
+}: {
+  node: any;
+  metric: RealtimeNodeMetric | null;
+  onPress?: () => void;
+}) {
   const isOnline = node.connectionStatus === "online";
   const distro = parseDistroFromVersion(node.version);
   const distroColor = getDistroColor(distro);
 
+  function setDetailNodeId(_id: any) {
+    throw new Error("Function not implemented.");
+  }
+
+  function setSelectedNodeId(_id: any) {
+    throw new Error("Function not implemented.");
+  }
+
   return (
     <Card
       className="group h-full flex flex-col overflow-hidden border border-divider bg-content1 shadow-sm transition-shadow duration-200 hover:shadow-md cursor-pointer"
-      onClick={() => openDetail(node.id)}
+      onClick={onPress}
     >
       <CardHeader className="pb-3 md:pb-3">
         <div className="flex flex-col gap-2 w-full">
@@ -260,7 +256,10 @@ const ServerCard = React.memo(function ServerCard({
                 isIconOnly
                 size="sm"
                 variant="light"
-                onPress={() => openDetail(node.id)}
+                onPress={() => {
+                  setDetailNodeId(node.id);
+                  setSelectedNodeId(node.id);
+                }}
               >
                 <Eye className="w-4 h-4 text-primary" />
               </Button>
@@ -343,7 +342,7 @@ const ServerCard = React.memo(function ServerCard({
       </CardBody>
     </Card>
   );
-}, sameServerProps);
+}
 
 type MetricType =
   | "cpu"
@@ -579,167 +578,10 @@ const DEFAULT_SERVICE_MONITOR_LIMITS: ServiceMonitorLimitsApiData = {
   maxTimeoutSec: 60,
 };
 
-const ServerRow = React.memo(function ServerRow({
-  node,
-  metric,
-  openDetail,
-}: ServerProps) {
-  const isOnline = node.connectionStatus === "online";
-
-  return (
-    <TableRow className="cursor-pointer" onClick={() => openDetail(node.id)}>
-      <TableCell>
-        <div className="flex justify-center w-full">
-          <div
-            className={`w-2 h-2 rounded-full ${isOnline ? "bg-success" : "bg-danger"}`}
-          />
-        </div>
-      </TableCell>
-      <TableCell>
-        <div className="flex justify-center w-full">
-          <Button
-            isIconOnly
-            size="sm"
-            variant="light"
-            onPress={() => openDetail(node.id)}
-          >
-            <Eye className="w-4 h-4 text-primary" />
-          </Button>
-        </div>
-      </TableCell>
-      <TableCell>
-        <div className="flex items-center justify-center gap-2 w-full">
-          <DistroIcon
-            className="w-4 h-4 flex-shrink-0"
-            distro={parseDistroFromVersion(node.version)}
-            style={{
-              color: isOnline
-                ? getDistroColor(parseDistroFromVersion(node.version))
-                : undefined,
-            }}
-          />
-          <span className="font-semibold text-sm whitespace-nowrap">
-            {node.name}
-          </span>
-        </div>
-      </TableCell>
-      <TableCell>
-        <div className="flex flex-col items-center gap-2 py-1 text-xs whitespace-nowrap w-full">
-          <div className="flex items-center justify-center gap-1.5 font-mono text-success-500 w-full">
-            <span className="w-[76px] text-center inline-block tabular-nums">
-              {metric ? formatBytesPerSecond(metric.netOutSpeed) : "-"}
-            </span>
-            <div className="flex items-center justify-center p-[3px] rounded-full bg-success-50 dark:bg-success-500/10 text-success-500 shrink-0">
-              <ArrowUp className="w-3 h-3" strokeWidth={2.5} />
-            </div>
-          </div>
-          <div className="flex items-center justify-center gap-1.5 font-mono text-primary-500 w-full">
-            <span className="w-[76px] text-center inline-block tabular-nums">
-              {metric ? formatBytesPerSecond(metric.netInSpeed) : "-"}
-            </span>
-            <div className="flex items-center justify-center p-[3px] rounded-full bg-primary-50 dark:bg-primary-500/10 text-primary-500 shrink-0">
-              <ArrowDown className="w-3 h-3" strokeWidth={2.5} />
-            </div>
-          </div>
-        </div>
-      </TableCell>
-      <TableCell>
-        <div className="flex flex-col items-center gap-2 py-1 text-xs whitespace-nowrap w-full">
-          <div className="flex items-center justify-center gap-1.5 font-mono text-default-600 w-full">
-            <span className="w-[76px] text-center inline-block tabular-nums">
-              {metric ? formatBytes(metric.netOutBytes) : "-"}
-            </span>
-            <div className="flex items-center justify-center p-[3px] rounded-full bg-default-100 text-default-500 dark:bg-default-100/50 shrink-0">
-              <ArrowUp className="w-3 h-3" strokeWidth={2.5} />
-            </div>
-          </div>
-          <div className="flex items-center justify-center gap-1.5 font-mono text-default-600 w-full">
-            <span className="w-[76px] text-center inline-block tabular-nums">
-              {metric ? formatBytes(metric.netInBytes) : "-"}
-            </span>
-            <div className="flex items-center justify-center p-[3px] rounded-full bg-default-100 text-default-500 dark:bg-default-100/50 shrink-0">
-              <ArrowDown className="w-3 h-3" strokeWidth={2.5} />
-            </div>
-          </div>
-        </div>
-      </TableCell>
-      <TableCell>
-        <div className="flex justify-center w-full">
-          <span className="font-mono text-xs text-default-500 whitespace-nowrap tabular-nums">
-            {metric ? formatUptime(metric.uptime) : "-"}
-          </span>
-        </div>
-      </TableCell>
-      <TableCell>
-        <div className="flex flex-col items-center gap-1.5 text-xs font-mono text-default-500 px-1 w-full tabular-nums">
-          <div>TCP {metric ? metric.tcpConns : "-"}</div>
-          <div>UDP {metric ? metric.udpConns : "-"}</div>
-        </div>
-      </TableCell>
-      <TableCell>
-        <div className="flex items-center justify-center gap-2 w-full">
-          {metric ? (
-            <Progress
-              className="w-[40px] md:w-[60px]"
-              color={getColorByUsage(metric.cpuUsage)}
-              size="sm"
-              value={metric.cpuUsage}
-            />
-          ) : (
-            <div className="w-[40px] md:w-[60px] h-2 rounded-full bg-default-100" />
-          )}
-          <span className="text-xs font-mono w-[36px] text-center text-default-500 tabular-nums">
-            {metric ? `${metric.cpuUsage.toFixed(1)}%` : "-"}
-          </span>
-        </div>
-      </TableCell>
-      <TableCell>
-        <div className="flex items-center justify-center gap-2 w-full">
-          {metric ? (
-            <Progress
-              className="w-[40px] md:w-[60px]"
-              color={getColorByUsage(metric.memoryUsage)}
-              size="sm"
-              value={metric.memoryUsage}
-            />
-          ) : (
-            <div className="w-[40px] md:w-[60px] h-2 rounded-full bg-default-100" />
-          )}
-          <span className="text-xs font-mono w-[36px] text-center text-default-500 tabular-nums">
-            {metric ? `${metric.memoryUsage.toFixed(1)}%` : "-"}
-          </span>
-        </div>
-      </TableCell>
-      <TableCell>
-        <div className="flex items-center justify-center gap-2 w-full">
-          {metric ? (
-            <Progress
-              className="w-[40px] md:w-[60px]"
-              color={getColorByUsage(metric.diskUsage)}
-              size="sm"
-              value={metric.diskUsage}
-            />
-          ) : (
-            <div className="w-[40px] md:w-[60px] h-2 rounded-full bg-default-100" />
-          )}
-          <span className="text-xs font-mono w-[36px] text-center text-default-500 tabular-nums">
-            {metric ? `${metric.diskUsage.toFixed(1)}%` : "-"}
-          </span>
-        </div>
-      </TableCell>
-    </TableRow>
-  );
-}, sameServerProps);
-
 export function MonitorView({ nodeMap, viewMode = "grid" }: MonitorViewProps) {
   const isAdmin = getAdminFlag();
-  const visible = usePageVisible();
   const [detailNodeId, setDetailNodeId] = useState<number | null>(null);
   const [selectedNodeId, setSelectedNodeId] = useState<number | null>(null);
-  const openDetail = useCallback((nodeId: number) => {
-    setDetailNodeId(nodeId);
-    setSelectedNodeId(nodeId);
-  }, []);
   const [metrics, setMetrics] = useState<NodeMetricApiItem[]>([]);
   const [metricsLoading, setMetricsLoading] = useState(false);
   const [metricsTruncated, setMetricsTruncated] = useState(false);
@@ -853,16 +695,12 @@ export function MonitorView({ nodeMap, viewMode = "grid" }: MonitorViewProps) {
   }, [resultsLimit]);
   const [resultsLoading, setResultsLoading] = useState(false);
 
-  const [{ statuses: realtimeNodeStatus, metrics: realtimeNodeMetrics }, updateRealtime] =
-    useBatchedRealtimeState<{
-      statuses: Record<number, "online" | "offline">;
-      metrics: Record<number, RealtimeNodeMetric>;
-    }>({ statuses: {}, metrics: {} });
-  const setStatus = useCallback((nodeId: number, status: "online" | "offline") => {
-    updateRealtime((prev) => prev.statuses[nodeId] === status ? prev : {
-      ...prev, statuses: { ...prev.statuses, [nodeId]: status },
-    });
-  }, [updateRealtime]);
+  const [realtimeNodeStatus, setRealtimeNodeStatus] = useState<
+    Record<number, "online" | "offline">
+  >({});
+  const [realtimeNodeMetrics, setRealtimeNodeMetrics] = useState<
+    Record<number, RealtimeNodeMetric>
+  >({});
   const offlineTimersRef = useRef<Map<number, ReturnType<typeof setTimeout>>>(
     new Map(),
   );
@@ -871,7 +709,7 @@ export function MonitorView({ nodeMap, viewMode = "grid" }: MonitorViewProps) {
     return Array.from(nodeMap.values()).map((n) => {
       const status = realtimeNodeStatus[n.id];
 
-      if (!status || status === n.connectionStatus) {
+      if (!status) {
         return n;
       }
 
@@ -898,25 +736,30 @@ export function MonitorView({ nodeMap, viewMode = "grid" }: MonitorViewProps) {
     const type = String(message?.type ?? "");
     const payload = message?.data;
 
-    if (type === "metric" || type === "info" || (type === "status" && Number(payload) === 1)) {
-      const timer = offlineTimersRef.current.get(nodeId);
-
-      if (timer) clearTimeout(timer);
-      offlineTimersRef.current.delete(nodeId);
-    }
-
     if (type === "status") {
       const status = Number(payload);
 
       if (status === 1) {
-        setStatus(nodeId, "online");
+        const timer = offlineTimersRef.current.get(nodeId);
+
+        if (timer) {
+          clearTimeout(timer);
+          offlineTimersRef.current.delete(nodeId);
+        }
+        setRealtimeNodeStatus((prev) => ({
+          ...prev,
+          [nodeId]: "online",
+        }));
       } else {
         const timer = offlineTimersRef.current.get(nodeId);
 
         if (timer) clearTimeout(timer);
         const t = setTimeout(() => {
           offlineTimersRef.current.delete(nodeId);
-          setStatus(nodeId, "offline");
+          setRealtimeNodeStatus((prev) => ({
+            ...prev,
+            [nodeId]: "offline",
+          }));
         }, 3000);
 
         offlineTimersRef.current.set(nodeId, t);
@@ -943,7 +786,7 @@ export function MonitorView({ nodeMap, viewMode = "grid" }: MonitorViewProps) {
       const receivedAt = Date.now();
       const incomingUptime = Number(metric.uptime ?? 0);
 
-      updateRealtime((prev) => {
+      setRealtimeNodeMetrics((prev) => {
         const normalized: RealtimeNodeMetric = {
           receivedAt,
           cpuUsage: Number(metric.cpuUsage ?? metric.cpu_usage ?? 0),
@@ -960,25 +803,29 @@ export function MonitorView({ nodeMap, viewMode = "grid" }: MonitorViewProps) {
           load15: Number(metric.load15 ?? 0),
           tcpConns: Number(metric.tcpConns ?? metric.tcp_conns ?? 0),
           udpConns: Number(metric.udpConns ?? metric.udp_conns ?? 0),
-          uptime: incomingUptime || prev.metrics[nodeId]?.uptime || 0,
+          uptime: incomingUptime || prev[nodeId]?.uptime || 0,
         };
 
         return {
           ...prev,
-          metrics: { ...prev.metrics, [nodeId]: normalized },
-          statuses: prev.statuses[nodeId] === "online" ? prev.statuses : {
-            ...prev.statuses, [nodeId]: "online",
-          },
+          [nodeId]: normalized,
         };
       });
+      setRealtimeNodeStatus((prev) => ({
+        ...prev,
+        [nodeId]: "online",
+      }));
 
       return;
     }
 
     if (type === "info") {
-      setStatus(nodeId, "online");
+      setRealtimeNodeStatus((prev) => ({
+        ...prev,
+        [nodeId]: "online",
+      }));
     }
-  }, [setStatus, updateRealtime]);
+  }, []);
 
   const { wsConnected, wsConnecting } = useNodeRealtime({
     onMessage: handleRealtimeMessage,
@@ -1181,42 +1028,41 @@ export function MonitorView({ nodeMap, viewMode = "grid" }: MonitorViewProps) {
   }, [isAdmin, loadMonitorResults, resultsLimit, resultsMonitorId]);
 
   useEffect(() => {
-    if (!isAdmin || !visible) return;
+    if (!isAdmin) return;
     void loadServiceMonitors();
     void loadServiceMonitorLimits();
     void loadLatestMonitorResults();
   }, [
     isAdmin,
-    visible,
     loadLatestMonitorResults,
     loadServiceMonitorLimits,
     loadServiceMonitors,
   ]);
 
   useEffect(() => {
-    if (!isAdmin || !visible) return;
+    if (!isAdmin) return;
     const timer = window.setInterval(() => {
       void loadServiceMonitors({ silent: true });
       void loadLatestMonitorResults();
     }, 5_000);
 
     return () => window.clearInterval(timer);
-  }, [isAdmin, visible, loadLatestMonitorResults, loadServiceMonitors]);
+  }, [isAdmin, loadLatestMonitorResults, loadServiceMonitors]);
 
   useEffect(() => {
-    if (selectedNodeId && visible) {
+    if (selectedNodeId) {
       loadMetrics(selectedNodeId);
     }
-  }, [selectedNodeId, loadMetrics, visible]);
+  }, [selectedNodeId, loadMetrics]);
 
   useEffect(() => {
-    if (!selectedNodeId || !visible) return;
+    if (!selectedNodeId) return;
     const timer = window.setInterval(() => {
       void loadMetrics(selectedNodeId, { silent: true });
     }, 15_000);
 
     return () => window.clearInterval(timer);
-  }, [selectedNodeId, loadMetrics, visible]);
+  }, [selectedNodeId, loadMetrics]);
 
   useEffect(() => {
     if (!isAdmin || !resultsModalOpen || !resultsMonitorId) return;
@@ -1663,7 +1509,10 @@ export function MonitorView({ nodeMap, viewMode = "grid" }: MonitorViewProps) {
                         key={node.id}
                         metric={metric}
                         node={node}
-                        openDetail={openDetail}
+                        onPress={() => {
+                          setDetailNodeId(node.id);
+                          setSelectedNodeId(node.id);
+                        }}
                       />
                     );
                   })}
@@ -1705,11 +1554,184 @@ export function MonitorView({ nodeMap, viewMode = "grid" }: MonitorViewProps) {
                   <TableColumn align="center">存储</TableColumn>
                 </TableHeader>
                 <TableBody emptyContent="暂无节点">
-                  {nodes.map((node) => (
-                    <ServerRow key={node.id} node={node}
-                      metric={realtimeNodeMetrics[node.id] || null}
-                      openDetail={openDetail} />
-                  ))}
+                  {nodes.map((node) => {
+                    const metric = realtimeNodeMetrics[node.id] || null;
+                    const isOnline = node.connectionStatus === "online";
+
+                    return (
+                      <TableRow
+                        key={node.id}
+                        className="cursor-pointer"
+                        onClick={() => {
+                          setDetailNodeId(node.id);
+                          setSelectedNodeId(node.id);
+                        }}
+                      >
+                        <TableCell>
+                          <div className="flex justify-center w-full">
+                            <div
+                              className={`w-2 h-2 rounded-full ${isOnline ? "bg-success" : "bg-danger"}`}
+                            />
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex justify-center w-full">
+                            <Button
+                              isIconOnly
+                              size="sm"
+                              variant="light"
+                              onPress={() => {
+                                setDetailNodeId(node.id);
+                                setSelectedNodeId(node.id);
+                              }}
+                            >
+                              <Eye className="w-4 h-4 text-primary" />
+                            </Button>
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex items-center justify-center gap-2 w-full">
+                            <DistroIcon
+                              className="w-4 h-4 flex-shrink-0"
+                              distro={parseDistroFromVersion(node.version)}
+                              style={{
+                                color: isOnline
+                                  ? getDistroColor(
+                                      parseDistroFromVersion(node.version),
+                                    )
+                                  : undefined,
+                              }}
+                            />
+                            <span className="font-semibold text-sm whitespace-nowrap">
+                              {node.name}
+                            </span>
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex flex-col items-center gap-2 py-1 text-xs whitespace-nowrap w-full">
+                            <div className="flex items-center justify-center gap-1.5 font-mono text-success-500 w-full">
+                              <span className="w-[76px] text-center inline-block tabular-nums">
+                                {metric
+                                  ? formatBytesPerSecond(metric.netOutSpeed)
+                                  : "-"}
+                              </span>
+                              <div className="flex items-center justify-center p-[3px] rounded-full bg-success-50 dark:bg-success-500/10 text-success-500 shrink-0">
+                                <ArrowUp
+                                  className="w-3 h-3"
+                                  strokeWidth={2.5}
+                                />
+                              </div>
+                            </div>
+                            <div className="flex items-center justify-center gap-1.5 font-mono text-primary-500 w-full">
+                              <span className="w-[76px] text-center inline-block tabular-nums">
+                                {metric
+                                  ? formatBytesPerSecond(metric.netInSpeed)
+                                  : "-"}
+                              </span>
+                              <div className="flex items-center justify-center p-[3px] rounded-full bg-primary-50 dark:bg-primary-500/10 text-primary-500 shrink-0">
+                                <ArrowDown
+                                  className="w-3 h-3"
+                                  strokeWidth={2.5}
+                                />
+                              </div>
+                            </div>
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex flex-col items-center gap-2 py-1 text-xs whitespace-nowrap w-full">
+                            <div className="flex items-center justify-center gap-1.5 font-mono text-default-600 w-full">
+                              <span className="w-[76px] text-center inline-block tabular-nums">
+                                {metric ? formatBytes(metric.netOutBytes) : "-"}
+                              </span>
+                              <div className="flex items-center justify-center p-[3px] rounded-full bg-default-100 text-default-500 dark:bg-default-100/50 shrink-0">
+                                <ArrowUp
+                                  className="w-3 h-3"
+                                  strokeWidth={2.5}
+                                />
+                              </div>
+                            </div>
+                            <div className="flex items-center justify-center gap-1.5 font-mono text-default-600 w-full">
+                              <span className="w-[76px] text-center inline-block tabular-nums">
+                                {metric ? formatBytes(metric.netInBytes) : "-"}
+                              </span>
+                              <div className="flex items-center justify-center p-[3px] rounded-full bg-default-100 text-default-500 dark:bg-default-100/50 shrink-0">
+                                <ArrowDown
+                                  className="w-3 h-3"
+                                  strokeWidth={2.5}
+                                />
+                              </div>
+                            </div>
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex justify-center w-full">
+                            <span className="font-mono text-xs text-default-500 whitespace-nowrap tabular-nums">
+                              {metric ? formatUptime(metric.uptime) : "-"}
+                            </span>
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex flex-col items-center gap-1.5 text-xs font-mono text-default-500 px-1 w-full tabular-nums">
+                            <div>TCP {metric ? metric.tcpConns : "-"}</div>
+                            <div>UDP {metric ? metric.udpConns : "-"}</div>
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex items-center justify-center gap-2 w-full">
+                            {metric ? (
+                              <Progress
+                                className="w-[40px] md:w-[60px]"
+                                color={getColorByUsage(metric.cpuUsage)}
+                                size="sm"
+                                value={metric.cpuUsage}
+                              />
+                            ) : (
+                              <div className="w-[40px] md:w-[60px] h-2 rounded-full bg-default-100" />
+                            )}
+                            <span className="text-xs font-mono w-[36px] text-center text-default-500 tabular-nums">
+                              {metric ? `${metric.cpuUsage.toFixed(1)}%` : "-"}
+                            </span>
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex items-center justify-center gap-2 w-full">
+                            {metric ? (
+                              <Progress
+                                className="w-[40px] md:w-[60px]"
+                                color={getColorByUsage(metric.memoryUsage)}
+                                size="sm"
+                                value={metric.memoryUsage}
+                              />
+                            ) : (
+                              <div className="w-[40px] md:w-[60px] h-2 rounded-full bg-default-100" />
+                            )}
+                            <span className="text-xs font-mono w-[36px] text-center text-default-500 tabular-nums">
+                              {metric
+                                ? `${metric.memoryUsage.toFixed(1)}%`
+                                : "-"}
+                            </span>
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex items-center justify-center gap-2 w-full">
+                            {metric ? (
+                              <Progress
+                                className="w-[40px] md:w-[60px]"
+                                color={getColorByUsage(metric.diskUsage)}
+                                size="sm"
+                                value={metric.diskUsage}
+                              />
+                            ) : (
+                              <div className="w-[40px] md:w-[60px] h-2 rounded-full bg-default-100" />
+                            )}
+                            <span className="text-xs font-mono w-[36px] text-center text-default-500 tabular-nums">
+                              {metric ? `${metric.diskUsage.toFixed(1)}%` : "-"}
+                            </span>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
                 </TableBody>
               </Table>
             </Card>
