@@ -491,6 +491,16 @@ type TunnelGroupTunnel struct {
 
 func (TunnelGroupTunnel) TableName() string { return "tunnel_group_tunnel" }
 
+type TunnelGroupTunnelEntry struct {
+	ID            int64 `gorm:"primaryKey;autoIncrement"`
+	TunnelGroupID int64 `gorm:"column:tunnel_group_id;not null;uniqueIndex:idx_tunnel_group_entry_unique"`
+	TunnelID      int64 `gorm:"column:tunnel_id;not null;uniqueIndex:idx_tunnel_group_entry_unique"`
+	NodeID        int64 `gorm:"column:node_id;not null;uniqueIndex:idx_tunnel_group_entry_unique"`
+	CreatedTime   int64 `gorm:"column:created_time;not null"`
+}
+
+func (TunnelGroupTunnelEntry) TableName() string { return "tunnel_group_tunnel_entry" }
+
 type UserGroupUser struct {
 	ID          int64 `gorm:"primaryKey;autoIncrement"`
 	UserGroupID int64 `gorm:"column:user_group_id;not null;uniqueIndex:idx_user_group_user_unique"`

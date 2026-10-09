@@ -2298,6 +2298,12 @@ func (r *Repository) GroupDeleteCascade(table string, id int64) error {
 	return r.db.Transaction(func(tx *gorm.DB) error {
 		switch table {
 		case "tunnel_group":
+			if _, err := r.RevokeStaleTunnelGroupGrantsTx(tx, id, nil); err != nil {
+				return err
+			}
+			if err := tx.Where("tunnel_group_id = ?", id).Delete(&model.TunnelGroupTunnelEntry{}).Error; err != nil {
+				return err
+			}
 			if err := tx.Where("tunnel_group_id = ?", id).Delete(&model.TunnelGroupTunnel{}).Error; err != nil {
 				return err
 			}
@@ -2309,6 +2315,13 @@ func (r *Repository) GroupDeleteCascade(table string, id int64) error {
 			}
 			return tx.Where("id = ?", id).Delete(&model.TunnelGroup{}).Error
 		case "user_group":
+			var users []int64
+			if err := tx.Model(&model.UserGroupUser{}).Where("user_group_id = ?", id).Pluck("user_id", &users).Error; err != nil {
+				return err
+			}
+			if _, err := r.RevokeGroupGrantsForRemovedUsersTx(tx, id, users, nil); err != nil {
+				return err
+			}
 			if err := tx.Where("user_group_id = ?", id).Delete(&model.UserGroupUser{}).Error; err != nil {
 				return err
 			}
@@ -2342,11 +2355,18 @@ func (r *Repository) ListUserIDsByUserGroupTx(tx *gorm.DB, userGroupID int64) ([
 	return ids, nil
 }
 
-func (r *Repository) ReplaceTunnelGroupMembersTx(tx *gorm.DB, groupID int64, tunnelIDs []int64, now int64) error {
+func (r *Repository) ReplaceTunnelGroupMembersTx(tx *gorm.DB, groupID int64, tunnelIDs []int64, now int64, selections ...map[int64][]int64) error {
 	if tx == nil {
 		return errors.New("database unavailable")
 	}
 	if err := tx.Where("tunnel_group_id = ?", groupID).Delete(&model.TunnelGroupTunnel{}).Error; err != nil {
+		return err
+	}
+	var selection map[int64][]int64
+	if len(selections) > 0 {
+		selection = selections[0]
+	}
+	if err := r.replaceTunnelGroupEntriesTx(tx, groupID, tunnelIDs, selection, now); err != nil {
 		return err
 	}
 	if len(tunnelIDs) == 0 {
@@ -2476,6 +2496,11 @@ func (r *Repository) RevokeGroupGrantsForRemovedUsersTx(tx *gorm.DB, userGroupID
 			if err := tx.Model(&model.GroupPermissionGrant{}).Where("user_tunnel_id = ?", userTunnelID).Count(&remaining).Error; err != nil {
 				return revoked, err
 			}
+			if remaining > 0 {
+				if err := tx.Model(&model.GroupPermissionGrant{}).Where("user_tunnel_id = ?", userTunnelID).Update("created_by_group", 1).Error; err != nil {
+					return revoked, err
+				}
+			}
 			if remaining == 0 {
 				var ut model.UserTunnel
 				if lookupErr := tx.Select("user_id", "tunnel_id").Where("id = ?", userTunnelID).First(&ut).Error; lookupErr == nil {
@@ -2547,6 +2572,11 @@ func (r *Repository) RevokeStaleTunnelGroupGrantsTx(tx *gorm.DB, tunnelGroupID i
 		if err := tx.Model(&model.GroupPermissionGrant{}).Where("user_tunnel_id = ?", userTunnelID).Count(&remaining).Error; err != nil {
 			return revoked, err
 		}
+		if remaining > 0 {
+			if err := tx.Model(&model.GroupPermissionGrant{}).Where("user_tunnel_id = ?", userTunnelID).Update("created_by_group", 1).Error; err != nil {
+				return revoked, err
+			}
+		}
 		if remaining == 0 {
 			var ut model.UserTunnel
 			if lookupErr := tx.Select("user_id", "tunnel_id").Where("id = ?", userTunnelID).First(&ut).Error; lookupErr == nil {
@@ -2597,6 +2627,11 @@ func (r *Repository) RevokeGroupPermissionPairTx(tx *gorm.DB, userGroupID, tunne
 		var remaining int64
 		if err := tx.Model(&model.GroupPermissionGrant{}).Where("user_tunnel_id = ?", userTunnelID).Count(&remaining).Error; err != nil {
 			return revoked, err
+		}
+		if remaining > 0 {
+			if err := tx.Model(&model.GroupPermissionGrant{}).Where("user_tunnel_id = ?", userTunnelID).Update("created_by_group", 1).Error; err != nil {
+				return revoked, err
+			}
 		}
 		if remaining == 0 {
 			var ut model.UserTunnel
@@ -2681,7 +2716,11 @@ func (r *Repository) EnsureUserTunnelGrant(userID, tunnelID int64) (int64, bool,
 	var existing model.UserTunnel
 	err := r.db.Select("id").Where("user_id = ? AND tunnel_id = ?", userID, tunnelID).First(&existing).Error
 	if err == nil {
-		return existing.ID, false, nil
+		var count int64
+		if err := r.db.Model(&model.GroupPermissionGrant{}).Where("user_tunnel_id = ? AND created_by_group = 1", existing.ID).Count(&count).Error; err != nil {
+			return 0, false, err
+		}
+		return existing.ID, count > 0, nil
 	}
 	if !errors.Is(err, gorm.ErrRecordNotFound) {
 		return 0, false, err

@@ -142,6 +142,10 @@ func Open(path string) (*Repository, error) {
 		return nil, err
 	}
 
+	if err := backfillTunnelGroupEntries(db); err != nil {
+		_ = sqlDB.Close()
+		return nil, fmt.Errorf("backfill tunnel entries: %w", err)
+	}
 	return &Repository{db: db}, nil
 }
 
@@ -183,6 +187,10 @@ func OpenPostgres(dsn string) (*Repository, error) {
 		return nil, err
 	}
 
+	if err := backfillTunnelGroupEntries(db); err != nil {
+		_ = sqlDB.Close()
+		return nil, fmt.Errorf("backfill tunnel entries: %w", err)
+	}
 	return &Repository{db: db}, nil
 }
 
@@ -226,6 +234,7 @@ func autoMigrateAll(db *gorm.DB) error {
 		&model.TunnelGroupTunnelNew{},
 		&model.UserGroup{},
 		&model.TunnelGroupTunnel{},
+		&model.TunnelGroupTunnelEntry{},
 		&model.UserGroupUser{},
 		&model.GroupPermission{},
 		&model.GroupPermissionGrant{},
@@ -1403,7 +1412,6 @@ func (r *Repository) ListUserAccessibleTunnels(userID int64) ([]map[string]inter
 	for _, rw := range rows {
 		tunnelIDs = append(tunnelIDs, rw.ID)
 	}
-	portRangeMap := r.getTunnelEntryPortRanges(tunnelIDs)
 	regionMap, err := r.loadTunnelRegions(tunnelIDs)
 	if err != nil {
 		return nil, err
@@ -1411,12 +1419,31 @@ func (r *Repository) ListUserAccessibleTunnels(userID int64) ([]map[string]inter
 
 	items := make([]map[string]interface{}, 0, len(rows))
 	for _, rw := range rows {
+		allowed, err := r.EffectiveTunnelEntryNodeIDs(userID, rw.ID)
+		if err != nil {
+			return nil, err
+		}
+		if len(allowed) == 0 {
+			continue
+		}
+		info := regionMap[rw.ID]
+		filtered := make([]tunnelEntryNode, 0, len(allowed))
+		for _, node := range info.EntryNodes {
+			for _, id := range allowed {
+				if node.ID == id {
+					filtered = append(filtered, node)
+					break
+				}
+			}
+		}
+		info.EntryNodes = filtered
+		portRangeMap := r.getTunnelEntryPortRanges([]int64{rw.ID}, allowed)
 		item := map[string]interface{}{
 			"id":           rw.ID,
 			"name":         rw.Name,
 			"remark":       nullableString(rw.Remark),
 			"trafficRatio": rw.TrafficRatio,
-			"entryGroups":  regionMap[rw.ID].entryGroups(false),
+			"entryGroups":  info.entryGroups(false),
 			"exitRegions":  regionMap[rw.ID].ExitRegions,
 		}
 		if pr, ok := portRangeMap[rw.ID]; ok {
@@ -1479,7 +1506,7 @@ type tunnelPortRange struct {
 	max int
 }
 
-func (r *Repository) getTunnelEntryPortRanges(tunnelIDs []int64) map[int64]tunnelPortRange {
+func (r *Repository) getTunnelEntryPortRanges(tunnelIDs []int64, allowed ...[]int64) map[int64]tunnelPortRange {
 	result := make(map[int64]tunnelPortRange)
 	if len(tunnelIDs) == 0 {
 		return result
@@ -1490,10 +1517,11 @@ func (r *Repository) getTunnelEntryPortRanges(tunnelIDs []int64) map[int64]tunne
 		NodeID   int64
 	}
 	var entries []entryNode
-	r.db.Model(&model.ChainTunnel{}).
-		Select("tunnel_id, node_id").
-		Where("tunnel_id IN (?) AND chain_type = ?", tunnelIDs, "1").
-		Find(&entries)
+	q := r.db.Model(&model.ChainTunnel{}).Select("tunnel_id, node_id").Where("tunnel_id IN (?) AND chain_type = ?", tunnelIDs, "1")
+	if len(allowed) > 0 {
+		q = q.Where("node_id IN ?", allowed[0])
+	}
+	q.Find(&entries)
 
 	nodeIDs := make([]int64, 0, len(entries))
 	nodeSet := make(map[int64]struct{})
@@ -1779,9 +1807,13 @@ func (r *Repository) ListTunnelGroups() ([]map[string]interface{}, error) {
 		if err != nil {
 			return nil, err
 		}
+		entries, err := r.TunnelGroupEntries(g.ID)
+		if err != nil {
+			return nil, err
+		}
 		result = append(result, map[string]interface{}{
 			"id": g.ID, "name": g.Name, "color": g.Color, "status": g.Status,
-			"tunnelIds": ids, "tunnelNames": names,
+			"tunnelIds": ids, "tunnelNames": names, "tunnelEntries": entries,
 			"createdTime": g.CreatedTime, "updatedTime": g.UpdatedTime,
 			"tunnelCount": len(ids),
 		})
