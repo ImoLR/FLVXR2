@@ -1039,11 +1039,12 @@ export default function GroupPage() {
           base: "!w-[calc(100%-32px)] !mx-auto sm:!w-full rounded-2xl overflow-hidden",
         }}
         isOpen={tunnelAssignModalOpen}
+        scrollBehavior="inside"
         onOpenChange={onTunnelAssignModalChange}
       >
         <ModalContent className="min-h-[420px] max-h-[80vh]">
           <ModalHeader>分配隧道 - {assignTunnelGroup?.name}</ModalHeader>
-          <ModalBody className="min-w-0 overflow-y-auto">
+          <ModalBody className="min-w-0">
             <Select
               className="min-w-0"
               classNames={{ trigger: "max-w-full" }}
@@ -1120,6 +1121,7 @@ export default function GroupPage() {
           base: "!w-[calc(100%-32px)] !mx-auto sm:!w-full rounded-2xl overflow-hidden",
         }}
         isOpen={userAssignModalOpen}
+        scrollBehavior="inside"
         onOpenChange={onUserAssignModalChange}
       >
         <ModalContent className="min-h-[420px] max-h-[80vh]">
