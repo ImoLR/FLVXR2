@@ -190,6 +190,71 @@ interface Node {
   region?: string;
   regionCity?: string;
 }
+// Apply only the entry selection delta, preserving custom address tokens.
+function syncEntryAddresses(
+  value: string,
+  oldIds: number[],
+  newIds: number[],
+  nodes: Node[],
+  preference: string,
+): string {
+  const oldSet = new Set(oldIds);
+  const newSet = new Set(newIds);
+
+  if (oldSet.size === newSet.size && oldIds.every((id) => newSet.has(id))) {
+    return value;
+  }
+  const normalize = (address: string) =>
+    address.trim().replace(/^\[|\]$/g, "").toLowerCase();
+  const removed = new Set<string>();
+  const kept = new Set<string>();
+
+  for (const node of nodes) {
+    const target = newSet.has(node.id)
+      ? kept
+      : oldSet.has(node.id)
+        ? removed
+        : null;
+
+    for (const address of [node.serverIpV4, node.serverIpV6, node.serverIp]) {
+      if (address?.trim()) target?.add(normalize(address));
+    }
+  }
+  const addresses = (ids: number[]) =>
+    ids.flatMap((id) => {
+      const node = nodes.find((item) => item.id === id);
+
+      if (!node) return [];
+      const families = (
+        preference.trim() === "v6"
+          ? [node.serverIpV6, node.serverIpV4]
+          : [node.serverIpV4, node.serverIpV6]
+      )
+        .map((address) => address?.trim() || "")
+        .filter(Boolean);
+
+      return families.length ? families : [node.serverIp?.trim() || ""];
+    });
+  const tokens = value
+    .split(/[,\r\n]/)
+    .map((token) => token.trim())
+    .filter(
+      (token) =>
+        token && (!removed.has(normalize(token)) || kept.has(normalize(token))),
+    );
+  const seen = new Set(tokens.map(normalize));
+
+  for (const address of addresses(newIds.filter((id) => !oldSet.has(id)))) {
+    if (address && !seen.has(normalize(address))) {
+      tokens.push(address);
+      seen.add(normalize(address));
+    }
+  }
+  return (tokens.length ? tokens : [...new Set(addresses(newIds))])
+    .filter(Boolean)
+    .join("\n");
+}
+
 interface TunnelForm {
   id?: number;
   name: string;
@@ -3766,8 +3831,19 @@ export default function TunnelPage() {
                           setForm((prev) => {
                             let nextInIp = prev.inIp;
 
-                            // 🎯 终极智能逻辑：如果是新增隧道，或者用户在编辑时把“入口地址”主动清空了，就触发自动抓取
-                            if (!isEdit || !prev.inIp.trim()) {
+                            if (isEdit) {
+                              nextInIp = syncEntryAddresses(
+                                prev.inIp,
+                                prev.inNodeId.map((entry) => entry.nodeId),
+                                mergeOrderedNodes(
+                                  prev.inNodeId,
+                                  selectedIds,
+                                  (nodeId) => ({ nodeId, chainType: 1 }),
+                                ).map((entry) => entry.nodeId),
+                                nodes,
+                                prev.ipPreference,
+                              );
+                            } else {
                               const autoIps = selectedIds
                                 .map((id) => {
                                   const n = nodes.find(
