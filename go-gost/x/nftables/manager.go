@@ -170,8 +170,13 @@ func enableIPForwarding() {
 	if err := exec.Command("sysctl", "-w", "net.ipv4.ip_forward=1").Run(); err != nil {
 		fmt.Printf("⚠️ 设置 IPv4 转发失败: %v\n", err)
 	}
+	ipv6RA.mu.Lock()
+	defer ipv6RA.mu.Unlock()
+	ipv6RA.preserve("/proc/sys/net/ipv6/conf", time.Now(), osWriteRA)
 	if err := exec.Command("sysctl", "-w", "net.ipv6.conf.all.forwarding=1").Run(); err != nil {
 		fmt.Printf("⚠️ 设置 IPv6 转发失败: %v\n", err)
+	} else {
+		ipv6RA.enabled = true
 	}
 }
 

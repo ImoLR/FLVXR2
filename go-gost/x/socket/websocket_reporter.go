@@ -44,6 +44,8 @@ import (
 // SystemInfo 系统信息结构体
 type SystemInfo struct {
 	EgressIPFamily         string                    `json:"egress_ip_family,omitempty"`
+	IPv6RAStatus           string                    `json:"ipv6_ra_status,omitempty"`
+	IPv6RADetail           string                    `json:"ipv6_ra_detail,omitempty"`
 	Uptime                 uint64                    `json:"uptime"`
 	BytesReceived          uint64                    `json:"bytes_received"`
 	BytesTransmitted       uint64                    `json:"bytes_transmitted"`
@@ -182,6 +184,7 @@ const (
 
 type WebSocketReporter struct {
 	egress            egressDetector
+	ipv6RA            ipv6RADetector
 	url               string
 	addr              string // 保存服务器地址
 	secret            string // 保存密钥
@@ -236,6 +239,7 @@ func NewWebSocketReporter(serverURL string, secret string) *WebSocketReporter {
 // Start 启动WebSocket报告器
 func (w *WebSocketReporter) Start() {
 	go w.egress.run(w.ctx, (&net.Dialer{}).DialContext)
+	go w.ipv6RA.run(w.ctx)
 	go w.run()
 }
 
@@ -393,6 +397,7 @@ func (w *WebSocketReporter) connect() error {
 
 	// Initialize nftables manager (Linux-only)
 	w.initNftablesManager()
+	w.ipv6RA.detect()
 
 	// 获取并上报公网 IPv4 和 IPv6
 	ipv4 := getPublicIPv4()
@@ -928,8 +933,11 @@ func (w *WebSocketReporter) collectSystemInfo() SystemInfo {
 		periodTX = networkStats.BytesTransmitted
 	}
 
+	raStatus, raDetail := w.ipv6RA.result()
 	return SystemInfo{
 		EgressIPFamily:         w.egress.family(),
+		IPv6RAStatus:           raStatus,
+		IPv6RADetail:           raDetail,
 		Uptime:                 getUptime(),
 		BytesReceived:          networkStats.BytesReceived,
 		BytesTransmitted:       networkStats.BytesTransmitted,

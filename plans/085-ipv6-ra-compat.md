@@ -3,7 +3,7 @@
 基线：`a73c864550740f1e6beaee719fada84ad6a251c2`（fork.35 收尾已推送，生产 healthy）；分支 `maintenance/3.0.27-fork.36-ipv6-ra-compat`。仅修复 agent 开启 IPv6 forwarding 时的 RA 兼容，附加管理员节点状态与三角提示；不改转发规则、出口探测、安装脚本或 CI。
 
 - [x] 阅读规则与发布记忆，验证 fork.35 前置条件并创建分支。
-- [ ] Agent：accept_ra 1→2、RA 探测/分级/上报、非 Linux 空实现与单元测试。
+- [x] Agent：accept_ra 1→2、RA 探测/分级/上报、非 Linux 空实现与单元测试。
 - [ ] 面板：附加字段、change-only 持久化、管理员列表与保存保留测试。
 - [ ] 前端：节点卡片/列表三色 TriangleAlert、详情与时间。
 - [ ] netns E2E：旧行为过期、新行为保持超过两周期、accept_ra=0 错误。
@@ -15,3 +15,5 @@
 - [ ] 清理自启进程/临时副本，中文总结，收尾提交并推送。
 
 证据目录：`/root/flvx-workers/runs/ipv6-ra-compat/`；TMPDIR/GOTMPDIR 使用其 `t/`。所有重任务前检查 MemAvailable ≥750 MiB，单任务串行；本机真实网络命名空间不执行网络/sysctl 变更。
+
+Agent 定向单测通过（accept_ra 假 proc、分级/30分钟/写失败、上报省略）；完整构建/race/netns 在后续门禁执行。
