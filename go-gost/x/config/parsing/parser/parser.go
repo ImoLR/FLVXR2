@@ -34,6 +34,11 @@ type Args struct {
 	Trace       bool
 	ApiAddr     string
 	MetricsAddr string
+	// SkipDefaultLoad disables the fallback search for gost.{json,yaml}
+	// in /etc/gost/, $HOME/.gost/ and the working directory when the
+	// parsed config has no services and no API. Used by the FLVX agent
+	// when it had to ignore its own config.json passed via -C.
+	SkipDefaultLoad bool
 }
 
 type parser struct {
@@ -63,7 +68,7 @@ func (p *parser) Parse() (*config.Config, error) {
 	}
 	cfg = mergeConfig(cfg, cmdCfg)
 
-	if len(cfg.Services) == 0 && p.args.ApiAddr == "" && cfg.API == nil {
+	if !p.args.SkipDefaultLoad && len(cfg.Services) == 0 && p.args.ApiAddr == "" && cfg.API == nil {
 		if err := cfg.Load(); err != nil {
 			return nil, err
 		}

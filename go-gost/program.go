@@ -34,14 +34,19 @@ type program struct {
 }
 
 func (p *program) Init(env svc.Environment) error {
+	choice := parser.ResolveAgentConfigFile(cfgFile, agentConfigFile)
+	if choice.Note != "" {
+		logger.Default().Warn(choice.Note)
+	}
 	parser.Init(parser.Args{
-		CfgFile:     cfgFile,
-		Services:    services,
-		Nodes:       nodes,
-		Debug:       debug,
-		Trace:       trace,
-		ApiAddr:     apiAddr,
-		MetricsAddr: metricsAddr,
+		CfgFile:         choice.CfgFile,
+		Services:        services,
+		Nodes:           nodes,
+		Debug:           debug,
+		Trace:           trace,
+		ApiAddr:         apiAddr,
+		MetricsAddr:     metricsAddr,
+		SkipDefaultLoad: choice.SkipDefaultLoad,
 	})
 
 	return nil

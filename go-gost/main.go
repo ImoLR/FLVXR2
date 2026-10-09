@@ -110,7 +110,7 @@ func init() {
 
 func main() {
 	// 加载配置文件
-	config, err := LoadConfig("config.json")
+	config, err := LoadConfig(agentConfigFile)
 	if err != nil {
 		fmt.Printf("❌ 配置加载失败: %v\n", err)
 		fmt.Println("请确保当前目录存在 config.json 文件")

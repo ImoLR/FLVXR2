@@ -6,6 +6,11 @@ import (
 	"os"
 )
 
+// agentConfigFile is the FLVX agent config, loaded relative to the working
+// directory. -C pointing at this file is ignored by the gost parser
+// (see parser.ResolveAgentConfigFile).
+const agentConfigFile = "config.json"
+
 // Config 配置结构体
 type Config struct {
 	Addr                 string `json:"addr"`
