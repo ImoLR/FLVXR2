@@ -9,7 +9,7 @@
 - [x] agent 仅修改 tcpPingHost 成功连接 SetLinger(0)，添加 Linux reset/TIME_WAIT 测试。
 - [ ] 后端 build/vet/全量测试/handler race、agent build/socket 测试、前端 build/tsc/lint 对照基线；检查范围和 5 MiB 限额。
 - [x] netns E2E：约 50 ms、失败单次重试、恢复、RST 无 TIME_WAIT，保存原始数字。
-- [ ] 检视桌面明暗、390 手机、用户 3、多入口及分组勾选截图。
+- [x] 检视桌面明暗、390 手机、用户 3、多入口及分组勾选截图。
 - [ ] 分支推送及 HEAD CI 通过；记录至少 30 分钟 fork.33 tcp_conns 基线。
 - [ ] 注释标签和发布资产验证、生产备份及保留两份、升级面板、仅 node 47 OTA。
 - [ ] 生产两轮延迟/用户 3 权限/日志/JS/30 分钟后 tcp_conns 验证，中文总结并提交部署完成。
@@ -23,3 +23,5 @@
 新增失败与原始日志：`/root/flvx-workers/runs/entry-groups-latency/baseline-comparison.json`、`new-failures.log`；完整状态见该目录 `summary.md`。生产保持 fork.33，未执行生产回填。
 
 第二轮 netns E2E：真实 fork.34 agent，20+30 ms → 50.672932 ms；暂停中继后一次重试（命令起点间隔 13.997559 s，扣除 4 s 超时为 9.997559 s），整路径 timeout，终止/重启后 50.563708 ms。入口/中继侧探测目标 TIME_WAIT=0；所有进程/netns 已清理。r2/e2e-results.json 和原始命令/ss 日志留存。
+
+第二轮截图：规定 6 张 + 关闭态双入口触发器，共 7 张均已实际打开检视，未发现需修复的布局/权限显示缺陷；无横向溢出。真实生产副本 + dist，经本地 paneld API 和只读静态代理提供；延迟/双入口仅响应模拟，浏览器写路由全部拦截。单浏览器/单 context、650 MiB/0 swap scope，已清理。
