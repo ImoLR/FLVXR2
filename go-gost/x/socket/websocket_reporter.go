@@ -3136,6 +3136,9 @@ func tcpPingHost(ip string, port int, count int, timeoutMs int) (float64, float6
 		if err != nil {
 			lastErr = err
 		} else {
+			if tcpConn, ok := conn.(*net.TCPConn); ok {
+				_ = tcpConn.SetLinger(0)
+			}
 			conn.Close()
 			totalTime += elapsed.Seconds() * 1000 // 转换为毫秒
 			successCount++

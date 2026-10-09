@@ -6,7 +6,7 @@
 - [x] 实现每 60 秒后台轮次、在线节点对去重、并发上限、失败对 10 秒后仅重试一次、分层最短完整路径与过期快照。
 - [x] 实现登录用户可用的延迟路由及完整路由真实 JWT 权限测试，非管理员仅获得允许入口的数值。
 - [ ] 规则对话框开关控制 60 秒轮询；分组选择器可选延迟行和关闭态显示。
-- [ ] agent 仅修改 tcpPingHost 成功连接 SetLinger(0)，添加 Linux reset/TIME_WAIT 测试。
+- [x] agent 仅修改 tcpPingHost 成功连接 SetLinger(0)，添加 Linux reset/TIME_WAIT 测试。
 - [ ] 后端 build/vet/全量测试/handler race、agent build/socket 测试、前端 build/tsc/lint 对照基线；检查范围和 5 MiB 限额。
 - [ ] netns E2E：约 50 ms、失败单次重试、恢复、RST 无 TIME_WAIT，保存原始数字。
 - [ ] 检视桌面明暗、390 手机、用户 3、多入口及分组勾选截图。
