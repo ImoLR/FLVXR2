@@ -155,6 +155,9 @@ func requiresAdmin(path string) bool {
 	}
 
 	if strings.HasPrefix(path, "/api/v1/tunnel/") {
+		if path == "/api/v1/tunnel/user/latency" {
+			return false
+		}
 		if strings.HasPrefix(path, "/api/v1/tunnel/user/tunnel") {
 			return false
 		}

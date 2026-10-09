@@ -28,7 +28,7 @@ func (h *Handler) StartBackgroundJobs() {
 	ctx, cancel := context.WithCancel(context.Background())
 	h.jobsCancel = cancel
 	h.jobsStarted = true
-	h.jobsWG.Add(11)
+	h.jobsWG.Add(12)
 	h.jobsMu.Unlock()
 
 	go h.runTunnelRedeployRetryLoop(ctx)
@@ -42,6 +42,7 @@ func (h *Handler) StartBackgroundJobs() {
 	go h.runCNLandingCheckLoop(ctx)
 	go h.runCancelExpiredOrdersLoop(ctx)
 	go h.runExpirePackageSubscriptionsLoop(ctx)
+	go h.runPathLatencyLoop(ctx)
 }
 
 func (h *Handler) runCNLandingCheckLoop(ctx context.Context) {

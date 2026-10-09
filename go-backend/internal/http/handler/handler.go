@@ -64,6 +64,8 @@ type Handler struct {
 	flowEnforceMu sync.Mutex
 	// flowEnforceWG tracks enforcement started after a /flow/upload answer (tests wait on it).
 	flowEnforceWG sync.WaitGroup
+	pathLatencyMu sync.RWMutex
+	pathLatency   map[int64]tunnelPathLatency
 }
 
 // GetForwardConnections 获取指定转发的当前连接数
@@ -314,6 +316,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("/api/v1/speed-limit/update", h.speedLimitUpdate)
 	mux.HandleFunc("/api/v1/speed-limit/delete", h.speedLimitDelete)
 	mux.HandleFunc("/api/v1/tunnel/user/tunnel", h.userTunnelVisibleList)
+	mux.HandleFunc("/api/v1/tunnel/user/latency", h.userTunnelLatency)
 	mux.HandleFunc("/api/v1/tunnel/user/list", h.userTunnelList)
 	mux.HandleFunc("/api/v1/group/tunnel/list", h.tunnelGroupList)
 	mux.HandleFunc("/api/v1/group/tunnel/create", h.groupTunnelCreate)
