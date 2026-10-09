@@ -155,3 +155,24 @@ func TestTunnelEntryRestrictionLegacyFallbacks(t *testing.T) {
 		t.Fatalf("empty group union not restricted: ids=%v restricted=%v err=%v", ids, restricted, err)
 	}
 }
+
+func TestTunnelEntryRestrictionPreservesPersistedLegacyGrants(t *testing.T) {
+	r := entryPermissionFixture(t)
+	if err := r.db.Transaction(func(tx *gorm.DB) error {
+		return r.ReplaceTunnelGroupMembersTx(tx, 20, []int64{10}, 1)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// Older panels could leave a valid user_tunnel and its grant after removing
+	// group membership. Entry filtering must not retroactively revoke that access.
+	for _, sql := range []string{"DELETE FROM user_group_user WHERE user_id = 2", "DELETE FROM group_permission WHERE user_group_id = 30"} {
+		if err := r.db.Exec(sql).Error; err != nil {
+			t.Fatal(err)
+		}
+		requireEntries(t, r, 2, 11, 12)
+		items, err := r.ListUserAccessibleTunnels(2)
+		if err != nil || len(items) != 1 {
+			t.Fatalf("persisted grant hidden: items=%v err=%v", items, err)
+		}
+	}
+}

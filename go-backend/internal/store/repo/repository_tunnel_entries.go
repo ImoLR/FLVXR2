@@ -105,10 +105,10 @@ func (r *Repository) TunnelEntryRestrictionTx(tx *gorm.DB, userID, tunnelID int6
 	if count == 0 {
 		return nil, false, nil
 	}
+	// Persisted grants are authoritative, including legacy grants whose group
+	// membership has since changed. Explicit revocation removes those grants.
 	entries := tx.Table("tunnel_group_tunnel_entry AS e").Select("e.node_id").
 		Joins("JOIN group_permission_grant AS g ON g.tunnel_group_id = e.tunnel_group_id").
-		Joins("JOIN group_permission AS p ON p.user_group_id = g.user_group_id AND p.tunnel_group_id = g.tunnel_group_id").
-		Joins("JOIN user_group_user AS u ON u.user_group_id = g.user_group_id AND u.user_id = ?", userID).
 		Where("g.user_tunnel_id = ? AND e.tunnel_id = ?", ut.ID, tunnelID)
 	ids := make([]int64, 0)
 	if err := q.Where("node_id IN (?)", entries).Pluck("node_id", &ids).Error; err != nil {

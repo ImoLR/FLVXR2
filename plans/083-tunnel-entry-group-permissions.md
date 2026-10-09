@@ -37,8 +37,10 @@
 证据、临时文件和截图改存 `/root/flvx-workers/runs/entry-groups-latency-r2/`；延续 082/083，不扩大实施范围。
 
 - [x] 将入口权限改为仅组来源授权的收窄过滤；无限制调用恢复 fork.33 路径，入口错误在原有校验之后返回；不改既有测试。
-- [x] 顺序完成 gate 1–3：范围、构建/vet、全量失败集合等于基线 15、handler race、agent build/socket 与新增功能测试。
+- [ ] 顺序完成 gate 1–3：范围、构建/vet、全量失败集合等于基线 15、handler race、agent build/socket 与新增功能测试。
 - [ ] 顺序完成 gate 4–8：生产副本零差异、netns E2E、六张截图、前端构建/lint/体积、最终 HEAD CI。
 - [ ] 全部门禁通过后记录新 30 分钟基线、发布、备份/裁剪、升级、仅 node 47 OTA、生产验证；完成 082/083 与中文总结。
 
 第二轮 gate 1–3：全量失败集合与 fork.33 的 15 项完全一致，new/removed 均为空；handler 全包 race 无竞争，保留 2 项已知基线断言失败，功能及回归定向 race 另行验证。agent build/socket、新增功能测试通过；详见 r2 日志。
+
+第二轮生产副本首次比较发现用户 4 的 11 条历史授权因额外关联当前组成员而被隐藏。已按现存 group_permission_grant 求入口并集，保留原 user_tunnel 授权，不清理生产历史数据；补充回归测试，并重新执行受影响门禁。
