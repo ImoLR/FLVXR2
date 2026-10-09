@@ -7,7 +7,7 @@
 - [x] 实现登录用户可用的延迟路由及完整路由真实 JWT 权限测试，非管理员仅获得允许入口的数值。
 - [x] 规则对话框开关控制 60 秒轮询；分组选择器可选延迟行和关闭态显示。
 - [x] agent 仅修改 tcpPingHost 成功连接 SetLinger(0)，添加 Linux reset/TIME_WAIT 测试。
-- [ ] 后端 build/vet/全量测试/handler race、agent build/socket 测试、前端 build/tsc/lint 对照基线；检查范围和 5 MiB 限额。
+- [x] 后端 build/vet/全量测试/handler race、agent build/socket 测试、前端 build/tsc/lint 对照基线；检查范围和 5 MiB 限额。
 - [x] netns E2E：约 50 ms、失败单次重试、恢复、RST 无 TIME_WAIT，保存原始数字。
 - [x] 检视桌面明暗、390 手机、用户 3、多入口及分组勾选截图。
 - [ ] 分支推送及 HEAD CI 通过；记录至少 30 分钟 fork.33 tcp_conns 基线。
@@ -25,3 +25,5 @@
 第二轮 netns E2E：真实 fork.34 agent，20+30 ms → 50.672932 ms；暂停中继后一次重试（命令起点间隔 13.997559 s，扣除 4 s 超时为 9.997559 s），整路径 timeout，终止/重启后 50.563708 ms。入口/中继侧探测目标 TIME_WAIT=0；所有进程/netns 已清理。r2/e2e-results.json 和原始命令/ss 日志留存。
 
 第二轮截图：规定 6 张 + 关闭态双入口触发器，共 7 张均已实际打开检视，未发现需修复的布局/权限显示缺陷；无横向溢出。真实生产副本 + dist，经本地 paneld API 和只读静态代理提供；延迟/双入口仅响应模拟，浏览器写路由全部拦截。单浏览器/单 context、650 MiB/0 swap scope，已清理。
+
+第二轮前端门禁：npm build/tsc 通过；lint 为基线 96 项、新增 0；主 JS 2,741,824 B，低于 5 MiB 2,501,056 B，与已检视截图的 bundle SHA256 相同。仓库差异仍为原 24 个范围内文件，未改既有测试。
