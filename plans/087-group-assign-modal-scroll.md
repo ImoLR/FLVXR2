@@ -19,13 +19,13 @@ removed. Frontend only; no backend/agent/DB change.
 
 ## Tasks
 - [x] Fix committed (c60072e7) on `maintenance/3.0.27-fork.38-assign-modal-scroll`
-- [x] Browser verification (Playwright, mocked API, 1280x600 / 1280x900 / 390x700): body scrolls, header + footer visible, 选择隧道 dropdown opens/scrolls/selects, checkboxes toggle, save payload `tunnelEntries`; 分配用户 scroll with many users; screenshots in /root/flvx-workers/runs/assign-modal-scroll/
+- [x] Browser verification (Playwright, local paneld on a prod-DB copy, 1280x600 / 1280x900 / 390x700): body scrolls, header + footer visible, 选择隧道 dropdown opens/scrolls/selects, checkboxes toggle, save payload `tunnelEntries`; 分配用户 scroll with many users; screenshots in /root/flvx-workers/runs/assign-modal-scroll/
 - [x] `npm run build` + `npm run lint` (no new errors vs fork.37)
-- [ ] Push branch, CI green
-- [ ] Tag `3.0.27-fork.38`, Build and Push Images green, release assets verified
-- [ ] Prod backup (rollback dir + image tags), prune to 2 newest
-- [ ] Upgrade /opt/flvx-svc to fork.38, verify health, served bundle contains the change, nodes reporting
-- [ ] Plan marked complete + pushed
+- [x] Push branch, CI green
+- [x] Tag `3.0.27-fork.38`, Build and Push Images green, release assets verified
+- [x] Prod backup (rollback dir + image tags), prune to 2 newest
+- [x] Upgrade /opt/flvx-svc to fork.38, verify health, served bundle contains the change, nodes reporting
+- [x] Plan marked complete + pushed
 
 ## Verification notes
 - Playwright (chromium 1243) against `vite preview` of the built dist, API proxied to a local
@@ -40,3 +40,16 @@ removed. Frontend only; no backend/agent/DB change.
 - Same script on the fork.37 build: 15 failures (body grows to content height, no scroll,
   footer + lower entries clipped) — reproduces the user report.
 - eslint `src/pages/group.tsx`: 0 errors / 25 warnings before and after.
+
+## Rollout (2026-10-09)
+- Branch CI "CI Build Check" 37934759570 green; tag `3.0.27-fork.38` on 1edddc13,
+  "Build and Push Images" 37934991579 green; release Latest, not prerelease, same 10 assets
+  as fork.37, compose images `ghcr.io/imolr/flvxr2-svc-*:3.0.27-fork.38`,
+  `PINNED_VERSION="3.0.27-fork.38"` / `REPO="ImoLR/FLVXR2"` in both scripts, gost sha256 ok,
+  v6 compose identical to fork.37 apart from the tag.
+- Rollback point `/opt/flvx-svc/rollback/pre-fork38-20261009T132612Z` (compose, .env,
+  gost.db.validated quick_check ok, local tags `local/flvxx-{backend,frontend}:pre-fork38-20261009T132612Z`
+  = fork.37 images); prune kept pre-fork38 + pre-fork37, removed pre-fork36 + fork.35 images.
+- Panel upgraded 13:26Z: backend healthy, frontend 200, served `index-C1m5Yc7l.js` has
+  `scrollBehavior:\`inside\`` on both assign modals, 26/26 nodes with node_metric <60 s,
+  no backend errors. Nodes not upgraded (frontend-only release).
