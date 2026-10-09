@@ -73,6 +73,16 @@ func TestTunnelEntryInIPTx(t *testing.T) {
 			}
 		})
 	}
+	t.Run("shared removed and retained", func(t *testing.T) {
+		if err := r.db.Model(&model.Node{}).Where("id = 1").Update("server_ip", "shared.example").Error; err != nil {
+			t.Fatal(err)
+		}
+		value := "SHARED.example,custom.example"
+		got, err := r.TunnelEntryInIPTx(r.db, 8, &value, []int64{1}, "", build)
+		if err != nil || got != value {
+			t.Fatalf("shared retained address=%q err=%v", got, err)
+		}
+	})
 	var tunnel model.Tunnel
 	r.db.First(&tunnel, 8)
 	if tunnel.InIP.String != "custom.example,192.0.2.1" {
