@@ -10,7 +10,7 @@
 - [x] 授权/撤权/补端口/新增入口/admin/direct/旧 payload 回归测试。
 - [x] 生产 SQLite 在线副本 gate：每用户可见隧道、每规则入口集合、所有 forward_port 零差异，记录回填行数。
 - [x] 与 082 一起通过全部发布门禁和截图检视。
-- [ ] 备份写明新表和回填标记的回滚方式；上线后 schema 仅增加新表、现有授权与端口零差异。
+- [x] 备份写明新表和回填标记的回滚方式；上线后 schema 仅增加新表、现有授权与端口零差异。
 - [ ] 中文总结含新增广港入口和组勾选用法；最终计划提交和推送。
 
 ## WIP 门禁停止（2026-10-09）
@@ -48,3 +48,5 @@
 历史授权修复后的最终复验：全量仍为基线 15 项、handler 全包 race 无新增失败/无竞争，功能和回归定向 race 通过，agent build/socket 与新增测试通过。
 
 最终生产副本 gate：Python sqlite3 在线备份 + quick_check=ok；隔离网络分别运行 fork.33/fork.34。10 个用户可见隧道、25 条规则入口集合/显示地址、25 行 forward_port 比较 diff=[]，回填 47 行，schema 仅新增 tunnel_group_tunnel_entry。
+
+第二轮生产升级：备份 pre-fork34-20261009T082100Z 的 ROLLBACK-METADATA.md 已写明回退镜像、新表/标记撤销和 canary 还原步骤。fork.34 上线后比较 diff=[]，回填 47 行，标记 done，schema 仅新增 tunnel_group_tunnel_entry；未修改既有授权、规则或端口。
