@@ -321,6 +321,9 @@ func (h *Handler) userUpdate(w http.ResponseWriter, r *http.Request) {
 
 	quotaLimitsChanged := oldUser == nil || oldUser.MaxConnections != maxConnections || oldUser.MaxClientIps != maxClientIps
 	warnings := make([]string, 0)
+	if _, changed := req["groupIds"]; changed {
+		warnings = append(warnings, h.reconcileTunnelEntryPermissions(id, 0)...)
+	}
 	if quotaLimitsChanged {
 		forwards, listErr := h.repo.ListActiveForwardsByUser(id)
 		if listErr != nil {
@@ -1580,6 +1583,10 @@ func (h *Handler) tunnelUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if err := h.repo.DeleteRemovedTunnelEntriesTx(tx, id); err != nil {
+		response.WriteJSON(w, response.Err(-2, err.Error()))
+		return
+	}
 	newEntryNodeIDs := make([]int64, 0, len(runtimeState.InNodes))
 	for _, in := range runtimeState.InNodes {
 		if in.NodeID > 0 {
@@ -1598,9 +1605,9 @@ func (h *Handler) tunnelUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	newEntryNodeIDs, _ = h.tunnelEntryNodeIDs(id)
+	var entryWarnings []string
 	if !sameInt64Set(oldEntryNodeIDs, newEntryNodeIDs) {
-		h.cleanupTunnelForwardRuntimesOnRemovedEntryNodes(id, oldEntryNodeIDs, newEntryNodeIDs)
-		h.syncTunnelForwardsEntryPorts(id, newEntryNodeIDs)
+		entryWarnings = h.reconcileTunnelEntryPermissions(0, id)
 	}
 
 	if typeVal == 2 {
@@ -1618,7 +1625,7 @@ func (h *Handler) tunnelUpdate(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	warnings := make([]string, 0)
+	warnings := entryWarnings
 	if forwards, fwdErr := h.listForwardsByTunnel(id); fwdErr == nil {
 		for i := range forwards {
 			if forwards[i].Status != 1 {
@@ -1858,7 +1865,14 @@ func (h *Handler) validateTunnelEntryPortConflictsForNewEntriesTx(tx *gorm.DB, t
 			continue
 		}
 
+		allowed, err := h.repo.EffectiveTunnelEntryNodeIDsTx(tx, f.UserID, tunnelID)
+		if err != nil {
+			return err
+		}
 		for _, nodeID := range addedNodeIDs {
+			if len(diffInt64s([]int64{nodeID}, allowed)) > 0 {
+				continue
+			}
 			node, nodeErr := h.repo.GetNodeRecordTx(tx, nodeID)
 			if nodeErr != nil {
 				continue
@@ -2724,7 +2738,11 @@ func (h *Handler) forwardCreate(w http.ResponseWriter, r *http.Request) {
 			response.WriteJSON(w, response.ErrDefault(err.Error()))
 			return
 		}
-		entryNodes, _ = h.tunnelEntryNodeIDs(tunnelID)
+		entryNodes, err = h.allowedTunnelEntries(userID, tunnelID)
+		if err != nil {
+			response.WriteJSON(w, response.ErrDefault(err.Error()))
+			return
+		}
 	}
 	name := asString(req["name"])
 	remoteAddr := asString(req["remoteAddr"])
@@ -2761,7 +2779,7 @@ func (h *Handler) forwardCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	port := asInt(req["inPort"], 0)
 	if port <= 0 {
-		port = h.pickTunnelPort(tunnelID)
+		port = h.pickTunnelPort(tunnelID, entryNodes)
 	}
 	if port <= 0 {
 		port = 10000
@@ -2948,7 +2966,11 @@ func (h *Handler) forwardUpdate(w http.ResponseWriter, r *http.Request) {
 			response.WriteJSON(w, response.ErrDefault("隧道已禁用，无法更新转发"))
 			return
 		}
-		fwdEntryNodes, _ = h.tunnelEntryNodeIDs(tunnelID)
+		fwdEntryNodes, err = h.allowedTunnelEntries(forward.UserID, tunnelID)
+		if err != nil {
+			response.WriteJSON(w, response.ErrDefault(err.Error()))
+			return
+		}
 	}
 
 	name := strings.TrimSpace(asString(req["name"]))
@@ -2990,7 +3012,7 @@ func (h *Handler) forwardUpdate(w http.ResponseWriter, r *http.Request) {
 			port = int(minPort.Int64)
 		}
 		if port <= 0 {
-			port = h.pickTunnelPort(tunnelID)
+			port = h.pickTunnelPort(tunnelID, fwdEntryNodes)
 		}
 	}
 	hasInIP := false
@@ -3695,7 +3717,13 @@ func (h *Handler) forwardBatchChangeTunnel(w http.ResponseWriter, r *http.Reques
 		if p <= 0 {
 			p = h.pickTunnelPort(req.TargetTunnelID)
 		}
-		bctEntryNodes, _ := h.tunnelEntryNodeIDs(req.TargetTunnelID)
+		bctEntryNodes, entryErr := h.allowedTunnelEntries(forward.UserID, req.TargetTunnelID)
+		if entryErr != nil {
+			h.rollbackForwardMutation(forward, oldPorts)
+			fail++
+			failures = appendBatchFailure(failures, id, forward.Name, entryErr)
+			continue
+		}
 		newNodeIDs := uniqueInt64s(bctEntryNodes)
 		removedNodeIDs := diffInt64s(oldNodeIDs, newNodeIDs)
 		keptNodeIDs := diffInt64s(oldNodeIDs, removedNodeIDs)
@@ -3907,8 +3935,9 @@ func (h *Handler) groupUserDelete(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) groupTunnelAssign(w http.ResponseWriter, r *http.Request) {
 
 	var req struct {
-		GroupID   int64   `json:"groupId"`
-		TunnelIDs []int64 `json:"tunnelIds"`
+		GroupID       int64             `json:"groupId"`
+		TunnelIDs     []int64           `json:"tunnelIds"`
+		TunnelEntries map[int64][]int64 `json:"tunnelEntries"`
 	}
 	if err := decodeJSON(r.Body, &req); err != nil || req.GroupID <= 0 {
 		response.WriteJSON(w, response.ErrDefault("请求参数错误"))
@@ -3920,7 +3949,7 @@ func (h *Handler) groupTunnelAssign(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer func() { tx.Rollback() }()
-	if err := h.repo.ReplaceTunnelGroupMembersTx(tx, req.GroupID, req.TunnelIDs, time.Now().UnixMilli()); err != nil {
+	if err := h.repo.ReplaceTunnelGroupMembersTx(tx, req.GroupID, req.TunnelIDs, time.Now().UnixMilli(), req.TunnelEntries); err != nil {
 		response.WriteJSON(w, response.Err(-2, err.Error()))
 		return
 	}
@@ -3937,7 +3966,7 @@ func (h *Handler) groupTunnelAssign(w http.ResponseWriter, r *http.Request) {
 		h.cleanupForwardsForUserTunnel(pair.UserID, pair.TunnelID)
 	}
 	_ = h.syncPermissionsByTunnelGroup(req.GroupID)
-	response.WriteJSON(w, response.OKEmpty())
+	response.WriteJSON(w, response.OK(map[string]interface{}{"warnings": h.reconcileTunnelEntryPermissions(0, 0)}))
 }
 
 func (h *Handler) groupUserAssign(w http.ResponseWriter, r *http.Request) {
@@ -3978,7 +4007,7 @@ func (h *Handler) groupUserAssign(w http.ResponseWriter, r *http.Request) {
 		h.cleanupForwardsForUserTunnel(pair.UserID, pair.TunnelID)
 	}
 	_ = h.syncPermissionsByUserGroup(req.GroupID)
-	response.WriteJSON(w, response.OKEmpty())
+	response.WriteJSON(w, response.OK(map[string]interface{}{"warnings": h.reconcileTunnelEntryPermissions(0, 0)}))
 }
 
 func (h *Handler) groupPermissionAssign(w http.ResponseWriter, r *http.Request) {
@@ -3996,7 +4025,7 @@ func (h *Handler) groupPermissionAssign(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	_ = h.applyGroupPermission(req.UserGroupID, req.TunnelGroupID)
-	response.WriteJSON(w, response.OK("权限分配成功"))
+	response.WriteJSON(w, response.OK(map[string]interface{}{"warnings": h.reconcileTunnelEntryPermissions(0, 0)}))
 }
 
 func (h *Handler) groupPermissionRemove(w http.ResponseWriter, r *http.Request) {
@@ -4011,6 +4040,7 @@ func (h *Handler) groupPermissionRemove(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	defer tx.Rollback()
 	ug, tg, exists, err := h.repo.GetGroupPermissionPairByIDTx(tx, id)
 	if err != nil {
 		response.WriteJSON(w, response.Err(-2, err.Error()))
@@ -4038,7 +4068,7 @@ func (h *Handler) groupPermissionRemove(w http.ResponseWriter, r *http.Request) 
 	for _, pair := range revokedPairs {
 		h.cleanupForwardsForUserTunnel(pair.UserID, pair.TunnelID)
 	}
-	response.WriteJSON(w, response.OKEmpty())
+	response.WriteJSON(w, response.OK(map[string]interface{}{"warnings": h.reconcileTunnelEntryPermissions(0, 0)}))
 }
 
 func (h *Handler) groupCreate(w http.ResponseWriter, r *http.Request, table string) {
@@ -4090,7 +4120,7 @@ func (h *Handler) groupDelete(w http.ResponseWriter, r *http.Request, table stri
 		response.WriteJSON(w, response.Err(-2, err.Error()))
 		return
 	}
-	response.WriteJSON(w, response.OKEmpty())
+	response.WriteJSON(w, response.OK(map[string]interface{}{"warnings": h.reconcileTunnelEntryPermissions(0, 0)}))
 }
 
 func (h *Handler) applyGroupPermission(userGroupID, tunnelGroupID int64) error {
@@ -5377,8 +5407,11 @@ func (h *Handler) tunnelEntryNodeIDs(tunnelID int64) ([]int64, error) {
 	return h.repo.TunnelEntryNodeIDs(tunnelID)
 }
 
-func (h *Handler) pickTunnelPort(tunnelID int64) int {
+func (h *Handler) pickTunnelPort(tunnelID int64, allowed ...[]int64) int {
 	entryNodes, err := h.tunnelEntryNodeIDs(tunnelID)
+	if len(allowed) > 0 {
+		entryNodes, err = allowed[0], nil
+	}
 	if err != nil || len(entryNodes) == 0 {
 		return 10000
 	}
@@ -5510,7 +5543,11 @@ func buildForwardPortEntriesWithPreservedInIP(entryNodeIDs []int64, oldPorts []f
 }
 
 func (h *Handler) replaceForwardPorts(forwardID, tunnelID int64, port int, inIp string) error {
-	entryNodes, err := h.tunnelEntryNodeIDs(tunnelID)
+	forward, err := h.getForwardRecord(forwardID)
+	if err != nil {
+		return err
+	}
+	entryNodes, err := h.allowedTunnelEntries(forward.UserID, tunnelID)
 	if err != nil {
 		return err
 	}
@@ -5522,7 +5559,11 @@ func (h *Handler) replaceForwardPorts(forwardID, tunnelID int64, port int, inIp 
 }
 
 func (h *Handler) replaceForwardPortsPreservingInIP(forwardID, tunnelID int64, port int, oldPorts []forwardPortRecord) error {
-	entryNodes, err := h.tunnelEntryNodeIDs(tunnelID)
+	forward, err := h.getForwardRecord(forwardID)
+	if err != nil {
+		return err
+	}
+	entryNodes, err := h.allowedTunnelEntries(forward.UserID, tunnelID)
 	if err != nil {
 		return err
 	}

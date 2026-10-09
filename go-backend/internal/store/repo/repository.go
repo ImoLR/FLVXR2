@@ -4043,17 +4043,32 @@ func quoteSQLLiteral(value string) string {
 // ─── Helper Functions ────────────────────────────────────────────────
 
 func resolveForwardIngress(db *gorm.DB, forwardID int64, tunnelID int64) (string, sql.NullInt64, error) {
+	var owner model.Forward
+	if err := db.Select("user_id, mode").Where("id = ?", forwardID).First(&owner).Error; err != nil {
+		return "", sql.NullInt64{}, err
+	}
+	var allowed []int64
+	if tunnelID > 0 {
+		var err error
+		allowed, err = (&Repository{db: db}).EffectiveTunnelEntryNodeIDs(owner.UserID, tunnelID)
+		if err != nil {
+			return "", sql.NullInt64{}, err
+		}
+	}
+	var entryCount int64
+	db.Model(&model.ChainTunnel{}).Where("tunnel_id = ? AND chain_type = '1'", tunnelID).Count(&entryCount)
 	var tunnelInIP sql.NullString
 	db.Model(&model.Tunnel{}).Select("in_ip").Where("id = ?", tunnelID).Limit(1).Scan(&tunnelInIP)
 
 	type fpRow struct {
+		NodeID   int64
 		Port     sql.NullInt64
 		ServerIP sql.NullString
 		InIP     sql.NullString
 	}
 	var fpRows []fpRow
 	err := db.Model(&model.ForwardPort{}).
-		Select("forward_port.port, node.server_ip, forward_port.in_ip").
+		Select("forward_port.node_id, forward_port.port, node.server_ip, forward_port.in_ip").
 		Joins("LEFT JOIN node ON node.id = forward_port.node_id").
 		Where("forward_port.forward_id = ?", forwardID).
 		Order("forward_port.id ASC").
@@ -4068,6 +4083,15 @@ func resolveForwardIngress(db *gorm.DB, forwardID int64, tunnelID int64) (string
 	seenPairs := make(map[string]struct{})
 
 	for _, row := range fpRows {
+		if tunnelID > 0 {
+			visible := false
+			for _, id := range allowed {
+				visible = visible || id == row.NodeID
+			}
+			if !visible {
+				continue
+			}
+		}
 		if !row.Port.Valid {
 			continue
 		}
@@ -4080,7 +4104,7 @@ func resolveForwardIngress(db *gorm.DB, forwardID int64, tunnelID int64) (string
 		if row.InIP.Valid && strings.TrimSpace(row.InIP.String) != "" {
 			// 1. 如果规则有独�?IP，用规则�?
 			ip = strings.TrimSpace(row.InIP.String)
-		} else if tunnelInIP.Valid && strings.TrimSpace(tunnelInIP.String) != "" {
+		} else if entryCount <= 1 && tunnelInIP.Valid && strings.TrimSpace(tunnelInIP.String) != "" {
 			// 🎯 2. 补上这一段！让它去读你选的“测试隧道”的域名�?
 			ip = strings.TrimSpace(tunnelInIP.String)
 		} else if row.ServerIP.Valid && strings.TrimSpace(row.ServerIP.String) != "" {

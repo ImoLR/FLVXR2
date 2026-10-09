@@ -154,3 +154,34 @@ func (r *Repository) ListForwardUserTunnelPairs() ([]RevokedUserTunnelPair, erro
 	err := r.db.Model(&model.Forward{}).Distinct("user_id", "tunnel_id").Where("tunnel_id > 0").Find(&pairs).Error
 	return pairs, err
 }
+
+// ReconcileForwardEntryPorts leaves retained rows (including their IDs and
+// custom bind addresses) untouched.
+func (r *Repository) ReconcileForwardEntryPorts(forwardID int64, entries []model.ForwardPortRecord) error {
+	return r.db.Transaction(func(tx *gorm.DB) error {
+		ids := make([]int64, 0, len(entries))
+		for _, entry := range entries {
+			ids = append(ids, entry.NodeID)
+		}
+		q := tx.Where("forward_id = ?", forwardID)
+		if len(ids) > 0 {
+			q = q.Where("node_id NOT IN ?", ids)
+		}
+		if err := q.Delete(&model.ForwardPort{}).Error; err != nil {
+			return err
+		}
+		for _, entry := range entries {
+			var count int64
+			if err := tx.Model(&model.ForwardPort{}).Where("forward_id = ? AND node_id = ?", forwardID, entry.NodeID).Count(&count).Error; err != nil {
+				return err
+			}
+			if count > 0 {
+				continue
+			}
+			if err := tx.Create(&model.ForwardPort{ForwardID: forwardID, NodeID: entry.NodeID, Port: entry.Port}).Error; err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}

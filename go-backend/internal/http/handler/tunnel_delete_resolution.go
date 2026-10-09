@@ -479,6 +479,12 @@ func (h *Handler) planSingleTunnelDeleteForwardMigration(forward *forwardRecord,
 		return tunnelForwardMigrationPlan{}, errors.New("转发不存在")
 	}
 
+	allowed, entryErr := h.allowedTunnelEntries(forward.UserID, targetTunnelID)
+	if entryErr != nil {
+		return tunnelForwardMigrationPlan{}, entryErr
+	}
+	targetEntryNodes = allowed
+
 	oldPorts, err := h.listForwardPorts(forward.ID)
 	if err != nil {
 		return tunnelForwardMigrationPlan{}, err
