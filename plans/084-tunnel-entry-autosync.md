@@ -7,7 +7,7 @@
 - [x] 编辑表单同步入口地址，创建模式和其他黄色同步提示不变。
 - [x] 后端 build/vet/全量测试基线 15/race；前端 build/lint 基线 96/包体积门禁。
 - [x] 生产在线副本 old/new 无编辑零差异、入口不变保存地址字节一致；核查 diff 范围。
-- [ ] 推送分支，HEAD CI 通过，发布 fork.35 并验证 Latest/资产/固定版本。
+- [x] 推送分支，HEAD CI 通过，发布 fork.35 并验证 Latest/资产/固定版本。
 - [ ] 生产备份、裁剪保留两个、升级面板，验证健康/指标及历史地址端口零差异。
 - [ ] 生产临时用户/隧道/规则增删入口与 diagnose、只读浏览器截图，清理及计数/引用验证。
 - [ ] 中文总结、最终计划提交及推送。
@@ -15,3 +15,5 @@
 证据及临时目录：`/root/flvx-workers/runs/tunnel-entry-autosync/`；所有重任务串行且开始前 MemAvailable ≥750 MiB。
 
 发布前门禁：build/vet 通过；全量 Go 与 fork.34 同为 15 项失败，new/removed=[]；handler race 无 DATA RACE，仅 2 项既有断言失败。前端 build 通过，lint 96→96，无新增，主 JS 2,742,702 B。隔离网络运行生产在线副本：53 条隧道地址、25 条规则显示地址、25 行 forward_port、10 用户可见数据零差异；隧道 78 不改入口保存 in_ip 字节一致。额外共享地址保留测试通过。
+
+发布：HEAD `9bbc4d55` 的 CI Build Check `37912692105` 全绿；注释标签 `3.0.27-fork.35`，Build and Push Images `37912930106` 全绿。Release 于 2026-10-09 09:59:35Z 发布为 Latest、非预发布；10 项资产与 fork.34 相同，v4/v6 镜像及两安装脚本版本固定、amd64/arm64 SHA256 验证通过。
