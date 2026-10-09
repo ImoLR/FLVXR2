@@ -1528,11 +1528,21 @@ func (h *Handler) tunnelUpdate(w http.ResponseWriter, r *http.Request) {
 	runtimeState.TunnelID = id
 	runtimeState.IPPreference = ipPreference
 
-	// 🎯 修复：优先读取前端传递的入口地址
-	inIp := asString(req["inIp"])
-	if strings.TrimSpace(inIp) == "" {
-		// 只有在前端真正留空时，才去兜底获取节点底层IP
-		inIp = buildTunnelInIP(runtimeState.InNodes, runtimeState.Nodes, ipPreference)
+	newEntryNodeIDs := make([]int64, 0, len(runtimeState.InNodes))
+	for _, in := range runtimeState.InNodes {
+		if in.NodeID > 0 {
+			newEntryNodeIDs = append(newEntryNodeIDs, in.NodeID)
+		}
+	}
+	var submittedInIP *string
+	if value, ok := req["inIp"]; ok && value != nil {
+		inIP := asString(value)
+		submittedInIP = &inIP
+	}
+	inIp, err := h.repo.TunnelEntryInIPTx(tx, id, submittedInIP, newEntryNodeIDs, ipPreference, rebuildNodeEntryInIP)
+	if err != nil {
+		response.WriteJSON(w, response.Err(-2, err.Error()))
+		return
 	}
 
 	var federationBindings []repo.FederationTunnelBinding
@@ -1586,12 +1596,6 @@ func (h *Handler) tunnelUpdate(w http.ResponseWriter, r *http.Request) {
 	if err := h.repo.DeleteRemovedTunnelEntriesTx(tx, id); err != nil {
 		response.WriteJSON(w, response.Err(-2, err.Error()))
 		return
-	}
-	newEntryNodeIDs := make([]int64, 0, len(runtimeState.InNodes))
-	for _, in := range runtimeState.InNodes {
-		if in.NodeID > 0 {
-			newEntryNodeIDs = append(newEntryNodeIDs, in.NodeID)
-		}
 	}
 	if err := h.validateTunnelEntryPortConflictsForNewEntriesTx(tx, id, oldEntryNodeIDs, newEntryNodeIDs); err != nil {
 		response.WriteJSON(w, response.ErrDefault(err.Error()))
@@ -1906,7 +1910,6 @@ func (h *Handler) syncTunnelForwardsEntryPorts(tunnelID int64, entryNodeIDs []in
 		return
 	}
 
-	allowInIP := len(entryNodeIDs) == 1
 	for i := range forwards {
 		f := &forwards[i]
 		if f == nil {
@@ -1932,33 +1935,19 @@ func (h *Handler) syncTunnelForwardsEntryPorts(tunnelID int64, entryNodeIDs []in
 			}
 		}
 
-		entries := make([]forwardPortReplaceEntry, 0, len(entryNodeIDs))
+		entries := make([]forwardPortRecord, 0, len(entryNodeIDs))
 		for _, nid := range entryNodeIDs {
 			if existing, ok := oldPortByNode[nid]; ok && existing.Port > 0 {
 				// Existing entry node: keep its current port.
-				inIP := existing.InIP
-				if !allowInIP {
-					inIP = ""
-				}
-				entries = append(entries, forwardPortReplaceEntry{NodeID: nid, Port: existing.Port, InIP: inIP})
+				entries = append(entries, existing)
 				continue
 			}
 
 			// New entry node: try to follow the reference port.
 			port := h.resolvePortForNewEntryNode(nid, referencePort, f.ID)
-			inIP := ""
-			if allowInIP {
-				// For single-entry tunnels, try to preserve inIP from old records.
-				for _, fp := range oldPorts {
-					if strings.TrimSpace(fp.InIP) != "" {
-						inIP = fp.InIP
-						break
-					}
-				}
-			}
-			entries = append(entries, forwardPortReplaceEntry{NodeID: nid, Port: port, InIP: inIP})
+			entries = append(entries, forwardPortRecord{NodeID: nid, Port: port})
 		}
-		_ = h.repo.ReplaceForwardPorts(f.ID, entries)
+		_ = h.repo.ReconcileForwardEntryPorts(f.ID, entries)
 	}
 }
 
