@@ -34,11 +34,11 @@ Known limit: if the agent's own config.json also contained gost services they wo
 - [x] Unit tests: agent config with `"tls":0`, `"tls":1`, no tls key; gost.json present/absent/broken; genuine gost config; inline JSON; SameFile detection; parser SkipDefaultLoad
 - [x] go-gost + touched go-gost/x package tests pass; go-backend baseline still 15 (same set)
 - [x] Local binary check: throwaway dir, config.json with `"tls":1`, gost.json with one service → service listens
-- [ ] Commit, push branch, tag `3.0.27-fork.37`, CI + release assets verified
-- [ ] Prod backup + prune + panel upgrade to fork.37, health + node_metric verified
-- [ ] Node 48: record state, OTA to fork.37, reconnect + version
-- [ ] Node 48 canary: restore original `-C /etc/flvxx/config.json` unit (config.json has `"tls":1`), restart → online, services listening, IPv6 OK
-- [ ] Plan marked complete + summary
+- [x] Commit, push branch, tag `3.0.27-fork.37`, CI + release assets verified
+- [x] Prod backup + prune + panel upgrade to fork.37, health + node_metric verified
+- [x] Node 48: record state, OTA to fork.37, reconnect + version
+- [x] Node 48 canary: restore original `-C /etc/flvxx/config.json` unit (config.json has `"tls":1`), restart → online, services listening, IPv6 OK
+- [x] Plan marked complete + summary
 
 ## Results
 - Unit tests `x/config/parsing/parser` (7 tests; raw parse of `"tls":0/1` reproduces the TLS decode error; mutation check: dropping
@@ -47,3 +47,19 @@ Known limit: if the agent's own config.json also contained gost services they wo
 - Local binary (in `unshare -n`): config.json with `"tls":1` + gost.json service on 127.0.0.1:18080 → fork.37 build logs the
   "agent config, ignored; loading …/gost.json" warning and listens; the unmodified fork.36 build fatals with
   `'TLS' expected a map, got 'float64'` in the same dir.
+
+## Rollout (2026-10-09)
+- Commit c4219f61 on `maintenance/3.0.27-fork.37-agent-config-tls` (from fork.36 head 70331e95); CI Build Check 37926031196 green.
+- Tag `3.0.27-fork.37` → Build and Push Images 37926178039 green; release Latest, not prerelease, published 12:01:02Z,
+  asset set identical to fork.36, compose images `ghcr.io/imolr/flvxr2-svc-*:3.0.27-fork.37`, `PINNED_VERSION`/`REPO=ImoLR/FLVXR2`
+  in both scripts, gost-amd64 sha256 matches; released gost-amd64 passes the same netns `-C config.json` + `"tls":1` check.
+- Prod rollback dir `/opt/flvx-svc/rollback/pre-fork37-20261009T120151Z/` (compose, .env, gost.db.validated quick_check ok) + local tags
+  `local/flvxx-{backend,frontend}:pre-fork37-20261009T120151Z` = fork.36 images; prune kept pre-fork36 + pre-fork37.
+- Panel upgraded 12:02:19Z; backend healthy, frontend 200, 25/26 nodes report node_metric after restart (24 long-offline).
+- Node 48: backup `/root/flvxx-backup-20261009T115050Z-pre-fork37/` on the node (fork.36 binary, config.json, gost.json, unit).
+  OTA fork.36 → fork.37 via `/api/v1/node/upgrade`, reconnected in 7.5 s, forwards 110/113 diagnose unchanged.
+- Canary 12:03:36Z: original unit `ExecStart=/etc/flvxx/flvxx -C /etc/flvxx/config.json` restored (config.json `"tls":1`),
+  restart → active, NRestarts 0, no fatal, log `-C /etc/flvxx/config.json is the agent config, ignored; loading /etc/flvxx/gost.json instead`,
+  services 110/113 listening immediately, panel shows node 48 online on fork.37, IPv6 (CU 2408 + CT 240e, `proto ra` default route,
+  accept_ra=2) unchanged. Forward 113 diagnose timed out once right after the restart (reconnect redeploy), OK on retry.
+  The `-C` unit stays (matches the fleet). no-`-C` copy: `flvxx.service.no-C` in the node backup dir.
