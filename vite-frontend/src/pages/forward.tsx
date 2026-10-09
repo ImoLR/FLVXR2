@@ -4,6 +4,7 @@
   PathTunnelApiItem,
   PathTunnelDetailApiItem,
   SpeedLimitApiItem,
+  TunnelLatencyApiItem,
 } from "@/api/types";
 
 import { useState, useEffect, useMemo, useRef, useCallback } from "react";
@@ -69,6 +70,7 @@ import {
   deleteForward,
   forceDeleteForward,
   userTunnel,
+  getUserTunnelLatency,
   getNodeList,
   pauseForwardService,
   resumeForwardService,
@@ -1538,6 +1540,29 @@ export default function ForwardPage() {
   const [forwardOrder, setForwardOrder] = useState<number[]>([]);
   // 弹窗状态
   const [modalOpen, setModalOpen] = useState(false);
+  const [tunnelLatency, setTunnelLatency] = useState<Record<number, TunnelLatencyApiItem["entries"]>>({});
+
+  useEffect(() => {
+    if (!modalOpen) return;
+    setTunnelLatency({});
+    let closed = false;
+    const refresh = async () => {
+      try {
+        const result = await getUserTunnelLatency();
+
+        if (!closed) {
+          setTunnelLatency(result.code === 0 ? Object.fromEntries((result.data || []).map((item) => [item.tunnelId, item.entries])) : {});
+        }
+      } catch {
+        if (!closed) setTunnelLatency({});
+      }
+    };
+
+    void refresh();
+    const timer = window.setInterval(refresh, 60000);
+
+    return () => { closed = true; window.clearInterval(timer); };
+  }, [modalOpen]);
   // isFilterModalOpen removed
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
   const [addressModalOpen, setAddressModalOpen] = useState(false);
@@ -5667,6 +5692,7 @@ export default function ForwardPage() {
                                 key={key}
                                 description={tunnel.remark ? `备注：${tunnel.remark}` : undefined}
                                 endContent={<span className="rounded bg-default-100 px-1.5 py-0.5 text-xs font-normal text-default-500">{formattedRatio}</span>}
+                                latency={tunnelLatency[tunnel.id]}
                                 textValue={text}
                               >
                                 {text}

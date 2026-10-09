@@ -16,6 +16,7 @@ interface OptionItem {
   label: string;
   description?: React.ReactNode;
   endContent?: React.ReactNode;
+  latency?: Array<{ latencyMs: number; status: "ok" | "timeout"; entryName?: string }>;
   section?: string;
   sectionDescription?: string;
   sectionTooltip?: string;
@@ -53,7 +54,32 @@ export interface SelectItemProps {
   children?: React.ReactNode;
   description?: React.ReactNode;
   endContent?: React.ReactNode;
+  latency?: Array<{ latencyMs: number; status: "ok" | "timeout"; entryName?: string }>;
   textValue?: string;
+}
+
+function OptionLatency({ entries, muted = false }: { entries?: SelectItemProps["latency"]; muted?: boolean }) {
+  if (!entries?.length) return null;
+
+  return (
+    <span className={cn("inline-flex max-w-[55%] shrink-0 flex-wrap items-center justify-end gap-x-1 text-xs font-normal tabular-nums", muted ? "text-default-500" : "text-foreground")}>
+      {entries.map((entry, index) => (
+        <React.Fragment key={index}>
+          {index > 0 && <span className="text-default-400">/</span>}
+          <span className="inline-flex items-center gap-1 whitespace-nowrap" title={entry.entryName}>
+            {entry.status === "timeout" ? (
+              <span className="text-default-400">○ 超时</span>
+            ) : (
+              <>
+                <span aria-hidden="true" className={entry.latencyMs <= 80 ? "text-success-600 dark:text-success-400" : entry.latencyMs <= 180 ? "text-warning-600 dark:text-warning-400" : "text-danger-600 dark:text-danger-400"}>●</span>
+                <span>{entry.latencyMs < 1 ? "<1" : Math.round(entry.latencyMs)}ms</span>
+              </>
+            )}
+          </span>
+        </React.Fragment>
+      ))}
+    </span>
+  );
 }
 
 export function SelectItem(_props: SelectItemProps) {
@@ -124,6 +150,7 @@ function flattenOptionsFromNode(
           label: props.textValue ?? extractText(props.children) ?? key,
           description: props.description,
           endContent: props.endContent,
+          latency: props.latency,
         });
 
         return;
@@ -151,6 +178,7 @@ function getOptions<T>(
           label: props.textValue ?? extractText(props.children) ?? key,
           description: props.description,
           endContent: props.endContent,
+          latency: props.latency,
         });
       }
     });
@@ -575,6 +603,7 @@ export function Select<T>({
                         </span>
                       )}
                     </span>
+                    <OptionLatency entries={item.latency} />
                     {item.endContent && (
                       <span className="shrink-0">{item.endContent}</span>
                     )}
@@ -720,6 +749,7 @@ export function Select<T>({
             >
               {selectedText}
             </span>
+            {isGrouped && <OptionLatency entries={options.find((item) => item.key === singleValue)?.latency} muted />}
             <ChevronDownIcon
               className={cn(
                 "h-4 w-4 flex-shrink-0 text-default-500 transition-transform",

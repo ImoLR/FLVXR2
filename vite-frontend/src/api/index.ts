@@ -25,6 +25,7 @@ import type {
   TunnelDeleteWithForwardsApiData,
   TunnelDiagnosisApiData,
   TunnelGroupApiItem,
+  TunnelLatencyApiItem,
   TunnelGroupNewApiItem,
   TunnelGroupNewMutationPayload,
   TunnelListApiItem,
@@ -371,6 +372,8 @@ export const batchUpdateUserTunnelStatus = (data: {
   ids: number[];
   status: number;
 }) => Network.post("/tunnel/user/batch-update-status", data);
+export const getUserTunnelLatency = () =>
+  Network.get<TunnelLatencyApiItem[]>("/tunnel/user/latency");
 export const userTunnel = () =>
   Network.post<UserTunnelApiItem[]>("/tunnel/user/tunnel");
 
@@ -577,7 +580,8 @@ export const deleteTunnelGroup = (id: number) =>
 export const assignTunnelsToGroup = (data: {
   groupId: number;
   tunnelIds: number[];
-}) => Network.post("/group/tunnel/assign", data);
+  tunnelEntries?: Record<number, number[]>;
+}) => Network.post<{ warnings?: string[] }>("/group/tunnel/assign", data);
 
 export const getUserGroupList = () =>
   Network.post<UserGroupApiItem[]>("/group/user/list");

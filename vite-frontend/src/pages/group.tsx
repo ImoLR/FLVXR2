@@ -4,6 +4,7 @@ import { ChevronDown } from "lucide-react";
 
 import { Card, CardBody, CardHeader } from "@/shadcn-bridge/heroui/card";
 import { Button } from "@/shadcn-bridge/heroui/button";
+import { Checkbox } from "@/shadcn-bridge/heroui/checkbox";
 import { Input } from "@/shadcn-bridge/heroui/input";
 import {
   Modal,
@@ -45,6 +46,7 @@ import { usePullToRefresh } from "@/hooks/usePullToRefresh";
 interface TunnelItem {
   id: number;
   name: string;
+  entryNodes?: Array<{ id: number; name: string }>;
 }
 interface UserItem {
   id: number;
@@ -55,6 +57,7 @@ interface TunnelGroup {
   name: string;
   status: number;
   tunnelIds: number[];
+  tunnelEntries?: Record<number, number[]>;
   tunnelNames: string[];
   createdTime: number;
 }
@@ -143,6 +146,7 @@ export default function GroupPage() {
   const [selectedTunnelKeys, setSelectedTunnelKeys] = useState<Set<string>>(
     new Set(),
   );
+  const [selectedEntries, setSelectedEntries] = useState<Record<number, number[]>>({});
   const [selectedUserKeys, setSelectedUserKeys] = useState<Set<string>>(
     new Set(),
   );
@@ -348,6 +352,7 @@ export default function GroupPage() {
   };
   const openAssignTunnels = (group: TunnelGroup) => {
     setAssignTunnelGroup(group);
+    setSelectedEntries(group.tunnelEntries || {});
     setSelectedTunnelKeys(new Set(group.tunnelIds.map((id) => String(id))));
     onTunnelAssignModalOpen();
   };
@@ -364,10 +369,12 @@ export default function GroupPage() {
       const res = await assignTunnelsToGroup({
         groupId: assignTunnelGroup.id,
         tunnelIds,
+        tunnelEntries: Object.fromEntries(tunnelIds.map((id) => [id, selectedEntries[id] ?? tunnels.find((tunnel) => tunnel.id === id)?.entryNodes?.map((entry) => entry.id) ?? []])),
       });
 
       if (res.code === 0) {
         toast.success("分配成功");
+        res.data?.warnings?.forEach((warning) => toast.error(warning));
         onTunnelAssignModalClose();
         loadData();
       } else {
@@ -1036,7 +1043,7 @@ export default function GroupPage() {
       >
         <ModalContent className="min-h-[420px] max-h-[80vh]">
           <ModalHeader>分配隧道 - {assignTunnelGroup?.name}</ModalHeader>
-          <ModalBody className="min-w-0">
+          <ModalBody className="min-w-0 overflow-y-auto">
             <Select
               className="min-w-0"
               classNames={{ trigger: "max-w-full" }}
@@ -1045,9 +1052,20 @@ export default function GroupPage() {
               selectedKeys={selectedTunnelKeys}
               selectionMode="multiple"
               onSelectionChange={(keys) => {
-                setSelectedTunnelKeys(
-                  new Set(Array.from(keys as Set<React.Key>).map(String)),
-                );
+                const next = new Set(Array.from(keys as Set<React.Key>).map(String));
+
+                setSelectedEntries((current) => {
+                  const updated = { ...current };
+
+                  next.forEach((key) => {
+                    if (!selectedTunnelKeys.has(key)) {
+                      updated[Number(key)] = tunnels.find((tunnel) => tunnel.id === Number(key))?.entryNodes?.map((entry) => entry.id) || [];
+                    }
+                  });
+
+                  return updated;
+                });
+                setSelectedTunnelKeys(next);
               }}
             >
               {(item) => <SelectItem key={item.id}>{item.name}</SelectItem>}
@@ -1061,6 +1079,26 @@ export default function GroupPage() {
             <p className="text-xs text-default-500">
               不选择任何隧道并保存将清空该分组隧道
             </p>
+            {tunnels.filter((tunnel) => selectedTunnelKeys.has(String(tunnel.id)) && (tunnel.entryNodes?.length || 0) > 1).map((tunnel) => (
+              <div key={tunnel.id} className="space-y-2 rounded-lg border border-divider p-3">
+                <p className="text-sm font-medium">{tunnel.name} · 入口</p>
+                <div className="flex flex-wrap gap-x-4 gap-y-2">
+                  {tunnel.entryNodes?.map((entry) => (
+                    <Checkbox
+                      key={entry.id}
+                      isSelected={(selectedEntries[tunnel.id] ?? tunnel.entryNodes?.map((item) => item.id) ?? []).includes(entry.id)}
+                      onValueChange={(checked) => setSelectedEntries((current) => {
+                        const ids = current[tunnel.id] ?? tunnel.entryNodes?.map((item) => item.id) ?? [];
+
+                        return { ...current, [tunnel.id]: checked ? [...ids, entry.id] : ids.filter((id) => id !== entry.id) };
+                      })}
+                    >
+                      {entry.name}
+                    </Checkbox>
+                  ))}
+                </div>
+              </div>
+            ))}
           </ModalBody>
           <ModalFooter className="mt-auto">
             <Button variant="flat" onPress={onTunnelAssignModalClose}>

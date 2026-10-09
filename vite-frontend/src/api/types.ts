@@ -228,6 +228,7 @@ export interface TunnelApiItem {
   inIp?: string;
   ipPreference?: string;
   inNodeId?: TunnelChainNodePayload[];
+  entryNodes?: Array<{ id: number; name: string }>;
   outNodeId?: TunnelChainNodePayload[];
   chainNodes?: TunnelChainNodePayload[][];
   entryNodeId: number;
@@ -351,6 +352,12 @@ export interface SpeedLimitBindingOptions {
   nodes: NodeApiItem[];
 }
 
+export interface TunnelLatencyApiItem {
+  tunnelId: number;
+  entries: Array<{ latencyMs: number; status: "ok" | "timeout"; entryName?: string }>;
+  updatedAt: number;
+}
+
 export interface TunnelGroupApiItem {
   id: number;
   name: string;
@@ -359,6 +366,7 @@ export interface TunnelGroupApiItem {
   inx?: number;
   status: number;
   tunnelIds: number[];
+  tunnelEntries?: Record<number, number[]>;
   tunnelNames: string[];
   createdTime: number;
   updatedTime?: number;
