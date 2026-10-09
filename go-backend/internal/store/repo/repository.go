@@ -1412,6 +1412,7 @@ func (r *Repository) ListUserAccessibleTunnels(userID int64) ([]map[string]inter
 	for _, rw := range rows {
 		tunnelIDs = append(tunnelIDs, rw.ID)
 	}
+	portRangeMap := r.getTunnelEntryPortRanges(tunnelIDs)
 	regionMap, err := r.loadTunnelRegions(tunnelIDs)
 	if err != nil {
 		return nil, err
@@ -1419,25 +1420,31 @@ func (r *Repository) ListUserAccessibleTunnels(userID int64) ([]map[string]inter
 
 	items := make([]map[string]interface{}, 0, len(rows))
 	for _, rw := range rows {
-		allowed, err := r.EffectiveTunnelEntryNodeIDs(userID, rw.ID)
+		allowed, restricted, err := r.TunnelEntryRestriction(userID, rw.ID, false)
 		if err != nil {
 			return nil, err
 		}
-		if len(allowed) == 0 {
+		if restricted && len(allowed) == 0 {
 			continue
 		}
 		info := regionMap[rw.ID]
-		filtered := make([]tunnelEntryNode, 0, len(allowed))
-		for _, node := range info.EntryNodes {
-			for _, id := range allowed {
-				if node.ID == id {
-					filtered = append(filtered, node)
-					break
+		if restricted {
+			filtered := make([]tunnelEntryNode, 0, len(allowed))
+			for _, node := range info.EntryNodes {
+				for _, id := range allowed {
+					if node.ID == id {
+						filtered = append(filtered, node)
+						break
+					}
 				}
 			}
+			info.EntryNodes = filtered
+			if pr, ok := r.getTunnelEntryPortRanges([]int64{rw.ID}, allowed)[rw.ID]; ok {
+				portRangeMap[rw.ID] = pr
+			} else {
+				delete(portRangeMap, rw.ID)
+			}
 		}
-		info.EntryNodes = filtered
-		portRangeMap := r.getTunnelEntryPortRanges([]int64{rw.ID}, allowed)
 		item := map[string]interface{}{
 			"id":           rw.ID,
 			"name":         rw.Name,
@@ -4044,19 +4051,22 @@ func quoteSQLLiteral(value string) string {
 
 func resolveForwardIngress(db *gorm.DB, forwardID int64, tunnelID int64) (string, sql.NullInt64, error) {
 	var owner model.Forward
-	if err := db.Select("user_id, mode").Where("id = ?", forwardID).First(&owner).Error; err != nil {
+	if err := db.Select("user_id").Where("id = ?", forwardID).Find(&owner).Error; err != nil {
 		return "", sql.NullInt64{}, err
 	}
 	var allowed []int64
+	restricted := false
 	if tunnelID > 0 {
 		var err error
-		allowed, err = (&Repository{db: db}).EffectiveTunnelEntryNodeIDs(owner.UserID, tunnelID)
+		allowed, restricted, err = (&Repository{db: db}).TunnelEntryRestriction(owner.UserID, tunnelID, false)
 		if err != nil {
 			return "", sql.NullInt64{}, err
 		}
 	}
 	var entryCount int64
-	db.Model(&model.ChainTunnel{}).Where("tunnel_id = ? AND chain_type = '1'", tunnelID).Count(&entryCount)
+	if restricted {
+		db.Model(&model.ChainTunnel{}).Where("tunnel_id = ? AND chain_type = '1'", tunnelID).Count(&entryCount)
+	}
 	var tunnelInIP sql.NullString
 	db.Model(&model.Tunnel{}).Select("in_ip").Where("id = ?", tunnelID).Limit(1).Scan(&tunnelInIP)
 
@@ -4083,7 +4093,7 @@ func resolveForwardIngress(db *gorm.DB, forwardID int64, tunnelID int64) (string
 	seenPairs := make(map[string]struct{})
 
 	for _, row := range fpRows {
-		if tunnelID > 0 {
+		if restricted {
 			visible := false
 			for _, id := range allowed {
 				visible = visible || id == row.NodeID
@@ -4104,7 +4114,7 @@ func resolveForwardIngress(db *gorm.DB, forwardID int64, tunnelID int64) (string
 		if row.InIP.Valid && strings.TrimSpace(row.InIP.String) != "" {
 			// 1. 如果规则有独�?IP，用规则�?
 			ip = strings.TrimSpace(row.InIP.String)
-		} else if entryCount <= 1 && tunnelInIP.Valid && strings.TrimSpace(tunnelInIP.String) != "" {
+		} else if (!restricted || len(allowed) == int(entryCount)) && tunnelInIP.Valid && strings.TrimSpace(tunnelInIP.String) != "" {
 			// 🎯 2. 补上这一段！让它去读你选的“测试隧道”的域名�?
 			ip = strings.TrimSpace(tunnelInIP.String)
 		} else if row.ServerIP.Valid && strings.TrimSpace(row.ServerIP.String) != "" {

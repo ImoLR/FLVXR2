@@ -117,3 +117,41 @@ func TestTunnelEntryPermissionUnionAndOldAssignment(t *testing.T) {
 	r.InsertGroupPermissionGrant(30, 20, 41, 0, 1)
 	requireEntries(t, r, 3, 11, 12)
 }
+
+func TestTunnelEntryRestrictionLegacyFallbacks(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		sql  string
+	}{
+		{"missing user", "DELETE FROM user WHERE id = 2"},
+		{"missing user tunnel", "DELETE FROM user_tunnel WHERE id = 40"},
+		{"direct grant", "UPDATE group_permission_grant SET created_by_group = 0"},
+		{"no chain entries", "DELETE FROM chain_tunnel WHERE tunnel_id = 10"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r := entryPermissionFixture(t)
+			if err := r.db.Exec(tc.sql).Error; err != nil {
+				t.Fatal(err)
+			}
+			ids, restricted, err := r.TunnelEntryRestriction(2, 10, false)
+			if err != nil || restricted || ids != nil {
+				t.Fatalf("legacy grant restricted: ids=%v restricted=%v err=%v", ids, restricted, err)
+			}
+			if tc.name == "no chain entries" {
+				items, err := r.ListUserAccessibleTunnels(2)
+				if err != nil || len(items) != 1 {
+					t.Fatalf("legacy tunnel hidden: items=%v err=%v", items, err)
+				}
+			}
+		})
+	}
+	// The JWT role is sufficient, even with no database available for a user lookup.
+	r := &Repository{}
+	if ids, restricted, err := r.TunnelEntryRestrictionTx(nil, 900, 10, true); err != nil || restricted || ids != nil {
+		t.Fatalf("admin JWT restricted: ids=%v restricted=%v err=%v", ids, restricted, err)
+	}
+	r = entryPermissionFixture(t)
+	if ids, restricted, err := r.TunnelEntryRestriction(2, 10, false); err != nil || !restricted || len(ids) != 0 {
+		t.Fatalf("empty group union not restricted: ids=%v restricted=%v err=%v", ids, restricted, err)
+	}
+}

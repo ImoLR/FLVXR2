@@ -2291,14 +2291,17 @@ func (r *Repository) GroupUpdate(table string, id int64, name string, status int
 	}
 }
 
-func (r *Repository) GroupDeleteCascade(table string, id int64) error {
+func (r *Repository) GroupDeleteCascade(table string, id int64) ([]RevokedUserTunnelPair, error) {
 	if r == nil || r.db == nil {
-		return errors.New("repository not initialized")
+		return nil, errors.New("repository not initialized")
 	}
-	return r.db.Transaction(func(tx *gorm.DB) error {
+	var revoked []RevokedUserTunnelPair
+	err := r.db.Transaction(func(tx *gorm.DB) error {
+		var err error
 		switch table {
 		case "tunnel_group":
-			if _, err := r.RevokeStaleTunnelGroupGrantsTx(tx, id, nil); err != nil {
+			revoked, err = r.RevokeStaleTunnelGroupGrantsTx(tx, id, nil)
+			if err != nil {
 				return err
 			}
 			if err := tx.Where("tunnel_group_id = ?", id).Delete(&model.TunnelGroupTunnelEntry{}).Error; err != nil {
@@ -2319,7 +2322,8 @@ func (r *Repository) GroupDeleteCascade(table string, id int64) error {
 			if err := tx.Model(&model.UserGroupUser{}).Where("user_group_id = ?", id).Pluck("user_id", &users).Error; err != nil {
 				return err
 			}
-			if _, err := r.RevokeGroupGrantsForRemovedUsersTx(tx, id, users, nil); err != nil {
+			revoked, err = r.RevokeGroupGrantsForRemovedUsersTx(tx, id, users, nil)
+			if err != nil {
 				return err
 			}
 			if err := tx.Where("user_group_id = ?", id).Delete(&model.UserGroupUser{}).Error; err != nil {
@@ -2336,6 +2340,7 @@ func (r *Repository) GroupDeleteCascade(table string, id int64) error {
 			return errors.New("invalid group table")
 		}
 	})
+	return revoked, err
 }
 
 func (r *Repository) ListUserIDsByUserGroupTx(tx *gorm.DB, userGroupID int64) ([]int64, error) {

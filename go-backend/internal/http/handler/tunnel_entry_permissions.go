@@ -7,10 +7,14 @@ import (
 	"strings"
 )
 
-func (h *Handler) allowedTunnelEntries(userID, tunnelID int64) ([]int64, error) {
-	entries, err := h.repo.EffectiveTunnelEntryNodeIDs(userID, tunnelID)
+func (h *Handler) allowedTunnelEntries(userID, tunnelID int64, admin ...bool) ([]int64, error) {
+	entries, restricted, err := h.repo.TunnelEntryRestriction(userID, tunnelID, len(admin) > 0 && admin[0])
 	if err != nil {
 		return nil, err
+	}
+	if !restricted {
+		entries, _ = h.tunnelEntryNodeIDs(tunnelID)
+		return entries, nil
 	}
 	if len(entries) == 0 {
 		return nil, errors.New("你没有该隧道入口的权限")
@@ -31,9 +35,12 @@ func (h *Handler) reconcileTunnelEntryPermissions(userID, tunnelID int64) []stri
 		if userID > 0 && pair.UserID != userID || tunnelID > 0 && pair.TunnelID != tunnelID {
 			continue
 		}
-		entries, err := h.repo.EffectiveTunnelEntryNodeIDs(pair.UserID, pair.TunnelID)
+		entries, restricted, err := h.repo.TunnelEntryRestriction(pair.UserID, pair.TunnelID, false)
 		if err != nil {
 			warnings = append(warnings, err.Error())
+			continue
+		}
+		if !restricted {
 			continue
 		}
 		if len(entries) == 0 {

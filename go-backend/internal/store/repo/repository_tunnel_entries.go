@@ -55,43 +55,69 @@ func (r *Repository) EffectiveTunnelEntryNodeIDs(userID, tunnelID int64) ([]int6
 }
 
 func (r *Repository) EffectiveTunnelEntryNodeIDsTx(tx *gorm.DB, userID, tunnelID int64) ([]int64, error) {
+	ids, restricted, err := r.TunnelEntryRestrictionTx(tx, userID, tunnelID, false)
+	if err != nil || restricted {
+		return ids, err
+	}
+	ids = make([]int64, 0)
+	err = tx.Model(&model.ChainTunnel{}).Where("tunnel_id = ? AND chain_type = '1'", tunnelID).Order("inx ASC, id ASC").Pluck("node_id", &ids).Error
+	return ids, err
+}
+
+// Entry permissions only narrow group-derived grants. Missing legacy rows and
+// tunnels without chain entries must retain their original behaviour. Callers
+// with an admin JWT bypass the lookup; background operations use the owner's role.
+func (r *Repository) TunnelEntryRestriction(userID, tunnelID int64, admin bool) ([]int64, bool, error) {
+	return r.TunnelEntryRestrictionTx(r.db, userID, tunnelID, admin)
+}
+
+func (r *Repository) TunnelEntryRestrictionTx(tx *gorm.DB, userID, tunnelID int64, admin bool) ([]int64, bool, error) {
+	if admin {
+		return nil, false, nil
+	}
+	var ut model.UserTunnel
+	err := tx.Where("user_id = ? AND tunnel_id = ?", userID, tunnelID).First(&ut).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, err
+	}
+	var count int64
+	if err := tx.Model(&model.GroupPermissionGrant{}).Where("user_tunnel_id = ? AND created_by_group = 1", ut.ID).Count(&count).Error; err != nil {
+		return nil, false, err
+	}
+	if count == 0 {
+		return nil, false, nil
+	}
 	var user model.User
-	if err := tx.Select("id, role_id").Where("id = ?", userID).First(&user).Error; err != nil {
-		return nil, err
+	err = tx.Select("id, role_id").Where("id = ?", userID).First(&user).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) || err == nil && user.RoleID == 0 {
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, err
 	}
 	q := tx.Model(&model.ChainTunnel{}).Where("tunnel_id = ? AND chain_type = '1'", tunnelID).Order("inx ASC, id ASC")
-	groupDerived := false
-	if user.RoleID != 0 {
-		var ut model.UserTunnel
-		err := tx.Where("user_id = ? AND tunnel_id = ?", userID, tunnelID).First(&ut).Error
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return []int64{}, nil
-		}
-		if err != nil {
-			return nil, err
-		}
-		var count int64
-		if err := tx.Model(&model.GroupPermissionGrant{}).Where("user_tunnel_id = ? AND created_by_group = 1", ut.ID).Count(&count).Error; err != nil {
-			return nil, err
-		}
-		groupDerived = count > 0
-		if groupDerived {
-			entries := tx.Table("tunnel_group_tunnel_entry AS e").Select("e.node_id").
-				Joins("JOIN group_permission_grant AS g ON g.tunnel_group_id = e.tunnel_group_id").
-				Joins("JOIN group_permission AS p ON p.user_group_id = g.user_group_id AND p.tunnel_group_id = g.tunnel_group_id").
-				Joins("JOIN user_group_user AS u ON u.user_group_id = g.user_group_id AND u.user_id = ?", userID).
-				Where("g.user_tunnel_id = ? AND e.tunnel_id = ?", ut.ID, tunnelID)
-			q = q.Where("node_id IN (?)", entries)
-		}
+	if err := q.Count(&count).Error; err != nil {
+		return nil, false, err
 	}
+	if count == 0 {
+		return nil, false, nil
+	}
+	entries := tx.Table("tunnel_group_tunnel_entry AS e").Select("e.node_id").
+		Joins("JOIN group_permission_grant AS g ON g.tunnel_group_id = e.tunnel_group_id").
+		Joins("JOIN group_permission AS p ON p.user_group_id = g.user_group_id AND p.tunnel_group_id = g.tunnel_group_id").
+		Joins("JOIN user_group_user AS u ON u.user_group_id = g.user_group_id AND u.user_id = ?", userID).
+		Where("g.user_tunnel_id = ? AND e.tunnel_id = ?", ut.ID, tunnelID)
 	ids := make([]int64, 0)
-	if err := q.Pluck("node_id", &ids).Error; err != nil {
-		return nil, err
+	if err := q.Where("node_id IN (?)", entries).Pluck("node_id", &ids).Error; err != nil {
+		return nil, true, err
 	}
-	if groupDerived && len(ids) == 0 {
+	if len(ids) == 0 {
 		log.Printf("[tunnel-entries] user=%d tunnel=%d group grant has no allowed entries", userID, tunnelID)
 	}
-	return ids, nil
+	return ids, true, nil
 }
 
 func (r *Repository) replaceTunnelGroupEntriesTx(tx *gorm.DB, groupID int64, tunnelIDs []int64, selection map[int64][]int64, now int64) error {
