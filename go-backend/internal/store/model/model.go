@@ -121,6 +121,9 @@ type Node struct {
 	EgressIPFamily               string         `gorm:"column:egress_ip_family;type:varchar(10);not null;default:''"`
 	EgressDetected               string         `gorm:"column:egress_detected;type:varchar(10);not null;default:''"`
 	EgressDetectedAt             int64          `gorm:"column:egress_detected_at;not null;default:0"`
+	IPv6RAStatus                 string         `gorm:"column:ipv6_ra_status;type:varchar(10);not null;default:''"`
+	IPv6RADetail                 string         `gorm:"column:ipv6_ra_detail;type:varchar(512);not null;default:''"`
+	IPv6RACheckedAt              int64          `gorm:"column:ipv6_ra_checked_at;type:bigint;not null;default:0"`
 	ExtraIPs                     sql.NullString `gorm:"column:extra_ips;type:text"`
 	Port                         string         `gorm:"type:text;not null"`
 	InterfaceName                sql.NullString `gorm:"column:interface_name;type:varchar(200)"`

@@ -4,7 +4,7 @@
 
 - [x] 阅读规则与发布记忆，验证 fork.35 前置条件并创建分支。
 - [x] Agent：accept_ra 1→2、RA 探测/分级/上报、非 Linux 空实现与单元测试。
-- [ ] 面板：附加字段、change-only 持久化、管理员列表与保存保留测试。
+- [x] 面板：附加字段、change-only 持久化、管理员列表与保存保留测试。
 - [ ] 前端：节点卡片/列表三色 TriangleAlert、详情与时间。
 - [ ] netns E2E：旧行为过期、新行为保持超过两周期、accept_ra=0 错误。
 - [ ] Go build/vet/测试/race/双架构；后端全量失败集对照 fork.35。
@@ -17,3 +17,5 @@
 证据目录：`/root/flvx-workers/runs/ipv6-ra-compat/`；TMPDIR/GOTMPDIR 使用其 `t/`。所有重任务前检查 MemAvailable ≥750 MiB，单任务串行；本机真实网络命名空间不执行网络/sysctl 变更。
 
 Agent 定向单测通过（accept_ra 假 proc、分级/30分钟/写失败、上报省略）；完整构建/race/netns 在后续门禁执行。
+
+面板定向单测通过：旧 agent 默认空、状态/详情 change-only、重连不改时间、管理员可见/广播隐藏、节点保存不清空。

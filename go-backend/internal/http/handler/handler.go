@@ -727,7 +727,7 @@ func (h *Handler) nodeList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	actorUserID, _, err := userRoleFromRequest(r)
+	actorUserID, role, err := userRoleFromRequest(r)
 	if err != nil {
 		response.WriteJSON(w, response.Err(401, "无效的token或token已过期"))
 		return
@@ -746,6 +746,13 @@ func (h *Handler) nodeList(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.syncRemoteNodeStatuses(items)
+	if role != 0 {
+		for _, item := range items {
+			delete(item, "ipv6RaStatus")
+			delete(item, "ipv6RaDetail")
+			delete(item, "ipv6RaCheckedAt")
+		}
+	}
 
 	response.WriteJSON(w, response.OK(items))
 }

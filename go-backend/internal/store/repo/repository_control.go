@@ -510,3 +510,13 @@ func (r *Repository) UpdateNodeEgressDetected(nodeID int64, family string, now i
 	return r.db.Model(&model.Node{}).Where("id = ? AND egress_detected <> ?", nodeID, family).
 		Updates(map[string]interface{}{"egress_detected": family, "egress_detected_at": now}).Error
 }
+
+// UpdateNodeIPv6RA preserves the observation time across duplicate reports and reconnects.
+func (r *Repository) UpdateNodeIPv6RA(nodeID int64, status, detail string, now int64) error {
+	if status != "ok" && status != "warn" && status != "error" {
+		return nil
+	}
+	return r.db.Model(&model.Node{}).
+		Where("id = ? AND (ipv6_ra_status <> ? OR ipv6_ra_detail <> ?)", nodeID, status, detail).
+		Updates(map[string]interface{}{"ipv6_ra_status": status, "ipv6_ra_detail": detail, "ipv6_ra_checked_at": now}).Error
+}

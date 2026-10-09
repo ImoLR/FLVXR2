@@ -37,6 +37,8 @@ type connWrap struct {
 
 type nodeSession struct {
 	egressDetected string
+	ipv6RAStatus   string
+	ipv6RADetail   string
 	nodeID         int64
 	secret         string
 	conn           *connWrap
@@ -92,6 +94,8 @@ type Server struct {
 
 type SystemInfo struct {
 	EgressIPFamily         string            `json:"egress_ip_family,omitempty"`
+	IPv6RAStatus           string            `json:"ipv6_ra_status,omitempty"`
+	IPv6RADetail           string            `json:"ipv6_ra_detail,omitempty"`
 	Uptime                 uint64            `json:"uptime"`
 	BytesReceived          uint64            `json:"bytes_received"`
 	BytesTransmitted       uint64            `json:"bytes_transmitted"`
@@ -466,6 +470,7 @@ func (s *Server) handleNode(w http.ResponseWriter, r *http.Request, nodeID int64
 					var sysInfo SystemInfo
 					if json.Unmarshal(envelope.Data, &sysInfo) == nil {
 						s.recordEgressDetection(ns, sysInfo.EgressIPFamily)
+						s.recordIPv6RA(ns, sysInfo.IPv6RAStatus, sysInfo.IPv6RADetail)
 						// 缓存服务连接数
 						s.mu.Lock()
 						s.serviceConnections[nodeID] = sysInfo.ServiceConnections
@@ -536,6 +541,7 @@ func (s *Server) handleNode(w http.ResponseWriter, r *http.Request, nodeID int64
 			var sysInfo SystemInfo
 			if err := json.Unmarshal([]byte(msg), &sysInfo); err == nil {
 				s.recordEgressDetection(ns, sysInfo.EgressIPFamily)
+				s.recordIPv6RA(ns, sysInfo.IPv6RAStatus, sysInfo.IPv6RADetail)
 				// 缓存服务连接数
 				s.mu.Lock()
 				s.serviceConnections[nodeID] = sysInfo.ServiceConnections
@@ -562,10 +568,16 @@ func metricDataForBroadcast(raw []byte) string {
 	if err := json.Unmarshal(raw, &fields); err != nil {
 		return string(raw)
 	}
-	if _, ok := fields["quotaGroups"]; !ok {
+	_, quota := fields["quotaGroups"]
+	_, raStatus := fields["ipv6_ra_status"]
+	_, raDetail := fields["ipv6_ra_detail"]
+	if !quota && !raStatus && !raDetail {
 		return string(raw)
 	}
 	delete(fields, "quotaGroups")
+	// RA details belong to the admin node list, never public/non-admin metrics.
+	delete(fields, "ipv6_ra_status")
+	delete(fields, "ipv6_ra_detail")
 	filtered, err := json.Marshal(fields)
 	if err != nil {
 		return string(raw)
@@ -966,4 +978,21 @@ func (s *Server) recordEgressDetection(ns *nodeSession, family string) {
 		return
 	}
 	ns.egressDetected = family
+}
+
+func (s *Server) recordIPv6RA(ns *nodeSession, status, detail string) {
+	if status != "ok" && status != "warn" && status != "error" {
+		return
+	}
+	if runes := []rune(detail); len(runes) > 300 {
+		detail = string(runes[:300])
+	}
+	if ns.ipv6RAStatus == status && ns.ipv6RADetail == detail {
+		return
+	}
+	if err := s.repo.UpdateNodeIPv6RA(ns.nodeID, status, detail, time.Now().UnixMilli()); err != nil {
+		log.Printf("node %d IPv6 RA detection: %v", ns.nodeID, err)
+		return
+	}
+	ns.ipv6RAStatus, ns.ipv6RADetail = status, detail
 }
