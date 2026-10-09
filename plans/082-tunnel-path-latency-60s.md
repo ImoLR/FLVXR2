@@ -15,3 +15,9 @@
 - [ ] 生产两轮延迟/用户 3 权限/日志/JS/30 分钟后 tcp_conns 验证，中文总结并提交部署完成。
 
 门禁新增失败即停止发布，提交并推送 WIP。证据和临时文件：`/root/flvx-workers/runs/entry-groups-latency/`（临时文件仅 `t/`）。禁止更改 tcp_conns、监控页、最优逻辑、安装脚本、依赖和其他 agent 代码。
+
+## WIP 门禁停止（2026-10-09）
+
+新增功能定向测试、完整路由 JWT 测试、后端 build/vet、前端 build 均通过；lint 与 fork.33 同为 96 个错误，无新增。全量 Go 测试为 26 项失败（含父/子测试），原基线 15 项 + 新增 11 项。按任务硬门禁停止后续验证、标签、发布、生产升级和 OTA，保留 WIP 分支。入口权限实现及现有契约兼容性尚未完成。
+
+新增失败与原始日志：`/root/flvx-workers/runs/entry-groups-latency/baseline-comparison.json`、`new-failures.log`；完整状态见该目录 `summary.md`。生产保持 fork.33，未执行生产回填。
