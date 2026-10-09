@@ -27,6 +27,7 @@ import { CSS } from "@dnd-kit/utilities";
 
 import { NodeGroupManager } from "./node/node-group-manager";
 import { NodeDeployModal } from "./node/node-deploy-modal";
+import { NodeIPv6RABadge } from "./node/ipv6-ra-badge";
 import TLSPage from "./tls";
 
 import {
@@ -138,6 +139,9 @@ interface Node {
   egressIpFamily?: string;
   egressDetected?: "" | "v4" | "v6" | "dual";
   egressDetectedAt?: number;
+  ipv6RaStatus?: "" | "ok" | "warn" | "error";
+  ipv6RaDetail?: string;
+  ipv6RaCheckedAt?: number;
   port: string;
   tcpListenAddr?: string;
   udpListenAddr?: string;
@@ -2165,6 +2169,7 @@ export default function NodePage() {
               >
                 {node.name}
               </h3>
+              <NodeIPv6RABadge node={node} />
             </div>
             <div className="text-xs text-default-500">
               {node.region ? regionLabel(node.region) : (

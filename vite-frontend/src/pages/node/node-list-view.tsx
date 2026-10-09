@@ -8,6 +8,7 @@ import { useState, useRef, useEffect } from "react";
 import { regionLabel } from "@/utils/region";
 
 import { getConnectionStatusMeta } from "./display";
+import { NodeIPv6RABadge } from "./ipv6-ra-badge";
 import { getNodeRenewalSnapshot, formatNodeRenewalTime } from "./renewal";
 
 import { Checkbox } from "@/shadcn-bridge/heroui/checkbox";
@@ -52,6 +53,9 @@ interface Node {
   intranetIp?: string;
   serverIpV4?: string;
   serverIpV6?: string;
+  ipv6RaStatus?: "" | "ok" | "warn" | "error";
+  ipv6RaDetail?: string;
+  ipv6RaCheckedAt?: number;
   port: string;
   tcpListenAddr?: string;
   udpListenAddr?: string;
@@ -287,6 +291,7 @@ function SortableTableRow({
           >
             {node.name}
           </span>
+          <NodeIPv6RABadge node={node} />
         </div>
         <div className="mt-1 text-xs text-default-500">
           {node.region ? regionLabel(node.region) : (

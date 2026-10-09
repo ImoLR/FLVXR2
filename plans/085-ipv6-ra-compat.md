@@ -5,7 +5,7 @@
 - [x] 阅读规则与发布记忆，验证 fork.35 前置条件并创建分支。
 - [x] Agent：accept_ra 1→2、RA 探测/分级/上报、非 Linux 空实现与单元测试。
 - [x] 面板：附加字段、change-only 持久化、管理员列表与保存保留测试。
-- [ ] 前端：节点卡片/列表三色 TriangleAlert、详情与时间。
+- [x] 前端：节点卡片/列表三色 TriangleAlert、详情与时间。
 - [ ] netns E2E：旧行为过期、新行为保持超过两周期、accept_ra=0 错误。
 - [ ] Go build/vet/测试/race/双架构；后端全量失败集对照 fork.35。
 - [ ] 生产在线副本迁移/列表差异门禁；前端 build/tsc/lint 基线与桌面/手机截图。

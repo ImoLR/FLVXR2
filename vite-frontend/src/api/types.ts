@@ -4,6 +4,9 @@ export interface NodeApiItem {
   egressIpFamily?: "" | "v4" | "v6" | "dual";
   egressDetected?: "" | "v4" | "v6" | "dual";
   egressDetectedAt?: number;
+  ipv6RaStatus?: "" | "ok" | "warn" | "error";
+  ipv6RaDetail?: string;
+  ipv6RaCheckedAt?: number;
   id: number;
   name: string;
   status: number;
