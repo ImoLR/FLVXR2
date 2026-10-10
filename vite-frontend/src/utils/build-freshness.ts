@@ -155,8 +155,17 @@ const refreshToBuild = async (target: string): Promise<void> => {
     return;
   }
 
-  if (swRegistration) {
-    await settle(swRegistration.update().catch(() => undefined));
+  const registration = swRegistration;
+
+  if (registration) {
+    let updating: Promise<unknown> | undefined;
+
+    try {
+      updating = registration.update();
+    } catch {
+      updating = undefined;
+    }
+    await settle(updating);
   }
 
   const container =

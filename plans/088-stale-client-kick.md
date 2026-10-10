@@ -87,16 +87,62 @@ update; the only fix was "clear site data" by hand.
 - Layer 1 handler: constant-time, no DB, no auth parsing.
 
 ## Tasks
-- [ ] Backend: `/api/v1/license/info` kill-switch handler + JWT skip
-- [ ] Backend contract test (status 401, `Clear-Site-Data: "storage"`, envelope; no/invalid/valid token; GET + POST)
-- [ ] Frontend: build id define + `version.json` emit + precache exclusion
-- [ ] Frontend: `build-freshness` module merged with SW update watcher in `main.tsx`
-- [ ] nginx: `location = /version.json` no-store
-- [ ] `go test ./...` (compare failures with fork.38 base), `npm run build` + `npm run lint`
-- [ ] Playwright: (a) old build id → exactly one reload; persistent mismatch → at most one; (b) 2-min idle visible tab → no extra requests; (c) `/api/v1/license/info` → 401 + header; old-frontend simulation
+- [x] Backend: `/api/v1/license/info` kill-switch handler + JWT skip
+- [x] Backend contract test (status 401, `Clear-Site-Data: "storage"`, envelope; no/invalid/valid token; GET + POST)
+- [x] Frontend: build id define + `version.json` emit + precache exclusion
+- [x] Frontend: `build-freshness` module merged with SW update watcher in `main.tsx`
+- [x] nginx: `location = /version.json` no-store
+- [x] `go test ./...` (compare failures with fork.38 base), `npm run build` + `npm run lint`
+- [x] Playwright: (a) old build id → exactly one reload; persistent mismatch → at most one; (b) 2-min idle visible tab → no extra requests; (c) `/api/v1/license/info` → 401 + header; old-frontend simulation
 - [ ] Push branch, CI green
 - [ ] Tag `3.0.27-fork.39`, Build and Push Images green, release assets verified
 - [ ] Prod backup (rollback dir + image tags), prune to 2 newest
 - [ ] Upgrade /opt/flvx-svc to fork.39, verify health, nodes reporting
 - [ ] Prod curl: `/version.json` JSON + no-store; `/api/v1/license/info` 401 + `Clear-Site-Data`
 - [ ] Plan marked complete + pushed
+
+## Verification notes
+- `go test ./...`: 15 failing tests/subtests on the branch = exactly the 15 on the
+  unmodified fork.38 base (federation dual panel ×3, backup export, legacy
+  migrations ×2, renewal TZ, service monitor, address-in-use, connect-IP …;
+  lists in the run dir `base.fails` / `new.fails`). `TestRemovedCommercialRoutes`
+  asserted 404 for `/license/info`; it now covers only `/license/config` and
+  `/license/transfer` (the kill switch has its own test).
+- New contract tests: `TestStaleFrontendKickFullRouter` (full router incl. JWT
+  middleware; POST/GET/PUT × no token / junk / foreign-secret / admin / user /
+  session cookie → 401, `Clear-Site-Data: "storage"`, `no-store`, envelope
+  code 401 + old-frontend message) and
+  `TestCurrentFrontendNeverCallsStaleKickEndpoint` (no `license/info` in
+  vite-frontend/src).
+- `npm run build` ok (main JS 2.75 MB, precache 9 entries, version.json not
+  precached), `tsc --noEmit` ok, `eslint src` totals identical to fork.38
+  (3679 problems / 96 errors, all pre-existing).
+- Playwright (chromium 1243, local paneld :16365 + programmable static server
+  mimicking nginx.conf; scripts/results in
+  /root/flvx-workers/runs/stale-client-kick/e2e/):
+  - (a) no SW: running X, deploy Y, visible <5 min → no check; after 5 min →
+    exactly 1 reload onto Y, stable, 3 version.json GETs total, `?t=` buster.
+    Persistent mismatch (bundle X, version.json Y): exactly 1 reload, no loop
+    over 14 s, visible at +6 min (inside the 10-min window) → no reload, at +13
+    min → 1 more reload then stable. version.json HTML / 404 / connection reset /
+    malformed → no reload, no page error. Offline → no request. 20 visible + 20
+    bfcache `pageshow` events in the gap → no extra request. 19/19 pass.
+  - with SW, logged in: deploy Y → tab on Y after 1 reload, still logged in on
+    /dashboard, new SW registered again, stable.
+  - Old client: real fork.15 build logged in with its SW, then new frontend
+    deployed with a failing sw.js update (stuck, still fork.15 bundle). With the
+    kill switch: 1 × `license/info` 401 + `Clear-Site-Data: "storage"` → SW
+    unregistered, CacheStorage empty, localStorage wiped, lands on the NEW
+    bundle's login page at `/`, no further navigations; relogin works and the
+    new frontend never calls `license/info`. Header stripped (browser without
+    Clear-Site-Data): old JS logs out to `/` once and stops (no loop), stays on
+    the old SW bundle (expected degrade). 16/16 pass.
+  - (b) idle visible logged-in dashboard for 120 s, desktop 1366×900 and mobile
+    390×844: new build 48 requests = fork.38 build 48 requests (both only the
+    dashboard's existing `user/package` + `node/list` polling); 0 version.json,
+    0 sw.js.
+  - (c) the real `nginx.conf` in the fork.38 nginx image (listen/upstream
+    rewritten for the test): `/version.json` 200 `application/json` +
+    `Cache-Control: no-store`; missing file → 404 (not index.html);
+    `/api/v1/license/info` → 401 + `Clear-Site-Data: "storage"` passed through;
+    index/sw.js still `no-cache`, assets immutable.
