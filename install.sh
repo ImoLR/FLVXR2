@@ -6,6 +6,10 @@ REPO="ImoLR/FLVXR2"
 # 固定版本号（Release 构建时自动填充，留空则获取最新版）
 PINNED_VERSION=""
 
+# GitHub 下载加速镜像（前缀式：<镜像>/https://github.com/...），按可靠性排序。
+# 直连 GitHub 不通时依次尝试；可用环境变量 GH_PROXY=https://你的镜像/ 指定优先使用的镜像。
+GH_MIRRORS="https://ghfast.top/ https://gh-proxy.com/ https://gcode.hostcentral.cc/"
+
 # 默认服务名
 SERVICE_NAME="flvx_agent"
 SERVER_ADDR=""
@@ -44,8 +48,8 @@ install_download_tools() {
   fi
   
   if [ -f /etc/os-release ]; then
-    . /etc/os-release
-    DISTRO=$ID
+    # 在子 shell 中读取，避免 os-release 里的 VERSION 等变量覆盖面板传入的 VERSION
+    DISTRO=$(. /etc/os-release && echo "$ID")
   elif [ -f /etc/redhat-release ]; then
     DISTRO="rhel"
   elif [ -f /etc/debian_version ]; then
@@ -125,7 +129,7 @@ get_architecture() {
 resolve_latest_release_tag() {
   local tag
   # 直接使用 GitHub API 获取最新版本号
-  tag=$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" 2>/dev/null | grep -m1 '"tag_name"' | sed -E 's/.*"tag_name"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/' || echo "")
+  tag=$(curl -fsSL --connect-timeout 5 -m 15 "https://api.github.com/repos/${REPO}/releases/latest" 2>/dev/null | grep -m1 '"tag_name"' | sed -E 's/.*"tag_name"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/' || echo "")
   if [[ -n "$tag" ]]; then
     echo "$tag"
     return 0
@@ -165,7 +169,261 @@ build_download_url() {
 # 显示下载源信息
 show_download_source() {
     local url="$1"
-    echo "🌍 正在通过 GitHub 下载 ${SERVICE_NAME} 中..."
+    echo "🌍 正在下载 ${SERVICE_NAME} (${RESOLVED_VERSION}) ..."
+}
+
+# ---------- GitHub 下载：直连 + 加速镜像 + sha256 校验 ----------
+GH_SOURCES=()
+GH_SOURCES_READY=0
+GH_EXPECTED_SHA256=""
+GH_FETCH_ERROR=""
+GH_REJECT_REASON=""
+
+# 规范化镜像前缀，确保以 / 结尾
+gh_normalize_prefix() {
+  local p="$1"
+  [[ -z "$p" ]] && return 0
+  [[ "$p" == */ ]] || p="${p}/"
+  echo "$p"
+}
+
+# 下载源显示名
+gh_source_label() {
+  if [[ "$1" == "DIRECT" ]]; then
+    echo "GitHub 直连"
+  else
+    local host="${1#*://}"
+    echo "镜像 ${host%%/*}"
+  fi
+}
+
+# 下载源对应的完整地址（镜像为前缀式）
+gh_source_url() {
+  if [[ "$1" == "DIRECT" ]]; then
+    echo "$2"
+  else
+    echo "${1}${2}"
+  fi
+}
+
+# 带超时执行 wget（GNU wget 只尝试 1 次；busybox wget 不支持 -t）
+gh_wget() {
+  local max_time="$1"
+  shift
+  local extra=()
+  if wget --version 2>/dev/null | grep -q 'GNU Wget'; then
+    extra=(-t 1)
+  fi
+  if command -v timeout &> /dev/null; then
+    timeout "$max_time" wget "${extra[@]}" "$@"
+  else
+    wget "${extra[@]}" "$@"
+  fi
+}
+
+# 快速探测能否直连 GitHub（跟随跳转到实际下载节点），最多约 8 秒
+gh_probe_direct() {
+  local url="$1" code
+  if command -v curl &> /dev/null; then
+    code=$(curl -sIL --connect-timeout 5 -m 8 -o /dev/null -w '%{http_code}' "$url" 2>/dev/null)
+    [[ "$code" == "200" ]]
+    return
+  fi
+  gh_wget 10 -q --spider -T 8 "$url" &> /dev/null
+}
+
+# 确定下载源顺序：GH_PROXY（如设置）→ GitHub 直连（可达时）→ 加速镜像。每次运行只探测一次。
+gh_prepare_sources() {
+  [[ $GH_SOURCES_READY -eq 1 ]] && return 0
+  GH_SOURCES_READY=1
+  GH_SOURCES=()
+  local proxy m
+  proxy=$(gh_normalize_prefix "${GH_PROXY:-}")
+  if [[ -n "$proxy" ]]; then
+    echo "🌐 优先使用 GH_PROXY 指定的镜像：${proxy}"
+    GH_SOURCES+=("$proxy")
+  fi
+  echo "🌐 正在检测能否直连 GitHub..."
+  if gh_probe_direct "$1"; then
+    echo "✅ GitHub 可直连"
+    GH_SOURCES+=("DIRECT")
+  else
+    echo "🌐 检测到无法直连 GitHub，使用加速镜像下载"
+  fi
+  for m in $GH_MIRRORS; do
+    m=$(gh_normalize_prefix "$m")
+    [[ "$m" == "$proxy" ]] && continue
+    GH_SOURCES+=("$m")
+  done
+}
+
+# 下载单个地址到文件。
+# $3: strict = 低于 50KB/s 持续 10 秒即放弃；lenient = 低于 1KB/s 持续 30 秒才放弃
+# $4: 1 = 在终端显示进度条
+# 返回：0 成功；2 已连上但太慢/中途卡住（宽松模式可重试）；1 其它失败（原因在 GH_FETCH_ERROR）
+gh_fetch() {
+  local url="$1" out="$2" mode="${3:-strict}" show_progress="${4:-0}"
+  local limit=51200 stime=10 wget_max=240 code rc
+  if [[ "$mode" == "lenient" ]]; then
+    limit=1024
+    stime=30
+    wget_max=900
+  fi
+  GH_FETCH_ERROR=""
+  rm -f "$out"
+  if command -v curl &> /dev/null; then
+    if [[ "$show_progress" == "1" && -t 2 ]]; then
+      code=$(curl -fL -# --connect-timeout 5 --speed-limit "$limit" --speed-time "$stime" -m 900 \
+        -w '%{http_code}' -o "$out" "$url")
+    else
+      code=$(curl -fsL --connect-timeout 5 --speed-limit "$limit" --speed-time "$stime" -m 900 \
+        -w '%{http_code}' -o "$out" "$url" 2>/dev/null)
+    fi
+    rc=$?
+    [[ $rc -eq 0 ]] && return 0
+    case $rc in
+      6) GH_FETCH_ERROR="无法解析域名" ;;
+      7) GH_FETCH_ERROR="无法连接" ;;
+      22) GH_FETCH_ERROR="HTTP ${code}" ;;
+      28) GH_FETCH_ERROR="超时或速度过慢" ;;
+      35|60) GH_FETCH_ERROR="TLS 握手失败" ;;
+      *) GH_FETCH_ERROR="curl 错误码 ${rc}" ;;
+    esac
+    rm -f "$out"
+    if [[ $rc -eq 28 && -n "$code" && "$code" != "000" ]]; then
+      return 2
+    fi
+    return 1
+  fi
+
+  gh_wget "$wget_max" -q -T 15 -O "$out" "$url" 2>/dev/null
+  rc=$?
+  [[ $rc -eq 0 ]] && return 0
+  rm -f "$out"
+  if [[ $rc -eq 124 ]]; then
+    GH_FETCH_ERROR="超时或速度过慢"
+    return 2
+  fi
+  GH_FETCH_ERROR="wget 错误码 ${rc}"
+  return 1
+}
+
+# 检查下载内容：非空、不是网页；bin 必须是 ELF 可执行文件，script 必须是本安装脚本
+gh_validate() {
+  local f="$1" kind="$2"
+  GH_REJECT_REASON=""
+  if [[ ! -s "$f" ]]; then
+    GH_REJECT_REASON="文件为空"
+    return 1
+  fi
+  if head -c 512 "$f" | LC_ALL=C grep -qiE '<!doctype|<html'; then
+    GH_REJECT_REASON="返回的是网页而不是文件"
+    return 1
+  fi
+  case "$kind" in
+    bin)
+      if [[ "$(head -c 4 "$f" | tail -c 3)" != "ELF" ]]; then
+        GH_REJECT_REASON="不是有效的可执行文件"
+        return 1
+      fi
+      ;;
+    script)
+      if [[ "$(head -c 2 "$f")" != "#!" ]] || ! grep -q 'install_service' "$f"; then
+        GH_REJECT_REASON="不是有效的安装脚本"
+        return 1
+      fi
+      ;;
+  esac
+  return 0
+}
+
+# 计算文件 sha256（无可用工具时输出为空）
+gh_sha256_of() {
+  if command -v sha256sum &> /dev/null; then
+    sha256sum "$1" | awk '{print $1}'
+  elif command -v shasum &> /dev/null; then
+    shasum -a 256 "$1" | awk '{print $1}'
+  elif command -v openssl &> /dev/null; then
+    openssl dgst -sha256 "$1" | awk '{print $NF}'
+  fi
+}
+
+# 通过同一下载源链获取期望的 sha256（校验文件格式："<hash>  <文件名>"）
+gh_fetch_expected_sha256() {
+  local sum_url="$1" tmp="$2" src hash
+  GH_EXPECTED_SHA256=""
+  for src in "${GH_SOURCES[@]}"; do
+    if gh_fetch "$(gh_source_url "$src" "$sum_url")" "$tmp" strict; then
+      hash=$(head -c 200 "$tmp" | awk 'NR==1{print $1}' | tr 'A-F' 'a-f')
+      rm -f "$tmp"
+      if [[ "$hash" =~ ^[0-9a-f]{64}$ ]]; then
+        GH_EXPECTED_SHA256="$hash"
+        echo "🔐 已获取校验值（$(gh_source_label "$src")）"
+        return 0
+      fi
+      echo "⚠️  $(gh_source_label "$src") 返回的校验文件无效，换下一个下载源"
+    fi
+  done
+  rm -f "$tmp"
+  return 1
+}
+
+# gh_download <GitHub 地址> <输出文件> <bin|script> [校验文件地址]
+# 依次尝试各下载源；给出校验文件地址时校验 sha256，校验不一致的文件绝不采用。
+gh_download() {
+  local url="$1" out="$2" kind="$3" sum_url="${4:-}"
+  local part="${out}.part" src mode rc actual
+  local sources=() slow_sources=()
+
+  gh_prepare_sources "$url"
+
+  GH_EXPECTED_SHA256=""
+  if [[ -n "$sum_url" ]]; then
+    echo "🔐 正在获取校验文件..."
+    if ! gh_fetch_expected_sha256 "$sum_url" "${out}.sha256.part"; then
+      echo "⚠️  无法获取校验文件，跳过 sha256 校验（仅检查文件格式）"
+    fi
+  fi
+
+  sources=("${GH_SOURCES[@]}")
+  for mode in strict lenient; do
+    if [[ "$mode" == "lenient" ]]; then
+      [[ ${#slow_sources[@]} -eq 0 ]] && break
+      echo "⚠️  下载源速度都过慢，放宽速度限制后重试..."
+      sources=("${slow_sources[@]}")
+    fi
+    for src in "${sources[@]}"; do
+      echo "⬇️  尝试下载源：$(gh_source_label "$src")"
+      gh_fetch "$(gh_source_url "$src" "$url")" "$part" "$mode" 1
+      rc=$?
+      if [[ $rc -ne 0 ]]; then
+        [[ $rc -eq 2 && "$mode" == "strict" ]] && slow_sources+=("$src")
+        echo "   ❌ 下载失败（${GH_FETCH_ERROR}）"
+        continue
+      fi
+      if ! gh_validate "$part" "$kind"; then
+        rm -f "$part"
+        echo "   ❌ 内容无效（${GH_REJECT_REASON}），换下一个下载源"
+        continue
+      fi
+      if [[ -n "$GH_EXPECTED_SHA256" ]]; then
+        actual=$(gh_sha256_of "$part")
+        if [[ -z "$actual" ]]; then
+          echo "   ⚠️  系统缺少 sha256 工具，跳过校验"
+        elif [[ "$actual" != "$GH_EXPECTED_SHA256" ]]; then
+          rm -f "$part"
+          echo "   ❌ sha256 校验失败（期望 ${GH_EXPECTED_SHA256:0:12}…，实际 ${actual:0:12}…），换下一个下载源"
+          continue
+        else
+          echo "   ✅ sha256 校验通过"
+        fi
+      fi
+      mv -f "$part" "$out"
+      return 0
+    done
+  done
+  rm -f "$part"
+  return 1
 }
 
 # 解析版本并构建下载地址
@@ -191,55 +449,87 @@ check_and_install_tcpkill() {
   if command -v tcpkill &> /dev/null; then
     return 0
   fi
-  
+
+  # tcpkill 为可选组件（删除/暂停转发时用于断开该端口上的已有连接），安装失败不影响节点运行
+  echo "🔧 安装 tcpkill (dsniff)…（可选组件，最多约 5 分钟，失败会跳过）"
+
+  # 包管理器调用加超时，避免软件源缓慢或不可达时长时间卡住
+  local t_update="" t_install="" rc=0
+  if command -v timeout &> /dev/null; then
+    t_update="timeout 120"
+    t_install="timeout 180"
+  fi
+
   OS_TYPE=$(uname -s)
   if [[ "$OS_TYPE" == "Darwin" ]]; then
     if command -v brew &> /dev/null; then
-      brew install dsniff &> /dev/null
+      $t_install brew install dsniff &> /dev/null
     fi
     return 0
   fi
-  
+
   if [ -f /etc/os-release ]; then
-    . /etc/os-release
-    DISTRO=$ID
+    # 在子 shell 中读取，避免 os-release 里的 VERSION 等变量覆盖面板传入的 VERSION
+    DISTRO=$(. /etc/os-release && echo "$ID")
   elif [ -f /etc/redhat-release ]; then
     DISTRO="rhel"
   elif [ -f /etc/debian_version ]; then
     DISTRO="debian"
   else
+    echo "⚠️  无法识别系统发行版，跳过 tcpkill 安装"
     return 0
   fi
-  
+
   case $DISTRO in
     ubuntu|debian)
-      apt update &> /dev/null
-      apt install -y dsniff &> /dev/null
+      echo "   apt 更新软件源..."
+      DEBIAN_FRONTEND=noninteractive $t_update apt-get update &> /dev/null
+      echo "   apt 安装 dsniff..."
+      DEBIAN_FRONTEND=noninteractive $t_install apt-get install -y dsniff &> /dev/null
+      rc=$?
       ;;
     centos|rhel|fedora)
       if command -v dnf &> /dev/null; then
-        dnf install -y dsniff &> /dev/null
+        $t_install dnf install -y dsniff &> /dev/null
+        rc=$?
       elif command -v yum &> /dev/null; then
-        yum install -y dsniff &> /dev/null
+        $t_install yum install -y dsniff &> /dev/null
+        rc=$?
       fi
       ;;
     alpine)
-      apk add --no-cache dsniff &> /dev/null
+      $t_install apk add --no-cache dsniff &> /dev/null
+      rc=$?
       ;;
     arch|manjaro)
-      pacman -S --noconfirm dsniff &> /dev/null
+      $t_install pacman -S --noconfirm dsniff &> /dev/null
+      rc=$?
       ;;
     opensuse*|sles)
-      zypper install -y dsniff &> /dev/null
+      $t_install zypper install -y dsniff &> /dev/null
+      rc=$?
       ;;
     gentoo)
-      emerge --ask=n net-analyzer/dsniff &> /dev/null
+      $t_install emerge --ask=n net-analyzer/dsniff &> /dev/null
+      rc=$?
       ;;
     void)
-      xbps-install -Sy dsniff &> /dev/null
+      $t_install xbps-install -Sy dsniff &> /dev/null
+      rc=$?
       ;;
   esac
-  
+
+  if command -v tcpkill &> /dev/null; then
+    echo "✅ tcpkill 已安装"
+  elif [[ $rc -eq 124 ]]; then
+    echo "⚠️  tcpkill 安装超时，已跳过（不影响节点运行，可稍后手动安装 dsniff）"
+    if [[ "$DISTRO" == "ubuntu" || "$DISTRO" == "debian" ]]; then
+      echo "   如之后 apt 提示 dpkg 被中断，请执行：dpkg --configure -a"
+    fi
+  else
+    echo "⚠️  tcpkill 安装失败，已跳过（不影响节点运行，可稍后手动安装 dsniff）"
+  fi
+
   return 0
 }
 
@@ -391,6 +681,28 @@ migrate_legacy_config() {
   echo "✅ 配置迁移完成"
 }
 
+# 等待节点连接面板（最多 15 秒）：config.json 写入 node_id，或本次启动后的日志出现 WebSocket 连接成功
+wait_panel_connection() {
+  local since="$1" deadline
+  deadline=$(( $(date +%s) + 15 ))
+  echo "⏳ 等待节点连接面板（最多 15 秒）..."
+  while :; do
+    if grep -Eq '"node_id"[[:space:]]*:[[:space:]]*[1-9][0-9]*' "$INSTALL_DIR/config.json" 2>/dev/null; then
+      echo "✅ 节点已连接面板"
+      return 0
+    fi
+    if command -v journalctl &> /dev/null && \
+       journalctl -u "${SERVICE_NAME}" --since "$since" --no-pager -q -o cat 2>/dev/null | grep -q 'WebSocket 连接建立成功'; then
+      echo "✅ 节点已连接面板"
+      return 0
+    fi
+    [[ $(date +%s) -ge $deadline ]] && break
+    sleep 1
+  done
+  echo "⚠️ 15 秒内未连上面板，请检查面板地址/网络 (journalctl -u ${SERVICE_NAME} -n 50)"
+  return 1
+}
+
 # 安装功能
 install_service() {
   get_config_params
@@ -414,21 +726,12 @@ install_service() {
   # 显示下载源并下载
   show_download_source "$DOWNLOAD_URL"
   ARCH=$(get_architecture)
-  
-  DOWNLOAD_URLS=(
-    "$DOWNLOAD_URL"
-  )
-  
-  # 循环尝试每个下载源
-  for url in "${DOWNLOAD_URLS[@]}"; do
-    wget -q "$url" -O "$INSTALL_DIR/${SERVICE_NAME}" 2>/dev/null && \
-    if [[ -f "$INSTALL_DIR/${SERVICE_NAME}" && -s "$INSTALL_DIR/${SERVICE_NAME}" ]]; then
-      break
-    fi
-  done
-  
-  if [[ ! -f "$INSTALL_DIR/${SERVICE_NAME}" || ! -s "$INSTALL_DIR/${SERVICE_NAME}" ]]; then
+
+  # 依次尝试 GitHub 直连与加速镜像，并校验 sha256
+  if ! gh_download "$DOWNLOAD_URL" "$INSTALL_DIR/${SERVICE_NAME}" bin "${DOWNLOAD_URL}.sha256" || \
+     [[ ! -s "$INSTALL_DIR/${SERVICE_NAME}" ]]; then
     echo "❌ 无法下载版本 ${RESOLVED_VERSION} 的 ${SERVICE_NAME}，停止安装。"
+    echo "   可指定其它加速镜像重试，例如：GH_PROXY=https://你的镜像/ ./install.sh ..."
     exit 1
   fi
   chmod +x "$INSTALL_DIR/${SERVICE_NAME}"
@@ -477,53 +780,16 @@ EOF
 
   systemctl daemon-reload
   systemctl enable ${SERVICE_NAME}
+  # 记录启动时间，只在本次启动之后的日志里判断是否连上面板
+  SERVICE_START_TS=$(date '+%Y-%m-%d %H:%M:%S')
   systemctl start ${SERVICE_NAME}
 
   echo "🔄 检查服务状态..."
   if systemctl is-active --quiet ${SERVICE_NAME}; then
     echo "✅ 服务已启动"
-    
-    # 等待节点从面板获取 node_id（轮询检查，最多等待 30 秒）
-    echo "⏳ 等待节点初始化..."
-    for i in $(seq 1 10); do
-      if [ -f "$INSTALL_DIR/config.json" ]; then
-        node_id=$(grep -o '"node_id":[0-9]*' "$INSTALL_DIR/config.json" | grep -o '[0-9]*' || echo "0")
-        if [ "$node_id" -gt 0 ] 2>/dev/null; then
-          echo "✅ 节点已初始化 (node_id: $node_id)"
-          break
-        fi
-      fi
-      sleep 3
-    done
-    
-    # 安装完成后归零流量
-    echo "归零流量统计..."
-    
-    # 从 config.json 读取 NODE_ID（支持 nodeId 和 node_id 两种格式）
-    NODE_ID=$(cat "$INSTALL_DIR/config.json" 2>/dev/null | grep -o '"node_id"[[:space:]]*:[[:space:]]*[0-9]*' | grep -o '[0-9]*')
-    if [[ -z "$NODE_ID" ]]; then
-      NODE_ID=$(cat "$INSTALL_DIR/config.json" 2>/dev/null | grep -o '"nodeId"[[:space:]]*:[[:space:]]*[0-9]*' | grep -o '[0-9]*')
-    fi
-    
-    if [[ -n "$NODE_ID" ]]; then
-      # 自动检测是否 HTTPS
-      if [[ "$SERVER_ADDR" == https://* ]]; then
-        CURL_CMD="curl -k"
-      else
-        CURL_CMD="curl"
-      fi
-      
-      # 调用归零流量 API
-      ${CURL_CMD} -X POST "${SERVER_ADDR}/api/v1/node/batch-reset-traffic" \
-        -H "Content-Type: application/json" \
-        -d "{\"nodeIds\": [${NODE_ID}], \"reason\": \"节点安装\"}" \
-        2>/dev/null && echo "✅ 流量已归零" || echo "⚠️ 流量归零失败"
-    else
-      echo "⚠️ 无法获取节点 ID，跳过流量归零"
-    fi
-    
-    
-    
+
+    wait_panel_connection "$SERVICE_START_TS"
+
     echo "📁 配置目录：$INSTALL_DIR"
     echo "🔧 服务状态：$(systemctl is-active ${SERVICE_NAME})"
   else
@@ -579,8 +845,7 @@ update_service() {
   SCRIPT_DOWNLOAD_URL="${DOWNLOAD_HOST}/install.sh"
   
   echo "⬇️ 正在检查并更新安装脚本自身..."
-  wget -q "$SCRIPT_DOWNLOAD_URL" -O "${SCRIPT_PATH}.new"
-  if [[ -f "${SCRIPT_PATH}.new" && -s "${SCRIPT_PATH}.new" ]]; then
+  if gh_download "$SCRIPT_DOWNLOAD_URL" "${SCRIPT_PATH}.new" script && [[ -s "${SCRIPT_PATH}.new" ]]; then
     mv "${SCRIPT_PATH}.new" "$SCRIPT_PATH"
     chmod +x "$SCRIPT_PATH"
     echo "✅ 安装脚本已更新覆盖"
@@ -597,21 +862,13 @@ update_service() {
   # 显示下载源并下载
   show_download_source "$DOWNLOAD_URL"
   ARCH=$(get_architecture)
-  
-  DOWNLOAD_URLS=(
-    "$DOWNLOAD_URL"
-  )
-  
-  # 循环尝试每个下载源
-  for url in "${DOWNLOAD_URLS[@]}"; do
-    wget -q "$url" -O "$INSTALL_DIR/${SERVICE_NAME}.new" 2>/dev/null && \
-    if [[ -f "$INSTALL_DIR/${SERVICE_NAME}.new" && -s "$INSTALL_DIR/${SERVICE_NAME}.new" ]]; then
-      break
-    fi
-  done
-  
-  if [[ ! -f "$INSTALL_DIR/${SERVICE_NAME}.new" || ! -s "$INSTALL_DIR/${SERVICE_NAME}.new" ]]; then
+
+  # 依次尝试 GitHub 直连与加速镜像，并校验 sha256
+  if ! gh_download "$DOWNLOAD_URL" "$INSTALL_DIR/${SERVICE_NAME}.new" bin "${DOWNLOAD_URL}.sha256" || \
+     [[ ! -s "$INSTALL_DIR/${SERVICE_NAME}.new" ]]; then
     echo "❌ 无法下载版本 ${RESOLVED_VERSION} 的 ${SERVICE_NAME}，停止更新。"
+    echo "   可指定其它加速镜像重试，例如：GH_PROXY=https://你的镜像/ ./install.sh"
+    rm -f "$INSTALL_DIR/${SERVICE_NAME}.new" 2>/dev/null
     return 1
   fi
 

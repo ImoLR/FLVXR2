@@ -107,7 +107,7 @@ docker compose -f docker-compose-v6.yml up -d
 - CI uses UPX compression (`--best --lzma`) on Go binaries before release.
 - CI dynamically injects `PINNED_VERSION` into install scripts and docker-compose files during releases.
 - `panel_install.sh` auto-detects IPv6 and modifies `/etc/docker/daemon.json` to enable IPv6 bridge.
-- Download proxy `https://gcode.hostcentral.cc/` used for GitHub downloads in China/restricted environments.
+- GitHub download mirrors (prefix style `<mirror>/https://github.com/...`): `install.sh` `GH_MIRRORS`, panel install command and agent OTA URLs (`githubMirrorPrefixes` in `go-backend/internal/http/handler/upgrade.go`) — keep both lists in sync (a test enforces it).
 - Backend has contract tests in `go-backend/tests/contract/` - frontend has no test infrastructure.
 - `analysis/3x-ui/` contains a separate git repo for reference/comparison - not part of FLVX core.
 - CI workflows: `ci-build.yml` (build check), `docker-build.yml` (multi-arch images + release), `deploy-docs.yml` (MkDocs).

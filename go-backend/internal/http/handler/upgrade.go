@@ -145,6 +145,28 @@ func releaseAssetURL(version, filename string) string {
 	return fmt.Sprintf("%s/%s/releases/download/%s/%s", githubHTMLBase, githubRepo, version, filename)
 }
 
+// githubMirrorPrefixes are prefix-style GitHub download mirrors
+// (<prefix>https://github.com/...), ordered by reliability. They let nodes that
+// cannot reach GitHub directly (e.g. mainland-China-only networks) install and
+// upgrade. Keep in sync with GH_MIRRORS in install.sh.
+var githubMirrorPrefixes = []string{
+	"https://ghfast.top/",
+	"https://gh-proxy.com/",
+	"https://gcode.hostcentral.cc/",
+}
+
+// releaseAssetSourceURLs returns the GitHub release asset URL followed by the
+// same asset through every mirror, in the order they should be tried.
+func releaseAssetSourceURLs(version, filename string) []string {
+	direct := releaseAssetURL(version, filename)
+	urls := make([]string, 0, len(githubMirrorPrefixes)+1)
+	urls = append(urls, direct)
+	for _, prefix := range githubMirrorPrefixes {
+		urls = append(urls, prefix+direct)
+	}
+	return urls
+}
+
 func (h *Handler) currentPanelAgentVersion(requested string) (string, error) {
 	current := strings.TrimSpace(h.GetFluxVersion())
 	if !stableVersionPattern.MatchString(current) {
@@ -159,15 +181,26 @@ func (h *Handler) currentPanelAgentVersion(requested string) (string, error) {
 	return current, nil
 }
 
+// buildNodeInstallCommand returns a single copy-pasteable line: fetch install.sh
+// from GitHub, falling back through the mirrors (each attempt bounded by a
+// connect timeout and a max time), then run it. The frontend appends
+// " -n <service>", so the line must end with the install.sh arguments.
 func buildNodeInstallCommand(version, panelAddr, secret string) string {
-	return fmt.Sprintf("curl -fL %s -o ./install.sh && chmod +x ./install.sh && VERSION=%s ./install.sh -a %s -s %s",
-		releaseAssetURL(version, "install.sh"), version, panelAddr, secret)
+	sources := releaseAssetSourceURLs(version, "install.sh")
+	fetches := make([]string, 0, len(sources))
+	for _, u := range sources {
+		fetches = append(fetches, fmt.Sprintf("curl -fsSL --connect-timeout 5 -m 30 %s -o ./install.sh", u))
+	}
+	return fmt.Sprintf("{ %s; } && chmod +x ./install.sh && VERSION=%s ./install.sh -a %s -s %s",
+		strings.Join(fetches, " || "), version, panelAddr, secret)
 }
 
+// agentUpgradeCommandData lists GitHub first, then the mirrors. The agent tries
+// downloadUrls in order and pairs checksumUrls[i] with downloadUrls[i].
 func agentUpgradeCommandData(version string) map[string]interface{} {
 	return map[string]interface{}{
-		"downloadUrls": []string{releaseAssetURL(version, "gost-{ARCH}")},
-		"checksumUrls": []string{releaseAssetURL(version, "gost-{ARCH}.sha256")},
+		"downloadUrls": releaseAssetSourceURLs(version, "gost-{ARCH}"),
+		"checksumUrls": releaseAssetSourceURLs(version, "gost-{ARCH}.sha256"),
 		"version":      version,
 	}
 }
