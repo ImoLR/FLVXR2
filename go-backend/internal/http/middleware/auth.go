@@ -96,6 +96,10 @@ func shouldSkip(path string) bool {
 		return true
 	case path == "/api/v1/config/get":
 		return true
+	case path == "/api/v1/license/info":
+		// Stale-frontend kill switch (handler.staleFrontendKick): must answer
+		// 401 + Clear-Site-Data for any token, so it bypasses JWT checks.
+		return true
 	case path == "/api/v1/config/list":
 		return true
 	case path == "/api/v1/user/login":

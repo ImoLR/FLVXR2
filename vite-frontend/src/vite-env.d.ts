@@ -10,6 +10,9 @@ interface ImportMeta {
   readonly env: ImportMetaEnv;
 }
 
+// Injected by vite.config.ts `define`; matches dist/version.json.
+declare const __APP_BUILD_ID__: string;
+
 declare module "virtual:pwa-register" {
   export function registerSW(options?: {
     immediate?: boolean;

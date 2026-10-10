@@ -196,7 +196,9 @@ func TestRemovedCommercialRoutes(t *testing.T) {
 	const secret = "removed-routes-jwt"
 	router, _ := setupContractRouter(t, secret)
 	token := mustAdminToken(t, secret)
-	for _, path := range []string{"/api/v1/license/info", "/api/v1/license/config", "/api/v1/license/transfer"} {
+	// /api/v1/license/info is answered by the stale-frontend kill switch
+	// (401 + Clear-Site-Data), see stale_client_kick_contract_test.go.
+	for _, path := range []string{"/api/v1/license/config", "/api/v1/license/transfer"} {
 		req := httptest.NewRequest(http.MethodPost, path, nil)
 		req.Header.Set("Authorization", token)
 		res := httptest.NewRecorder()

@@ -181,6 +181,7 @@ func (h *Handler) WebSocketHandler() http.Handler {
 }
 
 func (h *Handler) Register(mux *http.ServeMux) {
+	mux.HandleFunc(StaleFrontendKickPath, h.staleFrontendKick)
 	mux.HandleFunc("/api/v1/user/login", h.login)
 	mux.HandleFunc("/api/v1/user/logout", h.logout)
 	mux.HandleFunc("/api/v1/user/register", h.userRegister)
