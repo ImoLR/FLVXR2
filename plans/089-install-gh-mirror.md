@@ -53,8 +53,44 @@
 - [x] Frontend check (no own command builder)
 - [x] Verification: bash -n / shellcheck, helper tests (a) direct (b) GitHub blackholed (c) garbage mirror (d) timings
 - [x] Verification: end-of-install block (full install in a throwaway systemd container against a local panel if feasible)
-- [ ] go test ./... (baseline 15)
-- [ ] Commit, push, tag 3.0.27-fork.40, CI + release assets verified
-- [ ] Prod backup + prune + upgrade /opt/flvx-svc, health + node state
-- [ ] Prod install command run on this host up to the install.sh download (direct + GitHub blackholed)
-- [ ] Plan marked complete
+- [x] go test ./... (baseline 15)
+- [x] Commit, push, tag 3.0.27-fork.40, CI + release assets verified
+- [x] Prod backup + prune + upgrade /opt/flvx-svc, health + node state
+- [x] Prod install command run on this host up to the install.sh download (direct + GitHub blackholed)
+- [x] Plan marked complete
+
+## Results (round 2, 2026-10-10)
+- `go test ./...` (go-backend, fork.40 head 9e0a38fd): 15 failing tests/subtests, list identical to the
+  fork.39 final run (federation dual panel ×3, backup export/import ×4, legacy migrations ×2, renewal TZ,
+  service monitor, federation nodelay, tunnel addr-in-use, …) → no new failures. Install/OTA tests
+  (`TestPanelAgentInstallCommand*`, `TestPanelAgentUpgradeUsesExactPanelVersion`,
+  `TestInstallerMirrorChainMatchesPanel`) pass.
+- Round 1 timings (helper/full-install tests in throwaway containers): GitHub blackholed (iptables DROP) →
+  one-line command falls back to ghfast.top in 5.5 s; install.sh probe 5 s then ghfast.top; old agent OTA
+  with GitHub DROP: HEAD stalls 30 s (Go default dial timeout) then ghfast.top, 32 s total.
+- CI: CI Build Check 38041187091 ✅, Build and Push Images 38041298912 ✅. Release `3.0.27-fork.40`
+  published 09:42:05Z, Latest, not prerelease, same 10 assets as fork.39; install.sh / panel_install.sh
+  `PINNED_VERSION="3.0.27-fork.40"`, `REPO="ImoLR/FLVXR2"`, `GH_MIRRORS` present, no
+  `batch-reset-traffic`; install.sh asset = repo file apart from PINNED_VERSION; compose images
+  `ghcr.io/imolr/flvxr2-svc-*:3.0.27-fork.40`; gost-amd64/arm64 sha256 match their `.sha256` assets
+  (amd64 4dfc30ed…, arm64 ecd6cf7a…).
+- Prod: rollback dir `/opt/flvx-svc/rollback/pre-fork40-20261010T110227Z` (compose + .env,
+  `gost.db.validated` quick_check ok, 27 nodes / 26 forwards / 2.29 M node_metric), local tags
+  `local/flvxx-{backend,frontend}:pre-fork40-20261010T110227Z` (= fork.39 images). prune-backups kept
+  pre-fork40 + pre-fork39, removed pre-fork38 + fork.37 images. Upgraded 11:02:55Z: backend healthy,
+  frontend 200, `/version.json` build `3.0.27-fork.40-…`, `/license/info` still 401. 26/27 nodes online
+  (24 long-offline, as before), all 26 have node_metric < 60 s old.
+- Prod install command (`POST /api/v1/node/install`, node 48, admin JWT) = the 4-source `{ … || … ; }`
+  chain. Run on this host in a disposable `debian:trixie-slim` container (fetch block only + install.sh's
+  `gh_download` for gost-amd64 + sha256; main()/agent install never run, secret not used):
+  - direct: install.sh 0.13 s; probe OK → GitHub direct, sha256 OK, 0.32 s;
+  - GitHub blackholed (`--add-host` github.com / release-assets / objects → 10.255.255.1): install.sh via
+    ghfast.top after 4.7 s; probe fails → "检测到无法直连 GitHub，使用加速镜像下载" → checksum + binary
+    from ghfast.top, sha256 OK, 1.8 s.
+- OTA data: same `releaseAssetSourceURLs` as the install command (direct, ghfast.top, gh-proxy.com,
+  gcode.hostcentral.cc; checksumUrls paired); prod backend binary contains the three mirror prefixes.
+  No node OTA was triggered.
+- Agent caveat (no go-gost change): OTA uses `http.Head`/`http.Get` with the default client — up to
+  30 s per dead source on connect, and no overall timeout if a download stalls mid-transfer (panel
+  waits ≤5 min). Suggestion for a future agent release: per-request timeouts.
+- Cleanup: round-1 test container `flvx-installtest-bh` + image `local/flvx-installtest:1` removed.
