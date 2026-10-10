@@ -94,12 +94,12 @@ update; the only fix was "clear site data" by hand.
 - [x] nginx: `location = /version.json` no-store
 - [x] `go test ./...` (compare failures with fork.38 base), `npm run build` + `npm run lint`
 - [x] Playwright: (a) old build id → exactly one reload; persistent mismatch → at most one; (b) 2-min idle visible tab → no extra requests; (c) `/api/v1/license/info` → 401 + header; old-frontend simulation
-- [ ] Push branch, CI green
-- [ ] Tag `3.0.27-fork.39`, Build and Push Images green, release assets verified
-- [ ] Prod backup (rollback dir + image tags), prune to 2 newest
-- [ ] Upgrade /opt/flvx-svc to fork.39, verify health, nodes reporting
-- [ ] Prod curl: `/version.json` JSON + no-store; `/api/v1/license/info` 401 + `Clear-Site-Data`
-- [ ] Plan marked complete + pushed
+- [x] Push branch, CI green (CI Build Check run 38036008219)
+- [x] Tag `3.0.27-fork.39`, Build and Push Images green (run 38036698569), release assets verified
+- [x] Prod backup (rollback dir + image tags), prune to 2 newest
+- [x] Upgrade /opt/flvx-svc to fork.39, verify health, nodes reporting
+- [x] Prod curl: `/version.json` JSON + no-store; `/api/v1/license/info` 401 + `Clear-Site-Data`
+- [x] Plan marked complete + pushed
 
 ## Verification notes
 - `go test ./...`: 15 failing tests/subtests on the branch = exactly the 15 on the
@@ -146,3 +146,20 @@ update; the only fix was "clear site data" by hand.
     `Cache-Control: no-store`; missing file → 404 (not index.html);
     `/api/v1/license/info` → 401 + `Clear-Site-Data: "storage"` passed through;
     index/sw.js still `no-cache`, assets immutable.
+
+## Release / deploy notes
+- Tag `3.0.27-fork.39` on 61d78f2f (branch `maintenance/3.0.27-fork.39-stale-client-kick`);
+  release Latest, not prerelease, same 10 assets as fork.38, compose images
+  `ghcr.io/imolr/flvxr2-svc-*:3.0.27-fork.39`, `PINNED_VERSION`/`REPO=ImoLR/FLVXR2` in both
+  scripts, gost sha256 OK; v6 compose identical to fork.38's apart from the version.
+- Rollback point `/opt/flvx-svc/rollback/pre-fork39-20261010T080623Z` (compose + .env,
+  online DB backup quick_check ok, local tags `local/flvxx-{backend,frontend}:pre-fork39-20261010T080623Z`
+  = fork.38 images). Prune removed pre-fork37 + fork.36 images. No schema change.
+- Panel upgraded 2026-10-10 08:23:53Z. Backend healthy; 26/26 reporting nodes sent
+  metrics <15 s after restart (node 24 long-offline as before); the 3 startup
+  `SetQuotaGroups: 节点不在线` lines are the usual reconnect race (retried after the interval).
+- Prod checks through Cloudflare (`https://flvxx.imgamer.top`): `/version.json` → 200
+  `application/json`, `cache-control: no-store`, `cf-cache-status: DYNAMIC`,
+  `{"build":"3.0.27-fork.39-mv2445vv"}` = the id inside the served
+  `index-EX9EPoq-.js`; `POST`/`GET` `/api/v1/license/info` (no token / junk token) →
+  401, `clear-site-data: "storage"`, envelope `{code:401,msg:"未登录或token已过期"}`.
