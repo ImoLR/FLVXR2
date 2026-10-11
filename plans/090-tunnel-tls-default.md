@@ -99,3 +99,15 @@ Status: DONE 2026-10-11 (prod on 3.0.27-fork.41, all 48 tunnels converted to tls
 - [x] Part B: verify DB, filter after-dump identical, diagnose, 2 node spot-checks,
       node_metric advancing, redeploy errors only node 24
 - [x] Plan marked complete
+
+## R2 verification (2026-10-11, read-only + one throwaway tunnel, no code/release)
+- [x] Panel `/tunnel/diagnose` on all 53 tunnels (48 type-2 + 5 type-1, sequential, no writes):
+      41 OK, 12 fail only on offline entry node 24 (36/37/38/44/50–55/70 + type-1 40,
+      whose `入口→外网` fallback reports `所有TCP连接尝试都失败`), 0 real failures, no fixes needed.
+- [x] Throwaway tunnel `zz-tls-default-test-10110646` (id 79, entry 49 → exit 47) created by
+      driving the prod fork.41 UI (protocol left at default): stored chain_type 3 protocol
+      `tls`, exit listener 47:10028 answered TLS 1.3, diagnose OK; deleted via `/tunnel/delete`,
+      listener gone, chain_tunnel/tunnel identical to the pre-test snapshot (53 tunnels, 116
+      tls rows of chain_type 2/3 = round-1 after dump). Pre-test backup:
+      `rollback/pre-tunneltls-20261011T062620Z/pre-r2-throwaway.db` (quick_check ok).
+      Evidence: /root/flvx-workers/runs/tunnel-tls-default-r2/.
