@@ -10,7 +10,7 @@
 - [x] 实现缺失 workbox-window chunk 的 no-store / Clear-Site-Data reset 与 10 分钟 sessionStorage guard。
 - [x] 验证真实 nginx 响应、现存 chunk/其他资源不变，tsc/build/precache/lint 不退步。
 - [x] 验证同一卡死 profile 恢复、两分钟不循环、第二次访问正常；fork.42 更新 toast 与全新 profile 60 秒空闲回归。
-- [ ] 推送分支，CI 全绿后创建 fork.43 tag；镜像工作流、Latest release 和资产核验。
+- [x] 推送分支，CI 全绿后创建 fork.43 tag；镜像工作流、Latest release 和资产核验。
 - [ ] 生产在线备份/回滚点，prune 保留最新两份；升级、健康和节点上报验证。
 - [ ] Cloudflare 响应核验，观察指定手机 IP 最多 30 分钟。
 - [ ] 清理临时资源，完成中文总结与最终计划提交。
@@ -34,3 +34,6 @@
 
 - 浏览器回归全过：在原持久 profile 重新装入 fork.24 SW 并删去 D3F 缓存后启用修复，恰好一次 reset（注册数 0、缓存空）→ GET / 200 → 新 SW 控制 fork.43；两分钟零新增请求/零循环，第二次访问无 reset。自然永久卡死仍未复现，不能等同于生产手机已恢复。证据 `browser-reset.json` / `reset-recovered.png`。
 - fork.42→43 恰好一次自动刷新和一次「已更新到 v3.0.27-fork.43」，再访问静默；全新 profile 无 reset，60 秒可见空闲零新增请求。证据 `browser-upgrade42.json` / `browser-fresh.json`。所有 Chromium 串行并受 650M/0 swap scope 限制，记录的 oom/oom_kill 为 0。
+
+- 发布提交 `9baa8ed9`：CI [38146816488](https://github.com/ImoLR/FLVXR2/actions/runs/38146816488) 全绿后推送 annotated tag `3.0.27-fork.43`。镜像工作流 [38146957353](https://github.com/ImoLR/FLVXR2/actions/runs/38146957353) 成功；[Release](https://github.com/ImoLR/FLVXR2/releases/tag/3.0.27-fork.43) 为 Latest、非预发布，10 个资产与 fork.42 集合一致，compose 镜像标签、两份脚本版本/仓库、amd64/arm64 SHA256、离线 ZIP 完整性全部通过（`release-validation.json`）。
+- 本机浏览器实际版本为 Chrome for Testing 153.0.8010.12，与生产手机 Chrome 138 不同（`chromium-version.txt`），是复现边界之一。
