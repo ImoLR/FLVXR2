@@ -9,7 +9,7 @@
 - [x] 提取 fork.11、fork.38 dist 并删除下载镜像；扩展运行目录 harness 支持旧 immutable SW 与固定旧 SW 的 edge 模拟。
 - [x] 完成 tsc/build/precache/lint 对照及真实 nginx 验证 E。
 - [x] 完成浏览器 A（原生缓存及 edge 模拟）、B、C、D；保留登录、无循环、二次访问、toast/idle 证据。
-- [ ] 推送分支，CI 全绿后打 fork.44 标签；核验镜像工作流、Latest release 及资产。
+- [x] 推送分支，CI 全绿后打 fork.44 标签；核验镜像工作流、Latest release 及资产。
 - [ ] 生产备份与回滚点，prune 保留两份，升级并验证健康及节点上报。
 - [ ] 核验 Cloudflare 实际响应头，观察目标手机 IP 最多 30 分钟并如实记录。
 - [ ] 清理临时资源，完成中文总结与最终计划提交、推送。
@@ -35,3 +35,5 @@
 - `D-fresh.json`：新 profile 首次只注册 `/flvx-sw.js`，无 reset，60 秒空闲 0 新请求。所有浏览器均串行、受 650M/0 swap scope 限制且启动前通过 ≥750 MiB 门槛；`browser-memory-events.txt` 各次 oom/oom_kill 均 0。全部 A–E 和本地静态检查通过后进入发布门禁。
 
 - 发布门禁 CI [38153881353](https://github.com/ImoLR/FLVXR2/actions/runs/38153881353) 四项全绿后，已创建并推送 annotated tag `3.0.27-fork.44`，指向 `0399916d`；镜像工作流 [38154032852](https://github.com/ImoLR/FLVXR2/actions/runs/38154032852) 正在运行。
+
+- 镜像工作流 38154032852 全部必要步骤成功；[fork.44 Release](https://github.com/ImoLR/FLVXR2/releases/tag/3.0.27-fork.44) 为 Latest、非预发布，10 个资产与 fork.43 一致；compose 镜像标签、两份脚本 PINNED_VERSION/仓库、amd64/arm64 SHA256、离线 ZIP 完整性全部通过（`release-validation.json`）。
