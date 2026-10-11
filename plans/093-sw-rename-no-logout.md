@@ -37,3 +37,5 @@
 - 发布门禁 CI [38153881353](https://github.com/ImoLR/FLVXR2/actions/runs/38153881353) 四项全绿后，已创建并推送 annotated tag `3.0.27-fork.44`，指向 `0399916d`；镜像工作流 [38154032852](https://github.com/ImoLR/FLVXR2/actions/runs/38154032852) 正在运行。
 
 - 镜像工作流 38154032852 全部必要步骤成功；[fork.44 Release](https://github.com/ImoLR/FLVXR2/releases/tag/3.0.27-fork.44) 为 Latest、非预发布，10 个资产与 fork.43 一致；compose 镜像标签、两份脚本 PINNED_VERSION/仓库、amd64/arm64 SHA256、离线 ZIP 完整性全部通过（`release-validation.json`）。
+
+- 生产备份 `/opt/flvx-svc/rollback/pre-fork44-20261011T161726Z` 已完成 SQLite 在线备份 quick_check=ok、compose/.env、fork.43 本地镜像标签、当前 nginx 无 CSD 热修配置及 rollback.sh。回滚脚本在旧容器启动前复制热修配置，常规回退不覆盖数据库。已执行 prune-backups.sh，仅保留 pre-fork44 与 pre-fork43 两份标准备份；明细见 `backup.json` / `prune-backups.log`。
