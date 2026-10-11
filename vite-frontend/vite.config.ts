@@ -69,7 +69,11 @@ export default defineConfig({
         cleanupOutdatedCaches: true,
         maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
         // version.json must always come from the network (never precached).
-        globIgnores: ["**/node_modules/**/*", "**/version.json"],
+        globIgnores: [
+          "**/node_modules/**/*",
+          "**/version.json",
+          "**/stale-client-reset.js",
+        ],
         skipWaiting: true,
         clientsClaim: true,
       },
