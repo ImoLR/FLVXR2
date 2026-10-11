@@ -12,7 +12,7 @@
 - [x] Playwright (a) d41→新版本、(b) A→B、(c) 首次访问及 60 秒空闲对照、(d) 移动/H5/桌面截图、深色模式。
 - [x] 升级前用持久 Chromium profile 安装真实生产 fork.41 SW。
 - [x] 推送分支、CI 通过、tag fork.42、镜像工作流与 release 资产核验。
-- [ ] 生产在线备份、镜像回滚标签，运行 prune-backups.sh 保留最新两份。
+- [x] 生产在线备份、镜像回滚标签，运行 prune-backups.sh 保留最新两份。
 - [ ] 升级生产，健康/节点/version.json 及真实旧→新 E2E 验证。
 - [ ] 完成中文总结、回滚说明及最终计划提交。
 
@@ -36,3 +36,6 @@
 - 真实生产旧 profile 已安装 fork.41 SW（登录页，无登录），旧 bundle `index-CP6Ydy6P.js`；见 `prod-seed.json` / `prod-before-fork41.png`。
 - 最终源码 `npx tsc --noEmit` 再次通过。发布提交 `1d8666bf`，分支 CI [38135305378](https://github.com/ImoLR/FLVXR2/actions/runs/38135305378) 全绿后推送 annotated tag `3.0.27-fork.42`。
 - 镜像/发布工作流 [38135444992](https://github.com/ImoLR/FLVXR2/actions/runs/38135444992) 成功。[Release](https://github.com/ImoLR/FLVXR2/releases/tag/3.0.27-fork.42) 为 Latest、非预发布；10 个资产与 fork.41 同名齐全，两个 compose 镜像标签、两个脚本 PINNED_VERSION/仓库、amd64/arm64 SHA256 和离线 ZIP 完整性均通过。
+- 生产回滚点 `/opt/flvx-svc/rollback/pre-fork42-20261011T114457Z/`：compose/.env、SQLite 在线备份（quick_check=ok）、fork.41 两个本地镜像标签、元数据及 rollback.sh。业务计数 node/user/tunnel/forward/forward_port/chain_tunnel = 27/10/53/28/28/181。
+- 分块备份因持续指标写入反复重试，已删除本任务未完成的 `pre-fork42-20261011T114314Z` 临时目录，改用 sqlite3 默认整库在线备份成功；没有写入生产 DB。
+- 已运行 prune-backups.sh，保留上述新备份与 `pre-tunneltls-20261011T062620Z`；删除旧 `pre-fork41-20261011T062508Z` 及关联 fork.40 镜像/本地标签。详见运行目录 `prune-backups.log`。
