@@ -728,6 +728,11 @@ export default function AdminLayout({
         {/* 底部版权信息 */}
         <div className="px-5 py-2 pb-4 mt-auto flex-shrink-0 overflow-hidden whitespace-nowrap box-border">
           <div className="flex items-center gap-2">
+            {isMobile && (
+              <span className="text-xs text-gray-500 dark:text-gray-400">
+                v{siteConfig.version}
+              </span>
+            )}
             {!isMobile && (
               <SidebarUpdateButton
                 collapsed={isCollapsed}

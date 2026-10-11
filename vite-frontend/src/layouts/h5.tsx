@@ -708,7 +708,9 @@ export default function H5Layout({ children }: { children: React.ReactNode }) {
         </nav>
 
         {/* 底部版权信息 */}
-        <div className="px-5 py-4 mt-auto flex-shrink-0" />
+        <div className="px-5 py-4 mt-auto flex-shrink-0 text-xs text-gray-500 dark:text-gray-400">
+          v{siteConfig.version}
+        </div>
       </aside>
 
       {/* 主内容区域 */}
