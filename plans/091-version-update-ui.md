@@ -11,7 +11,7 @@
 - [x] tsc/build/precache/lint 与 fork.41 基线验证。
 - [x] Playwright (a) d41→新版本、(b) A→B、(c) 首次访问及 60 秒空闲对照、(d) 移动/H5/桌面截图、深色模式。
 - [x] 升级前用持久 Chromium profile 安装真实生产 fork.41 SW。
-- [ ] 推送分支、CI 通过、tag fork.42、镜像工作流与 release 资产核验。
+- [x] 推送分支、CI 通过、tag fork.42、镜像工作流与 release 资产核验。
 - [ ] 生产在线备份、镜像回滚标签，运行 prune-backups.sh 保留最新两份。
 - [ ] 升级生产，健康/节点/version.json 及真实旧→新 E2E 验证。
 - [ ] 完成中文总结、回滚说明及最终计划提交。
@@ -34,3 +34,5 @@
 - 最终菜单复验通过（390×844）：H5 版本位于顶部，未被底部导航遮挡。1366×900 桌面侧栏 DOM 与 fork.41 完全一致（除版本字符串），截图 `mobile-h5-menu.png` / `mobile-h5-menu-dark.png` / `desktop-sidebar.png`。
 - 明/暗进度条与成功 toast 已查看截图，`pulse` 动画有效；`visual-extra.cjs` 为截图在测试环境将原有 CacheStorage 清理步骤延长 1 秒，主 A→B 验证未做此延迟，生产代码没有新增等待。WebView 无 toast，原有 app_version 1.0.3 保留。
 - 真实生产旧 profile 已安装 fork.41 SW（登录页，无登录），旧 bundle `index-CP6Ydy6P.js`；见 `prod-seed.json` / `prod-before-fork41.png`。
+- 最终源码 `npx tsc --noEmit` 再次通过。发布提交 `1d8666bf`，分支 CI [38135305378](https://github.com/ImoLR/FLVXR2/actions/runs/38135305378) 全绿后推送 annotated tag `3.0.27-fork.42`。
+- 镜像/发布工作流 [38135444992](https://github.com/ImoLR/FLVXR2/actions/runs/38135444992) 成功。[Release](https://github.com/ImoLR/FLVXR2/releases/tag/3.0.27-fork.42) 为 Latest、非预发布；10 个资产与 fork.41 同名齐全，两个 compose 镜像标签、两个脚本 PINNED_VERSION/仓库、amd64/arm64 SHA256 和离线 ZIP 完整性均通过。
