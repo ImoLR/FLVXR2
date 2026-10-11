@@ -55,11 +55,12 @@ export const showBuildUpdatedToast = (): void => {
     } catch {
       // Replace malformed storage with the current build below.
     }
-    const navigation = performance.getEntriesByType(
-      "navigation",
-    )[0] as PerformanceNavigationTiming | undefined;
+    const navigation = performance.getEntriesByType("navigation")[0] as
+      | PerformanceNavigationTiming
+      | undefined;
     const updated =
-      (typeof previousBuild === "string" && previousBuild !== __APP_BUILD_ID__) ||
+      (typeof previousBuild === "string" &&
+        previousBuild !== __APP_BUILD_ID__) ||
       (raw === null && navigation?.type === "reload");
 
     localStorage.setItem(
