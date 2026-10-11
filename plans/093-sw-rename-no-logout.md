@@ -29,3 +29,5 @@
 
 - `A-native.json`：Chromium 153.0.8010.12 在 fork.11 SW 带一年 immutable 后仍请求 origin `/sw.js`（切换 fork.43 阶段 2 次），页面更新至 fork.43，未复现手机缓存永久锁死。随后 fork.44 由 `/flvx-sw.js` 控制，token 不变，2 分钟 0 新请求/0 额外刷新，第二次访问正常。首轮因构建尚未完成而中止，原始记录保留 `A-native-attempt1.json`，完整重跑通过。
 - `A-edge.json`：固定返回 fork.11 `/sw.js` 时，完整 precache 页面仍停 fork.11；随后主动删除 D3F 的 CacheStorage 条目并清 HTTP cache 来模拟生产缺失项（仅测试 profile），fork.43 使用当前无 CSD 热修头，reset 后页面到 fork.43。继续固定旧 `/sw.js`，切 fork.44 后仅请求新 SW，token 保留，2 分钟 0 新请求/循环，第二次访问无 D3F。此为明确人工 edge/缺失缓存模拟，不声称本机自然复现手机故障。
+
+- `B-fork38.json` 与 `C-fork43.json`：旧 SW 通过 `/sw.js` alias 获取新内容，随后注册 URL 变为 `/flvx-sw.js`，token 保留，更新 toast 各 1 次，二次访问不重复。fork.43 自然再访问先由 build-freshness 成功恢复，因此没经过 `/sw.js`（`C-natural-visit.json` 的失败是 harness 过严的路径断言，token/新 SW/toast 正常）；C 补测直接触发旧注册的标准 `registration.update()`，兼容路径通过。未改应用更新逻辑。
