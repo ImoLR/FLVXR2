@@ -12,8 +12,8 @@
 - [x] 验证同一卡死 profile 恢复、两分钟不循环、第二次访问正常；fork.42 更新 toast 与全新 profile 60 秒空闲回归。
 - [x] 推送分支，CI 全绿后创建 fork.43 tag；镜像工作流、Latest release 和资产核验。
 - [x] 生产在线备份/回滚点，prune 保留最新两份；升级、健康和节点上报验证。
-- [ ] Cloudflare 响应核验，观察指定手机 IP 最多 30 分钟。
-- [ ] 清理临时资源，完成中文总结与最终计划提交。
+- [x] Cloudflare 响应核验，观察指定手机 IP 最多 30 分钟。
+- [x] 清理临时资源，完成中文总结与最终计划提交。
 
 ## 验证边界
 
@@ -43,3 +43,7 @@
 - 2026-10-11 14:37:55 UTC 开始生产升级，前后端 fork.43，后端 healthy；schema 与业务计数不变，原在线 26/26 节点均有重启后指标，24 保持原离线；未 OTA 代理、未修改生产业务数据（`prod-verification.json`）。
 - 公网 Cloudflare curl 全过：D3F 连续三次 200/reset/no-store/Clear-Site-Data，均非 HIT；当前 Cch4wiA5 SHA256 与 fork.42 一致，immutable、无 Clear-Site-Data；version.json=`3.0.27-fork.43-mv3x1cvl`。证据 `prod-curl.json` 和 `evidence/prod-*`。
 - 手机 IP 123.204.25.184 日志观察从 14:38:12 UTC 开始，最晚 15:08:12 UTC 结束。
+
+- 14:38:12–15:08:12 UTC 完整观察 1800 秒后停止：目标 IP 123.204.25.184 访问 0 条，其他客户端 D3F 也为 0，故无法现场确认手机恢复（`phone-observation.json` / `.log`）。
+- 清理核验完成：下载的 fork.16/24 镜像和临时容器已删除，测试静态服务器已停止，没有生产 DB scratch 副本；仅保留两份正式备份。测试 profile/dist/harness 留作复核证据，未触碰 plans/048、memory 或其他栈。
+- 中文总结（变更、验证、发布/生产、清理、回滚、一次退出登录及建议）已完成：`/root/flvx-workers/runs/stale-sw-chunk-reset/summary.md`。生产常规回退执行 pre-fork43 目录下 `rollback.sh`，无需恢复 DB。
