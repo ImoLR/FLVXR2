@@ -5,7 +5,7 @@
 ## 任务清单
 
 - [x] 阅读计划 092、前次总结、项目约束、发布/备份及 Chromium 内存规则，建立分支与本计划。
-- [ ] 删除 stale reset 的 Clear-Site-Data；生成/注册新 SW 文件，旧 URL 映射同一内容，两者 no-cache，明确排除 precache。
+- [x] 删除 stale reset 的 Clear-Site-Data；生成/注册新 SW 文件，旧 URL 映射同一内容，两者 no-cache，明确排除 precache。
 - [ ] 提取 fork.11、fork.38 dist 并删除下载镜像；扩展运行目录 harness 支持旧 immutable SW 与固定旧 SW 的 edge 模拟。
 - [ ] 完成 tsc/build/precache/lint 对照及真实 nginx 验证 E。
 - [ ] 完成浏览器 A（原生缓存及 edge 模拟）、B、C、D；保留登录、无循环、二次访问、toast/idle 证据。
@@ -17,3 +17,6 @@
 ## 验证与执行记录
 
 证据目录：`/root/flvx-workers/runs/sw-rename-no-logout/`。浏览器串行，启动门槛 MemAvailable ≥750 MiB，systemd scope `MemoryMax=650M MemorySwapMax=0`。不新增仓库前端测试设施；原生 Chromium 未复现的情况与人工 edge 模拟分开报告。
+
+- 实现只改 `vite.config.ts` 与 `nginx.conf`：使用插件 filename 自动改变 main.tsx 既有 registerSW 的生成 URL；旧 `/sw.js` 使用 nginx 精确 location alias 指向同一生成文件，避免复制步骤/顺序和副本预缓存风险。两者同目录，scope 不变。
+- 已安装 vite-plugin-pwa 1.3.0 的 `RegisterSWOptions` 与 `dist/client/build/register.js` 未提供 `updateViaCache` 透传，仅传 scope/type 给 Workbox；按要求跳过，不加补丁或替换现有注册流程。

@@ -33,6 +33,7 @@ export default defineConfig({
     react(),
     versionJsonPlugin(),
     VitePWA({
+      filename: "flvx-sw.js",
       registerType: "autoUpdate",
       injectRegister: "auto",
       includeAssets: ["favicon.ico", "apple-touch-icon.png"],
@@ -68,9 +69,11 @@ export default defineConfig({
         navigateFallback: "/index.html",
         cleanupOutdatedCaches: true,
         maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
-        // version.json must always come from the network (never precached).
+        // SW scripts and recovery/version files must never be precached.
         globIgnores: [
           "**/node_modules/**/*",
+          "**/flvx-sw.js",
+          "**/sw.js",
           "**/version.json",
           "**/stale-client-reset.js",
         ],
