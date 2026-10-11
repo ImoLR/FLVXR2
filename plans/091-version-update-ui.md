@@ -8,7 +8,7 @@
 - [x] 移动端 admin/H5 菜单显示 `siteConfig.version`，桌面及既有 WebView app_version 保持原样。
 - [x] 两个现有刷新入口显示「发现新版本，正在更新…」，不增加刷新等待。
 - [x] 启动时记录 `flvx-last-build`（build/version），全局一次性成功 toast，跳过 dev/WebView。
-- [ ] tsc/build/precache/lint 与 fork.41 基线验证。
+- [x] tsc/build/precache/lint 与 fork.41 基线验证。
 - [ ] Playwright (a) d41→新版本、(b) A→B、(c) 首次访问及 60 秒空闲对照、(d) 移动/H5/桌面截图、深色模式。
 - [ ] 升级前用持久 Chromium profile 安装真实生产 fork.41 SW。
 - [ ] 推送分支、CI 通过、tag fork.42、镜像工作流与 release 资产核验。
@@ -25,4 +25,9 @@
 
 ## 验证与发布记录
 
-待完成。
+- `npx tsc --noEmit`、三次 `npm run build`（A/B/最终菜单位置）通过；最终主 JS 2,748,021 字节，远低于 5 MiB，`version.json` 不在预缓存。
+- `eslint src`：fork.41 和最终代码均为 96 errors / 3583 warnings；未增加现有告警。
+- (a) d41→A 与 (b) A→B 都只有一次自动 reload，toast 各出现一次，下一次访问静默；B 刷新前有更新指示器 DOM 证据。深色 toast 截图已检查。
+- (c) 全新 profile 正常访问无提示；fork.41 与 fork.42 登录页可见空闲 60 秒均为 0 个新增请求。
+- H5 初次截图发现页底版本会被固定底部导航遮挡，最终放在抽屉顶部「导航」下；admin 移动抽屉页底灰字，桌面 SidebarUpdateButton 原样保留。
+- 证据目录：`/root/flvx-workers/runs/version-update-ui/`；最终截图/发布/生产记录继续补充。
