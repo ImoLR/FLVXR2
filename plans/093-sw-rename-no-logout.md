@@ -22,3 +22,5 @@
 - 已安装 vite-plugin-pwa 1.3.0 的 `RegisterSWOptions` 与 `dist/client/build/register.js` 未提供 `updateViaCache` 透传，仅传 scope/type 给 Workbox；按要求跳过，不加补丁或替换现有注册流程。
 
 - `extract.log`：fork.11、fork.38 镜像均存在，已提取 dist 后删除下载标签和临时提取容器；fork.43 从当前生产容器只读提取。扩展 `server.cjs` 支持 1 年 immutable 及固定 fork.11 `/sw.js`，日志记录来源/哈希；浏览器脚本使用只在 seed 阶段写入的有效格式测试 token，不会在刷新时补写。
+
+- `E-nginx.json`：fork.43 镜像挂载旧/新 dist 及配置，真实 nginx 对照全部通过。D3F=200/JS/no-store/无 Clear-Site-Data；现存 Cch4wiA5 字节与缓存头不变；SW 两 URL=200/JS/no-cache/字节一致；其他缺失 JS=404；index/version/manifest 头不变；经真实现有后端只读验证 license/info 仍 401 + Clear-Site-Data。两次临时 nginx 容器均已删除。
