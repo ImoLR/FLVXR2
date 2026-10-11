@@ -8,7 +8,7 @@
 - [x] 删除 stale reset 的 Clear-Site-Data；生成/注册新 SW 文件，旧 URL 映射同一内容，两者 no-cache，明确排除 precache。
 - [x] 提取 fork.11、fork.38 dist 并删除下载镜像；扩展运行目录 harness 支持旧 immutable SW 与固定旧 SW 的 edge 模拟。
 - [x] 完成 tsc/build/precache/lint 对照及真实 nginx 验证 E。
-- [ ] 完成浏览器 A（原生缓存及 edge 模拟）、B、C、D；保留登录、无循环、二次访问、toast/idle 证据。
+- [x] 完成浏览器 A（原生缓存及 edge 模拟）、B、C、D；保留登录、无循环、二次访问、toast/idle 证据。
 - [ ] 推送分支，CI 全绿后打 fork.44 标签；核验镜像工作流、Latest release 及资产。
 - [ ] 生产备份与回滚点，prune 保留两份，升级并验证健康及节点上报。
 - [ ] 核验 Cloudflare 实际响应头，观察目标手机 IP 最多 30 分钟并如实记录。
@@ -31,3 +31,5 @@
 - `A-edge.json`：固定返回 fork.11 `/sw.js` 时，完整 precache 页面仍停 fork.11；随后主动删除 D3F 的 CacheStorage 条目并清 HTTP cache 来模拟生产缺失项（仅测试 profile），fork.43 使用当前无 CSD 热修头，reset 后页面到 fork.43。继续固定旧 `/sw.js`，切 fork.44 后仅请求新 SW，token 保留，2 分钟 0 新请求/循环，第二次访问无 D3F。此为明确人工 edge/缺失缓存模拟，不声称本机自然复现手机故障。
 
 - `B-fork38.json` 与 `C-fork43.json`：旧 SW 通过 `/sw.js` alias 获取新内容，随后注册 URL 变为 `/flvx-sw.js`，token 保留，更新 toast 各 1 次，二次访问不重复。fork.43 自然再访问先由 build-freshness 成功恢复，因此没经过 `/sw.js`（`C-natural-visit.json` 的失败是 harness 过严的路径断言，token/新 SW/toast 正常）；C 补测直接触发旧注册的标准 `registration.update()`，兼容路径通过。未改应用更新逻辑。
+
+- `D-fresh.json`：新 profile 首次只注册 `/flvx-sw.js`，无 reset，60 秒空闲 0 新请求。所有浏览器均串行、受 650M/0 swap scope 限制且启动前通过 ≥750 MiB 门槛；`browser-memory-events.txt` 各次 oom/oom_kill 均 0。全部 A–E 和本地静态检查通过后进入发布门禁。
