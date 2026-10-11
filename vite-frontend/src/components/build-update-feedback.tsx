@@ -71,8 +71,9 @@ export const showBuildUpdatedToast = (): void => {
         id: "flvx-build-updated",
         duration: 4000,
         style: {
-          background: "var(--toaster-bg, #ffffff)",
-          color: "var(--toaster-color, #000000)",
+          background: "var(--content1, #ffffff)",
+          color: "var(--foreground, #000000)",
+          border: "1px solid var(--border, #e5e7eb)",
         },
       });
     }
