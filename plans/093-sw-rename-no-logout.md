@@ -33,3 +33,5 @@
 - `B-fork38.json` 与 `C-fork43.json`：旧 SW 通过 `/sw.js` alias 获取新内容，随后注册 URL 变为 `/flvx-sw.js`，token 保留，更新 toast 各 1 次，二次访问不重复。fork.43 自然再访问先由 build-freshness 成功恢复，因此没经过 `/sw.js`（`C-natural-visit.json` 的失败是 harness 过严的路径断言，token/新 SW/toast 正常）；C 补测直接触发旧注册的标准 `registration.update()`，兼容路径通过。未改应用更新逻辑。
 
 - `D-fresh.json`：新 profile 首次只注册 `/flvx-sw.js`，无 reset，60 秒空闲 0 新请求。所有浏览器均串行、受 650M/0 swap scope 限制且启动前通过 ≥750 MiB 门槛；`browser-memory-events.txt` 各次 oom/oom_kill 均 0。全部 A–E 和本地静态检查通过后进入发布门禁。
+
+- 发布门禁 CI [38153881353](https://github.com/ImoLR/FLVXR2/actions/runs/38153881353) 四项全绿后，已创建并推送 annotated tag `3.0.27-fork.44`，指向 `0399916d`；镜像工作流 [38154032852](https://github.com/ImoLR/FLVXR2/actions/runs/38154032852) 正在运行。
