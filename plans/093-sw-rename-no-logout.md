@@ -10,7 +10,7 @@
 - [x] 完成 tsc/build/precache/lint 对照及真实 nginx 验证 E。
 - [x] 完成浏览器 A（原生缓存及 edge 模拟）、B、C、D；保留登录、无循环、二次访问、toast/idle 证据。
 - [x] 推送分支，CI 全绿后打 fork.44 标签；核验镜像工作流、Latest release 及资产。
-- [ ] 生产备份与回滚点，prune 保留两份，升级并验证健康及节点上报。
+- [x] 生产备份与回滚点，prune 保留两份，升级并验证健康及节点上报。
 - [ ] 核验 Cloudflare 实际响应头，观察目标手机 IP 最多 30 分钟并如实记录。
 - [ ] 清理临时资源，完成中文总结与最终计划提交、推送。
 
@@ -41,3 +41,7 @@
 - 生产备份 `/opt/flvx-svc/rollback/pre-fork44-20261011T161726Z` 已完成 SQLite 在线备份 quick_check=ok、compose/.env、fork.43 本地镜像标签、当前 nginx 无 CSD 热修配置及 rollback.sh。回滚脚本在旧容器启动前复制热修配置，常规回退不覆盖数据库。已执行 prune-backups.sh，仅保留 pre-fork44 与 pre-fork43 两份标准备份；明细见 `backup.json` / `prune-backups.log`。
 
 - 首次部署 helper 沿用的正则误校验 fork.42，在写入 compose 后、拉取/启动 fork.44 前失败；自动 rollback.sh 已重建 fork.43 容器并恢复无 CSD 热修（`deploy-attempt1.log`、`deploy-attempt1-rollback.txt`、`evidence/rollback43-d3f.headers`）。已将 helper 断言修为 fork.43 后重试；未改产品代码，未恢复/覆盖生产数据库。
+
+- 重试升级于 2026-10-11 16:19:39 UTC 开始，前后端均 fork.44，后端 healthy；原在线 26/26 节点均有重启后指标（24 仍原离线）。schema 与备份时业务计数不变：{'node': 27, 'user': 11, 'tunnel': 54, 'forward': 28, 'forward_port': 28, 'chain_tunnel': 182}（`prod-verification.json`）。无手工业务数据修改/节点 OTA。
+- `prod-origin.json` 全过：两 SW URL 均 no-cache、内容相同且四文件不预缓存；D3F 无 CSD，license/info 仍401+CSD。公网 IAD Cloudflare：D3F 连续3次 no-store/BYPASS/无 CSD；旧 SW 为 EXPIRED、新 SW 为 MISS，二者内容相同，但 CF 实际向浏览器发送 `Cache-Control: max-age=14400`，覆盖 origin 的 no-cache；无 immutable，未改 CF 设置（`prod-curl.json`、`evidence/prod-*`）。
+- 手机 IP 123.204.25.184 观察窗口 16:19:39–16:49:39 UTC，最长30分钟；起始尚无该 IP 访问，不能先宣称手机已恢复。
