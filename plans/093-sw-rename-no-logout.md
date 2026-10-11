@@ -45,3 +45,5 @@
 - 重试升级于 2026-10-11 16:19:39 UTC 开始，前后端均 fork.44，后端 healthy；原在线 26/26 节点均有重启后指标（24 仍原离线）。schema 与备份时业务计数不变：{'node': 27, 'user': 11, 'tunnel': 54, 'forward': 28, 'forward_port': 28, 'chain_tunnel': 182}（`prod-verification.json`）。无手工业务数据修改/节点 OTA。
 - `prod-origin.json` 全过：两 SW URL 均 no-cache、内容相同且四文件不预缓存；D3F 无 CSD，license/info 仍401+CSD。公网 IAD Cloudflare：D3F 连续3次 no-store/BYPASS/无 CSD；旧 SW 为 EXPIRED、新 SW 为 MISS，二者内容相同，但 CF 实际向浏览器发送 `Cache-Control: max-age=14400`，覆盖 origin 的 no-cache；无 immutable，未改 CF 设置（`prod-curl.json`、`evidence/prod-*`）。
 - 手机 IP 123.204.25.184 观察窗口 16:19:39–16:49:39 UTC，最长30分钟；起始尚无该 IP 访问，不能先宣称手机已恢复。
+
+- `cleanup.json`：测试 nginx 容器及静态服务器监听均已移除，无本任务生产 DB scratch 副本；标准备份恰好 pre-fork44/pre-fork43 两份，协调者 hotfix 配置留档未动。部署记录提交 `67dded5b` 的 CI 38155083761 已成功。
