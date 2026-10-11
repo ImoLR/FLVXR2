@@ -7,7 +7,7 @@
 - [x] 阅读计划 092、前次总结、项目约束、发布/备份及 Chromium 内存规则，建立分支与本计划。
 - [x] 删除 stale reset 的 Clear-Site-Data；生成/注册新 SW 文件，旧 URL 映射同一内容，两者 no-cache，明确排除 precache。
 - [x] 提取 fork.11、fork.38 dist 并删除下载镜像；扩展运行目录 harness 支持旧 immutable SW 与固定旧 SW 的 edge 模拟。
-- [ ] 完成 tsc/build/precache/lint 对照及真实 nginx 验证 E。
+- [x] 完成 tsc/build/precache/lint 对照及真实 nginx 验证 E。
 - [ ] 完成浏览器 A（原生缓存及 edge 模拟）、B、C、D；保留登录、无循环、二次访问、toast/idle 证据。
 - [ ] 推送分支，CI 全绿后打 fork.44 标签；核验镜像工作流、Latest release 及资产。
 - [ ] 生产备份与回滚点，prune 保留两份，升级并验证健康及节点上报。
@@ -24,3 +24,5 @@
 - `extract.log`：fork.11、fork.38 镜像均存在，已提取 dist 后删除下载标签和临时提取容器；fork.43 从当前生产容器只读提取。扩展 `server.cjs` 支持 1 年 immutable 及固定 fork.11 `/sw.js`，日志记录来源/哈希；浏览器脚本使用只在 seed 阶段写入的有效格式测试 token，不会在刷新时补写。
 
 - `E-nginx.json`：fork.43 镜像挂载旧/新 dist 及配置，真实 nginx 对照全部通过。D3F=200/JS/no-store/无 Clear-Site-Data；现存 Cch4wiA5 字节与缓存头不变；SW 两 URL=200/JS/no-cache/字节一致；其他缺失 JS=404；index/version/manifest 头不变；经真实现有后端只读验证 license/info 仍 401 + Clear-Site-Data。两次临时 nginx 容器均已删除。
+
+- `tsc.log`、`build.log`、`build-validation.json` 全通过，生成/注册 `/flvx-sw.js`，四个指定文件均不在 precache。`lint-comparison.json`：基线和最终均 96 errors / 3583 warnings，未退步（eslint 因已有错误退出 1）。首次分支 CI 38153057496 四项成功。
