@@ -12,6 +12,8 @@
 // by one shared 5-min gap). While the tab is hidden, only the existing 30-min
 // service worker check runs. Nothing runs per API request.
 
+import { showBuildUpdating } from "@/components/build-update-feedback";
+
 const CHECK_MIN_GAP_MS = 5 * 60 * 1000;
 const SW_HIDDEN_CHECK_INTERVAL_MS = 30 * 60 * 1000;
 const RELOAD_GUARD_WINDOW_MS = 10 * 60 * 1000;
@@ -154,6 +156,8 @@ const refreshToBuild = async (target: string): Promise<void> => {
   if (!claimReloadGuard(target)) {
     return;
   }
+
+  showBuildUpdating();
 
   const registration = swRegistration;
 

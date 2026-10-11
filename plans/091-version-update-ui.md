@@ -6,8 +6,8 @@
 
 - [x] 阅读项目约束、发布/备份流程，创建 fork.42 分支；保留未跟踪的计划 048。
 - [x] 移动端 admin/H5 菜单显示 `siteConfig.version`，桌面及既有 WebView app_version 保持原样。
-- [ ] 两个现有刷新入口显示「发现新版本，正在更新…」，不增加刷新等待。
-- [ ] 启动时记录 `flvx-last-build`（build/version），全局一次性成功 toast，跳过 dev/WebView。
+- [x] 两个现有刷新入口显示「发现新版本，正在更新…」，不增加刷新等待。
+- [x] 启动时记录 `flvx-last-build`（build/version），全局一次性成功 toast，跳过 dev/WebView。
 - [ ] tsc/build/precache/lint 与 fork.41 基线验证。
 - [ ] Playwright (a) d41→新版本、(b) A→B、(c) 首次访问及 60 秒空闲对照、(d) 移动/H5/桌面截图、深色模式。
 - [ ] 升级前用持久 Chromium profile 安装真实生产 fork.41 SW。

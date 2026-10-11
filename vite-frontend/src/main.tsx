@@ -7,6 +7,10 @@ import { Provider } from "./provider.tsx";
 
 import "@/styles/globals.css";
 import {
+  showBuildUpdatedToast,
+  showBuildUpdating,
+} from "@/components/build-update-feedback";
+import {
   attachServiceWorkerRegistration,
   startFrontendFreshnessWatch,
 } from "@/utils/build-freshness";
@@ -14,6 +18,7 @@ import {
 const updateSW = registerSW({
   immediate: true,
   onNeedRefresh() {
+    showBuildUpdating();
     void updateSW(true);
   },
   onRegisteredSW(_swScriptUrl, registration) {
@@ -23,6 +28,7 @@ const updateSW = registerSW({
   },
 });
 
+showBuildUpdatedToast();
 startFrontendFreshnessWatch();
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
