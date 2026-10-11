@@ -37,3 +37,5 @@
 
 - 发布提交 `9baa8ed9`：CI [38146816488](https://github.com/ImoLR/FLVXR2/actions/runs/38146816488) 全绿后推送 annotated tag `3.0.27-fork.43`。镜像工作流 [38146957353](https://github.com/ImoLR/FLVXR2/actions/runs/38146957353) 成功；[Release](https://github.com/ImoLR/FLVXR2/releases/tag/3.0.27-fork.43) 为 Latest、非预发布，10 个资产与 fork.42 集合一致，compose 镜像标签、两份脚本版本/仓库、amd64/arm64 SHA256、离线 ZIP 完整性全部通过（`release-validation.json`）。
 - 本机浏览器实际版本为 Chrome for Testing 153.0.8010.12，与生产手机 Chrome 138 不同（`chromium-version.txt`），是复现边界之一。
+
+- 生产回滚点 `/opt/flvx-svc/rollback/pre-fork43-20261011T143732Z/`：SQLite 在线备份 quick_check=ok、compose/.env、fork.42 本地镜像标签、rollback.sh；业务计数 {'node': 27, 'user': 10, 'tunnel': 53, 'forward': 28, 'forward_port': 28, 'chain_tunnel': 181}。已运行 prune-backups.sh，保留 pre-fork43/pre-fork42，删除 pre-tunneltls-20261011T062620Z 目录及其两个本地标签，详见 `prune-backups.log`。
