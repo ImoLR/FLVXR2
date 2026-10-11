@@ -1315,7 +1315,7 @@ export default function TunnelPage() {
     setForm((prev) => {
       const chainNodes = [...(prev.chainNodes || [])];
       const currentGroup = chainNodes[groupIndex] || [];
-      const protocol = currentGroup[0]?.protocol || "tcp";
+      const protocol = currentGroup[0]?.protocol || "tls";
       const strategy = currentGroup[0]?.strategy || "round";
       const realNodes = currentGroup.filter((node) => node.nodeId !== -1);
       const mergedNodes = mergeOrderedNodes(
@@ -4000,8 +4000,8 @@ export default function TunnelPage() {
                           getChainGroups().map((groupNodes, groupIndex) => {
                             const protocol =
                               groupNodes.length > 0
-                                ? groupNodes[0].protocol || "tcp"
-                                : "tcp";
+                                ? groupNodes[0].protocol || "tls"
+                                : "tls";
                             const strategy =
                               groupNodes.length > 0
                                 ? groupNodes[0].strategy || "round"
@@ -4327,7 +4327,7 @@ export default function TunnelPage() {
                                             {
                                               nodeId: -1,
                                               chainType: 2,
-                                              protocol: "tcp",
+                                              protocol: "tls",
                                               strategy: "round",
                                             },
                                           ],
@@ -4357,7 +4357,7 @@ export default function TunnelPage() {
                                       {
                                         nodeId: -1,
                                         chainType: 2,
-                                        protocol: "tcp",
+                                        protocol: "tls",
                                         strategy: "round",
                                       },
                                     ],
@@ -4438,7 +4438,7 @@ export default function TunnelPage() {
                                       const currentOutNodes =
                                         prev.outNodeId || [];
                                       const protocol =
-                                        currentOutNodes[0]?.protocol || "tcp";
+                                        currentOutNodes[0]?.protocol || "tls";
                                       const strategy =
                                         currentOutNodes[0]?.strategy || "round";
                                       const realNodes = currentOutNodes.filter(
@@ -4533,9 +4533,9 @@ export default function TunnelPage() {
                                       !form.outNodeId ||
                                       form.outNodeId.length === 0
                                     )
-                                      return "tcp";
+                                      return "tls";
 
-                                    return form.outNodeId[0].protocol || "tcp";
+                                    return form.outNodeId[0].protocol || "tls";
                                   })(),
                                 ]}
                                 variant="bordered"
@@ -4623,8 +4623,8 @@ export default function TunnelPage() {
                                         prev.outNodeId || [];
                                       const currentProtocol =
                                         currentOutNodes.length > 0
-                                          ? currentOutNodes[0].protocol || "tcp"
-                                          : "tcp";
+                                          ? currentOutNodes[0].protocol || "tls"
+                                          : "tls";
 
                                       if (currentOutNodes.length === 0) {
                                         return {
