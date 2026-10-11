@@ -9,7 +9,7 @@
 - [x] 持久 Chromium profile 复现旧 SW 缺失 chunk 卡死（30 秒及第二次访问），保存差异和证据。
 - [x] 实现缺失 workbox-window chunk 的 no-store / Clear-Site-Data reset 与 10 分钟 sessionStorage guard。
 - [x] 验证真实 nginx 响应、现存 chunk/其他资源不变，tsc/build/precache/lint 不退步。
-- [ ] 验证同一卡死 profile 恢复、两分钟不循环、第二次访问正常；fork.42 更新 toast 与全新 profile 60 秒空闲回归。
+- [x] 验证同一卡死 profile 恢复、两分钟不循环、第二次访问正常；fork.42 更新 toast 与全新 profile 60 秒空闲回归。
 - [ ] 推送分支，CI 全绿后创建 fork.43 tag；镜像工作流、Latest release 和资产核验。
 - [ ] 生产在线备份/回滚点，prune 保留最新两份；升级、健康和节点上报验证。
 - [ ] Cloudflare 响应核验，观察指定手机 IP 最多 30 分钟。
@@ -31,3 +31,6 @@
 
 - `nginx-validation.json`：fork.42 镜像内真实 nginx 对原/新配置逐项 curl，缺失 D3F 为 200/application/javascript/no-store/Clear-Site-Data，现存 Cch4wiA5 SHA256 相同且 immutable、无 Clear-Site-Data；其他缺失 JS 404，version/sw/index/manifest 响应头不变。临时 nginx 容器已移除。
 - `tsc.log` / `build.log` / `build-validation.json` 通过；reset 和 version.json 均未预缓存。全目录 eslint 与 fork.42 同为 96 errors / 3583 warnings（`lint-comparison.json`）。`module-check.log` 覆盖窗口检测、旧接口、逐项失败、无存储/存储拒绝/不持久化及 10 分钟 guard。
+
+- 浏览器回归全过：在原持久 profile 重新装入 fork.24 SW 并删去 D3F 缓存后启用修复，恰好一次 reset（注册数 0、缓存空）→ GET / 200 → 新 SW 控制 fork.43；两分钟零新增请求/零循环，第二次访问无 reset。自然永久卡死仍未复现，不能等同于生产手机已恢复。证据 `browser-reset.json` / `reset-recovered.png`。
+- fork.42→43 恰好一次自动刷新和一次「已更新到 v3.0.27-fork.43」，再访问静默；全新 profile 无 reset，60 秒可见空闲零新增请求。证据 `browser-upgrade42.json` / `browser-fresh.json`。所有 Chromium 串行并受 650M/0 swap scope 限制，记录的 oom/oom_kill 为 0。
