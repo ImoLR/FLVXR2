@@ -11,7 +11,7 @@
 - [x] 验证真实 nginx 响应、现存 chunk/其他资源不变，tsc/build/precache/lint 不退步。
 - [x] 验证同一卡死 profile 恢复、两分钟不循环、第二次访问正常；fork.42 更新 toast 与全新 profile 60 秒空闲回归。
 - [x] 推送分支，CI 全绿后创建 fork.43 tag；镜像工作流、Latest release 和资产核验。
-- [ ] 生产在线备份/回滚点，prune 保留最新两份；升级、健康和节点上报验证。
+- [x] 生产在线备份/回滚点，prune 保留最新两份；升级、健康和节点上报验证。
 - [ ] Cloudflare 响应核验，观察指定手机 IP 最多 30 分钟。
 - [ ] 清理临时资源，完成中文总结与最终计划提交。
 
@@ -39,3 +39,7 @@
 - 本机浏览器实际版本为 Chrome for Testing 153.0.8010.12，与生产手机 Chrome 138 不同（`chromium-version.txt`），是复现边界之一。
 
 - 生产回滚点 `/opt/flvx-svc/rollback/pre-fork43-20261011T143732Z/`：SQLite 在线备份 quick_check=ok、compose/.env、fork.42 本地镜像标签、rollback.sh；业务计数 {'node': 27, 'user': 10, 'tunnel': 53, 'forward': 28, 'forward_port': 28, 'chain_tunnel': 181}。已运行 prune-backups.sh，保留 pre-fork43/pre-fork42，删除 pre-tunneltls-20261011T062620Z 目录及其两个本地标签，详见 `prune-backups.log`。
+
+- 2026-10-11 14:37:55 UTC 开始生产升级，前后端 fork.43，后端 healthy；schema 与业务计数不变，原在线 26/26 节点均有重启后指标，24 保持原离线；未 OTA 代理、未修改生产业务数据（`prod-verification.json`）。
+- 公网 Cloudflare curl 全过：D3F 连续三次 200/reset/no-store/Clear-Site-Data，均非 HIT；当前 Cch4wiA5 SHA256 与 fork.42 一致，immutable、无 Clear-Site-Data；version.json=`3.0.27-fork.43-mv3x1cvl`。证据 `prod-curl.json` 和 `evidence/prod-*`。
+- 手机 IP 123.204.25.184 日志观察从 14:38:12 UTC 开始，最晚 15:08:12 UTC 结束。
