@@ -26,3 +26,6 @@
 - `E-nginx.json`：fork.43 镜像挂载旧/新 dist 及配置，真实 nginx 对照全部通过。D3F=200/JS/no-store/无 Clear-Site-Data；现存 Cch4wiA5 字节与缓存头不变；SW 两 URL=200/JS/no-cache/字节一致；其他缺失 JS=404；index/version/manifest 头不变；经真实现有后端只读验证 license/info 仍 401 + Clear-Site-Data。两次临时 nginx 容器均已删除。
 
 - `tsc.log`、`build.log`、`build-validation.json` 全通过，生成/注册 `/flvx-sw.js`，四个指定文件均不在 precache。`lint-comparison.json`：基线和最终均 96 errors / 3583 warnings，未退步（eslint 因已有错误退出 1）。首次分支 CI 38153057496 四项成功。
+
+- `A-native.json`：Chromium 153.0.8010.12 在 fork.11 SW 带一年 immutable 后仍请求 origin `/sw.js`（切换 fork.43 阶段 2 次），页面更新至 fork.43，未复现手机缓存永久锁死。随后 fork.44 由 `/flvx-sw.js` 控制，token 不变，2 分钟 0 新请求/0 额外刷新，第二次访问正常。首轮因构建尚未完成而中止，原始记录保留 `A-native-attempt1.json`，完整重跑通过。
+- `A-edge.json`：固定返回 fork.11 `/sw.js` 时，完整 precache 页面仍停 fork.11；随后主动删除 D3F 的 CacheStorage 条目并清 HTTP cache 来模拟生产缺失项（仅测试 profile），fork.43 使用当前无 CSD 热修头，reset 后页面到 fork.43。继续固定旧 `/sw.js`，切 fork.44 后仅请求新 SW，token 保留，2 分钟 0 新请求/循环，第二次访问无 D3F。此为明确人工 edge/缺失缓存模拟，不声称本机自然复现手机故障。
