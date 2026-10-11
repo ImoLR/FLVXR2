@@ -13,8 +13,8 @@
 - [x] 升级前用持久 Chromium profile 安装真实生产 fork.41 SW。
 - [x] 推送分支、CI 通过、tag fork.42、镜像工作流与 release 资产核验。
 - [x] 生产在线备份、镜像回滚标签，运行 prune-backups.sh 保留最新两份。
-- [ ] 升级生产，健康/节点/version.json 及真实旧→新 E2E 验证。
-- [ ] 完成中文总结、回滚说明及最终计划提交。
+- [x] 升级生产，健康/节点/version.json 及真实旧→新 E2E 验证。
+- [x] 完成中文总结、回滚说明及最终计划提交。
 
 ## 行为与已接受边界
 
@@ -39,3 +39,7 @@
 - 生产回滚点 `/opt/flvx-svc/rollback/pre-fork42-20261011T114457Z/`：compose/.env、SQLite 在线备份（quick_check=ok）、fork.41 两个本地镜像标签、元数据及 rollback.sh。业务计数 node/user/tunnel/forward/forward_port/chain_tunnel = 27/10/53/28/28/181。
 - 分块备份因持续指标写入反复重试，已删除本任务未完成的 `pre-fork42-20261011T114314Z` 临时目录，改用 sqlite3 默认整库在线备份成功；没有写入生产 DB。
 - 已运行 prune-backups.sh，保留上述新备份与 `pre-tunneltls-20261011T062620Z`；删除旧 `pre-fork41-20261011T062508Z` 及关联 fork.40 镜像/本地标签。详见运行目录 `prune-backups.log`。
+- 2026-10-11 11:45:26 UTC 开始升级生产；前后端均为 fork.42，后端 healthy。schema 和上述业务计数均未变；26 个原在线节点均有重启后指标，24 仍原有离线，没有代理 OTA 或业务数据修改。
+- 真实生产 E2E 成功：旧 SW 提供 `index-CP6Ydy6P.js` → 一次 reload → `index-DnAESV-M.js`，仅一次「已更新到 v3.0.27-fork.42」，再访问静默。`version.json` 与 localStorage 均为 `3.0.27-fork.42-mv3qnq1t`。截图 `prod-after-fork42-toast.png`，证据 `prod-upgrade.json` / `prod-next-visit.json`。
+- 独立 urllib 公网探测曾获 403；浏览器和 Node 实际请求均 200，最终健康检查采用 Node fetch，通过；访问控制配置未改。
+- 中文总结及全部回滚/清理说明：`/root/flvx-workers/runs/version-update-ui/summary.md`。常规版本回退执行新备份目录下 `rollback.sh`，无需恢复 DB。
