@@ -656,13 +656,16 @@ export default function H5Layout({ children }: { children: React.ReactNode }) {
           <div className="flex-shrink-0 flex items-center justify-center w-12">
             <BrandLogo size={42} />
           </div>
-          <div className="flex items-center opacity-100 ml-2">
+          <div className="flex flex-col items-start opacity-100 ml-2">
             {/* 注释掉侧边栏顶部 svg 图标 
             <svg className="w-5 h-5 mr-1.5 text-gray-600 dark:text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
             </svg>*/}
             <span className="text-md font-bold text-gray-700 dark:text-gray-300">
               导航
+            </span>
+            <span className="text-xs text-gray-500 dark:text-gray-400">
+              v{siteConfig.version}
             </span>
           </div>
         </div>
@@ -708,9 +711,7 @@ export default function H5Layout({ children }: { children: React.ReactNode }) {
         </nav>
 
         {/* 底部版权信息 */}
-        <div className="px-5 py-4 mt-auto flex-shrink-0 text-xs text-gray-500 dark:text-gray-400">
-          v{siteConfig.version}
-        </div>
+        <div className="px-5 py-4 mt-auto flex-shrink-0" />
       </aside>
 
       {/* 主内容区域 */}
