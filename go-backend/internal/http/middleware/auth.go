@@ -49,6 +49,10 @@ func JWT(opts AuthOptions) func(http.Handler) http.Handler {
 			}
 
 			if requiresAdmin(r.URL.Path) && claims.RoleID != 0 {
+				if r.URL.Path == "/api/v1/node/orphan-sweep" {
+					w.Header().Set("Content-Type", "application/json; charset=utf-8")
+					w.WriteHeader(http.StatusForbidden)
+				}
 				response.WriteJSON(w, response.Err(403, "权限不足，仅管理员可操作"))
 				return
 			}

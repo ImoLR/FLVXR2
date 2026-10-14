@@ -2,6 +2,7 @@ package contract_test
 
 import (
 	"bytes"
+	"encoding/json"
 	"go-backend/internal/auth"
 	"net/http"
 	"net/http/httptest"
@@ -15,17 +16,20 @@ func TestOrphanSweepAdminOnly(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/node/orphan-sweep", bytes.NewBufferString(`{"execute":true}`))
-	req.Header.Set("Authorization", token)
-	rec := httptest.NewRecorder()
-	router.ServeHTTP(rec, req)
-	if rec.Code != http.StatusForbidden {
-		t.Fatalf("HTTP status: %d %s", rec.Code, rec.Body.String())
-	}
 	for _, execute := range []bool{false, true} {
-		out := requestContractEnvelope(t, router, token, "/api/v1/node/orphan-sweep", map[string]interface{}{"execute": execute})
-		if out.Code != 403 {
-			t.Fatalf("non-admin execute=%v: want 403, got %d %s", execute, out.Code, out.Msg)
+		raw, _ := json.Marshal(map[string]interface{}{"execute": execute})
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/node/orphan-sweep", bytes.NewReader(raw))
+		req.Header.Set("Authorization", token)
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+		var result struct {
+			Code int `json:"code"`
+		}
+		if err := json.Unmarshal(rec.Body.Bytes(), &result); err != nil {
+			t.Fatal(err)
+		}
+		if rec.Code != http.StatusForbidden || result.Code != 403 {
+			t.Fatalf("non-admin execute=%v: HTTP %d %s", execute, rec.Code, rec.Body.String())
 		}
 	}
 	out := requestContractEnvelope(t, router, mustAdminToken(t, secret), "/api/v1/node/orphan-sweep", map[string]interface{}{})
