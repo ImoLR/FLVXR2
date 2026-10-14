@@ -172,6 +172,10 @@ func enableIPForwarding() {
 	}
 	ipv6RA.mu.Lock()
 	defer ipv6RA.mu.Unlock()
+	// Observe RA before enabling forwarding can remove its address/default route.
+	if ifaces, err := collectRAInterfaces("/proc/sys/net/ipv6/conf"); err == nil {
+		ipv6RA.observe(ifaces)
+	}
 	ipv6RA.preserve("/proc/sys/net/ipv6/conf", time.Now(), osWriteRA)
 	if err := exec.Command("sysctl", "-w", "net.ipv6.conf.all.forwarding=1").Run(); err != nil {
 		fmt.Printf("⚠️ 设置 IPv6 转发失败: %v\n", err)

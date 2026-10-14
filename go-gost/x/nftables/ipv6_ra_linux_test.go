@@ -76,9 +76,11 @@ func TestIPv6RAClassification(t *testing.T) {
 		{"changed compatible", true, true, true, true, 2, true, 0, "ok", "本次由 agent 1→2"},
 		{"waiting for address", true, true, false, true, 2, true, time.Minute, "warn", "等待下一次 RA"},
 		{"waiting for route", true, true, true, false, 2, true, 29 * time.Minute, "warn", "IPv6 默认路由"},
-		{"already lost both", true, false, false, false, 2, true, 0, "warn", "全局 IPv6 地址及默认路由"},
-		{"timeout", true, false, false, false, 2, true, 30 * time.Minute, "error", "已满30分钟"},
-		{"userspace RA", true, true, true, true, 0, false, 0, "error", "IPv6AcceptRA=yes"},
+		{"no IPv6 upstream", true, false, false, false, 2, true, 0, "", ""},
+		{"no IPv6 after timeout", true, false, false, false, 2, true, 30 * time.Minute, "", ""},
+		{"userspace RA", true, true, true, true, 0, false, 0, "ok", "由用户态网络管理器接收 RA"},
+		{"userspace RA missing address", true, true, false, true, 0, false, 0, "error", "IPv6AcceptRA=yes"},
+		{"userspace RA missing route", true, true, true, false, 0, false, 0, "error", "IPv6AcceptRA=yes"},
 		{"not RA based", true, false, true, true, 2, false, 0, "", ""},
 		{"not enabled by us", false, true, true, true, 0, false, 0, "", ""},
 		{"setting reverted", true, true, true, true, 1, true, 0, "error", "请设为 2"},
@@ -147,8 +149,8 @@ func TestIPv6RANetNS(t *testing.T) {
 	if mode == "userspace" {
 		status, detail := IPv6RAStatus()
 		t.Logf("status=%s detail=%s", status, detail)
-		if status != "error" || !strings.Contains(detail, "accept_ra=0") {
-			t.Fatal("expected userspace RA error")
+		if status != "ok" || !strings.Contains(detail, "用户态网络管理器") {
+			t.Fatal("expected healthy userspace RA")
 		}
 		return
 	}
@@ -161,5 +163,58 @@ func TestIPv6RANetNS(t *testing.T) {
 		if elapsed < 140 {
 			time.Sleep(10 * time.Second)
 		}
+	}
+}
+
+func TestIPv6RAObservedDependencySurvivesLoss(t *testing.T) {
+	now := time.Unix(10000, 0)
+	for _, beforeForwarding := range []bool{true, false} {
+		t.Run(fmt.Sprint(beforeForwarding), func(t *testing.T) {
+			r := &raCompatibility{enabled: true, changed: map[string]time.Time{"eth0": now, "wg0": now}}
+			healthy := []raInterface{{name: "eth0", acceptRA: 2, dependent: true, address: true, route: true}}
+			if beforeForwarding {
+				// Same observation hook used just before preserve/forwarding.
+				r.observe(healthy)
+			} else if status, _ := r.classify(healthy, now, raManagerRemedy); status != "ok" {
+				t.Fatalf("node 48 after 1→2: %s", status)
+			}
+			lost := []raInterface{{name: "eth0", acceptRA: 2}, {name: "wg0", acceptRA: 2}}
+			for _, step := range []struct {
+				elapsed time.Duration
+				want    string
+			}{{time.Minute, "warn"}, {30 * time.Minute, "error"}} {
+				status, detail := r.classify(lost, now.Add(step.elapsed), raManagerRemedy)
+				if status != step.want || !strings.Contains(detail, "全局 IPv6 地址及默认路由") || strings.Contains(detail, "wg0") {
+					t.Fatalf("lost RA: %s %s", status, detail)
+				}
+			}
+			if status, _ := r.classify(healthy, now.Add(time.Hour), raManagerRemedy); status != "ok" {
+				t.Fatalf("recovery: %s", status)
+			}
+		})
+	}
+}
+
+func TestIPv6RANode53AndNode52(t *testing.T) {
+	now := time.Unix(10000, 0)
+	r := &raCompatibility{enabled: true, changed: map[string]time.Time{"wg0": now.Add(-time.Hour)}}
+	status, detail := r.classify([]raInterface{
+		{name: "eth0", acceptRA: 0, dependent: true, address: true, route: true},
+		{name: "wg0", acceptRA: 2},
+	}, now, raManagerRemedy)
+	if status != "ok" || strings.Contains(detail, "wg0") {
+		t.Fatalf("node53: %s %s", status, detail)
+	}
+	r = &raCompatibility{enabled: true, changed: map[string]time.Time{"eth0": now.Add(-time.Hour)}}
+	status, detail = r.classify([]raInterface{{name: "eth0", acceptRA: 2}}, now, raManagerRemedy)
+	if status != "" || detail != "" {
+		t.Fatalf("node52: %s %s", status, detail)
+	}
+	// A userspace manager that actually loses previously observed RA still errors.
+	r = &raCompatibility{enabled: true}
+	r.observe([]raInterface{{name: "eth0", dependent: true}})
+	status, _ = r.classify([]raInterface{{name: "eth0", acceptRA: 0}}, now, raManagerRemedy)
+	if status != "error" {
+		t.Fatalf("lost userspace RA: %s", status)
 	}
 }

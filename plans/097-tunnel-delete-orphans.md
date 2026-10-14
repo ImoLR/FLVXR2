@@ -5,7 +5,7 @@
 
 - [x] 阅读流程与项目规则，确认生产 fork.47，建立隔离 worktree。
 - [x] Part A：审计所有删除 forward 的入口，复用单条删除的运行时清理，添加命令接收端回归测试，保留 replace 行为。
-- [ ] Part B：记录曾观察到的 RA 依赖，修正用户态 RA 和无 IPv6 误报，补充单元测试。
+- [x] Part B：记录曾观察到的 RA 依赖，修正用户态 RA 和无 IPv6 误报，补充单元测试。
 - [ ] 验证：backend / agent 测试、基线对照、race、vet；可行时本地 E2E。
 - [ ] 推送分支，CI 通过后打 fork.48 标签，核验 Images 和发布资产。
 - [ ] 生产备份、清理到两个备份、升级面板及健康检查。
@@ -19,3 +19,5 @@
 
 Part A：所有 tunnel cascade 在 `deleteTunnelByID` 删除数据库前共用 runtime cleanup，涵盖普通/批量、with-forwards、远程节点删除及创建失败回滚（通常无 forwards）。用户普通/批量、批量转发、远程节点直接转发、授权撤销及内部 batch 也复用；单条 force-delete 保留其明确的数据库强制删除语义。普通 forward create 失败已有 runtime rollback；入口权限变更逐旧端口清理后才删空规则。replace 的转发先迁移，旧隧道 cleanup 不再选中它们。
 定向测试通过：多入口、两个规则（含暂停）、无关规则保护、离线不阻止 cascade、nftables/WG 两端、replace（同/不同入口）。服务候选保留历史 grant/legacy 名称兼容。
+
+Part B：转发启用前及每次状态采样保存 RA 依赖证据；未见 RA 的接口不因 1→2 或超时出现 badge。accept_ra=0 但地址/路由完整时报告用户态 RA 正常。现有 1→2、失败报告、30 分钟恢复窗口保持。nftables 包测试通过，包括 node52/node53、node48 保留、真实丢失及恢复。

@@ -18,10 +18,11 @@ import (
 )
 
 type raCompatibility struct {
-	mu      sync.Mutex
-	enabled bool // Only report when this process successfully enabled forwarding.
-	changed map[string]time.Time
-	failed  map[string]string
+	mu        sync.Mutex
+	enabled   bool // Only report when this process successfully enabled forwarding.
+	changed   map[string]time.Time
+	failed    map[string]string
+	dependent map[string]bool // RA evidence observed in this process, including before forwarding.
 }
 
 var ipv6RA raCompatibility
@@ -152,7 +153,20 @@ func raManagerRemedy(index int) string {
 	return "检查用户态网络管理器的 RA 配置，确保转发下仍接收 RA"
 }
 
+// Keep RA evidence even after both the dynamic address and route expire.
+func (r *raCompatibility) observe(ifaces []raInterface) {
+	if r.dependent == nil {
+		r.dependent = make(map[string]bool)
+	}
+	for _, iface := range ifaces {
+		if iface.dependent {
+			r.dependent[iface.name] = true
+		}
+	}
+}
+
 func (r *raCompatibility) classify(ifaces []raInterface, now time.Time, remedy func(int) string) (string, string) {
+	r.observe(ifaces)
 	if !r.enabled {
 		return "", ""
 	}
@@ -166,7 +180,7 @@ func (r *raCompatibility) classify(ifaces []raInterface, now time.Time, remedy f
 	}
 	for _, iface := range ifaces {
 		changed, byUs := r.changed[iface.name]
-		if iface.name == "lo" || iface.name == "default" || iface.name == "all" || (!iface.dependent && !byUs) {
+		if iface.name == "lo" || iface.name == "default" || iface.name == "all" || !r.dependent[iface.name] {
 			continue
 		}
 		if _, failed := r.failed[iface.name]; failed {
@@ -178,7 +192,11 @@ func (r *raCompatibility) classify(ifaces []raInterface, now time.Time, remedy f
 		case iface.readError:
 			level, detail = 3, iface.name+"：读取 accept_ra 失败，请检查 /proc/sys 权限"
 		case iface.acceptRA == 0:
-			level, detail = 3, detail+"；"+remedy(iface.index)
+			if iface.address && iface.route {
+				detail += "；由用户态网络管理器接收 RA"
+			} else {
+				level, detail = 3, detail+"；"+remedy(iface.index)
+			}
 		case iface.acceptRA != 2:
 			level, detail = 3, detail+"；转发下无法接收 RA，请设为 2 并检查网络管理器"
 		default:
