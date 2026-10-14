@@ -7,7 +7,7 @@
 - [x] 实现 Repository 查询及调用点，添加 SQLite 权限和指标访问一致性测试。
 - [x] 完成定向测试、全量测试基线比较及 touched packages go vet。
 - [x] 推送分支，CI 通过后打 fork.46 标签，核验镜像构建和发布资产。
-- [ ] 建立在线数据库备份和镜像回滚点，执行保留两份策略，升级生产。
+- [x] 建立在线数据库备份和镜像回滚点，执行保留两份策略，升级生产。
 - [ ] 核验生产健康、节点上报、每个同步用户节点集合与 SQL 一致；保存中文总结。
 
 ## 验证记录
@@ -24,3 +24,5 @@ SQLite 六个定向场景通过，覆盖无规则入口、多入口/跳板/出�
 发布：代码提交 e6d2712f，annotated tag 3.0.27-fork.46；CI 38540983547、分支文档 CI 38541234406、镜像/发布 38541288302 全绿。Latest 正式发布，10 个资产与 fork.45 相同，脚本版本/仓库、compose 镜像、两架构 SHA256 和 ZIP 均校验通过。
 
 生产回滚点：/opt/flvx-svc/rollback/pre-fork46-20261014T093139Z（在线 DB quick_check=ok、compose/.env、旧镜像本地标签、rollback.sh）。prune-backups.sh 已保留 pre-fork46 与 pre-fork45 两份，删除 pre-fork44 备份及 fork.43 旧镜像。
+
+生产已升级 fork.46，后端 healthy、前端 nginx -t 通过；首页、version.json、flow/test 均 200。schema 与六张业务表行数未变，升级前上报节点全部恢复。8 位同步用户的 after.json 全部匹配独立 SQL，用户 4 新增 24、用户 23 保持 [48]、无人减少；51 按现有组权限排除。生产指标 API 对获准节点返回 code=0、未获准节点返回 403。
