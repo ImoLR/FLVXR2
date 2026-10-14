@@ -20,6 +20,7 @@ import (
 	"go-backend/internal/health"
 	"go-backend/internal/http/middleware"
 	"go-backend/internal/http/response"
+	"go-backend/internal/leikwan"
 	"go-backend/internal/metrics"
 	"go-backend/internal/security"
 	"go-backend/internal/store/repo"
@@ -27,6 +28,7 @@ import (
 )
 
 type Handler struct {
+	leikwan          *leikwan.Client
 	repo             *repo.Repository
 	jwtSecret        string
 	wsServer         *ws.Server
@@ -128,6 +130,7 @@ const (
 
 func New(repo *repo.Repository, jwtSecret string, fluxVersion string) *Handler {
 	h := &Handler{
+		leikwan:             leikwan.NewClient("", nil),
 		repo:                repo,
 		jwtSecret:           jwtSecret,
 		wsServer:            ws.NewServer(repo, jwtSecret),
@@ -181,6 +184,7 @@ func (h *Handler) WebSocketHandler() http.Handler {
 }
 
 func (h *Handler) Register(mux *http.ServeMux) {
+	h.registerLeiKwan(mux)
 	mux.HandleFunc(StaleFrontendKickPath, h.staleFrontendKick)
 	mux.HandleFunc("/api/v1/user/login", h.login)
 	mux.HandleFunc("/api/v1/user/logout", h.logout)

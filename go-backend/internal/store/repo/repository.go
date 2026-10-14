@@ -264,6 +264,9 @@ func autoMigrateAll(db *gorm.DB) error {
 		&model.UserTrafficHistory{},
 		&model.Order{},
 		&model.PaymentConfig{},
+		&model.LeiKwanAccount{},
+		&model.LeiKwanPipe{},
+		&model.LeiKwanCreate{},
 		&model.RedeemCode{},
 		&model.DiscountCode{},
 		&model.SubscriptionPackage{},
@@ -1689,6 +1692,18 @@ func (r *Repository) ListTunnels() ([]map[string]interface{}, error) {
 			tunnelMap[t.ID]["speedLimitName"] = row.SpeedLimitName.String
 		}
 		orderedIDs = append(orderedIDs, t.ID)
+	}
+
+	// Only the admin tunnel listing exposes the pipe association.
+	var leiKwanPipes []model.LeiKwanPipe
+	if err := r.db.Where("tunnel_id IS NOT NULL").Find(&leiKwanPipes).Error; err != nil {
+		return nil, err
+	}
+	for _, pipe := range leiKwanPipes {
+		if row := tunnelMap[*pipe.TunnelID]; row != nil {
+			row["leikwanPipeId"] = pipe.ID
+			row["leikwanPipe"] = pipe
+		}
 	}
 
 	// Build node IP map
