@@ -10,6 +10,7 @@ import (
 
 	"go-backend/internal/http/client"
 	"go-backend/internal/http/response"
+	"go-backend/internal/store/model"
 )
 
 const (
@@ -20,9 +21,10 @@ const (
 )
 
 type pathProbeKey struct {
-	From int64
-	Host string
-	Port int
+	PipeTunnelID int64
+	From         int64
+	Host         string
+	Port         int
 }
 
 type pathProbeResult struct {
@@ -94,6 +96,7 @@ func (h *Handler) planPathLatencyRound() ([]pathLatencyPlan, map[pathProbeKey]*n
 		if err != nil {
 			return nil, nil, 0, err
 		}
+		pipe, hasPipe := tunnel["leikwanPipe"].(model.LeiKwanPipe)
 		entries, hops, exits := splitChainNodeGroups(rows)
 		plan := pathLatencyPlan{TunnelID: id, Entries: entries}
 		groups := append([][]chainNodeRecord{entries}, hops...)
@@ -112,6 +115,12 @@ func (h *Handler) planPathLatencyRound() ([]pathLatencyPlan, map[pathProbeKey]*n
 						continue
 					}
 					key := pathProbeKey{From: from.NodeID, Host: host, Port: port}
+					if hasPipe && i == 1 {
+						if len(groups[i]) != 1 || to.NodeID != pipe.LandingNodeID || to.Port != pipe.LandingPort {
+							continue
+						}
+						key.Host, key.Port, key.PipeTunnelID = "127.0.0.1", pipe.ListenPort, id
+					}
 					edges = append(edges, pathLatencyEdge{From: from.NodeID, To: to.NodeID, Key: key})
 					pairs[key] = fromNode
 				}
@@ -127,7 +136,9 @@ func (h *Handler) probePathPair(key pathProbeKey, from *nodeRecord) pathProbeRes
 	options := diagnosisExecOptions{pingCount: 2, pingTimeoutMS: 1000, commandTimeout: 4 * time.Second}
 	var data map[string]interface{}
 	var err error
-	if from.IsRemote == 1 {
+	if key.PipeTunnelID > 0 {
+		data, err = h.probeLeiKwanPipe(key.From, key.PipeTunnelID, key.Port, 3*time.Second)
+	} else if from.IsRemote == 1 {
 		// Same federation target and authentication as diagnose, with this job's
 		// small probe count. Diagnose's own settings remain unchanged.
 		fc := client.NewFederationClientWithTimeout(options.commandTimeout)

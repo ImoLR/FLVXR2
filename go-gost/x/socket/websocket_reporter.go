@@ -1223,7 +1223,7 @@ func (w *WebSocketReporter) routeCommand(cmd CommandMessage) {
 	// Periodic read-only probes are expected background traffic. Logging every
 	// request and every successful attempt can produce thousands of lines per
 	// hour, so keep command logging for state-changing and interactive commands.
-	if cmd.Type != "TcpPing" && cmd.Type != "ServiceMonitorCheck" && cmd.Type != "GetServiceClientIPs" {
+	if cmd.Type != "TcpPing" && cmd.Type != "PipePing" && cmd.Type != "ServiceMonitorCheck" && cmd.Type != "GetServiceClientIPs" {
 		jsonBytes, errs := json.Marshal(cmd)
 		if errs != nil {
 			fmt.Println("Error marshaling JSON:", errs)
@@ -1310,6 +1310,12 @@ func (w *WebSocketReporter) routeCommand(cmd CommandMessage) {
 		response.Type = "TcpPingResponse"
 		response.Data = tcpPingResult
 		// needSaveConfig = false (默认值)
+
+	case "PipePing":
+		var pipeResult TcpPingResponse
+		pipeResult, err = w.handlePipePing(cmd.Data)
+		response.Type = "PipePingResponse"
+		response.Data = pipeResult
 
 	// Service monitor check (read-only)
 	case "ServiceMonitorCheck":

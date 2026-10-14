@@ -37,6 +37,7 @@ type diagnosisTarget struct {
 }
 
 type diagnosisWorkItem struct {
+	pipeTunnelID  int64
 	fromNodeID    int64
 	targetIP      string
 	targetPort    int
@@ -1084,6 +1085,9 @@ func (h *Handler) prepareForwardDiagnosis(forward *forwardRecord) (string, []dia
 		}
 	}
 
+	if err := h.applyLeiKwanDiagnosis(forward.TunnelID, workItems); err != nil {
+		return "", nil, err
+	}
 	return forward.Name, workItems, nil
 }
 
@@ -1256,6 +1260,9 @@ func (h *Handler) prepareTunnelDiagnosis(tunnelID int64) (string, string, []diag
 		}
 	}
 
+	if err := h.applyLeiKwanDiagnosis(tunnelID, workItems); err != nil {
+		return "", "", nil, err
+	}
 	tunnelType := map[bool]string{true: "端口转发", false: "隧道转发"}[tunnel.Type == 1]
 	return tunnelName, tunnelType, workItems, nil
 }
@@ -1365,6 +1372,9 @@ func newDiagnosisTimeoutItem(workItem diagnosisWorkItem, message string) map[str
 }
 
 func (h *Handler) executeDiagnosisWorkItem(workItem diagnosisWorkItem, options diagnosisExecOptions) map[string]interface{} {
+	if workItem.pipeTunnelID > 0 {
+		return h.executeLeiKwanDiagnosis(workItem, options)
+	}
 	single := make([]map[string]interface{}, 0, 1)
 	nodeCache := map[int64]*nodeRecord{}
 	if workItem.hasChainHop {

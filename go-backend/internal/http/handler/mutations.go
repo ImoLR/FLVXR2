@@ -1240,6 +1240,13 @@ func (h *Handler) tunnelCreate(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	pipeChange, err := h.prepareLeiKwanTunnelChange(req, 0)
+	if err != nil {
+		response.WriteJSON(w, response.ErrDefault(err.Error()))
+		return
+	}
+	defer pipeChange.finish(h)
+
 	tx := h.repo.BeginTx()
 	if tx.Error != nil {
 		response.WriteJSON(w, response.Err(-2, tx.Error.Error()))
@@ -1375,10 +1382,18 @@ func (h *Handler) tunnelCreate(w http.ResponseWriter, r *http.Request) {
 		response.WriteJSON(w, response.Err(-2, err.Error()))
 		return
 	}
+	if err := h.syncLeiKwanTunnelChange(r.Context(), tx, pipeChange, runtimeState); err != nil {
+		h.releaseFederationRuntimeRefs(federationReleaseRefs)
+		response.WriteJSON(w, response.ErrDefault(err.Error()))
+		return
+	}
 	if err := tx.Commit().Error; err != nil {
 		h.releaseFederationRuntimeRefs(federationReleaseRefs)
 		response.WriteJSON(w, response.Err(-2, err.Error()))
 		return
+	}
+	if pipeChange != nil {
+		pipeChange.committed = true
 	}
 	if typeVal == 2 {
 		createdChains, createdServices, applyErr := h.applyTunnelRuntime(runtimeState)
@@ -1488,7 +1503,22 @@ func (h *Handler) tunnelUpdate(w http.ResponseWriter, r *http.Request) {
 	defer unlock()
 	oldEntryNodeIDs, _ := h.tunnelEntryNodeIDs(id)
 
-	h.cleanupTunnelRuntime(id)
+	pipeChange, err := h.prepareLeiKwanTunnelChange(req, id)
+	if err != nil {
+		response.WriteJSON(w, response.ErrDefault(err.Error()))
+		return
+	}
+	defer pipeChange.finish(h)
+	var oldPipeState *tunnelCreateState
+	if pipeChange == nil {
+		h.cleanupTunnelRuntime(id)
+	} else {
+		oldPipeState, err = h.reconstructTunnelState(id, true)
+		if err != nil {
+			response.WriteJSON(w, response.ErrDefault(err.Error()))
+			return
+		}
+	}
 	h.cleanupFederationRuntime(id)
 
 	now := time.Now().UnixMilli()
@@ -1602,12 +1632,21 @@ func (h *Handler) tunnelUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if err := h.syncLeiKwanTunnelChange(r.Context(), tx, pipeChange, runtimeState); err != nil {
+		h.releaseFederationRuntimeRefs(federationReleaseRefs)
+		response.WriteJSON(w, response.ErrDefault(err.Error()))
+		return
+	}
 	if err := tx.Commit().Error; err != nil {
 		h.releaseFederationRuntimeRefs(federationReleaseRefs)
 		response.WriteJSON(w, response.Err(-2, err.Error()))
 		return
 	}
 
+	if pipeChange != nil {
+		pipeChange.committed = true
+		h.cleanupLeiKwanOldRuntime(oldPipeState)
+	}
 	newEntryNodeIDs, _ = h.tunnelEntryNodeIDs(id)
 	var entryWarnings []string
 	if !sameInt64Set(oldEntryNodeIDs, newEntryNodeIDs) {
@@ -2021,8 +2060,18 @@ func (h *Handler) tunnelDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	id := idFromBody(r, w)
-	if id <= 0 {
+	var req struct {
+		ID                   int64 `json:"id"`
+		DeleteLeiKwanForward bool  `json:"deleteLeikwanForward"`
+	}
+	if err := decodeJSON(r.Body, &req); err != nil || req.ID <= 0 {
+		response.WriteJSON(w, response.ErrDefault("请求参数错误"))
+		return
+	}
+	id := req.ID
+	pipe, err := h.repo.GetLeiKwanPipeByTunnel(id)
+	if err != nil {
+		response.WriteJSON(w, response.ErrDefault(err.Error()))
 		return
 	}
 	unlock := h.lockTunnelRuntime(id)
@@ -2032,6 +2081,12 @@ func (h *Handler) tunnelDelete(w http.ResponseWriter, r *http.Request) {
 	if err := h.deleteTunnelByID(id); err != nil {
 		response.WriteJSON(w, response.Err(-2, err.Error()))
 		return
+	}
+	if req.DeleteLeiKwanForward && pipe != nil {
+		if err := h.deleteDetachedLeiKwanPipe(r.Context(), pipe.ID); err != nil {
+			response.WriteJSON(w, response.ErrDefault("隧道已删除，利群转发删除失败: "+err.Error()))
+			return
+		}
 	}
 	response.WriteJSON(w, response.OKEmpty())
 }
@@ -2084,10 +2139,15 @@ func (h *Handler) tunnelUpdateOrder(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) tunnelBatchDelete(w http.ResponseWriter, r *http.Request) {
 
-	ids := idsFromBody(r, w)
-	if ids == nil {
+	var req struct {
+		IDs                  []int64 `json:"ids"`
+		DeleteLeiKwanForward bool    `json:"deleteLeikwanForward"`
+	}
+	if err := decodeJSON(r.Body, &req); err != nil || len(req.IDs) == 0 {
+		response.WriteJSON(w, response.ErrDefault("请求参数错误"))
 		return
 	}
+	ids := req.IDs
 	success := 0
 	fail := 0
 	failures := make([]batchFailureDetail, 0)
@@ -2098,12 +2158,25 @@ func (h *Handler) tunnelBatchDelete(w http.ResponseWriter, r *http.Request) {
 			failures = appendBatchFailure(failures, id, tunnelName, err)
 			continue
 		}
+		pipe, pipeErr := h.repo.GetLeiKwanPipeByTunnel(id)
+		if pipeErr != nil {
+			fail++
+			failures = appendBatchFailure(failures, id, tunnelName, pipeErr)
+			continue
+		}
 		unlock := h.lockTunnelRuntime(id)
 		h.cleanupTunnelRuntime(id)
 		h.cleanupFederationRuntime(id)
 		if err := h.deleteTunnelByID(id); err != nil {
 			fail++
 			failures = appendBatchFailure(failures, id, tunnelName, err)
+		} else if req.DeleteLeiKwanForward && pipe != nil {
+			if err := h.deleteDetachedLeiKwanPipe(r.Context(), pipe.ID); err != nil {
+				fail++
+				failures = appendBatchFailureReason(failures, id, tunnelName, "隧道已删除，利群转发删除失败: "+err.Error())
+			} else {
+				success++
+			}
 		} else {
 			success++
 		}
@@ -2112,7 +2185,7 @@ func (h *Handler) tunnelBatchDelete(w http.ResponseWriter, r *http.Request) {
 	response.WriteJSON(w, response.OK(batchOperationResult{SuccessCount: success, FailCount: fail, Failures: failures}))
 }
 
-func (h *Handler) reconstructTunnelState(tunnelID int64) (*tunnelCreateState, error) {
+func (h *Handler) reconstructTunnelState(tunnelID int64, allowInconsistentPipe ...bool) (*tunnelCreateState, error) {
 	tunnel, err := h.getTunnelRecord(tunnelID)
 	if err != nil {
 		return nil, err
@@ -2194,6 +2267,13 @@ func (h *Handler) reconstructTunnelState(tunnelID int64) (*tunnelCreateState, er
 		state.Nodes[id] = node
 	}
 
+	state.LeiKwanPipe, err = h.repo.GetLeiKwanPipeByTunnel(tunnelID)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := leiKwanEntryTargets(state); err != nil && !(len(allowInconsistentPipe) > 0 && allowInconsistentPipe[0]) {
+		return nil, err
+	}
 	return state, nil
 }
 
@@ -4169,17 +4249,19 @@ func (h *Handler) syncPermissionsByTunnelGroup(tunnelGroupID int64) error {
 }
 
 type tunnelRuntimeNode struct {
-	NodeID        int64
-	Protocol      string
-	Strategy      string
-	Inx           int
-	ChainType     int
-	Port          int
-	ConnectIPType string
-	ConnectIP     string
+	LeiKwanPipeHop bool
+	NodeID         int64
+	Protocol       string
+	Strategy       string
+	Inx            int
+	ChainType      int
+	Port           int
+	ConnectIPType  string
+	ConnectIP      string
 }
 
 type tunnelCreateState struct {
+	LeiKwanPipe  *model.LeiKwanPipe
 	TunnelID     int64
 	Type         int
 	IPPreference string // "" = auto, "v4" = prefer IPv4, "v6" = prefer IPv6
@@ -4725,9 +4807,9 @@ func (h *Handler) applyTunnelRuntime(state *tunnelCreateState) ([]int64, []int64
 
 	for _, inNode := range state.InNodes {
 		node := state.Nodes[inNode.NodeID]
-		targets := state.OutNodes
-		if len(state.ChainHops) > 0 {
-			targets = state.ChainHops[0]
+		targets, err := leiKwanEntryTargets(state)
+		if err != nil {
+			return createdChains, createdServices, err
 		}
 		chainData, err := buildTunnelChainConfig(state.TunnelID, inNode.NodeID, targets, state.Nodes, state.IPPreference)
 		if err != nil {
@@ -4919,7 +5001,7 @@ func buildTunnelChainConfig(tunnelID int64, fromNodeID int64, targets []tunnelRu
 		},
 		"nodes": nodeItems,
 	}
-	if strings.TrimSpace(fromNode.InterfaceName) != "" {
+	if strings.TrimSpace(fromNode.InterfaceName) != "" && !(len(targets) == 1 && targets[0].LeiKwanPipeHop) {
 		hop["interface"] = fromNode.InterfaceName
 	}
 

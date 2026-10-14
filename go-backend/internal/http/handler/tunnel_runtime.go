@@ -158,9 +158,10 @@ func (h *Handler) replaceTunnelRuntimeOnNode(state *tunnelCreateState, nodeID in
 		for _, entry := range state.InNodes {
 			if entry.NodeID == nodeID {
 				runtimeNode, role = entry, "入口节点"
-				targets = state.OutNodes
-				if len(state.ChainHops) > 0 {
-					targets = state.ChainHops[0]
+				var err error
+				targets, err = leiKwanEntryTargets(state)
+				if err != nil {
+					return err
 				}
 				break
 			}

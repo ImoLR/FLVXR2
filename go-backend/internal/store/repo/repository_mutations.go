@@ -1215,6 +1215,11 @@ func (r *Repository) DeleteTunnelCascade(tunnelID int64) error {
 		if err := tx.Where("tunnel_id = ?", tunnelID).Delete(&model.FederationTunnelBinding{}).Error; err != nil {
 			return err
 		}
+		// Keep the LeiKwan forward by default: deleted records still consume its
+		// lifetime record allowance, and other client devices may use it.
+		if err := tx.Model(&model.LeiKwanPipe{}).Where("tunnel_id = ?", tunnelID).Update("tunnel_id", nil).Error; err != nil {
+			return err
+		}
 		return tx.Where("id = ?", tunnelID).Delete(&model.Tunnel{}).Error
 	})
 }

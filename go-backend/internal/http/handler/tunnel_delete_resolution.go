@@ -43,15 +43,17 @@ type tunnelBatchDeletePreviewData struct {
 }
 
 type tunnelDeleteWithForwardsRequest struct {
-	ID             int64  `json:"id"`
-	Action         string `json:"action"`
-	TargetTunnelID int64  `json:"targetTunnelId"`
+	DeleteLeiKwanForward bool   `json:"deleteLeikwanForward"`
+	ID                   int64  `json:"id"`
+	Action               string `json:"action"`
+	TargetTunnelID       int64  `json:"targetTunnelId"`
 }
 
 type tunnelBatchDeleteWithForwardsRequest struct {
-	IDs            []int64 `json:"ids"`
-	Action         string  `json:"action"`
-	TargetTunnelID int64   `json:"targetTunnelId"`
+	DeleteLeiKwanForward bool    `json:"deleteLeikwanForward"`
+	IDs                  []int64 `json:"ids"`
+	Action               string  `json:"action"`
+	TargetTunnelID       int64   `json:"targetTunnelId"`
 }
 
 type tunnelDeleteWithForwardsResult struct {
@@ -157,6 +159,11 @@ func (h *Handler) tunnelDeleteWithForwards(w http.ResponseWriter, r *http.Reques
 		}
 	}
 
+	pipe, err := h.repo.GetLeiKwanPipeByTunnel(req.ID)
+	if err != nil {
+		response.WriteJSON(w, response.ErrDefault(err.Error()))
+		return
+	}
 	result, failures, err := h.processTunnelDeleteWithForwards(req.ID, action, req.TargetTunnelID)
 	if err != nil {
 		if err == errInvalidTunnelDeleteTarget {
@@ -180,6 +187,11 @@ func (h *Handler) tunnelDeleteWithForwards(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
+	if req.DeleteLeiKwanForward && pipe != nil {
+		if err := h.deleteDetachedLeiKwanPipe(r.Context(), pipe.ID); err != nil {
+			result.Warnings = append(result.Warnings, "隧道已删除，利群转发删除失败: "+err.Error())
+		}
+	}
 	response.WriteJSON(w, response.OK(result))
 }
 
@@ -229,6 +241,12 @@ func (h *Handler) tunnelBatchDeleteWithForwards(w http.ResponseWriter, r *http.R
 	result := tunnelBatchDeleteWithForwardsResult{}
 	for _, tunnelID := range normalizedIDs {
 		tunnelName, _ := h.repo.GetTunnelName(tunnelID)
+		pipe, pipeErr := h.repo.GetLeiKwanPipeByTunnel(tunnelID)
+		if pipeErr != nil {
+			result.FailCount++
+			result.Failures = appendBatchFailure(result.Failures, tunnelID, tunnelName, pipeErr)
+			continue
+		}
 		singleResult, failures, processErr := h.processTunnelDeleteWithForwards(tunnelID, action, req.TargetTunnelID)
 		if processErr != nil {
 			result.FailCount++
@@ -246,6 +264,11 @@ func (h *Handler) tunnelBatchDeleteWithForwards(w http.ResponseWriter, r *http.R
 			continue
 		}
 
+		if req.DeleteLeiKwanForward && pipe != nil {
+			if err := h.deleteDetachedLeiKwanPipe(r.Context(), pipe.ID); err != nil {
+				result.Warnings = append(result.Warnings, "隧道已删除，利群转发删除失败: "+err.Error())
+			}
+		}
 		result.SuccessCount++
 		result.DeletedForwardCount += singleResult.DeletedForwardCount
 		result.MigratedCount += singleResult.MigratedCount
