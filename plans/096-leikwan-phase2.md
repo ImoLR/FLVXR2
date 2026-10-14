@@ -9,7 +9,7 @@
 - [x] 审计 go-gost（含 x）/go-backend 日志，脱敏 PSK、JWT/利群 token、完整配置及带 URL 的错误，增加回归测试。
 - [x] 实现只读利群检测、周期上报、只变更写入、管理员字段与桌面/移动徽章及入口选择提示；完成对应测试。
 - [x] 本地构建与测试，对照现有失败基线，截图验证。
-- [ ] 分支 push → CI 绿 → fork.47 tag → images 绿 → 全量发布资产校验。
+- [x] 分支 push → CI 绿 → fork.47 tag → images 绿 → 全量发布资产校验。
 - [ ] 生产备份、保留最新两份、升级面板及健康/节点上报核对。
 - [ ] 仅 OTA 节点 52，校验原 flvxx.service/-C、版本及徽章；记录其他旧版本节点。
 - [ ] bridge repo 中实现、测试、提交 front relay cgroup output NAT；备份后部署并量化短暂重启影响。
@@ -19,6 +19,8 @@
 - [ ] 完成中文 summary（含截图、备份、回滚、破坏性动作、安全问题及未实施建议）并提交最终计划记录。
 
 ## 执行记录
+
+- 发布：实现提交 `95ea6796`；CI `38546176485` 全绿；tag `3.0.27-fork.47` 的 images/release `38546547973` 全绿。Latest 正式 release，10 个资产与 fork.46 一致；compose、脚本版本、两个 agent SHA256、离线包 ZIP 完整性均通过。
 
 - A2：Linux 每分钟只读检测一次并复用现有 SystemInfo；仅解析 forward ID/listen_port、读取 cgroup 进程状态和 TCP LISTEN。三列可跨 SQLite/PostgreSQL，重复上报/重连不写，旧 agent 不覆盖；普通用户列表及广播剔除检测数据。
 - 前端 build/定向 lint 通过；backend 全量失败 15 项与 fork.46 完全相同（无新增）；agent、handler/ws/contract 定向测试通过。桌面卡片/列表、390px 手机徽章与详情截图：run 目录 `local-*-badge*.png`。
