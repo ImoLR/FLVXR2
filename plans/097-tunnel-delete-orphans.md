@@ -8,7 +8,7 @@
 - [x] Part B：记录曾观察到的 RA 依赖，修正用户态 RA 和无 IPv6 误报，补充单元测试。
 - [x] 验证：backend / agent 测试、基线对照、race、vet；可行时本地 E2E。
 - [x] 推送分支，CI 通过后打 fork.48 标签，核验 Images 和发布资产。
-- [ ] 生产备份、清理到两个备份、升级面板及健康检查。
+- [x] 生产备份、清理到两个备份、升级面板及健康检查。
 - [ ] 生产临时隧道及两个转发删除验证；检查现有服务读取命令并安全清扫孤儿。
 - [ ] 备份 52/53 agent，OTA、版本/单元/回连/RA 验证；清理临时对象。
 - [ ] 写中文总结、回滚说明与建议，提交计划最终状态并推送。
@@ -29,3 +29,5 @@ Part B：转发启用前及每次状态采样保存 RA 依赖证据；未见 RA 
 
 发布：代码标签 `3.0.27-fork.48` → `f476e42a`；CI 38589110916、Images 38589504750 均 success。Latest、非预发布、10 个资产与 fork.47 一致，sha256/ZIP/compose 与安装脚本 pin 验证通过。最终 netns E2E 同时验证旧 RA error 通过真实 agent 空上报清除。
 补充审计：联邦分享清理 `cleanupFederationTunnels`、联邦 runtime 创建失败回滚也走 `deleteTunnelByID`，自动覆盖。普通 node 删除只删 forward_port，不删 forward；WG path 删除不删 forward。本次未扩展这些非 forward 级联路径。
+
+生产：2026-10-14 15:44:58Z 开始升级，后端 healthy、前端运行、版本均 fork.48，nginx/flow/test 正常；schema 不变，升级前 29 个在线节点均恢复回报。备份 `/opt/flvx-svc/rollback/pre-fork48-20261014T154409Z` quick_check=ok，保留本地 fork.47 镜像与 rollback.sh；prune 保留 pre-fork47/pre-fork48，删除 pre-fork46 和 fork.45 本地镜像。构建等待期间发生外部业务数据变化，升级前快照为 56 tunnels / 30 forwards / 30 ports / 186 chains，本次健康对照使用此最新快照。
