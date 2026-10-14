@@ -9,7 +9,7 @@
 ## 检查清单
 
 - [x] 读取项目规则、发布/备份流程、利群文档和账号背景；确认 fork.44 起点与范围。
-- [ ] 实现账号/管道数据层与有界 API 客户端（缓存、限速、重试、ETag、幂等）；fake API 和单元测试。
+- [x] 实现账号/管道数据层与有界 API 客户端（缓存、限速、重试、ETag、幂等）；fake API 和单元测试。
 - [ ] 实现管理员接口、管道接管/换落地/创建、普通隧道关联与更新删除一致性、诊断和重部署；契约测试。
 - [ ] 实现管理员桌面/H5 导航及页面、复用普通隧道编辑器、确认和有界进度界面。
 - [ ] 对比 fork.44 基线，完成后端、前端、netns 数据路径/流量/限制测试及桌面/移动截图、资源测量。
@@ -20,3 +20,5 @@
 ## 验证与发布记录
 
 证据目录：`/root/flvx-workers/runs/leikwan-tunnel/`。所有自动化测试仅调用本地 fake LeiKwan API；浏览器单实例，MemAvailable ≥750 MiB，systemd scope MemoryMax=650M / MemorySwapMax=0。生产账号保存只修改本地面板数据库，远端仅 GET。
+
+- API/数据层提交 `9f938ce0`：新接口均管理员 HTTP 403 + envelope，token JSON 隐藏；共享有界客户端（10 秒、4 连接/host）、600 ms 请求间隔/2200 ms 写间隔、15 秒 singleflight 缓存、429 Retry-After。fake API 与单元/契约测试通过；生产 API 未调用。前端初版提交 `bb35241c`，布局与端到端验证继续。
