@@ -2944,6 +2944,7 @@ func (h *Handler) forwardCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := h.syncForwardServices(createdForward, "UpdateService", true); err != nil {
+		h.cleanupForwardRuntimeBestEffort(createdForward)
 		_ = h.deleteForwardByID(forwardID)
 		response.WriteJSON(w, response.ErrDefault(err.Error()))
 		return
@@ -3233,6 +3234,7 @@ func (h *Handler) forwardUpdate(w http.ResponseWriter, r *http.Request) {
 
 	syncWarnings, err := h.syncForwardServicesWithWarnings(updatedForward, "UpdateService", true)
 	if err != nil {
+		h.cleanupForwardRuntimeBestEffort(updatedForward)
 		h.rollbackForwardMutation(forward, oldPorts)
 		response.WriteJSON(w, response.ErrDefault(err.Error()))
 		return
@@ -3826,6 +3828,7 @@ func (h *Handler) forwardBatchChangeTunnel(w http.ResponseWriter, r *http.Reques
 			time.Sleep(tunnelServiceBindRetryDelay)
 		}
 		if err := h.syncForwardServices(updatedForward, "UpdateService", true); err != nil {
+			h.cleanupForwardRuntimeBestEffort(updatedForward)
 			h.rollbackForwardMutation(forward, oldPorts)
 			fail++
 			failures = appendBatchFailure(failures, id, forward.Name, err)
@@ -5656,14 +5659,26 @@ func (h *Handler) rollbackForwardMutation(oldForward *forwardRecord, oldPorts []
 		oldForward.TunnelID, oldForward.RemoteAddr, oldForward.Strategy, oldForward.Status,
 		oldForward.SpeedID, oldForward.MaxConnections, oldForward.MaxClientIps,
 		oldForward.CNBlocked, oldForward.CNBlockedReason, oldForward.CNBlockedAutoPaused,
-		time.Now().UnixMilli(),
+		time.Now().UnixMilli(), oldForward,
 	)
 
 	if err := h.replaceForwardPortsWithRecords(oldForward.ID, oldPorts); err != nil {
 		return
 	}
 
-	_ = h.syncForwardServices(oldForward, "UpdateService", true)
+	// Restore all old entries even if one node fails again during rollback.
+	for _, nodeID := range forwardPortNodeIDs(oldPorts) {
+		if _, err := h.syncForwardServicesWithWarningsOnNode(oldForward, "UpdateService", true, nodeID); err != nil {
+			log.Printf("[forward-rollback] forward %d restore node %d: %v", oldForward.ID, nodeID, err)
+		}
+	}
+	if strings.EqualFold(oldForward.Mode, "wg_path") {
+		if nodes, err := h.wgPathNodeOrder(oldForward.WGPathID); err == nil && len(nodes) > 1 {
+			if err := h.syncWGForwardRuleOnNode(oldForward, oldPorts, "UpdateService", nodes[len(nodes)-1]); err != nil {
+				log.Printf("[forward-rollback] forward %d restore WG exit: %v", oldForward.ID, err)
+			}
+		}
+	}
 }
 
 func (h *Handler) upsertUserTunnel(req map[string]interface{}) error {
