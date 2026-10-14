@@ -1709,20 +1709,7 @@ func installSingBoxFromGitHub() error {
 }
 
 func downloadToFile(url string, out *os.File) error {
-	req, err := http.NewRequest(http.MethodGet, url, nil)
-	if err != nil {
-		return err
-	}
-	req.Header.Set("User-Agent", "flvxt2-agent")
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fmt.Errorf("download %s failed: HTTP %d", url, resp.StatusCode)
-	}
-	_, err = io.Copy(out, resp.Body)
+	_, err := downloadWithLimits(url, out, upgradeSourceStallTimeout, upgradeSourceTimeout, nil)
 	return err
 }
 
@@ -2190,98 +2177,19 @@ func (w *WebSocketReporter) handleUpgradeAgent(data interface{}) error {
 
 	w.sendUpgradeProgress("downloading", 0, "开始下载升级包...")
 
-	// 尝试多个下载源
-	var downloadURL string
-	var checksumURL string
-	var lastErr error
-
-	for i := range req.DownloadURLs {
-		downloadURL = strings.ReplaceAll(req.DownloadURLs[i], "{ARCH}", runtime.GOARCH)
-		if i < len(req.ChecksumURLs) {
-			checksumURL = strings.ReplaceAll(req.ChecksumURLs[i], "{ARCH}", runtime.GOARCH)
-		}
-
-		fmt.Printf("📦 尝试下载升级包：%s\n", logsafe.URL(downloadURL))
-
-		// 测试下载连接
-		resp, err := http.Head(downloadURL)
-		if err == nil && resp.StatusCode == http.StatusOK {
-			resp.Body.Close()
-			fmt.Printf("✅ 下载源可用：%s\n", logsafe.URL(downloadURL))
-			break
-		}
-		if err != nil {
-			lastErr = err
-		}
-	}
-
-	if downloadURL == "" {
-		return fmt.Errorf("所有下载源都不可用：%s", logsafe.Error(lastErr))
-	}
-
-	fmt.Printf("📦 开始下载升级包：%s\n", logsafe.URL(downloadURL))
-
-	// 下载新版本二进制
 	configDir := getConfigDir(w.serviceName)
 	binaryName := configDir[strings.LastIndex(configDir, "/")+1:]
 	binaryPath := configDir + "/" + binaryName
 	tmpPath := binaryPath + ".new"
 	backupPath := binaryPath + ".old"
-
-	resp, err := http.Get(downloadURL)
+	source, downloaded, digest, err := downloadUpgradeSources(req.DownloadURLs, tmpPath,
+		upgradeSourceStallTimeout, upgradeSourceTimeout, w.sendUpgradeProgress)
 	if err != nil {
-		return fmt.Errorf("下载升级包失败：%s", logsafe.Error(err))
+		return err
 	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("下载升级包失败，HTTP 状态码：%d", resp.StatusCode)
-	}
-
-	outFile, err := os.Create(tmpPath)
-	if err != nil {
-		return fmt.Errorf("创建临时文件失败：%v", err)
-	}
-
-	// 带进度的下载
-	totalSize := resp.ContentLength
-	var downloaded int64
-	buf := make([]byte, 32*1024)
-	lastPercent := 0
-	hasher := sha256.New()
-
-	for {
-		n, readErr := resp.Body.Read(buf)
-		if n > 0 {
-			if _, wErr := outFile.Write(buf[:n]); wErr != nil {
-				outFile.Close()
-				os.Remove(tmpPath)
-				return fmt.Errorf("写入升级包失败：%v", wErr)
-			}
-			hasher.Write(buf[:n])
-			downloaded += int64(n)
-			if totalSize > 0 {
-				percent := int(downloaded * 100 / totalSize)
-				if percent-lastPercent >= 10 {
-					lastPercent = percent
-					w.sendUpgradeProgress("downloading", percent, fmt.Sprintf("下载中... %d%%", percent))
-				}
-			}
-		}
-		if readErr != nil {
-			if readErr == io.EOF {
-				break
-			}
-			outFile.Close()
-			os.Remove(tmpPath)
-			return fmt.Errorf("读取升级包失败：%v", readErr)
-		}
-	}
-	outFile.Close()
-
-	if downloaded == 0 {
-		os.Remove(tmpPath)
-		return fmt.Errorf("下载的升级包为空")
+	checksumURL := ""
+	if source < len(req.ChecksumURLs) {
+		checksumURL = strings.ReplaceAll(req.ChecksumURLs[source], "{ARCH}", runtime.GOARCH)
 	}
 
 	w.sendUpgradeProgress("downloading", 100, fmt.Sprintf("下载完成 (%d bytes)", downloaded))
@@ -2289,7 +2197,8 @@ func (w *WebSocketReporter) handleUpgradeAgent(data interface{}) error {
 	// Checksum 校验
 	if checksumURL != "" {
 		w.sendUpgradeProgress("verifying", 0, "校验文件完整性...")
-		checksumResp, err := http.Get(checksumURL)
+		checksumClient := &http.Client{Timeout: upgradeSourceStallTimeout}
+		checksumResp, err := checksumClient.Get(checksumURL)
 		if err == nil {
 			defer checksumResp.Body.Close()
 			if checksumResp.StatusCode == http.StatusOK {
@@ -2297,7 +2206,7 @@ func (w *WebSocketReporter) handleUpgradeAgent(data interface{}) error {
 				if err == nil {
 					// 格式："<hash>  <filename>" 或 "<hash>"
 					expectedHash := strings.TrimSpace(strings.Split(string(checksumBody), " ")[0])
-					actualHash := hex.EncodeToString(hasher.Sum(nil))
+					actualHash := hex.EncodeToString(digest)
 					if !strings.EqualFold(expectedHash, actualHash) {
 
 						os.Remove(tmpPath)
