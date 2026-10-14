@@ -5070,6 +5070,7 @@ export default function TunnelPage() {
                 {!!tunnelToDelete?.leikwanPipeId && (
                   <div className="space-y-2 rounded-xl border border-warning/40 p-3">
                     <Checkbox
+                      aria-label="同时删除利群转发"
                       isSelected={deleteLeikwanForward}
                       onValueChange={setDeleteLeikwanForward}
                     >
@@ -5824,6 +5825,7 @@ export default function TunnelPage() {
                 ) && (
                   <div className="space-y-2 rounded-xl border border-warning/40 p-3">
                     <Checkbox
+                      aria-label="同时删除所选隧道的利群转发"
                       isSelected={batchDeleteLeikwanForward}
                       onValueChange={setBatchDeleteLeikwanForward}
                     >
