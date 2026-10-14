@@ -12,7 +12,7 @@
 - [x] 生产备份/回滚脚本，prune 保留两个，升级面板并核验健康和节点回报。
 - [ ] SSH 备份 54，面板 OTA fork.49，验证回连/-V/unit/RA/ListServices；其他节点不 OTA。**受阻：可达 SSH 但现有密钥拒绝认证，缺少所要求的 SSH 备份，故未 OTA；不能标为完成。**
 - [x] 生产全在线节点 dry-run，审核后仅清理明确孤儿，再 dry-run；保存逐节点/未知/缺失报告。
-- [ ] 中文总结含改动、测试、发布、备份、破坏性操作/回滚、建议；提交最终计划并推送。
+- [x] 中文总结含改动、测试、发布、备份、破坏性操作/回滚、建议；提交最终计划并推送。
 
 ## 记录
 
@@ -37,3 +37,5 @@ OTA：实际 GET 每源重试，30 秒无字节/5 分钟总上限，切换时重
 
 生产实时扫描完成：`sweep-before.json` → 已审核空 targets 的 `sweep-execute.json`（删除 0、错误 0）→ `sweep-after.json`。29 在线节点全部回退 serviceConnections，前后均 0 孤儿 / 0 未知；24 离线跳过。缺失候选只有节点 2 `6_nft`、23 `124_nft`、48 `126_nft`，旧 nft 统计不能证明空闲规则实际不存在，未修复。生产真实非管理员 JWT dry-run/execute 均 HTTP 403 + code 403。
 最终 29/30 在线，全部 agent 版本未变，52/53 SSH -V 仍 fork.48、flvxx.service active，52 `chains_80` 配置 hash 与升级前相同；其他栈/LeiKwan relay 未修改。54 仍在线 fork.47、面板 RA 空；新命令回退旧版，无法完成要求的 canary。备份与错误证据见 `node54-ota-blocked.json`、SSH 日志；本轮无 node54 二进制/配置/unit 变更，因此无需节点回滚。
+
+收尾：ws/repo 和 socket/nftables 全包 race 通过；中文总结已写 `/root/flvx-workers/runs/orphan-sweep/summary.md`，包含 30 节点逐项表、3 个 nft 缺失候选、54 SSH 阻塞、所有改动文件、测试/CI/Release、备份/删除及回滚。54 待办保持未勾选，未把部分完成冒充全部完成。无遗留测试进程或生产 DB scratch 副本。
