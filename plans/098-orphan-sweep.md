@@ -10,8 +10,8 @@
 - [x] backend / go-gost/x 全量、基线对照、定向 race/vet；真实 panel+agent 隔离 E2E（精确与旧版回退）；真实 JWT 非管理员 403。
 - [x] 推送分支、CI 通过、打 fork.49 标签；Images/Latest/资产核验。
 - [x] 生产备份/回滚脚本，prune 保留两个，升级面板并核验健康和节点回报。
-- [ ] SSH 备份 54，面板 OTA fork.49，验证回连/-V/unit/RA/ListServices；其他节点不 OTA。
-- [ ] 生产全在线节点 dry-run，审核后仅清理明确孤儿，再 dry-run；保存逐节点/未知/缺失报告。
+- [ ] SSH 备份 54，面板 OTA fork.49，验证回连/-V/unit/RA/ListServices；其他节点不 OTA。**受阻：可达 SSH 但现有密钥拒绝认证，缺少所要求的 SSH 备份，故未 OTA；不能标为完成。**
+- [x] 生产全在线节点 dry-run，审核后仅清理明确孤儿，再 dry-run；保存逐节点/未知/缺失报告。
 - [ ] 中文总结含改动、测试、发布、备份、破坏性操作/回滚、建议；提交最终计划并推送。
 
 ## 记录
@@ -34,3 +34,6 @@ OTA：实际 GET 每源重试，30 秒无字节/5 分钟总上限，切换时重
 发布核验完成：Images 38601072115 success，Release 为 Latest、非预发布，10 个资产与 fork.48 同集；两架构 sha256、ZIP 完整性、compose 镜像版本、安装资产版本 pin 均通过。发布 agent -V 为 fork.49。29 在线节点自动配置快照已全部保存（被动读取面板收到的报告，无节点请求）；快照 service/chain 对照 DB 均无孤儿。
 
 生产 17:02:51 UTC 升级 fork.49；backend healthy、nginx/flow/test/前端版本通过；schema 和业务计数不变（30 nodes / 11 users / 55 tunnels / 31 forwards / 31 ports / 184 chains），原 29 在线节点均在重启后回报。备份 `pre-fork49-20261014T170221Z` quick_check=ok；prune 保留 pre-fork49/pre-fork48，删除 pre-fork47 与 fork.46 本地镜像。54 SSH 备份受阻，未发送 OTA；新命令仍回退旧版 serviceConnections（fork.47），canary 未完成。升级后首轮全节点 API dry-run：在线 29 均 0 孤儿/0 unknown，24 离线跳过；缺失候选在 2/23/48 各 1 个，接下来仅报告。
+
+生产实时扫描完成：`sweep-before.json` → 已审核空 targets 的 `sweep-execute.json`（删除 0、错误 0）→ `sweep-after.json`。29 在线节点全部回退 serviceConnections，前后均 0 孤儿 / 0 未知；24 离线跳过。缺失候选只有节点 2 `6_nft`、23 `124_nft`、48 `126_nft`，旧 nft 统计不能证明空闲规则实际不存在，未修复。生产真实非管理员 JWT dry-run/execute 均 HTTP 403 + code 403。
+最终 29/30 在线，全部 agent 版本未变，52/53 SSH -V 仍 fork.48、flvxx.service active，52 `chains_80` 配置 hash 与升级前相同；其他栈/LeiKwan relay 未修改。54 仍在线 fork.47、面板 RA 空；新命令回退旧版，无法完成要求的 canary。备份与错误证据见 `node54-ota-blocked.json`、SSH 日志；本轮无 node54 二进制/配置/unit 变更，因此无需节点回滚。
