@@ -194,6 +194,31 @@ export default function AdminLayout({
       adminOnly: true,
     },
     {
+      path: "/leikwan",
+      label: "利群汇聚",
+      adminOnly: true,
+      icon: (
+        <svg
+          aria-hidden="true"
+          className="w-5 h-5"
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
+        >
+          <path
+            d="M4 7h4m8 0h4M4 17h4m8 0h4M8 7v10m8-10v10M8 12h8"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth={2}
+          />
+          <circle cx="3" cy="7" r="1" />
+          <circle cx="21" cy="7" r="1" />
+          <circle cx="3" cy="17" r="1" />
+          <circle cx="21" cy="17" r="1" />
+        </svg>
+      ),
+    },
+    {
       path: "/node",
       label: "节点",
       icon: (

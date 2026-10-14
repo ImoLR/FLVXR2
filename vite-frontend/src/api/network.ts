@@ -52,6 +52,7 @@ interface ApiResponse<T = unknown> {
 
 interface RequestOptions {
   timeout?: number;
+  signal?: AbortSignal;
 }
 
 // 处理token失效的逻辑
@@ -92,6 +93,7 @@ const Network = {
         .get(path, {
           params: data,
           timeout: options.timeout ?? 30000,
+          signal: options.signal,
           withCredentials: true,
         })
         .then(function (response: AxiosResponse<ApiResponse<T>>) {
@@ -137,6 +139,7 @@ const Network = {
         .get(path, {
           params: data,
           timeout: options.timeout ?? 30000,
+          signal: options.signal,
           withCredentials: true,
           headers: authHeaders(),
         })
@@ -189,6 +192,7 @@ const Network = {
       axios
         .post(path, data, {
           timeout: options.timeout ?? 30000,
+          signal: options.signal,
           withCredentials: true,
           headers: {
             ...authHeaders(),

@@ -611,6 +611,7 @@ export interface TunnelChainNodePayload {
 
 export interface TunnelMutationPayload {
   id?: number;
+  leikwanPipeId?: number;
   name?: string;
   type?: number;
   status?: number;

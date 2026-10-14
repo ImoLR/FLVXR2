@@ -323,6 +323,7 @@ export const previewTunnelDelete = (id: number) =>
 export const deleteTunnelWithForwards = (data: {
   id: number;
   action: "replace" | "delete_forwards";
+  deleteLeikwanForward?: boolean;
   targetTunnelId?: number;
 }) =>
   Network.post<TunnelDeleteWithForwardsApiData | BatchOperationResult>(
@@ -339,6 +340,7 @@ export const previewBatchTunnelDelete = (ids: number[]) =>
 export const batchDeleteTunnelsWithForwards = (data: {
   ids: number[];
   action: "replace" | "delete_forwards";
+  deleteLeikwanForward?: boolean;
   targetTunnelId?: number;
 }) =>
   Network.post<TunnelBatchDeleteWithForwardsApiData>(

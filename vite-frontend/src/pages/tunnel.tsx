@@ -6,6 +6,7 @@ import type {
   TunnelDeletePreviewApiData,
 } from "@/api/types";
 import type { TunnelGroupNewApiItem } from "@/api/types";
+import type { LeiKwanPipe } from "@/api/leikwan";
 
 import { verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { useState, useEffect, useMemo, useRef, useCallback } from "react";
@@ -27,10 +28,13 @@ import {
   useSortable,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
+import { useLocation, useNavigate } from "react-router-dom";
 
 import { TunnelGroupManager } from "./tunnel/tunnel-group-manager";
 import { WGPathManager } from "./tunnel/wg-path-manager";
 
+import { formatLeiKwanTarget, leiKwanNodeHost } from "@/api/leikwan";
+import { LeiKwanProgressModal } from "@/pages/leikwan/progress-modal";
 import { SearchBar } from "@/components/search-bar";
 import { usePullToRefresh } from "@/hooks/usePullToRefresh";
 import { AnimatedPage } from "@/components/animated-page";
@@ -139,6 +143,8 @@ interface BestExitState {
 }
 interface Tunnel {
   id: number;
+  leikwanPipeId?: number;
+  leikwanPipe?: LeiKwanPipe | null;
   wgPathId?: number;
   isWGPath?: boolean;
   wgStatus?: string;
@@ -257,6 +263,7 @@ function syncEntryAddresses(
 
 interface TunnelForm {
   id?: number;
+  leikwanPipeId?: number;
   name: string;
   type: number;
   inNodeId: ChainTunnel[];
@@ -516,6 +523,15 @@ const renderBestExitState = (state?: BestExitState | null) => {
 
 export default function TunnelPage() {
   const isAdmin = getRoleId() === 0;
+  const location = useLocation();
+  const navigate = useNavigate();
+  const [editingPipe, setEditingPipe] = useState<LeiKwanPipe | null>(null);
+  const [pipeConfirmOpen, setPipeConfirmOpen] = useState(false);
+  const [progressPipeId, setProgressPipeId] = useState<number | null>(null);
+  const [deleteLeikwanForward, setDeleteLeikwanForward] = useState(false);
+  const [batchDeleteLeikwanForward, setBatchDeleteLeikwanForward] =
+    useState(false);
+  const pipeNavigationHandled = useRef("");
   const [loading, setLoading] = useState(true);
   const [tunnels, setTunnels] = useState<Tunnel[]>([]);
   const [tunnelOrder, setTunnelOrder] = useState<number[]>([]);
@@ -865,6 +881,7 @@ export default function TunnelPage() {
   };
   // 新增隧道
   const handleAdd = () => {
+    setEditingPipe(null);
     setIsEdit(false);
     setWGTunnelMode(false);
     setForm(createTunnelFormDefaults());
@@ -873,6 +890,7 @@ export default function TunnelPage() {
   };
   // 编辑隧道 - 只能修改部分字段
   const handleEdit = (tunnel: Tunnel) => {
+    setEditingPipe(tunnel.leikwanPipe || null);
     if (tunnel.isWGPath) {
       setIsEdit(false);
       setWGTunnelMode(true);
@@ -884,6 +902,7 @@ export default function TunnelPage() {
     setWGTunnelMode(false);
     setForm({
       id: tunnel.id,
+      leikwanPipeId: tunnel.leikwanPipeId,
       name: tunnel.name,
       type: tunnel.type,
       inNodeId: tunnel.inNodeId || [],
@@ -910,6 +929,67 @@ export default function TunnelPage() {
     setErrors({});
     setModalOpen(true);
   };
+
+  useEffect(() => {
+    const state = location.state as {
+      leikwanPipe?: LeiKwanPipe;
+      leikwanEditTunnelId?: number;
+    } | null;
+
+    if (
+      !isAdmin ||
+      !state?.leikwanPipe ||
+      loading ||
+      pipeNavigationHandled.current === location.key
+    )
+      return;
+    pipeNavigationHandled.current = location.key;
+    if (state.leikwanEditTunnelId) {
+      const tunnel = tunnels.find(
+        (item) => item.id === state.leikwanEditTunnelId,
+      );
+
+      if (tunnel) {
+        handleEdit(tunnel);
+        setEditingPipe(state.leikwanPipe);
+      } else toast.error("未找到管道关联的隧道，请刷新利群页面");
+    } else {
+      const pipe = state.leikwanPipe;
+
+      setIsEdit(false);
+      setWGTunnelMode(false);
+      setEditingPipe(pipe);
+      setForm({
+        ...createTunnelFormDefaults(),
+        name: `利群 ${pipe.routeLabel}`,
+        leikwanPipeId: pipe.id,
+        outNodeId: [
+          {
+            nodeId: pipe.landingNodeId,
+            port: pipe.landingPort,
+            protocol: "tls",
+            strategy: "round",
+          },
+        ],
+      });
+      setErrors({});
+      setModalOpen(true);
+    }
+    navigate(location.pathname + location.search, {
+      replace: true,
+      state: null,
+    });
+  }, [
+    isAdmin,
+    loading,
+    location.key,
+    location.pathname,
+    location.search,
+    location.state,
+    navigate,
+    tunnels,
+  ]);
+
   // 删除隧道
   const handleDelete = async (tunnel: Tunnel) => {
     if (tunnel.isWGPath && tunnel.wgPathId) {
@@ -927,6 +1007,7 @@ export default function TunnelPage() {
       }
       return;
     }
+    setDeleteLeikwanForward(false);
     setTunnelToDelete(tunnel);
     setDeleteModalOpen(true);
     setDeletePreviewLoading(true);
@@ -974,6 +1055,7 @@ export default function TunnelPage() {
     try {
       const response = await deleteTunnelWithForwards({
         id: tunnelToDelete.id,
+        deleteLeikwanForward,
         action,
         targetTunnelId:
           action === "replace"
@@ -1367,8 +1449,28 @@ export default function TunnelPage() {
   };
 
   // 提交表单
-  const handleSubmit = async () => {
+  const handleSubmit = async (pipeConfirmed = false) => {
     if (!validateForm()) return;
+    if (editingPipe) {
+      const groups = (form.chainNodes || [])
+        .map((group) => group.filter((node) => node.nodeId > 0))
+        .filter((group) => group.length);
+      const landing =
+        groups[0] || (form.outNodeId || []).filter((node) => node.nodeId > 0);
+
+      if (form.type !== 2 || landing.length !== 1 || !landing[0].port) {
+        toast.error(
+          "利群管道的第一跳必须恰好选择一个落地节点，并填写明确的服务端口",
+        );
+
+        return;
+      }
+      if (!pipeConfirmed) {
+        setPipeConfirmOpen(true);
+
+        return;
+      }
+    }
 
     // 验证转发链
     for (let i = 0; i < (form.chainNodes || []).length; i++) {
@@ -1502,7 +1604,9 @@ export default function TunnelPage() {
         } else {
           toast.success(isEdit ? "更新成功" : "创建成功");
         }
+        setPipeConfirmOpen(false);
         setModalOpen(false);
+        if (editingPipe) setProgressPipeId(editingPipe.id);
         if (isEdit) {
           // 后端返回更新后的完整隧道数据，直接使用
           if (response.data) {
@@ -1972,6 +2076,7 @@ export default function TunnelPage() {
   );
   const handleOpenBatchDeleteModal = async () => {
     if (selectedTunnelIdList.length === 0) return;
+    setBatchDeleteLeikwanForward(false);
     setBatchDeleteModalOpen(true);
     setBatchDeletePreviewLoading(true);
     setBatchDeletePreview(null);
@@ -2016,6 +2121,7 @@ export default function TunnelPage() {
     try {
       const res = await batchDeleteTunnelsWithForwards({
         ids: selectedTunnelIdList,
+        deleteLeikwanForward: batchDeleteLeikwanForward,
         action: batchDeleteHasForwardDependencies
           ? batchDeleteAction
           : "delete_forwards",
@@ -3056,7 +3162,16 @@ export default function TunnelPage() {
                                   >
                                     {tunnel.name}
                                   </span>
-                                  <div className="mt-1">
+                                  <div className="mt-1 flex flex-wrap gap-1.5">
+                                    {!!tunnel.leikwanPipeId && (
+                                      <Chip
+                                        color="primary"
+                                        size="sm"
+                                        variant="flat"
+                                      >
+                                        利群汇聚
+                                      </Chip>
+                                    )}
                                     {renderExitRegion(tunnel)}
                                   </div>
                                 </td>
@@ -3334,6 +3449,15 @@ export default function TunnelPage() {
                                       {tunnel.name}
                                     </h3>
                                     <div className="flex flex-wrap items-center gap-1.5 mt-1">
+                                      {!!tunnel.leikwanPipeId && (
+                                        <Chip
+                                          color="primary"
+                                          size="sm"
+                                          variant="flat"
+                                        >
+                                          利群汇聚
+                                        </Chip>
+                                      )}
                                       {renderExitRegion(tunnel)}
                                       <div className={tunnelTypeChipClassName}>
                                         {typeDisplay.text}
@@ -3602,6 +3726,76 @@ export default function TunnelPage() {
           </CardBody>
         </Card>
       )}
+      <LeiKwanProgressModal
+        pipeId={progressPipeId}
+        onClose={() => setProgressPipeId(null)}
+      />
+      <Modal
+        isDismissable={!submitLoading}
+        isOpen={pipeConfirmOpen}
+        placement="center"
+        scrollBehavior="inside"
+        size="lg"
+        onOpenChange={(open) => {
+          if (!submitLoading) setPipeConfirmOpen(open);
+        }}
+      >
+        <ModalContent>
+          <ModalHeader>确认利群管道目标</ModalHeader>
+          <ModalBody className="space-y-3">
+            <Alert
+              color="warning"
+              description="包括 VPS 和手机。目标变化时平台会重建连接，现有连接可能中断。"
+              title="影响所有共用转发的设备"
+            />
+            <p className="text-sm">
+              转发 #{editingPipe?.forwardId} · {editingPipe?.routeLabel}
+            </p>
+            <p className="break-all text-sm">
+              原目标：
+              {editingPipe &&
+                formatLeiKwanTarget(
+                  editingPipe.targetHost,
+                  editingPipe.landingPort,
+                )}
+            </p>
+            <p className="break-all text-sm">
+              新目标：
+              {(() => {
+                const groups = (form.chainNodes || [])
+                  .map((group) => group.filter((node) => node.nodeId > 0))
+                  .filter((group) => group.length);
+                const landing = (groups[0] || form.outNodeId || [])[0];
+
+                return landing
+                  ? formatLeiKwanTarget(
+                      leiKwanNodeHost(
+                        nodes.find((node) => node.id === landing.nodeId),
+                      ),
+                      landing.port || "未指定",
+                    )
+                  : "未选择";
+              })()}
+            </p>
+          </ModalBody>
+          <ModalFooter>
+            <Button
+              isDisabled={submitLoading}
+              variant="flat"
+              onPress={() => setPipeConfirmOpen(false)}
+            >
+              返回修改
+            </Button>
+            <Button
+              color="warning"
+              isLoading={submitLoading}
+              onPress={() => void handleSubmit(true)}
+            >
+              确认保存
+            </Button>
+          </ModalFooter>
+        </ModalContent>
+      </Modal>
       {/* 新增/编辑弹窗 */}
       <Modal
         backdrop="blur"
@@ -3634,7 +3828,7 @@ export default function TunnelPage() {
                       : "" /* "创建新的隧道配置" */
                   }
                 </p>
-                {!isEdit && isAdmin && (
+                {!isEdit && isAdmin && !editingPipe && (
                   <Switch
                     isSelected={wgTunnelMode}
                     className="mt-1 shrink-0"
@@ -3660,6 +3854,13 @@ export default function TunnelPage() {
                 ) : (
                   <>
                     <div className="space-y-4">
+                      {editingPipe && (
+                        <Alert
+                          color="primary"
+                          description="入口可选择多台运行利群客户端的 VPS。第一跳（无转发链时为出口）须为单个落地节点；入口通过本机利群监听端口连接。可将落地节点设为第一跳，再添加后续转发链和出口。保存会同步平台目标并重建连接。"
+                          title={`利群管道 #${editingPipe.forwardId} · ${editingPipe.routeLabel}`}
+                        />
+                      )}
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <Input
                       errorMessage={errors.name}
@@ -3726,7 +3927,7 @@ export default function TunnelPage() {
                         isEdit ? "编辑时无法修改隧道类型" : undefined
                       }
                       errorMessage={errors.type}
-                      isDisabled={isEdit}
+                          isDisabled={isEdit || !!editingPipe}
                       isInvalid={!!errors.type}
                       label="隧道类型"
                       placeholder="请选择隧道类型"
@@ -4819,7 +5020,7 @@ export default function TunnelPage() {
                 <Button
                   color="primary"
                   isLoading={submitLoading}
-                  onPress={handleSubmit}
+                    onPress={() => void handleSubmit()}
                 >
                   {submitLoading
                     ? isEdit
@@ -4859,6 +5060,20 @@ export default function TunnelPage() {
                 </p>
               </ModalHeader>
               <ModalBody className="space-y-3 sm:space-y-4">
+                {!!tunnelToDelete?.leikwanPipeId && (
+                  <div className="space-y-2 rounded-xl border border-warning/40 p-3">
+                    <Checkbox
+                      isSelected={deleteLeikwanForward}
+                      onValueChange={setDeleteLeikwanForward}
+                    >
+                      同时删除利群转发 #{tunnelToDelete.leikwanPipe?.forwardId}
+                    </Checkbox>
+                    <p className="text-xs text-default-500">
+                      默认保留管道。删除利群转发会影响所有共用设备，且仍占用平台每服务
+                      512 条历史记录额度，无法恢复原转发 ID。
+                    </p>
+                  </div>
+                )}
                 {deletePreviewLoading ? (
                   <div className="flex items-center gap-3 rounded-xl border border-divider bg-content2/40 px-3 py-5 text-sm text-default-600 sm:px-4 sm:py-6">
                     <Spinner size="sm" />
@@ -5595,6 +5810,24 @@ export default function TunnelPage() {
                 </p>
               </ModalHeader>
               <ModalBody className="space-y-3 sm:space-y-4">
+                {tunnels.some(
+                  (tunnel) =>
+                    selectedTunnelIdList.includes(tunnel.id) &&
+                    tunnel.leikwanPipeId,
+                ) && (
+                  <div className="space-y-2 rounded-xl border border-warning/40 p-3">
+                    <Checkbox
+                      isSelected={batchDeleteLeikwanForward}
+                      onValueChange={setBatchDeleteLeikwanForward}
+                    >
+                      同时删除所选隧道的利群转发
+                    </Checkbox>
+                    <p className="text-xs text-default-500">
+                      默认保留。删除影响所有共用设备，仍占用每服务 512
+                      条历史记录额度。
+                    </p>
+                  </div>
+                )}
                 {batchDeletePreviewLoading ? (
                   <div className="flex items-center gap-3 rounded-xl border border-divider bg-content2/40 px-3 py-5 text-sm text-default-600 sm:px-4 sm:py-6">
                     <Spinner size="sm" />
