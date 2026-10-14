@@ -1,0 +1,24 @@
+# 096 — 利群 phase 2 / 3.0.27-fork.47
+
+范围：agent 日志秘密脱敏；利群客户端只读检测、管理员徽章和入口提示；发布及生产升级；仅节点 52 OTA；广州 VPS front relay 覆盖 FLVX 回环连接；新增一条广港 pipe/tunnel 并验证。保持原六条 forward、手机端口、其他服务及代理版本不变。不修改安装脚本、内存文件或用户组。
+
+## 检查清单
+
+- [x] 读取项目约束及指定 memory，确认 fork.46 已发布并在生产；从 origin 的 fork.46 分支头 0ad40aa0 建立 fork.47 分支。
+- [ ] 记录生产节点/六条 forward ETag 基线，完成 VPS 完整带日期备份。
+- [ ] 审计 go-gost（含 x）/go-backend 日志，脱敏 PSK、JWT/利群 token、完整配置及带 URL 的错误，增加回归测试。
+- [ ] 实现只读利群检测、周期上报、只变更写入、管理员字段与桌面/移动徽章及入口选择提示；完成对应测试。
+- [ ] 本地构建与测试，对照现有失败基线，截图验证。
+- [ ] 分支 push → CI 绿 → fork.47 tag → images 绿 → 全量发布资产校验。
+- [ ] 生产备份、保留最新两份、升级面板及健康/节点上报核对。
+- [ ] 仅 OTA 节点 52，校验原 flvxx.service/-C、版本及徽章；记录其他旧版本节点。
+- [ ] bridge repo 中实现、测试、提交 front relay cgroup output NAT；备份后部署并量化短暂重启影响。
+- [ ] 选择稳定香港公网 IPv4 落地；持久化幂等键，经生产 API 仅 POST 创建一次新 forward 和未分组 tunnel。
+- [ ] 新端口 external/loopback、进度、diagnose/PipePing、10–50 MB 与数百连接实流量、计费及 relay 证据验证；删除临时规则。
+- [ ] 核对原 forward/ETag/手机端口与其他服务、生产节点状态；删除本任务临时生产 DB 副本。
+- [ ] 完成中文 summary（含截图、备份、回滚、破坏性动作、安全问题及未实施建议）并提交最终计划记录。
+
+## 执行记录
+
+- 2026-10-14：tag `3.0.27-fork.46` release 已发布；`/opt/flvx-svc/.env` 与两个运行容器均为 fork.46。
+- 输出目录：`/root/flvx-workers/runs/leikwan-phase2/`；最终报告：`summary.md`。
