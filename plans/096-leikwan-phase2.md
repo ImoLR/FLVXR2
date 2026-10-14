@@ -12,13 +12,15 @@
 - [x] 分支 push → CI 绿 → fork.47 tag → images 绿 → 全量发布资产校验。
 - [x] 生产备份、保留最新两份、升级面板及健康/节点上报核对。
 - [x] 仅 OTA 节点 52，校验原 flvxx.service/-C、版本及徽章；记录其他旧版本节点。
-- [ ] bridge repo 中实现、测试、提交 front relay cgroup output NAT；备份后部署并量化短暂重启影响。
+- [x] bridge repo 中实现、测试、提交 front relay cgroup output NAT；备份后部署并量化短暂重启影响。
 - [x] 选择稳定香港公网 IPv4 落地；持久化幂等键，经生产 API 仅 POST 创建一次新 forward 和未分组 tunnel。
 - [ ] 新端口 external/loopback、进度、diagnose/PipePing、10–50 MB 与数百连接实流量、计费及 relay 证据验证；删除临时规则。
 - [ ] 核对原 forward/ETag/手机端口与其他服务、生产节点状态；删除本任务临时生产 DB 副本。
 - [ ] 完成中文 summary（含截图、备份、回滚、破坏性动作、安全问题及未实施建议）并提交最终计划记录。
 
 ## 执行记录
+
+- relay：bridge `056a769` 已 push；VPS 隔离 netns 双栈原目标测试通过。先仅对新端口 10044 演练（PipePing 成功，OUTPUT 计数 2），再原子替换 binary 并重启。重启 0.03235 秒；原 1 个来源 IP 的连接在 ready+0.502 秒恢复，ready+5 秒 7 条（重启前 8 条）。外部短连接探测前/部署期间/后分别超时 4/48、8/197、10/147，不能归因于重启的单次窗口；保留完整采样。规则自动覆盖 10015–10020、10044 的 FLVX cgroup 回环流量，原外部规则保持开放，cleanup/fail-open 清理自有 OUTPUT 链。
 
 - 新建：只发送一次 `leikwan/pipe/create`，幂等键保存在 run 的 `create-pipe-request.json`，发送前落盘 marker。新 forward **318** / 监听 **10044** / pipe **1**，route 21 CAN→HKG，落地节点 47 AWS HK `18.162.41.20:10044`；隧道 **80「利群·广港·AWS HK」**，入口 52、出口 TLS，无用户组。节点 47 已有三条隧道，最近一小时上报最大间隔 4.082 秒、uptime 约 15.6 天，优于易抖动节点 26。
 
