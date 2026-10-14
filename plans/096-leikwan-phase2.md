@@ -5,8 +5,8 @@
 ## 检查清单
 
 - [x] 读取项目约束及指定 memory，确认 fork.46 已发布并在生产；从 origin 的 fork.46 分支头 0ad40aa0 建立 fork.47 分支。
-- [ ] 记录生产节点/六条 forward ETag 基线，完成 VPS 完整带日期备份。
-- [ ] 审计 go-gost（含 x）/go-backend 日志，脱敏 PSK、JWT/利群 token、完整配置及带 URL 的错误，增加回归测试。
+- [x] 记录生产节点/六条 forward ETag 基线，完成 VPS 完整带日期备份。
+- [x] 审计 go-gost（含 x）/go-backend 日志，脱敏 PSK、JWT/利群 token、完整配置及带 URL 的错误，增加回归测试。
 - [ ] 实现只读利群检测、周期上报、只变更写入、管理员字段与桌面/移动徽章及入口选择提示；完成对应测试。
 - [ ] 本地构建与测试，对照现有失败基线，截图验证。
 - [ ] 分支 push → CI 绿 → fork.47 tag → images 绿 → 全量发布资产校验。
@@ -19,6 +19,10 @@
 - [ ] 完成中文 summary（含截图、备份、回滚、破坏性动作、安全问题及未实施建议）并提交最终计划记录。
 
 ## 执行记录
+
+- agent 日志/检测单测已通过；全量 grep 审计在 run 目录。后端 LeiKwan 客户端已有固定错误文本及 token 过滤，GORM 日志为 Silent，HTTP 访问日志只输出 path；无额外 JWT/LeiKwan token 输出点。命令日志仅保留类型，HTTP 响应体及 sing-box 配置诊断内容不再进入日志。显式 CLI 配置导出保留原功能。
+
+- VPS 备份：`/root/backup-20261014T094320Z-flvx-phase2`；基线保存在 run 目录的 `nodes-before.json`、`existing-forwards-before.json`（6/8，ETag r10/r2/r2/r3/r1/r8）。
 
 - 2026-10-14：tag `3.0.27-fork.46` release 已发布；`/opt/flvx-svc/.env` 与两个运行容器均为 fork.46。
 - 输出目录：`/root/flvx-workers/runs/leikwan-phase2/`；最终报告：`summary.md`。

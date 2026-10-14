@@ -60,7 +60,7 @@ type GetNftablesCountersRequest struct {
 
 // handleAddNftablesRules 处理添加 nftables 规则命令
 func (w *WebSocketReporter) handleAddNftablesRules(data json.RawMessage) error {
-	fmt.Printf("DEBUG handleAddNftablesRules raw data: %s\n", string(data))
+	fmt.Println("DEBUG handleAddNftablesRules data redacted")
 	if w.nftablesMgr == nil {
 		return fmt.Errorf("nftables manager not initialized")
 	}

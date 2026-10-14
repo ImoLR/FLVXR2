@@ -116,16 +116,17 @@ func TestSanitizeWebSocketURL(t *testing.T) {
 func TestFormatWebSocketDialErrorIncludesHTTPStatus(t *testing.T) {
 	err := errors.New("websocket: bad handshake")
 	resp := &http.Response{
-		Status: "403 Forbidden",
-		Body:   io.NopCloser(strings.NewReader("forbidden")),
+		Status:     "403 Forbidden",
+		StatusCode: 403,
+		Body:       io.NopCloser(strings.NewReader("forbidden")),
 	}
 
 	msg := formatWebSocketDialError(err, resp)
-	if !strings.Contains(msg, "HTTP 403 Forbidden") {
+	if !strings.Contains(msg, "HTTP 403") {
 		t.Fatalf("expected status in message, got %s", msg)
 	}
-	if !strings.Contains(msg, "forbidden") {
-		t.Fatalf("expected response body in message, got %s", msg)
+	if strings.Contains(msg, "forbidden") {
+		t.Fatalf("response body must not be logged, got %s", msg)
 	}
 }
 

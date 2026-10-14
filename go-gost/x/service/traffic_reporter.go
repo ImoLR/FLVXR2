@@ -14,6 +14,7 @@ import (
 	"github.com/go-gost/core/observer/stats"
 	"github.com/go-gost/x/config"
 	"github.com/go-gost/x/internal/util/crypto"
+	"github.com/go-gost/x/logsafe"
 	"github.com/go-gost/x/registry"
 )
 
@@ -164,11 +165,12 @@ func postJSONWithFallback(ctx context.Context, urls []string, requestBody []byte
 
 	var errs []string
 	for i, targetURL := range orderedURLs {
+		safeURL := logsafe.URL(targetURL)
 		req, err := http.NewRequest("POST", targetURL, bytes.NewBuffer(requestBody))
 		if err != nil {
-			errs = append(errs, fmt.Sprintf("%s => 创建请求失败: %v", targetURL, err))
+			errs = append(errs, fmt.Sprintf("%s => 创建请求失败: %v", safeURL, logsafe.Error(err)))
 			if i < len(orderedURLs)-1 {
-				fmt.Printf("⚠️ HTTP上报尝试失败，准备回退: %s => 创建请求失败: %v\n", targetURL, err)
+				fmt.Printf("⚠️ HTTP上报尝试失败，准备回退: %s => 创建请求失败: %v\n", safeURL, logsafe.Error(err))
 			}
 			continue
 		}
@@ -178,9 +180,9 @@ func postJSONWithFallback(ctx context.Context, urls []string, requestBody []byte
 
 		resp, err := reportDo(ctx, req, timeout)
 		if err != nil {
-			errs = append(errs, fmt.Sprintf("%s => 请求失败: %v", targetURL, err))
+			errs = append(errs, fmt.Sprintf("%s => 请求失败: %v", safeURL, logsafe.Error(err)))
 			if i < len(orderedURLs)-1 {
-				fmt.Printf("⚠️ HTTP上报尝试失败，准备回退: %s => 请求失败: %v\n", targetURL, err)
+				fmt.Printf("⚠️ HTTP上报尝试失败，准备回退: %s => 请求失败: %v\n", safeURL, logsafe.Error(err))
 			}
 			continue
 		}
@@ -189,17 +191,17 @@ func postJSONWithFallback(ctx context.Context, urls []string, requestBody []byte
 		_, readErr := responseBytes.ReadFrom(resp.Body)
 		resp.Body.Close()
 		if readErr != nil {
-			errs = append(errs, fmt.Sprintf("%s => 读取响应失败: %v", targetURL, readErr))
+			errs = append(errs, fmt.Sprintf("%s => 读取响应失败: %v", safeURL, logsafe.Error(readErr)))
 			if i < len(orderedURLs)-1 {
-				fmt.Printf("⚠️ HTTP上报尝试失败，准备回退: %s => 读取响应失败: %v\n", targetURL, readErr)
+				fmt.Printf("⚠️ HTTP上报尝试失败，准备回退: %s => 读取响应失败: %v\n", safeURL, logsafe.Error(readErr))
 			}
 			continue
 		}
 
 		if resp.StatusCode != http.StatusOK {
-			errs = append(errs, fmt.Sprintf("%s => HTTP响应错误: %d %s", targetURL, resp.StatusCode, resp.Status))
+			errs = append(errs, fmt.Sprintf("%s => HTTP响应错误: %d %s", safeURL, resp.StatusCode, http.StatusText(resp.StatusCode)))
 			if i < len(orderedURLs)-1 {
-				fmt.Printf("⚠️ HTTP上报尝试失败，准备回退: %s => HTTP响应错误: %d %s\n", targetURL, resp.StatusCode, resp.Status)
+				fmt.Printf("⚠️ HTTP上报尝试失败，准备回退: %s => HTTP响应错误: %d %s\n", safeURL, resp.StatusCode, http.StatusText(resp.StatusCode))
 			}
 			continue
 		}
@@ -207,15 +209,15 @@ func postJSONWithFallback(ctx context.Context, urls []string, requestBody []byte
 		responseText := strings.TrimSpace(responseBytes.String())
 		if responseText == "ok" {
 			if i > 0 {
-				fmt.Printf("↪️ HTTP上报已自动回退到: %s\n", targetURL)
+				fmt.Printf("↪️ HTTP上报已自动回退到: %s\n", safeURL)
 			}
 			storePreferredURL(preferred, targetURL)
 			return true, nil
 		}
 
-		errs = append(errs, fmt.Sprintf("%s => 服务器响应: %s (期望: ok)", targetURL, responseText))
+		errs = append(errs, fmt.Sprintf("%s => 服务器响应已隐藏 (期望: ok)", safeURL))
 		if i < len(orderedURLs)-1 {
-			fmt.Printf("⚠️ HTTP上报尝试失败，准备回退: %s => 服务器响应: %s (期望: ok)\n", targetURL, responseText)
+			fmt.Printf("⚠️ HTTP上报尝试失败，准备回退: %s => 服务器响应已隐藏 (期望: ok)\n", safeURL)
 		}
 	}
 

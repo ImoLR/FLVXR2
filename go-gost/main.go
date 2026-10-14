@@ -117,7 +117,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	fmt.Printf("✅ 配置加载成功 - addr: %s\n", config.Addr)
+	fmt.Println("✅ 配置加载成功")
 
 	log := xlogger.NewLogger()
 	logger.SetDefault(log)

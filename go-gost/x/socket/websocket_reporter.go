@@ -25,6 +25,7 @@ import (
 
 	"github.com/go-gost/x/config"
 	"github.com/go-gost/x/internal/util/crypto"
+	"github.com/go-gost/x/logsafe"
 	"github.com/go-gost/x/registry"
 	"github.com/go-gost/x/service"
 	"github.com/go-gost/x/stats"
@@ -43,6 +44,7 @@ import (
 
 // SystemInfo 系统信息结构体
 type SystemInfo struct {
+	LeiKwan                *LeiKwanReport            `json:"leikwan,omitempty"`
 	EgressIPFamily         string                    `json:"egress_ip_family,omitempty"`
 	IPv6RAStatus           string                    `json:"ipv6_ra_status,omitempty"`
 	IPv6RADetail           string                    `json:"ipv6_ra_detail,omitempty"`
@@ -183,6 +185,7 @@ const (
 )
 
 type WebSocketReporter struct {
+	leikwan           leiKwanDetector
 	egress            egressDetector
 	ipv6RA            ipv6RADetector
 	url               string
@@ -423,7 +426,7 @@ func (w *WebSocketReporter) fetchAndSaveNodeID() {
 	// 使用 secret 作为 Authorization header
 	req, err := http.NewRequest("GET", httpURL, nil)
 	if err != nil {
-		fmt.Printf("⚠️ 创建获取节点信息请求失败：%v\n", err)
+		fmt.Printf("⚠️ 创建获取节点信息请求失败：%s\n", logsafe.Text(logsafe.Error(err), w.secret))
 		return
 	}
 	req.Header.Set("Authorization", w.secret)
@@ -431,7 +434,7 @@ func (w *WebSocketReporter) fetchAndSaveNodeID() {
 	client := &http.Client{Timeout: 5 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
-		fmt.Printf("⚠️ 获取节点信息失败：%v\n", err)
+		fmt.Printf("⚠️ 获取节点信息失败：%s\n", logsafe.Text(logsafe.Error(err), w.secret))
 		return
 	}
 	defer resp.Body.Close()
@@ -636,7 +639,7 @@ func (w *WebSocketReporter) reportPublicIPs(ipv4, ipv6 string) {
 	// 使用 secret 作为 Authorization header
 	req, err := http.NewRequest("POST", httpURL, nil)
 	if err != nil {
-		fmt.Printf("⚠️ 创建上报 IP 请求失败：%v\n", err)
+		fmt.Printf("⚠️ 创建上报 IP 请求失败：%s\n", logsafe.Text(logsafe.Error(err), w.secret))
 		return
 	}
 	req.Header.Set("Authorization", w.secret)
@@ -653,7 +656,7 @@ func (w *WebSocketReporter) reportPublicIPs(ipv4, ipv6 string) {
 	client := &http.Client{Timeout: 5 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
-		fmt.Printf("⚠️ 上报 IP 失败：%v\n", err)
+		fmt.Printf("⚠️ 上报 IP 失败：%s\n", logsafe.Text(logsafe.Error(err), w.secret))
 		return
 	}
 	defer resp.Body.Close()
@@ -761,6 +764,9 @@ func dialWebSocketWithFallback(dialer *websocket.Dialer, candidates []string) (*
 			return conn, targetURL, nil
 		}
 		errMsg := formatWebSocketDialError(err, resp)
+		if u, e := url.Parse(targetURL); e == nil {
+			errMsg = logsafe.Text(errMsg, u.Query().Get("secret"))
+		}
 		errs = append(errs, fmt.Sprintf("%s => %s", sanitizeWebSocketURL(targetURL), errMsg))
 		if i < len(candidates)-1 {
 			fmt.Printf(
@@ -776,41 +782,19 @@ func dialWebSocketWithFallback(dialer *websocket.Dialer, candidates []string) (*
 }
 
 func sanitizeWebSocketURL(rawURL string) string {
-	u, err := url.Parse(rawURL)
-	if err != nil {
-		return rawURL
-	}
-
-	q := u.Query()
-	if q.Get("secret") != "" {
-		q.Set("secret", "***")
-		u.RawQuery = q.Encode()
-	}
-	return u.String()
+	return logsafe.URL(rawURL)
 }
 
 func formatWebSocketDialError(err error, resp *http.Response) string {
 	if err == nil {
 		return ""
 	}
-	if resp == nil {
-		return err.Error()
+	msg := logsafe.Error(err)
+	if resp != nil {
+		msg += fmt.Sprintf(" (HTTP %d)", resp.StatusCode)
 	}
-
-	msg := fmt.Sprintf("%s (HTTP %s)", err, resp.Status)
-	if resp.Body == nil {
-		return msg
-	}
-
-	body, readErr := io.ReadAll(io.LimitReader(resp.Body, 256))
-	if readErr != nil {
-		return msg
-	}
-	bodyText := strings.TrimSpace(string(body))
-	if bodyText == "" {
-		return msg
-	}
-	return fmt.Sprintf("%s, body=%q", msg, bodyText)
+	// Response bodies can echo the request URL or entire agent configuration.
+	return msg
 }
 
 // handleConnection 处理WebSocket连接
@@ -935,6 +919,7 @@ func (w *WebSocketReporter) collectSystemInfo() SystemInfo {
 
 	raStatus, raDetail := w.ipv6RA.result()
 	return SystemInfo{
+		LeiKwan:                w.leikwan.result(),
 		EgressIPFamily:         w.egress.family(),
 		IPv6RAStatus:           raStatus,
 		IPv6RADetail:           raDetail,
@@ -1224,12 +1209,12 @@ func (w *WebSocketReporter) routeCommand(cmd CommandMessage) {
 	// request and every successful attempt can produce thousands of lines per
 	// hour, so keep command logging for state-changing and interactive commands.
 	if cmd.Type != "TcpPing" && cmd.Type != "PipePing" && cmd.Type != "ServiceMonitorCheck" && cmd.Type != "GetServiceClientIPs" {
-		jsonBytes, errs := json.Marshal(cmd)
+		_, errs := json.Marshal(cmd)
 		if errs != nil {
 			fmt.Println("Error marshaling JSON:", errs)
 			return
 		}
-		fmt.Println("🔔 收到命令: ", string(jsonBytes))
+		fmt.Printf("🔔 收到命令: %s (data redacted)\n", cmd.Type)
 	}
 	var err error
 	var response CommandResponse
@@ -1642,8 +1627,8 @@ func validateCoreConfig(coreType, path string) error {
 		if err := ensureSingBoxInstalled(); err != nil {
 			return err
 		}
-		if out, err := exec.Command("sing-box", "check", "-c", path).CombinedOutput(); err != nil {
-			return fmt.Errorf("sing-box config check failed: %v: %s", err, strings.TrimSpace(string(out)))
+		if _, err := exec.Command("sing-box", "check", "-c", path).CombinedOutput(); err != nil {
+			return fmt.Errorf("sing-box config check failed: %v (diagnostic output redacted)", err)
 		}
 	}
 	return nil
@@ -2216,13 +2201,13 @@ func (w *WebSocketReporter) handleUpgradeAgent(data interface{}) error {
 			checksumURL = strings.ReplaceAll(req.ChecksumURLs[i], "{ARCH}", runtime.GOARCH)
 		}
 
-		fmt.Printf("📦 尝试下载升级包：%s\n", downloadURL)
+		fmt.Printf("📦 尝试下载升级包：%s\n", logsafe.URL(downloadURL))
 
 		// 测试下载连接
 		resp, err := http.Head(downloadURL)
 		if err == nil && resp.StatusCode == http.StatusOK {
 			resp.Body.Close()
-			fmt.Printf("✅ 下载源可用：%s\n", downloadURL)
+			fmt.Printf("✅ 下载源可用：%s\n", logsafe.URL(downloadURL))
 			break
 		}
 		if err != nil {
@@ -2231,10 +2216,10 @@ func (w *WebSocketReporter) handleUpgradeAgent(data interface{}) error {
 	}
 
 	if downloadURL == "" {
-		return fmt.Errorf("所有下载源都不可用：%v", lastErr)
+		return fmt.Errorf("所有下载源都不可用：%s", logsafe.Error(lastErr))
 	}
 
-	fmt.Printf("📦 开始下载升级包：%s\n", downloadURL)
+	fmt.Printf("📦 开始下载升级包：%s\n", logsafe.URL(downloadURL))
 
 	// 下载新版本二进制
 	configDir := getConfigDir(w.serviceName)
@@ -2245,7 +2230,7 @@ func (w *WebSocketReporter) handleUpgradeAgent(data interface{}) error {
 
 	resp, err := http.Get(downloadURL)
 	if err != nil {
-		return fmt.Errorf("下载升级包失败：%v", err)
+		return fmt.Errorf("下载升级包失败：%s", logsafe.Error(err))
 	}
 	defer resp.Body.Close()
 
@@ -2796,7 +2781,7 @@ func StartWebSocketReporterWithConfig(addr string, secret string, http int, tls 
 	candidates := buildWebSocketCandidates(addr, secret, version, http, tls, socks, blockOther, "")
 	fullURL := candidates[0]
 
-	fmt.Printf("🔗 WebSocket 连接 URL: %s\n", fullURL)
+	fmt.Printf("🔗 WebSocket 连接 URL: %s\n", sanitizeWebSocketURL(fullURL))
 
 	reporter := NewWebSocketReporter(fullURL, secret)
 	// 保存 addr, secret, version 供重连时使用
