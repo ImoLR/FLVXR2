@@ -22,3 +22,5 @@ SQLite 六个定向场景通过，覆盖无规则入口、多入口/跳板/出�
 全量 go test ./...：fork.45 和修复后均为相同 15 个失败项（test-comparison.json），无新增失败；两个修改包 go vet 通过。TMPDIR/GOTMPDIR 位于 /root。
 
 发布：代码提交 e6d2712f，annotated tag 3.0.27-fork.46；CI 38540983547、分支文档 CI 38541234406、镜像/发布 38541288302 全绿。Latest 正式发布，10 个资产与 fork.45 相同，脚本版本/仓库、compose 镜像、两架构 SHA256 和 ZIP 均校验通过。
+
+生产回滚点：/opt/flvx-svc/rollback/pre-fork46-20261014T093139Z（在线 DB quick_check=ok、compose/.env、旧镜像本地标签、rollback.sh）。prune-backups.sh 已保留 pre-fork46 与 pre-fork45 两份，删除 pre-fork44 备份及 fork.43 旧镜像。
