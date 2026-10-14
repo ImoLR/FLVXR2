@@ -507,7 +507,7 @@ func (r *Repository) DeleteNodeTrafficResetLog(id int64) error {
 	return r.db.Delete(&model.NodeTrafficResetLog{}, id).Error
 }
 
-func (r *Repository) ListNodeIDsByTunnelIDs(tunnelIDs []int64) ([]int64, error) {
+func (r *Repository) ListNodeIDsByTunnelIDs(userID int64, tunnelIDs []int64) ([]int64, error) {
 	if r == nil || r.db == nil {
 		return nil, errors.New("repository not initialized")
 	}
@@ -515,21 +515,41 @@ func (r *Repository) ListNodeIDsByTunnelIDs(tunnelIDs []int64) ([]int64, error) 
 		return nil, nil
 	}
 
-	// Entry nodes (via forward_port → forward)
+	// A tunnel with no permitted entry contributes no nodes, including old rules.
+	usableTunnelIDs := make([]int64, 0, len(tunnelIDs))
+	var chainIDs []int64
+	for _, tunnelID := range tunnelIDs {
+		allowed, restricted, err := r.TunnelEntryRestriction(userID, tunnelID, false)
+		if err != nil {
+			return nil, err
+		}
+		if restricted && len(allowed) == 0 {
+			continue
+		}
+		usableTunnelIDs = append(usableTunnelIDs, tunnelID)
+		q := r.db.Model(&model.ChainTunnel{}).Where("tunnel_id = ?", tunnelID)
+		if restricted {
+			q = q.Where("chain_type IN ? OR (chain_type = '1' AND node_id IN ?)", []string{"2", "3"}, allowed)
+		} else {
+			q = q.Where("chain_type IN ?", []string{"1", "2", "3"})
+		}
+		var ids []int64
+		if err := q.Pluck("node_id", &ids).Error; err != nil {
+			return nil, err
+		}
+		chainIDs = append(chainIDs, ids...)
+	}
+	if len(usableTunnelIDs) == 0 {
+		return nil, nil
+	}
+
+	// Own rules retain visibility of entries removed from the tunnel's chain.
 	var entryIDs []int64
 	if err := r.db.Model(&model.ForwardPort{}).
 		Select("DISTINCT forward_port.node_id").
 		Joins("JOIN forward ON forward.id = forward_port.forward_id").
-		Where("forward.tunnel_id IN ?", tunnelIDs).
+		Where("forward.user_id = ? AND forward.tunnel_id IN ?", userID, usableTunnelIDs).
 		Pluck("forward_port.node_id", &entryIDs).Error; err != nil {
-		return nil, err
-	}
-
-	// Middle and exit nodes (via chain_tunnel)
-	var chainIDs []int64
-	if err := r.db.Model(&model.ChainTunnel{}).
-		Where("tunnel_id IN ? AND chain_type IN ?", tunnelIDs, []string{"2", "3"}).
-		Pluck("node_id", &chainIDs).Error; err != nil {
 		return nil, err
 	}
 

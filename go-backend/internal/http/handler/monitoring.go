@@ -880,7 +880,7 @@ func (h *Handler) getAccessibleNodeIDs(scope *monitorScope) ([]int64, error) {
 	if len(tunnelIDs) == 0 {
 		return []int64{}, nil
 	}
-	return h.repo.ListNodeIDsByTunnelIDs(tunnelIDs)
+	return h.repo.ListNodeIDsByTunnelIDs(scope.userID, tunnelIDs)
 }
 
 func (h *Handler) checkNodeAccess(scope *monitorScope, nodeID int64) bool {
