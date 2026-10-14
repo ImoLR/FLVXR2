@@ -14,11 +14,15 @@
 - [x] 仅 OTA 节点 52，校验原 flvxx.service/-C、版本及徽章；记录其他旧版本节点。
 - [x] bridge repo 中实现、测试、提交 front relay cgroup output NAT；备份后部署并量化短暂重启影响。
 - [x] 选择稳定香港公网 IPv4 落地；持久化幂等键，经生产 API 仅 POST 创建一次新 forward 和未分组 tunnel。
-- [ ] 新端口 external/loopback、进度、diagnose/PipePing、10–50 MB 与数百连接实流量、计费及 relay 证据验证；删除临时规则。
-- [ ] 核对原 forward/ETag/手机端口与其他服务、生产节点状态；删除本任务临时生产 DB 副本。
+- [x] 新端口 external/loopback、进度、diagnose/PipePing、10–50 MB 与数百连接实流量、计费及 relay 证据验证；删除临时规则。
+- [x] 核对原 forward/ETag/手机端口与其他服务、生产节点状态；删除本任务临时生产 DB 副本。
 - [ ] 完成中文 summary（含截图、备份、回滚、破坏性动作、安全问题及未实施建议）并提交最终计划记录。
 
 ## 执行记录
+
+- 验收：生产三步进度、PipePing、隧道 diagnose 两段均绿；临时管理员规则 127（VPS :20047→speed.cloudflare.com:443）20 MiB HTTPS 下载 3.991 秒、42.03 Mbit/s，300/300 短连接通过；规则记录 23,537,383 字节，已删除。relay 自管 cgroup NAT 计数在流量后 306，后续检查时 311，:18080 确认由 relay PID 3494933 持有；成功连接的 loopback 日志标记未观测到，以 NAT 计数作为本次证据。
+- 完成核对：六条原 forward 目标/ETag/版本完全一致、VPS 六份配置逐字节一致，10015–10020 继续监听且外部 redirect 保留；其他服务 PID/启动时间未变，其他 27 个 agent 版本及所有节点 PSK 未变，27 个在线节点持续上报（24 原离线）。用户组/权限表逐行一致，新隧道无分组/授权，无遗留临时规则；本任务没有临时生产 DB 副本。自建 UI 测试服务器已停止。
+- 生产截图：`prod-desktop-badge*.png`、`prod-desktop-list-badge*.png`、`prod-mobile-badge*.png`、`prod-pipe-progress.png`；页面错误 0，仅节点 52 有利群徽章，普通用户 /node/list 为 403、其 /monitor/nodes 无检测字段。
 
 - relay：bridge `056a769` 已 push；VPS 隔离 netns 双栈原目标测试通过。先仅对新端口 10044 演练（PipePing 成功，OUTPUT 计数 2），再原子替换 binary 并重启。重启 0.03235 秒；原 1 个来源 IP 的连接在 ready+0.502 秒恢复，ready+5 秒 7 条（重启前 8 条）。外部短连接探测前/部署期间/后分别超时 4/48、8/197、10/147，不能归因于重启的单次窗口；保留完整采样。规则自动覆盖 10015–10020、10044 的 FLVX cgroup 回环流量，原外部规则保持开放，cleanup/fail-open 清理自有 OUTPUT 链。
 
