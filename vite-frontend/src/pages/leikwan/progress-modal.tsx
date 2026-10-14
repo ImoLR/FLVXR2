@@ -135,7 +135,9 @@ export function LeiKwanProgressModal({
                   ? "通过"
                   : checking
                     ? "检查中"
-                    : "未通过"}
+                    : result && !result.entries?.length
+                      ? "待绑定"
+                      : "未通过"}
               </Chip>
             </div>
             <p className="text-sm text-default-500">
@@ -145,7 +147,8 @@ export function LeiKwanProgressModal({
           {error && <Alert color="warning" description={error} />}
           <p className="text-xs text-default-500">
             仅在此窗口打开时检查，最长 60 秒。检查由入口节点的 Agent
-            发起，不会再次请求利群平台；关闭窗口即停止。
+            发起，不会再次请求利群平台；关闭窗口即停止。端到端检查需要入口 Agent
+            为 fork.45 或更新版本。
           </p>
           {!checking && result?.entries?.length && !result.endToEnd?.success ? (
             <Alert

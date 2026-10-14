@@ -414,7 +414,7 @@ export default function LeiKwanPage() {
         </Button>
       </div>
       <Card>
-        <CardHeader className="flex flex-wrap items-center justify-between gap-3">
+        <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-3">
           <h2 className="font-semibold">账号设置</h2>
         </CardHeader>
         <CardBody className="space-y-3">
@@ -481,7 +481,7 @@ export default function LeiKwanPage() {
       {error && <Alert color="danger" description={error} title="加载失败" />}
       {accountId > 0 && (
         <Card>
-          <CardHeader className="flex flex-wrap items-center justify-between gap-3">
+          <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-3">
             <div>
               <h2 className="font-semibold">服务概览</h2>
               <p className="mt-1 text-sm text-default-500">

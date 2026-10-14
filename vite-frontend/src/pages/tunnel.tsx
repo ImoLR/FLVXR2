@@ -1465,6 +1465,13 @@ export default function TunnelPage() {
 
         return;
       }
+      const landingNode = nodes.find((node) => node.id === landing[0].nodeId);
+
+      if (!landingNode || landingNode.isRemote || !leiKwanNodeHost(landingNode)) {
+        toast.error("管道落地请选择本面板配置了公网 IP 的节点");
+
+        return;
+      }
       if (!pipeConfirmed) {
         setPipeConfirmOpen(true);
 
