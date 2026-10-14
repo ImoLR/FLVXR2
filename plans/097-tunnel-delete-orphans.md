@@ -10,7 +10,7 @@
 - [x] 推送分支，CI 通过后打 fork.48 标签，核验 Images 和发布资产。
 - [x] 生产备份、清理到两个备份、升级面板及健康检查。
 - [x] 生产临时隧道及两个转发删除验证；检查现有服务读取命令并安全清扫孤儿。
-- [ ] 备份 52/53 agent，OTA、版本/单元/回连/RA 验证；清理临时对象。
+- [x] 备份 52/53 agent，OTA、版本/单元/回连/RA 验证；清理临时对象。
 - [ ] 写中文总结、回滚说明与建议，提交计划最终状态并推送。
 
 ## 审计与验证记录
@@ -33,3 +33,6 @@ Part B：转发启用前及每次状态采样保存 RA 依赖证据；未见 RA 
 生产：2026-10-14 15:44:58Z 开始升级，后端 healthy、前端运行、版本均 fork.48，nginx/flow/test 正常；schema 不变，升级前 29 个在线节点均恢复回报。备份 `/opt/flvx-svc/rollback/pre-fork48-20261014T154409Z` quick_check=ok，保留本地 fork.47 镜像与 rollback.sh；prune 保留 pre-fork47/pre-fork48，删除 pre-fork46 和 fork.45 本地镜像。构建等待期间发生外部业务数据变化，升级前快照为 56 tunnels / 30 forwards / 30 ports / 186 chains，本次健康对照使用此最新快照。
 
 生产 Part A：临时隧道 88 `临时测试-fork48-删除-10141646`，52→53 TLS:13007，转发 141/142、入口 21161/21162；52 4 个 TCP/UDP services、53 `88_tls` 及监听创建前后证据已存档。通过 `/tunnel/delete-with-forwards` 删除后，服务、监听、tunnel/forward/forward_port/chain_tunnel 记录均不存在，52 `chains_80` 与其他已有名称保持。扫描按无读取命令分支完成能力审计：29 在线节点无法全量读取，24 既有离线；删除 0；52/53 必需 SSH 快照只读对照均 0 孤儿。详见 run dir `prod-delete-proof.json` / `orphan-sweep.json`。
+
+OTA：仅 52/53，SSH -V 均 fork.48，flvxx.service active 且 unit/连接设置保持。52 GitHub 下载约 8 分钟、客户端 180 秒超时，完整下载后校验请求停滞；独立确认 SHA256 `8f4a0defb46b987b24f49af98e4917e3e0991da7f9e43eba2d0921bc435e7bbc` 后，只用 `ss -K` 关闭 flvxx 的 `172.31.10.50:37076 → 20.205.243.166:443` GitHub 连接，原 OTA 完成，无重发；约 742.76 秒回报版本，下载期保持在线。53 正常 OTA，约 6.06 秒回报版本。下一次指标后 DB/node list：52 error→空，无徽标；53 error→ok（用户态 RA）。节点备份均为各自 `/root/flvxx-backup-20261014T152626Z-pre-fork48`。
+最终 29/30 在线，其他 agent 版本不变；52 chains_80 内容不变。生产 23:57:28/33 另有本任务未发出的 tunnel delete-preview/delete-with-forwards 请求（run dir concurrent-delete.log），最终业务计数 55 tunnels / 29 forwards / 29 ports / 184 chains。逐项确认本次临时 88 / 141 / 142 已删除，没有临时名称；不以与较早备份全局计数相等作为并发业务的验收条件。
