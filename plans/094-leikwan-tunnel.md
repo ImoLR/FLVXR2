@@ -14,7 +14,7 @@
 - [x] 实现管理员桌面/H5 导航及页面、复用普通隧道编辑器、确认和有界进度界面。
 - [x] 对比 fork.44 基线，完成后端、前端、netns 数据路径/流量/限制测试及桌面/移动截图、资源测量。
 - [x] 提交推送分支，CI 绿色后打 tag 3.0.27-fork.45，验证镜像与 release 资产。
-- [ ] 创建验证备份并 prune 保留两份；升级 /opt/flvx-svc，检查节点、隧道及只读利群概览。
+- [x] 创建验证备份并 prune 保留两份；升级 /opt/flvx-svc，检查节点、隧道及只读利群概览。
 - [ ] 写中文总结与回滚说明，完成计划提交。
 
 ## 验证与发布记录
@@ -30,3 +30,6 @@
 - 已发现但按范围未修复的既有安全问题：agent启动WebSocket URL及HTTP回退日志会含节点secret（websocket_reporter.go:2799、service/traffic_reporter.go:183/210）；本次只在隔离测试使用的PSK日志中观察到，真实利群token未输出。最终总结必须告知。
 
 - 标签 `3.0.27-fork.45` 指向 `34c8059c`，精确提交 CI [38536941371](https://github.com/ImoLR/FLVXR2/actions/runs/38536941371) 全绿；镜像/发布 [38537199232](https://github.com/ImoLR/FLVXR2/actions/runs/38537199232) 全绿。Release 为 Latest/正式版本，10 个资产与 fork.44 一致；compose、PINNED_VERSION、仓库地址、两个架构 SHA256 和离线 zip 校验通过（release-validation.json）。
+
+- 2026-10-14 09:01:58 UTC 升级生产；备份 `/opt/flvx-svc/rollback/pre-fork45-20261014T090138Z`，SQLite quick_check=ok，prune 仅保留它和 pre-fork44。两容器 fork.45，后端 healthy，公网 version.json 正确。27/27 升级前在线节点重新上报（节点24原本离线）；隧道3/4/5诊断通过，节点/用户/隧道/规则/端口/链记录数不变。
+- 通过生产新页面保存服务39账号，仅本地数据库新增账号；真实利群仅 GET options/forwards。配额6/8、路由21/23/24/25/29、转发263/264/279/280/281/282均未接管；pipe/create表仍0条。生产桌面/移动截图和验证见 prod-leikwan-verification.json、prod-desktop-leikwan.png、prod-mobile-leikwan.png；浏览器无错误/OOM。
