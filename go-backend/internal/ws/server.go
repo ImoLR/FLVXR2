@@ -40,6 +40,7 @@ type nodeSession struct {
 	leikwanForwards string
 	egressDetected  string
 	ipv6RAStatus    string
+	ipv6RARecorded  bool
 	ipv6RADetail    string
 	nodeID          int64
 	secret          string
@@ -97,7 +98,7 @@ type Server struct {
 type SystemInfo struct {
 	LeiKwan                *leiKwanReport    `json:"leikwan,omitempty"`
 	EgressIPFamily         string            `json:"egress_ip_family,omitempty"`
-	IPv6RAStatus           string            `json:"ipv6_ra_status,omitempty"`
+	IPv6RAStatus           *string           `json:"ipv6_ra_status,omitempty"`
 	IPv6RADetail           string            `json:"ipv6_ra_detail,omitempty"`
 	Uptime                 uint64            `json:"uptime"`
 	BytesReceived          uint64            `json:"bytes_received"`
@@ -987,14 +988,19 @@ func (s *Server) recordEgressDetection(ns *nodeSession, family string) {
 	ns.egressDetected = family
 }
 
-func (s *Server) recordIPv6RA(ns *nodeSession, status, detail string) {
-	if status != "ok" && status != "warn" && status != "error" {
+func (s *Server) recordIPv6RA(ns *nodeSession, reported *string, detail string) {
+	// Missing means an older agent; explicit empty clears a previous warning.
+	if reported == nil {
+		return
+	}
+	status := *reported
+	if status != "" && status != "ok" && status != "warn" && status != "error" {
 		return
 	}
 	if runes := []rune(detail); len(runes) > 300 {
 		detail = string(runes[:300])
 	}
-	if ns.ipv6RAStatus == status && ns.ipv6RADetail == detail {
+	if ns.ipv6RARecorded && ns.ipv6RAStatus == status && ns.ipv6RADetail == detail {
 		return
 	}
 	if err := s.repo.UpdateNodeIPv6RA(ns.nodeID, status, detail, time.Now().UnixMilli()); err != nil {
@@ -1002,4 +1008,5 @@ func (s *Server) recordIPv6RA(ns *nodeSession, status, detail string) {
 		return
 	}
 	ns.ipv6RAStatus, ns.ipv6RADetail = status, detail
+	ns.ipv6RARecorded = true
 }

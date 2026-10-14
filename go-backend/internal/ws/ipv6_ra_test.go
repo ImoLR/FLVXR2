@@ -26,6 +26,7 @@ func TestIPv6RAChangeOnlyPersistence(t *testing.T) {
 		}
 	}
 	s := NewServer(r, "jwt")
+	record := func(ns *nodeSession, status, detail string) { s.recordIPv6RA(ns, &status, detail) }
 	ns := &nodeSession{nodeID: 1}
 	var info SystemInfo
 	if err := json.Unmarshal([]byte(`{"uptime":1}`), &info); err != nil {
@@ -37,25 +38,52 @@ func TestIPv6RAChangeOnlyPersistence(t *testing.T) {
 		t.Fatalf("old agent defaults: %v %v", items, err)
 	}
 	for _, report := range [][2]string{{"warn", "等待 RA"}, {"warn", "等待 RA"}, {"", ""}, {"bad", ""}, {"ok", "eth0=2"}, {"ok", "eth0=2;eth1=2"}} {
-		s.recordIPv6RA(ns, report[0], report[1])
+		record(ns, report[0], report[1])
 	}
 	var before, after model.Node
 	r.DB().First(&before, 1)
-	s.recordIPv6RA(&nodeSession{nodeID: 1}, "ok", "eth0=2;eth1=2")
+	record(&nodeSession{nodeID: 1}, "ok", "eth0=2;eth1=2")
 	r.DB().First(&after, 1)
 	var count int64
 	r.DB().Table("ra_writes").Count(&count)
-	if count != 3 || after.IPv6RAStatus != "ok" || after.IPv6RADetail != "eth0=2;eth1=2" || after.IPv6RACheckedAt == 0 || after.IPv6RACheckedAt != before.IPv6RACheckedAt {
+	if count != 4 || after.IPv6RAStatus != "ok" || after.IPv6RADetail != "eth0=2;eth1=2" || after.IPv6RACheckedAt == 0 || after.IPv6RACheckedAt != before.IPv6RACheckedAt {
 		t.Fatalf("writes=%d before=%+v after=%+v", count, before, after)
 	}
 	items, err = r.ListNodes(nil)
 	if err != nil || items[0]["ipv6RaStatus"] != after.IPv6RAStatus || items[0]["ipv6RaDetail"] != after.IPv6RADetail || items[0]["ipv6RaCheckedAt"] != after.IPv6RACheckedAt {
 		t.Fatalf("list: %v %v", items, err)
 	}
-	s.recordIPv6RA(ns, "error", strings.Repeat("测", 600))
+	record(ns, "error", strings.Repeat("测", 600))
 	r.DB().First(&after, 1)
 	if len([]rune(after.IPv6RADetail)) != 300 {
 		t.Fatal("detail not bounded")
+	}
+	// Old agents omit the field and must not clear an existing observation.
+	s.recordIPv6RA(&nodeSession{nodeID: 1}, info.IPv6RAStatus, info.IPv6RADetail)
+	r.DB().First(&after, 1)
+	if after.IPv6RAStatus != "error" {
+		t.Fatal("old agent cleared RA state")
+	}
+	// The first empty report after reconnect must clear stale persisted errors.
+	if err := json.Unmarshal([]byte(`{"ipv6_ra_status":""}`), &info); err != nil {
+		t.Fatal(err)
+	}
+	reconnected := &nodeSession{nodeID: 1}
+	s.recordIPv6RA(reconnected, info.IPv6RAStatus, info.IPv6RADetail)
+	r.DB().First(&after, 1)
+	if after.IPv6RAStatus != "" || after.IPv6RADetail != "" {
+		t.Fatal("explicit empty did not clear RA state")
+	}
+	for i := 0; i < 3; i++ {
+		s.recordIPv6RA(reconnected, info.IPv6RAStatus, info.IPv6RADetail)
+	}
+	r.DB().Table("ra_writes").Count(&count)
+	if count != 6 {
+		t.Fatalf("empty report wrote repeatedly: %d", count)
+	}
+	items, err = r.ListNodes(nil)
+	if err != nil || items[0]["ipv6RaStatus"] != "" {
+		t.Fatalf("node list retained error: %v %v", items, err)
 	}
 }
 

@@ -24,3 +24,5 @@ Part B：转发启用前及每次状态采样保存 RA 依赖证据；未见 RA 
 
 验证完成：backend `go test -p 1 -json ./...` 与 fork.47 同为 15 个失败（含子测试），新增 0；go-gost/x 全量通过。handler 定向 race、nftables race、handler/repo/nftables vet 通过。隔离 netns 真实 panel+agent E2E：两个 forwards 的 4 个 TCP/UDP services/listeners 删除后为 0，DB tunnel/forward/forward_port/chain_tunnel 均为 0。
 孤儿清扫能力审计：现有 GetCoreConfig 读取固定 `/etc/flvxt2/<core>.json`，不读取运行 agent 的 `/etc/flvxx/gost.json`/服务注册表；没有 Get/ListServices 命令。10 分钟配置上报是 agent 主动 POST `/flow/config`，不保存可查询快照，且既有自动清理范围比本任务授权扫描更宽。不会新增命令或通过该回调触发全量清理；生产清扫按任务的无读取命令分支报告限制。
+
+补充必要的 RA 上报修复：旧面板忽略空 status，52 的历史 error 不会自行清除。agent 显式发送空 `ipv6_ra_status`；面板用字段是否存在区分旧 agent 和明确清除，仓储允许空状态，首次回连也可清除。保持 write-on-change，不改 UI/schema。WebSocket/socket 回归及 race/vet 通过，覆盖旧 agent 不清除、显式空清除、重复空不上写。

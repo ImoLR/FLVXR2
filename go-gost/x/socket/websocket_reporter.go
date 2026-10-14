@@ -46,7 +46,7 @@ import (
 type SystemInfo struct {
 	LeiKwan                *LeiKwanReport            `json:"leikwan,omitempty"`
 	EgressIPFamily         string                    `json:"egress_ip_family,omitempty"`
-	IPv6RAStatus           string                    `json:"ipv6_ra_status,omitempty"`
+	IPv6RAStatus           string                    `json:"ipv6_ra_status"`
 	IPv6RADetail           string                    `json:"ipv6_ra_detail,omitempty"`
 	Uptime                 uint64                    `json:"uptime"`
 	BytesReceived          uint64                    `json:"bytes_received"`

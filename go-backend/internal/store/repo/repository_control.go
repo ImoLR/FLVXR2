@@ -513,7 +513,7 @@ func (r *Repository) UpdateNodeEgressDetected(nodeID int64, family string, now i
 
 // UpdateNodeIPv6RA preserves the observation time across duplicate reports and reconnects.
 func (r *Repository) UpdateNodeIPv6RA(nodeID int64, status, detail string, now int64) error {
-	if status != "ok" && status != "warn" && status != "error" {
+	if status != "" && status != "ok" && status != "warn" && status != "error" {
 		return nil
 	}
 	return r.db.Model(&model.Node{}).
