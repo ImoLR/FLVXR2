@@ -26,3 +26,5 @@ OTA：实际 GET 每源重试，30 秒无字节/5 分钟总上限，切换时重
 已核实普通 GOST service 解析统一使用 defaultService，具备 CurrentConns；自定义不实现该方法的服务不会出现在旧快照。链内 hop 随链删除，独立注册 hop 无独占归属，仅报告。旧 nft 统计只包含有连接的 id（conntrack 错误时也可能缺失），不能宣称旧快照 nft 全覆盖；API 明示覆盖限制，反向缺失仅报告不修复。
 验证：backend 全量与 fork.48 同为 15 失败、新增 0；go-gost/x 全量通过；handler/ws/repo 与 socket/nftables 定向 race、vet 通过。真实 JWT 全 router 非管理员 dry-run/execute 均 403；新 API 同时使用 HTTP 403 和 envelope code 403。netns 两次真实 E2E：新命令/实际 fork.48 agent 回退，删 DB 中一个 forward 后恰好识别其 TCP/UDP，execute 后 0 孤儿，另一 forward 两监听保持，missing=0。
 54 访问预检：经 leikwan-vps 到 120.253.251.139:1000 可达，但 restrict_cn/leikwan_vps 密钥被拒；nobrand memory 明确尚无我方密钥。继续查已有访问，不跳过 SSH 备份门槛。
+
+发布门禁：分支最新提交 `4d718de9`，CI 38600711888 全部 success（含 PostgreSQL contract）；annotated tag `3.0.27-fork.49` 已推送，Images 38601072115 构建中。首次全量基线 15 无新增；补充 HTTP 403 合约检查与 vet 已通过，最终全量复核运行中。
