@@ -16,9 +16,11 @@
 - [x] 选择稳定香港公网 IPv4 落地；持久化幂等键，经生产 API 仅 POST 创建一次新 forward 和未分组 tunnel。
 - [x] 新端口 external/loopback、进度、diagnose/PipePing、10–50 MB 与数百连接实流量、计费及 relay 证据验证；删除临时规则。
 - [x] 核对原 forward/ETag/手机端口与其他服务、生产节点状态；删除本任务临时生产 DB 副本。
-- [ ] 完成中文 summary（含截图、备份、回滚、破坏性动作、安全问题及未实施建议）并提交最终计划记录。
+- [x] 完成中文 summary（含截图、备份、回滚、破坏性动作、安全问题及未实施建议）并提交最终计划记录。
 
 ## 执行记录
+
+- 已完成中文报告 `/root/flvx-workers/runs/leikwan-phase2/summary.md`：发布/部署、生产截图、旧 agent 清单、VPS 备份及重启测量、流量与保留性证据、逐项回滚与既存安全问题。未修改 memory、安装脚本及未跟踪 plan 048；bridge 原脏工作区未改。
 
 - 验收：生产三步进度、PipePing、隧道 diagnose 两段均绿；临时管理员规则 127（VPS :20047→speed.cloudflare.com:443）20 MiB HTTPS 下载 3.991 秒、42.03 Mbit/s，300/300 短连接通过；规则记录 23,537,383 字节，已删除。relay 自管 cgroup NAT 计数在流量后 306，后续检查时 311，:18080 确认由 relay PID 3494933 持有；成功连接的 loopback 日志标记未观测到，以 NAT 计数作为本次证据。
 - 完成核对：六条原 forward 目标/ETag/版本完全一致、VPS 六份配置逐字节一致，10015–10020 继续监听且外部 redirect 保留；其他服务 PID/启动时间未变，其他 27 个 agent 版本及所有节点 PSK 未变，27 个在线节点持续上报（24 原离线）。用户组/权限表逐行一致，新隧道无分组/授权，无遗留临时规则；本任务没有临时生产 DB 副本。自建 UI 测试服务器已停止。
