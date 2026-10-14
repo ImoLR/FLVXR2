@@ -23,6 +23,14 @@ import (
 // tests. Production always constructs the client with the official fixed URL.
 func (h *Handler) SetLeiKwanClient(c *leikwan.Client) { h.leikwan = c }
 
+// Fixed stripes keep per-pipe serialization bounded even across deleted pipes
+// or invalid request IDs. Normal tunnel runtime locks remain independent.
+func (h *Handler) lockLeiKwanPipe(id int64) func() {
+	mu := &h.leikwanPipeLocks[uint64(id)%uint64(len(h.leikwanPipeLocks))]
+	mu.Lock()
+	return mu.Unlock
+}
+
 func (h *Handler) registerLeiKwan(mux *http.ServeMux) {
 	for path, fn := range map[string]http.HandlerFunc{
 		"account/list": h.leikwanAccountList, "account/save": h.leikwanAccountSave, "account/delete": h.leikwanAccountDelete,
@@ -313,7 +321,7 @@ func (h *Handler) leikwanTakeover(w http.ResponseWriter, r *http.Request) {
 		leiKwanError(w, err)
 		return
 	}
-	unlock := h.lockTunnelRuntime(-req.ForwardID - (1 << 60))
+	unlock := h.lockLeiKwanPipe(req.ForwardID)
 	defer unlock()
 	existing, err := h.repo.GetLeiKwanPipeByForwardID(req.ForwardID)
 	if err != nil || existing != nil {
@@ -370,8 +378,8 @@ func (h *Handler) patchLeiKwanPipe(ctx context.Context, a *model.LeiKwanAccount,
 	if err := leiKwanForwardUsable(f); err != nil {
 		return nil, err
 	}
-	if f.ListenPort != p.ListenPort || f.Transport != p.Transport {
-		return nil, errors.New("利群转发监听端口或传输已在平台改变，请先检查管道")
+	if f.ListenPort != p.ListenPort || f.Transport != p.Transport || (p.RouteID > 0 && f.Route.ID != p.RouteID) {
+		return nil, errors.New("利群转发线路、监听端口或传输已在平台改变，请先检查管道")
 	}
 	target := leikwan.Target{Source: "manual", Host: host, Port: port}
 	if !sameLeiKwanTarget(f.Target, target) {
@@ -381,7 +389,12 @@ func (h *Handler) patchLeiKwanPipe(ctx context.Context, a *model.LeiKwanAccount,
 		f, tag, err = h.leikwan.PatchTarget(ctx, a.Token, p.ForwardID, tag, target)
 		h.leikwan.Invalidate(a.Token, a.ServiceID)
 		if err != nil {
-			return nil, err
+			// The platform may have committed before a timeout/response loss.
+			// Return the attempted target so the tunnel transaction can perform
+			// a conditional compensation after rollback, even in that case.
+			pending := *p
+			pending.TargetHost, pending.LandingNodeID, pending.LandingPort = host, n.ID, port
+			return &pending, err
 		}
 	}
 	return leiKwanPipeFromForward(*p, f, tag, n.ID, port), nil
@@ -418,7 +431,7 @@ func (h *Handler) leikwanRetarget(w http.ResponseWriter, r *http.Request) {
 		leiKwanError(w, errors.New("请确认转发 ID、线路及新旧目标；此操作影响所有设备"))
 		return
 	}
-	unlock := h.lockTunnelRuntime(-req.PipeID)
+	unlock := h.lockLeiKwanPipe(req.PipeID)
 	defer unlock()
 	p, err := h.repo.GetLeiKwanPipe(req.PipeID)
 	if err != nil || p == nil {
@@ -606,7 +619,7 @@ func (h *Handler) leikwanDelete(w http.ResponseWriter, r *http.Request) {
 		leiKwanError(w, err)
 		return
 	}
-	unlock := h.lockTunnelRuntime(-req.PipeID)
+	unlock := h.lockLeiKwanPipe(req.PipeID)
 	defer unlock()
 	p, err := h.repo.GetLeiKwanPipe(req.PipeID)
 	if err != nil || p == nil || p.TunnelID != nil {

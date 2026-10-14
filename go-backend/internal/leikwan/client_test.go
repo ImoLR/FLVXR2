@@ -130,14 +130,14 @@ func TestBoundedResponseAndSecretSafeErrors(t *testing.T) {
 		handler http.HandlerFunc
 	}{{"oversized", func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte(strings.Repeat("x", 2<<20+1))) }}, {"upstream error", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(422)
-		_, _ = w.Write([]byte(`{"error":{"code":"token-secret-value","message":"token-secret-value"}}`))
+		_, _ = w.Write([]byte(`{"error":{"code":"token_secret_value","message":"token_secret_value"}}`))
 	}}} {
 		t.Run(tc.name, func(t *testing.T) {
 			s := httptest.NewServer(tc.handler)
 			defer s.Close()
 			c := leikwan.NewClient(s.URL, nil)
-			_, _, err := c.GetForward(context.Background(), "token-secret-value", 1)
-			if err == nil || strings.Contains(err.Error(), "token-secret-value") {
+			_, _, err := c.GetForward(context.Background(), "token_secret_value", 1)
+			if err == nil || strings.Contains(err.Error(), "token_secret_value") {
 				t.Fatalf("unsafe error %v", err)
 			}
 		})

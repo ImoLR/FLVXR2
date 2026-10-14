@@ -28,6 +28,7 @@ import (
 )
 
 type Handler struct {
+	leikwanPipeLocks [64]sync.Mutex
 	leikwan          *leikwan.Client
 	repo             *repo.Repository
 	jwtSecret        string

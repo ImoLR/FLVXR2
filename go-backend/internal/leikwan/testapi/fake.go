@@ -34,6 +34,7 @@ type Fake struct {
 	FailNext            int
 	RetryAfter          string
 	FailCreateAfterSave bool
+	FailPatchAfterSave  bool
 	NextID              int64
 	creates             map[string]savedCreate
 }
@@ -241,6 +242,11 @@ func (f *Fake) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			v.Revision++
 			v.UpdatedAt = time.Now().UTC().Format("2006-01-02 15:04:05")
 			f.Forwards[id] = v
+			if f.FailPatchAfterSave {
+				f.FailPatchAfterSave = false
+				fail(w, 503, "operation_failed")
+				return
+			}
 			w.Header().Set("ETag", tag(v))
 			reply(w, 200, map[string]interface{}{"ok": true, "forward": v})
 			return
