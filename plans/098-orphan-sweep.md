@@ -8,7 +8,7 @@
 - [x] 修复多入口下发失败回滚，检查创建/更新/批量/隧道入口变化路径，补充故障节点测试。
 - [x] 修复 OTA 每源停滞/总时限与镜像回退，补充停滞和涓流测试。
 - [x] backend / go-gost/x 全量、基线对照、定向 race/vet；真实 panel+agent 隔离 E2E（精确与旧版回退）；真实 JWT 非管理员 403。
-- [ ] 推送分支、CI 通过、打 fork.49 标签；Images/Latest/资产核验。
+- [x] 推送分支、CI 通过、打 fork.49 标签；Images/Latest/资产核验。
 - [ ] 生产备份/回滚脚本，prune 保留两个，升级面板并核验健康和节点回报。
 - [ ] SSH 备份 54，面板 OTA fork.49，验证回连/-V/unit/RA/ListServices；其他节点不 OTA。
 - [ ] 生产全在线节点 dry-run，审核后仅清理明确孤儿，再 dry-run；保存逐节点/未知/缺失报告。
@@ -30,3 +30,5 @@ OTA：实际 GET 每源重试，30 秒无字节/5 分钟总上限，切换时重
 发布门禁：分支最新提交 `4d718de9`，CI 38600711888 全部 success（含 PostgreSQL contract）；annotated tag `3.0.27-fork.49` 已推送，Images 38601072115 构建中。首次全量基线 15 无新增；补充 HTTP 403 合约检查与 vet 已通过，最终全量复核运行中。
 
 最终后端全量复核完成：仍为同一 15 个失败，0 新增；最终对照 `backend-test-comparison-final.json`。新增端点的 HTTP 403 在现有 JWT 中间件处也显式返回，其余端点状态约定未改。
+
+发布核验完成：Images 38601072115 success，Release 为 Latest、非预发布，10 个资产与 fork.48 同集；两架构 sha256、ZIP 完整性、compose 镜像版本、安装资产版本 pin 均通过。发布 agent -V 为 fork.49。29 在线节点自动配置快照已全部保存（被动读取面板收到的报告，无节点请求）；快照 service/chain 对照 DB 均无孤儿。
