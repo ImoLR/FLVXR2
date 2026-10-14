@@ -1,4 +1,14 @@
-export interface NodeApiItem {
+export interface LeiKwanNodeDetection {
+  leikwanStatus?: "" | "absent" | "present" | "running";
+  leikwanForwards?: Array<{
+    forwardId: number;
+    listenPort: number;
+    running: boolean;
+  }>;
+  leikwanCheckedAt?: number;
+}
+
+export interface NodeApiItem extends LeiKwanNodeDetection {
   region?: string;
   regionCity?: string;
   egressIpFamily?: "" | "v4" | "v6" | "dual";

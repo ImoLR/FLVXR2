@@ -1,3 +1,4 @@
+import type { LeiKwanNodeDetection } from "@/api/types";
 import type {
   BatchOperationFailure,
   PathTunnelApiItem,
@@ -179,7 +180,7 @@ interface Tunnel {
   speedId?: number | null;
   speedLimitName?: string | null;
 }
-interface Node {
+interface Node extends LeiKwanNodeDetection {
   id: number;
   name: string;
   status: number; // 1: 在线, 0: 离线
@@ -3996,6 +3997,11 @@ export default function TunnelPage() {
                   </div>
                   <Divider />
                   <h3 className="text-lg font-semibold">入口配置</h3>
+                  {editingPipe && (
+                    <p className="text-xs text-default-500">
+                      已检测到运行利群客户端的节点优先显示。也可手动选择尚未上报的节点。
+                    </p>
+                  )}
                   <div className="grid grid-cols-1 md:grid-cols-4 gap-2">
                     {/* 节点选择 - 移动端100%，桌面端100% */}
                     <div className="col-span-1 md:col-span-4">
@@ -4086,18 +4092,33 @@ export default function TunnelPage() {
                           });
                         }}
                       >
-                        {nodes.map((node) => (
+                        {(editingPipe
+                          ? [...nodes].sort(
+                              (a, b) =>
+                                Number(b.leikwanStatus === "running") -
+                                Number(a.leikwanStatus === "running"),
+                            )
+                          : nodes).map((node) => (
                           <SelectItem
                             key={node.id}
                             textValue={
-                              node.remark
-                                ? `${node.name} (${node.remark})`
-                                : node.name
+                              editingPipe && node.leikwanStatus === "running"
+                                ? `${node.name} · 利群`
+                                : node.remark
+                                  ? `${node.name} (${node.remark})`
+                                  : node.name
                             }
                           >
                             <div className="flex items-center justify-between">
                               <span>
                                 {node.name}
+                                {editingPipe &&
+                                  (node.leikwanStatus === "running" ||
+                                    node.leikwanStatus === "present") && (
+                                    <span className="ml-1 text-xs text-success">
+                                      利群{node.leikwanStatus === "present" ? "（未运行）" : ""}
+                                    </span>
+                                  )}
                                 {node.remark && (
                                   <span className="text-xs text-default-400 ml-1">
                                     ({node.remark})

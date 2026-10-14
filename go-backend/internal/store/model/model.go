@@ -106,6 +106,9 @@ type NftablesRule struct {
 func (NftablesRule) TableName() string { return "nftables_rule" }
 
 type Node struct {
+	LeiKwanStatus                string         `gorm:"column:leikwan_status;type:varchar(10);not null;default:''"`
+	LeiKwanForwards              string         `gorm:"column:leikwan_forwards;type:text;not null;default:'[]'"`
+	LeiKwanCheckedAt             int64          `gorm:"column:leikwan_checked_at;type:bigint;not null;default:0"`
 	ID                           int64          `gorm:"primaryKey;autoIncrement"`
 	Name                         string         `gorm:"type:varchar(100);not null"`
 	Remark                       sql.NullString `gorm:"column:remark;type:text"`

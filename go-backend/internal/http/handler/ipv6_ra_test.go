@@ -19,6 +19,9 @@ func TestIPv6RAAdminListAndNodeSave(t *testing.T) {
 	if err := e.r.UpdateNodeIPv6RA(1, "ok", "eth0 accept_ra=2", 1234); err != nil {
 		t.Fatal(err)
 	}
+	if err := e.r.UpdateNodeLeiKwan(1, "running", `[{"forwardId":263,"listenPort":10018,"running":true}]`, 1234); err != nil {
+		t.Fatal(err)
+	}
 	request := func(body string, role int, handle func(http.ResponseWriter, *http.Request)) []byte {
 		t.Helper()
 		r := httptest.NewRequest(http.MethodPost, "/", bytes.NewBufferString(body))
@@ -36,16 +39,19 @@ func TestIPv6RAAdminListAndNodeSave(t *testing.T) {
 	}
 	for _, role := range []int{0, 1} {
 		raw := request(`{}`, role, e.h.nodeList)
-		for _, key := range []string{"ipv6RaStatus", "ipv6RaDetail", "ipv6RaCheckedAt"} {
+		for _, key := range []string{"ipv6RaStatus", "ipv6RaDetail", "ipv6RaCheckedAt", "leikwanStatus", "leikwanForwards", "leikwanCheckedAt"} {
 			if bytes.Contains(raw, []byte(key)) != (role == 0) {
 				t.Fatalf("role=%d field=%s: %s", role, key, raw)
 			}
 		}
 	}
-	request(`{"id":1,"name":"edited","serverIp":"127.0.0.1","port":"1000-2000","ipv6RaStatus":"","ipv6RaDetail":"","ipv6RaCheckedAt":0}`, 0, e.h.nodeUpdate)
+	request(`{"id":1,"name":"edited","serverIp":"127.0.0.1","port":"1000-2000","ipv6RaStatus":"","ipv6RaDetail":"","ipv6RaCheckedAt":0,"leikwanStatus":"absent","leikwanForwards":[],"leikwanCheckedAt":0}`, 0, e.h.nodeUpdate)
 	var node model.Node
 	if err := e.r.DB().First(&node, 1).Error; err != nil {
 		t.Fatal(err)
+	}
+	if node.LeiKwanStatus != "running" || node.LeiKwanCheckedAt != 1234 || node.LeiKwanForwards == "[]" {
+		t.Fatal("save cleared LeiKwan report")
 	}
 	if node.Name != "edited" || node.IPv6RAStatus != "ok" || node.IPv6RADetail != "eth0 accept_ra=2" || node.IPv6RACheckedAt != 1234 {
 		t.Fatalf("save cleared report: %+v", node)

@@ -1,7 +1,9 @@
+import type { NodeApiItem } from "@/api/types";
 import type { LeiKwanCheck } from "@/api/leikwan";
 
 import { useEffect, useState } from "react";
 
+import { getNodeList } from "@/api";
 import { checkLeiKwanPipe } from "@/api/leikwan";
 import { Alert } from "@/shadcn-bridge/heroui/alert";
 import { Button } from "@/shadcn-bridge/heroui/button";
@@ -22,6 +24,7 @@ export function LeiKwanProgressModal({
   pipeId: number | null;
   onClose: () => void;
 }) {
+  const [nodes, setNodes] = useState<NodeApiItem[]>([]);
   const [result, setResult] = useState<LeiKwanCheck | null>(null);
   const [error, setError] = useState("");
   const [checking, setChecking] = useState(false);
@@ -38,6 +41,11 @@ export function LeiKwanProgressModal({
     }, 60000);
 
     setResult(null);
+    setNodes([]);
+    void getNodeList().then((response) => {
+      if (!controller.signal.aborted && response.code === 0)
+        setNodes(response.data || []);
+    });
     setError("");
     setChecking(true);
     const check = async () => {
@@ -107,6 +115,19 @@ export function LeiKwanProgressModal({
                   <p className="mt-1 text-xs text-default-500">
                     {entry.message}
                   </p>
+                  {!!nodes.find((node) => node.id === entry.nodeId)
+                    ?.leikwanForwards?.length && (
+                    <p className="mt-1 text-xs text-default-500">
+                      Agent 已检测：
+                      {nodes
+                        .find((node) => node.id === entry.nodeId)
+                        ?.leikwanForwards?.map(
+                          (forward) =>
+                            `#${forward.forwardId} :${forward.listenPort}${forward.running ? "（监听中）" : "（未监听）"}`,
+                        )
+                        .join("、")}
+                    </p>
+                  )}
                 </div>
                 <Chip
                   color={entry.reachable ? "success" : "warning"}

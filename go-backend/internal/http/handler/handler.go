@@ -757,6 +757,9 @@ func (h *Handler) nodeList(w http.ResponseWriter, r *http.Request) {
 			delete(item, "ipv6RaStatus")
 			delete(item, "ipv6RaDetail")
 			delete(item, "ipv6RaCheckedAt")
+			delete(item, "leikwanStatus")
+			delete(item, "leikwanForwards")
+			delete(item, "leikwanCheckedAt")
 		}
 	}
 

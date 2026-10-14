@@ -1,3 +1,4 @@
+import type { LeiKwanNodeDetection } from "@/api/types";
 import type { NodeRenewalCycle } from "./renewal";
 import type { NodeSystemInfo } from "./system-info";
 
@@ -9,6 +10,7 @@ import { regionLabel } from "@/utils/region";
 
 import { getConnectionStatusMeta } from "./display";
 import { NodeIPv6RABadge } from "./ipv6-ra-badge";
+import { NodeLeiKwanBadge } from "./leikwan-badge";
 import { getNodeRenewalSnapshot, formatNodeRenewalTime } from "./renewal";
 
 import { Checkbox } from "@/shadcn-bridge/heroui/checkbox";
@@ -37,7 +39,7 @@ import {
   parseDistroFromVersion,
   getDistroColor,
 } from "@/components/distro-icon";
-interface Node {
+interface Node extends LeiKwanNodeDetection {
   region?: string;
   regionCity?: string;
   id: number;
@@ -292,6 +294,7 @@ function SortableTableRow({
             {node.name}
           </span>
           <NodeIPv6RABadge node={node} />
+              <NodeLeiKwanBadge node={node} />
         </div>
         <div className="mt-1 text-xs text-default-500">
           {node.region ? regionLabel(node.region) : (

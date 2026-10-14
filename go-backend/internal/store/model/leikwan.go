@@ -44,3 +44,10 @@ type LeiKwanCreate struct {
 }
 
 func (LeiKwanCreate) TableName() string { return "leikwan_create" }
+
+// LeiKwanDetectedForward contains public local-client observations only.
+type LeiKwanDetectedForward struct {
+	ForwardID  int64 `json:"forwardId"`
+	ListenPort int   `json:"listenPort"`
+	Running    bool  `json:"running"`
+}

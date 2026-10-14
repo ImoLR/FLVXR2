@@ -1,3 +1,4 @@
+import type { LeiKwanNodeDetection } from "@/api/types";
 import type {
   NodeGroupApiItem,
   NodeRegionDetection,
@@ -28,6 +29,7 @@ import { CSS } from "@dnd-kit/utilities";
 import { NodeGroupManager } from "./node/node-group-manager";
 import { NodeDeployModal } from "./node/node-deploy-modal";
 import { NodeIPv6RABadge } from "./node/ipv6-ra-badge";
+import { NodeLeiKwanBadge } from "./node/leikwan-badge";
 import TLSPage from "./tls";
 
 import {
@@ -120,7 +122,7 @@ declare global {
 const NODE_FALLBACK_REFRESH_INTERVAL_MS = 15000;
 const REGION_OPTIONS = [...REGION_CODES].sort(compareRegions);
 
-interface Node {
+interface Node extends LeiKwanNodeDetection {
   region?: string;
   regionCity?: string;
   id: number;
@@ -2170,6 +2172,7 @@ export default function NodePage() {
                 {node.name}
               </h3>
               <NodeIPv6RABadge node={node} />
+              <NodeLeiKwanBadge node={node} />
             </div>
             <div className="text-xs text-default-500">
               {node.region ? regionLabel(node.region) : (
