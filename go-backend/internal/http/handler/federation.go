@@ -919,8 +919,7 @@ func (h *Handler) deleteForwardRuntimeAndRecord(forwardID int64) error {
 		return err
 	}
 	if forward != nil {
-		h.deleteForwardDynamicLimiter(forward)
-		if err := h.syncForwardServices(forward, "DeleteService", true); err != nil {
+		if err := h.cleanupForwardRuntime(forward); err != nil {
 			if dbErr := h.deleteForwardByID(forwardID); dbErr != nil {
 				return dbErr
 			}

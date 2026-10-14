@@ -467,7 +467,7 @@ func (h *Handler) userDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.repo.DeleteUserCascade(id); err != nil {
+	if err := h.deleteUserAndCleanup(id); err != nil {
 		response.WriteJSON(w, response.Err(-2, err.Error()))
 		return
 	}
@@ -532,7 +532,7 @@ func (h *Handler) userBatchDelete(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 
-		if err := h.repo.DeleteUserCascade(id); err != nil {
+		if err := h.deleteUserAndCleanup(id); err != nil {
 			failCount++
 		} else {
 			successCount++
@@ -3274,31 +3274,13 @@ func (h *Handler) forwardDelete(w http.ResponseWriter, r *http.Request) {
 		response.WriteJSON(w, response.Err(-2, err.Error()))
 		return
 	}
-	if strings.EqualFold(forward.Mode, "wg_path") {
-		ports, _ := h.listForwardPorts(forward.ID)
-		if err := h.syncWGForwardRule(forward, ports, "DeleteService"); err != nil {
-			fmt.Printf("⚠️ WG规则删除失败: %v\n", err)
-		}
-	} else if strings.EqualFold(forward.Mode, "nftables") {
-		ports, _ := h.listForwardPorts(forward.ID)
-		if err := h.deleteNftablesRules(forward, ports); err != nil {
-			fmt.Printf("⚠️ nftables规则删除失败: %v, 尝试gost回退\n", err)
-		}
-		// 清理可能残留的 gost 服务（从 gost 切换到 nft 后，gost 进程可能仍在监听端口）
-		bases, _ := h.forwardServiceBaseCandidates(forward)
-		if len(bases) > 0 {
-			for _, fp := range ports {
-				_ = h.deleteForwardServiceBasesOnNode(fp.NodeID, bases)
-			}
-		}
-	} else {
-		if err := h.controlForwardServices(forward, "DeleteService", true); err != nil {
+	if err := h.cleanupForwardRuntime(forward); err != nil {
+		if !strings.EqualFold(forward.Mode, "wg_path") && !strings.EqualFold(forward.Mode, "nftables") {
 			response.WriteJSON(w, response.ErrDefault(err.Error()))
 			return
 		}
+		log.Printf("[forward-delete] forward %d runtime cleanup: %v", forward.ID, err)
 	}
-
-	h.deleteForwardDynamicLimiter(forward)
 
 	if err := h.deleteForwardByID(id); err != nil {
 		response.WriteJSON(w, response.Err(-2, err.Error()))
@@ -3527,26 +3509,12 @@ func (h *Handler) forwardBatchDelete(w http.ResponseWriter, r *http.Request) {
 			failures = appendBatchFailure(failures, id, "", accessErr)
 			continue
 		}
-		if strings.EqualFold(forward.Mode, "nftables") {
-			ports, _ := h.listForwardPorts(id)
-			if err := h.deleteNftablesRules(forward, ports); err != nil {
-				f++
-				failures = appendBatchFailure(failures, id, forward.Name, err)
-				continue
-			}
-			bases, _ := h.forwardServiceBaseCandidates(forward)
-			if len(bases) > 0 {
-				for _, fp := range ports {
-					_ = h.deleteForwardServiceBasesOnNode(fp.NodeID, bases)
-				}
-			}
-		} else {
-			if err := h.controlForwardServices(forward, "DeleteService", true); err != nil {
-				f++
-				failures = appendBatchFailure(failures, id, forward.Name, err)
-				continue
-			}
+		if err := h.cleanupForwardRuntime(forward); err != nil {
+			f++
+			failures = appendBatchFailure(failures, id, forward.Name, err)
+			continue
 		}
+
 		if err := h.deleteForwardByID(id); err != nil {
 			f++
 			failures = appendBatchFailure(failures, id, forward.Name, err)
@@ -5388,6 +5356,13 @@ func (h *Handler) deleteTunnelByID(id int64) error {
 		return errors.New("repository not initialized")
 	}
 
+	forwards, err := h.listForwardsByTunnel(id)
+	if err != nil {
+		return err
+	}
+	for i := range forwards {
+		h.cleanupForwardRuntimeBestEffort(&forwards[i])
+	}
 	tunnelName, _ := h.repo.GetTunnelName(id)
 	if err := h.repo.DeleteTunnelCascade(id); err != nil {
 		return err
@@ -5409,6 +5384,12 @@ func (h *Handler) batchForwardDelete(ids []int64) (int, int) {
 	s := 0
 	f := 0
 	for _, id := range ids {
+		forward, err := h.getForwardRecord(id)
+		if err != nil {
+			f++
+			continue
+		}
+		h.cleanupForwardRuntimeBestEffort(forward)
 		if err := h.deleteForwardByID(id); err != nil {
 			f++
 		} else {
@@ -5852,14 +5833,13 @@ func (h *Handler) cleanupForwardsForUserTunnel(userID, tunnelID int64) {
 	}
 	for i := range forwards {
 		f := &forwards[i]
-		if f.Status == 1 {
-			if strings.EqualFold(f.Mode, "nftables") {
-				ports, _ := h.listForwardPorts(f.ID)
-				_ = h.deleteNftablesRules(f, ports)
-			} else {
-				_ = h.controlForwardServices(f, "DeleteService", true)
-			}
+		// Load the full record, including WG path fields, before removing rows.
+		forward, err := h.getForwardRecord(f.ID)
+		if err != nil {
+			log.Printf("[forward-delete] forward %d lookup: %v", f.ID, err)
+			continue
 		}
+		h.cleanupForwardRuntimeBestEffort(forward)
 		_ = h.deleteForwardByID(f.ID)
 	}
 }

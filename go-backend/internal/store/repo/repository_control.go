@@ -520,3 +520,13 @@ func (r *Repository) UpdateNodeIPv6RA(nodeID int64, status, detail string, now i
 		Where("id = ? AND (ipv6_ra_status <> ? OR ipv6_ra_detail <> ?)", nodeID, status, detail).
 		Updates(map[string]interface{}{"ipv6_ra_status": status, "ipv6_ra_detail": detail, "ipv6_ra_checked_at": now}).Error
 }
+
+// ListForwardIDsByUser includes paused rules, whose listeners may still exist.
+func (r *Repository) ListForwardIDsByUser(userID int64) ([]int64, error) {
+	if r == nil || r.db == nil {
+		return nil, errors.New("repository not initialized")
+	}
+	var ids []int64
+	err := r.db.Model(&model.Forward{}).Where("user_id = ?", userID).Order("id ASC").Pluck("id", &ids).Error
+	return ids, err
+}
