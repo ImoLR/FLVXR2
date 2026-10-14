@@ -28,3 +28,5 @@ OTA：实际 GET 每源重试，30 秒无字节/5 分钟总上限，切换时重
 54 访问预检：经 leikwan-vps 到 120.253.251.139:1000 可达，但 restrict_cn/leikwan_vps 密钥被拒；nobrand memory 明确尚无我方密钥。继续查已有访问，不跳过 SSH 备份门槛。
 
 发布门禁：分支最新提交 `4d718de9`，CI 38600711888 全部 success（含 PostgreSQL contract）；annotated tag `3.0.27-fork.49` 已推送，Images 38601072115 构建中。首次全量基线 15 无新增；补充 HTTP 403 合约检查与 vet 已通过，最终全量复核运行中。
+
+最终后端全量复核完成：仍为同一 15 个失败，0 新增；最终对照 `backend-test-comparison-final.json`。新增端点的 HTTP 403 在现有 JWT 中间件处也显式返回，其余端点状态约定未改。
