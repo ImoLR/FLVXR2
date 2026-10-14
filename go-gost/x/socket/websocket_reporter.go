@@ -1225,6 +1225,9 @@ func (w *WebSocketReporter) routeCommand(cmd CommandMessage) {
 
 	switch cmd.Type {
 	// Service 相关命令
+	case "ListServices":
+		response.Data, err = w.listServices()
+		response.Type = "ListServicesResponse"
 	case "AddService":
 		err = w.handleAddService(cmd.Data)
 		response.Type = "AddServiceResponse"

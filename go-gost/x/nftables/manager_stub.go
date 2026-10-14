@@ -96,3 +96,5 @@ func (m *Manager) ResetCounters() error {
 func CheckNftablesSupport() (bool, error) {
 	return false, errors.New("nftables not supported on this platform")
 }
+
+func (m *Manager) ListForwardIDs() []int64 { return nil }

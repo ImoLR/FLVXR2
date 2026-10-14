@@ -9,6 +9,7 @@ type NftablesManagerInterface interface {
 	AddRule(forwardID, nodeID, userID, userTunnelID int64, protocol string, port int, target string, speedLimit int, limits ...nftables.RuleQuota) error
 	UpdateRule(forwardID int64, protocol string, port int, target string, speedLimit int, limits ...nftables.RuleQuota) error
 	ReconcileQuota() error
+	ListForwardIDs() []int64
 	GetForwardConnectionCounts() map[int64]int
 	GetForwardClientIPs(ids []int64) (map[int64]map[string]int, error)
 	DeleteRule(forwardID int64, protocol string) error

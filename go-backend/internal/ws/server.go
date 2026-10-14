@@ -408,6 +408,8 @@ func (s *Server) handleNode(w http.ResponseWriter, r *http.Request, nodeID int64
 	}
 	ns := &nodeSession{nodeID: nodeID, secret: secret, conn: cw, crypto: nodeCrypto}
 	s.nodes[nodeID] = ns
+	delete(s.serviceConnections, nodeID)
+	delete(s.serviceConnUpdateTime, nodeID)
 	s.byConn[conn] = ns
 	// 节点重新上线，清除离线时间记录
 	delete(s.nodeOfflineTime, nodeID)

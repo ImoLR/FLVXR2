@@ -1104,3 +1104,18 @@ func (m *Manager) clearStaleRules() error {
 	}
 	return m.conn.Flush()
 }
+
+// ListForwardIDs snapshots installed rule owners without sampling counters or conntrack.
+func (m *Manager) ListForwardIDs() []int64 {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	seen := make(map[int64]bool)
+	for _, rule := range m.rules {
+		seen[rule.ForwardID] = true
+	}
+	ids := make([]int64, 0, len(seen))
+	for id := range seen {
+		ids = append(ids, id)
+	}
+	return ids
+}
