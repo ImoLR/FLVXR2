@@ -20,3 +20,7 @@
 实施核查：fork.49 已排除 TcpPing/PipePing 成功命令日志；本次补上 ListServices、统一探测/响应失败记录（含部分丢包）、10 分钟计数汇总与恢复。联邦 Diagnose 最终发送 TcpPing。报告/心跳成功本来静默，配置定时上报的成功行已移除；HTTP 最终失败和 WS 报告失败限频，网络行为不变。
 
 本地门禁：backend 全量失败集恰好为既有 15 项，无新增；go-gost/x 全量通过；go vet ./logsafe ./socket ./service 通过。证据 test-results.json / *-tests.jsonl。
+
+发布进行中：实现 commit `4dca15f4`；分支 CI `38803590992` 四个任务均成功，新增日志测试 race 通过；annotated tag `3.0.27-fork.50` 已推送，Images `38803926106`。
+
+生产前测：29/30 节点在线；节点 24 原本离线。picker API 48 条路径的 updatedAt 间隔 60.076 / 59.807 秒。Breadcloud JP SSH 回滚点 `/root/flvxx-backup-20261015T203958Z-pre-fork50/rollback.sh`；正式一小时样本 3,637 行（含验收诊断），其中探测 3,501 行；火山广州 43 行/小时，探测 0 行。其余无 SSH 节点无 journal 行数接口，禁止将估算伪称实测。
