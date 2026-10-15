@@ -53,7 +53,7 @@ Canary 降噪实测：新版本稳定后的连续 120 秒，flvxx journal 总行
 
 - [x] 读取两份操作记忆、上一轮总结/停止记录/清单及原有辅助脚本，确认现有工作树与分支。
 - [x] 各复测一次转发 124/125，记录时间与 23/51 的源和端口对照。
-- [ ] 52：验证原有 SSH 备份，日志前测，逐台 OTA 与前后诊断、版本/重连核验。
+- [x] 52：验证原有 SSH 备份，日志前测，逐台 OTA 与前后诊断、版本/重连核验。
 - [ ] 51：逐台 OTA 与前后诊断，重点确认 fork.50 下到目标 :22 的结果。
 - [ ] 26、12、49：按顺序逐台 OTA 与前后诊断、版本/重连核验。
 - [ ] 24：轮到时仅在线才 OTA，否则零操作跳过。
@@ -63,3 +63,5 @@ Canary 降噪实测：新版本稳定后的连续 120 秒，flvxx journal 总行
 第二轮证据继续存于 `/root/flvx-workers/runs/agent-quiet-probe-logs/`，文件名统一 `r2-` 前缀；两轮合并总结写入 `/root/flvx-workers/runs/agent-quiet-probe-logs-r2/summary.md`。
 
 便宜复核（UTC）：124 于 2026-10-15 21:27:01.354（epoch 1792099621.354）开始，23→:22 仍失败、51→:22 成功；125 于 21:27:02.079（1792099622.079）开始，23/51→:51015 均成功。异常仍局限于节点 23 与目标 160.21.75.136 的端口 22 组合；证据 `r2-forward-124-confirm.json`、`r2-forward-125-confirm.json`。最终代理版本对照等待节点 51 OTA 后结果。
+
+52「火山广州」：原有 `/root/flvxx-backup-20261015T205239Z-pre-fork50` 的二进制 SHA256 与记录及当前 fork.48 均一致，配置 JSON/回滚脚本校验通过。第二轮升级前一小时日志总 15、探测 0（第一轮另一窗口为 43/0）。面板 OTA fork.48→fork.50，下载/请求 93.7 秒、返回后重连 4.1 秒；隧道 80 的 2 项诊断前后全通过，SSH 版本与 active 状态再次确认。回滚命令：`ssh leikwan-vps 'bash /root/flvxx-backup-20261015T205239Z-pre-fork50/rollback.sh'`；未执行回滚。证据 `r2-node-52-{backup-valid,logs-before,ota,diagnose-before,diagnose-after}.json`。只操作 flvxx 代理，未操作 LeiKwan relay/bridge。
