@@ -10,7 +10,7 @@
 - [x] 推送分支、验证 CI，发布 annotated tag 3.0.27-fork.50，验证 Images、Latest 和 fork.49 同资产集合。
 - [x] 备份生产面板（在线 DB 校验、配置、镜像和回滚脚本），prune 保留两份；升级并核对健康和在线节点。
 - [x] Breadcloud JP canary：记录日志/版本和转发基线，备份并升级、验证重连/版本/转发/日志。
-- [ ] 仅处理授权的其余 12 个探测源，逐台检查并记录；拒绝且无 SSH 的节点零改动跳过；首个重连或转发故障即停止并回滚。
+- [x] 处理授权的其余 12 个探测源：其余 11 台完成 OTA，24 离线零操作跳过；第一轮在 23 的异常处停止，第二轮通过同版对照排除代理回归后继续，其余节点无新增诊断失败。
 - [x] 验证 picker 延迟继续约 60 秒更新，记录逐节点版本、日志率、转发和回滚；提交最终计划并写中文总结。
 
 授权节点：Bestvm JP B、Bestvm HK 年付、Mkcloud 深港ixp 1、Datawave HK 2、Mkcloud 沪港ixp 新春版、Mkcloud 沪日ixp 440、vmsilo 沪日首发、Mkcloud 沪日ixp G口 bug鸡、Datawave TW 1、Bestvm TW、Breadcloud JP、火山广州、Dmit Nathan。canary 为 Breadcloud JP（ssh mmwx-s11）。原版 3.0.28 的版本比较先确认，禁止绕过面板为无 SSH 节点降级。
@@ -21,7 +21,7 @@
 
 本地门禁：backend 全量失败集恰好为既有 15 项，无新增；go-gost/x 全量通过；go vet ./logsafe ./socket ./service 通过。证据 test-results.json / *-tests.jsonl。
 
-发布进行中：实现 commit `4dca15f4`；分支 CI `38803590992` 四个任务均成功，新增日志测试 race 通过；annotated tag `3.0.27-fork.50` 已推送，Images `38803926106`。
+发布记录：实现 commit `4dca15f4`；分支 CI `38803590992` 四个任务均成功，新增日志测试 race 通过；annotated tag `3.0.27-fork.50` 已推送，Images `38803926106`。
 
 生产前测：29/30 节点在线；节点 24 原本离线。picker API 48 条路径的 updatedAt 间隔 60.076 / 59.807 秒。Breadcloud JP SSH 回滚点 `/root/flvxx-backup-20261015T203958Z-pre-fork50/rollback.sh`；正式一小时样本 3,637 行（含验收诊断），其中探测 3,501 行；火山广州 43 行/小时，探测 0 行。其余无 SSH 节点无 journal 行数接口，禁止将估算伪称实测。
 
@@ -43,7 +43,7 @@ Canary 降噪实测：新版本稳定后的连续 120 秒，flvxx journal 总行
 
 节点 32（Mkcloud 沪港ixp 新春版）：3.0.27-fork.27 (debian/amd64) → 3.0.27-fork.50 (debian/amd64)；panel OTA，verified；重连 4.0 秒；诊断新增失败 0。证据 `node-32-ota.json`。
 
-**OTA 批次已按停止规则终止：节点 23（Mkcloud 沪日ixp 440）在 fork.27→fork.50 后约 4 秒重连，但转发 124「JP-SSH」从节点 23 到 160.21.75.136:22 在两轮完整诊断及单独复核中均由成功变为失败；同转发入口 51 仍成功。其余基线成功检查保持通过。** 7 台已安装 fork.50，其中前 6 台验收通过；节点 23 标记诊断回归。51/24/26/12/52/49 共 6 台未 OTA。
+**第一轮历史记录（后续结论见第二轮）：批次按停止规则终止。节点 23（Mkcloud 沪日ixp 440）在 fork.27→fork.50 后约 4 秒重连，但转发 124「JP-SSH」从节点 23 到 160.21.75.136:22 在两轮完整诊断及单独复核中均由成功变为失败；同转发入口 51 仍成功。其余基线成功检查保持通过。** 当时 7 台已安装 fork.50，其中前 6 台验收通过；节点 23 暂标记诊断回归。51/24/26/12/52/49 共 6 台尚未 OTA。
 
 回滚阻塞：现有 SSH 配置/任务凭据无节点 23 入口，直连 root@163.53.55.158:22 返回 Network is unreachable。面板只有当前版本升级 API，没有代理 rollback 路由；node/deploy/rollback 是配置回滚，不能用于二进制。未添加端点、未临时伪造面板版本、未修改受保护的其他服务。节点 23 旧 fork.27 的 .old 回滚还需处理 -C/tls 兼容性，控制台命令写入最终总结；本次未能实际回滚。
 
@@ -58,7 +58,7 @@ Canary 降噪实测：新版本稳定后的连续 120 秒，flvxx journal 总行
 - [x] 26：按顺序逐台 OTA 与前后诊断、版本/重连核验。
 - [x] 12：按顺序逐台 OTA 与前后诊断、版本/重连核验。
 - [x] 49：按顺序逐台 OTA 与前后诊断、版本/重连核验。
-- [ ] 24：轮到时仅在线才 OTA，否则零操作跳过。
+- [x] 24：轮到时仅在线才 OTA，否则零操作跳过。
 - [ ] 批次后复测 48 条延迟路径约 60 秒刷新；21 的 10 分钟 journal 和 52 日志后测。
 - [ ] 更新两轮合并中文总结，推送计划文档并确认最终文档 CI 全绿。
 
@@ -77,3 +77,5 @@ Canary 降噪实测：新版本稳定后的连续 120 秒，flvxx journal 总行
 12「Bestvm TW」：原版 3.0.28→fork.50，面板 OTA 接受，返回后 4.0 秒重连；1 个活跃转发、14 条隧道的诊断前后均为 106 项成功/5 项既有失败，无新增失败。证据 `r2-node-12-{ota,diagnose-before,diagnose-after}.json`；日志/旧二进制核验及控制台回滚限制同节点 26。
 
 49「Dmit Nathan」：fork.22→fork.50，面板 OTA，返回后 4.0 秒重连；转发 109 与隧道 74 的诊断前后均为 3 项成功/1 项既有失败，无新增失败。该既有失败为出口 AWS HK→boilhinet.imgamer.top:10020 等待响应超时，已在本节点 OTA 前记录；没有把它算成升级故障。证据 `r2-node-49-{ota,diagnose-before,diagnose-after}.json`；无 SSH，旧 fork.22 的控制台回滚仍需处理 -C/tls 兼容性。
+
+24「Mkcloud 沪日ixp G口 bug鸡」：轮到时（2026-10-15 21:39:30.862 UTC）仍离线，版本保持 3.0.27；没有下发 OTA、诊断或 SSH，只读取面板在线状态并记录跳过。证据 `r2-node-24-online-check.json`、`r2-node-24-ota.json`。至此两轮 13 台均已按授权处理：12 台为 fork.50，24 离线跳过；第二轮实际升级顺序 52→51→26→12→49，无新增诊断失败，无回滚执行。
