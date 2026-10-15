@@ -55,7 +55,9 @@ Canary 降噪实测：新版本稳定后的连续 120 秒，flvxx journal 总行
 - [x] 各复测一次转发 124/125，记录时间与 23/51 的源和端口对照。
 - [x] 52：验证原有 SSH 备份，日志前测，逐台 OTA 与前后诊断、版本/重连核验。
 - [x] 51：逐台 OTA 与前后诊断，重点确认 fork.50 下到目标 :22 的结果。
-- [ ] 26、12、49：按顺序逐台 OTA 与前后诊断、版本/重连核验。
+- [x] 26：按顺序逐台 OTA 与前后诊断、版本/重连核验。
+- [ ] 12：按顺序逐台 OTA 与前后诊断、版本/重连核验。
+- [ ] 49：按顺序逐台 OTA 与前后诊断、版本/重连核验。
 - [ ] 24：轮到时仅在线才 OTA，否则零操作跳过。
 - [ ] 批次后复测 48 条延迟路径约 60 秒刷新；21 的 10 分钟 journal 和 52 日志后测。
 - [ ] 更新两轮合并中文总结，推送计划文档并确认最终文档 CI 全绿。
@@ -67,3 +69,7 @@ Canary 降噪实测：新版本稳定后的连续 120 秒，flvxx journal 总行
 52「火山广州」：原有 `/root/flvxx-backup-20261015T205239Z-pre-fork50` 的二进制 SHA256 与记录及当前 fork.48 均一致，配置 JSON/回滚脚本校验通过。第二轮升级前一小时日志总 15、探测 0（第一轮另一窗口为 43/0）。面板 OTA fork.48→fork.50，下载/请求 93.7 秒、返回后重连 4.1 秒；隧道 80 的 2 项诊断前后全通过，SSH 版本与 active 状态再次确认。回滚命令：`ssh leikwan-vps 'bash /root/flvxx-backup-20261015T205239Z-pre-fork50/rollback.sh'`；未执行回滚。证据 `r2-node-52-{backup-valid,logs-before,ota,diagnose-before,diagnose-after}.json`。只操作 flvxx 代理，未操作 LeiKwan relay/bridge。
 
 51「vmsilo 沪日首发」：面板 OTA fork.37→fork.50，返回后 4.0 秒重连；11 个活跃转发及 12 条关联隧道的诊断前后均为 77 项成功/5 项既有失败，新增失败 0。fork.50 下 51→160.21.75.136:22 仍成功，23→:22 仍失败，23/51→:51015 均成功。结合审阅确认拨号逻辑未变，节点 23 的特定源/端口故障不认定为本次代理回归；最可能是目标端针对源 IP 的 SSH 访问限制（如 fail2ban），具体机制未登录目标确认。本轮不需要因该现象回滚节点 23，第一轮的“优先回滚 23”建议已被本轮验证结论取代。证据 `r2-node-51-{ota,diagnose-before,diagnose-after}.json`。51 的旧二进制回滚须有控制台/SSH：`systemctl stop flvxx && cp -a /etc/flvxx/flvxx.old /etc/flvxx/flvxx && systemctl start flvxx`；无面板降级路径，未执行回滚。
+
+51 完成 OTA 后的独立确认：2026-10-15 21:33:14.756 UTC（1792099994.756）开始的转发 124 诊断，51→:22 成功，平均 26.649 ms；23→:22 仍失败。证据 `r2-forward-124-after-node51.json`（包含面板上报 fork.50 版本及服务端 timestamp）。
+
+26「Datawave TW 1」：原版 3.0.28→fork.50，面板 OTA 接受，返回后 4.1 秒重连；1 个活跃转发、14 条隧道的诊断前后均为 106 项成功/5 项既有失败，无新增失败。旧失败仅 tw.zjweu.cn:57347 和节点 24 离线路径。证据 `r2-node-26-{ota,diagnose-before,diagnose-after}.json`；无 SSH，日志行数与 `.old` 完整性未现场核验，旧版回滚需控制台并处理 -C/tls 兼容性。
