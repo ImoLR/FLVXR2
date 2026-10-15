@@ -42,3 +42,7 @@ Canary 降噪实测：新版本稳定后的连续 120 秒，flvxx journal 总行
 节点 15（Datawave HK 2）：3.0.27 (debian/amd64) → 3.0.27-fork.50 (debian/amd64)；panel OTA，verified；重连 4.0 秒；诊断新增失败 0。证据 `node-15-ota.json`。
 
 节点 32（Mkcloud 沪港ixp 新春版）：3.0.27-fork.27 (debian/amd64) → 3.0.27-fork.50 (debian/amd64)；panel OTA，verified；重连 4.0 秒；诊断新增失败 0。证据 `node-32-ota.json`。
+
+**OTA 批次已按停止规则终止：节点 23（Mkcloud 沪日ixp 440）在 fork.27→fork.50 后约 4 秒重连，但转发 124「JP-SSH」从节点 23 到 160.21.75.136:22 在两轮完整诊断及单独复核中均由成功变为失败；同转发入口 51 仍成功。其余基线成功检查保持通过。** 7 台已安装 fork.50，其中前 6 台验收通过；节点 23 标记诊断回归。51/24/26/12/52/49 共 6 台未 OTA。
+
+回滚阻塞：现有 SSH 配置/任务凭据无节点 23 入口，直连 root@163.53.55.158:22 返回 Network is unreachable。面板只有当前版本升级 API，没有代理 rollback 路由；node/deploy/rollback 是配置回滚，不能用于二进制。未添加端点、未临时伪造面板版本、未修改受保护的其他服务。节点 23 旧 fork.27 的 .old 回滚还需处理 -C/tls 兼容性，控制台命令写入最终总结；本次未能实际回滚。
