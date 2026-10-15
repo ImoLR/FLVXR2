@@ -61,7 +61,7 @@ Canary 降噪实测：新版本稳定后的连续 120 秒，flvxx journal 总行
 - [x] 24：轮到时仅在线才 OTA，否则零操作跳过。
 - [x] 批次后复测 48 条延迟路径约 60 秒刷新；21 的 10 分钟 journal 和 52 日志后测。
 - [x] 写入两轮合并中文总结（完整 13 节点表、回滚命令、风险与未解决项）。
-- [ ] 推送计划文档并验证文档 CI 全绿；最终提交 CI 结果另存本轮证据与总结。
+- [x] 推送计划文档并验证文档 CI 全绿；最终提交 CI 结果另存本轮证据与总结。
 
 第二轮证据继续存于 `/root/flvx-workers/runs/agent-quiet-probe-logs/`，文件名统一 `r2-` 前缀；两轮合并总结写入 `/root/flvx-workers/runs/agent-quiet-probe-logs-r2/summary.md`。
 
@@ -83,4 +83,6 @@ Canary 降噪实测：新版本稳定后的连续 120 秒，flvxx journal 总行
 
 批次后实测：21 的 21:30:00–21:40:00 UTC 与 52 的 21:30:30–21:40:30 UTC 两个 600 秒窗口，flvxx journal 总行数/探测行数都为 0（均折算 0 行/小时）。52 首轮前测 43/0、本轮前测 15/0，升级前探测本已静默，不将总日志下降全归因于 TcpPing。证据 `r2-node-21-logs-after.json`、`r2-node-52-logs-after.json`。
 
-批次后延迟：38 次 GET `/api/v1/tunnel/user/latency`，始终 48 条路径记录、全部 updatedAt 更新；连续周期间隔 60.060/60.045/60.055 秒，48 个入口的延迟实值改变。末次 59 个入口为 48 ok/11 timeout（不将历史超时算作全部通过）。证据 `r2-latency-after.json`、`r2-latency-after-result.json`。面板只读健康检查通过，29/30 节点在线，范围外节点版本未变；本轮仓库差异只有本计划文档，`git diff --check` 通过。完整两轮总结已写入指定 r2 目录，CI 结果待推送后补齐。
+批次后延迟：38 次 GET `/api/v1/tunnel/user/latency`，始终 48 条路径记录、全部 updatedAt 更新；连续周期间隔 60.060/60.045/60.055 秒，48 个入口的延迟实值改变。末次 59 个入口为 48 ok/11 timeout（不将历史超时算作全部通过）。证据 `r2-latency-after.json`、`r2-latency-after-result.json`。面板只读健康检查通过，29/30 节点在线，范围外节点版本未变；本轮仓库差异只有本计划文档，`git diff --check` 通过。完整两轮总结已写入指定 r2 目录。
+
+文档验证：`fc8d654d` 已推送，[CI 38812057628](https://github.com/ImoLR/FLVXR2/actions/runs/38812057628) 的 Frontend、Go Backend、Agent、PostgreSQL Contract 四项全部成功。此完成标记提交的 CI 继续独立核验，最终提交 SHA、运行链接与结果记录在 `r2-ci-final.json` 及两轮合并总结；不新增 tag/release。未解决事项仍是节点 23 的目标 SSH 路径、离线节点 24、无 SSH 节点的日志/旧二进制核验限制及既有目标/测试故障。
