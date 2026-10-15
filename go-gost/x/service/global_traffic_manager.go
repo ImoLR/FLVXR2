@@ -3,8 +3,11 @@ package service
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
+
+	"github.com/go-gost/x/logsafe"
 )
 
 // maxPendingReportAge bounds how long one unacknowledged report body is resent unchanged.
@@ -139,26 +142,19 @@ func (m *GlobalTrafficManager) collectAndReport() {
 		}
 		body, err := buildTrafficReportBody(reportItems)
 		if err != nil {
-			fmt.Printf("❌ 构建流量上报失败: %v\n", err)
+			reportLogs.Record("TrafficReport", logsafe.URL(strings.Split(httpReportURL, ",")[0]), logsafe.Error(err))
 			return
 		}
 		m.pending = &pendingTrafficReport{body: body, reported: reportData, since: now}
 	}
 
-	var totalUp, totalDown int64
-	for _, data := range m.pending.reported {
-		totalUp += data.up
-		totalDown += data.down
-	}
-
 	// 批量发送上报请求（一次HTTP请求包含所有服务）
 	success, err := m.post(m.ctx, m.pending.body)
-	if err != nil {
-		fmt.Printf("❌ 全局流量上报失败: %v (总流量: ↑%d ↓%d, %d个服务)\n", err, totalUp, totalDown, len(m.pending.reported))
-		return
+	if err == nil && !success {
+		err = fmt.Errorf("全局流量上报未成功")
 	}
-	if !success {
-		fmt.Printf("⚠️ 全局流量上报未成功 (总流量: ↑%d ↓%d, %d个服务)\n", totalUp, totalDown, len(m.pending.reported))
+	reportLogs.Record("TrafficReport", logsafe.URL(strings.Split(httpReportURL, ",")[0]), logsafe.Error(err))
+	if err != nil {
 		return
 	}
 

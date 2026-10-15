@@ -185,6 +185,7 @@ const (
 )
 
 type WebSocketReporter struct {
+	routineLogs       logsafe.RoutineLogger
 	leikwan           leiKwanDetector
 	egress            egressDetector
 	ipv6RA            ipv6RADetector
@@ -836,9 +837,11 @@ func (w *WebSocketReporter) handleConnection() {
 				return
 			}
 			if err := conn.WriteControl(websocket.PingMessage, nil, time.Now().Add(reporterWriteWait)); err != nil {
-				fmt.Printf("❌ 发送WebSocket ping失败: %v，准备重连\n", err)
+				w.routineLogs.Record("Heartbeat", sanitizeWebSocketURL(w.url), logsafe.Text(logsafe.Error(err), w.secret))
 				return
 			}
+
+			w.routineLogs.Record("Heartbeat", sanitizeWebSocketURL(w.url), "")
 
 		case <-metricTicker.C:
 			// 检查连接状态
@@ -856,9 +859,10 @@ func (w *WebSocketReporter) handleConnection() {
 			// 获取系统信息并发送
 			sysInfo := w.collectSystemInfo()
 			if err := w.sendSystemInfo(sysInfo); err != nil {
-				fmt.Printf("❌ 发送系统信息失败: %v，准备重连\n", err)
+				w.routineLogs.Record("Metrics", sanitizeWebSocketURL(w.url), logsafe.Text(logsafe.Error(err), w.secret))
 				return
 			}
+			w.routineLogs.Record("Metrics", sanitizeWebSocketURL(w.url), "")
 		}
 	}
 }
@@ -1028,7 +1032,7 @@ func (w *WebSocketReporter) encryptPayload(jsonData []byte) []byte {
 
 	encryptedData, err := w.aesCrypto.Encrypt(jsonData)
 	if err != nil {
-		fmt.Printf("⚠️ 加密失败，发送原始数据: %v\n", err)
+		w.routineLogs.Record("EncryptPayload", sanitizeWebSocketURL(w.url), "加密失败，发送原始数据: "+logsafe.Error(err))
 		return jsonData
 	}
 
@@ -1039,9 +1043,10 @@ func (w *WebSocketReporter) encryptPayload(jsonData []byte) []byte {
 	}
 	messageData, err := json.Marshal(encryptedMessage)
 	if err != nil {
-		fmt.Printf("⚠️ 序列化加密消息失败，发送原始数据: %v\n", err)
+		w.routineLogs.Record("EncryptPayload", sanitizeWebSocketURL(w.url), "序列化失败，发送原始数据: "+logsafe.Error(err))
 		return jsonData
 	}
+	w.routineLogs.Record("EncryptPayload", sanitizeWebSocketURL(w.url), "")
 	return messageData
 }
 
@@ -1149,7 +1154,9 @@ func (w *WebSocketReporter) handleReceivedMessage(messageType int, message []byt
 
 		if err := json.Unmarshal(message, &compressedMsg); err == nil && compressedMsg.Compressed {
 			// 处理压缩消息
-			fmt.Printf("📥 收到压缩消息，正在解压...\n")
+			if !isRoutineCommand(compressedMsg.Type) {
+				fmt.Printf("📥 收到压缩消息，正在解压...\n")
+			}
 
 			// 解压数据
 			gzipReader, err := gzip.NewReader(bytes.NewReader(compressedMsg.Data))
@@ -1208,7 +1215,7 @@ func (w *WebSocketReporter) routeCommand(cmd CommandMessage) {
 	// Periodic read-only probes are expected background traffic. Logging every
 	// request and every successful attempt can produce thousands of lines per
 	// hour, so keep command logging for state-changing and interactive commands.
-	if cmd.Type != "TcpPing" && cmd.Type != "PipePing" && cmd.Type != "ServiceMonitorCheck" && cmd.Type != "GetServiceClientIPs" {
+	if !isRoutineCommand(cmd.Type) {
 		_, errs := json.Marshal(cmd)
 		if errs != nil {
 			fmt.Println("Error marshaling JSON:", errs)
@@ -1432,7 +1439,11 @@ func (w *WebSocketReporter) routeCommand(cmd CommandMessage) {
 		response.Message = "OK"
 	}
 
-	w.sendResponse(response)
+	if isRoutineCommand(cmd.Type) {
+		w.logRoutineResult(cmd, response, w.writeResponse(response))
+	} else {
+		w.sendResponse(response)
+	}
 }
 
 // Service 命令处理函数
@@ -2430,24 +2441,28 @@ func (w *WebSocketReporter) handleCall(data interface{}) error {
 
 // sendResponse 发送响应消息到服务端
 func (w *WebSocketReporter) sendResponse(response CommandResponse) {
+	if err := w.writeResponse(response); err != nil {
+		fmt.Printf("❌ 发送响应失败: %s\n", logsafe.Text(logsafe.Error(err), w.secret))
+	}
+}
+
+func (w *WebSocketReporter) writeResponse(response CommandResponse) error {
 	w.connMutex.Lock()
 	defer w.connMutex.Unlock()
 
 	if w.conn == nil || !w.connected {
-		fmt.Printf("❌ 无法发送响应：连接未建立\n")
-		return
+		return fmt.Errorf("连接未建立")
 	}
 
 	jsonData, err := json.Marshal(response)
 	if err != nil {
-		fmt.Printf("❌ 序列化响应失败: %v\n", err)
-		return
+		return fmt.Errorf("序列化响应失败: %w", err)
 	}
 
 	messageData := w.encryptPayload(jsonData)
 
 	// 检查消息大小，如果超过10MB则记录警告
-	if len(messageData) > 10*1024*1024 {
+	if len(messageData) > 10*1024*1024 && !isRoutineCommand(strings.TrimSuffix(response.Type, "Response")) {
 		fmt.Printf("⚠️ 响应消息过大 (%.2f MB)，可能会被拒绝\n", float64(len(messageData))/(1024*1024))
 	}
 
@@ -2459,9 +2474,10 @@ func (w *WebSocketReporter) sendResponse(response CommandResponse) {
 
 	w.conn.SetWriteDeadline(time.Now().Add(timeout))
 	if err := w.conn.WriteMessage(websocket.TextMessage, messageData); err != nil {
-		fmt.Printf("❌ 发送响应失败: %v\n", err)
 		w.connected = false
+		return err
 	}
+	return nil
 }
 
 // sendErrorResponse 发送错误响应
@@ -3014,20 +3030,15 @@ func tcpPingHost(ip string, port int, count int, timeoutMs int) (float64, float6
 	// 使用net.JoinHostPort来正确处理IPv4、IPv6和域名
 	// 它会自动为IPv6地址添加方括号
 	target := net.JoinHostPort(ip, fmt.Sprintf("%d", port))
-	requestedTarget := target
-	logKey := "tcp-probe:" + target
 
 	// 如果是域名，先解析一次DNS，避免每次连接都重新解析导致延迟累加
 	if net.ParseIP(ip) == nil {
 		// Resolve once so repeated attempts do not multiply DNS traffic.
 		addrs, err := net.LookupHost(ip)
 		if err != nil {
-			runtimeLogs.Logf(logKey, networkErrorFingerprint("dns", err),
-				"❌ TCP探测 %s DNS解析失败: %v", target, err)
 			return 0, 100.0, fmt.Errorf("DNS解析失败: %v", err)
 		}
 		if len(addrs) == 0 {
-			runtimeLogs.Logf(logKey, "dns-empty", "❌ TCP探测 %s DNS解析未返回地址", target)
 			return 0, 100.0, fmt.Errorf("DNS解析未返回任何IP地址")
 		}
 
@@ -3035,7 +3046,6 @@ func tcpPingHost(ip string, port int, count int, timeoutMs int) (float64, float6
 		target = net.JoinHostPort(addrs[0], fmt.Sprintf("%d", port))
 	}
 
-	var lastErr error
 	for i := 0; i < count; i++ {
 		start := time.Now()
 
@@ -3044,9 +3054,7 @@ func tcpPingHost(ip string, port int, count int, timeoutMs int) (float64, float6
 
 		elapsed := time.Since(start)
 
-		if err != nil {
-			lastErr = err
-		} else {
+		if err == nil {
 			if tcpConn, ok := conn.(*net.TCPConn); ok {
 				_ = tcpConn.SetLinger(0)
 			}
@@ -3062,23 +3070,11 @@ func tcpPingHost(ip string, port int, count int, timeoutMs int) (float64, float6
 	}
 
 	if successCount == 0 {
-		fingerprint := networkErrorFingerprint("dial", lastErr)
-		runtimeLogs.Logf(logKey, fingerprint,
-			"❌ TCP探测 %s 全部 %d 次连接失败: %v", target, count, lastErr)
 		return 0, 100.0, fmt.Errorf("所有TCP连接尝试都失败")
 	}
 
 	avgTime := totalTime / float64(successCount)
 	packetLoss := float64(count-successCount) / float64(count) * 100
-
-	if successCount < count {
-		fingerprint := networkErrorFingerprint("partial", lastErr)
-		runtimeLogs.Logf(logKey, fingerprint,
-			"⚠️ TCP探测 %s 部分失败: %d/%d 成功，失败率 %.1f%%，最后错误: %v",
-			target, successCount, count, packetLoss, lastErr)
-	} else {
-		runtimeLogs.Recoverf(logKey, "✅ TCP探测 %s 已恢复", requestedTarget)
-	}
 
 	return avgTime, packetLoss, nil
 }

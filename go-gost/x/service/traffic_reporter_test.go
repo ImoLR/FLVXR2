@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -146,5 +147,46 @@ func TestPostJSONWithFallbackRemembersDetectedURL(t *testing.T) {
 	}
 	if !strings.HasPrefix(calls[0], "http://") {
 		t.Fatalf("expected remembered http url first, got %s", calls[0])
+	}
+}
+
+func TestPeriodicConfigReportsAreQuietAndFailuresRecoverOnce(t *testing.T) {
+	oldDo, oldURL, oldPreferred := reportDo, configReportURL, preferredConfigURL
+	defer func() { reportDo, configReportURL, preferredConfigURL = oldDo, oldURL, oldPreferred }()
+	configReportURL = "https://quiet-panel/config?secret=private-psk"
+	fail := false
+	reportDo = func(_ context.Context, _ *http.Request, _ time.Duration) (*http.Response, error) {
+		if fail {
+			return nil, errors.New("unavailable")
+		}
+		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader("ok"))}, nil
+	}
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldout := os.Stdout
+	os.Stdout = w
+	defer func() { os.Stdout = oldout; w.Close(); r.Close() }()
+	for i := 0; i < 20; i++ {
+		reportConfigResult(context.Background())
+	}
+	fail = true
+	for i := 0; i < 20; i++ {
+		reportConfigResult(context.Background())
+	}
+	fail = false
+	for i := 0; i < 20; i++ {
+		reportConfigResult(context.Background())
+	}
+	w.Close()
+	os.Stdout = oldout
+	out, err := io.ReadAll(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(out)
+	if strings.Count(text, "\n") != 2 || !strings.Contains(text, "首次失败") || !strings.Contains(text, "已恢复") || strings.Contains(text, "private-psk") {
+		t.Fatal(text)
 	}
 }

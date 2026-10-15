@@ -18,6 +18,8 @@ import (
 	"github.com/go-gost/x/registry"
 )
 
+var reportLogs logsafe.RoutineLogger
+
 var httpReportURL string
 var configReportURL string
 var httpAESCrypto *crypto.AESCrypto // 新增：HTTP上报加密器
@@ -164,14 +166,11 @@ func postJSONWithFallback(ctx context.Context, urls []string, requestBody []byte
 	orderedURLs := prioritizeURLs(urls, loadPreferredURL(preferred))
 
 	var errs []string
-	for i, targetURL := range orderedURLs {
+	for _, targetURL := range orderedURLs {
 		safeURL := logsafe.URL(targetURL)
 		req, err := http.NewRequest("POST", targetURL, bytes.NewBuffer(requestBody))
 		if err != nil {
 			errs = append(errs, fmt.Sprintf("%s => 创建请求失败: %v", safeURL, logsafe.Error(err)))
-			if i < len(orderedURLs)-1 {
-				fmt.Printf("⚠️ HTTP上报尝试失败，准备回退: %s => 创建请求失败: %v\n", safeURL, logsafe.Error(err))
-			}
 			continue
 		}
 
@@ -181,9 +180,6 @@ func postJSONWithFallback(ctx context.Context, urls []string, requestBody []byte
 		resp, err := reportDo(ctx, req, timeout)
 		if err != nil {
 			errs = append(errs, fmt.Sprintf("%s => 请求失败: %v", safeURL, logsafe.Error(err)))
-			if i < len(orderedURLs)-1 {
-				fmt.Printf("⚠️ HTTP上报尝试失败，准备回退: %s => 请求失败: %v\n", safeURL, logsafe.Error(err))
-			}
 			continue
 		}
 
@@ -192,33 +188,21 @@ func postJSONWithFallback(ctx context.Context, urls []string, requestBody []byte
 		resp.Body.Close()
 		if readErr != nil {
 			errs = append(errs, fmt.Sprintf("%s => 读取响应失败: %v", safeURL, logsafe.Error(readErr)))
-			if i < len(orderedURLs)-1 {
-				fmt.Printf("⚠️ HTTP上报尝试失败，准备回退: %s => 读取响应失败: %v\n", safeURL, logsafe.Error(readErr))
-			}
 			continue
 		}
 
 		if resp.StatusCode != http.StatusOK {
 			errs = append(errs, fmt.Sprintf("%s => HTTP响应错误: %d %s", safeURL, resp.StatusCode, http.StatusText(resp.StatusCode)))
-			if i < len(orderedURLs)-1 {
-				fmt.Printf("⚠️ HTTP上报尝试失败，准备回退: %s => HTTP响应错误: %d %s\n", safeURL, resp.StatusCode, http.StatusText(resp.StatusCode))
-			}
 			continue
 		}
 
 		responseText := strings.TrimSpace(responseBytes.String())
 		if responseText == "ok" {
-			if i > 0 {
-				fmt.Printf("↪️ HTTP上报已自动回退到: %s\n", safeURL)
-			}
 			storePreferredURL(preferred, targetURL)
 			return true, nil
 		}
 
 		errs = append(errs, fmt.Sprintf("%s => 服务器响应已隐藏 (期望: ok)", safeURL))
-		if i < len(orderedURLs)-1 {
-			fmt.Printf("⚠️ HTTP上报尝试失败，准备回退: %s => 服务器响应已隐藏 (期望: ok)\n", safeURL)
-		}
 	}
 
 	return false, fmt.Errorf("发送HTTP请求失败: %s", strings.Join(errs, " | "))
@@ -248,7 +232,7 @@ func buildTrafficReportBody(reportItems []TrafficReportItem) ([]byte, error) {
 	}
 	encryptedData, err := httpAESCrypto.Encrypt(jsonData)
 	if err != nil {
-		fmt.Printf("⚠️ 加密流量报告失败，发送原始数据: %v\n", err)
+		reportLogs.Record("TrafficReportEncryption", logsafe.URL(strings.Split(httpReportURL, ",")[0]), "加密失败，发送原始数据: "+logsafe.Error(err))
 		return jsonData, nil
 	}
 	// 创建加密消息包装器
@@ -259,9 +243,10 @@ func buildTrafficReportBody(reportItems []TrafficReportItem) ([]byte, error) {
 	}
 	requestBody, err := json.Marshal(encryptedMessage)
 	if err != nil {
-		fmt.Printf("⚠️ 序列化加密流量报告失败，发送原始数据: %v\n", err)
+		reportLogs.Record("TrafficReportEncryption", logsafe.URL(strings.Split(httpReportURL, ",")[0]), "序列化失败，发送原始数据: "+logsafe.Error(err))
 		return jsonData, nil
 	}
+	reportLogs.Record("TrafficReportEncryption", logsafe.URL(strings.Split(httpReportURL, ",")[0]), "")
 	return requestBody, nil
 }
 
@@ -296,9 +281,10 @@ func sendConfigReport(ctx context.Context) (bool, error) {
 
 	// 如果有加密器，则加密数据
 	if httpAESCrypto != nil {
-		encryptedData, err := httpAESCrypto.Encrypt(configData)
+		var encryptedData string
+		encryptedData, err = httpAESCrypto.Encrypt(configData)
 		if err != nil {
-			fmt.Printf("⚠️ 加密配置报告失败，发送原始数据: %v\n", err)
+			reportLogs.Record("ConfigReportEncryption", logsafe.URL(strings.Split(configReportURL, ",")[0]), "加密失败，发送原始数据: "+logsafe.Error(err))
 			requestBody = configData
 		} else {
 			// 创建加密消息包装器
@@ -309,7 +295,7 @@ func sendConfigReport(ctx context.Context) (bool, error) {
 			}
 			requestBody, err = json.Marshal(encryptedMessage)
 			if err != nil {
-				fmt.Printf("⚠️ 序列化加密配置报告失败，发送原始数据: %v\n", err)
+				reportLogs.Record("ConfigReportEncryption", logsafe.URL(strings.Split(configReportURL, ",")[0]), "序列化失败，发送原始数据: "+logsafe.Error(err))
 				requestBody = configData
 			}
 		}
@@ -317,6 +303,9 @@ func sendConfigReport(ctx context.Context) (bool, error) {
 		requestBody = configData
 	}
 
+	if err == nil {
+		reportLogs.Record("ConfigReportEncryption", logsafe.URL(strings.Split(configReportURL, ",")[0]), "")
+	}
 	return postJSONWithFallback(
 		ctx,
 		strings.Split(configReportURL, ","),
@@ -325,6 +314,14 @@ func sendConfigReport(ctx context.Context) (bool, error) {
 		10*time.Second,
 		&preferredConfigURL,
 	)
+}
+
+func reportConfigResult(ctx context.Context) {
+	success, err := sendConfigReport(ctx)
+	if err == nil && !success {
+		err = fmt.Errorf("配置上报未成功")
+	}
+	reportLogs.Record("ConfigReport", logsafe.URL(strings.Split(configReportURL, ",")[0]), logsafe.Error(err))
 }
 
 // StartConfigReporter 启动配置定时上报器（每10分钟上报一次）
@@ -342,12 +339,7 @@ func StartConfigReporter(ctx context.Context) {
 
 	// 立即执行一次配置上报
 	go func() {
-		success, err := sendConfigReport(ctx)
-		if err != nil {
-			fmt.Printf("❌ 初始配置上报失败: %v\n", err)
-		} else if success {
-			fmt.Printf("✅ 初始配置上报成功\n")
-		}
+		reportConfigResult(ctx)
 	}()
 
 	// 定时上报循环
@@ -355,12 +347,7 @@ func StartConfigReporter(ctx context.Context) {
 		select {
 		case <-ticker.C:
 			go func() {
-				success, err := sendConfigReport(ctx)
-				if err != nil {
-					fmt.Printf("❌ 定时配置上报失败: %v\n", err)
-				} else if success {
-					fmt.Printf("✅ 定时配置上报成功\n")
-				}
+				reportConfigResult(ctx)
 			}()
 
 		case <-ctx.Done():
