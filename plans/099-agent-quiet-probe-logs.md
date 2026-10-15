@@ -34,3 +34,5 @@
 Canary 降噪实测：新版本稳定后的连续 120 秒，flvxx journal 总行数=0、探测行数=0（归一化 0 行/小时）；升级前一小时 3,637 行。面板正常接受原版 3.0.28→fork.50，无需 SSH 替换二进制；10 条隧道诊断 37 项成功与 4 项既有离线失败均保持不变。picker 后续轮次间隔 59.946 / 60.096 秒。
 
 节点 18（Bestvm JP B）：3.0.27 (debian/amd64) → 3.0.27-fork.50 (debian/amd64)；panel OTA，verified；重连 4.0 秒；诊断新增失败 0。证据 `node-18-ota.json`。
+
+节点 42（Bestvm HK 年付）：3.0.27 (debian/amd64) → 3.0.27-fork.50 (debian/amd64)；panel OTA，verified；重连 4.1 秒；诊断新增失败 0。证据 `node-42-ota.json`。
