@@ -40,3 +40,5 @@ Canary 降噪实测：新版本稳定后的连续 120 秒，flvxx journal 总行
 节点 2（Mkcloud 深港ixp 1）：3.0.27-fork.27 (debian/amd64) → 3.0.27-fork.50 (debian/amd64)；panel OTA，verified；重连 4.1 秒；诊断新增失败 0。证据 `node-2-ota.json`。
 
 节点 15（Datawave HK 2）：3.0.27 (debian/amd64) → 3.0.27-fork.50 (debian/amd64)；panel OTA，verified；重连 4.0 秒；诊断新增失败 0。证据 `node-15-ota.json`。
+
+节点 32（Mkcloud 沪港ixp 新春版）：3.0.27-fork.27 (debian/amd64) → 3.0.27-fork.50 (debian/amd64)；panel OTA，verified；重连 4.0 秒；诊断新增失败 0。证据 `node-32-ota.json`。
