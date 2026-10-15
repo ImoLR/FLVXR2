@@ -28,3 +28,5 @@
 发布验收：Images `38803926106` 全绿，fork.50 为 Latest/非 prerelease，10 个资产与 fork.49 一致，amd64/arm64 SHA256、compose 镜像引用、安装脚本 PINNED_VERSION 均通过。生产在线备份 `/opt/flvx-svc/rollback/pre-fork50-20261015T210001Z`，quick_check=ok，已运行 prune，仅保留 pre-fork50 与 pre-fork49；移除 pre-fork48 及其 fork.47 镜像。
 
 生产面板已升至 fork.50：backend healthy、frontend nginx/version.json/API 通过；schema/业务表计数不变，29/30 在线，升级前在线的 29 台均在重启后继续上报。
+
+节点 21（Breadcloud JP）：3.0.28 (debian/amd64) → 3.0.27-fork.50 (debian/amd64)；panel OTA，verified；重连 4.1 秒；诊断新增失败 0。证据 `node-21-ota.json`。
