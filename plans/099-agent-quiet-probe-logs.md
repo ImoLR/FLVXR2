@@ -59,8 +59,9 @@ Canary 降噪实测：新版本稳定后的连续 120 秒，flvxx journal 总行
 - [x] 12：按顺序逐台 OTA 与前后诊断、版本/重连核验。
 - [x] 49：按顺序逐台 OTA 与前后诊断、版本/重连核验。
 - [x] 24：轮到时仅在线才 OTA，否则零操作跳过。
-- [ ] 批次后复测 48 条延迟路径约 60 秒刷新；21 的 10 分钟 journal 和 52 日志后测。
-- [ ] 更新两轮合并中文总结，推送计划文档并确认最终文档 CI 全绿。
+- [x] 批次后复测 48 条延迟路径约 60 秒刷新；21 的 10 分钟 journal 和 52 日志后测。
+- [x] 写入两轮合并中文总结（完整 13 节点表、回滚命令、风险与未解决项）。
+- [ ] 推送计划文档并验证文档 CI 全绿；最终提交 CI 结果另存本轮证据与总结。
 
 第二轮证据继续存于 `/root/flvx-workers/runs/agent-quiet-probe-logs/`，文件名统一 `r2-` 前缀；两轮合并总结写入 `/root/flvx-workers/runs/agent-quiet-probe-logs-r2/summary.md`。
 
@@ -79,3 +80,7 @@ Canary 降噪实测：新版本稳定后的连续 120 秒，flvxx journal 总行
 49「Dmit Nathan」：fork.22→fork.50，面板 OTA，返回后 4.0 秒重连；转发 109 与隧道 74 的诊断前后均为 3 项成功/1 项既有失败，无新增失败。该既有失败为出口 AWS HK→boilhinet.imgamer.top:10020 等待响应超时，已在本节点 OTA 前记录；没有把它算成升级故障。证据 `r2-node-49-{ota,diagnose-before,diagnose-after}.json`；无 SSH，旧 fork.22 的控制台回滚仍需处理 -C/tls 兼容性。
 
 24「Mkcloud 沪日ixp G口 bug鸡」：轮到时（2026-10-15 21:39:30.862 UTC）仍离线，版本保持 3.0.27；没有下发 OTA、诊断或 SSH，只读取面板在线状态并记录跳过。证据 `r2-node-24-online-check.json`、`r2-node-24-ota.json`。至此两轮 13 台均已按授权处理：12 台为 fork.50，24 离线跳过；第二轮实际升级顺序 52→51→26→12→49，无新增诊断失败，无回滚执行。
+
+批次后实测：21 的 21:30:00–21:40:00 UTC 与 52 的 21:30:30–21:40:30 UTC 两个 600 秒窗口，flvxx journal 总行数/探测行数都为 0（均折算 0 行/小时）。52 首轮前测 43/0、本轮前测 15/0，升级前探测本已静默，不将总日志下降全归因于 TcpPing。证据 `r2-node-21-logs-after.json`、`r2-node-52-logs-after.json`。
+
+批次后延迟：38 次 GET `/api/v1/tunnel/user/latency`，始终 48 条路径记录、全部 updatedAt 更新；连续周期间隔 60.060/60.045/60.055 秒，48 个入口的延迟实值改变。末次 59 个入口为 48 ok/11 timeout（不将历史超时算作全部通过）。证据 `r2-latency-after.json`、`r2-latency-after-result.json`。面板只读健康检查通过，29/30 节点在线，范围外节点版本未变；本轮仓库差异只有本计划文档，`git diff --check` 通过。完整两轮总结已写入指定 r2 目录，CI 结果待推送后补齐。
