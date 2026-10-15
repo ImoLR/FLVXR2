@@ -9,7 +9,7 @@
 - [x] 运行 backend 与 go-gost/x 全量测试（短 /root 临时目录），对比 15 项基线；触及包 go vet。
 - [x] 推送分支、验证 CI，发布 annotated tag 3.0.27-fork.50，验证 Images、Latest 和 fork.49 同资产集合。
 - [x] 备份生产面板（在线 DB 校验、配置、镜像和回滚脚本），prune 保留两份；升级并核对健康和在线节点。
-- [ ] Breadcloud JP canary：记录日志/版本和转发基线，备份并升级、验证重连/版本/转发/日志。
+- [x] Breadcloud JP canary：记录日志/版本和转发基线，备份并升级、验证重连/版本/转发/日志。
 - [ ] 仅处理授权的其余 12 个探测源，逐台检查并记录；拒绝且无 SSH 的节点零改动跳过；首个重连或转发故障即停止并回滚。
 - [ ] 验证 picker 延迟继续约 60 秒更新，记录逐节点版本、日志率、转发和回滚；提交最终计划并写中文总结。
 
@@ -30,3 +30,5 @@
 生产面板已升至 fork.50：backend healthy、frontend nginx/version.json/API 通过；schema/业务表计数不变，29/30 在线，升级前在线的 29 台均在重启后继续上报。
 
 节点 21（Breadcloud JP）：3.0.28 (debian/amd64) → 3.0.27-fork.50 (debian/amd64)；panel OTA，verified；重连 4.1 秒；诊断新增失败 0。证据 `node-21-ota.json`。
+
+Canary 降噪实测：新版本稳定后的连续 120 秒，flvxx journal 总行数=0、探测行数=0（归一化 0 行/小时）；升级前一小时 3,637 行。面板正常接受原版 3.0.28→fork.50，无需 SSH 替换二进制；10 条隧道诊断 37 项成功与 4 项既有离线失败均保持不变。picker 后续轮次间隔 59.946 / 60.096 秒。
