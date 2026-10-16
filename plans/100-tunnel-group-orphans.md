@@ -7,7 +7,8 @@
 - [x] 修复级联与一次性幂等清理，补充 SQLite/PostgreSQL 回归测试。
 - [x] 完成后端全量测试（失败集合不超过基线 15）和相关包 go vet；生产副本 dry-run。
 - [ ] 推送分支，CI 通过，发布 fork.51；核验 Images 和全部 release assets。
-- [ ] 生产标准备份与保留两份，升级并执行启动清理。
+- [x] 生产标准备份与保留两份，验证精确数据回滚。
+- [ ] 升级生产并执行启动清理。
 - [ ] 验证零孤儿、用户权限/分组成员相同、29 节点上报，删除自建数据库副本。
 - [ ] 完成中文总结并提交发布记录。
 
@@ -24,3 +25,7 @@ fork.50 本机全量测试基线共 15 个失败测试/子测试（清单及日�
 一致性生产副本 dry-run 与真实 Repository.Open 迁移结果一致：group_permission_grant=23，tunnel_metric=15，node_identity=5，其余目标表=0。15 条指标来自已删除隧道「拼车hinet1 NB沪港IPLC」，上报节点「Nobrand IPLC 沪港」仍存在，节点不会被删除。SQL/逐行清单保存在 worker run 中；副本验证 schema、权限、分组成员、冻结质量历史与配置/部署历史不变。
 
 发布门禁：`go test ./...` 完成，15 项失败集合与 fork.50 完全相同、0 新失败；相关包 `go vet` 通过。新测试 SQLite、PostgreSQL 18 均通过（含共享授权保留、删除/迁移失败完整回滚），无 schema 变化。升级前初始读数：用户隧道权限 143 对；节点 29/29 在线；隧道组 4、用户组 4。
+
+生产回滚点已建立：`/opt/flvx-svc/rollback/pre-fork51-20261016T083644Z`（fork.50，在线 SQLite quick_check=ok，compose/.env、本地镜像 tag、rollback.sh）。43 行选择性 undo 已在副本验证可恢复，再次清理后恢复干净状态。指定 prune 脚本执行完毕，保留 pre-fork51 与 pre-fork50，移除 pre-fork49（旧 fork.48 回滚点及对应镜像）。生产仍是 fork.50，等待 Images/Release 资产完成再升级。
+
+分支 CI `38873472540` 全部成功；annotated tag `3.0.27-fork.51` 指向 `0ccb002a`，Images run `38873710248` 正在运行。
