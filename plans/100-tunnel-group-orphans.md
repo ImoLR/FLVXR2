@@ -42,10 +42,12 @@ Images `38873710248` 全部通过。fork.51 已发布为正式 Latest；10 个�
 
 - [x] 阅读流程与上一轮证据，确认生产起始版本 fork.51，建立指定分支。
 - [x] 修复 released 资源阻止节点删除，补齐 SQLite/PostgreSQL 三类回归并验证。
-- [ ] 完成后端全量测试，与上一轮 15 项失败集合对比，完成 repo go vet。
+- [x] 完成后端全量测试，与上一轮 15 项失败集合对比，完成 repo go vet。
 - [ ] 推送并验证 CI，发布 fork.52，核验 Images、10 件资产及版本 pin。
 - [ ] 生产在线备份、旧镜像 tag 与回滚脚本，执行仅保留两份备份。
 - [ ] 升级 fork.52，核验健康、29/29 在线、权限与 4+4 分组不变、marker 与不重复清理。
 - [ ] 清理自建测试资源，保存中文总结与证据，提交完成记录。
 
 定向测试 SQLite、PostgreSQL 18 全部通过：released-only 可删除且清理该节点资源；active 引用拒删，节点及已有级联表逐行不变；其他节点 released 行不变。SQLite 父节点删除失败时 released 资源亦完整回滚。repo go vet 通过。
+
+全量 `go test ./...` 仍为与 r1 完全相同的 15 项失败，无新增；日志与逐项比较在 `tunnel-group-orphans-r2/final-tests.log`、`test-comparison.json`。实现提交 `fe0e6048`，分支 CI `38877171403` 四项全绿；fork.52 annotated tag 指向该已通过 CI 的实现提交。
