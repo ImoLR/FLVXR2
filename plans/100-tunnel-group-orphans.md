@@ -6,7 +6,7 @@
 - [x] 审核所有隧道、节点、用户授权删除路径及数据库引用，记录基线。
 - [x] 修复级联与一次性幂等清理，补充 SQLite/PostgreSQL 回归测试。
 - [x] 完成后端全量测试（失败集合不超过基线 15）和相关包 go vet；生产副本 dry-run。
-- [ ] 推送分支，CI 通过，发布 fork.51；核验 Images 和全部 release assets。
+- [x] 推送分支，CI 通过，发布 fork.51；核验 Images 和全部 release assets。
 - [x] 生产标准备份与保留两份，验证精确数据回滚。
 - [ ] 升级生产并执行启动清理。
 - [ ] 验证零孤儿、用户权限/分组成员相同、29 节点上报，删除自建数据库副本。
@@ -29,3 +29,5 @@ fork.50 本机全量测试基线共 15 个失败测试/子测试（清单及日�
 生产回滚点已建立：`/opt/flvx-svc/rollback/pre-fork51-20261016T083644Z`（fork.50，在线 SQLite quick_check=ok，compose/.env、本地镜像 tag、rollback.sh）。43 行选择性 undo 已在副本验证可恢复，再次清理后恢复干净状态。指定 prune 脚本执行完毕，保留 pre-fork51 与 pre-fork50，移除 pre-fork49（旧 fork.48 回滚点及对应镜像）。生产仍是 fork.50，等待 Images/Release 资产完成再升级。
 
 分支 CI `38873472540` 全部成功；annotated tag `3.0.27-fork.51` 指向 `0ccb002a`，Images run `38873710248` 正在运行。
+
+Images `38873710248` 全部通过。fork.51 已发布为正式 Latest；10 个资产名称与 fork.50 相同，compose 的 fork.51 镜像、安装脚本 PINNED_VERSION/仓库、两架构 gost SHA256、offline zip 完整性均通过。切换前再次只读确认：43 条待清理记录与备份/dry-run 完全一致，143 对权限不变。
