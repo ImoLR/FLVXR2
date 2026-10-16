@@ -5,7 +5,7 @@
 - [x] 核对生产版本 fork.50、流程与 worktree，保留主 checkout 原状。
 - [x] 审核所有隧道、节点、用户授权删除路径及数据库引用，记录基线。
 - [x] 修复级联与一次性幂等清理，补充 SQLite/PostgreSQL 回归测试。
-- [ ] 完成后端全量测试（失败集合不超过基线 15）和相关包 go vet；生产副本 dry-run。
+- [x] 完成后端全量测试（失败集合不超过基线 15）和相关包 go vet；生产副本 dry-run。
 - [ ] 推送分支，CI 通过，发布 fork.51；核验 Images 和全部 release assets。
 - [ ] 生产标准备份与保留两份，升级并执行启动清理。
 - [ ] 验证零孤儿、用户权限/分组成员相同、29 节点上报，删除自建数据库副本。
@@ -22,3 +22,5 @@ fork.50 本机全量测试基线共 15 个失败测试/子测试（清单及日�
 实现与定向验证：SQLite/PostgreSQL 18 的级联、每类缺失引用、有效行不变、共享 grant 保留均通过；SQLite 事务失败回滚和实际启动迁移通过。HTTP 覆盖单删/批删/含转发删除、用户单删/批删、撤权、联邦清理和远程节点删除，普通节点在用拒删及空闲删除均通过。启动清理不增加 schema，只写入 `tunnel_group_orphan_cleanup_v1=done`。
 
 一致性生产副本 dry-run 与真实 Repository.Open 迁移结果一致：group_permission_grant=23，tunnel_metric=15，node_identity=5，其余目标表=0。15 条指标来自已删除隧道「拼车hinet1 NB沪港IPLC」，上报节点「Nobrand IPLC 沪港」仍存在，节点不会被删除。SQL/逐行清单保存在 worker run 中；副本验证 schema、权限、分组成员、冻结质量历史与配置/部署历史不变。
+
+发布门禁：`go test ./...` 完成，15 项失败集合与 fork.50 完全相同、0 新失败；相关包 `go vet` 通过。新测试 SQLite、PostgreSQL 18 均通过（含共享授权保留、删除/迁移失败完整回滚），无 schema 变化。升级前初始读数：用户隧道权限 147 对；节点 29/29 在线；隧道组 4、用户组 4。
