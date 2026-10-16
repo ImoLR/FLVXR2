@@ -1164,7 +1164,10 @@ func (h *Handler) nodeBatchDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	for _, id := range ids {
-		_ = h.deleteNodeByID(id)
+		if err := h.deleteNodeByID(id); err != nil {
+			response.WriteJSON(w, response.Err(-2, err.Error()))
+			return
+		}
 	}
 	response.WriteJSON(w, response.OKEmpty())
 }

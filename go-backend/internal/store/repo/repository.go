@@ -146,6 +146,10 @@ func Open(path string) (*Repository, error) {
 		_ = sqlDB.Close()
 		return nil, fmt.Errorf("backfill tunnel entries: %w", err)
 	}
+	if err := cleanupGroupOrphans(db); err != nil {
+		_ = sqlDB.Close()
+		return nil, fmt.Errorf("cleanup group orphans: %w", err)
+	}
 	return &Repository{db: db}, nil
 }
 
@@ -190,6 +194,10 @@ func OpenPostgres(dsn string) (*Repository, error) {
 	if err := backfillTunnelGroupEntries(db); err != nil {
 		_ = sqlDB.Close()
 		return nil, fmt.Errorf("backfill tunnel entries: %w", err)
+	}
+	if err := cleanupGroupOrphans(db); err != nil {
+		_ = sqlDB.Close()
+		return nil, fmt.Errorf("cleanup group orphans: %w", err)
 	}
 	return &Repository{db: db}, nil
 }

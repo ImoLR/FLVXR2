@@ -4,7 +4,7 @@
 
 - [x] 核对生产版本 fork.50、流程与 worktree，保留主 checkout 原状。
 - [x] 审核所有隧道、节点、用户授权删除路径及数据库引用，记录基线。
-- [ ] 修复级联与一次性幂等清理，补充 SQLite/PostgreSQL 回归测试。
+- [x] 修复级联与一次性幂等清理，补充 SQLite/PostgreSQL 回归测试。
 - [ ] 完成后端全量测试（失败集合不超过基线 15）和相关包 go vet；生产副本 dry-run。
 - [ ] 推送分支，CI 通过，发布 fork.51；核验 Images 和全部 release assets。
 - [ ] 生产标准备份与保留两份，升级并执行启动清理。
@@ -18,3 +18,7 @@
 审核：隧道所有删除入口汇入 DeleteTunnelCascade；缺失两代分组关联、列表关联与 tunnel_metric 清理。DeleteUserTunnel 是现行裸删 grant 主体的路径；用户级联已有 grant 清理，三种分组撤权均先检查剩余 grant，保留语义并补回归。节点原实现删除链路和转发端口但保留隧道主体，改为拒绝有业务引用的节点，并清理无引用节点的分组入口、身份、标签和指标。配置修订、部署日志属于历史保留。
 
 fork.50 本机全量测试基线共 15 个失败测试/子测试（清单及日志在 worker run 的 baseline.log）。生产只读初查：23 条 grant、5 条 node_identity、15 条 tunnel_metric 孤儿；4 个隧道组和 4 个用户组，29 个节点。正式 dry-run 将以一致性副本和代码同源 SELECT 为准。
+
+实现与定向验证：SQLite/PostgreSQL 18 的级联、每类缺失引用、有效行不变、共享 grant 保留均通过；SQLite 事务失败回滚和实际启动迁移通过。HTTP 覆盖单删/批删/含转发删除、用户单删/批删、撤权、联邦清理和远程节点删除，普通节点在用拒删及空闲删除均通过。启动清理不增加 schema，只写入 `tunnel_group_orphan_cleanup_v1=done`。
+
+一致性生产副本 dry-run 与真实 Repository.Open 迁移结果一致：group_permission_grant=23，tunnel_metric=15，node_identity=5，其余目标表=0。15 条指标来自已删除隧道「拼车hinet1 NB沪港IPLC」，上报节点「Nobrand IPLC 沪港」仍存在，节点不会被删除。SQL/逐行清单保存在 worker run 中；副本验证 schema、权限、分组成员、冻结质量历史与配置/部署历史不变。

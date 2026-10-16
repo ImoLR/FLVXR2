@@ -921,6 +921,42 @@ func (r *Repository) DeleteNodeCascade(nodeID int64) error {
 		return errors.New("repository not initialized")
 	}
 	return r.db.Transaction(func(tx *gorm.DB) error {
+		// Removing a chain hop or listener silently leaves a live tunnel broken.
+		// Federation's explicit cleanup removes these references before calling us.
+		for _, ref := range []struct {
+			model interface{}
+			where string
+			args  []interface{}
+		}{
+			{&model.ChainTunnel{}, "node_id = ?", []interface{}{nodeID}},
+			{&model.ForwardPort{}, "node_id = ?", []interface{}{nodeID}},
+			{&model.FederationTunnelBinding{}, "node_id = ? AND status = 1", []interface{}{nodeID}},
+			{&model.PathSegment{}, "from_node_id = ? OR to_node_id = ?", []interface{}{nodeID, nodeID}},
+			{&model.PeerShare{}, "node_id = ?", []interface{}{nodeID}},
+			{&model.PeerShareRuntime{}, "node_id = ? AND status = 1", []interface{}{nodeID}},
+			{&model.ServiceMonitor{}, "node_id = ?", []interface{}{nodeID}},
+			{&model.NodeDeployedInbound{}, "node_id = ?", []interface{}{nodeID}},
+			{&model.NodeRuntimeResource{}, "node_id = ?", []interface{}{nodeID}},
+			{&model.NftablesRule{}, "node_id = ?", []interface{}{nodeID}},
+		} {
+			var count int64
+			if err := tx.Model(ref.model).Where(ref.where, ref.args...).Count(&count).Error; err != nil {
+				return err
+			}
+			if count > 0 {
+				return errors.New("节点仍被隧道、转发或其他配置使用，请先移除关联后再删除")
+			}
+		}
+		// Configuration revisions, deployment logs and traffic/reset logs are history.
+		for _, row := range []interface{}{
+			&model.TunnelGroupTunnelEntry{}, &model.NodeTagNode{},
+			&model.NodeIdentity{}, &model.WGNodeIdentity{},
+			&model.NodeMetric{}, &model.TunnelMetric{}, &model.PeerShareRuntime{},
+		} {
+			if err := tx.Where("node_id = ?", nodeID).Delete(row).Error; err != nil {
+				return err
+			}
+		}
 		if err := tx.Where("node_id = ?", nodeID).Delete(&model.ForwardPort{}).Error; err != nil {
 			return err
 		}
@@ -1195,6 +1231,14 @@ func (r *Repository) DeleteTunnelCascade(tunnelID int64) error {
 		return errors.New("repository not initialized")
 	}
 	return r.db.Transaction(func(tx *gorm.DB) error {
+		for _, row := range []interface{}{
+			&model.TunnelGroupTunnelEntry{}, &model.TunnelGroupTunnel{},
+			&model.TunnelGroupTunnelNew{}, &model.TunnelListTunnel{}, &model.TunnelMetric{},
+		} {
+			if err := tx.Where("tunnel_id = ?", tunnelID).Delete(row).Error; err != nil {
+				return err
+			}
+		}
 		forwardIDs := tx.Model(&model.Forward{}).Select("id").Where("tunnel_id = ?", tunnelID)
 		if err := tx.Where("forward_id IN (?)", forwardIDs).Delete(&model.ForwardPort{}).Error; err != nil {
 			return err
@@ -1243,7 +1287,12 @@ func (r *Repository) DeleteUserTunnel(id int64) error {
 	if r == nil || r.db == nil {
 		return errors.New("repository not initialized")
 	}
-	return r.db.Where("id = ?", id).Delete(&model.UserTunnel{}).Error
+	return r.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Where("user_tunnel_id = ?", id).Delete(&model.GroupPermissionGrant{}).Error; err != nil {
+			return err
+		}
+		return tx.Where("id = ?", id).Delete(&model.UserTunnel{}).Error
+	})
 }
 
 func (r *Repository) UpdateUserTunnel(id int64, flow int64, num int, expTime, flowResetTime int64, speedID interface{}, status int) error {
