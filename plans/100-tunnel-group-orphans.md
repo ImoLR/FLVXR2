@@ -35,3 +35,15 @@ Images `38873710248` 全部通过。fork.51 已发布为正式 Latest；10 个�
 生产 2026-10-16 08:47Z（台湾 16:47）切换 fork.51。启动 summary：grant=23、tunnel_metric=15、node_identity=5，其余=0，实际 ID 集合与 dry-run/备份相同；之后 12 个目标表孤儿均为 0。后端 healthy、前端 nginx/version.json 正常；29/29 在线且全部有切换后的新上报，agent 版本逐节点不变。143 对 user_tunnel dump 完全一致，SHA256 `46acfebb1719f122890c98b78ab13880f613e6cd9fdf30fa5c0480efb3b409e3`；4+4 分组 API、成员/入口选择、有效 grant/身份、业务主体集合、schema 与历史哈希不变。冻结 tunnel_quality 356600 行保持原样。数据库 quick_check=ok。自建 PostgreSQL 容器及匿名测试卷、生产副本 dry-run.sqlite 已删除；未进行 OTA，未改动主 checkout 或其他栈。
 
 最终中文报告：`/root/flvx-workers/runs/tunnel-group-orphans/summary.md`，含根因与各入口、完整清理 ID 清单、门禁、CI/Release、备份、权限/分组/节点核验、所有破坏性操作和撤销方法、建议（未实施）及还没解决。遗留 15 项基线测试失败未扩大；已丢失的历史主体名称不猜测。
+
+## r2 / fork.52：节点删除 released WG 资源回归
+
+基于 `45670715`，分支 `maintenance/3.0.27-fork.52-node-delete-wg-released`。仅修改节点运行资源引用条件与同事务 released 行清理，不改其他引用、清理规则或 marker，不 OTA。
+
+- [x] 阅读流程与上一轮证据，确认生产起始版本 fork.51，建立指定分支。
+- [ ] 修复 released 资源阻止节点删除，补齐 SQLite/PostgreSQL 三类回归并验证。
+- [ ] 完成后端全量测试，与上一轮 15 项失败集合对比，完成 repo go vet。
+- [ ] 推送并验证 CI，发布 fork.52，核验 Images、10 件资产及版本 pin。
+- [ ] 生产在线备份、旧镜像 tag 与回滚脚本，执行仅保留两份备份。
+- [ ] 升级 fork.52，核验健康、29/29 在线、权限与 4+4 分组不变、marker 与不重复清理。
+- [ ] 清理自建测试资源，保存中文总结与证据，提交完成记录。
