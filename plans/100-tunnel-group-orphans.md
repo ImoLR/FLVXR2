@@ -3,7 +3,7 @@
 发布：`3.0.27-fork.51`。基线：`0b5e0074`（fork.50 分支头）。仅修改面板后端与测试，不改 agent、不 OTA、不改变有效业务记录。
 
 - [x] 核对生产版本 fork.50、流程与 worktree，保留主 checkout 原状。
-- [ ] 审核所有隧道、节点、用户授权删除路径及数据库引用，记录基线。
+- [x] 审核所有隧道、节点、用户授权删除路径及数据库引用，记录基线。
 - [ ] 修复级联与一次性幂等清理，补充 SQLite/PostgreSQL 回归测试。
 - [ ] 完成后端全量测试（失败集合不超过基线 15）和相关包 go vet；生产副本 dry-run。
 - [ ] 推送分支，CI 通过，发布 fork.51；核验 Images 和全部 release assets。
@@ -14,3 +14,7 @@
 ## 核验记录
 
 生产 `/opt/flvx-svc/.env` 起始版本为 `3.0.27-fork.50`。独立 worktree 为 `/root/projects/flvxx/flvxx-tunnel-group-orphans`，分支 `maintenance/3.0.27-fork.51-tunnel-group-orphans`。
+
+审核：隧道所有删除入口汇入 DeleteTunnelCascade；缺失两代分组关联、列表关联与 tunnel_metric 清理。DeleteUserTunnel 是现行裸删 grant 主体的路径；用户级联已有 grant 清理，三种分组撤权均先检查剩余 grant，保留语义并补回归。节点原实现删除链路和转发端口但保留隧道主体，改为拒绝有业务引用的节点，并清理无引用节点的分组入口、身份、标签和指标。配置修订、部署日志属于历史保留。
+
+fork.50 本机全量测试基线共 15 个失败测试/子测试（清单及日志在 worker run 的 baseline.log）。生产只读初查：23 条 grant、5 条 node_identity、15 条 tunnel_metric 孤儿；4 个隧道组和 4 个用户组，29 个节点。正式 dry-run 将以一致性副本和代码同源 SELECT 为准。
