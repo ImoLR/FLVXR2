@@ -23,4 +23,4 @@ fork.50 本机全量测试基线共 15 个失败测试/子测试（清单及日�
 
 一致性生产副本 dry-run 与真实 Repository.Open 迁移结果一致：group_permission_grant=23，tunnel_metric=15，node_identity=5，其余目标表=0。15 条指标来自已删除隧道「拼车hinet1 NB沪港IPLC」，上报节点「Nobrand IPLC 沪港」仍存在，节点不会被删除。SQL/逐行清单保存在 worker run 中；副本验证 schema、权限、分组成员、冻结质量历史与配置/部署历史不变。
 
-发布门禁：`go test ./...` 完成，15 项失败集合与 fork.50 完全相同、0 新失败；相关包 `go vet` 通过。新测试 SQLite、PostgreSQL 18 均通过（含共享授权保留、删除/迁移失败完整回滚），无 schema 变化。升级前初始读数：用户隧道权限 147 对；节点 29/29 在线；隧道组 4、用户组 4。
+发布门禁：`go test ./...` 完成，15 项失败集合与 fork.50 完全相同、0 新失败；相关包 `go vet` 通过。新测试 SQLite、PostgreSQL 18 均通过（含共享授权保留、删除/迁移失败完整回滚），无 schema 变化。升级前初始读数：用户隧道权限 143 对；节点 29/29 在线；隧道组 4、用户组 4。
