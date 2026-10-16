@@ -43,7 +43,7 @@ Images `38873710248` 全部通过。fork.51 已发布为正式 Latest；10 个�
 - [x] 阅读流程与上一轮证据，确认生产起始版本 fork.51，建立指定分支。
 - [x] 修复 released 资源阻止节点删除，补齐 SQLite/PostgreSQL 三类回归并验证。
 - [x] 完成后端全量测试，与上一轮 15 项失败集合对比，完成 repo go vet。
-- [ ] 推送并验证 CI，发布 fork.52，核验 Images、10 件资产及版本 pin。
+- [x] 推送并验证 CI，发布 fork.52，核验 Images、10 件资产及版本 pin。
 - [x] 生产在线备份、旧镜像 tag 与回滚脚本，执行仅保留两份备份。
 - [ ] 升级 fork.52，核验健康、29/29 在线、权限与 4+4 分组不变、marker 与不重复清理。
 - [ ] 清理自建测试资源，保存中文总结与证据，提交完成记录。
@@ -53,3 +53,5 @@ Images `38873710248` 全部通过。fork.51 已发布为正式 Latest；10 个�
 全量 `go test ./...` 仍为与 r1 完全相同的 15 项失败，无新增；日志与逐项比较在 `tunnel-group-orphans-r2/final-tests.log`、`test-comparison.json`。实现提交 `fe0e6048`，分支 CI `38877171403` 四项全绿；fork.52 annotated tag 指向该已通过 CI 的实现提交。
 
 生产回滚点 `/opt/flvx-svc/rollback/pre-fork52-20261016T090034Z` 已完成（原版本 fork.51，SQLite 在线备份 quick_check=ok、compose/.env、本地镜像 tag、rollback.sh）。指定 prune 脚本删除 pre-fork50-20261015T210001Z 及对应两枚 local 镜像 tag（原 fork.49 镜像），现在仅保留 pre-fork52 与 pre-fork51。Images `38877503510` 构建中，生产尚未升级。
+
+Images `38877503510` 全部通过，fork.52 为正式 Latest；10 件资产名称与 fork.51 一致，两个 compose 与两个独立安装脚本固定 fork.52，gost SHA256 与离线 zip 完整性通过。额外检查发现离线 zip 内 offline.sh 的 PINNED_VERSION 为空，与 fork.51 逐字节相同（现行 CI 打包未注入版本的源脚本），按范围限制仅记建议，不修改脚本或 CI。
