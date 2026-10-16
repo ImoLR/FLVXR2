@@ -41,9 +41,11 @@ Images `38873710248` 全部通过。fork.51 已发布为正式 Latest；10 个�
 基于 `45670715`，分支 `maintenance/3.0.27-fork.52-node-delete-wg-released`。仅修改节点运行资源引用条件与同事务 released 行清理，不改其他引用、清理规则或 marker，不 OTA。
 
 - [x] 阅读流程与上一轮证据，确认生产起始版本 fork.51，建立指定分支。
-- [ ] 修复 released 资源阻止节点删除，补齐 SQLite/PostgreSQL 三类回归并验证。
+- [x] 修复 released 资源阻止节点删除，补齐 SQLite/PostgreSQL 三类回归并验证。
 - [ ] 完成后端全量测试，与上一轮 15 项失败集合对比，完成 repo go vet。
 - [ ] 推送并验证 CI，发布 fork.52，核验 Images、10 件资产及版本 pin。
 - [ ] 生产在线备份、旧镜像 tag 与回滚脚本，执行仅保留两份备份。
 - [ ] 升级 fork.52，核验健康、29/29 在线、权限与 4+4 分组不变、marker 与不重复清理。
 - [ ] 清理自建测试资源，保存中文总结与证据，提交完成记录。
+
+定向测试 SQLite、PostgreSQL 18 全部通过：released-only 可删除且清理该节点资源；active 引用拒删，节点及已有级联表逐行不变；其他节点 released 行不变。SQLite 父节点删除失败时 released 资源亦完整回滚。repo go vet 通过。

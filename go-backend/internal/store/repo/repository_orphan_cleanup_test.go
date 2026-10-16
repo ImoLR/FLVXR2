@@ -343,7 +343,9 @@ func TestGroupOrphanCascadeRollback(t *testing.T) {
 			case "revoke":
 				err = r.DeleteUserTunnel(40)
 			case "node":
+				orphanSeed(t, r, &model.NodeRuntimeResource{NodeID: 11, Status: "released"})
 				err = r.DeleteNodeCascade(11)
+				orphanCount(t, r, "node_runtime_resource", "node_id = 11 AND status = 'released'", 1)
 			}
 			if err == nil {
 				t.Fatal("expected parent delete failure")
@@ -352,5 +354,63 @@ func TestGroupOrphanCascadeRollback(t *testing.T) {
 				orphanCount(t, r, rule.table, "1=1", 1)
 			}
 		})
+	}
+}
+
+func TestNodeDeleteRuntimeResources(t *testing.T) {
+	for _, dialect := range []string{"sqlite", "postgres"} {
+		for _, active := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/active=%t", dialect, active), func(t *testing.T) {
+				r := orphanTestRepo(t, dialect)
+				orphanFixture(t, r)
+				orphanSeed(t, r,
+					&model.Node{ID: 12, Name: "other-node"},
+					&model.NodeRuntimeResource{ID: 1, NodeID: 11, Status: "released"},
+					&model.NodeRuntimeResource{ID: 2, NodeID: 11, Status: "released"},
+					&model.NodeRuntimeResource{ID: 3, NodeID: 12, Status: "released"},
+				)
+				if active {
+					orphanSeed(t, r, &model.NodeRuntimeResource{ID: 4, NodeID: 11, Status: "active"})
+				}
+				before := map[string][]map[string]interface{}{}
+				for _, table := range []string{"node", "node_runtime_resource", "tunnel_group_tunnel_entry", "node_tag_node", "node_identity", "wg_node_identity", "node_metric", "tunnel_metric"} {
+					var rows []map[string]interface{}
+					if err := r.db.Table(table).Order("1").Find(&rows).Error; err != nil {
+						t.Fatal(err)
+					}
+					before[table] = rows
+				}
+				err := r.DeleteNodeCascade(11)
+				if active {
+					if err == nil || !strings.Contains(err.Error(), "节点仍被隧道、转发或其他配置使用") {
+						t.Fatalf("expected referenced node refusal, got %v", err)
+					}
+					for table, rows := range before {
+						var after []map[string]interface{}
+						if err := r.db.Table(table).Order("1").Find(&after).Error; err != nil {
+							t.Fatal(err)
+						}
+						if !reflect.DeepEqual(rows, after) {
+							t.Fatalf("refused deletion changed %s: %v -> %v", table, rows, after)
+						}
+					}
+				} else {
+					if err != nil {
+						t.Fatal(err)
+					}
+					orphanCount(t, r, "node", "id = 11", 0)
+					orphanCount(t, r, "node_runtime_resource", "node_id = 11", 0)
+				}
+				var other model.NodeRuntimeResource
+				if err := r.db.First(&other, 3).Error; err != nil {
+					t.Fatal(err)
+				}
+				want := model.NodeRuntimeResource{ID: 3, NodeID: 12, Status: "released"}
+				if !reflect.DeepEqual(other, want) {
+					t.Fatalf("other node's resource changed: %+v", other)
+				}
+				orphanCount(t, r, "node", "id = 12", 1)
+			})
+		}
 	}
 }

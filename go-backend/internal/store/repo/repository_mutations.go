@@ -936,7 +936,7 @@ func (r *Repository) DeleteNodeCascade(nodeID int64) error {
 			{&model.PeerShareRuntime{}, "node_id = ? AND status = 1", []interface{}{nodeID}},
 			{&model.ServiceMonitor{}, "node_id = ?", []interface{}{nodeID}},
 			{&model.NodeDeployedInbound{}, "node_id = ?", []interface{}{nodeID}},
-			{&model.NodeRuntimeResource{}, "node_id = ?", []interface{}{nodeID}},
+			{&model.NodeRuntimeResource{}, "node_id = ? AND status <> 'released'", []interface{}{nodeID}},
 			{&model.NftablesRule{}, "node_id = ?", []interface{}{nodeID}},
 		} {
 			var count int64
@@ -946,6 +946,9 @@ func (r *Repository) DeleteNodeCascade(nodeID int64) error {
 			if count > 0 {
 				return errors.New("节点仍被隧道、转发或其他配置使用，请先移除关联后再删除")
 			}
+		}
+		if err := tx.Where("node_id = ? AND status = 'released'", nodeID).Delete(&model.NodeRuntimeResource{}).Error; err != nil {
+			return err
 		}
 		// Configuration revisions, deployment logs and traffic/reset logs are history.
 		for _, row := range []interface{}{
