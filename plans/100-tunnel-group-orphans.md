@@ -10,7 +10,7 @@
 - [x] 生产标准备份与保留两份，验证精确数据回滚。
 - [x] 升级生产并执行启动清理。
 - [x] 验证零孤儿、用户权限/分组成员相同、29 节点上报，删除自建数据库副本。
-- [ ] 完成中文总结并提交发布记录。
+- [x] 完成中文总结并提交发布记录。
 
 ## 核验记录
 
@@ -33,3 +33,5 @@ fork.50 本机全量测试基线共 15 个失败测试/子测试（清单及日�
 Images `38873710248` 全部通过。fork.51 已发布为正式 Latest；10 个资产名称与 fork.50 相同，compose 的 fork.51 镜像、安装脚本 PINNED_VERSION/仓库、两架构 gost SHA256、offline zip 完整性均通过。切换前再次只读确认：43 条待清理记录与备份/dry-run 完全一致，143 对权限不变。
 
 生产 2026-10-16 08:47Z（台湾 16:47）切换 fork.51。启动 summary：grant=23、tunnel_metric=15、node_identity=5，其余=0，实际 ID 集合与 dry-run/备份相同；之后 12 个目标表孤儿均为 0。后端 healthy、前端 nginx/version.json 正常；29/29 在线且全部有切换后的新上报，agent 版本逐节点不变。143 对 user_tunnel dump 完全一致，SHA256 `46acfebb1719f122890c98b78ab13880f613e6cd9fdf30fa5c0480efb3b409e3`；4+4 分组 API、成员/入口选择、有效 grant/身份、业务主体集合、schema 与历史哈希不变。冻结 tunnel_quality 356600 行保持原样。数据库 quick_check=ok。自建 PostgreSQL 容器及匿名测试卷、生产副本 dry-run.sqlite 已删除；未进行 OTA，未改动主 checkout 或其他栈。
+
+最终中文报告：`/root/flvx-workers/runs/tunnel-group-orphans/summary.md`，含根因与各入口、完整清理 ID 清单、门禁、CI/Release、备份、权限/分组/节点核验、所有破坏性操作和撤销方法、建议（未实施）及还没解决。遗留 15 项基线测试失败未扩大；已丢失的历史主体名称不猜测。
