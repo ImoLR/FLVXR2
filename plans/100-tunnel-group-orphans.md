@@ -45,7 +45,7 @@ Images `38873710248` 全部通过。fork.51 已发布为正式 Latest；10 个�
 - [x] 完成后端全量测试，与上一轮 15 项失败集合对比，完成 repo go vet。
 - [x] 推送并验证 CI，发布 fork.52，核验 Images、10 件资产及版本 pin。
 - [x] 生产在线备份、旧镜像 tag 与回滚脚本，执行仅保留两份备份。
-- [ ] 升级 fork.52，核验健康、29/29 在线、权限与 4+4 分组不变、marker 与不重复清理。
+- [x] 升级 fork.52，核验健康、29/29 在线、权限与 4+4 分组不变、marker 与不重复清理。
 - [ ] 清理自建测试资源，保存中文总结与证据，提交完成记录。
 
 定向测试 SQLite、PostgreSQL 18 全部通过：released-only 可删除且清理该节点资源；active 引用拒删，节点及已有级联表逐行不变；其他节点 released 行不变。SQLite 父节点删除失败时 released 资源亦完整回滚。repo go vet 通过。
@@ -55,3 +55,5 @@ Images `38873710248` 全部通过。fork.51 已发布为正式 Latest；10 个�
 生产回滚点 `/opt/flvx-svc/rollback/pre-fork52-20261016T090034Z` 已完成（原版本 fork.51，SQLite 在线备份 quick_check=ok、compose/.env、本地镜像 tag、rollback.sh）。指定 prune 脚本删除 pre-fork50-20261015T210001Z 及对应两枚 local 镜像 tag（原 fork.49 镜像），现在仅保留 pre-fork52 与 pre-fork51。Images `38877503510` 构建中，生产尚未升级。
 
 Images `38877503510` 全部通过，fork.52 为正式 Latest；10 件资产名称与 fork.51 一致，两个 compose 与两个独立安装脚本固定 fork.52，gost SHA256 与离线 zip 完整性通过。额外检查发现离线 zip 内 offline.sh 的 PINNED_VERSION 为空，与 fork.51 逐字节相同（现行 CI 打包未注入版本的源脚本），按范围限制仅记建议，不修改脚本或 CI。
+
+生产于 2026-10-16 09:15Z 升级 fork.52，backend healthy、nginx 与健康接口正常。29/29 在线且全部有升级后新上报；143 对 user_tunnel TSV 逐字节相同，SHA256 `46acfebb1719f122890c98b78ab13880f613e6cd9fdf30fa5c0480efb3b409e3`。4 个隧道组、4 个用户组及成员/入口/分组 API 相同；schema、业务 ID/名称、agent 版本不变。marker 保持 done，新容器日志中 `[group-orphan-cleanup]` 为 0 行；runtime resource 仍 0 行，quick_check=ok。自建 PostgreSQL 容器与匿名卷已删除，无额外生产 DB 副本、无 OTA。详细结果在 r2 的 prod-validation.json。
