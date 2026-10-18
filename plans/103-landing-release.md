@@ -8,7 +8,7 @@
 - [x] 修复门禁发现的额度协调重复写入：仅周期/继承上限/暂停状态变化时更新，新增回归测试。
 - [x] 发布门禁：全量 Go 失败集合不超过既有 15，前端构建，生产一致性副本增量迁移及原表校验，流量上传 reconcile 成本实测。
 - [x] 发布 fork.53，CI/Images 通过，核验与 fork.52 相同的 10 项资产。
-- [ ] 完整 SQLite、compose/.env、旧镜像标签及 rollback.sh 备份；执行两份保留裁剪。
+- [x] 完整 SQLite、compose/.env、旧镜像标签及 rollback.sh 备份；执行两份保留裁剪。
 - [ ] 生产升级、健康/节点上报核验，升级前后各约 10 分钟 CPU/SQLite 写入观察。
 - [ ] 节点 21 诊断及 agent/mmwx 基线备份；仅节点 21 OTA，能力及诊断复验。
 - [ ] 核对全机监听/FLVX 端口，分离规则与落地段；启用 admin-only 原生落地，核验固定 Core/低权限/资源上限及 mmwx 不变。
@@ -31,3 +31,5 @@
 发布：annotated tag `3.0.27-fork.53` → `814917d6c254969d95bba454822d250e6436bb57`；CI https://github.com/ImoLR/FLVXR2/actions/runs/39132085593、Images https://github.com/ImoLR/FLVXR2/actions/runs/39132087254 全绿。正式 Latest Release 10 项资产与 fork.52 同名；两架构 gost SHA256、compose 镜像 tag、两个脚本固定版本/仓库、离线 ZIP 完整性均通过（release-validation.json）。未修改安装脚本；离线包 offline.sh 沿用 fork.52 原内容。
 
 节点 21 前置证据：6 条隧道 23/26/32/33/43/66 共 27 项诊断全通过（diagnoses-before-ota.json）。SSH agent 回滚点 `/root/flvxx-backup-20261018T134521Z-pre-fork53`，含二进制/配置/unit/restore-agent.sh；旧 sing-box 目录及单元原不存在，记录于 node21-backup.json。
+
+生产回滚点 `/opt/flvx-svc/rollback/pre-fork53-20261018T135250Z`：完整在线 SQLite quick_check=ok、compose/.env、fork.52 两镜像本地标签、rollback.sh（含节点 21 SSH 恢复入口及可选完整 DB 恢复）。备份计数 node/user/tunnel/forward/user_tunnel = 29/11/43/31/143。已执行指定 prune：保留 pre-fork53 与 pre-fork52，删除 pre-fork51 目录/标签和 fork.50 本地镜像；见 backup.json、prune.log。
