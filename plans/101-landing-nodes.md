@@ -128,7 +128,7 @@
 - [x] 有效期：跟随用户/固定，到期停用、7 天宽限、自动删除、续期恢复；与用户到期/禁用/总流量用完联动。
 - [x] 规则：目标可选我的落地节点 / 落地服务器（自动建节点）；混合目标校验；手填匹配。
 - [x] 节点程序：Core 下载校验安装、systemd 单元、期望状态热更新、连接限制、流量上报、重启恢复。
-- [ ] 前端（只加不改）+ H5；隐藏旧部署入口。
+- [x] 前端（只加不改）+ H5；隐藏旧部署入口。
 - [x] 单元 / 契约测试（SQLite + PG），全量 `go test` 失败集合不超过基线。
 - [x] 本机端到端（真实 mmwxc-core + 客户端）：SS2022 与 VLESS Reality Vision 直连与经规则、计数与计费、限额暂停/恢复、连接限制、热添加不断已有连接、到期与恢复。
 - [ ] 截图集（电脑 + H5，含原有页面前后对比）。
@@ -168,3 +168,5 @@
 最终后端定向测试：仓储（15.417s）与 handler/contract 均通过；SQLite/PostgreSQL 全覆盖，含最终删除计数入账/失败保留、批量换隧道授权复核、日额度恢复不能绕过服务器限额。最终全量 `go test -p 1 ./...`（同时启用隔离 PG）仍为原 15 项失败，集合与基线完全一致、无新增；详见 `backend-full-final.log`、`final-failure-comparison.json`。真实 E2E 热更新、到期断开/原链接恢复、节点和服务器连接上限、节点/服务器流量暂停恢复已通过，见 `e2e/lifecycle-results.json`、`e2e/server-quota-results.json`。
 
 最终真实 Core 补验：显式删除先取最终计数后释放端口，端口 30002 可重新分配；修正 sniffing 域名覆盖后，原能访问私网的既有测试请求返回 0 字节并被阻断。证据 `e2e/delete-final-results.json`、`e2e/private-domain-spoof-fix.json`。Agent 采样在安装/热更新占锁时跳过本次累计采样，后续累计补齐，既有规则上报不被阻塞；相应回归测试通过。
+
+最终前端 TypeScript/Vite/PWA 构建通过（PWA 2950.23 KiB）；dashboard、全局样式、主题映射及依赖文件保持基线，哈希记录 `ui-preservation.json`。截图仅使用基线/最终静态 dist，Chromium 单实例启动前 MemAvailable 1194 MiB。新增规则目标选择器用于普通 gost/nftables 隧道，既有管理员专用 wg_path CIDR/路径输入未扩展。
