@@ -169,7 +169,7 @@ func (m *Manager) reconcile(ctx context.Context) error {
 	snapshot, err := m.snapshot(ctx)
 	if err != nil {
 		if !m.desired.Enabled {
-			return nil
+			return fmt.Errorf("landing Core unavailable; final counters not confirmed")
 		}
 		if err := m.start(ctx); err != nil {
 			return err
@@ -192,7 +192,7 @@ func (m *Manager) reconcile(ctx context.Context) error {
 	}
 	m.epoch = epoch
 	// Capture the final live sample before controls terminate affected sockets.
-	_ = m.collect(ctx)
+	collectErr := m.collect(ctx)
 	if err := m.applyLimits(ctx, snapshot); err != nil {
 		return err
 	}
@@ -221,8 +221,11 @@ func (m *Manager) reconcile(ctx context.Context) error {
 	for _, in := range listed.Inbounds {
 		present[in.Tag] = true
 	}
-	// Preserve all counters before disabling an inbound.
-	_ = m.collect(ctx)
+	// A failed sample must not prevent quota/expiry enforcement. Still reject
+	// this Apply after removing affected inbounds so deletion retains its row.
+	if err := m.collect(ctx); err != nil {
+		collectErr = err
+	}
 	for tag := range present {
 		if !strings.HasPrefix(tag, "flvxl-") {
 			continue
@@ -257,7 +260,10 @@ func (m *Manager) reconcile(ctx context.Context) error {
 			return err
 		}
 	}
-	return m.collect(ctx)
+	if err := m.collect(ctx); err != nil {
+		return err
+	}
+	return collectErr
 }
 
 func (m *Manager) collect(ctx context.Context) error {

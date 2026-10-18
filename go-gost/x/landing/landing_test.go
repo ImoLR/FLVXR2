@@ -296,6 +296,13 @@ func TestLandingPinnedCore(t *testing.T) {
 	if err != nil || !strings.Contains(string(raw), n.InboundTag) {
 		t.Fatal("core restart did not restore persisted inbound")
 	}
+	_ = restarted.Process.Kill()
+	_ = restarted.Wait()
+	d.Revision++
+	d.Enabled = false
+	if status, err := recovered.Apply(ctx, d); err == nil || status.State != "error" {
+		t.Fatal("unreachable stopped Core returned stale final counters as success")
+	}
 
 }
 
