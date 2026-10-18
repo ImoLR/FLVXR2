@@ -14,7 +14,7 @@
 - [x] 实现并测试 agent 协议族选择、配置持久化、自动自愈与连接日志。
 - [x] 实现并测试节点列/API/下发、表单和安装命令选项及 install.sh 参数。
 - [x] 完成本地 IPv6 连接后黑洞 E2E、三个 Go 模块测试、相关 vet、前端构建。
-- [ ] 提交推送、CI 验证、tag fork.54、Images/发布资源验证。
+- [x] 提交推送、CI 验证、tag fork.54、Images/发布资源验证。
 - [ ] 生产备份与回滚脚本、保留最新两份、升级及健康/表行数/在线节点核对。
 - [ ] 节点 42 SSH 备份、OTA、14 隧道重部署验证。
 - [ ] 节点 42 auto IPv6 黑洞自愈实测，移除故障规则，设置 prefer_ipv4 并验证 IPv4 WS。
@@ -33,3 +33,5 @@ Panel：新增 `node.panel_ip_family`（varchar、默认空）；create/update/l
 完整验证：三个模块 `go test ./...` 完成，backend 失败集合与基线 15/15 完全一致，gost / x 全通过；所有触及 Go 包 vet 通过，拨号/自愈/持久化 race 测试通过，前端 build 通过。独立 netns 对已建立的 IPv6 WS 双向丢包，两次分别 59.92s/59.91s 触发超时，auto 在 120.19s 转 IPv4，面板 HTTP 同时恢复；恢复 IPv6 后 prefer_ipv4 连续 3 次仍使用 IPv4。netns 已删除。测试不使用生产 DB。
 
 分支已推送；CI Build Check [39144085675](https://github.com/ImoLR/FLVXR2/actions/runs/39144085675) 四项全部绿色（含 PostgreSQL contract）。tag `3.0.27-fork.54` 指向 `43c8d277`。节点 42 备份：`/root/flvxx-backup-20261018T161547Z-pre-fork54`，含二进制/config/gost/unit 和 `restore-agent.sh`，旧版本 fork.53；另一个面板 flux_agent PID=429，未操作。
+
+Images [39144267928](https://github.com/ImoLR/FLVXR2/actions/runs/39144267928) 全通过；[fork.54 release](https://github.com/ImoLR/FLVXR2/releases/tag/3.0.27-fork.54) 为 Latest、非 prerelease，10 个资源与 fork.53 同集。v4/v6 compose 镜像和两个安装脚本版本锁定正确，amd64/arm64 sha256、离线包中的二进制均校验通过；发布 amd64 `-V` 确认为 fork.54。
