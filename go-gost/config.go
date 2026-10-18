@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+
+	"github.com/go-gost/x/panelconn"
 )
 
 // agentConfigFile is the FLVX agent config, loaded relative to the working
@@ -13,6 +15,7 @@ const agentConfigFile = "config.json"
 
 // Config 配置结构体
 type Config struct {
+	PanelIPFamily        string `json:"panel_ip_family"`
 	Addr                 string `json:"addr"`
 	Secret               string `json:"secret"`
 	Http                 int    `json:"http"`
@@ -48,5 +51,10 @@ func LoadConfig(configPath string) (*Config, error) {
 		return nil, fmt.Errorf("服务器地址不能为空")
 	}
 
+	mode, err := panelconn.Normalize(config.PanelIPFamily)
+	if err != nil {
+		return nil, err
+	}
+	config.PanelIPFamily = mode
 	return &config, nil
 }

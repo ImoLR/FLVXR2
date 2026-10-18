@@ -16,6 +16,7 @@ import (
 	"github.com/go-gost/x/internal/util/crypto"
 	"github.com/go-gost/x/landing"
 	"github.com/go-gost/x/logsafe"
+	"github.com/go-gost/x/panelconn"
 	"github.com/go-gost/x/registry"
 )
 
@@ -29,7 +30,8 @@ var preferredUploadURL string
 var preferredConfigURL string
 var reportDo = func(ctx context.Context, req *http.Request, timeout time.Duration) (*http.Response, error) {
 	client := &http.Client{
-		Timeout: timeout,
+		Timeout:   timeout,
+		Transport: panelconn.Default,
 	}
 	return client.Do(req.WithContext(ctx))
 }

@@ -27,6 +27,7 @@ import (
 	"github.com/go-gost/x/internal/util/crypto"
 	"github.com/go-gost/x/landing"
 	"github.com/go-gost/x/logsafe"
+	"github.com/go-gost/x/panelconn"
 	"github.com/go-gost/x/registry"
 	"github.com/go-gost/x/service"
 	"github.com/go-gost/x/stats"
@@ -187,6 +188,8 @@ const (
 )
 
 type WebSocketReporter struct {
+	configPath        string
+	sessionEnded      bool // guarded by connMutex; count a failed session at most once
 	routineLogs       logsafe.RoutineLogger
 	leikwan           leiKwanDetector
 	egress            egressDetector
@@ -303,7 +306,10 @@ func (w *WebSocketReporter) run() {
 			}
 
 			// 连接成功，开始发送消息
-			if w.connected {
+			w.connMutex.Lock()
+			connected := w.connected
+			w.connMutex.Unlock()
+			if connected {
 				w.handleConnection()
 			} else {
 				wait := backoffWithJitter(w.curBackoff)
@@ -337,13 +343,14 @@ func (w *WebSocketReporter) connect() error {
 
 	// 重新读取 config.json 获取最新的协议配置
 	type LocalConfig struct {
-		Addr        string `json:"addr"`
-		Secret      string `json:"secret"`
-		Http        int    `json:"http"`
-		Tls         int    `json:"tls"`
-		Socks       int    `json:"socks"`
-		BlockOther  int    `json:"block_other"`
-		ServiceName string `json:"service_name"`
+		PanelIPFamily string `json:"panel_ip_family"`
+		Addr          string `json:"addr"`
+		Secret        string `json:"secret"`
+		Http          int    `json:"http"`
+		Tls           int    `json:"tls"`
+		Socks         int    `json:"socks"`
+		BlockOther    int    `json:"block_other"`
+		ServiceName   string `json:"service_name"`
 	}
 
 	var cfg LocalConfig
@@ -351,7 +358,10 @@ func (w *WebSocketReporter) connect() error {
 	configPaths := []string{"config.json", "/etc/flvx_agent/config.json", "/etc/flux_agent/config.json"}
 	for _, path := range configPaths {
 		if b, err := os.ReadFile(path); err == nil {
-			json.Unmarshal(b, &cfg)
+			if err := json.Unmarshal(b, &cfg); err != nil {
+				return err
+			}
+			w.configPath = path
 			if cfg.ServiceName != "" {
 				w.serviceName = cfg.ServiceName
 			}
@@ -359,12 +369,16 @@ func (w *WebSocketReporter) connect() error {
 		}
 	}
 
+	if _, err := panelconn.Default.SetMode(cfg.PanelIPFamily); err != nil {
+		return err
+	}
 	candidates := buildWebSocketCandidates(w.addr, w.secret, w.version, cfg.Http, cfg.Tls, cfg.Socks, cfg.BlockOther, w.preferredWSScheme)
 
-	dialer := websocket.DefaultDialer
+	dialer := *websocket.DefaultDialer
 	dialer.HandshakeTimeout = 10 * time.Second
+	dialer.NetDialContext = panelconn.Default.DialContext
 
-	conn, usedURL, err := dialWebSocketWithFallback(dialer, candidates)
+	conn, usedURL, err := dialWebSocketWithFallback(&dialer, candidates)
 	if err != nil {
 		return err
 	}
@@ -377,6 +391,7 @@ func (w *WebSocketReporter) connect() error {
 
 	w.conn = conn
 	w.connected = true
+	w.sessionEnded = false
 	if scheme := detectWebSocketScheme(usedURL); scheme != "" {
 		w.preferredWSScheme = scheme
 	}
@@ -393,11 +408,12 @@ func (w *WebSocketReporter) connect() error {
 	w.conn.SetCloseHandler(func(code int, text string) error {
 		w.connMutex.Lock()
 		w.connected = false
+		w.sessionEnded = true // a received close frame is a deliberate server close
 		w.connMutex.Unlock()
 		return nil
 	})
 
-	fmt.Printf("✅ WebSocket 连接建立成功 (%s, http=%d, tls=%d, socks=%d)\n", sanitizeWebSocketURL(usedURL), cfg.Http, cfg.Tls, cfg.Socks)
+	fmt.Printf("✅ WebSocket 连接建立成功 (%s, remote=%s %s, http=%d, tls=%d, socks=%d)\n", sanitizeWebSocketURL(usedURL), panelconn.Family(conn.RemoteAddr()), conn.RemoteAddr(), cfg.Http, cfg.Tls, cfg.Socks)
 
 	// 如果 node_id 未配置，尝试从面板获取并初始化基线管理器
 	if w.nodeID <= 0 {
@@ -408,10 +424,12 @@ func (w *WebSocketReporter) connect() error {
 	w.initNftablesManager()
 	w.ipv6RA.detect()
 
-	// 获取并上报公网 IPv4 和 IPv6
-	ipv4 := getPublicIPv4()
-	ipv6 := getPublicIPv6()
-	w.reportPublicIPs(ipv4, ipv6)
+	// Do not hold up the WS reader/keepalive on public IP discovery.
+	go func() {
+		ipv4 := getPublicIPv4()
+		ipv6 := getPublicIPv6()
+		w.reportPublicIPs(ipv4, ipv6)
+	}()
 
 	return nil
 }
@@ -437,7 +455,7 @@ func (w *WebSocketReporter) fetchAndSaveNodeID() {
 	}
 	req.Header.Set("Authorization", w.secret)
 
-	client := &http.Client{Timeout: 5 * time.Second}
+	client := &http.Client{Timeout: 5 * time.Second, Transport: panelconn.Default}
 	resp, err := client.Do(req)
 	if err != nil {
 		fmt.Printf("⚠️ 获取节点信息失败：%s\n", logsafe.Text(logsafe.Error(err), w.secret))
@@ -525,7 +543,7 @@ func (w *WebSocketReporter) fetchAndSaveNodeID() {
 // getPublicIPv4 获取 IPv4 公网地址
 func getPublicIPv4() string {
 	// 优先：curl -4 -s ip.sb
-	cmd := exec.Command("curl", "-4", "-s", "ip.sb")
+	cmd := exec.Command("curl", "-4", "-s", "--connect-timeout", "3", "--max-time", "5", "ip.sb")
 	out, err := cmd.Output()
 	if err == nil {
 		ip := strings.TrimSpace(string(out))
@@ -566,7 +584,7 @@ func getPublicIPv4() string {
 // getPublicIPv6 获取 IPv6 公网地址
 func getPublicIPv6() string {
 	// 优先：curl -6 -s ip.sb
-	cmd := exec.Command("curl", "-6", "-s", "ip.sb")
+	cmd := exec.Command("curl", "-6", "-s", "--connect-timeout", "3", "--max-time", "5", "ip.sb")
 	out, err := cmd.Output()
 	if err == nil {
 		ip := strings.TrimSpace(string(out))
@@ -659,7 +677,7 @@ func (w *WebSocketReporter) reportPublicIPs(ipv4, ipv6 string) {
 	jsonBody, _ := json.Marshal(body)
 	req.Body = io.NopCloser(bytes.NewReader(jsonBody))
 
-	client := &http.Client{Timeout: 5 * time.Second}
+	client := &http.Client{Timeout: 5 * time.Second, Transport: panelconn.Default}
 	resp, err := client.Do(req)
 	if err != nil {
 		fmt.Printf("⚠️ 上报 IP 失败：%s\n", logsafe.Text(logsafe.Error(err), w.secret))
@@ -694,7 +712,7 @@ func buildWebSocketCandidates(addr string, secret string, version string, http i
 
 	query := "/system-info?type=1&secret=" + url.QueryEscape(secret) + "&version=" + url.QueryEscape(version) +
 		"&http=" + strconv.Itoa(http) + "&tls=" + strconv.Itoa(tls) + "&socks=" + strconv.Itoa(socks) +
-		"&blockOther=" + strconv.Itoa(blockOther)
+		"&blockOther=" + strconv.Itoa(blockOther) + "&panelIpFamily=" + url.QueryEscape(panelconn.Default.Mode())
 
 	schemes := []string{"wss", "ws"}
 	if mappedScheme := mapToWebSocketScheme(explicitScheme); mappedScheme != "" {
@@ -805,19 +823,22 @@ func formatWebSocketDialError(err error, resp *http.Response) string {
 
 // handleConnection 处理WebSocket连接
 func (w *WebSocketReporter) handleConnection() {
+	readerDone := make(chan struct{})
 	defer func() {
 		w.connMutex.Lock()
+		w.sessionEnded = true
 		if w.conn != nil {
 			w.conn.Close()
 			w.conn = nil
 		}
 		w.connected = false
 		w.connMutex.Unlock()
+		<-readerDone
 		fmt.Printf("🔌 WebSocket连接已关闭\n")
 	}()
 
 	// 启动消息接收goroutine
-	go w.receiveMessages()
+	go func() { defer close(readerDone); w.receiveMessages() }()
 
 	// 指标上报 ticker
 	metricTicker := time.NewTicker(w.pingInterval)
@@ -842,6 +863,9 @@ func (w *WebSocketReporter) handleConnection() {
 				return
 			}
 			if err := conn.WriteControl(websocket.PingMessage, nil, time.Now().Add(reporterWriteWait)); err != nil {
+				w.connMutex.Lock()
+				w.sessionErrorLocked(conn, err)
+				w.connMutex.Unlock()
 				w.routineLogs.Record("Heartbeat", sanitizeWebSocketURL(w.url), logsafe.Text(logsafe.Error(err), w.secret))
 				return
 			}
@@ -1083,7 +1107,7 @@ func (w *WebSocketReporter) sendSystemInfo(sysInfo SystemInfo) error {
 	w.conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
 
 	if err := w.conn.WriteMessage(websocket.TextMessage, messageData); err != nil {
-		w.connected = false
+		w.sessionErrorLocked(w.conn, err)
 		return fmt.Errorf("写入消息失败: %v", err)
 	}
 
@@ -1111,7 +1135,7 @@ func (w *WebSocketReporter) receiveMessages() {
 					fmt.Printf("❌ WebSocket读取消息错误: %v\n", err)
 				}
 				w.connMutex.Lock()
-				w.connected = false
+				w.sessionErrorLocked(conn, err)
 				w.connMutex.Unlock()
 				return
 			}
@@ -1231,6 +1255,7 @@ func (w *WebSocketReporter) routeCommand(cmd CommandMessage) {
 	}
 	var err error
 	var response CommandResponse
+	var reconnect bool
 	var needSaveConfig bool // 标记是否需要保存配置（只有状态变更命令才需要）
 
 	// 传递 requestId
@@ -1326,6 +1351,9 @@ func (w *WebSocketReporter) routeCommand(cmd CommandMessage) {
 		response.Data = checkResult
 
 	// Protocol blocking switches
+	case "SetPanelIPFamily":
+		reconnect, err = w.handleSetPanelIPFamily(cmd.Data)
+		response.Type = "SetPanelIPFamilyResponse"
 	case "SetProtocol":
 		err = w.handleSetProtocol(cmd.Data)
 		response.Type = "SetProtocolResponse"
@@ -1456,6 +1484,9 @@ func (w *WebSocketReporter) routeCommand(cmd CommandMessage) {
 		w.logRoutineResult(cmd, response, w.writeResponse(response))
 	} else {
 		w.sendResponse(response)
+	}
+	if reconnect && err == nil {
+		w.reconnectPanel()
 	}
 }
 
@@ -2357,6 +2388,12 @@ func (w *WebSocketReporter) updateLocalConfigJSON(httpVal int, tlsVal int, socks
 }
 
 func updateProtocolSettings(path string, httpVal int, tlsVal int, socksVal int, blockOtherVal int) error {
+	return updateAgentSettings(path, map[string]interface{}{
+		"http": httpVal, "tls": tlsVal, "socks": socksVal, "block_other": blockOtherVal,
+	})
+}
+
+func updateAgentSettings(path string, values map[string]interface{}) error {
 	info, err := os.Stat(path)
 	if err != nil {
 		return err
@@ -2371,12 +2408,6 @@ func updateProtocolSettings(path string, httpVal int, tlsVal int, socksVal int, 
 		return err
 	}
 
-	values := map[string]int{
-		"http":        httpVal,
-		"tls":         tlsVal,
-		"socks":       socksVal,
-		"block_other": blockOtherVal,
-	}
 	for key, value := range values {
 		raw, err := json.Marshal(value)
 		if err != nil {
@@ -2487,7 +2518,7 @@ func (w *WebSocketReporter) writeResponse(response CommandResponse) error {
 
 	w.conn.SetWriteDeadline(time.Now().Add(timeout))
 	if err := w.conn.WriteMessage(websocket.TextMessage, messageData); err != nil {
-		w.connected = false
+		w.sessionErrorLocked(w.conn, err)
 		return err
 	}
 	return nil

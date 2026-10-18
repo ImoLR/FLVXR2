@@ -14,6 +14,7 @@ import (
 
 	"github.com/go-gost/core/logger"
 	xlogger "github.com/go-gost/x/logger"
+	"github.com/go-gost/x/panelconn"
 	"github.com/go-gost/x/service"
 	"github.com/go-gost/x/socket"
 	"github.com/go-gost/x/stats"
@@ -41,6 +42,7 @@ var (
 	trace        bool
 	apiAddr      string
 	metricsAddr  string
+	printVersion bool
 )
 
 func init() {
@@ -88,8 +90,6 @@ func worker(id int, args []string, ctx *context.Context, ret *int) {
 }
 
 func init() {
-	var printVersion bool
-
 	flag.Var(&services, "L", "service list")
 	flag.Var(&nodes, "F", "chain node list")
 	flag.StringVar(&cfgFile, "C", "", "configuration file")
@@ -99,6 +99,9 @@ func init() {
 	flag.BoolVar(&trace, "DD", false, "trace mode")
 	flag.StringVar(&apiAddr, "api", "", "api service address")
 	flag.StringVar(&metricsAddr, "metrics", "", "metrics service address")
+}
+
+func main() {
 	flag.Parse()
 
 	if printVersion {
@@ -106,9 +109,7 @@ func init() {
 			version, runtime.Version(), runtime.GOOS, runtime.GOARCH)
 		os.Exit(0)
 	}
-}
 
-func main() {
 	// 加载配置文件
 	config, err := LoadConfig(agentConfigFile)
 	if err != nil {
@@ -166,6 +167,7 @@ func main() {
 		}
 	}
 
+	_, _ = panelconn.Default.SetMode(config.PanelIPFamily)
 	distro := socket.DetectDistro()
 	fullVersion := fmt.Sprintf("%s (%s/%s)", version, distro, runtime.GOARCH)
 	wsReporter := socket.StartWebSocketReporterWithConfig(config.Addr, config.Secret, config.Http, config.Tls, config.Socks, config.BlockOther, fullVersion, config.NodeID)
