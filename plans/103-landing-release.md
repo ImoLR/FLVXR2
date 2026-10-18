@@ -13,7 +13,7 @@
 - [ ] 节点上报完全恢复原基线：42 重连后无指标，fork.52 后端对照亦复现，未操作范围外节点。
 - [x] 节点 21 诊断及 agent/mmwx 基线备份；仅节点 21 OTA，能力及诊断复验（延续面板升级后的 42 异常，无新增失败）。
 - [x] 核对全机监听/FLVX 端口，分离规则与落地段；启用 admin-only 原生落地，核验固定 Core/低权限/资源上限及 mmwx 不变。
-- [ ] 备份旧入站 8/2 和节点 21 sing-box；API 删除并 apply，节点 21 停用旧服务，外部端口关闭核验。
+- [x] 备份旧入站 8/2 和节点 21 sing-box 状态；API 删除并 apply 空配置，节点 21 停用旧服务，外部端口归属核验（60061 为 mmwx，保留）。
 - [ ] 临时用户双协议 ≥20 MB 直连、规则 max(T,L)、热更新、连接限制、私网阻断、单击删除与最终计数金丝雀。
 - [ ] 清理临时对象/进程/副本；计划 101 FLVX 条目证据、维护/功能分支同步及中文总结。
 
@@ -40,3 +40,5 @@
 节点 21：面板单节点 OTA 返回成功，fork.53 重连、landingSupported=true；其余节点版本不变。OTA 后 6 隧道 26/27 检查通过，唯一失败仍是 42，较 OTA 前无新增失败（diagnoses-after-ota.json）。规则端口仅由 `10000-65535` 改为 `10000-29999,31000-65535`，node 行仅 port/updated_time 改变；现用 FLVX 14066/27961/28701/45459/49251/65107 全保留，落地 30000–30999 全段无其他监听。原生落地服务器 1 已启用：双向 ×1、每人 3 节点、两协议、计划默认值、无任何组授权。
 
 Core 实机 SHA256 `ae4b83f0cf77c4aa73857cb1de773e7ec89b1bc5ded272a677b46d417cf40212` 与固定 amd64 资产一致；systemd active、User=flvx-landing、MemoryMax=268435456、CPUQuotaPerSecUSec=500ms。mmw-agent/Helper PID、启动时间、重启次数及 ownership/takeover 状态完全一致；独立 xray 可执行文件数 0→0，mmwx 入站已建立连接 0→0、控制连接 1→1。证据 node21-after-enable.json；没有真实 mmwx 入站会话可供掉线验证，不把零连接观察写成在用会话压测。
+
+旧入站：2（25）/8（21）完整行已导出至生产回滚目录 old-deployed-inbounds.json；节点 21 远端备份记录旧目录/unit 原本不存在。两个 delete API 均成功且自动下发 inbounds=[]，最新 revision 均 deployed；21 的 API 自动安装了原先不存在的空 sing-box，随后已 stop+disable，25 仅 API 操作并保留空服务。外部 TCP：25:48221 关闭；21:60061 仍由 mmw-agent 使用，明确未关闭。证据 old-inbounds-cleanup.json、old-inbounds-empty-config.json、old-inbounds-external-ports.json、node21-after-old-cleanup.json。
