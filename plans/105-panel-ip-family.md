@@ -39,3 +39,5 @@ Images [39144267928](https://github.com/ImoLR/FLVXR2/actions/runs/39144267928) �
 生产回滚点：`/opt/flvx-svc/rollback/pre-fork54-20261018T163653Z`，SQLite 固定读快照在线备份（quick_check=ok）、compose/.env、旧镜像 local 标签、`rollback.sh` 均已就绪。首次分批备份因写入反复重试，停止了本任务备份进程并清理其未完成副本，原库未改。按规定 prune 后仅留本次 + `pre-shared-canary-20261018T151747Z`；删除 pre-fork53 及 fork.52 本地镜像（旧 DB 备份不可恢复；镜像可按 tag 重拉）。升级前在线 28/29，22 原先离线；核心行数 node/user/tunnel/forward/user_tunnel = 29/11/43/31/143。
 
 生产已于约 16:37Z 升级 fork.54，后端 healthy；本机前后端和 flvxxht 公网健康检查 200，前端 build 含 fork.54。在线集合 28/29 与升级前完全相同，核心业务表行数及分组/链路/授权关系一致（动态采样表增量见运行目录）。节点 42 在面板重启后 14/14 隧道重部署成功，仍为旧 fork.53，尚未 OTA。
+
+补充健康证据：本机 curl 经 IPv6 Cloudflare 访问 flvxxht `/flow/test` 为 200（默认 Python urllib 公网探针被返回 403，未改 Cloudflare 策略）。所有非采样表行数完全一致；node_metric 2437175→2439716、tunnel_metric 2818→2822 为正常采样增长。新增 panel_ip_family 为 NOT NULL varchar(16)，默认空。
