@@ -2734,7 +2734,7 @@ export default function NodePage() {
                 </Button>
                 {/* 新增按钮 */}
                 <Button
-                  className="bg-cyan-100 text-cyan-700 hover:bg-cyan-200 dark:bg-cyan-900/30 dark:text-cyan-300 dark:hover:bg-cyan-900/45"
+                  className="hidden"
                   size="sm"
                   variant="flat"
                   onPress={() => setTLSManagerOpen(true)}

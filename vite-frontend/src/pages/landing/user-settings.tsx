@@ -86,6 +86,7 @@ export const LandingUserSettings = forwardRef<
       {form && (
         <>
           <Input
+            description="默认 5；0 表示禁止新建落地节点"
             label="可建落地节点总数"
             min="0"
             type="number"

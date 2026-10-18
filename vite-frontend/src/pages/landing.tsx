@@ -283,9 +283,7 @@ export default function LandingPage() {
                     <div className="flex flex-wrap gap-2">
                       <Button
                         color="primary"
-                        isDisabled={
-                          server.status !== "active" || !server.online
-                        }
+                        isDisabled={server.status !== "active"}
                         size="sm"
                         startContent={<Plus size={16} />}
                         onPress={() =>

@@ -42,6 +42,19 @@ export function NodeDetails({
     node.trafficRatio ??
     server?.trafficRatio ??
     1;
+  const connectionCaps = [node.maxConnections, server?.maxConnections].filter(
+    (value): value is number => Boolean(value),
+  );
+  const effectiveConnections = connectionCaps.length
+    ? Math.min(...connectionCaps)
+    : 0;
+  const expirySource = !node.effectiveExpiresAt
+    ? "未设置期限"
+    : node.expiryMode === "fixed" && node.expiresAt === node.effectiveExpiresAt
+      ? "节点独立有效期"
+      : server?.availableUntil === node.effectiveExpiresAt
+        ? "服务器可用期限"
+        : "用户到期时间";
   const rows = [
     [
       "流量计算",
@@ -62,18 +75,12 @@ export function NodeDetails({
     [
       "连接数",
       form.maxConnections || "不限",
-      Math.min(
-        ...[node.maxConnections, server?.maxConnections].filter(
-          (v): v is number => Boolean(v),
-        ),
-      ) === Infinity
-        ? "不限"
-        : Math.min(
-            ...[node.maxConnections, server?.maxConnections].filter(
-              (v): v is number => Boolean(v),
-            ),
-          ),
-      "节点 / 服务器总上限",
+      effectiveConnections || "不限",
+      !effectiveConnections
+        ? "节点 / 服务器均不限"
+        : effectiveConnections === server?.maxConnections
+          ? "服务器总连接池"
+          : "节点连接上限",
     ],
     [
       "在线 IP",
@@ -97,7 +104,7 @@ export function NodeDetails({
         ? "跟随用户"
         : landingDate(form.expiresAt),
       landingDate(node.effectiveExpiresAt),
-      "用户 / 节点 / 服务器中最早到期",
+      expirySource,
     ],
   ];
 
