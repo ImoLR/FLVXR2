@@ -1,7 +1,42 @@
 import Network from "./network";
 
 export type LandingProtocol = "ss2022" | "vless_reality_vision";
+export interface SharedLandingCaps {
+  status: string;
+  port_min: number;
+  port_max: number;
+  traffic_limit_bytes: number;
+  traffic_used_bytes: number;
+  reset_day: number;
+  max_connections: number;
+  share_until: number | null;
+  protocols: LandingProtocol[];
+  dual_install: boolean;
+}
+export interface LandingIntegration {
+  baseUrl: string;
+  hasToken: boolean;
+  lastSyncAt: number;
+  syncError: string;
+}
+export const getLandingIntegration = () =>
+  Network.post<LandingIntegration>("/landing/integration/get", {});
+export const saveLandingIntegration = (data: {
+  baseUrl: string;
+  token: string;
+}) => Network.post<LandingIntegration>("/landing/integration/save", data);
+export const testLandingIntegration = (data: {
+  baseUrl: string;
+  token: string;
+}) => Network.post<{ shareCount: number }>("/landing/integration/test", data);
+export const syncLandingIntegration = () =>
+  Network.post<LandingIntegration>("/landing/integration/sync", {});
 export interface LandingServer {
+  sharedCaps?: SharedLandingCaps;
+  sharedLastSyncAt?: number;
+  sharedSyncError?: string;
+  sharedAvailable?: boolean;
+  defaultUserQuotaBytes?: number;
   id: number;
   source: "native" | "shared";
   nodeId: number;
@@ -38,6 +73,8 @@ export interface LandingNode {
   userName?: string;
   landingServerId: number;
   serverName?: string;
+  syncError?: string;
+  sharedSyncError?: string;
   name: string;
   protocol: LandingProtocol;
   port: number;
@@ -101,6 +138,7 @@ export const saveLandingServer = (server: LandingServer) => {
     defaultMaxConnections,
     defaultMaxOnlineIps,
     defaultTrafficLimitBytes,
+    defaultUserQuotaBytes,
     defaultExpiryMode,
     defaultExpiryDays,
     defaultExpiresAt,
@@ -127,6 +165,7 @@ export const saveLandingServer = (server: LandingServer) => {
     defaultMaxConnections,
     defaultMaxOnlineIps,
     defaultTrafficLimitBytes,
+    defaultUserQuotaBytes,
     defaultExpiryMode,
     defaultExpiryDays,
     defaultExpiresAt,
@@ -204,6 +243,8 @@ export const landingDate = (value?: number | null) =>
   value ? new Date(value).toLocaleString("zh-CN", { hour12: false }) : "永久";
 export const landingStatus: Record<string, string> = {
   active: "正常",
+  error: "节点异常",
+  pending: "等待同步",
   paused_quota: "流量已用完",
   paused_server_quota: "服务器额度已用完",
   paused_expired: "已到期（宽限期）",

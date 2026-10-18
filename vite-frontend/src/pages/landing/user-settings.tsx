@@ -7,6 +7,8 @@ import {
   ServerQuota,
   getLandingUser,
   landingGB,
+  landingServers,
+  LandingServer,
   saveLandingUser,
 } from "@/api/landing";
 import { NodeApiItem } from "@/api/types";
@@ -24,6 +26,7 @@ export const LandingUserSettings = forwardRef<
 >(function LandingUserSettings({ userId, originalExpiry, expiry }, ref) {
   const [form, setForm] = useState<LandingUserSetting | null>(null);
   const [nodes, setNodes] = useState<NodeApiItem[]>([]);
+  const [shared, setShared] = useState<LandingServer[]>([]);
   const [adding, setAdding] = useState("");
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
@@ -36,14 +39,20 @@ export const LandingUserSettings = forwardRef<
     setForm(null);
     setError("");
     setExtend(false);
-    void Promise.all([getLandingUser(userId), getNodeList()]).then(
-      ([settings, nodeRes]) => {
-        if (disposed) return;
-        if (settings.code === 0) setForm(settings.data);
-        else setError(settings.msg);
-        if (nodeRes.code === 0) setNodes(nodeRes.data || []);
-      },
-    );
+    void Promise.all([
+      getLandingUser(userId),
+      getNodeList(),
+      landingServers(),
+    ]).then(([settings, nodeRes, serverRes]) => {
+      if (disposed) return;
+      if (settings.code === 0) setForm(settings.data);
+      else setError(settings.msg);
+      if (nodeRes.code === 0) setNodes(nodeRes.data || []);
+      if (serverRes.code === 0)
+        setShared(
+          (serverRes.data || []).filter((server) => server.source === "shared"),
+        );
+    });
     return () => {
       disposed = true;
     };
@@ -110,8 +119,9 @@ export const LandingUserSettings = forwardRef<
                 <div className="min-w-0 text-sm">
                   <p className="truncate">
                     {quota.serverName ||
-                      nodes.find((node) => node.id === quota.serverRefId)
-                        ?.name ||
+                      (quota.serverKind === "node" ? nodes : shared).find(
+                        (node) => node.id === quota.serverRefId,
+                      )?.name ||
                       `${quota.serverKind === "node" ? "节点" : "落地"} ${quota.serverRefId}`}
                   </p>
                   {quota.paused && (
@@ -152,27 +162,39 @@ export const LandingUserSettings = forwardRef<
                 setAdding(String(Array.from(keys)[0] || ""))
               }
             >
-              {nodes
+              {[
+                ...nodes.map((node) => ({ ...node, kind: "node" as const })),
+                ...shared.map((server) => ({
+                  ...server,
+                  kind: "landing" as const,
+                })),
+              ]
                 .filter(
                   (node) =>
                     !form.quotas.some(
                       (quota) =>
-                        quota.serverKind === "node" &&
+                        quota.serverKind === node.kind &&
                         quota.serverRefId === node.id,
                     ),
                 )
                 .map((node) => (
-                  <SelectItem key={String(node.id)}>{node.name}</SelectItem>
+                  <SelectItem key={`${node.kind}:${node.id}`}>
+                    {node.name}
+                    {node.kind === "landing" ? "（共享）" : ""}
+                  </SelectItem>
                 ))}
             </Select>
             <Button
               isDisabled={!adding}
               variant="flat"
               onPress={() => {
-                const node = nodes.find((item) => item.id === Number(adding));
+                const [kind, id] = adding.split(":");
+                const node = (kind === "landing" ? shared : nodes).find(
+                  (item) => item.id === Number(id),
+                );
                 if (!node) return;
                 const quota: ServerQuota = {
-                  serverKind: "node",
+                  serverKind: kind === "landing" ? "landing" : "node",
                   serverRefId: node.id,
                   serverName: node.name,
                   limitBytes: Number(node.defaultUserQuotaBytes || 0),

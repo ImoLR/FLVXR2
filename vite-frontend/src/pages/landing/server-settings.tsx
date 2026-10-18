@@ -1,3 +1,5 @@
+import { SharedCaps } from "./shared-caps";
+
 import { useEffect, useState } from "react";
 import toast from "react-hot-toast";
 
@@ -117,6 +119,7 @@ export function ServerSettings({
       <ModalContent>
         <ModalHeader>落地服务器设置 · {server.name}</ModalHeader>
         <ModalBody className="space-y-6">
+          {server.source === "shared" && <SharedCaps server={server} />}
           <section className="space-y-3">
             <h3 className="font-medium">基本设置</h3>
             <Input
@@ -164,7 +167,8 @@ export function ServerSettings({
                 <SelectItem key="2">双向</SelectItem>
               </Select>
               {numberField("流量倍率", "trafficRatio", 0.01, "0.01")}
-              {numberField("服务器总连接数（0 不限）", "maxConnections")}
+              {server.source !== "shared" &&
+                numberField("服务器总连接数（0 不限）", "maxConnections")}
               {numberField("每人在本服务器最多节点数", "maxNodesPerUser", 1)}
             </div>
             <p className="text-xs text-default-500">
@@ -173,6 +177,14 @@ export function ServerSettings({
           </section>
           <section className="space-y-3">
             <h3 className="font-medium">新节点默认值</h3>
+            {server.source === "shared" &&
+              numberField(
+                "每个用户默认服务器限额 (GB)",
+                "defaultUserQuotaBytes",
+                0,
+                "0.01",
+                1073741824,
+              )}
             <div className="grid grid-cols-2 gap-3">
               {numberField("节点连接数（0 不限）", "defaultMaxConnections")}
               {numberField("在线 IP 数（0 不限）", "defaultMaxOnlineIps")}
@@ -218,6 +230,10 @@ export function ServerSettings({
                 <Checkbox
                   key={protocol}
                   isSelected={form.protocols.includes(protocol)}
+                  isDisabled={Boolean(
+                    server.sharedCaps &&
+                      !server.sharedCaps.protocols.includes(protocol),
+                  )}
                   onValueChange={(checked) =>
                     set(
                       "protocols",
@@ -291,10 +307,12 @@ export function ServerSettings({
                 set("availableUntil", dateValue(event.target.value))
               }
             />
-            <div className="grid grid-cols-2 gap-3">
-              {numberField("内存上限 (MiB)", "coreMemoryMb", 64)}
-              {numberField("CPU 上限 (%)", "coreCpuPercent", 1)}
-            </div>
+            {server.source !== "shared" && (
+              <div className="grid grid-cols-2 gap-3">
+                {numberField("内存上限 (MiB)", "coreMemoryMb", 64)}
+                {numberField("CPU 上限 (%)", "coreCpuPercent", 1)}
+              </div>
+            )}
           </section>
         </ModalBody>
         <ModalFooter>

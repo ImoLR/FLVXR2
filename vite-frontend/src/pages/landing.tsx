@@ -1,3 +1,6 @@
+import { IntegrationSettings } from "./landing/integration-settings";
+import { SharedCaps } from "./landing/shared-caps";
+
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { Copy, Plus, QrCode, RefreshCw, Settings2 } from "lucide-react";
@@ -171,6 +174,14 @@ export default function LandingPage() {
       >
         {landingStatus[node.status] || node.status}
       </Chip>
+      {node.syncError && (
+        <span className="w-full text-xs text-danger">{node.syncError}</span>
+      )}
+      {node.sharedSyncError && (
+        <span className="w-full text-xs text-warning">
+          同步异常 · {node.sharedSyncError}
+        </span>
+      )}
       {node.expiringSoon && (
         <Chip color="warning" size="sm" variant="flat">
           即将到期
@@ -189,7 +200,7 @@ export default function LandingPage() {
             <h1 className="text-2xl font-bold">落地</h1>
             <p className="mt-1 text-sm text-default-500">
               {admin
-                ? "管理自有落地服务器、节点和独立限制"
+                ? "管理自有与共享落地服务器、节点和独立限制"
                 : "选择获授权的服务器，创建自己的 SS2022 或 VLESS 节点"}
             </p>
           </div>
@@ -208,6 +219,7 @@ export default function LandingPage() {
             {error}
           </p>
         )}
+        {admin && <IntegrationSettings onSynced={() => void load()} />}
         <Tabs
           aria-label="落地管理"
           selectedKey={tab}
@@ -221,7 +233,9 @@ export default function LandingPage() {
                     <div className="min-w-0">
                       <h2 className="truncate font-semibold">{server.name}</h2>
                       <p className="mt-1 text-xs text-default-500">
-                        FLVX 自有落地
+                        {server.source === "shared"
+                          ? "妙妙屋共享"
+                          : "FLVX 自有落地"}
                       </p>
                     </div>
                     <Chip
@@ -241,6 +255,22 @@ export default function LandingPage() {
                     </Chip>
                   </CardHeader>
                   <CardBody className="space-y-4">
+                    {server.source === "shared" && (
+                      <>
+                        <SharedCaps server={server} />
+                        <p className="text-xs text-default-500">
+                          最近成功同步：
+                          {server.sharedLastSyncAt
+                            ? landingDate(server.sharedLastSyncAt)
+                            : "尚未同步"}
+                        </p>
+                        {server.sharedSyncError && (
+                          <p className="rounded-lg bg-warning-50 p-2 text-xs text-warning">
+                            同步异常 · {server.sharedSyncError}
+                          </p>
+                        )}
+                      </>
+                    )}
                     <div className="flex flex-wrap gap-2">
                       <Chip color="primary" size="sm" variant="flat">
                         {server.flowType === 2 ? "双向" : "单向"} ·{" "}
@@ -283,7 +313,10 @@ export default function LandingPage() {
                     <div className="flex flex-wrap gap-2">
                       <Button
                         color="primary"
-                        isDisabled={server.status !== "active"}
+                        isDisabled={
+                          server.status !== "active" ||
+                          server.sharedAvailable === false
+                        }
                         size="sm"
                         startContent={<Plus size={16} />}
                         onPress={() =>
@@ -512,7 +545,11 @@ export default function LandingPage() {
                     ))}
                   </Select>
                   <p className="text-xs text-default-500">
-                    端口自动分配。连接数、流量上限、倍率和有效期由管理员设置。
+                    端口自动分配
+                    {creating.server.source === "shared"
+                      ? `（${creating.server.portMin}–${creating.server.portMax}）`
+                      : ""}
+                    。连接数、流量上限、倍率和有效期由管理员设置。
                   </p>
                 </>
               )}
