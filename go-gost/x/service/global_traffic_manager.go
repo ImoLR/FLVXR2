@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/go-gost/x/landing"
 	"github.com/go-gost/x/logsafe"
 )
 
@@ -127,7 +128,8 @@ func (m *GlobalTrafficManager) collectAndReport() {
 	if m.pending == nil {
 		reportData := m.snapshotTraffic()
 		// 如果没有需要上报的流量，返回
-		if len(reportData) == 0 {
+		landingCounters := landing.Default().Counters()
+		if len(reportData) == 0 && len(landingCounters) == 0 {
 			return
 		}
 
@@ -140,7 +142,7 @@ func (m *GlobalTrafficManager) collectAndReport() {
 				D: data.down,
 			})
 		}
-		body, err := buildTrafficReportBody(reportItems)
+		body, err := buildTrafficReportBodyWithLanding(reportItems, landingCounters)
 		if err != nil {
 			reportLogs.Record("TrafficReport", logsafe.URL(strings.Split(httpReportURL, ",")[0]), logsafe.Error(err))
 			return

@@ -14,6 +14,7 @@ import (
 	"github.com/go-gost/core/observer/stats"
 	"github.com/go-gost/x/config"
 	"github.com/go-gost/x/internal/util/crypto"
+	"github.com/go-gost/x/landing"
 	"github.com/go-gost/x/logsafe"
 	"github.com/go-gost/x/registry"
 )
@@ -221,7 +222,18 @@ func sendBatchTrafficReport(ctx context.Context, reportItems []TrafficReportItem
 // An encrypted body embeds a random nonce, so resending the same bytes lets the panel
 // recognize an upload it already counted.
 func buildTrafficReportBody(reportItems []TrafficReportItem) ([]byte, error) {
-	jsonData, err := json.Marshal(reportItems)
+	return buildTrafficReportBodyWithLanding(reportItems, landing.Default().Counters())
+}
+
+func buildTrafficReportBodyWithLanding(reportItems []TrafficReportItem, counters []landing.Counter) ([]byte, error) {
+	var payload any = reportItems
+	if len(counters) > 0 {
+		payload = struct {
+			Flows           []TrafficReportItem `json:"flows"`
+			LandingCounters []landing.Counter   `json:"landing_counters"`
+		}{reportItems, counters}
+	}
+	jsonData, err := json.Marshal(payload)
 	if err != nil {
 		return nil, fmt.Errorf("序列化报告数据失败: %v", err)
 	}

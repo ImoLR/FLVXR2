@@ -25,6 +25,7 @@ import (
 
 	"github.com/go-gost/x/config"
 	"github.com/go-gost/x/internal/util/crypto"
+	"github.com/go-gost/x/landing"
 	"github.com/go-gost/x/logsafe"
 	"github.com/go-gost/x/registry"
 	"github.com/go-gost/x/service"
@@ -44,6 +45,7 @@ import (
 
 // SystemInfo 系统信息结构体
 type SystemInfo struct {
+	LandingCapable         bool                      `json:"landing_capable"`
 	LeiKwan                *LeiKwanReport            `json:"leikwan,omitempty"`
 	EgressIPFamily         string                    `json:"egress_ip_family,omitempty"`
 	IPv6RAStatus           string                    `json:"ipv6_ra_status"`
@@ -242,6 +244,9 @@ func NewWebSocketReporter(serverURL string, secret string) *WebSocketReporter {
 
 // Start 启动WebSocket报告器
 func (w *WebSocketReporter) Start() {
+	if w.nodeID != 36 {
+		go landing.Default().Run(w.ctx)
+	}
 	go w.egress.run(w.ctx, (&net.Dialer{}).DialContext)
 	go w.ipv6RA.run(w.ctx)
 	go w.run()
@@ -923,6 +928,7 @@ func (w *WebSocketReporter) collectSystemInfo() SystemInfo {
 
 	raStatus, raDetail := w.ipv6RA.result()
 	return SystemInfo{
+		LandingCapable:         true,
 		LeiKwan:                w.leikwan.result(),
 		EgressIPFamily:         w.egress.family(),
 		IPv6RAStatus:           raStatus,
@@ -1324,6 +1330,12 @@ func (w *WebSocketReporter) routeCommand(cmd CommandMessage) {
 		err = w.handleSetProtocol(cmd.Data)
 		response.Type = "SetProtocolResponse"
 		needSaveConfig = true
+	case "ApplyLandingDesired":
+		response.Data, err = w.handleApplyLandingDesired(cmd.Data)
+		response.Type = "ApplyLandingDesiredResponse"
+	case "GetLandingStatus":
+		response.Data = landing.Default().Status()
+		response.Type = "GetLandingStatusResponse"
 	case "ApplyCoreConfig":
 		err = w.handleApplyCoreConfig(cmd.Data)
 		response.Type = "ApplyCoreConfigResponse"
