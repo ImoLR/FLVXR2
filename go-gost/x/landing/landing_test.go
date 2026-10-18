@@ -155,6 +155,56 @@ func TestLandingPinnedCore(t *testing.T) {
 		t.Fatal(err)
 	}
 	epoch := status.Epoch
+
+	// Inbound totals include bytes read before authentication, and removing and
+	// restoring a tag must not reset them within a process epoch.
+	sendMalformed := func() {
+		c, err := net.DialTimeout("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(n.Port)), time.Second)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, _ = c.Write([]byte(strings.Repeat("x", 1000)))
+		_ = c.Close()
+	}
+	sendMalformed()
+	var initial int64
+	for i := 0; i < 50; i++ {
+		counters := m.Counters()
+		if len(counters) > 0 && counters[0].UpBytes > 0 {
+			initial = counters[0].UpBytes
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if initial == 0 {
+		t.Fatal("unauthenticated inbound traffic was not counted")
+	}
+	pause := m.desired
+	pause.Revision++
+	pause.Nodes = append([]Node(nil), pause.Nodes...)
+	pause.Nodes[0].Enabled = false
+	if _, err := m.Apply(ctx, pause); err != nil {
+		t.Fatal(err)
+	}
+	pause.Revision++
+	pause.Nodes[0].Enabled = true
+	if _, err := m.Apply(ctx, pause); err != nil {
+		t.Fatal(err)
+	}
+	sendMalformed()
+	var after int64
+	for i := 0; i < 50; i++ {
+		counters := m.Counters()
+		after = counters[0].UpBytes
+		if after > initial {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if after <= initial || m.Status().Epoch != epoch {
+		t.Fatalf("same-epoch counter reset after restore: %d -> %d", initial, after)
+	}
+	t.Logf("unauthenticated SS2022 cumulative bytes preserved after pause/restore: %d -> %d", initial, after)
 	raw, err := m.api(ctx, "lsi")
 	if err != nil || !strings.Contains(string(raw), n.InboundTag) {
 		t.Fatalf("gRPC AddInbound failed: %s %v", raw, err)
@@ -208,4 +258,33 @@ func TestLandingPinnedCore(t *testing.T) {
 		t.Fatal("desired state missing")
 	}
 	t.Logf("real Core config valid; epoch=%s preserved by hot add/remove and agent restart; server limit=4; node limit=2/IP=1; cumulative rows=%d", epoch, len(c))
+	// A real Core restart has a newer epoch and replays persisted desired state.
+	_ = cmd.Process.Kill()
+	_ = cmd.Wait()
+	restarted := exec.CommandContext(ctx, m.binary(), "run", "-config", filepath.Join(dir, "config.json"))
+	restarted.Env = append(os.Environ(), "MMWXC_CORE_CONTROL_SOCKET="+m.socket())
+	if err := restarted.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = restarted.Process.Kill(); _ = restarted.Wait() }()
+	for i := 0; i < 50; i++ {
+		snap, e := recovered.snapshot(ctx)
+		if e == nil && strconv.FormatInt(snap.StartedAt.UnixNano(), 10) != epoch {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if _, err := recovered.Apply(ctx, d); err != nil {
+		t.Fatal(err)
+	}
+	epochBefore, _ := strconv.ParseInt(epoch, 10, 64)
+	epochAfter, _ := strconv.ParseInt(recovered.Status().Epoch, 10, 64)
+	if epochAfter <= epochBefore {
+		t.Fatal("core restart did not advance monotonic epoch")
+	}
+	raw, err = recovered.api(ctx, "lsi")
+	if err != nil || !strings.Contains(string(raw), n.InboundTag) {
+		t.Fatal("core restart did not restore persisted inbound")
+	}
+
 }
