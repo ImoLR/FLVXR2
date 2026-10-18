@@ -219,6 +219,11 @@ export default function AdminLayout({
       ),
     },
     {
+      path: "/landing",
+      label: "落地",
+      icon: <svg aria-hidden="true" className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={1.8} viewBox="0 0 24 24"><path d="M12 3v12m-4-4 4 4 4-4M5 15v5h14v-5" strokeLinecap="round" strokeLinejoin="round" /></svg>,
+    },
+    {
       path: "/node",
       label: "节点",
       icon: (

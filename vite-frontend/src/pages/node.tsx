@@ -1,3 +1,4 @@
+import { EnableLandingButton } from "@/pages/landing/enable-button";
 import type { LeiKwanNodeDetection } from "@/api/types";
 import type {
   NodeGroupApiItem,
@@ -156,6 +157,9 @@ interface Node extends LeiKwanNodeDetection {
   isRemote?: number;
   ownerUserId?: number;
   canDeploy?: boolean;
+  landingSupported?: boolean;
+  landingServerId?: number;
+  defaultUserQuotaBytes?: number;
   connectionStatus: "online" | "offline";
   systemInfo?: NodeSystemInfo | null;
   copyLoading?: boolean;
@@ -187,6 +191,7 @@ interface NodeForm {
   tcpListenAddr: string;
   udpListenAddr: string;
   interfaceName: string;
+  defaultUserQuotaBytes: number;
   extraIPs: string;
   http: number;
   tls: number;
@@ -391,6 +396,7 @@ export default function NodePage() {
     tcpListenAddr: "[::]",
     udpListenAddr: "[::]",
     interfaceName: "",
+    defaultUserQuotaBytes: 0,
     extraIPs: "",
     http: 0,
     tls: 0,
@@ -1147,6 +1153,7 @@ export default function NodePage() {
       tcpListenAddr: node.tcpListenAddr || "[::]",
       udpListenAddr: node.udpListenAddr || "[::]",
       interfaceName: (node as any).interfaceName || "",
+      defaultUserQuotaBytes: node.defaultUserQuotaBytes || 0,
       extraIPs: node.extraIPs || "",
       http: typeof node.http === "number" ? node.http : 1,
       tls: typeof node.tls === "number" ? node.tls : 1,
@@ -1737,6 +1744,7 @@ export default function NodePage() {
       tcpListenAddr: "[::]",
       udpListenAddr: "[::]",
       interfaceName: "",
+      defaultUserQuotaBytes: 0,
       extraIPs: "",
       http: 0,
       tls: 0,
@@ -2528,9 +2536,7 @@ export default function NodePage() {
             </div>
             <div className="grid gap-2 grid-cols-4">
               <Button
-                className={`min-h-8 w-full ${
-                  node.canDeploy && node.isRemote !== 1 ? "" : "hidden"
-                }`}
+                className="hidden"
                 color="secondary"
                 isDisabled={node.connectionStatus !== "online"}
                 size="sm"
@@ -2539,6 +2545,7 @@ export default function NodePage() {
               >
                 部署
               </Button>
+              <EnableLandingButton node={node} />
               <Button
                 className="min-h-8 w-full"
                 color="primary"
@@ -3392,6 +3399,7 @@ export default function NodePage() {
                 <SelectItem key="v6">仅 IPv6</SelectItem>
                 <SelectItem key="dual">双栈 (IPv4+IPv6)</SelectItem>
               </Select>
+              <Input label="每个用户默认限额 (GB)" description="0 不限；该用户经过本服务器的规则和落地流量合并计算，随用户流量重置日重置" min="0" step="0.01" type="number" value={String(form.defaultUserQuotaBytes / 1073741824)} variant="bordered" onChange={(event) => setForm((prev) => ({ ...prev, defaultUserQuotaBytes: Math.max(0, Math.round(Number(event.target.value) * 1073741824)) }))} />
               <Accordion variant="bordered">
                 <AccordionItem
                   key="advanced"

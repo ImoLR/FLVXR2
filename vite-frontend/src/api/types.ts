@@ -9,6 +9,9 @@ export interface LeiKwanNodeDetection {
 }
 
 export interface NodeApiItem extends LeiKwanNodeDetection {
+  landingSupported?: boolean;
+  landingServerId?: number;
+  defaultUserQuotaBytes?: number;
   region?: string;
   regionCity?: string;
   egressIpFamily?: "" | "v4" | "v6" | "dual";
@@ -256,6 +259,7 @@ export interface TunnelApiItem {
 }
 
 export interface ForwardApiItem {
+  landingNodeId?: number;
   id: number;
   name: string;
   status: number;
@@ -584,6 +588,7 @@ export interface UserMutationPayload {
 }
 
 export interface NodeMutationPayload {
+  defaultUserQuotaBytes?: number;
   region?: string;
   regionCity?: string;
   egressIpFamily?: "" | "v4" | "v6" | "dual";
@@ -673,6 +678,9 @@ export interface UserTunnelRemovePayload {
 }
 
 export interface ForwardMutationPayload {
+  landingNodeId?: number;
+  landingServerId?: number;
+  landingProtocol?: string;
   id?: number;
   name?: string;
   status?: number;

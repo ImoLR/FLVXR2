@@ -9,6 +9,7 @@ import TZPage from "@/pages/tz";
 import ForwardPage from "@/pages/forward";
 import TunnelPage from "@/pages/tunnel";
 import LeiKwanPage from "@/pages/leikwan";
+import LandingPage from "@/pages/landing";
 import NodePage from "@/pages/node";
 import TLSPage from "@/pages/tls";
 import UserPage from "@/pages/user";
@@ -172,6 +173,7 @@ function App() {
         }
         path="/leikwan"
       />
+      <Route path="/landing" element={<ProtectedRoute><LandingPage /></ProtectedRoute>} />
       <Route
         element={
           <ProtectedRoute>

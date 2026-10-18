@@ -1,3 +1,4 @@
+import { EnableLandingButton } from "@/pages/landing/enable-button";
 import type { LeiKwanNodeDetection } from "@/api/types";
 import type { NodeRenewalCycle } from "./renewal";
 import type { NodeSystemInfo } from "./system-info";
@@ -69,6 +70,9 @@ interface Node extends LeiKwanNodeDetection {
   status: number;
   ownerUserId?: number;
   canDeploy?: boolean;
+  landingSupported?: boolean;
+  landingServerId?: number;
+  defaultUserQuotaBytes?: number;
   isRemote?: number;
   remoteUrl?: string;
   syncError?: string;
@@ -706,7 +710,7 @@ function SortableTableRow({
                 更新
               </Button>
               <Button
-                className={`min-h-7 px-2 ${node.canDeploy ? "" : "hidden"}`}
+                className="hidden"
                 color="secondary"
                 isDisabled={node.connectionStatus !== "online"}
                 size="sm"
@@ -715,6 +719,7 @@ function SortableTableRow({
               >
                 部署
               </Button>
+              <EnableLandingButton node={node} />
               <Button
                 className="min-h-7 px-2"
                 color="primary"

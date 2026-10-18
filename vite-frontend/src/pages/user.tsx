@@ -1,3 +1,4 @@
+import { LandingUserSettings, LandingUserSettingsHandle } from "@/pages/landing/user-settings";
 import type { UserQuotaHistoryItem } from "@/api/types";
 import type { UserRenewalLog } from "@/types";
 
@@ -277,6 +278,7 @@ export default function UserPage() {
   const [selectedUserId, setSelectedUserId] = useState<number | null>(null);
   // 状态管理
   const [users, setUsers] = useState<UserWithHistory[]>([]);
+  const landingSettingsRef = useRef<LandingUserSettingsHandle>(null);
   const [loading, setLoading] = useState(false);
   const [searchKeyword, setSearchKeyword] = useLocalStorageState(
     "user-search-keyword",
@@ -1206,6 +1208,7 @@ export default function UserPage() {
         : await createUser(submitData);
 
       if (response.code === 0) {
+        if (isEdit) await landingSettingsRef.current?.renew();
         toast.success(isEdit ? "更新成功" : "创建成功");
         const warningItems = Array.isArray((response as any).data?.warnings)
           ? (response as any).data.warnings.filter(
@@ -3208,6 +3211,7 @@ export default function UserPage() {
                 </div>
               )}
             </div>
+            {isEdit && userForm.id && <LandingUserSettings key={userForm.id} ref={landingSettingsRef} userId={userForm.id} originalExpiry={users.find((user) => user.id === userForm.id)?.expTime || 0} expiry={userForm.expTime?.getTime() || 0} />}
           </ModalBody>
           <ModalFooter>
             <Button onPress={onUserModalClose}>取消</Button>

@@ -532,7 +532,7 @@ const createQRMatrix = (text: string) => {
   return matrix;
 };
 
-function OfflineQRCode({ value }: { value: string }) {
+export function OfflineQRCode({ value }: { value: string }) {
   const matrix = useMemo(() => createQRMatrix(value), [value]);
   if (!matrix) {
     return <div className="rounded-md border border-warning-300 bg-warning-50 p-3 text-xs text-warning-700">QR payload is too long for the offline renderer. Copy the QR payload instead.</div>;

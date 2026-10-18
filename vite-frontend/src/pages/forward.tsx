@@ -1,4 +1,6 @@
-﻿import type {
+﻿import { useLocation } from "react-router-dom";
+import { RuleLandingTarget, LandingTargetValue } from "@/pages/landing/rule-target";
+import type {
   ForwardApiItem,
   ForwardClientIPsApiData,
   PathTunnelApiItem,
@@ -117,6 +119,7 @@ import { timestampToCalendarDate, calendarDateToTimestamp } from "@/utils/date";
 import { MULTI_REGION, compareRegions, exitRegionKey, exitRegionLabel, regionLabel } from "@/utils/region";
 
 export interface Forward {
+  landingNodeId?: number;
   id: number;
   name: string;
   tunnelId: number;
@@ -239,7 +242,7 @@ interface Node {
   serverIpV6?: string;
   extraIPs?: string;
 }
-interface ForwardForm {
+interface ForwardForm extends LandingTargetValue {
   id?: number;
   userId?: number;
   name: string;
@@ -609,6 +612,7 @@ const mapForwardApiItems = (items: ForwardApiItem[]): Forward[] => {
     inIp: forward.inIp || "",
     inPort: forward.inPort ?? 0,
     remoteAddr: forward.remoteAddr || "",
+    landingNodeId: Number(forward.landingNodeId || 0) || undefined,
     strategy: typeof forward.strategy === "string" ? forward.strategy : "fifo",
     status: typeof forward.status === "number" ? forward.status : 0,
     inFlow: forward.inFlow ?? 0,
@@ -1434,6 +1438,7 @@ const getForwardDisplayFlow = (forward: Forward): number => {
 };
 
 export default function ForwardPage() {
+  const landingLocation = useLocation();
   const tokenUserId = JwtUtil.getUserIdFromToken();
   const tokenRoleId = JwtUtil.getRoleIdFromToken();
   const isAdmin = tokenRoleId === 0;
@@ -2444,7 +2449,11 @@ export default function ForwardPage() {
         newErrors.inPort = `端口 ${currentTunnelPortRange.min}-${currentTunnelPortRange.max} 超出允许范围`;
       }
     }
-    if (form.mode === "wg_path" && form.wgRuleType === "cidr") {
+    if (form.mode !== "wg_path" && form.targetMode === "node") {
+      if (!form.landingNodeId) newErrors.remoteAddr = "请选择我的落地节点";
+    } else if (form.mode !== "wg_path" && form.targetMode === "server") {
+      if (!form.landingServerId) newErrors.remoteAddr = "请选择落地服务器";
+    } else if (form.mode === "wg_path" && form.wgRuleType === "cidr") {
       // CIDR 内网转发使用目标网段，不校验落地地址。
     } else if (!form.remoteAddr.trim()) {
       newErrors.remoteAddr = "请输入落地地址";
@@ -2508,6 +2517,13 @@ export default function ForwardPage() {
     setErrors({});
     setModalOpen(true);
   };
+  useEffect(() => {
+    const nodeId = Number(new URLSearchParams(landingLocation.search).get("landingNodeId"));
+    if (!nodeId) return;
+    handleAdd();
+    const ownerId = Number(new URLSearchParams(landingLocation.search).get("landingUserId"));
+    setForm((prev) => ({ ...prev, targetMode: "node", landingNodeId: nodeId, ...(isAdmin && ownerId > 0 ? { userId: ownerId } : {}) }));
+  }, [landingLocation.search]);
   // 编辑规则
   const handleEdit = (forward: Forward) => {
     setIsEdit(true);
@@ -2521,6 +2537,8 @@ export default function ForwardPage() {
       inPort: forward.inPort,
       inIp: forward.inIp || "",
       remoteAddr: forward.remoteAddr.split(",").join("\n"),
+      landingNodeId: forward.landingNodeId,
+      targetMode: forward.landingNodeId ? "node" : "manual",
       interfaceName: forward.interfaceName || "",
       strategy: forward.strategy || "fifo",
       speedId: normalizeSpeedId(forward.speedId),
@@ -2552,6 +2570,8 @@ export default function ForwardPage() {
       inPort: null,
       inIp: forward.inIp || "",
       remoteAddr: forward.remoteAddr.split(",").join("\n"),
+      landingNodeId: forward.landingNodeId,
+      targetMode: forward.landingNodeId ? "node" : "manual",
       interfaceName: forward.interfaceName || "",
       strategy: forward.strategy || "fifo",
       speedId: normalizeSpeedId(forward.speedId),
@@ -2726,7 +2746,7 @@ export default function ForwardPage() {
       .split("\n")
       .map((l) => l.trim())
       .filter(Boolean);
-    const hasIPv6Target = lines.some(
+    const hasIPv6Target = (!form.targetMode || form.targetMode === "manual" || form.mode === "wg_path") && lines.some(
       (line) => line.includes("[") || (line.match(/:/g) || []).length > 1,
     );
 
@@ -2753,6 +2773,11 @@ export default function ForwardPage() {
         .map((addr) => addr.trim())
         .filter((addr) => addr)
         .join(",");
+      const landingTarget = form.mode !== "wg_path" && form.targetMode === "node"
+        ? { landingNodeId: form.landingNodeId }
+        : form.mode !== "wg_path" && form.targetMode === "server"
+          ? { landingServerId: form.landingServerId, landingProtocol: form.landingProtocol || "ss2022" }
+          : {};
       const addressCount = processedRemoteAddr.split(",").length;
       let res: { code: number; msg: string };
       const normalizedSpeedId = normalizeSpeedId(form.speedId);
@@ -2765,7 +2790,8 @@ export default function ForwardPage() {
           tunnelId: form.tunnelId,
           inPort: form.inPort,
           ...(inIpTouched ? { inIp: form.inIp || "" } : {}),
-          remoteAddr: processedRemoteAddr,
+          remoteAddr: form.targetMode && form.targetMode !== "manual" && form.mode !== "wg_path" ? "" : processedRemoteAddr,
+          ...landingTarget,
           strategy: addressCount > 1 ? form.strategy : "fifo",
           speedId: normalizedSpeedId,
           maxConnections: form.maxConnections,
@@ -2789,7 +2815,8 @@ export default function ForwardPage() {
           tunnelId: form.tunnelId,
           inPort: form.inPort,
           inIp: form.inIp || undefined,
-          remoteAddr: processedRemoteAddr,
+          remoteAddr: form.targetMode && form.targetMode !== "manual" && form.mode !== "wg_path" ? "" : processedRemoteAddr,
+          ...landingTarget,
           strategy: addressCount > 1 ? form.strategy : "fifo",
           speedId: normalizedSpeedId,
           maxConnections: form.maxConnections,
@@ -5840,7 +5867,9 @@ export default function ForwardPage() {
                   <div className="space-y-4 pb-4">
                     {!(form.mode === "wg_path" && form.wgRuleType === "cidr") && (
                       <>
-                    <Textarea
+                    {form.mode !== "wg_path" && <RuleLandingTarget value={form} userId={form.userId || tokenUserId || 0} onChange={(target) => { setForm((prev) => ({ ...prev, ...target })); setErrors((prev) => ({ ...prev, remoteAddr: "" })); }} />}
+                    {form.mode !== "wg_path" && form.targetMode && form.targetMode !== "manual" && errors.remoteAddr && <p className="text-sm text-danger">{errors.remoteAddr}</p>}
+                    {(!form.targetMode || form.targetMode === "manual" || form.mode === "wg_path") && <Textarea
                       description="格式: IP:端口 或 域名:端口，支持多个地址（每行一个）"
                       errorMessage={errors.remoteAddr}
                       isInvalid={!!errors.remoteAddr}
@@ -5862,8 +5891,8 @@ export default function ForwardPage() {
                           }));
                         }
                       }
-                    />
-                    {getAddressCount(form.remoteAddr) > 1 && (
+                    />}
+                    {(!form.targetMode || form.targetMode === "manual" || form.mode === "wg_path") && getAddressCount(form.remoteAddr) > 1 && (
                       <Select
                         description="多个落地地址的负载均衡策略"
                         label="负载策略"
