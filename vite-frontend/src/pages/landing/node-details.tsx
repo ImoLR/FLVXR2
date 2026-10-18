@@ -130,7 +130,9 @@ export function NodeDetails({
                     {row.map((value, index) => (
                       <td
                         key={index}
-                        className={index === 0 ? "whitespace-nowrap p-2" : "p-2"}
+                        className={
+                          index === 0 ? "whitespace-nowrap p-2" : "p-2"
+                        }
                       >
                         {value}
                       </td>
