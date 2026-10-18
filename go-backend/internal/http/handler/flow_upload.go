@@ -13,6 +13,8 @@ import (
 	"strconv"
 	"sync"
 	"time"
+
+	"go-backend/internal/store/repo"
 )
 
 const (
@@ -123,7 +125,20 @@ func (h *Handler) flowUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var items []flowItem
-	if err := json.Unmarshal(payload, &items); err != nil {
+	var counters []repo.LandingCounter
+	var parseErr error
+	if len(payload) > 0 && payload[0] == '{' {
+		var report struct {
+			Flows    []flowItem            `json:"flows"`
+			Counters []repo.LandingCounter `json:"landing_counters"`
+		}
+		parseErr = json.Unmarshal(payload, &report)
+		items = report.Flows
+		counters = report.Counters
+	} else {
+		parseErr = json.Unmarshal(payload, &items)
+	}
+	if err := parseErr; err != nil {
 		logFlowUploadFailure(node.ID, "parse items", err)
 		writeFlowUploadText(w, http.StatusBadRequest, "error")
 		return
@@ -132,7 +147,7 @@ func (h *Handler) flowUpload(w http.ResponseWriter, r *http.Request) {
 	var enforce func()
 	process := func() error {
 		var commitErr error
-		enforce, commitErr = h.commitFlowItems(node.ID, items)
+		enforce, commitErr = h.commitFlowWithLanding(node.ID, items, counters)
 		return commitErr
 	}
 	if dedupeKey != "" && h.flowUploads != nil {

@@ -18,9 +18,11 @@ type FlowCounterDelta struct {
 
 // FlowBatch is the billed effect of one agent flow upload.
 type FlowBatch struct {
-	Forwards    map[int64]FlowCounterDelta
-	Users       map[int64]FlowCounterDelta
-	UserTunnels map[int64]FlowCounterDelta
+	LandingCounters []LandingCounter
+	ServerQuotas    map[ServerQuotaKey]FlowCounterDelta
+	Forwards        map[int64]FlowCounterDelta
+	Users           map[int64]FlowCounterDelta
+	UserTunnels     map[int64]FlowCounterDelta
 	// QuotaUsage maps a user id to the billed bytes added to its daily/monthly quota.
 	// Users listed with 0 bytes still get their quota windows rolled.
 	QuotaUsage map[int64]int64
@@ -31,7 +33,7 @@ type FlowBatch struct {
 // Empty reports whether the batch writes nothing.
 func (b FlowBatch) Empty() bool {
 	return len(b.Forwards) == 0 && len(b.Users) == 0 && len(b.UserTunnels) == 0 &&
-		len(b.QuotaUsage) == 0 && len(b.PeerShares) == 0
+		len(b.QuotaUsage) == 0 && len(b.PeerShares) == 0 && len(b.LandingCounters) == 0 && len(b.ServerQuotas) == 0
 }
 
 // ApplyFlowBatch writes a whole flow upload in one transaction: either every counter of the
@@ -46,7 +48,26 @@ func (r *Repository) ApplyFlowBatch(batch FlowBatch, now time.Time) (map[int64]*
 	if batch.Empty() {
 		return views, nil
 	}
+	// Copy the maps before accumulating transactional landing deltas so a failed
+	// transaction can be retried with the same caller-owned batch.
+	batch.Users = cloneFlowDeltas(batch.Users)
+	quotaUsage := make(map[int64]int64, len(batch.QuotaUsage))
+	for id, v := range batch.QuotaUsage {
+		quotaUsage[id] = v
+	}
+	batch.QuotaUsage = quotaUsage
+	serverQuotas := make(map[ServerQuotaKey]FlowCounterDelta, len(batch.ServerQuotas))
+	for key, v := range batch.ServerQuotas {
+		serverQuotas[key] = v
+	}
+	batch.ServerQuotas = serverQuotas
 	err := r.db.Transaction(func(tx *gorm.DB) error {
+		if err := applyLandingCountersTx(tx, &batch, now); err != nil {
+			return err
+		}
+		if err := applyServerQuotasTx(tx, batch.ServerQuotas, now); err != nil {
+			return err
+		}
 		if err := addFlowCountersTx(tx, &model.Forward{}, batch.Forwards); err != nil {
 			return err
 		}
@@ -114,4 +135,12 @@ func sortedFlowKeys[V any](m map[int64]V) []int64 {
 	}
 	sort.Slice(keys, func(i, j int) bool { return keys[i] < keys[j] })
 	return keys
+}
+
+func cloneFlowDeltas(src map[int64]FlowCounterDelta) map[int64]FlowCounterDelta {
+	dst := make(map[int64]FlowCounterDelta, len(src))
+	for id, v := range src {
+		dst[id] = v
+	}
+	return dst
 }

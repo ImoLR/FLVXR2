@@ -176,6 +176,9 @@ func (r *Repository) DeleteUserCascade(userID int64) error {
 		if err := tx.Where("user_id = ?", userID).Delete(&model.UserQuota{}).Error; err != nil {
 			return err
 		}
+		if err := deleteUserLandingsTx(tx, userID); err != nil {
+			return err
+		}
 		return tx.Where("id = ?", userID).Delete(&model.User{}).Error
 	})
 }
@@ -936,6 +939,7 @@ func (r *Repository) DeleteNodeCascade(nodeID int64) error {
 			{&model.PeerShareRuntime{}, "node_id = ? AND status = 1", []interface{}{nodeID}},
 			{&model.ServiceMonitor{}, "node_id = ?", []interface{}{nodeID}},
 			{&model.NodeDeployedInbound{}, "node_id = ?", []interface{}{nodeID}},
+			{&model.LandingServer{}, "node_id = ?", []interface{}{nodeID}},
 			{&model.NodeRuntimeResource{}, "node_id = ? AND status <> 'released'", []interface{}{nodeID}},
 			{&model.NftablesRule{}, "node_id = ?", []interface{}{nodeID}},
 		} {
@@ -1387,32 +1391,38 @@ func (r *Repository) GetMinForwardPort(forwardID int64) sql.NullInt64 {
 	return p
 }
 
-func (r *Repository) UpdateForward(id int64, name string, tunnelID int64, remoteAddr, strategy string, now int64, speedID interface{}, maxConnections, maxClientIps int, trafficLimit int64, expiryTime interface{}, speedLimitEnabled bool, speedLimit int, mode string, wgPathID int64, wgRuleType, sourceCIDR, targetCIDR string, snatEnabled bool) error {
+func (r *Repository) UpdateForward(id int64, name string, tunnelID int64, remoteAddr, strategy string, now int64, speedID interface{}, maxConnections, maxClientIps int, trafficLimit int64, expiryTime interface{}, speedLimitEnabled bool, speedLimit int, mode string, wgPathID int64, wgRuleType, sourceCIDR, targetCIDR string, snatEnabled bool, landingNodeID ...int64) error {
 	if r == nil || r.db == nil {
 		return errors.New("repository not initialized")
 	}
-	return r.db.Model(&model.Forward{}).
-		Where("id = ?", id).
-		Updates(map[string]interface{}{
-			"name":                name,
-			"tunnel_id":           tunnelID,
-			"remote_addr":         remoteAddr,
-			"strategy":            strategy,
-			"speed_id":            nullInt64FromInterface(speedID),
-			"max_connections":     maxConnections,
-			"max_client_ips":      maxClientIps,
-			"traffic_limit":       trafficLimit,
-			"expiry_time":         nullInt64FromInterface(expiryTime),
-			"speed_limit_enabled": speedLimitEnabled,
-			"speed_limit":         speedLimit,
-			"mode":                mode,
-			"wg_path_id":          wgPathID,
-			"wg_rule_type":        wgRuleType,
-			"source_cidr":         sourceCIDR,
-			"target_cidr":         targetCIDR,
-			"snat_enabled":        snatEnabled,
-			"updated_time":        now,
-		}).Error
+	updates := map[string]interface{}{}
+	if len(landingNodeID) > 0 {
+		updates["landing_node_id"] = landingNodeID[0]
+	}
+	fields := map[string]interface{}{
+		"name":                name,
+		"tunnel_id":           tunnelID,
+		"remote_addr":         remoteAddr,
+		"strategy":            strategy,
+		"speed_id":            nullInt64FromInterface(speedID),
+		"max_connections":     maxConnections,
+		"max_client_ips":      maxClientIps,
+		"traffic_limit":       trafficLimit,
+		"expiry_time":         nullInt64FromInterface(expiryTime),
+		"speed_limit_enabled": speedLimitEnabled,
+		"speed_limit":         speedLimit,
+		"mode":                mode,
+		"wg_path_id":          wgPathID,
+		"wg_rule_type":        wgRuleType,
+		"source_cidr":         sourceCIDR,
+		"target_cidr":         targetCIDR,
+		"snat_enabled":        snatEnabled,
+		"updated_time":        now,
+	}
+	for key, value := range updates {
+		fields[key] = value
+	}
+	return r.db.Model(&model.Forward{}).Where("id = ?", id).Updates(fields).Error
 }
 
 func (r *Repository) UpdateForwardOrder(forwardID int64, inx int, now int64) {
@@ -2217,6 +2227,8 @@ func (r *Repository) RollbackForwardFields(id, userID int64, userName, name stri
 		Where("id = ?", id).
 		Updates(map[string]interface{}{
 			"mode":                   old.Mode,
+			"landing_node_id":        old.LandingNodeID,
+			"landing_auto_paused":    old.LandingAutoPaused,
 			"wg_path_id":             old.WGPathID,
 			"wg_rule_type":           old.WGRuleType,
 			"source_cidr":            old.SourceCIDR,
@@ -2822,7 +2834,7 @@ func (r *Repository) EnsureUserTunnelGrant(userID, tunnelID int64) (int64, bool,
 	return ut.ID, true, nil
 }
 
-func (r *Repository) CreateForwardTx(userID int64, userName, name string, tunnelID int64, remoteAddr, strategy string, now int64, inx int, entryNodeIDs []int64, port int, inIp string, speedID interface{}, maxConnections, maxClientIps int, trafficLimit int64, expiryTime interface{}, speedLimitEnabled bool, speedLimit int, mode string, wgPathID int64, wgRuleType, sourceCIDR, targetCIDR string, snatEnabled bool) (int64, error) {
+func (r *Repository) CreateForwardTx(userID int64, userName, name string, tunnelID int64, remoteAddr, strategy string, now int64, inx int, entryNodeIDs []int64, port int, inIp string, speedID interface{}, maxConnections, maxClientIps int, trafficLimit int64, expiryTime interface{}, speedLimitEnabled bool, speedLimit int, mode string, wgPathID int64, wgRuleType, sourceCIDR, targetCIDR string, snatEnabled bool, landingNodeID ...int64) (int64, error) {
 	if r == nil || r.db == nil {
 		return 0, errors.New("repository not initialized")
 	}
@@ -2854,6 +2866,9 @@ func (r *Repository) CreateForwardTx(userID int64, userName, name string, tunnel
 			SourceCIDR:        sourceCIDR,
 			TargetCIDR:        targetCIDR,
 			SNATEnabled:       snatEnabled,
+		}
+		if len(landingNodeID) > 0 {
+			fwd.LandingNodeID = landingNodeID[0]
 		}
 		if err := tx.Create(&fwd).Error; err != nil {
 			return err

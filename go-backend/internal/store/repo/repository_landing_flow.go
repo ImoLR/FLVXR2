@@ -1,0 +1,277 @@
+package repo
+
+import (
+	"errors"
+	"fmt"
+	"sort"
+	"strconv"
+	"time"
+
+	"go-backend/internal/store/model"
+	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
+)
+
+// LandingCounter is a cumulative Core snapshot. NodeID is set from the authenticated
+// agent, never from its payload. Epoch is the Core's monotonically increasing start time.
+type LandingCounter struct {
+	ID          int64  `json:"id"`
+	InboundTag  string `json:"inbound_tag"`
+	Epoch       string `json:"epoch"`
+	UpBytes     int64  `json:"up_bytes"`
+	DownBytes   int64  `json:"down_bytes"`
+	Connections int    `json:"connections"`
+	NodeID      int64  `json:"-"`
+}
+
+type ServerQuotaKey struct {
+	UserID int64
+	Kind   string
+	RefID  int64
+}
+
+func LandingRate(n *model.LandingNode, s *model.LandingServer) (int64, float64) {
+	mode, ratio := s.FlowType, s.TrafficRatio
+	if n.FlowType != nil {
+		mode = *n.FlowType
+	}
+	if n.TrafficRatio != nil {
+		ratio = *n.TrafficRatio
+	}
+	if mode <= 0 {
+		mode = 1
+	}
+	if ratio <= 0 {
+		ratio = 1
+	}
+	return int64(mode), ratio
+}
+
+// Preserve the panel's per-direction truncation before the flow-mode multiplier.
+func landingBill(v int64, mode int64, ratio float64) int64 { return int64(float64(v)*ratio) * mode }
+
+func landingQuotaKey(userID int64, s *model.LandingServer) ServerQuotaKey {
+	if s.Source == "native" {
+		return ServerQuotaKey{userID, "node", s.NodeID}
+	}
+	return ServerQuotaKey{userID, "landing", s.ID}
+}
+
+func addServerDelta(m map[ServerQuotaKey]FlowCounterDelta, key ServerQuotaKey, in, out int64) {
+	d := m[key]
+	d.In += in
+	d.Out += out
+	m[key] = d
+}
+
+// LandingPeriodKey follows the user's reset day, clamped to the last day of each
+// month. A disabled reset day keeps a single lifetime period.
+func LandingPeriodKey(resetDay int64, now time.Time) int64 {
+	if resetDay <= 0 {
+		return 1
+	}
+	year, month, _ := now.Date()
+	boundary := func(y int, m time.Month) time.Time {
+		day := int(resetDay)
+		last := time.Date(y, m+1, 0, 0, 0, 0, 0, now.Location()).Day()
+		if day > last {
+			day = last
+		}
+		return time.Date(y, m, day, 0, 0, 0, 0, now.Location())
+	}
+	start := boundary(year, month)
+	if now.Before(start) {
+		start = boundary(year, month-1)
+	}
+	return int64(start.Year()*10000 + int(start.Month())*100 + start.Day())
+}
+
+func applyLandingCountersTx(tx *gorm.DB, batch *FlowBatch, now time.Time) error {
+	sort.SliceStable(batch.LandingCounters, func(i, j int) bool { return batch.LandingCounters[i].ID < batch.LandingCounters[j].ID })
+	for _, c := range batch.LandingCounters {
+		if c.ID <= 0 || c.NodeID <= 0 || c.UpBytes < 0 || c.DownBytes < 0 || c.Connections < 0 {
+			return errors.New("invalid landing counter")
+		}
+		epoch, err := strconv.ParseInt(c.Epoch, 10, 64)
+		if err != nil || epoch <= 0 {
+			return errors.New("invalid landing epoch")
+		}
+		var n model.LandingNode
+		err = tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&n, c.ID).Error
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		var s model.LandingServer
+		if err = tx.First(&s, n.LandingServerID).Error; err != nil {
+			return err
+		}
+		if s.Source != "native" || s.NodeID != c.NodeID || n.InboundTag != c.InboundTag {
+			return errors.New("landing counter ownership mismatch")
+		}
+		oldEpoch, _ := strconv.ParseInt(n.CounterEpoch, 10, 64)
+		if epoch < oldEpoch {
+			continue
+		} // A delayed upload from an old Core must not re-open its epoch.
+		up, down := c.UpBytes, c.DownBytes
+		if epoch == oldEpoch {
+			// StatsService is non-resetting; lower values within one epoch are stale snapshots.
+			if up < n.LastSeenUp || down < n.LastSeenDown {
+				continue
+			}
+			up -= n.LastSeenUp
+			down -= n.LastSeenDown
+		}
+		var user model.User
+		if err = tx.First(&user, n.UserID).Error; errors.Is(err, gorm.ErrRecordNotFound) {
+			continue
+		} else if err != nil {
+			return err
+		}
+		period := LandingPeriodKey(user.FlowResetTime, now)
+		if n.PeriodKey != period {
+			n.BilledIn = 0
+			n.BilledOut = 0
+			n.PeriodKey = period
+		}
+		mode, ratio := LandingRate(&n, &s)
+		in, out := landingBill(up, mode, ratio), landingBill(down, mode, ratio)
+		n.UpBytes += up
+		n.DownBytes += down
+		n.BilledIn += in
+		n.BilledOut += out
+		n.LastSeenUp = c.UpBytes
+		n.LastSeenDown = c.DownBytes
+		n.CounterEpoch = c.Epoch
+		n.Connections = c.Connections
+		if err = tx.Model(&n).Updates(map[string]interface{}{"up_bytes": n.UpBytes, "down_bytes": n.DownBytes, "billed_in": n.BilledIn, "billed_out": n.BilledOut, "period_key": period, "last_seen_up": n.LastSeenUp, "last_seen_down": n.LastSeenDown, "counter_epoch": c.Epoch, "connections": c.Connections}).Error; err != nil {
+			return err
+		}
+		d := batch.Users[n.UserID]
+		d.In += in
+		d.Out += out
+		batch.Users[n.UserID] = d
+		batch.QuotaUsage[n.UserID] += in + out
+		addServerDelta(batch.ServerQuotas, landingQuotaKey(n.UserID, &s), in, out)
+	}
+	return nil
+}
+
+func serverQuotaDefaultTx(tx *gorm.DB, key ServerQuotaKey) (int64, error) {
+	if key.Kind == "node" {
+		var n model.Node
+		err := tx.First(&n, key.RefID).Error
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return 0, nil
+		}
+		return n.DefaultUserQuotaBytes, err
+	}
+	if key.Kind == "landing" {
+		var s model.LandingServer
+		err := tx.First(&s, key.RefID).Error
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return 0, nil
+		}
+		return s.DefaultUserQuotaBytes, err
+	}
+	return 0, errors.New("invalid server kind")
+}
+
+func applyServerQuotasTx(tx *gorm.DB, deltas map[ServerQuotaKey]FlowCounterDelta, now time.Time) error {
+	keys := make([]ServerQuotaKey, 0, len(deltas))
+	for key := range deltas {
+		keys = append(keys, key)
+	}
+	sort.Slice(keys, func(i, j int) bool {
+		a, b := keys[i], keys[j]
+		if a.UserID != b.UserID {
+			return a.UserID < b.UserID
+		}
+		if a.Kind != b.Kind {
+			return a.Kind < b.Kind
+		}
+		return a.RefID < b.RefID
+	})
+	for _, key := range keys {
+		if key.UserID <= 0 || key.RefID <= 0 {
+			continue
+		}
+		var user model.User
+		if err := tx.First(&user, key.UserID).Error; errors.Is(err, gorm.ErrRecordNotFound) {
+			continue
+		} else if err != nil {
+			return err
+		}
+		period := LandingPeriodKey(user.FlowResetTime, now)
+		q := model.UserServerQuota{UserID: key.UserID, ServerKind: key.Kind, ServerRefID: key.RefID, PeriodKey: period, CreatedTime: now.UnixMilli()}
+		if err := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&q).Error; err != nil {
+			return err
+		}
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("user_id = ? AND server_kind = ? AND server_ref_id = ?", key.UserID, key.Kind, key.RefID).First(&q).Error; err != nil {
+			return err
+		}
+		if !q.LimitOverride {
+			limit, err := serverQuotaDefaultTx(tx, key)
+			if err != nil {
+				return err
+			}
+			q.LimitBytes = limit
+		}
+		if q.PeriodKey != period {
+			q.UsedIn = 0
+			q.UsedOut = 0
+			q.PeriodKey = period
+		}
+		d := deltas[key]
+		if d.In < 0 || d.Out < 0 {
+			return errors.New("negative server quota delta")
+		}
+		q.UsedIn += d.In
+		q.UsedOut += d.Out
+		q.Paused = q.LimitBytes > 0 && q.UsedIn+q.UsedOut >= q.LimitBytes
+		q.UpdatedTime = now.UnixMilli()
+		if err := tx.Save(&q).Error; err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// ForwardServerWeights attributes entry to the actual reporter; shared relay services
+// cannot identify users, so each intermediate/exit tier contributes an equal share.
+// A server present in more than one tier is counted once, using its largest weight.
+func (r *Repository) ForwardServerWeights(tunnelID, entryNodeID int64) (map[int64]float64, error) {
+	var chain []model.ChainTunnel
+	if err := r.db.Where("tunnel_id = ?", tunnelID).Order("id ASC").Find(&chain).Error; err != nil {
+		return nil, err
+	}
+	weights := map[int64]float64{}
+	if entryNodeID > 0 {
+		weights[entryNodeID] = 1
+	}
+	tiers := map[string]map[int64]bool{}
+	for _, c := range chain {
+		if c.ChainType != "2" && c.ChainType != "3" {
+			continue
+		}
+		tier := fmt.Sprintf("%s:%d", c.ChainType, c.Inx.Int64)
+		if c.ChainType == "3" {
+			tier = "exit"
+		}
+		if tiers[tier] == nil {
+			tiers[tier] = map[int64]bool{}
+		}
+		tiers[tier][c.NodeID] = true
+	}
+	for _, nodes := range tiers {
+		weight := 1 / float64(len(nodes))
+		for id := range nodes {
+			if weight > weights[id] {
+				weights[id] = weight
+			}
+		}
+	}
+	return weights, nil
+}

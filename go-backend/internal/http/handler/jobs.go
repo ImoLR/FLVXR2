@@ -28,9 +28,10 @@ func (h *Handler) StartBackgroundJobs() {
 	ctx, cancel := context.WithCancel(context.Background())
 	h.jobsCancel = cancel
 	h.jobsStarted = true
-	h.jobsWG.Add(12)
+	h.jobsWG.Add(13)
 	h.jobsMu.Unlock()
 
+	go h.runLandingReconcileLoop(ctx)
 	go h.runTunnelRedeployRetryLoop(ctx)
 	go h.runNodeRegionBackfill(ctx)
 	go h.runHourlyStatsLoop(ctx)
@@ -250,6 +251,7 @@ func (h *Handler) runResetAndExpiryJob(now time.Time) {
 		return
 	}
 
+	h.reconcileLandingPolicy(now)
 	h.resetMonthlyFlow(now)
 	h.resetUserQuotaWindows(now)
 	h.disableExpiredUsers(now.UnixMilli())
@@ -257,6 +259,7 @@ func (h *Handler) runResetAndExpiryJob(now time.Time) {
 	h.disableExpiredUserTunnels(now.UnixMilli())
 	h.disableExpiredForwards(now.UnixMilli())
 	h.resetNodeMonthlyTraffic(now)
+	h.reconcileLandingPolicy(now)
 	h.verifyBalances(now)
 }
 

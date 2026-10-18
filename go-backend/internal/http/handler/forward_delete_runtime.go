@@ -73,5 +73,19 @@ func (h *Handler) deleteUserAndCleanup(userID int64) error {
 		}
 		h.cleanupForwardRuntimeBestEffort(forward)
 	}
-	return h.repo.DeleteUserCascade(userID)
+	landings, err := h.repo.ListLandingNodes(userID, false)
+	if err != nil {
+		return err
+	}
+	if err = h.repo.DeleteUserCascade(userID); err != nil {
+		return err
+	}
+	seen := map[int64]bool{}
+	for _, n := range landings {
+		if !seen[n.LandingServerID] {
+			h.syncLandingServer(n.LandingServerID)
+			seen[n.LandingServerID] = true
+		}
+	}
+	return nil
 }

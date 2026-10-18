@@ -74,11 +74,12 @@ type flowIngestBatch struct {
 func newFlowIngestBatch() *flowIngestBatch {
 	return &flowIngestBatch{
 		write: repo.FlowBatch{
-			Forwards:    map[int64]repo.FlowCounterDelta{},
-			Users:       map[int64]repo.FlowCounterDelta{},
-			UserTunnels: map[int64]repo.FlowCounterDelta{},
-			QuotaUsage:  map[int64]int64{},
-			PeerShares:  map[int64]int64{},
+			Forwards:     map[int64]repo.FlowCounterDelta{},
+			Users:        map[int64]repo.FlowCounterDelta{},
+			UserTunnels:  map[int64]repo.FlowCounterDelta{},
+			QuotaUsage:   map[int64]int64{},
+			PeerShares:   map[int64]int64{},
+			ServerQuotas: map[repo.ServerQuotaKey]repo.FlowCounterDelta{},
 		},
 		seenQuotaUsers: map[int64]struct{}{},
 		seenForwards:   map[int64]struct{}{},
@@ -270,14 +271,22 @@ func (h *Handler) ingestFlowItems(nodeID int64, items []flowItem) error {
 // share pauses); it may send node commands and take a while, so /flow/upload runs it after
 // answering the agent.
 func (h *Handler) commitFlowItems(nodeID int64, items []flowItem) (func(), error) {
+	return h.commitFlowWithLanding(nodeID, items, nil)
+}
+
+func (h *Handler) commitFlowWithLanding(nodeID int64, items []flowItem, counters []repo.LandingCounter) (func(), error) {
 	if h == nil || h.repo == nil {
 		return nil, errors.New("repository not initialized")
 	}
-	if len(items) == 0 {
+	if len(items) == 0 && len(counters) == 0 {
 		return nil, nil
 	}
 
 	batch := newFlowIngestBatch()
+	for i := range counters {
+		counters[i].NodeID = nodeID
+	}
+	batch.write.LandingCounters = counters
 	cache := newFlowIngestCache(h.repo)
 	for _, item := range items {
 		if err := h.planFlowItem(batch, cache, nodeID, item); err != nil {
@@ -298,6 +307,7 @@ func (h *Handler) commitFlowItems(nodeID int64, items []flowItem) (func(), error
 		h.flowEnforceMu.Lock()
 		defer h.flowEnforceMu.Unlock()
 		h.enforceFlowBatch(batch, quotas)
+		h.reconcileLandingPolicy(time.Now())
 	}, nil
 }
 
@@ -354,6 +364,9 @@ func (h *Handler) planForwardFlow(b *flowIngestBatch, c *flowIngestCache, nodeID
 		}
 		in, out := billFlowForTunnel(tunnel, upload, download)
 		b.addLocalFlow(forward.ID, forward.UserID, userTunnelID, in, out, true, true)
+		if err := h.planLandingForwardBilling(b, forward, nodeID, upload, download, in, out); err != nil {
+			return err
+		}
 		return h.planForwardPeerShareFlow(b, c, nodeID, serviceName, forward, upload+download)
 	}
 
@@ -478,10 +491,8 @@ func (h *Handler) matchForwardPeerShareRuntime(nodeID int64, serviceName string)
 }
 
 func (h *Handler) enforceFlowBatch(b *flowIngestBatch, quotas map[int64]*model.UserQuotaView) {
-	for _, userID := range b.quotaUsers {
-		if quota := quotas[userID]; quota != nil {
-			h.enforceUserQuotaIfNeeded(userID, quota)
-		}
+	for userID, quota := range quotas {
+		h.enforceUserQuotaIfNeeded(userID, quota)
 	}
 	for _, shareID := range b.shareChecks {
 		share, err := h.repo.GetPeerShare(shareID)
