@@ -1189,6 +1189,13 @@ func (r *Repository) pickNodePortTx(tx *gorm.DB, nodeID int64, allocated map[int
 		}
 	}
 
+	landingPorts, err := landingPortsOnNode(tx, nodeID)
+	if err != nil {
+		return 0, err
+	}
+	for _, p := range landingPorts {
+		used[p] = struct{}{}
+	}
 	var available []int
 	for _, candidate := range candidates {
 		if candidate <= 0 {
@@ -2272,6 +2279,13 @@ func (r *Repository) GetUsedPortsOnNodeAsMap(nodeID int64) (map[int]bool, error)
 		return nil, err
 	}
 	for _, p := range chainPorts {
+		used[p] = true
+	}
+	landingPorts, err := landingPortsOnNode(r.db, nodeID)
+	if err != nil {
+		return nil, err
+	}
+	for _, p := range landingPorts {
 		used[p] = true
 	}
 	return used, nil

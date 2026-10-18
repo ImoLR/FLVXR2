@@ -117,6 +117,9 @@ func ValidateLandingServer(s *model.LandingServer) error {
 	if strings.TrimSpace(s.Name) == "" || len(s.Name) > 100 || strings.TrimSpace(s.PublicHost) == "" || strings.ContainsAny(s.PublicHost, " /?#@\r\n\t") {
 		return errors.New("落地名称或公网地址无效")
 	}
+	if strings.Contains(s.PublicHost, ":") && net.ParseIP(strings.Trim(s.PublicHost, "[]")) == nil {
+		return errors.New("公网地址只填写域名或 IP，不包含端口")
+	}
 	if s.PortMin < 1024 || s.PortMax > 65535 || s.PortMax < s.PortMin {
 		return errors.New("落地端口段必须在 1024–65535 内")
 	}
@@ -247,6 +250,7 @@ func (r *Repository) SaveLandingUserSetting(userID int64, maxNodes int, quotas [
 			q.ID = 0
 			q.UserID = userID
 			q.LimitOverride = true
+			q.UsedIn, q.UsedOut, q.PeriodKey, q.Paused = 0, 0, 0, false
 			q.CreatedTime = now
 			q.UpdatedTime = now
 			if err := tx.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "user_id"}, {Name: "server_kind"}, {Name: "server_ref_id"}}, DoUpdates: clause.Assignments(map[string]interface{}{"limit_bytes": q.LimitBytes, "limit_override": true, "updated_time": now})}).Create(&q).Error; err != nil {
@@ -254,7 +258,16 @@ func (r *Repository) SaveLandingUserSetting(userID int64, maxNodes int, quotas [
 			}
 		}
 		if extendFixedByMs > 0 {
-			return tx.Model(&model.LandingNode{}).Where("user_id = ? AND expiry_mode = ? AND expires_at > 0", userID, "fixed").Updates(map[string]interface{}{"expires_at": gorm.Expr("expires_at + ?", extendFixedByMs), "updated_time": time.Now().UnixMilli()}).Error
+			var serverIDs []int64
+			if err := tx.Model(&model.LandingNode{}).Where("user_id = ? AND expiry_mode = ? AND expires_at > 0", userID, "fixed").Distinct().Pluck("landing_server_id", &serverIDs).Error; err != nil {
+				return err
+			}
+			if err := tx.Model(&model.LandingNode{}).Where("user_id = ? AND expiry_mode = ? AND expires_at > 0", userID, "fixed").Updates(map[string]interface{}{"expires_at": gorm.Expr("expires_at + ?", extendFixedByMs), "updated_time": time.Now().UnixMilli()}).Error; err != nil {
+				return err
+			}
+			if len(serverIDs) > 0 {
+				return tx.Model(&model.LandingServer{}).Where("id IN ?", serverIDs).Update("revision", gorm.Expr("revision + 1")).Error
+			}
 		}
 		return nil
 	})
@@ -324,6 +337,13 @@ func (r *Repository) CreateLandingNode(userID, serverID int64, name, protocol st
 		}
 		if s.NodeID == 36 {
 			return errors.New("节点 36 禁止启用落地")
+		}
+		var native model.Node
+		if err := tx.First(&native, s.NodeID).Error; err != nil {
+			return errors.New("落地服务器节点不存在")
+		}
+		if !native.LandingCapable {
+			return errors.New("节点程序需升级")
 		}
 		if s.Status != "active" || (s.AvailableUntil != nil && *s.AvailableUntil <= now) {
 			return errors.New("落地服务器不可用")

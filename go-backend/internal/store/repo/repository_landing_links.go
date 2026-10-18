@@ -68,6 +68,9 @@ func (r *Repository) LandingNodeLinks(n model.LandingNode) ([]LandingLink, error
 					host = t.InIP.String
 				}
 			}
+			if fp.InIP.Valid && strings.TrimSpace(fp.InIP.String) != "" {
+				host = strings.TrimSpace(fp.InIP.String)
+			}
 			out = append(out, LandingLink{Name: f.Name + " · " + entry.Name, URL: LandingURL(n, host, fp.Port), Kind: "forward", ForwardID: f.ID, EntryNodeID: entry.ID})
 		}
 	}
@@ -159,4 +162,30 @@ func (r *Repository) LandingPortInUse(nodeID int64, port int) (bool, error) {
 	var count int64
 	err := r.db.Model(&model.LandingNode{}).Joins("JOIN landing_server ON landing_server.id = landing_node.landing_server_id").Where("landing_server.node_id = ? AND landing_node.port = ?", nodeID, port).Count(&count).Error
 	return count > 0, err
+}
+
+// ValidateNodeLandingPortRange prevents widening the rule range over reserved landing ports.
+func (r *Repository) ValidateNodeLandingPortRange(nodeID int64, spec string) error {
+	var ports []int
+	if err := r.db.Model(&model.LandingNode{}).Joins("JOIN landing_server ON landing_server.id = landing_node.landing_server_id").Where("landing_server.node_id = ?", nodeID).Pluck("landing_node.port", &ports).Error; err != nil {
+		return err
+	}
+	if len(ports) == 0 {
+		return nil
+	}
+	reserved := map[int]bool{}
+	for _, p := range ports {
+		reserved[p] = true
+	}
+	for _, p := range parsePortRangeSpec(spec) {
+		if reserved[p] {
+			return errors.New("节点规则端口段与已有落地节点端口冲突")
+		}
+	}
+	return nil
+}
+func landingPortsOnNode(tx *gorm.DB, nodeID int64) ([]int, error) {
+	var ports []int
+	err := tx.Model(&model.LandingNode{}).Joins("JOIN landing_server ON landing_server.id = landing_node.landing_server_id").Where("landing_server.node_id = ?", nodeID).Pluck("landing_node.port", &ports).Error
+	return ports, err
 }

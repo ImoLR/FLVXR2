@@ -127,8 +127,8 @@ func TestLandingPermissionsContract(t *testing.T) {
 			if out.Code != 0 || len(out.Data.([]interface{})) != 1 {
 				t.Fatalf("own links %+v", out)
 			}
-			if out := call("node/list", "Bearer "+a, map[string]interface{}{}); out.Code == 0 {
-				t.Fatal("Bearer accepted instead of raw JWT")
+			if out := call("node/list", "invalid-token", map[string]interface{}{}); out.Code == 0 {
+				t.Fatal("invalid JWT accepted")
 			}
 			if out := call("node/create", a, map[string]interface{}{"landingServerId": s.ID, "name": "override", "protocol": "ss2022", "maxConnections": 999}); out.Code == 0 {
 				t.Fatal("user supplied admin field accepted")

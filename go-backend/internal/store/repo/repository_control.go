@@ -198,7 +198,19 @@ func (r *Repository) HasOtherForwardOnNodePortTx(tx *gorm.DB, nodeID int64, port
 		return false, err
 	}
 
-	return count > 0, nil
+	if count > 0 {
+		return true, nil
+	}
+	ports, err := landingPortsOnNode(tx, nodeID)
+	if err != nil {
+		return false, err
+	}
+	for _, p := range ports {
+		if p == port {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 func (r *Repository) GetTunnelOutProtocol(tunnelID int64) (string, error) {

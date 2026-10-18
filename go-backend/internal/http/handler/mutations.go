@@ -575,6 +575,7 @@ func (h *Handler) userBatchResetFlow(w http.ResponseWriter, r *http.Request) {
 		successCount++
 	}
 
+	h.reconcileLandingPolicy(time.Now())
 	response.WriteJSON(w, response.OK(map[string]int{
 		"successCount": successCount,
 		"failCount":    failCount,
@@ -809,6 +810,10 @@ func (h *Handler) nodeUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if err := h.repo.ValidateNodeLandingPortRange(id, defaultString(asString(req["port"]), "1000-65535")); err != nil {
+		response.WriteJSON(w, response.ErrDefault(err.Error()))
+		return
+	}
 	newHTTP := asInt(req["http"], oldNode.HTTP)
 	newTLS := asInt(req["tls"], oldNode.TLS)
 	newSocks := asInt(req["socks"], oldNode.Socks)

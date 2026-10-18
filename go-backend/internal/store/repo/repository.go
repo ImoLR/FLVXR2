@@ -1211,6 +1211,7 @@ func (r *Repository) ListForwards() ([]map[string]interface{}, error) {
 	}
 
 	type fwdRow struct {
+		LandingNodeID     int64
 		ID                int64
 		UserID            int64
 		UserName          string
@@ -1246,7 +1247,7 @@ func (r *Repository) ListForwards() ([]map[string]interface{}, error) {
 
 	var rows []fwdRow
 	err := r.db.Model(&model.Forward{}).
-		Select("forward.id, forward.user_id, forward.user_name, COALESCE(user.name, '') AS user_remark, forward.name, forward.tunnel_id, COALESCE(tunnel.name, '') AS tunnel_name, COALESCE(tunnel.traffic_ratio, 1.0) AS traffic_ratio, forward.remote_addr, COALESCE(forward.strategy, 'fifo') AS strategy, forward.in_flow, forward.out_flow, forward.created_time, forward.status, forward.inx, forward.speed_id, COALESCE(forward.max_connections, 0) AS max_connections, COALESCE(forward.max_client_ips, 0) AS max_client_ips, COALESCE(forward.traffic_limit, 0) AS traffic_limit, forward.expiry_time, COALESCE(forward.speed_limit_enabled, false) AS speed_limit_enabled, COALESCE(forward.speed_limit, 0) AS speed_limit, forward.mode, COALESCE(forward.wg_path_id, 0) AS wg_path_id, COALESCE(forward.wg_rule_type, '') AS wg_rule_type, COALESCE(forward.source_cidr, '') AS source_cidr, COALESCE(forward.target_cidr, '') AS target_cidr, COALESCE(forward.snat_enabled, true) AS snat_enabled, COALESCE(path_tunnel.name, '') AS path_name, COALESCE(forward.cn_blocked, false) AS cn_blocked, COALESCE(forward.cn_blocked_reason, '') AS cn_blocked_reason").
+		Select("forward.landing_node_id, forward.id, forward.user_id, forward.user_name, COALESCE(user.name, '') AS user_remark, forward.name, forward.tunnel_id, COALESCE(tunnel.name, '') AS tunnel_name, COALESCE(tunnel.traffic_ratio, 1.0) AS traffic_ratio, forward.remote_addr, COALESCE(forward.strategy, 'fifo') AS strategy, forward.in_flow, forward.out_flow, forward.created_time, forward.status, forward.inx, forward.speed_id, COALESCE(forward.max_connections, 0) AS max_connections, COALESCE(forward.max_client_ips, 0) AS max_client_ips, COALESCE(forward.traffic_limit, 0) AS traffic_limit, forward.expiry_time, COALESCE(forward.speed_limit_enabled, false) AS speed_limit_enabled, COALESCE(forward.speed_limit, 0) AS speed_limit, forward.mode, COALESCE(forward.wg_path_id, 0) AS wg_path_id, COALESCE(forward.wg_rule_type, '') AS wg_rule_type, COALESCE(forward.source_cidr, '') AS source_cidr, COALESCE(forward.target_cidr, '') AS target_cidr, COALESCE(forward.snat_enabled, true) AS snat_enabled, COALESCE(path_tunnel.name, '') AS path_name, COALESCE(forward.cn_blocked, false) AS cn_blocked, COALESCE(forward.cn_blocked_reason, '') AS cn_blocked_reason").
 		Joins("LEFT JOIN tunnel ON tunnel.id = forward.tunnel_id").
 		Joins("LEFT JOIN path_tunnel ON path_tunnel.id = forward.wg_path_id").
 		Joins("LEFT JOIN user ON user.id = forward.user_id").
@@ -1263,7 +1264,8 @@ func (r *Repository) ListForwards() ([]map[string]interface{}, error) {
 			return nil, err
 		}
 		item := map[string]interface{}{
-			"id": row.ID, "userId": row.UserID, "userName": row.UserName, "userRemark": row.UserRemark,
+			"landingNodeId": row.LandingNodeID,
+			"id":            row.ID, "userId": row.UserID, "userName": row.UserName, "userRemark": row.UserRemark,
 			"name": row.Name, "tunnelId": row.TunnelID, "tunnelName": row.TunnelName,
 			"tunnelTrafficRatio": row.TrafficRatio,
 			"inIp":               nullableForwardIngress(inIP), "inPort": nullableInt64(inPort),
@@ -1311,6 +1313,7 @@ func (r *Repository) ListForwardsPage(page, pageSize int) ([]map[string]interfac
 	offset := (page - 1) * pageSize
 
 	type fwdRow struct {
+		LandingNodeID     int64
 		ID                int64
 		UserID            int64
 		UserName          string
@@ -1346,7 +1349,7 @@ func (r *Repository) ListForwardsPage(page, pageSize int) ([]map[string]interfac
 
 	var rows []fwdRow
 	err := r.db.Model(&model.Forward{}).
-		Select("forward.id, forward.user_id, forward.user_name, COALESCE(user.name, '') AS user_remark, forward.name, forward.tunnel_id, COALESCE(tunnel.name, '') AS tunnel_name, COALESCE(tunnel.traffic_ratio, 1.0) AS traffic_ratio, forward.remote_addr, COALESCE(forward.strategy, 'fifo') AS strategy, forward.in_flow, forward.out_flow, forward.created_time, forward.status, forward.inx, forward.speed_id, COALESCE(forward.max_connections, 0) AS max_connections, COALESCE(forward.max_client_ips, 0) AS max_client_ips, COALESCE(forward.traffic_limit, 0) AS traffic_limit, forward.expiry_time, COALESCE(forward.speed_limit_enabled, false) AS speed_limit_enabled, COALESCE(forward.speed_limit, 0) AS speed_limit, forward.mode, COALESCE(forward.wg_path_id, 0) AS wg_path_id, COALESCE(forward.wg_rule_type, '') AS wg_rule_type, COALESCE(forward.source_cidr, '') AS source_cidr, COALESCE(forward.target_cidr, '') AS target_cidr, COALESCE(forward.snat_enabled, true) AS snat_enabled, COALESCE(path_tunnel.name, '') AS path_name, COALESCE(forward.cn_blocked, false) AS cn_blocked, COALESCE(forward.cn_blocked_reason, '') AS cn_blocked_reason").
+		Select("forward.landing_node_id, forward.id, forward.user_id, forward.user_name, COALESCE(user.name, '') AS user_remark, forward.name, forward.tunnel_id, COALESCE(tunnel.name, '') AS tunnel_name, COALESCE(tunnel.traffic_ratio, 1.0) AS traffic_ratio, forward.remote_addr, COALESCE(forward.strategy, 'fifo') AS strategy, forward.in_flow, forward.out_flow, forward.created_time, forward.status, forward.inx, forward.speed_id, COALESCE(forward.max_connections, 0) AS max_connections, COALESCE(forward.max_client_ips, 0) AS max_client_ips, COALESCE(forward.traffic_limit, 0) AS traffic_limit, forward.expiry_time, COALESCE(forward.speed_limit_enabled, false) AS speed_limit_enabled, COALESCE(forward.speed_limit, 0) AS speed_limit, forward.mode, COALESCE(forward.wg_path_id, 0) AS wg_path_id, COALESCE(forward.wg_rule_type, '') AS wg_rule_type, COALESCE(forward.source_cidr, '') AS source_cidr, COALESCE(forward.target_cidr, '') AS target_cidr, COALESCE(forward.snat_enabled, true) AS snat_enabled, COALESCE(path_tunnel.name, '') AS path_name, COALESCE(forward.cn_blocked, false) AS cn_blocked, COALESCE(forward.cn_blocked_reason, '') AS cn_blocked_reason").
 		Joins("LEFT JOIN tunnel ON tunnel.id = forward.tunnel_id").
 		Joins("LEFT JOIN path_tunnel ON path_tunnel.id = forward.wg_path_id").
 		Joins("LEFT JOIN user ON user.id = forward.user_id").
@@ -1365,7 +1368,8 @@ func (r *Repository) ListForwardsPage(page, pageSize int) ([]map[string]interfac
 			return nil, err
 		}
 		item := map[string]interface{}{
-			"id": row.ID, "userId": row.UserID, "userName": row.UserName, "userRemark": row.UserRemark,
+			"landingNodeId": row.LandingNodeID,
+			"id":            row.ID, "userId": row.UserID, "userName": row.UserName, "userRemark": row.UserRemark,
 			"name": row.Name, "tunnelId": row.TunnelID, "tunnelName": row.TunnelName,
 			"tunnelTrafficRatio": row.TrafficRatio,
 			"inIp":               nullableForwardIngress(inIP), "inPort": nullableInt64(inPort),
