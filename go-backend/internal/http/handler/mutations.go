@@ -261,6 +261,8 @@ func (h *Handler) userUpdate(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Capture automatic pauses before the legacy bulk status update changes active rules.
+	h.reconcileLandingPolicy(time.Now())
 	h.repo.PropagateUserFlowToTunnels(id, flow, num, expTime, flowResetTime, status)
 	// 根据用户状态同步 Forward 规则状态
 	_ = h.repo.UpdateUserForwardsStatus(id, status, now)
@@ -3636,6 +3638,7 @@ func (h *Handler) forwardBatchPause(w http.ResponseWriter, r *http.Request) {
 			f++
 			failures = appendBatchFailure(failures, id, forward.Name, err)
 		} else {
+			_ = h.repo.ClearForwardLandingPause(id)
 			s++
 		}
 	}
@@ -3662,6 +3665,11 @@ func (h *Handler) forwardBatchResume(w http.ResponseWriter, r *http.Request) {
 		if accessErr != nil {
 			f++
 			failures = appendBatchFailure(failures, id, "", accessErr)
+			continue
+		}
+		if err := h.repo.LandingForwardBlockReason(id); err != nil {
+			f++
+			failures = appendBatchFailure(failures, id, forward.Name, err)
 			continue
 		}
 		if err := h.checkForwardRecordLanding(r.Context(), forward); err != nil {

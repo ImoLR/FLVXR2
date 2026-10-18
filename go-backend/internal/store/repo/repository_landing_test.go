@@ -237,3 +237,41 @@ func TestLandingRenewalRevisionAndCapabilityDowngrade(t *testing.T) {
 		})
 	}
 }
+
+func TestLandingTunnelSwitchRematchesTarget(t *testing.T) {
+	for _, dialect := range []string{"sqlite", "postgres"} {
+		t.Run(dialect, func(t *testing.T) {
+			r, s := landingRepoFixture(t, dialect)
+			n, err := r.CreateLandingNode(501, s.ID, "target", "ss2022", false)
+			if err != nil {
+				t.Fatal(err)
+			}
+			addr := "203.0.113.1:" + itoaLanding(n.Port)
+			orphanSeed(t, r, &model.Tunnel{ID: 801, Name: "old"}, &model.Tunnel{ID: 802, Name: "new"}, &model.Node{ID: 603, Name: "other-exit", ServerIP: "203.0.113.3"}, &model.ChainTunnel{TunnelID: 801, NodeID: 601, ChainType: "3"}, &model.ChainTunnel{TunnelID: 802, NodeID: 603, ChainType: "3"}, &model.Forward{ID: 901, UserID: 501, TunnelID: 801, LandingNodeID: n.ID, RemoteAddr: "127.0.0.1:" + itoaLanding(n.Port)}, &model.Forward{ID: 902, UserID: 501, TunnelID: 801, RemoteAddr: addr}, &model.Forward{ID: 903, UserID: 501, TunnelID: 801, RemoteAddr: addr + ",1.1.1.1:443"})
+			if err := r.UpdateForwardTunnel(901, 802, 1); err != nil {
+				t.Fatal(err)
+			}
+			var f model.Forward
+			r.db.First(&f, 901)
+			if f.LandingNodeID != 0 {
+				t.Fatal("loopback exemption survived unrelated exit")
+			}
+			if err := r.UpdateForwardTunnel(902, 802, 1); err != nil {
+				t.Fatal(err)
+			}
+			f = model.Forward{}
+			r.db.First(&f, 902)
+			if f.LandingNodeID != n.ID {
+				t.Fatal("manual public target not matched on switch")
+			}
+			if err := r.UpdateForwardTunnel(903, 802, 1); err == nil {
+				t.Fatal("mixed targets accepted on tunnel switch")
+			}
+			f = model.Forward{}
+			r.db.First(&f, 903)
+			if f.TunnelID != 801 {
+				t.Fatal("rejected switch changed tunnel")
+			}
+		})
+	}
+}

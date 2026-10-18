@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"go-backend/internal/http/response"
@@ -404,7 +405,7 @@ func (h *Handler) resolveNativeLandingTarget(req map[string]interface{}, userID,
 		if err != nil || s == nil {
 			return "", 0, createdID, errors.New("落地服务器不存在")
 		}
-		remoteAddr = net.JoinHostPort(s.PublicHost, strconv.Itoa(n.Port))
+		remoteAddr = net.JoinHostPort(strings.Trim(s.PublicHost, "[]"), strconv.Itoa(n.Port))
 		return remoteAddr, landingID, createdID, nil
 	}
 	id, err := h.repo.MatchLandingTarget(userID, tunnelID, remoteAddr)

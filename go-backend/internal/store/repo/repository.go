@@ -3539,7 +3539,7 @@ func (r *Repository) UpdateUserForwardsStatus(userID int64, status int, now int6
 	}
 	query := r.db.Model(&model.Forward{}).Where("user_id = ?", userID)
 	if status == 1 {
-		query = query.Where("cn_blocked = ?", false)
+		query = query.Where("cn_blocked = ?", false).Where("landing_node_id = 0 OR status = 1 OR landing_auto_paused = ?", true)
 	}
 	return query.Updates(map[string]interface{}{
 		"status":       status,

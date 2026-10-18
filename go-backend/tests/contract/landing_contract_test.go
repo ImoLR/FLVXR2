@@ -17,6 +17,7 @@ import (
 	httpserver "go-backend/internal/http"
 	"go-backend/internal/http/handler"
 	"go-backend/internal/http/response"
+	"go-backend/internal/security"
 	"go-backend/internal/store/model"
 	"go-backend/internal/store/repo"
 )
@@ -135,6 +136,133 @@ func TestLandingPermissionsContract(t *testing.T) {
 			}
 			if out := call("node/delete", a, map[string]interface{}{"id": id}); out.Code != 0 {
 				t.Fatalf("own delete %+v", out)
+			}
+		})
+	}
+}
+
+func TestLandingBillingHTTPContract(t *testing.T) {
+	const gb int64 = 1 << 30
+	for _, dialect := range []string{"sqlite", "postgres"} {
+		t.Run(dialect, func(t *testing.T) {
+			for _, tc := range []struct {
+				name                      string
+				tunnelRatio, landingRatio float64
+				via, own                  bool
+				want                      int64
+			}{{"ratio1-via", 1, 1, true, true, 2 * gb}, {"ratio1-direct", 1, 1, false, true, 2 * gb}, {"premium-tunnel", 3, 1, true, true, 6 * gb}, {"premium-landing", 1, 3, true, true, 6 * gb}, {"foreign-landing", 1, 1, true, false, 2 * gb}} {
+				t.Run(tc.name, func(t *testing.T) {
+					r := landingContractRepo(t, dialect)
+					owner := int64(501)
+					landingID := int64(1)
+					if !tc.own {
+						owner = 502
+						landingID = 0
+					}
+					now := time.Now().UnixMilli()
+					rows := []interface{}{&model.User{ID: 501, User: "billing-a", RoleID: 1, Status: 1, Flow: 99999, ExpTime: now + 86400000, FlowResetTime: 1}, &model.User{ID: 502, User: "billing-b", RoleID: 1, Status: 1, Flow: 99999, ExpTime: now + 86400000, FlowResetTime: 1}, &model.Node{ID: 601, Name: "landing", Secret: "landing-contract-secret", ServerIP: "203.0.113.1", Port: "10000-19999"}, &model.Node{ID: 602, Name: "entry", Secret: "entry-contract-secret", ServerIP: "203.0.113.2", Port: "10000-19999"}, &model.Tunnel{ID: 801, Name: "billing", Status: 1, Type: 2, Flow: 2, TrafficRatio: tc.tunnelRatio}, &model.UserTunnel{ID: 701, UserID: 501, TunnelID: 801, Status: 1, Flow: 99999, ExpTime: now + 86400000}, &model.Forward{ID: 901, UserID: 501, UserName: "billing-a", TunnelID: 801, Status: 1, LandingNodeID: landingID, RemoteAddr: "203.0.113.1:30001"}, &model.ForwardPort{ForwardID: 901, NodeID: 602, Port: 12000}, &model.ChainTunnel{TunnelID: 801, NodeID: 602, ChainType: "1"}, &model.ChainTunnel{TunnelID: 801, NodeID: 601, ChainType: "3"}, &model.LandingServer{ID: 1, Source: "native", NodeID: 601, Name: "landing", PublicHost: "203.0.113.1", FlowType: 2, TrafficRatio: tc.landingRatio, Status: "active"}, &model.LandingNode{ID: 1, UserID: owner, LandingServerID: 1, Name: "landing", Protocol: "ss2022", Port: 30001, InboundTag: "flvxl-1", Status: "active"}, &model.UserGroup{ID: 703, Name: "billing-grant", Status: 1}, &model.UserGroupUser{UserID: owner, UserGroupID: 703}, &model.LandingServerUserGroup{LandingServerID: 1, UserGroupID: 703}}
+					for _, row := range rows {
+						if err := r.DB().Create(row).Error; err != nil {
+							t.Fatal(err)
+						}
+					}
+					h := handler.New(r, "billing-contract", "test")
+					router := httpserver.NewRouter(h, "billing-contract", r)
+					upload := func(secret string, body interface{}, repeat int) {
+						t.Helper()
+						plain, _ := json.Marshal(body)
+						cipher, err := security.NewAESCrypto(secret)
+						if err != nil {
+							t.Fatal(err)
+						}
+						encrypted, err := cipher.Encrypt(plain)
+						if err != nil {
+							t.Fatal(err)
+						}
+						raw, _ := json.Marshal(map[string]interface{}{"encrypted": true, "data": encrypted})
+						for i := 0; i < repeat; i++ {
+							req := httptest.NewRequest(http.MethodPost, "/flow/upload?secret="+secret, bytes.NewReader(raw))
+							w := httptest.NewRecorder()
+							router.ServeHTTP(w, req)
+							if w.Code != 200 || w.Body.String() != "ok" {
+								t.Fatalf("flow upload %d %s", w.Code, w.Body.String())
+							}
+						}
+					}
+					if tc.via {
+						upload("entry-contract-secret", []map[string]interface{}{{"n": "901_501_701_tcp", "d": gb / 4, "u": 3 * gb / 4}}, 2)
+					}
+					counter := map[string]interface{}{"id": 1, "inbound_tag": "flvxl-1", "epoch": "100", "up_bytes": gb / 4, "down_bytes": 3 * gb / 4}
+					upload("landing-contract-secret", map[string]interface{}{"flows": []interface{}{}, "landing_counters": []interface{}{counter}}, 2)
+					// A different encrypted envelope carrying the same cumulative snapshot is also idempotent.
+					upload("landing-contract-secret", map[string]interface{}{"flows": []interface{}{}, "landing_counters": []interface{}{counter}}, 1)
+					var user model.User
+					if err := r.DB().First(&user, 501).Error; err != nil {
+						t.Fatal(err)
+					}
+					if user.InFlow+user.OutFlow != tc.want {
+						t.Fatalf("billed=%d want=%d", user.InFlow+user.OutFlow, tc.want)
+					}
+					var quota model.UserQuota
+					if err := r.DB().First(&quota, "user_id = ?", 501).Error; err != nil {
+						t.Fatal(err)
+					}
+					if quota.MonthlyUsedBytes != tc.want {
+						t.Fatalf("monthly=%d want=%d", quota.MonthlyUsedBytes, tc.want)
+					}
+					if tc.own {
+						var q model.UserServerQuota
+						if err := r.DB().First(&q, "user_id = ? AND server_kind = ? AND server_ref_id = ?", 501, "node", 601).Error; err != nil {
+							t.Fatal(err)
+						}
+						if q.UsedIn+q.UsedOut != tc.want {
+							t.Fatalf("landing-server=%d want=%d", q.UsedIn+q.UsedOut, tc.want)
+						}
+					}
+					if tc.via {
+						var q model.UserServerQuota
+						if err := r.DB().First(&q, "user_id = ? AND server_kind = ? AND server_ref_id = ?", 501, "node", 602).Error; err != nil {
+							t.Fatal(err)
+						}
+						if q.UsedIn+q.UsedOut != tc.want {
+							t.Fatalf("entry-server=%d want=%d", q.UsedIn+q.UsedOut, tc.want)
+						}
+					}
+				})
+			}
+		})
+	}
+}
+
+func TestLandingMixedForwardSaveContract(t *testing.T) {
+	for _, dialect := range []string{"sqlite", "postgres"} {
+		t.Run(dialect, func(t *testing.T) {
+			r := landingContractRepo(t, dialect)
+			now := time.Now().UnixMilli()
+			for _, row := range []interface{}{&model.User{ID: 501, User: "mixed-user", RoleID: 1, Status: 1, Flow: 99999, Num: 100, ExpTime: now + 86400000}, &model.Node{ID: 601, Name: "landing", ServerIP: "203.0.113.1", Port: "10000-19999"}, &model.Node{ID: 602, Name: "entry", ServerIP: "203.0.113.2", Port: "10000-19999"}, &model.Tunnel{ID: 801, Name: "mixed-tunnel", Type: 2, Status: 1, Flow: 2, TrafficRatio: 1}, &model.ChainTunnel{TunnelID: 801, NodeID: 602, ChainType: "1"}, &model.ChainTunnel{TunnelID: 801, NodeID: 601, ChainType: "3"}, &model.UserTunnel{ID: 701, UserID: 501, TunnelID: 801, Status: 1, Flow: 99999, Num: 100, ExpTime: now + 86400000}, &model.LandingServer{ID: 1, NodeID: 601, Source: "native", Name: "landing", PublicHost: "203.0.113.1", Status: "active"}, &model.LandingNode{ID: 1, UserID: 501, LandingServerID: 1, Port: 30001, Protocol: "ss2022", Status: "active"}, &model.Forward{ID: 901, UserID: 501, TunnelID: 801, Name: "existing", RemoteAddr: "1.1.1.1:443", Status: 1}, &model.ForwardPort{ForwardID: 901, NodeID: 602, Port: 12000}} {
+				if err := r.DB().Create(row).Error; err != nil {
+					t.Fatal(err)
+				}
+			}
+			h := handler.New(r, "mixed-contract", "test")
+			router := httpserver.NewRouter(h, "mixed-contract", r)
+			token, _ := auth.GenerateToken(501, "mixed-user", 1, "mixed-contract")
+			for _, path := range []string{"create", "update"} {
+				raw, _ := json.Marshal(map[string]interface{}{"id": 901, "tunnelId": 801, "name": "mixed", "remoteAddr": "203.0.113.1:30001,1.1.1.1:443", "inPort": 12000})
+				req := httptest.NewRequest(http.MethodPost, "/api/v1/forward/"+path, bytes.NewReader(raw))
+				req.Header.Set("Authorization", token)
+				w := httptest.NewRecorder()
+				router.ServeHTTP(w, req)
+				var out response.R
+				_ = json.Unmarshal(w.Body.Bytes(), &out)
+				if out.Code == 0 || !strings.Contains(out.Msg, "只能设置一个目标") {
+					t.Fatalf("mixed %s result %+v", path, out)
+				}
+			}
+			var f model.Forward
+			r.DB().First(&f, 901)
+			if f.RemoteAddr != "1.1.1.1:443" {
+				t.Fatal("rejected update changed saved target")
 			}
 		})
 	}
