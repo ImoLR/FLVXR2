@@ -129,7 +129,7 @@
 - [x] 规则：目标可选我的落地节点 / 落地服务器（自动建节点）；混合目标校验；手填匹配。
 - [x] 节点程序：Core 下载校验安装、systemd 单元、期望状态热更新、连接限制、流量上报、重启恢复。
 - [ ] 前端（只加不改）+ H5；隐藏旧部署入口。
-- [ ] 单元 / 契约测试（SQLite + PG），全量 `go test` 失败集合不超过基线。
+- [x] 单元 / 契约测试（SQLite + PG），全量 `go test` 失败集合不超过基线。
 - [ ] 本机端到端（真实 mmwxc-core + 客户端）：SS2022 与 VLESS Reality Vision 直连与经规则、计数与计费、限额暂停/恢复、连接限制、热添加不断已有连接、到期与恢复。
 - [ ] 截图集（电脑 + H5，含原有页面前后对比）。
 - [ ] 推送分支（不打 tag、不发布、不动生产/节点），中文总结。
@@ -165,4 +165,4 @@
 
 本机 netns 初轮数据平面：SS2022 / VLESS Reality Vision 各自直连、经规则共四路，每路传输 1,048,576 字节内容。落地入站原始总计 4,201,886 字节（含协议开销），双向倍率 1 用户入账 8,403,772 字节，用户日/月及服务器额度完全一致，无规则重复入账。四路均拒绝可直接访问的本机私网目的地址。证据 `e2e/transfer-results.json`、`e2e/billing-initial.json`。
 
-最终后端定向测试：仓储（15.417s）与 handler/contract 均通过；SQLite/PostgreSQL 全覆盖，含最终删除计数入账/失败保留、批量换隧道授权复核、日额度恢复不能绕过服务器限额。全量失败集合对比正在执行。真实 E2E 热更新、到期断开/原链接恢复、节点和服务器连接上限、节点/服务器流量暂停恢复已通过，见 `e2e/lifecycle-results.json`、`e2e/server-quota-results.json`。
+最终后端定向测试：仓储（15.417s）与 handler/contract 均通过；SQLite/PostgreSQL 全覆盖，含最终删除计数入账/失败保留、批量换隧道授权复核、日额度恢复不能绕过服务器限额。最终全量 `go test -p 1 ./...`（同时启用隔离 PG）仍为原 15 项失败，集合与基线完全一致、无新增；详见 `backend-full-final.log`、`final-failure-comparison.json`。真实 E2E 热更新、到期断开/原链接恢复、节点和服务器连接上限、节点/服务器流量暂停恢复已通过，见 `e2e/lifecycle-results.json`、`e2e/server-quota-results.json`。
