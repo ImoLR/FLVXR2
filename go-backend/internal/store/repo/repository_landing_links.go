@@ -129,11 +129,20 @@ func matchLandingTarget(db *gorm.DB, userID, tunnelID int64, remoteAddr string) 
 			}
 			var s model.LandingServer
 			var node model.Node
-			if db.First(&s, ln.LandingServerID).Error != nil || db.First(&node, s.NodeID).Error != nil {
+			if db.First(&s, ln.LandingServerID).Error != nil || (s.Source == "native" && db.First(&node, s.NodeID).Error != nil) {
 				continue
 			}
-			matched := landingNodeHosts(s, node)[host]
-			if !matched && (host == "127.0.0.1" || host == "::1") {
+			hosts := landingNodeHosts(s, node)
+			if s.Source == "shared" {
+				c := SharedLandingCaps(&s)
+				for _, h := range []string{c.Hosts.IPv4, c.Hosts.IPv6, c.Hosts.Domain} {
+					if h != "" {
+						hosts[normalizeLandingHost(h)] = true
+					}
+				}
+			}
+			matched := hosts[host]
+			if s.Source == "native" && !matched && (host == "127.0.0.1" || host == "::1") {
 				var count int64
 				err := db.Model(&model.ChainTunnel{}).Where("tunnel_id = ? AND node_id = ? AND chain_type = ?", tunnelID, s.NodeID, "3").Count(&count).Error
 				if err != nil {

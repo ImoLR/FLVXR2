@@ -214,8 +214,16 @@ func (r *Repository) Close() error {
 }
 
 func autoMigrateAll(db *gorm.DB) error {
+	// Phase one used an unconditional node_id unique index. Shared rows have
+	// node_id=0; keep uniqueness only for real native nodes, on both dialects.
+	if db.Migrator().HasIndex(&model.LandingServer{}, "idx_landing_server_node_id") {
+		if err := db.Migrator().DropIndex(&model.LandingServer{}, "idx_landing_server_node_id"); err != nil {
+			return err
+		}
+	}
+
 	models := []interface{}{
-		&model.LandingServer{}, &model.LandingServerUserGroup{}, &model.LandingNode{}, &model.LandingUserSetting{}, &model.UserServerQuota{},
+		&model.LandingIntegration{}, &model.LandingServer{}, &model.LandingServerUserGroup{}, &model.LandingNode{}, &model.LandingUserSetting{}, &model.UserServerQuota{},
 		&model.User{},
 		&model.UserQuota{},
 		&model.UserQuotaHistory{},

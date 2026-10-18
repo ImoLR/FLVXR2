@@ -23,51 +23,67 @@ func seedHandlerLanding(t *testing.T, e *flowTestEnv, owner int64, mode int, rat
 
 func TestLandingBillingWorkedExamples(t *testing.T) {
 	const gb int64 = 1 << 30
-	for _, tc := range []struct {
-		name           string
-		tRatio, lRatio float64
-		owner          int64
-		rule           bool
-		want           int64
-	}{{"double ratio1 via rule billed once", 1, 1, 2, true, 2 * gb}, {"direct double ratio1", 1, 1, 2, false, 2 * gb}, {"premium tunnel max T L", 3, 1, 2, true, 6 * gb}, {"premium landing max T L", 1, 3, 2, true, 6 * gb}, {"other owner landing no exemption", 1, 1, 3, true, 2 * gb}} {
-		t.Run(tc.name, func(t *testing.T) {
-			e := newFlowTestEnv(t)
-			e.addUser(2)
-			if tc.owner != 2 {
-				e.addUser(tc.owner)
-			}
-			e.addTunnel(1, 2, tc.tRatio)
-			e.addUserTunnel(10, 2, 1)
-			e.addForward(20, 2, 1)
-			seedHandlerLanding(t, e, tc.owner, 2, tc.lRatio)
-			e.exec("UPDATE forward SET landing_node_id=1 WHERE id=20")
-			var items []flowItem
-			if tc.rule {
-				items = []flowItem{{N: "20_2_10_tcp", D: gb / 4, U: gb * 3 / 4}}
-			}
-			counter := repo.LandingCounter{ID: 1, NodeID: 2, InboundTag: "flvxl-1", Epoch: "100", UpBytes: gb / 4, DownBytes: gb * 3 / 4}
-			// Separate real-agent reporters: entry upload followed by landing upload.
-			if _, err := e.h.commitFlowItems(1, items); err != nil {
-				t.Fatal(err)
-			}
-			if _, err := e.h.commitFlowWithLanding(2, nil, []repo.LandingCounter{counter}); err != nil {
-				t.Fatal(err)
-			}
-			e.expectFlows("user", 2, tc.want/4, tc.want*3/4)
-			if got := e.monthlyQuotaUsed(2); got != tc.want {
-				t.Fatalf("quota got %d want %d", got, tc.want)
-			}
-			if tc.rule {
-				e.expectFlows("forward", 20, int64(float64(gb/4)*tc.tRatio)*2, int64(float64(gb*3/4)*tc.tRatio)*2)
-			}
-			if tc.owner == 2 {
-				var q model.UserServerQuota
-				e.r.DB().Where("user_id=2 AND server_kind='node' AND server_ref_id=2").First(&q)
-				if q.UsedIn+q.UsedOut != tc.want {
-					t.Fatalf("landing host quota %+v want %d", q, tc.want)
+	for _, source := range []string{"native", "shared"} {
+		for _, tc := range []struct {
+			name           string
+			tRatio, lRatio float64
+			owner          int64
+			rule           bool
+			want           int64
+		}{{"double ratio1 via rule billed once", 1, 1, 2, true, 2 * gb}, {"direct double ratio1", 1, 1, 2, false, 2 * gb}, {"premium tunnel max T L", 3, 1, 2, true, 6 * gb}, {"premium landing max T L", 1, 3, 2, true, 6 * gb}, {"other owner landing no exemption", 1, 1, 3, true, 2 * gb}} {
+			t.Run(source+"/"+tc.name, func(t *testing.T) {
+				e := newFlowTestEnv(t)
+				e.addUser(2)
+				if tc.owner != 2 {
+					e.addUser(tc.owner)
 				}
-			}
-		})
+				e.addTunnel(1, 2, tc.tRatio)
+				e.addUserTunnel(10, 2, 1)
+				e.addForward(20, 2, 1)
+				seedHandlerLanding(t, e, tc.owner, 2, tc.lRatio)
+				if source == "shared" {
+					e.exec("UPDATE landing_server SET source='shared',node_id=0,remote_server_id=7 WHERE id=1")
+				}
+				e.exec("UPDATE forward SET landing_node_id=1 WHERE id=20")
+				var items []flowItem
+				if tc.rule {
+					items = []flowItem{{N: "20_2_10_tcp", D: gb / 4, U: gb * 3 / 4}}
+				}
+				counter := repo.LandingCounter{ID: 1, NodeID: 2, InboundTag: "flvxl-1", Epoch: "100", UpBytes: gb / 4, DownBytes: gb * 3 / 4}
+				reporter := int64(2)
+				if source == "shared" {
+					reporter = 0
+					counter.NodeID = 0
+					counter.ServerID = 1
+					counter.CollectedAt = time.Now().UnixMilli()
+				}
+				// Separate real-agent reporters: entry upload followed by landing upload.
+				if _, err := e.h.commitFlowItems(1, items); err != nil {
+					t.Fatal(err)
+				}
+				if _, err := e.h.commitFlowWithLanding(reporter, nil, []repo.LandingCounter{counter}); err != nil {
+					t.Fatal(err)
+				}
+				e.expectFlows("user", 2, tc.want/4, tc.want*3/4)
+				if got := e.monthlyQuotaUsed(2); got != tc.want {
+					t.Fatalf("quota got %d want %d", got, tc.want)
+				}
+				if tc.rule {
+					e.expectFlows("forward", 20, int64(float64(gb/4)*tc.tRatio)*2, int64(float64(gb*3/4)*tc.tRatio)*2)
+				}
+				if tc.owner == 2 {
+					var q model.UserServerQuota
+					kind, ref := "node", int64(2)
+					if source == "shared" {
+						kind, ref = "landing", 1
+					}
+					e.r.DB().Where("user_id=2 AND server_kind=? AND server_ref_id=?", kind, ref).First(&q)
+					if q.UsedIn+q.UsedOut != tc.want {
+						t.Fatalf("landing host quota %+v want %d", q, tc.want)
+					}
+				}
+			})
+		}
 	}
 }
 

@@ -28,10 +28,11 @@ func (h *Handler) StartBackgroundJobs() {
 	ctx, cancel := context.WithCancel(context.Background())
 	h.jobsCancel = cancel
 	h.jobsStarted = true
-	h.jobsWG.Add(13)
+	h.jobsWG.Add(14)
 	h.jobsMu.Unlock()
 
 	go h.runLandingReconcileLoop(ctx)
+	go h.runSharedLandingLoop(ctx)
 	go h.runTunnelRedeployRetryLoop(ctx)
 	go h.runNodeRegionBackfill(ctx)
 	go h.runHourlyStatsLoop(ctx)

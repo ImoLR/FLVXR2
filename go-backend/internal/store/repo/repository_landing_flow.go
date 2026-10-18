@@ -22,6 +22,8 @@ type LandingCounter struct {
 	DownBytes   int64  `json:"down_bytes"`
 	Connections int    `json:"connections"`
 	NodeID      int64  `json:"-"`
+	ServerID    int64  `json:"-"` // Set only by the authenticated Custom poller.
+	CollectedAt int64  `json:"-"`
 }
 
 type ServerQuotaKey struct {
@@ -89,11 +91,11 @@ func LandingPeriodKey(resetDay int64, now time.Time) int64 {
 func applyLandingCountersTx(tx *gorm.DB, batch *FlowBatch, now time.Time) error {
 	sort.SliceStable(batch.LandingCounters, func(i, j int) bool { return batch.LandingCounters[i].ID < batch.LandingCounters[j].ID })
 	for _, c := range batch.LandingCounters {
-		if c.ID <= 0 || c.NodeID <= 0 || c.UpBytes < 0 || c.DownBytes < 0 || c.Connections < 0 {
+		if c.ID <= 0 || (c.NodeID <= 0 && c.ServerID <= 0) || c.UpBytes < 0 || c.DownBytes < 0 || c.Connections < 0 {
 			return errors.New("invalid landing counter")
 		}
 		epoch, err := strconv.ParseInt(c.Epoch, 10, 64)
-		if err != nil || epoch <= 0 {
+		if c.ServerID == 0 && (err != nil || epoch <= 0) {
 			return errors.New("invalid landing epoch")
 		}
 		var n model.LandingNode
@@ -108,21 +110,41 @@ func applyLandingCountersTx(tx *gorm.DB, batch *FlowBatch, now time.Time) error 
 		if err = tx.First(&s, n.LandingServerID).Error; err != nil {
 			return err
 		}
-		if s.Source != "native" || s.NodeID != c.NodeID || n.InboundTag != c.InboundTag {
-			return errors.New("landing counter ownership mismatch")
-		}
-		oldEpoch, _ := strconv.ParseInt(n.CounterEpoch, 10, 64)
-		if epoch < oldEpoch {
-			continue
-		} // A delayed upload from an old Core must not re-open its epoch.
 		up, down := c.UpBytes, c.DownBytes
-		if epoch == oldEpoch {
-			// StatsService is non-resetting; lower values within one epoch are stale snapshots.
-			if up < n.LastSeenUp || down < n.LastSeenDown {
+		if c.ServerID > 0 {
+			if s.Source != "shared" || s.ID != c.ServerID || c.NodeID != 0 || n.InboundTag != c.InboundTag {
+				return errors.New("shared landing counter ownership mismatch")
+			}
+			if c.CollectedAt <= 0 {
+				return errors.New("invalid shared landing collection time")
+			}
+			if c.CollectedAt <= n.LastCounterAt {
 				continue
 			}
-			up -= n.LastSeenUp
-			down -= n.LastSeenDown
+			// Custom persists lifetime counters across Core epochs. A decrease in
+			// either direction is a reset of that direction, not a new Core bill.
+			if up >= n.LastSeenUp {
+				up -= n.LastSeenUp
+			}
+			if down >= n.LastSeenDown {
+				down -= n.LastSeenDown
+			}
+			n.LastCounterAt = c.CollectedAt
+		} else {
+			if s.Source != "native" || s.NodeID != c.NodeID || n.InboundTag != c.InboundTag {
+				return errors.New("landing counter ownership mismatch")
+			}
+			oldEpoch, _ := strconv.ParseInt(n.CounterEpoch, 10, 64)
+			if epoch < oldEpoch {
+				continue
+			}
+			if epoch == oldEpoch {
+				if up < n.LastSeenUp || down < n.LastSeenDown {
+					continue
+				}
+				up -= n.LastSeenUp
+				down -= n.LastSeenDown
+			}
 		}
 		var user model.User
 		if err = tx.First(&user, n.UserID).Error; errors.Is(err, gorm.ErrRecordNotFound) {
@@ -146,7 +168,7 @@ func applyLandingCountersTx(tx *gorm.DB, batch *FlowBatch, now time.Time) error 
 		n.LastSeenDown = c.DownBytes
 		n.CounterEpoch = c.Epoch
 		n.Connections = c.Connections
-		if err = tx.Model(&n).Updates(map[string]interface{}{"up_bytes": n.UpBytes, "down_bytes": n.DownBytes, "billed_in": n.BilledIn, "billed_out": n.BilledOut, "period_key": period, "last_seen_up": n.LastSeenUp, "last_seen_down": n.LastSeenDown, "counter_epoch": c.Epoch, "connections": c.Connections}).Error; err != nil {
+		if err = tx.Model(&n).Updates(map[string]interface{}{"up_bytes": n.UpBytes, "down_bytes": n.DownBytes, "billed_in": n.BilledIn, "billed_out": n.BilledOut, "period_key": period, "last_seen_up": n.LastSeenUp, "last_seen_down": n.LastSeenDown, "counter_epoch": c.Epoch, "connections": c.Connections, "last_counter_at": n.LastCounterAt}).Error; err != nil {
 			return err
 		}
 		d := batch.Users[n.UserID]

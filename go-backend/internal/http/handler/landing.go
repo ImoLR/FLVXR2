@@ -15,7 +15,7 @@ import (
 )
 
 func (h *Handler) registerLanding(mux *http.ServeMux) {
-	for path, fn := range map[string]http.HandlerFunc{"server/enable": h.landingServerEnable, "server/list": h.landingServerList, "server/save": h.landingServerSave, "node/list": h.landingNodeList, "node/create": h.landingNodeCreate, "node/update": h.landingNodeUpdate, "node/delete": h.landingNodeDelete, "node/links": h.landingNodeLinks, "user/get": h.landingUserGet, "user/save": h.landingUserSave} {
+	for path, fn := range map[string]http.HandlerFunc{"integration/get": h.landingIntegrationGet, "integration/save": h.landingIntegrationSave, "integration/test": h.landingIntegrationTest, "integration/sync": h.landingIntegrationSync, "server/enable": h.landingServerEnable, "server/list": h.landingServerList, "server/save": h.landingServerSave, "node/list": h.landingNodeList, "node/create": h.landingNodeCreate, "node/update": h.landingNodeUpdate, "node/delete": h.landingNodeDelete, "node/links": h.landingNodeLinks, "user/get": h.landingUserGet, "user/save": h.landingUserSave} {
 		mux.HandleFunc("/api/v1/landing/"+path, func(w http.ResponseWriter, r *http.Request) {
 			if r.Method != http.MethodPost {
 				response.WriteJSON(w, response.Err(405, "仅支持 POST"))
@@ -52,9 +52,17 @@ func (h *Handler) landingServerView(s model.LandingServer, admin bool) map[strin
 	if admin {
 		v["userGroupIds"] = groups
 	}
-	node, _ := h.repo.GetNodeByID(s.NodeID)
-	v["online"] = node != nil && node.Status == 1
-	v["landingSupported"] = node != nil && node.LandingCapable
+	if s.Source == "shared" {
+		caps := repo.SharedLandingCaps(&s)
+		v["sharedCaps"] = caps
+		v["online"] = caps.Core.State == "running" && s.SharedSyncError == "" && s.SharedLastSyncAt > time.Now().Add(-2*time.Minute).UnixMilli()
+		v["landingSupported"] = true
+		v["sharedAvailable"] = repo.SharedLandingAvailable(&s)
+	} else {
+		node, _ := h.repo.GetNodeByID(s.NodeID)
+		v["online"] = node != nil && node.Status == 1
+		v["landingSupported"] = node != nil && node.LandingCapable
+	}
 	all, _ := h.repo.ListLandingNodes(0, true)
 	count, connections := 0, 0
 	billed := int64(0)
@@ -83,6 +91,22 @@ func (h *Handler) landingNodeView(n model.LandingNode) map[string]interface{} {
 		}
 	}
 	if s != nil {
+		if s.Source == "shared" {
+			if current, err := h.repo.GetLandingNode(n.ID); err == nil && current != nil {
+				n = *current
+				v = landingMap(n)
+			}
+			v["sharedSyncError"] = s.SharedSyncError
+			if n.Status == "active" && n.SyncError != "" {
+				v["status"] = "error"
+			}
+			if n.Status == "active" && n.SyncError == "" && n.RemoteState != "active" {
+				v["status"] = "pending"
+			}
+			if caps := repo.SharedLandingCaps(s); caps.ShareUntil != nil {
+				minExpiry(*caps.ShareUntil)
+			}
+		}
 		flow = s.FlowType
 		ratio = s.TrafficRatio
 		v["serverName"] = s.Name
@@ -118,6 +142,10 @@ func (h *Handler) landingServerEnable(w http.ResponseWriter, r *http.Request) {
 		NodeID int64 `json:"nodeId"`
 	}
 	if err := landingDecode(r, &req); err != nil {
+		landingError(w, err)
+		return
+	}
+	if err := h.checkSharedNativeConflict(r.Context(), req.NodeID); err != nil {
 		landingError(w, err)
 		return
 	}
@@ -288,6 +316,10 @@ func (h *Handler) landingNodeDelete(w http.ResponseWriter, r *http.Request) {
 	n, err := h.landingOwnedNode(r, req.ID)
 	if err != nil {
 		landingError(w, err)
+		return
+	}
+	if server, e := h.repo.GetLandingServer(n.LandingServerID); e == nil && server != nil && server.Source == "shared" {
+		h.deleteSharedLandingNode(w, r, n)
 		return
 	}
 	n, err = h.repo.PrepareLandingNodeDeletion(n.ID)

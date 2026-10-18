@@ -67,6 +67,8 @@ type Handler struct {
 	flowEnforceMu   sync.Mutex
 	landingPolicyMu sync.Mutex
 	landingSyncMu   sync.Mutex
+	sharedLandingMu sync.Mutex
+	sharedLanding   *sharedLandingState
 	// flowEnforceWG tracks enforcement started after a /flow/upload answer (tests wait on it).
 	flowEnforceWG sync.WaitGroup
 	pathLatencyMu sync.RWMutex

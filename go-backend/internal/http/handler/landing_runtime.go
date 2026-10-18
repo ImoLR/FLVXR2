@@ -31,7 +31,9 @@ func (h *Handler) runLandingReconcileLoop(ctx context.Context) {
 						return
 					default:
 					}
-					h.syncLandingServer(s.ID)
+					if s.Source == "native" {
+						h.syncLandingServer(s.ID)
+					}
 				}
 			}
 			timer.Reset(time.Minute)
@@ -101,6 +103,9 @@ type landingSyncSnapshot struct {
 func (h *Handler) syncLandingServer(serverID int64) (*landingSyncSnapshot, error) {
 	if h == nil || h.repo == nil {
 		return nil, errors.New("落地服务器状态不可用")
+	}
+	if server, err := h.repo.GetLandingServer(serverID); err == nil && server != nil && server.Source == "shared" {
+		return nil, h.syncSharedLandingServer(serverID)
 	}
 	h.landingSyncMu.Lock()
 	defer h.landingSyncMu.Unlock()

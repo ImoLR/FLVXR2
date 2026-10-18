@@ -27,7 +27,7 @@ func (r *Repository) GetLandingServer(id int64) (*model.LandingServer, error) {
 }
 func (r *Repository) GetLandingServerForNode(id int64) (*model.LandingServer, error) {
 	var v model.LandingServer
-	err := r.db.Where("node_id = ?", id).First(&v).Error
+	err := r.db.Where("source = 'native' AND node_id = ?", id).First(&v).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, nil
 	}
@@ -111,8 +111,8 @@ func ValidateLandingServer(s *model.LandingServer) error {
 	if s.NodeID == 36 {
 		return errors.New("节点 36 是妙妙屋生产主机，禁止启用落地")
 	}
-	if s.Source != "native" || s.NodeID <= 0 {
-		return errors.New("仅支持 FLVX 自有落地")
+	if (s.Source != "native" || s.NodeID <= 0) && (s.Source != "shared" || s.NodeID != 0 || s.RemoteServerID <= 0) {
+		return errors.New("落地服务器来源无效")
 	}
 	if strings.TrimSpace(s.Name) == "" || len(s.Name) > 100 || strings.TrimSpace(s.PublicHost) == "" || strings.ContainsAny(s.PublicHost, " /?#@\r\n\t") {
 		return errors.New("落地名称或公网地址无效")
@@ -166,12 +166,9 @@ func ValidateLandingServer(s *model.LandingServer) error {
 	if _, _, err := net.SplitHostPort(s.RealityDest); err != nil {
 		return errors.New("Reality dest 必须是 host:port")
 	}
-	return nil
+	return ValidateSharedLandingSettings(s)
 }
 func (r *Repository) SaveLandingServer(s *model.LandingServer, groups []int64) error {
-	if err := ValidateLandingServer(s); err != nil {
-		return err
-	}
 	return r.db.Transaction(func(tx *gorm.DB) error {
 		var old model.LandingServer
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&old, s.ID).Error; err != nil {
@@ -179,6 +176,13 @@ func (r *Repository) SaveLandingServer(s *model.LandingServer, groups []int64) e
 		}
 		if old.NodeID != s.NodeID || old.Source != s.Source {
 			return errors.New("不能更换落地服务器来源")
+		}
+		s.RemoteServerID = old.RemoteServerID
+		s.SharedCaps, s.SharedLastSyncAt, s.SharedSyncError = old.SharedCaps, old.SharedLastSyncAt, old.SharedSyncError
+		s.SharedDesiredHash, s.SharedPushedRevision, s.SharedAppliedRevision = old.SharedDesiredHash, old.SharedPushedRevision, old.SharedAppliedRevision
+		s.SharedLastPushAt, s.SharedCollectedAt = old.SharedLastPushAt, old.SharedCollectedAt
+		if err := ValidateLandingServer(s); err != nil {
+			return err
 		}
 		var count int64
 		if err := tx.Model(&model.LandingNode{}).Where("landing_server_id = ? AND (port < ? OR port > ?)", s.ID, s.PortMin, s.PortMax).Count(&count).Error; err != nil {
@@ -245,12 +249,22 @@ func (r *Repository) SaveLandingUserSetting(userID int64, maxNodes int, quotas [
 			return err
 		}
 		for _, q := range quotas {
-			if q.ServerKind != "node" || q.ServerRefID <= 0 || q.LimitBytes < 0 {
+			if (q.ServerKind != "node" && q.ServerKind != "landing") || q.ServerRefID <= 0 || q.LimitBytes < 0 {
 				return errors.New("服务器流量限额无效")
 			}
-			var node model.Node
-			if err := tx.First(&node, q.ServerRefID).Error; err != nil {
-				return errors.New("服务器不存在")
+			if q.ServerKind == "node" {
+				var node model.Node
+				if err := tx.First(&node, q.ServerRefID).Error; err != nil {
+					return errors.New("服务器不存在")
+				}
+			} else {
+				var server model.LandingServer
+				if err := tx.First(&server, q.ServerRefID).Error; err != nil || server.Source != "shared" {
+					return errors.New("共享服务器不存在")
+				}
+				if capExceeded(q.LimitBytes, SharedLandingCaps(&server).TrafficLimit) {
+					return errors.New("服务器流量限额不能超过妙妙屋上限")
+				}
 			}
 			now := time.Now().UnixMilli()
 			q.ID = 0
@@ -344,13 +358,18 @@ func (r *Repository) CreateLandingNode(userID, serverID int64, name, protocol st
 		if s.NodeID == 36 {
 			return errors.New("节点 36 禁止启用落地")
 		}
-		var native model.Node
-		if err := tx.First(&native, s.NodeID).Error; err != nil {
-			return errors.New("落地服务器节点不存在")
+		if s.Source == "native" {
+			var native model.Node
+			if err := tx.First(&native, s.NodeID).Error; err != nil {
+				return errors.New("落地服务器节点不存在")
+			}
+			if !native.LandingCapable {
+				return errors.New("节点程序需升级")
+			}
+		} else if !SharedLandingAvailable(&s) {
+			return errors.New("妙妙屋共享已暂停、撤销或额度用完")
 		}
-		if !native.LandingCapable {
-			return errors.New("节点程序需升级")
-		}
+
 		if s.Status != "active" || (s.AvailableUntil != nil && *s.AvailableUntil <= now) {
 			return errors.New("落地服务器不可用")
 		}
@@ -389,6 +408,15 @@ func (r *Repository) CreateLandingNode(userID, serverID int64, name, protocol st
 		if err := tx.Model(&model.LandingNode{}).Where("user_id = ? AND landing_server_id = ?", userID, serverID).Count(&count).Error; err != nil {
 			return err
 		}
+		if s.Source == "shared" {
+			var total int64
+			if err := tx.Model(&model.LandingNode{}).Where("landing_server_id = ?", serverID).Count(&total).Error; err != nil {
+				return err
+			}
+			if total >= 1000 {
+				return errors.New("妙妙屋共享服务器最多支持 1000 个节点")
+			}
+		}
 		if count >= int64(s.MaxNodesPerUser) {
 			return errors.New("已达到该服务器每人节点上限")
 		}
@@ -408,6 +436,14 @@ func (r *Repository) CreateLandingNode(userID, serverID int64, name, protocol st
 		case "permanent":
 			n.ExpiryMode = "fixed"
 		}
+		if s.Source == "shared" {
+			if expiry := EffectiveLandingExpiry(&n, &s, &u); n.ExpiresAt != nil && expiry > 0 && *n.ExpiresAt > expiry {
+				n.ExpiresAt = &expiry
+			}
+			if err := validateSharedLandingNode(&n, &s); err != nil {
+				return err
+			}
+		}
 		if err := newLandingCredentials(&n); err != nil {
 			return err
 		}
@@ -424,8 +460,10 @@ func (r *Repository) CreateLandingNode(userID, serverID int64, name, protocol st
 }
 func landingFreePort(tx *gorm.DB, s model.LandingServer) (int, error) {
 	var node model.Node
-	if err := tx.First(&node, s.NodeID).Error; err != nil {
-		return 0, err
+	if s.Source == "native" {
+		if err := tx.First(&node, s.NodeID).Error; err != nil {
+			return 0, err
+		}
 	}
 	used := map[int]bool{}
 	for _, p := range parsePortRangeSpec(node.Port) {
@@ -437,6 +475,12 @@ func landingFreePort(tx *gorm.DB, s model.LandingServer) (int, error) {
 		where  string
 		id     int64
 	}{{&model.LandingNode{}, "port", "landing_server_id = ?", s.ID}, {&model.ForwardPort{}, "port", "node_id = ?", s.NodeID}, {&model.ChainTunnel{}, "port", "node_id = ? AND port IS NOT NULL", s.NodeID}, {&model.NodeDeployedInbound{}, "listen_port", "node_id = ?", s.NodeID}, {&model.NodeRuntimeResource{}, "port", "node_id = ? AND status <> 'released'", s.NodeID}} {
+		if s.Source == "shared" && q.id != s.ID {
+			continue
+		}
+		if s.Source == "shared" && q.column != "port" {
+			continue
+		}
 		var ports []int
 		if err := tx.Model(q.m).Where(q.where, q.id).Pluck(q.column, &ports).Error; err != nil {
 			return 0, err
@@ -469,6 +513,13 @@ func (r *Repository) UpdateLandingNode(n *model.LandingNode) error {
 		return errors.New("状态无效")
 	}
 	return r.db.Transaction(func(tx *gorm.DB) error {
+		var server model.LandingServer
+		if err := tx.First(&server, n.LandingServerID).Error; err != nil {
+			return err
+		}
+		if err := validateSharedLandingNode(n, &server); err != nil {
+			return err
+		}
 		n.UpdatedTime = time.Now().UnixMilli()
 		if err := tx.Model(&model.LandingNode{}).Where("id = ?", n.ID).Updates(map[string]interface{}{"name": n.Name, "max_connections": n.MaxConnections, "max_online_ips": n.MaxOnlineIPs, "traffic_limit_bytes": n.TrafficLimitBytes, "flow_type": n.FlowType, "traffic_ratio": n.TrafficRatio, "expiry_mode": n.ExpiryMode, "expires_at": n.ExpiresAt, "status": n.Status, "auto_disabled": n.AutoDisabled, "updated_time": n.UpdatedTime}).Error; err != nil {
 			return err

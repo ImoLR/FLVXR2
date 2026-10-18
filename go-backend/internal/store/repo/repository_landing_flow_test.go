@@ -5,6 +5,8 @@ import (
 	"testing"
 	"time"
 
+	"encoding/json"
+	"go-backend/internal/landingcustom"
 	"go-backend/internal/store/model"
 )
 
@@ -113,68 +115,87 @@ func TestLandingForwardServerAttribution(t *testing.T) {
 }
 
 func TestLandingQuotaExpiryLifecycle(t *testing.T) {
-	for _, dialect := range []string{"sqlite", "postgres"} {
-		t.Run(dialect, func(t *testing.T) {
-			r, now := landingFlowFixture(t, dialect)
-			reconcile := func(at time.Time) {
-				t.Helper()
-				if _, e := r.ReconcileLandingPolicy(at); e != nil {
+	for _, source := range []string{"native", "shared"} {
+		for _, dialect := range []string{"sqlite", "postgres"} {
+			t.Run(source+"/"+dialect, func(t *testing.T) {
+				r, now := landingFlowFixture(t, dialect)
+				if source == "shared" {
+					caps, _ := json.Marshal(landingcustom.Share{ID: 7, Status: "active"})
+					r.db.Model(&model.LandingServer{}).Where("id=1").Updates(map[string]any{"source": "shared", "node_id": 0, "remote_server_id": 7, "shared_caps": string(caps), "default_user_quota_bytes": 1000})
+				}
+				reconcile := func(at time.Time) {
+					t.Helper()
+					if _, e := r.ReconcileLandingPolicy(at); e != nil {
+						t.Fatal(e)
+					}
+				}
+				status := func(want string) {
+					t.Helper()
+					n, _ := r.GetLandingNode(1)
+					if n == nil || n.Status != want {
+						t.Fatalf("node %+v want %s", n, want)
+					}
+				}
+				counter := landingSnapshot("100", 300, 300)
+				if source == "shared" {
+					counter.NodeID = 0
+					counter.ServerID = 1
+					counter.CollectedAt = now.UnixMilli()
+				}
+				if _, e := r.ApplyFlowBatch(FlowBatch{LandingCounters: []LandingCounter{counter}}, now); e != nil {
 					t.Fatal(e)
 				}
-			}
-			status := func(want string) {
-				t.Helper()
+				reconcile(now)
+				status("paused_server_quota")
+				r.db.Model(&model.UserServerQuota{}).Where("user_id = 2").Updates(map[string]interface{}{"limit_override": true, "limit_bytes": 2000})
+				reconcile(now)
+				status("active")
+				r.db.Model(&model.LandingNode{}).Where("id = 1").Update("traffic_limit_bytes", 1000)
+				reconcile(now)
+				status("paused_quota")
+				reconcile(time.Date(2026, 11, 15, 0, 0, 0, 0, time.UTC))
+				status("active")
 				n, _ := r.GetLandingNode(1)
-				if n == nil || n.Status != want {
-					t.Fatalf("node %+v want %s", n, want)
+				if n.BilledIn+n.BilledOut != 0 || n.LastSeenUp != 300 || n.UpBytes != 300 {
+					t.Fatal("period reset lost cumulative cursor or lifetime total")
 				}
-			}
-			if _, e := r.ApplyFlowBatch(FlowBatch{LandingCounters: []LandingCounter{landingSnapshot("100", 300, 300)}}, now); e != nil {
-				t.Fatal(e)
-			}
-			reconcile(now)
-			status("paused_server_quota")
-			r.db.Model(&model.UserServerQuota{}).Where("user_id = 2").Updates(map[string]interface{}{"limit_override": true, "limit_bytes": 2000})
-			reconcile(now)
-			status("active")
-			r.db.Model(&model.LandingNode{}).Where("id = 1").Update("traffic_limit_bytes", 1000)
-			reconcile(now)
-			status("paused_quota")
-			reconcile(time.Date(2026, 11, 15, 0, 0, 0, 0, time.UTC))
-			status("active")
-			n, _ := r.GetLandingNode(1)
-			if n.BilledIn+n.BilledOut != 0 || n.LastSeenUp != 300 || n.UpBytes != 300 {
-				t.Fatal("period reset lost cumulative cursor or lifetime total")
-			}
-			r.db.Model(&model.User{}).Where("id = 2").Update("status", 0)
-			reconcile(now)
-			status("disabled")
-			r.db.Model(&model.User{}).Where("id = 2").Update("status", 1)
-			reconcile(now)
-			status("active")
-			exp := now.Add(time.Hour).UnixMilli()
-			r.db.Model(&model.User{}).Where("id = 2").Update("exp_time", exp)
-			reconcile(now.Add(2 * time.Hour))
-			status("paused_expired")
-			n, _ = r.GetLandingNode(1)
-			oldPort, oldTag := n.Port, n.InboundTag
-			r.db.Model(&model.User{}).Where("id = 2").Update("exp_time", now.Add(30*24*time.Hour).UnixMilli())
-			reconcile(now.Add(24 * time.Hour))
-			status("active")
-			n, _ = r.GetLandingNode(1)
-			if n.Port != oldPort || n.InboundTag != oldTag || n.ExpiredAt != nil {
-				t.Fatal("renewal replaced link")
-			}
-			fixed := now.Add(2 * time.Hour).UnixMilli()
-			r.db.Model(&model.LandingNode{}).Where("id = 1").Updates(map[string]interface{}{"expiry_mode": "fixed", "expires_at": fixed})
-			reconcile(now.Add(3 * time.Hour))
-			status("paused_expired")
-			reconcile(now.Add(8 * 24 * time.Hour))
-			n, _ = r.GetLandingNode(1)
-			if n != nil {
-				t.Fatal("grace-expired node not deleted")
-			}
-		})
+				r.db.Model(&model.User{}).Where("id = 2").Update("status", 0)
+				reconcile(now)
+				status("disabled")
+				r.db.Model(&model.User{}).Where("id = 2").Update("status", 1)
+				reconcile(now)
+				status("active")
+				exp := now.Add(time.Hour).UnixMilli()
+				r.db.Model(&model.User{}).Where("id = 2").Update("exp_time", exp)
+				reconcile(now.Add(2 * time.Hour))
+				status("paused_expired")
+				n, _ = r.GetLandingNode(1)
+				oldPort, oldTag := n.Port, n.InboundTag
+				r.db.Model(&model.User{}).Where("id = 2").Update("exp_time", now.Add(30*24*time.Hour).UnixMilli())
+				reconcile(now.Add(24 * time.Hour))
+				status("active")
+				n, _ = r.GetLandingNode(1)
+				if n.Port != oldPort || n.InboundTag != oldTag || n.ExpiredAt != nil {
+					t.Fatal("renewal replaced link")
+				}
+				fixed := now.Add(2 * time.Hour).UnixMilli()
+				r.db.Model(&model.LandingNode{}).Where("id = 1").Updates(map[string]interface{}{"expiry_mode": "fixed", "expires_at": fixed})
+				reconcile(now.Add(3 * time.Hour))
+				status("paused_expired")
+				if source == "shared" {
+					reconcile(now.Add(8 * 24 * time.Hour))
+					if retained, _ := r.GetLandingNode(1); retained == nil {
+						t.Fatal("shared node deleted without final snapshot")
+					}
+					r.db.Model(&model.LandingNode{}).Where("id=1").Updates(map[string]any{"remote_state": "removed", "last_counter_at": now.Add(4 * time.Hour).UnixMilli()})
+				}
+				reconcile(now.Add(8 * 24 * time.Hour))
+				n, _ = r.GetLandingNode(1)
+				if n != nil {
+					t.Fatal("grace-expired node not deleted")
+				}
+			})
+		}
 	}
 }
 

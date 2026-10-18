@@ -23,6 +23,9 @@ func EffectiveLandingExpiry(n *model.LandingNode, s *model.LandingServer, u *mod
 		take(n.ExpiresAt)
 	}
 	take(s.AvailableUntil)
+	if s.Source == "shared" {
+		take(SharedLandingCaps(s).ShareUntil)
+	}
 	return expiry
 }
 
@@ -99,7 +102,10 @@ func (r *Repository) ReconcileLandingPolicy(now time.Time) (LandingReconcileResu
 			}
 			landingOwner[n.ID] = n.UserID
 			expiry := EffectiveLandingExpiry(n, s, u)
-			if n.ExpiredAt != nil && now.UnixMilli()-*n.ExpiredAt >= landingGracePeriod.Milliseconds() {
+			// Revocation never destroys user records. For other shared expiries,
+			// wait for the final removed counter snapshot before releasing a port.
+			canDelete := s.Source != "shared" || (SharedLandingCaps(s).Status != "revoked" && n.RemoteState == "removed" && n.Connections == 0 && n.LastCounterAt >= expiry && s.SharedSyncError == "")
+			if canDelete && n.ExpiredAt != nil && now.UnixMilli()-*n.ExpiredAt >= landingGracePeriod.Milliseconds() {
 				if err := tx.Delete(n).Error; err != nil {
 					return err
 				}
@@ -135,7 +141,7 @@ func (r *Repository) ReconcileLandingPolicy(now time.Time) (LandingReconcileResu
 				}
 				switch {
 				case n.Status == "disabled" && !n.AutoDisabled:
-				case u.Status != 1 || s.Status != "active" || !allowed:
+				case u.Status != 1 || s.Status != "active" || !SharedLandingAvailable(s) || !allowed:
 					n.Status = "disabled"
 					n.AutoDisabled = true
 				case userBlocked(u) || (n.TrafficLimitBytes > 0 && n.BilledIn+n.BilledOut >= n.TrafficLimitBytes):
@@ -150,7 +156,7 @@ func (r *Repository) ReconcileLandingPolicy(now time.Time) (LandingReconcileResu
 				}
 			}
 			// A job first observing a long-expired node need not keep it for seven more days.
-			if n.ExpiredAt != nil && now.UnixMilli()-*n.ExpiredAt >= landingGracePeriod.Milliseconds() {
+			if canDelete && n.ExpiredAt != nil && now.UnixMilli()-*n.ExpiredAt >= landingGracePeriod.Milliseconds() {
 				if err := tx.Delete(n).Error; err != nil {
 					return err
 				}

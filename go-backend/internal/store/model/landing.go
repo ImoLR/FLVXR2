@@ -4,8 +4,8 @@ package model
 type LandingServer struct {
 	ID                       int64   `gorm:"primaryKey;autoIncrement" json:"id"`
 	Source                   string  `gorm:"not null;default:'native'" json:"source"`
-	NodeID                   int64   `gorm:"not null;uniqueIndex" json:"nodeId"`
-	RemoteServerID           int64   `gorm:"not null;default:0" json:"remoteServerId"`
+	NodeID                   int64   `gorm:"not null;default:0;uniqueIndex:idx_landing_native_node,where:node_id > 0" json:"nodeId"`
+	RemoteServerID           int64   `gorm:"not null;default:0;uniqueIndex:idx_landing_remote_server,where:source = 'shared'" json:"remoteServerId"`
 	Name                     string  `gorm:"not null" json:"name"`
 	PublicHost               string  `gorm:"not null" json:"publicHost"`
 	PortMin                  int     `gorm:"not null;default:30000" json:"portMin"`
@@ -29,6 +29,14 @@ type LandingServer struct {
 	CoreCPUPercent           int     `gorm:"not null;default:50" json:"coreCpuPercent"`
 	Status                   string  `gorm:"not null;default:'active'" json:"status"`
 	Revision                 int64   `gorm:"not null;default:1" json:"revision"`
+	SharedCaps               string  `gorm:"type:text;not null;default:''" json:"-"`
+	SharedLastSyncAt         int64   `gorm:"not null;default:0" json:"sharedLastSyncAt"`
+	SharedSyncError          string  `gorm:"not null;default:''" json:"sharedSyncError"`
+	SharedDesiredHash        string  `gorm:"not null;default:''" json:"-"`
+	SharedPushedRevision     int64   `gorm:"not null;default:0" json:"sharedPushedRevision"`
+	SharedAppliedRevision    int64   `gorm:"not null;default:0" json:"sharedAppliedRevision"`
+	SharedLastPushAt         int64   `gorm:"not null;default:0" json:"-"`
+	SharedCollectedAt        int64   `gorm:"not null;default:0" json:"-"`
 	CreatedTime              int64   `gorm:"not null" json:"createdTime"`
 	UpdatedTime              int64   `gorm:"not null" json:"updatedTime"`
 }
@@ -79,6 +87,11 @@ type LandingNode struct {
 	LastSeenUp        int64    `gorm:"not null;default:0" json:"-"`
 	LastSeenDown      int64    `gorm:"not null;default:0" json:"-"`
 	Connections       int      `gorm:"not null;default:0" json:"connections"`
+	DeletePending     bool     `gorm:"not null;default:false" json:"-"`
+	RemoteState       string   `gorm:"not null;default:''" json:"remoteState"`
+	SyncError         string   `gorm:"not null;default:''" json:"syncError"`
+	RejectedRevision  int64    `gorm:"not null;default:0" json:"-"`
+	LastCounterAt     int64    `gorm:"not null;default:0" json:"-"`
 	CreatedTime       int64    `gorm:"not null" json:"createdTime"`
 	UpdatedTime       int64    `gorm:"not null" json:"updatedTime"`
 }
@@ -108,3 +121,15 @@ type UserServerQuota struct {
 }
 
 func (UserServerQuota) TableName() string { return "user_server_quota" }
+
+// Stored with the same private-column convention as LeiKwanAccount secrets.
+type LandingIntegration struct {
+	ID          int64  `gorm:"primaryKey;autoIncrement:false" json:"-"`
+	BaseURL     string `gorm:"not null" json:"baseUrl"`
+	Token       string `gorm:"type:text;not null" json:"-"`
+	LastSyncAt  int64  `gorm:"not null;default:0" json:"lastSyncAt"`
+	SyncError   string `gorm:"not null;default:''" json:"syncError"`
+	UpdatedTime int64  `gorm:"not null" json:"updatedTime"`
+}
+
+func (LandingIntegration) TableName() string { return "landing_integration" }

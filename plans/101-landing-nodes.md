@@ -144,8 +144,8 @@
 ### 第二期 B：FLVX 接入共享服务器（任务 `landing-shared`，FLVX 仓库，依赖第一期和第二期 A）
 
 - [x] 核对第一期 `6e83a3c2` 与第二期 A（含 r2 `35fa8130`）实际接口、工作树及无发布边界。
-- [ ] 共享模型/迁移、只读上限、配置校验与共享计数接入。
-- [ ] Custom 客户端、同步/推送/轮询/主机报告、双装防护与失败重试。
+- [x] 共享模型/迁移、只读上限、配置校验与共享计数接入。
+- [x] Custom 客户端、同步/推送/轮询/主机报告、双装防护与失败重试。
 - [ ] 落地管理区接入设置、共享卡片/设置与节点错误展示。
 - [ ] 管理员配置妙妙屋地址和接入令牌；同步共享服务器为 landing_server（source=shared），显示妙妙屋上限（只读）。
 - [ ] 在共享服务器上建节点 → 推期望状态；拉 status → 同一套计费 / 服务器限额 / 有效期；报告 landing-hosts。
@@ -181,3 +181,5 @@
 截图集 `/root/flvx-workers/runs/landing-native/screens/index.html` 共 118 张，覆盖电脑/H5、管理员/用户、新页面及弹窗、双协议直连/规则链接及二维码，以及既有 dashboard、规则默认手填、节点页、用户编辑的前后对比；`screens/manifest.json` 核验无缺失、无应用或采集异常。旧版需升级、节点 36 禁用和支持能力但未启用的离线节点均有展示。截图无 API 写操作，全部使用一次性本地 fixture。
 
 测试资源已清理：专用 panel/agent/Core/静态服务/fixture 进程、netns/veth、PostgreSQL 容器及匿名卷、`/root/tmp-work/landing-native` 均删除，16365/16366/16367/15453 已释放；证据 `cleanup.json`。没有生产读写、发布、tag、镜像推送、OTA、SSH 或其他工作树/栈改动。中文完整总结、技术规格调整、限制、后续发布顺序和回滚说明在 `/root/flvx-workers/runs/landing-native/summary.md`。仅推送 `feature/3.0.27-landing-nodes`；既有分支 CI `39118052030` 四项全绿，最后提交对应的 CI 链接与完整 head 记录于该总结。
+
+第二期 B（2026-10-18）：基线 `6e83a3c2`；对照 Custom r2 `35fa8130`。共享单例令牌按既有私密字段存储，API 不回显。共享原始累计值经同一 FlowBatch 入账，Core epoch 变化不重复计费、下降视为重置、采样时间去重。SQLite 新契约及复用第一期计费/生命周期定向测试通过（`landing-shared/backend-focused.log`）；PG、真实 Custom handler 和截图继续核验。
