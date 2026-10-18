@@ -11,8 +11,8 @@
 - [x] 完整 SQLite、compose/.env、旧镜像标签及 rollback.sh 备份；执行两份保留裁剪。
 - [x] 生产升级、面板健康与对象数量核验，升级前后各约 10 分钟 CPU/SQLite 写入观察（节点 42 上报例外另列）。
 - [ ] 节点上报完全恢复原基线：42 重连后无指标，fork.52 后端对照亦复现，未操作范围外节点。
-- [ ] 节点 21 诊断及 agent/mmwx 基线备份；仅节点 21 OTA，能力及诊断复验。
-- [ ] 核对全机监听/FLVX 端口，分离规则与落地段；启用 admin-only 原生落地，核验固定 Core/低权限/资源上限及 mmwx 不变。
+- [x] 节点 21 诊断及 agent/mmwx 基线备份；仅节点 21 OTA，能力及诊断复验（延续面板升级后的 42 异常，无新增失败）。
+- [x] 核对全机监听/FLVX 端口，分离规则与落地段；启用 admin-only 原生落地，核验固定 Core/低权限/资源上限及 mmwx 不变。
 - [ ] 备份旧入站 8/2 和节点 21 sing-box；API 删除并 apply，节点 21 停用旧服务，外部端口关闭核验。
 - [ ] 临时用户双协议 ≥20 MB 直连、规则 max(T,L)、热更新、连接限制、私网阻断、单击删除与最终计数金丝雀。
 - [ ] 清理临时对象/进程/副本；计划 101 FLVX 条目证据、维护/功能分支同步及中文总结。
@@ -36,3 +36,7 @@
 生产回滚点 `/opt/flvx-svc/rollback/pre-fork53-20261018T135250Z`：完整在线 SQLite quick_check=ok、compose/.env、fork.52 两镜像本地标签、rollback.sh（含节点 21 SSH 恢复入口及可选完整 DB 恢复）。备份计数 node/user/tunnel/forward/user_tunnel = 29/11/43/31/143。已执行指定 prune：保留 pre-fork53 与 pre-fork52，删除 pre-fork51 目录/标签和 fork.50 本地镜像；见 backup.json、prune.log。
 
 生产 fork.53 于 13:54Z 启动，健康检查及前端 nginx/版本通过，原对象数量及用户组/隧道链数据不变。升级后 600.07 秒 CPU 平均 3.726%，进程 write_bytes 221,464 B/s，WAL 120/120 间隔写入，见 cpu-after.json。节点 42 在重连后不再上报（最后指标 13:54:06Z），控制命令超时，TCP/SSH 端口可达；其余 27 个原在线节点正常。仅重启一次 backend 无改善，继而使用备份 fork.52 backend、保留当前 DB 作约 4 分钟对照，完全相同的握手在线/命令超时/无指标现象；随后恢复 fork.53。不能断言根因或宣称全节点健康通过；未 OTA、重启或修改 42。相关证据 prod-backend52-final.json、backend-52-comparison.json、diagnoses-after-panel.json。节点 21 相关 27 项诊断中仅 42 一项失败；金丝雀改用零现有规则且 3/3 诊断通过的隧道 26，不修改隧道。
+
+节点 21：面板单节点 OTA 返回成功，fork.53 重连、landingSupported=true；其余节点版本不变。OTA 后 6 隧道 26/27 检查通过，唯一失败仍是 42，较 OTA 前无新增失败（diagnoses-after-ota.json）。规则端口仅由 `10000-65535` 改为 `10000-29999,31000-65535`，node 行仅 port/updated_time 改变；现用 FLVX 14066/27961/28701/45459/49251/65107 全保留，落地 30000–30999 全段无其他监听。原生落地服务器 1 已启用：双向 ×1、每人 3 节点、两协议、计划默认值、无任何组授权。
+
+Core 实机 SHA256 `ae4b83f0cf77c4aa73857cb1de773e7ec89b1bc5ded272a677b46d417cf40212` 与固定 amd64 资产一致；systemd active、User=flvx-landing、MemoryMax=268435456、CPUQuotaPerSecUSec=500ms。mmw-agent/Helper PID、启动时间、重启次数及 ownership/takeover 状态完全一致；独立 xray 可执行文件数 0→0，mmwx 入站已建立连接 0→0、控制连接 1→1。证据 node21-after-enable.json；没有真实 mmwx 入站会话可供掉线验证，不把零连接观察写成在用会话压测。
