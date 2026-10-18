@@ -14,8 +14,9 @@
 - [x] 节点 21 诊断及 agent/mmwx 基线备份；仅节点 21 OTA，能力及诊断复验（延续面板升级后的 42 异常，无新增失败）。
 - [x] 核对全机监听/FLVX 端口，分离规则与落地段；启用 admin-only 原生落地，核验固定 Core/低权限/资源上限及 mmwx 不变。
 - [x] 备份旧入站 8/2 和节点 21 sing-box 状态；API 删除并 apply 空配置，节点 21 停用旧服务，外部端口归属核验（60061 为 mmwx，保留）。
-- [ ] 临时用户双协议 ≥20 MB 直连、规则 max(T,L)、热更新、连接限制、私网阻断、单击删除与最终计数金丝雀。
-- [ ] 清理临时对象/进程/副本；计划 101 FLVX 条目证据、维护/功能分支同步及中文总结。
+- [x] 临时用户双协议 ≥20 MB 直连、规则 max(T,L)、热更新、连接限制、私网阻断、单击删除与最终计数金丝雀。
+- [x] 清理临时对象、测试进程和 scratch/生产 DB 副本，复核原配置与临时端口。
+- [ ] 计划 101 FLVX 条目证据、维护/功能分支同步及中文总结。
 
 ## 核验记录
 
@@ -42,3 +43,9 @@
 Core 实机 SHA256 `ae4b83f0cf77c4aa73857cb1de773e7ec89b1bc5ded272a677b46d417cf40212` 与固定 amd64 资产一致；systemd active、User=flvx-landing、MemoryMax=268435456、CPUQuotaPerSecUSec=500ms。mmw-agent/Helper PID、启动时间、重启次数及 ownership/takeover 状态完全一致；独立 xray 可执行文件数 0→0，mmwx 入站已建立连接 0→0、控制连接 1→1。证据 node21-after-enable.json；没有真实 mmwx 入站会话可供掉线验证，不把零连接观察写成在用会话压测。
 
 旧入站：2（25）/8（21）完整行已导出至生产回滚目录 old-deployed-inbounds.json；节点 21 远端备份记录旧目录/unit 原本不存在。两个 delete API 均成功且自动下发 inbounds=[]，最新 revision 均 deployed；21 的 API 自动安装了原先不存在的空 sing-box，随后已 stop+disable，25 仅 API 操作并保留空服务。外部 TCP：25:48221 关闭；21:60061 仍由 mmw-agent 使用，明确未关闭。证据 old-inbounds-cleanup.json、old-inbounds-empty-config.json、old-inbounds-external-ports.json、node21-after-old-cleanup.json。
+
+真实金丝雀通过：临时用户 24/group 8；SS2022/VLESS 各完整下载 25,165,824 字节，SHA256 一致，用时 240.249/272.119 秒。直连原始计数 50,358,526、落地/用户/日月入账均 100,717,052 字节。隧道 26 临时规则 145 使用已生成的 IPv6 入口（本机 IPv4 入口无路由），4 MiB 下载原始增量 4,200,306、用户增量 8,400,612，正好 max(T=2,L=2)，没有重复入账。8 MiB 热更新下载 83.555 秒，创建/单次删除节点 3 前后进度 1,048,576→1,114,112→1,245,184 字节，完整校验通过；Core PID 29900/NRestarts=0 全程不变。
+
+连接上限：测试节点 4 maxTotalConnections=2（含入站/出站连接），额外连接 RemoteDisconnected，原 8 MiB 下载继续完成（44.506 秒）；之后恢复无限制。两协议对 127.0.0.1:22 / 169.254.169.254:80 的 4 项请求均无目标响应。连接自然清空后一次 delete 成功：30002 释放，原累计用户 142,720,236 字节在删除后及 15 秒后不变，重复计费 0；节点 5 成功复用该端口并再次删除。证据 canary-direct/rule/hot/limits/private/delete.json 与各阶段 ledger。
+
+清理：规则 145、节点 1/2/3/4/5、临时授权、用户 24、组 8 均移除；所有含 user_id 的表中临时用户残留 0，landing_node/landing_server_user_group 均 0。基本数量回到 29/11/43/31/143，原用户/规则/隧道/forward_port/user_tunnel 除流量累计字段外完全一致，原组/链行完全一致；仅 21 版本变化。30000/30001/30002 与测试入口 44483 均无 TCP 接受（有效 IPv6 入口亦验证关闭）。唯一 native server=21，active、groups=[]；35/36 无落地。mmwx PID/启动时间/重启次数/ownership 仍与基线一致。测试进程、431 MiB scratch 及生产 DB 副本已清理；见 final-verification.json、canary-cleanup.json、scratch-cleanup.json、node21-final.json。
