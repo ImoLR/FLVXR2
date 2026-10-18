@@ -73,6 +73,7 @@ export interface ServerQuota {
   serverRefId: number;
   serverName?: string;
   limitBytes: number;
+  limitOverride?: boolean;
   usedIn: number;
   usedOut: number;
   paused?: boolean;
@@ -186,11 +187,13 @@ export const saveLandingUser = (
   Network.post("/landing/user/save", {
     userId,
     maxNodes: data.maxNodes,
-    quotas: data.quotas.map(({ serverKind, serverRefId, limitBytes }) => ({
-      serverKind,
-      serverRefId,
-      limitBytes,
-    })),
+    quotas: data.quotas
+      .filter((quota) => quota.limitOverride !== false)
+      .map(({ serverKind, serverRefId, limitBytes }) => ({
+        serverKind,
+        serverRefId,
+        limitBytes,
+      })),
     ...(data.extendFixedByMs ? { extendFixedByMs: data.extendFixedByMs } : {}),
   });
 export const landingProtocolLabel = (value: string) =>

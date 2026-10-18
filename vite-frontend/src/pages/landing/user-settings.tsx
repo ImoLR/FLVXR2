@@ -71,7 +71,7 @@ export const LandingUserSettings = forwardRef<
         prev && {
           ...prev,
           quotas: prev.quotas.map((quota, i) =>
-            i === index ? { ...quota, limitBytes } : quota,
+            i === index ? { ...quota, limitBytes, limitOverride: true } : quota,
           ),
         },
     );
