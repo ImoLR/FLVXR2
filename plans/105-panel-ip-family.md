@@ -31,3 +31,5 @@ Agent：`panelconn` 共用 WS/面板 HTTP 策略与分模式连接池；auto 的
 Panel：新增 `node.panel_ip_family`（varchar、默认空）；create/update/list、备份导入导出保留该值。新 agent 握手声明当前模式，旧 agent 不下发未知命令。未配置的节点继承 installer 初始选择，面板明确保存后（包括 auto）以面板为准。节点表单/安装弹窗仅增加 Select；installer `-f` 接受四值，省略不写 key。镜像列表与 sha256 代码未改。后端 API/列/WS 下发测试通过；无 pong 的已建立 agent TCP 连接在 45.001s 被标离线，未修改既有心跳机制。前端 build、installer 参数及 JSON 验证通过。
 
 完整验证：三个模块 `go test ./...` 完成，backend 失败集合与基线 15/15 完全一致，gost / x 全通过；所有触及 Go 包 vet 通过，拨号/自愈/持久化 race 测试通过，前端 build 通过。独立 netns 对已建立的 IPv6 WS 双向丢包，两次分别 59.92s/59.91s 触发超时，auto 在 120.19s 转 IPv4，面板 HTTP 同时恢复；恢复 IPv6 后 prefer_ipv4 连续 3 次仍使用 IPv4。netns 已删除。测试不使用生产 DB。
+
+分支已推送；CI Build Check [39144085675](https://github.com/ImoLR/FLVXR2/actions/runs/39144085675) 四项全部绿色（含 PostgreSQL contract）。tag `3.0.27-fork.54` 指向 `43c8d277`。节点 42 备份：`/root/flvxx-backup-20261018T161547Z-pre-fork54`，含二进制/config/gost/unit 和 `restore-agent.sh`，旧版本 fork.53；另一个面板 flux_agent PID=429，未操作。
