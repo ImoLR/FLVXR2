@@ -86,6 +86,9 @@ func (h *Handler) applyUserQuotaRelease(release *repo.UserQuotaRelease, now int6
 		if err := h.ensureUserTunnelForwardAllowed(forward.UserID, forward.TunnelID, now); err != nil {
 			continue
 		}
+		if err := h.repo.LandingForwardBlockReason(forward.ID); err != nil {
+			continue
+		}
 		if err := h.checkForwardRecordLanding(context.Background(), forward); err != nil {
 			continue
 		}
@@ -138,6 +141,7 @@ func (h *Handler) userQuotaReset(w http.ResponseWriter, r *http.Request) {
 	}
 	nowMs := time.Now().UnixMilli()
 	h.applyUserQuotaRelease(release, nowMs)
+	h.reconcileLandingPolicy(time.Now())
 	response.WriteJSON(w, response.OKEmpty())
 }
 

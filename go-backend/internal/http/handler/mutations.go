@@ -3810,6 +3810,11 @@ func (h *Handler) forwardBatchChangeTunnel(w http.ResponseWriter, r *http.Reques
 			failures = appendBatchFailureReason(failures, id, forward.Name, "规则已在目标隧道中")
 			continue
 		}
+		if _, _, _, err := h.resolveNativeLandingTarget(nil, forward.UserID, req.TargetTunnelID, forward.RemoteAddr, actorRole == 0); err != nil {
+			fail++
+			failures = appendBatchFailure(failures, id, forward.Name, err)
+			continue
+		}
 		oldPorts, listPortsErr := h.listForwardPorts(id)
 		if listPortsErr != nil {
 			fail++
