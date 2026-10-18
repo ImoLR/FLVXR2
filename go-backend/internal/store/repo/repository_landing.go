@@ -497,6 +497,9 @@ func landingFreePort(tx *gorm.DB, s model.LandingServer) (int, error) {
 	return 0, errors.New("落地端口段无可用端口，请检查与节点规则端口段及隧道监听端口的冲突")
 }
 func (r *Repository) UpdateLandingNode(n *model.LandingNode) error {
+	if n.DeletePending {
+		return errors.New("节点正在等待妙妙屋确认删除，请稍后重试删除")
+	}
 	if strings.TrimSpace(n.Name) == "" || len(n.Name) > 100 || n.MaxConnections < 0 || n.MaxOnlineIPs < 0 || n.TrafficLimitBytes < 0 {
 		return errors.New("节点限制无效")
 	}

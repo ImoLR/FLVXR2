@@ -24,6 +24,7 @@ import (
 // fakeCustom uses the implemented phase-2A envelopes and rejects unknown desired
 // fields. Paused/revoked shares reject PUT, while status retains counters.
 type fakeCustom struct {
+	holdApply     bool
 	mu            sync.Mutex
 	shares        []landingcustom.Share
 	desired       map[int64]landingcustom.Desired
@@ -109,6 +110,10 @@ func (f *fakeCustom) serve(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	f.desired[id] = d
+	if f.holdApply {
+		write(map[string]int64{"accepted_revision": d.Revision})
+		return
+	}
 	status := f.status[id]
 	status.AppliedRevision = d.Revision
 	status.CollectedAt = max(time.Now().UnixMilli(), status.CollectedAt+1)
@@ -448,5 +453,39 @@ func TestSharedLandingRejectedNeverAppliedDeletion(t *testing.T) {
 	e.ok(t, "node/delete", e.user, map[string]any{"id": id})
 	if n, _ = e.r.GetLandingNode(id); n != nil {
 		t.Fatal("rejected node cannot be removed")
+	}
+}
+
+func TestSharedLandingDeletionWaitsForAsynchronousHelper(t *testing.T) {
+	e := newSharedContract(t, "sqlite")
+	id := e.node(t, "ss2022")
+	e.ok(t, "integration/sync", e.admin, map[string]any{})
+	e.f.holdApply = true
+	if v := e.call(t, "node/delete", e.user, map[string]any{"id": id}); v.Code == 0 {
+		t.Fatal("unconfirmed deletion released node")
+	}
+	revision := e.f.desired[7].Revision
+	e.f.mu.Lock()
+	s := e.f.status[7]
+	s.AppliedRevision = revision
+	s.CollectedAt++
+	for i := range s.Nodes {
+		s.Nodes[i].State = "removed"
+		s.Nodes[i].Connections = 0
+		s.Nodes[i].UpBytes = 10
+		s.Nodes[i].DownBytes = 20
+	}
+	e.f.status[7] = s
+	e.f.mu.Unlock()
+	e.ok(t, "node/delete", e.user, map[string]any{"id": id})
+	if e.f.desired[7].Revision != revision {
+		t.Fatal("deletion retry advanced revision")
+	}
+	if n, _ := e.r.GetLandingNode(id); n != nil {
+		t.Fatal("confirmed deletion retained node")
+	}
+	u, _ := e.r.GetUserByID(501)
+	if u.InFlow+u.OutFlow != 60 {
+		t.Fatal("final counters lost")
 	}
 }

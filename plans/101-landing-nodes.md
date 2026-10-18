@@ -185,3 +185,5 @@
 第二期 B（2026-10-18）：基线 `6e83a3c2`；对照 Custom r2 `35fa8130`。共享单例令牌按既有私密字段存储，API 不回显。共享原始累计值经同一 FlowBatch 入账，Core epoch 变化不重复计费、下降视为重置、采样时间去重。SQLite 新契约及复用第一期计费/生命周期定向测试通过（`landing-shared/backend-focused.log`）；PG、真实 Custom handler 和截图继续核验。
 
 第二期 B 联调：SQLite/PostgreSQL 定向测试通过（仓储 23.141s、handler 2.274s、contract 17.808s）。从只读 Custom `35fa8130` 通过 Go overlay 编译真实 v1 handlers，隔离 PG `127.0.0.1:15461` + 本地 FLVX `16365` 联调：双协议 desired 接收成功、合成 Helper 计数共入账 1200 字节、重复轮询不重复入账、真实官方端口碰撞 422、Custom 503 保留数据及上次成功时间、双装拒绝。证据 `landing-shared/real-custom-results.json`。未模拟或宣称真实共享 Core 数据面；沿用第二期 A 实机待金丝雀的边界。
+
+共享删除异步回执补验：真实 Custom 的 HTTP 200 仅表示接收，重试若递增 revision 会一直等不到 applied。已将共享删除准备做成幂等事务；延迟 Helper 回执的契约测试通过。真实 handler 复现旧逻辑连续 `[11,11,7]`、`[12,12,11]` 而无法删除，修正后凭已确认的 revision 删除成功，其他 2 个节点与用户 1200 字节账本保持；证据 `delete-before-fix.json`、`delete-after-fix.json`。初轮后端全量（含 PG）与第一期恰为同一 15 项失败，修正后再复验。

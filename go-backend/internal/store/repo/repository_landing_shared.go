@@ -411,10 +411,28 @@ func (r *Repository) LandingHostInventory() (landingcustom.LandingHosts, error) 
 }
 
 func (r *Repository) PrepareSharedLandingDeletion(id int64) (*model.LandingNode, error) {
-	n, err := r.PrepareLandingNodeDeletion(id)
-	if err != nil {
-		return nil, err
-	}
-	err = r.db.Model(n).Update("delete_pending", true).Error
-	return n, err
+	var n model.LandingNode
+	err := r.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&n, id).Error; err != nil {
+			return err
+		}
+		var count int64
+		if err := tx.Model(&model.Forward{}).Where("landing_node_id = ?", id).Count(&count).Error; err != nil {
+			return err
+		}
+		if count > 0 {
+			return errors.New("该节点仍被规则引用，请先删除或修改规则")
+		}
+		// Custom's 200 is acceptance, not an applied acknowledgement. Retrying must
+		// keep the same omission/revision so an asynchronous Helper can catch up.
+		if n.DeletePending {
+			return nil
+		}
+		n.Status, n.AutoDisabled, n.DeletePending, n.UpdatedTime = "disabled", false, true, time.Now().UnixMilli()
+		if err := tx.Model(&n).Updates(map[string]any{"status": "disabled", "auto_disabled": false, "delete_pending": true, "updated_time": n.UpdatedTime}).Error; err != nil {
+			return err
+		}
+		return tx.Model(&model.LandingServer{}).Where("id = ?", n.LandingServerID).UpdateColumn("revision", gorm.Expr("revision + 1")).Error
+	})
+	return &n, err
 }
