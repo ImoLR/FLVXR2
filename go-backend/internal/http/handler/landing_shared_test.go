@@ -9,7 +9,9 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"slices"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -258,6 +260,94 @@ func TestSharedLandingBackgroundDeletion(t *testing.T) {
 			}
 			if replacement, err := r.CreateLandingNode(1, sid, "released", "ss2022", true); err != nil || replacement.Port != n.Port {
 				t.Fatal("confirmed deletion did not release port/capacity", err)
+			}
+		})
+	}
+}
+
+func TestSharedLandingHostReportDNSFailureDoesNotBackoff(t *testing.T) {
+	for _, dialect := range []string{"sqlite", "postgres"} {
+		t.Run(dialect, func(t *testing.T) {
+			r := sharedLandingTestRepo(t, dialect)
+			h := New(r, "shared-hosts", "test")
+			for _, row := range []any{
+				&model.Node{ID: 601, Name: "dead-domain", ServerIP: "Lost.INVALID"},
+				&model.Node{ID: 602, Name: "resolvable", ServerIP: "LOCALHOST"},
+				&model.Node{ID: 603, Name: "literal", ServerIP: "203.0.113.99"},
+				&model.LandingServer{ID: 601, NodeID: 601, Source: "native", PublicHost: "Lost.INVALID", Status: "disabled"},
+			} {
+				if err := r.DB().Create(row).Error; err != nil {
+					t.Fatal(err)
+				}
+			}
+			shares := []landingcustom.Share{}
+			for _, id := range []int64{7, 8} {
+				shares = append(shares, landingcustom.Share{ID: id, Name: "shared", Hosts: landingcustom.Hosts{IPv4: fmt.Sprintf("203.0.113.%d", id)}, Status: "active", PortMin: 30000, PortMax: 30100, Protocols: []string{"ss2022"}})
+			}
+			var report landingcustom.LandingHosts
+			hosts := 0
+			polls, pushes := map[string]int{}, map[string]int{}
+			custom := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				switch {
+				case req.URL.Path == landingcustom.Prefix+"/shares":
+					json.NewEncoder(w).Encode(map[string]any{"shares": shares})
+				case req.URL.Path == landingcustom.Prefix+"/landing-hosts":
+					if req.Method != http.MethodPut {
+						t.Error("host report must be PUT")
+					}
+					hosts++
+					json.NewDecoder(req.Body).Decode(&report)
+					w.Write([]byte("{}"))
+				case strings.HasSuffix(req.URL.Path, "/status"):
+					polls[req.URL.Path]++
+					json.NewEncoder(w).Encode(landingcustom.Status{CollectedAt: time.Now().UnixMilli(), Core: landingcustom.Core{State: "running"}})
+				case strings.HasSuffix(req.URL.Path, "/desired"):
+					pushes[req.URL.Path]++
+					var desired landingcustom.Desired
+					json.NewDecoder(req.Body).Decode(&desired)
+					json.NewEncoder(w).Encode(map[string]int64{"accepted_revision": desired.Revision})
+				default:
+					t.Errorf("unexpected path %s", req.URL.Path)
+					w.WriteHeader(404)
+				}
+			}))
+			defer custom.Close()
+			if err := r.SaveLandingIntegration(custom.URL, "flvx_fixture"); err != nil {
+				t.Fatal(err)
+			}
+			h.syncSharedIntegration(context.Background(), false)
+			if hosts != 1 || !slices.Contains(report.Nodes, "lost.invalid") || !slices.Contains(report.Native, "lost.invalid") || !slices.Contains(report.Nodes, "localhost") || !slices.Contains(report.Nodes, "127.0.0.1") || !slices.Contains(report.Nodes, "203.0.113.99") {
+				t.Fatalf("DNS failure blocked/incompletely reported hosts: %+v", report)
+			}
+			for _, id := range []int{7, 8} {
+				prefix := fmt.Sprintf("%s/shares/%d", landingcustom.Prefix, id)
+				if polls[prefix+"/status"] != 1 || pushes[prefix+"/desired"] != 1 {
+					t.Fatal("DNS failure blocked same-tick shared status/push")
+				}
+			}
+			st := h.sharedState()
+			if len(st.hostAddresses["localhost"]) == 0 {
+				t.Fatal("successful resolution was not cached")
+			}
+			// Model addresses learned during a previous successful resolution.
+			st.hostAddresses["lost.invalid"] = []string{"203.0.113.60", "2001:db8::60"}
+			st.lastHosts = time.Time{}
+			h.syncSharedIntegration(context.Background(), false)
+			if hosts != 2 || !slices.Contains(report.Nodes, "203.0.113.60") || !slices.Contains(report.Native, "2001:db8::60") || !slices.Contains(report.Nodes, "lost.invalid") {
+				t.Fatal("DNS failure dropped previously resolved addresses", report)
+			}
+			cfg, _ := r.GetLandingIntegration()
+			if st.offline.failures != 0 || !st.offline.next.IsZero() || len(st.retries) != 0 || cfg.SyncError != "" {
+				t.Fatal("DNS failure became a transport failure or persistent sync error")
+			}
+			// Native enablement must ignore the best-effort report cache.
+			if err := h.checkSharedNativeConflict(context.Background(), 601); err == nil {
+				t.Fatal("unresolvable own native address was accepted")
+			}
+			shares[0].Hosts.Domain = "unresolvable-share.invalid"
+			if err := h.checkSharedNativeConflict(context.Background(), 603); err == nil {
+				t.Fatal("unresolvable share address was accepted")
 			}
 		})
 	}

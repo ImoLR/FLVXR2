@@ -28,11 +28,12 @@ type sharedLandingState struct {
 	lastList, lastHosts time.Time
 	lastPushRevision    map[int64]int64
 	hostsHash           string
+	hostAddresses       map[string][]string
 }
 
 func (h *Handler) sharedState() *sharedLandingState {
 	if h.sharedLanding == nil {
-		h.sharedLanding = &sharedLandingState{retries: map[string]sharedRetry{}, lastPushRevision: map[int64]int64{}}
+		h.sharedLanding = &sharedLandingState{retries: map[string]sharedRetry{}, lastPushRevision: map[int64]int64{}, hostAddresses: map[string][]string{}}
 	}
 	return h.sharedLanding
 }
@@ -204,16 +205,15 @@ func (h *Handler) syncSharedIntegration(ctx context.Context, force bool) {
 			sort.Strings(hosts.Nodes)
 			raw, _ := json.Marshal(hosts)
 			if force || string(raw) != st.hostsHash || now.Sub(st.lastHosts) >= 10*time.Minute {
+				// DNS is best effort for reports, outside the Custom transport breaker.
+				resolved, _ := resolveSharedHosts(ctx, hosts, st.hostAddresses)
 				e = h.sharedAttempt("hosts", force, func() error {
-					resolved, resolveErr := resolveSharedHosts(ctx, hosts)
-					if resolveErr != nil {
-						return resolveErr
-					}
-					if resolveErr = client.PutHosts(ctx, resolved); resolveErr == nil {
+					putErr := client.PutHosts(ctx, resolved)
+					if putErr == nil {
 						st.hostsHash = string(raw)
 						st.lastHosts = now
 					}
-					return resolveErr
+					return putErr
 				})
 				if e != nil {
 					err = e
@@ -266,11 +266,14 @@ func (h *Handler) syncSharedIntegration(ctx context.Context, force bool) {
 		h.reconcileLandingPolicy(time.Now())
 	}
 }
-func resolveSharedHosts(ctx context.Context, hosts landingcustom.LandingHosts) (landingcustom.LandingHosts, error) {
+
+// A nil cache requires fresh DNS for native enablement. Periodic reports supply
+// a cache and retain literals plus last successful addresses on resolution failure.
+func resolveSharedHosts(ctx context.Context, hosts landingcustom.LandingHosts, cache map[string][]string) (landingcustom.LandingHosts, error) {
 	resolve := func(input []string) ([]string, error) {
 		set := map[string]bool{}
 		for _, host := range input {
-			host = strings.Trim(strings.TrimSpace(host), "[]")
+			host = strings.ToLower(strings.Trim(strings.TrimSpace(host), "[]"))
 			if host == "" {
 				continue
 			}
@@ -282,9 +285,14 @@ func resolveSharedHosts(ctx context.Context, hosts landingcustom.LandingHosts) (
 			ips, err := net.DefaultResolver.LookupHost(child, host)
 			cancel()
 			if err != nil || len(ips) == 0 {
-				return nil, errors.New("FLVX 主机地址解析失败，保留上次主机报告")
+				if cache == nil {
+					return nil, errors.New("FLVX 主机地址解析失败，保留上次主机报告")
+				}
+				ips = cache[host]
+			} else if cache != nil {
+				cache[host] = ips
 			}
-			set[strings.ToLower(host)] = true
+			set[host] = true
 			for _, ip := range ips {
 				set[ip] = true
 			}
@@ -399,7 +407,7 @@ func (h *Handler) checkSharedNativeConflict(ctx context.Context, nodeID int64) e
 		extra = strings.FieldsFunc(n.ExtraIPs.String, func(r rune) bool { return r == ',' || r == '\n' || r == ' ' })
 	}
 	own = append(own, extra...)
-	resolved, err := resolveSharedHosts(ctx, landingcustom.LandingHosts{Nodes: own, Native: []string{}})
+	resolved, err := resolveSharedHosts(ctx, landingcustom.LandingHosts{Nodes: own, Native: []string{}}, nil)
 	if err != nil {
 		return err
 	}
@@ -411,7 +419,7 @@ func (h *Handler) checkSharedNativeConflict(ctx context.Context, nodeID int64) e
 		if s.Status == "revoked" {
 			continue
 		}
-		remote, e := resolveSharedHosts(ctx, landingcustom.LandingHosts{Nodes: []string{s.Hosts.IPv4, s.Hosts.IPv6, s.Hosts.Domain}, Native: []string{}})
+		remote, e := resolveSharedHosts(ctx, landingcustom.LandingHosts{Nodes: []string{s.Hosts.IPv4, s.Hosts.IPv6, s.Hosts.Domain}, Native: []string{}}, nil)
 		if e != nil {
 			return errors.New("妙妙屋共享地址解析失败，暂不能启用自有落地")
 		}
