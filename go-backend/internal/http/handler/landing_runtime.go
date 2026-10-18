@@ -3,8 +3,12 @@ package handler
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"log"
 	"time"
+
+	"go-backend/internal/store/repo"
 )
 
 func (h *Handler) runLandingReconcileLoop(ctx context.Context) {
@@ -85,23 +89,38 @@ func (h *Handler) reconcileLandingPolicy(now time.Time) {
 
 // syncLandingServer sends full desired state, including disabled nodes so credentials
 // and ports remain reserved during the renewal grace period. No secrets are logged.
-func (h *Handler) syncLandingServer(serverID int64) {
+type landingSyncSnapshot struct {
+	NodeID   int64                 `json:"-"`
+	Revision int64                 `json:"revision"`
+	Epoch    string                `json:"epoch"`
+	State    string                `json:"state"`
+	Error    string                `json:"error"`
+	Nodes    []repo.LandingCounter `json:"nodes"`
+}
+
+func (h *Handler) syncLandingServer(serverID int64) (*landingSyncSnapshot, error) {
 	if h == nil || h.repo == nil {
-		return
+		return nil, errors.New("落地服务器状态不可用")
 	}
 	h.landingSyncMu.Lock()
 	defer h.landingSyncMu.Unlock()
 	s, err := h.repo.GetLandingServer(serverID)
 	if err != nil || s == nil || s.Source != "native" || s.NodeID == 36 {
-		return
+		return nil, errors.New("落地服务器状态不可用")
 	}
 	node, err := h.repo.GetNodeByID(s.NodeID)
 	if err != nil || node == nil || !node.LandingCapable {
-		return
+		return nil, errors.New("落地服务器状态不可用")
+	}
+	if node.Status != 1 {
+		return nil, errors.New("节点离线，请在节点恢复在线后重试")
+	}
+	if h.nodeCommandSender == nil && h.wsServer == nil {
+		return nil, errors.New("节点连接不可用，请稍后重试")
 	}
 	nodes, err := h.repo.ListLandingNodes(0, true)
 	if err != nil {
-		return
+		return nil, errors.New("落地服务器状态不可用")
 	}
 	desiredNodes := []map[string]interface{}{}
 	for _, n := range nodes {
@@ -123,5 +142,22 @@ func (h *Handler) syncLandingServer(serverID int64) {
 	result, err := h.sendNodeCommandWithTimeout(s.NodeID, "ApplyLandingDesired", payload, 30*time.Second, false, false)
 	if err != nil || !result.Success {
 		log.Printf("landing desired sync pending server=%d node=%d", s.ID, s.NodeID)
+		return nil, errors.New("节点未确认落地状态，请稍后重试")
 	}
+	raw, err := json.Marshal(result.Data)
+	if err != nil {
+		return nil, errors.New("节点落地状态格式错误")
+	}
+	var snapshot landingSyncSnapshot
+	if err := json.Unmarshal(raw, &snapshot); err != nil {
+		return nil, errors.New("节点落地状态格式错误")
+	}
+	if snapshot.Revision != s.Revision || snapshot.State == "error" || snapshot.Error != "" {
+		return nil, fmt.Errorf("节点尚未应用落地配置 revision=%d", s.Revision)
+	}
+	snapshot.NodeID = s.NodeID
+	for i := range snapshot.Nodes {
+		snapshot.Nodes[i].NodeID = s.NodeID
+	}
+	return &snapshot, nil
 }

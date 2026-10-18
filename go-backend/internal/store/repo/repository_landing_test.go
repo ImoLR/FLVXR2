@@ -154,6 +154,50 @@ func TestLandingManualTargetsAndLinks(t *testing.T) {
 }
 func itoaLanding(v int) string { return strconv.Itoa(v) }
 
+func TestLandingDeletionPreparationRetainsAccountingIdentity(t *testing.T) {
+	for _, dialect := range []string{"sqlite", "postgres"} {
+		t.Run(dialect, func(t *testing.T) {
+			r, s := landingRepoFixture(t, dialect)
+			n, err := r.CreateLandingNode(501, s.ID, "delete", "ss2022", false)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := r.DeleteLandingNode(n.ID, true); err == nil {
+				t.Fatal("confirmed-delete guard allowed an active node")
+			}
+			orphanSeed(t, r, &model.Forward{ID: 901, UserID: 501, LandingNodeID: n.ID, Name: "referenced"})
+			if _, err := r.PrepareLandingNodeDeletion(n.ID); err == nil {
+				t.Fatal("prepared a referenced node")
+			}
+			unchanged, _ := r.GetLandingNode(n.ID)
+			if unchanged == nil || unchanged.Status != "active" {
+				t.Fatalf("failed preparation changed status: %+v", unchanged)
+			}
+			if err := r.db.Delete(&model.Forward{}, 901).Error; err != nil {
+				t.Fatal(err)
+			}
+			if err := r.db.Model(n).Updates(map[string]interface{}{"counter_epoch": "100", "last_seen_up": 10, "last_seen_down": 20, "auto_disabled": true}).Error; err != nil {
+				t.Fatal(err)
+			}
+			before, _ := r.GetLandingServer(s.ID)
+			prepared, err := r.PrepareLandingNodeDeletion(n.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if prepared.Status != "disabled" || prepared.AutoDisabled || prepared.Port != n.Port || prepared.ServerKey != n.ServerKey || prepared.UserKey != n.UserKey || prepared.CounterEpoch != "100" || prepared.LastSeenUp != 10 || prepared.LastSeenDown != 20 {
+				t.Fatalf("preparation lost identity/cursor: %+v", prepared)
+			}
+			after, _ := r.GetLandingServer(s.ID)
+			if after.Revision != before.Revision+1 {
+				t.Fatalf("revision %d -> %d", before.Revision, after.Revision)
+			}
+			if err := r.DeleteLandingNode(n.ID, true); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
 func TestLandingGeneratedConfigRealCore(t *testing.T) {
 	binary := os.Getenv("FLVX_LANDING_CORE_BIN")
 	if binary == "" {

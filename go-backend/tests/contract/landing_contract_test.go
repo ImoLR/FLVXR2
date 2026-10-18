@@ -134,8 +134,11 @@ func TestLandingPermissionsContract(t *testing.T) {
 			if out := call("node/create", a, map[string]interface{}{"landingServerId": s.ID, "name": "override", "protocol": "ss2022", "maxConnections": 999}); out.Code == 0 {
 				t.Fatal("user supplied admin field accepted")
 			}
-			if out := call("node/delete", a, map[string]interface{}{"id": id}); out.Code != 0 {
-				t.Fatalf("own delete %+v", out)
+			if out := call("node/delete", a, map[string]interface{}{"id": id}); out.Code == 0 || !strings.Contains(out.Msg, "保留") {
+				t.Fatalf("offline delete must retain final accounting identity: %+v", out)
+			}
+			if retained, err := r.GetLandingNode(id); err != nil || retained == nil || retained.Status != "disabled" || retained.Port != n.Port {
+				t.Fatalf("offline delete released node/port: %+v %v", retained, err)
 			}
 		})
 	}

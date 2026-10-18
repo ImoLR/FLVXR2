@@ -476,11 +476,14 @@ func (r *Repository) UpdateLandingNode(n *model.LandingNode) error {
 		return tx.Model(&model.LandingServer{}).Where("id = ?", n.LandingServerID).Update("revision", gorm.Expr("revision + 1")).Error
 	})
 }
-func (r *Repository) DeleteLandingNode(id int64) error {
+func (r *Repository) DeleteLandingNode(id int64, requireDisabled ...bool) error {
 	return r.db.Transaction(func(tx *gorm.DB) error {
 		var n model.LandingNode
-		if err := tx.First(&n, id).Error; err != nil {
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&n, id).Error; err != nil {
 			return err
+		}
+		if len(requireDisabled) > 0 && requireDisabled[0] && (n.Status != "disabled" || n.AutoDisabled) {
+			return errors.New("节点设置已变化，请重试删除")
 		}
 		var count int64
 		if err := tx.Model(&model.Forward{}).Where("landing_node_id = ?", id).Count(&count).Error; err != nil {
@@ -494,4 +497,28 @@ func (r *Repository) DeleteLandingNode(id int64) error {
 		}
 		return tx.Model(&model.LandingServer{}).Where("id = ?", n.LandingServerID).Update("revision", gorm.Expr("revision + 1")).Error
 	})
+}
+
+// PrepareLandingNodeDeletion keeps the identity and counter cursor until the
+// agent has blocked existing connections and acknowledged its final counters.
+func (r *Repository) PrepareLandingNodeDeletion(id int64) (*model.LandingNode, error) {
+	var n model.LandingNode
+	err := r.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&n, id).Error; err != nil {
+			return err
+		}
+		var count int64
+		if err := tx.Model(&model.Forward{}).Where("landing_node_id = ?", id).Count(&count).Error; err != nil {
+			return err
+		}
+		if count > 0 {
+			return errors.New("该节点仍被规则引用，请先删除或修改规则")
+		}
+		n.Status, n.AutoDisabled, n.UpdatedTime = "disabled", false, time.Now().UnixMilli()
+		if err := tx.Model(&n).Updates(map[string]interface{}{"status": n.Status, "auto_disabled": false, "updated_time": n.UpdatedTime}).Error; err != nil {
+			return err
+		}
+		return tx.Model(&model.LandingServer{}).Where("id = ?", n.LandingServerID).UpdateColumn("revision", gorm.Expr("revision + 1")).Error
+	})
+	return &n, err
 }

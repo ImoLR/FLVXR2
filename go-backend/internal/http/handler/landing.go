@@ -11,6 +11,7 @@ import (
 
 	"go-backend/internal/http/response"
 	"go-backend/internal/store/model"
+	"go-backend/internal/store/repo"
 )
 
 func (h *Handler) registerLanding(mux *http.ServeMux) {
@@ -289,11 +290,42 @@ func (h *Handler) landingNodeDelete(w http.ResponseWriter, r *http.Request) {
 		landingError(w, err)
 		return
 	}
-	if err := h.repo.DeleteLandingNode(n.ID); err != nil {
+	n, err = h.repo.PrepareLandingNodeDeletion(n.ID)
+	if err != nil {
+		landingError(w, err)
+		return
+	}
+	snapshot, err := h.syncLandingServer(n.LandingServerID)
+	if err != nil {
+		landingError(w, errors.New("已保留节点及端口并标记停用；"+err.Error()))
+		return
+	}
+	// ApplyLandingDesired collects after blocking and removing the inbound.
+	// A missing/stale snapshot must never release the accounting identity.
+	var final []repo.LandingCounter
+	for _, counter := range snapshot.Nodes {
+		if counter.ID == n.ID && counter.InboundTag == n.InboundTag && counter.Epoch != "" && counter.Connections == 0 {
+			final = append(final, counter)
+		}
+	}
+	if len(final) != 1 {
+		landingError(w, errors.New("节点尚未确认最终流量及连接关闭，已保留节点和端口，请稍后重试"))
+		return
+	}
+	enforce, err := h.commitFlowWithLanding(snapshot.NodeID, nil, final)
+	if err != nil {
+		landingError(w, errors.New("最终落地流量入账失败，已保留节点和端口，请稍后重试"))
+		return
+	}
+	if err := h.repo.DeleteLandingNode(n.ID, true); err != nil {
 		landingError(w, err)
 		return
 	}
 	h.syncLandingServer(n.LandingServerID)
+	// No sync/policy mutex is held here; enforcement may reconcile other nodes.
+	if enforce != nil {
+		enforce()
+	}
 	response.WriteJSON(w, response.OKEmpty())
 }
 func (h *Handler) landingNodeLinks(w http.ResponseWriter, r *http.Request) {
