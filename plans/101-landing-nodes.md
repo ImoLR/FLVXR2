@@ -131,8 +131,8 @@
 - [x] 前端（只加不改）+ H5；隐藏旧部署入口。
 - [x] 单元 / 契约测试（SQLite + PG），全量 `go test` 失败集合不超过基线。
 - [x] 本机端到端（真实 mmwxc-core + 客户端）：SS2022 与 VLESS Reality Vision 直连与经规则、计数与计费、限额暂停/恢复、连接限制、热添加不断已有连接、到期与恢复。
-- [ ] 截图集（电脑 + H5，含原有页面前后对比）。
-- [ ] 推送分支（不打 tag、不发布、不动生产/节点），中文总结。
+- [x] 截图集（电脑 + H5，含原有页面前后对比）。
+- [x] 推送分支（不打 tag、不发布、不动生产/节点），中文总结。
 
 ### 第二期 A：妙妙屋 Custom（任务 `flvx-share`，mmwx-custom 仓库）
 
@@ -170,3 +170,9 @@
 最终真实 Core 补验：显式删除先取最终计数后释放端口，端口 30002 可重新分配；修正 sniffing 域名覆盖后，原能访问私网的既有测试请求返回 0 字节并被阻断。证据 `e2e/delete-final-results.json`、`e2e/private-domain-spoof-fix.json`。Agent 采样在安装/热更新占锁时跳过本次累计采样，后续累计补齐，既有规则上报不被阻塞；相应回归测试通过。
 
 最终前端 TypeScript/Vite/PWA 构建通过（PWA 2950.23 KiB）；dashboard、全局样式、主题映射及依赖文件保持基线，哈希记录 `ui-preservation.json`。截图仅使用基线/最终静态 dist，Chromium 单实例启动前 MemAvailable 1194 MiB。新增规则目标选择器用于普通 gost/nftables 隧道，既有管理员专用 wg_path CIDR/路径输入未扩展。
+
+收尾核验：最终代码 `f8926a5d` 的仓储落地测试在 SQLite/PostgreSQL 与真实 Core 下通过（17.185s），包含 SIP002 分隔符及特殊字符/IPv6 回归；全量后端仍恰好为基线 15 项失败，无新增失败。最终 API 生成的 SS2022 直连/规则 URI 经标准解析后用于真实 Core 客户端，两路各传输 65,536 字节成功，证据 `e2e/ss-uri-results.json`。手机新按钮换行修正后前端构建通过，最终 PWA 2950.25 KiB。
+
+截图集 `/root/flvx-workers/runs/landing-native/screens/index.html` 共 118 张，覆盖电脑/H5、管理员/用户、新页面及弹窗、双协议直连/规则链接及二维码，以及既有 dashboard、规则默认手填、节点页、用户编辑的前后对比；`screens/manifest.json` 核验无缺失、无应用或采集异常。旧版需升级、节点 36 禁用和支持能力但未启用的离线节点均有展示。截图无 API 写操作，全部使用一次性本地 fixture。
+
+测试资源已清理：专用 panel/agent/Core/静态服务/fixture 进程、netns/veth、PostgreSQL 容器及匿名卷、`/root/tmp-work/landing-native` 均删除，16365/16366/16367/15453 已释放；证据 `cleanup.json`。没有生产读写、发布、tag、镜像推送、OTA、SSH 或其他工作树/栈改动。中文完整总结、技术规格调整、限制、后续发布顺序和回滚说明在 `/root/flvx-workers/runs/landing-native/summary.md`。仅推送 `feature/3.0.27-landing-nodes`；既有分支 CI `39118052030` 四项全绿，最后提交对应的 CI 链接与完整 head 记录于该总结。
