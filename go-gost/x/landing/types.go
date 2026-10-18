@@ -112,7 +112,9 @@ func (d *Desired) validate() error {
 }
 
 func (n Node) inbound() (map[string]any, error) {
-	inbound := map[string]any{"tag": n.InboundTag, "listen": "0.0.0.0", "port": n.Port, "sniffing": map[string]any{"enabled": true, "destOverride": []string{"http", "tls"}, "routeOnly": true}}
+	// A sniffed public Host/SNI must not replace a private original domain for
+	// routing: retain protocol sniffing, but exclude all domain overrides.
+	inbound := map[string]any{"tag": n.InboundTag, "listen": "0.0.0.0", "port": n.Port, "sniffing": map[string]any{"enabled": true, "destOverride": []string{"http", "tls"}, "routeOnly": true, "domainsExcluded": []string{"regexp:.*"}}}
 	switch n.Protocol {
 	case "ss2022":
 		if n.SS2022 == nil || n.SS2022.Method != SS2022Method {

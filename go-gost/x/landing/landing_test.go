@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"net"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -32,6 +33,15 @@ func TestLandingValidationAndImmutableRouting(t *testing.T) {
 	d := Desired{Revision: 1, Enabled: true, Nodes: []Node{n}}
 	if err := d.validate(); err != nil {
 		t.Fatal(err)
+	}
+
+	inbound, err := n.inbound()
+	if err != nil {
+		t.Fatal(err)
+	}
+	sniff := inbound["sniffing"].(map[string]any)
+	if sniff["routeOnly"] != true || sniff["domainsExcluded"].([]string)[0] != "regexp:.*" {
+		t.Fatal("sniffed Host can bypass private-target routing")
 	}
 	if d.CoreMemoryMB != 256 || d.CoreCPUPercent != 50 {
 		t.Fatal("missing resource defaults")
@@ -287,4 +297,50 @@ func TestLandingPinnedCore(t *testing.T) {
 		t.Fatal("core restart did not restore persisted inbound")
 	}
 
+}
+
+func TestLandingBlocksPausedAndDeletedIdentities(t *testing.T) {
+	m := NewManager(t.TempDir(), true)
+	if err := os.MkdirAll(filepath.Join(m.dir, "run"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	listener, err := net.Listen("unix", m.socket())
+	if err != nil {
+		t.Fatal(err)
+	}
+	received := make(chan map[string]any, 1)
+	server := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Error(err)
+		}
+		received <- body
+		_, _ = w.Write([]byte(`{"success":true}`))
+	})}
+	go server.Serve(listener)
+	defer server.Close()
+	n1, n2 := testNode(t, 1), testNode(t, 2)
+	n2.Enabled = false
+	m.desired = Desired{Enabled: true, Nodes: []Node{n1, n2}}
+	m.applied = appliedState{Inbounds: map[string]string{"flvxl-1": "active", "flvxl-3": "deleted"}}
+	var snap coreSnapshot
+	_ = json.Unmarshal([]byte(`{"proxy_users":[{"identity":{"inbound_tag":"flvxl-4","user":"flvxl-4"}}]}`), &snap)
+	if err := m.applyLimits(context.Background(), snap); err != nil {
+		t.Fatal(err)
+	}
+	body := <-received
+	blocked := body["blocked_identities"].([]any)
+	got := map[string]bool{}
+	for _, v := range blocked {
+		item := v.(map[string]any)
+		got[item["inbound_tag"].(string)+"/"+item["user"].(string)] = true
+	}
+	for _, want := range []string{"flvxl-2/flvxl-2", "flvxl-2/", "flvxl-3/flvxl-3", "flvxl-3/", "flvxl-4/flvxl-4"} {
+		if !got[want] {
+			t.Fatalf("missing targeted disconnect %s", want)
+		}
+	}
+	if got["flvxl-1/flvxl-1"] || got["flvxl-1/"] {
+		t.Fatal("active unrelated inbound blocked")
+	}
 }

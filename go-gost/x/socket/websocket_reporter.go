@@ -1334,6 +1334,7 @@ func (w *WebSocketReporter) routeCommand(cmd CommandMessage) {
 		response.Data, err = w.handleApplyLandingDesired(cmd.Data)
 		response.Type = "ApplyLandingDesiredResponse"
 	case "GetLandingStatus":
+		_ = landing.Default().Counters()
 		response.Data = landing.Default().Status()
 		response.Type = "GetLandingStatusResponse"
 	case "ApplyCoreConfig":

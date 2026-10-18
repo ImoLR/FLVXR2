@@ -63,6 +63,8 @@ func SetHTTPReportURL(addr string, secret string) {
 	} else {
 		fmt.Printf("🔐 HTTP AES 加密器创建成功\n")
 	}
+	// Landing-only nodes also need the periodic uploader before any forward exists.
+	GetGlobalTrafficManager()
 }
 
 func buildReportURLCandidates(addr string, secret string) (upload []string, config []string) {

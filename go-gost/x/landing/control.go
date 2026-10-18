@@ -25,6 +25,7 @@ type coreSnapshot struct {
 	Users []struct {
 		Identity struct {
 			InboundTag string `json:"inbound_tag"`
+			User       string `json:"user"`
 		} `json:"identity"`
 		CurrentTotal int64 `json:"current_total"`
 	} `json:"proxy_users"`
@@ -79,13 +80,41 @@ type portLimit struct {
 	MaxInboundOnlineIPs *int   `json:"max_inbound_online_ips"`
 }
 
-func (m *Manager) applyLimits(ctx context.Context) error {
+func (m *Manager) applyLimits(ctx context.Context, snapshot coreSnapshot) error {
 	// Helper connectionSettings.coreConfig maps the enabled global total limit
 	// and ports to these v7 control-socket fields. nil means unlimited.
 	var global *int64
 	if m.desired.MaxConnections > 0 {
 		v := m.desired.MaxConnections
 		global = &v
+	}
+	// Removing an inbound only closes its listener. The pinned v7 control API
+	// closes existing sockets for blocked identities, including pre-auth sockets.
+	// Include removed tags while the previous applied state still identifies them.
+	active := map[string]bool{}
+	for _, n := range m.desired.Nodes {
+		active[n.InboundTag] = m.desired.Enabled && n.Enabled
+	}
+	blocked := []map[string]string{}
+	seen := map[string]bool{}
+	block := func(tag, user string) {
+		key := tag + "\x00" + user
+		if active[tag] || seen[key] || !strings.HasPrefix(tag, "flvxl-") {
+			return
+		}
+		seen[key] = true
+		blocked = append(blocked, map[string]string{"inbound_tag": tag, "user": user})
+	}
+	for _, n := range m.desired.Nodes {
+		block(n.InboundTag, n.InboundTag)
+		block(n.InboundTag, "")
+	}
+	for tag := range m.applied.Inbounds {
+		block(tag, tag)
+		block(tag, "")
+	}
+	for _, u := range snapshot.Users {
+		block(u.Identity.InboundTag, u.Identity.User)
 	}
 	ports := []portLimit{}
 	for _, n := range m.desired.Nodes {
@@ -100,7 +129,7 @@ func (m *Manager) applyLimits(ctx context.Context) error {
 		}
 		ports = append(ports, p)
 	}
-	cfg := map[string]any{"max_global_total_connections": global, "max_global_inbound_connections": nil, "online_ip_grace_period_seconds": 0, "default_close_wait_timeout_seconds": nil, "port_limits": ports, "limits": []any{}, "management_mappings": []any{}, "management_limits": []any{}, "blocked_identities": []any{}}
+	cfg := map[string]any{"max_global_total_connections": global, "max_global_inbound_connections": nil, "online_ip_grace_period_seconds": 0, "default_close_wait_timeout_seconds": nil, "port_limits": ports, "limits": []any{}, "management_mappings": []any{}, "management_limits": []any{}, "blocked_identities": blocked}
 	var result struct {
 		Success bool `json:"success"`
 	}
@@ -162,7 +191,9 @@ func (m *Manager) reconcile(ctx context.Context) error {
 		m.applied.Inbounds = map[string]string{}
 	}
 	m.epoch = epoch
-	if err := m.applyLimits(ctx); err != nil {
+	// Capture the final live sample before controls terminate affected sockets.
+	_ = m.collect(ctx)
+	if err := m.applyLimits(ctx, snapshot); err != nil {
 		return err
 	}
 	wanted := map[string]string{}
