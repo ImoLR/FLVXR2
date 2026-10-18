@@ -24,3 +24,6 @@ title (16px), and other text should scale up proportionally.
 - `npm run build`: passed. Three changed TSX files: ESLint 0 errors / 27 existing warnings.
 - Fixed one JSX line-wrap warning in the original font commit; no UI behavior change.
 - `go build ./...` in go-backend: passed.
+- Published annotated tag `3.0.27-fork.55` → `585dcc6f`; CI `39148964663` and images/release `39148966171` succeeded.
+- Release is Latest/non-prerelease, same 10 assets as fork.54; both GOST SHA-256 checksums, pinned installer versions/repository, and amd64/arm64 image manifests verified. Compose differs only in image tags.
+- Validated rollback point: `/opt/flvx-svc/rollback/pre-fork55-20261018T172034Z` (SQLite quick_check OK, config and image tags, rollback.sh). Retention now keeps pre-fork55 + pre-fork54; pre-shared-canary and its two local image tags pruned.
