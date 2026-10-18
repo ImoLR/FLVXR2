@@ -65,8 +65,36 @@ func (r *Repository) ReconcileLandingPolicy(now time.Time) (LandingReconcileResu
 			return err
 		}
 		roll := map[ServerQuotaKey]FlowCounterDelta{}
+		var nodeDefaults []model.Node
+		if len(quotas) > 0 {
+			if err := tx.Select("id", "default_user_quota_bytes").Find(&nodeDefaults).Error; err != nil {
+				return err
+			}
+		}
+		byNodeDefault := map[int64]int64{}
+		for _, n := range nodeDefaults {
+			byNodeDefault[n.ID] = n.DefaultUserQuotaBytes
+		}
 		for _, q := range quotas {
-			roll[ServerQuotaKey{q.UserID, q.ServerKind, q.ServerRefID}] = FlowCounterDelta{}
+			u := byUser[q.UserID]
+			if u == nil {
+				continue
+			}
+			limit := q.LimitBytes
+			if !q.LimitOverride {
+				limit = byNodeDefault[q.ServerRefID]
+				if q.ServerKind == "landing" {
+					limit = 0
+					if s := byServer[q.ServerRefID]; s != nil {
+						limit = s.DefaultUserQuotaBytes
+					}
+				}
+			}
+			// Uploads reconcile all quotas; unchanged rows must not be rewritten.
+			paused := limit > 0 && q.UsedIn+q.UsedOut >= limit
+			if q.PeriodKey != LandingPeriodKey(u.FlowResetTime, now) || q.LimitBytes != limit || q.Paused != paused {
+				roll[ServerQuotaKey{q.UserID, q.ServerKind, q.ServerRefID}] = FlowCounterDelta{}
+			}
 		}
 		if err := applyServerQuotasTx(tx, roll, now); err != nil {
 			return err

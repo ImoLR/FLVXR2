@@ -8,7 +8,59 @@ import (
 	"encoding/json"
 	"go-backend/internal/landingcustom"
 	"go-backend/internal/store/model"
+	"gorm.io/gorm"
 )
+
+func TestLandingReconcileOnlyWritesChangedQuotas(t *testing.T) {
+	for _, dialect := range []string{"sqlite", "postgres"} {
+		t.Run(dialect, func(t *testing.T) {
+			r, now := landingFlowFixture(t, dialect)
+			key := ServerQuotaKey{2, "node", 2}
+			if _, err := r.ApplyFlowBatch(FlowBatch{ServerQuotas: map[ServerQuotaKey]FlowCounterDelta{key: {In: 600, Out: 500}}}, now); err != nil {
+				t.Fatal(err)
+			}
+			writes := 0
+			countWrite := func(tx *gorm.DB) {
+				if tx.Statement.Table == "user_server_quota" {
+					writes++
+				}
+			}
+			if err := r.db.Callback().Create().Before("gorm:create").Register("test:quota_create", countWrite); err != nil {
+				t.Fatal(err)
+			}
+			if err := r.db.Callback().Update().Before("gorm:update").Register("test:quota_update", countWrite); err != nil {
+				t.Fatal(err)
+			}
+			check := func(at time.Time, limit, in, out int64, paused, wantWrite bool) {
+				t.Helper()
+				writes = 0
+				if _, err := r.ReconcileLandingPolicy(at); err != nil {
+					t.Fatal(err)
+				}
+				var q model.UserServerQuota
+				if err := r.db.Where("user_id = 2 AND server_kind = 'node' AND server_ref_id = 2").First(&q).Error; err != nil {
+					t.Fatal(err)
+				}
+				if q.LimitBytes != limit || q.UsedIn != in || q.UsedOut != out || q.Paused != paused || (writes > 0) != wantWrite {
+					t.Fatalf("quota=%+v writes=%d want limit=%d usage=%d/%d paused=%v write=%v", q, writes, limit, in, out, paused, wantWrite)
+				}
+			}
+			check(now.Add(time.Second), 1000, 600, 500, true, false)
+			if err := r.db.Model(&model.Node{}).Where("id = 2").Update("default_user_quota_bytes", 2000).Error; err != nil {
+				t.Fatal(err)
+			}
+			check(now.Add(2*time.Second), 2000, 600, 500, false, true)
+			check(now.Add(3*time.Second), 2000, 600, 500, false, false)
+			if err := r.db.Model(&model.UserServerQuota{}).Where("user_id = 2").Updates(map[string]interface{}{"limit_override": true, "limit_bytes": 500}).Error; err != nil {
+				t.Fatal(err)
+			}
+			check(now.Add(4*time.Second), 500, 600, 500, true, true)
+			check(now.Add(5*time.Second), 500, 600, 500, true, false)
+			check(now.AddDate(0, 1, 0), 500, 0, 0, false, true)
+			check(now.AddDate(0, 1, 0).Add(time.Second), 500, 0, 0, false, false)
+		})
+	}
+}
 
 func landingFlowFixture(t *testing.T, dialect string) (*Repository, time.Time) {
 	t.Helper()
