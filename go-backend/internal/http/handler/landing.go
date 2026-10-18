@@ -409,5 +409,15 @@ func (h *Handler) resolveNativeLandingTarget(req map[string]interface{}, userID,
 		return remoteAddr, landingID, createdID, nil
 	}
 	id, err := h.repo.MatchLandingTarget(userID, tunnelID, remoteAddr)
+	if err == nil && id > 0 && !admin {
+		n, nodeErr := h.repo.GetLandingNode(id)
+		if nodeErr != nil || n == nil {
+			return "", 0, createdID, errors.New("落地节点不存在")
+		}
+		allowed, permissionErr := h.repo.UserCanUseLandingServer(userID, n.LandingServerID)
+		if permissionErr != nil || !allowed {
+			return "", 0, createdID, errors.New("无权使用该落地服务器")
+		}
+	}
 	return remoteAddr, id, createdID, err
 }
