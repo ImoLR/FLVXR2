@@ -55,6 +55,10 @@ func (h *Handler) landingServerView(s model.LandingServer, admin bool) map[strin
 	if s.Source == "shared" {
 		caps := repo.SharedLandingCaps(&s)
 		v["sharedCaps"] = caps
+		if cfg, e := h.repo.GetLandingIntegration(); e == nil && cfg.SyncError != "" {
+			s.SharedSyncError = cfg.SyncError
+			v["sharedSyncError"] = cfg.SyncError
+		}
 		v["online"] = caps.Core.State == "running" && s.SharedSyncError == "" && s.SharedLastSyncAt > time.Now().Add(-2*time.Minute).UnixMilli()
 		v["landingSupported"] = true
 		v["sharedAvailable"] = repo.SharedLandingAvailable(&s)
@@ -97,6 +101,9 @@ func (h *Handler) landingNodeView(n model.LandingNode) map[string]interface{} {
 				v = landingMap(n)
 			}
 			v["sharedSyncError"] = s.SharedSyncError
+			if cfg, e := h.repo.GetLandingIntegration(); e == nil && cfg.SyncError != "" {
+				v["sharedSyncError"] = cfg.SyncError
+			}
 			if n.Status == "active" && n.SyncError != "" {
 				v["status"] = "error"
 			}
@@ -197,6 +204,12 @@ func (h *Handler) landingServerSave(w http.ResponseWriter, r *http.Request) {
 	}
 	req.Source = old.Source
 	req.NodeID = old.NodeID
+	if old.Source == "native" && old.Status != "active" && req.Status == "active" {
+		if err := h.checkSharedNativeConflict(r.Context(), old.NodeID); err != nil {
+			landingError(w, err)
+			return
+		}
+	}
 	b, _ := json.Marshal(req.Protocols)
 	req.LandingServer.Protocols = string(b)
 	b, _ = json.Marshal(req.RealityServerNames)

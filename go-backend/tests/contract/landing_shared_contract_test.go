@@ -436,3 +436,17 @@ func TestSharedLanding422DownRecoveryAndDelete(t *testing.T) {
 		t.Fatal("delete omitted full push")
 	}
 }
+
+func TestSharedLandingRejectedNeverAppliedDeletion(t *testing.T) {
+	e := newSharedContract(t, "sqlite")
+	e.f.reject = "1"
+	id := e.node(t, "ss2022")
+	n, _ := e.r.GetLandingNode(id)
+	if n.RemoteState != "error" || n.LastCounterAt != 0 {
+		t.Fatal("expected rejected initial node")
+	}
+	e.ok(t, "node/delete", e.user, map[string]any{"id": id})
+	if n, _ = e.r.GetLandingNode(id); n != nil {
+		t.Fatal("rejected node cannot be removed")
+	}
+}

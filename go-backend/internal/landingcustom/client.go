@@ -257,7 +257,7 @@ func (c *Client) PutDesired(ctx context.Context, id int64, d Desired) error {
 func (c *Client) Status(ctx context.Context, id int64) (Status, error) {
 	var out Status
 	err := c.request(ctx, http.MethodGet, fmt.Sprintf("/shares/%d/status", id), nil, &out)
-	if err == nil && (out.CollectedAt < 0 || out.AppliedRevision < 0 || out.Core.State == "") {
+	if err == nil && (out.CollectedAt < 0 || out.AppliedRevision < 0 || out.TrafficUsed < 0 || out.Core.State == "") {
 		err = errors.New("妙妙屋节点状态格式错误")
 	}
 	return out, err

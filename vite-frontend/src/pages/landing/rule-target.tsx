@@ -45,7 +45,7 @@ export function RuleLandingTarget({
         if (serverRes.code === 0)
           setServers(
             (serverRes.data || []).filter(
-              (server) => server.status === "active",
+              (server) => server.status === "active" && server.sharedAvailable !== false,
             ),
           );
         else toast.error(serverRes.msg);

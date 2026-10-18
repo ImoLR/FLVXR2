@@ -148,7 +148,7 @@
 - [x] Custom 客户端、同步/推送/轮询/主机报告、双装防护与失败重试。
 - [x] 落地管理区接入设置、共享卡片/设置与节点错误展示。
 - [x] 管理员配置妙妙屋地址和接入令牌；同步共享服务器为 landing_server（source=shared），显示妙妙屋上限（只读）。
-- [ ] 在共享服务器上建节点 → 推期望状态；拉 status → 同一套计费 / 服务器限额 / 有效期；报告 landing-hosts。
+- [x] 在共享服务器上建节点 → 推期望状态；拉 status → 同一套计费 / 服务器限额 / 有效期；报告 landing-hosts。
 - [ ] 测试（对接一个本地 Custom 或契约假服务）+ 截图；不发布。
 - [ ] 全量失败集合对比、清理本地资源、中文总结、推送指定分支并确认 CI。
 
@@ -183,3 +183,5 @@
 测试资源已清理：专用 panel/agent/Core/静态服务/fixture 进程、netns/veth、PostgreSQL 容器及匿名卷、`/root/tmp-work/landing-native` 均删除，16365/16366/16367/15453 已释放；证据 `cleanup.json`。没有生产读写、发布、tag、镜像推送、OTA、SSH 或其他工作树/栈改动。中文完整总结、技术规格调整、限制、后续发布顺序和回滚说明在 `/root/flvx-workers/runs/landing-native/summary.md`。仅推送 `feature/3.0.27-landing-nodes`；既有分支 CI `39118052030` 四项全绿，最后提交对应的 CI 链接与完整 head 记录于该总结。
 
 第二期 B（2026-10-18）：基线 `6e83a3c2`；对照 Custom r2 `35fa8130`。共享单例令牌按既有私密字段存储，API 不回显。共享原始累计值经同一 FlowBatch 入账，Core epoch 变化不重复计费、下降视为重置、采样时间去重。SQLite 新契约及复用第一期计费/生命周期定向测试通过（`landing-shared/backend-focused.log`）；PG、真实 Custom handler 和截图继续核验。
+
+第二期 B 联调：SQLite/PostgreSQL 定向测试通过（仓储 23.141s、handler 2.274s、contract 17.808s）。从只读 Custom `35fa8130` 通过 Go overlay 编译真实 v1 handlers，隔离 PG `127.0.0.1:15461` + 本地 FLVX `16365` 联调：双协议 desired 接收成功、合成 Helper 计数共入账 1200 字节、重复轮询不重复入账、真实官方端口碰撞 422、Custom 503 保留数据及上次成功时间、双装拒绝。证据 `landing-shared/real-custom-results.json`。未模拟或宣称真实共享 Core 数据面；沿用第二期 A 实机待金丝雀的边界。

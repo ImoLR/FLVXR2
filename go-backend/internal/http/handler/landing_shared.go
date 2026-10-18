@@ -165,6 +165,7 @@ func (h *Handler) runSharedLandingLoop(ctx context.Context) {
 func (h *Handler) syncSharedIntegration(ctx context.Context, force bool) {
 	enforce := []func(){}
 	configured := false
+	policyDue := force
 	h.sharedLandingMu.Lock()
 	func() {
 		cfg, err := h.repo.GetLandingIntegration()
@@ -188,6 +189,7 @@ func (h *Handler) syncSharedIntegration(ctx context.Context, force bool) {
 					return e
 				}
 				st.lastList = now
+				policyDue = true
 				return nil
 			})
 			if err != nil {
@@ -257,7 +259,7 @@ func (h *Handler) syncSharedIntegration(ctx context.Context, force bool) {
 	for _, apply := range enforce {
 		apply()
 	}
-	if configured {
+	if configured && policyDue {
 		h.reconcileLandingPolicy(time.Now())
 	}
 }
@@ -452,6 +454,9 @@ func (h *Handler) deleteSharedLandingNode(w http.ResponseWriter, r *http.Request
 		if e != nil {
 			return e
 		}
+		if current == nil {
+			return nil
+		}
 		server, e := h.repo.GetLandingServer(s.ID)
 		if e != nil {
 			return e
@@ -463,7 +468,7 @@ func (h *Handler) deleteSharedLandingNode(w http.ResponseWriter, r *http.Request
 		}
 		// A never-applied node has no final counter in Custom. Its removal is safe
 		// only after Helper acknowledges the new full state without that ID.
-		if current.LastCounterAt == 0 && current.RemoteState == "" && caps.Status == "active" && server.SharedAppliedRevision >= server.SharedPushedRevision && server.SharedPushedRevision > 0 {
+		if current.LastCounterAt == 0 && caps.Status == "active" && server.SharedAppliedRevision >= server.SharedPushedRevision && server.SharedPushedRevision > 0 {
 			confirmed = true
 		}
 		if !confirmed {

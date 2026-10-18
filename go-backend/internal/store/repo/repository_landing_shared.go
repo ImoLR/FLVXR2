@@ -93,6 +93,9 @@ func ValidateSharedLandingSettings(s *model.LandingServer) error {
 	if capExceeded(int64(s.DefaultMaxConnections), int64(c.MaxConnections)) || capExceeded(s.DefaultTrafficLimitBytes, c.TrafficLimit) || capExceeded(s.DefaultUserQuotaBytes, c.TrafficLimit) {
 		return errors.New("FLVX 默认连接数或流量限额不能超过妙妙屋上限（0 表示不限）")
 	}
+	if c.ShareUntil != nil && ((s.DefaultExpiryMode == "fixed" && s.DefaultExpiresAt != nil && *s.DefaultExpiresAt > *c.ShareUntil) || (s.DefaultExpiryMode == "days" && int64(s.DefaultExpiryDays) > (*c.ShareUntil-time.Now().UnixMilli())/86400000)) {
+		return errors.New("新节点默认有效期不能超过妙妙屋共享期限")
+	}
 	if c.ShareUntil != nil && (s.AvailableUntil == nil || *s.AvailableUntil > *c.ShareUntil) {
 		return errors.New("FLVX 可用期限不能超过妙妙屋共享期限")
 	}

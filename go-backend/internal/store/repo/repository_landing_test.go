@@ -402,3 +402,29 @@ func TestLandingLoopbackDirectTunnel(t *testing.T) {
 		})
 	}
 }
+
+func TestLandingPhaseOneUniqueIndexMigration(t *testing.T) {
+	for _, dialect := range []string{"sqlite", "postgres"} {
+		t.Run(dialect, func(t *testing.T) {
+			r, s := landingRepoFixture(t, dialect)
+			// Recreate the phase-one index, then exercise the actual startup migration.
+			if err := r.db.Exec("CREATE UNIQUE INDEX idx_landing_server_node_id ON landing_server(node_id)").Error; err != nil {
+				t.Fatal(err)
+			}
+			if err := autoMigrateAll(r.db); err != nil {
+				t.Fatal(err)
+			}
+			for _, id := range []int64{7, 8} {
+				row := model.LandingServer{Source: "shared", RemoteServerID: id, Name: "shared", PublicHost: "203.0.113.7"}
+				if err := r.db.Create(&row).Error; err != nil {
+					t.Fatal(err)
+				}
+			}
+			duplicate := *s
+			duplicate.ID = 0
+			if err := r.db.Create(&duplicate).Error; err == nil {
+				t.Fatal("native uniqueness lost")
+			}
+		})
+	}
+}
