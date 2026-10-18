@@ -14,6 +14,8 @@ GH_MIRRORS="https://ghfast.top/ https://gh-proxy.com/ https://gcode.hostcentral.
 SERVICE_NAME="flvx_agent"
 SERVER_ADDR=""
 SECRET=""
+# Optional -f: auto / prefer_ipv4 / ipv4_only / ipv6_only. Omitted = auto.
+PANEL_IP_FAMILY=""
 
 # 检查并安装必要的下载工具
 install_download_tools() {
@@ -97,14 +99,21 @@ install_download_tools() {
 install_download_tools
 
 # 解析命令行参数
-while getopts "a:s:n:" opt; do
+while getopts "a:s:n:f:" opt; do
   case $opt in
     a) SERVER_ADDR="$OPTARG" ;;
     s) SECRET="$OPTARG" ;;
     n) SERVICE_NAME="$OPTARG" ;;
+    f) PANEL_IP_FAMILY="$OPTARG" ;;
     *) echo "❌ 无效参数"; exit 1 ;;
   esac
 done
+
+# Validate before any service/config changes.
+case "$PANEL_IP_FAMILY" in
+  ""|auto|prefer_ipv4|ipv4_only|ipv6_only) ;;
+  *) echo "❌ -f 必须为 auto、prefer_ipv4、ipv4_only 或 ipv6_only"; exit 1 ;;
+esac
 
 # 安装目录 (根据 SERVICE_NAME 动态生成)
 INSTALL_DIR="/etc/${SERVICE_NAME}"
@@ -741,11 +750,15 @@ install_service() {
 
   CONFIG_FILE="$INSTALL_DIR/config.json"
   echo "📄 创建新配置：config.json"
+  local panel_family_json=""
+  if [[ -n "$PANEL_IP_FAMILY" ]]; then
+    panel_family_json=", \"panel_ip_family\": \"$PANEL_IP_FAMILY\""
+  fi
   cat > "$CONFIG_FILE" <<EOF
 {
   "addr": "$SERVER_ADDR",
   "secret": "$SECRET",
-  "service_name": "$SERVICE_NAME"
+  "service_name": "$SERVICE_NAME"${panel_family_json}
 }
 EOF
 

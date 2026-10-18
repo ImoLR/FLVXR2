@@ -386,7 +386,7 @@ func (r *Repository) GetUserDefaultsForTunnel(userID int64) (flow int64, num int
 	return user.Flow, user.Num, user.ExpTime, user.FlowResetTime, nil
 }
 
-func (r *Repository) CreateNode(name, secret, serverIP string, serverIPV4, serverIPV6, port, interfaceName, version, remark, expiryTime, renewalCycle, groupID interface{}, httpFlag, tlsFlag, socksFlag, blockOtherFlag int, now int64, status int, tcpAddr, udpAddr string, inx, isRemote int, remoteURL, remoteToken, remoteConfig, extraIPs interface{}, ownerUserID int64, egressIPFamily string, region ...NodeRegion) error {
+func (r *Repository) CreateNode(name, secret, serverIP string, serverIPV4, serverIPV6, port, interfaceName, version, remark, expiryTime, renewalCycle, groupID interface{}, httpFlag, tlsFlag, socksFlag, blockOtherFlag int, now int64, status int, tcpAddr, udpAddr string, inx, isRemote int, remoteURL, remoteToken, remoteConfig, extraIPs interface{}, ownerUserID int64, egressIPFamily, panelIPFamily string, region ...NodeRegion) error {
 	if r == nil || r.db == nil {
 		return errors.New("repository not initialized")
 	}
@@ -423,6 +423,7 @@ func (r *Repository) CreateNode(name, secret, serverIP string, serverIPV4, serve
 		RemoteConfig:   nullStringFromInterface(remoteConfig),
 		OwnerUserID:    ownerUserID,
 		EgressIPFamily: egressIPFamily,
+		PanelIPFamily:  panelIPFamily,
 	}
 	if len(region) > 0 {
 		node.Region = region[0].Region
@@ -470,7 +471,7 @@ func (r *Repository) UpdateNodePublicIPs(nodeID int64, ipv4, ipv6 string) error 
 		}).Error
 }
 
-func (r *Repository) UpdateNode(id int64, name, serverIP string, serverIPV4, serverIPV6, intranetIP, port, interfaceName, extraIPs, remark, expiryTime, renewalCycle, groupID interface{}, httpFlag, tlsFlag, socksFlag, blockOtherFlag int, tcpAddr, udpAddr string, now int64, egressIPFamily string, region ...NodeRegion) error {
+func (r *Repository) UpdateNode(id int64, name, serverIP string, serverIPV4, serverIPV6, intranetIP, port, interfaceName, extraIPs, remark, expiryTime, renewalCycle, groupID interface{}, httpFlag, tlsFlag, socksFlag, blockOtherFlag int, tcpAddr, udpAddr string, now int64, egressIPFamily, panelIPFamily string, region ...NodeRegion) error {
 	if r == nil || r.db == nil {
 		return errors.New("repository not initialized")
 	}
@@ -484,6 +485,7 @@ func (r *Repository) UpdateNode(id int64, name, serverIP string, serverIPV4, ser
 		"server_ip_v6":              nullStringFromInterface(serverIPV6),
 		"intranet_ip":               nullStringFromInterface(intranetIP),
 		"egress_ip_family":          egressIPFamily,
+		"panel_ip_family":           panelIPFamily,
 		"extra_ips":                 nullStringFromInterface(extraIPs),
 		"port":                      stringFromInterface(port),
 		"interface_name":            nullStringFromInterface(interfaceName),

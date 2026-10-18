@@ -36,6 +36,7 @@ type connWrap struct {
 }
 
 type nodeSession struct {
+	panelIPFamily   string // empty for agents without panel IP family support
 	leikwanStatus   string
 	leikwanForwards string
 	egressDetected  string
@@ -408,6 +409,9 @@ func (s *Server) handleNode(w http.ResponseWriter, r *http.Request, nodeID int64
 		nodeCrypto, _ = security.NewAESCrypto(secret)
 	}
 	ns := &nodeSession{nodeID: nodeID, secret: secret, conn: cw, crypto: nodeCrypto}
+	if value := r.URL.Query().Get("panelIpFamily"); value != "" {
+		ns.panelIPFamily, _ = repo.NormalizePanelIPFamily(value)
+	}
 	s.nodes[nodeID] = ns
 	delete(s.serviceConnections, nodeID)
 	delete(s.serviceConnUpdateTime, nodeID)

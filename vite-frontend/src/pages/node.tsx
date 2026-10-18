@@ -140,6 +140,7 @@ interface Node extends LeiKwanNodeDetection {
   serverIpV4?: string;
   serverIpV6?: string;
   egressIpFamily?: string;
+  panelIpFamily?: string;
   egressDetected?: "" | "v4" | "v6" | "dual";
   egressDetectedAt?: number;
   ipv6RaStatus?: "" | "ok" | "warn" | "error";
@@ -187,6 +188,7 @@ interface NodeForm {
   serverIpV4: string;
   serverIpV6: string;
   egressIpFamily: "" | "v4" | "v6" | "dual";
+  panelIpFamily: "" | "auto" | "prefer_ipv4" | "ipv4_only" | "ipv6_only";
   port: string;
   tcpListenAddr: string;
   udpListenAddr: string;
@@ -392,6 +394,7 @@ export default function NodePage() {
     serverIpV4: "",
     serverIpV6: "",
     egressIpFamily: "",
+    panelIpFamily: "",
     port: "10000-65535",
     tcpListenAddr: "[::]",
     udpListenAddr: "[::]",
@@ -520,6 +523,7 @@ export default function NodePage() {
   }, [infoPopoverOpenId]);
   const [installCommandModal, setInstallCommandModal] = useState(false);
   const [installCommand, setInstallCommand] = useState("");
+  const [installPanelIPFamily, setInstallPanelIPFamily] = useState("auto");
   const [installServiceName, setInstallServiceName] = useState("flvx_agent");
   const [currentNodeName, setCurrentNodeName] = useState("");
   const [installSelectorOpen, setInstallSelectorOpen] = useState(false);
@@ -1149,6 +1153,7 @@ export default function NodePage() {
       serverIpV4: node.serverIpV4 || "",
       serverIpV6: node.serverIpV6 || "",
       egressIpFamily: (node.egressIpFamily || "") as NodeForm["egressIpFamily"],
+      panelIpFamily: (node.panelIpFamily || "") as NodeForm["panelIpFamily"],
       port: node.port || "10000-65535",
       tcpListenAddr: node.tcpListenAddr || "[::]",
       udpListenAddr: node.udpListenAddr || "[::]",
@@ -1285,6 +1290,7 @@ export default function NodePage() {
         setInstallServiceName(installServiceName);
         setInstallCommand(res.data);
         setCurrentNodeName(node.name);
+        setInstallPanelIPFamily("auto");
         setInstallCommandModal(true);
       } else {
         toast.error(res.msg || "获取安装命令失败");
@@ -1301,6 +1307,7 @@ export default function NodePage() {
         setInstallServiceName(installServiceName);
         setInstallCommand(res.data);
         setCurrentNodeName(node.name);
+        setInstallPanelIPFamily("auto");
         setInstallCommandModal(true);
       } else {
         toast.error(res.msg || "获取命令失败");
@@ -1317,6 +1324,7 @@ export default function NodePage() {
         setInstallServiceName(installServiceName);
         setInstallCommand(res.data);
         setCurrentNodeName(node.name);
+        setInstallPanelIPFamily("auto");
         setInstallCommandModal(true);
       } else {
         toast.error(res.msg || "获取命令失败");
@@ -1335,6 +1343,7 @@ export default function NodePage() {
 
         setInstallCommand(command);
         setCurrentNodeName(node.name);
+        setInstallPanelIPFamily("auto");
         setInstallCommandModal(true);
       } else {
         toast.error(res.msg || "获取命令失败");
@@ -1697,6 +1706,7 @@ export default function NodePage() {
                     serverIpV4: form.serverIpV4,
                     serverIpV6: form.serverIpV6,
                     egressIpFamily: form.egressIpFamily,
+                    panelIpFamily: form.panelIpFamily,
                     port: form.port,
                     tcpListenAddr: form.tcpListenAddr,
                     udpListenAddr: form.udpListenAddr,
@@ -1740,6 +1750,7 @@ export default function NodePage() {
       serverIpV4: "",
       serverIpV6: "",
       egressIpFamily: "",
+      panelIpFamily: "",
       port: "10000-65535",
       tcpListenAddr: "[::]",
       udpListenAddr: "[::]",
@@ -3370,6 +3381,22 @@ export default function NodePage() {
                 />
               </div>
               <Select
+                description="仅影响连接面板；自动模式可在 IPv6 异常时自愈，旧版节点需升级后生效"
+                label="连接面板"
+                selectedKeys={[form.panelIpFamily || "auto"]}
+                variant="bordered"
+                onSelectionChange={(keys) => {
+                  const value = Array.from(keys)[0] as NodeForm["panelIpFamily"];
+
+                  if (value) setForm((prev) => ({ ...prev, panelIpFamily: value }));
+                }}
+              >
+                <SelectItem key="auto">自动</SelectItem>
+                <SelectItem key="prefer_ipv4">优先 IPv4</SelectItem>
+                <SelectItem key="ipv4_only">仅 IPv4</SelectItem>
+                <SelectItem key="ipv6_only">仅 IPv6</SelectItem>
+              </Select>
+              <Select
                 description="自动合并入口地址与代理探测结果；手动设置优先"
                 label="出站 IP"
                 selectedKeys={[form.egressIpFamily || "auto"]}
@@ -3642,6 +3669,23 @@ export default function NodePage() {
                 </p>
               </div>
 
+              <Select
+                description="初始连接面板的协议族；面板已保存的节点设置优先"
+                label="连接面板"
+                selectedKeys={[installPanelIPFamily]}
+                variant="bordered"
+                onSelectionChange={(keys) => {
+                  const value = Array.from(keys)[0] as string;
+
+                  if (value) setInstallPanelIPFamily(value);
+                }}
+              >
+                <SelectItem key="auto">自动</SelectItem>
+                <SelectItem key="prefer_ipv4">优先 IPv4</SelectItem>
+                <SelectItem key="ipv4_only">仅 IPv4</SelectItem>
+                <SelectItem key="ipv6_only">仅 IPv6</SelectItem>
+              </Select>
+
               <div className="relative">
                 <Textarea
                   readOnly
@@ -3651,7 +3695,7 @@ export default function NodePage() {
                   }}
                   maxRows={10}
                   minRows={6}
-                  value={`${installCommand} -n ${installServiceName}`}
+                  value={`${installCommand} -n ${installServiceName}${installPanelIPFamily === "auto" ? "" : ` -f ${installPanelIPFamily}`}`}
                   variant="bordered"
                 />
                 <Button
@@ -3661,7 +3705,7 @@ export default function NodePage() {
                   onPress={() => {
                     // 👇 直接调用你已经封装好的兼容函数，HTTP 下也能完美复制！
                     copyToClipboard(
-                      `${installCommand} -n ${installServiceName}`,
+                      `${installCommand} -n ${installServiceName}${installPanelIPFamily === "auto" ? "" : ` -f ${installPanelIPFamily}`}`,
                       "命令",
                     );
                     // 👇 加上这行，复制完立马关闭弹窗

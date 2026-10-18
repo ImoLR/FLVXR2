@@ -696,6 +696,14 @@ func (h *Handler) nodeCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	panelIPFamily := ""
+	if value := asString(req["panelIpFamily"]); value != "" {
+		panelIPFamily, err = repo.NormalizePanelIPFamily(value)
+		if err != nil {
+			response.WriteJSON(w, response.ErrDefault(err.Error()))
+			return
+		}
+	}
 	egressIPFamily, err := normalizeNodeEgressIPFamily(asString(req["egressIpFamily"]))
 	if err != nil {
 		response.WriteJSON(w, response.ErrDefault(err.Error()))
@@ -752,6 +760,7 @@ func (h *Handler) nodeCreate(w http.ResponseWriter, r *http.Request) {
 		nullableText(asString(req["extraIPs"])),
 		actorUserID,
 		egressIPFamily,
+		panelIPFamily,
 		region,
 	); err != nil {
 		response.WriteJSON(w, response.Err(-2, err.Error()))
@@ -791,6 +800,14 @@ func (h *Handler) nodeUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	panelIPFamily := oldNode.PanelIPFamily
+	if value, ok := req["panelIpFamily"]; ok {
+		panelIPFamily, err = repo.NormalizePanelIPFamily(asString(value))
+		if err != nil {
+			response.WriteJSON(w, response.ErrDefault(err.Error()))
+			return
+		}
+	}
 	egressIPFamily := oldNode.EgressIPFamily
 	if value, ok := req["egressIpFamily"]; ok {
 		egressIPFamily, err = normalizeNodeEgressIPFamily(asString(value))
@@ -873,10 +890,16 @@ func (h *Handler) nodeUpdate(w http.ResponseWriter, r *http.Request) {
 		defaultString(asString(req["udpListenAddr"]), "[::]"),
 		now,
 		egressIPFamily,
+		panelIPFamily,
 		region,
 	); err != nil {
 		response.WriteJSON(w, response.Err(-2, err.Error()))
 		return
+	}
+	if panelIPFamily != oldNode.PanelIPFamily && h.wsServer != nil {
+		if err := h.wsServer.SyncPanelIPFamily(id); err != nil {
+			log.Printf("node %d panel IP family saved; push will retry on reconnect: %v", id, err)
+		}
 	}
 	if v, ok := req["defaultUserQuotaBytes"]; ok {
 		if err := h.repo.SetNodeDefaultUserQuota(id, asInt64(v, 0)); err != nil {

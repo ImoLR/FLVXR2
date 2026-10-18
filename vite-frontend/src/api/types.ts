@@ -15,6 +15,7 @@ export interface NodeApiItem extends LeiKwanNodeDetection {
   region?: string;
   regionCity?: string;
   egressIpFamily?: "" | "v4" | "v6" | "dual";
+  panelIpFamily?: "" | "auto" | "prefer_ipv4" | "ipv4_only" | "ipv6_only";
   egressDetected?: "" | "v4" | "v6" | "dual";
   egressDetectedAt?: number;
   ipv6RaStatus?: "" | "ok" | "warn" | "error";
@@ -592,6 +593,7 @@ export interface NodeMutationPayload {
   region?: string;
   regionCity?: string;
   egressIpFamily?: "" | "v4" | "v6" | "dual";
+  panelIpFamily?: "" | "auto" | "prefer_ipv4" | "ipv4_only" | "ipv6_only";
   id?: number | null;
   name?: string;
   status?: number;

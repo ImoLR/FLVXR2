@@ -350,6 +350,9 @@ func (h *Handler) listReleases(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) onNodeOnline(nodeID int64) {
+	if err := h.wsServer.SyncPanelIPFamily(nodeID); err != nil {
+		fmt.Printf("node %d panel IP family sync failed: %v\n", nodeID, err)
+	}
 	h.scheduleNodeRedeploy(nodeID)
 	if h.quotaGroups != nil {
 		h.quotaGroups.NodeOnline(nodeID)

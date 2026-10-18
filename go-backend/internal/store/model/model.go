@@ -125,6 +125,7 @@ type Node struct {
 	IntranetIP                   sql.NullString `gorm:"column:intranet_ip;type:varchar(100)"`
 	ServerIPV4                   sql.NullString `gorm:"column:server_ip_v4;type:varchar(100)"`
 	ServerIPV6                   sql.NullString `gorm:"column:server_ip_v6;type:varchar(100)"`
+	PanelIPFamily                string         `gorm:"column:panel_ip_family;type:varchar(16);not null;default:''"`
 	EgressIPFamily               string         `gorm:"column:egress_ip_family;type:varchar(10);not null;default:''"`
 	EgressDetected               string         `gorm:"column:egress_detected;type:varchar(10);not null;default:''"`
 	EgressDetectedAt             int64          `gorm:"column:egress_detected_at;not null;default:0"`
@@ -687,6 +688,7 @@ type UserBackup struct {
 }
 
 type NodeBackup struct {
+	PanelIPFamily    string `json:"panelIpFamily,omitempty"`
 	ID               int64  `json:"id"`
 	Name             string `json:"name"`
 	Remark           string `json:"remark,omitempty"`
