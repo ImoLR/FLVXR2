@@ -1707,3 +1707,42 @@ textarea:focus-visible {
     opacity: 0.86;
   }
 }
+
+/* Landing page and its dialogs: no text smaller than the 16px card titles; headings scale up to match. */
+.flvx-landing-text
+  :is(
+    .text-xs,
+    .text-sm,
+    .text-tiny,
+    .text-small,
+    [class*="text-[1"],
+    [data-slot="badge"],
+    button,
+    label,
+    input,
+    textarea,
+    th,
+    td
+  ) {
+  font-size: 1rem;
+  line-height: 1.5rem;
+}
+
+.flvx-landing-text :is([data-slot="badge"], th) {
+  white-space: nowrap;
+}
+
+.flvx-landing-text h1 {
+  font-size: 1.875rem;
+  line-height: 2.25rem;
+}
+
+.flvx-landing-text :is(h2, [data-slot="modal-header"]) {
+  font-size: 1.25rem;
+  line-height: 1.75rem;
+}
+
+.flvx-landing-text h3 {
+  font-size: 1.125rem;
+  line-height: 1.75rem;
+}

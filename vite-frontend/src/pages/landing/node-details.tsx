@@ -110,7 +110,7 @@ export function NodeDetails({
 
   return (
     <Modal isOpen scrollBehavior="inside" size="lg" onClose={onClose}>
-      <ModalContent>
+      <ModalContent className="flvx-landing-text">
         <ModalHeader>节点详情 · {node.name}</ModalHeader>
         <ModalBody className="space-y-5">
           <div className="overflow-x-auto">
@@ -128,7 +128,10 @@ export function NodeDetails({
                 {rows.map((row) => (
                   <tr key={String(row[0])} className="border-b border-divider">
                     {row.map((value, index) => (
-                      <td key={index} className="p-2">
+                      <td
+                        key={index}
+                        className={index === 0 ? "whitespace-nowrap p-2" : "p-2"}
+                      >
                         {value}
                       </td>
                     ))}

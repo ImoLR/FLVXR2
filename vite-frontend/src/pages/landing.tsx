@@ -199,7 +199,7 @@ export default function LandingPage() {
 
   return (
     <AnimatedPage>
-      <div className="space-y-6">
+      <div className="flvx-landing-text space-y-6">
         <div className="flex items-center justify-between gap-3">
           <div>
             <h1 className="text-2xl font-bold">落地</h1>
@@ -511,7 +511,7 @@ export default function LandingPage() {
           scrollBehavior="inside"
           onClose={() => setCreating(null)}
         >
-          <ModalContent>
+          <ModalContent className="flvx-landing-text">
             <ModalHeader>创建落地节点</ModalHeader>
             <ModalBody className="space-y-4">
               {creating && (
@@ -597,7 +597,7 @@ export default function LandingPage() {
           size="lg"
           onClose={() => setLinksFor(null)}
         >
-          <ModalContent>
+          <ModalContent className="flvx-landing-text">
             <ModalHeader>节点链接 · {linksFor?.name}</ModalHeader>
             <ModalBody className="space-y-4">
               {linksLoading && <Spinner />}
@@ -659,7 +659,7 @@ export default function LandingPage() {
           </ModalContent>
         </Modal>
         <Modal isOpen={Boolean(deleting)} onClose={() => setDeleting(null)}>
-          <ModalContent>
+          <ModalContent className="flvx-landing-text">
             <ModalHeader>删除落地节点</ModalHeader>
             <ModalBody>
               <p>
