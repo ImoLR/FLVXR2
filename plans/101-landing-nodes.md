@@ -149,8 +149,8 @@
 - [x] 落地管理区接入设置、共享卡片/设置与节点错误展示。
 - [x] 管理员配置妙妙屋地址和接入令牌；同步共享服务器为 landing_server（source=shared），显示妙妙屋上限（只读）。
 - [x] 在共享服务器上建节点 → 推期望状态；拉 status → 同一套计费 / 服务器限额 / 有效期；报告 landing-hosts。
-- [ ] 测试（对接一个本地 Custom 或契约假服务）+ 截图；不发布。
-- [ ] 全量失败集合对比、清理本地资源、中文总结、推送指定分支并确认 CI。
+- [x] 测试（对接一个本地 Custom 或契约假服务）+ 截图；不发布。
+- [x] 全量失败集合对比、清理本地资源、中文总结、推送指定分支并确认 CI。
 
 ### 发布与金丝雀（用户批准截图之后，另派任务）
 
@@ -187,3 +187,9 @@
 第二期 B 联调：SQLite/PostgreSQL 定向测试通过（仓储 23.141s、handler 2.274s、contract 17.808s）。从只读 Custom `35fa8130` 通过 Go overlay 编译真实 v1 handlers，隔离 PG `127.0.0.1:15461` + 本地 FLVX `16365` 联调：双协议 desired 接收成功、合成 Helper 计数共入账 1200 字节、重复轮询不重复入账、真实官方端口碰撞 422、Custom 503 保留数据及上次成功时间、双装拒绝。证据 `landing-shared/real-custom-results.json`。未模拟或宣称真实共享 Core 数据面；沿用第二期 A 实机待金丝雀的边界。
 
 共享删除异步回执补验：真实 Custom 的 HTTP 200 仅表示接收，重试若递增 revision 会一直等不到 applied。已将共享删除准备做成幂等事务；延迟 Helper 回执的契约测试通过。真实 handler 复现旧逻辑连续 `[11,11,7]`、`[12,12,11]` 而无法删除，修正后凭已确认的 revision 删除成功，其他 2 个节点与用户 1200 字节账本保持；证据 `delete-before-fix.json`、`delete-after-fix.json`。初轮后端全量（含 PG）与第一期恰为同一 15 项失败，修正后再复验。
+
+第二期 B 最终核验：代码 `df241582` 的全量 `GOMAXPROCS=2 go test -p 1 ./...`（含隔离 PostgreSQL）仍恰为第一期同一 15 项失败，新增/消失均为 0；SQLite/PostgreSQL 共享契约、一期计费/生命周期复用、60 秒轮询/10 分钟重推/退避、延迟 Helper 删除回执专项均通过。前端 TypeScript/Vite/PWA 构建通过，precache 2955.14 KiB。真实 Custom handler 联调测试退出 PASS；未执行真实共享 Core/Helper 数据面、systemd/cgroup 或生产请求。
+
+截图集 `/root/flvx-workers/runs/landing-shared/screens/index.html` 共 46 张（电脑/H5 各 23），含管理员接入、共享上限与设置、双协议创建、用户节点/链接/二维码/规则选择及同步异常；PNG/清单均无缺失、采集无页面异常。Chromium 单实例仅访问最终静态 dist 与回环 fixture，启动前 MemAvailable 1455 MiB。dashboard、全局样式、主题映射、依赖、Agent、工作流及安装脚本保持基线；Custom 只读工作树干净，证据 `scope-preservation.json`。
+
+本轮测试资源已清理：本地 FLVX、静态服务、Custom 测试进程，专用 PostgreSQL 容器 `flvx-landing-shared-pg` 及唯一匿名卷、`/root/tmp-work/landing-shared` 均删除；16365/16366/16459/15461 无监听，见 `cleanup.json`。没有生产/其他栈改动、发布、tag、OTA 或 SSH。完整中文总结、实际 API 适配、部署前检查与回滚说明：`/root/flvx-workers/runs/landing-shared/summary.md`。仅推送 `feature/3.0.27-landing-nodes`；代码提交 CI https://github.com/ImoLR/FLVXR2/actions/runs/39127273631 四项通过，最终文档提交的 head/CI 记录于该外部总结。
