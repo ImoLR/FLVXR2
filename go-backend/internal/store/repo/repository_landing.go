@@ -231,6 +231,12 @@ func (r *Repository) SaveLandingUserSetting(userID int64, maxNodes int, quotas [
 		if err := tx.First(&user, userID).Error; err != nil {
 			return errors.New("用户不存在")
 		}
+		// Flow ingestion locks landing nodes before per-server quota rows. Keep the
+		// same order when settings and fixed-expiry renewal share one transaction.
+		var lockedNodes []model.LandingNode
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("user_id = ?", userID).Order("id ASC").Find(&lockedNodes).Error; err != nil {
+			return err
+		}
 		setting := model.LandingUserSetting{UserID: userID, MaxNodes: maxNodes}
 		if err := tx.Save(&setting).Error; err != nil {
 			return err

@@ -275,3 +275,69 @@ func TestLandingTunnelSwitchRematchesTarget(t *testing.T) {
 		})
 	}
 }
+
+func TestLandingDisabledEmptyServerNodeDeletion(t *testing.T) {
+	for _, dialect := range []string{"sqlite", "postgres"} {
+		t.Run(dialect, func(t *testing.T) {
+			r, s := landingRepoFixture(t, dialect)
+			if err := r.DeleteNodeCascade(601); err == nil {
+				t.Fatal("deleted active landing server")
+			}
+			n, err := r.CreateLandingNode(501, s.ID, "reserved", "ss2022", false)
+			if err != nil {
+				t.Fatal(err)
+			}
+			s.Status = "disabled"
+			if err := r.SaveLandingServer(s, []int64{701}); err != nil {
+				t.Fatal(err)
+			}
+			if err := r.DeleteNodeCascade(601); err == nil {
+				t.Fatal("deleted disabled server with landing nodes")
+			}
+			if err := r.DeleteLandingNode(n.ID); err != nil {
+				t.Fatal(err)
+			}
+			orphanSeed(t, r, &model.UserServerQuota{UserID: 501, ServerKind: "node", ServerRefID: 601, LimitBytes: 100}, &model.ChainTunnel{TunnelID: 801, NodeID: 601, ChainType: "3"})
+			if err := r.DeleteNodeCascade(601); err == nil {
+				t.Fatal("landing cleanup bypassed existing tunnel reference")
+			}
+			if retained, _ := r.GetLandingServer(s.ID); retained == nil {
+				t.Fatal("failed deletion removed landing metadata")
+			}
+			if err := r.db.Where("node_id = ?", 601).Delete(&model.ChainTunnel{}).Error; err != nil {
+				t.Fatal(err)
+			}
+			if err := r.DeleteNodeCascade(601); err != nil {
+				t.Fatal(err)
+			}
+			orphanCount(t, r, "node", "id = ?", 0, 601)
+			orphanCount(t, r, "landing_server", "id = ?", 0, s.ID)
+			orphanCount(t, r, "landing_server_user_group", "landing_server_id = ?", 0, s.ID)
+			orphanCount(t, r, "user_server_quota", "server_kind = ? AND server_ref_id = ?", 0, "node", 601)
+		})
+	}
+}
+
+func TestLandingLoopbackDirectTunnel(t *testing.T) {
+	for _, dialect := range []string{"sqlite", "postgres"} {
+		t.Run(dialect, func(t *testing.T) {
+			r, s := landingRepoFixture(t, dialect)
+			n, err := r.CreateLandingNode(501, s.ID, "loopback", "ss2022", false)
+			if err != nil {
+				t.Fatal(err)
+			}
+			orphanSeed(t, r, &model.Tunnel{ID: 801, Name: "single direct", Type: 1}, &model.Tunnel{ID: 802, Name: "multiple direct", Type: 1}, &model.ChainTunnel{TunnelID: 801, NodeID: 601, ChainType: "1"}, &model.ChainTunnel{TunnelID: 802, NodeID: 601, ChainType: "1"}, &model.ChainTunnel{TunnelID: 802, NodeID: 603, ChainType: "1"})
+			for _, host := range []string{"127.0.0.1", "[::1]"} {
+				target := host + ":" + itoaLanding(n.Port)
+				id, err := r.MatchLandingTarget(501, 801, target)
+				if err != nil || id != n.ID {
+					t.Fatalf("single direct match %d %v", id, err)
+				}
+				id, err = r.MatchLandingTarget(501, 802, target)
+				if err != nil || id != 0 {
+					t.Fatalf("ambiguous multi-entry exemption %d %v", id, err)
+				}
+			}
+		})
+	}
+}

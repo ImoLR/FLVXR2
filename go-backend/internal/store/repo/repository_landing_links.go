@@ -139,6 +139,20 @@ func matchLandingTarget(db *gorm.DB, userID, tunnelID int64, remoteAddr string) 
 					return 0, err
 				}
 				matched = count > 0
+				// A direct (type 1) tunnel has no relay exit. Its sole entry is
+				// also the exit; differing round-robin entries are ambiguous.
+				if !matched {
+					var tunnel model.Tunnel
+					if err := db.Select("type").First(&tunnel, tunnelID).Error; err == nil && tunnel.Type == 1 {
+						var entries []int64
+						if err := db.Model(&model.ChainTunnel{}).Where("tunnel_id = ? AND chain_type = ?", tunnelID, "1").Distinct().Pluck("node_id", &entries).Error; err != nil {
+							return 0, err
+						}
+						matched = len(entries) == 1 && entries[0] == s.NodeID
+					} else if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+						return 0, err
+					}
+				}
 			}
 			if matched {
 				if len(targets) != 1 {
