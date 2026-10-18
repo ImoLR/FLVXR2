@@ -7,7 +7,7 @@
 - [x] 阅读流程、计划和前序总结；核对干净 feature head，创建发布分支。
 - [x] 修复门禁发现的额度协调重复写入：仅周期/继承上限/暂停状态变化时更新，新增回归测试。
 - [x] 发布门禁：全量 Go 失败集合不超过既有 15，前端构建，生产一致性副本增量迁移及原表校验，流量上传 reconcile 成本实测。
-- [ ] 发布 fork.53，CI/Images 通过，核验与 fork.52 相同的 10 项资产。
+- [x] 发布 fork.53，CI/Images 通过，核验与 fork.52 相同的 10 项资产。
 - [ ] 完整 SQLite、compose/.env、旧镜像标签及 rollback.sh 备份；执行两份保留裁剪。
 - [ ] 生产升级、健康/节点上报核验，升级前后各约 10 分钟 CPU/SQLite 写入观察。
 - [ ] 节点 21 诊断及 agent/mmwx 基线备份；仅节点 21 OTA，能力及诊断复验。
@@ -27,3 +27,7 @@
 升级前 600.07 秒监测：backend cgroup CPU 平均 3.328%（单核=100%），backend /proc write_bytes 239,171 B/s，WAL 120/120 个 5 秒采样间隔发生写入。该 I/O 指标包含进程全部磁盘写入，作为 SQLite 写负载代理，并非 SQL 语句数。证据 cpu-before.json。
 
 只读现场差异：初始节点 28/29 在线，节点 22 原已离线。节点 21 官方 mmw-agent 直接监听 60061/60062；无 /etc/flvxt2、无独立 xray 进程，Helper v0.7.4 active、无接管完成记录。不得为满足旧端口关闭或 xray=1 的预期而操作 mmwx；以实际前后不变作证并在总结明确未满足项。
+
+发布：annotated tag `3.0.27-fork.53` → `814917d6c254969d95bba454822d250e6436bb57`；CI https://github.com/ImoLR/FLVXR2/actions/runs/39132085593、Images https://github.com/ImoLR/FLVXR2/actions/runs/39132087254 全绿。正式 Latest Release 10 项资产与 fork.52 同名；两架构 gost SHA256、compose 镜像 tag、两个脚本固定版本/仓库、离线 ZIP 完整性均通过（release-validation.json）。未修改安装脚本；离线包 offline.sh 沿用 fork.52 原内容。
+
+节点 21 前置证据：6 条隧道 23/26/32/33/43/66 共 27 项诊断全通过（diagnoses-before-ota.json）。SSH agent 回滚点 `/root/flvxx-backup-20261018T134521Z-pre-fork53`，含二进制/配置/unit/restore-agent.sh；旧 sing-box 目录及单元原不存在，记录于 node21-backup.json。
