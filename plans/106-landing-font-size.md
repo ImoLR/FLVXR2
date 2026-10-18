@@ -18,3 +18,9 @@ title (16px), and other text should scale up proportionally.
 - [x] Build, lint (no new warnings), before/after screenshots desktop + H5
 - [x] User approves screenshots (2026-10-18: 可以 發布上去吧)
 - [ ] Release (after plan 105's release) + prod upgrade
+
+## Release verification (2026-10-18)
+- Rebased by cherry-picking 644b7bbd onto fork.54 branch head 1fbcf483; no conflicts, backend/agent unchanged.
+- `npm run build`: passed. Three changed TSX files: ESLint 0 errors / 27 existing warnings.
+- Fixed one JSX line-wrap warning in the original font commit; no UI behavior change.
+- `go build ./...` in go-backend: passed.
