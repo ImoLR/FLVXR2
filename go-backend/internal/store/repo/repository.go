@@ -215,6 +215,7 @@ func (r *Repository) Close() error {
 
 func autoMigrateAll(db *gorm.DB) error {
 	models := []interface{}{
+		&model.LandingServer{}, &model.LandingServerUserGroup{}, &model.LandingNode{}, &model.LandingUserSetting{}, &model.UserServerQuota{},
 		&model.User{},
 		&model.UserQuota{},
 		&model.UserQuotaHistory{},
@@ -985,7 +986,12 @@ func (r *Repository) ListNodes(opts *ListNodesOptions) ([]map[string]interface{}
 
 	items := make([]map[string]interface{}, 0, len(nodes))
 	for _, n := range nodes {
+		landingID := int64(0)
+		if landing, err := r.GetLandingServerForNode(n.ID); err == nil && landing != nil {
+			landingID = landing.ID
+		}
 		items = append(items, map[string]interface{}{
+			"landingSupported": n.LandingCapable && n.ID != 36, "landingServerId": landingID, "defaultUserQuotaBytes": n.DefaultUserQuotaBytes,
 			"id": n.ID, "inx": n.Inx, "name": n.Name,
 			"region":       n.Region,
 			"regionCity":   n.RegionCity,

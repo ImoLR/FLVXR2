@@ -46,6 +46,8 @@ func (User) TableName() string { return "user" }
 
 // Forward maps to the "forward" table.
 type Forward struct {
+	LandingAutoPaused   bool          `gorm:"not null;default:false"`
+	LandingNodeID       int64         `gorm:"not null;default:0;index"`
 	ID                  int64         `gorm:"primaryKey;autoIncrement"`
 	UserID              int64         `gorm:"column:user_id;not null"`
 	UserName            string        `gorm:"column:user_name;type:varchar(100);not null"`
@@ -106,6 +108,8 @@ type NftablesRule struct {
 func (NftablesRule) TableName() string { return "nftables_rule" }
 
 type Node struct {
+	LandingCapable               bool           `gorm:"not null;default:false"`
+	DefaultUserQuotaBytes        int64          `gorm:"not null;default:0"`
 	LeiKwanStatus                string         `gorm:"column:leikwan_status;type:varchar(10);not null;default:''"`
 	LeiKwanForwards              string         `gorm:"column:leikwan_forwards;type:text;not null;default:'[]'"`
 	LeiKwanCheckedAt             int64          `gorm:"column:leikwan_checked_at;type:bigint;not null;default:0"`
@@ -848,6 +852,8 @@ type ImportResult struct {
 
 // ForwardRecord is a minimal forward view used by control plane and flow policy.
 type ForwardRecord struct {
+	LandingAutoPaused   bool
+	LandingNodeID       int64
 	ID                  int64
 	UserID              int64
 	UserName            string
