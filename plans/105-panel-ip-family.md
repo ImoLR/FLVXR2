@@ -17,7 +17,7 @@
 - [x] 提交推送、CI 验证、tag fork.54、Images/发布资源验证。
 - [x] 生产备份与回滚脚本、保留最新两份、升级及健康/表行数/在线节点核对。
 - [x] 节点 42 SSH 备份、OTA、14 隧道重部署验证。
-- [ ] 节点 42 auto IPv6 黑洞自愈实测，移除故障规则，设置 prefer_ipv4 并验证 IPv4 WS。
+- [x] 节点 42 auto IPv6 黑洞自愈实测，移除故障规则，设置 prefer_ipv4 并验证 IPv4 WS。
 - [ ] 记录证据、所有破坏性动作与回滚方式，写中文最终总结并提交计划完成记录。
 
 ## 验证与发布记录
@@ -43,3 +43,9 @@ Images [39144267928](https://github.com/ImoLR/FLVXR2/actions/runs/39144267928) �
 补充健康证据：本机 curl 经 IPv6 Cloudflare 访问 flvxxht `/flow/test` 为 200（默认 Python urllib 公网探针被返回 403，未改 Cloudflare 策略）。所有非采样表行数完全一致；node_metric 2437175→2439716、tunnel_metric 2818→2822 为正常采样增长。新增 panel_ip_family 为 NOT NULL varchar(16)，默认空。
 
 节点 42：面板 OTA 返回 fork.54，16:39:23Z 观察离线、16:39:25Z 恢复在线并报告 fork.54。SSH 二进制同版本，agent PID=73486（另一面板 PID=429 未变）。自动模式 WS 为 IPv6 `2606:4700:3034::ac43:bd0c:443`；后台日志确认 tunnels ok=14 failed=0，ListServices 26 个归属对象、0 缺失/孤儿/未知（重部署完成后复核）。
+
+节点 42 实机自愈：16:43:11.894Z 对当前 CF IPv6 WS 精确四元组双向丢包，57.173s 后断开；第二次 16:44:09.705Z 开始，60.107s 后断开。16:45:10.421Z 自动 IPv4 WS 恢复（合计 118.527s），日志仅一次 `2 abnormal IPv6 sessions within 10m; prefer IPv4 for 1h`。规则含 CF 目标 IPv6、443 和本连接源端口，并有 6min 定时清理兜底。16:45:30Z 全部规则及定时器已清理；规则/策略规范化前后相同。首次测试发现额外 HTTP 连接后在加规则前退出，第二次明确定位 WS 后成功。
+
+面板实测在两次丢包后分别约 42.9s / 45.3s 标离线，两次受控离线窗口各约 16s；自愈后稳定在线。14 隧道在故障期间有预期的重部署失败，16:45:32Z 及最终 16:46:21Z 均恢复 `tunnels ok=14 failed=0`。最终通过 node/update 保存 prefer_ipv4，约 2s 重连，WS `163.53.18.89:59834 → 104.21.33.54:443`；config.json 仅新增 panel_ip_family，其他原有键和 unit 未变。agent PID=73486、另一个面板 PID=429 全程未变。最终 ListServices 26 个归属对象、0 缺失/孤儿/未知。
+
+最终在线仍 28/29，只有 node 42 的 agent 版本改变；核心表 29/11/43/31/143、分组/链路/授权关系均一致。最终复查相对升级前除采样增长外，user_server_quota 11→13：16:45:55.712Z 既有流量逻辑为 user 16 / node 2、47 按需生成两条 2462 字节计数，未手工改动。升级完成时所有非采样表行数原本完全一致。历史 RequestLog 只保存路径和总连接时长，无法确定当时 30–42min 请求是浏览器还是其他正常 agent；本地 45s 和生产约 43–45s 的失联证据均不支持死 agent 半开 30min，因此未修改服务端心跳。
