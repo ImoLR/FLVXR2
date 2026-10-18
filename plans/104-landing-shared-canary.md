@@ -6,7 +6,7 @@
 - [x] 保存生产回滚点及服务器 7 进程、归属、连接基线。
 - [x] FLVX 保存 mmwx URL/令牌，测试、同步并验证完整主机清单、共享只读上限、双装提示及 admin-only 默认值。
 - [x] 仅从节点 35 规则端口范围扣除共享端口，记录旧/新值与回滚方式。
-- [ ] 临时用户 landing-canary2 双协议创建、Helper active、Custom 电脑/手机截图。
+- [x] 临时用户 landing-canary2 双协议创建、Helper active、Custom 电脑/手机截图。
 - [ ] 各协议至少 20 MB 直连，核对 ×2 及共享计数；低流量既有隧道临时规则验证 max(T,L)。
 - [ ] 长下载中热增删、私网阻断、临时连接上限、单次点击删除（1–2 分钟）、端口释放及最终计数去重。
 - [ ] 对比 mmwx 自身 Core、SingleCore/ownership 及既有入站长连接前/中/后状态。
@@ -16,3 +16,5 @@
 证据目录：`/root/flvx-workers/runs/landing-shared-canary/`；临时目录：`/root/tmp-work/landing-shared-canary/`。未实测的计划项目保持未勾选。
 
 2026-10-18：回滚点 `pre-shared-canary-20261018T151747Z`，quick_check=ok；按两份保留规则清理 pre-fork52 及不再需要的 fork.51 本地镜像。接入/测试/同步成功，shared server id 2，无组授权。默认双向 ×1、3 节点/人、follow_user、双协议；不限默认值由既有共享校验收紧到 mmwx 上限（连接 500，节点/用户服务器额度 100 GiB）。节点 35 端口 `10000-65535` → `10000-29999,31000-65535`，仅 port/updated_time 改变，无 OTA/原生落地。mmwx 9003 长连接及逐秒只读进程/socket 采样已启动。
+
+临时用户 25 / 专用临时组 9，节点 6/7（30000/30001）双协议由 Helper 确认 active。Custom 电脑/手机及 FLVX 共享只读上限截图通过。直连各 24 MiB、SHA256 一致；原始 50,354,063 B，FLVX 入账 100,708,126 B，mmwx 增加 50,354,063 B，精确 ×2。Custom v1 节点上限栏按既有契约显示「未提供」，不能宣称显示了具体节点限额。
