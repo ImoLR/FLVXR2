@@ -16,7 +16,7 @@
 - [x] 完成本地 IPv6 连接后黑洞 E2E、三个 Go 模块测试、相关 vet、前端构建。
 - [x] 提交推送、CI 验证、tag fork.54、Images/发布资源验证。
 - [x] 生产备份与回滚脚本、保留最新两份、升级及健康/表行数/在线节点核对。
-- [ ] 节点 42 SSH 备份、OTA、14 隧道重部署验证。
+- [x] 节点 42 SSH 备份、OTA、14 隧道重部署验证。
 - [ ] 节点 42 auto IPv6 黑洞自愈实测，移除故障规则，设置 prefer_ipv4 并验证 IPv4 WS。
 - [ ] 记录证据、所有破坏性动作与回滚方式，写中文最终总结并提交计划完成记录。
 
@@ -41,3 +41,5 @@ Images [39144267928](https://github.com/ImoLR/FLVXR2/actions/runs/39144267928) �
 生产已于约 16:37Z 升级 fork.54，后端 healthy；本机前后端和 flvxxht 公网健康检查 200，前端 build 含 fork.54。在线集合 28/29 与升级前完全相同，核心业务表行数及分组/链路/授权关系一致（动态采样表增量见运行目录）。节点 42 在面板重启后 14/14 隧道重部署成功，仍为旧 fork.53，尚未 OTA。
 
 补充健康证据：本机 curl 经 IPv6 Cloudflare 访问 flvxxht `/flow/test` 为 200（默认 Python urllib 公网探针被返回 403，未改 Cloudflare 策略）。所有非采样表行数完全一致；node_metric 2437175→2439716、tunnel_metric 2818→2822 为正常采样增长。新增 panel_ip_family 为 NOT NULL varchar(16)，默认空。
+
+节点 42：面板 OTA 返回 fork.54，16:39:23Z 观察离线、16:39:25Z 恢复在线并报告 fork.54。SSH 二进制同版本，agent PID=73486（另一面板 PID=429 未变）。自动模式 WS 为 IPv6 `2606:4700:3034::ac43:bd0c:443`；后台日志确认 tunnels ok=14 failed=0，ListServices 26 个归属对象、0 缺失/孤儿/未知（重部署完成后复核）。
