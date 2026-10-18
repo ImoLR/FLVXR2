@@ -17,7 +17,7 @@ title (16px), and other text should scale up proportionally.
 - [x] Fix wrapping regressions (status chip, node-details labels)
 - [x] Build, lint (no new warnings), before/after screenshots desktop + H5
 - [x] User approves screenshots (2026-10-18: 可以 發布上去吧)
-- [ ] Release (after plan 105's release) + prod upgrade
+- [x] Release (after plan 105's release) + prod upgrade
 
 ## Release verification (2026-10-18)
 - Rebased by cherry-picking 644b7bbd onto fork.54 branch head 1fbcf483; no conflicts, backend/agent unchanged.
@@ -27,3 +27,7 @@ title (16px), and other text should scale up proportionally.
 - Published annotated tag `3.0.27-fork.55` → `585dcc6f`; CI `39148964663` and images/release `39148966171` succeeded.
 - Release is Latest/non-prerelease, same 10 assets as fork.54; both GOST SHA-256 checksums, pinned installer versions/repository, and amd64/arm64 image manifests verified. Compose differs only in image tags.
 - Validated rollback point: `/opt/flvx-svc/rollback/pre-fork55-20261018T172034Z` (SQLite quick_check OK, config and image tags, rollback.sh). Retention now keeps pre-fork55 + pre-fork54; pre-shared-canary and its two local image tags pruned.
+- Production upgraded to fork.55 on 2026-10-18; backend healthy and `/flow/test` HTTP 200. Online node IDs unchanged (28/29; node 22 remains offline), all 28 have post-restart metrics; agent versions unchanged, no OTA.
+- Counts unchanged: nodes/users/tunnels/forwards/user_tunnel = 29/11/43/31/143; landing servers/nodes = 2/0. Served `/assets/index-CvbQ2TN7.css` contains five `flvx-landing-text` selectors; `/version.json` reports fork.55.
+- Initial online backup progressed slowly under continuous writes; retried using a fixed read transaction and validated successfully. No production data edits or rollback needed.
+- Rollback: run the retained pre-fork55 `rollback.sh` to restore fork.54 containers/config without restoring the database. Full `--restore-db` is optional and discards post-backup data.
