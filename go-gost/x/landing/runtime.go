@@ -149,7 +149,11 @@ func (m *Manager) statusLocked() Status {
 	return Status{Revision: m.desired.Revision, Epoch: m.epoch, CoreVersion: CoreVersion, State: state, Error: m.lastError, Nodes: append([]Counter{}, m.counters...)}
 }
 func (m *Manager) Counters() []Counter {
-	m.mu.Lock()
+	// A first install can spend minutes on download mirrors. Cumulative landing
+	// samples can wait for the next tick; existing forwarding uploads cannot.
+	if !m.mu.TryLock() {
+		return nil
+	}
 	defer m.mu.Unlock()
 	if !m.loaded {
 		return nil

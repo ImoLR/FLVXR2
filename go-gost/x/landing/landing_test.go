@@ -351,3 +351,20 @@ func TestLandingBlocksPausedAndDeletedIdentities(t *testing.T) {
 		t.Fatal("active unrelated inbound blocked")
 	}
 }
+
+func TestLandingBusyApplyDoesNotBlockForwardingUpload(t *testing.T) {
+	m := NewManager(t.TempDir(), true)
+	m.mu.Lock()
+	done := make(chan []Counter, 1)
+	go func() { done <- m.Counters() }()
+	select {
+	case counters := <-done:
+		m.mu.Unlock()
+		if len(counters) != 0 {
+			t.Fatal("busy apply returned unconfirmed counters")
+		}
+	case <-time.After(time.Second):
+		m.mu.Unlock()
+		t.Fatal("landing install blocked existing forwarding uploader")
+	}
+}
