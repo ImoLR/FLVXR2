@@ -206,6 +206,9 @@ func resetUserForwardsTx(tx *gorm.DB, userID, nowMs, operatorID int64, operatorN
 	if userID <= 0 {
 		return nil
 	}
+	if err := resetUserLandingUsageTx(tx, userID, nowMs); err != nil {
+		return err
+	}
 	if err := tx.Model(&model.Forward{}).Where("user_id = ?", userID).
 		UpdateColumn("in_flow", gorm.Expr("in_flow")).Error; err != nil {
 		return err
@@ -924,6 +927,20 @@ func (r *Repository) DeleteNodeCascade(nodeID int64) error {
 		return errors.New("repository not initialized")
 	}
 	return r.db.Transaction(func(tx *gorm.DB) error {
+		var landing model.LandingServer
+		landingErr := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("node_id = ?", nodeID).First(&landing).Error
+		if landingErr != nil && !errors.Is(landingErr, gorm.ErrRecordNotFound) {
+			return landingErr
+		}
+		if landingErr == nil {
+			var count int64
+			if err := tx.Model(&model.LandingNode{}).Where("landing_server_id = ?", landing.ID).Count(&count).Error; err != nil {
+				return err
+			}
+			if landing.Status != "disabled" || count > 0 {
+				return errors.New("请先停用落地服务器并删除其落地节点，再删除服务器节点")
+			}
+		}
 		// Removing a chain hop or listener silently leaves a live tunnel broken.
 		// Federation's explicit cleanup removes these references before calling us.
 		for _, ref := range []struct {
@@ -939,7 +956,6 @@ func (r *Repository) DeleteNodeCascade(nodeID int64) error {
 			{&model.PeerShareRuntime{}, "node_id = ? AND status = 1", []interface{}{nodeID}},
 			{&model.ServiceMonitor{}, "node_id = ?", []interface{}{nodeID}},
 			{&model.NodeDeployedInbound{}, "node_id = ?", []interface{}{nodeID}},
-			{&model.LandingServer{}, "node_id = ?", []interface{}{nodeID}},
 			{&model.NodeRuntimeResource{}, "node_id = ? AND status <> 'released'", []interface{}{nodeID}},
 			{&model.NftablesRule{}, "node_id = ?", []interface{}{nodeID}},
 		} {
@@ -971,6 +987,17 @@ func (r *Repository) DeleteNodeCascade(nodeID int64) error {
 			return err
 		}
 		if err := tx.Where("node_id = ?", nodeID).Delete(&model.FederationTunnelBinding{}).Error; err != nil {
+			return err
+		}
+		if landingErr == nil {
+			if err := tx.Where("landing_server_id = ?", landing.ID).Delete(&model.LandingServerUserGroup{}).Error; err != nil {
+				return err
+			}
+			if err := tx.Delete(&landing).Error; err != nil {
+				return err
+			}
+		}
+		if err := tx.Where("server_kind = ? AND server_ref_id = ?", "node", nodeID).Delete(&model.UserServerQuota{}).Error; err != nil {
 			return err
 		}
 		return tx.Where("id = ?", nodeID).Delete(&model.Node{}).Error
@@ -1445,9 +1472,20 @@ func (r *Repository) UpdateForwardTunnel(forwardID, tunnelID int64, now int64) e
 	if r == nil || r.db == nil {
 		return errors.New("repository not initialized")
 	}
-	return r.db.Model(&model.Forward{}).
-		Where("id = ?", forwardID).
-		Updates(map[string]interface{}{"tunnel_id": tunnelID, "updated_time": now}).Error
+	return r.db.Transaction(func(tx *gorm.DB) error {
+		var f model.Forward
+		if err := tx.First(&f, forwardID).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return nil
+			}
+			return err
+		}
+		landingID, err := matchLandingTarget(tx, f.UserID, tunnelID, f.RemoteAddr)
+		if err != nil {
+			return err
+		}
+		return tx.Model(&model.Forward{}).Where("id = ?", forwardID).Updates(map[string]interface{}{"tunnel_id": tunnelID, "landing_node_id": landingID, "updated_time": now}).Error
+	})
 }
 
 func (r *Repository) DeleteForwardCascade(forwardID int64) error {

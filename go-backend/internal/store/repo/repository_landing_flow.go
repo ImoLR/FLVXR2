@@ -239,19 +239,17 @@ func applyServerQuotasTx(tx *gorm.DB, deltas map[ServerQuotaKey]FlowCounterDelta
 	return nil
 }
 
-// ForwardServerWeights attributes entry to the actual reporter; shared relay services
-// cannot identify users, so each intermediate/exit tier contributes an equal share.
-// A server present in more than one tier is counted once, using its largest weight.
-func (r *Repository) ForwardServerWeights(tunnelID, entryNodeID int64) (map[int64]float64, error) {
+// forwardServerTiers attributes entry to the actual reporter. Relay services
+// are shared per tunnel, so intermediate/exit round-robin tiers are estimates.
+func (r *Repository) forwardServerTiers(tunnelID, entryNodeID int64) ([][]int64, error) {
 	var chain []model.ChainTunnel
 	if err := r.db.Where("tunnel_id = ?", tunnelID).Order("id ASC").Find(&chain).Error; err != nil {
 		return nil, err
 	}
-	weights := map[int64]float64{}
-	if entryNodeID > 0 {
-		weights[entryNodeID] = 1
-	}
 	tiers := map[string]map[int64]bool{}
+	if entryNodeID > 0 {
+		tiers["entry"] = map[int64]bool{entryNodeID: true}
+	}
 	for _, c := range chain {
 		if c.ChainType != "2" && c.ChainType != "3" {
 			continue
@@ -265,13 +263,67 @@ func (r *Repository) ForwardServerWeights(tunnelID, entryNodeID int64) (map[int6
 		}
 		tiers[tier][c.NodeID] = true
 	}
-	for _, nodes := range tiers {
-		weight := 1 / float64(len(nodes))
-		for id := range nodes {
+	names := make([]string, 0, len(tiers))
+	for name := range tiers {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	out := make([][]int64, 0, len(tiers))
+	for _, name := range names {
+		ids := make([]int64, 0, len(tiers[name]))
+		for id := range tiers[name] {
+			ids = append(ids, id)
+		}
+		sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
+		out = append(out, ids)
+	}
+	return out, nil
+}
+
+func (r *Repository) ForwardServerWeights(tunnelID, entryNodeID int64) (map[int64]float64, error) {
+	tiers, err := r.forwardServerTiers(tunnelID, entryNodeID)
+	if err != nil {
+		return nil, err
+	}
+	weights := map[int64]float64{}
+	for _, ids := range tiers {
+		weight := 1 / float64(len(ids))
+		for _, id := range ids {
 			if weight > weights[id] {
 				weights[id] = weight
 			}
 		}
 	}
 	return weights, nil
+}
+
+// ForwardServerUsage divides each tier evenly, assigning integer remainders in
+// stable node order so no billed byte disappears. A repeated server counts once.
+func (r *Repository) ForwardServerUsage(tunnelID, entryNodeID, in, out int64) (map[int64]FlowCounterDelta, error) {
+	tiers, err := r.forwardServerTiers(tunnelID, entryNodeID)
+	if err != nil {
+		return nil, err
+	}
+	usage := map[int64]FlowCounterDelta{}
+	for _, ids := range tiers {
+		count := int64(len(ids))
+		for i, id := range ids {
+			a, b := in/count, out/count
+			if int64(i) < in%count {
+				a++
+			}
+			if int64(i) < out%count {
+				b++
+			}
+			d := usage[id]
+			if a > d.In {
+				d.In = a
+			}
+			if b > d.Out {
+				d.Out = b
+			}
+			usage[id] = d
+		}
+	}
+	return usage, nil
 }

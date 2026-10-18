@@ -109,7 +109,8 @@ func (r *Repository) ReconcileLandingPolicy(now time.Time) (LandingReconcileResu
 			oldStatus, oldAuto := n.Status, n.AutoDisabled
 			oldExpired := n.ExpiredAt
 			period := LandingPeriodKey(u.FlowResetTime, now)
-			if n.PeriodKey != period {
+			periodChanged := n.PeriodKey != period
+			if periodChanged {
 				n.BilledIn = 0
 				n.BilledOut = 0
 				n.PeriodKey = period
@@ -162,14 +163,16 @@ func (r *Repository) ReconcileLandingPolicy(now time.Time) (LandingReconcileResu
 				changed[s.ID] = true
 				n.UpdatedTime = now.UnixMilli()
 			}
-			if err := tx.Model(n).Updates(map[string]interface{}{"status": n.Status, "auto_disabled": n.AutoDisabled, "expired_at": n.ExpiredAt, "period_key": n.PeriodKey, "billed_in": n.BilledIn, "billed_out": n.BilledOut, "updated_time": n.UpdatedTime}).Error; err != nil {
-				return err
+			if periodChanged || oldStatus != n.Status || oldAuto != n.AutoDisabled || expiryChanged {
+				if err := tx.Model(n).Updates(map[string]interface{}{"status": n.Status, "auto_disabled": n.AutoDisabled, "expired_at": n.ExpiredAt, "period_key": n.PeriodKey, "billed_in": n.BilledIn, "billed_out": n.BilledOut, "updated_time": n.UpdatedTime}).Error; err != nil {
+					return err
+				}
 			}
 		}
 		// Scan only rules relevant to landing/quota policy. Normal rule behaviour is
 		// untouched while no landing or per-server quota exists for their owner.
 		var forwards []model.Forward
-		if err := tx.Where("landing_node_id > 0 OR landing_auto_paused = ? OR user_id IN (SELECT user_id FROM user_server_quota WHERE paused = ?)", true, true).Order("id ASC").Find(&forwards).Error; err != nil {
+		if err := tx.Where("landing_node_id > 0 OR user_id IN (SELECT user_id FROM landing_node) OR landing_auto_paused = ? OR user_id IN (SELECT user_id FROM user_server_quota WHERE paused = ?)", true, true).Order("id ASC").Find(&forwards).Error; err != nil {
 			return err
 		}
 		for _, f := range forwards {
@@ -225,7 +228,9 @@ func (r *Repository) CompleteLandingForwardResume(id int64) error {
 // saving a rule cannot bypass per-server or landing policy between periodic jobs.
 func (r *Repository) LandingForwardBlockReason(forwardID int64) error {
 	var f model.Forward
-	if err := r.db.First(&f, forwardID).Error; err != nil {
+	if err := r.db.First(&f, forwardID).Error; errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil
+	} else if err != nil {
 		return err
 	}
 	if f.LandingNodeID > 0 {
@@ -259,4 +264,17 @@ func deleteUserLandingsTx(tx *gorm.DB, userID int64) error {
 		}
 	}
 	return nil
+}
+
+func resetUserLandingUsageTx(tx *gorm.DB, userID, nowMs int64) error {
+	var u model.User
+	if err := tx.First(&u, userID).Error; err != nil {
+		return err
+	}
+	period := LandingPeriodKey(u.FlowResetTime, time.UnixMilli(nowMs))
+	// Counter cursors are lifetime snapshots and must never reset with quotas.
+	if err := tx.Model(&model.LandingNode{}).Where("user_id = ?", userID).Updates(map[string]interface{}{"billed_in": 0, "billed_out": 0, "period_key": period}).Error; err != nil {
+		return err
+	}
+	return tx.Model(&model.UserServerQuota{}).Where("user_id = ?", userID).Updates(map[string]interface{}{"used_in": 0, "used_out": 0, "paused": false, "period_key": period}).Error
 }

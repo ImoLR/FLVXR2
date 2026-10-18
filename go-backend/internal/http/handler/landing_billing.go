@@ -44,11 +44,11 @@ func (h *Handler) planLandingForwardBilling(b *flowIngestBatch, f *forwardRecord
 	}
 	addFlowDelta(b.write.Users, f.UserID, userIn-in, userOut-out)
 	b.write.QuotaUsage[f.UserID] += userIn + userOut - in - out
-	weights, err := h.repo.ForwardServerWeights(f.TunnelID, entryID)
+	usage, err := h.repo.ForwardServerUsage(f.TunnelID, entryID, pathIn, pathOut)
 	if err != nil {
 		return err
 	}
-	for nodeID, weight := range weights {
+	for nodeID, share := range usage {
 		// Landing's inbound counters already count this machine. Only premium extra
 		// above was attributed here; do not count its relay/entry path a second time.
 		if nodeID == landingServerRef {
@@ -56,8 +56,8 @@ func (h *Handler) planLandingForwardBilling(b *flowIngestBatch, f *forwardRecord
 		}
 		key := repo.ServerQuotaKey{UserID: f.UserID, Kind: "node", RefID: nodeID}
 		d := b.write.ServerQuotas[key]
-		d.In += int64(float64(pathIn) * weight)
-		d.Out += int64(float64(pathOut) * weight)
+		d.In += share.In
+		d.Out += share.Out
 		b.write.ServerQuotas[key] = d
 	}
 	return nil

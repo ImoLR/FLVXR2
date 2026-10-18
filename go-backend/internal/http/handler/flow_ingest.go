@@ -306,8 +306,8 @@ func (h *Handler) commitFlowWithLanding(nodeID int64, items []flowItem, counters
 		// must not pause and reset it twice.
 		h.flowEnforceMu.Lock()
 		defer h.flowEnforceMu.Unlock()
-		h.enforceFlowBatch(batch, quotas)
 		h.reconcileLandingPolicy(time.Now())
+		h.enforceFlowBatch(batch, quotas)
 	}, nil
 }
 

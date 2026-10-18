@@ -93,6 +93,13 @@ func TestLandingForwardServerAttribution(t *testing.T) {
 				t.Fatal(e)
 			}
 			want := map[int64]float64{4: 1, 5: .5, 6: .5, 7: 1, 8: .5, 9: .5}
+			usage, err := r.ForwardServerUsage(10, 4, 3, 5)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if usage[5].In != 2 || usage[6].In != 1 || usage[5].Out != 3 || usage[6].Out != 2 {
+				t.Fatalf("round-robin integer remainder lost: %v", usage)
+			}
 			if len(w) != len(want) {
 				t.Fatalf("weights %v", w)
 			}
@@ -194,5 +201,47 @@ func TestLandingEffectiveExpiryAndResetDay(t *testing.T) {
 		if got := LandingPeriodKey(c.day, at); got != c.key {
 			t.Fatalf("%+v got %d", c, got)
 		}
+	}
+}
+
+func TestLandingUserTotalResetAndDelete(t *testing.T) {
+	for _, dialect := range []string{"sqlite", "postgres"} {
+		t.Run(dialect, func(t *testing.T) {
+			r, now := landingFlowFixture(t, dialect)
+			orphanSeed(t, r, &model.Forward{ID: 20, UserID: 2, TunnelID: 1, Name: "owned rule", Status: 1, LandingNodeID: 1}, &model.ForwardPort{ForwardID: 20, NodeID: 2, Port: 31000})
+			r.db.Model(&model.User{}).Where("id = 2").Updates(map[string]interface{}{"flow": 1, "in_flow": 1 << 30})
+			result, e := r.ReconcileLandingPolicy(now)
+			if e != nil {
+				t.Fatal(e)
+			}
+			n, _ := r.GetLandingNode(1)
+			if n.Status != "paused_quota" || len(result.PauseForwardIDs) != 1 {
+				t.Fatalf("total exhaustion node=%+v result=%+v", n, result)
+			}
+			r.db.Model(&model.LandingNode{}).Where("id = 1").Updates(map[string]interface{}{"last_seen_up": 100, "counter_epoch": "100", "billed_in": 200})
+			if e = r.ResetUserFlowByUser(2, now.UnixMilli(), 1, "admin"); e != nil {
+				t.Fatal(e)
+			}
+			result, e = r.ReconcileLandingPolicy(now)
+			if e != nil {
+				t.Fatal(e)
+			}
+			n, _ = r.GetLandingNode(1)
+			if n.Status != "active" || n.BilledIn != 0 || n.LastSeenUp != 100 || len(result.ResumeForwardIDs) != 1 {
+				t.Fatalf("reset node=%+v result=%+v", n, result)
+			}
+			if e = r.DeleteUserCascade(2); e != nil {
+				t.Fatal(e)
+			}
+			n, _ = r.GetLandingNode(1)
+			if n != nil {
+				t.Fatal("user deletion left landing listener desired")
+			}
+			var count int64
+			r.db.Model(&model.UserServerQuota{}).Where("user_id = 2").Count(&count)
+			if count != 0 {
+				t.Fatal("orphan quotas")
+			}
+		})
 	}
 }
