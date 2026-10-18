@@ -193,3 +193,9 @@
 截图集 `/root/flvx-workers/runs/landing-shared/screens/index.html` 共 46 张（电脑/H5 各 23），含管理员接入、共享上限与设置、双协议创建、用户节点/链接/二维码/规则选择及同步异常；PNG/清单均无缺失、采集无页面异常。Chromium 单实例仅访问最终静态 dist 与回环 fixture，启动前 MemAvailable 1455 MiB。dashboard、全局样式、主题映射、依赖、Agent、工作流及安装脚本保持基线；Custom 只读工作树干净，证据 `scope-preservation.json`。
 
 本轮测试资源已清理：本地 FLVX、静态服务、Custom 测试进程，专用 PostgreSQL 容器 `flvx-landing-shared-pg` 及唯一匿名卷、`/root/tmp-work/landing-shared` 均删除；16365/16366/16459/15461 无监听，见 `cleanup.json`。没有生产/其他栈改动、发布、tag、OTA 或 SSH。完整中文总结、实际 API 适配、部署前检查与回滚说明：`/root/flvx-workers/runs/landing-shared/summary.md`。仅推送 `feature/3.0.27-landing-nodes`；代码提交 CI https://github.com/ImoLR/FLVXR2/actions/runs/39127273631 四项通过，最终文档提交的 head/CI 记录于该外部总结。
+
+第二期 B r2（2026-10-18，基线 `7957db66`）：仅修复审查的异步删除与主机报告 DNS 两项缺陷，执行清单见 `102-landing-shared-r2.md`。首次共享删除接受后返回 code 0 / pending；每次成功 status 轮询先按既有流水入账，再复用同一事务确认函数收尾，未收到省略节点的已应用回执、removed/零连接前保留身份与端口，未应用节点沿用原 ACK 规则。重复请求与收尾不增加 revision；暂停不推送且按原移除条件收尾，撤销的 pending 节点保留并显示「删除中」。节点 JSON 新增 deletePending；原状态徽标保留，附加「删除中」并隐藏不可用的编辑入口。
+
+周期主机报告的 DNS 失败静默容错：保留小写域名、其他成功解析的地址及该域名上次成功解析的内存缓存，不因 DNS 设置同步异常或触发通信退避；后续同 tick 的共享轮询/推送继续。原生落地启用校验仍要求实时解析成功，不使用此缓存放行。未增加 Custom 字段、配置键或日志。
+
+r2 核验：SQLite/PostgreSQL 删除与 DNS 专项通过，全部落地定向 41 项通过，另补跑真实 Core SS2022/VLESS 的离线配置校验通过；完整 `GOMAXPROCS=2 go test -p 1 ./...` 含隔离 PG 仍恰为同一 15 项基线失败，新增/消失均 0。后端构建及前端 TypeScript/Vite/PWA 构建通过（2955.28 KiB）。截图 `/root/flvx-workers/runs/landing-shared-r2/screens/index.html` 共 4 张，单 Chromium、启动前可用内存 1493 MiB，只使用静态 dist 和本地合成数据。代码提交 `1671b1e0` CI https://github.com/ImoLR/FLVXR2/actions/runs/39129159090 四项通过；最终分支 head/CI 与清理证据记入该运行目录中文总结。本轮不发布、不打 tag、不部署、不做 OTA/SSH 或真实 Custom 调用。
