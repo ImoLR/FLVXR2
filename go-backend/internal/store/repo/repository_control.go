@@ -46,6 +46,8 @@ func (r *Repository) ListForwardsByTunnelTx(tx *gorm.DB, tunnelID int64) ([]mode
 	for _, f := range forwards {
 		rows = append(rows, model.ForwardRecord{
 			ID:                  f.ID,
+			LandingNodeID:       f.LandingNodeID,
+			LandingAutoPaused:   f.LandingAutoPaused,
 			UserID:              f.UserID,
 			UserName:            f.UserName,
 			Name:                f.Name,
@@ -469,6 +471,8 @@ func (r *Repository) ListActiveNftablesForwards() ([]model.ForwardRecord, error)
 	for _, f := range forwards {
 		rows = append(rows, model.ForwardRecord{
 			ID:                  f.ID,
+			LandingNodeID:       f.LandingNodeID,
+			LandingAutoPaused:   f.LandingAutoPaused,
 			UserID:              f.UserID,
 			UserName:            f.UserName,
 			Name:                f.Name,

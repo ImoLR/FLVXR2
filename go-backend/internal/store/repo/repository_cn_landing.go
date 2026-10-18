@@ -20,6 +20,8 @@ func (r *Repository) ListForwardsForCNCheck() ([]model.ForwardRecord, error) {
 	for _, f := range forwards {
 		rows = append(rows, model.ForwardRecord{
 			ID:                  f.ID,
+			LandingNodeID:       f.LandingNodeID,
+			LandingAutoPaused:   f.LandingAutoPaused,
 			UserID:              f.UserID,
 			UserName:            f.UserName,
 			Name:                f.Name,

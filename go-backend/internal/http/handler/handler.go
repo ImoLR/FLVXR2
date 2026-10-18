@@ -63,8 +63,10 @@ type Handler struct {
 	nftablesDomainMu    sync.Mutex
 	nftablesDomainCache map[int64]string
 
-	flowUploads   *flowUploadDeduper
-	flowEnforceMu sync.Mutex
+	flowUploads     *flowUploadDeduper
+	flowEnforceMu   sync.Mutex
+	landingPolicyMu sync.Mutex
+	landingSyncMu   sync.Mutex
 	// flowEnforceWG tracks enforcement started after a /flow/upload answer (tests wait on it).
 	flowEnforceWG sync.WaitGroup
 	pathLatencyMu sync.RWMutex
@@ -186,6 +188,7 @@ func (h *Handler) WebSocketHandler() http.Handler {
 
 func (h *Handler) Register(mux *http.ServeMux) {
 	h.registerLeiKwan(mux)
+	h.registerLanding(mux)
 	mux.HandleFunc(StaleFrontendKickPath, h.staleFrontendKick)
 	mux.HandleFunc("/api/v1/user/login", h.login)
 	mux.HandleFunc("/api/v1/user/logout", h.logout)

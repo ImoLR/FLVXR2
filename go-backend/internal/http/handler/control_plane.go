@@ -280,6 +280,11 @@ func (h *Handler) syncForwardServicesWithWarningsOnNode(forward *forwardRecord, 
 		return nil, errors.New("invalid forward sync context")
 	}
 	if !strings.EqualFold(strings.TrimSpace(method), "DeleteService") {
+		if forward.Status == 1 {
+			if err := h.repo.LandingForwardBlockReason(forward.ID); err != nil {
+				return nil, err
+			}
+		}
 		if err := h.checkForwardRecordLanding(context.Background(), forward); err != nil {
 			return nil, err
 		}

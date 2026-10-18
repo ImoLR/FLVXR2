@@ -319,6 +319,7 @@ func (h *Handler) userUpdate(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	h.reconcileLandingPolicy(time.Now())
 	quotaLimitsChanged := oldUser == nil || oldUser.MaxConnections != maxConnections || oldUser.MaxClientIps != maxClientIps
 	warnings := make([]string, 0)
 	if _, changed := req["groupIds"]; changed {
@@ -505,6 +506,7 @@ func (h *Handler) userResetFlow(w http.ResponseWriter, r *http.Request) {
 	} else {
 		h.repo.ResetUserFlowByUserTunnel(id)
 	}
+	h.reconcileLandingPolicy(time.Now())
 	response.WriteJSON(w, response.OKEmpty())
 }
 
@@ -766,6 +768,10 @@ func (h *Handler) nodeUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if v, ok := req["defaultUserQuotaBytes"]; ok && asInt64(v, -1) < 0 {
+		response.WriteJSON(w, response.ErrDefault("每个用户默认限额不能为负数"))
+		return
+	}
 	id := asInt64(req["id"], 0)
 	if id <= 0 {
 		response.WriteJSON(w, response.ErrDefault("节点ID不能为空"))
@@ -864,6 +870,13 @@ func (h *Handler) nodeUpdate(w http.ResponseWriter, r *http.Request) {
 	); err != nil {
 		response.WriteJSON(w, response.Err(-2, err.Error()))
 		return
+	}
+	if v, ok := req["defaultUserQuotaBytes"]; ok {
+		if err := h.repo.SetNodeDefaultUserQuota(id, asInt64(v, 0)); err != nil {
+			response.WriteJSON(w, response.Err(-2, err.Error()))
+			return
+		}
+		h.reconcileLandingPolicy(time.Now())
 	}
 	newNode := *oldNode
 	newNode.Name = asString(req["name"])
@@ -2824,6 +2837,17 @@ func (h *Handler) forwardCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	name := asString(req["name"])
 	remoteAddr := asString(req["remoteAddr"])
+	remoteAddr, landingID, createdLandingID, landingErr := h.resolveNativeLandingTarget(req, userID, tunnelID, remoteAddr, roleID == 0)
+	landingCommitted := false
+	defer func() {
+		if createdLandingID > 0 && !landingCommitted {
+			_ = h.repo.DeleteLandingNode(createdLandingID)
+		}
+	}()
+	if landingErr != nil {
+		response.WriteJSON(w, response.ErrDefault(landingErr.Error()))
+		return
+	}
 	if name == "" || remoteAddr == "" {
 		response.WriteJSON(w, response.ErrDefault("转发名称和目标地址不能为空"))
 		return
@@ -2936,7 +2960,7 @@ func (h *Handler) forwardCreate(w http.ResponseWriter, r *http.Request) {
 		response.WriteJSON(w, response.ErrDefault(entryPermissionErr.Error()))
 		return
 	}
-	forwardID, err := h.repo.CreateForwardTx(userID, userName, name, tunnelID, remoteAddr, defaultString(asString(req["strategy"]), "fifo"), now, inx, entryNodes, port, inIp, nullableInt(speedID), maxConnections, maxClientIps, trafficLimit, expiryTime, speedLimitEnabled, speedLimit, mode, wgPathID, wgRuleType, sourceCIDR, targetCIDR, snatEnabled)
+	forwardID, err := h.repo.CreateForwardTx(userID, userName, name, tunnelID, remoteAddr, defaultString(asString(req["strategy"]), "fifo"), now, inx, entryNodes, port, inIp, nullableInt(speedID), maxConnections, maxClientIps, trafficLimit, expiryTime, speedLimitEnabled, speedLimit, mode, wgPathID, wgRuleType, sourceCIDR, targetCIDR, snatEnabled, landingID)
 	if err != nil {
 		response.WriteJSON(w, response.Err(-2, err.Error()))
 		return
@@ -2951,6 +2975,12 @@ func (h *Handler) forwardCreate(w http.ResponseWriter, r *http.Request) {
 		_ = h.deleteForwardByID(forwardID)
 		response.WriteJSON(w, response.ErrDefault(err.Error()))
 		return
+	}
+	landingCommitted = true
+	if landingID > 0 {
+		if n, _ := h.repo.GetLandingNode(landingID); n != nil {
+			h.syncLandingServer(n.LandingServerID)
+		}
 	}
 	response.WriteJSON(w, response.OKEmpty())
 }
@@ -3061,6 +3091,17 @@ func (h *Handler) forwardUpdate(w http.ResponseWriter, r *http.Request) {
 	if remoteAddr == "" {
 		remoteAddr = forward.RemoteAddr
 	}
+	remoteAddr, landingID, createdLandingID, landingErr := h.resolveNativeLandingTarget(req, forward.UserID, tunnelID, remoteAddr, actorRole == 0)
+	landingCommitted := false
+	defer func() {
+		if createdLandingID > 0 && !landingCommitted {
+			_ = h.repo.DeleteLandingNode(createdLandingID)
+		}
+	}()
+	if landingErr != nil {
+		response.WriteJSON(w, response.ErrDefault(landingErr.Error()))
+		return
+	}
 	if err := h.checkForwardLanding(r.Context(), remoteAddr, mode, targetCIDR); err != nil {
 		response.WriteJSON(w, response.ErrDefault(err.Error()))
 		return
@@ -3165,7 +3206,7 @@ func (h *Handler) forwardUpdate(w http.ResponseWriter, r *http.Request) {
 		response.WriteJSON(w, response.ErrDefault(entryPermissionErr.Error()))
 		return
 	}
-	if err := h.repo.UpdateForward(id, name, tunnelID, remoteAddr, strategy, now, newSpeedID, maxConnections, maxClientIps, trafficLimit, newExpiryTime, speedLimitEnabled, speedLimit, mode, wgPathID, wgRuleType, sourceCIDR, targetCIDR, snatEnabled); err != nil {
+	if err := h.repo.UpdateForward(id, name, tunnelID, remoteAddr, strategy, now, newSpeedID, maxConnections, maxClientIps, trafficLimit, newExpiryTime, speedLimitEnabled, speedLimit, mode, wgPathID, wgRuleType, sourceCIDR, targetCIDR, snatEnabled, landingID); err != nil {
 		response.WriteJSON(w, response.Err(-2, err.Error()))
 		return
 	}
@@ -3255,6 +3296,12 @@ func (h *Handler) forwardUpdate(w http.ResponseWriter, r *http.Request) {
 				}
 				warnings = append(warnings, fmt.Sprintf("节点 %s 清理旧隧道残留服务失败: %v", nodeLabel, delErr))
 			}
+		}
+	}
+	landingCommitted = true
+	if landingID > 0 {
+		if n, _ := h.repo.GetLandingNode(landingID); n != nil {
+			h.syncLandingServer(n.LandingServerID)
 		}
 	}
 	if len(warnings) > 0 {
@@ -3374,6 +3421,7 @@ func (h *Handler) forwardPause(w http.ResponseWriter, r *http.Request) {
 		response.WriteJSON(w, response.Err(-2, err.Error()))
 		return
 	}
+	_ = h.repo.ClearForwardLandingPause(id)
 	response.WriteJSON(w, response.OKEmpty())
 }
 
@@ -3390,6 +3438,10 @@ func (h *Handler) forwardResume(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		response.WriteJSON(w, response.Err(-2, err.Error()))
+		return
+	}
+	if err := h.repo.LandingForwardBlockReason(forward.ID); err != nil {
+		response.WriteJSON(w, response.ErrDefault(err.Error()))
 		return
 	}
 	now := time.Now().UnixMilli()
@@ -6151,6 +6203,13 @@ func validateLocalNodePort(node *nodeRecord, port int) error {
 func (h *Handler) validateForwardPortAvailability(node *nodeRecord, port int, currentForwardID int64) error {
 	if h == nil || h.repo == nil || node == nil || port <= 0 {
 		return nil
+	}
+	landingUsed, err := h.repo.LandingPortInUse(node.ID, port)
+	if err != nil {
+		return err
+	}
+	if landingUsed {
+		return fmt.Errorf("节点 %s 端口 %d 已被落地节点占用", node.Name, port)
 	}
 	occupied, err := h.repo.HasOtherForwardOnNodePort(node.ID, port, currentForwardID)
 	if err != nil {
