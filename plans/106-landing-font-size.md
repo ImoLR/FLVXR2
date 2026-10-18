@@ -16,5 +16,5 @@ title (16px), and other text should scale up proportionally.
 - [x] Scoped CSS + tag page root and landing dialogs
 - [x] Fix wrapping regressions (status chip, node-details labels)
 - [x] Build, lint (no new warnings), before/after screenshots desktop + H5
-- [ ] User approves screenshots
+- [x] User approves screenshots (2026-10-18: 可以 發布上去吧)
 - [ ] Release (after plan 105's release) + prod upgrade
