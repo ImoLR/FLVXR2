@@ -241,6 +241,9 @@ func (h *Handler) syncSharedIntegration(ctx context.Context, force bool) {
 				if apply != nil {
 					enforce = append(enforce, apply)
 				}
+				if e == nil {
+					e = h.repo.FinalizeSharedLandingDeletions(s.ID)
+				}
 				if e != nil {
 					err = e
 					_ = h.repo.SetSharedSyncError(s.ID, e.Error())
@@ -422,13 +425,15 @@ func (h *Handler) checkSharedNativeConflict(ctx context.Context, nodeID int64) e
 }
 
 func (h *Handler) deleteSharedLandingNode(w http.ResponseWriter, r *http.Request, n *model.LandingNode) {
+	h.sharedLandingMu.Lock()
 	n, err := h.repo.PrepareSharedLandingDeletion(n.ID)
 	if err != nil {
+		h.sharedLandingMu.Unlock()
 		landingError(w, err)
 		return
 	}
 	var enforce func()
-	h.sharedLandingMu.Lock()
+	pending := true
 	err = func() error {
 		s, e := h.repo.GetLandingServer(n.LandingServerID)
 		if e != nil || s == nil {
@@ -450,39 +455,26 @@ func (h *Handler) deleteSharedLandingNode(w http.ResponseWriter, r *http.Request
 		if e != nil {
 			return e
 		}
+		if e = h.repo.FinalizeSharedLandingDeletions(s.ID); e != nil {
+			return e
+		}
 		current, e := h.repo.GetLandingNode(n.ID)
 		if e != nil {
 			return e
 		}
-		if current == nil {
-			return nil
-		}
-		server, e := h.repo.GetLandingServer(s.ID)
-		if e != nil {
-			return e
-		}
-		caps := repo.SharedLandingCaps(server)
-		confirmed := current.RemoteState == "removed" && current.Connections == 0
-		if caps.Status == "active" {
-			confirmed = confirmed && server.SharedAppliedRevision >= server.SharedPushedRevision
-		}
-		// A never-applied node has no final counter in Custom. Its removal is safe
-		// only after Helper acknowledges the new full state without that ID.
-		if current.LastCounterAt == 0 && caps.Status == "active" && server.SharedAppliedRevision >= server.SharedPushedRevision && server.SharedPushedRevision > 0 {
-			confirmed = true
-		}
-		if !confirmed {
-			return errors.New("妙妙屋尚未确认最终流量与节点移除")
-		}
-		return h.repo.DeleteLandingNode(n.ID, true)
+		pending = current != nil
+		return nil
 	}()
 	h.sharedLandingMu.Unlock()
 	if enforce != nil {
 		enforce()
 	}
 	if err != nil {
-		landingError(w, errors.New("已保留节点及端口，请稍后重试删除；"+err.Error()))
-		return
+		_ = h.repo.SetSharedSyncError(n.LandingServerID, err.Error())
 	}
-	response.WriteJSON(w, response.OKEmpty())
+	out := response.OK(map[string]bool{"pending": pending})
+	if pending {
+		out.Msg = "已提交删除，等待妙妙屋确认最终流量后释放端口"
+	}
+	response.WriteJSON(w, out)
 }

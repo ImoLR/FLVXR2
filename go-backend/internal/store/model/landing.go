@@ -87,7 +87,7 @@ type LandingNode struct {
 	LastSeenUp        int64    `gorm:"not null;default:0" json:"-"`
 	LastSeenDown      int64    `gorm:"not null;default:0" json:"-"`
 	Connections       int      `gorm:"not null;default:0" json:"connections"`
-	DeletePending     bool     `gorm:"not null;default:false" json:"-"`
+	DeletePending     bool     `gorm:"not null;default:false" json:"deletePending"`
 	RemoteState       string   `gorm:"not null;default:''" json:"remoteState"`
 	SyncError         string   `gorm:"not null;default:''" json:"syncError"`
 	RejectedRevision  int64    `gorm:"not null;default:0" json:"-"`

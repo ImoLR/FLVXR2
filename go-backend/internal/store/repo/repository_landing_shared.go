@@ -436,3 +436,57 @@ func (r *Repository) PrepareSharedLandingDeletion(id int64) (*model.LandingNode,
 	})
 	return &n, err
 }
+
+// FinalizeSharedLandingDeletions runs only after a successful status poll has
+// booked its counters. Pending nodes already disappeared from desired, so deleting
+// their local identities must not advance the revision again.
+func (r *Repository) FinalizeSharedLandingDeletions(serverID int64) error {
+	return r.db.Transaction(func(tx *gorm.DB) error {
+		var nodes []model.LandingNode
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("landing_server_id = ? AND delete_pending = ?", serverID, true).Order("id").Find(&nodes).Error; err != nil {
+			return err
+		}
+		if len(nodes) == 0 {
+			return nil
+		}
+		var server model.LandingServer
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&server, serverID).Error; err != nil {
+			return err
+		}
+		caps := SharedLandingCaps(&server)
+		if server.Source != "shared" || caps.Status == "revoked" {
+			return nil
+		}
+		// The background poll can run before a failed omission push is retried.
+		if caps.Status == "active" && server.SharedPushedRevision < server.Revision {
+			return nil
+		}
+		for _, n := range nodes {
+			if n.Status != "disabled" || n.AutoDisabled {
+				continue
+			}
+			confirmed := n.RemoteState == "removed" && n.Connections == 0
+			if caps.Status == "active" {
+				confirmed = confirmed && server.SharedAppliedRevision >= server.SharedPushedRevision
+			}
+			// Never-applied nodes have no final counters; retain the existing ACK rule.
+			if n.LastCounterAt == 0 && caps.Status == "active" && server.SharedAppliedRevision >= server.SharedPushedRevision && server.SharedPushedRevision > 0 {
+				confirmed = true
+			}
+			if !confirmed {
+				continue
+			}
+			var count int64
+			if err := tx.Model(&model.Forward{}).Where("landing_node_id = ?", n.ID).Count(&count).Error; err != nil {
+				return err
+			}
+			if count > 0 {
+				continue
+			}
+			if err := tx.Delete(&n).Error; err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}

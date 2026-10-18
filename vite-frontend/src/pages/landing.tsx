@@ -132,7 +132,7 @@ export default function LandingPage() {
       <Button size="sm" variant="flat" onPress={() => setLinksFor(node)}>
         链接 / 二维码
       </Button>
-      {admin && (
+      {admin && !node.deletePending && (
         <Button size="sm" variant="flat" onPress={() => setDetails(node)}>
           节点详情
         </Button>
@@ -174,6 +174,11 @@ export default function LandingPage() {
       >
         {landingStatus[node.status] || node.status}
       </Chip>
+      {node.deletePending && (
+        <Chip color="warning" size="sm" variant="flat">
+          删除中
+        </Chip>
+      )}
       {node.syncError && (
         <span className="w-full text-xs text-danger">{node.syncError}</span>
       )}
@@ -678,7 +683,7 @@ export default function LandingPage() {
                     return;
                   }
                   setDeleting(null);
-                  toast.success("节点已删除");
+                  toast.success(res.data?.pending ? res.msg : "节点已删除");
                   void load();
                 }}
               >

@@ -457,35 +457,105 @@ func TestSharedLandingRejectedNeverAppliedDeletion(t *testing.T) {
 }
 
 func TestSharedLandingDeletionWaitsForAsynchronousHelper(t *testing.T) {
-	e := newSharedContract(t, "sqlite")
-	id := e.node(t, "ss2022")
-	e.ok(t, "integration/sync", e.admin, map[string]any{})
-	e.f.holdApply = true
-	if v := e.call(t, "node/delete", e.user, map[string]any{"id": id}); v.Code == 0 {
-		t.Fatal("unconfirmed deletion released node")
+	for _, dialect := range []string{"sqlite", "postgres"} {
+		t.Run(dialect, func(t *testing.T) {
+			e := newSharedContract(t, dialect)
+			id := e.node(t, "ss2022")
+			e.ok(t, "integration/sync", e.admin, map[string]any{})
+			e.f.holdApply = true
+			v := e.ok(t, "node/delete", e.user, map[string]any{"id": id})
+			if v.Data.(map[string]any)["pending"] != true || !strings.Contains(v.Msg, "等待") {
+				t.Fatal("asynchronous deletion was not accepted as pending")
+			}
+			n, _ := e.r.GetLandingNode(id)
+			if n == nil || !n.DeletePending || n.Port != 30000 {
+				t.Fatal("pending node/port not retained")
+			}
+			view := e.ok(t, "node/list", e.user, map[string]any{})
+			if view.Data.([]any)[0].(map[string]any)["deletePending"] != true {
+				t.Fatal("pending state missing from node JSON")
+			}
+			if e.call(t, "node/update", e.admin, map[string]any{"id": id, "name": "cannot edit"}).Code == 0 {
+				t.Fatal("pending node remained editable")
+			}
+			revision := e.f.desired[7].Revision
+			e.f.mu.Lock()
+			s := e.f.status[7]
+			s.AppliedRevision = revision
+			s.CollectedAt++
+			for i := range s.Nodes {
+				s.Nodes[i].State = "removed"
+				s.Nodes[i].Connections = 0
+				s.Nodes[i].UpBytes = 10
+				s.Nodes[i].DownBytes = 20
+			}
+			e.f.status[7] = s
+			e.f.mu.Unlock()
+			// The sync endpoint invokes the same pass as the background loop. No
+			// second delete request is needed once Helper publishes its final ACK.
+			e.ok(t, "integration/sync", e.admin, map[string]any{})
+			if n, _ := e.r.GetLandingNode(id); n != nil {
+				t.Fatal("confirmed deletion retained node")
+			}
+			e.ok(t, "integration/sync", e.admin, map[string]any{})
+			server, _ := e.r.GetLandingServer(e.servers[0].ID)
+			if e.f.desired[7].Revision != revision || server.Revision != revision {
+				t.Fatal("finalizing deletion advanced revision")
+			}
+			u, _ := e.r.GetUserByID(501)
+			if u.InFlow+u.OutFlow != 60 {
+				t.Fatal("final counters lost or billed twice")
+			}
+			replacement := e.node(t, "ss2022")
+			if n, _ := e.r.GetLandingNode(replacement); n.Port != 30000 {
+				t.Fatal("confirmed port not released")
+			}
+		})
 	}
-	revision := e.f.desired[7].Revision
-	e.f.mu.Lock()
-	s := e.f.status[7]
-	s.AppliedRevision = revision
-	s.CollectedAt++
-	for i := range s.Nodes {
-		s.Nodes[i].State = "removed"
-		s.Nodes[i].Connections = 0
-		s.Nodes[i].UpBytes = 10
-		s.Nodes[i].DownBytes = 20
-	}
-	e.f.status[7] = s
-	e.f.mu.Unlock()
-	e.ok(t, "node/delete", e.user, map[string]any{"id": id})
-	if e.f.desired[7].Revision != revision {
-		t.Fatal("deletion retry advanced revision")
-	}
-	if n, _ := e.r.GetLandingNode(id); n != nil {
-		t.Fatal("confirmed deletion retained node")
-	}
-	u, _ := e.r.GetUserByID(501)
-	if u.InFlow+u.OutFlow != 60 {
-		t.Fatal("final counters lost")
+}
+
+func TestSharedLandingPendingDeletionInactiveShares(t *testing.T) {
+	for _, dialect := range []string{"sqlite", "postgres"} {
+		for _, shareState := range []string{"paused", "revoked"} {
+			t.Run(dialect+"/"+shareState, func(t *testing.T) {
+				e := newSharedContract(t, dialect)
+				id := e.node(t, "ss2022")
+				e.ok(t, "integration/sync", e.admin, map[string]any{})
+				e.f.holdApply = true
+				e.ok(t, "node/delete", e.user, map[string]any{"id": id})
+				pushes := e.f.pushes
+				e.f.mu.Lock()
+				e.f.shares[0].Status = shareState
+				st := e.f.status[7]
+				// Paused shares need removed/zero/final counters, without a new push.
+				st.Nodes[0].State, st.Nodes[0].Connections = "removed", 1
+				st.Nodes[0].UpBytes, st.Nodes[0].DownBytes = 10, 20
+				st.CollectedAt++
+				e.f.status[7] = st
+				e.f.mu.Unlock()
+				e.ok(t, "integration/sync", e.admin, map[string]any{})
+				if n, _ := e.r.GetLandingNode(id); n == nil || !n.DeletePending {
+					t.Fatal("inactive share released node with connections")
+				}
+				e.f.mu.Lock()
+				st.Nodes[0].Connections = 0
+				st.CollectedAt++
+				e.f.status[7] = st
+				e.f.mu.Unlock()
+				e.ok(t, "integration/sync", e.admin, map[string]any{})
+				n, _ := e.r.GetLandingNode(id)
+				if (shareState == "paused" && n != nil) || (shareState == "revoked" && (n == nil || !n.DeletePending)) {
+					t.Fatal("inactive deletion semantics changed")
+				}
+				// Force sync re-pushes the other active share only.
+				if e.f.pushes != pushes+2 {
+					t.Fatal("pushed an inactive share")
+				}
+				u, _ := e.r.GetUserByID(501)
+				if u.InFlow+u.OutFlow != 60 {
+					t.Fatal("inactive share final counters lost or billed twice")
+				}
+			})
+		}
 	}
 }

@@ -68,6 +68,7 @@ export interface LandingServer {
   usedBytes?: number;
 }
 export interface LandingNode {
+  deletePending?: boolean;
   id: number;
   userId: number;
   userName?: string;
@@ -214,7 +215,7 @@ export const updateLandingNode = (node: LandingNode) => {
   });
 };
 export const deleteLandingNode = (id: number) =>
-  Network.post("/landing/node/delete", { id });
+  Network.post<{ pending?: boolean }>("/landing/node/delete", { id });
 export const landingLinks = (id: number) =>
   Network.post<LandingLink[]>("/landing/node/links", { id });
 export const getLandingUser = (userId: number) =>
