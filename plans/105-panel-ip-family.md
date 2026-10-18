@@ -15,7 +15,7 @@
 - [x] 实现并测试节点列/API/下发、表单和安装命令选项及 install.sh 参数。
 - [x] 完成本地 IPv6 连接后黑洞 E2E、三个 Go 模块测试、相关 vet、前端构建。
 - [x] 提交推送、CI 验证、tag fork.54、Images/发布资源验证。
-- [ ] 生产备份与回滚脚本、保留最新两份、升级及健康/表行数/在线节点核对。
+- [x] 生产备份与回滚脚本、保留最新两份、升级及健康/表行数/在线节点核对。
 - [ ] 节点 42 SSH 备份、OTA、14 隧道重部署验证。
 - [ ] 节点 42 auto IPv6 黑洞自愈实测，移除故障规则，设置 prefer_ipv4 并验证 IPv4 WS。
 - [ ] 记录证据、所有破坏性动作与回滚方式，写中文最终总结并提交计划完成记录。
@@ -37,3 +37,5 @@ Panel：新增 `node.panel_ip_family`（varchar、默认空）；create/update/l
 Images [39144267928](https://github.com/ImoLR/FLVXR2/actions/runs/39144267928) 全通过；[fork.54 release](https://github.com/ImoLR/FLVXR2/releases/tag/3.0.27-fork.54) 为 Latest、非 prerelease，10 个资源与 fork.53 同集。v4/v6 compose 镜像和两个安装脚本版本锁定正确，amd64/arm64 sha256、离线包中的二进制均校验通过；发布 amd64 `-V` 确认为 fork.54。
 
 生产回滚点：`/opt/flvx-svc/rollback/pre-fork54-20261018T163653Z`，SQLite 固定读快照在线备份（quick_check=ok）、compose/.env、旧镜像 local 标签、`rollback.sh` 均已就绪。首次分批备份因写入反复重试，停止了本任务备份进程并清理其未完成副本，原库未改。按规定 prune 后仅留本次 + `pre-shared-canary-20261018T151747Z`；删除 pre-fork53 及 fork.52 本地镜像（旧 DB 备份不可恢复；镜像可按 tag 重拉）。升级前在线 28/29，22 原先离线；核心行数 node/user/tunnel/forward/user_tunnel = 29/11/43/31/143。
+
+生产已于约 16:37Z 升级 fork.54，后端 healthy；本机前后端和 flvxxht 公网健康检查 200，前端 build 含 fork.54。在线集合 28/29 与升级前完全相同，核心业务表行数及分组/链路/授权关系一致（动态采样表增量见运行目录）。节点 42 在面板重启后 14/14 隧道重部署成功，仍为旧 fork.53，尚未 OTA。
