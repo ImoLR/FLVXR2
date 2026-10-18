@@ -25,7 +25,7 @@ export function EnableLandingButton({
 
   return (
     <Button
-      className="min-h-7 min-w-0 max-w-full whitespace-normal px-2 leading-tight"
+      className="h-auto min-h-8 min-w-0 max-w-full whitespace-normal px-2 py-1 text-xs leading-tight"
       color="secondary"
       isDisabled={
         protectedHost ||
