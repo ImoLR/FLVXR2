@@ -23,7 +23,8 @@ type LandingLink struct {
 func LandingURL(n model.LandingNode, host string, port int) string {
 	authority := net.JoinHostPort(strings.Trim(host, "[]"), strconv.Itoa(port))
 	if n.Protocol == "ss2022" {
-		return "ss://" + strings.ReplaceAll(url.QueryEscape(n.Method+":"+n.ServerKey+":"+n.UserKey), "+", "%20") + "@" + authority + "#" + url.PathEscape(n.Name)
+		userinfo := url.QueryEscape(n.Method) + ":" + url.QueryEscape(n.ServerKey+":"+n.UserKey)
+		return "ss://" + strings.ReplaceAll(userinfo, "+", "%20") + "@" + authority + "#" + url.PathEscape(n.Name)
 	}
 	names := []string{}
 	_ = json.Unmarshal([]byte(n.ServerNames), &names)

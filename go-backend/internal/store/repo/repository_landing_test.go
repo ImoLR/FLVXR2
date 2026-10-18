@@ -87,9 +87,9 @@ func TestLandingModelsPermissionsPortsAndCredentials(t *testing.T) {
 			if u.Hostname() != "2001:db8::1" {
 				t.Fatal(link)
 			}
-			userinfo, _ := url.PathUnescape(strings.Split(strings.TrimPrefix(link, "ss://"), "@")[0])
-			if userinfo != ssn.Method+":"+ssn.ServerKey+":"+ssn.UserKey {
-				t.Fatalf("invalid SIP002 userinfo: %s", userinfo)
+			password, hasPassword := u.User.Password()
+			if u.User.Username() != ssn.Method || !hasPassword || password != ssn.ServerKey+":"+ssn.UserKey {
+				t.Fatal("standard URL parser could not read SIP002 method/password")
 			}
 			if _, err := r.CreateLandingNode(501, s.ID, "third", "ss2022", false); err != nil {
 				t.Fatal(err)
@@ -153,6 +153,23 @@ func TestLandingManualTargetsAndLinks(t *testing.T) {
 	}
 }
 func itoaLanding(v int) string { return strconv.Itoa(v) }
+
+func TestLandingSS2022SIP002URL(t *testing.T) {
+	n := model.LandingNode{Name: "SS 2022", Protocol: "ss2022", Method: "2022-blake3-aes-128-gcm", ServerKey: base64.StdEncoding.EncodeToString([]byte(strings.Repeat("\xff", 16))), UserKey: base64.StdEncoding.EncodeToString([]byte(strings.Repeat("\xfb", 16)))}
+	for _, host := range []string{"203.0.113.1", "2001:db8::1"} {
+		parsed, err := url.Parse(LandingURL(n, host, 30001))
+		if err != nil {
+			t.Fatal(err)
+		}
+		password, present := parsed.User.Password()
+		if parsed.User.Username() != n.Method || !present || password != n.ServerKey+":"+n.UserKey {
+			t.Fatal("SIP002 username/password did not round-trip with standard net/url parser")
+		}
+		if parsed.Scheme != "ss" || parsed.Hostname() != host || parsed.Port() != "30001" || parsed.Fragment != n.Name {
+			t.Fatal("SIP002 endpoint or name did not round-trip")
+		}
+	}
+}
 
 func TestLandingDeletionPreparationRetainsAccountingIdentity(t *testing.T) {
 	for _, dialect := range []string{"sqlite", "postgres"} {
