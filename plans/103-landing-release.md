@@ -9,7 +9,8 @@
 - [x] 发布门禁：全量 Go 失败集合不超过既有 15，前端构建，生产一致性副本增量迁移及原表校验，流量上传 reconcile 成本实测。
 - [x] 发布 fork.53，CI/Images 通过，核验与 fork.52 相同的 10 项资产。
 - [x] 完整 SQLite、compose/.env、旧镜像标签及 rollback.sh 备份；执行两份保留裁剪。
-- [ ] 生产升级、健康/节点上报核验，升级前后各约 10 分钟 CPU/SQLite 写入观察。
+- [x] 生产升级、面板健康与对象数量核验，升级前后各约 10 分钟 CPU/SQLite 写入观察（节点 42 上报例外另列）。
+- [ ] 节点上报完全恢复原基线：42 重连后无指标，fork.52 后端对照亦复现，未操作范围外节点。
 - [ ] 节点 21 诊断及 agent/mmwx 基线备份；仅节点 21 OTA，能力及诊断复验。
 - [ ] 核对全机监听/FLVX 端口，分离规则与落地段；启用 admin-only 原生落地，核验固定 Core/低权限/资源上限及 mmwx 不变。
 - [ ] 备份旧入站 8/2 和节点 21 sing-box；API 删除并 apply，节点 21 停用旧服务，外部端口关闭核验。
@@ -33,3 +34,5 @@
 节点 21 前置证据：6 条隧道 23/26/32/33/43/66 共 27 项诊断全通过（diagnoses-before-ota.json）。SSH agent 回滚点 `/root/flvxx-backup-20261018T134521Z-pre-fork53`，含二进制/配置/unit/restore-agent.sh；旧 sing-box 目录及单元原不存在，记录于 node21-backup.json。
 
 生产回滚点 `/opt/flvx-svc/rollback/pre-fork53-20261018T135250Z`：完整在线 SQLite quick_check=ok、compose/.env、fork.52 两镜像本地标签、rollback.sh（含节点 21 SSH 恢复入口及可选完整 DB 恢复）。备份计数 node/user/tunnel/forward/user_tunnel = 29/11/43/31/143。已执行指定 prune：保留 pre-fork53 与 pre-fork52，删除 pre-fork51 目录/标签和 fork.50 本地镜像；见 backup.json、prune.log。
+
+生产 fork.53 于 13:54Z 启动，健康检查及前端 nginx/版本通过，原对象数量及用户组/隧道链数据不变。升级后 600.07 秒 CPU 平均 3.726%，进程 write_bytes 221,464 B/s，WAL 120/120 间隔写入，见 cpu-after.json。节点 42 在重连后不再上报（最后指标 13:54:06Z），控制命令超时，TCP/SSH 端口可达；其余 27 个原在线节点正常。仅重启一次 backend 无改善，继而使用备份 fork.52 backend、保留当前 DB 作约 4 分钟对照，完全相同的握手在线/命令超时/无指标现象；随后恢复 fork.53。不能断言根因或宣称全节点健康通过；未 OTA、重启或修改 42。相关证据 prod-backend52-final.json、backend-52-comparison.json、diagnoses-after-panel.json。节点 21 相关 27 项诊断中仅 42 一项失败；金丝雀改用零现有规则且 3/3 诊断通过的隧道 26，不修改隧道。
