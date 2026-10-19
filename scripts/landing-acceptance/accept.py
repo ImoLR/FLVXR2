@@ -21,6 +21,7 @@ import time
 import traceback
 
 HERE = pathlib.Path(__file__).resolve().parent
+sys.dont_write_bytecode = True  # keep the repo free of __pycache__
 sys.path.insert(0, str(HERE))
 
 import flvxapi  # noqa: E402
