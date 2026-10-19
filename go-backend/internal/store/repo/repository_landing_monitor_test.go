@@ -72,6 +72,14 @@ func TestLandingMonitorSnapshotVisibility(t *testing.T) {
 			if got := monitorNodeIDs(admin); !sameIDs(got, []int64{mine.ID, other.ID, onShared.ID, stray.ID}) {
 				t.Fatalf("admin nodes %v", got)
 			}
+			for _, n := range admin.Nodes {
+				if n.ServerKey != "" || n.UserKey != "" || n.UUID != "" || n.PrivateKey != "" || n.InboundTag != "" {
+					t.Fatalf("monitor snapshot loaded credentials for node %d", n.ID)
+				}
+				if n.Name == "" || n.Port == 0 || n.Protocol == "" || n.LandingServerID == 0 || n.UserID == 0 || n.Status == "" {
+					t.Fatalf("monitor snapshot missing columns: %+v", n)
+				}
+			}
 			if admin.OwnerNames[511] != "group-only" || admin.OwnerNames[501] != "landing-owner" || len(admin.Quotas) != 0 {
 				t.Fatalf("admin owners %v quotas %v", admin.OwnerNames, admin.Quotas)
 			}
