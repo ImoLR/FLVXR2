@@ -23,6 +23,10 @@ func (h *Handler) runLandingReconcileLoop(ctx context.Context) {
 			h.reconcileLandingPolicy(time.Now())
 			// Missing WARP devices: one batched pass at most every 5 minutes.
 			h.maybeEnsureLandingWarp()
+			// Drop monitor samples of deleted landing nodes (every delete path).
+			if ids, err := h.repo.ListLandingNodeIDs(); err == nil {
+				h.landingRateTracker().retain(ids, time.Now().UnixMilli())
+			}
 			// Full re-push repairs agent reconnects and interrupted hot applies. Identical
 			// revisions are idempotent and do not restart the Core.
 			servers, err := h.repo.ListLandingServers(0, true)

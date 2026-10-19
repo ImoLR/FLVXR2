@@ -17,7 +17,7 @@ import (
 
 func (h *Handler) registerLanding(mux *http.ServeMux) {
 	h.registerLandingEgress(mux)
-	for path, fn := range map[string]http.HandlerFunc{"integration/get": h.landingIntegrationGet, "integration/save": h.landingIntegrationSave, "integration/test": h.landingIntegrationTest, "integration/sync": h.landingIntegrationSync, "server/enable": h.landingServerEnable, "server/list": h.landingServerList, "server/save": h.landingServerSave, "node/list": h.landingNodeList, "node/create": h.landingNodeCreate, "node/update": h.landingNodeUpdate, "node/delete": h.landingNodeDelete, "node/links": h.landingNodeLinks, "user/get": h.landingUserGet, "user/save": h.landingUserSave} {
+	for path, fn := range map[string]http.HandlerFunc{"integration/get": h.landingIntegrationGet, "integration/save": h.landingIntegrationSave, "integration/test": h.landingIntegrationTest, "integration/sync": h.landingIntegrationSync, "server/enable": h.landingServerEnable, "server/list": h.landingServerList, "server/save": h.landingServerSave, "node/list": h.landingNodeList, "node/create": h.landingNodeCreate, "node/update": h.landingNodeUpdate, "node/delete": h.landingNodeDelete, "node/links": h.landingNodeLinks, "user/get": h.landingUserGet, "user/save": h.landingUserSave, "monitor": h.landingMonitor} {
 		mux.HandleFunc("/api/v1/landing/"+path, func(w http.ResponseWriter, r *http.Request) {
 			if r.Method != http.MethodPost {
 				response.WriteJSON(w, response.Err(405, "仅支持 POST"))
@@ -142,12 +142,9 @@ func (h *Handler) landingNodeView(n model.LandingNode, catalogs ...landingEgress
 			if cfg, e := h.repo.GetLandingIntegration(); e == nil && cfg.SyncError != "" {
 				v["sharedSyncError"] = cfg.SyncError
 			}
-			if n.Status == "active" && n.SyncError != "" {
-				v["status"] = "error"
-			}
-			if n.Status == "active" && n.SyncError == "" && n.RemoteState != "active" {
-				v["status"] = "pending"
-				if reason := sharedCoreNotice(s, true); reason != "" {
+			if status, reason := landingNodeDisplayStatus(&n, s); status != n.Status {
+				v["status"] = status
+				if reason != "" {
 					v["pendingReason"] = reason
 				}
 			}
@@ -493,6 +490,7 @@ func (h *Handler) landingNodeDelete(w http.ResponseWriter, r *http.Request) {
 		landingError(w, err)
 		return
 	}
+	h.landingRateTracker().forget(n.ID)
 	h.syncLandingServer(n.LandingServerID)
 	// No sync/policy mutex is held here; enforcement may reconcile other nodes.
 	if enforce != nil {

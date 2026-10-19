@@ -301,6 +301,9 @@ func (h *Handler) commitFlowWithLanding(nodeID int64, items []flowItem, counters
 	}
 
 	h.recordTunnelMetricsFromFlowItems(nodeID, items, now.UnixMilli())
+	if len(counters) > 0 {
+		h.landingRateTracker().observe(counters, now.UnixMilli())
+	}
 	return func() {
 		// Uploads of several nodes may finish together; checks of the same forward or user
 		// must not pause and reset it twice.
