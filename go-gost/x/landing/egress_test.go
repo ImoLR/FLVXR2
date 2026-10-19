@@ -122,7 +122,7 @@ func renderGolden(local localAddrs) map[string]any {
 
 func TestEgressRenderGolden(t *testing.T) {
 	plan := goldenPlan()
-	rules, err := renderRules(plan, func(string) ([]netip.Prefix, error) { return nil, fmt.Errorf("no geo data needed") })
+	rules, err := renderRules(plan, func(string) ([]netip.Prefix, error) { return nil, fmt.Errorf("no geo data needed") }, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -231,7 +231,7 @@ func TestEgressRulesSafetyFirstAndExemption(t *testing.T) {
 		{InboundTags: []string{"flvxl-1"}, SourceIP: []string{"1.0.1.7/32"}, Outbound: "block"},
 		{InboundTags: []string{"flvxl-1"}, SourceIP: []string{"geoip:!cn"}, Outbound: "direct"},
 	}, ExemptSources: []string{"1.0.1.7", "240e::1/128", "8.8.4.4"}}
-	rules, err := renderRules(e, read)
+	rules, err := renderRules(e, read, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -272,7 +272,7 @@ func TestEgressRulesSafetyFirstAndExemption(t *testing.T) {
 	}
 	// Without an overlap the original geoip entry is kept (smaller payload).
 	e.ExemptSources = []string{"8.8.8.8"}
-	rules, _ = renderRules(e, read)
+	rules, _ = renderRules(e, read, nil)
 	if s := rules[3].(map[string]any)["sourceIP"].([]string); len(s) != 1 || s[0] != "geoip:cn" {
 		t.Fatalf("non-overlapping exemption rewrote the source list: %v", s)
 	}
@@ -592,7 +592,7 @@ func TestGeoDataOnlyWhenReferencedAndVerified(t *testing.T) {
 	}
 	// A wrong local file is never trusted.
 	_ = os.WriteFile(filepath.Join(dir, "geoip.dat"), []byte("tampered"), 0644)
-	if m.geoVerified(filepath.Join(dir, "geoip.dat"), "geoip.dat") {
+	if m.geoVerified("geoip.dat") {
 		t.Fatal("tampered geo data accepted")
 	}
 }
