@@ -90,7 +90,7 @@ fork.55 相同，fork.56 只改了节点程序）。
 - [x] 第二轮：变基到 fork.56；节点程序改用 fork.56 的 atomicfile / RoutineLogger / Backoff；Core 只在文件变化时校验哈希、下载失败退避。
 - [x] 资源测量（1 vs 50 节点 RSS/CPU、1000 连接前后 fd/goroutine、日志/磁盘增长）。
 - [x] 截图集（电脑 + H5、管理员 + 用户、暗色）+ 发布到预览服务器。
-- [ ] 推送分支、CI 全绿、final.md / summary.md。
+- [x] 推送分支、CI 全绿（最终代码 `b5a4f63a`：run 39256044311 前端/节点程序/后端构建 + PostgreSQL 契约全部成功）、summary.md（final.md 由自动复核生成）。
 
 ## 核验记录
 
