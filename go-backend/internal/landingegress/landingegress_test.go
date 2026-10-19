@@ -87,7 +87,7 @@ func TestNormalizeOutbound(t *testing.T) {
 func TestNormalizeProfile(t *testing.T) {
 	outs := map[int64]bool{7: true}
 	p := Profile{Name: "AI", DefaultAction: "outbound:7", Rules: []Rule{
-		{Name: "AI 解锁", Enabled: true, Domains: []string{"geosite:OpenAI", "Claude.AI", "geosite:openai", "full:x.ai"}, Action: "outbound:7"},
+		{Name: "AI 解锁", Enabled: true, Domains: []string{"geosite:OpenAI", "Claude.AI", "geosite:openai", "full:x.ai", "*.Gemini.Google.com", "domain:*.claude.ai"}, Action: "outbound:7"},
 		{Enabled: true, IPs: []string{"1.2.3.4", "10.0.0.0/8", "::ffff:8.8.8.0/120", "GeoIP:CN"}, Ports: " 443, 8000-9000 ", Network: "tcp,udp", Protocols: []string{"tls", "http", "tls"}, Action: "block"},
 		{Enabled: true, SourceIPs: []string{"geoip:!cn"}, LandingNodeIDs: []int64{5, 3, 5}, Action: "direct"},
 	}}
@@ -95,7 +95,7 @@ func TestNormalizeProfile(t *testing.T) {
 		t.Fatal(err)
 	}
 	r0, r1, r2 := p.Rules[0], p.Rules[1], p.Rules[2]
-	if strings.Join(r0.Domains, ",") != "geosite:openai,domain:claude.ai,full:x.ai" || r0.ID == "" {
+	if strings.Join(r0.Domains, ",") != "geosite:openai,domain:claude.ai,full:x.ai,domain:gemini.google.com" || r0.ID == "" {
 		t.Fatalf("domains = %v", r0.Domains)
 	}
 	if strings.Join(r1.IPs, ",") != "1.2.3.4,10.0.0.0/8,8.8.8.0/24,geoip:cn" || r1.Ports != "443,8000-9000" || r1.Network != "" || strings.Join(r1.Protocols, ",") != "http,tls" || r1.Name != "规则 2" {
@@ -116,6 +116,8 @@ func TestNormalizeProfile(t *testing.T) {
 		"bad protocol":      {Name: "x", Rules: []Rule{{Enabled: true, Protocols: []string{"ssh"}, Action: "block"}}},
 		"ext file":          {Name: "x", Rules: []Rule{{Enabled: true, Domains: []string{"ext:evil.dat:x"}, Action: "block"}}},
 		"bad regexp":        {Name: "x", Rules: []Rule{{Enabled: true, Domains: []string{"regexp:("}, Action: "block"}}},
+		"inner wildcard":    {Name: "x", Rules: []Rule{{Enabled: true, Domains: []string{"a.*.example.com"}, Action: "block"}}},
+		"full wildcard":     {Name: "x", Rules: []Rule{{Enabled: true, Domains: []string{"full:*.example.com"}, Action: "block"}}},
 		"dup rule id":       {Name: "x", Rules: []Rule{{ID: "a", Enabled: true, Ports: "1", Action: "block"}, {ID: "a", Enabled: true, Ports: "2", Action: "block"}}},
 	}
 	for name, p := range bad {

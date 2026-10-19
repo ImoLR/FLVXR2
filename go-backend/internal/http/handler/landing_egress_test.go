@@ -388,3 +388,45 @@ func TestLandingEgressLoopRejected(t *testing.T) {
 		t.Fatal("self loop accepted")
 	}
 }
+
+// A failing node hostname must not cost a 2 s lookup on every compile or
+// overview load; the last good answer is kept.
+func TestLandingEgressResolveCachesFailures(t *testing.T) {
+	h := &Handler{}
+	calls, fail := 0, false
+	old := egressLookup
+	egressLookup = func(_ context.Context, host string) ([]netip.Addr, error) {
+		calls++
+		if fail {
+			return nil, context.DeadlineExceeded
+		}
+		return []netip.Addr{netip.MustParseAddr("203.0.113.9")}, nil
+	}
+	t.Cleanup(func() { egressLookup = old })
+	for i := 0; i < 3; i++ {
+		if got := h.egressResolve("node.example.com"); len(got) != 1 {
+			t.Fatalf("lookup %d = %v", i, got)
+		}
+	}
+	if calls != 1 {
+		t.Fatalf("successful answer looked up %d times; want 1 (10 min cache)", calls)
+	}
+	// Expire the good answer, then fail: the old answer is kept and the failure
+	// is not retried on every call.
+	h.egressDNS["node.example.com"] = egressDNSEntry{addrs: h.egressDNS["node.example.com"].addrs, at: time.Now().Add(-11 * time.Minute)}
+	fail = true
+	for i := 0; i < 3; i++ {
+		if got := h.egressResolve("node.example.com"); len(got) != 1 {
+			t.Fatalf("failed lookup dropped the last good answer: %v", got)
+		}
+	}
+	if calls != 2 {
+		t.Fatalf("failing lookup retried %d times within a minute; want 1", calls-1)
+	}
+	for i := 0; i < 3; i++ {
+		_ = h.egressResolve("missing.example.com")
+	}
+	if calls != 3 {
+		t.Fatalf("unknown failing host looked up %d times; want 1", calls-2)
+	}
+}

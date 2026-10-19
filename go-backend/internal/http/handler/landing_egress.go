@@ -48,6 +48,11 @@ func (h *Handler) egressResolve(host string) []netip.Addr {
 	defer cancel()
 	addrs, err := egressLookup(ctx, host)
 	if err != nil {
+		// Keep the last good answer; retry after a minute rather than on every
+		// compile or page load (each failed lookup can block for 2 s).
+		h.egressDNSMu.Lock()
+		h.egressDNS[host] = egressDNSEntry{addrs: entry.addrs, at: time.Now().Add(-9 * time.Minute)}
+		h.egressDNSMu.Unlock()
 		return entry.addrs
 	}
 	h.egressDNSMu.Lock()

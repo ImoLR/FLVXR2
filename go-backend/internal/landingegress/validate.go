@@ -352,8 +352,13 @@ func normalizeDomain(v string) (string, error) {
 		}
 	case "domain", "full":
 		value = strings.ToLower(strings.TrimSuffix(value, "."))
-		if !domainValueRe.MatchString(value) {
-			return "", fmt.Errorf("域名 %q 无效", v)
+		if kind == "domain" {
+			// "*.example.com" means the domain and its subdomains, which is
+			// exactly what the Core's domain: matcher does.
+			value = strings.TrimPrefix(value, "*.")
+		}
+		if !domainValueRe.MatchString(value) || strings.Contains(value, "*") {
+			return "", fmt.Errorf("域名 %q 无效（通配请写成 *.example.com 或 domain:example.com）", v)
 		}
 	case "keyword":
 		value = strings.ToLower(value)
