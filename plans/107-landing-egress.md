@@ -175,3 +175,24 @@ fork.55 相同，fork.56 只改了节点程序）。
   第一次选非默认方案时需要在界面勾选「重启一次落地 Core」（约 1–3 秒中断），之后改方案都是热更新。
 - geo 数据只在方案用到 geoip/geosite 时由节点程序下载（约 27 MiB，经镜像 + SHA256）。
 - 共享服务器（妙妙屋 server 7）要等 Custom/Helper 实现契约（`landing-egress-mmwx`）后才能选方案，之前界面显示禁用。
+
+## 发布（landing-egress-release，2026-10-19，fork.58）
+
+用户 10-19 批准截图（配色改动 `b8f3d16e` 之后，「改一下然后就发布」）。
+
+### 清单
+- [x] 备份变基前分支头：`backup/landing-egress-pre-fork57-rebase` = `b8f3d16e`（已推送）。
+- [x] 变基到 fork.57 分支头 `d1d5e5f3`（plan 110）：2 处冲突，均为两边各加一行，保留双方——
+      `repository.go` AutoMigrate 列表（`LandingServerUser` + 4 个出站表）、`repository_mutations.go` 节点删除级联
+      （先删直接授权，再删 WARP 账号）；其余文件自动合并。结果树 = `git merge-tree b8f3d16e d1d5e5f3` + 上述两处解决。
+- [x] 新分支 `maintenance/3.0.27-fork.58-landing-egress`。
+- [x] 后端全量对比：变基后 15 项失败 = 基线；fork.57 原版对照跑出 16 项（多 1 项与落地无关的偶发契约测试，重跑 3 次通过）。
+- [x] 验收脚本 `scripts/landing-acceptance/`（plan 110 欠下的 8 场景 + 出站 3 场景 + 资源），本地 12/12 场景通过。
+- [x] 验收发现 1 个问题并修复：非管理员「创建落地节点」的返回值带出路由方案 id/名称（列表已隐藏，创建没隐藏）→ `07547ad2`，
+      新测试去掉修复即失败。
+- [x] 落地测试 SQLite + PostgreSQL、节点程序测试（含真实 Core、netns 数据面）、前端 tsc/build/lint。
+- [x] 生产库副本迁移演练（断网 netns）：新增 4 张空表 + 新列默认值，其余 69 张表逐列哈希不变，revision/期望哈希不变。
+- [ ] 打 tag `3.0.27-fork.58`，CI + Images 绿，Release 资产齐全。
+- [ ] 生产：备份 → 清理旧备份 → 升级 → 健康/节点数/落地数据不变 → 生产验收（临时用户，跑完清理）。
+- [ ] 节点 21 OTA（SSH 备份，前后 RSS/CPU/fd），Core 继续服务；不选非默认方案、不注册 WARP、不碰节点 36。
+- [ ] 记录结果，计划完成。
