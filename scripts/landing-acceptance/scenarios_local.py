@@ -443,13 +443,14 @@ def s6_limits(ctx):
         api.call("landing/node/update", {"id": ss, "maxConnections": 0, "maxOnlineIps": 0})
     # Shared caps clamp node limits (share cap 50 connections).
     sh = ctx.nodes["u1_shared"]
+    original = nview(ctx, sh)["maxConnections"]
     res = api.raw("landing/node/update", {"id": sh, "maxConnections": 100})
     sync(ctx)
     time.sleep(1)
     body, _ = desired(ctx, 7001)
     pushed = next(n for n in body["nodes"] if n["id"] == str(sh))
     expect(r, "shared share cap (50) clamps or refuses a node limit of 100", (0 < pushed["max_connections"] <= 50) or res.get("code") != 0, {"api_code": res.get("code"), "msg": res.get("msg"), "pushed_max_connections": pushed["max_connections"]})
-    api.raw("landing/node/update", {"id": sh, "maxConnections": 0})
+    api.call("landing/node/update", {"id": sh, "maxConnections": original})
 
 
 def s7_user_state(ctx):

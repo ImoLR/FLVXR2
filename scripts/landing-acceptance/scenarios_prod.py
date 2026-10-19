@@ -310,6 +310,9 @@ def p5_limits(ctx):
     for key in [k for k in ("native_ss", "shared_ss") if k in ctx.nodes]:
         nid = ctx.nodes[key]
         shared = key.startswith("shared")
+        # Restore the node's own value afterwards: on a shared server 0 (= unlimited)
+        # exceeds the mmwx share cap and is refused by design.
+        original = node_view(ctx, nid)["maxConnections"]
         wait_conns_zero(ctx, nid)
         api.call("landing/node/update", {"id": nid, "maxConnections": 2})
         try:
@@ -327,7 +330,11 @@ def p5_limits(ctx):
                 held.close()
             stop(ctx, cl)
         finally:
-            api.call("landing/node/update", {"id": nid, "maxConnections": 0})
+            api.call("landing/node/update", {"id": nid, "maxConnections": original})
+            if shared:
+                rev = api.server(ctx.shared)["revision"]
+                wait_for("original limit applied by Custom", lambda: (sync(ctx), api.server(ctx.shared)["sharedAppliedRevision"] >= rev)[1], timeout=240, interval=5)
+        expect(r, f"{key}: original connection limit ({original}) restored", node_view(ctx, nid)["maxConnections"] == original, original)
 
 
 def p6_user_state(ctx):
