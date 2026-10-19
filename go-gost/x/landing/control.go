@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -93,7 +94,9 @@ func (m *Manager) applyLimits(ctx context.Context, snapshot coreSnapshot) error 
 	// Include removed tags while the previous applied state still identifies them.
 	active := map[string]bool{}
 	for _, n := range m.desired.Nodes {
-		active[n.InboundTag] = m.desired.Enabled && n.Enabled
+		// Nodes withheld by a failed routing plan lose existing sockets too, so
+		// nothing keeps leaving through the default outbound.
+		active[n.InboundTag] = m.desired.Enabled && n.Enabled && !m.withheld[n.InboundTag]
 	}
 	blocked := []map[string]string{}
 	seen := map[string]bool{}
@@ -145,11 +148,19 @@ func (m *Manager) applyLimits(ctx context.Context, snapshot coreSnapshot) error 
 // The pinned Core's API CLI performs gRPC AddInbound/RemoveInbound/QueryStats;
 // using it avoids importing a second copy of the Core and its protobuf graph.
 func (m *Manager) api(ctx context.Context, command string, args ...string) ([]byte, error) {
-	child, cancel := context.WithTimeout(ctx, 5*time.Second)
+	// Rule replacement builds geo matchers inside the CPU-capped Core.
+	limit, rpc := 5*time.Second, "3"
+	if command == "adrules" {
+		limit, rpc = 30*time.Second, "25"
+	}
+	child, cancel := context.WithTimeout(ctx, limit)
 	defer cancel()
-	argv := []string{"api", command, "--server=127.0.0.1:" + strconv.Itoa(m.apiPort), "--timeout=3"}
+	argv := []string{"api", command, "--server=127.0.0.1:" + strconv.Itoa(m.apiPort), "--timeout=" + rpc}
 	argv = append(argv, args...)
-	output, err := exec.CommandContext(child, m.binary(), argv...).Output()
+	cmd := exec.CommandContext(child, m.command(), argv...)
+	// The CLI (not the Core) reads geo files for rules it builds.
+	cmd.Env = append(os.Environ(), "XRAY_LOCATION_ASSET="+m.dir)
+	output, err := cmd.Output()
 	if err != nil {
 		return nil, fmt.Errorf("landing gRPC %s failed", command)
 	}
@@ -193,12 +204,22 @@ func (m *Manager) reconcile(ctx context.Context) error {
 	m.epoch = epoch
 	// Capture the final live sample before controls terminate affected sockets.
 	collectErr := m.collect(ctx)
+	// Outbounds and rules go first: a fresh Core never serves an inbound before
+	// its routing plan is in place. Egress failures are reported separately and
+	// never mark the inbound state as failed.
+	snapshot, _ = m.applyEgress(ctx, snapshot)
+	m.withheld = m.withheldTags()
+	m.egress.Withheld = nil
+	for tag := range m.withheld {
+		m.egress.Withheld = append(m.egress.Withheld, tag)
+	}
+	sort.Strings(m.egress.Withheld)
 	if err := m.applyLimits(ctx, snapshot); err != nil {
 		return err
 	}
 	wanted := map[string]string{}
 	for _, n := range m.desired.Nodes {
-		if m.desired.Enabled && n.Enabled {
+		if m.desired.Enabled && n.Enabled && !m.withheld[n.InboundTag] {
 			cfg, _ := n.inbound()
 			wanted[n.InboundTag] = canonical(cfg)
 		}
