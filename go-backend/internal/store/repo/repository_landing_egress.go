@@ -474,18 +474,24 @@ func (r *Repository) TouchLandingEgress(serverID int64, hash string) (int64, err
 	return rev, err
 }
 
-// RecordLandingEgressStatus stores the agent/Custom egress report.
+// RecordLandingEgressStatus stores the agent/Custom egress report. Syncs repeat
+// every minute, so it writes only when the report changed (egress_checked_at is
+// the time of the last change). A ready Core consumes a pending one-time restart
+// confirmation, so a later loss of readiness asks the admin again.
 func (r *Repository) RecordLandingEgressStatus(serverID int64, state, errText string, ready bool, warnings []string) error {
 	raw := ""
 	if len(warnings) > 0 {
 		b, _ := json.Marshal(warnings)
 		raw = string(b)
 	}
-	return r.db.Model(&model.LandingServer{}).Where("id = ?", serverID).Updates(map[string]any{"egress_state": state, "egress_error": errText, "egress_ready": ready, "egress_warnings": raw, "egress_checked_at": time.Now().UnixMilli()}).Error
+	err := r.db.Model(&model.LandingServer{}).
+		Where("id = ? AND (egress_state <> ? OR egress_error <> ? OR egress_ready <> ? OR egress_warnings <> ?)", serverID, state, errText, ready, raw).
+		Updates(map[string]any{"egress_state": state, "egress_error": errText, "egress_ready": ready, "egress_warnings": raw, "egress_checked_at": time.Now().UnixMilli()}).Error
+	if err != nil || !ready {
+		return err
+	}
+	return r.db.Model(&model.LandingServer{}).Where("id = ? AND egress_restart_ok = ?", serverID, true).Update("egress_restart_ok", false).Error
 }
-
-// SetLandingServerEgress assigns the server profile; restartOK records the
-// admin's confirmation for a one-time Core restart.
 func (r *Repository) SetLandingServerEgress(serverID, profileID int64, restartOK bool) error {
 	values := map[string]any{"route_profile_id": profileID, "updated_time": time.Now().UnixMilli()}
 	if restartOK {

@@ -4,6 +4,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"go-backend/internal/landingegress"
 	"go-backend/internal/store/model"
@@ -143,6 +144,30 @@ func TestLandingEgressRepository(t *testing.T) {
 			st, _ := r.GetLandingServer(s.ID)
 			if st.EgressState != "applied" || !st.EgressReady || st.EgressWarnings != `["w"]` {
 				t.Fatalf("status = %+v", st)
+			}
+			// The minute re-push reports the same status: no write.
+			time.Sleep(5 * time.Millisecond)
+			if err := r.RecordLandingEgressStatus(s.ID, "applied", "", true, []string{"w"}); err != nil {
+				t.Fatal(err)
+			}
+			if again, _ := r.GetLandingServer(s.ID); again.EgressCheckedAt != st.EgressCheckedAt {
+				t.Fatalf("unchanged egress report rewrote the row: %d→%d", st.EgressCheckedAt, again.EgressCheckedAt)
+			}
+			// A confirmed one-time restart is consumed once the Core reports ready.
+			if err := r.SetLandingServerEgress(s.ID, st.RouteProfileID, true); err != nil {
+				t.Fatal(err)
+			}
+			if err := r.RecordLandingEgressStatus(s.ID, "restart_required", "需要重启", false, nil); err != nil {
+				t.Fatal(err)
+			}
+			if pending, _ := r.GetLandingServer(s.ID); !pending.EgressRestartOK || pending.EgressReady {
+				t.Fatalf("not-ready report dropped the confirmation: %+v", pending)
+			}
+			if err := r.RecordLandingEgressStatus(s.ID, "applied", "", true, nil); err != nil {
+				t.Fatal(err)
+			}
+			if done, _ := r.GetLandingServer(s.ID); done.EgressRestartOK || !done.EgressReady || done.EgressState != "applied" {
+				t.Fatalf("ready report kept the restart confirmation: %+v", done)
 			}
 
 			// Capability report: one conditional statement.
