@@ -5,6 +5,7 @@ import toast from "react-hot-toast";
 
 import { getUserGroupList } from "@/api";
 import { LandingServer, saveLandingServer } from "@/api/landing";
+import { EgressProfile, egressOverview } from "@/api/landing-egress";
 import { UserGroupApiItem } from "@/api/types";
 import { Button } from "@/shadcn-bridge/heroui/button";
 import { Checkbox } from "@/shadcn-bridge/heroui/checkbox";
@@ -42,6 +43,14 @@ export function ServerSettings({
   const [realityNamesInput, setRealityNamesInput] = useState(
     (server.realityServerNames || []).join(","),
   );
+  const [profiles, setProfiles] = useState<EgressProfile[]>([]);
+  const [restartConfirmed, setRestartConfirmed] = useState(false);
+  const egress = server.egress;
+  const profileId = form.routeProfileId ?? egress?.profileId ?? 0;
+  const profileChanged = profileId !== (egress?.profileId ?? 0);
+  const needsRestart = Boolean(
+    egress?.restartRequired && profileChanged && profileId !== 0,
+  );
   const set = <K extends keyof LandingServer>(
     key: K,
     value: LandingServer[K],
@@ -51,6 +60,9 @@ export function ServerSettings({
     void getUserGroupList().then((res) => {
       if (res.code === 0) setGroups(res.data || []);
       else toast.error(res.msg);
+    });
+    void egressOverview().then((res) => {
+      if (res.code === 0) setProfiles(res.data.profiles || []);
     });
   }, []);
   const numberField = (
@@ -88,20 +100,30 @@ export function ServerSettings({
       toast.error("请检查名称、地址、端口段、协议、倍率和资源上限");
       return;
     }
+    if (needsRestart && !restartConfirmed) {
+      toast.error("请先勾选确认重启落地 Core");
+
+      return;
+    }
     setSaving(true);
-    const response = await saveLandingServer({
-      ...form,
-      realityServerNames: realityNamesInput
-        .split(",")
-        .map((name) => name.trim())
-        .filter(Boolean),
-    });
+    const response = await saveLandingServer(
+      {
+        ...form,
+        routeProfileId: profileId,
+        realityServerNames: realityNamesInput
+          .split(",")
+          .map((name) => name.trim())
+          .filter(Boolean),
+      },
+      restartConfirmed,
+    );
     setSaving(false);
     if (response.code !== 0) {
       toast.error(response.msg || "保存失败");
       return;
     }
     toast.success("落地服务器设置已保存");
+    (response.data?.egressWarnings || []).forEach((w) => toast(w));
     onSaved();
     onClose();
   };
@@ -263,6 +285,66 @@ export function ServerSettings({
                   onChange={(event) => setRealityNamesInput(event.target.value)}
                 />
               </>
+            )}
+          </section>
+          <section className="space-y-3">
+            <h3 className="font-medium">出站与路由</h3>
+            {egress && !egress.supported && (
+              <p className="rounded-lg bg-warning-50 p-2 text-xs text-warning">
+                {egress.unsupportedReason}
+              </p>
+            )}
+            <Select
+              description="默认（直连）即现在的行为；方案在「出站与路由」标签页管理"
+              isDisabled={!egress?.supported}
+              label="路由方案"
+              selectedKeys={[String(profileId)]}
+              onSelectionChange={(keys) => {
+                setRestartConfirmed(false);
+                set("routeProfileId", Number(Array.from(keys)[0]));
+              }}
+            >
+              {[
+                <SelectItem key="0">默认（直连）</SelectItem>,
+                ...profiles.map((p) => (
+                  <SelectItem key={String(p.id)}>{p.name}</SelectItem>
+                )),
+              ]}
+            </Select>
+            {needsRestart && (
+              <div className="space-y-2 rounded-lg bg-warning-50 p-3 text-xs text-warning">
+                <p>
+                  保存后该服务器的落地连接会短暂中断：落地 Core
+                  需要重启一次才能启用出站与路由（约 1–3
+                  秒），之后修改方案不再中断。
+                </p>
+                <Checkbox
+                  isSelected={restartConfirmed}
+                  onValueChange={setRestartConfirmed}
+                >
+                  我已了解，保存时重启落地 Core
+                </Checkbox>
+              </div>
+            )}
+            {egress?.state === "error" && egress.error && (
+              <p className="rounded-lg bg-danger-50 p-2 text-xs text-danger">
+                应用失败：{egress.error}
+              </p>
+            )}
+            {egress?.state === "restart_required" && !needsRestart && (
+              <p className="rounded-lg bg-warning-50 p-2 text-xs text-warning">
+                等待落地 Core 重启后生效
+              </p>
+            )}
+            {(egress?.warnings || []).map((warning) => (
+              <p key={warning} className="text-xs text-warning">
+                {warning}
+              </p>
+            ))}
+            {egress?.state === "applied" && !profileChanged && (
+              <p className="text-xs text-default-500">
+                当前方案已在落地 Core 生效：{egress.label}
+              </p>
             )}
           </section>
           <section className="space-y-3">
