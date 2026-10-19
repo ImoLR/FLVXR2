@@ -69,6 +69,10 @@ type Handler struct {
 	landingSyncMu   sync.Mutex
 	sharedLandingMu sync.Mutex
 	sharedLanding   *sharedLandingState
+	// landingRates keeps the last two committed counters per landing node for the
+	// monitor's live rates (memory only); see landing_monitor_rates.go.
+	landingRatesOnce sync.Once
+	landingRates     *landingRateTracker
 	// flowEnforceWG tracks enforcement started after a /flow/upload answer (tests wait on it).
 	flowEnforceWG sync.WaitGroup
 	pathLatencyMu sync.RWMutex

@@ -21,6 +21,10 @@ func (h *Handler) runLandingReconcileLoop(ctx context.Context) {
 			return
 		case <-timer.C:
 			h.reconcileLandingPolicy(time.Now())
+			// Drop monitor samples of deleted landing nodes (every delete path).
+			if ids, err := h.repo.ListLandingNodeIDs(); err == nil {
+				h.landingRateTracker().retain(ids, time.Now().UnixMilli())
+			}
 			// Full re-push repairs agent reconnects and interrupted hot applies. Identical
 			// revisions are idempotent and do not restart the Core.
 			servers, err := h.repo.ListLandingServers(0, true)
