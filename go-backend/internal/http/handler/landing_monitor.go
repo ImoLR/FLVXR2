@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"math"
 	"net/http"
 	"time"
 
@@ -101,7 +102,11 @@ func landingNodeDisplayStatus(n *model.LandingNode, s *model.LandingServer) (str
 	return n.Status, ""
 }
 
-func floatPtr(v float64) *float64 { return &v }
+// Whole bytes per second are precise enough and keep large responses small.
+func ratePtr(v float64) *float64 {
+	v = math.Round(v)
+	return &v
+}
 
 func buildLandingMonitorView(data *repo.LandingMonitorData, admin bool, tracker *landingRateTracker, now time.Time) landingMonitorView {
 	nowMs := now.UnixMilli()
@@ -133,7 +138,7 @@ func buildLandingMonitorView(data *repo.LandingMonitorData, admin bool, tracker 
 			if rate, ok := rates[n.ID]; ok {
 				nv.SampleAt = rate.SampleAt
 				if rate.RateOK {
-					nv.UpRate, nv.DownRate = floatPtr(rate.UpRate), floatPtr(rate.DownRate)
+					nv.UpRate, nv.DownRate = ratePtr(rate.UpRate), ratePtr(rate.DownRate)
 					upSum += rate.UpRate
 					downSum += rate.DownRate
 					rated = true
@@ -152,7 +157,7 @@ func buildLandingMonitorView(data *repo.LandingMonitorData, admin bool, tracker 
 			view.Nodes = append(view.Nodes, nv)
 		}
 		if rated {
-			view.UpRate, view.DownRate = floatPtr(upSum), floatPtr(downSum)
+			view.UpRate, view.DownRate = ratePtr(upSum), ratePtr(downSum)
 		}
 		if s.Source == "shared" {
 			caps := repo.SharedLandingCaps(s)

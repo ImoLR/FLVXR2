@@ -35,6 +35,8 @@ type LandingMonitorData struct {
 	Quotas map[int64]LandingMonitorQuota
 }
 
+var landingMonitorNodeColumns = []string{"id", "user_id", "landing_server_id", "name", "protocol", "port", "status", "sync_error", "remote_state", "delete_pending", "connections", "max_connections", "max_online_ips", "billed_in", "billed_out", "traffic_limit_bytes"}
+
 // ListLandingNodeIDs returns every landing node id. The monitor's in-memory rate
 // map is swept against it once a minute; it reads the primary key only.
 func (r *Repository) ListLandingNodeIDs() ([]int64, error) {
@@ -70,7 +72,9 @@ func (r *Repository) LandingMonitorSnapshot(userID int64, admin bool, now time.T
 	}
 
 	nodes := []model.LandingNode{}
-	q := r.db.Model(&model.LandingNode{})
+	// Only what the monitor shows: no credentials are loaded, and large lists
+	// scan noticeably faster.
+	q := r.db.Model(&model.LandingNode{}).Select(landingMonitorNodeColumns)
 	if !admin {
 		q = q.Where("user_id = ? AND landing_server_id IN ?", userID, serverIDs)
 	}
