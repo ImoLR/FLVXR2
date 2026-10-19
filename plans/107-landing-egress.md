@@ -117,13 +117,22 @@ fork.55 相同，fork.56 只改了节点程序）。
   H5 规则行菜单不再显示无效的上移/置顶；规则编辑提示支持 `*.example.com`；方案列表「默认出站：直连」。
   主包 2,821,057 → 2,830,854 B（+9.8 KB），新标签页按需加载 33,482 B。
 
+- 自审补充修复（同轮）：
+  - 出站与路由状态只在变化时写库（原生服务器每分钟同步、共享服务器每次轮询都会重写一行）；节点程序报告 Core 已就绪后，
+    「确认重启一次」标志自动清除，之后若再出现需要重启的情况会重新征求确认，而不是静默重启。
+  - 规则「适用落地节点」里的节点被用户删除（或到期自动删除）后，保存方案不再报错：已删除的节点自动移除；
+    若该规则的节点全部被删，规则自动停用（空范围等于「全部节点」，绝不扩大范围），保存时提示管理员。
+  - 删除带原生落地服务器的节点时，一并删除该服务器的 WARP 账号行（设备密钥与令牌）。
+
 ### 测试（第二轮代码）
 - 后端全量 `GOMAXPROCS=2 go test -p 1 -count=1 ./...`：失败 15 项，与基线集合完全相同（新增 0、修复 0），
   清单 `runs/landing-egress/r2-backend-failures.txt`。
 - 节点程序：`go vet` 通过；`landing`（含真实 Core 用例）、`socket`、`service`、`atomicfile`、`logsafe`、`nftables` 全部通过。
 - 新测试均先确认「去掉修复就失败」：`TestCoreHashedOncePerFileChange`（6 次 tick 原来哈希 6 次）、`TestCoreDownloadBacksOff`、
   `TestGeoDownloadBacksOffPerFile`、`TestResourceLimitsSetOnlyOnChange`、`TestSourceExpansionReusedAcrossRenders`、
-  `TestLandingSteadyTickCLICalls`（旧逻辑 3 次 tick = statsquery×9，新逻辑 ×3）、`TestLandingEgressResolveCachesFailures`。
+  `TestLandingSteadyTickCLICalls`（旧逻辑 3 次 tick = statsquery×9，新逻辑 ×3）、`TestLandingEgressResolveCachesFailures`、
+  `TestLandingEgressRepository`（状态不变不写库、就绪后清除重启确认、已删除节点的规则范围；SQLite + PostgreSQL）、
+  `TestLandingDisabledEmptyServerNodeDeletion`（删节点后 WARP 账号行为 0）。
 - netns 数据面（root，真实 Core）：强制 IPv4/IPv6、大陆来源封锁与豁免、豁免后仍命中后续规则、UDP 会话族限制全部符合预期
   （`runs/landing-egress/r2-e2e-netns-dataplane.json`）。
 - 真实 WARP（新注册的免费设备，测试后删除）：经渲染出的 WireGuard 出站访问 Cloudflare trace，`warp=on`；
