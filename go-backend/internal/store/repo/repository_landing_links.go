@@ -49,31 +49,51 @@ func (r *Repository) LandingNodeLinks(n model.LandingNode) ([]LandingLink, error
 		return nil, err
 	}
 	for _, f := range forwards {
-		var ports []model.ForwardPort
-		if err := r.db.Where("forward_id = ?", f.ID).Order("id").Find(&ports).Error; err != nil {
+		entries, err := r.forwardEntries(f)
+		if err != nil {
 			return nil, err
 		}
-		var t model.Tunnel
-		_ = r.db.First(&t, f.TunnelID).Error
-		for _, fp := range ports {
-			var entry model.Node
-			if err := r.db.First(&entry, fp.NodeID).Error; err != nil {
-				continue
-			}
-			host := entry.ServerIP
-			if t.InIP.Valid && strings.TrimSpace(t.InIP.String) != "" {
-				var hosts []string
-				if json.Unmarshal([]byte(t.InIP.String), &hosts) == nil && len(hosts) > 0 {
-					host = hosts[0]
-				} else if !strings.Contains(t.InIP.String, ",") {
-					host = t.InIP.String
-				}
-			}
-			if fp.InIP.Valid && strings.TrimSpace(fp.InIP.String) != "" {
-				host = strings.TrimSpace(fp.InIP.String)
-			}
-			out = append(out, LandingLink{Name: f.Name + " · " + entry.Name, URL: LandingURL(n, host, fp.Port), Kind: "forward", ForwardID: f.ID, EntryNodeID: entry.ID})
+		for _, e := range entries {
+			out = append(out, LandingLink{Name: f.Name + " · " + e.NodeName, URL: LandingURL(n, e.Host, e.Port), Kind: "forward", ForwardID: f.ID, EntryNodeID: e.NodeID})
 		}
+	}
+	return out, nil
+}
+
+type forwardEntry struct {
+	Host     string
+	Port     int
+	NodeID   int64
+	NodeName string
+}
+
+// forwardEntries lists a rule's entry addresses (tunnel/port overrides first).
+func (r *Repository) forwardEntries(f model.Forward) ([]forwardEntry, error) {
+	var ports []model.ForwardPort
+	if err := r.db.Where("forward_id = ?", f.ID).Order("id").Find(&ports).Error; err != nil {
+		return nil, err
+	}
+	var t model.Tunnel
+	_ = r.db.First(&t, f.TunnelID).Error
+	out := []forwardEntry{}
+	for _, fp := range ports {
+		var entry model.Node
+		if err := r.db.First(&entry, fp.NodeID).Error; err != nil {
+			continue
+		}
+		host := entry.ServerIP
+		if t.InIP.Valid && strings.TrimSpace(t.InIP.String) != "" {
+			var hosts []string
+			if json.Unmarshal([]byte(t.InIP.String), &hosts) == nil && len(hosts) > 0 {
+				host = hosts[0]
+			} else if !strings.Contains(t.InIP.String, ",") {
+				host = t.InIP.String
+			}
+		}
+		if fp.InIP.Valid && strings.TrimSpace(fp.InIP.String) != "" {
+			host = strings.TrimSpace(fp.InIP.String)
+		}
+		out = append(out, forwardEntry{Host: host, Port: fp.Port, NodeID: entry.ID, NodeName: entry.Name})
 	}
 	return out, nil
 }

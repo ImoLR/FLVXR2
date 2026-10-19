@@ -181,6 +181,10 @@ func (r *Repository) SaveLandingServer(s *model.LandingServer, groups []int64) e
 		s.SharedCaps, s.SharedLastSyncAt, s.SharedSyncError = old.SharedCaps, old.SharedLastSyncAt, old.SharedSyncError
 		s.SharedDesiredHash, s.SharedPushedRevision, s.SharedAppliedRevision = old.SharedDesiredHash, old.SharedPushedRevision, old.SharedAppliedRevision
 		s.SharedLastPushAt, s.SharedCollectedAt = old.SharedLastPushAt, old.SharedCollectedAt
+		// Egress assignment and reported state change only through their own
+		// validated paths (SetLandingServerEgress / RecordLandingEgressStatus).
+		s.RouteProfileID, s.EgressHash, s.EgressRestartOK = old.RouteProfileID, old.EgressHash, old.EgressRestartOK
+		s.EgressState, s.EgressError, s.EgressReady, s.EgressCheckedAt, s.EgressWarnings = old.EgressState, old.EgressError, old.EgressReady, old.EgressCheckedAt, old.EgressWarnings
 		if err := ValidateLandingServer(s); err != nil {
 			return err
 		}

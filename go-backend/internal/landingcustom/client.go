@@ -13,6 +13,8 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"go-backend/internal/landingegress"
 )
 
 const DefaultBaseURL = "https://mmwxc.imgamer.top"
@@ -44,7 +46,31 @@ type Share struct {
 	Core           Core     `json:"core"`
 	Protocols      []string `json:"protocols"`
 	DualInstall    bool     `json:"dual_install"`
+	// Egress is Custom's landing-egress capability; absent on Custom versions
+	// without outbound/routing support (contract landing-egress-v1).
+	Egress *ShareEgress `json:"egress,omitempty"`
 }
+
+type ShareEgress struct {
+	Versions []int `json:"versions"`
+	Allowed  bool  `json:"allowed"`
+	GeoIP    bool  `json:"geoip"`
+	GeoSite  bool  `json:"geosite"`
+}
+
+// Supports reports whether the share accepts egress plan version v.
+func (e *ShareEgress) Supports(v int) bool {
+	if e == nil {
+		return false
+	}
+	for _, x := range e.Versions {
+		if x == v {
+			return true
+		}
+	}
+	return false
+}
+
 type Owner struct {
 	ID   string `json:"id"`
 	Name string `json:"name"`
@@ -79,8 +105,9 @@ type Node struct {
 	VLESS          *VLESS  `json:"vless,omitempty"`
 }
 type Desired struct {
-	Revision int64  `json:"revision"`
-	Nodes    []Node `json:"nodes"`
+	Revision int64               `json:"revision"`
+	Nodes    []Node              `json:"nodes"`
+	Egress   *landingegress.Plan `json:"egress,omitempty"`
 }
 type NodeStatus struct {
 	ID          string `json:"id"`
@@ -91,11 +118,20 @@ type NodeStatus struct {
 	Connections int    `json:"connections"`
 }
 type Status struct {
-	AppliedRevision int64        `json:"applied_revision"`
-	Core            Core         `json:"core"`
-	Nodes           []NodeStatus `json:"nodes"`
-	TrafficUsed     int64        `json:"share_traffic_used_bytes"`
-	CollectedAt     int64        `json:"collected_at"`
+	AppliedRevision int64         `json:"applied_revision"`
+	Core            Core          `json:"core"`
+	Nodes           []NodeStatus  `json:"nodes"`
+	TrafficUsed     int64         `json:"share_traffic_used_bytes"`
+	CollectedAt     int64         `json:"collected_at"`
+	Egress          *EgressStatus `json:"egress,omitempty"`
+}
+
+// EgressStatus is Custom's report of the applied egress plan.
+type EgressStatus struct {
+	State           string   `json:"state"` // none | applied | error
+	Error           string   `json:"error,omitempty"`
+	AppliedRevision int64    `json:"applied_revision"`
+	Warnings        []string `json:"warnings,omitempty"`
 }
 type LandingHosts struct {
 	Native []string `json:"native_landing_hosts"`

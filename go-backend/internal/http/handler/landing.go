@@ -10,11 +10,13 @@ import (
 	"time"
 
 	"go-backend/internal/http/response"
+	"go-backend/internal/landingegress"
 	"go-backend/internal/store/model"
 	"go-backend/internal/store/repo"
 )
 
 func (h *Handler) registerLanding(mux *http.ServeMux) {
+	h.registerLandingEgress(mux)
 	for path, fn := range map[string]http.HandlerFunc{"integration/get": h.landingIntegrationGet, "integration/save": h.landingIntegrationSave, "integration/test": h.landingIntegrationTest, "integration/sync": h.landingIntegrationSync, "server/enable": h.landingServerEnable, "server/list": h.landingServerList, "server/save": h.landingServerSave, "node/list": h.landingNodeList, "node/create": h.landingNodeCreate, "node/update": h.landingNodeUpdate, "node/delete": h.landingNodeDelete, "node/links": h.landingNodeLinks, "user/get": h.landingUserGet, "user/save": h.landingUserSave} {
 		mux.HandleFunc("/api/v1/landing/"+path, func(w http.ResponseWriter, r *http.Request) {
 			if r.Method != http.MethodPost {
@@ -44,7 +46,13 @@ func jsonStrings(v string) []string {
 	_ = json.Unmarshal([]byte(v), &out)
 	return out
 }
-func (h *Handler) landingServerView(s model.LandingServer, admin bool) map[string]interface{} {
+func (h *Handler) landingServerView(s model.LandingServer, admin bool, catalogs ...landingEgressCatalog) map[string]interface{} {
+	var catalog landingEgressCatalog
+	if len(catalogs) > 0 {
+		catalog = catalogs[0]
+	} else {
+		catalog = h.landingEgressCatalog()
+	}
 	v := landingMap(s)
 	v["protocols"] = jsonStrings(s.Protocols)
 	v["realityServerNames"] = jsonStrings(s.RealityServerNames)
@@ -64,10 +72,27 @@ func (h *Handler) landingServerView(s model.LandingServer, admin bool) map[strin
 		v["online"] = caps.Core.State == "running" && s.SharedSyncError == "" && s.SharedLastSyncAt > time.Now().Add(-2*time.Minute).UnixMilli()
 		v["landingSupported"] = true
 		v["sharedAvailable"] = repo.SharedLandingAvailable(&s)
+		if admin {
+			v["egress"] = h.landingServerEgressView(s, 0, catalog)
+		}
 	} else {
 		node, _ := h.repo.GetNodeByID(s.NodeID)
 		v["online"] = node != nil && node.Status == 1
 		v["landingSupported"] = node != nil && node.LandingCapable
+		if admin {
+			nodeEgress := 0
+			if node != nil {
+				nodeEgress = node.LandingEgress
+			}
+			v["egress"] = h.landingServerEgressView(s, nodeEgress, catalog)
+		}
+	}
+	// Users only see the read-only summary, never profile internals.
+	v["egressLabel"] = catalog.label(s.RouteProfileID)
+	if !admin {
+		for _, key := range []string{"routeProfileId", "egressRestartOk", "egressState", "egressError", "egressReady", "egressCheckedAt"} {
+			delete(v, key)
+		}
 	}
 	all, _ := h.repo.ListLandingNodes(0, true)
 	count, connections := 0, 0
@@ -90,7 +115,13 @@ func (h *Handler) landingServerView(s model.LandingServer, admin bool) map[strin
 	v["usedBytes"] = billed
 	return v
 }
-func (h *Handler) landingNodeView(n model.LandingNode) map[string]interface{} {
+func (h *Handler) landingNodeView(n model.LandingNode, catalogs ...landingEgressCatalog) map[string]interface{} {
+	var catalog landingEgressCatalog
+	if len(catalogs) > 0 {
+		catalog = catalogs[0]
+	} else {
+		catalog = h.landingEgressCatalog()
+	}
 	v := landingMap(n)
 	s, _ := h.repo.GetLandingServer(n.LandingServerID)
 	u, _ := h.repo.GetUserByID(n.UserID)
@@ -144,6 +175,14 @@ func (h *Handler) landingNodeView(n model.LandingNode) map[string]interface{} {
 	if n.ExpiryMode == "fixed" && n.ExpiresAt != nil {
 		minExpiry(*n.ExpiresAt)
 	}
+	serverProfile := int64(0)
+	if s != nil {
+		serverProfile = s.RouteProfileID
+	}
+	effectiveProfile := landingegress.EffectiveProfile(serverProfile, n.RouteProfileID)
+	v["egressLabel"] = catalog.label(effectiveProfile)
+	v["effectiveRouteProfileId"] = effectiveProfile
+	v["effectiveRouteProfileName"] = catalog.profileName(effectiveProfile)
 	v["effectiveFlowType"] = flow
 	v["effectiveTrafficRatio"] = ratio
 	v["effectiveExpiresAt"] = expires
@@ -182,8 +221,9 @@ func (h *Handler) landingServerList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	out := []map[string]interface{}{}
+	catalog := h.landingEgressCatalog()
 	for _, s := range ss {
-		out = append(out, h.landingServerView(s, role == 0))
+		out = append(out, h.landingServerView(s, role == 0, catalog))
 	}
 	response.WriteJSON(w, response.OK(out))
 }
@@ -202,6 +242,10 @@ func (h *Handler) landingServerSave(w http.ResponseWriter, r *http.Request) {
 		Connections        int      `json:"connections"`
 		BilledBytes        int64    `json:"billedBytes"`
 		UsedBytes          int64    `json:"usedBytes"`
+		EgressConfirmed    bool     `json:"egressRestartConfirmed"`
+		// Shadows the embedded field: absent (older frontends) keeps the
+		// current assignment instead of resetting it to the default.
+		ProfileID *int64 `json:"routeProfileId"`
 	}
 	if err := landingDecode(r, &req); err != nil {
 		landingError(w, err)
@@ -210,6 +254,16 @@ func (h *Handler) landingServerSave(w http.ResponseWriter, r *http.Request) {
 	old, err := h.repo.GetLandingServer(req.ID)
 	if err != nil || old == nil {
 		landingError(w, errors.New("落地服务器不存在"))
+		return
+	}
+	// Validate the outbound/routing assignment before saving anything else.
+	profileID := old.RouteProfileID
+	if req.ProfileID != nil {
+		profileID = *req.ProfileID
+	}
+	needRestart, err := h.validateServerEgressAssignment(*old, profileID, req.EgressConfirmed)
+	if err != nil {
+		landingError(w, err)
 		return
 	}
 	req.Source = old.Source
@@ -228,9 +282,25 @@ func (h *Handler) landingServerSave(w http.ResponseWriter, r *http.Request) {
 		landingError(w, err)
 		return
 	}
+	var warnings []string
+	if profileID != old.RouteProfileID {
+		if err := h.repo.SetLandingServerEgress(req.ID, profileID, needRestart); err != nil {
+			landingError(w, err)
+			return
+		}
+		warnings = h.ensureLandingWarp([]int64{req.ID}, false, 20*time.Second)
+	}
 	h.reconcileLandingPolicy(time.Now())
 	h.syncLandingServer(req.ID)
-	response.WriteJSON(w, response.OK(h.landingServerView(req.LandingServer, true)))
+	saved, _ := h.repo.GetLandingServer(req.ID)
+	if saved == nil {
+		saved = &req.LandingServer
+	}
+	view := h.landingServerView(*saved, true)
+	if len(warnings) > 0 {
+		view["egressWarnings"] = warnings
+	}
+	response.WriteJSON(w, response.OK(view))
 }
 func (h *Handler) landingNodeList(w http.ResponseWriter, r *http.Request) {
 	uid, role, _ := userRoleFromRequest(r)
@@ -240,8 +310,15 @@ func (h *Handler) landingNodeList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	out := []map[string]interface{}{}
+	catalog := h.landingEgressCatalog()
 	for _, n := range nodes {
-		out = append(out, h.landingNodeView(n))
+		view := h.landingNodeView(n, catalog)
+		if role != 0 {
+			delete(view, "routeProfileId")
+			delete(view, "effectiveRouteProfileId")
+			delete(view, "effectiveRouteProfileName")
+		}
+		out = append(out, view)
 	}
 	response.WriteJSON(w, response.OK(out))
 }
@@ -303,8 +380,30 @@ func (h *Handler) landingNodeUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	allowed := map[string]interface{}{"name": &n.Name, "maxConnections": &n.MaxConnections, "maxOnlineIps": &n.MaxOnlineIPs, "trafficLimitBytes": &n.TrafficLimitBytes, "flowType": &n.FlowType, "trafficRatio": &n.TrafficRatio, "expiryMode": &n.ExpiryMode, "expiresAt": &n.ExpiresAt, "status": &n.Status}
+	profileChanged := false
+	var profileID *int64
+	if raw, ok := req["routeProfileId"]; ok {
+		if err := json.Unmarshal(raw, &profileID); err != nil {
+			landingError(w, errors.New("请求参数错误"))
+			return
+		}
+		if profileID != nil && *profileID == 0 {
+			// 0 is the built-in default; an explicit override to it is kept so
+			// a node can opt out of its server's profile.
+			zero := int64(0)
+			profileID = &zero
+		}
+		current := n.RouteProfileID
+		profileChanged = (current == nil) != (profileID == nil) || (current != nil && profileID != nil && *current != *profileID)
+		if profileChanged {
+			if err := h.validateNodeEgressOverride(n, profileID); err != nil {
+				landingError(w, err)
+				return
+			}
+		}
+	}
 	for key, value := range req {
-		if key == "id" {
+		if key == "id" || key == "routeProfileId" {
 			continue
 		}
 		target, ok := allowed[key]
@@ -323,6 +422,14 @@ func (h *Handler) landingNodeUpdate(w http.ResponseWriter, r *http.Request) {
 	if err := h.repo.UpdateLandingNode(n); err != nil {
 		landingError(w, err)
 		return
+	}
+	if profileChanged {
+		if err := h.repo.SetLandingNodeRouteProfile(n.ID, profileID); err != nil {
+			landingError(w, err)
+			return
+		}
+		n.RouteProfileID = profileID
+		h.ensureLandingWarp([]int64{n.LandingServerID}, false, 20*time.Second)
 	}
 	h.reconcileLandingPolicy(time.Now())
 	h.syncLandingServer(n.LandingServerID)

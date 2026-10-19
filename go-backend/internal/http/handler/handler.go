@@ -69,6 +69,11 @@ type Handler struct {
 	landingSyncMu   sync.Mutex
 	sharedLandingMu sync.Mutex
 	sharedLanding   *sharedLandingState
+	landingEgressMu sync.Mutex // WARP registration
+	egressDNSMu     sync.Mutex
+	egressDNS       map[string]egressDNSEntry
+	landingWarpAt   time.Time
+	egressSyncWG    sync.WaitGroup // background syncs after egress edits (tests wait)
 	// flowEnforceWG tracks enforcement started after a /flow/upload answer (tests wait on it).
 	flowEnforceWG sync.WaitGroup
 	pathLatencyMu sync.RWMutex

@@ -183,6 +183,21 @@ func TestEgressForcedFamilies(t *testing.T) {
 	if peer := ws["peers"].([]any)[0].(map[string]any); peer["endpoint"] != warpEndpointV4 {
 		t.Fatal("WARP endpoint not chosen by server connectivity")
 	}
+	withEndpoints := byTag["flvxo-warp"]
+	wg := *withEndpoints.WireGuard
+	wg.EndpointV4, wg.EndpointV6 = "162.159.192.6:2408", "[2606:4700:d0::a29f:c006]:2408"
+	withEndpoints.WireGuard = &wg
+	if err := withEndpoints.validate(); err != nil {
+		t.Fatal(err)
+	}
+	accountEP, _ := withEndpoints.render(localAddrs{v6: goldenLocal.v6})
+	if peer := accountEP["settings"].(map[string]any)["peers"].([]any)[0].(map[string]any); peer["endpoint"] != "[2606:4700:d0::a29f:c006]:2408" {
+		t.Fatal("registration endpoints not used")
+	}
+	wg.EndpointV4 = "[2606:4700:d0::a29f:c006]:2408"
+	if err := withEndpoints.validate(); err == nil {
+		t.Fatal("endpoint_v4 of the wrong family accepted")
+	}
 	v6only, _ := byTag["flvxo-warp"].render(localAddrs{v6: goldenLocal.v6})
 	if peer := v6only["settings"].(map[string]any)["peers"].([]any)[0].(map[string]any); peer["endpoint"] != warpEndpointV6 {
 		t.Fatal("IPv6-only server must use the IPv6 WARP endpoint")

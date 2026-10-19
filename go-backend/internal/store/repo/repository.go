@@ -232,6 +232,7 @@ func autoMigrateAll(db *gorm.DB) error {
 
 	models := []interface{}{
 		&model.LandingIntegration{}, &model.LandingServer{}, &model.LandingServerUserGroup{}, &model.LandingServerUser{}, &model.LandingNode{}, &model.LandingUserSetting{}, &model.UserServerQuota{},
+		&model.LandingOutbound{}, &model.LandingRouteProfile{}, &model.LandingWarpAccount{}, &model.LandingEgressSetting{},
 		&model.User{},
 		&model.UserQuota{},
 		&model.UserQuotaHistory{},

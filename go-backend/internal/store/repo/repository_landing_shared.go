@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"go-backend/internal/landingcustom"
+	"go-backend/internal/landingegress"
 	"go-backend/internal/store/model"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -268,8 +269,8 @@ func (r *Repository) SyncSharedLandings(shares []landingcustom.Share, now int64)
 // SharedLandingDesired persists a content hash before sending: retrying a timeout
 // reuses the exact revision; owner/expiry changes also advance it without relying
 // on every caller to bump the server revision.
-func (r *Repository) SharedLandingDesired(id int64) (landingcustom.Desired, error) {
-	out := landingcustom.Desired{Nodes: []landingcustom.Node{}}
+func (r *Repository) SharedLandingDesired(id int64, egress *landingegress.Plan) (landingcustom.Desired, error) {
+	out := landingcustom.Desired{Nodes: []landingcustom.Node{}, Egress: egress}
 	err := r.db.Transaction(func(tx *gorm.DB) error {
 		var s model.LandingServer
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&s, id).Error; err != nil {
@@ -307,7 +308,12 @@ func (r *Repository) SharedLandingDesired(id int64) (landingcustom.Desired, erro
 			}
 			out.Nodes = append(out.Nodes, d)
 		}
+		// Without egress the hash input stays the node list, so upgrading the
+		// panel does not bump revisions of unchanged shares.
 		raw, _ := json.Marshal(out.Nodes)
+		if out.Egress != nil {
+			raw, _ = json.Marshal(map[string]any{"nodes": out.Nodes, "egress": out.Egress})
+		}
 		sum := sha256.Sum256(raw)
 		hash := hex.EncodeToString(sum[:])
 		if s.SharedDesiredHash != hash {

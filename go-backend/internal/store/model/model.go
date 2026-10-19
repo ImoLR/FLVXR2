@@ -109,6 +109,7 @@ func (NftablesRule) TableName() string { return "nftables_rule" }
 
 type Node struct {
 	LandingCapable               bool           `gorm:"not null;default:false"`
+	LandingEgress                int            `gorm:"column:landing_egress;not null;default:0"`
 	DefaultUserQuotaBytes        int64          `gorm:"not null;default:0"`
 	LeiKwanStatus                string         `gorm:"column:leikwan_status;type:varchar(10);not null;default:''"`
 	LeiKwanForwards              string         `gorm:"column:leikwan_forwards;type:text;not null;default:'[]'"`
