@@ -34,9 +34,33 @@ the screenshots (memory `ui-add-only-preview-first`).
 - [x] Backend: repository snapshot method (fixed query count) + `landing/monitor` endpoint + view builder
 - [x] Backend tests: rates (reset / epoch / stale / min gap), visibility (admin / granted / ungranted / other
       users' nodes), sample age, eviction + cap; SQLite + PostgreSQL
-- [ ] Frontend: API types, `LandingMonitorView` (grid + list, desktop + H5), 「落地」 button in 监控
-- [ ] Build + lint (no new warnings), `go vet`, full `go test ./...` vs baseline
-- [ ] Local env with real backend + fake counters (agent uploads + fake Custom), screenshots desktop/H5,
+- [x] Frontend: API types, `LandingMonitorView` (grid + list, desktop + H5), 「落地」 button in 监控
+- [x] Build + lint (no new warnings), `go vet`, full `go test ./...` vs baseline
+- [x] Local env with real backend + fake counters (agent uploads + fake Custom), screenshots desktop/H5,
       light/dark, admin + user, before/after tab bar → `/root/flvx-workers/runs/landing-monitor/screens/`
-- [ ] Resource numbers: endpoint latency 50 servers × 200 nodes, tracker memory
+- [x] Resource numbers: endpoint latency 50 servers × 200 nodes, tracker memory
 - [ ] Commit, push branch, CI green, summary
+- [ ] User approves the screenshots → separate release task (not part of this plan's worker run)
+
+## Results (2026-10-19)
+- Commits: e652b3f3 (endpoint + tracker + tests), 893284bb (「落地」 tab), bd21338c (lean snapshot + memory test).
+- Tests: new `TestLandingMonitor*` (repo, SQLite + PostgreSQL: visibility admin / group user / direct-grant user /
+  ungranted / revoked-grant node / disabled server, user quota periods, fixed query count, no credentials loaded)
+  and `TestLandingRateTracker*` + endpoint test (handler, SQLite + PostgreSQL: native epoch reset, older epoch,
+  same-epoch decrease, shared per-direction reset, duplicate collection, min gap, staleness, cap / forget / retain /
+  TTL, fed only by successful flow commits, 403 without monitor permission, no other-user data in user JSON).
+- Full `go test ./...` (PostgreSQL DSN set, `-p 2`): 15 failure lines = identical to the unmodified base
+  d1d5e5f3 run in the same environment (known baseline); 0 new. `go vet` clean. Frontend `tsc && vite build` OK;
+  ESLint on changed files: 0 new warnings (2 existing in `api/landing.ts`).
+- Screenshots (21 + index.html, 0 page errors): real local panel (port 16391) seeded with 3 native + 2 shared
+  servers, fake agent counter uploads every 5 s, fake mmwx Custom; desktop + H5, light + dark, admin + user,
+  before/after tab bar and 「节点」 tab. `/root/flvx-workers/runs/landing-monitor/screens/`.
+- Resource numbers: demo size (5 servers, 11 nodes) p50 2.6 ms / max 16.5 ms server-side, panel RSS 31 MB;
+  50 servers × 200 nodes (10 000 nodes, SQLite): admin ~200 ms p50 (2.6 MB JSON, 0.2 MB gzip), user with 2 000 own
+  nodes ~27 ms p50; tracker 1.2 MiB per 10 000 nodes (126 B/entry, cap 50 000 ≈ 6 MiB); 5–6 SELECTs per request,
+  no writes; one extra `SELECT id FROM landing_node` per minute for eviction; no new agent/Helper/Custom calls.
+- Observed but out of scope (existing code): at 10 000 nodes the per-minute native landing sync loads every landing
+  node once per server, and native counter billing costs ~0.8 s per 200-counter upload on SQLite. Irrelevant at
+  prod size (5 servers, a handful of nodes); worth a look before landings grow large.
+- Plan 107 / 108 branches need these three commits (expect small conflicts in `landing.go` route map,
+  `handler.go` struct fields, `flow_ingest.go`, `landing_runtime.go`, `api/landing.ts`).
