@@ -2,7 +2,9 @@
 
 > 编号说明：107 号已被 `107-ota-all-fork55.md`（OTA 记录）占用，按任务分配仍沿用 107，文件名不同。
 
-基线：生产 `3.0.27-fork.55`（`maintenance/3.0.27-fork.55-landing-font-size` 头 `c16969d6`，代码同 `e85f75cf`）。
+基线：生产 `3.0.27-fork.55`（`maintenance/3.0.27-fork.55-landing-font-size` 头 `c16969d6`，代码同 `e85f75cf`）；
+第二轮变基到生产 `3.0.27-fork.56`（`origin/maintenance/3.0.27-fork.56-quota-log-hotfix` 头 `adf61e3e`，go-backend 与
+fork.55 相同，fork.56 只改了节点程序）。
 开发分支：`feature/3.0.27-landing-egress`，worktree `/root/projects/flvxx/flvxx-landing-egress`。
 发布：**不打 tag、不发布、不升级生产、不 OTA**。用户先看截图并批准（见 ui-add-only-preview-first）。
 妙妙屋侧由后续任务 `landing-egress-mmwx` 按契约 `/root/flvx-workers/contracts/landing-egress-v1.md` 实现。
@@ -79,17 +81,86 @@
 
 - [x] 基线：未修改代码的后端全量测试失败集合（完整仓库副本，串行）。
 - [x] 计划文档（本文件）。
-- [ ] 节点程序：计划类型、渲染（freedom/wireguard/socks/http/shadowsocks/vless）、强制 IP 版本、来源差集、geo 下载校验、RoutingService 热应用、首次重启确认、状态上报、能力上报。
-- [ ] 节点程序测试：黄金 JSON、真实 Core 配置校验、真实 Core 强制 IPv4/IPv6 证明、来源豁免、热更新不重启。
-- [ ] 后端：模型/迁移、仓储、校验、计划编译（分组/求交/前缀合并/限额/环路检测）、WARP 自动注册（mock 测试）、链接导入、native/共享下发、修订号哈希、用户只读标签。
-- [ ] 后端测试：SQLite + PostgreSQL、handler 校验（私网上游拒绝、安全规则不可改、被使用的方案/出站不能删）、全量对比基线。
-- [ ] 前端：「出站与路由」标签页、出站编辑、路由方案编辑（预设/排序/锁定安全规则）、服务器设置区块、节点覆盖、用户标签、共享/旧版本禁用态；build + lint。
-- [ ] 契约文档 `landing-egress-v1.md`。
-- [ ] 资源测量（1 vs 50 节点 RSS/CPU、1000 连接前后 fd/goroutine、日志/磁盘增长）。
-- [ ] 截图集（电脑 + H5、管理员 + 用户、暗色）+ 发布到预览服务器。
+- [x] 节点程序：计划类型、渲染（freedom/wireguard/socks/http/shadowsocks/vless）、强制 IP 版本、来源差集、geo 下载校验、RoutingService 热应用、首次重启确认、状态上报、能力上报。
+- [x] 节点程序测试：黄金 JSON、真实 Core 配置校验、真实 Core 强制 IPv4/IPv6 证明、来源豁免、热更新不重启。
+- [x] 后端：模型/迁移、仓储、校验、计划编译（分组/求交/前缀合并/限额/环路检测）、WARP 自动注册（mock 测试）、链接导入、native/共享下发、修订号哈希、用户只读标签。
+- [x] 后端测试：SQLite + PostgreSQL、handler 校验（私网上游拒绝、安全规则不可改、被使用的方案/出站不能删）、全量对比基线。
+- [x] 前端：「出站与路由」标签页、出站编辑、路由方案编辑（预设/排序/锁定安全规则）、服务器设置区块、节点覆盖、用户标签、共享/旧版本禁用态；build + lint。
+- [x] 契约文档 `landing-egress-v1.md`。
+- [x] 第二轮：变基到 fork.56；节点程序改用 fork.56 的 atomicfile / RoutineLogger / Backoff；Core 只在文件变化时校验哈希、下载失败退避。
+- [x] 资源测量（1 vs 50 节点 RSS/CPU、1000 连接前后 fd/goroutine、日志/磁盘增长）。
+- [x] 截图集（电脑 + H5、管理员 + 用户、暗色）+ 发布到预览服务器。
 - [ ] 推送分支、CI 全绿、final.md / summary.md。
 
 ## 核验记录
 
 - 2026-10-19 基线：`c16969d6` 完整仓库副本（`git archive`，与工作树隔离）`GOMAXPROCS=2 go test -p 1 -count=1 ./...`，失败集合 15 项，与 plan 101 基线完全相同（Backup×5、Federation×4、OpenMigrates×2、RenewalCycle、ServiceMonitor×2、TunnelUpdateAddressInUse）。清单 `/root/flvx-workers/runs/landing-egress/baseline-failures.txt`。只拷 go-backend 时另有 3 项安装脚本测试因缺仓库根文件失败，已改为完整副本重跑。
 - 节点程序基线：`go-gost/x` 的 `landing`、`socket`、`service` 全部通过（unix socket 路径需短 TMPDIR `/root/tmp-work/lt`）。
+
+## 第二轮（2026-10-19，第一轮因会话额度中断）
+
+### 变更
+- 变基：`feature/3.0.27-landing-egress` 变基到 `origin/maintenance/3.0.27-fork.56-quota-log-hotfix`（`adf61e3e`），无冲突；
+  落地文件写入已走 fork.56 的 `atomicfile.WriteFile`。
+- 节点程序（`go-gost/x/landing`）：
+  - Core 二进制与 geo 文件按 stat 指纹（大小、mtime、inode、ctime）缓存校验结果，只在文件变化后重算 SHA256
+    （此前每 10 秒对 30 MiB 的 Core 算一次哈希）。
+  - Core / geo 下载失败按 `logsafe.Backoff` 退避：1、2、4、8、16、30 分钟封顶，每个文件单独计时；状态里写明
+    「N 分钟后重试」（此前每 10 秒把 4 个镜像全走一遍）。
+  - `systemctl set-property` 只在节点程序启动后第一次和限额变化时执行（此前每 10 秒执行并重写 drop-in）。
+  - 对账、出站与路由、下载失败经 `logsafe.RoutineLogger` 写日志：首次失败、10 分钟汇总、恢复各一行；等待确认重启不算失败。
+  - geoip.dat 只解码目标分类（其它分类读完国家码即跳过）；展开后的来源集合在周期性重渲染之间复用，不再每 5 分钟重读 16 MiB 文件。
+  - 稳态对账（没有入站增删）只采样一次计数：每 10 秒 `statsquery` 从 3 次降为 1 次；删除入站前后的采样保留。
+- 后端：规则里 `*.example.com` 规范化为 `domain:example.com`，其它通配报错并提示；节点主机名 DNS 失败时保留上次结果，
+  1 分钟内不重试（每次失败最多阻塞 2 秒）；新增可选真实 WARP 注册测试。
+- 前端：审查第一轮未提交的代码后整理成一个提交；新增管理员服务器卡片上的「出站与路由应用失败 / 待重启生效」标签；
+  H5 规则行菜单不再显示无效的上移/置顶；规则编辑提示支持 `*.example.com`；方案列表「默认出站：直连」。
+  主包 2,821,057 → 2,830,854 B（+9.8 KB），新标签页按需加载 33,48x B。
+
+### 测试（第二轮代码）
+- 后端全量 `GOMAXPROCS=2 go test -p 1 -count=1 ./...`：失败 15 项，与基线集合完全相同（新增 0、修复 0），
+  清单 `runs/landing-egress/r2-backend-failures.txt`。
+- 节点程序：`go vet` 通过；`landing`（含真实 Core 用例）、`socket`、`service`、`atomicfile`、`logsafe`、`nftables` 全部通过。
+- 新测试均先确认「去掉修复就失败」：`TestCoreHashedOncePerFileChange`（6 次 tick 原来哈希 6 次）、`TestCoreDownloadBacksOff`、
+  `TestGeoDownloadBacksOffPerFile`、`TestResourceLimitsSetOnlyOnChange`、`TestSourceExpansionReusedAcrossRenders`、
+  `TestLandingSteadyTickCLICalls`（旧逻辑 3 次 tick = statsquery×9，新逻辑 ×3）、`TestLandingEgressResolveCachesFailures`。
+- netns 数据面（root，真实 Core）：强制 IPv4/IPv6、大陆来源封锁与豁免、豁免后仍命中后续规则、UDP 会话族限制全部符合预期
+  （`runs/landing-egress/r2-e2e-netns-dataplane.json`）。
+- 真实 WARP（新注册的免费设备，测试后删除）：经渲染出的 WireGuard 出站访问 Cloudflare trace，`warp=on`；
+  强制/优先 IPv4 → IPv4 出口，强制/优先 IPv6 → IPv6 出口；强制 IPv4 访问不了 IPv6 字面量，强制 IPv6 访问不了 IPv4 字面量。
+- 面板侧真实 WARP 注册（`TestRegisterWarpLive`）：免费账号、v4/v6 地址、reserved 正常，删除成功。
+- 前端：`tsc --noEmit` 通过，`vite build` 通过；新文件 eslint 0 问题，改动的 4 个旧文件 warning 数与基线相同、0 error。
+- 分支 CI（CI Build Check）：见下方推送记录。
+
+### 资源测量（`TestEgressResourceProfile`，真实 Core，一个网络命名空间）
+
+| 状态 | RSS | Go 堆 | fd | 协程 |
+|---|---|---|---|---|
+| 1 个节点，默认方案 | 29.6 MiB | 3.4 MiB | 10 | 14 |
+| 50 个节点，默认方案 | 33.2 MiB | 4.6 MiB | 108 | 161 |
+| + 强制 IPv4 出站 + 屏蔽 BT | 33.5 MiB | 4.7 MiB | 108 | 161 |
+| + 空闲 WARP 出站 + AI geosite | 32.5 MiB | 4.4 MiB | 108 | 161 |
+| + 屏蔽中国大陆（3 条，来源集合减 30 个豁免） | 43.1 MiB | 13.3 MiB | 108 | 161 |
+| 1000 个连接同时打开（经强制 IPv4 出站，全部回显成功） | 131.5 MiB | 280.5 MiB | 2108 | 7161 |
+| 关闭后 15 秒 | 136.6 MiB | 282.4 MiB | 108 | 161 |
+| 关闭后 2 分钟 | 135.3 MiB | 113.5 MiB | 108 | 159 |
+
+- fd 与协程在 1000 个连接关闭后完全回到基线（无泄漏）；堆在强制 GC 后回落，RSS 由 Go 回收器之后逐步归还。
+- 屏蔽中国大陆整体下发 0.57 秒；来源规则展开为 10,094 条 CIDR。
+- Core 空闲 CPU（50 节点 + 完整方案，30 秒）≈ 0.07%。
+- 节点程序每次对账（10 秒一次）：自身 CPU 21 → 12 ms，Core CLI 子进程 CPU 77 → 44 ms，耗时 89 → 50 ms（含测试用 netns 包装开销）。
+  计数上报另外每 5 秒执行一次 `statsquery`（plan 101 起的既有行为，未改）。
+- 磁盘：落地目录状态文件合计 54 KB，Core 日志整个测试期间 359 字节（只有启动行），节点程序日志 0 行。
+- 观察（与出站无关，未改）：一个基本空闲的连接约占 Core 97 KiB RSS；默认 MemoryMax 256 MiB 大约容纳 2,000 个空闲连接，繁忙连接更少。
+
+### 截图与契约
+- 截图 46 张（电脑 + H5、管理员 + 用户、暗色、H5 底部视口），发布到
+  `http://104.145.236.29:8791/ea923e5e348dfb9548d4d0909b6de1ee/landing-egress/`；脚本 `runs/landing-egress/gallery.cjs`。
+- 契约 `/root/flvx-workers/contracts/landing-egress-v1.md` 已按最终代码更新（下载退避、稳态零调用、实测数字、真实流量验证）。
+
+### 发布时需要（本任务不发布）
+- 面板升级（新表 4 张、新列只加不改，默认值 = 内置默认方案，生产行为不变）。
+- 原生落地节点（目前只有节点 21）OTA 到新版本节点程序后才能选择方案；节点 21 的 Core 由旧节点程序以旧配置启动，
+  第一次选非默认方案时需要在界面勾选「重启一次落地 Core」（约 1–3 秒中断），之后改方案都是热更新。
+- geo 数据只在方案用到 geoip/geosite 时由节点程序下载（约 27 MiB，经镜像 + SHA256）。
+- 共享服务器（妙妙屋 server 7）要等 Custom/Helper 实现契约（`landing-egress-mmwx`）后才能选方案，之前界面显示禁用。
