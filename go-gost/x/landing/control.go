@@ -242,25 +242,39 @@ func (m *Manager) reconcile(ctx context.Context) error {
 	for _, in := range listed.Inbounds {
 		present[in.Tag] = true
 	}
-	// A failed sample must not prevent quota/expiry enforcement. Still reject
-	// this Apply after removing affected inbounds so deletion retains its row.
-	if err := m.collect(ctx); err != nil {
-		collectErr = err
-	}
+	var remove []string
 	for tag := range present {
 		if !strings.HasPrefix(tag, "flvxl-") {
 			continue
 		}
-		want, exists := wanted[tag]
-		if !exists || m.applied.Inbounds[tag] != want {
-			if _, err := m.api(ctx, "rmi", tag); err != nil {
-				return err
-			}
-			delete(present, tag)
-			delete(m.applied.Inbounds, tag)
-			if err := m.writeJSON("applied.json", m.applied); err != nil {
-				return err
-			}
+		if want, exists := wanted[tag]; !exists || m.applied.Inbounds[tag] != want {
+			remove = append(remove, tag)
+		}
+	}
+	changed := len(remove) > 0
+	for tag, cfg := range wanted {
+		changed = changed || !present[tag] || m.applied.Inbounds[tag] != cfg
+	}
+	// Steady state (nothing to remove or add) needs no further samples: the one
+	// taken before the controls is current and the flow upload samples again
+	// every 5 s. Each sample runs the Core API CLI, so the 10 s tick stays at
+	// one statsquery instead of three.
+	if len(remove) > 0 {
+		// Removing an inbound drops its counters: sample once more right before.
+		// A failed sample must not prevent quota/expiry enforcement. Still reject
+		// this Apply after removing affected inbounds so deletion retains its row.
+		if err := m.collect(ctx); err != nil {
+			collectErr = err
+		}
+	}
+	for _, tag := range remove {
+		if _, err := m.api(ctx, "rmi", tag); err != nil {
+			return err
+		}
+		delete(present, tag)
+		delete(m.applied.Inbounds, tag)
+		if err := m.writeJSON("applied.json", m.applied); err != nil {
+			return err
 		}
 	}
 	for tag, cfg := range wanted {
@@ -281,8 +295,10 @@ func (m *Manager) reconcile(ctx context.Context) error {
 			return err
 		}
 	}
-	if err := m.collect(ctx); err != nil {
-		return err
+	if changed {
+		if err := m.collect(ctx); err != nil {
+			return err
+		}
 	}
 	return collectErr
 }
