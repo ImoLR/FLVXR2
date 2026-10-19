@@ -63,13 +63,27 @@ func TestLandingEgressRepository(t *testing.T) {
 				{Name: "BT", Enabled: true, Protocols: []string{"bittorrent"}, Action: "block"},
 				{Name: "only this node", Enabled: true, Ports: "25", LandingNodeIDs: []int64{n.ID}, Action: "outbound:" + itoa(up.ID)},
 			}}
-			saved, err := r.SaveLandingRouteProfile(&p)
-			if err != nil {
-				t.Fatal(err)
+			saved, notes, err := r.SaveLandingRouteProfile(&p)
+			if err != nil || len(notes) != 0 {
+				t.Fatal(err, notes)
 			}
-			bad := landingegress.Profile{Name: "ghost", Rules: []landingegress.Rule{{Enabled: true, Ports: "25", LandingNodeIDs: []int64{424242}, Action: "block"}}}
-			if _, err := r.SaveLandingRouteProfile(&bad); err == nil {
-				t.Fatal("deleted landing node scope accepted")
+			// Deleted nodes in a rule scope are dropped; a rule left without any of
+			// its nodes is disabled, never widened to all nodes.
+			ghost := landingegress.Profile{Name: "ghost", Rules: []landingegress.Rule{
+				{Name: "gone", Enabled: true, Ports: "25", LandingNodeIDs: []int64{424242}, Action: "block"},
+				{Name: "partly", Enabled: true, Ports: "26", LandingNodeIDs: []int64{n.ID, 424243}, Action: "block"},
+			}}
+			ghostSaved, notes, err := r.SaveLandingRouteProfile(&ghost)
+			if err != nil || len(notes) != 2 {
+				t.Fatalf("stale scopes: %v %v", err, notes)
+			}
+			_, stored, _ := r.LandingEgressCatalog()
+			gone, partly := stored[ghostSaved.ID].Rules[0], stored[ghostSaved.ID].Rules[1]
+			if gone.Enabled || len(gone.LandingNodeIDs) != 0 || !partly.Enabled || len(partly.LandingNodeIDs) != 1 || partly.LandingNodeIDs[0] != n.ID {
+				t.Fatalf("stale scopes stored as %+v / %+v", gone, partly)
+			}
+			if err := r.DeleteLandingRouteProfile(ghostSaved.ID); err != nil {
+				t.Fatal(err)
 			}
 			outs, profiles, err := r.LandingEgressCatalog()
 			if err != nil || len(outs) != 2 || profiles[saved.ID].Rules[1].LandingNodeIDs[0] != n.ID {

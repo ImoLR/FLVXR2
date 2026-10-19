@@ -167,10 +167,14 @@ func (r *Repository) DeleteLandingOutbound(id int64) error {
 	})
 }
 
-// SaveLandingRouteProfile validates and stores a profile. Landing node scopes
-// must reference existing landing nodes.
-func (r *Repository) SaveLandingRouteProfile(p *landingegress.Profile) (*model.LandingRouteProfile, error) {
+// SaveLandingRouteProfile validates and stores a profile. Landing nodes are
+// created and deleted by users (expired nodes are removed automatically), so a
+// rule's 适用落地节点 may name deleted nodes: they are dropped, and a rule left
+// without any of its nodes is disabled rather than widened to every node. The
+// returned notes tell the admin which rules were changed that way.
+func (r *Repository) SaveLandingRouteProfile(p *landingegress.Profile) (*model.LandingRouteProfile, []string, error) {
 	var saved model.LandingRouteProfile
+	var notes []string
 	err := r.db.Transaction(func(tx *gorm.DB) error {
 		ids, err := outboundIDs(tx)
 		if err != nil {
@@ -190,12 +194,36 @@ func (r *Repository) SaveLandingRouteProfile(p *landingegress.Profile) (*model.L
 			for id := range nodeIDs {
 				list = append(list, id)
 			}
-			var count int64
-			if err := tx.Model(&model.LandingNode{}).Where("id IN ?", list).Count(&count).Error; err != nil {
+			var existing []int64
+			if err := tx.Model(&model.LandingNode{}).Where("id IN ?", list).Pluck("id", &existing).Error; err != nil {
 				return err
 			}
-			if int(count) != len(list) {
-				return errors.New("规则中的适用落地节点已被删除，请重新选择")
+			alive := map[int64]bool{}
+			for _, id := range existing {
+				alive[id] = true
+			}
+			for i := range p.Rules {
+				rule := &p.Rules[i]
+				if len(rule.LandingNodeIDs) == 0 {
+					continue
+				}
+				kept := []int64{}
+				for _, id := range rule.LandingNodeIDs {
+					if alive[id] {
+						kept = append(kept, id)
+					}
+				}
+				switch {
+				case len(kept) == len(rule.LandingNodeIDs):
+					continue
+				case len(kept) == 0:
+					// An empty scope means "all nodes": never widen a rule.
+					rule.LandingNodeIDs, rule.Enabled = []int64{}, false
+					notes = append(notes, fmt.Sprintf("规则「%s」的适用落地节点都已删除，已停用该规则", rule.Name))
+				default:
+					rule.LandingNodeIDs = kept
+					notes = append(notes, fmt.Sprintf("规则「%s」中已删除的落地节点已移除", rule.Name))
+				}
 			}
 		}
 		var count int64
@@ -222,9 +250,9 @@ func (r *Repository) SaveLandingRouteProfile(p *landingegress.Profile) (*model.L
 		return nil
 	})
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return &saved, nil
+	return &saved, notes, nil
 }
 
 func (r *Repository) DeleteLandingRouteProfile(id int64) error {
