@@ -105,6 +105,14 @@ func TestSharedLandingRuleAutoCreation(t *testing.T) {
 		t.Fatal(err)
 	}
 	servers, _ := e.r.ListLandingServers(0, true)
+	// Plan 110: an admin creating for user 2 needs user 2 to have access.
+	if _, _, _, err := e.h.resolveNativeLandingTarget(map[string]any{"landingServerId": servers[0].ID, "landingProtocol": "vless_reality_vision", "name": "rule landing"}, 2, 1, "", true); err == nil || !strings.Contains(err.Error(), "该用户无权使用此落地服务器") {
+		t.Fatalf("ungranted owner auto-creation: %v", err)
+	}
+	grant := []int64{servers[0].ID}
+	if err := e.r.SaveLandingUserSettingWithGrants(2, 5, nil, 0, &grant); err != nil {
+		t.Fatal(err)
+	}
 	target, id, created, err := e.h.resolveNativeLandingTarget(map[string]any{"landingServerId": servers[0].ID, "landingProtocol": "vless_reality_vision", "name": "rule landing"}, 2, 1, "", true)
 	if err != nil || id == 0 || created != id || target != "203.0.113.7:30000" {
 		t.Fatalf("rule target %s %d %d %v", target, id, created, err)

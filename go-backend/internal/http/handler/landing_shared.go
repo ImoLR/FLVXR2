@@ -44,16 +44,19 @@ func sharedBackoff(failures int) time.Duration {
 
 // Called with sharedLandingMu held. Per-operation backoff plus a shared transport
 // breaker avoids one failed request per server when Custom is unreachable.
-// force (立即同步 and admin/user actions) always makes one real attempt. While
-// backing off, the last real cause is reported instead of a bare retry notice;
-// the text is stable so repeated ticks do not churn the stored error.
-func (h *Handler) sharedAttempt(key string, force bool, fn func() error) error {
+// force (立即同步) always makes one real attempt. manual (an explicit admin or
+// user action such as a node edit) skips this operation's own backoff, e.g.
+// after a 409/422, but still honours the transport breaker while Custom is
+// unreachable. While backing off, the last real cause is reported instead of a
+// bare retry notice; the text is stable so ticks do not churn the stored error.
+func (h *Handler) sharedAttempt(key string, force, manual bool, fn func() error) error {
 	state := h.sharedState()
 	now := time.Now()
 	r := state.retries[key]
-	if !force && (now.Before(r.next) || now.Before(state.offline.next)) {
+	keyBlocked := now.Before(r.next) && !manual
+	if !force && (keyBlocked || now.Before(state.offline.next)) {
 		cause := r.lastErr
-		if !now.Before(r.next) || cause == "" {
+		if !keyBlocked || cause == "" {
 			cause = state.offline.lastErr
 		}
 		if cause == "" {
@@ -194,7 +197,7 @@ func (h *Handler) syncSharedIntegration(ctx context.Context, force bool) {
 		st := h.sharedState()
 		now := time.Now()
 		if force || now.Sub(st.lastList) >= time.Minute {
-			err = h.sharedAttempt("shares", force, func() error {
+			err = h.sharedAttempt("shares", force, false, func() error {
 				shares, e := client.Shares(ctx)
 				if e != nil {
 					return e
@@ -220,7 +223,7 @@ func (h *Handler) syncSharedIntegration(ctx context.Context, force bool) {
 			if force || string(raw) != st.hostsHash || now.Sub(st.lastHosts) >= 10*time.Minute {
 				// DNS is best effort for reports, outside the Custom transport breaker.
 				resolved, _ := resolveSharedHosts(ctx, hosts, st.hostAddresses)
-				e = h.sharedAttempt("hosts", force, func() error {
+				e = h.sharedAttempt("hosts", force, false, func() error {
 					putErr := client.PutHosts(ctx, resolved)
 					if putErr == nil {
 						st.hostsHash = string(raw)
@@ -246,7 +249,7 @@ func (h *Handler) syncSharedIntegration(ctx context.Context, force bool) {
 			}
 			if force || now.UnixMilli()-s.SharedLastSyncAt >= time.Minute.Milliseconds() {
 				var apply func()
-				e = h.sharedAttempt(fmt.Sprintf("status:%d", s.ID), force, func() error {
+				e = h.sharedAttempt(fmt.Sprintf("status:%d", s.ID), force, false, func() error {
 					var pollErr error
 					apply, pollErr = h.pollSharedLanding(ctx, client, s)
 					return pollErr
@@ -327,7 +330,7 @@ func resolveSharedHosts(ctx context.Context, hosts landingcustom.LandingHosts, c
 }
 
 // force re-sends an unchanged desired state; manual (an explicit admin/user
-// action) only bypasses the retry backoff for this one attempt.
+// action) only bypasses this push's own retry backoff for one attempt.
 func (h *Handler) pushSharedLanding(ctx context.Context, client *landingcustom.Client, s model.LandingServer, force, manual bool) error {
 	caps := repo.SharedLandingCaps(&s)
 	// Custom explicitly refuses PUT for paused/revoked shares; it stops them itself.
@@ -347,7 +350,7 @@ func (h *Handler) pushSharedLanding(ctx context.Context, client *landingcustom.C
 		delete(st.retries, key)
 		st.lastPushRevision[s.ID] = desired.Revision
 	}
-	err = h.sharedAttempt(key, force || manual, func() error { return client.PutDesired(ctx, s.RemoteServerID, desired) })
+	err = h.sharedAttempt(key, force, manual, func() error { return client.PutDesired(ctx, s.RemoteServerID, desired) })
 	// Transport failure only records sync health, never mutates the nodes.
 	_ = h.repo.SetSharedPushResult(s.ID, desired.Revision, time.Now().UnixMilli(), err)
 	return err

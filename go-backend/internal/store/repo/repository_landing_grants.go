@@ -36,7 +36,7 @@ func backfillLandingServerUsers(db *gorm.DB) error {
 		}
 		now := time.Now().UnixMilli()
 		result := tx.Exec(`INSERT INTO landing_server_user (landing_server_id, user_id, created_time)
-SELECT DISTINCT q.server_ref_id, q.user_id, ? FROM user_server_quota AS q
+SELECT DISTINCT q.server_ref_id, q.user_id, CAST(? AS BIGINT) FROM user_server_quota AS q
 JOIN landing_server AS s ON s.id = q.server_ref_id
 JOIN "user" AS u ON u.id = q.user_id
 WHERE q.server_kind = 'landing' AND NOT EXISTS (SELECT 1 FROM landing_server_user AS lu WHERE lu.landing_server_id = q.server_ref_id AND lu.user_id = q.user_id)`, now)

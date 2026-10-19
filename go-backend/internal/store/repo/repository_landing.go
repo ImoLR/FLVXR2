@@ -405,9 +405,9 @@ func (r *Repository) CreateLandingNode(userID, serverID int64, name, protocol st
 		if s.Status != "active" || (s.AvailableUntil != nil && *s.AvailableUntil <= now) {
 			return errors.New("落地服务器不可用")
 		}
-		// The owner's access decides, also when an admin creates the node for
-		// someone else: the lifecycle job would otherwise disable it at once.
-		if u.RoleID != 0 {
+		// The owner's access decides, also when an admin creates the node for a
+		// non-admin user: the lifecycle job would otherwise disable it at once.
+		if !admin || u.RoleID != 0 {
 			ok, err := landingPermission(tx, userID, serverID)
 			if err != nil {
 				return err

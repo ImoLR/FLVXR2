@@ -125,7 +125,7 @@ var apiErrorText = map[string]string{
 	"helper_outdated":        "妙妙屋端尚未就绪：该服务器的 Helper 需升级",
 	"unsupported":            "妙妙屋端尚未就绪：该服务器的 Helper 不支持 FLVX 共享，需升级",
 	"helper_unsupported":     "妙妙屋端尚未就绪：该服务器的 Helper 不支持 FLVX 共享，需升级",
-	"unavailable":            "妙妙屋端存储或服务器清单暂不可用，稍后自动重试",
+	"unavailable":            "妙妙屋端存储或服务器清单暂不可用",
 	"not_found":              "妙妙屋端找不到该共享（可能已删除）",
 	"unauthorized":           "妙妙屋接入令牌无效或已撤销",
 }
