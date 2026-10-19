@@ -132,15 +132,26 @@ export default function LandingPage() {
   }, [linksFor]);
   const actions = (node: LandingNode) => (
     <div className="flex flex-wrap gap-2">
-      <Button size="sm" variant="flat" onPress={() => setLinksFor(node)}>
+      <Button
+        color="success"
+        size="sm"
+        variant="flat"
+        onPress={() => setLinksFor(node)}
+      >
         链接 / 二维码
       </Button>
       {admin && !node.deletePending && (
-        <Button size="sm" variant="flat" onPress={() => setDetails(node)}>
+        <Button
+          color="primary"
+          size="sm"
+          variant="flat"
+          onPress={() => setDetails(node)}
+        >
           节点详情
         </Button>
       )}
       <Button
+        color="secondary"
         isDisabled={node.status !== "active"}
         size="sm"
         variant="flat"
@@ -155,7 +166,7 @@ export default function LandingPage() {
       <Button
         color="danger"
         size="sm"
-        variant="light"
+        variant="flat"
         onPress={() => setDeleting(node)}
       >
         删除
@@ -165,6 +176,7 @@ export default function LandingPage() {
   const status = (node: LandingNode) => (
     <div className="flex flex-wrap gap-1">
       <Chip
+        className={node.status === "disabled" ? "text-default-600" : undefined}
         color={
           node.status === "active"
             ? "success"
@@ -173,7 +185,7 @@ export default function LandingPage() {
               : "warning"
         }
         size="sm"
-        variant="flat"
+        variant={node.status === "disabled" ? "bordered" : "flat"}
       >
         {landingStatus[node.status] || node.status}
       </Chip>
@@ -247,13 +259,22 @@ export default function LandingPage() {
                       </p>
                     </div>
                     <Chip
+                      className={
+                        server.online && server.status === "active"
+                          ? undefined
+                          : "text-default-600"
+                      }
                       color={
                         server.online && server.status === "active"
                           ? "success"
                           : "default"
                       }
                       size="sm"
-                      variant="flat"
+                      variant={
+                        server.online && server.status === "active"
+                          ? "flat"
+                          : "bordered"
+                      }
                     >
                       {server.status !== "active"
                         ? "已停用"
@@ -280,17 +301,22 @@ export default function LandingPage() {
                       </>
                     )}
                     <div className="flex flex-wrap gap-2">
-                      <Chip color="primary" size="sm" variant="flat">
+                      <Chip color="secondary" size="sm" variant="flat">
                         {server.flowType === 2 ? "双向" : "单向"} ·{" "}
                         {server.trafficRatio}×
                       </Chip>
                       {(server.protocols || []).map((protocol) => (
-                        <Chip key={protocol} size="sm" variant="flat">
+                        <Chip
+                          key={protocol}
+                          className="text-default-600"
+                          size="sm"
+                          variant="bordered"
+                        >
                           {landingProtocolLabel(protocol)}
                         </Chip>
                       ))}
                       {server.egressLabel && (
-                        <Chip size="sm" variant="flat">
+                        <Chip color="success" size="sm" variant="flat">
                           出站：{server.egressLabel}
                         </Chip>
                       )}
@@ -335,7 +361,7 @@ export default function LandingPage() {
                     </dl>
                     <div className="flex flex-wrap gap-2">
                       <Button
-                        color="primary"
+                        color="success"
                         isDisabled={
                           server.status !== "active" ||
                           server.sharedAvailable === false
@@ -354,6 +380,7 @@ export default function LandingPage() {
                       </Button>
                       {admin && (
                         <Button
+                          color="warning"
                           size="sm"
                           startContent={<Settings2 size={16} />}
                           variant="flat"
@@ -599,7 +626,11 @@ export default function LandingPage() {
               )}
             </ModalBody>
             <ModalFooter>
-              <Button variant="light" onPress={() => setCreating(null)}>
+              <Button
+                color="danger"
+                variant="flat"
+                onPress={() => setCreating(null)}
+              >
                 取消
               </Button>
               <Button
@@ -655,6 +686,7 @@ export default function LandingPage() {
                   </p>
                   <div className="flex gap-2">
                     <Button
+                      color="success"
                       size="sm"
                       startContent={<Copy size={15} />}
                       variant="flat"
@@ -669,6 +701,7 @@ export default function LandingPage() {
                       复制链接
                     </Button>
                     <Button
+                      color="secondary"
                       size="sm"
                       startContent={<QrCode size={15} />}
                       variant="flat"
@@ -693,7 +726,13 @@ export default function LandingPage() {
                 )}
             </ModalBody>
             <ModalFooter>
-              <Button onPress={() => setLinksFor(null)}>关闭</Button>
+              <Button
+                color="danger"
+                variant="flat"
+                onPress={() => setLinksFor(null)}
+              >
+                关闭
+              </Button>
             </ModalFooter>
           </ModalContent>
         </Modal>
@@ -706,7 +745,11 @@ export default function LandingPage() {
               </p>
             </ModalBody>
             <ModalFooter>
-              <Button variant="light" onPress={() => setDeleting(null)}>
+              <Button
+                color="danger"
+                variant="flat"
+                onPress={() => setDeleting(null)}
+              >
                 取消
               </Button>
               <Button

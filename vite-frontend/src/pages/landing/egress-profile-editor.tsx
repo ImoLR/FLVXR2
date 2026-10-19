@@ -211,6 +211,7 @@ export function ProfileEditor({
                   <Dropdown placement="bottom-end">
                     <DropdownTrigger>
                       <Button
+                        color="secondary"
                         size="sm"
                         startContent={<Sparkles size={16} />}
                         variant="flat"
@@ -235,7 +236,7 @@ export function ProfileEditor({
                     </DropdownMenu>
                   </Dropdown>
                   <Button
-                    color="primary"
+                    color="success"
                     size="sm"
                     startContent={<Plus size={16} />}
                     onPress={() =>
@@ -332,9 +333,10 @@ export function ProfileEditor({
                       <Button
                         isIconOnly
                         aria-label="编辑规则"
+                        color="primary"
                         size="sm"
                         title="编辑"
-                        variant="light"
+                        variant="flat"
                         onPress={() => setEditing({ index, rule })}
                       >
                         <Pencil size={16} />
@@ -400,7 +402,7 @@ export function ProfileEditor({
                           color="danger"
                           size="sm"
                           title="删除"
-                          variant="light"
+                          variant="flat"
                           onPress={() =>
                             setRules(rules.filter((_, i) => i !== index))
                           }
@@ -420,7 +422,7 @@ export function ProfileEditor({
             </section>
           </ModalBody>
           <ModalFooter>
-            <Button variant="light" onPress={onClose}>
+            <Button color="danger" variant="flat" onPress={onClose}>
               取消
             </Button>
             <Button
@@ -477,7 +479,11 @@ export function ProfileEditor({
             )}
           </ModalBody>
           <ModalFooter>
-            <Button variant="light" onPress={() => setPresetFor(null)}>
+            <Button
+              color="danger"
+              variant="flat"
+              onPress={() => setPresetFor(null)}
+            >
               取消
             </Button>
             <Button

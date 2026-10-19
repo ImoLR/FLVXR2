@@ -299,7 +299,7 @@ export function NodeDetails({
           </Select>
         </ModalBody>
         <ModalFooter>
-          <Button variant="light" onPress={onClose}>
+          <Button color="danger" variant="flat" onPress={onClose}>
             取消
           </Button>
           <Button

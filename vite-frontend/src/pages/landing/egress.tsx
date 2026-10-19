@@ -14,6 +14,7 @@ import {
   deleteEgressProfile,
   egressOverview,
   ipVersionLabel,
+  outboundTypeColor,
   outboundTypeLabel,
   proxyProtocolLabel,
   registerEgressWarp,
@@ -143,7 +144,7 @@ export default function LandingEgressTab() {
               </p>
             </div>
             <Button
-              color="primary"
+              color="success"
               size="sm"
               startContent={<Plus size={16} />}
               onPress={() =>
@@ -175,17 +176,28 @@ export default function LandingEgressTab() {
                   <div className="min-w-0 space-y-1">
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="break-all font-medium">{o.name}</span>
-                      <Chip color="primary" size="sm" variant="flat">
+                      <Chip
+                        color={outboundTypeColor[o.type]}
+                        size="sm"
+                        variant="flat"
+                      >
                         {outboundTypeLabel[o.type]}
                       </Chip>
                       <Chip
+                        className={
+                          o.ipVersion.startsWith("force")
+                            ? undefined
+                            : "text-default-600"
+                        }
                         color={
                           o.ipVersion.startsWith("force")
                             ? "warning"
                             : "default"
                         }
                         size="sm"
-                        variant="flat"
+                        variant={
+                          o.ipVersion.startsWith("force") ? "flat" : "bordered"
+                        }
                       >
                         {ipVersionLabel(o.ipVersion)}
                       </Chip>
@@ -201,6 +213,7 @@ export default function LandingEgressTab() {
                   </div>
                   <div className="flex shrink-0 gap-2">
                     <Button
+                      color="primary"
                       size="sm"
                       variant="flat"
                       onPress={() => setEditingOutbound(o)}
@@ -210,7 +223,7 @@ export default function LandingEgressTab() {
                     <Button
                       color="danger"
                       size="sm"
-                      variant="light"
+                      variant="flat"
                       onPress={() =>
                         setConfirm({
                           title: "删除出站",
@@ -246,7 +259,7 @@ export default function LandingEgressTab() {
               </p>
             </div>
             <Button
-              color="primary"
+              color="success"
               size="sm"
               startContent={<Plus size={16} />}
               onPress={() =>
@@ -288,10 +301,14 @@ export default function LandingEgressTab() {
                   <div className="min-w-0 space-y-1">
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="break-all font-medium">{p.name}</span>
-                      <Chip size="sm" variant="flat">
+                      <Chip
+                        className="text-default-600"
+                        size="sm"
+                        variant="bordered"
+                      >
                         {p.rules.filter((r) => r.enabled).length} 条规则
                       </Chip>
-                      <Chip color="primary" size="sm" variant="flat">
+                      <Chip color="success" size="sm" variant="flat">
                         默认出站：
                         {p.defaultAction === "direct"
                           ? "直连"
@@ -306,6 +323,7 @@ export default function LandingEgressTab() {
                   </div>
                   <div className="flex shrink-0 gap-2">
                     <Button
+                      color="primary"
                       size="sm"
                       variant="flat"
                       onPress={() => setEditingProfile(p)}
@@ -315,7 +333,7 @@ export default function LandingEgressTab() {
                     <Button
                       color="danger"
                       size="sm"
-                      variant="light"
+                      variant="flat"
                       onPress={() =>
                         setConfirm({
                           title: "删除路由方案",
@@ -366,7 +384,11 @@ export default function LandingEgressTab() {
                   </Chip>
                 ))}
                 {overview.exemptNodeCount > overview.exemptPreview.length && (
-                  <Chip size="sm" variant="flat">
+                  <Chip
+                    className="text-default-600"
+                    size="sm"
+                    variant="bordered"
+                  >
                     等 {overview.exemptNodeCount} 个
                   </Chip>
                 )}
@@ -383,7 +405,7 @@ export default function LandingEgressTab() {
             />
             <div className="flex justify-end">
               <Button
-                color="primary"
+                color="success"
                 isLoading={busy === "whitelist"}
                 size="sm"
                 onPress={async () => {
@@ -434,14 +456,18 @@ export default function LandingEgressTab() {
                     <div className="min-w-0 space-y-1">
                       <div className="flex flex-wrap items-center gap-2">
                         <span className="font-medium">{a.serverName}</span>
-                        <Chip size="sm" variant="flat">
+                        <Chip color="secondary" size="sm" variant="flat">
                           {outboundName(a.outboundId)}
                         </Chip>
                         <Chip color={status.color} size="sm" variant="flat">
                           {status.label}
                         </Chip>
                         {a.accountType && (
-                          <Chip size="sm" variant="flat">
+                          <Chip
+                            className="text-default-600"
+                            size="sm"
+                            variant="bordered"
+                          >
                             {a.accountType === "free" ? "免费" : "WARP+"}
                           </Chip>
                         )}
@@ -461,6 +487,7 @@ export default function LandingEgressTab() {
                       </p>
                     </div>
                     <Button
+                      color="warning"
                       isLoading={busy === key}
                       size="sm"
                       variant="flat"
@@ -518,7 +545,11 @@ export default function LandingEgressTab() {
             <p>{confirm?.text}</p>
           </ModalBody>
           <ModalFooter>
-            <Button variant="light" onPress={() => setConfirm(null)}>
+            <Button
+              color="danger"
+              variant="flat"
+              onPress={() => setConfirm(null)}
+            >
               取消
             </Button>
             <Button

@@ -279,6 +279,7 @@ export function OutboundEditor({
                   onChange={(event) => setLink(event.target.value)}
                 />
                 <Button
+                  color="secondary"
                   isLoading={importing}
                   variant="flat"
                   onPress={() => void importLink()}
@@ -444,7 +445,7 @@ export function OutboundEditor({
           />
         </ModalBody>
         <ModalFooter>
-          <Button variant="light" onPress={onClose}>
+          <Button color="danger" variant="flat" onPress={onClose}>
             取消
           </Button>
           <Button

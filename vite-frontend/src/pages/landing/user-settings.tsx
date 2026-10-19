@@ -185,6 +185,7 @@ export const LandingUserSettings = forwardRef<
                 ))}
             </Select>
             <Button
+              color="success"
               isDisabled={!adding}
               variant="flat"
               onPress={() => {

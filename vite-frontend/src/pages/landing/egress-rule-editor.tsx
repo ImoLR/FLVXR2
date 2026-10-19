@@ -45,7 +45,12 @@ function Examples({
           type="button"
           onClick={() => onPick(value)}
         >
-          <Chip className="cursor-pointer" size="sm" variant="flat">
+          <Chip
+            className="cursor-pointer"
+            color="secondary"
+            size="sm"
+            variant="flat"
+          >
             {value}
           </Chip>
         </button>
@@ -300,7 +305,7 @@ export function RuleEditor({
           )}
         </ModalBody>
         <ModalFooter>
-          <Button variant="light" onPress={onClose}>
+          <Button color="danger" variant="flat" onPress={onClose}>
             取消
           </Button>
           <Button

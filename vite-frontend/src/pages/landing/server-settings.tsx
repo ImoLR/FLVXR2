@@ -398,7 +398,7 @@ export function ServerSettings({
           </section>
         </ModalBody>
         <ModalFooter>
-          <Button variant="light" onPress={onClose}>
+          <Button color="danger" variant="flat" onPress={onClose}>
             取消
           </Button>
           <Button color="primary" isLoading={saving} onPress={save}>

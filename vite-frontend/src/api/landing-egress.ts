@@ -214,6 +214,16 @@ export const outboundTypeLabel: Record<EgressOutboundType, string> = {
   landing_node: "FLVX 落地节点",
 };
 
+export const outboundTypeColor: Record<
+  EgressOutboundType,
+  "success" | "secondary" | "warning" | "primary"
+> = {
+  direct: "success",
+  warp: "secondary",
+  proxy: "success",
+  landing_node: "primary",
+};
+
 export const proxyProtocolLabel: Record<EgressProxyProtocol, string> = {
   socks: "SOCKS5",
   http: "HTTP",
@@ -232,11 +242,11 @@ export const actionLabel = (action: string, outbounds: EgressOutbound[]) => {
 
 export const actionColor = (
   action: string,
-): "danger" | "primary" | "default" =>
+): "danger" | "success" | "default" =>
   action === "block"
     ? "danger"
     : action.startsWith("outbound:")
-      ? "primary"
+      ? "success"
       : "default";
 
 export const newRuleId = () =>
