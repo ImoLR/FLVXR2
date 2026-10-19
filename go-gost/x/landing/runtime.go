@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/go-gost/x/atomicfile"
+	"github.com/go-gost/x/logsafe"
 )
 
 const unitName = "flvx-landing-core.service"
@@ -62,16 +63,24 @@ type Manager struct {
 
 	egress            EgressStatus
 	egressCache       egressCache
+	sources           sourceMemo // expanded source lists reused across renders
 	withheld          map[string]bool
 	routingEpoch      string
 	routingOK         bool
 	restartedRevision int64
-	geoChecked        map[string]geoStamp
+	verified          map[string]fileStamp      // path -> stamp of the last matching SHA256
+	downloads         map[string]*downloadRetry // asset -> backoff after a failed download
+	limitsApplied     [2]int                    // MemoryMax MiB / CPUQuota % last set on the unit
+	logs              *logsafe.RoutineLogger
 	proc              *os.Process // direct (test) mode only
 	execPath          string      // test hook, see command()
 	// Test hooks; nil uses the real implementations.
-	detectLocal func() localAddrs
-	geoDownload func(ctx context.Context, direct, path, expected string, limit int64, mode os.FileMode) error
+	detectLocal  func() localAddrs
+	geoDownload  func(ctx context.Context, direct, path, expected string, limit int64, mode os.FileMode) error
+	coreDownload func(ctx context.Context, direct, path, expected string, limit int64, mode os.FileMode) error
+	hashFile     func(path string) (string, error)
+	systemctl    func(ctx context.Context, args ...string) error
+	now          func() time.Time
 }
 
 // NewManager's direct mode is used only by the explicit local test switch.
@@ -112,11 +121,7 @@ func (m *Manager) Run(ctx context.Context) {
 			}
 		}
 		if m.loaded {
-			if err := m.reconcile(ctx); err != nil {
-				m.lastError = err.Error()
-			} else {
-				m.lastError = ""
-			}
+			m.noteResult(m.reconcile(ctx))
 		}
 		m.mu.Unlock()
 		select {
@@ -153,12 +158,25 @@ func (m *Manager) Apply(ctx context.Context, d Desired) (Status, error) {
 	m.desired = d
 	m.loaded = true
 	err := m.reconcile(ctx)
+	m.noteResult(err)
+	return m.statusLocked(), err
+}
+
+// noteResult records the reconcile outcome for status reports and the journal.
+// The journal gets the first failure, a count every 10 min and one recovery
+// line per kind (logsafe.RoutineLogger), never one line per 10 s tick. Waiting
+// for a confirmed Core restart is a state, not a failure, and is not logged.
+func (m *Manager) noteResult(err error) {
+	m.lastError = ""
 	if err != nil {
 		m.lastError = err.Error()
-	} else {
-		m.lastError = ""
 	}
-	return m.statusLocked(), err
+	m.logger().Record("landing reconcile", "core", m.lastError)
+	egressErr := ""
+	if m.egress.State == "error" {
+		egressErr = m.egress.Error
+	}
+	m.logger().Record("landing egress", "plan", egressErr)
 }
 func (m *Manager) Status() Status { m.mu.Lock(); defer m.mu.Unlock(); return m.statusLocked() }
 func (m *Manager) statusLocked() Status {
@@ -210,19 +228,32 @@ func (m *Manager) writeFile(name string, b []byte, mode os.FileMode) error {
 	return nil
 }
 
-func (m *Manager) install(ctx context.Context) error {
+// coreExpected is the pinned SHA256 for this machine; tests override it.
+var coreExpected = func() (string, bool) {
 	expected, ok := CoreSHA256[runtime.GOARCH]
-	if !ok || runtime.GOOS != "linux" {
+	return expected, ok && runtime.GOOS == "linux"
+}
+
+func (m *Manager) install(ctx context.Context) error {
+	expected, ok := coreExpected()
+	if !ok {
 		return fmt.Errorf("landing Core requires Linux amd64 or arm64")
 	}
-	if hash, err := fileHash(m.binary()); err == nil && hash == expected {
+	// One stat per tick; the 30 MiB binary is hashed only after it changed.
+	if m.verifiedFile(m.binary(), expected, -1) {
 		return nil
 	}
 	direct := "https://github.com/ImoLR/mmwx-custom/releases/download/" + CoreVersion + "/mmwxc-core-linux-" + runtime.GOARCH
-	if err := downloadVerified(ctx, direct, m.binary(), expected, 128<<20, 0755); err != nil {
-		return fmt.Errorf("pinned landing Core download or SHA256 validation failed")
+	download := downloadVerified
+	if m.coreDownload != nil {
+		download = m.coreDownload
 	}
-	return nil
+	return m.retryDownload(ctx, "core", func(ctx context.Context) error {
+		if err := download(ctx, direct, m.binary(), expected, 128<<20, 0755); err != nil {
+			return fmt.Errorf("pinned landing Core download or SHA256 validation failed")
+		}
+		return nil
+	})
 }
 
 func (m *Manager) geoDownloadFn() func(ctx context.Context, direct, path, expected string, limit int64, mode os.FileMode) error {
@@ -327,10 +358,29 @@ func (m *Manager) setup(ctx context.Context) error {
 			return fmt.Errorf("reload landing unit: %w", err)
 		}
 	}
-	// set-property changes runtime resource ceilings without restarting existing connections.
-	if err := exec.CommandContext(ctx, "systemctl", "set-property", unitName, fmt.Sprintf("MemoryMax=%dM", m.desired.CoreMemoryMB), fmt.Sprintf("CPUQuota=%d%%", m.desired.CoreCPUPercent)).Run(); err != nil {
+	return m.applyResourceLimits(ctx)
+}
+
+// applyResourceLimits changes the running unit's ceilings without restarting
+// existing connections. set-property persists drop-ins, so it runs once per
+// agent start and on change instead of forking systemctl and rewriting the
+// drop-ins on every reconcile tick.
+func (m *Manager) applyResourceLimits(ctx context.Context) error {
+	limits := [2]int{m.desired.CoreMemoryMB, m.desired.CoreCPUPercent}
+	if limits == m.limitsApplied {
+		return nil
+	}
+	args := []string{"set-property", unitName, fmt.Sprintf("MemoryMax=%dM", limits[0]), fmt.Sprintf("CPUQuota=%d%%", limits[1])}
+	run := func(ctx context.Context, args ...string) error {
+		return exec.CommandContext(ctx, "systemctl", args...).Run()
+	}
+	if m.systemctl != nil {
+		run = m.systemctl
+	}
+	if err := run(ctx, args...); err != nil {
 		return fmt.Errorf("set landing resource limits: %w", err)
 	}
+	m.limitsApplied = limits
 	return nil
 }
 func (m *Manager) unit() (string, error) {

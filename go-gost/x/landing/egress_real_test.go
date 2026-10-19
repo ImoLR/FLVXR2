@@ -95,7 +95,7 @@ func TestEgressRealCoreAcceptsRenderedConfig(t *testing.T) {
 		outbounds = append(outbounds, rendered)
 	}
 	cfg["outbounds"] = outbounds
-	rules, err := renderRules(plan, func(code string) ([]netip.Prefix, error) { return readGeoIP(filepath.Join(dir, "geoip.dat"), code) })
+	rules, err := renderRules(plan, func(code string) ([]netip.Prefix, error) { return readGeoIP(filepath.Join(dir, "geoip.dat"), code) }, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

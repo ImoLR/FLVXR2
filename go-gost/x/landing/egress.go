@@ -64,10 +64,10 @@ type EgressWireGuard struct {
 	// family the server can reach.
 	EndpointV4 string `json:"endpoint_v4,omitempty"`
 	EndpointV6 string `json:"endpoint_v6,omitempty"`
-	AddressV4     string `json:"address_v4,omitempty"`
-	AddressV6     string `json:"address_v6,omitempty"`
-	Reserved      []int  `json:"reserved,omitempty"`
-	MTU           int    `json:"mtu,omitempty"`
+	AddressV4  string `json:"address_v4,omitempty"`
+	AddressV6  string `json:"address_v6,omitempty"`
+	Reserved   []int  `json:"reserved,omitempty"`
+	MTU        int    `json:"mtu,omitempty"`
 }
 
 type EgressRule struct {
@@ -599,11 +599,52 @@ func sourceSet(entries []string, read geoIPReader) (dualSet, error) {
 	return out, nil
 }
 
+// sourceMemo keeps expanded source lists between renders. A geoip category
+// minus the exemption is ~10k CIDRs; recomputing it on every periodic re-render
+// would re-read the 16 MiB geoip.dat. The pinned geo data never changes inside
+// one agent process, so (source entries, exemption) fully determine the result.
+// Only entries used by the latest render are kept, and their slices are the
+// ones the rendered plan already holds.
+type sourceMemo struct{ prev, next map[string]sourceResult }
+
+type sourceResult struct {
+	list []string
+	drop bool
+}
+
+func (s *sourceMemo) get(key string) (sourceResult, bool) {
+	if s == nil {
+		return sourceResult{}, false
+	}
+	if r, ok := s.next[key]; ok {
+		return r, true
+	}
+	r, ok := s.prev[key]
+	return r, ok
+}
+
+func (s *sourceMemo) put(key string, r sourceResult) {
+	if s == nil {
+		return
+	}
+	if s.next == nil {
+		s.next = map[string]sourceResult{}
+	}
+	s.next[key] = r
+}
+
+// rotate keeps only what the finished render used.
+func (s *sourceMemo) rotate() {
+	if s != nil {
+		s.prev, s.next = s.next, nil
+	}
+}
+
 // renderRules returns the routing rules in order: the immutable safety rule
 // first, then the plan. Source lists that overlap exempt sources are rewritten
 // to explicit CIDRs minus the exemption; a rule whose whole source set is
 // exempt is dropped (an empty list would match every source).
-func renderRules(e *Egress, read geoIPReader) ([]any, error) {
+func renderRules(e *Egress, read geoIPReader, memo *sourceMemo) ([]any, error) {
 	rules := []any{map[string]any{"type": "field", "ruleTag": "flvx-safety", "ip": blockedDestinations, "outboundTag": "block"}}
 	if e == nil {
 		return rules, nil
@@ -617,6 +658,7 @@ func renderRules(e *Egress, read geoIPReader) ([]any, error) {
 		exemptPrefixes = append(exemptPrefixes, p)
 	}
 	exempt := newDualSet(exemptPrefixes)
+	exemptKey := strings.Join(exempt.cidrs(), ",")
 	for i, r := range e.Rules {
 		rule := map[string]any{"type": "field", "ruleTag": "flvxr-" + strconv.Itoa(i+1), "outboundTag": r.Outbound, "inboundTag": sortedCopy(r.InboundTags)}
 		if len(r.Domain) > 0 {
@@ -628,17 +670,28 @@ func renderRules(e *Egress, read geoIPReader) ([]any, error) {
 		if len(r.SourceIP) > 0 {
 			list := r.SourceIP
 			if !exempt.empty() {
-				set, err := sourceSet(r.SourceIP, read)
-				if err != nil {
-					return nil, fmt.Errorf("rule %d: %w", i+1, err)
-				}
-				if set.intersects(exempt) {
-					set = set.subtract(exempt)
-					if set.empty() {
-						continue
+				key := strings.Join(r.SourceIP, "\n") + "\x00" + exemptKey
+				res, ok := memo.get(key)
+				if !ok {
+					set, err := sourceSet(r.SourceIP, read)
+					if err != nil {
+						return nil, fmt.Errorf("rule %d: %w", i+1, err)
 					}
-					list = set.cidrs()
+					res = sourceResult{list: r.SourceIP}
+					if set.intersects(exempt) {
+						set = set.subtract(exempt)
+						if set.empty() {
+							res = sourceResult{drop: true}
+						} else {
+							res = sourceResult{list: set.cidrs()}
+						}
+					}
 				}
+				memo.put(key, res)
+				if res.drop {
+					continue
+				}
+				list = res.list
 			}
 			rule["sourceIP"] = list
 		}

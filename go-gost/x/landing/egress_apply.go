@@ -132,7 +132,7 @@ type renderedPlan struct {
 func (m *Manager) renderEgress(ctx context.Context, e *Egress) (renderedPlan, error) {
 	p := renderedPlan{outbounds: map[string]string{}, covered: e.coveredTags()}
 	if !e.active() {
-		p.rules, _ = renderRules(nil, nil)
+		p.rules, _ = renderRules(nil, nil, nil)
 		p.hash = hashJSON(map[string]any{"rules": p.rules})
 		return p, nil
 	}
@@ -172,10 +172,12 @@ func (m *Manager) renderEgress(ctx context.Context, e *Egress) (renderedPlan, er
 		mapped.Rules[i] = r
 	}
 	geoIP := filepath.Join(m.dir, "geoip.dat")
-	rules, err := renderRules(&mapped, func(code string) ([]netip.Prefix, error) { return readGeoIP(geoIP, code) })
+	rules, err := renderRules(&mapped, func(code string) ([]netip.Prefix, error) { return readGeoIP(geoIP, code) }, &m.sources)
 	if err != nil {
+		m.sources.next = nil
 		return p, err
 	}
+	m.sources.rotate()
 	p.rules = rules
 	p.hash = hashJSON(map[string]any{"outbounds": p.outbounds, "rules": rules})
 	return p, nil

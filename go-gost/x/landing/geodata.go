@@ -121,14 +121,13 @@ func freeDiskBytes(dir string) (int64, error) {
 }
 
 // ensureGeoData installs only the requested files. Existing files are trusted
-// only after their SHA256 matches; the hash is cached by size+mtime so a steady
-// state costs one stat per file and reconcile.
+// only after their SHA256 matches; the hash is cached by stat stamp so a steady
+// state costs one stat per file and render. Failed downloads back off.
 func (m *Manager) ensureGeoData(ctx context.Context, names []string) error {
 	var missing []string
 	var need int64
 	for _, name := range names {
-		path := filepath.Join(m.dir, name)
-		if m.geoVerified(path, name) {
+		if m.geoVerified(name) {
 			continue
 		}
 		missing = append(missing, name)
@@ -143,40 +142,24 @@ func (m *Manager) ensureGeoData(ctx context.Context, names []string) error {
 	}
 	for _, name := range missing {
 		direct := "https://github.com/Loyalsoldier/v2ray-rules-dat/releases/download/" + GeoDataRelease + "/" + name
-		if err := m.geoDownloadFn()(ctx, direct, filepath.Join(m.dir, name), GeoDataSHA256[name], 64<<20, 0644); err != nil {
-			return fmt.Errorf("geo 数据 %s 下载或校验失败", name)
+		err := m.retryDownload(ctx, name, func(ctx context.Context) error {
+			if err := m.geoDownloadFn()(ctx, direct, filepath.Join(m.dir, name), GeoDataSHA256[name], 64<<20, 0644); err != nil {
+				return fmt.Errorf("geo 数据 %s 下载或校验失败", name)
+			}
+			return nil
+		})
+		if err != nil {
+			return err
 		}
-		m.geoVerified(filepath.Join(m.dir, name), name)
+		if !m.geoVerified(name) {
+			return fmt.Errorf("geo 数据 %s 校验失败", name)
+		}
 	}
 	return nil
 }
 
-type geoStamp struct {
-	size  int64
-	mtime time.Time
-}
-
-func (m *Manager) geoVerified(path, name string) bool {
-	info, err := os.Stat(path)
-	if err != nil || !info.Mode().IsRegular() {
-		return false
-	}
-	stamp := geoStamp{info.Size(), info.ModTime()}
-	if m.geoChecked == nil {
-		m.geoChecked = map[string]geoStamp{}
-	}
-	if old, ok := m.geoChecked[name]; ok && old == stamp {
-		return true
-	}
-	if info.Size() != geoDataSize[name] {
-		return false
-	}
-	hash, err := fileHash(path)
-	if err != nil || hash != GeoDataSHA256[name] {
-		return false
-	}
-	m.geoChecked[name] = stamp
-	return true
+func (m *Manager) geoVerified(name string) bool {
+	return m.verifiedFile(filepath.Join(m.dir, name), GeoDataSHA256[name], geoDataSize[name])
 }
 
 // readGeoIP returns the CIDRs of one geoip.dat category, scanning the file
@@ -189,6 +172,7 @@ func readGeoIP(path, code string) ([]netip.Prefix, error) {
 	defer f.Close()
 	code = strings.ToUpper(code)
 	br := bufio.NewReaderSize(f, 64<<10)
+	var body []byte
 	for {
 		tag, err := readVarint(br)
 		if err == io.EOF {
@@ -201,18 +185,56 @@ func readGeoIP(path, code string) ([]netip.Prefix, error) {
 		if err != nil || tag != 0x0a || length > 64<<20 {
 			return nil, errors.New("geoip.dat 格式无效")
 		}
-		body := make([]byte, length)
+		if uint64(cap(body)) < length {
+			body = make([]byte, length)
+		}
+		body = body[:length]
 		if _, err := io.ReadFull(br, body); err != nil {
 			return nil, err
 		}
-		entryCode, cidrs, err := parseGeoIPEntry(body)
-		if err != nil {
+		// Other categories are skipped after reading their code; only the
+		// requested one is decoded into prefixes.
+		if entryCode, err := geoIPEntryCode(body); err != nil {
 			return nil, err
+		} else if entryCode != code {
+			continue
 		}
-		if entryCode == code {
-			return cidrs, nil
+		_, cidrs, err := parseGeoIPEntry(body)
+		return cidrs, err
+	}
+}
+
+// geoIPEntryCode returns the country_code field of one GeoIP entry.
+func geoIPEntryCode(b []byte) (string, error) {
+	r := bytes.NewReader(b)
+	for r.Len() > 0 {
+		key, err := readVarint(r)
+		if err != nil {
+			return "", err
+		}
+		switch key & 7 {
+		case 0:
+			if _, err := readVarint(r); err != nil {
+				return "", err
+			}
+		case 2:
+			n, err := readVarint(r)
+			if err != nil || n > uint64(r.Len()) {
+				return "", errors.New("geoip.dat 格式无效")
+			}
+			if key>>3 == 1 {
+				v := make([]byte, n)
+				_, _ = io.ReadFull(r, v)
+				return strings.ToUpper(string(v)), nil
+			}
+			if _, err := r.Seek(int64(n), io.SeekCurrent); err != nil {
+				return "", err
+			}
+		default:
+			return "", errors.New("geoip.dat 格式无效")
 		}
 	}
+	return "", nil
 }
 
 func readVarint(r io.ByteReader) (uint64, error) {
