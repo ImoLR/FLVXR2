@@ -48,6 +48,7 @@ import (
 // SystemInfo 系统信息结构体
 type SystemInfo struct {
 	LandingCapable         bool                      `json:"landing_capable"`
+	LandingEgress          int                       `json:"landing_egress,omitempty"`
 	LeiKwan                *LeiKwanReport            `json:"leikwan,omitempty"`
 	EgressIPFamily         string                    `json:"egress_ip_family,omitempty"`
 	IPv6RAStatus           string                    `json:"ipv6_ra_status"`
@@ -954,6 +955,7 @@ func (w *WebSocketReporter) collectSystemInfo() SystemInfo {
 	raStatus, raDetail := w.ipv6RA.result()
 	return SystemInfo{
 		LandingCapable:         true,
+		LandingEgress:          landing.EgressVersion,
 		LeiKwan:                w.leikwan.result(),
 		EgressIPFamily:         w.egress.family(),
 		IPv6RAStatus:           raStatus,

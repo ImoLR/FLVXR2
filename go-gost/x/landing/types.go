@@ -24,12 +24,13 @@ var CoreSHA256 = map[string]string{
 }
 
 type Desired struct {
-	Revision       int64  `json:"revision"`
-	Enabled        bool   `json:"enabled"`
-	MaxConnections int64  `json:"max_connections"`
-	CoreMemoryMB   int    `json:"core_memory_mb"`
-	CoreCPUPercent int    `json:"core_cpu_percent"`
-	Nodes          []Node `json:"nodes"`
+	Revision       int64   `json:"revision"`
+	Enabled        bool    `json:"enabled"`
+	MaxConnections int64   `json:"max_connections"`
+	CoreMemoryMB   int     `json:"core_memory_mb"`
+	CoreCPUPercent int     `json:"core_cpu_percent"`
+	Nodes          []Node  `json:"nodes"`
+	Egress         *Egress `json:"egress,omitempty"`
 }
 
 type Node struct {
@@ -69,12 +70,13 @@ type Counter struct {
 	Connections int64  `json:"connections"`
 }
 type Status struct {
-	Revision    int64     `json:"revision"`
-	Epoch       string    `json:"epoch"`
-	CoreVersion string    `json:"core_version"`
-	State       string    `json:"state"`
-	Error       string    `json:"error,omitempty"`
-	Nodes       []Counter `json:"nodes"`
+	Revision    int64         `json:"revision"`
+	Epoch       string        `json:"epoch"`
+	CoreVersion string        `json:"core_version"`
+	State       string        `json:"state"`
+	Error       string        `json:"error,omitempty"`
+	Nodes       []Counter     `json:"nodes"`
+	Egress      *EgressStatus `json:"egress,omitempty"`
 }
 
 func (d *Desired) validate() error {
@@ -106,6 +108,15 @@ func (d *Desired) validate() error {
 		}
 		if _, err := n.inbound(); err != nil {
 			return err
+		}
+	}
+	if d.Egress != nil {
+		tags := map[string]bool{}
+		for _, n := range d.Nodes {
+			tags[n.InboundTag] = true
+		}
+		if err := d.Egress.validate(tags); err != nil {
+			return fmt.Errorf("invalid landing egress: %w", err)
 		}
 	}
 	return nil
@@ -165,16 +176,25 @@ func (n Node) inbound() (map[string]any, error) {
 
 var blockedDestinations = []string{"0.0.0.0/8", "10.0.0.0/8", "100.64.0.0/10", "127.0.0.0/8", "169.254.0.0/16", "172.16.0.0/12", "192.168.0.0/16", "198.18.0.0/15", "224.0.0.0/4", "240.0.0.0/4", "::1/128", "fc00::/7", "fe80::/10", "ff00::/8"}
 
+// baseConfig is read only when the Core starts. RoutingService enables hot
+// rule replacement; IPOnDemand resolves a domain at the first IP condition (the
+// safety rule), so no later domain rule can route a name that resolves to a
+// private address. Policy timeouts are the Core defaults, stated explicitly so
+// half-open connections are reaped on every level.
 func baseConfig(apiPort int) map[string]any {
 	return map[string]any{
 		"log":   map[string]any{"loglevel": "warning", "access": "none"},
-		"api":   map[string]any{"tag": "flvxl-api", "listen": net.JoinHostPort("127.0.0.1", strconv.Itoa(apiPort)), "services": []string{"HandlerService", "StatsService"}},
-		"stats": map[string]any{}, "policy": map[string]any{"system": map[string]any{"statsInboundUplink": true, "statsInboundDownlink": true}},
+		"api":   map[string]any{"tag": "flvxl-api", "listen": net.JoinHostPort("127.0.0.1", strconv.Itoa(apiPort)), "services": []string{"HandlerService", "StatsService", "RoutingService"}},
+		"stats": map[string]any{},
+		"policy": map[string]any{
+			"levels": map[string]any{"0": map[string]any{"handshake": 4, "connIdle": 300, "uplinkOnly": 2, "downlinkOnly": 5}},
+			"system": map[string]any{"statsInboundUplink": true, "statsInboundDownlink": true},
+		},
 		"inbounds":  []any{},
 		"outbounds": []any{map[string]any{"tag": "direct", "protocol": "freedom", "settings": map[string]any{"domainStrategy": "UseIP"}}, map[string]any{"tag": "block", "protocol": "blackhole"}},
-		"routing": map[string]any{"domainStrategy": "IPIfNonMatch", "rules": []any{
+		"routing": map[string]any{"domainStrategy": "IPOnDemand", "rules": []any{
 			// The separate loopback API listener needs no routing exception.
-			map[string]any{"type": "field", "ip": blockedDestinations, "outboundTag": "block"},
+			map[string]any{"type": "field", "ruleTag": "flvx-safety", "ip": blockedDestinations, "outboundTag": "block"},
 		}},
 	}
 }

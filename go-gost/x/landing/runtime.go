@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 	"net"
-	"net/http"
 	"os"
 	"os/exec"
 	"os/user"
@@ -41,8 +40,11 @@ func Default() *Manager {
 }
 
 type appliedState struct {
-	Epoch    string            `json:"epoch"`
-	Inbounds map[string]string `json:"inbounds"`
+	Epoch      string            `json:"epoch"`
+	Inbounds   map[string]string `json:"inbounds"`
+	Egress     string            `json:"egress,omitempty"`
+	Outbounds  map[string]string `json:"outbounds,omitempty"`
+	EgressTags []string          `json:"egress_tags,omitempty"`
 }
 type Manager struct {
 	mu        sync.Mutex
@@ -57,6 +59,19 @@ type Manager struct {
 	counters  []Counter
 	lastError string
 	started   bool
+
+	egress            EgressStatus
+	egressCache       egressCache
+	withheld          map[string]bool
+	routingEpoch      string
+	routingOK         bool
+	restartedRevision int64
+	geoChecked        map[string]geoStamp
+	proc              *os.Process // direct (test) mode only
+	execPath          string      // test hook, see command()
+	// Test hooks; nil uses the real implementations.
+	detectLocal func() localAddrs
+	geoDownload func(ctx context.Context, direct, path, expected string, limit int64, mode os.FileMode) error
 }
 
 // NewManager's direct mode is used only by the explicit local test switch.
@@ -64,6 +79,15 @@ func NewManager(dir string, direct bool) *Manager {
 	return &Manager{dir: dir, direct: direct, uid: -1, gid: -1}
 }
 func (m *Manager) binary() string { return filepath.Join(m.dir, "flvx-landing-core") }
+
+// command returns the executable used to run the verified binary; tests point
+// it at a wrapper (e.g. one that enters a network namespace).
+func (m *Manager) command() string {
+	if m.execPath != "" {
+		return m.execPath
+	}
+	return m.binary()
+}
 func (m *Manager) socket() string { return filepath.Join(m.dir, "run", "control.sock") }
 
 func (m *Manager) Run(ctx context.Context) {
@@ -148,7 +172,13 @@ func (m *Manager) statusLocked() Status {
 	if m.lastError != "" {
 		state = "error"
 	}
-	return Status{Revision: m.desired.Revision, Epoch: m.epoch, CoreVersion: CoreVersion, State: state, Error: m.lastError, Nodes: append([]Counter{}, m.counters...)}
+	egress := m.egress
+	if egress.State == "" {
+		egress.State = "none"
+	}
+	egress.Warnings = append([]string(nil), egress.Warnings...)
+	egress.Withheld = append([]string(nil), egress.Withheld...)
+	return Status{Revision: m.desired.Revision, Epoch: m.epoch, CoreVersion: CoreVersion, State: state, Error: m.lastError, Nodes: append([]Counter{}, m.counters...), Egress: &egress}
 }
 func (m *Manager) Counters() []Counter {
 	// A first install can spend minutes on download mirrors. Cumulative landing
@@ -189,65 +219,17 @@ func (m *Manager) install(ctx context.Context) error {
 		return nil
 	}
 	direct := "https://github.com/ImoLR/mmwx-custom/releases/download/" + CoreVersion + "/mmwxc-core-linux-" + runtime.GOARCH
-	urls := []string{"https://ghfast.top/" + direct, "https://gh-proxy.com/" + direct, "https://gcode.hostcentral.cc/" + direct, direct}
-	for _, url := range urls {
-		if ctx.Err() != nil {
-			return ctx.Err()
-		}
-		sourceCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
-		timer := time.AfterFunc(30*time.Second, cancel)
-		req, _ := http.NewRequestWithContext(sourceCtx, http.MethodGet, url, nil)
-		response, err := http.DefaultClient.Do(req)
-		if err == nil {
-			if response.StatusCode == http.StatusOK {
-				path := m.binary() + ".download"
-				f, e := os.OpenFile(path, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0700)
-				if e == nil {
-					h := sha256.New()
-					writer := io.MultiWriter(f, h)
-					buf := make([]byte, 32768)
-					var total int64
-					for {
-						n, readErr := response.Body.Read(buf)
-						if n > 0 {
-							total += int64(n)
-							if total > 128<<20 {
-								e = fmt.Errorf("Core asset too large")
-								break
-							}
-							timer.Reset(30 * time.Second)
-							if _, e = writer.Write(buf[:n]); e != nil {
-								break
-							}
-						}
-						if readErr != nil {
-							if readErr != io.EOF {
-								e = readErr
-							}
-							break
-						}
-					}
-					if closeErr := f.Close(); e == nil {
-						e = closeErr
-					}
-					if e == nil && hex.EncodeToString(h.Sum(nil)) == expected {
-						response.Body.Close()
-						timer.Stop()
-						cancel()
-						if err := os.Chmod(path, 0755); err != nil {
-							return err
-						}
-						return os.Rename(path, m.binary())
-					}
-					_ = os.Remove(path)
-				}
-			}
-			response.Body.Close()
-		}
-		timer.Stop()
-		cancel()
+	if err := downloadVerified(ctx, direct, m.binary(), expected, 128<<20, 0755); err != nil {
+		return fmt.Errorf("pinned landing Core download or SHA256 validation failed")
 	}
-	return fmt.Errorf("pinned landing Core download or SHA256 validation failed")
+	return nil
+}
+
+func (m *Manager) geoDownloadFn() func(ctx context.Context, direct, path, expected string, limit int64, mode os.FileMode) error {
+	if m.geoDownload != nil {
+		return m.geoDownload
+	}
+	return downloadVerified
 }
 func fileHash(path string) (string, error) {
 	f, err := os.Open(path)
@@ -284,8 +266,16 @@ func (m *Manager) setup(ctx context.Context) error {
 			}
 		}
 	}
-	if err := m.writeJSON("config.json", baseConfig(m.apiPort)); err != nil {
+	// Rewrite only on change: the running Core reads it at start, and an
+	// unchanged file keeps disk writes at zero in the steady state.
+	config, err := json.MarshalIndent(baseConfig(m.apiPort), "", "  ")
+	if err != nil {
 		return err
+	}
+	if old, readErr := os.ReadFile(filepath.Join(m.dir, "config.json")); readErr != nil || string(old) != string(config) {
+		if err := m.writeFile("config.json", config, 0600); err != nil {
+			return err
+		}
 	}
 	if err := os.MkdirAll(filepath.Join(m.dir, "run"), 0700); err != nil {
 		return err
@@ -383,12 +373,13 @@ WantedBy=multi-user.target
 }
 func (m *Manager) start(ctx context.Context) error {
 	if m.direct {
-		cmd := exec.Command(m.binary(), "run", "-config", filepath.Join(m.dir, "config.json"))
+		cmd := exec.Command(m.command(), "run", "-config", filepath.Join(m.dir, "config.json"))
 		cmd.Env = append(os.Environ(), "MMWXC_CORE_CONTROL_SOCKET="+m.socket())
 		// Local test processes are reaped; the core intentionally survives an agent restart.
 		if err := cmd.Start(); err != nil {
 			return fmt.Errorf("start test landing Core: %w", err)
 		}
+		m.proc = cmd.Process
 		go func() { _ = cmd.Wait() }()
 	} else {
 		if err := exec.CommandContext(ctx, "systemctl", "enable", "--now", unitName).Run(); err != nil {
