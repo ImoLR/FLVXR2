@@ -50,9 +50,9 @@ Trigger: node 48 「Leikwanhost 沪台IPLC」 root fs 100 % (2026-10-19), /var/l
 - [x] Loop audit fixes (list in final section)
 - [x] Atomic config writes (gost.json, config.json, landing, wireguard, baseline, units)
 - [x] Unit tests + netns integration tests pass; `go vet`; amd64/arm64 agent builds
-- [ ] Commit, push, tag `3.0.27-fork.56`, CI + images green, release Latest verified
-- [ ] Prod panel backup + upgrade to fork.56, prune backups
-- [ ] Node 48 OTA first: spam stops, gost.json rewritten, forwards healthy, before/after numbers
+- [x] Commit, push, tag `3.0.27-fork.56`, CI + images green, release Latest verified
+- [x] Prod panel backup + upgrade to fork.56, prune backups
+- [x] Node 48 OTA first: spam stops, gost.json rewritten, forwards healthy, before/after numbers
 - [ ] Remove temporary rsyslog filter on 48, /var/log flat for 10 min
 - [ ] OTA all other online nodes one at a time (skip 14), compare diagnose
 - [ ] Disk sweep on SSH nodes (48 21 30 31 34 35 36 42 45 47 52 53)
@@ -79,3 +79,11 @@ Not available: there is no agent → panel status field for "IP cap not enforced
 - `go test` nftables, socket, service, landing, logsafe, atomicfile, panelconn: pass.
 - `nftables/netns_integration.sh` (throwaway namespaces): 34 pass, 1 skip (pre-existing `TestIPv6RANetNS`), incl. new `TestNftSelfHealAfterRulesetFlush`, `TestReplacedManagerStopsItsQuotaPoll`.
 - `go vet` touched packages + root module; `CGO_ENABLED=0` linux amd64 + arm64 agent builds.
+
+## Release + rollout log
+
+- Commit `daa58aaa` (+ plan fix `3cf457eb`), tag `3.0.27-fork.56`. CI Build Check `39231205160` green; Build and Push Images `39231213752` green (backend, frontend, GOST, release). Release is Latest, not prerelease, same 10 assets as fork.55, compose images `ghcr.io/imolr/flvxr2-svc-*:3.0.27-fork.56`, `PINNED_VERSION="3.0.27-fork.56"` + `REPO="ImoLR/FLVXR2"` in both scripts, gost sha256 OK, released binary reports `3.0.27-fork.56` and contains the new log strings.
+- Prod panel 09:54Z: rollback dir `/opt/flvx-svc/rollback/pre-fork56-20261019T095416Z` (compose, .env, online SQLite backup quick_check ok, local image tags, `rollback.sh [--restore-db]`), prune kept pre-fork56 + pre-fork55 (pre-fork54 + fork.53 images removed). New v6 compose differs only in the version. Backend healthy, `/flow/test` 200, `/version.json` = fork.56, 29/29 online, counts 29/11/43/31/143 unchanged, panelIpFamily unchanged (42 prefer_ipv4).
+- Node 48 OTA 09:55Z (fork.37 → fork.56; SSH backup `/root/flvxx-backup-20261019T093603Z-pre-fork56/restore-agent.sh`): request 3 s, reconnect 4 s, diagnose 6/6 before and after, gost.json rewritten (4530 B, 6 services), flux_agent PID unchanged. Before → after (60 s): CPU 20.95 % → 0.40 %, RSS 98 MB → 63 MB, threads 9 → 7, fds 100 → 73, journal ~16.6k written + ~310k suppressed lines/h → 1 line in the first minutes (startup lines fell into journald's rate-limit window).
+- Node 48: temporary rsyslog filter `/etc/rsyslog.d/05-flvxx-nft-spam.conf` removed 09:59Z (copy kept in the SSH backup dir), rsyslog restarted; journald 200M cap kept.
+- Also found: nodes 2 and 23 run nft forwards with a user connection cap (quota group `user-3` / `user-8`), so they leaked pollers silently on every reconnect too (same-named objects existed, so no ENOENT, only CPU and gate churn); fixed by the OTA.
