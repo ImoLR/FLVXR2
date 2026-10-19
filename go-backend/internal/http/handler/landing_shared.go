@@ -319,7 +319,15 @@ func (h *Handler) pushSharedLanding(ctx context.Context, client *landingcustom.C
 	if caps.Status != "active" {
 		return nil
 	}
-	desired, err := h.repo.SharedLandingDesired(s.ID)
+	// Egress is attached only when Custom advertises support (compile returns
+	// nil otherwise), so older Custom versions keep receiving today's payload.
+	plan, warnings, egressErr := h.compileLandingEgress(s.ID)
+	if egressErr != nil {
+		_ = h.repo.RecordLandingEgressStatus(s.ID, "error", egressErr.Error(), true, warnings)
+	} else if len(warnings) > 0 && plan != nil {
+		h.mergeLandingEgressWarnings(s.ID, warnings)
+	}
+	desired, err := h.repo.SharedLandingDesired(s.ID, plan)
 	if err != nil {
 		return err
 	}
@@ -356,6 +364,9 @@ func (h *Handler) pollSharedLanding(ctx context.Context, client *landingcustom.C
 	}
 	if err = h.repo.RecordSharedStatus(s.ID, status, time.Now().UnixMilli()); err != nil {
 		return apply, errors.New("妙妙屋节点状态保存失败")
+	}
+	if status.Egress != nil {
+		_ = h.repo.RecordLandingEgressStatus(s.ID, status.Egress.State, status.Egress.Error, true, status.Egress.Warnings)
 	}
 	return apply, nil
 }

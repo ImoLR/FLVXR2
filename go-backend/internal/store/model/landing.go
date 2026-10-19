@@ -37,6 +37,14 @@ type LandingServer struct {
 	SharedAppliedRevision    int64   `gorm:"not null;default:0" json:"sharedAppliedRevision"`
 	SharedLastPushAt         int64   `gorm:"not null;default:0" json:"-"`
 	SharedCollectedAt        int64   `gorm:"not null;default:0" json:"-"`
+	RouteProfileID           int64   `gorm:"not null;default:0;index" json:"routeProfileId"`
+	EgressHash               string  `gorm:"not null;default:''" json:"-"`
+	EgressRestartOK          bool    `gorm:"not null;default:false" json:"egressRestartOk"`
+	EgressState              string  `gorm:"not null;default:''" json:"egressState"`
+	EgressError              string  `gorm:"type:text;not null;default:''" json:"egressError"`
+	EgressReady              bool    `gorm:"not null;default:false" json:"egressReady"`
+	EgressCheckedAt          int64   `gorm:"not null;default:0" json:"egressCheckedAt"`
+	EgressWarnings           string  `gorm:"type:text;not null;default:''" json:"-"`
 	CreatedTime              int64   `gorm:"not null" json:"createdTime"`
 	UpdatedTime              int64   `gorm:"not null" json:"updatedTime"`
 }
@@ -92,6 +100,7 @@ type LandingNode struct {
 	SyncError         string   `gorm:"not null;default:''" json:"syncError"`
 	RejectedRevision  int64    `gorm:"not null;default:0" json:"-"`
 	LastCounterAt     int64    `gorm:"not null;default:0" json:"-"`
+	RouteProfileID    *int64   `gorm:"index" json:"routeProfileId"`
 	CreatedTime       int64    `gorm:"not null" json:"createdTime"`
 	UpdatedTime       int64    `gorm:"not null" json:"updatedTime"`
 }

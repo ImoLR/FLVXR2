@@ -21,6 +21,8 @@ func (h *Handler) runLandingReconcileLoop(ctx context.Context) {
 			return
 		case <-timer.C:
 			h.reconcileLandingPolicy(time.Now())
+			// Missing WARP devices: one batched pass at most every 5 minutes.
+			h.maybeEnsureLandingWarp()
 			// Full re-push repairs agent reconnects and interrupted hot applies. Identical
 			// revisions are idempotent and do not restart the Core.
 			servers, err := h.repo.ListLandingServers(0, true)
@@ -91,6 +93,14 @@ func (h *Handler) reconcileLandingPolicy(now time.Time) {
 
 // syncLandingServer sends full desired state, including disabled nodes so credentials
 // and ports remain reserved during the renewal grace period. No secrets are logged.
+type landingEgressReport struct {
+	State    string   `json:"state"`
+	Error    string   `json:"error"`
+	Ready    bool     `json:"ready"`
+	Warnings []string `json:"warnings"`
+	Withheld []string `json:"withheld"`
+}
+
 type landingSyncSnapshot struct {
 	NodeID   int64                 `json:"-"`
 	Revision int64                 `json:"revision"`
@@ -98,6 +108,7 @@ type landingSyncSnapshot struct {
 	State    string                `json:"state"`
 	Error    string                `json:"error"`
 	Nodes    []repo.LandingCounter `json:"nodes"`
+	Egress   *landingEgressReport  `json:"egress"`
 }
 
 func (h *Handler) syncLandingServer(serverID int64) (*landingSyncSnapshot, error) {
@@ -123,6 +134,17 @@ func (h *Handler) syncLandingServer(serverID int64) (*landingSyncSnapshot, error
 	if h.nodeCommandSender == nil && h.wsServer == nil {
 		return nil, errors.New("节点连接不可用，请稍后重试")
 	}
+	// Compile the outbound/routing plan; a content change advances the revision
+	// so the agent never sees one revision with two different plans.
+	plan, egressWarnings, egressErr := h.compileLandingEgress(s.ID)
+	if node.LandingEgress < 1 {
+		plan = nil
+	}
+	revision, err := h.repo.TouchLandingEgress(s.ID, planHash(plan))
+	if err != nil {
+		return nil, errors.New("落地服务器状态不可用")
+	}
+	s.Revision = revision
 	nodes, err := h.repo.ListLandingNodes(0, true)
 	if err != nil {
 		return nil, errors.New("落地服务器状态不可用")
@@ -144,6 +166,9 @@ func (h *Handler) syncLandingServer(serverID int64) (*landingSyncSnapshot, error
 		desiredNodes = append(desiredNodes, desired)
 	}
 	payload := map[string]interface{}{"revision": s.Revision, "enabled": s.Status == "active", "max_connections": s.MaxConnections, "core_memory_mb": s.CoreMemoryMB, "core_cpu_percent": s.CoreCPUPercent, "nodes": desiredNodes}
+	if plan != nil {
+		payload["egress"] = plan
+	}
 	result, err := h.sendNodeCommandWithTimeout(s.NodeID, "ApplyLandingDesired", payload, 30*time.Second, false, false)
 	if err != nil || !result.Success {
 		log.Printf("landing desired sync pending server=%d node=%d", s.ID, s.NodeID)
@@ -164,5 +189,23 @@ func (h *Handler) syncLandingServer(serverID int64) (*landingSyncSnapshot, error
 	for i := range snapshot.Nodes {
 		snapshot.Nodes[i].NodeID = s.NodeID
 	}
+	h.recordNativeEgress(s.ID, snapshot.Egress, egressWarnings, egressErr)
 	return &snapshot, nil
+}
+
+// recordNativeEgress stores the agent's egress report plus panel-side
+// compile warnings/errors (e.g. a WARP device still registering).
+func (h *Handler) recordNativeEgress(serverID int64, report *landingEgressReport, compileWarnings []string, compileErr error) {
+	if report == nil {
+		return
+	}
+	state, errText := report.State, report.Error
+	warnings := append(append([]string{}, compileWarnings...), report.Warnings...)
+	if len(report.Withheld) > 0 {
+		warnings = append(warnings, fmt.Sprintf("%d 个节点因出站与路由未生效已暂停", len(report.Withheld)))
+	}
+	if compileErr != nil {
+		state, errText = "error", compileErr.Error()
+	}
+	_ = h.repo.RecordLandingEgressStatus(serverID, state, errText, report.Ready, warnings)
 }

@@ -60,6 +60,10 @@ type EgressWireGuard struct {
 	PrivateKey    string `json:"private_key"`
 	PeerPublicKey string `json:"peer_public_key"`
 	Endpoint      string `json:"endpoint,omitempty"`
+	// Registration-provided endpoints; with Endpoint empty the agent picks the
+	// family the server can reach.
+	EndpointV4 string `json:"endpoint_v4,omitempty"`
+	EndpointV6 string `json:"endpoint_v6,omitempty"`
 	AddressV4     string `json:"address_v4,omitempty"`
 	AddressV6     string `json:"address_v6,omitempty"`
 	Reserved      []int  `json:"reserved,omitempty"`
@@ -308,11 +312,17 @@ func (o EgressOutbound) validate() error {
 		if w.MTU != 0 && (w.MTU < 1280 || w.MTU > 1500) {
 			return fmt.Errorf("invalid WireGuard MTU for %s", o.Tag)
 		}
-		if w.Endpoint != "" {
-			host, port, err := net.SplitHostPort(w.Endpoint)
+		for i, ep := range []string{w.Endpoint, w.EndpointV4, w.EndpointV6} {
+			if ep == "" {
+				continue
+			}
+			host, port, err := net.SplitHostPort(ep)
 			p, perr := strconv.Atoi(port)
 			if err != nil || perr != nil || p < 1 || p > 65535 || !validHost(strings.ToLower(host)) {
 				return fmt.Errorf("invalid WireGuard endpoint for %s", o.Tag)
+			}
+			if a, err := netip.ParseAddr(host); i > 0 && (err != nil || a.Unmap().Is4() != (i == 1)) {
+				return fmt.Errorf("invalid WireGuard endpoint family for %s", o.Tag)
 			}
 		}
 		return nil
@@ -518,11 +528,18 @@ func (o EgressOutbound) render(local localAddrs) (map[string]any, string) {
 		}
 		endpoint := w.Endpoint
 		if endpoint == "" {
+			v4, v6 := w.EndpointV4, w.EndpointV6
+			if v4 == "" {
+				v4 = warpEndpointV4
+			}
+			if v6 == "" {
+				v6 = warpEndpointV6
+			}
 			switch {
 			case local.v4.IsValid():
-				endpoint = warpEndpointV4
+				endpoint = v4
 			case local.v6.IsValid():
-				endpoint = warpEndpointV6
+				endpoint = v6
 			default:
 				return blackhole(o.Tag), fmt.Sprintf("%s: 服务器没有可用的公网地址连接 WARP", o.Tag)
 			}
