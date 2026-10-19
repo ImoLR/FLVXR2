@@ -44,7 +44,7 @@ Trigger: node 48 「Leikwanhost 沪台IPLC」 root fs 100 % (2026-10-19), /var/l
 ## Checklist
 
 - [x] Root cause verified on node 48 (logs, nft ruleset, code)
-- [x] Shared helpers: `logsafe.RoutineLogger` (+ newline collapse), `logsafe.Backoff`, `fsutil.WriteFileAtomic`
+- [x] Shared helpers: `logsafe.RoutineLogger` (+ newline collapse), `logsafe.Backoff`, `atomicfile.WriteFile`
 - [x] nftables: Close(), poll backoff + throttled logs, self-heal rebuild, unavailable notice
 - [x] socket: close old manager on reconnect
 - [x] Loop audit fixes (list in final section)
