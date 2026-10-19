@@ -7,6 +7,7 @@ import { AnimatedPage } from "@/components/animated-page";
 import { Button } from "@/shadcn-bridge/heroui/button";
 import { Card, CardBody, CardHeader } from "@/shadcn-bridge/heroui/card";
 import { getMonitorNodes } from "@/api";
+import { LandingMonitorView } from "@/pages/landing/monitor-view";
 import { MonitorView } from "@/pages/node/monitor-view";
 import { TunnelMonitorView } from "@/pages/node/tunnel-monitor-view";
 import { usePullToRefresh } from "@/hooks/usePullToRefresh";
@@ -18,7 +19,7 @@ type MonitorNode = {
   version?: string;
 };
 
-type MonitorTab = "nodes" | "tunnels";
+type MonitorTab = "nodes" | "tunnels" | "landing";
 
 export default function MonitorPage() {
   const [nodes, setNodes] = useState<MonitorNodeApiItem[]>([]);
@@ -39,7 +40,8 @@ export default function MonitorPage() {
     try {
       const saved = localStorage.getItem("monitor-active-tab");
 
-      if (saved === "nodes" || saved === "tunnels") return saved as MonitorTab;
+      if (saved === "nodes" || saved === "tunnels" || saved === "landing")
+        return saved as MonitorTab;
     } catch {}
 
     return "nodes";
@@ -52,6 +54,8 @@ export default function MonitorPage() {
   }, [activeTab]);
   const [tunnelsLoading, setTunnelsLoading] = useState(false);
   const [tunnelRefreshTrigger, setTunnelRefreshTrigger] = useState(0);
+  const [landingLoading, setLandingLoading] = useState(false);
+  const [landingRefreshTrigger, setLandingRefreshTrigger] = useState(0);
 
   const toggleViewMode = useCallback(() => {
     setViewMode((prev) => {
@@ -152,15 +156,32 @@ export default function MonitorPage() {
           >
             隧道
           </Button>
+          {/* 落地按钮 - 青色 */}
+          <Button
+            className="bg-cyan-100 text-cyan-700 hover:bg-cyan-200 dark:bg-cyan-900/30 dark:text-cyan-300 dark:hover:bg-cyan-900/45"
+            size="sm"
+            variant="flat"
+            onPress={() => setActiveTab("landing")}
+          >
+            落地
+          </Button>
           {/* 刷新按钮 - 紫色 */}
           <Button
             color="secondary"
-            isLoading={activeTab === "nodes" ? nodesLoading : tunnelsLoading}
+            isLoading={
+              activeTab === "nodes"
+                ? nodesLoading
+                : activeTab === "landing"
+                  ? landingLoading
+                  : tunnelsLoading
+            }
             size="sm"
             variant="flat"
             onPress={() => {
               if (activeTab === "nodes") {
                 loadNodes();
+              } else if (activeTab === "landing") {
+                setLandingRefreshTrigger((prev) => prev + 1);
               } else {
                 setTunnelRefreshTrigger((prev) => prev + 1);
               }
@@ -193,6 +214,14 @@ export default function MonitorPage() {
             refreshTrigger={tunnelRefreshTrigger}
             viewMode={viewMode}
             onLoadingChange={setTunnelsLoading}
+          />
+        </div>
+        <div className={activeTab === "landing" ? "block" : "hidden"}>
+          <LandingMonitorView
+            active={activeTab === "landing"}
+            refreshTrigger={landingRefreshTrigger}
+            viewMode={viewMode}
+            onLoadingChange={setLandingLoading}
           />
         </div>
       </>

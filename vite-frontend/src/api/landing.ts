@@ -256,3 +256,59 @@ export const landingStatus: Record<string, string> = {
   paused_expired: "已到期（宽限期）",
   disabled: "已停用",
 };
+
+// 监控 「落地」 tab (plan 111). Rates are bytes per second; null = no rate yet
+// (fewer than two samples, a counter reset, or data older than staleAfterMs).
+export interface LandingMonitorNode {
+  id: number;
+  name: string;
+  userId?: number;
+  userName?: string;
+  protocol: LandingProtocol;
+  port: number;
+  status: string;
+  pendingReason?: string;
+  syncError?: string;
+  deletePending?: boolean;
+  connections: number;
+  maxConnections: number;
+  maxOnlineIps: number;
+  upRate: number | null;
+  downRate: number | null;
+  sampleAt: number;
+  billedBytes: number;
+  trafficLimitBytes: number;
+}
+export interface LandingMonitorServer {
+  id: number;
+  name: string;
+  source: "native" | "shared";
+  status: string;
+  online: boolean;
+  coreState?: string;
+  notice?: string;
+  syncError?: string;
+  nodeCount: number;
+  activeNodeCount: number;
+  connections: number;
+  maxConnections: number;
+  upRate: number | null;
+  downRate: number | null;
+  sampleAt: number;
+  billedBytes: number;
+  shareUsedBytes?: number;
+  shareLimitBytes?: number;
+  quotaUsedBytes?: number;
+  quotaLimitBytes?: number;
+  quotaPaused?: boolean;
+  nodes: LandingMonitorNode[];
+}
+export interface LandingMonitorData {
+  generatedAt: number;
+  admin: boolean;
+  ageHintMs: number;
+  staleAfterMs: number;
+  servers: LandingMonitorServer[];
+}
+export const landingMonitor = () =>
+  Network.post<LandingMonitorData>("/landing/monitor", {});
