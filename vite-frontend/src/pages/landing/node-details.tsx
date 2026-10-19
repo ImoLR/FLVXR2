@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import toast from "react-hot-toast";
 
 import {
@@ -8,6 +8,7 @@ import {
   landingGB,
   updateLandingNode,
 } from "@/api/landing";
+import { EgressProfile, egressOverview } from "@/api/landing-egress";
 import { Button } from "@/shadcn-bridge/heroui/button";
 import { Input } from "@/shadcn-bridge/heroui/input";
 import {
@@ -33,6 +34,18 @@ export function NodeDetails({
 }) {
   const [form, setForm] = useState(node);
   const [saving, setSaving] = useState(false);
+  const [profiles, setProfiles] = useState<EgressProfile[]>([]);
+
+  useEffect(() => {
+    void egressOverview().then((res) => {
+      if (res.code === 0) setProfiles(res.data.profiles || []);
+    });
+  }, []);
+  const serverProfileName = server?.egress?.profileName || "默认（直连）";
+  const profileName = (id: number) =>
+    id === 0
+      ? "默认（直连）"
+      : profiles.find((p) => p.id === id)?.name || `方案 ${id}`;
   const set = <K extends keyof LandingNode>(key: K, value: LandingNode[K]) =>
     setForm((prev) => ({ ...prev, [key]: value }));
   const effectiveFlow =
@@ -97,6 +110,14 @@ export function NodeDetails({
         ? `${landingGB(node.trafficLimitBytes)} GB`
         : "不限",
       "节点（另受用户总额及服务器额度约束）",
+    ],
+    [
+      "路由方案",
+      form.routeProfileId == null
+        ? "跟随服务器"
+        : profileName(form.routeProfileId),
+      node.effectiveRouteProfileName || serverProfileName,
+      node.routeProfileId == null ? "服务器" : "节点覆盖",
     ],
     [
       "有效期",
@@ -236,6 +257,35 @@ export function NodeDetails({
               }
             />
           )}
+          <Select
+            description={
+              server?.egress && !server.egress.supported
+                ? server.egress.unsupportedReason
+                : "单独为这个节点指定方案；跟随服务器时使用服务器的方案"
+            }
+            isDisabled={Boolean(server?.egress && !server.egress.supported)}
+            label="路由方案覆盖"
+            selectedKeys={[
+              form.routeProfileId == null
+                ? "inherit"
+                : String(form.routeProfileId),
+            ]}
+            onSelectionChange={(keys) => {
+              const key = String(Array.from(keys)[0]);
+
+              set("routeProfileId", key === "inherit" ? null : Number(key));
+            }}
+          >
+            {[
+              <SelectItem key="inherit">
+                跟随服务器（{serverProfileName}）
+              </SelectItem>,
+              <SelectItem key="0">默认（直连）</SelectItem>,
+              ...profiles.map((p) => (
+                <SelectItem key={String(p.id)}>{p.name}</SelectItem>
+              )),
+            ]}
+          </Select>
           <Select
             description="额度和期限限制由系统自动检查"
             label="管理状态"

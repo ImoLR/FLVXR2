@@ -1,7 +1,7 @@
 import { IntegrationSettings } from "./landing/integration-settings";
 import { SharedCaps } from "./landing/shared-caps";
 
-import { useCallback, useEffect, useState } from "react";
+import { Suspense, lazy, useCallback, useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { Copy, Plus, QrCode, RefreshCw, Settings2 } from "lucide-react";
 import toast from "react-hot-toast";
@@ -40,6 +40,9 @@ import { isAdmin } from "@/utils/auth";
 import { NodeDetails } from "@/pages/landing/node-details";
 import { ServerSettings } from "@/pages/landing/server-settings";
 import { OfflineQRCode } from "@/pages/node/node-deploy-modal";
+
+// Admin-only tab, loaded on demand to keep the main bundle unchanged.
+const LandingEgressTab = lazy(() => import("@/pages/landing/egress"));
 
 async function copyToClipboard(value: string): Promise<boolean> {
   try {
@@ -286,6 +289,21 @@ export default function LandingPage() {
                           {landingProtocolLabel(protocol)}
                         </Chip>
                       ))}
+                      {server.egressLabel && (
+                        <Chip size="sm" variant="flat">
+                          出站：{server.egressLabel}
+                        </Chip>
+                      )}
+                      {admin && server.egress?.state === "error" && (
+                        <Chip color="danger" size="sm" variant="flat">
+                          出站与路由应用失败
+                        </Chip>
+                      )}
+                      {admin && server.egress?.state === "restart_required" && (
+                        <Chip color="warning" size="sm" variant="flat">
+                          出站与路由待重启生效
+                        </Chip>
+                      )}
                     </div>
                     <dl className="grid grid-cols-2 gap-3 text-sm">
                       <div>
@@ -407,6 +425,11 @@ export default function LandingPage() {
                                   {landingProtocolLabel(node.protocol)} ·{" "}
                                   {node.port}
                                 </div>
+                                {node.egressLabel && (
+                                  <div className="whitespace-nowrap text-xs text-default-500">
+                                    出站：{node.egressLabel}
+                                  </div>
+                                )}
                               </td>
                               <td className="p-3">{status(node)}</td>
                               <td className="whitespace-nowrap p-3">
@@ -451,6 +474,9 @@ export default function LandingPage() {
                             连接数：{node.connections ?? 0} /{" "}
                             {node.maxConnections || "不限"}
                           </p>
+                          {node.egressLabel && (
+                            <p className="mt-2">出站：{node.egressLabel}</p>
+                          )}
                           <p className="mt-2">
                             到期：{landingDate(node.effectiveExpiresAt)}
                             {node.expiryMode === "follow_user" && (
@@ -483,6 +509,19 @@ export default function LandingPage() {
               )}
             </div>
           </Tab>
+          {admin && (
+            <Tab key="egress" title="出站与路由">
+              <Suspense
+                fallback={
+                  <div className="flex justify-center p-6">
+                    <Spinner />
+                  </div>
+                }
+              >
+                {tab === "egress" && <LandingEgressTab />}
+              </Suspense>
+            </Tab>
+          )}
         </Tabs>
         {loading && (
           <div className="flex justify-center p-4">

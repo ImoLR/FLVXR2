@@ -1,3 +1,5 @@
+import type { ServerEgressView } from "./landing-egress";
+
 import Network from "./network";
 
 export type LandingProtocol = "ss2022" | "vless_reality_vision";
@@ -66,6 +68,10 @@ export interface LandingServer {
   nodeCount?: number;
   connections?: number;
   usedBytes?: number;
+  routeProfileId?: number;
+  egress?: ServerEgressView;
+  egressLabel?: string;
+  egressWarnings?: string[];
 }
 export interface LandingNode {
   deletePending?: boolean;
@@ -98,6 +104,10 @@ export interface LandingNode {
   billedIn: number;
   billedOut: number;
   connections?: number;
+  routeProfileId?: number | null;
+  effectiveRouteProfileId?: number;
+  effectiveRouteProfileName?: string;
+  egressLabel?: string;
 }
 export interface LandingLink {
   name: string;
@@ -125,7 +135,10 @@ export const landingServers = () =>
   Network.post<LandingServer[]>("/landing/server/list", {});
 export const enableLandingServer = (nodeId: number) =>
   Network.post<LandingServer>("/landing/server/enable", { nodeId });
-export const saveLandingServer = (server: LandingServer) => {
+export const saveLandingServer = (
+  server: LandingServer,
+  egressRestartConfirmed = false,
+) => {
   const {
     id,
     nodeId,
@@ -179,6 +192,9 @@ export const saveLandingServer = (server: LandingServer) => {
     coreCpuPercent,
     status,
     userGroupIds,
+    ...(server.routeProfileId !== undefined
+      ? { routeProfileId: server.routeProfileId, egressRestartConfirmed }
+      : {}),
   });
 };
 export const landingNodes = () =>
@@ -212,6 +228,9 @@ export const updateLandingNode = (node: LandingNode) => {
     expiryMode,
     expiresAt,
     status: node.status === "disabled" ? "disabled" : "active",
+    ...(node.routeProfileId !== undefined
+      ? { routeProfileId: node.routeProfileId }
+      : {}),
   });
 };
 export const deleteLandingNode = (id: number) =>
