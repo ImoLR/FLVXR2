@@ -314,9 +314,7 @@ func (h *Handler) landingNodeList(w http.ResponseWriter, r *http.Request) {
 	for _, n := range nodes {
 		view := h.landingNodeView(n, catalog)
 		if role != 0 {
-			delete(view, "routeProfileId")
-			delete(view, "effectiveRouteProfileId")
-			delete(view, "effectiveRouteProfileName")
+			hideLandingNodeEgressInternals(view)
 		}
 		out = append(out, view)
 	}
@@ -344,7 +342,19 @@ func (h *Handler) landingNodeCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	h.reconcileLandingPolicy(time.Now())
 	h.syncLandingServer(n.LandingServerID)
-	response.WriteJSON(w, response.OK(h.landingNodeView(*n)))
+	view := h.landingNodeView(*n)
+	if role != 0 {
+		hideLandingNodeEgressInternals(view)
+	}
+	response.WriteJSON(w, response.OK(view))
+}
+
+// hideLandingNodeEgressInternals keeps route profile ids/names admin-only;
+// users only get the read-only egressLabel summary.
+func hideLandingNodeEgressInternals(view map[string]interface{}) {
+	delete(view, "routeProfileId")
+	delete(view, "effectiveRouteProfileId")
+	delete(view, "effectiveRouteProfileName")
 }
 func (h *Handler) landingOwnedNode(r *http.Request, id int64) (*model.LandingNode, error) {
 	uid, role, err := userRoleFromRequest(r)

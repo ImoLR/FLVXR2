@@ -430,3 +430,41 @@ func TestLandingEgressResolveCachesFailures(t *testing.T) {
 		t.Fatalf("unknown failing host looked up %d times; want 1", calls-2)
 	}
 }
+
+// A user creating a node gets the same view as the node list: the read-only
+// egressLabel, never route profile ids or names (admins still get them).
+func TestLandingNodeCreateHidesProfileInternalsForUsers(t *testing.T) {
+	e := newFlowTestEnv(t)
+	e.addUser(2)
+	seedHandlerLanding(t, e, 2, 2, 1)
+	e.exec("UPDATE node SET landing_capable=?, landing_egress=1 WHERE id=2", true)
+	egressAgent(t, e, true)
+	if err := e.r.DB().Create(&model.LandingServerUser{LandingServerID: 1, UserID: 2, CreatedTime: 1}).Error; err != nil {
+		t.Fatal(err)
+	}
+	create := func(sub string, role int, body string) map[string]any {
+		t.Helper()
+		req := httptest.NewRequest("POST", "/api/v1/landing/node/create", strings.NewReader(body))
+		req = req.WithContext(context.WithValue(req.Context(), middleware.ClaimsContextKey, auth.Claims{Sub: sub, RoleID: role}))
+		w := httptest.NewRecorder()
+		e.h.landingNodeCreate(w, req)
+		var out response.R
+		if err := json.Unmarshal(w.Body.Bytes(), &out); err != nil || out.Code != 0 {
+			t.Fatalf("create as %s: %v %s", sub, err, w.Body.String())
+		}
+		return dataMap(t, out)
+	}
+	user := create("2", 1, `{"landingServerId":1,"name":"mine","protocol":"ss2022"}`)
+	for _, hidden := range []string{"routeProfileId", "effectiveRouteProfileId", "effectiveRouteProfileName"} {
+		if _, ok := user[hidden]; ok {
+			t.Fatalf("user create response exposes %s: %v", hidden, user[hidden])
+		}
+	}
+	if user["egressLabel"] != "直连" {
+		t.Fatalf("user create response label %v", user["egressLabel"])
+	}
+	admin := create("1", 0, `{"landingServerId":1,"userId":2,"name":"for-user","protocol":"ss2022"}`)
+	if _, ok := admin["effectiveRouteProfileName"]; !ok {
+		t.Fatal("admin create response lost the profile name")
+	}
+}
