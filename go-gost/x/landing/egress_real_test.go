@@ -311,3 +311,61 @@ func countPrefix(items []string, prefix string) int {
 	}
 	return n
 }
+
+// A steady reconcile tick (nothing to add or remove) runs the Core API CLI
+// twice: lsi and one statsquery. Removing an inbound still samples the
+// counters right before the removal and once after.
+func TestLandingSteadyTickCLICalls(t *testing.T) {
+	dir := t.TempDir()
+	core := realCore(t, dir)
+	calls := filepath.Join(dir, "calls.log")
+	wrapper := filepath.Join(dir, "core-counting")
+	script := "#!/bin/sh\nif [ \"$1\" = api ]; then echo \"$2\" >> " + calls + "; fi\nexec " + core + " \"$@\"\n"
+	if err := os.WriteFile(wrapper, []byte(script), 0755); err != nil {
+		t.Fatal(err)
+	}
+	m := NewManager(dir, true)
+	m.execPath = wrapper
+	defer func() {
+		if m.proc != nil {
+			_ = m.proc.Kill()
+		}
+	}()
+	n1, n2 := testNode(t, 1), testNode(t, 2)
+	n1.Port, n2.Port = freePort(t), freePort(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	d := Desired{Revision: 1, Enabled: true, CoreMemoryMB: 256, CoreCPUPercent: 50, Nodes: []Node{n1, n2}, Egress: &Egress{Version: 1, Rules: []EgressRule{{InboundTags: []string{n1.InboundTag}, Port: "25", Outbound: "block"}}}}
+	if _, err := m.Apply(ctx, d); err != nil {
+		t.Fatal(err)
+	}
+	count := func() map[string]int {
+		b, _ := os.ReadFile(calls)
+		out := map[string]int{}
+		for _, l := range strings.Fields(string(b)) {
+			out[l]++
+		}
+		_ = os.Remove(calls)
+		return out
+	}
+	count()
+	for i := 0; i < 3; i++ {
+		m.mu.Lock()
+		err := m.reconcile(ctx)
+		m.mu.Unlock()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := count(); got["lsi"] != 3 || got["statsquery"] != 3 || len(got) != 2 {
+		t.Fatalf("3 steady ticks ran %v; want lsi×3 and statsquery×3 only", got)
+	}
+	d.Revision++
+	d.Nodes[1].Enabled = false
+	if _, err := m.Apply(ctx, d); err != nil {
+		t.Fatal(err)
+	}
+	if got := count(); got["rmi"] != 1 || got["statsquery"] != 3 {
+		t.Fatalf("removal ran %v; want rmi×1 and statsquery×3 (before controls, before removal, after)", got)
+	}
+}
