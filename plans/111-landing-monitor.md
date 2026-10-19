@@ -39,7 +39,7 @@ the screenshots (memory `ui-add-only-preview-first`).
 - [x] Local env with real backend + fake counters (agent uploads + fake Custom), screenshots desktop/H5,
       light/dark, admin + user, before/after tab bar → `/root/flvx-workers/runs/landing-monitor/screens/`
 - [x] Resource numbers: endpoint latency 50 servers × 200 nodes, tracker memory
-- [ ] Commit, push branch, CI green, summary
+- [x] Commit, push branch, CI green (run 39306570482: frontend, agent, backend, PostgreSQL contract all success), summary
 - [ ] User approves the screenshots → separate release task (not part of this plan's worker run)
 
 ## Results (2026-10-19)
