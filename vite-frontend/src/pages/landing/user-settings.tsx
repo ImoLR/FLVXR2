@@ -18,8 +18,21 @@ import { Input } from "@/shadcn-bridge/heroui/input";
 import { Select, SelectItem } from "@/shadcn-bridge/heroui/select";
 
 export interface LandingUserSettingsHandle {
-  renew: () => Promise<void>;
+  // Saves unsaved 落地 edits (and the optional renewal) with the user's main save.
+  persist: () => Promise<void>;
 }
+const landingSnapshot = (value: LandingUserSetting | null) =>
+  value
+    ? JSON.stringify({
+        maxNodes: value.maxNodes,
+        quotas: value.quotas.map(({ serverKind, serverRefId, limitBytes }) => [
+          serverKind,
+          serverRefId,
+          limitBytes,
+        ]),
+        serverIds: [...(value.serverIds || [])].sort((a, b) => a - b),
+      })
+    : "";
 export const LandingUserSettings = forwardRef<
   LandingUserSettingsHandle,
   { userId: number; originalExpiry: number; expiry: number }
@@ -27,6 +40,8 @@ export const LandingUserSettings = forwardRef<
   const [form, setForm] = useState<LandingUserSetting | null>(null);
   const [nodes, setNodes] = useState<NodeApiItem[]>([]);
   const [shared, setShared] = useState<LandingServer[]>([]);
+  const [allServers, setAllServers] = useState<LandingServer[]>([]);
+  const [savedSnapshot, setSavedSnapshot] = useState("");
   const [adding, setAdding] = useState("");
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
@@ -45,13 +60,21 @@ export const LandingUserSettings = forwardRef<
       landingServers(),
     ]).then(([settings, nodeRes, serverRes]) => {
       if (disposed) return;
-      if (settings.code === 0) setForm(settings.data);
-      else setError(settings.msg);
+      if (settings.code === 0) {
+        const loaded = {
+          ...settings.data,
+          serverIds: settings.data.serverIds || [],
+        };
+        setForm(loaded);
+        setSavedSnapshot(landingSnapshot(loaded));
+      } else setError(settings.msg);
       if (nodeRes.code === 0) setNodes(nodeRes.data || []);
-      if (serverRes.code === 0)
+      if (serverRes.code === 0) {
         setShared(
           (serverRes.data || []).filter((server) => server.source === "shared"),
         );
+        setAllServers(serverRes.data || []);
+      }
     });
     return () => {
       disposed = true;
@@ -60,19 +83,31 @@ export const LandingUserSettings = forwardRef<
   useImperativeHandle(
     ref,
     () => ({
-      renew: async () => {
-        if (!extend || !renewalDelta || !form) return;
+      persist: async () => {
+        if (!form) return;
+        const renewing = extend && renewalDelta > 0;
+        const dirty = landingSnapshot(form) !== savedSnapshot;
+        if (!renewing && !dirty) return;
         const res = await saveLandingUser(userId, {
           ...form,
-          extendFixedByMs: renewalDelta,
+          extendFixedByMs: renewing ? renewalDelta : 0,
         });
         if (res.code === 0) {
-          toast.success("独立有效期落地节点已一并延长");
-          setExtend(false);
-        } else toast.error(`用户已保存，但落地节点续期失败：${res.msg}`);
+          setSavedSnapshot(landingSnapshot(form));
+          if (renewing) {
+            toast.success("独立有效期落地节点已一并延长");
+            setExtend(false);
+          }
+          if (dirty) toast.success("落地设置已一并保存");
+        } else
+          toast.error(
+            renewing
+              ? `用户已保存，但落地节点续期失败：${res.msg}`
+              : `用户已保存，但落地设置保存失败：${res.msg}`,
+          );
       },
     }),
-    [extend, renewalDelta, form, userId],
+    [extend, renewalDelta, form, userId, savedSnapshot],
   );
   const setQuota = (index: number, limitBytes: number) =>
     setForm(
@@ -89,7 +124,7 @@ export const LandingUserSettings = forwardRef<
     <section className="mt-5 space-y-3 border-t border-divider pt-5">
       <h3 className="font-semibold">落地</h3>
       <p className="text-xs text-default-500">
-        以下节点数和服务器额度单独保存。服务器额度合并统计该用户经过此服务器的规则与落地流量。
+        以下设置可点「保存落地设置」单独保存；有改动时点弹窗「保存」也会一并保存。服务器额度合并统计该用户经过此服务器的规则与落地流量。
       </p>
       {error && <p className="text-sm text-danger">{error}</p>}
       {form && (
@@ -105,6 +140,36 @@ export const LandingUserSettings = forwardRef<
               setForm({ ...form, maxNodes: Number(event.target.value) })
             }
           />
+          <div className="space-y-2">
+            <h4 className="text-sm font-medium">可用落地服务器</h4>
+            <p className="text-xs text-default-500">
+              勾选后该用户可查看并在此服务器创建节点（与服务器「可见用户组」二者满足其一即可）。取消勾选即撤销，已有节点会被停用。
+            </p>
+            <div className="flex flex-wrap gap-4">
+              {allServers.map((server) => (
+                <Checkbox
+                  key={server.id}
+                  isSelected={(form.serverIds || []).includes(server.id)}
+                  onValueChange={(checked) =>
+                    setForm({
+                      ...form,
+                      serverIds: checked
+                        ? [...(form.serverIds || []), server.id]
+                        : (form.serverIds || []).filter(
+                            (id) => id !== server.id,
+                          ),
+                    })
+                  }
+                >
+                  {server.name}
+                  {server.source === "shared" ? "（共享）" : ""}
+                </Checkbox>
+              ))}
+            </div>
+            {allServers.length === 0 && (
+              <p className="text-sm text-default-500">暂无落地服务器。</p>
+            )}
+          </div>
           <div className="space-y-2">
             <div className="grid grid-cols-[minmax(0,1fr)_100px_80px] gap-2 text-xs text-default-500">
               <span>服务器</span>
@@ -201,7 +266,17 @@ export const LandingUserSettings = forwardRef<
                   usedIn: 0,
                   usedOut: 0,
                 };
-                setForm({ ...form, quotas: [...form.quotas, quota] });
+                const serverIds = form.serverIds || [];
+                setForm({
+                  ...form,
+                  quotas: [...form.quotas, quota],
+                  // A per-server limit on a shared server also grants it.
+                  serverIds:
+                    quota.serverKind === "landing" &&
+                    !serverIds.includes(node.id)
+                      ? [...serverIds, node.id]
+                      : serverIds,
+                });
                 setAdding("");
               }}
             >
@@ -217,8 +292,10 @@ export const LandingUserSettings = forwardRef<
               setSaving(true);
               const res = await saveLandingUser(userId, form);
               setSaving(false);
-              if (res.code === 0) toast.success("落地设置已保存");
-              else toast.error(res.msg);
+              if (res.code === 0) {
+                setSavedSnapshot(landingSnapshot(form));
+                toast.success("落地设置已保存");
+              } else toast.error(res.msg);
             }}
           >
             保存落地设置

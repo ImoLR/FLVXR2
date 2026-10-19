@@ -270,6 +270,14 @@ export function ServerSettings({
             <p className="text-xs text-default-500">
               只有选中用户组的成员才能查看此服务器和创建节点。
             </p>
+            <p className="text-xs text-default-500">
+              不选任何用户组时，仅管理员和直接授权的用户可见（在「用户」编辑弹窗的「落地
+              → 可用落地服务器」中授权
+              {form.directUserCount
+                ? `，当前直接授权 ${form.directUserCount} 人`
+                : ""}
+              ）。
+            </p>
             <div className="flex flex-wrap gap-4">
               {groups.map((group) => (
                 <Checkbox

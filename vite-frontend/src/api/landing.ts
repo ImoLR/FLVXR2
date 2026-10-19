@@ -33,6 +33,8 @@ export const syncLandingIntegration = () =>
   Network.post<LandingIntegration>("/landing/integration/sync", {});
 export interface LandingServer {
   sharedCaps?: SharedLandingCaps;
+  sharedNotice?: string;
+  directUserCount?: number;
   sharedLastSyncAt?: number;
   sharedSyncError?: string;
   sharedAvailable?: boolean;
@@ -76,6 +78,7 @@ export interface LandingNode {
   serverName?: string;
   syncError?: string;
   sharedSyncError?: string;
+  pendingReason?: string;
   name: string;
   protocol: LandingProtocol;
   port: number;
@@ -120,6 +123,7 @@ export interface LandingUserSetting {
   maxNodes: number;
   quotas: ServerQuota[];
   fixedNodeCount?: number;
+  serverIds?: number[];
 }
 export const landingServers = () =>
   Network.post<LandingServer[]>("/landing/server/list", {});
@@ -235,6 +239,7 @@ export const saveLandingUser = (
         limitBytes,
       })),
     ...(data.extendFixedByMs ? { extendFixedByMs: data.extendFixedByMs } : {}),
+    ...(data.serverIds ? { serverIds: data.serverIds } : {}),
   });
 export const landingProtocolLabel = (value: string) =>
   value === "ss2022" ? "SS2022" : "VLESS Reality Vision";

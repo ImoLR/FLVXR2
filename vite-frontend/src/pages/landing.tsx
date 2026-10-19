@@ -21,6 +21,8 @@ import {
   landingServers,
   landingStatus,
 } from "@/api/landing";
+import { getAllUsers } from "@/api";
+import { UserApiItem } from "@/api/types";
 import { AnimatedPage } from "@/components/animated-page";
 import { Button } from "@/shadcn-bridge/heroui/button";
 import { Card, CardBody, CardHeader } from "@/shadcn-bridge/heroui/card";
@@ -76,7 +78,9 @@ export default function LandingPage() {
     server: LandingServer;
     name: string;
     protocol: LandingProtocol;
+    userId: number;
   } | null>(null);
+  const [ownerOptions, setOwnerOptions] = useState<UserApiItem[] | null>(null);
   const [deleting, setDeleting] = useState<LandingNode | null>(null);
   const [linksFor, setLinksFor] = useState<LandingNode | null>(null);
   const [links, setLinks] = useState<LandingLink[]>([]);
@@ -110,6 +114,14 @@ export default function LandingPage() {
       setParams({}, { replace: true });
     }
   }, [admin, servers, params, setParams]);
+  useEffect(() => {
+    // Admins pick the node owner; the list is loaded once, on first use.
+    if (!admin || !creating || ownerOptions) return;
+    setOwnerOptions([]);
+    void getAllUsers({ size: 1000 }).then((res) => {
+      if (res.code === 0) setOwnerOptions(res.data || []);
+    });
+  }, [admin, creating, ownerOptions]);
   useEffect(() => {
     if (!linksFor) return;
     let disposed = false;
@@ -181,6 +193,11 @@ export default function LandingPage() {
       )}
       {node.syncError && (
         <span className="w-full text-xs text-danger">{node.syncError}</span>
+      )}
+      {node.status === "pending" && node.pendingReason && (
+        <span className="w-full text-xs text-warning">
+          {node.pendingReason}
+        </span>
       )}
       {node.sharedSyncError && (
         <span className="w-full text-xs text-warning">
@@ -274,6 +291,11 @@ export default function LandingPage() {
                             同步异常 · {server.sharedSyncError}
                           </p>
                         )}
+                        {server.sharedNotice && (
+                          <p className="rounded-lg bg-warning-50 p-2 text-xs text-warning">
+                            {server.sharedNotice}
+                          </p>
+                        )}
                       </>
                     )}
                     <div className="flex flex-wrap gap-2">
@@ -329,6 +351,7 @@ export default function LandingPage() {
                             server,
                             name: "",
                             protocol: server.protocols[0] || "ss2022",
+                            userId: 0,
                           })
                         }
                       >
@@ -354,7 +377,7 @@ export default function LandingPage() {
                 <CardBody className="py-12 text-center text-default-500">
                   {admin
                     ? "暂无落地服务器，请在「节点」页选择「启用为落地」。节点程序需要支持落地功能。"
-                    : "暂无获授权的落地服务器，请联系管理员分配用户组。"}
+                    : "暂无获授权的落地服务器，请联系管理员授权。"}
                 </CardBody>
               </Card>
             )}
@@ -530,6 +553,31 @@ export default function LandingPage() {
                       setCreating({ ...creating, name: event.target.value })
                     }
                   />
+                  {admin && (
+                    <Select
+                      description="默认归自己；为其他用户创建时，按该用户的服务器授权和节点上限检查"
+                      label="所属用户"
+                      selectedKeys={[String(creating.userId)]}
+                      variant="bordered"
+                      onSelectionChange={(keys) =>
+                        setCreating({
+                          ...creating,
+                          userId: Number(Array.from(keys)[0] || 0),
+                        })
+                      }
+                    >
+                      {[
+                        <SelectItem key="0">自己（管理员）</SelectItem>,
+                        ...(ownerOptions || []).map((user) => (
+                          <SelectItem key={String(user.id)}>
+                            {user.name
+                              ? `${user.user}（${user.name}）`
+                              : user.user}
+                          </SelectItem>
+                        )),
+                      ]}
+                    </Select>
+                  )}
                   <Select
                     label="协议模板"
                     selectedKeys={[creating.protocol]}
@@ -574,6 +622,9 @@ export default function LandingPage() {
                     landingServerId: creating.server.id,
                     name: creating.name,
                     protocol: creating.protocol,
+                    ...(admin && creating.userId > 0
+                      ? { userId: creating.userId }
+                      : {}),
                   });
                   setSaving(false);
                   if (res.code !== 0) {

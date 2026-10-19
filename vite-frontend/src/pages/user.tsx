@@ -1208,7 +1208,7 @@ export default function UserPage() {
         : await createUser(submitData);
 
       if (response.code === 0) {
-        if (isEdit) await landingSettingsRef.current?.renew();
+        if (isEdit) await landingSettingsRef.current?.persist();
         toast.success(isEdit ? "更新成功" : "创建成功");
         const warningItems = Array.isArray((response as any).data?.warnings)
           ? (response as any).data.warnings.filter(
