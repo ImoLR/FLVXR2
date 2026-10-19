@@ -292,7 +292,10 @@ export default function LandingEgressTab() {
                         {p.rules.filter((r) => r.enabled).length} 条规则
                       </Chip>
                       <Chip color="primary" size="sm" variant="flat">
-                        默认：{actionLabel(p.defaultAction, overview.outbounds)}
+                        默认出站：
+                        {p.defaultAction === "direct"
+                          ? "直连"
+                          : actionLabel(p.defaultAction, overview.outbounds)}
                       </Chip>
                     </div>
                     <p className="text-xs text-default-500">
