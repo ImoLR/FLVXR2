@@ -323,7 +323,7 @@ func TestLandingEgressSharedCapabilityGate(t *testing.T) {
 		}
 	}
 	p := landingegress.Profile{Name: "block bt", DefaultAction: "direct", Rules: []landingegress.Rule{{Enabled: true, Protocols: []string{"bittorrent"}, Action: "block"}, {Enabled: true, Domains: []string{"geosite:cn"}, Action: "block"}}}
-	saved, err := e.r.SaveLandingRouteProfile(&p)
+	saved, _, err := e.r.SaveLandingRouteProfile(&p)
 	if err != nil {
 		t.Fatal(err)
 	}

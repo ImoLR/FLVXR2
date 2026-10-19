@@ -358,7 +358,8 @@ func TestLandingDisabledEmptyServerNodeDeletion(t *testing.T) {
 			if err := r.DeleteLandingNode(n.ID); err != nil {
 				t.Fatal(err)
 			}
-			orphanSeed(t, r, &model.UserServerQuota{UserID: 501, ServerKind: "node", ServerRefID: 601, LimitBytes: 100}, &model.ChainTunnel{TunnelID: 801, NodeID: 601, ChainType: "3"})
+			orphanSeed(t, r, &model.UserServerQuota{UserID: 501, ServerKind: "node", ServerRefID: 601, LimitBytes: 100}, &model.ChainTunnel{TunnelID: 801, NodeID: 601, ChainType: "3"},
+				&model.LandingWarpAccount{LandingServerID: s.ID, OutboundID: 9, DeviceID: "d", Token: "t", PrivateKey: "k", Status: "ok", CreatedTime: 1, UpdatedTime: 1})
 			if err := r.DeleteNodeCascade(601); err == nil {
 				t.Fatal("landing cleanup bypassed existing tunnel reference")
 			}
@@ -374,6 +375,7 @@ func TestLandingDisabledEmptyServerNodeDeletion(t *testing.T) {
 			orphanCount(t, r, "node", "id = ?", 0, 601)
 			orphanCount(t, r, "landing_server", "id = ?", 0, s.ID)
 			orphanCount(t, r, "landing_server_user_group", "landing_server_id = ?", 0, s.ID)
+			orphanCount(t, r, "landing_warp_account", "landing_server_id = ?", 0, s.ID)
 			orphanCount(t, r, "user_server_quota", "server_kind = ? AND server_ref_id = ?", 0, "node", 601)
 		})
 	}

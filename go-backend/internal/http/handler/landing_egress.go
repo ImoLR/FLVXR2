@@ -757,12 +757,12 @@ func (h *Handler) landingEgressProfileSave(w http.ResponseWriter, r *http.Reques
 			return
 		}
 	}
-	saved, err := h.repo.SaveLandingRouteProfile(&p)
+	saved, notes, err := h.repo.SaveLandingRouteProfile(&p)
 	if err != nil {
 		landingError(w, err)
 		return
 	}
-	warnings := h.ensureLandingWarp(affected, false, 20*time.Second)
+	warnings := append(notes, h.ensureLandingWarp(affected, false, 20*time.Second)...)
 	h.landingEgressSaveAsync(affected)
 	view := repo.ProfileFromModel(*saved)
 	response.WriteJSON(w, response.OK(map[string]any{"id": view.ID, "name": view.Name, "defaultAction": view.DefaultAction, "rules": view.Rules, "warnings": warnings}))
