@@ -116,6 +116,7 @@ export function IntegrationSettings({ onSynced }: { onSynced: () => void }) {
             保存并同步
           </Button>
           <Button
+            color="secondary"
             variant="flat"
             isDisabled={Boolean(busy)}
             isLoading={busy === "test"}
@@ -124,6 +125,7 @@ export function IntegrationSettings({ onSynced }: { onSynced: () => void }) {
             测试连接
           </Button>
           <Button
+            color="success"
             variant="flat"
             isDisabled={Boolean(busy) || !config?.hasToken}
             isLoading={busy === "sync"}
