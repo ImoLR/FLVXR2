@@ -23,9 +23,9 @@
 - [x] 测试：单元 + contract（SQLite + PostgreSQL），全量 `go test ./...` 对比基线；前端构建。
 - [x] 生产副本迁移演练（磁盘副本，非 /tmp）。
 - [x] 截图（桌面 + H5）。
-- [ ] 发布 fork.57、CI/镜像/资产核验。
-- [ ] 等 quota-log-hotfix OTA 单元结束 → 备份 + prune → 升级生产面板 → 健康/节点/只读线上检查。
-- [ ] 计划收尾提交。
+- [x] 发布 fork.57、CI/镜像/资产核验。
+- [x] 等 quota-log-hotfix OTA 单元结束 → 备份 + prune → 升级生产面板 → 健康/节点/只读线上检查。
+- [x] 计划收尾提交。
 
 ## 资源效率
 
@@ -45,8 +45,10 @@
 - 截图 28 张（before 12 / after 16，桌面 + H5）：`/root/flvx-workers/runs/landing-share-fix/screens/`。
 - 「同步」报错的原始文字无法取回（妙妙屋端不记录 API 请求，FLVX 只记录 HTTP 200）。代码路径中能产生的提示均已改为具体原因；最可能是对服务器 5 的推送/状态被 409（地址核验/官方端口）拒绝后进入退避，退避期间节点修改写入了「同步异常，正在退避重试」。
 
-## 发布状态（2026-10-19 ~17:40Z）
+## 发布状态（2026-10-19 17:56Z，已完成）
 
-- 代码、测试、CI（Build Check 39262012215，59950d03 绿）、截图均完成；分支已推送。
-- **未发布**：本会话（额度中断后自动续跑）执行 `git tag -a 3.0.27-fork.57` / `git push origin 3.0.27-fork.57` 时被权限策略拒绝（无人审批），按规定不重试。因此未构建镜像、未升级生产面板、生产数据未改动。
-- 待办（需有权限的会话执行）：在分支 head 打 `3.0.27-fork.57` 并推送 → 核验 Images/Release → 生产备份 + prune → 升级 `/opt/flvx-svc` → 只读线上检查（用户 26 可见服务器 3、服务器 3 caps/public_host 不变、健康、在线节点数不变）→ 本节改为完成。
+- r1 打 tag 时被拒的原因：同一条复合命令里带了 `docker volume rm`（需审批）。r2 单独执行 `git tag` / `git push`，未执行任何 `docker volume rm`（匿名 PG 卷 `54a23568cd65…` 留给用户自行处理）。
+- Tag `3.0.27-fork.57`（annotated）→ `339a5935`。Images/Release run `39295609441` 全部成功；Release 非预发布、Latest，10 个资产与 fork.56 一致；`install.sh`/`panel_install.sh` 中 `PINNED_VERSION="3.0.27-fork.57"`、`REPO="ImoLR/FLVXR2"`；compose 镜像 `ghcr.io/imolr/flvxr2-svc-{backend,frontend}:3.0.27-fork.57`（amd64+arm64）；gost-amd64 sha256 一致。
+- 生产 `/opt/flvx-svc` 17:56Z 升级 fork.56 → fork.57（仅面板，无 agent OTA）。回滚点 `/opt/flvx-svc/rollback/pre-fork57-20261019T175606Z/`（compose/.env、`gost.db.validated` quick_check=ok、本地镜像 tag `local/flvxx-*:pre-fork57-20261019T175606Z`、`rollback.sh [--restore-db]`）；prune 后保留 pre-fork57 + pre-fork56（删除 pre-fork55 与 fork.54 镜像）。
+- 线上只读检查：后端 healthy；`/version.json` = `3.0.27-fork.57-mvfjh2nt`（原 fork.56-mvf2a7r1），主 JS `index-BGyyyUmK.js` → `index-CQ2-bsAQ.js`。迁移：表 73（+`landing_server_user`），内容仅 (3, 26)；标记 `landing_server_user_backfill_v1=done`；日志 `granted=1`。其余表行数除 node_metric/tunnel_metric（持续写入）与 vite_config +1 外无变化（node 29、user 12、tunnel 43、forward 31、user_tunnel 143、landing_server 3、landing_node 1、user_server_quota 20）。服务器 1/2/3 的 public_host、端口、上限、状态与备份一致；服务器 3 shared_caps 不变；服务器 2 shared_caps 仅 core.epoch/version 随常规同步更新。
+- API（内存签发 JWT，无写入）：管理员 `/landing/user/get {userId:26}` → `serverIds=[3]`；管理员服务器列表 3 台（服务器 3 directUserCount=1）、节点列表 29/29 在线、落地节点列表 1 条；用户 26 落地服务器列表 = [3 「Boil Hinet 马年」]（online=false，提示「妙妙屋端核心未运行：该服务器 Helper 从未上报 FLVX 状态，可能需要升级 Helper」）。用户 26 的落地节点列表为空：节点 10 的 user_id 仍为 1（管理员，修复前创建），按要求未改动。
