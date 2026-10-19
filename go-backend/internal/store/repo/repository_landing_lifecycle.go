@@ -161,11 +161,11 @@ func (r *Repository) ReconcileLandingPolicy(now time.Time) (LandingReconcileResu
 				n.ExpiredAt = nil
 				allowed := u.RoleID == 0
 				if !allowed {
-					var count int64
-					if err := tx.Table("landing_server_user_group AS lg").Joins("JOIN user_group_user AS ug ON ug.user_group_id = lg.user_group_id").Joins("JOIN user_group AS g ON g.id = lg.user_group_id AND g.status = 1").Where("lg.landing_server_id = ? AND ug.user_id = ?", s.ID, u.ID).Count(&count).Error; err != nil {
+					ok, err := landingPermission(tx, u.ID, s.ID)
+					if err != nil {
 						return err
 					}
-					allowed = count > 0
+					allowed = ok
 				}
 				switch {
 				case n.Status == "disabled" && !n.AutoDisabled:
@@ -292,7 +292,7 @@ func deleteUserLandingsTx(tx *gorm.DB, userID int64) error {
 	if err := tx.Model(&model.LandingServer{}).Where("id IN (?)", ids).UpdateColumn("revision", gorm.Expr("revision + 1")).Error; err != nil {
 		return err
 	}
-	for _, row := range []interface{}{&model.LandingNode{}, &model.LandingUserSetting{}, &model.UserServerQuota{}} {
+	for _, row := range []interface{}{&model.LandingNode{}, &model.LandingUserSetting{}, &model.UserServerQuota{}, &model.LandingServerUser{}} {
 		if err := tx.Where("user_id = ?", userID).Delete(row).Error; err != nil {
 			return err
 		}

@@ -43,7 +43,7 @@ func (r *Repository) GetLandingNode(id int64) (*model.LandingNode, error) {
 }
 func landingPermission(db *gorm.DB, userID, serverID int64) (bool, error) {
 	var count int64
-	err := db.Table("landing_server_user_group AS lg").Joins("JOIN user_group_user AS gu ON gu.user_group_id = lg.user_group_id").Joins("JOIN user_group AS ug ON ug.id = lg.user_group_id AND ug.status = 1").Where("lg.landing_server_id = ? AND gu.user_id = ?", serverID, userID).Count(&count).Error
+	err := db.Table("landing_server AS s").Where("s.id = ?", serverID).Where(landingAccessCond("s.id"), userID, userID).Count(&count).Error
 	return count > 0, err
 }
 func (r *Repository) UserCanUseLandingServer(userID, serverID int64) (bool, error) {
@@ -53,7 +53,7 @@ func (r *Repository) ListLandingServers(userID int64, admin bool) ([]model.Landi
 	out := []model.LandingServer{}
 	q := r.db.Model(&model.LandingServer{})
 	if !admin {
-		q = q.Where("status = ? AND id IN (?)", "active", r.db.Table("landing_server_user_group AS lg").Select("lg.landing_server_id").Joins("JOIN user_group_user AS gu ON gu.user_group_id = lg.user_group_id").Joins("JOIN user_group AS ug ON ug.id = lg.user_group_id AND ug.status = 1").Where("gu.user_id = ?", userID))
+		q = q.Where("status = ?", "active").Where(landingAccessCond("landing_server.id"), userID, userID)
 	}
 	err := q.Order("id ASC").Find(&out).Error
 	return out, err
@@ -227,6 +227,15 @@ func (r *Repository) GetLandingUserSetting(userID int64) (model.LandingUserSetti
 	return s, qs, err
 }
 func (r *Repository) SaveLandingUserSetting(userID int64, maxNodes int, quotas []model.UserServerQuota, extendFixedByMs int64) error {
+	return r.SaveLandingUserSettingWithGrants(userID, maxNodes, quotas, extendFixedByMs, nil)
+}
+
+// SaveLandingUserSettingWithGrants also replaces the user's direct server grants
+// when serverIDs is non-nil (nil keeps them, for older clients). A landing-kind
+// quota row that did not exist before this save grants its server as well: an
+// admin adding a per-server limit means the user should use that server.
+// Revoking keeps an existing quota row and is not undone by later saves.
+func (r *Repository) SaveLandingUserSettingWithGrants(userID int64, maxNodes int, quotas []model.UserServerQuota, extendFixedByMs int64, serverIDs *[]int64) error {
 	if maxNodes < 0 || maxNodes > 10000 || extendFixedByMs < 0 {
 		return errors.New("落地设置无效")
 	}
@@ -247,6 +256,20 @@ func (r *Repository) SaveLandingUserSetting(userID int64, maxNodes int, quotas [
 		}
 		if err := tx.Model(&setting).Update("max_nodes", maxNodes).Error; err != nil {
 			return err
+		}
+		existingLanding := map[int64]bool{}
+		var existingIDs []int64
+		if err := tx.Model(&model.UserServerQuota{}).Where("user_id = ? AND server_kind = ?", userID, "landing").Pluck("server_ref_id", &existingIDs).Error; err != nil {
+			return err
+		}
+		for _, id := range existingIDs {
+			existingLanding[id] = true
+		}
+		autoGrant := []int64{}
+		for _, q := range quotas {
+			if q.ServerKind == "landing" && q.ServerRefID > 0 && !existingLanding[q.ServerRefID] {
+				autoGrant = append(autoGrant, q.ServerRefID)
+			}
 		}
 		for _, q := range quotas {
 			if (q.ServerKind != "node" && q.ServerKind != "landing") || q.ServerRefID <= 0 || q.LimitBytes < 0 {
@@ -276,6 +299,15 @@ func (r *Repository) SaveLandingUserSetting(userID int64, maxNodes int, quotas [
 			if err := tx.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "user_id"}, {Name: "server_kind"}, {Name: "server_ref_id"}}, DoUpdates: clause.Assignments(map[string]interface{}{"limit_bytes": q.LimitBytes, "limit_override": true, "updated_time": now})}).Create(&q).Error; err != nil {
 				return err
 			}
+		}
+		grantNow := time.Now().UnixMilli()
+		if serverIDs != nil {
+			if err := replaceLandingUserGrantsTx(tx, userID, *serverIDs, grantNow); err != nil {
+				return err
+			}
+		}
+		if err := grantLandingServersTx(tx, userID, autoGrant, grantNow); err != nil {
+			return err
 		}
 		if extendFixedByMs > 0 {
 			var serverIDs []int64
@@ -373,12 +405,17 @@ func (r *Repository) CreateLandingNode(userID, serverID int64, name, protocol st
 		if s.Status != "active" || (s.AvailableUntil != nil && *s.AvailableUntil <= now) {
 			return errors.New("落地服务器不可用")
 		}
-		if !admin {
+		// The owner's access decides, also when an admin creates the node for
+		// someone else: the lifecycle job would otherwise disable it at once.
+		if u.RoleID != 0 {
 			ok, err := landingPermission(tx, userID, serverID)
 			if err != nil {
 				return err
 			}
 			if !ok {
+				if admin {
+					return errors.New("该用户无权使用此落地服务器：请先在用户编辑「落地」的「可用落地服务器」中授权，或把用户加入可见用户组")
+				}
 				return errors.New("无权使用该落地服务器")
 			}
 		}

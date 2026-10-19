@@ -112,16 +112,47 @@ type APIError struct {
 	Problems []ValidationError
 }
 
+// Known Custom error codes map to specific, actionable text. Only the code is
+// used (never the remote message), so nothing remote is echoed into the UI.
+var apiErrorText = map[string]string{
+	"native_landing":         "妙妙屋拒绝：该服务器已启用 FLVX 自有落地，不能同时共享",
+	"host_resolution":        "妙妙屋暂时无法解析/核验该服务器或 FLVX 节点地址（DNS），恢复后自动重试",
+	"official_ports_unknown": "妙妙屋端暂时读取不到该服务器的官方入站端口（官方面板/Helper 未上报），恢复后自动重试",
+	"share_inactive":         "妙妙屋端该共享已暂停或撤销，不接受节点配置",
+	"share_revoked":          "妙妙屋端该共享已撤销",
+	"revision_conflict":      "妙妙屋拒绝：配置版本冲突（妙妙屋端已有同号或更新的版本），请联系管理员检查",
+	"invalid_hosts":          "妙妙屋无法解析 FLVX 节点地址，请检查节点的域名/IP 设置",
+	"helper_outdated":        "妙妙屋端尚未就绪：该服务器的 Helper 需升级",
+	"unsupported":            "妙妙屋端尚未就绪：该服务器的 Helper 不支持 FLVX 共享，需升级",
+	"helper_unsupported":     "妙妙屋端尚未就绪：该服务器的 Helper 不支持 FLVX 共享，需升级",
+	"unavailable":            "妙妙屋端存储或服务器清单暂不可用，稍后自动重试",
+	"not_found":              "妙妙屋端找不到该共享（可能已删除）",
+	"unauthorized":           "妙妙屋接入令牌无效或已撤销",
+}
+
 func (e *APIError) Error() string {
+	if text, ok := apiErrorText[e.Code]; ok {
+		return text
+	}
+	code := ""
+	if e.Code != "" && len(e.Code) <= 40 && strings.Trim(e.Code, "abcdefghijklmnopqrstuvwxyz0123456789_") == "" {
+		code = "，" + e.Code
+	}
 	switch e.Status {
 	case 401, 403:
 		return "妙妙屋接入令牌无效或已撤销"
 	case 422:
-		return "妙妙屋拒绝节点配置，请检查节点错误"
+		if code == "" {
+			return "妙妙屋拒绝节点配置，请检查节点错误"
+		}
+		return fmt.Sprintf("妙妙屋拒绝配置（HTTP 422%s）", code)
 	case 409:
-		return "妙妙屋暂未接受配置（共享状态、地址解析或版本冲突）"
+		if code == "" {
+			return "妙妙屋暂未接受配置（共享状态、地址解析或版本冲突）"
+		}
+		return fmt.Sprintf("妙妙屋暂未接受配置（HTTP 409%s）", code)
 	default:
-		return fmt.Sprintf("妙妙屋同步异常（HTTP %d）", e.Status)
+		return fmt.Sprintf("妙妙屋同步异常（HTTP %d%s）", e.Status, code)
 	}
 }
 
@@ -257,8 +288,12 @@ func (c *Client) PutDesired(ctx context.Context, id int64, d Desired) error {
 func (c *Client) Status(ctx context.Context, id int64) (Status, error) {
 	var out Status
 	err := c.request(ctx, http.MethodGet, fmt.Sprintf("/shares/%d/status", id), nil, &out)
-	if err == nil && (out.CollectedAt < 0 || out.AppliedRevision < 0 || out.TrafficUsed < 0 || out.Core.State == "") {
+	if err == nil && (out.CollectedAt < 0 || out.AppliedRevision < 0 || out.TrafficUsed < 0) {
 		err = errors.New("妙妙屋节点状态格式错误")
+	}
+	// Custom reports an unknown core as stopped; keep booking counters anyway.
+	if err == nil && strings.TrimSpace(out.Core.State) == "" {
+		out.Core.State = "stopped"
 	}
 	return out, err
 }

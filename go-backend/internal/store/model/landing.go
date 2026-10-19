@@ -50,6 +50,17 @@ type LandingServerUserGroup struct {
 
 func (LandingServerUserGroup) TableName() string { return "landing_server_user_group" }
 
+// LandingServerUser grants one user direct access to a landing server, in
+// addition to any user-group grant. The primary key serves server-side lookups;
+// the user index serves the per-user server list.
+type LandingServerUser struct {
+	LandingServerID int64 `gorm:"primaryKey;autoIncrement:false" json:"landingServerId"`
+	UserID          int64 `gorm:"primaryKey;autoIncrement:false;index:idx_landing_server_user_user" json:"userId"`
+	CreatedTime     int64 `gorm:"not null;default:0" json:"createdTime"`
+}
+
+func (LandingServerUser) TableName() string { return "landing_server_user" }
+
 type LandingNode struct {
 	ID                int64    `gorm:"primaryKey;autoIncrement" json:"id"`
 	UserID            int64    `gorm:"not null;index" json:"userId"`

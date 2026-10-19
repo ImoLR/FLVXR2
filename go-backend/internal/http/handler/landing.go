@@ -51,6 +51,8 @@ func (h *Handler) landingServerView(s model.LandingServer, admin bool) map[strin
 	groups, _ := h.repo.LandingServerGroupIDs(s.ID)
 	if admin {
 		v["userGroupIds"] = groups
+		direct, _ := h.repo.LandingServerDirectUserCount(s.ID)
+		v["directUserCount"] = direct
 	}
 	if s.Source == "shared" {
 		caps := repo.SharedLandingCaps(&s)
@@ -70,12 +72,17 @@ func (h *Handler) landingServerView(s model.LandingServer, admin bool) map[strin
 	all, _ := h.repo.ListLandingNodes(0, true)
 	count, connections := 0, 0
 	billed := int64(0)
+	enabled := false
 	for _, n := range all {
 		if n.LandingServerID == s.ID {
 			count++
 			connections += n.Connections
 			billed += n.BilledIn + n.BilledOut
+			enabled = enabled || (n.Status == "active" && !n.DeletePending)
 		}
+	}
+	if s.Source == "shared" {
+		v["sharedNotice"] = sharedCoreNotice(&s, enabled)
 	}
 	v["nodeCount"] = count
 	v["connections"] = connections
@@ -109,6 +116,9 @@ func (h *Handler) landingNodeView(n model.LandingNode) map[string]interface{} {
 			}
 			if n.Status == "active" && n.SyncError == "" && n.RemoteState != "active" {
 				v["status"] = "pending"
+				if reason := sharedCoreNotice(s, true); reason != "" {
+					v["pendingReason"] = reason
+				}
 			}
 			if caps := repo.SharedLandingCaps(s); caps.ShareUntil != nil {
 				minExpiry(*caps.ShareUntil)
@@ -416,7 +426,12 @@ func (h *Handler) landingUserGet(w http.ResponseWriter, r *http.Request) {
 			fixed++
 		}
 	}
-	response.WriteJSON(w, response.OK(map[string]interface{}{"userId": req.UserID, "maxNodes": s.MaxNodes, "quotas": q, "fixedNodeCount": fixed}))
+	serverIDs, err := h.repo.LandingUserServerIDs(req.UserID)
+	if err != nil {
+		landingError(w, err)
+		return
+	}
+	response.WriteJSON(w, response.OK(map[string]interface{}{"userId": req.UserID, "maxNodes": s.MaxNodes, "quotas": q, "fixedNodeCount": fixed, "serverIds": serverIDs}))
 }
 func (h *Handler) landingUserSave(w http.ResponseWriter, r *http.Request) {
 	if !h.ensureAdminAccess(w, r) {
@@ -428,15 +443,17 @@ func (h *Handler) landingUserSave(w http.ResponseWriter, r *http.Request) {
 		Quotas          []model.UserServerQuota `json:"quotas"`
 		ExtendFixedByMs int64                   `json:"extendFixedByMs"`
 		FixedNodeCount  int                     `json:"fixedNodeCount"`
+		ServerIDs       *[]int64                `json:"serverIds"`
 	}
 	if err := landingDecode(r, &req); err != nil {
 		landingError(w, err)
 		return
 	}
-	if err := h.repo.SaveLandingUserSetting(req.UserID, req.MaxNodes, req.Quotas, req.ExtendFixedByMs); err != nil {
+	if err := h.repo.SaveLandingUserSettingWithGrants(req.UserID, req.MaxNodes, req.Quotas, req.ExtendFixedByMs, req.ServerIDs); err != nil {
 		landingError(w, err)
 		return
 	}
+	// A revoke auto-disables the user's nodes there; a grant restores them.
 	h.reconcileLandingPolicy(time.Now())
 	nodes, _ := h.repo.ListLandingNodes(req.UserID, false)
 	seen := map[int64]bool{}

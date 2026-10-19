@@ -21,6 +21,7 @@ import (
 type sharedRetry struct {
 	failures int
 	next     time.Time
+	lastErr  string
 }
 type sharedLandingState struct {
 	retries             map[string]sharedRetry
@@ -43,12 +44,22 @@ func sharedBackoff(failures int) time.Duration {
 
 // Called with sharedLandingMu held. Per-operation backoff plus a shared transport
 // breaker avoids one failed request per server when Custom is unreachable.
+// force (立即同步 and admin/user actions) always makes one real attempt. While
+// backing off, the last real cause is reported instead of a bare retry notice;
+// the text is stable so repeated ticks do not churn the stored error.
 func (h *Handler) sharedAttempt(key string, force bool, fn func() error) error {
 	state := h.sharedState()
 	now := time.Now()
 	r := state.retries[key]
 	if !force && (now.Before(r.next) || now.Before(state.offline.next)) {
-		return errors.New("同步异常，正在退避重试")
+		cause := r.lastErr
+		if !now.Before(r.next) || cause == "" {
+			cause = state.offline.lastErr
+		}
+		if cause == "" {
+			return errors.New("同步异常，正在退避重试")
+		}
+		return errors.New(cause + "（自动重试中）")
 	}
 	err := fn()
 	if err == nil {
@@ -58,11 +69,13 @@ func (h *Handler) sharedAttempt(key string, force bool, fn func() error) error {
 	}
 	r.failures++
 	r.next = now.Add(sharedBackoff(r.failures))
+	r.lastErr = err.Error()
 	state.retries[key] = r
 	var api *landingcustom.APIError
 	if !errors.As(err, &api) || (api.Status != 409 && api.Status != 422) {
 		state.offline.failures++
 		state.offline.next = now.Add(sharedBackoff(state.offline.failures))
+		state.offline.lastErr = err.Error()
 	}
 	_ = h.repo.SetLandingIntegrationResult(err.Error(), 0)
 	return err
@@ -250,7 +263,7 @@ func (h *Handler) syncSharedIntegration(ctx context.Context, force bool) {
 				}
 			}
 			// Re-evaluate content even if revision was not bumped by an owner rename or renewal.
-			if e = h.pushSharedLanding(ctx, client, s, force); e != nil {
+			if e = h.pushSharedLanding(ctx, client, s, force, false); e != nil {
 				err = e
 			}
 		}
@@ -313,7 +326,9 @@ func resolveSharedHosts(ctx context.Context, hosts landingcustom.LandingHosts, c
 	return hosts, err
 }
 
-func (h *Handler) pushSharedLanding(ctx context.Context, client *landingcustom.Client, s model.LandingServer, force bool) error {
+// force re-sends an unchanged desired state; manual (an explicit admin/user
+// action) only bypasses the retry backoff for this one attempt.
+func (h *Handler) pushSharedLanding(ctx context.Context, client *landingcustom.Client, s model.LandingServer, force, manual bool) error {
 	caps := repo.SharedLandingCaps(&s)
 	// Custom explicitly refuses PUT for paused/revoked shares; it stops them itself.
 	if caps.Status != "active" {
@@ -332,7 +347,7 @@ func (h *Handler) pushSharedLanding(ctx context.Context, client *landingcustom.C
 		delete(st.retries, key)
 		st.lastPushRevision[s.ID] = desired.Revision
 	}
-	err = h.sharedAttempt(key, force, func() error { return client.PutDesired(ctx, s.RemoteServerID, desired) })
+	err = h.sharedAttempt(key, force || manual, func() error { return client.PutDesired(ctx, s.RemoteServerID, desired) })
 	// Transport failure only records sync health, never mutates the nodes.
 	_ = h.repo.SetSharedPushResult(s.ID, desired.Revision, time.Now().UnixMilli(), err)
 	return err
@@ -374,7 +389,7 @@ func (h *Handler) syncSharedLandingServer(id int64) error {
 	if err != nil {
 		return err
 	}
-	return h.pushSharedLanding(context.Background(), client, *s, false)
+	return h.pushSharedLanding(context.Background(), client, *s, false, true)
 }
 
 // Refuse new native enablement if Custom cannot currently verify the inventory.
@@ -456,7 +471,7 @@ func (h *Handler) deleteSharedLandingNode(w http.ResponseWriter, r *http.Request
 			return e
 		}
 		// Omission requests removal, while keeping the local accounting identity.
-		if e = h.pushSharedLanding(r.Context(), client, *s, false); e != nil {
+		if e = h.pushSharedLanding(r.Context(), client, *s, false, true); e != nil {
 			return e
 		}
 		enforce, e = h.pollSharedLanding(r.Context(), client, *s)
@@ -485,4 +500,41 @@ func (h *Handler) deleteSharedLandingNode(w http.ResponseWriter, r *http.Request
 		out.Msg = "已提交删除，等待妙妙屋确认最终流量后释放端口"
 	}
 	response.WriteJSON(w, out)
+}
+
+// sharedCoreNotice explains why a shared server cannot run FLVX nodes yet, from
+// the last caps/status already stored (no extra request). Unknown states from
+// newer Custom versions are shown, never rejected. Empty when ready or idle.
+func sharedCoreNotice(s *model.LandingServer, hasEnabledNodes bool) string {
+	if s == nil || s.Source != "shared" {
+		return ""
+	}
+	caps := repo.SharedLandingCaps(s)
+	if caps.Status != "active" {
+		return ""
+	}
+	state := strings.ToLower(strings.TrimSpace(caps.Core.State))
+	switch state {
+	case "running":
+		return ""
+	case "helper_outdated", "unsupported", "helper_unsupported":
+		return "妙妙屋端尚未就绪：Helper 需升级"
+	}
+	// A stopped core with nothing to run is the normal idle state.
+	if !hasEnabledNodes {
+		return ""
+	}
+	switch state {
+	case "", "stopped":
+		if s.SharedCollectedAt == 0 && s.SharedAppliedRevision == 0 {
+			return "妙妙屋端核心未运行：该服务器 Helper 从未上报 FLVX 状态，可能需要升级 Helper"
+		}
+		return "妙妙屋端核心未运行"
+	case "error":
+		return "妙妙屋端核心异常，请检查该服务器 Helper"
+	}
+	if len(state) > 32 || strings.Trim(state, "abcdefghijklmnopqrstuvwxyz0123456789_-") != "" {
+		state = "未知"
+	}
+	return "妙妙屋端尚未就绪（状态：" + state + "）"
 }

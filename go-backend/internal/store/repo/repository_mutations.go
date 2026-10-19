@@ -995,6 +995,9 @@ func (r *Repository) DeleteNodeCascade(nodeID int64) error {
 			if err := tx.Where("landing_server_id = ?", landing.ID).Delete(&model.LandingServerUserGroup{}).Error; err != nil {
 				return err
 			}
+			if err := tx.Where("landing_server_id = ?", landing.ID).Delete(&model.LandingServerUser{}).Error; err != nil {
+				return err
+			}
 			if err := tx.Delete(&landing).Error; err != nil {
 				return err
 			}

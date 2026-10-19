@@ -74,6 +74,22 @@ func SharedLandingAvailable(s *model.LandingServer) bool {
 	c := SharedLandingCaps(s)
 	return c.Status == "active" && (c.TrafficLimit == 0 || c.TrafficUsed < c.TrafficLimit)
 }
+
+// sharedAutoHost reports whether current is one of the addresses Custom sent
+// last time, i.e. the public host was auto-picked rather than set by an admin.
+func sharedAutoHost(current string, old landingcustom.Hosts) bool {
+	norm := func(v string) string { return strings.ToLower(strings.Trim(strings.TrimSpace(v), "[]")) }
+	c := norm(current)
+	if c == "" {
+		return true
+	}
+	for _, h := range []string{old.IPv4, old.IPv6, old.Domain} {
+		if h = norm(h); h != "" && h == c {
+			return true
+		}
+	}
+	return false
+}
 func capExceeded(value, cap int64) bool { return cap > 0 && (value == 0 || value > cap) }
 func ValidateSharedLandingSettings(s *model.LandingServer) error {
 	if s.Source != "shared" {
@@ -185,7 +201,9 @@ func (r *Repository) SyncSharedLandings(shares []landingcustom.Share, now int64)
 				if old.Status == "revoked" {
 					c.Status = "revoked"
 				}
-				if s.PublicHost == old.Hosts.IPv4 || s.PublicHost == old.Hosts.IPv6 || s.PublicHost == old.Hosts.Domain {
+				// Follow Custom only while the address is still the one it picked
+				// (e.g. a DDNS IP becomes the domain); keep an admin's own edit.
+				if sharedAutoHost(s.PublicHost, old.Hosts) {
 					s.PublicHost = host
 				}
 				s.PortMin = max(s.PortMin, c.PortMin)

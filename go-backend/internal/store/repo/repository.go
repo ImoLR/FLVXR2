@@ -150,6 +150,10 @@ func Open(path string) (*Repository, error) {
 		_ = sqlDB.Close()
 		return nil, fmt.Errorf("cleanup group orphans: %w", err)
 	}
+	if err := backfillLandingServerUsers(db); err != nil {
+		_ = sqlDB.Close()
+		return nil, fmt.Errorf("backfill landing server users: %w", err)
+	}
 	return &Repository{db: db}, nil
 }
 
@@ -199,6 +203,10 @@ func OpenPostgres(dsn string) (*Repository, error) {
 		_ = sqlDB.Close()
 		return nil, fmt.Errorf("cleanup group orphans: %w", err)
 	}
+	if err := backfillLandingServerUsers(db); err != nil {
+		_ = sqlDB.Close()
+		return nil, fmt.Errorf("backfill landing server users: %w", err)
+	}
 	return &Repository{db: db}, nil
 }
 
@@ -223,7 +231,7 @@ func autoMigrateAll(db *gorm.DB) error {
 	}
 
 	models := []interface{}{
-		&model.LandingIntegration{}, &model.LandingServer{}, &model.LandingServerUserGroup{}, &model.LandingNode{}, &model.LandingUserSetting{}, &model.UserServerQuota{},
+		&model.LandingIntegration{}, &model.LandingServer{}, &model.LandingServerUserGroup{}, &model.LandingServerUser{}, &model.LandingNode{}, &model.LandingUserSetting{}, &model.UserServerQuota{},
 		&model.User{},
 		&model.UserQuota{},
 		&model.UserQuotaHistory{},
