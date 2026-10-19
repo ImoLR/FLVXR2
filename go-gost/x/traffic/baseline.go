@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"sync"
 	"time"
+
+	"github.com/go-gost/x/atomicfile"
 )
 
 // Baseline 表示一个流量统计基线
@@ -115,7 +117,7 @@ func (m *BaselineManager) save() error {
 		return fmt.Errorf("序列化基线数据失败：%w", err)
 	}
 
-	if err := os.WriteFile(m.filepath, jsonData, 0644); err != nil {
+	if err := atomicfile.WriteFile(m.filepath, jsonData, 0644); err != nil {
 		return fmt.Errorf("写入基线文件失败：%w", err)
 	}
 

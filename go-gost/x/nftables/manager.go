@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/go-gost/x/logsafe"
 	"github.com/google/nftables"
 	"github.com/google/nftables/binaryutil"
 	"github.com/google/nftables/expr"
@@ -78,8 +79,19 @@ type Manager struct {
 	quotaTable    *nftables.Table
 	quotaForwards map[int64]*quotaForward
 	quotaPollStop chan struct{}
+	quotaPollDone chan struct{}
 	liveUsage     map[int64]quotaUsage
 	liveUsageAt   time.Time
+
+	// closed is set by Close: the manager was replaced and must not touch the kernel again.
+	closed bool
+	// Self-heal after nft objects were removed outside this manager (see heal_linux.go).
+	unrestored  map[string]*RuleState
+	healBackoff *logsafe.Backoff
+	healNext    time.Time
+	healLast    time.Time
+	logs        *logsafe.RoutineLogger
+	now         func() time.Time
 }
 
 type RuleState struct {
@@ -145,6 +157,10 @@ func NewManager() (*Manager, error) {
 		rules:         make(map[string]*RuleState),
 		last:          make(map[string]counterValue),
 		quotaForwards: make(map[int64]*quotaForward),
+		unrestored:    make(map[string]*RuleState),
+		healBackoff:   logsafe.NewBackoff(time.Second, healMaxBackoff),
+		logs:          logsafe.NewRoutineLogger(nil),
+		now:           time.Now,
 	}
 	if err := m.initTable(); err != nil {
 		return nil, fmt.Errorf("init table: %w", err)
@@ -487,7 +503,15 @@ func (m *Manager) AddRule(forwardID, nodeID, userID, userTunnelID int64, protoco
 	defer m.mu.Unlock()
 
 	fmt.Printf("DEBUG AddRule: forwardID=%d protocol=%s port=%d target=%q speedLimit=%d\n", forwardID, protocol, port, target, speedLimit)
+	if m.closed {
+		return errManagerClosed
+	}
+	// The panel (re)defines this rule now; a pending self-heal restore of it is obsolete.
+	delete(m.unrestored, ruleKey(forwardID, protocol))
+	return m.addRuleLocked(forwardID, nodeID, userID, userTunnelID, protocol, port, target, speedLimit, limits...)
+}
 
+func (m *Manager) addRuleLocked(forwardID, nodeID, userID, userTunnelID int64, protocol string, port int, target string, speedLimit int, limits ...RuleQuota) error {
 	key := ruleKey(forwardID, protocol)
 	if _, exists := m.rules[key]; exists {
 		return fmt.Errorf("rule already exists: %s", key)
@@ -746,6 +770,7 @@ func (m *Manager) deleteRuleLocked(forwardID int64, protocol string, ports []int
 	}
 	key := ruleKey(forwardID, protocol)
 	rs := m.rules[key]
+	delete(m.unrestored, key)
 	portSet := map[int]struct{}{}
 	addPort := func(p int) {
 		if p > 0 && p <= 65535 {
@@ -881,6 +906,11 @@ func (m *Manager) readAccountingChain(name string) (map[string]counterValue, err
 	if err != nil {
 		return nil, err
 	}
+	if len(rules) == 0 {
+		// Dumping a table or chain that no longer exists returns no rules and no error, while
+		// every accounting chain holds at least its two counter rules.
+		return nil, fmt.Errorf("accounting chain %s has no rules: %w", name, unix.ENOENT)
+	}
 	values := make(map[string]counterValue, 2)
 	for _, rule := range rules {
 		tag, ok := parseRuleTag(rule)
@@ -942,15 +972,19 @@ func (m *Manager) CollectTraffic() []TrafficDelta {
 
 	out := m.pending
 	m.pending = nil
-	if m.acctTable == nil {
-		return out
-	}
+	var missing error
 	for _, rs := range m.rules {
+		if m.acctTable == nil {
+			break
+		}
 		if rs.AcctChain == "" {
 			continue
 		}
 		values, err := m.readAccountingChain(rs.AcctChain)
 		if err != nil {
+			if missing == nil && isMissingObject(err) {
+				missing = err
+			}
 			continue
 		}
 		d := TrafficDelta{
@@ -965,6 +999,13 @@ func (m *Manager) CollectTraffic() []TrafficDelta {
 		if d.UploadBytes > 0 || d.DownloadBytes > 0 {
 			out = append(out, d)
 		}
+	}
+	// Piggybacks on the periodic traffic collection: no extra polling for the self-heal.
+	if missing == nil && len(m.unrestored) > 0 {
+		missing = errRulesUnrestored
+	}
+	if missing != nil {
+		_ = m.healLocked(missing)
 	}
 	return out
 }

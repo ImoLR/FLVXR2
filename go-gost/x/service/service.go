@@ -26,6 +26,7 @@ import (
 	"github.com/go-gost/core/service"
 	ctxvalue "github.com/go-gost/x/ctx"
 	xnet "github.com/go-gost/x/internal/net"
+	"github.com/go-gost/x/logsafe"
 	xmetrics "github.com/go-gost/x/metrics"
 	xstats "github.com/go-gost/x/observer/stats"
 	"github.com/rs/xid"
@@ -322,6 +323,9 @@ func (s *defaultService) Serve() error {
 	defer wg.Wait()
 
 	var tempDelay time.Duration
+	// Temporary accept errors (e.g. EMFILE) are retried every ≤5 s: log the first one, a
+	// summary at most every ten minutes and the recovery, not one line per retry.
+	acceptLogs := logsafe.NewRoutineLogger(func(msg string) { s.options.logger.Warn(msg) })
 	for {
 		conn, e := s.listener.Accept()
 		if e != nil {
@@ -339,7 +343,7 @@ func (s *defaultService) Serve() error {
 
 				s.setState(StateFailed)
 
-				s.options.logger.Warnf("accept: %v, retrying in %v", e, tempDelay)
+				acceptLogs.Record("accept", s.name, fmt.Sprintf("%v, retrying in %v", e, tempDelay))
 				time.Sleep(tempDelay)
 				continue
 			}
@@ -355,6 +359,7 @@ func (s *defaultService) Serve() error {
 		if tempDelay > 0 {
 			tempDelay = 0
 			s.setState(StateReady)
+			acceptLogs.Record("accept", s.name, "")
 		}
 
 		clientAddr := conn.RemoteAddr().String()

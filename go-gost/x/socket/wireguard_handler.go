@@ -13,6 +13,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/go-gost/x/atomicfile"
 )
 
 type wireGuardPeerPlan struct {
@@ -321,7 +323,7 @@ func writeWireGuardConfig(plan wireGuardPathPlan) (string, error) {
 		}
 	}
 	confPath := wireGuardConfigPath(plan.PathID)
-	if err := os.WriteFile(confPath, []byte(b.String()), 0600); err != nil {
+	if err := atomicfile.WriteFile(confPath, []byte(b.String()), 0600); err != nil {
 		return "", err
 	}
 	return confPath, nil
@@ -340,7 +342,7 @@ func writeWGForwardRulePlan(plan wireGuardForwardRulePlan) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, raw, 0600)
+	return atomicfile.WriteFile(path, raw, 0600)
 }
 
 func applyWireGuardNFTables(plan wireGuardPathPlan) {

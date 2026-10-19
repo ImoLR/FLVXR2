@@ -24,6 +24,11 @@ type RoutineLogger struct {
 	emit    func(string)
 }
 
+// NewRoutineLogger returns a RoutineLogger that writes through emit (stdout when nil).
+func NewRoutineLogger(emit func(string)) *RoutineLogger {
+	return &RoutineLogger{emit: emit}
+}
+
 // Record logs the first failure, a count at most every ten minutes on subsequent
 // failures, and one recovery. An empty failure means the operation succeeded.
 func (l *RoutineLogger) Record(command, target, failure string) {

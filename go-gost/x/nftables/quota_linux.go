@@ -8,6 +8,7 @@ import (
 	"reflect"
 	"time"
 
+	"github.com/go-gost/x/logsafe"
 	"github.com/go-gost/x/service"
 	"github.com/google/nftables"
 	"github.com/google/nftables/binaryutil"
@@ -16,7 +17,12 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-const quotaTableName = "flvx_quota"
+const (
+	quotaTableName = "flvx_quota"
+	// The quota poll runs every second while it succeeds; failures back off up to 5 min.
+	quotaPollInterval   = time.Second
+	quotaPollMaxBackoff = 5 * time.Minute
+)
 
 type quotaUsage struct {
 	connections int
@@ -266,7 +272,7 @@ func quotaGateAllows(gate quotaGate, ruleIPs map[string]int, groupIPs map[string
 }
 
 func (m *Manager) startQuotaPollLocked() {
-	if m.quotaPollStop != nil {
+	if m.quotaPollStop != nil || m.closed {
 		return
 	}
 	needed := false
@@ -279,22 +285,41 @@ func (m *Manager) startQuotaPollLocked() {
 	if !needed {
 		return
 	}
-	stop := make(chan struct{})
-	m.quotaPollStop = stop
+	stop, done := make(chan struct{}), make(chan struct{})
+	m.quotaPollStop, m.quotaPollDone = stop, done
+	logs := m.logs
 	go func() {
-		ticker := time.NewTicker(time.Second)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ticker.C:
-				if err := m.ReconcileQuota(); err != nil {
-					fmt.Printf("⚠️ nft quota reconcile failed: %v\n", err)
-				}
-			case <-stop:
-				return
-			}
-		}
+		defer close(done)
+		runQuotaPoll(stop, m.ReconcileQuota, logs, waitOrStop)
 	}()
+}
+
+// runQuotaPoll calls reconcile every second while it succeeds. After a failure the next call
+// waits twice as long as the previous one (2 s … 5 min), and logs gets the first failure, a
+// summary at most every ten minutes and one recovery line - never a line per attempt.
+func runQuotaPoll(stop <-chan struct{}, reconcile func() error, logs *logsafe.RoutineLogger, wait func(time.Duration, <-chan struct{}) bool) {
+	backoff := logsafe.NewBackoff(quotaPollInterval, quotaPollMaxBackoff)
+	for delay := backoff.Delay(); wait(delay, stop); {
+		if err := reconcile(); err != nil {
+			delay = backoff.Failure()
+			logs.Record("nft quota reconcile", "node", fmt.Sprintf("IP 限制可能未生效，%s 后重试: %s", delay, logsafe.OneLine(err)))
+			continue
+		}
+		delay = backoff.Success()
+		logs.Record("nft quota reconcile", "node", "")
+	}
+}
+
+// waitOrStop sleeps for d and reports false when stop closes first.
+func waitOrStop(d time.Duration, stop <-chan struct{}) bool {
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-t.C:
+		return true
+	case <-stop:
+		return false
+	}
 }
 
 func (m *Manager) stopQuotaPollIfIdleLocked() {
@@ -304,8 +329,9 @@ func (m *Manager) stopQuotaPollIfIdleLocked() {
 		}
 	}
 	if m.quotaPollStop != nil {
+		// Never wait for the goroutine here: it may be blocked on m.mu held by the caller.
 		close(m.quotaPollStop)
-		m.quotaPollStop = nil
+		m.quotaPollStop, m.quotaPollDone = nil, nil
 	}
 }
 
@@ -313,6 +339,20 @@ func (m *Manager) stopQuotaPollIfIdleLocked() {
 func (m *Manager) ReconcileQuota() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.closed {
+		return nil
+	}
+	err := m.reconcileQuotaLocked()
+	if err != nil && isMissingObject(err) {
+		return m.healLocked(fmt.Errorf("quota gate: %w", err))
+	}
+	if err == nil && len(m.unrestored) > 0 {
+		return m.healLocked(errRulesUnrestored)
+	}
+	return err
+}
+
+func (m *Manager) reconcileQuotaLocked() error {
 	needed := false
 	for _, qf := range m.quotaForwards {
 		if len(qf.ports) > 0 && quotaPollNeeded(qf.quota) {

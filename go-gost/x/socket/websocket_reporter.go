@@ -23,6 +23,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/go-gost/x/atomicfile"
 	"github.com/go-gost/x/config"
 	"github.com/go-gost/x/internal/util/crypto"
 	"github.com/go-gost/x/landing"
@@ -505,7 +506,7 @@ func (w *WebSocketReporter) fetchAndSaveNodeID() {
 
 	// 写回 config.json
 	data, _ := json.MarshalIndent(config, "", "  ")
-	if err := os.WriteFile(configPath, data, 0600); err != nil {
+	if err := atomicfile.WriteFile(configPath, data, 0600); err != nil {
 		fmt.Printf("⚠️ 保存 node_id 失败：%v\n", err)
 		return
 	}
@@ -1868,7 +1869,7 @@ LimitNOFILE=1048576
 [Install]
 WantedBy=multi-user.target
 `, coreType, execPath, configPath)
-	if err := os.WriteFile(unitPath, []byte(unit), 0644); err != nil {
+	if err := atomicfile.WriteFile(unitPath, []byte(unit), 0644); err != nil {
 		return fmt.Errorf("write %s failed: %v", unitPath, err)
 	}
 	if out, err := exec.Command("systemctl", "daemon-reload").CombinedOutput(); err != nil {
@@ -1980,7 +1981,9 @@ func (w *WebSocketReporter) handleResetTraffic(data interface{}) error {
 		}
 		config["node_id"] = w.nodeID
 		data, _ := json.MarshalIndent(config, "", "  ")
-		os.WriteFile(configPath, data, 0600)
+		if err := atomicfile.WriteFile(configPath, data, 0600); err != nil {
+			fmt.Printf("⚠️ 保存 node_id 失败：%v\n", err)
+		}
 
 		fmt.Printf("✅ 基线管理器初始化成功，node_id: %d\n", w.nodeID)
 
@@ -2420,30 +2423,7 @@ func updateAgentSettings(path string, values map[string]interface{}) error {
 	if err != nil {
 		return err
 	}
-
-	tmp, err := os.CreateTemp(filepath.Dir(path), ".config.json-*")
-	if err != nil {
-		return err
-	}
-	tmpPath := tmp.Name()
-	defer os.Remove(tmpPath)
-
-	if err := tmp.Chmod(info.Mode().Perm()); err != nil {
-		tmp.Close()
-		return err
-	}
-	if _, err := tmp.Write(data); err != nil {
-		tmp.Close()
-		return err
-	}
-	if err := tmp.Sync(); err != nil {
-		tmp.Close()
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-	return os.Rename(tmpPath, path)
+	return atomicfile.WriteFile(path, data, info.Mode().Perm())
 }
 
 // handleCall 处理服务端的call回调消息
@@ -2717,7 +2697,7 @@ func fixServiceFile(serviceName string) {
 	if after == before {
 		return
 	}
-	if err := os.WriteFile(serviceFile, []byte(after), 0644); err != nil {
+	if err := atomicfile.WriteFile(serviceFile, []byte(after), 0644); err != nil {
 		fmt.Printf("⚠️ 修复 service 文件失败: %v\n", err)
 		return
 	}

@@ -18,6 +18,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/go-gost/x/atomicfile"
 )
 
 const unitName = "flvx-landing-core.service"
@@ -172,14 +174,8 @@ func (m *Manager) writeJSON(name string, v any) error {
 	return m.writeFile(name, b, 0600)
 }
 func (m *Manager) writeFile(name string, b []byte, mode os.FileMode) error {
-	path := filepath.Join(m.dir, name)
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, b, mode); err != nil {
+	if err := atomicfile.WriteFile(filepath.Join(m.dir, name), b, mode); err != nil {
 		return fmt.Errorf("write landing state: %w", err)
-	}
-	if err := os.Rename(tmp, path); err != nil {
-		_ = os.Remove(tmp)
-		return err
 	}
 	return nil
 }
@@ -334,7 +330,7 @@ func (m *Manager) setup(ctx context.Context) error {
 	path := "/etc/systemd/system/" + unitName
 	old, _ := os.ReadFile(path)
 	if string(old) != unit {
-		if err := os.WriteFile(path, []byte(unit), 0644); err != nil {
+		if err := atomicfile.WriteFile(path, []byte(unit), 0644); err != nil {
 			return err
 		}
 		if err := exec.CommandContext(ctx, "systemctl", "daemon-reload").Run(); err != nil {

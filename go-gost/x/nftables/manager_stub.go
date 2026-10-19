@@ -48,6 +48,8 @@ func (m *Manager) UpdateRule(forwardID int64, protocol string, port int, target 
 
 func (m *Manager) ReconcileQuota() error { return nil }
 
+func (m *Manager) Close() {}
+
 func (m *Manager) GetForwardConnectionCounts() map[int64]int { return nil }
 
 func (m *Manager) GetForwardClientIPs(ids []int64) (map[int64]map[string]int, error) {
