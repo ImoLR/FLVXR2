@@ -1,4 +1,4 @@
-# 109 — quota-log-hotfix (3.0.27-fork.56)
+# 109 — quota-log-hotfix (3.0.27-fork.56) — DONE 2026-10-19
 
 Branch `maintenance/3.0.27-fork.56-quota-log-hotfix` from prod fork.55 head `c16969d6`.
 Trigger: node 48 「Leikwanhost 沪台IPLC」 root fs 100 % (2026-10-19), /var/log 8.6G of
@@ -53,10 +53,10 @@ Trigger: node 48 「Leikwanhost 沪台IPLC」 root fs 100 % (2026-10-19), /var/l
 - [x] Commit, push, tag `3.0.27-fork.56`, CI + images green, release Latest verified
 - [x] Prod panel backup + upgrade to fork.56, prune backups
 - [x] Node 48 OTA first: spam stops, gost.json rewritten, forwards healthy, before/after numbers
-- [ ] Remove temporary rsyslog filter on 48, /var/log flat for 10 min
-- [ ] OTA all other online nodes one at a time (skip 14), compare diagnose
-- [ ] Disk sweep on SSH nodes (48 21 30 31 34 35 36 42 45 47 52 53)
-- [ ] Plan marked complete, summary written
+- [x] Remove temporary rsyslog filter on 48, /var/log flat for 10 min (10:09Z → 12:15Z: +43 KB in 2 h, 51 journal lines, 0 new spam)
+- [x] OTA all other online nodes one at a time (skip 14), compare diagnose (27/29 on fork.56; 20 restart script no-op, see below)
+- [x] Disk sweep on SSH nodes (48 21 30 31 34 35 36 42 45 47 52 53): all < 80 %, 0 spam, nothing cleaned
+- [x] Plan marked complete, summary written
 
 ## Loop audit (agent, go-gost/x)
 
@@ -87,3 +87,75 @@ Not available: there is no agent → panel status field for "IP cap not enforced
 - Node 48 OTA 09:55Z (fork.37 → fork.56; SSH backup `/root/flvxx-backup-20261019T093603Z-pre-fork56/restore-agent.sh`): request 3 s, reconnect 4 s, diagnose 6/6 before and after, gost.json rewritten (4530 B, 6 services), flux_agent PID unchanged. Before → after (60 s): CPU 20.95 % → 0.40 %, RSS 98 MB → 63 MB, threads 9 → 7, fds 100 → 73, journal ~16.6k written + ~310k suppressed lines/h → 1 line in the first minutes (startup lines fell into journald's rate-limit window).
 - Node 48: temporary rsyslog filter `/etc/rsyslog.d/05-flvxx-nft-spam.conf` removed 09:59Z (copy kept in the SSH backup dir), rsyslog restarted; journald 200M cap kept.
 - Also found: nodes 2 and 23 run nft forwards with a user connection cap (quota group `user-3` / `user-8`), so they leaked pollers silently on every reconnect too (same-named objects existed, so no ENOENT, only CPU and gate churn); fixed by the OTA.
+
+## OTA rollout (round 1 09:59–10:23Z, round 2 12:19–12:35Z)
+
+Scripts in `/root/flvx-workers/runs/quota-log-hotfix/ota/` (copied from ota-all-fork55: `batch.sh`, `ota-one.py`,
+`node-check.py`, `prod-state.py`, `compare.py`; new `metric-window.py`, `ws-snap.js`). Strictly one node at a time; diagnose
+before/after per node; stop on any regression.
+
+- Canary 34, then 25 50 54 53 31 35 36 17 30 52 21 49 39 45 12 26 42 47 22 18 (round 1), then 2 23 15 51 32 (round 2,
+  2 and 23 first because they carry nft forwards with user connection caps). All 27 `verified`: reconnect 2–6 s, every
+  node's diagnose identical before/after (0 regressions, 0 new failures; the remaining failures are the known dead targets).
+  Node 21 landing core PID unchanged and desired.json refreshed; 42/47 other-panel `flux_agent` PIDs unchanged.
+- **Skipped 14** (upstream 3.0.27, hung download in the fork.55 run; needs console restart first).
+- **Not upgraded 20 「Vmsilo TW」** (fork.55, no forwards/tunnels/nft rules, so the leak cannot occur there). Two requests
+  (09:59Z, 12:23Z): download 8.7 MB + sha256 OK, agent replied OK and reported "重启中...", but the agent never stopped
+  (1 s node metrics have no gap, no reconnect). Its metrics carry an empty `service_name`, so the restart script targets the
+  default `/etc/flvx_agent` / `flvx_agent.service` naming; most likely that unit does not exist on 20 and
+  `systemctl stop flvx_agent` fails, ending the `&&` chain. No SSH: needs a console check or a reinstall with the panel
+  install command. Not re-requested a third time.
+- Panel after round 2: backend healthy, 29/29 online, panelIpFamily unchanged (only 42 prefer_ipv4), tunnel/forward/
+  user_tunnel/chain counts unchanged (user 11 → 12 = an account created at 11:33Z, unrelated); landing 1/2 online
+  (landing 3 「Boil Hinet 马年」 shared server added 11:35Z by someone else, offline, not touched). Path latency: 37 tunnels,
+  48 entries OK, refresh ~60 s.
+
+### Nodes 2 and 23 (no SSH; panel 1 s node metrics, system-wide)
+
+| Node | CPU avg before (2 × 10 min) | CPU avg after (13–15 min) | Mem % before → after | nft forwards still tracked |
+|------|-----------------------------|---------------------------|----------------------|----------------------------|
+| 2 「Mkcloud 深港ixp 1」 | 5.54 % / 5.13 % | 2.54 % | 8.87 → 8.90 | fwd 6 (no live flows before/after) |
+| 23 「Mkcloud 沪日ixp 440」 | 3.40 % / 3.35 % | 1.71 % | 10.10 → 9.97 | 106/124/125 `_nft` counts present before and after |
+
+Node 2 had reconnected 3× since its fork.55 start (09:55, 11:23, 11:47Z) and node 23 once, i.e. 3 and 1 leaked 1 s
+conntrack pollers; their removal roughly halves system CPU on both.
+
+### Node 48 (SSH) before → after
+
+| | before (fork.37, 09:33Z) | after (fork.56, 12:15Z) |
+|-|--------------------------|-------------------------|
+| agent CPU (60 s) | 20.95 % | 0.18 % |
+| RSS / threads / fds | 98 MB / 9 / 100 | 80 MB / 7 / 21 |
+| journal lines per hour (+ suppressed) | 15 814 (+313 717) | 51 (+0) |
+| /var/log | 8.6 G (before cleanup) | 339 M, +43 KB from 10:09Z to 12:15Z |
+| root fs | 100 % | 19 % |
+
+### Disk sweep (12:35Z, read-only; nothing above 80 %, so nothing cleaned)
+
+| Node | root fs | /var/log | journal | flvxx lines/h | spam/h |
+|------|---------|----------|---------|---------------|--------|
+| 48 | 19 % | 339M | 201M (200M cap) | 36 | 0 |
+| 21 | 25 % | 138M | 122M | 63 | 0 |
+| 30 | 30 % | 469M | 128M | 0 | 0 |
+| 31 | 18 % | 418M | 80M | 0 | 0 |
+| 34 | 45 % | 128M | 48M | 0 | 0 |
+| 35 | 8 % | 176M | 120M | 0 | 0 |
+| 36 | 62 % | 206M | 120M | 0 | 0 |
+| 42 | 47 % | 923M | 459M | 16 | 0 |
+| 45 | 5 % | 249M | 119M | 326 | 0 |
+| 47 | 5 % | 580M | 579M | 183 | 0 |
+| 52 | 21 % | 5.4G | 4.0G (10 % default cap of 40G) | 7 | 0 |
+| 53 | 6 % | 114M | 90M | 0 | 0 |
+
+Observation (pre-existing, not changed): node 45's agent WebSocket closes every 2–13 min (9 reconnects/h, also on fork.55
+at 09:34Z); each reconnect redeploys its 5 tunnel services, which is where its 326 lines/h come from (~50 KB/h, journal
+capped). With fork.56 each reconnect closes the old nft manager, so nothing leaks.
+
+### Rollback
+
+- Panel: `/opt/flvx-svc/rollback/pre-fork56-20261019T095416Z/rollback.sh` (→ fork.55; `--restore-db` optional, discards
+  later data). Kept backups: pre-fork56 + pre-fork55.
+- Agents with SSH (48 21 30 31 34 35 36 42 45 47 52 53): `sh /root/flvxx-backup-20261019T093603Z-pre-fork56/restore-agent.sh`.
+  Others: console `systemctl stop flvxx && cp -a /etc/flvxx/flvxx.old /etc/flvxx/flvxx && systemctl start flvxx`.
+  Panel OTA cannot downgrade.
+
