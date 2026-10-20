@@ -8,6 +8,7 @@ import (
 	"sync"
 
 	"go-backend/internal/store/model"
+	"go-backend/internal/store/repo"
 )
 
 type nodeSyncFailure struct {
@@ -25,11 +26,21 @@ type nodeSyncResult struct {
 }
 
 func nodeAddressChanged(oldNode, newNode *model.Node) bool {
+	return nodeDialAddressChanged(oldNode, newNode) || nodeExtraIPsChanged(oldNode, newNode)
+}
+
+// nodeDialAddressChanged covers the addresses other nodes dial. Extra IPs are
+// excluded: they are only dialed as an explicit custom connect IP.
+func nodeDialAddressChanged(oldNode, newNode *model.Node) bool {
 	return strings.TrimSpace(oldNode.ServerIP) != strings.TrimSpace(newNode.ServerIP) ||
 		strings.TrimSpace(oldNode.ServerIPV4.String) != strings.TrimSpace(newNode.ServerIPV4.String) ||
 		strings.TrimSpace(oldNode.ServerIPV6.String) != strings.TrimSpace(newNode.ServerIPV6.String) ||
-		strings.TrimSpace(oldNode.IntranetIP.String) != strings.TrimSpace(newNode.IntranetIP.String) ||
-		strings.TrimSpace(oldNode.ExtraIPs.String) != strings.TrimSpace(newNode.ExtraIPs.String)
+		strings.TrimSpace(oldNode.IntranetIP.String) != strings.TrimSpace(newNode.IntranetIP.String)
+}
+
+func nodeExtraIPsChanged(oldNode, newNode *model.Node) bool {
+	return strings.Join(repo.ParseNodeExtraIPs(oldNode.ExtraIPs.String), ",") !=
+		strings.Join(repo.ParseNodeExtraIPs(newNode.ExtraIPs.String), ",")
 }
 
 func nodeListenChanged(oldNode, newNode *model.Node) bool {
@@ -53,7 +64,9 @@ func rebuildNodeEntryInIP(entries []model.Node, ipPreference string) string {
 func (h *Handler) syncNodeUpdate(oldNode, newNode *model.Node) nodeSyncResult {
 	result := nodeSyncResult{Failures: make([]nodeSyncFailure, 0)}
 	addressChanged := nodeAddressChanged(oldNode, newNode)
+	dialChanged := nodeDialAddressChanged(oldNode, newNode)
 	listenChanged := nodeListenChanged(oldNode, newNode)
+	var bindForwardIDs []int64
 	if !addressChanged && !listenChanged {
 		return result
 	}
@@ -81,6 +94,7 @@ func (h *Handler) syncNodeUpdate(oldNode, newNode *model.Node) nodeSyncResult {
 			for _, id := range rewrite.ForwardIDs {
 				rulesUpdated[id] = struct{}{}
 			}
+			bindForwardIDs = rewrite.BindForwardIDs
 		}
 	}
 
@@ -89,7 +103,7 @@ func (h *Handler) syncNodeUpdate(oldNode, newNode *model.Node) nodeSyncResult {
 		var err error
 		if listenChanged {
 			tunnelIDs, err = h.repo.ListActiveTunnelIDsByNode(newNode.ID)
-		} else {
+		} else if dialChanged {
 			tunnelIDs, err = h.repo.ListActiveDialTargetTunnelIDsByNode(newNode.ID)
 		}
 		if err != nil {
@@ -125,32 +139,36 @@ func (h *Handler) syncNodeUpdate(oldNode, newNode *model.Node) nodeSyncResult {
 				mu.Unlock()
 			})
 		}
+		var forwardIDs []int64
 		if listenChanged {
-			forwardIDs, err := h.repo.ListActiveForwardIDsByNode(newNode.ID)
+			forwardIDs, err = h.repo.ListActiveForwardIDsByNode(newNode.ID)
 			if err != nil {
 				fail("node", newNode.ID, newNode.Name, fmt.Errorf("查询待同步规则失败：%w", err))
 			}
-			for _, forwardID := range forwardIDs {
-				forward, err := h.getForwardRecord(forwardID)
-				if err != nil {
-					fail("rule", forwardID, "", err)
-					continue
-				}
-				if _, covered := coveredTunnels[forward.TunnelID]; covered {
-					continue
-				}
-				jobs = append(jobs, func() {
-					if err := h.syncNodeForwardServices(forward); err != nil {
-						fail("rule", forward.ID, forward.Name, err)
-						return
-					}
-					mu.Lock()
-					rulesUpdated[forward.ID] = struct{}{}
-					mu.Unlock()
-				})
-			}
 		}
-		if addressChanged {
+		// Rules whose listen IP was rewritten (a removed IP falls back to the
+		// default listen-all address) must be redeployed to bind the new value.
+		forwardIDs = mergeSortedIDs(forwardIDs, bindForwardIDs)
+		for _, forwardID := range forwardIDs {
+			forward, err := h.getForwardRecord(forwardID)
+			if err != nil {
+				fail("rule", forwardID, "", err)
+				continue
+			}
+			if _, covered := coveredTunnels[forward.TunnelID]; covered {
+				continue
+			}
+			jobs = append(jobs, func() {
+				if err := h.syncNodeForwardServices(forward); err != nil {
+					fail("rule", forward.ID, forward.Name, err)
+					return
+				}
+				mu.Lock()
+				rulesUpdated[forward.ID] = struct{}{}
+				mu.Unlock()
+			})
+		}
+		if dialChanged {
 			paths, err := h.repo.ListActiveWGPathsByNode(newNode.ID)
 			if err != nil {
 				fail("node", newNode.ID, newNode.Name, fmt.Errorf("查询待同步 WireGuard 路径失败：%w", err))
@@ -204,4 +222,18 @@ func runNodeSyncJobs(jobs []func()) {
 		}()
 	}
 	wg.Wait()
+}
+
+func mergeSortedIDs(a, b []int64) []int64 {
+	seen := make(map[int64]struct{}, len(a)+len(b))
+	out := make([]int64, 0, len(a)+len(b))
+	for _, id := range append(append([]int64{}, a...), b...) {
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		out = append(out, id)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i] < out[j] })
+	return out
 }

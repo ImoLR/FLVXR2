@@ -122,3 +122,86 @@ func TestExtraIPsAreNeverDialedImplicitly(t *testing.T) {
 		t.Fatalf("intranet dial changed: %q %q", host, family)
 	}
 }
+
+func TestNodeUpdateRemovedExtraIPClearsBindAndRedeploysRule(t *testing.T) {
+	e := newNodeSyncEnv(t)
+	commands := &redeployCommandLog{}
+	e.h.nodeCommandSender = commands.send
+	e.addUserTunnel(7, 7, 25)
+	e.exec(`UPDATE node SET server_ip_v6 = '2001:db8::1', extra_ips = '["2001:db8::2","2001:db8::3"]' WHERE id = 23`)
+	e.exec(`UPDATE tunnel SET in_ip = '2001:db8::2,2001:db8::3' WHERE id = 25`)
+	e.exec(`UPDATE forward_port SET in_ip = '2001:db8::3' WHERE forward_id = 42`)
+	// Node 23 is also the exit of tunnel 26; extra IPs are not dial addresses,
+	// so an extra-IP-only edit must not redeploy that tunnel.
+	e.addTunnel(26, 1, 1)
+	e.exec(`UPDATE tunnel SET type = 2 WHERE id = 26`)
+	e.addNode(24, "other-entry")
+	e.exec(`INSERT INTO chain_tunnel(tunnel_id, chain_type, node_id, inx, protocol) VALUES(26, '1', 24, 1, 'tls')`)
+	e.exec(`INSERT INTO chain_tunnel(tunnel_id, chain_type, node_id, inx, protocol, port) VALUES(26, '3', 23, 1, 'tls', 1600)`)
+
+	body := nodeSyncBody("entry", "192.0.2.1")
+	body["serverIpV6"] = "2001:db8::1"
+	body["extraIPs"] = "2001:db8::2"
+	var result nodeSyncResult
+	nodeSyncRequest(t, e.h.nodeUpdate, body, &result)
+	// TunnelsUpdated counts tunnel 25, whose saved entry address was rewritten.
+	if len(result.Failures) != 0 || result.RulesUpdated != 1 || result.TunnelsUpdated != 1 || result.EntryAddressesUpdated != 2 {
+		t.Fatalf("sync result = %+v", result)
+	}
+	var tunnelInIP, bindIP string
+	e.r.DB().Raw(`SELECT in_ip FROM tunnel WHERE id = 25`).Scan(&tunnelInIP)
+	e.r.DB().Raw(`SELECT in_ip FROM forward_port WHERE forward_id = 42`).Scan(&bindIP)
+	if tunnelInIP != "2001:db8::2" || bindIP != "" {
+		t.Fatalf("tunnel in_ip = %q, bind = %q", tunnelInIP, bindIP)
+	}
+	sawDefaultBind := false
+	for _, command := range commands.snapshot() {
+		raw, _ := json.Marshal(command.data)
+		payload := string(raw)
+		if strings.Contains(payload, `"26_tls"`) {
+			t.Fatalf("exit tunnel redeployed for an extra-IP edit: %s %s", command.method, payload)
+		}
+		if strings.Contains(payload, "2001:db8::3") {
+			t.Fatalf("removed extra IP still deployed: %s %s", command.method, payload)
+		}
+		if command.nodeID == 23 && strings.Contains(payload, `"addr":"[::]:1234"`) {
+			sawDefaultBind = true
+		}
+	}
+	if !sawDefaultBind {
+		t.Fatalf("rule was not redeployed on the default listen address: %+v", commands.snapshot())
+	}
+}
+
+func TestForwardBindsOnExtraIP(t *testing.T) {
+	e := newNodeSyncEnv(t)
+	commands := &redeployCommandLog{}
+	e.h.nodeCommandSender = commands.send
+	e.addUserTunnel(7, 7, 25)
+	e.exec(`UPDATE node SET server_ip_v6 = '2001:db8::1', extra_ips = '["2001:db8::2"]' WHERE id = 23`)
+	e.exec(`UPDATE forward_port SET in_ip = '2001:db8::2' WHERE forward_id = 42`)
+	forward, err := e.h.getForwardRecord(42)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := e.h.syncNodeForwardServices(forward); err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, command := range commands.snapshot() {
+		raw, _ := json.Marshal(command.data)
+		found = found || (command.nodeID == 23 && strings.Contains(string(raw), `"addr":"[2001:db8::2]:1234"`))
+	}
+	if !found {
+		t.Fatalf("rule did not bind the extra IP: %+v", commands.snapshot())
+	}
+	var forwards struct {
+		Items []struct {
+			InIP string `json:"inIp"`
+		} `json:"items"`
+	}
+	nodeSyncRequest(t, e.h.forwardList, map[string]interface{}{}, &forwards)
+	if len(forwards.Items) != 1 || forwards.Items[0].InIP != "[2001:db8::2]:1234" {
+		t.Fatalf("rule list = %+v", forwards)
+	}
+}
