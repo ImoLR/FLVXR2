@@ -72,10 +72,10 @@ func (LandingServerUser) TableName() string { return "landing_server_user" }
 
 type LandingNode struct {
 	ID                int64    `gorm:"primaryKey;autoIncrement" json:"id"`
-	UserID            int64    `gorm:"not null;index" json:"userId"`
-	LandingServerID   int64    `gorm:"not null;uniqueIndex:idx_landing_server_port" json:"landingServerId"`
+	UserID            int64    `gorm:"not null;index;index:idx_landing_reuse,priority:1" json:"userId"`
+	LandingServerID   int64    `gorm:"not null;uniqueIndex:idx_landing_server_port;index:idx_landing_reuse,priority:2" json:"landingServerId"`
 	Name              string   `gorm:"not null" json:"name"`
-	Protocol          string   `gorm:"not null" json:"protocol"`
+	Protocol          string   `gorm:"not null;index:idx_landing_reuse,priority:3" json:"protocol"`
 	Port              int      `gorm:"not null;uniqueIndex:idx_landing_server_port" json:"port"`
 	InboundTag        string   `gorm:"not null" json:"inboundTag"`
 	Method            string   `gorm:"not null;default:''" json:"method"`
@@ -95,7 +95,7 @@ type LandingNode struct {
 	TrafficRatio      *float64 `json:"trafficRatio"`
 	ExpiryMode        string   `gorm:"not null;default:'follow_user'" json:"expiryMode"`
 	ExpiresAt         *int64   `json:"expiresAt"`
-	Status            string   `gorm:"not null;default:'active'" json:"status"`
+	Status            string   `gorm:"not null;default:'active';index:idx_landing_reuse,priority:4" json:"status"`
 	AutoDisabled      bool     `gorm:"not null;default:false" json:"autoDisabled"`
 	ExpiredAt         *int64   `json:"expiredAt"`
 	UpBytes           int64    `gorm:"not null;default:0" json:"upBytes"`
@@ -113,7 +113,7 @@ type LandingNode struct {
 	RejectedRevision  int64    `gorm:"not null;default:0" json:"-"`
 	LastCounterAt     int64    `gorm:"not null;default:0" json:"-"`
 	RouteProfileID    *int64   `gorm:"index" json:"routeProfileId"`
-	CreatedTime       int64    `gorm:"not null" json:"createdTime"`
+	CreatedTime       int64    `gorm:"not null;index:idx_landing_reuse,priority:5" json:"createdTime"`
 	UpdatedTime       int64    `gorm:"not null" json:"updatedTime"`
 }
 

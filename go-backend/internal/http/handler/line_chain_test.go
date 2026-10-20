@@ -858,21 +858,21 @@ func TestLineMachineTargetEnforcement(t *testing.T) {
 		ok    bool
 		want  string
 	}{
-		"user manual":            {7, 1, nil, false, "不能手动填写"},
-		"admin manual":           {1, 0, nil, false, "不能手动填写"},
-		"ss landing node":        {7, 1, map[string]interface{}{"remoteAddr": "", "landingNodeId": 91}, false, "VLESS Reality Vision"},
-		"auto node ss2022":       {7, 1, map[string]interface{}{"remoteAddr": "", "landingServerId": 50, "landingProtocol": "ss2022"}, false, "只能使用 VLESS"},
-		"reality landing node":   {7, 1, map[string]interface{}{"remoteAddr": "", "landingNodeId": 90, "inPort": 1701}, true, ""},
-		"auto node reality":      {7, 1, map[string]interface{}{"remoteAddr": "", "landingServerId": 50, "landingProtocol": "vless_reality_vision", "inPort": 1702}, true, ""},
-		"typed own reality node": {7, 1, map[string]interface{}{"remoteAddr": "192.0.2.2:31000", "inPort": 1703}, false, "不能手动填写"},
+		"user manual":                  {7, 1, nil, false, "不能手动填写"},
+		"admin manual":                 {1, 0, nil, false, "不能手动填写"},
+		"ss landing node":              {7, 1, map[string]interface{}{"remoteAddr": "", "landingNodeId": 91}, false, "VLESS Reality Vision"},
+		"legacy server forces reality": {7, 1, map[string]interface{}{"remoteAddr": "", "landingServerId": 50, "landingProtocol": "ss2022", "inPort": 1704}, true, ""},
+		"reality landing node":         {7, 1, map[string]interface{}{"remoteAddr": "", "landingNodeId": 90, "inPort": 1701}, true, ""},
+		"auto node reality":            {7, 1, map[string]interface{}{"remoteAddr": "", "landingServerId": 50, "landingProtocol": "vless_reality_vision", "inPort": 1702}, true, ""},
+		"typed own reality node":       {7, 1, map[string]interface{}{"remoteAddr": "192.0.2.2:31000", "inPort": 1703}, false, "不能手动填写"},
 	} {
 		code, msg := create(tc.uid, tc.role, tc.extra)
 		if tc.ok != (code == 0) || (!tc.ok && !strings.Contains(msg, tc.want)) {
 			t.Errorf("%s: code=%d msg=%q", name, code, msg)
 		}
 	}
-	if n := mustQueryInt(t, e.r, "SELECT COUNT(*) FROM landing_node WHERE user_id = 7"); n != 3 {
-		t.Fatalf("refused auto-create left a landing node: %d nodes", n)
+	if n := mustQueryInt(t, e.r, "SELECT COUNT(*) FROM landing_node WHERE user_id = 7"); n != 2 {
+		t.Fatalf("legacy server targets did not reuse the Reality node: %d nodes", n)
 	}
 	// Loopback typed by a user on a normal tunnel.
 	if code, msg, _ := callAs(t, e.h.forwardCreate, 7, 1, map[string]interface{}{"tunnelId": 30, "name": "lo", "remoteAddr": "127.0.0.1:22", "inPort": 1710}); code == 0 || !strings.Contains(msg, "回环") {

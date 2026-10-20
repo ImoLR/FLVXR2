@@ -63,17 +63,18 @@ type Handler struct {
 	nftablesDomainMu    sync.Mutex
 	nftablesDomainCache map[int64]string
 
-	flowUploads     *flowUploadDeduper
-	flowEnforceMu   sync.Mutex
-	landingPolicyMu sync.Mutex
-	landingSyncMu   sync.Mutex
-	sharedLandingMu sync.Mutex
-	sharedLanding   *sharedLandingState
-	landingEgressMu sync.Mutex // WARP registration
-	egressDNSMu     sync.Mutex
-	egressDNS       map[string]egressDNSEntry
-	landingWarpAt   time.Time
-	egressSyncWG    sync.WaitGroup // background syncs after egress edits (tests wait)
+	flowUploads        *flowUploadDeduper
+	flowEnforceMu      sync.Mutex
+	landingTargetLocks [64]sync.Mutex // legacy lookup through rule commit/rollback; bounded memory
+	landingPolicyMu    sync.Mutex
+	landingSyncMu      sync.Mutex
+	sharedLandingMu    sync.Mutex
+	sharedLanding      *sharedLandingState
+	landingEgressMu    sync.Mutex // WARP registration
+	egressDNSMu        sync.Mutex
+	egressDNS          map[string]egressDNSEntry
+	landingWarpAt      time.Time
+	egressSyncWG       sync.WaitGroup // background syncs after egress edits (tests wait)
 	// landingRates keeps the last two committed counters per landing node for the
 	// monitor's live rates (memory only); see landing_monitor_rates.go.
 	landingRatesOnce sync.Once

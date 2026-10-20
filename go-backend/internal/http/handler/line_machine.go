@@ -17,9 +17,8 @@ import (
 // for admins too; the UI only mirrors it.
 
 const (
-	lineMachineManualMsg   = "线路机隧道不能手动填写目标地址：请选择 VLESS Reality Vision 落地节点、落地服务器或「我自己的节点」"
-	lineMachineRealityMsg  = "线路机隧道只能转发到 VLESS Reality Vision 落地节点"
-	lineMachineProtocolMsg = "线路机隧道上自动创建的落地节点只能使用 VLESS Reality Vision 协议"
+	lineMachineManualMsg  = "线路机隧道不能手动填写目标地址：请选择 VLESS Reality Vision 落地节点或「我自己的节点」"
+	lineMachineRealityMsg = "线路机隧道只能转发到 VLESS Reality Vision 落地节点"
 )
 
 // isLineMachineTunnel reports whether any entry node of the tunnel is a 线路机.
@@ -31,15 +30,13 @@ func (h *Handler) isLineMachineTunnel(tunnelID int64) bool {
 	return err == nil && info != nil && info.LineMachine
 }
 
-// lineMachinePreCheck runs before a landing node could be auto-created: a
-// 落地服务器 target on a 线路机 tunnel must use VLESS Reality Vision.
+// lineMachinePreCheck normalizes legacy server targets before lookup/creation:
+// a 线路机 tunnel always uses VLESS Reality Vision.
 func (h *Handler) lineMachinePreCheck(tunnelID int64, req map[string]interface{}) error {
 	if req == nil || asInt64(req["landingServerId"], 0) <= 0 || !h.isLineMachineTunnel(tunnelID) {
 		return nil
 	}
-	if defaultString(asString(req["landingProtocol"]), "ss2022") != "vless_reality_vision" {
-		return errors.New(lineMachineProtocolMsg)
-	}
+	req["landingProtocol"] = "vless_reality_vision"
 	return nil
 }
 
