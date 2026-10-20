@@ -248,11 +248,13 @@ export function MachineConnChip({
   machine,
   admin = false,
   showLabel = true,
+  label = "整机连接",
   className = "",
 }: {
   machine: MachineView | null | undefined;
   admin?: boolean;
   showLabel?: boolean;
+  label?: string;
   className?: string;
 }) {
   const tone = toneOf(machine);
@@ -271,7 +273,7 @@ export function MachineConnChip({
           type="button"
           onClick={(event) => event.stopPropagation()}
         >
-          {showLabel ? <span>整机连接</span> : null}
+          {showLabel ? <span>{label}</span> : null}
           <span className="font-mono tabular-nums">{value}</span>
           {machine?.protect?.blocking ? (
             <span className="font-semibold">保护中</span>

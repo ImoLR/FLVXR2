@@ -259,6 +259,8 @@ function ServerCard({
                   >
                     {isOnline ? "在线" : "离线"}
                   </span>
+                </div>
+                <div className="mt-1.5">
                   <MachineConnChip admin={admin} machine={machine} />
                 </div>
               </div>
@@ -1637,10 +1639,6 @@ export function MonitorView({ nodeMap, viewMode = "grid" }: MonitorViewProps) {
                             <span className="font-semibold text-sm whitespace-nowrap">
                               {node.name}
                             </span>
-                            <MachineConnChip
-                              admin={isAdmin}
-                              machine={machineFor(node)}
-                            />
                           </div>
                         </TableCell>
                         <TableCell>
@@ -1710,6 +1708,11 @@ export function MonitorView({ nodeMap, viewMode = "grid" }: MonitorViewProps) {
                           <div className="flex flex-col items-center gap-1.5 text-xs font-mono text-default-500 px-1 w-full tabular-nums">
                             <div>TCP {metric ? metric.tcpConns : "-"}</div>
                             <div>UDP {metric ? metric.udpConns : "-"}</div>
+                            <MachineConnChip
+                              admin={isAdmin}
+                              label="整机"
+                              machine={machineFor(node)}
+                            />
                           </div>
                         </TableCell>
                         <TableCell>
