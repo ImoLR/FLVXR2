@@ -21,6 +21,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/go-gost/x/atomicfile"
@@ -28,6 +29,7 @@ import (
 	"github.com/go-gost/x/internal/util/crypto"
 	"github.com/go-gost/x/landing"
 	"github.com/go-gost/x/logsafe"
+	"github.com/go-gost/x/machineprotect"
 	"github.com/go-gost/x/panelconn"
 	"github.com/go-gost/x/registry"
 	"github.com/go-gost/x/service"
@@ -70,6 +72,8 @@ type SystemInfo struct {
 	Load15                 float64                   `json:"load15"`
 	TCPConns               int64                     `json:"tcp_conns"`
 	UDPConns               int64                     `json:"udp_conns"`
+	MachineConns           *machineprotect.Conns     `json:"machine_conns,omitempty"`   // 整机连接数（每 5 秒一次）
+	MachineProtect         *machineprotect.Protect   `json:"machine_protect,omitempty"` // 整机连接保护状态
 	NetInSpeed             int64                     `json:"net_in_speed"`
 	NetOutSpeed            int64                     `json:"net_out_speed"`
 	ServiceName            string                    `json:"service_name,omitempty"` // 服务名
@@ -216,6 +220,9 @@ type WebSocketReporter struct {
 	publicIPReported  bool                     // 是否已上报公网 IP
 	serviceName       string                   // 服务名
 	nftablesMgr       NftablesManagerInterface // nftables manager (platform-specific)
+	nftRef            atomic.Pointer[nftablesRef]
+	protector         *machineprotect.Protector // the one machine protection loop (plan 118)
+	machineSentSeq    uint64                    // last protection sample sent on this connection
 }
 
 var wsDial = func(dialer *websocket.Dialer, rawURL string) (*websocket.Conn, *http.Response, error) {
@@ -255,6 +262,9 @@ func (w *WebSocketReporter) Start() {
 	}
 	go w.egress.run(w.ctx, (&net.Dialer{}).DialContext)
 	go w.ipv6RA.run(w.ctx)
+	if w.protector != nil {
+		go w.protector.Run(w.ctx)
+	}
 	go w.run()
 }
 
@@ -395,6 +405,7 @@ func (w *WebSocketReporter) connect() error {
 	w.conn = conn
 	w.connected = true
 	w.sessionEnded = false
+	w.machineSentSeq = 0 // the first metric of a new session carries the latest sample
 	if scheme := detectWebSocketScheme(usedURL); scheme != "" {
 		w.preferredWSScheme = scheme
 	}
@@ -715,7 +726,8 @@ func buildWebSocketCandidates(addr string, secret string, version string, http i
 
 	query := "/system-info?type=1&secret=" + url.QueryEscape(secret) + "&version=" + url.QueryEscape(version) +
 		"&http=" + strconv.Itoa(http) + "&tls=" + strconv.Itoa(tls) + "&socks=" + strconv.Itoa(socks) +
-		"&blockOther=" + strconv.Itoa(blockOther) + "&panelIpFamily=" + url.QueryEscape(panelconn.Default.Mode())
+		"&blockOther=" + strconv.Itoa(blockOther) + "&panelIpFamily=" + url.QueryEscape(panelconn.Default.Mode()) +
+		"&machineProtect=" + strconv.Itoa(machineProtectVersion)
 
 	schemes := []string{"wss", "ws"}
 	if mappedScheme := mapToWebSocketScheme(explicitScheme); mappedScheme != "" {
@@ -954,6 +966,7 @@ func (w *WebSocketReporter) collectSystemInfo() SystemInfo {
 	}
 
 	raStatus, raDetail := w.ipv6RA.result()
+	machineConns, machineProtect := w.machineReport()
 	return SystemInfo{
 		LandingCapable:         true,
 		LandingEgress:          landing.EgressVersion,
@@ -978,6 +991,8 @@ func (w *WebSocketReporter) collectSystemInfo() SystemInfo {
 		Load15:                 loadInfo.Load15,
 		TCPConns:               connInfo.TCPConns,
 		UDPConns:               connInfo.UDPConns,
+		MachineConns:           machineConns,
+		MachineProtect:         machineProtect,
 		NetInSpeed:             netInSpeed,
 		NetOutSpeed:            netOutSpeed,
 		ServiceName:            w.serviceName,
@@ -1363,6 +1378,9 @@ func (w *WebSocketReporter) routeCommand(cmd CommandMessage) {
 		err = w.handleSetProtocol(cmd.Data)
 		response.Type = "SetProtocolResponse"
 		needSaveConfig = true
+	case "SetMachineProtection":
+		err = w.handleSetMachineProtection(cmd.Data)
+		response.Type = "SetMachineProtectionResponse"
 	case "ApplyLandingDesired":
 		response.Data, err = w.handleApplyLandingDesired(cmd.Data)
 		response.Type = "ApplyLandingDesiredResponse"
@@ -2717,10 +2735,12 @@ func StartWebSocketReporterWithConfig(addr string, secret string, http int, tls 
 		ServiceName string `json:"service_name"`
 	}
 	var cfg LocalConfig
+	configPath := ""
 	configPaths := []string{"config.json", "/etc/flvx_agent/config.json", "/etc/flux_agent/config.json"}
 	for _, path := range configPaths {
 		if b, err := os.ReadFile(path); err == nil {
 			json.Unmarshal(b, &cfg)
+			configPath = path
 			break
 		}
 	}
@@ -2746,6 +2766,7 @@ func StartWebSocketReporterWithConfig(addr string, secret string, http int, tls 
 	reporter.version = version
 	reporter.nodeID = nodeID
 	reporter.serviceName = cfg.ServiceName
+	reporter.initMachineProtection(configDir, configPath)
 
 	// 如果 config.json 中有 node_id，初始化基线管理器
 	if nodeID > 0 {
