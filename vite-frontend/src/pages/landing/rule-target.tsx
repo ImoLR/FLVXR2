@@ -95,7 +95,7 @@ export function RuleLandingTarget({
     : "ss2022";
 
   return (
-    <div className="space-y-3">
+    <div className={lineMachine ? "flvx-landing-text space-y-3" : "space-y-3"}>
       <Select
         description={
           lineMachine
