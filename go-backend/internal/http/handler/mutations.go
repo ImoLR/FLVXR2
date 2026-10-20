@@ -3496,10 +3496,17 @@ func (h *Handler) forwardForceDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Force delete: remove DB record without touching node services.
-	// This is used when nodes are offline or service deletion fails.
-	// Still try to clean up nftables rules as best-effort.
-	if forward != nil && strings.EqualFold(forward.Mode, "wg_path") {
+	// A chain owns both the loopback inbound and its forward services. Try
+	// deleting the services while the rule/ports still exist, but keep force
+	// delete available when a node is offline.
+	chain, chainErr := h.repo.GetForwardChainByForward(id)
+	if chainErr != nil {
+		response.WriteJSON(w, response.ErrDefault(chainErr.Error()))
+		return
+	}
+	if chain != nil {
+		h.cleanupForwardRuntimeBestEffort(forward)
+	} else if forward != nil && strings.EqualFold(forward.Mode, "wg_path") {
 		ports, _ := h.listForwardPorts(id)
 		if err := h.syncWGForwardRule(forward, ports, "DeleteService"); err != nil {
 			fmt.Printf("️ forceDelete WG规则清理异常: %v\n", err)
