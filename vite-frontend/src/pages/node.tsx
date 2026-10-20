@@ -53,6 +53,7 @@ import {
   useDisclosure,
 } from "@/shadcn-bridge/heroui/modal";
 import { Chip } from "@/shadcn-bridge/heroui/chip";
+import { Switch } from "@/shadcn-bridge/heroui/switch";
 import { Spinner } from "@/shadcn-bridge/heroui/spinner";
 import { Alert } from "@/shadcn-bridge/heroui/alert";
 import { Link } from "@/shadcn-bridge/heroui/link";
@@ -161,6 +162,8 @@ interface Node extends LeiKwanNodeDetection {
   landingSupported?: boolean;
   landingServerId?: number;
   defaultUserQuotaBytes?: number;
+  lineMachine?: boolean;
+  landingChain?: number;
   connectionStatus: "online" | "offline";
   systemInfo?: NodeSystemInfo | null;
   copyLoading?: boolean;
@@ -194,6 +197,7 @@ interface NodeForm {
   udpListenAddr: string;
   interfaceName: string;
   defaultUserQuotaBytes: number;
+  lineMachine: boolean;
   extraIPs: string;
   http: number;
   tls: number;
@@ -400,6 +404,7 @@ export default function NodePage() {
     udpListenAddr: "[::]",
     interfaceName: "",
     defaultUserQuotaBytes: 0,
+    lineMachine: false,
     extraIPs: "",
     http: 0,
     tls: 0,
@@ -1159,6 +1164,7 @@ export default function NodePage() {
       udpListenAddr: node.udpListenAddr || "[::]",
       interfaceName: (node as any).interfaceName || "",
       defaultUserQuotaBytes: node.defaultUserQuotaBytes || 0,
+      lineMachine: node.lineMachine === true,
       extraIPs: node.extraIPs || "",
       http: typeof node.http === "number" ? node.http : 1,
       tls: typeof node.tls === "number" ? node.tls : 1,
@@ -1640,6 +1646,7 @@ export default function NodePage() {
         renewalCycle: form.renewalCycle,
         groupId: form.groupId,
         extraIPs: form.extraIPs,
+        lineMachine: form.lineMachine,
         // 分别传递三个字段给后端
         intranetIp: intranetIp?.trim(),
         serverIpV4: serverIpV4?.trim(),
@@ -1711,6 +1718,7 @@ export default function NodePage() {
                     tcpListenAddr: form.tcpListenAddr,
                     udpListenAddr: form.udpListenAddr,
                     interfaceName: form.interfaceName,
+                    lineMachine: form.lineMachine,
                     http: form.http,
                     tls: form.tls,
                     socks: form.socks,
@@ -1756,6 +1764,7 @@ export default function NodePage() {
       udpListenAddr: "[::]",
       interfaceName: "",
       defaultUserQuotaBytes: 0,
+      lineMachine: false,
       extraIPs: "",
       http: 0,
       tls: 0,
@@ -2192,6 +2201,17 @@ export default function NodePage() {
               </h3>
               <NodeIPv6RABadge node={node} />
               <NodeLeiKwanBadge node={node} />
+              {node.lineMachine && (
+                <Chip
+                  className="shrink-0"
+                  color="secondary"
+                  size="sm"
+                  title="线路机：作为隧道入口时，规则只能转发到 VLESS Reality Vision 落地或「我自己的节点」"
+                  variant="flat"
+                >
+                  线路机
+                </Chip>
+              )}
             </div>
             <div className="text-xs text-default-500">
               {node.region ? regionLabel(node.region) : (
@@ -3427,6 +3447,19 @@ export default function NodePage() {
                 <SelectItem key="dual">双栈 (IPv4+IPv6)</SelectItem>
               </Select>
               <Input label="每个用户默认限额 (GB)" description="0 不限；该用户经过本服务器的规则和落地流量合并计算，随用户流量重置日重置" min="0" step="0.01" type="number" value={String(form.defaultUserQuotaBytes / 1073741824)} variant="bordered" onChange={(event) => setForm((prev) => ({ ...prev, defaultUserQuotaBytes: Math.max(0, Math.round(Number(event.target.value) * 1073741824)) }))} />
+              <div className="space-y-1">
+                <div className="flex items-center gap-2 text-sm">
+                  <Switch
+                    aria-label="线路机"
+                    isSelected={form.lineMachine}
+                    onValueChange={(lineMachine) => setForm((prev) => ({ ...prev, lineMachine }))}
+                  />
+                  <span>线路机</span>
+                </div>
+                <p className="text-xs text-default-500">
+                  公网线路（如 DMIT，非专线/IPLC）。作为隧道入口时，规则只能转发到 VLESS Reality Vision 落地或「我自己的节点」；线路机本身不会承载链式节点。
+                </p>
+              </div>
               <Accordion variant="bordered">
                 <AccordionItem
                   key="advanced"

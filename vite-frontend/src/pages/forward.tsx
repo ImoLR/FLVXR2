@@ -1,5 +1,14 @@
 ﻿import { useLocation } from "react-router-dom";
 import { RuleLandingTarget, LandingTargetValue } from "@/pages/landing/rule-target";
+import { ChainLinkButton, ForwardLineBadges } from "@/pages/landing/chain-links";
+import {
+  ChainStatus,
+  ForwardChainInfo,
+  createChainForward,
+  newSubmitKey,
+  updateChainForward,
+  waitChainOperation,
+} from "@/api/line-chain";
 import type {
   ForwardApiItem,
   ForwardClientIPsApiData,
@@ -35,6 +44,7 @@ import { AnimatedPage } from "@/components/animated-page";
 import { SearchBar } from "@/components/search-bar";
 import { Card, CardBody, CardHeader } from "@/shadcn-bridge/heroui/card";
 import { Button } from "@/shadcn-bridge/heroui/button";
+import { Chip } from "@/shadcn-bridge/heroui/chip";
 import { Input } from "@/shadcn-bridge/heroui/input";
 import { Textarea } from "@/shadcn-bridge/heroui/input";
 import { Select, SelectItem, SelectSection } from "@/shadcn-bridge/heroui/select";
@@ -159,8 +169,14 @@ export interface Forward {
   pathName?: string;
   cnBlocked?: boolean;
   cnBlockedReason?: string;
+  chain?: ForwardChainInfo;
+  lineMachine?: boolean;
+  lineNonCompliant?: boolean;
 }
 interface Tunnel {
+  lineMachine?: boolean;
+  chainAvailable?: boolean;
+  chainUnavailableReason?: string;
   entryGroups?: Array<{ key: string; label: string; region: string }>;
   exitRegions?: string[];
   id: number;
@@ -611,7 +627,14 @@ const mapForwardApiItems = (items: ForwardApiItem[]): Forward[] => {
     tunnelTrafficRatio: normalizeTunnelTrafficRatio(forward.tunnelTrafficRatio),
     inIp: forward.inIp || "",
     inPort: forward.inPort ?? 0,
-    remoteAddr: forward.remoteAddr || "",
+    // A chain rule (plan 108) shows the user's own node as its target; the
+    // rule's real 127.0.0.1 target is internal.
+    remoteAddr: (forward as any).chain
+      ? formatChainTarget((forward as any).chain as ForwardChainInfo)
+      : forward.remoteAddr || "",
+    chain: (forward as any).chain as ForwardChainInfo | undefined,
+    lineMachine: (forward as any).lineMachine === true,
+    lineNonCompliant: (forward as any).lineNonCompliant === true,
     landingNodeId: Number(forward.landingNodeId || 0) || undefined,
     strategy: typeof forward.strategy === "string" ? forward.strategy : "fifo",
     status: typeof forward.status === "number" ? forward.status : 0,
@@ -655,6 +678,11 @@ const mapForwardApiItems = (items: ForwardApiItem[]): Forward[] => {
         : "",
   }));
 };
+
+const formatChainTarget = (chain: ForwardChainInfo) =>
+  chain.upstreamHost.includes(":")
+    ? `[${chain.upstreamHost}]:${chain.upstreamPort}`
+    : `${chain.upstreamHost}:${chain.upstreamPort}`;
 
 const ForwardCNBlockedWarning = ({ forward }: { forward: Forward }) => {
   if (!forward.cnBlocked) return null;
@@ -915,6 +943,7 @@ const SortableTableRow = ({
             )}
           </span>
           <ForwardCNBlockedWarning forward={forward} />
+          <ForwardLineBadges forward={forward} />
         </div>
       </TableCell>
       <TableCell className={rowBg}>
@@ -1095,6 +1124,7 @@ const SortableTableRow = ({
           >
             诊断
           </Button>
+          <ChainLinkButton forward={forward} />
           <Button
             className="min-h-7 px-2"
             color="danger"
@@ -1221,6 +1251,7 @@ const SortableCompactTableRow = ({
             )}
           </span>
           <ForwardCNBlockedWarning forward={forward} />
+          <ForwardLineBadges forward={forward} />
         </div>
       </TableCell>
       <TableCell className={`whitespace-nowrap ${rowBg}`}>
@@ -1412,6 +1443,7 @@ const SortableCompactTableRow = ({
           >
             诊断
           </Button>
+          <ChainLinkButton forward={forward} />
           <Button
             className="min-h-7 px-2"
             color="danger"
@@ -1474,6 +1506,10 @@ export default function ForwardPage() {
   const [togglingIds, setTogglingIds] = useState<Set<number>>(new Set());
   const [loading, setLoading] = useState(true);
   const [forwards, setForwards] = useState<Forward[]>([]);
+  const lineNonCompliantCount = useMemo(
+    () => forwards.filter((forward) => forward.lineNonCompliant).length,
+    [forwards],
+  );
   const [tunnels, setTunnels] = useState<Tunnel[]>([]);
   const [allTunnels, setAllTunnels] = useState<Tunnel[]>([]);
   const [formTunnelOptionKey, setFormTunnelOptionKey] = useState("");
@@ -1575,6 +1611,13 @@ export default function ForwardPage() {
   const [isEdit, setIsEdit] = useState(false);
   const [isCopy, setIsCopy] = useState(false);
   const [submitLoading, setSubmitLoading] = useState(false);
+  // 「我自己的节点」(plan 108): one submit key per dialog submission and the
+  // progress of the background preparation on the tunnel exits.
+  const submitKeyRef = useRef("");
+  const chainCancelRef = useRef(false);
+  const [chainProgress, setChainProgress] = useState("");
+  const [chainError, setChainError] = useState("");
+  const [chainRunning, setChainRunning] = useState(false);
   const [deleteLoading, setDeleteLoading] = useState(false);
   const [diagnosisLoading, setDiagnosisLoading] = useState(false);
   const [forwardToDelete, setForwardToDelete] = useState<Forward | null>(null);
@@ -1783,6 +1826,10 @@ export default function ForwardPage() {
 
     return (currentTunnel?.inNodeId?.length || 0) > 1;
   }, [allTunnels, form.tunnelId]);
+  const editingChain = isEdit
+    ? forwards.find((forward) => forward.id === form.id)?.chain
+    : undefined;
+  const selectedLineTunnel = tunnels.find((tunnel) => tunnel.id === form.tunnelId);
   const currentTunnelPortRange = useMemo(() => {
     if (!form.tunnelId) {
       return null;
@@ -2449,7 +2496,11 @@ export default function ForwardPage() {
         newErrors.inPort = `端口 ${currentTunnelPortRange.min}-${currentTunnelPortRange.max} 超出允许范围`;
       }
     }
-    if (form.mode !== "wg_path" && form.targetMode === "node") {
+    if (form.mode !== "wg_path" && form.targetMode === "chain") {
+      if (form.mode !== "gost") newErrors.remoteAddr = "「我自己的节点」只支持 gost 模式";
+      else if (!(form.chainLink || "").trim() && !(isEdit && editingChain))
+        newErrors.remoteAddr = "请粘贴你的节点链接";
+    } else if (form.mode !== "wg_path" && form.targetMode === "node") {
       if (!form.landingNodeId) newErrors.remoteAddr = "请选择我的落地节点";
     } else if (form.mode !== "wg_path" && form.targetMode === "server") {
       if (!form.landingServerId) newErrors.remoteAddr = "请选择落地服务器";
@@ -2487,6 +2538,13 @@ export default function ForwardPage() {
 
     return Object.keys(newErrors).length === 0;
   };
+  const resetChainDialog = () => {
+    submitKeyRef.current = newSubmitKey();
+    chainCancelRef.current = false;
+    setChainProgress("");
+    setChainError("");
+    setChainRunning(false);
+  };
   // 新增规则
   const handleAdd = () => {
     setIsEdit(false);
@@ -2515,6 +2573,7 @@ export default function ForwardPage() {
       snatEnabled: true,
     });
     setErrors({});
+    resetChainDialog();
     setModalOpen(true);
   };
   useEffect(() => {
@@ -2536,9 +2595,10 @@ export default function ForwardPage() {
       tunnelId: forward.tunnelId,
       inPort: forward.inPort,
       inIp: forward.inIp || "",
-      remoteAddr: forward.remoteAddr.split(",").join("\n"),
+      remoteAddr: forward.chain ? "" : forward.remoteAddr.split(",").join("\n"),
       landingNodeId: forward.landingNodeId,
-      targetMode: forward.landingNodeId ? "node" : "manual",
+      targetMode: forward.chain ? "chain" : forward.landingNodeId ? "node" : "manual",
+      chainLink: "",
       interfaceName: forward.interfaceName || "",
       strategy: forward.strategy || "fifo",
       speedId: normalizeSpeedId(forward.speedId),
@@ -2556,6 +2616,7 @@ export default function ForwardPage() {
       snatEnabled: forward.snatEnabled ?? true,
     });
     setErrors({});
+    resetChainDialog();
     setModalOpen(true);
   };
   // 复制规则
@@ -2569,9 +2630,10 @@ export default function ForwardPage() {
       tunnelId: forward.tunnelId,
       inPort: null,
       inIp: forward.inIp || "",
-      remoteAddr: forward.remoteAddr.split(",").join("\n"),
+      remoteAddr: forward.chain ? "" : forward.remoteAddr.split(",").join("\n"),
       landingNodeId: forward.landingNodeId,
-      targetMode: forward.landingNodeId ? "node" : "manual",
+      targetMode: forward.chain ? "chain" : forward.landingNodeId ? "node" : "manual",
+      chainLink: "",
       interfaceName: forward.interfaceName || "",
       strategy: forward.strategy || "fifo",
       speedId: normalizeSpeedId(forward.speedId),
@@ -2589,6 +2651,7 @@ export default function ForwardPage() {
       snatEnabled: forward.snatEnabled ?? true,
     });
     setErrors({});
+    resetChainDialog();
     setModalOpen(true);
   };
   // 查看流量归零日志
@@ -2715,13 +2778,25 @@ export default function ForwardPage() {
     const nextTunnelId = parseInt(tunnelId);
     const options = tunnelInIpOptionMap.get(nextTunnelId) || [];
 
+    const nextTunnel = tunnels.find((tunnel) => tunnel.id === nextTunnelId);
+
     setInIpTouched(false);
     setForm((prev) => {
       const tunnelChanged = prev.tunnelId !== nextTunnelId;
+      let targetMode = prev.targetMode;
+
+      if (prev.mode !== "wg_path") {
+        if (nextTunnel?.lineMachine && (!targetMode || targetMode === "manual")) {
+          targetMode = nextTunnel.chainAvailable ? "chain" : "node";
+        } else if (!nextTunnel?.lineMachine && targetMode === "chain") {
+          targetMode = "manual";
+        }
+      }
 
       return {
         ...prev,
         tunnelId: nextTunnelId,
+        targetMode,
         inIp: tunnelChanged ? "" : options.includes(prev.inIp) ? prev.inIp : "",
       };
     });
@@ -2736,6 +2811,91 @@ export default function ForwardPage() {
         : "remoteAddr";
 
     setErrors((current) => ({ ...current, [field]: message }));
+  };
+  // 「我自己的节点」: save, then follow the preparation on the tunnel exits.
+  const submitChain = async () => {
+    setSubmitLoading(true);
+    setChainError("");
+    setChainProgress("");
+    try {
+      const payload: Record<string, unknown> = {
+        name: form.name,
+        tunnelId: form.tunnelId,
+        inPort: form.inPort,
+        targetMode: "chain",
+        chainLink: (form.chainLink || "").trim(),
+        mode: "gost",
+        strategy: "fifo",
+        speedId: normalizeSpeedId(form.speedId),
+        maxConnections: form.maxConnections,
+        maxClientIps: form.maxClientIps,
+        trafficLimit: form.trafficLimit,
+        expiryTime: form.expiryTime,
+        speedLimitEnabled: false,
+        speedLimit: 0,
+      };
+      let res;
+
+      if (isEdit) {
+        payload.id = form.id;
+        if (inIpTouched) payload.inIp = form.inIp || "";
+        res = await updateChainForward(payload);
+      } else {
+        payload.inIp = form.inIp || undefined;
+        payload.idempotencyKey = submitKeyRef.current;
+        if (isAdmin && form.userId) payload.userId = form.userId;
+        res = await createChainForward(payload);
+      }
+      if (res.code !== 0) {
+        setChainError(res.msg || "操作失败");
+        toast.error(res.msg || "操作失败");
+
+        return;
+      }
+      const status = res.data as ChainStatus | undefined;
+
+      if (!status?.chainId || !status.opStartedAt) {
+        toast.success(isEdit ? "修改成功" : "创建成功");
+        setModalOpen(false);
+        await refreshForwardList(false);
+
+        return;
+      }
+      chainCancelRef.current = false;
+      setChainRunning(true);
+      setChainProgress(status.progress || "正在准备出口…");
+      const final = await waitChainOperation(
+        status.chainId,
+        status.opStartedAt,
+        (current) => setChainProgress(current.progress || "正在处理…"),
+        () => chainCancelRef.current,
+      );
+
+      setChainRunning(false);
+      setChainProgress("");
+      if (!final) {
+        if (!chainCancelRef.current)
+          setChainError("仍在后台处理，请稍后刷新规则列表查看结果");
+        await refreshForwardList(false);
+
+        return;
+      }
+      if (final.error || final.state === "failed") {
+        setChainError(final.error || "操作失败");
+        submitKeyRef.current = newSubmitKey();
+        await refreshForwardList(false);
+
+        return;
+      }
+      toast.success(isEdit ? "修改成功" : "创建成功");
+      setModalOpen(false);
+      await refreshForwardList(false);
+    } catch {
+      toast.error("操作失败");
+    } finally {
+      setChainRunning(false);
+      setSubmitLoading(false);
+    }
   };
   // 提交表单
   const handleSubmit = async () => {
@@ -2758,6 +2918,12 @@ export default function ForwardPage() {
           duration: 5000,
         },
       );
+
+      return;
+    }
+
+    if (form.mode !== "wg_path" && form.targetMode === "chain") {
+      await submitChain();
 
       return;
     }
@@ -2836,6 +3002,9 @@ export default function ForwardPage() {
         if (isAdmin && form.userId) {
           createData.userId = form.userId;
         }
+        // One key per dialog submission: a double click or client retry
+        // cannot create the rule (or an auto-created landing node) twice.
+        createData.idempotencyKey = submitKeyRef.current;
 
         res = await createForward(createData);
       }
@@ -4596,6 +4765,7 @@ export default function ForwardPage() {
             </div>
           </div>
           <ForwardCNBlockedWarning forward={forward} />
+          <ForwardLineBadges forward={forward} />
         </CardHeader>
         {/* 卡片视图卡片布局显示 */}
         <CardBody className="flex flex-1 flex-col pt-0 pb-3 md:pt-0 md:pb-3">
@@ -4781,6 +4951,11 @@ export default function ForwardPage() {
               删除
             </Button>
           </div>
+          {forward.chain?.state === "active" && (
+            <div className="mt-1.5 flex">
+              <ChainLinkButton className="flex-1 min-h-8" forward={forward} />
+            </div>
+          )}
         </CardBody>
       </Card>
     );
@@ -4912,6 +5087,16 @@ export default function ForwardPage() {
               >
                 导出
               </Button>
+              {isAdmin && lineNonCompliantCount > 0 && (
+                <Chip
+                  color="warning"
+                  size="sm"
+                  title="线路机隧道上目标不是 VLESS Reality Vision 落地或「我自己的节点」的规则；仍在运行，修改目标后即合规"
+                  variant="flat"
+                >
+                  线路机不合规 {lineNonCompliantCount} 条
+                </Chip>
+              )}
               <Button
                 color="primary"
                 size="sm"
@@ -5621,7 +5806,10 @@ export default function ForwardPage() {
         placement="center"
         scrollBehavior="outside"
         size="lg"
-        onOpenChange={setModalOpen}
+        onOpenChange={(open) => {
+          if (!open) chainCancelRef.current = true;
+          setModalOpen(open);
+        }}
       >
         <ModalContent>
           {(onClose) => (
@@ -5867,8 +6055,8 @@ export default function ForwardPage() {
                   <div className="space-y-4 pb-4">
                     {!(form.mode === "wg_path" && form.wgRuleType === "cidr") && (
                       <>
-                    {form.mode !== "wg_path" && <RuleLandingTarget value={form} userId={form.userId || tokenUserId || 0} onChange={(target) => { setForm((prev) => ({ ...prev, ...target })); setErrors((prev) => ({ ...prev, remoteAddr: "" })); }} />}
-                    {form.mode !== "wg_path" && form.targetMode && form.targetMode !== "manual" && errors.remoteAddr && <p className="text-sm text-danger">{errors.remoteAddr}</p>}
+                    {form.mode !== "wg_path" && <RuleLandingTarget chainError={form.targetMode === "chain" ? errors.remoteAddr : undefined} chainSummary={editingChain?.summary} line={selectedLineTunnel} value={form} userId={form.userId || tokenUserId || 0} onChange={(target) => { setForm((prev) => ({ ...prev, ...target })); setErrors((prev) => ({ ...prev, remoteAddr: "" })); setChainError(""); }} />}
+                    {form.mode !== "wg_path" && form.targetMode && form.targetMode !== "manual" && form.targetMode !== "chain" && errors.remoteAddr && <p className="text-sm text-danger">{errors.remoteAddr}</p>}
                     {(!form.targetMode || form.targetMode === "manual" || form.mode === "wg_path") && <Textarea
                       description="格式: IP:端口 或 域名:端口，支持多个地址（每行一个）"
                       errorMessage={errors.remoteAddr}
@@ -6080,6 +6268,24 @@ export default function ForwardPage() {
                     </div>
                   )}
                 </div>
+                {form.mode !== "wg_path" && form.targetMode === "chain" && (chainRunning || chainError) && (
+                  <div className="flvx-landing-text mt-3 space-y-1 rounded-lg border border-divider p-3 text-sm">
+                    {chainRunning && (
+                      <div className="flex items-center gap-2 text-default-600">
+                        <Spinner size="sm" />
+                        <span>{chainProgress || "正在准备出口…"}</span>
+                      </div>
+                    )}
+                    {chainRunning && (
+                      <p className="text-xs text-default-500">
+                        可以关闭弹窗，系统会在后台继续，完成后规则会出现在列表中。
+                      </p>
+                    )}
+                    {!chainRunning && chainError && (
+                      <p className="text-danger">{chainError}</p>
+                    )}
+                  </div>
+                )}
               </ModalBody>
               <ModalFooter>
                 <Button variant="flat" onPress={onClose}>

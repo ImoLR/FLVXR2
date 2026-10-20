@@ -41,6 +41,9 @@ export interface LandingServer {
   sharedSyncError?: string;
   sharedAvailable?: boolean;
   defaultUserQuotaBytes?: number;
+  // plan 108: exit landing set up only for 「我自己的节点」 (admin view)
+  chainOnly?: boolean;
+  chainNodeCount?: number;
   id: number;
   source: "native" | "shared";
   nodeId: number;

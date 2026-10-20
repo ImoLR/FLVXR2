@@ -9,29 +9,53 @@ import {
   landingProtocolLabel,
   landingServers,
 } from "@/api/landing";
+import { ChainTargetInput } from "@/pages/landing/chain-target";
 import { Select, SelectItem } from "@/shadcn-bridge/heroui/select";
 
 export interface LandingTargetValue {
-  targetMode?: "manual" | "node" | "server";
+  targetMode?: "manual" | "node" | "server" | "chain";
   landingNodeId?: number;
   landingServerId?: number;
   landingProtocol?: LandingProtocol;
+  chainLink?: string;
 }
+
+// 线路机 tunnels (plan 108) only allow VLESS Reality Vision landings or the
+// user's own node through the tunnel exit; manual targets are hidden.
+export interface LineTunnelInfo {
+  lineMachine?: boolean;
+  chainAvailable?: boolean;
+  chainUnavailableReason?: string;
+}
+
 export function RuleLandingTarget({
   value,
   userId,
   onChange,
+  line,
+  chainSummary,
+  chainError,
 }: {
   value: LandingTargetValue;
   userId: number;
   onChange: (value: LandingTargetValue) => void;
+  line?: LineTunnelInfo;
+  chainSummary?: string;
+  chainError?: string;
 }) {
   const [nodes, setNodes] = useState<LandingNode[]>([]);
   const [servers, setServers] = useState<LandingServer[]>([]);
+  const lineMachine = Boolean(line?.lineMachine);
   const mode = value.targetMode || "manual";
+  const realityOnly = (protocols: LandingProtocol[]) =>
+    lineMachine
+      ? protocols.filter((protocol) => protocol === "vless_reality_vision")
+      : protocols;
+
   useEffect(() => {
-    if (mode === "manual") return;
+    if (mode === "manual" || mode === "chain") return;
     let disposed = false;
+
     void Promise.all([landingNodes(), landingServers()]).then(
       ([nodeRes, serverRes]) => {
         if (disposed) return;
@@ -45,21 +69,40 @@ export function RuleLandingTarget({
         if (serverRes.code === 0)
           setServers(
             (serverRes.data || []).filter(
-              (server) => server.status === "active" && server.sharedAvailable !== false,
+              (server) =>
+                server.status === "active" && server.sharedAvailable !== false,
             ),
           );
         else toast.error(serverRes.msg);
       },
     );
+
     return () => {
       disposed = true;
     };
   }, [mode, userId]);
   const server = servers.find((item) => item.id === value.landingServerId);
+  const visibleNodes = lineMachine
+    ? nodes.filter((node) => node.protocol === "vless_reality_vision")
+    : nodes;
+  const visibleServers = lineMachine
+    ? servers.filter((item) =>
+        (item.protocols || []).includes("vless_reality_vision"),
+      )
+    : servers;
+  const defaultProtocol: LandingProtocol = lineMachine
+    ? "vless_reality_vision"
+    : "ss2022";
 
   return (
     <div className="space-y-3">
       <Select
+        description={
+          lineMachine
+            ? "线路机隧道只能转发到 VLESS Reality Vision 落地，或经隧道出口连接你自己的节点"
+            : undefined
+        }
+        disabledKeys={lineMachine && !line?.chainAvailable ? ["chain"] : []}
         label="目标类型"
         selectedKeys={[mode]}
         variant="bordered"
@@ -70,17 +113,34 @@ export function RuleLandingTarget({
             ) as LandingTargetValue["targetMode"],
             landingNodeId: undefined,
             landingServerId: undefined,
-            landingProtocol: "ss2022",
+            landingProtocol: defaultProtocol,
+            chainLink: "",
           })
         }
       >
-        <SelectItem key="manual">手动填写</SelectItem>
-        <SelectItem key="node">我的落地节点</SelectItem>
-        <SelectItem key="server">落地服务器（自动建节点）</SelectItem>
+        {[
+          ...(lineMachine
+            ? []
+            : [<SelectItem key="manual">手动填写</SelectItem>]),
+          <SelectItem key="node">我的落地节点</SelectItem>,
+          <SelectItem key="server">落地服务器（自动建节点）</SelectItem>,
+          ...(lineMachine
+            ? [<SelectItem key="chain">我自己的节点</SelectItem>]
+            : []),
+        ]}
       </Select>
+      {lineMachine && !line?.chainAvailable && line?.chainUnavailableReason && (
+        <p className="text-xs text-default-500">
+          「我自己的节点」暂不可用：{line.chainUnavailableReason}
+        </p>
+      )}
       {mode === "node" && (
         <Select
-          description="只能选择规则所属用户自己的节点"
+          description={
+            lineMachine
+              ? "只列出 VLESS Reality Vision 节点"
+              : "只能选择规则所属用户自己的节点"
+          }
           label="我的落地节点"
           placeholder="请选择落地节点"
           selectedKeys={
@@ -91,7 +151,7 @@ export function RuleLandingTarget({
             onChange({ ...value, landingNodeId: Number(Array.from(keys)[0]) })
           }
         >
-          {nodes.map((node) => (
+          {visibleNodes.map((node) => (
             <SelectItem key={String(node.id)}>
               {node.name} · {landingProtocolLabel(node.protocol)} ·{" "}
               {node.serverName || ""}
@@ -111,16 +171,18 @@ export function RuleLandingTarget({
             variant="bordered"
             onSelectionChange={(keys) => {
               const id = Number(Array.from(keys)[0]);
+
               onChange({
                 ...value,
                 landingServerId: id,
                 landingProtocol:
-                  servers.find((item) => item.id === id)?.protocols[0] ||
-                  "ss2022",
+                  realityOnly(
+                    servers.find((item) => item.id === id)?.protocols || [],
+                  )[0] || defaultProtocol,
               });
             }}
           >
-            {servers.map((item) => (
+            {visibleServers.map((item) => (
               <SelectItem key={String(item.id)}>
                 {item.name} · {item.flowType === 2 ? "双向" : "单向"}{" "}
                 {item.trafficRatio}×
@@ -128,8 +190,18 @@ export function RuleLandingTarget({
             ))}
           </Select>
           <Select
+            description={
+              lineMachine
+                ? "线路机隧道固定使用 VLESS Reality Vision"
+                : undefined
+            }
+            isDisabled={lineMachine}
             label="协议模板"
-            selectedKeys={[value.landingProtocol || "ss2022"]}
+            selectedKeys={[
+              lineMachine
+                ? "vless_reality_vision"
+                : value.landingProtocol || "ss2022",
+            ]}
             variant="bordered"
             onSelectionChange={(keys) =>
               onChange({
@@ -138,17 +210,25 @@ export function RuleLandingTarget({
               })
             }
           >
-            {(server?.protocols || ["ss2022", "vless_reality_vision"]).map(
-              (protocol) => (
-                <SelectItem key={protocol}>
-                  {landingProtocolLabel(protocol)}
-                </SelectItem>
-              ),
-            )}
+            {realityOnly(
+              server?.protocols || ["ss2022", "vless_reality_vision"],
+            ).map((protocol) => (
+              <SelectItem key={protocol}>
+                {landingProtocolLabel(protocol)}
+              </SelectItem>
+            ))}
           </Select>
         </>
       )}
-      {mode !== "manual" && (
+      {mode === "chain" && (
+        <ChainTargetInput
+          currentSummary={chainSummary}
+          error={chainError}
+          value={value.chainLink || ""}
+          onChange={(chainLink) => onChange({ ...value, chainLink })}
+        />
+      )}
+      {mode !== "manual" && mode !== "chain" && (
         <p className="text-xs text-default-500">
           本人落地不重复计入用户总流量，按隧道与落地较贵的费率计费。此规则只使用一个落地目标。
         </p>
