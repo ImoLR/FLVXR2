@@ -617,3 +617,148 @@ func TestMachineProtectionNetnsResources(t *testing.T) {
 	}
 	evidence(t, "idle table (no hooked chain = no per-packet work):\n%s", strings.TrimSpace(nftList(t)))
 }
+
+// Per-packet cost: throughput of one established TCP flow (client ns → business
+// port on the node) with no table, with the idle table (sets + counter, no hook)
+// and while blocking (the flow passes the first rule, ct state ! new return).
+func TestMachineProtectionNetnsPerPacketCost(t *testing.T) {
+	clientNS, _ := e2eEnv(t)
+	ln, err := net.Listen("tcp", e2eNodeIP+":20600")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			go func() { defer c.Close(); _, _ = io.Copy(io.Discard, c) }()
+		}
+	}()
+	base := t.TempDir()
+	p := machineprotect.New(machineprotect.Options{RunDir: filepath.Join(base, "run"), StateDir: base,
+		Ports:        func() machineprotect.PortSet { return machineprotect.PortSet{TCP: []int{20600}} },
+		HelperActive: func(context.Context) bool { return false }, Interval: 50 * time.Millisecond, Logf: func(string) {}})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go p.Run(ctx)
+	measure := func(label string) float64 {
+		c, err := dialIn(t, clientNS, "tcp", e2eNodeIP+":20600", time.Second)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer c.Close()
+		return func() float64 {
+			buf := make([]byte, 256<<10)
+			var sent int64
+			start := time.Now()
+			for time.Since(start) < 1500*time.Millisecond {
+				n, err := c.Write(buf)
+				if err != nil {
+					t.Fatalf("%s: %v", label, err)
+				}
+				sent += int64(n)
+			}
+			return float64(sent*8) / time.Since(start).Seconds() / 1e9
+		}()
+	}
+	results := map[string][]float64{}
+	for round := 0; round < 3; round++ {
+		p.Configure(machineprotect.Settings{Enabled: false})
+		waitSnap(t, p, "no table", func(s *machineprotect.Snapshot) bool { return !s.Protect.Enabled })
+		results["no table"] = append(results["no table"], measure("no table"))
+		p.Configure(machineprotect.Settings{Enabled: true, MaxTotal: 1_000_000})
+		waitSnap(t, p, "idle table", func(s *machineprotect.Snapshot) bool { return s.Protect.Enabled && !s.Protect.Blocking })
+		results["idle table"] = append(results["idle table"], measure("idle table"))
+		// Open the flow first, then block: an existing connection keeps flowing.
+		c, err := dialIn(t, clientNS, "tcp", e2eNodeIP+":20600", time.Second)
+		if err != nil {
+			t.Fatal(err)
+		}
+		p.Configure(machineprotect.Settings{Enabled: true, MaxTotal: 1})
+		waitSnap(t, p, "blocking", func(s *machineprotect.Snapshot) bool { return s.Protect.Blocking })
+		buf := make([]byte, 256<<10)
+		var sent int64
+		start := time.Now()
+		for time.Since(start) < 1500*time.Millisecond {
+			n, err := c.Write(buf)
+			if err != nil {
+				t.Fatalf("blocking: %v", err)
+			}
+			sent += int64(n)
+		}
+		results["blocking (existing flow)"] = append(results["blocking (existing flow)"], float64(sent*8)/time.Since(start).Seconds()/1e9)
+		c.Close()
+	}
+	for _, k := range []string{"no table", "idle table", "blocking (existing flow)"} {
+		v := results[k]
+		evidence(t, "per-packet cost: %-26s %.2f / %.2f / %.2f Gbit/s (3 rounds, one TCP flow over veth)", k, v[0], v[1], v[2])
+	}
+}
+
+// Flows that existed before conntrack was enabled in the namespace (no other
+// nft tables here, unlike a real FLVX node with its flvx NAT table): an idle TCP
+// connection and an active UDP flow must survive the start of blocking.
+func TestMachineProtectionNetnsUntrackedFlows(t *testing.T) {
+	clientNS, _ := e2eEnv(t)
+	if out, _ := exec.Command("nft", "list", "tables").CombinedOutput(); len(strings.TrimSpace(string(out))) != 0 {
+		t.Fatalf("namespace not clean: %s", out)
+	}
+	ln, err := net.Listen("tcp", e2eNodeIP+":20700")
+	if err != nil {
+		t.Fatal(err)
+	}
+	echoTCP(t, ln)
+	pc, err := net.ListenPacket("udp", e2eNodeIP+":20701")
+	if err != nil {
+		t.Fatal(err)
+	}
+	echoUDP(t, pc)
+	tcpFlow, err := dialIn(t, clientNS, "tcp", e2eNodeIP+":20700", time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tcpFlow.Close()
+	udpFlow, err := dialIn(t, clientNS, "udp", e2eNodeIP+":20701", time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer udpFlow.Close()
+	if roundTrip(tcpFlow, "pre") != nil || roundTrip(udpFlow, "pre") != nil {
+		t.Fatal("flows not working before protection")
+	}
+	base := t.TempDir()
+	p := machineprotect.New(machineprotect.Options{RunDir: filepath.Join(base, "run"), StateDir: base,
+		Ports:        func() machineprotect.PortSet { return machineprotect.PortSet{TCP: []int{20700}, UDP: []int{20701}} },
+		HelperActive: func(context.Context) bool { return false }, Interval: 300 * time.Millisecond, Logf: func(string) {}})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	stop := make(chan struct{})
+	go func() { // the UDP flow stays active, the TCP connection idle
+		for {
+			select {
+			case <-stop:
+				return
+			case <-time.After(100 * time.Millisecond):
+				_ = roundTrip(udpFlow, "keep")
+			}
+		}
+	}()
+	p.Configure(machineprotect.Settings{Enabled: true, MaxTotal: 1}) // over the cap at once
+	go p.Run(ctx)
+	first := waitSnap(t, p, "table built", func(s *machineprotect.Snapshot) bool { return s.Protect.Enabled })
+	waitSnap(t, p, "blocking", func(s *machineprotect.Snapshot) bool { return s.Protect.Blocking })
+	close(stop)
+	time.Sleep(200 * time.Millisecond)
+	tcpOK := roundTrip(tcpFlow, "after") == nil
+	udpOK := roundTrip(udpFlow, "after") == nil
+	newTCP := newTCPWorks(t, clientNS, e2eNodeIP+":20700")
+	newUDP := newUDPWorks(t, clientNS, e2eNodeIP+":20701")
+	evidence(t, "untracked flows: first sample blocking=%t (warm-up), then blocking; idle pre-existing TCP works=%t, active pre-existing UDP works=%t, new TCP works=%t, new UDP works=%t",
+		first.Protect.Blocking, tcpOK, udpOK, newTCP, newUDP)
+	if first.Protect.Blocking || !tcpOK || !udpOK || newTCP || newUDP {
+		t.Fatal("untracked flows: unexpected result")
+	}
+}

@@ -233,8 +233,10 @@ func (p *Protector) applyCap(s Settings, conns Conns, connErr error, ports PortS
 	}
 	if err := p.guard.Ensure(ports, want); err != nil {
 		*problems = append(*problems, "防护规则更新失败: "+err.Error())
-		want = p.guard.Blocking()
 	}
+	// The kernel state wins: a freshly built table starts idle and blocks from
+	// the next sample on (conntrack first learns the existing flows).
+	want = p.guard.Blocking()
 	if want != p.blocking {
 		if want {
 			p.logf("🛡️ 整机连接 %d ≥ 上限 %d：开始丢弃业务端口的新连接（低于 %d 自动解除）", conns.Total, s.MaxTotal, ReleaseLevel(s.MaxTotal))
