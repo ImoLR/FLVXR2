@@ -11,7 +11,11 @@ import {
 import { ChainTargetInput } from "@/pages/landing/chain-target";
 import { CreateLandingNodeDialog } from "@/pages/landing/create-node";
 import { Button } from "@/shadcn-bridge/heroui/button";
-import { Select, SelectItem, SelectSection } from "@/shadcn-bridge/heroui/select";
+import {
+  Select,
+  SelectItem,
+  SelectSection,
+} from "@/shadcn-bridge/heroui/select";
 
 export interface LandingTargetValue {
   targetMode?: "manual" | "node" | "chain";
@@ -60,7 +64,9 @@ export function RuleLandingTarget({
       ([nodeRes, serverRes]) => {
         if (disposed) return;
         if (nodeRes.code === 0)
-          setNodes((nodeRes.data || []).filter((node) => node.userId === userId));
+          setNodes(
+            (nodeRes.data || []).filter((node) => node.userId === userId),
+          );
         else toast.error(nodeRes.msg);
         if (serverRes.code === 0) setServers(serverRes.data || []);
         else toast.error(serverRes.msg);
@@ -82,12 +88,16 @@ export function RuleLandingTarget({
       server.status !== "active" ||
       server.sharedAvailable === false ||
       (server.availableUntil && server.availableUntil <= Date.now())
-    ) return "服务器不可用";
+    )
+      return "服务器不可用";
     if (
       node.status !== "active" ||
       node.deletePending ||
+      (node.trafficLimitBytes > 0 &&
+        node.billedIn + node.billedOut >= node.trafficLimitBytes) ||
       (node.effectiveExpiresAt && node.effectiveExpiresAt <= Date.now())
-    ) return "已停用";
+    )
+      return "已停用";
     if (lineMachine && node.protocol !== "vless_reality_vision")
       return "线路机需要 VLESS Reality Vision";
 
@@ -138,12 +148,16 @@ export function RuleLandingTarget({
         <>
           <Select
             description="只能选择规则所属用户自己的节点"
-            disabledKeys={nodes.filter(disabledReason).map((node) => String(node.id))}
+            disabledKeys={nodes
+              .filter(disabledReason)
+              .map((node) => String(node.id))}
             isDisabled={loading}
             label="我的落地节点"
             listboxVariant="grouped"
             placeholder={loading ? "正在加载…" : "请选择落地节点"}
-            selectedKeys={value.landingNodeId ? [String(value.landingNodeId)] : []}
+            selectedKeys={
+              value.landingNodeId ? [String(value.landingNodeId)] : []
+            }
             variant="bordered"
             onSelectionChange={(keys) =>
               onChange({ ...value, landingNodeId: Number(Array.from(keys)[0]) })
@@ -151,10 +165,13 @@ export function RuleLandingTarget({
           >
             {groups.map((id) => {
               const server = servers.find((item) => item.id === id);
-              const serverNodes = nodes.filter((node) => node.landingServerId === id);
+              const serverNodes = nodes.filter(
+                (node) => node.landingServerId === id,
+              );
               const first = serverNodes[0];
               const flowType = server?.flowType ?? first.effectiveFlowType;
-              const ratio = server?.trafficRatio ?? first.effectiveTrafficRatio ?? 1;
+              const ratio =
+                server?.trafficRatio ?? first.effectiveTrafficRatio ?? 1;
 
               return (
                 <SelectSection
@@ -162,8 +179,12 @@ export function RuleLandingTarget({
                   title={`${server?.name || first.serverName || "落地服务器"} · ${flowType === 2 ? "双向" : "单向"} ${ratio}×`}
                 >
                   {serverNodes.map((node) => (
-                    <SelectItem key={String(node.id)} description={disabledReason(node)}>
-                      {node.name} · {landingProtocolLabel(node.protocol)} · {node.port}
+                    <SelectItem
+                      key={String(node.id)}
+                      description={disabledReason(node)}
+                    >
+                      {node.name} · {landingProtocolLabel(node.protocol)} ·{" "}
+                      {node.port}
                     </SelectItem>
                   ))}
                 </SelectSection>
@@ -171,7 +192,9 @@ export function RuleLandingTarget({
             })}
           </Select>
           {!loading && !nodes.some((node) => !disabledReason(node)) && (
-            <p className="text-sm text-default-500">暂无可用的落地节点，可先新建一个。</p>
+            <p className="text-sm text-default-500">
+              暂无可用的落地节点，可先新建一个。
+            </p>
           )}
           <Button
             color="success"
@@ -208,7 +231,9 @@ export function RuleLandingTarget({
             const res = await landingNodes();
 
             if (res.code === 0) {
-              setNodes((res.data || []).filter((item) => item.userId === userId));
+              setNodes(
+                (res.data || []).filter((item) => item.userId === userId),
+              );
             } else {
               setNodes((previous) => [...previous, node]);
               toast.error(res.msg);

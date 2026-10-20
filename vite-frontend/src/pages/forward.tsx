@@ -4947,7 +4947,8 @@ export default function ForwardPage() {
               删除
             </Button>
           </div>
-          {(forward.chain?.state === "active" || (!forward.chain && forward.landingNodeId)) && (
+          {(forward.chain?.state === "active" ||
+            (!forward.chain && Boolean(forward.landingNodeId))) && (
             <div className="mt-1.5 flex">
               <ChainLinkButton className="flex-1 min-h-8" forward={forward} />
             </div>

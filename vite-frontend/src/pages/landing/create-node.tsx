@@ -72,6 +72,8 @@ export function CreateLandingNodeDialog({
           node.status === "active" &&
           !node.deletePending &&
           node.serverAvailable !== false &&
+          (!node.trafficLimitBytes ||
+            node.billedIn + node.billedOut < node.trafficLimitBytes) &&
           (!node.effectiveExpiresAt || node.effectiveExpiresAt > Date.now()),
       )
     : undefined;
@@ -135,7 +137,9 @@ export function CreateLandingNodeDialog({
               variant="bordered"
               onSelectionChange={(keys) => {
                 const id = Number(Array.from(keys)[0]);
-                const selected = availableServers.find((item) => item.id === id);
+                const selected = availableServers.find(
+                  (item) => item.id === id,
+                );
 
                 setServerId(id);
                 setProtocol(
@@ -171,9 +175,9 @@ export function CreateLandingNodeDialog({
           {admin &&
             (ownerId !== undefined ? (
               <Input
+                readOnly
                 description="节点归规则所属用户，按该用户的服务器授权和节点上限检查"
                 label="所属用户"
-                readOnly
                 value={ownerName || `用户 ${userId}`}
                 variant="bordered"
               />
@@ -199,7 +203,9 @@ export function CreateLandingNodeDialog({
             ))}
           <Select
             description={
-              lineMachine ? "线路机隧道固定使用 VLESS Reality Vision" : undefined
+              lineMachine
+                ? "线路机隧道固定使用 VLESS Reality Vision"
+                : undefined
             }
             isDisabled={lineMachine}
             label="协议模板"

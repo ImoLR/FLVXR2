@@ -98,11 +98,8 @@ export function ChainLinkButton({
   const [loading, setLoading] = useState(false);
   const [qr, setQR] = useState("");
 
-  if (
-    forward.chain
-      ? forward.chain.state !== "active"
-      : !forward.landingNodeId
-  ) return null;
+  if (forward.chain ? forward.chain.state !== "active" : !forward.landingNodeId)
+    return null;
 
   const load = async () => {
     setLoading(true);
