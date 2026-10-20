@@ -78,6 +78,10 @@ type Handler struct {
 	flowEnforceWG sync.WaitGroup
 	pathLatencyMu sync.RWMutex
 	pathLatency   map[int64]tunnelPathLatency
+	// 线路机 chain rules (plan 108): single flight, rate limit, drivers; and
+	// submit-key dedupe of normal rule creates.
+	chains     chainGuard
+	createIdem idemCache
 }
 
 // GetForwardConnections 获取指定转发的当前连接数
@@ -299,6 +303,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("/api/v1/tunnel/user/remove", h.userTunnelRemove)
 	mux.HandleFunc("/api/v1/tunnel/user/update", h.userTunnelUpdate)
 	mux.HandleFunc("/api/v1/tunnel/user/batch-update-status", h.userTunnelBatchUpdateStatus)
+	h.registerLineChain(mux)
 	mux.HandleFunc("/api/v1/forward/list", h.forwardList)
 	mux.HandleFunc("/api/v1/forward/client-ips", h.forwardClientIPs)
 	mux.HandleFunc("/api/v1/forward/create", h.forwardCreate)
@@ -890,10 +895,14 @@ func (h *Handler) forwardList(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	response.WriteJSON(w, response.OK(map[string]interface{}{
+	payload := map[string]interface{}{
 		"items": items,
 		"total": total,
-	}))
+	}
+	if nonCompliant := h.decorateForwardChains(items); roleID == 0 {
+		payload["lineNonCompliantCount"] = nonCompliant
+	}
+	response.WriteJSON(w, response.OK(payload))
 }
 
 func sumForwardConnections(nodeIDs []int64, getConnections func(int64) int) int {
@@ -1076,6 +1085,7 @@ func (h *Handler) userTunnelVisibleList(w http.ResponseWriter, r *http.Request) 
 		response.WriteJSON(w, response.Err(-2, err.Error()))
 		return
 	}
+	h.decorateTunnelLineInfo(items)
 	response.WriteJSON(w, response.OK(items))
 }
 
@@ -1990,6 +2000,10 @@ func (h *Handler) backupImport(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if err := h.checkForwardImportLanding(r.Context(), rawJSON, typesToImport); err != nil {
+		response.WriteJSON(w, response.ErrDefault(err.Error()))
+		return
+	}
+	if err := h.checkForwardImportLineMachine(rawJSON, typesToImport); err != nil {
 		response.WriteJSON(w, response.ErrDefault(err.Error()))
 		return
 	}

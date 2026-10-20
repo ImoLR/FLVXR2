@@ -1010,6 +1010,7 @@ func (r *Repository) ListNodes(opts *ListNodesOptions) ([]map[string]interface{}
 		}
 		items = append(items, map[string]interface{}{
 			"landingSupported": n.LandingCapable && n.ID != 36, "landingServerId": landingID, "defaultUserQuotaBytes": n.DefaultUserQuotaBytes,
+			"lineMachine": n.LineMachine, "landingChain": n.LandingChain,
 			"id": n.ID, "inx": n.Inx, "name": n.Name,
 			"region":       n.Region,
 			"regionCity":   n.RegionCity,
@@ -2725,6 +2726,7 @@ func (r *Repository) exportNodes() ([]model.NodeBackup, error) {
 			PanelIPFamily:    n.PanelIPFamily,
 			EgressDetected:   n.EgressDetected,
 			EgressDetectedAt: n.EgressDetectedAt,
+			LineMachine:      n.LineMachine,
 			Port:             n.Port, HTTP: n.HTTP, TLS: n.TLS, Socks: n.Socks,
 			CreatedTime: n.CreatedTime, Status: n.Status,
 			TCPListenAddr: n.TCPListenAddr, UDPListenAddr: n.UDPListenAddr,
@@ -3156,6 +3158,12 @@ func importNodes(tx *gorm.DB, nodes []model.NodeBackup, now int64) (int, error) 
 		}).Create(&item).Error
 		if err != nil {
 			return count, err
+		}
+		// Add-only: a backup never clears a 线路机 flag set on this panel.
+		if n.LineMachine {
+			if err := tx.Model(&model.Node{}).Where("id = ?", n.ID).Update("line_machine", true).Error; err != nil {
+				return count, err
+			}
 		}
 		count++
 	}

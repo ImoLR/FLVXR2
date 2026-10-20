@@ -205,6 +205,11 @@ func (r *Repository) ClearForwardLandingPause(id int64) error {
 func (r *Repository) LandingPortInUse(nodeID int64, port int) (bool, error) {
 	var count int64
 	err := r.db.Model(&model.LandingNode{}).Joins("JOIN landing_server ON landing_server.id = landing_node.landing_server_id").Where("landing_server.node_id = ? AND landing_node.port = ?", nodeID, port).Count(&count).Error
+	if err != nil || count > 0 {
+		return count > 0, err
+	}
+	// Loopback chain listeners (plan 108) also occupy the port on the node.
+	err = r.db.Model(&model.ForwardChainNode{}).Where("node_id = ? AND port = ?", nodeID, port).Count(&count).Error
 	return count > 0, err
 }
 
@@ -214,6 +219,11 @@ func (r *Repository) ValidateNodeLandingPortRange(nodeID int64, spec string) err
 	if err := r.db.Model(&model.LandingNode{}).Joins("JOIN landing_server ON landing_server.id = landing_node.landing_server_id").Where("landing_server.node_id = ?", nodeID).Pluck("landing_node.port", &ports).Error; err != nil {
 		return err
 	}
+	var chainPorts []int
+	if err := r.db.Model(&model.ForwardChainNode{}).Where("node_id = ?", nodeID).Pluck("port", &chainPorts).Error; err != nil {
+		return err
+	}
+	ports = append(ports, chainPorts...)
 	if len(ports) == 0 {
 		return nil
 	}

@@ -39,9 +39,14 @@ type ForwardChain struct {
 	UpstreamPort     int    `gorm:"not null;default:0" json:"upstreamPort"`
 	UpstreamHash     string `gorm:"not null;default:'';index" json:"-"`
 	IdemKey          string `gorm:"not null;default:'';uniqueIndex:idx_forward_chain_idem,where:idem_key <> ''" json:"-"`
-	OpStartedAt      int64  `gorm:"not null;default:0" json:"-"`
-	CreatedTime      int64  `gorm:"not null" json:"createdTime"`
-	UpdatedTime      int64  `gorm:"not null" json:"updatedTime"`
+	// Op is the running operation (create | attach | relink | retarget |
+	// move); OpStartedAt its start (0 = idle); LastOpAt the start of the last
+	// finished one, so a client polling an operation knows when it ended.
+	Op          string `gorm:"not null;default:''" json:"op"`
+	OpStartedAt int64  `gorm:"not null;default:0;index" json:"opStartedAt"`
+	LastOpAt    int64  `gorm:"not null;default:0" json:"lastOpAt"`
+	CreatedTime int64  `gorm:"not null" json:"createdTime"`
+	UpdatedTime int64  `gorm:"not null" json:"updatedTime"`
 }
 
 func (ForwardChain) TableName() string { return "forward_chain" }

@@ -459,5 +459,47 @@ func (h *Handler) nodeOrphanSweep(w http.ResponseWriter, r *http.Request) {
 		}
 		reports = append(reports, out)
 	}
-	response.WriteJSON(w, response.OK(map[string]interface{}{"execute": req.Execute, "nodes": reports}))
+	// Chain rules (plan 108): DB-side owners of loopback chain nodes. The
+	// agent removes any landing inbound missing from desired state, so a chain
+	// node without a rule exists only while its row does; clean the row and
+	// push the exit.
+	chainOrphans, chainErr := h.repo.FindChainOrphans()
+	if chainErr != nil {
+		chainOrphans = []repo.ChainOrphan{}
+	}
+	if len(req.NodeIDs) > 0 {
+		filtered := chainOrphans[:0]
+		for _, o := range chainOrphans {
+			if o.Kind == "chain" || slices.Contains(req.NodeIDs, o.NodeID) {
+				filtered = append(filtered, o)
+			}
+		}
+		chainOrphans = filtered
+	}
+	if req.Execute {
+		var servers []int64
+		for idx := range chainOrphans {
+			o := &chainOrphans[idx]
+			if req.Targets != nil {
+				selected := false
+				for _, target := range req.Targets {
+					if target.Kind == o.Kind && target.Name == strconv.FormatInt(o.ID, 10) {
+						selected = true
+					}
+				}
+				if !selected {
+					continue
+				}
+			}
+			ids, err := h.repo.DeleteChainOrphan(*o)
+			if err != nil {
+				o.Error = err.Error()
+				continue
+			}
+			o.Deleted = true
+			servers = append(servers, ids...)
+		}
+		h.syncChainServers(servers)
+	}
+	response.WriteJSON(w, response.OK(map[string]interface{}{"execute": req.Execute, "nodes": reports, "chainOrphans": chainOrphans}))
 }

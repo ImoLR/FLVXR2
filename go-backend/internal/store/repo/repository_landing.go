@@ -43,7 +43,7 @@ func (r *Repository) GetLandingNode(id int64) (*model.LandingNode, error) {
 }
 func landingPermission(db *gorm.DB, userID, serverID int64) (bool, error) {
 	var count int64
-	err := db.Table("landing_server AS s").Where("s.id = ?", serverID).Where(landingAccessCond("s.id"), userID, userID).Count(&count).Error
+	err := db.Table("landing_server AS s").Where("s.id = ? AND s.chain_only = ?", serverID, false).Where(landingAccessCond("s.id"), userID, userID).Count(&count).Error
 	return count > 0, err
 }
 func (r *Repository) UserCanUseLandingServer(userID, serverID int64) (bool, error) {
@@ -53,7 +53,8 @@ func (r *Repository) ListLandingServers(userID int64, admin bool) ([]model.Landi
 	out := []model.LandingServer{}
 	q := r.db.Model(&model.LandingServer{})
 	if !admin {
-		q = q.Where("status = ?", "active").Where(landingAccessCond("landing_server.id"), userID, userID)
+		// Chain-only exits (plan 108) are never public landing servers.
+		q = q.Where("status = ? AND chain_only = ?", "active", false).Where(landingAccessCond("landing_server.id"), userID, userID)
 	}
 	err := q.Order("id ASC").Find(&out).Error
 	return out, err
@@ -92,6 +93,16 @@ func (r *Repository) EnableLandingServer(nodeID int64) (*model.LandingServer, er
 		}
 		var existing model.LandingServer
 		if err := tx.Where("node_id = ?", nodeID).First(&existing).Error; err == nil {
+			// Enabling a chain-only exit (plan 108) makes it a public landing;
+			// its chain nodes keep running unchanged.
+			if existing.ChainOnly {
+				existing.ChainOnly = false
+				existing.Protocols = `["ss2022","vless_reality_vision"]`
+				existing.UpdatedTime = time.Now().UnixMilli()
+				if err := tx.Model(&existing).Updates(map[string]interface{}{"chain_only": false, "protocols": existing.Protocols, "updated_time": existing.UpdatedTime}).Error; err != nil {
+					return err
+				}
+			}
 			s = existing
 			return nil
 		} else if !errors.Is(err, gorm.ErrRecordNotFound) {
@@ -185,8 +196,21 @@ func (r *Repository) SaveLandingServer(s *model.LandingServer, groups []int64) e
 		// validated paths (SetLandingServerEgress / RecordLandingEgressStatus).
 		s.RouteProfileID, s.EgressHash, s.EgressRestartOK = old.RouteProfileID, old.EgressHash, old.EgressRestartOK
 		s.EgressState, s.EgressError, s.EgressReady, s.EgressCheckedAt, s.EgressWarnings = old.EgressState, old.EgressError, old.EgressReady, old.EgressCheckedAt, old.EgressWarnings
+		s.ChainOnly = old.ChainOnly
 		if err := ValidateLandingServer(s); err != nil {
 			return err
+		}
+		if s.ChainOnly && len(groups) > 0 {
+			return errors.New("该服务器只用于「我自己的节点」，不对用户开放；如需公开，请在节点页「启用为落地」")
+		}
+		if s.Status != "active" {
+			var chains int64
+			if err := tx.Model(&model.ForwardChainNode{}).Where("landing_server_id = ?", s.ID).Count(&chains).Error; err != nil {
+				return err
+			}
+			if chains > 0 {
+				return fmt.Errorf("该服务器上有 %d 个「我自己的节点」规则的出口节点在使用，不能停用", chains)
+			}
 		}
 		var count int64
 		if err := tx.Model(&model.LandingNode{}).Where("landing_server_id = ? AND (port < ? OR port > ?)", s.ID, s.PortMin, s.PortMax).Count(&count).Error; err != nil {
@@ -406,7 +430,7 @@ func (r *Repository) CreateLandingNode(userID, serverID int64, name, protocol st
 			return errors.New("妙妙屋共享已暂停、撤销或额度用完")
 		}
 
-		if s.Status != "active" || (s.AvailableUntil != nil && *s.AvailableUntil <= now) {
+		if s.Status != "active" || (s.AvailableUntil != nil && *s.AvailableUntil <= now) || s.ChainOnly {
 			return errors.New("落地服务器不可用")
 		}
 		// The owner's access decides, also when an admin creates the node for a
@@ -515,7 +539,7 @@ func landingFreePort(tx *gorm.DB, s model.LandingServer) (int, error) {
 		column string
 		where  string
 		id     int64
-	}{{&model.LandingNode{}, "port", "landing_server_id = ?", s.ID}, {&model.ForwardPort{}, "port", "node_id = ?", s.NodeID}, {&model.ChainTunnel{}, "port", "node_id = ? AND port IS NOT NULL", s.NodeID}, {&model.NodeDeployedInbound{}, "listen_port", "node_id = ?", s.NodeID}, {&model.NodeRuntimeResource{}, "port", "node_id = ? AND status <> 'released'", s.NodeID}} {
+	}{{&model.LandingNode{}, "port", "landing_server_id = ?", s.ID}, {&model.ForwardChainNode{}, "port", "landing_server_id = ?", s.ID}, {&model.ForwardPort{}, "port", "node_id = ?", s.NodeID}, {&model.ChainTunnel{}, "port", "node_id = ? AND port IS NOT NULL", s.NodeID}, {&model.NodeDeployedInbound{}, "listen_port", "node_id = ?", s.NodeID}, {&model.NodeRuntimeResource{}, "port", "node_id = ? AND status <> 'released'", s.NodeID}} {
 		if s.Source == "shared" && q.id != s.ID {
 			continue
 		}

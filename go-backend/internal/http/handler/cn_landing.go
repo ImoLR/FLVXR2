@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
 	"go-backend/internal/cnlanding"
@@ -42,6 +43,38 @@ func (h *Handler) checkForwardImportLanding(ctx context.Context, raw map[string]
 		}
 		if err := h.checkForwardLanding(ctx, asString(row["remote_addr"]), asString(row["mode"]), asString(row["target_cidr"])); err != nil {
 			return err
+		}
+	}
+	return nil
+}
+
+// checkForwardImportLineMachine applies the 线路机 rules to imported rules:
+// a rule on a 线路机 tunnel must target a VLESS Reality Vision landing node.
+// Chains are not part of backups, so an exported chain rule is refused too.
+func (h *Handler) checkForwardImportLineMachine(raw map[string]interface{}, types []string) error {
+	if !stringSliceContains(types, "forward") {
+		return nil
+	}
+	items, ok := raw["forward"].([]interface{})
+	if !ok || len(items) == 0 {
+		return nil
+	}
+	lines, err := h.repo.LineMachineTunnelIDs()
+	if err != nil || len(lines) == 0 {
+		return err
+	}
+	for _, item := range items {
+		row, ok := item.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		tunnelID := asInt64(row["tunnel_id"], asInt64(row["tunnelId"], 0))
+		if !lines[tunnelID] || strings.EqualFold(asString(row["mode"]), "wg_path") {
+			continue
+		}
+		landingID := asInt64(row["landing_node_id"], asInt64(row["landingNodeId"], 0))
+		if err := h.lineMachineTargetError(tunnelID, asString(row["mode"]), landingID, landingID > 0); err != nil {
+			return fmt.Errorf("规则「%s」：%s", asString(row["name"]), err.Error())
 		}
 	}
 	return nil

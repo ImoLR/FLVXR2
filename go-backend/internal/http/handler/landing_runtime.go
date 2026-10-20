@@ -8,6 +8,7 @@ import (
 	"log"
 	"time"
 
+	"go-backend/internal/store/model"
 	"go-backend/internal/store/repo"
 )
 
@@ -165,6 +166,17 @@ func (h *Handler) syncLandingServer(serverID int64) (*landingSyncSnapshot, error
 		}
 		desiredNodes = append(desiredNodes, desired)
 	}
+	// Chain nodes (plan 108) only go to agents that apply listen + chain;
+	// an older agent would expose them publicly with a direct outbound.
+	if node.LandingChain >= 1 {
+		copies, err := h.repo.ChainCopiesForServer(s.ID)
+		if err != nil {
+			return nil, errors.New("落地服务器状态不可用")
+		}
+		for _, c := range copies {
+			desiredNodes = append(desiredNodes, chainDesiredNode(c))
+		}
+	}
 	payload := map[string]interface{}{"revision": s.Revision, "enabled": s.Status == "active", "max_connections": s.MaxConnections, "core_memory_mb": s.CoreMemoryMB, "core_cpu_percent": s.CoreCPUPercent, "nodes": desiredNodes}
 	if plan != nil {
 		payload["egress"] = plan
@@ -208,4 +220,24 @@ func (h *Handler) recordNativeEgress(serverID int64, report *landingEgressReport
 		state, errText = "error", compileErr.Error()
 	}
 	_ = h.repo.RecordLandingEgressStatus(serverID, state, errText, report.Ready, warnings)
+}
+
+// chainDesiredNode renders one chain copy for the agent: loopback VLESS
+// Reality Vision whose only route is the user's node. No limits here: the
+// rule's entry service enforces the user's connection and IP caps.
+func chainDesiredNode(c repo.ChainCopy) map[string]interface{} {
+	id := model.ChainAgentIDBase + c.Node.ID
+	var upstream map[string]interface{}
+	_ = json.Unmarshal([]byte(c.Chain.Upstream), &upstream)
+	if upstream == nil {
+		upstream = map[string]interface{}{}
+	}
+	upstream["tag"] = fmt.Sprintf("flvxc-%d", id)
+	upstream["ip_version"] = "system"
+	return map[string]interface{}{
+		"id": id, "inbound_tag": fmt.Sprintf("flvxl-%d", id), "protocol": "vless_reality_vision", "port": c.Node.Port, "enabled": true,
+		"max_connections": 0, "max_online_ips": 0, "listen": "127.0.0.1",
+		"vless": map[string]interface{}{"uuid": c.Chain.UUID, "flow": "xtls-rprx-vision", "reality": map[string]interface{}{"dest": c.Chain.Dest, "server_names": repo.ChainServerNames(c.Chain), "private_key": c.Chain.PrivateKey, "short_ids": []string{c.Chain.ShortID}}},
+		"chain": upstream,
+	}
 }

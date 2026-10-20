@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"go-backend/internal/store/model"
 	"go-backend/internal/store/repo"
 )
 
@@ -134,7 +135,13 @@ func (h *Handler) flowUpload(w http.ResponseWriter, r *http.Request) {
 		}
 		parseErr = json.Unmarshal(payload, &report)
 		items = report.Flows
-		counters = report.Counters
+		// Chain nodes (plan 108) are never billed as landings: the rule is
+		// billed at its entry. Drop their counters before accounting.
+		for _, c := range report.Counters {
+			if c.ID < model.ChainAgentIDBase {
+				counters = append(counters, c)
+			}
+		}
 	} else {
 		parseErr = json.Unmarshal(payload, &items)
 	}
