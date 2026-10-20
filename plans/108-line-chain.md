@@ -3,7 +3,7 @@
 基线：生产 `3.0.27-fork.58`（`99cac160`，plan 107 落地出站与路由已发布）。
 开发分支：`feature/3.0.27-line-chain`，worktree `/root/projects/flvxx/flvxx-line-chain`。
 发布：**不打 tag、不发布、不升级生产、不 OTA**。用户先测试并批准截图（ui-add-only-preview-first）。
-运行目录：`/root/flvx-workers/runs/line-chain-r2/`（日志、截图、summary.md / final.md）。
+运行目录：`/root/flvx-workers/runs/line-chain-r3/`（最终日志、截图、summary.md / final.md）；保留 r2 基线证据。
 临时目录：`/root/tmp-work/line-chain/`（不放 /tmp；/tmp 是内存盘）。
 
 ## 已定设计（用户 2026-10-19，见任务书）
@@ -64,7 +64,7 @@
 - [x] 前端：节点开关/标签、规则弹窗、规则行、管理员计数、落地页标签；build + lint。
 - [x] 本机端到端（一次性进程）：客户端 → gost 入口 → gost 出口 → 本机 Core Reality 入站 → 本地 SS/SOCKS「用户节点」→ 测试 HTTP 服务。
 - [x] 资源测量：1 vs 50 链式节点 Core RSS/CPU，1000 连接前后 fd/goroutine，日志/磁盘增长。
-- [ ] 截图集（电脑 + H5、管理员 + 用户、暗色弹窗）+ 发布到预览。
+- [x] 截图集（电脑 + H5、管理员 + 用户、暗色弹窗）+ 发布到预览。
 - [ ] 推送分支、CI 全绿、summary.md / final.md。
 
 ## 核验记录
@@ -105,3 +105,6 @@
 - 压测与回收期间状态文件增长 0 B；入口/出口 A/出口 B 的 agent 日志增长 264,370 / 684,779 / 686,131 B（已有 GOST info 连接日志），面板 4,190 B。测试 direct 模式 Core stdout 为 `/dev/null`，不将其误报为生产 journald 的实测；生产 Core 配置仍为 warning、无 access log，并沿用现有 systemd 资源限制。
 - 验收脚本已扩展 C6 严格回收断言、C8 删除路径检查，并在每项结束即保存结果，避免中断丢证据。
 - r3 界面补漏：仅在线路机目标区套用既有 `.flvx-landing-text`，使新增目标/粘贴说明符合落地字号要求；普通隧道不受影响。`npm run build` 通过。ESLint 对照本功能涉及的 9 个文件：基线/当前错误均 25，新增错误 0（原有 6 文件 + 新增 3 文件，见 `logs/frontend-eslint-comparison.json`）；全仓扫描还有其他未改文件的历史错误，不做无关清理。
+- r3 截图完成：当前构建重新采集桌面 34 张、H5 26 张，管理员/用户、亮色/暗色弹窗、解析/进度/各类错误、复制链接、Reality-only 筛选与诊断均覆盖。逐张人工查看，H5 长列表另看原图；`screens/visual-review.md` 记录 60 张图片及校验值，`screens/errors.json` 为 `[]`，全部页面无横向溢出。图片内节点、版本与错误为合成数据，不代表已发布。
+- 预览已发布至 `http://104.145.236.29:8791/ea923e5e348dfb9548d4d0909b6de1ee/line-chain/index.html`。目录、错误记录、代表截图和人工记录 HTTP 均为 200，`mmwx-preview` 原本在线，无需重启；新建 symlink，原位置不存在。记录见 `logs/gallery-publication.json`。
+- 产品代码提交 `c6c744af` 已推送，CI Build Check 全绿：`https://github.com/ImoLR/FLVXR2/actions/runs/39389334183`。
