@@ -1146,6 +1146,22 @@ func (m *Manager) clearStaleRules() error {
 	return m.conn.Flush()
 }
 
+// ListenPorts returns the public entry ports of the installed DNAT rules by
+// protocol (the business ports machine protection guards).
+func (m *Manager) ListenPorts() (tcp, udp []int) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, rule := range m.rules {
+		switch rule.Protocol {
+		case "tcp":
+			tcp = append(tcp, rule.Port)
+		case "udp":
+			udp = append(udp, rule.Port)
+		}
+	}
+	return tcp, udp
+}
+
 // ListForwardIDs snapshots installed rule owners without sampling counters or conntrack.
 func (m *Manager) ListForwardIDs() []int64 {
 	m.mu.Lock()

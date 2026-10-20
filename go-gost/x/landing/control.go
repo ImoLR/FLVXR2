@@ -135,7 +135,13 @@ func (m *Manager) applyLimits(ctx context.Context, snapshot coreSnapshot) error 
 		}
 		ports = append(ports, p)
 	}
-	cfg := map[string]any{"max_global_total_connections": global, "max_global_inbound_connections": nil, "online_ip_grace_period_seconds": 0, "default_close_wait_timeout_seconds": nil, "port_limits": ports, "limits": []any{}, "management_mappings": []any{}, "management_limits": []any{}, "blocked_identities": blocked}
+	// Machine protection (plan 118): the Core closes an outbound TCP socket that
+	// has been in CLOSE_WAIT (remote sent FIN, Core still open) for this long.
+	var closeWait *int64
+	if v := m.closeWait.Load(); v > 0 {
+		closeWait = &v
+	}
+	cfg := map[string]any{"max_global_total_connections": global, "max_global_inbound_connections": nil, "online_ip_grace_period_seconds": 0, "default_close_wait_timeout_seconds": closeWait, "port_limits": ports, "limits": []any{}, "management_mappings": []any{}, "management_limits": []any{}, "blocked_identities": blocked}
 	var result struct {
 		Success bool `json:"success"`
 	}

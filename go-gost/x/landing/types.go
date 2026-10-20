@@ -184,6 +184,25 @@ func (n Node) validateChain() error {
 	return nil
 }
 
+// publicPorts lists the inbound ports reachable from outside: SS2022 serves TCP
+// and UDP, VLESS Reality TCP; loopback chain nodes are not public.
+func (d Desired) publicPorts() *PortsInUse {
+	p := &PortsInUse{}
+	if !d.Enabled {
+		return p
+	}
+	for _, n := range d.Nodes {
+		if !n.Enabled || n.Listen != "" || n.Port <= 0 {
+			continue
+		}
+		p.TCP = append(p.TCP, n.Port)
+		if n.Protocol == "ss2022" {
+			p.UDP = append(p.UDP, n.Port)
+		}
+	}
+	return p
+}
+
 func (n Node) inbound() (map[string]any, error) {
 	listen := "0.0.0.0"
 	if n.Listen != "" {

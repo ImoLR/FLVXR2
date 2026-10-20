@@ -12,6 +12,8 @@ type NftablesManagerInterface interface {
 	// Close stops the manager's background work before a new manager takes over the tables.
 	Close()
 	ListForwardIDs() []int64
+	// ListenPorts returns the public entry ports of the installed rules by protocol.
+	ListenPorts() (tcp, udp []int)
 	GetForwardConnectionCounts() map[int64]int
 	GetForwardClientIPs(ids []int64) (map[int64]map[string]int, error)
 	DeleteRule(forwardID int64, protocol string) error

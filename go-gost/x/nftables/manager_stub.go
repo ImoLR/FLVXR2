@@ -100,3 +100,5 @@ func CheckNftablesSupport() (bool, error) {
 }
 
 func (m *Manager) ListForwardIDs() []int64 { return nil }
+
+func (m *Manager) ListenPorts() (tcp, udp []int) { return nil, nil }

@@ -16,6 +16,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/go-gost/x/atomicfile"
@@ -82,6 +83,17 @@ type Manager struct {
 	systemctl     func(ctx context.Context, args ...string) error
 	resourceCheck func(dir string) error
 	now           func() time.Time
+
+	// Machine protection (plan 118), read without m.mu: reconciles can hold m.mu
+	// for minutes during a first download.
+	closeWait atomic.Int64              // default_close_wait_timeout_seconds; 0 = Core default
+	ports     atomic.Pointer[PortsInUse] // public inbound ports of the desired state
+}
+
+// PortsInUse are the public inbound ports of the enabled landing nodes.
+type PortsInUse struct {
+	TCP []int
+	UDP []int
 }
 
 // NewManager's direct mode is used only by the explicit local test switch.
@@ -118,6 +130,7 @@ func (m *Manager) Run(ctx context.Context) {
 				if json.Unmarshal(b, &d) == nil && d.validate() == nil {
 					m.desired = d
 					m.loaded = true
+					m.ports.Store(d.publicPorts())
 				}
 			}
 		}
@@ -158,6 +171,7 @@ func (m *Manager) Apply(ctx context.Context, d Desired) (Status, error) {
 	}
 	m.desired = d
 	m.loaded = true
+	m.ports.Store(d.publicPorts())
 	err := m.reconcile(ctx)
 	m.noteResult(err)
 	return m.statusLocked(), err
@@ -179,6 +193,24 @@ func (m *Manager) noteResult(err error) {
 	}
 	m.logger().Record("landing egress", "plan", egressErr)
 }
+// SetCloseWaitTimeout sets the Core's default CLOSE_WAIT timeout (seconds, 0 =
+// Core default); the next reconcile (≤ 10 s) sends it with the connection limits.
+func (m *Manager) SetCloseWaitTimeout(seconds int64) {
+	if seconds < 0 {
+		seconds = 0
+	}
+	m.closeWait.Store(seconds)
+}
+
+// PublicPorts returns the public inbound ports of the enabled landing nodes
+// without waiting for a running reconcile.
+func (m *Manager) PublicPorts() (tcp, udp []int) {
+	if p := m.ports.Load(); p != nil {
+		return p.TCP, p.UDP
+	}
+	return nil, nil
+}
+
 func (m *Manager) Status() Status { m.mu.Lock(); defer m.mu.Unlock(); return m.statusLocked() }
 func (m *Manager) statusLocked() Status {
 	state := "disabled"

@@ -28,7 +28,7 @@ var newNftablesManager = func() (NftablesManagerInterface, error) {
 func (w *WebSocketReporter) initNftablesManager() {
 	if old := w.nftablesMgr; old != nil {
 		old.Close()
-		w.nftablesMgr = nil
+		w.setNftablesManager(nil)
 	}
 	mgr, err := newNftablesManager()
 	if err != nil {
@@ -36,7 +36,7 @@ func (w *WebSocketReporter) initNftablesManager() {
 		return
 	}
 	if mgr != nil {
-		w.nftablesMgr = mgr
+		w.setNftablesManager(mgr)
 		fmt.Println("nftables manager initialized successfully")
 	}
 }
