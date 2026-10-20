@@ -304,26 +304,18 @@ function SortableTableRow({
           <NodeIPv6RABadge node={node} />
               <NodeLeiKwanBadge node={node} />
         </div>
-        <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-default-500">
-          <span>
-            {node.region ? (
-              regionLabel(node.region)
-            ) : (
-              <Chip
-                className="bg-default-100 text-default-500"
-                color="default"
-                size="sm"
-                variant="flat"
-              >
-                未设置地区
-              </Chip>
-            )}
-            {node.regionCity ? ` · ${node.regionCity}` : ""}
-          </span>
-          {machineOf ? (
-            <MachineConnChip admin machine={machineOf(node)} />
-          ) : null}
+        <div className="mt-1 text-xs text-default-500">
+          {node.region ? regionLabel(node.region) : (
+            <Chip className="bg-default-100 text-default-500" color="default" size="sm" variant="flat">
+              未设置地区
+            </Chip>
+          )}{node.regionCity ? ` · ${node.regionCity}` : ""}
         </div>
+        {machineOf ? (
+          <div className="mt-1">
+            <MachineConnChip admin machine={machineOf(node)} />
+          </div>
+        ) : null}
       </TableCell>
       <TableCell className={`whitespace-nowrap ${rowBg}`}>
         {node.groupId && node.groupId > 0 ? (
