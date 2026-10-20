@@ -63,6 +63,44 @@ func hashJSON(v any) string {
 	return hex.EncodeToString(sum[:])
 }
 
+// effectiveEgress merges chain nodes into the server plan: each chain node
+// gets its own upstream outbound and one rule right after the safety rule, so
+// neither the server's routing profile nor the default outbound applies to
+// it. Without chain nodes the plan is returned unchanged.
+func (m *Manager) effectiveEgress() *Egress {
+	plan := m.desired.Egress
+	if !m.desired.Enabled {
+		return nil
+	}
+	var chains []Node
+	for _, n := range m.desired.Nodes {
+		if n.Chain != nil {
+			chains = append(chains, n)
+		}
+	}
+	if len(chains) == 0 {
+		return plan
+	}
+	sort.Slice(chains, func(i, j int) bool { return chains[i].ID < chains[j].ID })
+	merged := &Egress{Version: EgressVersion}
+	var rules []EgressRule
+	for _, n := range chains {
+		o := *n.Chain
+		o.Tag = chainOutboundTag(n.ID)
+		merged.Outbounds = append(merged.Outbounds, o)
+		rules = append(rules, EgressRule{Name: "chain", InboundTags: []string{n.InboundTag}, Outbound: o.Tag})
+	}
+	if plan != nil {
+		merged.Version = plan.Version
+		merged.AllowCoreRestart = plan.AllowCoreRestart
+		merged.Outbounds = append(merged.Outbounds, plan.Outbounds...)
+		rules = append(rules, plan.Rules...)
+		merged.ExemptSources = plan.ExemptSources
+	}
+	merged.Rules = rules
+	return merged
+}
+
 // coveredTags lists inbound tags whose routing depends on the plan.
 func (e *Egress) coveredTags() map[string]bool {
 	out := map[string]bool{}
@@ -225,10 +263,7 @@ func (m *Manager) listOutboundTags(ctx context.Context) (map[string]bool, error)
 // new snapshot (after an allowed one-time restart) and the error state; on
 // error the previous rules stay in place.
 func (m *Manager) applyEgress(ctx context.Context, snapshot coreSnapshot) (coreSnapshot, error) {
-	plan := m.desired.Egress
-	if !m.desired.Enabled {
-		plan = nil
-	}
+	plan := m.effectiveEgress()
 	active := plan.active()
 	m.egress = EgressStatus{State: "none"}
 	if m.apiPort == 0 {
@@ -313,7 +348,7 @@ func (m *Manager) applyEgress(ctx context.Context, snapshot coreSnapshot) (coreS
 	}
 	var stale []string
 	for tag := range present {
-		if strings.HasPrefix(tag, "flvxo-") && rendered.outbounds[tag] == "" {
+		if (strings.HasPrefix(tag, "flvxo-") || strings.HasPrefix(tag, "flvxc-")) && rendered.outbounds[tag] == "" {
 			stale = append(stale, tag)
 		}
 	}
@@ -368,12 +403,37 @@ func (m *Manager) withheldTags() map[string]bool {
 	for _, t := range m.applied.EgressTags {
 		old[t] = true
 	}
-	for t := range m.desired.Egress.coveredTags() {
+	covered := m.desired.Egress.coveredTags()
+	for _, n := range m.desired.Nodes {
+		if n.Chain != nil {
+			covered[n.InboundTag] = true
+		}
+	}
+	for t := range covered {
 		if !old[t] {
 			out[t] = true
 		}
 	}
+	// A chain node without its applied upstream rule would leave through the
+	// default outbound: always withhold it, even if covered before.
+	for _, n := range m.desired.Nodes {
+		if n.Chain != nil && m.applied.Outbounds[chainCoreTagPrefix(m.applied.Outbounds, n.ID)] == "" {
+			out[n.InboundTag] = true
+		}
+	}
 	return out
+}
+
+// chainCoreTagPrefix finds the applied Core tag of a chain node's upstream
+// (tag + content hash suffix); "" when none is applied in this epoch.
+func chainCoreTagPrefix(applied map[string]string, id int64) string {
+	prefix := chainOutboundTag(id) + "-"
+	for tag := range applied {
+		if strings.HasPrefix(tag, prefix) {
+			return tag
+		}
+	}
+	return ""
 }
 
 func epochOf(s coreSnapshot) string { return fmt.Sprintf("%d", s.StartedAt.UnixNano()) }

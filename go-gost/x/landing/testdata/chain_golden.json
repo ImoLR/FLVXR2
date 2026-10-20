@@ -1,0 +1,1185 @@
+{
+  "inbounds": [
+    {
+      "listen": "127.0.0.1",
+      "port": 40777,
+      "protocol": "vless",
+      "settings": {
+        "clients": [
+          {
+            "email": "flvxl-1099511627777",
+            "flow": "xtls-rprx-vision",
+            "id": "8a8e3c4d-1f2b-4c3d-9e8f-0a1b2c3d4e5f"
+          }
+        ],
+        "decryption": "none"
+      },
+      "sniffing": {
+        "destOverride": [
+          "http",
+          "tls"
+        ],
+        "domainsExcluded": [
+          "regexp:.*"
+        ],
+        "enabled": true,
+        "routeOnly": true
+      },
+      "streamSettings": {
+        "network": "tcp",
+        "realitySettings": {
+          "dest": "www.lovelive-anime.jp:443",
+          "privateKey": "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY",
+          "serverNames": [
+            "www.lovelive-anime.jp"
+          ],
+          "shortIds": [
+            "a1b2c3d4"
+          ]
+        },
+        "security": "reality"
+      },
+      "tag": "flvxl-1099511627777"
+    },
+    {
+      "listen": "127.0.0.1",
+      "port": 40778,
+      "protocol": "vless",
+      "settings": {
+        "clients": [
+          {
+            "email": "flvxl-1099511627778",
+            "flow": "xtls-rprx-vision",
+            "id": "8a8e3c4d-1f2b-4c3d-9e8f-0a1b2c3d4e5f"
+          }
+        ],
+        "decryption": "none"
+      },
+      "sniffing": {
+        "destOverride": [
+          "http",
+          "tls"
+        ],
+        "domainsExcluded": [
+          "regexp:.*"
+        ],
+        "enabled": true,
+        "routeOnly": true
+      },
+      "streamSettings": {
+        "network": "tcp",
+        "realitySettings": {
+          "dest": "www.lovelive-anime.jp:443",
+          "privateKey": "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY",
+          "serverNames": [
+            "www.lovelive-anime.jp"
+          ],
+          "shortIds": [
+            "a1b2c3d4"
+          ]
+        },
+        "security": "reality"
+      },
+      "tag": "flvxl-1099511627778"
+    },
+    {
+      "listen": "127.0.0.1",
+      "port": 40779,
+      "protocol": "vless",
+      "settings": {
+        "clients": [
+          {
+            "email": "flvxl-1099511627779",
+            "flow": "xtls-rprx-vision",
+            "id": "8a8e3c4d-1f2b-4c3d-9e8f-0a1b2c3d4e5f"
+          }
+        ],
+        "decryption": "none"
+      },
+      "sniffing": {
+        "destOverride": [
+          "http",
+          "tls"
+        ],
+        "domainsExcluded": [
+          "regexp:.*"
+        ],
+        "enabled": true,
+        "routeOnly": true
+      },
+      "streamSettings": {
+        "network": "tcp",
+        "realitySettings": {
+          "dest": "www.lovelive-anime.jp:443",
+          "privateKey": "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY",
+          "serverNames": [
+            "www.lovelive-anime.jp"
+          ],
+          "shortIds": [
+            "a1b2c3d4"
+          ]
+        },
+        "security": "reality"
+      },
+      "tag": "flvxl-1099511627779"
+    },
+    {
+      "listen": "127.0.0.1",
+      "port": 40780,
+      "protocol": "vless",
+      "settings": {
+        "clients": [
+          {
+            "email": "flvxl-1099511627780",
+            "flow": "xtls-rprx-vision",
+            "id": "8a8e3c4d-1f2b-4c3d-9e8f-0a1b2c3d4e5f"
+          }
+        ],
+        "decryption": "none"
+      },
+      "sniffing": {
+        "destOverride": [
+          "http",
+          "tls"
+        ],
+        "domainsExcluded": [
+          "regexp:.*"
+        ],
+        "enabled": true,
+        "routeOnly": true
+      },
+      "streamSettings": {
+        "network": "tcp",
+        "realitySettings": {
+          "dest": "www.lovelive-anime.jp:443",
+          "privateKey": "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY",
+          "serverNames": [
+            "www.lovelive-anime.jp"
+          ],
+          "shortIds": [
+            "a1b2c3d4"
+          ]
+        },
+        "security": "reality"
+      },
+      "tag": "flvxl-1099511627780"
+    },
+    {
+      "listen": "127.0.0.1",
+      "port": 40781,
+      "protocol": "vless",
+      "settings": {
+        "clients": [
+          {
+            "email": "flvxl-1099511627781",
+            "flow": "xtls-rprx-vision",
+            "id": "8a8e3c4d-1f2b-4c3d-9e8f-0a1b2c3d4e5f"
+          }
+        ],
+        "decryption": "none"
+      },
+      "sniffing": {
+        "destOverride": [
+          "http",
+          "tls"
+        ],
+        "domainsExcluded": [
+          "regexp:.*"
+        ],
+        "enabled": true,
+        "routeOnly": true
+      },
+      "streamSettings": {
+        "network": "tcp",
+        "realitySettings": {
+          "dest": "www.lovelive-anime.jp:443",
+          "privateKey": "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY",
+          "serverNames": [
+            "www.lovelive-anime.jp"
+          ],
+          "shortIds": [
+            "a1b2c3d4"
+          ]
+        },
+        "security": "reality"
+      },
+      "tag": "flvxl-1099511627781"
+    },
+    {
+      "listen": "127.0.0.1",
+      "port": 40782,
+      "protocol": "vless",
+      "settings": {
+        "clients": [
+          {
+            "email": "flvxl-1099511627782",
+            "flow": "xtls-rprx-vision",
+            "id": "8a8e3c4d-1f2b-4c3d-9e8f-0a1b2c3d4e5f"
+          }
+        ],
+        "decryption": "none"
+      },
+      "sniffing": {
+        "destOverride": [
+          "http",
+          "tls"
+        ],
+        "domainsExcluded": [
+          "regexp:.*"
+        ],
+        "enabled": true,
+        "routeOnly": true
+      },
+      "streamSettings": {
+        "network": "tcp",
+        "realitySettings": {
+          "dest": "www.lovelive-anime.jp:443",
+          "privateKey": "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY",
+          "serverNames": [
+            "www.lovelive-anime.jp"
+          ],
+          "shortIds": [
+            "a1b2c3d4"
+          ]
+        },
+        "security": "reality"
+      },
+      "tag": "flvxl-1099511627782"
+    },
+    {
+      "listen": "127.0.0.1",
+      "port": 40783,
+      "protocol": "vless",
+      "settings": {
+        "clients": [
+          {
+            "email": "flvxl-1099511627783",
+            "flow": "xtls-rprx-vision",
+            "id": "8a8e3c4d-1f2b-4c3d-9e8f-0a1b2c3d4e5f"
+          }
+        ],
+        "decryption": "none"
+      },
+      "sniffing": {
+        "destOverride": [
+          "http",
+          "tls"
+        ],
+        "domainsExcluded": [
+          "regexp:.*"
+        ],
+        "enabled": true,
+        "routeOnly": true
+      },
+      "streamSettings": {
+        "network": "tcp",
+        "realitySettings": {
+          "dest": "www.lovelive-anime.jp:443",
+          "privateKey": "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY",
+          "serverNames": [
+            "www.lovelive-anime.jp"
+          ],
+          "shortIds": [
+            "a1b2c3d4"
+          ]
+        },
+        "security": "reality"
+      },
+      "tag": "flvxl-1099511627783"
+    },
+    {
+      "listen": "127.0.0.1",
+      "port": 40784,
+      "protocol": "vless",
+      "settings": {
+        "clients": [
+          {
+            "email": "flvxl-1099511627784",
+            "flow": "xtls-rprx-vision",
+            "id": "8a8e3c4d-1f2b-4c3d-9e8f-0a1b2c3d4e5f"
+          }
+        ],
+        "decryption": "none"
+      },
+      "sniffing": {
+        "destOverride": [
+          "http",
+          "tls"
+        ],
+        "domainsExcluded": [
+          "regexp:.*"
+        ],
+        "enabled": true,
+        "routeOnly": true
+      },
+      "streamSettings": {
+        "network": "tcp",
+        "realitySettings": {
+          "dest": "www.lovelive-anime.jp:443",
+          "privateKey": "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY",
+          "serverNames": [
+            "www.lovelive-anime.jp"
+          ],
+          "shortIds": [
+            "a1b2c3d4"
+          ]
+        },
+        "security": "reality"
+      },
+      "tag": "flvxl-1099511627784"
+    },
+    {
+      "listen": "127.0.0.1",
+      "port": 40785,
+      "protocol": "vless",
+      "settings": {
+        "clients": [
+          {
+            "email": "flvxl-1099511627785",
+            "flow": "xtls-rprx-vision",
+            "id": "8a8e3c4d-1f2b-4c3d-9e8f-0a1b2c3d4e5f"
+          }
+        ],
+        "decryption": "none"
+      },
+      "sniffing": {
+        "destOverride": [
+          "http",
+          "tls"
+        ],
+        "domainsExcluded": [
+          "regexp:.*"
+        ],
+        "enabled": true,
+        "routeOnly": true
+      },
+      "streamSettings": {
+        "network": "tcp",
+        "realitySettings": {
+          "dest": "www.lovelive-anime.jp:443",
+          "privateKey": "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY",
+          "serverNames": [
+            "www.lovelive-anime.jp"
+          ],
+          "shortIds": [
+            "a1b2c3d4"
+          ]
+        },
+        "security": "reality"
+      },
+      "tag": "flvxl-1099511627785"
+    },
+    {
+      "listen": "127.0.0.1",
+      "port": 40786,
+      "protocol": "vless",
+      "settings": {
+        "clients": [
+          {
+            "email": "flvxl-1099511627786",
+            "flow": "xtls-rprx-vision",
+            "id": "8a8e3c4d-1f2b-4c3d-9e8f-0a1b2c3d4e5f"
+          }
+        ],
+        "decryption": "none"
+      },
+      "sniffing": {
+        "destOverride": [
+          "http",
+          "tls"
+        ],
+        "domainsExcluded": [
+          "regexp:.*"
+        ],
+        "enabled": true,
+        "routeOnly": true
+      },
+      "streamSettings": {
+        "network": "tcp",
+        "realitySettings": {
+          "dest": "www.lovelive-anime.jp:443",
+          "privateKey": "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY",
+          "serverNames": [
+            "www.lovelive-anime.jp"
+          ],
+          "shortIds": [
+            "a1b2c3d4"
+          ]
+        },
+        "security": "reality"
+      },
+      "tag": "flvxl-1099511627786"
+    },
+    {
+      "listen": "127.0.0.1",
+      "port": 40787,
+      "protocol": "vless",
+      "settings": {
+        "clients": [
+          {
+            "email": "flvxl-1099511627787",
+            "flow": "xtls-rprx-vision",
+            "id": "8a8e3c4d-1f2b-4c3d-9e8f-0a1b2c3d4e5f"
+          }
+        ],
+        "decryption": "none"
+      },
+      "sniffing": {
+        "destOverride": [
+          "http",
+          "tls"
+        ],
+        "domainsExcluded": [
+          "regexp:.*"
+        ],
+        "enabled": true,
+        "routeOnly": true
+      },
+      "streamSettings": {
+        "network": "tcp",
+        "realitySettings": {
+          "dest": "www.lovelive-anime.jp:443",
+          "privateKey": "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY",
+          "serverNames": [
+            "www.lovelive-anime.jp"
+          ],
+          "shortIds": [
+            "a1b2c3d4"
+          ]
+        },
+        "security": "reality"
+      },
+      "tag": "flvxl-1099511627787"
+    },
+    {
+      "listen": "127.0.0.1",
+      "port": 40788,
+      "protocol": "vless",
+      "settings": {
+        "clients": [
+          {
+            "email": "flvxl-1099511627788",
+            "flow": "xtls-rprx-vision",
+            "id": "8a8e3c4d-1f2b-4c3d-9e8f-0a1b2c3d4e5f"
+          }
+        ],
+        "decryption": "none"
+      },
+      "sniffing": {
+        "destOverride": [
+          "http",
+          "tls"
+        ],
+        "domainsExcluded": [
+          "regexp:.*"
+        ],
+        "enabled": true,
+        "routeOnly": true
+      },
+      "streamSettings": {
+        "network": "tcp",
+        "realitySettings": {
+          "dest": "www.lovelive-anime.jp:443",
+          "privateKey": "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY",
+          "serverNames": [
+            "www.lovelive-anime.jp"
+          ],
+          "shortIds": [
+            "a1b2c3d4"
+          ]
+        },
+        "security": "reality"
+      },
+      "tag": "flvxl-1099511627788"
+    },
+    {
+      "listen": "127.0.0.1",
+      "port": 40789,
+      "protocol": "vless",
+      "settings": {
+        "clients": [
+          {
+            "email": "flvxl-1099511627789",
+            "flow": "xtls-rprx-vision",
+            "id": "8a8e3c4d-1f2b-4c3d-9e8f-0a1b2c3d4e5f"
+          }
+        ],
+        "decryption": "none"
+      },
+      "sniffing": {
+        "destOverride": [
+          "http",
+          "tls"
+        ],
+        "domainsExcluded": [
+          "regexp:.*"
+        ],
+        "enabled": true,
+        "routeOnly": true
+      },
+      "streamSettings": {
+        "network": "tcp",
+        "realitySettings": {
+          "dest": "www.lovelive-anime.jp:443",
+          "privateKey": "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY",
+          "serverNames": [
+            "www.lovelive-anime.jp"
+          ],
+          "shortIds": [
+            "a1b2c3d4"
+          ]
+        },
+        "security": "reality"
+      },
+      "tag": "flvxl-1099511627789"
+    },
+    {
+      "listen": "127.0.0.1",
+      "port": 40790,
+      "protocol": "vless",
+      "settings": {
+        "clients": [
+          {
+            "email": "flvxl-1099511627790",
+            "flow": "xtls-rprx-vision",
+            "id": "8a8e3c4d-1f2b-4c3d-9e8f-0a1b2c3d4e5f"
+          }
+        ],
+        "decryption": "none"
+      },
+      "sniffing": {
+        "destOverride": [
+          "http",
+          "tls"
+        ],
+        "domainsExcluded": [
+          "regexp:.*"
+        ],
+        "enabled": true,
+        "routeOnly": true
+      },
+      "streamSettings": {
+        "network": "tcp",
+        "realitySettings": {
+          "dest": "www.lovelive-anime.jp:443",
+          "privateKey": "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY",
+          "serverNames": [
+            "www.lovelive-anime.jp"
+          ],
+          "shortIds": [
+            "a1b2c3d4"
+          ]
+        },
+        "security": "reality"
+      },
+      "tag": "flvxl-1099511627790"
+    },
+    {
+      "listen": "127.0.0.1",
+      "port": 40791,
+      "protocol": "vless",
+      "settings": {
+        "clients": [
+          {
+            "email": "flvxl-1099511627791",
+            "flow": "xtls-rprx-vision",
+            "id": "8a8e3c4d-1f2b-4c3d-9e8f-0a1b2c3d4e5f"
+          }
+        ],
+        "decryption": "none"
+      },
+      "sniffing": {
+        "destOverride": [
+          "http",
+          "tls"
+        ],
+        "domainsExcluded": [
+          "regexp:.*"
+        ],
+        "enabled": true,
+        "routeOnly": true
+      },
+      "streamSettings": {
+        "network": "tcp",
+        "realitySettings": {
+          "dest": "www.lovelive-anime.jp:443",
+          "privateKey": "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY",
+          "serverNames": [
+            "www.lovelive-anime.jp"
+          ],
+          "shortIds": [
+            "a1b2c3d4"
+          ]
+        },
+        "security": "reality"
+      },
+      "tag": "flvxl-1099511627791"
+    },
+    {
+      "listen": "127.0.0.1",
+      "port": 40792,
+      "protocol": "vless",
+      "settings": {
+        "clients": [
+          {
+            "email": "flvxl-1099511627792",
+            "flow": "xtls-rprx-vision",
+            "id": "8a8e3c4d-1f2b-4c3d-9e8f-0a1b2c3d4e5f"
+          }
+        ],
+        "decryption": "none"
+      },
+      "sniffing": {
+        "destOverride": [
+          "http",
+          "tls"
+        ],
+        "domainsExcluded": [
+          "regexp:.*"
+        ],
+        "enabled": true,
+        "routeOnly": true
+      },
+      "streamSettings": {
+        "network": "tcp",
+        "realitySettings": {
+          "dest": "www.lovelive-anime.jp:443",
+          "privateKey": "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY",
+          "serverNames": [
+            "www.lovelive-anime.jp"
+          ],
+          "shortIds": [
+            "a1b2c3d4"
+          ]
+        },
+        "security": "reality"
+      },
+      "tag": "flvxl-1099511627792"
+    }
+  ],
+  "outbounds": [
+    {
+      "protocol": "shadowsocks",
+      "settings": {
+        "servers": [
+          {
+            "address": "203.0.113.10",
+            "method": "2022-blake3-aes-128-gcm",
+            "password": "AAAAAAAAAAAAAAAAAAAAAA==",
+            "port": 8388
+          }
+        ]
+      },
+      "tag": "flvxc-1099511627777"
+    },
+    {
+      "protocol": "shadowsocks",
+      "settings": {
+        "servers": [
+          {
+            "address": "ss.example.com",
+            "method": "chacha20-ietf-poly1305",
+            "password": "p@ss:word",
+            "port": 8389
+          }
+        ]
+      },
+      "tag": "flvxc-1099511627778"
+    },
+    {
+      "protocol": "vless",
+      "settings": {
+        "vnext": [
+          {
+            "address": "198.51.100.7",
+            "port": 443,
+            "users": [
+              {
+                "encryption": "none",
+                "flow": "xtls-rprx-vision",
+                "id": "d77c8b43-40ed-42cd-9150-f3f47d0f534d"
+              }
+            ]
+          }
+        ]
+      },
+      "streamSettings": {
+        "network": "tcp",
+        "realitySettings": {
+          "fingerprint": "chrome",
+          "publicKey": "Ak6Ci7Ogvl2t29y1MUSF4fuAtoXtt4EnCyU_cdhn4Ws",
+          "serverName": "www.example.com",
+          "shortId": "0a1b"
+        },
+        "security": "reality"
+      },
+      "tag": "flvxc-1099511627779"
+    },
+    {
+      "protocol": "vless",
+      "settings": {
+        "vnext": [
+          {
+            "address": "vl.example.com",
+            "port": 443,
+            "users": [
+              {
+                "encryption": "none",
+                "flow": "xtls-rprx-vision",
+                "id": "d77c8b43-40ed-42cd-9150-f3f47d0f534d"
+              }
+            ]
+          }
+        ]
+      },
+      "streamSettings": {
+        "network": "tcp",
+        "security": "tls",
+        "tlsSettings": {
+          "alpn": [
+            "h2",
+            "http/1.1"
+          ],
+          "fingerprint": "chrome",
+          "serverName": "vl.example.com"
+        }
+      },
+      "tag": "flvxc-1099511627780"
+    },
+    {
+      "protocol": "vless",
+      "settings": {
+        "vnext": [
+          {
+            "address": "ws.example.com",
+            "port": 443,
+            "users": [
+              {
+                "encryption": "none",
+                "id": "d77c8b43-40ed-42cd-9150-f3f47d0f534d"
+              }
+            ]
+          }
+        ]
+      },
+      "streamSettings": {
+        "network": "ws",
+        "security": "tls",
+        "tlsSettings": {
+          "serverName": "cdn.example.com"
+        },
+        "wsSettings": {
+          "host": "cdn.example.com",
+          "path": "/ray?ed=2048"
+        }
+      },
+      "tag": "flvxc-1099511627781"
+    },
+    {
+      "protocol": "vless",
+      "settings": {
+        "vnext": [
+          {
+            "address": "grpc.example.com",
+            "port": 443,
+            "users": [
+              {
+                "encryption": "none",
+                "id": "d77c8b43-40ed-42cd-9150-f3f47d0f534d"
+              }
+            ]
+          }
+        ]
+      },
+      "streamSettings": {
+        "grpcSettings": {
+          "multiMode": true,
+          "serviceName": "grpcsvc"
+        },
+        "network": "grpc",
+        "security": "tls",
+        "tlsSettings": {
+          "serverName": "grpc.example.com"
+        }
+      },
+      "tag": "flvxc-1099511627782"
+    },
+    {
+      "protocol": "vless",
+      "settings": {
+        "vnext": [
+          {
+            "address": "198.51.100.8",
+            "port": 8080,
+            "users": [
+              {
+                "encryption": "none",
+                "id": "d77c8b43-40ed-42cd-9150-f3f47d0f534d"
+              }
+            ]
+          }
+        ]
+      },
+      "streamSettings": {
+        "network": "tcp"
+      },
+      "tag": "flvxc-1099511627783"
+    },
+    {
+      "protocol": "vmess",
+      "settings": {
+        "vnext": [
+          {
+            "address": "vm.example.com",
+            "port": 443,
+            "users": [
+              {
+                "id": "d77c8b43-40ed-42cd-9150-f3f47d0f534d",
+                "security": "auto"
+              }
+            ]
+          }
+        ]
+      },
+      "streamSettings": {
+        "network": "ws",
+        "security": "tls",
+        "tlsSettings": {
+          "pinnedPeerCertSha256": "6d5f0e1c9a8b7c6d5e4f30211203f4e5d6c7b8a9908172635445362718090a1b",
+          "serverName": "vm.example.com"
+        },
+        "wsSettings": {
+          "path": "/vm"
+        }
+      },
+      "tag": "flvxc-1099511627784"
+    },
+    {
+      "protocol": "vmess",
+      "settings": {
+        "vnext": [
+          {
+            "address": "198.51.100.9",
+            "port": 10086,
+            "users": [
+              {
+                "id": "d77c8b43-40ed-42cd-9150-f3f47d0f534d",
+                "security": "aes-128-gcm"
+              }
+            ]
+          }
+        ]
+      },
+      "streamSettings": {
+        "network": "tcp"
+      },
+      "tag": "flvxc-1099511627785"
+    },
+    {
+      "protocol": "trojan",
+      "settings": {
+        "servers": [
+          {
+            "address": "tj.example.com",
+            "password": "trojan-pass",
+            "port": 443
+          }
+        ]
+      },
+      "streamSettings": {
+        "network": "tcp",
+        "security": "tls",
+        "tlsSettings": {
+          "serverName": "tj.example.com"
+        }
+      },
+      "tag": "flvxc-1099511627786"
+    },
+    {
+      "protocol": "trojan",
+      "settings": {
+        "servers": [
+          {
+            "address": "tjg.example.com",
+            "password": "trojan-pass",
+            "port": 443
+          }
+        ]
+      },
+      "streamSettings": {
+        "grpcSettings": {
+          "multiMode": false,
+          "serviceName": "tj"
+        },
+        "network": "grpc",
+        "security": "tls",
+        "tlsSettings": {
+          "serverName": "tjg.example.com"
+        }
+      },
+      "tag": "flvxc-1099511627787"
+    },
+    {
+      "protocol": "socks",
+      "settings": {
+        "servers": [
+          {
+            "address": "203.0.113.11",
+            "port": 1080,
+            "users": [
+              {
+                "pass": "p",
+                "user": "u"
+              }
+            ]
+          }
+        ]
+      },
+      "tag": "flvxc-1099511627788"
+    },
+    {
+      "protocol": "http",
+      "settings": {
+        "servers": [
+          {
+            "address": "203.0.113.12",
+            "port": 3128
+          }
+        ]
+      },
+      "tag": "flvxc-1099511627789"
+    },
+    {
+      "protocol": "http",
+      "settings": {
+        "servers": [
+          {
+            "address": "proxy.example.com",
+            "port": 443,
+            "users": [
+              {
+                "pass": "p",
+                "user": "u"
+              }
+            ]
+          }
+        ]
+      },
+      "streamSettings": {
+        "security": "tls",
+        "tlsSettings": {
+          "serverName": "proxy.example.com"
+        }
+      },
+      "tag": "flvxc-1099511627790"
+    },
+    {
+      "protocol": "hysteria",
+      "settings": {
+        "address": "hy.example.com",
+        "port": 443,
+        "version": 2
+      },
+      "streamSettings": {
+        "hysteriaSettings": {
+          "auth": "hy2-auth",
+          "version": 2
+        },
+        "network": "hysteria",
+        "security": "tls",
+        "tlsSettings": {
+          "alpn": [
+            "h3"
+          ],
+          "serverName": "hy.example.com"
+        }
+      },
+      "tag": "flvxc-1099511627791"
+    },
+    {
+      "protocol": "hysteria",
+      "settings": {
+        "address": "203.0.113.13",
+        "port": 8443,
+        "version": 2
+      },
+      "streamSettings": {
+        "finalmask": {
+          "udp": [
+            {
+              "settings": {
+                "password": "salamander-pass"
+              },
+              "type": "salamander"
+            }
+          ]
+        },
+        "hysteriaSettings": {
+          "auth": "hy2-auth",
+          "version": 2
+        },
+        "network": "hysteria",
+        "security": "tls",
+        "tlsSettings": {
+          "alpn": [
+            "h3"
+          ],
+          "pinnedPeerCertSha256": "6d5f0e1c9a8b7c6d5e4f30211203f4e5d6c7b8a9908172635445362718090a1b",
+          "serverName": "hy.example.com"
+        }
+      },
+      "tag": "flvxc-1099511627792"
+    }
+  ],
+  "rules": [
+    {
+      "ip": [
+        "0.0.0.0/8",
+        "10.0.0.0/8",
+        "100.64.0.0/10",
+        "127.0.0.0/8",
+        "169.254.0.0/16",
+        "172.16.0.0/12",
+        "192.168.0.0/16",
+        "198.18.0.0/15",
+        "224.0.0.0/4",
+        "240.0.0.0/4",
+        "::1/128",
+        "fc00::/7",
+        "fe80::/10",
+        "ff00::/8"
+      ],
+      "outboundTag": "block",
+      "ruleTag": "flvx-safety",
+      "type": "field"
+    },
+    {
+      "inboundTag": [
+        "flvxl-1099511627777"
+      ],
+      "outboundTag": "flvxc-1099511627777",
+      "ruleTag": "flvxr-1",
+      "type": "field"
+    },
+    {
+      "inboundTag": [
+        "flvxl-1099511627778"
+      ],
+      "outboundTag": "flvxc-1099511627778",
+      "ruleTag": "flvxr-2",
+      "type": "field"
+    },
+    {
+      "inboundTag": [
+        "flvxl-1099511627779"
+      ],
+      "outboundTag": "flvxc-1099511627779",
+      "ruleTag": "flvxr-3",
+      "type": "field"
+    },
+    {
+      "inboundTag": [
+        "flvxl-1099511627780"
+      ],
+      "outboundTag": "flvxc-1099511627780",
+      "ruleTag": "flvxr-4",
+      "type": "field"
+    },
+    {
+      "inboundTag": [
+        "flvxl-1099511627781"
+      ],
+      "outboundTag": "flvxc-1099511627781",
+      "ruleTag": "flvxr-5",
+      "type": "field"
+    },
+    {
+      "inboundTag": [
+        "flvxl-1099511627782"
+      ],
+      "outboundTag": "flvxc-1099511627782",
+      "ruleTag": "flvxr-6",
+      "type": "field"
+    },
+    {
+      "inboundTag": [
+        "flvxl-1099511627783"
+      ],
+      "outboundTag": "flvxc-1099511627783",
+      "ruleTag": "flvxr-7",
+      "type": "field"
+    },
+    {
+      "inboundTag": [
+        "flvxl-1099511627784"
+      ],
+      "outboundTag": "flvxc-1099511627784",
+      "ruleTag": "flvxr-8",
+      "type": "field"
+    },
+    {
+      "inboundTag": [
+        "flvxl-1099511627785"
+      ],
+      "outboundTag": "flvxc-1099511627785",
+      "ruleTag": "flvxr-9",
+      "type": "field"
+    },
+    {
+      "inboundTag": [
+        "flvxl-1099511627786"
+      ],
+      "outboundTag": "flvxc-1099511627786",
+      "ruleTag": "flvxr-10",
+      "type": "field"
+    },
+    {
+      "inboundTag": [
+        "flvxl-1099511627787"
+      ],
+      "outboundTag": "flvxc-1099511627787",
+      "ruleTag": "flvxr-11",
+      "type": "field"
+    },
+    {
+      "inboundTag": [
+        "flvxl-1099511627788"
+      ],
+      "outboundTag": "flvxc-1099511627788",
+      "ruleTag": "flvxr-12",
+      "type": "field"
+    },
+    {
+      "inboundTag": [
+        "flvxl-1099511627789"
+      ],
+      "outboundTag": "flvxc-1099511627789",
+      "ruleTag": "flvxr-13",
+      "type": "field"
+    },
+    {
+      "inboundTag": [
+        "flvxl-1099511627790"
+      ],
+      "outboundTag": "flvxc-1099511627790",
+      "ruleTag": "flvxr-14",
+      "type": "field"
+    },
+    {
+      "inboundTag": [
+        "flvxl-1099511627791"
+      ],
+      "outboundTag": "flvxc-1099511627791",
+      "ruleTag": "flvxr-15",
+      "type": "field"
+    },
+    {
+      "inboundTag": [
+        "flvxl-1099511627792"
+      ],
+      "outboundTag": "flvxc-1099511627792",
+      "ruleTag": "flvxr-16",
+      "type": "field"
+    }
+  ]
+}

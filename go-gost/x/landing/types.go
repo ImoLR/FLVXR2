@@ -43,7 +43,25 @@ type Node struct {
 	MaxOnlineIPs   int     `json:"max_online_ips"`
 	SS2022         *SS2022 `json:"ss2022,omitempty"`
 	VLESS          *VLESS  `json:"vless,omitempty"`
+	// Listen is empty (all addresses) or the loopback address of a chain node.
+	Listen string `json:"listen,omitempty"`
+	// Chain is the private upstream of a chain node (plan 108): everything the
+	// inbound accepts leaves through it, right after the safety rule.
+	Chain *EgressOutbound `json:"chain,omitempty"`
 }
+
+// ChainVersion is the chain-node schema (listen + chain) this agent applies.
+// Older agents ignore both fields, so the panel only sends chain nodes to
+// agents that report it.
+const ChainVersion = 1
+
+// ChainListen is the only listen address a chain node may use: the tunnel's
+// exit relay dials it locally, nothing outside the server can reach it.
+const ChainListen = "127.0.0.1"
+
+const maxChainNodes = 1000
+
+func chainOutboundTag(id int64) string { return "flvxc-" + strconv.FormatInt(id, 10) }
 
 type SS2022 struct {
 	Method    string `json:"method"`
@@ -93,6 +111,7 @@ func (d *Desired) validate() error {
 		return fmt.Errorf("invalid landing resource limits")
 	}
 	ids, ports := map[int64]bool{}, map[int]bool{}
+	chains := 0
 	for i := range d.Nodes {
 		n := &d.Nodes[i]
 		if n.ID <= 0 || n.Port < 1024 || n.Port > 65535 || ids[n.ID] || ports[n.Port] || n.MaxConnections < 0 || n.MaxOnlineIPs < 0 {
@@ -106,9 +125,21 @@ func (d *Desired) validate() error {
 		if n.InboundTag != tag {
 			return fmt.Errorf("invalid landing inbound tag")
 		}
+		if n.Chain != nil && n.Chain.Tag == "" {
+			n.Chain.Tag = chainOutboundTag(n.ID)
+		}
+		if err := n.validateChain(); err != nil {
+			return err
+		}
+		if n.Chain != nil {
+			chains++
+		}
 		if _, err := n.inbound(); err != nil {
 			return err
 		}
+	}
+	if chains > maxChainNodes {
+		return fmt.Errorf("too many chain nodes")
 	}
 	if d.Egress != nil {
 		tags := map[string]bool{}
@@ -122,10 +153,39 @@ func (d *Desired) validate() error {
 	return nil
 }
 
+// validateChain: a chain node listens on loopback only and is always VLESS
+// Reality Vision; a loopback listener is never a public landing node.
+func (n Node) validateChain() error {
+	if n.Listen != "" && n.Listen != ChainListen {
+		return fmt.Errorf("invalid landing listen address")
+	}
+	if n.Chain == nil {
+		if n.Listen != "" {
+			return fmt.Errorf("loopback landing node without chain upstream")
+		}
+		return nil
+	}
+	if n.Listen != ChainListen || n.Protocol != "vless_reality_vision" {
+		return fmt.Errorf("chain node must be loopback VLESS Reality Vision")
+	}
+	o := *n.Chain
+	if o.Tag != chainOutboundTag(n.ID) || o.Type == "direct" || o.Type == "wireguard" {
+		return fmt.Errorf("invalid chain upstream for node %d", n.ID)
+	}
+	if err := o.validate(); err != nil {
+		return fmt.Errorf("chain upstream: %w", err)
+	}
+	return nil
+}
+
 func (n Node) inbound() (map[string]any, error) {
+	listen := "0.0.0.0"
+	if n.Listen != "" {
+		listen = n.Listen
+	}
 	// A sniffed public Host/SNI must not replace a private original domain for
 	// routing: retain protocol sniffing, but exclude all domain overrides.
-	inbound := map[string]any{"tag": n.InboundTag, "listen": "0.0.0.0", "port": n.Port, "sniffing": map[string]any{"enabled": true, "destOverride": []string{"http", "tls"}, "routeOnly": true, "domainsExcluded": []string{"regexp:.*"}}}
+	inbound := map[string]any{"tag": n.InboundTag, "listen": listen, "port": n.Port, "sniffing": map[string]any{"enabled": true, "destOverride": []string{"http", "tls"}, "routeOnly": true, "domainsExcluded": []string{"regexp:.*"}}}
 	switch n.Protocol {
 	case "ss2022":
 		if n.SS2022 == nil || n.SS2022.Method != SS2022Method {

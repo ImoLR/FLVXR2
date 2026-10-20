@@ -75,12 +75,13 @@ type Manager struct {
 	proc              *os.Process // direct (test) mode only
 	execPath          string      // test hook, see command()
 	// Test hooks; nil uses the real implementations.
-	detectLocal  func() localAddrs
-	geoDownload  func(ctx context.Context, direct, path, expected string, limit int64, mode os.FileMode) error
-	coreDownload func(ctx context.Context, direct, path, expected string, limit int64, mode os.FileMode) error
-	hashFile     func(path string) (string, error)
-	systemctl    func(ctx context.Context, args ...string) error
-	now          func() time.Time
+	detectLocal   func() localAddrs
+	geoDownload   func(ctx context.Context, direct, path, expected string, limit int64, mode os.FileMode) error
+	coreDownload  func(ctx context.Context, direct, path, expected string, limit int64, mode os.FileMode) error
+	hashFile      func(path string) (string, error)
+	systemctl     func(ctx context.Context, args ...string) error
+	resourceCheck func(dir string) error
+	now           func() time.Time
 }
 
 // NewManager's direct mode is used only by the explicit local test switch.
@@ -247,6 +248,15 @@ func (m *Manager) install(ctx context.Context) error {
 	download := downloadVerified
 	if m.coreDownload != nil {
 		download = m.coreDownload
+	}
+	// Never start a first install on a box that is nearly out of disk or
+	// memory: the node also carries live forwarding traffic.
+	check := checkInstallResources
+	if m.resourceCheck != nil {
+		check = m.resourceCheck
+	}
+	if err := check(m.dir); err != nil {
+		return err
 	}
 	return m.retryDownload(ctx, "core", func(ctx context.Context) error {
 		if err := download(ctx, direct, m.binary(), expected, 128<<20, 0755); err != nil {

@@ -82,6 +82,12 @@ func (d *Dialer) Dial(ctx context.Context, network, addr string) (conn net.Conn,
 	}
 
 	ifces := strings.Split(d.Interface, ",")
+	if d.Interface != "" && isLoopbackTarget(addr) {
+		// Loopback traffic never leaves through a NIC: binding the socket to
+		// an egress interface or address would make 127.0.0.1 unreachable
+		// (e.g. a tunnel exit delivering to a local chain landing node).
+		ifces = []string{""}
+	}
 	for _, ifce := range ifces {
 		strict := strings.HasSuffix(ifce, "!")
 		ifce = strings.TrimSuffix(ifce, "!")
@@ -109,6 +115,17 @@ func (d *Dialer) Dial(ctx context.Context, network, addr string) (conn net.Conn,
 	}
 
 	return
+}
+
+// isLoopbackTarget reports an IP-literal loopback destination (127.0.0.0/8,
+// ::1). Names are not resolved here; they keep the configured binding.
+func isLoopbackTarget(addr string) bool {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		host = addr
+	}
+	ip := net.ParseIP(strings.Trim(host, "[]"))
+	return ip != nil && ip.IsLoopback()
 }
 
 func (d *Dialer) dialOnce(ctx context.Context, network, addr, ifceName string, ifAddr net.Addr, log logger.Logger) (net.Conn, error) {
