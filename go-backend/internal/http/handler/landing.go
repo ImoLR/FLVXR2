@@ -126,9 +126,22 @@ func (h *Handler) landingNodeView(n model.LandingNode, catalogs ...landingEgress
 	} else {
 		catalog = h.landingEgressCatalog()
 	}
-	v := landingMap(n)
 	s, _ := h.repo.GetLandingServer(n.LandingServerID)
 	u, _ := h.repo.GetUserByID(n.UserID)
+	integrationError := ""
+	if s != nil && s.Source == "shared" {
+		if current, err := h.repo.GetLandingNode(n.ID); err == nil && current != nil {
+			n = *current
+		}
+		if cfg, err := h.repo.GetLandingIntegration(); err == nil {
+			integrationError = cfg.SyncError
+		}
+	}
+	return landingNodeViewData(n, s, u, catalog, integrationError)
+}
+
+func landingNodeViewData(n model.LandingNode, s *model.LandingServer, u *model.User, catalog landingEgressCatalog, integrationError string) map[string]interface{} {
+	v := landingMap(n)
 	flow, ratio := 2, 1.0
 	expires := int64(0)
 	minExpiry := func(t int64) {
@@ -138,13 +151,9 @@ func (h *Handler) landingNodeView(n model.LandingNode, catalogs ...landingEgress
 	}
 	if s != nil {
 		if s.Source == "shared" {
-			if current, err := h.repo.GetLandingNode(n.ID); err == nil && current != nil {
-				n = *current
-				v = landingMap(n)
-			}
 			v["sharedSyncError"] = s.SharedSyncError
-			if cfg, e := h.repo.GetLandingIntegration(); e == nil && cfg.SyncError != "" {
-				v["sharedSyncError"] = cfg.SyncError
+			if integrationError != "" {
+				v["sharedSyncError"] = integrationError
 			}
 			if n.Status == "active" && n.SyncError != "" {
 				v["status"] = "error"
@@ -219,7 +228,25 @@ func (h *Handler) landingServerEnable(w http.ResponseWriter, r *http.Request) {
 }
 func (h *Handler) landingServerList(w http.ResponseWriter, r *http.Request) {
 	uid, role, _ := userRoleFromRequest(r)
-	ss, err := h.repo.ListLandingServers(uid, role == 0)
+	ownerAdmin := role == 0
+	var req struct {
+		UserID int64 `json:"userId"`
+	}
+	if r.Body != nil && r.ContentLength != 0 {
+		if err := landingDecode(r, &req); err != nil {
+			landingError(w, err)
+			return
+		}
+	}
+	if role == 0 && req.UserID > 0 {
+		u, err := h.repo.GetUserByID(req.UserID)
+		if err != nil || u == nil {
+			landingError(w, errors.New("用户不存在"))
+			return
+		}
+		uid, ownerAdmin = u.ID, u.RoleID == 0
+	}
+	ss, err := h.repo.ListLandingServers(uid, ownerAdmin)
 	if err != nil {
 		landingError(w, err)
 		return
@@ -313,10 +340,18 @@ func (h *Handler) landingNodeList(w http.ResponseWriter, r *http.Request) {
 		landingError(w, err)
 		return
 	}
+	data, err := h.repo.LandingNodeListData(nodes)
+	if err != nil {
+		landingError(w, err)
+		return
+	}
 	out := []map[string]interface{}{}
 	catalog := h.landingEgressCatalog()
 	for _, n := range nodes {
-		view := h.landingNodeView(n, catalog)
+		s := data.Servers[n.LandingServerID]
+		view := landingNodeViewData(n, s, data.Users[n.UserID], catalog, data.IntegrationError)
+		view["forwardCount"] = data.ForwardCounts[n.ID]
+		view["serverAvailable"] = data.Allowed[n.ID] && s != nil && !s.ChainOnly && s.Status == "active" && (s.AvailableUntil == nil || *s.AvailableUntil > time.Now().UnixMilli()) && repo.SharedLandingAvailable(s)
 		if role != 0 {
 			hideLandingNodeEgressInternals(view)
 		}
@@ -422,6 +457,10 @@ func (h *Handler) landingNodeUpdate(w http.ResponseWriter, r *http.Request) {
 		}
 		target, ok := allowed[key]
 		if !ok {
+			if key == "protocol" || key == "port" {
+				landingError(w, errors.New("落地节点的协议和端口不可修改，请新建节点后修改规则引用"))
+				return
+			}
 			landingError(w, errors.New("不支持修改该节点字段"))
 			return
 		}
@@ -595,12 +634,18 @@ func (h *Handler) resolveNativeLandingTarget(req map[string]interface{}, userID,
 		return "", 0, 0, errors.New("请选择一种落地目标")
 	}
 	if serverID > 0 {
-		n, err := h.repo.CreateLandingNode(userID, serverID, defaultString(asString(req["name"]), "规则落地"), defaultString(asString(req["landingProtocol"]), "ss2022"), admin)
+		protocol := defaultString(asString(req["landingProtocol"]), "ss2022")
+		if h.isLineMachineTunnel(tunnelID) {
+			protocol = "vless_reality_vision"
+		}
+		n, created, err := h.repo.ReuseOrCreateLandingNode(userID, serverID, defaultString(asString(req["name"]), "规则落地"), protocol, admin)
 		if err != nil {
 			return "", 0, 0, err
 		}
 		landingID = n.ID
-		createdID = n.ID
+		if created {
+			createdID = n.ID
+		}
 	}
 	if landingID > 0 {
 		n, err := h.repo.GetLandingNode(landingID)

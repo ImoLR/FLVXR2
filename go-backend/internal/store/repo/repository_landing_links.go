@@ -49,12 +49,17 @@ func (r *Repository) LandingNodeLinks(n model.LandingNode) ([]LandingLink, error
 		return nil, err
 	}
 	for _, f := range forwards {
-		entries, err := r.forwardEntries(f)
+		entries, err := r.forwardEntries(f, true)
 		if err != nil {
 			return nil, err
 		}
+		seen := map[string]bool{}
 		for _, e := range entries {
-			out = append(out, LandingLink{Name: f.Name + " · " + e.NodeName, URL: LandingURL(n, e.Host, e.Port), Kind: "forward", ForwardID: f.ID, EntryNodeID: e.NodeID})
+			link := LandingURL(n, e.Host, e.Port)
+			if !seen[link] {
+				seen[link] = true
+				out = append(out, LandingLink{Name: f.Name + " · " + e.NodeName, URL: link, Kind: "forward", ForwardID: f.ID, EntryNodeID: e.NodeID})
+			}
 		}
 	}
 	return out, nil
@@ -68,7 +73,7 @@ type forwardEntry struct {
 }
 
 // forwardEntries lists a rule's entry addresses (tunnel/port overrides first).
-func (r *Repository) forwardEntries(f model.Forward) ([]forwardEntry, error) {
+func (r *Repository) forwardEntries(f model.Forward, allAddresses ...bool) ([]forwardEntry, error) {
 	var ports []model.ForwardPort
 	if err := r.db.Where("forward_id = ?", f.ID).Order("id").Find(&ports).Error; err != nil {
 		return nil, err
@@ -79,6 +84,39 @@ func (r *Repository) forwardEntries(f model.Forward) ([]forwardEntry, error) {
 	for _, fp := range ports {
 		var entry model.Node
 		if err := r.db.First(&entry, fp.NodeID).Error; err != nil {
+			continue
+		}
+		// Ordinary landing links expose every entry IP. Keep the plan 108
+		// chain path's existing address selection unless explicitly requested.
+		if len(allAddresses) > 0 && allAddresses[0] {
+			hosts := landingEntryHosts(entry.ServerIP)
+			if t.InIP.Valid && strings.TrimSpace(t.InIP.String) != "" {
+				hosts = landingEntryHosts(t.InIP.String)
+				// Tunnel addresses may combine several entry nodes. Prefer
+				// this port's own addresses when that mapping is available.
+				own := map[string]bool{}
+				for _, address := range nodeIngressAddresses(&entry) {
+					own[normalizeLandingHost(address)] = true
+				}
+				for _, address := range landingEntryHosts(entry.ExtraIPs.String) {
+					own[normalizeLandingHost(address)] = true
+				}
+				matched := []string{}
+				for _, host := range hosts {
+					if own[normalizeLandingHost(host)] {
+						matched = append(matched, host)
+					}
+				}
+				if len(matched) > 0 {
+					hosts = matched
+				}
+			}
+			if fp.InIP.Valid && strings.TrimSpace(fp.InIP.String) != "" {
+				hosts = landingEntryHosts(fp.InIP.String)
+			}
+			for _, host := range hosts {
+				out = append(out, forwardEntry{Host: host, Port: fp.Port, NodeID: entry.ID, NodeName: entry.Name})
+			}
 			continue
 		}
 		host := entry.ServerIP
@@ -96,6 +134,23 @@ func (r *Repository) forwardEntries(f model.Forward) ([]forwardEntry, error) {
 		out = append(out, forwardEntry{Host: host, Port: fp.Port, NodeID: entry.ID, NodeName: entry.Name})
 	}
 	return out, nil
+}
+
+func landingEntryHosts(raw string) []string {
+	var hosts []string
+	if json.Unmarshal([]byte(raw), &hosts) != nil {
+		hosts = strings.FieldsFunc(raw, func(r rune) bool { return r == ',' || r == '\n' || r == '\r' })
+	}
+	out := []string{}
+	seen := map[string]bool{}
+	for _, host := range hosts {
+		host = strings.Trim(strings.TrimSpace(host), "[]")
+		if host != "" && !seen[host] {
+			seen[host] = true
+			out = append(out, host)
+		}
+	}
+	return out
 }
 func normalizeLandingHost(s string) string {
 	s = strings.Trim(strings.TrimSpace(s), "[]")

@@ -2921,6 +2921,11 @@ func (h *Handler) forwardCreateWithReq(w http.ResponseWriter, r *http.Request, r
 		response.WriteJSON(w, response.ErrDefault(err.Error()))
 		return
 	}
+	if asInt64(req["landingServerId"], 0) > 0 {
+		lock := &h.landingTargetLocks[uint64(userID)%uint64(len(h.landingTargetLocks))]
+		lock.Lock()
+		defer lock.Unlock() // registered before cleanup: rollback finishes before the next lookup
+	}
 	remoteAddr, landingID, createdLandingID, landingErr := h.resolveNativeLandingTarget(req, userID, tunnelID, remoteAddr, roleID == 0)
 	landingCommitted := false
 	defer func() {
@@ -3203,6 +3208,11 @@ func (h *Handler) forwardUpdateWithReq(w http.ResponseWriter, r *http.Request, r
 	if err := h.lineMachinePreCheck(tunnelID, req); err != nil {
 		response.WriteJSON(w, response.ErrDefault(err.Error()))
 		return
+	}
+	if asInt64(req["landingServerId"], 0) > 0 {
+		lock := &h.landingTargetLocks[uint64(forward.UserID)%uint64(len(h.landingTargetLocks))]
+		lock.Lock()
+		defer lock.Unlock() // registered before cleanup: rollback finishes before the next lookup
 	}
 	remoteAddr, landingID, createdLandingID, landingErr := h.resolveNativeLandingTarget(req, forward.UserID, tunnelID, remoteAddr, actorRole == 0)
 	landingCommitted := false

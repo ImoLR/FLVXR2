@@ -396,11 +396,24 @@ func newLandingCredentials(n *model.LandingNode) error {
 	return nil
 }
 func (r *Repository) CreateLandingNode(userID, serverID int64, name, protocol string, admin bool) (*model.LandingNode, error) {
+	n, _, err := r.createLandingNode(userID, serverID, name, protocol, admin, false)
+	return n, err
+}
+
+// ReuseOrCreateLandingNode serializes lookup and creation with the same owner
+// and server locks as explicit creation. Chain listeners live in a separate
+// table; they can never be candidates here.
+func (r *Repository) ReuseOrCreateLandingNode(userID, serverID int64, name, protocol string, admin bool) (*model.LandingNode, bool, error) {
+	return r.createLandingNode(userID, serverID, name, protocol, admin, true)
+}
+
+func (r *Repository) createLandingNode(userID, serverID int64, name, protocol string, admin, reuse bool) (*model.LandingNode, bool, error) {
 	name = strings.TrimSpace(name)
 	if name == "" || len(name) > 100 {
-		return nil, errors.New("请填写节点名称（最多 100 字节）")
+		return nil, false, errors.New("请填写节点名称（最多 100 字节）")
 	}
 	var n model.LandingNode
+	created := false
 	err := r.db.Transaction(func(tx *gorm.DB) error {
 		// Lock the owner and server to serialize both total and per-server node limits.
 		var u model.User
@@ -457,6 +470,20 @@ func (r *Repository) CreateLandingNode(userID, serverID int64, name, protocol st
 		}
 		if !allowed {
 			return errors.New("该服务器未启用此协议")
+		}
+		if reuse {
+			var candidates []model.LandingNode
+			if err := tx.Where("user_id = ? AND landing_server_id = ? AND protocol = ? AND status = ? AND delete_pending = ?", userID, serverID, protocol, "active", false).Order("created_time ASC, id ASC").Find(&candidates).Error; err != nil {
+				return err
+			}
+			for _, candidate := range candidates {
+				expiry := EffectiveLandingExpiry(&candidate, &s, &u)
+				if (expiry > 0 && expiry <= now) || (candidate.TrafficLimitBytes > 0 && candidate.BilledIn+candidate.BilledOut >= candidate.TrafficLimitBytes) {
+					continue
+				}
+				n = candidate
+				return nil
+			}
 		}
 		setting := model.LandingUserSetting{MaxNodes: 5}
 		err := tx.First(&setting, "user_id = ?", userID).Error
@@ -515,13 +542,14 @@ func (r *Repository) CreateLandingNode(userID, serverID int64, name, protocol st
 		if err := tx.Create(&n).Error; err != nil {
 			return err
 		}
+		created = true
 		n.InboundTag = fmt.Sprintf("flvxl-%d", n.ID)
 		if err := tx.Model(&n).Update("inbound_tag", n.InboundTag).Error; err != nil {
 			return err
 		}
 		return tx.Model(&s).Update("revision", gorm.Expr("revision + 1")).Error
 	})
-	return &n, err
+	return &n, created && err == nil, err
 }
 func landingFreePort(tx *gorm.DB, s model.LandingServer) (int, error) {
 	var node model.Node
@@ -604,12 +632,8 @@ func (r *Repository) DeleteLandingNode(id int64, requireDisabled ...bool) error 
 		if len(requireDisabled) > 0 && requireDisabled[0] && (n.Status != "disabled" || n.AutoDisabled) {
 			return errors.New("节点设置已变化，请重试删除")
 		}
-		var count int64
-		if err := tx.Model(&model.Forward{}).Where("landing_node_id = ?", id).Count(&count).Error; err != nil {
+		if err := landingNodeReferenceError(tx, id); err != nil {
 			return err
-		}
-		if count > 0 {
-			return errors.New("该节点仍被规则引用，请先删除或修改规则")
 		}
 		if err := tx.Delete(&n).Error; err != nil {
 			return err
@@ -626,12 +650,8 @@ func (r *Repository) PrepareLandingNodeDeletion(id int64) (*model.LandingNode, e
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&n, id).Error; err != nil {
 			return err
 		}
-		var count int64
-		if err := tx.Model(&model.Forward{}).Where("landing_node_id = ?", id).Count(&count).Error; err != nil {
+		if err := landingNodeReferenceError(tx, id); err != nil {
 			return err
-		}
-		if count > 0 {
-			return errors.New("该节点仍被规则引用，请先删除或修改规则")
 		}
 		n.Status, n.AutoDisabled, n.UpdatedTime = "disabled", false, time.Now().UnixMilli()
 		if err := tx.Model(&n).Updates(map[string]interface{}{"status": n.Status, "auto_disabled": false, "updated_time": n.UpdatedTime}).Error; err != nil {
@@ -640,4 +660,21 @@ func (r *Repository) PrepareLandingNodeDeletion(id int64) (*model.LandingNode, e
 		return tx.Model(&model.LandingServer{}).Where("id = ?", n.LandingServerID).UpdateColumn("revision", gorm.Expr("revision + 1")).Error
 	})
 	return &n, err
+}
+
+// Keep the refusal bounded even when many rules share one node.
+func landingNodeReferenceError(tx *gorm.DB, id int64) error {
+	var count int64
+	if err := tx.Model(&model.Forward{}).Where("landing_node_id = ?", id).Count(&count).Error; err != nil || count == 0 {
+		return err
+	}
+	var names []string
+	if err := tx.Model(&model.Forward{}).Where("landing_node_id = ?", id).Order("id ASC").Limit(5).Pluck("name", &names).Error; err != nil {
+		return err
+	}
+	label := "「" + strings.Join(names, "」、「") + "」"
+	if count > 5 {
+		label += fmt.Sprintf("等 %d 条", count)
+	}
+	return fmt.Errorf("该节点仍被规则 %s 引用，请先删除或修改规则", label)
 }
