@@ -1,0 +1,326 @@
+[
+  {
+    "link": "ss://YWVzLTI1Ni1nY206cGFzcw@8.8.8.8:8388#aead",
+    "summary": "Shadowsocks · 8.8.8.8:8388",
+    "upstream": {
+      "ip_version": "system",
+      "method": "aes-256-gcm",
+      "password": "pass",
+      "port": 8388,
+      "server": "8.8.8.8",
+      "type": "shadowsocks"
+    }
+  },
+  {
+    "link": "ss://2022-blake3-aes-128-gcm:AAAAAAAAAAAAAAAAAAAAAA==@[2606:4700::1111]:443#ss2022",
+    "summary": "SS2022 · [2606:4700::1111]:443",
+    "upstream": {
+      "ip_version": "system",
+      "method": "2022-blake3-aes-128-gcm",
+      "password": "AAAAAAAAAAAAAAAAAAAAAA==",
+      "port": 443,
+      "server": "2606:4700::1111",
+      "type": "shadowsocks"
+    }
+  },
+  {
+    "link": "vless://d77c8b43-40ed-42cd-9150-f3f47d0f534d@vl.example.com:443?security=reality\u0026sni=www.example.com\u0026pbk=Ak6Ci7Ogvl2t29y1MUSF4fuAtoXtt4EnCyU_cdhn4Ws\u0026sid=0a1b\u0026fp=chrome\u0026flow=xtls-rprx-vision\u0026type=tcp#reality",
+    "summary": "VLESS Reality · vl.example.com:443",
+    "upstream": {
+      "flow": "xtls-rprx-vision",
+      "ip_version": "system",
+      "network": "tcp",
+      "port": 443,
+      "reality": {
+        "fingerprint": "chrome",
+        "public_key": "Ak6Ci7Ogvl2t29y1MUSF4fuAtoXtt4EnCyU_cdhn4Ws",
+        "server_name": "www.example.com",
+        "short_id": "0a1b"
+      },
+      "security": "reality",
+      "server": "vl.example.com",
+      "type": "vless",
+      "uuid": "d77c8b43-40ed-42cd-9150-f3f47d0f534d"
+    }
+  },
+  {
+    "link": "vless://d77c8b43-40ed-42cd-9150-f3f47d0f534d@vl.example.com:443?security=tls\u0026sni=vl.example.com\u0026fp=chrome\u0026flow=xtls-rprx-vision\u0026alpn=h2,http/1.1#tls-vision",
+    "summary": "VLESS TLS · vl.example.com:443",
+    "upstream": {
+      "flow": "xtls-rprx-vision",
+      "ip_version": "system",
+      "network": "tcp",
+      "port": 443,
+      "security": "tls",
+      "server": "vl.example.com",
+      "tls": {
+        "alpn": [
+          "h2",
+          "http/1.1"
+        ],
+        "fingerprint": "chrome",
+        "server_name": "vl.example.com"
+      },
+      "type": "vless",
+      "uuid": "d77c8b43-40ed-42cd-9150-f3f47d0f534d"
+    }
+  },
+  {
+    "link": "vless://d77c8b43-40ed-42cd-9150-f3f47d0f534d@ws.example.com:443?type=ws\u0026security=tls\u0026path=%2Fray%3Fed%3D2048\u0026host=cdn.example.com\u0026sni=cdn.example.com#ws",
+    "summary": "VLESS WS TLS · ws.example.com:443",
+    "upstream": {
+      "ip_version": "system",
+      "network": "ws",
+      "port": 443,
+      "security": "tls",
+      "server": "ws.example.com",
+      "tls": {
+        "server_name": "cdn.example.com"
+      },
+      "type": "vless",
+      "uuid": "d77c8b43-40ed-42cd-9150-f3f47d0f534d",
+      "ws": {
+        "host": "cdn.example.com",
+        "path": "/ray?ed=2048"
+      }
+    }
+  },
+  {
+    "link": "vless://d77c8b43-40ed-42cd-9150-f3f47d0f534d@g.example.com:443?type=grpc\u0026security=tls\u0026serviceName=svc\u0026mode=multi#grpc",
+    "summary": "VLESS gRPC TLS · g.example.com:443",
+    "upstream": {
+      "grpc": {
+        "multi_mode": true,
+        "service_name": "svc"
+      },
+      "ip_version": "system",
+      "network": "grpc",
+      "port": 443,
+      "security": "tls",
+      "server": "g.example.com",
+      "type": "vless",
+      "uuid": "d77c8b43-40ed-42cd-9150-f3f47d0f534d"
+    }
+  },
+  {
+    "link": "vless://d77c8b43-40ed-42cd-9150-f3f47d0f534d@g.example.com:443?type=grpc\u0026security=reality\u0026sni=www.example.com\u0026pbk=Ak6Ci7Ogvl2t29y1MUSF4fuAtoXtt4EnCyU_cdhn4Ws\u0026sid=\u0026serviceName=svc#grpc-reality",
+    "summary": "VLESS gRPC Reality · g.example.com:443",
+    "upstream": {
+      "grpc": {
+        "service_name": "svc"
+      },
+      "ip_version": "system",
+      "network": "grpc",
+      "port": 443,
+      "reality": {
+        "public_key": "Ak6Ci7Ogvl2t29y1MUSF4fuAtoXtt4EnCyU_cdhn4Ws",
+        "server_name": "www.example.com",
+        "short_id": ""
+      },
+      "security": "reality",
+      "server": "g.example.com",
+      "type": "vless",
+      "uuid": "d77c8b43-40ed-42cd-9150-f3f47d0f534d"
+    }
+  },
+  {
+    "link": "vless://d77c8b43-40ed-42cd-9150-f3f47d0f534d@8.8.4.4:80?type=tcp#plain",
+    "summary": "VLESS · 8.8.4.4:80",
+    "upstream": {
+      "ip_version": "system",
+      "network": "tcp",
+      "port": 80,
+      "security": "none",
+      "server": "8.8.4.4",
+      "type": "vless",
+      "uuid": "d77c8b43-40ed-42cd-9150-f3f47d0f534d"
+    }
+  },
+  {
+    "link": "vmess://eyJ2IjoiMiIsInBzIjoidm0iLCJhZGQiOiJ2bS5leGFtcGxlLmNvbSIsInBvcnQiOiI0NDMiLCJpZCI6ImQ3N2M4YjQzLTQwZWQtNDJjZC05MTUwLWYzZjQ3ZDBmNTM0ZCIsImFpZCI6IjAiLCJzY3kiOiJhdXRvIiwibmV0Ijoid3MiLCJ0eXBlIjoibm9uZSIsImhvc3QiOiJjZG4uZXhhbXBsZS5jb20iLCJwYXRoIjoiL3ZtIiwidGxzIjoidGxzIn0=",
+    "summary": "VMess WS TLS · vm.example.com:443",
+    "upstream": {
+      "cipher": "auto",
+      "ip_version": "system",
+      "network": "ws",
+      "port": 443,
+      "security": "tls",
+      "server": "vm.example.com",
+      "tls": {
+        "server_name": "cdn.example.com"
+      },
+      "type": "vmess",
+      "uuid": "d77c8b43-40ed-42cd-9150-f3f47d0f534d",
+      "ws": {
+        "host": "cdn.example.com",
+        "path": "/vm"
+      }
+    }
+  },
+  {
+    "link": "vmess://eyJhZGQiOiI5LjkuOS45IiwicG9ydCI6MTAwODYsImlkIjoiZDc3YzhiNDMtNDBlZC00MmNkLTkxNTAtZjNmNDdkMGY1MzRkIiwiYWlkIjowLCJuZXQiOiJ0Y3AiLCJzY3kiOiJhZXMtMTI4LWdjbSIsInRscyI6IiJ9",
+    "summary": "VMess · 9.9.9.9:10086",
+    "upstream": {
+      "cipher": "aes-128-gcm",
+      "ip_version": "system",
+      "network": "tcp",
+      "port": 10086,
+      "security": "none",
+      "server": "9.9.9.9",
+      "type": "vmess",
+      "uuid": "d77c8b43-40ed-42cd-9150-f3f47d0f534d"
+    }
+  },
+  {
+    "link": "vmess://eyJhZGQiOiJnLmV4YW1wbGUuY29tIiwicG9ydCI6NDQzLCJpZCI6ImQ3N2M4YjQzLTQwZWQtNDJjZC05MTUwLWYzZjQ3ZDBmNTM0ZCIsImFpZCI6MCwibmV0IjoiZ3JwYyIsInBhdGgiOiJnc3ZjIiwidGxzIjoidGxzIiwic25pIjoiZy5leGFtcGxlLmNvbSJ9",
+    "summary": "VMess gRPC TLS · g.example.com:443",
+    "upstream": {
+      "cipher": "auto",
+      "grpc": {
+        "service_name": "gsvc"
+      },
+      "ip_version": "system",
+      "network": "grpc",
+      "port": 443,
+      "security": "tls",
+      "server": "g.example.com",
+      "tls": {
+        "server_name": "g.example.com"
+      },
+      "type": "vmess",
+      "uuid": "d77c8b43-40ed-42cd-9150-f3f47d0f534d"
+    }
+  },
+  {
+    "link": "trojan://p%40ss@tj.example.com:443?sni=tj.example.com\u0026alpn=h2#tj",
+    "summary": "Trojan · tj.example.com:443",
+    "upstream": {
+      "ip_version": "system",
+      "network": "tcp",
+      "password": "p@ss",
+      "port": 443,
+      "security": "tls",
+      "server": "tj.example.com",
+      "tls": {
+        "alpn": [
+          "h2"
+        ],
+        "server_name": "tj.example.com"
+      },
+      "type": "trojan"
+    }
+  },
+  {
+    "link": "trojan://pass@tj.example.com:443?type=ws\u0026path=/tj\u0026host=tj.example.com#tj-ws",
+    "summary": "Trojan WS · tj.example.com:443",
+    "upstream": {
+      "ip_version": "system",
+      "network": "ws",
+      "password": "pass",
+      "port": 443,
+      "security": "tls",
+      "server": "tj.example.com",
+      "type": "trojan",
+      "ws": {
+        "host": "tj.example.com",
+        "path": "/tj"
+      }
+    }
+  },
+  {
+    "link": "trojan://pass@tj.example.com:443?type=grpc\u0026serviceName=tj\u0026pinSHA256=aa:bbcceeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee#tj-grpc",
+    "summary": "Trojan gRPC · tj.example.com:443",
+    "upstream": {
+      "grpc": {
+        "service_name": "tj"
+      },
+      "ip_version": "system",
+      "network": "grpc",
+      "password": "pass",
+      "port": 443,
+      "security": "tls",
+      "server": "tj.example.com",
+      "tls": {
+        "pinned_sha256": "aabbcceeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+      },
+      "type": "trojan"
+    }
+  },
+  {
+    "link": "hysteria2://auth@hy.example.com:443/?sni=hy.example.com#hy2",
+    "summary": "Hysteria2 · hy.example.com:443",
+    "upstream": {
+      "ip_version": "system",
+      "password": "auth",
+      "port": 443,
+      "security": "tls",
+      "server": "hy.example.com",
+      "tls": {
+        "server_name": "hy.example.com"
+      },
+      "type": "hysteria2"
+    }
+  },
+  {
+    "link": "hy2://auth:part@1.1.1.1:8443?sni=hy.example.com\u0026obfs=salamander\u0026obfs-password=obfs\u0026pinSHA256=abababababababababababababababababababababababababababababababab#hy2-obfs",
+    "summary": "Hysteria2 · 1.1.1.1:8443",
+    "upstream": {
+      "ip_version": "system",
+      "obfs": "obfs",
+      "password": "auth:part",
+      "port": 8443,
+      "security": "tls",
+      "server": "1.1.1.1",
+      "tls": {
+        "pinned_sha256": "abababababababababababababababababababababababababababababababab",
+        "server_name": "hy.example.com"
+      },
+      "type": "hysteria2"
+    }
+  },
+  {
+    "link": "socks5://user:pass@1.0.0.1:1080#socks",
+    "summary": "SOCKS5 · 1.0.0.1:1080",
+    "upstream": {
+      "ip_version": "system",
+      "password": "pass",
+      "port": 1080,
+      "server": "1.0.0.1",
+      "type": "socks",
+      "username": "user"
+    }
+  },
+  {
+    "link": "socks5://1.0.0.1:1081#socks-noauth",
+    "summary": "SOCKS5 · 1.0.0.1:1081",
+    "upstream": {
+      "ip_version": "system",
+      "port": 1081,
+      "server": "1.0.0.1",
+      "type": "socks"
+    }
+  },
+  {
+    "link": "http://1.0.0.2:3128#http",
+    "summary": "HTTP · 1.0.0.2:3128",
+    "upstream": {
+      "ip_version": "system",
+      "port": 3128,
+      "server": "1.0.0.2",
+      "type": "http"
+    }
+  },
+  {
+    "link": "https://u:p@proxy.example.com:443#https",
+    "summary": "HTTPS · proxy.example.com:443",
+    "upstream": {
+      "ip_version": "system",
+      "password": "p",
+      "port": 443,
+      "security": "tls",
+      "server": "proxy.example.com",
+      "type": "http",
+      "username": "u"
+    }
+  }
+]
