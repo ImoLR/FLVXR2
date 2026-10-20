@@ -14,7 +14,7 @@
 - [x] 前端 tsc、改动文件 ESLint 无新增错误、构建通过。
 - [x] 本机落地验收通过（含 T1/R1、在线 IP），链式验收通过（含 C6/C8）。
 - [x] 重拍并检查 3–4 张关键页面，记录节点列表查询次数。
-- [ ] Tag fork.61；CI / Images 通过；Latest 与 fork.60 相同资产集合核验。
+- [x] Tag fork.61；CI / Images 通过；Latest 与 fork.60 相同资产集合核验。
 - [x] 生产升级前记录配置表计数/哈希、在线节点、RSS；验证数据库备份与回滚脚本，执行两份备份保留规则。
 - [ ] 升级生产面板；验证迁移、节点上报、node 21 在线 IP、日志及资源。
 - [ ] 唯一出口 canary SSH 备份与恢复脚本就绪；记录诊断及 CPU/RSS 后 OTA，复验转发与无 Core 下载。
@@ -39,3 +39,5 @@
 - 2026-10-20 20:27：tag `3.0.27-fork.61` → `9591487e` 已推送，CI `39422343694` 成功，Images `39422345431` 构建中。20:29 节点47 SSH备份 `/root/flvxx-backup-20261020T122908Z-pre-fork61/restore-agent.sh` 校验通过；远端保留该份与 pre-fork56，删除 pre-fork55。OTA尚未执行。升级前30秒CPU 0.2666%、RSS 59,800 KiB，无Core目录/服务，其他面板PID634。
 
 - 2026-10-20 20:29：生产回滚点 `/opt/flvx-svc/rollback/pre-fork61-20261020T122949Z` 已备份 compose/env、SQLite quick_check=ok、旧镜像及恢复脚本；已立即执行 prune，只保留 pre-fork61 / pre-fork60，删除 pre-fork59 与 fork58旧镜像。备份计数29/12/43/31/143，landing3/1；升级前RSS 35,928 KiB，29/29在线。完整表哈希从已验证备份采样，不另留生产DB副本。
+
+- 2026-10-20 20:45：CI `39422343694` 与 Images `39422345431` 全绿，tag SHA 精确匹配。Release 为 Latest/正式版，10资产与fork60一致；两架构镜像、两份compose、安装脚本固定版本/仓库及两个gost SHA256全部通过（release-validation.json，16项）。
