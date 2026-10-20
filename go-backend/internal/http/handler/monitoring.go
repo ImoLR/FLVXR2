@@ -10,6 +10,7 @@ import (
 	"go-backend/internal/http/response"
 	"go-backend/internal/monitoring"
 	"go-backend/internal/store/model"
+	"go-backend/internal/ws"
 )
 
 const (
@@ -74,6 +75,8 @@ type monitorNodeListItem struct {
 	Status      int    `json:"status"`
 	Version     string `json:"version"`
 	UpdatedTime int64  `json:"updatedTime"`
+	// Whole-machine connections (plan 118); non-admins get the chip fields only.
+	Machine *ws.MachineView `json:"machine,omitempty"`
 }
 
 func (h *Handler) monitorNodeListHandler(w http.ResponseWriter, r *http.Request) {
@@ -116,6 +119,7 @@ func (h *Handler) monitorNodeListHandler(w http.ResponseWriter, r *http.Request)
 			Status:      n.Status,
 			Version:     n.Version.String,
 			UpdatedTime: updated,
+			Machine:     h.machineView(n.ID, scope.roleID == 0),
 		})
 	}
 

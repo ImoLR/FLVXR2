@@ -722,6 +722,11 @@ func (h *Handler) nodeCreate(w http.ResponseWriter, r *http.Request) {
 	if region.Region == "" {
 		region.Region = geoip.DetectNodeAddresses(asString(req["serverIpV4"]), asString(req["serverIp"]), asString(req["serverIpV6"])).Region
 	}
+	machine, machineSet, err := parseMachineProtection(req, repo.DefaultMachineProtection())
+	if err != nil {
+		response.WriteJSON(w, response.ErrDefault(err.Error()))
+		return
+	}
 
 	var groupID interface{}
 	if _, ok := req["groupId"]; ok {
@@ -775,6 +780,17 @@ func (h *Handler) nodeCreate(w http.ResponseWriter, r *http.Request) {
 	if asBool(req["lineMachine"], false) {
 		if created, err := h.repo.GetNodeBySecret(secret); err == nil && created != nil {
 			if err := h.repo.SetNodeLineMachine(created.ID, true); err != nil {
+				response.WriteJSON(w, response.Err(-2, err.Error()))
+				return
+			}
+		}
+	}
+	// New nodes get the column defaults (protection on, 1500 / 500 / 10 s); a
+	// different choice in the create dialog is written explicitly (GORM would
+	// replace false/0 by the column default on insert).
+	if machineSet && machine != repo.DefaultMachineProtection() {
+		if created, err := h.repo.GetNodeBySecret(secret); err == nil && created != nil {
+			if err := h.repo.SetNodeMachineProtection(created.ID, machine); err != nil {
 				response.WriteJSON(w, response.Err(-2, err.Error()))
 				return
 			}
@@ -864,6 +880,11 @@ func (h *Handler) nodeUpdate(w http.ResponseWriter, r *http.Request) {
 		response.WriteJSON(w, response.ErrDefault(err.Error()))
 		return
 	}
+	machine, machineSet, err := parseMachineProtection(req, repo.NodeMachineProtection(oldNode))
+	if err != nil {
+		response.WriteJSON(w, response.ErrDefault(err.Error()))
+		return
+	}
 	lineMachine, setLineMachine := oldNode.LineMachine, false
 	if v, ok := req["lineMachine"]; ok {
 		lineMachine, setLineMachine = asBool(v, false), true
@@ -943,6 +964,15 @@ func (h *Handler) nodeUpdate(w http.ResponseWriter, r *http.Request) {
 			response.WriteJSON(w, response.Err(-2, err.Error()))
 			return
 		}
+	}
+	if machineSet && machine != repo.NodeMachineProtection(oldNode) {
+		if err := h.repo.SetNodeMachineProtection(id, machine); err != nil {
+			response.WriteJSON(w, response.Err(-2, err.Error()))
+			return
+		}
+		// The agent applies it within seconds and reports back; the save never
+		// waits for (or fails on) a slow node. Failed pushes repeat on reconnect.
+		go h.syncNodeMachineProtection(id)
 	}
 	newNode := *oldNode
 	newNode.Name = asString(req["name"])
@@ -5593,7 +5623,13 @@ func (h *Handler) replaceTunnelChainsTx(tx *gorm.DB, tunnelID int64, req map[str
 }
 
 func (h *Handler) deleteNodeByID(id int64) error {
-	return h.repo.DeleteNodeCascade(id)
+	if err := h.repo.DeleteNodeCascade(id); err != nil {
+		return err
+	}
+	if h.wsServer != nil {
+		h.wsServer.ForgetMachine(id)
+	}
+	return nil
 }
 
 func (h *Handler) deleteTunnelByID(id int64) error {

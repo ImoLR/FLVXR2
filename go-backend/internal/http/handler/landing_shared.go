@@ -383,6 +383,7 @@ func (h *Handler) pollSharedLanding(ctx context.Context, client *landingcustom.C
 	if err = h.repo.RecordSharedStatus(s.ID, status, time.Now().UnixMilli()); err != nil {
 		return apply, errors.New("妙妙屋节点状态保存失败")
 	}
+	h.recordSharedMachine(s.ID, status.Machine, time.Now())
 	if status.Egress != nil {
 		_ = h.repo.RecordLandingEgressStatus(s.ID, status.Egress.State, status.Egress.Error, true, status.Egress.Warnings)
 	}

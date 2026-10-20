@@ -9,6 +9,7 @@ import (
 	"go-backend/internal/landingcustom"
 	"go-backend/internal/store/model"
 	"go-backend/internal/store/repo"
+	"go-backend/internal/ws"
 )
 
 // The UI labels data older than this with its age (「数据 N 分钟前」).
@@ -61,6 +62,8 @@ type landingMonitorServerView struct {
 	QuotaLimitBytes int64                    `json:"quotaLimitBytes,omitempty"`
 	QuotaPaused     bool                     `json:"quotaPaused,omitempty"`
 	Nodes           []landingMonitorNodeView `json:"nodes"`
+	// Machine: shared servers' whole-machine connections (absent = unknown).
+	Machine *ws.MachineView `json:"machine,omitempty"`
 }
 
 type landingMonitorView struct {
@@ -116,7 +119,14 @@ func (h *Handler) landingMonitor(w http.ResponseWriter, r *http.Request) {
 		response.WriteJSON(w, response.Err(-2, "落地监控数据读取失败"))
 		return
 	}
-	response.WriteJSON(w, response.OK(buildLandingMonitorView(data, admin, h.landingRateTracker(), now)))
+	view := buildLandingMonitorView(data, admin, h.landingRateTracker(), now)
+	// Shared servers: whole-machine connections from Custom's status (plan 118).
+	for i := range view.Servers {
+		if view.Servers[i].Source == "shared" {
+			view.Servers[i].Machine = h.sharedMachineView(view.Servers[i].ID, admin, now)
+		}
+	}
+	response.WriteJSON(w, response.OK(view))
 }
 
 // landingNodeDisplayStatus is the status the 落地 page shows: shared nodes that

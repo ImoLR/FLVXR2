@@ -31,12 +31,14 @@ type broadcastMessage struct {
 }
 
 type connWrap struct {
-	conn *websocket.Conn
-	mu   sync.Mutex
+	conn  *websocket.Conn
+	mu    sync.Mutex
+	admin bool // role 0: receives the machine protection fields of node metrics
 }
 
 type nodeSession struct {
 	panelIPFamily   string // empty for agents without panel IP family support
+	machineProtect  int    // handshake capability; 0 = agent without machine protection
 	leikwanStatus   string
 	leikwanForwards string
 	egressDetected  string
@@ -94,6 +96,8 @@ type Server struct {
 	forwardMetrics        map[int64]map[int64]*ForwardMetric // forwardID -> nodeID -> metric
 	forwardMetricsMu      sync.RWMutex
 	nodeOfflineTime       map[int64]int64 // nodeID -> offline timestamp (seconds)
+	machineMu             sync.RWMutex
+	machineStats          map[int64]*MachineSample // nodeID -> latest machine sample (memory only)
 }
 
 type SystemInfo struct {
@@ -120,6 +124,8 @@ type SystemInfo struct {
 	Load15                 float64           `json:"load15"`
 	TCPConns               int64             `json:"tcp_conns"`
 	UDPConns               int64             `json:"udp_conns"`
+	MachineConns           *MachineConns     `json:"machine_conns,omitempty"`
+	MachineProtect         *MachineProtect   `json:"machine_protect,omitempty"`
 	NetInSpeed             int64             `json:"net_in_speed"`
 	NetOutSpeed            int64             `json:"net_out_speed"`
 	ServiceName            string            `json:"service_name,omitempty"`
@@ -271,6 +277,7 @@ func NewServer(repo *repo.Repository, jwtSecret string) *Server {
 		serviceConnUpdateTime: make(map[int64]int64),
 		forwardMetrics:        make(map[int64]map[int64]*ForwardMetric), // forwardID -> nodeID -> metric
 		nodeOfflineTime:       make(map[int64]int64),                    // nodeID -> offline timestamp
+		machineStats:          make(map[int64]*MachineSample),
 	}
 	// 启动后台清理任务（每 2 分钟清理一次过期数据）
 	go s.cleanupStaleMetrics(2 * time.Minute)
@@ -301,11 +308,12 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if strings.HasPrefix(strings.ToLower(secret), "bearer ") {
 			secret = strings.TrimSpace(secret[7:])
 		}
-		if _, ok := auth.ValidateToken(secret, s.jwtSecret); !ok {
+		claims, ok := auth.ValidateToken(secret, s.jwtSecret)
+		if !ok {
 			http.Error(w, "forbidden", http.StatusForbidden)
 			return
 		}
-		s.handleAdmin(w, r)
+		s.handleAdmin(w, r, claims.RoleID == 0)
 		return
 	}
 
@@ -317,12 +325,12 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	http.Error(w, "bad request", http.StatusBadRequest)
 }
 
-func (s *Server) handleAdmin(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleAdmin(w http.ResponseWriter, r *http.Request, admin bool) {
 	conn, err := s.upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		return
 	}
-	cw := &connWrap{conn: conn}
+	cw := &connWrap{conn: conn, admin: admin}
 	_ = conn.SetReadDeadline(time.Now().Add(wsPongWait))
 	conn.SetPongHandler(func(string) error {
 		return conn.SetReadDeadline(time.Now().Add(wsPongWait))
@@ -414,6 +422,9 @@ func (s *Server) handleNode(w http.ResponseWriter, r *http.Request, nodeID int64
 	if value := r.URL.Query().Get("panelIpFamily"); value != "" {
 		ns.panelIPFamily, _ = repo.NormalizePanelIPFamily(value)
 	}
+	if v, err := strconv.Atoi(r.URL.Query().Get("machineProtect")); err == nil && v > 0 {
+		ns.machineProtect = v
+	}
 	s.nodes[nodeID] = ns
 	delete(s.serviceConnections, nodeID)
 	delete(s.serviceConnUpdateTime, nodeID)
@@ -485,6 +496,7 @@ func (s *Server) handleNode(w http.ResponseWriter, r *http.Request, nodeID int64
 						s.recordEgressDetection(ns, sysInfo.EgressIPFamily)
 						s.recordIPv6RA(ns, sysInfo.IPv6RAStatus, sysInfo.IPv6RADetail)
 						s.recordLeiKwan(ns, sysInfo.LeiKwan)
+						s.recordMachine(nodeID, sysInfo, time.Now())
 						_ = s.repo.SetNodeLandingCapabilities(nodeID, sysInfo.LandingCapable, sysInfo.LandingEgress, sysInfo.LandingChain)
 						// 缓存服务连接数
 						s.mu.Lock()
@@ -518,7 +530,8 @@ func (s *Server) handleNode(w http.ResponseWriter, r *http.Request, nodeID int64
 						}
 					}
 					// 配额组包含活跃客户端 IP，仅供面板内存聚合，不广播给前端。
-					s.broadcastTyped(nodeID, "metric", metricDataForBroadcast(envelope.Data))
+					adminData, otherData := metricBroadcastVariants(envelope.Data)
+					s.broadcastMetric(nodeID, adminData, otherData)
 				}
 				continue
 			case "ReportPublicIP":
@@ -558,6 +571,7 @@ func (s *Server) handleNode(w http.ResponseWriter, r *http.Request, nodeID int64
 				s.recordEgressDetection(ns, sysInfo.EgressIPFamily)
 				s.recordIPv6RA(ns, sysInfo.IPv6RAStatus, sysInfo.IPv6RADetail)
 				s.recordLeiKwan(ns, sysInfo.LeiKwan)
+				s.recordMachine(nodeID, sysInfo, time.Now())
 				_ = s.repo.SetNodeLandingCapabilities(nodeID, sysInfo.LandingCapable, sysInfo.LandingEgress, sysInfo.LandingChain)
 				// 缓存服务连接数
 				s.mu.Lock()
@@ -571,7 +585,8 @@ func (s *Server) handleNode(w http.ResponseWriter, r *http.Request, nodeID int64
 				if onMetric != nil {
 					go onMetric(nodeID, sysInfo)
 				}
-				s.broadcastTyped(nodeID, "metric", metricDataForBroadcast([]byte(msg)))
+				adminData, otherData := metricBroadcastVariants([]byte(msg))
+				s.broadcastMetric(nodeID, adminData, otherData)
 				continue
 			}
 		}
@@ -580,28 +595,10 @@ func (s *Server) handleNode(w http.ResponseWriter, r *http.Request, nodeID int64
 	}
 }
 
+// metricDataForBroadcast is the metric data for non-admin and public sessions.
 func metricDataForBroadcast(raw []byte) string {
-	var fields map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &fields); err != nil {
-		return string(raw)
-	}
-	_, quota := fields["quotaGroups"]
-	_, raStatus := fields["ipv6_ra_status"]
-	_, raDetail := fields["ipv6_ra_detail"]
-	_, leikwan := fields["leikwan"]
-	if !quota && !raStatus && !raDetail && !leikwan {
-		return string(raw)
-	}
-	delete(fields, "quotaGroups")
-	// RA details belong to the admin node list, never public/non-admin metrics.
-	delete(fields, "ipv6_ra_status")
-	delete(fields, "ipv6_ra_detail")
-	delete(fields, "leikwan")
-	filtered, err := json.Marshal(fields)
-	if err != nil {
-		return string(raw)
-	}
-	return string(filtered)
+	_, other := metricBroadcastVariants(raw)
+	return other
 }
 
 func looksLikeSystemInfoMessage(msg string) bool {
@@ -847,6 +844,38 @@ func (s *Server) broadcastTyped(nodeID int64, msgType string, data string) {
 	s.broadcastToPublics(msg)
 }
 
+// broadcastMetric sends a node metric: admin sessions get adminData, other
+// logged-in sessions and the public status page get otherData.
+func (s *Server) broadcastMetric(nodeID int64, adminData, otherData string) {
+	if adminData == otherData {
+		s.broadcastTyped(nodeID, "metric", adminData)
+		return
+	}
+	adminRaw, _ := json.Marshal(broadcastMessage{ID: nodeID, Type: "metric", Data: adminData})
+	otherRaw, _ := json.Marshal(broadcastMessage{ID: nodeID, Type: "metric", Data: otherData})
+	s.mu.RLock()
+	conns := make([]*connWrap, 0, len(s.admins))
+	for c := range s.admins {
+		conns = append(conns, c)
+	}
+	s.mu.RUnlock()
+	for _, c := range conns {
+		msg := otherRaw
+		if c.admin {
+			msg = adminRaw
+		}
+		c.mu.Lock()
+		_ = c.conn.SetWriteDeadline(time.Now().Add(wsWriteWait))
+		err := c.conn.WriteMessage(websocket.TextMessage, msg)
+		_ = c.conn.SetWriteDeadline(time.Time{})
+		c.mu.Unlock()
+		if err != nil {
+			log.Printf("websocket broadcast failed: %v", err)
+		}
+	}
+	s.broadcastToPublics(string(otherRaw))
+}
+
 func (s *Server) BroadcastToAdmins(message string) {
 	s.mu.RLock()
 	admins := make([]*connWrap, 0, len(s.admins))
@@ -956,6 +985,7 @@ func (s *Server) cleanupStaleMetrics(interval time.Duration) {
 	defer ticker.Stop()
 
 	for range ticker.C {
+		s.pruneMachineStats(time.Now())
 		s.mu.Lock()
 		now := time.Now().Unix()
 		offlineTimeout := int64(10 * 60) // 10 分钟
