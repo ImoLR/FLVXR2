@@ -108,7 +108,9 @@ export function RuleLandingTarget({
     onChange({ ...value, targetMode: "node", landingNodeId: node.id });
 
   return (
-    <div className={lineMachine ? "flvx-landing-text space-y-3" : "space-y-3"}>
+    <div
+      className={`min-w-0 w-full max-w-full space-y-3 break-words [overflow-wrap:anywhere]${lineMachine ? " flvx-landing-text" : ""}`}
+    >
       <Select
         description={
           lineMachine
@@ -147,6 +149,11 @@ export function RuleLandingTarget({
       {mode === "node" && (
         <>
           <Select
+            classNames={{
+              base: "min-w-0 max-w-full",
+              trigger: "max-w-full [&>span]:whitespace-normal",
+              listbox: "static min-w-0 max-w-full max-h-[min(50vh,20rem)]",
+            }}
             description="只能选择规则所属用户自己的节点"
             disabledKeys={nodes
               .filter(disabledReason)
