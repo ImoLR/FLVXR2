@@ -3,6 +3,7 @@ import { Copy, QrCode } from "lucide-react";
 import toast from "react-hot-toast";
 
 import { ChainLink, ForwardChainInfo, getChainLinks } from "@/api/line-chain";
+import { landingLinks } from "@/api/landing";
 import { Button } from "@/shadcn-bridge/heroui/button";
 import { Chip } from "@/shadcn-bridge/heroui/chip";
 import {
@@ -42,6 +43,7 @@ interface ChainRow {
   id: number;
   name: string;
   chain?: ForwardChainInfo;
+  landingNodeId?: number;
   lineNonCompliant?: boolean;
 }
 
@@ -83,8 +85,7 @@ export function ForwardLineBadges({ forward }: { forward: ChainRow }) {
   );
 }
 
-// 「复制链接」 for a chain rule: one entry copies at once; several entries
-// open a list (one link per entry, like the landing 转发版 links).
+// One entry copies at once; several entries open the shared link list.
 export function ChainLinkButton({
   forward,
   className,
@@ -92,35 +93,46 @@ export function ChainLinkButton({
   forward: ChainRow;
   className?: string;
 }) {
-  const [links, setLinks] = useState<ChainLink[]>([]);
+  const [links, setLinks] = useState<Pick<ChainLink, "name" | "url">[]>([]);
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [qr, setQR] = useState("");
 
-  if (!forward.chain || forward.chain.state !== "active") return null;
+  if (
+    forward.chain
+      ? forward.chain.state !== "active"
+      : !forward.landingNodeId
+  ) return null;
 
   const load = async () => {
     setLoading(true);
     try {
-      const res = await getChainLinks(forward.id);
+      const res = forward.chain
+        ? await getChainLinks(forward.id)
+        : await landingLinks(forward.landingNodeId!);
+      const entries = forward.chain
+        ? res.data
+        : (res.data || []).filter(
+            (link) => "forwardId" in link && link.forwardId === forward.id,
+          );
 
-      if (res.code !== 0 || !res.data?.length) {
+      if (res.code !== 0 || !entries?.length) {
         toast.error(res.msg || "链接获取失败");
 
         return;
       }
-      if (res.data.length === 1) {
-        const ok = await copyText(res.data[0].url);
+      if (entries.length === 1) {
+        const ok = await copyText(entries[0].url);
 
         if (ok) toast.success("链接已复制");
         else {
-          setLinks(res.data);
+          setLinks(entries);
           setOpen(true);
         }
 
         return;
       }
-      setLinks(res.data);
+      setLinks(entries);
       setOpen(true);
     } finally {
       setLoading(false);

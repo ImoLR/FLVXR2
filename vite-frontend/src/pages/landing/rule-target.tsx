@@ -3,20 +3,19 @@ import toast from "react-hot-toast";
 
 import {
   LandingNode,
-  LandingProtocol,
   LandingServer,
   landingNodes,
   landingProtocolLabel,
   landingServers,
 } from "@/api/landing";
 import { ChainTargetInput } from "@/pages/landing/chain-target";
-import { Select, SelectItem } from "@/shadcn-bridge/heroui/select";
+import { CreateLandingNodeDialog } from "@/pages/landing/create-node";
+import { Button } from "@/shadcn-bridge/heroui/button";
+import { Select, SelectItem, SelectSection } from "@/shadcn-bridge/heroui/select";
 
 export interface LandingTargetValue {
-  targetMode?: "manual" | "node" | "server" | "chain";
+  targetMode?: "manual" | "node" | "chain";
   landingNodeId?: number;
-  landingServerId?: number;
-  landingProtocol?: LandingProtocol;
   chainLink?: string;
 }
 
@@ -45,35 +44,27 @@ export function RuleLandingTarget({
 }) {
   const [nodes, setNodes] = useState<LandingNode[]>([]);
   const [servers, setServers] = useState<LandingServer[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [creating, setCreating] = useState(false);
   const lineMachine = Boolean(line?.lineMachine);
   const mode = value.targetMode || "manual";
-  const realityOnly = (protocols: LandingProtocol[]) =>
-    lineMachine
-      ? protocols.filter((protocol) => protocol === "vless_reality_vision")
-      : protocols;
 
   useEffect(() => {
-    if (mode === "manual" || mode === "chain") return;
+    if (mode !== "node") return;
     let disposed = false;
 
-    void Promise.all([landingNodes(), landingServers()]).then(
+    setLoading(true);
+    setNodes([]);
+    setServers([]);
+    void Promise.all([landingNodes(), landingServers(userId)]).then(
       ([nodeRes, serverRes]) => {
         if (disposed) return;
         if (nodeRes.code === 0)
-          setNodes(
-            (nodeRes.data || []).filter(
-              (node) => node.userId === userId && node.status === "active",
-            ),
-          );
+          setNodes((nodeRes.data || []).filter((node) => node.userId === userId));
         else toast.error(nodeRes.msg);
-        if (serverRes.code === 0)
-          setServers(
-            (serverRes.data || []).filter(
-              (server) =>
-                server.status === "active" && server.sharedAvailable !== false,
-            ),
-          );
+        if (serverRes.code === 0) setServers(serverRes.data || []);
         else toast.error(serverRes.msg);
+        setLoading(false);
       },
     );
 
@@ -81,18 +72,30 @@ export function RuleLandingTarget({
       disposed = true;
     };
   }, [mode, userId]);
-  const server = servers.find((item) => item.id === value.landingServerId);
-  const visibleNodes = lineMachine
-    ? nodes.filter((node) => node.protocol === "vless_reality_vision")
-    : nodes;
-  const visibleServers = lineMachine
-    ? servers.filter((item) =>
-        (item.protocols || []).includes("vless_reality_vision"),
-      )
-    : servers;
-  const defaultProtocol: LandingProtocol = lineMachine
-    ? "vless_reality_vision"
-    : "ss2022";
+
+  const disabledReason = (node: LandingNode) => {
+    const server = servers.find((item) => item.id === node.landingServerId);
+
+    if (
+      node.serverAvailable === false ||
+      !server ||
+      server.status !== "active" ||
+      server.sharedAvailable === false ||
+      (server.availableUntil && server.availableUntil <= Date.now())
+    ) return "服务器不可用";
+    if (
+      node.status !== "active" ||
+      node.deletePending ||
+      (node.effectiveExpiresAt && node.effectiveExpiresAt <= Date.now())
+    ) return "已停用";
+    if (lineMachine && node.protocol !== "vless_reality_vision")
+      return "线路机需要 VLESS Reality Vision";
+
+    return "";
+  };
+  const groups = Array.from(new Set(nodes.map((node) => node.landingServerId)));
+  const selectNode = (node: LandingNode) =>
+    onChange({ ...value, targetMode: "node", landingNodeId: node.id });
 
   return (
     <div className={lineMachine ? "flvx-landing-text space-y-3" : "space-y-3"}>
@@ -112,8 +115,6 @@ export function RuleLandingTarget({
               Array.from(keys)[0],
             ) as LandingTargetValue["targetMode"],
             landingNodeId: undefined,
-            landingServerId: undefined,
-            landingProtocol: defaultProtocol,
             chainLink: "",
           })
         }
@@ -123,7 +124,6 @@ export function RuleLandingTarget({
             ? []
             : [<SelectItem key="manual">手动填写</SelectItem>]),
           <SelectItem key="node">我的落地节点</SelectItem>,
-          <SelectItem key="server">落地服务器（自动建节点）</SelectItem>,
           ...(lineMachine
             ? [<SelectItem key="chain">我自己的节点</SelectItem>]
             : []),
@@ -135,89 +135,57 @@ export function RuleLandingTarget({
         </p>
       )}
       {mode === "node" && (
-        <Select
-          description={
-            lineMachine
-              ? "只列出 VLESS Reality Vision 节点"
-              : "只能选择规则所属用户自己的节点"
-          }
-          label="我的落地节点"
-          placeholder="请选择落地节点"
-          selectedKeys={
-            value.landingNodeId ? [String(value.landingNodeId)] : []
-          }
-          variant="bordered"
-          onSelectionChange={(keys) =>
-            onChange({ ...value, landingNodeId: Number(Array.from(keys)[0]) })
-          }
-        >
-          {visibleNodes.map((node) => (
-            <SelectItem key={String(node.id)}>
-              {node.name} · {landingProtocolLabel(node.protocol)} ·{" "}
-              {node.serverName || ""}
-            </SelectItem>
-          ))}
-        </Select>
-      )}
-      {mode === "server" && (
         <>
           <Select
-            description="保存规则时为该用户自动创建一个节点，端口由系统分配"
-            label="落地服务器"
-            placeholder="请选择服务器"
-            selectedKeys={
-              value.landingServerId ? [String(value.landingServerId)] : []
-            }
-            variant="bordered"
-            onSelectionChange={(keys) => {
-              const id = Number(Array.from(keys)[0]);
-
-              onChange({
-                ...value,
-                landingServerId: id,
-                landingProtocol:
-                  realityOnly(
-                    servers.find((item) => item.id === id)?.protocols || [],
-                  )[0] || defaultProtocol,
-              });
-            }}
-          >
-            {visibleServers.map((item) => (
-              <SelectItem key={String(item.id)}>
-                {item.name} · {item.flowType === 2 ? "双向" : "单向"}{" "}
-                {item.trafficRatio}×
-              </SelectItem>
-            ))}
-          </Select>
-          <Select
-            description={
-              lineMachine
-                ? "线路机隧道固定使用 VLESS Reality Vision"
-                : undefined
-            }
-            isDisabled={lineMachine}
-            label="协议模板"
-            selectedKeys={[
-              lineMachine
-                ? "vless_reality_vision"
-                : value.landingProtocol || "ss2022",
-            ]}
+            description="只能选择规则所属用户自己的节点"
+            disabledKeys={nodes.filter(disabledReason).map((node) => String(node.id))}
+            isDisabled={loading}
+            label="我的落地节点"
+            listboxVariant="grouped"
+            placeholder={loading ? "正在加载…" : "请选择落地节点"}
+            selectedKeys={value.landingNodeId ? [String(value.landingNodeId)] : []}
             variant="bordered"
             onSelectionChange={(keys) =>
-              onChange({
-                ...value,
-                landingProtocol: String(Array.from(keys)[0]) as LandingProtocol,
-              })
+              onChange({ ...value, landingNodeId: Number(Array.from(keys)[0]) })
             }
           >
-            {realityOnly(
-              server?.protocols || ["ss2022", "vless_reality_vision"],
-            ).map((protocol) => (
-              <SelectItem key={protocol}>
-                {landingProtocolLabel(protocol)}
-              </SelectItem>
-            ))}
+            {groups.map((id) => {
+              const server = servers.find((item) => item.id === id);
+              const serverNodes = nodes.filter((node) => node.landingServerId === id);
+              const first = serverNodes[0];
+              const flowType = server?.flowType ?? first.effectiveFlowType;
+              const ratio = server?.trafficRatio ?? first.effectiveTrafficRatio ?? 1;
+
+              return (
+                <SelectSection
+                  key={id}
+                  title={`${server?.name || first.serverName || "落地服务器"} · ${flowType === 2 ? "双向" : "单向"} ${ratio}×`}
+                >
+                  {serverNodes.map((node) => (
+                    <SelectItem key={String(node.id)} description={disabledReason(node)}>
+                      {node.name} · {landingProtocolLabel(node.protocol)} · {node.port}
+                    </SelectItem>
+                  ))}
+                </SelectSection>
+              );
+            })}
           </Select>
+          {!loading && !nodes.some((node) => !disabledReason(node)) && (
+            <p className="text-sm text-default-500">暂无可用的落地节点，可先新建一个。</p>
+          )}
+          <Button
+            color="success"
+            isDisabled={loading || userId <= 0}
+            size="sm"
+            variant="flat"
+            onPress={() => setCreating(true)}
+          >
+            ＋ 新建落地节点
+          </Button>
+          <p className="text-xs text-default-500">
+            删除规则不会删除落地节点；一个节点可同时直连和被多条规则使用。
+            本人落地不重复计入用户总流量，按隧道与落地较贵的费率计费。此规则只使用一个落地目标。
+          </p>
         </>
       )}
       {mode === "chain" && (
@@ -228,10 +196,28 @@ export function RuleLandingTarget({
           onChange={(chainLink) => onChange({ ...value, chainLink })}
         />
       )}
-      {mode !== "manual" && mode !== "chain" && (
-        <p className="text-xs text-default-500">
-          本人落地不重复计入用户总流量，按隧道与落地较贵的费率计费。此规则只使用一个落地目标。
-        </p>
+      {creating && (
+        <CreateLandingNodeDialog
+          key={`${userId}-${lineMachine}`}
+          lineMachine={lineMachine}
+          nodes={nodes}
+          ownerId={userId}
+          servers={servers}
+          onClose={() => setCreating(false)}
+          onCreated={async (node) => {
+            const res = await landingNodes();
+
+            if (res.code === 0) {
+              setNodes((res.data || []).filter((item) => item.userId === userId));
+            } else {
+              setNodes((previous) => [...previous, node]);
+              toast.error(res.msg);
+            }
+            selectNode(node);
+            toast.success("已创建落地节点，也会显示在「我的节点」");
+          }}
+          onUseNode={selectNode}
+        />
       )}
     </div>
   );
