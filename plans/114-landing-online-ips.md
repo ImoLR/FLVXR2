@@ -41,5 +41,5 @@ Native: in the agent's per-node `Counter` (landing status upload). Shared: in Cu
 - [x] Panel upgraded 2026-10-20 18:16; healthy, 29/29 online and fresh reports; counts and landing server revisions/hash unchanged, agent desired hash unchanged.
 - [x] Only native agent node 21 OTA'd 18:17; SSH backup `/root/flvxx-backup-20261020T101637Z-pre-fork60`, checksum verified, restore script included; two newest node backups retained. Reconnected in 6.1 s, Core PID 29900 unchanged, diagnostics 27/27 before/after; other node versions unchanged.
 - [x] Resource windows: before agent 58,748 KiB / 0.336% CPU (35.72 s), after 54,988 KiB / 0.279% (46.63 s); Core 33,800 → 33,536 KiB, 0.084% → 0.064%, same PID.
-- [ ] Production acceptance: node 21 + shared server 7 (temporary user fully cleaned)
+- [x] Production acceptance: node 21 + shared server 7: P0–P9/PC, 11 scenarios / 74 checks pass; temporary user 37 and all related rows removed, existing server/user/node credential hashes unchanged (`logs/prod-server7.{log,json}`). Native SS2022/VLESS report real IP 104.145.236.29 with count 1 and positive connections. Earlier three runner attempts and successful cleanup retained; script now waits for fresh IP samples/full Helper cycle and restores the original temporary-node limit.
 - [ ] Production acceptance: node 21 + shared server 5 (temporary user fully cleaned)
