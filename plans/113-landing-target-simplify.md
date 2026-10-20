@@ -28,18 +28,21 @@ entry-variant link) or creates a chain-owned VLESS node; users never get nodes c
       user's or a chain-internal node
 - [x] Landing node lists show 「规则 N」 (one grouped query); delete refusal names the referencing rules
 - [x] Rule rows targeting a landing node offer 「复制链接」 (entry-variant link) — verify existing, add if missing
-- [ ] Tests (handler + repo + acceptance runner extension), full go test vs baseline, frontend build/lint
+- [x] Tests (handler + repo + acceptance runner extension), full go test vs baseline, frontend build/lint
 - [ ] Resource numbers, screenshot gallery /landing-target/, Chinese summary
 
 ## Round 2 evidence (Taiwan time, UTC+8)
 
 - 2026-10-20 17:28: plan commit `6d94adac` pushed with `-u origin`; CI [39400967038](https://github.com/ImoLR/FLVXR2/actions/runs/39400967038) passed.
 - Clean detached baseline at `6d94adac`, under the run directory `tmp/baseline`: `GOMAXPROCS=2 go test -count=1 -p 1 ./...` completed with the same 15 historical failures/subtests. Handler failures: `TestBuildFederationServiceConfig_NonTLSProtocol_NoNodelay`, `TestRunNodeRenewalCycleJob_AdvancesOverdueAnchorTimes`. Evidence: `backend-baseline.log` / `backend-baseline-failures.json`. No stash used.
-- `e6c976b6`: local acceptance runner T1 added; Python AST and diff checks passed. Runtime lab evidence pending.
-- `53af2286`: shared create dialog, grouped owner picker, disabled reasons, reuse hint and landing-rule copy-link action implemented. Build, lint and screenshot evidence pending. Node chip/delete-refusal UI implemented; backend evidence pending.
+- `e6c976b6`: local acceptance runner T1 added; Python AST and diff checks passed. Local T1 10/10 and R1 2/2 passed (`acceptance.json`), including a byte-correct 1 MiB transfer, two legacy rules sharing one node at the cap, reference counts and named deletion refusal.
+- `53af2286`: shared create dialog, grouped owner picker, disabled reasons, reuse hint and landing-rule copy-link action implemented. Build/lint passed; screenshot review fixed picker width/height, light/dark chip contrast and missing-node placeholder.
 - All Round 2 logs and gallery source: `/root/flvx-workers/runs/landing-target-r2/`. No release, tag, production DB access or agent modification.
 
 - `cd3bfe67`: backend targeted tests passed (`backend-targeted.log`): lookup isolation/oldest-active reuse/caps/protocol change/concurrent submits/create-update rollback/Reality constraint/immutable port-protocol/delete names/per-IP links. PostgreSQL optional cases skipped without a test DSN.
 - Confirmed clean baseline list queries (Query + Row callbacks, `queries-before-confirmed.log`): native 1/6 nodes = 5/15; shared 1/6 = 7/27. After: native 7/7, shared 8/8, admin and user. `forwardCount` uses exactly one grouped query. Reuse lookup has a composite index; no data migration.
 - Frontend `npm run build` passed; `eslint-comparison.json`: historical errors 96 → 96, new errors 0. Three small changed components: 0 errors / warnings. Independent copy of existing dependencies with an identical package.json used, no dependency upgrade.
 - Clean baseline worktree removed after preserving logs; only its temporary probe and dependency symlink were deleted.
+- Full backend run (`backend-full.log`, `backend-comparison.json`): the exact same 15 baseline failures/subtests, no new failures. Final mixed known/custom entry-address correction `54f80470` passed all targeted repository and handler checks (`backend-links-mixed-targeted.log`); chain link behavior remains unchanged.
+- Final frontend build passed (`frontend-build-final.log`). Four changed component files have 0 ESLint errors; `landing.tsx` warnings decreased from 35 to 33, the other three files have none (`eslint-final-components.json`).
+- Local lab resource sample: Core RSS 36,800 KiB / 16 fds / 8 threads / CPU 0.07 s; agent RSS 44,800 KiB / 11 fds / 10 threads / CPU 0.11 s, Core PID unchanged. All owned lab processes, namespace, synthetic DB/credentials and binaries cleaned (`acceptance-cleanup.json`).
