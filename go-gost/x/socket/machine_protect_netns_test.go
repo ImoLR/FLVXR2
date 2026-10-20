@@ -512,3 +512,108 @@ func TestMachineProtectionNetnsRestart(t *testing.T) {
 	}
 	evidence(t, "restart: leftover table adopted and removed, tw_buckets 321 → %d restored", twValue(t))
 }
+
+func procCPU(t *testing.T) time.Duration {
+	b, err := os.ReadFile("/proc/self/stat")
+	if err != nil {
+		t.Fatal(err)
+	}
+	f := strings.Fields(string(b)[strings.LastIndexByte(string(b), ')')+2:])
+	utime, _ := strconv.ParseInt(f[11], 10, 64)
+	stime, _ := strconv.ParseInt(f[12], 10, 64)
+	return time.Duration(utime+stime) * time.Second / 100 // USER_HZ
+}
+
+func procRSSKiB(t *testing.T) int64 {
+	b, err := os.ReadFile("/proc/self/status")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, line := range strings.Split(string(b), "\n") {
+		if strings.HasPrefix(line, "VmRSS:") {
+			v, _ := strconv.ParseInt(strings.Fields(line)[1], 10, 64)
+			return v
+		}
+	}
+	return 0
+}
+
+// Resource profile with ~1500 sockets in the node namespace: cost of one 5 s
+// sample (count + ownership + ports file + nft guard + counter read).
+func TestMachineProtectionNetnsResources(t *testing.T) {
+	e2eEnv(t)
+	ln, err := net.Listen("tcp", e2eNodeIP+":20500")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var accepted []net.Conn
+	acceptDone := make(chan struct{})
+	go func() {
+		defer close(acceptDone)
+		for len(accepted) < 750 {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			accepted = append(accepted, c)
+		}
+	}()
+	var clients []net.Conn
+	for i := 0; i < 750; i++ {
+		c, err := net.Dial("tcp", e2eNodeIP+":20500")
+		if err != nil {
+			t.Fatal(err)
+		}
+		clients = append(clients, c)
+	}
+	<-acceptDone
+	defer func() {
+		for _, c := range append(clients, accepted...) {
+			c.Close()
+		}
+		ln.Close()
+	}()
+	counter := machineprotect.NewCounter("")
+	conns, err := counter.Read()
+	if err != nil {
+		t.Fatal(err)
+	}
+	const reads = 200
+	start, cpu0 := time.Now(), procCPU(t)
+	for i := 0; i < reads; i++ {
+		if _, err := counter.Read(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	readWall, readCPU := time.Since(start)/reads, (procCPU(t)-cpu0)/reads
+	evidence(t, "counter: %d sockets (tcp %d, udp %d) — one read %v wall, %v CPU (avg of %d)", conns.Total, conns.TCP, conns.UDP, readWall, readCPU, reads)
+
+	base := t.TempDir()
+	p := machineprotect.New(machineprotect.Options{RunDir: filepath.Join(base, "run"), StateDir: base,
+		Ports: func() machineprotect.PortSet {
+			return machineprotect.PortSet{TCP: []int{20500, 20501, 20502}, UDP: []int{20501}}
+		},
+		HelperActive: func(context.Context) bool { return false }, Interval: 20 * time.Millisecond, Logf: func(string) {}})
+	p.Configure(machineprotect.Settings{Enabled: true, MaxTotal: 100000, TWBuckets: 0, CloseWaitSeconds: 10})
+	rss0 := procRSSKiB(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go p.Run(ctx)
+	waitSnap(t, p, "first sample", func(s *machineprotect.Snapshot) bool { return s.Seq > 2 })
+	seq0, cpu1, t1 := p.Snapshot().Seq, procCPU(t), time.Now()
+	time.Sleep(4 * time.Second)
+	s := p.Snapshot()
+	ticks := s.Seq - seq0
+	perTick := (procCPU(t) - cpu1) / time.Duration(ticks)
+	evidence(t, "protection loop: %d samples in %v, %v CPU per sample (count + owner + ports file + nft guard ensure + counter read) → %.4f%% of one core at the 5 s interval; RSS %d KiB → %d KiB",
+		ticks, time.Since(t1).Round(time.Millisecond), perTick, float64(perTick)/float64(5*time.Second)*100, rss0, procRSSKiB(t))
+	b, _ := json.Marshal(struct {
+		C *machineprotect.Conns   `json:"machine_conns"`
+		P *machineprotect.Protect `json:"machine_protect"`
+	}{s.Conns, &s.Protect})
+	evidence(t, "report fields (once per 5 s): %d bytes JSON: %s", len(b), b)
+	if strings.Contains(nftList(t), "hook prerouting") {
+		t.Fatal("not blocking, but a hooked chain exists")
+	}
+	evidence(t, "idle table (no hooked chain = no per-packet work):\n%s", strings.TrimSpace(nftList(t)))
+}
