@@ -35,3 +35,5 @@
 - 后端全量 -count=1 / GOMAXPROCS=2 / -p 1 完成：15 个失败名称与 fork.60 完全相同，新增/消失均0（backend-comparison.json）。独立合并审查通过：保留双方行为，没有 plan112 或额外产品修改（integration-review.md）。
 
 - 本机落地 13 场景 / 96 检查全通过（S1–S8/E1–E3/T1/R1），包含 fork.60 两来源在线 IP；链式 C1–C8 全通过，50 条规则、1000 次连接0失败、C8各删除路径资源清零。两个实验室进程/网络命名空间均已自动退出，链式完整数据 logs/chain-results.json。全部 tag 前 gates 完成。
+
+- 2026-10-20 20:27：tag `3.0.27-fork.61` → `9591487e` 已推送，CI `39422343694` 成功，Images `39422345431` 构建中。20:29 节点47 SSH备份 `/root/flvxx-backup-20261020T122908Z-pre-fork61/restore-agent.sh` 校验通过；远端保留该份与 pre-fork56，删除 pre-fork55。OTA尚未执行。升级前30秒CPU 0.2666%、RSS 59,800 KiB，无Core目录/服务，其他面板PID634。
