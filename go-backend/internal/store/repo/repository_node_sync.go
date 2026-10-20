@@ -12,8 +12,11 @@ import (
 )
 
 type NodeEntryAddressSyncResult struct {
-	TunnelIDs             []int64
-	ForwardIDs            []int64
+	TunnelIDs  []int64
+	ForwardIDs []int64
+	// BindForwardIDs lists rules whose explicit listen IP changed and must be
+	// redeployed; ForwardIDs also contains rules that only display the address.
+	BindForwardIDs        []int64
 	EntryAddressesUpdated int
 }
 
@@ -29,7 +32,8 @@ func (r *Repository) RewriteNodeEntryAddresses(oldNode, newNode *model.Node, bui
 	}
 	oldAddresses := nodeIngressAddresses(oldNode)
 	newAddresses := nodeIngressAddresses(newNode)
-	if oldAddresses == newAddresses {
+	extraReplacements := nodeExtraIPReplacements(oldNode, newNode)
+	if oldAddresses == newAddresses && len(extraReplacements) == 0 {
 		return result, nil
 	}
 	replacements := make(map[string]string)
@@ -43,6 +47,7 @@ func (r *Repository) RewriteNodeEntryAddresses(oldNode, newNode *model.Node, bui
 		}
 	}
 	forwardIDs := make(map[int64]struct{})
+	bindForwardIDs := make(map[int64]struct{})
 	err := r.db.Transaction(func(tx *gorm.DB) error {
 		var tunnels []model.Tunnel
 		entryTunnelIDs := tx.Model(&model.ChainTunnel{}).Select("tunnel_id").
@@ -51,7 +56,7 @@ func (r *Repository) RewriteNodeEntryAddresses(oldNode, newNode *model.Node, bui
 			return err
 		}
 		for _, tunnel := range tunnels {
-			inIP := rewriteNodeAddressTokens(tunnel.InIP.String, replacements)
+			inIP := rewriteNodeAddressTokens(tunnel.InIP.String, replacements, extraReplacements)
 			if inIP == "" {
 				if buildInIP == nil {
 					return errors.New("tunnel ingress address builder unavailable")
@@ -84,14 +89,16 @@ func (r *Repository) RewriteNodeEntryAddresses(oldNode, newNode *model.Node, bui
 			if !port.InIP.Valid || strings.TrimSpace(port.InIP.String) == "" {
 				continue
 			}
-			inIP := rewriteNodeAddressTokens(port.InIP.String, replacements)
+			inIP := rewriteNodeAddressTokens(port.InIP.String, replacements, extraReplacements)
 			if inIP == port.InIP.String {
 				continue
 			}
+			// An emptied value falls back to the default listen-all address.
 			if err := tx.Model(&model.ForwardPort{}).Where("id = ?", port.ID).Update("in_ip", inIP).Error; err != nil {
 				return err
 			}
 			forwardIDs[port.ForwardID] = struct{}{}
+			bindForwardIDs[port.ForwardID] = struct{}{}
 			result.EntryAddressesUpdated++
 		}
 		if len(result.TunnelIDs) > 0 {
@@ -111,11 +118,66 @@ func (r *Repository) RewriteNodeEntryAddresses(oldNode, newNode *model.Node, bui
 	if err != nil {
 		return NodeEntryAddressSyncResult{}, err
 	}
-	for id := range forwardIDs {
-		result.ForwardIDs = append(result.ForwardIDs, id)
-	}
-	sort.Slice(result.ForwardIDs, func(i, j int) bool { return result.ForwardIDs[i] < result.ForwardIDs[j] })
+	result.ForwardIDs = sortedIDSet(forwardIDs)
+	result.BindForwardIDs = sortedIDSet(bindForwardIDs)
 	return result, nil
+}
+
+func sortedIDSet(set map[int64]struct{}) []int64 {
+	out := make([]int64, 0, len(set))
+	for id := range set {
+		out = append(out, id)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i] < out[j] })
+	return out
+}
+
+// nodeExtraIPReplacements maps every extra IP that left the node to its
+// replacement. When as many extra IPs were added as removed they are paired in
+// order (an edited address); otherwise removed addresses map to "" (dropped).
+// Addresses that moved between the primary fields and the extra list stay.
+func nodeExtraIPReplacements(oldNode, newNode *model.Node) map[string]string {
+	oldExtras := ParseNodeExtraIPs(oldNode.ExtraIPs.String)
+	newExtras := ParseNodeExtraIPs(newNode.ExtraIPs.String)
+	if len(oldExtras) == 0 {
+		return nil
+	}
+	present := func(extras []string, node *model.Node) map[string]bool {
+		set := make(map[string]bool, len(extras)+3)
+		for _, address := range extras {
+			set[address] = true
+		}
+		for _, address := range nodeIngressAddresses(node) {
+			if address != "" {
+				set[nodeAddressKey(address)] = true
+			}
+		}
+		return set
+	}
+	oldAll, newAll := present(oldExtras, oldNode), present(newExtras, newNode)
+	var removed, added []string
+	for _, address := range oldExtras {
+		if !newAll[address] {
+			removed = append(removed, address)
+		}
+	}
+	for _, address := range newExtras {
+		if !oldAll[address] {
+			added = append(added, address)
+		}
+	}
+	if len(removed) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(removed))
+	for i, address := range removed {
+		if len(added) == len(removed) {
+			out[address] = added[i]
+		} else {
+			out[address] = ""
+		}
+	}
+	return out
 }
 
 func nodeIngressAddresses(node *model.Node) [3]string {
@@ -128,12 +190,14 @@ func nodeIngressAddresses(node *model.Node) [3]string {
 	return [3]string{trimNullable(node.ServerIPV4), trimNullable(node.ServerIPV6), strings.TrimSpace(node.ServerIP)}
 }
 
-func rewriteNodeAddressTokens(value string, replacements map[string]string) string {
+func rewriteNodeAddressTokens(value string, replacements, extraReplacements map[string]string) string {
 	seen := make(map[string]struct{})
 	tokens := make([]string, 0)
 	for _, token := range strings.Split(value, ",") {
 		token = strings.TrimSpace(token)
 		if replacement, ok := replacements[token]; ok {
+			token = replacement
+		} else if replacement, ok := extraReplacements[nodeAddressKey(token)]; ok && token != "" {
 			token = replacement
 		}
 		if token == "" {

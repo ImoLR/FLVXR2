@@ -62,7 +62,8 @@ func (r *Repository) TunnelEntryInIPTx(tx *gorm.DB, tunnelID int64, submitted *s
 	normalize := func(s string) string { return strings.ToLower(strings.Trim(strings.TrimSpace(s), "[]")) }
 	removedAddresses, keptAddresses := make(map[string]bool), make(map[string]bool)
 	for _, node := range nodes {
-		for _, address := range nodeIngressAddresses(&node) {
+		primary := nodeIngressAddresses(&node)
+		for _, address := range append(primary[:], ParseNodeExtraIPs(node.ExtraIPs.String)...) {
 			if key := normalize(address); key != "" {
 				if newSet[node.ID] {
 					keptAddresses[key] = true
