@@ -18,7 +18,7 @@
 - [x] 生产升级前记录配置表计数/哈希、在线节点、RSS；验证数据库备份与回滚脚本，执行两份备份保留规则。
 - [x] 升级生产面板；验证迁移、节点上报、node 21 在线 IP、日志及资源。
 - [x] 唯一出口 canary SSH 备份与恢复脚本就绪；记录诊断及 CPU/RSS 后 OTA，复验转发与无 Core 下载。
-- [ ] 生产验收 node 21 + shared 7 / 5 通过；临时用户及节点清理；原配置与计费不变。
+- [x] 生产验收 node 21 + shared 7 / 5 通过；临时用户及节点清理；原配置与计费不变。
 - [ ] 清理本任务临时环境和数据库副本；115/116 完成；提交推送，中文总结写入指定文件。
 
 ## 证据
@@ -53,3 +53,9 @@
 - 2026-10-20 21:00：生产 node21 + shared7 第一组11场景/76检查全部通过，临时用户43及节点69–72全部删除，九类关联表残留0，现有服务器/节点凭据/用户哈希与各表数量不变。shared5第二组已开始；证据 logs/prod-server7.json。
 
 - 2026-10-20 21:01：确认无进程使用后，删除本任务本地测试构建物 bin/paneld 与 bin/flvx-agent，共90,588,916字节；发布资产、原始日志及共享测试Core保留，可从fork61 tag重新构建（cleanup-local-binaries.json）。
+
+- 2026-10-20 21:13：生产 node21 + shared7 / shared5 两组各11场景、76/76，总152/152通过；临时用户43/44及节点69–76删除，九类关联表残留0，客户端进程及scratch清空。全部29节点仍在线且重启后上报，只有47版本变化，所有线路机开关关闭、链表为空。证据 prod-acceptance-combined.json、prod-panel-verified-final.json。
+
+- 2026-10-20 21:13–21:15：升级前78表、最终80表完整计数/哈希比对，原有业务配置差异0；节点29、用户12、隧道43、规则31、授权143、chain_tunnel146、forward_port31、落地服务器3/节点1保持。额外严格核对仅新增2表/3列/11索引，共享静态配置、余额/计费设置及4条quota历史均不变。自然流量、监控样本、同步revision/时间戳保留原始哈希差异；47 landing_egress 0→1是fork61能力上报，与landing_chain/version一同记录，未启用功能。共享方traffic_used_bytes增加25,201,043/25,322,988字节，含真实验收流量，未回拨。证据 tables-comparison.json、supplementary-config-comparison.json、supplementary-config-review.json。
+
+- 2026-10-20 21:13：面板最终RSS44,136 KiB，对比升级前35,928 KiB增加8,208 KiB（约8.02 MiB）；不宣称零内存增长。最终5分钟918行日志，error/panic/fatal/redeploy失败均0；canary稳定值CPU0.2332%、RSS62,156 KiB不变。21:15确认本任务测试目录和16365/16486/18481监听全部清除，无额外生产DB副本，共享依赖/Core和所有证据保留（cleanup-final.json）。
