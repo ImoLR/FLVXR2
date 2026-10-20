@@ -352,10 +352,33 @@ class Lab:
     def landing_bytes(self):
         return {agent: sum(f.stat().st_size for f in (self.scratch / agent / "landing").rglob("*") if f.is_file() and f.name != "flvx-landing-core") for agent in ("agent-a", "agent-b")}
 
+    def core_usage(self):
+        return {agent: {**self.usage(self.core_pid(ns)), "goroutines": self.goroutines(ns, agent)}
+                for ns, agent in ((NS_A, "agent-a"), (NS_B, "agent-b"))}
+
+    def idle_usage(self):
+        # API queries briefly add a connection/goroutines: use the minimum of
+        # five idle samples, both before and after traffic, for the leak check.
+        samples = []
+        for _ in range(5):
+            time.sleep(1)
+            samples.append(self.core_usage())
+        return {agent: {k: min(s[agent][k] for s in samples) for k in samples[0][agent]}
+                for agent in samples[0]}
+
+    def idle_cpu(self, seconds=5):
+        before = self.core_usage()
+        started = time.monotonic()
+        time.sleep(seconds)
+        elapsed = time.monotonic() - started
+        after = self.core_usage()
+        return {agent: round(100 * (after[agent]["cpu_s"] - before[agent]["cpu_s"]) / elapsed, 3)
+                for agent in before}
+
     def c6_resources(self, many):
         time.sleep(5)
         a, b = self.core_pid(NS_A), self.core_pid(NS_B)
-        one = {"core_a": self.usage(a), "core_b": self.usage(b), "goroutines_a": self.goroutines(NS_A, "agent-a"), "landing_state_bytes": self.landing_bytes()}
+        one = {"cores": self.idle_usage(), "idle_cpu_percent": self.idle_cpu(), "landing_state_bytes": self.landing_bytes()}
         timings = []
         for i in range(many - 1):
             _, sec = self.create_chain(f"bulk-{i}", f"socks5://u{i}:{SOCKS_PASS}@{USER_NODE}:{SOCKS_PORT}", who=ADMIN)
@@ -363,12 +386,36 @@ class Lab:
         n = len(self.q("select id from forward_chain where state = 'active'"))
         time.sleep(5)
         assert self.core_pid(NS_A) == a and self.core_pid(NS_B) == b, "adding chain nodes restarted a Core"
-        fifty = {"core_a": self.usage(a), "core_b": self.usage(b), "goroutines_a": self.goroutines(NS_A, "agent-a"),
+        fifty = {"cores": self.idle_usage(), "idle_cpu_percent": self.idle_cpu(),
                  "inbounds_a": len([t for t in self.core_tags(NS_A, "agent-a", "lsi", "inbounds", "tag") if t and t.startswith("flvxl-")]),
                  "chain_outbounds_a": len([t for t in self.core_tags(NS_A, "agent-a", "lso", "outbounds", "tag") if t and t.startswith("flvxc-")]),
                  "landing_state_bytes": self.landing_bytes()}
         assert fifty["inbounds_a"] == n and fifty["chain_outbounds_a"] == n, fifty
+        # Hold known, byte-verified echo streams to count actual sockets.
+        # With no mux, there must be exactly one upstream socket per stream.
+        held = []
+        try:
+            for _ in range(20):
+                s = coreclient.socks_connect(26601, USER_NODE, FIX_PORT + 1)
+                held.append(s)
+                s.sendall(b"chain-fd")
+                assert coreclient._exact(s, 8) == b"chain-fd"
+            time.sleep(3)
+            holding = self.core_usage()
+            fd_delta = sum(holding[k]["fds"] - fifty["cores"][k]["fds"] for k in holding)
+            upstream_connections = sum(len(nsx(ns, "ss", "-Htn", "state", "established", "dst", f"{USER_NODE}:{SOCKS_PORT}").stdout.splitlines()) for ns in (NS_A, NS_B))
+            assert fd_delta == 2 * len(held), (holding, fifty, fd_delta)
+            assert upstream_connections == len(held), upstream_connections
+            socket_cost = {"streams": len(held), "core_fd_delta": fd_delta,
+                           "extra_fds_per_stream": fd_delta / len(held),
+                           "upstream_connections": upstream_connections}
+        finally:
+            for s in held:
+                s.close()
+        time.sleep(5)
+        baseline = self.idle_usage()
         logs0 = {p.name: p.stat().st_size for p in self.scratch.glob("*.log")}
+        disk0 = self.landing_bytes()
         # 1000 connections through the chain, 50 at a time, all closed again.
         errors = []
 
@@ -385,16 +432,22 @@ class Lab:
             for t in ts:
                 t.join()
         burst_seconds = round(time.monotonic() - started, 1)
-        peak = {"core_a": self.usage(a), "core_b": self.usage(b), "goroutines_a": self.goroutines(NS_A, "agent-a")}
+        after_burst = self.core_usage()
         time.sleep(20)
-        settled = {"core_a": self.usage(a), "core_b": self.usage(b), "goroutines_a": self.goroutines(NS_A, "agent-a"), "goroutines_b": self.goroutines(NS_B, "agent-b")}
+        settled = self.idle_usage()
+        for _ in range(6):
+            if all(settled[k]["fds"] <= baseline[k]["fds"] and settled[k]["goroutines"] <= baseline[k]["goroutines"] for k in baseline):
+                break
+            settled = self.idle_usage()
         logs1 = {p.name: p.stat().st_size for p in self.scratch.glob("*.log")}
-        assert len(errors) < 20, errors[:5]
-        assert settled["core_a"]["fds"] <= fifty["core_a"]["fds"] + 2 and settled["core_b"]["fds"] <= fifty["core_b"]["fds"] + 2, (fifty, settled)
-        assert settled["goroutines_a"] <= fifty["goroutines_a"] + 5, (fifty, settled)
+        assert not errors, errors[:5]
+        assert all(settled[k]["fds"] <= baseline[k]["fds"] and settled[k]["goroutines"] <= baseline[k]["goroutines"] for k in baseline), (baseline, settled)
         self.results["C6"] = {"one_chain": one, f"{n}_chains": fifty, "create_seconds": {"min": min(timings or [0]), "max": max(timings or [0])},
-                              "burst_1000_conns": {"seconds": burst_seconds, "failed": len(errors), "peak": peak, "settled_20s": settled},
-                              "log_growth_bytes_during_burst": {k: logs1.get(k, 0) - logs0.get(k, 0) for k in logs1}}
+                              "socket_cost": socket_cost,
+                              "burst_1000_conns": {"seconds": burst_seconds, "failed": len(errors), "before": baseline, "after_burst": after_burst, "settled": settled},
+                              "log_growth_bytes_during_burst": {k: logs1.get(k, 0) - logs0.get(k, 0) for k in logs1},
+                              "landing_state_growth_bytes_during_burst": {k: v - disk0[k] for k, v in self.landing_bytes().items()},
+                              "core_stdout": {ns: os.readlink(f"/proc/{self.core_pid(ns)}/fd/1") for ns in (NS_A, NS_B)}}
 
     def c7_delete(self):
         ids = [r["forward_id"] for r in self.q("select forward_id from forward_chain where state = 'active'")]
@@ -418,11 +471,58 @@ class Lab:
         kept = self.q("select node_id, chain_only from landing_server")
         self.results["C7"] = {"db_rows_left": rows, "core_clean": True, "landing_servers_kept": kept, "core_pids": {ns: self.core_pid(ns) for ns in (NS_A, NS_B)}}
 
+    def c8_delete_paths(self):
+        results = {}
+        for path in ("force", "tunnel", "user"):
+            final, _ = self.create_chain(f"delete-{path}", f"socks5://{SOCKS_USER}:{SOCKS_PASS}@{USER_NODE}:{SOCKS_PORT}", who=ADMIN)
+            forward_id = final["forwardId"]
+            if path == "force":
+                self.api.call("forward/force-delete", {"id": forward_id}, ADMIN)
+            elif path == "tunnel":
+                self.api.call("tunnel/delete", {"id": self.tunnel}, ADMIN)
+            else:
+                self.api.call("user/delete", {"id": self.user.uid}, ADMIN)
+
+            def clean():
+                rows = self.q("select (select count(*) from forward_chain) c, (select count(*) from forward_chain_node) n, (select count(*) from forward) f")[0]
+                if rows != {"c": 0, "n": 0, "f": 0}:
+                    return False
+                for ns, agent in ((NS_A, "agent-a"), (NS_B, "agent-b")):
+                    if any(t and t.startswith("flvxl-") for t in self.core_tags(ns, agent, "lsi", "inbounds", "tag")):
+                        return False
+                    if any(t and t.startswith("flvxc-") for t in self.core_tags(ns, agent, "lso", "outbounds", "tag")):
+                        return False
+                for agent in ("agent-entry", "agent-a", "agent-b"):
+                    cfg = json.loads((self.scratch / agent / "gost.json").read_text())
+                    # Shared tunnel listeners (<tunnel>_tls) remain until the
+                    # tunnel is deleted; rule services have more name parts.
+                    if any(s["name"].startswith(f"{forward_id}_") and len(s["name"].split("_")) > 2 for s in cfg.get("services") or []):
+                        return False
+                return True
+
+            wait_for(f"{path} delete without DB/Core/gost leftovers", clean, timeout=60, interval=2)
+            results[path] = {"chain_rows": 0, "copy_rows": 0, "forward_rows": 0,
+                             "core_chain_inbounds": 0, "core_chain_outbounds": 0, "rule_services": 0}
+            if path == "tunnel":
+                self.api.call("tunnel/create", {"name": "DMIT→Akari-recreated", "type": 2, "flow": 2, "trafficRatio": 1, "status": 1,
+                                               "inNodeId": [{"nodeId": self.entry, "protocol": "tls", "strategy": "round"}],
+                                               "outNodeId": [{"nodeId": self.exit_a, "protocol": "tls", "strategy": "round"}, {"nodeId": self.exit_b, "protocol": "tls", "strategy": "round"}],
+                                               "chainNodes": []})
+                self.tunnel = self.q("select id from tunnel")[0]["id"]
+                self.api.call("tunnel/user/assign", {"userId": self.user.uid, "tunnelId": self.tunnel, "flow": 500, "num": 99999,
+                                                    "expTime": int(time.time() * 1000) + 86400000, "flowResetTime": 1, "status": 1})
+        self.api.call("tunnel/delete", {"id": self.tunnel}, ADMIN)
+        self.api.call("node/delete", {"id": self.exit_b}, ADMIN)
+        assert not self.q("select id from landing_server where node_id = ?", self.exit_b), "unused chain-only server survived node deletion"
+        results["node"] = {"chain_only_server_rows": 0}
+        self.results["C8"] = results
+
     def run(self, many):
-        steps = [("C1", self.c1_create), ("C2", self.c2_traffic), ("C3", self.c3_diagnose), ("C4", self.c4_billing), ("C5", self.c5_relink), ("C6", lambda: self.c6_resources(many)), ("C7", self.c7_delete)]
+        steps = [("C1", self.c1_create), ("C2", self.c2_traffic), ("C3", self.c3_diagnose), ("C4", self.c4_billing), ("C5", self.c5_relink), ("C6", lambda: self.c6_resources(many)), ("C7", self.c7_delete), ("C8", self.c8_delete_paths)]
         for name, fn in steps:
             started = time.monotonic()
             fn()
+            (self.scratch / "results.json").write_text(json.dumps(self.results, indent=2, ensure_ascii=False))
             self.log(name, "passed in", round(time.monotonic() - started, 1), "s")
         (self.scratch / "results.json").write_text(json.dumps(self.results, indent=2, ensure_ascii=False))
 
