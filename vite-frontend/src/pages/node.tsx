@@ -100,6 +100,7 @@ import { compareVersions } from "@/utils/version-update";
 import { PageLoadingState } from "@/components/page-state";
 import { timestampToCalendarDate, calendarDateToTimestamp } from "@/utils/date";
 import { getConnectionStatusMeta } from "@/pages/node/display";
+import { extraIPsToText, validateExtraIPsText } from "@/utils/node-ips";
 import {
   getNodeRenewalSnapshot,
   normalizeNodeRenewalCycle,
@@ -1124,6 +1125,11 @@ export default function NodePage() {
     ) {
       newErrors.intranetIp = "请输入有效的内网 IPv4 地址或域名";
     }
+    const extraIPsError = validateExtraIPsText(form.extraIPs, [v4, v6]);
+
+    if (extraIPsError) {
+      newErrors.extraIPs = extraIPsError;
+    }
     const portValidation = validatePort(form.port);
 
     if (!portValidation.valid) {
@@ -1165,7 +1171,7 @@ export default function NodePage() {
       interfaceName: (node as any).interfaceName || "",
       defaultUserQuotaBytes: node.defaultUserQuotaBytes || 0,
       lineMachine: node.lineMachine === true,
-      extraIPs: node.extraIPs || "",
+      extraIPs: extraIPsToText(node.extraIPs),
       http: typeof node.http === "number" ? node.http : 1,
       tls: typeof node.tls === "number" ? node.tls : 1,
       socks: typeof node.socks === "number" ? node.socks : 1,
@@ -3400,6 +3406,19 @@ export default function NodePage() {
                   }}
                 />
               </div>
+              <Textarea
+                description="可选：同一台服务器的其他公网 IPv4/IPv6，每行一个；创建隧道时可勾选作为入口地址"
+                errorMessage={errors.extraIPs}
+                isInvalid={!!errors.extraIPs}
+                label="附加 IP"
+                minRows={2}
+                placeholder={"例如：\n2001:db8::2"}
+                value={form.extraIPs}
+                variant="bordered"
+                onChange={(e) =>
+                  setForm((prev) => ({ ...prev, extraIPs: e.target.value }))
+                }
+              />
               <Select
                 description="仅影响连接面板；自动模式可在 IPv6 异常时自愈，旧版节点需升级后生效"
                 label="连接面板"
@@ -3479,19 +3498,6 @@ export default function NodePage() {
                         setForm((prev) => ({
                           ...prev,
                           interfaceName: e.target.value,
-                        }))
-                      }
-                    />
-                    <Input
-                      description="多IP服务器可填写额外IP地址，逗号分隔"
-                      label="额外IP地址"
-                      placeholder="例如: 192.168.1.100, 10.0.0.5"
-                      value={form.extraIPs}
-                      variant="bordered"
-                      onChange={(e) =>
-                        setForm((prev) => ({
-                          ...prev,
-                          extraIPs: e.target.value,
                         }))
                       }
                     />
