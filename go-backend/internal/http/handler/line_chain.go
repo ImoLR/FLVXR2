@@ -303,6 +303,15 @@ func (h *Handler) parseChainLink(ctx context.Context, link string) (linechain.Up
 	if err != nil {
 		return up, "", nil, err
 	}
+	// The mainland-China target policy of normal rules applies to the
+	// user's node; the already validated addresses are checked (no 2nd DNS).
+	targets := make([]string, 0, len(addrs))
+	for _, a := range addrs {
+		targets = append(targets, net.JoinHostPort(a.String(), strconv.Itoa(up.Port)))
+	}
+	if err := h.checkForwardLanding(ctx, strings.Join(targets, ","), "gost", ""); err != nil {
+		return up, "", nil, err
+	}
 	return up, name, addrs, nil
 }
 
@@ -514,6 +523,8 @@ func (h *Handler) forwardCreateChain(w http.ResponseWriter, r *http.Request, req
 		return
 	}
 	if !h.chains.startDriver(chain.ID) {
+		servers, _ := h.repo.FailForwardChain(chain.ID, "系统繁忙")
+		h.syncChainServers(servers)
 		fail("系统正在处理其他「我自己的节点」任务，请稍后再试")
 		return
 	}
@@ -935,6 +946,12 @@ func (h *Handler) forwardUpdateChainHook(w http.ResponseWriter, r *http.Request,
 	} else if chain == nil {
 		return fail("请粘贴你的节点链接")
 	}
+	if chain == nil {
+		owner, _ := h.repo.GetUserByID(forward.UserID)
+		if err := h.chainRuleLimit(owner, 0); err != nil {
+			return fail(err.Error())
+		}
+	}
 	if err := h.chains.begin(forward.UserID, roleID != 0 && link != "", now); err != nil {
 		return fail(err.Error())
 	}
@@ -953,12 +970,9 @@ func (h *Handler) forwardUpdateChainHook(w http.ResponseWriter, r *http.Request,
 	op := chainOp{ownerID: forward.UserID, forwardID: id, claims: claims, req: cloneReq(req), deadline: now.Add(chainCreateDeadline), holdsUser: true}
 	if chain == nil {
 		// Convert an existing rule into a chain rule.
-		owner, _ := h.repo.GetUserByID(forward.UserID)
-		if err := h.chainRuleLimit(owner, 0); err != nil {
-			return fail(err.Error())
-		}
 		created, _, err := h.repo.CreateForwardChain(repo.ChainCreateInput{UserID: forward.UserID, TunnelID: tunnelID, Upstream: up, ExitNodeIDs: exitNodeIDs(info), InFlightAfter: now.Add(-chainStaleAfter).UnixMilli(), AttachForwardID: id})
 		if err != nil {
+			h.chains.refund(forward.UserID)
 			return fail(err.Error())
 		}
 		op.kind, op.chainID = "attach", created.ID
@@ -1021,10 +1035,15 @@ func replayWithRequest(r *http.Request, target string) *http.Request {
 // reconcileTunnelChains moves chain copies after a tunnel edit changed the
 // exit tier (new exits get copies, removed exits lose them). Runs in the
 // background; failures stay visible on the rule and are retried.
-func (h *Handler) reconcileTunnelChains(tunnelID int64) []string {
-	chains, err := h.repo.ListForwardChains(model.ChainStateActive)
-	if err != nil {
-		return nil
+func (h *Handler) reconcileTunnelChains(tunnelID int64, known ...[]model.ForwardChain) []string {
+	var chains []model.ForwardChain
+	if len(known) > 0 {
+		chains = known[0]
+	} else {
+		var err error
+		if chains, err = h.repo.ListForwardChains(model.ChainStateActive); err != nil {
+			return nil
+		}
 	}
 	info, infoErr := h.repo.TunnelLineInfo(tunnelID)
 	var warnings []string
@@ -1068,7 +1087,10 @@ func (h *Handler) startChainMove(c model.ForwardChain, info *repo.TunnelLineInfo
 		reason = why
 	}
 	if reason != "" {
-		_ = h.repo.SetForwardChainError(c.ID, "隧道出口已变化，「我自己的节点」无法迁移："+reason)
+		msg := "隧道出口已变化，「我自己的节点」无法迁移：" + reason
+		if c.LastError != msg {
+			_ = h.repo.SetForwardChainError(c.ID, msg)
+		}
 		return "「我自己的节点」规则无法迁移到新的出口：" + reason
 	}
 	if _, err := h.repo.StartChainOp(c.ID, "move"); err != nil {
@@ -1176,16 +1198,42 @@ func (h *Handler) reconcileChains(now time.Time) {
 		}
 	}
 	h.syncChainServers(resync)
-	// Retry exit moves of chains whose tunnel exits no longer match.
-	tunnels := map[int64]bool{}
+	// Retry exit moves of chains whose tunnel exits no longer match: one
+	// pass, grouped by tunnel.
+	byTunnel := map[int64][]model.ForwardChain{}
 	for _, c := range chains {
 		if c.State == model.ChainStateActive && c.OpStartedAt == 0 {
-			tunnels[c.TunnelID] = true
+			byTunnel[c.TunnelID] = append(byTunnel[c.TunnelID], c)
 		}
 	}
-	for id := range tunnels {
-		h.reconcileTunnelChains(id)
+	for id, list := range byTunnel {
+		h.reconcileTunnelChains(id, list)
 	}
+}
+
+// chainTunnelEditGuard: a tunnel carrying chain rules must keep an exit tier;
+// without one the entry itself would dial the rule's 127.0.0.1 target.
+func (h *Handler) chainTunnelEditGuard(tunnelID int64, req map[string]interface{}) error {
+	if h == nil || h.repo == nil {
+		return nil
+	}
+	chains, err := h.repo.ListForwardChains(model.ChainStateActive, model.ChainStateCreating)
+	if err != nil {
+		return nil
+	}
+	n := 0
+	for _, c := range chains {
+		if c.TunnelID == tunnelID {
+			n++
+		}
+	}
+	if n == 0 {
+		return nil
+	}
+	if asInt(req["type"], 1) != 2 || len(asMapSlice(req["outNodeId"])) == 0 {
+		return fmt.Errorf("该隧道上有 %d 条「我自己的节点」规则，隧道必须保留出口节点；请先删除这些规则或把它们换到其他隧道", n)
+	}
+	return nil
 }
 
 func parseLoopbackPort(addr string) (int, bool) {

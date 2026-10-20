@@ -3,6 +3,8 @@ package handler
 import (
 	"context"
 	"fmt"
+	"net"
+	"strconv"
 	"strings"
 
 	"go-backend/internal/cnlanding"
@@ -24,6 +26,13 @@ func (h *Handler) checkForwardLanding(ctx context.Context, remoteAddr, mode, tar
 func (h *Handler) checkForwardRecordLanding(ctx context.Context, forward *forwardRecord) error {
 	if forward == nil {
 		return nil
+	}
+	// A chain rule (plan 108) really lands on the user's own node, not on its
+	// 127.0.0.1 target: the mainland-China policy applies to that node.
+	if h.repo != nil {
+		if chain, err := h.repo.GetForwardChainByForward(forward.ID); err == nil && chain != nil && chain.UpstreamHost != "" {
+			return h.checkForwardLanding(ctx, net.JoinHostPort(chain.UpstreamHost, strconv.Itoa(chain.UpstreamPort)), "gost", "")
+		}
 	}
 	return h.checkForwardLanding(ctx, forward.RemoteAddr, forward.Mode, forward.TargetCIDR)
 }

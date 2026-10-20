@@ -1574,6 +1574,10 @@ func (h *Handler) tunnelUpdate(w http.ResponseWriter, r *http.Request) {
 	unlock := h.lockTunnelRuntime(id)
 	defer unlock()
 	oldEntryNodeIDs, _ := h.tunnelEntryNodeIDs(id)
+	if err := h.chainTunnelEditGuard(id, req); err != nil {
+		response.WriteJSON(w, response.ErrDefault(err.Error()))
+		return
+	}
 
 	pipeChange, err := h.prepareLeiKwanTunnelChange(req, id)
 	if err != nil {
