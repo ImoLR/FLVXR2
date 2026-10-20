@@ -130,6 +130,64 @@ type Status struct {
 	TrafficUsed     int64         `json:"share_traffic_used_bytes"`
 	CollectedAt     int64         `json:"collected_at"`
 	Egress          *EgressStatus `json:"egress,omitempty"`
+	// Machine is the shared server's whole-machine connection state (contract
+	// machine-protect-v1); absent (older Custom/Helper) = unknown.
+	Machine *Machine `json:"machine,omitempty"`
+}
+
+// MachineConns: every TCP+UDP socket row of the server (all states), the number
+// the mmwx server card shows; same keys as the FLVX agent's machine_conns.
+type MachineConns struct {
+	Total       int64 `json:"total"`
+	TCP         int64 `json:"tcp"`
+	UDP         int64 `json:"udp"`
+	Established int64 `json:"established"`
+	TimeWait    int64 `json:"time_wait"`
+	CloseWait   int64 `json:"close_wait"`
+	OtherTCP    int64 `json:"other_tcp"`
+}
+
+// MachineProtect: the server's machine protection; same keys as the FLVX agent's
+// machine_protect. Null numbers = not set.
+type MachineProtect struct {
+	Owner            string `json:"owner"`
+	Enabled          bool   `json:"enabled"`
+	MaxTotal         *int64 `json:"max_total"`
+	TWBuckets        *int64 `json:"tw_buckets"`
+	CloseWaitSeconds *int64 `json:"close_wait_seconds"`
+	Blocking         bool   `json:"blocking"`
+	DroppedTotal     int64  `json:"dropped_total"`
+}
+
+// Machine is {"conns": {...}, "protect": {...}, "updated_at": RFC3339}; the
+// spellings "machine_conns" / "machine_protect" are accepted as well.
+type Machine struct {
+	Conns     *MachineConns   `json:"conns,omitempty"`
+	Protect   *MachineProtect `json:"protect,omitempty"`
+	UpdatedAt string          `json:"updated_at,omitempty"`
+}
+
+func (m *Machine) UnmarshalJSON(b []byte) error {
+	var raw struct {
+		Conns          *MachineConns   `json:"conns"`
+		Protect        *MachineProtect `json:"protect"`
+		MachineConns   *MachineConns   `json:"machine_conns"`
+		MachineProtect *MachineProtect `json:"machine_protect"`
+		UpdatedAt      string          `json:"updated_at"`
+	}
+	if err := json.Unmarshal(b, &raw); err != nil {
+		// A malformed optional object must never fail the status poll (billing).
+		*m = Machine{}
+		return nil
+	}
+	*m = Machine{Conns: raw.Conns, Protect: raw.Protect, UpdatedAt: raw.UpdatedAt}
+	if m.Conns == nil {
+		m.Conns = raw.MachineConns
+	}
+	if m.Protect == nil {
+		m.Protect = raw.MachineProtect
+	}
+	return nil
 }
 
 // EgressStatus is Custom's report of the applied egress plan.

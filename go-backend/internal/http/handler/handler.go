@@ -79,6 +79,10 @@ type Handler struct {
 	// monitor's live rates (memory only); see landing_monitor_rates.go.
 	landingRatesOnce sync.Once
 	landingRates     *landingRateTracker
+	// sharedMachine keeps the latest whole-machine sample of each shared landing
+	// server from Custom's status (plan 118, memory only).
+	sharedMachineMu sync.Mutex
+	sharedMachine   map[int64]sharedMachineSample
 	// flowEnforceWG tracks enforcement started after a /flow/upload answer (tests wait on it).
 	flowEnforceWG sync.WaitGroup
 	pathLatencyMu sync.RWMutex
@@ -773,6 +777,11 @@ func (h *Handler) nodeList(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.syncRemoteNodeStatuses(items)
+	for _, item := range items {
+		id := asInt64(item["id"], 0)
+		item["machine"] = h.machineView(id, role == 0)
+		item["machineProtectCapable"] = h.wsServer != nil && h.wsServer.MachineProtectCapable(id)
+	}
 	if role != 0 {
 		for _, item := range items {
 			delete(item, "ipv6RaStatus")

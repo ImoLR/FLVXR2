@@ -1011,6 +1011,8 @@ func (r *Repository) ListNodes(opts *ListNodesOptions) ([]map[string]interface{}
 		items = append(items, map[string]interface{}{
 			"landingSupported": n.LandingCapable && n.ID != 36, "landingServerId": landingID, "defaultUserQuotaBytes": n.DefaultUserQuotaBytes,
 			"lineMachine": n.LineMachine, "landingChain": n.LandingChain,
+			"machineProtectEnabled": n.MachineProtectEnabled, "machineMaxTotal": n.MachineMaxTotal,
+			"machineTwBuckets": n.MachineTWBuckets, "machineCloseWaitSeconds": n.MachineCloseWaitSeconds,
 			"id": n.ID, "inx": n.Inx, "name": n.Name,
 			"region":       n.Region,
 			"regionCity":   n.RegionCity,

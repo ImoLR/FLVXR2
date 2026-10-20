@@ -353,6 +353,7 @@ func (h *Handler) onNodeOnline(nodeID int64) {
 	if err := h.wsServer.SyncPanelIPFamily(nodeID); err != nil {
 		fmt.Printf("node %d panel IP family sync failed: %v\n", nodeID, err)
 	}
+	h.syncNodeMachineProtection(nodeID)
 	h.scheduleNodeRedeploy(nodeID)
 	if h.quotaGroups != nil {
 		h.quotaGroups.NodeOnline(nodeID)
