@@ -125,6 +125,7 @@ import { usePullToRefresh } from "@/hooks/usePullToRefresh";
 import { useMobileBreakpoint } from "@/hooks/useMobileBreakpoint";
 import { saveOrder } from "@/utils/order-storage";
 import { JwtUtil } from "@/utils/jwt";
+import { parseExtraIPs } from "@/utils/node-ips";
 import { timestampToCalendarDate, calendarDateToTimestamp } from "@/utils/date";
 import { MULTI_REGION, compareRegions, exitRegionKey, exitRegionLabel, regionLabel } from "@/utils/region";
 
@@ -1778,11 +1779,7 @@ export default function ForwardPage() {
     add(node.serverIpV4);
     add(node.serverIpV6);
     add(node.serverIp);
-    (node.extraIPs || "")
-      .split(",")
-      .map((v) => v.trim())
-      .filter((v) => v)
-      .forEach((v) => ips.push(v));
+    parseExtraIPs(node.extraIPs).forEach((v) => ips.push(v));
 
     return Array.from(new Set(ips));
   };
@@ -4801,7 +4798,7 @@ export default function ForwardPage() {
                         )
                       }
                     >
-                      {(forward.inIp || "").replace(/:\d+$/, "") || "默认IP"}
+                      {inAddrNoPorts}
                     </code>
                   </div>
                 </div>

@@ -101,6 +101,13 @@ import {
   validateTunnelForm,
 } from "@/pages/tunnel/form";
 import { useLocalStorageState } from "@/hooks/use-local-storage-state";
+import { EntryIpPicker } from "@/pages/tunnel/entry-ip-picker";
+import {
+  addressKey,
+  nodeIpOptions,
+  parseExtraIPs,
+  splitEntryAddresses,
+} from "@/utils/node-ips";
 import { getRoleId } from "@/utils/session";
 import { loadStoredOrder, saveOrder } from "@/utils/order-storage";
 import {
@@ -223,7 +230,12 @@ function syncEntryAddresses(
         ? removed
         : null;
 
-    for (const address of [node.serverIpV4, node.serverIpV6, node.serverIp]) {
+    for (const address of [
+      node.serverIpV4,
+      node.serverIpV6,
+      node.serverIp,
+      ...parseExtraIPs(node.extraIPs),
+    ]) {
       if (address?.trim()) target?.add(normalize(address));
     }
   }
@@ -831,8 +843,25 @@ export default function TunnelPage() {
       .filter(Boolean)
       .join("\n");
 
-    return current !== expectedInIps;
-  }, [form.inIp, expectedInIps]);
+    if (current === expectedInIps) return false;
+    // A selection made only of the entry nodes' current IPs is a deliberate pick.
+    const known = new Set(
+      form.inNodeId.flatMap((ct) => {
+        const n = nodes.find((item) => item.id === ct.nodeId);
+
+        return n
+          ? [...nodeIpOptions(n).map((option) => option.ip), n.intranetIp || ""]
+              .filter((ip) => ip.trim())
+              .map(addressKey)
+          : [];
+      }),
+    );
+    const tokens = splitEntryAddresses(form.inIp);
+
+    return !(
+      tokens.length > 0 && tokens.every((token) => known.has(addressKey(token)))
+    );
+  }, [form.inIp, expectedInIps, form.inNodeId, nodes]);
   // 表单验证
   const validateForm = (): boolean => {
     const newErrors = validateTunnelForm(form, nodes);
@@ -1334,7 +1363,24 @@ export default function TunnelPage() {
             <SelectItem key="v6">IPv6</SelectItem>
             <SelectItem key="lan">内网</SelectItem>
           </Select>
-          {targets.filter((item) => item.nodeId > 0).length === 1 && (
+          {targets.filter((item) => item.nodeId > 0).length === 1 && (() => {
+            const setConnectIp = (connectIp: string) => {
+              const update = (items: ChainTunnel[]) => items.map((item) =>
+                item.nodeId === target.nodeId ? { ...item, connectIp } : item,
+              );
+
+              setForm((prev) => {
+                if (groupIndex === undefined) {
+                  return { ...prev, outNodeId: update(prev.outNodeId || []) };
+                }
+                const chainNodes = [...(prev.chainNodes || [])];
+
+                chainNodes[groupIndex] = update(chainNodes[groupIndex] || []);
+
+                return { ...prev, chainNodes };
+              });
+            };
+            const input = (
             <Input
               description="填写 IPv4 或 IPv6 地址，将覆盖连接 IP 类型；端口保持不变"
               label="自定义连接 IP（可选）"
@@ -1343,25 +1389,41 @@ export default function TunnelPage() {
               size="sm"
               value={target.connectIp || ""}
               variant="bordered"
-              onChange={(event) => {
-                const connectIp = event.target.value;
-                const update = (items: ChainTunnel[]) => items.map((item) =>
-                  item.nodeId === target.nodeId ? { ...item, connectIp } : item,
-                );
-
-                setForm((prev) => {
-                  if (groupIndex === undefined) {
-                    return { ...prev, outNodeId: update(prev.outNodeId || []) };
-                  }
-                  const chainNodes = [...(prev.chainNodes || [])];
-
-                  chainNodes[groupIndex] = update(chainNodes[groupIndex] || []);
-
-                  return { ...prev, chainNodes };
-                });
-              }}
+              onChange={(event) => setConnectIp(event.target.value)}
             />
-          )}
+            );
+
+            // Only nodes with 附加 IP get quick-fill chips; others keep the plain input.
+            if (parseExtraIPs(targetNode?.extraIPs).length === 0) return input;
+            const current = addressKey(target.connectIp || "");
+
+            return (
+              <div className="space-y-1.5">
+                {input}
+                <div className="flex flex-wrap items-center gap-1.5" data-testid="connect-ip-options">
+                  <span className="text-[11px] text-default-500">快速填入：</span>
+                  {nodeIpOptions(targetNode).map((option) => {
+                    const active = !!target.connectIp?.trim() && current === addressKey(option.ip);
+
+                    return (
+                      <Button
+                        key={option.ip}
+                        aria-pressed={active}
+                        className="h-6 min-h-0 px-2 text-[11px] gap-1 rounded-full"
+                        color={active ? "success" : "default"}
+                        size="sm"
+                        variant={active ? "flat" : "bordered"}
+                        onPress={() => setConnectIp(active ? "" : option.ip)}
+                      >
+                        <span className="opacity-80">{option.label}</span>
+                        <span className="font-mono">{option.ip}</span>
+                      </Button>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })()}
           </div>
         );
       })}
@@ -4170,6 +4232,13 @@ export default function TunnelPage() {
                       onChange={(e) =>
                         setForm((prev) => ({ ...prev, inIp: e.target.value }))
                       }
+                    />
+                    <EntryIpPicker
+                      nodes={form.inNodeId
+                        .map((ct) => nodes.find((item) => item.id === ct.nodeId))
+                        .filter((item): item is Node => !!item)}
+                      value={form.inIp}
+                      onChange={(inIp) => setForm((prev) => ({ ...prev, inIp }))}
                     />
                     {/* 🎯 预警 UI：只要发现地址过期，立刻显示同步按钮 */}
                     {isEdit && isInIpOutdated && (
