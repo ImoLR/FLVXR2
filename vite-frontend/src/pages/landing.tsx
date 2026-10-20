@@ -187,7 +187,12 @@ export default function LandingPage() {
         {landingStatus[node.status] || node.status}
       </Chip>
       {(node.forwardCount || 0) > 0 && (
-        <Chip color="default" size="sm" variant="bordered">
+        <Chip
+          className="text-default-600 dark:text-default-300"
+          color="default"
+          size="sm"
+          variant="bordered"
+        >
           规则 {node.forwardCount}
         </Chip>
       )}

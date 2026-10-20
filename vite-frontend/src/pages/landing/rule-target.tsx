@@ -152,7 +152,7 @@ export function RuleLandingTarget({
             classNames={{
               base: "min-w-0 max-w-full",
               trigger: "max-w-full [&>span]:whitespace-normal",
-              listbox: "static min-w-0 max-w-full max-h-[min(50vh,20rem)]",
+              listbox: "static min-w-0 max-w-full !max-h-52",
             }}
             description="只能选择规则所属用户自己的节点"
             disabledKeys={nodes
