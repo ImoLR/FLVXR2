@@ -24,7 +24,7 @@ Native: in the agent's per-node `Counter` (landing status upload). Shared: in Cu
 - [x] Panel: accept fields from native uploads and Custom status; keep latest per node in memory only (no DB writes), drop on delete/TTL like the rate tracker
 - [x] API: `/landing/monitor` node `onlineIps` (count, null = unknown); new `POST /landing/monitor/ips {nodeId}` → list, admin or node owner only
 - [x] UI: chip `IP 在线/上限` (∞), clickable → IP list (desktop popover, H5 dialog); unknown → `IP -/3` + hint 「节点程序版本过旧，暂不支持在线 IP」
-- [ ] Tests + gates, screenshots (local lab) for the record
+- [x] Tests + gates, screenshots (local lab) for the record
 - [ ] Release fork.60, prod panel upgrade, OTA native landing node(s) (node 21) with SSH backup, prod check with real data
 
 ## Evidence
@@ -32,3 +32,6 @@ Native: in the agent's per-node `Counter` (landing status upload). Shared: in Cu
 - Agent: `8d947e01`; landing tests/vet pass (9 new snapshot cases). Real node 21 snapshot uses per-user `inbound_online_ips` (present null = zero); fallback confirmed from Core source, same snapshot call, no Core restart. JSON per node: 106 B old, 126 B zero, 213 B two IPs, 2,626 B 64 IPv6 IPs.
 - Backend: `adfbbb08`; SQLite/PostgreSQL targeted tests and package vet pass; native upload/Custom status, admin/owner/other/no-monitor/revoked grant, unknown/zero/stale/delete/cap covered. Cache for 200 × 64 full IPv6 IPs: 1,006,576 B (0.96 MiB); worst-case fixture counter JSON 4,342 B (+4,251 B). Dedicated temporary PostgreSQL container removed.
 - UI record: 12 screenshots in run `screens/`, 32 browser checks pass, no console/page errors; details do not fetch during 11-second monitor refresh observation.
+- Full backend `go test ./...`: same 10 top-level failures as fork.59 (`206dffac`), zero new; failure-comparison.json records exact names. Full vet: five existing unkeyed-field warnings in unrelated `leikwan/testapi`, byte-identical on baseline; changed packages clean (out-of-scope file left unchanged).
+- Local acceptance: S1–S8/E1–E3/R1 all pass; two real sources 198.51.100.11/.12 each report one connection, monitor count=2.
+- Panel rollback ready: `/opt/flvx-svc/rollback/pre-fork60-20261020T095406Z`, validated online DB backup; prune retained pre-fork60 + pre-fork59, removed pre-fork58 and fork.57 image tags.
