@@ -41,3 +41,5 @@
 - 2026-10-20 20:29：生产回滚点 `/opt/flvx-svc/rollback/pre-fork61-20261020T122949Z` 已备份 compose/env、SQLite quick_check=ok、旧镜像及恢复脚本；已立即执行 prune，只保留 pre-fork61 / pre-fork60，删除 pre-fork59 与 fork58旧镜像。备份计数29/12/43/31/143，landing3/1；升级前RSS 35,928 KiB，29/29在线。完整表哈希从已验证备份采样，不另留生产DB副本。
 
 - 2026-10-20 20:45：CI `39422343694` 与 Images `39422345431` 全绿，tag SHA 精确匹配。Release 为 Latest/正式版，10资产与fork60一致；两架构镜像、两份compose、安装脚本固定版本/仓库及两个gost SHA256全部通过（release-validation.json，16项）。
+
+- 2026-10-20 20:46：生产前后端已切fork61且healthy，29/29在线、29台均有重启后上报，agent版本尚未变化。两链式表均0行，node.landing_chain=0、line_machine=false，landing_server.chain_only=false，idx_landing_reuse五列顺序正确。初始RSS40,372 KiB，node21 native server在线；真实在线IP留待production runner临时节点验证。
