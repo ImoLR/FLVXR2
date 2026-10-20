@@ -1,5 +1,6 @@
 import type {
   LandingMonitorData,
+  LandingMonitorIps,
   LandingMonitorNode,
   LandingMonitorServer,
 } from "@/api/landing";
@@ -24,10 +25,25 @@ import {
 import {
   landingGB,
   landingMonitor,
+  landingMonitorIps,
   landingProtocolLabel,
   landingStatus,
 } from "@/api/landing";
+import { useH5Mode } from "@/hooks/useH5Mode";
+import { Button } from "@/shadcn-bridge/heroui/button";
 import { Card, CardBody, CardHeader } from "@/shadcn-bridge/heroui/card";
+import {
+  Dropdown,
+  DropdownMenu,
+  DropdownTrigger,
+} from "@/shadcn-bridge/heroui/dropdown";
+import {
+  Modal,
+  ModalBody,
+  ModalContent,
+  ModalFooter,
+  ModalHeader,
+} from "@/shadcn-bridge/heroui/modal";
 import {
   Table,
   TableBody,
@@ -277,9 +293,189 @@ function StatBox({
 const capText = (value: number, cap: number) =>
   `${value}/${cap > 0 ? cap : "∞"}`;
 
-// The panel only knows each node's online-IP limit, not how many IPs are
-// online right now, so this is just the limit.
-const ipCapText = (cap: number) => `IP ${cap > 0 ? cap : "∞"}`;
+const unknownIpsHint = "节点程序版本过旧，暂不支持在线 IP";
+
+// Mounted only when its popover/dialog opens, independently of the monitor's
+// regular refresh. The list changes only on open or an explicit refresh.
+function OnlineIpList({ nodeId }: { nodeId: number }) {
+  const [data, setData] = useState<LandingMonitorIps | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const inFlight = useRef(false);
+
+  const load = useCallback(async () => {
+    if (inFlight.current) return;
+    inFlight.current = true;
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await landingMonitorIps(nodeId);
+
+      if (res.code === 0 && res.data) {
+        setData(res.data);
+      } else {
+        setError(res.msg || "加载在线 IP 失败");
+      }
+    } catch {
+      setError("加载在线 IP 失败");
+    } finally {
+      inFlight.current = false;
+      setLoading(false);
+    }
+  }, [nodeId]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between gap-3">
+        <span className="text-sm text-default-500">
+          在线 IP {data?.onlineIps ?? "-"}
+        </span>
+        <Button
+          isLoading={loading}
+          size="sm"
+          variant="light"
+          onPress={() => void load()}
+        >
+          刷新
+        </Button>
+      </div>
+      {loading ? (
+        <p className="py-3 text-sm text-default-500">加载中…</p>
+      ) : error ? (
+        <p className="py-3 text-sm text-danger">{error}</p>
+      ) : data?.onlineIps == null ? (
+        <p className="py-3 text-sm text-default-500">{unknownIpsHint}</p>
+      ) : data.ips.length === 0 ? (
+        <p className="py-3 text-sm text-default-500">当前没有在线 IP</p>
+      ) : (
+        <div className="max-h-[45vh] overflow-y-auto">
+          <div className="mb-1 flex justify-between gap-3 text-xs text-default-500">
+            <span>IP 地址</span>
+            <span>连接数</span>
+          </div>
+          {data.ips.map(({ ip, connections }) => (
+            <div
+              key={ip}
+              className="flex items-center justify-between gap-3 border-t border-divider py-2 text-sm"
+            >
+              <span className="min-w-0 break-all font-mono">{ip}</span>
+              <span className="shrink-0 font-mono tabular-nums">
+                {connections}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+      {!loading && !error && data?.onlineIps != null ? (
+        <div className="space-y-1 text-xs text-default-500">
+          {data.onlineIps > data.ips.length ? (
+            <p>仅显示连接数最多的 {data.ips.length} 个 IP</p>
+          ) : null}
+          {data.sampleAt > 0 ? (
+            <p>
+              采样于{" "}
+              {new Date(data.sampleAt).toLocaleTimeString("zh-CN", {
+                hour12: false,
+              })}
+            </p>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function IpCount({
+  node,
+  pill = false,
+}: {
+  node: LandingMonitorNode;
+  pill?: boolean;
+}) {
+  const isH5 = useH5Mode();
+  const [open, setOpen] = useState(false);
+  const overLimit =
+    node.onlineIps != null &&
+    node.maxOnlineIps > 0 &&
+    node.onlineIps > node.maxOnlineIps;
+  const label = (
+    <>
+      IP{" "}
+      <span
+        className={
+          overLimit ? "text-warning-600 dark:text-warning-400" : undefined
+        }
+      >
+        {node.onlineIps ?? "-"}
+      </span>
+      /{node.maxOnlineIps > 0 ? node.maxOnlineIps : "∞"}
+    </>
+  );
+  const trigger = (
+    <button
+      aria-label={`查看 ${node.name} 的在线 IP`}
+      className="cursor-pointer whitespace-nowrap rounded transition-colors hover:bg-default-200/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+      title={node.onlineIps == null ? unknownIpsHint : "查看在线 IP"}
+      type="button"
+      onClick={isH5 ? () => setOpen(true) : undefined}
+    >
+      {pill ? (
+        <Pill tone="secondary">
+          <span>{label}</span>
+        </Pill>
+      ) : (
+        label
+      )}
+    </button>
+  );
+
+  if (isH5) {
+    return (
+      <>
+        {trigger}
+        <Modal isOpen={open} size="sm" onOpenChange={setOpen}>
+          <ModalContent
+            aria-describedby={undefined}
+            aria-label={`${node.name} 在线 IP`}
+            className="flvx-landing-text"
+          >
+            <ModalHeader>
+              <div>在线 IP</div>
+              <div className="break-all text-sm font-normal text-default-500">
+                {node.name}
+              </div>
+            </ModalHeader>
+            <ModalBody>
+              <OnlineIpList nodeId={node.id} />
+            </ModalBody>
+            <ModalFooter>
+              <Button variant="light" onPress={() => setOpen(false)}>
+                关闭
+              </Button>
+            </ModalFooter>
+          </ModalContent>
+        </Modal>
+      </>
+    );
+  }
+
+  return (
+    <Dropdown>
+      <DropdownTrigger>{trigger}</DropdownTrigger>
+      <DropdownMenu>
+        <div className="flvx-landing-text w-80 max-w-[85vw] space-y-2 p-3 text-left">
+          <div className="text-base font-semibold">在线 IP</div>
+          <div className="break-all text-sm text-default-500">{node.name}</div>
+          <OnlineIpList nodeId={node.id} />
+        </div>
+      </DropdownMenu>
+    </Dropdown>
+  );
+}
 
 // Connection counts read as a plug icon + "当前/上限", like 妙妙屋.
 function ConnCount({ node }: { node: LandingMonitorNode }) {
@@ -499,7 +695,7 @@ function NodeCard({
         <Pill tone="default">
           {landingProtocolLabel(node.protocol)} · {node.port}
         </Pill>
-        <Pill tone="secondary">{ipCapText(node.maxOnlineIps)}</Pill>
+        <IpCount pill node={node} />
         <AgeHint data={data} sampleAt={node.sampleAt} />
       </div>
       <NodeNotes node={node} />
@@ -535,9 +731,7 @@ function NodeListRow({
       </div>
       <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-default-600">
         <ConnCount node={node} />
-        <span className="whitespace-nowrap">
-          {ipCapText(node.maxOnlineIps)}
-        </span>
+        <IpCount node={node} />
         <span className="whitespace-nowrap">
           {trafficText(node.billedBytes, node.trafficLimitBytes)}
         </span>
@@ -628,7 +822,7 @@ function NodeTable({
             </TableCell>
             <TableCell>
               <span className="whitespace-nowrap font-mono text-xs text-default-600">
-                {node.maxOnlineIps > 0 ? node.maxOnlineIps : "∞"}
+                <IpCount node={node} />
               </span>
             </TableCell>
             <TableCell>

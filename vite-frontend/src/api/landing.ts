@@ -290,6 +290,7 @@ export interface LandingMonitorNode {
   syncError?: string;
   deletePending?: boolean;
   connections: number;
+  onlineIps: number | null;
   maxConnections: number;
   maxOnlineIps: number;
   upRate: number | null;
@@ -331,3 +332,10 @@ export interface LandingMonitorData {
 }
 export const landingMonitor = () =>
   Network.post<LandingMonitorData>("/landing/monitor", {});
+export interface LandingMonitorIps {
+  onlineIps: number | null;
+  ips: { ip: string; connections: number }[];
+  sampleAt: number;
+}
+export const landingMonitorIps = (nodeId: number) =>
+  Network.post<LandingMonitorIps>("/landing/monitor/ips", { nodeId });
