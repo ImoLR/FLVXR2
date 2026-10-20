@@ -23,6 +23,9 @@ Native: in the agent's per-node `Counter` (landing status upload). Shared: in Cu
 - [ ] Agent: read online IP count + list per node from the snapshot, add to Counter (omitempty), tests
 - [ ] Panel: accept fields from native uploads and Custom status; keep latest per node in memory only (no DB writes), drop on delete/TTL like the rate tracker
 - [ ] API: `/landing/monitor` node `onlineIps` (count, null = unknown); new `POST /landing/monitor/ips {nodeId}` → list, admin or node owner only
-- [ ] UI: chip `IP 在线/上限` (∞), clickable → IP list (desktop popover, H5 dialog); unknown → `IP -/3` + hint 「节点程序版本过旧，暂不支持在线 IP」
+- [x] UI: chip `IP 在线/上限` (∞), clickable → IP list (desktop popover, H5 dialog); unknown → `IP -/3` + hint 「节点程序版本过旧，暂不支持在线 IP」
 - [ ] Tests + gates, screenshots (local lab) for the record
 - [ ] Release fork.60, prod panel upgrade, OTA native landing node(s) (node 21) with SSH backup, prod check with real data
+
+## Evidence
+- UI: `87c04e8e`; TypeScript/build pass; changed-file eslint 0 errors (2 pre-existing API blank-line warnings). Logs: `/root/flvx-workers/runs/landing-online-ips/logs/`.
