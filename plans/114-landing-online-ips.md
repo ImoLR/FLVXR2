@@ -35,3 +35,11 @@ Native: in the agent's per-node `Counter` (landing status upload). Shared: in Cu
 - Full backend `go test ./...`: same 10 top-level failures as fork.59 (`206dffac`), zero new; failure-comparison.json records exact names. Full vet: five existing unkeyed-field warnings in unrelated `leikwan/testapi`, byte-identical on baseline; changed packages clean (out-of-scope file left unchanged).
 - Local acceptance: S1–S8/E1–E3/R1 all pass; two real sources 198.51.100.11/.12 each report one connection, monitor count=2.
 - Panel rollback ready: `/opt/flvx-svc/rollback/pre-fork60-20261020T095406Z`, validated online DB backup; prune retained pre-fork60 + pre-fork59, removed pre-fork58 and fork.57 image tags.
+
+## Production rollout (Taiwan time, UTC+8)
+- [x] Release `3.0.27-fork.60` (`be77e8c6`), CI `39404313977` + Images `39404316148` green; Latest, same 10 assets, scripts/checksums/dual-arch images validated (`release-validation.json`).
+- [x] Panel upgraded 2026-10-20 18:16; healthy, 29/29 online and fresh reports; counts and landing server revisions/hash unchanged, agent desired hash unchanged.
+- [x] Only native agent node 21 OTA'd 18:17; SSH backup `/root/flvxx-backup-20261020T101637Z-pre-fork60`, checksum verified, restore script included; two newest node backups retained. Reconnected in 6.1 s, Core PID 29900 unchanged, diagnostics 27/27 before/after; other node versions unchanged.
+- [x] Resource windows: before agent 58,748 KiB / 0.336% CPU (35.72 s), after 54,988 KiB / 0.279% (46.63 s); Core 33,800 → 33,536 KiB, 0.084% → 0.064%, same PID.
+- [ ] Production acceptance: node 21 + shared server 7 (temporary user fully cleaned)
+- [ ] Production acceptance: node 21 + shared server 5 (temporary user fully cleaned)
