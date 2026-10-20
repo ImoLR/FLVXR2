@@ -188,7 +188,7 @@ export default function LandingPage() {
       </Chip>
       {(node.forwardCount || 0) > 0 && (
         <Chip
-          className="text-default-600 dark:text-default-300"
+          className="text-default-600"
           color="default"
           size="sm"
           variant="bordered"
