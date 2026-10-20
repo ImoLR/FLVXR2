@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"go-backend/internal/auth"
+	"go-backend/internal/cnlanding"
 	"go-backend/internal/http/middleware"
 	"go-backend/internal/linechain"
 	"go-backend/internal/store/model"
@@ -154,7 +155,9 @@ func newChainEnv(t *testing.T) (*flowTestEnv, *chainAgent) {
 	agent := newChainAgent()
 	e.h.nodeCommandSender = agent.send
 	oldResolver, oldStep, oldDeadline := chainResolver, chainWaitStep, chainCreateDeadline
-	chainResolver = fakeChainResolver{"node.example.com": {"8.8.4.4"}, "rebind.example.com": {"8.8.8.8", "10.0.0.1"}}
+	resolver := fakeChainResolver{"node.example.com": {"8.8.4.4"}, "rebind.example.com": {"8.8.8.8", "10.0.0.1"}}
+	chainResolver = resolver
+	e.h.cnLandingChecker = cnlanding.New(resolver)
 	chainWaitStep = 5 * time.Millisecond
 	chainCreateDeadline = 1500 * time.Millisecond
 	t.Cleanup(func() {
@@ -905,4 +908,28 @@ func mustUpstream(t *testing.T, link string) linechain.Upstream {
 		t.Fatal(err)
 	}
 	return u
+}
+
+// The mainland-China target policy of normal rules applies to the user's
+// node, and a tunnel with chain rules must keep its exit tier.
+func TestChainCNPolicyAndTunnelGuard(t *testing.T) {
+	e, _ := newChainEnv(t)
+	code, msg, _ := callAs(t, e.h.forwardCreate, 7, 1, chainCreateBody(10, "cn", "socks5://114.114.114.114:1080", "key-cn-000001"))
+	e.h.chains.wg.Wait()
+	if code == 0 || !strings.Contains(msg, "中国大陆") {
+		t.Fatalf("mainland upstream accepted: %d %s", code, msg)
+	}
+	c := createChain(t, e, 10, "guard", testSSLink, "key-guard-001")
+	f, _ := e.h.getForwardRecord(c.ForwardID)
+	if err := e.h.checkForwardRecordLanding(context.Background(), f); err != nil {
+		t.Fatalf("policy check of a chain rule must use its upstream: %v", err)
+	}
+	e.exec("UPDATE forward_chain SET upstream_host = '114.114.114.114', upstream_port = 1080 WHERE id = ?", c.ID)
+	if err := e.h.checkForwardRecordLanding(context.Background(), f); err == nil || !strings.Contains(err.Error(), "中国大陆") {
+		t.Fatalf("periodic CN check ignores the chain upstream: %v", err)
+	}
+	code, msg, _ = callAs(t, e.h.tunnelUpdate, 1, 0, map[string]interface{}{"id": 10, "name": "t", "type": 1, "flow": 2, "trafficRatio": 1, "status": 1, "inNodeId": []map[string]interface{}{{"nodeId": 1}}})
+	if code == 0 || !strings.Contains(msg, "必须保留出口") {
+		t.Fatalf("tunnel lost its exits under chain rules: %d %s", code, msg)
+	}
 }
