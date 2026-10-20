@@ -51,3 +51,5 @@
 - 2026-10-20 20:55：canary稳定后30秒复测CPU0.2332%、RSS62,156 KiB、15FD/8线程，与升级前15FD/8线程一致；Core仍未下载/启动，NRestarts=0，另一面板PID634不变（ota/node47-resources-steady.json）。第一组原生/共享计费逐方向、用户总量、日配额、服务器配额全部精确一致，继续限额及删除清理。
 
 - 2026-10-20 21:00：生产 node21 + shared7 第一组11场景/76检查全部通过，临时用户43及节点69–72全部删除，九类关联表残留0，现有服务器/节点凭据/用户哈希与各表数量不变。shared5第二组已开始；证据 logs/prod-server7.json。
+
+- 2026-10-20 21:01：确认无进程使用后，删除本任务本地测试构建物 bin/paneld 与 bin/flvx-agent，共90,588,916字节；发布资产、原始日志及共享测试Core保留，可从fork61 tag重新构建（cleanup-local-binaries.json）。
