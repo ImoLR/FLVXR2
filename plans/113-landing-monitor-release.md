@@ -23,5 +23,5 @@ fork.58 egress parts and the monitor parts) + this change.
 - [x] Plug icon / `IP n` / `∞` display changes (`monitor-view.tsx` only)
 - [x] tsc, eslint, vite build; go build, go vet, landing tests; full `go test ./...` = 10 known failing tests (backup, federation, legacy migrations, renewal, service monitor, tunnel port in use), none landing-related
 - [x] Local demo panel (lmdemo) screenshots desktop + H5, 0 page errors
-- [ ] Push branch, tag `3.0.27-fork.59`, CI + images green, release verified
-- [ ] Back up and upgrade the production panel (panel only, no agent OTA)
+- [x] Push branch, tag `3.0.27-fork.59`, CI 39400265808 + Images 39400274083 green, release Latest with the fork.58 asset set
+- [x] Back up (`/opt/flvx-svc/rollback/pre-fork59-20261020T092336Z`, quick_check ok) and upgrade the production panel (panel only, no agent OTA); 29/29 nodes reporting, `/landing/monitor` answers with prod data, frontend build 3.0.27-fork.59
