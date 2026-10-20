@@ -17,7 +17,7 @@
 - [x] Tag fork.61；CI / Images 通过；Latest 与 fork.60 相同资产集合核验。
 - [x] 生产升级前记录配置表计数/哈希、在线节点、RSS；验证数据库备份与回滚脚本，执行两份备份保留规则。
 - [ ] 升级生产面板；验证迁移、节点上报、node 21 在线 IP、日志及资源。
-- [ ] 唯一出口 canary SSH 备份与恢复脚本就绪；记录诊断及 CPU/RSS 后 OTA，复验转发与无 Core 下载。
+- [x] 唯一出口 canary SSH 备份与恢复脚本就绪；记录诊断及 CPU/RSS 后 OTA，复验转发与无 Core 下载。
 - [ ] 生产验收 node 21 + shared 7 / 5 通过；临时用户及节点清理；原配置与计费不变。
 - [ ] 清理本任务临时环境和数据库副本；115/116 完成；提交推送，中文总结写入指定文件。
 
@@ -43,3 +43,5 @@
 - 2026-10-20 20:45：CI `39422343694` 与 Images `39422345431` 全绿，tag SHA 精确匹配。Release 为 Latest/正式版，10资产与fork60一致；两架构镜像、两份compose、安装脚本固定版本/仓库及两个gost SHA256全部通过（release-validation.json，16项）。
 
 - 2026-10-20 20:46：生产前后端已切fork61且healthy，29/29在线、29台均有重启后上报，agent版本尚未变化。两链式表均0行，node.landing_chain=0、line_machine=false，landing_server.chain_only=false，idx_landing_reuse五列顺序正确。初始RSS40,372 KiB，node21 native server在线；真实在线IP留待production runner临时节点验证。
+
+- 2026-10-20 20:48：只OTA节点47 AWS HK（隧道73/74/80出口）。fork56→fork61，request1.8秒、4秒重连；9项诊断14探测前后全通过。只有47上报landing_chain=1，全部29节点line_machine=false。SSH30秒CPU 0.3332%→0.2666%，RSS62,240→62092 KiB；无landing目录/文件，Core unit仍not-found，没有Core下载。另一面板flux_agent PID634不变。证据ota/与prod-panel-verified-ota.json。
