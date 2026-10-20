@@ -4130,14 +4130,17 @@ func resolveForwardIngress(db *gorm.DB, forwardID int64, tunnelID int64) (string
 	db.Model(&model.Tunnel{}).Select("in_ip").Where("id = ?", tunnelID).Limit(1).Scan(&tunnelInIP)
 
 	type fpRow struct {
-		NodeID   int64
-		Port     sql.NullInt64
-		ServerIP sql.NullString
-		InIP     sql.NullString
+		NodeID     int64
+		Port       sql.NullInt64
+		ServerIP   sql.NullString
+		ServerIPV4 sql.NullString `gorm:"column:server_ip_v4"`
+		ServerIPV6 sql.NullString `gorm:"column:server_ip_v6"`
+		ExtraIPs   sql.NullString `gorm:"column:extra_ips"`
+		InIP       sql.NullString
 	}
 	var fpRows []fpRow
 	err := db.Model(&model.ForwardPort{}).
-		Select("forward_port.node_id, forward_port.port, node.server_ip, forward_port.in_ip").
+		Select("forward_port.node_id, forward_port.port, node.server_ip, node.server_ip_v4, node.server_ip_v6, node.extra_ips, forward_port.in_ip").
 		Joins("LEFT JOIN node ON node.id = forward_port.node_id").
 		Where("forward_port.forward_id = ?", forwardID).
 		Order("forward_port.id ASC").
@@ -4170,19 +4173,28 @@ func resolveForwardIngress(db *gorm.DB, forwardID int64, tunnelID int64) (string
 		}
 
 		var ip string
+		var ips []string
 		if row.InIP.Valid && strings.TrimSpace(row.InIP.String) != "" {
 			// 1. 如果规则有独�?IP，用规则�?
 			ip = strings.TrimSpace(row.InIP.String)
 		} else if (!restricted || len(allowed) == int(entryCount)) && tunnelInIP.Valid && strings.TrimSpace(tunnelInIP.String) != "" {
 			// 🎯 2. 补上这一段！让它去读你选的“测试隧道”的域名�?
 			ip = strings.TrimSpace(tunnelInIP.String)
+		} else if picked := entryAddressesOfNode(tunnelInIP.String, row.ServerIP.String, row.ServerIPV4.String, row.ServerIPV6.String, row.ExtraIPs.String); len(picked) > 0 {
+			// Partial entry permission: the tunnel's picked addresses on this entry node.
+			ips = picked
 		} else if row.ServerIP.Valid && strings.TrimSpace(row.ServerIP.String) != "" {
 			// 3. 最后才是拿底层服务�?IPv4 兜底
 			ip = strings.TrimSpace(row.ServerIP.String)
 		}
 
 		if ip != "" {
-			pair := net.JoinHostPort(strings.Trim(ip, "[]"), fmt.Sprintf("%d", row.Port.Int64))
+			ips = splitEntryAddressList(ip)
+		}
+		// Join host and port per address so that lists containing IPv6 keep
+		// one bracketed host each ("a:p,[b]:p" rather than "[a,b]:p").
+		for _, address := range ips {
+			pair := net.JoinHostPort(strings.Trim(address, "[]"), fmt.Sprintf("%d", row.Port.Int64))
 			if _, ok := seenPairs[pair]; !ok {
 				seenPairs[pair] = struct{}{}
 				entries = append(entries, pair)
@@ -4197,6 +4209,37 @@ func resolveForwardIngress(db *gorm.DB, forwardID int64, tunnelID int64) (string
 	inPort := sql.NullInt64{Int64: ports[0], Valid: true}
 
 	return strings.Join(entries, ","), inPort, nil
+}
+
+func splitEntryAddressList(value string) []string {
+	out := make([]string, 0, 2)
+	for _, token := range strings.FieldsFunc(value, func(r rune) bool { return r == ',' || r == '\n' || r == '\r' }) {
+		if token = strings.TrimSpace(token); token != "" {
+			out = append(out, token)
+		}
+	}
+	return out
+}
+
+// entryAddressesOfNode returns the tunnel entry addresses that belong to one
+// entry node (primary or extra IPs), in the tunnel's order.
+func entryAddressesOfNode(tunnelInIP, serverIP, serverIPV4, serverIPV6, extraIPs string) []string {
+	if strings.TrimSpace(tunnelInIP) == "" {
+		return nil
+	}
+	own := make(map[string]bool, 4)
+	for _, address := range append([]string{serverIP, serverIPV4, serverIPV6}, ParseNodeExtraIPs(extraIPs)...) {
+		if strings.TrimSpace(address) != "" {
+			own[nodeAddressKey(address)] = true
+		}
+	}
+	var out []string
+	for _, token := range splitEntryAddressList(tunnelInIP) {
+		if own[nodeAddressKey(token)] {
+			out = append(out, token)
+		}
+	}
+	return out
 }
 
 func nullableString(v sql.NullString) interface{} {

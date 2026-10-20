@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"go-backend/internal/auth"
@@ -79,7 +80,11 @@ func TestTunnelUpdateEntryAddressSync(t *testing.T) {
 				continue
 			}
 			ips := asString(f["inIp"])
-			if ips != fmt.Sprintf("%s:%d", want, 1500+id) {
+			expected := make([]string, 0, 2)
+			for _, address := range strings.Split(want, ",") {
+				expected = append(expected, fmt.Sprintf("%s:%d", address, 1500+id))
+			}
+			if ips != strings.Join(expected, ",") {
 				t.Fatalf("rule %d addresses=%s", id, ips)
 			}
 			ports, _ := e.r.ListForwardPorts(id)
