@@ -11,7 +11,7 @@
 - [x] 合入 33 个提交，解决冲突；113 文档改名为 115，仅更新标题和自引用；推送发布分支。
 - [ ] 在干净 fork.60 临时工作树取得后端完整测试基线。
 - [ ] 发布代码后端全量测试无新增失败；agent landing/chain 测试及改动包 vet 通过。
-- [ ] 前端 tsc、改动文件 ESLint 无新增错误、构建通过。
+- [x] 前端 tsc、改动文件 ESLint 无新增错误、构建通过。
 - [ ] 本机落地验收通过（含 T1/R1、在线 IP），链式验收通过（含 C6/C8）。
 - [ ] 重拍并检查 3–4 张关键页面，记录节点列表查询次数。
 - [ ] Tag fork.61；CI / Images 通过；Latest 与 fork.60 相同资产集合核验。
@@ -27,3 +27,5 @@
 生产不做 chain-rule smoke：开启线路机由用户决定，链式流量由本机真实 Core 环境验收。
 
 - 2026-10-20：33 个提交按序 cherry-pick，无 merge commit；处理器冲突保留 landingRates 与 landingTargetLocks。另保留 fork.60 发布后验收脚本修复 99a2ab6d（新样本与计费稳定等待），合并其连接上限恢复逻辑。113 改为 115。发布分支已 push -u origin；所有新提交尾部保留 Codex trailer。
+
+- 前端：fork.60 / 发布代码 tsc 均通过，build 通过；改动文件 ESLint errors 25→25（新增0），warnings 666→707。4 张重拍 screenshots 已逐张检查，18 项交互通过，页面错误0；在线 IP 明细只在点击/手动刷新时请求。后端与 agent 所有改动包 go vet 通过。证据：frontend/report.md、screens/、vet-results.json。
