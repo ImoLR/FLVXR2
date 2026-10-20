@@ -56,3 +56,28 @@ temporary user only, deletes everything again and verifies no row of the
 temporary user is left. Existing users, nodes, servers and profiles are only
 read (before/after snapshots must be identical). It never assigns a route
 profile, never creates outbounds/profiles and never registers WARP.
+
+## 线路机 chain lab (plan 108, 「我自己的节点」)
+
+```
+python3 scripts/landing-acceptance/chain_lab.py run --panel /root/tmp-work/bin/paneld \
+  --agent /root/tmp-work/bin/flvx-agent --core /root/tmp-work/bin/mmwxc-core-linux-amd64 \
+  --scratch /root/tmp-work/chain-lab [--many 50] [--keep]
+python3 scripts/landing-acceptance/chain_lab.py cleanup --scratch /root/tmp-work/chain-lab
+```
+
+Four namespaces: a 线路机 entry agent, exit A (public landing whose Reality
+dest is a lab TLS server), exit B (chain-only landing, created by the first
+chain rule) and the user's own node (xray Shadowsocks + SOCKS5, byte fixture,
+concurrent TLS 1.3 dest — REALITY fetches the dest for every handshake, so the
+dest must not be the iterative `openssl s_server`).
+
+| id | what is proven |
+|----|----------------|
+| C1 | user chain create through the API: one rule targeting 127.0.0.1:<port>, identical copies on both exits listening on 127.0.0.1 only, chain-only landing for exit B; same submit key → same chain; same node link again → refused with the rule name |
+| C2 | the 「复制链接」 VLESS Reality Vision link (entry address) carries 6 × 2 MiB byte-exact; the round-robin exit tier uses both copies; private destinations stay blocked |
+| C3 | diagnosis: 出口(A/B)->目标 is the user's node, both succeed |
+| C4 | billing: the user is billed exactly the rule's (entry-measured) traffic, no landing node rows, no double count |
+| C5 | new link (SOCKS5 with auth) hot-swaps the upstream on both exits; one chain outbound per Core, Core processes unchanged |
+| C6 | 1 vs N chain nodes (Core RSS/fds/goroutines/state bytes), 1000 connections through the chain return fds/goroutines to baseline, log growth |
+| C7 | rule delete + batch delete: zero chain rows, no chain inbounds/outbounds left in either Core, traffic stops, landings (Cores) kept |
