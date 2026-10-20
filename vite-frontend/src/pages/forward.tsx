@@ -2502,8 +2502,6 @@ export default function ForwardPage() {
         newErrors.remoteAddr = "请粘贴你的节点链接";
     } else if (form.mode !== "wg_path" && form.targetMode === "node") {
       if (!form.landingNodeId) newErrors.remoteAddr = "请选择我的落地节点";
-    } else if (form.mode !== "wg_path" && form.targetMode === "server") {
-      if (!form.landingServerId) newErrors.remoteAddr = "请选择落地服务器";
     } else if (form.mode === "wg_path" && form.wgRuleType === "cidr") {
       // CIDR 内网转发使用目标网段，不校验落地地址。
     } else if (!form.remoteAddr.trim()) {
@@ -2941,9 +2939,7 @@ export default function ForwardPage() {
         .join(",");
       const landingTarget = form.mode !== "wg_path" && form.targetMode === "node"
         ? { landingNodeId: form.landingNodeId }
-        : form.mode !== "wg_path" && form.targetMode === "server"
-          ? { landingServerId: form.landingServerId, landingProtocol: form.landingProtocol || "ss2022" }
-          : {};
+        : {};
       const addressCount = processedRemoteAddr.split(",").length;
       let res: { code: number; msg: string };
       const normalizedSpeedId = normalizeSpeedId(form.speedId);
@@ -3003,7 +2999,7 @@ export default function ForwardPage() {
           createData.userId = form.userId;
         }
         // One key per dialog submission: a double click or client retry
-        // cannot create the rule (or an auto-created landing node) twice.
+        // cannot create the rule twice.
         createData.idempotencyKey = submitKeyRef.current;
 
         res = await createForward(createData);
@@ -4951,7 +4947,7 @@ export default function ForwardPage() {
               删除
             </Button>
           </div>
-          {forward.chain?.state === "active" && (
+          {(forward.chain?.state === "active" || (!forward.chain && forward.landingNodeId)) && (
             <div className="mt-1.5 flex">
               <ChainLinkButton className="flex-1 min-h-8" forward={forward} />
             </div>

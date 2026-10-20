@@ -80,6 +80,8 @@ export interface LandingServer {
 }
 export interface LandingNode {
   deletePending?: boolean;
+  forwardCount?: number;
+  serverAvailable?: boolean;
   id: number;
   userId: number;
   userName?: string;
@@ -138,8 +140,8 @@ export interface LandingUserSetting {
   fixedNodeCount?: number;
   serverIds?: number[];
 }
-export const landingServers = () =>
-  Network.post<LandingServer[]>("/landing/server/list", {});
+export const landingServers = (userId?: number) =>
+  Network.post<LandingServer[]>("/landing/server/list", userId ? { userId } : {});
 export const enableLandingServer = (nodeId: number) =>
   Network.post<LandingServer>("/landing/server/enable", { nodeId });
 export const saveLandingServer = (

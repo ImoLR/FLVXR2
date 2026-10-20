@@ -9,9 +9,7 @@ import toast from "react-hot-toast";
 import {
   LandingLink,
   LandingNode,
-  LandingProtocol,
   LandingServer,
-  createLandingNode,
   deleteLandingNode,
   landingDate,
   landingGB,
@@ -21,13 +19,10 @@ import {
   landingServers,
   landingStatus,
 } from "@/api/landing";
-import { getAllUsers } from "@/api";
-import { UserApiItem } from "@/api/types";
 import { AnimatedPage } from "@/components/animated-page";
 import { Button } from "@/shadcn-bridge/heroui/button";
 import { Card, CardBody, CardHeader } from "@/shadcn-bridge/heroui/card";
 import { Chip } from "@/shadcn-bridge/heroui/chip";
-import { Input } from "@/shadcn-bridge/heroui/input";
 import {
   Modal,
   ModalBody,
@@ -35,10 +30,10 @@ import {
   ModalFooter,
   ModalHeader,
 } from "@/shadcn-bridge/heroui/modal";
-import { Select, SelectItem } from "@/shadcn-bridge/heroui/select";
 import { Spinner } from "@/shadcn-bridge/heroui/spinner";
 import { Tab, Tabs } from "@/shadcn-bridge/heroui/tabs";
 import { isAdmin } from "@/utils/auth";
+import { CreateLandingNodeDialog } from "@/pages/landing/create-node";
 import { NodeDetails } from "@/pages/landing/node-details";
 import { ServerSettings } from "@/pages/landing/server-settings";
 import { OfflineQRCode } from "@/pages/node/node-deploy-modal";
@@ -77,14 +72,9 @@ export default function LandingPage() {
   const [tab, setTab] = useState("servers");
   const [settings, setSettings] = useState<LandingServer | null>(null);
   const [details, setDetails] = useState<LandingNode | null>(null);
-  const [creating, setCreating] = useState<{
-    server: LandingServer;
-    name: string;
-    protocol: LandingProtocol;
-    userId: number;
-  } | null>(null);
-  const [ownerOptions, setOwnerOptions] = useState<UserApiItem[] | null>(null);
+  const [creating, setCreating] = useState<LandingServer | null>(null);
   const [deleting, setDeleting] = useState<LandingNode | null>(null);
+  const [deleteError, setDeleteError] = useState("");
   const [linksFor, setLinksFor] = useState<LandingNode | null>(null);
   const [links, setLinks] = useState<LandingLink[]>([]);
   const [linkError, setLinkError] = useState("");
@@ -117,14 +107,6 @@ export default function LandingPage() {
       setParams({}, { replace: true });
     }
   }, [admin, servers, params, setParams]);
-  useEffect(() => {
-    // Admins pick the node owner; the list is loaded once, on first use.
-    if (!admin || !creating || ownerOptions) return;
-    setOwnerOptions([]);
-    void getAllUsers({ size: 1000 }).then((res) => {
-      if (res.code === 0) setOwnerOptions(res.data || []);
-    });
-  }, [admin, creating, ownerOptions]);
   useEffect(() => {
     if (!linksFor) return;
     let disposed = false;
@@ -179,7 +161,10 @@ export default function LandingPage() {
         color="danger"
         size="sm"
         variant="flat"
-        onPress={() => setDeleting(node)}
+        onPress={() => {
+          setDeleteError("");
+          setDeleting(node);
+        }}
       >
         删除
       </Button>
@@ -201,6 +186,11 @@ export default function LandingPage() {
       >
         {landingStatus[node.status] || node.status}
       </Chip>
+      {(node.forwardCount || 0) > 0 && (
+        <Chip color="default" size="sm" variant="bordered">
+          规则 {node.forwardCount}
+        </Chip>
+      )}
       {node.deletePending && (
         <Chip color="warning" size="sm" variant="flat">
           删除中
@@ -409,14 +399,7 @@ export default function LandingPage() {
                         }
                         size="sm"
                         startContent={<Plus size={16} />}
-                        onPress={() =>
-                          setCreating({
-                            server,
-                            name: "",
-                            protocol: server.protocols[0] || "ss2022",
-                            userId: 0,
-                          })
-                        }
+                        onPress={() => setCreating(server)}
                       >
                         创建节点
                       </Button>
@@ -614,123 +597,18 @@ export default function LandingPage() {
             onSaved={() => void load()}
           />
         )}
-        <Modal
-          isOpen={Boolean(creating)}
-          scrollBehavior="inside"
-          onClose={() => setCreating(null)}
-        >
-          <ModalContent className="flvx-landing-text">
-            <ModalHeader>创建落地节点</ModalHeader>
-            <ModalBody className="space-y-4">
-              {creating && (
-                <>
-                  <p className="text-sm text-default-500">
-                    {creating.server.name} ·{" "}
-                    {creating.server.flowType === 2 ? "双向" : "单向"}{" "}
-                    {creating.server.trafficRatio}×
-                  </p>
-                  <Input
-                    label="节点名称"
-                    placeholder="例如：我的日本节点"
-                    value={creating.name}
-                    variant="bordered"
-                    onChange={(event) =>
-                      setCreating({ ...creating, name: event.target.value })
-                    }
-                  />
-                  {admin && (
-                    <Select
-                      description="默认归自己；为其他用户创建时，按该用户的服务器授权和节点上限检查"
-                      label="所属用户"
-                      selectedKeys={[String(creating.userId)]}
-                      variant="bordered"
-                      onSelectionChange={(keys) =>
-                        setCreating({
-                          ...creating,
-                          userId: Number(Array.from(keys)[0] || 0),
-                        })
-                      }
-                    >
-                      {[
-                        <SelectItem key="0">自己（管理员）</SelectItem>,
-                        ...(ownerOptions || []).map((user) => (
-                          <SelectItem key={String(user.id)}>
-                            {user.name
-                              ? `${user.user}（${user.name}）`
-                              : user.user}
-                          </SelectItem>
-                        )),
-                      ]}
-                    </Select>
-                  )}
-                  <Select
-                    label="协议模板"
-                    selectedKeys={[creating.protocol]}
-                    variant="bordered"
-                    onSelectionChange={(keys) =>
-                      setCreating({
-                        ...creating,
-                        protocol: String(
-                          Array.from(keys)[0],
-                        ) as LandingProtocol,
-                      })
-                    }
-                  >
-                    {creating.server.protocols.map((protocol) => (
-                      <SelectItem key={protocol}>
-                        {landingProtocolLabel(protocol)}
-                      </SelectItem>
-                    ))}
-                  </Select>
-                  <p className="text-xs text-default-500">
-                    端口自动分配
-                    {creating.server.source === "shared"
-                      ? `（${creating.server.portMin}–${creating.server.portMax}）`
-                      : ""}
-                    。连接数、流量上限、倍率和有效期由管理员设置。
-                  </p>
-                </>
-              )}
-            </ModalBody>
-            <ModalFooter>
-              <Button
-                color="danger"
-                variant="flat"
-                onPress={() => setCreating(null)}
-              >
-                取消
-              </Button>
-              <Button
-                color="primary"
-                isDisabled={!creating?.name.trim()}
-                isLoading={saving}
-                onPress={async () => {
-                  if (!creating) return;
-                  setSaving(true);
-                  const res = await createLandingNode({
-                    landingServerId: creating.server.id,
-                    name: creating.name,
-                    protocol: creating.protocol,
-                    ...(admin && creating.userId > 0
-                      ? { userId: creating.userId }
-                      : {}),
-                  });
-                  setSaving(false);
-                  if (res.code !== 0) {
-                    toast.error(res.msg);
-                    return;
-                  }
-                  setCreating(null);
-                  setTab("nodes");
-                  toast.success("节点已创建");
-                  void load();
-                }}
-              >
-                创建节点
-              </Button>
-            </ModalFooter>
-          </ModalContent>
-        </Modal>
+        {creating && (
+          <CreateLandingNodeDialog
+            initialServer={creating}
+            servers={servers}
+            onClose={() => setCreating(null)}
+            onCreated={async () => {
+              setTab("nodes");
+              toast.success("节点已创建");
+              await load();
+            }}
+          />
+        )}
         <Modal
           isOpen={Boolean(linksFor)}
           scrollBehavior="inside"
@@ -813,6 +691,7 @@ export default function LandingPage() {
               <p>
                 删除「{deleting?.name}」将停用入站并释放端口，原链接无法再使用。
               </p>
+              {deleteError && <p className="mt-3 text-danger">{deleteError}</p>}
             </ModalBody>
             <ModalFooter>
               <Button
@@ -828,9 +707,11 @@ export default function LandingPage() {
                 onPress={async () => {
                   if (!deleting) return;
                   setSaving(true);
+                  setDeleteError("");
                   const res = await deleteLandingNode(deleting.id);
                   setSaving(false);
                   if (res.code !== 0) {
+                    setDeleteError(res.msg);
                     toast.error(res.msg);
                     return;
                   }
