@@ -1,5 +1,5 @@
-"""Local-lab scenarios: plan 110 acceptance matrix S1-S8 plus plan 107
-outbound/routing E1-E3 and a resource probe R1 (see README.md)."""
+"""Local-lab scenarios: plan 110 acceptance matrix S1-S8, plan 107
+outbound/routing E1-E3, plan 113 rule targets T1 and resource probe R1."""
 import json
 import pathlib
 import socket
@@ -597,6 +597,54 @@ def e3_shared(ctx):
     sync(ctx)
 
 
+def t1_rule_targets(ctx):
+    r, api = ctx.report, ctx.api
+    who = make_user(ctx, "acc_target")
+    landing_user(ctx, who.uid, 2, [ctx.native])
+    node = create_node(ctx, who, ctx.native, "ss2022", "target-existing")
+    api.call("tunnel/create", {"name": "acc-target-forward", "type": 1, "flow": 2, "trafficRatio": 1, "status": 1, "inIp": labmod.NODE_IP, "inNodeId": [{"nodeId": ctx.node_id, "protocol": "tls", "strategy": "round"}]})
+    c = db(ctx)
+    try:
+        tunnel = c.execute("select id from tunnel where name='acc-target-forward'").fetchone()[0]
+    finally:
+        c.close()
+    api.call("tunnel/user/assign", {"userId": who.uid, "tunnelId": tunnel, "flow": 100, "num": 10, "expTime": now_ms() + 30 * DAY_MS, "flowResetTime": 1, "status": 1})
+
+    body = {"name": "target-existing-rule", "tunnelId": tunnel, "landingNodeId": node["id"], "strategy": "fifo"}
+    api.call("forward/create", body, who)
+    fw = api.call("forward/list", {}, who)["items"][0]
+    expect(r, "explicit landingNodeId references the existing node without creating another", fw["landingNodeId"] == node["id"] and [n["id"] for n in api.nodes(who)] == [node["id"]], {"nodeId": node["id"], "forwardId": fw["id"]})
+    cl = client(ctx, links(ctx, node["id"], who)["forward"], 26595)
+    try:
+        res = wait_for("existing-node rule link carries traffic", lambda: coreclient.download(26595, H, HTTP, 1 << 20), timeout=30)
+        expect(r, "existing-node rule entry link carries 1 MiB byte-exact", res["bytes"] == 1 << 20, res)
+    finally:
+        stop(ctx, cl)
+    api.call("forward/update", dict(body, id=fw["id"], name="target-existing-edited"), who)
+    expect(r, "editing an existing-node rule does not create a node", [n["id"] for n in api.nodes(who)] == [node["id"]], None)
+
+    legacy = {"tunnelId": tunnel, "landingServerId": ctx.native, "landingProtocol": "vless_reality_vision", "strategy": "fifo"}
+    api.call("forward/create", dict(legacy, name="target-legacy-one"), who)
+    after_first = api.nodes(who)
+    reality = next(n for n in after_first if n["protocol"] == "vless_reality_vision")
+    expect(r, "legacy landingServerId creates one node when the requested protocol is absent", len(after_first) == 2 and reality["userId"] == who.uid, {"nodeIds": [n["id"] for n in after_first], "createdId": reality["id"]})
+    api.call("forward/create", dict(legacy, name="target-legacy-two"), who)
+    rows = api.call("forward/list", {}, who)["items"]
+    legacy_rows = [f for f in rows if f["name"].startswith("target-legacy-")]
+    expect(r, "two legacy rules on one server reuse one node even at the user's node cap", len(legacy_rows) == 2 and all(f["landingNodeId"] == reality["id"] for f in legacy_rows) and len(api.nodes(who)) == 2, [{"id": f["id"], "landingNodeId": f["landingNodeId"]} for f in legacy_rows])
+    api.call("forward/update", dict(legacy, id=legacy_rows[0]["id"], name=legacy_rows[0]["name"]), who)
+    expect(r, "legacy rule edit reuses its node without increasing the node count", len(api.nodes(who)) == 2, None)
+    for viewer, title in ((who, "user"), (ADMIN, "admin")):
+        counts = {n["id"]: n.get("forwardCount") for n in api.nodes(viewer) if n["userId"] == who.uid}
+        expect(r, f"{title} node list counts one explicit rule and two legacy rules", counts == {node["id"]: 1, reality["id"]: 2}, counts)
+    msg = api.expect_error("landing/node/delete", {"id": reality["id"]}, who)
+    expect(r, "referenced-node delete refusal names both rules", all(f["name"] in msg for f in legacy_rows), msg)
+    for f in rows:
+        api.call("forward/delete", {"id": f["id"]}, who)
+    remaining = api.nodes(who)
+    expect(r, "deleting all rules keeps both normal nodes with zero references", len(remaining) == 2 and all(n.get("forwardCount") == 0 for n in remaining), [{"id": n["id"], "forwardCount": n.get("forwardCount")} for n in remaining])
+
+
 def r1_resources(ctx):
     r = ctx.report
     pids = ctx.lab.core_pids()
@@ -624,6 +672,7 @@ SCENARIOS = [
     ("E1", "egress default = today's payload; unsupported share", e1_default),
     ("E2", "egress on native: block rule, node override, force IPv4/IPv6, hot", e2_native),
     ("E3", "egress on shared: capability, plan in desired, geo refusal, policy off", e3_shared),
+    ("T1", "rule targets: explicit node, legacy reuse-or-create, reference counts + deletion", t1_rule_targets),
     ("R1", "resource snapshot", r1_resources),
 ]
 
