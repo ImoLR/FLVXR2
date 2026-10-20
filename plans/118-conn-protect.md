@@ -54,12 +54,12 @@ Blocking hysteresis: start dropping NEW connections when total ≥ cap, release 
 - [x] 10. Panel: node columns + migration defaults (SQLite + PostgreSQL), create/update validation, push on connect + on change (capable agents only); tests
 - [x] 11. Panel: report parsing, in-memory latest per node (bounded, TTL), role-aware WS broadcast (admins only get the new fields), node list (admin) + monitor nodes (visible nodes, chip fields only) APIs; tests admin vs user
 - [x] 12. Panel: shared landing `machine` passthrough from Custom status → memory → 落地 monitor server view; tests
-- [ ] 13. UI: node dialog 「连接保护」 section (FLVX-owned / mmwx-owned / old Helper / old agent)
-- [ ] 14. UI: chip 「整机连接 N/上限」 (yellow ≥ 80 %, red + 保护中, `-` unknown) + breakdown popover on node page (list + cards) and 监控 node view
-- [ ] 15. UI: 监控 →「落地」 shared server card chip from the mmwx `machine` object
-- [ ] 16. Gates: go vet, go-backend tests vs baseline, go-gost/x tests, tsc, eslint on changed files, `npm run build` (< 5 MiB)
-- [ ] 17. Resource numbers: agent CPU/RSS at ~1500 sockets, nft cost, report payload growth, panel memory for 200 nodes
-- [ ] 18. Screenshots (desktop + H5, light + dark) + index page in the run dir
+- [x] 13. UI: node dialog 「连接保护」 section (FLVX-owned / mmwx-owned / old Helper / old agent)
+- [x] 14. UI: chip 「整机连接 N/上限」 (yellow ≥ 80 %, red + 保护中, `-` unknown) + breakdown popover on node page (list + cards) and 监控 node view
+- [x] 15. UI: 监控 →「落地」 shared server card chip from the mmwx `machine` object
+- [x] 16. Gates: go vet, go-backend tests vs baseline, go-gost/x tests, tsc, eslint on changed files, `npm run build` (< 5 MiB)
+- [x] 17. Resource numbers: agent CPU/RSS at ~1500 sockets, nft cost, report payload growth, panel memory for 200 nodes
+- [x] 18. Screenshots (desktop + H5, light + dark) + index page in the run dir
 - [ ] 19. Push, CI green, contract doc, summary
 
 ## Out of scope
@@ -87,3 +87,24 @@ tcp_tw_reuse or other sysctls; history of the new numbers; other existing nft ta
   validation, push on connect / change / reconnect, admin vs monitor-user visibility, SQLite + PostgreSQL migration
   defaults (temporary postgres:18 container, removed); shared `machine` passthrough (canonical + alias, malformed and
   absent = unknown, stale after 3 min). Landing tests also passed on PostgreSQL. Memory: 200 node samples = 23 KB heap.
+- Agent fix found by the netns throughput check (`76094336`): with conntrack not yet enabled in a namespace, `ct state
+  new … drop` dropped every packet of an EXISTING flow (late pickup = NEW). Now TCP is blocked on the opening SYN only,
+  the idle table keeps a non-hooked chain with one ct expression (conntrack stays on, no hook) and a fresh table blocks
+  only after 5 s (time based). netns: idle untracked TCP + active UDP flows survive the start of blocking, new TCP/UDP
+  are dropped; established-flow throughput no table / idle table / blocking ≈ the same (48–64 Gbit/s over veth).
+- Defaults changed to 1000 / 500 / 10 s (`18fb86da`, user decision after the brief); SQLite + PostgreSQL migration
+  tests re-run with the new column default (temporary postgres:18 container, removed).
+- UI (`01ccd9be`, `966221b3`, `f532dc75`): add-only — node cards get a new 「整机连接」 row, node list a chip line below
+  the region, 监控 cards a chip line below 在线/离线, 监控 list a chip under the name (no column widened: 存储 still fits
+  at 1440 px), 落地 shared card a chip; node dialog 「连接保护」 section. `tsc` clean; eslint on every changed file =
+  the base counts (0 new errors/warnings); `npm run build` index 2,886,486 B (fork.62: 2,874,428 B, +12 KB; PWA limit
+  5 MiB).
+- Resources (`logs/agent-netns-e2e-evidence.txt`): at ~1500 sockets one count = 1.5–1.9 ms; a whole 5 s sample
+  (count + ownership + ports file + nft ensure + counter read) = 3.2–4.5 ms CPU = 0.06–0.09 % of one core; RSS flat;
+  report fields 252 B JSON per 5 s (≈ 50 B/s per node before AES/base64), sent only when a new sample exists; idle nft
+  table has no hooked chain; panel store for 200 nodes = 23 KB heap; no new agent→panel connection.
+- Final gates: go-backend `go test ./...` = the same 15 baseline failure names, 0 new (`logs/final-go-backend.fails`);
+  `go vet` same as base; go-gost/x `go test ./...` pass; netns E2E / restart / untracked flows / per-packet / resources
+  pass; real pinned Core CLOSE_WAIT test pass (`logs/real-core-close-wait.txt`).
+- Screenshots: 43 PNG + `index.html` in the run dir `screens/` (desktop + H5, light + dark, before/after pairs on the
+  same data), 0 page/console errors; local demo panel + fake agents speaking the real WS protocol + fake Custom.
