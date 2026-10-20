@@ -54,7 +54,7 @@
 - [x] 读记忆/任务书/AGENTS.md，核对 worktree（`feature/3.0.27-line-chain` @ `99cac160`）与 plan 编号 108。
 - [x] 基线：未修改代码的后端全量测试失败集合（完整仓库副本，串行）。
 - [x] 节点程序：listen/chain 字段、出站类型扩展、链式路由规则与热更新、回环不绑网卡、能力上报、安装前资源检查。
-- [ ] 节点程序测试：黄金 JSON、真实 Core 配置校验（每种出站）、热增删不重启、回环拨号。
+- [x] 节点程序测试：黄金 JSON、真实 Core 配置校验（每种出站）、热增删不重启、回环拨号。
 - [x] 后端模型与迁移、仓储方法（端口互斥、副本、链式行、孤儿检测）。
 - [x] 后端链接解析与地址校验（独立包，单元测试覆盖每种协议与畸形输入）。
 - [x] 后端线路机强制（所有建/改规则路径）+ 不合规标记 + 节点开关 API + 联邦共享保护。
@@ -78,3 +78,5 @@
 - 截图旧报错已定位到采集脚本：`modeTo()` 的 `.first()` 误点导航「分组」，模拟 `/group/user/list` 缺少 `userNames`，在旧分组页报错；改为规则页按钮 `.last()`，补齐模拟响应，产品代码无需为此修改。r3 记录所有 console error/pageerror，不过滤网络报错。
 
 - r3 后端全量：`GOMAXPROCS=2 go test -p 1 ./...`，失败名称（含子测试）仍是基线的 15 个，无新增、无缺项；对照 `r3/logs/backend-baseline-comparison.json`。新增并通过：`TestChainRapidConcurrentSubmit`（16 个同时提交只建 1 条规则/2 份副本）、`TestChainOfflineExitDeleteConverges`（离线副本在恢复在线的全量下发后归零）、`TestChainUserPolicyPausesWithoutDeleting`（到期/停用暂停，恢复链接不变，最终删除清空）。
+- r3 节点程序：`FLVX_LANDING_TEST_BINARY=... FLVX_LANDING_GEODIR=... GOMAXPROCS=2 go test -p 1 -v ./landing ./internal/net/dialer` 通过（`logs/agent-core-tests.log`），覆盖黄金 JSON、每类出站/面板解析结果的真实 Core 校验、Core PID 不变的热增删、回环目标忽略出口网卡。首次命令误用了空包 `./dialer` 且漏传 geo 数据目录，属于测试环境错误，修正后通过。
+- r3 数据库：本机一次性 PostgreSQL 18 容器（仅 127.0.0.1:26592、192 MiB 上限、tmpfs 数据、测试后已移除），`TestForwardChainLifecycleBothDialects` 的 SQLite/PostgreSQL 两项通过（`logs/postgres-chain.log`）；没有连接生产数据库。
