@@ -80,36 +80,62 @@ func (r *Repository) forwardEntries(f model.Forward, allAddresses ...bool) ([]fo
 	}
 	var t model.Tunnel
 	_ = r.db.First(&t, f.TunnelID).Error
+	expand := len(allAddresses) > 0 && allAddresses[0]
+	entries := map[int64]model.Node{}
+	addressOwners := map[string]map[int64]bool{}
+	if expand && len(ports) > 0 {
+		ids := make([]int64, 0, len(ports))
+		for _, fp := range ports {
+			ids = append(ids, fp.NodeID)
+		}
+		var nodes []model.Node
+		if err := r.db.Where("id IN ? OR id IN (SELECT node_id FROM chain_tunnel WHERE tunnel_id = ? AND chain_type = ?)", ids, f.TunnelID, "1").Find(&nodes).Error; err != nil {
+			return nil, err
+		}
+		for _, node := range nodes {
+			entries[node.ID] = node
+			addresses := nodeIngressAddresses(&node)
+			for _, address := range append(addresses[:], landingEntryHosts(node.ExtraIPs.String)...) {
+				host := normalizeLandingHost(address)
+				if host == "" {
+					continue
+				}
+				if addressOwners[host] == nil {
+					addressOwners[host] = map[int64]bool{}
+				}
+				addressOwners[host][node.ID] = true
+			}
+		}
+	}
 	out := []forwardEntry{}
 	for _, fp := range ports {
 		var entry model.Node
-		if err := r.db.First(&entry, fp.NodeID).Error; err != nil {
-			continue
+		if expand {
+			var ok bool
+			if entry, ok = entries[fp.NodeID]; !ok {
+				continue
+			}
+		} else {
+			if err := r.db.First(&entry, fp.NodeID).Error; err != nil {
+				continue
+			}
 		}
 		// Ordinary landing links expose every entry IP. Keep the plan 108
 		// chain path's existing address selection unless explicitly requested.
-		if len(allAddresses) > 0 && allAddresses[0] {
+		if expand {
 			hosts := landingEntryHosts(entry.ServerIP)
 			if t.InIP.Valid && strings.TrimSpace(t.InIP.String) != "" {
 				hosts = landingEntryHosts(t.InIP.String)
-				// Tunnel addresses may combine several entry nodes. Prefer
-				// this port's own addresses when that mapping is available.
-				own := map[string]bool{}
-				for _, address := range nodeIngressAddresses(&entry) {
-					own[normalizeLandingHost(address)] = true
-				}
-				for _, address := range landingEntryHosts(entry.ExtraIPs.String) {
-					own[normalizeLandingHost(address)] = true
-				}
+				// Exclude addresses known to belong to another entry, but
+				// retain custom IPs/domains whose ownership is not recorded.
 				matched := []string{}
 				for _, host := range hosts {
-					if own[normalizeLandingHost(host)] {
+					owners := addressOwners[normalizeLandingHost(host)]
+					if len(owners) == 0 || owners[entry.ID] {
 						matched = append(matched, host)
 					}
 				}
-				if len(matched) > 0 {
-					hosts = matched
-				}
+				hosts = matched
 			}
 			if fp.InIP.Valid && strings.TrimSpace(fp.InIP.String) != "" {
 				hosts = landingEntryHosts(fp.InIP.String)
