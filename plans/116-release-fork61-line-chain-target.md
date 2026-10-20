@@ -9,11 +9,11 @@
 
 - [x] 阅读发布流程、两份功能总结，确认工作树、分支与授权。
 - [x] 合入 33 个提交，解决冲突；113 文档改名为 115，仅更新标题和自引用；推送发布分支。
-- [ ] 在干净 fork.60 临时工作树取得后端完整测试基线。
+- [x] 在干净 fork.60 临时工作树取得后端完整测试基线。
 - [ ] 发布代码后端全量测试无新增失败；agent landing/chain 测试及改动包 vet 通过。
 - [x] 前端 tsc、改动文件 ESLint 无新增错误、构建通过。
 - [ ] 本机落地验收通过（含 T1/R1、在线 IP），链式验收通过（含 C6/C8）。
-- [ ] 重拍并检查 3–4 张关键页面，记录节点列表查询次数。
+- [x] 重拍并检查 3–4 张关键页面，记录节点列表查询次数。
 - [ ] Tag fork.61；CI / Images 通过；Latest 与 fork.60 相同资产集合核验。
 - [ ] 生产升级前记录配置表计数/哈希、在线节点、RSS；验证数据库备份与回滚脚本，执行两份备份保留规则。
 - [ ] 升级生产面板；验证迁移、节点上报、node 21 在线 IP、日志及资源。
@@ -29,3 +29,5 @@
 - 2026-10-20：33 个提交按序 cherry-pick，无 merge commit；处理器冲突保留 landingRates 与 landingTargetLocks。另保留 fork.60 发布后验收脚本修复 99a2ab6d（新样本与计费稳定等待），合并其连接上限恢复逻辑。113 改为 115。发布分支已 push -u origin；所有新提交尾部保留 Codex trailer。
 
 - 前端：fork.60 / 发布代码 tsc 均通过，build 通过；改动文件 ESLint errors 25→25（新增0），warnings 666→707。4 张重拍 screenshots 已逐张检查，18 项交互通过，页面错误0；在线 IP 明细只在点击/手动刷新时请求。后端与 agent 所有改动包 go vet 通过。证据：frontend/report.md、screens/、vet-results.json。
+
+- 干净 fork.60 后端基线完成：10 个顶层失败、含子测试共 15 名称（baseline-failures.json）。节点列表查询实测：1/6 个节点均 native 7 次、shared 8 次，管理员/用户一致。agent landing/dialer/socket 全部通过，含真实固定 Core 的配置和热更新；首次测试因 TMPDIR 过长 Unix socket 与缺 Geo 数据失败，改用 /root/f61tmp 和已有固定 Geo 后完整重跑通过，未修改产品代码。
