@@ -263,3 +263,48 @@ func TestPartialEntryPermissionShowsPicksOfAllowedNode(t *testing.T) {
 		t.Fatalf("restricted fallback = %q", got)
 	}
 }
+
+func TestTunnelCreateAndUpdateKeepPickedEntryIPs(t *testing.T) {
+	e := newFlowTestEnv(t)
+	commands := &redeployCommandLog{}
+	e.h.nodeCommandSender = commands.send
+	e.addNode(11, "entry")
+	e.exec(`UPDATE node SET name='two-v6', server_ip='2001:db8::1', server_ip_v6='2001:db8::1', extra_ips='["2001:db8::2","2001:db8::3"]' WHERE id=11`)
+	entries := []map[string]interface{}{{"nodeId": 11, "chainType": 1}}
+	code, msg, _ := adminPost(t, e.h.tunnelCreate, map[string]interface{}{
+		"name": "picked", "type": 1, "flow": 1, "status": 1, "inNodeId": entries, "inIp": "2001:db8::2",
+	})
+	if code != 0 {
+		t.Fatalf("create: %d %s", code, msg)
+	}
+	var tunnel struct {
+		ID   int64
+		InIP string
+	}
+	e.r.DB().Raw(`SELECT id, in_ip FROM tunnel WHERE name = 'picked'`).Scan(&tunnel)
+	if tunnel.InIP != "2001:db8::2" {
+		t.Fatalf("created in_ip = %q", tunnel.InIP)
+	}
+	// The UI joins ticked addresses with commas; an unchanged entry set keeps them as sent.
+	code, msg, _ = adminPost(t, e.h.tunnelUpdate, map[string]interface{}{
+		"id": tunnel.ID, "name": "picked", "type": 1, "flow": 1, "status": 1, "inNodeId": entries, "inIp": "2001:db8::2,2001:db8::3",
+	})
+	if code != 0 {
+		t.Fatalf("update: %d %s", code, msg)
+	}
+	e.r.DB().Raw(`SELECT in_ip FROM tunnel WHERE id = ?`, tunnel.ID).Scan(&tunnel.InIP)
+	if tunnel.InIP != "2001:db8::2,2001:db8::3" {
+		t.Fatalf("updated in_ip = %q", tunnel.InIP)
+	}
+	// Nothing ticked: the backend auto list (primary IPs) as before.
+	code, msg, _ = adminPost(t, e.h.tunnelUpdate, map[string]interface{}{
+		"id": tunnel.ID, "name": "picked", "type": 1, "flow": 1, "status": 1, "inNodeId": entries, "inIp": "",
+	})
+	if code != 0 {
+		t.Fatalf("clear: %d %s", code, msg)
+	}
+	e.r.DB().Raw(`SELECT in_ip FROM tunnel WHERE id = ?`, tunnel.ID).Scan(&tunnel.InIP)
+	if tunnel.InIP != "2001:db8::1" {
+		t.Fatalf("auto in_ip = %q", tunnel.InIP)
+	}
+}
