@@ -64,3 +64,37 @@ the screenshots (memory `ui-add-only-preview-first`).
   prod size (5 servers, a handful of nodes); worth a look before landings grow large.
 - Plan 107 / 108 branches need these three commits (expect small conflicts in `landing.go` route map,
   `handler.go` struct fields, `flow_ingest.go`, `landing_runtime.go`, `api/landing.ts`).
+
+## Round 2 (2026-10-20): server ↔ node hierarchy in the 「落地」 tab (design round, no release)
+User feedback on H5: a landing server card and the node cards under it look identical (same width, same white
+card, same 上传/下载 tiles), so there is no hierarchy. Root cause in r1: the server block and every node card are
+both glass cards — the global `[data-slot="card"]` / `.rounded-xl.border` / `.rounded-lg.border` overrides in
+`globals.css` paint any of them as the same white glass card with shadow and 18–28px radius.
+Frontend-only (`vite-frontend/src/pages/landing/monitor-view.tsx`); same data, same single 5 s poll.
+
+- [x] Server = container with a tinted header band (自有 = cyan like the 「落地」 tab button, 妙妙屋共享 = purple),
+      bigger/bolder name with the full row width, type/status/节点 x/y chips on the chip row
+- [x] Nodes = compact child rows inset under the server with a left rail + connector ticks in the server accent,
+      flat background (no glass card), about half the r1 H5 height; 「落地节点（N）」 label between header and nodes
+- [x] List mode: desktop table inside the same inset rail; H5 gets compact rows instead of the clipped wide table
+- [x] Build + lint
+- [x] Demo (lmdemo + gallery) → screenshots incl. before/after H5 grid → `/root/flvx-workers/runs/landing-monitor-r2/screens/`
+- [x] Request rate unchanged vs r1 (measured)
+- [ ] Commit, push, CI green
+
+### Round 2 results
+- Server header: cyan band (自有落地) / purple band (妙妙屋共享), 18px (H5) / 20px (desktop) bold name with the
+  full row width (`word-break: keep-all` so 「自有落地」 never splits), chips 自有落地/共享 · 在线 · 节点 x/y below.
+- Nodes: rail under the server icon + connector ticks (H5), 「落地节点（N）」 label, flat tiles
+  (`rounded-[14px] border`, no Card, so the glass override does not apply). H5 node tile ≈ 143 px tall vs ≈ 292 px in
+  r1. Desktop grid fills the width (`minmax(300px,1fr)`); desktop list = same table inside a flat inset panel;
+  H5 list = dense rows (r1's wide table had to scroll sideways at 390 px).
+- Text stays ≥ 16px (plan 106 `flvx-landing-text` scope kept); hierarchy comes from the band, name size, inset and rail.
+- Lint: `monitor-view.tsx` 0 errors / 0 warnings (base 0 / 0). Full `eslint .` = 96 errors, all in other files
+  that are byte-identical to HEAD (pre-existing). Note: `npm run lint` is `eslint --fix` and rewrote 41 unrelated
+  files; those were restored with `git checkout --`, nothing else committed.
+- Requests: r1 and r2 builds side by side, 31 s on the tab: 6 × `landing/monitor` each (one per 5 s), identical
+  totals for the whole page (21). No new polling or endpoints.
+- Screenshots (26 + index.html, 0 page errors): `/root/flvx-workers/runs/landing-monitor-r2/screens/`, incl.
+  before (r1 build) / after (r2 build) on the same live demo data for H5 card, H5 list and desktop card.
+
