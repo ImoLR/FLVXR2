@@ -62,11 +62,17 @@ type Reality struct {
 	ShortIDs    []string `json:"short_ids"`
 }
 type Counter struct {
-	ID          int64  `json:"id"`
-	InboundTag  string `json:"inbound_tag"`
-	Epoch       string `json:"epoch"`
-	UpBytes     int64  `json:"up_bytes"`
-	DownBytes   int64  `json:"down_bytes"`
+	ID            int64      `json:"id"`
+	InboundTag    string     `json:"inbound_tag"`
+	Epoch         string     `json:"epoch"`
+	UpBytes       int64      `json:"up_bytes"`
+	DownBytes     int64      `json:"down_bytes"`
+	Connections   int64      `json:"connections"`
+	OnlineIPCount *int       `json:"online_ip_count,omitempty"`
+	OnlineIPs     []OnlineIP `json:"online_ips,omitempty"`
+}
+type OnlineIP struct {
+	IP          string `json:"ip"`
 	Connections int64  `json:"connections"`
 }
 type Status struct {

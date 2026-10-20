@@ -21,14 +21,17 @@ type coreSnapshot struct {
 	Version   int       `json:"version"`
 	StartedAt time.Time `json:"started_at"`
 	Inbounds  []struct {
-		InboundTag string `json:"inbound_tag"`
+		InboundTag    string     `json:"inbound_tag"`
+		OnlineIPCount *int       `json:"online_ip_count"`
+		OnlineIPs     []OnlineIP `json:"online_ips"`
 	} `json:"inbounds"`
 	Users []struct {
 		Identity struct {
 			InboundTag string `json:"inbound_tag"`
 			User       string `json:"user"`
 		} `json:"identity"`
-		CurrentTotal int64 `json:"current_total"`
+		CurrentTotal     int64           `json:"current_total"`
+		InboundOnlineIPs json.RawMessage `json:"inbound_online_ips"`
 	} `json:"proxy_users"`
 }
 
@@ -352,9 +355,64 @@ func (m *Manager) collect(ctx context.Context) error {
 			c.DownBytes = v
 		}
 	}
+	for _, in := range snapshot.Inbounds {
+		if c := byTag[in.InboundTag]; c != nil && in.OnlineIPCount != nil {
+			c.OnlineIPCount = in.OnlineIPCount
+			c.OnlineIPs = in.OnlineIPs
+		}
+	}
+	// The pinned Core exposes per-user IPs; newer snapshots can provide the
+	// inbound aggregate directly. A present null list means no online IPs,
+	// while an omitted field means this Core cannot report them.
+	userIPs := map[string]map[string]int64{}
+	unknownIPs := map[string]bool{}
 	for _, u := range snapshot.Users {
-		if c := byTag[u.Identity.InboundTag]; c != nil {
-			c.Connections += u.CurrentTotal
+		tag := u.Identity.InboundTag
+		c := byTag[tag]
+		if c == nil {
+			continue
+		}
+		c.Connections += u.CurrentTotal
+		if c.OnlineIPCount != nil {
+			continue
+		}
+		if len(u.InboundOnlineIPs) == 0 {
+			unknownIPs[tag] = true
+			continue
+		}
+		var ips []OnlineIP
+		if err := json.Unmarshal(u.InboundOnlineIPs, &ips); err != nil {
+			return fmt.Errorf("invalid landing online IP response")
+		}
+		if userIPs[tag] == nil {
+			userIPs[tag] = map[string]int64{}
+		}
+		for _, ip := range ips {
+			userIPs[tag][ip.IP] += ip.Connections
+		}
+	}
+	for tag, c := range byTag {
+		if ips, ok := userIPs[tag]; c.OnlineIPCount == nil && ok && !unknownIPs[tag] {
+			count := len(ips)
+			c.OnlineIPCount = &count
+			for ip, connections := range ips {
+				c.OnlineIPs = append(c.OnlineIPs, OnlineIP{IP: ip, Connections: connections})
+			}
+		}
+		sort.Slice(c.OnlineIPs, func(i, j int) bool {
+			if c.OnlineIPs[i].Connections != c.OnlineIPs[j].Connections {
+				return c.OnlineIPs[i].Connections > c.OnlineIPs[j].Connections
+			}
+			return c.OnlineIPs[i].IP < c.OnlineIPs[j].IP
+		})
+		if cap(c.OnlineIPs) > 64 {
+			size := len(c.OnlineIPs)
+			if size > 64 {
+				size = 64
+			}
+			ips := make([]OnlineIP, size)
+			copy(ips, c.OnlineIPs)
+			c.OnlineIPs = ips
 		}
 	}
 	// Removed/paused inbounds may have disappeared from StatsService. Retain the
