@@ -5,6 +5,7 @@ package machineprotect
 import (
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/google/nftables"
 	"github.com/google/nftables/binaryutil"
@@ -16,18 +17,28 @@ import (
 // flvx_quota), which a WebSocket reconnect rebuilds; nothing else touches it, and
 // `nft delete table inet flvx_machine_protection` removes every trace.
 const (
-	TableName   = "flvx_machine_protection"
-	chainName   = "prerouting"
-	tcpSetName  = "tcp_ports"
-	udpSetName  = "udp_ports"
-	counterName = "dropped"
+	TableName     = "flvx_machine_protection"
+	chainName     = "prerouting"
+	conntrackName = "conntrack"
+	tcpSetName    = "tcp_ports"
+	udpSetName    = "udp_ports"
+	counterName   = "dropped"
 	// After conntrack (-200) so ct state is known, before DNAT (-100) so nft
-	// DNAT forwards are seen with their public port.
+	// DNAT forwards are seen with their public port. nft prints it as "mangle".
 	chainPriority = -150
+
+	tcpFlagsMask = 0x17 // FIN|SYN|RST|ACK
+	tcpFlagSYN   = 0x02
+
+	// A freshly built table blocks only after this long: conntrack (enabled by
+	// the table's ct expression) first learns the flows that already exist.
+	conntrackWarmUp = SampleInterval
 )
 
-// nftGuard owns the protection table. While not blocking the table holds only the
-// two port sets and the counter: no hook, no per-packet work. Blocking adds one
+// nftGuard owns the protection table. While not blocking the table holds the
+// two port sets, the counter and a non-hooked chain whose single ct expression
+// keeps conntrack enabled in this network namespace (so flows are already
+// tracked when blocking starts): no hook, no per-packet work. Blocking adds one
 // prerouting base chain; every change is one atomic netlink transaction.
 type nftGuard struct {
 	table    *nftables.Table
@@ -40,6 +51,8 @@ type nftGuard struct {
 	noFib    bool
 	base     int64 // dropped packets of earlier incarnations of the table
 	last     int64 // last counter value of the current table
+	// warmUntil: no blocking before this time (see conntrackWarmUp).
+	warmUntil time.Time
 }
 
 func newGuard() guard { return &nftGuard{} }
@@ -79,23 +92,28 @@ func ifname(name string) []byte {
 	return b
 }
 
-// rules returns the blocking chain's rules:
-//
-//	ct state & new == 0 return             (established/related/untracked: 1 rule)
-//	iifname "lo" return
-//	meta l4proto tcp th dport @tcp_ports fib daddr type local counter name dropped drop
-//	meta l4proto udp th dport @udp_ports fib daddr type local counter name dropped drop
-//
-// fib daddr type local limits the drop to traffic for this host (gost listeners,
-// nft DNAT forwards); routed traffic through the node is never touched.
-func (g *nftGuard) rules(chain *nftables.Chain) []*nftables.Rule {
+func ctStateNew(op expr.CmpOp) []expr.Any {
 	zero := binaryutil.NativeEndian.PutUint32(0)
-	notNew := &nftables.Rule{Table: g.table, Chain: chain, Exprs: []expr.Any{
+	return []expr.Any{
 		&expr.Ct{Register: 1, Key: expr.CtKeySTATE},
 		&expr.Bitwise{SourceRegister: 1, DestRegister: 1, Len: 4, Mask: binaryutil.NativeEndian.PutUint32(expr.CtStateBitNEW), Xor: zero},
-		&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: zero},
-		&expr.Verdict{Kind: expr.VerdictReturn},
-	}}
+		&expr.Cmp{Op: op, Register: 1, Data: zero},
+	}
+}
+
+// rules returns the blocking chain's rules:
+//
+//	ct state ! new return               (established/related/untracked: 1 rule)
+//	iifname "lo" return
+//	tcp flags & (fin|syn|rst|ack) == syn tcp dport @tcp_ports fib daddr type local counter name "dropped" drop
+//	udp dport @udp_ports fib daddr type local counter name "dropped" drop
+//
+// TCP is matched on the opening SYN, so a mid-stream packet of a connection that
+// conntrack picked up late can never be taken for a new connection. fib daddr
+// type local limits the drop to traffic for this host (gost listeners, nft DNAT
+// forwards); routed traffic through the node is never touched.
+func (g *nftGuard) rules(chain *nftables.Chain, noFib bool) []*nftables.Rule {
+	notNew := &nftables.Rule{Table: g.table, Chain: chain, Exprs: append(ctStateNew(expr.CmpOpEq), &expr.Verdict{Kind: expr.VerdictReturn})}
 	loopback := &nftables.Rule{Table: g.table, Chain: chain, Exprs: []expr.Any{
 		&expr.Meta{Key: expr.MetaKeyIIFNAME, Register: 1},
 		&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: ifname("lo")},
@@ -105,10 +123,19 @@ func (g *nftGuard) rules(chain *nftables.Chain) []*nftables.Rule {
 		exprs := []expr.Any{
 			&expr.Meta{Key: expr.MetaKeyL4PROTO, Register: 1},
 			&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: []byte{proto}},
+		}
+		if proto == unix.IPPROTO_TCP {
+			exprs = append(exprs,
+				&expr.Payload{OperationType: expr.PayloadLoad, DestRegister: 1, Base: expr.PayloadBaseTransportHeader, Offset: 13, Len: 1},
+				&expr.Bitwise{SourceRegister: 1, DestRegister: 1, Len: 1, Mask: []byte{tcpFlagsMask}, Xor: []byte{0}},
+				&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: []byte{tcpFlagSYN}},
+			)
+		}
+		exprs = append(exprs,
 			&expr.Payload{OperationType: expr.PayloadLoad, DestRegister: 1, Base: expr.PayloadBaseTransportHeader, Offset: 2, Len: 2},
 			&expr.Lookup{SourceRegister: 1, SetName: set.Name, SetID: set.ID},
-		}
-		if !g.noFib {
+		)
+		if !noFib {
 			exprs = append(exprs,
 				&expr.Fib{Register: 1, FlagDADDR: true, ResultADDRTYPE: true},
 				&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: binaryutil.NativeEndian.PutUint32(unix.RTN_LOCAL)},
@@ -129,15 +156,17 @@ func (g *nftGuard) chain() *nftables.Chain {
 		Priority: nftables.ChainPriorityRef(chainPriority), Type: nftables.ChainTypeFilter, Policy: &policy}
 }
 
-func (g *nftGuard) addChain(c *nftables.Conn) {
+func (g *nftGuard) addChain(c *nftables.Conn, noFib bool) {
 	ch := c.AddChain(g.chain())
-	for _, r := range g.rules(ch) {
+	for _, r := range g.rules(ch, noFib) {
 		c.AddRule(r)
 	}
 }
 
-// build creates the whole table in one transaction.
-func (g *nftGuard) build(c *nftables.Conn, ports PortSet, blocking bool) error {
+// build creates the idle table in one transaction. A fresh table never starts
+// blocking at once: conntrack (enabled by the ct expression below) first gets
+// conntrackWarmUp to learn the flows that already exist.
+func (g *nftGuard) build(c *nftables.Conn, ports PortSet) error {
 	g.table = c.AddTable(g.tableRef())
 	g.tcpSet = &nftables.Set{Table: g.table, Name: tcpSetName, KeyType: nftables.TypeInetService}
 	g.udpSet = &nftables.Set{Table: g.table, Name: udpSetName, KeyType: nftables.TypeInetService}
@@ -148,14 +177,17 @@ func (g *nftGuard) build(c *nftables.Conn, ports PortSet, blocking bool) error {
 		return err
 	}
 	c.AddObj(&nftables.NamedObj{Table: g.table, Name: counterName, Type: nftables.ObjTypeCounter, Obj: &expr.Counter{}})
-	if blocking {
-		g.addChain(c)
-	}
+	// A regular (non-hooked) chain: never evaluated, but its ct expression holds
+	// a conntrack reference for the inet family of this namespace.
+	ct := c.AddChain(&nftables.Chain{Name: conntrackName, Table: g.table})
+	c.AddRule(&nftables.Rule{Table: g.table, Chain: ct, Exprs: ctStateNew(expr.CmpOpNeq)})
 	return c.Flush()
 }
 
-// Ensure brings the table to (ports, blocking). Self-heals a table removed
-// behind our back (nft flush ruleset, firewall reload).
+// Ensure brings the table to (ports, blocking). A table that did not exist is
+// built idle and blocks only after conntrackWarmUp (Blocking() reports the real
+// state). Self-heals a table removed behind our back (nft flush ruleset,
+// firewall reload).
 func (g *nftGuard) Ensure(ports PortSet, blocking bool) error {
 	c, err := g.conn()
 	if err != nil {
@@ -180,24 +212,46 @@ func (g *nftGuard) Ensure(ports PortSet, blocking bool) error {
 		if g.present {
 			g.base += g.last
 		}
-		g.present, g.last = false, 0
-		err := g.build(c, ports, blocking)
-		if err != nil && blocking && !g.noFib {
-			// Kernels without nft_fib: drop on the port alone.
-			g.noFib = true
-			c, cerr := g.conn()
-			if cerr != nil {
-				return cerr
-			}
-			err = g.build(c, ports, blocking)
-		}
-		if err != nil {
+		g.present, g.last, g.blocking = false, 0, false
+		if err := g.build(c, ports); err != nil {
 			return err
 		}
-		g.present, g.ports, g.blocking = true, ports, blocking
+		g.present, g.ports = true, ports
+		g.warmUntil = time.Now().Add(conntrackWarmUp)
 		return nil
 	}
+	if blocking && !g.blocking && time.Now().Before(g.warmUntil) {
+		blocking = false
+	}
+	err = g.update(ports, blocking, g.noFib)
+	if err != nil && blocking && !g.blocking && !g.noFib {
+		// Kernels without nft_fib: drop on the port alone.
+		if retryErr := g.update(ports, blocking, true); retryErr == nil {
+			g.noFib = true
+			err = nil
+		}
+	}
+	if err != nil {
+		// The kernel state differs from what we believe (e.g. an element removed
+		// by hand): rebuild from scratch, idle; the next call blocks again.
+		g.adopted = false
+		if retryErr := g.Ensure(ports, false); retryErr != nil {
+			return fmt.Errorf("%v; rebuild: %w", err, retryErr)
+		}
+		return nil
+	}
+	return nil
+}
+
+// update applies port and blocking changes to an existing table in one batch.
+func (g *nftGuard) update(ports PortSet, blocking, noFib bool) error {
+	c, err := g.conn()
+	if err != nil {
+		return err
+	}
 	g.table = g.tableRef()
+	// Existing sets are found by name (a set ID only matters inside the batch
+	// that creates the set).
 	g.tcpSet = &nftables.Set{Table: g.table, Name: tcpSetName, KeyType: nftables.TypeInetService}
 	g.udpSet = &nftables.Set{Table: g.table, Name: udpSetName, KeyType: nftables.TypeInetService}
 	changed := false
@@ -226,10 +280,7 @@ func (g *nftGuard) Ensure(ports PortSet, blocking bool) error {
 	if blocking != g.blocking {
 		changed = true
 		if blocking {
-			// The sets exist from an earlier transaction: the kernel finds them by
-			// name (a set ID only matters for sets created in the same batch).
-			g.tcpSet.ID, g.udpSet.ID = 0, 0
-			g.addChain(c)
+			g.addChain(c, noFib)
 		} else {
 			ch := g.chain()
 			c.FlushChain(ch)
@@ -240,14 +291,7 @@ func (g *nftGuard) Ensure(ports PortSet, blocking bool) error {
 		return nil
 	}
 	if err := c.Flush(); err != nil {
-		// The kernel state differs from what we believe (e.g. an element removed by
-		// hand) or the kernel lacks nft_fib: rebuild the table from scratch once
-		// (build falls back to a rule without fib by itself).
-		g.adopted = false
-		if retryErr := g.Ensure(ports, blocking); retryErr != nil {
-			return fmt.Errorf("%v; rebuild: %w", err, retryErr)
-		}
-		return nil
+		return err
 	}
 	g.ports, g.blocking = ports, blocking
 	return nil

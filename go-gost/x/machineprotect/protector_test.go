@@ -31,7 +31,12 @@ func (g *fakeGuard) Ensure(ports PortSet, blocking bool) error {
 	if g.ensureErr != nil {
 		return g.ensureErr
 	}
-	g.present, g.ports, g.blocking = true, ports, blocking
+	if !g.present {
+		// Like the nft guard: a fresh table starts idle (conntrack warm-up).
+		g.present, g.ports, g.blocking = true, ports, false
+		return nil
+	}
+	g.ports, g.blocking = ports, blocking
 	return nil
 }
 func (g *fakeGuard) Remove() error {
@@ -284,6 +289,7 @@ func TestMmwxOwnedHandsOver(t *testing.T) {
 	l := newLab(t)
 	l.p.Configure(DefaultSettings())
 	l.setConns(1600, 0)
+	l.tick() // table built idle (conntrack warm-up)
 	if s := l.tick(); !s.Protect.Blocking || l.tw() != 500 {
 		t.Fatal("setup")
 	}
@@ -479,5 +485,23 @@ func TestRunOnceAndShutdownRemovesDropChain(t *testing.T) {
 	<-done
 	if l.g.Blocking() {
 		t.Fatal("drop chain left behind a stopped agent")
+	}
+}
+
+func TestFreshTableWarmsUpOneSample(t *testing.T) {
+	l := newLab(t)
+	l.p.Configure(DefaultSettings())
+	l.setConns(1600, 0) // over the cap from the first sample on
+	if s := l.tick(); s.Protect.Blocking || !l.g.present {
+		t.Fatalf("fresh table must start idle: %+v", s.Protect)
+	}
+	if s := l.tick(); !s.Protect.Blocking {
+		t.Fatal("not blocking on the second sample")
+	}
+	// The guard reports a failure: the snapshot follows the kernel state.
+	l.g.ensureErr = errors.New("boom")
+	l.setConns(10, 0)
+	if s := l.tick(); !s.Protect.Blocking || !strings.Contains(s.Protect.Error, "boom") {
+		t.Fatalf("state after a failed update: %+v", s.Protect)
 	}
 }
