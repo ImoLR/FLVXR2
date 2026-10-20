@@ -52,19 +52,42 @@ Real case: one VPS with two public IPv6 addresses.
 
 ## Checklist
 
-- [ ] Baseline `go test ./...` recorded (15 FAIL lines: handler 2, contract 13 incl. subtests)
-- [ ] Backend: extra IP parse/normalize/validate helper + node create/update wiring + tests
-- [ ] Backend: `pickNodeAddressLan` no longer dials extras + test
-- [ ] Backend: node-edit sync for extras (drop/replace, bind redeploy, no dial redeploy for
+- [x] Baseline `go test ./...` recorded (15 FAIL lines: handler 2, contract 13 incl. subtests)
+- [x] Backend: extra IP parse/normalize/validate helper + node create/update wiring + tests
+- [x] Backend: `pickNodeAddressLan` no longer dials extras + test
+- [x] Backend: node-edit sync for extras (drop/replace, bind redeploy, no dial redeploy for
       extras-only) + `TunnelEntryInIPTx` removes extras of removed entry nodes + tests
-- [ ] Backend: forward list ingress formatting per address + restricted-user picks + tests
-- [ ] Backend: tunnel create/update with picked inIp + forward bind on an extra IP tests
-- [ ] Old data unchanged: DB copy without extras gives byte-identical tunnel in_ip and
+- [x] Backend: forward list ingress formatting per address + restricted-user picks + tests
+- [x] Backend: tunnel create/update with picked inIp + forward bind on an extra IP tests
+- [x] Old data unchanged: DB copy without extras gives byte-identical tunnel in_ip and
       forward service configs before/after
-- [ ] Frontend: node form 「附加 IP」
-- [ ] Frontend: tunnel entry IP picker + edit-mode entry sync handles extras + outdated hint
-- [ ] Frontend: 监听IP options parse extras; hop/exit connect IP quick-fill
-- [ ] `npm run build` passes
-- [ ] Full `go test ./...` back at baseline
-- [ ] Screenshot gallery (desktop + H5 + dark dialogs) published to mmwx-preview
-- [ ] Summary written; branch pushed
+- [x] Frontend: node form 「附加 IP」
+- [x] Frontend: tunnel entry IP picker + edit-mode entry sync handles extras + outdated hint
+- [x] Frontend: 监听IP options parse extras; hop/exit connect IP quick-fill
+- [x] `npm run build` passes
+- [x] Full `go test ./...` back at baseline
+- [x] Screenshot gallery (desktop + H5 + dark dialogs) published to mmwx-preview
+- [x] Summary written; branch pushed
+
+## Results (2026-10-20)
+
+- Commits on `feature/3.0.27-multi-entry-ip` (base 99cac160): 5dd8669d node extra IP validation + no
+  implicit dial, 7145a88b node-edit sync for extras + bind redeploy, e0535528 forward list per-address
+  formatting + partial-permission picks, a40d6df8 node form 「附加 IP」, a629b382 tunnel picker + hop
+  quick-fill + listen IP options, 5c846839 tunnel create/update test, 9ab6e08e forward list query only
+  widened for partial entry permission.
+- No new column: the existing nullable `node.extra_ips` text column is reused (canonical JSON array).
+  No migration, no agent change.
+- Tests: 16 new Go tests pass. `go test ./...` = 15 FAIL lines, identical names to the baseline taken
+  before any change (pre-existing: federation dual panel ×3, backup export/import ×5, legacy migration
+  ×2, service monitor ×2, address-in-use, federation nodelay, renewal cycle). `npm run build` passes;
+  `tsc --noEmit` clean; eslint error counts on edited pages unchanged.
+- Old data: prod backup pre-fork58 copy, base vs branch: 43 tunnel `in_ip`, 408 agent commands of a
+  full redeploy of all tunnels/rules and 31 rule-list addresses are byte-identical.
+- Resource use: no new polling, no per-request extra queries on the common path. Rule list on the
+  prod copy (31 rules, refreshed every 5 s while the page is open): 8.0–9.6 ms base vs 8.8–9.5 ms
+  branch (noise), ~+80 KB allocations per call, from rules of users with partial entry permission.
+  Node saves parse at most 16 IPs; sync work only runs when addresses change.
+- Screenshots (synthetic data): `/root/flvx-workers/runs/multi-entry-ip/screens/`, published to
+  mmwx-preview `.../multi-entry-ip/index.html`.
+- Not released: waits for the user's screenshot approval (then panel-only release, no OTA).
