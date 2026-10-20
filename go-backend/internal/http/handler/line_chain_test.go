@@ -499,6 +499,110 @@ func TestChainIdempotencySingleFlightRateLimitDuplicates(t *testing.T) {
 	}
 }
 
+func TestChainRapidConcurrentSubmit(t *testing.T) {
+	e, a := newChainEnv(t)
+	release := make(chan struct{})
+	var once sync.Once
+	defer once.Do(func() { close(release) })
+	a.setApplyErr(func(int64) error { <-release; return nil })
+	start := make(chan struct{})
+	type result struct {
+		code int
+		msg  string
+		id   int64
+	}
+	results := make(chan result, 16)
+	for i := 0; i < cap(results); i++ {
+		go func() {
+			<-start
+			code, msg, data := callAs(t, e.h.forwardCreate, 7, 1, chainCreateBody(10, "rapid", testSSLink, "rapid-same-key"))
+			results <- result{code, msg, asInt64(data["chainId"], 0)}
+		}()
+	}
+	close(start)
+	ids := map[int64]bool{}
+	for i := 0; i < cap(results); i++ {
+		r := <-results
+		if r.code == 0 {
+			ids[r.id] = true
+		} else if !strings.Contains(r.msg, "正在创建") {
+			t.Fatalf("unexpected concurrent refusal: %s", r.msg)
+		}
+	}
+	once.Do(func() { close(release) })
+	e.h.chains.wg.Wait()
+	if len(ids) != 1 || ids[0] || countRows(t, e, "forward_chain") != 1 || countRows(t, e, "forward") != 1 || countRows(t, e, "forward_chain_node") != 2 {
+		t.Fatalf("rapid submit created duplicates: ids=%v", ids)
+	}
+	if len(a.chainNodes(3)) != 1 || len(a.chainNodes(4)) != 1 {
+		t.Fatal("rapid submit duplicated exit inbounds")
+	}
+}
+
+func TestChainOfflineExitDeleteConverges(t *testing.T) {
+	e, a := newChainEnv(t)
+	c := createChain(t, e, 10, "offline-delete", testSSLink, "offline-delete-key")
+	copies, err := e.r.ListForwardChainNodes(c.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.exec("UPDATE node SET status = 0 WHERE id = 4")
+	if code, msg, _ := callAs(t, e.h.forwardDelete, 7, 1, map[string]interface{}{"id": c.ForwardID}); code != 0 {
+		t.Fatal(msg)
+	}
+	e.h.chains.wg.Wait()
+	if chainRowsLeft(t, e) != 0 || len(a.chainNodes(3)) != 0 || len(a.chainNodes(4)) != 1 {
+		t.Fatal("offline deletion must clear DB/online exit and leave the disconnected copy for retry")
+	}
+	e.exec("UPDATE node SET status = 1 WHERE id = 4")
+	for _, copy := range copies {
+		if copy.NodeID == 4 {
+			// Same full desired-state push used by reconnect and the minute loop.
+			if _, err := e.h.syncLandingServer(copy.LandingServerID); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	expectNoChainOnExits(t, e, a, 3, 4)
+}
+
+func TestChainUserPolicyPausesWithoutDeleting(t *testing.T) {
+	for _, reason := range []string{"expired", "disabled"} {
+		t.Run(reason, func(t *testing.T) {
+			e, a := newChainEnv(t)
+			c := createChain(t, e, 10, "policy", testSSLink, "policy-chain-key")
+			if reason == "expired" {
+				e.exec("UPDATE user SET exp_time = ? WHERE id = 7", time.Now().Add(-time.Minute).UnixMilli())
+			} else {
+				e.exec("UPDATE user SET status = 0 WHERE id = 7")
+			}
+			e.h.enforceFlowPolicies(7, 70)
+			f, err := e.h.getForwardRecord(c.ForwardID)
+			if err != nil || f == nil || f.Status != 0 || a.count(1, "PauseService") == 0 {
+				t.Fatalf("policy did not pause the chain rule: %+v %v", f, err)
+			}
+			if chainRowsLeft(t, e) != 3 || len(a.chainNodes(3)) != 1 || len(a.chainNodes(4)) != 1 {
+				t.Fatal("policy must reserve chain credentials and ports until rule deletion")
+			}
+			e.exec("UPDATE user SET status = 1, exp_time = ? WHERE id = 7", time.Now().Add(time.Hour).UnixMilli())
+			if code, msg, _ := callAs(t, e.h.forwardResume, 7, 1, map[string]interface{}{"id": c.ForwardID}); code != 0 {
+				t.Fatal(msg)
+			}
+			after, _ := e.r.GetForwardChain(c.ID)
+			if after.UUID != c.UUID || after.Port != c.Port {
+				t.Fatal("resume changed the user's link")
+			}
+			if code, msg, _ := callAs(t, e.h.forwardDelete, 7, 1, map[string]interface{}{"id": c.ForwardID}); code != 0 {
+				t.Fatal(msg)
+			}
+			expectNoChainOnExits(t, e, a, 3, 4)
+			if chainRowsLeft(t, e) != 0 {
+				t.Fatal("delete after resume left chain rows")
+			}
+		})
+	}
+}
+
 func chainRowsLeft(t *testing.T, e *flowTestEnv) int {
 	return countRows(t, e, "forward_chain") + countRows(t, e, "forward_chain_node")
 }
