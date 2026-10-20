@@ -945,6 +945,11 @@ func (h *Handler) prepareForwardDiagnosis(forward *forwardRecord) (string, []dia
 	if err != nil {
 		return "", nil, err
 	}
+	// A chain rule (plan 108) targets the exit's local Reality node; the hop
+	// that matters to the user is exit → their own node.
+	if chainTargets, ok := h.chainDiagnosisTargets(forward); ok {
+		targets = chainTargets
+	}
 
 	tunnel, err := h.getTunnelRecord(forward.TunnelID)
 	if err != nil {
@@ -1093,6 +1098,7 @@ func (h *Handler) prepareForwardDiagnosis(forward *forwardRecord) (string, []dia
 	if err := h.applyLeiKwanDiagnosis(forward.TunnelID, workItems); err != nil {
 		return "", nil, err
 	}
+	h.markChainUDPDiagnosis(forward, workItems)
 	return forward.Name, workItems, nil
 }
 
@@ -1379,6 +1385,17 @@ func newDiagnosisTimeoutItem(workItem diagnosisWorkItem, message string) map[str
 func (h *Handler) executeDiagnosisWorkItem(workItem diagnosisWorkItem, options diagnosisExecOptions) map[string]interface{} {
 	if workItem.pipeTunnelID > 0 {
 		return h.executeLeiKwanDiagnosis(workItem, options)
+	}
+	if label, ok := workItem.metadata["chainUdpOnly"].(string); ok {
+		item := newDiagnosisResultItem(workItem.fromNodeID, workItem.targetIP, workItem.targetPort, workItem.description, workItem.metadata)
+		delete(item, "chainUdpOnly")
+		if node, err := h.getNodeRecord(workItem.fromNodeID); err == nil && node != nil {
+			item["nodeName"] = node.Name
+		}
+		item["success"] = true
+		item["packetLoss"] = 0
+		item["message"] = label + " 是 UDP 协议，无法用 TCP 探测，已跳过（请用客户端实际连接测试）"
+		return item
 	}
 	single := make([]map[string]interface{}, 0, 1)
 	nodeCache := map[int64]*nodeRecord{}

@@ -77,9 +77,11 @@ func (h *Handler) deleteUserAndCleanup(userID int64) error {
 	if err != nil {
 		return err
 	}
+	chainServers, _ := h.repo.ChainServerIDsByUser(userID)
 	if err = h.repo.DeleteUserCascade(userID); err != nil {
 		return err
 	}
+	h.syncChainServersAsync(chainServers)
 	seen := map[int64]bool{}
 	for _, n := range landings {
 		if !seen[n.LandingServerID] {

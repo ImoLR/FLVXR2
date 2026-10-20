@@ -731,9 +731,10 @@ func (h *Handler) nodeCreate(w http.ResponseWriter, r *http.Request) {
 
 	now := time.Now().UnixMilli()
 	inx := h.repo.NextIndex("node")
+	secret := randomToken(16)
 	if err := h.repo.CreateNode(
 		name,
-		randomToken(16),
+		secret,
 		serverIP,
 		nullableText(asString(req["serverIpV4"])),
 		nullableText(asString(req["serverIpV6"])),
@@ -765,6 +766,14 @@ func (h *Handler) nodeCreate(w http.ResponseWriter, r *http.Request) {
 	); err != nil {
 		response.WriteJSON(w, response.Err(-2, err.Error()))
 		return
+	}
+	if asBool(req["lineMachine"], false) {
+		if created, err := h.repo.GetNodeBySecret(secret); err == nil && created != nil {
+			if err := h.repo.SetNodeLineMachine(created.ID, true); err != nil {
+				response.WriteJSON(w, response.Err(-2, err.Error()))
+				return
+			}
+		}
 	}
 	response.WriteJSON(w, response.OKEmpty())
 }
@@ -832,6 +841,17 @@ func (h *Handler) nodeUpdate(w http.ResponseWriter, r *http.Request) {
 	if err := h.repo.ValidateNodeLandingPortRange(id, defaultString(asString(req["port"]), "1000-65535")); err != nil {
 		response.WriteJSON(w, response.ErrDefault(err.Error()))
 		return
+	}
+	lineMachine, setLineMachine := oldNode.LineMachine, false
+	if v, ok := req["lineMachine"]; ok {
+		lineMachine, setLineMachine = asBool(v, false), true
+		if lineMachine && !oldNode.LineMachine {
+			// A 线路机 never runs chain nodes (its IP stays pure forwarding).
+			if n, err := h.repo.NodeChainCopyCount(id); err != nil || n > 0 {
+				response.WriteJSON(w, response.ErrDefault("该节点正作为出口承载「我自己的节点」规则，不能设为线路机；请先把它从这些隧道的出口移除"))
+				return
+			}
+		}
 	}
 	newHTTP := asInt(req["http"], oldNode.HTTP)
 	newTLS := asInt(req["tls"], oldNode.TLS)
@@ -907,6 +927,12 @@ func (h *Handler) nodeUpdate(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		h.reconcileLandingPolicy(time.Now())
+	}
+	if setLineMachine && lineMachine != oldNode.LineMachine {
+		if err := h.repo.SetNodeLineMachine(id, lineMachine); err != nil {
+			response.WriteJSON(w, response.Err(-2, err.Error()))
+			return
+		}
 	}
 	newNode := *oldNode
 	newNode.Name = asString(req["name"])
@@ -1700,6 +1726,8 @@ func (h *Handler) tunnelUpdate(w http.ResponseWriter, r *http.Request) {
 		h.syncTunnelForwardsEntryPorts(id, newEntryNodeIDs)
 		entryWarnings = h.reconcileTunnelEntryPermissions(0, id)
 	}
+	// Chain rules follow the exit tier: copies move to new exits (plan 108).
+	entryWarnings = append(entryWarnings, h.reconcileTunnelChains(id)...)
 
 	if typeVal == 2 {
 		createdChains, createdServices, applyErr := h.applyTunnelRuntime(runtimeState)
@@ -2800,7 +2828,21 @@ func (h *Handler) forwardCreate(w http.ResponseWriter, r *http.Request) {
 		response.WriteJSON(w, response.ErrDefault("请求参数错误"))
 		return
 	}
+	if asString(req["targetMode"]) == "chain" {
+		h.forwardCreateChain(w, r, req)
+		return
+	}
+	if key := strings.TrimSpace(asString(req["idempotencyKey"])); key != "" {
+		h.forwardCreateIdempotent(w, r, req, key)
+		return
+	}
+	h.forwardCreateWithReq(w, r, req)
+}
 
+// forwardCreateWithReq is the rule create path after decoding; chain drivers
+// replay it in-process with the chain's loopback target.
+func (h *Handler) forwardCreateWithReq(w http.ResponseWriter, r *http.Request, req map[string]interface{}) {
+	replay, isReplay := chainReplayFrom(r)
 	userID, roleID, err := userRoleFromRequest(r)
 	if err != nil {
 		response.WriteJSON(w, response.Err(401, "无效的token或token已过期"))
@@ -2867,6 +2909,14 @@ func (h *Handler) forwardCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	name := asString(req["name"])
 	remoteAddr := asString(req["remoteAddr"])
+	if isReplay && strings.TrimSpace(remoteAddr) != replay.target {
+		response.WriteJSON(w, response.ErrDefault("链式规则目标异常"))
+		return
+	}
+	if err := h.lineMachinePreCheck(tunnelID, req); err != nil {
+		response.WriteJSON(w, response.ErrDefault(err.Error()))
+		return
+	}
 	remoteAddr, landingID, createdLandingID, landingErr := h.resolveNativeLandingTarget(req, userID, tunnelID, remoteAddr, roleID == 0)
 	landingCommitted := false
 	defer func() {
@@ -2881,6 +2931,18 @@ func (h *Handler) forwardCreate(w http.ResponseWriter, r *http.Request) {
 	if name == "" || remoteAddr == "" {
 		response.WriteJSON(w, response.ErrDefault("转发名称和目标地址不能为空"))
 		return
+	}
+	if !isReplay {
+		if err := h.lineMachineTargetError(tunnelID, mode, landingID, explicitLandingTarget(req)); err != nil {
+			response.WriteJSON(w, response.ErrDefault(err.Error()))
+			return
+		}
+		if roleID != 0 && !explicitLandingTarget(req) && mode != "wg_path" {
+			if err := loopbackTargetError(remoteAddr); err != nil {
+				response.WriteJSON(w, response.ErrDefault(err.Error()))
+				return
+			}
+		}
 	}
 	if err := h.checkForwardLanding(r.Context(), remoteAddr, mode, targetCIDR); err != nil {
 		response.WriteJSON(w, response.ErrDefault(err.Error()))
@@ -3012,7 +3074,7 @@ func (h *Handler) forwardCreate(w http.ResponseWriter, r *http.Request) {
 			h.syncLandingServer(n.LandingServerID)
 		}
 	}
-	response.WriteJSON(w, response.OKEmpty())
+	response.WriteJSON(w, response.OK(map[string]interface{}{"id": forwardID}))
 }
 
 func (h *Handler) forwardUpdate(w http.ResponseWriter, r *http.Request) {
@@ -3022,6 +3084,15 @@ func (h *Handler) forwardUpdate(w http.ResponseWriter, r *http.Request) {
 		response.WriteJSON(w, response.ErrDefault("请求参数错误"))
 		return
 	}
+	if h.forwardUpdateChainHook(w, r, req) {
+		return
+	}
+	h.forwardUpdateWithReq(w, r, req)
+}
+
+// forwardUpdateWithReq is the rule update path after decoding.
+func (h *Handler) forwardUpdateWithReq(w http.ResponseWriter, r *http.Request, req map[string]interface{}) {
+	replay, isReplay := chainReplayFrom(r)
 	id := asInt64(req["id"], 0)
 	if id <= 0 {
 		response.WriteJSON(w, response.ErrDefault("转发ID不能为空"))
@@ -3121,6 +3192,20 @@ func (h *Handler) forwardUpdate(w http.ResponseWriter, r *http.Request) {
 	if remoteAddr == "" {
 		remoteAddr = forward.RemoteAddr
 	}
+	if isReplay && remoteAddr != replay.target {
+		response.WriteJSON(w, response.ErrDefault("链式规则目标异常"))
+		return
+	}
+	if !isReplay {
+		if chain, _ := h.repo.GetForwardChainByForward(id); chain != nil && remoteAddr == chainTarget(chain.Port) {
+			response.WriteJSON(w, response.ErrDefault("「我自己的节点」规则请在编辑弹窗中修改"))
+			return
+		}
+	}
+	if err := h.lineMachinePreCheck(tunnelID, req); err != nil {
+		response.WriteJSON(w, response.ErrDefault(err.Error()))
+		return
+	}
 	remoteAddr, landingID, createdLandingID, landingErr := h.resolveNativeLandingTarget(req, forward.UserID, tunnelID, remoteAddr, actorRole == 0)
 	landingCommitted := false
 	defer func() {
@@ -3131,6 +3216,21 @@ func (h *Handler) forwardUpdate(w http.ResponseWriter, r *http.Request) {
 	if landingErr != nil {
 		response.WriteJSON(w, response.ErrDefault(landingErr.Error()))
 		return
+	}
+	targetChanged := remoteAddr != forward.RemoteAddr || tunnelID != forward.TunnelID || landingID != forward.LandingNodeID
+	if !isReplay && targetChanged {
+		// Unchanged targets keep working (a rule marked 不合规 stays editable);
+		// any new target or tunnel must follow the 线路机 rules.
+		if err := h.lineMachineTargetError(tunnelID, mode, landingID, explicitLandingTarget(req) || (landingID > 0 && landingID == forward.LandingNodeID)); err != nil {
+			response.WriteJSON(w, response.ErrDefault(err.Error()))
+			return
+		}
+		if actorRole != 0 && !explicitLandingTarget(req) && mode != "wg_path" && remoteAddr != forward.RemoteAddr {
+			if err := loopbackTargetError(remoteAddr); err != nil {
+				response.WriteJSON(w, response.ErrDefault(err.Error()))
+				return
+			}
+		}
 	}
 	if err := h.checkForwardLanding(r.Context(), remoteAddr, mode, targetCIDR); err != nil {
 		response.WriteJSON(w, response.ErrDefault(err.Error()))
@@ -3354,6 +3454,10 @@ func (h *Handler) forwardDelete(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		response.WriteJSON(w, response.Err(-2, err.Error()))
+		return
+	}
+	if err := h.chainDeleteGuard(id); err != nil {
+		response.WriteJSON(w, response.ErrDefault(err.Error()))
 		return
 	}
 	if err := h.cleanupForwardRuntime(forward); err != nil {
@@ -3596,6 +3700,11 @@ func (h *Handler) forwardBatchDelete(w http.ResponseWriter, r *http.Request) {
 			failures = appendBatchFailure(failures, id, "", accessErr)
 			continue
 		}
+		if err := h.chainDeleteGuard(id); err != nil {
+			f++
+			failures = appendBatchFailure(failures, id, forward.Name, err)
+			continue
+		}
 		if err := h.cleanupForwardRuntime(forward); err != nil {
 			f++
 			failures = appendBatchFailure(failures, id, forward.Name, err)
@@ -3831,6 +3940,16 @@ func (h *Handler) forwardBatchChangeTunnel(w http.ResponseWriter, r *http.Reques
 		if forward.TunnelID == req.TargetTunnelID {
 			fail++
 			failures = appendBatchFailureReason(failures, id, forward.Name, "规则已在目标隧道中")
+			continue
+		}
+		if chain, _ := h.repo.GetForwardChainByForward(id); chain != nil {
+			fail++
+			failures = appendBatchFailureReason(failures, id, forward.Name, "「我自己的节点」规则请在编辑中单独更换隧道")
+			continue
+		}
+		if err := h.lineMachineTargetError(req.TargetTunnelID, forward.Mode, forward.LandingNodeID, forward.LandingNodeID > 0); err != nil {
+			fail++
+			failures = appendBatchFailure(failures, id, forward.Name, err)
 			continue
 		}
 		if _, _, _, err := h.resolveNativeLandingTarget(nil, forward.UserID, req.TargetTunnelID, forward.RemoteAddr, actorRole == 0); err != nil {
@@ -5463,9 +5582,11 @@ func (h *Handler) deleteTunnelByID(id int64) error {
 		h.cleanupForwardRuntimeBestEffort(&forwards[i])
 	}
 	tunnelName, _ := h.repo.GetTunnelName(id)
+	chainServers, _ := h.repo.ChainServerIDsByTunnel(id)
 	if err := h.repo.DeleteTunnelCascade(id); err != nil {
 		return err
 	}
+	h.syncChainServersAsync(chainServers)
 
 	shareID, port, ok := parsePeerShareInfoFromFederationTunnelName(tunnelName)
 	if !ok {
@@ -5476,7 +5597,14 @@ func (h *Handler) deleteTunnelByID(id int64) error {
 }
 
 func (h *Handler) deleteForwardByID(id int64) error {
-	return h.repo.DeleteForwardCascade(id)
+	servers, _ := h.repo.ChainServerIDsByForwards([]int64{id})
+	if err := h.repo.DeleteForwardCascade(id); err != nil {
+		return err
+	}
+	// The cascade removed the rule's chain nodes; push the exits now (an
+	// offline exit converges on its next desired-state push).
+	h.syncChainServersAsync(servers)
+	return nil
 }
 
 func (h *Handler) batchForwardDelete(ids []int64) (int, int) {

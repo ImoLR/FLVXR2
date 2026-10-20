@@ -157,6 +157,9 @@ func (r *Repository) DeleteUserCascade(userID int64) error {
 		if err := tx.Where("forward_id IN (?)", forwardIDs).Delete(&model.ForwardPort{}).Error; err != nil {
 			return err
 		}
+		if err := deleteChainsTx(tx, "user_id = ?", userID); err != nil {
+			return err
+		}
 		if err := tx.Where("user_id = ?", userID).Delete(&model.Forward{}).Error; err != nil {
 			return err
 		}
@@ -939,7 +942,16 @@ func (r *Repository) DeleteNodeCascade(nodeID int64) error {
 			if err := tx.Model(&model.LandingNode{}).Where("landing_server_id = ?", landing.ID).Count(&count).Error; err != nil {
 				return err
 			}
-			if landing.Status != "disabled" || count > 0 {
+			var chains int64
+			if err := tx.Model(&model.ForwardChainNode{}).Where("landing_server_id = ?", landing.ID).Count(&chains).Error; err != nil {
+				return err
+			}
+			if chains > 0 {
+				return errors.New("该节点仍承载「我自己的节点」规则，请先删除这些规则或把节点从隧道出口移除")
+			}
+			// A chain-only exit landing (plan 108) is ours alone: it goes
+			// with the node once no chain uses it.
+			if (!landing.ChainOnly && landing.Status != "disabled") || count > 0 {
 				return errors.New("请先停用落地服务器并删除其落地节点，再删除服务器节点")
 			}
 		}
@@ -1293,6 +1305,9 @@ func (r *Repository) DeleteTunnelCascade(tunnelID int64) error {
 		if err := tx.Where("forward_id IN (?)", forwardIDs).Delete(&model.ForwardPort{}).Error; err != nil {
 			return err
 		}
+		if err := deleteChainsTx(tx, "tunnel_id = ? OR forward_id IN (?)", tunnelID, tx.Model(&model.Forward{}).Select("id").Where("tunnel_id = ?", tunnelID)); err != nil {
+			return err
+		}
 		if err := tx.Where("tunnel_id = ?", tunnelID).Delete(&model.Forward{}).Error; err != nil {
 			return err
 		}
@@ -1503,6 +1518,10 @@ func (r *Repository) DeleteForwardCascade(forwardID int64) error {
 	}
 	return r.db.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Where("forward_id = ?", forwardID).Delete(&model.ForwardPort{}).Error; err != nil {
+			return err
+		}
+		// A chain rule's hidden exit nodes go with the rule (plan 108).
+		if err := deleteChainsTx(tx, "forward_id = ?", forwardID); err != nil {
 			return err
 		}
 		return tx.Where("id = ?", forwardID).Delete(&model.Forward{}).Error

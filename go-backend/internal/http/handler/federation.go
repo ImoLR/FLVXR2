@@ -304,6 +304,12 @@ func (h *Handler) federationShareCreate(w http.ResponseWriter, r *http.Request) 
 		response.WriteJSON(w, response.ErrDefault("Name and NodeID are required"))
 		return
 	}
+	// The other panel chooses its own rule targets, so a 线路机 (plan 108)
+	// cannot be shared: its Reality-only rule cannot be enforced there.
+	if node, err := h.repo.GetNodeByID(req.NodeID); err == nil && node != nil && node.LineMachine {
+		response.WriteJSON(w, response.ErrDefault("线路机节点不能共享给其他面板（无法保证只转发 Reality 落地）"))
+		return
+	}
 
 	if req.MaxBandwidth < 0 {
 		response.WriteJSON(w, response.ErrDefault("Max bandwidth cannot be negative"))

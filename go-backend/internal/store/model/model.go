@@ -691,6 +691,7 @@ type UserBackup struct {
 }
 
 type NodeBackup struct {
+	LineMachine      bool   `json:"lineMachine,omitempty"`
 	PanelIPFamily    string `json:"panelIpFamily,omitempty"`
 	ID               int64  `json:"id"`
 	Name             string `json:"name"`

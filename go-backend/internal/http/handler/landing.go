@@ -61,6 +61,10 @@ func (h *Handler) landingServerView(s model.LandingServer, admin bool, catalogs 
 		v["userGroupIds"] = groups
 		direct, _ := h.repo.LandingServerDirectUserCount(s.ID)
 		v["directUserCount"] = direct
+		chainNodes, _ := h.repo.ChainCopyCountForServer(s.ID)
+		v["chainNodeCount"] = chainNodes
+	} else {
+		delete(v, "chainOnly")
 	}
 	if s.Source == "shared" {
 		caps := repo.SharedLandingCaps(&s)
