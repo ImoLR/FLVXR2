@@ -45,6 +45,7 @@ type LandingServer struct {
 	EgressReady              bool    `gorm:"not null;default:false" json:"egressReady"`
 	EgressCheckedAt          int64   `gorm:"not null;default:0" json:"egressCheckedAt"`
 	EgressWarnings           string  `gorm:"type:text;not null;default:''" json:"-"`
+	ChainOnly                bool    `gorm:"not null;default:false" json:"chainOnly"` // exit landing auto-created for chain rules (plan 108); never shown to or usable by users
 	CreatedTime              int64   `gorm:"not null" json:"createdTime"`
 	UpdatedTime              int64   `gorm:"not null" json:"updatedTime"`
 }

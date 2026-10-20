@@ -732,10 +732,15 @@ func (r *Repository) DeleteLandingWarpAccount(serverID, outboundID int64) error 
 	return r.db.Where("landing_server_id = ? AND outbound_id = ?", serverID, outboundID).Delete(&model.LandingWarpAccount{}).Error
 }
 
-// SetNodeLandingCapabilities records both landing capability flags with one
-// conditional statement per agent report.
-func (r *Repository) SetNodeLandingCapabilities(id int64, capable bool, egress int) error {
-	return r.db.Model(&model.Node{}).Where("id = ? AND (landing_capable <> ? OR landing_egress <> ?)", id, capable, egress).Updates(map[string]any{"landing_capable": capable, "landing_egress": egress}).Error
+// SetNodeLandingCapabilities records the landing capability flags with one
+// conditional statement per agent report. chain is the chain-node schema
+// version (plan 108); agents that do not report it are version 0.
+func (r *Repository) SetNodeLandingCapabilities(id int64, capable bool, egress int, chain ...int) error {
+	chainVersion := 0
+	if len(chain) > 0 {
+		chainVersion = chain[0]
+	}
+	return r.db.Model(&model.Node{}).Where("id = ? AND (landing_capable <> ? OR landing_egress <> ? OR landing_chain <> ?)", id, capable, egress, chainVersion).Updates(map[string]any{"landing_capable": capable, "landing_egress": egress, "landing_chain": chainVersion}).Error
 }
 
 // UserNamesByIDs maps user IDs to login names in one query.
