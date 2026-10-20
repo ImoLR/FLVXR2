@@ -1,4 +1,4 @@
-# 113 — Rule landing target: one place creates nodes (mmwx-style)
+# 115 — Rule landing target: one place creates nodes (mmwx-style)
 
 Branch `feature/3.0.27-landing-target` (from plan 108 head 40e42ed8). No release until the user approves screenshots;
 ships together with 108.
