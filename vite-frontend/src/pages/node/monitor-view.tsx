@@ -1624,21 +1624,27 @@ export function MonitorView({ nodeMap, viewMode = "grid" }: MonitorViewProps) {
                           </div>
                         </TableCell>
                         <TableCell>
-                          <div className="flex items-center justify-center gap-2 w-full">
-                            <DistroIcon
-                              className="w-4 h-4 flex-shrink-0"
-                              distro={parseDistroFromVersion(node.version)}
-                              style={{
-                                color: isOnline
-                                  ? getDistroColor(
-                                      parseDistroFromVersion(node.version),
-                                    )
-                                  : undefined,
-                              }}
+                          <div className="flex flex-col items-center gap-1 w-full">
+                            <div className="flex items-center justify-center gap-2 w-full">
+                              <DistroIcon
+                                className="w-4 h-4 flex-shrink-0"
+                                distro={parseDistroFromVersion(node.version)}
+                                style={{
+                                  color: isOnline
+                                    ? getDistroColor(
+                                        parseDistroFromVersion(node.version),
+                                      )
+                                    : undefined,
+                                }}
+                              />
+                              <span className="font-semibold text-sm whitespace-nowrap">
+                                {node.name}
+                              </span>
+                            </div>
+                            <MachineConnChip
+                              admin={isAdmin}
+                              machine={machineFor(node)}
                             />
-                            <span className="font-semibold text-sm whitespace-nowrap">
-                              {node.name}
-                            </span>
                           </div>
                         </TableCell>
                         <TableCell>
@@ -1708,11 +1714,6 @@ export function MonitorView({ nodeMap, viewMode = "grid" }: MonitorViewProps) {
                           <div className="flex flex-col items-center gap-1.5 text-xs font-mono text-default-500 px-1 w-full tabular-nums">
                             <div>TCP {metric ? metric.tcpConns : "-"}</div>
                             <div>UDP {metric ? metric.udpConns : "-"}</div>
-                            <MachineConnChip
-                              admin={isAdmin}
-                              label="整机"
-                              machine={machineFor(node)}
-                            />
                           </div>
                         </TableCell>
                         <TableCell>
