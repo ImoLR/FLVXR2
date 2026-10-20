@@ -18,15 +18,23 @@ entry-variant link) or creates a chain-owned VLESS node; users never get nodes c
 - One node may be used directly and by several rules; billing already counts the landing once.
 
 ## Checklist
-- [ ] Rule dialog: remove 「落地服务器（自动建节点）」; 目标类型 = 手动填写 / 我的落地节点 / (线路机) 我自己的节点
-- [ ] 我的落地节点 picker grouped by server; incompatible nodes shown disabled with reason (线路机 → Reality only, stopped,
+- [x] Rule dialog: remove 「落地服务器（自动建节点）」; 目标类型 = 手动填写 / 我的落地节点 / (线路机) 我自己的节点
+- [x] 我的落地节点 picker grouped by server; incompatible nodes shown disabled with reason (线路机 → Reality only, stopped,
       server unavailable); empty state
-- [ ] 「＋ 新建落地节点」 in the picker opens the shared create-node dialog (owner = rule owner, protocol locked on 线路机),
+- [x] 「＋ 新建落地节点」 in the picker opens the shared create-node dialog (owner = rule owner, protocol locked on 线路机),
       auto-selects the new node
-- [ ] Reuse hint in the create dialog when the user already has a compatible node on that server (「使用它」 / 「仍然新建」)
+- [x] Reuse hint in the create dialog when the user already has a compatible node on that server (「使用它」 / 「仍然新建」)
 - [ ] Backend `landingServerId` = reuse-or-create (API compat for stale frontends), per-user single-flight, never another
       user's or a chain-internal node
 - [ ] Landing node lists show 「规则 N」 (one grouped query); delete refusal names the referencing rules
-- [ ] Rule rows targeting a landing node offer 「复制链接」 (entry-variant link) — verify existing, add if missing
+- [x] Rule rows targeting a landing node offer 「复制链接」 (entry-variant link) — verify existing, add if missing
 - [ ] Tests (handler + repo + acceptance runner extension), full go test vs baseline, frontend build/lint
 - [ ] Resource numbers, screenshot gallery /landing-target/, Chinese summary
+
+## Round 2 evidence (Taiwan time, UTC+8)
+
+- 2026-10-20 17:28: plan commit `6d94adac` pushed with `-u origin`; CI [39400967038](https://github.com/ImoLR/FLVXR2/actions/runs/39400967038) passed.
+- Clean detached baseline at `6d94adac`, under the run directory `tmp/baseline`: `GOMAXPROCS=2 go test -count=1 -p 1 ./...` completed with the same 15 historical failures/subtests. Handler failures: `TestBuildFederationServiceConfig_NonTLSProtocol_NoNodelay`, `TestRunNodeRenewalCycleJob_AdvancesOverdueAnchorTimes`. Evidence: `backend-baseline.log` / `backend-baseline-failures.json`. No stash used.
+- `e6c976b6`: local acceptance runner T1 added; Python AST and diff checks passed. Runtime lab evidence pending.
+- `53af2286`: shared create dialog, grouped owner picker, disabled reasons, reuse hint and landing-rule copy-link action implemented. Build, lint and screenshot evidence pending. Node chip/delete-refusal UI implemented; backend evidence pending.
+- All Round 2 logs and gallery source: `/root/flvx-workers/runs/landing-target-r2/`. No release, tag, production DB access or agent modification.
