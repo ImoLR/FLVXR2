@@ -161,7 +161,7 @@ type Node struct {
 	OwnerUserID                  int64          `gorm:"column:owner_user_id;not null;default:1;index" json:"ownerUserId"`
 	// Machine connection protection (plan 118), pushed to capable agents. 0 = that part off.
 	MachineProtectEnabled   bool  `gorm:"column:machine_protect_enabled;not null;default:true"`
-	MachineMaxTotal         int64 `gorm:"column:machine_max_total;not null;default:1500"`
+	MachineMaxTotal         int64 `gorm:"column:machine_max_total;not null;default:1000"`
 	MachineTWBuckets        int64 `gorm:"column:machine_tw_buckets;not null;default:500"`
 	MachineCloseWaitSeconds int64 `gorm:"column:machine_close_wait_seconds;not null;default:10"`
 }

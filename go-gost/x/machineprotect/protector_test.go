@@ -147,15 +147,15 @@ func TestNextBlockingHysteresis(t *testing.T) {
 	steps := []struct {
 		total int64
 		want  bool
-	}{{1000, false}, {1499, false}, {1500, true}, {1600, true}, {1430, true}, {1425, true}, {1424, false}, {1499, false}, {1500, true}}
+	}{{800, false}, {999, false}, {1000, true}, {1100, true}, {960, true}, {950, true}, {949, false}, {999, false}, {1000, true}}
 	blocking := false
 	for _, s := range steps {
-		blocking = NextBlocking(blocking, s.total, 1500)
+		blocking = NextBlocking(blocking, s.total, 1000)
 		if blocking != s.want {
 			t.Fatalf("total %d: blocking=%t want %t", s.total, blocking, s.want)
 		}
 	}
-	if ReleaseLevel(1500) != 1425 || NextBlocking(true, 5000, 0) {
+	if ReleaseLevel(1000) != 950 || ReleaseLevel(1500) != 1425 || NextBlocking(true, 5000, 0) {
 		t.Fatal("release level / no cap")
 	}
 }
@@ -174,7 +174,7 @@ func TestSettingsValidate(t *testing.T) {
 		}
 	}
 	d := DefaultSettings()
-	if !d.Enabled || d.MaxTotal != 1500 || d.TWBuckets != 500 || d.CloseWaitSeconds != 10 {
+	if !d.Enabled || d.MaxTotal != 1000 || d.TWBuckets != 500 || d.CloseWaitSeconds != 10 {
 		t.Fatalf("defaults %+v", d)
 	}
 }
@@ -248,7 +248,7 @@ func TestDisableRestoresKernelState(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(l.state, StateFileName)); err != nil {
 		t.Fatal("original not saved before the change")
 	}
-	l.p.Configure(Settings{Enabled: false, MaxTotal: 1500, TWBuckets: 500, CloseWaitSeconds: 10})
+	l.p.Configure(Settings{Enabled: false, MaxTotal: 1000, TWBuckets: 500, CloseWaitSeconds: 10})
 	s := l.tick()
 	if l.tw() != 262144 || l.g.present || s.Protect.Enabled || l.cw[len(l.cw)-1] != 0 {
 		t.Fatalf("disable left state: tw=%d guard=%+v cw=%v", l.tw(), l.g, l.cw)
@@ -295,13 +295,13 @@ func TestMmwxOwnedHandsOver(t *testing.T) {
 	}
 	// A new Helper starts and writes its status file.
 	l.writeMmwx(map[string]any{"version": 1, "owner": "mmwx", "updated_at": l.now.Format(time.RFC3339), "enabled": true,
-		"max_total": 1500, "tw_buckets": 500, "close_wait_seconds": 10, "total": 1600, "tcp": 1600, "udp": 0, "blocking": true, "dropped_total": 42})
+		"max_total": 1000, "tw_buckets": 500, "close_wait_seconds": 10, "total": 1600, "tcp": 1600, "udp": 0, "blocking": true, "dropped_total": 42})
 	s := l.tick()
 	if l.g.present || l.tw() != 262144 {
 		t.Fatalf("FLVX kept its table/sysctl on an mmwx machine: guard=%+v tw=%d", l.g, l.tw())
 	}
 	p := s.Protect
-	if p.Owner != OwnerMmwx || p.MmwxStatus != MmwxStatusOK || !p.Enabled || *p.MaxTotal != 1500 || *p.TWBuckets != 500 || *p.CloseWaitSeconds != 10 || !p.Blocking || p.DroppedTotal != 42 {
+	if p.Owner != OwnerMmwx || p.MmwxStatus != MmwxStatusOK || !p.Enabled || *p.MaxTotal != 1000 || *p.TWBuckets != 500 || *p.CloseWaitSeconds != 10 || !p.Blocking || p.DroppedTotal != 42 {
 		t.Fatalf("mirror %+v", p)
 	}
 	if s.Conns == nil || s.Conns.Total != 1600 || l.cw[len(l.cw)-1] != 10 {
@@ -404,7 +404,7 @@ func TestCloseWaitHookOnlyOnChange(t *testing.T) {
 	if len(l.cw) != 1 || l.cw[0] != 10 {
 		t.Fatalf("hook calls %v", l.cw)
 	}
-	l.p.Configure(Settings{Enabled: true, MaxTotal: 1500, CloseWaitSeconds: 0})
+	l.p.Configure(Settings{Enabled: true, MaxTotal: 1000, CloseWaitSeconds: 0})
 	l.tick()
 	if len(l.cw) != 2 || l.cw[1] != 0 || l.tw() != 262144 {
 		t.Fatalf("hook calls %v tw=%d", l.cw, l.tw())

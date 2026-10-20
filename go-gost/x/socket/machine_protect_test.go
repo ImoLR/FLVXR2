@@ -105,7 +105,7 @@ func TestSetMachineProtectionPersistsAndApplies(t *testing.T) {
 	defer w.Stop()
 	w.configPath = path
 	w.protector = testProtector(t, w)
-	if err := w.handleSetMachineProtection(map[string]interface{}{"enabled": true, "maxTotal": 1500, "twBuckets": 500, "closeWaitSeconds": 10}); err != nil {
+	if err := w.handleSetMachineProtection(map[string]interface{}{"enabled": true, "maxTotal": 1000, "twBuckets": 500, "closeWaitSeconds": 10}); err != nil {
 		t.Fatal(err)
 	}
 	s, ok := w.protector.Settings()
@@ -129,8 +129,8 @@ func TestSetMachineProtectionPersistsAndApplies(t *testing.T) {
 	}
 	for _, bad := range []map[string]interface{}{
 		{"enabled": true, "maxTotal": 50, "twBuckets": 500, "closeWaitSeconds": 10},
-		{"enabled": true, "maxTotal": 1500, "twBuckets": 500},
-		{"maxTotal": 1500, "twBuckets": 500, "closeWaitSeconds": 10},
+		{"enabled": true, "maxTotal": 1000, "twBuckets": 500},
+		{"maxTotal": 1000, "twBuckets": 500, "closeWaitSeconds": 10},
 	} {
 		before, _ := os.ReadFile(path)
 		if err := w.handleSetMachineProtection(bad); err == nil {
@@ -275,7 +275,7 @@ func TestMachineSettingsJSONShape(t *testing.T) {
 	b, _ := json.Marshal(machineprotect.DefaultSettings())
 	var got map[string]any
 	_ = json.Unmarshal(b, &got)
-	want := map[string]any{"enabled": true, "max_total": float64(1500), "tw_buckets": float64(500), "close_wait_seconds": float64(10)}
+	want := map[string]any{"enabled": true, "max_total": float64(1000), "tw_buckets": float64(500), "close_wait_seconds": float64(10)}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("config.json shape %s", b)
 	}
