@@ -25,7 +25,7 @@ Native: in the agent's per-node `Counter` (landing status upload). Shared: in Cu
 - [x] API: `/landing/monitor` node `onlineIps` (count, null = unknown); new `POST /landing/monitor/ips {nodeId}` → list, admin or node owner only
 - [x] UI: chip `IP 在线/上限` (∞), clickable → IP list (desktop popover, H5 dialog); unknown → `IP -/3` + hint 「节点程序版本过旧，暂不支持在线 IP」
 - [x] Tests + gates, screenshots (local lab) for the record
-- [ ] Release fork.60, prod panel upgrade, OTA native landing node(s) (node 21) with SSH backup, prod check with real data
+- [x] Release fork.60, prod panel upgrade, OTA native landing node(s) (node 21) with SSH backup, prod check with real data
 
 ## Evidence
 - UI: `87c04e8e`; TypeScript/build pass; changed-file eslint 0 errors (2 pre-existing API blank-line warnings). Logs: `/root/flvx-workers/runs/landing-online-ips/logs/`.
@@ -42,4 +42,5 @@ Native: in the agent's per-node `Counter` (landing status upload). Shared: in Cu
 - [x] Only native agent node 21 OTA'd 18:17; SSH backup `/root/flvxx-backup-20261020T101637Z-pre-fork60`, checksum verified, restore script included; two newest node backups retained. Reconnected in 6.1 s, Core PID 29900 unchanged, diagnostics 27/27 before/after; other node versions unchanged.
 - [x] Resource windows: before agent 58,748 KiB / 0.336% CPU (35.72 s), after 54,988 KiB / 0.279% (46.63 s); Core 33,800 → 33,536 KiB, 0.084% → 0.064%, same PID.
 - [x] Production acceptance: node 21 + shared server 7: P0–P9/PC, 11 scenarios / 74 checks pass; temporary user 37 and all related rows removed, existing server/user/node credential hashes unchanged (`logs/prod-server7.{log,json}`). Native SS2022/VLESS report real IP 104.145.236.29 with count 1 and positive connections. Earlier three runner attempts and successful cleanup retained; script now waits for fresh IP samples/full Helper cycle and restores the original temporary-node limit.
-- [ ] Production acceptance: node 21 + shared server 5 (temporary user fully cleaned)
+- [x] Production acceptance: node 21 + shared server 5: P0–P9/PC, 11 scenarios / 74 checks pass; temporary user 38 and related rows removed, original hashes unchanged (`logs/prod-server5.{log,json}`). Both native protocols again report a real online IP; shared protocols carry real traffic and exact billing checks pass.
+- Final verification 2026-10-20 18:55:53: panel healthy on fork.60; 29/29 nodes reported within 60 seconds; only node 21 changed agent version; temporary users = 0, original counts and node 10 unchanged. Shared desired hashes unchanged; native desired differs only by normal test revision (99 → 149), Core PID still 29900. Evidence: `prod-final-verified.json`, `prod-panel-verified-final.json`; final summary: `/root/flvx-workers/runs/landing-online-ips/summary.md`.
