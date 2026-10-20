@@ -1,4 +1,5 @@
 import type {
+  MachineView,
   NodeMetricApiItem,
   ServiceMonitorApiItem,
   ServiceMonitorResultApiItem,
@@ -83,6 +84,11 @@ import { Card, CardBody, CardHeader } from "@/shadcn-bridge/heroui/card";
 import { Progress } from "@/shadcn-bridge/heroui/progress";
 import { useNodeRealtime } from "@/pages/node/use-node-realtime";
 import { getAdminFlag } from "@/utils/session";
+import {
+  MachineConnChip,
+  machineFromMetric,
+  newerMachine,
+} from "@/pages/node/machine-conn";
 
 interface MonitorViewProps {
   nodeMap: Map<
@@ -92,6 +98,7 @@ interface MonitorViewProps {
       name: string;
       connectionStatus: string;
       version?: string;
+      machine?: MachineView | null;
     }
   >;
   viewMode?: "list" | "grid";
@@ -199,10 +206,14 @@ function LiveDot() {
 function ServerCard({
   node,
   metric,
+  machine,
+  admin,
   onPress,
 }: {
   node: any;
   metric: RealtimeNodeMetric | null;
+  machine?: MachineView | null;
+  admin?: boolean;
   onPress?: () => void;
 }) {
   const isOnline = node.connectionStatus === "online";
@@ -248,6 +259,7 @@ function ServerCard({
                   >
                     {isOnline ? "在线" : "离线"}
                   </span>
+                  <MachineConnChip admin={admin} machine={machine} />
                 </div>
               </div>
             </div>
@@ -701,6 +713,19 @@ export function MonitorView({ nodeMap, viewMode = "grid" }: MonitorViewProps) {
   const [realtimeNodeMetrics, setRealtimeNodeMetrics] = useState<
     Record<number, RealtimeNodeMetric>
   >({});
+  // 整机连接 (plan 118): admins get live 5 s samples over WS; everybody gets the
+  // monitor list's snapshot (refreshed every 30 s).
+  const [machineLive, setMachineLive] = useState<Record<number, MachineView>>(
+    {},
+  );
+  const machineFor = (node: {
+    id: number;
+    connectionStatus: string;
+    machine?: MachineView | null;
+  }) =>
+    node.connectionStatus === "online"
+      ? newerMachine(machineLive[node.id], node.machine)
+      : null;
   const offlineTimersRef = useRef<Map<number, ReturnType<typeof setTimeout>>>(
     new Map(),
   );
@@ -811,6 +836,11 @@ export function MonitorView({ nodeMap, viewMode = "grid" }: MonitorViewProps) {
           [nodeId]: normalized,
         };
       });
+      const machine = machineFromMetric(metric, receivedAt);
+
+      if (machine) {
+        setMachineLive((prev) => ({ ...prev, [nodeId]: machine }));
+      }
       setRealtimeNodeStatus((prev) => ({
         ...prev,
         [nodeId]: "online",
@@ -1507,6 +1537,8 @@ export function MonitorView({ nodeMap, viewMode = "grid" }: MonitorViewProps) {
                     return (
                       <ServerCard
                         key={node.id}
+                        admin={isAdmin}
+                        machine={machineFor(node)}
                         metric={metric}
                         node={node}
                         onPress={() => {
@@ -1605,6 +1637,10 @@ export function MonitorView({ nodeMap, viewMode = "grid" }: MonitorViewProps) {
                             <span className="font-semibold text-sm whitespace-nowrap">
                               {node.name}
                             </span>
+                            <MachineConnChip
+                              admin={isAdmin}
+                              machine={machineFor(node)}
+                            />
                           </div>
                         </TableCell>
                         <TableCell>

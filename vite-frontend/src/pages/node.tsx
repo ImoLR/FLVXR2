@@ -1,5 +1,5 @@
 import { EnableLandingButton } from "@/pages/landing/enable-button";
-import type { LeiKwanNodeDetection } from "@/api/types";
+import type { LeiKwanNodeDetection, MachineView } from "@/api/types";
 import type {
   NodeGroupApiItem,
   NodeRegionDetection,
@@ -31,6 +31,17 @@ import { NodeGroupManager } from "./node/node-group-manager";
 import { NodeDeployModal } from "./node/node-deploy-modal";
 import { NodeIPv6RABadge } from "./node/ipv6-ra-badge";
 import { NodeLeiKwanBadge } from "./node/leikwan-badge";
+import {
+  MachineConnChip,
+  MachineProtectSection,
+  type MachineProtectForm,
+  machineFormDefaults,
+  machineFormFromNode,
+  machineFromMetric,
+  machinePayload,
+  newerMachine,
+  validateMachineForm,
+} from "./node/machine-conn";
 import TLSPage from "./tls";
 
 import {
@@ -165,6 +176,12 @@ interface Node extends LeiKwanNodeDetection {
   defaultUserQuotaBytes?: number;
   lineMachine?: boolean;
   landingChain?: number;
+  machineProtectEnabled?: boolean;
+  machineMaxTotal?: number;
+  machineTwBuckets?: number;
+  machineCloseWaitSeconds?: number;
+  machineProtectCapable?: boolean;
+  machine?: MachineView | null;
   connectionStatus: "online" | "offline";
   systemInfo?: NodeSystemInfo | null;
   copyLoading?: boolean;
@@ -179,7 +196,7 @@ interface Node extends LeiKwanNodeDetection {
     cycle?: string;
   };
 }
-interface NodeForm {
+interface NodeForm extends MachineProtectForm {
   region: string;
   regionCity: string;
   id: number | null;
@@ -367,6 +384,17 @@ export default function NodePage() {
     >
   >({});
   const realtimeNodeMetricsRef = useRef(realtimeNodeMetrics);
+  // 整机连接 (plan 118): live 5 s samples from the admin WebSocket.
+  const [machineLive, setMachineLive] = useState<Record<number, MachineView>>(
+    {},
+  );
+  const machineOf = useCallback(
+    (node: Node): MachineView | null =>
+      node.connectionStatus === "online"
+        ? newerMachine(machineLive[node.id], node.machine)
+        : null,
+    [machineLive],
+  );
   const [localSearchKeyword, setLocalSearchKeyword] = useLocalStorageState(
     "node-search-keyword-local",
     "",
@@ -410,6 +438,7 @@ export default function NodePage() {
     http: 0,
     tls: 0,
     socks: 0,
+    ...machineFormDefaults(),
   });
   const [regionDetectLoading, setRegionDetectLoading] = useState(false);
   const [regionDetection, setRegionDetection] =
@@ -920,6 +949,11 @@ export default function NodePage() {
       clearOfflineTimer(nodeId);
       const metric =
         typeof messageData === "string" ? JSON.parse(messageData) : messageData;
+      const machine = machineFromMetric(metric);
+
+      if (machine) {
+        setMachineLive((prev) => ({ ...prev, [nodeId]: machine }));
+      }
 
       setRealtimeNodeMetrics((prev) => {
         return {
@@ -1135,6 +1169,7 @@ export default function NodePage() {
     if (!portValidation.valid) {
       newErrors.port = portValidation.error || "端口格式错误";
     }
+    Object.assign(newErrors, validateMachineForm(form));
     setErrors(newErrors);
 
     return Object.keys(newErrors).length === 0;
@@ -1175,6 +1210,7 @@ export default function NodePage() {
       http: typeof node.http === "number" ? node.http : 1,
       tls: typeof node.tls === "number" ? node.tls : 1,
       socks: typeof node.socks === "number" ? node.socks : 1,
+      ...machineFormFromNode(node),
     });
     setDialogVisible(true);
   };
@@ -1657,6 +1693,7 @@ export default function NodePage() {
         intranetIp: intranetIp?.trim(),
         serverIpV4: serverIpV4?.trim(),
         serverIpV6: serverIpV6?.trim(),
+        ...machinePayload(form),
       };
       const res = await apiCall(data);
 
@@ -1725,6 +1762,16 @@ export default function NodePage() {
                     udpListenAddr: form.udpListenAddr,
                     interfaceName: form.interfaceName,
                     lineMachine: form.lineMachine,
+                    ...(() => {
+                      const m = machinePayload(form);
+
+                      return {
+                        machineProtectEnabled: m.machineProtectEnabled,
+                        machineMaxTotal: m.machineMaxTotal,
+                        machineTwBuckets: m.machineTwBuckets,
+                        machineCloseWaitSeconds: m.machineCloseWaitSeconds,
+                      };
+                    })(),
                     http: form.http,
                     tls: form.tls,
                     socks: form.socks,
@@ -1775,6 +1822,7 @@ export default function NodePage() {
       http: 0,
       tls: 0,
       socks: 0,
+      ...machineFormDefaults(),
     });
     setErrors({});
   };
@@ -2408,6 +2456,14 @@ export default function NodePage() {
                 </span>
               </div>
             </div>
+            <div className="flex justify-between items-center text-sm">
+              <span className="text-default-600">整机连接</span>
+              <MachineConnChip
+                admin
+                machine={machineOf(node)}
+                showLabel={false}
+              />
+            </div>
             <div className="flex justify-between text-sm">
               <span className="text-default-600">周期流量</span>
               <span className="font-medium text-sm text-danger-600 dark:text-danger-400">
@@ -3033,6 +3089,7 @@ export default function NodePage() {
                                       handleViewNodeTrafficLogs={
                                         handleViewNodeTrafficLogs
                                       }
+                                      machineOf={machineOf}
                                       nodeExpiryStats={nodeExpiryStats}
                                       nodeFilterMode={nodeFilterMode}
                                       nodeGroups={nodeGroups}
@@ -3109,6 +3166,7 @@ export default function NodePage() {
                   handleEdit={handleEdit}
                   handleResetNodeTraffic={handleResetNodeTraffic}
                   handleViewNodeTrafficLogs={handleViewNodeTrafficLogs}
+                  machineOf={machineOf}
                   nodeExpiryStats={nodeExpiryStats}
                   nodeFilterMode={nodeFilterMode}
                   nodeGroups={nodeGroups}
@@ -3479,6 +3537,25 @@ export default function NodePage() {
                   公网线路（如 DMIT，非专线/IPLC）。作为隧道入口时，规则只能转发到 VLESS Reality Vision 落地或「我自己的节点」；线路机本身不会承载链式节点。
                 </p>
               </div>
+              {(() => {
+                const editing = isEdit
+                  ? nodeList.find((item) => item.id === form.id)
+                  : undefined;
+
+                return (
+                  <MachineProtectSection
+                    capable={editing?.machineProtectCapable === true}
+                    errors={errors}
+                    form={form}
+                    isEdit={isEdit}
+                    machine={editing ? machineOf(editing) : null}
+                    online={editing?.connectionStatus === "online"}
+                    onChange={(patch) =>
+                      setForm((prev) => ({ ...prev, ...patch }))
+                    }
+                  />
+                );
+              })()}
               <Accordion variant="bordered">
                 <AccordionItem
                   key="advanced"

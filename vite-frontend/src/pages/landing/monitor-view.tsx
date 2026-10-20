@@ -30,6 +30,7 @@ import {
   landingStatus,
 } from "@/api/landing";
 import { useH5Mode } from "@/hooks/useH5Mode";
+import { MachineConnChip } from "@/pages/node/machine-conn";
 import { Button } from "@/shadcn-bridge/heroui/button";
 import { Card, CardBody, CardHeader } from "@/shadcn-bridge/heroui/card";
 import {
@@ -567,6 +568,9 @@ function ServerHeader({
             <Pill tone="default">
               节点 {server.activeNodeCount}/{server.nodeCount}
             </Pill>
+            {server.source === "shared" ? (
+              <MachineConnChip admin={data.admin} machine={server.machine} />
+            ) : null}
             <AgeHint
               ageHintMs={server.ageHintMs}
               data={data}

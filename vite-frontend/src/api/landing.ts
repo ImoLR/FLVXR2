@@ -1,3 +1,4 @@
+import type { MachineView } from "./types";
 import type { ServerEgressView } from "./landing-egress";
 
 import Network from "./network";
@@ -334,6 +335,8 @@ export interface LandingMonitorServer {
   quotaLimitBytes?: number;
   quotaPaused?: boolean;
   nodes: LandingMonitorNode[];
+  /** Shared servers: whole-machine connections from 妙妙屋 (absent = unknown). */
+  machine?: MachineView | null;
 }
 export interface LandingMonitorData {
   generatedAt: number;
