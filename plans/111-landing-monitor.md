@@ -80,7 +80,7 @@ Frontend-only (`vite-frontend/src/pages/landing/monitor-view.tsx`); same data, s
 - [x] Build + lint
 - [x] Demo (lmdemo + gallery) → screenshots incl. before/after H5 grid → `/root/flvx-workers/runs/landing-monitor-r2/screens/`
 - [x] Request rate unchanged vs r1 (measured)
-- [ ] Commit, push, CI green
+- [x] Commit, push, CI green (263b59eb, CI 39373576144: frontend, backend, agent, PostgreSQL contract all success)
 
 ### Round 2 results
 - Server header: cyan band (自有落地) / purple band (妙妙屋共享), 18px (H5) / 20px (desktop) bold name with the
