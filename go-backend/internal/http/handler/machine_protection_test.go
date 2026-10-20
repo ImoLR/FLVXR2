@@ -47,7 +47,7 @@ func adminRequest(t *testing.T, method, path string) *http.Request {
 // and never breaks the status poll.
 func TestSharedLandingMachinePassthrough(t *testing.T) {
 	e := newFlowTestEnv(t)
-	statusBody := `{"core":{"state":"running"},"collected_at":%d,"nodes":[],"machine":{"conns":{"total":640,"tcp":600,"udp":40,"established":200,"time_wait":350,"close_wait":10,"other_tcp":40},"protect":{"owner":"mmwx","enabled":true,"max_total":1500,"tw_buckets":500,"close_wait_seconds":10,"blocking":false,"dropped_total":5},"updated_at":"%s"}}`
+	statusBody := `{"core":{"state":"running"},"collected_at":%d,"nodes":[],"machine":{"conns":{"total":640,"tcp":600,"udp":40,"established":200,"time_wait":350,"close_wait":10,"other_tcp":40},"protect":{"owner":"mmwx","enabled":true,"max_total":1000,"tw_buckets":500,"close_wait_seconds":10,"blocking":false,"dropped_total":5},"updated_at":"%s"}}`
 	body := func() string {
 		return strings.NewReplacer("%d", strings.TrimSpace(jsonInt(time.Now().UnixMilli())), "%s", time.Now().UTC().Format(time.RFC3339)).Replace(statusBody)
 	}
@@ -106,7 +106,7 @@ func TestSharedLandingMachinePassthrough(t *testing.T) {
 	}
 	conns := machine["conns"].(map[string]interface{})
 	prot := machine["protect"].(map[string]interface{})
-	if conns["total"] != float64(640) || conns["timeWait"] != float64(350) || prot["owner"] != "mmwx" || prot["maxTotal"] != float64(1500) || prot["droppedTotal"] != float64(5) {
+	if conns["total"] != float64(640) || conns["timeWait"] != float64(350) || prot["owner"] != "mmwx" || prot["maxTotal"] != float64(1000) || prot["droppedTotal"] != float64(5) {
 		t.Fatalf("machine %v", machine)
 	}
 	var shared model.LandingServer

@@ -23,8 +23,8 @@ func assertMachineDefaults(t *testing.T, r *repo.Repository, name string) {
 	if err := r.DB().Where("name = ?", name).Take(&n).Error; err != nil {
 		t.Fatal(err)
 	}
-	if !n.MachineProtectEnabled || n.MachineMaxTotal != 1500 || n.MachineTWBuckets != 500 || n.MachineCloseWaitSeconds != 10 {
-		t.Fatalf("%s: machine columns %v %d %d %d, want true 1500 500 10", name, n.MachineProtectEnabled, n.MachineMaxTotal, n.MachineTWBuckets, n.MachineCloseWaitSeconds)
+	if !n.MachineProtectEnabled || n.MachineMaxTotal != 1000 || n.MachineTWBuckets != 500 || n.MachineCloseWaitSeconds != 10 {
+		t.Fatalf("%s: machine columns %v %d %d %d, want true 1000 500 10", name, n.MachineProtectEnabled, n.MachineMaxTotal, n.MachineTWBuckets, n.MachineCloseWaitSeconds)
 	}
 	m, err := r.GetNodeMachineProtection(n.ID)
 	if err != nil || m != repo.DefaultMachineProtection() {

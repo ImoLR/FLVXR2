@@ -61,7 +61,7 @@ func TestMachineProtectionPushOnlyToCapableAgents(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			s, _, base := machineServer(t)
 			done := make(chan error, 1)
-			want := repo.MachineProtection{Enabled: true, MaxTotal: 1500, TWBuckets: 500, CloseWaitSeconds: 10}
+			want := repo.MachineProtection{Enabled: true, MaxTotal: 1000, TWBuckets: 500, CloseWaitSeconds: 10}
 			s.SetNodeOnlineHook(func(id int64) { done <- s.SyncMachineProtection(id, want) })
 			c, _, err := websocket.DefaultDialer.Dial(base+"/system-info?type=1&secret=test-secret"+tc.query, nil)
 			if err != nil {
@@ -70,7 +70,7 @@ func TestMachineProtectionPushOnlyToCapableAgents(t *testing.T) {
 			defer c.Close()
 			if tc.push {
 				typ, reqID, data := readCommand(t, c)
-				if typ != "SetMachineProtection" || data["enabled"] != true || data["maxTotal"] != float64(1500) ||
+				if typ != "SetMachineProtection" || data["enabled"] != true || data["maxTotal"] != float64(1000) ||
 					data["twBuckets"] != float64(500) || data["closeWaitSeconds"] != float64(10) {
 					t.Fatalf("command %s %v", typ, data)
 				}
@@ -127,7 +127,7 @@ func TestMachineReportStoredAndBroadcastToAdminsOnly(t *testing.T) {
 	}
 	metric := `{"type":"metric","data":{"uptime":5,"cpu_usage":1,"memory_usage":2,"tcp_conns":7,"ipv6_ra_status":"ok",` +
 		`"machine_conns":{"total":823,"tcp":700,"udp":123,"established":300,"time_wait":350,"close_wait":20,"other_tcp":30},` +
-		`"machine_protect":{"owner":"flvx","enabled":true,"max_total":1500,"tw_buckets":500,"close_wait_seconds":10,"blocking":false,"dropped_total":4,"ports":6,"error":""}}}`
+		`"machine_protect":{"owner":"flvx","enabled":true,"max_total":1000,"tw_buckets":500,"close_wait_seconds":10,"blocking":false,"dropped_total":4,"ports":6,"error":""}}}`
 	if err := node.WriteMessage(websocket.TextMessage, []byte(metric)); err != nil {
 		t.Fatal(err)
 	}
@@ -170,7 +170,7 @@ func TestMachineReportStoredAndBroadcastToAdminsOnly(t *testing.T) {
 		sample = s.MachineStatus(1)
 		time.Sleep(10 * time.Millisecond)
 	}
-	if sample == nil || sample.Conns.Total != 823 || sample.Protect.DroppedTotal != 4 || *sample.Protect.MaxTotal != 1500 {
+	if sample == nil || sample.Conns.Total != 823 || sample.Protect.DroppedTotal != 4 || *sample.Protect.MaxTotal != 1000 {
 		t.Fatalf("stored %+v", sample)
 	}
 	// The next 1 s metric without the fields keeps the sample.
@@ -186,7 +186,7 @@ func TestMachineReportStoredAndBroadcastToAdminsOnly(t *testing.T) {
 }
 
 func TestMachineSampleViewAndBounds(t *testing.T) {
-	maxTotal, tw, cw := int64(1500), int64(500), int64(10)
+	maxTotal, tw, cw := int64(1000), int64(500), int64(10)
 	conns, prot := SanitizeMachine(
 		&MachineConns{Total: 1, TCP: 900, UDP: 30, Established: -5, TimeWait: 600, CloseWait: 40, OtherTCP: 260},
 		&MachineProtect{Owner: "flvx", Enabled: true, MaxTotal: &maxTotal, TWBuckets: &tw, CloseWaitSeconds: &cw, Blocking: true, DroppedTotal: -1, Ports: 4, Error: strings.Repeat("错", 400), MmwxStatus: "weird"})
@@ -199,7 +199,7 @@ func TestMachineSampleViewAndBounds(t *testing.T) {
 	sample := &MachineSample{Conns: conns, Protect: prot, At: time.Now()}
 	admin, _ := json.Marshal(sample.View(true))
 	user, _ := json.Marshal(sample.View(false))
-	for _, want := range []string{`"maxTotal":1500`, `"twBuckets":500`, `"closeWaitSeconds":10`, `"ports":4`, `"error":`, `"timeWait":600`} {
+	for _, want := range []string{`"maxTotal":1000`, `"twBuckets":500`, `"closeWaitSeconds":10`, `"ports":4`, `"error":`, `"timeWait":600`} {
 		if !strings.Contains(string(admin), want) {
 			t.Fatalf("admin view lacks %s: %s", want, admin)
 		}
@@ -209,7 +209,7 @@ func TestMachineSampleViewAndBounds(t *testing.T) {
 			t.Fatalf("user view leaks %s: %s", leak, user)
 		}
 	}
-	if !strings.Contains(string(user), `"maxTotal":1500`) || !strings.Contains(string(user), `"blocking":true`) || !strings.Contains(string(user), `"total":930`) {
+	if !strings.Contains(string(user), `"maxTotal":1000`) || !strings.Contains(string(user), `"blocking":true`) || !strings.Contains(string(user), `"total":930`) {
 		t.Fatalf("user view lacks chip fields: %s", user)
 	}
 	off := &MachineSample{Protect: &MachineProtect{Owner: "flvx", Enabled: false, MaxTotal: &maxTotal}, At: time.Now()}
@@ -243,7 +243,7 @@ func TestMachineSampleViewAndBounds(t *testing.T) {
 
 // Memory of the in-memory store for 200 nodes (resource note in the plan).
 func TestMachineStoreMemoryFor200Nodes(t *testing.T) {
-	maxTotal := int64(1500)
+	maxTotal := int64(1000)
 	var before, after runtime.MemStats
 	runtime.GC()
 	runtime.ReadMemStats(&before)

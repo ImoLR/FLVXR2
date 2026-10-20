@@ -113,7 +113,7 @@ func TestMachineProtectionSettingsContract(t *testing.T) {
 	if err := r.DB().Order("id").Find(&nodes).Error; err != nil || len(nodes) != 2 {
 		t.Fatalf("nodes %d %v", len(nodes), err)
 	}
-	if n := nodes[0]; !n.MachineProtectEnabled || n.MachineMaxTotal != 1500 || n.MachineTWBuckets != 500 || n.MachineCloseWaitSeconds != 10 {
+	if n := nodes[0]; !n.MachineProtectEnabled || n.MachineMaxTotal != 1000 || n.MachineTWBuckets != 500 || n.MachineCloseWaitSeconds != 10 {
 		t.Fatalf("defaults %+v", n)
 	}
 	if n := nodes[1]; n.MachineProtectEnabled || n.MachineMaxTotal != 0 || n.MachineTWBuckets != 0 || n.MachineCloseWaitSeconds != 30 {
@@ -132,7 +132,7 @@ func TestMachineProtectionSettingsContract(t *testing.T) {
 		if out := update(bad); out.Code == 0 {
 			t.Fatalf("%v accepted", bad)
 		}
-		if n := nodeRow(t, r, id); n.MachineMaxTotal != 1500 || n.MachineTWBuckets != 500 || n.MachineCloseWaitSeconds != 10 || !n.MachineProtectEnabled {
+		if n := nodeRow(t, r, id); n.MachineMaxTotal != 1000 || n.MachineTWBuckets != 500 || n.MachineCloseWaitSeconds != 10 || !n.MachineProtectEnabled {
 			t.Fatalf("rejected update changed the row: %+v", n)
 		}
 	}
@@ -143,7 +143,7 @@ func TestMachineProtectionSettingsContract(t *testing.T) {
 	if out := update(nil); out.Code != 0 {
 		t.Fatalf("plain update = %+v", out)
 	}
-	if n := nodeRow(t, r, id); n.MachineTWBuckets != 0 || n.MachineMaxTotal != 1500 || !n.MachineProtectEnabled || n.MachineCloseWaitSeconds != 10 {
+	if n := nodeRow(t, r, id); n.MachineTWBuckets != 0 || n.MachineMaxTotal != 1000 || !n.MachineProtectEnabled || n.MachineCloseWaitSeconds != 10 {
 		t.Fatalf("partial update %+v", n)
 	}
 
@@ -155,7 +155,7 @@ func TestMachineProtectionSettingsContract(t *testing.T) {
 			first = m
 		}
 	}
-	if first["machineProtectEnabled"] != true || first["machineMaxTotal"] != float64(1500) || first["machineTwBuckets"] != float64(0) ||
+	if first["machineProtectEnabled"] != true || first["machineMaxTotal"] != float64(1000) || first["machineTwBuckets"] != float64(0) ||
 		first["machineCloseWaitSeconds"] != float64(10) || first["machine"] != nil || first["machineProtectCapable"] != false {
 		t.Fatalf("node list item %v", first)
 	}
@@ -183,7 +183,7 @@ func TestMachineProtectionPushAndVisibilityContract(t *testing.T) {
 	// Connect: the stored setting is pushed at once.
 	c := dialAgent(t, base, n.Secret)
 	cmd := nextMachineCmd(t, c, n.Secret)
-	if cmd.Data["enabled"] != true || cmd.Data["maxTotal"] != float64(1500) || cmd.Data["twBuckets"] != float64(500) || cmd.Data["closeWaitSeconds"] != float64(10) {
+	if cmd.Data["enabled"] != true || cmd.Data["maxTotal"] != float64(1000) || cmd.Data["twBuckets"] != float64(500) || cmd.Data["closeWaitSeconds"] != float64(10) {
 		t.Fatalf("push on connect %v", cmd.Data)
 	}
 	// Change: pushed again.
@@ -191,7 +191,7 @@ func TestMachineProtectionPushAndVisibilityContract(t *testing.T) {
 		"port": n.Port, "machineProtectEnabled": false}); out.Code != 0 {
 		t.Fatalf("update = %+v", out)
 	}
-	if cmd = nextMachineCmd(t, c, n.Secret); cmd.Data["enabled"] != false || cmd.Data["maxTotal"] != float64(1500) {
+	if cmd = nextMachineCmd(t, c, n.Secret); cmd.Data["enabled"] != false || cmd.Data["maxTotal"] != float64(1000) {
 		t.Fatalf("push on change %v", cmd.Data)
 	}
 	// Reconnect: pushed again (the panel is authoritative).
@@ -204,7 +204,7 @@ func TestMachineProtectionPushAndVisibilityContract(t *testing.T) {
 	// A metric with the sample: admins see everything, monitor users only the chip fields.
 	metric := `{"type":"metric","data":{"uptime":5,"cpu_usage":1,"memory_usage":1,"tcp_conns":700,` +
 		`"machine_conns":{"total":823,"tcp":700,"udp":123,"established":300,"time_wait":350,"close_wait":20,"other_tcp":30},` +
-		`"machine_protect":{"owner":"flvx","enabled":true,"max_total":1500,"tw_buckets":500,"close_wait_seconds":10,"blocking":true,"dropped_total":12,"ports":4,"error":"x"}}}`
+		`"machine_protect":{"owner":"flvx","enabled":true,"max_total":1000,"tw_buckets":500,"close_wait_seconds":10,"blocking":true,"dropped_total":12,"ports":4,"error":"x"}}}`
 	if err := c.WriteMessage(websocket.TextMessage, []byte(metric)); err != nil {
 		t.Fatal(err)
 	}
@@ -224,7 +224,7 @@ func TestMachineProtectionPushAndVisibilityContract(t *testing.T) {
 	}
 	prot := adminMachine["protect"].(map[string]interface{})
 	conns := adminMachine["conns"].(map[string]interface{})
-	if conns["total"] != float64(823) || conns["timeWait"] != float64(350) || prot["maxTotal"] != float64(1500) || prot["twBuckets"] != float64(500) ||
+	if conns["total"] != float64(823) || conns["timeWait"] != float64(350) || prot["maxTotal"] != float64(1000) || prot["twBuckets"] != float64(500) ||
 		prot["blocking"] != true || prot["droppedTotal"] != float64(12) || prot["error"] != "x" {
 		t.Fatalf("admin machine %v", adminMachine)
 	}
@@ -239,7 +239,7 @@ func TestMachineProtectionPushAndVisibilityContract(t *testing.T) {
 	user, _ := auth.GenerateToken(2, "mon", 1, secret)
 	out := getContractEnvelope(t, router, user, "/api/v1/monitor/nodes")
 	body := mustJSON(t, out.Data)
-	if out.Code != 0 || !strings.Contains(body, `"total":823`) || !strings.Contains(body, `"maxTotal":1500`) || !strings.Contains(body, `"blocking":true`) {
+	if out.Code != 0 || !strings.Contains(body, `"total":823`) || !strings.Contains(body, `"maxTotal":1000`) || !strings.Contains(body, `"blocking":true`) {
 		t.Fatalf("user monitor = %d %s", out.Code, body)
 	}
 	for _, leak := range []string{"twBuckets", "closeWaitSeconds", `"error"`, `"ports"`} {

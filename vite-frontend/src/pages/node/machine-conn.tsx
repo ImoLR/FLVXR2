@@ -14,7 +14,7 @@ import {
 
 export const MACHINE_DEFAULTS = {
   enabled: true,
-  maxTotal: 1500,
+  maxTotal: 1000,
   twBuckets: 500,
   closeWaitSeconds: 10,
 };
@@ -243,7 +243,7 @@ export function MachineBreakdown({
   );
 }
 
-/** 「整机连接 823/1500」 chip with a click breakdown (hover shows the summary). */
+/** 「整机连接 823/1000」 chip with a click breakdown (hover shows the summary). */
 export function MachineConnChip({
   machine,
   admin = false,
@@ -445,7 +445,7 @@ export function MachineProtectSection({
             errorMessage={errors.machineMaxTotal}
             isInvalid={!!errors.machineMaxTotal}
             label="整机连接上限"
-            placeholder="1500"
+            placeholder="1000"
             type="number"
             value={form.machineMaxTotal}
             variant="bordered"

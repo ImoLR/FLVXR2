@@ -437,7 +437,7 @@ func TestMachineProtectionNetnsE2E(t *testing.T) {
 	}
 	writeStatus := func() {
 		doc, _ := json.Marshal(map[string]any{"version": 1, "owner": "mmwx", "updated_at": time.Now().UTC().Format(time.RFC3339),
-			"enabled": true, "max_total": 1500, "tw_buckets": 500, "close_wait_seconds": 10, "total": 30, "tcp": 25, "udp": 5, "blocking": false, "dropped_total": 3})
+			"enabled": true, "max_total": 1000, "tw_buckets": 500, "close_wait_seconds": 10, "total": 30, "tcp": 25, "udp": 5, "blocking": false, "dropped_total": 3})
 		if err := os.WriteFile(statusPath, doc, 0o644); err != nil {
 			t.Fatal(err)
 		}

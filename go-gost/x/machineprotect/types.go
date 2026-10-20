@@ -19,9 +19,11 @@ import (
 	"time"
 )
 
-// User-approved defaults (2026-10-20). CLOSE_WAIT was changed from 30 s to 10 s.
+// User-approved defaults (2026-10-20): cap 1000 (first approved as 1500), CLOSE_WAIT
+// 10 s (first approved as 30 s; not 5 s, a CLOSE_WAIT socket may still be flushing
+// the tail of a download to a slow client), TIME_WAIT 500.
 const (
-	DefaultMaxTotal         int64 = 1500
+	DefaultMaxTotal         int64 = 1000
 	DefaultTWBuckets        int64 = 500
 	DefaultCloseWaitSeconds int64 = 10
 
