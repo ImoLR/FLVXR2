@@ -695,6 +695,11 @@ func (h *Handler) nodeCreate(w http.ResponseWriter, r *http.Request) {
 		response.WriteJSON(w, response.ErrDefault("节点名称和地址不能为空"))
 		return
 	}
+	extraIPs, err := repo.NormalizeNodeExtraIPs(asString(req["extraIPs"]), serverIP, asString(req["serverIpV4"]), asString(req["serverIpV6"]))
+	if err != nil {
+		response.WriteJSON(w, response.ErrDefault(err.Error()))
+		return
+	}
 
 	panelIPFamily := ""
 	if value := asString(req["panelIpFamily"]); value != "" {
@@ -758,7 +763,7 @@ func (h *Handler) nodeCreate(w http.ResponseWriter, r *http.Request) {
 		nullableText(asString(req["remoteUrl"])),
 		nullableText(asString(req["remoteToken"])),
 		nullableText(asString(req["remoteConfig"])),
-		nullableText(asString(req["extraIPs"])),
+		nullableText(extraIPs),
 		actorUserID,
 		egressIPFamily,
 		panelIPFamily,
@@ -837,6 +842,23 @@ func (h *Handler) nodeUpdate(w http.ResponseWriter, r *http.Request) {
 		response.WriteJSON(w, response.ErrDefault(err.Error()))
 		return
 	}
+	// 从 serverIp(serverIpV4/serverIpV6/intranetIp) 中选择第一个非空作为 serverIP
+	// 优先使用 serverIp（兼容旧 API），否则从 serverIpV4/serverIpV6/intranetIp 中选择
+	serverIP := asString(req["serverIp"])
+	if serverIP == "" {
+		serverIP = asString(req["serverIpV4"])
+	}
+	if serverIP == "" {
+		serverIP = asString(req["serverIpV6"])
+	}
+	if serverIP == "" {
+		serverIP = asString(req["intranetIp"])
+	}
+	extraIPs, err := repo.NormalizeNodeExtraIPs(asString(req["extraIPs"]), serverIP, asString(req["serverIpV4"]), asString(req["serverIpV6"]))
+	if err != nil {
+		response.WriteJSON(w, response.ErrDefault(err.Error()))
+		return
+	}
 
 	if err := h.repo.ValidateNodeLandingPortRange(id, defaultString(asString(req["port"]), "1000-65535")); err != nil {
 		response.WriteJSON(w, response.ErrDefault(err.Error()))
@@ -877,18 +899,6 @@ func (h *Handler) nodeUpdate(w http.ResponseWriter, r *http.Request) {
 	} else {
 		groupID = nil
 	}
-	// 从 serverIp(serverIpV4/serverIpV6/intranetIp) 中选择第一个非空作为 serverIP
-	// 优先使用 serverIp（兼容旧 API），否则从 serverIpV4/serverIpV6/intranetIp 中选择
-	serverIP := asString(req["serverIp"])
-	if serverIP == "" {
-		serverIP = asString(req["serverIpV4"])
-	}
-	if serverIP == "" {
-		serverIP = asString(req["serverIpV6"])
-	}
-	if serverIP == "" {
-		serverIP = asString(req["intranetIp"])
-	}
 	if err := h.repo.UpdateNode(id,
 		asString(req["name"]),
 		serverIP,
@@ -897,7 +907,7 @@ func (h *Handler) nodeUpdate(w http.ResponseWriter, r *http.Request) {
 		nullableText(asString(req["intranetIp"])),
 		defaultString(asString(req["port"]), "1000-65535"),
 		nullableText(asString(req["interfaceName"])),
-		nullableText(asString(req["extraIPs"])),
+		nullableText(extraIPs),
 		nullableText(strings.TrimSpace(asString(req["remark"]))),
 		nullableUnixMilli(asInt64(req["expiryTime"], 0)),
 		nullableText(normalizeNodeRenewalCycle(asString(req["renewalCycle"]))),
@@ -943,7 +953,7 @@ func (h *Handler) nodeUpdate(w http.ResponseWriter, r *http.Request) {
 	newNode.ServerIPV4 = sql.NullString{String: asString(req["serverIpV4"]), Valid: strings.TrimSpace(asString(req["serverIpV4"])) != ""}
 	newNode.ServerIPV6 = sql.NullString{String: asString(req["serverIpV6"]), Valid: strings.TrimSpace(asString(req["serverIpV6"])) != ""}
 	newNode.IntranetIP = sql.NullString{String: asString(req["intranetIp"]), Valid: strings.TrimSpace(asString(req["intranetIp"])) != ""}
-	newNode.ExtraIPs = sql.NullString{String: asString(req["extraIPs"]), Valid: strings.TrimSpace(asString(req["extraIPs"])) != ""}
+	newNode.ExtraIPs = sql.NullString{String: extraIPs, Valid: extraIPs != ""}
 	newNode.InterfaceName = sql.NullString{String: asString(req["interfaceName"]), Valid: strings.TrimSpace(asString(req["interfaceName"])) != ""}
 	newNode.TCPListenAddr = defaultString(asString(req["tcpListenAddr"]), "[::]")
 	newNode.UDPListenAddr = defaultString(asString(req["udpListenAddr"]), "[::]")
@@ -5373,16 +5383,10 @@ func pickNodeAddressLan(node *nodeRecord) string {
 	if node == nil {
 		return ""
 	}
+	// Extra IPs are additional public entry addresses. They are never dialed
+	// implicitly; a hop uses one only when it is set as the custom connect IP.
 	if ip := strings.TrimSpace(node.IntranetIP); ip != "" {
 		return ip
-	}
-	if ips := strings.TrimSpace(node.ExtraIPs); ips != "" {
-		for _, ip := range strings.Split(ips, ",") {
-			ip = strings.TrimSpace(ip)
-			if ip != "" && !strings.HasPrefix(ip, "[") {
-				return ip
-			}
-		}
 	}
 	return ""
 }
