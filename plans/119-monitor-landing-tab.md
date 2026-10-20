@@ -14,4 +14,10 @@ User report 2026-10-20 (test user `leekao`, granted shared landing 「Boil Hinet
 - [x] Frontend: `AgeHint` uses the item's `ageHintMs` (falls back to the response-level value)
 - [x] Frontend: 监控 entry tab picked from content (no more remembered tab); undecided = no tab shown, a tab clicked meanwhile wins
 - [x] Gates: tsc, eslint (changed files), go vet + handler tests
-- [ ] Release fork.63 (CI + Images green, Latest), prod panel upgrade with rollback dir, verify as `leekao`-like view
+- [x] Release fork.63 (CI 39486857813 + Images 39486858080 green, Latest, 10 assets), prod panel upgrade with rollback dir, verify as `leekao`-like view
+
+## Result (2026-10-20 ~20:10Z)
+- Prod panel `3.0.27-fork.63`, healthy, nodes online 29/29. No DB change, no agent OTA.
+- Rollback: `/opt/flvx-svc/rollback/pre-fork63-*` (`./rollback.sh`), kept with pre-fork62.
+- As `leekao` (token signed locally, read-only calls): `/monitor/nodes` = 0 nodes → page opens 「落地」;
+  「Boil Hinet 马年」 shared: conns 0, up/down 0 (was null), sample age 36 s < hint 150 s → no 「数据 N 秒前」.
