@@ -163,7 +163,9 @@ export function RuleLandingTarget({
             listboxVariant="grouped"
             placeholder={loading ? "正在加载…" : "请选择落地节点"}
             selectedKeys={
-              value.landingNodeId ? [String(value.landingNodeId)] : []
+              nodes.some((node) => node.id === value.landingNodeId)
+                ? [String(value.landingNodeId)]
+                : []
             }
             variant="bordered"
             onSelectionChange={(keys) =>
