@@ -3196,12 +3196,6 @@ func (h *Handler) forwardUpdateWithReq(w http.ResponseWriter, r *http.Request, r
 		response.WriteJSON(w, response.ErrDefault("链式规则目标异常"))
 		return
 	}
-	if !isReplay {
-		if chain, _ := h.repo.GetForwardChainByForward(id); chain != nil && remoteAddr == chainTarget(chain.Port) {
-			response.WriteJSON(w, response.ErrDefault("「我自己的节点」规则请在编辑弹窗中修改"))
-			return
-		}
-	}
 	if err := h.lineMachinePreCheck(tunnelID, req); err != nil {
 		response.WriteJSON(w, response.ErrDefault(err.Error()))
 		return
@@ -3216,6 +3210,14 @@ func (h *Handler) forwardUpdateWithReq(w http.ResponseWriter, r *http.Request, r
 	if landingErr != nil {
 		response.WriteJSON(w, response.ErrDefault(landingErr.Error()))
 		return
+	}
+	if !isReplay {
+		// A chain rule's loopback target is owned by its chain: only the
+		// chain paths (edit dialog, driver) may keep or change it.
+		if chain, _ := h.repo.GetForwardChainByForward(id); chain != nil && remoteAddr == chainTarget(chain.Port) {
+			response.WriteJSON(w, response.ErrDefault("「我自己的节点」规则请在编辑弹窗中修改"))
+			return
+		}
 	}
 	targetChanged := remoteAddr != forward.RemoteAddr || tunnelID != forward.TunnelID || landingID != forward.LandingNodeID
 	if !isReplay && targetChanged {

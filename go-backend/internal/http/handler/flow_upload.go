@@ -135,13 +135,7 @@ func (h *Handler) flowUpload(w http.ResponseWriter, r *http.Request) {
 		}
 		parseErr = json.Unmarshal(payload, &report)
 		items = report.Flows
-		// Chain nodes (plan 108) are never billed as landings: the rule is
-		// billed at its entry. Drop their counters before accounting.
-		for _, c := range report.Counters {
-			if c.ID < model.ChainAgentIDBase {
-				counters = append(counters, c)
-			}
-		}
+		counters = filterChainCounters(report.Counters)
 	} else {
 		parseErr = json.Unmarshal(payload, &items)
 	}
@@ -306,4 +300,17 @@ func (d *flowUploadDeduper) expireLocked() {
 	if drop > 0 {
 		d.order = append(d.order[:0], d.order[drop:]...)
 	}
+}
+
+// filterChainCounters drops chain-node counters (plan 108): a chain rule is
+// billed at its entry like any rule; its hidden exit nodes are never billed
+// as landing nodes.
+func filterChainCounters(in []repo.LandingCounter) []repo.LandingCounter {
+	out := make([]repo.LandingCounter, 0, len(in))
+	for _, c := range in {
+		if c.ID < model.ChainAgentIDBase {
+			out = append(out, c)
+		}
+	}
+	return out
 }

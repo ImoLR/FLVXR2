@@ -35,11 +35,14 @@ const (
 	chainRateWindow     = 10 * time.Minute
 	chainRateMax        = 5 // non-admin chain creates / link changes per user per window
 	chainMaxRunning     = 3 // background chain operations panel-wide
-	chainCreateDeadline = 5 * time.Minute
 	chainStaleAfter     = 10 * time.Minute
 	chainFailedKeep     = time.Hour
 	chainReconcileEvery = 2 * time.Minute
 )
+
+// chainCreateDeadline bounds one operation (first Core install included);
+// tests shorten it.
+var chainCreateDeadline = 5 * time.Minute
 
 var idemKeyRe = regexp.MustCompile(`^[A-Za-z0-9_-]{8,64}$`)
 
