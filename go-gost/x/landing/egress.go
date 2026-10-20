@@ -47,6 +47,32 @@ type EgressOutbound struct {
 	Flow      string           `json:"flow,omitempty"`
 	Reality   *EgressReality   `json:"reality,omitempty"`
 	WireGuard *EgressWireGuard `json:"wireguard,omitempty"`
+	// Transport options of chain upstreams (plan 108). Empty values keep the
+	// plan 107 rendering byte for byte: TCP, no TLS, Reality only via Reality.
+	Network  string      `json:"network,omitempty"`  // tcp | ws | grpc
+	Security string      `json:"security,omitempty"` // none | tls | reality
+	TLS      *EgressTLS  `json:"tls,omitempty"`
+	WS       *EgressWS   `json:"ws,omitempty"`
+	GRPC     *EgressGRPC `json:"grpc,omitempty"`
+	Cipher   string      `json:"cipher,omitempty"` // VMess security
+	Obfs     string      `json:"obfs,omitempty"`   // Hysteria2 salamander password
+}
+
+type EgressTLS struct {
+	ServerName   string   `json:"server_name,omitempty"`
+	ALPN         []string `json:"alpn,omitempty"`
+	Fingerprint  string   `json:"fingerprint,omitempty"`
+	PinnedSHA256 string   `json:"pinned_sha256,omitempty"`
+}
+
+type EgressWS struct {
+	Path string `json:"path,omitempty"`
+	Host string `json:"host,omitempty"`
+}
+
+type EgressGRPC struct {
+	ServiceName string `json:"service_name,omitempty"`
+	MultiMode   bool   `json:"multi_mode,omitempty"`
 }
 
 type EgressReality struct {
@@ -87,6 +113,10 @@ func (e *Egress) active() bool { return e != nil && (len(e.Outbounds) > 0 || len
 
 var (
 	outboundTagRe = regexp.MustCompile(`^flvxo-[a-z0-9]{1,32}$`)
+	chainTagRe    = regexp.MustCompile(`^flvxc-[0-9]{1,20}$`)
+	wsPathRe      = regexp.MustCompile(`^/[A-Za-z0-9._~!$&'()*+,;=:@%/?-]{0,255}$`)
+	grpcNameRe    = regexp.MustCompile(`^[A-Za-z0-9._/-]{1,128}$`)
+	pinnedRe      = regexp.MustCompile(`^[0-9a-f]{64}(,[0-9a-f]{64}){0,3}$`)
 	geoCodeRe     = regexp.MustCompile(`^[a-z0-9][a-z0-9!_.-]{0,63}$`)
 	geoAttrRe     = regexp.MustCompile(`^[a-z0-9!_-]{1,32}$`)
 	domainValueRe = regexp.MustCompile(`^[a-z0-9_*.-]{1,253}$`)
@@ -99,6 +129,106 @@ var egressProtocols = map[string]bool{"http": true, "tls": true, "quic": true, "
 var ss2022Methods = map[string]int{"2022-blake3-aes-128-gcm": 16, "2022-blake3-aes-256-gcm": 32, "2022-blake3-chacha20-poly1305": 32}
 var ssAEADMethods = map[string]bool{"aes-128-gcm": true, "aes-256-gcm": true, "chacha20-ietf-poly1305": true, "xchacha20-ietf-poly1305": true}
 var realityFingerprints = map[string]bool{"chrome": true, "firefox": true, "safari": true, "ios": true, "android": true, "edge": true, "random": true, "randomized": true}
+var tlsFingerprints = map[string]bool{"chrome": true, "firefox": true, "safari": true, "ios": true, "android": true, "edge": true, "360": true, "qq": true, "random": true, "randomized": true}
+var tlsALPN = map[string]bool{"h2": true, "http/1.1": true, "h3": true}
+var vmessCiphers = map[string]bool{"auto": true, "aes-128-gcm": true, "chacha20-poly1305": true, "none": true, "zero": true}
+
+func validSecret(s string, max int) bool {
+	return s != "" && len(s) <= max && !strings.ContainsAny(s, "\r\n\x00")
+}
+
+// validTLS checks client TLS options; certificate verification is always on
+// (the Core removed allowInsecure), a pinned certificate hash may replace it.
+func (t *EgressTLS) validate() error {
+	if t == nil {
+		return nil
+	}
+	if t.ServerName != "" {
+		if _, err := netip.ParseAddr(t.ServerName); err != nil && (len(t.ServerName) > 253 || !hostnameRe.MatchString(t.ServerName)) {
+			return fmt.Errorf("invalid TLS server name")
+		}
+	}
+	if len(t.ALPN) > 3 {
+		return fmt.Errorf("invalid TLS ALPN")
+	}
+	for _, a := range t.ALPN {
+		if !tlsALPN[a] {
+			return fmt.Errorf("invalid TLS ALPN")
+		}
+	}
+	if t.Fingerprint != "" && !tlsFingerprints[t.Fingerprint] {
+		return fmt.Errorf("invalid TLS fingerprint")
+	}
+	if t.PinnedSHA256 != "" && !pinnedRe.MatchString(t.PinnedSHA256) {
+		return fmt.Errorf("invalid pinned certificate hash")
+	}
+	return nil
+}
+
+// validateTransport checks network/security/transport of VLESS, VMess and
+// Trojan upstreams. Vision flow needs plain TCP with TLS or Reality.
+func (o EgressOutbound) validateTransport(defaultSecurity string, securities ...string) error {
+	network := o.Network
+	if network == "" {
+		network = "tcp"
+	}
+	switch network {
+	case "tcp":
+		if o.WS != nil || o.GRPC != nil {
+			return fmt.Errorf("transport settings do not match network for %s", o.Tag)
+		}
+	case "ws":
+		if o.GRPC != nil || (o.WS != nil && ((o.WS.Path != "" && !wsPathRe.MatchString(o.WS.Path)) || (o.WS.Host != "" && (len(o.WS.Host) > 253 || !hostnameRe.MatchString(o.WS.Host))))) {
+			return fmt.Errorf("invalid WebSocket settings for %s", o.Tag)
+		}
+	case "grpc":
+		if o.WS != nil || o.GRPC == nil || !grpcNameRe.MatchString(o.GRPC.ServiceName) {
+			return fmt.Errorf("invalid gRPC settings for %s", o.Tag)
+		}
+	default:
+		return fmt.Errorf("unsupported network for %s", o.Tag)
+	}
+	security := o.Security
+	if security == "" {
+		security = defaultSecurity
+		if o.Reality != nil {
+			security = "reality"
+		}
+	}
+	allowed := false
+	for _, s := range securities {
+		allowed = allowed || s == security
+	}
+	if !allowed {
+		return fmt.Errorf("unsupported security for %s", o.Tag)
+	}
+	switch security {
+	case "reality":
+		r := o.Reality
+		if r == nil || o.TLS != nil || (network != "tcp" && network != "grpc") || !hostnameRe.MatchString(r.ServerName) || !decodeKey(r.PublicKey, true, 32) || !shortIDRe.MatchString(r.ShortID) || len(r.ShortID)%2 != 0 || (r.Fingerprint != "" && !realityFingerprints[r.Fingerprint]) {
+			return fmt.Errorf("invalid Reality settings for %s", o.Tag)
+		}
+	case "tls":
+		if o.Reality != nil {
+			return fmt.Errorf("invalid TLS settings for %s", o.Tag)
+		}
+		if err := o.TLS.validate(); err != nil {
+			return fmt.Errorf("%s: %w", o.Tag, err)
+		}
+	default:
+		if o.Reality != nil || o.TLS != nil {
+			return fmt.Errorf("security settings without security for %s", o.Tag)
+		}
+	}
+	if o.Flow != "" && (o.Flow != "xtls-rprx-vision" || network != "tcp" || security == "none" || o.Type != "vless") {
+		return fmt.Errorf("invalid flow for %s", o.Tag)
+	}
+	return nil
+}
+
+func (o EgressOutbound) plainTransport() bool {
+	return o.Network == "" && o.Security == "" && o.TLS == nil && o.WS == nil && o.GRPC == nil && o.Cipher == "" && o.Obfs == ""
+}
 
 // blockedPrefixes mirrors blockedDestinations for address checks in Go.
 var blockedPrefixes = func() []netip.Prefix {
@@ -218,11 +348,14 @@ func decodeKey(s string, raw bool, n int) bool {
 }
 
 func (o EgressOutbound) validate() error {
-	if !outboundTagRe.MatchString(o.Tag) {
+	if !outboundTagRe.MatchString(o.Tag) && !chainTagRe.MatchString(o.Tag) {
 		return fmt.Errorf("invalid outbound tag")
 	}
 	if !egressIPVersions[o.IPVersion] {
 		return fmt.Errorf("invalid ip_version for %s", o.Tag)
+	}
+	if o.Type != "vless" && o.Type != "vmess" && o.Type != "trojan" && o.Type != "hysteria2" && o.Type != "http" && !o.plainTransport() {
+		return fmt.Errorf("transport options are not supported for %s", o.Tag)
 	}
 	proxy := func() error {
 		if !validHost(o.Server) || o.Port < 1 || o.Port > 65535 {
@@ -244,6 +377,42 @@ func (o EgressOutbound) validate() error {
 		}
 		if len(o.Username) > 255 || len(o.Password) > 255 || strings.ContainsAny(o.Username+o.Password, "\r\n\x00") {
 			return fmt.Errorf("invalid proxy credentials for %s", o.Tag)
+		}
+		if o.Type == "http" && !o.plainTransport() {
+			// HTTPS proxies: TLS only, plain TCP, nothing else.
+			if (o.Security != "tls" && o.Security != "none") || o.Network != "" || o.WS != nil || o.GRPC != nil || o.Reality != nil || o.Cipher != "" || o.Obfs != "" || (o.Security == "none" && o.TLS != nil) {
+				return fmt.Errorf("invalid HTTPS proxy settings for %s", o.Tag)
+			}
+			if err := o.TLS.validate(); err != nil {
+				return fmt.Errorf("%s: %w", o.Tag, err)
+			}
+		}
+		return nil
+	case "vmess":
+		if err := proxy(); err != nil {
+			return err
+		}
+		if _, err := uuid.Parse(o.UUID); err != nil || (o.Cipher != "" && !vmessCiphers[o.Cipher]) || o.Flow != "" || o.Obfs != "" {
+			return fmt.Errorf("invalid VMess credentials for %s", o.Tag)
+		}
+		return o.validateTransport("none", "none", "tls")
+	case "trojan":
+		if err := proxy(); err != nil {
+			return err
+		}
+		if !validSecret(o.Password, 256) || o.Cipher != "" || o.Obfs != "" || o.Flow != "" {
+			return fmt.Errorf("invalid Trojan password for %s", o.Tag)
+		}
+		return o.validateTransport("tls", "tls")
+	case "hysteria2":
+		if err := proxy(); err != nil {
+			return err
+		}
+		if !validSecret(o.Password, 256) || (o.Obfs != "" && !validSecret(o.Obfs, 256)) || o.Network != "" || (o.Security != "" && o.Security != "tls") || o.WS != nil || o.GRPC != nil || o.Reality != nil || o.Cipher != "" || o.Flow != "" {
+			return fmt.Errorf("invalid Hysteria2 settings for %s", o.Tag)
+		}
+		if err := o.TLS.validate(); err != nil {
+			return fmt.Errorf("%s: %w", o.Tag, err)
 		}
 		return nil
 	case "shadowsocks":
@@ -270,14 +439,18 @@ func (o EgressOutbound) validate() error {
 		if err := proxy(); err != nil {
 			return err
 		}
-		if _, err := uuid.Parse(o.UUID); err != nil || (o.Flow != "" && o.Flow != "xtls-rprx-vision") {
+		if _, err := uuid.Parse(o.UUID); err != nil || (o.Flow != "" && o.Flow != "xtls-rprx-vision") || o.Cipher != "" || o.Obfs != "" {
 			return fmt.Errorf("invalid VLESS credentials for %s", o.Tag)
 		}
-		r := o.Reality
-		if r == nil || !hostnameRe.MatchString(r.ServerName) || !decodeKey(r.PublicKey, true, 32) || !shortIDRe.MatchString(r.ShortID) || len(r.ShortID)%2 != 0 || (r.Fingerprint != "" && !realityFingerprints[r.Fingerprint]) {
-			return fmt.Errorf("invalid Reality settings for %s", o.Tag)
+		if o.plainTransport() {
+			// Plan 107 templates: VLESS is always TCP + Reality.
+			r := o.Reality
+			if r == nil || !hostnameRe.MatchString(r.ServerName) || !decodeKey(r.PublicKey, true, 32) || !shortIDRe.MatchString(r.ShortID) || len(r.ShortID)%2 != 0 || (r.Fingerprint != "" && !realityFingerprints[r.Fingerprint]) {
+				return fmt.Errorf("invalid Reality settings for %s", o.Tag)
+			}
+			return nil
 		}
-		return nil
+		return o.validateTransport("none", "none", "tls", "reality")
 	case "wireguard":
 		w := o.WireGuard
 		if w == nil || !decodeKey(w.PrivateKey, false, 32) || !decodeKey(w.PeerPublicKey, false, 32) {
@@ -348,8 +521,8 @@ func (e *Egress) validate(nodeTags map[string]bool) error {
 	}
 	tags := map[string]bool{"direct": true, "block": true}
 	for _, o := range e.Outbounds {
-		if tags[o.Tag] {
-			return fmt.Errorf("duplicate outbound tag")
+		if tags[o.Tag] || !outboundTagRe.MatchString(o.Tag) {
+			return fmt.Errorf("duplicate or invalid outbound tag")
 		}
 		if err := o.validate(); err != nil {
 			return err
@@ -498,6 +671,10 @@ func (o EgressOutbound) render(local localAddrs) (map[string]any, string) {
 			server["users"] = []any{map[string]any{"user": o.Username, "pass": o.Password}}
 		}
 		out["settings"] = map[string]any{"servers": []any{server}}
+		if o.Type == "http" && o.Security == "tls" {
+			stream["security"] = "tls"
+			stream["tlsSettings"] = o.tlsSettings(nil)
+		}
 	case "shadowsocks":
 		out["protocol"] = "shadowsocks"
 		out["settings"] = map[string]any{"servers": []any{map[string]any{"address": o.Server, "port": o.Port, "method": o.Method, "password": o.Password}}}
@@ -508,13 +685,31 @@ func (o EgressOutbound) render(local localAddrs) (map[string]any, string) {
 			user["flow"] = o.Flow
 		}
 		out["settings"] = map[string]any{"vnext": []any{map[string]any{"address": o.Server, "port": o.Port, "users": []any{user}}}}
-		fp := o.Reality.Fingerprint
-		if fp == "" {
-			fp = "chrome"
+		o.renderTransport(stream, "none")
+	case "vmess":
+		out["protocol"] = "vmess"
+		cipher := o.Cipher
+		if cipher == "" {
+			cipher = "auto"
 		}
-		stream["network"] = "tcp"
-		stream["security"] = "reality"
-		stream["realitySettings"] = map[string]any{"serverName": o.Reality.ServerName, "publicKey": o.Reality.PublicKey, "shortId": o.Reality.ShortID, "fingerprint": fp}
+		out["settings"] = map[string]any{"vnext": []any{map[string]any{"address": o.Server, "port": o.Port, "users": []any{map[string]any{"id": o.UUID, "security": cipher}}}}}
+		o.renderTransport(stream, "none")
+	case "trojan":
+		out["protocol"] = "trojan"
+		out["settings"] = map[string]any{"servers": []any{map[string]any{"address": o.Server, "port": o.Port, "password": o.Password}}}
+		o.renderTransport(stream, "tls")
+	case "hysteria2":
+		// Core 26.x: protocol "hysteria" version 2 over the hysteria transport;
+		// salamander obfuscation is a UDP final mask.
+		out["protocol"] = "hysteria"
+		out["settings"] = map[string]any{"version": 2, "address": o.Server, "port": o.Port}
+		stream["network"] = "hysteria"
+		stream["security"] = "tls"
+		stream["tlsSettings"] = o.tlsSettings([]string{"h3"})
+		stream["hysteriaSettings"] = map[string]any{"version": 2, "auth": o.Password}
+		if o.Obfs != "" {
+			stream["finalmask"] = map[string]any{"udp": []any{map[string]any{"type": "salamander", "settings": map[string]any{"password": o.Obfs}}}}
+		}
 	case "wireguard":
 		w := o.WireGuard
 		var addresses []string
@@ -562,6 +757,81 @@ func (o EgressOutbound) render(local localAddrs) (map[string]any, string) {
 		out["streamSettings"] = stream
 	}
 	return out, ""
+}
+
+// tlsSettings renders client TLS. The server address is the SNI when no name
+// is given and it is a hostname, matching what share-link clients do.
+func (o EgressOutbound) tlsSettings(defaultALPN []string) map[string]any {
+	t := map[string]any{}
+	name, alpn := "", defaultALPN
+	if o.TLS != nil {
+		name = o.TLS.ServerName
+		if len(o.TLS.ALPN) > 0 {
+			alpn = o.TLS.ALPN
+		}
+		if o.TLS.Fingerprint != "" {
+			t["fingerprint"] = o.TLS.Fingerprint
+		}
+		if o.TLS.PinnedSHA256 != "" {
+			t["pinnedPeerCertSha256"] = o.TLS.PinnedSHA256
+		}
+	}
+	if name == "" {
+		if _, err := netip.ParseAddr(o.Server); err != nil {
+			name = o.Server
+		}
+	}
+	if name != "" {
+		t["serverName"] = name
+	}
+	if len(alpn) > 0 {
+		t["alpn"] = alpn
+	}
+	return t
+}
+
+// renderTransport fills network, security and transport settings of VLESS,
+// VMess and Trojan. Plain VLESS (plan 107) renders TCP + Reality as before.
+func (o EgressOutbound) renderTransport(stream map[string]any, defaultSecurity string) {
+	network := o.Network
+	if network == "" {
+		network = "tcp"
+	}
+	stream["network"] = network
+	security := o.Security
+	if security == "" {
+		security = defaultSecurity
+		if o.Reality != nil {
+			security = "reality"
+		}
+	}
+	switch security {
+	case "reality":
+		fp := o.Reality.Fingerprint
+		if fp == "" {
+			fp = "chrome"
+		}
+		stream["security"] = "reality"
+		stream["realitySettings"] = map[string]any{"serverName": o.Reality.ServerName, "publicKey": o.Reality.PublicKey, "shortId": o.Reality.ShortID, "fingerprint": fp}
+	case "tls":
+		stream["security"] = "tls"
+		stream["tlsSettings"] = o.tlsSettings(nil)
+	}
+	switch network {
+	case "ws":
+		ws := map[string]any{"path": "/"}
+		if o.WS != nil {
+			if o.WS.Path != "" {
+				ws["path"] = o.WS.Path
+			}
+			if o.WS.Host != "" {
+				ws["host"] = o.WS.Host
+			}
+		}
+		stream["wsSettings"] = ws
+	case "grpc":
+		stream["grpcSettings"] = map[string]any{"serviceName": o.GRPC.ServiceName, "multiMode": o.GRPC.MultiMode}
+	}
 }
 
 // geoIPReader expands a geoip category; tests replace it.
