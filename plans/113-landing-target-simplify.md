@@ -24,9 +24,9 @@ entry-variant link) or creates a chain-owned VLESS node; users never get nodes c
 - [x] 「＋ 新建落地节点」 in the picker opens the shared create-node dialog (owner = rule owner, protocol locked on 线路机),
       auto-selects the new node
 - [x] Reuse hint in the create dialog when the user already has a compatible node on that server (「使用它」 / 「仍然新建」)
-- [ ] Backend `landingServerId` = reuse-or-create (API compat for stale frontends), per-user single-flight, never another
+- [x] Backend `landingServerId` = reuse-or-create (API compat for stale frontends), per-user single-flight, never another
       user's or a chain-internal node
-- [ ] Landing node lists show 「规则 N」 (one grouped query); delete refusal names the referencing rules
+- [x] Landing node lists show 「规则 N」 (one grouped query); delete refusal names the referencing rules
 - [x] Rule rows targeting a landing node offer 「复制链接」 (entry-variant link) — verify existing, add if missing
 - [ ] Tests (handler + repo + acceptance runner extension), full go test vs baseline, frontend build/lint
 - [ ] Resource numbers, screenshot gallery /landing-target/, Chinese summary
@@ -38,3 +38,8 @@ entry-variant link) or creates a chain-owned VLESS node; users never get nodes c
 - `e6c976b6`: local acceptance runner T1 added; Python AST and diff checks passed. Runtime lab evidence pending.
 - `53af2286`: shared create dialog, grouped owner picker, disabled reasons, reuse hint and landing-rule copy-link action implemented. Build, lint and screenshot evidence pending. Node chip/delete-refusal UI implemented; backend evidence pending.
 - All Round 2 logs and gallery source: `/root/flvx-workers/runs/landing-target-r2/`. No release, tag, production DB access or agent modification.
+
+- `cd3bfe67`: backend targeted tests passed (`backend-targeted.log`): lookup isolation/oldest-active reuse/caps/protocol change/concurrent submits/create-update rollback/Reality constraint/immutable port-protocol/delete names/per-IP links. PostgreSQL optional cases skipped without a test DSN.
+- Confirmed clean baseline list queries (Query + Row callbacks, `queries-before-confirmed.log`): native 1/6 nodes = 5/15; shared 1/6 = 7/27. After: native 7/7, shared 8/8, admin and user. `forwardCount` uses exactly one grouped query. Reuse lookup has a composite index; no data migration.
+- Frontend `npm run build` passed; `eslint-comparison.json`: historical errors 96 → 96, new errors 0. Three small changed components: 0 errors / warnings. Independent copy of existing dependencies with an identical package.json used, no dependency upgrade.
+- Clean baseline worktree removed after preserving logs; only its temporary probe and dependency symlink were deleted.
