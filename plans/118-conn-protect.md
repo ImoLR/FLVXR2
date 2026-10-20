@@ -60,7 +60,7 @@ Blocking hysteresis: start dropping NEW connections when total ≥ cap, release 
 - [x] 16. Gates: go vet, go-backend tests vs baseline, go-gost/x tests, tsc, eslint on changed files, `npm run build` (< 5 MiB)
 - [x] 17. Resource numbers: agent CPU/RSS at ~1500 sockets, nft cost, report payload growth, panel memory for 200 nodes
 - [x] 18. Screenshots (desktop + H5, light + dark) + index page in the run dir
-- [ ] 19. Push, CI green, contract doc, summary
+- [x] 19. Push, CI green, contract doc, summary
 
 ## Out of scope
 Release/tag/OTA/prod; mmwx code; `tcp_conns` and its display; forward/user/landing-node limits; billing;
@@ -108,3 +108,7 @@ tcp_tw_reuse or other sysctls; history of the new numbers; other existing nft ta
   pass; real pinned Core CLOSE_WAIT test pass (`logs/real-core-close-wait.txt`).
 - Screenshots: 43 PNG + `index.html` in the run dir `screens/` (desktop + H5, light + dark, before/after pairs on the
   same data), 0 page/console errors; local demo panel + fake agents speaking the real WS protocol + fake Custom.
+- Push + CI: branch `feature/3.0.27-conn-protect` pushed; CI Build Check green on every pushed head (code head
+  `2231d09f` = run 39485816542). Contract doc `/root/flvx-workers/contracts/machine-protect-v1.md`; summary
+  `/root/flvx-workers/runs/conn-protect/summary.md`. Plan 118 build round complete — release waits for the user's
+  screenshot approval (release-round steps in the summary).
