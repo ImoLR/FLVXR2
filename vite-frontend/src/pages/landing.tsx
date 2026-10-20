@@ -274,6 +274,25 @@ export default function LandingPage() {
                           ? "妙妙屋共享"
                           : "FLVX 自有落地"}
                       </p>
+                      {admin && (server.chainOnly || (server.chainNodeCount ?? 0) > 0) && (
+                        <div className="mt-1 flex flex-wrap items-center gap-1">
+                          {server.chainOnly && (
+                            <Chip
+                              color="secondary"
+                              size="sm"
+                              title="自动安装，只承载「我自己的节点」链式规则，不对用户开放；在节点页「启用为落地」可转为公开落地"
+                              variant="flat"
+                            >
+                              链式
+                            </Chip>
+                          )}
+                          {(server.chainNodeCount ?? 0) > 0 && (
+                            <Chip className="text-default-600" size="sm" variant="bordered">
+                              链式节点 {server.chainNodeCount}
+                            </Chip>
+                          )}
+                        </div>
+                      )}
                     </div>
                     <Chip
                       className={

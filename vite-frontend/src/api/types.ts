@@ -590,6 +590,7 @@ export interface UserMutationPayload {
 
 export interface NodeMutationPayload {
   defaultUserQuotaBytes?: number;
+  lineMachine?: boolean;
   region?: string;
   regionCity?: string;
   egressIpFamily?: "" | "v4" | "v6" | "dual";
