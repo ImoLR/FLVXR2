@@ -143,15 +143,17 @@ const formatAge = (ms: number): string => {
 // cannot make shared data look fresh.
 function AgeHint({
   sampleAt,
+  ageHintMs,
   data,
 }: {
   sampleAt: number;
+  ageHintMs?: number;
   data: LandingMonitorData;
 }) {
   if (!sampleAt) return <Pill tone="default">暂无实时数据</Pill>;
   const age = data.generatedAt - sampleAt;
 
-  if (age <= data.ageHintMs) return null;
+  if (age <= (ageHintMs ?? data.ageHintMs)) return null;
 
   return <Pill tone="warning">{formatAge(age)}</Pill>;
 }
@@ -565,7 +567,11 @@ function ServerHeader({
             <Pill tone="default">
               节点 {server.activeNodeCount}/{server.nodeCount}
             </Pill>
-            <AgeHint data={data} sampleAt={server.sampleAt} />
+            <AgeHint
+              ageHintMs={server.ageHintMs}
+              data={data}
+              sampleAt={server.sampleAt}
+            />
           </div>
         </div>
       </div>
@@ -696,7 +702,11 @@ function NodeCard({
           {landingProtocolLabel(node.protocol)} · {node.port}
         </Pill>
         <IpCount pill node={node} />
-        <AgeHint data={data} sampleAt={node.sampleAt} />
+        <AgeHint
+          ageHintMs={node.ageHintMs}
+          data={data}
+          sampleAt={node.sampleAt}
+        />
       </div>
       <NodeNotes node={node} />
       <NodeRates node={node} />
@@ -727,7 +737,11 @@ function NodeListRow({
       <NodeNotes node={node} />
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
         <NodeRates node={node} />
-        <AgeHint data={data} sampleAt={node.sampleAt} />
+        <AgeHint
+          ageHintMs={node.ageHintMs}
+          data={data}
+          sampleAt={node.sampleAt}
+        />
       </div>
       <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-default-600">
         <ConnCount node={node} />
@@ -832,7 +846,11 @@ function NodeTable({
             </TableCell>
             <TableCell>
               <div className="flex w-full justify-center">
-                <AgeHint data={data} sampleAt={node.sampleAt} />
+                <AgeHint
+                  ageHintMs={node.ageHintMs}
+                  data={data}
+                  sampleAt={node.sampleAt}
+                />
                 {node.sampleAt &&
                 data.generatedAt - node.sampleAt <= data.ageHintMs ? (
                   <Pill tone="success">实时</Pill>

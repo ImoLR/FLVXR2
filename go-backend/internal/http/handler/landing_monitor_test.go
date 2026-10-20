@@ -373,3 +373,36 @@ func TestLandingMonitorEndpointVisibilityAndRates(t *testing.T) {
 		})
 	}
 }
+
+// A user only granted a shared server (no own nodes) sees 0 rates, not 「-」, and
+// shared servers/nodes get the longer age-hint (Custom collects once a minute) so
+// a normal 30–90 s old sample never shows 「数据 N 秒前」.
+func TestLandingMonitorViewAgeHintAndEmptyServerRates(t *testing.T) {
+	now := time.UnixMilli(1_800_000_000_000)
+	data := &repo.LandingMonitorData{
+		Servers: []model.LandingServer{
+			{ID: 1, Name: "native", Source: "native", Status: "active", NodeID: 2},
+			{ID: 3, Name: "shared", Source: "shared", Status: "active", SharedCollectedAt: now.UnixMilli() - 80_000},
+		},
+		Nodes:        []model.LandingNode{{ID: 10, LandingServerID: 1, Status: "active"}},
+		NativeOnline: map[int64]bool{2: true},
+		Quotas:       map[int64]repo.LandingMonitorQuota{},
+	}
+	out := buildLandingMonitorView(data, false, newLandingRateTracker(0), now)
+	if len(out.Servers) != 2 {
+		t.Fatalf("servers = %d", len(out.Servers))
+	}
+	native, shared := out.Servers[0], out.Servers[1]
+	if native.AgeHintMs != landingMonitorAgeHintMs || native.Nodes[0].AgeHintMs != landingMonitorAgeHintMs {
+		t.Fatalf("native age hint = %d / %d", native.AgeHintMs, native.Nodes[0].AgeHintMs)
+	}
+	if native.UpRate != nil || native.DownRate != nil {
+		t.Fatalf("native server with an unsampled node must keep nil rates, got %v/%v", native.UpRate, native.DownRate)
+	}
+	if shared.AgeHintMs != landingMonitorSharedAgeHintMs || out.GeneratedAt-shared.SampleAt > shared.AgeHintMs {
+		t.Fatalf("shared age hint = %d, sample age %d", shared.AgeHintMs, out.GeneratedAt-shared.SampleAt)
+	}
+	if shared.UpRate == nil || shared.DownRate == nil || *shared.UpRate != 0 || *shared.DownRate != 0 || shared.Connections != 0 {
+		t.Fatalf("server without own nodes: rates %v/%v conns %d, want 0/0/0", shared.UpRate, shared.DownRate, shared.Connections)
+	}
+}

@@ -141,7 +141,10 @@ export interface LandingUserSetting {
   serverIds?: number[];
 }
 export const landingServers = (userId?: number) =>
-  Network.post<LandingServer[]>("/landing/server/list", userId ? { userId } : {});
+  Network.post<LandingServer[]>(
+    "/landing/server/list",
+    userId ? { userId } : {},
+  );
 export const enableLandingServer = (nodeId: number) =>
   Network.post<LandingServer>("/landing/server/enable", { nodeId });
 export const saveLandingServer = (
@@ -301,6 +304,9 @@ export interface LandingMonitorNode {
   upRate: number | null;
   downRate: number | null;
   sampleAt: number;
+  // Per item 「数据 N 秒前」 threshold (shared servers collect once a minute);
+  // absent on older panels → LandingMonitorData.ageHintMs.
+  ageHintMs?: number;
   billedBytes: number;
   trafficLimitBytes: number;
 }
@@ -320,6 +326,7 @@ export interface LandingMonitorServer {
   upRate: number | null;
   downRate: number | null;
   sampleAt: number;
+  ageHintMs?: number;
   billedBytes: number;
   shareUsedBytes?: number;
   shareLimitBytes?: number;

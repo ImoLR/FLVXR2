@@ -14,6 +14,10 @@ import (
 // The UI labels data older than this with its age (「数据 N 分钟前」).
 const landingMonitorAgeHintMs = int64(30 * 1000)
 
+// Shared servers: Custom collects once a minute, so up to ~90 s is normal and
+// must not show a ticking 「数据 N 秒前」. Allow two and a half collection cycles.
+const landingMonitorSharedAgeHintMs = int64(150 * 1000)
+
 type landingMonitorNodeView struct {
 	ID                int64    `json:"id"`
 	Name              string   `json:"name"`
@@ -32,6 +36,7 @@ type landingMonitorNodeView struct {
 	UpRate            *float64 `json:"upRate"`
 	DownRate          *float64 `json:"downRate"`
 	SampleAt          int64    `json:"sampleAt"`
+	AgeHintMs         int64    `json:"ageHintMs"`
 	BilledBytes       int64    `json:"billedBytes"`
 	TrafficLimitBytes int64    `json:"trafficLimitBytes"`
 }
@@ -52,6 +57,7 @@ type landingMonitorServerView struct {
 	UpRate          *float64 `json:"upRate"`
 	DownRate        *float64 `json:"downRate"`
 	SampleAt        int64    `json:"sampleAt"`
+	AgeHintMs       int64    `json:"ageHintMs"`
 	BilledBytes     int64    `json:"billedBytes"`
 	// Admin, shared servers: the mmwx share's raw traffic used / limit.
 	ShareUsedBytes  int64 `json:"shareUsedBytes,omitempty"`
@@ -155,14 +161,18 @@ func buildLandingMonitorView(data *repo.LandingMonitorData, admin bool, tracker 
 	rates := tracker.snapshotMany(ids, nowMs)
 	for i := range data.Servers {
 		s := &data.Servers[i]
-		view := landingMonitorServerView{ID: s.ID, Name: s.Name, Source: s.Source, Status: s.Status, Nodes: []landingMonitorNodeView{}}
+		ageHint := landingMonitorAgeHintMs
+		if s.Source == "shared" {
+			ageHint = landingMonitorSharedAgeHintMs
+		}
+		view := landingMonitorServerView{ID: s.ID, Name: s.Name, Source: s.Source, Status: s.Status, AgeHintMs: ageHint, Nodes: []landingMonitorNodeView{}}
 		nodes := byServer[s.ID]
 		var upSum, downSum float64
 		rated, enabled := false, false
 		for j := range nodes {
 			n := &nodes[j]
 			status, reason := landingNodeDisplayStatus(n, s)
-			nv := landingMonitorNodeView{ID: n.ID, Name: n.Name, Protocol: n.Protocol, Port: n.Port, Status: status, PendingReason: reason, SyncError: n.SyncError, DeletePending: n.DeletePending, Connections: n.Connections, MaxConnections: n.MaxConnections, MaxOnlineIPs: n.MaxOnlineIPs, BilledBytes: n.BilledIn + n.BilledOut, TrafficLimitBytes: n.TrafficLimitBytes}
+			nv := landingMonitorNodeView{ID: n.ID, Name: n.Name, Protocol: n.Protocol, Port: n.Port, Status: status, PendingReason: reason, SyncError: n.SyncError, DeletePending: n.DeletePending, Connections: n.Connections, MaxConnections: n.MaxConnections, MaxOnlineIPs: n.MaxOnlineIPs, BilledBytes: n.BilledIn + n.BilledOut, TrafficLimitBytes: n.TrafficLimitBytes, AgeHintMs: ageHint}
 			if admin {
 				nv.UserID = n.UserID
 				nv.UserName = data.OwnerNames[n.UserID]
@@ -189,7 +199,9 @@ func buildLandingMonitorView(data *repo.LandingMonitorData, admin bool, tracker 
 			}
 			view.Nodes = append(view.Nodes, nv)
 		}
-		if rated {
+		// No nodes here (e.g. a user only granted the server): nothing can flow,
+		// so the honest numbers are 0, not 「-」 (which reads as missing data).
+		if rated || len(nodes) == 0 {
 			view.UpRate, view.DownRate = ratePtr(upSum), ratePtr(downSum)
 		}
 		if s.Source == "shared" {

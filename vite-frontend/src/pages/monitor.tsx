@@ -7,6 +7,7 @@ import { AnimatedPage } from "@/components/animated-page";
 import { Button } from "@/shadcn-bridge/heroui/button";
 import { Card, CardBody, CardHeader } from "@/shadcn-bridge/heroui/card";
 import { getMonitorNodes } from "@/api";
+import { landingMonitor } from "@/api/landing";
 import { LandingMonitorView } from "@/pages/landing/monitor-view";
 import { MonitorView } from "@/pages/node/monitor-view";
 import { TunnelMonitorView } from "@/pages/node/tunnel-monitor-view";
@@ -36,22 +37,10 @@ export default function MonitorPage() {
 
     return "list";
   });
-  const [activeTab, setActiveTab] = useState<MonitorTab>(() => {
-    try {
-      const saved = localStorage.getItem("monitor-active-tab");
-
-      if (saved === "nodes" || saved === "tunnels" || saved === "landing")
-        return saved as MonitorTab;
-    } catch {}
-
-    return "nodes";
-  });
-
-  useEffect(() => {
-    try {
-      localStorage.setItem("monitor-active-tab", activeTab);
-    } catch {}
-  }, [activeTab]);
+  // The entry tab follows what the user has (user request 2026-10-20): any
+  // node → 节点, only landings → 落地, neither → 节点. null until decided, so
+  // an empty tab never flashes first.
+  const [activeTab, setActiveTab] = useState<MonitorTab | null>(null);
   const [tunnelsLoading, setTunnelsLoading] = useState(false);
   const [tunnelRefreshTrigger, setTunnelRefreshTrigger] = useState(0);
   const [landingLoading, setLandingLoading] = useState(false);
@@ -71,35 +60,65 @@ export default function MonitorPage() {
     });
   }, []);
 
-  const loadNodes = useCallback(async (options?: { silent?: boolean }) => {
-    const silent = options?.silent ?? false;
+  const loadNodes = useCallback(
+    async (options?: {
+      silent?: boolean;
+    }): Promise<MonitorNodeApiItem[] | null> => {
+      const silent = options?.silent ?? false;
 
-    if (!silent) setNodesLoading(true);
-    try {
-      const response = await getMonitorNodes();
+      if (!silent) setNodesLoading(true);
+      try {
+        const response = await getMonitorNodes();
 
-      if (response.code === 0 && Array.isArray(response.data)) {
-        setNodesError(null);
-        setNodes(response.data);
+        if (response.code === 0 && Array.isArray(response.data)) {
+          setNodesError(null);
+          setNodes(response.data);
 
-        return;
+          return response.data;
+        }
+        if (response.code === 403) {
+          setNodes([]);
+          setNodesError(response.msg || "暂无监控权限，请联系管理员授权");
+
+          return null;
+        }
+        if (!silent) toast.error(response.msg || "加载节点失败");
+      } catch {
+        if (!silent) toast.error("加载节点失败");
+      } finally {
+        if (!silent) setNodesLoading(false);
       }
-      if (response.code === 403) {
-        setNodes([]);
-        setNodesError(response.msg || "暂无监控权限，请联系管理员授权");
 
-        return;
-      }
-      if (!silent) toast.error(response.msg || "加载节点失败");
-    } catch {
-      if (!silent) toast.error("加载节点失败");
-    } finally {
-      if (!silent) setNodesLoading(false);
-    }
-  }, []);
+      return null;
+    },
+    [],
+  );
 
   useEffect(() => {
-    void loadNodes();
+    let cancelled = false;
+
+    void (async () => {
+      const list = await loadNodes();
+      let tab: MonitorTab = "nodes";
+
+      if (!list || !list.some((n) => Number(n.id) > 0)) {
+        try {
+          const res = await landingMonitor();
+
+          if (res.code === 0 && (res.data?.servers?.length ?? 0) > 0) {
+            tab = "landing";
+          }
+        } catch {
+          /* keep 节点 */
+        }
+      }
+      // A tab the user already picked while this was loading wins.
+      if (!cancelled) setActiveTab((prev) => prev ?? tab);
+    })();
+
+    return () => {
+      cancelled = true;
+    };
   }, [loadNodes]);
   usePullToRefresh(loadNodes);
 
