@@ -47,3 +47,5 @@
 - 2026-10-20 20:48：只OTA节点47 AWS HK（隧道73/74/80出口）。fork56→fork61，request1.8秒、4秒重连；9项诊断14探测前后全通过。只有47上报landing_chain=1，全部29节点line_machine=false。SSH30秒CPU 0.3332%→0.2666%，RSS62,240→62092 KiB；无landing目录/文件，Core unit仍not-found，没有Core下载。另一面板flux_agent PID634不变。证据ota/与prod-panel-verified-ota.json。
 
 - 2026-10-20 20:49：production runner第一组P3已实证node21的临时SS节点69、Reality节点71：onlineIps=1，明细真实来源104.145.236.29且connections=1，sampleAt为本轮，monitor计数一致。面板错误/panic/fatal均0；资源辅助脚本原redeploy_fail_lines误计failed=0成功行，已收窄正则，仅修运行目录测量脚本，不改产品。后续仍须完成两组生产验收与最终哈希。
+
+- 2026-10-20 20:55：canary稳定后30秒复测CPU0.2332%、RSS62,156 KiB、15FD/8线程，与升级前15FD/8线程一致；Core仍未下载/启动，NRestarts=0，另一面板PID634不变（ota/node47-resources-steady.json）。第一组原生/共享计费逐方向、用户总量、日配额、服务器配额全部精确一致，继续限额及删除清理。
