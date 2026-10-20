@@ -1,7 +1,7 @@
 # Landing acceptance runner
 
 End-to-end acceptance for FLVX landings (plan 110 matrix, extended by plan 107
-「出站与路由」). It drives the real HTTP API as an admin and as normal users,
+「出站与路由」 and plan 113 rule targets). It drives the real HTTP API as an admin and as normal users,
 runs the real FLVX agent with the pinned fork Core (`mmwxc-core`, xray) and
 connects through the generated SS2022 / VLESS Reality links with the same Core
 as a client, verifying every payload byte.
@@ -20,8 +20,13 @@ python3 scripts/landing-acceptance/accept.py local \
   --panel /root/tmp-work/bin/paneld --agent /root/tmp-work/bin/flvx-agent \
   --core /root/tmp-work/bin/mmwxc-core-linux-amd64 --scratch /root/tmp-work/landing-acceptance
 # --only S4,E2  runs a subset (scenarios depend on users/nodes made by S2/S4)
+# --only T1,R1 runs plan 113 on fresh lab data (no S2/S4 dependency)
 # --keep        leaves the lab running; `accept.py cleanup --scratch DIR` removes it
 ```
+
+The runner uses the supplied binaries; it does not build or upgrade an agent.
+For panel-only changes, reuse an existing compatible lab agent/Core and rebuild
+only `paneld`. T1 is local-only and never runs in production mode.
 
 Lab: network namespace `flvxacc` (agent + landing Core, 198.51.100.2 /
 2001:db8:acc::2, default routes like a real server), host side 198.51.100.1
@@ -44,6 +49,7 @@ applies, failure injection, egress capability toggles, synthetic counters).
 | E1 | default profile → agent desired has no egress plan; share without capability → 不支持, assignment refused, payload unchanged |
 | E2 | native: block rule (target IP+port) hot-applied; read-only 出站 label for users; node override 默认（直连）; 强制 IPv6 / 强制 IPv4 proven both ways (own family works, other-family literal cannot leave); back to default; Core process never restarted |
 | E3 | shared: capability v1 → plan in desired with exactly this share's inbound tags; geo profile refused without geo data; policy 不允许 → plan withdrawn |
+| T1 | existing `landingNodeId` rule carries 1 MiB byte-exact and edits create no node; legacy `landingServerId` creates only when the protocol is absent, two rules reuse the same node even at the node cap; legacy edit reuses; user/admin `forwardCount`; delete refusal names the rules; deleting rules keeps both nodes |
 | R1 | Core/agent RSS, fds, threads, CPU, log and state-file size after the whole run |
 
 ## Production mode (temporary user, cleaned up on exit)
