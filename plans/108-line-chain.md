@@ -63,7 +63,7 @@
 - [x] 后端测试：每条路径一个测试（强制、删除零残留、多出口副本一致、回滚、诊断、计费）；全量 `go test` 对比基线。
 - [ ] 前端：节点开关/标签、规则弹窗、规则行、管理员计数、落地页标签；build + lint。
 - [x] 本机端到端（一次性进程）：客户端 → gost 入口 → gost 出口 → 本机 Core Reality 入站 → 本地 SS/SOCKS「用户节点」→ 测试 HTTP 服务。
-- [ ] 资源测量：1 vs 50 链式节点 Core RSS/CPU，1000 连接前后 fd/goroutine，日志/磁盘增长。
+- [x] 资源测量：1 vs 50 链式节点 Core RSS/CPU，1000 连接前后 fd/goroutine，日志/磁盘增长。
 - [ ] 截图集（电脑 + H5、管理员 + 用户、暗色弹窗）+ 发布到预览。
 - [ ] 推送分支、CI 全绿、summary.md / final.md。
 
@@ -81,3 +81,26 @@
 - r3 节点程序：`FLVX_LANDING_TEST_BINARY=... FLVX_LANDING_GEODIR=... GOMAXPROCS=2 go test -p 1 -v ./landing ./internal/net/dialer` 通过（`logs/agent-core-tests.log`），覆盖黄金 JSON、每类出站/面板解析结果的真实 Core 校验、Core PID 不变的热增删、回环目标忽略出口网卡。首次命令误用了空包 `./dialer` 且漏传 geo 数据目录，属于测试环境错误，修正后通过。
 - r3 数据库：本机一次性 PostgreSQL 18 容器（仅 127.0.0.1:26592、192 MiB 上限、tmpfs 数据、测试后已移除），`TestForwardChainLifecycleBothDialects` 的 SQLite/PostgreSQL 两项通过（`logs/postgres-chain.log`）；没有连接生产数据库。
 - r3 加强验收发现并修复：链式规则的强制删除原先沿用旧行为，仅删数据库/Core，入口 GOST 服务残留。现在仅对链式规则先尽力清理规则服务再删除；普通规则原行为保留。所有常规删除路径的单元用例增加入口 DeleteService 断言；链式定向测试通过（`logs/chain-targeted-after-fix.log`）。本地 C8 会用真实服务再核验。
+- r3 C8 真实复验通过（`logs/chain-delete-results.json`）：强制删除、删隧道、删用户后 `forward_chain` / 副本 / 规则行、两台 Core 的链式入站/出站、GOST 规则服务全部为 0；最后删除无副本的出口节点，chain_only 服务器行也为 0。临时进程/网络命名空间已自动清理。
+
+### r3 实测资源（双出口，每个出口各一台 Core）
+
+证据：`/root/flvx-workers/runs/line-chain-r3/logs/chain-lab-results.json`，C1–C7 全通过；修复后 C8 见单独的 `chain-delete-results.json`。
+
+| 项目 | 出口 A | 出口 B |
+|---|---:|---:|
+| 1 条链式规则 Core RSS | 34,752 KiB | 35,260 KiB |
+| 50 条链式规则 Core RSS | 35,016 KiB | 36,400 KiB |
+| 增加 49 份副本的 RSS 增量 | 264 KiB（5.4 KiB/份） | 1,140 KiB（23.3 KiB/份） |
+| 1 / 50 条时空闲 CPU（各测 5 秒） | 0.2% / 0.2% | 0.2% / 0.0% |
+| 1 / 50 条时 fd | 8 / 57 | 8 / 57 |
+| 1 / 50 条时 goroutine | 12 / 61 | 12 / 61 |
+| 1 / 50 条落地状态文件大小 | 3,428 / 91,560 B | 3,428 / 91,560 B |
+| 1000 连接前 / 回收后 fd | 57 / 57 | 57 / 57 |
+| 1000 连接前 / 回收后 goroutine | 61 / 59 | 61 / 59 |
+| 压测回收后的 RSS | 42,992 KiB | 44,836 KiB |
+
+- 1000 次连接（50 并发）耗时 24.3 秒，0 失败；使用 5 次空闲采样最小值比较，两个 Core 的 fd/goroutine 均不高于压测前基线。RSS 保留约 5–7 MiB Go 堆缓存，不把 RSS 当作连接泄漏指标。
+- 20 条保持连接：Core 合计增加 40 fd；用户上游恰好 20 条连接。每条连接额外成本 2 fd，即出口与回环 Core 间的一对 socket，无额外上游连接。
+- 压测与回收期间状态文件增长 0 B；入口/出口 A/出口 B 的 agent 日志增长 264,370 / 684,779 / 686,131 B（已有 GOST info 连接日志），面板 4,190 B。测试 direct 模式 Core stdout 为 `/dev/null`，不将其误报为生产 journald 的实测；生产 Core 配置仍为 warning、无 access log，并沿用现有 systemd 资源限制。
+- 验收脚本已扩展 C6 严格回收断言、C8 删除路径检查，并在每项结束即保存结果，避免中断丢证据。

@@ -79,5 +79,6 @@ dest must not be the iterative `openssl s_server`).
 | C3 | diagnosis: 出口(A/B)->目标 is the user's node, both succeed |
 | C4 | billing: the user is billed exactly the rule's (entry-measured) traffic, no landing node rows, no double count |
 | C5 | new link (SOCKS5 with auth) hot-swaps the upstream on both exits; one chain outbound per Core, Core processes unchanged |
-| C6 | 1 vs N chain nodes (Core RSS/fds/goroutines/state bytes), 1000 connections through the chain return fds/goroutines to baseline, log growth |
+| C6 | 1 vs N chain nodes (Core RSS/idle CPU/fds/goroutines/state bytes); 20 held, byte-verified streams prove 2 extra fds and exactly 1 upstream connection per stream; all 1000 downloads succeed and both Cores return fds/goroutines to baseline; log and state-file growth |
 | C7 | rule delete + batch delete: zero chain rows, no chain inbounds/outbounds left in either Core, traffic stops, landings (Cores) kept |
+| C8 | force delete, tunnel delete and user delete: zero chain/copy/forward rows, Core chain inbounds/outbounds and gost rule services; deleting the unused exit node removes its chain-only server |
