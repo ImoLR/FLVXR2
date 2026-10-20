@@ -120,8 +120,8 @@ func (r *Repository) forwardEntries(f model.Forward, allAddresses ...bool) ([]fo
 				continue
 			}
 		}
-		// Ordinary landing links expose every entry IP. Keep the plan 108
-		// chain path's existing address selection unless explicitly requested.
+		// Copy links expose every selected entry IP. Other callers retain
+		// their existing address selection unless expansion is requested.
 		if expand {
 			hosts := landingEntryHosts(entry.ServerIP)
 			if t.InIP.Valid && strings.TrimSpace(t.InIP.String) != "" {

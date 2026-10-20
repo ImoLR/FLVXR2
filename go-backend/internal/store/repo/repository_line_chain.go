@@ -1061,14 +1061,14 @@ type ForwardEntryAddress struct {
 	NodeName string `json:"nodeName"`
 }
 
-// ForwardEntryAddresses lists a rule's entry addresses, one per entry node,
+// ForwardEntryAddresses lists every selected entry address of a rule,
 // with the same tunnel/port overrides as the landing 转发版 links.
 func (r *Repository) ForwardEntryAddresses(forwardID int64) ([]ForwardEntryAddress, error) {
 	var f model.Forward
 	if err := r.db.First(&f, forwardID).Error; err != nil {
 		return nil, err
 	}
-	entries, err := r.forwardEntries(f)
+	entries, err := r.forwardEntries(f, true)
 	if err != nil {
 		return nil, err
 	}

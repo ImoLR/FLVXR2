@@ -226,7 +226,7 @@ func TestLandingTargetLinksUseEveryEntryIPWithSameCredentials(t *testing.T) {
 							t.Fatalf("entry variant=%+v err=%v", link, err)
 						}
 					}
-					// Existing chain callers still get their original single-entry behavior.
+					// Callers without expansion keep their original single-entry behavior.
 					chainEntries, err := r.forwardEntries(model.Forward{ID: 901, TunnelID: 801})
 					if err != nil || len(chainEntries) != 1 {
 						t.Fatalf("chain entry behavior changed: %+v %v", chainEntries, err)
