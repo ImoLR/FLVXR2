@@ -241,6 +241,18 @@ def p3_connect(ctx):
         res = wait_for(f"{key} carries traffic", lambda: dl(ctx, port, 4 << 20), timeout=90, interval=5)
         expect(r, f"{key}: 4 MiB byte-exact through the real landing", res["bytes"] == 4 << 20, res)
         expect(r, f"{key}: echo through the landing", can_echo(ctx, port), None)
+        if key.startswith("native"):
+            with coreclient.echo_open(port, ctx.fixture_host, ctx.fixture_port + 1):
+                def online_ips():
+                    data = ctx.api.call("landing/monitor/ips", {"nodeId": nid})
+                    return data if (data.get("onlineIps") or 0) > 0 and data.get("ips") else None
+                ip_view = wait_for(f"{key} real online IP reported", online_ips, timeout=60)
+                expect(r, f"{key}: real online IPs have connections and a sample time",
+                       all(x["connections"] > 0 for x in ip_view["ips"]) and ip_view["sampleAt"] > 0, ip_view)
+                monitor = ctx.api.call("landing/monitor")
+                monitored = next(n for s in monitor["servers"] for n in s["nodes"] if n["id"] == nid)
+                expect(r, f"{key}: monitor shows a real online IP count",
+                       (monitored.get("onlineIps") or 0) > 0, {"nodeId": nid, "onlineIps": monitored.get("onlineIps")})
         blocked = []
         for host, tport in (("127.0.0.1", 22), ("169.254.169.254", 80)):
             try:

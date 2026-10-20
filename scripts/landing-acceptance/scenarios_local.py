@@ -420,6 +420,17 @@ def s6_limits(ctx):
         try:
             held.append(wait_for("ip1", lambda: coreclient.echo_open(26588, H, ECHO), timeout=20))
             held.append(coreclient.echo_open(26589, H, ECHO))
+            def online_ips():
+                data = api.call("landing/monitor/ips", {"nodeId": ss})
+                return data if data.get("onlineIps") == 2 else None
+            ip_view = wait_for("two real client IPs reported", online_ips, timeout=45)
+            expect(r, "online IP list contains both connected sources with connections",
+                   {x["ip"] for x in ip_view["ips"]} == set(labmod.SOURCE_IPS[:2])
+                   and all(x["connections"] > 0 for x in ip_view["ips"]), ip_view)
+            monitor = api.call("landing/monitor")
+            monitored = next(n for s in monitor["servers"] for n in s["nodes"] if n["id"] == ss)
+            expect(r, "monitor onlineIps agrees with the real client IP list",
+                   monitored.get("onlineIps") == 2, {"nodeId": ss, "onlineIps": monitored.get("onlineIps")})
             third = coreclient.try_echo(26590, H, ECHO)
             expect(r, "max_online_ips 2: sources .11 and .12 work, a 3rd source IP is refused", not third, None)
             expect(r, "an already-online source can open more sessions", coreclient.try_echo(26588, H, ECHO), None)
