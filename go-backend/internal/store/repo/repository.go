@@ -4148,8 +4148,13 @@ func resolveForwardIngress(db *gorm.DB, forwardID int64, tunnelID int64) (string
 		InIP       sql.NullString
 	}
 	var fpRows []fpRow
+	columns := "forward_port.node_id, forward_port.port, node.server_ip, forward_port.in_ip"
+	if restricted {
+		// Only partial entry permission needs the node's addresses to pick from.
+		columns = "forward_port.node_id, forward_port.port, node.server_ip, node.server_ip_v4, node.server_ip_v6, node.extra_ips, forward_port.in_ip"
+	}
 	err := db.Model(&model.ForwardPort{}).
-		Select("forward_port.node_id, forward_port.port, node.server_ip, node.server_ip_v4, node.server_ip_v6, node.extra_ips, forward_port.in_ip").
+		Select(columns).
 		Joins("LEFT JOIN node ON node.id = forward_port.node_id").
 		Where("forward_port.forward_id = ?", forwardID).
 		Order("forward_port.id ASC").
@@ -4189,7 +4194,7 @@ func resolveForwardIngress(db *gorm.DB, forwardID int64, tunnelID int64) (string
 		} else if (!restricted || len(allowed) == int(entryCount)) && tunnelInIP.Valid && strings.TrimSpace(tunnelInIP.String) != "" {
 			// 🎯 2. 补上这一段！让它去读你选的“测试隧道”的域名�?
 			ip = strings.TrimSpace(tunnelInIP.String)
-		} else if picked := entryAddressesOfNode(tunnelInIP.String, row.ServerIP.String, row.ServerIPV4.String, row.ServerIPV6.String, row.ExtraIPs.String); len(picked) > 0 {
+		} else if picked := entryAddressesOfNode(restricted, tunnelInIP.String, row.ServerIP.String, row.ServerIPV4.String, row.ServerIPV6.String, row.ExtraIPs.String); len(picked) > 0 {
 			// Partial entry permission: the tunnel's picked addresses on this entry node.
 			ips = picked
 		} else if row.ServerIP.Valid && strings.TrimSpace(row.ServerIP.String) != "" {
@@ -4232,8 +4237,8 @@ func splitEntryAddressList(value string) []string {
 
 // entryAddressesOfNode returns the tunnel entry addresses that belong to one
 // entry node (primary or extra IPs), in the tunnel's order.
-func entryAddressesOfNode(tunnelInIP, serverIP, serverIPV4, serverIPV6, extraIPs string) []string {
-	if strings.TrimSpace(tunnelInIP) == "" {
+func entryAddressesOfNode(restricted bool, tunnelInIP, serverIP, serverIPV4, serverIPV6, extraIPs string) []string {
+	if !restricted || strings.TrimSpace(tunnelInIP) == "" {
 		return nil
 	}
 	own := make(map[string]bool, 4)
