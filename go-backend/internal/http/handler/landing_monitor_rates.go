@@ -1,9 +1,12 @@
 package handler
 
 import (
+	"net/netip"
+	"sort"
 	"strconv"
 	"sync"
 
+	"go-backend/internal/landingcustom"
 	"go-backend/internal/store/repo"
 )
 
@@ -21,6 +24,7 @@ const (
 	landingRateTTLMs = int64(24 * 60 * 60 * 1000)
 	// Hard bound on the map; the entry with the oldest sample makes room.
 	landingRateMaxEntries = 50000
+	landingOnlineIPLimit  = 64
 )
 
 type landingRateSample struct {
@@ -36,6 +40,10 @@ type landingRateEntry struct {
 	base    landingRateSample
 	last    landingRateSample
 	hasBase bool
+	// Only the latest IP list is retained; the rate's base sample has no IPs.
+	onlineIPCount int
+	onlineIPKnown bool
+	onlineIPs     []landingcustom.OnlineIP
 }
 
 // landingRate is what the monitor shows for one landing node. SampleAt is zero
@@ -46,6 +54,7 @@ type landingRate struct {
 	UpRate      float64 // bytes per second, client upload
 	DownRate    float64 // bytes per second, client download
 	RateOK      bool
+	OnlineIPs   *int
 }
 
 type landingRateTracker struct {
@@ -98,7 +107,9 @@ func (t *landingRateTracker) observe(counters []repo.LandingCounter, nowMs int64
 			if e == nil && len(t.entries) >= t.maxEntries {
 				t.evictOldestLocked()
 			}
-			t.entries[c.ID] = &landingRateEntry{shared: shared, last: s}
+			e = &landingRateEntry{shared: shared, last: s}
+			e.setOnlineIPs(c)
+			t.entries[c.ID] = e
 			continue
 		}
 		if s.at <= e.last.at || (!shared && s.epoch < e.last.epoch) {
@@ -108,7 +119,38 @@ func (t *landingRateTracker) observe(counters []repo.LandingCounter, nowMs int64
 			e.base, e.hasBase = e.last, true
 		}
 		e.last = s
+		e.setOnlineIPs(c)
 	}
+}
+
+func (e *landingRateEntry) setOnlineIPs(c repo.LandingCounter) {
+	e.onlineIPKnown = c.OnlineIPCount != nil && *c.OnlineIPCount >= 0
+	e.onlineIPCount = 0
+	e.onlineIPs = nil
+	if !e.onlineIPKnown {
+		return
+	}
+	e.onlineIPCount = *c.OnlineIPCount
+	if e.onlineIPCount == 0 {
+		return
+	}
+	// Copy valid IPs so request buffers and arbitrarily long strings cannot be
+	// retained by the tracker. A truncated list never changes the real count.
+	ips := make([]landingcustom.OnlineIP, 0, len(c.OnlineIPs))
+	for _, ip := range c.OnlineIPs {
+		addr, err := netip.ParseAddr(ip.IP)
+		if err == nil && addr.Zone() == "" && ip.Connections >= 0 {
+			ips = append(ips, landingcustom.OnlineIP{IP: addr.String(), Connections: ip.Connections})
+		}
+	}
+	sort.Slice(ips, func(i, j int) bool {
+		if ips[i].Connections != ips[j].Connections {
+			return ips[i].Connections > ips[j].Connections
+		}
+		return ips[i].IP < ips[j].IP
+	})
+	e.onlineIPs = make([]landingcustom.OnlineIP, min(len(ips), landingOnlineIPLimit))
+	copy(e.onlineIPs, ips)
 }
 
 func (t *landingRateTracker) evictOldestLocked() {
@@ -172,7 +214,14 @@ func (t *landingRateTracker) snapshotLocked(id, nowMs int64) landingRate {
 		return landingRate{}
 	}
 	out := landingRate{SampleAt: e.last.at, Connections: e.last.conns}
-	if !e.hasBase || nowMs-e.last.at > landingRateStaleAfterMs {
+	if nowMs-e.last.at > landingRateStaleAfterMs {
+		return out
+	}
+	if e.onlineIPKnown {
+		count := e.onlineIPCount
+		out.OnlineIPs = &count
+	}
+	if !e.hasBase {
 		return out
 	}
 	dt := e.last.at - e.base.at
@@ -188,6 +237,23 @@ func (t *landingRateTracker) snapshotLocked(id, nowMs int64) landingRate {
 	out.UpRate = float64(up) * 1000 / float64(dt)
 	out.DownRate = float64(down) * 1000 / float64(dt)
 	out.RateOK = true
+	return out
+}
+
+// onlineIPs copies the bounded list only when the IP detail is opened/refreshed;
+// the regular monitor response only reads the count.
+func (t *landingRateTracker) onlineIPs(id, nowMs int64) landingMonitorIPsView {
+	out := landingMonitorIPsView{IPs: []landingcustom.OnlineIP{}}
+	if t == nil {
+		return out
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	sample := t.snapshotLocked(id, nowMs)
+	out.OnlineIPs, out.SampleAt = sample.OnlineIPs, sample.SampleAt
+	if sample.OnlineIPs != nil {
+		out.IPs = append(out.IPs, t.entries[id].onlineIPs...)
+	}
 	return out
 }
 

@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"time"
 
+	"go-backend/internal/landingcustom"
 	"go-backend/internal/store/model"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -15,15 +16,17 @@ import (
 // LandingCounter is a cumulative Core snapshot. NodeID is set from the authenticated
 // agent, never from its payload. Epoch is the Core's monotonically increasing start time.
 type LandingCounter struct {
-	ID          int64  `json:"id"`
-	InboundTag  string `json:"inbound_tag"`
-	Epoch       string `json:"epoch"`
-	UpBytes     int64  `json:"up_bytes"`
-	DownBytes   int64  `json:"down_bytes"`
-	Connections int    `json:"connections"`
-	NodeID      int64  `json:"-"`
-	ServerID    int64  `json:"-"` // Set only by the authenticated Custom poller.
-	CollectedAt int64  `json:"-"`
+	ID            int64                    `json:"id"`
+	InboundTag    string                   `json:"inbound_tag"`
+	Epoch         string                   `json:"epoch"`
+	UpBytes       int64                    `json:"up_bytes"`
+	DownBytes     int64                    `json:"down_bytes"`
+	Connections   int                      `json:"connections"`
+	OnlineIPCount *int                     `json:"online_ip_count,omitempty"`
+	OnlineIPs     []landingcustom.OnlineIP `json:"online_ips,omitempty"`
+	NodeID        int64                    `json:"-"`
+	ServerID      int64                    `json:"-"` // Set only by the authenticated Custom poller.
+	CollectedAt   int64                    `json:"-"`
 }
 
 type ServerQuotaKey struct {

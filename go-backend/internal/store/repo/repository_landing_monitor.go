@@ -45,6 +45,18 @@ func (r *Repository) ListLandingNodeIDs() ([]int64, error) {
 	return out, err
 }
 
+// CanViewLandingMonitorNode uses the monitor's visibility rule for one detail
+// request, without loading credentials or every node on the server.
+func (r *Repository) CanViewLandingMonitorNode(userID, nodeID int64, admin bool) (bool, error) {
+	var count int64
+	q := r.db.Table("landing_node AS n").Joins("JOIN landing_server AS s ON s.id = n.landing_server_id").Where("n.id = ?", nodeID)
+	if !admin {
+		q = q.Where("n.user_id = ? AND s.status = ?", userID, "active").Where(landingAccessCond("s.id"), userID, userID)
+	}
+	err := q.Count(&count).Error
+	return count > 0, err
+}
+
 // LandingMonitorSnapshot applies the same visibility as the 落地 page: admins
 // see all servers and nodes; a user sees only active servers granted to them
 // (directly or through an enabled group) and only their own nodes there.

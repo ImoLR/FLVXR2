@@ -110,11 +110,17 @@ type Desired struct {
 	Egress   *landingegress.Plan `json:"egress,omitempty"`
 }
 type NodeStatus struct {
-	ID          string `json:"id"`
-	State       string `json:"state"`
-	Error       string `json:"error"`
-	UpBytes     int64  `json:"up_bytes"`
-	DownBytes   int64  `json:"down_bytes"`
+	ID            string     `json:"id"`
+	State         string     `json:"state"`
+	Error         string     `json:"error"`
+	UpBytes       int64      `json:"up_bytes"`
+	DownBytes     int64      `json:"down_bytes"`
+	Connections   int        `json:"connections"`
+	OnlineIPCount *int       `json:"online_ip_count,omitempty"`
+	OnlineIPs     []OnlineIP `json:"online_ips,omitempty"`
+}
+type OnlineIP struct {
+	IP          string `json:"ip"`
 	Connections int    `json:"connections"`
 }
 type Status struct {

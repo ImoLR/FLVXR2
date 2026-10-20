@@ -374,7 +374,7 @@ func (h *Handler) pollSharedLanding(ctx context.Context, client *landingcustom.C
 		if e != nil || id <= 0 {
 			return nil, errors.New("妙妙屋节点标识无效")
 		}
-		counters = append(counters, repo.LandingCounter{ID: id, ServerID: s.ID, InboundTag: fmt.Sprintf("flvxl-%d", id), Epoch: "1", CollectedAt: status.CollectedAt, UpBytes: node.UpBytes, DownBytes: node.DownBytes, Connections: node.Connections})
+		counters = append(counters, repo.LandingCounter{ID: id, ServerID: s.ID, InboundTag: fmt.Sprintf("flvxl-%d", id), Epoch: "1", CollectedAt: status.CollectedAt, UpBytes: node.UpBytes, DownBytes: node.DownBytes, Connections: node.Connections, OnlineIPCount: node.OnlineIPCount, OnlineIPs: node.OnlineIPs})
 	}
 	apply, err := h.commitFlowWithLanding(0, nil, counters)
 	if err != nil {

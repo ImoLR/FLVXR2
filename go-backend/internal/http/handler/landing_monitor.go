@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"go-backend/internal/http/response"
+	"go-backend/internal/landingcustom"
 	"go-backend/internal/store/model"
 	"go-backend/internal/store/repo"
 )
@@ -27,6 +28,7 @@ type landingMonitorNodeView struct {
 	Connections       int      `json:"connections"`
 	MaxConnections    int      `json:"maxConnections"`
 	MaxOnlineIPs      int      `json:"maxOnlineIps"`
+	OnlineIPs         *int     `json:"onlineIps"`
 	UpRate            *float64 `json:"upRate"`
 	DownRate          *float64 `json:"downRate"`
 	SampleAt          int64    `json:"sampleAt"`
@@ -67,6 +69,36 @@ type landingMonitorView struct {
 	AgeHintMs    int64                      `json:"ageHintMs"`
 	StaleAfterMs int64                      `json:"staleAfterMs"`
 	Servers      []landingMonitorServerView `json:"servers"`
+}
+
+type landingMonitorIPsView struct {
+	OnlineIPs *int                     `json:"onlineIps"`
+	IPs       []landingcustom.OnlineIP `json:"ips"`
+	SampleAt  int64                    `json:"sampleAt"`
+}
+
+func (h *Handler) landingMonitorIPs(w http.ResponseWriter, r *http.Request) {
+	scope, ok := h.resolveMonitorScope(w, r)
+	if !ok {
+		return
+	}
+	var req struct {
+		NodeID int64 `json:"nodeId"`
+	}
+	if err := landingDecode(r, &req); err != nil || req.NodeID <= 0 {
+		response.WriteJSON(w, response.Err(-1, "落地节点参数无效"))
+		return
+	}
+	visible, err := h.repo.CanViewLandingMonitorNode(scope.userID, req.NodeID, scope.roleID == 0)
+	if err != nil {
+		response.WriteJSON(w, response.Err(-2, "落地监控数据读取失败"))
+		return
+	}
+	if !visible {
+		response.WriteJSON(w, response.Err(403, "无权访问该落地节点"))
+		return
+	}
+	response.WriteJSON(w, response.OK(h.landingRateTracker().onlineIPs(req.NodeID, time.Now().UnixMilli())))
 }
 
 // landingMonitor serves the 监控 「落地」 tab: one request, a fixed number of
@@ -137,6 +169,7 @@ func buildLandingMonitorView(data *repo.LandingMonitorData, admin bool, tracker 
 			}
 			if rate, ok := rates[n.ID]; ok {
 				nv.SampleAt = rate.SampleAt
+				nv.OnlineIPs = rate.OnlineIPs
 				if rate.RateOK {
 					nv.UpRate, nv.DownRate = ratePtr(rate.UpRate), ratePtr(rate.DownRate)
 					upSum += rate.UpRate
