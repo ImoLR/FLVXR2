@@ -12,15 +12,20 @@ Base: tag `3.0.27-fork.62` (29f25ee3, = prod). Branch: `feature/3.0.27-conn-prot
 | setting | default | 0 means | range |
 |---|---|---|---|
 | 连接保护 开关 | on | — | — |
-| 整机连接上限 (`max_total`) | 1500 | no cap | 100–1,000,000 |
+| 整机连接上限 (`max_total`) | **1000** | no cap | 100–1,000,000 |
 | TIME_WAIT 上限 (`tw_buckets`, kernel `net.ipv4.tcp_max_tw_buckets`) | 500 | leave the kernel value alone | 100–2,000,000 |
 | CLOSE_WAIT 超时 (`close_wait_seconds`, native landing Core only) | **10 s** | Core default (off) | 1–3600 |
 
-CLOSE_WAIT default is 10 s, not the 30 s of the brief: user changed it 2026-10-20 ~16Z (memory
-`connection-limit-redesign.md`, the mmwx brief says 10 too).
+The user changed two defaults after the brief was written (2026-10-20 ~16Z / ~16:20Z, memory
+`connection-limit-redesign.md`; the mmwx brief says the same): 整机连接上限 **1000** (brief: 1500) and CLOSE_WAIT
+超时 **10 s** (brief: 30 s). Why 10 s and not 5 s: a socket in CLOSE_WAIT (the remote end already sent FIN) may still
+be flushing the tail of a download to a slow client, so the Core must not cut it too early. TIME_WAIT 上限 stays 500.
+Release-round note from the coordinator: measure each node's real peak breakdown with TIME_WAIT capped first (1-day
+peak node 45 ≈ 868 TCP + 110 UDP ≈ 978, node 52 ≈ 849 + 56) and raise that node's cap if the non-TIME_WAIT load is near
+1000.
 
 Blocking hysteresis: start dropping NEW connections when total ≥ cap, release when total < ⌊cap × 0.95⌋
-(1500 → release below 1425). Sampled every 5 s.
+(1000 → release below 950). Sampled every 5 s. A freshly built nft table blocks only after 5 s (conntrack warm-up).
 
 ## File contracts with the mmwx Helper (fixed names)
 - FLVX writes `/run/flvx/business-ports.json` (dir 0755, file 0644, atomic rename) on every machine:
@@ -41,7 +46,7 @@ Blocking hysteresis: start dropping NEW connections when total ≥ cap, release 
 - [x] 2. Agent counter: /proc/net tcp+tcp6+udp+udp6 row counts (= mmwx) + TCP state breakdown, one pass, 5 s; tests incl. parity with the mmwx algorithm
 - [x] 3. Agent owner detection (Helper unit active / fresh status file) + mmwx status mirror; tests
 - [x] 4. Agent business ports (gost services, nft forwards, native landing) + business-ports.json writer; tests
-- [x] 5. Agent nft guard: own table `inet flvx_machine_protection`, prerouting −150 chain only while blocking, lo exempt, ct new + port set + local destination → counter drop, named counter = dropped_total, atomic netlink batches, self-heal; tests
+- [x] 5. Agent nft guard: own table `inet flvx_machine_protection`, prerouting −150 chain only while blocking, lo exempt, ct new (TCP: opening SYN) + port set + local destination → counter drop, named counter = dropped_total, atomic netlink batches, self-heal; tests
 - [x] 6. Agent sysctl `tcp_max_tw_buckets`: save original (state file) before first change, apply on start, restore on disable / mmwx ownership; tests
 - [x] 7. Agent CLOSE_WAIT: native landing Core `default_close_wait_timeout_seconds` (verified Core semantics); tests (+ real Core if available)
 - [x] 8. Agent wiring: ONE loop per process (not per WS reconnect), settings command `SetMachineProtection` persisted in config.json, handshake capability, report `machine_conns` / `machine_protect` (only when a new 5 s sample exists); goroutine-stability test
