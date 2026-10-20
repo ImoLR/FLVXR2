@@ -275,3 +275,48 @@ func TestLandingTargetMultipleEntriesHaveUniqueMatchingLinks(t *testing.T) {
 		t.Fatalf("duplicate custom entry links: %+v %v", links, err)
 	}
 }
+
+func TestLandingTargetLinksKeepMixedCustomEntryAddresses(t *testing.T) {
+	for _, multiple := range []bool{false, true} {
+		t.Run(fmt.Sprintf("multiple=%v", multiple), func(t *testing.T) {
+			r, s := landingRepoFixture(t, "sqlite")
+			n, err := r.CreateLandingNode(501, s.ID, "mixed entry addresses", "ss2022", false)
+			if err != nil {
+				t.Fatal(err)
+			}
+			addresses := "203.0.113.1,192.0.2.99,custom.example.com"
+			if multiple {
+				addresses += ",192.0.2.2,192.0.2.3"
+			}
+			orphanSeed(t, r,
+				&model.Tunnel{ID: 801, Name: "entries", InIP: sql.NullString{String: addresses, Valid: true}},
+				&model.Forward{ID: 901, UserID: 501, TunnelID: 801, LandingNodeID: n.ID, Name: "rule"},
+				&model.ForwardPort{ForwardID: 901, NodeID: 601, Port: 15000})
+			if multiple {
+				orphanSeed(t, r,
+					&model.Node{ID: 602, Name: "second entry", ServerIP: "192.0.2.2"},
+					&model.Node{ID: 603, Name: "unassigned entry", ServerIP: "192.0.2.3"},
+					&model.ForwardPort{ForwardID: 901, NodeID: 602, Port: 16000},
+					&model.ChainTunnel{TunnelID: 801, NodeID: 603, ChainType: "1"})
+			}
+			links, err := r.LandingNodeLinks(*n)
+			want := map[string]bool{"203.0.113.1:15000": true, "192.0.2.99:15000": true, "custom.example.com:15000": true}
+			if multiple {
+				want["192.0.2.2:16000"], want["192.0.2.99:16000"], want["custom.example.com:16000"] = true, true, true
+			}
+			if err != nil || len(links) != len(want)+1 {
+				t.Fatalf("links=%+v err=%v", links, err)
+			}
+			for _, link := range links[1:] {
+				u, err := url.Parse(link.URL)
+				if err != nil || !want[u.Host] {
+					t.Fatalf("unexpected entry variant: %+v %v", link, err)
+				}
+				delete(want, u.Host)
+			}
+			if len(want) != 0 {
+				t.Fatalf("missing custom entry variants: %+v", want)
+			}
+		})
+	}
+}
