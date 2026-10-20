@@ -65,7 +65,7 @@
 - [x] 本机端到端（一次性进程）：客户端 → gost 入口 → gost 出口 → 本机 Core Reality 入站 → 本地 SS/SOCKS「用户节点」→ 测试 HTTP 服务。
 - [x] 资源测量：1 vs 50 链式节点 Core RSS/CPU，1000 连接前后 fd/goroutine，日志/磁盘增长。
 - [x] 截图集（电脑 + H5、管理员 + 用户、暗色弹窗）+ 发布到预览。
-- [ ] 推送分支、CI 全绿、summary.md / final.md。
+- [x] 推送分支、CI 全绿、summary.md / final.md。
 
 ## 核验记录
 
@@ -108,3 +108,6 @@
 - r3 截图完成：当前构建重新采集桌面 34 张、H5 26 张，管理员/用户、亮色/暗色弹窗、解析/进度/各类错误、复制链接、Reality-only 筛选与诊断均覆盖。逐张人工查看，H5 长列表另看原图；`screens/visual-review.md` 记录 60 张图片及校验值，`screens/errors.json` 为 `[]`，全部页面无横向溢出。图片内节点、版本与错误为合成数据，不代表已发布。
 - 预览已发布至 `http://104.145.236.29:8791/ea923e5e348dfb9548d4d0909b6de1ee/line-chain/index.html`。目录、错误记录、代表截图和人工记录 HTTP 均为 200，`mmwx-preview` 原本在线，无需重启；新建 symlink，原位置不存在。记录见 `logs/gallery-publication.json`。
 - 产品代码提交 `c6c744af` 已推送，CI Build Check 全绿：`https://github.com/ImoLR/FLVXR2/actions/runs/39389334183`。
+- 最终后端复核：`GOMAXPROCS=2 go test -p 1 ./...` 完整运行，退出码 1；15 个失败名称与基线完全相同（含子测试），无新增。证据 `logs/backend-full-confirmed.log`、`.exit`、`backend-final-baseline-comparison.json`。前一次外层工具会话退出 143，因此另跑此次完整确认，没有将中断当成通过。
+- 截图文档提交 `61d2524f` 已推送，CI 全绿：`https://github.com/ImoLR/FLVXR2/actions/runs/39390648765`。中文 `summary.md` / `final.md` 已写入 r3 运行目录，最终收尾提交的 SHA 与 CI 留在报告和 `logs/ci-final.json`。
+- 已清理本任务 `/root/tmp-work/line-chain/`（逻辑大小 575,689,638 B）；必要实验日志、基线对照、测量结果和截图已留在 r3。任务 demo 进程、网络命名空间和 PostgreSQL 容器均无残留，记录 `logs/cleanup.json`。无生产/真实节点写入、无 tag/release/OTA、未改其他 worktree 或记忆文件。
