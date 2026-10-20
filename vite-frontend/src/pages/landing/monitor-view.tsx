@@ -16,6 +16,7 @@ import {
   ArrowDown,
   ArrowUp,
   CornerDownRight,
+  Plug,
   Server,
   User,
 } from "lucide-react";
@@ -274,10 +275,27 @@ function StatBox({
 }
 
 const capText = (value: number, cap: number) =>
-  cap > 0 ? `${value} / ${cap}` : `${value} / 不限`;
+  `${value}/${cap > 0 ? cap : "∞"}`;
+
+// The panel only knows each node's online-IP limit, not how many IPs are
+// online right now, so this is just the limit.
+const ipCapText = (cap: number) => `IP ${cap > 0 ? cap : "∞"}`;
+
+// Connection counts read as a plug icon + "当前/上限", like 妙妙屋.
+function ConnCount({ node }: { node: LandingMonitorNode }) {
+  return (
+    <span
+      className="inline-flex items-center gap-1 whitespace-nowrap"
+      title="连接数"
+    >
+      <Plug className="h-3.5 w-3.5 shrink-0" />
+      {capText(node.connections, node.maxConnections)}
+    </span>
+  );
+}
 
 const trafficText = (bytes: number, cap: number) =>
-  `${landingGB(bytes)} / ${cap > 0 ? landingGB(cap) : "不限"} GB`;
+  `${landingGB(bytes)} / ${cap > 0 ? landingGB(cap) : "∞"} GB`;
 
 function serverTraffic(server: LandingMonitorServer, admin: boolean) {
   if (!admin && (server.quotaLimitBytes ?? 0) > 0) {
@@ -367,13 +385,16 @@ function ServerHeader({
       ) : null}
       <div className="grid grid-cols-2 gap-x-2 gap-y-3 xl:grid-cols-4 xl:gap-x-3">
         <StatBox
-          hint={data.admin ? "当前 / 上限" : "我的节点合计"}
+          hint={data.admin ? undefined : "我的节点合计"}
           label="实时连接"
           tile={accent.tile}
           value={
-            data.admin
-              ? capText(server.connections, server.maxConnections)
-              : server.connections
+            <span className="inline-flex items-center gap-1.5">
+              <Plug className="h-4 w-4 shrink-0" />
+              {data.admin
+                ? capText(server.connections, server.maxConnections)
+                : server.connections}
+            </span>
           }
         />
         <div className="order-last col-span-2 xl:order-none">
@@ -478,16 +499,14 @@ function NodeCard({
         <Pill tone="default">
           {landingProtocolLabel(node.protocol)} · {node.port}
         </Pill>
-        <Pill tone="secondary">
-          IP 上限 {node.maxOnlineIps > 0 ? node.maxOnlineIps : "不限"}
-        </Pill>
+        <Pill tone="secondary">{ipCapText(node.maxOnlineIps)}</Pill>
         <AgeHint data={data} sampleAt={node.sampleAt} />
       </div>
       <NodeNotes node={node} />
       <NodeRates node={node} />
       <div className="flex flex-wrap items-center gap-1.5">
         <Pill tone="primary">
-          连接 {capText(node.connections, node.maxConnections)}
+          <ConnCount node={node} />
         </Pill>
         <Pill tone="success">
           {trafficText(node.billedBytes, node.trafficLimitBytes)}
@@ -515,11 +534,9 @@ function NodeListRow({
         <AgeHint data={data} sampleAt={node.sampleAt} />
       </div>
       <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-default-600">
+        <ConnCount node={node} />
         <span className="whitespace-nowrap">
-          连接 {capText(node.connections, node.maxConnections)}
-        </span>
-        <span className="whitespace-nowrap">
-          IP 上限 {node.maxOnlineIps > 0 ? node.maxOnlineIps : "不限"}
+          {ipCapText(node.maxOnlineIps)}
         </span>
         <span className="whitespace-nowrap">
           {trafficText(node.billedBytes, node.trafficLimitBytes)}
@@ -555,8 +572,12 @@ function NodeTable({
         <TableColumn align="center">落地节点</TableColumn>
         <TableColumn align="center">协议 / 端口</TableColumn>
         <TableColumn align="center">速率</TableColumn>
-        <TableColumn align="center">连接数</TableColumn>
-        <TableColumn align="center">IP 上限</TableColumn>
+        <TableColumn align="center">
+          <span className="inline-flex items-center" title="连接数">
+            <Plug className="h-4 w-4" />
+          </span>
+        </TableColumn>
+        <TableColumn align="center">IP</TableColumn>
         <TableColumn align="center">本期流量</TableColumn>
         <TableColumn align="center">数据</TableColumn>
       </TableHeader>
@@ -607,7 +628,7 @@ function NodeTable({
             </TableCell>
             <TableCell>
               <span className="whitespace-nowrap font-mono text-xs text-default-600">
-                {node.maxOnlineIps > 0 ? node.maxOnlineIps : "不限"}
+                {node.maxOnlineIps > 0 ? node.maxOnlineIps : "∞"}
               </span>
             </TableCell>
             <TableCell>
@@ -819,7 +840,9 @@ export function LandingMonitorView({
         <Pill tone="secondary">
           节点 {summary.activeNodes}/{summary.nodes}
         </Pill>
-        <Pill tone="primary">连接 {summary.connections}</Pill>
+        <Pill tone="primary">
+          <Plug className="h-3 w-3" /> {summary.connections}
+        </Pill>
         <Pill tone="default">
           <ArrowUp className="h-3 w-3" /> {formatRate(summary.up)}
           <ArrowDown className="ml-1 h-3 w-3" /> {formatRate(summary.down)}
