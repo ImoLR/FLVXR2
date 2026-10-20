@@ -60,7 +60,7 @@
 - [x] 后端线路机强制（所有建/改规则路径）+ 不合规标记 + 节点开关 API + 联邦共享保护。
 - [x] 后端链式创建/状态/解析接口、异步驱动与回滚、幂等/单飞/限流、对账器。
 - [x] 后端改链接、换隧道、所有删除路径、隧道编辑、节点删除、孤儿清理、诊断目标替换、复制链接、计费。
-- [ ] 后端测试：每条路径一个测试（强制、删除零残留、多出口副本一致、回滚、诊断、计费）；全量 `go test` 对比基线。
+- [x] 后端测试：每条路径一个测试（强制、删除零残留、多出口副本一致、回滚、诊断、计费）；全量 `go test` 对比基线。
 - [ ] 前端：节点开关/标签、规则弹窗、规则行、管理员计数、落地页标签；build + lint。
 - [x] 本机端到端（一次性进程）：客户端 → gost 入口 → gost 出口 → 本机 Core Reality 入站 → 本地 SS/SOCKS「用户节点」→ 测试 HTTP 服务。
 - [ ] 资源测量：1 vs 50 链式节点 Core RSS/CPU，1000 连接前后 fd/goroutine，日志/磁盘增长。
@@ -77,3 +77,4 @@
 - 原有 C1–C7 本地验收已全过：r2 `logs/chain-lab-results.json`。包含双出口真实流量、重复拒绝、计费、改链接 Core PID 不变、单删/批删无残留。r3 将加强资源稳定值与未覆盖的清理路径证据。
 - 截图旧报错已定位到采集脚本：`modeTo()` 的 `.first()` 误点导航「分组」，模拟 `/group/user/list` 缺少 `userNames`，在旧分组页报错；改为规则页按钮 `.last()`，补齐模拟响应，产品代码无需为此修改。r3 记录所有 console error/pageerror，不过滤网络报错。
 
+- r3 后端全量：`GOMAXPROCS=2 go test -p 1 ./...`，失败名称（含子测试）仍是基线的 15 个，无新增、无缺项；对照 `r3/logs/backend-baseline-comparison.json`。新增并通过：`TestChainRapidConcurrentSubmit`（16 个同时提交只建 1 条规则/2 份副本）、`TestChainOfflineExitDeleteConverges`（离线副本在恢复在线的全量下发后归零）、`TestChainUserPolicyPausesWithoutDeleting`（到期/停用暂停，恢复链接不变，最终删除清空）。
