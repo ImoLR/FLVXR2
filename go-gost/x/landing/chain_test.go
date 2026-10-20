@@ -462,3 +462,67 @@ func localNonLoopback() []string {
 	}
 	return out
 }
+
+// TestPanelChainUpstreamsAccepted: every upstream the panel produces from a
+// pasted link (testdata/panel_chain_upstreams.json, written by the panel test
+// TestChainUpstreamFixtureForAgent) validates here, renders, and — with the
+// pinned Core supplied — is accepted by the real Core.
+func TestPanelChainUpstreamsAccepted(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("testdata", "panel_chain_upstreams.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var items []struct {
+		Link     string          `json:"link"`
+		Upstream json.RawMessage `json:"upstream"`
+	}
+	if err := json.Unmarshal(raw, &items); err != nil || len(items) == 0 {
+		t.Fatalf("fixture: %v", err)
+	}
+	d := Desired{Revision: 1, Enabled: true, CoreMemoryMB: 256, CoreCPUPercent: 50}
+	for i, it := range items {
+		var o EgressOutbound
+		if err := json.Unmarshal(it.Upstream, &o); err != nil {
+			t.Fatalf("%s: %v", it.Link, err)
+		}
+		n := chainNode(int64(1<<40+i+1), o)
+		if err := n.validateChain(); err != nil {
+			t.Fatalf("agent rejects panel upstream %s: %v", it.Link, err)
+		}
+		d.Nodes = append(d.Nodes, n)
+	}
+	if err := d.validate(); err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	m := &Manager{desired: d}
+	plan := m.effectiveEgress()
+	var outbounds, inbounds []any
+	for _, o := range plan.Outbounds {
+		r, _ := o.render(goldenLocal)
+		outbounds = append(outbounds, r)
+	}
+	for _, n := range d.Nodes {
+		in, _ := n.inbound()
+		inbounds = append(inbounds, in)
+	}
+	if os.Getenv("FLVX_LANDING_TEST_BINARY") == "" {
+		t.Logf("%d panel upstreams validated; real Core check skipped", len(items))
+		return
+	}
+	core := realCore(t, dir)
+	rules, _ := renderRules(plan, nil, nil)
+	cfg := baseConfig(freePort(t))
+	cfg["inbounds"] = inbounds
+	cfg["outbounds"] = append(cfg["outbounds"].([]any), outbounds...)
+	cfg["routing"].(map[string]any)["rules"] = rules
+	b, _ := json.Marshal(cfg)
+	path := filepath.Join(dir, "panel-chain.json")
+	if err := os.WriteFile(path, b, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := exec.Command(core, "run", "-test", "-config", path).CombinedOutput(); err != nil {
+		t.Fatalf("real Core rejected panel upstreams: %v\n%s", err, out)
+	}
+	t.Logf("real Core accepted all %d panel upstreams", len(items))
+}
