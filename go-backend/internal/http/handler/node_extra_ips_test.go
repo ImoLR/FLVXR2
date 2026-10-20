@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -203,5 +204,62 @@ func TestForwardBindsOnExtraIP(t *testing.T) {
 	nodeSyncRequest(t, e.h.forwardList, map[string]interface{}{}, &forwards)
 	if len(forwards.Items) != 1 || forwards.Items[0].InIP != "[2001:db8::2]:1234" {
 		t.Fatalf("rule list = %+v", forwards)
+	}
+}
+
+func TestForwardListShowsEveryPickedEntryAddress(t *testing.T) {
+	e := newNodeSyncEnv(t)
+	e.exec(`UPDATE node SET server_ip_v6 = '2001:db8::1', extra_ips = '["2001:db8::2","2001:db8::3"]' WHERE id = 23`)
+	var forwards struct {
+		Items []struct {
+			InIP string `json:"inIp"`
+		} `json:"items"`
+	}
+	for inIP, want := range map[string]string{
+		"2001:db8::2":                      "[2001:db8::2]:1234",
+		"2001:db8::2,2001:db8::3":          "[2001:db8::2]:1234,[2001:db8::3]:1234",
+		"192.0.2.1,2001:db8::2":            "192.0.2.1:1234,[2001:db8::2]:1234",
+		"192.0.2.1,198.51.100.4":           "192.0.2.1:1234,198.51.100.4:1234",
+		"entry.example.test,[2001:db8::3]": "entry.example.test:1234,[2001:db8::3]:1234",
+	} {
+		e.exec(`UPDATE tunnel SET in_ip = ? WHERE id = 25`, inIP)
+		nodeSyncRequest(t, e.h.forwardList, map[string]interface{}{}, &forwards)
+		if len(forwards.Items) != 1 || forwards.Items[0].InIP != want {
+			t.Fatalf("tunnel in_ip %q: rule list = %+v, want %q", inIP, forwards, want)
+		}
+	}
+}
+
+func TestPartialEntryPermissionShowsPicksOfAllowedNode(t *testing.T) {
+	e := newFlowTestEnv(t)
+	e.addTunnel(8, 1, 1)
+	for _, id := range []int64{11, 12} {
+		e.addNode(id, fmt.Sprint(id))
+		e.exec("UPDATE node SET server_ip=?, server_ip_v4=? WHERE id=?", fmt.Sprintf("192.0.2.%d", id), fmt.Sprintf("192.0.2.%d", id), id)
+		e.exec("INSERT INTO chain_tunnel(tunnel_id,chain_type,node_id) VALUES(8,'1',?)", id)
+	}
+	e.exec(`UPDATE node SET extra_ips='["2001:db8::11"]' WHERE id=11`)
+	e.addUser(9)
+	e.addUserTunnel(9, 9, 8)
+	e.addForward(9, 9, 8)
+	e.exec("INSERT INTO forward_port(forward_id,node_id,port) VALUES(9,11,1509),(9,12,1509)")
+	e.exec("INSERT INTO group_permission_grant(user_group_id,tunnel_group_id,user_tunnel_id,created_by_group,created_time) VALUES(20,30,9,1,1)")
+	e.exec("INSERT INTO tunnel_group_tunnel_entry(tunnel_group_id,tunnel_id,node_id,created_time) VALUES(30,8,11,1)")
+	inIP := func() string {
+		t.Helper()
+		list, err := e.r.ListForwards()
+		if err != nil || len(list) != 1 {
+			t.Fatalf("list = %v (%v)", list, err)
+		}
+		return asString(list[0]["inIp"])
+	}
+	e.exec("UPDATE tunnel SET in_ip='2001:db8::11,192.0.2.12' WHERE id=8")
+	if got := inIP(); got != "[2001:db8::11]:1509" {
+		t.Fatalf("restricted user sees %q, want the allowed node's pick", got)
+	}
+	// No pick on the allowed node: the node's own address, as before.
+	e.exec("UPDATE tunnel SET in_ip='192.0.2.12' WHERE id=8")
+	if got := inIP(); got != "192.0.2.11:1509" {
+		t.Fatalf("restricted fallback = %q", got)
 	}
 }
