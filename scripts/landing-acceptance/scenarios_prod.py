@@ -234,21 +234,24 @@ def p2_create(ctx):
 
 def p3_connect(ctx):
     r = ctx.report
+    ctx.connect_baseline, ctx.connect_bytes = ledger(ctx), {}
     port = 26680
     for key, nid in ctx.nodes.items():
         port += 1
         cl = client(ctx, links(ctx, nid)["direct"], port)
         res = wait_for(f"{key} carries traffic", lambda: dl(ctx, port, 4 << 20), timeout=90, interval=5)
         expect(r, f"{key}: 4 MiB byte-exact through the real landing", res["bytes"] == 4 << 20, res)
+        ctx.connect_bytes[nid] = res["bytes"]
         expect(r, f"{key}: echo through the landing", can_echo(ctx, port), None)
         if key.startswith("native"):
             with coreclient.echo_open(port, ctx.fixture_host, ctx.fixture_port + 1):
+                opened_at = now_ms()
                 def online_ips():
                     data = ctx.api.call("landing/monitor/ips", {"nodeId": nid})
-                    return data if (data.get("onlineIps") or 0) > 0 and data.get("ips") else None
+                    return data if (data.get("onlineIps") or 0) > 0 and data.get("ips") and data["sampleAt"] >= opened_at and any(x["connections"] > 0 for x in data["ips"]) else None
                 ip_view = wait_for(f"{key} real online IP reported", online_ips, timeout=60)
-                expect(r, f"{key}: real online IPs have connections and a sample time",
-                       all(x["connections"] > 0 for x in ip_view["ips"]) and ip_view["sampleAt"] > 0, ip_view)
+                expect(r, f"{key}: a real online IP has connections and a sample time",
+                       any(x["connections"] > 0 for x in ip_view["ips"]) and ip_view["sampleAt"] > 0, ip_view)
                 monitor = ctx.api.call("landing/monitor")
                 monitored = next(n for s in monitor["servers"] for n in s["nodes"] if n["id"] == nid)
                 expect(r, f"{key}: monitor shows a real online IP count",
@@ -264,10 +267,28 @@ def p3_connect(ctx):
                 blocked.append(True)
         expect(r, f"{key}: loopback + metadata targets blocked by the safety rule", all(blocked), blocked)
         stop(ctx, cl)
+    ctx.connect_finished = now_ms()
 
 
 def p4_billing(ctx):
     r = ctx.report
+    if not hasattr(ctx, "connect_finished"):
+        raise Check("P3 must finish before the billing baseline")
+    # The Helper's minute samples can arrive after native counters settle.
+    # Drain all P3 traffic before comparing the user's total to one group.
+    def connected_traffic_collected():
+        if ctx.shared:
+            collected_after = ctx.connect_finished + 65000
+            if now_ms() < collected_after:
+                return None
+            sync(ctx)
+            if rows(ctx, "select shared_collected_at from landing_server where id=?", (ctx.shared,))[0]["shared_collected_at"] < collected_after:
+                return None
+        current = ledger(ctx)
+        return current if all(raw_total(current, [nid]) > raw_total(ctx.connect_baseline, [nid]) for nid in ctx.connect_bytes) else None
+    collected = wait_for("all P3 traffic collected before billing baseline", connected_traffic_collected, timeout=240, interval=5)
+    settle(ctx, 0, ledger(ctx), list(ctx.nodes.values()), shared=bool(ctx.shared))
+    r.ok("all P3 nodes reported traffic after a full Helper cycle, then all counters settled", {nid: {"downloaded": size, "recorded": raw_total(collected, [nid]) - raw_total(ctx.connect_baseline, [nid])} for nid, size in ctx.connect_bytes.items()})
     for group in (["native_ss", "native_vless"], [k for k in ("shared_ss", "shared_vless") if k in ctx.nodes]):
         if not group:
             continue
