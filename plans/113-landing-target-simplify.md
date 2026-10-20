@@ -29,7 +29,7 @@ entry-variant link) or creates a chain-owned VLESS node; users never get nodes c
 - [x] Landing node lists show 「规则 N」 (one grouped query); delete refusal names the referencing rules
 - [x] Rule rows targeting a landing node offer 「复制链接」 (entry-variant link) — verify existing, add if missing
 - [x] Tests (handler + repo + acceptance runner extension), full go test vs baseline, frontend build/lint
-- [ ] Resource numbers, screenshot gallery /landing-target/, Chinese summary
+- [x] Resource numbers, screenshot gallery /landing-target/, Chinese summary
 
 ## Round 2 evidence (Taiwan time, UTC+8)
 
@@ -46,3 +46,6 @@ entry-variant link) or creates a chain-owned VLESS node; users never get nodes c
 - Full backend run (`backend-full.log`, `backend-comparison.json`): the exact same 15 baseline failures/subtests, no new failures. Final mixed known/custom entry-address correction `54f80470` passed all targeted repository and handler checks (`backend-links-mixed-targeted.log`); chain link behavior remains unchanged.
 - Final frontend build passed (`frontend-build-final.log`). Four changed component files have 0 ESLint errors; `landing.tsx` warnings decreased from 35 to 33, the other three files have none (`eslint-final-components.json`).
 - Local lab resource sample: Core RSS 36,800 KiB / 16 fds / 8 threads / CPU 0.07 s; agent RSS 44,800 KiB / 11 fds / 10 threads / CPU 0.11 s, Core PID unchanged. All owned lab processes, namespace, synthetic DB/credentials and binaries cleaned (`acceptance-cleanup.json`).
+- 2026-10-20 17:56: [gallery](http://104.145.236.29:8791/ea923e5e348dfb9548d4d0909b6de1ee/landing-target/index.html) published: 35 screenshots individually reviewed, 70 interaction checks, 0 console/page errors. Desktop/H5, admin/user, light/dark, both tunnel types, empty/disabled states, shared create/reuse/owner/Reality lock, auto-selection, counts/deletion/links covered. All API data synthetic. Evidence: `screens/{manifest,review,checks,errors}.json`, `gallery-publish.json`; HTTP checks 200.
+- 2026-10-20 17:57: owned browser/server and lab processes stopped; test ports clear, namespace empty. Removed this task's previous interrupted Go temp directory (110 MiB), Round 2 temp directory and local Vite temp cache. Shared pre-existing Go cache retained for other workers. Disk free 3.3 GB; MemAvailable 1,548 MiB (`cleanup-final.json`).
+- Source head `54f80470` pushed; [CI 39403931867](https://github.com/ImoLR/FLVXR2/actions/runs/39403931867) passed. Chinese summary: `/root/flvx-workers/runs/landing-target-r2/summary.md`; final documentation-head CI recorded there before handoff.
