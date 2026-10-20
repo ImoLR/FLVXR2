@@ -46,9 +46,9 @@ Blocking hysteresis: start dropping NEW connections when total ≥ cap, release 
 - [x] 7. Agent CLOSE_WAIT: native landing Core `default_close_wait_timeout_seconds` (verified Core semantics); tests (+ real Core if available)
 - [x] 8. Agent wiring: ONE loop per process (not per WS reconnect), settings command `SetMachineProtection` persisted in config.json, handshake capability, report `machine_conns` / `machine_protect` (only when a new 5 s sample exists); goroutine-stability test
 - [x] 9. Agent netns E2E (real nft, own netns): gost listener + nft DNAT + non-business port; low cap → new TCP/UDP dropped on business ports only, existing alive, lo fine, release, counter rises; tw_buckets applied/restored; mmwx-owned → no table, sysctl untouched, ports file written; restart/reconnect no duplicate loops
-- [ ] 10. Panel: node columns + migration defaults (SQLite + PostgreSQL), create/update validation, push on connect + on change (capable agents only); tests
-- [ ] 11. Panel: report parsing, in-memory latest per node (bounded, TTL), role-aware WS broadcast (admins only get the new fields), node list (admin) + monitor nodes (visible nodes, chip fields only) APIs; tests admin vs user
-- [ ] 12. Panel: shared landing `machine` passthrough from Custom status → memory → 落地 monitor server view; tests
+- [x] 10. Panel: node columns + migration defaults (SQLite + PostgreSQL), create/update validation, push on connect + on change (capable agents only); tests
+- [x] 11. Panel: report parsing, in-memory latest per node (bounded, TTL), role-aware WS broadcast (admins only get the new fields), node list (admin) + monitor nodes (visible nodes, chip fields only) APIs; tests admin vs user
+- [x] 12. Panel: shared landing `machine` passthrough from Custom status → memory → 落地 monitor server view; tests
 - [ ] 13. UI: node dialog 「连接保护」 section (FLVX-owned / mmwx-owned / old Helper / old agent)
 - [ ] 14. UI: chip 「整机连接 N/上限」 (yellow ≥ 80 %, red + 保护中, `-` unknown) + breakdown popover on node page (list + cards) and 监控 node view
 - [ ] 15. UI: 监控 →「落地」 shared server card chip from the mmwx `machine` object
@@ -76,3 +76,9 @@ tcp_tw_reuse or other sysctls; history of the new numbers; other existing nft ta
   file still written; restarted agent adopts + removes the leftover table and restores the saved original; one loop.
 - Agent resources (1501 sockets, `logs/agent-netns-resources.txt`): count 1.5 ms; whole sample 3.2 ms CPU = 0.064 % of
   one core at 5 s; report fields 251 B JSON per 5 s; idle table has no hooked chain (zero per-packet work).
+- Panel (`f1941e21`): full `go test ./...` = the same 15 baseline failure names, 0 new (`logs/new-go-backend.fails`);
+  `go vet ./...` output identical to the base (only the pre-existing leikwan/testapi warnings). New tests: ws push
+  only to capable agents, admin-only WS fields, store bounds/freshness; contract tests for create/update defaults and
+  validation, push on connect / change / reconnect, admin vs monitor-user visibility, SQLite + PostgreSQL migration
+  defaults (temporary postgres:18 container, removed); shared `machine` passthrough (canonical + alias, malformed and
+  absent = unknown, stale after 3 min). Landing tests also passed on PostgreSQL. Memory: 200 node samples = 23 KB heap.
