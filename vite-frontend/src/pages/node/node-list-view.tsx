@@ -1,5 +1,5 @@
 import { EnableLandingButton } from "@/pages/landing/enable-button";
-import type { LeiKwanNodeDetection } from "@/api/types";
+import type { LeiKwanNodeDetection, MachineView } from "@/api/types";
 import type { NodeRenewalCycle } from "./renewal";
 import type { NodeSystemInfo } from "./system-info";
 
@@ -12,6 +12,7 @@ import { regionLabel } from "@/utils/region";
 import { getConnectionStatusMeta } from "./display";
 import { NodeIPv6RABadge } from "./ipv6-ra-badge";
 import { NodeLeiKwanBadge } from "./leikwan-badge";
+import { MachineConnChip } from "./machine-conn";
 import { getNodeRenewalSnapshot, formatNodeRenewalTime } from "./renewal";
 
 import { Checkbox } from "@/shadcn-bridge/heroui/checkbox";
@@ -85,6 +86,8 @@ interface Node extends LeiKwanNodeDetection {
 }
 interface NodeListViewProps {
   displayNodes: Node[];
+  // 整机连接 (plan 118): latest sample of an online node, null = unknown.
+  machineOf?: (node: any) => MachineView | null;
   realtimeNodeMetrics: Record<
     number,
     { uploadTraffic: number; downloadTraffic: number }
@@ -121,6 +124,7 @@ interface NodeListViewProps {
 }
 function SortableTableRow({
   node,
+  machineOf,
   realtimeNodeMetrics,
   upgradeProgress,
   selectedIds,
@@ -300,12 +304,25 @@ function SortableTableRow({
           <NodeIPv6RABadge node={node} />
               <NodeLeiKwanBadge node={node} />
         </div>
-        <div className="mt-1 text-xs text-default-500">
-          {node.region ? regionLabel(node.region) : (
-            <Chip className="bg-default-100 text-default-500" color="default" size="sm" variant="flat">
-              未设置地区
-            </Chip>
-          )}{node.regionCity ? ` · ${node.regionCity}` : ""}
+        <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-default-500">
+          <span>
+            {node.region ? (
+              regionLabel(node.region)
+            ) : (
+              <Chip
+                className="bg-default-100 text-default-500"
+                color="default"
+                size="sm"
+                variant="flat"
+              >
+                未设置地区
+              </Chip>
+            )}
+            {node.regionCity ? ` · ${node.regionCity}` : ""}
+          </span>
+          {machineOf ? (
+            <MachineConnChip admin machine={machineOf(node)} />
+          ) : null}
         </div>
       </TableCell>
       <TableCell className={`whitespace-nowrap ${rowBg}`}>
@@ -756,6 +773,7 @@ function SortableTableRow({
 }
 export function NodeListView({
   displayNodes,
+  machineOf,
   realtimeNodeMetrics,
   upgradeProgress,
   selectedIds,
@@ -962,6 +980,7 @@ export function NodeListView({
                 key={node.id}
                 {...{
                   node,
+                  machineOf,
                   realtimeNodeMetrics,
                   upgradeProgress,
                   selectedIds,

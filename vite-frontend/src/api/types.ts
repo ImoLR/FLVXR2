@@ -800,6 +800,37 @@ export interface ServiceMonitorLimitsApiData {
   maxTimeoutSec: number;
 }
 
+// 整机连接数 + 连接保护 (plan 118): latest 5 s sample of the node agent (or the
+// 妙妙屋 Helper of a shared landing server). Absent/null = unknown.
+export interface MachineConnsView {
+  total: number;
+  tcp: number;
+  udp: number;
+  established: number;
+  timeWait: number;
+  closeWait: number;
+  otherTcp: number;
+}
+
+export interface MachineProtectView {
+  owner: "flvx" | "mmwx";
+  enabled: boolean;
+  maxTotal: number | null;
+  twBuckets?: number | null;
+  closeWaitSeconds?: number | null;
+  blocking: boolean;
+  droppedTotal: number;
+  ports?: number;
+  error?: string;
+  mmwxStatus?: "ok" | "stale" | "missing";
+}
+
+export interface MachineView {
+  conns?: MachineConnsView;
+  protect?: MachineProtectView;
+  updatedAt: number;
+}
+
 export interface MonitorNodeApiItem {
   id: number;
   inx: number;
@@ -807,6 +838,7 @@ export interface MonitorNodeApiItem {
   status: number;
   version?: string;
   updatedTime: number;
+  machine?: MachineView | null;
 }
 
 export interface MonitorNodeMetricsApiItem extends MonitorNodeApiItem {

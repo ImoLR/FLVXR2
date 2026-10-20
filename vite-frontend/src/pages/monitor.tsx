@@ -17,6 +17,7 @@ type MonitorNode = {
   name: string;
   connectionStatus: "online" | "offline";
   version?: string;
+  machine?: MonitorNodeApiItem["machine"];
 };
 
 type MonitorTab = "nodes" | "tunnels" | "landing";
@@ -119,6 +120,7 @@ export default function MonitorPage() {
         name: String(n.name ?? ""),
         connectionStatus: n.status === 1 ? "online" : "offline",
         version: n.version,
+        machine: n.machine ?? null,
       }));
 
     return new Map<number, MonitorNode>(list.map((n) => [n.id, n]));
