@@ -8,7 +8,7 @@
 ## 检查清单
 
 - [x] 阅读发布流程、两份功能总结，确认工作树、分支与授权。
-- [ ] 合入 33 个提交，解决冲突；113 文档改名为 115，仅更新标题和自引用；推送发布分支。
+- [x] 合入 33 个提交，解决冲突；113 文档改名为 115，仅更新标题和自引用；推送发布分支。
 - [ ] 在干净 fork.60 临时工作树取得后端完整测试基线。
 - [ ] 发布代码后端全量测试无新增失败；agent landing/chain 测试及改动包 vet 通过。
 - [ ] 前端 tsc、改动文件 ESLint 无新增错误、构建通过。
@@ -25,3 +25,5 @@
 
 运行目录：`/root/flvx-workers/runs/release-fork61-line-chain-target/`。
 生产不做 chain-rule smoke：开启线路机由用户决定，链式流量由本机真实 Core 环境验收。
+
+- 2026-10-20：33 个提交按序 cherry-pick，无 merge commit；处理器冲突保留 landingRates 与 landingTargetLocks。另保留 fork.60 发布后验收脚本修复 99a2ab6d（新样本与计费稳定等待），合并其连接上限恢复逻辑。113 改为 115。发布分支已 push -u origin；所有新提交尾部保留 Codex trailer。
