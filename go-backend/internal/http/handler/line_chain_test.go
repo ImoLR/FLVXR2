@@ -672,11 +672,15 @@ func TestChainDeletePathsLeaveNothing(t *testing.T) {
 			if len(a.chainNodes(3)) != 1 || len(a.chainNodes(4)) != 1 {
 				t.Fatal("copies not deployed")
 			}
+			deletesBefore := a.count(1, "DeleteService")
 			run(t, e, c)
 			if n := chainRowsLeft(t, e); n != 0 {
 				t.Fatalf("%s left %d chain rows", name, n)
 			}
 			expectNoChainOnExits(t, e, a, 3, 4)
+			if name != "orphan sweep" && name != "reconciler" && a.count(1, "DeleteService") <= deletesBefore {
+				t.Fatal("delete removed chain copies but left the entry's forward services")
+			}
 		})
 	}
 }

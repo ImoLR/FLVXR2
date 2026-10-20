@@ -80,3 +80,4 @@
 - r3 后端全量：`GOMAXPROCS=2 go test -p 1 ./...`，失败名称（含子测试）仍是基线的 15 个，无新增、无缺项；对照 `r3/logs/backend-baseline-comparison.json`。新增并通过：`TestChainRapidConcurrentSubmit`（16 个同时提交只建 1 条规则/2 份副本）、`TestChainOfflineExitDeleteConverges`（离线副本在恢复在线的全量下发后归零）、`TestChainUserPolicyPausesWithoutDeleting`（到期/停用暂停，恢复链接不变，最终删除清空）。
 - r3 节点程序：`FLVX_LANDING_TEST_BINARY=... FLVX_LANDING_GEODIR=... GOMAXPROCS=2 go test -p 1 -v ./landing ./internal/net/dialer` 通过（`logs/agent-core-tests.log`），覆盖黄金 JSON、每类出站/面板解析结果的真实 Core 校验、Core PID 不变的热增删、回环目标忽略出口网卡。首次命令误用了空包 `./dialer` 且漏传 geo 数据目录，属于测试环境错误，修正后通过。
 - r3 数据库：本机一次性 PostgreSQL 18 容器（仅 127.0.0.1:26592、192 MiB 上限、tmpfs 数据、测试后已移除），`TestForwardChainLifecycleBothDialects` 的 SQLite/PostgreSQL 两项通过（`logs/postgres-chain.log`）；没有连接生产数据库。
+- r3 加强验收发现并修复：链式规则的强制删除原先沿用旧行为，仅删数据库/Core，入口 GOST 服务残留。现在仅对链式规则先尽力清理规则服务再删除；普通规则原行为保留。所有常规删除路径的单元用例增加入口 DeleteService 断言；链式定向测试通过（`logs/chain-targeted-after-fix.log`）。本地 C8 会用真实服务再核验。
