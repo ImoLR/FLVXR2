@@ -13,12 +13,11 @@ import {
   useState,
 } from "react";
 import {
-  Activity,
   ArrowDown,
   ArrowUp,
-  Database,
+  CornerDownRight,
   Server,
-  Users,
+  User,
 } from "lucide-react";
 
 import {
@@ -47,6 +46,7 @@ type Tone =
   | "danger"
   | "primary"
   | "secondary"
+  | "cyan"
   | "default";
 
 const toneClass: Record<Tone, string> = {
@@ -55,6 +55,7 @@ const toneClass: Record<Tone, string> = {
   danger: "bg-danger-500/10 text-danger-600 dark:text-danger-400",
   primary: "bg-blue-500/10 text-blue-600 dark:text-blue-400",
   secondary: "bg-purple-500/10 text-purple-600 dark:text-purple-400",
+  cyan: "bg-cyan-500/15 text-cyan-700 dark:bg-cyan-400/15 dark:text-cyan-300",
   default:
     "border border-divider bg-transparent text-default-600 dark:text-default-500",
 };
@@ -164,37 +165,82 @@ const serverState = (
     : { label: "离线", tone: "danger" };
 };
 
+// Each server family gets one accent: 自有 = cyan (same as the 「落地」 tab
+// button), 妙妙屋共享 = purple (same as its chip). The server header is a
+// tinted band in that accent and its nodes hang off a rail in the same accent,
+// so "top = the server, below = its nodes" reads at a glance.
+//
+// Note: avoid `rounded-xl|2xl|lg` + `border` and the bridge Card for anything
+// inside a server block. globals.css repaints those as full glass cards
+// (white, shadow, 18–28px radius), which is what made nodes look like servers.
+interface Accent {
+  band: string;
+  icon: string;
+  tile: string;
+  rail: string;
+  tick: string;
+  label: string;
+}
+
+const accents: Record<"native" | "shared", Accent> = {
+  native: {
+    band: "border-cyan-200/80 bg-cyan-50 dark:border-cyan-400/25 dark:bg-cyan-400/[0.12]",
+    icon: "border-cyan-200 bg-white text-cyan-600 dark:border-cyan-400/35 dark:bg-cyan-400/10 dark:text-cyan-300",
+    tile: "bg-white/80 dark:bg-white/[0.06]",
+    rail: "border-cyan-300 dark:border-cyan-400/60",
+    tick: "before:bg-cyan-300 dark:before:bg-cyan-400/60",
+    label: "text-cyan-700 dark:text-cyan-300",
+  },
+  shared: {
+    band: "border-purple-200/80 bg-purple-50 dark:border-purple-400/25 dark:bg-purple-400/[0.12]",
+    icon: "border-purple-200 bg-white text-purple-600 dark:border-purple-400/35 dark:bg-purple-400/10 dark:text-purple-300",
+    tile: "bg-white/80 dark:bg-white/[0.06]",
+    rail: "border-purple-300 dark:border-purple-400/60",
+    tick: "before:bg-purple-300 dark:before:bg-purple-400/60",
+    label: "text-purple-700 dark:text-purple-300",
+  },
+};
+
+const accentFor = (server: LandingMonitorServer) =>
+  accents[server.source === "shared" ? "shared" : "native"];
+
 function RateBoxes({
   up,
   down,
+  tile,
 }: {
   up: number | null | undefined;
   down: number | null | undefined;
+  tile: string;
 }) {
   return (
-    <div className="space-y-1">
-      <div className="flex gap-1 px-1 text-[11px] font-bold uppercase tracking-wider text-foreground">
-        <span className="flex-1 text-left">上传</span>
-        <span className="flex-1 text-right">下载</span>
-      </div>
-      <div className="flex items-center gap-1">
-        <div className="flex h-8 min-w-0 flex-1 items-center gap-1 rounded-md bg-default-100/45 px-2 dark:bg-default-50/10">
+    <div className="grid grid-cols-2 gap-2">
+      <div className="min-w-0 space-y-1">
+        <div className="px-1 text-xs font-bold text-default-500">上传</div>
+        <div
+          className={`flex h-9 min-w-0 items-center gap-1.5 rounded-md px-2 ${tile}`}
+        >
           <ArrowUp
-            className="h-3 w-3 shrink-0 text-success-500"
+            className="h-3.5 w-3.5 shrink-0 text-success-500"
             strokeWidth={2.5}
           />
-          <span className="truncate font-mono text-xs font-semibold text-foreground">
+          <span className="truncate font-mono text-sm font-semibold text-foreground">
             {formatRate(up)}
           </span>
         </div>
-        <div className="flex h-8 min-w-0 flex-1 items-center justify-end gap-1 rounded-md bg-default-100/45 px-2 dark:bg-default-50/10">
-          <span className="truncate font-mono text-xs font-semibold text-foreground">
-            {formatRate(down)}
-          </span>
+      </div>
+      <div className="min-w-0 space-y-1">
+        <div className="px-1 text-xs font-bold text-default-500">下载</div>
+        <div
+          className={`flex h-9 min-w-0 items-center gap-1.5 rounded-md px-2 ${tile}`}
+        >
           <ArrowDown
-            className="h-3 w-3 shrink-0 text-primary-500"
+            className="h-3.5 w-3.5 shrink-0 text-primary-500"
             strokeWidth={2.5}
           />
+          <span className="truncate font-mono text-sm font-semibold text-foreground">
+            {formatRate(down)}
+          </span>
         </div>
       </div>
     </div>
@@ -205,18 +251,18 @@ function StatBox({
   label,
   value,
   hint,
+  tile,
 }: {
   label: string;
   value: ReactNode;
   hint?: ReactNode;
+  tile: string;
 }) {
   return (
     <div className="min-w-0 space-y-1">
-      <div className="px-1 text-[11px] font-bold uppercase tracking-wider text-default-500">
-        {label}
-      </div>
-      <div className="flex min-h-8 items-center rounded-md bg-default-100/45 px-2 py-1 dark:bg-default-50/10">
-        <span className="break-words font-mono text-xs font-semibold text-foreground">
+      <div className="px-1 text-xs font-bold text-default-500">{label}</div>
+      <div className={`flex min-h-9 items-center rounded-md px-2 py-1 ${tile}`}>
+        <span className="break-words font-mono text-sm font-semibold text-foreground">
           {value}
         </span>
       </div>
@@ -256,50 +302,58 @@ function serverTraffic(server: LandingMonitorServer, admin: boolean) {
 function ServerHeader({
   server,
   data,
+  accent,
 }: {
   server: LandingMonitorServer;
   data: LandingMonitorData;
+  accent: Accent;
 }) {
   const state = serverState(server);
   const traffic = serverTraffic(server, data.admin);
 
   return (
-    <div className="space-y-3 border-b border-divider bg-default-100/40 px-4 py-3">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="flex min-w-0 flex-1 items-center gap-3">
-          <div className="relative flex-shrink-0">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-divider bg-default-100/70 dark:bg-default-50/10">
-              <Server
-                className={`h-5 w-5 ${server.online ? "text-success-500" : "text-default-400"}`}
-              />
-            </div>
-            <span
-              className={`absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border-2 border-background ${server.online && server.status === "active" ? "bg-success" : "bg-danger"}`}
-            />
+    <div
+      className={`space-y-3 border-b px-3 py-3.5 md:px-4 md:py-4 ${accent.band}`}
+    >
+      <div className="flex min-w-0 items-start gap-3">
+        <div className="relative flex-shrink-0">
+          <div
+            className={`flex h-10 w-10 items-center justify-center rounded-[12px] border shadow-sm ${accent.icon}`}
+          >
+            <Server className="h-5 w-5" />
           </div>
-          <div className="min-w-0 flex-1">
-            <h3 className="break-words text-sm font-semibold text-foreground">
-              {server.name}
-            </h3>
-            <div className="mt-1 flex flex-wrap items-center gap-1.5">
-              <Pill tone={server.source === "shared" ? "secondary" : "primary"}>
-                {server.source === "shared" ? "妙妙屋共享" : "自有"}
+          <span
+            className={`absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border-2 border-background ${server.online && server.status === "active" ? "bg-success" : "bg-danger"}`}
+          />
+        </div>
+        <div className="min-w-0 flex-1">
+          {/* Not an h2/h3: the landing text scope pins heading sizes. keep-all
+              keeps 「自有落地」 together when a long name has to wrap. */}
+          <div
+            aria-level={2}
+            className="text-lg font-bold leading-snug text-foreground [overflow-wrap:anywhere] [word-break:keep-all] md:text-xl"
+            role="heading"
+          >
+            {server.name}
+          </div>
+          <div className="mt-1 flex flex-wrap items-center gap-1.5">
+            <Pill tone={server.source === "shared" ? "secondary" : "cyan"}>
+              {server.source === "shared" ? "妙妙屋共享" : "自有落地"}
+            </Pill>
+            <Pill tone={state.tone}>{state.label}</Pill>
+            {server.source === "shared" && server.coreState ? (
+              <Pill
+                tone={server.coreState === "running" ? "success" : "default"}
+              >
+                {server.coreState === "running" ? "核心运行中" : "核心未运行"}
               </Pill>
-              <Pill tone={state.tone}>{state.label}</Pill>
-              {server.source === "shared" && server.coreState ? (
-                <Pill
-                  tone={server.coreState === "running" ? "success" : "default"}
-                >
-                  {server.coreState === "running" ? "核心运行中" : "核心未运行"}
-                </Pill>
-              ) : null}
-              <AgeHint data={data} sampleAt={server.sampleAt} />
-            </div>
+            ) : null}
+            <Pill tone="default">
+              节点 {server.activeNodeCount}/{server.nodeCount}
+            </Pill>
+            <AgeHint data={data} sampleAt={server.sampleAt} />
           </div>
         </div>
-        <Pill tone="default">
-          节点 {server.activeNodeCount}/{server.nodeCount}
-        </Pill>
       </div>
       {server.notice ? (
         <p className="rounded-lg bg-warning-50 p-2 text-xs text-warning dark:bg-warning-500/10">
@@ -311,10 +365,11 @@ function ServerHeader({
           同步异常 · {server.syncError}
         </p>
       ) : null}
-      <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
+      <div className="grid grid-cols-2 gap-x-2 gap-y-3 xl:grid-cols-4 xl:gap-x-3">
         <StatBox
           hint={data.admin ? "当前 / 上限" : "我的节点合计"}
           label="实时连接"
+          tile={accent.tile}
           value={
             data.admin
               ? capText(server.connections, server.maxConnections)
@@ -322,9 +377,18 @@ function ServerHeader({
           }
         />
         <div className="order-last col-span-2 xl:order-none">
-          <RateBoxes down={server.downRate} up={server.upRate} />
+          <RateBoxes
+            down={server.downRate}
+            tile={accent.tile}
+            up={server.upRate}
+          />
         </div>
-        <StatBox hint={traffic.hint} label="本期流量" value={traffic.value} />
+        <StatBox
+          hint={traffic.hint}
+          label="本期流量"
+          tile={accent.tile}
+          value={traffic.value}
+        />
       </div>
     </div>
   );
@@ -351,6 +415,55 @@ function NodeNotes({ node }: { node: LandingMonitorNode }) {
   return null;
 }
 
+function NodeTitle({
+  node,
+  data,
+}: {
+  node: LandingMonitorNode;
+  data: LandingMonitorData;
+}) {
+  return (
+    <div className="flex min-w-0 items-center gap-2">
+      <div className="flex min-w-0 flex-1 items-baseline gap-2">
+        <h4 className="min-w-0 shrink truncate text-sm font-semibold text-foreground">
+          {node.name}
+        </h4>
+        {data.admin ? (
+          <span className="flex min-w-0 shrink-[2] items-center gap-0.5 truncate text-xs text-default-500">
+            <User className="h-3 w-3 shrink-0 self-center" />
+            <span className="truncate">
+              {node.userName || `用户 ${node.userId}`}
+            </span>
+          </span>
+        ) : null}
+      </div>
+      <NodeStatus node={node} />
+    </div>
+  );
+}
+
+function NodeRates({ node }: { node: LandingMonitorNode }) {
+  return (
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-0.5 font-mono text-sm font-semibold tabular-nums text-foreground">
+      <span className="inline-flex items-center gap-1 whitespace-nowrap">
+        <ArrowUp
+          className="h-3.5 w-3.5 shrink-0 text-success-500"
+          strokeWidth={2.5}
+        />
+        {formatRate(node.upRate)}
+      </span>
+      <span className="inline-flex items-center gap-1 whitespace-nowrap">
+        <ArrowDown
+          className="h-3.5 w-3.5 shrink-0 text-primary-500"
+          strokeWidth={2.5}
+        />
+        {formatRate(node.downRate)}
+      </span>
+    </div>
+  );
+}
+
+// Card mode: a compact, flat child tile (about half the r1 height on H5).
 function NodeCard({
   node,
   data,
@@ -359,51 +472,63 @@ function NodeCard({
   data: LandingMonitorData;
 }) {
   return (
-    <Card className="flex h-full flex-col overflow-hidden border border-divider bg-content1 shadow-sm">
-      <CardHeader className="pb-3 md:pb-3">
-        <div className="flex w-full flex-col gap-2">
-          <div className="flex w-full items-start justify-between gap-3">
-            <div className="min-w-0 flex-1">
-              <h3 className="truncate text-sm font-semibold text-foreground">
-                {node.name}
-              </h3>
-              {data.admin ? (
-                <div className="mt-0.5 truncate text-xs text-default-500">
-                  {node.userName || `用户 ${node.userId}`}
-                </div>
-              ) : null}
-            </div>
-            <NodeStatus node={node} />
-          </div>
-          <div className="flex flex-wrap items-center gap-1.5">
-            <Pill tone="default">
-              {landingProtocolLabel(node.protocol)} · {node.port}
-            </Pill>
-            <AgeHint data={data} sampleAt={node.sampleAt} />
-          </div>
-          <NodeNotes node={node} />
-        </div>
-      </CardHeader>
-      <CardBody className="flex flex-1 flex-col pb-3 pt-0 md:pb-3 md:pt-0">
-        <div className="flex-1 space-y-2.5 py-1">
-          <RateBoxes down={node.downRate} up={node.upRate} />
-        </div>
-        <div className="mt-2 flex flex-wrap items-center gap-1 border-t border-divider pt-2">
-          <Pill tone="primary">
-            <Activity className="h-3 w-3 shrink-0" />
-            连接 {capText(node.connections, node.maxConnections)}
-          </Pill>
-          <Pill tone="secondary">
-            <Users className="h-3 w-3 shrink-0" />
-            IP 上限 {node.maxOnlineIps > 0 ? node.maxOnlineIps : "不限"}
-          </Pill>
-          <Pill tone="success">
-            <Database className="h-3 w-3 shrink-0" />
-            {trafficText(node.billedBytes, node.trafficLimitBytes)}
-          </Pill>
-        </div>
-      </CardBody>
-    </Card>
+    <div className="flex h-full flex-col gap-1.5 rounded-[14px] border border-default-200/90 bg-default-50/80 px-3 py-2 dark:border-white/10 dark:bg-white/[0.04]">
+      <NodeTitle data={data} node={node} />
+      <div className="flex flex-wrap items-center gap-1.5">
+        <Pill tone="default">
+          {landingProtocolLabel(node.protocol)} · {node.port}
+        </Pill>
+        <Pill tone="secondary">
+          IP 上限 {node.maxOnlineIps > 0 ? node.maxOnlineIps : "不限"}
+        </Pill>
+        <AgeHint data={data} sampleAt={node.sampleAt} />
+      </div>
+      <NodeNotes node={node} />
+      <NodeRates node={node} />
+      <div className="flex flex-wrap items-center gap-1.5">
+        <Pill tone="primary">
+          连接 {capText(node.connections, node.maxConnections)}
+        </Pill>
+        <Pill tone="success">
+          {trafficText(node.billedBytes, node.trafficLimitBytes)}
+        </Pill>
+      </div>
+    </div>
+  );
+}
+
+// List mode on phones: dense rows instead of the wide table (which had to
+// scroll sideways at 390px). Same fields as the table.
+function NodeListRow({
+  node,
+  data,
+}: {
+  node: LandingMonitorNode;
+  data: LandingMonitorData;
+}) {
+  return (
+    <div className="space-y-1 px-3 py-2">
+      <NodeTitle data={data} node={node} />
+      <NodeNotes node={node} />
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+        <NodeRates node={node} />
+        <AgeHint data={data} sampleAt={node.sampleAt} />
+      </div>
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-default-600">
+        <span className="whitespace-nowrap">
+          连接 {capText(node.connections, node.maxConnections)}
+        </span>
+        <span className="whitespace-nowrap">
+          IP 上限 {node.maxOnlineIps > 0 ? node.maxOnlineIps : "不限"}
+        </span>
+        <span className="whitespace-nowrap">
+          {trafficText(node.billedBytes, node.trafficLimitBytes)}
+        </span>
+        <span className="whitespace-nowrap text-default-500">
+          {landingProtocolLabel(node.protocol)} · {node.port}
+        </span>
+      </div>
+    </div>
   );
 }
 
@@ -417,11 +542,12 @@ function NodeTable({
   return (
     <Table
       aria-label={`${server.name} 落地节点`}
-      className="min-w-full overflow-x-auto"
+      className="min-w-full"
       classNames={{
-        th: "bg-default-100/50 text-default-600 font-semibold text-foreground text-sm border-b border-divider py-3 uppercase tracking-wider whitespace-nowrap text-center",
-        td: "border-b border-divider/50 group-data-[last=true]:border-b-0 align-middle text-center p-2",
-        tr: "hover:bg-default-50/50 transition-colors",
+        wrapper: "rounded-none",
+        th: "bg-default-100/60 text-default-600 font-semibold text-foreground text-sm border-b border-divider px-2 py-2.5 whitespace-nowrap text-center",
+        td: "border-b border-divider/50 group-data-[last=true]:border-b-0 align-middle text-center px-1.5 py-2",
+        tr: "hover:bg-default-100/50 transition-colors",
       }}
     >
       <TableHeader>
@@ -459,7 +585,7 @@ function NodeTable({
               </span>
             </TableCell>
             <TableCell>
-              <div className="flex w-full flex-col items-center gap-2 whitespace-nowrap py-1 font-mono text-xs">
+              <div className="flex w-full flex-col items-center gap-1 whitespace-nowrap py-0.5 font-mono text-xs">
                 <div className="flex items-center justify-center gap-1.5 text-success-500">
                   <span className="tabular-nums">
                     {formatRate(node.upRate)}
@@ -502,6 +628,78 @@ function NodeTable({
         ))}
       </TableBody>
     </Table>
+  );
+}
+
+// Flat inset panel for the list views (no glass card styling).
+const flatPanel =
+  "overflow-hidden rounded-[14px] border border-default-200/90 bg-default-50/60 dark:border-white/10 dark:bg-white/[0.03]";
+
+function ServerBlock({
+  server,
+  data,
+  viewMode,
+}: {
+  server: LandingMonitorServer;
+  data: LandingMonitorData;
+  viewMode: "list" | "grid";
+}) {
+  const accent = accentFor(server);
+  // Short connector from the rail to each node, on phones where nodes stack
+  // in one column.
+  const tick = `relative min-w-0 before:absolute before:-left-2.5 before:top-[22px] before:h-0.5 before:w-2.5 before:rounded-full md:before:hidden ${accent.tick}`;
+
+  let nodes: ReactNode;
+
+  if (server.nodes.length === 0) {
+    nodes = (
+      <div className="py-3 text-sm text-default-500">
+        {data.admin ? "该服务器暂无落地节点" : "你在该服务器上暂无落地节点"}
+      </div>
+    );
+  } else if (viewMode === "grid") {
+    nodes = (
+      <div className="grid grid-cols-[minmax(0,1fr)] gap-2 md:grid-cols-[repeat(auto-fill,minmax(300px,1fr))] md:gap-3">
+        {server.nodes.map((node) => (
+          <div key={node.id} className={tick}>
+            <NodeCard data={data} node={node} />
+          </div>
+        ))}
+      </div>
+    );
+  } else {
+    nodes = (
+      <>
+        <div className={`hidden md:block ${flatPanel}`}>
+          <NodeTable data={data} server={server} />
+        </div>
+        <div
+          className={`divide-y divide-default-200/80 md:hidden dark:divide-white/10 ${flatPanel}`}
+        >
+          {server.nodes.map((node) => (
+            <NodeListRow key={node.id} data={data} node={node} />
+          ))}
+        </div>
+      </>
+    );
+  }
+
+  return (
+    <div className="overflow-hidden rounded-xl border border-divider bg-content1 shadow-md">
+      <ServerHeader accent={accent} data={data} server={server} />
+      {/* The rail sits under the server icon's centre (header px + w-10 / 2). */}
+      <div
+        className={`mb-3.5 ml-[31px] mr-2.5 border-l-2 pl-2.5 md:mb-4 md:ml-[35px] md:mr-4 md:pl-3 ${accent.rail}`}
+      >
+        <div
+          className={`flex items-center gap-1.5 pb-2 pt-3 text-xs font-semibold ${accent.label}`}
+        >
+          <CornerDownRight className="h-3.5 w-3.5 shrink-0" />
+          落地节点（{server.nodes.length}）
+        </div>
+        {nodes}
+      </div>
+    </div>
   );
 }
 
@@ -639,29 +837,12 @@ export function LandingMonitorView({
       ) : null}
 
       {(data?.servers ?? []).map((server) => (
-        <div
+        <ServerBlock
           key={server.id}
-          className="overflow-hidden rounded-xl border border-divider bg-content1 shadow-md"
-        >
-          <ServerHeader data={data!} server={server} />
-          {server.nodes.length === 0 ? (
-            <div className="px-4 py-6 text-center text-sm text-default-500">
-              {data!.admin
-                ? "该服务器暂无落地节点"
-                : "你在该服务器上暂无落地节点"}
-            </div>
-          ) : viewMode === "grid" ? (
-            <div className="p-4">
-              <div className="flvx-card-grid grid gap-4">
-                {server.nodes.map((node) => (
-                  <NodeCard key={node.id} data={data!} node={node} />
-                ))}
-              </div>
-            </div>
-          ) : (
-            <NodeTable data={data!} server={server} />
-          )}
-        </div>
+          data={data!}
+          server={server}
+          viewMode={viewMode}
+        />
       ))}
     </div>
   );
