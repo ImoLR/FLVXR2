@@ -3,7 +3,9 @@ package service
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -28,6 +30,20 @@ var httpAESCrypto *crypto.AESCrypto // 新增：HTTP上报加密器
 var reportURLPreferenceMutex sync.RWMutex
 var preferredUploadURL string
 var preferredConfigURL string
+
+// A fallback URL (http after an https failure) is only preferred for
+// reportPreferenceTTL; then https is tried first again (plan 122: no scheme stays
+// sticky after a transient failure). A port that does not speak TLS at all
+// (deterministic) keeps http first for good, as before.
+var reportPreferenceTTL = 5 * time.Minute
+var reportNow = time.Now
+
+type preferredState struct {
+	at     time.Time
+	sticky bool
+}
+
+var preferredMeta = map[*string]preferredState{} // guarded by reportURLPreferenceMutex
 var reportDo = func(ctx context.Context, req *http.Request, timeout time.Duration) (*http.Response, error) {
 	client := &http.Client{
 		Timeout:   timeout,
@@ -54,6 +70,7 @@ func SetHTTPReportURL(addr string, secret string) {
 	reportURLPreferenceMutex.Lock()
 	preferredUploadURL = ""
 	preferredConfigURL = ""
+	preferredMeta = map[*string]preferredState{}
 	reportURLPreferenceMutex.Unlock()
 
 	// 创建 AES 加密器
@@ -125,17 +142,25 @@ func mapToHTTPScheme(scheme string) string {
 	}
 }
 
-func loadPreferredURL(preferred *string) string {
+func loadPreferredURL(preferred *string, urls []string) string {
 	if preferred == nil {
 		return ""
 	}
 
 	reportURLPreferenceMutex.RLock()
 	defer reportURLPreferenceMutex.RUnlock()
-	return *preferred
+	value := *preferred
+	if value == "" || len(urls) == 0 || value == urls[0] {
+		return value
+	}
+	st, ok := preferredMeta[preferred]
+	if !ok || st.sticky || reportNow().Sub(st.at) < reportPreferenceTTL {
+		return value
+	}
+	return ""
 }
 
-func storePreferredURL(preferred *string, value string) {
+func storePreferredURL(preferred *string, value string, sticky bool) {
 	if preferred == nil {
 		return
 	}
@@ -143,6 +168,7 @@ func storePreferredURL(preferred *string, value string) {
 	reportURLPreferenceMutex.Lock()
 	defer reportURLPreferenceMutex.Unlock()
 	*preferred = value
+	preferredMeta[preferred] = preferredState{at: reportNow(), sticky: sticky}
 }
 
 func prioritizeURLs(urls []string, preferred string) []string {
@@ -168,9 +194,11 @@ func postJSONWithFallback(ctx context.Context, urls []string, requestBody []byte
 		return false, fmt.Errorf("上报URL未设置")
 	}
 
-	orderedURLs := prioritizeURLs(urls, loadPreferredURL(preferred))
+	loaded := loadPreferredURL(preferred, urls)
+	orderedURLs := prioritizeURLs(urls, loaded)
 
 	var errs []string
+	noTLS := false // an earlier URL of this call hit a port that does not speak TLS
 	for _, targetURL := range orderedURLs {
 		safeURL := logsafe.URL(targetURL)
 		req, err := http.NewRequest("POST", targetURL, bytes.NewBuffer(requestBody))
@@ -184,6 +212,10 @@ func postJSONWithFallback(ctx context.Context, urls []string, requestBody []byte
 
 		resp, err := reportDo(ctx, req, timeout)
 		if err != nil {
+			var rhe tls.RecordHeaderError
+			if errors.As(err, &rhe) || errors.Is(err, http.ErrSchemeMismatch) {
+				noTLS = true
+			}
 			errs = append(errs, fmt.Sprintf("%s => 请求失败: %v", safeURL, logsafe.Error(err)))
 			continue
 		}
@@ -203,7 +235,11 @@ func postJSONWithFallback(ctx context.Context, urls []string, requestBody []byte
 
 		responseText := strings.TrimSpace(responseBytes.String())
 		if responseText == "ok" {
-			storePreferredURL(preferred, targetURL)
+			// Only a change (or a fallback after a failure in this call) restarts
+			// the TTL; using the remembered URL does not extend it.
+			if len(errs) > 0 || loaded != targetURL {
+				storePreferredURL(preferred, targetURL, noTLS)
+			}
 			return true, nil
 		}
 

@@ -189,44 +189,49 @@ type ServiceMonitorCheckResult struct {
 const (
 	reporterReadWait  = 60 * time.Second
 	reporterWriteWait = 5 * time.Second
-	wsPingInterval    = 20 * time.Second // 独立 WebSocket ping 间隔
-	initialBackoff    = 2 * time.Second  // 重连初始退避
-	maxBackoff        = 2 * time.Minute  // 重连最大退避
+	initialBackoff    = 2 * time.Second // 重连初始退避
+	maxBackoff        = 2 * time.Minute // 重连最大退避
 )
 
+// wsPingInterval 独立 WebSocket ping 间隔（变量仅供测试缩短）
+var wsPingInterval = 20 * time.Second
+
 type WebSocketReporter struct {
-	configPath        string
-	sessionEnded      bool // guarded by connMutex; count a failed session at most once
-	routineLogs       logsafe.RoutineLogger
-	leikwan           leiKwanDetector
-	egress            egressDetector
-	ipv6RA            ipv6RADetector
-	url               string
-	addr              string // 保存服务器地址
-	secret            string // 保存密钥
-	version           string // 保存版本号
-	nodeID            int64  // 节点 ID
-	preferredWSScheme string
-	conn              *websocket.Conn
-	curBackoff        time.Duration // 当前重连退避间隔
-	pingInterval      time.Duration
-	configInterval    time.Duration
-	ctx               context.Context
-	cancel            context.CancelFunc
-	connected         bool
-	connecting        bool                     // 正在连接状态
-	connMutex         sync.Mutex               // 连接状态锁
-	aesCrypto         *crypto.AESCrypto        // AES 加密器
-	publicIPReported  bool                     // 是否已上报公网 IP
-	serviceName       string                   // 服务名
-	nftablesMgr       NftablesManagerInterface // nftables manager (platform-specific)
-	nftRef            atomic.Pointer[nftablesRef]
-	protector         *machineprotect.Protector // the one machine protection loop (plan 118)
-	machineSentSeq    uint64                    // last protection sample sent on this connection
+	configPath         string
+	sessionEnded       bool // guarded by connMutex; count a failed session at most once
+	reconnectRequested bool // guarded by connMutex; reconnectPanel asked for a fresh session
+	routineLogs        logsafe.RoutineLogger
+	leikwan            leiKwanDetector
+	egress             egressDetector
+	ipv6RA             ipv6RADetector
+	url                string
+	addr               string         // 保存服务器地址
+	secret             string         // 保存密钥
+	version            string         // 保存版本号
+	nodeID             int64          // 节点 ID
+	failover           *panelFailover // plan 122: candidate order, cooldowns, last healthy IP
+	session            panelSessionInfo
+	lastPongAt         atomic.Int64 // unix nanos of the last pong to our pings (current session)
+	conn               *websocket.Conn
+	curBackoff         time.Duration // 当前重连退避间隔
+	pingInterval       time.Duration
+	configInterval     time.Duration
+	ctx                context.Context
+	cancel             context.CancelFunc
+	connected          bool
+	connecting         bool                     // 正在连接状态
+	connMutex          sync.Mutex               // 连接状态锁
+	aesCrypto          *crypto.AESCrypto        // AES 加密器
+	publicIPReported   bool                     // 是否已上报公网 IP
+	serviceName        string                   // 服务名
+	nftablesMgr        NftablesManagerInterface // nftables manager (platform-specific)
+	nftRef             atomic.Pointer[nftablesRef]
+	protector          *machineprotect.Protector // the one machine protection loop (plan 118)
+	machineSentSeq     uint64                    // last protection sample sent on this connection
 }
 
-var wsDial = func(dialer *websocket.Dialer, rawURL string) (*websocket.Conn, *http.Response, error) {
-	return dialer.Dial(rawURL, nil)
+var wsDial = func(ctx context.Context, dialer *websocket.Dialer, rawURL string) (*websocket.Conn, *http.Response, error) {
+	return dialer.DialContext(ctx, rawURL, nil)
 }
 
 // NewWebSocketReporter 创建一个新的WebSocket报告器
@@ -252,6 +257,7 @@ func NewWebSocketReporter(serverURL string, secret string) *WebSocketReporter {
 		connected:      false,
 		connecting:     false,
 		aesCrypto:      aesCrypto,
+		failover:       newPanelFailover(),
 	}
 }
 
@@ -285,74 +291,120 @@ func backoffWithJitter(base time.Duration) time.Duration {
 }
 
 // run 主运行循环
+//
+// One dial round at a time (connect), then one session (handleConnection). A
+// session that never answered the hello ping, stalled or ended within
+// panelHealthyAfter counts as a failed attempt: its candidate cools down and
+// the backoff keeps growing, so the next round starts with another candidate.
 func (w *WebSocketReporter) run() {
 	for {
 		select {
 		case <-w.ctx.Done():
 			return
 		default:
-			// 检查连接状态，避免重复连接
-			w.connMutex.Lock()
-			needConnect := !w.connected && !w.connecting
-			w.connMutex.Unlock()
+		}
+		// 检查连接状态，避免重复连接
+		w.connMutex.Lock()
+		needConnect := !w.connected && !w.connecting
+		w.connMutex.Unlock()
 
-			if needConnect {
-				if err := w.connect(); err != nil {
-					wait := backoffWithJitter(w.curBackoff)
-					runtimeLogs.Logf("websocket-connect", networkErrorFingerprint("connect", err),
-						"❌ WebSocket连接失败: %v；将按指数退避重试", err)
-					// 指数退避：翻倍当前退避间隔，上限 maxBackoff
-					w.curBackoff *= 2
-					if w.curBackoff > maxBackoff {
-						w.curBackoff = maxBackoff
-					}
-					select {
-					case <-time.After(wait):
-						continue
-					case <-w.ctx.Done():
-						return
-					}
-				}
-				// 连接成功：只在此前失败过时记录一次恢复，并归零退避。
-				runtimeLogs.Recoverf("websocket-connect", "✅ WebSocket连接已恢复")
-				w.curBackoff = initialBackoff
-			}
-
-			// 连接成功，开始发送消息
-			w.connMutex.Lock()
-			connected := w.connected
-			w.connMutex.Unlock()
-			if connected {
-				w.handleConnection()
-			} else {
-				wait := backoffWithJitter(w.curBackoff)
-				// 如果连接失败，等待重试
-				select {
-				case <-time.After(wait):
-					continue
-				case <-w.ctx.Done():
+		if needConnect {
+			if err := w.connect(); err != nil {
+				if w.ctx.Err() != nil {
 					return
 				}
+				wait := backoffWithJitter(w.curBackoff)
+				runtimeLogs.Logf("websocket-connect", networkErrorFingerprint("connect", err),
+					"❌ WebSocket连接失败: %v；将按指数退避重试", err)
+				w.growBackoff()
+				if !w.sleepCtx(wait) {
+					return
+				}
+				continue
 			}
+			// 连接成功：只在此前失败过时记录一次恢复。
+			runtimeLogs.Recoverf("websocket-connect", "✅ WebSocket连接已恢复")
+		}
+
+		w.connMutex.Lock()
+		connected := w.connected
+		w.connMutex.Unlock()
+		if !connected {
+			if !w.sleepCtx(backoffWithJitter(w.curBackoff)) {
+				return
+			}
+			continue
+		}
+		out := w.handleConnection()
+		if w.ctx.Err() != nil {
+			return
+		}
+		if !w.afterSession(out) {
+			return
 		}
 	}
 }
 
-// connect 建立WebSocket连接
+func (w *WebSocketReporter) growBackoff() {
+	// 指数退避：翻倍当前退避间隔，上限 maxBackoff
+	w.curBackoff *= 2
+	if w.curBackoff > maxBackoff {
+		w.curBackoff = maxBackoff
+	}
+	if w.curBackoff < initialBackoff {
+		w.curBackoff = initialBackoff
+	}
+}
+
+// sleepCtx waits d unless the reporter stops first (false).
+func (w *WebSocketReporter) sleepCtx(d time.Duration) bool {
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-t.C:
+		return true
+	case <-w.ctx.Done():
+		return false
+	}
+}
+
+// afterSession books a finished session; false when the reporter is stopping.
+func (w *WebSocketReporter) afterSession(out sessionOutcome) bool {
+	s := out.session
+	switch {
+	case out.reason == sessionStopped:
+		return false
+	case out.reason == sessionRequested:
+		// Deliberate reconnect (e.g. panel IP family changed): no penalty.
+		return true
+	case out.reason == sessionSwitch:
+		// The primary scheme answered the probe: reconnect now, primary first.
+		return true
+	case out.healthy:
+		w.failover.healthy(s.scheme, s.target.hostPort, s.target.host, s.ip)
+		w.curBackoff = initialBackoff
+		runtimeLogs.Reset("panel-session")
+		return true
+	}
+	w.failover.fail(s.scheme, s.target.hostPort, s.ip)
+	wait := backoffWithJitter(w.curBackoff)
+	w.growBackoff()
+	runtimeLogs.Logf("panel-session", string(out.reason)+"|"+s.scheme+"|"+s.ip.String(),
+		"⚠️ 面板会话不可用（%s，持续 %.0f 秒，%s @%s），%.0f 秒后换下一个地址重连",
+		out.reason.text(), out.duration.Seconds(), strings.ToUpper(s.scheme), s.ip, wait.Seconds())
+	return w.sleepCtx(wait)
+}
+
+// connect 建立WebSocket连接（一轮拨号，见 panel_failover.go）
 func (w *WebSocketReporter) connect() error {
 	w.connMutex.Lock()
-	defer w.connMutex.Unlock()
-
 	// 如果已经在连接中或已连接，直接返回
 	if w.connecting || w.connected {
+		w.connMutex.Unlock()
 		return nil
 	}
-
 	// 设置连接中状态
 	w.connecting = true
-	defer func() {
-		w.connecting = false
-	}()
 
 	// 重新读取 config.json 获取最新的协议配置
 	type LocalConfig struct {
@@ -369,10 +421,12 @@ func (w *WebSocketReporter) connect() error {
 	var cfg LocalConfig
 	// 先尝试从当前工作目录读取，再尝试默认路径
 	configPaths := []string{"config.json", "/etc/flvx_agent/config.json", "/etc/flux_agent/config.json"}
+	var cfgErr error
 	for _, path := range configPaths {
 		if b, err := os.ReadFile(path); err == nil {
 			if err := json.Unmarshal(b, &cfg); err != nil {
-				return err
+				cfgErr = err
+				break
 			}
 			w.configPath = path
 			if cfg.ServiceName != "" {
@@ -381,21 +435,37 @@ func (w *WebSocketReporter) connect() error {
 			break
 		}
 	}
+	w.connMutex.Unlock()
+	defer func() {
+		w.connMutex.Lock()
+		w.connecting = false
+		w.connMutex.Unlock()
+	}()
+	if cfgErr != nil {
+		return cfgErr
+	}
 
 	if _, err := panelconn.Default.SetMode(cfg.PanelIPFamily); err != nil {
 		return err
 	}
-	candidates := buildWebSocketCandidates(w.addr, w.secret, w.version, cfg.Http, cfg.Tls, cfg.Socks, cfg.BlockOther, w.preferredWSScheme)
+	target := parsePanelTarget(w.addr)
+	query := buildWebSocketQuery(w.secret, w.version, cfg.Http, cfg.Tls, cfg.Socks, cfg.BlockOther)
 
-	dialer := *websocket.DefaultDialer
-	dialer.HandshakeTimeout = 10 * time.Second
-	dialer.NetDialContext = panelconn.Default.DialContext
-
-	conn, usedURL, err := dialWebSocketWithFallback(&dialer, candidates)
+	// The dial runs without connMutex: writers of the previous session fail
+	// fast ("连接未建立") instead of waiting for a slow round, and Stop()
+	// cancels the round through w.ctx.
+	res, err := w.dialPanelRound(w.ctx, *websocket.DefaultDialer, target, query)
 	if err != nil {
 		return err
 	}
+	conn := res.conn
 
+	w.connMutex.Lock()
+	defer w.connMutex.Unlock()
+	if w.ctx.Err() != nil {
+		conn.Close()
+		return w.ctx.Err()
+	}
 	// 如果在连接过程中已经有连接了，关闭新连接
 	if w.conn != nil && w.connected {
 		conn.Close()
@@ -405,16 +475,17 @@ func (w *WebSocketReporter) connect() error {
 	w.conn = conn
 	w.connected = true
 	w.sessionEnded = false
+	w.reconnectRequested = false
 	w.machineSentSeq = 0 // the first metric of a new session carries the latest sample
-	if scheme := detectWebSocketScheme(usedURL); scheme != "" {
-		w.preferredWSScheme = scheme
-	}
+	w.session = panelSessionInfo{target: target, scheme: res.scheme, ip: res.ip, startedAt: time.Now()}
+	w.lastPongAt.Store(0)
 	_ = conn.SetReadDeadline(time.Now().Add(reporterReadWait))
 	conn.SetPingHandler(func(appData string) error {
 		_ = conn.SetReadDeadline(time.Now().Add(reporterReadWait))
 		return conn.WriteControl(websocket.PongMessage, []byte(appData), time.Now().Add(reporterWriteWait))
 	})
 	conn.SetPongHandler(func(string) error {
+		w.lastPongAt.Store(time.Now().UnixNano())
 		return conn.SetReadDeadline(time.Now().Add(reporterReadWait))
 	})
 
@@ -427,7 +498,11 @@ func (w *WebSocketReporter) connect() error {
 		return nil
 	})
 
-	fmt.Printf("✅ WebSocket 连接建立成功 (%s, remote=%s %s, http=%d, tls=%d, socks=%d)\n", sanitizeWebSocketURL(usedURL), panelconn.Family(conn.RemoteAddr()), conn.RemoteAddr(), cfg.Http, cfg.Tls, cfg.Socks)
+	extra := ""
+	if n := w.failover.attemptCount(); n > 1 {
+		extra = fmt.Sprintf(", attempts=%d", n)
+	}
+	fmt.Printf("✅ WebSocket 连接建立成功 (%s, remote=%s %s, http=%d, tls=%d, socks=%d%s)\n", sanitizeWebSocketURL(res.url), panelconn.Family(conn.RemoteAddr()), conn.RemoteAddr(), cfg.Http, cfg.Tls, cfg.Socks, extra)
 
 	// 如果 node_id 未配置，尝试从面板获取并初始化基线管理器
 	if w.nodeID <= 0 {
@@ -439,13 +514,17 @@ func (w *WebSocketReporter) connect() error {
 	w.ipv6RA.detect()
 
 	// Do not hold up the WS reader/keepalive on public IP discovery.
-	go func() {
-		ipv4 := getPublicIPv4()
-		ipv6 := getPublicIPv6()
-		w.reportPublicIPs(ipv4, ipv6)
-	}()
+	go reportPublicIPsOnConnect(w)
 
 	return nil
+}
+
+// reportPublicIPsOnConnect runs once per session; tests replace it (it calls
+// external IP services).
+var reportPublicIPsOnConnect = func(w *WebSocketReporter) {
+	ipv4 := getPublicIPv4()
+	ipv6 := getPublicIPv6()
+	w.reportPublicIPs(ipv4, ipv6)
 }
 
 // getConfigDir 根据 serviceName 获取配置目录
@@ -718,29 +797,22 @@ func (w *WebSocketReporter) reportPublicIP(publicIP string) {
 	w.reportPublicIPs(publicIP, "")
 }
 
-func buildWebSocketCandidates(addr string, secret string, version string, http int, tls int, socks int, blockOther int, preferredScheme string) []string {
-	normalizedAddr, explicitScheme := normalizeReporterAddress(addr)
-	if normalizedAddr == "" {
-		normalizedAddr = strings.TrimSpace(addr)
-	}
-
-	query := "/system-info?type=1&secret=" + url.QueryEscape(secret) + "&version=" + url.QueryEscape(version) +
+// buildWebSocketQuery is the handshake path + query (capabilities included).
+func buildWebSocketQuery(secret string, version string, http int, tls int, socks int, blockOther int) string {
+	return "/system-info?type=1&secret=" + url.QueryEscape(secret) + "&version=" + url.QueryEscape(version) +
 		"&http=" + strconv.Itoa(http) + "&tls=" + strconv.Itoa(tls) + "&socks=" + strconv.Itoa(socks) +
 		"&blockOther=" + strconv.Itoa(blockOther) + "&panelIpFamily=" + url.QueryEscape(panelconn.Default.Mode()) +
 		"&machineProtect=" + strconv.Itoa(machineProtectVersion)
+}
 
-	schemes := []string{"wss", "ws"}
-	if mappedScheme := mapToWebSocketScheme(explicitScheme); mappedScheme != "" {
-		if mappedScheme == "ws" {
-			schemes = []string{"ws", "wss"}
-		}
-	} else if preferredScheme == "ws" {
-		schemes = []string{"ws", "wss"}
-	}
-
+// buildWebSocketCandidates returns the primary and the fallback scheme URL of
+// the panel address (dial order per round comes from panelFailover).
+func buildWebSocketCandidates(addr string, secret string, version string, http int, tls int, socks int, blockOther int) []string {
+	t := parsePanelTarget(addr)
+	query := buildWebSocketQuery(secret, version, http, tls, socks, blockOther)
 	return []string{
-		schemes[0] + "://" + normalizedAddr + query,
-		schemes[1] + "://" + normalizedAddr + query,
+		t.primary + "://" + t.hostPort + query,
+		t.fallback + "://" + t.hostPort + query,
 	}
 }
 
@@ -778,48 +850,6 @@ func mapToWebSocketScheme(scheme string) string {
 	}
 }
 
-func detectWebSocketScheme(rawURL string) string {
-	if strings.HasPrefix(rawURL, "wss://") {
-		return "wss"
-	}
-	if strings.HasPrefix(rawURL, "ws://") {
-		return "ws"
-	}
-	return ""
-}
-
-func dialWebSocketWithFallback(dialer *websocket.Dialer, candidates []string) (*websocket.Conn, string, error) {
-	if len(candidates) == 0 {
-		return nil, "", fmt.Errorf("WebSocket候选地址为空")
-	}
-
-	var errs []string
-	for i, targetURL := range candidates {
-		conn, resp, err := wsDial(dialer, targetURL)
-		if err == nil {
-			if i > 0 {
-				fmt.Printf("↪️ WebSocket已自动回退成功: %s\n", sanitizeWebSocketURL(targetURL))
-			}
-			return conn, targetURL, nil
-		}
-		errMsg := formatWebSocketDialError(err, resp)
-		if u, e := url.Parse(targetURL); e == nil {
-			errMsg = logsafe.Text(errMsg, u.Query().Get("secret"))
-		}
-		errs = append(errs, fmt.Sprintf("%s => %s", sanitizeWebSocketURL(targetURL), errMsg))
-		if i < len(candidates)-1 {
-			fmt.Printf(
-				"⚠️ WebSocket连接失败，准备从 %s 回退到 %s: %s\n",
-				strings.ToUpper(detectWebSocketScheme(targetURL)),
-				strings.ToUpper(detectWebSocketScheme(candidates[i+1])),
-				errMsg,
-			)
-		}
-	}
-
-	return nil, "", fmt.Errorf("连接WebSocket失败（已尝试%d种协议）: %s", len(candidates), strings.Join(errs, " | "))
-}
-
 func sanitizeWebSocketURL(rawURL string) string {
 	return logsafe.URL(rawURL)
 }
@@ -837,8 +867,23 @@ func formatWebSocketDialError(err error, resp *http.Response) string {
 }
 
 // handleConnection 处理WebSocket连接
-func (w *WebSocketReporter) handleConnection() {
+//
+// Besides metrics and keepalive pings it watches the session (plan 122): the
+// hello ping must be answered within panelHelloTimeout and our pings must keep
+// getting pongs (panelPongStallTimeout); otherwise the path is truncated and
+// the session ends as a failed attempt. While the session runs on a fallback
+// scheme, the primary is probed every panelFailoverTTL (one request, never
+// while on the primary) and the session ends to switch back once it answers.
+func (w *WebSocketReporter) handleConnection() (out sessionOutcome) {
 	readerDone := make(chan struct{})
+	w.connMutex.Lock()
+	conn := w.conn
+	out.session = w.session
+	w.connMutex.Unlock()
+	start := out.session.startedAt
+	if start.IsZero() {
+		start = time.Now()
+	}
 	defer func() {
 		w.connMutex.Lock()
 		w.sessionEnded = true
@@ -847,13 +892,52 @@ func (w *WebSocketReporter) handleConnection() {
 			w.conn = nil
 		}
 		w.connected = false
+		if w.reconnectRequested && out.reason == "" {
+			out.reason = sessionRequested
+		}
+		w.reconnectRequested = false
 		w.connMutex.Unlock()
 		<-readerDone
+		out.duration = time.Since(start)
+		lastPong := w.lastPongAt.Load()
+		out.helloOK = lastPong > 0
+		// Healthy = pongs kept coming for panelHealthyAfter (a stall right after
+		// the hello, or a panel kill at 45 s, is not).
+		out.healthy = out.helloOK && time.Unix(0, lastPong).Sub(start) >= panelHealthyAfter
+		if w.ctx.Err() != nil {
+			out.reason = sessionStopped
+		}
 		fmt.Printf("🔌 WebSocket连接已关闭\n")
 	}()
 
 	// 启动消息接收goroutine
 	go func() { defer close(readerDone); w.receiveMessages() }()
+
+	// hello: a ping right away; its pong proves both directions end to end.
+	helloSent := time.Now()
+	if conn != nil {
+		if err := conn.WriteControl(websocket.PingMessage, []byte(panelHelloPayload), time.Now().Add(reporterWriteWait)); err != nil {
+			w.connMutex.Lock()
+			w.sessionErrorLocked(conn, err)
+			w.connMutex.Unlock()
+			return
+		}
+	}
+	endUnhealthy := func(reason sessionReason) {
+		out.reason = reason
+		w.connMutex.Lock()
+		w.sessionErrorLocked(conn, errPanelNoReply)
+		w.connMutex.Unlock()
+	}
+
+	primary := w.failover.effectivePrimary(out.session.target)
+	degraded := out.session.scheme != "" && out.session.scheme != primary
+	var probeAt time.Time
+	if degraded {
+		probeAt = start.Add(backoffWithJitter(panelFailoverTTL))
+	}
+	probeResult := make(chan error, 1) // buffered: a late probe never blocks
+	probing := false
 
 	// 指标上报 ticker
 	metricTicker := time.NewTicker(w.pingInterval)
@@ -866,6 +950,7 @@ func (w *WebSocketReporter) handleConnection() {
 	for {
 		select {
 		case <-w.ctx.Done():
+			out.reason = sessionStopped
 			return
 
 		case <-pingTicker.C:
@@ -887,6 +972,16 @@ func (w *WebSocketReporter) handleConnection() {
 
 			w.routineLogs.Record("Heartbeat", sanitizeWebSocketURL(w.url), "")
 
+		case err := <-probeResult:
+			probing = false
+			if err == nil {
+				fmt.Printf("↩️ 面板主线路 %s 已恢复，从 %s 切回\n", strings.ToUpper(primary), strings.ToUpper(out.session.scheme))
+				w.failover.clearScheme(primary, out.session.target.hostPort)
+				out.reason = sessionSwitch
+				return
+			}
+			probeAt = time.Now().Add(backoffWithJitter(panelFailoverTTL))
+
 		case <-metricTicker.C:
 			// 检查连接状态
 			w.connMutex.Lock()
@@ -895,6 +990,26 @@ func (w *WebSocketReporter) handleConnection() {
 
 			if !isConnected {
 				return
+			}
+
+			now := time.Now()
+			lastPong := w.lastPongAt.Load()
+			if lastPong == 0 && now.Sub(helloSent) > panelHelloTimeout {
+				endUnhealthy(sessionNoHello)
+				return
+			}
+			ref := helloSent
+			if lastPong > 0 {
+				ref = time.Unix(0, lastPong)
+			}
+			if now.Sub(ref) > panelPongStallTimeout {
+				endUnhealthy(sessionStalled)
+				return
+			}
+			if degraded && !probing && !now.Before(probeAt) {
+				probing = true
+				target := out.session.target
+				go func() { probeResult <- probePrimary(w.ctx, target, primary) }()
 			}
 
 			// 轮询 nftables 内核计数器并注入流量统计
@@ -2754,7 +2869,7 @@ func StartWebSocketReporterWithConfig(addr string, secret string, http int, tls 
 	fixServiceFile(serviceName)
 
 	// 构建初始 WebSocket URL
-	candidates := buildWebSocketCandidates(addr, secret, version, http, tls, socks, blockOther, "")
+	candidates := buildWebSocketCandidates(addr, secret, version, http, tls, socks, blockOther)
 	fullURL := candidates[0]
 
 	fmt.Printf("🔗 WebSocket 连接 URL: %s\n", sanitizeWebSocketURL(fullURL))

@@ -1,6 +1,7 @@
 package socket
 
 import (
+	"context"
 	"errors"
 	"github.com/gorilla/websocket"
 	"io"
@@ -14,13 +15,14 @@ import (
 func TestWebSocketFallbackLogsRedactSecret(t *testing.T) {
 	old := wsDial
 	defer func() { wsDial = old }()
-	wsDial = func(_ *websocket.Dialer, raw string) (*websocket.Conn, *http.Response, error) {
+	wsDial = func(_ context.Context, _ *websocket.Dialer, raw string) (*websocket.Conn, *http.Response, error) {
 		return nil, &http.Response{StatusCode: 403, Body: io.NopCloser(strings.NewReader(`{"config":"test-node-psk"}`))}, &url.Error{Op: "Get", URL: raw, Err: errors.New("refused")}
 	}
 	r, w, _ := os.Pipe()
 	oldout := os.Stdout
 	os.Stdout = w
-	_, _, err := dialWebSocketWithFallback(&websocket.Dialer{}, []string{"wss://panel/ws?secret=test-node-psk", "ws://panel/ws?secret=test-node-psk"})
+	reporter := &WebSocketReporter{failover: newPanelFailover()}
+	_, err := reporter.dialPanelRound(context.Background(), websocket.Dialer{}, parsePanelTarget("panel"), "/ws?secret=test-node-psk")
 	w.Close()
 	os.Stdout = oldout
 	out, _ := io.ReadAll(r)

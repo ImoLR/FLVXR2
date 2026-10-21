@@ -71,6 +71,7 @@ func (w *WebSocketReporter) reconnectPanel() {
 	w.connMutex.Lock()
 	defer w.connMutex.Unlock()
 	w.sessionEnded = true
+	w.reconnectRequested = true
 	w.connected = false
 	if w.conn != nil {
 		_ = w.conn.Close()

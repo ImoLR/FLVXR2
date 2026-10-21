@@ -79,7 +79,6 @@ func TestPanelIPv6BlackholeRecovery(t *testing.T) {
 	w := NewWebSocketReporter("", "")
 	w.addr = fmt.Sprintf("localhost:%d", port)
 	w.nodeID = 1 // skip identity/bootstrap HTTP
-	w.preferredWSScheme = "ws"
 	w.pingInterval = 200 * time.Millisecond
 	done := make(chan struct{})
 	go func() { defer close(done); w.run() }()

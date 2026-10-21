@@ -99,6 +99,25 @@ func (p *Policy) effective() string {
 	return p.effectiveLocked()
 }
 
+// EffectiveMode is the family policy in force right now (the configured mode,
+// or prefer_ipv4 while an auto self-heal is active). Callers that pick panel
+// IPs themselves use it so they honour the same policy as DialContext.
+func (p *Policy) EffectiveMode() string {
+	return p.effective()
+}
+
+// LookupNetwork maps a family mode to the resolver network for the panel host.
+func LookupNetwork(mode string) string {
+	switch mode {
+	case IPv4Only:
+		return "ip4"
+	case IPv6Only:
+		return "ip6"
+	default:
+		return "ip"
+	}
+}
+
 // IPv6Failure is called once per abnormally ended IPv6 WS session. Local
 // restarts and server close frames are excluded by the reporter.
 func (p *Policy) IPv6Failure() {

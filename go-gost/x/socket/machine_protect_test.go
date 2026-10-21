@@ -153,7 +153,7 @@ func TestSetMachineProtectionPersistsAndApplies(t *testing.T) {
 }
 
 func TestHandshakeAnnouncesMachineProtect(t *testing.T) {
-	for _, u := range buildWebSocketCandidates("panel.example:443", "s", "v", 0, 0, 0, 0, "") {
+	for _, u := range buildWebSocketCandidates("panel.example:443", "s", "v", 0, 0, 0, 0) {
 		if !strings.Contains(u, "&machineProtect=1") {
 			t.Fatalf("capability missing: %s", u)
 		}
@@ -201,8 +201,11 @@ func TestMachineReportOncePerSampleAndConnection(t *testing.T) {
 // Real reconnects against a fake panel: still exactly one protection loop, and
 // every new session's first metric carries the machine sample.
 func TestReconnectsKeepOneProtectionLoop(t *testing.T) {
-	orig := newNftablesManager
-	t.Cleanup(func() { newNftablesManager = orig })
+	orig, origHealthy := newNftablesManager, panelHealthyAfter
+	t.Cleanup(func() { newNftablesManager, panelHealthyAfter = orig, origHealthy })
+	// Sessions here end right after their first metric on purpose; count them as
+	// healthy so the reconnects are immediate (plan 122 backs off on short ones).
+	panelHealthyAfter = 0
 	newNftablesManager = func() (NftablesManagerInterface, error) { return &portsNftManager{}, nil }
 
 	upgrader := websocket.Upgrader{}
@@ -232,8 +235,9 @@ func TestReconnectsKeepOneProtectionLoop(t *testing.T) {
 	for w.protector.Snapshot() == nil && time.Now().Before(deadline) {
 		time.Sleep(5 * time.Millisecond)
 	}
-	go w.run()
-	defer w.Stop()
+	runDone := make(chan struct{})
+	go func() { defer close(runDone); w.run() }()
+	defer func() { w.Stop(); <-runDone }()
 	withSample := 0
 	for i := 0; i < 6; i++ {
 		select {
