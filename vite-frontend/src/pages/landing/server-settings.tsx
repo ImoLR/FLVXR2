@@ -270,7 +270,6 @@ export function ServerSettings({
                 </Checkbox>
               ))}
             </div>
-            <ExtraProtocolSettings form={form} server={server} set={set} />
             {form.protocols.includes("vless_reality_vision") && (
               <>
                 <Input
@@ -288,6 +287,7 @@ export function ServerSettings({
                 />
               </>
             )}
+            <ExtraProtocolSettings form={form} server={server} set={set} />
           </section>
           <section className="space-y-3">
             <h3 className="font-medium">出站与路由</h3>

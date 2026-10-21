@@ -11,6 +11,8 @@ import {
   LandingNode,
   LandingServer,
   deleteLandingNode,
+  isLandingExtraProtocol,
+  landingCreatableProtocols,
   landingDate,
   landingGB,
   landingLinks,
@@ -270,6 +272,13 @@ export default function LandingPage() {
               {admin
                 ? "管理自有与共享落地服务器、节点和独立限制"
                 : "选择获授权的服务器，创建自己的 SS2022 或 VLESS 节点"}
+              {!admin &&
+                servers.some((server) =>
+                  landingCreatableProtocols(server).some(
+                    isLandingExtraProtocol,
+                  ),
+                ) &&
+                "（部分服务器还支持 AnyTLS / Snell / Mieru）"}
             </p>
           </div>
           <Button
