@@ -18,12 +18,14 @@ import {
   landingLinks,
   landingNodes,
   landingProtocolLabel,
+  landingProtocolShortLabel,
   landingProtocolSummary,
   landingServerModeLabel,
   landingServers,
   landingStatus,
 } from "@/api/landing";
 import { AnimatedPage } from "@/components/animated-page";
+import { useH5Mode } from "@/hooks/useH5Mode";
 import { Button } from "@/shadcn-bridge/heroui/button";
 import { Card, CardBody, CardHeader } from "@/shadcn-bridge/heroui/card";
 import { Chip } from "@/shadcn-bridge/heroui/chip";
@@ -101,6 +103,8 @@ function LandingClientConfig({
 
 export default function LandingPage() {
   const admin = isAdmin();
+  // H5: protocol chips stack in a right-hand column of the server card header.
+  const stackProtocols = useH5Mode();
   const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
   const [servers, setServers] = useState<LandingServer[]>([]);
@@ -305,77 +309,126 @@ export default function LandingPage() {
           <Tab key="servers" title={admin ? "落地服务器" : "可用落地"}>
             <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
               {servers.map((server) => (
-                <Card key={server.id}>
-                  <CardHeader className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <h2 className="truncate font-semibold">{server.name}</h2>
-                      <p className="mt-1 text-xs text-default-500">
-                        {server.source === "shared"
-                          ? "妙妙屋共享"
-                          : "FLVX 自有落地"}
-                      </p>
-                      {server.source === "shared" &&
-                        landingServerModeLabel(
-                          server.sharedCaps?.server_mode,
-                        ) && (
-                          <div className="mt-1 flex flex-wrap items-center gap-1">
-                            <Chip
-                              className="text-default-600"
-                              size="sm"
-                              title="妙妙屋官方给这台服务器设置的运行模式，仅供参考；FLVX 节点运行在 FLVX 独立的 Core 中，连接数、在线 IP、流量限制照常生效"
-                              variant="bordered"
-                            >
-                              妙妙屋 ·{" "}
-                              {landingServerModeLabel(
-                                server.sharedCaps?.server_mode,
-                              )}
-                            </Chip>
-                          </div>
-                        )}
-                      {admin && (server.chainOnly || (server.chainNodeCount ?? 0) > 0) && (
-                        <div className="mt-1 flex flex-wrap items-center gap-1">
-                          {server.chainOnly && (
-                            <Chip
-                              color="secondary"
-                              size="sm"
-                              title="自动安装，只承载「我自己的节点」链式规则，不对用户开放；在节点页「启用为落地」可转为公开落地"
-                              variant="flat"
-                            >
-                              链式
-                            </Chip>
-                          )}
-                          {(server.chainNodeCount ?? 0) > 0 && (
-                            <Chip className="text-default-600" size="sm" variant="bordered">
-                              链式节点 {server.chainNodeCount}
-                            </Chip>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                    <Chip
+                <Card
+                  key={server.id}
+                  className={stackProtocols ? "min-w-0" : undefined}
+                >
+                  <CardHeader
+                    className={
+                      stackProtocols
+                        ? "flex-row items-start justify-between gap-3"
+                        : "flex items-start justify-between gap-3"
+                    }
+                  >
+                    <div
                       className={
-                        server.online && server.status === "active"
-                          ? undefined
-                          : "text-default-600"
-                      }
-                      color={
-                        server.online && server.status === "active"
-                          ? "success"
-                          : "default"
-                      }
-                      size="sm"
-                      variant={
-                        server.online && server.status === "active"
-                          ? "flat"
-                          : "bordered"
+                        stackProtocols
+                          ? "flex min-w-0 flex-1 flex-col items-start gap-3"
+                          : "contents"
                       }
                     >
-                      {server.status !== "active"
-                        ? "已停用"
-                        : server.online
-                          ? "在线"
-                          : "离线"}
-                    </Chip>
+                      <div className="min-w-0">
+                        <h2
+                          className={
+                            stackProtocols
+                              ? "break-words font-semibold"
+                              : "truncate font-semibold"
+                          }
+                        >
+                          {server.name}
+                        </h2>
+                        <p className="mt-1 text-xs text-default-500">
+                          {server.source === "shared"
+                            ? "妙妙屋共享"
+                            : "FLVX 自有落地"}
+                        </p>
+                        {server.source === "shared" &&
+                          landingServerModeLabel(
+                            server.sharedCaps?.server_mode,
+                          ) && (
+                            <div className="mt-1 flex flex-wrap items-center gap-1">
+                              <Chip
+                                className="text-default-600"
+                                size="sm"
+                                title="妙妙屋官方给这台服务器设置的运行模式，仅供参考；FLVX 节点运行在 FLVX 独立的 Core 中，连接数、在线 IP、流量限制照常生效"
+                                variant="bordered"
+                              >
+                                妙妙屋 ·{" "}
+                                {landingServerModeLabel(
+                                  server.sharedCaps?.server_mode,
+                                )}
+                              </Chip>
+                            </div>
+                          )}
+                        {admin &&
+                          (server.chainOnly ||
+                            (server.chainNodeCount ?? 0) > 0) && (
+                            <div className="mt-1 flex flex-wrap items-center gap-1">
+                              {server.chainOnly && (
+                                <Chip
+                                  color="secondary"
+                                  size="sm"
+                                  title="自动安装，只承载「我自己的节点」链式规则，不对用户开放；在节点页「启用为落地」可转为公开落地"
+                                  variant="flat"
+                                >
+                                  链式
+                                </Chip>
+                              )}
+                              {(server.chainNodeCount ?? 0) > 0 && (
+                                <Chip
+                                  className="text-default-600"
+                                  size="sm"
+                                  variant="bordered"
+                                >
+                                  链式节点 {server.chainNodeCount}
+                                </Chip>
+                              )}
+                            </div>
+                          )}
+                      </div>
+                      <Chip
+                        className={
+                          server.online && server.status === "active"
+                            ? undefined
+                            : "text-default-600"
+                        }
+                        color={
+                          server.online && server.status === "active"
+                            ? "success"
+                            : "default"
+                        }
+                        size="sm"
+                        variant={
+                          server.online && server.status === "active"
+                            ? "flat"
+                            : "bordered"
+                        }
+                      >
+                        {server.status !== "active"
+                          ? "已停用"
+                          : server.online
+                            ? "在线"
+                            : "离线"}
+                      </Chip>
+                    </div>
+                    {stackProtocols && (server.protocols || []).length > 0 && (
+                      <div
+                        data-landing-protocol-column
+                        className="flex shrink-0 flex-col items-end gap-1"
+                      >
+                        {(server.protocols || []).map((protocol) => (
+                          <Chip
+                            key={protocol}
+                            className="text-default-600"
+                            size="sm"
+                            title={landingProtocolLabel(protocol)}
+                            variant="bordered"
+                          >
+                            {landingProtocolShortLabel(protocol)}
+                          </Chip>
+                        ))}
+                      </div>
+                    )}
                   </CardHeader>
                   <CardBody className="space-y-4">
                     {server.source === "shared" && (
@@ -404,16 +457,17 @@ export default function LandingPage() {
                         {server.flowType === 2 ? "双向" : "单向"} ·{" "}
                         {server.trafficRatio}×
                       </Chip>
-                      {(server.protocols || []).map((protocol) => (
-                        <Chip
-                          key={protocol}
-                          className="text-default-600"
-                          size="sm"
-                          variant="bordered"
-                        >
-                          {landingProtocolLabel(protocol)}
-                        </Chip>
-                      ))}
+                      {!stackProtocols &&
+                        (server.protocols || []).map((protocol) => (
+                          <Chip
+                            key={protocol}
+                            className="text-default-600"
+                            size="sm"
+                            variant="bordered"
+                          >
+                            {landingProtocolLabel(protocol)}
+                          </Chip>
+                        ))}
                       {server.egressLabel && (
                         <Chip color="success" size="sm" variant="flat">
                           出站：{server.egressLabel}

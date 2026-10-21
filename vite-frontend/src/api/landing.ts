@@ -358,6 +358,9 @@ const LANDING_PROTOCOL_LABELS: Record<string, string> = {
 
 export const landingProtocolLabel = (value: string) =>
   LANDING_PROTOCOL_LABELS[value] ?? "VLESS Reality Vision";
+/** Short label for the narrow H5 protocol column on server cards. */
+export const landingProtocolShortLabel = (value: string) =>
+  LANDING_PROTOCOL_LABELS[value] ?? "VLESS";
 /** One-line description of a node's (or a server default's) protocol options. */
 export const landingProtocolSummary = (
   protocol: string,
