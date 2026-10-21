@@ -74,7 +74,7 @@
       一直 EOF，看不出能帮 48 → 本版不做（默认空的功能也不加），探测数据写进总结。
 - [x] 推送、tag `3.0.27-fork.65`、CI + Images 通过、Release 资产与 fork.64 相同。
 - [x] 生产面板：回滚目录 `pre-fork65-<TS>`、prune 保留 2 份、升级、健康/在线数/表计数核对。
-- [ ] 金丝雀「Bestvm HK 年付」(42)：SSH 备份、OTA、方案/IP 与之前相同、1 条面板连接、CPU/RSS、强制断线 ×3。
+- [x] 金丝雀「Bestvm HK 年付」(42)：SSH 备份、OTA、方案/IP 与之前相同、1 条面板连接、CPU/RSS、强制断线 ×3。
 - [ ] 48：SSH 备份、OTA（面板够不到就 SSH）、观察 ≥30 分钟：诊断 OK、无「下发失败」、拨号次数/小时。
 - [ ] 其余节点分批 OTA（跳过 20），前后诊断；36 不改保护设置；26 不改连接方式。
 - [ ] 清理 48 上的探测程序；本计划标记完成；中文总结写入运行目录 `summary.md`。
@@ -110,3 +110,13 @@
   integrity_check ok、compose/.env、`local/flvxx-*:pre-fork65-…` 镜像、rollback.sh），prune 后保留 pre-fork64 + pre-fork65
   （删 pre-fork63 与 fork.62 镜像）。21:50:33 升级，健康 + `/version.json` = 3.0.27-fork.65-mvi5tfdf；29/29 在线、
   `panelIpFamily` 无变化、12 张表计数与备份一致；面板 RSS 37.6 → 38.7 MiB，日志 0 错误。
+- 升级前基线（12 台可 SSH 节点，24 h 内最后一次会话）：42/52/53 wss(IPv4)、21/45/47 wss(IPv6)、48 ws:80、
+  30/31/34/35/36 直连 `104.145.236.29:63665` 的 ws（`ota/schemes-before.txt`）。
+- 金丝雀 42（21:51–21:58）：SSH 备份 `/root/flvxx-backup-20261021T135106Z-pre-fork65/restore-agent.sh`；面板 OTA 请求 1.9 s、
+  重连 6 s；wss→wss（同一 104.21.33.54:443）、面板 socket 2→2、RSS 57.8→56.3 MB、诊断 87/17 项前后相同。
+  只重置 agent 自己的面板 socket（按本地端口 `ss -K`）3 次：每次 0.7–0.9 s 内重连 wss、同一 IP、1 次尝试、1 个会话、
+  1 个面板 socket；CPU 0.317 % → 0.317 %（fork.64 时 0.30–0.33 %），RSS 57.3→58.9 MB，线程 8、fd 20–21，日志无切换/告警。
+- 48（22:01）：SSH 备份同上路径；面板 OTA 请求 2.3 s、重连 4 s。升级前那个 fork.64 进程在 21:50 面板重启时 ws 拿到 502、
+  回退到 wss 成功（偶然回到 wss）；fork.65 首次就是 wss（104.21.33.54:443），流量上报改走 https（172.67.189.12:443，
+  之前粘在 http:80）。CPU 0.217 %、RSS 56.5 MB、线程 8、fd 12。诊断 5/6 前后相同（唯一失败 = 规则 110 目标
+  pqstw.imgamer.top:10015 从 48 本机不通，fork.64 时已记录，线路问题）。
