@@ -72,8 +72,8 @@
       前端 tsc + build。
 - [x] 决定备用面板地址（看 48 坏时段数据）：发布前没碰到坏时段；直连 IPv4 与 CF 走同一条 IPLC 出口、直连 IPv6 从 48
       一直 EOF，看不出能帮 48 → 本版不做（默认空的功能也不加），探测数据写进总结。
-- [ ] 推送、tag `3.0.27-fork.65`、CI + Images 通过、Release 资产与 fork.64 相同。
-- [ ] 生产面板：回滚目录 `pre-fork65-<TS>`、prune 保留 2 份、升级、健康/在线数/表计数核对。
+- [x] 推送、tag `3.0.27-fork.65`、CI + Images 通过、Release 资产与 fork.64 相同。
+- [x] 生产面板：回滚目录 `pre-fork65-<TS>`、prune 保留 2 份、升级、健康/在线数/表计数核对。
 - [ ] 金丝雀「Bestvm HK 年付」(42)：SSH 备份、OTA、方案/IP 与之前相同、1 条面板连接、CPU/RSS、强制断线 ×3。
 - [ ] 48：SSH 备份、OTA（面板够不到就 SSH）、观察 ≥30 分钟：诊断 OK、无「下发失败」、拨号次数/小时。
 - [ ] 其余节点分批 OTA（跳过 20），前后诊断；36 不改保护设置；26 不改连接方式。
@@ -99,3 +99,14 @@
 - 后端（`GOMAXPROCS=2 go test -json -count=1 -p 1 ./...`，本分支后端代码与 fork.64 相同）：失败 15 = fork.64 发布时的
   15 个，名称逐个一致，新增 0、消失 0；`go vet` 输出与 fork.64 逐字相同。
 - 前端（未改动）：`tsc --noEmit` 通过；`npm run build` 通过，最大文件 `index-*.js` 2,886,593 B（< 5 MiB）。
+- Release：发布分支 `maintenance/3.0.27-fork.65-agent-panel-failover` = 本分支 `e7ad9542`；tag `3.0.27-fork.65`
+  （注解对象 27aaffef → e7ad9542）。CI Build Check 39608474739 / 39608979770 success。推 tag 没有触发
+  「Build and Push Images」（等了 4 分钟无运行记录），改用 `gh workflow run docker-build.yml --ref 3.0.27-fork.65`
+  （工作流按 `github.ref_type == tag` 判断，和推 tag 触发等价）→ 39609685207 success（含 Create Release）。
+  `validate-release.py`：Latest = fork.65、非草稿/预发布、10 个资产与 fork.64 相同、两份 compose 固定 fork.65 镜像、
+  两个安装脚本 PINNED_VERSION/REPO 正确、gost amd64/arm64 sha256 一致、ghcr 前后端镜像 amd64+arm64 都在；
+  解压 gost-amd64 确认含 `flvx-hello` / `FLVX-Panel-Probe/1.0`，`-V` = 3.0.27-fork.65。
+- 生产面板（21:49–21:50）：回滚点 `/opt/flvx-svc/rollback/pre-fork65-20261021T134948Z`（在线备份 quick_check /
+  integrity_check ok、compose/.env、`local/flvxx-*:pre-fork65-…` 镜像、rollback.sh），prune 后保留 pre-fork64 + pre-fork65
+  （删 pre-fork63 与 fork.62 镜像）。21:50:33 升级，健康 + `/version.json` = 3.0.27-fork.65-mvi5tfdf；29/29 在线、
+  `panelIpFamily` 无变化、12 张表计数与备份一致；面板 RSS 37.6 → 38.7 MiB，日志 0 错误。
