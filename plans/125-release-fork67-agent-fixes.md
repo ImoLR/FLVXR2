@@ -28,11 +28,11 @@ c17b60cd + trial doc 25e3e4ef). Worktree `/root/projects/flvxx/flvxx-fork67`. Ru
 - [x] Backend `go test ./...` vs fork.66 baseline by name (15 known failures); frontend tsc + build
 - [x] E2E: OTA with empty service_name in a systemd container/VM (or scripted fake) upgrades + restarts the right unit
 - [x] Fix 1 local reproduction (healthy wss → panel 502 → stays wss)
-- [ ] Push branch, CI green
-- [ ] Tag `3.0.27-fork.67`, Images green, release Latest with the fork.66 asset set (10)
-- [ ] Prod panel: rollback dir `pre-fork67-<TS>`, prune-backups.sh, upgrade, health, 29/29 online, ws fallbacks recorded
-- [ ] Canary 「Bestvm HK 年付」(42): SSH backup, scheme/IP/conn/CPU/RSS, diagnose identical
-- [ ] Node 20 「Vmsilo TW」 via panel OTA
+- [x] Push branch, CI green
+- [x] Tag `3.0.27-fork.67`, Images green, release Latest with the fork.66 asset set (10)
+- [x] Prod panel: rollback dir `pre-fork67-<TS>`, prune-backups.sh, upgrade, health, 29/29 online, ws fallbacks recorded
+- [x] Canary 「Bestvm HK 年付」(42): SSH backup, scheme/IP/conn/CPU/RSS, diagnose identical
+- [x] Node 20 「Vmsilo TW」 via panel OTA
 - [ ] Remaining nodes in batches, diagnose before/after
 - [ ] Resource numbers (canary + 3 nodes), summary, plan complete
 
@@ -55,3 +55,17 @@ c17b60cd + trial doc 25e3e4ef). Worktree `/root/projects/flvxx/flvxx-fork67`. Ru
   release sha256, `.old` = previous, flvxx.service restarted, online in 3 s, decoy /etc/flux_agent pid + sha
   unchanged; (3) the fork.66 agent with the same layout reproduces node 20: API ok, download in
   /etc/flvx_agent/flvx_agent.new, `Unit flvx_agent.service not loaded`, nothing restarted.
+- CI Build Check 39675574265 green. Tag `3.0.27-fork.67` → 1f466a6d; Build and Push Images 39675807411 green (tag push
+  triggered it). Release Latest, 10 assets = fork.66 set, compose pins `:3.0.27-fork.67`, install scripts pinned,
+  gost sha256 OK, ghcr amd64+arm64. The released gost-amd64 passed the same systemd OTA E2E.
+- Prod panel: rollback `/opt/flvx-svc/rollback/pre-fork67-20261021T212454Z` (DB quick/integrity ok; counts node 29,
+  user 12, tunnel 45, forward 33); prune kept pre-fork67 + pre-fork66 (pre-fork65 + fork.64 images removed).
+  Upgraded 2026-10-22 05:25 TW, healthy in 9 s, 29/29 online 14 s after start; panel RSS 36.8 → 39.3 MiB, 0 error
+  lines. ws fallback during the restart (agents still fork.65, SSH-visible nodes): 21, 48, 53 fell to ws (CF :80);
+  42, 45, 47, 52 stayed wss; 20/30/31/34/35/36 are direct-origin ws as before.
+- Canary 42: wss→wss, diagnose 87/17 = 87 (forward 6 → 82.152.163.228:34749 fails before and after), 3 forced
+  resets of its own panel socket → wss each time, 0.7 s (journal); CPU 0.27 → 0.28 %, RSS ~57 MB; flux_agent pid 429
+  untouched. SSH backup /root/flvxx-backup-20261021T212541Z-pre-fork67.
+- Node 20: panel OTA fork.65 → fork.67 (service_name flvxx already in config), ws to origin as before, flux_agent pid
+  27370 untouched; 0 forwards/tunnels to diagnose. Script paused on sockets 1→3 = WS + HTTP report keep-alive +
+  public-IPv6 lookup keep-alive (pre-existing) → threshold relaxed to +2 for the batches.
