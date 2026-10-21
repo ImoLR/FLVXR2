@@ -7,7 +7,11 @@ import {
   LandingProtocol,
   LandingServer,
   createLandingNode,
+  isLandingExtraProtocol,
+  landingCreatableProtocols,
   landingProtocolLabel,
+  landingProtocolSummary,
+  sharedProtocolCap,
 } from "@/api/landing";
 import { UserApiItem } from "@/api/types";
 import { Button } from "@/shadcn-bridge/heroui/button";
@@ -56,7 +60,7 @@ export function CreateLandingNodeDialog({
   const [protocol, setProtocol] = useState<LandingProtocol>(
     lineMachine
       ? "vless_reality_vision"
-      : firstServer?.protocols[0] || "ss2022",
+      : (firstServer && landingCreatableProtocols(firstServer)[0]) || "ss2022",
   );
   const [userId, setUserId] = useState(ownerId || 0);
   const [ownerOptions, setOwnerOptions] = useState<UserApiItem[]>([]);
@@ -145,7 +149,8 @@ export function CreateLandingNodeDialog({
                 setProtocol(
                   lineMachine
                     ? "vless_reality_vision"
-                    : selected?.protocols[0] || "ss2022",
+                    : (selected && landingCreatableProtocols(selected)[0]) ||
+                        "ss2022",
                 );
                 setAllowDuplicate(false);
               }}
@@ -218,11 +223,41 @@ export function CreateLandingNodeDialog({
           >
             {(lineMachine
               ? ["vless_reality_vision"]
-              : server?.protocols || []
+              : server
+                ? landingCreatableProtocols(server)
+                : []
             ).map((item) => (
               <SelectItem key={item}>{landingProtocolLabel(item)}</SelectItem>
             ))}
           </Select>
+          {server && isLandingExtraProtocol(protocol) && (
+            <div className="space-y-1 rounded-lg border border-divider p-3 text-xs text-default-600">
+              <p>
+                {landingProtocolLabel(protocol)} ·{" "}
+                {landingProtocolSummary(protocol, {
+                  sni:
+                    server.anytlsServerName ||
+                    (/^[0-9.]+$/.test(server.publicHost) ||
+                    server.publicHost.includes(":")
+                      ? ""
+                      : server.publicHost),
+                  version: server.snellVersion,
+                  obfs: server.snellObfs,
+                  obfsHost: server.snellObfsHost,
+                  transport: server.mieruTransport,
+                })}
+              </p>
+              {!sharedProtocolCap(server, protocol)?.udp && (
+                <p>
+                  该服务器的 {landingProtocolLabel(protocol)} 暂只支持 TCP。
+                </p>
+              )}
+              <p className="text-default-500">
+                密码与证书自动生成，创建后在「节点链接」查看客户端配置（Clash /
+                mihomo{protocol === "snell" ? "、Surge" : ""}）。
+              </p>
+            </div>
+          )}
           {reuseHint && (
             <div className="space-y-3 rounded-lg border border-divider p-3">
               <p className="text-sm">

@@ -1,8 +1,11 @@
 import {
+  LANDING_EXTRA_PROTOCOLS,
   LandingServer,
   landingDate,
   landingGB,
   landingProtocolLabel,
+  landingServerModeLabel,
+  sharedProtocolCap,
 } from "@/api/landing";
 
 export function SharedCaps({ server }: { server: LandingServer }) {
@@ -33,6 +36,34 @@ export function SharedCaps({ server }: { server: LandingServer }) {
       <p>总连接数上限：{caps.max_connections || "不限"}</p>
       <p>共享截止：{landingDate(caps.share_until)}</p>
       <p>允许协议：{caps.protocols.map(landingProtocolLabel).join("、")}</p>
+      {(() => {
+        const extras = LANDING_EXTRA_PROTOCOLS.filter((protocol) =>
+          sharedProtocolCap(server, protocol),
+        );
+
+        return extras.length ? (
+          <p>
+            扩展协议：
+            {extras
+              .map(
+                (protocol) =>
+                  `${landingProtocolLabel(protocol)}${
+                    sharedProtocolCap(server, protocol)?.udp ? "" : "（仅 TCP）"
+                  }`,
+              )
+              .join("、")}
+            （FLVX 独立 Core，限制照常生效）
+          </p>
+        ) : null;
+      })()}
+      {landingServerModeLabel(caps.server_mode) && (
+        <p>
+          妙妙屋运行模式：{landingServerModeLabel(caps.server_mode)}（仅供参考）
+        </p>
+      )}
+      {(server.busyPortCount ?? 0) > 0 && (
+        <p>机器上已占用 {server.busyPortCount} 个端口，新节点会自动避开</p>
+      )}
       {caps.dual_install && (
         <p>同机已有普通 FLVX 节点；禁止同时启用自有落地。</p>
       )}

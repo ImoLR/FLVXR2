@@ -3,7 +3,26 @@ import type { ServerEgressView } from "./landing-egress";
 
 import Network from "./network";
 
-export type LandingProtocol = "ss2022" | "vless_reality_vision";
+export type LandingProtocol =
+  | "ss2022"
+  | "vless_reality_vision"
+  | "anytls"
+  | "snell"
+  | "mieru";
+// Plan 121: AnyTLS / Snell / Mieru exist only on 妙妙屋共享 servers that
+// advertise them (contract landing-protocols-v1 `protocol_caps`).
+export const LANDING_EXTRA_PROTOCOLS = ["anytls", "snell", "mieru"] as const;
+export type LandingExtraProtocol = (typeof LANDING_EXTRA_PROTOCOLS)[number];
+export const isLandingExtraProtocol = (
+  value: string,
+): value is LandingExtraProtocol =>
+  (LANDING_EXTRA_PROTOCOLS as readonly string[]).includes(value);
+export interface LandingProtocolCap {
+  udp: boolean;
+  versions?: number[];
+  obfs?: string[];
+  transports?: string[];
+}
 export interface SharedLandingCaps {
   status: string;
   port_min: number;
@@ -15,7 +34,38 @@ export interface SharedLandingCaps {
   share_until: number | null;
   protocols: LandingProtocol[];
   dual_install: boolean;
+  protocol_caps?: {
+    versions: number[];
+    protocols: Partial<Record<LandingExtraProtocol, LandingProtocolCap>>;
+  } | null;
+  server_mode?: "embedded" | "external" | "";
 }
+/** The share's capability for an extra protocol (undefined = not offered). */
+export const sharedProtocolCap = (
+  server: { sharedCaps?: SharedLandingCaps } | undefined,
+  protocol: string,
+): LandingProtocolCap | undefined => {
+  const caps = server?.sharedCaps?.protocol_caps;
+
+  if (!caps || !caps.versions?.includes(1) || !isLandingExtraProtocol(protocol))
+    return undefined;
+
+  return caps.protocols?.[protocol] || undefined;
+};
+/** Protocols a node can be created with right now on this server. */
+export const landingCreatableProtocols = (server: {
+  source: string;
+  protocols: LandingProtocol[];
+  sharedCaps?: SharedLandingCaps;
+}) =>
+  (server.protocols || []).filter(
+    (protocol) =>
+      !isLandingExtraProtocol(protocol) ||
+      (server.source === "shared" &&
+        Boolean(sharedProtocolCap(server, protocol))),
+  );
+export const landingServerModeLabel = (mode?: string) =>
+  mode === "embedded" ? "内置 Xray" : mode === "external" ? "外置 Xray" : "";
 export interface LandingIntegration {
   baseUrl: string;
   hasToken: boolean;
@@ -78,6 +128,20 @@ export interface LandingServer {
   egress?: ServerEgressView;
   egressLabel?: string;
   egressWarnings?: string[];
+  // plan 121 defaults for new AnyTLS / Snell / Mieru nodes (shared servers)
+  anytlsServerName?: string;
+  snellVersion?: number;
+  snellObfs?: string;
+  snellObfsHost?: string;
+  mieruTransport?: string;
+  busyPortCount?: number;
+}
+export interface LandingProtocolOpts {
+  sni?: string;
+  version?: number;
+  obfs?: string;
+  obfsHost?: string;
+  transport?: string;
 }
 export interface LandingNode {
   deletePending?: boolean;
@@ -117,6 +181,8 @@ export interface LandingNode {
   effectiveRouteProfileId?: number;
   effectiveRouteProfileName?: string;
   egressLabel?: string;
+  protocolOpts?: LandingProtocolOpts;
+  certSha256?: string;
 }
 export interface LandingLink {
   name: string;
@@ -124,6 +190,10 @@ export interface LandingLink {
   kind: "direct" | "forward";
   forwardId?: number;
   entryNodeId?: number;
+  /** plan 121: Clash (mihomo) proxy entry for AnyTLS / Snell / Mieru */
+  clash?: string;
+  /** plan 121: Surge proxy line (Snell) */
+  surge?: string;
 }
 export interface ServerQuota {
   serverKind: "node" | "landing";
@@ -178,6 +248,11 @@ export const saveLandingServer = (
     coreCpuPercent,
     status,
     userGroupIds,
+    anytlsServerName,
+    snellVersion,
+    snellObfs,
+    snellObfsHost,
+    mieruTransport,
   } = server;
   return Network.post<LandingServer>("/landing/server/save", {
     id,
@@ -205,6 +280,11 @@ export const saveLandingServer = (
     coreCpuPercent,
     status,
     userGroupIds,
+    anytlsServerName,
+    snellVersion,
+    snellObfs,
+    snellObfsHost,
+    mieruTransport,
     ...(server.routeProfileId !== undefined
       ? { routeProfileId: server.routeProfileId, egressRestartConfirmed }
       : {}),
@@ -269,8 +349,33 @@ export const saveLandingUser = (
     ...(data.extendFixedByMs ? { extendFixedByMs: data.extendFixedByMs } : {}),
     ...(data.serverIds ? { serverIds: data.serverIds } : {}),
   });
+const LANDING_PROTOCOL_LABELS: Record<string, string> = {
+  ss2022: "SS2022",
+  anytls: "AnyTLS",
+  snell: "Snell",
+  mieru: "Mieru",
+};
+
 export const landingProtocolLabel = (value: string) =>
-  value === "ss2022" ? "SS2022" : "VLESS Reality Vision";
+  LANDING_PROTOCOL_LABELS[value] ?? "VLESS Reality Vision";
+/** One-line description of a node's (or a server default's) protocol options. */
+export const landingProtocolSummary = (
+  protocol: string,
+  opts?: LandingProtocolOpts,
+) => {
+  if (protocol === "anytls")
+    return `TLS 自签证书（客户端固定证书指纹）${opts?.sni ? ` · SNI ${opts.sni}` : ""}`;
+  if (protocol === "snell")
+    return `v${opts?.version || 4} · ${
+      !opts?.obfs || opts.obfs === "none"
+        ? "无混淆"
+        : `${opts.obfs.toUpperCase()} 混淆 ${opts.obfsHost || ""}`
+    }`;
+  if (protocol === "mieru")
+    return `客户端 ${opts?.transport || "TCP"} 传输（同一端口同时支持 TCP 与 UDP）`;
+
+  return "";
+};
 export const landingGB = (bytes: number = 0) =>
   (bytes / 1073741824).toLocaleString("zh-CN", { maximumFractionDigits: 2 });
 export const landingDate = (value?: number | null) =>

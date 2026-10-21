@@ -16,6 +16,8 @@ import {
   landingLinks,
   landingNodes,
   landingProtocolLabel,
+  landingProtocolSummary,
+  landingServerModeLabel,
   landingServers,
   landingStatus,
 } from "@/api/landing";
@@ -59,6 +61,40 @@ async function copyToClipboard(value: string): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+// Plan 121: client config block (Clash / mihomo entry, Surge line) shown only
+// for AnyTLS / Snell / Mieru links.
+function LandingClientConfig({
+  label,
+  value,
+}: {
+  label: string;
+  value?: string;
+}) {
+  if (!value) return null;
+
+  return (
+    <div className="space-y-2">
+      <p className="text-xs font-medium text-default-600">{label}</p>
+      <pre className="overflow-x-auto whitespace-pre-wrap break-all rounded bg-default-100 p-2 text-xs">
+        {value}
+      </pre>
+      <Button
+        color="success"
+        size="sm"
+        startContent={<Copy size={15} />}
+        variant="flat"
+        onPress={() =>
+          void copyToClipboard(value).then((ok) =>
+            ok ? toast.success(`${label} 配置已复制`) : toast.error("复制失败"),
+          )
+        }
+      >
+        复制 {label} 配置
+      </Button>
+    </div>
+  );
 }
 
 export default function LandingPage() {
@@ -269,6 +305,24 @@ export default function LandingPage() {
                           ? "妙妙屋共享"
                           : "FLVX 自有落地"}
                       </p>
+                      {server.source === "shared" &&
+                        landingServerModeLabel(
+                          server.sharedCaps?.server_mode,
+                        ) && (
+                          <div className="mt-1 flex flex-wrap items-center gap-1">
+                            <Chip
+                              className="text-default-600"
+                              size="sm"
+                              title="妙妙屋官方给这台服务器设置的运行模式，仅供参考；FLVX 节点运行在 FLVX 独立的 Core 中，连接数、在线 IP、流量限制照常生效"
+                              variant="bordered"
+                            >
+                              妙妙屋 ·{" "}
+                              {landingServerModeLabel(
+                                server.sharedCaps?.server_mode,
+                              )}
+                            </Chip>
+                          </div>
+                        )}
                       {admin && (server.chainOnly || (server.chainNodeCount ?? 0) > 0) && (
                         <div className="mt-1 flex flex-wrap items-center gap-1">
                           {server.chainOnly && (
@@ -482,6 +536,14 @@ export default function LandingPage() {
                                   {landingProtocolLabel(node.protocol)} ·{" "}
                                   {node.port}
                                 </div>
+                                {node.protocolOpts && (
+                                  <div className="text-xs text-default-500">
+                                    {landingProtocolSummary(
+                                      node.protocol,
+                                      node.protocolOpts,
+                                    )}
+                                  </div>
+                                )}
                                 {node.egressLabel && (
                                   <div className="whitespace-nowrap text-xs text-default-500">
                                     出站：{node.egressLabel}
@@ -521,6 +583,14 @@ export default function LandingPage() {
                               )?.name}{" "}
                             · {landingProtocolLabel(node.protocol)}
                           </p>
+                          {node.protocolOpts && (
+                            <p className="mt-1 text-xs text-default-500">
+                              {landingProtocolSummary(
+                                node.protocol,
+                                node.protocolOpts,
+                              )}
+                            </p>
+                          )}
                         </div>
                         {status(node)}
                       </CardHeader>
@@ -634,40 +704,62 @@ export default function LandingPage() {
                     {link.kind === "direct" ? "直连链接" : "经规则转发"} ·{" "}
                     {link.name}
                   </h3>
-                  <p className="break-all rounded bg-default-100 p-2 text-xs">
-                    {link.url}
-                  </p>
-                  <div className="flex gap-2">
-                    <Button
-                      color="success"
-                      size="sm"
-                      startContent={<Copy size={15} />}
-                      variant="flat"
-                      onPress={() =>
-                        void copyToClipboard(link.url).then((ok) =>
-                          ok
-                            ? toast.success("链接已复制")
-                            : toast.error("复制失败"),
-                        )
-                      }
-                    >
-                      复制链接
-                    </Button>
-                    <Button
-                      color="secondary"
-                      size="sm"
-                      startContent={<QrCode size={15} />}
-                      variant="flat"
-                      onPress={() => setQR(qr === link.url ? "" : link.url)}
-                    >
-                      二维码
-                    </Button>
-                  </div>
-                  {qr === link.url && (
+                  {link.url && (
+                    <p className="break-all rounded bg-default-100 p-2 text-xs">
+                      {link.url}
+                    </p>
+                  )}
+                  {link.url && (
+                    <div className="flex gap-2">
+                      <Button
+                        color="success"
+                        size="sm"
+                        startContent={<Copy size={15} />}
+                        variant="flat"
+                        onPress={() =>
+                          void copyToClipboard(link.url).then((ok) =>
+                            ok
+                              ? toast.success("链接已复制")
+                              : toast.error("复制失败"),
+                          )
+                        }
+                      >
+                        复制链接
+                      </Button>
+                      <Button
+                        color="secondary"
+                        size="sm"
+                        startContent={<QrCode size={15} />}
+                        variant="flat"
+                        onPress={() => setQR(qr === link.url ? "" : link.url)}
+                      >
+                        二维码
+                      </Button>
+                    </div>
+                  )}
+                  {link.url && qr === link.url && (
                     <div className="flex justify-center py-2">
                       <OfflineQRCode value={link.url} />
                     </div>
                   )}
+                  {linksFor?.protocol === "anytls" && link.url && (
+                    <p className="text-xs text-default-500">
+                      链接导入（v2rayN、NekoBox、Shadowrocket
+                      等）需允许自签证书；下方 Clash / mihomo
+                      配置已固定证书指纹，更安全。
+                    </p>
+                  )}
+                  {linksFor?.protocol === "snell" && !link.url && (
+                    <p className="text-xs text-default-500">
+                      Snell 没有通用的分享链接，请使用下方 Surge 或 Clash /
+                      mihomo 配置。
+                    </p>
+                  )}
+                  <LandingClientConfig
+                    label="Clash / mihomo"
+                    value={link.clash}
+                  />
+                  <LandingClientConfig label="Surge" value={link.surge} />
                 </div>
               ))}
               {!linksLoading &&
