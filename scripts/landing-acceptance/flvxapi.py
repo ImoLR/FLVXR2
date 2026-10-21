@@ -120,7 +120,7 @@ SERVER_SAVE_KEYS = (
     "id nodeId name publicHost portMin portMax flowType trafficRatio maxConnections defaultMaxConnections "
     "defaultMaxOnlineIps defaultTrafficLimitBytes defaultUserQuotaBytes defaultExpiryMode defaultExpiryDays "
     "defaultExpiresAt maxNodesPerUser protocols realityDest realityServerNames availableUntil coreMemoryMb "
-    "coreCpuPercent status userGroupIds"
+    "coreCpuPercent status userGroupIds anytlsServerName snellVersion snellObfs snellObfsHost mieruTransport"
 ).split()
 
 
