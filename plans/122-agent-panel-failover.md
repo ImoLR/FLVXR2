@@ -68,9 +68,10 @@
 - [x] agent：HTTP 上报偏好 TTL + 单元测试。
 - [x] netns E2E：(a) wss 正常 → 3 次强制断线仍 wss；(b) wss 封 → ws，恢复后 TTL 内回到 wss；
       (c) 两个 IP 封一个 → 很快从另一个连上；(d) ws 只送第一条消息 → 在新上限内放弃；另测 goroutine 不随重连增长。
-- [ ] 门禁：go-gost/x 全部测试（新代码 -race）；后端 `go test ./...` 与 fork.64 基线按名称对比（已知 15 个）；
+- [x] 门禁：go-gost/x 全部测试（新代码 -race）；后端 `go test ./...` 与 fork.64 基线按名称对比（已知 15 个）；
       前端 tsc + build。
-- [ ] 决定备用面板地址（看 48 坏时段数据）。
+- [x] 决定备用面板地址（看 48 坏时段数据）：发布前没碰到坏时段；直连 IPv4 与 CF 走同一条 IPLC 出口、直连 IPv6 从 48
+      一直 EOF，看不出能帮 48 → 本版不做（默认空的功能也不加），探测数据写进总结。
 - [ ] 推送、tag `3.0.27-fork.65`、CI + Images 通过、Release 资产与 fork.64 相同。
 - [ ] 生产面板：回滚目录 `pre-fork65-<TS>`、prune 保留 2 份、升级、健康/在线数/表计数核对。
 - [ ] 金丝雀「Bestvm HK 年付」(42)：SSH 备份、OTA、方案/IP 与之前相同、1 条面板连接、CPU/RSS、强制断线 ×3。
@@ -95,3 +96,6 @@
 - go-gost/x 全量 `go test ./...` 通过（TMPDIR 需用短路径：landing 测试的 unix socket 路径超 108 字节时报
   `bind: invalid argument`，与本改动无关，换 `/root/t122` 后通过）；go-gost 主模块通过；socket/service/panelconn `-race` 通过。
 - 48 定时探测（12:57–13:20 UTC 三轮）：IPv4 五条路径全部正常；direct6 每次 EOF。还没碰到坏时段。
+- 后端（`GOMAXPROCS=2 go test -json -count=1 -p 1 ./...`，本分支后端代码与 fork.64 相同）：失败 15 = fork.64 发布时的
+  15 个，名称逐个一致，新增 0、消失 0；`go vet` 输出与 fork.64 逐字相同。
+- 前端（未改动）：`tsc --noEmit` 通过；`npm run build` 通过，最大文件 `index-*.js` 2,886,593 B（< 5 MiB）。
