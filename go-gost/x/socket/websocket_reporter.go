@@ -420,9 +420,8 @@ func (w *WebSocketReporter) connect() error {
 
 	var cfg LocalConfig
 	// 先尝试从当前工作目录读取，再尝试默认路径
-	configPaths := []string{"config.json", "/etc/flvx_agent/config.json", "/etc/flux_agent/config.json"}
 	var cfgErr error
-	for _, path := range configPaths {
+	for _, path := range agentConfigPaths() {
 		if b, err := os.ReadFile(path); err == nil {
 			if err := json.Unmarshal(b, &cfg); err != nil {
 				cfgErr = err
@@ -2343,6 +2342,9 @@ func (w *WebSocketReporter) handleSetProtocol(data interface{}) error {
 
 // sendUpgradeProgress 通过 WS 发送升级进度消息
 func (w *WebSocketReporter) sendUpgradeProgress(stage string, percent int, message string) {
+	if upgradeProgressObserver != nil {
+		upgradeProgressObserver(stage, percent, message)
+	}
 	response := CommandResponse{
 		Type:    "UpgradeProgress",
 		Success: true,
@@ -2355,7 +2357,13 @@ func (w *WebSocketReporter) sendUpgradeProgress(stage string, percent int, messa
 	w.sendResponse(response)
 }
 
-func (w *WebSocketReporter) handleUpgradeAgent(data interface{}) error {
+func (w *WebSocketReporter) handleUpgradeAgent(data interface{}) (err error) {
+	defer func() {
+		if err != nil {
+			// Ends the panel's progress bar; the command response carries the reason too.
+			w.sendUpgradeProgress("failed", 100, "升级失败："+err.Error())
+		}
+	}()
 	jsonData, err := json.Marshal(data)
 	if err != nil {
 		return fmt.Errorf("序列化数据失败：%v", err)
@@ -2373,11 +2381,19 @@ func (w *WebSocketReporter) handleUpgradeAgent(data interface{}) error {
 		return fmt.Errorf("下载地址不能为空")
 	}
 
+	// Resolve and check the target before downloading anything.
+	install := resolveAgentInstall(w.serviceName)
+	if err := install.check(); err != nil {
+		return err
+	}
+	if install.Source == "executable" {
+		fmt.Printf("ℹ️ config.json 没有 service_name，按运行中的程序升级 %s (%s)\n", install.Binary, install.Unit)
+	}
+
 	w.sendUpgradeProgress("downloading", 0, "开始下载升级包...")
 
-	configDir := getConfigDir(w.serviceName)
-	binaryName := configDir[strings.LastIndex(configDir, "/")+1:]
-	binaryPath := configDir + "/" + binaryName
+	binaryName := install.Name
+	binaryPath := install.Binary
 	tmpPath := binaryPath + ".new"
 	backupPath := binaryPath + ".old"
 	source, downloaded, digest, err := downloadUpgradeSources(req.DownloadURLs, tmpPath,
@@ -2439,10 +2455,10 @@ func (w *WebSocketReporter) handleUpgradeAgent(data interface{}) error {
 	// 执行重启脚本
 	// 使用 systemd-run 在独立的 transient unit 中运行重启脚本，
 	// 避免 systemctl stop 杀死 cgroup 内所有进程（包括此脚本自身）导致 mv 未执行。
-	svcFile := "/etc/systemd/system/" + binaryName + ".service"
+	svcFile := install.Unit
 
 	var script string
-	if strings.HasPrefix(w.serviceName, "flux_agent") {
+	if install.Source == "service_name" && strings.HasPrefix(install.Name, legacyAgentPrefix) {
 		// OTA 升级时自动迁移 flux_agent* → flvx_agent* (支持多实例后缀)
 		suffix := strings.TrimPrefix(w.serviceName, "flux_agent")
 		newName := "flvx_agent" + suffix
@@ -2473,8 +2489,7 @@ func (w *WebSocketReporter) handleUpgradeAgent(data interface{}) error {
 		script = fmt.Sprintf("sleep 1 && systemctl stop %s && mv %s %s && sed -i 's/^StandardOutput=null$/StandardOutput=journal/' %s && sed -i 's/^StandardError=null$/StandardError=journal/' %s && systemctl daemon-reload && systemctl start %s", binaryName, tmpPath, binaryPath, svcFile, svcFile, binaryName)
 	}
 
-	cmd := exec.Command("systemd-run", "--quiet", "/bin/sh", "-c", script)
-	if err := cmd.Start(); err != nil {
+	if err := startAgentScript(script); err != nil {
 		os.Remove(tmpPath)
 		return fmt.Errorf("启动重启脚本失败: %v", err)
 	}
@@ -2484,15 +2499,23 @@ func (w *WebSocketReporter) handleUpgradeAgent(data interface{}) error {
 	return nil
 }
 
-func (w *WebSocketReporter) handleRollbackAgent(data interface{}) error {
-	configDir := getConfigDir(w.serviceName)
-	binaryName := configDir[strings.LastIndex(configDir, "/")+1:]
-	binaryPath := configDir + "/" + binaryName
+func (w *WebSocketReporter) handleRollbackAgent(data interface{}) (err error) {
+	defer func() {
+		if err != nil {
+			w.sendUpgradeProgress("failed", 100, "回退失败："+err.Error())
+		}
+	}()
+	install := resolveAgentInstall(w.serviceName)
+	binaryName := install.Name
+	binaryPath := install.Binary
 	backupPath := binaryPath + ".old"
 
 	// 检查备份文件是否存在
 	if _, err := os.Stat(backupPath); os.IsNotExist(err) {
 		return fmt.Errorf("没有可用的备份文件，无法回退")
+	}
+	if err := install.check(); err != nil {
+		return err
 	}
 
 	fmt.Println("🔄 开始回退到旧版本...")
@@ -2501,11 +2524,9 @@ func (w *WebSocketReporter) handleRollbackAgent(data interface{}) error {
 	w.sendUpgradeProgress("rollback", 0, "准备回退...")
 
 	// 执行回退脚本（同升级逻辑，使用 systemd-run 避免 cgroup 问题）
-	svcFile := "/etc/systemd/system/" + binaryName + ".service"
+	svcFile := install.Unit
 	script := fmt.Sprintf("sleep 1 && systemctl stop %s && cp %s %s && sed -i 's/^StandardOutput=null$/StandardOutput=journal/' %s && sed -i 's/^StandardError=null$/StandardError=journal/' %s && systemctl daemon-reload && systemctl start %s", binaryName, backupPath, binaryPath, svcFile, svcFile, binaryName)
-	cmd := exec.Command("systemd-run", "--quiet", "/bin/sh", "-c", script)
-	if err := cmd.Start(); err != nil {
-		w.sendUpgradeProgress("rollback", 0, "回退失败："+err.Error())
+	if err := startAgentScript(script); err != nil {
 		return fmt.Errorf("启动回退脚本失败：%v", err)
 	}
 
@@ -2851,8 +2872,7 @@ func StartWebSocketReporterWithConfig(addr string, secret string, http int, tls 
 	}
 	var cfg LocalConfig
 	configPath := ""
-	configPaths := []string{"config.json", "/etc/flvx_agent/config.json", "/etc/flux_agent/config.json"}
-	for _, path := range configPaths {
+	for _, path := range agentConfigPaths() {
 		if b, err := os.ReadFile(path); err == nil {
 			json.Unmarshal(b, &cfg)
 			configPath = path
