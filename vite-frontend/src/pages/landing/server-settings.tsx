@@ -18,6 +18,7 @@ import {
   ModalHeader,
 } from "@/shadcn-bridge/heroui/modal";
 import { Select, SelectItem } from "@/shadcn-bridge/heroui/select";
+import { ExtraProtocolSettings } from "@/pages/landing/extra-protocols";
 
 export const dateInput = (value?: number | null) =>
   value
@@ -269,6 +270,7 @@ export function ServerSettings({
                 </Checkbox>
               ))}
             </div>
+            <ExtraProtocolSettings form={form} server={server} set={set} />
             {form.protocols.includes("vless_reality_vision") && (
               <>
                 <Input
