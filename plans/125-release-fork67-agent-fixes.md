@@ -33,8 +33,8 @@ c17b60cd + trial doc 25e3e4ef). Worktree `/root/projects/flvxx/flvxx-fork67`. Ru
 - [x] Prod panel: rollback dir `pre-fork67-<TS>`, prune-backups.sh, upgrade, health, 29/29 online, ws fallbacks recorded
 - [x] Canary 「Bestvm HK 年付」(42): SSH backup, scheme/IP/conn/CPU/RSS, diagnose identical
 - [x] Node 20 「Vmsilo TW」 via panel OTA
-- [ ] Remaining nodes in batches, diagnose before/after
-- [ ] Resource numbers (canary + 3 nodes), summary, plan complete
+- [x] Remaining nodes in batches, diagnose before/after
+- [x] Resource numbers (canary + 3 nodes), summary, plan complete
 
 ## Notes
 - Cherry-pick c0518acb → 0219e084; its unit tests pass (`-race`).
@@ -69,3 +69,13 @@ c17b60cd + trial doc 25e3e4ef). Worktree `/root/projects/flvxx/flvxx-fork67`. Ru
 - Node 20: panel OTA fork.65 → fork.67 (service_name flvxx already in config), ws to origin as before, flux_agent pid
   27370 untouched; 0 forwards/tunnels to diagnose. Script paused on sockets 1→3 = WS + HTTP report keep-alive +
   public-IPv6 lookup keep-alive (pre-existing) → threshold relaxed to +2 for the batches.
+- Batch A (SSH, backup first): 48 21 53 47 52 45 30 31 34 35 36 — all verified; CF nodes wss→wss, direct-origin nodes
+  ws→ws; diagnose identical (48 4→5 of 6 checks, +1 fixed). Batch B (panel OTA): 2 12 14 15 17 18 22 23 25 26 32 39
+  49 50 51 54 — all verified, diagnose identical (51 65→66). 14 took 98 s to download (mirror), 25 11 s.
+- Final 2026-10-22 06:03 TW: 29/29 online, 29/29 `3.0.27-fork.67`; 36 machine protection still OFF; panel_ip_family
+  unchanged everywhere (26 `''`, 42 prefer_ipv4); panel RSS 43.6 MiB, 0 error lines. Per-node table:
+  `runs/release-fork67-agent-fixes/ota/nodes-final.md`.
+- Agent CPU / RSS (60 s, before → after): 42 0.27 → 0.33 %, 59.4 → 58.5 MB; 21 0.28 → 0.27 %, 60.1 → 57.6 MB;
+  47 0.30 → 0.22 %, 63.7 → 59.7 MB; 52 0.15 → 0.13 %, 60.7 → 58.9 MB. No new background loop in either fix.
+- Node backups: `/root/flvxx-backup-20261021T212541Z-pre-fork67/restore-agent.sh` on 20 21 30 31 34 35 36 42 45 47
+  48 52 53 (each node keeps pre-fork67 + pre-fork65; pre-fork64 removed). Other nodes: `/etc/flvxx/flvxx.old`.
