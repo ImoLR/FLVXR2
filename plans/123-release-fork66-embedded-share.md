@@ -22,13 +22,13 @@ same chip style. Nothing else on the page changes.
 - [x] Frontend tsc / eslint (no new) / build (largest file < 5 MiB)
 - [x] `scripts/landing-acceptance/` local run incl. P1
 - [x] Migration dry run on an online-backup copy of the prod DB (12 new columns + defaults, existing tables unchanged)
-- [ ] Push branch, CI green
-- [ ] Tag `3.0.27-fork.66`, Images green, release Latest with the fork.65 asset set
-- [ ] Prod rollback dir `pre-fork66-<TS>` (validated DB backup), prune-backups.sh
-- [ ] Prod panel upgrade; health, nodes online before/after, no error spike
-- [ ] Prod checks: new columns, table counts/hashes, /landing/monitor, shared landings on mmwx 5 and 7 unchanged
-- [ ] Resource numbers: panel RSS before/after, shared-landing sync request count/size per cycle
-- [ ] Summary + plan marked complete
+- [x] Push branch, CI green
+- [x] Tag `3.0.27-fork.66`, Images green, release Latest with the fork.65 asset set
+- [x] Prod rollback dir `pre-fork66-<TS>` (validated DB backup), prune-backups.sh
+- [x] Prod panel upgrade; health, nodes online before/after, no error spike
+- [x] Prod checks: new columns, table counts/hashes, /landing/monitor, shared landings on mmwx 5 and 7 unchanged
+- [x] Resource numbers: panel RSS before/after, shared-landing sync request count/size per cycle
+- [x] Summary + plan marked complete
 
 ## Notes
 - UI tweak (H5 only, `useH5Mode()`): server card header becomes a row; left = name / source / mode chip / chain
@@ -54,3 +54,23 @@ same chip style. Nothing else on the page changes.
   server_mode / busy_ports, same seed: 2 shared servers × SS2022 + VLESS, 185 s window): both 9 requests
   (3 × GET /shares, 6 × GET /shares/<id>/status), 0 request bytes, 6,519 response bytes, no desired PUT; panel RSS
   34.7 vs 35.0 MiB.
+- Release: tag `3.0.27-fork.66` → c94916eb (annotated). CI Build Check 39647864173 (fc69c41a) + 39649915666
+  (c94916eb) green; Build and Push Images 39649918117 green (tag push triggered it this time). Release Latest, not
+  pre-release, same 10 assets as fork.65; compose v4/v6 pin `ghcr.io/imolr/flvxr2-svc-*:3.0.27-fork.66`;
+  install.sh / panel_install.sh PINNED_VERSION 3.0.27-fork.66 + REPO ImoLR/FLVXR2; gost sha256 match
+  (amd64 88b72072…, arm64 11036135…); ghcr images amd64 + arm64.
+- Prod (times UTC+8, 2026-10-22): rollback `/opt/flvx-svc/rollback/pre-fork66-20261021T182904Z` (compose/.env,
+  `gost.db.validated` quick_check + integrity_check ok, local image tags, rollback.sh); prune removed pre-fork64 and
+  the fork.63 images (kept pre-fork65 + pre-fork66). Upgrade 02:29:29 → healthy 02:29:39, frontend build
+  3.0.27-fork.66-mvifgo8w. No agent OTA.
+- Prod checks (before → after 1 m → after 15 m): nodes online 29/29 → 29/29 → 29/29; backend error lines 0 / 0 / 0
+  (only line = 02:29:33 node 48 SetQuotaGroups 节点不在线, the usual restart reconnect race, retried by the
+  coordinator); 17 table counts equal the backup; live-DB snapshot compare: existing config unchanged, 68/80 tables
+  raw-identical, the rest only runtime columns (flows, metrics, sync timestamps) + the 12 new columns (defaults);
+  landing_server revisions 233/230/167 and pushed/applied revisions unchanged, shared caps identical to the backup,
+  shared_last_push_at unchanged → no re-push to mmwx; shared 「Breadcloud US 年付」 (mmwx 7, 0 nodes) and
+  「Boil Hinet 马年」 (mmwx 5, node 10 SS2022 :30000 active/active) unchanged; no protocol_caps advertised → extra
+  protocols hidden; `/landing/monitor` OK. Read-only headless check of the live H5 landing page: 3 cards with the
+  right column (SS2022 / VLESS), no horizontal overflow, no page errors (screens/prod-h5-*.png).
+- Panel RSS: 40.7 MiB (fork.65, 4 h uptime) / 34.9 MiB just before → 42.0 MiB after 1 m → 44.3 MiB after 15 m,
+  threads 15 → 14. Shared sync cost unchanged (see local measurement above).
