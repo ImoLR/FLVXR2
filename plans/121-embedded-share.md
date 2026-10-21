@@ -33,9 +33,9 @@ panel / Custom. No mmwx code: the later `embedded-share-mmwx` worker implements 
       protocol options, client config view, Embedded chip
 - [x] 14. Tests: new backend tests; `go test ./...` vs fork.64 baseline by name; go-gost/x tests; frontend
       tsc / eslint / build (< 5 MiB)
-- [ ] 15. Push branch, CI green
+- [x] 15. Push branch, CI green
 - [x] 16. Screenshots (desktop + H5, light + dark main ones) with a local demo backend + fake Custom, index page
-- [ ] 17. Summary + release-round plan (`/root/flvx-workers/runs/embedded-share/summary.md`)
+- [x] 17. Summary + release-round plan (`/root/flvx-workers/runs/embedded-share/summary.md`)
 
 ## Decisions and findings (lab: /root/flvx-workers/runs/embedded-share/)
 - Core (released `mmwxc-core` v1.4.69 = fork 8f5b614) with real clients (mihomo 1.19.32, sing-box 1.12): all three
@@ -76,3 +76,7 @@ panel / Custom. No mmwx code: the later `embedded-share-mmwx` worker implements 
   configs): 24/24 with the patched Core; 22/24 with the released Core (Snell UDP; AnyTLS download unbilled).
 - Screenshots: 25 (desktop + H5, light + dark) in `/root/flvx-workers/runs/embedded-share/screens/index.html`,
   preview `/embedded-share/` on the mmwx-preview server.
+- CI 39596335884 (head 3e30c143) green: agent, backend, PostgreSQL contract, frontend. Landing repo tests also pass on a
+  throwaway PostgreSQL 18 (incl. the new lifecycle test).
+- Summary and release plan: `/root/flvx-workers/runs/embedded-share/summary.md`. Not released: waits for the user's
+  screenshot approval and the mmwx side (`embedded-share-mmwx`, incl. the two Core fixes).
