@@ -39,9 +39,11 @@
    遵守 `panel_ip_family`（含 IPv6 自愈）。DNS 失败时用最近成功会话/解析过的 IP（最多 24 小时）。
    HTTP 状态码失败（502/403 等）说明线路通、是服务端回答 → 不换 IP，直接换方案（与今天的尝试次数相同）。
    每轮最多 60 秒；单次尝试仍是 10 秒握手超时；同一时间只有一轮拨号、最多 1 条面板 WS。
-3. **截断检测**：连上后立即发一个 WS ping（hello），15 秒内没收到 pong → 这个候选算失败（冷却），换下一个；
+3. **截断检测**：连上后立即发一个 WS ping（hello），20 秒内没收到 pong（面板自己的第一个 ping 在 15 秒）→
+   这个候选算失败（冷却），换下一个；
    会话中自己的 ping 每 20 秒一次，45 秒收不到 pong 就结束会话（与面板 45 秒对称）；原有 60 秒读超时保留。
-   不到 60 秒就结束的会话也算失败（冷却 + 退避增长）；健康会话（≥60 秒）才清零退避、记为「上次好用」。
+   pong 没能持续到 60 秒的会话也算失败（冷却 + 退避增长）；健康会话（开始 60 秒后仍收到 pong）才清零退避、
+   记为「上次好用」。面板主动要求的重连（改 IP 方式）不算失败。代理环境（HTTP(S)_PROXY）下不做按 IP 固定拨号。
 4. **冷却 = TTL（5 分钟）**：失败的（方案, IP）5 分钟内排到后面；冷却中有条目的方案不再走「交给 Go」那一次，
    直接按 IP 排序（未冷却的先）。
 5. **回到主方案**：只有当前会话不在主方案（例如 ws 降级）时，每 5 分钟（±20% 抖动）发一次 HTTPS `GET /flow/test`
@@ -59,12 +61,12 @@
 - [x] 48 只读实测：DNS、各 IP/方案会话、路径 MTU、日志会话统计、面板日志；部署 10 小时定时探测。
 - [x] 读妙妙屋官方 agent 源码（auto 模式、recovery_url、存活检测）。
 - [x] 设计写入本文件。
-- [ ] agent：候选生成/排序（方案、IP、冷却、上次好用、DNS 回退、协议记忆）+ 单元测试。
-- [ ] agent：拨号循环（每轮上限、逐 IP 固定拨号、错误分类）+ 单元测试。
-- [ ] agent：hello / pong 截断检测、会话结果记账、退避 + 单元测试。
-- [ ] agent：降级时回主方案探测（只在降级时启用）+ 单元测试。
-- [ ] agent：HTTP 上报偏好 TTL + 单元测试。
-- [ ] netns E2E：(a) wss 正常 → 3 次强制断线仍 wss；(b) wss 封 → ws，恢复后 TTL 内回到 wss；
+- [x] agent：候选生成/排序（方案、IP、冷却、上次好用、DNS 回退、协议记忆）+ 单元测试。
+- [x] agent：拨号循环（每轮上限、逐 IP 固定拨号、错误分类）+ 单元测试。
+- [x] agent：hello / pong 截断检测、会话结果记账、退避 + 单元测试。
+- [x] agent：降级时回主方案探测（只在降级时启用）+ 单元测试。
+- [x] agent：HTTP 上报偏好 TTL + 单元测试。
+- [x] netns E2E：(a) wss 正常 → 3 次强制断线仍 wss；(b) wss 封 → ws，恢复后 TTL 内回到 wss；
       (c) 两个 IP 封一个 → 很快从另一个连上；(d) ws 只送第一条消息 → 在新上限内放弃；另测 goroutine 不随重连增长。
 - [ ] 门禁：go-gost/x 全部测试（新代码 -race）；后端 `go test ./...` 与 fork.64 基线按名称对比（已知 15 个）；
       前端 tsc + build。
@@ -78,4 +80,18 @@
 
 ## 证据
 
-（随做随填）
+- 代码 `27994f47`：`go-gost/x/socket/panel_failover.go`（候选、拨号轮、探测）、`websocket_reporter.go`（run / connect /
+  handleConnection / afterSession）、`panelconn.EffectiveMode`、`service/traffic_reporter.go`（http 偏好 TTL）。
+- 单元测试（`-race`）：`panel_failover_test.go` 19 项 + `traffic_reporter_test.go` 2 项新增，全部通过；其中
+  「健康 wss 线路一轮只拨 1 次」「面板 502 时仍是以前的 2 次尝试且不冷却」「明文端口仍 ws 优先」「5 次强制断线始终 1 条
+  会话、goroutine 不增长、不碰 ws」证明正常节点行为不变。旧测试 `TestReconnectsKeepOneProtectionLoop`（面板每次收到第一条
+  指标就断开）在新逻辑下会退避，测试里把健康阈值设为 0 保留原意，并等 run() 退出再清理（消除 -race 报告）。
+- netns E2E（`panel_failover_e2e_test.go`，`ip netns exec flvxpf122`，/etc/netns hosts 把 panel.test 指到
+  127.0.0.2/127.0.0.3，加速参数：单次 4 s、hello 4 s、TTL 8 s），一次通过（108.6 s，-race）：
+  (a) 3 次 `ss -K`：每次 0.5 s 内回到 wss；(b) 443 丢 SYN → 4.5 s 后 ws，恢复后 5.0 s 回到 wss（TTL 8 s）；
+  (c1) 127.0.0.2 黑洞 → 2.5 s 连上 127.0.0.3；(c2) 127.0.0.2 TLS 握手大包丢弃 → 4.5 s 固定拨到 127.0.0.3，下一轮
+  0.5 s 直接 127.0.0.3；(d) 443 封 + ws@127.0.0.2 只放行前 3 个包（connbytes）→ 4 秒 hello 超时放弃，10.5 s 后
+  ws@127.0.0.3 健康，恢复 443 后回 wss；全程 goroutine 12 → 12，同时存活的面板连接最多 1 条。
+- go-gost/x 全量 `go test ./...` 通过（TMPDIR 需用短路径：landing 测试的 unix socket 路径超 108 字节时报
+  `bind: invalid argument`，与本改动无关，换 `/root/t122` 后通过）；go-gost 主模块通过；socket/service/panelconn `-race` 通过。
+- 48 定时探测（12:57–13:20 UTC 三轮）：IPv4 五条路径全部正常；direct6 每次 EOF。还没碰到坏时段。
