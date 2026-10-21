@@ -256,7 +256,7 @@ export function CreateLandingNodeDialog({
                 {
                   {
                     anytls: "密码与证书",
-                    snell: "PSK",
+                    snell: "PSK ",
                     mieru: "用户名与密码",
                   }[protocol]
                 }
