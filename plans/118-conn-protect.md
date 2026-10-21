@@ -112,3 +112,9 @@ tcp_tw_reuse or other sysctls; history of the new numbers; other existing nft ta
   `2231d09f` = run 39485816542). Contract doc `/root/flvx-workers/contracts/machine-protect-v1.md`; summary
   `/root/flvx-workers/runs/conn-protect/summary.md`. Plan 118 build round complete — release waits for the user's
   screenshot approval (release-round steps in the summary).
+
+## Release
+- Released as `3.0.27-fork.64` (plan 120, 2026-10-21): branch `maintenance/3.0.27-fork.64-conn-protect` = fork.63 + these
+  14 commits (one conflict in `landing/monitor-view.tsx`, both sides kept); prod panel upgraded 15:15 台湾, agents OTA'd
+  28/29 (20 stays fork.55). Details and per-node table: `plans/120-release-fork64-conn-protect.md`.
+
