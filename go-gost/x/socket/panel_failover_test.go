@@ -283,8 +283,12 @@ func (n *scriptNet) install(t *testing.T) {
 		case "stall":
 			<-ctx.Done()
 			return nil, nil, ctx.Err()
-		case "502":
-			return nil, &http.Response{StatusCode: 502, Body: io.NopCloser(strings.NewReader(""))}, websocket.ErrBadHandshake
+		case "502", "404":
+			code := 502
+			if behaviour == "404" {
+				code = 404
+			}
+			return nil, &http.Response{StatusCode: code, Body: io.NopCloser(strings.NewReader(""))}, websocket.ErrBadHandshake
 		case "notls":
 			return nil, nil, tls.RecordHeaderError{Msg: "first record does not look like a TLS handshake"}
 		}
@@ -823,5 +827,39 @@ func TestRealPlainPortClassifiesAsNoTLS(t *testing.T) {
 	}
 	if got := classifyDialFailure(err, resp, tcpIP.IsValid()); got != failNoTLS {
 		t.Fatalf("classified %v (%v)", got, err)
+	}
+}
+
+// A panel restart answers wss with 502 for a moment. Once wss has carried a healthy
+// session, the round must not fall back to ws (that raced the restart and left
+// nodes on ws); a fresh process keeps the old fallback.
+func TestDialRoundNoWSFallbackOn5xxAfterHealthyWSS(t *testing.T) {
+	shortTimings(t)
+	srv := newWSTestServer(t)
+	n := &scriptNet{dns: map[string][]netip.Addr{"panel.test": ips("192.0.2.1", "192.0.2.2")},
+		after: map[string]string{"192.0.2.1:443": "502", "192.0.2.2:443": "502"}, wsServer: srv.hostPort()}
+	n.install(t)
+	w := newRoundReporter()
+	res, err := dialOnce(t, w, "panel.test")
+	if err != nil || res.scheme != "ws" {
+		t.Fatalf("fresh process must still fall back to ws on 502: %+v %v", res, err)
+	}
+	n.take()
+	w.failover.healthy("wss", "panel.test", "panel.test", ip("192.0.2.1"))
+	if _, err := dialOnce(t, w, "panel.test"); err == nil || !strings.Contains(err.Error(), "面板暂不可用") {
+		t.Fatalf("after a healthy wss session a 502 must end the round: %v", err)
+	}
+	if got := n.take(); strings.Join(got, ",") != "wss@192.0.2.1:443" {
+		t.Fatalf("only the wss attempt, no ws: %v", got)
+	}
+	if w.failover.hasCooldown("wss", "panel.test") {
+		t.Fatal("a 502 must not cool the address down")
+	}
+	n.mu.Lock()
+	n.after = map[string]string{"192.0.2.1:443": "404", "192.0.2.2:443": "404"}
+	n.mu.Unlock()
+	// Non-5xx answers keep the old behaviour (try the other scheme).
+	if res, err := dialOnce(t, w, "panel.test"); err != nil || res.scheme != "ws" {
+		t.Fatalf("4xx must still fall back to ws: %+v %v", res, err)
 	}
 }

@@ -217,6 +217,21 @@ func (f *panelFailover) healthy(scheme, hostPort, host string, ip netip.Addr) {
 	f.rememberLocked(host, ip)
 }
 
+// originDown: the primary scheme got a 5xx (the panel or its origin is down or
+// restarting) and this process already had a healthy session on it. The fallback
+// scheme reaches the same origin, so trying it only races the restart and can
+// leave a healthy node on ws (seen at the fork.65 panel restart on nodes 21/53
+// with the old agent); retry the primary after the backoff instead. Without a
+// healthy primary session yet, the round falls back as before.
+func (f *panelFailover) originDown(schemeIndex int, scheme, hostPort string, resp *http.Response) bool {
+	if schemeIndex != 0 || resp == nil || resp.StatusCode < 500 {
+		return false
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.lastGood[scheme+"|"+hostPort].IsValid()
+}
+
 // clearScheme lifts every cooldown of a scheme (the primary answered a probe).
 func (f *panelFailover) clearScheme(scheme, hostPort string) {
 	f.mu.Lock()
@@ -468,8 +483,13 @@ func (w *WebSocketReporter) dialPanelRound(ctx context.Context, base websocket.D
 			switch classifyDialFailure(err, resp, tcpIP.IsValid()) {
 			case failNoTLS:
 				f.markNoTLS(t.hostPort)
-			case failHTTPStatus, failTCP:
-				// The server answered, or every address was already tried by the dialer.
+			case failHTTPStatus:
+				// The server answered: the line works, other IPs would get the same answer.
+				if f.originDown(si, scheme, t.hostPort, resp) {
+					return nil, fmt.Errorf("连接WebSocket失败（本轮尝试%d次）: %s（面板暂不可用，稍后重试 %s）", attempts, strings.Join(errs, " | "), strings.ToUpper(scheme))
+				}
+			case failTCP:
+				// Every address was already tried by the dialer.
 			case failDNS:
 				pinned = true
 			case failAfterTCP:
@@ -515,6 +535,9 @@ func (w *WebSocketReporter) dialPanelRound(ctx context.Context, base websocket.D
 					f.markNoTLS(t.hostPort)
 					break pinnedLoop
 				case failHTTPStatus:
+					if f.originDown(si, scheme, t.hostPort, resp) {
+						return nil, fmt.Errorf("连接WebSocket失败（本轮尝试%d次）: %s（面板暂不可用，稍后重试 %s）", attempts, strings.Join(errs, " | "), strings.ToUpper(scheme))
+					}
 					break pinnedLoop
 				default:
 					f.fail(scheme, t.hostPort, ip)
