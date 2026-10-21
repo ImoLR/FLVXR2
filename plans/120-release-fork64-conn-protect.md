@@ -15,10 +15,10 @@
 - [x] 前端 tsc、eslint 无新增错误、`npm run build` 每个文件 < 5 MiB。
 - [x] `scripts/landing-acceptance/` 本机验收通过。
 - [x] 重拍 3 张关键页面（节点编辑「连接保护」、监控列表芯片含 fork.63 入口页、落地共享卡片）。
-- [ ] Tag `3.0.27-fork.64`；CI / Images 通过；Latest 资产集合与 fork.63 相同。
-- [ ] 生产升级前：回滚目录 `pre-fork64-<TS>`（验证过的 DB 备份、compose/.env、镜像 tag、rollback.sh）、
+- [x] Tag `3.0.27-fork.64`；CI / Images 通过；Latest 资产集合与 fork.63 相同。
+- [x] 生产升级前：回滚目录 `pre-fork64-<TS>`（验证过的 DB 备份、compose/.env、镜像 tag、rollback.sh）、
       prune 保留 2 份；记录在线节点数、表计数/哈希、面板 RSS。
-- [ ] 升级生产面板；核对 node 新列默认值（开 / 1000 / 500 / 10）、在线节点数不变、日志无错误激增、
+- [x] 升级生产面板；核对 node 新列默认值（开 / 1000 / 500 / 10）、在线节点数不变、日志无错误激增、
       规则/隧道/落地/计费不变。
 - [ ] OTA 前逐台记录 1 天 `tcp_conns` 峰值与（有 SSH 时）整机实时总数；≥ 700 的节点先在面板把上限调到 1500。
 - [ ] 金丝雀：一台纯 FLVX 节点，SSH 备份 + 恢复脚本，OTA，检查归属 / nft 表 / sysctl / 芯片 / 诊断 /
@@ -52,4 +52,31 @@
   `1-node-edit-conn-protect`（连接保护默认 开/1000/500/10）、`2-monitor-node-list-chips`（旧记住页签=落地仍打开
   「节点」= fork.63 行为；芯片红/黄/灰/-）、`3-landing-shared-card`（「整机连接 846/1000」，马年 `-`）；0 页面错误。
 - CI Build Check（分支 b09b7442）：run 39556567545 success。
+- Release（15:00–15:14）：tag `3.0.27-fork.64` → 92caf0a8；CI Build Check 39558986869 success，Build and Push Images
+  39558998157 success（含 Create Release）。`validate-release.py`：Latest = fork.64、非草稿/预发布、10 个资产与 fork.63
+  完全相同、两份 compose 除版本号外与 fork.63 逐行相同、install.sh / panel_install.sh PINNED_VERSION=3.0.27-fork.64 +
+  REPO=ImoLR/FLVXR2、gost-amd64/arm64 sha256 一致、ghcr backend/frontend 镜像 amd64+arm64。
+- 生产面板（15:15:54 重启）：回滚目录 `/opt/flvx-svc/rollback/pre-fork64-20261021T071457Z`（gost.db.validated
+  quick_check/integrity_check = ok、compose/.env、`local/flvxx-*:pre-fork64-20261021T071457Z`、rollback.sh
+  [--restore-db]）；prune 后保留 pre-fork64 + pre-fork63。升级后：健康、/flow/test 200、version.json
+  3.0.27-fork.64-mvhrmbpu；node 新 4 列 29 行全部 = 开/1000/500/10；29/29 在线（5 秒内全部重连）；表计数与备份相同；
+  80 张表配置哈希对比 `existing_config_unchanged = true`（只有 node 表新增 4 列）；面板 RSS 36.2 → 39.4（1 分钟）→
+  43.0 MiB（15 分钟）。
+- 面板重启的副作用：node 48「Leikwanhost 沪台IPLC」重连时 WSS 握手超时，旧 agent 回退到 80 端口 ws:// 并在进程内一直
+  沿用；这条线路上 80 端口 WS 只收得到面板的第一条消息（data_segs_in=2），之后命令/心跳都到不了，每 45 秒被面板心跳
+  超时断开。实测此刻 48 上 Go 与 curl 到 Cloudflare 两个 IP 的 TLS 握手大多超时（8 次 1 次成功）= 线路问题，与
+  fork.64 代码无关；转发服务一直在跑（gost.json），只是暂时无法从面板管理/诊断。SSH 重启 agent 6 次都仍未走上 WSS，
+  留待线路恢复后再处理。
+- 上限设置（OTA 前）：24 小时峰值（TCP+UDP）最高 45=836（妙妙屋负责，只报告）、42=678、18=670、15=665，其余 < 560；
+  52 按 10-20 实测约 905 设为 1500（面板节点编辑接口，完整字段同前端，前后对比只变 machine_*）；36 是妙妙屋生产主机
+  （178.214.214.173）但没有运行妙妙屋助手，为保持该主机不变（不建表、不改内核）把 FLVX 保护设为关。两次保存都把
+  panel_ip_family 从 '' 规范成 'auto'（前端保存节点本来就会这样；agent 都上报 auto，不触发下发，行为相同），之后的
+  保存已不带该字段。
+- 金丝雀 42「Bestvm HK 年付」（15:39）：SSH 备份 `/root/flvxx-backup-20261021T071350Z-pre-fork64`（restore-agent.sh），
+  OTA 请求 1.8 s、重连 4.0 s；owner=flvx、上限 1000、整机 276（节点实测 280）；nft 表 `inet flvx_machine_protection`
+  在、0 个挂钩链（只有 conntrack 链 + 端口集合 + dropped 计数器）；tcp_max_tw_buckets 5000 → 500（原值存
+  `/etc/flvxx/machine-protection-state.json`）；`/run/flvx/business-ports.json` 0644、14 个 TCP 端口；诊断 17 项
+  87/88 前后相同（forward 6 → 82.152.163.228:34749 升级前就失败）；agent CPU 0.30% → 0.32%、RSS 61 → 57 MB、线程 8、
+  到面板 1 条连接（升级后改走 WSS）。`ss -K` 只断 agent 的面板连接 3 次（PID 不变）：每次 65 秒都是 14 个样本、间隔
+  5.0 s = 只有一个保护循环；CPU 0.43%（含重连重新下发）。
 
