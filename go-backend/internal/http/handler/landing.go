@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"go-backend/internal/http/response"
+	"go-backend/internal/landingcustom"
 	"go-backend/internal/landingegress"
 	"go-backend/internal/store/model"
 	"go-backend/internal/store/repo"
@@ -68,6 +69,8 @@ func (h *Handler) landingServerView(s model.LandingServer, admin bool, catalogs 
 	}
 	if s.Source == "shared" {
 		caps := repo.SharedLandingCaps(&s)
+		// The busy-port list only feeds port picking; the view carries its size.
+		v["busyPortCount"] = len(repo.SharedBusyPortList(&s))
 		v["sharedCaps"] = caps
 		if cfg, e := h.repo.GetLandingIntegration(); e == nil && cfg.SyncError != "" {
 			s.SharedSyncError = cfg.SyncError
@@ -198,6 +201,15 @@ func landingNodeViewData(n model.LandingNode, s *model.LandingServer, u *model.U
 	v["effectiveExpiresAt"] = expires
 	v["expiringSoon"] = expires > time.Now().UnixMilli() && expires <= time.Now().Add(72*time.Hour).UnixMilli()
 	v["serverNames"] = jsonStrings(n.ServerNames)
+	if s != nil {
+		if reason := landingNodeSyncError(&n, s); reason != n.SyncError {
+			v["syncError"] = reason
+		}
+	}
+	if landingcustom.IsExtraProtocol(n.Protocol) {
+		// Non-secret options only; credentials stay in the links endpoint.
+		v["protocolOpts"] = repo.LandingNodeOpts(&n)
+	}
 	return v
 }
 func (h *Handler) landingServerEnable(w http.ResponseWriter, r *http.Request) {
@@ -274,6 +286,12 @@ func (h *Handler) landingServerSave(w http.ResponseWriter, r *http.Request) {
 		// Shadows the embedded field: absent (older frontends) keeps the
 		// current assignment instead of resetting it to the default.
 		ProfileID *int64 `json:"routeProfileId"`
+		// Plan 121 defaults, shadowed the same way (absent = keep).
+		AnyTLSServerName *string `json:"anytlsServerName"`
+		SnellVersion     *int    `json:"snellVersion"`
+		SnellObfs        *string `json:"snellObfs"`
+		SnellObfsHost    *string `json:"snellObfsHost"`
+		MieruTransport   *string `json:"mieruTransport"`
 	}
 	if err := landingDecode(r, &req); err != nil {
 		landingError(w, err)
@@ -301,6 +319,23 @@ func (h *Handler) landingServerSave(w http.ResponseWriter, r *http.Request) {
 			landingError(w, err)
 			return
 		}
+	}
+	req.LandingServer.AnyTLSServerName, req.LandingServer.SnellVersion, req.LandingServer.SnellObfs = old.AnyTLSServerName, old.SnellVersion, old.SnellObfs
+	req.LandingServer.SnellObfsHost, req.LandingServer.MieruTransport = old.SnellObfsHost, old.MieruTransport
+	if req.AnyTLSServerName != nil {
+		req.LandingServer.AnyTLSServerName = *req.AnyTLSServerName
+	}
+	if req.SnellVersion != nil {
+		req.LandingServer.SnellVersion = *req.SnellVersion
+	}
+	if req.SnellObfs != nil {
+		req.LandingServer.SnellObfs = *req.SnellObfs
+	}
+	if req.SnellObfsHost != nil {
+		req.LandingServer.SnellObfsHost = *req.SnellObfsHost
+	}
+	if req.MieruTransport != nil {
+		req.LandingServer.MieruTransport = *req.MieruTransport
 	}
 	b, _ := json.Marshal(req.Protocols)
 	req.LandingServer.Protocols = string(b)

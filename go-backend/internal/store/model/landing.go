@@ -46,8 +46,18 @@ type LandingServer struct {
 	EgressCheckedAt          int64   `gorm:"not null;default:0" json:"egressCheckedAt"`
 	EgressWarnings           string  `gorm:"type:text;not null;default:''" json:"-"`
 	ChainOnly                bool    `gorm:"not null;default:false" json:"chainOnly"` // exit landing auto-created for chain rules (plan 108); never shown to or usable by users
-	CreatedTime              int64   `gorm:"not null" json:"createdTime"`
-	UpdatedTime              int64   `gorm:"not null" json:"updatedTime"`
+	// Plan 121 (contract landing-protocols-v1, shared servers only): defaults
+	// copied into each new AnyTLS / Snell / Mieru node, like the Reality fields.
+	AnyTLSServerName string `gorm:"column:anytls_server_name;not null;default:''" json:"anytlsServerName"`
+	SnellVersion     int    `gorm:"not null;default:4" json:"snellVersion"`
+	SnellObfs        string `gorm:"not null;default:'none'" json:"snellObfs"`
+	SnellObfsHost    string `gorm:"not null;default:''" json:"snellObfsHost"`
+	MieruTransport   string `gorm:"not null;default:'TCP'" json:"mieruTransport"`
+	// Custom's busy_ports (JSON int list), kept out of SharedCaps so the caps
+	// blob parsed per node view stays small; read only when picking a port.
+	SharedBusyPorts string `gorm:"type:text;not null;default:''" json:"-"`
+	CreatedTime     int64  `gorm:"not null" json:"createdTime"`
+	UpdatedTime     int64  `gorm:"not null" json:"updatedTime"`
 }
 
 func (LandingServer) TableName() string { return "landing_server" }
@@ -113,8 +123,18 @@ type LandingNode struct {
 	RejectedRevision  int64    `gorm:"not null;default:0" json:"-"`
 	LastCounterAt     int64    `gorm:"not null;default:0" json:"-"`
 	RouteProfileID    *int64   `gorm:"index" json:"routeProfileId"`
-	CreatedTime       int64    `gorm:"not null;index:idx_landing_reuse,priority:5" json:"createdTime"`
-	UpdatedTime       int64    `gorm:"not null" json:"updatedTime"`
+	// Plan 121 (landing-protocols-v1): AnyTLS password / Snell PSK / Mieru
+	// password, Mieru username, the non-secret options fixed at creation
+	// (ProtocolOpts JSON: sni, version, obfs, obfsHost, transport) and the
+	// AnyTLS self-signed certificate (key secret, fingerprint public).
+	Password     string `gorm:"not null;default:''" json:"-"`
+	Username     string `gorm:"not null;default:''" json:"-"`
+	ProtocolOpts string `gorm:"type:text;not null;default:''" json:"-"`
+	TLSCertPEM   string `gorm:"column:tls_cert_pem;type:text;not null;default:''" json:"-"`
+	TLSKeyPEM    string `gorm:"column:tls_key_pem;type:text;not null;default:''" json:"-"`
+	CertSHA256   string `gorm:"column:cert_sha256;not null;default:''" json:"certSha256"`
+	CreatedTime  int64  `gorm:"not null;index:idx_landing_reuse,priority:5" json:"createdTime"`
+	UpdatedTime  int64  `gorm:"not null" json:"updatedTime"`
 }
 
 func (LandingNode) TableName() string { return "landing_node" }

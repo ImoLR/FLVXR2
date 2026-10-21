@@ -49,6 +49,176 @@ type Share struct {
 	// Egress is Custom's landing-egress capability; absent on Custom versions
 	// without outbound/routing support (contract landing-egress-v1).
 	Egress *ShareEgress `json:"egress,omitempty"`
+	// Contract landing-protocols-v1. ProtocolCaps advertises AnyTLS / Snell /
+	// Mieru for this share (absent = not supported: FLVX hides them; Protocols
+	// above stays the v1 list so older FLVX versions are unaffected).
+	// ServerMode is the official server mode, shown as information only.
+	// BusyPorts are ports inside the share range already taken on the machine
+	// (official inbounds, other panels); FLVX never picks them for new nodes.
+	ProtocolCaps *ProtocolCaps `json:"protocol_caps,omitempty"`
+	ServerMode   string        `json:"server_mode,omitempty"`
+	BusyPorts    []int         `json:"busy_ports,omitempty"`
+}
+
+// Extra landing protocols of contract landing-protocols-v1.
+const (
+	ProtocolAnyTLS = "anytls"
+	ProtocolSnell  = "snell"
+	ProtocolMieru  = "mieru"
+)
+
+// ExtraProtocols lists them in display order.
+var ExtraProtocols = []string{ProtocolAnyTLS, ProtocolSnell, ProtocolMieru}
+
+// IsExtraProtocol reports whether p is one of the contract's extra protocols.
+func IsExtraProtocol(p string) bool {
+	return p == ProtocolAnyTLS || p == ProtocolSnell || p == ProtocolMieru
+}
+
+// ProtocolCaps: Versions are the contract versions the share accepts (FLVX
+// requires 1); Protocols holds one entry per protocol the share's Helper and
+// FLVX Core can render AND account for.
+type ProtocolCaps struct {
+	Versions  []int                  `json:"versions"`
+	Protocols map[string]ProtocolCap `json:"protocols"`
+}
+
+// ProtocolCap: UDP = UDP relay of that protocol works on the share's Core
+// (client configs enable UDP only then). Versions / Obfs (Snell) and
+// Transports (Mieru) restrict the per-node options; empty = contract default
+// (Snell versions 4 and 5, obfs none/http/tls; Mieru TCP and UDP).
+type ProtocolCap struct {
+	UDP        bool     `json:"udp"`
+	Versions   []int    `json:"versions,omitempty"`
+	Obfs       []string `json:"obfs,omitempty"`
+	Transports []string `json:"transports,omitempty"`
+}
+
+// Supports returns the capability of protocol p, if advertised under v1.
+func (c *ProtocolCaps) Supports(p string) (ProtocolCap, bool) {
+	if c == nil || !IsExtraProtocol(p) {
+		return ProtocolCap{}, false
+	}
+	ok := false
+	for _, v := range c.Versions {
+		ok = ok || v == 1
+	}
+	if !ok {
+		return ProtocolCap{}, false
+	}
+	cp, found := c.Protocols[p]
+	return cp, found
+}
+
+// AllowsSnellVersion / AllowsObfs / AllowsTransport apply the contract
+// defaults when the list is empty.
+func (c ProtocolCap) AllowsSnellVersion(v int) bool {
+	if v != 4 && v != 5 {
+		return false
+	}
+	return len(c.Versions) == 0 || containsInt(c.Versions, v)
+}
+func (c ProtocolCap) AllowsObfs(mode string) bool {
+	if mode != "none" && mode != "http" && mode != "tls" {
+		return false
+	}
+	return len(c.Obfs) == 0 || containsString(c.Obfs, mode)
+}
+func (c ProtocolCap) AllowsTransport(t string) bool {
+	if t != "TCP" && t != "UDP" {
+		return false
+	}
+	return len(c.Transports) == 0 || containsString(c.Transports, t)
+}
+
+func containsInt(list []int, v int) bool {
+	for _, x := range list {
+		if x == v {
+			return true
+		}
+	}
+	return false
+}
+func containsString(list []string, v string) bool {
+	for _, x := range list {
+		if x == v {
+			return true
+		}
+	}
+	return false
+}
+
+// Sanitize bounds the optional landing-protocols-v1 fields of a share read
+// from Custom: unknown protocols and option values are dropped, busy ports are
+// kept only inside the share's port range (deduplicated, at most 4096), and an
+// unexpected server mode is cleared. A malformed optional field never fails
+// the share list (the v1 fields keep their strict checks).
+func (s *Share) Sanitize() {
+	if s.ProtocolCaps != nil {
+		caps := &ProtocolCaps{Versions: []int{}, Protocols: map[string]ProtocolCap{}}
+		for _, v := range s.ProtocolCaps.Versions {
+			if v > 0 && v < 1000 && !containsInt(caps.Versions, v) && len(caps.Versions) < 8 {
+				caps.Versions = append(caps.Versions, v)
+			}
+		}
+		for _, p := range ExtraProtocols {
+			cp, ok := s.ProtocolCaps.Protocols[p]
+			if !ok {
+				continue
+			}
+			clean := ProtocolCap{UDP: cp.UDP}
+			if p == ProtocolSnell {
+				for _, v := range cp.Versions {
+					if (v == 4 || v == 5) && !containsInt(clean.Versions, v) {
+						clean.Versions = append(clean.Versions, v)
+					}
+				}
+				for _, o := range cp.Obfs {
+					if (o == "none" || o == "http" || o == "tls") && !containsString(clean.Obfs, o) {
+						clean.Obfs = append(clean.Obfs, o)
+					}
+				}
+				// An explicit list without any known value supports nothing usable.
+				if (len(cp.Versions) > 0 && len(clean.Versions) == 0) || (len(cp.Obfs) > 0 && len(clean.Obfs) == 0) {
+					continue
+				}
+			}
+			if p == ProtocolMieru {
+				for _, t := range cp.Transports {
+					if (t == "TCP" || t == "UDP") && !containsString(clean.Transports, t) {
+						clean.Transports = append(clean.Transports, t)
+					}
+				}
+				if len(cp.Transports) > 0 && len(clean.Transports) == 0 {
+					continue
+				}
+			}
+			caps.Protocols[p] = clean
+		}
+		s.ProtocolCaps = caps
+		if len(caps.Protocols) == 0 || !containsInt(caps.Versions, 1) {
+			s.ProtocolCaps = nil
+		}
+	}
+	if len(s.BusyPorts) > 0 {
+		seen := map[int]bool{}
+		ports := make([]int, 0, len(s.BusyPorts))
+		for _, p := range s.BusyPorts {
+			if p >= s.PortMin && p <= s.PortMax && !seen[p] && len(ports) < 4096 {
+				seen[p] = true
+				ports = append(ports, p)
+			}
+		}
+		s.BusyPorts = ports
+		if len(ports) == 0 {
+			s.BusyPorts = nil
+		}
+	}
+	switch s.ServerMode {
+	case "", "embedded", "external":
+	default:
+		s.ServerMode = ""
+	}
 }
 
 type ShareEgress struct {
@@ -103,6 +273,39 @@ type Node struct {
 	ExpiresAt      *int64  `json:"expires_at"`
 	SS2022         *SS2022 `json:"ss2022,omitempty"`
 	VLESS          *VLESS  `json:"vless,omitempty"`
+	// landing-protocols-v1: exactly one object, matching Protocol. Only sent
+	// to shares whose ProtocolCaps advertise the protocol.
+	AnyTLS *AnyTLS `json:"anytls,omitempty"`
+	Snell  *Snell  `json:"snell,omitempty"`
+	Mieru  *Mieru  `json:"mieru,omitempty"`
+}
+
+// AnyTLS over TLS with an FLVX-generated self-signed ECDSA P-256 certificate
+// (clients pin its SHA-256). Padding "default" = the AnyTLS standard scheme.
+type AnyTLS struct {
+	Password string    `json:"password"`
+	Padding  string    `json:"padding"`
+	TLS      AnyTLSTLS `json:"tls"`
+}
+type AnyTLSTLS struct {
+	ServerName     string `json:"server_name"`
+	CertificatePEM string `json:"certificate_pem"`
+	KeyPEM         string `json:"key_pem"`
+}
+
+// Snell v4/v5; Obfs none|http|tls (ObfsHost required unless none). TCP
+// inbound; UDP is Snell's UDP-over-TCP.
+type Snell struct {
+	PSK      string `json:"psk"`
+	Version  int    `json:"version"`
+	Obfs     string `json:"obfs"`
+	ObfsHost string `json:"obfs_host"`
+}
+
+// Mieru: one inbound serves TCP and UDP underlay clients on the same port.
+type Mieru struct {
+	Username string `json:"username"`
+	Password string `json:"password"`
 }
 type Desired struct {
 	Revision int64               `json:"revision"`
@@ -333,25 +536,7 @@ func (c *Client) request(ctx context.Context, method, path string, body, out any
 			// Field-specific messages are generated locally: a remote echo must not leak
 			// the integration token, SS keys, UUID or Reality private key into the UI/log.
 			for _, p := range v.Errors {
-				field := "配置"
-				switch p.Field {
-				case "port":
-					field = "端口"
-				case "protocol":
-					field = "协议"
-				case "max_connections":
-					field = "连接上限"
-				case "max_online_ips":
-					field = "在线 IP 上限"
-				case "expires_at":
-					field = "有效期"
-				case "name":
-					field = "名称"
-				case "owner":
-					field = "用户"
-				case "ss2022", "vless":
-					field = "协议凭据"
-				}
+				field := validationFieldLabel(p.Field)
 				e.Problems = append(e.Problems, ValidationError{NodeID: p.NodeID, Field: field, Message: "妙妙屋校验失败：" + field + "不符合共享约束"})
 			}
 		}
@@ -361,6 +546,36 @@ func (c *Client) request(ctx context.Context, method, path string, body, out any
 		return errors.New("妙妙屋响应格式错误")
 	}
 	return nil
+}
+
+// validationFieldLabel maps a Custom 422 field path to the local label shown
+// in the UI (the remote message itself is never shown).
+func validationFieldLabel(name string) string {
+	switch name {
+	case "port":
+		return "端口"
+	case "protocol":
+		return "协议"
+	case "max_connections":
+		return "连接上限"
+	case "max_online_ips":
+		return "在线 IP 上限"
+	case "expires_at":
+		return "有效期"
+	case "name":
+		return "名称"
+	case "owner":
+		return "用户"
+	case "ss2022", "vless":
+		return "协议凭据"
+	}
+	// landing-protocols-v1 reports e.g. "snell.version", "anytls.tls".
+	for _, proto := range ExtraProtocols {
+		if name == proto || strings.HasPrefix(name, proto+".") {
+			return "协议凭据"
+		}
+	}
+	return "配置"
 }
 func (c *Client) Shares(ctx context.Context) ([]Share, error) {
 	var out struct {

@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 
+	"go-backend/internal/landingcustom"
 	"go-backend/internal/store/model"
 	"gorm.io/gorm"
 )
@@ -18,10 +19,18 @@ type LandingLink struct {
 	Kind        string `json:"kind"`
 	ForwardID   int64  `json:"forwardId,omitempty"`
 	EntryNodeID int64  `json:"entryNodeId,omitempty"`
+	// Plan 121 client configs for AnyTLS / Snell / Mieru: a Clash (mihomo)
+	// proxy entry and, for Snell (which has no share-link standard, so URL
+	// is empty), a Surge proxy line.
+	Clash string `json:"clash,omitempty"`
+	Surge string `json:"surge,omitempty"`
 }
 
 func LandingURL(n model.LandingNode, host string, port int) string {
 	authority := net.JoinHostPort(strings.Trim(host, "[]"), strconv.Itoa(port))
+	if landingcustom.IsExtraProtocol(n.Protocol) {
+		return extraLandingURL(n, host, port)
+	}
 	if n.Protocol == "ss2022" {
 		userinfo := url.QueryEscape(n.Method) + ":" + url.QueryEscape(n.ServerKey+":"+n.UserKey)
 		return "ss://" + strings.ReplaceAll(userinfo, "+", "%20") + "@" + authority + "#" + url.PathEscape(n.Name)
@@ -43,7 +52,19 @@ func (r *Repository) LandingNodeLinks(n model.LandingNode) ([]LandingLink, error
 	if s == nil {
 		return nil, errors.New("落地服务器不存在")
 	}
-	out := []LandingLink{{Name: "直连", URL: LandingURL(n, s.PublicHost, n.Port), Kind: "direct"}}
+	udp := true
+	if landingcustom.IsExtraProtocol(n.Protocol) {
+		cp, _ := SharedProtocolCap(s, n.Protocol)
+		udp = cp.UDP
+	}
+	link := func(name, kind, host string, port int) LandingLink {
+		l := LandingLink{Name: name, URL: LandingURL(n, host, port), Kind: kind}
+		if landingcustom.IsExtraProtocol(n.Protocol) {
+			l.Clash, l.Surge = LandingClientConfigs(n, host, port, udp)
+		}
+		return l
+	}
+	out := []LandingLink{link("直连", "direct", s.PublicHost, n.Port)}
 	var forwards []model.Forward
 	if err := r.db.Where("landing_node_id = ? AND user_id = ?", n.ID, n.UserID).Find(&forwards).Error; err != nil {
 		return nil, err
@@ -55,10 +76,12 @@ func (r *Repository) LandingNodeLinks(n model.LandingNode) ([]LandingLink, error
 		}
 		seen := map[string]bool{}
 		for _, e := range entries {
-			link := LandingURL(n, e.Host, e.Port)
-			if !seen[link] {
-				seen[link] = true
-				out = append(out, LandingLink{Name: f.Name + " · " + e.NodeName, URL: link, Kind: "forward", ForwardID: f.ID, EntryNodeID: e.NodeID})
+			l := link(f.Name+" · "+e.NodeName, "forward", e.Host, e.Port)
+			key := net.JoinHostPort(strings.Trim(e.Host, "[]"), strconv.Itoa(e.Port))
+			if !seen[key] {
+				seen[key] = true
+				l.ForwardID, l.EntryNodeID = f.ID, e.NodeID
+				out = append(out, l)
 			}
 		}
 	}
@@ -291,7 +314,17 @@ func (r *Repository) LandingPortInUse(nodeID int64, port int) (bool, error) {
 	}
 	// Loopback chain listeners (plan 108) also occupy the port on the node.
 	err = r.db.Model(&model.ForwardChainNode{}).Where("node_id = ? AND port = ?", nodeID, port).Count(&count).Error
-	return count > 0, err
+	if err != nil || count > 0 {
+		return count > 0, err
+	}
+	// So do mmwx-shared landing nodes on the same machine (plan 121).
+	shared, err := sharedLandingPortsOnNodeHost(r.db, nodeID)
+	for _, p := range shared {
+		if p == port {
+			return true, err
+		}
+	}
+	return false, err
 }
 
 // ValidateNodeLandingPortRange prevents widening the rule range over reserved landing ports.
@@ -322,5 +355,11 @@ func (r *Repository) ValidateNodeLandingPortRange(nodeID int64, spec string) err
 func landingPortsOnNode(tx *gorm.DB, nodeID int64) ([]int, error) {
 	var ports []int
 	err := tx.Model(&model.LandingNode{}).Joins("JOIN landing_server ON landing_server.id = landing_node.landing_server_id").Where("landing_server.node_id = ?", nodeID).Pluck("landing_node.port", &ports).Error
-	return ports, err
+	if err != nil {
+		return ports, err
+	}
+	// Dual-installed machines (plan 121): an mmwx-shared landing at the same
+	// address owns its node ports on this machine as well.
+	shared, err := sharedLandingPortsOnNodeHost(tx, nodeID)
+	return append(ports, shared...), err
 }
