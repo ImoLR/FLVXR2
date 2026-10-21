@@ -1,5 +1,6 @@
 """Local-lab scenarios: plan 110 acceptance matrix S1-S8, plan 107
-outbound/routing E1-E3, plan 113 rule targets T1 and resource probe R1."""
+outbound/routing E1-E3, plan 113 rule targets T1, plan 121 extra protocols P1
+and resource probe R1."""
 import json
 import pathlib
 import socket
@@ -656,6 +657,67 @@ def t1_rule_targets(ctx):
     expect(r, "deleting all rules keeps both normal nodes with zero references", len(remaining) == 2 and all(n.get("forwardCount") == 0 for n in remaining), [{"id": n["id"], "forwardCount": n.get("forwardCount")} for n in remaining])
 
 
+def p1_extra_protocols(ctx):
+    """Plan 121 (contract landing-protocols-v1): AnyTLS / Snell / Mieru on a
+    shared landing. Payload level (the fake Custom does not render a Core;
+    the data plane is proven in runs/embedded-share/e2e)."""
+    r, api = ctx.report, ctx.api
+    caps = {"versions": [1], "protocols": {"anytls": {"udp": True}, "snell": {"udp": False, "versions": [4, 5], "obfs": ["none", "http", "tls"]}, "mieru": {"udp": True, "transports": ["TCP", "UDP"]}}}
+    fake(ctx, "share", {"id": 7003, "name": "fake embedded share", "hosts": {"ipv4": "203.0.113.73", "ipv6": "", "domain": ""}, "port_min": 42000, "port_max": 42099,
+                        "protocol_caps": caps, "server_mode": "embedded", "busy_ports": [42000, 42002, 50000]})
+    sync(ctx)
+    v = wait_for("share 7003 listed", lambda: next((x for x in api.servers() if x.get("remoteServerId") == 7003), None), timeout=30)
+    c = v["sharedCaps"]
+    expect(r, "fresh share: only the v1 protocols enabled, caps + mode passed through, busy ports trimmed to the range",
+           v["protocols"] == ["ss2022", "vless_reality_vision"] and c.get("server_mode") == "embedded" and set(c["protocol_caps"]["protocols"]) == {"anytls", "snell", "mieru"}
+           and v.get("busyPortCount") == 2 and "busy_ports" not in c, {"protocols": v["protocols"], "busy": v.get("busyPortCount")})
+    msg = api.expect_error("landing/server/save", server_payload(api.server(ctx.shared), protocols=["ss2022", "anytls"]))
+    expect(r, "a share without protocol_caps refuses enabling AnyTLS", "Helper 需升级" in msg, msg)
+    v = api.call("landing/server/save", server_payload(v, protocols=["ss2022", "vless_reality_vision", "anytls", "snell", "mieru"], maxNodesPerUser=10, status="active",
+                                                       snellVersion=5, snellObfs="http", snellObfsHost="www.bing.com", mieruTransport="UDP"))
+    who = make_user(ctx, "p1user")
+    landing_user(ctx, who.uid, 10, [v["id"]])
+    made = {p: create_node(ctx, who, v["id"], p, "p1 " + p) for p in ("anytls", "snell", "mieru")}
+    ports = {p: n["port"] for p, n in made.items()}
+    expect(r, "ports skip Custom's busy ports (42000, 42002)", sorted(ports.values()) == [42001, 42003, 42004], ports)
+    raw_view = json.dumps(api.nodes(who))
+    expect(r, "user node views carry options but no secrets", all(k not in raw_view for k in ('"password"', '"username"', "PRIVATE KEY")) and '"protocolOpts"' in raw_view)
+    sync(ctx)
+    body = wait_for("extra nodes in desired", lambda: (lambda b: b if b and len([n for n in b["nodes"] if n["protocol"] in made]) == 3 else None)(desired(ctx, 7003)[0]), timeout=20)
+    nodes = {n["protocol"]: n for n in body["nodes"]}
+    a, sn, mi = nodes["anytls"], nodes["snell"], nodes["mieru"]
+    expect(r, "desired: one contract object per node, nothing else",
+           a.get("anytls", {}).get("padding") == "default" and "BEGIN CERTIFICATE" in a["anytls"]["tls"]["certificate_pem"] and "PRIVATE KEY" in a["anytls"]["tls"]["key_pem"]
+           and sn.get("snell") == {"psk": sn["snell"]["psk"], "version": 5, "obfs": "http", "obfs_host": "www.bing.com"} and len(sn["snell"]["psk"]) == 32
+           and set(mi.get("mieru", {})) == {"username", "password"} and all(k not in n for n in (a, sn, mi) for k in ("ss2022", "vless")), {"anytls": sorted(a), "snell": sn.get("snell", {}).get("version")})
+    la = api.links(made["anytls"]["id"], who)[0]
+    ls = api.links(made["snell"]["id"], who)[0]
+    lm = api.links(made["mieru"]["id"], who)[0]
+    expect(r, "links: anytls:// (insecure=1) + pinned Clash, Snell = Surge + Clash (udp false per caps), mierus:// UDP",
+           la["url"].startswith(f"anytls://") and "insecure=1" in la["url"] and "fingerprint:" in la.get("clash", "")
+           and ls["url"] == "" and "version=5, obfs=http, obfs-host=www.bing.com" in ls.get("surge", "") and "udp: false" in ls.get("clash", "")
+           and lm["url"].startswith("mierus://") and "protocol=UDP" in lm["url"] and "transport: UDP" in lm.get("clash", ""), {"anytls": la["url"][:50], "mieru": lm["url"][:60]})
+    fake(ctx, "share", {"id": 7003, "protocol_caps": None})
+    sync(ctx)
+    time.sleep(1)
+    sync(ctx)
+    body, _ = desired(ctx, 7003)
+    views = {n["id"]: n for n in api.nodes(who)}
+    expect(r, "capability withdrawn: nodes withheld from desired and shown with the reason, create refused",
+           not [n for n in body["nodes"] if n["protocol"] in made] and all("Helper 需升级" in (views[n["id"]].get("syncError") or "") for n in made.values())
+           and "Helper 需升级" in api.expect_error("landing/node/create", {"landingServerId": v["id"], "name": "late", "protocol": "snell"}, who), [views[n["id"]].get("syncError") for n in made.values()][:1])
+    fake(ctx, "share", {"id": 7003, "protocol_caps": caps})
+    sync(ctx)
+    time.sleep(1)
+    sync(ctx)
+    body, _ = desired(ctx, 7003)
+    back = {n["protocol"]: n for n in body["nodes"]}
+    expect(r, "capability back: same ports and credentials sent again",
+           all(back.get(p, {}).get("port") == ports[p] for p in made) and back["snell"]["snell"]["psk"] == sn["snell"]["psk"], {p: back.get(p, {}).get("port") for p in made})
+    for n in made.values():
+        api.call("landing/node/delete", {"id": n["id"]}, who)
+
+
 def r1_resources(ctx):
     r = ctx.report
     pids = ctx.lab.core_pids()
@@ -684,6 +746,7 @@ SCENARIOS = [
     ("E2", "egress on native: block rule, node override, force IPv4/IPv6, hot", e2_native),
     ("E3", "egress on shared: capability, plan in desired, geo refusal, policy off", e3_shared),
     ("T1", "rule targets: explicit node, legacy reuse-or-create, reference counts + deletion", t1_rule_targets),
+    ("P1", "plan 121 AnyTLS / Snell / Mieru on a shared landing: caps, payload, links, withheld", p1_extra_protocols),
     ("R1", "resource snapshot", r1_resources),
 ]
 
