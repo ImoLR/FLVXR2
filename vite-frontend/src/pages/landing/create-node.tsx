@@ -253,8 +253,15 @@ export function CreateLandingNodeDialog({
                 </p>
               )}
               <p className="text-default-500">
-                密码与证书自动生成，创建后在「节点链接」查看客户端配置（Clash /
-                mihomo{protocol === "snell" ? "、Surge" : ""}）。
+                {
+                  {
+                    anytls: "密码与证书",
+                    snell: "PSK",
+                    mieru: "用户名与密码",
+                  }[protocol]
+                }
+                自动生成，创建后在「节点链接」查看客户端配置（Clash / mihomo
+                {protocol === "snell" ? "、Surge" : ""}）。
               </p>
             </div>
           )}
