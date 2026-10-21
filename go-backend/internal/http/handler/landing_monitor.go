@@ -141,13 +141,22 @@ func landingNodeDisplayStatus(n *model.LandingNode, s *model.LandingServer) (str
 	if s == nil || s.Source != "shared" || n.Status != "active" {
 		return n.Status, ""
 	}
-	if n.SyncError != "" {
+	if n.SyncError != "" || repo.LandingNodeWithheld(s, n) {
 		return "error", ""
 	}
 	if n.RemoteState != "active" {
 		return "pending", sharedCoreNotice(s, true)
 	}
 	return n.Status, ""
+}
+
+// landingNodeSyncError adds the plan-121 withheld explanation (an extra
+// protocol the share stopped advertising) to the stored sync error.
+func landingNodeSyncError(n *model.LandingNode, s *model.LandingServer) string {
+	if n.SyncError == "" && repo.LandingNodeWithheld(s, n) {
+		return repo.LandingWithheldReason(n.Protocol)
+	}
+	return n.SyncError
 }
 
 // Whole bytes per second are precise enough and keep large responses small.
@@ -182,7 +191,7 @@ func buildLandingMonitorView(data *repo.LandingMonitorData, admin bool, tracker 
 		for j := range nodes {
 			n := &nodes[j]
 			status, reason := landingNodeDisplayStatus(n, s)
-			nv := landingMonitorNodeView{ID: n.ID, Name: n.Name, Protocol: n.Protocol, Port: n.Port, Status: status, PendingReason: reason, SyncError: n.SyncError, DeletePending: n.DeletePending, Connections: n.Connections, MaxConnections: n.MaxConnections, MaxOnlineIPs: n.MaxOnlineIPs, BilledBytes: n.BilledIn + n.BilledOut, TrafficLimitBytes: n.TrafficLimitBytes, AgeHintMs: ageHint}
+			nv := landingMonitorNodeView{ID: n.ID, Name: n.Name, Protocol: n.Protocol, Port: n.Port, Status: status, PendingReason: reason, SyncError: landingNodeSyncError(n, s), DeletePending: n.DeletePending, Connections: n.Connections, MaxConnections: n.MaxConnections, MaxOnlineIPs: n.MaxOnlineIPs, BilledBytes: n.BilledIn + n.BilledOut, TrafficLimitBytes: n.TrafficLimitBytes, AgeHintMs: ageHint}
 			if admin {
 				nv.UserID = n.UserID
 				nv.UserName = data.OwnerNames[n.UserID]

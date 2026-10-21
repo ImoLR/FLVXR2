@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"go-backend/internal/landingcustom"
 	"go-backend/internal/store/model"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -118,7 +119,13 @@ func (r *Repository) EnableLandingServer(nodeID int64) (*model.LandingServer, er
 	})
 	return &s, err
 }
-func ValidateLandingServer(s *model.LandingServer) error {
+func ValidateLandingServer(s *model.LandingServer) error { return validateLandingServer(s, nil) }
+
+// validateLandingServer: keep lists protocols already enabled on the server;
+// an extra protocol among them stays allowed even while the share does not
+// advertise it (its nodes are withheld, see LandingNodeWithheld), so a
+// temporarily missing capability never blocks unrelated server saves.
+func validateLandingServer(s *model.LandingServer, keep map[string]bool) error {
 	if s.NodeID == 36 {
 		return errors.New("节点 36 是妙妙屋生产主机，禁止启用落地")
 	}
@@ -161,9 +168,16 @@ func ValidateLandingServer(s *model.LandingServer) error {
 		return errors.New("请选择协议模板")
 	}
 	for _, p := range protocols {
-		if p != "ss2022" && p != "vless_reality_vision" {
+		if !knownLandingProtocol(p) {
 			return errors.New("协议模板无效")
 		}
+		// Plan 121: the extra protocols need the shared Core of a capable share.
+		if s.Source != "shared" && !(p == "ss2022" || p == "vless_reality_vision") {
+			return errors.New("AnyTLS / Snell / Mieru 目前只支持妙妙屋共享服务器")
+		}
+	}
+	if err := validateLandingProtocolDefaults(s); err != nil {
+		return err
 	}
 	var names []string
 	if json.Unmarshal([]byte(s.RealityServerNames), &names) != nil || len(names) == 0 {
@@ -177,7 +191,7 @@ func ValidateLandingServer(s *model.LandingServer) error {
 	if _, _, err := net.SplitHostPort(s.RealityDest); err != nil {
 		return errors.New("Reality dest 必须是 host:port")
 	}
-	return ValidateSharedLandingSettings(s)
+	return validateSharedLandingSettings(s, keep)
 }
 func (r *Repository) SaveLandingServer(s *model.LandingServer, groups []int64) error {
 	return r.db.Transaction(func(tx *gorm.DB) error {
@@ -192,12 +206,19 @@ func (r *Repository) SaveLandingServer(s *model.LandingServer, groups []int64) e
 		s.SharedCaps, s.SharedLastSyncAt, s.SharedSyncError = old.SharedCaps, old.SharedLastSyncAt, old.SharedSyncError
 		s.SharedDesiredHash, s.SharedPushedRevision, s.SharedAppliedRevision = old.SharedDesiredHash, old.SharedPushedRevision, old.SharedAppliedRevision
 		s.SharedLastPushAt, s.SharedCollectedAt = old.SharedLastPushAt, old.SharedCollectedAt
+		s.SharedBusyPorts = old.SharedBusyPorts
 		// Egress assignment and reported state change only through their own
 		// validated paths (SetLandingServerEgress / RecordLandingEgressStatus).
 		s.RouteProfileID, s.EgressHash, s.EgressRestartOK = old.RouteProfileID, old.EgressHash, old.EgressRestartOK
 		s.EgressState, s.EgressError, s.EgressReady, s.EgressCheckedAt, s.EgressWarnings = old.EgressState, old.EgressError, old.EgressReady, old.EgressCheckedAt, old.EgressWarnings
 		s.ChainOnly = old.ChainOnly
-		if err := ValidateLandingServer(s); err != nil {
+		keep := map[string]bool{}
+		var oldProtocols []string
+		_ = json.Unmarshal([]byte(old.Protocols), &oldProtocols)
+		for _, p := range oldProtocols {
+			keep[p] = true
+		}
+		if err := validateLandingServer(s, keep); err != nil {
 			return err
 		}
 		if s.ChainOnly && len(groups) > 0 {
@@ -471,12 +492,18 @@ func (r *Repository) createLandingNode(userID, serverID int64, name, protocol st
 		if !allowed {
 			return errors.New("该服务器未启用此协议")
 		}
+		if err := checkExtraProtocolCreate(&s, protocol); err != nil {
+			return err
+		}
 		if reuse {
 			var candidates []model.LandingNode
 			if err := tx.Where("user_id = ? AND landing_server_id = ? AND protocol = ? AND status = ? AND delete_pending = ?", userID, serverID, protocol, "active", false).Order("created_time ASC, id ASC").Find(&candidates).Error; err != nil {
 				return err
 			}
 			for _, candidate := range candidates {
+				if LandingNodeWithheld(&s, &candidate) {
+					continue
+				}
 				expiry := EffectiveLandingExpiry(&candidate, &s, &u)
 				if (expiry > 0 && expiry <= now) || (candidate.TrafficLimitBytes > 0 && candidate.BilledIn+candidate.BilledOut >= candidate.TrafficLimitBytes) {
 					continue
@@ -536,7 +563,11 @@ func (r *Repository) createLandingNode(userID, serverID int64, name, protocol st
 				return err
 			}
 		}
-		if err := newLandingCredentials(&n); err != nil {
+		if landingcustom.IsExtraProtocol(n.Protocol) {
+			if err := newExtraLandingCredentials(&n, &s); err != nil {
+				return err
+			}
+		} else if err := newLandingCredentials(&n); err != nil {
 			return err
 		}
 		if err := tx.Create(&n).Error; err != nil {
@@ -579,6 +610,15 @@ func landingFreePort(tx *gorm.DB, s model.LandingServer) (int, error) {
 			return 0, err
 		}
 		for _, p := range ports {
+			used[p] = true
+		}
+	}
+	if s.Source == "shared" {
+		busy, err := sharedMachineBusyPorts(tx, s)
+		if err != nil {
+			return 0, err
+		}
+		for p := range busy {
 			used[p] = true
 		}
 	}

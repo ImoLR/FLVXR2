@@ -8,6 +8,7 @@ import (
 	"log"
 	"time"
 
+	"go-backend/internal/landingcustom"
 	"go-backend/internal/store/model"
 	"go-backend/internal/store/repo"
 )
@@ -156,7 +157,9 @@ func (h *Handler) syncLandingServer(serverID int64) (*landingSyncSnapshot, error
 	}
 	desiredNodes := []map[string]interface{}{}
 	for _, n := range nodes {
-		if n.LandingServerID != s.ID {
+		// The native agent renders SS2022 / VLESS only (plan 121 protocols are
+		// refused on native servers; never hand the agent one it cannot apply).
+		if n.LandingServerID != s.ID || landingcustom.IsExtraProtocol(n.Protocol) {
 			continue
 		}
 		desired := map[string]interface{}{"id": n.ID, "inbound_tag": n.InboundTag, "protocol": n.Protocol, "port": n.Port, "enabled": n.Status == "active", "max_connections": n.MaxConnections, "max_online_ips": n.MaxOnlineIPs}

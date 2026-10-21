@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"go-backend/internal/http/response"
+	"go-backend/internal/landingcustom"
 	"go-backend/internal/landingegress"
 	"go-backend/internal/store/model"
 	"go-backend/internal/store/repo"
@@ -148,6 +149,9 @@ func resolveLandingOutbound(d *repo.LandingEgressData, id int64) (landingegress.
 			return po, fmt.Errorf("出站「%s」不能使用本服务器上的节点作为上游", o.Name)
 		case u.Node.Status != "active" || u.Node.DeletePending:
 			return po, fmt.Errorf("出站「%s」的上游节点未启用", o.Name)
+		case u.Node.Protocol != "ss2022" && u.Node.Protocol != "vless_reality_vision":
+			// Plan 121: AnyTLS / Snell / Mieru nodes are client-facing only.
+			return po, fmt.Errorf("出站「%s」的上游节点是 %s，暂只支持 SS2022 / VLESS Reality 节点作为上游", o.Name, repo.LandingProtocolName(u.Node.Protocol))
 		}
 		po.Server, po.Port = landingegress.NormalizeHost(u.Host), u.Port
 		if !landingegress.ValidHost(po.Server) {
@@ -175,8 +179,10 @@ func resolveLandingOutbound(d *repo.LandingEgressData, id int64) (landingegress.
 
 func landingEgressInput(d *repo.LandingEgressData) landingegress.CompileInput {
 	in := landingegress.CompileInput{ServerProfileID: d.Server.RouteProfileID, Profiles: d.Profiles, AllowCoreRestart: d.Server.EgressRestartOK}
+	withheld := repo.LandingWithheldFunc(&d.Server)
 	for _, n := range d.Nodes {
-		if n.DeletePending {
+		// Withheld nodes (plan 121) are not in the desired state either.
+		if n.DeletePending || withheld(&n) {
 			continue
 		}
 		in.Nodes = append(in.Nodes, landingegress.NodeRef{ID: n.ID, Tag: n.InboundTag, Override: n.RouteProfileID})
@@ -188,8 +194,9 @@ func landingEgressInput(d *repo.LandingEgressData) landingegress.CompileInput {
 // coveredLandingTags lists inbound tags of nodes on a non-default profile.
 func coveredLandingTags(d *repo.LandingEgressData) []string {
 	tags := []string{}
+	withheld := repo.LandingWithheldFunc(&d.Server)
 	for _, n := range d.Nodes {
-		if !n.DeletePending && landingegress.EffectiveProfile(d.Server.RouteProfileID, n.RouteProfileID) != 0 {
+		if !n.DeletePending && !withheld(&n) && landingegress.EffectiveProfile(d.Server.RouteProfileID, n.RouteProfileID) != 0 {
 			tags = append(tags, n.InboundTag)
 		}
 	}
@@ -573,6 +580,10 @@ func (h *Handler) landingEgressOverview(w http.ResponseWriter, r *http.Request) 
 	names, _ := h.repo.UserNamesByIDs(userIDs)
 	nodeChoices := []map[string]any{}
 	for _, n := range nodes {
+		// Only SS2022 / VLESS nodes can be an upstream (plan 121).
+		if landingcustom.IsExtraProtocol(n.Protocol) {
+			continue
+		}
 		nodeChoices = append(nodeChoices, map[string]any{"id": n.ID, "name": n.Name, "serverId": n.LandingServerID, "serverName": serverName[n.LandingServerID], "protocol": n.Protocol, "userName": names[n.UserID], "status": n.Status})
 	}
 	forwards, _ := h.repo.LandingForwardChoices()

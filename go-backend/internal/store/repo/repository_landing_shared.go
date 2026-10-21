@@ -93,6 +93,9 @@ func sharedAutoHost(current string, old landingcustom.Hosts) bool {
 }
 func capExceeded(value, cap int64) bool { return cap > 0 && (value == 0 || value > cap) }
 func ValidateSharedLandingSettings(s *model.LandingServer) error {
+	return validateSharedLandingSettings(s, nil)
+}
+func validateSharedLandingSettings(s *model.LandingServer, keep map[string]bool) error {
 	if s.Source != "shared" {
 		return nil
 	}
@@ -118,15 +121,31 @@ func ValidateSharedLandingSettings(s *model.LandingServer) error {
 	}
 	var ps []string
 	_ = json.Unmarshal([]byte(s.Protocols), &ps)
+	allowed := SharedAllowedProtocols(s)
 	for _, p := range ps {
-		found := false
-		for _, cp := range c.Protocols {
-			if p == cp {
-				found = true
-			}
+		if allowed[p] {
+			continue
 		}
-		if !found {
-			return errors.New("协议不在妙妙屋允许列表内")
+		if landingcustom.IsExtraProtocol(p) {
+			if keep[p] {
+				continue
+			}
+			return errors.New("妙妙屋端暂不支持 " + LandingProtocolName(p) + "（该服务器 Helper 需升级），不能启用")
+		}
+		return errors.New("协议不在妙妙屋允许列表内")
+	}
+	// Server defaults of an enabled, advertised Snell / Mieru must be options
+	// the share accepts (an unadvertised one is only kept, never used).
+	for _, p := range ps {
+		cp, ok := c.ProtocolCaps.Supports(p)
+		if !ok {
+			continue
+		}
+		if p == landingcustom.ProtocolSnell && (!cp.AllowsSnellVersion(s.SnellVersion) || !cp.AllowsObfs(s.SnellObfs)) {
+			return errors.New("妙妙屋端不支持所选的 Snell 版本或混淆方式")
+		}
+		if p == landingcustom.ProtocolMieru && !cp.AllowsTransport(s.MieruTransport) {
+			return errors.New("妙妙屋端不支持所选的 Mieru 传输方式")
 		}
 	}
 	if s.MaxNodesPerUser > c.PortMax-c.PortMin+1 || s.MaxNodesPerUser > 1000 {
@@ -160,6 +179,10 @@ func capValue(v, limit int64) int64 {
 // retain user data and the last good desired state.
 func (r *Repository) SyncSharedLandings(shares []landingcustom.Share, now int64) error {
 	seen := map[int64]bool{}
+	for i := range shares {
+		// Optional landing-protocols-v1 fields are bounded, never fatal.
+		shares[i].Sanitize()
+	}
 	for _, c := range shares {
 		if c.ID <= 0 || seen[c.ID] || c.PortMin < 1024 || c.PortMax < c.PortMin || c.PortMax > 65535 || c.TrafficLimit < 0 || c.TrafficUsed < 0 || c.MaxConnections < 0 || (c.Status != "active" && c.Status != "paused" && c.Status != "revoked") || len(c.Protocols) == 0 {
 			return errors.New("妙妙屋共享列表包含无效上限")
@@ -191,8 +214,14 @@ func (r *Repository) SyncSharedLandings(shares []landingcustom.Share, now int64)
 			}
 			if fresh {
 				s = model.LandingServer{Source: "shared", RemoteServerID: c.ID, Name: c.Name, PublicHost: host, PortMin: c.PortMin, PortMax: c.PortMax, FlowType: 2, TrafficRatio: 1, DefaultExpiryMode: "follow_user", MaxNodesPerUser: min(3, c.PortMax-c.PortMin+1), RealityDest: "www.lovelive-anime.jp:443", RealityServerNames: `["www.lovelive-anime.jp"]`, CoreMemoryMB: 256, CoreCPUPercent: 50, Status: "active", Revision: 1, CreatedTime: now}
+				// Only the v1 protocols start enabled; AnyTLS / Snell / Mieru are
+				// opt-in per server in 落地服务器设置 once advertised.
 				b, _ := json.Marshal(c.Protocols)
 				s.Protocols = string(b)
+				if validLandingHostname(strings.ToLower(c.Hosts.Domain)) {
+					s.AnyTLSServerName = strings.ToLower(c.Hosts.Domain)
+				}
+				normalizeLandingProtocolDefaults(&s)
 			} else {
 				old := SharedLandingCaps(&s)
 				if old.ShareUntil != nil && s.AvailableUntil != nil && *old.ShareUntil == *s.AvailableUntil {
@@ -217,6 +246,12 @@ func (r *Repository) SyncSharedLandings(shares []landingcustom.Share, now int64)
 				_ = json.Unmarshal([]byte(s.Protocols), &ps)
 				allowed := []string{}
 				for _, p := range ps {
+					// An enabled extra protocol survives a missing capability
+					// (its nodes are withheld until the capability returns).
+					if landingcustom.IsExtraProtocol(p) {
+						allowed = append(allowed, p)
+						continue
+					}
 					for _, cp := range c.Protocols {
 						if p == cp {
 							allowed = append(allowed, p)
@@ -235,8 +270,15 @@ func (r *Repository) SyncSharedLandings(shares []landingcustom.Share, now int64)
 			if c.ShareUntil != nil && (s.AvailableUntil == nil || *s.AvailableUntil > *c.ShareUntil) {
 				s.AvailableUntil = c.ShareUntil
 			}
+			busy := c.BusyPorts
+			c.BusyPorts = nil
 			raw, _ := json.Marshal(c)
 			s.SharedCaps = string(raw)
+			s.SharedBusyPorts = ""
+			if len(busy) > 0 {
+				b, _ := json.Marshal(busy)
+				s.SharedBusyPorts = string(b)
+			}
 			s.UpdatedTime = now
 			if fresh {
 				if err = tx.Create(&s).Error; err != nil {
@@ -286,8 +328,9 @@ func (r *Repository) SharedLandingDesired(id int64, egress *landingegress.Plan) 
 		if len(ns) > 1000 {
 			return errors.New("妙妙屋共享服务器最多支持 1000 个节点")
 		}
+		withheld := LandingWithheldFunc(&s)
 		for _, n := range ns {
-			if n.DeletePending {
+			if n.DeletePending || withheld(&n) {
 				continue
 			}
 			var u model.User
@@ -306,6 +349,7 @@ func (r *Repository) SharedLandingDesired(id int64, egress *landingegress.Plan) 
 				_ = json.Unmarshal([]byte(n.ServerNames), &names)
 				d.VLESS = &landingcustom.VLESS{UUID: n.UUID, Flow: n.Flow, Reality: landingcustom.Reality{Dest: n.Dest, ServerNames: names, PrivateKey: n.PrivateKey, ShortIDs: []string{n.ShortID}}}
 			}
+			fillSharedExtraProtocol(n, &d)
 			out.Nodes = append(out.Nodes, d)
 		}
 		// Without egress the hash input stays the node list, so upgrading the
