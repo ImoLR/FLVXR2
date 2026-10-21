@@ -31,10 +31,10 @@ panel / Custom. No mmwx code: the later `embedded-share-mmwx` worker implements 
 - [x] 12. Embedded servers: sharing allowed end to end on the FLVX side; server mode shown as info only
 - [x] 13. Frontend (add only): protocol labels, server protocol checkboxes gated by capability, create-node
       protocol options, client config view, Embedded chip
-- [ ] 14. Tests: new backend tests; `go test ./...` vs fork.64 baseline by name; go-gost/x tests; frontend
+- [x] 14. Tests: new backend tests; `go test ./...` vs fork.64 baseline by name; go-gost/x tests; frontend
       tsc / eslint / build (< 5 MiB)
 - [ ] 15. Push branch, CI green
-- [ ] 16. Screenshots (desktop + H5, light + dark main ones) with a local demo backend + fake Custom, index page
+- [x] 16. Screenshots (desktop + H5, light + dark main ones) with a local demo backend + fake Custom, index page
 - [ ] 17. Summary + release-round plan (`/root/flvx-workers/runs/embedded-share/summary.md`)
 
 ## Decisions and findings (lab: /root/flvx-workers/runs/embedded-share/)
@@ -63,3 +63,16 @@ panel / Custom. No mmwx code: the later `embedded-share-mmwx` worker implements 
   (VLESS Reality :10015); x-ui listens 2096 / 34509 / 51501 / 52796 (TCP+UDP); 964 MB RAM (~190 MB available),
   1 vCPU, 11 GB disk free; Helper v0.7.9 present, `mmwxc-flvx-core` not installed. Of the six Embedded servers only
   「Nobrand 沪港IPLC」(17) actually has Mieru inbounds today.
+
+## Results (build round)
+- Backend `go test ./...` vs the full fork.64 tree: the same 15 known failures by name, no new ones; `go vet` output
+  identical. New tests: `landingcustom/protocols_test.go`, `repo/repository_landing_protocols_test.go`,
+  `handler/landing_protocols_test.go` (PostgreSQL variants skipped: no test DSN on this host, as before).
+- go-gost/x: unchanged by this branch; all packages pass (the landing package needs a short TMPDIR for its unix
+  socket paths).
+- Frontend: tsc OK, eslint warnings per changed file equal to fork.64, build OK (largest asset 2.89 MB < 5 MiB).
+- Local landing acceptance incl. the new P1: 14 scenarios, 118 checks, all passed.
+- End to end (panel → fake Custom rendering contract §6 → real Core → mihomo / sing-box from the panel's own
+  configs): 24/24 with the patched Core; 22/24 with the released Core (Snell UDP; AnyTLS download unbilled).
+- Screenshots: 25 (desktop + H5, light + dark) in `/root/flvx-workers/runs/embedded-share/screens/index.html`,
+  preview `/embedded-share/` on the mmwx-preview server.
