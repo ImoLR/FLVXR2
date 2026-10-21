@@ -35,7 +35,8 @@ import (
 // (a) WSS works → stays WSS through 3 forced reconnects;
 // (b) WSS blocked → falls back to ws, WSS restored → back on WSS within the TTL;
 // (c) one of two panel IPs black-holed (SYN) or TLS-stalled → the other one quickly;
-// (d) a ws path that only delivers the first packets → abandoned within the hello bound.
+// (d) a ws path that only delivers the first packets → abandoned within the hello bound;
+// (e) panel restart (wss answers 502 for a while) after a healthy wss session → stays wss.
 // It refuses to touch firewall rules in the host namespace.
 func TestPanelFailoverE2E(t *testing.T) {
 	if os.Getenv("FLVX_PANEL_FAILOVER_E2E") != "1" {
@@ -81,6 +82,8 @@ func TestPanelFailoverE2E(t *testing.T) {
 
 	// Panel: TLS on :443 and plain on :80 of both IPs; answers pings while reading.
 	var sessions atomic.Int64
+	var fail5xx atomic.Bool // (e): wss answers 502 like Cloudflare in front of a restarting panel
+	var answered5xx atomic.Int64
 	type sess struct{ scheme, ip string }
 	accepted := make(chan sess, 64)
 	up := websocket.Upgrader{}
@@ -88,6 +91,11 @@ func TestPanelFailoverE2E(t *testing.T) {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if r.URL.Path == "/flow/test" {
 				fmt.Fprint(w, "test")
+				return
+			}
+			if scheme == "wss" && fail5xx.Load() {
+				answered5xx.Add(1)
+				w.WriteHeader(http.StatusBadGateway)
 				return
 			}
 			c, err := up.Upgrade(w, r, nil)
@@ -328,6 +336,26 @@ func TestPanelFailoverE2E(t *testing.T) {
 	clearRules()
 	s, _ = await("(d) back to wss", panelFailoverTTL*5/4+15*time.Second, func(s sess) bool { return s.scheme == "wss" })
 	t.Logf("(d) back on wss@%s", s.ip)
+	healthyWait()
+
+	// (e) panel restart after a healthy wss session: the panel side drops and wss
+	// answers 502 for a while; ws on :80 still works. The agent must not fall back
+	// to ws (that left nodes 21/53 on ws at the fork.65 restart) and must be back
+	// on wss once 502 stops.
+	fail5xx.Store(true)
+	kill()
+	time.Sleep(3 * panelDialAttemptTimeout / 2)
+	fail5xx.Store(false)
+	restored = time.Now()
+	s, _ = await("(e) after 502", 30*time.Second, func(s sess) bool { return true })
+	if s.scheme != "wss" {
+		t.Fatalf("(e) panel answered 502 %d times → agent fell back to %s@%s", answered5xx.Load(), s.scheme, s.ip)
+	}
+	t.Logf("(e) panel 502 ×%d during restart → no ws; back on wss@%s %s after the panel was up",
+		answered5xx.Load(), s.ip, time.Since(restored).Round(time.Millisecond))
+	if answered5xx.Load() == 0 {
+		t.Fatal("(e) the agent never hit the 502 window")
+	}
 	healthyWait()
 
 	if m := maxLive.Load(); m > 1 {
