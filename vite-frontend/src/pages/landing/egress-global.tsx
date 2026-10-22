@@ -55,7 +55,7 @@ export function LayerLegend({
               className={
                 highlight.includes(step.key) ? undefined : "text-default-600"
               }
-              color={highlight.includes(step.key) ? "primary" : "default"}
+              color={highlight.includes(step.key) ? "secondary" : "default"}
               size="sm"
               variant={highlight.includes(step.key) ? "flat" : "bordered"}
             >
@@ -345,8 +345,8 @@ export function LandingGlobalRules({
                   <Chip
                     className={
                       s.state === "unsupported"
-                        ? "shrink-0 text-default-600"
-                        : "shrink-0"
+                        ? "shrink-0 self-start text-default-600 sm:self-auto"
+                        : "shrink-0 self-start sm:self-auto"
                     }
                     color={chip.color}
                     size="sm"

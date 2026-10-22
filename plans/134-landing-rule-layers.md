@@ -44,10 +44,14 @@ Evaluation order per node (first match wins, every rule scoped by inbound tag):
 - [x] Golden tests (layer order, line-chain, node scope, default precedence, empty global identical, IPv4-forced on
       IPv6-only, WARP fallback) + contract tests SQLite + PostgreSQL (caps, 20 parallel saves, authz, unpublished
       outbound, transfer, delete, global save → one apply per server)
-- [ ] Acceptance runner (local lab, real Core): global 强制 blocks a domain on two servers incl. a newly enabled one;
+- [x] Acceptance runner (local lab, real Core): global 强制 blocks a domain on two servers incl. a newly enabled one;
       user A 封锁 rule vs user B on the same Core; B's live connection survives A's edit; private block still wins
-- [ ] Resource numbers: Core RSS + apply time 0 vs (10 users × 10 node rules + 20 global incl. geosite/geoip); panel
-      RSS/CPU before/after
-- [ ] Backend suite after (no new failures), frontend tsc / lint / build, go-gost build/tests
-- [ ] Screenshots desktop + H5, light + dark; gallery on mmwx-preview `/landing-rule-layers/`
+- [x] Resource numbers: Core RSS + apply time 0 vs (10 users × 10 node rules + 20 global incl. geosite/geoip); panel
+      RSS/CPU before/after (Core 34.2 → 39.1 MiB, panel 36.6 → 36.6 MiB, user edit → applied 0.21 s, hot, same Core pid)
+- [x] Runner repair: full local matrix was broken since plan 128 (iterative openssl REALITY dest stalled by the guard
+      leg, S4–S8 cascade) and plan 127 (E1–E3 expected an empty default plan) — fixed, all 17 scenarios pass
+- [x] Backend suite after (same 15 failures as base, 0 new; landing contracts SQLite + PostgreSQL pass), frontend
+      tsc / lint (changed files 30 → 29 warnings, new files 0) / build, go-gost build + x/landing, x/socket, x/service tests
+- [x] Screenshots desktop + H5, light + dark (63 shots, 63/63 checks, 0 page errors); gallery on mmwx-preview
+      `/<token>/landing-rule-layers/`; H5 fixes: sync-state chip no longer stretched, legend highlight purple not blue
 - [ ] Push branch, CI green, summary + final.md
