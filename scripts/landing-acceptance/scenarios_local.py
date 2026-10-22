@@ -718,6 +718,92 @@ def p1_extra_protocols(ctx):
         api.call("landing/node/delete", {"id": n["id"]}, who)
 
 
+def n1_limits_transfer(ctx):
+    """Plan 131: global default node cap + admin owner transfer through the
+    real Core (native) and the fake Custom (shared)."""
+    r, api = ctx.report, ctx.api
+    a, b, c = make_user(ctx, "acc_xfer_a"), make_user(ctx, "acc_xfer_b"), make_user(ctx, "acc_xfer_c")
+    for who in (a, b):
+        api.call("landing/user/save", {"userId": who.uid, "maxNodesSource": "global", "quotas": [], "serverIds": [ctx.native, ctx.shared]})
+    g = api.call("landing/settings/get", {})
+    expect(r, "global default starts at 5 (no change on upgrade)", g["defaultMaxNodes"] == 5, g)
+    api.call("landing/settings/save", {"defaultMaxNodes": 1})
+    ua = api.call("landing/user/get", {"userId": a.uid})
+    expect(r, "user without an own value follows the global value live", ua["maxNodes"] == 1 and ua["maxNodesSource"] == "global", {k: ua[k] for k in ("maxNodes", "maxNodesSource", "globalMaxNodes")})
+    first = create_node(ctx, a, ctx.native, "vless_reality_vision", "xfer-a-own")
+    msg = api.expect_error("landing/node/create", {"landingServerId": ctx.native, "name": "xfer-a-over", "protocol": "ss2022"}, a)
+    expect(r, "global 1 refuses the second node", "上限" in msg, msg)
+    api.call("landing/settings/save", {"defaultMaxNodes": 3})
+    node = create_node(ctx, ADMIN, ctx.native, "ss2022", "xfer-native", owner=a.uid)
+    nid = node["id"]
+    expect(r, "admin creates a node for A within the raised global cap", node["userId"] == a.uid, {"id": nid, "userId": node["userId"]})
+    wait_node(ctx, nid, lambda x: x["status"] == "active", "transfer node active")
+    link_a = links(ctx, nid, a)["direct"]
+    cl = client(ctx, link_a, 26601)
+    base_a, base_b = ledger(ctx, a.uid), ledger(ctx, b.uid)
+    res = coreclient.download(26601, H, HTTP, 2 << 20)
+    expect(r, "A's link carries 2 MiB through the real Core before the transfer", res["bytes"] == 2 << 20, res)
+    before = settle(ctx, a.uid, 2 << 20, base_a)
+    billed_a = before["user"]["in_flow"] + before["user"]["out_flow"] - base_a["user"]["in_flow"] - base_a["user"]["out_flow"]
+    expect(r, "traffic before the transfer is billed to A", billed_a > 0, billed_a)
+    core0 = ctx.lab.core_pids()
+    # Refusals first: no grant / old owner's rule.
+    msg = api.expect_error("landing/node/transfer", {"id": nid, "userId": c.uid})
+    expect(r, "transfer to a user without access is refused with the grant hint", "无权使用此落地服务器" in msg, msg)
+    msg = api.expect_error("landing/node/transfer", {"id": nid, "userId": b.uid}, a)
+    expect(r, "non-admin transfer refused", bool(msg), msg)
+    t0 = time.monotonic()
+    moved = api.call("landing/node/transfer", {"id": nid, "userId": b.uid})
+    took = round(time.monotonic() - t0, 2)
+    expect(r, "admin transfers the node to B; port unchanged", moved["userId"] == b.uid and moved["port"] == node["port"], {"userId": moved["userId"], "port": moved["port"], "seconds": took})
+    expect(r, "B's direct link equals A's old link (credentials unchanged)", links(ctx, nid, b)["direct"] == link_a, None)
+    expect(r, "A no longer sees the node; B does", nid not in [x["id"] for x in api.nodes(a)] and nid in [x["id"] for x in api.nodes(b)], None)
+    a_after = ledger(ctx, a.uid)
+    res = coreclient.download(26601, H, HTTP, 2 << 20)
+    expect(r, "the already-running client keeps working after the transfer (2 MiB byte-exact)", res["bytes"] == 2 << 20, res)
+    stop(ctx, cl)
+    # B's node raw already holds A's bytes (counters stay on the node); wait
+    # for 2 MiB more than the pre-transfer raw.
+    after_b = settle(ctx, b.uid, 2 << 20, {"nodes": {nid: before["nodes"][nid]}})
+    a_final = ledger(ctx, a.uid)
+    billed_b = after_b["user"]["in_flow"] + after_b["user"]["out_flow"] - base_b["user"]["in_flow"] - base_b["user"]["out_flow"]
+    expect(r, "traffic after the transfer is billed to B", billed_b > 0, billed_b)
+    expect(r, "A's total does not move after the transfer", a_final["user"] == a_after["user"], {"after_transfer": a_after["user"], "final": a_final["user"]})
+    key = ("node", ctx.node_id)
+    expect(r, "B's per-server quota row carries the post-transfer traffic", after_b["server_quota"].get(key, {}).get("used_in", 0) + after_b["server_quota"].get(key, {}).get("used_out", 0) - base_b["server_quota"].get(key, {"used_in": 0, "used_out": 0})["used_in"] - base_b["server_quota"].get(key, {"used_in": 0, "used_out": 0})["used_out"] == billed_b, after_b["server_quota"].get(key))
+    expect(r, "Core process not restarted by the transfer", ctx.lab.core_pids() == core0, {"before": core0, "after": ctx.lab.core_pids()})
+    # Shared: the owner travels in Custom's desired state.
+    sh = create_node(ctx, ADMIN, ctx.shared, "ss2022", "xfer-shared", owner=a.uid)
+    wait_node(ctx, sh["id"], lambda x: x["remoteState"] == "active", "shared transfer node applied", timeout=40, interval=1, do_sync=True)
+    body, _ = desired(ctx, 7001)
+    owner = next(n["owner"] for n in body["nodes"] if n["id"] == str(sh["id"]))
+    expect(r, "shared desired names A as owner before the transfer", owner == {"id": str(a.uid), "name": a.user}, owner)
+    fake(ctx, "counters", {"id": 7001, "node_id": sh["id"], "up": 1000, "down": 1000})
+    sync(ctx)
+    wait_for("shared counters billed to A", lambda: ledger(ctx, a.uid)["nodes"].get(sh["id"], {}).get("billed_in", 0) == 2000 or None, timeout=30)
+    pre_a = ledger(ctx, a.uid)
+    pre_b = ledger(ctx, b.uid)
+    api.call("landing/node/transfer", {"id": sh["id"], "userId": b.uid})
+    body, _ = desired(ctx, 7001)
+    owner = next(n["owner"] for n in body["nodes"] if n["id"] == str(sh["id"]))
+    expect(r, "shared desired names B as owner right after the transfer (pushed at once)", owner == {"id": str(b.uid), "name": b.user}, owner)
+    fake(ctx, "counters", {"id": 7001, "node_id": sh["id"], "up": 4000, "down": 4000})
+    sync(ctx)
+
+    def b_billed():
+        x = ledger(ctx, b.uid)
+        return x if x["user"]["in_flow"] + x["user"]["out_flow"] - pre_b["user"]["in_flow"] - pre_b["user"]["out_flow"] == 12000 else None
+    wait_for("shared post-transfer counters billed to B", b_billed, timeout=30)
+    post_a = ledger(ctx, a.uid)
+    expect(r, "shared: post-transfer Custom counters bill B (3000+3000 raw x2), A unchanged", post_a["user"] == pre_a["user"], {"a": post_a["user"], "a_before": pre_a["user"]})
+    # Lowering the global below a user's count keeps nodes (A still owns its own Reality node).
+    api.call("landing/settings/save", {"defaultMaxNodes": 0})
+    time.sleep(2)
+    kept = [x for x in api.nodes(a) if x["id"] == first["id"]]
+    expect(r, "global 0 keeps A's existing node active", kept and kept[0]["status"] == "active", kept[0]["status"] if kept else None)
+    api.call("landing/settings/save", {"defaultMaxNodes": 5})
+
+
 def r1_resources(ctx):
     r = ctx.report
     pids = ctx.lab.core_pids()
@@ -747,6 +833,7 @@ SCENARIOS = [
     ("E3", "egress on shared: capability, plan in desired, geo refusal, policy off", e3_shared),
     ("T1", "rule targets: explicit node, legacy reuse-or-create, reference counts + deletion", t1_rule_targets),
     ("P1", "plan 121 AnyTLS / Snell / Mieru on a shared landing: caps, payload, links, withheld", p1_extra_protocols),
+    ("N1", "plan 131 global default node cap + admin owner transfer (native Core + shared desired)", n1_limits_transfer),
     ("R1", "resource snapshot", r1_resources),
 ]
 
