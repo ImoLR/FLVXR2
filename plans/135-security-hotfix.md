@@ -54,10 +54,10 @@ nothing may be able to fill the disk.
 - [x] Prod-copy measurements after
 
 ### Release / prod
-- [ ] Commit, push, tag `3.0.27-fork.74`, CI + images + release assets verified
-- [ ] Prod backup `pre-fork74-*`, prune-backups.sh, upgrade, health + 29 nodes
-- [ ] Read-only prod probes (anon type=2 refused, user 26 2-min listen, admin pages)
-- [ ] Prod numbers after; summary
+- [x] Commit, push, tag `3.0.27-fork.74`, CI + images + release assets verified
+- [x] Prod backup `pre-fork74-*`, prune-backups.sh, upgrade, health + 29 nodes
+- [x] Read-only prod probes (anon type=2 refused, user 26 2-min listen, admin pages)
+- [x] Prod numbers after; summary
 
 ## Results (lab = neutralised prod copy in an offline netns, 29 fake agents at 1 Hz)
 
@@ -85,3 +85,22 @@ offline (panel stopped) 16 s + VACUUM 0.5 s → 50 MB file. Charts: 15 min / 1 h
 6 h / 24 h still ~500 points.
 
 Backend suite: same 15 failing lines as untouched fork.73 (pre-existing), no new failures.
+
+## Release / production (2026-10-23 04:23 TW)
+
+- Tag `3.0.27-fork.74` → 9511e175; CI Build Check 39845482360 ✓, Build and Push Images 39845484991 ✓;
+  release Latest, same 10 assets as fork.73, images amd64+arm64, install scripts pinned.
+- Rollback point `/opt/flvx-svc/rollback/pre-fork74-20261022T202252Z` (validated DB, fork.73 images,
+  `rollback.sh` restores the pre-upgrade MD5 hashes of users fork.74 re-hashed; `--restore-db` = whole DB).
+  Kept: `pre-fork73-20261022T171220Z`. Pruned: `pre-fork72` + fork.71 images.
+- Upgrade: images pulled first; backend stopped 46 s total (node_metric offline compaction 21.9 s:
+  2 522 072 → 185 526 rows, VACUUM 1.5 s, DB 403 MB → 51.5 MB); 29/29 nodes back, rules 34/31 and
+  per-user counts unchanged, no redeploy failures.
+- Read-only probes through Cloudflare: anonymous `type=2` → 403 (with and without Origin); foreign
+  Origin → 403; admin (Origin flvxx.imgamer.top) 28 msg/s metrics+status only, same admin fields;
+  user 26 (2 min) → 0 messages (no node in that user's monitor scope); monitor nodes 29, path latency
+  35 tunnels, rule client IPs, landing monitor + online IPs all OK; anonymous config/list only
+  app_name / login_monitor_link / payment_enabled / registration_enabled / store_enabled.
+- Prod before → after: CPU 3.82 % → 3.83 %; DB 403 MB (+26 MB WAL) → 52 MB (+4 MB WAL); node_metric
+  2.59 M → 0.19 M rows; forward/list p50/p95 13.2/18.5 → 13.4/17.7 ms; node/list 7.3/10.8 → 6.7/8.1 ms;
+  anonymous WS 29.6 msg/s / 22.4 KB/s → refused.
