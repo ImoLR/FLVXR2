@@ -1377,6 +1377,12 @@ func (h *Handler) updateSingleConfig(w http.ResponseWriter, r *http.Request) {
 
 func normalizeAndValidateConfigValue(key, value string) (string, error) {
 	switch strings.TrimSpace(key) {
+	case repo.LandingDefaultMaxNodesKey:
+		n, err := repo.ParseLandingDefaultMaxNodes(value)
+		if err != nil {
+			return "", err
+		}
+		return strconv.Itoa(n), nil
 	case "app_logo", "app_favicon":
 		normalized := strings.TrimSpace(value)
 		if normalized == "" {

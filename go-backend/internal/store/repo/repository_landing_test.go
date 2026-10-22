@@ -19,7 +19,7 @@ import (
 func landingRepoFixture(t *testing.T, dialect string) (*Repository, *model.LandingServer) {
 	t.Helper()
 	r := orphanTestRepo(t, dialect)
-	orphanSeed(t, r, &model.User{ID: 501, User: "landing-owner", Status: 1, ExpTime: time.Now().Add(30 * 24 * time.Hour).UnixMilli()}, &model.User{ID: 502, User: "landing-other", Status: 1}, &model.Node{ID: 601, Name: "native", ServerIP: "203.0.113.1", ServerIPV6: sql.NullString{String: "2001:db8::1", Valid: true}, ExtraIPs: sql.NullString{String: `["203.0.113.2"]`, Valid: true}, Port: "10000-19999", LandingCapable: true, Status: 1}, &model.UserGroup{ID: 701, Name: "landing-grant", Status: 1}, &model.UserGroupUser{UserGroupID: 701, UserID: 501})
+	orphanSeed(t, r, &model.User{ID: 501, User: "landing-owner", RoleID: 1, Status: 1, ExpTime: time.Now().Add(30 * 24 * time.Hour).UnixMilli()}, &model.User{ID: 502, User: "landing-other", RoleID: 1, Status: 1}, &model.Node{ID: 601, Name: "native", ServerIP: "203.0.113.1", ServerIPV6: sql.NullString{String: "2001:db8::1", Valid: true}, ExtraIPs: sql.NullString{String: `["203.0.113.2"]`, Valid: true}, Port: "10000-19999", LandingCapable: true, Status: 1}, &model.UserGroup{ID: 701, Name: "landing-grant", Status: 1}, &model.UserGroupUser{UserGroupID: 701, UserID: 501})
 	s, err := r.EnableLandingServer(601)
 	if err != nil {
 		t.Fatal(err)
@@ -269,7 +269,7 @@ func TestLandingRenewalRevisionAndCapabilityDowngrade(t *testing.T) {
 			if after.Revision <= before.Revision || *renewed.ExpiresAt != expires+86400000 || renewed.ServerKey != n.ServerKey || renewed.Port != n.Port {
 				t.Fatal("renewal changed identity or did not increment revision")
 			}
-			_, quotas, err := r.GetLandingUserSetting(501)
+			_, _, quotas, err := r.GetLandingUserSetting(501)
 			if err != nil || len(quotas) != 1 || quotas[0].UsedIn != 0 || !quotas[0].LimitOverride {
 				t.Fatalf("quota save accepted usage: %+v %v", quotas, err)
 			}
@@ -291,8 +291,8 @@ func TestLandingRenewalRevisionAndCapabilityDowngrade(t *testing.T) {
 			if err := r.SaveLandingUserSetting(501, 0, nil, 0); err != nil {
 				t.Fatal(err)
 			}
-			setting, _, _ := r.GetLandingUserSetting(501)
-			if setting.MaxNodes != 0 {
+			setting, limit, _, _ := r.GetLandingUserSetting(501)
+			if setting.MaxNodes != 0 || !setting.MaxNodesCustom || limit.Effective != 0 || limit.Source != "custom" {
 				t.Fatal("explicit zero node limit became default")
 			}
 		})

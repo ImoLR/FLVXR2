@@ -154,6 +154,10 @@ func Open(path string) (*Repository, error) {
 		_ = sqlDB.Close()
 		return nil, fmt.Errorf("backfill landing server users: %w", err)
 	}
+	if err := backfillLandingUserMaxNodesCustom(db); err != nil {
+		_ = sqlDB.Close()
+		return nil, fmt.Errorf("backfill landing user max nodes: %w", err)
+	}
 	return &Repository{db: db}, nil
 }
 
@@ -206,6 +210,10 @@ func OpenPostgres(dsn string) (*Repository, error) {
 	if err := backfillLandingServerUsers(db); err != nil {
 		_ = sqlDB.Close()
 		return nil, fmt.Errorf("backfill landing server users: %w", err)
+	}
+	if err := backfillLandingUserMaxNodesCustom(db); err != nil {
+		_ = sqlDB.Close()
+		return nil, fmt.Errorf("backfill landing user max nodes: %w", err)
 	}
 	return &Repository{db: db}, nil
 }

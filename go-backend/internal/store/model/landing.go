@@ -150,6 +150,10 @@ func (LandingNode) TableName() string { return "landing_node" }
 type LandingUserSetting struct {
 	UserID   int64 `gorm:"primaryKey;autoIncrement:false" json:"userId"`
 	MaxNodes int   `gorm:"not null;default:5" json:"maxNodes"`
+	// MaxNodesCustom (plan 131): false = the user follows the global default
+	// (vite_config landing_default_max_nodes) and MaxNodes keeps the old hard
+	// default 5, so a rollback to an older panel behaves as before.
+	MaxNodesCustom bool `gorm:"not null;default:false" json:"maxNodesCustom"`
 }
 
 func (LandingUserSetting) TableName() string { return "landing_user_setting" }

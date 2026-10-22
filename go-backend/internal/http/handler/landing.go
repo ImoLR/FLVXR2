@@ -18,7 +18,7 @@ import (
 
 func (h *Handler) registerLanding(mux *http.ServeMux) {
 	h.registerLandingEgress(mux)
-	for path, fn := range map[string]http.HandlerFunc{"integration/get": h.landingIntegrationGet, "integration/save": h.landingIntegrationSave, "integration/test": h.landingIntegrationTest, "integration/sync": h.landingIntegrationSync, "server/enable": h.landingServerEnable, "server/list": h.landingServerList, "server/save": h.landingServerSave, "node/list": h.landingNodeList, "node/create": h.limitMutation(mutationLanding, h.landingNodeCreate), "node/update": h.limitMutation(mutationLanding, h.landingNodeUpdate), "node/delete": h.limitMutation(mutationLanding, h.landingNodeDelete), "node/links": h.landingNodeLinks, "user/get": h.landingUserGet, "user/save": h.landingUserSave, "monitor": h.landingMonitor, "monitor/ips": h.landingMonitorIPs} {
+	for path, fn := range map[string]http.HandlerFunc{"integration/get": h.landingIntegrationGet, "integration/save": h.landingIntegrationSave, "integration/test": h.landingIntegrationTest, "integration/sync": h.landingIntegrationSync, "server/enable": h.landingServerEnable, "server/list": h.landingServerList, "server/save": h.landingServerSave, "node/list": h.landingNodeList, "node/create": h.limitMutation(mutationLanding, h.landingNodeCreate), "node/update": h.limitMutation(mutationLanding, h.landingNodeUpdate), "node/delete": h.limitMutation(mutationLanding, h.landingNodeDelete), "node/links": h.landingNodeLinks, "user/get": h.landingUserGet, "user/save": h.landingUserSave, "settings/get": h.landingSettingsGet, "settings/save": h.landingSettingsSave, "node/transfer": h.limitMutation(mutationLanding, h.landingNodeTransfer), "monitor": h.landingMonitor, "monitor/ips": h.landingMonitorIPs} {
 		mux.HandleFunc("/api/v1/landing/"+path, func(w http.ResponseWriter, r *http.Request) {
 			if r.Method != http.MethodPost {
 				response.WriteJSON(w, response.Err(405, "仅支持 POST"))
@@ -690,7 +690,7 @@ func (h *Handler) landingUserGet(w http.ResponseWriter, r *http.Request) {
 		landingError(w, err)
 		return
 	}
-	s, q, err := h.repo.GetLandingUserSetting(req.UserID)
+	s, limit, q, err := h.repo.GetLandingUserSetting(req.UserID)
 	if err != nil {
 		landingError(w, err)
 		return
@@ -707,15 +707,24 @@ func (h *Handler) landingUserGet(w http.ResponseWriter, r *http.Request) {
 		landingError(w, err)
 		return
 	}
-	response.WriteJSON(w, response.OK(map[string]interface{}{"userId": req.UserID, "maxNodes": s.MaxNodes, "quotas": q, "fixedNodeCount": fixed, "serverIds": serverIDs}))
+	// maxNodes is the cap in force; maxNodesSource says whether it is the
+	// user's own value or the global default (plan 131).
+	view := map[string]interface{}{"userId": req.UserID, "maxNodes": limit.Effective, "maxNodesSource": limit.Source, "globalMaxNodes": limit.Global, "quotas": q, "fixedNodeCount": fixed, "serverIds": serverIDs}
+	if s.MaxNodesCustom {
+		view["customMaxNodes"] = s.MaxNodes
+	}
+	response.WriteJSON(w, response.OK(view))
 }
 func (h *Handler) landingUserSave(w http.ResponseWriter, r *http.Request) {
 	if !h.ensureAdminAccess(w, r) {
 		return
 	}
 	var req struct {
-		UserID          int64                   `json:"userId"`
-		MaxNodes        int                     `json:"maxNodes"`
+		UserID   int64 `json:"userId"`
+		MaxNodes *int  `json:"maxNodes"`
+		// MaxNodesSource "global" follows the global default; "custom" or
+		// absent with a numeric maxNodes (older clients) sets an own value.
+		MaxNodesSource  string                  `json:"maxNodesSource"`
 		Quotas          []model.UserServerQuota `json:"quotas"`
 		ExtendFixedByMs int64                   `json:"extendFixedByMs"`
 		FixedNodeCount  int                     `json:"fixedNodeCount"`
@@ -725,7 +734,12 @@ func (h *Handler) landingUserSave(w http.ResponseWriter, r *http.Request) {
 		landingError(w, err)
 		return
 	}
-	if err := h.repo.SaveLandingUserSettingWithGrants(req.UserID, req.MaxNodes, req.Quotas, req.ExtendFixedByMs, req.ServerIDs); err != nil {
+	maxNodes, err := h.landingUserSaveMaxNodes(req.UserID, req.MaxNodesSource, req.MaxNodes)
+	if err != nil {
+		landingError(w, err)
+		return
+	}
+	if err := h.repo.SaveLandingUserSettingWithGrants(req.UserID, maxNodes, req.Quotas, req.ExtendFixedByMs, req.ServerIDs); err != nil {
 		landingError(w, err)
 		return
 	}
