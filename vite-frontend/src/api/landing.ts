@@ -209,7 +209,12 @@ export interface ServerQuota {
   paused?: boolean;
 }
 export interface LandingUserSetting {
+  // Effective total node cap; maxNodesSource says whether it is the user's
+  // own value or the global default (plan 131).
   maxNodes: number;
+  maxNodesSource?: "global" | "custom" | "admin";
+  globalMaxNodes?: number;
+  customMaxNodes?: number;
   quotas: ServerQuota[];
   fixedNodeCount?: number;
   serverIds?: number[];
@@ -331,6 +336,20 @@ export const updateLandingNode = (node: LandingNode) => {
       : {}),
   });
 };
+// Plan 131: admin-only global landing settings and node owner transfer.
+export interface LandingGlobalSettings {
+  defaultMaxNodes: number;
+  customUserCount: number;
+}
+export const getLandingSettings = () =>
+  Network.post<LandingGlobalSettings>("/landing/settings/get", {});
+export const saveLandingSettings = (defaultMaxNodes: number) =>
+  Network.post<LandingGlobalSettings>("/landing/settings/save", {
+    defaultMaxNodes,
+  });
+// userId 0 = the calling admin.
+export const transferLandingNode = (id: number, userId: number) =>
+  Network.post<LandingNode>("/landing/node/transfer", { id, userId });
 export const deleteLandingNode = (id: number) =>
   Network.post<{ pending?: boolean }>("/landing/node/delete", { id });
 export const landingLinks = (id: number) =>
@@ -344,6 +363,9 @@ export const saveLandingUser = (
   Network.post("/landing/user/save", {
     userId,
     maxNodes: data.maxNodes,
+    ...(data.maxNodesSource === "global" || data.maxNodesSource === "custom"
+      ? { maxNodesSource: data.maxNodesSource }
+      : {}),
     quotas: data.quotas
       .filter((quota) => quota.limitOverride !== false)
       .map(({ serverKind, serverRefId, limitBytes }) => ({
