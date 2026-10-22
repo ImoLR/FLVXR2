@@ -60,6 +60,10 @@ type nodeDeployRollbackRequest struct {
 const coreDeployTimeout = 5 * time.Minute
 
 func (h *Handler) nodeTLSList(w http.ResponseWriter, r *http.Request) {
+	// Templates carry certificates and Reality private keys.
+	if !h.ensureAdminAccess(w, r) {
+		return
+	}
 	items, err := h.repo.ListNodeTLSTemplates()
 	if err != nil {
 		response.WriteJSON(w, response.ErrDefault(err.Error()))

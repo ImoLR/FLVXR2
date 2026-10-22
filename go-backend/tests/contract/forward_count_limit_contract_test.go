@@ -14,7 +14,8 @@ import (
 	"go-backend/internal/store/repo"
 )
 
-func TestForwardCreateAllowedWhenUserForwardCountWouldHaveExceededLegacyLimit(t *testing.T) {
+// Plan 130: the user's total 规则数 (user.num) is enforced on create.
+func TestForwardCreateRefusedAtUserRuleLimit(t *testing.T) {
 	secret := "contract-jwt-secret"
 	router, repo := setupContractRouter(t, secret)
 	server := httptest.NewServer(router)
@@ -37,9 +38,13 @@ func TestForwardCreateAllowedWhenUserForwardCountWouldHaveExceededLegacyLimit(t 
 
 	res := performForwardCreate(t, router, token, tunnelID, "legacy-user-forward-3", "1.1.1.1:53")
 
-	assertResponseCode(t, res, 0)
+	assertResponseCode(t, res, -1)
+	if n := mustQueryInt(t, repo, `SELECT COUNT(*) FROM forward WHERE user_id = ?`, userID); n != 2 {
+		t.Fatalf("refused create left %d rules, want 2", n)
+	}
 }
 
+// Rules already over the limit keep working: resume is never limited.
 func TestForwardResumeAllowedWhenUserForwardCountWouldHaveExceededLegacyLimit(t *testing.T) {
 	secret := "contract-jwt-secret"
 	router, repo := setupContractRouter(t, secret)
@@ -87,6 +92,7 @@ func TestForwardResumeAllowedWhenUserForwardCountWouldHaveExceededLegacyLimit(t 
 	}
 }
 
+// The per-tunnel 规则数 (user_tunnel.num) is kept in the DB/API but not enforced.
 func TestForwardCreateAllowedWhenTunnelForwardCountWouldHaveExceededLegacyLimit(t *testing.T) {
 	secret := "contract-jwt-secret"
 	router, repo := setupContractRouter(t, secret)

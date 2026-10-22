@@ -35,7 +35,7 @@ func (h *Handler) payOrder(w http.ResponseWriter, r *http.Request) {
 	}
 
 	order, err := h.repo.GetOrder(orderID)
-	if err != nil {
+	if err != nil || !h.orderVisible(r, order.UserID) {
 		response.WriteJSON(w, response.ErrDefault("订单不存在"))
 		return
 	}
@@ -196,7 +196,7 @@ func (h *Handler) getOrderStatus(w http.ResponseWriter, r *http.Request) {
 	}
 
 	order, err := h.repo.GetOrder(orderID)
-	if err != nil {
+	if err != nil || !h.orderVisible(r, order.UserID) {
 		response.WriteJSON(w, response.ErrDefault("订单不存在"))
 		return
 	}
@@ -380,4 +380,10 @@ func (h *Handler) userNameFromRequest(r *http.Request) (int64, string) {
 		return uid, user.Name
 	}
 	return uid, user.User
+}
+
+// orderVisible: admins see every order, normal users only their own.
+func (h *Handler) orderVisible(r *http.Request, ownerID int64) bool {
+	actorID, roleID, err := userRoleFromRequest(r)
+	return err == nil && (roleID == 0 || actorID == ownerID)
 }

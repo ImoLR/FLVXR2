@@ -12,6 +12,15 @@ import (
 type statusWriter struct {
 	http.ResponseWriter
 	status int
+	quiet  bool
+}
+
+// SuppressRequestLog drops the access-log line of this request. Rate-limit
+// refusals use it so a flood of refused calls writes nothing to the log.
+func SuppressRequestLog(w http.ResponseWriter) {
+	if sw, ok := w.(*statusWriter); ok {
+		sw.quiet = true
+	}
 }
 
 func (w *statusWriter) WriteHeader(code int) {
@@ -52,6 +61,9 @@ func RequestLog(next http.Handler) http.Handler {
 		sw := &statusWriter{ResponseWriter: w, status: http.StatusOK}
 		start := time.Now()
 		next.ServeHTTP(sw, r)
+		if sw.quiet {
+			return
+		}
 		log.Printf("%s %s -> %d (%s)", r.Method, r.URL.Path, sw.status, time.Since(start).String())
 	})
 }

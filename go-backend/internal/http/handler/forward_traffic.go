@@ -59,6 +59,14 @@ func (h *Handler) forwardBatchResetTraffic(w http.ResponseWriter, r *http.Reques
 			results = append(results, result)
 			continue
 		}
+		if actorRole != 0 && forward.TrafficLimit > 0 {
+			// The admin's per-rule traffic limit is measured on these
+			// counters; a user reset would lift it.
+			result.ForwardName = forward.Name
+			result.Error = "该规则设有管理员流量上限，只有管理员可以归零"
+			results = append(results, result)
+			continue
+		}
 
 		inFlowBefore := forward.InFlow
 		outFlowBefore := forward.OutFlow
@@ -242,6 +250,24 @@ func (h *Handler) deleteForwardTrafficResetLog(w http.ResponseWriter, r *http.Re
 	if req.ID <= 0 {
 		response.WriteJSON(w, response.Err(-1, "日志 ID 无效"))
 		return
+	}
+
+	actorUserID, actorRole, err := userRoleFromRequest(r)
+	if err != nil {
+		response.WriteJSON(w, response.Err(401, "无效的 token 或 token 已过期"))
+		return
+	}
+	if actorRole != 0 {
+		// Normal users may only delete logs of their own rules.
+		owner, found, err := h.repo.ForwardTrafficResetLogOwner(req.ID)
+		if err != nil {
+			response.WriteJSON(w, response.Err(-1, "删除失败："+err.Error()))
+			return
+		}
+		if !found || owner != actorUserID {
+			response.WriteJSON(w, response.Err(-1, "日志不存在或无权删除"))
+			return
+		}
 	}
 
 	if err := h.repo.DeleteForwardTrafficResetLog(req.ID); err != nil {

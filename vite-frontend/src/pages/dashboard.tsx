@@ -445,15 +445,6 @@ export default function DashboardPage() {
     return forwardList.filter((forward) => forward.tunnelId === tunnelId)
       .length;
   };
-  const calculateTunnelForwardPercentage = (tunnel: UserTunnel): number => {
-    const totalUsed = getTunnelUsedForwards(tunnel.tunnelId);
-    const totalLimit = tunnel.num || 0;
-
-    // 无限制时返回0%
-    if (tunnel.num === 99999) return 0;
-
-    return totalLimit > 0 ? Math.min((totalUsed / totalLimit) * 100, 100) : 0;
-  };
   const formatResetTime = (resetDay?: number): string => {
     if (resetDay === undefined || resetDay === null) return "";
     if (resetDay === 0) return "不归零";
@@ -1066,7 +1057,7 @@ export default function DashboardPage() {
                           </div>
                         </div>
                       </div>
-                      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 lg:gap-4">
+                      <div className="grid grid-cols-2 lg:grid-cols-3 gap-3 lg:gap-4">
                         <div>
                           <p className="text-sm text-default-600 mb-1">
                             流量配额
@@ -1090,14 +1081,7 @@ export default function DashboardPage() {
                             )}
                           </div>
                         </div>
-                        <div>
-                          <p className="text-sm text-default-600 mb-1">
-                            规则配额
-                          </p>
-                          <p className="font-semibold text-foreground">
-                            {formatNumber(tunnel.num)}
-                          </p>
-                        </div>
+                        {/* 每条隧道的规则数不再限制（只限制账号总规则数），这里只显示已用 */}
                         <div>
                           <p className="text-sm text-default-600 mb-1">
                             已用规则
@@ -1105,13 +1089,6 @@ export default function DashboardPage() {
                           <p className="font-semibold text-foreground">
                             {getTunnelUsedForwards(tunnel.tunnelId)}
                           </p>
-                          <div className="mt-1">
-                            {renderProgressBar(
-                              calculateTunnelForwardPercentage(tunnel),
-                              "sm",
-                              tunnel.num === 99999,
-                            )}
-                          </div>
                         </div>
                       </div>
                     </div>

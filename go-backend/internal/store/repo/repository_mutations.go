@@ -2914,12 +2914,20 @@ func (r *Repository) EnsureUserTunnelGrant(userID, tunnelID int64) (int64, bool,
 	return ut.ID, true, nil
 }
 
-func (r *Repository) CreateForwardTx(userID int64, userName, name string, tunnelID int64, remoteAddr, strategy string, now int64, inx int, entryNodeIDs []int64, port int, inIp string, speedID interface{}, maxConnections, maxClientIps int, trafficLimit int64, expiryTime interface{}, speedLimitEnabled bool, speedLimit int, mode string, wgPathID int64, wgRuleType, sourceCIDR, targetCIDR string, snatEnabled bool, landingNodeID ...int64) (int64, error) {
+// CreateForwardTx inserts a rule and its entry ports. With enforceRuleLimit the
+// owner's 规则数 (user.num) is checked in the same transaction with the owner
+// row locked, so parallel creates cannot overshoot it.
+func (r *Repository) CreateForwardTx(enforceRuleLimit bool, userID int64, userName, name string, tunnelID int64, remoteAddr, strategy string, now int64, inx int, entryNodeIDs []int64, port int, inIp string, speedID interface{}, maxConnections, maxClientIps int, trafficLimit int64, expiryTime interface{}, speedLimitEnabled bool, speedLimit int, mode string, wgPathID int64, wgRuleType, sourceCIDR, targetCIDR string, snatEnabled bool, landingNodeID ...int64) (int64, error) {
 	if r == nil || r.db == nil {
 		return 0, errors.New("repository not initialized")
 	}
 	var forwardID int64
 	err := r.db.Transaction(func(tx *gorm.DB) error {
+		if enforceRuleLimit {
+			if err := lockUserRuleLimitTx(tx, userID, 1); err != nil {
+				return err
+			}
+		}
 		fwd := model.Forward{
 			UserID:            userID,
 			UserName:          userName,

@@ -375,6 +375,9 @@ func (h *Handler) userToggleAutoRenew(w http.ResponseWriter, r *http.Request) {
 		response.WriteJSON(w, response.ErrDefault("用户ID不能为空"))
 		return
 	}
+	if !h.ensureSelfOrAdmin(w, r, id) {
+		return
+	}
 	autoRenew := asInt(req["autoRenew"], 0)
 	if autoRenew != 0 && autoRenew != 1 {
 		response.WriteJSON(w, response.ErrDefault("自动续费参数错误"))
@@ -401,6 +404,9 @@ func (h *Handler) userToggleAutoBuyTraffic(w http.ResponseWriter, r *http.Reques
 	id := asInt64(req["id"], 0)
 	if id <= 0 {
 		response.WriteJSON(w, response.ErrDefault("用户ID不能为空"))
+		return
+	}
+	if !h.ensureSelfOrAdmin(w, r, id) {
 		return
 	}
 	autoBuyTraffic := asInt(req["autoBuyTraffic"], 0)
@@ -435,6 +441,9 @@ func (h *Handler) userGroups(w http.ResponseWriter, r *http.Request) {
 	}
 	id := idFromBody(r, w)
 	if id <= 0 {
+		return
+	}
+	if !h.ensureSelfOrAdmin(w, r, id) {
 		return
 	}
 	ids, err := h.repo.GetUserGroupIDsByUserID(id)
@@ -2951,6 +2960,15 @@ func (h *Handler) forwardCreateWithReq(w http.ResponseWriter, r *http.Request, r
 		}
 		entryNodes, entryPermissionErr = h.allowedTunnelEntries(userID, tunnelID, roleID == 0 && actorUserID == userID)
 	}
+	// A chain replay was already counted (under the user lock) when the
+	// pending chain was created, so only direct creates are checked here.
+	enforceRuleLimit := !isReplay && ruleLimitApplies(roleID)
+	if enforceRuleLimit {
+		if err := h.forwardRuleLimit(userID, roleID); err != nil {
+			response.WriteJSON(w, response.ErrDefault(err.Error()))
+			return
+		}
+	}
 	name := asString(req["name"])
 	remoteAddr := asString(req["remoteAddr"])
 	if isReplay && strings.TrimSpace(remoteAddr) != replay.target {
@@ -3101,8 +3119,12 @@ func (h *Handler) forwardCreateWithReq(w http.ResponseWriter, r *http.Request, r
 		response.WriteJSON(w, response.ErrDefault(entryPermissionErr.Error()))
 		return
 	}
-	forwardID, err := h.repo.CreateForwardTx(userID, userName, name, tunnelID, remoteAddr, defaultString(asString(req["strategy"]), "fifo"), now, inx, entryNodes, port, inIp, nullableInt(speedID), maxConnections, maxClientIps, trafficLimit, expiryTime, speedLimitEnabled, speedLimit, mode, wgPathID, wgRuleType, sourceCIDR, targetCIDR, snatEnabled, landingID)
+	forwardID, err := h.repo.CreateForwardTx(enforceRuleLimit, userID, userName, name, tunnelID, remoteAddr, defaultString(asString(req["strategy"]), "fifo"), now, inx, entryNodes, port, inIp, nullableInt(speedID), maxConnections, maxClientIps, trafficLimit, expiryTime, speedLimitEnabled, speedLimit, mode, wgPathID, wgRuleType, sourceCIDR, targetCIDR, snatEnabled, landingID)
 	if err != nil {
+		if repo.IsRuleLimitError(err) {
+			response.WriteJSON(w, response.ErrDefault(err.Error()))
+			return
+		}
 		response.WriteJSON(w, response.Err(-2, err.Error()))
 		return
 	}
@@ -3736,7 +3758,18 @@ func (h *Handler) forwardUpdateOrder(w http.ResponseWriter, r *http.Request) {
 		response.WriteJSON(w, response.ErrDefault("请求参数错误"))
 		return
 	}
+	actorUserID, actorRole, err := userRoleFromRequest(r)
+	if err != nil {
+		response.WriteJSON(w, response.Err(401, "无效的token或token已过期"))
+		return
+	}
 	for _, f := range req.Forwards {
+		if actorRole != 0 {
+			// Normal users may only reorder their own rules.
+			if _, accessErr := h.ensureForwardAccessByActor(actorUserID, actorRole, f.ID); accessErr != nil {
+				continue
+			}
+		}
 		h.repo.UpdateForwardOrder(f.ID, f.Inx, time.Now().UnixMilli())
 	}
 	response.WriteJSON(w, response.OKEmpty())

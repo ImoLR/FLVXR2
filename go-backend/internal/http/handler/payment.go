@@ -162,7 +162,7 @@ func (h *Handler) getPaymentConfigs(w http.ResponseWriter, r *http.Request) {
 	for _, cfg := range list {
 		result = append(result, map[string]interface{}{
 			"channel": cfg.Channel,
-			"config":  cfg.Config,
+			"config":  publicPaymentConfig(cfg.Config),
 			"enabled": cfg.Enabled,
 		})
 	}
@@ -198,4 +198,23 @@ func (h *Handler) savePaymentConfig(w http.ResponseWriter, r *http.Request) {
 	}
 
 	response.WriteJSON(w, response.OKEmpty())
+}
+
+// publicPaymentConfig keeps only the display fields of a channel config for
+// the shop page (any logged-in user). Merchant keys, secrets, tokens and
+// callback URLs stay admin-only (/payment/config/admin/list); with a merchant
+// key anyone could sign a fake payment callback.
+func publicPaymentConfig(raw string) string {
+	var full map[string]interface{}
+	if err := json.Unmarshal([]byte(raw), &full); err != nil {
+		return "{}"
+	}
+	out := map[string]interface{}{}
+	for _, key := range []string{"network", "currency"} {
+		if v, ok := full[key]; ok {
+			out[key] = v
+		}
+	}
+	b, _ := json.Marshal(out)
+	return string(b)
 }

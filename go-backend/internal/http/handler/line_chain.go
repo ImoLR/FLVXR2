@@ -382,23 +382,6 @@ func chainActorClaims(r *http.Request) (auth.Claims, bool) {
 	return claims, ok
 }
 
-// chainRuleLimit: chain rules count as rules; their hidden exit nodes make
-// them the one place where the user's rule allowance (num) is enforced.
-func (h *Handler) chainRuleLimit(owner *model.User, adding int64) error {
-	if owner == nil || owner.RoleID == 0 || owner.Num <= 0 || owner.Num >= 99999 {
-		return nil
-	}
-	n, err := h.repo.CountUserForwards(owner.ID)
-	if err != nil {
-		return err
-	}
-	pending, _ := h.repo.CountCreatingChains(owner.ID)
-	if n+pending+adding > int64(owner.Num) {
-		return fmt.Errorf("已达到规则数上限（%d 条），不能再创建「我自己的节点」规则", owner.Num)
-	}
-	return nil
-}
-
 // forwardCreateChain validates a chain create synchronously, persists the
 // pending chain and returns; a background driver finishes it.
 func (h *Handler) forwardCreateChain(w http.ResponseWriter, r *http.Request, req map[string]interface{}) {
@@ -468,7 +451,7 @@ func (h *Handler) forwardCreateChain(w http.ResponseWriter, r *http.Request, req
 		fail("用户不存在")
 		return
 	}
-	if err := h.chainRuleLimit(owner, 1); err != nil {
+	if err := h.forwardRuleLimit(ownerID, roleID); err != nil {
 		fail(err.Error())
 		return
 	}
@@ -511,7 +494,7 @@ func (h *Handler) forwardCreateChain(w http.ResponseWriter, r *http.Request, req
 		fail(err.Error())
 		return
 	}
-	chain, _, err := h.repo.CreateForwardChain(repo.ChainCreateInput{UserID: ownerID, TunnelID: tunnelID, IdemKey: idem, Upstream: up, ExitNodeIDs: exitNodeIDs(info), InFlightAfter: now.Add(-chainStaleAfter).UnixMilli()})
+	chain, _, err := h.repo.CreateForwardChain(repo.ChainCreateInput{UserID: ownerID, TunnelID: tunnelID, IdemKey: idem, Upstream: up, ExitNodeIDs: exitNodeIDs(info), InFlightAfter: now.Add(-chainStaleAfter).UnixMilli(), EnforceRuleLimit: ruleLimitApplies(roleID)})
 	if errors.Is(err, repo.ErrChainIdempotent) && chain != nil {
 		h.chains.refund(ownerID)
 		response.WriteJSON(w, response.OK(chainStatusView(chain)))
@@ -945,12 +928,6 @@ func (h *Handler) forwardUpdateChainHook(w http.ResponseWriter, r *http.Request,
 		}
 	} else if chain == nil {
 		return fail("请粘贴你的节点链接")
-	}
-	if chain == nil {
-		owner, _ := h.repo.GetUserByID(forward.UserID)
-		if err := h.chainRuleLimit(owner, 0); err != nil {
-			return fail(err.Error())
-		}
 	}
 	if err := h.chains.begin(forward.UserID, roleID != 0 && link != "", now); err != nil {
 		return fail(err.Error())

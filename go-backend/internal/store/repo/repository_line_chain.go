@@ -481,6 +481,9 @@ type ChainCreateInput struct {
 	InFlightAfter int64
 	// AttachForwardID converts an existing rule into a chain rule.
 	AttachForwardID int64
+	// EnforceRuleLimit checks the owner's 规则数 for a new chain rule (not for
+	// AttachForwardID, which converts an existing rule) under the user lock.
+	EnforceRuleLimit bool
 }
 
 // CreateForwardChain persists a pending chain and one pending copy per exit,
@@ -512,6 +515,11 @@ func (r *Repository) CreateForwardChain(in ChainCreateInput) (*model.ForwardChai
 		}
 		if count > 0 {
 			return ErrChainInFlight
+		}
+		if in.EnforceRuleLimit && in.AttachForwardID == 0 {
+			if err := ruleLimitCheck(tx, in.UserID, u.Num, 1); err != nil {
+				return err
+			}
 		}
 		hash := in.Upstream.Hash()
 		var dup model.ForwardChain
@@ -1053,20 +1061,6 @@ func (r *Repository) FindChainTargetForward(userID, tunnelID int64, target strin
 // SetForwardRemoteAddr points a chain rule at its (moved) loopback target.
 func (r *Repository) SetForwardRemoteAddr(id int64, addr string) error {
 	return r.db.Model(&model.Forward{}).Where("id = ?", id).Updates(map[string]interface{}{"remote_addr": addr, "updated_time": time.Now().UnixMilli()}).Error
-}
-
-// CountUserForwards counts a user's rules (chain rules included).
-func (r *Repository) CountUserForwards(userID int64) (int64, error) {
-	var n int64
-	err := r.db.Model(&model.Forward{}).Where("user_id = ?", userID).Count(&n).Error
-	return n, err
-}
-
-// CountCreatingChains counts a user's chain creates that have no rule yet.
-func (r *Repository) CountCreatingChains(userID int64) (int64, error) {
-	var n int64
-	err := r.db.Model(&model.ForwardChain{}).Where("user_id = ? AND state = ? AND op = ?", userID, model.ChainStateCreating, "create").Count(&n).Error
-	return n, err
 }
 
 // ForwardEntryAddress is one entry address of a rule (the 转发版 address).

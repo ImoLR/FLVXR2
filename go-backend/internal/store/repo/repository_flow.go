@@ -443,6 +443,21 @@ func (r *Repository) GetForwardTrafficResetLogs(forwardID int64, limit int) ([]F
 	return items, nil
 }
 
+// ForwardTrafficResetLogOwner returns the rule owner recorded on a reset log.
+func (r *Repository) ForwardTrafficResetLogOwner(id int64) (int64, bool, error) {
+	if r == nil || r.db == nil {
+		return 0, false, errors.New("repository not initialized")
+	}
+	var ids []int64
+	if err := r.db.Model(&model.ForwardTrafficResetLog{}).Where("id = ?", id).Limit(1).Pluck("user_id", &ids).Error; err != nil {
+		return 0, false, err
+	}
+	if len(ids) == 0 {
+		return 0, false, nil
+	}
+	return ids[0], true, nil
+}
+
 func (r *Repository) DeleteForwardTrafficResetLog(id int64) error {
 	if r == nil || r.db == nil {
 		return errors.New("repository not initialized")

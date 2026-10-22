@@ -65,7 +65,8 @@ type Handler struct {
 
 	flowUploads        *flowUploadDeduper
 	flowEnforceMu      sync.Mutex
-	landingTargetLocks [64]sync.Mutex // legacy lookup through rule commit/rollback; bounded memory
+	landingTargetLocks [64]sync.Mutex  // legacy lookup through rule commit/rollback; bounded memory
+	mutations          mutationLimiter // per-user rate limit on normal users' forward/landing mutations
 	landingPolicyMu    sync.Mutex
 	landingSyncMu      sync.Mutex
 	sharedLandingMu    sync.Mutex
@@ -315,21 +316,21 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	h.registerLineChain(mux)
 	mux.HandleFunc("/api/v1/forward/list", h.forwardList)
 	mux.HandleFunc("/api/v1/forward/client-ips", h.forwardClientIPs)
-	mux.HandleFunc("/api/v1/forward/create", h.forwardCreate)
-	mux.HandleFunc("/api/v1/forward/update", h.forwardUpdate)
-	mux.HandleFunc("/api/v1/forward/delete", h.forwardDelete)
-	mux.HandleFunc("/api/v1/forward/force-delete", h.forwardForceDelete)
-	mux.HandleFunc("/api/v1/forward/pause", h.forwardPause)
-	mux.HandleFunc("/api/v1/forward/resume", h.forwardResume)
+	mux.HandleFunc("/api/v1/forward/create", h.limitMutation(mutationForward, h.forwardCreate))
+	mux.HandleFunc("/api/v1/forward/update", h.limitMutation(mutationForward, h.forwardUpdate))
+	mux.HandleFunc("/api/v1/forward/delete", h.limitMutation(mutationForward, h.forwardDelete))
+	mux.HandleFunc("/api/v1/forward/force-delete", h.limitMutation(mutationForward, h.forwardForceDelete))
+	mux.HandleFunc("/api/v1/forward/pause", h.limitMutation(mutationForward, h.forwardPause))
+	mux.HandleFunc("/api/v1/forward/resume", h.limitMutation(mutationForward, h.forwardResume))
 	mux.HandleFunc("/api/v1/forward/diagnose", h.forwardDiagnose)
 	mux.HandleFunc("/api/v1/forward/diagnose/stream", h.forwardDiagnoseStream)
 	mux.HandleFunc("/api/v1/forward/update-order", h.forwardUpdateOrder)
-	mux.HandleFunc("/api/v1/forward/batch-delete", h.forwardBatchDelete)
-	mux.HandleFunc("/api/v1/forward/batch-pause", h.forwardBatchPause)
-	mux.HandleFunc("/api/v1/forward/batch-resume", h.forwardBatchResume)
-	mux.HandleFunc("/api/v1/forward/batch-redeploy", h.forwardBatchRedeploy)
-	mux.HandleFunc("/api/v1/forward/batch-change-tunnel", h.forwardBatchChangeTunnel)
-	mux.HandleFunc("/api/v1/forward/batch-reset-traffic", h.forwardBatchResetTraffic)
+	mux.HandleFunc("/api/v1/forward/batch-delete", h.limitMutation(mutationForward, h.forwardBatchDelete))
+	mux.HandleFunc("/api/v1/forward/batch-pause", h.limitMutation(mutationForward, h.forwardBatchPause))
+	mux.HandleFunc("/api/v1/forward/batch-resume", h.limitMutation(mutationForward, h.forwardBatchResume))
+	mux.HandleFunc("/api/v1/forward/batch-redeploy", h.limitMutation(mutationForward, h.forwardBatchRedeploy))
+	mux.HandleFunc("/api/v1/forward/batch-change-tunnel", h.limitMutation(mutationForward, h.forwardBatchChangeTunnel))
+	mux.HandleFunc("/api/v1/forward/batch-reset-traffic", h.limitMutation(mutationForward, h.forwardBatchResetTraffic))
 	mux.HandleFunc("/api/v1/forward/traffic-reset-logs", h.forwardTrafficResetLogs)
 	mux.HandleFunc("/api/v1/forward/traffic-reset-log/delete", h.deleteForwardTrafficResetLog)
 	mux.HandleFunc("/api/v1/node/record-offline-log", h.nodeRecordOfflineLog)
