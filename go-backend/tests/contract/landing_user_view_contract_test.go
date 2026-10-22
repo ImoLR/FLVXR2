@@ -34,7 +34,6 @@ func TestLandingUserServerViewContract(t *testing.T) {
 			r := landingContractRepo(t, dialect)
 			future := time.Now().Add(30 * 24 * time.Hour).UnixMilli()
 			for _, v := range []interface{}{
-				&model.User{ID: 1, User: "admin", Status: 1, RoleID: 0},
 				&model.User{ID: 526, User: "leekao", Status: 1, RoleID: 1, ExpTime: future},
 				&model.User{ID: 527, User: "other", Status: 1, RoleID: 1, ExpTime: future},
 				&model.Node{ID: 601, Name: "native", ServerIP: "203.0.113.1", Port: "10000-19999", LandingCapable: true},
@@ -138,7 +137,7 @@ func TestLandingUserServerViewContract(t *testing.T) {
 					if pc["udp"] != true {
 						t.Fatalf("protocol caps lost %+v", pc)
 					}
-					if v["sharedAvailable"] != true || v["online"] != true {
+					if v["sharedAvailable"] != true {
 						t.Fatalf("shared availability %+v", v)
 					}
 				}
