@@ -54,4 +54,6 @@ Evaluation order per node (first match wins, every rule scoped by inbound tag):
       tsc / lint (changed files 30 → 29 warnings, new files 0) / build, go-gost build + x/landing, x/socket, x/service tests
 - [x] Screenshots desktop + H5, light + dark (63 shots, 63/63 checks, 0 page errors); gallery on mmwx-preview
       `/<token>/landing-rule-layers/`; H5 fixes: sync-state chip no longer stretched, legend highlight purple not blue
-- [ ] Push branch, CI green, summary + final.md
+- [x] Push branch, CI green (39812740988, 39816125242), summary + final.md
+      (/root/flvx-workers/runs/landing-rule-layers/). NOT released — waits for the user's screenshot approval; rebase on
+      fork.73 before release; panel first, agent (GuardVersion 2) with a later OTA
