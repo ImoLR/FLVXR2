@@ -4,12 +4,12 @@ package model
 // JSON payloads are stored as text.
 
 type LandingOutbound struct {
-	ID          int64  `gorm:"primaryKey;autoIncrement" json:"id"`
-	Name        string `gorm:"not null" json:"name"`
-	Type        string `gorm:"not null" json:"type"`
-	IPVersion   string `gorm:"not null;default:'system'" json:"ipVersion"`
-	Settings    string `gorm:"type:text;not null;default:'{}'" json:"-"`
-	Remark      string `gorm:"not null;default:''" json:"remark"`
+	ID        int64  `gorm:"primaryKey;autoIncrement" json:"id"`
+	Name      string `gorm:"not null" json:"name"`
+	Type      string `gorm:"not null" json:"type"`
+	IPVersion string `gorm:"not null;default:'system'" json:"ipVersion"`
+	Settings  string `gorm:"type:text;not null;default:'{}'" json:"-"`
+	Remark    string `gorm:"not null;default:''" json:"remark"`
 	// UserAllowed (plan 134): users may pick this template in their own node
 	// rules and as their node's default outbound. Off by default.
 	UserAllowed bool  `gorm:"not null;default:false" json:"userAllowed"`
