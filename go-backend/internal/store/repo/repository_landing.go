@@ -268,14 +268,15 @@ func (r *Repository) SaveLandingServer(s *model.LandingServer, groups []int64) e
 	})
 }
 
-// DefaultLandingUserMaxNodes is the total landing-node cap of a user without
-// a landing_user_setting row.
+// DefaultLandingUserMaxNodes is the old hard default of the total
+// landing-node cap: the initial global default (plan 131) and the value kept
+// in rows that follow the global default.
 const DefaultLandingUserMaxNodes = 5
 
-// landingUserSetting is the single lookup of a user's landing setting and
-// total node cap (default DefaultLandingUserMaxNodes when no row exists). Node
-// creation, the admin user dialog and the user's server list all read the cap
-// through here.
+// landingUserSetting reads a user's landing setting row (follow-global
+// defaults when no row exists). The cap in force comes from
+// effectiveLandingMaxNodes (repository_landing_limits.go), the single place
+// used by node creation, transfer, the admin user dialog and the server list.
 func landingUserSetting(db *gorm.DB, userID int64) (model.LandingUserSetting, error) {
 	s := model.LandingUserSetting{UserID: userID, MaxNodes: DefaultLandingUserMaxNodes}
 	err := db.First(&s, "user_id = ?", userID).Error
@@ -291,17 +292,18 @@ func landingUserSetting(db *gorm.DB, userID int64) (model.LandingUserSetting, er
 // user, delete-pending included). One grouped query for any number of servers.
 type LandingUserNodeCounts struct {
 	MaxNodes  int
+	Unlimited bool
 	Total     int64
 	PerServer map[int64]int64
 }
 
 func (r *Repository) LandingUserNodeCounts(userID int64) (LandingUserNodeCounts, error) {
 	out := LandingUserNodeCounts{PerServer: map[int64]int64{}}
-	setting, err := landingUserSetting(r.db, userID)
+	limit, err := r.EffectiveLandingMaxNodes(userID)
 	if err != nil {
 		return out, err
 	}
-	out.MaxNodes = setting.MaxNodes
+	out.MaxNodes, out.Unlimited = limit.Effective, limit.Unlimited
 	var rows []struct {
 		LandingServerID int64
 		N               int64
@@ -320,7 +322,7 @@ func (r *Repository) LandingUserNodeCounts(userID int64) (LandingUserNodeCounts,
 // given per-user cap (never below 0).
 func (c LandingUserNodeCounts) Remaining(serverID int64, maxNodesPerUser int) int64 {
 	left := int64(maxNodesPerUser) - c.PerServer[serverID]
-	if total := int64(c.MaxNodes) - c.Total; total < left {
+	if total := int64(c.MaxNodes) - c.Total; !c.Unlimited && total < left {
 		left = total
 	}
 	if left < 0 {
@@ -329,14 +331,24 @@ func (c LandingUserNodeCounts) Remaining(serverID int64, maxNodesPerUser int) in
 	return left
 }
 
-func (r *Repository) GetLandingUserSetting(userID int64) (model.LandingUserSetting, []model.UserServerQuota, error) {
-	s, err := landingUserSetting(r.db, userID)
+// GetLandingUserSetting returns the user's row (MaxNodes = the stored own
+// value or 5 when following the global default), the cap in force and the
+// per-server quotas.
+func (r *Repository) GetLandingUserSetting(userID int64) (model.LandingUserSetting, LandingMaxNodes, []model.UserServerQuota, error) {
+	var u model.User
+	if err := r.db.Select("id", "role_id").First(&u, userID).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return model.LandingUserSetting{}, LandingMaxNodes{}, nil, errors.New("用户不存在")
+		}
+		return model.LandingUserSetting{}, LandingMaxNodes{}, nil, err
+	}
+	limit, s, err := effectiveLandingMaxNodes(r.db, &u)
 	if err != nil {
-		return s, nil, err
+		return s, limit, nil, err
 	}
 	qs := []model.UserServerQuota{}
 	err = r.db.Where("user_id = ?", userID).Order("server_kind, server_ref_id").Find(&qs).Error
-	return s, qs, err
+	return s, limit, qs, err
 }
 func (r *Repository) SaveLandingUserSetting(userID int64, maxNodes int, quotas []model.UserServerQuota, extendFixedByMs int64) error {
 	return r.SaveLandingUserSettingWithGrants(userID, maxNodes, quotas, extendFixedByMs, nil)
@@ -347,8 +359,15 @@ func (r *Repository) SaveLandingUserSetting(userID int64, maxNodes int, quotas [
 // quota row that did not exist before this save grants its server as well: an
 // admin adding a per-server limit means the user should use that server.
 // Revoking keeps an existing quota row and is not undone by later saves.
+//
+// maxNodes is the user's own total node cap; LandingMaxNodesFollowGlobal
+// makes the user follow the global default instead (plan 131).
 func (r *Repository) SaveLandingUserSettingWithGrants(userID int64, maxNodes int, quotas []model.UserServerQuota, extendFixedByMs int64, serverIDs *[]int64) error {
-	if maxNodes < 0 || maxNodes > 10000 || extendFixedByMs < 0 {
+	custom := maxNodes != LandingMaxNodesFollowGlobal
+	if !custom {
+		maxNodes = DefaultLandingUserMaxNodes
+	}
+	if maxNodes < 0 || maxNodes > LandingMaxNodesLimit || extendFixedByMs < 0 {
 		return errors.New("落地设置无效")
 	}
 	return r.db.Transaction(func(tx *gorm.DB) error {
@@ -362,11 +381,12 @@ func (r *Repository) SaveLandingUserSettingWithGrants(userID int64, maxNodes int
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("user_id = ?", userID).Order("id ASC").Find(&lockedNodes).Error; err != nil {
 			return err
 		}
-		setting := model.LandingUserSetting{UserID: userID, MaxNodes: maxNodes}
+		setting := model.LandingUserSetting{UserID: userID, MaxNodes: maxNodes, MaxNodesCustom: custom}
 		if err := tx.Save(&setting).Error; err != nil {
 			return err
 		}
-		if err := tx.Model(&setting).Update("max_nodes", maxNodes).Error; err != nil {
+		// Zero values with a column default are skipped on insert; set both.
+		if err := tx.Model(&setting).Updates(map[string]interface{}{"max_nodes": maxNodes, "max_nodes_custom": custom}).Error; err != nil {
 			return err
 		}
 		existingLanding := map[int64]bool{}
@@ -575,7 +595,7 @@ func (r *Repository) createLandingNode(userID, serverID int64, name, protocol st
 				return nil
 			}
 		}
-		setting, err := landingUserSetting(tx, userID)
+		limit, _, err := effectiveLandingMaxNodes(tx, &u)
 		if err != nil {
 			return err
 		}
@@ -583,7 +603,7 @@ func (r *Repository) createLandingNode(userID, serverID int64, name, protocol st
 		if err := tx.Model(&model.LandingNode{}).Where("user_id = ?", userID).Count(&count).Error; err != nil {
 			return err
 		}
-		if count >= int64(setting.MaxNodes) {
+		if !limit.Allows(count) {
 			return errors.New("已达到用户落地节点上限")
 		}
 		if err := tx.Model(&model.LandingNode{}).Where("user_id = ? AND landing_server_id = ?", userID, serverID).Count(&count).Error; err != nil {
