@@ -148,6 +148,8 @@ export interface LandingProtocolOpts {
 }
 export interface LandingNode {
   deletePending?: boolean;
+  // Plan 134: number of the owner's node rules.
+  routeRuleCount?: number;
   forwardCount?: number;
   serverAvailable?: boolean;
   id: number;
@@ -218,6 +220,15 @@ export interface LandingUserSetting {
   quotas: ServerQuota[];
   fixedNodeCount?: number;
   serverIds?: number[];
+  // Plan 134 node-rule caps (每个节点 / 每个用户总计), same 跟随全局 / 自定义
+  // pattern as maxNodes.
+  ruleMaxNode?: number;
+  ruleMaxNodeSource?: "global" | "custom" | "admin";
+  globalRuleMaxNode?: number;
+  ruleMaxTotal?: number;
+  ruleMaxTotalSource?: "global" | "custom" | "admin";
+  globalRuleMaxTotal?: number;
+  ruleUsed?: number;
 }
 export const landingServers = (userId?: number) =>
   Network.post<LandingServer[]>(
@@ -375,6 +386,20 @@ export const saveLandingUser = (
       })),
     ...(data.extendFixedByMs ? { extendFixedByMs: data.extendFixedByMs } : {}),
     ...(data.serverIds ? { serverIds: data.serverIds } : {}),
+    ...(data.ruleMaxNodeSource === "global" ||
+    data.ruleMaxNodeSource === "custom"
+      ? {
+          ruleMaxNodeSource: data.ruleMaxNodeSource,
+          ruleMaxNode: data.ruleMaxNode,
+        }
+      : {}),
+    ...(data.ruleMaxTotalSource === "global" ||
+    data.ruleMaxTotalSource === "custom"
+      ? {
+          ruleMaxTotalSource: data.ruleMaxTotalSource,
+          ruleMaxTotal: data.ruleMaxTotal,
+        }
+      : {}),
   });
 const LANDING_PROTOCOL_LABELS: Record<string, string> = {
   ss2022: "SS2022",

@@ -31,11 +31,14 @@ export function NodeDetails({
   server,
   onClose,
   onSaved,
+  onOpenRules,
 }: {
   node: LandingNode;
   server?: LandingServer;
   onClose: () => void;
   onSaved: () => void;
+  // Plan 134: opens the node's 路由规则 dialog (rendered by the page).
+  onOpenRules?: (node: LandingNode) => void;
 }) {
   const [form, setForm] = useState(node);
   const [saving, setSaving] = useState(false);
@@ -344,7 +347,7 @@ export function NodeDetails({
             description={
               server?.egress && !server.egress.supported
                 ? server.egress.unsupportedReason
-                : "单独为这个节点指定方案；跟随服务器时使用服务器的方案"
+                : "单独为这个节点指定方案；跟随服务器时使用服务器的方案（只替换服务器规则这一层，全局规则和节点规则照常生效）"
             }
             isDisabled={Boolean(server?.egress && !server.egress.supported)}
             label="路由方案覆盖"
@@ -369,6 +372,26 @@ export function NodeDetails({
               )),
             ]}
           </Select>
+          {onOpenRules && (
+            <div className="flex items-center justify-between gap-3 rounded-lg border border-divider p-3">
+              <div className="min-w-0">
+                <p className="text-sm font-medium">节点规则</p>
+                <p className="text-xs text-default-500">
+                  {node.routeRuleCount
+                    ? `所属用户为这个节点设置了 ${node.routeRuleCount} 条规则`
+                    : "所属用户为这个节点设置的规则，管理员也可编辑（不受条数限制）"}
+                </p>
+              </div>
+              <Button
+                color="warning"
+                size="sm"
+                variant="flat"
+                onPress={() => onOpenRules(node)}
+              >
+                路由规则
+              </Button>
+            </div>
+          )}
           <Select
             description="额度和期限限制由系统自动检查"
             label="管理状态"

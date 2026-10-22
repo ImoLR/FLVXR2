@@ -17,6 +17,7 @@ import {
 } from "@/api/landing-egress";
 import { landingProtocolLabel } from "@/api/landing";
 import { Button } from "@/shadcn-bridge/heroui/button";
+import { Checkbox } from "@/shadcn-bridge/heroui/checkbox";
 import { Input } from "@/shadcn-bridge/heroui/input";
 import {
   Modal,
@@ -443,6 +444,17 @@ export function OutboundEditor({
             variant="bordered"
             onChange={(event) => set({ remark: event.target.value })}
           />
+          <div className="space-y-1">
+            <Checkbox
+              isSelected={Boolean(form.userAllowed)}
+              onValueChange={(userAllowed) => set({ userAllowed })}
+            >
+              允许用户使用
+            </Checkbox>
+            <p className="text-xs text-default-500">
+              勾选后，用户可在自己节点的「路由规则」里选这个出站（规则出站或节点默认出站）。用户只看到名称，看不到地址和凭据；不勾选时用户只能选直连或封锁。
+            </p>
+          </div>
         </ModalBody>
         <ModalFooter>
           <Button color="danger" variant="flat" onPress={onClose}>
