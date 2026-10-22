@@ -280,3 +280,7 @@ go-backend/gost.db-wal
 docs/node_modules/
 docs/.vitepress/dist/
 docs/.vitepress/cache/
+
+# Python bytecode (scripts/landing-acceptance)
+__pycache__/
+*.pyc
