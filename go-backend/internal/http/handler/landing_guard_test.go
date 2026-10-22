@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"go-backend/internal/landingegress"
 	"go-backend/internal/store/model"
 )
 
@@ -159,5 +160,70 @@ func TestLandingRealityGuardRangeFull(t *testing.T) {
 	s, _ := e.r.GetLandingServer(1)
 	if !strings.Contains(s.EgressWarnings, "Reality 防盗") {
 		t.Fatalf("no warning recorded: %q", s.EgressWarnings)
+	}
+}
+
+// TestLandingGuardRepoDialects runs the new columns and queries on SQLite and
+// PostgreSQL (FLVX_POSTGRES_TEST_DSN): guard port allocation incl. a chain
+// copy, conflict checks, release, the profile switch and capability column.
+func TestLandingGuardRepoDialects(t *testing.T) {
+	for _, dialect := range []string{"sqlite", "postgres"} {
+		t.Run(dialect, func(t *testing.T) {
+			r := sharedLandingTestRepo(t, dialect)
+			now := int64(1)
+			for _, v := range []interface{}{
+				&model.Node{ID: 2, Name: "n", Secret: "s", ServerIP: "127.0.0.1", Port: "1000-2000", CreatedTime: now, Status: 1},
+				&model.LandingServer{ID: 1, NodeID: 2, Source: "native", Name: "landing", PublicHost: "203.0.113.2", PortMin: 30000, PortMax: 30010, FlowType: 2, TrafficRatio: 1, Status: "active", Protocols: `["vless_reality_vision"]`, RealityDest: "a.example:443", RealityServerNames: `["a.example"]`},
+				&model.LandingNode{ID: 1, UserID: 1, LandingServerID: 1, Name: "r1", Protocol: "vless_reality_vision", Port: 30001, InboundTag: "flvxl-1", Status: "active", Dest: "a.example:443", ServerNames: `["a.example"]`},
+				&model.LandingNode{ID: 2, UserID: 1, LandingServerID: 1, Name: "r2", Protocol: "vless_reality_vision", Port: 30002, InboundTag: "flvxl-2", Status: "active", Dest: "b.example:443", ServerNames: `["b.example"]`},
+				&model.ForwardChain{ID: 1, UserID: 1, State: model.ChainStateActive, Dest: "a.example:443", ServerNames: `["a.example"]`, Upstream: `{"type":"socks"}`, CreatedTime: now, UpdatedTime: now},
+				&model.ForwardChainNode{ID: 1, ChainID: 1, LandingServerID: 1, NodeID: 2, Port: 30003, State: "active", CreatedTime: now},
+			} {
+				if err := r.DB().Create(v).Error; err != nil {
+					t.Fatal(err)
+				}
+			}
+			ports, warnings, err := r.EnsureLandingGuardPorts(1)
+			chainTag := fmt.Sprintf("flvxl-%d", model.ChainAgentIDBase+1)
+			if err != nil || len(warnings) != 0 || ports["flvxl-1"] != 30010 || ports[chainTag] != 30010 || ports["flvxl-2"] != 30009 {
+				t.Fatalf("ports %v %v %v", ports, warnings, err)
+			}
+			if again, _, _ := r.EnsureLandingGuardPorts(1); fmt.Sprint(again) != fmt.Sprint(ports) {
+				t.Fatalf("not stable: %v → %v", ports, again)
+			}
+			if used, err := r.LandingPortInUse(2, 30009); err != nil || !used {
+				t.Fatalf("guard port not counted: %v %v", used, err)
+			}
+			if err := r.SetLandingRealityGuard(1, false); err != nil {
+				t.Fatal(err)
+			}
+			if ports, _, err := r.EnsureLandingGuardPorts(1); err != nil || len(ports) != 0 {
+				t.Fatalf("switch off kept ports: %v %v", ports, err)
+			}
+			if used, _ := r.LandingPortInUse(2, 30010); used {
+				t.Fatal("released port still in use")
+			}
+			if err := r.RecordLandingGuardState(1, "on", 2); err != nil {
+				t.Fatal(err)
+			}
+			if err := r.SetNodeLandingCapabilities(2, true, 1, 1, 1); err != nil {
+				t.Fatal(err)
+			}
+			n, _ := r.GetNodeByID(2)
+			s, _ := r.GetLandingServer(1)
+			if n.LandingGuard != 1 || s.GuardState != "on" || s.GuardNodes != 2 || !s.RealityGuardOff {
+				t.Fatalf("node %+v server %+v", n.LandingGuard, s)
+			}
+			off := false
+			p := landingegress.Profile{Name: "p", DefaultAction: "direct", AbuseDefaults: &off}
+			saved, _, err := r.SaveLandingRouteProfile(&p)
+			if err != nil || !saved.AbuseDefaultsOff {
+				t.Fatalf("profile switch: %+v %v", saved, err)
+			}
+			keep := landingegress.Profile{ID: saved.ID, Name: "p2", DefaultAction: "direct"}
+			if saved, _, err = r.SaveLandingRouteProfile(&keep); err != nil || !saved.AbuseDefaultsOff || keep.AbuseDefaultsEnabled() {
+				t.Fatalf("save without the field reset the switch: %+v %v", saved, err)
+			}
+		})
 	}
 }
