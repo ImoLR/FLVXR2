@@ -221,6 +221,7 @@ export const enableLandingServer = (nodeId: number) =>
 export const saveLandingServer = (
   server: LandingServer,
   egressRestartConfirmed = false,
+  realityGuard?: boolean,
 ) => {
   const {
     id,
@@ -288,6 +289,7 @@ export const saveLandingServer = (
     ...(server.routeProfileId !== undefined
       ? { routeProfileId: server.routeProfileId, egressRestartConfirmed }
       : {}),
+    ...(realityGuard !== undefined ? { realityGuard } : {}),
   });
 };
 export const landingNodes = () =>

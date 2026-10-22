@@ -67,6 +67,8 @@ export interface EgressProfile {
   name: string;
   defaultAction: string;
   rules: EgressRule[];
+  // Plan 127: built-in anti-abuse rules (TCP 25 + BT); undefined = on.
+  abuseDefaults?: boolean;
   serverCount?: number;
   nodeCount?: number;
   warnings?: string[];
@@ -126,7 +128,58 @@ export interface ServerEgressView {
   error: string;
   warnings: string[];
   checkedAt: number;
+  // Plan 127: active | off | restart | unsupported.
+  abuseDefaults?: string;
+  realityGuard?: RealityGuardView;
 }
+
+// Reality 防盗 (plan 127), native servers only. state: shared | off |
+// agent_old | idle | on | restart | error.
+export interface RealityGuardView {
+  enabled: boolean;
+  state: string;
+  nodes: number;
+}
+
+// The built-in anti-abuse rules the panel adds right after the safety rule
+// (compiled server-side; shown as locked rows).
+export const abuseDefaultRules = [
+  {
+    name: "默认：屏蔽 SMTP 25",
+    chips: ["目标端口 25", "TCP"],
+    hint: "防止落地被用来群发垃圾邮件；只影响经代理连 25 端口，不影响落地本机",
+  },
+  {
+    name: "默认：屏蔽 BT",
+    chips: ["协议 bittorrent"],
+    hint: "按流量特征识别；加密 BT 和 DHT 识别不了",
+  },
+];
+
+export const abuseDefaultsOn = (p?: Partial<EgressProfile> | null) =>
+  p?.abuseDefaults !== false;
+
+// Mirrors the backend dedupe: a block rule that only repeats a default rule
+// is not sent while the defaults are on.
+export const isAbuseDuplicate = (r: EgressRule) => {
+  if (
+    r.action !== "block" ||
+    r.domains.length ||
+    r.ips.length ||
+    r.sourceIps.length ||
+    r.sourcePorts
+  )
+    return false;
+  const network = r.network;
+
+  return (
+    (r.ports === "25" && network === "tcp" && !r.protocols.length) ||
+    (!r.ports &&
+      !network &&
+      r.protocols.length === 1 &&
+      r.protocols[0] === "bittorrent")
+  );
+};
 
 export const egressOverview = () =>
   Network.post<EgressOverview>("/landing/egress/overview", {});
@@ -434,6 +487,27 @@ export const egressPresets: EgressPreset[] = [
     needsOutbound: false,
     rules: () => [
       presetRule("屏蔽 BT", "block-bt", { protocols: ["bittorrent"] }, "block"),
+    ],
+  },
+  {
+    key: "anti-abuse",
+    label: "防滥用",
+    description:
+      "封锁 TCP 465/587/2525（发信）和 23、135-139、445（Telnet/SMB）。封 465/587 只影响用邮件客户端通过代理发信，收信（IMAP 993/143、POP3 995/110）和网页邮箱不受影响；不封 22 和 3389",
+    needsOutbound: false,
+    rules: () => [
+      presetRule(
+        "屏蔽发信端口",
+        "anti-abuse",
+        { ports: "465,587,2525", network: "tcp" },
+        "block",
+      ),
+      presetRule(
+        "屏蔽 Telnet/SMB",
+        "anti-abuse",
+        { ports: "23,135-139,445" },
+        "block",
+      ),
     ],
   },
   {

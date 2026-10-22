@@ -18,6 +18,7 @@ import {
   ModalHeader,
 } from "@/shadcn-bridge/heroui/modal";
 import { Select, SelectItem } from "@/shadcn-bridge/heroui/select";
+import { Switch } from "@/shadcn-bridge/heroui/switch";
 import { ExtraProtocolSettings } from "@/pages/landing/extra-protocols";
 
 export const dateInput = (value?: number | null) =>
@@ -52,6 +53,11 @@ export function ServerSettings({
   const needsRestart = Boolean(
     egress?.restartRequired && profileChanged && profileId !== 0,
   );
+  // Plan 127: the default anti-abuse rules (and the Reality guard) wait for
+  // the routing API; the admin may confirm the one-time restart here.
+  const abuseRestart = egress?.abuseDefaults === "restart" && !profileChanged;
+  const guard = egress?.realityGuard;
+  const [guardEnabled, setGuardEnabled] = useState(guard?.enabled ?? true);
   const set = <K extends keyof LandingServer>(
     key: K,
     value: LandingServer[K],
@@ -117,6 +123,9 @@ export function ServerSettings({
           .filter(Boolean),
       },
       restartConfirmed,
+      guard && guard.state !== "shared" && guardEnabled !== guard.enabled
+        ? guardEnabled
+        : undefined,
     );
     setSaving(false);
     if (response.code !== 0) {
@@ -348,7 +357,88 @@ export function ServerSettings({
                 当前方案已在落地 Core 生效：{egress.label}
               </p>
             )}
+            {egress?.abuseDefaults === "active" && !profileChanged && (
+              <p className="text-xs text-default-500">
+                默认防滥用规则已生效：屏蔽 SMTP 25、BT
+              </p>
+            )}
+            {egress?.abuseDefaults === "off" && !profileChanged && (
+              <p className="text-xs text-default-500">
+                所选路由方案关闭了默认防滥用规则（屏蔽 SMTP 25、BT）
+              </p>
+            )}
+            {abuseRestart && (
+              <div className="space-y-2 rounded-lg bg-warning-50 p-3 text-xs text-warning">
+                <p>
+                  默认防滥用规则（屏蔽 SMTP 25、BT）和 Reality
+                  防盗还没在这台服务器生效：落地 Core
+                  是旧配置启动的，需要重启一次（约 1–3
+                  秒，落地连接短暂中断），之后不再中断。
+                </p>
+                <Checkbox
+                  isSelected={restartConfirmed}
+                  onValueChange={setRestartConfirmed}
+                >
+                  保存时重启落地 Core 以启用
+                </Checkbox>
+              </div>
+            )}
           </section>
+          {guard && (
+            <section className="space-y-3">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0 space-y-1">
+                  <h3 className="font-medium">Reality 防盗</h3>
+                  <p className="text-xs text-default-500">
+                    Reality
+                    节点只把带本节点伪装域名（serverNames）的探测转给伪装网站，其它域名一律断开，防止落地被当成免费中转偷流量。已认证用户的数据不经过防盗，用户链接不变。
+                  </p>
+                </div>
+                <Switch
+                  aria-label="Reality 防盗"
+                  isDisabled={guard.state === "shared"}
+                  isSelected={guard.state !== "shared" && guardEnabled}
+                  onValueChange={setGuardEnabled}
+                />
+              </div>
+              {guard.state === "shared" && (
+                <p className="text-xs text-default-500">
+                  共享服务器的 Core 由妙妙屋运行，需妙妙屋支持后才能开启。
+                </p>
+              )}
+              {guard.state !== "shared" && guardEnabled === guard.enabled && (
+                <p
+                  className={`text-xs ${
+                    guard.state === "on" ||
+                    guard.state === "idle" ||
+                    guard.state === "off"
+                      ? "text-default-500"
+                      : guard.state === "error"
+                        ? "text-danger"
+                        : "text-warning"
+                  }`}
+                >
+                  {guard.state === "on" &&
+                    `已生效：${guard.nodes} 个 Reality 节点`}
+                  {guard.state === "idle" && "已开启：暂无 Reality 节点"}
+                  {guard.state === "off" && "已关闭"}
+                  {guard.state === "agent_old" &&
+                    "节点程序版本过旧，升级后生效"}
+                  {guard.state === "restart" &&
+                    "待生效：落地 Core 需重启一次（见上方勾选）"}
+                  {guard.state === "error" &&
+                    "未生效：路由规则应用失败，Reality 节点暂按未开启处理"}
+                </p>
+              )}
+              {guard.state !== "shared" && guardEnabled !== guard.enabled && (
+                <p className="text-xs text-warning">
+                  {guardEnabled
+                    ? "保存后开启：Reality 节点会重新加载一次（已有连接不断）"
+                    : "保存后关闭：未经认证的探测会照旧转给伪装网站"}
+                </p>
+              )}
+            </section>
+          )}
           <section className="space-y-3">
             <h3 className="font-medium">可见用户组</h3>
             <p className="text-xs text-default-500">

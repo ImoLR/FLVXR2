@@ -9,6 +9,8 @@ import {
   EgressOutbound,
   EgressOverview,
   EgressProfile,
+  abuseDefaultRules,
+  abuseDefaultsOn,
   actionLabel,
   deleteEgressOutbound,
   deleteEgressProfile,
@@ -289,8 +291,21 @@ export default function LandingEgressTab() {
                     </Chip>
                   </div>
                   <p className="text-xs text-default-500">
-                    只有安全规则，全部直连。现有服务器和节点都在使用它。
+                    安全规则 +
+                    默认防滥用规则，其余全部直连。现有服务器和节点都在使用它。
                   </p>
+                  <div className="flex flex-wrap gap-1">
+                    {abuseDefaultRules.map((rule) => (
+                      <Chip
+                        key={rule.name}
+                        color="danger"
+                        size="sm"
+                        variant="flat"
+                      >
+                        {rule.name.replace("默认：", "")}
+                      </Chip>
+                    ))}
+                  </div>
                 </div>
               </div>
               {overview.profiles.map((p) => (
@@ -314,6 +329,11 @@ export default function LandingEgressTab() {
                           ? "直连"
                           : actionLabel(p.defaultAction, overview.outbounds)}
                       </Chip>
+                      {!abuseDefaultsOn(p) && (
+                        <Chip color="warning" size="sm" variant="flat">
+                          默认防滥用：已关闭
+                        </Chip>
+                      )}
                     </div>
                     <p className="text-xs text-default-500">
                       {p.serverCount || p.nodeCount

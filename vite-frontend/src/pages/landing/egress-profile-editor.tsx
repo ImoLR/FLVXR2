@@ -9,6 +9,7 @@ import {
   MoreHorizontal,
   Pencil,
   Plus,
+  ShieldCheck,
   Sparkles,
   Trash2,
 } from "lucide-react";
@@ -20,7 +21,10 @@ import {
   EgressPreset,
   EgressProfile,
   EgressRule,
+  abuseDefaultRules,
+  abuseDefaultsOn,
   actionColor,
+  isAbuseDuplicate,
   actionLabel,
   applyPreset,
   egressPresets,
@@ -84,7 +88,9 @@ export function ProfileEditor({
     defaultAction: "direct",
     rules: [],
     ...profile,
+    abuseDefaults: abuseDefaultsOn(profile),
   });
+  const abuseOn = abuseDefaultsOn(form);
   const [editing, setEditing] = useState<{
     index: number;
     rule: EgressRule;
@@ -110,6 +116,11 @@ export function ProfileEditor({
   };
 
   const choosePreset = (preset: EgressPreset) => {
+    if (preset.key === "block-bt" && abuseOn) {
+      toast("默认规则已经屏蔽 BT，无需重复添加");
+
+      return;
+    }
     if (!preset.needsOutbound) {
       addPreset(preset, "block");
 
@@ -230,6 +241,11 @@ export function ProfileEditor({
                             <span className="max-w-72 text-xs text-default-500">
                               {preset.description}
                             </span>
+                            {preset.key === "block-bt" && abuseOn && (
+                              <span className="max-w-72 text-xs text-success">
+                                已包含在默认规则中
+                              </span>
+                            )}
                           </div>
                         </DropdownItem>
                       ))}
@@ -250,6 +266,28 @@ export function ProfileEditor({
               <p className="text-xs text-default-500">
                 从上到下依次匹配，命中第一条即停止。安全规则固定在最前。
               </p>
+              <div className="flex items-start justify-between gap-3 rounded-lg border border-divider p-3">
+                <div className="flex min-w-0 items-start gap-2">
+                  <ShieldCheck
+                    className={`mt-0.5 shrink-0 ${abuseOn ? "text-success" : "text-default-400"}`}
+                    size={16}
+                  />
+                  <div className="min-w-0 space-y-0.5">
+                    <p className="text-sm font-medium">默认防滥用规则</p>
+                    <p className="text-xs text-default-500">
+                      紧跟安全规则：屏蔽 TCP 25 发信和 BT
+                      下载。仅管理员可见；关闭后使用本方案的节点不再封锁。
+                    </p>
+                  </div>
+                </div>
+                <Switch
+                  aria-label="默认防滥用规则"
+                  isSelected={abuseOn}
+                  onValueChange={(abuseDefaults) =>
+                    setForm((prev) => ({ ...prev, abuseDefaults }))
+                  }
+                />
+              </div>
               <div className="divide-y divide-divider rounded-lg border border-divider">
                 <div className="flex items-start gap-3 bg-default-50 p-3">
                   <Lock className="mt-1 shrink-0 text-default-400" size={16} />
@@ -272,6 +310,45 @@ export function ProfileEditor({
                     </p>
                   </div>
                 </div>
+                {abuseDefaultRules.map((rule) => (
+                  <div
+                    key={rule.name}
+                    className={`flex items-start gap-3 bg-default-50 p-3 ${abuseOn ? "" : "opacity-60"}`}
+                  >
+                    <Lock
+                      className="mt-1 shrink-0 text-default-400"
+                      size={16}
+                    />
+                    <div className="min-w-0 flex-1 space-y-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="font-medium">{rule.name}</span>
+                        <Chip
+                          className="text-default-600"
+                          size="sm"
+                          variant="bordered"
+                        >
+                          {abuseOn ? "锁定" : "已关闭"}
+                        </Chip>
+                        <Chip color="danger" size="sm" variant="flat">
+                          → 封锁
+                        </Chip>
+                      </div>
+                      <div className="flex flex-wrap gap-1">
+                        {rule.chips.map((chip) => (
+                          <Chip
+                            key={chip}
+                            className="text-default-600"
+                            size="sm"
+                            variant="bordered"
+                          >
+                            {chip}
+                          </Chip>
+                        ))}
+                      </div>
+                      <p className="text-xs text-default-500">{rule.hint}</p>
+                    </div>
+                  </div>
+                ))}
                 {rules.map((rule, index) => (
                   <div
                     key={rule.id}
@@ -302,6 +379,13 @@ export function ProfileEditor({
                               已停用
                             </Chip>
                           )}
+                          {rule.enabled &&
+                            abuseOn &&
+                            isAbuseDuplicate(rule) && (
+                              <Chip color="success" size="sm" variant="flat">
+                                已由默认规则覆盖
+                              </Chip>
+                            )}
                         </div>
                         <div className="flex flex-wrap gap-1">
                           {ruleAttributeChips(rule).map((chip) => (
