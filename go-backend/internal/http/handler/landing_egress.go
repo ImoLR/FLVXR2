@@ -467,8 +467,32 @@ func (c landingEgressCatalog) profileName(id int64) string {
 	return "默认（直连）"
 }
 
+// landingGuardView: the Reality guard (plan 127) of a server for admins.
+// state: shared (FLVX builds no Core there) | off | agent_old | idle (on, no
+// guarded Reality listener reported) | on | restart (Core needs one confirmed
+// restart) | error (rules failed, nodes unguarded).
+func landingGuardView(s model.LandingServer, nodeGuard ...int) map[string]any {
+	enabled := !s.RealityGuardOff
+	state := "idle"
+	switch {
+	case s.Source == "shared":
+		state = "shared"
+	case !enabled:
+		state = "off"
+	case len(nodeGuard) == 0 || nodeGuard[0] < 1:
+		state = "agent_old"
+	case s.GuardState == "on":
+		state = "on"
+	case s.GuardState == "restart_required":
+		state = "restart"
+	case s.GuardState == "error":
+		state = "error"
+	}
+	return map[string]any{"enabled": enabled, "state": state, "nodes": s.GuardNodes}
+}
+
 // landingServerEgressView is the admin block of a server card/settings.
-func (h *Handler) landingServerEgressView(s model.LandingServer, nodeEgress int, c landingEgressCatalog) map[string]any {
+func (h *Handler) landingServerEgressView(s model.LandingServer, nodeEgress int, c landingEgressCatalog, nodeGuard ...int) map[string]any {
 	supported, reason := true, ""
 	if s.Source == "shared" {
 		e := repo.SharedLandingCaps(&s).Egress
@@ -496,7 +520,7 @@ func (h *Handler) landingServerEgressView(s model.LandingServer, nodeEgress int,
 	}
 	return map[string]any{
 		"profileId": s.RouteProfileID, "profileName": c.profileName(s.RouteProfileID), "label": c.label(s.RouteProfileID),
-		"supported": supported, "unsupportedReason": reason, "abuseDefaults": abuse,
+		"supported": supported, "unsupportedReason": reason, "abuseDefaults": abuse, "realityGuard": landingGuardView(s, nodeGuard...),
 		"restartRequired":  supported && s.Source == "native" && !s.EgressReady,
 		"restartConfirmed": s.EgressRestartOK, "state": s.EgressState, "error": s.EgressError, "warnings": warnings, "checkedAt": s.EgressCheckedAt,
 	}

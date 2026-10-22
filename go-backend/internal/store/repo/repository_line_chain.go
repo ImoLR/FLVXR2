@@ -347,8 +347,24 @@ func ensureChainHostTx(tx *gorm.DB, nodeID int64) (*model.LandingServer, error) 
 }
 
 // usedPortsTx: every port a chain listener on this server must avoid,
-// including the node's whole rule range (forwards may claim it later).
+// including the node's whole rule range (forwards may claim it later) and
+// Reality guard ports (plan 127).
 func usedPortsTx(tx *gorm.DB, s model.LandingServer, skipChain int64) (map[int]bool, error) {
+	used, err := usedPortsBaseTx(tx, s, skipChain)
+	if err != nil {
+		return nil, err
+	}
+	guards, err := landingGuardPortsOnNode(tx, s.NodeID)
+	if err != nil {
+		return nil, err
+	}
+	for _, p := range guards {
+		used[p] = true
+	}
+	return used, nil
+}
+
+func usedPortsBaseTx(tx *gorm.DB, s model.LandingServer, skipChain int64) (map[int]bool, error) {
 	var node model.Node
 	if err := tx.Select("id", "port").First(&node, s.NodeID).Error; err != nil {
 		return nil, err

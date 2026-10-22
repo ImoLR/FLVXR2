@@ -213,10 +213,13 @@ func (m *Manager) reconcile(ctx context.Context) error {
 	m.epoch = epoch
 	// Capture the final live sample before controls terminate affected sockets.
 	collectErr := m.collect(ctx)
+	var guardWarnings []string
+	m.guardWant, m.guardByTag, guardWarnings = m.desired.guardGroups()
 	// Outbounds and rules go first: a fresh Core never serves an inbound before
 	// its routing plan is in place. Egress failures are reported separately and
 	// never mark the inbound state as failed.
 	snapshot, _ = m.applyEgress(ctx, snapshot)
+	m.egress.Warnings = append(m.egress.Warnings, guardWarnings...)
 	m.withheld = m.withheldTags()
 	m.egress.Withheld = nil
 	for tag := range m.withheld {
@@ -225,13 +228,6 @@ func (m *Manager) reconcile(ctx context.Context) error {
 	sort.Strings(m.egress.Withheld)
 	if err := m.applyLimits(ctx, snapshot); err != nil {
 		return err
-	}
-	wanted := map[string]string{}
-	for _, n := range m.desired.Nodes {
-		if m.desired.Enabled && n.Enabled && !m.withheld[n.InboundTag] {
-			cfg, _ := n.inbound()
-			wanted[n.InboundTag] = canonical(cfg)
-		}
 	}
 	// ListInbounds is authoritative even after an agent crash between a gRPC call
 	// and the applied-state rename. It includes idle inbounds absent from stats.
@@ -250,6 +246,56 @@ func (m *Manager) reconcile(ctx context.Context) error {
 	present := map[string]bool{}
 	for _, in := range listed.Inbounds {
 		present[in.Tag] = true
+	}
+	// Reality guards (plan 127) first: a node is pointed at its guard only once
+	// the guard listens; a guard that cannot be added leaves its nodes on the
+	// real dest (fail-open).
+	guardsUsed := map[int]bool{}
+	for _, n := range m.desired.Nodes {
+		if port, ok := m.guardByTag[n.InboundTag]; ok && m.guardOn[port] && m.desired.Enabled && n.Enabled && !m.withheld[n.InboundTag] {
+			guardsUsed[port] = true
+		}
+	}
+	guardPorts := make([]int, 0, len(guardsUsed))
+	for port := range guardsUsed {
+		guardPorts = append(guardPorts, port)
+	}
+	sort.Ints(guardPorts)
+	guardWanted := map[string]bool{}
+	for _, port := range guardPorts {
+		tag := guardTag(port)
+		cfg := canonical(m.guardWant[port].inbound())
+		if present[tag] && m.applied.Inbounds[tag] == cfg {
+			guardWanted[tag] = true
+			continue
+		}
+		if present[tag] {
+			if _, err := m.api(ctx, "rmi", tag); err != nil {
+				m.guardOn[port] = false
+				m.egress.Warnings = append(m.egress.Warnings, "Reality 防盗辅助入站更新失败，相关节点暂按未开启处理")
+				continue
+			}
+			delete(present, tag)
+			delete(m.applied.Inbounds, tag)
+		}
+		if err := m.addInbound(ctx, tag, cfg); err != nil {
+			m.guardOn[port] = false
+			m.egress.Warnings = append(m.egress.Warnings, fmt.Sprintf("Reality 防盗辅助入站（本机端口 %d）启动失败，相关节点暂按未开启处理", port))
+			continue
+		}
+		present[tag] = true
+		guardWanted[tag] = true
+	}
+	m.noteGuards()
+	wanted := map[string]string{}
+	for _, n := range m.desired.Nodes {
+		if m.desired.Enabled && n.Enabled && !m.withheld[n.InboundTag] {
+			cfg, _ := n.inbound()
+			if port, ok := m.guardByTag[n.InboundTag]; ok && m.guardOn[port] && guardWanted[guardTag(port)] {
+				cfg = withGuardDest(cfg, port)
+			}
+			wanted[n.InboundTag] = canonical(cfg)
+		}
 	}
 	var remove []string
 	for tag := range present {
@@ -290,18 +336,20 @@ func (m *Manager) reconcile(ctx context.Context) error {
 		if present[tag] && m.applied.Inbounds[tag] == cfg {
 			continue
 		}
-		path := filepath.Join(m.dir, "apply.json")
-		if err := m.writeFile("apply.json", []byte(`{"inbounds":[`+cfg+`]}`), 0600); err != nil {
+		if err := m.addInbound(ctx, tag, cfg); err != nil {
 			return err
 		}
-		_, err := m.api(ctx, "adi", path)
-		_ = os.Remove(path)
-		if err != nil {
-			return err
-		}
-		m.applied.Inbounds[tag] = cfg
-		if err := m.writeJSON("applied.json", m.applied); err != nil {
-			return err
+	}
+	// Guards no node points at any more go last.
+	for tag := range present {
+		if strings.HasPrefix(tag, guardTagPrefix) && !guardWanted[tag] {
+			if _, err := m.api(ctx, "rmi", tag); err != nil {
+				return err
+			}
+			delete(m.applied.Inbounds, tag)
+			if err := m.writeJSON("applied.json", m.applied); err != nil {
+				return err
+			}
 		}
 	}
 	if changed {
@@ -310,6 +358,21 @@ func (m *Manager) reconcile(ctx context.Context) error {
 		}
 	}
 	return collectErr
+}
+
+// addInbound adds one inbound and records it in the applied state.
+func (m *Manager) addInbound(ctx context.Context, tag, cfg string) error {
+	path := filepath.Join(m.dir, "apply.json")
+	if err := m.writeFile("apply.json", []byte(`{"inbounds":[`+cfg+`]}`), 0600); err != nil {
+		return err
+	}
+	_, err := m.api(ctx, "adi", path)
+	_ = os.Remove(path)
+	if err != nil {
+		return err
+	}
+	m.applied.Inbounds[tag] = cfg
+	return m.writeJSON("applied.json", m.applied)
 }
 
 func (m *Manager) collect(ctx context.Context) error {

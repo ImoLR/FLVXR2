@@ -66,6 +66,9 @@ type Manager struct {
 	egressCache       egressCache
 	sources           sourceMemo // expanded source lists reused across renders
 	withheld          map[string]bool
+	guardWant         map[int]*guardGroup // Reality guards of the desired state (plan 127)
+	guardByTag        map[string]int      // node inbound tag -> guard port
+	guardOn           map[int]bool        // guards whose rules are applied in this pass
 	routingEpoch      string
 	routingOK         bool
 	restartedRevision int64
@@ -86,7 +89,7 @@ type Manager struct {
 
 	// Machine protection (plan 118), read without m.mu: reconciles can hold m.mu
 	// for minutes during a first download.
-	closeWait atomic.Int64              // default_close_wait_timeout_seconds; 0 = Core default
+	closeWait atomic.Int64               // default_close_wait_timeout_seconds; 0 = Core default
 	ports     atomic.Pointer[PortsInUse] // public inbound ports of the desired state
 }
 
@@ -193,6 +196,7 @@ func (m *Manager) noteResult(err error) {
 	}
 	m.logger().Record("landing egress", "plan", egressErr)
 }
+
 // SetCloseWaitTimeout sets the Core's default CLOSE_WAIT timeout (seconds, 0 =
 // Core default); the next reconcile (≤ 10 s) sends it with the connection limits.
 func (m *Manager) SetCloseWaitTimeout(seconds int64) {

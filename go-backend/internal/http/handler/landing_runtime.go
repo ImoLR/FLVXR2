@@ -105,6 +105,9 @@ type landingEgressReport struct {
 	Ready    bool     `json:"ready"`
 	Warnings []string `json:"warnings"`
 	Withheld []string `json:"withheld"`
+	// Reality guard (plan 127): "" | on | restart_required | error.
+	Guard      string `json:"guard"`
+	GuardNodes int    `json:"guard_nodes"`
 }
 
 type landingSyncSnapshot struct {
@@ -155,6 +158,16 @@ func (h *Handler) syncLandingServer(serverID int64) (*landingSyncSnapshot, error
 	if err != nil {
 		return nil, errors.New("落地服务器状态不可用")
 	}
+	// Reality guard ports (plan 127) only for agents that apply them; older
+	// agents keep today's payload byte for byte.
+	guards := map[string]int{}
+	if node.LandingGuard >= 1 {
+		var guardWarnings []string
+		if guards, guardWarnings, err = h.repo.EnsureLandingGuardPorts(s.ID); err != nil {
+			return nil, errors.New("落地服务器状态不可用")
+		}
+		egressWarnings = append(egressWarnings, guardWarnings...)
+	}
 	desiredNodes := []map[string]interface{}{}
 	for _, n := range nodes {
 		// The native agent renders SS2022 / VLESS only (plan 121 protocols are
@@ -170,6 +183,9 @@ func (h *Handler) syncLandingServer(serverID int64) (*landingSyncSnapshot, error
 			var names []string
 			_ = json.Unmarshal([]byte(n.ServerNames), &names)
 			desired["vless"] = map[string]interface{}{"uuid": n.UUID, "flow": n.Flow, "reality": map[string]interface{}{"dest": n.Dest, "server_names": names, "private_key": n.PrivateKey, "short_ids": []string{n.ShortID}}}
+			if port := guards[n.InboundTag]; port > 0 {
+				desired["guard_port"] = port
+			}
 		}
 		desiredNodes = append(desiredNodes, desired)
 	}
@@ -181,7 +197,11 @@ func (h *Handler) syncLandingServer(serverID int64) (*landingSyncSnapshot, error
 			return nil, errors.New("落地服务器状态不可用")
 		}
 		for _, c := range copies {
-			desiredNodes = append(desiredNodes, chainDesiredNode(c))
+			desired := chainDesiredNode(c)
+			if port := guards[desired["inbound_tag"].(string)]; port > 0 {
+				desired["guard_port"] = port
+			}
+			desiredNodes = append(desiredNodes, desired)
 		}
 	}
 	payload := map[string]interface{}{"revision": s.Revision, "enabled": s.Status == "active", "max_connections": s.MaxConnections, "core_memory_mb": s.CoreMemoryMB, "core_cpu_percent": s.CoreCPUPercent, "nodes": desiredNodes}
@@ -227,6 +247,7 @@ func (h *Handler) recordNativeEgress(serverID int64, report *landingEgressReport
 		state, errText = "error", compileErr.Error()
 	}
 	_ = h.repo.RecordLandingEgressStatus(serverID, state, errText, report.Ready, warnings)
+	_ = h.repo.RecordLandingGuardState(serverID, report.Guard, report.GuardNodes)
 }
 
 // chainDesiredNode renders one chain copy for the agent: loopback VLESS

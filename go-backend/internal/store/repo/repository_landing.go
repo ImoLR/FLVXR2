@@ -212,6 +212,8 @@ func (r *Repository) SaveLandingServer(s *model.LandingServer, groups []int64) e
 		s.RouteProfileID, s.EgressHash, s.EgressRestartOK = old.RouteProfileID, old.EgressHash, old.EgressRestartOK
 		s.EgressState, s.EgressError, s.EgressReady, s.EgressCheckedAt, s.EgressWarnings = old.EgressState, old.EgressError, old.EgressReady, old.EgressCheckedAt, old.EgressWarnings
 		s.ChainOnly = old.ChainOnly
+		// The Reality guard switch has its own path (SetLandingRealityGuard).
+		s.RealityGuardOff, s.GuardState, s.GuardNodes = old.RealityGuardOff, old.GuardState, old.GuardNodes
 		keep := map[string]bool{}
 		var oldProtocols []string
 		_ = json.Unmarshal([]byte(old.Protocols), &oldProtocols)
@@ -619,6 +621,15 @@ func landingFreePort(tx *gorm.DB, s model.LandingServer) (int, error) {
 			return 0, err
 		}
 		for p := range busy {
+			used[p] = true
+		}
+	} else {
+		// Reality guard listeners (plan 127) occupy loopback ports too.
+		guards, err := landingGuardPortsOnNode(tx, s.NodeID)
+		if err != nil {
+			return 0, err
+		}
+		for _, p := range guards {
 			used[p] = true
 		}
 	}

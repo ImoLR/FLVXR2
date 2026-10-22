@@ -66,6 +66,7 @@ type ForwardChainNode struct {
 	Port            int    `gorm:"not null;uniqueIndex:idx_forward_chain_node_port" json:"port"`
 	State           string `gorm:"not null;default:'active'" json:"state"`
 	CreatedTime     int64  `gorm:"not null" json:"createdTime"`
+	GuardPort       int    `gorm:"not null;default:0" json:"-"` // Reality guard loopback port (plan 127)
 }
 
 func (ForwardChainNode) TableName() string { return "forward_chain_node" }

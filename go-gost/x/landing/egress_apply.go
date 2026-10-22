@@ -26,6 +26,11 @@ type EgressStatus struct {
 	Applied  string   `json:"applied,omitempty"`
 	Warnings []string `json:"warnings,omitempty"`
 	Withheld []string `json:"withheld,omitempty"`
+	// Guard is the Reality guard state (plan 127): "" (no guarded node) |
+	// on | restart_required (Core without routing API) | error (rules could
+	// not be applied; nodes keep their real dest).
+	Guard      string `json:"guard,omitempty"`
+	GuardNodes int    `json:"guard_nodes,omitempty"`
 }
 
 var errRestartRequired = errors.New("需要重启落地 Core 才能启用出站与路由")
@@ -84,6 +89,15 @@ func (m *Manager) effectiveEgress() *Egress {
 	sort.Slice(chains, func(i, j int) bool { return chains[i].ID < chains[j].ID })
 	merged := &Egress{Version: EgressVersion}
 	var rules []EgressRule
+	// Builtin default rules (plan 127) block abuse for chain nodes too, so they
+	// go before the chain rules that route everything else upstream.
+	if plan != nil {
+		for _, r := range plan.Rules {
+			if r.Builtin != "" {
+				rules = append(rules, r)
+			}
+		}
+	}
 	for _, n := range chains {
 		o := *n.Chain
 		o.Tag = chainOutboundTag(n.ID)
@@ -94,20 +108,29 @@ func (m *Manager) effectiveEgress() *Egress {
 		merged.Version = plan.Version
 		merged.AllowCoreRestart = plan.AllowCoreRestart
 		merged.Outbounds = append(merged.Outbounds, plan.Outbounds...)
-		rules = append(rules, plan.Rules...)
+		for _, r := range plan.Rules {
+			if r.Builtin == "" {
+				rules = append(rules, r)
+			}
+		}
 		merged.ExemptSources = plan.ExemptSources
 	}
 	merged.Rules = rules
 	return merged
 }
 
-// coveredTags lists inbound tags whose routing depends on the plan.
+// coveredTags lists inbound tags whose routing depends on the plan. Builtin
+// default rules (plan 127) only block abuse: a node they alone cover keeps
+// serving if they cannot be applied (fail-open), so they do not count.
 func (e *Egress) coveredTags() map[string]bool {
 	out := map[string]bool{}
 	if !e.active() {
 		return out
 	}
 	for _, r := range e.Rules {
+		if r.Builtin != "" {
+			continue
+		}
 		for _, t := range r.InboundTags {
 			out[t] = true
 		}
@@ -167,10 +190,11 @@ type renderedPlan struct {
 	covered   map[string]bool
 }
 
-func (m *Manager) renderEgress(ctx context.Context, e *Egress) (renderedPlan, error) {
+func (m *Manager) renderEgress(ctx context.Context, e *Egress, guards map[int]*guardGroup) (renderedPlan, error) {
 	p := renderedPlan{outbounds: map[string]string{}, covered: e.coveredTags()}
 	if !e.active() {
 		p.rules, _ = renderRules(nil, nil, nil)
+		p.rules = append(guardRules(guards), p.rules...)
 		p.hash = hashJSON(map[string]any{"rules": p.rules})
 		return p, nil
 	}
@@ -216,8 +240,8 @@ func (m *Manager) renderEgress(ctx context.Context, e *Egress) (renderedPlan, er
 		return p, err
 	}
 	m.sources.rotate()
-	p.rules = rules
-	p.hash = hashJSON(map[string]any{"outbounds": p.outbounds, "rules": rules})
+	p.rules = append(guardRules(guards), rules...)
+	p.hash = hashJSON(map[string]any{"outbounds": p.outbounds, "rules": p.rules})
 	return p, nil
 }
 
@@ -266,17 +290,24 @@ func (m *Manager) applyEgress(ctx context.Context, snapshot coreSnapshot) (coreS
 	plan := m.effectiveEgress()
 	active := plan.active()
 	m.egress = EgressStatus{State: "none"}
+	// Guards are on only once their rules are in the applied rule set.
+	m.guardOn = map[int]bool{}
+	guards := m.guardWant
+	defer m.noteGuards()
 	if m.apiPort == 0 {
 		return snapshot, nil
 	}
 	ready := m.routingReady(ctx)
 	m.egress.Ready = ready
-	if !active && m.applied.Egress == "" && len(m.applied.Outbounds) == 0 {
+	// needRules: something besides the fixed safety rule must be in the Core.
+	needRules := active || len(guards) > 0
+	if !needRules && m.applied.Egress == "" && len(m.applied.Outbounds) == 0 {
 		return snapshot, nil
 	}
 	if !ready {
 		if !active {
-			// An old Core cannot hold our rules; nothing to remove.
+			// An old Core cannot hold our rules; nothing to remove. Guarded
+			// nodes keep their real dest until the Core restarts (fail-open).
 			m.applied.Egress, m.applied.Outbounds, m.applied.EgressTags = "", nil, nil
 			return snapshot, nil
 		}
@@ -300,10 +331,10 @@ func (m *Manager) applyEgress(ctx context.Context, snapshot coreSnapshot) (coreS
 	}
 	// Rendering resolves upstream names and probes local addresses; reuse the
 	// result for 5 minutes (errors for 1 minute) instead of every 10 s tick.
-	key := hashJSON(plan)
+	key := hashJSON(map[string]any{"plan": plan, "guards": guardRules(guards)})
 	c := m.egressCache
 	if c.key != key || c.epoch != m.epoch || (c.err == nil && time.Since(c.at) > 5*time.Minute) || (c.err != nil && time.Since(c.at) > time.Minute) {
-		rendered, err := m.renderEgress(ctx, plan)
+		rendered, err := m.renderEgress(ctx, plan, guards)
 		c = egressCache{key: key, epoch: m.epoch, at: time.Now(), plan: rendered, err: err}
 		m.egressCache = c
 	}
@@ -316,7 +347,10 @@ func (m *Manager) applyEgress(ctx context.Context, snapshot coreSnapshot) (coreS
 	if rendered.hash == m.applied.Egress {
 		m.egress.State, m.egress.Applied = "applied", rendered.hash
 		if !active {
-			m.egress.State = "none"
+			m.egress.State, m.egress.Applied = "none", ""
+		}
+		for p := range guards {
+			m.guardOn[p] = true
 		}
 		return snapshot, nil
 	}
@@ -367,8 +401,15 @@ func (m *Manager) applyEgress(ctx context.Context, snapshot coreSnapshot) (coreS
 	}
 	sort.Strings(covered)
 	m.applied.Egress, m.applied.Outbounds, m.applied.EgressTags = rendered.hash, rendered.outbounds, covered
-	if !active {
+	if !needRules {
 		m.applied.Egress, m.applied.Outbounds, m.applied.EgressTags = "", nil, nil
+	} else if !active {
+		// Guard rules only: keep the hash so an unchanged set is not re-sent
+		// and a later removal of every guard still rewrites the rules.
+		m.applied.Outbounds, m.applied.EgressTags = nil, nil
+	}
+	for p := range guards {
+		m.guardOn[p] = true
 	}
 	if !cleaned {
 		// Force another pass; keep a non-empty outbound map so an inactive plan
@@ -389,6 +430,28 @@ func (m *Manager) applyEgress(ctx context.Context, snapshot coreSnapshot) (coreS
 		m.egress.State, m.egress.Applied = "none", ""
 	}
 	return snapshot, nil
+}
+
+// noteGuards reports the guard state with the egress status.
+func (m *Manager) noteGuards() {
+	m.egress.GuardNodes = 0
+	if len(m.guardWant) == 0 {
+		m.egress.Guard = ""
+		return
+	}
+	for _, port := range m.guardByTag {
+		if m.guardOn[port] {
+			m.egress.GuardNodes++
+		}
+	}
+	switch {
+	case len(m.guardOn) > 0:
+		m.egress.Guard = "on"
+	case !m.egress.Ready:
+		m.egress.Guard = "restart_required"
+	default:
+		m.egress.Guard = "error"
+	}
 }
 
 // withheldTags: when the new plan failed, nodes newly covered by it stay

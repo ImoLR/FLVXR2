@@ -87,11 +87,11 @@ func (h *Handler) landingServerView(s model.LandingServer, admin bool, catalogs 
 		v["online"] = node != nil && node.Status == 1
 		v["landingSupported"] = node != nil && node.LandingCapable
 		if admin {
-			nodeEgress := 0
+			nodeEgress, nodeGuard := 0, 0
 			if node != nil {
-				nodeEgress = node.LandingEgress
+				nodeEgress, nodeGuard = node.LandingEgress, node.LandingGuard
 			}
-			v["egress"] = h.landingServerEgressView(s, nodeEgress, catalog)
+			v["egress"] = h.landingServerEgressView(s, nodeEgress, catalog, nodeGuard)
 		}
 	}
 	// Users only see the read-only summary, never profile internals.
@@ -292,6 +292,8 @@ func (h *Handler) landingServerSave(w http.ResponseWriter, r *http.Request) {
 		SnellObfs        *string `json:"snellObfs"`
 		SnellObfsHost    *string `json:"snellObfsHost"`
 		MieruTransport   *string `json:"mieruTransport"`
+		// Reality guard switch (plan 127); absent = keep.
+		RealityGuard *bool `json:"realityGuard"`
 	}
 	if err := landingDecode(r, &req); err != nil {
 		landingError(w, err)
@@ -357,6 +359,12 @@ func (h *Handler) landingServerSave(w http.ResponseWriter, r *http.Request) {
 		// the routing API too; the admin may confirm the one-time Core restart
 		// without changing the profile.
 		if err := h.repo.SetLandingServerEgress(req.ID, profileID, true); err != nil {
+			landingError(w, err)
+			return
+		}
+	}
+	if req.RealityGuard != nil && old.Source == "native" && *req.RealityGuard == old.RealityGuardOff {
+		if err := h.repo.SetLandingRealityGuard(req.ID, *req.RealityGuard); err != nil {
 			landingError(w, err)
 			return
 		}

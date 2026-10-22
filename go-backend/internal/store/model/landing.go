@@ -46,6 +46,11 @@ type LandingServer struct {
 	EgressCheckedAt          int64   `gorm:"not null;default:0" json:"egressCheckedAt"`
 	EgressWarnings           string  `gorm:"type:text;not null;default:''" json:"-"`
 	ChainOnly                bool    `gorm:"not null;default:false" json:"chainOnly"` // exit landing auto-created for chain rules (plan 108); never shown to or usable by users
+	// Reality guard (plan 127): admin switch (stored inverted, default on) and
+	// the last state the agent reported ("", on, restart_required, error).
+	RealityGuardOff bool   `gorm:"not null;default:false" json:"-"`
+	GuardState      string `gorm:"not null;default:''" json:"-"`
+	GuardNodes      int    `gorm:"not null;default:0" json:"-"`
 	// Plan 121 (contract landing-protocols-v1, shared servers only): defaults
 	// copied into each new AnyTLS / Snell / Mieru node, like the Reality fields.
 	AnyTLSServerName string `gorm:"column:anytls_server_name;not null;default:''" json:"anytlsServerName"`
@@ -81,13 +86,16 @@ type LandingServerUser struct {
 func (LandingServerUser) TableName() string { return "landing_server_user" }
 
 type LandingNode struct {
-	ID                int64    `gorm:"primaryKey;autoIncrement" json:"id"`
-	UserID            int64    `gorm:"not null;index;index:idx_landing_reuse,priority:1" json:"userId"`
-	LandingServerID   int64    `gorm:"not null;uniqueIndex:idx_landing_server_port;index:idx_landing_reuse,priority:2" json:"landingServerId"`
-	Name              string   `gorm:"not null" json:"name"`
-	Protocol          string   `gorm:"not null;index:idx_landing_reuse,priority:3" json:"protocol"`
-	Port              int      `gorm:"not null;uniqueIndex:idx_landing_server_port" json:"port"`
-	InboundTag        string   `gorm:"not null" json:"inboundTag"`
+	ID              int64  `gorm:"primaryKey;autoIncrement" json:"id"`
+	UserID          int64  `gorm:"not null;index;index:idx_landing_reuse,priority:1" json:"userId"`
+	LandingServerID int64  `gorm:"not null;uniqueIndex:idx_landing_server_port;index:idx_landing_reuse,priority:2" json:"landingServerId"`
+	Name            string `gorm:"not null" json:"name"`
+	Protocol        string `gorm:"not null;index:idx_landing_reuse,priority:3" json:"protocol"`
+	Port            int    `gorm:"not null;uniqueIndex:idx_landing_server_port" json:"port"`
+	InboundTag      string `gorm:"not null" json:"inboundTag"`
+	// GuardPort is the loopback port of this Reality node's guard (plan 127);
+	// nodes with the same dest and serverNames on a server share it. 0 = none.
+	GuardPort         int      `gorm:"not null;default:0" json:"-"`
 	Method            string   `gorm:"not null;default:''" json:"method"`
 	ServerKey         string   `gorm:"not null;default:''" json:"-"`
 	UserKey           string   `gorm:"not null;default:''" json:"-"`

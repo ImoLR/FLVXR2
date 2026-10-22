@@ -107,7 +107,12 @@ type EgressRule struct {
 	Network     string   `json:"network,omitempty"`
 	Protocol    []string `json:"protocol,omitempty"`
 	Outbound    string   `json:"outbound"`
+	// Builtin marks a panel default rule (plan 127, "abuse"): it may only
+	// block, is rendered before chain rules and never withholds a node.
+	Builtin string `json:"builtin,omitempty"`
 }
+
+const builtinAbuse = "abuse"
 
 func (e *Egress) active() bool { return e != nil && (len(e.Outbounds) > 0 || len(e.Rules) > 0) }
 
@@ -569,6 +574,9 @@ func (e *Egress) validate(nodeTags map[string]bool) error {
 			if !egressProtocols[p] {
 				return fmt.Errorf("rule %d: invalid protocol", i+1)
 			}
+		}
+		if r.Builtin != "" && (r.Builtin != builtinAbuse || r.Outbound != "block") {
+			return fmt.Errorf("rule %d: invalid builtin rule", i+1)
 		}
 		items += r.items()
 	}

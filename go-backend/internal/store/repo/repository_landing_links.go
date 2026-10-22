@@ -317,6 +317,16 @@ func (r *Repository) LandingPortInUse(nodeID int64, port int) (bool, error) {
 	if err != nil || count > 0 {
 		return count > 0, err
 	}
+	// And Reality guard listeners (plan 127).
+	guards, err := landingGuardPortsOnNode(r.db, nodeID)
+	if err != nil {
+		return false, err
+	}
+	for _, p := range guards {
+		if p == port {
+			return true, nil
+		}
+	}
 	// So do mmwx-shared landing nodes on the same machine (plan 121).
 	shared, err := sharedLandingPortsOnNodeHost(r.db, nodeID)
 	for _, p := range shared {
@@ -338,6 +348,11 @@ func (r *Repository) ValidateNodeLandingPortRange(nodeID int64, spec string) err
 		return err
 	}
 	ports = append(ports, chainPorts...)
+	guards, err := landingGuardPortsOnNode(r.db, nodeID)
+	if err != nil {
+		return err
+	}
+	ports = append(ports, guards...)
 	if len(ports) == 0 {
 		return nil
 	}
@@ -358,6 +373,11 @@ func landingPortsOnNode(tx *gorm.DB, nodeID int64) ([]int, error) {
 	if err != nil {
 		return ports, err
 	}
+	guards, err := landingGuardPortsOnNode(tx, nodeID)
+	if err != nil {
+		return ports, err
+	}
+	ports = append(ports, guards...)
 	// Dual-installed machines (plan 121): an mmwx-shared landing at the same
 	// address owns its node ports on this machine as well.
 	shared, err := sharedLandingPortsOnNodeHost(tx, nodeID)

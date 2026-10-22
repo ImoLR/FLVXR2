@@ -48,6 +48,10 @@ type Node struct {
 	// Chain is the private upstream of a chain node (plan 108): everything the
 	// inbound accepts leaves through it, right after the safety rule.
 	Chain *EgressOutbound `json:"chain,omitempty"`
+	// GuardPort is the loopback port of the Reality guard (plan 127) of a
+	// VLESS Reality node; 0 = no guard. Nodes sharing dest and serverNames
+	// share the port. See guard.go.
+	GuardPort int `json:"guard_port,omitempty"`
 }
 
 // ChainVersion is the chain-node schema (listen + chain) this agent applies.
