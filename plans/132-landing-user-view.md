@@ -51,3 +51,17 @@ Build + screenshots only — no release, no prod change (waits for the user's sc
   confirms (1 node/list request), polling stops when nothing is pending (0 requests in 12 s).
 - /landing/server/list p50: lab 2 servers admin 1.88→1.55 ms, user 1.77→1.30 ms; 42 servers / 2004 nodes admin
   1055→39 ms, user 1043→8 ms (admin response bytes identical, user 41.7 kB → 22.0 kB).
+
+## Release (fork.72, user approved 2026-10-22 ~21:00 TW 「可以发布吧」)
+Plan 132 alone → `3.0.27-fork.72`, panel/frontend only, no agent OTA. Branch
+`maintenance/3.0.27-fork.72-landing-user-view` from `feature/3.0.27-landing-user-view` (401aa570, already on top of
+fork.71 f7b9c5bc — no rebase). Plan 131 must rebase onto this branch before its own release.
+Run dir `/root/flvx-workers/runs/release-fork72-landing-user-view`.
+
+- [ ] Pre-upgrade prod capture: admin + user 26 `/landing/server/list` (fields, latency), panel CPU/RSS
+- [ ] Push branch, CI green
+- [ ] Tag `3.0.27-fork.72`, Images run green, release Latest with the same asset set as fork.71
+- [ ] Prod backup `pre-fork72-*` (validated SQLite, compose/.env, local image tags, rollback.sh) + prune to 2
+- [ ] Upgrade prod panel to fork.72, health + version.json
+- [ ] Verify: 29/29 online, agents unchanged, user 26 view (nodeCount 1, myRemaining 1, no stripped fields), admin
+      field set unchanged, 「正在同步，请稍后」 in served bundle, CPU/RSS + latency after
