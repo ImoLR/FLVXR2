@@ -251,3 +251,48 @@ func TestIsAbuseDuplicate(t *testing.T) {
 		}
 	}
 }
+
+// TestAbusePlanSize reports the compiled plan size before/after plan 127 for a
+// prod-like server (1 node on the built-in default) and a busy one (50 nodes,
+// half on a 10-rule profile). Run with -v to see the numbers.
+func TestAbusePlanSize(t *testing.T) {
+	size := func(in CompileInput) (int, int) {
+		plan, _, err := Compile(in)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !plan.Active() {
+			return 0, 0
+		}
+		b, _ := json.Marshal(plan)
+		return len(plan.Rules), len(b)
+	}
+	one := abuseInput(map[int64]Profile{}, 0, NodeRef{ID: 10, Tag: "flvxl-10"})
+	one.Abuse = false
+	r0, b0 := size(one)
+	one.Abuse = true
+	r1, b1 := size(one)
+	rules := []Rule{}
+	for i := 0; i < 10; i++ {
+		rules = append(rules, Rule{ID: fmt.Sprintf("r%d", i), Name: fmt.Sprintf("规则 %d", i), Enabled: true, Ports: fmt.Sprintf("%d", 8000+i), Action: ActionBlock})
+	}
+	profiles := map[int64]Profile{1: {ID: 1, Name: "A", DefaultAction: ActionDirect, Rules: rules}}
+	var nodes []NodeRef
+	for i := int64(1); i <= 50; i++ {
+		n := NodeRef{ID: i, Tag: fmt.Sprintf("flvxl-%d", i)}
+		if i%2 == 0 {
+			n.Override = ptr(0)
+		}
+		nodes = append(nodes, n)
+	}
+	busy := abuseInput(profiles, 1, nodes...)
+	busy.Abuse = false
+	r2, b2 := size(busy)
+	busy.Abuse = true
+	r3, b3 := size(busy)
+	t.Logf("prod-like (1 node, built-in default): before %d rules / %d B, after %d rules / %d B", r0, b0, r1, b1)
+	t.Logf("busy (50 nodes, 25 on a 10-rule profile): before %d rules / %d B, after %d rules / %d B", r2, b2, r3, b3)
+	if r1 != 2 || r3 != r2+2 {
+		t.Fatalf("unexpected rule counts %d %d %d", r1, r2, r3)
+	}
+}

@@ -152,7 +152,7 @@ export const abuseDefaultRules = [
   {
     name: "默认：屏蔽 BT",
     chips: ["协议 bittorrent"],
-    hint: "按流量特征识别；加密 BT 和 DHT 识别不了",
+    hint: "按流量特征识别 TCP 上的 BT 握手；uTP（UDP）、加密 BT 和 DHT 识别不了",
   },
 ];
 
@@ -493,7 +493,7 @@ export const egressPresets: EgressPreset[] = [
     key: "anti-abuse",
     label: "防滥用",
     description:
-      "封锁 TCP 465/587/2525（发信）和 23、135-139、445（Telnet/SMB）。封 465/587 只影响用邮件客户端通过代理发信，收信（IMAP 993/143、POP3 995/110）和网页邮箱不受影响；不封 22 和 3389",
+      "封锁 TCP 465/587/2525（发信）和 23、135-139、445（Telnet/SMB，TCP+UDP）。封 465/587 只影响用邮件客户端通过代理发信，收信（IMAP 993/143、POP3 995/110）和网页邮箱不受影响；不封 22 和 3389",
     needsOutbound: false,
     rules: () => [
       presetRule(
