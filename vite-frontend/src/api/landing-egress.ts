@@ -44,6 +44,10 @@ export interface EgressOutbound {
   remark?: string;
   usedBy?: string[];
   warnings?: string[];
+  // Plan 134: users may use it in their node rules; global / node usage.
+  userAllowed?: boolean;
+  usedByGlobal?: boolean;
+  usedByNodes?: number;
 }
 
 export interface EgressRule {
@@ -114,6 +118,91 @@ export interface EgressOverview {
   warpAccounts: EgressWarpAccount[];
   geo: { release: string; geoip: string[]; geosite: string[] };
   ssMethods: string[];
+  global?: EgressGlobal;
+}
+
+// Plan 134: per-server sync state of the global group.
+export interface LayerServerStatus {
+  serverId: number;
+  serverName: string;
+  source: string;
+  state: "synced" | "syncing" | "failed" | "restart" | "unsupported";
+  reason?: string;
+  notes?: string[];
+}
+
+export interface EgressGlobal {
+  forced: EgressRule[];
+  default: EgressRule[];
+  defaultAction: string;
+  updatedTime: number;
+  userCaps: { perNode: number; total: number };
+  nodesWithRules: number;
+  servers: LayerServerStatus[];
+  warnings?: string[];
+}
+
+export interface RuleSummary {
+  id: string;
+  name: string;
+  action: string;
+  actionLabel: string;
+  domains: number;
+  ips: number;
+  ports: string;
+  sourceIps: number;
+  network: string;
+  protocols: string[] | null;
+}
+
+export interface NodeRuleOutbound {
+  id: number;
+  name: string;
+  type: EgressOutboundType;
+  ipVersion: EgressIPVersion;
+  allowed: boolean;
+}
+
+// The 路由规则 dialog of one landing node (owner or admin).
+export interface NodeRulesView {
+  nodeId: number;
+  nodeName: string;
+  serverId: number;
+  serverName: string;
+  rules: EgressRule[];
+  defaultAction: string;
+  inheritedAction: string;
+  inheritedLabel: string;
+  inheritedFrom: "server" | "global";
+  outbounds: NodeRuleOutbound[];
+  supported: boolean;
+  state: "applied" | "syncing" | "queued" | "failed" | "unsupported";
+  stateReason: string;
+  notes: string[] | null;
+  global: {
+    active: boolean;
+    forced: RuleSummary[];
+    default: RuleSummary[];
+    defaultLabel: string;
+  };
+  globalPending?: string;
+  server: {
+    label: string;
+    profileName?: string;
+    rules?: RuleSummary[];
+    ruleCount?: number;
+    defaultLabel?: string;
+  };
+  caps: {
+    perNode: number;
+    total: number;
+    used: number;
+    unlimited: boolean;
+    perNodeSource: string;
+    totalSource: string;
+  };
+  admin: boolean;
+  warnings?: string[];
 }
 
 export interface ServerEgressView {
@@ -191,6 +280,7 @@ export const saveEgressOutbound = (o: Partial<EgressOutbound>) =>
     ipVersion: o.ipVersion,
     settings: o.settings,
     remark: o.remark,
+    userAllowed: Boolean(o.userAllowed),
   });
 export const deleteEgressOutbound = (id: number) =>
   Network.post("/landing/egress/outbound/delete", { id });
@@ -212,6 +302,41 @@ export const saveEgressWhitelist = (whitelist: string[]) =>
   Network.post<{ whitelist: string[] }>("/landing/egress/whitelist/save", {
     whitelist,
   });
+export const getEgressGlobal = () =>
+  Network.post<EgressGlobal>("/landing/egress/global/get", {});
+export const saveEgressGlobal = (g: {
+  forced: EgressRule[];
+  default: EgressRule[];
+  defaultAction: string;
+}) => Network.post<EgressGlobal>("/landing/egress/global/save", g);
+export const saveEgressUserCaps = (perNode: number, total: number) =>
+  Network.post<{ perNode: number; total: number }>(
+    "/landing/egress/user-caps/save",
+    { perNode, total },
+  );
+export const getNodeRules = (id: number) =>
+  Network.post<NodeRulesView>("/landing/node/rules/get", { id });
+export const saveNodeRules = (
+  id: number,
+  rules: EgressRule[],
+  defaultAction: string,
+) =>
+  Network.post<NodeRulesView>("/landing/node/rules/save", {
+    id,
+    rules,
+    defaultAction,
+  });
+
+// The layer legend (匹配顺序), top to bottom.
+export const layerOrder = [
+  { key: "builtin", label: "内置", hint: "安全规则 + 默认防滥用（锁定）" },
+  { key: "forced", label: "全局·强制", hint: "所有落地节点，用户不能覆盖" },
+  { key: "node", label: "节点规则", hint: "节点所属用户为自己的节点添加" },
+  { key: "server", label: "服务器", hint: "落地服务器的路由方案" },
+  { key: "default", label: "全局·默认", hint: "前面都没命中时使用" },
+  { key: "outbound", label: "默认出站", hint: "节点 > 服务器方案 > 全局" },
+] as const;
+
 export const registerEgressWarp = (serverId: number, outboundId: number) =>
   Network.post<{ status: string; accountType?: string; lastError?: string }>(
     "/landing/egress/warp/register",

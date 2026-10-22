@@ -44,6 +44,7 @@ import { isAdmin } from "@/utils/auth";
 import { CreateLandingNodeDialog } from "@/pages/landing/create-node";
 import { LandingGlobalSettings } from "@/pages/landing/global-settings";
 import { NodeDetails } from "@/pages/landing/node-details";
+import { NodeRulesDialog } from "@/pages/landing/node-rules";
 import { ServerSettings } from "@/pages/landing/server-settings";
 import { OfflineQRCode } from "@/pages/node/node-deploy-modal";
 
@@ -163,6 +164,7 @@ export default function LandingPage() {
   const [qr, setQR] = useState("");
   const [saving, setSaving] = useState(false);
   const [globalSettings, setGlobalSettings] = useState(false);
+  const [rulesFor, setRulesFor] = useState<LandingNode | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -260,6 +262,18 @@ export default function LandingPage() {
           onPress={() => setDetails(node)}
         >
           节点详情
+        </Button>
+      )}
+      {!node.deletePending && (
+        <Button
+          color="warning"
+          size="sm"
+          variant="flat"
+          onPress={() => setRulesFor(node)}
+        >
+          {node.routeRuleCount
+            ? `路由规则（${node.routeRuleCount}）`
+            : "路由规则"}
         </Button>
       )}
       <Button
@@ -849,6 +863,15 @@ export default function LandingPage() {
             node={details}
             server={servers.find((item) => item.id === details.landingServerId)}
             onClose={() => setDetails(null)}
+            onOpenRules={(node) => setRulesFor(node)}
+            onSaved={() => void load()}
+          />
+        )}
+        {rulesFor && (
+          <NodeRulesDialog
+            key={rulesFor.id}
+            nodeId={rulesFor.id}
+            onClose={() => setRulesFor(null)}
             onSaved={() => void load()}
           />
         )}
