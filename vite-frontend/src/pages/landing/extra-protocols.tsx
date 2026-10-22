@@ -1,6 +1,8 @@
 import {
   LANDING_EXTRA_PROTOCOLS,
   LandingServer,
+  MIERU_UDP_HINT,
+  isMieruUdp,
   landingProtocolLabel,
   sharedProtocolCap,
 } from "@/api/landing";
@@ -35,6 +37,7 @@ export function ExtraProtocolSettings({
     ? mieru.transports
     : ["TCP", "UDP"];
   const obfs = form.snellObfs || "none";
+  const mieruUdp = isMieruUdp("mieru", form.mieruTransport);
 
   return (
     <div className="space-y-3 rounded-lg border border-divider p-3">
@@ -137,19 +140,28 @@ export function ExtraProtocolSettings({
         />
       )}
       {form.protocols.includes("mieru") && (
-        <Select
-          description="服务端同一端口同时支持 TCP 与 UDP；这里决定客户端配置默认用哪种"
-          label="Mieru 客户端传输"
-          selectedKeys={[form.mieruTransport || "TCP"]}
-          variant="bordered"
-          onSelectionChange={(keys) =>
-            set("mieruTransport", String(Array.from(keys)[0] || "TCP"))
-          }
-        >
-          {transports.map((transport) => (
-            <SelectItem key={transport}>{transport}</SelectItem>
-          ))}
-        </Select>
+        <div className="space-y-2">
+          <Select
+            description={`服务端同一端口同时支持 TCP 与 UDP；这里决定客户端配置默认用哪种${
+              mieruUdp ? "" : `。${MIERU_UDP_HINT}`
+            }`}
+            label="Mieru 客户端传输"
+            selectedKeys={[form.mieruTransport || "TCP"]}
+            variant="bordered"
+            onSelectionChange={(keys) =>
+              set("mieruTransport", String(Array.from(keys)[0] || "TCP"))
+            }
+          >
+            {transports.map((transport) => (
+              <SelectItem key={transport}>{transport}</SelectItem>
+            ))}
+          </Select>
+          {mieruUdp && (
+            <p className="rounded-lg bg-warning-50 p-2 text-xs text-warning dark:bg-warning-500/10">
+              {MIERU_UDP_HINT}。
+            </p>
+          )}
+        </div>
       )}
       <p className="text-xs text-default-500">
         以上参数只用于之后新建的节点；已有节点保持创建时的配置。

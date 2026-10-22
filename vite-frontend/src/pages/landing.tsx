@@ -10,8 +10,10 @@ import {
   LandingLink,
   LandingNode,
   LandingServer,
+  MIERU_UDP_HINT,
   deleteLandingNode,
   isLandingExtraProtocol,
+  isMieruUdp,
   landingCreatableProtocols,
   landingDate,
   landingGB,
@@ -607,6 +609,14 @@ export default function LandingPage() {
                                     )}
                                   </div>
                                 )}
+                                {isMieruUdp(
+                                  node.protocol,
+                                  node.protocolOpts?.transport,
+                                ) && (
+                                  <div className="text-xs text-warning-600 dark:text-warning-400">
+                                    {MIERU_UDP_HINT}
+                                  </div>
+                                )}
                                 {node.egressLabel && (
                                   <div className="whitespace-nowrap text-xs text-default-500">
                                     出站：{node.egressLabel}
@@ -652,6 +662,14 @@ export default function LandingPage() {
                                 node.protocol,
                                 node.protocolOpts,
                               )}
+                            </p>
+                          )}
+                          {isMieruUdp(
+                            node.protocol,
+                            node.protocolOpts?.transport,
+                          ) && (
+                            <p className="mt-1 text-xs text-warning-600 dark:text-warning-400">
+                              {MIERU_UDP_HINT}
                             </p>
                           )}
                         </div>
@@ -756,6 +774,15 @@ export default function LandingPage() {
           <ModalContent className="flvx-landing-text">
             <ModalHeader>节点链接 · {linksFor?.name}</ModalHeader>
             <ModalBody className="space-y-4">
+              {linksFor &&
+                isMieruUdp(
+                  linksFor.protocol,
+                  linksFor.protocolOpts?.transport,
+                ) && (
+                  <p className="rounded-lg bg-warning-50 p-2 text-xs text-warning dark:bg-warning-500/10">
+                    该节点客户端配置使用 UDP 传输：{MIERU_UDP_HINT}。
+                  </p>
+                )}
               {linksLoading && <Spinner />}
               {linkError && <p className="text-danger">{linkError}</p>}
               {links.map((link, index) => (

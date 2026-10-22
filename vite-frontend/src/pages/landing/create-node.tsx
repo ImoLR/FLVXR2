@@ -6,8 +6,10 @@ import {
   LandingNode,
   LandingProtocol,
   LandingServer,
+  MIERU_UDP_HINT,
   createLandingNode,
   isLandingExtraProtocol,
+  isMieruUdp,
   landingCreatableProtocols,
   landingProtocolLabel,
   landingProtocolSummary,
@@ -247,6 +249,11 @@ export function CreateLandingNodeDialog({
                   transport: server.mieruTransport,
                 })}
               </p>
+              {isMieruUdp(protocol, server.mieruTransport) && (
+                <p className="font-medium text-warning-600 dark:text-warning-400">
+                  {MIERU_UDP_HINT}
+                </p>
+              )}
               {!sharedProtocolCap(server, protocol)?.udp && (
                 <p>
                   该服务器的 {landingProtocolLabel(protocol)} 暂只支持 TCP。

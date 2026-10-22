@@ -361,6 +361,10 @@ export const landingProtocolLabel = (value: string) =>
 /** Short label for the narrow H5 protocol column on server cards. */
 export const landingProtocolShortLabel = (value: string) =>
   LANDING_PROTOCOL_LABELS[value] ?? "VLESS";
+/** Plan 126: Mieru over UDP costs noticeably more server CPU and uploads slower. */
+export const MIERU_UDP_HINT = "UDP 更耗服务器 CPU、上传较慢，一般建议用 TCP";
+export const isMieruUdp = (protocol: string, transport?: string) =>
+  protocol === "mieru" && (transport || "").toUpperCase() === "UDP";
 /** One-line description of a node's (or a server default's) protocol options. */
 export const landingProtocolSummary = (
   protocol: string,
