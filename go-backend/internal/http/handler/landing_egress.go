@@ -287,8 +287,16 @@ func (h *Handler) validateLandingEgress(serverIDs []int64, mutate func(d *repo.L
 		in := landingEgressInput(d)
 		in.GeoIP, in.GeoSite = geoIP, geoSite
 		in.Exempt = func() ([]string, error) { return nil, nil }
-		if _, _, err := landingegress.Compile(in); err != nil {
+		_, rep, err := landingegress.CompileLayers(in)
+		if err != nil {
 			return fmt.Errorf("落地服务器「%s」：%w", d.Server.Name, err)
+		}
+		// A change that would push the global rules out of a server is refused
+		// (node rules beyond the budget are dropped and shown on the node).
+		for _, note := range rep.GlobalNotes {
+			if strings.HasPrefix(note, "全局规则未下发：") {
+				return fmt.Errorf("落地服务器「%s」：改动后放不下全局规则（%s）", d.Server.Name, strings.TrimPrefix(note, "全局规则未下发："))
+			}
 		}
 	}
 	return nil
