@@ -555,7 +555,7 @@ func (h *Handler) login(w http.ResponseWriter, r *http.Request) {
 		response.WriteJSON(w, response.ErrDefault("账号或密码错误"))
 		return
 	}
-	h.passwordAttemptSucceeded(ipKey, userKey)
+	h.passwordAttemptSucceeded(ipKey, userKey, req.Username)
 	if user.Status == 0 {
 		response.WriteJSON(w, response.ErrDefault("账号被停用"))
 		return
@@ -1060,7 +1060,7 @@ func (h *Handler) openAPISubStore(w http.ResponseWriter, r *http.Request) {
 		response.WriteJSON(w, response.ErrDefault("鉴权失败"))
 		return
 	}
-	h.passwordAttemptSucceeded(ipKey, userKey)
+	h.passwordAttemptSucceeded(ipKey, userKey, user.User)
 
 	const giga = int64(1024 * 1024 * 1024)
 	headerValue := ""
@@ -1669,7 +1669,7 @@ func (h *Handler) updatePassword(w http.ResponseWriter, r *http.Request) {
 		response.WriteJSON(w, response.ErrDefault("当前密码错误"))
 		return
 	}
-	h.passwordAttemptSucceeded(ipKey, userKey)
+	h.passwordAttemptSucceeded(ipKey, userKey, user.User)
 
 	exists, err := h.repo.UsernameExistsExceptID(req.NewUsername, userID)
 	if err != nil {

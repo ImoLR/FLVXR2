@@ -4,6 +4,7 @@ import (
 	"log"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"go-backend/internal/authstate"
@@ -32,6 +33,47 @@ type authGuard struct {
 	byIP     ratelimit.Bucket
 	byUser   ratelimit.Bucket
 	refusals ratelimit.Refusals
+
+	// Addresses that logged into an account before skip that account's
+	// budget (still bound by their own per-address budget), so somebody
+	// hammering an account name cannot lock its owner out.
+	goodMu sync.Mutex
+	good   map[string]time.Time
+}
+
+const (
+	knownGoodTTL = 30 * 24 * time.Hour
+	knownGoodMax = 10000
+)
+
+func (g *authGuard) knownGood(userKey, ipKey string) bool {
+	g.goodMu.Lock()
+	defer g.goodMu.Unlock()
+	at, ok := g.good[userKey+"|"+ipKey]
+	return ok && time.Since(at) < knownGoodTTL
+}
+
+func (g *authGuard) rememberGood(userKey, ipKey string) {
+	if userKey == "" || ipKey == "" {
+		return
+	}
+	g.goodMu.Lock()
+	defer g.goodMu.Unlock()
+	if g.good == nil {
+		g.good = make(map[string]time.Time)
+	}
+	key := userKey + "|" + ipKey
+	if _, ok := g.good[key]; !ok && len(g.good) >= knownGoodMax {
+		var oldestKey string
+		var oldest time.Time
+		for k, at := range g.good {
+			if oldestKey == "" || at.Before(oldest) {
+				oldestKey, oldest = k, at
+			}
+		}
+		delete(g.good, oldestKey)
+	}
+	g.good[key] = time.Now()
 }
 
 func newAuthGuard(lookup authstate.Lookup) authGuard {
@@ -75,6 +117,11 @@ func (h *Handler) passwordAttempt(w http.ResponseWriter, r *http.Request, userna
 		return ipKey, userKey, false
 	}
 	if !h.auth.byUser.Take(userKey) {
+		if h.auth.knownGood(userKey, ipKey) {
+			// The account is under attack from elsewhere; its owner's usual
+			// address still gets in (an empty bucket has nothing to refund).
+			return ipKey, "", true
+		}
 		h.auth.byIP.Refund(ipKey)
 		h.auth.refusals.Note("per_account")
 		middleware.SuppressRequestLog(w)
@@ -83,9 +130,10 @@ func (h *Handler) passwordAttempt(w http.ResponseWriter, r *http.Request, userna
 	return ipKey, userKey, true
 }
 
-func (h *Handler) passwordAttemptSucceeded(ipKey, userKey string) {
+func (h *Handler) passwordAttemptSucceeded(ipKey, userKey string, username string) {
 	h.auth.byIP.Refund(ipKey)
 	h.auth.byUser.Refund(userKey)
+	h.auth.rememberGood(loginUserKey(username), ipKey)
 }
 
 // verifyUserPassword checks password and transparently upgrades a legacy MD5

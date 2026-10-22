@@ -202,6 +202,10 @@ func TestLoginRateLimits(t *testing.T) {
 	e := newSecEnv(t)
 	e.addUser(t, 30, "erin", security.MD5("pw-erin"), 1)
 
+	// The owner logged in before from their usual address.
+	if res := e.login(t, "erin", "pw-erin", "198.51.100.250"); res.Code != 0 {
+		t.Fatalf("owner login: %+v", res)
+	}
 	// Per account: 10 failures, then refused even with the right password
 	// from a fresh address.
 	for i := 0; i < 10; i++ {
@@ -211,6 +215,10 @@ func TestLoginRateLimits(t *testing.T) {
 	}
 	if res := e.login(t, "erin", "pw-erin", "198.51.100.200"); res.Code != 429 || res.Msg != "登录尝试过于频繁，请稍后再试" {
 		t.Fatalf("per-account limit: %+v", res)
+	}
+	// ...but the attack cannot lock the owner out of their usual address.
+	if res := e.login(t, "erin", "pw-erin", "198.51.100.250"); res.Code != 0 {
+		t.Fatalf("owner locked out by someone else's failures: %+v", res)
 	}
 	// Successful logins do not use up the budget.
 	e.addUser(t, 31, "frank", security.MD5("pw-frank"), 1)

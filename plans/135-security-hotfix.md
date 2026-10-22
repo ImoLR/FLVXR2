@@ -11,7 +11,7 @@ nothing may be able to fill the disk.
 
 ### Baseline
 - [x] Baseline backend failure set on untouched fork.73
-- [ ] Prod-copy numbers before: DB size, node_metric rows/day, log bytes/hour, WS msg/s, API latency
+- [x] Prod-copy numbers before: DB size, node_metric rows/day, log bytes/hour, WS msg/s, API latency
 
 ### P0 WebSocket (`go-backend/internal/ws/server.go`)
 - [x] Node command replies only go to the waiter, never broadcast
@@ -34,7 +34,7 @@ nothing may be able to fill the disk.
 ### Disk / logging
 - [x] node_metric: raw 1 Hz for newest hour, older rows compacted to 30 s buckets, 24 h retention
 - [x] Compaction/prune in small batches, every 5 min, paced
-- [ ] One-time cleanup on upgrade (+ VACUUM only if proven safe on a prod-size copy)
+- [x] One-time cleanup on upgrade (+ VACUUM only if proven safe on a prod-size copy)
 - [x] Remove per-message `[ws.forward]` log line; routine agent request logs suppressed on success
 - [x] Audit other high-frequency log/DB writers (path-latency round log hourly; flow-upload failures already 1/min/node; per-metric DB writes are change-only)
 
@@ -47,14 +47,41 @@ nothing may be able to fill the disk.
 - [x] F09 Powered-by badge no longer covers the 24 h chart axis
 
 ### Tests
-- [ ] Full backend suite vs baseline (no new failures)
+- [x] Full backend suite vs baseline (no new failures)
 - [x] New unit/contract tests for every item
 - [x] Frontend tsc / lint / build
-- [ ] qa-sweep WS probe against local build: zero leaked fields
-- [ ] Prod-copy measurements after
+- [x] qa-sweep WS probe against local build: zero leaked fields
+- [x] Prod-copy measurements after
 
 ### Release / prod
 - [ ] Commit, push, tag `3.0.27-fork.74`, CI + images + release assets verified
 - [ ] Prod backup `pre-fork74-*`, prune-backups.sh, upgrade, health + 29 nodes
 - [ ] Read-only prod probes (anon type=2 refused, user 26 2-min listen, admin pages)
 - [ ] Prod numbers after; summary
+
+## Results (lab = neutralised prod copy in an offline netns, 29 fake agents at 1 Hz)
+
+| | fork.73 | fork.74 |
+|---|---|---|
+| anonymous `type=2` (switch off) | 31.4 msg/s, 23.6 KB/s incl. command replies (fake IPs, online IPs) | refused 403 |
+| anonymous `type=2` (switch on) | — | 10 public node fields only |
+| normal user 16 | everything (31 msg/s, all users' rules) | 10 msg/s, 4.1 KB/s, own nodes + own rules only |
+| admin | 31.1 msg/s incl. replies | 29.0 msg/s metric only, same metric fields |
+| admin WS delivery p50/p95 | 1.1 / 1.9 ms | 1.3 / 2.7 ms |
+| panel CPU, agents only / +1 admin | 1.31 % / 1.50 % | 1.17 % / 1.46 % |
+| panel RSS | 40 MB | 40 MB |
+| panel log | 1.35 MB/h | ~0.14 MB/h (0 in steady 1-admin window) |
+| forward/list admin p50/p95 | 16.4 / 23.0 ms | 15.2 / 22.7 ms |
+| user/package user p50/p95 | 2.7 / 5.1 ms | 2.1 / 3.3 ms |
+| login p50 | 0.6 ms (MD5) | 45 ms (bcrypt cost 10), first legacy login 53 ms |
+
+Stuck client (unit test): worst node command round trip during a 32 KB flood with a non-reading
+admin session 0.19 s; the stuck session was dropped. Before: each write could block the node read
+loop up to 5 s.
+
+node_metric on the prod copy (2.55 M rows, DB 364 MB after copy): compaction leaves 178–185 k rows
+(−93 %); online catch-up 88 s in the background (query p95 7.8 ms vs 1.3 ms idle, one-time);
+offline (panel stopped) 16 s + VACUUM 0.5 s → 50 MB file. Charts: 15 min / 1 h raw as before,
+6 h / 24 h still ~500 points.
+
+Backend suite: same 15 failing lines as untouched fork.73 (pre-existing), no new failures.
