@@ -90,10 +90,12 @@ func (m *Manager) effectiveEgress() *Egress {
 	merged := &Egress{Version: EgressVersion}
 	var rules []EgressRule
 	// Builtin default rules (plan 127) block abuse for chain nodes too, so they
-	// go before the chain rules that route everything else upstream.
+	// go before the chain rules that route everything else upstream; so do the
+	// 全局·强制 rules (plan 134). The panel sends both as a prefix of the plan,
+	// so the order of every other node is unchanged.
 	if plan != nil {
 		for _, r := range plan.Rules {
-			if r.Builtin != "" {
+			if r.beforeChains() {
 				rules = append(rules, r)
 			}
 		}
@@ -109,7 +111,7 @@ func (m *Manager) effectiveEgress() *Egress {
 		merged.AllowCoreRestart = plan.AllowCoreRestart
 		merged.Outbounds = append(merged.Outbounds, plan.Outbounds...)
 		for _, r := range plan.Rules {
-			if r.Builtin == "" {
+			if !r.beforeChains() {
 				rules = append(rules, r)
 			}
 		}
@@ -121,7 +123,9 @@ func (m *Manager) effectiveEgress() *Egress {
 
 // coveredTags lists inbound tags whose routing depends on the plan. Builtin
 // default rules (plan 127) only block abuse: a node they alone cover keeps
-// serving if they cannot be applied (fail-open), so they do not count.
+// serving if they cannot be applied (fail-open), so they do not count. The
+// global layers (plan 134, "forced" / "global") fail open the same way: a
+// failed global change never takes a node offline.
 func (e *Egress) coveredTags() map[string]bool {
 	out := map[string]bool{}
 	if !e.active() {
