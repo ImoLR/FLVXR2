@@ -159,6 +159,7 @@ func TestMachineProtectionSettingsContract(t *testing.T) {
 		first["machineCloseWaitSeconds"] != float64(10) || first["machine"] != nil || first["machineProtectCapable"] != false {
 		t.Fatalf("node list item %v", first)
 	}
+	ensureContractUser(t, r, 2, 1)
 	user, _ := auth.GenerateToken(2, "user", 1, secret)
 	if out := requestContractEnvelope(t, router, user, "/api/v1/node/list", map[string]interface{}{}); out.Code != 403 {
 		t.Fatalf("user node list = %+v", out)
@@ -248,6 +249,7 @@ func TestMachineProtectionPushAndVisibilityContract(t *testing.T) {
 		}
 	}
 	// A user without monitor permission sees nothing.
+	ensureContractUser(t, r, 3, 1)
 	stranger, _ := auth.GenerateToken(3, "x", 1, secret)
 	if out := getContractEnvelope(t, router, stranger, "/api/v1/monitor/nodes"); out.Code != 403 {
 		t.Fatalf("stranger monitor = %+v", out)

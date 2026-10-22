@@ -399,6 +399,7 @@ func (h *Handler) disableExpiredUsers(nowMs int64) {
 			h.pauseForwardRecords(forwards, nowMs)
 		}
 		_ = h.repo.DisableUser(userID)
+		h.invalidateUserAuth(userID)
 	}
 }
 

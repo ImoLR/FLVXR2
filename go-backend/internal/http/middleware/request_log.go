@@ -6,6 +6,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -62,6 +63,11 @@ func RequestLog(next http.Handler) http.Handler {
 		start := time.Now()
 		next.ServeHTTP(sw, r)
 		if sw.quiet {
+			return
+		}
+		// Agents call /flow/* every few seconds (~1500 lines/h on prod):
+		// log them only when they fail or are slow.
+		if strings.HasPrefix(r.URL.Path, "/flow/") && sw.status < 400 && time.Since(start) < 2*time.Second {
 			return
 		}
 		log.Printf("%s %s -> %d (%s)", r.Method, r.URL.Path, sw.status, time.Since(start).String())

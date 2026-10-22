@@ -508,7 +508,7 @@ func (h *Handler) systemUpgrade(w http.ResponseWriter, r *http.Request) {
 	version := strings.TrimSpace(req.Version)
 	if version == "" {
 		var err error
-		version, err = resolveLatestReleaseByChannel(channel)
+		version, err = resolveLatestReleaseByChannelFresh(channel)
 		if err != nil {
 			response.WriteJSON(w, response.Err(-2, fmt.Sprintf("获取最新%s失败：%v", releaseChannelLabel(channel), err)))
 			return

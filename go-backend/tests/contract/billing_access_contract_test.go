@@ -12,8 +12,9 @@ import (
 
 func TestBillingAccessWithoutCommercialConfiguration(t *testing.T) {
 	const secret = "billing-access-jwt"
-	router, _ := setupContractRouter(t, secret)
+	router, billingRepo := setupContractRouter(t, secret)
 	adminToken := mustAdminToken(t, secret)
+	ensureContractUser(t, billingRepo, 2, 1)
 	userToken, err := auth.GenerateToken(2, "normal_user", 1, secret)
 	if err != nil {
 		t.Fatalf("generate user token: %v", err)
@@ -82,6 +83,7 @@ func TestBillingAdminPermissions(t *testing.T) {
 	const secret = "billing-admin-permissions-jwt"
 	router, repository := setupContractRouter(t, secret)
 	adminToken := mustAdminToken(t, secret)
+	ensureContractUser(t, repository, 2, 1)
 	userToken, err := auth.GenerateToken(2, "normal_user", 1, secret)
 	if err != nil {
 		t.Fatalf("generate user token: %v", err)

@@ -237,6 +237,7 @@ func TestBackupExportImportRestoreContracts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("generate admin token: %v", err)
 	}
+	ensureContractUser(t, r, 2, 1)
 	userToken, err := auth.GenerateToken(2, "normal_user", 1, secret)
 	if err != nil {
 		t.Fatalf("generate user token: %v", err)

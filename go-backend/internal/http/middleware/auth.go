@@ -3,10 +3,13 @@ package middleware
 import (
 	"context"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"go-backend/internal/auth"
+	"go-backend/internal/authstate"
 	"go-backend/internal/http/response"
+	"go-backend/internal/ratelimit"
 )
 
 type contextKey string
@@ -16,7 +19,14 @@ const SessionCookieName = "flvx_session"
 
 type AuthOptions struct {
 	JWTSecret string
+	// UserState rejects tokens of disabled / deleted users and of users whose
+	// role changed since the token was issued (plan 135).
+	UserState *authstate.Cache
 }
+
+// Token refusals write no access-log line; they are counted and summarized
+// at most once per minute.
+var authRefusals = ratelimit.Refusals{Name: "api auth"}
 
 func JWT(opts AuthOptions) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
@@ -38,14 +48,28 @@ func JWT(opts AuthOptions) func(http.Handler) http.Handler {
 				}
 			}
 			if token == "" {
+				SuppressRequestLog(w)
+				authRefusals.Note("no_token")
 				response.WriteJSON(w, response.Err(401, "未登录或token已过期"))
 				return
 			}
 
 			claims, ok := auth.ValidateToken(token, opts.JWTSecret)
 			if !ok {
+				SuppressRequestLog(w)
+				authRefusals.Note("bad_token")
 				response.WriteJSON(w, response.Err(401, "无效的token或token已过期"))
 				return
+			}
+			if opts.UserState != nil {
+				uid, err := strconv.ParseInt(claims.Sub, 10, 64)
+				if err != nil || uid <= 0 || opts.UserState.Check(uid, claims.RoleID) != nil {
+					SuppressRequestLog(w)
+					authRefusals.Note("revoked_user")
+					// Same message as an expired token so the UI logs out.
+					response.WriteJSON(w, response.Err(401, "无效的token或token已过期"))
+					return
+				}
 			}
 
 			if requiresAdmin(r.URL.Path) && claims.RoleID != 0 {

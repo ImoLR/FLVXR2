@@ -6,6 +6,7 @@ import (
 	"math"
 	"net/http"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"go-backend/internal/http/client"
@@ -254,8 +255,14 @@ func (h *Handler) runPathLatencyRound(ctx context.Context) {
 	h.pathLatencyMu.Lock()
 	h.pathLatency = snapshots
 	h.pathLatencyMu.Unlock()
-	log.Printf("[path-latency] round tunnels=%d edges=%d pairs=%d retries=%d duration=%s", len(plans), edges, len(pairs), retries, time.Since(start).Round(time.Millisecond))
+	// One summary line per hour (was one per minute, ~1.4k lines/day).
+	if last := pathLatencyLoggedAt.Load(); now.Unix()-last >= 3600 {
+		pathLatencyLoggedAt.Store(now.Unix())
+		log.Printf("[path-latency] round tunnels=%d edges=%d pairs=%d retries=%d duration=%s (logged hourly)", len(plans), edges, len(pairs), retries, time.Since(start).Round(time.Millisecond))
+	}
 }
+
+var pathLatencyLoggedAt atomic.Int64
 
 func (h *Handler) userTunnelLatency(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {

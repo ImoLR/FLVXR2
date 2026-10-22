@@ -9,11 +9,13 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/gorilla/websocket"
 
-	"go-backend/internal/auth"
+	"go-backend/internal/authstate"
+	"go-backend/internal/ratelimit"
 	"go-backend/internal/security"
 	"go-backend/internal/store/repo"
 )
@@ -32,8 +34,17 @@ type broadcastMessage struct {
 
 type connWrap struct {
 	conn  *websocket.Conn
-	mu    sync.Mutex
-	admin bool // role 0: receives the machine protection fields of node metrics
+	mu    sync.Mutex // node sessions: serializes command writes and pings
+	admin bool       // role 0: receives the machine protection fields of node metrics
+
+	// Browser sessions (clients.go): one writer goroutine drains send.
+	kind      clientKind
+	userID    int64
+	role      int
+	send      chan []byte
+	done      chan struct{}
+	closeOnce sync.Once
+	scope     atomic.Pointer[NodeScope]
 }
 
 type nodeSession struct {
@@ -86,8 +97,15 @@ type Server struct {
 	onNodeMetric  func(nodeID int64, info SystemInfo)
 
 	mu                    sync.RWMutex
-	admins                map[*connWrap]struct{}
-	publics               map[*connWrap]struct{}
+	clients               clientRegistry
+	userState             *authstate.Cache
+	scopeFn               func(userID int64) (NodeScope, error)
+	extraOrigins          []string
+	refusals              ratelimit.Refusals
+	stats                 clientStats
+	publicMu              sync.Mutex
+	publicOn              bool
+	publicAt              time.Time
 	nodes                 map[int64]*nodeSession
 	byConn                map[*websocket.Conn]*nodeSession
 	pending               map[string]pendingRequest
@@ -267,10 +285,12 @@ func NewServer(repo *repo.Repository, jwtSecret string) *Server {
 		repo:      repo,
 		jwtSecret: jwtSecret,
 		upgrader: websocket.Upgrader{
+			// Browser origins are checked in serveBrowser before upgrading;
+			// agents (type=1) send no Origin.
 			CheckOrigin: func(r *http.Request) bool { return true },
 		},
-		admins:                make(map[*connWrap]struct{}),
-		publics:               make(map[*connWrap]struct{}),
+		extraOrigins:          parseExtraOrigins(),
+		refusals:              ratelimit.Refusals{Name: "websocket"},
 		nodes:                 make(map[int64]*nodeSession),
 		byConn:                make(map[*websocket.Conn]*nodeSession),
 		pending:               make(map[string]pendingRequest),
@@ -300,94 +320,12 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if typeVal == "0" {
-		if secret == "" {
-			if cookie, err := r.Cookie("flvx_session"); err == nil {
-				secret = strings.TrimSpace(cookie.Value)
-			}
-		}
-		if strings.HasPrefix(strings.ToLower(secret), "bearer ") {
-			secret = strings.TrimSpace(secret[7:])
-		}
-		claims, ok := auth.ValidateToken(secret, s.jwtSecret)
-		if !ok {
-			http.Error(w, "forbidden", http.StatusForbidden)
-			return
-		}
-		s.handleAdmin(w, r, claims.RoleID == 0)
-		return
-	}
-
-	if typeVal == "2" {
-		s.handlePublic(w, r)
+	if typeVal == "0" || typeVal == "2" {
+		s.serveBrowser(w, r, typeVal, secret)
 		return
 	}
 
 	http.Error(w, "bad request", http.StatusBadRequest)
-}
-
-func (s *Server) handleAdmin(w http.ResponseWriter, r *http.Request, admin bool) {
-	conn, err := s.upgrader.Upgrade(w, r, nil)
-	if err != nil {
-		return
-	}
-	cw := &connWrap{conn: conn, admin: admin}
-	_ = conn.SetReadDeadline(time.Now().Add(wsPongWait))
-	conn.SetPongHandler(func(string) error {
-		return conn.SetReadDeadline(time.Now().Add(wsPongWait))
-	})
-	done := make(chan struct{})
-	go startKeepalive(cw, done)
-
-	s.mu.Lock()
-	s.admins[cw] = struct{}{}
-	s.mu.Unlock()
-
-	defer func() {
-		close(done)
-		s.mu.Lock()
-		delete(s.admins, cw)
-		s.mu.Unlock()
-		_ = conn.Close()
-	}()
-
-	for {
-		if _, _, err := conn.ReadMessage(); err != nil {
-			return
-		}
-	}
-}
-
-func (s *Server) handlePublic(w http.ResponseWriter, r *http.Request) {
-	conn, err := s.upgrader.Upgrade(w, r, nil)
-	if err != nil {
-		return
-	}
-	cw := &connWrap{conn: conn}
-	_ = conn.SetReadDeadline(time.Now().Add(wsPongWait))
-	conn.SetPongHandler(func(string) error {
-		return conn.SetReadDeadline(time.Now().Add(wsPongWait))
-	})
-	done := make(chan struct{})
-	go startKeepalive(cw, done)
-
-	s.mu.Lock()
-	s.publics[cw] = struct{}{}
-	s.mu.Unlock()
-
-	defer func() {
-		close(done)
-		s.mu.Lock()
-		delete(s.publics, cw)
-		s.mu.Unlock()
-		_ = conn.Close()
-	}()
-
-	for {
-		if _, _, err := conn.ReadMessage(); err != nil {
-			return
-		}
-	}
 }
 
 func (s *Server) handleNode(w http.ResponseWriter, r *http.Request, nodeID int64, secret string) {
@@ -478,7 +416,11 @@ func (s *Server) handleNode(w http.ResponseWriter, r *http.Request, nodeID int64
 		}
 
 		msg := decryptIfNeeded(payload, ns.crypto, secret)
-		s.tryResolvePending(nodeID, msg)
+		if s.tryResolvePending(nodeID, msg) {
+			// Command replies (TcpPing, landing sync, client IPs, ...) belong
+			// to the waiting caller only; never broadcast them.
+			continue
+		}
 
 		var parsed struct {
 			Type string `json:"type"`
@@ -493,7 +435,8 @@ func (s *Server) handleNode(w http.ResponseWriter, r *http.Request, nodeID int64
 				if err := json.Unmarshal([]byte(msg), &envelope); err == nil && len(envelope.Data) > 0 {
 					// 解析 SystemInfo 并调用 hook
 					var sysInfo SystemInfo
-					if json.Unmarshal(envelope.Data, &sysInfo) == nil {
+					sysOK := json.Unmarshal(envelope.Data, &sysInfo) == nil
+					if sysOK {
 						s.recordEgressDetection(ns, sysInfo.EgressIPFamily)
 						s.recordIPv6RA(ns, sysInfo.IPv6RAStatus, sysInfo.IPv6RADetail)
 						s.recordLeiKwan(ns, sysInfo.LeiKwan)
@@ -509,7 +452,6 @@ func (s *Server) handleNode(w http.ResponseWriter, r *http.Request, nodeID int64
 						}
 						// 缓存 forward 指标
 						if len(sysInfo.ForwardMetrics) > 0 {
-							fmt.Printf("[ws.forward] received %d forward metrics from node %d\n", len(sysInfo.ForwardMetrics), nodeID)
 							s.forwardMetricsMu.Lock()
 							for _, fm := range sysInfo.ForwardMetrics {
 								// 初始化 forwardID 的 map（如果不存在）
@@ -531,8 +473,11 @@ func (s *Server) handleNode(w http.ResponseWriter, r *http.Request, nodeID int64
 						}
 					}
 					// 配额组包含活跃客户端 IP，仅供面板内存聚合，不广播给前端。
-					adminData, otherData := metricBroadcastVariants(envelope.Data)
-					s.broadcastMetric(nodeID, adminData, otherData)
+					var fwd []ForwardMetric
+					if sysOK {
+						fwd = sysInfo.ForwardMetrics
+					}
+					s.broadcastMetric(nodeID, envelope.Data, fwd)
 				}
 				continue
 			case "ReportPublicIP":
@@ -555,12 +500,12 @@ func (s *Server) handleNode(w http.ResponseWriter, r *http.Request, nodeID int64
 				}
 				continue
 			case "UpgradeProgress":
-				s.broadcastTyped(nodeID, "upgrade_progress", msg)
+				s.broadcastAdminTyped(nodeID, "upgrade_progress", msg)
 				continue
 			default:
-				// Unknown typed messages still get broadcast so future
-				// agent message types are not silently lost.
-				s.broadcastInfo(nodeID, msg)
+				// Broadcast is a whitelist (metric / status / upgrade
+				// progress). Late command replies and unknown agent
+				// messages are dropped.
 				continue
 			}
 		}
@@ -586,13 +531,11 @@ func (s *Server) handleNode(w http.ResponseWriter, r *http.Request, nodeID int64
 				if onMetric != nil {
 					go onMetric(nodeID, sysInfo)
 				}
-				adminData, otherData := metricBroadcastVariants([]byte(msg))
-				s.broadcastMetric(nodeID, adminData, otherData)
+				s.broadcastMetric(nodeID, []byte(msg), sysInfo.ForwardMetrics)
 				continue
 			}
 		}
-
-		s.broadcastInfo(nodeID, msg)
+		// Anything else (untyped, unknown) is dropped: never broadcast.
 	}
 }
 
@@ -732,22 +675,25 @@ func (s *Server) SendCommand(nodeID int64, cmdType string, data interface{}, tim
 	}
 }
 
-func (s *Server) tryResolvePending(nodeID int64, message string) {
+// tryResolvePending hands a command reply to its waiter. It returns true for
+// every message carrying a requestId (answered, late or mismatched): such a
+// message is a reply and must not be processed or broadcast any further.
+func (s *Server) tryResolvePending(nodeID int64, message string) bool {
 	if s == nil || strings.TrimSpace(message) == "" {
-		return
+		return false
 	}
 
 	// 快速短路：指标消息永远不含 requestId，跳过完整 JSON 解析
 	if !strings.Contains(message, "\"requestId\"") {
-		return
+		return false
 	}
 
 	var resp commandResponse
 	if err := json.Unmarshal([]byte(message), &resp); err != nil {
-		return
+		return false
 	}
 	if strings.TrimSpace(resp.RequestID) == "" {
-		return
+		return false
 	}
 
 	s.mu.Lock()
@@ -757,7 +703,7 @@ func (s *Server) tryResolvePending(nodeID int64, message string) {
 	}
 	s.mu.Unlock()
 	if !ok {
-		return
+		return true
 	}
 	if p.nodeID != nodeID {
 		select {
@@ -765,7 +711,7 @@ func (s *Server) tryResolvePending(nodeID int64, message string) {
 		default:
 		}
 		close(p.ch)
-		return
+		return true
 	}
 
 	result := CommandResult{
@@ -785,6 +731,7 @@ func (s *Server) tryResolvePending(nodeID int64, message string) {
 	default:
 	}
 	close(p.ch)
+	return true
 }
 
 func (s *Server) failPendingForNode(nodeID int64, message string) {
@@ -814,114 +761,6 @@ func (s *Server) failPendingForNode(nodeID int64, message string) {
 		default:
 		}
 		close(item.pr.ch)
-	}
-}
-
-func (s *Server) broadcastStatus(nodeID int64, status int) {
-	payload := map[string]interface{}{
-		"id":   strconv.FormatInt(nodeID, 10),
-		"type": "status",
-		"data": status,
-	}
-	raw, _ := json.Marshal(payload)
-	msg := string(raw)
-	s.broadcastToAdmins(msg)
-	s.broadcastToPublics(msg)
-}
-
-func (s *Server) broadcastInfo(nodeID int64, data string) {
-	payload := broadcastMessage{ID: nodeID, Type: "info", Data: data}
-	raw, _ := json.Marshal(payload)
-	msg := string(raw)
-	s.broadcastToAdmins(msg)
-	s.broadcastToPublics(msg)
-}
-
-func (s *Server) broadcastTyped(nodeID int64, msgType string, data string) {
-	payload := broadcastMessage{ID: nodeID, Type: msgType, Data: data}
-	raw, _ := json.Marshal(payload)
-	msg := string(raw)
-	s.broadcastToAdmins(msg)
-	s.broadcastToPublics(msg)
-}
-
-// broadcastMetric sends a node metric: admin sessions get adminData, other
-// logged-in sessions and the public status page get otherData.
-func (s *Server) broadcastMetric(nodeID int64, adminData, otherData string) {
-	if adminData == otherData {
-		s.broadcastTyped(nodeID, "metric", adminData)
-		return
-	}
-	adminRaw, _ := json.Marshal(broadcastMessage{ID: nodeID, Type: "metric", Data: adminData})
-	otherRaw, _ := json.Marshal(broadcastMessage{ID: nodeID, Type: "metric", Data: otherData})
-	s.mu.RLock()
-	conns := make([]*connWrap, 0, len(s.admins))
-	for c := range s.admins {
-		conns = append(conns, c)
-	}
-	s.mu.RUnlock()
-	for _, c := range conns {
-		msg := otherRaw
-		if c.admin {
-			msg = adminRaw
-		}
-		c.mu.Lock()
-		_ = c.conn.SetWriteDeadline(time.Now().Add(wsWriteWait))
-		err := c.conn.WriteMessage(websocket.TextMessage, msg)
-		_ = c.conn.SetWriteDeadline(time.Time{})
-		c.mu.Unlock()
-		if err != nil {
-			log.Printf("websocket broadcast failed: %v", err)
-		}
-	}
-	s.broadcastToPublics(string(otherRaw))
-}
-
-func (s *Server) BroadcastToAdmins(message string) {
-	s.mu.RLock()
-	admins := make([]*connWrap, 0, len(s.admins))
-	for c := range s.admins {
-		admins = append(admins, c)
-	}
-	s.mu.RUnlock()
-
-	for _, c := range admins {
-		c.mu.Lock()
-		_ = c.conn.SetWriteDeadline(time.Now().Add(wsWriteWait))
-		err := c.conn.WriteMessage(websocket.TextMessage, []byte(message))
-		_ = c.conn.SetWriteDeadline(time.Time{})
-		c.mu.Unlock()
-		if err != nil {
-			log.Printf("websocket broadcast failed: %v", err)
-		}
-	}
-}
-
-func (s *Server) broadcastToAdmins(message string) {
-	s.BroadcastToAdmins(message)
-}
-
-func (s *Server) broadcastToPublics(message string) {
-	s.BroadcastToPublics(message)
-}
-
-func (s *Server) BroadcastToPublics(message string) {
-	s.mu.RLock()
-	publics := make([]*connWrap, 0, len(s.publics))
-	for c := range s.publics {
-		publics = append(publics, c)
-	}
-	s.mu.RUnlock()
-
-	for _, c := range publics {
-		c.mu.Lock()
-		_ = c.conn.SetWriteDeadline(time.Now().Add(wsWriteWait))
-		err := c.conn.WriteMessage(websocket.TextMessage, []byte(message))
-		_ = c.conn.SetWriteDeadline(time.Time{})
-		c.mu.Unlock()
-		if err != nil {
-			log.Printf("websocket public broadcast failed: %v", err)
-		}
 	}
 }
 

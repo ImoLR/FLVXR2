@@ -917,6 +917,7 @@ func TestServiceMonitorsAreAdminOnly(t *testing.T) {
 	if err != nil {
 		t.Fatalf("generate admin token: %v", err)
 	}
+	ensureContractUser(t, repo, 2, 1)
 	userToken, err := auth.GenerateToken(2, "normal_user", 1, secret)
 	if err != nil {
 		t.Fatalf("generate user token: %v", err)
@@ -1444,6 +1445,7 @@ func TestMonitorAccessEndpoint(t *testing.T) {
 	if err != nil {
 		t.Fatalf("generate admin token: %v", err)
 	}
+	ensureContractUser(t, repo, 2, 1)
 	userToken, err := auth.GenerateToken(2, "normal_user", 1, secret)
 	if err != nil {
 		t.Fatalf("generate user token: %v", err)
@@ -1495,6 +1497,7 @@ func TestMonitoringPermissionRequired(t *testing.T) {
 	secret := "monitoring-jwt-secret"
 	router, repo := setupContractRouter(t, secret)
 
+	ensureContractUser(t, repo, 2, 1)
 	userToken, err := auth.GenerateToken(2, "normal_user", 1, secret)
 	if err != nil {
 		t.Fatalf("generate user token: %v", err)

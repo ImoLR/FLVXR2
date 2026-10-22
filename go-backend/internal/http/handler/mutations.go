@@ -123,7 +123,12 @@ func (h *Handler) userCreate(w http.ResponseWriter, r *http.Request) {
 	roleID := 1
 	now := time.Now().UnixMilli()
 
-	userID, err := h.repo.CreateUser(username, security.MD5(pwd), roleID, expTime, flow, flowResetTime, num, maxConnections, maxClientIps, status, now, renewalAmount, balance, int64(autoRenew), nullableInt(speedLimitID))
+	pwdHash, err := security.HashPassword(pwd)
+	if err != nil {
+		response.WriteJSON(w, response.Err(-2, err.Error()))
+		return
+	}
+	userID, err := h.repo.CreateUser(username, pwdHash, roleID, expTime, flow, flowResetTime, num, maxConnections, maxClientIps, status, now, renewalAmount, balance, int64(autoRenew), nullableInt(speedLimitID))
 	if err != nil {
 		response.WriteJSON(w, response.Err(-2, err.Error()))
 		return
@@ -255,12 +260,18 @@ func (h *Handler) userUpdate(w http.ResponseWriter, r *http.Request) {
 		}
 	} else {
 		// 在参数里增加了 name
-		if err := h.repo.UpdateUserWithPassword(id, username, security.MD5(pwd), name, flow, num, maxConnections, maxClientIps, expTime, flowResetTime, status, now, renewalAmount, balance, int64(autoRenew), nullableInt(speedLimitID)); err != nil {
+		pwdHash, err := security.HashPassword(pwd)
+		if err != nil {
+			response.WriteJSON(w, response.Err(-2, err.Error()))
+			return
+		}
+		if err := h.repo.UpdateUserWithPassword(id, username, pwdHash, name, flow, num, maxConnections, maxClientIps, expTime, flowResetTime, status, now, renewalAmount, balance, int64(autoRenew), nullableInt(speedLimitID)); err != nil {
 			response.WriteJSON(w, response.Err(-2, err.Error()))
 			return
 		}
 	}
 
+	h.invalidateUserAuth(id)
 	// Capture automatic pauses before the legacy bulk status update changes active rules.
 	h.reconcileLandingPolicy(time.Now())
 	h.repo.PropagateUserFlowToTunnels(id, flow, num, expTime, flowResetTime, status)
@@ -6813,7 +6824,12 @@ func (h *Handler) userRegister(w http.ResponseWriter, r *http.Request) {
 	}
 	now := time.Now().UnixMilli()
 	expTime := time.Now().Add(72 * time.Hour).UnixMilli()
-	userID, err := h.repo.CreateUser(req.User, security.MD5(req.Password), 1, expTime, 0, 1, 0, 0, 0, 1, now, 0, 0, 0, nil)
+	pwdHash, err := security.HashPassword(req.Password)
+	if err != nil {
+		response.WriteJSON(w, response.Err(-2, err.Error()))
+		return
+	}
+	userID, err := h.repo.CreateUser(req.User, pwdHash, 1, expTime, 0, 1, 0, 0, 0, 1, now, 0, 0, 0, nil)
 	if err != nil {
 		response.WriteJSON(w, response.Err(-2, err.Error()))
 		return

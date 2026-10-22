@@ -19,7 +19,6 @@ import (
 
 const (
 	githubRepo     = "ImoLR/FLVXR2"
-	githubAPIBase  = "https://api.github.com"
 	githubHTMLBase = "https://github.com"
 	upgradeTimeout = 5 * time.Minute
 	batchWorkers   = 5
@@ -78,7 +77,62 @@ func releaseChannelLabel(channel string) string {
 	return "正式版"
 }
 
+// githubAPIBase is a var only so tests can point it at a fake server.
+var githubAPIBase = "https://api.github.com"
+
+// GitHub release list cache (plan 135 F04): the admin sidebar asked GitHub on
+// every page load (unauthenticated limit 60/h per IP, shared with OTA). Views
+// share one cached list for an hour; a failed fetch is retried after 2 min.
+// Upgrade actions call fetchGitHubReleasesFresh.
+const (
+	githubReleaseCacheTTL = time.Hour
+	githubReleaseErrTTL   = 2 * time.Minute
+	githubReleaseCachePer = 50
+)
+
+var githubReleaseCache struct {
+	mu       sync.Mutex
+	at       time.Time
+	releases []githubRelease
+	errAt    time.Time
+	err      error
+}
+
 func fetchGitHubReleases(perPage int) ([]githubRelease, error) {
+	return fetchGitHubReleasesMaxAge(perPage, githubReleaseCacheTTL)
+}
+
+func fetchGitHubReleasesFresh(perPage int) ([]githubRelease, error) {
+	return fetchGitHubReleasesMaxAge(perPage, 0)
+}
+
+func fetchGitHubReleasesMaxAge(perPage int, maxAge time.Duration) ([]githubRelease, error) {
+	if perPage != githubReleaseCachePer {
+		return fetchGitHubReleasesUncached(perPage)
+	}
+	c := &githubReleaseCache
+	// Held across the fetch: concurrent callers wait for one request.
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	now := time.Now()
+	if maxAge > 0 {
+		if c.releases != nil && now.Sub(c.at) < maxAge {
+			return append([]githubRelease(nil), c.releases...), nil
+		}
+		if c.err != nil && now.Sub(c.errAt) < githubReleaseErrTTL {
+			return nil, c.err
+		}
+	}
+	releases, err := fetchGitHubReleasesUncached(perPage)
+	if err != nil {
+		c.err, c.errAt = err, now
+		return nil, err
+	}
+	c.releases, c.at, c.err = releases, now, nil
+	return append([]githubRelease(nil), releases...), nil
+}
+
+func fetchGitHubReleasesUncached(perPage int) ([]githubRelease, error) {
 	if perPage <= 0 {
 		perPage = 20
 	}
@@ -104,8 +158,17 @@ func fetchGitHubReleases(perPage int) ([]githubRelease, error) {
 }
 
 func resolveLatestReleaseByChannel(channel string) (string, error) {
+	return resolveLatestReleaseFrom(channel, fetchGitHubReleases)
+}
+
+// resolveLatestReleaseByChannelFresh bypasses the cache (upgrade actions).
+func resolveLatestReleaseByChannelFresh(channel string) (string, error) {
+	return resolveLatestReleaseFrom(channel, fetchGitHubReleasesFresh)
+}
+
+func resolveLatestReleaseFrom(channel string, fetch func(int) ([]githubRelease, error)) (string, error) {
 	normalizedChannel := normalizeReleaseChannel(channel)
-	releases, err := fetchGitHubReleases(50)
+	releases, err := fetch(50)
 	if err != nil {
 		return "", err
 	}

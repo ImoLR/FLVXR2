@@ -100,7 +100,13 @@ func TestMachineProtectionPushOnlyToCapableAgents(t *testing.T) {
 }
 
 func TestMachineReportStoredAndBroadcastToAdminsOnly(t *testing.T) {
-	s, _, base := machineServer(t)
+	s, r, base := machineServer(t)
+	// Public status stream only exists while the login-page monitor link is on;
+	// the normal user needs a monitor scope that covers the node.
+	if err := r.DB().Exec(`UPDATE vite_config SET value = 'true' WHERE name = 'login_monitor_link'`).Error; err != nil {
+		t.Fatal(err)
+	}
+	s.SetUserScopeResolver(func(int64) (NodeScope, error) { return NodeScope{All: true}, nil })
 	adminToken, _ := auth.GenerateToken(1, "admin", 0, "test-jwt")
 	userToken, _ := auth.GenerateToken(2, "user", 1, "test-jwt")
 	dial := func(q string) *websocket.Conn {
@@ -118,8 +124,9 @@ func TestMachineReportStoredAndBroadcastToAdminsOnly(t *testing.T) {
 	deadline := time.Now().Add(2 * time.Second)
 	for {
 		s.mu.RLock()
-		ready := len(s.admins) == 2 && len(s.publics) == 1 && s.nodes[1] != nil
+		ready := s.nodes[1] != nil
 		s.mu.RUnlock()
+		ready = ready && s.countClients(kindAdmin) == 1 && s.countClients(kindUser) == 1 && s.countClients(kindPublic) == 1
 		if ready || time.Now().After(deadline) {
 			break
 		}

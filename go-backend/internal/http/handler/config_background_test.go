@@ -12,6 +12,7 @@ import (
 	"go-backend/internal/auth"
 	"go-backend/internal/http/middleware"
 	"go-backend/internal/http/response"
+	"go-backend/internal/store/model"
 	"go-backend/internal/store/repo"
 )
 
@@ -30,6 +31,11 @@ func TestConfigBackgroundReadUsesSessionCookieWhenAuthMiddlewareIsSkipped(t *tes
 	}
 	if err := r.UpsertUserSetting(7, configKeyAppBackground, "personal-bg", now); err != nil {
 		t.Fatalf("upsert user background: %v", err)
+	}
+	// Plan 135: the token's user must exist and be active (a deleted or
+	// disabled user's token counts as anonymous).
+	if err := r.DB().Create(&model.User{ID: 7, User: "admin7", Pwd: "x", RoleID: 0, Status: 1, CreatedTime: now}).Error; err != nil {
+		t.Fatalf("create user: %v", err)
 	}
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/config/get", bytes.NewBufferString(`{"name":"app_bg_image"}`))

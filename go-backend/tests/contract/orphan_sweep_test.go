@@ -11,7 +11,8 @@ import (
 
 func TestOrphanSweepAdminOnly(t *testing.T) {
 	const secret = "orphan-sweep-jwt"
-	router, _ := setupContractRouter(t, secret)
+	router, sweepRepo := setupContractRouter(t, secret)
+	ensureContractUser(t, sweepRepo, 2, 1)
 	token, err := auth.GenerateToken(2, "normal_user", 1, secret)
 	if err != nil {
 		t.Fatal(err)

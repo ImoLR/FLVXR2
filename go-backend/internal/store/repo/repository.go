@@ -653,6 +653,33 @@ func (r *Repository) UpdateUserNameAndPassword(userID int64, username, passwordM
 	}).Error
 }
 
+// GetUserAuthState returns the fields a request's token is re-checked
+// against (plan 135): a primary-key lookup of status and role_id only.
+func (r *Repository) GetUserAuthState(userID int64) (status int, roleID int, found bool, err error) {
+	if r == nil || r.db == nil {
+		return 0, 0, false, errors.New("repository not initialized")
+	}
+	var user model.User
+	err = r.db.Select("id", "status", "role_id").Where("id = ?", userID).Limit(1).Find(&user).Error
+	if err != nil {
+		return 0, 0, false, err
+	}
+	if user.ID == 0 {
+		return 0, 0, false, nil
+	}
+	return user.Status, user.RoleID, true, nil
+}
+
+// UpgradeUserPasswordHash replaces a legacy MD5 hash with a bcrypt one. It
+// only writes while the row still holds oldHash, so a concurrent password
+// change is never overwritten.
+func (r *Repository) UpgradeUserPasswordHash(userID int64, oldHash, newHash string) error {
+	if r == nil || r.db == nil {
+		return errors.New("repository not initialized")
+	}
+	return r.db.Model(&model.User{}).Where("id = ? AND pwd = ?", userID, oldHash).Update("pwd", newHash).Error
+}
+
 // ─── Config Queries ──────────────────────────────────────────────────
 
 func (r *Repository) GetConfigByName(name string) (*model.ViteConfig, error) {

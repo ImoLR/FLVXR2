@@ -12,7 +12,8 @@ import (
 
 func TestNodeRegionDetectAdminOnlyContract(t *testing.T) {
 	const secret = "node-region-contract"
-	router, _ := setupContractRouter(t, secret)
+	router, regionRepo := setupContractRouter(t, secret)
+	ensureContractUser(t, regionRepo, 2, 1)
 	userToken, err := auth.GenerateToken(2, "normal_user", 1, secret)
 	if err != nil {
 		t.Fatal(err)
@@ -162,6 +163,7 @@ func TestTunnelRegionUserPrivacyContract(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	ensureContractUser(t, repository, 2, 1)
 	userToken, err := auth.GenerateToken(2, "normal_user", 1, secret)
 	if err != nil {
 		t.Fatal(err)

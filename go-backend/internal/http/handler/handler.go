@@ -28,6 +28,7 @@ import (
 )
 
 type Handler struct {
+	auth             authGuard
 	leikwanPipeLocks [64]sync.Mutex
 	leikwan          *leikwan.Client
 	repo             *repo.Repository
@@ -167,6 +168,9 @@ func New(repo *repo.Repository, jwtSecret string, fluxVersion string) *Handler {
 		nftablesDomainCache: make(map[int64]string),
 		flowUploads:         newFlowUploadDeduper(flowUploadDedupeTTL, flowUploadDedupeMaxEntries),
 	}
+	h.auth = newAuthGuard(repo.GetUserAuthState)
+	h.wsServer.SetUserState(h.auth.state)
+	h.wsServer.SetUserScopeResolver(h.wsUserScope)
 	h.healthCheck = health.NewChecker(repo, h.wsServer)
 	h.quotaGroups = newQuotaCoordinator(repo, func(nodeID int64, budgets []quotaGroupBudget) error {
 		_, err := h.wsServer.SendCommand(nodeID, "SetQuotaGroups", budgets, 5*time.Second)
@@ -533,6 +537,11 @@ func (h *Handler) login(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	ipKey, userKey, allowed := h.passwordAttempt(w, r, req.Username)
+	if !allowed {
+		writeLoginRefused(w)
+		return
+	}
 	user, err := h.repo.GetUserByUsername(req.Username)
 	if err != nil {
 		response.WriteJSON(w, response.Err(-2, err.Error()))
@@ -542,10 +551,11 @@ func (h *Handler) login(w http.ResponseWriter, r *http.Request) {
 		response.WriteJSON(w, response.ErrDefault("账号或密码错误"))
 		return
 	}
-	if user.Pwd != security.MD5(req.Password) {
+	if !h.verifyUserPassword(user, req.Password) {
 		response.WriteJSON(w, response.ErrDefault("账号或密码错误"))
 		return
 	}
+	h.passwordAttemptSucceeded(ipKey, userKey)
 	if user.Status == 0 {
 		response.WriteJSON(w, response.ErrDefault("账号被停用"))
 		return
@@ -630,6 +640,11 @@ func (h *Handler) getConfigByName(w http.ResponseWriter, r *http.Request) {
 	}
 
 	name := strings.TrimSpace(req.Name)
+	if !configKeyVisible(name, h.configVisibility(r)) {
+		// Same answer as a missing key: anonymous callers learn nothing.
+		response.WriteJSON(w, response.ErrDefault("配置不存在"))
+		return
+	}
 	if name == configKeyAppBackground {
 		value := ""
 		if cfg, err := h.repo.GetConfigByName(configKeyGlobalAppBackground); err == nil && cfg != nil {
@@ -677,6 +692,13 @@ func (h *Handler) getConfigs(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		response.WriteJSON(w, response.Err(-2, err.Error()))
 		return
+	}
+	if level := h.configVisibility(r); level < 2 {
+		for name := range cfgMap {
+			if !configKeyVisible(name, level) {
+				delete(cfgMap, name)
+			}
+		}
 	}
 	if globalValue, ok := cfgMap[configKeyGlobalAppBackground]; ok {
 		if _, hasLegacy := cfgMap[configKeyAppBackground]; !hasLegacy {
@@ -1024,15 +1046,21 @@ func (h *Handler) openAPISubStore(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	ipKey, userKey, allowed := h.passwordAttempt(w, r, username)
+	if !allowed {
+		writeLoginRefused(w)
+		return
+	}
 	user, err := h.repo.GetUserByUsername(username)
 	if err != nil {
 		response.WriteJSON(w, response.Err(-2, err.Error()))
 		return
 	}
-	if user == nil || user.Pwd != security.MD5(password) {
+	if user == nil || !h.verifyUserPassword(user, password) {
 		response.WriteJSON(w, response.ErrDefault("鉴权失败"))
 		return
 	}
+	h.passwordAttemptSucceeded(ipKey, userKey)
 
 	const giga = int64(1024 * 1024 * 1024)
 	headerValue := ""
@@ -1632,10 +1660,16 @@ func (h *Handler) updatePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if user.Pwd != security.MD5(req.CurrentPassword) {
+	ipKey, userKey, allowed := h.passwordAttempt(w, r, user.User)
+	if !allowed {
+		writeLoginRefused(w)
+		return
+	}
+	if !h.verifyUserPassword(user, req.CurrentPassword) {
 		response.WriteJSON(w, response.ErrDefault("当前密码错误"))
 		return
 	}
+	h.passwordAttemptSucceeded(ipKey, userKey)
 
 	exists, err := h.repo.UsernameExistsExceptID(req.NewUsername, userID)
 	if err != nil {
@@ -1647,7 +1681,12 @@ func (h *Handler) updatePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.repo.UpdateUserNameAndPassword(userID, req.NewUsername, security.MD5(req.NewPassword), time.Now().UnixMilli()); err != nil {
+	newHash, err := security.HashPassword(req.NewPassword)
+	if err != nil {
+		response.WriteJSON(w, response.Err(-2, err.Error()))
+		return
+	}
+	if err := h.repo.UpdateUserNameAndPassword(userID, req.NewUsername, newHash, time.Now().UnixMilli()); err != nil {
 		response.WriteJSON(w, response.Err(-2, err.Error()))
 		return
 	}
@@ -1812,11 +1851,21 @@ func userIDFromRequest(r *http.Request) (int64, error) {
 }
 
 func (h *Handler) optionalUserIDFromRequest(r *http.Request) (int64, bool) {
+	_, userID, ok := h.optionalClaimsFromRequest(r)
+	return userID, ok
+}
+
+// optionalClaimsFromRequest reads the caller's token on routes that skip the
+// JWT middleware (anonymous allowed). A disabled or deleted user counts as
+// anonymous.
+func (h *Handler) optionalClaimsFromRequest(r *http.Request) (auth.Claims, int64, bool) {
 	if r == nil {
-		return 0, false
+		return auth.Claims{}, 0, false
 	}
-	if userID, err := userIDFromRequest(r); err == nil && userID > 0 {
-		return userID, true
+	if claims, ok := r.Context().Value(middleware.ClaimsContextKey).(auth.Claims); ok {
+		if userID, err := parseUserID(claims.Sub); err == nil && userID > 0 {
+			return claims, userID, true
+		}
 	}
 
 	token := handlerBearerToken(strings.TrimSpace(r.Header.Get("Authorization")))
@@ -1826,18 +1875,21 @@ func (h *Handler) optionalUserIDFromRequest(r *http.Request) (int64, bool) {
 		}
 	}
 	if token == "" || strings.TrimSpace(h.jwtSecret) == "" {
-		return 0, false
+		return auth.Claims{}, 0, false
 	}
 
 	claims, ok := auth.ValidateToken(token, h.jwtSecret)
 	if !ok {
-		return 0, false
+		return auth.Claims{}, 0, false
 	}
 	userID, err := parseUserID(claims.Sub)
 	if err != nil || userID <= 0 {
-		return 0, false
+		return auth.Claims{}, 0, false
 	}
-	return userID, true
+	if h.auth.state.Check(userID, claims.RoleID) != nil {
+		return auth.Claims{}, 0, false
+	}
+	return claims, userID, true
 }
 
 func handlerBearerToken(value string) string {

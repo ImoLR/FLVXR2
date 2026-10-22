@@ -25,7 +25,7 @@ func TestTunnelLatencyFullRouterJWTEntryPermissions(t *testing.T) {
 	}
 	defer r.Close()
 	for _, row := range []interface{}{
-		&model.User{ID: 7, User: "limited", RoleID: 1},
+		&model.User{ID: 7, User: "limited", RoleID: 1, Status: 1},
 		&model.Node{ID: 11, Name: "private-entry-a", ServerIP: "192.0.2.11"},
 		&model.Node{ID: 12, Name: "private-entry-b", ServerIP: "192.0.2.12"},
 		&model.Node{ID: 13, Name: "private-exit", ServerIP: "192.0.2.13"},

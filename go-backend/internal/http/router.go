@@ -14,7 +14,7 @@ func NewRouter(h *handler.Handler, jwtSecret string, r *repo.Repository) http.Ha
 	mux.Handle("/system-info", h.WebSocketHandler())
 
 	wrapped := middleware.Recover(mux)
-	wrapped = middleware.JWT(middleware.AuthOptions{JWTSecret: jwtSecret})(wrapped)
+	wrapped = middleware.JWT(middleware.AuthOptions{JWTSecret: jwtSecret, UserState: h.UserState()})(wrapped)
 	wrapped = middleware.RequestLog(wrapped)
 	wrapped = middleware.CORS(wrapped)
 	return wrapped
