@@ -222,11 +222,14 @@ serve(8443, tls)
 	ss := func(n Node) map[string]any {
 		return map[string]any{"protocol": "shadowsocks", "settings": map[string]any{"servers": []any{map[string]any{"address": "203.0.113.1", "port": n.Port, "method": SS2022Method, "password": n.SS2022.ServerKey + ":" + n.SS2022.UserKey}}}}
 	}
-	vless := func(port int) map[string]any {
-		return map[string]any{"protocol": "vless", "settings": map[string]any{"vnext": []any{map[string]any{"address": "203.0.113.1", "port": port, "users": []any{map[string]any{"id": uuid, "flow": "xtls-rprx-vision", "encryption": "none"}}}}},
+	vlessAt := func(addr string, port int) map[string]any {
+		return map[string]any{"protocol": "vless", "settings": map[string]any{"vnext": []any{map[string]any{"address": addr, "port": port, "users": []any{map[string]any{"id": uuid, "flow": "xtls-rprx-vision", "encryption": "none"}}}}},
 			"streamSettings": map[string]any{"network": "tcp", "security": "reality", "realitySettings": map[string]any{"serverName": "www.flvx.test", "publicKey": pub, "shortId": "a1b2c3d4", "fingerprint": "chrome"}}}
 	}
-	outs := map[string]map[string]any{"n1": ss(n1), "n4": ss(n4), "g": vless(31002), "u": vless(31003)}
+	vless := func(port int) map[string]any { return vlessAt("203.0.113.1", port) }
+	// gl/ul: authenticated users whose first bytes (the ClientHello) reach the
+	// landing late, through a relay in the client namespace (FLVX_ABUSE_E2E_LATE).
+	outs := map[string]map[string]any{"n1": ss(n1), "n4": ss(n4), "g": vless(31002), "u": vless(31003), "gl": vlessAt("127.0.0.1", 25001), "ul": vlessAt("127.0.0.1", 25002)}
 	type route struct {
 		name, out string
 		port      int
@@ -235,7 +238,7 @@ serve(8443, tls)
 		{"n1-25", "n1", 25}, {"n1-443", "n1", 443}, {"n1-587", "n1", 587}, {"n1-465", "n1", 465}, {"n1-bt", "n1", 6881}, {"n1-plain6881", "n1", 6881},
 		{"n4-443", "n4", 443}, {"n4-587", "n4", 587}, {"n4-465", "n4", 465}, {"n4-2525", "n4", 2525}, {"n4-23", "n4", 23}, {"n4-445", "n4", 445}, {"n4-25", "n4", 25}, {"n4-bt", "n4", 6881}, {"n4-8081", "n4", 8081},
 		{"g-25", "g", 25}, {"g-443", "g", 443}, {"g-bt", "g", 6881}, {"u-443", "u", 443},
-		{"g-bulk", "g", 9000}, {"u-bulk", "u", 9000}, {"g-lat", "g", 9001}, {"u-lat", "u", 9001},
+		{"g-bulk", "g", 9000}, {"u-bulk", "u", 9000}, {"g-lat", "g", 9001}, {"u-lat", "u", 9001}, {"gl-lat", "gl", 9001}, {"ul-lat", "ul", 9001},
 	}
 	var inbounds, outbounds, rules []any
 	for i, r := range routes {
@@ -330,12 +333,17 @@ print(json.dumps(out))
 	// Unauthenticated probes straight at the Reality ports.
 	probe := `import hashlib, json, socket, ssl, sys
 out = {}
+import time
 for item in sys.argv[1:]:
-    name, port, sni = item.split("=")
+    parts = item.split("=")
+    name, port, sni = parts[:3]
+    delay = float(parts[3]) if len(parts) > 3 else 0
     ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT); ctx.check_hostname = False; ctx.verify_mode = ssl.CERT_NONE
     ctx.minimum_version = ssl.TLSVersion.TLSv1_3
     try:
         c = socket.create_connection(("203.0.113.1", int(port)), timeout=5); c.settimeout(5)
+        if delay:
+            time.sleep(delay)  # ClientHello sent late (slow client / lost segment)
         t = ctx.wrap_socket(c, server_hostname=(sni or None))
         der = t.getpeercert(binary_form=True)
         out[name] = "cert:" + hashlib.sha256(der).hexdigest()[:16]
@@ -345,7 +353,8 @@ for item in sys.argv[1:]:
 print(json.dumps(out))
 `
 	probes := map[string]string{}
-	if err := json.Unmarshal([]byte(py("probe.py", probe, "g-right=31002=www.flvx.test", "g-wrong=31002=www.example.com", "g-nosni=31002=", "u-right=31003=www.flvx.test", "u-wrong=31003=www.example.com")), &probes); err != nil {
+	if err := json.Unmarshal([]byte(py("probe.py", probe, "g-right=31002=www.flvx.test", "g-wrong=31002=www.example.com", "g-nosni=31002=", "u-right=31003=www.flvx.test", "u-wrong=31003=www.example.com",
+		"g-right-late=31002=www.flvx.test=0.5", "g-wrong-late=31002=www.example.com=0.5", "u-right-late=31003=www.flvx.test=0.5")), &probes); err != nil {
 		t.Fatal(err)
 	}
 	certDER, err := exec.Command("openssl", "x509", "-in", filepath.Join(base, "dest.crt"), "-outform", "DER").Output()
@@ -353,10 +362,13 @@ print(json.dumps(out))
 		t.Fatal(err)
 	}
 	destCert := "cert:" + sha256Hex(certDER)[:16]
-	if probes["g-right"] != destCert || probes["u-right"] != destCert || probes["u-wrong"] != destCert {
+	// g-right-late: the guarded listener defers accept until the ClientHello, so
+	// a late but correct ClientHello still reaches the dest.
+	if probes["g-right"] != destCert || probes["g-right-late"] != destCert || probes["u-right"] != destCert || probes["u-wrong"] != destCert {
 		t.Errorf("right SNI / unguarded probes must get the real dest certificate %s: %v", destCert, probes)
 	}
-	if !strings.HasPrefix(probes["g-wrong"], "closed:") || !strings.HasPrefix(probes["g-nosni"], "closed:") {
+	// A late wrong-SNI ClientHello must not slip through (no sniffing-timeout bypass).
+	if !strings.HasPrefix(probes["g-wrong"], "closed:") || !strings.HasPrefix(probes["g-nosni"], "closed:") || !strings.HasPrefix(probes["g-wrong-late"], "closed:") {
 		t.Errorf("guarded node relayed a wrong/no-SNI probe: %v", probes)
 	}
 	time.Sleep(300 * time.Millisecond)
@@ -455,6 +467,61 @@ else:
 		if v, _ := perf[k].(map[string]any); rounds > 0 && (v == nil || v["fails"].(float64) != 0) {
 			t.Errorf("%s: authenticated connections failed: %v", k, perf[k])
 		}
+	}
+	if late := os.Getenv("FLVX_ABUSE_E2E_LATE"); late != "" {
+		// Hold the first client→landing chunk for <late> seconds: the
+		// authenticated ClientHello arrives after the Core's 200 ms sniffing
+		// window of the guard.
+		relay := `import socket, sys, threading, time
+delay = float(sys.argv[1])
+split = len(sys.argv) > 2 and sys.argv[2] == "split"
+def pipe(a, b, first):
+    try:
+        while True:
+            d = a.recv(65536)
+            if not d:
+                break
+            if first and split:
+                # First 300 bytes at once, the rest of the ClientHello late
+                # (a lost second segment).
+                b.sendall(d[:300]); d = d[300:]
+                time.sleep(delay); first = False
+            elif first:
+                time.sleep(delay); first = False
+            b.sendall(d)
+    except Exception:
+        pass
+    for x in (a, b):
+        try: x.shutdown(socket.SHUT_RDWR)
+        except Exception: pass
+def serve(lport, rport):
+    s = socket.socket(); s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1); s.bind(("127.0.0.1", lport)); s.listen(256)
+    while True:
+        c, _ = s.accept()
+        u = socket.create_connection(("203.0.113.1", rport))
+        threading.Thread(target=pipe, args=(c, u, True), daemon=True).start()
+        threading.Thread(target=pipe, args=(u, c, False), daemon=True).start()
+threading.Thread(target=serve, args=(25001, 31002), daemon=True).start()
+serve(25002, 31003)
+`
+		if err := os.WriteFile(filepath.Join(base, "relay.py"), []byte(relay), 0644); err != nil {
+			t.Fatal(err)
+		}
+		mode := os.Getenv("FLVX_ABUSE_E2E_LATE_MODE") // "" or "split"
+		rl := exec.Command("ip", "netns", "exec", "flvxab-c", "python3", filepath.Join(base, "relay.py"), late, mode)
+		perf["late_mode"] = mode
+		if err := rl.Start(); err != nil {
+			t.Fatal(err)
+		}
+		time.Sleep(500 * time.Millisecond)
+		perf["late_clienthello_s"] = late
+		perf["late_lat_g"] = run("lat", "gl-lat", 30)
+		perf["late_lat_u"] = run("lat", "ul-lat", 30)
+		if v := perf["late_lat_g"].(map[string]any); mode == "" && v["fails"].(float64) != 0 {
+			t.Errorf("authenticated users with a late ClientHello failed on the guarded node: %v", v)
+		}
+		_ = rl.Process.Kill()
+		_, _ = rl.Process.Wait()
 	}
 	if os.Getenv("FLVX_ABUSE_E2E_LOSS") == "1" {
 		// Delay each way (default 40 ms, FLVX_ABUSE_E2E_DELAY) between client

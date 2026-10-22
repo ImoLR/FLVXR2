@@ -126,6 +126,15 @@ func guardRules(groups map[int]*guardGroup) []any {
 	return out
 }
 
+// guardDeferAccept (TCP_DEFER_ACCEPT, seconds) makes the kernel hand a guarded
+// Reality connection to the Core only once its first bytes (the ClientHello)
+// have arrived. REALITY dials dest — the guard — at accept, and the guard has
+// the Core's fixed 200 ms sniffing window to see the ClientHello; deferring the
+// accept keeps a ClientHello that arrives late (lost first segment, slow
+// client) inside that window. Clients that never send are accepted after the
+// timeout as before and then closed by REALITY's own handshake timeout.
+const guardDeferAccept = "5"
+
 // withGuardDest points a rendered Reality inbound at its guard.
 func withGuardDest(cfg map[string]any, port int) map[string]any {
 	stream, _ := cfg["streamSettings"].(map[string]any)
@@ -143,6 +152,7 @@ func withGuardDest(cfg map[string]any, port int) map[string]any {
 		copyStream[k] = v
 	}
 	copyStream["realitySettings"] = copyReality
+	copyStream["sockopt"] = map[string]any{"customSockopt": []any{map[string]any{"system": "linux", "network": "tcp", "level": "6", "opt": "9", "value": guardDeferAccept, "type": "int"}}}
 	out := map[string]any{}
 	for k, v := range cfg {
 		out[k] = v
