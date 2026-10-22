@@ -69,14 +69,34 @@ layers) is NOT part of this release and must rebase onto this branch before its 
 Run dir `/root/flvx-workers/runs/release-fork73-landing-node-limits`.
 
 - [x] Rebase onto fork.72, drop pyc, `go build ./...` + frontend build sanity
-- [ ] Pre-upgrade prod capture (read-only): `landing_user_setting` rows + effective caps, global default, admin
+- [x] Pre-upgrade prod capture (read-only): `landing_user_setting` rows + effective caps, global default, admin
       user-settings view, user 26 `/landing/server/list` myRemaining, 29 nodes / forwards / landing nodes, CPU/RSS,
       latency
-- [ ] Push branch, CI green
-- [ ] Tag `3.0.27-fork.73`, Images run green, release Latest with the same asset set as fork.72
-- [ ] Prod backup `pre-fork73-*` (validated SQLite, compose/.env, local image tags, rollback.sh) + prune to 2
-- [ ] Upgrade prod panel to fork.73, health + version.json
-- [ ] Verify: migration ran once (column added, rows with 5 → follow global, user 26 custom 2), effective caps
+- [x] Push branch, CI green
+- [x] Tag `3.0.27-fork.73`, Images run green, release Latest with the same asset set as fork.72
+- [x] Prod backup `pre-fork73-*` (validated SQLite, compose/.env, local image tags, rollback.sh) + prune to 2
+- [x] Upgrade prod panel to fork.73, health + version.json
+- [x] Verify: migration ran once (column added, rows with 5 → follow global, user 26 custom 2), effective caps
       identical (admin now uncapped on total), user 26 still-creatable unchanged, admin view 「跟随全局（5）」,
       29/29 online, agents unchanged, forwards + landing nodes unchanged, new UI strings in served bundle, CPU/RSS +
       latency after
+
+### Release results (2026-10-23, 台湾时间)
+- Branch CI 39817884079 green; tag `3.0.27-fork.73` → 6dc48e83; Images 39818196860 green; release Latest, not
+  prerelease, 10 assets = fork.72 set, compose pinned `ghcr.io/imolr/flvxr2-svc-*:3.0.27-fork.73`, install scripts
+  PINNED_VERSION/REPO OK, gost sha256 OK, ghcr amd64+arm64.
+- Rollback point `/opt/flvx-svc/rollback/pre-fork73-20261022T171220Z` (→ fork.72; SQLite quick/integrity ok, local
+  image tags `local/flvxx-*:pre-fork73-20261022T171220Z`); kept + `pre-fork72-*`; pre-fork71 + fork.70 images pruned.
+- Prod upgraded 01:12:42 TW, healthy, version.json `3.0.27-fork.73-mvjsbskh`; 29/29 online, agents unchanged
+  (21 = fork.70, 28 × fork.67), forwards 34 (31 running) and landing nodes 2 (both active, same rows) unchanged,
+  0 error log lines.
+- Migration: one log line `[landing-max-nodes-backfill] custom=1`; `landing_user_setting` had one row (user 26,
+  max_nodes 2) → `max_nodes_custom=1`; flag `landing_user_max_nodes_custom_v1=done`; global key not stored → 5.
+- Effective total caps before/after identical for all 11 non-admin users (user 26 custom 2, others global 5; API
+  `landing/user/get` agrees: source custom/global, globalMaxNodes 5); admin (user 1) 5 → unlimited (approved).
+  `landing/settings/get` defaultMaxNodes 5. User 26 (in-memory JWT) server 3: nodeCount 1 / myRemaining 1, unchanged.
+- Served bundle `index-CmrZzXkn.js` contains 「全局设置」「跟随全局」「转移」「所属用户」.
+- No live transfer / global change on prod (transfer proven in lab acceptance N1).
+- Resources: backend CPU (60 s) 4.13 % → 4.63 %, RSS 36.4 → 39.7 MiB right after restart; p50 `/landing/server/list`
+  admin 2.12 → 2.17 ms, user 26 1.23 → 0.97 ms; `/landing/user/get` user 26 0.83 → 0.73 ms, user 3 0.76 → 0.78 ms.
+- Plan 134 must rebase onto `maintenance/3.0.27-fork.73-landing-node-limits` before its own release.
