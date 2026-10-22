@@ -261,9 +261,9 @@ func (in CompileInput) familyConflict(action string) string {
 	}
 	switch {
 	case o.IPVersion == "force_ipv4" && in.NoIPv4:
-		return fmt.Sprintf("出站「%s」强制 IPv4，但该服务器没有 IPv4 地址", o.Name)
+		return fmt.Sprintf("出站「%s」强制 IPv4，但该服务器未检测到 IPv4 地址", o.Name)
 	case o.IPVersion == "force_ipv6" && in.NoIPv6:
-		return fmt.Sprintf("出站「%s」强制 IPv6，但该服务器没有 IPv6 地址", o.Name)
+		return fmt.Sprintf("出站「%s」强制 IPv6，但该服务器未检测到 IPv6 地址", o.Name)
 	}
 	return ""
 }

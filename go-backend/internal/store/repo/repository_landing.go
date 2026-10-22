@@ -278,7 +278,7 @@ const DefaultLandingUserMaxNodes = 5
 // effectiveLandingMaxNodes (repository_landing_limits.go), the single place
 // used by node creation, transfer, the admin user dialog and the server list.
 func landingUserSetting(db *gorm.DB, userID int64) (model.LandingUserSetting, error) {
-	s := model.LandingUserSetting{UserID: userID, MaxNodes: DefaultLandingUserMaxNodes}
+	s := model.LandingUserSetting{UserID: userID, MaxNodes: DefaultLandingUserMaxNodes, RuleMaxNode: DefaultLandingRuleMaxNode, RuleMaxTotal: DefaultLandingRuleMaxTotal}
 	err := db.First(&s, "user_id = ?", userID).Error
 	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 		return s, err
@@ -381,7 +381,12 @@ func (r *Repository) SaveLandingUserSettingWithGrants(userID int64, maxNodes int
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("user_id = ?", userID).Order("id ASC").Find(&lockedNodes).Error; err != nil {
 			return err
 		}
-		setting := model.LandingUserSetting{UserID: userID, MaxNodes: maxNodes, MaxNodesCustom: custom}
+		// Keep the row's other columns (plan 134 node-rule caps).
+		setting, err := landingUserSetting(tx, userID)
+		if err != nil {
+			return err
+		}
+		setting.UserID, setting.MaxNodes, setting.MaxNodesCustom = userID, maxNodes, custom
 		if err := tx.Save(&setting).Error; err != nil {
 			return err
 		}
