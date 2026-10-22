@@ -1,0 +1,31 @@
+{
+  "active": true,
+  "plan": {
+    "version": 1,
+    "outbounds": [],
+    "rules": [
+      {
+        "name": "默认：屏蔽 SMTP 25",
+        "inbound_tags": [
+          "flvxl-11",
+          "flvxl-12"
+        ],
+        "port": "25",
+        "network": "tcp",
+        "outbound": "block"
+      },
+      {
+        "name": "默认：屏蔽 BT",
+        "inbound_tags": [
+          "flvxl-11",
+          "flvxl-12"
+        ],
+        "protocol": [
+          "bittorrent"
+        ],
+        "outbound": "block"
+      }
+    ]
+  },
+  "warnings": null
+}

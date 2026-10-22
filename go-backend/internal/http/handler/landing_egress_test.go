@@ -176,7 +176,9 @@ func TestLandingEgressAdminOnlyAndValidation(t *testing.T) {
 	}
 	payload := agent.payloads[len(agent.payloads)-1]
 	plan, ok := payload["egress"].(*landingegress.Plan)
-	if !ok || !plan.AllowCoreRestart || len(plan.Rules) != 2 || plan.Rules[1].Outbound != landingegress.OutboundTag(proxyID) || strings.Join(plan.Rules[0].InboundTags, ",") != "flvxl-1" {
+	// Plan 127: default rules first; the profile's own BT rule only repeated the
+	// default BT rule and is not sent twice.
+	if !ok || !plan.AllowCoreRestart || len(plan.Rules) != 3 || plan.Rules[0].Port != "25" || plan.Rules[1].Protocol[0] != "bittorrent" || plan.Rules[2].Outbound != landingegress.OutboundTag(proxyID) || strings.Join(plan.Rules[0].InboundTags, ",") != "flvxl-1" {
 		t.Fatalf("plan sent to the agent: %+v", payload["egress"])
 	}
 	if len(plan.Outbounds) != 1 || plan.Outbounds[0].Type != "socks" || plan.Outbounds[0].IPVersion != "force_ipv4" {
@@ -226,8 +228,10 @@ func TestLandingEgressAdminOnlyAndValidation(t *testing.T) {
 	if _, err := e.h.syncLandingServer(1); err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := agent.payloads[len(agent.payloads)-1]["egress"]; ok {
-		t.Fatal("node opted out but plan still sent")
+	// Plan 127: the built-in default now carries only the two default rules.
+	optedOut, ok := agent.payloads[len(agent.payloads)-1]["egress"].(*landingegress.Plan)
+	if !ok || len(optedOut.Rules) != 2 || len(optedOut.Outbounds) != 0 || optedOut.Rules[0].Name != "默认：屏蔽 SMTP 25" {
+		t.Fatalf("node opted out of the profile: %+v", agent.payloads[len(agent.payloads)-1]["egress"])
 	}
 	e.h.egressSyncWG.Wait()
 }
@@ -358,7 +362,9 @@ func TestLandingEgressSharedCapabilityGate(t *testing.T) {
 		t.Fatal(err)
 	}
 	plan, _, err := e.h.compileLandingEgress(1)
-	if err != nil || plan == nil || len(plan.Rules) != 2 {
+	// Plan 127: defaults (SMTP 25, BT) + geosite:cn; the profile's BT rule is a
+	// duplicate of the default one.
+	if err != nil || plan == nil || len(plan.Rules) != 3 || plan.Rules[2].Domain[0] != "geosite:cn" {
 		t.Fatalf("shared plan: %+v %v", plan, err)
 	}
 	desired, err := e.r.SharedLandingDesired(1, plan)
@@ -366,7 +372,7 @@ func TestLandingEgressSharedCapabilityGate(t *testing.T) {
 		t.Fatalf("desired with egress: %+v %v", desired, err)
 	}
 	b, _ := json.Marshal(desired)
-	if !strings.Contains(string(b), `"egress":{"version":1`) || !strings.Contains(string(b), `"inbound_tags":["flvxl-1"]`) {
+	if !strings.Contains(string(b), `"egress":{"version":1`) || !strings.Contains(string(b), `"inbound_tags":["flvxl-1"]`) || strings.Contains(string(b), "builtin") {
 		t.Fatalf("contract payload: %s", b)
 	}
 	// Without egress the payload stays exactly the v1 shape.

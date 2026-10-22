@@ -352,6 +352,14 @@ func (h *Handler) landingServerSave(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		warnings = h.ensureLandingWarp([]int64{req.ID}, false, 20*time.Second)
+	} else if req.EgressConfirmed && old.Source == "native" && !old.EgressReady && !old.EgressRestartOK {
+		// Plan 127: the default anti-abuse rules (and the Reality guard) need
+		// the routing API too; the admin may confirm the one-time Core restart
+		// without changing the profile.
+		if err := h.repo.SetLandingServerEgress(req.ID, profileID, true); err != nil {
+			landingError(w, err)
+			return
+		}
 	}
 	h.reconcileLandingPolicy(time.Now())
 	h.syncLandingServer(req.ID)

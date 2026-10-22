@@ -27,7 +27,8 @@ func OutboundFromModel(m model.LandingOutbound) landingegress.Outbound {
 
 // ProfileFromModel decodes a stored routing profile.
 func ProfileFromModel(m model.LandingRouteProfile) landingegress.Profile {
-	p := landingegress.Profile{ID: m.ID, Name: m.Name, DefaultAction: m.DefaultAction, Rules: []landingegress.Rule{}}
+	on := !m.AbuseDefaultsOff
+	p := landingegress.Profile{ID: m.ID, Name: m.Name, DefaultAction: m.DefaultAction, Rules: []landingegress.Rule{}, AbuseDefaults: &on}
 	_ = json.Unmarshal([]byte(m.Rules), &p.Rules)
 	return p
 }
@@ -243,6 +244,11 @@ func (r *Repository) SaveLandingRouteProfile(p *landingegress.Profile) (*model.L
 		}
 		raw, _ := json.Marshal(p.Rules)
 		saved.Name, saved.DefaultAction, saved.Rules, saved.UpdatedTime = p.Name, p.DefaultAction, string(raw), now
+		if p.AbuseDefaults != nil {
+			saved.AbuseDefaultsOff = !*p.AbuseDefaults
+		}
+		on := !saved.AbuseDefaultsOff
+		p.AbuseDefaults = &on
 		if err := tx.Save(&saved).Error; err != nil {
 			return err
 		}
@@ -371,6 +377,9 @@ type LandingEgressData struct {
 	Warp       map[int64]model.LandingWarpAccount
 	Upstreams  map[int64]LandingUpstream
 	NodeEgress int // native agent capability (0 = unsupported)
+	NodeGuard  int // native agent: Reality guard + builtin rules (plan 127)
+	// ChainTags: chain copies on this server (plan 108), native only.
+	ChainTags []string
 }
 
 func (r *Repository) LandingEgressData(serverID int64) (*LandingEgressData, error) {
@@ -394,8 +403,18 @@ func (r *Repository) LandingEgressData(serverID int64) (*LandingEgressData, erro
 	}
 	if d.Server.Source == "native" {
 		var n model.Node
-		if err := r.db.Select("id", "landing_egress").First(&n, d.Server.NodeID).Error; err == nil {
-			d.NodeEgress = n.LandingEgress
+		if err := r.db.Select("id", "landing_egress", "landing_chain", "landing_guard").First(&n, d.Server.NodeID).Error; err == nil {
+			d.NodeEgress, d.NodeGuard = n.LandingEgress, n.LandingGuard
+			if n.LandingChain >= 1 {
+				// Exactly the copies the desired state carries (syncLandingServer).
+				copies, err := r.ChainCopiesForServer(serverID)
+				if err != nil {
+					return nil, err
+				}
+				for _, c := range copies {
+					d.ChainTags = append(d.ChainTags, fmt.Sprintf("flvxl-%d", model.ChainAgentIDBase+c.Node.ID))
+				}
+			}
 		}
 	}
 	// Resolve upstreams only for templates this server actually uses.
@@ -733,14 +752,18 @@ func (r *Repository) DeleteLandingWarpAccount(serverID, outboundID int64) error 
 }
 
 // SetNodeLandingCapabilities records the landing capability flags with one
-// conditional statement per agent report. chain is the chain-node schema
-// version (plan 108); agents that do not report it are version 0.
-func (r *Repository) SetNodeLandingCapabilities(id int64, capable bool, egress int, chain ...int) error {
-	chainVersion := 0
-	if len(chain) > 0 {
-		chainVersion = chain[0]
+// conditional statement per agent report. versions are the chain-node schema
+// version (plan 108) and the Reality guard / builtin-rule version (plan 127);
+// agents that do not report them are version 0.
+func (r *Repository) SetNodeLandingCapabilities(id int64, capable bool, egress int, versions ...int) error {
+	chainVersion, guardVersion := 0, 0
+	if len(versions) > 0 {
+		chainVersion = versions[0]
 	}
-	return r.db.Model(&model.Node{}).Where("id = ? AND (landing_capable <> ? OR landing_egress <> ? OR landing_chain <> ?)", id, capable, egress, chainVersion).Updates(map[string]any{"landing_capable": capable, "landing_egress": egress, "landing_chain": chainVersion}).Error
+	if len(versions) > 1 {
+		guardVersion = versions[1]
+	}
+	return r.db.Model(&model.Node{}).Where("id = ? AND (landing_capable <> ? OR landing_egress <> ? OR landing_chain <> ? OR landing_guard <> ?)", id, capable, egress, chainVersion, guardVersion).Updates(map[string]any{"landing_capable": capable, "landing_egress": egress, "landing_chain": chainVersion, "landing_guard": guardVersion}).Error
 }
 
 // UserNamesByIDs maps user IDs to login names in one query.

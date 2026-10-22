@@ -177,8 +177,23 @@ func resolveLandingOutbound(d *repo.LandingEgressData, id int64) (landingegress.
 	return po, nil
 }
 
+// landingAbuseReady: the server can take plan rules now. A native Core started
+// before plan 107 has no RoutingService; sending it the default rules would
+// make the agent pause every node until the admin confirms one restart, so the
+// defaults wait for readiness (or that confirmation) and the payload stays as
+// it was. The mmwx Helper restarts its own Core when needed.
+func landingAbuseReady(d *repo.LandingEgressData) bool {
+	return d.Server.Source == "shared" || d.Server.EgressReady || d.Server.EgressRestartOK
+}
+
 func landingEgressInput(d *repo.LandingEgressData) landingegress.CompileInput {
 	in := landingegress.CompileInput{ServerProfileID: d.Server.RouteProfileID, Profiles: d.Profiles, AllowCoreRestart: d.Server.EgressRestartOK}
+	in.Abuse = landingAbuseReady(d)
+	// Builtin markers (and chain coverage) only for agents that understand
+	// them; the mmwx Custom decodes plans strictly and never gets the field.
+	if d.Server.Source == "native" && d.NodeGuard >= 1 {
+		in.Builtin, in.ChainTags = true, d.ChainTags
+	}
 	withheld := repo.LandingWithheldFunc(&d.Server)
 	for _, n := range d.Nodes {
 		// Withheld nodes (plan 121) are not in the desired state either.
@@ -468,9 +483,20 @@ func (h *Handler) landingServerEgressView(s model.LandingServer, nodeEgress int,
 	}
 	warnings := []string{}
 	_ = json.Unmarshal([]byte(s.EgressWarnings), &warnings)
+	// Default anti-abuse rules (plan 127): active | off (server profile switched
+	// them off) | restart (native Core needs one confirmed restart) | unsupported.
+	abuse := "active"
+	switch {
+	case !supported:
+		abuse = "unsupported"
+	case !landingegress.AbuseOn(s.RouteProfileID, c.profiles):
+		abuse = "off"
+	case s.Source == "native" && !s.EgressReady && !s.EgressRestartOK:
+		abuse = "restart"
+	}
 	return map[string]any{
 		"profileId": s.RouteProfileID, "profileName": c.profileName(s.RouteProfileID), "label": c.label(s.RouteProfileID),
-		"supported": supported, "unsupportedReason": reason,
+		"supported": supported, "unsupportedReason": reason, "abuseDefaults": abuse,
 		"restartRequired":  supported && s.Source == "native" && !s.EgressReady,
 		"restartConfirmed": s.EgressRestartOK, "state": s.EgressState, "error": s.EgressError, "warnings": warnings, "checkedAt": s.EgressCheckedAt,
 	}
@@ -565,7 +591,7 @@ func (h *Handler) landingEgressOverview(w http.ResponseWriter, r *http.Request) 
 	for _, m := range profiles {
 		p := decoded[m.ID]
 		u := usage[m.ID]
-		profileViews = append(profileViews, map[string]any{"id": p.ID, "name": p.Name, "defaultAction": p.DefaultAction, "rules": p.Rules, "serverCount": u[0], "nodeCount": u[1], "updatedTime": m.UpdatedTime})
+		profileViews = append(profileViews, map[string]any{"id": p.ID, "name": p.Name, "defaultAction": p.DefaultAction, "rules": p.Rules, "abuseDefaults": p.AbuseDefaultsEnabled(), "serverCount": u[0], "nodeCount": u[1], "updatedTime": m.UpdatedTime})
 	}
 	nodes, _ := h.repo.ListLandingNodes(0, true)
 	servers, _ := h.repo.ListLandingServers(0, true)
@@ -754,7 +780,12 @@ func (h *Handler) landingEgressProfileSave(w http.ResponseWriter, r *http.Reques
 	var affected []int64
 	if p.ID > 0 {
 		affected, _ = h.repo.LandingServersUsingProfiles([]int64{p.ID})
-		if err := h.validateLandingEgress(affected, func(d *repo.LandingEgressData) { d.Profiles[candidate.ID] = candidate }); err != nil {
+		if err := h.validateLandingEgress(affected, func(d *repo.LandingEgressData) {
+			if candidate.AbuseDefaults == nil {
+				candidate.AbuseDefaults = d.Profiles[candidate.ID].AbuseDefaults
+			}
+			d.Profiles[candidate.ID] = candidate
+		}); err != nil {
 			landingError(w, err)
 			return
 		}
@@ -776,7 +807,7 @@ func (h *Handler) landingEgressProfileSave(w http.ResponseWriter, r *http.Reques
 	warnings := append(notes, h.ensureLandingWarp(affected, false, 20*time.Second)...)
 	h.landingEgressSaveAsync(affected)
 	view := repo.ProfileFromModel(*saved)
-	response.WriteJSON(w, response.OK(map[string]any{"id": view.ID, "name": view.Name, "defaultAction": view.DefaultAction, "rules": view.Rules, "warnings": warnings}))
+	response.WriteJSON(w, response.OK(map[string]any{"id": view.ID, "name": view.Name, "defaultAction": view.DefaultAction, "rules": view.Rules, "abuseDefaults": view.AbuseDefaultsEnabled(), "warnings": warnings}))
 }
 
 func (h *Handler) landingEgressProfileDelete(w http.ResponseWriter, r *http.Request) {

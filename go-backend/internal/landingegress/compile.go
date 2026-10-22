@@ -25,6 +25,17 @@ type CompileInput struct {
 	Exempt           func() ([]string, error)
 	AllowCoreRestart bool
 	GeoIP, GeoSite   bool
+	// Abuse emits the built-in anti-abuse rules (plan 127) for every node
+	// whose profile keeps them. False while the server cannot take plan rules
+	// yet (native Core without RoutingService and no restart confirmed): the
+	// payload then stays exactly as before instead of pausing nodes.
+	Abuse bool
+	// Builtin: the agent understands PlanRule.Builtin (renders the rule before
+	// chain rules and never pauses nodes for it). Only then are ChainTags
+	// (chain copies on this server, plan 108) covered, following the server
+	// profile's switch; older agents order chain rules first anyway.
+	Builtin   bool
+	ChainTags []string
 }
 
 // OutboundTag is the plan tag of a template.
@@ -57,9 +68,10 @@ func EffectiveProfile(serverProfile int64, override *int64) int64 {
 	return serverProfile
 }
 
-// Compile builds the server plan. Nodes on the built-in default produce no
-// rules; every rule is scoped by inbound tags, so profiles never interfere.
-// Identical leading rules of different profiles are merged into one rule.
+// Compile builds the server plan. Nodes on the built-in default produce only
+// the default anti-abuse rules (when in.Abuse); every rule is scoped by
+// inbound tags, so profiles never interfere. Identical leading rules of
+// different profiles are merged into one rule; the default rules come first.
 func Compile(in CompileInput) (*Plan, []string, error) {
 	plan := &Plan{Version: Version, AllowCoreRestart: in.AllowCoreRestart, Outbounds: []PlanOutbound{}, Rules: []PlanRule{}}
 	groups := map[int64][]string{}
@@ -84,13 +96,16 @@ func Compile(in CompileInput) (*Plan, []string, error) {
 		}
 		tags := groups[pid]
 		sort.Strings(tags)
+		abuse := in.Abuse && AbuseOn(pid, in.Profiles)
 		inGroup := map[string]bool{}
 		for _, t := range tags {
 			inGroup[t] = true
 		}
 		var list []groupRule
 		for _, r := range p.Rules {
-			if !r.Enabled {
+			if !r.Enabled || (abuse && IsAbuseDuplicate(r)) {
+				// A profile rule that only repeats a default rule (e.g. the
+				// 「屏蔽 BT」 preset) is already covered right after safety.
 				continue
 			}
 			scope := tags
@@ -173,8 +188,36 @@ func Compile(in CompileInput) (*Plan, []string, error) {
 		sort.Strings(rule.InboundTags)
 		plan.Rules = append(plan.Rules, rule)
 	}
-	// Resolve templates actually referenced; failures route to block.
 	var warnings []string
+	if in.Abuse {
+		var abuseTags []string
+		for _, n := range in.Nodes {
+			if AbuseOn(EffectiveProfile(in.ServerProfileID, n.Override), in.Profiles) {
+				abuseTags = append(abuseTags, n.Tag)
+			}
+		}
+		if in.Builtin && AbuseOn(in.ServerProfileID, in.Profiles) {
+			abuseTags = append(abuseTags, in.ChainTags...)
+		}
+		if len(abuseTags) > 0 {
+			sort.Strings(abuseTags)
+			defaults := AbuseDefaultRules()
+			if len(plan.Rules)+len(defaults) > MaxPlanRules {
+				// Never turn a valid plan into a rejected one (which would
+				// block nodes): skip the defaults and say so.
+				warnings = append(warnings, "该服务器的规则数已满，默认防滥用规则（屏蔽 SMTP 25 / BT）未下发")
+			} else {
+				for i := range defaults {
+					defaults[i].InboundTags = append([]string(nil), abuseTags...)
+					if in.Builtin {
+						defaults[i].Builtin = BuiltinAbuse
+					}
+				}
+				plan.Rules = append(defaults, plan.Rules...)
+			}
+		}
+	}
+	// Resolve templates actually referenced; failures route to block.
 	ids := make([]int64, 0, len(referenced))
 	for id := range referenced {
 		ids = append(ids, id)

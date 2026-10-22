@@ -21,8 +21,12 @@ type LandingRouteProfile struct {
 	Name          string `gorm:"not null" json:"name"`
 	DefaultAction string `gorm:"not null;default:'direct'" json:"defaultAction"`
 	Rules         string `gorm:"type:text;not null;default:'[]'" json:"-"`
-	CreatedTime   int64  `gorm:"not null" json:"createdTime"`
-	UpdatedTime   int64  `gorm:"not null" json:"updatedTime"`
+	// AbuseDefaultsOff switches off the built-in anti-abuse rules (plan 127,
+	// TCP 25 + BitTorrent) for nodes on this profile. Stored inverted so the
+	// added column defaults to on for existing profiles.
+	AbuseDefaultsOff bool  `gorm:"not null;default:false" json:"-"`
+	CreatedTime      int64 `gorm:"not null" json:"createdTime"`
+	UpdatedTime      int64 `gorm:"not null" json:"updatedTime"`
 }
 
 func (LandingRouteProfile) TableName() string { return "landing_route_profile" }

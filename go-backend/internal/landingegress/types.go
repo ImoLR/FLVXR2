@@ -82,6 +82,10 @@ type Profile struct {
 	Name          string `json:"name"`
 	DefaultAction string `json:"defaultAction"`
 	Rules         []Rule `json:"rules"`
+	// AbuseDefaults keeps the built-in anti-abuse rules (plan 127); nil = on
+	// (new profiles, and saves from clients that do not send the field keep
+	// the stored value).
+	AbuseDefaults *bool `json:"abuseDefaults,omitempty"`
 }
 
 // Plan is the server-level compiled form sent to agents and Custom.
@@ -138,6 +142,9 @@ type PlanRule struct {
 	Network     string   `json:"network,omitempty"`
 	Protocol    []string `json:"protocol,omitempty"`
 	Outbound    string   `json:"outbound"`
+	// Builtin marks a default anti-abuse rule for agents that support it
+	// (see BuiltinAbuse); never sent to older agents or the mmwx Custom.
+	Builtin string `json:"builtin,omitempty"`
 }
 
 // Active reports whether the plan changes anything versus the built-in default.
