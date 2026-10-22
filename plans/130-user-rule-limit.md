@@ -26,12 +26,12 @@ Brief: `/root/flvx-workers/briefs/user-rule-limit.md` (user approval 2026-10-23,
 - [x] Full backend suite: no new failures vs baseline; contract tests on SQLite + PostgreSQL
 - [x] Stress: 1000 create/delete cycles as a normal user, before/after rate limit (panel + agent CPU/RSS/fds/goroutines, logs, DB growth)
 - [x] Screenshots (desktop + H5, light + dark): grant modal, over-limit toast, home page 规则数
-- [ ] Commit, push, CI green, tag `3.0.27-fork.71`, release verified (Latest, same assets as fork.69/70)
-- [ ] Prod: rollback dir `pre-fork71-<ts>`, prune to 2 backups, upgrade panel only (no agent OTA)
-- [ ] Prod verify: health/version, 29/29 nodes online, forward counts unchanged, user 7's 12 rules untouched
-- [ ] Prod live check with a temporary normal user (num=1): 2nd create refused, rapid fire rate-limited; test user removed
+- [x] Commit, push, CI green, tag `3.0.27-fork.71`, release verified (Latest, same assets as fork.69/70)
+- [x] Prod: rollback dir `pre-fork71-<ts>`, prune to 2 backups, upgrade panel only (no agent OTA)
+- [x] Prod verify: health/version, 29/29 nodes online, forward counts unchanged, user 7's 12 rules untouched
+- [x] Prod live check with a temporary normal user (num=1): 2nd create refused, rapid fire rate-limited; test user removed
 - [x] journald 200M cap on SSH-reachable nodes (skip node 36, leave node 48's existing cap)
-- [ ] Plan marked complete, summary written
+- [x] Plan marked complete, summary written
 
 ## Notes
 - Baseline (untouched 8ba076f0, worktree layout): 15 FAIL lines (10 tests + 5 subtests) — backup import/export,
@@ -85,3 +85,20 @@ Brief: `/root/flvx-workers/briefs/user-rule-limit.md` (user approval 2026-10-23,
   No SSH (skipped): every other node. Script + JSON: `runs/user-rule-limit/journald/`.
 - Screenshots (16, desktop + H5, light + dark): `runs/user-rule-limit/screens/` — home page (账号 规则配额 2 / 已用 3,
   per-tunnel card without 规则配额), grant list + edit modal (no 规则数), over-limit toast. All scripted checks passed.
+- Release: tag `3.0.27-fork.71` → 1320db79 (code d8920628). CI Build Check 39774120726 / 39774866040 green, Build and
+  Push Images 39774880013 green; release gate all PASS (Latest, not prerelease, same 10 assets as fork.70, compose
+  images pinned to :3.0.27-fork.71, install scripts pinned, gost sha256 ok, ghcr amd64+arm64).
+- Prod (2026-10-22 20:12 台湾时间): rollback dir `/opt/flvx-svc/rollback/pre-fork71-20261022T121207Z` (validated DB,
+  .env, compose, `local/flvxx-*:pre-fork71-…`), pruned to pre-fork71 + pre-fork70 (pre-fork69 + fork.68 images
+  removed). Panel only, no agent OTA (28 agents fork.67, node 21 fork.70). After: healthy, version
+  3.0.27-fork.71-mvjhrt60, 29/29 online and every node sent metrics after the restart, rules 34 (33 running) and 34
+  entry ports as before, user 7's 12 rules byte-identical (same sha256), 0 error lines. Panel CPU 4.83 % → 4.83 %
+  (60 s), RSS 39.3 → 41.5 MB.
+- Live check (temporary normal user 48, 规则数 1, tunnel 90): 1st create ok, 2nd 「已达到规则数上限（1 条）…」,
+  40 rapid creates → 28 limit refusals + 12 × 429; rule 152 and user 48 deleted, nothing left over.
+- Rollback: `bash /opt/flvx-svc/rollback/pre-fork71-20261022T121207Z/rollback.sh` (fork.70, keeps the DB; no schema
+  change). journald caps: `rm /etc/systemd/journald.conf.d/flvx-size.conf && systemctl restart systemd-journald` on
+  nodes 20/42/47/52 (trimmed logs cannot be restored).
+- Open: orphan agent listeners under parallel create/delete churn by several users at once (agent side, pre-existing);
+  `node-group/list`, `node-tag/list`, `tunnel-group*/list`, `tunnel-list/list` still show admin group names/colours to
+  normal users (names only, no secrets); diagnose endpoints are not rate limited.
