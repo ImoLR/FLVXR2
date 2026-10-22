@@ -116,6 +116,7 @@ def main():
     lp.add_argument("--report", default=None)
     lp.add_argument("--only", default="")
     lp.add_argument("--keep", action="store_true", help="leave the lab running after the run")
+    lp.add_argument("--geo", default="", help="dir with the pinned geoip.dat/geosite.dat (L2 seeds them instead of downloading)")
     cp = sub.add_parser("cleanup")
     cp.add_argument("--scratch", default="/root/tmp-work/landing-acceptance")
     pp = sub.add_parser("prod")

@@ -36,6 +36,11 @@ SOURCE_IPS = ["198.51.100.11", "198.51.100.12", "198.51.100.13"]
 HOST_IP6, NODE_IP6 = "2001:db8:acc::1", "2001:db8:acc::2"
 PANEL_PORT, HTTP_PORT, ECHO_PORT, REALITY_PORT, CUSTOM_PORT = 26481, 26482, 26483, 26443, 26490
 REALITY_SNI = "landing.test"
+# Plan 134: a private address the namespace can reach directly (layer-1 safety
+# proof) and lab-only names resolved inside the namespace (/etc/netns hosts).
+PRIVATE_IP = "10.255.77.1"
+LAB_DOMAINS = ["allowed.lab.test", "blocked.lab.test", "usera.lab.test"]
+NETNS_ETC = pathlib.Path("/etc/netns") / NS
 
 
 def sh(*args, check=True, **kw):
@@ -106,7 +111,12 @@ class Lab:
         for ip in SOURCE_IPS:
             sh("ip", "addr", "add", ip + "/24", "dev", HOST_IF)
         sh("ip", "-6", "addr", "add", HOST_IP6 + "/64", "dev", HOST_IF, "nodad")
+        sh("ip", "addr", "add", PRIVATE_IP + "/32", "dev", HOST_IF)
         sh("ip", "link", "set", HOST_IF, "up")
+        # `ip netns exec` bind-mounts /etc/netns/<ns>/hosts over /etc/hosts for
+        # the agent and its Core only; the host's own /etc/hosts is untouched.
+        NETNS_ETC.mkdir(parents=True, exist_ok=True)
+        (NETNS_ETC / "hosts").write_text("127.0.0.1 localhost\n::1 localhost\n" + HOST_IP + " " + " ".join(LAB_DOMAINS) + "\n")
         nsx = ("ip", "netns", "exec", NS)
         sh(*nsx, "ip", "addr", "add", NODE_IP + "/24", "dev", NS_IF)
         sh(*nsx, "ip", "-6", "addr", "add", NODE_IP6 + "/64", "dev", NS_IF, "nodad")
@@ -120,11 +130,12 @@ class Lab:
     def fixtures(self):
         self.start("fixtures", [sys.executable, HERE / "fixtures.py", "serve", HOST_IP, HTTP_PORT, ECHO_PORT])
         self.start("fixtures6", [sys.executable, HERE / "fixtures.py", "serve", HOST_IP6, HTTP_PORT, ECHO_PORT])
+        self.start("fixtures-private", [sys.executable, HERE / "fixtures.py", "serve", PRIVATE_IP, HTTP_PORT, ECHO_PORT])
         key, crt = self.scratch / "tls.key", self.scratch / "tls.crt"
         sh("openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-keyout", key, "-out", crt, "-days", "1", "-subj", "/CN=" + REALITY_SNI)
         self.start("reality-dest", ["openssl", "s_server", "-accept", f"{HOST_IP}:{REALITY_PORT}", "-cert", crt, "-key", key, "-www", "-tls1_3", "-alpn", "h2,http/1.1", "-quiet"])
         self.start("customfake", [sys.executable, HERE / "customfake.py", "serve", CUSTOM_PORT, self.custom_token])
-        for host, port in ((HOST_IP, HTTP_PORT), (HOST_IP, ECHO_PORT), (HOST_IP6, HTTP_PORT), (HOST_IP, REALITY_PORT), ("127.0.0.1", CUSTOM_PORT)):
+        for host, port in ((HOST_IP, HTTP_PORT), (HOST_IP, ECHO_PORT), (HOST_IP6, HTTP_PORT), (HOST_IP, REALITY_PORT), ("127.0.0.1", CUSTOM_PORT), (PRIVATE_IP, HTTP_PORT)):
             self.wait_port(host, port)
 
     def wait_port(self, host, port, timeout=20):
@@ -247,3 +258,4 @@ def cleanup_namespace():
         sh("ip", "netns", "del", NS, check=False)
     if sh("ip", "link", "show", HOST_IF, check=False).returncode == 0:
         sh("ip", "link", "del", HOST_IF, check=False)
+    shutil.rmtree(NETNS_ETC, ignore_errors=True)
