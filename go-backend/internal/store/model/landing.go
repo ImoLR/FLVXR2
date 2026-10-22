@@ -149,7 +149,7 @@ type LandingNode struct {
 	RouteRuleCount int    `gorm:"not null;default:0" json:"routeRuleCount"`
 	RouteDefault   string `gorm:"not null;default:''" json:"-"`
 	CreatedTime    int64  `gorm:"not null;index:idx_landing_reuse,priority:5" json:"createdTime"`
-	UpdatedTime  int64  `gorm:"not null" json:"updatedTime"`
+	UpdatedTime    int64  `gorm:"not null" json:"updatedTime"`
 }
 
 func (LandingNode) TableName() string { return "landing_node" }
