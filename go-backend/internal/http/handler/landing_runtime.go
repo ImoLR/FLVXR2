@@ -229,7 +229,20 @@ func (h *Handler) syncLandingServer(serverID int64) (*landingSyncSnapshot, error
 		snapshot.Nodes[i].NodeID = s.NodeID
 	}
 	h.recordNativeEgress(s.ID, snapshot.Egress, egressWarnings, egressErr)
+	if snapshot.Egress != nil && snapshot.Egress.Ready && !s.EgressReady && !s.EgressRestartOK && node.LandingEgress >= 1 && h.landingServerReadyNow(s.ID) {
+		// First report of a Core with the routing API (e.g. a newly enabled
+		// landing): push again right away so the default and global rules
+		// (plan 134) and queued node rules apply now, not a minute later.
+		h.landingEgressSaveAsync([]int64{s.ID})
+	}
 	return &snapshot, nil
+}
+
+// landingServerReadyNow re-reads the stored readiness (a failed status write
+// must not turn the re-push above into a loop).
+func (h *Handler) landingServerReadyNow(id int64) bool {
+	cur, err := h.repo.GetLandingServer(id)
+	return err == nil && cur != nil && cur.EgressReady
 }
 
 // recordNativeEgress stores the agent's egress report plus panel-side

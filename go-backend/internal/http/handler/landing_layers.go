@@ -55,8 +55,8 @@ func landingUsedActions(d *repo.LandingEgressData) []string {
 	return out
 }
 
-// compileLandingReport compiles a server for status views and save checks
-// (no exemption lookups). mutate applies a candidate change first.
+// compileLandingReport compiles a server for status views and save checks.
+// mutate applies a candidate change first.
 func (h *Handler) compileLandingReport(d *repo.LandingEgressData, mutate func(*repo.LandingEgressData), forceNodeRules bool) (*landingegress.Plan, landingegress.Report, error) {
 	if mutate != nil {
 		mutate(d)
@@ -64,7 +64,7 @@ func (h *Handler) compileLandingReport(d *repo.LandingEgressData, mutate func(*r
 	_, geoIP, geoSite, _ := landingEgressSupport(d)
 	in := landingEgressInput(d)
 	in.GeoIP, in.GeoSite = geoIP, geoSite
-	in.Exempt = func() ([]string, error) { return nil, nil }
+	in.Exempt = h.landingExemptSources // cached; status hashes must match the pushed plan
 	if forceNodeRules {
 		// Save checks: judge capacity as if the Core could take them now.
 		in.NodeRules = true
@@ -629,3 +629,14 @@ func landingRulesJSON(rules []landingegress.Rule) string {
 	b, _ := json.Marshal(rules)
 	return string(b)
 }
+
+// SetLandingLayerApplyDelay shortens the debounce of the push after global
+// rule saves (tests).
+func (h *Handler) SetLandingLayerApplyDelay(d time.Duration) {
+	h.layerApply.mu.Lock()
+	h.layerApply.delay = d
+	h.layerApply.mu.Unlock()
+}
+
+// WaitEgressSync waits for background pushes after egress edits (tests).
+func (h *Handler) WaitEgressSync() { h.egressSyncWG.Wait() }
