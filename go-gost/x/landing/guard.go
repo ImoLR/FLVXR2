@@ -56,6 +56,12 @@ func (g *guardGroup) inbound() map[string]any {
 // rules match only the helper inbound and come before the safety rule: the
 // destination is fixed (the dest REALITY already dialed directly before), and
 // a domain-only match needs no DNS lookup of the sniffed name.
+//
+// The allow rule also requires the sniffed protocol "tls": when the dest is a
+// domain (every production dest, e.g. www.lovelive-anime.jp:443) and sniffing
+// finds no SNI (no-SNI ClientHello, not TLS at all), the Core matches the
+// domain rule against the dokodemo target itself, which IS an allowed name —
+// without this condition such probes were relayed to the real dest.
 func (g *guardGroup) rules() []any {
 	tag := guardTag(g.Port)
 	domains := make([]string, 0, len(g.Names))
@@ -63,7 +69,7 @@ func (g *guardGroup) rules() []any {
 		domains = append(domains, "full:"+n)
 	}
 	return []any{
-		map[string]any{"type": "field", "ruleTag": tag + "-allow", "inboundTag": []string{tag}, "domain": domains, "outboundTag": "direct"},
+		map[string]any{"type": "field", "ruleTag": tag + "-allow", "inboundTag": []string{tag}, "protocol": []string{"tls"}, "domain": domains, "outboundTag": "direct"},
 		map[string]any{"type": "field", "ruleTag": tag + "-block", "inboundTag": []string{tag}, "outboundTag": "block"},
 	}
 }

@@ -53,7 +53,7 @@ func TestGuardGroups(t *testing.T) {
 	// Rules: allow exact serverNames to direct, block the rest; only the helper inbound.
 	rules := guardRules(groups)
 	b, _ := json.Marshal(rules)
-	want := `[{"domain":["full:www.lovelive-anime.jp"],"inboundTag":["flvxg-39999"],"outboundTag":"direct","ruleTag":"flvxg-39999-allow","type":"field"},{"inboundTag":["flvxg-39999"],"outboundTag":"block","ruleTag":"flvxg-39999-block","type":"field"},{"domain":["full:a.example.com","full:b.example.com"],"inboundTag":["flvxg-39998"],"outboundTag":"direct","ruleTag":"flvxg-39998-allow","type":"field"},{"inboundTag":["flvxg-39998"],"outboundTag":"block","ruleTag":"flvxg-39998-block","type":"field"}]`
+	want := `[{"domain":["full:www.lovelive-anime.jp"],"inboundTag":["flvxg-39999"],"outboundTag":"direct","protocol":["tls"],"ruleTag":"flvxg-39999-allow","type":"field"},{"inboundTag":["flvxg-39999"],"outboundTag":"block","ruleTag":"flvxg-39999-block","type":"field"},{"domain":["full:a.example.com","full:b.example.com"],"inboundTag":["flvxg-39998"],"outboundTag":"direct","protocol":["tls"],"ruleTag":"flvxg-39998-allow","type":"field"},{"inboundTag":["flvxg-39998"],"outboundTag":"block","ruleTag":"flvxg-39998-block","type":"field"}]`
 	if string(b) == want {
 		t.Fatal("rules must be in port order")
 	}
