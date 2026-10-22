@@ -103,6 +103,42 @@ function LandingClientConfig({
   );
 }
 
+// Plan 132: a non-admin's server card shows only their own node count, how
+// many more they can create there (both caps) and the server's end date.
+function UserServerSummary({ server }: { server: LandingServer }) {
+  const full = server.myRemaining === 0;
+
+  return (
+    <>
+      <dl className="grid grid-cols-2 gap-3 text-sm">
+        <div>
+          <dt className="text-default-500">我的节点</dt>
+          <dd className="mt-1">{server.nodeCount ?? 0}</dd>
+        </div>
+        <div>
+          <dt className="text-default-500">还可创建</dt>
+          <dd className={full ? "mt-1 text-warning" : "mt-1"}>
+            {server.myRemaining === undefined
+              ? "—"
+              : full
+                ? "已达上限"
+                : server.myRemaining}
+          </dd>
+        </div>
+        <div>
+          <dt className="text-default-500">可用至</dt>
+          <dd className="mt-1">{landingDate(server.availableUntil)}</dd>
+        </div>
+      </dl>
+      {full && (
+        <p className="text-xs text-default-500">
+          已达到可创建的节点数，删除不用的节点后可再创建，或联系管理员调整。
+        </p>
+      )}
+    </>
+  );
+}
+
 export default function LandingPage() {
   const admin = isAdmin();
   // H5: protocol chips stack in a right-hand column of the server card header.
@@ -142,6 +178,42 @@ export default function LandingPage() {
   useEffect(() => {
     void load();
   }, [load]);
+  // While a node shows 「正在同步，请稍后」, re-read only the node list every 5 s
+  // so it flips to 正常 by itself. Bounded: stops when nothing is pending, after
+  // 2 min per set of pending nodes, on unmount, and skips ticks while hidden.
+  const pendingKey = nodes
+    .filter((node) => node.status === "pending")
+    .map((node) => node.id)
+    .join(",");
+
+  useEffect(() => {
+    if (!pendingKey) return;
+    const until = Date.now() + 2 * 60 * 1000;
+    let busy = false;
+    let disposed = false;
+    const timer = window.setInterval(() => {
+      if (Date.now() > until) {
+        window.clearInterval(timer);
+
+        return;
+      }
+      if (busy || document.hidden) return;
+      busy = true;
+      void landingNodes()
+        .then((res) => {
+          if (!disposed && res.code === 0) setNodes(res.data || []);
+        })
+        .catch(() => undefined)
+        .finally(() => {
+          busy = false;
+        });
+    }, 5000);
+
+    return () => {
+      disposed = true;
+      window.clearInterval(timer);
+    };
+  }, [pendingKey]);
   useEffect(() => {
     const serverId = Number(params.get("server"));
     if (!admin || !serverId || !servers.length) return;
@@ -339,12 +411,15 @@ export default function LandingPage() {
                         >
                           {server.name}
                         </h2>
-                        <p className="mt-1 text-xs text-default-500">
-                          {server.source === "shared"
-                            ? "妙妙屋共享"
-                            : "FLVX 自有落地"}
-                        </p>
-                        {server.source === "shared" &&
+                        {admin && (
+                          <p className="mt-1 text-xs text-default-500">
+                            {server.source === "shared"
+                              ? "妙妙屋共享"
+                              : "FLVX 自有落地"}
+                          </p>
+                        )}
+                        {admin &&
+                          server.source === "shared" &&
                           landingServerModeLabel(
                             server.sharedCaps?.server_mode,
                           ) && (
@@ -433,7 +508,7 @@ export default function LandingPage() {
                     )}
                   </CardHeader>
                   <CardBody className="space-y-4">
-                    {server.source === "shared" && (
+                    {admin && server.source === "shared" && (
                       <>
                         <SharedCaps server={server} />
                         <p className="text-xs text-default-500">
@@ -486,40 +561,45 @@ export default function LandingPage() {
                         </Chip>
                       )}
                     </div>
-                    <dl className="grid grid-cols-2 gap-3 text-sm">
-                      <div>
-                        <dt className="text-default-500">计费流量</dt>
-                        <dd className="mt-1">
-                          {landingGB(server.usedBytes)} GB
-                        </dd>
-                      </div>
-                      <div>
-                        <dt className="text-default-500">连接数 / 上限</dt>
-                        <dd className="mt-1">
-                          {server.connections ?? 0} /{" "}
-                          {server.maxConnections || "不限"}
-                        </dd>
-                      </div>
-                      <div>
-                        <dt className="text-default-500">节点数</dt>
-                        <dd className="mt-1">
-                          {server.nodeCount ?? 0} · 每人最多{" "}
-                          {server.maxNodesPerUser}
-                        </dd>
-                      </div>
-                      <div>
-                        <dt className="text-default-500">可用至</dt>
-                        <dd className="mt-1">
-                          {landingDate(server.availableUntil)}
-                        </dd>
-                      </div>
-                    </dl>
+                    {admin ? (
+                      <dl className="grid grid-cols-2 gap-3 text-sm">
+                        <div>
+                          <dt className="text-default-500">计费流量</dt>
+                          <dd className="mt-1">
+                            {landingGB(server.usedBytes)} GB
+                          </dd>
+                        </div>
+                        <div>
+                          <dt className="text-default-500">连接数 / 上限</dt>
+                          <dd className="mt-1">
+                            {server.connections ?? 0} /{" "}
+                            {server.maxConnections || "不限"}
+                          </dd>
+                        </div>
+                        <div>
+                          <dt className="text-default-500">节点数</dt>
+                          <dd className="mt-1">
+                            {server.nodeCount ?? 0} · 每人最多{" "}
+                            {server.maxNodesPerUser}
+                          </dd>
+                        </div>
+                        <div>
+                          <dt className="text-default-500">可用至</dt>
+                          <dd className="mt-1">
+                            {landingDate(server.availableUntil)}
+                          </dd>
+                        </div>
+                      </dl>
+                    ) : (
+                      <UserServerSummary server={server} />
+                    )}
                     <div className="flex flex-wrap gap-2">
                       <Button
                         color="success"
                         isDisabled={
                           server.status !== "active" ||
-                          server.sharedAvailable === false
+                          server.sharedAvailable === false ||
+                          (!admin && server.myRemaining === 0)
                         }
                         size="sm"
                         startContent={<Plus size={16} />}
@@ -678,10 +758,12 @@ export default function LandingPage() {
                       <CardBody className="space-y-4">
                         <div className="text-sm">
                           <p>已用 / 上限：{usage(node)}</p>
-                          <p className="mt-2">
-                            连接数：{node.connections ?? 0} /{" "}
-                            {node.maxConnections || "不限"}
-                          </p>
+                          {admin && (
+                            <p className="mt-2">
+                              连接数：{node.connections ?? 0} /{" "}
+                              {node.maxConnections || "不限"}
+                            </p>
+                          )}
                           {node.egressLabel && (
                             <p className="mt-2">出站：{node.egressLabel}</p>
                           )}

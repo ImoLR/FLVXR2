@@ -121,7 +121,10 @@ export interface LandingServer {
   status: string;
   userGroupIds: number[];
   online?: boolean;
+  // Admin: all users' nodes on the server. Non-admin (plan 132): the caller's
+  // own nodes, plus myRemaining = how many more the caller can create here.
   nodeCount?: number;
+  myRemaining?: number;
   connections?: number;
   usedBytes?: number;
   routeProfileId?: number;
@@ -392,7 +395,7 @@ export const landingDate = (value?: number | null) =>
 export const landingStatus: Record<string, string> = {
   active: "正常",
   error: "节点异常",
-  pending: "等待同步",
+  pending: "正在同步，请稍后",
   paused_quota: "流量已用完",
   paused_server_quota: "服务器额度已用完",
   paused_expired: "已到期（宽限期）",

@@ -47,34 +47,88 @@ func jsonStrings(v string) []string {
 	_ = json.Unmarshal([]byte(v), &out)
 	return out
 }
-func (h *Handler) landingServerView(s model.LandingServer, admin bool, catalogs ...landingEgressCatalog) map[string]interface{} {
+
+// landingServerStats are the server-wide node aggregates of the admin view.
+type landingServerStats struct {
+	count, connections int
+	billed             int64
+	enabled            bool
+}
+
+// landingServerStatsByID aggregates all landing nodes per server in one pass.
+func landingServerStatsByID(all []model.LandingNode) map[int64]*landingServerStats {
+	out := map[int64]*landingServerStats{}
+	for _, n := range all {
+		st := out[n.LandingServerID]
+		if st == nil {
+			st = &landingServerStats{}
+			out[n.LandingServerID] = st
+		}
+		st.count++
+		st.connections += n.Connections
+		st.billed += n.BilledIn + n.BilledOut
+		st.enabled = st.enabled || (n.Status == "active" && !n.DeletePending)
+	}
+	return out
+}
+
+// landingServerUserHidden are server fields a non-admin never receives:
+// admin limits and defaults, core sizing, and 妙妙屋 sync internals. Server-wide
+// aggregates (connections, traffic, other users' nodes) are not added at all.
+var landingServerUserHidden = []string{"chainOnly", "routeProfileId", "egressRestartOk", "egressState", "egressError", "egressReady", "egressCheckedAt", "remoteServerId", "maxConnections", "defaultMaxConnections", "defaultMaxOnlineIps", "defaultTrafficLimitBytes", "defaultUserQuotaBytes", "defaultExpiryMode", "defaultExpiryDays", "defaultExpiresAt", "coreMemoryMb", "coreCpuPercent", "revision", "sharedLastSyncAt", "sharedSyncError", "sharedPushedRevision", "sharedAppliedRevision", "createdTime", "updatedTime"}
+
+// landingServerView renders one server for an admin, with server-wide
+// aggregates. Lists use landingServerAdminView / landingServerUserView with
+// aggregates computed once per request.
+func (h *Handler) landingServerView(s model.LandingServer, catalogs ...landingEgressCatalog) map[string]interface{} {
 	var catalog landingEgressCatalog
 	if len(catalogs) > 0 {
 		catalog = catalogs[0]
 	} else {
 		catalog = h.landingEgressCatalog()
 	}
+	all, _ := h.repo.ListLandingNodes(0, true)
+	return h.landingServerAdminView(s, catalog, landingServerStatsByID(all)[s.ID])
+}
+
+func (h *Handler) landingServerAdminView(s model.LandingServer, catalog landingEgressCatalog, st *landingServerStats) map[string]interface{} {
+	return h.landingServerViewWith(s, true, catalog, st, nil)
+}
+
+// landingServerUserView is a non-admin's view: own node count on the server and
+// how many more they may create, without limits or other users' data.
+func (h *Handler) landingServerUserView(s model.LandingServer, catalog landingEgressCatalog, counts *repo.LandingUserNodeCounts) map[string]interface{} {
+	return h.landingServerViewWith(s, false, catalog, nil, counts)
+}
+
+func (h *Handler) landingServerViewWith(s model.LandingServer, admin bool, catalog landingEgressCatalog, st *landingServerStats, counts *repo.LandingUserNodeCounts) map[string]interface{} {
 	v := landingMap(s)
 	v["protocols"] = jsonStrings(s.Protocols)
 	v["realityServerNames"] = jsonStrings(s.RealityServerNames)
-	groups, _ := h.repo.LandingServerGroupIDs(s.ID)
 	if admin {
+		groups, _ := h.repo.LandingServerGroupIDs(s.ID)
 		v["userGroupIds"] = groups
 		direct, _ := h.repo.LandingServerDirectUserCount(s.ID)
 		v["directUserCount"] = direct
 		chainNodes, _ := h.repo.ChainCopyCountForServer(s.ID)
 		v["chainNodeCount"] = chainNodes
-	} else {
-		delete(v, "chainOnly")
 	}
 	if s.Source == "shared" {
 		caps := repo.SharedLandingCaps(&s)
-		// The busy-port list only feeds port picking; the view carries its size.
-		v["busyPortCount"] = len(repo.SharedBusyPortList(&s))
-		v["sharedCaps"] = caps
+		if admin {
+			// The busy-port list only feeds port picking; the view carries its size.
+			v["busyPortCount"] = len(repo.SharedBusyPortList(&s))
+			v["sharedCaps"] = caps
+		} else {
+			// Users only need the extra-protocol capabilities (create dialog:
+			// creatable protocols, UDP hints), not the share's limits or usage.
+			v["sharedCaps"] = map[string]interface{}{"protocol_caps": caps.ProtocolCaps}
+		}
 		if cfg, e := h.repo.GetLandingIntegration(); e == nil && cfg.SyncError != "" {
 			s.SharedSyncError = cfg.SyncError
-			v["sharedSyncError"] = cfg.SyncError
+			if admin {
+				v["sharedSyncError"] = cfg.SyncError
+			}
 		}
 		v["online"] = caps.Core.State == "running" && s.SharedSyncError == "" && s.SharedLastSyncAt > time.Now().Add(-2*time.Minute).UnixMilli()
 		v["landingSupported"] = true
@@ -97,29 +151,24 @@ func (h *Handler) landingServerView(s model.LandingServer, admin bool, catalogs 
 	// Users only see the read-only summary, never profile internals.
 	v["egressLabel"] = catalog.label(s.RouteProfileID)
 	if !admin {
-		for _, key := range []string{"routeProfileId", "egressRestartOk", "egressState", "egressError", "egressReady", "egressCheckedAt"} {
+		for _, key := range landingServerUserHidden {
 			delete(v, key)
 		}
+		// The caller's own nodes, counted exactly like node creation counts.
+		v["nodeCount"] = counts.PerServer[s.ID]
+		v["myRemaining"] = counts.Remaining(s.ID, s.MaxNodesPerUser)
+		return v
 	}
-	all, _ := h.repo.ListLandingNodes(0, true)
-	count, connections := 0, 0
-	billed := int64(0)
-	enabled := false
-	for _, n := range all {
-		if n.LandingServerID == s.ID {
-			count++
-			connections += n.Connections
-			billed += n.BilledIn + n.BilledOut
-			enabled = enabled || (n.Status == "active" && !n.DeletePending)
-		}
+	if st == nil {
+		st = &landingServerStats{}
 	}
 	if s.Source == "shared" {
-		v["sharedNotice"] = sharedCoreNotice(&s, enabled)
+		v["sharedNotice"] = sharedCoreNotice(&s, st.enabled)
 	}
-	v["nodeCount"] = count
-	v["connections"] = connections
-	v["billedBytes"] = billed
-	v["usedBytes"] = billed
+	v["nodeCount"] = st.count
+	v["connections"] = st.connections
+	v["billedBytes"] = st.billed
+	v["usedBytes"] = st.billed
 	return v
 }
 func (h *Handler) landingNodeView(n model.LandingNode, catalogs ...landingEgressCatalog) map[string]interface{} {
@@ -233,7 +282,7 @@ func (h *Handler) landingServerEnable(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.syncLandingServer(s.ID)
-	response.WriteJSON(w, response.OK(h.landingServerView(*s, true)))
+	response.WriteJSON(w, response.OK(h.landingServerView(*s)))
 }
 func (h *Handler) landingServerList(w http.ResponseWriter, r *http.Request) {
 	uid, role, _ := userRoleFromRequest(r)
@@ -262,8 +311,26 @@ func (h *Handler) landingServerList(w http.ResponseWriter, r *http.Request) {
 	}
 	out := []map[string]interface{}{}
 	catalog := h.landingEgressCatalog()
-	for _, s := range ss {
-		out = append(out, h.landingServerView(s, role == 0, catalog))
+	// Per-request aggregates: one node query for the whole list, not per server.
+	if role == 0 {
+		all, err := h.repo.ListLandingNodes(0, true)
+		if err != nil {
+			landingError(w, err)
+			return
+		}
+		stats := landingServerStatsByID(all)
+		for _, s := range ss {
+			out = append(out, h.landingServerAdminView(s, catalog, stats[s.ID]))
+		}
+	} else {
+		counts, err := h.repo.LandingUserNodeCounts(uid)
+		if err != nil {
+			landingError(w, err)
+			return
+		}
+		for _, s := range ss {
+			out = append(out, h.landingServerUserView(s, catalog, &counts))
+		}
 	}
 	response.WriteJSON(w, response.OK(out))
 }
@@ -375,7 +442,7 @@ func (h *Handler) landingServerSave(w http.ResponseWriter, r *http.Request) {
 	if saved == nil {
 		saved = &req.LandingServer
 	}
-	view := h.landingServerView(*saved, true)
+	view := h.landingServerView(*saved)
 	if len(warnings) > 0 {
 		view["egressWarnings"] = warnings
 	}

@@ -300,13 +300,19 @@ export function CreateLandingNodeDialog({
               </div>
             </div>
           )}
-          <p className="text-xs text-default-500">
-            端口自动分配
-            {server?.source === "shared"
-              ? `（${server.portMin}–${server.portMax}）`
-              : ""}
-            。连接数、流量上限、倍率和有效期由管理员设置。
-          </p>
+          {admin ? (
+            <p className="text-xs text-default-500">
+              端口自动分配
+              {server?.source === "shared"
+                ? `（${server.portMin}–${server.portMax}）`
+                : ""}
+              。连接数、流量上限、倍率和有效期由管理员设置。
+            </p>
+          ) : (
+            <p className="text-xs text-default-500">
+              端口自动分配。流量上限、倍率和有效期由管理员设置。
+            </p>
+          )}
         </ModalBody>
         <ModalFooter>
           <Button color="danger" variant="flat" onPress={onClose}>

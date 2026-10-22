@@ -133,7 +133,7 @@ func TestSharedNotReadyReasons(t *testing.T) {
 	}
 	e.h.syncSharedIntegration(context.Background(), true)
 	s := sharedServer(t, e)
-	if v := e.h.landingServerView(s, true); v["sharedNotice"] != "" {
+	if v := e.h.landingServerView(s); v["sharedNotice"] != "" {
 		t.Fatalf("idle stopped share flagged: %v", v["sharedNotice"])
 	}
 	n, err := e.r.CreateLandingNode(2, s.ID, "pending", "ss2022", true)
@@ -149,7 +149,7 @@ func TestSharedNotReadyReasons(t *testing.T) {
 	}
 	e.h.syncSharedIntegration(context.Background(), true)
 	s = sharedServer(t, e)
-	v := e.h.landingServerView(s, true)
+	v := e.h.landingServerView(s)
 	if notice, _ := v["sharedNotice"].(string); !strings.Contains(notice, "核心未运行") || !strings.Contains(notice, "Helper") {
 		t.Fatalf("never-reported core: %v", v["sharedNotice"])
 	}
@@ -162,14 +162,14 @@ func TestSharedNotReadyReasons(t *testing.T) {
 		f.collectedAt = time.Now().UnixMilli()
 		e.h.syncSharedIntegration(context.Background(), true)
 		s = sharedServer(t, e)
-		if notice, _ := e.h.landingServerView(s, true)["sharedNotice"].(string); !strings.Contains(notice, want) {
+		if notice, _ := e.h.landingServerView(s)["sharedNotice"].(string); !strings.Contains(notice, want) {
 			t.Fatalf("state %s → %q", state, notice)
 		}
 	}
 	f.core = "running"
 	e.h.syncSharedIntegration(context.Background(), true)
 	s = sharedServer(t, e)
-	if v := e.h.landingServerView(s, true); v["sharedNotice"] != "" {
+	if v := e.h.landingServerView(s); v["sharedNotice"] != "" {
 		t.Fatalf("running core flagged: %v", v["sharedNotice"])
 	}
 	if nv := e.h.landingNodeView(*n); nv["pendingReason"] != nil {

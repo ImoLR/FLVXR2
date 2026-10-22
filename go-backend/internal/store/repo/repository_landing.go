@@ -267,10 +267,71 @@ func (r *Repository) SaveLandingServer(s *model.LandingServer, groups []int64) e
 		return nil
 	})
 }
-func (r *Repository) GetLandingUserSetting(userID int64) (model.LandingUserSetting, []model.UserServerQuota, error) {
-	s := model.LandingUserSetting{UserID: userID, MaxNodes: 5}
-	err := r.db.First(&s, "user_id = ?", userID).Error
+
+// DefaultLandingUserMaxNodes is the total landing-node cap of a user without
+// a landing_user_setting row.
+const DefaultLandingUserMaxNodes = 5
+
+// landingUserSetting is the single lookup of a user's landing setting and
+// total node cap (default DefaultLandingUserMaxNodes when no row exists). Node
+// creation, the admin user dialog and the user's server list all read the cap
+// through here.
+func landingUserSetting(db *gorm.DB, userID int64) (model.LandingUserSetting, error) {
+	s := model.LandingUserSetting{UserID: userID, MaxNodes: DefaultLandingUserMaxNodes}
+	err := db.First(&s, "user_id = ?", userID).Error
 	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		return s, err
+	}
+	return s, nil
+}
+
+// LandingUserNodeCounts is what the node limits of createLandingNode see for
+// one user: the total cap, the user's node count over all servers and per
+// server. Counted exactly like creation counts (every landing_node row of the
+// user, delete-pending included). One grouped query for any number of servers.
+type LandingUserNodeCounts struct {
+	MaxNodes  int
+	Total     int64
+	PerServer map[int64]int64
+}
+
+func (r *Repository) LandingUserNodeCounts(userID int64) (LandingUserNodeCounts, error) {
+	out := LandingUserNodeCounts{PerServer: map[int64]int64{}}
+	setting, err := landingUserSetting(r.db, userID)
+	if err != nil {
+		return out, err
+	}
+	out.MaxNodes = setting.MaxNodes
+	var rows []struct {
+		LandingServerID int64
+		N               int64
+	}
+	if err := r.db.Model(&model.LandingNode{}).Select("landing_server_id, COUNT(*) AS n").Where("user_id = ?", userID).Group("landing_server_id").Scan(&rows).Error; err != nil {
+		return out, err
+	}
+	for _, row := range rows {
+		out.PerServer[row.LandingServerID] = row.N
+		out.Total += row.N
+	}
+	return out, nil
+}
+
+// Remaining is how many more nodes the user can create on a server with the
+// given per-user cap (never below 0).
+func (c LandingUserNodeCounts) Remaining(serverID int64, maxNodesPerUser int) int64 {
+	left := int64(maxNodesPerUser) - c.PerServer[serverID]
+	if total := int64(c.MaxNodes) - c.Total; total < left {
+		left = total
+	}
+	if left < 0 {
+		return 0
+	}
+	return left
+}
+
+func (r *Repository) GetLandingUserSetting(userID int64) (model.LandingUserSetting, []model.UserServerQuota, error) {
+	s, err := landingUserSetting(r.db, userID)
+	if err != nil {
 		return s, nil, err
 	}
 	qs := []model.UserServerQuota{}
@@ -514,9 +575,8 @@ func (r *Repository) createLandingNode(userID, serverID int64, name, protocol st
 				return nil
 			}
 		}
-		setting := model.LandingUserSetting{MaxNodes: 5}
-		err := tx.First(&setting, "user_id = ?", userID).Error
-		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		setting, err := landingUserSetting(tx, userID)
+		if err != nil {
 			return err
 		}
 		var count int64
