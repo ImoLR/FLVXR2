@@ -9,6 +9,7 @@ import {
   EgressRule,
   NodeRulesView,
   RuleSummary,
+  actionColor,
   getNodeRules,
   saveNodeRules,
 } from "@/api/landing-egress";
@@ -75,11 +76,7 @@ function FixedRow({
       <div className="min-w-0 flex-1 space-y-1">
         <div className="flex flex-wrap items-center gap-2">
           <span className="break-all font-medium">{rule.name}</span>
-          <Chip
-            color={rule.action === "block" ? "danger" : "success"}
-            size="sm"
-            variant="flat"
-          >
+          <Chip color={actionColor(rule.action)} size="sm" variant="flat">
             → {rule.actionLabel}
           </Chip>
           <Chip className="text-default-600" size="sm" variant="bordered">
