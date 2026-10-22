@@ -76,6 +76,7 @@ type Handler struct {
 	egressDNS          map[string]egressDNSEntry
 	landingWarpAt      time.Time
 	egressSyncWG       sync.WaitGroup // background syncs after egress edits (tests wait)
+	layerApply         layerApplyState // debounced push after global rule saves (plan 134)
 	// landingRates keeps the last two committed counters per landing node for the
 	// monitor's live rates (memory only); see landing_monitor_rates.go.
 	landingRatesOnce sync.Once
@@ -1379,6 +1380,18 @@ func normalizeAndValidateConfigValue(key, value string) (string, error) {
 	switch strings.TrimSpace(key) {
 	case repo.LandingDefaultMaxNodesKey:
 		n, err := repo.ParseLandingDefaultMaxNodes(value)
+		if err != nil {
+			return "", err
+		}
+		return strconv.Itoa(n), nil
+	case repo.LandingRuleMaxNodeKey:
+		n, err := repo.ParseLandingRuleMaxNode(value)
+		if err != nil {
+			return "", err
+		}
+		return strconv.Itoa(n), nil
+	case repo.LandingRuleMaxTotalKey:
+		n, err := repo.ParseLandingRuleMaxTotal(value)
 		if err != nil {
 			return "", err
 		}

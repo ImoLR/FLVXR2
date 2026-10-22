@@ -194,16 +194,32 @@ func landingEgressInput(d *repo.LandingEgressData) landingegress.CompileInput {
 	if d.Server.Source == "native" && d.NodeGuard >= 1 {
 		in.Builtin, in.ChainTags = true, d.ChainTags
 	}
+	// Plan 134 layers: global layers follow the abuse defaults' readiness;
+	// node rules wait for a Core that hot-applies rules (never a restart).
+	global := d.Global
+	in.Global, in.Layers, in.NodeRules = &global, in.Abuse, landingNodeRulesReady(d)
+	in.Markers = d.Server.Source == "native" && d.NodeGuard >= landingegress.LayersVersion
+	in.Outbounds, in.NoIPv4, in.NoIPv6 = d.Outbounds, d.NoIPv4, d.NoIPv6
 	withheld := repo.LandingWithheldFunc(&d.Server)
 	for _, n := range d.Nodes {
 		// Withheld nodes (plan 121) are not in the desired state either.
 		if n.DeletePending || withheld(&n) {
 			continue
 		}
-		in.Nodes = append(in.Nodes, landingegress.NodeRef{ID: n.ID, Tag: n.InboundTag, Override: n.RouteProfileID})
+		rules, def := repo.NodeRulesFromModel(n)
+		in.Nodes = append(in.Nodes, landingegress.NodeRef{ID: n.ID, Tag: n.InboundTag, Override: n.RouteProfileID, Rules: rules, Default: def})
 	}
 	in.Resolve = func(id int64) (landingegress.PlanOutbound, error) { return resolveLandingOutbound(d, id) }
 	return in
+}
+
+// landingNodeRulesReady: node rules (plan 134) are sent only where a rule
+// change is a hot RoutingService update: the mmwx Helper (its FLVX Core got
+// the routing API with the first plan) or a native Core that reported it.
+// Elsewhere they stay queued (「下次重启生效」) instead of restarting a Core
+// that carries other users' connections.
+func landingNodeRulesReady(d *repo.LandingEgressData) bool {
+	return d.Server.Source == "shared" || d.Server.EgressReady
 }
 
 // coveredLandingTags lists inbound tags of nodes on a non-default profile.
@@ -359,23 +375,10 @@ func (h *Handler) ensureLandingWarp(ids []int64, force bool, budget time.Duratio
 			continue
 		}
 		needed := map[int64]bool{}
-		for _, n := range d.Nodes {
-			pid := landingegress.EffectiveProfile(d.Server.RouteProfileID, n.RouteProfileID)
-			p, ok := d.Profiles[pid]
-			if pid == 0 || !ok {
-				continue
-			}
-			actions := []string{p.DefaultAction}
-			for _, r := range p.Rules {
-				if r.Enabled {
-					actions = append(actions, r.Action)
-				}
-			}
-			for _, a := range actions {
-				if id, ok := landingegress.ActionOutbound(a); ok {
-					if o, ok := d.Outbounds[id]; ok && o.Type == landingegress.TypeWarp && o.Settings.WarpMode != "manual" {
-						needed[id] = true
-					}
+		for _, a := range landingUsedActions(d) {
+			if id, ok := landingegress.ActionOutbound(a); ok {
+				if o, ok := d.Outbounds[id]; ok && o.Type == landingegress.TypeWarp && o.Settings.WarpMode != "manual" {
+					needed[id] = true
 				}
 			}
 		}
@@ -557,6 +560,8 @@ func (h *Handler) registerLandingEgress(mux *http.ServeMux) {
 		"overview": h.landingEgressOverview, "outbound/save": h.landingEgressOutboundSave, "outbound/delete": h.landingEgressOutboundDelete,
 		"outbound/parse": h.landingEgressParseLink, "profile/save": h.landingEgressProfileSave, "profile/delete": h.landingEgressProfileDelete,
 		"whitelist/save": h.landingEgressWhitelistSave, "warp/register": h.landingEgressWarpRegister,
+		// Plan 134 global rule group and node-rule caps.
+		"global/get": h.landingEgressGlobalGet, "global/save": h.landingEgressGlobalSave, "user-caps/save": h.landingEgressUserCapsSave,
 	}
 	for path, fn := range routes {
 		fn := fn
@@ -574,7 +579,7 @@ func (h *Handler) registerLandingEgress(mux *http.ServeMux) {
 }
 
 func outboundView(o landingegress.Outbound, m model.LandingOutbound, usage []string) map[string]any {
-	return map[string]any{"id": o.ID, "name": o.Name, "type": o.Type, "ipVersion": o.IPVersion, "settings": o.Settings, "remark": o.Remark, "usedBy": usage, "updatedTime": m.UpdatedTime}
+	return map[string]any{"id": o.ID, "name": o.Name, "type": o.Type, "ipVersion": o.IPVersion, "settings": o.Settings, "remark": o.Remark, "usedBy": usage, "userAllowed": o.UserAllowed, "updatedTime": m.UpdatedTime}
 }
 
 func (h *Handler) landingEgressOverview(w http.ResponseWriter, r *http.Request) {
@@ -610,6 +615,32 @@ func (h *Handler) landingEgressOverview(w http.ResponseWriter, r *http.Request) 
 			}
 		}
 		outViews = append(outViews, outboundView(o, m, used))
+	}
+	// Plan 134: global layers and node rules using each template.
+	global, _, _ := h.repo.GetLandingGlobal()
+	allNodes, _ := h.repo.ListLandingNodes(0, true)
+	for _, v := range outViews {
+		ref := fmt.Sprintf("outbound:%v", v["id"])
+		inGlobal := global.DefaultAction == ref
+		for _, rule := range append(append([]landingegress.Rule{}, global.Forced...), global.Default...) {
+			inGlobal = inGlobal || rule.Action == ref
+		}
+		nodeUses := 0
+		for _, n := range allNodes {
+			rules, def := repo.NodeRulesFromModel(n)
+			for _, a := range append(landingegress.Actions(rules), def) {
+				if a == ref {
+					nodeUses++
+					break
+				}
+			}
+		}
+		v["usedByGlobal"], v["usedByNodes"] = inGlobal, nodeUses
+	}
+	globalView, err := h.landingGlobalView()
+	if err != nil {
+		landingError(w, err)
+		return
 	}
 	profileViews := []map[string]any{}
 	for _, m := range profiles {
@@ -650,7 +681,7 @@ func (h *Handler) landingEgressOverview(w http.ResponseWriter, r *http.Request) 
 		"exemptNodeCount": len(nodeAddrs), "exemptPreview": nodeAddrs[:min(len(nodeAddrs), 12)],
 		"landingNodes": nodeChoices, "forwards": forwards, "warpAccounts": warpViews,
 		"geo":       map[string]any{"release": landingegress.GeoRelease, "geoip": ipCodes, "geosite": siteCodes},
-		"ssMethods": landingegress.SSMethods(),
+		"ssMethods": landingegress.SSMethods(), "global": globalView,
 	}))
 }
 
@@ -704,6 +735,9 @@ func (h *Handler) landingEgressOutboundSave(w http.ResponseWriter, r *http.Reque
 			return
 		}
 		affected, _ = h.repo.LandingServersUsingProfiles(profiles)
+		// Global layers and node rules using it (plan 134).
+		layered, _ := h.repo.LandingServersUsingLayers(o.ID)
+		affected = mergeIDs(affected, layered)
 	}
 	if candidate.Type == landingegress.TypeLandingNode {
 		edges, err := h.repo.LandingUpstreamEdges(0, nil, nil, nil, &candidate)

@@ -18,7 +18,7 @@ import (
 
 func (h *Handler) registerLanding(mux *http.ServeMux) {
 	h.registerLandingEgress(mux)
-	for path, fn := range map[string]http.HandlerFunc{"integration/get": h.landingIntegrationGet, "integration/save": h.landingIntegrationSave, "integration/test": h.landingIntegrationTest, "integration/sync": h.landingIntegrationSync, "server/enable": h.landingServerEnable, "server/list": h.landingServerList, "server/save": h.landingServerSave, "node/list": h.landingNodeList, "node/create": h.limitMutation(mutationLanding, h.landingNodeCreate), "node/update": h.limitMutation(mutationLanding, h.landingNodeUpdate), "node/delete": h.limitMutation(mutationLanding, h.landingNodeDelete), "node/links": h.landingNodeLinks, "user/get": h.landingUserGet, "user/save": h.landingUserSave, "settings/get": h.landingSettingsGet, "settings/save": h.landingSettingsSave, "node/transfer": h.limitMutation(mutationLanding, h.landingNodeTransfer), "monitor": h.landingMonitor, "monitor/ips": h.landingMonitorIPs} {
+	for path, fn := range map[string]http.HandlerFunc{"integration/get": h.landingIntegrationGet, "integration/save": h.landingIntegrationSave, "integration/test": h.landingIntegrationTest, "integration/sync": h.landingIntegrationSync, "server/enable": h.landingServerEnable, "server/list": h.landingServerList, "server/save": h.landingServerSave, "node/list": h.landingNodeList, "node/create": h.limitMutation(mutationLanding, h.landingNodeCreate), "node/update": h.limitMutation(mutationLanding, h.landingNodeUpdate), "node/delete": h.limitMutation(mutationLanding, h.landingNodeDelete), "node/links": h.landingNodeLinks, "user/get": h.landingUserGet, "user/save": h.landingUserSave, "settings/get": h.landingSettingsGet, "settings/save": h.landingSettingsSave, "node/transfer": h.limitMutation(mutationLanding, h.landingNodeTransfer), "monitor": h.landingMonitor, "monitor/ips": h.landingMonitorIPs, "node/rules/get": h.landingNodeRulesGet, "node/rules/save": h.limitMutation(mutationLanding, h.landingNodeRulesSave)} {
 		mux.HandleFunc("/api/v1/landing/"+path, func(w http.ResponseWriter, r *http.Request) {
 			if r.Method != http.MethodPost {
 				response.WriteJSON(w, response.Err(405, "仅支持 POST"))
@@ -713,6 +713,17 @@ func (h *Handler) landingUserGet(w http.ResponseWriter, r *http.Request) {
 	if s.MaxNodesCustom {
 		view["customMaxNodes"] = s.MaxNodes
 	}
+	// Plan 134 node-rule caps: in force, source (global | custom | admin), the
+	// global defaults and how many node rules the user has.
+	caps, err := h.repo.EffectiveLandingRuleCaps(req.UserID)
+	if err != nil {
+		landingError(w, err)
+		return
+	}
+	used, _ := h.repo.LandingUserRuleTotal(req.UserID)
+	view["ruleMaxNode"], view["ruleMaxNodeSource"], view["globalRuleMaxNode"] = caps.PerNode, caps.PerNodeSource, caps.GlobalPerNode
+	view["ruleMaxTotal"], view["ruleMaxTotalSource"], view["globalRuleMaxTotal"] = caps.Total, caps.TotalSource, caps.GlobalTotal
+	view["ruleUsed"] = used
 	response.WriteJSON(w, response.OK(view))
 }
 func (h *Handler) landingUserSave(w http.ResponseWriter, r *http.Request) {
@@ -729,6 +740,12 @@ func (h *Handler) landingUserSave(w http.ResponseWriter, r *http.Request) {
 		ExtendFixedByMs int64                   `json:"extendFixedByMs"`
 		FixedNodeCount  int                     `json:"fixedNodeCount"`
 		ServerIDs       *[]int64                `json:"serverIds"`
+		// Plan 134 node-rule caps: source "global" follows the global
+		// default, "custom" uses the number; absent keeps the current choice.
+		RuleMaxNodeSource  string `json:"ruleMaxNodeSource"`
+		RuleMaxNode        *int   `json:"ruleMaxNode"`
+		RuleMaxTotalSource string `json:"ruleMaxTotalSource"`
+		RuleMaxTotal       *int   `json:"ruleMaxTotal"`
 	}
 	if err := landingDecode(r, &req); err != nil {
 		landingError(w, err)
@@ -739,7 +756,21 @@ func (h *Handler) landingUserSave(w http.ResponseWriter, r *http.Request) {
 		landingError(w, err)
 		return
 	}
+	ruleNode, err := landingRuleCapChoice(req.RuleMaxNodeSource, req.RuleMaxNode, "每个节点最多节点规则数")
+	if err != nil {
+		landingError(w, err)
+		return
+	}
+	ruleTotal, err := landingRuleCapChoice(req.RuleMaxTotalSource, req.RuleMaxTotal, "节点规则总数")
+	if err != nil {
+		landingError(w, err)
+		return
+	}
 	if err := h.repo.SaveLandingUserSettingWithGrants(req.UserID, maxNodes, req.Quotas, req.ExtendFixedByMs, req.ServerIDs); err != nil {
+		landingError(w, err)
+		return
+	}
+	if err := h.repo.SetLandingUserRuleCaps(req.UserID, ruleNode, ruleTotal); err != nil {
 		landingError(w, err)
 		return
 	}
@@ -754,6 +785,24 @@ func (h *Handler) landingUserSave(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	response.WriteJSON(w, response.OKEmpty())
+}
+
+// landingRuleCapChoice maps a 跟随全局 / 自定义 choice onto the repo value
+// (nil = keep, LandingRuleCapFollowGlobal = follow the global default).
+func landingRuleCapChoice(source string, value *int, label string) (*int, error) {
+	switch source {
+	case "":
+		return nil, nil
+	case "global":
+		v := repo.LandingRuleCapFollowGlobal
+		return &v, nil
+	case "custom":
+		if value == nil || *value < 0 {
+			return nil, errors.New("请填写" + label)
+		}
+		return value, nil
+	}
+	return nil, errors.New("落地设置无效")
 }
 
 // resolveNativeLandingTarget leaves normal target strings untouched.

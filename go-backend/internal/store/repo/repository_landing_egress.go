@@ -20,7 +20,7 @@ import (
 
 // OutboundFromModel decodes a stored template.
 func OutboundFromModel(m model.LandingOutbound) landingegress.Outbound {
-	o := landingegress.Outbound{ID: m.ID, Name: m.Name, Type: m.Type, IPVersion: m.IPVersion, Remark: m.Remark}
+	o := landingegress.Outbound{ID: m.ID, Name: m.Name, Type: m.Type, IPVersion: m.IPVersion, Remark: m.Remark, UserAllowed: m.UserAllowed}
 	_ = json.Unmarshal([]byte(m.Settings), &o.Settings)
 	return o
 }
@@ -121,7 +121,12 @@ func (r *Repository) SaveLandingOutbound(o *landingegress.Outbound) (*model.Land
 			saved.CreatedTime = now
 		}
 		saved.Name, saved.Type, saved.IPVersion, saved.Settings, saved.Remark, saved.UpdatedTime = o.Name, o.Type, o.IPVersion, string(raw), o.Remark, now
+		saved.UserAllowed = o.UserAllowed
 		if err := tx.Save(&saved).Error; err != nil {
+			return err
+		}
+		// false has a column default and is skipped on insert; set it.
+		if err := tx.Model(&saved).Update("user_allowed", o.UserAllowed).Error; err != nil {
 			return err
 		}
 		o.ID = saved.ID
@@ -156,6 +161,20 @@ func (r *Repository) DeleteLandingOutbound(id int64) error {
 			if profileUsesOutbound(ProfileFromModel(m), id) {
 				return fmt.Errorf("该出站正被路由方案「%s」使用，不能删除", m.Name)
 			}
+		}
+		global, nodes, err := landingOutboundRefs(tx, id)
+		if err != nil {
+			return err
+		}
+		if global {
+			return errors.New("该出站正被全局规则使用，不能删除")
+		}
+		if len(nodes) > 0 {
+			label := strings.Join(nodes[:min(len(nodes), 3)], "」、「")
+			if len(nodes) > 3 {
+				return fmt.Errorf("该出站正被节点「%s」等 %d 个节点的路由规则使用，不能删除", label, len(nodes))
+			}
+			return fmt.Errorf("该出站正被节点「%s」的路由规则使用，不能删除", label)
 		}
 		res := tx.Delete(&model.LandingOutbound{}, id)
 		if res.Error != nil {
@@ -380,6 +399,27 @@ type LandingEgressData struct {
 	NodeGuard  int // native agent: Reality guard + builtin rules (plan 127)
 	// ChainTags: chain copies on this server (plan 108), native only.
 	ChainTags []string
+	// Global is the global rule group (plan 134). NoIPv4 / NoIPv6: the panel
+	// knows the server has no address of that family (native: the agent's
+	// egress detection; shared: Custom's host report).
+	Global         landingegress.Global
+	NoIPv4, NoIPv6 bool
+}
+
+// LandingEgressActions lists every action a server's plan can reference:
+// node profiles, the global group and node rules.
+func (d *LandingEgressData) Actions() []string {
+	out := []string{}
+	for _, n := range d.Nodes {
+		pid := landingegress.EffectiveProfile(d.Server.RouteProfileID, n.RouteProfileID)
+		if p, ok := d.Profiles[pid]; pid != 0 && ok {
+			out = append(out, p.DefaultAction)
+			out = append(out, ruleActions(p)...)
+		}
+		rules, def := NodeRulesFromModel(n)
+		out = append(out, landingegress.Actions(rules, def)...)
+	}
+	return append(out, landingegress.Actions(append(append([]landingegress.Rule{}, d.Global.Forced...), d.Global.Default...), d.Global.DefaultAction)...)
 }
 
 func (r *Repository) LandingEgressData(serverID int64) (*LandingEgressData, error) {
@@ -417,18 +457,15 @@ func (r *Repository) LandingEgressData(serverID int64) (*LandingEgressData, erro
 			}
 		}
 	}
+	if d.Global, _, err = landingGlobal(r.db); err != nil {
+		return nil, err
+	}
+	d.NoIPv4, d.NoIPv6 = r.landingServerFamilies(&d.Server)
 	// Resolve upstreams only for templates this server actually uses.
 	used := map[int64]bool{}
-	for _, n := range d.Nodes {
-		pid := landingegress.EffectiveProfile(d.Server.RouteProfileID, n.RouteProfileID)
-		p, ok := d.Profiles[pid]
-		if pid == 0 || !ok {
-			continue
-		}
-		for _, a := range append([]string{p.DefaultAction}, ruleActions(p)...) {
-			if id, ok := landingegress.ActionOutbound(a); ok {
-				used[id] = true
-			}
+	for _, a := range d.Actions() {
+		if id, ok := landingegress.ActionOutbound(a); ok {
+			used[id] = true
 		}
 	}
 	for id := range used {
@@ -437,6 +474,22 @@ func (r *Repository) LandingEgressData(serverID int64) (*LandingEgressData, erro
 		}
 	}
 	return d, nil
+}
+
+// landingServerFamilies reports address families the server is known to
+// lack. Unknown stays false (never skip on a guess): native servers use the
+// agent's egress detection (v4 / v6 / dual), shared servers Custom's host
+// report (an IPv6 address without an IPv4 one, or the reverse).
+func (r *Repository) landingServerFamilies(s *model.LandingServer) (noV4, noV6 bool) {
+	if s.Source == "shared" {
+		h := SharedLandingCaps(s).Hosts
+		return h.IPv4 == "" && h.IPv6 != "", h.IPv6 == "" && h.IPv4 != ""
+	}
+	var n model.Node
+	if err := r.db.Select("id", "egress_detected").First(&n, s.NodeID).Error; err != nil {
+		return false, false
+	}
+	return n.EgressDetected == "v6", n.EgressDetected == "v4"
 }
 
 func ruleActions(p landingegress.Profile) []string {
@@ -604,22 +657,48 @@ func (r *Repository) LandingProfilesUsingOutbound(id int64) ([]int64, error) {
 // LandingUpstreamEdges maps server → servers it chains to via FLVX
 // landing-node outbounds (for loop detection).
 func (r *Repository) LandingUpstreamEdges(overrideServer int64, overrideProfile *int64, nodeOverride map[int64]*int64, profileOverride *landingegress.Profile, outboundOverride *landingegress.Outbound) (map[int64][]int64, error) {
+	return r.LandingUpstreamEdgesWith(EdgeOverrides{Server: overrideServer, ServerProfile: overrideProfile, NodeProfiles: nodeOverride, Profile: profileOverride, Outbound: outboundOverride})
+}
+
+// EdgeOverrides are candidate changes for loop detection (nil = stored).
+type EdgeOverrides struct {
+	Server        int64
+	ServerProfile *int64
+	NodeProfiles  map[int64]*int64
+	Profile       *landingegress.Profile
+	Outbound      *landingegress.Outbound
+	// Plan 134: candidate global group and node rules (node ID → actions).
+	Global    *landingegress.Global
+	NodeRules map[int64][]string
+}
+
+// LandingUpstreamEdgesWith also follows the global layers and node rules
+// (plan 134). Their references to a node on the same server are not edges:
+// such an upstream is refused when compiling (global layers: direct).
+func (r *Repository) LandingUpstreamEdgesWith(o EdgeOverrides) (map[int64][]int64, error) {
 	outs, profiles, err := r.LandingEgressCatalog()
 	if err != nil {
 		return nil, err
 	}
-	if profileOverride != nil {
-		profiles[profileOverride.ID] = *profileOverride
+	if o.Profile != nil {
+		profiles[o.Profile.ID] = *o.Profile
 	}
-	if outboundOverride != nil {
-		outs[outboundOverride.ID] = *outboundOverride
+	if o.Outbound != nil {
+		outs[o.Outbound.ID] = *o.Outbound
+	}
+	global, _, err := landingGlobal(r.db)
+	if err != nil {
+		return nil, err
+	}
+	if o.Global != nil {
+		global = *o.Global
 	}
 	var servers []model.LandingServer
 	if err := r.db.Select("id", "route_profile_id").Find(&servers).Error; err != nil {
 		return nil, err
 	}
 	var nodes []model.LandingNode
-	if err := r.db.Select("id", "landing_server_id", "route_profile_id").Find(&nodes).Error; err != nil {
+	if err := r.db.Select("id", "landing_server_id", "route_profile_id", "route_rules", "route_default").Find(&nodes).Error; err != nil {
 		return nil, err
 	}
 	nodeServer := map[int64]int64{}
@@ -636,18 +715,48 @@ func (r *Repository) LandingUpstreamEdges(overrideServer int64, overrideProfile 
 	serverProfile := map[int64]int64{}
 	for _, s := range servers {
 		pid := s.RouteProfileID
-		if s.ID == overrideServer && overrideProfile != nil {
-			pid = *overrideProfile
+		if s.ID == o.Server && o.ServerProfile != nil {
+			pid = *o.ServerProfile
 		}
 		serverProfile[s.ID] = pid
+	}
+	// Layered actions (global + node rules) per server; self edges skipped.
+	layered := map[int64][]string{}
+	globalActions := landingegress.Actions(append(append([]landingegress.Rule{}, global.Forced...), global.Default...), global.DefaultAction)
+	for _, s := range servers {
+		layered[s.ID] = append(layered[s.ID], globalActions...)
 	}
 	for _, n := range nodes {
 		nodeServer[n.ID] = n.LandingServerID
 		override := n.RouteProfileID
-		if v, ok := nodeOverride[n.ID]; ok {
+		if v, ok := o.NodeProfiles[n.ID]; ok {
 			override = v
 		}
 		mark(n.LandingServerID, landingegress.EffectiveProfile(serverProfile[n.LandingServerID], override))
+		if actions, ok := o.NodeRules[n.ID]; ok {
+			layered[n.LandingServerID] = append(layered[n.LandingServerID], actions...)
+		} else {
+			rules, def := NodeRulesFromModel(n)
+			layered[n.LandingServerID] = append(layered[n.LandingServerID], landingegress.Actions(rules, def)...)
+		}
+	}
+	target := func(a string) int64 {
+		id, ok := landingegress.ActionOutbound(a)
+		if !ok {
+			return 0
+		}
+		ob, ok := outs[id]
+		if !ok || ob.Type != landingegress.TypeLandingNode {
+			return 0
+		}
+		t := nodeServer[ob.Settings.LandingNodeID]
+		if t == 0 {
+			var n model.LandingNode
+			if err := r.db.Select("landing_server_id").First(&n, ob.Settings.LandingNodeID).Error; err == nil {
+				t = n.LandingServerID
+			}
+		}
+		return t
 	}
 	edges := map[int64][]int64{}
 	for server, set := range used {
@@ -663,24 +772,18 @@ func (r *Repository) LandingUpstreamEdges(overrideServer int64, overrideProfile 
 				}
 			}
 			for _, a := range actions {
-				id, ok := landingegress.ActionOutbound(a)
-				if !ok {
-					continue
+				if t := target(a); t != 0 {
+					edges[server] = append(edges[server], t)
 				}
-				o, ok := outs[id]
-				if !ok || o.Type != landingegress.TypeLandingNode {
-					continue
-				}
-				target := nodeServer[o.Settings.LandingNodeID]
-				if target == 0 {
-					var n model.LandingNode
-					if err := r.db.Select("landing_server_id").First(&n, o.Settings.LandingNodeID).Error; err == nil {
-						target = n.LandingServerID
-					}
-				}
-				if target != 0 {
-					edges[server] = append(edges[server], target)
-				}
+			}
+		}
+	}
+	for server, actions := range layered {
+		seen := map[int64]bool{}
+		for _, a := range actions {
+			if t := target(a); t != 0 && t != server && !seen[t] {
+				seen[t] = true
+				edges[server] = append(edges[server], t)
 			}
 		}
 	}
