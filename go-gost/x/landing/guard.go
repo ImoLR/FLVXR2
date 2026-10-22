@@ -26,7 +26,10 @@ import (
 
 // GuardVersion is reported as landing_guard: this agent applies Node.GuardPort
 // and builtin plan rules (rendered before chain rules, never withholding).
-const GuardVersion = 1
+// Version 2 (plan 134) adds the global layer markers "forced" (any outbound,
+// rendered before chain rules) and "global" (any outbound, kept in place);
+// neither withholds a node when the plan cannot be applied.
+const GuardVersion = 2
 
 const guardTagPrefix = "flvxg-"
 

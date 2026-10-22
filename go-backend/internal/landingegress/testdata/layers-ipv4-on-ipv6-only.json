@@ -1,0 +1,113 @@
+{
+  "active": true,
+  "plan": {
+    "version": 1,
+    "outbounds": [
+      {
+        "tag": "flvxo-5",
+        "type": "socks",
+        "ip_version": "system",
+        "server": "203.0.113.9",
+        "port": 1080
+      },
+      {
+        "tag": "flvxo-7",
+        "type": "direct",
+        "ip_version": "force_ipv6"
+      }
+    ],
+    "rules": [
+      {
+        "name": "默认：屏蔽 SMTP 25",
+        "inbound_tags": [
+          "flvxl-1099511627790",
+          "flvxl-11",
+          "flvxl-12",
+          "flvxl-14"
+        ],
+        "port": "25",
+        "network": "tcp",
+        "outbound": "block",
+        "builtin": "abuse"
+      },
+      {
+        "name": "默认：屏蔽 BT",
+        "inbound_tags": [
+          "flvxl-1099511627790",
+          "flvxl-11",
+          "flvxl-12",
+          "flvxl-14"
+        ],
+        "protocol": [
+          "bittorrent"
+        ],
+        "outbound": "block",
+        "builtin": "abuse"
+      },
+      {
+        "name": "走 IPv6",
+        "inbound_tags": [
+          "flvxl-11",
+          "flvxl-12",
+          "flvxl-13",
+          "flvxl-14"
+        ],
+        "domain": [
+          "domain:v6.example"
+        ],
+        "outbound": "flvxo-7"
+      },
+      {
+        "name": "AI",
+        "inbound_tags": [
+          "flvxl-11",
+          "flvxl-12",
+          "flvxl-13"
+        ],
+        "domain": [
+          "geosite:openai"
+        ],
+        "outbound": "flvxo-5"
+      },
+      {
+        "name": "屏蔽大陆",
+        "inbound_tags": [
+          "flvxl-11",
+          "flvxl-12"
+        ],
+        "ip": [
+          "geoip:cn"
+        ],
+        "outbound": "block"
+      },
+      {
+        "name": "仅 12",
+        "inbound_tags": [
+          "flvxl-12"
+        ],
+        "port": "8443",
+        "outbound": "block"
+      },
+      {
+        "name": "默认出站",
+        "inbound_tags": [
+          "flvxl-11",
+          "flvxl-12"
+        ],
+        "outbound": "flvxo-5"
+      },
+      {
+        "name": "默认出站",
+        "inbound_tags": [
+          "flvxl-13"
+        ],
+        "outbound": "block"
+      }
+    ]
+  },
+  "warnings": [
+    "全局规则「走 IPv4」：出站「直连 v4」强制 IPv4，但该服务器没有 IPv4 地址，未生效",
+    "全局默认出站：出站「直连 v4」强制 IPv4，但该服务器没有 IPv4 地址，本服务器改为直连",
+    "1 个节点的节点规则未完全生效（见节点的路由规则）"
+  ]
+}
