@@ -76,7 +76,7 @@ type Handler struct {
 	egressDNSMu        sync.Mutex
 	egressDNS          map[string]egressDNSEntry
 	landingWarpAt      time.Time
-	egressSyncWG       sync.WaitGroup // background syncs after egress edits (tests wait)
+	egressSyncWG       sync.WaitGroup  // background syncs after egress edits (tests wait)
 	layerApply         layerApplyState // debounced push after global rule saves (plan 134)
 	// landingRates keeps the last two committed counters per landing node for the
 	// monitor's live rates (memory only); see landing_monitor_rates.go.

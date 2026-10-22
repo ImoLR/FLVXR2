@@ -231,9 +231,9 @@ func TestLayersDefaultPrecedence(t *testing.T) {
 		}
 	}
 	want := map[string]string{
-		"flvxl-11": "默认出站→flvxo-5",     // server profile 1
-		"flvxl-12": "节点默认出站→block",     // owner
-		"flvxl-13": "默认出站→block",       // admin override profile 2
+		"flvxl-11": "默认出站→flvxo-5",   // server profile 1
+		"flvxl-12": "节点默认出站→block",   // owner
+		"flvxl-13": "默认出站→block",     // admin override profile 2
 		"flvxl-14": "全局默认出站→flvxo-6", // override 0 → global
 	}
 	if fmt.Sprint(defaults) != fmt.Sprint(want) {
