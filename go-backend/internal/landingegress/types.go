@@ -59,6 +59,8 @@ type Outbound struct {
 	IPVersion string   `json:"ipVersion"`
 	Settings  Settings `json:"settings"`
 	Remark    string   `json:"remark"`
+	// UserAllowed (plan 134): users may use it in their node rules.
+	UserAllowed bool `json:"userAllowed"`
 }
 
 type Rule struct {

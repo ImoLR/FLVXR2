@@ -224,6 +224,10 @@ func (r *Repository) TransferLandingNode(nodeID, targetUserID int64) (*LandingTr
 		if count >= int64(s.MaxNodesPerUser) {
 			return fmt.Errorf("目标用户在该服务器的节点已达到每人上限（%d 个）", s.MaxNodesPerUser)
 		}
+		// Node rules (plan 134) move with the node and count for the target.
+		if err := landingRuleTransferError(tx, n, &target); err != nil {
+			return err
+		}
 		// The landing billing exemption belongs to the owner's own rules; a
 		// rule of anyone but the new owner must be detached first.
 		if err := landingNodeForeignRuleError(tx, n.ID, target.ID); err != nil {
