@@ -47,6 +47,9 @@
 - 不用 unix socket（无端口）的原因：读 Core 源码确认 dokodemo 在 unix 监听时把目标网络设成 UNIX，freedom 拨号会报 unknown network（REALITY 本身支持 unix dest）。
 - 节点程序：辅助入站先于 Reality 入站添加；只有 Core 有 RoutingService 且规则已应用时才启用，否则照旧直连 dest
   （fail-open，状态里提示）；辅助入站添加失败同样回退。能力上报 `landing_guard: 1`。
+- 被防盗的 Reality 入站加 `TCP_DEFER_ACCEPT`（5 秒，customSockopt）：REALITY 在 accept 时就连 dest（=防盗入站），
+  而防盗只有 Core 固定的 200 ms 嗅探窗口；推迟到 ClientHello 第一批字节到达再 accept，晚到的 ClientHello 也在窗口内。
+  实测：不加时 ClientHello 晚 0.5 秒 30/30 失败，加后 0.5 秒 / 1.5 秒都 0/30 失败；剩余情况见核验记录。
 - 开关：`landing_server.reality_guard_off`（默认开），管理员在服务器设置里切换；共享服务器 FLVX 不建 Core，
   需妙妙屋实现（契约说明）。
 
@@ -58,11 +61,12 @@
 - [x] B 节点程序：builtin 规则排在链式规则前且不暂停节点、Reality 防盗渲染/对账/回退、能力上报 + 测试（`9cac99ec`）。
 - [x] B 后端：服务器开关列、能力列、辅助端口分配与冲突检查、下发、状态 + 测试（`9cac99ec`）。
 - [x] 前端：内置默认卡片、方案编辑器锁定行 + 开关、「防滥用」预设 + 说明、服务器设置防盗开关与提示；tsc/lint/build（`e760e207`、`ce048ca2`）。
-- [ ] 本地 E2E（真实 Core，netns）：25 封 / 443 通 / BT 握手封 / 587 默认通、加预设后封；防盗开/关吞吐与首字节延迟、
-      错误 SNI 探测被封、正确 SNI 拿到真实证书；资源（RSS/CPU、规则数/计划大小）。
-- [ ] 后端全量对比基线；节点程序测试；前端检查。
-- [ ] 截图（电脑 + H5、亮 + 暗，前后对比）+ index.html。
-- [ ] 推送分支、CI 全绿、summary.md、计划完成。
+- [x] 本地 E2E（真实 Core，netns）：25 封 / 443 通 / BT 握手封 / 587 默认通、加预设后封；防盗开/关吞吐与首字节延迟、
+      错误 SNI 探测被封、正确 SNI 拿到真实证书；晚到 ClientHello、丢包长 RTT；资源（RSS/CPU、规则数/计划大小）。
+- [x] 共享服务器协议嗅探核验（plan 121 实验 Core + mihomo：SS2022/AnyTLS/Snell v4/v5/Mieru TCP/UDP）。
+- [x] 后端全量对比基线；节点程序测试（含真实 Core、plan 107 netns）；PostgreSQL 落地测试；前端 tsc/lint/build。
+- [x] 截图（电脑 + H5、亮 + 暗，前后对比）+ index.html（34 张，0 个页面错误），并放到预览服务器。
+- [x] 推送分支、CI 全绿、summary.md、计划完成。
 
 ## 核验记录
 
@@ -71,3 +75,25 @@
   allowed；全库 1 个落地节点（服务器 3，SS2022）；0 个路由方案；0 条链式规则；节点 21/34/47 `landing_egress=1, landing_chain=1`。
 </content>
 </invoke>
+- 基线（`eb047757` 完整副本，`GOMAXPROCS=2 go test -p 1 -count=1 ./...`）15 项失败；本分支最终代码同命令 15 项，名称完全相同
+  （`runs/landing-abuse-defaults/logs/{baseline,final}-failures.txt`），新增 0。
+- PostgreSQL（临时 schema）：落地 / 出站 / 链式 / 防盗 / 默认规则测试全部通过（`logs/landing-pg.log`）。
+- 节点程序：`go vet` 通过；`landing`（39 项含真实 Core）、`socket`、`service` 通过；plan 107 的 netns 数据面测试通过。
+- 前端：`tsc --noEmit` 通过；改动文件 eslint 0 error，warning 8 个与基线相同；`vite build` 通过，主包 2,898,968 B。
+- CI（CI Build Check：前端 / 节点程序 / 后端 / PostgreSQL 契约）：`39754455837`（`61312aea`）全绿。
+- E2E（`go-gost/x/landing/abuse_netns_test.go`，真实 Core `8f5b614`，三个 netns，`logs/e2e-final.json`）：
+  - 默认规则：经 SS2022 / Reality 节点访问目标 TCP 25 被封，443、465、587 通；BT 握手被封、同端口普通数据通过。
+    加「防滥用」预设的节点：465/587/2525/23/445 被封，443、8081 通。
+  - 防盗：错误 SNI、无 SNI、晚到的错误 SNI 探测全部断开；正确 SNI（含晚 0.5 秒）拿到真实目标证书；未防盗节点把错误 SNI
+    转给了目标（目标日志看到 `www.example.com` 一次 = 被偷的路径）；关闭防盗后辅助入站被删、探测恢复转发。
+  - 已认证用户（防盗开 vs 关，各 600 次新连接 + 6 次 256 MiB 下载）：首字节延迟 p50 2.86–3.00 ms vs 2.35–2.37 ms
+    （+≈0.5 ms），Core CPU 每条新连接 2.07–2.10 ms vs 1.63 ms（+≈0.45 ms），吞吐 480–512 vs 444–550 MiB/s（无差别），0 失败。
+  - 丢包：单程 40 ms 和 100 ms 延迟 + 客户端 3 % 丢包，各 1000 次（防盗 / 不防盗各一半）新连接 0 失败，延迟分布相同。
+  - 晚到的 ClientHello：整包晚 0.5 秒 / 1.5 秒：0/30 失败（`TCP_DEFER_ACCEPT` 之前是 30/30 失败）；
+    ClientHello 头 300 字节先到、其余晚 0.15 秒 0/30，晚 0.5 秒 30/30 失败（不防盗只是慢）——剩余的已知代价。
+  - 空闲：防盗开/关 RSS 34.8 / 36.0 MiB，线程 13 / 13；开启瞬间 fd 19→38（REALITY 一次性经防盗探测目标握手长度），
+    测试结束回到 14，无泄漏。
+- 共享服务器协议（`runs/landing-abuse-defaults/extra-sniff/results.json`）：SS2022、AnyTLS、Snell v4、Snell v5、Mieru TCP、
+  Mieru UDP 六种入站全部：TCP 25 被封、443 通、TCP BT 握手被封、同端口普通数据通过；UDP 上的 uTP 都没被识别
+  （Core 的 uTP 嗅探器时间戳比较有误，见契约 §10）。
+- 计划大小：生产同款（1 个节点、内置默认）0 → 2 条规则 / 251 B；50 个节点、一半用 10 条规则的方案：10 → 12 条 / 3,438 → 4,711 B。
