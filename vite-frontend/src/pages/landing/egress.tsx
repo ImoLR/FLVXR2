@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import toast from "react-hot-toast";
 import { Lock, Plus, RefreshCw } from "lucide-react";
 
+import { LandingGlobalRules } from "./egress-global";
 import { ProfileEditor } from "./egress-profile-editor";
 import { OutboundEditor } from "./egress-outbound-editor";
 
@@ -136,6 +137,7 @@ export default function LandingEgressTab() {
           {error}
         </p>
       )}
+      <LandingGlobalRules overview={overview} onSaved={() => void load()} />
       <div className="grid gap-4 xl:grid-cols-2 xl:items-start">
         <Card>
           <CardHeader className="flex items-start justify-between gap-3">
@@ -203,6 +205,11 @@ export default function LandingEgressTab() {
                       >
                         {ipVersionLabel(o.ipVersion)}
                       </Chip>
+                      {o.userAllowed && (
+                        <Chip color="secondary" size="sm" variant="flat">
+                          允许用户使用
+                        </Chip>
+                      )}
                     </div>
                     <p className="break-all text-xs text-default-500">
                       {outboundSummary(o, overview)}
@@ -210,6 +217,18 @@ export default function LandingEgressTab() {
                     {o.usedBy && o.usedBy.length > 0 && (
                       <p className="text-xs text-default-500">
                         用于方案：{o.usedBy.join("、")}
+                      </p>
+                    )}
+                    {(o.usedByGlobal || Boolean(o.usedByNodes)) && (
+                      <p className="text-xs text-default-500">
+                        {[
+                          o.usedByGlobal ? "用于全局规则" : "",
+                          o.usedByNodes
+                            ? `${o.usedByNodes} 个节点的路由规则`
+                            : "",
+                        ]
+                          .filter(Boolean)
+                          .join(" · ")}
                       </p>
                     )}
                   </div>
@@ -255,7 +274,7 @@ export default function LandingEgressTab() {
         <Card>
           <CardHeader className="flex items-start justify-between gap-3">
             <div className="min-w-0">
-              <h2 className="font-semibold">路由方案</h2>
+              <h2 className="font-semibold">服务器路由方案</h2>
               <p className="mt-1 text-xs text-default-500">
                 有序规则 + 默认出站，按落地服务器或节点选择使用
               </p>

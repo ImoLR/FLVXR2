@@ -32,8 +32,70 @@ const landingSnapshot = (value: LandingUserSetting | null) =>
           limitBytes,
         ]),
         serverIds: [...(value.serverIds || [])].sort((a, b) => a - b),
+        ruleMaxNode: [
+          value.ruleMaxNodeSource,
+          value.ruleMaxNodeSource === "custom" ? value.ruleMaxNode : null,
+        ],
+        ruleMaxTotal: [
+          value.ruleMaxTotalSource,
+          value.ruleMaxTotalSource === "custom" ? value.ruleMaxTotal : null,
+        ],
       })
     : "";
+
+// Plan 134: 跟随全局 / 自定义 for one node-rule cap.
+function RuleCapField({
+  label,
+  source,
+  value,
+  globalValue,
+  hint,
+  onChange,
+}: {
+  label: string;
+  source?: "global" | "custom" | "admin";
+  value?: number;
+  globalValue?: number;
+  hint: string;
+  onChange: (source: "global" | "custom", value: number) => void;
+}) {
+  if (source !== "global" && source !== "custom") return null;
+
+  return (
+    <div className="grid gap-3 sm:grid-cols-2">
+      <Select
+        description={
+          source === "global"
+            ? "使用「出站与路由 → 全局规则 → 用户规则」的值，修改后立即生效"
+            : hint
+        }
+        label={label}
+        selectedKeys={[source]}
+        variant="bordered"
+        onSelectionChange={(keys) => {
+          const next = String(Array.from(keys)[0] || "");
+
+          if (next !== "global" && next !== "custom") return;
+          onChange(next, next === "global" ? (globalValue ?? 0) : (value ?? 0));
+        }}
+      >
+        <SelectItem key="global">{`跟随全局（当前 ${globalValue ?? 0}）`}</SelectItem>
+        <SelectItem key="custom">自定义</SelectItem>
+      </Select>
+      {source === "custom" && (
+        <Input
+          description="0 表示不能添加节点规则；调低不会删除已有规则"
+          label="自定义数量"
+          min="0"
+          type="number"
+          value={String(value ?? 0)}
+          variant="bordered"
+          onChange={(event) => onChange("custom", Number(event.target.value))}
+        />
+      )}
+    </div>
+  );
+}
 export const LandingUserSettings = forwardRef<
   LandingUserSettingsHandle,
   { userId: number; originalExpiry: number; expiry: number }
@@ -188,6 +250,34 @@ export const LandingUserSettings = forwardRef<
               }
             />
           )}
+          <RuleCapField
+            globalValue={form.globalRuleMaxNode}
+            hint="该用户每个节点最多可加的节点规则条数"
+            label="节点规则：每个节点最多"
+            source={form.ruleMaxNodeSource}
+            value={form.ruleMaxNode}
+            onChange={(source, value) =>
+              setForm({
+                ...form,
+                ruleMaxNodeSource: source,
+                ruleMaxNode: value,
+              })
+            }
+          />
+          <RuleCapField
+            globalValue={form.globalRuleMaxTotal}
+            hint="该用户所有节点合计最多可加的节点规则条数"
+            label={`节点规则：每个用户总计最多${form.ruleUsed ? `（已用 ${form.ruleUsed} 条）` : ""}`}
+            source={form.ruleMaxTotalSource}
+            value={form.ruleMaxTotal}
+            onChange={(source, value) =>
+              setForm({
+                ...form,
+                ruleMaxTotalSource: source,
+                ruleMaxTotal: value,
+              })
+            }
+          />
           <div className="space-y-2">
             <h4 className="text-sm font-medium">可用落地服务器</h4>
             <p className="text-xs text-default-500">

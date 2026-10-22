@@ -65,12 +65,18 @@ export function RuleEditor({
   landingNodes,
   onClose,
   onDone,
+  hideSource = false,
+  hideNodeScope = false,
 }: {
   rule: EgressRule;
-  outbounds: EgressOutbound[];
+  outbounds: Pick<EgressOutbound, "id" | "name">[];
   landingNodes: EgressLandingNodeChoice[];
   onClose: () => void;
   onDone: (rule: EgressRule) => void;
+  // Plan 134: node rules have no 来源 IP / 来源端口; global and node rules
+  // have no 适用落地节点.
+  hideSource?: boolean;
+  hideNodeScope?: boolean;
 }) {
   const [form, setForm] = useState(rule);
   const [domains, setDomains] = useState(rule.domains.join("\n"));
@@ -221,34 +227,38 @@ export function RuleEditor({
             </Select>
           </section>
 
-          <section className="space-y-2">
-            <h3 className="font-medium">来源 IP</h3>
-            <Textarea
-              minRows={3}
-              placeholder="geoip:cn"
-              value={sources}
-              variant="bordered"
-              onChange={(event) => setSources(event.target.value)}
-            />
-            <p className="text-xs text-default-500">
-              客户端的来源地址。只对直连客户端生效：经 FLVX
-              节点转发进来的流量和来源白名单不受影响。
-            </p>
-            <Examples
-              values={["geoip:cn", "203.0.113.0/24"]}
-              onPick={(v) => append(sources, setSources, v)}
-            />
-          </section>
+          {!hideSource && (
+            <>
+              <section className="space-y-2">
+                <h3 className="font-medium">来源 IP</h3>
+                <Textarea
+                  minRows={3}
+                  placeholder="geoip:cn"
+                  value={sources}
+                  variant="bordered"
+                  onChange={(event) => setSources(event.target.value)}
+                />
+                <p className="text-xs text-default-500">
+                  客户端的来源地址。只对直连客户端生效：经 FLVX
+                  节点转发进来的流量和来源白名单不受影响。
+                </p>
+                <Examples
+                  values={["geoip:cn", "203.0.113.0/24"]}
+                  onPick={(v) => append(sources, setSources, v)}
+                />
+              </section>
 
-          <section className="grid gap-3 sm:grid-cols-2">
-            <Input
-              label="来源端口"
-              placeholder="1024-65535"
-              value={form.sourcePorts}
-              variant="bordered"
-              onChange={(event) => set({ sourcePorts: event.target.value })}
-            />
-          </section>
+              <section className="grid gap-3 sm:grid-cols-2">
+                <Input
+                  label="来源端口"
+                  placeholder="1024-65535"
+                  value={form.sourcePorts}
+                  variant="bordered"
+                  onChange={(event) => set({ sourcePorts: event.target.value })}
+                />
+              </section>
+            </>
+          )}
 
           <section className="space-y-2">
             <h3 className="font-medium">协议</h3>
@@ -274,30 +284,32 @@ export function RuleEditor({
             </p>
           </section>
 
-          <section className="space-y-2">
-            <h3 className="font-medium">适用落地节点</h3>
-            <Select
-              isSearchable
-              label="节点"
-              placeholder="不选 = 使用该方案的全部节点"
-              selectedKeys={form.landingNodeIds.map(String)}
-              selectionMode="multiple"
-              variant="bordered"
-              onSelectionChange={(keys) =>
-                set({ landingNodeIds: Array.from(keys).map(Number) })
-              }
-            >
-              {landingNodes.map((n) => (
-                <SelectItem
-                  key={String(n.id)}
-                  textValue={`${n.name} · ${n.serverName}${n.userName ? ` · ${n.userName}` : ""}`}
-                >
-                  {n.name} · {n.serverName}
-                  {n.userName ? ` · ${n.userName}` : ""}
-                </SelectItem>
-              ))}
-            </Select>
-          </section>
+          {!hideNodeScope && (
+            <section className="space-y-2">
+              <h3 className="font-medium">适用落地节点</h3>
+              <Select
+                isSearchable
+                label="节点"
+                placeholder="不选 = 使用该方案的全部节点"
+                selectedKeys={form.landingNodeIds.map(String)}
+                selectionMode="multiple"
+                variant="bordered"
+                onSelectionChange={(keys) =>
+                  set({ landingNodeIds: Array.from(keys).map(Number) })
+                }
+              >
+                {landingNodes.map((n) => (
+                  <SelectItem
+                    key={String(n.id)}
+                    textValue={`${n.name} · ${n.serverName}${n.userName ? ` · ${n.userName}` : ""}`}
+                  >
+                    {n.name} · {n.serverName}
+                    {n.userName ? ` · ${n.userName}` : ""}
+                  </SelectItem>
+                ))}
+              </Select>
+            </section>
+          )}
           {!hasMatcher && (
             <p className="rounded-lg bg-warning-50 p-2 text-xs text-warning">
               请至少填写一个匹配条件；想让全部流量走某个出站，请设置方案的「默认出站」。
