@@ -58,10 +58,28 @@ Plan 132 alone → `3.0.27-fork.72`, panel/frontend only, no agent OTA. Branch
 fork.71 f7b9c5bc — no rebase). Plan 131 must rebase onto this branch before its own release.
 Run dir `/root/flvx-workers/runs/release-fork72-landing-user-view`.
 
-- [ ] Pre-upgrade prod capture: admin + user 26 `/landing/server/list` (fields, latency), panel CPU/RSS
-- [ ] Push branch, CI green
-- [ ] Tag `3.0.27-fork.72`, Images run green, release Latest with the same asset set as fork.71
-- [ ] Prod backup `pre-fork72-*` (validated SQLite, compose/.env, local image tags, rollback.sh) + prune to 2
-- [ ] Upgrade prod panel to fork.72, health + version.json
-- [ ] Verify: 29/29 online, agents unchanged, user 26 view (nodeCount 1, myRemaining 1, no stripped fields), admin
+- [x] Pre-upgrade prod capture: admin + user 26 `/landing/server/list` (fields, latency), panel CPU/RSS
+- [x] Push branch, CI green
+- [x] Tag `3.0.27-fork.72`, Images run green, release Latest with the same asset set as fork.71
+- [x] Prod backup `pre-fork72-*` (validated SQLite, compose/.env, local image tags, rollback.sh) + prune to 2
+- [x] Upgrade prod panel to fork.72, health + version.json
+- [x] Verify: 29/29 online, agents unchanged, user 26 view (nodeCount 1, myRemaining 1, no stripped fields), admin
       field set unchanged, 「正在同步，请稍后」 in served bundle, CPU/RSS + latency after
+
+### Release results (2026-10-22, 台湾时间)
+- Branch CI 39783306139 green; tag `3.0.27-fork.72` → 74f5890b; Images 39783538465 green; release Latest, not
+  prerelease, 13 assets = fork.71 set, compose pinned `ghcr.io/imolr/flvxr2-svc-*:3.0.27-fork.72`, install scripts
+  PINNED_VERSION/REPO OK, gost sha256 OK, ghcr amd64+arm64.
+- Rollback point `/opt/flvx-svc/rollback/pre-fork72-20261022T132042Z` (→ fork.71; SQLite quick/integrity ok,
+  local image tags `local/flvxx-*:pre-fork72-20261022T132042Z`); kept + `pre-fork71-*`; pre-fork70 + fork.69 images
+  pruned.
+- Prod upgraded 21:21:30 TW, healthy, version.json `3.0.27-fork.72-mvjk1atg`; 29/29 online, agents unchanged
+  (21 = fork.70, 28 × fork.67), forwards 34 (33 running) unchanged, 0 error log lines.
+- User 26 (in-memory JWT, read-only) server 3 「Boil Hinet 马年」: nodeCount 2 → **1**, myRemaining **1**, stripped
+  fields absent (23 keys dropped incl. connections/usedBytes/billedBytes/maxConnections/defaultMax*/busyPortCount/
+  sharedSyncError/sharedNotice), sharedCaps = protocol_caps only; response 1967 → 833 B.
+- Admin list: nested key set identical before/after, 8736 B both.
+- Served bundle `index-DrfR14Lr.js` contains 「正在同步，请稍后」, no 「等待同步」.
+- Resources: backend CPU (60 s) 4.65 % → 4.98 % (7.67 % right after restart), RSS 37.9 → 32.0 MiB;
+  `/landing/server/list` p50 admin 3.32 → 2.83 ms, user 26 1.42 → 1.33 ms.
+- Plan 131 must rebase onto `maintenance/3.0.27-fork.72-landing-user-view` before its own release.
