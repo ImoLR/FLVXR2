@@ -38,7 +38,7 @@ Evaluation order per node (first match wins, every rule scoped by inbound tag):
 - [x] Native routing-only change stays hot (RoutingService `adrules`), never a Core restart for node rules; servers
       whose Core still needs the one-time restart keep node rules queued (「下次重启生效」) and global layers wait like
       the abuse defaults
-- [ ] Frontend: 出站与路由 tab 「全局规则」 section (强制/默认 lists, 全局默认出站, sync status, 用户规则 caps, 匹配顺序
+- [x] Frontend: 出站与路由 tab 「全局规则」 section (强制/默认 lists, 全局默认出站, sync status, 用户规则 caps, 匹配顺序
       legend); outbound 「允许用户使用」 checkbox; 路由规则 dialog (user node card + admin node details); user edit 「落地」
       two cap fields
 - [x] Golden tests (layer order, line-chain, node scope, default precedence, empty global identical, IPv4-forced on
