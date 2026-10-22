@@ -920,6 +920,12 @@ export default function AdminLayout({
               transition={{ duration: 0.22, ease: [0.25, 0.46, 0.45, 0.94] }}
             >
               {children}
+              {/* Room after the page so the fixed Powered-by badge never
+                  covers the last row (e.g. the 24 h chart axis) once
+                  scrolled to the bottom. */}
+              {poweredBadgeVisible && (
+                <div aria-hidden="true" className="h-11" />
+              )}
             </motion.div>
           </AnimatePresence>
         </main>

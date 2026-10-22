@@ -2081,7 +2081,8 @@ export default function ForwardPage() {
   };
   const mergeFederationShareFlow = useCallback(
     async (forwardsData: Forward[]): Promise<Forward[]> => {
-      if (forwardsData.length === 0) {
+      // Federation shares are admin-only (non-admins only got two 403s).
+      if (forwardsData.length === 0 || !isAdmin) {
         return forwardsData;
       }
       try {
@@ -2237,7 +2238,7 @@ export default function ForwardPage() {
         return forwardsData;
       }
     },
-    [],
+    [isAdmin],
   );
   // 3形态模式切换（分组 -> 列表 -> 卡片）
   const handleModeCycle = async () => {
@@ -2342,13 +2343,16 @@ export default function ForwardPage() {
         const params = {}; // 永远拉取全量数据
         const [tunnelsRes, forwardsRes, speedLimitsRes, wgPathsRes] =
           await Promise.all([
-          userTunnel(),
-          getForwardList(params),
-          getSpeedLimitList(),
-          isAdmin
-            ? getPathTunnelList()
-            : Promise.resolve({ code: 0, msg: "", data: [] }),
-        ]);
+            userTunnel(),
+            getForwardList(params),
+            // Speed limits are admin-only data (403 for normal users).
+            isAdmin
+              ? getSpeedLimitList()
+              : Promise.resolve({ code: 0, msg: "", data: [] }),
+            isAdmin
+              ? getPathTunnelList()
+              : Promise.resolve({ code: 0, msg: "", data: [] }),
+          ]);
 
         if (tunnelsRes.code === 0) {
           setTunnels(tunnelsRes.data || []);

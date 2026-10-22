@@ -638,11 +638,22 @@ export default function DashboardPage() {
                   "sm",
                   userInfo.num === 99999,
                 )}
-                <p className="text-xs text-default-500 mt-1 truncate">
-                  {userInfo.num === 99999
-                    ? "无限制"
-                    : `${calculateUsagePercentage("forwards").toFixed(1)}%`}
-                </p>
+                {(userInfo.num || 0) > 0 &&
+                userInfo.num !== 99999 &&
+                forwardList.length > (userInfo.num || 0) ? (
+                  <p
+                    className="text-xs text-warning mt-1 truncate"
+                    title="已超出规则上限，删除部分规则后才能新建"
+                  >
+                    {`${forwardList.length} / ${userInfo.num}（已超出）`}
+                  </p>
+                ) : (
+                  <p className="text-xs text-default-500 mt-1 truncate">
+                    {userInfo.num === 99999
+                      ? "无限制"
+                      : `${calculateUsagePercentage("forwards").toFixed(1)}%`}
+                  </p>
+                )}
               </div>
             }
             icon={
@@ -716,22 +727,42 @@ export default function DashboardPage() {
                 bottomContent={
                   userInfo.expTime &&
                   typeof userInfo.expTime === "number" &&
-                  Number(userInfo.expTime) > 0 ? (
-                    <div className="mt-1 flex items-center gap-1">
-                      <div
-                        className={`w-1.5 h-1.5 rounded-full ${(Number(userInfo.expTime) - Date.now()) / (1000 * 60 * 60 * 24) > 7 ? "bg-success" : "bg-warning"}`}
-                      />
-                      <span
-                        className={`text-xs ${(Number(userInfo.expTime) - Date.now()) / (1000 * 60 * 60 * 24) > 7 ? "text-success" : "text-warning"}`}
-                      >
-                        {Math.ceil(
-                          (Number(userInfo.expTime) - Date.now()) /
-                            (1000 * 60 * 60 * 24),
-                        )}{" "}
-                        天后到期
-                      </span>
-                    </div>
-                  ) : null
+                  Number(userInfo.expTime) > 0
+                    ? (() => {
+                        const msLeft = Number(userInfo.expTime) - Date.now();
+                        const dayMs = 1000 * 60 * 60 * 24;
+                        // Literal class names so Tailwind keeps them.
+                        const tone =
+                          msLeft <= 0
+                            ? { dot: "bg-danger", text: "text-danger" }
+                            : msLeft / dayMs > 7
+                              ? { dot: "bg-success", text: "text-success" }
+                              : { dot: "bg-warning", text: "text-warning" };
+                        let label: string;
+
+                        if (msLeft <= 0) {
+                          const daysAgo = Math.floor(-msLeft / dayMs);
+
+                          label =
+                            daysAgo >= 1 ? `已过期 ${daysAgo} 天` : "已过期";
+                        } else if (msLeft < dayMs) {
+                          label = "今天到期";
+                        } else {
+                          label = `${Math.ceil(msLeft / dayMs)} 天后到期`;
+                        }
+
+                        return (
+                          <div className="mt-1 flex items-center gap-1">
+                            <div
+                              className={`w-1.5 h-1.5 rounded-full ${tone.dot}`}
+                            />
+                            <span className={`text-xs ${tone.text}`}>
+                              {label}
+                            </span>
+                          </div>
+                        );
+                      })()
+                    : null
                 }
                 icon={
                   <svg

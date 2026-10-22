@@ -427,6 +427,11 @@ export const useDashboardData = (): DashboardDataState => {
   usePullToRefresh(refresh);
 
   const fetchQuotaHistory = useCallback(async () => {
+    // userInfo is still loading (id 0): the API would only answer
+    // 「用户 ID 不能为空」; the effect re-runs once the id is known.
+    if (!userInfo.id) {
+      return;
+    }
     try {
       const res = await getUserQuotaHistory(userInfo.id, 50);
 

@@ -751,6 +751,9 @@ export default function H5Layout({ children }: { children: React.ReactNode }) {
       >
         <GlobalPullToRefresh />
         {children}
+        {poweredBadgeVisible && (
+          <div aria-hidden="true" className="h-10 shrink-0" />
+        )}
       </main>
 
       <nav className="flvx-mobile-bottom-nav" aria-label="移动端主导航">
