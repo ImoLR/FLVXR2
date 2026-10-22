@@ -2,7 +2,9 @@
 outbound/routing E1-E3, plan 113 rule targets T1, plan 121 extra protocols P1
 and resource probe R1."""
 import json
+import os
 import pathlib
+import shutil
 import socket
 import time
 import urllib.request
@@ -803,6 +805,186 @@ def n1_limits_transfer(ctx):
     expect(r, "global 0 keeps A's existing node active", kept and kept[0]["status"] == "active", kept[0]["status"] if kept else None)
     api.call("landing/settings/save", {"defaultMaxNodes": 5})
 
+# ------------------------------------------------------- plan 134 rule layers
+def ns_reach(host, port):
+    """Direct TCP connect from inside the landing namespace (no Core)."""
+    out = labmod.sh("ip", "netns", "exec", labmod.NS, "python3", "-c",
+                    f"import socket;socket.create_connection(('{host}',{port}),3).close()", check=False)
+    return out.returncode == 0
+
+
+def node_rules_save(ctx, who, nid, rules, default=""):
+    return ctx.api.call("landing/node/rules/save", {"id": nid, "rules": rules, "defaultAction": default}, who)
+
+
+def l1_rule_layers(ctx):
+    """Plan 134: global 强制 on every landing (native Core data plane + a newly
+    shared server's first desired), user node rules isolated per node on one
+    Core, a live connection of another user survives a rule edit, the safety
+    rule still wins over a user's 直连, every change hot (same Core)."""
+    r, api = ctx.report, ctx.api
+    a, b = make_user(ctx, "acc_layer_a"), make_user(ctx, "acc_layer_b")
+    for who in (a, b):
+        api.call("landing/user/save", {"userId": who.uid, "maxNodesSource": "global", "quotas": [], "serverIds": [ctx.native, ctx.shared]})
+    na = create_node(ctx, a, ctx.native, "ss2022", "layer-a")["id"]
+    nb = create_node(ctx, b, ctx.native, "ss2022", "layer-b")["id"]
+    for nid in (na, nb):
+        wait_node(ctx, nid, lambda x: x["status"] == "active", f"layer node {nid} active")
+    client(ctx, links(ctx, na, a)["direct"], 26611)
+    client(ctx, links(ctx, nb, b)["direct"], 26612)
+    wait_for("both layer links up", lambda: coreclient.try_download(26611, H, HTTP) and coreclient.try_download(26612, H, HTTP), timeout=40)
+    pids0 = ctx.lab.core_pids()
+    g0 = api.call("landing/egress/global/get", {})
+    expect(r, "upgrade state: empty global group, 全局默认出站 = 直连", not g0["forced"] and not g0["default"] and g0["defaultAction"] == "direct", {k: g0[k] for k in ("forced", "default", "defaultAction")})
+    expect(r, "lab names resolve inside the landing namespace (both nodes reach blocked.lab.test before any rule)",
+           coreclient.try_download(26611, "blocked.lab.test", HTTP) and coreclient.try_download(26612, "blocked.lab.test", HTTP), None)
+
+    # 1. 全局·强制 on the native Core.
+    t0 = time.monotonic()
+    api.call("landing/egress/global/save", {"forced": [{"name": "强制屏蔽", "enabled": True, "domains": ["domain:blocked.lab.test"], "action": "block"}], "default": [], "defaultAction": "direct"})
+    blocked = wait_for("global forced applied", lambda: not coreclient.try_download(26611, "blocked.lab.test", HTTP) and not coreclient.try_download(26612, "blocked.lab.test", HTTP), timeout=45)
+    took = round(time.monotonic() - t0, 2)
+    expect(r, "global 强制 blocks the domain on every node of the native Core (A and B); other names pass",
+           blocked and coreclient.try_download(26611, "allowed.lab.test", HTTP) and coreclient.try_download(26612, "allowed.lab.test", HTTP), {"save_to_verified_s_incl_3s_debounce_and_probe_timeouts": took})
+    d = json.loads((ctx.lab.landing_dir() / "desired.json").read_text())
+    forced = [x for x in (d.get("egress") or {}).get("rules", []) if x.get("name") == "强制屏蔽"]
+    expect(r, "native desired: one forced rule with the guard-2 marker over both nodes", len(forced) == 1 and forced[0].get("builtin") == "forced" and {f"flvxl-{na}", f"flvxl-{nb}"} <= set(forced[0]["inbound_tags"]), forced)
+    status = wait_for("native synced", lambda: (lambda ss: ss if any(x["serverId"] == ctx.native and x["state"] == "synced" for x in ss) else None)(api.call("landing/egress/global/get", {})["servers"]), timeout=30)
+    expect(r, "全局规则 sync status: native 已同步", True, [x for x in status if x["serverId"] == ctx.native])
+
+    # 2. A newly shared server inherits the global layers on its first apply.
+    fake(ctx, "share", {"id": 7003, "name": "fake new share", "hosts": {"ipv4": "203.0.113.73", "ipv6": "", "domain": ""}, "port_min": 42000, "port_max": 42099, "max_connections": 50,
+                        "_cfg": {"mode": "async", "delay": 0.5, "egress": {"versions": [1], "allowed": True, "geoip": True, "geosite": True}}})
+    sync(ctx)
+    new = wait_for("new share listed", lambda: next((x for x in api.servers() if x.get("remoteServerId") == 7003), None), timeout=30)
+    api.call("landing/server/save", server_payload(api.server(new["id"]), status="active", maxNodesPerUser=10))
+    api.call("landing/user/save", {"userId": a.uid, "maxNodesSource": "global", "quotas": [], "serverIds": [ctx.native, ctx.shared, new["id"]]})
+    sn = create_node(ctx, a, new["id"], "ss2022", "layer-new-share")
+    sync(ctx)
+    body = wait_for("new share desired with the global rule", lambda: (lambda b: b if b and b.get("egress") and any(x.get("name") == "强制屏蔽" for x in b["egress"]["rules"]) else None)(desired(ctx, 7003)[0]), timeout=30, interval=1)
+    rule = next(x for x in body["egress"]["rules"] if x["name"] == "强制屏蔽")
+    expect(r, "newly shared server: first desired carries the global 强制 rule for its node (no profile picked, no builtin field for Custom)",
+           rule["inbound_tags"] == [f"flvxl-{sn['id']}"] and "builtin" not in rule and api.server(new["id"])["egress"]["profileId"] == 0, rule)
+
+    # 3. Node rules: A blocks a name on A's node only; B's live socket survives.
+    live = coreclient.echo_open(26612, H, ECHO)
+    expect(r, "B holds a live echo connection through the same Core", coreclient.echo_alive(live), None)
+    v = node_rules_save(ctx, a, na, [{"name": "A 封锁", "enabled": True, "domains": ["domain:usera.lab.test"], "action": "block"}])
+    expect(r, "A saves a node rule on its own node (counter 1/5 · 1/10)", v["caps"]["perNode"] == 5 and v["caps"]["used"] == 1 and v["state"] in ("syncing", "applied"), {"state": v["state"], "caps": v["caps"]})
+    ok = wait_for("A's node rule applied", lambda: not coreclient.try_download(26611, "usera.lab.test", HTTP), timeout=40)
+    expect(r, "A's 封锁 rule hits A's node", ok, None)
+    expect(r, "B's node on the same Core still reaches the name", coreclient.try_download(26612, "usera.lab.test", HTTP), None)
+    expect(r, "B's already-open connection survives A's rule edit (same socket echoes)", coreclient.echo_alive(live), None)
+    msg = api.expect_error("landing/node/rules/save", {"id": na, "rules": []}, b)
+    expect(r, "B cannot edit A's node rules", "无权" in msg, msg)
+    view = wait_for("A's view applied", lambda: (lambda x: x if x["state"] == "applied" else None)(api.call("landing/node/rules/get", {"id": na}, a)), timeout=30)
+    expect(r, "A's 路由规则 view: 已生效, global 强制 shown locked", view["global"]["forced"] and view["global"]["forced"][0]["name"] == "强制屏蔽", {"state": view["state"], "forced": view["global"]["forced"]})
+
+    # 4. Layer 1 wins over a user's 直连 to a private range.
+    reach = ns_reach(labmod.PRIVATE_IP, HTTP)
+    node_rules_save(ctx, a, na, [{"name": "A 封锁", "enabled": True, "domains": ["domain:usera.lab.test"], "action": "block"},
+                                 {"name": "内网直连", "enabled": True, "ips": ["10.0.0.0/8"], "action": "direct"}])
+    wait_for("private rule in desired", lambda: any(x.get("name") == "内网直连" for x in (json.loads((ctx.lab.landing_dir() / "desired.json").read_text()).get("egress") or {}).get("rules", [])), timeout=30)
+    time.sleep(2)
+    expect(r, "safety rule wins: A's 「10.0.0.0/8 → 直连」 cannot reach a private address the namespace itself reaches",
+           reach and not coreclient.try_download(26611, labmod.PRIVATE_IP, HTTP), {"namespace_reaches_it": reach})
+    expect(r, "B's live connection still alive after all rule edits", coreclient.echo_alive(live, b"still-here"), None)
+    expect(r, "global + node rule changes were hot (same Core process)", ctx.lab.core_pids() == pids0, {"before": pids0, "after": ctx.lab.core_pids()})
+    live.close()
+
+    # 5. Back to the upgrade state.
+    node_rules_save(ctx, a, na, [])
+    api.call("landing/egress/global/save", {"forced": [], "default": [], "defaultAction": "direct"})
+    back = wait_for("rules removed", lambda: coreclient.try_download(26611, "blocked.lab.test", HTTP) and coreclient.try_download(26611, "usera.lab.test", HTTP) and coreclient.try_download(26612, "blocked.lab.test", HTTP), timeout=45)
+    expect(r, "empty global + no node rules: both nodes pass everything again", back, None)
+
+
+def l2_layer_resources(ctx):
+    """Plan 134 resources: one Core with 10 users × 10 node rules + 20 global
+    rules (incl. geosite / geoip) vs none; apply time; panel RSS/CPU."""
+    r, api = ctx.report, ctx.api
+    geo = pathlib.Path(ctx.geo) if getattr(ctx, "geo", "") else None
+    if geo and (geo / "geosite.dat").is_file():
+        for name in ("geoip.dat", "geosite.dat"):
+            dst = ctx.lab.landing_dir() / name
+            if not dst.exists():
+                try:
+                    os.link(geo / name, dst)
+                except OSError:
+                    shutil.copy(geo / name, dst)
+    panel = next(p.pid for n, p in ctx.lab.procs if n == "panel")
+    core = ctx.lab.core_pids()[0]
+    time.sleep(3)
+    base = {"core": ctx.lab.proc_usage(core), "panel": ctx.lab.proc_usage(panel)}
+    api.call("landing/egress/user-caps/save", {"perNode": 10, "total": 10})
+    users, nodes = [], []
+    for i in range(10):
+        u = make_user(ctx, f"acc_res_{i}")
+        api.call("landing/user/save", {"userId": u.uid, "maxNodesSource": "global", "quotas": [], "serverIds": [ctx.native]})
+        nodes.append((u, create_node(ctx, u, ctx.native, "ss2022", f"res-{i}")["id"]))
+        users.append(u)
+    for _, nid in nodes:
+        wait_node(ctx, nid, lambda x: x["status"] == "active", f"res node {nid} active")
+    time.sleep(3)
+    nodes_only = {"core": ctx.lab.proc_usage(core), "panel": ctx.lab.proc_usage(panel)}
+    geo_on = bool(geo)
+    t0 = time.monotonic()
+    for i, (u, nid) in enumerate(nodes):
+        rules = []
+        if geo_on:
+            rules += [{"name": "共用 geosite", "enabled": True, "domains": ["geosite:disney"], "action": "block"},
+                      {"name": "共用 geoip", "enabled": True, "ips": ["geoip:jp"], "action": "block"}]
+        while len(rules) < 10:
+            k = len(rules)
+            rules.append({"name": f"u{i}-{k}", "enabled": True, "domains": [f"domain:u{i}-{k}.lab.test"], "ports": str(20000 + k), "action": "block"})
+        node_rules_save(ctx, u, nid, rules)
+    forced = [{"name": f"强制 {k}", "enabled": True, "domains": [f"domain:f{k}.lab.test"], "action": "block"} for k in range(8)]
+    deflt = [{"name": f"默认 {k}", "enabled": True, "ports": str(21000 + k), "action": "block"} for k in range(8)]
+    if geo_on:
+        forced += [{"name": "强制 geosite", "enabled": True, "domains": ["geosite:openai"], "action": "block"}, {"name": "强制 geoip", "enabled": True, "ips": ["geoip:cn"], "action": "block"}]
+        deflt += [{"name": "默认 geosite", "enabled": True, "domains": ["geosite:netflix"], "action": "block"}, {"name": "默认 geoip", "enabled": True, "ips": ["geoip:kr"], "action": "block"}]
+    else:
+        forced += [{"name": f"强制 {k}", "enabled": True, "ports": str(22000 + k), "action": "block"} for k in (8, 9)]
+        deflt += [{"name": f"默认 {k}", "enabled": True, "ports": str(23000 + k), "action": "block"} for k in (8, 9)]
+    forced.append({"name": "探针", "enabled": True, "domains": ["domain:blocked.lab.test"], "action": "block"})
+    applied_file = ctx.lab.landing_dir() / "applied.json"
+    api.call("landing/egress/global/save", {"forced": forced, "default": deflt, "defaultAction": "direct"})
+    c = client(ctx, links(ctx, nodes[0][1], nodes[0][0])["direct"], 26621)
+    applied = wait_for("full layered plan applied", lambda: not coreclient.try_download(26621, "blocked.lab.test", HTTP) and coreclient.try_download(26621, H, HTTP), timeout=120)
+    apply_s = round(time.monotonic() - t0, 2)
+    plan = json.loads((ctx.lab.landing_dir() / "desired.json").read_text()).get("egress") or {}
+    time.sleep(5)
+    full = {"core": ctx.lab.proc_usage(core), "panel": ctx.lab.proc_usage(panel)}
+    # One more global edit on the loaded Core: hot re-apply time.
+    forced[-1] = {"name": "探针", "enabled": True, "domains": ["domain:allowed.lab.test"], "action": "block"}
+    t_save = time.time()
+    api.call("landing/egress/global/save", {"forced": forced, "default": deflt, "defaultAction": "direct"})
+    wait_for("probe moved", lambda: not coreclient.try_download(26621, "allowed.lab.test", HTTP) and coreclient.try_download(26621, "blocked.lab.test", HTTP), timeout=60)
+    reapply_s = round(applied_file.stat().st_mtime - t_save, 2)
+    # A user's single node-rule edit on the loaded Core (no debounce).
+    u0, n0 = nodes[1]
+    t_save = time.time()
+    node_rules_save(ctx, u0, n0, [{"name": "单条修改", "enabled": True, "ports": "24999", "action": "block"}])
+    wait_for("node edit applied", lambda: applied_file.stat().st_mtime > t_save and "单条修改" in (ctx.lab.landing_dir() / "desired.json").read_text(), timeout=60, interval=0.2)
+    node_edit_s = round(applied_file.stat().st_mtime - t_save, 2)
+    stop(ctx, c)
+    for u, nid in nodes:
+        node_rules_save(ctx, u, nid, [])
+    api.call("landing/egress/global/save", {"forced": [], "default": [], "defaultAction": "direct"})
+    api.call("landing/egress/user-caps/save", {"perNode": 5, "total": 10})
+    time.sleep(8)
+    after = {"core": ctx.lab.proc_usage(core), "panel": ctx.lab.proc_usage(panel)}
+    rules_n = len(plan.get("rules", []))
+    evidence = {"geo": geo_on, "plan_rules": rules_n, "plan_bytes": len(json.dumps(plan)), "first_full_apply_s_incl_10_user_saves": apply_s, "hot_reapply_global_s_incl_3s_debounce": reapply_s, "user_node_edit_to_agent_applied_s": node_edit_s,
+                "core_rss_kib": {"base": base["core"]["rss_kib"], "10_nodes": nodes_only["core"]["rss_kib"], "layered": full["core"]["rss_kib"], "cleared": after["core"]["rss_kib"]},
+                "core_fds": {"base": base["core"]["fds"], "layered": full["core"]["fds"], "cleared": after["core"]["fds"]},
+                "panel_rss_kib": {"base": base["panel"]["rss_kib"], "layered": full["panel"]["rss_kib"], "cleared": after["panel"]["rss_kib"]},
+                "panel_cpu_s": {"base": base["panel"]["cpu_s"], "layered": full["panel"]["cpu_s"], "cleared": after["panel"]["cpu_s"]}}
+    expect(r, "10 users × 10 node rules + 20 global rules applied hot on one Core (identical shared rules merged)", applied and rules_n <= 128 and ctx.lab.core_pids()[0] == core, evidence)
+    if geo_on:
+        shared = [x for x in plan.get("rules", []) if "geosite:disney" in (x.get("domain") or [])]
+        expect(r, "a geosite category all 10 owners picked is one rule in the Core (streamed once, 10 inbound tags)", len(shared) == 1 and len(shared[0]["inbound_tags"]) == 10, [{"name": x["name"], "tags": len(x["inbound_tags"])} for x in shared])
+
 
 def r1_resources(ctx):
     r = ctx.report
@@ -834,6 +1016,8 @@ SCENARIOS = [
     ("T1", "rule targets: explicit node, legacy reuse-or-create, reference counts + deletion", t1_rule_targets),
     ("P1", "plan 121 AnyTLS / Snell / Mieru on a shared landing: caps, payload, links, withheld", p1_extra_protocols),
     ("N1", "plan 131 global default node cap + admin owner transfer (native Core + shared desired)", n1_limits_transfer),
+    ("L1", "plan 134 global 强制 on all landings, isolated node rules, live conn survives, safety wins", l1_rule_layers),
+    ("L2", "plan 134 resources: 10 users × 10 node rules + 20 global rules on one Core", l2_layer_resources),
     ("R1", "resource snapshot", r1_resources),
 ]
 
@@ -845,6 +1029,7 @@ def run(args, selected):
     ctx.core = args.core
     ctx.report = Report(args.report or scratch / "report.json")
     ctx.clients = []
+    ctx.geo = getattr(args, "geo", "")
     try:
         setup(ctx)
         run_scenarios(ctx, selected, SCENARIOS)

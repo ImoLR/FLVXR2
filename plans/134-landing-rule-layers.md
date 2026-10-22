@@ -20,28 +20,28 @@ Evaluation order per node (first match wins, every rule scoped by inbound tag):
 ## Tasks
 - [x] Plan doc + baseline backend suite on the unmodified base (15 FAIL, same list as plan 131:
       /root/flvx-workers/runs/landing-rule-layers/base.fails)
-- [ ] Models: `landing_egress_setting` global columns (强制/默认 rules text, 全局默认出站); `landing_outbound.user_allowed`;
+- [x] Models: `landing_egress_setting` global columns (强制/默认 rules text, 全局默认出站); `landing_outbound.user_allowed`;
       `landing_node.route_rules` / `route_rule_count` / `route_default`; `landing_user_setting` node-rule caps
       (value + custom flag ×2); global caps in vite_config (5 / 10); SQLite + PostgreSQL, no jsonb/serial
-- [ ] Compiler: layered `Compile` (L2 forced, L3 node, L4 server, L5 default, L6 default outbound precedence);
+- [x] Compiler: layered `Compile` (L2 forced, L3 node, L4 server, L5 default, L6 default outbound precedence);
       byte-identical output when global is empty and no node rules (all existing goldens unchanged);
       line-chain tags get only L1+L2 (agent marker `builtin: "forced"`, landing_guard ≥ 2); global layers fail-open
       (`builtin: "global"`); WARP failure in a global layer → 直连 + warning; IPv4/IPv6-forced global part skipped on a
       server without that family + warning; node rules over the server budget skipped per node + warning
-- [ ] Agent (go-gost): GuardVersion 2 — accepts `builtin` forced/global (any outbound), forced rendered before chain
+- [x] Agent (go-gost): GuardVersion 2 — accepts `builtin` forced/global (any outbound), forced rendered before chain
       rules, builtin rules never withhold nodes; tests
-- [ ] Handler/repo: global get/save (validate every server, debounce one apply per server), per-server sync status
+- [x] Handler/repo: global get/save (validate every server, debounce one apply per server), per-server sync status
       (已同步 / 同步中 / 失败 / 不支持（原因）/ 待重启 / warnings); node-rule get/save (owner or admin; caps + rate limit in
       one tx with the user row locked; non-published outbound refused; private-range still blocked by layer 1);
       owner transfer moves rules (refuse over target caps); node delete drops rules with the row; WARP ensure + upstream
       resolution + loop edges include global and node layers; user caps in landing user get/save (跟随全局/自定义)
-- [ ] Native routing-only change stays hot (RoutingService `adrules`), never a Core restart for node rules; servers
+- [x] Native routing-only change stays hot (RoutingService `adrules`), never a Core restart for node rules; servers
       whose Core still needs the one-time restart keep node rules queued (「下次重启生效」) and global layers wait like
       the abuse defaults
 - [ ] Frontend: 出站与路由 tab 「全局规则」 section (强制/默认 lists, 全局默认出站, sync status, 用户规则 caps, 匹配顺序
       legend); outbound 「允许用户使用」 checkbox; 路由规则 dialog (user node card + admin node details); user edit 「落地」
       two cap fields
-- [ ] Golden tests (layer order, line-chain, node scope, default precedence, empty global identical, IPv4-forced on
+- [x] Golden tests (layer order, line-chain, node scope, default precedence, empty global identical, IPv4-forced on
       IPv6-only, WARP fallback) + contract tests SQLite + PostgreSQL (caps, 20 parallel saves, authz, unpublished
       outbound, transfer, delete, global save → one apply per server)
 - [ ] Acceptance runner (local lab, real Core): global 强制 blocks a domain on two servers incl. a newly enabled one;
