@@ -68,7 +68,7 @@ Run dir `/root/flvx-workers/runs/release-fork72-landing-user-view`.
 
 ### Release results (2026-10-22, 台湾时间)
 - Branch CI 39783306139 green; tag `3.0.27-fork.72` → 74f5890b; Images 39783538465 green; release Latest, not
-  prerelease, 13 assets = fork.71 set, compose pinned `ghcr.io/imolr/flvxr2-svc-*:3.0.27-fork.72`, install scripts
+  prerelease, 10 assets = fork.71 set, compose pinned `ghcr.io/imolr/flvxr2-svc-*:3.0.27-fork.72`, install scripts
   PINNED_VERSION/REPO OK, gost sha256 OK, ghcr amd64+arm64.
 - Rollback point `/opt/flvx-svc/rollback/pre-fork72-20261022T132042Z` (→ fork.71; SQLite quick/integrity ok,
   local image tags `local/flvxx-*:pre-fork72-20261022T132042Z`); kept + `pre-fork71-*`; pre-fork70 + fork.69 images
