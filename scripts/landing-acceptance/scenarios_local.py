@@ -533,7 +533,12 @@ def s8_delete(ctx):
 def e1_default(ctx):
     r, api = ctx.report, ctx.api
     d = json.loads((ctx.lab.landing_dir() / "desired.json").read_text())
-    expect(r, "default profile: agent desired has no egress plan (today's behaviour)", not d.get("egress"), list(d))
+    # Since plan 127 every native plan carries the built-in anti-abuse rules
+    # (TCP 25 + BitTorrent); the default profile adds nothing else.
+    eg = d.get("egress") or {}
+    expect(r, "default profile: agent desired egress = only the built-in anti-abuse rules (plan 127), no outbounds",
+           not eg.get("outbounds") and eg.get("rules") and all(x.get("builtin") == "abuse" for x in eg["rules"]),
+           [x.get("name") for x in eg.get("rules") or []])
     v = api.server(ctx.shared)
     expect(r, "shared without capability: 出站 shown unsupported", v["egress"]["supported"] is False and "暂不支持" in v["egress"]["unsupportedReason"], v["egress"]["unsupportedReason"])
     o = api.call("landing/egress/outbound/save", {"name": "acc-direct-v4", "type": "direct", "ipVersion": "force_ipv4", "settings": {}})
@@ -577,8 +582,10 @@ def e2_native(ctx):
     api.call("landing/node/update", {"id": ss, "routeProfileId": None})
     api.call("landing/server/save", server_payload(api.server(ctx.native), routeProfileId=0))
     wait_for("back to default", lambda: coreclient.try_echo(26593, H, ECHO) and coreclient.try_echo(26594, H, ECHO), timeout=40)
-    d = wait_for("desired egress cleared", lambda: (lambda x: x if not x.get("egress") else None)(json.loads((ctx.lab.landing_dir() / "desired.json").read_text())), timeout=30)
-    expect(r, "back to 默认（直连）: no egress plan, both nodes pass everything", not d.get("egress"), None)
+    # Since plan 127 the default plan keeps the built-in anti-abuse rules.
+    only_abuse = lambda e: bool(e) and not e.get("outbounds") and all(x.get("builtin") == "abuse" for x in e.get("rules") or [])
+    d = wait_for("desired egress back to the built-in rules", lambda: (lambda x: x if only_abuse(x.get("egress")) else None)(json.loads((ctx.lab.landing_dir() / "desired.json").read_text())), timeout=30)
+    expect(r, "back to 默认（直连）: only the built-in anti-abuse rules left, both nodes pass everything", only_abuse(d.get("egress")), [x.get("name") for x in d["egress"].get("rules") or []])
     expect(r, "all profile changes were hot (same Core process)", ctx.lab.core_pids() == pids0, {"before": pids0, "after": ctx.lab.core_pids()})
     stop(ctx, c1)
     stop(ctx, c2)
@@ -593,10 +600,16 @@ def e3_shared(ctx):
     api.call("landing/server/save", server_payload(v, routeProfileId=ctx.p_block))
     sync(ctx)
     body = wait_for("egress in desired", lambda: (lambda b: b if b and b.get("egress") else None)(desired(ctx, 7001)[0]), timeout=20)
-    rules = body["egress"]["rules"]
+    # Since plan 127 the built-in anti-abuse rules (names 「默认：…」) come
+    # first; the profile's own rule follows them.
+    all_rules = body["egress"]["rules"]
+    abuse = [rr for rr in all_rules if rr["name"].startswith("默认：")]
+    rules = [rr for rr in all_rules if not rr["name"].startswith("默认：")]
     tags = sorted(t for rr in rules for t in rr["inbound_tags"])
     want = sorted(f"flvxl-{n['id']}" for n in body["nodes"] if n["enabled"])
-    expect(r, "desired carries the compiled plan for exactly this share's nodes", tags == want and rules[0]["outbound"] == "block" and body["egress"]["version"] == 1, {"rules": rules, "nodes": want})
+    expect(r, "desired carries the compiled plan for exactly this share's nodes (after the built-in anti-abuse rules)",
+           tags == want and rules and rules[0]["outbound"] == "block" and body["egress"]["version"] == 1 and all_rules[:len(abuse)] == abuse,
+           {"rules": [rr["name"] for rr in all_rules], "nodes": want})
     geo = api.call("landing/egress/profile/save", {"name": "acc-geo", "defaultAction": "direct", "rules": [{"id": "g", "name": "netflix", "enabled": True, "domains": ["geosite:netflix"], "action": "block"}]})
     msg = api.expect_error("landing/server/save", server_payload(api.server(ctx.shared), routeProfileId=geo["id"]))
     expect(r, "geo profile refused when Custom has no geo data", True, msg)

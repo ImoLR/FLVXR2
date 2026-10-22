@@ -133,7 +133,12 @@ class Lab:
         self.start("fixtures-private", [sys.executable, HERE / "fixtures.py", "serve", PRIVATE_IP, HTTP_PORT, ECHO_PORT])
         key, crt = self.scratch / "tls.key", self.scratch / "tls.crt"
         sh("openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-keyout", key, "-out", crt, "-days", "1", "-subj", "/CN=" + REALITY_SNI)
-        self.start("reality-dest", ["openssl", "s_server", "-accept", f"{HOST_IP}:{REALITY_PORT}", "-cert", crt, "-key", key, "-www", "-tls1_3", "-alpn", "h2,http/1.1", "-quiet"])
+        # REALITY dials its dest for every connection; since plan 128 the dest
+        # leg runs through the guard (dokodemo -> freedom), which closes ~5 s
+        # (Xray downlinkOnly) after REALITY drops it. An iterative dest
+        # (openssl s_server) then stalls every following connection by 5 s,
+        # so the dest must be concurrent (same as chain_lab).
+        self.start("reality-dest", [sys.executable, HERE / "tlsdest.py", HOST_IP, REALITY_PORT, crt, key])
         self.start("customfake", [sys.executable, HERE / "customfake.py", "serve", CUSTOM_PORT, self.custom_token])
         for host, port in ((HOST_IP, HTTP_PORT), (HOST_IP, ECHO_PORT), (HOST_IP6, HTTP_PORT), (HOST_IP, REALITY_PORT), ("127.0.0.1", CUSTOM_PORT), (PRIVATE_IP, HTTP_PORT)):
             self.wait_port(host, port)
