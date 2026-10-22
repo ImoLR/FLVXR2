@@ -1,13 +1,16 @@
 import { useEffect, useState } from "react";
 import toast from "react-hot-toast";
 
+import { getAllUsers } from "@/api";
 import {
   LandingNode,
   LandingServer,
   landingDate,
   landingGB,
+  transferLandingNode,
   updateLandingNode,
 } from "@/api/landing";
+import { UserApiItem } from "@/api/types";
 import { EgressProfile, egressOverview } from "@/api/landing-egress";
 import { Button } from "@/shadcn-bridge/heroui/button";
 import { Input } from "@/shadcn-bridge/heroui/input";
@@ -19,6 +22,8 @@ import {
   ModalHeader,
 } from "@/shadcn-bridge/heroui/modal";
 import { Select, SelectItem } from "@/shadcn-bridge/heroui/select";
+import { getToken } from "@/utils/auth";
+import { getUserIdFromToken } from "@/utils/jwt";
 import { dateInput, dateValue } from "./server-settings";
 
 export function NodeDetails({
@@ -35,12 +40,61 @@ export function NodeDetails({
   const [form, setForm] = useState(node);
   const [saving, setSaving] = useState(false);
   const [profiles, setProfiles] = useState<EgressProfile[]>([]);
+  const [users, setUsers] = useState<UserApiItem[]>([]);
+  const [owner, setOwner] = useState(String(node.userId));
+  const [transferring, setTransferring] = useState(false);
+  const token = getToken();
+  const selfId = token ? getUserIdFromToken(token) : null;
 
   useEffect(() => {
     void egressOverview().then((res) => {
       if (res.code === 0) setProfiles(res.data.profiles || []);
     });
+    void getAllUsers({ size: 1000 }).then((res) => {
+      if (res.code === 0) setUsers(res.data || []);
+    });
   }, []);
+  // Admin accounts are not in the user list: the current owner and the
+  // calling admin get their own entries.
+  const ownerOptions = [
+    ...(users.some((user) => user.id === node.userId)
+      ? []
+      : [
+          {
+            key: String(node.userId),
+            label: `${node.userName || `用户 ${node.userId}`}（当前）`,
+          },
+        ]),
+    ...(selfId && selfId !== node.userId
+      ? [{ key: String(selfId), label: "自己（管理员）" }]
+      : []),
+    ...users.map((user) => ({
+      key: String(user.id),
+      label: `${user.name ? `${user.user}（${user.name}）` : user.user}${user.id === node.userId ? "（当前）" : ""}`,
+    })),
+  ];
+  const transfer = async () => {
+    const target = Number(owner);
+
+    if (!target || target === node.userId) return;
+    setTransferring(true);
+    try {
+      const res = await transferLandingNode(node.id, target);
+
+      if (res.code !== 0) {
+        toast.error(res.msg);
+
+        return;
+      }
+      toast.success(
+        `已转移给 ${ownerOptions.find((item) => item.key === owner)?.label || `用户 ${target}`}`,
+      );
+      onSaved();
+      onClose();
+    } finally {
+      setTransferring(false);
+    }
+  };
   const serverProfileName = server?.egress?.profileName || "默认（直连）";
   const profileName = (id: number) =>
     id === 0
@@ -167,6 +221,35 @@ export function NodeDetails({
             已用 {landingGB(node.billedIn + node.billedOut)} GB；入站{" "}
             {node.inboundTag}；端口 {node.port}。连接数不并入用户规则总连接数。
           </p>
+          <div className="space-y-2">
+            <div className="flex items-end gap-2">
+              <Select
+                className="min-w-0 flex-1"
+                label="所属用户"
+                selectedKeys={[owner]}
+                variant="bordered"
+                onSelectionChange={(keys) =>
+                  setOwner(String(Array.from(keys)[0] || node.userId))
+                }
+              >
+                {ownerOptions.map((item) => (
+                  <SelectItem key={item.key}>{item.label}</SelectItem>
+                ))}
+              </Select>
+              <Button
+                color="warning"
+                isDisabled={owner === String(node.userId)}
+                isLoading={transferring}
+                variant="flat"
+                onPress={() => void transfer()}
+              >
+                转移
+              </Button>
+            </div>
+            <p className="text-xs text-default-500">
+              转移后端口、密码、链接和各项限制不变；有效期为「跟随用户」时改为跟随新用户。转移前的流量仍计在原用户，之后的流量计入新用户。按新用户的服务器授权和节点上限检查；原用户的规则仍在使用此节点时不能转移。
+            </p>
+          </div>
           <Input
             label="名称"
             value={form.name}

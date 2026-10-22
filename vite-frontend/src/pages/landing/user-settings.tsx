@@ -24,7 +24,8 @@ export interface LandingUserSettingsHandle {
 const landingSnapshot = (value: LandingUserSetting | null) =>
   value
     ? JSON.stringify({
-        maxNodes: value.maxNodes,
+        maxNodesSource: value.maxNodesSource,
+        maxNodes: value.maxNodesSource === "global" ? null : value.maxNodes,
         quotas: value.quotas.map(({ serverKind, serverRefId, limitBytes }) => [
           serverKind,
           serverRefId,
@@ -129,17 +130,64 @@ export const LandingUserSettings = forwardRef<
       {error && <p className="text-sm text-danger">{error}</p>}
       {form && (
         <>
-          <Input
-            description="默认 5；0 表示禁止新建落地节点"
-            label="可建落地节点总数"
-            min="0"
-            type="number"
-            value={String(form.maxNodes)}
-            variant="bordered"
-            onChange={(event) =>
-              setForm({ ...form, maxNodes: Number(event.target.value) })
-            }
-          />
+          {form.maxNodesSource === "global" ||
+          form.maxNodesSource === "custom" ? (
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Select
+                description={
+                  form.maxNodesSource === "global"
+                    ? "使用落地页「全局设置」的默认值，全局值修改后立即生效"
+                    : "该用户单独的数量，不随全局值变化"
+                }
+                label="可建落地节点总数"
+                selectedKeys={[form.maxNodesSource]}
+                variant="bordered"
+                onSelectionChange={(keys) => {
+                  const source = String(Array.from(keys)[0] || "");
+
+                  if (source !== "global" && source !== "custom") return;
+                  setForm({
+                    ...form,
+                    maxNodesSource: source,
+                    maxNodes:
+                      source === "global"
+                        ? (form.globalMaxNodes ?? form.maxNodes)
+                        : form.maxNodes,
+                  });
+                }}
+              >
+                <SelectItem key="global">
+                  {`跟随全局（当前 ${form.globalMaxNodes ?? 5}）`}
+                </SelectItem>
+                <SelectItem key="custom">自定义</SelectItem>
+              </Select>
+              {form.maxNodesSource === "custom" && (
+                <Input
+                  description="0 表示禁止新建落地节点；调低不会删除已有节点"
+                  label="自定义数量"
+                  min="0"
+                  type="number"
+                  value={String(form.maxNodes)}
+                  variant="bordered"
+                  onChange={(event) =>
+                    setForm({ ...form, maxNodes: Number(event.target.value) })
+                  }
+                />
+              )}
+            </div>
+          ) : (
+            <Input
+              description="默认 5；0 表示禁止新建落地节点"
+              label="可建落地节点总数"
+              min="0"
+              type="number"
+              value={String(form.maxNodes)}
+              variant="bordered"
+              onChange={(event) =>
+                setForm({ ...form, maxNodes: Number(event.target.value) })
+              }
+            />
+          )}
           <div className="space-y-2">
             <h4 className="text-sm font-medium">可用落地服务器</h4>
             <p className="text-xs text-default-500">

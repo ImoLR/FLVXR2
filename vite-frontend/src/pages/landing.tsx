@@ -42,6 +42,7 @@ import { Spinner } from "@/shadcn-bridge/heroui/spinner";
 import { Tab, Tabs } from "@/shadcn-bridge/heroui/tabs";
 import { isAdmin } from "@/utils/auth";
 import { CreateLandingNodeDialog } from "@/pages/landing/create-node";
+import { LandingGlobalSettings } from "@/pages/landing/global-settings";
 import { NodeDetails } from "@/pages/landing/node-details";
 import { ServerSettings } from "@/pages/landing/server-settings";
 import { OfflineQRCode } from "@/pages/node/node-deploy-modal";
@@ -161,6 +162,7 @@ export default function LandingPage() {
   const [linksLoading, setLinksLoading] = useState(false);
   const [qr, setQR] = useState("");
   const [saving, setSaving] = useState(false);
+  const [globalSettings, setGlobalSettings] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -359,15 +361,27 @@ export default function LandingPage() {
                 "（部分服务器还支持 AnyTLS / Snell / Mieru）"}
             </p>
           </div>
-          <Button
-            isIconOnly
-            aria-label="刷新落地"
-            isLoading={loading}
-            variant="flat"
-            onPress={load}
-          >
-            <RefreshCw size={18} />
-          </Button>
+          <div className="flex shrink-0 items-center gap-2">
+            {admin && (
+              <Button
+                color="warning"
+                startContent={<Settings2 size={16} />}
+                variant="flat"
+                onPress={() => setGlobalSettings(true)}
+              >
+                全局设置
+              </Button>
+            )}
+            <Button
+              isIconOnly
+              aria-label="刷新落地"
+              isLoading={loading}
+              variant="flat"
+              onPress={load}
+            >
+              <RefreshCw size={18} />
+            </Button>
+          </div>
         </div>
         {error && (
           <p className="rounded-lg bg-danger-50 p-3 text-sm text-danger">
@@ -825,6 +839,9 @@ export default function LandingPage() {
             onClose={() => setSettings(null)}
             onSaved={() => void load()}
           />
+        )}
+        {globalSettings && (
+          <LandingGlobalSettings onClose={() => setGlobalSettings(false)} />
         )}
         {details && (
           <NodeDetails
