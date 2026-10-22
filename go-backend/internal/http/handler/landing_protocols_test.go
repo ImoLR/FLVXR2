@@ -86,11 +86,17 @@ func TestLandingExtraProtocolsHandlers(t *testing.T) {
 	if saved.SnellVersion != 5 || saved.SnellObfs != "tls" || saved.SnellObfsHost != "www.bing.com" || saved.MieruTransport != "UDP" || saved.AnyTLSServerName != "cdn.example.com" {
 		t.Fatalf("legacy save reset defaults: %+v", saved)
 	}
-	// Server list view: caps without the busy-port list, mode passed through.
-	list := protocolsCall(t, e.h, 2, 1, "/api/v1/landing/server/list", map[string]any{})
+	// Admin server list: caps without the busy-port list, mode passed through.
+	list := protocolsCall(t, e.h, 1, 0, "/api/v1/landing/server/list", map[string]any{})
 	raw, _ := json.Marshal(list.Data)
 	if !strings.Contains(string(raw), `"server_mode":"embedded"`) || strings.Contains(string(raw), "busy_ports") || !strings.Contains(string(raw), `"busyPortCount":1`) || !strings.Contains(string(raw), `"protocol_caps"`) {
-		t.Fatalf("server view %s", raw)
+		t.Fatalf("admin server view %s", raw)
+	}
+	// User server list (plan 132): only the protocol caps the create dialog needs.
+	list = protocolsCall(t, e.h, 2, 1, "/api/v1/landing/server/list", map[string]any{})
+	raw, _ = json.Marshal(list.Data)
+	if strings.Contains(string(raw), "server_mode") || strings.Contains(string(raw), "busy_ports") || strings.Contains(string(raw), "busyPortCount") || !strings.Contains(string(raw), `"protocol_caps"`) {
+		t.Fatalf("user server view %s", raw)
 	}
 	ids := map[string]int64{}
 	for _, p := range []string{"anytls", "snell", "mieru"} {
