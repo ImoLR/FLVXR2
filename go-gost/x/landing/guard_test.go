@@ -202,3 +202,59 @@ func TestBuiltinRulesOrderAndFailOpen(t *testing.T) {
 		t.Fatal("unknown builtin kind accepted")
 	}
 }
+
+// Plan 134: global layer markers. 全局·强制 ("forced") goes before chain rules
+// like the abuse defaults; 全局·默认 ("global") stays in place; neither counts
+// as coverage, so a failed global change never withholds a node.
+func TestGlobalLayerMarkersOrderAndFailOpen(t *testing.T) {
+	upstream := EgressOutbound{Type: "socks", Server: "203.0.113.11", Port: 1080}
+	chain := chainNode(int64(1<<40+1), upstream)
+	plain := testNode(t, 2)
+	both := []string{chain.InboundTag, plain.InboundTag}
+	only := []string{plain.InboundTag}
+	plan := &Egress{Version: 1, Outbounds: []EgressOutbound{{Tag: "flvxo-7", Type: "direct", IPVersion: "force_ipv4"}}, Rules: []EgressRule{
+		{Name: "默认：屏蔽 BT", InboundTags: both, Protocol: []string{"bittorrent"}, Outbound: "block", Builtin: "abuse"},
+		{Name: "强制", InboundTags: both, Domain: []string{"domain:blocked.example"}, Outbound: "block", Builtin: "forced"},
+		{Name: "强制 v4", InboundTags: both, Port: "8443", Outbound: "flvxo-7", Builtin: "forced"},
+		{Name: "节点", InboundTags: only, Port: "9000", Outbound: "block"},
+		{Name: "全局默认", InboundTags: only, Port: "53", Outbound: "flvxo-7", Builtin: "global"},
+		{Name: "全局默认出站", InboundTags: only, Outbound: "direct", Builtin: "global"},
+	}}
+	d := Desired{Revision: 1, Enabled: true, Nodes: []Node{chain, plain}, Egress: plan}
+	if err := d.validate(); err != nil {
+		t.Fatal(err)
+	}
+	m := NewManager(t.TempDir(), true)
+	m.desired = d
+	var names []string
+	for _, r := range m.effectiveEgress().Rules {
+		names = append(names, r.Name)
+	}
+	if got := strings.Join(names, "|"); got != "默认：屏蔽 BT|强制|强制 v4|chain|节点|全局默认|全局默认出站" {
+		t.Fatalf("layer order = %s", got)
+	}
+	c := plan.coveredTags()
+	if len(c) != 1 || !c[plain.InboundTag] {
+		t.Fatalf("only the node rule may cover: %v", c)
+	}
+	// Global-only plan on an old Core: nothing withheld.
+	dir := t.TempDir()
+	fakeCore(t, dir, false)
+	m2 := NewManager(dir, true)
+	m2.apiPort, m2.epoch = 1, "e1"
+	m2.applied = appliedState{Epoch: "e1", Inbounds: map[string]string{}}
+	m2.desired = Desired{Revision: 1, Enabled: true, Nodes: []Node{plain}, Egress: &Egress{Version: 1, Outbounds: plan.Outbounds, Rules: []EgressRule{
+		{Name: "强制", InboundTags: only, Domain: []string{"domain:blocked.example"}, Outbound: "block", Builtin: "forced"},
+		{Name: "全局默认出站", InboundTags: only, Outbound: "flvxo-7", Builtin: "global"},
+	}}}
+	if _, err := m2.applyEgress(context.Background(), coreSnapshot{}); err != errRestartRequired {
+		t.Fatalf("err = %v", err)
+	}
+	if w := m2.withheldTags(); len(w) != 0 {
+		t.Fatalf("global-only plan withheld nodes: %v", w)
+	}
+	bad := Desired{Revision: 1, Enabled: true, Nodes: []Node{plain}, Egress: &Egress{Version: 1, Rules: []EgressRule{{InboundTags: only, Port: "25", Outbound: "block", Builtin: "unknown"}}}}
+	if err := bad.validate(); err == nil {
+		t.Fatal("unknown builtin kind accepted")
+	}
+}

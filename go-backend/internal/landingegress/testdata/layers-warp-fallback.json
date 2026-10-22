@@ -1,0 +1,96 @@
+{
+  "active": true,
+  "plan": {
+    "version": 1,
+    "outbounds": [
+      {
+        "tag": "flvxo-5",
+        "type": "socks",
+        "ip_version": "system",
+        "server": "203.0.113.9",
+        "port": 1080
+      }
+    ],
+    "rules": [
+      {
+        "name": "默认：屏蔽 SMTP 25",
+        "inbound_tags": [
+          "flvxl-1099511627790",
+          "flvxl-11",
+          "flvxl-12",
+          "flvxl-14"
+        ],
+        "port": "25",
+        "network": "tcp",
+        "outbound": "block",
+        "builtin": "abuse"
+      },
+      {
+        "name": "默认：屏蔽 BT",
+        "inbound_tags": [
+          "flvxl-1099511627790",
+          "flvxl-11",
+          "flvxl-12",
+          "flvxl-14"
+        ],
+        "protocol": [
+          "bittorrent"
+        ],
+        "outbound": "block",
+        "builtin": "abuse"
+      },
+      {
+        "name": "全局 WARP",
+        "inbound_tags": [
+          "flvxl-11",
+          "flvxl-12",
+          "flvxl-13",
+          "flvxl-14"
+        ],
+        "domain": [
+          "geosite:google"
+        ],
+        "outbound": "direct"
+      },
+      {
+        "name": "全局默认出站",
+        "inbound_tags": [
+          "flvxl-14"
+        ],
+        "outbound": "direct"
+      },
+      {
+        "name": "方案 WARP",
+        "inbound_tags": [
+          "flvxl-11",
+          "flvxl-12"
+        ],
+        "domain": [
+          "geosite:openai"
+        ],
+        "outbound": "block"
+      },
+      {
+        "name": "AI",
+        "inbound_tags": [
+          "flvxl-13"
+        ],
+        "domain": [
+          "geosite:openai"
+        ],
+        "outbound": "flvxo-5"
+      },
+      {
+        "name": "默认出站",
+        "inbound_tags": [
+          "flvxl-13"
+        ],
+        "outbound": "block"
+      }
+    ]
+  },
+  "warnings": [
+    "WARP「WARP」尚未在本服务器注册成功，使用它的流量暂时封锁",
+    "全局规则：WARP「WARP」尚未在本服务器注册成功，全局规则中使用它的流量暂时改为直连"
+  ]
+}

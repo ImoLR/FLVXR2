@@ -10,8 +10,11 @@ type LandingOutbound struct {
 	IPVersion   string `gorm:"not null;default:'system'" json:"ipVersion"`
 	Settings    string `gorm:"type:text;not null;default:'{}'" json:"-"`
 	Remark      string `gorm:"not null;default:''" json:"remark"`
-	CreatedTime int64  `gorm:"not null" json:"createdTime"`
-	UpdatedTime int64  `gorm:"not null" json:"updatedTime"`
+	// UserAllowed (plan 134): users may pick this template in their own node
+	// rules and as their node's default outbound. Off by default.
+	UserAllowed bool  `gorm:"not null;default:false" json:"userAllowed"`
+	CreatedTime int64 `gorm:"not null" json:"createdTime"`
+	UpdatedTime int64 `gorm:"not null" json:"updatedTime"`
 }
 
 func (LandingOutbound) TableName() string { return "landing_outbound" }
@@ -64,6 +67,13 @@ type LandingEgressSetting struct {
 	ID              int64  `gorm:"primaryKey;autoIncrement:false" json:"-"`
 	SourceWhitelist string `gorm:"type:text;not null;default:'[]'" json:"-"`
 	UpdatedTime     int64  `gorm:"not null;default:0" json:"updatedTime"`
+	// Global rule group (plan 134), applied to every landing server: 全局·强制
+	// rules (before node rules), 全局·默认 rules (after the server profile) and
+	// the 全局默认出站. Empty lists + direct = no change to any plan.
+	GlobalForced      string `gorm:"type:text;not null;default:'[]'" json:"-"`
+	GlobalDefault     string `gorm:"type:text;not null;default:'[]'" json:"-"`
+	GlobalAction      string `gorm:"not null;default:'direct'" json:"-"`
+	GlobalUpdatedTime int64  `gorm:"not null;default:0" json:"-"`
 }
 
 func (LandingEgressSetting) TableName() string { return "landing_egress_setting" }

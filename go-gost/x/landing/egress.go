@@ -109,10 +109,22 @@ type EgressRule struct {
 	Outbound    string   `json:"outbound"`
 	// Builtin marks a panel default rule (plan 127, "abuse"): it may only
 	// block, is rendered before chain rules and never withholds a node.
+	// Plan 134 global layers: "forced" (全局·强制, any outbound, rendered
+	// before chain rules) and "global" (全局·默认 / 全局默认出站, any outbound,
+	// kept in place); neither withholds a node.
 	Builtin string `json:"builtin,omitempty"`
 }
 
-const builtinAbuse = "abuse"
+const (
+	builtinAbuse  = "abuse"
+	builtinForced = "forced"
+	builtinGlobal = "global"
+)
+
+// beforeChains: builtin rules the agent renders ahead of the chain rules.
+func (r EgressRule) beforeChains() bool {
+	return r.Builtin == builtinAbuse || r.Builtin == builtinForced
+}
 
 func (e *Egress) active() bool { return e != nil && (len(e.Outbounds) > 0 || len(e.Rules) > 0) }
 
@@ -575,7 +587,13 @@ func (e *Egress) validate(nodeTags map[string]bool) error {
 				return fmt.Errorf("rule %d: invalid protocol", i+1)
 			}
 		}
-		if r.Builtin != "" && (r.Builtin != builtinAbuse || r.Outbound != "block") {
+		switch r.Builtin {
+		case "", builtinForced, builtinGlobal:
+		case builtinAbuse:
+			if r.Outbound != "block" {
+				return fmt.Errorf("rule %d: invalid builtin rule", i+1)
+			}
+		default:
 			return fmt.Errorf("rule %d: invalid builtin rule", i+1)
 		}
 		items += r.items()

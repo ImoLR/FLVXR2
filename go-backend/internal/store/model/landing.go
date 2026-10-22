@@ -141,7 +141,14 @@ type LandingNode struct {
 	TLSCertPEM   string `gorm:"column:tls_cert_pem;type:text;not null;default:''" json:"-"`
 	TLSKeyPEM    string `gorm:"column:tls_key_pem;type:text;not null;default:''" json:"-"`
 	CertSHA256   string `gorm:"column:cert_sha256;not null;default:''" json:"certSha256"`
-	CreatedTime  int64  `gorm:"not null;index:idx_landing_reuse,priority:5" json:"createdTime"`
+	// Plan 134: the owner's node rules (JSON list of landing egress rules,
+	// scoped to this node's inbound tag), their number (enabled or not, for
+	// the per-node / per-user caps) and the node's own default outbound
+	// ("" follows the upper layers). They move with the node and go with it.
+	RouteRules     string `gorm:"type:text;not null;default:'[]'" json:"-"`
+	RouteRuleCount int    `gorm:"not null;default:0" json:"routeRuleCount"`
+	RouteDefault   string `gorm:"not null;default:''" json:"-"`
+	CreatedTime    int64  `gorm:"not null;index:idx_landing_reuse,priority:5" json:"createdTime"`
 	UpdatedTime  int64  `gorm:"not null" json:"updatedTime"`
 }
 
@@ -154,6 +161,13 @@ type LandingUserSetting struct {
 	// (vite_config landing_default_max_nodes) and MaxNodes keeps the old hard
 	// default 5, so a rollback to an older panel behaves as before.
 	MaxNodesCustom bool `gorm:"not null;default:false" json:"maxNodesCustom"`
+	// Plan 134 node-rule caps: own values when the matching Custom flag is
+	// set, otherwise the global defaults (vite_config
+	// landing_node_rule_max_per_node / landing_node_rule_max_per_user).
+	RuleMaxNode        int  `gorm:"not null;default:5" json:"ruleMaxNode"`
+	RuleMaxNodeCustom  bool `gorm:"not null;default:false" json:"ruleMaxNodeCustom"`
+	RuleMaxTotal       int  `gorm:"not null;default:10" json:"ruleMaxTotal"`
+	RuleMaxTotalCustom bool `gorm:"not null;default:false" json:"ruleMaxTotalCustom"`
 }
 
 func (LandingUserSetting) TableName() string { return "landing_user_setting" }

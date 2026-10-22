@@ -1,0 +1,110 @@
+{
+  "active": true,
+  "plan": {
+    "version": 1,
+    "outbounds": [
+      {
+        "tag": "flvxo-5",
+        "type": "socks",
+        "ip_version": "system",
+        "server": "203.0.113.9",
+        "port": 1080
+      }
+    ],
+    "rules": [
+      {
+        "name": "默认：屏蔽 SMTP 25",
+        "inbound_tags": [
+          "flvxl-1099511627790",
+          "flvxl-11",
+          "flvxl-12",
+          "flvxl-14"
+        ],
+        "port": "25",
+        "network": "tcp",
+        "outbound": "block",
+        "builtin": "abuse"
+      },
+      {
+        "name": "默认：屏蔽 BT",
+        "inbound_tags": [
+          "flvxl-1099511627790",
+          "flvxl-11",
+          "flvxl-12",
+          "flvxl-14"
+        ],
+        "protocol": [
+          "bittorrent"
+        ],
+        "outbound": "block",
+        "builtin": "abuse"
+      },
+      {
+        "name": "奈飞",
+        "inbound_tags": [
+          "flvxl-11",
+          "flvxl-12"
+        ],
+        "domain": [
+          "geosite:netflix"
+        ],
+        "outbound": "block"
+      },
+      {
+        "name": "A 专属",
+        "inbound_tags": [
+          "flvxl-11"
+        ],
+        "port": "7000",
+        "outbound": "block"
+      },
+      {
+        "name": "AI",
+        "inbound_tags": [
+          "flvxl-11",
+          "flvxl-12",
+          "flvxl-13"
+        ],
+        "domain": [
+          "geosite:openai"
+        ],
+        "outbound": "flvxo-5"
+      },
+      {
+        "name": "屏蔽大陆",
+        "inbound_tags": [
+          "flvxl-11",
+          "flvxl-12"
+        ],
+        "ip": [
+          "geoip:cn"
+        ],
+        "outbound": "block"
+      },
+      {
+        "name": "仅 12",
+        "inbound_tags": [
+          "flvxl-12"
+        ],
+        "port": "8443",
+        "outbound": "block"
+      },
+      {
+        "name": "默认出站",
+        "inbound_tags": [
+          "flvxl-11",
+          "flvxl-12"
+        ],
+        "outbound": "flvxo-5"
+      },
+      {
+        "name": "默认出站",
+        "inbound_tags": [
+          "flvxl-13"
+        ],
+        "outbound": "block"
+      }
+    ]
+  },
+  "warnings": null
+}
