@@ -11,21 +11,43 @@ Build + screenshots only — no release, no prod change (waits for the user's sc
   (admin node 10 + user node 95 on server 3) and returns server-wide connections / traffic / caps to non-admins.
 
 ## Tasks
-- [ ] Repo helper: one place for the total-cap lookup (`LandingUserSetting.MaxNodes`, default 5) used by
+- [x] Repo helper: one place for the total-cap lookup (`LandingUserSetting.MaxNodes`, default 5) used by
       `createLandingNode`, `GetLandingUserSetting` and the new own-count helper (plan 131 changes one place)
-- [ ] Repo helper `LandingUserNodeCounts(userID)` → total cap, own total, own count per server (one grouped query)
-- [ ] `landingServerView` non-admin: own `nodeCount`, `myRemaining`; strip server-wide aggregates, admin limits,
+- [x] Repo helper `LandingUserNodeCounts(userID)` → total cap, own total, own count per server (one grouped query)
+- [x] `landingServerView` non-admin: own `nodeCount`, `myRemaining`; strip server-wide aggregates, admin limits,
       sync internals; `sharedCaps` reduced to `protocol_caps`
-- [ ] `landingServerList`: aggregates computed once per request (no per-server full scan); admin output unchanged
-- [ ] Frontend: `pending` label 「正在同步，请稍后」 + bounded auto-refresh (5 s, ≤ 2 min, only while pending, paused
+- [x] `landingServerList`: aggregates computed once per request (no per-server full scan); admin output unchanged
+- [x] Frontend: `pending` label 「正在同步，请稍后」 + bounded auto-refresh (5 s, ≤ 2 min, only while pending, paused
       when the tab is hidden)
-- [ ] Frontend server card (non-admin): hide SharedCaps block, 最近成功同步, 同步异常/notice, 妙妙屋模式 chip, source
+- [x] Frontend server card (non-admin): hide SharedCaps block, 最近成功同步, 同步异常/notice, 妙妙屋模式 chip, source
       label; grid → 我的节点 / 还可创建 (已达上限 disables 创建节点) / 可用至
-- [ ] Frontend 我的节点 cards: drop 连接数 line for non-admins
-- [ ] Create dialog (non-admin): 「流量上限、倍率和有效期由管理员设置」, no port range / limit numbers
-- [ ] Contract tests (SQLite + PG if available): own count, both caps (prod repro), forbidden fields absent, admin
+- [x] Frontend 我的节点 cards: drop 连接数 line for non-admins
+- [x] Create dialog (non-admin): 「流量上限、倍率和有效期由管理员设置」, no port range / limit numbers
+- [x] Contract tests (SQLite + PG if available): own count, both caps (prod repro), forbidden fields absent, admin
       field set unchanged
-- [ ] Backend suite baseline vs after; frontend tsc / lint / build
-- [ ] Local lab: /landing/server/list request count + latency before/after
-- [ ] Screenshots desktop + H5, light + dark (user + admin before/after); gallery on mmwx-preview
-- [ ] Push branch, CI green, summary
+- [x] Backend suite baseline vs after; frontend tsc / lint / build
+- [x] Local lab: /landing/server/list request count + latency before/after
+- [x] Screenshots desktop + H5, light + dark (user + admin before/after); gallery on mmwx-preview
+- [x] Push branch, CI green (run 39781431592 on e1344124), summary
+
+## Decisions
+- Non-admin source label (妙妙屋共享 / FLVX 自有落地) and the 妙妙屋 mode chip are hidden: they only reveal infrastructure.
+- Non-admin create dialog drops the port range too (「端口自动分配。流量上限、倍率和有效期由管理员设置。」).
+- Non-admin server JSON is a blocklist on the model map (`landingServerUserHidden`): admin limits/defaults, core sizing,
+  revisions, sync time/error, remoteServerId, created/updated time, chainOnly, egress internals; server-wide
+  aggregates are never added. Kept: name, source, status, online, protocols, flowType, trafficRatio, availableUntil,
+  egressLabel, publicHost / ports / Reality / AnyTLS / Snell / Mieru defaults (create dialog + links), maxNodesPerUser,
+  sharedAvailable, landingSupported, nodeCount (own), myRemaining, sharedCaps = {protocol_caps}.
+- `nodeCount` / `myRemaining` count every landing_node row of the user (delete-pending included), exactly like
+  `createLandingNode`; total cap via the single helper `landingUserSetting` (default `DefaultLandingUserMaxNodes` = 5).
+- 「正在同步，请稍后」 also shows in 监控 (shared `landingStatus` map); nothing else in 监控 changed.
+
+## Results (lab, 2026-10-22)
+- Backend full suite (SQLite + PostgreSQL): 15 failures before = 15 after (same set); new
+  `TestLandingUserServerViewContract` passes on both; its admin field-set/aggregate assertions also pass on the
+  unmodified base. `TestLandingExtraProtocolsHandlers` updated: users no longer get `server_mode` / `busyPortCount`.
+- Frontend: tsc clean, eslint no new warnings, build OK.
+- Screens: 56 (before/after), 120/120 automated checks, 0 page errors; pending → 正常 flip in ~1.7 s after Custom
+  confirms (1 node/list request), polling stops when nothing is pending (0 requests in 12 s).
+- /landing/server/list p50: lab 2 servers admin 1.88→1.55 ms, user 1.77→1.30 ms; 42 servers / 2004 nodes admin
+  1055→39 ms, user 1043→8 ms (admin response bytes identical, user 41.7 kB → 22.0 kB).
