@@ -59,3 +59,24 @@ together with plan 132).
   then bills the new owner.
 - Transfer refuses when rules of any user other than the target reference the node (`forward.landing_node_id`), so
   the owner-only landing billing exemption never silently moves.
+
+## Release (fork.73, user approved 2026-10-22 ~22:30 TW 「可以」, incl. admin total-cap exemption)
+Plan 131 alone → `3.0.27-fork.73`, panel/frontend only, no agent OTA. Branch
+`maintenance/3.0.27-fork.73-landing-node-limits` = `feature/3.0.27-landing-node-limits` (966386da) rebased onto
+`maintenance/3.0.27-fork.72-landing-user-view` (485ef33e; no conflicts, plans/132 = fork.72 version); stray
+`scripts/landing-acceptance/__pycache__/*.pyc` removed, `__pycache__/` + `*.pyc` ignored. Plan 134 (landing rule
+layers) is NOT part of this release and must rebase onto this branch before its own release.
+Run dir `/root/flvx-workers/runs/release-fork73-landing-node-limits`.
+
+- [x] Rebase onto fork.72, drop pyc, `go build ./...` + frontend build sanity
+- [ ] Pre-upgrade prod capture (read-only): `landing_user_setting` rows + effective caps, global default, admin
+      user-settings view, user 26 `/landing/server/list` myRemaining, 29 nodes / forwards / landing nodes, CPU/RSS,
+      latency
+- [ ] Push branch, CI green
+- [ ] Tag `3.0.27-fork.73`, Images run green, release Latest with the same asset set as fork.72
+- [ ] Prod backup `pre-fork73-*` (validated SQLite, compose/.env, local image tags, rollback.sh) + prune to 2
+- [ ] Upgrade prod panel to fork.73, health + version.json
+- [ ] Verify: migration ran once (column added, rows with 5 → follow global, user 26 custom 2), effective caps
+      identical (admin now uncapped on total), user 26 still-creatable unchanged, admin view 「跟随全局（5）」,
+      29/29 online, agents unchanged, forwards + landing nodes unchanged, new UI strings in served bundle, CPU/RSS +
+      latency after
