@@ -2,7 +2,8 @@
 
 基线：`origin/maintenance/3.0.27-fork.68-mieru-hint`（`eb047757`，生产 fork.68）。
 开发分支：`feature/3.0.27-landing-abuse-defaults`，worktree `/root/projects/flvxx/flvxx-abuse-defaults`。
-发布：**不打 tag、不发布、不升级生产、不 OTA**，先给用户看截图（ui-add-only-preview-first）。
+发布：本计划只构建 + 截图。用户 2026-10-22 晚批准（防盗默认开、防滥用 23/135-139/445 TCP+UDP 都封），
+由 plan 128 发布为 `3.0.27-fork.69`（分支 `maintenance/3.0.27-fork.69-abuse-defaults`）。
 运行目录：`/root/flvx-workers/runs/landing-abuse-defaults/`（日志、截图、summary.md）。临时目录 `/root/tmp-work/abuse/`。
 
 ## 已定设计（用户 2026-10-22）
@@ -73,8 +74,6 @@
 - 生产（只读，2026-10-22）：落地服务器 1「Breadcloud JP」原生（节点 21）`egress_ready=0`（Core 仍是 fork.58 前的配置），
   0 个落地节点；服务器 2「Breadcloud US 年付」/3「Boil Hinet 马年」/4「Dmit T1」（embedded）共享，均声明 egress v1、
   allowed；全库 1 个落地节点（服务器 3，SS2022）；0 个路由方案；0 条链式规则；节点 21/34/47 `landing_egress=1, landing_chain=1`。
-</content>
-</invoke>
 - 基线（`eb047757` 完整副本，`GOMAXPROCS=2 go test -p 1 -count=1 ./...`）15 项失败；本分支最终代码同命令 15 项，名称完全相同
   （`runs/landing-abuse-defaults/logs/{baseline,final}-failures.txt`），新增 0。
 - PostgreSQL（临时 schema）：落地 / 出站 / 链式 / 防盗 / 默认规则测试全部通过（`logs/landing-pg.log`）。
