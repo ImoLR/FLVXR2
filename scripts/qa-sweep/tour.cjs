@@ -9,15 +9,17 @@ const http = require('http');
 const net = require('net');
 const {chromium} = require('/root/projects/mmwx-custom-flvx-share/frontend/node_modules/playwright');
 
-const poll = process.argv[2] === '--poll';
+const ppoll = process.argv[2] === '--ppoll';
+const poll = process.argv[2] === '--poll' || ppoll;
 const args = process.argv.slice(poll ? 3 : 2);
+const BATCH = Number(process.env.BATCH || 4);
 const visits = JSON.parse(fs.readFileSync(args[0], 'utf8'));
 const out = args[1];
 fs.mkdirSync(out, {recursive: true});
-const DIST = process.env.DIST || '/root/tmp-work/qa-sweep/dist';
+const DIST = process.env.DIST || '/root/tmp-work/qa-r2/dist';
 const PORT = Number(process.env.UI_PORT || 16597);
 const BACKEND = {host: process.env.BACKEND_HOST || '203.0.113.2', port: Number(process.env.BACKEND_PORT || 16481)};
-const tokens = JSON.parse(fs.readFileSync(process.env.TOKENS || '/root/tmp-work/qa-sweep/tokens.json', 'utf8'));
+const tokens = JSON.parse(fs.readFileSync(process.env.TOKENS || '/root/tmp-work/qa-r2/tokens.json', 'utf8'));
 const THROTTLE = process.env.THROTTLE_MS ? Number(process.env.THROTTLE_MS) : 0;
 
 function serve() {
@@ -38,10 +40,11 @@ function serve() {
     res.writeHead(200, {'Content-Type': types[path.extname(file)] || 'application/octet-stream', 'Cache-Control': 'no-store'});
     fs.createReadStream(file).pipe(res);
   });
-  // websocket upgrade passthrough (/system-info)
+  // websocket upgrade passthrough (/system-info); keeps the browser's Host so the
+  // panel's Origin check sees the same host as in production (nginx keeps Host)
   server.on('upgrade', (req, sock, head) => {
     const up = net.connect(BACKEND.port, BACKEND.host, () => {
-      up.write(`${req.method} ${req.url} HTTP/1.1\r\n` + Object.entries({...req.headers, host: `${BACKEND.host}:${BACKEND.port}`}).map(([k, v]) => `${k}: ${v}`).join('\r\n') + '\r\n\r\n');
+      up.write(`${req.method} ${req.url} HTTP/1.1\r\n` + Object.entries({...req.headers}).map(([k, v]) => `${k}: ${v}`).join('\r\n') + '\r\n\r\n');
       up.write(head); up.pipe(sock); sock.pipe(up);
     });
     up.on('error', () => sock.destroy()); sock.on('error', () => up.destroy());
@@ -84,6 +87,7 @@ async function openPage(browser, v, log) {
     try { const resp = await r.response(); const j = await resp.json(); code = j.code; if (code !== 0) log.apiErrors.push({visit: tag, path: u.pathname, code, msg: (j.msg || '').slice(0, 120)}); } catch { /* not json */ }
     log.requests.push({visit: tag, method: r.method(), path: u.pathname, ms, code, t: Date.now()});
   });
+  page.on('websocket', (ws) => { log.ws = log.ws || []; const rec = {visit: tag, url: ws.url().replace(/secret=[^&]+/, 'secret=…'), frames: 0, bytes: 0, opened: Date.now()}; log.ws.push(rec); ws.on('framereceived', (f) => { rec.frames++; rec.bytes += (f.payload || '').length; }); ws.on('close', () => { rec.closed = Date.now(); }); });
   page.on('requestfailed', (r) => { const u = new URL(r.url()); if (u.hostname === '127.0.0.1') log.failed.push({visit: tag, path: u.pathname, err: r.failure()?.errorText}); });
   const sep = v.route.includes('?') ? '&' : '?';
   await page.goto(`http://127.0.0.1:${PORT}` + v.route + (mobile ? `${sep}h5=true` : ''), {waitUntil: 'networkidle'}).catch((e) => log.errors.push({visit: tag, goto: e.message.slice(0, 200)}));
@@ -108,7 +112,33 @@ async function act(page, step) {
   const server = serve();
   const browser = await chromium.launch({executablePath: '/root/.cache/ms-playwright/chromium_headless_shell-1243/chrome-headless-shell-linux64/chrome-headless-shell'});
   const log = {errors: [], apiErrors: [], requests: [], failed: [], shots: [], texts: {}, stepErrors: []};
-  for (const v of visits) {
+  if (ppoll) {
+    log.poll = [];
+    for (let i = 0; i < visits.length; i += BATCH) {
+      const batch = visits.slice(i, i + BATCH);
+      const opened = [];
+      for (const v of batch) {
+        const o = {v, ...(await openPage(browser, v, log))};
+        for (const step of v.steps || []) { try { await act(o.page, step); } catch (e) { log.stepErrors.push({visit: v.name, step, err: e.message.split('\n')[0].slice(0, 200)}); } }
+        o.start = Date.now();
+        opened.push(o);
+      }
+      const hold = (batch[0].hold || 120) * 1000;
+      await new Promise((r) => setTimeout(r, hold));
+      for (const o of opened) {
+        const reqs = log.requests.filter((r) => r.visit === o.v.name && r.t >= o.start + 3000);
+        const per = {};
+        for (const r of reqs) per[r.path] = (per[r.path] || 0) + 1;
+        const wss = (log.ws || []).filter((w) => w.visit === o.v.name);
+        const secs = (Date.now() - o.start - 3000) / 1000;
+        log.poll.push({visit: o.v.name, seconds: Math.round(secs), total: reqs.length, perMinute: +(reqs.length / (secs / 60)).toFixed(1), paths: per,
+          ws: wss.map((w) => ({url: w.url, frames: w.frames, framesPerMin: +(w.frames / (secs / 60)).toFixed(1), kbPerMin: +(w.bytes / 1024 / (secs / 60)).toFixed(1), closed: !!w.closed}))});
+        console.log('ppoll', o.v.name, reqs.length, JSON.stringify(per), JSON.stringify(log.poll[log.poll.length - 1].ws));
+        await o.ctx.close();
+      }
+    }
+  }
+  for (const v of (ppoll ? [] : visits)) {
     const t0 = Date.now();
     const {ctx, page} = await openPage(browser, v, log);
     try {

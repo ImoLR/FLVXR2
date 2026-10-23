@@ -14,8 +14,13 @@ import urllib.error
 import urllib.request
 
 LAB = "http://203.0.113.2:16481"
+# r2: POST endpoints proven read-only (readonly_audit.py + manual review), listed in findings.md
+PROD_POST_ALLOW = {"/api/v1/user/package", "/api/v1/forward/list", "/api/v1/tunnel/list", "/api/v1/tunnel/user/tunnel",
+                   "/api/v1/landing/node/list", "/api/v1/landing/server/list", "/api/v1/landing/monitor", "/api/v1/monitor/nodes",
+                   "/api/v1/monitor/tunnels", "/api/v1/config/list", "/api/v1/user/list"}
 PROD = "https://flvxx.imgamer.top"
-LAB_SECRET_FILE = "/root/tmp-work/qa-sweep/lab/jwt.secret"
+import os
+LAB_SECRET_FILE = os.environ.get("QA_RUN", "/root/tmp-work/qa-sweep") + "/lab/jwt.secret"
 
 
 def _enc(b):
@@ -42,7 +47,7 @@ def api(base, path, tok=None, body=None, method=None, timeout=30):
     url = base + (path if path.startswith("/") else "/api/v1/" + path)
     data = None if body is None else json.dumps(body).encode()
     method = method or ("POST" if data is not None else "GET")
-    if base.startswith(PROD) and method != "GET":
+    if base.startswith(PROD) and method != "GET" and url[len(PROD):] not in PROD_POST_ALLOW:
         raise RuntimeError("prod is read-only: refusing " + method + " " + path)
     req = urllib.request.Request(url, data=data, method=method)
     req.add_header("Content-Type", "application/json")

@@ -7,5 +7,5 @@ start)
     nohup ip netns exec flvxqa ${PANEL_BIN:-$RUN/bin/paneld} > $L/paneld.out 2>&1 &
   echo $! > $L/paneld.pid
   for i in $(seq 1 60); do curl -s -m 2 http://203.0.113.2:16481/flow/test >/dev/null && { echo healthy; exit 0; }; sleep 1; done; echo "not healthy"; tail -20 $L/paneld.out; exit 1;;
-stop) pkill -f "$RUN/bin/paneld" ; sleep 1; echo stopped;;
+stop) [ -f $L/paneld.pid ] && kill $(cat $L/paneld.pid) 2>/dev/null; pkill -f "^$RUN/bin/paneld$" 2>/dev/null; sleep 1; echo stopped;;
 esac

@@ -33,7 +33,7 @@ def keypaths(v, prefix="", out=None, depth=0):
     return out
 
 
-def connect(url, token=None):
+def connect(url, token=None, origin=None, extra_headers=None):
     u = urllib.parse.urlparse(url)
     port = u.port or (443 if u.scheme == "wss" else 80)
     s = socket.create_connection((u.hostname, port), timeout=15)
@@ -45,6 +45,10 @@ def connect(url, token=None):
            f"Sec-WebSocket-Key: {key}\r\nSec-WebSocket-Version: 13\r\nUser-Agent: flvx-qa-sweep/133\r\n")
     if token:
         hdr += f"Cookie: flvx_session={token}\r\n"
+    if origin:
+        hdr += f"Origin: {origin}\r\n"
+    for k, v in (extra_headers or {}).items():
+        hdr += f"{k}: {v}\r\n"
     s.sendall((hdr + "\r\n").encode())
     buf = b""
     while b"\r\n\r\n" not in buf:

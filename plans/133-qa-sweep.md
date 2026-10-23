@@ -49,3 +49,46 @@ Full detail: `/root/flvx-workers/runs/qa-sweep/findings.md`.
 | F09 | P3 | 主页 | all | yes | 「Powered by FLVX」 pill covers the 24h chart time axis |
 | F10 | P3 | resource | — | yes | path-latency job pings 113 pairs every minute regardless of use |
 | R1–R5 | risk | ws / auth | — | yes | slow WS consumer stalls node read loop; CheckOrigin true; users get others' forward_metrics; disabled users can still edit; login unthrottled + unsalted MD5 |
+
+---
+
+## Round 2 (2026-10-23, after fork.74 security hotfix)
+
+Branch `qa/3.0.27-qa-r2` = `origin/maintenance/3.0.27-fork.74-security-hotfix` + plan 134's 8 commits
+(cherry-picked from `origin/feature/3.0.27-landing-rule-layers`; a plain merge conflicted only because 134 sits on the
+pre-release 131 commits — same content, one trivial `.gitignore` comment conflict). Run dir
+`/root/flvx-workers/runs/qa-sweep-r2/` (final.md, summary.md, evidence/, screens/); findings appended to round 1's
+findings.md (section 「第二轮」, ids F11+); gallery section `#r2`. Report only, no product code changes, no release.
+
+### Checklist (round 2)
+
+- [x] Test branch: fork.74 + 134 (cherry-pick, trivial conflict) + round-1 QA scripts
+- [x] Lab: paneld/agent/frontend from the branch; neutralised prod DB copy; 8 real agents in per-node netns wired to the panel netns; target / client (mihomo) / fake-LeiKwan netns; isolation proof
+- [x] Hotfix verification: WS probe (11 listeners incl. bad/sibling Origin, forged token, per-user scope, no reply broadcast), 304-route authz (no change vs r1, disabled user refused), login rate limit + known-good address + MD5→bcrypt, live disable (REST at once, WS ≤ 60 s), node_metric retention on prod (gap ≤ 60 s), F01–F09
+- [x] Request rate per page left open 2 min (admin + user), WS frames/min
+- [x] UI click-through: invalid input, empty submit, double-click, throttled double-click, refresh mid-submit, two tabs on one object, Esc in nested popovers
+- [x] Write flows in the lab UI: node create (附加 IP), 启用为落地 + server settings, tunnel create (entry-IP picker with extra IP, hop, exit), user grants, user landing nodes (SS2022, VLESS Reality), rule → 我的落地节点, diagnose, node delete refusal, tunnel delete + migrate, OTA dialog
+- [x] Full path traffic entry→hop→exit→landing→target with mihomo + byte checks; billing vs bytes; landing monitor vs DB row by row
+- [x] Reconnect test: forced WS reconnect of each of 4 path nodes during a 24 s stream (redeploy does not cut streams)
+- [x] Expiry pause/resume with traffic; plan 134 caps (UI + API), forced global rule vs user override, lowering caps keeps rules
+- [x] Links: SS2022 + VLESS Reality traffic through mihomo; AnyTLS/Snell/Mieru TCP/UDP links + Clash entries parsed by mihomo (21/21)
+- [x] 线路机 `chain_lab.py` C1–C8 (C6 fd assertion relaxed to a warning, see F14)
+- [x] 利群汇聚 UI against the repo's fake LeiKwan API (HTTPS, lab CA, lab DNS only): overview, create pipe (1 write on double-click)
+- [x] Prod read-only: GET + WS; POST read allowlist proven by `readonly_audit.py` and written to findings.md before use; API vs DB compare; browser tour with every other request aborted
+- [x] findings (F11–F28, R6–R11), gallery 第二轮, final.md, summary.md
+- [x] Cleanup lab (processes, netns, routes, DB copy, tokens)
+- [ ] Not done: real OTA, prod node journald (F13 numbers are lab-only), H5 dialog clicks, batch redeploy button, LeiKwan takeover/retarget/delete, WARP/proxy egress, two-entry-node multi-entry
+
+### Findings (round 2)
+
+| id | sev | area | prod? | one line |
+|----|-----|------|-------|----------|
+| F11 | P2 | nodes | latent | node `status` never reset on panel start: nodes down at restart show 在线 forever; commands say 节点不在线 |
+| F12 | P2 | tunnel delete | yes | 「迁移到其他隧道」 ignores the rule owner's tunnel grant; rule lands on an ungranted tunnel, owner can't edit it |
+| F13 | P2 | agent logs | likely | agent logger default info: hop/exit log 4 JSON lines (~690 B) per connection incl. dst; entry prints 2 `[FailFilter]` lines per connection |
+| F15 | P2 | 利群汇聚 | yes | pipes whose LeiKwan forward was deleted vanish from the overview without a warning; tunnel stays |
+| F14 | P3 | resource | yes | Reality Vision stream = 4 fds (SS2022 2) + guard dest conn ~5 s per new conn; chain_lab C6 old assertion fails |
+| F16 | P3 | 规则页 | yes | admin opening 规则 page rewrites global group-order/collapsed config (read-modify-write) |
+| F17 | P3 | resource | yes | 5 s polling on 主页/规则 (admin 3 calls per 5 s on 规则); admin WS ~1.25 MB/min with 29 nodes |
+| F18–F28 | P3 | UI / auth | yes | favicon config 404 + triple config/list; node dialog error out of view; misleading name/port messages; stale 诊断中 row; delete refusal w/o names; two-tab lost update; over-quota hint; login timing; node/info nil panic; 134 editor default 封锁 + silent cancel |
+| R6–R11 | risk | — | — | DNS failure during reconnect redeploy skips a rule; prod nodes 45/12/26 reconnect often; url.PathEscape in AnyTLS/Mieru userinfo; expiry pause timing; group-order sanitizer; chart tick |
