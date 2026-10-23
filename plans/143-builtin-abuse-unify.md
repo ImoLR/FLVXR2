@@ -46,9 +46,9 @@ Branch `maintenance/3.0.27-fork.83-builtin-abuse-unify` = feature head 57b8c0ec 
 fork.82 maintenance head 6bad78aa, no conflicts). Gate waived by user 10-24; release worker reviewed the gallery.
 - [x] Release worktree, branch from feature head (fast-forward over fork.82)
 - [x] Gallery review (H5/desktop, light/dark): no defect, no re-shoot
-- [ ] go build + go test ./... SQLite + PostgreSQL vs fork.82 base failure list
-- [ ] Frontend tsc / build / lint
-- [ ] Prod-copy gate re-run (fresh read-only copy, base fork.82 vs release, idempotent), copy deleted
+- [x] go build + go test ./... SQLite + PostgreSQL vs fork.82 base failure list (both identical to base: 15 env failures, 17 ok pkgs)
+- [x] Frontend tsc / build / lint (tsc 0, build ok main 2,980.57 kB, changed files 0 err / 6 warn = fork.82)
+- [x] Prod-copy gate re-run (fresh read-only copy, base fork.82 vs release, idempotent), copy deleted — OK: 6/6 servers blocked set identical (3/5/6: 7 rules, only order changed; 1/2/4: no plan before or after), mail/telnet → on, 强制 = 2 大陆 (byte-identical), 2nd start no change
 - [ ] Push, CI green, tag 3.0.27-fork.83, Release Latest with the fork.82 asset set
 - [ ] Prod: validated DB backup + rollback dir pre-fork83-<ts>, upgrade /opt/flvx-svc, prune (keep 2)
 - [ ] Prod checks: version/assets, health, nodes online, migration once (extra restart), blocked set per server
