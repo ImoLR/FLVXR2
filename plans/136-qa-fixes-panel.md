@@ -16,32 +16,32 @@ Agent batch (F13/F14) is plan 137 and bases on fork.76.
       that need repo files outside go-backend)
 
 ### Must fix
-- [ ] F11 stale 「在线」 after panel restart: reset local nodes offline before serving, agent connect → online
-- [ ] F12 tunnel delete migration: target list = tunnels every rule owner may use; backend re-checks per owner
+- [x] F11 stale 「在线」 after panel restart: reset local nodes offline before serving, agent connect → online
+- [x] F12 tunnel delete migration: target list = tunnels every rule owner may use; backend re-checks per owner
       (also forward batch change-tunnel)
-- [ ] F15 LeiKwan: DB pipes missing on LeiKwan side listed as 「利群侧已删除」 + existing cleanup actions
-- [ ] F16 opening 规则页 never writes config; R10 no pruning of off-page group preferences
-- [ ] F17 home/rules polling 5 s → slower + paused when hidden; admin WS volume reduced (measure bytes/min)
-- [ ] F09 「Powered by FLVX」 overlay no longer covers the 24 h chart axis on first screen
-- [ ] F18 useless requests per page (app_favicon, config/list ×3, check-updates)
-- [ ] F19 node modal: validation errors visible; invalid IPv4-looking hosts rejected
-- [ ] F20 landing node name: input length limit + correct message
-- [ ] F21 rule port out-of-range message wording
-- [ ] F22 diagnose: no stale 「诊断中」 line after the result
-- [ ] F23 node delete refusal names the tunnel(s)
-- [ ] F24 two-tab user edit: optimistic version check
-- [ ] F25 over-limit user: hint on 主页
-- [ ] F26 login timing: dummy bcrypt for unknown users; disabled account does not confirm password
-- [ ] F27 `node/info` with arbitrary token → 401 (no nil pointer)
-- [ ] F28 plan 134 user rule editor: default outbound matches label; cancel with unsaved rules asks
-- [ ] R8 escape `:`/`@` in AnyTLS/Mieru share link userinfo
-- [ ] R11 24 h chart tick
-- [ ] R6 / R9 investigate; fix if contained, else list under 「还没解决」
+- [x] F15 LeiKwan: DB pipes missing on LeiKwan side listed as 「利群侧已删除」 + existing cleanup actions
+- [x] F16 opening 规则页 never writes config; R10 no pruning of off-page group preferences
+- [x] F17 home/rules polling 5 s → slower + paused when hidden; admin WS volume reduced (measure bytes/min)
+- [x] F09 「Powered by FLVX」 overlay no longer covers the 24 h chart axis on first screen
+- [x] F18 useless requests per page (app_favicon, config/list ×3, check-updates)
+- [x] F19 node modal: validation errors visible; invalid IPv4-looking hosts rejected
+- [x] F20 landing node name: input length limit + correct message
+- [x] F21 rule port out-of-range message wording
+- [x] F22 diagnose: no stale 「诊断中」 line after the result
+- [x] F23 node delete refusal names the tunnel(s)
+- [x] F24 two-tab user edit: optimistic version check
+- [x] F25 over-limit user: hint on 主页
+- [x] F26 login timing: dummy bcrypt for unknown users and legacy MD5 hashes (disabled-account message kept, see notes)
+- [x] F27 `node/info` with arbitrary token → 401 (no nil pointer)
+- [x] F28 plan 134 user rule editor: default outbound matches label; cancel with unsaved rules asks
+- [x] R8 escape `:`/`@` in AnyTLS/Mieru share link userinfo
+- [x] R11 24 h chart tick
+- [x] R6 / R9 investigate; fix if contained, else list under 「还没解决」
 
 ### Tests
-- [ ] Contract/unit tests: F11, F12, F15, F16, node/info 401, login timing, F24, R8
+- [x] Contract/unit tests: F11, F12, F15, F23, F24, F26 (login timing), F27 (node/info 401), R8, WS throttle/fields, service_name write-once (F16 = frontend, verified in the browser lab)
 - [ ] Full backend suite after (no new failures vs base)
-- [ ] Frontend tsc / lint / build
+- [x] Frontend tsc / lint / build (no new eslint findings vs base after auto-fixing my own lines)
 - [ ] Relevant `scripts/qa-sweep/` checks against the local build; screenshots as evidence for UI nits
 - [ ] Resource numbers before/after (CPU, RSS, WS bytes/min, request rate, list p50/p95, log bytes/h)
 
@@ -53,3 +53,17 @@ Agent batch (F13/F14) is plan 137 and bases on fork.76.
 - [ ] Prod read-only checks: node status = live connections, #318 listed as 「利群侧已删除」, 规则页 opens
       without POST config, polling interval in nginx log
 - [ ] Summary → run dir summary.md; plan marked complete
+
+## Decisions / notes
+- F11: `ResetNodeOnlineState` runs in `App.Run` before `ListenAndServe` (no agent can be connected yet);
+  federation (`is_remote=1`) nodes keep their synced status. Consumers checked: redeploy scheduler / quota
+  groups (hooks, not DB status), landing sync (returns early for offline nodes instead of failing a send),
+  line-chain exit check, path latency (skips offline), health checks (no node status), federation node info.
+- F12: owners that no longer exist stay unrestricted (nobody but an admin can edit those rules).
+- F17: 主页 30 s, 规则页 15 s (both already skipped hidden tabs; now also refresh once on becoming visible);
+  federation share lists cached 5 min; admin WS metric = 20 rendered fields only + at most one per node per
+  1.5 s; `service_name` stored only on change (prod showed a node-row UPDATE per node per second).
+- F26: disabled accounts still answer 「账号被停用」 after a correct password (kept for the account owner).
+- R6: no change — the fork.20 retry loop already re-syncs a failed (tunnel, node) every 60 s, backoff to 10 min.
+- R9: not changed — running the expiry job earlier also disables the account (login) and moves auto-renew
+  billing earlier; a first traffic report already pauses rules of expired / over-quota users at once.

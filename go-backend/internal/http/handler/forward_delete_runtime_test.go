@@ -183,6 +183,8 @@ func TestTunnelDeleteReplaceKeepsMigratedServices(t *testing.T) {
 				node = 5
 			}
 			e.exec("INSERT INTO chain_tunnel(tunnel_id,chain_type,node_id) VALUES(11,'1',?)", node)
+			// Plan 136 (F12): the rule owner must be permitted on the target.
+			e.addUserTunnel(71, 7, 11)
 			if code, msg, data := leiKwanHandlerCall(t, e.h.tunnelDeleteWithForwards, map[string]interface{}{"id": 10, "action": "replace", "targetTunnelId": 11}); code != 0 || asInt(data["migratedCount"], 0) != 1 {
 				t.Fatalf("migration: %d %s %v", code, msg, data)
 			}
