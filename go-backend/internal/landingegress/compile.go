@@ -271,8 +271,9 @@ const (
 
 // EffectiveDefault resolves the default outbound of a node (node == nil: of
 // the server, i.e. a node without own rules) exactly like CompileLayers, and
-// whether any rule layer (global rules, node rules, profile rules) splits
-// traffic. The built-in anti-abuse rules (SMTP/BT) do not count.
+// whether any rule layer (global rules, node rules, profile rules) routes
+// traffic to another outbound. Block-only rules and the built-in anti-abuse
+// rules (SMTP/BT) do not count.
 func (in CompileInput) EffectiveDefault(node *NodeRef) (action, from string, rules bool) {
 	rep := Report{NodeNotes: map[int64][]string{}}
 	forced, deflt, gdef := in.globalLayer(&rep)
@@ -282,9 +283,9 @@ func (in CompileInput) EffectiveDefault(node *NodeRef) (action, from string, rul
 		in.nodeLayer(&n, &rep)
 	}
 	pid := EffectiveProfile(in.ServerProfileID, n.Override)
-	rules = len(forced) > 0 || len(deflt) > 0 || len(n.Rules) > 0
+	rules = routesTraffic(forced) || routesTraffic(deflt) || routesTraffic(n.Rules)
 	if p, ok := in.Profiles[pid]; pid != 0 && ok {
-		rules = rules || len(enabled(p.Rules)) > 0
+		rules = rules || routesTraffic(enabled(p.Rules))
 	}
 	def, layer := nodeDefault(n, pid, in.Profiles, gdef)
 	switch layer {
@@ -296,6 +297,18 @@ func (in CompileInput) EffectiveDefault(node *NodeRef) (action, from string, rul
 		from = DefaultFromServer
 	}
 	return def, from, rules
+}
+
+// routesTraffic: some rule sends matching traffic to another outbound. Pure
+// block rules (e.g. 屏蔽大陆 IP, 屏蔽发信端口) only filter; allowed traffic still
+// leaves through the default outbound, so they do not make a label 「按规则分流」.
+func routesTraffic(rules []Rule) bool {
+	for _, r := range rules {
+		if r.Enabled && r.Action != ActionBlock {
+			return true
+		}
+	}
+	return false
 }
 
 // EffectiveLabel is the read-only outbound summary users see for a server

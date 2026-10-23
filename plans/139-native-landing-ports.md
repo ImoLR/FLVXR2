@@ -72,6 +72,10 @@ Branch: `maintenance/3.0.27-fork.80-native-landing-ports`. Panel only, no agent 
   real compile; global settings + native node facts are read once per request (no N+1). Server/node `egressLabel`,
   admin egress view label/profileName, node `effectiveRouteProfileName` (「默认 · 直连（仅 IPv4）」) and the node rules
   dialog's 「跟随上级」 all use it. Frontend default option text 「默认（直连）」 → 「默认（跟随全局默认出站）」.
+- fork.81 follow-up (found on prod after fork.80): prod has 4 enabled 全局·强制 **block** rules (发信端口, Telnet/SMB,
+  大陆 IP, 大陆网站), so fork.80 showed 「按规则分流」 everywhere. Block-only rules only filter — allowed traffic still
+  leaves through the default — so only rules that route to an outbound count as 分流 now (global, node and profile
+  rules alike; a profile 「默认代理 + 屏蔽 BT」 now reads 「代理」 instead of 「按规则分流」).
 
 ### C — shared landing delete stuck (node 103)
 - Read-only Custom status of share 16 (10-23 19:0xZ): node 103 `state=removed, connections=29`, up/down bytes frozen

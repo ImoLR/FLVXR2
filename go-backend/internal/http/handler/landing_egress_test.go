@@ -171,7 +171,8 @@ func TestLandingEgressAdminOnlyAndValidation(t *testing.T) {
 	}
 	view := dataMap(t, out)
 	egressView := view["egress"].(map[string]any)
-	if egressView["profileId"].(float64) != float64(profileID) || egressView["label"] != "按规则分流" || egressView["state"] != "applied" {
+	if egressView["profileId"].(float64) != float64(profileID) || egressView["label"] != "代理" || egressView["state"] != "applied" {
+		// Plan 139: a block-only rule (BT) filters; allowed traffic leaves via the proxy default.
 		t.Fatalf("server egress view %+v", egressView)
 	}
 	payload := agent.payloads[len(agent.payloads)-1]
@@ -211,7 +212,7 @@ func TestLandingEgressAdminOnlyAndValidation(t *testing.T) {
 	_ = json.Unmarshal(w.Body.Bytes(), &list)
 	nodes := list.Data.([]any)
 	node := nodes[0].(map[string]any)
-	if node["egressLabel"] != "按规则分流" {
+	if node["egressLabel"] != "代理" { // block-only rules do not count as 分流 (plan 139)
 		t.Fatalf("user node label %v", node["egressLabel"])
 	}
 	for _, hidden := range []string{"routeProfileId", "effectiveRouteProfileId", "effectiveRouteProfileName"} {

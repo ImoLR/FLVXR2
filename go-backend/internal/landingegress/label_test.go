@@ -13,13 +13,14 @@ func TestEffectiveLabelPrecedence(t *testing.T) {
 	}
 	profiles := map[int64]Profile{
 		7: {ID: 7, Name: "WARP 默认", DefaultAction: "outbound:5"},
-		8: {ID: 8, Name: "分流", DefaultAction: ActionDirect, Rules: []Rule{{ID: "r", Name: "r", Enabled: true, Ports: "443", Action: ActionBlock}}},
+		8: {ID: 8, Name: "分流", DefaultAction: ActionDirect, Rules: []Rule{{ID: "r", Name: "r", Enabled: true, Ports: "443", Action: "outbound:5"}}},
 	}
 	base := func() CompileInput {
 		return CompileInput{Profiles: profiles, Outbounds: outbounds, Layers: true, NodeRules: true, Abuse: true, GeoIP: true, GeoSite: true,
 			Global: &Global{DefaultAction: "outbound:1"}}
 	}
 	rule := Rule{ID: "x", Name: "x", Enabled: true, Ports: "25", Action: ActionBlock}
+	routed := Rule{ID: "y", Name: "y", Enabled: true, Domains: []string{"example.com"}, Action: "outbound:2"}
 	cases := []struct {
 		name string
 		in   func() CompileInput
@@ -34,8 +35,15 @@ func TestEffectiveLabelPrecedence(t *testing.T) {
 		{"global proxy", func() CompileInput { in := base(); in.Global.DefaultAction = "outbound:2"; return in }, nil, "代理", DefaultFromGlobal},
 		{"profile default wins over global", func() CompileInput { in := base(); in.ServerProfileID = 7; return in }, nil, "WARP", DefaultFromServer},
 		{"profile rules", func() CompileInput { in := base(); in.ServerProfileID = 8; return in }, nil, "按规则分流", DefaultFromServer},
-		{"global forced rule", func() CompileInput { in := base(); in.Global.Forced = []Rule{rule}; return in }, nil, "按规则分流", DefaultFromGlobal},
-		{"global default rule", func() CompileInput { in := base(); in.Global.Default = []Rule{rule}; return in }, nil, "按规则分流", DefaultFromGlobal},
+		{"global forced block rule only filters", func() CompileInput { in := base(); in.Global.Forced = []Rule{rule}; return in }, nil, "直连（仅 IPv4）", DefaultFromGlobal},
+		{"global forced routing rule", func() CompileInput { in := base(); in.Global.Forced = []Rule{routed}; return in }, nil, "按规则分流", DefaultFromGlobal},
+		{"global default routing rule", func() CompileInput { in := base(); in.Global.Default = []Rule{routed}; return in }, nil, "按规则分流", DefaultFromGlobal},
+		{"profile with block rules only", func() CompileInput {
+			in := base()
+			in.Profiles = map[int64]Profile{9: {ID: 9, Name: "封锁", DefaultAction: "outbound:5", Rules: []Rule{rule}}}
+			in.ServerProfileID = 9
+			return in
+		}, nil, "WARP", DefaultFromServer},
 		{"disabled global rule ignored", func() CompileInput {
 			in := base()
 			off := rule
@@ -48,7 +56,8 @@ func TestEffectiveLabelPrecedence(t *testing.T) {
 		{"node default wins", base, &NodeRef{ID: 1, Default: "outbound:2"}, "代理", DefaultFromNode},
 		{"node default ignored when node rules not ready", func() CompileInput { in := base(); in.NodeRules = false; return in }, &NodeRef{ID: 1, Default: "outbound:2"}, "直连（仅 IPv4）", DefaultFromGlobal},
 		{"node default family conflict follows upper", func() CompileInput { in := base(); in.NoIPv6 = true; return in }, &NodeRef{ID: 1, Default: "outbound:3"}, "直连（仅 IPv4）", DefaultFromGlobal},
-		{"node rules", base, &NodeRef{ID: 1, Rules: []Rule{rule}}, "按规则分流", DefaultFromGlobal},
+		{"node routing rules", base, &NodeRef{ID: 1, Rules: []Rule{routed}}, "按规则分流", DefaultFromGlobal},
+		{"node block rules only", base, &NodeRef{ID: 1, Rules: []Rule{rule}}, "直连（仅 IPv4）", DefaultFromGlobal},
 		{"node profile override", base, &NodeRef{ID: 1, Override: ptr(7)}, "WARP", DefaultFromServer},
 		{"node override to default follows global", func() CompileInput { in := base(); in.ServerProfileID = 7; return in }, &NodeRef{ID: 1, Override: ptr(0)}, "直连（仅 IPv4）", DefaultFromGlobal},
 		{"unknown profile", func() CompileInput { in := base(); in.ServerProfileID = 99; return in }, nil, "直连", ""},
