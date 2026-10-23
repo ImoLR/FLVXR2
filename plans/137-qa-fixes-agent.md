@@ -47,16 +47,16 @@ This release also delivers fork.75's agent-side landing GuardVersion 2.
 ### Tests
 - [x] go-gost + x suites after (no new failures vs baseline); backend suite only if touched
 - [x] Chain lab 1000-connection burst (3-hop): agent log bytes/conn before vs after, RSS/fd/goroutines back to baseline, traffic correct
-- [ ] CI green on branch
+- [x] CI green on branch
 
 ### Release + rollout
-- [ ] Tag `3.0.27-fork.77`, Images green, Latest, same 10 assets, pinned version + sha256
-- [ ] Prod panel backup `pre-fork77` + prune (keep 2) + upgrade + health + 29 nodes online
-- [ ] Canary 42 (SSH backup): scheme/IP/1 conn, CPU/RSS/fd/goroutines, diagnose identical, journal lines/10 min before/after
-- [ ] Busy relay/exit node (SSH backup): same measurements, journal lines/10 min before/after
-- [ ] 2 other nodes measured (not upgraded) as control
-- [ ] GuardVersion 2 reported by the upgraded landing/Reality node(s)
-- [ ] Summary + plan complete
+- [x] Tag `3.0.27-fork.77`, Images green, Latest, same 10 assets, pinned version + sha256
+- [x] Prod panel backup `pre-fork77` + prune (keep 2) + upgrade + health + 29 nodes online
+- [x] Canary 42 (SSH backup): scheme/IP/1 conn, CPU/RSS/fd/goroutines, diagnose identical, journal lines/10 min before/after
+- [x] Busy relay/exit node (SSH backup): same measurements, journal lines/10 min before/after
+- [x] 2 other nodes measured (not upgraded) as control
+- [x] GuardVersion 2 reported by the upgraded landing/Reality node(s)
+- [x] Summary + plan complete (`runs/qa-fixes-agent/summary.md`)
 
 ## Results
 
@@ -132,3 +132,39 @@ Verdict: **regression from the plan-127/128 guard (fork.69+), contained fix appl
 go-gost/x 15 packages ok, 0 failures; go-gost ok; `-race` on logger/logsafe/service/socket/landing/nftables/
 selector/config/loader ok; real-Core landing tests ok except `TestEgressRealCoreAcceptsRenderedConfig`
 (geosite.dat missing — fails identically on the untouched base). Backend untouched (no panel change).
+
+## Release + rollout (10-23 TW)
+- Tag `3.0.27-fork.77` → d75b3839 (branch `maintenance/3.0.27-fork.77-agent-log-level`); CI Build Check 39960799319,
+  Build and Push Images 39961042184 green; Release Latest, same 10 assets as fork.76, compose pinned to :fork.77,
+  install scripts PINNED_VERSION/REPO, gost sha256 ok, ghcr amd64+arm64 (`runs/qa-fixes-agent/release-validation.json`).
+  Panel code identical to fork.76 (`git diff 3.0.27-fork.76 3.0.27-fork.77 -- go-backend vite-frontend` empty).
+- Prod panel: rollback `/opt/flvx-svc/rollback/pre-fork77-20261023T133959Z` (validated SQLite, quick/integrity ok,
+  fork.76 images tagged `local/flvxx-*:pre-fork77-20261023T133959Z`); prune kept it + `pre-node55-port-split`
+  (deleted pre-fork76 + ghcr fork.75 images). Upgrade 21:40:12 → healthy 21:40:30, version.json
+  `3.0.27-fork.77-mvl09ftg`, 30/30 nodes online within ~16 s, 26 reconnect redeploys 0 failures.
+- Canary 42 「Bestvm HK 年付」 21:43: wss→wss, IP 163.53.18.89 + prefer_ipv4 unchanged, 1 panel WS session,
+  diagnose 97 ok before = after (same 3 target-side failures), flux_agent PID 429 untouched, landing_guard 0→2.
+- Busy exit 47 「AWS HK」 21:45: wss→wss, sockets 2→2, diagnose 15/15 = 15/15, flux_agent PID 634 untouched,
+  landing_guard 0→2.
+- SSH backups (both): `/root/flvxx-backup-20261023T132549Z-pre-fork77/restore-agent.sh` (+ pre-fork67 kept).
+- No other node OTA'd (plan 138 does the all-node OTA): 26 nodes fork.67, 21 fork.70, 55 fork.76.
+
+| node | CPU % | RSS MB | fds | threads | journal per 10 min |
+|---|---|---|---|---|---|
+| 42 canary (fork.67→77) | 0.283 → 0.283 | 57.7 → 57.8 | 19 → 19 | 8 → 7 | 12 lines / 2382 B → 7 / 642 B |
+| 47 busy exit (fork.67→77) | 0.433 → 0.400 | 66.9 → 66.6 | 36 → 38 | 9 → 8 | 21 / 5612 B → 10 / 1830 B |
+| 21 control (fork.70) | 0.250 → 0.250 | 59.3 → 58.2 | 12 → 12 | 9 → 9 | 10 / 550 → 10 / 550 |
+| 52 control (fork.67) | 0.167 → 0.150 | 60.4 → 61.3 | 7 → 6 | 9 → 9 | 2 / 182 → 0 / 0 |
+
+Before = 21:2x TW (fork.67), after = 12 min after the OTA (window fully fork.77). 47's 60-min before: 172 lines /
+45 KB per hour; after ≈ 60 lines / 11 KB per hour — what is left is the LeiKwan pipe probe (`relay: unknown command`,
+1/min, fixed rate). 42's remainder = TcpPing first-failure/recovery pairs. Goroutines: not measurable on prod agents
+(no debug endpoint); lab Core goroutines back to baseline.
+
+## Open (handed to plan 138 / later)
+- Panel backend CPU 9.2 % → 7.5 % (60 s averages, 25 min after the restart) vs 3.9 % measured after the fork.76
+  upgrade; panel code identical → load-side (evening, reconnecting nodes); check with plan 138.
+- Residual per new Reality connection: 1 TIME_WAIT row for 60 s (guard design); pooled splice pipes until GC.
+- Redeploy lines (`收到命令` / `配置已保存`) per reconnect → plan 138 diff-only redeploy.
+- GuardVersion 2 on 42, 47, 55 only; node 21 (fork.70) reports 1 until the plan-138 OTA.
+- mmwx shared guard (Custom v1.4.75) already uses the same dedicated level-1 outbound — consistent.
