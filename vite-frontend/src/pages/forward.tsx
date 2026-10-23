@@ -125,7 +125,7 @@ import { usePullToRefresh } from "@/hooks/usePullToRefresh";
 import { useMobileBreakpoint } from "@/hooks/useMobileBreakpoint";
 import { saveOrder } from "@/utils/order-storage";
 import { JwtUtil } from "@/utils/jwt";
-import { parseExtraIPs } from "@/utils/node-ips";
+import { canonicalIp, parseExtraIPs } from "@/utils/node-ips";
 import { timestampToCalendarDate, calendarDateToTimestamp } from "@/utils/date";
 import { MULTI_REGION, compareRegions, exitRegionKey, exitRegionLabel, regionLabel } from "@/utils/region";
 
@@ -1765,7 +1765,10 @@ export default function ForwardPage() {
     add(node.serverIpV4);
     add(node.serverIpV6);
     add(node.serverIp);
-    parseExtraIPs(node.extraIPs).forEach((v) => ips.push(v));
+    // Listen IPs must be literal: extra DDNS domains are entries only.
+    parseExtraIPs(node.extraIPs)
+      .filter((v) => canonicalIp(v))
+      .forEach((v) => ips.push(v));
 
     return Array.from(new Set(ips));
   };

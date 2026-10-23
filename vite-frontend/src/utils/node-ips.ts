@@ -38,6 +38,16 @@ export const canonicalIp = (value: string): string | null => {
   }
 };
 
+const HOSTNAME =
+  /^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9-]*[a-z][a-z0-9-]*$/;
+
+/** A DNS name used as an entry address (DDNS domains, plan 142) or null. */
+export const canonicalHost = (value: string): string | null => {
+  const host = value.trim().toLowerCase().replace(/\.$/, "");
+
+  return HOSTNAME.test(host) && !host.startsWith("-") ? host : null;
+};
+
 /** Comparison key for an entry address: canonical IP or lowercased host. */
 export const addressKey = (value: string): string =>
   canonicalIp(value) ?? stripBrackets(value).toLowerCase();
@@ -70,7 +80,7 @@ export const parseExtraIPs = (raw?: string | null): string[] => {
   const out: string[] = [];
 
   for (const token of tokens ?? splitList(value)) {
-    const ip = canonicalIp(token);
+    const ip = canonicalIp(token) ?? canonicalHost(token);
 
     if (ip && !out.includes(ip)) out.push(ip);
   }
@@ -93,9 +103,9 @@ export const validateExtraIPsText = (
   const seen = new Set<string>();
 
   for (const token of splitList(text)) {
-    const ip = canonicalIp(token);
+    const ip = canonicalIp(token) ?? canonicalHost(token);
 
-    if (!ip) return `「${token}」不是有效的 IPv4 或 IPv6 地址`;
+    if (!ip) return `「${token}」不是有效的 IPv4、IPv6 地址或域名`;
     if (primary.has(ip)) return `「${token}」与上面的主 IP 重复`;
     seen.add(ip);
   }
@@ -117,14 +127,17 @@ export const nodeIpOptions = (node?: NodeIpSource | null): NodeIpOption[] => {
     if (!ip || seen.has(addressKey(ip))) return;
     seen.add(addressKey(ip));
     const v6 = isIpv6(ip);
+    const host = !canonicalIp(ip);
     const label =
       kind === "extra"
-        ? `附加 ${v6 ? "IPv6" : "IPv4"}`
+        ? `附加 ${host ? "域名" : v6 ? "IPv6" : "IPv4"}`
         : kind === "server"
           ? "主地址"
-          : v6
-            ? "IPv6"
-            : "IPv4";
+          : host
+            ? `${kind === "v6" ? "IPv6" : "IPv4"} 域名`
+            : v6
+              ? "IPv6"
+              : "IPv4";
 
     options.push({ ip, label, kind });
   };

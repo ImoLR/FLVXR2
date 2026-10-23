@@ -6,6 +6,7 @@ import { AnimatePresence, motion } from "framer-motion";
 
 import { Button } from "@/shadcn-bridge/heroui/button";
 import { Card, CardBody, CardHeader } from "@/shadcn-bridge/heroui/card";
+import { DNSProviderCard } from "@/pages/node/dns-provider-card";
 import { Input } from "@/shadcn-bridge/heroui/input";
 import { Textarea } from "@/shadcn-bridge/heroui/input";
 import { Spinner } from "@/shadcn-bridge/heroui/spinner";
@@ -1325,6 +1326,8 @@ export default function ConfigPage() {
             </div>
           </CardBody>
         </Card>
+        {/* 节点 DDNS 的 DNS 服务商（plan 142） */}
+        <DNSProviderCard />
       </div>
     </div>
   );

@@ -12,6 +12,7 @@ import { regionLabel } from "@/utils/region";
 import { getConnectionStatusMeta } from "./display";
 import { NodeIPv6RABadge } from "./ipv6-ra-badge";
 import { NodeLeiKwanBadge } from "./leikwan-badge";
+import { NodeDDNSBadge } from "./ddns-badge";
 import { MachineConnChip } from "./machine-conn";
 import { getNodeRenewalSnapshot, formatNodeRenewalTime } from "./renewal";
 
@@ -303,6 +304,7 @@ function SortableTableRow({
           </span>
           <NodeIPv6RABadge node={node} />
               <NodeLeiKwanBadge node={node} />
+              <NodeDDNSBadge ddns={(node as { ddns?: import("@/api/ddns").NodeDDNSView | null }).ddns} />
         </div>
         <div className="mt-1 text-xs text-default-500">
           {node.region ? regionLabel(node.region) : (

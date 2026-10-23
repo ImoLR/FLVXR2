@@ -113,6 +113,21 @@ import { timestampToCalendarDate, calendarDateToTimestamp } from "@/utils/date";
 import { getConnectionStatusMeta } from "@/pages/node/display";
 import { extraIPsToText, validateExtraIPsText } from "@/utils/node-ips";
 import {
+  listDNSProviders,
+  type DNSProviderView,
+  type NodeDDNSPayload,
+  type NodeDDNSView,
+} from "@/api/ddns";
+import {
+  NodeDDNSSection,
+  ddnsFromView,
+  ddnsMainDomain,
+  ddnsOwnedHint,
+  emptyDDNS,
+  validateDDNS,
+} from "@/pages/node/ddns-section";
+import { NodeDDNSBadge } from "@/pages/node/ddns-badge";
+import {
   getNodeRenewalSnapshot,
   normalizeNodeRenewalCycle,
   formatNodeRenewalTime,
@@ -182,6 +197,7 @@ interface Node extends LeiKwanNodeDetection {
   machineCloseWaitSeconds?: number;
   machineProtectCapable?: boolean;
   machine?: MachineView | null;
+  ddns?: NodeDDNSView | null;
   connectionStatus: "online" | "offline";
   systemInfo?: NodeSystemInfo | null;
   copyLoading?: boolean;
@@ -217,6 +233,7 @@ interface NodeForm extends MachineProtectForm {
   defaultUserQuotaBytes: number;
   lineMachine: boolean;
   extraIPs: string;
+  ddns: NodeDDNSPayload;
   http: number;
   tls: number;
   socks: number;
@@ -435,11 +452,16 @@ export default function NodePage() {
     defaultUserQuotaBytes: 0,
     lineMachine: false,
     extraIPs: "",
+    ddns: emptyDDNS(),
     http: 0,
     tls: 0,
     socks: 0,
     ...machineFormDefaults(),
   });
+  const [dnsProviders, setDnsProviders] = useState<DNSProviderView[]>([]);
+  const editingNode = isEdit
+    ? nodeList.find((item) => item.id === form.id)
+    : undefined;
   const [regionDetectLoading, setRegionDetectLoading] = useState(false);
   const [regionDetection, setRegionDetection] =
     useState<NodeRegionDetection | null>(null);
@@ -530,6 +552,15 @@ export default function NodePage() {
     }
   }
   const [errors, setErrors] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    if (!dialogVisible) return;
+    listDNSProviders()
+      .then((res) => {
+        if (res.code === 0) setDnsProviders(res.data || []);
+      })
+      .catch(() => undefined);
+  }, [dialogVisible]);
   const [selectMode, setSelectMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [batchDeleteModalOpen, setBatchDeleteModalOpen] = useState(false);
@@ -1173,6 +1204,11 @@ export default function NodePage() {
       newErrors.port = portValidation.error || "端口格式错误";
     }
     Object.assign(newErrors, validateMachineForm(form));
+    const ddnsError = validateDDNS(form.ddns);
+
+    if (ddnsError) {
+      newErrors.ddns = ddnsError;
+    }
     setErrors(newErrors);
 
     return newErrors;
@@ -1210,6 +1246,7 @@ export default function NodePage() {
       defaultUserQuotaBytes: node.defaultUserQuotaBytes || 0,
       lineMachine: node.lineMachine === true,
       extraIPs: extraIPsToText(node.extraIPs),
+      ddns: ddnsFromView(node.ddns),
       http: typeof node.http === "number" ? node.http : 1,
       tls: typeof node.tls === "number" ? node.tls : 1,
       socks: typeof node.socks === "number" ? node.socks : 1,
@@ -1705,6 +1742,7 @@ export default function NodePage() {
         groupId: form.groupId,
         extraIPs: form.extraIPs,
         lineMachine: form.lineMachine,
+        ddns: form.ddns,
         // 分别传递三个字段给后端
         intranetIp: intranetIp?.trim(),
         serverIpV4: serverIpV4?.trim(),
@@ -1755,6 +1793,10 @@ export default function NodePage() {
           );
         }
         setDialogVisible(false);
+        // DDNS state (records, status) comes from the server.
+        if (isEdit && (form.ddns.enabled || form.ddns.records.length > 0)) {
+          loadNodes({ silent: true });
+        }
         if (isEdit) {
           setNodeList((prev) =>
             prev.map((n) =>
@@ -1835,6 +1877,7 @@ export default function NodePage() {
       defaultUserQuotaBytes: 0,
       lineMachine: false,
       extraIPs: "",
+      ddns: emptyDDNS(),
       http: 0,
       tls: 0,
       socks: 0,
@@ -2271,6 +2314,7 @@ export default function NodePage() {
               </h3>
               <NodeIPv6RABadge node={node} />
               <NodeLeiKwanBadge node={node} />
+              <NodeDDNSBadge ddns={node.ddns} />
               {node.lineMachine && (
                 <Chip
                   className="shrink-0"
@@ -3420,21 +3464,33 @@ export default function NodePage() {
                 </DatePicker>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <Input
-                  description="可选：建议填写公网IPv4或对应解析域名，可留空"
-                  errorMessage={errors.serverIpV4}
-                  isInvalid={!!errors.serverIpV4}
-                  label="域名/公网IPv4地址"
-                  placeholder="例如：test.example.com 8.8.8.8"
-                  value={form.serverIpV4}
-                  variant="bordered"
-                  onBlur={() => handleDetectRegion(true)}
-                  onChange={(e) => {
-                    invalidateRegionDetection();
-                    regionDetectServerIp.current = "";
-                    setForm((prev) => ({ ...prev, serverIpV4: e.target.value }));
-                  }}
-                />
+                {ddnsMainDomain(form.ddns, "A") ? (
+                  <Input
+                    readOnly
+                    classNames={{ inputWrapper: "bg-default-100" }}
+                    data-testid="ddns-owned-v4"
+                    description={ddnsOwnedHint(form.ddns, "A", form.serverIpV4, editingNode?.ddns)}
+                    label="域名/公网IPv4地址"
+                    value={ddnsMainDomain(form.ddns, "A")}
+                    variant="bordered"
+                  />
+                ) : (
+                  <Input
+                    description="可选：建议填写公网IPv4或对应解析域名，可留空"
+                    errorMessage={errors.serverIpV4}
+                    isInvalid={!!errors.serverIpV4}
+                    label="域名/公网IPv4地址"
+                    placeholder="例如：test.example.com 8.8.8.8"
+                    value={form.serverIpV4}
+                    variant="bordered"
+                    onBlur={() => handleDetectRegion(true)}
+                    onChange={(e) => {
+                      invalidateRegionDetection();
+                      regionDetectServerIp.current = "";
+                      setForm((prev) => ({ ...prev, serverIpV4: e.target.value }));
+                    }}
+                  />
+                )}
                 <Input
                   classNames={{
                     input: "font-medium",
@@ -3464,21 +3520,33 @@ export default function NodePage() {
                     setForm((prev) => ({ ...prev, intranetIp: e.target.value }))
                   }
                 />
-                <Input
-                  description="可选：建议填写公网IPv6或对应解析域名，可留空"
-                  errorMessage={errors.serverIpV6}
-                  isInvalid={!!errors.serverIpV6}
-                  label="域名/公网IPv6地址"
-                  placeholder="例如：2001:db8::10"
-                  value={form.serverIpV6}
-                  variant="bordered"
-                  onBlur={() => handleDetectRegion(true)}
-                  onChange={(e) => {
-                    invalidateRegionDetection();
-                    regionDetectServerIp.current = "";
-                    setForm((prev) => ({ ...prev, serverIpV6: e.target.value }));
-                  }}
-                />
+                {ddnsMainDomain(form.ddns, "AAAA") ? (
+                  <Input
+                    readOnly
+                    classNames={{ inputWrapper: "bg-default-100" }}
+                    data-testid="ddns-owned-v6"
+                    description={ddnsOwnedHint(form.ddns, "AAAA", form.serverIpV6, editingNode?.ddns)}
+                    label="域名/公网IPv6地址"
+                    value={ddnsMainDomain(form.ddns, "AAAA")}
+                    variant="bordered"
+                  />
+                ) : (
+                  <Input
+                    description="可选：建议填写公网IPv6或对应解析域名，可留空"
+                    errorMessage={errors.serverIpV6}
+                    isInvalid={!!errors.serverIpV6}
+                    label="域名/公网IPv6地址"
+                    placeholder="例如：2001:db8::10"
+                    value={form.serverIpV6}
+                    variant="bordered"
+                    onBlur={() => handleDetectRegion(true)}
+                    onChange={(e) => {
+                      invalidateRegionDetection();
+                      regionDetectServerIp.current = "";
+                      setForm((prev) => ({ ...prev, serverIpV6: e.target.value }));
+                    }}
+                  />
+                )}
               </div>
               <Textarea
                 description="可选：同一台服务器的其他公网 IPv4/IPv6，每行一个；创建隧道时可勾选作为入口地址"
@@ -3491,6 +3559,22 @@ export default function NodePage() {
                 variant="bordered"
                 onChange={(e) =>
                   setForm((prev) => ({ ...prev, extraIPs: e.target.value }))
+                }
+              />
+              <NodeDDNSSection
+                error={errors.ddns}
+                nodeId={isEdit ? form.id : null}
+                providers={dnsProviders}
+                value={form.ddns}
+                view={editingNode?.ddns}
+                onChange={(ddns) => {
+                  setErrors((prev) => ({ ...prev, ddns: "" }));
+                  setForm((prev) => ({ ...prev, ddns }));
+                }}
+                onSynced={(view) =>
+                  setNodeList((prev) =>
+                    prev.map((n) => (n.id === form.id ? ({ ...n, ddns: view } as Node) : n)),
+                  )
                 }
               />
               <Select
@@ -3689,6 +3773,12 @@ export default function NodePage() {
                 <p className="text-small text-default-500">
                   此操作不可恢复，请谨慎操作。
                 </p>
+                {nodeToDelete?.ddns?.records?.length ? (
+                  <p className="text-small text-warning" data-testid="ddns-delete-note">
+                    该节点开启过 DDNS：删除节点不会删除 Cloudflare 里的记录（
+                    {nodeToDelete.ddns.records.map((r) => r.domain).join("、")}），不需要时请到 Cloudflare 手动删除。
+                  </p>
+                ) : null}
               </ModalBody>
               <ModalFooter>
                 <Button variant="flat" onPress={onClose}>
