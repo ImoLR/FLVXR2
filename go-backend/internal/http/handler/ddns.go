@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -602,20 +603,30 @@ func ddnsOwnedFields(plan *ddnsPlan, oldNode *model.Node, v4, v6, extras string)
 	if plan == nil || !plan.enabled {
 		return v4, v6, extras
 	}
-	if plan.mainDomain("A") != "" {
-		if oldNode != nil {
-			v4 = oldNode.ServerIPV4.String
-		} else if strings.TrimSpace(v4) == "" {
-			v4 = plan.mainDomain("A")
+	// Edit: a stored value stays (an IP until the first sync switches it, the
+	// domain afterwards); an empty stored field takes the submitted value.
+	// Create: an empty field gets the domain right away.
+	owned := func(submitted string, stored sql.NullString, domain string) string {
+		if domain == "" {
+			return submitted
 		}
-	}
-	if plan.mainDomain("AAAA") != "" {
 		if oldNode != nil {
-			v6 = oldNode.ServerIPV6.String
-		} else if strings.TrimSpace(v6) == "" {
-			v6 = plan.mainDomain("AAAA")
+			if strings.TrimSpace(stored.String) != "" {
+				return stored.String
+			}
+			return submitted
 		}
+		if strings.TrimSpace(submitted) == "" {
+			return domain
+		}
+		return submitted
 	}
+	var storedV4, storedV6 sql.NullString
+	if oldNode != nil {
+		storedV4, storedV6 = oldNode.ServerIPV4, oldNode.ServerIPV6
+	}
+	v4 = owned(v4, storedV4, plan.mainDomain("A"))
+	v6 = owned(v6, storedV6, plan.mainDomain("AAAA"))
 	list := repo.ParseNodeExtraIPs(extras)
 	have := map[string]bool{}
 	for _, token := range list {

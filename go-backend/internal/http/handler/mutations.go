@@ -938,6 +938,10 @@ func (h *Handler) nodeUpdate(w http.ResponseWriter, r *http.Request) {
 		if _, given := req["serverIp"]; given && ownedServerIP {
 			req["serverIp"] = oldNode.ServerIP
 		}
+		// A DDNS node never loses its address through an emptied form field.
+		if strings.TrimSpace(asString(req["serverIp"])+v4+v6+asString(req["intranetIp"])) == "" {
+			req["serverIp"] = oldNode.ServerIP
+		}
 		req["serverIpV4"], req["serverIpV6"], req["extraIPs"] = v4, v6, extras
 	}
 

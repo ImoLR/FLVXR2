@@ -437,6 +437,11 @@ func (h *Handler) ddnsZoneFor(ctx context.Context, client *ddns.Client, provider
 	if err != nil {
 		return ddns.Zone{}, err
 	}
+	for _, z := range zones {
+		if strings.EqualFold(z.Name, domain) {
+			return ddns.Zone{}, ddnsConfigErr("%s 是根域名（区域本身），FLVX 不会修改它，请用子域名", domain)
+		}
+	}
 	zone, ok := ddns.ZoneFor(domain, zones)
 	if !ok {
 		names := make([]string, 0, len(zones))
@@ -613,3 +618,17 @@ func dnsProviderToken(p *model.DNSProvider) string {
 	_ = json.Unmarshal([]byte(p.Credentials), &creds)
 	return strings.TrimSpace(creds.APIToken)
 }
+
+// SetDDNSAPIBase points the Cloudflare client at another base URL (contract
+// tests run a fake API).
+func (h *Handler) SetDDNSAPIBase(base string) {
+	m := h.ddnsState()
+	m.newClient = func(token string) *ddns.Client {
+		c := ddns.NewCloudflare(token)
+		c.BaseURL = base
+		return c
+	}
+}
+
+// WaitDDNS waits for background DDNS syncs (tests).
+func (h *Handler) WaitDDNS() { h.ddnsState().pending.Wait() }
