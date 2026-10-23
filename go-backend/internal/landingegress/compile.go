@@ -312,7 +312,7 @@ func routesTraffic(rules []Rule) bool {
 }
 
 // EffectiveLabel is the read-only outbound summary users see for a server
-// (node == nil) or one node, e.g. 「直连（仅 IPv4）」 or 「按规则分流」.
+// (node == nil) or one node, e.g. 「强制 IPv4」 or 「按规则分流」.
 func (in CompileInput) EffectiveLabel(node *NodeRef) string {
 	pid := in.ServerProfileID
 	if node != nil {
@@ -777,9 +777,9 @@ func ActionLabel(action string, outbounds map[int64]Outbound) string {
 	}
 	switch o.IPVersion {
 	case "force_ipv4":
-		return "直连（仅 IPv4）"
+		return "强制 IPv4"
 	case "force_ipv6":
-		return "直连（仅 IPv6）"
+		return "强制 IPv6"
 	}
 	return "直连"
 }
