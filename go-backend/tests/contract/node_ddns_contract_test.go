@@ -9,8 +9,8 @@ import (
 	"testing"
 
 	"go-backend/internal/auth"
-	"go-backend/internal/http/handler"
 	httpserver "go-backend/internal/http"
+	"go-backend/internal/http/handler"
 	"go-backend/internal/store/model"
 )
 

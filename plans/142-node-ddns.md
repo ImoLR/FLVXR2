@@ -54,16 +54,43 @@ for the user's screenshot approval. Pure FLVX feature: no runtime link to miaomi
 ## Checklist
 
 - [x] Baseline `go test ./...` on the unmodified base (34f66765): 15 FAIL lines (backup ×5, service monitor ×2, federation dual panel ×3, legacy migration ×2, nodelay, renewal cycle, address-in-use) — same set as earlier rounds
-- [ ] Backend: models + migration (SQLite + PG), provider repo + CF client + provider API
-- [ ] Backend: node DDNS config parse/validate/save (create + update), list payload, delete cascade
-- [ ] Backend: extra IPs accept domains; bind IPs stay literal
-- [ ] Backend: updater (selection, CF upsert, apply-once, bind rewrite, backoff, drift, 立即同步)
-- [ ] Backend: WS capability + `addrs` ingest + panel-seen IPv4
-- [ ] Agent: nodeaddr collector + subscribe + metric piggyback + handshake capability
-- [ ] Unit tests (selection/filter/change/CF fake/backoff) + agent test + SQLite/PG contract tests
-- [ ] Real CF round trip on a throwaway record (create → update → read → delete → gone)
-- [ ] netns E2E (agent in netns, fake CF, prefix change → one update, no double redeploy) + resource numbers
-- [ ] Frontend: API, settings card, node form section, badges, domain-aware extras / picker
+- [x] Backend: models + migration (SQLite + PG), provider repo + CF client + provider API
+- [x] Backend: node DDNS config parse/validate/save (create + update), list payload, delete cascade
+- [x] Backend: extra IPs accept domains; bind IPs stay literal
+- [x] Backend: updater (selection, CF upsert, apply-once, bind rewrite, backoff, drift, 立即同步)
+- [x] Backend: WS capability + `addrs` ingest + panel-seen IPv4
+- [x] Agent: nodeaddr collector + subscribe + metric piggyback + handshake capability
+- [x] Unit tests (selection/filter/change/CF fake/backoff) + agent test + SQLite/PG contract tests
+- [x] Real CF round trip on a throwaway record (create → update → read → delete → gone)
+- [x] netns E2E (agent in netns, fake CF, prefix change → one update, no double redeploy) + resource numbers
+- [x] Frontend: API, settings card, node form section, badges, domain-aware extras / picker
 - [ ] `npm run build` + full `go test ./...` vs baseline
-- [ ] Screenshots desktop + H5, light + dark; gallery published
+- [x] Screenshots desktop + H5, light + dark; gallery published
 - [ ] Branch pushed, CI green; summary + final.md
+
+## Results (2026-10-24 TW)
+
+- Base `origin/maintenance/3.0.27-fork.80-native-landing-ports` @ 34f66765 (fork.81 + plan doc).
+- Backend: `internal/ddns` (Cloudflare client, address selection, protected names, backoff),
+  `dns_provider` + `node_ddns_record` tables (+ `node.ddns_enabled`, `node.ddns_provider_id`),
+  provider API under `/api/v1/node/ddns/…`, node create/update `ddns` object, updater
+  (`ddns_sync.go`), WS `addrReport=1` + metric `addrs`, extras accept domains, listen IPs stay
+  literal, legacy report-ip never overwrites DDNS nodes. Lab-only env `FLVX_DDNS_CF_API`.
+- Agent: `go-gost/x/nodeaddr` + `socket/node_addrs.go` (netlink event driven, RA tick fallback,
+  sent only on change / once per session; 102 bytes for node 48's two IPv6).
+- UI: 网站配置 「DNS 服务商」 card, node form 「DDNS」 section, node badges, owned-field hints,
+  delete note, domain labels in the entry picker; IPv4 row no longer repeats the IPv6 domain.
+- Tests: `go test ./...` = 15 FAIL lines, identical to the baseline; new DDNS unit / handler /
+  contract tests pass (SQLite + PostgreSQL 18; contract + repo packages with PG: only the
+  baseline failures). go-gost/x socket / nodeaddr / nftables pass (base: same). `npm run build`
+  ok, `tsc` clean, eslint errors unchanged on edited files.
+- Real Cloudflare round trip (`-tags cfreal`): throwaway `flvx-ddns-test-1792787762.imgamer.top`
+  created (AAAA, TTL 120, proxied=false, comment FLVX DDNS) → updated with 1 API call → read back →
+  deleted → verified gone; zone record count unchanged (33).
+- netns E2E (`scripts/ddns-e2e/e2e.py`): first sync 1.0 s after save; CT prefix rotation → exactly
+  one PUT 2.8–2.9 s later; tunnel entry rewritten once per record at the switch, 0 times after;
+  lifetime refresh + 300 s idle → 0 API calls. Agent 120 s: base fork.81 0.292 % CPU / 50.6 MB RSS /
+  8 threads / 8 fds; branch 0.225 % / 48.5 MB / 8 / 9 (+1 fd = netlink subscription).
+  1 h idle simulation (handler test, fake clock): 2 calls for 2 records (one GET drift check each).
+- Screenshots: 64 shots (desktop 1440 + H5 390, light + dark), 110/110 checks, 0 page errors;
+  gallery `/root/flvx-workers/runs/node-ddns/screens/index.html` on mmwx-preview `…/node-ddns/`.
