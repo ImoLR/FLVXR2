@@ -163,6 +163,7 @@ func (h *Handler) onNodeOffline(nodeID int64) {
 	if scheduler != nil {
 		scheduler.Offline(nodeID)
 	}
+	h.ddnsNodeOffline(nodeID)
 	if h.quotaGroups != nil {
 		h.quotaGroups.NodeOffline(nodeID)
 	}

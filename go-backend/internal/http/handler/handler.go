@@ -68,6 +68,8 @@ type Handler struct {
 	nodeGroupHandler *NodeGroupHandler
 	nodeTagHandler   *NodeTagHandler
 
+	ddns *ddnsManager // node DDNS updater (plan 142), created on first use
+
 	nftablesDomainMu    sync.Mutex
 	nftablesDomainCache map[int64]string
 
@@ -186,6 +188,7 @@ func New(repo *repo.Repository, jwtSecret string, fluxVersion string) *Handler {
 	})
 	h.wsServer.SetNodeOnlineHook(h.onNodeOnline)
 	h.wsServer.SetNodeOfflineHook(h.onNodeOffline)
+	h.wsServer.SetNodeAddrsHook(h.onNodeAddrs)
 	h.wsServer.SetNodeMetricHook(func(nodeID int64, info ws.SystemInfo) {
 		metricInfo := metrics.SystemInfo{
 			Uptime:                 info.Uptime,
@@ -222,6 +225,7 @@ func (h *Handler) WebSocketHandler() http.Handler {
 func (h *Handler) Register(mux *http.ServeMux) {
 	h.registerLeiKwan(mux)
 	h.registerLanding(mux)
+	h.registerDDNS(mux)
 	mux.HandleFunc(StaleFrontendKickPath, h.staleFrontendKick)
 	mux.HandleFunc("/api/v1/user/login", h.login)
 	mux.HandleFunc("/api/v1/user/logout", h.logout)
@@ -809,10 +813,17 @@ func (h *Handler) nodeList(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.syncRemoteNodeStatuses(items)
+	var ddnsViews map[int64]*ddnsNodeView
+	if role == 0 {
+		ddnsViews, _ = h.ddnsNodeViews()
+	}
 	for _, item := range items {
 		id := asInt64(item["id"], 0)
 		item["machine"] = h.machineView(id, role == 0)
 		item["machineProtectCapable"] = h.wsServer != nil && h.wsServer.MachineProtectCapable(id)
+		if view := ddnsViews[id]; view != nil {
+			item["ddns"] = view
+		}
 	}
 	if role != 0 {
 		for _, item := range items {

@@ -15,6 +15,7 @@ import (
 	"github.com/gorilla/websocket"
 
 	"go-backend/internal/authstate"
+	"go-backend/internal/clientip"
 	"go-backend/internal/http/middleware"
 	"go-backend/internal/ratelimit"
 	"go-backend/internal/security"
@@ -72,6 +73,10 @@ type nodeSession struct {
 	// Last metric forwarded to browser sessions (read loop only, no lock).
 	lastBrowserMetric time.Time
 	serviceName       string // last stored service_name (read loop only)
+	// Node DDNS (plan 142).
+	addrReport int    // handshake capability; >0 = agent reports its interface addresses
+	clientIP   string // address the panel sees for this session (Cloudflare client IP)
+	addrsKey   string // last address report handed to the hook (read loop only)
 }
 
 // browserMetricInterval: browser views (node list, monitor, status page) get
@@ -124,6 +129,7 @@ type Server struct {
 	onNodeOnline  func(nodeID int64)
 	onNodeOffline func(nodeID int64)
 	onNodeMetric  func(nodeID int64, info SystemInfo)
+	onNodeAddrs   func(nodeID int64, addrs NodeAddrs) // plan 142
 
 	mu                    sync.RWMutex
 	clients               clientRegistry
@@ -176,6 +182,7 @@ type SystemInfo struct {
 	UDPConns               int64             `json:"udp_conns"`
 	MachineConns           *MachineConns     `json:"machine_conns,omitempty"`
 	MachineProtect         *MachineProtect   `json:"machine_protect,omitempty"`
+	Addrs                  *NodeAddrs        `json:"addrs,omitempty"` // only when changed (plan 142)
 	NetInSpeed             int64             `json:"net_in_speed"`
 	NetOutSpeed            int64             `json:"net_out_speed"`
 	ServiceName            string            `json:"service_name,omitempty"`
@@ -402,6 +409,10 @@ func (s *Server) handleNode(w http.ResponseWriter, r *http.Request, nodeID int64
 	if v, err := strconv.Atoi(r.URL.Query().Get("machineProtect")); err == nil && v > 0 {
 		ns.machineProtect = v
 	}
+	if v, err := strconv.Atoi(r.URL.Query().Get("addrReport")); err == nil && v > 0 {
+		ns.addrReport = v
+	}
+	ns.clientIP = clientip.FromRequest(r)
 	s.nodes[nodeID] = ns
 	delete(s.serviceConnections, nodeID)
 	delete(s.serviceConnUpdateTime, nodeID)
@@ -481,6 +492,7 @@ func (s *Server) handleNode(w http.ResponseWriter, r *http.Request, nodeID int64
 						s.recordIPv6RA(ns, sysInfo.IPv6RAStatus, sysInfo.IPv6RADetail)
 						s.recordLeiKwan(ns, sysInfo.LeiKwan)
 						s.recordMachine(nodeID, sysInfo, time.Now())
+						s.recordAddrs(ns, sysInfo.Addrs)
 						_ = s.repo.SetNodeLandingCapabilities(nodeID, sysInfo.LandingCapable, sysInfo.LandingEgress, sysInfo.LandingChain, sysInfo.LandingGuard)
 						// 缓存服务连接数
 						s.mu.Lock()

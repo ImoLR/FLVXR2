@@ -452,8 +452,9 @@ func (r *Repository) UpdateNodePublicIP(nodeID int64, publicIP string) error {
 	if r == nil || r.db == nil {
 		return errors.New("repository not initialized")
 	}
+	// DDNS nodes (plan 142) keep their domain addresses.
 	return r.db.Model(&model.Node{}).
-		Where("id = ?", nodeID).
+		Where("id = ? AND ddns_enabled = ?", nodeID, false).
 		Update("server_ip", publicIP).Error
 }
 
@@ -466,7 +467,7 @@ func (r *Repository) UpdateNodePublicIPs(nodeID int64, ipv4, ipv6 string) error 
 		serverIP = ipv4
 	}
 	return r.db.Model(&model.Node{}).
-		Where("id = ?", nodeID).
+		Where("id = ? AND ddns_enabled = ?", nodeID, false).
 		Updates(map[string]interface{}{
 			"server_ip":    serverIP,
 			"server_ip_v4": ipv4,
@@ -990,6 +991,8 @@ func (r *Repository) DeleteNodeCascade(nodeID int64) error {
 			&model.TunnelGroupTunnelEntry{}, &model.NodeTagNode{},
 			&model.NodeIdentity{}, &model.WGNodeIdentity{},
 			&model.NodeMetric{}, &model.TunnelMetric{}, &model.PeerShareRuntime{},
+			// DDNS settings go with the node; the DNS records themselves stay.
+			&model.NodeDDNSRecord{},
 		} {
 			if err := tx.Where("node_id = ?", nodeID).Delete(row).Error; err != nil {
 				return err

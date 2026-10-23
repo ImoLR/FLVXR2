@@ -421,6 +421,7 @@ func (h *Handler) onNodeOnline(nodeID int64) {
 	if h.quotaGroups != nil {
 		h.quotaGroups.NodeOnline(nodeID)
 	}
+	h.ddnsNodeOnline(nodeID)
 }
 
 func (h *Handler) redeployNodeRuntime(nodeID int64) {

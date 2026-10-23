@@ -717,6 +717,27 @@ func (h *Handler) nodeCreate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	name := asString(req["name"])
+	// Node DDNS (plan 142): validate first; a main record with an empty
+	// address field fills it with the domain right away (no tunnels yet).
+	ddnsReq, err := parseDDNSRequest(req)
+	if err != nil {
+		response.WriteJSON(w, response.ErrDefault(err.Error()))
+		return
+	}
+	var ddnsSave *ddnsPlan
+	if ddnsReq != nil {
+		ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+		ddnsSave, err = h.validateDDNSRequest(ctx, r, 0, ddnsReq, h.ddnsKnownAddresses(0,
+			append([]string{asString(req["serverIp"]), asString(req["serverIpV4"]), asString(req["serverIpV6"])}, repo.ParseNodeExtraIPs(asString(req["extraIPs"]))...)...))
+		cancel()
+		if err != nil {
+			response.WriteJSON(w, response.ErrDefault(err.Error()))
+			return
+		}
+		v4, v6, _ := ddnsOwnedFields(ddnsSave, nil, asString(req["serverIpV4"]), asString(req["serverIpV6"]), asString(req["extraIPs"]))
+		req["serverIpV4"], req["serverIpV6"] = v4, v6
+		ddnsSave.markAppliedAtCreate(v4, v6)
+	}
 	// 从 serverIp(serverIpV4/serverIpV6/intranetIp) 中选择第一个非空作为 serverIP
 	// 优先使用 serverIp（兼容旧 API），否则从 serverIpV4/serverIpV6/intranetIp 中选择
 	serverIP := asString(req["serverIp"])
@@ -834,6 +855,17 @@ func (h *Handler) nodeCreate(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+	if ddnsSave != nil {
+		if created, err := h.repo.GetNodeBySecret(secret); err == nil && created != nil {
+			if err := h.repo.SaveNodeDDNSConfig(created.ID, ddnsSave.enabled, ddnsSave.providerID, ddnsSave.records); err != nil {
+				response.WriteJSON(w, response.Err(-2, err.Error()))
+				return
+			}
+			if ddnsSave.enabled {
+				h.ddnsSyncAsync(created.ID, true)
+			}
+		}
+	}
 	response.WriteJSON(w, response.OKEmpty())
 }
 
@@ -858,6 +890,12 @@ func (h *Handler) nodeUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Serialize with the DDNS updater of this node (it may switch an address
+	// field to its domain), so neither write is lost.
+	ddnsLock := h.ddnsState().nodeLock(id)
+	ddnsLock.Lock()
+	defer ddnsLock.Unlock()
+
 	oldNode, err := h.repo.GetNodeByID(id)
 	if err != nil {
 		response.WriteJSON(w, response.Err(-2, err.Error()))
@@ -866,6 +904,41 @@ func (h *Handler) nodeUpdate(w http.ResponseWriter, r *http.Request) {
 	if oldNode == nil {
 		response.WriteJSON(w, response.ErrDefault("节点不存在"))
 		return
+	}
+
+	// Node DDNS (plan 142): an absent `ddns` keeps the stored settings; the
+	// address fields DDNS owns keep their stored value either way.
+	ddnsReq, err := parseDDNSRequest(req)
+	if err != nil {
+		response.WriteJSON(w, response.ErrDefault(err.Error()))
+		return
+	}
+	var ddnsEffective *ddnsPlan
+	if ddnsReq != nil {
+		ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+		ddnsEffective, err = h.validateDDNSRequest(ctx, r, id, ddnsReq, h.ddnsKnownAddresses(id,
+			append([]string{oldNode.ServerIP, oldNode.ServerIPV4.String, oldNode.ServerIPV6.String}, repo.ParseNodeExtraIPs(oldNode.ExtraIPs.String)...)...))
+		cancel()
+		if err != nil {
+			response.WriteJSON(w, response.ErrDefault(err.Error()))
+			return
+		}
+	} else if oldNode.DDNSEnabled {
+		records, err := h.repo.GetNodeDDNSRecords(id)
+		if err != nil {
+			response.WriteJSON(w, response.Err(-2, err.Error()))
+			return
+		}
+		ddnsEffective = ddnsPlanFromDB(oldNode, records)
+	}
+	if ddnsEffective != nil && ddnsEffective.enabled {
+		v4, v6, extras := ddnsOwnedFields(ddnsEffective, oldNode, asString(req["serverIpV4"]), asString(req["serverIpV6"]), asString(req["extraIPs"]))
+		ownedServerIP := (ddnsEffective.mainDomain("A") != "" && repo.SameNodeAddress(oldNode.ServerIP, oldNode.ServerIPV4.String)) ||
+			(ddnsEffective.mainDomain("AAAA") != "" && repo.SameNodeAddress(oldNode.ServerIP, oldNode.ServerIPV6.String))
+		if _, given := req["serverIp"]; given && ownedServerIP {
+			req["serverIp"] = oldNode.ServerIP
+		}
+		req["serverIpV4"], req["serverIpV6"], req["extraIPs"] = v4, v6, extras
 	}
 
 	panelIPFamily := oldNode.PanelIPFamily
@@ -1011,6 +1084,16 @@ func (h *Handler) nodeUpdate(w http.ResponseWriter, r *http.Request) {
 		// The agent applies it within seconds and reports back; the save never
 		// waits for (or fails on) a slow node. Failed pushes repeat on reconnect.
 		go h.syncNodeMachineProtection(id)
+	}
+	if ddnsReq != nil {
+		if err := h.repo.SaveNodeDDNSConfig(id, ddnsEffective.enabled, ddnsEffective.providerID, ddnsEffective.records); err != nil {
+			response.WriteJSON(w, response.Err(-2, err.Error()))
+			return
+		}
+		if ddnsEffective.enabled {
+			// Runs after this request releases the node's DDNS lock.
+			h.ddnsSyncAsync(id, true)
+		}
 	}
 	newNode := *oldNode
 	newNode.Name = asString(req["name"])

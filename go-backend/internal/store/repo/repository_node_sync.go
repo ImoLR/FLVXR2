@@ -89,7 +89,9 @@ func (r *Repository) RewriteNodeEntryAddresses(oldNode, newNode *model.Node, bui
 			if !port.InIP.Valid || strings.TrimSpace(port.InIP.String) == "" {
 				continue
 			}
-			inIP := rewriteNodeAddressTokens(port.InIP.String, replacements, extraReplacements)
+			// Listen IPs stay literal: an address replaced by a hostname (a
+			// DDNS domain, plan 142) keeps its bind IP.
+			inIP := rewriteNodeAddressTokens(port.InIP.String, literalReplacements(replacements), literalReplacements(extraReplacements))
 			if inIP == port.InIP.String {
 				continue
 			}
@@ -121,6 +123,20 @@ func (r *Repository) RewriteNodeEntryAddresses(oldNode, newNode *model.Node, bui
 	result.ForwardIDs = sortedIDSet(forwardIDs)
 	result.BindForwardIDs = sortedIDSet(bindForwardIDs)
 	return result, nil
+}
+
+// literalReplacements drops replacements whose target is a hostname.
+func literalReplacements(in map[string]string) map[string]string {
+	if len(in) == 0 {
+		return in
+	}
+	out := make(map[string]string, len(in))
+	for from, to := range in {
+		if to == "" || parseLiteralIP(to) != nil {
+			out[from] = to
+		}
+	}
+	return out
 }
 
 func sortedIDSet(set map[int64]struct{}) []int64 {

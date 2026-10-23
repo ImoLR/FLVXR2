@@ -165,6 +165,9 @@ type Node struct {
 	MachineMaxTotal         int64 `gorm:"column:machine_max_total;not null;default:1000"`
 	MachineTWBuckets        int64 `gorm:"column:machine_tw_buckets;not null;default:500"`
 	MachineCloseWaitSeconds int64 `gorm:"column:machine_close_wait_seconds;not null;default:10"`
+	// Node DDNS (plan 142): records live in node_ddns_record.
+	DDNSEnabled    bool  `gorm:"column:ddns_enabled;not null;default:false"`
+	DDNSProviderID int64 `gorm:"column:ddns_provider_id;not null;default:0"`
 }
 
 func (Node) TableName() string { return "node" }

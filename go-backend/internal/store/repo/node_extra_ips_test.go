@@ -19,7 +19,11 @@ func TestNormalizeNodeExtraIPs(t *testing.T) {
 		{name: "json array", raw: `["2001:db8::2","10.0.0.5"]`, want: `["2001:db8::2","10.0.0.5"]`},
 		{name: "primary v6 duplicate", raw: "2001:db8::1", primary: []string{"192.0.2.1", "192.0.2.1", "2001:DB8::1"}, err: "与节点主 IP 重复"},
 		{name: "primary server ip duplicate", raw: "[192.0.2.1]", primary: []string{"192.0.2.1"}, err: "与节点主 IP 重复"},
-		{name: "hostname", raw: "hk.example.com", err: "不是有效的 IPv4 或 IPv6 地址"},
+		// DDNS domains are entry addresses too (plan 142).
+		{name: "hostname", raw: "HK.Example.com.\n2001:db8::2", want: `["hk.example.com","2001:db8::2"]`},
+		{name: "hostname primary duplicate", raw: "hk.example.com", primary: []string{"HK.example.com"}, err: "与节点主 IP 重复"},
+		{name: "bad hostname", raw: "hk_1.example.com", err: "不是有效的 IPv4、IPv6 地址或域名"},
+		{name: "single label", raw: "localhost", err: "不是有效的"},
 		{name: "with port", raw: "192.0.2.5:443", err: "不是有效的"},
 		{name: "loopback", raw: "::1", err: "回环"},
 		{name: "unspecified", raw: "0.0.0.0", err: "未指定"},
@@ -57,7 +61,8 @@ func TestParseNodeExtraIPsAcceptsLegacyLists(t *testing.T) {
 	for raw, want := range map[string][]string{
 		"":                                {},
 		`["2001:db8::2","192.0.2.9"]`:     {"2001:db8::2", "192.0.2.9"},
-		"192.0.2.9, [2001:db8::2] bad.ip": {"192.0.2.9", "2001:db8::2"},
+		"192.0.2.9, [2001:db8::2] bad_ip": {"192.0.2.9", "2001:db8::2"},
+		"192.0.2.9,Entry.Example.com":    {"192.0.2.9", "entry.example.com"},
 		"10.0.0.5\n10.0.0.5":              {"10.0.0.5"},
 	} {
 		if got := ParseNodeExtraIPs(raw); !reflect.DeepEqual(got, want) {

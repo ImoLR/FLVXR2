@@ -51,17 +51,48 @@ func nodeAddressKey(address string) string {
 	return strings.ToLower(strings.Trim(address, "[]"))
 }
 
+// parseNodeHostname accepts a DNS name used as a node entry address (DDNS
+// domains, plan 142): letters, digits, '-' and '.', at least two labels, not
+// all-numeric TLD. Returns the lower-case name or "".
+func parseNodeHostname(token string) string {
+	host := strings.ToLower(strings.TrimSuffix(strings.TrimSpace(token), "."))
+	if host == "" || len(host) > 253 || !strings.Contains(host, ".") {
+		return ""
+	}
+	labels := strings.Split(host, ".")
+	for _, label := range labels {
+		if label == "" || len(label) > 63 || label[0] == '-' || label[len(label)-1] == '-' {
+			return ""
+		}
+		for _, c := range label {
+			if !(c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || c == '-') {
+				return ""
+			}
+		}
+	}
+	tld := labels[len(labels)-1]
+	if strings.Trim(tld, "0123456789") == "" {
+		return ""
+	}
+	return host
+}
+
 // ParseNodeExtraIPs reads a stored extra_ips value: the canonical JSON array or
-// a legacy comma/space/newline separated list. Non-IP tokens are skipped.
+// a legacy comma/space/newline separated list. IPs come back canonical,
+// domains lower case; other tokens are skipped.
 func ParseNodeExtraIPs(raw string) []string {
 	seen := make(map[string]struct{})
 	out := make([]string, 0)
 	for _, token := range splitNodeIPList(raw) {
-		ip := parseLiteralIP(token)
-		if ip == nil {
+		key := ""
+		if ip := parseLiteralIP(token); ip != nil {
+			key = ip.String()
+		} else {
+			key = parseNodeHostname(token)
+		}
+		if key == "" {
 			continue
 		}
-		key := ip.String()
 		if _, ok := seen[key]; ok {
 			continue
 		}
@@ -87,14 +118,15 @@ func NormalizeNodeExtraIPs(raw string, primaries ...string) (string, error) {
 		if token == "" {
 			continue
 		}
-		ip := parseLiteralIP(token)
-		if ip == nil {
-			return "", fmt.Errorf("附加 IP「%s」不是有效的 IPv4 或 IPv6 地址", token)
+		key := ""
+		if ip := parseLiteralIP(token); ip != nil {
+			if ip.IsUnspecified() || ip.IsLoopback() || ip.IsMulticast() || ip.IsLinkLocalUnicast() {
+				return "", fmt.Errorf("附加 IP「%s」不能是未指定、回环、链路本地或组播地址", token)
+			}
+			key = ip.String()
+		} else if key = parseNodeHostname(token); key == "" {
+			return "", fmt.Errorf("附加 IP「%s」不是有效的 IPv4、IPv6 地址或域名", token)
 		}
-		if ip.IsUnspecified() || ip.IsLoopback() || ip.IsMulticast() || ip.IsLinkLocalUnicast() {
-			return "", fmt.Errorf("附加 IP「%s」不能是未指定、回环、链路本地或组播地址", token)
-		}
-		key := ip.String()
 		if _, ok := primary[key]; ok {
 			return "", fmt.Errorf("附加 IP「%s」与节点主 IP 重复", token)
 		}
@@ -115,4 +147,10 @@ func NormalizeNodeExtraIPs(raw string, primaries ...string) (string, error) {
 		return "", err
 	}
 	return string(encoded), nil
+}
+
+// SameNodeAddress compares two non-empty node addresses (IP spelling and
+// hostname case insensitive).
+func SameNodeAddress(a, b string) bool {
+	return strings.TrimSpace(a) != "" && nodeAddressKey(a) == nodeAddressKey(b)
 }

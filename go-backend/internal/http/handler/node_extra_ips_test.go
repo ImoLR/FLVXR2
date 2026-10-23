@@ -69,7 +69,7 @@ func TestNodeCreateValidatesAndNormalizesExtraIPs(t *testing.T) {
 	}
 	for extra, want := range map[string]string{
 		"2001:db8:0::1":   "与节点主 IP 重复",
-		"hk.example.test": "不是有效的",
+		"hk_1.example.test": "不是有效的",
 		"::1":             "回环",
 	} {
 		code, msg, _ := adminPost(t, e.h.nodeCreate, body("bad", extra))

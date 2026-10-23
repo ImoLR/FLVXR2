@@ -315,6 +315,8 @@ func autoMigrateAll(db *gorm.DB) error {
 		&model.SubscriptionPackage{},
 		&model.SubscriptionPackageTunnelGroup{},
 		&model.PackageSubscription{},
+		&model.DNSProvider{},
+		&model.NodeDDNSRecord{},
 	}
 
 	if db.Dialector.Name() != "sqlite" {
