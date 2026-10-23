@@ -67,11 +67,17 @@ cadence (F10) unchanged (user decision). Run dir `/root/flvx-workers/runs/releas
 - [x] Rebase onto fork.74 (only conflict `.gitignore` comment), check overlap with fork.74 security code (only shared
       file handler.go: new config keys + debounce state; new admin routes behind `ensureAdminAccess`, node-rule save behind
       `limitMutation` + owner check; no ws/auth/login/metric code touched by 134)
-- [ ] `go build ./...`, backend suite vs fork.74 base (same 15 pre-existing failures), landing/ws/auth + contract
+- [x] `go build ./...`, backend suite vs fork.74 base (same 15 pre-existing failures), landing/ws/auth + contract
       tests SQLite + PostgreSQL, agent build/tests, frontend tsc + build + lint (no new errors vs fork.74), golden +
       empty-global byte-identical tests, local acceptance if RAM allows
-- [ ] Pre-upgrade prod capture (read-only, fork.74): compiled plan/config per landing server, sync status, counts,
-      CPU/RSS, latency p95
+      → backend `go test ./...` failure list identical to fork.74's 15; contract suite with PostgreSQL: 13 known
+      failures only, every 134 contract `/postgres` subtest passes; go-gost/x `./landing/...` ok (needs a short
+      TMPDIR: unix socket path limit); frontend tsc 0 errors, build ok, eslint 0 errors in the 11 files 134 touches;
+      local acceptance 17/17 scenarios PASS (L1 17/17; L2 geosite merge check skipped, lab had no geo data)
+- [x] Pre-upgrade prod capture (read-only, fork.74): compiled plan/config per landing server, sync status, counts,
+      CPU/RSS, latency p95 → plus an offline check on a copy of the prod DB (mmwx token blanked, deleted after):
+      fork.74 and fork.75 code compile byte-identical payloads for servers 1–4; fork.75 reproduces every stored
+      egress_hash / shared_desired_hash and revision (no revision bump on upgrade)
 - [ ] Push branch, CI green
 - [ ] Tag `3.0.27-fork.75`, Images green, release Latest with the fork.74 asset set
 - [ ] Prod backup `pre-fork75-*` (validated SQLite, compose/.env, local image tags, rollback.sh) + prune to 2
