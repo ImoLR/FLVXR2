@@ -321,16 +321,23 @@ export default function LandingEgressTab() {
                     默认防滥用规则，其余全部直连。现有服务器和节点都在使用它。
                   </p>
                   <div className="flex flex-wrap gap-1">
-                    {abuseDefaultRules.map((rule) => (
-                      <Chip
-                        key={rule.name}
-                        color="danger"
-                        size="sm"
-                        variant="flat"
-                      >
-                        {rule.name.replace("默认：", "")}
-                      </Chip>
-                    ))}
+                    {abuseDefaultRules
+                      // Plan 140: only the default rules switched on globally.
+                      .filter((rule) =>
+                        rule.name.includes("BT")
+                          ? overview.global?.builtin?.bt !== false
+                          : overview.global?.builtin?.smtp !== false,
+                      )
+                      .map((rule) => (
+                        <Chip
+                          key={rule.name}
+                          color="danger"
+                          size="sm"
+                          variant="flat"
+                        >
+                          {rule.name.replace("默认：", "")}
+                        </Chip>
+                      ))}
                   </div>
                 </div>
               </div>
