@@ -45,7 +45,7 @@ This release also delivers fork.75's agent-side landing GuardVersion 2.
 - [x] How connection protection counts sockets; effect on node limits
 
 ### Tests
-- [ ] go-gost + x suites after (no new failures vs baseline); backend suite only if touched
+- [x] go-gost + x suites after (no new failures vs baseline); backend suite only if touched
 - [x] Chain lab 1000-connection burst (3-hop): agent log bytes/conn before vs after, RSS/fd/goroutines back to baseline, traffic correct
 - [ ] CI green on branch
 
@@ -127,3 +127,8 @@ Verdict: **regression from the plan-127/128 guard (fork.69+), contained fix appl
 - Tests: `TestApplyEgressGuardsOnly` (outbound added before rules, removed with the last guard),
   `TestGuardRealCoreDomainDest` (real Core: allowed SNI reaches dest, others closed), `TestAbuseGuardNetnsE2E`
   (netns, real Core) pass; S4 Reality 2 MiB byte-exact; chain lab C6 now asserts 2 sockets per stream at +3 s.
+
+### Final suites (`runs/qa-fixes-agent/tests/final-*.txt`)
+go-gost/x 15 packages ok, 0 failures; go-gost ok; `-race` on logger/logsafe/service/socket/landing/nftables/
+selector/config/loader ok; real-Core landing tests ok except `TestEgressRealCoreAcceptsRenderedConfig`
+(geosite.dat missing — fails identically on the untouched base). Backend untouched (no panel change).
