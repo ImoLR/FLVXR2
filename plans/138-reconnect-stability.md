@@ -99,9 +99,11 @@ OFF; never touch flux_agent / the old Flux panel / single-x domains / other stac
       determinism of desired payloads (twice the same rev)
 
 ### Tests
+Results: base backend 17 FAIL lines (the known 15 tests + subtests), go-gost 0, go-gost/x 0 (TMPDIR must be short:
+x/landing binds unix sockets); after: identical sets, 0 new. Lab runs `/root/rs138t/lab-{new2,old,final}/results.json`.
 - [x] Baseline failure sets on untouched base (go-backend, go-gost, go-gost/x) → `runs/.../tests/base-*.fails`
-- [ ] Same suites after; no new failures
-- [ ] Lab: panel + 3-hop tunnel (entry → hop → exit agents), traffic flowing; kill TCP / panel restart / agent restart
+- [x] Same suites after; no new failures
+- [x] Lab: panel + 3-hop tunnel (entry → hop → exit agents), traffic flowing; kill TCP / panel restart / agent restart
       → unchanged reconnect 0 Delete/Add, no listener blip, download continues; changed-while-offline cases; close
       lines on both sides with the right reason; reconnect cost (ms, messages) before/after
 - [x] CI green on branch
