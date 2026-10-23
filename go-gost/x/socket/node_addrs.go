@@ -68,18 +68,25 @@ func (a *addrReporter) run(ctx context.Context) {
 	a.refresh()
 	logged := false
 	for ctx.Err() == nil {
+		started := time.Now()
 		err := nodeaddr.Watch(ctx, addrWatchDebounce, a.refresh)
 		if ctx.Err() != nil {
 			return
 		}
-		if !logged {
+		// A subscription that worked for a while (e.g. dropped after an
+		// event burst overflowed the socket) is renewed soon; one that cannot
+		// start is retried every 10 minutes (the RA tick refreshes meanwhile).
+		wait := 10 * time.Minute
+		if time.Since(started) > time.Minute {
+			wait = 5 * time.Second
+		} else if !logged {
 			fmt.Printf("⚠️ 网卡地址监听不可用，改为每 10 分钟检查：%v\n", err)
 			logged = true
 		}
 		select {
 		case <-ctx.Done():
 			return
-		case <-time.After(10 * time.Minute):
+		case <-time.After(wait):
 		}
 		a.refresh()
 	}

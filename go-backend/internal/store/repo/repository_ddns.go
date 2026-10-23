@@ -192,6 +192,12 @@ func (r *Repository) SaveNodeDDNSConfig(nodeID int64, enabled bool, providerID i
 	}
 	now := time.Now().UnixMilli()
 	return r.db.Transaction(func(tx *gorm.DB) error {
+		var node model.Node
+		if err := tx.Select("id", "ddns_provider_id").Where("id = ?", nodeID).First(&node).Error; err != nil {
+			return err
+		}
+		// Another DNS account: zone / record ids of the old one mean nothing.
+		providerChanged := node.DDNSProviderID != providerID && node.DDNSProviderID != 0
 		if err := tx.Model(&model.Node{}).Where("id = ?", nodeID).
 			Updates(map[string]interface{}{"ddns_enabled": enabled, "ddns_provider_id": providerID}).Error; err != nil {
 			return err
@@ -224,6 +230,12 @@ func (r *Repository) SaveNodeDDNSConfig(nodeID int64, enabled bool, providerID i
 				if old.Status == model.DDNSStatusFailed && rec.Takeover && !old.Takeover {
 					updates["status"] = model.DDNSStatusPending
 					updates["next_retry_at"] = int64(0)
+				}
+				if providerChanged {
+					updates["zone_id"], updates["record_id"] = "", ""
+					updates["status"] = model.DDNSStatusPending
+					updates["next_retry_at"] = int64(0)
+					updates["fail_count"] = 0
 				}
 				if err := tx.Model(&model.NodeDDNSRecord{}).Where("id = ?", old.ID).Updates(updates).Error; err != nil {
 					return err

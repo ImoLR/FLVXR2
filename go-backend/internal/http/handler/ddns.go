@@ -523,10 +523,16 @@ func (h *Handler) validateDDNSRequest(ctx context.Context, r *http.Request, node
 	if provider == nil {
 		return nil, errors.New("请选择 DNS 服务商")
 	}
+	sameProvider := true
+	if nodeID > 0 {
+		if n, err := h.repo.GetNodeByID(nodeID); err == nil && n != nil && n.DDNSProviderID != 0 {
+			sameProvider = n.DDNSProviderID == req.ProviderID
+		}
+	}
 	client := h.ddnsClient(provider)
 	for _, rec := range plan.records {
 		prev, ok := old[rec.Domain+"|"+rec.RecordType]
-		if ok && prev.RecordID != "" && (prev.Takeover == rec.Takeover || rec.Takeover) {
+		if sameProvider && ok && prev.RecordID != "" && (prev.Takeover == rec.Takeover || rec.Takeover) {
 			continue // already ours: no Cloudflare round trip on unrelated edits
 		}
 		zone, err := h.ddnsZoneFor(ctx, client, provider, rec.Domain)

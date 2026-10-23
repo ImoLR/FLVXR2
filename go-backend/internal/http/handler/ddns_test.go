@@ -486,3 +486,38 @@ func TestDNSProviderAPIMasksTokenAndRefusesDeleteInUse(t *testing.T) {
 		t.Fatalf("delete in use: %d %s", code, msg)
 	}
 }
+
+func TestNodeDDNSProviderChangeResetsRecordIDs(t *testing.T) {
+	l := newDDNSLab(t)
+	if code, msg, _ := adminPost(t, l.h.nodeUpdate, l.node48Body(node48DDNS(nil))); code != 0 {
+		t.Fatalf("save: %s", msg)
+	}
+	l.wait()
+	l.agentReports(ctNew, cuIP)
+	if rec := l.records()[ctDom]; rec.RecordID == "" || rec.Status != model.DDNSStatusSynced {
+		t.Fatalf("not synced: %+v", rec)
+	}
+	if err := l.r.CreateDNSProvider(&model.DNSProvider{Name: "other account", ProviderType: "cloudflare", Credentials: dnsProviderCredentials("test-token")}); err != nil {
+		t.Fatal(err)
+	}
+	lists, zones := l.cf.count("GET /zones/zone1/dns_records"), l.cf.count("GET /zones")
+	cfg := node48DDNS(nil)
+	cfg["providerId"] = 2
+	if code, msg, _ := adminPost(t, l.h.nodeUpdate, l.node48Body(cfg)); code != 0 {
+		t.Fatalf("switch provider: %s", msg)
+	}
+	l.wait()
+	// The new account is asked again (zones + records), the old record ids
+	// are not reused blindly; the FLVX record is found again, not duplicated.
+	if l.cf.count("GET /zones") == zones || l.cf.count("GET /zones/zone1/dns_records")-lists < 4 {
+		t.Fatalf("a new provider must re-validate and re-look-up the records (%d zone lists, %d record lists)",
+			l.cf.count("GET /zones")-zones, l.cf.count("GET /zones/zone1/dns_records")-lists)
+	}
+	if n := l.cf.count("POST /zones/zone1/dns_records"); n != 2 {
+		t.Fatalf("records created %d times", n)
+	}
+	rec := l.records()[ctDom]
+	if rec.RecordID == "" || rec.Status != model.DDNSStatusSynced || !rec.Applied {
+		t.Fatalf("after provider change: %+v", rec)
+	}
+}
