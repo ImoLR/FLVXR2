@@ -64,9 +64,9 @@ for the user's screenshot approval. Pure FLVX feature: no runtime link to miaomi
 - [x] Real CF round trip on a throwaway record (create → update → read → delete → gone)
 - [x] netns E2E (agent in netns, fake CF, prefix change → one update, no double redeploy) + resource numbers
 - [x] Frontend: API, settings card, node form section, badges, domain-aware extras / picker
-- [ ] `npm run build` + full `go test ./...` vs baseline
+- [x] `npm run build` + full `go test ./...` vs baseline (15 FAIL lines, identical)
 - [x] Screenshots desktop + H5, light + dark; gallery published
-- [ ] Branch pushed, CI green; summary + final.md
+- [x] Branch pushed, CI green (run 40025762299 incl. PG contract); summary + final.md
 
 ## Results (2026-10-24 TW)
 
