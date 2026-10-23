@@ -262,28 +262,6 @@ export const abuseDefaultRules = [
 export const abuseDefaultsOn = (p?: Partial<EgressProfile> | null) =>
   p?.abuseDefaults !== false;
 
-// Mirrors the backend dedupe: a block rule that only repeats a default rule
-// is not sent while the defaults are on.
-export const isAbuseDuplicate = (r: EgressRule) => {
-  if (
-    r.action !== "block" ||
-    r.domains.length ||
-    r.ips.length ||
-    r.sourceIps.length ||
-    r.sourcePorts
-  )
-    return false;
-  const network = r.network;
-
-  return (
-    (r.ports === "25" && network === "tcp" && !r.protocols.length) ||
-    (!r.ports &&
-      !network &&
-      r.protocols.length === 1 &&
-      r.protocols[0] === "bittorrent")
-  );
-};
-
 export const egressOverview = () =>
   Network.post<EgressOverview>("/landing/egress/overview", {});
 export const saveEgressOutbound = (o: Partial<EgressOutbound>) =>
