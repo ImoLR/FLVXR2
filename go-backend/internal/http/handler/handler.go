@@ -59,11 +59,11 @@ type Handler struct {
 	// recentPushes: runtime objects pushed to each node in the last minutes, so
 	// a reconnect never removes an object another operation is still
 	// dispatching (plan 138).
-	recentPushes recentPushLog
-	nodeRedeployMu     sync.Mutex
-	nodeRedeploy       *nodeRedeployScheduler
-	redeployRetryMu    sync.Mutex
-	redeployPending    map[tunnelNodeKey]*tunnelNodeRetry
+	recentPushes    recentPushLog
+	nodeRedeployMu  sync.Mutex
+	nodeRedeploy    *nodeRedeployScheduler
+	redeployRetryMu sync.Mutex
+	redeployPending map[tunnelNodeKey]*tunnelNodeRetry
 
 	nodeGroupHandler *NodeGroupHandler
 	nodeTagHandler   *NodeTagHandler

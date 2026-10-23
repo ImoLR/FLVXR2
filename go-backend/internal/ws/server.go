@@ -970,3 +970,17 @@ func (s *Server) CommandsSent(nodeID int64) int64 {
 	}
 	return 0
 }
+
+// SessionStartedAt is when the node's current agent session began (zero when
+// the node is not connected).
+func (s *Server) SessionStartedAt(nodeID int64) time.Time {
+	if s == nil {
+		return time.Time{}
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if ns := s.nodes[nodeID]; ns != nil {
+		return ns.startedAt
+	}
+	return time.Time{}
+}

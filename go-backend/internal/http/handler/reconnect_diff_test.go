@@ -489,3 +489,23 @@ func TestReconnectKeepsRecentlyPushedOrphanCandidates(t *testing.T) {
 		t.Fatalf("stale orphan kept: %v", agent.mutations(1))
 	}
 }
+
+func TestRecentPushGuardOnlyCoversTheCurrentSession(t *testing.T) {
+	var l recentPushLog
+	t0 := time.Unix(1000, 0)
+	svc := []map[string]interface{}{{"name": "5_tls", "addr": ":1"}}
+	l.note(9, "AddService", svc, t0)
+	if !l.inFlight(9, "service:5_tls", time.Time{}, t0.Add(time.Minute)) {
+		t.Fatal("a push of this session a minute ago is in flight")
+	}
+	if l.inFlight(9, "service:5_tls", t0.Add(time.Second), t0.Add(time.Minute)) {
+		t.Fatal("a push of an earlier session cannot be in flight")
+	}
+	if l.inFlight(9, "service:5_tls", time.Time{}, t0.Add(3*time.Minute)) {
+		t.Fatal("old push treated as in flight")
+	}
+	l.note(9, "DeleteService", map[string]interface{}{"services": []string{"5_tls"}}, t0)
+	if l.inFlight(9, "service:6_tls", time.Time{}, t0) {
+		t.Fatal("unknown object")
+	}
+}

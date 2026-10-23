@@ -27,9 +27,10 @@ import (
 // while the node was away, so they are only reported.
 const maxReconnectOrphans = 20
 
-// recentPushWindow: an object pushed to the node this recently may belong to
-// an operation that has not committed its database change yet (tunnel create
-// and rule updates dispatch first); a reconnect leaves it to the next one.
+// recentPushWindow: an object pushed to the node during its current session
+// this recently may belong to an operation that has not committed its database
+// change yet (tunnel create and rule updates dispatch first); a reconnect
+// leaves it to the next one. Pushes of an earlier session cannot be in flight.
 const recentPushWindow = 2 * time.Minute
 
 type recentPushLog struct {
@@ -64,14 +65,13 @@ func (l *recentPushLog) note(nodeID int64, commandType string, data interface{},
 	}
 }
 
-func (l *recentPushLog) since(nodeID int64, key string, now time.Time) (time.Duration, bool) {
+// inFlight: the object was pushed during the current session (started at
+// sessionStart) less than recentPushWindow ago.
+func (l *recentPushLog) inFlight(nodeID int64, key string, sessionStart, now time.Time) bool {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	t, ok := l.nodes[nodeID][key]
-	if !ok {
-		return 0, false
-	}
-	return now.Sub(t), true
+	return ok && !t.Before(sessionStart) && now.Sub(t) < recentPushWindow
 }
 
 // agentRuntimeInventory is a capable agent's runtime state at reconnect.
@@ -285,8 +285,12 @@ func (h *Handler) removeReconnectOrphans(nodeID int64, inv *agentRuntimeInventor
 	}
 	removed := 0
 	var done, failed, kept []string
+	var sessionStart time.Time
+	if h.wsServer != nil {
+		sessionStart = h.wsServer.SessionStartedAt(nodeID)
+	}
 	for _, o := range orphans {
-		if age, ok := h.recentPushes.since(nodeID, o.Kind+":"+o.Name, time.Now()); ok && age < recentPushWindow {
+		if h.recentPushes.inFlight(nodeID, o.Kind+":"+o.Name, sessionStart, time.Now()) {
 			kept = append(kept, o.Kind+" "+o.Name)
 			continue
 		}
