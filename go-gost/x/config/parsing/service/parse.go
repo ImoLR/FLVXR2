@@ -385,10 +385,9 @@ func ParseService(cfg *config.ServiceConfig) (service.Service, error) {
 		return nil, err
 	}
 	var observer observer.Observer
-	// 如果服务名以_tls结尾，则不启用观察器
+	// 如果服务名以_tls结尾，则不启用观察器（不再逐个服务打印：每次重连下发都会刷一遍，plan 137）
 	if strings.HasSuffix(cfg.Name, "_tls") {
 		observer = nil
-		fmt.Println("服务名以_tls结尾，跳过观察器启用")
 	} else if cfg.Observer != "" {
 		observer = registry.ObserverRegistry().Get(cfg.Observer)
 	} else if pStats != nil {

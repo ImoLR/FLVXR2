@@ -668,31 +668,35 @@ func IsProtocolBlocked(data []byte) bool {
 	return isProtocolBlocked(data, globalProtocolBlockFlags())
 }
 
+// blockLogs: one line for the first blocked connection of each kind, then a
+// count at most every ten minutes (plan 137, QA F13: this ran for every
+// connection, and allowed TLS printed a line each time).
+var blockLogs = logsafe.NewEventSummary(nil)
+
 func isProtocolBlocked(data []byte, flags protocolBlockFlags) bool {
 	if detectHTTP(data) {
 		if flags.http == 1 {
-			fmt.Printf("🚫 BLOCK HTTP\n")
+			blockLogs.Record("http", "🚫 BLOCK HTTP")
 			return true
 		}
 		return false
 	}
 	if detectTLS(data) {
 		if flags.tls == 1 {
-			fmt.Printf("🚫 BLOCK TLS/Reality/AnyTLS\n")
+			blockLogs.Record("tls", "🚫 BLOCK TLS/Reality/AnyTLS")
 			return true
 		}
-		fmt.Printf("✅ ALLOW TLS/Reality/AnyTLS (isTls=0)\n")
 		return false
 	}
 	if detectSOCKS(data) {
 		if flags.socks == 1 {
-			fmt.Printf("🚫 BLOCK SOCKS\n")
+			blockLogs.Record("socks", "🚫 BLOCK SOCKS")
 			return true
 		}
 		return false
 	}
 	if flags.blockOther == 1 {
-		fmt.Printf("🚫 BLOCK OTHER (unknown protocol)\n")
+		blockLogs.Record("other", "🚫 BLOCK OTHER (unknown protocol)")
 		return true
 	}
 	return false

@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/go-gost/core/logger"
 	"github.com/go-gost/x/logsafe"
 	"github.com/google/nftables"
 	"github.com/google/nftables/binaryutil"
@@ -502,7 +503,7 @@ func (m *Manager) AddRule(forwardID, nodeID, userID, userTunnelID int64, protoco
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	fmt.Printf("DEBUG AddRule: forwardID=%d protocol=%s port=%d target=%q speedLimit=%d\n", forwardID, protocol, port, target, speedLimit)
+	logger.Default().Debugf("nft AddRule: forwardID=%d protocol=%s port=%d target=%q speedLimit=%d", forwardID, protocol, port, target, speedLimit)
 	if m.closed {
 		return errManagerClosed
 	}
@@ -1099,7 +1100,7 @@ func parseTarget(target string) (string, int) {
 	target = strings.TrimSpace(target)
 	host, portStr, err := net.SplitHostPort(target)
 	if err != nil {
-		fmt.Printf("DEBUG parseTarget SplitHostPort(%q) failed: %v\n", target, err)
+		logger.Default().Debugf("nft parseTarget SplitHostPort(%q) failed: %v", target, err)
 		return "", 0
 	}
 	port, _ := strconv.Atoi(portStr)

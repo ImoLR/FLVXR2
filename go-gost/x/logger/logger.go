@@ -43,8 +43,16 @@ func LevelOption(level logger.LogLevel) Option {
 	}
 }
 
+// DefaultLevel is the level of a logger whose configuration names no (or an
+// unknown) level. The FLVX agent defaults to warn (plan 137, QA F13): at info
+// every relayed connection wrote 2–4 access lines (~690 bytes), so journald and
+// /var/log grew linearly with traffic. An explicit level (gost.json
+// "log": {"level": "info"}, GOST_LOGGER_LEVEL, -D/-DD) still wins.
+const DefaultLevel = logger.WarnLevel
+
 type logrusLogger struct {
 	logger *logrus.Entry
+	conns  *connLineLimiter
 }
 
 func NewLogger(opts ...Option) logger.Logger {
@@ -81,11 +89,13 @@ func NewLogger(opts ...Option) logger.Logger {
 		lvl, _ := logrus.ParseLevel(string(options.Level))
 		log.SetLevel(lvl)
 	default:
-		log.SetLevel(logrus.InfoLevel)
+		lvl, _ := logrus.ParseLevel(string(DefaultLevel))
+		log.SetLevel(lvl)
 	}
 
 	l := &logrusLogger{
 		logger: logrus.NewEntry(log),
+		conns:  newConnLineLimiter(),
 	}
 	if options.Name != "" {
 		l.logger = l.logger.WithField("logger", options.Name)
@@ -98,6 +108,7 @@ func NewLogger(opts ...Option) logger.Logger {
 func (l *logrusLogger) WithFields(fields map[string]any) logger.Logger {
 	return &logrusLogger{
 		logger: l.logger.WithFields(logrus.Fields(fields)),
+		conns:  l.conns,
 	}
 }
 
@@ -173,19 +184,42 @@ func (l *logrusLogger) IsLevelEnabled(level logger.LogLevel) bool {
 }
 
 func (l *logrusLogger) log(level logrus.Level, args ...any) {
-	lg := l.logger
-	if l.logger.Logger.IsLevelEnabled(logrus.DebugLevel) {
-		lg = lg.WithField("caller", l.caller(3))
+	lg, ok := l.entry(level)
+	if !ok {
+		return
 	}
 	lg.Log(level, args...)
 }
 
 func (l *logrusLogger) logf(level logrus.Level, format string, args ...any) {
-	lg := l.logger
-	if l.logger.Logger.IsLevelEnabled(logrus.DebugLevel) {
-		lg = lg.WithField("caller", l.caller(3))
+	lg, ok := l.entry(level)
+	if !ok {
+		return
 	}
 	lg.Logf(level, format, args...)
+}
+
+// entry returns the entry to write a line at level with, or false when the
+// line is dropped: disabled level, or a per-connection warn/error line over
+// its budget (see connLineLimiter). Debug and trace loggers never drop lines.
+func (l *logrusLogger) entry(level logrus.Level) (*logrus.Entry, bool) {
+	lg := l.logger
+	if !lg.Logger.IsLevelEnabled(level) {
+		return nil, false
+	}
+	if lg.Logger.IsLevelEnabled(logrus.DebugLevel) {
+		return lg.WithField("caller", l.caller(4)), true
+	}
+	if (level == logrus.WarnLevel || level == logrus.ErrorLevel) && l.conns != nil && perConnection(lg.Data) {
+		allowed, suppressed := l.conns.allow(fieldString(lg.Data, "service"))
+		if !allowed {
+			return nil, false
+		}
+		if suppressed > 0 {
+			lg = lg.WithField("suppressed", suppressed)
+		}
+	}
+	return lg, true
 }
 
 func (l *logrusLogger) caller(skip int) string {

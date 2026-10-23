@@ -8,6 +8,7 @@ import (
 	"net"
 	"strconv"
 
+	"github.com/go-gost/core/logger"
 	"github.com/go-gost/x/nftables"
 )
 
@@ -60,7 +61,6 @@ type GetNftablesCountersRequest struct {
 
 // handleAddNftablesRules 处理添加 nftables 规则命令
 func (w *WebSocketReporter) handleAddNftablesRules(data json.RawMessage) error {
-	fmt.Println("DEBUG handleAddNftablesRules data redacted")
 	if w.nftablesMgr == nil {
 		return fmt.Errorf("nftables manager not initialized")
 	}
@@ -70,10 +70,14 @@ func (w *WebSocketReporter) handleAddNftablesRules(data json.RawMessage) error {
 		return fmt.Errorf("parse request: %w", err)
 	}
 
-	fmt.Printf("DEBUG handleAddNftablesRules parsed rules count: %d\n", len(req.Rules))
-	for i, rule := range req.Rules {
-		fmt.Printf("DEBUG rule[%d]: ForwardID=%d NodeID=%d Protocol=%s Port=%d Target=%q ChainType=%d NextHopIP=%q NextHopPort=%d\n",
-			i, rule.ForwardID, rule.NodeID, rule.Protocol, rule.Port, rule.Target, rule.ChainType, rule.NextHopIP, rule.NextHopPort)
+	// Per-rule detail only at debug level: this runs for every rule on every
+	// (re)deploy (plan 137, QA F13).
+	if log := logger.Default(); log.IsLevelEnabled(logger.DebugLevel) {
+		log.Debugf("handleAddNftablesRules rules=%d", len(req.Rules))
+		for i, rule := range req.Rules {
+			log.Debugf("nft rule[%d]: ForwardID=%d NodeID=%d Protocol=%s Port=%d Target=%q ChainType=%d NextHopIP=%q NextHopPort=%d",
+				i, rule.ForwardID, rule.NodeID, rule.Protocol, rule.Port, rule.Target, rule.ChainType, rule.NextHopIP, rule.NextHopPort)
+		}
 	}
 
 	if len(req.Rules) == 0 {

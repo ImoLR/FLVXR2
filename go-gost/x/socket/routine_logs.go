@@ -12,7 +12,10 @@ import (
 
 func isRoutineCommand(command string) bool {
 	switch command {
-	case "TcpPing", "PipePing", "ServiceMonitorCheck", "GetServiceClientIPs", "ListServices":
+	// ApplyLandingDesired: the panel re-sends the desired landing state every
+	// minute; failures are still logged (first + summary + recovery), and the
+	// landing runtime logs its own reconcile errors (plan 137).
+	case "TcpPing", "PipePing", "ServiceMonitorCheck", "GetServiceClientIPs", "ListServices", "ApplyLandingDesired":
 		return true
 	default:
 		return false
