@@ -24,9 +24,19 @@ Branch `feature/3.0.27-builtin-abuse-unify`. Build + screenshots only — no tag
 - [x] Backend tests (switches, migration cases, idempotent, seeds, line-chain + shared scope, presets)
 - [x] Frontend: 内置 list 防滥用 group + ✓/✗ icons, switches, texts (global, profile, server settings,
       overview), preset 「内置已封锁」 for all 4, rule-list 「已停用」 chip → ✗ icon
-- [ ] Frontend tsc / lint / build, bundle size
-- [ ] go test ./... base vs branch, contract SQLite + PostgreSQL, -race on new code
-- [ ] Prod-copy gate: blocked set per server identical, migration result, idempotent, 大陆 + 默认 untouched,
+- [x] Frontend tsc / lint / build, bundle size
+- [x] go test ./... base vs branch, contract SQLite + PostgreSQL, -race on new code
+- [x] Prod-copy gate: blocked set per server identical, migration result, idempotent, 大陆 + 默认 untouched,
       compile time before/after
-- [ ] Screenshots desktop 1440 + H5 390×844, light + dark; review; gallery on :8791
-- [ ] Push branch, CI green; final.md + summary.md
+- [x] Screenshots desktop 1440 + H5 390×844, light + dark; review; gallery on :8791
+- [x] Push branch, CI green; final.md + summary.md
+
+## Result (2026-10-24, build only — not released)
+- go test ./... SQLite + PostgreSQL: failure sets identical to the fork.82 base (15 env-dependent failures);
+  -race clean on landingegress / repo / handler / contract tests of this plan.
+- Prod-copy gate: blocked set per server identical on all 6 landing servers, non-block rules identical, only
+  发信端口 / Telnet-SMB moved ahead of BT; migration → mail=on, telnet=on, 强制 = 2 大陆 rules (byte-identical);
+  second start changes nothing. Compile time unchanged (0.35–0.57 ms), bundle +2.0 KB.
+- Screens: 56 shots, 52/52 checks, gallery /builtin-abuse-unify/ on :8791. CI Build Check green (40040635444).
+- Rollback note: binary-only rollback to ≤fork.82 loses the two moved rules (they are no longer in 强制) —
+  restore the DB backup too.
