@@ -63,6 +63,16 @@ OFF; never touch flux_agent / the old Flux panel / single-x domains / other stac
 | deleted while offline (nft rule) | rule stays (orphan) | removed on reconnect (1 DeleteNftablesRules) |
 | agent restart / old agent | full deploy | full deploy (unchanged behaviour) |
 
+### Rollout (10-24 TW)
+
+- 00:59 panel fork.79 (rollback `pre-fork79-20261023T165840Z`, prune kept pre-fork78 + pre-fork79). Old agents reconnected
+  with a full redeploy each: e.g. node 15 50 commands / 12.7 s, 42 48 / 11.9 s, 12 30 / 10.0 s, 26 30 / 9.1 s.
+- 01:00–01:39 OTA of all 30 nodes (42 canary, 45, 11 SSH nodes with backups `/root/flvxx-backup-20261023T165941Z-pre-fork79`,
+  17 others), every node VERIFIED (diagnose identical before/after, wss/ws scheme unchanged), 0 offline/skipped.
+  landing_guard = 2 on all 30 (GuardVersion 2; native landings 21, 55 included); node 36 protection still off.
+- 01:41 controlled panel restart: all 30 nodes reconnected, every redeploy `diff … updated=0 … commands=1`
+  (63–846 ms); agents logged only the close line, the connect line and (≥10 min since the last one) the IP report.
+
 ## Checklist
 
 ### Investigation (Part 1)
@@ -110,9 +120,9 @@ x/landing binds unix sockets); after: identical sets, 0 new. Lab runs `/root/rs1
 
 ### Release + rollout
 - [x] Prod inventory dry run (orphan classification of every online node = 0 unexpected orphans) before release
-- [ ] Tag `3.0.27-fork.79`, Images green, Latest, same 10 assets, pinned version + sha256
-- [ ] Prod panel backup `pre-fork79` + prune (keep 2) + upgrade + health + all nodes online
-- [ ] Canary 42 (SSH backup), then 45 (SSH backup), then batches with diagnose before/after; skipped nodes listed
+- [x] Tag `3.0.27-fork.79`, Images green, Latest, same 10 assets, pinned version + sha256
+- [x] Prod panel backup `pre-fork79` + prune (keep 2) + upgrade + health + all nodes online
+- [x] Canary 42 (SSH backup), then 45 (SSH backup), then batches with diagnose before/after; skipped nodes listed
 - [ ] Resource numbers (agent CPU/RSS/fd/goroutines, journal lines/10 min on 42, 45 + 2 others; panel CPU/RSS,
       reconnect cost) before/after
 - [ ] ≥1 h watch: reconnect counts + close reasons for 45/12/26 vs before; reconnects no longer redeploy (panel log);
