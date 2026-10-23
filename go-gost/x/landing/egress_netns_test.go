@@ -186,7 +186,12 @@ udp()
 		{"cn-exempt", "198.51.100.2", "3", "1.0.1.1", "1.0.1.3"},
 		{"cn-exempt-8081", "198.51.100.2:8081", "3", "1.0.1.1", "1.0.1.3"},
 		{"noncn", "198.51.100.2", "3", "203.0.113.1", "203.0.113.50"},
+		// late-*: only fetched by the default-outbound switch phase at the end.
+		{"late-v6lit", "2001:db8:2::2", "4", "203.0.113.1", "203.0.113.50"},
+		{"late-v6only", "v6only.flvx.test", "4", "203.0.113.1", "203.0.113.50"},
+		{"late-both", "both.flvx.test", "4", "203.0.113.1", "203.0.113.50"},
 	}
+	late := func(name string) bool { return strings.HasPrefix(name, "late-") }
 	var inbounds, outbounds, rules []any
 	for _, r := range routes {
 		host, port := r.target, 8080
@@ -255,7 +260,9 @@ print(json.dumps(out))
 	}
 	fetchArgs := []string{"netns", "exec", "flvxeg-c", "python3", filepath.Join(base, "fetch.py")}
 	for i, r := range routes {
-		fetchArgs = append(fetchArgs, fmt.Sprintf("%s=%d", r.name, 20001+i))
+		if !late(r.name) {
+			fetchArgs = append(fetchArgs, fmt.Sprintf("%s=%d", r.name, 20001+i))
+		}
 	}
 	fetchOut, err := exec.Command("ip", fetchArgs...).CombinedOutput()
 	if err != nil {
@@ -275,6 +282,9 @@ print(json.dumps(out))
 	}
 	results := map[string]string{}
 	for _, r := range routes {
+		if late(r.name) {
+			continue
+		}
 		got := fetch(r.name)
 		results[r.name] = got
 		if got != expect[r.name] {
@@ -362,6 +372,60 @@ print(",".join(out))
 		_ = os.WriteFile(out, raw, 0644)
 	}
 	t.Logf("netns data plane: %s", raw)
+
+	// Default outbound 强制 IPv4, then back to 直连: once switched back, new
+	// connections must reach IPv6 targets again (nothing of the forced mode may
+	// linger in the Core).
+	port := map[string]int{}
+	for i, r := range routes {
+		port[r.name] = 20001 + i
+	}
+	fetchLate := func(names ...string) map[string]string {
+		t.Helper()
+		args := []string{"netns", "exec", "flvxeg-c", "python3", filepath.Join(base, "fetch.py")}
+		for i, n := range names {
+			args = append(args, fmt.Sprintf("%s#%d=%d", n, i, port[n]))
+		}
+		out, err := exec.Command("ip", args...).CombinedOutput()
+		got := map[string]string{}
+		if err != nil || json.Unmarshal(out, &got) != nil {
+			t.Fatalf("tcp client: %v %s", err, out)
+		}
+		return got
+	}
+	forced := *plan
+	forced.Rules = append(append([]EgressRule{}, plan.Rules...), EgressRule{InboundTags: []string{"flvxl-4"}, Outbound: "flvxo-f4"})
+	if status, err := m.Apply(ctx, Desired{Revision: 2, Enabled: true, CoreMemoryMB: 256, CoreCPUPercent: 50, Nodes: nodes, Egress: &forced}); err != nil || status.Egress.State != "applied" {
+		t.Fatalf("apply forced default: %v %+v", err, status.Egress)
+	}
+	got := fetchLate("late-v6lit", "late-v6only", "late-both")
+	if got["late-v6lit#0"] != "" || got["late-v6only#1"] != "" || got["late-both#2"] != "peer=198.51.100.1" {
+		t.Errorf("default 强制 IPv4: %v", got)
+	}
+	if status, err := m.Apply(ctx, Desired{Revision: 3, Enabled: true, CoreMemoryMB: 256, CoreCPUPercent: 50, Nodes: nodes, Egress: plan}); err != nil || status.Egress.State != "applied" {
+		t.Fatalf("apply back to direct: %v %+v", err, status.Egress)
+	}
+	names := []string{"late-v6lit", "late-v6only"}
+	for i := 0; i < 20; i++ {
+		names = append(names, "late-both")
+	}
+	got = fetchLate(names...)
+	if got["late-v6lit#0"] != "peer=2001:db8:2::1" || got["late-v6only#1"] != "peer=2001:db8:2::1" {
+		t.Errorf("back to 直连: IPv6 targets unreachable: %v", got)
+	}
+	bothV4, bothV6 := 0, 0
+	for i := 2; i < len(names); i++ {
+		switch got[fmt.Sprintf("late-both#%d", i)] {
+		case "peer=198.51.100.1":
+			bothV4++
+		case "peer=2001:db8:2::1":
+			bothV6++
+		}
+	}
+	if bothV4+bothV6 != 20 || bothV6 == 0 {
+		t.Errorf("back to 直连: dual-stack name over 20 connections: %d IPv4, %d IPv6 (want both families possible, IPv6 > 0)", bothV4, bothV6)
+	}
+	t.Logf("default switch: back to 直连, dual-stack name: %d IPv4, %d IPv6", bothV4, bothV6)
 	if t.Failed() {
 		cl, _ := os.ReadFile(filepath.Join(base, "client.log"))
 		t.Logf("client log: %s", cl)
