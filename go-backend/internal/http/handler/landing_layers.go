@@ -236,7 +236,11 @@ func ruleSummaries(rules []landingegress.Rule, outbounds map[int64]landingegress
 
 // landingGlobalView is the admin 全局规则 section.
 func (h *Handler) landingGlobalView() (map[string]any, error) {
-	g, updated, err := h.repo.GetLandingGlobal()
+	g, abuse, updated, err := h.repo.GetLandingGlobalSettings()
+	if err != nil {
+		return nil, err
+	}
+	builtin, err := h.landingBuiltinAdminView(abuse)
 	if err != nil {
 		return nil, err
 	}
@@ -259,6 +263,7 @@ func (h *Handler) landingGlobalView() (map[string]any, error) {
 	return map[string]any{
 		"forced": g.Forced, "default": g.Default, "defaultAction": g.DefaultAction, "updatedTime": updated,
 		"userCaps": map[string]any{"perNode": perNode, "total": total}, "nodesWithRules": withRules, "servers": status,
+		"builtin": builtin,
 	}, nil
 }
 
@@ -487,10 +492,11 @@ func (h *Handler) landingNodeRulesView(n *model.LandingNode, admin bool) (map[st
 		"nodeId": n.ID, "nodeName": n.Name, "serverId": d.Server.ID, "serverName": d.Server.Name,
 		"rules": rules, "defaultAction": def, "inheritedAction": inherited, "inheritedLabel": labelOf(inherited), "inheritedFrom": inheritedFrom,
 		"outbounds": outboundChoices, "supported": supported, "state": state, "stateReason": stateReason, "notes": notes,
-		"global": map[string]any{"active": globalOn, "forced": ruleSummaries(d.Global.Forced, d.Outbounds, admin), "default": ruleSummaries(d.Global.Default, d.Outbounds, admin), "defaultLabel": labelOf(d.Global.DefaultAction)},
-		"server": server,
-		"caps":   map[string]any{"perNode": caps.PerNode, "total": caps.Total, "used": used, "unlimited": caps.Unlimited || admin, "perNodeSource": caps.PerNodeSource, "totalSource": caps.TotalSource},
-		"admin":  admin,
+		"global":  map[string]any{"active": globalOn, "forced": ruleSummaries(d.Global.Forced, d.Outbounds, admin), "default": ruleSummaries(d.Global.Default, d.Outbounds, admin), "defaultLabel": labelOf(d.Global.DefaultAction)},
+		"builtin": landingBuiltinNodeView(d, pid, globalOn),
+		"server":  server,
+		"caps":    map[string]any{"perNode": caps.PerNode, "total": caps.Total, "used": used, "unlimited": caps.Unlimited || admin, "perNodeSource": caps.PerNodeSource, "totalSource": caps.TotalSource},
+		"admin":   admin,
 	}
 	if !landingAbuseReady(d) {
 		view["globalPending"] = "该服务器的落地 Core 确认重启一次后才应用全局规则"

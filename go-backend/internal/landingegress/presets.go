@@ -1,0 +1,231 @@
+package landingegress
+
+import (
+	"errors"
+	"fmt"
+	"strings"
+	"unicode/utf8"
+)
+
+// Plan 140: the routing-rule preset library (stored in the panel database,
+// seeded once with the built-in presets) and the disabled starter rules of
+// 全局·强制.
+
+// ActionAsk is the action placeholder of an AskOutbound preset: the outbound
+// is picked when the preset is inserted.
+const ActionAsk = "ask"
+
+const (
+	MaxPresets         = 64
+	MaxPresetRules     = 16
+	MaxPresetDescRunes = 300
+)
+
+// Preset is one library entry. Rules carry no ids (they get fresh ones when
+// inserted) and no 适用落地节点.
+type Preset struct {
+	ID          int64  `json:"id"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Rules       []Rule `json:"rules"`
+	AskOutbound bool   `json:"askOutbound"`
+	InsertTop   bool   `json:"insertTop"`
+	SortOrder   int    `json:"sortOrder"`
+	SeedKey     string `json:"seedKey"`
+}
+
+func presetRule(name, key string, r Rule, action string) Rule {
+	r.Name, r.Preset, r.Enabled, r.Action = name, key, true, action
+	return FilledRule(r)
+}
+
+// FilledRule uses empty lists instead of nil (the normalized form, and what
+// the UI expects in stored JSON).
+func FilledRule(r Rule) Rule {
+	if r.Domains == nil {
+		r.Domains = []string{}
+	}
+	if r.IPs == nil {
+		r.IPs = []string{}
+	}
+	if r.SourceIPs == nil {
+		r.SourceIPs = []string{}
+	}
+	if r.Protocols == nil {
+		r.Protocols = []string{}
+	}
+	if r.LandingNodeIDs == nil {
+		r.LandingNodeIDs = []int64{}
+	}
+	return r
+}
+
+// SeedPresets are the presets the library starts with (the pre-140 hard-coded
+// frontend list, same names and rules, plus 「禁止访问内网」).
+func SeedPresets() []Preset {
+	return []Preset{
+		{SeedKey: "block-cn", Name: "屏蔽中国大陆", InsertTop: true,
+			Description: "三条规则插在最前：屏蔽大陆 IP、屏蔽大陆网站、禁止大陆客户端直连（FLVX 节点与来源白名单除外）",
+			Rules: []Rule{
+				presetRule("屏蔽大陆 IP", "block-cn", Rule{IPs: []string{"geoip:cn"}}, ActionBlock),
+				presetRule("屏蔽大陆网站", "block-cn", Rule{Domains: []string{"geosite:cn"}}, ActionBlock),
+				presetRule("禁止大陆直连", "block-cn", Rule{SourceIPs: []string{"geoip:cn"}}, ActionBlock),
+			}},
+		{SeedKey: "anti-google-cn", Name: "防止送中", AskOutbound: true,
+			Description: "Google 走所选出站（默认 WARP），避免落地 IP 被判定在中国",
+			Rules:       []Rule{presetRule("防止送中", "anti-google-cn", Rule{Domains: []string{"geosite:google"}}, ActionAsk)}},
+		{SeedKey: "speedtest", Name: "测速分流", AskOutbound: true,
+			Description: "Speedtest 测速走所选出站",
+			Rules:       []Rule{presetRule("测速分流", "speedtest", Rule{Domains: []string{"geosite:speedtest", "geosite:ookla-speedtest"}}, ActionAsk)}},
+		{SeedKey: "ai", Name: "AI 解锁", AskOutbound: true,
+			Description: "OpenAI、Claude、Gemini 等走所选出站",
+			Rules: []Rule{presetRule("AI 解锁", "ai", Rule{Domains: []string{
+				"geosite:openai", "geosite:anthropic", "geosite:google-gemini", "geosite:perplexity", "geosite:xai",
+			}}, ActionAsk)}},
+		{SeedKey: "tiktok", Name: "抖音 / TikTok 解锁", AskOutbound: true,
+			Description: "TikTok 走所选出站",
+			Rules:       []Rule{presetRule("TikTok 解锁", "tiktok", Rule{Domains: []string{"geosite:tiktok"}}, ActionAsk)}},
+		{SeedKey: "streaming", Name: "流媒体解锁", AskOutbound: true,
+			Description: "Netflix、Disney+、HBO、Prime Video 等走所选出站",
+			Rules: []Rule{presetRule("流媒体解锁", "streaming", Rule{Domains: []string{
+				"geosite:netflix", "geosite:disney", "geosite:hbo", "geosite:primevideo", "geosite:hulu", "geosite:dazn", "geosite:abema", "geosite:bahamut",
+			}}, ActionAsk)}},
+		{SeedKey: "block-bt", Name: "屏蔽 BT",
+			Description: "按流量特征识别 BitTorrent 并封锁",
+			Rules:       []Rule{presetRule("屏蔽 BT", "block-bt", Rule{Protocols: []string{"bittorrent"}}, ActionBlock)}},
+		{SeedKey: "block-private", Name: "禁止访问内网",
+			Description: "封锁内网、回环、链路本地等地址（geoip:private）",
+			Rules:       []Rule{presetRule("禁止访问内网", "block-private", Rule{IPs: []string{"geoip:private"}}, ActionBlock)}},
+		{SeedKey: "anti-abuse", Name: "防滥用",
+			Description: "封锁 TCP 465/587/2525（发信）和 23、135-139、445（Telnet/SMB，TCP+UDP）。封 465/587 只影响用邮件客户端通过代理发信，收信（IMAP 993/143、POP3 995/110）和网页邮箱不受影响；不封 22 和 3389",
+			Rules: []Rule{
+				presetRule("屏蔽发信端口", "anti-abuse", Rule{Ports: "465,587,2525", Network: "tcp"}, ActionBlock),
+				presetRule("屏蔽 Telnet/SMB", "anti-abuse", Rule{Ports: "23,135-139,445"}, ActionBlock),
+			}},
+		{SeedKey: "block-ads", Name: "屏蔽广告",
+			Description: "常见广告域名（geosite:category-ads）封锁",
+			Rules:       []Rule{presetRule("屏蔽广告", "block-ads", Rule{Domains: []string{"geosite:category-ads"}}, ActionBlock)}},
+	}
+}
+
+// ForcedSeedRules are the 全局·强制 starter rules, all DISABLED: the admin
+// switches them on per rule. Disabled rules never reach a plan.
+func ForcedSeedRules() []Rule {
+	off := func(id, name, preset string, r Rule) Rule {
+		r.ID, r.Name, r.Preset, r.Enabled, r.Action = id, name, preset, false, ActionBlock
+		return FilledRule(r)
+	}
+	return []Rule{
+		off("seed-mail-ports", "屏蔽发信端口", "anti-abuse", Rule{Ports: "465,587,2525", Network: "tcp"}),
+		off("seed-telnet-smb", "屏蔽 Telnet/SMB", "anti-abuse", Rule{Ports: "23,135-139,445"}),
+		off("seed-cn-ip", "屏蔽大陆 IP", "block-cn", Rule{IPs: []string{"geoip:cn"}}),
+		off("seed-cn-site", "屏蔽大陆网站", "block-cn", Rule{Domains: []string{"geosite:cn"}}),
+	}
+}
+
+// RuleSignature compares rules by matchers and action (not id / name /
+// enabled), like the frontend dedupe.
+func RuleSignature(r Rule) string {
+	r.ID, r.Name, r.Enabled, r.Preset = "", "", false, ""
+	if r.LandingNodeIDs == nil {
+		r.LandingNodeIDs = []int64{}
+	}
+	return ruleKey(toPlanRule(r)) + "|" + r.Action + "|" + fmt.Sprint(r.LandingNodeIDs)
+}
+
+// AppendSeedRules appends the seeds that are not in the list yet (same
+// matchers and action), keeping the list within MaxGlobalRules.
+func AppendSeedRules(list, seeds []Rule) []Rule {
+	have := map[string]bool{}
+	ids := map[string]bool{}
+	for _, r := range list {
+		have[RuleSignature(r)] = true
+		ids[r.ID] = true
+	}
+	out := append([]Rule{}, list...)
+	for _, s := range seeds {
+		if have[RuleSignature(s)] || len(out) >= MaxGlobalRules {
+			continue
+		}
+		if ids[s.ID] {
+			s.ID = NewRuleID()
+		}
+		have[RuleSignature(s)], ids[s.ID] = true, true
+		out = append(out, s)
+	}
+	return out
+}
+
+// NormalizePreset validates a library entry in place: the profile rule
+// checks (outbounds lists existing templates), no ids, no node scope, and the
+// 「ask」 placeholder only (and at least once) in AskOutbound presets.
+func NormalizePreset(p *Preset, outbounds map[int64]bool) error {
+	name, ok := validName(p.Name, 64)
+	if !ok {
+		return errors.New("预设名称需为 1–64 个字符")
+	}
+	p.Name = name
+	p.Description = strings.TrimSpace(p.Description)
+	if utf8.RuneCountInString(p.Description) > MaxPresetDescRunes {
+		return fmt.Errorf("预设说明最多 %d 个字符", MaxPresetDescRunes)
+	}
+	if len(p.Rules) == 0 {
+		return errors.New("预设至少需要一条规则")
+	}
+	if len(p.Rules) > MaxPresetRules {
+		return fmt.Errorf("每个预设最多 %d 条规则", MaxPresetRules)
+	}
+	asks := map[int]bool{}
+	rules := append([]Rule(nil), p.Rules...)
+	for i := range rules {
+		rules[i].ID, rules[i].LandingNodeIDs = "", nil
+		if rules[i].Action == ActionAsk {
+			if !p.AskOutbound {
+				return fmt.Errorf("第 %d 条规则的出站为「插入时选择」，请开启「插入时选择出站」", i+1)
+			}
+			asks[i] = true
+			rules[i].Action = ActionDirect
+		}
+	}
+	if p.AskOutbound && len(asks) == 0 {
+		return errors.New("开启「插入时选择出站」后，至少一条规则的出站应为「插入时选择」")
+	}
+	prof := Profile{Name: p.Name, DefaultAction: ActionDirect, Rules: rules}
+	if err := NormalizeProfile(&prof, outbounds); err != nil {
+		return err
+	}
+	for i := range prof.Rules {
+		prof.Rules[i].ID = ""
+		prof.Rules[i].LandingNodeIDs = []int64{}
+		if asks[i] {
+			prof.Rules[i].Action = ActionAsk
+		}
+	}
+	p.Rules = prof.Rules
+	return nil
+}
+
+// PresetUsableByUser reports whether a normal user may see / insert the
+// preset in their node rules: no 来源 IP / 来源端口 matchers, and every fixed
+// outbound is a template marked 允许用户使用 (allowed).
+func PresetUsableByUser(p Preset, allowed map[int64]bool) bool {
+	for _, r := range p.Rules {
+		if len(r.SourceIPs) > 0 || r.SourcePorts != "" || len(r.LandingNodeIDs) > 0 {
+			return false
+		}
+		if id, ok := ActionOutbound(r.Action); ok && !allowed[id] {
+			return false
+		}
+	}
+	return true
+}
+
+// PresetMissingOutbound reports a fixed outbound that no longer exists.
+func PresetMissingOutbound(p Preset, outbounds map[int64]bool) bool {
+	for _, r := range p.Rules {
+		if id, ok := ActionOutbound(r.Action); ok && !outbounds[id] {
+			return true
+		}
+	}
+	return false
+}

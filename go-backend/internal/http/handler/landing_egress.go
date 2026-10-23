@@ -13,6 +13,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"go-backend/internal/http/response"
@@ -200,6 +201,7 @@ func landingEgressInput(d *repo.LandingEgressData) landingegress.CompileInput {
 	in.Global, in.Layers, in.NodeRules = &global, in.Abuse, landingNodeRulesReady(d)
 	in.Markers = d.Server.Source == "native" && d.NodeGuard >= landingegress.LayersVersion
 	in.Outbounds, in.NoIPv4, in.NoIPv6 = d.Outbounds, d.NoIPv4, d.NoIPv6
+	in.AbuseOff = d.Abuse
 	withheld := repo.LandingWithheldFunc(&d.Server)
 	for _, n := range d.Nodes {
 		// Withheld nodes (plan 121) are not in the desired state either.
@@ -457,14 +459,35 @@ func (h *Handler) maybeEnsureLandingWarp() {
 type landingEgressCatalog struct {
 	outbounds map[int64]landingegress.Outbound
 	profiles  map[int64]landingegress.Profile
+	// abuse returns the global switches (plan 140), read at most once and
+	// only by views that show them (the node list never does).
+	abuse func() landingegress.AbuseSwitches
 }
 
 func (h *Handler) landingEgressCatalog() landingEgressCatalog {
+	var once sync.Once
+	var switches landingegress.AbuseSwitches
+	abuse := func() landingegress.AbuseSwitches {
+		once.Do(func() { switches, _ = h.repo.GetLandingAbuseSwitches() })
+		return switches
+	}
 	o, p, err := h.repo.LandingEgressCatalog()
 	if err != nil {
-		return landingEgressCatalog{outbounds: map[int64]landingegress.Outbound{}, profiles: map[int64]landingegress.Profile{}}
+		return landingEgressCatalog{outbounds: map[int64]landingegress.Outbound{}, profiles: map[int64]landingegress.Profile{}, abuse: abuse}
 	}
-	return landingEgressCatalog{outbounds: o, profiles: p}
+	return landingEgressCatalog{outbounds: o, profiles: p, abuse: abuse}
+}
+
+// abuseRuleLabels names the default rules switched on globally (plan 140).
+func abuseRuleLabels(s landingegress.AbuseSwitches) []string {
+	out := []string{}
+	if s.On(landingegress.AbuseSMTP) {
+		out = append(out, "SMTP 25")
+	}
+	if s.On(landingegress.AbuseBT) {
+		out = append(out, "BT")
+	}
+	return out
 }
 
 func (c landingEgressCatalog) label(profileID int64) string {
@@ -519,19 +542,22 @@ func (h *Handler) landingServerEgressView(s model.LandingServer, nodeEgress int,
 	warnings := []string{}
 	_ = json.Unmarshal([]byte(s.EgressWarnings), &warnings)
 	// Default anti-abuse rules (plan 127): active | off (server profile switched
-	// them off) | restart (native Core needs one confirmed restart) | unsupported.
+	// them off) | global_off (plan 140: both switched off globally) | restart
+	// (native Core needs one confirmed restart) | unsupported.
 	abuse := "active"
 	switch {
 	case !supported:
 		abuse = "unsupported"
 	case !landingegress.AbuseOn(s.RouteProfileID, c.profiles):
 		abuse = "off"
+	case len(abuseRuleLabels(c.abuse())) == 0:
+		abuse = "global_off"
 	case s.Source == "native" && !s.EgressReady && !s.EgressRestartOK:
 		abuse = "restart"
 	}
 	return map[string]any{
 		"profileId": s.RouteProfileID, "profileName": c.profileName(s.RouteProfileID), "label": c.label(s.RouteProfileID),
-		"supported": supported, "unsupportedReason": reason, "abuseDefaults": abuse, "realityGuard": landingGuardView(s, nodeGuard...),
+		"supported": supported, "unsupportedReason": reason, "abuseDefaults": abuse, "abuseRules": abuseRuleLabels(c.abuse()), "realityGuard": landingGuardView(s, nodeGuard...),
 		"restartRequired":  supported && s.Source == "native" && !s.EgressReady,
 		"restartConfirmed": s.EgressRestartOK, "state": s.EgressState, "error": s.EgressError, "warnings": warnings, "checkedAt": s.EgressCheckedAt,
 	}
@@ -570,6 +596,10 @@ func (h *Handler) registerLandingEgress(mux *http.ServeMux) {
 		"whitelist/save": h.landingEgressWhitelistSave, "warp/register": h.landingEgressWarpRegister,
 		// Plan 134 global rule group and node-rule caps.
 		"global/get": h.landingEgressGlobalGet, "global/save": h.landingEgressGlobalSave, "user-caps/save": h.landingEgressUserCapsSave,
+		// Plan 140: built-in rule switches and the preset library (admin
+		// writes; the list for everyone is /api/v1/landing/preset/list).
+		"builtin/save": h.landingEgressBuiltinSave, "preset/save": h.landingPresetSave,
+		"preset/delete": h.landingPresetDelete, "preset/reorder": h.landingPresetReorder, "preset/restore": h.landingPresetRestore,
 	}
 	for path, fn := range routes {
 		fn := fn
