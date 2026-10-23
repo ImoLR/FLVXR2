@@ -16,9 +16,9 @@ Branch: `maintenance/3.0.27-fork.80-native-landing-ports`. Panel only, no agent 
 - [x] D  双向 quota hint text
 - [x] E  H5 pull-to-refresh: landing page hook + global fallback/cap + hook awaits callback; Playwright check
 - [x] F  backend tests (full + contract SQLite/PG), frontend tsc/build/lint
-- [ ] G  commit, push, CI, tag fork.80, release assets
-- [ ] H  prod backup + upgrade + verify (nodes, counts, labels, node 103 finalized, node 105 untouched)
-- [ ] I  summary + plan complete
+- [x] G  commit, push, CI, tag fork.80, release assets
+- [x] H  prod backup + upgrade + verify (nodes, counts, labels, node 103 finalized, node 105 untouched)
+- [x] I  summary + plan complete
 
 ## Notes
 
@@ -116,3 +116,21 @@ Branch: `maintenance/3.0.27-fork.80-native-landing-ports`. Panel only, no agent 
 - Frontend: tsc 0 errors, `npm run build` OK, eslint on changed files 0 errors (remaining warnings on untouched lines).
 - Lab API smoke (node 10000-65535): enable → `10000-29999,40000-65535`, first node port 30000 path, node edit refused
   with the range message, shrink/disable/enable/move give-back as designed, conflict refusal lists the port.
+
+### G/H — release + prod (10-24 TW)
+- fork.80 = 91d05c4a (branch CI 40011205698, images 40011441043), prod 03:34 TW, rollback `pre-fork80-20261023T193422Z`.
+- fork.81 = 8e081c3e (same branch; CI 40013501376, images 40013654775), prod 03:53 TW, rollback
+  `pre-fork81-20261023T195325Z` (→ fork.80; `pre-fork80` → fork.79). Both releases Latest in turn, same 10 assets.
+- Verified on prod: 30/30 nodes online, agents unchanged (all fork.79, no OTA), forwards 36, landing servers 6 with
+  unchanged ranges (1: 30000-30999, 5: 30001-39999), node 21 `10000-29999,31000-65535` and node 55
+  `10000-30000,40000-65535` unchanged; node 103 finalized by the new code on the first poll after fork.80 start
+  (19:34:46Z) — no manual DB delete; node 105 (:30001) + forward 156 untouched; all servers + nodes (incl. PQS TW 6 /
+  node 105) labelled 「直连（仅 IPv4）」, node default name 「默认 · 直连（仅 IPv4）」.
+- Live check with temporary objects: landing node 106 on NexKR (server 5) got 30002 (30001 = existing node 97),
+  label 「直连（仅 IPv4）」, deleted right after. Refused node edit on node 55 (`10000-65535`) returns the range message,
+  no write.
+- Resource: backend CPU 3.95 % / 45.5 MiB (fork.79) → 4.4 % / 43.4 MiB (fork.81, 2-min sample); list p50 ~4–5 ms both;
+  `/landing/server/save` (identical, includes agent ACK round trip) 265 ms → 315–330 ms (panel part in lab 4–5 ms;
+  the rest is the node 55 agent round trip); node edit refusal 1–2 ms.
+- Open: mmwx Custom keeps reporting removed nodes' last connection count (mmwx follow-up); item 5 agent follow-up;
+  report-ip JWT skip-list (not in this brief, not changed).
