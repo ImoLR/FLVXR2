@@ -40,13 +40,15 @@ Agent batch (F13/F14) is plan 137 and bases on fork.76.
 
 ### Tests
 - [x] Contract/unit tests: F11, F12, F15, F23, F24, F26 (login timing), F27 (node/info 401), R8, WS throttle/fields, service_name write-once (F16 = frontend, verified in the browser lab)
-- [ ] Full backend suite after (no new failures vs base)
+- [x] Full backend suite after (no new failures vs base: same 15 pre-existing; one old test updated for F12)
 - [x] Frontend tsc / lint / build (no new eslint findings vs base after auto-fixing my own lines)
-- [ ] Relevant `scripts/qa-sweep/` checks against the local build; screenshots as evidence for UI nits
-- [ ] Resource numbers before/after (CPU, RSS, WS bytes/min, request rate, list p50/p95, log bytes/h)
+- [x] QA checks re-run on a local prod-size lab (neutralised DB copy via `scripts/qa-sweep/make_lab_db.py`, 29 fake agents
+      replaying prod metric payloads, headless Chromium): F16 write reproduced on fork.75 and gone on fork.76, polling,
+      WS volume, F09/F19/F25/R11 screenshots (run dir `lab/ui-new/`)
+- [x] Resource numbers before/after on the lab (prod numbers after deploy below)
 
 ### Release
-- [ ] Commit + push branch, CI green
+- [x] Commit + push branch, CI green (run 39929767197)
 - [ ] Tag `3.0.27-fork.76`, images + release assets verified
 - [ ] Prod backup `pre-fork76-<TS>` + prune (keep 2)
 - [ ] Upgrade prod panel (no OTA), health + 29 nodes
@@ -67,3 +69,17 @@ Agent batch (F13/F14) is plan 137 and bases on fork.76.
 - R6: no change — the fork.20 retry loop already re-syncs a failed (tunnel, node) every 60 s, backoff to 10 min.
 - R9: not changed — running the expiry job earlier also disables the account (login) and moves auto-renew
   billing earlier; a first traffic report already pauses rules of expired / over-quota users at once.
+
+## Lab numbers (29 fake agents, prod-size neutralised DB copy, 2 runs each)
+| | fork.75 | fork.76 |
+|---|---|---|
+| panel CPU (60 s, 1 admin WS open) | 4.12 % / 3.62 % | 3.08 % / 2.77 % |
+| RSS | 40.6 / 41.0 MB | 41.0 / 42.1 MB |
+| admin WS | 1740 msgs, 1.86 MB per min | 870 msgs, 0.71 MB per min |
+| 主页 admin / user requests per min | 24 / 12 | 4 / 2 |
+| 规则页 admin requests per min | 36 | 4 |
+| config/list per page load | 3 | 1 |
+| opening 规则页 with a stale group key | 2 × config/update-single | none |
+| node/list p50/p95 | 5.99 / 8.34 ms | 5.88 / 8.11 ms |
+| forward/list p50/p95 | 13.2 / 17.6 ms | 12.7 / 17.6 ms |
+| panel log | 216 / 61 B/min | 217 / 61 B/min |
