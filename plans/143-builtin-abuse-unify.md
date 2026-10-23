@@ -18,11 +18,11 @@ Branch `feature/3.0.27-builtin-abuse-unify`. Build + screenshots only — no tag
 - After a migration that changed anything: one normal re-sync of every landing server at startup.
 
 ## Checklist
-- [ ] Backend: AbuseSwitches + 4 default rules, duplicate check, warning text
-- [ ] Backend: model columns, settings read/save, migration + marker, fresh-install seeds, resync flag
-- [ ] Backend: admin/node 内置 views, save endpoint (mail/telnet), server-settings abuseRules labels
-- [ ] Backend tests (switches, migration cases, idempotent, seeds, line-chain + shared scope, presets)
-- [ ] Frontend: 内置 list 防滥用 group + ✓/✗ icons, switches, texts (global, profile, server settings,
+- [x] Backend: AbuseSwitches + 4 default rules, duplicate check, warning text
+- [x] Backend: model columns, settings read/save, migration + marker, fresh-install seeds, resync flag
+- [x] Backend: admin/node 内置 views, save endpoint (mail/telnet), server-settings abuseRules labels
+- [x] Backend tests (switches, migration cases, idempotent, seeds, line-chain + shared scope, presets)
+- [x] Frontend: 内置 list 防滥用 group + ✓/✗ icons, switches, texts (global, profile, server settings,
       overview), preset 「内置已封锁」 for all 4, rule-list 「已停用」 chip → ✗ icon
 - [ ] Frontend tsc / lint / build, bundle size
 - [ ] go test ./... base vs branch, contract SQLite + PostgreSQL, -race on new code
