@@ -44,19 +44,19 @@ func GlobalFromSetting(s model.LandingEgressSetting) landingegress.Global {
 }
 
 func landingGlobal(db *gorm.DB) (landingegress.Global, int64, error) {
-	var rows []model.LandingEgressSetting
-	if err := db.Where("id = ?", 1).Limit(1).Find(&rows).Error; err != nil {
-		return landingegress.Global{DefaultAction: landingegress.ActionDirect}, 0, err
-	}
-	if len(rows) == 0 {
-		return landingegress.Global{Forced: []landingegress.Rule{}, Default: []landingegress.Rule{}, DefaultAction: landingegress.ActionDirect}, 0, nil
-	}
-	return GlobalFromSetting(rows[0]), rows[0].GlobalUpdatedTime, nil
+	g, _, updated, err := landingSettings(db)
+	return g, updated, err
 }
 
 // GetLandingGlobal returns the global group and when it was last saved.
 func (r *Repository) GetLandingGlobal() (landingegress.Global, int64, error) {
 	return landingGlobal(r.db)
+}
+
+// GetLandingGlobalSettings also returns the built-in rule switches (plan
+// 140), from the same single row read.
+func (r *Repository) GetLandingGlobalSettings() (landingegress.Global, landingegress.AbuseSwitches, int64, error) {
+	return landingSettings(r.db)
 }
 
 // SaveLandingGlobal validates and stores the global group (only the global

@@ -74,6 +74,35 @@ type LandingEgressSetting struct {
 	GlobalDefault     string `gorm:"type:text;not null;default:'[]'" json:"-"`
 	GlobalAction      string `gorm:"not null;default:'direct'" json:"-"`
 	GlobalUpdatedTime int64  `gorm:"not null;default:0" json:"-"`
+	// Plan 140: global switches of the built-in anti-abuse rules (NULL = on,
+	// i.e. the pre-140 behaviour); a node blocks only when the switch AND its
+	// routing profile's 防滥用默认 toggle are on.
+	BuiltinSMTP *bool `gorm:"column:builtin_smtp" json:"-"`
+	BuiltinBT   *bool `gorm:"column:builtin_bt" json:"-"`
+	// One-time seed markers (plan 140): the disabled 全局·强制 starter rules and
+	// the preset library. Once set, deleted seeds never come back.
+	GlobalSeedVersion int `gorm:"not null;default:0" json:"-"`
+	PresetSeedVersion int `gorm:"not null;default:0" json:"-"`
 }
 
 func (LandingEgressSetting) TableName() string { return "landing_egress_setting" }
+
+// LandingEgressPreset is one entry of the routing-rule preset library (plan
+// 140). Rules is the landingegress.Rule list as JSON, without ids; rules of an
+// AskOutbound preset carry the action "ask", replaced at insert time by the
+// outbound the admin / user picks. SeedKey names a built-in seed ("" = made
+// by an admin); 「恢复默认预设」 re-adds missing seed keys.
+type LandingEgressPreset struct {
+	ID          int64  `gorm:"primaryKey;autoIncrement" json:"id"`
+	Name        string `gorm:"not null" json:"name"`
+	Description string `gorm:"type:text;not null;default:''" json:"description"`
+	Rules       string `gorm:"type:text;not null;default:'[]'" json:"-"`
+	AskOutbound bool   `gorm:"not null;default:false" json:"askOutbound"`
+	InsertTop   bool   `gorm:"not null;default:false" json:"insertTop"`
+	SortOrder   int    `gorm:"not null;default:0;index" json:"sortOrder"`
+	SeedKey     string `gorm:"not null;default:''" json:"seedKey"`
+	CreatedTime int64  `gorm:"not null" json:"createdTime"`
+	UpdatedTime int64  `gorm:"not null" json:"updatedTime"`
+}
+
+func (LandingEgressPreset) TableName() string { return "landing_egress_preset" }

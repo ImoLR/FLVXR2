@@ -404,6 +404,9 @@ type LandingEgressData struct {
 	// egress detection; shared: Custom's host report).
 	Global         landingegress.Global
 	NoIPv4, NoIPv6 bool
+	// Abuse: the global switches of the default anti-abuse rules (plan 140),
+	// read with Global from the same settings row.
+	Abuse landingegress.AbuseSwitches
 }
 
 // LandingEgressActions lists every action a server's plan can reference:
@@ -457,7 +460,7 @@ func (r *Repository) LandingEgressData(serverID int64) (*LandingEgressData, erro
 			}
 		}
 	}
-	if d.Global, _, err = landingGlobal(r.db); err != nil {
+	if d.Global, d.Abuse, _, err = landingSettings(r.db); err != nil {
 		return nil, err
 	}
 	d.NoIPv4, d.NoIPv6 = r.landingServerFamilies(&d.Server)

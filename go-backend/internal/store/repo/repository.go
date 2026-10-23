@@ -158,6 +158,10 @@ func Open(path string) (*Repository, error) {
 		_ = sqlDB.Close()
 		return nil, fmt.Errorf("backfill landing user max nodes: %w", err)
 	}
+	if err := seedLandingEgressDefaults(db); err != nil {
+		_ = sqlDB.Close()
+		return nil, fmt.Errorf("seed landing egress defaults: %w", err)
+	}
 	return &Repository{db: db}, nil
 }
 
@@ -215,6 +219,10 @@ func OpenPostgres(dsn string) (*Repository, error) {
 		_ = sqlDB.Close()
 		return nil, fmt.Errorf("backfill landing user max nodes: %w", err)
 	}
+	if err := seedLandingEgressDefaults(db); err != nil {
+		_ = sqlDB.Close()
+		return nil, fmt.Errorf("seed landing egress defaults: %w", err)
+	}
 	return &Repository{db: db}, nil
 }
 
@@ -240,7 +248,7 @@ func autoMigrateAll(db *gorm.DB) error {
 
 	models := []interface{}{
 		&model.LandingIntegration{}, &model.LandingServer{}, &model.LandingServerUserGroup{}, &model.LandingServerUser{}, &model.LandingNode{}, &model.LandingUserSetting{}, &model.UserServerQuota{},
-		&model.LandingOutbound{}, &model.LandingRouteProfile{}, &model.LandingWarpAccount{}, &model.LandingEgressSetting{},
+		&model.LandingOutbound{}, &model.LandingRouteProfile{}, &model.LandingWarpAccount{}, &model.LandingEgressSetting{}, &model.LandingEgressPreset{},
 		&model.ForwardChain{}, &model.ForwardChainNode{},
 		&model.User{},
 		&model.UserQuota{},

@@ -41,6 +41,9 @@ type CompileInput struct {
 	// profile's switch; older agents order chain rules first anyway.
 	Builtin   bool
 	ChainTags []string
+	// AbuseOff: the admin's global switches of the default rules (plan 140);
+	// the zero value keeps both on (pre-140 output).
+	AbuseOff AbuseSwitches
 	// Plan 134 layers. Global layers are sent only when Layers (the same
 	// readiness as Abuse); node rules only when NodeRules (otherwise they stay
 	// queued until the Core can hot-apply them). Markers: the agent knows
@@ -416,7 +419,7 @@ func compilePlan(in CompileInput, nodes []NodeRef, forced, deflt []Rule, gdef st
 				inGroup[t] = true
 			}
 			for _, r := range p.Rules {
-				if !r.Enabled || (abuse && IsAbuseDuplicate(r)) {
+				if !r.Enabled || (abuse && in.AbuseOff.On(AbuseDuplicateOf(r))) {
 					// A profile rule that only repeats a default rule (e.g. the
 					// 「屏蔽 BT」 preset) is already covered right after safety.
 					continue
@@ -544,9 +547,10 @@ func compilePlan(in CompileInput, nodes []NodeRef, forced, deflt []Rule, gdef st
 		if in.Builtin && AbuseOn(in.ServerProfileID, in.Profiles) {
 			abuseTags = append(abuseTags, in.ChainTags...)
 		}
-		if len(abuseTags) > 0 {
+		// Only the default rules switched on globally (plan 140).
+		defaults := AbuseRules(in.AbuseOff)
+		if len(abuseTags) > 0 && len(defaults) > 0 {
 			sort.Strings(abuseTags)
-			defaults := AbuseDefaultRules()
 			if len(plan.Rules)+len(defaults) > MaxPlanRules {
 				if layered {
 					// Global and node rules never push the defaults out.
