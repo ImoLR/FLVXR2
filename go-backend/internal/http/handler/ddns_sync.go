@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -69,6 +70,14 @@ func (h *Handler) ddnsState() *ddnsManager {
 			checking:  map[int64]bool{},
 			wake:      make(chan struct{}, 1),
 			now:       time.Now,
+		}
+		// Lab / E2E only: a fake Cloudflare API (never set in production).
+		if base := strings.TrimSpace(os.Getenv("FLVX_DDNS_CF_API")); base != "" {
+			h.ddns.newClient = func(token string) *ddns.Client {
+				c := ddns.NewCloudflare(token)
+				c.BaseURL = base
+				return c
+			}
 		}
 	}
 	return h.ddns
