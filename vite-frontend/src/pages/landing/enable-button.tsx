@@ -54,7 +54,9 @@ export function EnableLandingButton({
           toast.error(response.msg || "启用失败");
           return;
         }
-        toast.success("已启用落地，请设置端口段和可见用户组");
+        toast.success(
+          `已启用落地，端口 ${response.data.portMin}-${response.data.portMax} 已从节点规则端口段中排除；请设置端口段和可见用户组`,
+        );
         navigate(`/landing?server=${response.data.id}`);
       }}
     >

@@ -1,5 +1,11 @@
 import { useEffect, useState, useRef } from "react";
 
+import {
+  PULL_TO_REFRESH_DONE_EVENT,
+  PULL_TO_REFRESH_EVENT,
+  type PullToRefreshDetail,
+} from "@/hooks/usePullToRefresh";
+
 export function GlobalPullToRefresh() {
   const [pullDistance, setPullDistance] = useState(0);
   const [refreshing, setRefreshing] = useState(false);
@@ -9,11 +15,26 @@ export function GlobalPullToRefresh() {
   const currentDistance = useRef(0);
   const pullActivated = useRef(false);
   const touchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Page handlers still reloading, and the fallback / hard-cap timers.
+  const pending = useRef(0);
+  const stopTimers = useRef<ReturnType<typeof setTimeout>[]>([]);
 
   useEffect(() => {
     const MAX_PULL = 80;
     const THRESHOLD = 60;
     const ACTIVATION_DELAY = 200;
+    // A page without a handler gets a short spin; nothing spins past the cap.
+    const UNCLAIMED_STOP_MS = 300;
+    const HARD_CAP_MS = 8000;
+
+    const stopRefreshing = () => {
+      stopTimers.current.forEach(clearTimeout);
+      stopTimers.current = [];
+      pending.current = 0;
+      setRefreshing(false);
+      setPullDistance(0);
+      currentDistance.current = 0;
+    };
 
     const getScrollTop = (target: EventTarget | null) => {
       let node = target as HTMLElement | null;
@@ -89,7 +110,20 @@ export function GlobalPullToRefresh() {
       if (currentDistance.current >= THRESHOLD) {
         setRefreshing(true);
         setPullDistance(THRESHOLD - 20);
-        window.dispatchEvent(new CustomEvent("flvx:pulltorefresh"));
+        stopTimers.current.forEach(clearTimeout);
+        const detail: PullToRefreshDetail = { claims: 0 };
+
+        // Handlers run synchronously inside dispatchEvent and count themselves.
+        window.dispatchEvent(
+          new CustomEvent(PULL_TO_REFRESH_EVENT, { detail }),
+        );
+        pending.current = detail.claims;
+        stopTimers.current = [setTimeout(stopRefreshing, HARD_CAP_MS)];
+        if (detail.claims === 0) {
+          stopTimers.current.push(
+            setTimeout(stopRefreshing, UNCLAIMED_STOP_MS),
+          );
+        }
       } else {
         setPullDistance(0);
         currentDistance.current = 0;
@@ -97,22 +131,22 @@ export function GlobalPullToRefresh() {
     };
 
     const onRefreshDone = () => {
-      setRefreshing(false);
-      setPullDistance(0);
-      currentDistance.current = 0;
+      pending.current = Math.max(0, pending.current - 1);
+      if (pending.current === 0) stopRefreshing();
     };
 
     document.addEventListener("touchstart", onTouchStart, { passive: true });
     document.addEventListener("touchmove", onTouchMove, { passive: false });
     document.addEventListener("touchend", onTouchEnd);
-    window.addEventListener("flvx:pulltorefresh:done", onRefreshDone);
+    window.addEventListener(PULL_TO_REFRESH_DONE_EVENT, onRefreshDone);
 
     return () => {
       document.removeEventListener("touchstart", onTouchStart);
       document.removeEventListener("touchmove", onTouchMove);
       document.removeEventListener("touchend", onTouchEnd);
-      window.removeEventListener("flvx:pulltorefresh:done", onRefreshDone);
+      window.removeEventListener(PULL_TO_REFRESH_DONE_EVENT, onRefreshDone);
       if (touchTimer.current) clearTimeout(touchTimer.current);
+      stopTimers.current.forEach(clearTimeout);
     };
   }, []);
 

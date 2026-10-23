@@ -426,15 +426,14 @@ func (h *Handler) landingNodeRulesView(n *model.LandingNode, admin bool) (map[st
 	supported, _, _, reason := landingEgressSupport(d)
 	// What 「跟随上级」 resolves to for this node.
 	pid := landingegress.EffectiveProfile(d.Server.RouteProfileID, n.RouteProfileID)
-	inherited, inheritedFrom := d.Global.DefaultAction, "global"
-	if p, ok := d.Profiles[pid]; pid != 0 && ok {
-		inherited, inheritedFrom = p.DefaultAction, "server"
-	}
-	if inheritedFrom == "global" && !landingAbuseReady(d) {
-		inherited = landingegress.ActionDirect
-	}
-	if inherited == "" {
-		inherited = landingegress.ActionDirect
+	// 「跟随上级」 = everything but the node's own rules, resolved like the
+	// plan (plan 139: one shared precedence, incl. the IP-family fallback).
+	labelIn := landingLabelInput(d)
+	upper := landingegress.NodeRef{ID: n.ID, Tag: n.InboundTag, Override: n.RouteProfileID}
+	inherited, from, _ := labelIn.EffectiveDefault(&upper)
+	inheritedFrom := "global"
+	if from == landingegress.DefaultFromServer {
+		inheritedFrom = "server"
 	}
 	labelOf := func(action string) string {
 		if admin {
@@ -446,7 +445,7 @@ func (h *Handler) landingNodeRulesView(n *model.LandingNode, admin bool) (map[st
 		}
 		return landingegress.ActionLabel(action, d.Outbounds)
 	}
-	server := map[string]any{"label": landingegress.Label(pid, d.Profiles, d.Outbounds)}
+	server := map[string]any{"label": labelIn.EffectiveLabel(&upper)}
 	if p, ok := d.Profiles[pid]; pid != 0 && ok {
 		if admin {
 			server["profileName"] = p.Name

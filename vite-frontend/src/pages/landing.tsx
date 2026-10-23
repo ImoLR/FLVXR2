@@ -28,6 +28,7 @@ import {
 } from "@/api/landing";
 import { AnimatedPage } from "@/components/animated-page";
 import { useH5Mode } from "@/hooks/useH5Mode";
+import { usePullToRefresh } from "@/hooks/usePullToRefresh";
 import { Button } from "@/shadcn-bridge/heroui/button";
 import { Card, CardBody, CardHeader } from "@/shadcn-bridge/heroui/card";
 import { Chip } from "@/shadcn-bridge/heroui/chip";
@@ -182,6 +183,19 @@ export default function LandingPage() {
   useEffect(() => {
     void load();
   }, [load]);
+  // H5 pull-to-refresh: reload the active tab (the egress tab remounts and
+  // loads its own data).
+  const [egressReload, setEgressReload] = useState(0);
+  const refresh = useCallback(async () => {
+    if (tab === "egress") {
+      setEgressReload((value) => value + 1);
+
+      return;
+    }
+    await load();
+  }, [tab, load]);
+
+  usePullToRefresh(refresh);
   // While a node shows 「正在同步，请稍后」, re-read only the node list every 5 s
   // so it flips to 正常 by itself. Bounded: stops when nothing is pending, after
   // 2 min per set of pending nodes, on unmount, and skips ticks while hidden.
@@ -836,7 +850,7 @@ export default function LandingPage() {
                   </div>
                 }
               >
-                {tab === "egress" && <LandingEgressTab />}
+                {tab === "egress" && <LandingEgressTab key={egressReload} />}
               </Suspense>
             </Tab>
           )}

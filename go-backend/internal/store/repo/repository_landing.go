@@ -103,6 +103,11 @@ func (r *Repository) EnableLandingServer(nodeID int64) (*model.LandingServer, er
 				if err := tx.Model(&existing).Updates(map[string]interface{}{"chain_only": false, "protocols": existing.Protocols, "updated_time": existing.UpdatedTime}).Error; err != nil {
 					return err
 				}
+				// Now public: reserve its range like a fresh enable (plan 139).
+				lo, hi := activeLandingRange(&existing)
+				if err := applyNativeLandingRange(tx, &existing, 0, 0, lo, hi); err != nil {
+					return err
+				}
 			}
 			s = existing
 			return nil
@@ -115,6 +120,10 @@ func (r *Repository) EnableLandingServer(nodeID int64) (*model.LandingServer, er
 			host = n.ServerIPV4.String
 		}
 		s = model.LandingServer{Source: "native", NodeID: nodeID, Name: n.Name, PublicHost: host, PortMin: 30000, PortMax: 39999, FlowType: 2, TrafficRatio: 1, DefaultExpiryMode: "follow_user", MaxNodesPerUser: 3, Protocols: `["ss2022","vless_reality_vision"]`, RealityDest: "www.lovelive-anime.jp:443", RealityServerNames: `["www.lovelive-anime.jp"]`, CoreMemoryMB: 256, CoreCPUPercent: 50, Status: "active", Revision: 1, CreatedTime: now, UpdatedTime: now}
+		// Plan 139: the landing range leaves the node's rule range.
+		if err := applyNativeLandingRange(tx, &s, 0, 0, s.PortMin, s.PortMax); err != nil {
+			return err
+		}
 		return tx.Create(&s).Error
 	})
 	return &s, err
@@ -249,6 +258,13 @@ func (r *Repository) SaveLandingServer(s *model.LandingServer, groups []int64) e
 			if count != 1 {
 				return errors.New("用户组不存在")
 			}
+		}
+		// Plan 139: keep the node rule range and the landing range disjoint
+		// (carve the new range, give back what left it, also on disable).
+		oldLo, oldHi := activeLandingRange(&old)
+		newLo, newHi := activeLandingRange(s)
+		if err := applyNativeLandingRange(tx, s, oldLo, oldHi, newLo, newHi); err != nil {
+			return err
 		}
 		s.CreatedTime = old.CreatedTime
 		s.UpdatedTime = time.Now().UnixMilli()
@@ -689,9 +705,13 @@ func landingFreePort(tx *gorm.DB, s model.LandingServer) (int, error) {
 		}
 	}
 	used := map[int]bool{}
-	for _, p := range parsePortRangeSpec(node.Port) {
-		used[p] = true
+	ruleSpans := parsePortSpans(node.Port)
+	for _, sp := range portSpansOverlap(ruleSpans, s.PortMin, s.PortMax) {
+		for p := sp.lo; p <= sp.hi; p++ {
+			used[p] = true
+		}
 	}
+	ruleUsed := len(used)
 	for _, q := range []struct {
 		m      interface{}
 		column string
@@ -735,7 +755,24 @@ func landingFreePort(tx *gorm.DB, s model.LandingServer) (int, error) {
 			return p, nil
 		}
 	}
-	return 0, errors.New("落地端口段无可用端口，请检查与节点规则端口段及隧道监听端口的冲突")
+	return 0, landingNoFreePortError(s, node, ruleUsed)
+}
+
+// landingNoFreePortError says concretely why a landing range is exhausted
+// (plan 139): swallowed by the node's rule range, or taken by listeners.
+func landingNoFreePortError(s model.LandingServer, node model.Node, ruleUsed int) error {
+	rng := formatPortRange(s.PortMin, s.PortMax)
+	total := s.PortMax - s.PortMin + 1
+	if s.Source == "shared" {
+		return fmt.Errorf("落地端口段 %s 的 %d 个端口已全部被落地节点或这台机器上的其他程序占用，请扩大落地端口段", rng, total)
+	}
+	if ruleUsed >= total {
+		return fmt.Errorf("落地端口段 %s 已全部被节点「%s」的规则端口段 %s 占用，请在节点编辑里把 %s 从规则端口段中排除，或给落地换一个端口段", rng, node.Name, node.Port, rng)
+	}
+	if ruleUsed > 0 {
+		return fmt.Errorf("落地端口段 %s 无可用端口：其中 %d 个在节点「%s」的规则端口段 %s 内，其余 %d 个已被落地节点、隧道或其他监听占用；请从规则端口段中排除落地端口段或扩大落地端口段", rng, ruleUsed, node.Name, node.Port, total-ruleUsed)
+	}
+	return fmt.Errorf("落地端口段 %s 的 %d 个端口已全部被落地节点、隧道或节点上的其他监听占用，请扩大落地端口段", rng, total)
 }
 func (r *Repository) UpdateLandingNode(n *model.LandingNode) error {
 	if n.DeletePending {

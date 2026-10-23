@@ -339,6 +339,23 @@ func (r *Repository) LandingPortInUse(nodeID int64, port int) (bool, error) {
 
 // ValidateNodeLandingPortRange prevents widening the rule range over reserved landing ports.
 func (r *Repository) ValidateNodeLandingPortRange(nodeID int64, spec string) error {
+	// Plan 139: the whole range of an active native landing is reserved, not
+	// only the ports its nodes already use.
+	var servers []model.LandingServer
+	if err := r.db.Where("source = 'native' AND node_id = ?", nodeID).Find(&servers).Error; err != nil {
+		return err
+	}
+	for i := range servers {
+		lo, hi := activeLandingRange(&servers[i])
+		if lo <= 0 || len(portSpansOverlap(parsePortSpans(spec), lo, hi)) == 0 {
+			continue
+		}
+		msg := "端口 " + formatPortRange(lo, hi) + " 已留给落地，请从规则端口段里排除"
+		if hint := landingRuleSpec(spec, 0, 0, lo, hi, nil); hint != "" {
+			msg += "（例如改成 " + hint + "）"
+		}
+		return errors.New(msg)
+	}
 	var ports []int
 	if err := r.db.Model(&model.LandingNode{}).Joins("JOIN landing_server ON landing_server.id = landing_node.landing_server_id").Where("landing_server.node_id = ?", nodeID).Pluck("landing_node.port", &ports).Error; err != nil {
 		return err

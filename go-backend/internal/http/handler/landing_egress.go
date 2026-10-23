@@ -462,20 +462,101 @@ type landingEgressCatalog struct {
 	// abuse returns the global switches (plan 140), read at most once and
 	// only by views that show them (the node list never does).
 	abuse func() landingegress.AbuseSwitches
+	// settings / nodeFacts feed the outbound labels (plan 139): the global
+	// group and the native nodes' capabilities, each read at most once per
+	// request; inputs caches the per-server label input.
+	settings  func() (landingegress.Global, landingegress.AbuseSwitches)
+	nodeFacts func() map[int64]repo.LandingNativeNodeFacts
+	inputs    map[int64]landingegress.CompileInput
 }
 
 func (h *Handler) landingEgressCatalog() landingEgressCatalog {
-	var once sync.Once
+	var settingsOnce, factsOnce sync.Once
+	var global landingegress.Global
 	var switches landingegress.AbuseSwitches
-	abuse := func() landingegress.AbuseSwitches {
-		once.Do(func() { switches, _ = h.repo.GetLandingAbuseSwitches() })
-		return switches
+	settings := func() (landingegress.Global, landingegress.AbuseSwitches) {
+		settingsOnce.Do(func() { global, switches, _, _ = h.repo.GetLandingGlobalSettings() })
+		return global, switches
 	}
+	var facts map[int64]repo.LandingNativeNodeFacts
+	nodeFacts := func() map[int64]repo.LandingNativeNodeFacts {
+		factsOnce.Do(func() { facts, _ = h.repo.LandingNativeNodeFactsAll() })
+		return facts
+	}
+	c := landingEgressCatalog{settings: settings, nodeFacts: nodeFacts, inputs: map[int64]landingegress.CompileInput{}}
+	c.abuse = func() landingegress.AbuseSwitches { _, sw := settings(); return sw }
 	o, p, err := h.repo.LandingEgressCatalog()
 	if err != nil {
-		return landingEgressCatalog{outbounds: map[int64]landingegress.Outbound{}, profiles: map[int64]landingegress.Profile{}, abuse: abuse}
+		c.outbounds, c.profiles = map[int64]landingegress.Outbound{}, map[int64]landingegress.Profile{}
+		return c
 	}
-	return landingEgressCatalog{outbounds: o, profiles: p, abuse: abuse}
+	c.outbounds, c.profiles = o, p
+	return c
+}
+
+// labelInput is the compile input of a server minus its nodes, built by the
+// same functions as the real compile (landingEgressSupport/landingEgressInput)
+// so labels follow the plan's precedence exactly.
+func (c landingEgressCatalog) labelInput(s model.LandingServer) landingegress.CompileInput {
+	if in, ok := c.inputs[s.ID]; ok && s.ID != 0 {
+		return in
+	}
+	d := &repo.LandingEgressData{Server: s, Outbounds: c.outbounds, Profiles: c.profiles}
+	if c.settings != nil {
+		d.Global, d.Abuse = c.settings()
+	}
+	detected := ""
+	if s.Source == "native" && c.nodeFacts != nil {
+		f := c.nodeFacts()[s.NodeID]
+		d.NodeEgress, d.NodeGuard, detected = f.LandingEgress, f.LandingGuard, f.EgressDetected
+	}
+	d.NoIPv4, d.NoIPv6 = repo.LandingServerFamilies(&s, detected)
+	in := landingLabelInput(d)
+	if c.inputs != nil && s.ID != 0 {
+		c.inputs[s.ID] = in
+	}
+	return in
+}
+
+// landingLabelInput: the compile input labels are resolved with (nodes are
+// passed to EffectiveLabel one at a time).
+func landingLabelInput(d *repo.LandingEgressData) landingegress.CompileInput {
+	supported, geoIP, geoSite, _ := landingEgressSupport(d)
+	if !supported {
+		// No plan reaches the server: only the profile summary as before.
+		return landingegress.CompileInput{ServerProfileID: d.Server.RouteProfileID, Profiles: d.Profiles, Outbounds: d.Outbounds}
+	}
+	in := landingEgressInput(d)
+	in.GeoIP, in.GeoSite = geoIP, geoSite
+	in.Nodes, in.Resolve, in.Exempt = nil, nil, nil
+	return in
+}
+
+// serverLabel: what a node without own settings on this server gets.
+func (c landingEgressCatalog) serverLabel(s model.LandingServer) string {
+	return c.labelInput(s).EffectiveLabel(nil)
+}
+
+// nodeLabel: the node's own effective outbound (its profile override and
+// node rules included).
+func (c landingEgressCatalog) nodeLabel(s model.LandingServer, n model.LandingNode) string {
+	rules, def := repo.NodeRulesFromModel(n)
+	return c.labelInput(s).EffectiveLabel(&landingegress.NodeRef{ID: n.ID, Tag: n.InboundTag, Override: n.RouteProfileID, Rules: rules, Default: def})
+}
+
+// defaultProfileName names the built-in default profile (id 0) on a server:
+// it follows the 全局默认出站 (plan 134), e.g. 「默认 · 直连（仅 IPv4）」.
+func (c landingEgressCatalog) defaultProfileName(s *model.LandingServer) string {
+	if s == nil {
+		return "默认（直连）"
+	}
+	in := c.labelInput(*s)
+	in.ServerProfileID = 0
+	action, _, _ := in.EffectiveDefault(nil)
+	if label := landingegress.ActionLabel(action, c.outbounds); label != "直连" {
+		return "默认 · " + label
+	}
+	return "默认（直连）"
 }
 
 // abuseRuleLabels names the default rules switched on globally (plan 140).
@@ -494,11 +575,12 @@ func (c landingEgressCatalog) label(profileID int64) string {
 	return landingegress.Label(profileID, c.profiles, c.outbounds)
 }
 
-func (c landingEgressCatalog) profileName(id int64) string {
+// profileName names a profile; id 0 is the built-in default of server s.
+func (c landingEgressCatalog) profileName(id int64, s *model.LandingServer) string {
 	if p, ok := c.profiles[id]; ok {
 		return p.Name
 	}
-	return "默认（直连）"
+	return c.defaultProfileName(s)
 }
 
 // landingGuardView: the Reality guard (plan 127) of a server for admins.
@@ -556,7 +638,7 @@ func (h *Handler) landingServerEgressView(s model.LandingServer, nodeEgress int,
 		abuse = "restart"
 	}
 	return map[string]any{
-		"profileId": s.RouteProfileID, "profileName": c.profileName(s.RouteProfileID), "label": c.label(s.RouteProfileID),
+		"profileId": s.RouteProfileID, "profileName": c.profileName(s.RouteProfileID, &s), "label": c.serverLabel(s),
 		"supported": supported, "unsupportedReason": reason, "abuseDefaults": abuse, "abuseRules": abuseRuleLabels(c.abuse()), "realityGuard": landingGuardView(s, nodeGuard...),
 		"restartRequired":  supported && s.Source == "native" && !s.EgressReady,
 		"restartConfirmed": s.EgressRestartOK, "state": s.EgressState, "error": s.EgressError, "warnings": warnings, "checkedAt": s.EgressCheckedAt,

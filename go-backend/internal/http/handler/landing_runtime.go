@@ -210,7 +210,16 @@ func (h *Handler) syncLandingServer(serverID int64) (*landingSyncSnapshot, error
 	}
 	result, err := h.sendNodeCommandWithTimeout(s.NodeID, "ApplyLandingDesired", payload, 30*time.Second, false, false)
 	if err != nil || !result.Success {
-		log.Printf("landing desired sync pending server=%d node=%d", s.ID, s.NodeID)
+		// Same single line as before, now with the agent's short reason (e.g.
+		// "landing gRPC adi failed" when a port is taken by another program).
+		reason := result.Message
+		if err != nil {
+			reason = err.Error()
+		}
+		if r := []rune(reason); len(r) > 120 {
+			reason = string(r[:120])
+		}
+		log.Printf("landing desired sync pending server=%d node=%d reason=%q", s.ID, s.NodeID, reason)
 		return nil, errors.New("节点未确认落地状态，请稍后重试")
 	}
 	raw, err := json.Marshal(result.Data)

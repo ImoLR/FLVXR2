@@ -191,7 +191,7 @@ func buildLandingMonitorView(data *repo.LandingMonitorData, admin bool, tracker 
 		for j := range nodes {
 			n := &nodes[j]
 			status, reason := landingNodeDisplayStatus(n, s)
-			nv := landingMonitorNodeView{ID: n.ID, Name: n.Name, Protocol: n.Protocol, Port: n.Port, Status: status, PendingReason: reason, SyncError: landingNodeSyncError(n, s), DeletePending: n.DeletePending, Connections: n.Connections, MaxConnections: n.MaxConnections, MaxOnlineIPs: n.MaxOnlineIPs, BilledBytes: n.BilledIn + n.BilledOut, TrafficLimitBytes: n.TrafficLimitBytes, AgeHintMs: ageHint}
+			nv := landingMonitorNodeView{ID: n.ID, Name: n.Name, Protocol: n.Protocol, Port: n.Port, Status: status, PendingReason: reason, SyncError: landingNodeSyncError(n, s), DeletePending: n.DeletePending, Connections: repo.LandingLiveConnections(n), MaxConnections: n.MaxConnections, MaxOnlineIPs: n.MaxOnlineIPs, BilledBytes: n.BilledIn + n.BilledOut, TrafficLimitBytes: n.TrafficLimitBytes, AgeHintMs: ageHint}
 			if admin {
 				nv.UserID = n.UserID
 				nv.UserName = data.OwnerNames[n.UserID]
@@ -209,7 +209,7 @@ func buildLandingMonitorView(data *repo.LandingMonitorData, admin bool, tracker 
 			if nv.SampleAt > view.SampleAt {
 				view.SampleAt = nv.SampleAt
 			}
-			view.Connections += n.Connections
+			view.Connections += nv.Connections
 			view.BilledBytes += nv.BilledBytes
 			view.NodeCount++
 			if n.Status == "active" && !n.DeletePending {

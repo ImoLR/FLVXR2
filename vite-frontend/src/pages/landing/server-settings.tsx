@@ -211,7 +211,7 @@ export function ServerSettings({
             <h3 className="font-medium">新节点默认值</h3>
             {server.source === "shared" &&
               numberField(
-                "每个用户默认服务器限额 (GB)",
+                "每个用户默认服务器限额 (GB，计费流量)",
                 "defaultUserQuotaBytes",
                 0,
                 "0.01",
@@ -221,13 +221,17 @@ export function ServerSettings({
               {numberField("节点连接数（0 不限）", "defaultMaxConnections")}
               {numberField("在线 IP 数（0 不限）", "defaultMaxOnlineIps")}
               {numberField(
-                "流量上限 (GB，0 不限)",
+                "流量上限 (GB，计费流量，0 不限)",
                 "defaultTrafficLimitBytes",
                 0,
                 "0.01",
                 1073741824,
               )}
             </div>
+            <p className="text-xs text-default-500">
+              限额和流量上限按计费流量：双向 (上传+下载)×倍率×2，单向
+              (上传+下载)×倍率。
+            </p>
             <Select
               label="默认有效期"
               selectedKeys={[form.defaultExpiryMode]}
@@ -306,7 +310,7 @@ export function ServerSettings({
               </p>
             )}
             <Select
-              description="默认（直连）即现在的行为；方案在「出站与路由」标签页管理"
+              description="默认 = 跟随全局默认出站（未设置时直连）；方案在「出站与路由」标签页管理"
               isDisabled={!egress?.supported}
               label="路由方案"
               selectedKeys={[String(profileId)]}
@@ -316,7 +320,7 @@ export function ServerSettings({
               }}
             >
               {[
-                <SelectItem key="0">默认（直连）</SelectItem>,
+                <SelectItem key="0">默认（跟随全局默认出站）</SelectItem>,
                 ...profiles.map((p) => (
                   <SelectItem key={String(p.id)}>{p.name}</SelectItem>
                 )),

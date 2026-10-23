@@ -65,7 +65,7 @@ func landingServerStatsByID(all []model.LandingNode) map[int64]*landingServerSta
 			out[n.LandingServerID] = st
 		}
 		st.count++
-		st.connections += n.Connections
+		st.connections += repo.LandingLiveConnections(&n)
 		st.billed += n.BilledIn + n.BilledOut
 		st.enabled = st.enabled || (n.Status == "active" && !n.DeletePending)
 	}
@@ -149,7 +149,7 @@ func (h *Handler) landingServerViewWith(s model.LandingServer, admin bool, catal
 		}
 	}
 	// Users only see the read-only summary, never profile internals.
-	v["egressLabel"] = catalog.label(s.RouteProfileID)
+	v["egressLabel"] = catalog.serverLabel(s)
 	if !admin {
 		for _, key := range landingServerUserHidden {
 			delete(v, key)
@@ -194,6 +194,7 @@ func (h *Handler) landingNodeView(n model.LandingNode, catalogs ...landingEgress
 
 func landingNodeViewData(n model.LandingNode, s *model.LandingServer, u *model.User, catalog landingEgressCatalog, integrationError string) map[string]interface{} {
 	v := landingMap(n)
+	v["connections"] = repo.LandingLiveConnections(&n)
 	flow, ratio := 2, 1.0
 	expires := int64(0)
 	minExpiry := func(t int64) {
@@ -242,9 +243,13 @@ func landingNodeViewData(n model.LandingNode, s *model.LandingServer, u *model.U
 		serverProfile = s.RouteProfileID
 	}
 	effectiveProfile := landingegress.EffectiveProfile(serverProfile, n.RouteProfileID)
-	v["egressLabel"] = catalog.label(effectiveProfile)
+	if s != nil {
+		v["egressLabel"] = catalog.nodeLabel(*s, n)
+	} else {
+		v["egressLabel"] = catalog.label(effectiveProfile)
+	}
 	v["effectiveRouteProfileId"] = effectiveProfile
-	v["effectiveRouteProfileName"] = catalog.profileName(effectiveProfile)
+	v["effectiveRouteProfileName"] = catalog.profileName(effectiveProfile, s)
 	v["effectiveFlowType"] = flow
 	v["effectiveTrafficRatio"] = ratio
 	v["effectiveExpiresAt"] = expires

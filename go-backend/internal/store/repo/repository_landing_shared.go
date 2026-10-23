@@ -505,6 +505,32 @@ func (r *Repository) PrepareSharedLandingDeletion(id int64) (*model.LandingNode,
 	return &n, err
 }
 
+// sharedRemovedGrace bounds how long a node the 妙妙屋 side already reports as
+// removed may hold its deletion on a non-zero connection count. Plan 139:
+// Custom keeps reporting the last connection count of a removed inbound (node
+// 103: 29 for hours, bytes frozen, no online IPs), which used to block the
+// deletion forever. The poll right before finalizing books the final counters.
+const sharedRemovedGrace = 3 * time.Minute
+
+// sharedRemovedSettled: the remote side removed the node and its connections
+// are gone, or the grace since `since` (deletion request / expiry) is over.
+func sharedRemovedSettled(n *model.LandingNode, since int64, now time.Time) bool {
+	if n.RemoteState != "removed" {
+		return false
+	}
+	return n.Connections == 0 || (since > 0 && now.UnixMilli()-since >= sharedRemovedGrace.Milliseconds())
+}
+
+// LandingLiveConnections is a node's connection count for totals and views: a
+// node the 妙妙屋 side reports as removed has no inbound left, so a count it
+// still reports is stale and never adds to server or monitor totals.
+func LandingLiveConnections(n *model.LandingNode) int {
+	if n.RemoteState == "removed" {
+		return 0
+	}
+	return n.Connections
+}
+
 // FinalizeSharedLandingDeletions runs only after a successful status poll has
 // booked its counters. Pending nodes already disappeared from desired, so deleting
 // their local identities must not advance the revision again.
@@ -529,11 +555,12 @@ func (r *Repository) FinalizeSharedLandingDeletions(serverID int64) error {
 		if caps.Status == "active" && server.SharedPushedRevision < server.Revision {
 			return nil
 		}
+		now := time.Now()
 		for _, n := range nodes {
 			if n.Status != "disabled" || n.AutoDisabled {
 				continue
 			}
-			confirmed := n.RemoteState == "removed" && n.Connections == 0
+			confirmed := sharedRemovedSettled(&n, n.UpdatedTime, now)
 			if caps.Status == "active" {
 				confirmed = confirmed && server.SharedAppliedRevision >= server.SharedPushedRevision
 			}

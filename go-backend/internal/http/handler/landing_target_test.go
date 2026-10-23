@@ -62,10 +62,10 @@ func TestLandingTargetListQueryCount(t *testing.T) {
 					if err := json.Unmarshal(w.Body.Bytes(), &out); err != nil || out.Code != 0 || len(out.Data) != count {
 						t.Fatalf("%s %v", w.Body.String(), err)
 					}
-					wantQueries := 7
-					if shared {
-						wantQueries++
-					}
+					// Plan 139 labels add a per-request global settings read, plus
+					// one native node facts read on native servers (shared ones
+					// already had their own extra query) — never per node.
+					wantQueries := 9
 					if queries != wantQueries || grouped != 1 {
 						t.Fatalf("list API: queries=%d grouped=%d, want %d and 1", queries, grouped, wantQueries)
 					}

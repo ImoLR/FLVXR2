@@ -485,14 +485,43 @@ func (r *Repository) LandingEgressData(serverID int64) (*LandingEgressData, erro
 // report (an IPv6 address without an IPv4 one, or the reverse).
 func (r *Repository) landingServerFamilies(s *model.LandingServer) (noV4, noV6 bool) {
 	if s.Source == "shared" {
-		h := SharedLandingCaps(s).Hosts
-		return h.IPv4 == "" && h.IPv6 != "", h.IPv6 == "" && h.IPv4 != ""
+		return LandingServerFamilies(s, "")
 	}
 	var n model.Node
 	if err := r.db.Select("id", "egress_detected").First(&n, s.NodeID).Error; err != nil {
 		return false, false
 	}
-	return n.EgressDetected == "v6", n.EgressDetected == "v4"
+	return LandingServerFamilies(s, n.EgressDetected)
+}
+
+// LandingServerFamilies is landingServerFamilies with the native node's
+// egress detection already read (list views read all nodes at once).
+func LandingServerFamilies(s *model.LandingServer, egressDetected string) (noV4, noV6 bool) {
+	if s.Source == "shared" {
+		h := SharedLandingCaps(s).Hosts
+		return h.IPv4 == "" && h.IPv6 != "", h.IPv6 == "" && h.IPv4 != ""
+	}
+	return egressDetected == "v6", egressDetected == "v4"
+}
+
+// LandingNativeNodeFacts are the node columns the outbound label of a native
+// landing needs (plan 139).
+type LandingNativeNodeFacts struct {
+	LandingEgress  int
+	LandingGuard   int
+	EgressDetected string
+}
+
+// LandingNativeNodeFactsAll reads those columns for every node hosting a
+// native landing in one query.
+func (r *Repository) LandingNativeNodeFactsAll() (map[int64]LandingNativeNodeFacts, error) {
+	var rows []model.Node
+	err := r.db.Model(&model.Node{}).Select("node.id", "node.landing_egress", "node.landing_guard", "node.egress_detected").Joins("JOIN landing_server ON landing_server.node_id = node.id AND landing_server.source = 'native'").Find(&rows).Error
+	out := make(map[int64]LandingNativeNodeFacts, len(rows))
+	for _, n := range rows {
+		out[n.ID] = LandingNativeNodeFacts{LandingEgress: n.LandingEgress, LandingGuard: n.LandingGuard, EgressDetected: n.EgressDetected}
+	}
+	return out, err
 }
 
 func ruleActions(p landingegress.Profile) []string {

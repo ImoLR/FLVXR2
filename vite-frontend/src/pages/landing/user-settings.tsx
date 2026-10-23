@@ -311,7 +311,7 @@ export const LandingUserSettings = forwardRef<
           <div className="space-y-2">
             <div className="grid grid-cols-[minmax(0,1fr)_100px_80px] gap-2 text-xs text-default-500">
               <span>服务器</span>
-              <span>限额 (GB)</span>
+              <span>限额 (GB，计费流量)</span>
               <span>已用 (GB)</span>
             </div>
             {form.quotas.map((quota, index) => (
@@ -354,6 +354,9 @@ export const LandingUserSettings = forwardRef<
           <p className="text-xs text-default-500">
             0
             不限；未单独设置的服务器使用「每个用户默认限额」，周期跟随用户流量重置日。
+            <br />
+            已用 = 计费流量：双向 (上传+下载)×倍率×2，单向
+            (上传+下载)×倍率，按各服务器设置。
           </p>
           <div className="flex items-end gap-2">
             <Select

@@ -307,7 +307,9 @@ export default function LandingEgressTab() {
                 <Lock className="mt-1 shrink-0 text-default-400" size={16} />
                 <div className="min-w-0 space-y-1">
                   <div className="flex flex-wrap items-center gap-2">
-                    <span className="font-medium">默认（直连）</span>
+                    <span className="font-medium">
+                      默认（跟随全局默认出站）
+                    </span>
                     <Chip
                       className="text-default-600"
                       size="sm"
@@ -318,7 +320,7 @@ export default function LandingEgressTab() {
                   </div>
                   <p className="text-xs text-default-500">
                     安全规则 +
-                    默认防滥用规则，其余全部直连。现有服务器和节点都在使用它。
+                    默认防滥用规则，其余走全局默认出站（未设置时直连）。现有服务器和节点都在使用它。
                   </p>
                   <div className="flex flex-wrap gap-1">
                     {abuseDefaultRules

@@ -154,46 +154,11 @@ func Compile(in CompileInput) (*Plan, []string, error) {
 // global layers.
 func CompileLayers(in CompileInput) (*Plan, Report, error) {
 	rep := Report{NodeNotes: map[int64][]string{}}
-	var forced, deflt []Rule
-	gdef := ActionDirect
-	if in.Layers && in.Global.Active() {
-		forced = rep.filterGlobal(in, enabled(in.Global.Forced))
-		deflt = rep.filterGlobal(in, enabled(in.Global.Default))
-		gdef = in.Global.DefaultAction
-		if gdef == "" {
-			gdef = ActionDirect
-		}
-		if reason := in.familyConflict(gdef); reason != "" {
-			rep.GlobalNotes = append(rep.GlobalNotes, "全局默认出站："+reason+"，本服务器改为直连")
-			gdef = ActionDirect
-		}
-	}
+	forced, deflt, gdef := in.globalLayer(&rep)
 	nodes := make([]NodeRef, len(in.Nodes))
 	copy(nodes, in.Nodes)
 	for i := range nodes {
-		n := &nodes[i]
-		if !in.NodeRules {
-			n.Rules, n.Default = nil, ""
-			continue
-		}
-		n.Rules = enabled(n.Rules)
-		if ip, site := RulesUseGeo(n.Rules); (ip && !in.GeoIP) || (site && !in.GeoSite) {
-			rep.note(n.ID, "该服务器没有 geo 数据，使用 geoip / geosite 的节点规则未生效")
-			n.Rules = nil
-		}
-		kept := []Rule{}
-		for _, r := range n.Rules {
-			if reason := in.familyConflict(r.Action); reason != "" {
-				rep.note(n.ID, fmt.Sprintf("规则「%s」：%s，未生效", r.Name, reason))
-				continue
-			}
-			kept = append(kept, r)
-		}
-		n.Rules = kept
-		if reason := in.familyConflict(n.Default); reason != "" {
-			rep.note(n.ID, "节点默认出站："+reason+"，改为跟随上级")
-			n.Default = ""
-		}
+		in.nodeLayer(&nodes[i], &rep)
 	}
 	dropGlobal := false
 	for {
@@ -231,6 +196,123 @@ func CompileLayers(in CompileInput) (*Plan, Report, error) {
 		rep.Warnings = append(rep.Warnings, rep.GlobalNotes...)
 		return nil, rep, err
 	}
+}
+
+// globalLayer: the global rules and the 全局默认出站 this server applies
+// (plan 134). Shared by CompileLayers and EffectiveDefault (plan 139), so a
+// label never disagrees with the plan.
+func (in CompileInput) globalLayer(rep *Report) (forced, deflt []Rule, gdef string) {
+	gdef = ActionDirect
+	if !in.Layers || !in.Global.Active() {
+		return nil, nil, gdef
+	}
+	forced = rep.filterGlobal(in, enabled(in.Global.Forced))
+	deflt = rep.filterGlobal(in, enabled(in.Global.Default))
+	gdef = in.Global.DefaultAction
+	if gdef == "" {
+		gdef = ActionDirect
+	}
+	if reason := in.familyConflict(gdef); reason != "" {
+		rep.GlobalNotes = append(rep.GlobalNotes, "全局默认出站："+reason+"，本服务器改为直连")
+		gdef = ActionDirect
+	}
+	return forced, deflt, gdef
+}
+
+// nodeLayer trims a node's own rules and default to what the server applies.
+func (in CompileInput) nodeLayer(n *NodeRef, rep *Report) {
+	if !in.NodeRules {
+		n.Rules, n.Default = nil, ""
+		return
+	}
+	n.Rules = enabled(n.Rules)
+	if ip, site := RulesUseGeo(n.Rules); (ip && !in.GeoIP) || (site && !in.GeoSite) {
+		rep.note(n.ID, "该服务器没有 geo 数据，使用 geoip / geosite 的节点规则未生效")
+		n.Rules = nil
+	}
+	kept := []Rule{}
+	for _, r := range n.Rules {
+		if reason := in.familyConflict(r.Action); reason != "" {
+			rep.note(n.ID, fmt.Sprintf("规则「%s」：%s，未生效", r.Name, reason))
+			continue
+		}
+		kept = append(kept, r)
+	}
+	n.Rules = kept
+	if reason := in.familyConflict(n.Default); reason != "" {
+		rep.note(n.ID, "节点默认出站："+reason+"，改为跟随上级")
+		n.Default = ""
+	}
+}
+
+// nodeDefault: node default > profile default (pid != 0) > global default.
+func nodeDefault(n NodeRef, pid int64, profiles map[int64]Profile, gdef string) (string, int) {
+	def, layer := ActionDirect, layerServer
+	switch {
+	case n.Default != "":
+		def, layer = n.Default, layerNode
+	case pid != 0:
+		def = profiles[pid].DefaultAction
+	default:
+		def, layer = gdef, layerGlobal
+	}
+	if def == "" {
+		def = ActionDirect
+	}
+	return def, layer
+}
+
+// Default sources reported by EffectiveDefault.
+const (
+	DefaultFromNode   = "node"
+	DefaultFromServer = "server"
+	DefaultFromGlobal = "global"
+)
+
+// EffectiveDefault resolves the default outbound of a node (node == nil: of
+// the server, i.e. a node without own rules) exactly like CompileLayers, and
+// whether any rule layer (global rules, node rules, profile rules) splits
+// traffic. The built-in anti-abuse rules (SMTP/BT) do not count.
+func (in CompileInput) EffectiveDefault(node *NodeRef) (action, from string, rules bool) {
+	rep := Report{NodeNotes: map[int64][]string{}}
+	forced, deflt, gdef := in.globalLayer(&rep)
+	var n NodeRef
+	if node != nil {
+		n = *node
+		in.nodeLayer(&n, &rep)
+	}
+	pid := EffectiveProfile(in.ServerProfileID, n.Override)
+	rules = len(forced) > 0 || len(deflt) > 0 || len(n.Rules) > 0
+	if p, ok := in.Profiles[pid]; pid != 0 && ok {
+		rules = rules || len(enabled(p.Rules)) > 0
+	}
+	def, layer := nodeDefault(n, pid, in.Profiles, gdef)
+	switch layer {
+	case layerNode:
+		from = DefaultFromNode
+	case layerGlobal:
+		from = DefaultFromGlobal
+	default:
+		from = DefaultFromServer
+	}
+	return def, from, rules
+}
+
+// EffectiveLabel is the read-only outbound summary users see for a server
+// (node == nil) or one node, e.g. 「直连（仅 IPv4）」 or 「按规则分流」.
+func (in CompileInput) EffectiveLabel(node *NodeRef) string {
+	pid := in.ServerProfileID
+	if node != nil {
+		pid = EffectiveProfile(pid, node.Override)
+	}
+	if _, ok := in.Profiles[pid]; pid != 0 && !ok {
+		return "直连" // unknown profile: as Label always showed
+	}
+	action, _, rules := in.EffectiveDefault(node)
+	if rules {
+		return "按规则分流"
+	}
+	return ActionLabel(action, in.Outbounds)
 }
 
 // filterGlobal drops global rules this server cannot carry (geo data, IP
@@ -359,18 +441,7 @@ func compilePlan(in CompileInput, nodes []NodeRef, forced, deflt []Rule, gdef st
 		nodeTag[n.ID] = n.Tag
 		allTags = append(allTags, n.Tag)
 		pid := EffectiveProfile(in.ServerProfileID, n.Override)
-		def, layer := ActionDirect, layerServer
-		switch {
-		case n.Default != "":
-			def, layer = n.Default, layerNode
-		case pid != 0:
-			def = in.Profiles[pid].DefaultAction
-		default:
-			def, layer = gdef, layerGlobal
-		}
-		if def == "" {
-			def = ActionDirect
-		}
+		def, layer := nodeDefault(n, pid, in.Profiles, gdef)
 		if pid == 0 && def == ActionDirect {
 			continue
 		}

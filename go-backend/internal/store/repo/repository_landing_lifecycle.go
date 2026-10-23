@@ -132,7 +132,11 @@ func (r *Repository) ReconcileLandingPolicy(now time.Time) (LandingReconcileResu
 			expiry := EffectiveLandingExpiry(n, s, u)
 			// Revocation never destroys user records. For other shared expiries,
 			// wait for the final removed counter snapshot before releasing a port.
-			canDelete := s.Source != "shared" || (SharedLandingCaps(s).Status != "revoked" && n.RemoteState == "removed" && n.Connections == 0 && n.LastCounterAt >= expiry && s.SharedSyncError == "")
+			expiredAt := int64(0)
+			if n.ExpiredAt != nil {
+				expiredAt = *n.ExpiredAt
+			}
+			canDelete := s.Source != "shared" || (SharedLandingCaps(s).Status != "revoked" && sharedRemovedSettled(n, expiredAt, now) && n.LastCounterAt >= expiry && s.SharedSyncError == "")
 			if canDelete && n.ExpiredAt != nil && now.UnixMilli()-*n.ExpiredAt >= landingGracePeriod.Milliseconds() {
 				if err := tx.Delete(n).Error; err != nil {
 					return err

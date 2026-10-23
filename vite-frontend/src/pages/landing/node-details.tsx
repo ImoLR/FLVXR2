@@ -103,7 +103,7 @@ export function NodeDetails({
   const serverProfileName = server?.egress?.profileName || "默认（直连）";
   const profileName = (id: number) =>
     id === 0
-      ? "默认（直连）"
+      ? "默认（跟随全局默认出站）"
       : profiles.find((p) => p.id === id)?.name || `方案 ${id}`;
   const set = <K extends keyof LandingNode>(key: K, value: LandingNode[K]) =>
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -284,7 +284,8 @@ export function NodeDetails({
               }
             />
             <Input
-              label="流量上限 (GB，0 不限)"
+              description="按计费流量：双向 (上传+下载)×倍率×2，单向 (上传+下载)×倍率"
+              label="流量上限 (GB，计费流量，0 不限)"
               min="0"
               step="0.01"
               type="number"
@@ -373,7 +374,7 @@ export function NodeDetails({
               <SelectItem key="inherit">
                 跟随服务器（{serverProfileName}）
               </SelectItem>,
-              <SelectItem key="0">默认（直连）</SelectItem>,
+              <SelectItem key="0">默认（跟随全局默认出站）</SelectItem>,
               ...profiles.map((p) => (
                 <SelectItem key={String(p.id)}>{p.name}</SelectItem>
               )),
