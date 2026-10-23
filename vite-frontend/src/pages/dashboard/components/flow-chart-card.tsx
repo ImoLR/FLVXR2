@@ -58,7 +58,8 @@ export const FlowChartCard = ({
                   dataKey="time"
                   // Every n-th hour at equal steps; the default preserveEnd
                   // dropped a single label before the last one (QA R11).
-                  interval="equidistantPreserveEnd"
+                  // (equidistantPreserveEnd kept only one clipped label.)
+                  interval="equidistantPreserveStart"
                   tick={{ fontSize: 12 }}
                   tickLine={false}
                 />
