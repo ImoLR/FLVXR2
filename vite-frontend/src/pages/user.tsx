@@ -227,6 +227,7 @@ const normalizeUserItem = (item: Partial<User>): UserWithHistory => {
     expTime: item.expTime,
     flowResetTime: item.flowResetTime ?? 0,
     createdTime: item.createdTime,
+    updatedTime: item.updatedTime ?? null,
     inFlow: Number(item.inFlow ?? 0),
     outFlow: Number(item.outFlow ?? 0),
     dailyQuotaGB: Number(item.dailyQuotaGB ?? 0),
@@ -301,6 +302,8 @@ export default function UserPage() {
   const [isEdit, setIsEdit] = useState(false);
   const [userForm, setUserForm] = useState<{
     id?: number;
+    // Version loaded into the edit dialog (QA F24 optimistic check).
+    expectedUpdatedTime?: number;
     user: string;
     name: string;
     pwd: string;
@@ -1096,6 +1099,7 @@ export default function UserPage() {
     } catch {}
     setUserForm({
       id: user.id,
+      expectedUpdatedTime: user.updatedTime || user.createdTime || 0,
       name: user.name || "",
       user: user.user,
       pwd: "",

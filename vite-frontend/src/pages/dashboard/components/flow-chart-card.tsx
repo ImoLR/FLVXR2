@@ -56,6 +56,9 @@ export const FlowChartCard = ({
                 <XAxis
                   axisLine={{ stroke: "#e5e7eb", strokeWidth: 1 }}
                   dataKey="time"
+                  // Every n-th hour at equal steps; the default preserveEnd
+                  // dropped a single label before the last one (QA R11).
+                  interval="equidistantPreserveEnd"
                   tick={{ fontSize: 12 }}
                   tickLine={false}
                 />

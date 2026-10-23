@@ -28,6 +28,11 @@ import {
 import { Select, SelectItem } from "@/shadcn-bridge/heroui/select";
 import { isAdmin } from "@/utils/auth";
 
+// The panel stores up to 100 bytes (about 33 Chinese characters).
+export const LANDING_NAME_TOO_LONG = "名称太长：最多 100 字节（约 33 个汉字）";
+export const landingNameTooLong = (name: string) =>
+  new TextEncoder().encode(name.trim()).length > 100;
+
 export function CreateLandingNodeDialog({
   servers,
   initialServer,
@@ -173,6 +178,10 @@ export function CreateLandingNodeDialog({
             </p>
           )}
           <Input
+            errorMessage={
+              landingNameTooLong(name) ? LANDING_NAME_TOO_LONG : undefined
+            }
+            isInvalid={landingNameTooLong(name)}
             label="节点名称"
             placeholder="例如：我的日本节点"
             value={name}
@@ -320,7 +329,12 @@ export function CreateLandingNodeDialog({
           </Button>
           <Button
             color="success"
-            isDisabled={!server || !name.trim() || Boolean(reuseHint)}
+            isDisabled={
+              !server ||
+              !name.trim() ||
+              landingNameTooLong(name) ||
+              Boolean(reuseHint)
+            }
             isLoading={saving}
             variant="flat"
             onPress={() => void create()}

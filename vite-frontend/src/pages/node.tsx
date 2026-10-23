@@ -1043,6 +1043,9 @@ export default function NodePage() {
 
     if (!v) return false;
     if (v === "localhost") return true;
+    // An all-numeric last label is never a domain: "999.1.1.1" or
+    // "10.0.0.300" are broken IPv4 addresses, not hostnames (QA F19).
+    if (/^\d+$/.test(v.split(".").pop() || "")) return false;
 
     return hostnameRegex.test(v);
   };
@@ -1120,7 +1123,7 @@ export default function NodePage() {
 
     return { valid: true };
   };
-  const validateForm = (): boolean => {
+  const validateForm = (): Record<string, string> => {
     const newErrors: Record<string, string> = {};
 
     if (!form.name.trim()) {
@@ -1172,7 +1175,7 @@ export default function NodePage() {
     Object.assign(newErrors, validateMachineForm(form));
     setErrors(newErrors);
 
-    return Object.keys(newErrors).length === 0;
+    return newErrors;
   };
   const handleAdd = () => {
     setDialogTitle("新增节点");
@@ -1675,7 +1678,20 @@ export default function NodePage() {
     }
   };
   const handleSubmit = async () => {
-    if (!validateForm()) return;
+    const formErrors = Object.values(validateForm()).filter(Boolean);
+
+    if (formErrors.length > 0) {
+      // The submit button sits at the bottom of a long dialog; the first
+      // invalid field may be out of view (QA F19), so say it and show it.
+      toast.error(formErrors[0]);
+      window.requestAnimationFrame(() => {
+        document
+          .querySelector('[role="dialog"] [aria-invalid="true"]')
+          ?.scrollIntoView({ block: "center", behavior: "smooth" });
+      });
+
+      return;
+    }
     setSubmitLoading(true);
     try {
       const apiCall = isEdit ? updateNode : createNode;

@@ -27,7 +27,11 @@ import AdminLayout from "@/layouts/admin";
 import H5Layout from "@/layouts/h5";
 import { isLoggedIn } from "@/utils/auth";
 import { isRestricted } from "@/utils/session";
-import { siteConfig, updateSiteConfig } from "@/config/site";
+import {
+  invalidateCachedConfigs,
+  siteConfig,
+  updateSiteConfig,
+} from "@/config/site";
 import { useH5Mode } from "@/hooks/useH5Mode";
 
 const RESTRICTED_PATHS = ["/myhome", "/shop", "/dashboard"];
@@ -111,6 +115,7 @@ function App() {
     void updateSiteConfig();
 
     const handleConfigUpdate = () => {
+      invalidateCachedConfigs();
       void updateSiteConfig();
     };
 

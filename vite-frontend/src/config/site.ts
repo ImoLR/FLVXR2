@@ -1,4 +1,5 @@
 import { getConfigByName, getConfigs } from "@/api";
+import { getToken } from "@/utils/session";
 
 export type SiteConfig = typeof siteConfig;
 
@@ -117,8 +118,40 @@ export const getCachedConfig = async (key: string): Promise<string | null> => {
   return null;
 };
 
+// One config/list per page load: the module bootstrap, App and BrandLogo all
+// ask at start-up (QA F18: three identical requests). Concurrent and recent
+// callers share one request; a config save invalidates it.
+const CONFIG_LIST_REUSE_MS = 10000;
+let configListMemo: {
+  at: number;
+  token: string;
+  promise: Promise<Record<string, string>>;
+} | null = null;
+
+export const invalidateCachedConfigs = () => {
+  configListMemo = null;
+};
+
 // 获取所有配置（优先从缓存）
-export const getCachedConfigs = async (): Promise<Record<string, string>> => {
+export const getCachedConfigs = (): Promise<Record<string, string>> => {
+  // Logging in or out changes what config/list returns.
+  const token = getToken() || "";
+
+  if (
+    configListMemo &&
+    configListMemo.token === token &&
+    Date.now() - configListMemo.at < CONFIG_LIST_REUSE_MS
+  ) {
+    return configListMemo.promise;
+  }
+  const promise = loadCachedConfigs();
+
+  configListMemo = { at: Date.now(), token, promise };
+
+  return promise;
+};
+
+const loadCachedConfigs = async (): Promise<Record<string, string>> => {
   // 尝试从缓存获取所有配置
   const configKeys = ["app_name", "app_logo", "app_favicon", "app_bg_image"];
   const cachedConfigs: Record<string, string> = {};

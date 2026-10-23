@@ -144,7 +144,9 @@ export function RuleEditor({
           >
             {[
               <SelectItem key="block">封锁</SelectItem>,
-              <SelectItem key="direct">直连（默认）</SelectItem>,
+              // Plain 「直连」: 「（默认）」 read as the preselected choice while
+              // new rules start as 封锁 (QA F28).
+              <SelectItem key="direct">直连</SelectItem>,
               ...outbounds.map((o) => (
                 <SelectItem key={`outbound:${o.id}`}>{o.name}</SelectItem>
               )),

@@ -16,6 +16,7 @@ export interface User {
   expTime?: number; // 过期时间戳
   flowResetTime?: number; // 流量归零日期 (1-31 号)
   createdTime?: number; // 创建时间戳
+  updatedTime?: number | null; // 最后修改时间（编辑时用作版本号）
   inFlow?: number; // 下载流量 (字节)
   outFlow?: number; // 上传流量 (字节)
   dailyQuotaGB?: number;

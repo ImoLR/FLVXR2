@@ -1,6 +1,9 @@
 import { useEffect, useState } from "react";
 import toast from "react-hot-toast";
 
+import { LANDING_NAME_TOO_LONG, landingNameTooLong } from "./create-node";
+import { dateInput, dateValue } from "./server-settings";
+
 import { getAllUsers } from "@/api";
 import {
   LandingNode,
@@ -24,7 +27,6 @@ import {
 import { Select, SelectItem } from "@/shadcn-bridge/heroui/select";
 import { getToken } from "@/utils/auth";
 import { getUserIdFromToken } from "@/utils/jwt";
-import { dateInput, dateValue } from "./server-settings";
 
 export function NodeDetails({
   node,
@@ -254,6 +256,10 @@ export function NodeDetails({
             </p>
           </div>
           <Input
+            errorMessage={
+              landingNameTooLong(form.name) ? LANDING_NAME_TOO_LONG : undefined
+            }
+            isInvalid={landingNameTooLong(form.name)}
             label="名称"
             value={form.name}
             onChange={(event) => set("name", event.target.value)}
@@ -312,6 +318,7 @@ export function NodeDetails({
             ]}
             onSelectionChange={(keys) => {
               const key = Array.from(keys)[0];
+
               set("flowType", key === "inherit" ? null : Number(key));
             }}
           >
@@ -410,13 +417,16 @@ export function NodeDetails({
           </Button>
           <Button
             color="primary"
+            isDisabled={!form.name.trim() || landingNameTooLong(form.name)}
             isLoading={saving}
             onPress={async () => {
               setSaving(true);
               const res = await updateLandingNode(form);
+
               setSaving(false);
               if (res.code !== 0) {
                 toast.error(res.msg);
+
                 return;
               }
               toast.success("节点设置已保存");

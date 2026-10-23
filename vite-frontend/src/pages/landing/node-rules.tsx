@@ -114,6 +114,7 @@ export function NodeRulesDialog({
   const [rules, setRules] = useState<EgressRule[]>([]);
   const [def, setDef] = useState("");
   const [saving, setSaving] = useState(false);
+  const [confirmDiscard, setConfirmDiscard] = useState(false);
 
   useEffect(() => {
     let disposed = false;
@@ -167,6 +168,15 @@ export function NodeRulesDialog({
     );
   }
 
+  // Closing with unsaved edits asks first (QA F28: added rules were dropped
+  // silently on 取消).
+  const dirty =
+    JSON.stringify(rules) !== JSON.stringify(view.rules || []) ||
+    def !== (view.defaultAction || "");
+  const requestClose = () => {
+    if (dirty && !saving) setConfirmDiscard(true);
+    else onClose();
+  };
   const caps = view.caps;
   const othersUsed = caps.used - (view.rules || []).length;
   const totalUsed = othersUsed + rules.length;
@@ -202,208 +212,242 @@ export function NodeRulesDialog({
   };
 
   return (
-    <Modal isOpen scrollBehavior="inside" size="xl" onClose={onClose}>
-      <ModalContent className="flvx-landing-text">
-        <ModalHeader className="flex flex-col gap-1">
-          <span>路由规则 · {view.nodeName}</span>
-          <span className="text-xs font-normal text-default-500">
-            {view.serverName} · 只作用于这个节点
-          </span>
-        </ModalHeader>
-        <ModalBody className="space-y-4">
-          <div className="flex flex-wrap items-center gap-2">
-            <Chip
-              className={
-                view.state === "unsupported" ? "text-default-600" : undefined
-              }
-              color={chip.color}
-              size="sm"
-              variant={view.state === "unsupported" ? "bordered" : "flat"}
-            >
-              {chip.label}
-            </Chip>
-            <Chip
-              className={overCap ? undefined : "text-default-600"}
-              color={overCap ? "warning" : "default"}
-              size="sm"
-              variant={overCap ? "flat" : "bordered"}
-            >
-              {counters}
-            </Chip>
-          </div>
-          {view.stateReason && (
-            <p
-              className={`text-xs ${view.state === "failed" ? "text-danger" : "text-default-500"}`}
-            >
-              {view.stateReason}
-            </p>
-          )}
-          {(view.notes || []).map((note) => (
-            <p
-              key={note}
-              className="rounded-lg bg-warning-50 p-2 text-xs text-warning"
-            >
-              {note}
-            </p>
-          ))}
-          {overCap && (
-            <p className="text-xs text-warning">
-              已超过当前上限：现有规则继续生效，但要先删减到上限以内才能再添加。
-            </p>
-          )}
-          <LayerLegend compact highlight={["node"]} />
-
-          <div className="divide-y divide-divider rounded-lg border border-divider">
-            <div className="flex items-start gap-3 bg-default-50 p-3">
-              <Lock className="mt-1 shrink-0 text-default-500" size={14} />
-              <div className="min-w-0 space-y-0.5">
-                <p className="text-sm font-medium">内置规则</p>
-                <p className="text-xs text-default-500">
-                  内网、回环、云元数据等地址一律封锁；默认屏蔽 SMTP 25 和
-                  BT。节点规则不能放行。
-                </p>
-              </div>
-            </div>
-            {view.global.active &&
-              view.global.forced.map((rule) => (
-                <FixedRow key={rule.id} locked rule={rule} tag="全局·强制" />
-              ))}
-          </div>
-
-          <section className="space-y-2">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <h3 className="font-medium">我的规则</h3>
-            </div>
-            {open || rules.length ? (
-              <EgressRuleList
-                hideSource
-                presets
-                addHint={
-                  canAdd || !view.supported
-                    ? undefined
-                    : "已达到规则上限，删除后才能再添加"
+    <>
+      <Modal isOpen scrollBehavior="inside" size="xl" onClose={requestClose}>
+        <ModalContent className="flvx-landing-text">
+          <ModalHeader className="flex flex-col gap-1">
+            <span>路由规则 · {view.nodeName}</span>
+            <span className="text-xs font-normal text-default-500">
+              {view.serverName} · 只作用于这个节点
+            </span>
+          </ModalHeader>
+          <ModalBody className="space-y-4">
+            <div className="flex flex-wrap items-center gap-2">
+              <Chip
+                className={
+                  view.state === "unsupported" ? "text-default-600" : undefined
                 }
-                canAdd={canAdd}
-                choices={choices}
-                emptyText="还没有规则：按下面的服务器规则和默认出站转发"
-                labels={labelChoices}
-                numberFrom={1}
-                rules={rules}
-                onChange={setRules}
-              />
-            ) : (
-              <p className="rounded-lg border border-divider p-4 text-center text-sm text-default-500">
-                管理员未开放节点规则
-              </p>
-            )}
-            {!view.admin && open && (
-              <p className="text-xs text-default-500">
-                可选出站：直连、封锁
-                {choices.length
-                  ? `，以及管理员开放的 ${choices.map((c) => c.name).join("、")}`
-                  : ""}
-                。
-              </p>
-            )}
-            {labelChoices.length > choices.length && (
-              <p className="text-xs text-default-500">
-                带「已停止开放」出站的规则可以保留，但不能新加。
-              </p>
-            )}
-          </section>
-
-          <div className="divide-y divide-divider rounded-lg border border-divider">
-            <div className="flex items-start gap-3 p-3 opacity-60">
-              <Lock className="mt-1 shrink-0 text-default-300" size={14} />
-              <div className="min-w-0 space-y-1">
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="font-medium">服务器规则</span>
-                  <Chip color="success" size="sm" variant="flat">
-                    {view.server.profileName
-                      ? `${view.server.profileName} · ${view.server.label}`
-                      : view.server.label}
-                  </Chip>
-                  <Chip
-                    className="text-default-600"
-                    size="sm"
-                    variant="bordered"
-                  >
-                    可被你的规则覆盖
-                  </Chip>
-                </div>
-                {view.server.ruleCount !== undefined && (
-                  <p className="text-xs text-default-500">
-                    {view.server.ruleCount} 条服务器规则
-                  </p>
-                )}
-              </div>
+                color={chip.color}
+                size="sm"
+                variant={view.state === "unsupported" ? "bordered" : "flat"}
+              >
+                {chip.label}
+              </Chip>
+              <Chip
+                className={overCap ? undefined : "text-default-600"}
+                color={overCap ? "warning" : "default"}
+                size="sm"
+                variant={overCap ? "flat" : "bordered"}
+              >
+                {counters}
+              </Chip>
             </div>
-            {(view.server.rules || []).map((rule) => (
-              <FixedRow
-                key={`s-${rule.id}`}
-                locked={false}
-                rule={rule}
-                tag="服务器"
-              />
+            {view.stateReason && (
+              <p
+                className={`text-xs ${view.state === "failed" ? "text-danger" : "text-default-500"}`}
+              >
+                {view.stateReason}
+              </p>
+            )}
+            {(view.notes || []).map((note) => (
+              <p
+                key={note}
+                className="rounded-lg bg-warning-50 p-2 text-xs text-warning"
+              >
+                {note}
+              </p>
             ))}
-            {view.global.active &&
-              view.global.default.map((rule) => (
+            {overCap && (
+              <p className="text-xs text-warning">
+                已超过当前上限：现有规则继续生效，但要先删减到上限以内才能再添加。
+              </p>
+            )}
+            <LayerLegend compact highlight={["node"]} />
+
+            <div className="divide-y divide-divider rounded-lg border border-divider">
+              <div className="flex items-start gap-3 bg-default-50 p-3">
+                <Lock className="mt-1 shrink-0 text-default-500" size={14} />
+                <div className="min-w-0 space-y-0.5">
+                  <p className="text-sm font-medium">内置规则</p>
+                  <p className="text-xs text-default-500">
+                    内网、回环、云元数据等地址一律封锁；默认屏蔽 SMTP 25 和
+                    BT。节点规则不能放行。
+                  </p>
+                </div>
+              </div>
+              {view.global.active &&
+                view.global.forced.map((rule) => (
+                  <FixedRow key={rule.id} locked rule={rule} tag="全局·强制" />
+                ))}
+            </div>
+
+            <section className="space-y-2">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <h3 className="font-medium">我的规则</h3>
+              </div>
+              {open || rules.length ? (
+                <EgressRuleList
+                  hideSource
+                  presets
+                  addHint={
+                    canAdd || !view.supported
+                      ? undefined
+                      : "已达到规则上限，删除后才能再添加"
+                  }
+                  canAdd={canAdd}
+                  choices={choices}
+                  emptyText="还没有规则：按下面的服务器规则和默认出站转发"
+                  labels={labelChoices}
+                  numberFrom={1}
+                  rules={rules}
+                  onChange={setRules}
+                />
+              ) : (
+                <p className="rounded-lg border border-divider p-4 text-center text-sm text-default-500">
+                  管理员未开放节点规则
+                </p>
+              )}
+              {!view.admin && open && (
+                <p className="text-xs text-default-500">
+                  可选出站：直连、封锁
+                  {choices.length
+                    ? `，以及管理员开放的 ${choices.map((c) => c.name).join("、")}`
+                    : ""}
+                  。
+                </p>
+              )}
+              {labelChoices.length > choices.length && (
+                <p className="text-xs text-default-500">
+                  带「已停止开放」出站的规则可以保留，但不能新加。
+                </p>
+              )}
+            </section>
+
+            <div className="divide-y divide-divider rounded-lg border border-divider">
+              <div className="flex items-start gap-3 p-3 opacity-60">
+                <Lock className="mt-1 shrink-0 text-default-300" size={14} />
+                <div className="min-w-0 space-y-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="font-medium">服务器规则</span>
+                    <Chip color="success" size="sm" variant="flat">
+                      {view.server.profileName
+                        ? `${view.server.profileName} · ${view.server.label}`
+                        : view.server.label}
+                    </Chip>
+                    <Chip
+                      className="text-default-600"
+                      size="sm"
+                      variant="bordered"
+                    >
+                      可被你的规则覆盖
+                    </Chip>
+                  </div>
+                  {view.server.ruleCount !== undefined && (
+                    <p className="text-xs text-default-500">
+                      {view.server.ruleCount} 条服务器规则
+                    </p>
+                  )}
+                </div>
+              </div>
+              {(view.server.rules || []).map((rule) => (
                 <FixedRow
-                  key={`d-${rule.id}`}
+                  key={`s-${rule.id}`}
                   locked={false}
                   rule={rule}
-                  tag="全局·默认 · 可被你的规则覆盖"
+                  tag="服务器"
                 />
               ))}
-          </div>
-          {view.globalPending && (
-            <p className="text-xs text-default-500">{view.globalPending}</p>
-          )}
+              {view.global.active &&
+                view.global.default.map((rule) => (
+                  <FixedRow
+                    key={`d-${rule.id}`}
+                    locked={false}
+                    rule={rule}
+                    tag="全局·默认 · 可被你的规则覆盖"
+                  />
+                ))}
+            </div>
+            {view.globalPending && (
+              <p className="text-xs text-default-500">{view.globalPending}</p>
+            )}
 
-          <Select
-            description="没有命中任何规则的流量走这里"
-            isDisabled={!view.supported || (!open && !def)}
-            label="默认出站"
-            selectedKeys={[def || "inherit"]}
-            variant="bordered"
-            onSelectionChange={(keys) => {
-              const v = String(Array.from(keys)[0] || "inherit");
+            <Select
+              description="没有命中任何规则的流量走这里"
+              isDisabled={!view.supported || (!open && !def)}
+              label="默认出站"
+              selectedKeys={[def || "inherit"]}
+              variant="bordered"
+              onSelectionChange={(keys) => {
+                const v = String(Array.from(keys)[0] || "inherit");
 
-              setDef(v === "inherit" ? "" : v);
-            }}
-          >
-            {[
-              <SelectItem key="inherit">
-                {`跟随上级（当前：${view.inheritedLabel}，来自${view.inheritedFrom === "server" ? "服务器方案" : "全局默认出站"}）`}
-              </SelectItem>,
-              <SelectItem key="direct">直连</SelectItem>,
-              <SelectItem key="block">封锁</SelectItem>,
-              ...labelChoices
-                .filter(
-                  (o) =>
-                    choices.some((c) => c.id === o.id) ||
-                    def === `outbound:${o.id}`,
-                )
-                .map((o) => (
-                  <SelectItem key={`outbound:${o.id}`}>{o.name}</SelectItem>
-                )),
-            ]}
-          </Select>
-        </ModalBody>
-        <ModalFooter>
-          <Button color="danger" variant="flat" onPress={onClose}>
-            取消
-          </Button>
-          <Button
-            color="primary"
-            isDisabled={!view.supported}
-            isLoading={saving}
-            onPress={() => void save()}
-          >
-            保存
-          </Button>
-        </ModalFooter>
-      </ModalContent>
-    </Modal>
+                setDef(v === "inherit" ? "" : v);
+              }}
+            >
+              {[
+                <SelectItem key="inherit">
+                  {`跟随上级（当前：${view.inheritedLabel}，来自${view.inheritedFrom === "server" ? "服务器方案" : "全局默认出站"}）`}
+                </SelectItem>,
+                <SelectItem key="direct">直连</SelectItem>,
+                <SelectItem key="block">封锁</SelectItem>,
+                ...labelChoices
+                  .filter(
+                    (o) =>
+                      choices.some((c) => c.id === o.id) ||
+                      def === `outbound:${o.id}`,
+                  )
+                  .map((o) => (
+                    <SelectItem key={`outbound:${o.id}`}>{o.name}</SelectItem>
+                  )),
+              ]}
+            </Select>
+          </ModalBody>
+          <ModalFooter>
+            <Button color="danger" variant="flat" onPress={requestClose}>
+              取消
+            </Button>
+            <Button
+              color="primary"
+              isDisabled={!view.supported}
+              isLoading={saving}
+              onPress={() => void save()}
+            >
+              保存
+            </Button>
+          </ModalFooter>
+        </ModalContent>
+      </Modal>
+      <Modal
+        isOpen={confirmDiscard}
+        placement="center"
+        size="sm"
+        onClose={() => setConfirmDiscard(false)}
+      >
+        <ModalContent className="flvx-landing-text">
+          <ModalHeader>放弃未保存的修改？</ModalHeader>
+          <ModalBody>
+            <p className="text-sm">规则的修改还没有保存，关闭后会丢失。</p>
+          </ModalBody>
+          <ModalFooter>
+            <Button
+              color="primary"
+              variant="flat"
+              onPress={() => setConfirmDiscard(false)}
+            >
+              继续编辑
+            </Button>
+            <Button
+              color="danger"
+              variant="flat"
+              onPress={() => {
+                setConfirmDiscard(false);
+                onClose();
+              }}
+            >
+              放弃修改
+            </Button>
+          </ModalFooter>
+        </ModalContent>
+      </Modal>
+    </>
   );
 }

@@ -23,9 +23,17 @@
           cachedFavicon = '';
         }
 
-        // 无缓存时，尝试通过公开配置接口同步读取，避免登录页闪烁
-        if (!cachedFavicon.trim()) {
+        // 无缓存时，尝试通过公开配置接口同步读取，避免登录页闪烁。
+        // 没有自定义图标时记住「已查过」6 小时，不再每次加载都同步请求（QA F18）。
+        let faviconCheckedAt = 0;
+        try {
+          faviconCheckedAt = Number(localStorage.getItem('vite_config_app_favicon_checked_at') || 0);
+        } catch (_) {}
+        if (!cachedFavicon.trim() && !(Date.now() - faviconCheckedAt < 6 * 3600 * 1000)) {
           try {
+            try {
+              localStorage.setItem('vite_config_app_favicon_checked_at', String(Date.now()));
+            } catch (_) {}
             const xhr = new XMLHttpRequest();
             xhr.open('POST', '/api/v1/config/get', false);
             xhr.setRequestHeader('Content-Type', 'application/json');

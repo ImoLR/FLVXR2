@@ -539,11 +539,23 @@ export default function DashboardPage() {
                   userInfo.flow === 99999,
                 )}
                 <div className="flex items-center justify-between mt-1">
-                  <p className="text-xs text-default-500 truncate">
-                    {userInfo.flow === 99999
-                      ? "无限制"
-                      : `${calculateUsagePercentage("flow").toFixed(1)}%`}
-                  </p>
+                  {userInfo.flow !== 99999 &&
+                  (userInfo.flow || 0) > 0 &&
+                  calculateUsagePercentage("flow") >= 100 ? (
+                    // QA F25: an exhausted quota looked like a plain 100 %.
+                    <p
+                      className="text-xs text-warning truncate"
+                      title="流量已用完：规则会被暂停（下次有流量时立即生效），增加流量或到重置日后恢复"
+                    >
+                      {`${calculateUsagePercentage("flow").toFixed(1)}%（已用完）`}
+                    </p>
+                  ) : (
+                    <p className="text-xs text-default-500 truncate">
+                      {userInfo.flow === 99999
+                        ? "无限制"
+                        : `${calculateUsagePercentage("flow").toFixed(1)}%`}
+                    </p>
+                  )}
                   {userInfo.flowResetTime !== undefined &&
                     userInfo.flowResetTime !== null && (
                       <div className="text-xs text-default-500 flex items-center gap-1">

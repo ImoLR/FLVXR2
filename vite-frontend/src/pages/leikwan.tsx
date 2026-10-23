@@ -685,7 +685,8 @@ export default function LeiKwanPage() {
                       <div>
                         <p className="font-medium text-danger">利群侧已删除</p>
                         <p className="mt-1 text-xs text-default-500">
-                          这些管道还在 FLVX 里，但利群返回的转发列表里已经没有了，经过它们的隧道不会再有流量。请删除或改用其他管道。
+                          这些管道还在 FLVX
+                          里，但利群返回的转发列表里已经没有了，经过它们的隧道不会再有流量。请删除或改用其他管道。
                         </p>
                       </div>
                       {overview.missingPipes!.map(({ pipe, tunnelName }) => (
@@ -1100,7 +1101,8 @@ export default function LeiKwanPage() {
           <ModalHeader>删除管道记录</ModalHeader>
           <ModalBody>
             <p className="text-sm">
-              利群返回的转发列表里已经没有 #{removeMissingPipe?.forwardId}。确认删除 FLVX 里的这条管道记录？
+              利群返回的转发列表里已经没有 #{removeMissingPipe?.forwardId}
+              。确认删除 FLVX 里的这条管道记录？
             </p>
             <p className="text-xs text-default-500">
               面板会先向利群确认；如果这条转发其实还在，会一起从利群删除，并影响共用这个账号的所有设备。

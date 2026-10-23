@@ -40,6 +40,32 @@ type UpgradeCheckState = {
   checkedAt: number | null;
 };
 
+// The sidebar check runs whenever the admin layout mounts; reuse a recent
+// result in this tab for 10 minutes (QA F18). Opening the update dialog
+// always checks again.
+const UPGRADE_CHECK_REUSE_MS = 10 * 60 * 1000;
+const upgradeCheckCacheKey = (channel: ReleaseChannel, version: string) =>
+  `flvx-upgrade-check:${channel}:${version}`;
+const readUpgradeCheck = (
+  key: string,
+): { at: number; data: SystemUpgradeCheckApiData } | null => {
+  try {
+    const raw = sessionStorage.getItem(key);
+    const parsed = raw ? JSON.parse(raw) : null;
+
+    if (
+      parsed &&
+      typeof parsed.at === "number" &&
+      parsed.data &&
+      Date.now() - parsed.at < UPGRADE_CHECK_REUSE_MS
+    ) {
+      return parsed;
+    }
+  } catch {}
+
+  return null;
+};
+
 const formatVersion = (value?: string | null): string => {
   const version = (value || "").trim();
 
@@ -105,6 +131,12 @@ export function SidebarUpdateButton({
           error: null,
           checkedAt: Date.now(),
         });
+        try {
+          sessionStorage.setItem(
+            upgradeCheckCacheKey(channel, fallbackVersion),
+            JSON.stringify({ at: Date.now(), data: res.data }),
+          );
+        } catch {}
 
         return res.data;
       } catch (err) {
@@ -125,16 +157,25 @@ export function SidebarUpdateButton({
         setChecking(false);
       }
     },
-    [channel],
+    [channel, fallbackVersion],
   );
 
   useEffect(() => {
     if (!isAdmin) {
       return;
     }
+    const cached = readUpgradeCheck(
+      upgradeCheckCacheKey(channel, fallbackVersion),
+    );
+
+    if (cached) {
+      setState({ data: cached.data, error: null, checkedAt: cached.at });
+
+      return;
+    }
 
     void refreshUpgradeStatus();
-  }, [isAdmin, refreshUpgradeStatus]);
+  }, [isAdmin, channel, fallbackVersion, refreshUpgradeStatus]);
 
   useEffect(() => {
     const syncChannel = () => {
