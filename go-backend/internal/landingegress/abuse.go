@@ -2,7 +2,8 @@ package landingegress
 
 // Built-in anti-abuse rules (plan 127). Every landing node blocks outbound
 // SMTP relay (TCP 25) and sniffed BitTorrent unless the admin switches the
-// defaults off on the node's routing profile. The panel compiles them into
+// defaults off on the node's routing profile. Plan 143 adds the mail
+// submission ports and Telnet/SMB (formerly 全局·强制 seeds) to the group. The panel compiles them into
 // the plan right after the agent's fixed safety rule, so agents and the mmwx
 // Helper apply them as ordinary contract v1 rules (no new agent needed).
 // Xray combines the fields of one rule with AND, hence two rules.
@@ -13,28 +14,47 @@ package landingegress
 // Older agents and the mmwx Custom (strict JSON) never see the field.
 const BuiltinAbuse = "abuse"
 
-// AbuseDefaultRules returns fresh copies of the default rules.
+// AbuseDefaultRules returns fresh copies of the default rules, in the 内置
+// order: SMTP 25, mail submission ports, Telnet/SMB (plan 143, formerly the
+// 全局·强制 seeds), BT. Their matchers are exactly those of the plan-140
+// seeds, so a migrated seed blocks the same traffic.
 func AbuseDefaultRules() []PlanRule {
 	return []PlanRule{
 		{Name: "默认：屏蔽 SMTP 25", Port: "25", Network: "tcp", Outbound: ActionBlock},
+		{Name: "默认：屏蔽发信端口", Port: MailPorts, Network: "tcp", Outbound: ActionBlock},
+		{Name: "默认：屏蔽 Telnet/SMB", Port: TelnetSMBPorts, Outbound: ActionBlock},
 		{Name: "默认：屏蔽 BT", Protocol: []string{"bittorrent"}, Outbound: ActionBlock},
 	}
 }
 
-// Keys of the default rules, in AbuseDefaultRules order (plan 140 switches).
+// Ports of the two plan-143 rows (TCP only / TCP+UDP).
 const (
-	AbuseSMTP = "smtp"
-	AbuseBT   = "bt"
+	MailPorts      = "465,587,2525"
+	TelnetSMBPorts = "23,135-139,445"
 )
 
-var abuseKeys = []string{AbuseSMTP, AbuseBT}
+// Keys of the default rules, in AbuseDefaultRules order (plan 140 / 143
+// switches).
+const (
+	AbuseSMTP      = "smtp"
+	AbuseMail      = "mail"
+	AbuseTelnetSMB = "telnet"
+	AbuseBT        = "bt"
+)
+
+// AbuseKeys lists the keys in AbuseDefaultRules order.
+var AbuseKeys = []string{AbuseSMTP, AbuseMail, AbuseTelnetSMB, AbuseBT}
 
 // AbuseSwitches are the admin's global switches of the default rules (plan
-// 140). The zero value keeps both rules on, i.e. the pre-140 behaviour; a
-// node blocks only when the global switch AND its profile's toggle are on.
+// 140 / 143); a node blocks only when the global switch AND its profile's
+// toggle are on. The zero value is the pre-143 output: SMTP and BT on (they
+// were always on before plan 140), the plan-143 rows off (they were opt-in
+// 全局·强制 seeds, so nothing starts blocking silently).
 type AbuseSwitches struct {
-	SMTPOff bool `json:"-"`
-	BTOff   bool `json:"-"`
+	SMTPOff     bool `json:"-"`
+	BTOff       bool `json:"-"`
+	MailOn      bool `json:"-"`
+	TelnetSMBOn bool `json:"-"`
 }
 
 // On reports whether the default rule with the given key is switched on.
@@ -42,18 +62,49 @@ func (s AbuseSwitches) On(key string) bool {
 	switch key {
 	case AbuseSMTP:
 		return !s.SMTPOff
+	case AbuseMail:
+		return s.MailOn
+	case AbuseTelnetSMB:
+		return s.TelnetSMBOn
 	case AbuseBT:
 		return !s.BTOff
 	}
 	return false
 }
 
+// Set switches the rule with the given key on or off.
+func (s *AbuseSwitches) Set(key string, on bool) {
+	switch key {
+	case AbuseSMTP:
+		s.SMTPOff = !on
+	case AbuseMail:
+		s.MailOn = on
+	case AbuseTelnetSMB:
+		s.TelnetSMBOn = on
+	case AbuseBT:
+		s.BTOff = !on
+	}
+}
+
 // AbuseRules returns fresh copies of the default rules that are switched on.
 func AbuseRules(s AbuseSwitches) []PlanRule {
 	out := []PlanRule{}
 	for i, r := range AbuseDefaultRules() {
-		if s.On(abuseKeys[i]) {
+		if s.On(AbuseKeys[i]) {
 			out = append(out, r)
+		}
+	}
+	return out
+}
+
+// AbuseRuleNames: the short names of the rules switched on (warnings,
+// server settings), e.g. 「SMTP 25」.
+func AbuseRuleNames(s AbuseSwitches) []string {
+	short := map[string]string{AbuseSMTP: "SMTP 25", AbuseMail: "发信端口 465/587/2525", AbuseTelnetSMB: "Telnet/SMB", AbuseBT: "BT"}
+	out := []string{}
+	for _, k := range AbuseKeys {
+		if s.On(k) {
+			out = append(out, short[k])
 		}
 	}
 	return out
@@ -87,7 +138,7 @@ func AbuseDuplicateOf(r Rule) string {
 	}
 	for i, d := range AbuseDefaultRules() {
 		if r.Ports == d.Port && r.Network == d.Network && equalStrings(r.Protocols, d.Protocol) {
-			return abuseKeys[i]
+			return AbuseKeys[i]
 		}
 	}
 	return ""

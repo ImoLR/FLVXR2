@@ -12,6 +12,7 @@ import (
 
 // Plan 140: the 内置 list (safety rule, global switches of the default
 // anti-abuse rules, source whitelist) and the routing-rule preset library.
+// Plan 143: four 防滥用 rows (SMTP 25, 发信端口, Telnet/SMB, BT).
 
 // landingBuiltinAdminView is the 内置 section of the admin 全局规则 card.
 func (h *Handler) landingBuiltinAdminView(abuse landingegress.AbuseSwitches) (map[string]any, error) {
@@ -23,31 +24,50 @@ func (h *Handler) landingBuiltinAdminView(abuse landingegress.AbuseSwitches) (ma
 	for _, p := range off {
 		profiles = append(profiles, map[string]any{"id": p.ID, "name": p.Name})
 	}
-	return map[string]any{
-		"safety": landingegress.BlockedCIDRs,
-		"smtp":   abuse.On(landingegress.AbuseSMTP), "bt": abuse.On(landingegress.AbuseBT),
-		"profilesOff": profiles,
-	}, nil
+	view := map[string]any{"safety": landingegress.BlockedCIDRs, "profilesOff": profiles}
+	for _, k := range landingegress.AbuseKeys {
+		view[k] = abuse.On(k)
+	}
+	return view, nil
 }
 
 // landingBuiltinNodeView is the read-only 内置 list of one node: whether each
 // default rule actually applies to it (server ready, global switch, the
 // node's routing profile toggle). No addresses, no switches.
 func landingBuiltinNodeView(d *repo.LandingEgressData, profileID int64, ready bool) map[string]any {
-	on := ready && landingegress.AbuseOn(profileID, d.Profiles)
-	return map[string]any{
-		"safety": landingegress.BlockedCIDRs,
-		"smtp":   on && d.Abuse.On(landingegress.AbuseSMTP), "bt": on && d.Abuse.On(landingegress.AbuseBT),
+	profileOn := landingegress.AbuseOn(profileID, d.Profiles)
+	on := ready && profileOn
+	view := map[string]any{"safety": landingegress.BlockedCIDRs}
+	// Why a row is not in force (the ✗ tooltip): "global" (switched off in
+	// 全局规则), "profile" (the node's routing profile), "pending" (the
+	// server cannot apply rules yet).
+	reasons := map[string]string{}
+	for _, k := range landingegress.AbuseKeys {
+		view[k] = on && d.Abuse.On(k)
+		switch {
+		case !d.Abuse.On(k):
+			reasons[k] = "global"
+		case !profileOn:
+			reasons[k] = "profile"
+		case !ready:
+			reasons[k] = "pending"
+		}
 	}
+	view["offReasons"] = reasons
+	return view
 }
 
 // landingEgressBuiltinSave stores the global switches of the default rules
 // and pushes every landing server once (the same debounced path as a global
 // group save).
 func (h *Handler) landingEgressBuiltinSave(w http.ResponseWriter, r *http.Request) {
+	// mail / telnet (plan 143) are optional: a client without them keeps
+	// their current state.
 	var req struct {
-		SMTP *bool `json:"smtp"`
-		BT   *bool `json:"bt"`
+		SMTP   *bool `json:"smtp"`
+		BT     *bool `json:"bt"`
+		Mail   *bool `json:"mail"`
+		Telnet *bool `json:"telnet"`
 	}
 	if err := landingDecode(r, &req); err != nil {
 		landingError(w, err)
@@ -62,11 +82,16 @@ func (h *Handler) landingEgressBuiltinSave(w http.ResponseWriter, r *http.Reques
 		landingError(w, err)
 		return
 	}
-	if err := h.repo.SaveLandingAbuseSwitches(*req.SMTP, *req.BT); err != nil {
+	after := before
+	for key, v := range map[string]*bool{landingegress.AbuseSMTP: req.SMTP, landingegress.AbuseBT: req.BT, landingegress.AbuseMail: req.Mail, landingegress.AbuseTelnetSMB: req.Telnet} {
+		if v != nil {
+			after.Set(key, *v)
+		}
+	}
+	if err := h.repo.SaveLandingAbuseSwitches(after); err != nil {
 		landingError(w, err)
 		return
 	}
-	after := landingegress.AbuseSwitches{SMTPOff: !*req.SMTP, BTOff: !*req.BT}
 	if after != before {
 		servers, err := h.repo.ListLandingServers(0, true)
 		if err != nil {
@@ -77,7 +102,7 @@ func (h *Handler) landingEgressBuiltinSave(w http.ResponseWriter, r *http.Reques
 		for _, s := range servers {
 			all = append(all, s.ID)
 		}
-		log.Printf("[landing-builtin] smtp=%t bt=%t servers=%d", *req.SMTP, *req.BT, len(all))
+		log.Printf("[landing-builtin] smtp=%t mail=%t telnet=%t bt=%t servers=%d", after.On(landingegress.AbuseSMTP), after.On(landingegress.AbuseMail), after.On(landingegress.AbuseTelnetSMB), after.On(landingegress.AbuseBT), len(all))
 		h.scheduleLandingLayerApply(all)
 	}
 	view, err := h.landingGlobalView()
@@ -87,6 +112,28 @@ func (h *Handler) landingEgressBuiltinSave(w http.ResponseWriter, r *http.Reques
 	}
 	view["warnings"] = []string{}
 	response.WriteJSON(w, response.OK(view))
+}
+
+// resyncLandingAfterMigration: the plan-143 startup migration moved enabled
+// 防滥用 rules from 全局·强制 into 内置, so every plan changed (same blocked
+// traffic, new order). Push every landing server once through the normal
+// debounced path (native servers would also get it from the reconcile loop;
+// shared ones only on their next change otherwise).
+func (h *Handler) resyncLandingAfterMigration() {
+	if !h.repo.TakeLandingStartupResync() {
+		return
+	}
+	servers, err := h.repo.ListLandingServers(0, true)
+	if err != nil {
+		log.Printf("[landing-builtin] startup resync skipped: %v", err)
+		return
+	}
+	all := make([]int64, 0, len(servers))
+	for _, s := range servers {
+		all = append(all, s.ID)
+	}
+	log.Printf("[landing-builtin] 防滥用 moved to 内置, re-syncing %d landing servers once", len(all))
+	h.scheduleLandingLayerApply(all)
 }
 
 // ---- Preset library ------------------------------------------------------

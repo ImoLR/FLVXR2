@@ -13,7 +13,7 @@ func TestLandingSeedsAndPresets(t *testing.T) {
 	for _, dialect := range []string{"sqlite", "postgres"} {
 		t.Run(dialect, func(t *testing.T) {
 			r := orphanTestRepo(t, dialect)
-			for _, col := range []string{"builtin_smtp", "builtin_bt", "global_seed_version", "preset_seed_version"} {
+			for _, col := range []string{"builtin_smtp", "builtin_bt", "builtin_mail_ports", "builtin_telnet_smb", "global_seed_version", "preset_seed_version"} {
 				if !r.db.Migrator().HasColumn(&model.LandingEgressSetting{}, col) {
 					t.Fatalf("landing_egress_setting.%s missing", col)
 				}
@@ -25,7 +25,8 @@ func TestLandingSeedsAndPresets(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if len(g.Forced) != 4 || len(g.Default) != 0 || g.Active() {
+			// Plan 143: fresh installs seed only the 大陆 rules into 强制.
+			if len(g.Forced) != 2 || len(g.Default) != 0 || g.Active() {
 				t.Fatalf("seeded global: %+v", g)
 			}
 			for _, rule := range g.Forced {
@@ -56,8 +57,8 @@ func TestLandingSeedsAndPresets(t *testing.T) {
 			if err := r.DeleteLandingEgressPreset(presets[6].ID); err != nil { // 屏蔽 BT
 				t.Fatal(err)
 			}
-			if err := seedLandingEgressDefaults(r.db); err != nil {
-				t.Fatal(err)
+			if resync, err := seedLandingEgressDefaults(r.db); err != nil || resync {
+				t.Fatal(resync, err)
 			}
 			if g2, _, _ := r.GetLandingGlobal(); len(g2.Forced) != 0 {
 				t.Fatalf("seeds came back: %+v", g2.Forced)
@@ -67,10 +68,10 @@ func TestLandingSeedsAndPresets(t *testing.T) {
 			}
 
 			// Switches: only their columns change.
-			if err := r.SaveLandingAbuseSwitches(false, true); err != nil {
+			if err := r.SaveLandingAbuseSwitches(landingegress.AbuseSwitches{SMTPOff: true, TelnetSMBOn: true}); err != nil {
 				t.Fatal(err)
 			}
-			if sw, _ := r.GetLandingAbuseSwitches(); !sw.SMTPOff || sw.BTOff {
+			if sw, _ := r.GetLandingAbuseSwitches(); !sw.SMTPOff || sw.BTOff || sw.MailOn || !sw.TelnetSMBOn {
 				t.Fatalf("switches %+v", sw)
 			}
 			if g3, _, _ := r.GetLandingGlobal(); len(g3.Forced) != 0 {
@@ -156,7 +157,7 @@ func TestLandingSeedsOnUpgrade(t *testing.T) {
 		`[{"id":"mine","name":"我的强制","enabled":true,"domains":[],"ips":["geoip:cn"],"ports":"","sourceIps":[],"sourcePorts":"","network":"","protocols":[],"landingNodeIds":[],"action":"block"}]`).Error; err != nil {
 		t.Fatal(err)
 	}
-	if err := seedLandingEgressDefaults(r.db); err != nil {
+	if _, err := seedLandingEgressDefaults(r.db); err != nil {
 		t.Fatal(err)
 	}
 	g, _, _ := r.GetLandingGlobal()
@@ -164,7 +165,8 @@ func TestLandingSeedsOnUpgrade(t *testing.T) {
 	for _, rule := range g.Forced {
 		names = append(names, rule.Name)
 	}
-	if len(g.Forced) != 4 || g.Forced[0].ID != "mine" || !g.Forced[0].Enabled {
+	// 「mine」 equals the 大陆 IP seed, so only 大陆网站 is appended.
+	if len(g.Forced) != 2 || g.Forced[0].ID != "mine" || !g.Forced[0].Enabled {
 		t.Fatalf("upgrade seeds: %v", names)
 	}
 	if p, _ := r.ListLandingEgressPresets(); len(p) != 10 {
@@ -173,11 +175,12 @@ func TestLandingSeedsOnUpgrade(t *testing.T) {
 	if err := r.db.Exec("DELETE FROM landing_egress_setting").Error; err != nil {
 		t.Fatal(err)
 	}
-	if err := seedLandingEgressDefaults(r.db); err != nil {
+	if _, err := seedLandingEgressDefaults(r.db); err != nil {
 		t.Fatal(err)
 	}
 	var row model.LandingEgressSetting
-	if err := r.db.First(&row, 1).Error; err != nil || row.GlobalSeedVersion != 1 || row.PresetSeedVersion != 1 || row.BuiltinSMTP != nil {
+	if err := r.db.First(&row, 1).Error; err != nil || row.GlobalSeedVersion != 2 || row.PresetSeedVersion != 1 || row.BuiltinSMTP != nil ||
+		row.BuiltinMailPorts == nil || *row.BuiltinMailPorts || row.BuiltinTelnetSMB == nil || *row.BuiltinTelnetSMB {
 		t.Fatalf("recreated row %+v %v", row, err)
 	}
 }

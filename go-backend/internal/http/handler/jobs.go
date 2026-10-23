@@ -47,6 +47,7 @@ func (h *Handler) StartBackgroundJobs() {
 	go h.runExpirePackageSubscriptionsLoop(ctx)
 	go h.runPathLatencyLoop(ctx)
 	go h.runDDNSLoop(ctx)
+	h.resyncLandingAfterMigration()
 }
 
 func (h *Handler) runCNLandingCheckLoop(ctx context.Context) {

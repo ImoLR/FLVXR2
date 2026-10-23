@@ -79,8 +79,16 @@ type LandingEgressSetting struct {
 	// routing profile's 防滥用默认 toggle are on.
 	BuiltinSMTP *bool `gorm:"column:builtin_smtp" json:"-"`
 	BuiltinBT   *bool `gorm:"column:builtin_bt" json:"-"`
+	// Plan 143: the 防滥用 rows moved here from the 全局·强制 seeds (mail
+	// submission ports 465/587/2525, Telnet/SMB). NULL = OFF (unlike SMTP /
+	// BT): they were opt-in seeds, so a fresh install or an old row never
+	// starts blocking them silently; the one-time migration writes the state
+	// the seed had.
+	BuiltinMailPorts *bool `gorm:"column:builtin_mail_ports" json:"-"`
+	BuiltinTelnetSMB *bool `gorm:"column:builtin_telnet_smb" json:"-"`
 	// One-time seed markers (plan 140): the disabled 全局·强制 starter rules and
 	// the preset library. Once set, deleted seeds never come back.
+	// GlobalSeedVersion 2 (plan 143): the 防滥用 seeds were moved to 内置.
 	GlobalSeedVersion int `gorm:"not null;default:0" json:"-"`
 	PresetSeedVersion int `gorm:"not null;default:0" json:"-"`
 }

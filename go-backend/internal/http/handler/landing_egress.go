@@ -559,16 +559,10 @@ func (c landingEgressCatalog) defaultProfileName(s *model.LandingServer) string 
 	return "默认（直连）"
 }
 
-// abuseRuleLabels names the default rules switched on globally (plan 140).
+// abuseRuleLabels names the default rules switched on globally (plan 140 /
+// 143).
 func abuseRuleLabels(s landingegress.AbuseSwitches) []string {
-	out := []string{}
-	if s.On(landingegress.AbuseSMTP) {
-		out = append(out, "SMTP 25")
-	}
-	if s.On(landingegress.AbuseBT) {
-		out = append(out, "BT")
-	}
-	return out
+	return landingegress.AbuseRuleNames(s)
 }
 
 func (c landingEgressCatalog) label(profileID int64) string {

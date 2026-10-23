@@ -17,16 +17,21 @@ import (
 // library CRUD.
 
 // Seed marker versions stored on landing_egress_setting row 1.
+// Global: 1 = plan-140 全局·强制 seeds appended; 2 = plan-143 防滥用 seeds
+// moved from 全局·强制 into 内置 (never re-runs).
 const (
-	landingGlobalSeedVersion = 1
+	landingGlobalSeedVersion = 2
 	landingPresetSeedVersion = 1
 )
 
-// AbuseSwitchesFromSetting decodes the global switches (NULL = on).
+// AbuseSwitchesFromSetting decodes the global switches: SMTP / BT NULL = on,
+// mail ports / Telnet-SMB NULL = off (plan 143).
 func AbuseSwitchesFromSetting(s model.LandingEgressSetting) landingegress.AbuseSwitches {
 	return landingegress.AbuseSwitches{
-		SMTPOff: s.BuiltinSMTP != nil && !*s.BuiltinSMTP,
-		BTOff:   s.BuiltinBT != nil && !*s.BuiltinBT,
+		SMTPOff:     s.BuiltinSMTP != nil && !*s.BuiltinSMTP,
+		BTOff:       s.BuiltinBT != nil && !*s.BuiltinBT,
+		MailOn:      s.BuiltinMailPorts != nil && *s.BuiltinMailPorts,
+		TelnetSMBOn: s.BuiltinTelnetSMB != nil && *s.BuiltinTelnetSMB,
 	}
 }
 
@@ -50,10 +55,13 @@ func (r *Repository) GetLandingAbuseSwitches() (landingegress.AbuseSwitches, err
 }
 
 // SaveLandingAbuseSwitches stores the global switches (only these columns).
-func (r *Repository) SaveLandingAbuseSwitches(smtp, bt bool) error {
-	row := model.LandingEgressSetting{ID: 1, SourceWhitelist: "[]", GlobalForced: "[]", GlobalDefault: "[]", GlobalAction: landingegress.ActionDirect, BuiltinSMTP: &smtp, BuiltinBT: &bt,
+func (r *Repository) SaveLandingAbuseSwitches(s landingegress.AbuseSwitches) error {
+	smtp, bt := s.On(landingegress.AbuseSMTP), s.On(landingegress.AbuseBT)
+	mail, telnet := s.On(landingegress.AbuseMail), s.On(landingegress.AbuseTelnetSMB)
+	row := model.LandingEgressSetting{ID: 1, SourceWhitelist: "[]", GlobalForced: "[]", GlobalDefault: "[]", GlobalAction: landingegress.ActionDirect,
+		BuiltinSMTP: &smtp, BuiltinBT: &bt, BuiltinMailPorts: &mail, BuiltinTelnetSMB: &telnet,
 		GlobalSeedVersion: landingGlobalSeedVersion, PresetSeedVersion: landingPresetSeedVersion, UpdatedTime: time.Now().UnixMilli()}
-	return r.db.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "id"}}, DoUpdates: clause.AssignmentColumns([]string{"builtin_smtp", "builtin_bt"})}).Create(&row).Error
+	return r.db.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "id"}}, DoUpdates: clause.AssignmentColumns([]string{"builtin_smtp", "builtin_bt", "builtin_mail_ports", "builtin_telnet_smb"})}).Create(&row).Error
 }
 
 // LandingProfilesAbuseOff lists routing profiles whose 防滥用默认 toggle is
@@ -68,9 +76,17 @@ func (r *Repository) LandingProfilesAbuseOff() ([]model.LandingRouteProfile, err
 // Once per database it appends the disabled 全局·强制 starter rules and fills
 // the preset library; the markers keep deleted seeds from coming back. The
 // seeded rules are disabled, so no compiled plan changes.
-func seedLandingEgressDefaults(db *gorm.DB) error {
+//
+// Plan 143 (global marker 2, once): the 防滥用 seeds leave 全局·强制 for the
+// 内置 rows. A 强制 rule blocking exactly what a seed blocks (any id / name)
+// sets that row's switch to its enabled state and is removed; no such rule →
+// the switch stays off. Every node keeps blocking the same traffic (the 内置
+// rule only moves ahead of the 强制 rules). resync reports that compiled
+// plans changed, so the caller pushes every landing server once.
+func seedLandingEgressDefaults(db *gorm.DB) (resync bool, err error) {
 	var forcedAdded, presetsAdded int
-	err := db.Transaction(func(tx *gorm.DB) error {
+	var moved *landingegress.AbuseSeedMove
+	err = db.Transaction(func(tx *gorm.DB) error {
 		var rows []model.LandingEgressSetting
 		if err := tx.Where("id = ?", 1).Limit(1).Find(&rows).Error; err != nil {
 			return err
@@ -84,7 +100,7 @@ func seedLandingEgressDefaults(db *gorm.DB) error {
 			return nil
 		}
 		updates := map[string]any{}
-		if row.GlobalSeedVersion < landingGlobalSeedVersion {
+		if row.GlobalSeedVersion < 1 {
 			g := GlobalFromSetting(row)
 			candidate := g
 			candidate.Forced = landingegress.AppendSeedRules(g.Forced, landingegress.ForcedSeedRules())
@@ -105,6 +121,29 @@ func seedLandingEgressDefaults(db *gorm.DB) error {
 				row.GlobalForced = string(raw)
 				updates["global_forced"] = row.GlobalForced
 			}
+		}
+		if row.GlobalSeedVersion < 2 {
+			var forced []landingegress.Rule
+			mail, telnet := false, false
+			if err := json.Unmarshal([]byte(row.GlobalForced), &forced); err != nil {
+				// Unreadable list: leave it alone, the new rows stay off.
+				log.Printf("[landing-seed] 防滥用 move skipped, 全局·强制 unreadable: %v", err)
+			} else {
+				rest, mv := landingegress.MoveAbuseSeeds(forced)
+				moved = &mv
+				mail, telnet = mv.On[landingegress.AbuseMail], mv.On[landingegress.AbuseTelnetSMB]
+				if len(rest) != len(forced) {
+					raw, _ := json.Marshal(rest)
+					row.GlobalForced = string(raw)
+					updates["global_forced"] = row.GlobalForced
+				}
+				// Enabled rules moved: the plans change (order only).
+				resync = mail || telnet
+			}
+			row.BuiltinMailPorts, row.BuiltinTelnetSMB = &mail, &telnet
+			updates["builtin_mail_ports"], updates["builtin_telnet_smb"] = mail, telnet
+		}
+		if row.GlobalSeedVersion < landingGlobalSeedVersion {
 			row.GlobalSeedVersion = landingGlobalSeedVersion
 			updates["global_seed_version"] = row.GlobalSeedVersion
 		}
@@ -123,10 +162,17 @@ func seedLandingEgressDefaults(db *gorm.DB) error {
 		}
 		return tx.Model(&model.LandingEgressSetting{}).Where("id = ?", 1).Updates(updates).Error
 	})
-	if err == nil && (forcedAdded > 0 || presetsAdded > 0) {
+	if err != nil {
+		return false, err
+	}
+	if forcedAdded > 0 || presetsAdded > 0 {
 		log.Printf("[landing-seed] global forced +%d (disabled), presets +%d", forcedAdded, presetsAdded)
 	}
-	return err
+	if moved != nil && (len(moved.Found) > 0 || len(moved.Kept) > 0) {
+		log.Printf("[landing-seed] 防滥用 moved to 内置: mail=%t (found %t) telnet=%t (found %t), edited seeds kept in 全局·强制: %v",
+			moved.On[landingegress.AbuseMail], moved.Found[landingegress.AbuseMail], moved.On[landingegress.AbuseTelnetSMB], moved.Found[landingegress.AbuseTelnetSMB], moved.Kept)
+	}
+	return resync, nil
 }
 
 // addSeedPresets inserts every seed preset whose seed key is not in the

@@ -103,7 +103,7 @@ func TestLandingSeededForcedNotSent(t *testing.T) {
 		t.Fatal(err)
 	}
 	forced := view["forced"].([]landingegress.Rule)
-	if len(forced) != 4 || forced[0].Enabled {
+	if len(forced) != 2 || forced[0].Enabled {
 		t.Fatalf("seeded forced %+v", forced)
 	}
 	if _, err := e.h.syncLandingServer(1); err != nil {

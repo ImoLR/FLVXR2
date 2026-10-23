@@ -89,10 +89,11 @@ func TestAbuseDuplicateFollowsSwitch(t *testing.T) {
 // The 全局·强制 seeds are disabled, valid, and never change a plan.
 func TestForcedSeedsDisabledAndIdentical(t *testing.T) {
 	seeds := ForcedSeedRules()
-	if len(seeds) != 4 {
+	// Plan 143: the 防滥用 seeds live in 内置 now; only the 大陆 rules remain.
+	if len(seeds) != 2 {
 		t.Fatalf("seeds %d", len(seeds))
 	}
-	want := []string{"屏蔽发信端口", "屏蔽 Telnet/SMB", "屏蔽大陆 IP", "屏蔽大陆网站"}
+	want := []string{"屏蔽大陆 IP", "屏蔽大陆网站"}
 	for i, r := range seeds {
 		if r.Enabled || r.Action != ActionBlock || r.Name != want[i] {
 			t.Fatalf("seed %d: %+v", i, r)
@@ -125,9 +126,9 @@ func TestForcedSeedsDisabledAndIdentical(t *testing.T) {
 		}
 	}
 	// Appending twice never duplicates; an equal existing rule is kept as is.
-	existing := []Rule{{ID: "mine", Name: "我的发信", Enabled: true, Ports: "465,587,2525", Network: "tcp", Action: ActionBlock}}
+	existing := []Rule{{ID: "mine", Name: "我的大陆", Enabled: true, IPs: []string{"geoip:cn"}, Action: ActionBlock}}
 	out := AppendSeedRules(AppendSeedRules(existing, seeds), seeds)
-	if len(out) != 4 || out[0].ID != "mine" || !out[0].Enabled {
+	if len(out) != 2 || out[0].ID != "mine" || !out[0].Enabled {
 		t.Fatalf("append: %+v", out)
 	}
 }

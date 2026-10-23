@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	gsqlite "github.com/glebarez/sqlite"
@@ -91,6 +92,18 @@ type PaymentConfig = model.PaymentConfig
 
 type Repository struct {
 	db *gorm.DB
+	// landingResync: a startup migration changed compiled landing plans
+	// (plan 143); the handler pushes every landing server once.
+	landingResync atomic.Bool
+}
+
+// TakeLandingStartupResync reports (once) that startup migrations changed
+// compiled landing plans.
+func (r *Repository) TakeLandingStartupResync() bool {
+	if r == nil {
+		return false
+	}
+	return r.landingResync.Swap(false)
 }
 
 func (r *Repository) DB() *gorm.DB {
@@ -158,11 +171,14 @@ func Open(path string) (*Repository, error) {
 		_ = sqlDB.Close()
 		return nil, fmt.Errorf("backfill landing user max nodes: %w", err)
 	}
-	if err := seedLandingEgressDefaults(db); err != nil {
+	resync, err := seedLandingEgressDefaults(db)
+	if err != nil {
 		_ = sqlDB.Close()
 		return nil, fmt.Errorf("seed landing egress defaults: %w", err)
 	}
-	return &Repository{db: db}, nil
+	repo := &Repository{db: db}
+	repo.landingResync.Store(resync)
+	return repo, nil
 }
 
 func OpenPostgres(dsn string) (*Repository, error) {
@@ -219,11 +235,14 @@ func OpenPostgres(dsn string) (*Repository, error) {
 		_ = sqlDB.Close()
 		return nil, fmt.Errorf("backfill landing user max nodes: %w", err)
 	}
-	if err := seedLandingEgressDefaults(db); err != nil {
+	resync, err := seedLandingEgressDefaults(db)
+	if err != nil {
 		_ = sqlDB.Close()
 		return nil, fmt.Errorf("seed landing egress defaults: %w", err)
 	}
-	return &Repository{db: db}, nil
+	repo := &Repository{db: db}
+	repo.landingResync.Store(resync)
+	return repo, nil
 }
 
 func (r *Repository) Close() error {

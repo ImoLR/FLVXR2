@@ -41,8 +41,8 @@ type CompileInput struct {
 	// profile's switch; older agents order chain rules first anyway.
 	Builtin   bool
 	ChainTags []string
-	// AbuseOff: the admin's global switches of the default rules (plan 140);
-	// the zero value keeps both on (pre-140 output).
+	// AbuseOff: the admin's global switches of the default rules (plan 140 /
+	// 143); the zero value is the pre-143 output (SMTP + BT on).
 	AbuseOff AbuseSwitches
 	// Plan 134 layers. Global layers are sent only when Layers (the same
 	// readiness as Abuse); node rules only when NodeRules (otherwise they stay
@@ -642,7 +642,7 @@ func compilePlan(in CompileInput, nodes []NodeRef, forced, deflt []Rule, gdef st
 				}
 				// Never turn a valid plan into a rejected one (which would
 				// block nodes): skip the defaults and say so.
-				warnings = append(warnings, "该服务器的规则数已满，默认防滥用规则（屏蔽 SMTP 25 / BT）未下发")
+				warnings = append(warnings, "该服务器的规则数已满，内置防滥用规则（屏蔽 "+strings.Join(AbuseRuleNames(in.AbuseOff), " / ")+"）未下发")
 			} else {
 				for i := range defaults {
 					defaults[i].InboundTags = append([]string(nil), abuseTags...)

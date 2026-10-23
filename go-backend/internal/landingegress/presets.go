@@ -109,18 +109,68 @@ func SeedPresets() []Preset {
 }
 
 // ForcedSeedRules are the 全局·强制 starter rules, all DISABLED: the admin
-// switches them on per rule. Disabled rules never reach a plan.
+// switches them on per rule. Disabled rules never reach a plan. Plan 143
+// moved the two 防滥用 seeds into 内置 (see AbuseSeedRules), so fresh
+// installs only get the 大陆 rules here.
 func ForcedSeedRules() []Rule {
-	off := func(id, name, preset string, r Rule) Rule {
-		r.ID, r.Name, r.Preset, r.Enabled, r.Action = id, name, preset, false, ActionBlock
-		return FilledRule(r)
-	}
 	return []Rule{
-		off("seed-mail-ports", "屏蔽发信端口", "anti-abuse", Rule{Ports: "465,587,2525", Network: "tcp"}),
-		off("seed-telnet-smb", "屏蔽 Telnet/SMB", "anti-abuse", Rule{Ports: "23,135-139,445"}),
-		off("seed-cn-ip", "屏蔽大陆 IP", "block-cn", Rule{IPs: []string{"geoip:cn"}}),
-		off("seed-cn-site", "屏蔽大陆网站", "block-cn", Rule{Domains: []string{"geosite:cn"}}),
+		forcedSeed("seed-cn-ip", "屏蔽大陆 IP", "block-cn", Rule{IPs: []string{"geoip:cn"}}),
+		forcedSeed("seed-cn-site", "屏蔽大陆网站", "block-cn", Rule{Domains: []string{"geosite:cn"}}),
 	}
+}
+
+func forcedSeed(id, name, preset string, r Rule) Rule {
+	r.ID, r.Name, r.Preset, r.Enabled, r.Action = id, name, preset, false, ActionBlock
+	return FilledRule(r)
+}
+
+// AbuseSeedRules are the plan-140 全局·强制 seeds that plan 143 moved into
+// 内置, keyed by their 内置 switch (AbuseMail / AbuseTelnetSMB).
+func AbuseSeedRules() map[string]Rule {
+	return map[string]Rule{
+		AbuseMail:      forcedSeed("seed-mail-ports", "屏蔽发信端口", "anti-abuse", Rule{Ports: MailPorts, Network: "tcp"}),
+		AbuseTelnetSMB: forcedSeed("seed-telnet-smb", "屏蔽 Telnet/SMB", "anti-abuse", Rule{Ports: TelnetSMBPorts}),
+	}
+}
+
+// AbuseSeedMove is the result of MoveAbuseSeeds.
+type AbuseSeedMove struct {
+	// Found: a 强制 rule matched the 内置 row (key); On: one of them was
+	// enabled, i.e. the row was in force before the move.
+	Found map[string]bool
+	On    map[string]bool
+	// Kept: seed ids left in 全局·强制 because their matchers were edited
+	// (they are custom rules now; moving them would change what is blocked).
+	Kept []string
+}
+
+// MoveAbuseSeeds (plan 143 one-time migration) removes from a 全局·强制 list
+// every rule that blocks exactly what a moved 防滥用 seed blocks: same
+// matchers and action block, no node scope, any id / name / enabled state.
+// It reports per 内置 row whether a rule was found and whether one was
+// enabled; the caller turns the 内置 switch on exactly then, so the set of
+// blocked traffic stays the same.
+func MoveAbuseSeeds(forced []Rule) ([]Rule, AbuseSeedMove) {
+	res := AbuseSeedMove{Found: map[string]bool{}, On: map[string]bool{}}
+	sigs := map[string]string{}
+	ids := map[string]string{}
+	for key, seed := range AbuseSeedRules() {
+		sigs[RuleSignature(seed)] = key
+		ids[seed.ID] = key
+	}
+	rest := []Rule{}
+	for _, r := range forced {
+		if key, ok := sigs[RuleSignature(r)]; ok && len(r.LandingNodeIDs) == 0 {
+			res.Found[key] = true
+			res.On[key] = res.On[key] || r.Enabled
+			continue
+		}
+		if _, ok := ids[r.ID]; ok {
+			res.Kept = append(res.Kept, r.ID)
+		}
+		rest = append(rest, r)
+	}
+	return rest, res
 }
 
 // RuleSignature compares rules by matchers and action (not id / name /
