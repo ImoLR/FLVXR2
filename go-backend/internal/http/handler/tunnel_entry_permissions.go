@@ -44,10 +44,9 @@ func (h *Handler) ensureForwardOwnerTunnelAccess(f *forwardRecord, tunnelID int6
 	if err != nil {
 		return nil, err
 	}
-	if owner == nil {
-		return nil, fmt.Errorf("规则所属用户「%s」不存在，无法迁移", forwardOwnerLabel(f))
-	}
-	if owner.RoleID != 0 {
+	// A rule whose owner no longer exists cannot be edited by anyone but an
+	// admin, so moving it grants nothing; only entry rules apply.
+	if owner != nil && owner.RoleID != 0 {
 		ok, err := h.repo.UserTunnelExistsByUserAndTunnel(owner.ID, tunnelID)
 		if err != nil {
 			return nil, err
@@ -86,9 +85,7 @@ func (h *Handler) tunnelMigrationTargets(forwards []forwardRecord, exclude map[i
 	}
 	restricted := make([]int64, 0, len(owners))
 	for _, uid := range owners {
-		if role, ok := roles[uid]; !ok {
-			return out, nil // a rule of a deleted user cannot be migrated anywhere
-		} else if role != 0 {
+		if role, ok := roles[uid]; ok && role != 0 {
 			restricted = append(restricted, uid)
 		}
 	}

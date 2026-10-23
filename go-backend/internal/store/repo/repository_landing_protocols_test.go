@@ -318,3 +318,29 @@ func containsAll(list []int, want ...int) bool {
 	}
 	return true
 }
+
+// Plan 136 (QA R8): credentials with ':' '@' '/' '#' round-trip through the
+// share links (url.Parse is what link importers use).
+func TestExtraLandingURLEscapesUserinfo(t *testing.T) {
+	const pass, user = "p@ss/w:rd#1?", "u:s@r"
+	any := model.LandingNode{Protocol: landingcustom.ProtocolAnyTLS, Name: "日本 #1", Password: pass}
+	u, err := url.Parse(extraLandingURL(any, "2001:db8::1", 443))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := u.User.Username(); got != pass || u.Hostname() != "2001:db8::1" || u.Port() != "443" || u.Fragment != "日本 #1" {
+		t.Fatalf("anytls parsed %q host=%q port=%q frag=%q", got, u.Hostname(), u.Port(), u.Fragment)
+	}
+	mieru := model.LandingNode{Protocol: landingcustom.ProtocolMieru, Name: "m", Username: user, Password: pass}
+	u, err = url.Parse(extraLandingURL(mieru, "198.51.100.7", 2999))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p, _ := u.User.Password(); u.User.Username() != user || p != pass || u.Hostname() != "198.51.100.7" {
+		t.Fatalf("mieru parsed user=%q pass=%q host=%q", u.User.Username(), p, u.Hostname())
+	}
+	plain := model.LandingNode{Protocol: landingcustom.ProtocolAnyTLS, Name: "n", Password: "Abc123xyz"}
+	if got := extraLandingURL(plain, "1.2.3.4", 1); !strings.HasPrefix(got, "anytls://Abc123xyz@1.2.3.4:1/") {
+		t.Fatalf("alphanumeric link changed: %s", got)
+	}
+}

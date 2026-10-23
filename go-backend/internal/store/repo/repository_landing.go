@@ -512,14 +512,26 @@ func (r *Repository) CreateLandingNode(userID, serverID int64, name, protocol st
 // ReuseOrCreateLandingNode serializes lookup and creation with the same owner
 // and server locks as explicit creation. Chain listeners live in a separate
 // table; they can never be candidates here.
+// landingNodeNameError: names are stored up to 100 bytes; say which rule
+// failed (QA F20: a too-long name was reported as missing).
+func landingNodeNameError(name string) error {
+	if strings.TrimSpace(name) == "" {
+		return errors.New("请填写节点名称")
+	}
+	if len(name) > 100 {
+		return errors.New("节点名称太长：最多 100 字节（约 33 个汉字）")
+	}
+	return nil
+}
+
 func (r *Repository) ReuseOrCreateLandingNode(userID, serverID int64, name, protocol string, admin bool) (*model.LandingNode, bool, error) {
 	return r.createLandingNode(userID, serverID, name, protocol, admin, true)
 }
 
 func (r *Repository) createLandingNode(userID, serverID int64, name, protocol string, admin, reuse bool) (*model.LandingNode, bool, error) {
 	name = strings.TrimSpace(name)
-	if name == "" || len(name) > 100 {
-		return nil, false, errors.New("请填写节点名称（最多 100 字节）")
+	if err := landingNodeNameError(name); err != nil {
+		return nil, false, err
 	}
 	var n model.LandingNode
 	created := false
@@ -729,7 +741,10 @@ func (r *Repository) UpdateLandingNode(n *model.LandingNode) error {
 	if n.DeletePending {
 		return errors.New("节点正在等待妙妙屋确认删除，请稍后重试删除")
 	}
-	if strings.TrimSpace(n.Name) == "" || len(n.Name) > 100 || n.MaxConnections < 0 || n.MaxOnlineIPs < 0 || n.TrafficLimitBytes < 0 {
+	if err := landingNodeNameError(n.Name); err != nil {
+		return err
+	}
+	if n.MaxConnections < 0 || n.MaxOnlineIPs < 0 || n.TrafficLimitBytes < 0 {
 		return errors.New("节点限制无效")
 	}
 	if n.FlowType != nil && *n.FlowType != 1 && *n.FlowType != 2 {

@@ -961,24 +961,25 @@ func (r *Repository) DeleteNodeCascade(nodeID int64) error {
 			model interface{}
 			where string
 			args  []interface{}
+			label string
 		}{
-			{&model.ChainTunnel{}, "node_id = ?", []interface{}{nodeID}},
-			{&model.ForwardPort{}, "node_id = ?", []interface{}{nodeID}},
-			{&model.FederationTunnelBinding{}, "node_id = ? AND status = 1", []interface{}{nodeID}},
-			{&model.PathSegment{}, "from_node_id = ? OR to_node_id = ?", []interface{}{nodeID, nodeID}},
-			{&model.PeerShare{}, "node_id = ?", []interface{}{nodeID}},
-			{&model.PeerShareRuntime{}, "node_id = ? AND status = 1", []interface{}{nodeID}},
-			{&model.ServiceMonitor{}, "node_id = ?", []interface{}{nodeID}},
-			{&model.NodeDeployedInbound{}, "node_id = ?", []interface{}{nodeID}},
-			{&model.NodeRuntimeResource{}, "node_id = ? AND status <> 'released'", []interface{}{nodeID}},
-			{&model.NftablesRule{}, "node_id = ?", []interface{}{nodeID}},
+			{&model.ChainTunnel{}, "node_id = ?", []interface{}{nodeID}, "隧道"},
+			{&model.ForwardPort{}, "node_id = ?", []interface{}{nodeID}, "规则"},
+			{&model.FederationTunnelBinding{}, "node_id = ? AND status = 1", []interface{}{nodeID}, "联邦隧道绑定"},
+			{&model.PathSegment{}, "from_node_id = ? OR to_node_id = ?", []interface{}{nodeID, nodeID}, "WG 隧道路径"},
+			{&model.PeerShare{}, "node_id = ?", []interface{}{nodeID}, "面板共享"},
+			{&model.PeerShareRuntime{}, "node_id = ? AND status = 1", []interface{}{nodeID}, "面板共享"},
+			{&model.ServiceMonitor{}, "node_id = ?", []interface{}{nodeID}, "服务监控"},
+			{&model.NodeDeployedInbound{}, "node_id = ?", []interface{}{nodeID}, "已部署的入站"},
+			{&model.NodeRuntimeResource{}, "node_id = ? AND status <> 'released'", []interface{}{nodeID}, "运行中的资源"},
+			{&model.NftablesRule{}, "node_id = ?", []interface{}{nodeID}, "nftables 规则"},
 		} {
 			var count int64
 			if err := tx.Model(ref.model).Where(ref.where, ref.args...).Count(&count).Error; err != nil {
 				return err
 			}
 			if count > 0 {
-				return errors.New("节点仍被隧道、转发或其他配置使用，请先移除关联后再删除")
+				return nodeInUseError(tx, nodeID, ref.label, count)
 			}
 		}
 		if err := tx.Where("node_id = ? AND status = 'released'", nodeID).Delete(&model.NodeRuntimeResource{}).Error; err != nil {
@@ -3638,4 +3639,34 @@ func (r *Repository) cleanupNodeTrafficResetLogs(nodeID int64) error {
 	}
 
 	return nil
+}
+
+// nodeInUseError names what still uses a node (QA F23: the refusal did not
+// say which tunnel). Names are capped; the count says how many there are.
+func nodeInUseError(tx *gorm.DB, nodeID int64, label string, count int64) error {
+	var names []string
+	named := map[string][3]string{ // label -> link table, owner column, owner table
+		"隧道": {"chain_tunnel", "tunnel_id", "tunnel"},
+		"规则": {"forward_port", "forward_id", "forward"},
+	}
+	if t, ok := named[label]; ok {
+		tx.Table(t[0]+" AS l").Joins("JOIN "+t[2]+" AS o ON o.id = l."+t[1]).
+			Where("l.node_id = ?", nodeID).Distinct("o.name").Order("o.name").Limit(5).Pluck("o.name", &names)
+		var total int64
+		if tx.Table(t[0]).Where("node_id = ?", nodeID).Distinct(t[1]).Count(&total).Error == nil && total > 0 {
+			count = total
+		}
+	}
+	if len(names) == 0 {
+		return fmt.Errorf("节点仍被%s使用（%d 处），请先移除关联后再删除", label, count)
+	}
+	quoted := make([]string, 0, len(names))
+	for _, n := range names {
+		quoted = append(quoted, "「"+n+"」")
+	}
+	more := ""
+	if count > int64(len(names)) {
+		more = fmt.Sprintf(" 等 %d 个", count)
+	}
+	return fmt.Errorf("节点仍被%s%s%s使用，请先从中移除该节点后再删除", label, strings.Join(quoted, ""), more)
 }

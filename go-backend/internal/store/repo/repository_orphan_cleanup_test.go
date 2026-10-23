@@ -382,7 +382,7 @@ func TestNodeDeleteRuntimeResources(t *testing.T) {
 				}
 				err := r.DeleteNodeCascade(11)
 				if active {
-					if err == nil || !strings.Contains(err.Error(), "节点仍被隧道、转发或其他配置使用") {
+					if err == nil || !strings.Contains(err.Error(), "节点仍被运行中的资源使用") {
 						t.Fatalf("expected referenced node refusal, got %v", err)
 					}
 					for table, rows := range before {

@@ -239,6 +239,12 @@ func (h *Handler) userUpdate(w http.ResponseWriter, r *http.Request) {
 	now := time.Now().UnixMilli()
 
 	oldUser, _ := h.repo.GetUserByID(id)
+	// Optimistic check (QA F24): the edit dialog sends the version it loaded;
+	// a save from a second tab must not silently overwrite a newer save.
+	if expected := asInt64(req["expectedUpdatedTime"], 0); expected > 0 && oldUser != nil && userVersion(oldUser) != expected {
+		response.WriteJSON(w, response.ErrDefault("该用户已在其他页面被修改，请关闭弹窗、刷新后重新编辑"))
+		return
+	}
 	speedLimitID := asAnyToInt64Ptr(req["speedLimitId"])
 	if _, ok := req["speedLimitId"]; !ok && oldUser != nil && oldUser.SpeedLimitID.Valid {
 		speedLimitID = &oldUser.SpeedLimitID.Int64
@@ -602,6 +608,18 @@ func (h *Handler) userBatchResetFlow(w http.ResponseWriter, r *http.Request) {
 		"successCount": successCount,
 		"failCount":    failCount,
 	}))
+}
+
+// userVersion is what the user list reports as updatedTime (created time for
+// users never edited).
+func userVersion(u *model.User) int64 {
+	if u == nil {
+		return 0
+	}
+	if u.UpdatedTime.Valid && u.UpdatedTime.Int64 > 0 {
+		return u.UpdatedTime.Int64
+	}
+	return u.CreatedTime
 }
 
 func (h *Handler) userUpdateOrder(w http.ResponseWriter, r *http.Request) {

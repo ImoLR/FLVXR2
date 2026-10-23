@@ -13,6 +13,7 @@ import (
 
 	"go-backend/internal/auth"
 	"go-backend/internal/authstate"
+	"go-backend/internal/store/model"
 )
 
 // Plan 135: the /system-info WebSocket must never leak node command replies,
@@ -476,4 +477,32 @@ func TestBrowserMetricThrottle(t *testing.T) {
 	if got != 1 {
 		t.Fatalf("report after the interval gave %d browser metrics", got)
 	}
+}
+
+// Plan 136: agents repeat service_name in every 1 s report; it is stored once
+// per change, not rewritten (with updated_time) every second.
+func TestServiceNameStoredOnlyOnChange(t *testing.T) {
+	s, r, base := machineServer(t)
+	node := &nodeConn{c: mustDial(t, base+"/system-info?type=1&secret=test-secret", nil)}
+	waitFor(t, func() bool { s.mu.RLock(); defer s.mu.RUnlock(); return s.nodes[1] != nil })
+	row := func() (string, int64) {
+		var n model.Node
+		if err := r.DB().Select("service_name", "updated_time").Where("id = 1").Take(&n).Error; err != nil {
+			t.Fatal(err)
+		}
+		return n.ServiceName.String, n.UpdatedTime.Int64
+	}
+	node.send(t, `{"type":"metric","data":{"uptime":1,"service_name":"flvx_agent"}}`)
+	waitFor(t, func() bool { name, _ := row(); return name == "flvx_agent" })
+	_, first := row()
+	time.Sleep(30 * time.Millisecond)
+	for i := 0; i < 3; i++ {
+		node.send(t, `{"type":"metric","data":{"uptime":2,"service_name":"flvx_agent"}}`)
+	}
+	time.Sleep(200 * time.Millisecond)
+	if _, again := row(); again != first {
+		t.Fatalf("unchanged service_name rewrote the node row (updated_time %d -> %d)", first, again)
+	}
+	node.send(t, `{"type":"metric","data":{"uptime":3,"service_name":"flvx_agent2"}}`)
+	waitFor(t, func() bool { name, _ := row(); return name == "flvx_agent2" })
 }

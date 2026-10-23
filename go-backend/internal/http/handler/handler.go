@@ -549,6 +549,7 @@ func (h *Handler) login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if user == nil {
+		security.EqualizePasswordCheck(req.Password)
 		response.WriteJSON(w, response.ErrDefault("账号或密码错误"))
 		return
 	}
@@ -2354,7 +2355,12 @@ func (h *Handler) nodeInfo(w http.ResponseWriter, r *http.Request) {
 
 	node, err := h.repo.GetNodeBySecret(secret)
 	if err != nil {
-		response.WriteJSON(w, response.Err(404, "节点不存在"))
+		response.WriteJSON(w, response.Err(-2, "读取节点失败"))
+		return
+	}
+	if node == nil {
+		// Unknown secret (QA F27: was a nil-pointer panic turned into a 500).
+		response.WriteJSON(w, response.Err(401, "节点认证失败"))
 		return
 	}
 
@@ -2395,7 +2401,11 @@ func (h *Handler) nodeReportIP(w http.ResponseWriter, r *http.Request) {
 	// 通过 secret 找到节点
 	node, err := h.repo.GetNodeBySecret(secret)
 	if err != nil {
-		response.WriteJSON(w, response.Err(404, "节点不存在"))
+		response.WriteJSON(w, response.Err(-2, "读取节点失败"))
+		return
+	}
+	if node == nil {
+		response.WriteJSON(w, response.Err(401, "节点认证失败"))
 		return
 	}
 

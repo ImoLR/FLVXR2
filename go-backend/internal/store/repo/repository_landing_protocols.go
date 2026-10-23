@@ -450,7 +450,9 @@ func extraLandingURL(n model.LandingNode, host string, port int) string {
 		if o.SNI != "" {
 			q.Set("sni", o.SNI)
 		}
-		return "anytls://" + url.PathEscape(n.Password) + "@" + net.JoinHostPort(host, strconv.Itoa(port)) + "/?" + q.Encode() + "#" + url.PathEscape(n.Name)
+		// Userinfo escaping also covers ':' '@' '/' '?' (PathEscape kept ':'
+		// and '@', breaking links for such credentials, QA R8).
+		return "anytls://" + url.User(n.Password).String() + "@" + net.JoinHostPort(host, strconv.Itoa(port)) + "/?" + q.Encode() + "#" + url.PathEscape(n.Name)
 	case landingcustom.ProtocolMieru:
 		transport := o.Transport
 		if transport == "" {
@@ -461,7 +463,7 @@ func extraLandingURL(n model.LandingNode, host string, port int) string {
 			h = "[" + h + "]"
 		}
 		q := url.Values{"multiplexing": {"MULTIPLEXING_LOW"}, "port": {strconv.Itoa(port)}, "profile": {n.Name}, "protocol": {transport}}
-		return "mierus://" + url.PathEscape(n.Username) + ":" + url.PathEscape(n.Password) + "@" + h + "?" + q.Encode() + "#" + url.PathEscape(n.Name)
+		return "mierus://" + url.UserPassword(n.Username, n.Password).String() + "@" + h + "?" + q.Encode() + "#" + url.PathEscape(n.Name)
 	}
 	return ""
 }
