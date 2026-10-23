@@ -41,18 +41,18 @@ screenshot approval). Run dir `/root/flvx-workers/runs/landing-rule-presets`.
 - [x] Backend: routes (list for users, writes admin-only) + handler tests (full router, real non-admin JWT,
       403 on writes)
 - [x] Backend: sync-scope tests (§3: 内置 + 强制 on native / shared / line-chain copies; 默认 never on chain)
-- [ ] Backend tests: unit + SQLite/PostgreSQL contract + `-race` on new code; full suite vs base
+- [x] Backend tests: unit + SQLite/PostgreSQL contract + `-race` on new code; full suite vs base
 - [x] Plan identity gate on a read-only prod copy (base vs branch incl. seeding) + compile timing
-- [ ] Frontend: 内置 list (global page, profile editor, node-rules read-only), switches, whitelist editor
-- [ ] Frontend: preset library hook, dropdowns read the library, covered-by-builtin hint, 「管理预设…」 modal
+- [x] Frontend: 内置 list (global page, profile editor, node-rules read-only), switches, whitelist editor
+- [x] Frontend: preset library hook, dropdowns read the library, covered-by-builtin hint, 「管理预设…」 modal
       (list / edit / delete confirm / reorder / new / restore)
-- [ ] Frontend: rule editor 「同时保存为预设」 + 「插入时再选出站」 (admin contexts only)
-- [ ] Frontend: dropdown-menu collision/max-height/scroll fix; check bridge Select listbox
-- [ ] Frontend: tsc / build / lint (no new errors), bundle size vs 5 MiB
-- [ ] Playwright: dropdown placement at 390×844 + 1440×900 (top / middle / bottom, inner scroll), existing
+- [x] Frontend: rule editor 「同时保存为预设」 + 「插入时再选出站」 (admin contexts only)
+- [x] Frontend: dropdown-menu collision/max-height/scroll fix; check bridge Select listbox
+- [x] Frontend: tsc / build / lint (no new errors), bundle size vs 5 MiB
+- [x] Playwright: dropdown placement at 390×844 + 1440×900 (top / middle / bottom, inner scroll), existing
       dropdowns before/after
-- [ ] Screenshots desktop + H5, light + dark; review; publish gallery on :8791
-- [ ] Push branch, CI green; final.md + summary.md
+- [x] Screenshots desktop + H5, light + dark; review; publish gallery on :8791
+- [x] Push branch, CI green; final.md + summary.md
 
 ## Notes / results
 
@@ -63,3 +63,32 @@ screenshot approval). Run dir `/root/flvx-workers/runs/landing-rule-presets`.
   byte-identical, 3 runs; branch copy shows global.forced = 4 (all disabled), presets +10.
 - Compile time per server (data load + compile, median of 25 × 3 runs): before 402–554 µs, after 343–568 µs
   (noise; no extra query in the compile path — the switches come from the same settings row read).
+- Backend suite on the branch (`go test -p 1 ./...`): 15 FAIL lines, all in the base list, 0 new. The base copy
+  shows 4 more (installer mirror / image cleanup / chain fixture / explicit-version installer): artefacts of the
+  go-backend-only base copy (those tests read files outside go-backend); they pass in the real worktree.
+- New tests: landingegress (switches, duplicate-follows-switch, seeds disabled + identical plans, seed presets
+  normalized, preset validation, user filtering, sync scope native / chain-only / shared), repo (seed once +
+  markers, delete → no re-seed, upgrade with existing rules, CRUD / reorder / restore, SQLite + PostgreSQL),
+  handler (switch → one debounced push, plan content, server/node views), contract (full router, real non-admin
+  JWT: list filtered, 401 anonymous, 403 on every write; SQLite + PostgreSQL). `-race` clean on all of them.
+- Node list query-count guard: the switches are read lazily (only views that show them), the node list keeps 7/8
+  queries.
+- Frontend: tsc 0 errors; eslint on the changed files: no new warnings vs base (0 errors); build OK. Bundle total
+  +13.9 KB (index.js 2,960,631 B, 2.18 MiB under the 5 MiB PWA limit; precache 3120 → 3134 KiB).
+- Playwright (headless shell, 650 MiB scope): 89/89 checks after, 16/16 before; dropdown at top / middle / bottom
+  on 390×844 and 1440×900 always inside the viewport (top → down, bottom → up, inner touch / wheel scroll, page
+  does not move); before: H5 middle menu top = -174 px (off screen). Existing menus (user menu 128×74, rule-row
+  menu 128×170) identical before/after. Bridge multi-select listbox (适用落地节点) lives in the dialog's scroll
+  area and is fully reachable → not the same problem, unchanged.
+- Gallery: 119 shots on :8791 `<token>/landing-rule-presets/`.
+
+## Decided differently / notes
+
+- Seeds run in the startup migration, not on GET (reads never write; no race between two first GETs).
+- 「禁止访问内网」 preset counts as covered by the safety rule (UI hint only; compile does not drop it — plans
+  stay as they are).
+- Line-chain copies get 全局·强制 only from agents with landing_guard ≥ 2 (fork.75 agent code, not OTA'd yet) and
+  the default anti-abuse rules only from landing_guard ≥ 1: older agents order chain rules first, so the panel
+  cannot fix this alone; the UI says so. Safety rule: enforced by the agent / mmwx Core on every inbound.
+- Gallery lives under the preview token dir like every other gallery (`/root/mmwx-preview/<token>/…`).
+
