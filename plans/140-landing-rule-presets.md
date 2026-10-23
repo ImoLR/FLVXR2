@@ -107,7 +107,22 @@ User approval 2026-10-23 ~20:50 TW after the gallery: 「可以发布吧」 — 
       (0 enabled), 10 presets, builtin switches NULL, markers 1/1. Copies deleted.
 - [x] Frontend: tsc 0 errors, build OK (index.js 2,960,631 B), eslint on the changed files 0 errors and no new
       warnings (6 pre-existing in server-settings.tsx).
-- [ ] Push branch, CI green; tag `3.0.27-fork.78`, Images green, release validated (Latest, asset set = fork.77)
-- [ ] Prod: rollback dir `pre-fork78-<ts>` + validated DB backup, upgrade `/opt/flvx-svc`, prune to 2 backups
-- [ ] Prod checks: version, health, nodes, agents unchanged, migration once (+ restart, no double seed), plan
-      fingerprints unchanged, new UI strings in the bundle, real-JWT checks, 10-min resource numbers
+- [x] Push branch, CI green (CI Build Check 39969352269); tag `3.0.27-fork.78` on 0db62395, Images 39969599247
+      green; release validated: Latest, not pre-release, asset set = fork.77 (10 files), compose pins ghcr :fork.78,
+      install scripts pinned, gost sha256 OK, ghcr images amd64+arm64.
+- [x] Prod: rollback dir `/opt/flvx-svc/rollback/pre-fork78-20261023T143823Z` (validated online SQLite backup,
+      quick_check + integrity_check ok, local image tags, rollback.sh); prune kept pre-fork78 + pre-fork77 (removed
+      pre-node55-port-split). Upgrade 22:38 TW, healthy after 7.7 s, `version.json` = 3.0.27-fork.78-mvl2gp1v.
+- [x] Prod checks: 30/30 online before and after, agent versions unchanged (26×fork.67, 1×fork.70, 1×fork.76,
+      2×fork.77), forwards 36/33 unchanged. Startup log `[landing-seed] global forced +4 (disabled), presets +10`
+      once; after an extra backend restart no second seed line, presets still 10, 全局·强制 still 4 (all disabled),
+      markers 1/1, builtin_smtp/bt NULL (= on). Landing servers 1–5: revision, egress_hash, shared_desired_hash,
+      pushed/applied revisions, states and errors identical before/after (+ after 12 min); node 21
+      desired/config/applied/api.json sha256 unchanged, Core + agent not restarted. Redeploys after reconnect:
+      0 failed. Served bundle contains 管理预设 / 同时保存为预设 / 禁止访问内网 / 插入时再选出站 / 恢复默认预设.
+      Real JWT: admin preset list 200 (10), existing non-admin user 3 (token minted read-only) 200 (9; 屏蔽中国大陆
+      hidden because of its source-IP condition), anonymous 401, builtin/save + preset save/delete/reorder/restore
+      + global/get → 403 for the user; no data changed, no temp objects.
+      Resources (fork.77 at 1.7 h → fork.78 at 10 min): CPU 4.53 → 4.37 %, RSS 38.1 → 44.0 MB, log 11 → 8
+      lines/10 min, DB 55.84 MB unchanged; p95 ms: landing/server/list 8.12 → 7.69, egress/overview 13.88 →
+      11.73, egress/global/get 11.07 → 10.14, node/list 11.86 → 10.88, preset/list (new) 3.51.
