@@ -241,11 +241,19 @@ func newReconnectDiffEnv(t *testing.T) (*flowTestEnv, *fakeRuntimeAgent) {
 }
 
 // deployAll mimics the first deploy after an agent (re)start on every node.
+// The pushes happened "long ago" for the following reconnects.
 func deployAll(e *flowTestEnv, agent *fakeRuntimeAgent) {
 	for _, id := range []int64{1, 2, 3, 4} {
 		e.h.redeployNodeRuntime(id)
 	}
 	agent.reset()
+	forgetPushes(e)
+}
+
+func forgetPushes(e *flowTestEnv) {
+	e.h.recentPushes.mu.Lock()
+	e.h.recentPushes.nodes = nil
+	e.h.recentPushes.mu.Unlock()
 }
 
 func TestReconnectUnchangedSendsNothing(t *testing.T) {
@@ -457,5 +465,27 @@ func TestReconnectExpectedRevisionsAreStable(t *testing.T) {
 	a, b := first.expectedRevs(), second.expectedRevs()
 	if len(a) != 2 || fmt.Sprint(a) != fmt.Sprint(b) {
 		t.Fatalf("revisions not stable: %v vs %v", a, b)
+	}
+}
+
+// An object another operation pushed a moment ago may belong to a change that
+// is not committed yet (tunnel create, rule update): a reconnect keeps it.
+func TestReconnectKeepsRecentlyPushedOrphanCandidates(t *testing.T) {
+	e, agent := newReconnectDiffEnv(t)
+	deployAll(e, agent)
+	inflight := []map[string]interface{}{{"name": "999_7_70_tcp", "addr": "0.0.0.0:1599", "handler": map[string]interface{}{"type": "tcp"}}}
+	if _, err := e.h.sendNodeCommand(1, "AddService", inflight, true, false); err != nil {
+		t.Fatal(err)
+	}
+	agent.reset()
+	e.h.redeployNodeRuntime(1)
+	if !agent.has(1, "service:999_7_70_tcp") || agent.count(1, "DeleteService") != 0 {
+		t.Fatalf("in-flight object removed: %v", agent.mutations(1))
+	}
+	// Once the push is old, it is an orphan like any other.
+	forgetPushes(e)
+	e.h.redeployNodeRuntime(1)
+	if agent.has(1, "service:999_7_70_tcp") {
+		t.Fatalf("stale orphan kept: %v", agent.mutations(1))
 	}
 }

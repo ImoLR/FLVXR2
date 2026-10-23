@@ -742,6 +742,7 @@ func (h *Handler) sendNodeCommandWithTimeout(nodeID int64, commandType string, d
 		timeout = defaultNodeCommandTimeout
 	}
 
+	h.recentPushes.note(nodeID, commandType, data, time.Now())
 	node, nodeErr := h.getNodeRecord(nodeID)
 	if h.nodeCommandSender != nil {
 		result, err = h.nodeCommandSender(nodeID, commandType, data, timeout)

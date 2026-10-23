@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"go-backend/internal/ws"
@@ -25,6 +26,53 @@ import (
 // this looks like a database/ownership problem, not like a few deletions made
 // while the node was away, so they are only reported.
 const maxReconnectOrphans = 20
+
+// recentPushWindow: an object pushed to the node this recently may belong to
+// an operation that has not committed its database change yet (tunnel create
+// and rule updates dispatch first); a reconnect leaves it to the next one.
+const recentPushWindow = 2 * time.Minute
+
+type recentPushLog struct {
+	mu    sync.Mutex
+	nodes map[int64]map[string]time.Time // node -> "<kind>:<name>" -> last push
+}
+
+// note records the objects of a state-changing command (cheap no-op for the
+// read-only and delete commands).
+func (l *recentPushLog) note(nodeID int64, commandType string, data interface{}, now time.Time) {
+	keys := ws.ExpectedRuntimeRevs(commandType, data)
+	if len(keys) == 0 {
+		return
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.nodes == nil {
+		l.nodes = make(map[int64]map[string]time.Time)
+	}
+	m := l.nodes[nodeID]
+	if m == nil {
+		m = make(map[string]time.Time)
+		l.nodes[nodeID] = m
+	}
+	for key, t := range m {
+		if now.Sub(t) > 2*recentPushWindow {
+			delete(m, key)
+		}
+	}
+	for key := range keys {
+		m[key] = now
+	}
+}
+
+func (l *recentPushLog) since(nodeID int64, key string, now time.Time) (time.Duration, bool) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	t, ok := l.nodes[nodeID][key]
+	if !ok {
+		return 0, false
+	}
+	return now.Sub(t), true
+}
 
 // agentRuntimeInventory is a capable agent's runtime state at reconnect.
 type agentRuntimeInventory struct {
@@ -236,33 +284,58 @@ func (h *Handler) removeReconnectOrphans(nodeID int64, inv *agentRuntimeInventor
 		return 0, fmt.Sprintf("%d orphaned objects found (more than %d): not removed automatically, run the orphan sweep", len(orphans), maxReconnectOrphans)
 	}
 	removed := 0
-	var failed []string
+	var done, failed, kept []string
 	for _, o := range orphans {
-		latest, err := h.repo.ReadRuntimeOwnership()
-		if err != nil || sweepNodeGuard(latest, nodeID) != "" {
-			break
-		}
-		if _, status := classifyRuntime(latest, nodeID, o); status != "orphan" {
+		if age, ok := h.recentPushes.since(nodeID, o.Kind+":"+o.Name, time.Now()); ok && age < recentPushWindow {
+			kept = append(kept, o.Kind+" "+o.Name)
 			continue
 		}
-		if err := h.deleteOrphanRuntime(nodeID, o); err != nil {
+		ok, err := h.removeOrphanChecked(nodeID, o)
+		switch {
+		case err != nil:
 			failed = append(failed, fmt.Sprintf("%s %s: %v", o.Kind, o.Name, err))
-			continue
+		case ok:
+			removed++
+			done = append(done, o.Kind+" "+o.Name)
 		}
-		removed++
 	}
-	note := ""
-	if removed > 0 {
-		names := make([]string, 0, len(orphans))
-		for _, o := range orphans {
-			names = append(names, o.Kind+" "+o.Name)
-		}
-		note = "removed orphans: " + strings.Join(names, ", ")
+	var notes []string
+	if len(done) > 0 {
+		notes = append(notes, "removed orphans: "+strings.Join(done, ", "))
+	}
+	if len(kept) > 0 {
+		notes = append(notes, "kept recently pushed (next reconnect decides): "+strings.Join(kept, ", "))
 	}
 	if len(failed) > 0 {
-		note = strings.TrimPrefix(note+"; orphan removal failed: "+strings.Join(failed, "; "), "; ")
+		notes = append(notes, "orphan removal failed: "+strings.Join(failed, "; "))
 	}
-	return removed, note
+	return removed, strings.Join(notes, "; ")
+}
+
+// removeOrphanChecked re-reads ownership right before deleting. Tunnel objects
+// are checked under the tunnel's runtime lock, which every tunnel create /
+// update / delete holds while it dispatches and commits.
+func (h *Handler) removeOrphanChecked(nodeID int64, o runtimeObject) (bool, error) {
+	if o.Kind == "chain" || (o.Kind == "service" && forwardRuntimeID(o) == 0) {
+		if o.OwnerID > 0 {
+			unlock := h.lockTunnelRuntime(o.OwnerID)
+			defer unlock()
+		}
+	}
+	latest, err := h.repo.ReadRuntimeOwnership()
+	if err != nil {
+		return false, err
+	}
+	if sweepNodeGuard(latest, nodeID) != "" {
+		return false, nil
+	}
+	if _, status := classifyRuntime(latest, nodeID, o); status != "orphan" {
+		return false, nil
+	}
+	if err := h.deleteOrphanRuntime(nodeID, o); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 func formatRedeployTook(d time.Duration) string {

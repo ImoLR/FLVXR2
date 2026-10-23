@@ -56,6 +56,10 @@ type Handler struct {
 	// runtimeRevsCapable overrides the handshake capability check of the
 	// reconnect diff (plan 138); tests replace it.
 	runtimeRevsCapable func(int64) bool
+	// recentPushes: runtime objects pushed to each node in the last minutes, so
+	// a reconnect never removes an object another operation is still
+	// dispatching (plan 138).
+	recentPushes recentPushLog
 	nodeRedeployMu     sync.Mutex
 	nodeRedeploy       *nodeRedeployScheduler
 	redeployRetryMu    sync.Mutex
