@@ -33,16 +33,16 @@ screenshot approval). Run dir `/root/flvx-workers/runs/landing-rule-presets`.
 
 ## Checklist
 
-- [ ] Plan doc + baseline backend suite on the unmodified base (failure list)
-- [ ] Backend: builtin switches (model columns, compile filter, dedupe only against emitted builtins, server
+- [x] Plan doc + baseline backend suite on the unmodified base (failure list)
+- [x] Backend: builtin switches (model columns, compile filter, dedupe only against emitted builtins, server
       view state, global view `builtin` section, node-rules view `builtin` section, save endpoint + re-sync)
-- [ ] Backend: 全局·强制 seed migration (marker, idempotent, never re-seeds after delete)
-- [ ] Backend: preset model/table + seed migration + repo CRUD/reorder/restore + validation + user filtering
-- [ ] Backend: routes (list for users, writes admin-only) + handler tests (full router, real non-admin JWT,
+- [x] Backend: 全局·强制 seed migration (marker, idempotent, never re-seeds after delete)
+- [x] Backend: preset model/table + seed migration + repo CRUD/reorder/restore + validation + user filtering
+- [x] Backend: routes (list for users, writes admin-only) + handler tests (full router, real non-admin JWT,
       403 on writes)
-- [ ] Backend: sync-scope tests (§3: 内置 + 强制 on native / shared / line-chain copies; 默认 never on chain)
+- [x] Backend: sync-scope tests (§3: 内置 + 强制 on native / shared / line-chain copies; 默认 never on chain)
 - [ ] Backend tests: unit + SQLite/PostgreSQL contract + `-race` on new code; full suite vs base
-- [ ] Plan identity gate on a read-only prod copy (base vs branch incl. seeding) + compile timing
+- [x] Plan identity gate on a read-only prod copy (base vs branch incl. seeding) + compile timing
 - [ ] Frontend: 内置 list (global page, profile editor, node-rules read-only), switches, whitelist editor
 - [ ] Frontend: preset library hook, dropdowns read the library, covered-by-builtin hint, 「管理预设…」 modal
       (list / edit / delete confirm / reorder / new / restore)
@@ -56,4 +56,10 @@ screenshot approval). Run dir `/root/flvx-workers/runs/landing-rule-presets`.
 
 ## Notes / results
 
-(filled in as tasks complete)
+- Baseline (fork.76 base, `go test -p 1 ./...`): 19 FAIL lines = the known 15 failing tests + 4 backup-export
+  subtests (same set as plan 136). Run dir `base.fails`.
+- Plan identity (prod DB read-only online backup → two copies; base tree vs branch, branch opens the copy and
+  runs the seed migration first): servers 1–5 (native 1/5, shared 2/3/4) plan + mmwx desired fingerprints
+  byte-identical, 3 runs; branch copy shows global.forced = 4 (all disabled), presets +10.
+- Compile time per server (data load + compile, median of 25 × 3 runs): before 402–554 µs, after 343–568 µs
+  (noise; no extra query in the compile path — the switches come from the same settings row read).
