@@ -121,14 +121,22 @@ func TestLandingPresetLibraryContract(t *testing.T) {
 			}
 
 			// Built-in switches through the router; the global view reflects them.
-			wantOK(t, "builtin", l.call(l.admin, "egress/builtin/save", map[string]interface{}{"smtp": true, "bt": false}))
+			// Plan 143: four 防滥用 rows; the new ones (mail / telnet) start off and
+			// a client that omits them keeps them as they are.
 			g := l.call(l.admin, "egress/global/get", nil)
+			if b := g.Data.(map[string]interface{})["builtin"].(map[string]interface{}); b["mail"] != false || b["telnet"] != false {
+				t.Fatalf("fresh builtin view %+v", b)
+			}
+			wantOK(t, "builtin", l.call(l.admin, "egress/builtin/save", map[string]interface{}{"smtp": true, "bt": false, "mail": true, "telnet": false}))
+			wantOK(t, "builtin old client", l.call(l.admin, "egress/builtin/save", map[string]interface{}{"smtp": true, "bt": false}))
+			g = l.call(l.admin, "egress/global/get", nil)
 			wantOK(t, "global get", g)
 			b := g.Data.(map[string]interface{})["builtin"].(map[string]interface{})
-			if b["smtp"] != true || b["bt"] != false {
+			if b["smtp"] != true || b["bt"] != false || b["mail"] != true || b["telnet"] != false {
 				t.Fatalf("builtin view %+v", b)
 			}
-			if forced := g.Data.(map[string]interface{})["forced"].([]interface{}); len(forced) != 4 || forced[0].(map[string]interface{})["enabled"] != false {
+			// Fresh installs seed only the 大陆 rules into 全局·强制 (disabled).
+			if forced := g.Data.(map[string]interface{})["forced"].([]interface{}); len(forced) != 2 || forced[0].(map[string]interface{})["enabled"] != false || forced[0].(map[string]interface{})["id"] != "seed-cn-ip" {
 				t.Fatalf("seeded forced rules: %+v", forced)
 			}
 		})
