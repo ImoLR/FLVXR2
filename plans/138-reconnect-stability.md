@@ -1,4 +1,4 @@
-# 138 · Reconnect stability → 3.0.27-fork.79 (close reasons on both sides, diff-only reconnect redeploy) + the one all-node OTA
+# 138 · Reconnect stability (COMPLETE 10-24 02:50 TW) → 3.0.27-fork.79 (close reasons on both sides, diff-only reconnect redeploy) + the one all-node OTA
 
 Approval: user 2026-10-23 ~18:30 TW (「可以把这个安排上吧」). Brief: `/root/flvx-workers/runs/reconnect-stability/brief.md`.
 Numbering: plan 140 (landing rule presets) shipped as fork.78 (panel only), so this plan releases **fork.79** and
@@ -80,8 +80,8 @@ OFF; never touch flux_agent / the old Flux panel / single-x domains / other stac
 - [x] Cross-node close timeline (21 42 45 47 48 52 53 20) → clusters
 - [x] Passive captures: node 45 SYN/FIN/RST headers (TTL/hop-limit of RSTs vs CF SYN-ACKs) + v4/v6 SSH control
       sessions; panel :6365 FIN/RST + upgrade requests (Cf-Ray colo)
-- [ ] Nodes 12/26 (no SSH): panel-side reasons/colo after fork.79 panel; compare with 45
-- [ ] Verdict with evidence (fixable on our side vs provider/Cloudflare path) + options
+- [x] Nodes 12/26 (no SSH): panel-side reasons/colo after fork.79 panel; compare with 45
+- [x] Verdict with evidence (fixable on our side vs provider/Cloudflare path) + options
 
 ### Close-reason logging
 - [x] Agent: one line per session end: who/what (read error, write error, ping write, hello timeout, pong stall,
@@ -123,8 +123,24 @@ x/landing binds unix sockets); after: identical sets, 0 new. Lab runs `/root/rs1
 - [x] Tag `3.0.27-fork.79`, Images green, Latest, same 10 assets, pinned version + sha256
 - [x] Prod panel backup `pre-fork79` + prune (keep 2) + upgrade + health + all nodes online
 - [x] Canary 42 (SSH backup), then 45 (SSH backup), then batches with diagnose before/after; skipped nodes listed
-- [ ] Resource numbers (agent CPU/RSS/fd/goroutines, journal lines/10 min on 42, 45 + 2 others; panel CPU/RSS,
+- [x] Resource numbers (agent CPU/RSS/fd/goroutines, journal lines/10 min on 42, 45 + 2 others; panel CPU/RSS,
       reconnect cost) before/after
-- [ ] ≥1 h watch: reconnect counts + close reasons for 45/12/26 vs before; reconnects no longer redeploy (panel log);
+- [x] ≥1 h watch: reconnect counts + close reasons for 45/12/26 vs before; reconnects no longer redeploy (panel log);
       GuardVersion 2 on landing/Reality nodes; journal volume drop on 2 busy nodes
-- [ ] Summary (`runs/reconnect-stability/summary.md`) + plan complete
+- [x] Summary (`runs/reconnect-stability/summary.md`) + plan complete
+
+## Outcome (10-24 02:50 TW)
+
+- Watch 01:42–02:45: 45/12/26 no drops (night; 0–1/h the night before), natural reconnects 47/49 (HKG, Cloudflare closed
+  both legs = EOF) and 50 (AMS, replaced = steering) — all `diff … updated=0 … commands=1`, no redeploy failures.
+- Whole-panel reconnect on prod: 405 commands / 98.9 s summed redeploy time (fork.78 agents at the 00:59 upgrade) →
+  30 commands (1 ListServices per node) / 7.3 s (01:41 restart).
+- Agents (60 s avg, before → after): 42 0.28 → 0.27 % CPU, 57.1 → 56.6 MB, fds 19 → 19, journal 208 → 5 lines/10 min;
+  45 0.33 → 0.32 %, 61.9 → 61.6 MB, 9 → 9, 50 → 9 lines; 21 0.25 → 0.28 %, 59.1 → 58.5 MB, 13 → 12, 11 → 5 lines.
+  Panel 4.2 → 4.3 % CPU, RSS 38 → 45 MB (fresh process). Goroutines not observable on agents (no debug endpoint).
+- Open: Cloudflare steering itself (options for the user: keep, direct connect for 45/12 — never 26 —, non-CF relay);
+  agent failover backoff after < 60 s sessions (fork.65 design); `/api/v1/node/report-ip` is blocked by the JWT
+  middleware (pre-existing, agents' public IP reports never land; one-line shouldSkip fix for a later panel release).
+- Summary: `/root/flvx-workers/runs/reconnect-stability/summary.md`; evidence `runs/reconnect-stability/evidence/`,
+  lab results `runs/reconnect-stability/lab/`, hourly daytime counts `runs/reconnect-stability/watch-hourly.log`
+  (until 10-24 18:00 TW).
