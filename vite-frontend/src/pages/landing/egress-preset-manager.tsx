@@ -142,12 +142,12 @@ export function PresetEditor({
             </div>
           </div>
           {askOutbound && asks === 0 && (
-            <p className="rounded-lg bg-warning-50 p-2 text-xs text-warning">
+            <p className="rounded-lg bg-warning-50 p-2 text-xs text-warning dark:bg-warning-500/10">
               请至少把一条规则的出站设为「插入时选择」
             </p>
           )}
           {!askOutbound && asks > 0 && (
-            <p className="rounded-lg bg-warning-50 p-2 text-xs text-warning">
+            <p className="rounded-lg bg-warning-50 p-2 text-xs text-warning dark:bg-warning-500/10">
               有规则的出站是「插入时选择」，请打开「插入时选择出站」
             </p>
           )}

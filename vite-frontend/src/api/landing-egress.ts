@@ -436,12 +436,14 @@ export const actionLabel = (action: string, outbounds: EgressOutbound[]) => {
 
 export const actionColor = (
   action: string,
-): "danger" | "success" | "default" =>
+): "danger" | "success" | "secondary" | "default" =>
   action === "block"
     ? "danger"
     : action.startsWith("outbound:")
       ? "success"
-      : "default";
+      : action === "ask"
+        ? "secondary"
+        : "default";
 
 export const newRuleId = () =>
   `r-${Math.random().toString(16).slice(2, 10)}${Date.now().toString(16).slice(-4)}`;

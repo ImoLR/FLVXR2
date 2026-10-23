@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useId, useState } from "react";
 import toast from "react-hot-toast";
 
 import { invalidateEgressPresets } from "./use-egress-presets";
@@ -94,6 +94,7 @@ export function RuleEditor({
   const [asPreset, setAsPreset] = useState(false);
   const [presetName, setPresetName] = useState("");
   const [askLater, setAskLater] = useState(false);
+  const uid = useId();
   const [domains, setDomains] = useState(rule.domains.join("\n"));
   const [ips, setIPs] = useState(rule.ips.join("\n"));
   const [sources, setSources] = useState(rule.sourceIps.join("\n"));
@@ -363,9 +364,20 @@ export function RuleEditor({
           )}
           {savePreset && (
             <section className="space-y-2 rounded-lg border border-divider p-3">
-              <Checkbox isSelected={asPreset} onValueChange={setAsPreset}>
-                同时保存为预设
-              </Checkbox>
+              {/* Labels so tapping the text toggles too (phones). */}
+              <div className="flex items-center gap-2">
+                <Checkbox
+                  id={`${uid}-preset`}
+                  isSelected={asPreset}
+                  onValueChange={setAsPreset}
+                />
+                <label
+                  className="cursor-pointer text-sm"
+                  htmlFor={`${uid}-preset`}
+                >
+                  同时保存为预设
+                </label>
+              </div>
               {asPreset && (
                 <div className="space-y-2 pl-1">
                   <Input
@@ -377,9 +389,19 @@ export function RuleEditor({
                     onChange={(event) => setPresetName(event.target.value)}
                   />
                   {isOutbound && (
-                    <Checkbox isSelected={askLater} onValueChange={setAskLater}>
-                      插入时再选出站
-                    </Checkbox>
+                    <div className="flex items-center gap-2">
+                      <Checkbox
+                        id={`${uid}-ask`}
+                        isSelected={askLater}
+                        onValueChange={setAskLater}
+                      />
+                      <label
+                        className="cursor-pointer text-sm"
+                        htmlFor={`${uid}-ask`}
+                      >
+                        插入时再选出站
+                      </label>
+                    </div>
                   )}
                   <p className="text-xs text-default-500">
                     以后可在「添加预设」里一键添加；规则本身照常保存，预设保存失败不影响它。

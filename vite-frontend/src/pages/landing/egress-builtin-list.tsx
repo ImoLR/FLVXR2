@@ -156,7 +156,6 @@ export function BuiltinRuleList({
       </div>
       {abuseRows.map((row) => {
         const on = values[row.key];
-        const offProfiles = admin ? profilesOff : [];
 
         return (
           <div
@@ -186,13 +185,6 @@ export function BuiltinRuleList({
                 ))}
               </div>
               <p className="text-xs text-default-500">{row.hint}</p>
-              {on && offProfiles.length > 0 && (
-                <p className="text-xs text-warning">
-                  {offProfiles.length} 个路由方案关闭了默认防滥用（
-                  {offProfiles.map((p) => p.name).join("、")}
-                  ），使用这些方案的节点不封锁
-                </p>
-              )}
             </div>
             {admin && onSwitch && (
               <Switch
@@ -205,6 +197,13 @@ export function BuiltinRuleList({
           </div>
         );
       })}
+      {admin && (smtp || bt) && profilesOff.length > 0 && (
+        <p className="bg-warning-50 px-3 py-2 text-xs text-warning dark:bg-warning-500/10">
+          {profilesOff.length} 个路由方案关闭了默认防滥用（
+          {profilesOff.map((p) => p.name).join("、")}
+          ），使用这些方案的节点不封锁 SMTP 25 和 BT
+        </p>
+      )}
       <div className="flex items-start gap-3 p-3">
         <Lock className="mt-1 shrink-0 text-default-400" size={14} />
         <div className="min-w-0 flex-1 space-y-1">
