@@ -30,6 +30,7 @@ import (
 	"github.com/go-gost/x/landing"
 	"github.com/go-gost/x/logsafe"
 	"github.com/go-gost/x/machineprotect"
+	"github.com/go-gost/x/nodeaddr"
 	"github.com/go-gost/x/panelconn"
 	"github.com/go-gost/x/registry"
 	"github.com/go-gost/x/service"
@@ -75,6 +76,7 @@ type SystemInfo struct {
 	UDPConns               int64                     `json:"udp_conns"`
 	MachineConns           *machineprotect.Conns     `json:"machine_conns,omitempty"`   // 整机连接数（每 5 秒一次）
 	MachineProtect         *machineprotect.Protect   `json:"machine_protect,omitempty"` // 整机连接保护状态
+	Addrs                  *nodeaddr.Report          `json:"addrs,omitempty"`           // 网卡公网地址，仅变化时（plan 142）
 	NetInSpeed             int64                     `json:"net_in_speed"`
 	NetOutSpeed            int64                     `json:"net_out_speed"`
 	ServiceName            string                    `json:"service_name,omitempty"` // 服务名
@@ -231,6 +233,8 @@ type WebSocketReporter struct {
 	nftRef             atomic.Pointer[nftablesRef]
 	protector          *machineprotect.Protector // the one machine protection loop (plan 118)
 	machineSentSeq     uint64                    // last protection sample sent on this connection
+	addrs              addrReporter              // interface addresses for node DDNS (plan 142)
+	addrsSentSeq       uint64                    // last address report sent on this connection
 }
 
 var wsDial = func(ctx context.Context, dialer *websocket.Dialer, rawURL string) (*websocket.Conn, *http.Response, error) {
@@ -270,7 +274,9 @@ func (w *WebSocketReporter) Start() {
 		go landing.Default().Run(w.ctx)
 	}
 	go w.egress.run(w.ctx, (&net.Dialer{}).DialContext)
+	w.ipv6RA.onTick = w.addrs.refresh
 	go w.ipv6RA.run(w.ctx)
+	go w.addrs.run(w.ctx)
 	if w.protector != nil {
 		go w.protector.Run(w.ctx)
 	}
@@ -479,6 +485,7 @@ func (w *WebSocketReporter) connect() error {
 	w.sessionEnded = false
 	w.reconnectRequested = false
 	w.machineSentSeq = 0 // the first metric of a new session carries the latest sample
+	w.addrsSentSeq = 0   // ... and the current address report
 	w.session = panelSessionInfo{target: target, scheme: res.scheme, ip: res.ip, startedAt: time.Now()}
 	w.lastPongAt.Store(0)
 	w.lastRecvAt.Store(0)
@@ -844,7 +851,8 @@ func buildWebSocketQuery(secret string, version string, http int, tls int, socks
 		"&http=" + strconv.Itoa(http) + "&tls=" + strconv.Itoa(tls) + "&socks=" + strconv.Itoa(socks) +
 		"&blockOther=" + strconv.Itoa(blockOther) + "&panelIpFamily=" + url.QueryEscape(panelconn.Default.Mode()) +
 		"&machineProtect=" + strconv.Itoa(machineProtectVersion) +
-		"&runtimeRevs=" + strconv.Itoa(runtimeRevsVersion)
+		"&runtimeRevs=" + strconv.Itoa(runtimeRevsVersion) +
+		"&addrReport=" + strconv.Itoa(addrReportVersion)
 }
 
 // buildWebSocketCandidates returns the primary and the fallback scheme URL of
@@ -1172,6 +1180,7 @@ func (w *WebSocketReporter) collectSystemInfo() SystemInfo {
 		UDPConns:               connInfo.UDPConns,
 		MachineConns:           machineConns,
 		MachineProtect:         machineProtect,
+		Addrs:                  w.addrsReport(),
 		NetInSpeed:             netInSpeed,
 		NetOutSpeed:            netOutSpeed,
 		ServiceName:            w.serviceName,

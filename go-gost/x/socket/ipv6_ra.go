@@ -11,6 +11,7 @@ import (
 type ipv6RADetector struct {
 	mu             sync.RWMutex
 	status, detail string
+	onTick         func() // runs after each 10-minute check (node DDNS address refresh)
 }
 
 func (d *ipv6RADetector) detect() {
@@ -22,8 +23,13 @@ func (d *ipv6RADetector) detect() {
 func (d *ipv6RADetector) run(ctx context.Context) {
 	ticker := time.NewTicker(10 * time.Minute)
 	defer ticker.Stop()
+	first := true
 	for {
 		d.detect()
+		if d.onTick != nil && !first {
+			d.onTick()
+		}
+		first = false
 		select {
 		case <-ctx.Done():
 			return
