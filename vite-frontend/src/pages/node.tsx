@@ -2350,7 +2350,7 @@ export default function NodePage() {
                   className="font-medium text-sm cursor-pointer hover:bg-default-200/50 rounded px-1 transition-colors truncate shrink min-w-0 ml-auto"
                   title={
                     node.serverIpV4?.trim() ||
-                    (node.serverIp?.trim() && !node.serverIp.includes(":")
+                    (node.serverIp?.trim() && !node.serverIp.includes(":") && node.serverIp.trim() !== node.serverIpV6?.trim()
                       ? node.serverIp.trim()
                       : undefined) ||
                     "暂无"
@@ -2359,7 +2359,7 @@ export default function NodePage() {
                     e.stopPropagation();
                     const val =
                       node.serverIpV4?.trim() ||
-                      (node.serverIp?.trim() && !node.serverIp.includes(":")
+                      (node.serverIp?.trim() && !node.serverIp.includes(":") && node.serverIp.trim() !== node.serverIpV6?.trim()
                         ? node.serverIp.trim()
                         : undefined);
 
@@ -2369,7 +2369,7 @@ export default function NodePage() {
                   {(() => {
                     const val =
                       node.serverIpV4?.trim() ||
-                      (node.serverIp?.trim() && !node.serverIp.includes(":")
+                      (node.serverIp?.trim() && !node.serverIp.includes(":") && node.serverIp.trim() !== node.serverIpV6?.trim()
                         ? node.serverIp.trim()
                         : undefined);
 

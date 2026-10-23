@@ -84,8 +84,11 @@ export function NodeDDNSBadge({ ddns }: { ddns?: NodeDDNSView | null }) {
                   </span>
                   <span className="text-default-500">
                     {" "}
-                    · {r.currentIp || "—"} · {fmtTime(r.lastSyncAt)}
+                    · {r.currentIp || "—"}
                   </span>
+                </p>
+                <p className="text-default-500">
+                  上次同步：{fmtTime(r.lastSyncAt)}
                 </p>
                 {r.lastError ? (
                   <p className="break-all text-danger">{r.lastError}</p>

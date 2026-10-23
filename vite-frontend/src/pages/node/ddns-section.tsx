@@ -77,7 +77,7 @@ export const STATUS_META: Record<
   pending: { label: "待同步", color: "warning" },
   failed: { label: "失败", color: "danger" },
   noaddr: { label: "没有地址", color: "danger" },
-  upgrade: { label: "需要升级节点后生效", color: "warning" },
+  upgrade: { label: "需升级节点", color: "warning" },
 };
 
 const fmtTime = (ms: number) =>
