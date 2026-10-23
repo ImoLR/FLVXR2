@@ -230,9 +230,11 @@ export function BuiltinRuleList({
           <StateIcon on label="生效中（锁定，始终生效）" />
         </div>
       </div>
-      <div className="flex items-center gap-2 bg-default-100/70 px-3 py-1.5">
-        <ShieldCheck className="shrink-0 text-default-500" size={14} />
-        <span className="text-xs font-medium text-default-700">防滥用</span>
+      <div className="flex items-start gap-2 bg-default-100/70 px-3 py-1.5">
+        <ShieldCheck className="mt-0.5 shrink-0 text-default-500" size={14} />
+        <span className="shrink-0 whitespace-nowrap text-xs font-medium text-default-700">
+          防滥用
+        </span>
         <span className="min-w-0 text-xs text-default-500">
           {admin
             ? "全局开关；路由方案里的「默认防滥用规则」也要开着才生效"
