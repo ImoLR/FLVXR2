@@ -6,6 +6,7 @@ import { BuiltinRuleList, builtinScopeText } from "./egress-builtin-list";
 import { EgressRuleList } from "./egress-rule-list";
 
 import {
+  AbuseValues,
   EgressBuiltin,
   EgressGlobal,
   EgressOverview,
@@ -107,6 +108,8 @@ const snapshot = (g: {
 const fallbackBuiltin: EgressBuiltin = {
   safety: [],
   smtp: true,
+  mail: false,
+  telnet: false,
   bt: true,
   profilesOff: [],
 };
@@ -193,15 +196,18 @@ export function LandingGlobalRules({
 
   // Built-in rules in force on every node (a profile may still switch the
   // defaults off for its nodes): drives the 「内置已封锁」 preset hint.
+  const noProfileOff = !(builtin.profilesOff || []).length;
   const builtinActive = {
-    smtp: builtin.smtp && !(builtin.profilesOff || []).length,
-    bt: builtin.bt && !(builtin.profilesOff || []).length,
+    smtp: builtin.smtp && noProfileOff,
+    mail: builtin.mail && noProfileOff,
+    telnet: builtin.telnet && noProfileOff,
+    bt: builtin.bt && noProfileOff,
   };
   const warp = overview.outbounds.find((o) => o.type === "warp");
 
-  const saveBuiltin = async (next: { smtp: boolean; bt: boolean }) => {
+  const saveBuiltin = async (next: AbuseValues) => {
     setSaving("builtin");
-    const res = await saveEgressBuiltin(next.smtp, next.bt);
+    const res = await saveEgressBuiltin(next);
 
     setSaving("");
     if (res.code !== 0) {
@@ -280,18 +286,21 @@ export function LandingGlobalRules({
                 <h3 className="font-medium">内置</h3>
                 <p className="text-xs text-default-500">
                   {builtinScopeText}
-                  。安全规则锁定；屏蔽 SMTP 25 和 BT
-                  可在这里全局开关（路由方案里的「默认防滥用」也要开着才生效），开关后自动同步。
+                  。安全规则锁定；防滥用规则可在这里逐条全局开关（路由方案里的「默认防滥用规则」也要开着才生效），开关后自动同步。
                 </p>
               </div>
               <BuiltinRuleList
                 admin
-                bt={builtin.bt}
                 exemptNodeCount={overview.exemptNodeCount}
                 profilesOff={builtin.profilesOff}
                 safety={builtin.safety}
-                smtp={builtin.smtp}
                 switching={saving === "builtin"}
+                values={{
+                  smtp: builtin.smtp,
+                  mail: !!builtin.mail,
+                  telnet: !!builtin.telnet,
+                  bt: builtin.bt,
+                }}
                 whitelist={overview.whitelist || []}
                 onSwitch={(next) => void saveBuiltin(next)}
                 onWhitelistSaved={onWhitelistSaved}

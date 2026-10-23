@@ -187,7 +187,19 @@ export function NodeRulesDialog({
     (caps.unlimited || (rules.length < caps.perNode && totalUsed < caps.total));
   const chip = stateChip[view.state] || stateChip.syncing;
   // Plan 140: whether each built-in rule applies to this node.
-  const builtin = view.builtin || { safety: [], smtp: true, bt: true };
+  const builtin = view.builtin || {
+    safety: [],
+    smtp: true,
+    mail: false,
+    telnet: false,
+    bt: true,
+  };
+  const builtinValues = {
+    smtp: builtin.smtp,
+    mail: !!builtin.mail,
+    telnet: !!builtin.telnet,
+    bt: builtin.bt,
+  };
   const counters = caps.unlimited
     ? `本节点 ${rules.length} 条 · 管理员不限`
     : `本节点 ${rules.length}/${caps.perNode} · 总计 ${totalUsed}/${caps.total}`;
@@ -275,9 +287,9 @@ export function NodeRulesDialog({
                 </p>
               </div>
               <BuiltinRuleList
-                bt={builtin.bt}
+                offReasons={builtin.offReasons}
                 safety={builtin.safety}
-                smtp={builtin.smtp}
+                values={builtinValues}
               />
             </section>
             {view.global.active && view.global.forced.length > 0 && (
@@ -301,7 +313,7 @@ export function NodeRulesDialog({
                       ? undefined
                       : "已达到规则上限，删除后才能再添加"
                   }
-                  builtinActive={{ smtp: builtin.smtp, bt: builtin.bt }}
+                  builtinActive={builtinValues}
                   canAdd={canAdd}
                   choices={choices}
                   emptyText="还没有规则：按下面的服务器规则和默认出站转发"

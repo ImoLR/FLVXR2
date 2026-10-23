@@ -144,13 +144,24 @@ export interface EgressGlobal {
   builtin?: EgressBuiltin;
 }
 
-// Plan 140: 内置 rules. smtp / bt: admin view = global switch; node view =
-// whether the rule applies to that node.
-export interface EgressBuiltin {
+// Plan 140 / 143: 内置 防滥用 rows, in display order: SMTP 25, 发信端口
+// 465/587/2525, Telnet/SMB, BT.
+export type AbuseKey = "smtp" | "mail" | "telnet" | "bt";
+
+export const abuseKeys: AbuseKey[] = ["smtp", "mail", "telnet", "bt"];
+
+export type AbuseValues = Record<AbuseKey, boolean>;
+
+// Why a row is not in force on a node: switched off globally, by the node's
+// routing profile, or the server cannot apply rules yet.
+export type AbuseOffReason = "global" | "profile" | "pending";
+
+// Plan 140: 内置 rules. Abuse keys: admin view = global switch; node view =
+// whether the rule applies to that node (offReasons says why not).
+export interface EgressBuiltin extends AbuseValues {
   safety: string[];
-  smtp: boolean;
-  bt: boolean;
   profilesOff?: { id: number; name: string }[];
+  offReasons?: Partial<Record<AbuseKey, AbuseOffReason>>;
 }
 
 export interface RuleSummary {
@@ -231,7 +242,7 @@ export interface ServerEgressView {
   checkedAt: number;
   // Plan 127: active | off | global_off | restart | unsupported.
   abuseDefaults?: string;
-  // Plan 140: default rules switched on globally, e.g. ["SMTP 25", "BT"].
+  // Plan 140 / 143: default rules switched on globally, e.g. ["SMTP 25", "BT"].
   abuseRules?: string[];
   realityGuard?: RealityGuardView;
 }
@@ -246,17 +257,11 @@ export interface RealityGuardView {
 
 // The built-in anti-abuse rules the panel adds right after the safety rule
 // (compiled server-side; shown as locked rows).
-export const abuseDefaultRules = [
-  {
-    name: "默认：屏蔽 SMTP 25",
-    chips: ["目标端口 25", "TCP"],
-    hint: "防止落地被用来群发垃圾邮件；只影响经代理连 25 端口，不影响落地本机",
-  },
-  {
-    name: "默认：屏蔽 BT",
-    chips: ["协议 bittorrent"],
-    hint: "按流量特征识别 TCP 上的 BT 握手；uTP（UDP）、加密 BT 和 DHT 识别不了",
-  },
+export const abuseDefaultRules: { key: AbuseKey; name: string }[] = [
+  { key: "smtp", name: "默认：屏蔽 SMTP 25" },
+  { key: "mail", name: "默认：屏蔽发信端口" },
+  { key: "telnet", name: "默认：屏蔽 Telnet/SMB" },
+  { key: "bt", name: "默认：屏蔽 BT" },
 ];
 
 export const abuseDefaultsOn = (p?: Partial<EgressProfile> | null) =>
@@ -306,8 +311,8 @@ export const saveEgressUserCaps = (perNode: number, total: number) =>
     "/landing/egress/user-caps/save",
     { perNode, total },
   );
-export const saveEgressBuiltin = (smtp: boolean, bt: boolean) =>
-  Network.post<EgressGlobal>("/landing/egress/builtin/save", { smtp, bt });
+export const saveEgressBuiltin = (values: AbuseValues) =>
+  Network.post<EgressGlobal>("/landing/egress/builtin/save", values);
 export const getNodeRules = (id: number) =>
   Network.post<NodeRulesView>("/landing/node/rules/get", { id });
 export const saveNodeRules = (
@@ -516,7 +521,14 @@ export const toPresetRule = (rule: EgressRule): EgressPresetRule => {
 // Plan 140: which built-in rule already covers a rule (same match, block).
 // active = built-in rules in force where the rule would be added; the safety
 // rule (private / loopback / link-local / metadata / multicast) always is.
-export type BuiltinActive = { smtp: boolean; bt: boolean };
+export type BuiltinActive = AbuseValues;
+
+export const allAbuse = (on: boolean): AbuseValues => ({
+  smtp: on,
+  mail: on,
+  telnet: on,
+  bt: on,
+});
 
 export const builtinCover = (
   r: EgressPresetRule,
@@ -547,6 +559,20 @@ export const builtinCover = (
     !r.protocols.length
   )
     return "屏蔽 SMTP 25";
+  if (
+    active.mail &&
+    r.ports === "465,587,2525" &&
+    r.network === "tcp" &&
+    !r.protocols.length
+  )
+    return "屏蔽发信端口";
+  if (
+    active.telnet &&
+    r.ports === "23,135-139,445" &&
+    !r.network &&
+    !r.protocols.length
+  )
+    return "屏蔽 Telnet/SMB";
   if (
     active.bt &&
     !r.ports &&

@@ -363,24 +363,26 @@ export function ServerSettings({
             )}
             {egress?.abuseDefaults === "active" && !profileChanged && (
               <p className="text-xs text-default-500">
-                默认防滥用规则已生效：屏蔽{" "}
+                内置防滥用规则已生效：屏蔽{" "}
                 {(egress.abuseRules || ["SMTP 25", "BT"]).join("、")}
               </p>
             )}
             {egress?.abuseDefaults === "global_off" && !profileChanged && (
               <p className="text-xs text-default-500">
-                默认防滥用规则（屏蔽 SMTP 25、BT）已在「全局规则 → 内置」里关闭
+                内置防滥用规则（SMTP
+                25、发信端口、Telnet/SMB、BT）已在「全局规则 → 内置」里全部关闭
               </p>
             )}
             {egress?.abuseDefaults === "off" && !profileChanged && (
               <p className="text-xs text-default-500">
-                所选路由方案关闭了默认防滥用规则（屏蔽 SMTP 25、BT）
+                所选路由方案关闭了内置防滥用规则（SMTP
+                25、发信端口、Telnet/SMB、BT）
               </p>
             )}
             {abuseRestart && (
               <div className="space-y-2 rounded-lg bg-warning-50 p-3 text-xs text-warning">
                 <p>
-                  默认防滥用规则（屏蔽 SMTP 25、BT）和 Reality
+                  内置防滥用规则（SMTP 25、发信端口、Telnet/SMB、BT）和 Reality
                   防盗还没在这台服务器生效：落地 Core
                   是旧配置启动的，需要重启一次（约 1–3
                   秒，落地连接短暂中断），之后不再中断。

@@ -324,12 +324,15 @@ export default function LandingEgressTab() {
                   </p>
                   <div className="flex flex-wrap gap-1">
                     {abuseDefaultRules
-                      // Plan 140: only the default rules switched on globally.
-                      .filter((rule) =>
-                        rule.name.includes("BT")
-                          ? overview.global?.builtin?.bt !== false
-                          : overview.global?.builtin?.smtp !== false,
-                      )
+                      // Plan 140 / 143: only the default rules switched on
+                      // globally (SMTP / BT default on, the others off).
+                      .filter((rule) => {
+                        const b = overview.global?.builtin;
+
+                        return rule.key === "smtp" || rule.key === "bt"
+                          ? b?.[rule.key] !== false
+                          : !!b?.[rule.key];
+                      })
                       .map((rule) => (
                         <Chip
                           key={rule.name}

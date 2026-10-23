@@ -10,6 +10,7 @@ import {
   Trash2,
 } from "lucide-react";
 
+import { StateIcon } from "./egress-builtin-list";
 import { RuleEditor } from "./egress-rule-editor";
 import { PresetPicker } from "./egress-preset-picker";
 
@@ -76,7 +77,7 @@ export function EgressRuleList({
   emptyText,
   numberFrom = 1,
   labels,
-  builtinActive = { smtp: true, bt: true },
+  builtinActive = { smtp: true, mail: false, telnet: false, bt: true },
   safety = [],
   defaultChoice,
   savePreset = false,
@@ -170,15 +171,6 @@ export function EgressRuleList({
                   >
                     → {choiceLabel(rule.action, labels || choices)}
                   </Chip>
-                  {!rule.enabled && (
-                    <Chip
-                      className="text-default-600"
-                      size="sm"
-                      variant="bordered"
-                    >
-                      已停用
-                    </Chip>
-                  )}
                 </div>
                 <div className="flex flex-wrap gap-1">
                   {ruleAttributeChips(rule).map((chip) => (
@@ -195,6 +187,9 @@ export function EgressRuleList({
               </div>
             </div>
             <div className="flex shrink-0 items-center gap-1 self-end sm:self-auto">
+              {!rule.enabled && (
+                <StateIcon label="未生效：已停用，不会下发" on={false} />
+              )}
               <Switch
                 aria-label={rule.enabled ? "停用规则" : "启用规则"}
                 isSelected={rule.enabled}

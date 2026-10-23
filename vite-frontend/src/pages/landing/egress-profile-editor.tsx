@@ -12,7 +12,7 @@ import {
   Trash2,
 } from "lucide-react";
 
-import { BuiltinRuleList } from "./egress-builtin-list";
+import { BuiltinRuleList, StateIcon } from "./egress-builtin-list";
 import { PresetPicker } from "./egress-preset-picker";
 import { RuleEditor } from "./egress-rule-editor";
 
@@ -100,9 +100,17 @@ export function ProfileEditor({
   // default rules apply to its nodes.
   const builtin = overview.global?.builtin;
   const safety = builtin?.safety || [];
+  const globalOn = {
+    smtp: builtin?.smtp !== false,
+    mail: !!builtin?.mail,
+    telnet: !!builtin?.telnet,
+    bt: builtin?.bt !== false,
+  };
   const active = {
-    smtp: abuseOn && builtin?.smtp !== false,
-    bt: abuseOn && builtin?.bt !== false,
+    smtp: abuseOn && globalOn.smtp,
+    mail: abuseOn && globalOn.mail,
+    telnet: abuseOn && globalOn.telnet,
+    bt: abuseOn && globalOn.bt,
   };
   const choices = overview.outbounds.map((o) => ({ id: o.id, name: o.name }));
 
@@ -221,8 +229,8 @@ export function ProfileEditor({
                   <div className="min-w-0 space-y-0.5">
                     <p className="text-sm font-medium">默认防滥用规则</p>
                     <p className="text-xs text-default-500">
-                      紧跟安全规则：屏蔽 TCP 25 发信和 BT
-                      下载。仅管理员可见；关闭后使用本方案的节点不再封锁。
+                      紧跟安全规则：内置的 4 条防滥用规则（SMTP 25、发信端口
+                      465/587/2525、Telnet/SMB、BT，以全局开关为准）。仅管理员可见；关闭后使用本方案的节点不再封锁这些。
                     </p>
                   </div>
                 </div>
@@ -236,10 +244,9 @@ export function ProfileEditor({
               </div>
               <BuiltinRuleList
                 admin
-                bt={builtin?.bt !== false}
                 profileOff={!abuseOn}
                 safety={safety}
-                smtp={builtin?.smtp !== false}
+                values={globalOn}
               />
               <div className="divide-y divide-divider rounded-lg border border-divider">
                 {rules.map((rule, index) => (
@@ -263,15 +270,6 @@ export function ProfileEditor({
                           >
                             → {actionLabel(rule.action, overview.outbounds)}
                           </Chip>
-                          {!rule.enabled && (
-                            <Chip
-                              className="text-default-600"
-                              size="sm"
-                              variant="bordered"
-                            >
-                              已停用
-                            </Chip>
-                          )}
                           {rule.enabled &&
                             builtinCover(rule, active, safety) && (
                               <Chip color="success" size="sm" variant="flat">
@@ -294,6 +292,12 @@ export function ProfileEditor({
                       </div>
                     </div>
                     <div className="flex shrink-0 items-center gap-1 self-end sm:self-auto">
+                      {!rule.enabled && (
+                        <StateIcon
+                          label="未生效：已停用，不会下发"
+                          on={false}
+                        />
+                      )}
                       <Switch
                         aria-label={rule.enabled ? "停用规则" : "启用规则"}
                         isSelected={rule.enabled}
