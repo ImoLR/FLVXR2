@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useReducer } from "react";
+import React, { useState, useEffect, useReducer, useRef, useCallback } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { toast } from "react-hot-toast";
 import { AnimatePresence, motion } from "framer-motion";
@@ -33,6 +33,7 @@ import { PROJECT_REPOSITORY_URL, siteConfig } from "@/config/site";
 import { useMobileBreakpoint } from "@/hooks/useMobileBreakpoint";
 import { getAdminFlag, getSessionName } from "@/utils/session";
 import { useThemeContext } from "@/themes/context";
+import { usePoweredBadgeClear } from "@/hooks/usePoweredBadgeClear";
 
 interface MenuItem {
   path: string;
@@ -88,6 +89,13 @@ export default function AdminLayout({
     () => localStorage.getItem(POWERED_BADGE_VISIBILITY_KEY) !== "false",
   );
   const [, forceUpdate] = useReducer((x: number) => x + 1, 0);
+  const mainRef = useRef<HTMLElement | null>(null);
+  const getMain = useCallback(() => mainRef.current, []);
+  const poweredBadgeClear = usePoweredBadgeClear(
+    getMain,
+    poweredBadgeVisible,
+    location.pathname,
+  );
 
   useEffect(() => {
     getStoreStatus()
@@ -909,7 +917,10 @@ export default function AdminLayout({
         </header>
 
         {/* 主内容 */}
-        <main className="flvx-luminous-main flex-1 overflow-y-auto">
+        <main
+          ref={mainRef}
+          className="flvx-luminous-main flex-1 overflow-y-auto"
+        >
           <AnimatePresence mode="wait">
             <motion.div
               key={location.pathname}
@@ -931,7 +942,7 @@ export default function AdminLayout({
         </main>
       </div>
 
-      {poweredBadgeVisible && (
+      {poweredBadgeVisible && poweredBadgeClear && (
         <div className="flvx-powered-badge" aria-label="Powered by FLVX">
           Powered by{" "}
           <a

@@ -964,6 +964,7 @@ export default function TunnelPage() {
     const state = location.state as {
       leikwanPipe?: LeiKwanPipe;
       leikwanEditTunnelId?: number;
+      leikwanDeleteTunnelId?: number;
     } | null;
 
     if (
@@ -974,7 +975,15 @@ export default function TunnelPage() {
     )
       return;
     pipeNavigationHandled.current = location.key;
-    if (state.leikwanEditTunnelId) {
+    if (state.leikwanDeleteTunnelId) {
+      // From 利群汇聚 「利群侧已删除」: the regular delete dialog.
+      const tunnel = tunnels.find(
+        (item) => item.id === state.leikwanDeleteTunnelId,
+      );
+
+      if (tunnel) void handleDelete(tunnel);
+      else toast.error("未找到管道关联的隧道，请刷新利群页面");
+    } else if (state.leikwanEditTunnelId) {
       const tunnel = tunnels.find(
         (item) => item.id === state.leikwanEditTunnelId,
       );
@@ -2648,9 +2657,17 @@ export default function TunnelPage() {
       return [] as Tunnel[];
     }
 
+    // Only tunnels every rule owner may use (backend preview); older backends
+    // without the field keep the previous behaviour.
+    const allowed = tunnelDeletePreview?.allowedTargetTunnelIds;
+    const allowedSet = Array.isArray(allowed) ? new Set(allowed) : null;
+
     return tunnels
       .filter(
-        (tunnel) => tunnel.id !== tunnelToDelete.id && tunnel.status === 1,
+        (tunnel) =>
+          tunnel.id !== tunnelToDelete.id &&
+          tunnel.status === 1 &&
+          (!allowedSet || allowedSet.has(tunnel.id)),
       )
       .sort((a, b) => {
         const aInx = a.inx ?? 0;
@@ -2658,7 +2675,7 @@ export default function TunnelPage() {
 
         return aInx - bInx;
       });
-  }, [tunnelToDelete, tunnels]);
+  }, [tunnelToDelete, tunnels, tunnelDeletePreview?.allowedTargetTunnelIds]);
 
   useEffect(() => {
     if (!deleteModalOpen) {
@@ -2713,15 +2730,23 @@ export default function TunnelPage() {
       return [] as Tunnel[];
     }
 
+    const allowed = batchDeletePreview?.allowedTargetTunnelIds;
+    const allowedSet = Array.isArray(allowed) ? new Set(allowed) : null;
+
     return tunnels
-      .filter((tunnel) => !selectedIds.has(tunnel.id) && tunnel.status === 1)
+      .filter(
+        (tunnel) =>
+          !selectedIds.has(tunnel.id) &&
+          tunnel.status === 1 &&
+          (!allowedSet || allowedSet.has(tunnel.id)),
+      )
       .sort((a, b) => {
         const aInx = a.inx ?? 0;
         const bInx = b.inx ?? 0;
 
         return aInx - bInx;
       });
-  }, [selectedIds, tunnels]);
+  }, [selectedIds, tunnels, batchDeletePreview?.allowedTargetTunnelIds]);
 
   useEffect(() => {
     if (!batchDeleteModalOpen) {
@@ -5262,7 +5287,7 @@ export default function TunnelPage() {
                     {deleteReplaceUnavailable ? (
                       <Alert
                         color="warning"
-                        description="当前没有其他启用中的隧道可用于承接这些规则，只能删除关联规则后再删除该隧道。"
+                        description="没有所有规则主人都有权限的其他启用隧道，只能删除关联规则后再删除该隧道。"
                         variant="flat"
                       />
                     ) : null}
@@ -5292,7 +5317,7 @@ export default function TunnelPage() {
                           ))}
                         </Select>
                         <p className="text-xs text-default-500">
-                          关联规则会迁移到这里，当前要删除的隧道不会出现在可选项里。
+                          关联规则会迁移到这里。只列出所有规则主人都有权限的隧道，当前要删除的隧道不会出现在可选项里。
                         </p>
                       </div>
                     ) : null}
@@ -6024,7 +6049,7 @@ export default function TunnelPage() {
                     {batchDeleteReplaceUnavailable ? (
                       <Alert
                         color="warning"
-                        description="当前没有可承接这些规则的启用隧道，只能删除关联规则后再删除所选隧道。"
+                        description="没有所有规则主人都有权限的启用隧道，只能删除关联规则后再删除所选隧道。"
                         variant="flat"
                       />
                     ) : null}
@@ -6055,7 +6080,7 @@ export default function TunnelPage() {
                           ))}
                         </Select>
                         <p className="text-xs text-default-500">
-                          所有关联规则都会迁移到这里，删除列表中的隧道不会出现在可选项里。
+                          所有关联规则都会迁移到这里。只列出所有规则主人都有权限的隧道，删除列表中的隧道不会出现在可选项里。
                         </p>
                       </div>
                     ) : null}

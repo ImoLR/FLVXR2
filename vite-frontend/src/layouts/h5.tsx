@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useReducer } from "react";
+import React, { useState, useEffect, useReducer, useCallback } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { toast } from "react-hot-toast";
 
@@ -31,6 +31,7 @@ import { PROJECT_REPOSITORY_URL, siteConfig } from "@/config/site";
 import { getAdminFlag, getSessionName } from "@/utils/session";
 import { useScrollTopOnPathChange } from "@/hooks/useScrollTopOnPathChange";
 import { useThemeContext } from "@/themes/context";
+import { usePoweredBadgeClear } from "@/hooks/usePoweredBadgeClear";
 import { GlobalPullToRefresh } from "@/components/global-pull-to-refresh";
 
 interface MenuItem {
@@ -69,6 +70,15 @@ export default function H5Layout({ children }: { children: React.ReactNode }) {
     () => localStorage.getItem(POWERED_BADGE_VISIBILITY_KEY) !== "false",
   );
   const restricted = isRestricted();
+  const getMain = useCallback(
+    () => document.getElementById("h5-main") as HTMLElement | null,
+    [],
+  );
+  const poweredBadgeClear = usePoweredBadgeClear(
+    getMain,
+    poweredBadgeVisible,
+    location.pathname,
+  );
   const [passwordLoading, setPasswordLoading] = useState(false);
   const [passwordForm, setPasswordForm] = useState<PasswordForm>({
     newUsername: "",
@@ -791,7 +801,7 @@ export default function H5Layout({ children }: { children: React.ReactNode }) {
         </button>
       </nav>
 
-      {poweredBadgeVisible && (
+      {poweredBadgeVisible && poweredBadgeClear && (
         <div className="flvx-powered-badge" aria-label="Powered by FLVX">
           Powered by{" "}
           <a href={PROJECT_REPOSITORY_URL} rel="noopener noreferrer" target="_blank">

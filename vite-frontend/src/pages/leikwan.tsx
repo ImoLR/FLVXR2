@@ -14,6 +14,7 @@ import toast from "react-hot-toast";
 import { getNodeList } from "@/api";
 import {
   createLeiKwanPipe,
+  deleteLeiKwanPipe,
   deleteLeiKwanAccount,
   formatLeiKwanTarget,
   leiKwanNodeHost,
@@ -84,6 +85,8 @@ export default function LeiKwanPage() {
   const [saving, setSaving] = useState(false);
   const [pipeDialog, setPipeDialog] = useState<PipeDialog | null>(null);
   const [progressPipeId, setProgressPipeId] = useState<number | null>(null);
+  const [removeMissingPipe, setRemoveMissingPipe] =
+    useState<LeiKwanPipe | null>(null);
   const overviewGeneration = useRef(0);
   const dialogGeneration = useRef(0);
 
@@ -677,6 +680,83 @@ export default function LeiKwanPage() {
                       </div>
                     ))}
                   </div>
+                  {(overview.missingPipes?.length ?? 0) > 0 && (
+                    <div className="space-y-3 rounded-xl border border-danger-200 p-4">
+                      <div>
+                        <p className="font-medium text-danger">利群侧已删除</p>
+                        <p className="mt-1 text-xs text-default-500">
+                          这些管道还在 FLVX 里，但利群返回的转发列表里已经没有了，经过它们的隧道不会再有流量。请删除或改用其他管道。
+                        </p>
+                      </div>
+                      {overview.missingPipes!.map(({ pipe, tunnelName }) => (
+                        <div
+                          key={pipe.id}
+                          className="flex flex-wrap items-center justify-between gap-3 border-t border-divider pt-3 first:border-t-0 first:pt-0"
+                        >
+                          <div className="min-w-0 space-y-1">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="font-medium">
+                                #{pipe.forwardId} · {pipe.routeLabel}
+                              </span>
+                              <Chip color="danger" size="sm" variant="flat">
+                                利群侧已删除
+                              </Chip>
+                            </div>
+                            <p className="break-all font-mono text-xs">
+                              :{pipe.listenPort} · {pipe.transport} →{" "}
+                              {formatLeiKwanTarget(
+                                pipe.targetHost,
+                                pipe.landingPort,
+                              )}
+                            </p>
+                            <p className="text-xs text-default-500">
+                              {pipe.tunnelId
+                                ? `隧道：${tunnelName || `#${pipe.tunnelId}`}`
+                                : "管道未绑定隧道"}
+                            </p>
+                          </div>
+                          <div className="flex flex-wrap gap-2">
+                            {pipe.tunnelId ? (
+                              <>
+                                <Button
+                                  color="primary"
+                                  size="sm"
+                                  variant="flat"
+                                  onPress={() => editTunnel(pipe)}
+                                >
+                                  编辑隧道
+                                </Button>
+                                <Button
+                                  color="danger"
+                                  size="sm"
+                                  variant="flat"
+                                  onPress={() =>
+                                    navigate("/tunnel", {
+                                      state: {
+                                        leikwanPipe: pipe,
+                                        leikwanDeleteTunnelId: pipe.tunnelId,
+                                      },
+                                    })
+                                  }
+                                >
+                                  删除隧道
+                                </Button>
+                              </>
+                            ) : (
+                              <Button
+                                color="danger"
+                                size="sm"
+                                variant="flat"
+                                onPress={() => setRemoveMissingPipe(pipe)}
+                              >
+                                删除记录
+                              </Button>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </>
               )
             )}
@@ -1005,6 +1085,60 @@ export default function LeiKwanPage() {
               onPress={() => void savePipe()}
             >
               {pipeDialog?.confirm ? "确认保存" : "下一步"}
+            </Button>
+          </ModalFooter>
+        </ModalContent>
+      </Modal>
+      <Modal
+        isOpen={!!removeMissingPipe}
+        placement="center"
+        onOpenChange={(open) => {
+          if (!open && !saving) setRemoveMissingPipe(null);
+        }}
+      >
+        <ModalContent>
+          <ModalHeader>删除管道记录</ModalHeader>
+          <ModalBody>
+            <p className="text-sm">
+              利群返回的转发列表里已经没有 #{removeMissingPipe?.forwardId}。确认删除 FLVX 里的这条管道记录？
+            </p>
+            <p className="text-xs text-default-500">
+              面板会先向利群确认；如果这条转发其实还在，会一起从利群删除，并影响共用这个账号的所有设备。
+            </p>
+          </ModalBody>
+          <ModalFooter>
+            <Button
+              color="danger"
+              isDisabled={saving}
+              variant="flat"
+              onPress={() => setRemoveMissingPipe(null)}
+            >
+              取消
+            </Button>
+            <Button
+              color="danger"
+              isLoading={saving}
+              onPress={async () => {
+                if (!removeMissingPipe) return;
+                setSaving(true);
+                const response = await deleteLeiKwanPipe({
+                  pipeId: removeMissingPipe.id,
+                  etag: removeMissingPipe.etag,
+                  confirmed: true,
+                });
+
+                setSaving(false);
+                if (response.code !== 0) {
+                  toast.error(response.msg || "删除失败");
+
+                  return;
+                }
+                setRemoveMissingPipe(null);
+                toast.success("管道记录已删除");
+                void loadOverview(accountId);
+              }}
+            >
+              删除
             </Button>
           </ModalFooter>
         </ModalContent>

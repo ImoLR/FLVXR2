@@ -540,6 +540,7 @@ export interface TunnelDeletePreviewApiData {
   tunnelName: string;
   forwardCount: number;
   sampleForwards: TunnelDeletePreviewForwardApiItem[];
+  allowedTargetTunnelIds?: number[] | null;
   [key: string]: unknown;
 }
 
@@ -547,6 +548,7 @@ export interface TunnelBatchDeletePreviewApiData {
   tunnelCount: number;
   totalForwardCount: number;
   items: TunnelDeletePreviewApiData[];
+  allowedTargetTunnelIds?: number[] | null;
   [key: string]: unknown;
 }
 

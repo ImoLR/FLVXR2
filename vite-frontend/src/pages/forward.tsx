@@ -305,6 +305,10 @@ const UNKNOWN_FORWARD_USER_NAME = "未知用户";
 const UNCATEGORIZED_FORWARD_TUNNEL_NAME = "未分类";
 const FORWARD_COMPACT_MODE_CONFIG_KEY = "forward_compact_mode";
 const FORWARD_COMPACT_MODE_EVENT = "forwardCompactModeChanged";
+const FORWARD_POLL_INTERVAL_MS = 15000;
+// Federation share usage changes slowly; fetched on page load, then at most
+// every 5 minutes instead of on every list refresh (plan 136 F17).
+const FEDERATION_SHARE_CACHE_MS = 5 * 60 * 1000;
 const FORWARD_GROUP_ORDER_CONFIG_KEY = "forward_group_order_map";
 const FORWARD_GROUP_COLLAPSED_CONFIG_KEY = "forward_group_collapsed_map";
 const FORWARD_GROUP_ORDER_LOCAL_STORAGE_PREFIX = "forward-group-order";
@@ -489,6 +493,36 @@ const sanitizeGroupOrderMap = (
 
   return sanitized;
 };
+// Applies a reorder of the visible groups to the stored order while keeping
+// groups that are not on screen (paging / filters) where they were.
+const mergeVisibleGroupOrder = (
+  stored: string[],
+  visibleOrder: string[],
+): string[] => {
+  const visible = new Set(visibleOrder);
+  const queue = [...visibleOrder];
+  const seen = new Set<string>();
+  const result: string[] = [];
+
+  stored.forEach((key) => {
+    if (seen.has(key)) {
+      return;
+    }
+    seen.add(key);
+    if (!visible.has(key)) {
+      result.push(key);
+
+      return;
+    }
+    const next = queue.shift();
+
+    if (next !== undefined) {
+      result.push(next);
+    }
+  });
+
+  return result.concat(queue);
+};
 const sanitizeGroupCollapsedMap = (
   source: ForwardGroupCollapsedMap,
   availableCollapseKeys: Set<string>,
@@ -561,54 +595,6 @@ const buildAvailableGroupData = (
   });
 
   return { availableTunnelKeysByUser, availableCollapseKeys };
-};
-const isSameStringArray = (a: string[], b: string[]): boolean => {
-  if (a.length !== b.length) {
-    return false;
-  }
-  for (let i = 0; i < a.length; i += 1) {
-    if (a[i] !== b[i]) {
-      return false;
-    }
-  }
-
-  return true;
-};
-const isSameGroupOrderMap = (
-  a: ForwardGroupOrderMap,
-  b: ForwardGroupOrderMap,
-): boolean => {
-  const aKeys = Object.keys(a).sort(compareForwardTunnelNameAsc);
-  const bKeys = Object.keys(b).sort(compareForwardTunnelNameAsc);
-
-  if (!isSameStringArray(aKeys, bKeys)) {
-    return false;
-  }
-  for (const key of aKeys) {
-    if (!isSameStringArray(a[key] || [], b[key] || [])) {
-      return false;
-    }
-  }
-
-  return true;
-};
-const isSameGroupCollapsedMap = (
-  a: ForwardGroupCollapsedMap,
-  b: ForwardGroupCollapsedMap,
-): boolean => {
-  const aKeys = Object.keys(a).sort(compareForwardTunnelNameAsc);
-  const bKeys = Object.keys(b).sort(compareForwardTunnelNameAsc);
-
-  if (!isSameStringArray(aKeys, bKeys)) {
-    return false;
-  }
-  for (const key of aKeys) {
-    if (a[key] !== b[key]) {
-      return false;
-    }
-  }
-
-  return true;
 };
 const normalizeForwardItems = (items: Forward[]): Forward[] => {
   return items.map((forward) => ({
@@ -2079,6 +2065,11 @@ export default function ForwardPage() {
 
     return Number.isFinite(shareId) && shareId > 0 ? shareId : null;
   };
+  const federationShareCacheRef = useRef<{
+    at: number;
+    usage: Awaited<ReturnType<typeof getPeerRemoteUsageList>>;
+    shares: Awaited<ReturnType<typeof getPeerShareList>>;
+  } | null>(null);
   const mergeFederationShareFlow = useCallback(
     async (forwardsData: Forward[]): Promise<Forward[]> => {
       // Federation shares are admin-only (non-admins only got two 403s).
@@ -2086,10 +2077,20 @@ export default function ForwardPage() {
         return forwardsData;
       }
       try {
-        const [usageRes, localShareRes] = await Promise.all([
-          getPeerRemoteUsageList(),
-          getPeerShareList(),
-        ]);
+        const cached = federationShareCacheRef.current;
+        const fresh =
+          cached && Date.now() - cached.at < FEDERATION_SHARE_CACHE_MS;
+        const [usageRes, localShareRes] = fresh
+          ? [cached.usage, cached.shares]
+          : await Promise.all([getPeerRemoteUsageList(), getPeerShareList()]);
+
+        if (!fresh && usageRes.code === 0 && localShareRes.code === 0) {
+          federationShareCacheRef.current = {
+            at: Date.now(),
+            usage: usageRes,
+            shares: localShareRes,
+          };
+        }
         const flowByShare = new Map<number, number>();
         const shareIdsByTunnel = new Map<number, Set<number>>();
 
@@ -2405,16 +2406,25 @@ export default function ForwardPage() {
     loadData();
   }, [loadData]);
   usePullToRefresh(loadData);
-  // 定时刷新连接数（每5秒）
+  // 定时刷新连接数（每 15 秒，plan 136 F17：原 5 秒）；标签页隐藏时暂停，切回时立即刷新
   useEffect(() => {
-    const interval = setInterval(() => {
+    const refreshIfIdle = () => {
       // 只在页面可见时刷新，且不在加载中
       if (!document.hidden && !loading && !isTogglingRef.current) {
         refreshForwardList(false);
       }
-    }, 5000);
+    };
+    const interval = setInterval(refreshIfIdle, FORWARD_POLL_INTERVAL_MS);
+    const onVisibility = () => {
+      if (!document.hidden) refreshIfIdle();
+    };
 
-    return () => clearInterval(interval);
+    document.addEventListener("visibilitychange", onVisibility);
+
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
   }, [loading, refreshForwardList]);
   // 表单验证
   const noLimitSpeedLimitIds = useMemo(() => {
@@ -3693,7 +3703,7 @@ export default function ForwardPage() {
         return;
       }
       const userIdKey = activeGroup.userId.toString();
-      const currentOrder = groupOrderMap[userIdKey] || [];
+      const currentOrder = sanitizedGroupOrderMap[userIdKey] || [];
       const oldIndex = currentOrder.indexOf(activeGroup.tunnelKey);
       const newIndex = currentOrder.indexOf(overGroup.tunnelKey);
 
@@ -3703,7 +3713,10 @@ export default function ForwardPage() {
       const moved = arrayMove(currentOrder, oldIndex, newIndex);
       const nextOrderMap: ForwardGroupOrderMap = {
         ...groupOrderMap,
-        [userIdKey]: moved,
+        [userIdKey]: mergeVisibleGroupOrder(
+          groupOrderMap[userIdKey] || [],
+          moved,
+        ),
       };
 
       setGroupOrderMap(nextOrderMap);
@@ -4180,37 +4193,9 @@ export default function ForwardPage() {
     [collapsedTunnelGroups, availableGroupData],
   );
 
-  useEffect(() => {
-    if (!groupPreferenceHydrated || tokenUserId === null) {
-      return;
-    }
-    if (forwards.length === 0) {
-      return;
-    }
-    if (!isSameGroupOrderMap(groupOrderMap, sanitizedGroupOrderMap)) {
-      setGroupOrderMap(sanitizedGroupOrderMap);
-      persistGroupOrderToLocal(sanitizedGroupOrderMap);
-      void persistGroupOrderToGlobal(sanitizedGroupOrderMap);
-    }
-    if (
-      !isSameGroupCollapsedMap(
-        collapsedTunnelGroups,
-        sanitizedCollapsedTunnelGroups,
-      )
-    ) {
-      setCollapsedTunnelGroups(sanitizedCollapsedTunnelGroups);
-      persistGroupCollapsedToLocal(sanitizedCollapsedTunnelGroups);
-      void persistGroupCollapsedToGlobal(sanitizedCollapsedTunnelGroups);
-    }
-  }, [
-    groupPreferenceHydrated,
-    tokenUserId,
-    forwards,
-    groupOrderMap,
-    sanitizedGroupOrderMap,
-    collapsedTunnelGroups,
-    sanitizedCollapsedTunnelGroups,
-  ]);
+  // The sanitized maps are only used for display. Opening the page never writes
+  // preferences back (no global config write, and groups hidden by paging or
+  // filters keep their stored order); only drag / collapse actions save.
   const groupedForwards = useMemo((): ForwardUserGroup[] => {
     if (orderedForwards.length === 0) {
       return [];
@@ -4555,7 +4540,7 @@ export default function ForwardPage() {
   const toggleTunnelGroupCollapsed = (userId: number, tunnelKey: string) => {
     const collapseKey = buildTunnelGroupCollapseKey(userId, tunnelKey);
     const nextCollapsedMap: ForwardGroupCollapsedMap = {
-      ...sanitizedCollapsedTunnelGroups,
+      ...collapsedTunnelGroups,
     };
 
     if (nextCollapsedMap[collapseKey] === true) {

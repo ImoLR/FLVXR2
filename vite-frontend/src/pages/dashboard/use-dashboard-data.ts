@@ -88,7 +88,9 @@ const normalizeDashboardRenewalCycle = (
   return normalizeNodeRenewalCycle(value);
 };
 
-const DASHBOARD_POLL_INTERVAL_MS = 5000;
+// Plan 136 (F17): was 5 s. Paused while the tab is hidden; refreshed at once
+// when it becomes visible again.
+const DASHBOARD_POLL_INTERVAL_MS = 30000;
 const EXPIRATION_NOTIFICATION_STORAGE_KEY =
   "dashboard:last-expiration-notification";
 

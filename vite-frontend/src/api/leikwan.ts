@@ -59,6 +59,8 @@ export interface LeiKwanOverview {
     transports: string[];
   };
   forwards: LeiKwanForward[];
+  // Pipes FLVX still stores whose forward LeiKwan no longer lists.
+  missingPipes?: Array<{ pipe: LeiKwanPipe; tunnelName?: string }>;
 }
 
 export interface LeiKwanCheck {
@@ -111,6 +113,11 @@ export const createLeiKwanPipe = (data: {
   landingPort: number;
   requestId: string;
 }) => Network.post<LeiKwanPipe>("/leikwan/pipe/create", data);
+export const deleteLeiKwanPipe = (data: {
+  pipeId: number;
+  etag: string;
+  confirmed: boolean;
+}) => Network.post("/leikwan/pipe/delete", data);
 export const checkLeiKwanPipe = (pipeId: number, signal: AbortSignal) =>
   Network.post<LeiKwanCheck>(
     "/leikwan/pipe/check",
