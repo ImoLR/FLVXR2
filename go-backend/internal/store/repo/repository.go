@@ -961,12 +961,29 @@ func (r *Repository) UpdateNodeStatus(nodeID int64, status int) error {
 	}).Error
 }
 
+// MarkLocalNodesOffline clears the stored online flag of every local (non
+// federation) node without a live agent session. The flag is only ever set by
+// an agent connecting, so after a panel restart nothing may claim "online"
+// until the agent is back. Remote nodes keep their federation-synced status.
+func (r *Repository) MarkLocalNodesOffline(connected []int64) (int64, error) {
+	if r == nil || r.db == nil {
+		return 0, errors.New("repository not initialized")
+	}
+	q := r.db.Model(&model.Node{}).Where("status = 1 AND (is_remote = 0 OR is_remote IS NULL)")
+	if len(connected) > 0 {
+		q = q.Where("id NOT IN ?", connected)
+	}
+	res := q.Updates(map[string]interface{}{"status": 0, "updated_time": unixMilliNow()})
+	return res.RowsAffected, res.Error
+}
+
 // UpdateNodeServiceName 更新节点服务名
 func (r *Repository) UpdateNodeServiceName(nodeID int64, serviceName string) error {
 	if r == nil || r.db == nil {
 		return errors.New("repository not initialized")
 	}
-	return r.db.Model(&model.Node{}).Where("id = ?", nodeID).Updates(map[string]interface{}{
+	// Unchanged names write nothing (agents repeat it in every report).
+	return r.db.Model(&model.Node{}).Where("id = ? AND (service_name IS NULL OR service_name <> ?)", nodeID, serviceName).Updates(map[string]interface{}{
 		"service_name": serviceName, "updated_time": unixMilliNow(),
 	}).Error
 }

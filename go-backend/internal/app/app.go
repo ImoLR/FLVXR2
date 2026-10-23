@@ -58,6 +58,9 @@ func New(cfg config.Config) (*App, error) {
 
 func (a *App) Run() error {
 	if a.h != nil {
+		// Before serving: no agent can be connected yet, so a stored "online"
+		// is left over from the previous process.
+		a.h.ResetNodeOnlineState()
 		a.h.StartBackgroundJobs()
 	}
 	return a.server.ListenAndServe()

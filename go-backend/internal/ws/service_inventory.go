@@ -2,6 +2,22 @@ package ws
 
 import "sort"
 
+// ConnectedNodeIDs returns the nodes with a live agent session right now.
+func (s *Server) ConnectedNodeIDs() []int64 {
+	if s == nil {
+		return nil
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	ids := make([]int64, 0, len(s.nodes))
+	for id, ns := range s.nodes {
+		if ns != nil {
+			ids = append(ids, id)
+		}
+	}
+	return ids
+}
+
 // ServiceInventorySnapshot distinguishes an empty report from no report, and
 // only returns data from the current WS session. Callers must check freshness.
 func (s *Server) ServiceInventorySnapshot(nodeID int64) (names []string, updatedAt int64, online bool) {

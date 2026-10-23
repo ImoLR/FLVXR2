@@ -26,6 +26,54 @@ func (r *Repository) UserTunnelExistsByUserAndTunnel(userID, tunnelID int64) (bo
 	return count > 0, nil
 }
 
+// UserTunnelGrantSets returns the role of each existing user and the tunnels
+// each one holds an enabled grant on (direct or group-created user_tunnel
+// rows). Two queries for any number of users.
+func (r *Repository) UserTunnelGrantSets(userIDs []int64) (map[int64]int, map[int64]map[int64]bool, error) {
+	if r == nil || r.db == nil {
+		return nil, nil, errors.New("repository not initialized")
+	}
+	roles := make(map[int64]int, len(userIDs))
+	grants := make(map[int64]map[int64]bool, len(userIDs))
+	if len(userIDs) == 0 {
+		return roles, grants, nil
+	}
+	var users []struct {
+		ID     int64
+		RoleID int
+	}
+	if err := r.db.Model(&model.User{}).Select("id, role_id").Where("id IN ?", userIDs).Find(&users).Error; err != nil {
+		return nil, nil, err
+	}
+	for _, u := range users {
+		roles[u.ID] = u.RoleID
+	}
+	var rows []struct {
+		UserID   int64
+		TunnelID int64
+	}
+	if err := r.db.Model(&model.UserTunnel{}).Select("user_id, tunnel_id").Where("user_id IN ? AND status = 1", userIDs).Find(&rows).Error; err != nil {
+		return nil, nil, err
+	}
+	for _, row := range rows {
+		if grants[row.UserID] == nil {
+			grants[row.UserID] = map[int64]bool{}
+		}
+		grants[row.UserID][row.TunnelID] = true
+	}
+	return roles, grants, nil
+}
+
+// ListEnabledTunnelIDs returns enabled tunnels in display order.
+func (r *Repository) ListEnabledTunnelIDs() ([]int64, error) {
+	if r == nil || r.db == nil {
+		return nil, errors.New("repository not initialized")
+	}
+	ids := make([]int64, 0)
+	err := r.db.Model(&model.Tunnel{}).Where("status = 1").Order("inx ASC, id ASC").Pluck("id", &ids).Error
+	return ids, err
+}
+
 func (r *Repository) ListForwardsByTunnel(tunnelID int64) ([]model.ForwardRecord, error) {
 	if r == nil || r.db == nil {
 		return nil, errors.New("repository not initialized")

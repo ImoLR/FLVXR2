@@ -60,6 +60,26 @@ type nodeSession struct {
 	secret          string
 	conn            *connWrap
 	crypto          *security.AESCrypto // 缓存的 AES 加密器，避免每条消息重建
+	// Last metric forwarded to browser sessions (read loop only, no lock).
+	lastBrowserMetric time.Time
+	serviceName       string // last stored service_name (read loop only)
+}
+
+// browserMetricInterval: browser views (node list, monitor, status page) get
+// at most one metric per node per interval; agents report every second. The
+// panel-side recording (machine sample, metrics ingestion) still sees every
+// report. Tests may lower it.
+var browserMetricInterval atomic.Int64
+
+func init() { browserMetricInterval.Store(int64(1500 * time.Millisecond)) }
+
+// browserMetricDue is called from the node's read loop only.
+func (ns *nodeSession) browserMetricDue(now time.Time) bool {
+	if !ns.lastBrowserMetric.IsZero() && now.Sub(ns.lastBrowserMetric) < time.Duration(browserMetricInterval.Load()) {
+		return false
+	}
+	ns.lastBrowserMetric = now
+	return true
 }
 
 type commandResponse struct {
@@ -447,8 +467,11 @@ func (s *Server) handleNode(w http.ResponseWriter, r *http.Request, nodeID int64
 						s.serviceConnections[nodeID] = sysInfo.ServiceConnections
 						s.serviceConnUpdateTime[nodeID] = time.Now().Unix()
 						// 更新 service_name
-						if sysInfo.ServiceName != "" {
-							_ = s.repo.UpdateNodeServiceName(nodeID, sysInfo.ServiceName)
+						// Once per session/change, not on every 1 s report.
+						if sysInfo.ServiceName != "" && sysInfo.ServiceName != ns.serviceName {
+							if s.repo.UpdateNodeServiceName(nodeID, sysInfo.ServiceName) == nil {
+								ns.serviceName = sysInfo.ServiceName
+							}
 						}
 						// 缓存 forward 指标
 						if len(sysInfo.ForwardMetrics) > 0 {
@@ -477,7 +500,9 @@ func (s *Server) handleNode(w http.ResponseWriter, r *http.Request, nodeID int64
 					if sysOK {
 						fwd = sysInfo.ForwardMetrics
 					}
-					s.broadcastMetric(nodeID, envelope.Data, fwd)
+					if ns.browserMetricDue(time.Now()) {
+						s.broadcastMetric(nodeID, envelope.Data, fwd)
+					}
 				}
 				continue
 			case "ReportPublicIP":
@@ -531,7 +556,9 @@ func (s *Server) handleNode(w http.ResponseWriter, r *http.Request, nodeID int64
 				if onMetric != nil {
 					go onMetric(nodeID, sysInfo)
 				}
-				s.broadcastMetric(nodeID, []byte(msg), sysInfo.ForwardMetrics)
+				if ns.browserMetricDue(time.Now()) {
+					s.broadcastMetric(nodeID, []byte(msg), sysInfo.ForwardMetrics)
+				}
 				continue
 			}
 		}

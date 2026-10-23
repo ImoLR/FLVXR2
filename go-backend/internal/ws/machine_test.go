@@ -180,7 +180,11 @@ func TestMachineReportStoredAndBroadcastToAdminsOnly(t *testing.T) {
 	if sample == nil || sample.Conns.Total != 823 || sample.Protect.DroppedTotal != 4 || *sample.Protect.MaxTotal != 1000 {
 		t.Fatalf("stored %+v", sample)
 	}
-	// The next 1 s metric without the fields keeps the sample.
+	// The next 1 s metric without the fields keeps the sample (the browser
+	// throttle is lifted so the immediate second report is forwarded too).
+	prevInterval := browserMetricInterval.Load()
+	browserMetricInterval.Store(0)
+	t.Cleanup(func() { browserMetricInterval.Store(prevInterval) })
 	if err := node.WriteMessage(websocket.TextMessage, []byte(`{"type":"metric","data":{"uptime":6,"cpu_usage":1,"tcp_conns":7}}`)); err != nil {
 		t.Fatal(err)
 	}

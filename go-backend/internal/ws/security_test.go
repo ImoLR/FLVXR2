@@ -264,8 +264,10 @@ func TestUsersOnlySeeOwnRulesAndNoReplies(t *testing.T) {
 			}
 			fwd, _ := data["forward_metrics"].([]interface{})
 			if wantFwdUser == 0 {
-				if len(fwd) != 2 {
-					t.Fatalf("admin view changed: %v", data)
+				// Plan 136: admins get only the fields their views render.
+				_, svc := data["serviceConnections"]
+				if len(fwd) != 0 || svc || data["service_name"] != nil || data["cpu_usage"] != 1.5 || data["tcp_conns"] != float64(7) {
+					t.Fatalf("admin view: %v", data)
 				}
 				continue
 			}
@@ -297,6 +299,10 @@ func TestUsersOnlySeeOwnRulesAndNoReplies(t *testing.T) {
 }
 
 func TestSlowClientDoesNotDelayNodeReplies(t *testing.T) {
+	// Forward every flooded metric so the stuck client's queue really fills.
+	prevInterval := browserMetricInterval.Load()
+	browserMetricInterval.Store(0)
+	t.Cleanup(func() { browserMetricInterval.Store(prevInterval) })
 	s, _, base := machineServer(t)
 	node := &nodeConn{c: mustDial(t, base+"/system-info?type=1&secret=test-secret", nil)}
 	waitFor(t, func() bool { s.mu.RLock(); defer s.mu.RUnlock(); return s.nodes[1] != nil })
@@ -316,7 +322,8 @@ func TestSlowClientDoesNotDelayNodeReplies(t *testing.T) {
 				return
 			default:
 			}
-			node.sendQuiet(fmt.Sprintf(`{"type":"metric","data":{"uptime":%d,"cpu_usage":1,"pad":%q}}`, i, big))
+			// The padding rides in a field admins receive (unknown fields are dropped).
+			node.sendQuiet(fmt.Sprintf(`{"type":"metric","data":{"uptime":%d,"cpu_usage":1,"renewal_cycle":%q}}`, i, big))
 		}
 	}()
 	// Command replies keep flowing while the flood fills the stuck client.
@@ -436,4 +443,37 @@ func TestDisabledUserLosesStream(t *testing.T) {
 		}
 	}
 	waitFor(t, func() bool { return s.countClients(kindUser) == 0 })
+}
+
+// Plan 136 (F17): browsers get at most one metric per node per interval;
+// the panel still records every report.
+func TestBrowserMetricThrottle(t *testing.T) {
+	s, _, base := machineServer(t)
+	node := &nodeConn{c: mustDial(t, base+"/system-info?type=1&secret=test-secret", nil)}
+	waitFor(t, func() bool { s.mu.RLock(); defer s.mu.RUnlock(); return s.nodes[1] != nil })
+	admin := mustDial(t, base+"/system-info?type=0&secret="+tokenFor(t, 1, 0), nil)
+	waitFor(t, func() bool { return s.countClients(kindAdmin) == 1 })
+	for i := 0; i < 5; i++ {
+		node.send(t, fmt.Sprintf(`{"type":"metric","data":{"uptime":%d,"cpu_usage":1,"tcp_conns":7}}`, i+1))
+	}
+	got := 0
+	for _, m := range drain(admin, 600*time.Millisecond) {
+		if m.Type == "metric" {
+			got++
+		}
+	}
+	if got != 1 {
+		t.Fatalf("burst of 5 reports within the interval gave %d browser metrics", got)
+	}
+	time.Sleep(time.Duration(browserMetricInterval.Load()))
+	node.send(t, `{"type":"metric","data":{"uptime":9,"cpu_usage":1,"tcp_conns":7}}`)
+	got = 0
+	for _, m := range drain(admin, 600*time.Millisecond) {
+		if m.Type == "metric" {
+			got++
+		}
+	}
+	if got != 1 {
+		t.Fatalf("report after the interval gave %d browser metrics", got)
+	}
 }

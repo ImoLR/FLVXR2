@@ -34,12 +34,33 @@ type tunnelDeletePreviewData struct {
 	TunnelName     string                           `json:"tunnelName"`
 	ForwardCount   int                              `json:"forwardCount"`
 	SampleForwards []tunnelDeleteForwardPreviewItem `json:"sampleForwards"`
+	// Migration targets every rule owner may use (set by the preview endpoint).
+	AllowedTargetTunnelIDs []int64 `json:"allowedTargetTunnelIds"`
 }
 
 type tunnelBatchDeletePreviewData struct {
-	TunnelCount       int                       `json:"tunnelCount"`
-	TotalForwardCount int                       `json:"totalForwardCount"`
-	Items             []tunnelDeletePreviewData `json:"items"`
+	TunnelCount            int                       `json:"tunnelCount"`
+	TotalForwardCount      int                       `json:"totalForwardCount"`
+	Items                  []tunnelDeletePreviewData `json:"items"`
+	AllowedTargetTunnelIDs []int64                   `json:"allowedTargetTunnelIds"`
+}
+
+// migrationTargetsFor: targets for the rules of the given (to be deleted) tunnels.
+func (h *Handler) migrationTargetsFor(tunnelIDs []int64) ([]int64, error) {
+	exclude := make(map[int64]bool, len(tunnelIDs))
+	var forwards []forwardRecord
+	for _, id := range tunnelIDs {
+		exclude[id] = true
+		list, err := h.listForwardsByTunnel(id)
+		if err != nil {
+			return nil, err
+		}
+		forwards = append(forwards, list...)
+	}
+	if len(forwards) == 0 {
+		return []int64{}, nil
+	}
+	return h.tunnelMigrationTargets(forwards, exclude)
 }
 
 type tunnelDeleteWithForwardsRequest struct {
@@ -96,6 +117,9 @@ func (h *Handler) tunnelDeletePreview(w http.ResponseWriter, r *http.Request) {
 	}
 
 	preview, err := h.buildTunnelDeletePreview(id)
+	if err == nil && preview.ForwardCount > 0 {
+		preview.AllowedTargetTunnelIDs, err = h.migrationTargetsFor([]int64{id})
+	}
 	if err != nil {
 		if strings.Contains(err.Error(), "不存在") {
 			response.WriteJSON(w, response.ErrDefault(err.Error()))
@@ -103,6 +127,9 @@ func (h *Handler) tunnelDeletePreview(w http.ResponseWriter, r *http.Request) {
 		}
 		response.WriteJSON(w, response.Err(-2, err.Error()))
 		return
+	}
+	if preview.AllowedTargetTunnelIDs == nil {
+		preview.AllowedTargetTunnelIDs = []int64{}
 	}
 
 	response.WriteJSON(w, response.OK(preview))
@@ -123,6 +150,12 @@ func (h *Handler) tunnelBatchDeletePreview(w http.ResponseWriter, r *http.Reques
 	}
 
 	preview, err := h.buildTunnelBatchDeletePreview(req.IDs)
+	if err == nil && preview.TotalForwardCount > 0 {
+		preview.AllowedTargetTunnelIDs, err = h.migrationTargetsFor(normalizeTunnelIDs(req.IDs))
+	}
+	if err == nil && preview.AllowedTargetTunnelIDs == nil {
+		preview.AllowedTargetTunnelIDs = []int64{}
+	}
 	if err != nil {
 		if strings.Contains(err.Error(), "不存在") {
 			response.WriteJSON(w, response.ErrDefault(err.Error()))
@@ -502,7 +535,7 @@ func (h *Handler) planSingleTunnelDeleteForwardMigration(forward *forwardRecord,
 		return tunnelForwardMigrationPlan{}, errors.New("转发不存在")
 	}
 
-	allowed, entryErr := h.allowedTunnelEntries(forward.UserID, targetTunnelID)
+	allowed, entryErr := h.ensureForwardOwnerTunnelAccess(forward, targetTunnelID)
 	if entryErr != nil {
 		return tunnelForwardMigrationPlan{}, entryErr
 	}

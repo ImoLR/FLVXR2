@@ -22,6 +22,96 @@ func (h *Handler) allowedTunnelEntries(userID, tunnelID int64, admin ...bool) ([
 	return entries, nil
 }
 
+func forwardOwnerLabel(f *forwardRecord) string {
+	if f == nil {
+		return "未知用户"
+	}
+	if name := strings.TrimSpace(f.UserName); name != "" {
+		return name
+	}
+	return fmt.Sprintf("#%d", f.UserID)
+}
+
+// ensureForwardOwnerTunnelAccess: an admin moving someone else's rule (tunnel
+// delete migration, batch change tunnel) must not put it on a tunnel its owner
+// is not permitted on — the owner could no longer edit it. Admin-owned rules
+// are unrestricted. Returns the entries the owner may use.
+func (h *Handler) ensureForwardOwnerTunnelAccess(f *forwardRecord, tunnelID int64) ([]int64, error) {
+	if f == nil {
+		return nil, errors.New("转发不存在")
+	}
+	owner, err := h.repo.GetUserByID(f.UserID)
+	if err != nil {
+		return nil, err
+	}
+	if owner == nil {
+		return nil, fmt.Errorf("规则所属用户「%s」不存在，无法迁移", forwardOwnerLabel(f))
+	}
+	if owner.RoleID != 0 {
+		ok, err := h.repo.UserTunnelExistsByUserAndTunnel(owner.ID, tunnelID)
+		if err != nil {
+			return nil, err
+		}
+		if !ok {
+			return nil, fmt.Errorf("用户「%s」没有目标隧道的权限", forwardOwnerLabel(f))
+		}
+	}
+	entries, err := h.allowedTunnelEntries(f.UserID, tunnelID)
+	if err != nil {
+		return nil, fmt.Errorf("用户「%s」：%s", forwardOwnerLabel(f), err.Error())
+	}
+	return entries, nil
+}
+
+// tunnelMigrationTargets lists enabled tunnels (outside exclude) that every
+// owner of the given rules may use: tunnel grant plus at least one permitted
+// entry. Admin-only, computed once when the delete dialog opens.
+func (h *Handler) tunnelMigrationTargets(forwards []forwardRecord, exclude map[int64]bool) ([]int64, error) {
+	out := make([]int64, 0)
+	candidates, err := h.repo.ListEnabledTunnelIDs()
+	if err != nil {
+		return out, err
+	}
+	ownerSet := map[int64]bool{}
+	owners := make([]int64, 0)
+	for _, f := range forwards {
+		if !ownerSet[f.UserID] {
+			ownerSet[f.UserID] = true
+			owners = append(owners, f.UserID)
+		}
+	}
+	roles, grants, err := h.repo.UserTunnelGrantSets(owners)
+	if err != nil {
+		return out, err
+	}
+	restricted := make([]int64, 0, len(owners))
+	for _, uid := range owners {
+		if role, ok := roles[uid]; !ok {
+			return out, nil // a rule of a deleted user cannot be migrated anywhere
+		} else if role != 0 {
+			restricted = append(restricted, uid)
+		}
+	}
+next:
+	for _, tid := range candidates {
+		if exclude[tid] {
+			continue
+		}
+		for _, uid := range restricted {
+			if !grants[uid][tid] {
+				continue next
+			}
+		}
+		for _, uid := range restricted {
+			if entries, err := h.allowedTunnelEntries(uid, tid); err != nil || len(entries) == 0 {
+				continue next
+			}
+		}
+		out = append(out, tid)
+	}
+	return out, nil
+}
+
 // Called after the entire grant mutation, never between removing and adding
 // groups. Comparing stored ports with the final union also handles overlapping
 // grants without disrupting entries that remain authorized.

@@ -124,6 +124,24 @@ func (h *Handler) nodeRuntimeOnline(nodeID int64) bool {
 	return err == nil && node != nil && node.Status == 1
 }
 
+// ResetNodeOnlineState runs once before the panel starts serving: the stored
+// online flag of a node whose agent has not (re)connected to this process is
+// stale (e.g. the node died while the panel was down). Agents reconnect within
+// seconds and set it again, so lists, monitors and dispatch all agree.
+func (h *Handler) ResetNodeOnlineState() {
+	if h == nil || h.repo == nil {
+		return
+	}
+	n, err := h.repo.MarkLocalNodesOffline(h.wsServer.ConnectedNodeIDs())
+	if err != nil {
+		log.Printf("[startup] reset node online state failed: %v", err)
+		return
+	}
+	if n > 0 {
+		log.Printf("[startup] %d nodes marked offline until their agents reconnect", n)
+	}
+}
+
 func (h *Handler) scheduleNodeRedeploy(nodeID int64) {
 	h.nodeRedeployMu.Lock()
 	if h.nodeRedeploy == nil {

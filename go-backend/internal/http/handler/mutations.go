@@ -4049,6 +4049,13 @@ func (h *Handler) forwardBatchChangeTunnel(w http.ResponseWriter, r *http.Reques
 			failures = appendBatchFailureReason(failures, id, forward.Name, "规则已在目标隧道中")
 			continue
 		}
+		if actorRole == 0 && forward.UserID != actorUserID {
+			if _, err := h.ensureForwardOwnerTunnelAccess(forward, req.TargetTunnelID); err != nil {
+				fail++
+				failures = appendBatchFailure(failures, id, forward.Name, err)
+				continue
+			}
+		}
 		if chain, _ := h.repo.GetForwardChainByForward(id); chain != nil {
 			fail++
 			failures = appendBatchFailureReason(failures, id, forward.Name, "「我自己的节点」规则请在编辑中单独更换隧道")

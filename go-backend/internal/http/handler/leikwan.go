@@ -192,7 +192,9 @@ func (h *Handler) leikwanOverview(w http.ResponseWriter, r *http.Request) {
 		TunnelName string             `json:"tunnelName"`
 	}
 	forwards := make([]forwardView, 0, len(view.Forwards))
+	present := make(map[int64]bool, len(view.Forwards))
 	for _, f := range view.Forwards {
+		present[f.ID] = true
 		item := forwardView{Forward: f}
 		if p, ok := byID[f.ID]; ok {
 			item.Pipe = &p
@@ -202,7 +204,25 @@ func (h *Handler) leikwanOverview(w http.ResponseWriter, r *http.Request) {
 		}
 		forwards = append(forwards, item)
 	}
-	response.WriteJSON(w, response.OK(map[string]interface{}{"account": leiKwanAccountView(*a), "options": view.Options, "forwards": forwards}))
+	// Pipes FLVX still has but LeiKwan no longer lists (deleted on the LeiKwan
+	// side): shown separately so their tunnels are not silently dead. Display
+	// only — cleanup stays an explicit admin action (tunnel delete / pipe delete).
+	type missingView struct {
+		Pipe       model.LeiKwanPipe `json:"pipe"`
+		TunnelName string            `json:"tunnelName"`
+	}
+	missing := make([]missingView, 0)
+	for _, p := range pipes {
+		if present[p.ForwardID] {
+			continue
+		}
+		item := missingView{Pipe: p}
+		if p.TunnelID != nil {
+			item.TunnelName = h.repo.LeiKwanTunnelName(*p.TunnelID)
+		}
+		missing = append(missing, item)
+	}
+	response.WriteJSON(w, response.OK(map[string]interface{}{"account": leiKwanAccountView(*a), "options": view.Options, "forwards": forwards, "missingPipes": missing}))
 }
 func (h *Handler) leikwanForwardDetail(w http.ResponseWriter, r *http.Request) {
 	var req struct {

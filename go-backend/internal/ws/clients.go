@@ -98,6 +98,12 @@ var userMetricFields = []string{
 	"tcp_conns", "udp_conns", "net_in_speed", "net_out_speed",
 }
 
+// Fields the admin node list and monitor views read (node.tsx,
+// monitor-view.tsx): the user set plus the whole-machine sample. Per-rule
+// forward_metrics / serviceConnections / landing capability flags are not
+// rendered from the socket and were most of the bytes.
+var adminMetricFields = append(append([]string{}, userMetricFields...), "machine_conns", "machine_protect")
+
 type clientStats struct {
 	sentMsgs   atomic.Int64
 	sentBytes  atomic.Int64
@@ -586,8 +592,10 @@ func (s *Server) broadcastMetric(nodeID int64, data []byte, fwd []ForwardMetric)
 		switch c.kind {
 		case kindAdmin:
 			if adminMsg == nil {
-				admin, _ := metricBroadcastVariants(data)
-				adminMsg = marshalBroadcast(nodeID, "metric", admin)
+				if !parse() {
+					continue
+				}
+				adminMsg = marshalBroadcast(nodeID, "metric", pickFields(fields, adminMetricFields, nil))
 			}
 			s.enqueue(c, adminMsg)
 		case kindPublic:
