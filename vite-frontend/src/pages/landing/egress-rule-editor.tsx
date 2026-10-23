@@ -1,11 +1,17 @@
 import { useState } from "react";
+import toast from "react-hot-toast";
+
+import { invalidateEgressPresets } from "./use-egress-presets";
 
 import {
   EgressLandingNodeChoice,
   EgressOutbound,
   EgressRule,
+  presetAskAction,
+  saveEgressPreset,
   splitLines,
   splitList,
+  toPresetRule,
 } from "@/api/landing-egress";
 import { Button } from "@/shadcn-bridge/heroui/button";
 import { Checkbox } from "@/shadcn-bridge/heroui/checkbox";
@@ -67,6 +73,8 @@ export function RuleEditor({
   onDone,
   hideSource = false,
   hideNodeScope = false,
+  savePreset = false,
+  askOption = false,
 }: {
   rule: EgressRule;
   outbounds: Pick<EgressOutbound, "id" | "name">[];
@@ -77,8 +85,15 @@ export function RuleEditor({
   // have no 适用落地节点.
   hideSource?: boolean;
   hideNodeScope?: boolean;
+  // Plan 140 (admin lists): 「同时保存为预设」 on confirm; askOption offers
+  // the 「插入时选择」 action while editing an ask-outbound preset.
+  savePreset?: boolean;
+  askOption?: boolean;
 }) {
   const [form, setForm] = useState(rule);
+  const [asPreset, setAsPreset] = useState(false);
+  const [presetName, setPresetName] = useState("");
+  const [askLater, setAskLater] = useState(false);
   const [domains, setDomains] = useState(rule.domains.join("\n"));
   const [ips, setIPs] = useState(rule.ips.join("\n"));
   const [sources, setSources] = useState(rule.sourceIps.join("\n"));
@@ -101,6 +116,28 @@ export function RuleEditor({
     domains: splitLines(domains),
     ips: splitList(ips),
     sourceIps: splitList(sources),
+  };
+  const isOutbound = next.action.startsWith("outbound:");
+  // The rule is saved by the caller regardless; the preset is extra.
+  const saveAsPreset = async () => {
+    const ask = isOutbound && askLater;
+    const res = await saveEgressPreset({
+      name: (presetName || next.name || "").trim() || "我的预设",
+      description: "",
+      askOutbound: ask,
+      insertTop: false,
+      rules: [
+        toPresetRule({ ...next, action: ask ? presetAskAction : next.action }),
+      ],
+    });
+
+    if (res.code !== 0) {
+      toast.error(`规则已保存，但预设未保存：${res.msg || "保存失败"}`);
+
+      return;
+    }
+    toast.success(`已保存为预设「${res.data.name}」`);
+    void invalidateEgressPresets();
   };
   const hasMatcher =
     next.domains.length +
@@ -150,6 +187,13 @@ export function RuleEditor({
               ...outbounds.map((o) => (
                 <SelectItem key={`outbound:${o.id}`}>{o.name}</SelectItem>
               )),
+              ...(askOption || form.action === presetAskAction
+                ? [
+                    <SelectItem key={presetAskAction}>
+                      插入时选择（添加预设时再选出站）
+                    </SelectItem>,
+                  ]
+                : []),
             ]}
           </Select>
           <p className="text-xs text-default-500">
@@ -317,6 +361,33 @@ export function RuleEditor({
               请至少填写一个匹配条件；想让全部流量走某个出站，请设置方案的「默认出站」。
             </p>
           )}
+          {savePreset && (
+            <section className="space-y-2 rounded-lg border border-divider p-3">
+              <Checkbox isSelected={asPreset} onValueChange={setAsPreset}>
+                同时保存为预设
+              </Checkbox>
+              {asPreset && (
+                <div className="space-y-2 pl-1">
+                  <Input
+                    label="预设名称"
+                    placeholder={form.name || "规则名称"}
+                    size="sm"
+                    value={presetName}
+                    variant="bordered"
+                    onChange={(event) => setPresetName(event.target.value)}
+                  />
+                  {isOutbound && (
+                    <Checkbox isSelected={askLater} onValueChange={setAskLater}>
+                      插入时再选出站
+                    </Checkbox>
+                  )}
+                  <p className="text-xs text-default-500">
+                    以后可在「添加预设」里一键添加；规则本身照常保存，预设保存失败不影响它。
+                  </p>
+                </div>
+              )}
+            </section>
+          )}
         </ModalBody>
         <ModalFooter>
           <Button color="danger" variant="flat" onPress={onClose}>
@@ -325,7 +396,10 @@ export function RuleEditor({
           <Button
             color="primary"
             isDisabled={!hasMatcher}
-            onPress={() => onDone(next)}
+            onPress={() => {
+              onDone(next);
+              if (savePreset && asPreset) void saveAsPreset();
+            }}
           >
             确定
           </Button>

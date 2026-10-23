@@ -140,6 +140,17 @@ export interface EgressGlobal {
   nodesWithRules: number;
   servers: LayerServerStatus[];
   warnings?: string[];
+  // Plan 140: the 内置 list (safety CIDRs + global anti-abuse switches).
+  builtin?: EgressBuiltin;
+}
+
+// Plan 140: 内置 rules. smtp / bt: admin view = global switch; node view =
+// whether the rule applies to that node.
+export interface EgressBuiltin {
+  safety: string[];
+  smtp: boolean;
+  bt: boolean;
+  profilesOff?: { id: number; name: string }[];
 }
 
 export interface RuleSummary {
@@ -186,6 +197,7 @@ export interface NodeRulesView {
     defaultLabel: string;
   };
   globalPending?: string;
+  builtin?: EgressBuiltin;
   server: {
     label: string;
     profileName?: string;
@@ -217,8 +229,10 @@ export interface ServerEgressView {
   error: string;
   warnings: string[];
   checkedAt: number;
-  // Plan 127: active | off | restart | unsupported.
+  // Plan 127: active | off | global_off | restart | unsupported.
   abuseDefaults?: string;
+  // Plan 140: default rules switched on globally, e.g. ["SMTP 25", "BT"].
+  abuseRules?: string[];
   realityGuard?: RealityGuardView;
 }
 
@@ -314,6 +328,8 @@ export const saveEgressUserCaps = (perNode: number, total: number) =>
     "/landing/egress/user-caps/save",
     { perNode, total },
   );
+export const saveEgressBuiltin = (smtp: boolean, bt: boolean) =>
+  Network.post<EgressGlobal>("/landing/egress/builtin/save", { smtp, bt });
 export const getNodeRules = (id: number) =>
   Network.post<NodeRulesView>("/landing/node/rules/get", { id });
 export const saveNodeRules = (
@@ -462,194 +478,114 @@ export const ruleAttributeChips = (rule: EgressRule) => {
   return chips;
 };
 
+// Plan 140: the preset library lives in the panel database (admin CRUD,
+// seeded once with the former built-in list). Rules of an askOutbound preset
+// carry the action "ask": the outbound picked when inserting replaces it.
+export const presetAskAction = "ask";
+
+export type EgressPresetRule = Omit<EgressRule, "id">;
+
 export interface EgressPreset {
-  key: string;
-  label: string;
+  id: number;
+  name: string;
   description: string;
-  needsOutbound: boolean;
-  top?: boolean;
-  rules: (action: string) => Omit<EgressRule, "id">[];
+  rules: EgressPresetRule[];
+  askOutbound: boolean;
+  insertTop: boolean;
+  sortOrder: number;
+  seedKey: string;
+  // Admin list only: a fixed outbound of the preset was deleted.
+  missingOutbound?: boolean;
 }
 
-const presetRule = (
-  name: string,
-  preset: string,
-  part: Partial<EgressRule>,
-  action: string,
-): Omit<EgressRule, "id"> => ({
-  name,
-  preset,
-  enabled: true,
-  domains: [],
-  ips: [],
-  ports: "",
-  sourceIps: [],
-  sourcePorts: "",
-  network: "",
-  protocols: [],
-  landingNodeIds: [],
-  action,
-  ...part,
-});
+export const listEgressPresets = () =>
+  Network.post<{ presets: EgressPreset[]; admin: boolean }>(
+    "/landing/preset/list",
+    {},
+  );
+export const saveEgressPreset = (p: Partial<EgressPreset>) =>
+  Network.post<EgressPreset>("/landing/egress/preset/save", {
+    id: p.id,
+    name: p.name,
+    description: p.description || "",
+    rules: p.rules,
+    askOutbound: Boolean(p.askOutbound),
+    insertTop: Boolean(p.insertTop),
+  });
+export const deleteEgressPreset = (id: number) =>
+  Network.post("/landing/egress/preset/delete", { id });
+export const reorderEgressPresets = (ids: number[]) =>
+  Network.post<{ presets: EgressPreset[] }>("/landing/egress/preset/reorder", {
+    ids,
+  });
+export const restoreEgressPresets = () =>
+  Network.post<{ presets: EgressPreset[]; added: number }>(
+    "/landing/egress/preset/restore",
+    {},
+  );
 
-export const egressPresets: EgressPreset[] = [
-  {
-    key: "block-cn",
-    label: "屏蔽中国大陆",
-    description:
-      "三条规则插在最前：屏蔽大陆 IP、屏蔽大陆网站、禁止大陆客户端直连（FLVX 节点与来源白名单除外）",
-    needsOutbound: false,
-    top: true,
-    rules: () => [
-      presetRule("屏蔽大陆 IP", "block-cn", { ips: ["geoip:cn"] }, "block"),
-      presetRule(
-        "屏蔽大陆网站",
-        "block-cn",
-        { domains: ["geosite:cn"] },
-        "block",
-      ),
-      presetRule(
-        "禁止大陆直连",
-        "block-cn",
-        { sourceIps: ["geoip:cn"] },
-        "block",
-      ),
-    ],
-  },
-  {
-    key: "anti-google-cn",
-    label: "防止送中",
-    description: "Google 走所选出站（默认 WARP），避免落地 IP 被判定在中国",
-    needsOutbound: true,
-    rules: (action) => [
-      presetRule(
-        "防止送中",
-        "anti-google-cn",
-        { domains: ["geosite:google"] },
-        action,
-      ),
-    ],
-  },
-  {
-    key: "speedtest",
-    label: "测速分流",
-    description: "Speedtest 测速走所选出站",
-    needsOutbound: true,
-    rules: (action) => [
-      presetRule(
-        "测速分流",
-        "speedtest",
-        { domains: ["geosite:speedtest", "geosite:ookla-speedtest"] },
-        action,
-      ),
-    ],
-  },
-  {
-    key: "ai",
-    label: "AI 解锁",
-    description: "OpenAI、Claude、Gemini 等走所选出站",
-    needsOutbound: true,
-    rules: (action) => [
-      presetRule(
-        "AI 解锁",
-        "ai",
-        {
-          domains: [
-            "geosite:openai",
-            "geosite:anthropic",
-            "geosite:google-gemini",
-            "geosite:perplexity",
-            "geosite:xai",
-          ],
-        },
-        action,
-      ),
-    ],
-  },
-  {
-    key: "tiktok",
-    label: "抖音 / TikTok 解锁",
-    description: "TikTok 走所选出站",
-    needsOutbound: true,
-    rules: (action) => [
-      presetRule(
-        "TikTok 解锁",
-        "tiktok",
-        { domains: ["geosite:tiktok"] },
-        action,
-      ),
-    ],
-  },
-  {
-    key: "streaming",
-    label: "流媒体解锁",
-    description: "Netflix、Disney+、HBO、Prime Video 等走所选出站",
-    needsOutbound: true,
-    rules: (action) => [
-      presetRule(
-        "流媒体解锁",
-        "streaming",
-        {
-          domains: [
-            "geosite:netflix",
-            "geosite:disney",
-            "geosite:hbo",
-            "geosite:primevideo",
-            "geosite:hulu",
-            "geosite:dazn",
-            "geosite:abema",
-            "geosite:bahamut",
-          ],
-        },
-        action,
-      ),
-    ],
-  },
-  {
-    key: "block-bt",
-    label: "屏蔽 BT",
-    description: "按流量特征识别 BitTorrent 并封锁",
-    needsOutbound: false,
-    rules: () => [
-      presetRule("屏蔽 BT", "block-bt", { protocols: ["bittorrent"] }, "block"),
-    ],
-  },
-  {
-    key: "anti-abuse",
-    label: "防滥用",
-    description:
-      "封锁 TCP 465/587/2525（发信）和 23、135-139、445（Telnet/SMB，TCP+UDP）。封 465/587 只影响用邮件客户端通过代理发信，收信（IMAP 993/143、POP3 995/110）和网页邮箱不受影响；不封 22 和 3389",
-    needsOutbound: false,
-    rules: () => [
-      presetRule(
-        "屏蔽发信端口",
-        "anti-abuse",
-        { ports: "465,587,2525", network: "tcp" },
-        "block",
-      ),
-      presetRule(
-        "屏蔽 Telnet/SMB",
-        "anti-abuse",
-        { ports: "23,135-139,445" },
-        "block",
-      ),
-    ],
-  },
-  {
-    key: "block-ads",
-    label: "屏蔽广告",
-    description: "常见广告域名（geosite:category-ads）封锁",
-    needsOutbound: false,
-    rules: () => [
-      presetRule(
-        "屏蔽广告",
-        "block-ads",
-        { domains: ["geosite:category-ads"] },
-        "block",
-      ),
-    ],
-  },
-];
+// A preset rule as stored: no id, no node scope.
+export const toPresetRule = (rule: EgressRule): EgressPresetRule => {
+  const rest: Partial<EgressRule> = { ...rule };
+
+  delete rest.id;
+
+  return { ...(rest as EgressPresetRule), landingNodeIds: [] };
+};
+
+// Plan 140: which built-in rule already covers a rule (same match, block).
+// active = built-in rules in force where the rule would be added; the safety
+// rule (private / loopback / link-local / metadata / multicast) always is.
+export type BuiltinActive = { smtp: boolean; bt: boolean };
+
+export const builtinCover = (
+  r: EgressPresetRule,
+  active: BuiltinActive,
+  safety: string[] = [],
+): string => {
+  if (
+    r.action !== "block" ||
+    r.domains.length ||
+    r.sourceIps.length ||
+    r.sourcePorts ||
+    r.landingNodeIds.length
+  )
+    return "";
+  if (r.ips.length) {
+    const inSafety = r.ips.every(
+      (ip) => ip === "geoip:private" || safety.includes(ip),
+    );
+
+    return inSafety && !r.ports && !r.network && !r.protocols.length
+      ? "安全规则"
+      : "";
+  }
+  if (
+    active.smtp &&
+    r.ports === "25" &&
+    r.network === "tcp" &&
+    !r.protocols.length
+  )
+    return "屏蔽 SMTP 25";
+  if (
+    active.bt &&
+    !r.ports &&
+    !r.network &&
+    r.protocols.length === 1 &&
+    r.protocols[0] === "bittorrent"
+  )
+    return "屏蔽 BT";
+
+  return "";
+};
+
+// Every rule of the preset repeats an active built-in rule.
+export const presetCoveredByBuiltin = (
+  p: EgressPreset,
+  active: BuiltinActive,
+  safety: string[] = [],
+) =>
+  p.rules.length > 0 && p.rules.every((r) => builtinCover(r, active, safety));
 
 // Rules are compared by matchers + action; the name does not matter.
 export const ruleSignature = (r: Omit<EgressRule, "id">) =>
@@ -667,7 +603,7 @@ export const ruleSignature = (r: Omit<EgressRule, "id">) =>
 
 // applyPreset inserts preset rules (at the top or the end) without
 // duplicating rules that already exist. Returns the new list and how many
-// rules were skipped as duplicates.
+// rules were skipped as duplicates. action replaces the "ask" placeholder.
 export const applyPreset = (
   rules: EgressRule[],
   preset: EgressPreset,
@@ -676,8 +612,18 @@ export const applyPreset = (
   const existing = new Set(rules.map(ruleSignature));
   const fresh: EgressRule[] = [];
   let skipped = 0;
+  const filled = preset.rules.map((r) => ({
+    ...r,
+    enabled: r.enabled !== false,
+    domains: r.domains || [],
+    ips: r.ips || [],
+    sourceIps: r.sourceIps || [],
+    protocols: r.protocols || [],
+    landingNodeIds: [],
+    action: r.action === presetAskAction ? action : r.action,
+  }));
 
-  for (const rule of preset.rules(action)) {
+  for (const rule of filled) {
     const signature = ruleSignature(rule);
 
     if (existing.has(signature)) {
@@ -689,7 +635,7 @@ export const applyPreset = (
   }
 
   return {
-    rules: preset.top ? [...fresh, ...rules] : [...rules, ...fresh],
+    rules: preset.insertTop ? [...fresh, ...rules] : [...rules, ...fresh],
     added: fresh.length,
     skipped,
   };

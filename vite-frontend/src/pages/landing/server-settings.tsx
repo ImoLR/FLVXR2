@@ -359,7 +359,13 @@ export function ServerSettings({
             )}
             {egress?.abuseDefaults === "active" && !profileChanged && (
               <p className="text-xs text-default-500">
-                默认防滥用规则已生效：屏蔽 SMTP 25、BT
+                默认防滥用规则已生效：屏蔽{" "}
+                {(egress.abuseRules || ["SMTP 25", "BT"]).join("、")}
+              </p>
+            )}
+            {egress?.abuseDefaults === "global_off" && !profileChanged && (
+              <p className="text-xs text-default-500">
+                默认防滥用规则（屏蔽 SMTP 25、BT）已在「全局规则 → 内置」里关闭
               </p>
             )}
             {egress?.abuseDefaults === "off" && !profileChanged && (

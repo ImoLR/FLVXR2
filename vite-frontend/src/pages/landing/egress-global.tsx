@@ -1,15 +1,18 @@
 import { useEffect, useMemo, useState } from "react";
 import toast from "react-hot-toast";
-import { ArrowDown, Globe2, Lock } from "lucide-react";
+import { ArrowDown, Globe2 } from "lucide-react";
 
+import { BuiltinRuleList, builtinScopeText } from "./egress-builtin-list";
 import { EgressRuleList } from "./egress-rule-list";
 
 import {
+  EgressBuiltin,
   EgressGlobal,
   EgressOverview,
   EgressRule,
   LayerServerStatus,
   layerOrder,
+  saveEgressBuiltin,
   saveEgressGlobal,
   saveEgressUserCaps,
 } from "@/api/landing-egress";
@@ -101,12 +104,22 @@ const snapshot = (g: {
   defaultAction: string;
 }) => JSON.stringify([g.forced, g.default, g.defaultAction || "direct"]);
 
+const fallbackBuiltin: EgressBuiltin = {
+  safety: [],
+  smtp: true,
+  bt: true,
+  profilesOff: [],
+};
+
 export function LandingGlobalRules({
   overview,
   onSaved,
+  onWhitelistSaved,
 }: {
   overview: EgressOverview;
   onSaved: () => void;
+  // Plan 140: the 内置 list edits the source whitelist in place.
+  onWhitelistSaved?: (list: string[]) => void;
 }) {
   const h5 = useH5Mode();
   const initial: EgressGlobal = overview.global || {
@@ -126,6 +139,9 @@ export function LandingGlobalRules({
   const [saving, setSaving] = useState("");
   const [perNode, setPerNode] = useState(String(initial.userCaps.perNode));
   const [total, setTotal] = useState(String(initial.userCaps.total));
+  const [builtin, setBuiltin] = useState<EgressBuiltin>(
+    initial.builtin || fallbackBuiltin,
+  );
 
   useEffect(() => {
     const g = overview.global;
@@ -138,6 +154,7 @@ export function LandingGlobalRules({
     setSaved(snapshot(g));
     setPerNode(String(g.userCaps.perNode));
     setTotal(String(g.userCaps.total));
+    setBuiltin(g.builtin || fallbackBuiltin);
   }, [overview.global]);
 
   const choices = useMemo(
@@ -172,6 +189,29 @@ export function LandingGlobalRules({
     setServers(res.data.servers || []);
     setSaved(snapshot(res.data));
     onSaved();
+  };
+
+  // Built-in rules in force on every node (a profile may still switch the
+  // defaults off for its nodes): drives the 「内置已封锁」 preset hint.
+  const builtinActive = {
+    smtp: builtin.smtp && !(builtin.profilesOff || []).length,
+    bt: builtin.bt && !(builtin.profilesOff || []).length,
+  };
+  const warp = overview.outbounds.find((o) => o.type === "warp");
+
+  const saveBuiltin = async (next: { smtp: boolean; bt: boolean }) => {
+    setSaving("builtin");
+    const res = await saveEgressBuiltin(next.smtp, next.bt);
+
+    setSaving("");
+    if (res.code !== 0) {
+      toast.error(res.msg || "保存失败");
+
+      return;
+    }
+    if (res.data.builtin) setBuiltin(res.data.builtin);
+    setServers(res.data.servers || []);
+    toast.success("内置规则已保存，正在同步到所有落地服务器");
   };
 
   const saveCaps = async () => {
@@ -235,27 +275,49 @@ export function LandingGlobalRules({
             <LayerLegend highlight={["forced", "default", "outbound"]} />
           )}
           <div className="min-w-0 space-y-5">
-            <div className="flex items-start gap-3 rounded-lg border border-divider bg-default-50 p-3">
-              <Lock className="mt-0.5 shrink-0 text-default-400" size={16} />
-              <div className="min-w-0 text-xs text-default-500">
-                <span className="font-medium text-foreground">内置规则</span>
-                （安全规则 +
-                默认防滥用）始终最先匹配：内网、回环、云元数据等地址一律封锁，任何全局、节点或服务器规则都不能放行。
+            <section className="space-y-2">
+              <div>
+                <h3 className="font-medium">内置</h3>
+                <p className="text-xs text-default-500">
+                  {builtinScopeText}
+                  。安全规则锁定；屏蔽 SMTP 25 和 BT
+                  可在这里全局开关（路由方案里的「默认防滥用」也要开着才生效），开关后自动同步。
+                </p>
               </div>
-            </div>
+              <BuiltinRuleList
+                admin
+                bt={builtin.bt}
+                exemptNodeCount={overview.exemptNodeCount}
+                profilesOff={builtin.profilesOff}
+                safety={builtin.safety}
+                smtp={builtin.smtp}
+                switching={saving === "builtin"}
+                whitelist={overview.whitelist || []}
+                onSwitch={(next) => void saveBuiltin(next)}
+                onWhitelistSaved={onWhitelistSaved}
+              />
+            </section>
             <section className="space-y-2">
               <div>
                 <h3 className="font-medium">全局·强制</h3>
                 <p className="text-xs text-default-500">
-                  所有落地节点（含线路机节点）先匹配这里，用户的节点规则不能覆盖。例如：强制
-                  IPv4、屏蔽某些网站。
+                  作用于所有落地节点：自有、妙妙屋共享和线路机节点，紧跟内置规则匹配，用户的节点规则不能覆盖。例如：强制
+                  IPv4、屏蔽某些网站。停用的规则不会下发；保存后自动同步。
+                </p>
+                <p className="text-xs text-default-400">
+                  线路机节点需要节点程序 3.0.27-fork.75
+                  及以上才会应用，旧版本自动跳过，不影响转发。
                 </p>
               </div>
               <EgressRuleList
                 presets
+                savePreset
+                builtinActive={builtinActive}
                 choices={choices}
+                defaultChoice={warp?.id}
                 emptyText="没有强制规则"
                 rules={forced}
+                safety={builtin.safety}
                 onChange={setForced}
               />
             </section>
@@ -263,14 +325,18 @@ export function LandingGlobalRules({
               <div>
                 <h3 className="font-medium">全局·默认</h3>
                 <p className="text-xs text-default-500">
-                  节点规则和服务器路由方案都没命中时才匹配，可被它们覆盖；不作用于线路机节点。
+                  作用于自有和妙妙屋共享的落地节点，不作用于线路机节点；节点规则和服务器路由方案都没命中时才匹配，可被它们覆盖。保存后自动同步。
                 </p>
               </div>
               <EgressRuleList
                 presets
+                savePreset
+                builtinActive={builtinActive}
                 choices={choices}
+                defaultChoice={warp?.id}
                 emptyText="没有默认规则"
                 rules={deflt}
+                safety={builtin.safety}
                 onChange={setDeflt}
               />
             </section>

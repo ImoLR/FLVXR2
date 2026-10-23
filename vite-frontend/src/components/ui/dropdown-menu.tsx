@@ -78,16 +78,25 @@ function DropdownMenuSubTrigger({
   );
 }
 
+// Plan 140: menus never leave the screen. Radix flips to the side with room
+// (collisionPadding keeps 8 px from the edges) and exposes the space left on
+// the chosen side; a taller list scrolls inside the menu.
+const menuFitClass =
+  "max-h-[var(--radix-dropdown-menu-content-available-height)] overflow-y-auto overscroll-contain";
+
 function DropdownMenuSubContent({
   className,
+  collisionPadding = 8,
   ...props
 }: React.ComponentProps<typeof DropdownMenuPrimitive.SubContent>) {
   return (
     <DropdownMenuPrimitive.SubContent
       className={cn(
-        "z-50 min-w-32 overflow-hidden rounded-md border border-default-200 bg-white p-1 text-foreground shadow-lg data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=top]:slide-in-from-bottom-2 data-[side=bottom]:slide-in-from-top-2 dark:bg-default-50",
+        menuFitClass,
+        "z-50 min-w-32 rounded-md border border-default-200 bg-white p-1 text-foreground shadow-lg data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=top]:slide-in-from-bottom-2 data-[side=bottom]:slide-in-from-top-2 dark:bg-default-50",
         className,
       )}
+      collisionPadding={collisionPadding}
       data-slot="dropdown-menu-sub-content"
       {...props}
     />
@@ -97,15 +106,18 @@ function DropdownMenuSubContent({
 function DropdownMenuContent({
   className,
   sideOffset = 6,
+  collisionPadding = 8,
   ...props
 }: React.ComponentProps<typeof DropdownMenuPrimitive.Content>) {
   return (
     <DropdownMenuPrimitive.Portal>
       <DropdownMenuPrimitive.Content
         className={cn(
-          "z-50 min-w-32 overflow-hidden rounded-md border border-default-200 bg-white p-1 text-foreground shadow-md data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=top]:slide-in-from-bottom-2 data-[side=bottom]:slide-in-from-top-2 dark:bg-default-50",
+          menuFitClass,
+          "z-50 min-w-32 rounded-md border border-default-200 bg-white p-1 text-foreground shadow-md data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=top]:slide-in-from-bottom-2 data-[side=bottom]:slide-in-from-top-2 dark:bg-default-50",
           className,
         )}
+        collisionPadding={collisionPadding}
         data-slot="dropdown-menu-content"
         sideOffset={sideOffset}
         {...props}
