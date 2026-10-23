@@ -19,8 +19,8 @@ import (
 // service for every accepted connection and by the handlers) or belongs to a
 // listener (handshake/upgrade errors, full accept queues). Lifecycle lines
 // (service start, config, panel session) have neither and are never dropped.
-// Debug and trace loggers are never limited. No goroutine, no timer: buckets
-// refill lazily when the next line arrives.
+// Loggers raised to info, debug or trace are never limited. No goroutine, no
+// timer: buckets refill lazily when the next line arrives.
 const (
 	connLinesPerService = 20
 	connLinesGlobal     = 120

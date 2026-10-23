@@ -201,7 +201,9 @@ func (l *logrusLogger) logf(level logrus.Level, format string, args ...any) {
 
 // entry returns the entry to write a line at level with, or false when the
 // line is dropped: disabled level, or a per-connection warn/error line over
-// its budget (see connLineLimiter). Debug and trace loggers never drop lines.
+// its budget (see connLineLimiter). The budget only applies at the default
+// warn level (and above): a logger raised to info, debug or trace for
+// debugging writes every line, like before.
 func (l *logrusLogger) entry(level logrus.Level) (*logrus.Entry, bool) {
 	lg := l.logger
 	if !lg.Logger.IsLevelEnabled(level) {
@@ -210,7 +212,8 @@ func (l *logrusLogger) entry(level logrus.Level) (*logrus.Entry, bool) {
 	if lg.Logger.IsLevelEnabled(logrus.DebugLevel) {
 		return lg.WithField("caller", l.caller(4)), true
 	}
-	if (level == logrus.WarnLevel || level == logrus.ErrorLevel) && l.conns != nil && perConnection(lg.Data) {
+	if (level == logrus.WarnLevel || level == logrus.ErrorLevel) && l.conns != nil &&
+		!lg.Logger.IsLevelEnabled(logrus.InfoLevel) && perConnection(lg.Data) {
 		allowed, suppressed := l.conns.allow(fieldString(lg.Data, "service"))
 		if !allowed {
 			return nil, false

@@ -241,7 +241,19 @@ class Lab:
         rss = int(next(l.split()[1] for l in status.splitlines() if l.startswith("VmRSS")))
         threads = int(next(l.split()[1] for l in status.splitlines() if l.startswith("Threads")))
         stat = pathlib.Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()
-        return {"rss_kib": rss, "fds": len(os.listdir(f"/proc/{pid}/fd")), "threads": threads, "cpu_s": round((int(stat[11]) + int(stat[12])) / os.sysconf("SC_CLK_TCK"), 2)}
+        kinds = {"socket": 0, "pipe": 0}
+        for fd in os.listdir(f"/proc/{pid}/fd"):
+            try:
+                target = os.readlink(f"/proc/{pid}/fd/{fd}")
+            except OSError:
+                continue
+            for k in kinds:
+                if target.startswith(k + ":"):
+                    kinds[k] += 1
+        # plan 137: sockets are what a stream costs; pipes are Go's pooled splice
+        # pipes (Reality guard dest leg), freed at the next GC, never per stream.
+        return {"rss_kib": rss, "fds": len(os.listdir(f"/proc/{pid}/fd")), "socket_fds": kinds["socket"], "pipe_fds": kinds["pipe"],
+                "threads": threads, "cpu_s": round((int(stat[11]) + int(stat[12])) / os.sysconf("SC_CLK_TCK"), 2)}
 
     def goroutines(self, ns, agent):
         try:
@@ -402,11 +414,15 @@ class Lab:
                 assert coreclient._exact(s, 8) == b"chain-fd"
             time.sleep(3)
             holding = self.core_usage()
-            fd_delta = sum(holding[k]["fds"] - fifty["cores"][k]["fds"] for k in holding)
+            fd_delta = sum(holding[k]["socket_fds"] - fifty["cores"][k]["socket_fds"] for k in holding)
+            pipe_delta = sum(holding[k]["pipe_fds"] - fifty["cores"][k]["pipe_fds"] for k in holding)
             upstream_connections = sum(len(nsx(ns, "ss", "-Htn", "state", "established", "dst", f"{USER_NODE}:{SOCKS_PORT}").stdout.splitlines()) for ns in (NS_A, NS_B))
+            # plan 137 (F14): 2 sockets per stream again 3 s after the last open
+            # (the guard dest leg closes after 1 s, was 5 s on fork.69–76).
             assert fd_delta == 2 * len(held), (holding, fifty, fd_delta)
             assert upstream_connections == len(held), upstream_connections
-            socket_cost = {"streams": len(held), "core_fd_delta": fd_delta,
+            socket_cost = {"streams": len(held), "core_socket_fd_delta": fd_delta, "core_pipe_fd_delta_pooled": pipe_delta,
+                           "core_fd_delta": sum(holding[k]["fds"] - fifty["cores"][k]["fds"] for k in holding),
                            "extra_fds_per_stream": fd_delta / len(held),
                            "upstream_connections": upstream_connections}
         finally:
@@ -436,16 +452,17 @@ class Lab:
         time.sleep(20)
         settled = self.idle_usage()
         for _ in range(6):
-            if all(settled[k]["fds"] <= baseline[k]["fds"] and settled[k]["goroutines"] <= baseline[k]["goroutines"] for k in baseline):
+            if all(settled[k]["socket_fds"] <= baseline[k]["socket_fds"] and settled[k]["goroutines"] <= baseline[k]["goroutines"] for k in baseline):
                 break
             settled = self.idle_usage()
         logs1 = {p.name: p.stat().st_size for p in self.scratch.glob("*.log")}
         assert not errors, errors[:5]
-        assert all(settled[k]["fds"] <= baseline[k]["fds"] and settled[k]["goroutines"] <= baseline[k]["goroutines"] for k in baseline), (baseline, settled)
+        assert all(settled[k]["socket_fds"] <= baseline[k]["socket_fds"] and settled[k]["goroutines"] <= baseline[k]["goroutines"] for k in baseline), (baseline, settled)
         self.results["C6"] = {"one_chain": one, f"{n}_chains": fifty, "create_seconds": {"min": min(timings or [0]), "max": max(timings or [0])},
                               "socket_cost": socket_cost,
                               "burst_1000_conns": {"seconds": burst_seconds, "failed": len(errors), "before": baseline, "after_burst": after_burst, "settled": settled},
                               "log_growth_bytes_during_burst": {k: logs1.get(k, 0) - logs0.get(k, 0) for k in logs1},
+                              "log_bytes_per_connection": {k: round((logs1.get(k, 0) - logs0.get(k, 0)) / 1000, 1) for k in logs1},
                               "landing_state_growth_bytes_during_burst": {k: v - disk0[k] for k, v in self.landing_bytes().items()},
                               "core_stdout": {ns: os.readlink(f"/proc/{self.core_pid(ns)}/fd/1") for ns in (NS_A, NS_B)}}
 

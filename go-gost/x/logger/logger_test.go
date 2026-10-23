@@ -126,20 +126,24 @@ func TestGlobalBudget(t *testing.T) {
 	}
 }
 
-func TestDebugLoggerIsNeverBudgeted(t *testing.T) {
-	var buf bytes.Buffer
-	l := NewLogger(OutputOption(&buf), LevelOption(logger.DebugLevel))
-	fakeClock(l)
-	conn := l.WithFields(map[string]any{"service": "1_tls", "sid": "x"})
-	for i := 0; i < 100; i++ {
-		conn.Error("boom")
-	}
-	got := lines(&buf)
-	if len(got) != 100 {
-		t.Fatalf("debug: want 100 lines, got %d", len(got))
-	}
-	if c, _ := got[0]["caller"].(string); !strings.HasPrefix(c, "logger/logger_test.go:") {
-		t.Fatalf("caller must point at the call site, got %q", c)
+func TestRaisedLoggerIsNeverBudgeted(t *testing.T) {
+	for _, level := range []logger.LogLevel{logger.InfoLevel, logger.DebugLevel} {
+		var buf bytes.Buffer
+		l := NewLogger(OutputOption(&buf), LevelOption(level))
+		fakeClock(l)
+		conn := l.WithFields(map[string]any{"service": "1_tls", "sid": "x"})
+		for i := 0; i < 100; i++ {
+			conn.Error("boom")
+		}
+		got := lines(&buf)
+		if len(got) != 100 {
+			t.Fatalf("%s: want 100 lines, got %d", level, len(got))
+		}
+		if level == logger.DebugLevel {
+			if c, _ := got[0]["caller"].(string); !strings.HasPrefix(c, "logger/logger_test.go:") {
+				t.Fatalf("caller must point at the call site, got %q", c)
+			}
+		}
 	}
 }
 
