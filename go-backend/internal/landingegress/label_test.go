@@ -28,14 +28,14 @@ func TestEffectiveLabelPrecedence(t *testing.T) {
 		want string
 		from string
 	}{
-		{"global default ipv4", base, nil, "直连（仅 IPv4）", DefaultFromGlobal},
+		{"global default ipv4", base, nil, "强制 IPv4", DefaultFromGlobal},
 		{"no global layer", func() CompileInput { in := base(); in.Global = &Global{}; return in }, nil, "直连", DefaultFromGlobal},
 		{"layers not ready", func() CompileInput { in := base(); in.Layers = false; return in }, nil, "直连", DefaultFromGlobal},
 		{"server lacks ipv4 → direct", func() CompileInput { in := base(); in.NoIPv4 = true; return in }, nil, "直连", DefaultFromGlobal},
 		{"global proxy", func() CompileInput { in := base(); in.Global.DefaultAction = "outbound:2"; return in }, nil, "代理", DefaultFromGlobal},
 		{"profile default wins over global", func() CompileInput { in := base(); in.ServerProfileID = 7; return in }, nil, "WARP", DefaultFromServer},
 		{"profile rules", func() CompileInput { in := base(); in.ServerProfileID = 8; return in }, nil, "按规则分流", DefaultFromServer},
-		{"global forced block rule only filters", func() CompileInput { in := base(); in.Global.Forced = []Rule{rule}; return in }, nil, "直连（仅 IPv4）", DefaultFromGlobal},
+		{"global forced block rule only filters", func() CompileInput { in := base(); in.Global.Forced = []Rule{rule}; return in }, nil, "强制 IPv4", DefaultFromGlobal},
 		{"global forced routing rule", func() CompileInput { in := base(); in.Global.Forced = []Rule{routed}; return in }, nil, "按规则分流", DefaultFromGlobal},
 		{"global default routing rule", func() CompileInput { in := base(); in.Global.Default = []Rule{routed}; return in }, nil, "按规则分流", DefaultFromGlobal},
 		{"profile with block rules only", func() CompileInput {
@@ -50,16 +50,16 @@ func TestEffectiveLabelPrecedence(t *testing.T) {
 			off.Enabled = false
 			in.Global.Forced = []Rule{off}
 			return in
-		}, nil, "直连（仅 IPv4）", DefaultFromGlobal},
-		{"abuse switches do not count", func() CompileInput { in := base(); in.AbuseOff = AbuseSwitches{}; return in }, nil, "直连（仅 IPv4）", DefaultFromGlobal},
-		{"node follows global", base, &NodeRef{ID: 1}, "直连（仅 IPv4）", DefaultFromGlobal},
+		}, nil, "强制 IPv4", DefaultFromGlobal},
+		{"abuse switches do not count", func() CompileInput { in := base(); in.AbuseOff = AbuseSwitches{}; return in }, nil, "强制 IPv4", DefaultFromGlobal},
+		{"node follows global", base, &NodeRef{ID: 1}, "强制 IPv4", DefaultFromGlobal},
 		{"node default wins", base, &NodeRef{ID: 1, Default: "outbound:2"}, "代理", DefaultFromNode},
-		{"node default ignored when node rules not ready", func() CompileInput { in := base(); in.NodeRules = false; return in }, &NodeRef{ID: 1, Default: "outbound:2"}, "直连（仅 IPv4）", DefaultFromGlobal},
-		{"node default family conflict follows upper", func() CompileInput { in := base(); in.NoIPv6 = true; return in }, &NodeRef{ID: 1, Default: "outbound:3"}, "直连（仅 IPv4）", DefaultFromGlobal},
+		{"node default ignored when node rules not ready", func() CompileInput { in := base(); in.NodeRules = false; return in }, &NodeRef{ID: 1, Default: "outbound:2"}, "强制 IPv4", DefaultFromGlobal},
+		{"node default family conflict follows upper", func() CompileInput { in := base(); in.NoIPv6 = true; return in }, &NodeRef{ID: 1, Default: "outbound:3"}, "强制 IPv4", DefaultFromGlobal},
 		{"node routing rules", base, &NodeRef{ID: 1, Rules: []Rule{routed}}, "按规则分流", DefaultFromGlobal},
-		{"node block rules only", base, &NodeRef{ID: 1, Rules: []Rule{rule}}, "直连（仅 IPv4）", DefaultFromGlobal},
+		{"node block rules only", base, &NodeRef{ID: 1, Rules: []Rule{rule}}, "强制 IPv4", DefaultFromGlobal},
 		{"node profile override", base, &NodeRef{ID: 1, Override: ptr(7)}, "WARP", DefaultFromServer},
-		{"node override to default follows global", func() CompileInput { in := base(); in.ServerProfileID = 7; return in }, &NodeRef{ID: 1, Override: ptr(0)}, "直连（仅 IPv4）", DefaultFromGlobal},
+		{"node override to default follows global", func() CompileInput { in := base(); in.ServerProfileID = 7; return in }, &NodeRef{ID: 1, Override: ptr(0)}, "强制 IPv4", DefaultFromGlobal},
 		{"unknown profile", func() CompileInput { in := base(); in.ServerProfileID = 99; return in }, nil, "直连", ""},
 	}
 	for _, c := range cases {

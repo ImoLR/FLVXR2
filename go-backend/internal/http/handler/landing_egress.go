@@ -545,7 +545,7 @@ func (c landingEgressCatalog) nodeLabel(s model.LandingServer, n model.LandingNo
 }
 
 // defaultProfileName names the built-in default profile (id 0) on a server:
-// it follows the 全局默认出站 (plan 134), e.g. 「默认 · 直连（仅 IPv4）」.
+// it follows the 全局默认出站 (plan 134), e.g. 「默认 · 强制 IPv4」.
 func (c landingEgressCatalog) defaultProfileName(s *model.LandingServer) string {
 	if s == nil {
 		return "默认（直连）"

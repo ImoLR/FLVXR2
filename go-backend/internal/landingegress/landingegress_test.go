@@ -277,7 +277,7 @@ func TestLabels(t *testing.T) {
 		10: {DefaultAction: "outbound:1"}, 11: {DefaultAction: "outbound:2"}, 12: {DefaultAction: "outbound:3"}, 13: {DefaultAction: "outbound:4"},
 		14: {DefaultAction: ActionBlock}, 15: {DefaultAction: ActionDirect, Rules: []Rule{{Enabled: true}}}, 16: {DefaultAction: "outbound:1", Rules: []Rule{{Enabled: false}}},
 	}
-	want := map[int64]string{0: "直连", 10: "WARP", 11: "直连（仅 IPv6）", 12: "代理", 13: "FLVX 落地", 14: "封锁", 15: "按规则分流", 16: "WARP", 99: "直连"}
+	want := map[int64]string{0: "直连", 10: "WARP", 11: "强制 IPv6", 12: "代理", 13: "FLVX 落地", 14: "封锁", 15: "按规则分流", 16: "WARP", 99: "直连"}
 	for id, label := range want {
 		if got := Label(id, profiles, outs); got != label {
 			t.Errorf("profile %d label %q want %q", id, got, label)

@@ -36,11 +36,11 @@ func TestLandingLabelsFollowGlobalDefault(t *testing.T) {
 			}
 		}
 	}
-	check("直连（仅 IPv4）", 1, 0)
+	check("强制 IPv4", 1, 0)
 	e.exec("INSERT INTO landing_server_user (landing_server_id, user_id) VALUES (1, 2)")
-	check("直连（仅 IPv4）", 2, 1)
+	check("强制 IPv4", 2, 1)
 	out := layerCall(t, e.h, "/api/v1/landing/node/list", map[string]any{}, 1, 0)
-	if name := out.Data.([]any)[0].(map[string]any)["effectiveRouteProfileName"]; name != "默认 · 直连（仅 IPv4）" {
+	if name := out.Data.([]any)[0].(map[string]any)["effectiveRouteProfileName"]; name != "默认 · 强制 IPv4" {
 		t.Fatalf("default profile name %v", name)
 	}
 	// An IPv6-only server cannot force IPv4: the plan falls back to direct, so does the label.
