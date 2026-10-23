@@ -122,12 +122,12 @@ func TestMoveAbuseSeeds(t *testing.T) {
 	other := Rule{ID: "x", Name: "x", Enabled: true, Ports: "465,587,2525", Network: "tcp", Action: ActionDirect}
 
 	cases := []struct {
-		name               string
-		in                 []Rule
-		rest               []string
-		foundM, onM        bool
-		foundT, onT        bool
-		kept               []string
+		name        string
+		in          []Rule
+		rest        []string
+		foundM, onM bool
+		foundT, onT bool
+		kept        []string
 	}{
 		{"prod: all enabled", []Rule{on(mail), on(telnet), on(cn[0]), on(cn[1])}, []string{"seed-cn-ip", "seed-cn-site"}, true, true, true, true, nil},
 		{"seeds disabled", []Rule{mail, telnet, cn[0]}, []string{"seed-cn-ip"}, true, false, true, false, nil},
