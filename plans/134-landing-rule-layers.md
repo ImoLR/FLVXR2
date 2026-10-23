@@ -57,3 +57,25 @@ Evaluation order per node (first match wins, every rule scoped by inbound tag):
 - [x] Push branch, CI green (39812740988, 39816125242), summary + final.md
       (/root/flvx-workers/runs/landing-rule-layers/). NOT released — waits for the user's screenshot approval; rebase on
       fork.73 before release; panel first, agent (GuardVersion 2) with a later OTA
+
+## Release (fork.75, user approved 2026-10-23 ~13:30 TW 「这个规则这一边就赶紧发布吧」)
+Plan 134 as built → `3.0.27-fork.75`, panel first, NO agent OTA (agent GuardVersion 2 ships with a later OTA).
+Branch `maintenance/3.0.27-fork.75-landing-rule-layers` = `feature/3.0.27-landing-rule-layers` (ae0d53ff) rebased onto
+`maintenance/3.0.27-fork.74-security-hotfix` (f0561ce4); the 131 commits (already in fork.73/74) dropped. Path-latency
+cadence (F10) unchanged (user decision). Run dir `/root/flvx-workers/runs/release-fork75-landing-rule-layers`.
+
+- [x] Rebase onto fork.74 (only conflict `.gitignore` comment), check overlap with fork.74 security code (only shared
+      file handler.go: new config keys + debounce state; new admin routes behind `ensureAdminAccess`, node-rule save behind
+      `limitMutation` + owner check; no ws/auth/login/metric code touched by 134)
+- [ ] `go build ./...`, backend suite vs fork.74 base (same 15 pre-existing failures), landing/ws/auth + contract
+      tests SQLite + PostgreSQL, agent build/tests, frontend tsc + build + lint (no new errors vs fork.74), golden +
+      empty-global byte-identical tests, local acceptance if RAM allows
+- [ ] Pre-upgrade prod capture (read-only, fork.74): compiled plan/config per landing server, sync status, counts,
+      CPU/RSS, latency p95
+- [ ] Push branch, CI green
+- [ ] Tag `3.0.27-fork.75`, Images green, release Latest with the fork.74 asset set
+- [ ] Prod backup `pre-fork75-*` (validated SQLite, compose/.env, local image tags, rollback.sh) + prune to 2
+- [ ] Upgrade prod panel to fork.75, health + version.json
+- [ ] Verify: migration once, new tables/columns, global empty / default direct / caps 5/10, compiled plans identical
+      before/after for every landing server, sync status no 失败, nodes/agents/forwards/landing counts unchanged, new UI
+      strings in served bundle, CPU/RSS/DB/log lines after 10 min, latency p95
