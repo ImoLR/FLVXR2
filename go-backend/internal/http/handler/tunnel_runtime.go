@@ -8,6 +8,7 @@ import (
 
 	"go-backend/internal/http/client"
 	"go-backend/internal/store/repo"
+	"go-backend/internal/ws"
 )
 
 var errTunnelRuntimeInactive = errors.New("隧道已删除、停用或不再包含该节点")
@@ -58,27 +59,43 @@ func (h *Handler) redeployTunnelRuntimeOnNode(tunnelID, nodeID int64) error {
 // The caller holds the tunnel lock through any following forward-service sync.
 // In particular, a local reconnect must not release or rebind federation peers.
 func (h *Handler) redeployTunnelRuntimeOnNodeLocked(tunnelID, nodeID int64) error {
+	_, err := h.redeployTunnelRuntimeOnNodeDiffLocked(tunnelID, nodeID, nil)
+	return err
+}
+
+// redeployTunnelRuntimeOnNodeDiffLocked is redeployTunnelRuntimeOnNodeLocked
+// for a reconnect: with the agent's runtime inventory it sends nothing when
+// the agent already runs exactly this tunnel's objects (changed=false). A nil
+// inventory (older agent, failed listing) always redeploys.
+func (h *Handler) redeployTunnelRuntimeOnNodeDiffLocked(tunnelID, nodeID int64, inv *agentRuntimeInventory) (bool, error) {
 	tunnel, err := h.getTunnelRecord(tunnelID)
 	if err != nil {
 		if errors.Is(err, errTunnelRuntimeInactive) || strings.Contains(err.Error(), "不存在") {
-			return errTunnelRuntimeInactive
+			return false, errTunnelRuntimeInactive
 		}
-		return err
+		return false, err
 	}
 	if tunnel.Type != 2 || tunnel.Status != 1 {
-		return errTunnelRuntimeInactive
+		return false, errTunnelRuntimeInactive
 	}
 	state, err := h.reconstructTunnelState(tunnelID)
 	if err != nil {
-		return err
+		return true, err
 	}
 	if _, ok := state.Nodes[nodeID]; !ok {
-		return errTunnelRuntimeInactive
+		return false, errTunnelRuntimeInactive
 	}
 	if err := h.restoreFederationRuntimePorts(state); err != nil {
-		return err
+		return true, err
 	}
-	return h.replaceTunnelRuntimeOnNode(state, nodeID)
+	plan, err := h.buildTunnelRuntimePlan(state, nodeID)
+	if err != nil {
+		return true, err
+	}
+	if inv != nil && !plan.federation && inv.matches(plan.expectedRevs()) {
+		return false, nil
+	}
+	return true, h.applyTunnelRuntimePlan(state, plan)
 }
 
 // A remote reservation may have changed its port during an earlier full
@@ -124,24 +141,64 @@ func (h *Handler) restoreFederationRuntimePorts(state *tunnelCreateState) error 
 // replaceTunnelRuntimeOnNode must be called with the tunnel lock held. Build
 // payloads before deleting anything, and finish this node before touching another.
 func (h *Handler) replaceTunnelRuntimeOnNode(state *tunnelCreateState, nodeID int64) error {
+	plan, err := h.buildTunnelRuntimePlan(state, nodeID)
+	if err != nil {
+		return err
+	}
+	return h.applyTunnelRuntimePlan(state, plan)
+}
+
+// tunnelRuntimePlan is what one node runs for one tunnel: the chain to the
+// next hop (entry/middle) and the relay service (middle/exit).
+type tunnelRuntimePlan struct {
+	nodeID      int64
+	node        *nodeRecord
+	role        string
+	runtimeNode tunnelRuntimeNode
+	federation  bool // remote role: federation protocol, never diffed
+	chainData   map[string]interface{}
+	serviceData []map[string]interface{}
+}
+
+func (p *tunnelRuntimePlan) failed(action string, err error) error {
+	return fmt.Errorf("%s %s(%d) %s失败: %w", p.role, nodeDisplayName(p.node), p.nodeID, action, err)
+}
+
+// expectedRevs are the runtime revisions an agent holds after the plan was
+// applied (see ws.ExpectedRuntimeRevs).
+func (p *tunnelRuntimePlan) expectedRevs() map[string]string {
+	out := map[string]string{}
+	if p.chainData != nil {
+		for k, v := range ws.ExpectedRuntimeRevs("AddChains", p.chainData) {
+			out[k] = v
+		}
+	}
+	if p.serviceData != nil {
+		for k, v := range ws.ExpectedRuntimeRevs("AddService", p.serviceData) {
+			out[k] = v
+		}
+	}
+	return out
+}
+
+func (h *Handler) buildTunnelRuntimePlan(state *tunnelCreateState, nodeID int64) (*tunnelRuntimePlan, error) {
 	node := state.Nodes[nodeID]
 	if node == nil {
-		return fmt.Errorf("节点 %d 不存在", nodeID)
+		return nil, fmt.Errorf("节点 %d 不存在", nodeID)
 	}
-	var runtimeNode tunnelRuntimeNode
+	plan := &tunnelRuntimePlan{nodeID: nodeID, node: node}
 	var targets []tunnelRuntimeNode
-	role := ""
 	for _, out := range state.OutNodes {
 		if out.NodeID == nodeID {
-			runtimeNode, role = out, "出口节点"
+			plan.runtimeNode, plan.role = out, "出口节点"
 			break
 		}
 	}
-	if role == "" {
+	if plan.role == "" {
 		for i, hop := range state.ChainHops {
 			for _, middle := range hop {
 				if middle.NodeID == nodeID {
-					runtimeNode, role = middle, "转发链节点"
+					plan.runtimeNode, plan.role = middle, "转发链节点"
 					targets = state.OutNodes
 					if i+1 < len(state.ChainHops) {
 						targets = state.ChainHops[i+1]
@@ -149,70 +206,74 @@ func (h *Handler) replaceTunnelRuntimeOnNode(state *tunnelCreateState, nodeID in
 					break
 				}
 			}
-			if role != "" {
+			if plan.role != "" {
 				break
 			}
 		}
 	}
-	if role == "" {
+	if plan.role == "" {
 		for _, entry := range state.InNodes {
 			if entry.NodeID == nodeID {
-				runtimeNode, role = entry, "入口节点"
+				plan.runtimeNode, plan.role = entry, "入口节点"
 				var err error
 				targets, err = leiKwanEntryTargets(state)
 				if err != nil {
-					return err
+					return nil, err
 				}
 				break
 			}
 		}
 	}
-	if role == "" {
-		return errTunnelRuntimeInactive
+	if plan.role == "" {
+		return nil, errTunnelRuntimeInactive
 	}
-	failed := func(action string, err error) error {
-		return fmt.Errorf("%s %s(%d) %s失败: %w", role, nodeDisplayName(node), nodeID, action, err)
+	if node.IsRemote == 1 && plan.runtimeNode.ChainType != 1 {
+		plan.federation = true
+		return plan, nil
 	}
-	if node.IsRemote == 1 && runtimeNode.ChainType != 1 {
+	if plan.runtimeNode.ChainType != 3 {
+		chainData, err := buildTunnelChainConfig(state.TunnelID, nodeID, targets, state.Nodes, state.IPPreference)
+		if err != nil {
+			return nil, plan.failed("生成转发链", err)
+		}
+		plan.chainData = chainData
+	}
+	if plan.runtimeNode.ChainType != 1 {
+		targetCount := len(targets)
+		if plan.runtimeNode.ChainType == 3 {
+			targetCount = 1
+		}
+		plan.serviceData = buildTunnelChainServiceConfig(state.TunnelID, plan.runtimeNode, node, targetCount)
+	}
+	return plan, nil
+}
+
+func (h *Handler) applyTunnelRuntimePlan(state *tunnelCreateState, plan *tunnelRuntimePlan) error {
+	nodeID := plan.nodeID
+	if plan.federation {
 		if err := h.replaceFederationRuntimeOnNode(state, nodeID); err != nil {
-			return failed("运行时下发", err)
+			return plan.failed("运行时下发", err)
 		}
 		return nil
 	}
-	var chainData map[string]interface{}
-	if runtimeNode.ChainType != 3 {
-		var err error
-		chainData, err = buildTunnelChainConfig(state.TunnelID, nodeID, targets, state.Nodes, state.IPPreference)
-		if err != nil {
-			return failed("生成转发链", err)
-		}
-	}
-	var serviceData []map[string]interface{}
-	if runtimeNode.ChainType != 1 {
-		targetCount := len(targets)
-		if runtimeNode.ChainType == 3 {
-			targetCount = 1
-		}
-		serviceData = buildTunnelChainServiceConfig(state.TunnelID, runtimeNode, node, targetCount)
-	}
-	if chainData != nil {
+	if plan.chainData != nil {
 		if _, err := h.sendNodeCommand(nodeID, "DeleteChains", map[string]interface{}{"chain": fmt.Sprintf("chains_%d", state.TunnelID)}, false, true); err != nil {
-			return failed("清理转发链", err)
+			return plan.failed("清理转发链", err)
 		}
 	}
-	if serviceData != nil {
+	if plan.serviceData != nil {
 		if _, err := h.sendNodeCommand(nodeID, "DeleteService", map[string]interface{}{"services": []string{fmt.Sprintf("%d_tls", state.TunnelID)}}, false, true); err != nil {
-			return failed("清理服务", err)
+			return plan.failed("清理服务", err)
 		}
 	}
-	if chainData != nil {
-		if _, err := h.sendNodeCommand(nodeID, "AddChains", chainData, true, false); err != nil {
-			return failed("下发转发链", err)
+	if plan.chainData != nil {
+		if _, err := h.sendNodeCommand(nodeID, "AddChains", plan.chainData, true, false); err != nil {
+			return plan.failed("下发转发链", err)
 		}
 	}
-	if serviceData != nil {
-		if err := h.addTunnelServiceOnNode(nodeID, state.TunnelID, serviceData); err != nil {
-			return failed("下发服务", err)
+	if plan.serviceData != nil {
+		if err := h.addTunnelServiceOnNode(nodeID, state.TunnelID, plan.serviceData); err != nil {
+			return plan.failed("下发服务", err)
 		}
 	}
 	return nil

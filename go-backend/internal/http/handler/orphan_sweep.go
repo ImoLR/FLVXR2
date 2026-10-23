@@ -33,6 +33,11 @@ type runtimeInventory struct {
 	Nftables   []string `json:"nftables"`
 	WGPaths    []string `json:"wgPaths"`
 	WGForwards []string `json:"wgForwards"`
+	// Plan 138 agents: revisions of the panel-tagged objects applied by the
+	// agent's current process ("service:<name>" → rev) and that process' id.
+	// nil Revs = an older agent.
+	Revs map[string]string `json:"revs,omitempty"`
+	Boot string            `json:"boot,omitempty"`
 }
 
 func (i runtimeInventory) objects() []runtimeObject {

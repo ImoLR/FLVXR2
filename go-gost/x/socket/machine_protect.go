@@ -85,6 +85,11 @@ func (w *WebSocketReporter) handleSetMachineProtection(data interface{}) error {
 	if err := s.Validate(); err != nil {
 		return err
 	}
+	// The panel pushes the stored settings on every reconnect (plan 138):
+	// unchanged settings are already applied and persisted.
+	if cur, ok := w.protector.Settings(); ok && cur == s {
+		return nil
+	}
 	path := w.configPath
 	if path == "" {
 		path = getConfigDir(w.serviceName) + "/config.json"
@@ -187,4 +192,27 @@ func (w *WebSocketReporter) machineReport() (*machineprotect.Conns, *machineprot
 	w.machineSentSeq = snap.Seq
 	prot := snap.Protect
 	return snap.Conns, &prot
+}
+
+// machineProtectionUnchanged reports whether a SetMachineProtection request
+// repeats the settings already applied (such a push is not logged).
+func (w *WebSocketReporter) machineProtectionUnchanged(data interface{}) bool {
+	if w.protector == nil {
+		return false
+	}
+	b, err := json.Marshal(data)
+	if err != nil {
+		return false
+	}
+	var req struct {
+		Enabled          *bool  `json:"enabled"`
+		MaxTotal         *int64 `json:"maxTotal"`
+		TWBuckets        *int64 `json:"twBuckets"`
+		CloseWaitSeconds *int64 `json:"closeWaitSeconds"`
+	}
+	if json.Unmarshal(b, &req) != nil || req.Enabled == nil || req.MaxTotal == nil || req.TWBuckets == nil || req.CloseWaitSeconds == nil {
+		return false
+	}
+	cur, ok := w.protector.Settings()
+	return ok && cur == machineprotect.Settings{Enabled: *req.Enabled, MaxTotal: *req.MaxTotal, TWBuckets: *req.TWBuckets, CloseWaitSeconds: *req.CloseWaitSeconds}
 }

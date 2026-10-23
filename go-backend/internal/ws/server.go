@@ -15,6 +15,7 @@ import (
 	"github.com/gorilla/websocket"
 
 	"go-backend/internal/authstate"
+	"go-backend/internal/http/middleware"
 	"go-backend/internal/ratelimit"
 	"go-backend/internal/security"
 	"go-backend/internal/store/repo"
@@ -36,6 +37,9 @@ type connWrap struct {
 	conn  *websocket.Conn
 	mu    sync.Mutex // node sessions: serializes command writes and pings
 	admin bool       // role 0: receives the machine protection fields of node metrics
+	// keepaliveErr: the panel's keepalive ping could not be written and the
+	// keepalive closed the connection (node sessions, plan 138).
+	keepaliveErr atomic.Pointer[string]
 
 	// Browser sessions (clients.go): one writer goroutine drains send.
 	kind      clientKind
@@ -50,6 +54,11 @@ type connWrap struct {
 type nodeSession struct {
 	panelIPFamily   string // empty for agents without panel IP family support
 	machineProtect  int    // handshake capability; 0 = agent without machine protection
+	runtimeRevs     int    // handshake capability; >0 = agent reports runtime revisions (plan 138)
+	startedAt       time.Time
+	via             string       // how the session reached the panel (Cloudflare colo / direct)
+	lastMsgAt       atomic.Int64 // unix nanos of the last data message (read loop)
+	replacedAt      atomic.Int64 // unix nanos when a newer connection of the node replaced this one
 	leikwanStatus   string
 	leikwanForwards string
 	egressDetected  string
@@ -136,6 +145,8 @@ type Server struct {
 	nodeOfflineTime       map[int64]int64 // nodeID -> offline timestamp (seconds)
 	machineMu             sync.RWMutex
 	machineStats          map[int64]*MachineSample // nodeID -> latest machine sample (memory only)
+	sessionLog            nodeSessionLogger        // node session close lines (plan 138)
+	commandsSent          sync.Map                 // nodeID -> *atomic.Int64 commands written (reconnect cost)
 }
 
 type SystemInfo struct {
@@ -353,6 +364,9 @@ func (s *Server) handleNode(w http.ResponseWriter, r *http.Request, nodeID int64
 	if err != nil {
 		return
 	}
+	// The session close line below replaces the access-log line of the
+	// hijacked request ("GET /system-info -> 200 (<lifetime>)").
+	middleware.SuppressRequestLog(w)
 	cw := &connWrap{conn: conn}
 	_ = conn.SetReadDeadline(time.Now().Add(wsPongWait))
 	conn.SetPongHandler(func(string) error {
@@ -369,6 +383,7 @@ func (s *Server) handleNode(w http.ResponseWriter, r *http.Request, nodeID int64
 
 	s.mu.Lock()
 	if old, ok := s.nodes[nodeID]; ok {
+		old.replacedAt.Store(time.Now().UnixNano())
 		_ = old.conn.conn.Close()
 		delete(s.byConn, old.conn.conn)
 	}
@@ -377,7 +392,10 @@ func (s *Server) handleNode(w http.ResponseWriter, r *http.Request, nodeID int64
 	if strings.TrimSpace(secret) != "" {
 		nodeCrypto, _ = security.NewAESCrypto(secret)
 	}
-	ns := &nodeSession{nodeID: nodeID, secret: secret, conn: cw, crypto: nodeCrypto}
+	ns := &nodeSession{nodeID: nodeID, secret: secret, conn: cw, crypto: nodeCrypto, startedAt: time.Now(), via: nodeSessionVia(r)}
+	if v, err := strconv.Atoi(r.URL.Query().Get("runtimeRevs")); err == nil && v > 0 {
+		ns.runtimeRevs = v
+	}
 	if value := r.URL.Query().Get("panelIpFamily"); value != "" {
 		ns.panelIPFamily, _ = repo.NormalizePanelIPFamily(value)
 	}
@@ -432,8 +450,10 @@ func (s *Server) handleNode(w http.ResponseWriter, r *http.Request, nodeID int64
 	for {
 		_, payload, err := conn.ReadMessage()
 		if err != nil {
+			s.logNodeSessionEnd(ns, err)
 			return
 		}
+		ns.lastMsgAt.Store(time.Now().UnixNano())
 
 		msg := decryptIfNeeded(payload, ns.crypto, secret)
 		if s.tryResolvePending(nodeID, msg) {
@@ -646,7 +666,7 @@ func (s *Server) SendCommand(nodeID int64, cmdType string, data interface{}, tim
 
 	cmdPayload := map[string]interface{}{
 		"type":      cmdType,
-		"data":      data,
+		"data":      annotateRuntimeRevs(cmdType, data),
 		"requestId": requestID,
 	}
 	rawCmd, err := json.Marshal(cmdPayload)
@@ -674,6 +694,9 @@ func (s *Server) SendCommand(nodeID int64, cmdType string, data interface{}, tim
 		}
 	}
 
+	if v, _ := s.commandsSent.LoadOrStore(nodeID, new(atomic.Int64)); v != nil {
+		v.(*atomic.Int64).Add(1)
+	}
 	ns.conn.mu.Lock()
 	_ = ns.conn.conn.SetWriteDeadline(time.Now().Add(wsWriteWait))
 	err = ns.conn.conn.WriteMessage(websocket.TextMessage, messageData)
@@ -839,6 +862,8 @@ func startKeepalive(cw *connWrap, done <-chan struct{}) {
 			_ = cw.conn.SetWriteDeadline(time.Time{})
 			cw.mu.Unlock()
 			if err != nil {
+				msg := err.Error()
+				cw.keepaliveErr.Store(&msg)
 				_ = cw.conn.Close()
 				return
 			}
@@ -917,4 +942,29 @@ func (s *Server) recordIPv6RA(ns *nodeSession, reported *string, detail string) 
 	}
 	ns.ipv6RAStatus, ns.ipv6RADetail = status, detail
 	ns.ipv6RARecorded = true
+}
+
+// RuntimeRevsCapable reports whether the node's current agent session reports
+// runtime revisions (ListServices `revs`), i.e. a reconnect may skip unchanged
+// objects (plan 138).
+func (s *Server) RuntimeRevsCapable(nodeID int64) bool {
+	if s == nil {
+		return false
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	ns := s.nodes[nodeID]
+	return ns != nil && ns.runtimeRevs > 0
+}
+
+// CommandsSent is the number of commands written to a node since the panel
+// started (memory only; used to report the cost of a reconnect redeploy).
+func (s *Server) CommandsSent(nodeID int64) int64 {
+	if s == nil {
+		return 0
+	}
+	if v, ok := s.commandsSent.Load(nodeID); ok {
+		return v.(*atomic.Int64).Load()
+	}
+	return 0
 }

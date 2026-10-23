@@ -9,10 +9,11 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-func (w *WebSocketReporter) sessionErrorLocked(conn *websocket.Conn, err error) {
+func (w *WebSocketReporter) sessionErrorLocked(conn *websocket.Conn, source string, err error) {
 	if conn != w.conn {
 		return
 	}
+	w.noteSessionCauseLocked(conn, source, err)
 	w.connected = false
 	if w.sessionEnded {
 		return
@@ -70,6 +71,7 @@ func (w *WebSocketReporter) handleSetPanelIPFamily(data interface{}) (bool, erro
 func (w *WebSocketReporter) reconnectPanel() {
 	w.connMutex.Lock()
 	defer w.connMutex.Unlock()
+	w.noteSessionCauseLocked(w.conn, causeRequested, nil)
 	w.sessionEnded = true
 	w.reconnectRequested = true
 	w.connected = false

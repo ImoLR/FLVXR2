@@ -19,6 +19,11 @@ type serviceInventory struct {
 	Nftables   []string `json:"nftables"`
 	WGPaths    []string `json:"wgPaths"`
 	WGForwards []string `json:"wgForwards"`
+	// Plan 138: revisions of the panel-tagged objects applied by this process
+	// ("service:<name>" → rev) and this process' boot id. Older agents send
+	// neither; the panel then redeploys everything on reconnect.
+	Revs map[string]string `json:"revs"`
+	Boot string            `json:"boot"`
 }
 
 func inventoryNames[T any](items map[string]T) []string {
@@ -82,5 +87,7 @@ func (w *WebSocketReporter) listServices() (serviceInventory, error) {
 	}
 	i.WGPaths = inventoryNames(paths)
 	sort.Strings(i.WGForwards)
+	i.Revs = runtimeRevs.snapshot(i)
+	i.Boot = agentBootID
 	return i, nil
 }

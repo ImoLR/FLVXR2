@@ -424,6 +424,14 @@ func (h *Handler) onNodeOnline(nodeID int64) {
 }
 
 func (h *Handler) redeployNodeRuntime(nodeID int64) {
+	started := time.Now()
+	var commandsBefore int64
+	if h.wsServer != nil {
+		commandsBefore = h.wsServer.CommandsSent(nodeID)
+	}
+	// Plan 138: capable agents report what they run; unchanged objects are
+	// not pushed again (nil inventory = full redeploy as before).
+	inv, fullReason := h.reconnectInventory(nodeID)
 	tunnelIDs, err := h.repo.ListActiveTunnelIDsByNode(nodeID)
 	if err != nil {
 		fmt.Printf("redeploy: list tunnels for node %d failed: %v\n", nodeID, err)
@@ -451,6 +459,7 @@ func (h *Handler) redeployNodeRuntime(nodeID int64) {
 		}
 	}
 	tunnelsOK, tunnelsFailed, forwardsOK, forwardsFailed := 0, 0, 0, 0
+	tunnelsSame, forwardsSame := 0, 0
 	for _, tunnelID := range tunnelIDs {
 		func() {
 			unlock := h.lockTunnelRuntime(tunnelID)
@@ -461,20 +470,28 @@ func (h *Handler) redeployNodeRuntime(nodeID int64) {
 			}
 			var pairErr error
 			if tunnel.Type == 2 {
-				pairErr = h.redeployTunnelRuntimeOnNodeLocked(tunnelID, nodeID)
+				changed, tunnelErr := h.redeployTunnelRuntimeOnNodeDiffLocked(tunnelID, nodeID, inv)
+				pairErr = tunnelErr
 				if errors.Is(pairErr, errTunnelRuntimeInactive) {
 					return
 				}
-				if pairErr != nil {
+				switch {
+				case pairErr != nil:
 					tunnelsFailed++
 					fmt.Printf("redeploy: tunnel %d failed on node %d: %v\n", tunnelID, nodeID, pairErr)
-				} else {
+				case changed:
 					tunnelsOK++
+				default:
+					tunnelsSame++
 				}
 			}
 			for _, forwardID := range forwardsByTunnel[tunnelID] {
 				forward, getErr := h.getForwardRecord(forwardID)
 				if getErr != nil || forward == nil || forward.Status != 1 || forward.TunnelID != tunnelID {
+					continue
+				}
+				if inv != nil && h.forwardRuntimeUnchangedOnNode(forward, nodeID, inv) {
+					forwardsSame++
 					continue
 				}
 				if syncErr := h.syncForwardServicesOnNode(forward, nodeID); syncErr != nil {
@@ -488,7 +505,22 @@ func (h *Handler) redeployNodeRuntime(nodeID int64) {
 			h.recordTunnelRuntimeResult(tunnelID, nodeID, pairErr)
 		}()
 	}
-	fmt.Printf("redeploy: node %d done: tunnels ok=%d failed=%d, forwards ok=%d failed=%d\n", nodeID, tunnelsOK, tunnelsFailed, forwardsOK, forwardsFailed)
+	orphans, orphanNote := h.removeReconnectOrphans(nodeID, inv)
+	var commands int64
+	if h.wsServer != nil {
+		commands = h.wsServer.CommandsSent(nodeID) - commandsBefore
+	}
+	if inv == nil {
+		fmt.Printf("redeploy: node %d done (full: %s): tunnels ok=%d failed=%d, forwards ok=%d failed=%d, commands=%d, took %s\n",
+			nodeID, fullReason, tunnelsOK, tunnelsFailed, forwardsOK, forwardsFailed, commands, formatRedeployTook(time.Since(started)))
+		return
+	}
+	line := fmt.Sprintf("redeploy: node %d done (diff, agent boot %s): tunnels unchanged=%d updated=%d failed=%d, forwards unchanged=%d updated=%d failed=%d, orphans removed=%d, commands=%d, took %s",
+		nodeID, inv.boot, tunnelsSame, tunnelsOK, tunnelsFailed, forwardsSame, forwardsOK, forwardsFailed, orphans, commands, formatRedeployTook(time.Since(started)))
+	if orphanNote != "" {
+		line += "; " + orphanNote
+	}
+	fmt.Println(line)
 }
 
 type PanelUpgradeCheckResponse struct {

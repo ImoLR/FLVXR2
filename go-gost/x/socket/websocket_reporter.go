@@ -213,6 +213,8 @@ type WebSocketReporter struct {
 	failover           *panelFailover // plan 122: candidate order, cooldowns, last healthy IP
 	session            panelSessionInfo
 	lastPongAt         atomic.Int64 // unix nanos of the last pong to our pings (current session)
+	lastRecvAt         atomic.Int64 // unix nanos of the last frame received from the panel (current session)
+	sessionCause       sessionCause // guarded by connMutex; first event that ended the current session (plan 138)
 	conn               *websocket.Conn
 	curBackoff         time.Duration // 当前重连退避间隔
 	pingInterval       time.Duration
@@ -479,19 +481,25 @@ func (w *WebSocketReporter) connect() error {
 	w.machineSentSeq = 0 // the first metric of a new session carries the latest sample
 	w.session = panelSessionInfo{target: target, scheme: res.scheme, ip: res.ip, startedAt: time.Now()}
 	w.lastPongAt.Store(0)
+	w.lastRecvAt.Store(0)
+	w.sessionCause = sessionCause{}
 	_ = conn.SetReadDeadline(time.Now().Add(reporterReadWait))
 	conn.SetPingHandler(func(appData string) error {
+		w.lastRecvAt.Store(time.Now().UnixNano())
 		_ = conn.SetReadDeadline(time.Now().Add(reporterReadWait))
 		return conn.WriteControl(websocket.PongMessage, []byte(appData), time.Now().Add(reporterWriteWait))
 	})
 	conn.SetPongHandler(func(string) error {
-		w.lastPongAt.Store(time.Now().UnixNano())
+		now := time.Now().UnixNano()
+		w.lastPongAt.Store(now)
+		w.lastRecvAt.Store(now)
 		return conn.SetReadDeadline(time.Now().Add(reporterReadWait))
 	})
 
 	// 设置关闭处理器来检测连接状态
 	w.conn.SetCloseHandler(func(code int, text string) error {
 		w.connMutex.Lock()
+		w.noteSessionCauseLocked(conn, causeCloseFrame, &websocket.CloseError{Code: code, Text: text})
 		w.connected = false
 		w.sessionEnded = true // a received close frame is a deliberate server close
 		w.connMutex.Unlock()
@@ -513,10 +521,43 @@ func (w *WebSocketReporter) connect() error {
 	w.initNftablesManager()
 	w.ipv6RA.detect()
 
-	// Do not hold up the WS reader/keepalive on public IP discovery.
-	go reportPublicIPsOnConnect(w)
+	// Do not hold up the WS reader/keepalive on public IP discovery. A node
+	// that reconnects every few minutes does not need two curl runs and a
+	// report each time (plan 138): repeat only after publicIPReportEvery or
+	// when the connection leaves from another local address.
+	if publicIPReportDue(conn.LocalAddr(), time.Now()) {
+		go reportPublicIPsOnConnect(w)
+	}
 
 	return nil
+}
+
+const publicIPReportEvery = 10 * time.Minute
+
+var publicIPReportMu sync.Mutex
+var publicIPLastReport time.Time
+var publicIPLastLocal string
+
+func localHost(a net.Addr) string {
+	if a == nil {
+		return ""
+	}
+	host, _, err := net.SplitHostPort(a.String())
+	if err != nil {
+		return a.String()
+	}
+	return host
+}
+
+func publicIPReportDue(local net.Addr, now time.Time) bool {
+	publicIPReportMu.Lock()
+	defer publicIPReportMu.Unlock()
+	host := localHost(local)
+	if !publicIPLastReport.IsZero() && now.Sub(publicIPLastReport) < publicIPReportEvery && host == publicIPLastLocal {
+		return false
+	}
+	publicIPLastReport, publicIPLastLocal = now, host
+	return true
 }
 
 // reportPublicIPsOnConnect runs once per session; tests replace it (it calls
@@ -802,7 +843,8 @@ func buildWebSocketQuery(secret string, version string, http int, tls int, socks
 	return "/system-info?type=1&secret=" + url.QueryEscape(secret) + "&version=" + url.QueryEscape(version) +
 		"&http=" + strconv.Itoa(http) + "&tls=" + strconv.Itoa(tls) + "&socks=" + strconv.Itoa(socks) +
 		"&blockOther=" + strconv.Itoa(blockOther) + "&panelIpFamily=" + url.QueryEscape(panelconn.Default.Mode()) +
-		"&machineProtect=" + strconv.Itoa(machineProtectVersion)
+		"&machineProtect=" + strconv.Itoa(machineProtectVersion) +
+		"&runtimeRevs=" + strconv.Itoa(runtimeRevsVersion)
 }
 
 // buildWebSocketCandidates returns the primary and the fallback scheme URL of
@@ -885,6 +927,8 @@ func (w *WebSocketReporter) handleConnection() (out sessionOutcome) {
 		start = time.Now()
 	}
 	defer func() {
+		// Kernel TCP state of the ended session, read before the socket closes.
+		tcpInfo := tcpInfoSummary(conn)
 		w.connMutex.Lock()
 		w.sessionEnded = true
 		if w.conn != nil {
@@ -896,6 +940,7 @@ func (w *WebSocketReporter) handleConnection() (out sessionOutcome) {
 			out.reason = sessionRequested
 		}
 		w.reconnectRequested = false
+		cause := w.sessionCause
 		w.connMutex.Unlock()
 		<-readerDone
 		out.duration = time.Since(start)
@@ -907,7 +952,21 @@ func (w *WebSocketReporter) handleConnection() (out sessionOutcome) {
 		if w.ctx.Err() != nil {
 			out.reason = sessionStopped
 		}
-		fmt.Printf("🔌 WebSocket连接已关闭\n")
+		if cause.source == "" || out.reason == sessionStopped {
+			switch out.reason {
+			case sessionStopped:
+				cause = sessionCause{source: causeStopped, at: time.Now()}
+			case sessionRequested:
+				cause = sessionCause{source: causeRequested, at: time.Now()}
+			case sessionSwitch:
+				cause = sessionCause{source: causeSwitch, at: time.Now()}
+			}
+		}
+		var lastRecv time.Time
+		if n := w.lastRecvAt.Load(); n > 0 {
+			lastRecv = time.Unix(0, n)
+		}
+		w.logSessionClose(out, cause, conn, tcpInfo, lastRecv)
 	}()
 
 	// 启动消息接收goroutine
@@ -918,15 +977,19 @@ func (w *WebSocketReporter) handleConnection() (out sessionOutcome) {
 	if conn != nil {
 		if err := conn.WriteControl(websocket.PingMessage, []byte(panelHelloPayload), time.Now().Add(reporterWriteWait)); err != nil {
 			w.connMutex.Lock()
-			w.sessionErrorLocked(conn, err)
+			w.sessionErrorLocked(conn, causeHello, err)
 			w.connMutex.Unlock()
 			return
 		}
 	}
 	endUnhealthy := func(reason sessionReason) {
 		out.reason = reason
+		source := causeStall
+		if reason == sessionNoHello {
+			source = causeNoHello
+		}
 		w.connMutex.Lock()
-		w.sessionErrorLocked(conn, errPanelNoReply)
+		w.sessionErrorLocked(conn, source, errPanelNoReply)
 		w.connMutex.Unlock()
 	}
 
@@ -964,7 +1027,7 @@ func (w *WebSocketReporter) handleConnection() (out sessionOutcome) {
 			}
 			if err := conn.WriteControl(websocket.PingMessage, nil, time.Now().Add(reporterWriteWait)); err != nil {
 				w.connMutex.Lock()
-				w.sessionErrorLocked(conn, err)
+				w.sessionErrorLocked(conn, causePing, err)
 				w.connMutex.Unlock()
 				w.routineLogs.Record("Heartbeat", sanitizeWebSocketURL(w.url), logsafe.Text(logsafe.Error(err), w.secret))
 				return
@@ -1243,7 +1306,7 @@ func (w *WebSocketReporter) sendSystemInfo(sysInfo SystemInfo) error {
 	w.conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
 
 	if err := w.conn.WriteMessage(websocket.TextMessage, messageData); err != nil {
-		w.sessionErrorLocked(w.conn, err)
+		w.sessionErrorLocked(w.conn, causeWrite, err)
 		return fmt.Errorf("写入消息失败: %v", err)
 	}
 
@@ -1267,14 +1330,13 @@ func (w *WebSocketReporter) receiveMessages() {
 		default:
 			messageType, message, err := conn.ReadMessage()
 			if err != nil {
-				if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
-					fmt.Printf("❌ WebSocket读取消息错误: %v\n", err)
-				}
+				// The reason is part of the session close line (plan 138).
 				w.connMutex.Lock()
-				w.sessionErrorLocked(conn, err)
+				w.sessionErrorLocked(conn, causeRead, err)
 				w.connMutex.Unlock()
 				return
 			}
+			w.lastRecvAt.Store(time.Now().UnixNano())
 
 			// 处理接收到的消息
 			w.handleReceivedMessage(messageType, message)
@@ -1381,7 +1443,8 @@ func (w *WebSocketReporter) routeCommand(cmd CommandMessage) {
 	// Periodic read-only probes are expected background traffic. Logging every
 	// request and every successful attempt can produce thousands of lines per
 	// hour, so keep command logging for state-changing and interactive commands.
-	if !isRoutineCommand(cmd.Type) {
+	quiet := cmd.Type == "SetMachineProtection" && w.machineProtectionUnchanged(cmd.Data)
+	if !isRoutineCommand(cmd.Type) && !quiet {
 		_, errs := json.Marshal(cmd)
 		if errs != nil {
 			fmt.Println("Error marshaling JSON:", errs)
@@ -1595,6 +1658,8 @@ func (w *WebSocketReporter) routeCommand(cmd CommandMessage) {
 		err = fmt.Errorf("未知命令类型: %s", cmd.Type)
 		response.Type = "UnknownCommandResponse"
 	}
+	// Plan 138: remember (or forget) the panel revision of the touched objects.
+	recordRuntimeRevs(cmd.Type, cmd.Data, err)
 
 	// 只有状态变更命令才保存配置
 	if needSaveConfig {
@@ -2658,7 +2723,7 @@ func (w *WebSocketReporter) writeResponse(response CommandResponse) error {
 
 	w.conn.SetWriteDeadline(time.Now().Add(timeout))
 	if err := w.conn.WriteMessage(websocket.TextMessage, messageData); err != nil {
-		w.sessionErrorLocked(w.conn, err)
+		w.sessionErrorLocked(w.conn, causeResponse, err)
 		return err
 	}
 	return nil

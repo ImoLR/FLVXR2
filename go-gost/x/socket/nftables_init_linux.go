@@ -20,15 +20,17 @@ var newNftablesManager = func() (NftablesManagerInterface, error) {
 	return mgr, nil
 }
 
-// initNftablesManager runs on every WebSocket (re)connect. The new manager starts from a clean
-// slate (NewManager clears the agent's nft tables; the panel re-syncs the node's forwards after
-// a reconnect), so the previous manager must be closed first: otherwise its quota poll keeps
-// running forever against objects that no longer exist (node 48: one leaked poller per
-// reconnect, ~150 failure log lines per second).
+// initNftablesManager runs on every WebSocket (re)connect, but builds the
+// manager only once per process (plan 138). NewManager clears the agent's nft
+// tables (DNAT rules, accounting, quota): on a fresh process that removes what
+// a previous process left, and the panel deploys every forward again. A mere
+// reconnect must keep the running rules: rebuilding there cut every
+// nftables-mode forward (and its byte accounting) until the panel's redeploy
+// ~10 s later, and the panel now skips unchanged forwards on reconnect.
+// A failed first build is retried on the next connect.
 func (w *WebSocketReporter) initNftablesManager() {
-	if old := w.nftablesMgr; old != nil {
-		old.Close()
-		w.setNftablesManager(nil)
+	if w.nftablesMgr != nil {
+		return
 	}
 	mgr, err := newNftablesManager()
 	if err != nil {

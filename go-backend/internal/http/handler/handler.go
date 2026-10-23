@@ -53,6 +53,9 @@ type Handler struct {
 
 	tunnelRuntimeLocks sync.Map
 	nodeCommandSender  func(int64, string, interface{}, time.Duration) (ws.CommandResult, error)
+	// runtimeRevsCapable overrides the handshake capability check of the
+	// reconnect diff (plan 138); tests replace it.
+	runtimeRevsCapable func(int64) bool
 	nodeRedeployMu     sync.Mutex
 	nodeRedeploy       *nodeRedeployScheduler
 	redeployRetryMu    sync.Mutex

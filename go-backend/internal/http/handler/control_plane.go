@@ -315,46 +315,15 @@ func (h *Handler) syncForwardServicesWithWarningsOnNode(forward *forwardRecord, 
 		return nil, h.syncWGForwardRuleOnNode(forward, ports, method, nodeID)
 	}
 
-	tunnel, err := h.getTunnelRecord(forward.TunnelID)
+	in, err := h.resolveForwardRuntimeInputs(forward)
 	if err != nil {
 		return nil, err
 	}
+	tunnel, userTunnelID := in.tunnel, in.userTunnelID
+	limiterID, speed, arenaMode := in.limiterID, in.speed, in.arenaMode
+	var limiterName string
 
 	warnings := make([]string, 0)
-
-	// Resolve user tunnel first so runtime service name can carry the real user_tunnel id.
-	userTunnelID, utLimiterID, utSpeed, err := h.resolveUserTunnelAndLimiter(forward.UserID, forward.TunnelID)
-	if err != nil {
-		return nil, err
-	}
-
-	// Determine limiter from forward's SpeedID first, fallback to UserTunnel's limiter.
-	var limiterID *int64
-	var limiterName string
-	var speed *int
-	var arenaMode bool
-
-	if forward.SpeedID.Valid && forward.SpeedID.Int64 > 0 {
-		// Forward has its own speed limit
-		limit, err := h.repo.GetSpeedLimit(forward.SpeedID.Int64)
-		if err == nil && limit.Speed > 0 {
-			limiterID = &forward.SpeedID.Int64
-			speedVal := limit.Speed
-			speed = &speedVal
-			arenaMode = limit.ArenaMode == 1
-		}
-	}
-
-	if limiterID == nil {
-		// Fall back to UserTunnel speed limit
-		limiterID = utLimiterID
-		speed = utSpeed
-		if limiterID != nil {
-			if limit, err := h.repo.GetSpeedLimit(*limiterID); err == nil && limit != nil {
-				arenaMode = limit.ArenaMode == 1
-			}
-		}
-	}
 
 	// nftables mode branch
 	if strings.EqualFold(forward.Mode, "nftables") {
@@ -378,11 +347,8 @@ func (h *Handler) syncForwardServicesWithWarningsOnNode(forward *forwardRecord, 
 	}
 
 	// ✅ 动态限速器名称
-	var dynamicLimiterName string
-	if forward.SpeedLimitEnabled && forward.SpeedLimit > 0 {
-		dynamicLimiterName = fmt.Sprintf("forward_%d_speed", forward.ID)
-	}
-	serviceBase := buildForwardServiceBaseWithResolvedUserTunnel(forward.ID, forward.UserID, userTunnelID)
+	dynamicLimiterName := in.dynamicLimiterName
+	serviceBase := in.serviceBase
 	tunnelTLSProtocol, err := h.isTunnelSelectedTLSProtocol(forward.TunnelID)
 	if err != nil {
 		return nil, err
@@ -2179,18 +2145,23 @@ func (h *Handler) ensureForwardDynamicLimiter(forward *forwardRecord, limiterNam
 	return nil
 }
 
+// buildDynamicLimiterPayload is the AddLimiters payload of a forward's own
+// speed limit (Mbps in the UI, MB/s for gost; the same value up and down).
+func buildDynamicLimiterPayload(limiterName string, speedLimit int) map[string]interface{} {
+	speedMB := float64(speedLimit) / 8.0
+	return map[string]interface{}{
+		"name":   limiterName,
+		"limits": []string{fmt.Sprintf("$ %.1fMB %.1fMB", speedMB, speedMB)},
+	}
+}
+
 // ✅ 新增：在节点上创建/更新动态限速器
 func (h *Handler) ensureDynamicLimiterOnNode(nodeID int64, limiterName string, speedLimit int) error {
 	// 构建限速器配置
 	// gost traffic limiter 使用 MB/s 作为单位（通过 units.ParseBase2Bytes 解析）
 	// 前端输入是 Mbps，需要转换：MB/s = Mbps / 8
-	// 配置格式："$ <in> <out>"，其中 $ 是 ServiceLimitKey
-	var limits []string
-	if speedLimit > 0 {
-		// 上下行使用相同的限速值
-		speedMB := float64(speedLimit) / 8.0
-		limits = []string{fmt.Sprintf("$ %.1fMB %.1fMB", speedMB, speedMB)}
-	} else {
+	// 配置格式："$ <in> <out>"，其中 $ 是 ServiceLimitKey（buildDynamicLimiterPayload）
+	if speedLimit <= 0 {
 		// 没设置限速，删除限速器
 		_, _ = h.sendNodeCommand(nodeID, "DeleteLimiters", map[string]interface{}{
 			"limiter": limiterName,
@@ -2207,10 +2178,7 @@ func (h *Handler) ensureDynamicLimiterOnNode(nodeID int64, limiterName string, s
 	time.Sleep(100 * time.Millisecond)
 
 	// 创建新的限速器
-	addPayload := map[string]interface{}{
-		"name":   limiterName,
-		"limits": limits,
-	}
+	addPayload := buildDynamicLimiterPayload(limiterName, speedLimit)
 
 	if _, err := h.sendNodeCommand(nodeID, "AddLimiters", addPayload, false, false); err != nil {
 		return err
