@@ -92,3 +92,22 @@ screenshot approval). Run dir `/root/flvx-workers/runs/landing-rule-presets`.
   cannot fix this alone; the UI says so. Safety rule: enforced by the agent / mmwx Core on every inbound.
 - Gallery lives under the preview token dir like every other gallery (`/root/mmwx-preview/<token>/…`).
 
+
+## Release (fork.78, panel only, no OTA)
+
+User approval 2026-10-23 ~20:50 TW after the gallery: 「可以发布吧」 — released as built, no new scope.
+
+- [x] Branch `maintenance/3.0.27-fork.78-landing-rule-presets` from fork.77 (1c031590); the 7 plan-140 commits
+      cherry-picked without conflicts. `git diff <140 branch> HEAD` == `git diff fork.76 fork.77` (fork.77 is
+      agent-only, so go-backend/ and vite-frontend/ are byte-identical to the approved 140 branch).
+- [x] `go build ./...`; full backend suite: 15 FAIL lines = the same set as plan 140 / fork.76, 0 new.
+      Landing / preset / seed tests on SQLite + PostgreSQL (postgres subtests ran, not skipped): all pass.
+- [x] Plan identity on a fresh read-only prod copy (fork.77 tree vs this branch, branch runs the startup
+      seeding): byte-identical output (sha256 6fc80419…, same as at build time); branch copy: 全局·强制 4 rules
+      (0 enabled), 10 presets, builtin switches NULL, markers 1/1. Copies deleted.
+- [x] Frontend: tsc 0 errors, build OK (index.js 2,960,631 B), eslint on the changed files 0 errors and no new
+      warnings (6 pre-existing in server-settings.tsx).
+- [ ] Push branch, CI green; tag `3.0.27-fork.78`, Images green, release validated (Latest, asset set = fork.77)
+- [ ] Prod: rollback dir `pre-fork78-<ts>` + validated DB backup, upgrade `/opt/flvx-svc`, prune to 2 backups
+- [ ] Prod checks: version, health, nodes, agents unchanged, migration once (+ restart, no double seed), plan
+      fingerprints unchanged, new UI strings in the bundle, real-JWT checks, 10-min resource numbers
