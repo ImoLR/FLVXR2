@@ -94,3 +94,26 @@ for the user's screenshot approval. Pure FLVX feature: no runtime link to miaomi
   1 h idle simulation (handler test, fake clock): 2 calls for 2 records (one GET drift check each).
 - Screenshots: 64 shots (desktop 1440 + H5 390, light + dark), 110/110 checks, 0 page errors;
   gallery `/root/flvx-workers/runs/node-ddns/screens/index.html` on mmwx-preview `…/node-ddns/`.
+
+## Release (fork.82, 2026-10-24 TW)
+
+Approval: user 2026-10-24 ~04:40 TW waived the screenshot gate for this queue; the release worker
+reviewed the gallery (DNS 服务商 card, node form DDNS section desktop/H5 light/dark, badge menu):
+no layout defect, nothing re-shot. Branch `maintenance/3.0.27-fork.82-node-ddns` = feature head
+4ff90130 + ride-along 「强制 IPv4/IPv6」 label fix (5e2e5be0 + c8aca366 from
+`fix/3.0.27-force-ipv4-label`, user-requested for the next panel release).
+
+- [x] Gallery self-review (no defect, no re-shoot)
+- [x] Release branch + ride-along cherry-pick (no conflicts)
+- [x] `go build ./...` + backend tests SQLite + PostgreSQL vs baseline; go-gost build/tests; frontend tsc/build/lint
+  - SQLite `go test ./...`: 15 FAIL lines, identical to the fork.81 baseline list; PG 18 (contract + repo + handler): only baseline names
+  - go-gost + x build ok; `x/nodeaddr`, `x/socket`, `x/landing` pass (netns E2E skipped, needs real core)
+  - frontend: tsc 0, `vite build` ok (index 2.98 MB), eslint errors on modified files 31 = base 31
+- [x] Prod-DB identity check on a read-only copy (fork.81 vs fork.82: node/tunnel/forward data unchanged, migration columns only, DDNS off everywhere); copy deleted
+  - both panels in an empty netns; node/tunnel/forward/user/tunnel-user/egress-global lists identical; DB rows identical except `node.updated_time` (both versions set it at startup)
+  - landing node/server lists differ only by the intended label 直连（仅 IPv4）→ 强制 IPv4; new tables `dns_provider`, `node_ddns_record`, node columns `ddns_enabled`/`ddns_provider_id`, 0 nodes with DDNS
+- [ ] Push, CI green, tag `3.0.27-fork.82`, release Latest with the same asset set as fork.81
+- [ ] Prod panel: validated DB backup + rollback dir, upgrade `/opt/flvx-svc`, prune backups (keep 2)
+- [ ] Node 48: SSH backup, OTA to fork.82 (needs `addrReport=1` agent)
+- [ ] DNS 服务商 「Cloudflare imgamer.top」 + node 48 records (ct 240e main, cu 2408 extra, TTL 120); records resolve to node 48's current addresses; tunnels 75/78/79 still pass traffic
+- [ ] Prod checks (version, health, online count, agent versions, migration once, bundle, real-JWT admin/non-admin, 10-min resources/logs)
