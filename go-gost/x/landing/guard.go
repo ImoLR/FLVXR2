@@ -46,6 +46,25 @@ func (g *guardGroup) key() string {
 	return net.JoinHostPort(g.Host, strconv.Itoa(g.DestPort)) + "|" + strings.Join(g.Names, ",")
 }
 
+// guardOutboundTag is the freedom outbound the guard's allow rules use instead
+// of "direct" (plan 137, QA F14). REALITY closes its guard connection as soon
+// as it has the dest's handshake, but the outbound's policy decides when the
+// dest leg goes: on "direct" (level 0, downlinkOnly 5 s) every new Reality
+// connection kept the leg open ~5 s — 2 extra Core sockets, 3 extra /proc/net
+// rows (what machine protection counts) and a spliced pipe pair. Level
+// guardUserLevel is deliberately not defined in the base config, so the Core
+// uses its built-in session (uplinkOnly/downlinkOnly 1 s). Hot-applied through
+// the API like the egress outbounds; the Core never restarts for it.
+const (
+	guardOutboundTag = "flvxg-direct"
+	guardUserLevel   = 9
+)
+
+func guardOutbound() map[string]any {
+	return map[string]any{"tag": guardOutboundTag, "protocol": "freedom",
+		"settings": map[string]any{"domainStrategy": "UseIP", "userLevel": guardUserLevel}}
+}
+
 // inbound is the loopback helper: TLS sniffing for routing only, so the
 // connection always goes to the configured dest, never to the sniffed name.
 func (g *guardGroup) inbound() map[string]any {
@@ -72,7 +91,7 @@ func (g *guardGroup) rules() []any {
 		domains = append(domains, "full:"+n)
 	}
 	return []any{
-		map[string]any{"type": "field", "ruleTag": tag + "-allow", "inboundTag": []string{tag}, "protocol": []string{"tls"}, "domain": domains, "outboundTag": "direct"},
+		map[string]any{"type": "field", "ruleTag": tag + "-allow", "inboundTag": []string{tag}, "protocol": []string{"tls"}, "domain": domains, "outboundTag": guardOutboundTag},
 		map[string]any{"type": "field", "ruleTag": tag + "-block", "inboundTag": []string{tag}, "outboundTag": "block"},
 	}
 }

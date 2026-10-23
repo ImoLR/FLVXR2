@@ -196,10 +196,17 @@ type renderedPlan struct {
 
 func (m *Manager) renderEgress(ctx context.Context, e *Egress, guards map[int]*guardGroup) (renderedPlan, error) {
 	p := renderedPlan{outbounds: map[string]string{}, covered: e.coveredTags()}
+	if len(guards) > 0 {
+		p.outbounds[guardOutboundTag] = canonical(guardOutbound())
+	}
 	if !e.active() {
 		p.rules, _ = renderRules(nil, nil, nil)
 		p.rules = append(guardRules(guards), p.rules...)
-		p.hash = hashJSON(map[string]any{"rules": p.rules})
+		if len(p.outbounds) > 0 {
+			p.hash = hashJSON(map[string]any{"outbounds": p.outbounds, "rules": p.rules})
+		} else {
+			p.hash = hashJSON(map[string]any{"rules": p.rules})
+		}
 		return p, nil
 	}
 	local := localAddrs{}
@@ -386,7 +393,7 @@ func (m *Manager) applyEgress(ctx context.Context, snapshot coreSnapshot) (coreS
 	}
 	var stale []string
 	for tag := range present {
-		if (strings.HasPrefix(tag, "flvxo-") || strings.HasPrefix(tag, "flvxc-")) && rendered.outbounds[tag] == "" {
+		if (strings.HasPrefix(tag, "flvxo-") || strings.HasPrefix(tag, "flvxc-") || tag == guardOutboundTag) && rendered.outbounds[tag] == "" {
 			stale = append(stale, tag)
 		}
 	}

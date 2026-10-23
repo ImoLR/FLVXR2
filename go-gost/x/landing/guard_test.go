@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"testing"
@@ -111,6 +112,19 @@ func TestApplyEgressGuardsOnly(t *testing.T) {
 	if !m.guardOn[39999] || m.egress.State != "none" || m.egress.Guard != "on" || m.egress.GuardNodes != 1 || m.applied.Egress == "" {
 		t.Fatalf("guard state %+v on=%v applied=%q", m.egress, m.guardOn, m.applied.Egress)
 	}
+	// plan 137 (F14): the allow rule leaves through the guard's own freedom
+	// outbound (undefined policy level → 1 s linger instead of level 0's 5 s),
+	// added before the rules that reference it.
+	if rules.Routing.Rules[0]["outboundTag"] != guardOutboundTag {
+		t.Fatalf("guard allow rule must use %s: %s", guardOutboundTag, rulesRaw)
+	}
+	ado, _ := os.ReadFile(filepath.Join(dir, "last-ado.json"))
+	if !strings.Contains(string(ado), `"tag":"flvxg-direct"`) || !strings.Contains(string(ado), `"userLevel":9`) || !strings.Contains(string(ado), `"protocol":"freedom"`) {
+		t.Fatalf("guard outbound not added: %s", ado)
+	}
+	if calls, _ := os.ReadFile(log); !regexp.MustCompile(`(?s)ado .*adrules`).Match(calls) {
+		t.Fatalf("guard outbound must be added before the rules: %s", calls)
+	}
 	// Steady state: no CLI calls.
 	_ = os.Remove(log)
 	if _, err := m.applyEgress(context.Background(), coreSnapshot{}); err != nil || !m.guardOn[39999] {
@@ -120,7 +134,10 @@ func TestApplyEgressGuardsOnly(t *testing.T) {
 		calls, _ := os.ReadFile(log)
 		t.Fatalf("idempotent guard apply invoked the Core: %s", calls)
 	}
-	// Guard switched off: rules back to the safety rule only.
+	// Guard switched off: rules back to the safety rule only, guard outbound removed.
+	if err := os.WriteFile(filepath.Join(dir, "lso.json"), []byte(`{"outbounds":[{"tag":"direct"},{"tag":"block"},{"tag":"flvxg-direct"}]}`), 0600); err != nil {
+		t.Fatal(err)
+	}
 	m.desired.Nodes[0].GuardPort = 0
 	m.desired.Revision++
 	m.guardWant, m.guardByTag, _ = m.desired.guardGroups()
@@ -131,6 +148,9 @@ func TestApplyEgressGuardsOnly(t *testing.T) {
 	_ = json.Unmarshal(rulesRaw, &rules)
 	if len(rules.Routing.Rules) != 1 || m.applied.Egress != "" || len(m.guardOn) != 0 || m.egress.Guard != "" {
 		t.Fatalf("guard removal: %s %+v", rulesRaw, m.egress)
+	}
+	if calls, _ := os.ReadFile(log); !regexp.MustCompile(`rmo .*flvxg-direct`).Match(calls) {
+		t.Fatalf("guard outbound not removed with the last guard: %s", calls)
 	}
 }
 

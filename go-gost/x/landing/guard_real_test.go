@@ -73,7 +73,7 @@ func TestGuardRealCoreDomainDest(t *testing.T) {
 	conf := map[string]any{
 		"log":       map[string]any{"loglevel": "warning"},
 		"inbounds":  []any{g.inbound()},
-		"outbounds": []any{map[string]any{"tag": "direct", "protocol": "freedom", "settings": map[string]any{"domainStrategy": "UseIPv4"}}, map[string]any{"tag": "block", "protocol": "blackhole"}},
+		"outbounds": []any{map[string]any{"tag": "direct", "protocol": "freedom", "settings": map[string]any{"domainStrategy": "UseIPv4"}}, guardOutbound(), map[string]any{"tag": "block", "protocol": "blackhole"}},
 		"routing":   map[string]any{"rules": g.rules()},
 		// The dest name itself resolves to the local dest (Core DNS hosts).
 		"dns": map[string]any{"hosts": map[string]any{"www.flvx.test": "127.0.0.1"}},
