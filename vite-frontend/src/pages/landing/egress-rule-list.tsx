@@ -1,5 +1,4 @@
 import { useState } from "react";
-import toast from "react-hot-toast";
 import {
   ChevronDown,
   ChevronUp,
@@ -8,19 +7,18 @@ import {
   MoreHorizontal,
   Pencil,
   Plus,
-  Sparkles,
   Trash2,
 } from "lucide-react";
 
 import { RuleEditor } from "./egress-rule-editor";
+import { PresetPicker } from "./egress-preset-picker";
 
 import {
-  EgressPreset,
+  BuiltinActive,
   EgressRule,
-  applyPreset,
   actionColor,
-  egressPresets,
   emptyRule,
+  presetAskAction,
   ruleAttributeChips,
 } from "@/api/landing-egress";
 import { useMobileBreakpoint } from "@/hooks/useMobileBreakpoint";
@@ -32,14 +30,6 @@ import {
   DropdownMenu,
   DropdownTrigger,
 } from "@/shadcn-bridge/heroui/dropdown";
-import {
-  Modal,
-  ModalBody,
-  ModalContent,
-  ModalFooter,
-  ModalHeader,
-} from "@/shadcn-bridge/heroui/modal";
-import { Select, SelectItem } from "@/shadcn-bridge/heroui/select";
 import { Switch } from "@/shadcn-bridge/heroui/switch";
 
 // Plan 134: an editable, ordered rule list (global 强制 / 默认 lists and node
@@ -68,6 +58,7 @@ function moveRule(rules: EgressRule[], index: number, move: Move) {
 
 export const choiceLabel = (action: string, choices: RuleChoice[]) => {
   if (action === "block") return "封锁";
+  if (action === presetAskAction) return "插入时选择";
   if (!action || action === "direct") return "直连";
   const id = Number(action.replace("outbound:", ""));
 
@@ -85,6 +76,11 @@ export function EgressRuleList({
   emptyText,
   numberFrom = 1,
   labels,
+  builtinActive = { smtp: true, bt: true },
+  safety = [],
+  defaultChoice,
+  savePreset = false,
+  askOption = false,
 }: {
   rules: EgressRule[];
   onChange: (rules: EgressRule[]) => void;
@@ -99,29 +95,20 @@ export function EgressRuleList({
   // Names for action labels when they differ from the selectable choices
   // (e.g. a template no longer published to users).
   labels?: RuleChoice[];
+  // Plan 140: built-in rules in force here (preset 「内置已封锁」 hint), the
+  // outbound preselected for presets that ask, 「同时保存为预设」 in the rule
+  // editor (admin lists) and the 「插入时选择」 action (preset editing).
+  builtinActive?: BuiltinActive;
+  safety?: string[];
+  defaultChoice?: number;
+  savePreset?: boolean;
+  askOption?: boolean;
 }) {
   const isMobile = useMobileBreakpoint();
   const [editing, setEditing] = useState<{
     index: number;
     rule: EgressRule;
   } | null>(null);
-  const [presetFor, setPresetFor] = useState<EgressPreset | null>(null);
-  const [presetAction, setPresetAction] = useState("direct");
-  const available = presets
-    ? egressPresets.filter((p) => !hideSource || p.key !== "block-cn")
-    : [];
-
-  const addPreset = (preset: EgressPreset, action: string) => {
-    const result = applyPreset(rules, preset, action);
-
-    onChange(result.rules);
-    if (result.added === 0) toast("规则已存在，未重复添加");
-    else if (result.skipped > 0)
-      toast.success(
-        `已添加 ${result.added} 条，${result.skipped} 条已存在未重复添加`,
-      );
-    else toast.success(`已添加「${preset.label}」`);
-  };
 
   const moves = (index: number) =>
     (
@@ -140,43 +127,15 @@ export function EgressRuleList({
           <span className="mr-auto text-xs text-default-500">{addHint}</span>
         )}
         {presets && canAdd && (
-          <Dropdown placement="bottom-end">
-            <DropdownTrigger>
-              <Button
-                color="secondary"
-                size="sm"
-                startContent={<Sparkles size={16} />}
-                variant="flat"
-              >
-                添加预设
-              </Button>
-            </DropdownTrigger>
-            <DropdownMenu aria-label="规则预设">
-              {available.map((preset) => (
-                <DropdownItem
-                  key={preset.key}
-                  onPress={() => {
-                    if (!preset.needsOutbound) {
-                      addPreset(preset, "block");
-
-                      return;
-                    }
-                    setPresetAction(
-                      choices[0] ? `outbound:${choices[0].id}` : "direct",
-                    );
-                    setPresetFor(preset);
-                  }}
-                >
-                  <div className="flex flex-col py-0.5">
-                    <span>{preset.label}</span>
-                    <span className="max-w-72 text-xs text-default-500">
-                      {preset.description}
-                    </span>
-                  </div>
-                </DropdownItem>
-              ))}
-            </DropdownMenu>
-          </Dropdown>
+          <PresetPicker
+            active={builtinActive}
+            choices={choices}
+            defaultChoice={defaultChoice}
+            hideSource={hideSource}
+            rules={rules}
+            safety={safety}
+            onChange={onChange}
+          />
         )}
         {canAdd && (
           <Button
@@ -344,10 +303,12 @@ export function EgressRuleList({
       {editing && (
         <RuleEditor
           hideNodeScope
+          askOption={askOption}
           hideSource={hideSource}
           landingNodes={[]}
           outbounds={choices}
           rule={editing.rule}
+          savePreset={savePreset}
           onClose={() => setEditing(null)}
           onDone={(rule) => {
             onChange(
@@ -359,47 +320,6 @@ export function EgressRuleList({
           }}
         />
       )}
-      <Modal isOpen={Boolean(presetFor)} onClose={() => setPresetFor(null)}>
-        <ModalContent className="flvx-landing-text">
-          <ModalHeader>添加预设 · {presetFor?.label}</ModalHeader>
-          <ModalBody className="space-y-3">
-            <p className="text-sm text-default-500">{presetFor?.description}</p>
-            <Select
-              label="走哪个出站"
-              selectedKeys={[presetAction]}
-              variant="bordered"
-              onSelectionChange={(keys) =>
-                setPresetAction(String(Array.from(keys)[0]))
-              }
-            >
-              {[
-                ...choices.map((o) => (
-                  <SelectItem key={`outbound:${o.id}`}>{o.name}</SelectItem>
-                )),
-                <SelectItem key="direct">直连</SelectItem>,
-              ]}
-            </Select>
-          </ModalBody>
-          <ModalFooter>
-            <Button
-              color="danger"
-              variant="flat"
-              onPress={() => setPresetFor(null)}
-            >
-              取消
-            </Button>
-            <Button
-              color="primary"
-              onPress={() => {
-                if (presetFor) addPreset(presetFor, presetAction || "direct");
-                setPresetFor(null);
-              }}
-            >
-              添加
-            </Button>
-          </ModalFooter>
-        </ModalContent>
-      </Modal>
     </div>
   );
 }

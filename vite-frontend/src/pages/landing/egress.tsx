@@ -137,7 +137,14 @@ export default function LandingEgressTab() {
           {error}
         </p>
       )}
-      <LandingGlobalRules overview={overview} onSaved={() => void load()} />
+      <LandingGlobalRules
+        overview={overview}
+        onSaved={() => void load()}
+        onWhitelistSaved={(list) => {
+          setWhitelist(list.join("\n"));
+          setOverview((prev) => (prev ? { ...prev, whitelist: list } : prev));
+        }}
+      />
       <div className="grid gap-4 xl:grid-cols-2 xl:items-start">
         <Card>
           <CardHeader className="flex items-start justify-between gap-3">
@@ -463,6 +470,9 @@ export default function LandingEgressTab() {
                     return;
                   }
                   setWhitelist(res.data.whitelist.join("\n"));
+                  setOverview((prev) =>
+                    prev ? { ...prev, whitelist: res.data.whitelist } : prev,
+                  );
                   toast.success("来源白名单已保存");
                 }}
               >

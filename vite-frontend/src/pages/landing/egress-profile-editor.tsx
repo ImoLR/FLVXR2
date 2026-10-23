@@ -5,29 +5,25 @@ import {
   ChevronUp,
   ChevronsDown,
   ChevronsUp,
-  Lock,
   MoreHorizontal,
   Pencil,
   Plus,
   ShieldCheck,
-  Sparkles,
   Trash2,
 } from "lucide-react";
 
+import { BuiltinRuleList } from "./egress-builtin-list";
+import { PresetPicker } from "./egress-preset-picker";
 import { RuleEditor } from "./egress-rule-editor";
 
 import {
   EgressOverview,
-  EgressPreset,
   EgressProfile,
   EgressRule,
-  abuseDefaultRules,
   abuseDefaultsOn,
   actionColor,
-  isAbuseDuplicate,
   actionLabel,
-  applyPreset,
-  egressPresets,
+  builtinCover,
   emptyRule,
   ruleAttributeChips,
   saveEgressProfile,
@@ -95,46 +91,20 @@ export function ProfileEditor({
     index: number;
     rule: EgressRule;
   } | null>(null);
-  const [presetFor, setPresetFor] = useState<EgressPreset | null>(null);
   const warp = overview.outbounds.find((o) => o.type === "warp");
-  const [presetAction, setPresetAction] = useState("");
   const [saving, setSaving] = useState(false);
   const rules = form.rules || [];
   const setRules = (next: EgressRule[]) =>
     setForm((prev) => ({ ...prev, rules: next }));
-
-  const addPreset = (preset: EgressPreset, action: string) => {
-    const result = applyPreset(rules, preset, action);
-
-    setRules(result.rules);
-    if (result.added === 0) toast("规则已存在，未重复添加");
-    else if (result.skipped > 0)
-      toast.success(
-        `已添加 ${result.added} 条，${result.skipped} 条已存在未重复添加`,
-      );
-    else toast.success(`已添加「${preset.label}」`);
+  // Plan 140: the global switches AND this profile's toggle decide which
+  // default rules apply to its nodes.
+  const builtin = overview.global?.builtin;
+  const safety = builtin?.safety || [];
+  const active = {
+    smtp: abuseOn && builtin?.smtp !== false,
+    bt: abuseOn && builtin?.bt !== false,
   };
-
-  const choosePreset = (preset: EgressPreset) => {
-    if (preset.key === "block-bt" && abuseOn) {
-      toast("默认规则已经屏蔽 BT，无需重复添加");
-
-      return;
-    }
-    if (!preset.needsOutbound) {
-      addPreset(preset, "block");
-
-      return;
-    }
-    setPresetAction(
-      warp
-        ? `outbound:${warp.id}`
-        : overview.outbounds[0]
-          ? `outbound:${overview.outbounds[0].id}`
-          : "direct",
-    );
-    setPresetFor(preset);
-  };
+  const choices = overview.outbounds.map((o) => ({ id: o.id, name: o.name }));
 
   const save = async () => {
     setSaving(true);
@@ -219,38 +189,14 @@ export function ProfileEditor({
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <h3 className="font-medium">规则</h3>
                 <div className="flex flex-wrap gap-2">
-                  <Dropdown placement="bottom-end">
-                    <DropdownTrigger>
-                      <Button
-                        color="secondary"
-                        size="sm"
-                        startContent={<Sparkles size={16} />}
-                        variant="flat"
-                      >
-                        添加预设
-                      </Button>
-                    </DropdownTrigger>
-                    <DropdownMenu aria-label="规则预设">
-                      {egressPresets.map((preset) => (
-                        <DropdownItem
-                          key={preset.key}
-                          onPress={() => choosePreset(preset)}
-                        >
-                          <div className="flex flex-col py-0.5">
-                            <span>{preset.label}</span>
-                            <span className="max-w-72 text-xs text-default-500">
-                              {preset.description}
-                            </span>
-                            {preset.key === "block-bt" && abuseOn && (
-                              <span className="max-w-72 text-xs text-success">
-                                已包含在默认规则中
-                              </span>
-                            )}
-                          </div>
-                        </DropdownItem>
-                      ))}
-                    </DropdownMenu>
-                  </Dropdown>
+                  <PresetPicker
+                    active={active}
+                    choices={choices}
+                    defaultChoice={warp?.id}
+                    rules={rules}
+                    safety={safety}
+                    onChange={setRules}
+                  />
                   <Button
                     color="success"
                     size="sm"
@@ -288,67 +234,14 @@ export function ProfileEditor({
                   }
                 />
               </div>
+              <BuiltinRuleList
+                admin
+                bt={builtin?.bt !== false}
+                profileOff={!abuseOn}
+                safety={safety}
+                smtp={builtin?.smtp !== false}
+              />
               <div className="divide-y divide-divider rounded-lg border border-divider">
-                <div className="flex items-start gap-3 bg-default-50 p-3">
-                  <Lock className="mt-1 shrink-0 text-default-400" size={16} />
-                  <div className="min-w-0 flex-1 space-y-1">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="font-medium">安全规则</span>
-                      <Chip
-                        className="text-default-600"
-                        size="sm"
-                        variant="bordered"
-                      >
-                        锁定
-                      </Chip>
-                      <Chip color="danger" size="sm" variant="flat">
-                        → 封锁
-                      </Chip>
-                    </div>
-                    <p className="text-xs text-default-500">
-                      内网、回环、链路本地、云元数据等地址一律封锁，不能移动或删除。
-                    </p>
-                  </div>
-                </div>
-                {abuseDefaultRules.map((rule) => (
-                  <div
-                    key={rule.name}
-                    className={`flex items-start gap-3 bg-default-50 p-3 ${abuseOn ? "" : "opacity-60"}`}
-                  >
-                    <Lock
-                      className="mt-1 shrink-0 text-default-400"
-                      size={16}
-                    />
-                    <div className="min-w-0 flex-1 space-y-1">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="font-medium">{rule.name}</span>
-                        <Chip
-                          className="text-default-600"
-                          size="sm"
-                          variant="bordered"
-                        >
-                          {abuseOn ? "锁定" : "已关闭"}
-                        </Chip>
-                        <Chip color="danger" size="sm" variant="flat">
-                          → 封锁
-                        </Chip>
-                      </div>
-                      <div className="flex flex-wrap gap-1">
-                        {rule.chips.map((chip) => (
-                          <Chip
-                            key={chip}
-                            className="text-default-600"
-                            size="sm"
-                            variant="bordered"
-                          >
-                            {chip}
-                          </Chip>
-                        ))}
-                      </div>
-                      <p className="text-xs text-default-500">{rule.hint}</p>
-                    </div>
-                  </div>
-                ))}
                 {rules.map((rule, index) => (
                   <div
                     key={rule.id}
@@ -380,10 +273,9 @@ export function ProfileEditor({
                             </Chip>
                           )}
                           {rule.enabled &&
-                            abuseOn &&
-                            isAbuseDuplicate(rule) && (
+                            builtinCover(rule, active, safety) && (
                               <Chip color="success" size="sm" variant="flat">
-                                已由默认规则覆盖
+                                已由内置规则覆盖
                               </Chip>
                             )}
                         </div>
@@ -522,6 +414,7 @@ export function ProfileEditor({
       </Modal>
       {editing && (
         <RuleEditor
+          savePreset
           landingNodes={overview.landingNodes}
           outbounds={overview.outbounds}
           rule={editing.rule}
@@ -536,52 +429,6 @@ export function ProfileEditor({
           }}
         />
       )}
-      <Modal isOpen={Boolean(presetFor)} onClose={() => setPresetFor(null)}>
-        <ModalContent className="flvx-landing-text">
-          <ModalHeader>添加预设 · {presetFor?.label}</ModalHeader>
-          <ModalBody className="space-y-3">
-            <p className="text-sm text-default-500">{presetFor?.description}</p>
-            <Select
-              label="走哪个出站"
-              selectedKeys={presetAction ? [presetAction] : []}
-              variant="bordered"
-              onSelectionChange={(keys) =>
-                setPresetAction(String(Array.from(keys)[0]))
-              }
-            >
-              {[
-                ...overview.outbounds.map((o) => (
-                  <SelectItem key={`outbound:${o.id}`}>{o.name}</SelectItem>
-                )),
-                <SelectItem key="direct">直连（默认）</SelectItem>,
-              ]}
-            </Select>
-            {!overview.outbounds.length && (
-              <p className="text-xs text-warning">
-                还没有出站模板，可先在「出站」里新建 WARP 或代理。
-              </p>
-            )}
-          </ModalBody>
-          <ModalFooter>
-            <Button
-              color="danger"
-              variant="flat"
-              onPress={() => setPresetFor(null)}
-            >
-              取消
-            </Button>
-            <Button
-              color="primary"
-              onPress={() => {
-                if (presetFor) addPreset(presetFor, presetAction || "direct");
-                setPresetFor(null);
-              }}
-            >
-              添加
-            </Button>
-          </ModalFooter>
-        </ModalContent>
-      </Modal>
     </>
   );
 }

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import toast from "react-hot-toast";
 import { Lock } from "lucide-react";
 
+import { BuiltinRuleList } from "./egress-builtin-list";
 import { LayerLegend } from "./egress-global";
 import { EgressRuleList } from "./egress-rule-list";
 
@@ -185,6 +186,8 @@ export function NodeRulesDialog({
     view.supported &&
     (caps.unlimited || (rules.length < caps.perNode && totalUsed < caps.total));
   const chip = stateChip[view.state] || stateChip.syncing;
+  // Plan 140: whether each built-in rule applies to this node.
+  const builtin = view.builtin || { safety: [], smtp: true, bt: true };
   const counters = caps.unlimited
     ? `本节点 ${rules.length} 条 · 管理员不限`
     : `本节点 ${rules.length}/${caps.perNode} · 总计 ${totalUsed}/${caps.total}`;
@@ -264,22 +267,26 @@ export function NodeRulesDialog({
             )}
             <LayerLegend compact highlight={["node"]} />
 
-            <div className="divide-y divide-divider rounded-lg border border-divider">
-              <div className="flex items-start gap-3 bg-default-50 p-3">
-                <Lock className="mt-1 shrink-0 text-default-500" size={14} />
-                <div className="min-w-0 space-y-0.5">
-                  <p className="text-sm font-medium">内置规则</p>
-                  <p className="text-xs text-default-500">
-                    内网、回环、云元数据等地址一律封锁；默认屏蔽 SMTP 25 和
-                    BT。节点规则不能放行。
-                  </p>
-                </div>
+            <section className="space-y-2">
+              <div>
+                <h3 className="font-medium">内置规则</h3>
+                <p className="text-xs text-default-500">
+                  所有落地节点最先匹配，节点规则不能放行。
+                </p>
               </div>
-              {view.global.active &&
-                view.global.forced.map((rule) => (
+              <BuiltinRuleList
+                bt={builtin.bt}
+                safety={builtin.safety}
+                smtp={builtin.smtp}
+              />
+            </section>
+            {view.global.active && view.global.forced.length > 0 && (
+              <div className="divide-y divide-divider rounded-lg border border-divider">
+                {view.global.forced.map((rule) => (
                   <FixedRow key={rule.id} locked rule={rule} tag="全局·强制" />
                 ))}
-            </div>
+              </div>
+            )}
 
             <section className="space-y-2">
               <div className="flex flex-wrap items-center justify-between gap-2">
@@ -294,12 +301,14 @@ export function NodeRulesDialog({
                       ? undefined
                       : "已达到规则上限，删除后才能再添加"
                   }
+                  builtinActive={{ smtp: builtin.smtp, bt: builtin.bt }}
                   canAdd={canAdd}
                   choices={choices}
                   emptyText="还没有规则：按下面的服务器规则和默认出站转发"
                   labels={labelChoices}
                   numberFrom={1}
                   rules={rules}
+                  safety={builtin.safety}
                   onChange={setRules}
                 />
               ) : (
