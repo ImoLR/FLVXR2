@@ -694,9 +694,11 @@ func (s *Server) SendCommand(nodeID int64, cmdType string, data interface{}, tim
 		}
 	}
 
-	if v, _ := s.commandsSent.LoadOrStore(nodeID, new(atomic.Int64)); v != nil {
-		v.(*atomic.Int64).Add(1)
+	counter, ok := s.commandsSent.Load(nodeID)
+	if !ok {
+		counter, _ = s.commandsSent.LoadOrStore(nodeID, new(atomic.Int64))
 	}
+	counter.(*atomic.Int64).Add(1)
 	ns.conn.mu.Lock()
 	_ = ns.conn.conn.SetWriteDeadline(time.Now().Add(wsWriteWait))
 	err = ns.conn.conn.WriteMessage(websocket.TextMessage, messageData)
