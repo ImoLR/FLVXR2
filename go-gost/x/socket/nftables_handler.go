@@ -72,7 +72,7 @@ func (w *WebSocketReporter) handleAddNftablesRules(data json.RawMessage) error {
 
 	// Per-rule detail only at debug level: this runs for every rule on every
 	// (re)deploy (plan 137, QA F13).
-	if log := logger.Default(); log.IsLevelEnabled(logger.DebugLevel) {
+	if log := logger.Default(); log != nil && log.IsLevelEnabled(logger.DebugLevel) {
 		log.Debugf("handleAddNftablesRules rules=%d", len(req.Rules))
 		for i, rule := range req.Rules {
 			log.Debugf("nft rule[%d]: ForwardID=%d NodeID=%d Protocol=%s Port=%d Target=%q ChainType=%d NextHopIP=%q NextHopPort=%d",

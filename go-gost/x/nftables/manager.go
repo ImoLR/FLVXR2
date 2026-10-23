@@ -503,7 +503,7 @@ func (m *Manager) AddRule(forwardID, nodeID, userID, userTunnelID int64, protoco
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	logger.Default().Debugf("nft AddRule: forwardID=%d protocol=%s port=%d target=%q speedLimit=%d", forwardID, protocol, port, target, speedLimit)
+	debugf("nft AddRule: forwardID=%d protocol=%s port=%d target=%q speedLimit=%d", forwardID, protocol, port, target, speedLimit)
 	if m.closed {
 		return errManagerClosed
 	}
@@ -1096,11 +1096,19 @@ func ruleKey(forwardID int64, protocol string) string {
 	return fmt.Sprintf("%d_%s", forwardID, protocol)
 }
 
+// debugf writes per-rule detail only when the agent runs at debug level: these
+// ran for every rule on every (re)deploy (plan 137, QA F13).
+func debugf(format string, args ...any) {
+	if l := logger.Default(); l != nil && l.IsLevelEnabled(logger.DebugLevel) {
+		l.Debugf(format, args...)
+	}
+}
+
 func parseTarget(target string) (string, int) {
 	target = strings.TrimSpace(target)
 	host, portStr, err := net.SplitHostPort(target)
 	if err != nil {
-		logger.Default().Debugf("nft parseTarget SplitHostPort(%q) failed: %v", target, err)
+		debugf("nft parseTarget SplitHostPort(%q) failed: %v", target, err)
 		return "", 0
 	}
 	port, _ := strconv.Atoi(portStr)
