@@ -1,4 +1,4 @@
-# 142 · Node DDNS (Cloudflare) on FLVX nodes — build + screenshots, no release
+# 142 · Node DDNS (Cloudflare) on FLVX nodes — RELEASED as 3.0.27-fork.82 (2026-10-24 TW)
 
 Requested 2026-10-24 ~02:40 TW (user voice message): node 48 「Leikwanhost 沪台IPLC」 lost its CT
 entry when the SLAAC prefix rotated (`240e:b8f:a30:1904::/64` → `240e:b8f:72d:5c04::/64`); node
@@ -112,8 +112,20 @@ no layout defect, nothing re-shot. Branch `maintenance/3.0.27-fork.82-node-ddns`
 - [x] Prod-DB identity check on a read-only copy (fork.81 vs fork.82: node/tunnel/forward data unchanged, migration columns only, DDNS off everywhere); copy deleted
   - both panels in an empty netns; node/tunnel/forward/user/tunnel-user/egress-global lists identical; DB rows identical except `node.updated_time` (both versions set it at startup)
   - landing node/server lists differ only by the intended label 直连（仅 IPv4）→ 强制 IPv4; new tables `dns_provider`, `node_ddns_record`, node columns `ddns_enabled`/`ddns_provider_id`, 0 nodes with DDNS
-- [ ] Push, CI green, tag `3.0.27-fork.82`, release Latest with the same asset set as fork.81
-- [ ] Prod panel: validated DB backup + rollback dir, upgrade `/opt/flvx-svc`, prune backups (keep 2)
-- [ ] Node 48: SSH backup, OTA to fork.82 (needs `addrReport=1` agent)
-- [ ] DNS 服务商 「Cloudflare imgamer.top」 + node 48 records (ct 240e main, cu 2408 extra, TTL 120); records resolve to node 48's current addresses; tunnels 75/78/79 still pass traffic
-- [ ] Prod checks (version, health, online count, agent versions, migration once, bundle, real-JWT admin/non-admin, 10-min resources/logs)
+- [x] Push, CI green, tag `3.0.27-fork.82`, release Latest with the same asset set as fork.81
+  - branch CI 40032058919 green; tag → 94381193, Images/Release 40032286008 green; Latest, 10 assets = fork.81 set, compose/install pinned, gost sha256 ok, ghcr amd64+arm64
+- [x] Prod panel: validated DB backup + rollback dir, upgrade `/opt/flvx-svc`, prune backups (keep 2)
+  - rollback `pre-fork82-20261023T222555Z` (quick/integrity ok) + `pre-fork81-20261023T195325Z`; pre-fork80 + ghcr fork.79 images pruned; healthy 06:26:10 TW (9 s), 30/30 online, reconnect redeploy 0 updated / 0 failed
+- [x] Node 48: SSH backup, OTA to fork.82 (needs `addrReport=1` agent)
+  - backup `/root/flvxx-backup-20261023T221445Z-pre-fork82/restore-agent.sh` (pre-fork67 backup removed, 2 kept); panel OTA 3.1 s, reconnected with `addrReport=1`; no other node OTA'd
+- [x] DNS 服务商 「Cloudflare imgamer.top」 + node 48 records (ct 240e main, cu 2408 extra, TTL 120); records resolve to node 48's current addresses; tunnels 75/78/79 still pass traffic
+  - provider id 1 token active / 永久有效 / zone imgamer.top; CF zone 33 → 35 records (only the two new AAAA, proxied=false, TTL 120, comment FLVX DDNS)
+  - `leikwan-hutai-ct` → 240e:b8f:72d:5c04:ca:8aff:fec0:2813, `leikwan-hutai-cu` → 2408:820c:750b:dc64:ca:8aff:fec0:2813 (1.1.1.1 + 8.8.8.8); node 48 serverIp/serverIpV6 → ct domain, extra → cu domain, no other node field changed; tunnels 75 (ct,cu) / 78 / 79 (ct) in_ip = domains; forward_port in_ip untouched
+  - tunnel diagnose 75/78/79 ok, forward diagnose 110/113/126/156 ok, TCP via both domains to all 4 rule ports open
+- [x] Prod checks (version, health, online count, agent versions, migration once, bundle, real-JWT admin/non-admin, 10-min resources/logs)
+  - version.json `3.0.27-fork.82-mvlj4s74` (local + public); bundle has DNS 服务商 / 接管已有记录 / DDNS 已同步 / 需升级节点 / 强制 IPv4
+  - 30/30 online; agents 29 × fork.79 + node 48 fork.82; extra backend restart: no migration/DDNS line repeated, records stay synced, 30/30 back
+  - real JWT: admin provider list / node list 200; user 3 → 403 on provider list/test/delete, node/list, ddns/sync; anon → 401; CF token never in any response; user 23 sees `leikwan-hutai-ct.imgamer.top:45233` (read-only)
+  - 10 min after restart: backend 2.3–4.3 % CPU / 25.6 MiB (fork.81 3.7 % / 35.9 MiB), DB 56.6 MB unchanged, 12 log lines/10 min (access lines only; fork.81 quiet window 1); node 48 agent ≈0.43 % CPU, 64 MB RSS, journal 28 lines/10 min (before OTA 29–30, all SetQuotaGroups)
+
+Rollback: `bash /opt/flvx-svc/rollback/pre-fork82-20261023T222555Z/rollback.sh` (→ fork.81, keeps DB; node 48 stays on the domains, DNS just stops following IP changes; `--restore-db` = DB as of 06:25 TW incl. literal IPs). Node 48 agent: `sh /root/flvxx-backup-20261023T221445Z-pre-fork82/restore-agent.sh` (→ fork.79). CF records are never deleted by FLVX; remove by hand in Cloudflare only if DDNS is abandoned.
