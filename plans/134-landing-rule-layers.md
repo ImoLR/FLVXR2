@@ -78,10 +78,43 @@ cadence (F10) unchanged (user decision). Run dir `/root/flvx-workers/runs/releas
       CPU/RSS, latency p95 → plus an offline check on a copy of the prod DB (mmwx token blanked, deleted after):
       fork.74 and fork.75 code compile byte-identical payloads for servers 1–4; fork.75 reproduces every stored
       egress_hash / shared_desired_hash and revision (no revision bump on upgrade)
-- [ ] Push branch, CI green
-- [ ] Tag `3.0.27-fork.75`, Images green, release Latest with the fork.74 asset set
-- [ ] Prod backup `pre-fork75-*` (validated SQLite, compose/.env, local image tags, rollback.sh) + prune to 2
-- [ ] Upgrade prod panel to fork.75, health + version.json
-- [ ] Verify: migration once, new tables/columns, global empty / default direct / caps 5/10, compiled plans identical
+- [x] Push branch, CI green
+- [x] Tag `3.0.27-fork.75`, Images green, release Latest with the fork.74 asset set
+- [x] Prod backup `pre-fork75-*` (validated SQLite, compose/.env, local image tags, rollback.sh) + prune to 2
+- [x] Upgrade prod panel to fork.75, health + version.json
+- [x] Verify: migration once, new tables/columns, global empty / default direct / caps 5/10, compiled plans identical
       before/after for every landing server, sync status no 失败, nodes/agents/forwards/landing counts unchanged, new UI
       strings in served bundle, CPU/RSS/DB/log lines after 10 min, latency p95
+
+### Release results (2026-10-23, 台湾时间)
+- Branch CI 39908566823 (c74b3c3c) + 39909828768 (688508e7) green; tag `3.0.27-fork.75` → 688508e7; Images
+  39909837894 green; release Latest, not prerelease, 10 assets = fork.74 set, compose pinned
+  `ghcr.io/imolr/flvxr2-svc-*:3.0.27-fork.75`, install scripts PINNED_VERSION/REPO OK, gost sha256 OK, ghcr
+  amd64+arm64.
+- Rollback point `/opt/flvx-svc/rollback/pre-fork75-20261023T062917Z` (→ fork.74; SQLite quick/integrity ok, local
+  image tags `local/flvxx-*:pre-fork75-20261023T062917Z`); kept + `pre-fork74-20261022T202252Z` (→ fork.73, restores
+  MD5 hashes); pre-fork73 + fork.72 images pruned.
+- Prod upgraded 14:29:25 → healthy 14:29:32 (7 s), version.json `3.0.27-fork.75-mvkkp5ez`; 29/29 online before and
+  after, agents unchanged (21 = fork.70, 28 × fork.67, no OTA), forwards 34 (31 running), landing nodes 2 (row hash
+  identical), landing servers 4.
+- Migration: AutoMigrate only — landing_node +3 cols (route_rules '[]', route_rule_count 0, route_default ''),
+  landing_user_setting +4 (user 26 row: rule caps follow global), landing_outbound +user_allowed, landing_egress_setting
+  +4 global_* cols; no new table, no backfill, landing_egress_setting still empty → `global/get` = forced [], default [],
+  defaultAction direct, caps 5/10, nodesWithRules 0.
+- Zero behaviour change: after two sync cycles on fork.75 (shared pushes 14:32, node 21 desired.json rewritten 14:31)
+  every landing_server fingerprint is unchanged — server 1 (native, node 21) egress_hash '' rev 253; servers 2/4
+  (mmwx 7/10) shared_desired_hash 4f53cda1… rev 230/55; server 3 (mmwx 5, 2 nodes, egress applied) ec03a314… rev 178;
+  pushed = applied revisions unchanged, no sync errors; node 21 desired/config/applied/api.json sha256 identical, Core
+  PID 890894 unchanged. 全局规则 sync status: all 4 servers 已同步, no notes (the old-agent 线路机 note needs global
+  强制 rules + line-chain nodes, prod has neither).
+- Served bundle `index-D4-D7RvT.js` / `egress-Su6Rkvm2.js` contain 全局规则 / 路由规则 / 允许用户使用 / 节点规则 /
+  全局·强制 / 全局·默认 / 匹配顺序.
+- Live smoke on node 21 (temporary objects only): temp user 50 + SS2022 node 96 (port 30000); user saved one node
+  rule 「封锁 example.com」 → applied, example.com blocked, example.org fine, a held echo connection through node 21
+  survived, Core PID unchanged; node + user deleted, 0 leftover rows; server 1 desired back to `nodes: []` (content
+  identical, revision 253 → 273).
+- Resources (before fork.74 at 10 h uptime → fork.75 20 min): backend CPU 4.15 → 3.65 / 4.42 %, RSS 37.7 → 43.5 MiB
+  (fork.74 fresh start was 44.3), DB 54.27 → 54.38 MB, logs 146 lines/h → 26 lines in a quiet 10 min (≈156/h,
+  node-reconnect redeploys + stale-token summaries). p95 ms: landing/server/list 5.1 → 5.5–14 (noisy host),
+  landing/node/list 3.8 → 3.5, node/list 8.5 → 8.0–10.4; admin-only egress/overview p50 3.0 → 5.7 (two extra small
+  queries for template usage; called once per page open, never polled).
