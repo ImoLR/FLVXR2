@@ -49,12 +49,14 @@ Agent batch (F13/F14) is plan 137 and bases on fork.76.
 
 ### Release
 - [x] Commit + push branch, CI green (run 39929767197)
-- [ ] Tag `3.0.27-fork.76`, images + release assets verified
-- [ ] Prod backup `pre-fork76-<TS>` + prune (keep 2)
-- [ ] Upgrade prod panel (no OTA), health + 29 nodes
-- [ ] Prod read-only checks: node status = live connections, #318 listed as 「利群侧已删除」, 规则页 opens
-      without POST config, polling interval in nginx log
-- [ ] Summary → run dir summary.md; plan marked complete
+- [x] Tag `3.0.27-fork.76` (→ 0a18a1ed), images run 39930111187 green, Latest release with the same 10 assets as fork.75,
+      compose/install scripts pinned, gost sha256 ok, ghcr backend/frontend amd64+arm64
+- [x] Prod backup `pre-fork76-20261023T092400Z` (DB quick/integrity ok, fork.75 images tagged) + prune (kept pre-fork75 + pre-fork76)
+- [x] Upgrade prod panel (no OTA) 2026-10-23 17:24 TW, healthy 7.3 s after recreate, 29/29 nodes online within 25 s
+- [x] Prod read-only checks: node status = live connections (29/29, 0 mismatches), 规则页 opens without POST config
+      (headless tour + real admin traffic), polling 30 s / 15 s / paused when hidden; #318 is NOT missing on the real
+      LeiKwan side (still active there), so it is correctly listed as a normal forward, not 「利群侧已删除」 (see notes)
+- [x] Summary → run dir summary.md; plan marked complete
 
 ## Decisions / notes
 - F11: `ResetNodeOnlineState` runs in `App.Run` before `ListenAndServe` (no agent can be connected yet);
@@ -70,6 +72,15 @@ Agent batch (F13/F14) is plan 137 and bases on fork.76.
 - R9: not changed — running the expiry job earlier also disables the account (login) and moves auto-renew
   billing earlier; a first traffic report already pauses rules of expired / over-quota users at once.
 
+- Prod #318: QA r2 reproduced F15 against a fake LeiKwan without #318. The real LeiKwan service 39 still lists
+  forward 318 (active, CAN -> HKG, :10044), so on prod it shows in the normal list with tunnel 「利群·广港·AWS HK」
+  and `missingPipes` is empty — correct. Nothing was deleted.
+- Prod reconnects: nodes 45 / 12 / 26 (later 22 / 53 / 21 once) reconnect every few minutes via wss://flvxxht
+  (Cloudflare). Node 45's own journal shows the same rate before the upgrade (10–17 closes/h on fork.74/75), so it
+  is pre-existing; every reconnect redeploys (Delete+Add service) without failures. Left for a follow-up.
+- Prod config writes after upgrade came only from button presses (forward_compact_mode 17:35:00, collapsed map
+  17:37:13/14); forward_group_order_map unchanged since 10-22.
+
 ## Lab numbers (29 fake agents, prod-size neutralised DB copy, 2 runs each)
 | | fork.75 | fork.76 |
 |---|---|---|
@@ -83,3 +94,18 @@ Agent batch (F13/F14) is plan 137 and bases on fork.76.
 | node/list p50/p95 | 5.99 / 8.34 ms | 5.88 / 8.11 ms |
 | forward/list p50/p95 | 13.2 / 17.6 ms | 12.7 / 17.6 ms |
 | panel log | 216 / 61 B/min | 217 / 61 B/min |
+
+## Prod numbers (fork.75 before 17:09 TW, warm 3 h; fork.76 after 17:31–17:47 TW, fresh process)
+| | fork.75 | fork.76 |
+|---|---|---|
+| backend CPU (60 s) | 3.9 % | 3.87 % / 3.48 % |
+| RSS | 36.1 MB (warm) | 44.6 / 45.3 MB (fresh; fork.75 was 44.1 MB fresh, 38.6 MB warm) |
+| admin WS per minute | 1733 msgs, 1.45 MB, 28 keys | 870 msgs, 0.49 MB, 20 keys |
+| node rows written in 5 s | 29 | 0 |
+| DB / WAL | 54.65 MB / 4.6 MB | 54.73 MB / 4.4 MB |
+| node/list p50/p95 | 6.0 / 8.0 ms | 6.3–7.2 / 8.2–10.5 ms (3 reruns) |
+| forward/list p50/p95 | 13.3 / 17.0 ms | 14.4–15.7 / 17.3–21.4 ms (3 reruns) |
+| user/package p50/p95 | 3.2 / 5.2 ms | 2.9–3.5 / 4.2–4.8 ms (3 reruns) |
+| landing/egress/overview p50/p95 | 5.9 / 8.1 ms | 5.7–6.3 / 7.7–9.1 ms (3 reruns) |
+| backend log | 150 lines / 10.6 KB per h (quiet) | ~730 lines / 50 KB per h while an admin was actively editing; access lines only, depends on traffic |
+
