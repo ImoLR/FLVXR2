@@ -40,3 +40,17 @@ Branch `feature/3.0.27-builtin-abuse-unify`. Build + screenshots only — no tag
 - Screens: 56 shots, 52/52 checks, gallery /builtin-abuse-unify/ on :8791. CI Build Check green (40040635444).
 - Rollback note: binary-only rollback to ≤fork.82 loses the two moved rules (they are no longer in 强制) —
   restore the DB backup too.
+
+## Release (fork.83, panel only)
+Branch `maintenance/3.0.27-fork.83-builtin-abuse-unify` = feature head 57b8c0ec fast-forward (already on top of
+fork.82 maintenance head 6bad78aa, no conflicts). Gate waived by user 10-24; release worker reviewed the gallery.
+- [x] Release worktree, branch from feature head (fast-forward over fork.82)
+- [x] Gallery review (H5/desktop, light/dark): no defect, no re-shoot
+- [ ] go build + go test ./... SQLite + PostgreSQL vs fork.82 base failure list
+- [ ] Frontend tsc / build / lint
+- [ ] Prod-copy gate re-run (fresh read-only copy, base fork.82 vs release, idempotent), copy deleted
+- [ ] Push, CI green, tag 3.0.27-fork.83, Release Latest with the fork.82 asset set
+- [ ] Prod: validated DB backup + rollback dir pre-fork83-<ts>, upgrade /opt/flvx-svc, prune (keep 2)
+- [ ] Prod checks: version/assets, health, nodes online, migration once (extra restart), blocked set per server
+      identical to the pre-upgrade plans, 大陆 + 默认 untouched, sync no 失败, JWT admin / non-admin
+- [ ] After 10 min: CPU/RSS, DB size, log lines vs fork.82
