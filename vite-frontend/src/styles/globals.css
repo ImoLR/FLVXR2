@@ -1764,8 +1764,9 @@ textarea:focus-visible {
    only `.flvx-onboarding-ring__spin` animates (transform + opacity, compositor only): one lap, then the
    component rests ~2.6 s with no animation running, then the next lap. Never moves its host. */
 .flvx-onboarding-ring {
-  --flvx-ring: var(--primary);
-  --flvx-ring-head: var(--primary);
+  /* Gold (user 10-24): amber-gold body + bright gold head; readable on the light-blue / green pills and white selects. */
+  --flvx-ring: #f2a900;
+  --flvx-ring-head: #ffd84d;
   position: absolute;
   inset: 0;
   z-index: 1;
@@ -1775,8 +1776,8 @@ textarea:focus-visible {
 }
 
 .dark .flvx-onboarding-ring {
-  --flvx-ring: var(--primary-400);
-  --flvx-ring-head: color-mix(in srgb, var(--primary-400) 45%, #fff);
+  --flvx-ring: #fcc419;
+  --flvx-ring-head: #ffe9a8;
 }
 
 .flvx-onboarding-ring__band {
