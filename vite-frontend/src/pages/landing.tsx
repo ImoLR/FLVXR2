@@ -1,6 +1,6 @@
 import { Suspense, lazy, useCallback, useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { Copy, Plus, QrCode, RefreshCw, Settings2 } from "lucide-react";
+import { Copy, Plug, Plus, QrCode, RefreshCw, Settings2 } from "lucide-react";
 import toast from "react-hot-toast";
 
 import {
@@ -10,6 +10,7 @@ import {
   SharedDetailsDialog,
 } from "./landing/server-card";
 import { IntegrationSettings } from "./landing/integration-settings";
+import { LandingTone, Pill, ProtocolPill } from "./landing/pill";
 
 import {
   LandingLink,
@@ -25,7 +26,6 @@ import {
   landingLinks,
   landingNodes,
   landingProtocolLabel,
-  landingProtocolShortLabel,
   landingProtocolSummary,
   landingServerModeLabel,
   landingServers,
@@ -39,7 +39,6 @@ import {
 import { usePullToRefresh } from "@/hooks/usePullToRefresh";
 import { Button } from "@/shadcn-bridge/heroui/button";
 import { Card, CardBody, CardHeader } from "@/shadcn-bridge/heroui/card";
-import { Chip } from "@/shadcn-bridge/heroui/chip";
 import {
   Modal,
   ModalBody,
@@ -192,6 +191,131 @@ function NodeConnTag({ node }: { node: LandingNode }) {
         </span>
       )}
     </span>
+  );
+}
+
+// Plan 149: `host:port` of a share link (`scheme://[user@]host:port…`), or ""
+// when the link does not carry it in that form (e.g. legacy base64 ss://).
+function linkAddress(url?: string) {
+  const m = /^[a-z][a-z0-9+.-]*:\/\/(?:[^@/?#]*@)?(\[[0-9a-f:.]+\]|[a-z0-9.-]+):(\d{1,5})(?:[/?#]|$)/i.exec(
+    url || "",
+  );
+
+  return m ? `${m[1]}:${m[2]}` : "";
+}
+
+const DAY_MS = 86_400_000;
+const GRACE_MS = 7 * DAY_MS;
+
+function nodeStatusTone(status: string): LandingTone {
+  if (status === "active") return "green";
+  if (status === "disabled") return "slate";
+
+  return "amber";
+}
+
+function NodeStatusPill({ node }: { node: LandingNode }) {
+  return (
+    <Pill tone={nodeStatusTone(node.status)}>
+      {landingStatus[node.status] || node.status}
+    </Pill>
+  );
+}
+
+// Plan 149: 「剩余 N 天」 (green > 7 days, amber ≤ 7), 「长期有效」, red
+// 「宽限期 N 天」 / 「已过期」; the exact date (and 跟随用户) in the title.
+function ExpiryPill({ node, now }: { node: LandingNode; now: number }) {
+  const expires = node.effectiveExpiresAt;
+  const follow = node.expiryMode === "follow_user" ? " · 跟随用户" : "";
+
+  if (node.expiredAt) {
+    const left = Math.ceil((node.expiredAt + GRACE_MS - now) / DAY_MS);
+
+    return (
+      <Pill
+        title={`已到期：${landingDate(expires || node.expiredAt)}；宽限期结束：${landingDate(node.expiredAt + GRACE_MS)}${follow}`}
+        tone="red"
+      >
+        {left > 0 ? `宽限期 ${left} 天` : "已过期"}
+      </Pill>
+    );
+  }
+  if (!expires) {
+    return (
+      <Pill title={`长期有效，不会到期${follow}`} tone="green">
+        长期有效
+      </Pill>
+    );
+  }
+  if (expires <= now) {
+    return (
+      <Pill title={`到期：${landingDate(expires)}${follow}`} tone="red">
+        已过期
+      </Pill>
+    );
+  }
+  const days = Math.ceil((expires - now) / DAY_MS);
+
+  return (
+    <Pill
+      title={`到期：${landingDate(expires)}${follow}`}
+      tone={days <= 7 ? "amber" : "green"}
+    >
+      剩余 {days} 天
+    </Pill>
+  );
+}
+
+// Plan 149: plug + current connections. Users see the count only (plan 132
+// hid the limits); admins also see the limit and the 计算方式 tag.
+function ConnPill({ node, admin }: { node: LandingNode; admin: boolean }) {
+  const count = node.connections ?? 0;
+  const icon = <Plug aria-hidden className="h-3 w-3 shrink-0" />;
+
+  if (!admin) {
+    return (
+      <Pill icon={icon} title={`当前连接数 ${count}`} tone="purple">
+        {count}
+      </Pill>
+    );
+  }
+
+  return (
+    <span className="inline-flex items-center">
+      <Pill
+        icon={icon}
+        title={`连接数 ${count} / ${node.maxConnections || "不限"}`}
+        tone="purple"
+      >
+        {count} / {node.maxConnections || "不限"}
+      </Pill>
+      <NodeConnTag node={node} />
+    </span>
+  );
+}
+
+// Plan 149: 已用 / 上限 text plus a thin bar when there is a limit (amber
+// ≥ 80 %, red at 100 %).
+function UsageBar({ node }: { node: LandingNode }) {
+  const limit = node.trafficLimitBytes;
+
+  if (!limit) return null;
+  const used = node.billedIn + node.billedOut;
+  const ratio = Math.min(1, Math.max(0, used / limit));
+  const color =
+    ratio >= 1 ? "bg-red-500" : ratio >= 0.8 ? "bg-amber-500" : "bg-green-500";
+
+  return (
+    <div
+      aria-label={`已用 ${Math.round(ratio * 100)}%`}
+      className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-slate-500/15 dark:bg-slate-400/20"
+      role="img"
+    >
+      <div
+        className={`h-full rounded-full ${color}`}
+        style={{ width: `${Math.max(ratio * 100, used > 0 ? 2 : 0)}%` }}
+      />
+    </div>
   );
 }
 
@@ -396,37 +520,9 @@ export default function LandingPage() {
       </Button>
     </div>
   );
-  const status = (node: LandingNode) => (
-    <div className="flex flex-wrap gap-1">
-      <Chip
-        className={node.status === "disabled" ? "text-default-600" : undefined}
-        color={
-          node.status === "active"
-            ? "success"
-            : node.status === "disabled"
-              ? "default"
-              : "warning"
-        }
-        size="sm"
-        variant={node.status === "disabled" ? "bordered" : "flat"}
-      >
-        {landingStatus[node.status] || node.status}
-      </Chip>
-      {(node.forwardCount || 0) > 0 && (
-        <Chip
-          className="text-default-600"
-          color="default"
-          size="sm"
-          variant="bordered"
-        >
-          规则 {node.forwardCount}
-        </Chip>
-      )}
-      {node.deletePending && (
-        <Chip color="warning" size="sm" variant="flat">
-          删除中
-        </Chip>
-      )}
+  // Sync errors / pending reason lines (unchanged wording).
+  const nodeNotes = (node: LandingNode) => (
+    <>
       {node.syncError && (
         <span className="w-full text-xs text-danger">{node.syncError}</span>
       )}
@@ -440,13 +536,20 @@ export default function LandingPage() {
           同步异常 · {node.sharedSyncError}
         </span>
       )}
-      {node.expiringSoon && (
-        <Chip color="warning" size="sm" variant="flat">
-          即将到期
-        </Chip>
+    </>
+  );
+  // Admin table 状态 column; 即将到期 now lives in the 到期 column's chip.
+  const status = (node: LandingNode) => (
+    <div className="flex flex-wrap gap-1">
+      <NodeStatusPill node={node} />
+      {(node.forwardCount || 0) > 0 && (
+        <Pill tone="purple">规则 {node.forwardCount}</Pill>
       )}
+      {node.deletePending && <Pill tone="amber">删除中</Pill>}
+      {nodeNotes(node)}
     </div>
   );
+  const now = Date.now();
   const usage = (node: LandingNode) =>
     `${landingGB(node.billedIn + node.billedOut)} / ${node.trafficLimitBytes ? landingGB(node.trafficLimitBytes) : "不限"} GB`;
 
@@ -514,69 +617,66 @@ export default function LandingPage() {
                 const chipItems: ChipLineItem[] = [];
 
                 if (admin) {
-                  const source =
-                    server.source === "shared" ? "妙妙屋共享" : "FLVX 自有落地";
+                  const shared = server.source === "shared";
+                  const source = shared ? "妙妙屋共享" : "FLVX 自有落地";
 
                   sourceItems.push({
                     key: "source",
                     label: source,
                     node: (
-                      <Chip
-                        className="text-default-600"
-                        size="sm"
-                        variant="bordered"
-                      >
-                        {source}
-                      </Chip>
+                      <Pill tone={shared ? "purple" : "cyan"}>{source}</Pill>
+                    ),
+                    short: shared ? undefined : (
+                      <Pill title={source} tone="cyan">
+                        自有落地
+                      </Pill>
                     ),
                   });
-                  const mode =
-                    server.source === "shared"
-                      ? landingServerModeLabel(server.sharedCaps?.server_mode)
-                      : "";
+                  const mode = shared
+                    ? landingServerModeLabel(server.sharedCaps?.server_mode)
+                    : "";
+                  const modeTitle =
+                    "妙妙屋官方给这台服务器设置的运行模式，仅供参考；FLVX 节点运行在 FLVX 独立的 Core 中，连接数、在线 IP、流量限制照常生效";
 
                   if (mode)
                     sourceItems.push({
                       key: "mode",
                       label: `妙妙屋 · ${mode}`,
                       node: (
-                        <Chip
-                          className="text-default-600"
-                          size="sm"
-                          title="妙妙屋官方给这台服务器设置的运行模式，仅供参考；FLVX 节点运行在 FLVX 独立的 Core 中，连接数、在线 IP、流量限制照常生效"
-                          variant="bordered"
-                        >
+                        <Pill title={modeTitle} tone="slate">
                           妙妙屋 · {mode}
-                        </Chip>
+                        </Pill>
+                      ),
+                      short: (
+                        <Pill title={`妙妙屋 · ${mode}：${modeTitle}`} tone="slate">
+                          {mode}
+                        </Pill>
                       ),
                     });
+                  const chainNodes = server.chainNodeCount ?? 0;
+
                   if (server.chainOnly)
                     sourceItems.push({
                       key: "chain",
-                      label: "链式",
+                      label: chainNodes ? `链式 · ${chainNodes}` : "链式",
                       node: (
-                        <Chip
-                          color="secondary"
-                          size="sm"
-                          title="自动安装，只承载「我自己的节点」链式规则，不对用户开放；在节点页「启用为落地」可转为公开落地"
-                          variant="flat"
+                        <Pill
+                          title={`自动安装，只承载「我自己的节点」链式规则，不对用户开放；在节点页「启用为落地」可转为公开落地${chainNodes ? `；链式节点 ${chainNodes} 个` : ""}`}
+                          tone="purple"
                         >
-                          链式
-                        </Chip>
+                          {chainNodes ? `链式 · ${chainNodes}` : "链式"}
+                        </Pill>
                       ),
                     });
-                  if ((server.chainNodeCount ?? 0) > 0)
+                  else if (chainNodes > 0)
                     sourceItems.push({
                       key: "chain-nodes",
-                      label: `链式节点 ${server.chainNodeCount}`,
-                      node: (
-                        <Chip
-                          className="text-default-600"
-                          size="sm"
-                          variant="bordered"
-                        >
-                          链式节点 {server.chainNodeCount}
-                        </Chip>
+                      label: `链式节点 ${chainNodes}`,
+                      node: <Pill tone="slate">链式节点 {chainNodes}</Pill>,
+                      short: (
+                        <Pill title={`链式节点 ${chainNodes}`} tone="slate">
+                          链式 {chainNodes}
+                        </Pill>
                       ),
                     });
                 }
@@ -585,55 +685,52 @@ export default function LandingPage() {
                 chipItems.push({
                   key: "flow",
                   label: flow,
-                  node: (
-                    <Chip color="secondary" size="sm" variant="flat">
-                      {flow}
-                    </Chip>
-                  ),
+                  node: <Pill tone="purple">{flow}</Pill>,
                 });
-                for (const protocol of server.protocols || [])
-                  chipItems.push({
-                    key: `p-${protocol}`,
-                    label: landingProtocolLabel(protocol),
-                    node: (
-                      <Chip
-                        className="text-default-600"
-                        size="sm"
-                        title={landingProtocolLabel(protocol)}
-                        variant="bordered"
-                      >
-                        {landingProtocolShortLabel(protocol)}
-                      </Chip>
-                    ),
-                  });
+                // Plan 149: 出站 always visible, right after the flow chip.
                 if (server.egressLabel)
                   chipItems.push({
                     key: "egress",
                     label: `出站：${server.egressLabel}`,
-                    node: (
-                      <Chip color="success" size="sm" variant="flat">
-                        出站：{server.egressLabel}
-                      </Chip>
+                    node: <Pill tone="teal">出站：{server.egressLabel}</Pill>,
+                    short: (
+                      <Pill title={`出站：${server.egressLabel}`} tone="teal">
+                        {server.egressLabel}
+                      </Pill>
                     ),
+                  });
+                // Plan 149: every protocol in one chip; tap for the full list.
+                const protocols = server.protocols || [];
+
+                if (protocols.length)
+                  chipItems.push({
+                    key: "protocols",
+                    label: `协议：${protocols.map(landingProtocolLabel).join("、")}`,
+                    node: <ProtocolPill protocols={protocols} />,
+                    short: <ProtocolPill compact protocols={protocols} />,
                   });
                 if (admin && server.egress?.state === "error")
                   chipItems.push({
                     key: "egress-error",
+                    pin: true,
                     label: "出站与路由应用失败",
-                    node: (
-                      <Chip color="danger" size="sm" variant="flat">
-                        出站与路由应用失败
-                      </Chip>
+                    node: <Pill tone="red">出站与路由应用失败</Pill>,
+                    short: (
+                      <Pill title="出站与路由应用失败" tone="red">
+                        路由应用失败
+                      </Pill>
                     ),
                   });
                 if (admin && server.egress?.state === "restart_required")
                   chipItems.push({
                     key: "egress-restart",
+                    pin: true,
                     label: "出站与路由待重启生效",
-                    node: (
-                      <Chip color="warning" size="sm" variant="flat">
-                        出站与路由待重启生效
-                      </Chip>
+                    node: <Pill tone="amber">出站与路由待重启生效</Pill>,
+                    short: (
+                      <Pill title="出站与路由待重启生效" tone="amber">
+                        路由待重启
+                      </Pill>
                     ),
                   });
                 // Plan 147: own chip on the admin line, never folded into +N.
@@ -643,14 +740,20 @@ export default function LandingPage() {
                     pin: true,
                     label: "落地 Core 待升级",
                     node: (
-                      <Chip
-                        color="warning"
-                        size="sm"
+                      <Pill
                         title="新版落地 Core 已下载，在「设置」里确认重启一次后生效"
-                        variant="flat"
+                        tone="amber"
                       >
                         落地 Core 待升级
-                      </Chip>
+                      </Pill>
+                    ),
+                    short: (
+                      <Pill
+                        title="落地 Core 待升级：新版落地 Core 已下载，在「设置」里确认重启一次后生效"
+                        tone="amber"
+                      >
+                        Core 待升级
+                      </Pill>
                     ),
                   });
 
@@ -667,20 +770,13 @@ export default function LandingPage() {
                       >
                         {server.name}
                       </h2>
-                      <Chip
-                        className={
-                          online ? "shrink-0" : "shrink-0 text-default-600"
-                        }
-                        color={online ? "success" : "default"}
-                        size="sm"
-                        variant={online ? "flat" : "bordered"}
-                      >
+                      <Pill tone={online ? "green" : "slate"}>
                         {server.status !== "active"
                           ? "已停用"
                           : server.online
                             ? "在线"
                             : "离线"}
-                      </Chip>
+                      </Pill>
                     </CardHeader>
                     <CardBody className="flex flex-1 flex-col gap-3 pb-3.5 md:pb-3.5">
                       {admin && <ChipLine items={sourceItems} />}
@@ -839,12 +935,18 @@ export default function LandingPage() {
                                 {usage(node)}
                               </td>
                               <td className="whitespace-nowrap px-3 py-2">
-                                {node.connections ?? 0} /{" "}
-                                {node.maxConnections || "不限"}
+                                <span className="inline-flex items-center gap-1">
+                                  <Plug
+                                    aria-hidden
+                                    className="h-3.5 w-3.5 shrink-0 text-purple-600 dark:text-purple-300"
+                                  />
+                                  {node.connections ?? 0} /{" "}
+                                  {node.maxConnections || "不限"}
+                                </span>
                                 <NodeConnTag node={node} />
                               </td>
-                              <td className="px-3 py-2">
-                                {landingDate(node.effectiveExpiresAt)}
+                              <td className="whitespace-nowrap px-3 py-2">
+                                <ExpiryPill node={node} now={now} />
                               </td>
                               <td className="min-w-64 px-3 py-2">
                                 {actions(node)}
@@ -859,10 +961,12 @@ export default function LandingPage() {
               ) : (
                 <div className="grid gap-4 md:grid-cols-2">
                   {nodes.map((node) => (
-                    <Card key={node.id}>
+                    <Card key={node.id} data-landing-node-card>
                       <CardHeader className="flex items-start justify-between gap-2">
-                        <div>
-                          <h2 className="text-sm font-bold">{node.name}</h2>
+                        <div className="min-w-0">
+                          <h2 className="break-all text-sm font-bold">
+                            {node.name}
+                          </h2>
                           <p className="mt-1 text-xs text-default-500">
                             {node.serverName ||
                               servers.find(
@@ -887,29 +991,49 @@ export default function LandingPage() {
                             </p>
                           )}
                         </div>
-                        {status(node)}
+                        <div className="flex shrink-0 flex-wrap justify-end gap-1">
+                          <NodeStatusPill node={node} />
+                          {node.deletePending && (
+                            <Pill tone="amber">删除中</Pill>
+                          )}
+                        </div>
                       </CardHeader>
                       <CardBody className="space-y-3">
-                        <div className="text-sm">
-                          <p>已用 / 上限：{usage(node)}</p>
-                          {admin && (
-                            <p className="mt-2">
-                              连接数：{node.connections ?? 0} /{" "}
-                              {node.maxConnections || "不限"}
-                              <NodeConnTag node={node} />
-                            </p>
+                        {/* Plan 149: one chip row — 剩余 · 连接数 · 规则 · 出站. */}
+                        <div
+                          className="flex flex-wrap items-center gap-1"
+                          data-landing-node-chips
+                        >
+                          <ExpiryPill node={node} now={now} />
+                          <ConnPill admin={admin} node={node} />
+                          {(node.forwardCount || 0) > 0 && (
+                            <Pill tone="purple">规则 {node.forwardCount}</Pill>
                           )}
                           {node.egressLabel && (
-                            <p className="mt-2">出站：{node.egressLabel}</p>
+                            <Pill
+                              title={`出站：${node.egressLabel}`}
+                              tone="teal"
+                            >
+                              出站：{node.egressLabel}
+                            </Pill>
                           )}
-                          <p className="mt-2">
-                            到期：{landingDate(node.effectiveExpiresAt)}
-                            {node.expiryMode === "follow_user" && (
-                              <span className="ml-2 text-default-500">
-                                跟随用户
-                              </span>
-                            )}
+                        </div>
+                        {(node.syncError ||
+                          node.sharedSyncError ||
+                          (node.status === "pending" &&
+                            node.pendingReason)) && (
+                          <div className="flex flex-wrap gap-1">
+                            {nodeNotes(node)}
+                          </div>
+                        )}
+                        <div className="text-sm">
+                          <p className="flex flex-wrap items-baseline justify-between gap-x-2">
+                            <span className="text-xs text-default-500">
+                              已用 / 上限
+                            </span>
+                            <span className="tabular-nums">{usage(node)}</span>
                           </p>
+                          <UsageBar node={node} />
                           {node.expiredAt && (
                             <p className="mt-2 text-warning">
                               宽限期结束：
@@ -1018,14 +1142,29 @@ export default function LandingPage() {
                 )}
               {linksLoading && <Spinner />}
               {linkError && <p className="text-danger">{linkError}</p>}
+              {links.length > 0 && (
+                <p className="text-sm text-default-600" data-links-summary>
+                  共 {links.length} 条链接：直连{" "}
+                  {links.filter((link) => link.kind === "direct").length} ·
+                  经规则转发{" "}
+                  {links.filter((link) => link.kind !== "direct").length}
+                </p>
+              )}
               {links.map((link, index) => (
                 <div
                   key={`${link.kind}-${index}`}
                   className="space-y-2 rounded-lg border border-divider p-3"
                 >
-                  <h3 className="font-medium">
-                    {link.kind === "direct" ? "直连链接" : "经规则转发"} ·{" "}
-                    {link.name}
+                  <h3 className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 font-medium">
+                    <Pill tone={link.kind === "direct" ? "green" : "purple"}>
+                      {link.kind === "direct" ? "直连" : "经规则转发"}
+                    </Pill>
+                    <span className="min-w-0 break-all">{link.name}</span>
+                    {linkAddress(link.url) && (
+                      <span className="break-all font-mono text-xs font-normal text-default-500">
+                        {linkAddress(link.url)}
+                      </span>
+                    )}
                   </h3>
                   {link.url && (
                     <p className="break-all rounded bg-default-100 p-2 text-xs">
