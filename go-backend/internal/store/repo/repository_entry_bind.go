@@ -468,6 +468,12 @@ func (r *Repository) DecorateForwardItems(items []map[string]interface{}, viewer
 	if err != nil {
 		return err
 	}
+	entries, err := r.templatedRuleEntries(ids, raw, func(i int) (int64, int64) {
+		return toInt64(items[i]["id"]), toInt64(items[i]["tunnelId"])
+	}, len(items))
+	if err != nil {
+		return err
+	}
 	for _, item := range items {
 		tid := toInt64(item["tunnelId"])
 		if tid <= 0 {
@@ -476,7 +482,9 @@ func (r *Repository) DecorateForwardItems(items []map[string]interface{}, viewer
 		name, _ := item["tunnelName"].(string)
 		binding, bound := bindings[toInt64(item["id"])]
 		if !bound {
-			item["tunnelName"] = tr.Name(tid, name)
+			// An unbound rule shows the entries it really listens on (an
+			// owner restricted to one entry stays named after it).
+			item["tunnelName"] = tr.NameForNodes(tid, name, entries[toInt64(item["id"])])
 			continue
 		}
 		nodes := ParseEntryNodeIDs(binding)
@@ -487,6 +495,30 @@ func (r *Repository) DecorateForwardItems(items []map[string]interface{}, viewer
 		}
 	}
 	return nil
+}
+
+// templatedRuleEntries loads the entry nodes (forward_port) of the rules
+// whose tunnel name has the token: one query, none without templates.
+func (r *Repository) templatedRuleEntries(ids []int64, raw map[int64]string, at func(int) (int64, int64), n int) (map[int64][]int64, error) {
+	out := make(map[int64][]int64)
+	want := make([]int64, 0)
+	for i := 0; i < n; i++ {
+		fid, tid := at(i)
+		if fid > 0 && HasTunnelEntryToken(raw[tid]) {
+			want = append(want, fid)
+		}
+	}
+	if len(want) == 0 {
+		return out, nil
+	}
+	var rows []model.ForwardPort
+	if err := r.db.Select("forward_id, node_id").Where("forward_id IN ?", want).Order("id ASC").Find(&rows).Error; err != nil {
+		return out, err
+	}
+	for _, row := range rows {
+		out[row.ForwardID] = append(out[row.ForwardID], row.NodeID)
+	}
+	return out, nil
 }
 
 func toInt64(v interface{}) int64 {
@@ -533,6 +565,10 @@ func (r *Repository) RenderPackageTunnelNames(tunnels []model.UserTunnelDetail, 
 	if err != nil {
 		return err
 	}
+	entries, err := r.templatedRuleEntries(fids, raw, func(i int) (int64, int64) { return forwards[i].ID, forwards[i].TunnelID }, len(forwards))
+	if err != nil {
+		return err
+	}
 	for i := range tunnels {
 		tunnels[i].TunnelName = tr.Name(tunnels[i].TunnelID, tunnels[i].TunnelName)
 	}
@@ -541,7 +577,7 @@ func (r *Repository) RenderPackageTunnelNames(tunnels []model.UserTunnelDetail, 
 			forwards[i].TunnelName = tr.NameForNodes(forwards[i].TunnelID, forwards[i].TunnelName, ParseEntryNodeIDs(b))
 			continue
 		}
-		forwards[i].TunnelName = tr.Name(forwards[i].TunnelID, forwards[i].TunnelName)
+		forwards[i].TunnelName = tr.NameForNodes(forwards[i].TunnelID, forwards[i].TunnelName, entries[forwards[i].ID])
 	}
 	return nil
 }

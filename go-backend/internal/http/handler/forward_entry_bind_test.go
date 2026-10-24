@@ -306,6 +306,18 @@ func TestEntryBindListAddressAndKeys(t *testing.T) {
 		if got := e.forwardItem(plain, repo.TunnelNameViewer{Admin: true}); got["inIp"] != "192.0.2.23:15013,192.0.2.51:15013" || got["entryKey"] != nil {
 			t.Fatalf("unbound row %v %v", got["inIp"], got["entryKey"])
 		}
+		if got := e.forwardItem(plain, repo.TunnelNameViewer{Admin: true})["tunnelName"]; got != "mk沪日ixp440/vmsilo 沪日首发 -> 出口JP(Akari JP)" {
+			t.Fatalf("admin unbound rule name %v", got)
+		}
+		// A user restricted to entry 23: the admin sees the rule named after
+		// the entry it really listens on, the user exactly the old name.
+		r8 := e.createRule("1", 0, `,"userId":8,"inPort":15014`)
+		if got := e.forwardItem(r8, repo.TunnelNameViewer{Admin: true})["tunnelName"]; got != "mk沪日ixp440 -> 出口JP(Akari JP)" {
+			t.Fatalf("admin view of user 8 rule %v", got)
+		}
+		if got := e.forwardItem(r8, repo.TunnelNameViewer{UserID: 8})["tunnelName"]; got != "mk沪日ixp440 -> 出口JP(Akari JP)" {
+			t.Fatalf("user 8 rule %v", got)
+		}
 	})
 }
 
