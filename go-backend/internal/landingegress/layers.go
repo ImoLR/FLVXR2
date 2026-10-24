@@ -125,6 +125,9 @@ func NormalizeNodeRules(rules []Rule, def string, allowed map[int64]bool) ([]Rul
 		if len(r.LandingNodeIDs) > 0 {
 			return nil, "", fmt.Errorf("节点规则：第 %d 条规则不能限定落地节点", i+1)
 		}
+		if len(r.InboundProtocols) > 0 {
+			return nil, "", fmt.Errorf("节点规则：第 %d 条规则不能限定节点协议", i+1)
+		}
 	}
 	out, err := normalizeRuleList("节点规则", rules, MaxNodeRules, allowed)
 	if err != nil {

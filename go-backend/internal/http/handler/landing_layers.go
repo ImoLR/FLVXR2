@@ -229,7 +229,23 @@ func ruleSummaries(rules []landingegress.Rule, outbounds map[int64]landingegress
 				}
 			}
 		}
-		out = append(out, map[string]any{"id": r.ID, "name": r.Name, "action": r.Action, "actionLabel": label, "domains": len(r.Domains), "ips": len(r.IPs), "ports": r.Ports, "sourceIps": len(r.SourceIPs), "network": r.Network, "protocols": r.Protocols})
+		row := map[string]any{"id": r.ID, "name": r.Name, "action": r.Action, "actionLabel": label, "domains": len(r.Domains), "ips": len(r.IPs), "ports": r.Ports, "sourceIps": len(r.SourceIPs), "network": r.Network, "protocols": r.Protocols}
+		if len(r.InboundProtocols) > 0 {
+			row["inboundProtocols"] = r.InboundProtocols
+		}
+		out = append(out, row)
+	}
+	return out
+}
+
+// nodeProtocolRules keeps the rules that cover a node of this protocol (plan
+// 149 「节点协议」): a node's 路由规则 view lists only what applies to it.
+func nodeProtocolRules(rules []landingegress.Rule, protocol string) []landingegress.Rule {
+	out := []landingegress.Rule{}
+	for _, r := range rules {
+		if landingegress.RuleAppliesTo(r, protocol) {
+			out = append(out, r)
+		}
 	}
 	return out
 }
@@ -429,7 +445,7 @@ func (h *Handler) landingNodeRulesView(n *model.LandingNode, admin bool) (map[st
 	// 「跟随上级」 = everything but the node's own rules, resolved like the
 	// plan (plan 139: one shared precedence, incl. the IP-family fallback).
 	labelIn := landingLabelInput(d)
-	upper := landingegress.NodeRef{ID: n.ID, Tag: n.InboundTag, Override: n.RouteProfileID}
+	upper := landingegress.NodeRef{ID: n.ID, Tag: n.InboundTag, Protocol: n.Protocol, Override: n.RouteProfileID}
 	inherited, from, _ := labelIn.EffectiveDefault(&upper)
 	inheritedFrom := "global"
 	if from == landingegress.DefaultFromServer {
@@ -449,9 +465,9 @@ func (h *Handler) landingNodeRulesView(n *model.LandingNode, admin bool) (map[st
 	if p, ok := d.Profiles[pid]; pid != 0 && ok {
 		if admin {
 			server["profileName"] = p.Name
-			server["rules"] = ruleSummaries(p.Rules, d.Outbounds, true)
+			server["rules"] = ruleSummaries(nodeProtocolRules(p.Rules, n.Protocol), d.Outbounds, true)
 		} else {
-			server["ruleCount"] = len(ruleSummaries(p.Rules, d.Outbounds, false))
+			server["ruleCount"] = len(ruleSummaries(nodeProtocolRules(p.Rules, n.Protocol), d.Outbounds, false))
 		}
 		server["defaultLabel"] = labelOf(p.DefaultAction)
 	}
@@ -491,7 +507,7 @@ func (h *Handler) landingNodeRulesView(n *model.LandingNode, admin bool) (map[st
 		"nodeId": n.ID, "nodeName": n.Name, "serverId": d.Server.ID, "serverName": d.Server.Name,
 		"rules": rules, "defaultAction": def, "inheritedAction": inherited, "inheritedLabel": labelOf(inherited), "inheritedFrom": inheritedFrom,
 		"outbounds": outboundChoices, "supported": supported, "state": state, "stateReason": stateReason, "notes": notes,
-		"global":  map[string]any{"active": globalOn, "forced": ruleSummaries(d.Global.Forced, d.Outbounds, admin), "default": ruleSummaries(d.Global.Default, d.Outbounds, admin), "defaultLabel": labelOf(d.Global.DefaultAction)},
+		"global":  map[string]any{"active": globalOn, "forced": ruleSummaries(nodeProtocolRules(d.Global.Forced, n.Protocol), d.Outbounds, admin), "default": ruleSummaries(nodeProtocolRules(d.Global.Default, n.Protocol), d.Outbounds, admin), "defaultLabel": labelOf(d.Global.DefaultAction)},
 		"builtin": landingBuiltinNodeView(d, pid, globalOn),
 		"server":  server,
 		"caps":    map[string]any{"perNode": caps.PerNode, "total": caps.Total, "used": used, "unlimited": caps.Unlimited || admin, "perNodeSource": caps.PerNodeSource, "totalSource": caps.TotalSource},

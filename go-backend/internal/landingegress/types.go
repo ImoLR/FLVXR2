@@ -75,8 +75,12 @@ type Rule struct {
 	Network        string   `json:"network"`
 	Protocols      []string `json:"protocols"`
 	LandingNodeIDs []int64  `json:"landingNodeIds"`
-	Action         string   `json:"action"`
-	Preset         string   `json:"preset,omitempty"`
+	// InboundProtocols (plan 149, 「节点协议」) limits the rule to landing nodes
+	// with one of these protocols (landing node protocol keys, e.g. ss2022);
+	// empty = every node. Compiled into the rule's inbound tags only.
+	InboundProtocols []string `json:"inboundProtocols,omitempty"`
+	Action           string   `json:"action"`
+	Preset           string   `json:"preset,omitempty"`
 }
 
 type Profile struct {

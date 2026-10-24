@@ -98,16 +98,37 @@ func NodePublicIPFill(n *model.Node, ipv4, ipv6 string) map[string]interface{} {
 	return out
 }
 
+// nodeReportedIPUpdate: the reported_ip_v4 / reported_ip_v6 values to write
+// (public addresses only; an empty or invalid family keeps the stored one).
+func nodeReportedIPUpdate(n *model.Node, ipv4, ipv6 string) map[string]interface{} {
+	out := map[string]interface{}{}
+	if v4 := PublicIPReportAddr(ipv4, "v4"); v4 != "" && v4 != n.ReportedIPV4 {
+		out["reported_ip_v4"] = v4
+	}
+	if v6 := PublicIPReportAddr(ipv6, "v6"); v6 != "" && v6 != n.ReportedIPV6 {
+		out["reported_ip_v6"] = v6
+	}
+	return out
+}
+
 // FillNodePublicIPs applies an agent report under the fill-empty rule and
 // returns the columns it wrote (none in the common case: one indexed read,
-// no write). The update re-checks emptiness so a concurrent admin edit wins.
+// no write; plan 149 adds one write when the reported egress changed). The
+// update re-checks emptiness so a concurrent admin edit wins.
 func (r *Repository) FillNodePublicIPs(nodeID int64, ipv4, ipv6 string) ([]string, error) {
 	if r == nil || r.db == nil {
 		return nil, errors.New("repository not initialized")
 	}
 	var n model.Node
-	if err := r.db.Select("id", "server_ip", "server_ip_v4", "server_ip_v6", "ddns_enabled").First(&n, nodeID).Error; err != nil {
+	if err := r.db.Select("id", "server_ip", "server_ip_v4", "server_ip_v6", "ddns_enabled", "reported_ip_v4", "reported_ip_v6").First(&n, nodeID).Error; err != nil {
 		return nil, err
+	}
+	// Plan 149: remember the reported egress (landing source-rule exemption
+	// only); written only when it changed.
+	if seen := nodeReportedIPUpdate(&n, ipv4, ipv6); len(seen) > 0 {
+		if err := r.db.Model(&model.Node{}).Where("id = ?", nodeID).Updates(seen).Error; err != nil {
+			return nil, err
+		}
 	}
 	fill := NodePublicIPFill(&n, ipv4, ipv6)
 	if len(fill) == 0 {

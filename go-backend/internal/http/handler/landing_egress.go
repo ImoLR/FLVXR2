@@ -63,7 +63,18 @@ func (h *Handler) egressResolve(host string) []netip.Addr {
 	return addrs
 }
 
+// landingExemptTTL bounds how often the exempt list is rebuilt (two reads
+// + cached DNS): the shared push compiles every 5 s per server and the
+// native re-push every minute, so an address change (DDNS, agent report,
+// admin edit) reaches every plan within ~1.5 min without per-compile reads.
+const landingExemptTTL = 30 * time.Second
+
 func (h *Handler) landingExemptSources() ([]string, error) {
+	h.egressExemptMu.Lock()
+	defer h.egressExemptMu.Unlock()
+	if h.egressExempt != nil && time.Since(h.egressExemptAt) < landingExemptTTL {
+		return append([]string(nil), h.egressExempt...), nil
+	}
 	hosts, err := h.repo.LandingExemptHosts()
 	if err != nil {
 		return nil, errors.New("读取 FLVX 节点地址失败")
@@ -72,7 +83,16 @@ func (h *Handler) landingExemptSources() ([]string, error) {
 	if err != nil {
 		return nil, errors.New("读取来源白名单失败")
 	}
-	return landingegress.ExemptSources(hosts, whitelist, h.egressResolve), nil
+	out := landingegress.ExemptSources(hosts, whitelist, h.egressResolve)
+	h.egressExempt, h.egressExemptAt = out, time.Now()
+	return append([]string(nil), out...), nil
+}
+
+// invalidateLandingExempt drops the cached exempt list (whitelist saves).
+func (h *Handler) invalidateLandingExempt() {
+	h.egressExemptMu.Lock()
+	h.egressExempt = nil
+	h.egressExemptMu.Unlock()
 }
 
 // landingEgressSupport reports whether a server can take an egress plan and
@@ -209,7 +229,7 @@ func landingEgressInput(d *repo.LandingEgressData) landingegress.CompileInput {
 			continue
 		}
 		rules, def := repo.NodeRulesFromModel(n)
-		in.Nodes = append(in.Nodes, landingegress.NodeRef{ID: n.ID, Tag: n.InboundTag, Override: n.RouteProfileID, Rules: rules, Default: def})
+		in.Nodes = append(in.Nodes, landingegress.NodeRef{ID: n.ID, Tag: n.InboundTag, Protocol: n.Protocol, Override: n.RouteProfileID, Rules: rules, Default: def})
 	}
 	in.Resolve = func(id int64) (landingegress.PlanOutbound, error) { return resolveLandingOutbound(d, id) }
 	return in
@@ -541,7 +561,7 @@ func (c landingEgressCatalog) serverLabel(s model.LandingServer) string {
 // node rules included).
 func (c landingEgressCatalog) nodeLabel(s model.LandingServer, n model.LandingNode) string {
 	rules, def := repo.NodeRulesFromModel(n)
-	return c.labelInput(s).EffectiveLabel(&landingegress.NodeRef{ID: n.ID, Tag: n.InboundTag, Override: n.RouteProfileID, Rules: rules, Default: def})
+	return c.labelInput(s).EffectiveLabel(&landingegress.NodeRef{ID: n.ID, Tag: n.InboundTag, Protocol: n.Protocol, Override: n.RouteProfileID, Rules: rules, Default: def})
 }
 
 // defaultProfileName names the built-in default profile (id 0) on a server:
@@ -1021,6 +1041,7 @@ func (h *Handler) landingEgressWhitelistSave(w http.ResponseWriter, r *http.Requ
 		landingError(w, err)
 		return
 	}
+	h.invalidateLandingExempt()
 	// Plans pick the new exemption up on the next sync (≤ 1 minute); push now.
 	servers, _ := h.repo.ListLandingServers(0, true)
 	ids := []int64{}

@@ -169,6 +169,12 @@ type Node struct {
 	// Node DDNS (plan 142): records live in node_ddns_record.
 	DDNSEnabled    bool  `gorm:"column:ddns_enabled;not null;default:false"`
 	DDNSProviderID int64 `gorm:"column:ddns_provider_id;not null;default:0"`
+	// Plan 149: the public addresses the agent last reported (what ip.sb saw:
+	// the node's real egress, e.g. behind NAT). Never dialed or shown; only
+	// exempted from landing source rules (禁止大陆直连) so forwarded traffic
+	// from this node keeps working.
+	ReportedIPV4 string `gorm:"column:reported_ip_v4;type:varchar(64);not null;default:''" json:"-"`
+	ReportedIPV6 string `gorm:"column:reported_ip_v6;type:varchar(64);not null;default:''" json:"-"`
 }
 
 func (Node) TableName() string { return "node" }

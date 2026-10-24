@@ -18,10 +18,12 @@ import (
 
 // Seed marker versions stored on landing_egress_setting row 1.
 // Global: 1 = plan-140 全局·强制 seeds appended; 2 = plan-143 防滥用 seeds
-// moved from 全局·强制 into 内置 (never re-runs).
+// moved from 全局·强制 into 内置; 3 = plan-149 大陆 seeds switched on and
+// 禁止大陆直连 (SS nodes) added. Preset: 1 = library seeded; 2 = plan-149
+// 「屏蔽中国大陆」 preset scoped 禁止大陆直连 to SS nodes. None re-runs.
 const (
-	landingGlobalSeedVersion = 2
-	landingPresetSeedVersion = 1
+	landingGlobalSeedVersion = 3
+	landingPresetSeedVersion = 2
 )
 
 // AbuseSwitchesFromSetting decodes the global switches: SMTP / BT NULL = on,
@@ -73,9 +75,9 @@ func (r *Repository) LandingProfilesAbuseOff() ([]model.LandingRouteProfile, err
 }
 
 // seedLandingEgressDefaults runs at startup (not on a GET: reads never write).
-// Once per database it appends the disabled 全局·强制 starter rules and fills
-// the preset library; the markers keep deleted seeds from coming back. The
-// seeded rules are disabled, so no compiled plan changes.
+// Once per database it appends the 全局·强制 starter rules (plan 149: the
+// three 大陆 rules, enabled) and fills the preset library; the markers keep
+// deleted seeds from coming back.
 //
 // Plan 143 (global marker 2, once): the 防滥用 seeds leave 全局·强制 for the
 // 内置 rows. A 强制 rule blocking exactly what a seed blocks (any id / name)
@@ -143,16 +145,32 @@ func seedLandingEgressDefaults(db *gorm.DB) (resync bool, err error) {
 			row.BuiltinMailPorts, row.BuiltinTelnetSMB = &mail, &telnet
 			updates["builtin_mail_ports"], updates["builtin_telnet_smb"] = mail, telnet
 		}
+		if row.GlobalSeedVersion < 3 {
+			changed, err := enableCNSeeds(tx, &row)
+			if err != nil {
+				return err
+			}
+			if changed {
+				updates["global_forced"] = row.GlobalForced
+				resync = true
+			}
+		}
 		if row.GlobalSeedVersion < landingGlobalSeedVersion {
 			row.GlobalSeedVersion = landingGlobalSeedVersion
 			updates["global_seed_version"] = row.GlobalSeedVersion
 		}
-		if row.PresetSeedVersion < landingPresetSeedVersion {
+		if row.PresetSeedVersion < 1 {
 			n, err := addSeedPresets(tx)
 			if err != nil {
 				return err
 			}
 			presetsAdded = n
+		} else if row.PresetSeedVersion < 2 {
+			if err := updateBlockCNPreset(tx); err != nil {
+				return err
+			}
+		}
+		if row.PresetSeedVersion < landingPresetSeedVersion {
 			row.PresetSeedVersion = landingPresetSeedVersion
 			updates["preset_seed_version"] = row.PresetSeedVersion
 		}
@@ -173,6 +191,76 @@ func seedLandingEgressDefaults(db *gorm.DB) (resync bool, err error) {
 			moved.On[landingegress.AbuseMail], moved.Found[landingegress.AbuseMail], moved.On[landingegress.AbuseTelnetSMB], moved.Found[landingegress.AbuseTelnetSMB], moved.Kept)
 	}
 	return resync, nil
+}
+
+// enableCNSeeds (plan 149, global marker 3, once): the 大陆 seeds of
+// 全局·强制 are switched on when they still carry the original matchers and
+// 禁止大陆直连 (source geoip:cn, 节点协议 SS) is added after them unless a rule
+// with the same signature exists. Edited seeds are left alone, deleted ones
+// are not re-added, a full list gets nothing; all of it is logged. A list
+// that does not validate afterwards is left unchanged.
+func enableCNSeeds(tx *gorm.DB, row *model.LandingEgressSetting) (bool, error) {
+	var forced []landingegress.Rule
+	if err := json.Unmarshal([]byte(row.GlobalForced), &forced); err != nil {
+		log.Printf("[landing-seed] 大陆 seeds skipped, 全局·强制 unreadable: %v", err)
+		return false, nil
+	}
+	next, res := landingegress.EnableCNSeeds(forced)
+	log.Printf("[landing-seed] 大陆 seeds: enabled %v, 禁止大陆直连 added=%t, edited (kept) %v, deleted (not re-added) %v, list full=%t",
+		res.Enabled, res.Added, res.Edited, res.Missing, res.Full)
+	if len(res.Enabled) == 0 && !res.Added {
+		return false, nil
+	}
+	ids, err := outboundIDs(tx)
+	if err != nil {
+		return false, err
+	}
+	g := GlobalFromSetting(*row)
+	check := g
+	check.Forced = append([]landingegress.Rule(nil), next...)
+	check.Default = append([]landingegress.Rule(nil), g.Default...)
+	if err := landingegress.NormalizeGlobal(&check, ids); err != nil {
+		log.Printf("[landing-seed] 大陆 seeds not applied, the global group would not validate: %v", err)
+		return false, nil
+	}
+	raw, _ := json.Marshal(next)
+	row.GlobalForced = string(raw)
+	return true, nil
+}
+
+// updateBlockCNPreset (plan 149, preset marker 2, once) replaces the rules
+// (and the description, when unchanged) of the 「屏蔽中国大陆」 library
+// preset with the plan-149 ones, but only while the rules are exactly the
+// pre-149 seed; an edited or deleted preset is left alone.
+func updateBlockCNPreset(tx *gorm.DB) error {
+	var rows []model.LandingEgressPreset
+	if err := tx.Where("seed_key = ?", "block-cn").Limit(1).Find(&rows).Error; err != nil {
+		return err
+	}
+	if len(rows) == 0 {
+		log.Printf("[landing-seed] 屏蔽中国大陆 preset deleted, not updated")
+		return nil
+	}
+	p := PresetFromModel(rows[0])
+	legacy := landingegress.LegacyBlockCNRules()
+	same := len(p.Rules) == len(legacy)
+	for i := 0; same && i < len(legacy); i++ {
+		same = landingegress.RuleSignature(p.Rules[i]) == landingegress.RuleSignature(legacy[i])
+	}
+	if !same {
+		log.Printf("[landing-seed] 屏蔽中国大陆 preset edited by the admin, kept as is")
+		return nil
+	}
+	raw, _ := json.Marshal(presetRulesForStore(landingegress.BlockCNRules()))
+	updates := map[string]any{"rules": string(raw), "updated_time": time.Now().UnixMilli()}
+	if rows[0].Description == landingegress.LegacyBlockCNDescription {
+		updates["description"] = landingegress.BlockCNDescription
+	}
+	if err := tx.Model(&model.LandingEgressPreset{}).Where("id = ?", rows[0].ID).Updates(updates).Error; err != nil {
+		return err
+	}
+	log.Printf("[landing-seed] 屏蔽中国大陆 preset: 禁止大陆直连 now SS nodes only")
+	return nil
 }
 
 // addSeedPresets inserts every seed preset whose seed key is not in the
