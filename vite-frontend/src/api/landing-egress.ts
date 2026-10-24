@@ -62,6 +62,8 @@ export interface EgressRule {
   network: "" | "tcp" | "udp";
   protocols: string[];
   landingNodeIds: number[];
+  /** plan 149 「节点协议」: landing node protocols (empty / absent = all). */
+  inboundProtocols?: string[];
   action: string;
   preset?: string;
 }
@@ -175,7 +177,28 @@ export interface RuleSummary {
   sourceIps: number;
   network: string;
   protocols: string[] | null;
+  /** plan 149: 「节点协议」 scope (absent = all nodes). */
+  inboundProtocols?: string[] | null;
 }
+
+// Plan 149 「节点协议」 matcher: landing node protocol keys (same as the
+// backend's InboundProtocolKeys) and their short labels.
+export const inboundProtocolOptions = [
+  ["ss2022", "SS2022"],
+  ["vless_reality_vision", "VLESS Reality"],
+  ["anytls", "AnyTLS"],
+  ["snell", "Snell"],
+  ["mieru", "Mieru"],
+] as const;
+
+export const inboundProtocolLabel = (key: string) =>
+  inboundProtocolOptions.find(([k]) => k === key)?.[1] ?? key;
+
+/** 「节点协议 SS2022」 chip text, or "" when the rule covers every node. */
+export const inboundProtocolChip = (keys?: string[] | null) =>
+  keys && keys.length
+    ? `节点协议 ${keys.map(inboundProtocolLabel).join(" / ")}`
+    : "";
 
 export interface NodeRuleOutbound {
   id: number;
@@ -464,6 +487,9 @@ export const ruleAttributeChips = (rule: EgressRule) => {
   if (rule.protocols.length) chips.push(`协议 ${rule.protocols.join("/")}`);
   if (rule.landingNodeIds.length)
     chips.push(`适用节点 ${rule.landingNodeIds.length}`);
+  const scope = inboundProtocolChip(rule.inboundProtocols);
+
+  if (scope) chips.push(scope);
 
   return chips;
 };
@@ -599,6 +625,8 @@ export const presetCoveredByBuiltin = (
   p.rules.length > 0 && p.rules.every((r) => builtinCover(r, active, safety));
 
 // Rules are compared by matchers + action; the name does not matter.
+// Plan 149: the 节点协议 scope joins the signature only when set, so
+// unscoped rules keep their old signature (same as the backend).
 export const ruleSignature = (r: Omit<EgressRule, "id">) =>
   JSON.stringify([
     [...r.domains].sort(),
@@ -610,6 +638,7 @@ export const ruleSignature = (r: Omit<EgressRule, "id">) =>
     [...r.protocols].sort(),
     [...r.landingNodeIds].sort((a, b) => a - b),
     r.action,
+    ...(r.inboundProtocols?.length ? [[...r.inboundProtocols].sort()] : []),
   ]);
 
 // applyPreset inserts preset rules (at the top or the end) without

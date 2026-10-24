@@ -111,7 +111,7 @@ export function ChipLine({ items: given }: { items: ChipLineItem[] }) {
     fitState.short && item.short ? item.short : item.node;
 
   return (
-    <div className="relative h-6 min-w-0" data-chip-line>
+    <div data-chip-line className="relative h-6 min-w-0">
       <div
         ref={boxRef}
         className="flex h-6 min-w-0 flex-nowrap items-center gap-1 overflow-hidden"
@@ -125,9 +125,9 @@ export function ChipLine({ items: given }: { items: ChipLineItem[] }) {
           <Dropdown>
             <DropdownTrigger>
               <button
+                data-chip-more
                 aria-label={`另外 ${hidden.length} 项：${hidden.map((item) => item.label).join("、")}`}
                 className="shrink-0 rounded-full bg-slate-500/15 px-2 text-xs font-semibold leading-[18px] text-slate-600 hover:brightness-95 dark:bg-slate-400/20 dark:text-slate-300"
-                data-chip-more
                 title={hidden.map((item) => item.label).join("、")}
                 type="button"
               >

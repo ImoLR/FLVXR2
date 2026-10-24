@@ -62,7 +62,13 @@ export function PresetPicker({
   const available = presets.filter(
     (p) =>
       !hideSource ||
-      !p.rules.some((r) => (r.sourceIps || []).length || r.sourcePorts),
+      !p.rules.some(
+        (r) =>
+          (r.sourceIps || []).length ||
+          r.sourcePorts ||
+          // Plan 149: 节点协议 is an admin-scope matcher (not in node rules).
+          (r.inboundProtocols || []).length,
+      ),
   );
 
   const insert = (preset: EgressPreset, action: string) => {

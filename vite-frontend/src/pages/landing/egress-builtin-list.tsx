@@ -9,6 +9,8 @@ import {
   ShieldCheck,
 } from "lucide-react";
 
+import { Pill } from "./pill";
+
 import {
   type AbuseKey,
   type AbuseOffReason,
@@ -17,7 +19,6 @@ import {
   splitList,
 } from "@/api/landing-egress";
 import { Button } from "@/shadcn-bridge/heroui/button";
-import { Chip } from "@/shadcn-bridge/heroui/chip";
 import { Textarea } from "@/shadcn-bridge/heroui/input";
 import { Switch } from "@/shadcn-bridge/heroui/switch";
 
@@ -72,18 +73,66 @@ const offReasonText: Record<AbuseOffReason, string> = {
 };
 
 function BlockChip() {
-  return (
-    <Chip color="danger" size="sm" variant="flat">
-      → 封锁
-    </Chip>
-  );
+  return <Pill tone="red">→ 封锁</Pill>;
 }
 
 function InfoChip({ text }: { text: string }) {
+  return <Pill tone="slate">{text}</Pill>;
+}
+
+/** Plan 149: short names of the 内置 rows for the collapsed H5 layer. */
+const abuseShort: Record<AbuseKey, string> = {
+  smtp: "屏蔽 SMTP 25",
+  mail: "屏蔽发信端口 465/587/2525",
+  telnet: "屏蔽 Telnet/SMB",
+  bt: "屏蔽 BT",
+};
+
+/**
+ * Plan 149: the 内置 layer collapsed to one line per rule (name + action +
+ * ✓ / ✗), for the H5 路由规则 dialog; the full list opens on demand.
+ */
+export function BuiltinCompactRows({
+  values,
+  offReasons = {},
+}: {
+  values: AbuseValues;
+  offReasons?: Partial<Record<AbuseKey, AbuseOffReason>>;
+}) {
+  const rows: { key: string; name: string; on: boolean; label: string }[] = [
+    {
+      key: "safety",
+      name: "禁止访问内网 / 云元数据",
+      on: true,
+      label: "生效中（锁定，始终生效）",
+    },
+    ...abuseRows.map((row) => ({
+      key: row.key,
+      name: abuseShort[row.key],
+      on: values[row.key],
+      label: values[row.key]
+        ? "生效中"
+        : offReasonText[offReasons[row.key] || "global"] || "未生效",
+    })),
+  ];
+
   return (
-    <Chip className="text-default-600" size="sm" variant="bordered">
-      {text}
-    </Chip>
+    <div className="divide-y divide-default-200 overflow-hidden rounded-lg bg-default-100/60 dark:divide-default-100 dark:bg-default-50/60">
+      {rows.map((row) => (
+        <div
+          key={row.key}
+          className={`grid grid-cols-[14px_minmax(0,1fr)_auto_auto] items-center gap-2 px-3 py-2 ${row.on ? "" : "opacity-70"}`}
+          data-builtin-compact={row.key}
+        >
+          <Lock aria-label="锁定" className="text-default-500" size={14} />
+          <span className="truncate text-sm font-medium" title={row.name}>
+            {row.name}
+          </span>
+          <BlockChip />
+          <StateIcon label={row.label} on={row.on} />
+        </div>
+      ))}
+    </div>
   );
 }
 
@@ -214,14 +263,9 @@ export function BuiltinRuleList({
           {open && (
             <div className="flex flex-wrap gap-1 pt-1">
               {safety.map((cidr) => (
-                <Chip
-                  key={cidr}
-                  className="font-mono text-default-600"
-                  size="sm"
-                  variant="bordered"
-                >
+                <Pill key={cidr} className="font-mono" tone="slate">
                   {cidr}
-                </Chip>
+                </Pill>
               ))}
             </div>
           )}
@@ -293,9 +337,7 @@ export function BuiltinRuleList({
         <div className="min-w-0 flex-1 space-y-1">
           <div className="flex flex-wrap items-center gap-2">
             <span className="font-medium">来源白名单</span>
-            <Chip color="success" size="sm" variant="flat">
-              → 不受来源规则影响
-            </Chip>
+            <Pill tone="green">→ 不受来源规则影响</Pill>
           </div>
           {admin && whitelist ? (
             <>
@@ -348,14 +390,9 @@ export function BuiltinRuleList({
               ) : (
                 <div className="flex flex-wrap items-center gap-1">
                   {(whitelist || []).slice(0, 6).map((cidr) => (
-                    <Chip
-                      key={cidr}
-                      className="font-mono text-default-600"
-                      size="sm"
-                      variant="bordered"
-                    >
+                    <Pill key={cidr} className="font-mono" tone="slate">
                       {cidr}
-                    </Chip>
+                    </Pill>
                   ))}
                   {(whitelist || []).length > 6 && (
                     <InfoChip text={`等 ${(whitelist || []).length} 条`} />

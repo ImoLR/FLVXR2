@@ -75,8 +75,9 @@ const toneClass: Record<Tone, string> = {
   primary: "bg-blue-500/10 text-blue-600 dark:text-blue-400",
   secondary: "bg-purple-500/10 text-purple-600 dark:text-purple-400",
   cyan: "bg-cyan-500/15 text-cyan-700 dark:bg-cyan-400/15 dark:text-cyan-300",
+  // Plan 149: neutral chips are tinted slate (no white / border-only chips).
   default:
-    "border border-divider bg-transparent text-default-600 dark:text-default-500",
+    "bg-slate-500/15 text-slate-600 dark:bg-slate-400/20 dark:text-slate-300",
 };
 
 function Pill({

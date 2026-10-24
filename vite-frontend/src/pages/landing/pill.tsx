@@ -2,10 +2,7 @@ import type { ReactNode } from "react";
 
 import { ChevronDown } from "lucide-react";
 
-import {
-  landingProtocolLabel,
-  landingProtocolShortLabel,
-} from "@/api/landing";
+import { landingProtocolLabel, landingProtocolShortLabel } from "@/api/landing";
 import {
   Dropdown,
   DropdownMenu,
@@ -72,6 +69,15 @@ export function toneOf(
   }
 
   return "slate";
+}
+
+/** Rule action tone: 封锁 red, 直连 green, other outbounds teal, 插入时选择 purple. */
+export function actionTone(action: string): LandingTone {
+  if (action === "block") return "red";
+  if (!action || action === "direct") return "green";
+  if (action === "ask") return "purple";
+
+  return "teal";
 }
 
 export function Pill({
@@ -150,5 +156,45 @@ export function ProtocolPill({
         </div>
       </DropdownMenu>
     </Dropdown>
+  );
+}
+
+type ChipColor =
+  | "default"
+  | "primary"
+  | "secondary"
+  | "success"
+  | "warning"
+  | "danger";
+
+/**
+ * Plan 149: drop-in for the bridge Chip on the 落地 admin pages (same props):
+ * flat colours become their tinted tone, bordered / default chips tinted
+ * slate. Text-colour overrides of the old white chips are dropped.
+ */
+export function TintChip({
+  color = "default",
+  variant,
+  className = "",
+  children,
+  title,
+}: {
+  color?: ChipColor;
+  variant?: "solid" | "flat" | "light" | "bordered";
+  size?: "sm" | "md" | "lg";
+  className?: string;
+  children: ReactNode;
+  title?: string;
+}) {
+  const tone = variant === "bordered" ? "slate" : toneOf(color);
+  const kept = className
+    .split(/\s+/)
+    .filter((c) => c && !/^(dark:)?text-default-\d+$/.test(c))
+    .join(" ");
+
+  return (
+    <Pill className={kept} title={title} tone={tone}>
+      {children}
+    </Pill>
   );
 }

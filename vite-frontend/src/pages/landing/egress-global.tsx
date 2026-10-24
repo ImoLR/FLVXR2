@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import toast from "react-hot-toast";
 import { ArrowDown, Globe2 } from "lucide-react";
 
+import { TintChip as Chip } from "./pill";
 import { BuiltinRuleList, builtinScopeText } from "./egress-builtin-list";
 import { EgressRuleList } from "./egress-rule-list";
 
@@ -20,7 +21,6 @@ import {
 import { useH5Mode } from "@/hooks/useH5Mode";
 import { Button } from "@/shadcn-bridge/heroui/button";
 import { Card, CardBody, CardHeader } from "@/shadcn-bridge/heroui/card";
-import { Chip } from "@/shadcn-bridge/heroui/chip";
 import { Input } from "@/shadcn-bridge/heroui/input";
 import { Select, SelectItem } from "@/shadcn-bridge/heroui/select";
 

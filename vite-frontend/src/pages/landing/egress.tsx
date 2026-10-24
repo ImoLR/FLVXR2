@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import toast from "react-hot-toast";
 import { Lock, Plus, RefreshCw } from "lucide-react";
 
+import { TintChip as Chip } from "./pill";
 import { LandingGlobalRules } from "./egress-global";
 import { ProfileEditor } from "./egress-profile-editor";
 import { OutboundEditor } from "./egress-outbound-editor";
@@ -26,7 +27,6 @@ import {
 import { landingDate } from "@/api/landing";
 import { Button } from "@/shadcn-bridge/heroui/button";
 import { Card, CardBody, CardHeader } from "@/shadcn-bridge/heroui/card";
-import { Chip } from "@/shadcn-bridge/heroui/chip";
 import { Textarea } from "@/shadcn-bridge/heroui/input";
 import {
   Modal,
