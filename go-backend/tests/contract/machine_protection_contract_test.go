@@ -113,7 +113,7 @@ func TestMachineProtectionSettingsContract(t *testing.T) {
 	if err := r.DB().Order("id").Find(&nodes).Error; err != nil || len(nodes) != 2 {
 		t.Fatalf("nodes %d %v", len(nodes), err)
 	}
-	if n := nodes[0]; !n.MachineProtectEnabled || n.MachineMaxTotal != 1000 || n.MachineTWBuckets != 500 || n.MachineCloseWaitSeconds != 10 {
+	if n := nodes[0]; !n.MachineProtectEnabled || n.MachineMaxTotal != 1000 || n.MachineTWBuckets != 200 || n.MachineCloseWaitSeconds != 10 {
 		t.Fatalf("defaults %+v", n)
 	}
 	if n := nodes[1]; n.MachineProtectEnabled || n.MachineMaxTotal != 0 || n.MachineTWBuckets != 0 || n.MachineCloseWaitSeconds != 30 {
@@ -132,7 +132,7 @@ func TestMachineProtectionSettingsContract(t *testing.T) {
 		if out := update(bad); out.Code == 0 {
 			t.Fatalf("%v accepted", bad)
 		}
-		if n := nodeRow(t, r, id); n.MachineMaxTotal != 1000 || n.MachineTWBuckets != 500 || n.MachineCloseWaitSeconds != 10 || !n.MachineProtectEnabled {
+		if n := nodeRow(t, r, id); n.MachineMaxTotal != 1000 || n.MachineTWBuckets != 200 || n.MachineCloseWaitSeconds != 10 || !n.MachineProtectEnabled {
 			t.Fatalf("rejected update changed the row: %+v", n)
 		}
 	}
@@ -184,7 +184,7 @@ func TestMachineProtectionPushAndVisibilityContract(t *testing.T) {
 	// Connect: the stored setting is pushed at once.
 	c := dialAgent(t, base, n.Secret)
 	cmd := nextMachineCmd(t, c, n.Secret)
-	if cmd.Data["enabled"] != true || cmd.Data["maxTotal"] != float64(1000) || cmd.Data["twBuckets"] != float64(500) || cmd.Data["closeWaitSeconds"] != float64(10) {
+	if cmd.Data["enabled"] != true || cmd.Data["maxTotal"] != float64(1000) || cmd.Data["twBuckets"] != float64(200) || cmd.Data["closeWaitSeconds"] != float64(10) {
 		t.Fatalf("push on connect %v", cmd.Data)
 	}
 	// Change: pushed again.

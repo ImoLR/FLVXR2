@@ -844,7 +844,7 @@ func (h *Handler) nodeCreate(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	// New nodes get the column defaults (protection on, 1000 / 500 / 10 s); a
+	// New nodes get the column defaults (protection on, 1000 / 200 / 10 s); a
 	// different choice in the create dialog is written explicitly (GORM would
 	// replace false/0 by the column default on insert).
 	if machineSet && machine != repo.DefaultMachineProtection() {

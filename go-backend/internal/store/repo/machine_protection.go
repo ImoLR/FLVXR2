@@ -18,12 +18,13 @@ type MachineProtection struct {
 	CloseWaitSeconds int64 `json:"closeWaitSeconds"`
 }
 
-// User-approved defaults 2026-10-20: cap 1000 (was 1500), TIME_WAIT 500, CLOSE_WAIT
-// 10 s (was 30 s; not 5 s: a CLOSE_WAIT socket may still be flushing the tail of a
-// download to a slow client). The agent enforces the same ranges.
+// User-approved defaults 2026-10-20: cap 1000 (was 1500), CLOSE_WAIT 10 s (was
+// 30 s; not 5 s: a CLOSE_WAIT socket may still be flushing the tail of a download
+// to a slow client); TIME_WAIT 200 for new nodes since 2026-10-24 (plan 148, was
+// 500; existing nodes keep their stored value). The agent enforces the same ranges.
 const (
 	DefaultMachineMaxTotal         int64 = 1000
-	DefaultMachineTWBuckets        int64 = 500
+	DefaultMachineTWBuckets        int64 = 200
 	DefaultMachineCloseWaitSeconds int64 = 10
 
 	MinMachineMaxTotal         int64 = 100

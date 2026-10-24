@@ -15,7 +15,7 @@ import {
 export const MACHINE_DEFAULTS = {
   enabled: true,
   maxTotal: 1000,
-  twBuckets: 500,
+  twBuckets: 200,
   closeWaitSeconds: 10,
 };
 export const MACHINE_RELEASE_PERCENT = 95;
@@ -455,7 +455,7 @@ export function MachineProtectSection({
             errorMessage={errors.machineTwBuckets}
             isInvalid={!!errors.machineTwBuckets}
             label="TIME_WAIT 上限"
-            placeholder="500"
+            placeholder="200"
             type="number"
             value={form.machineTwBuckets}
             variant="bordered"

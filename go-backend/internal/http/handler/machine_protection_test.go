@@ -22,7 +22,7 @@ func TestParseMachineProtection(t *testing.T) {
 		t.Fatal("absent keys must keep the base")
 	}
 	got, present, err := parseMachineProtection(map[string]interface{}{"machineProtectEnabled": false, "machineMaxTotal": float64(0), "machineCloseWaitSeconds": "30"}, base)
-	if !present || err != nil || got != (repo.MachineProtection{Enabled: false, MaxTotal: 0, TWBuckets: 500, CloseWaitSeconds: 30}) {
+	if !present || err != nil || got != (repo.MachineProtection{Enabled: false, MaxTotal: 0, TWBuckets: 200, CloseWaitSeconds: 30}) {
 		t.Fatalf("overlay %+v %v", got, err)
 	}
 	for _, bad := range []map[string]interface{}{
