@@ -1765,6 +1765,8 @@ export default function ForwardPage() {
     ? tunnelGroupPills.find((pill) => pill.key === formTunnelGroup) || tunnelGroupPills[0]
     : null;
   const formTunnelSections = activeTunnelGroup ? activeTunnelGroup.sections : tunnelPickerSections;
+  // Colour dots only help when the groups have different colours (prod: all default blue).
+  const tunnelGroupDots = new Set(tunnelGroupPills.map((pill) => pill.color).filter(Boolean)).size > 1;
 
   useEffect(() => {
     if (!modalOpen) {
@@ -6023,7 +6025,7 @@ export default function ForwardPage() {
                                 type="button"
                                 onClick={() => selectTunnelGroup(pill.key)}
                               >
-                                {pill.color && (
+                                {tunnelGroupDots && pill.color && (
                                   <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: pill.color }} />
                                 )}
                                 <span>{pill.label}</span>
