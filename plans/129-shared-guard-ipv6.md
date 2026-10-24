@@ -86,3 +86,33 @@ Base: `maintenance/3.0.27-fork.86-landing-conn-mode` (a7fff31b, newest release).
 - Screenshots: 60 (40 after / 20 before), 68/68 checks, 0 page errors —
   http://104.145.236.29:8791/ea923e5e348dfb9548d4d0909b6de1ee/shared-guard-ipv6/
 - Rollout + rollback: `/root/flvx-workers/runs/shared-guard-ipv6/final.md`.
+
+## Release (fork.87, task `release-shared-guard-ipv6`, 2026-10-24)
+Approval: user 2026-10-24 ~04:40 TW waived the screenshot gate for this queue; the release worker is the gate.
+Branch `maintenance/3.0.27-fork.87-shared-guard-ipv6` from the feature head fb73de16 (= fork.86 a7fff31b + plan 129,
+fast-forward, no conflicts, code identical to the build). No new scope.
+
+Pre-release prod read-only check: native servers 1 (node 21, 0 landing nodes) and 5 (node 55, 1 SS2022 node); shared
+2/3/4/6 = mmwx 7/5/10/16, all four advertise `reality_guard {"versions":[1]}` and run Core b01adef (16 included);
+**0 Reality landing nodes on prod** (all 4 landing nodes are SS2022) → enabling the guard reloads no node anywhere.
+
+- [x] Gallery gate (release worker opened 11 of the 40 after-shots — Core upgrade block desktop light / H5 dark, guard
+      toggle H5 dark, unsupported desktop dark, on H5 light, restart desktop light, IPv6 /64 IP list desktop light /
+      H5 dark, card +N H5 light, BT hint H5 dark, full servers page desktop dark — plus the build's 64/64 automated
+      checks; no real defect → no code change, no re-shoot; the Core-upgrade box uses the same `bg-warning-50` style as
+      the existing plan-127 restart box)
+- [x] Branch, `go build ./...`, backend tests SQLite + PostgreSQL (only the 15 known failures), agent tests, frontend
+      tsc/build/lint — go-backend + go-gost build ok; `go test ./...` SQLite 17 ok / 15 FAIL and PostgreSQL 17 ok /
+      15 FAIL, both lists identical to the fork.86 release and to the build's fork.86 base; `TestSharedLandingRealityGuard`,
+      `TestSharedLandingRealityGuardIPv6Contract` sqlite+postgres PASS, `TestLandingCoreUpgradeConfirm`,
+      `TestLandingOnlineIPsIPv6Prefix` PASS; go-gost/x landing (38 pass, real-Core/netns ones opt-in skipped — run by the
+      build) + socket + service ok (landing needs a short TMPDIR for its unix sockets); tsc 0 errors; build ok (index
+      2,993.22 kB, = build round); eslint 96 errors / 3754 warnings (= fork.86)
+- [x] Equivalence gate on a fresh read-only prod DB copy (fork.86 vs fork.87 code), copy deleted
+      — native payloads servers 1/5 (105 / 1303 B) byte-identical; shared desired 2/3/4/6 byte-identical with the caps
+      as stored today; with the guard capability stored (= after the first /shares refresh) each shared desired only
+      gains `"reality_guard":true` (nodes + egress identical, revision +1: 230→231, 182→183, 55→56, 36→37); fork.86 code
+      ignores the capability (identical); views: 0 changed values, new keys only (server coreUpgradeRequired/
+      coreUpgradeConfirmed; guard state shared→pending until mmwx applies); list p50 unchanged (server/list 2.24 → 2.13 ms);
+      Core upgrade flow on the copy: stale report → no flag/no revision bump until confirmed → one payload with
+      upgrade_core_epoch (rev +1) → cleared on the current-Core report (rev +1)
