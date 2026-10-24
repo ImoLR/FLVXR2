@@ -14,6 +14,9 @@ type NodeRef struct {
 	ID       int64
 	Tag      string
 	Override *int64 // nil follows the server profile
+	// Protocol is the node's protocol key (plan 149 「节点协议」 matcher);
+	// "" = unknown (labels only), matched by every rule.
+	Protocol string
 	// Plan 134: the owner's node rules (normalized) and default outbound
 	// ("" follows the upper layers); used only when CompileInput.NodeRules.
 	Rules   []Rule
@@ -283,9 +286,9 @@ func (in CompileInput) EffectiveDefault(node *NodeRef) (action, from string, rul
 		in.nodeLayer(&n, &rep)
 	}
 	pid := EffectiveProfile(in.ServerProfileID, n.Override)
-	rules = routesTraffic(forced) || routesTraffic(deflt) || routesTraffic(n.Rules)
+	rules = routesTraffic(forProtocol(forced, n.Protocol)) || routesTraffic(forProtocol(deflt, n.Protocol)) || routesTraffic(n.Rules)
 	if p, ok := in.Profiles[pid]; pid != 0 && ok {
-		rules = rules || routesTraffic(enabled(p.Rules))
+		rules = rules || routesTraffic(forProtocol(enabled(p.Rules), n.Protocol))
 	}
 	def, layer := nodeDefault(n, pid, in.Profiles, gdef)
 	switch layer {
@@ -297,6 +300,21 @@ func (in CompileInput) EffectiveDefault(node *NodeRef) (action, from string, rul
 		from = DefaultFromServer
 	}
 	return def, from, rules
+}
+
+// forProtocol keeps the rules that cover a node of this protocol (plan 149;
+// "" = server label / unknown node: every rule).
+func forProtocol(rules []Rule, protocol string) []Rule {
+	if protocol == "" {
+		return rules
+	}
+	out := []Rule{}
+	for _, r := range rules {
+		if RuleAppliesTo(r, protocol) {
+			out = append(out, r)
+		}
+	}
+	return out
 }
 
 // routesTraffic: some rule sends matching traffic to another outbound. Pure
@@ -449,9 +467,11 @@ func compilePlan(in CompileInput, nodes []NodeRef, forced, deflt []Rule, gdef st
 	}
 	groups := map[groupKey][]string{}
 	nodeTag := map[int64]string{}
+	tagProto := map[string]string{}
 	allTags := []string{}
 	for _, n := range nodes {
 		nodeTag[n.ID] = n.Tag
+		tagProto[n.Tag] = n.Protocol
 		allTags = append(allTags, n.Tag)
 		pid := EffectiveProfile(in.ServerProfileID, n.Override)
 		def, layer := nodeDefault(n, pid, in.Profiles, gdef)
@@ -462,6 +482,20 @@ func compilePlan(in CompileInput, nodes []NodeRef, forced, deflt []Rule, gdef st
 		groups[k] = append(groups[k], n.Tag)
 	}
 	sort.Strings(allTags)
+	// Plan 149 「节点协议」: a scoped rule covers only the landing nodes with
+	// one of its protocols (never chain copies); empty scope = unchanged.
+	scoped := func(r Rule, tags []string) []string {
+		if len(r.InboundProtocols) == 0 {
+			return tags
+		}
+		out := []string{}
+		for _, t := range tags {
+			if p, ok := tagProto[t]; ok && RuleAppliesTo(r, p) && p != "" {
+				out = append(out, t)
+			}
+		}
+		return out
+	}
 	keys := make([]groupKey, 0, len(groups))
 	for k := range groups {
 		keys = append(keys, k)
@@ -520,6 +554,9 @@ func compilePlan(in CompileInput, nodes []NodeRef, forced, deflt []Rule, gdef st
 						continue
 					}
 				}
+				if scope = scoped(r, scope); len(scope) == 0 {
+					continue
+				}
 				pr := toPlanRule(r)
 				pr.Outbound = refer(r.Action)
 				list = append(list, groupRule{key: ruleKey(pr), rule: pr, tags: scope, layer: layerServer})
@@ -550,9 +587,13 @@ func compilePlan(in CompileInput, nodes []NodeRef, forced, deflt []Rule, gdef st
 	}
 	if len(forcedTags) > 0 {
 		for _, r := range forced {
+			tags := scoped(r, forcedTags)
+			if len(tags) == 0 {
+				continue
+			}
 			pr := toPlanRule(r)
 			pr.Outbound = refer(r.Action)
-			pr.InboundTags = append([]string(nil), forcedTags...)
+			pr.InboundTags = append([]string(nil), tags...)
 			if in.Markers {
 				pr.Builtin = BuiltinForced
 			}
@@ -585,9 +626,13 @@ func compilePlan(in CompileInput, nodes []NodeRef, forced, deflt []Rule, gdef st
 	// Layer 5: 全局·默认 over every non-chain node.
 	if len(allTags) > 0 {
 		for _, r := range deflt {
+			tags := scoped(r, allTags)
+			if len(tags) == 0 {
+				continue
+			}
 			pr := toPlanRule(r)
 			pr.Outbound = refer(r.Action)
-			pr.InboundTags = append([]string(nil), allTags...)
+			pr.InboundTags = append([]string(nil), tags...)
 			if in.Markers {
 				pr.Builtin = BuiltinGlobal
 			}

@@ -57,6 +57,35 @@ var ssAEADMethods = map[string]bool{"aes-128-gcm": true, "aes-256-gcm": true, "c
 var realityFingerprints = map[string]bool{"chrome": true, "firefox": true, "safari": true, "ios": true, "android": true, "edge": true, "random": true, "randomized": true}
 var ruleProtocols = map[string]bool{"http": true, "tls": true, "quic": true, "bittorrent": true}
 
+// InboundProtocolKeys are the landing node protocols the 「节点协议」 matcher
+// (plan 149) accepts, in display order. SSFamily is the Shadowsocks part of
+// it: every SS variant the panel offers (only SS2022 today).
+var InboundProtocolKeys = []string{"ss2022", "vless_reality_vision", "anytls", "snell", "mieru"}
+
+var SSFamily = []string{"ss2022"}
+
+var inboundProtocolSet = func() map[string]bool {
+	out := map[string]bool{}
+	for _, k := range InboundProtocolKeys {
+		out[k] = true
+	}
+	return out
+}()
+
+// RuleAppliesTo reports whether a rule covers a node of this protocol (""
+// = unknown: covered).
+func RuleAppliesTo(r Rule, protocol string) bool {
+	if len(r.InboundProtocols) == 0 || protocol == "" {
+		return true
+	}
+	for _, p := range r.InboundProtocols {
+		if p == protocol {
+			return true
+		}
+	}
+	return false
+}
+
 // SSMethods lists accepted Shadowsocks methods (2022 + AEAD).
 func SSMethods() []string {
 	out := []string{}
@@ -550,6 +579,21 @@ func NormalizeProfile(p *Profile, outbounds map[int64]bool) error {
 		}
 		sort.Slice(nodes, func(a, b int) bool { return nodes[a] < nodes[b] })
 		r.LandingNodeIDs = nodes
+		if len(r.InboundProtocols) > 0 {
+			inbound := dedupe(r.InboundProtocols)
+			for _, proto := range inbound {
+				if !inboundProtocolSet[proto] {
+					return fmt.Errorf("%s 节点协议无效", label)
+				}
+			}
+			sort.Strings(inbound)
+			r.InboundProtocols = inbound
+			if len(inbound) == 0 {
+				r.InboundProtocols = nil
+			}
+		} else {
+			r.InboundProtocols = nil
+		}
 		if !ValidAction(r.Action, outbounds) {
 			return fmt.Errorf("%s 的出站无效或已删除", label)
 		}

@@ -362,12 +362,12 @@ func (r *Repository) SaveLandingSourceWhitelist(list []string) ([]string, error)
 // handler resolves hostnames (cached) and adds the whitelist.
 func (r *Repository) LandingExemptHosts() ([]string, error) {
 	var nodes []model.Node
-	if err := r.db.Select("server_ip", "server_ip_v4", "server_ip_v6", "intranet_ip", "extra_ips").Find(&nodes).Error; err != nil {
+	if err := r.db.Select("server_ip", "server_ip_v4", "server_ip_v6", "intranet_ip", "extra_ips", "reported_ip_v4", "reported_ip_v6").Find(&nodes).Error; err != nil {
 		return nil, err
 	}
 	out := []string{}
 	for _, n := range nodes {
-		out = append(out, n.ServerIP, n.ServerIPV4.String, n.ServerIPV6.String, n.IntranetIP.String)
+		out = append(out, n.ServerIP, n.ServerIPV4.String, n.ServerIPV6.String, n.IntranetIP.String, n.ReportedIPV4, n.ReportedIPV6)
 		var extra []string
 		if json.Unmarshal([]byte(n.ExtraIPs.String), &extra) == nil {
 			out = append(out, extra...)
@@ -375,7 +375,13 @@ func (r *Repository) LandingExemptHosts() ([]string, error) {
 			out = append(out, n.ExtraIPs.String)
 		}
 	}
-	return out, nil
+	// Plan 149: DDNS nodes' current addresses straight from their records, so
+	// a rotated address is exempt without waiting for DNS.
+	var ddns []string
+	if err := r.db.Model(&model.NodeDDNSRecord{}).Where("current_ip <> ''").Pluck("current_ip", &ddns).Error; err != nil {
+		return nil, err
+	}
+	return append(out, ddns...), nil
 }
 
 // LandingUpstream is a resolved FLVX landing-node upstream for one template.

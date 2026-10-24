@@ -88,9 +88,13 @@ type Handler struct {
 	landingEgressMu    sync.Mutex // WARP registration
 	egressDNSMu        sync.Mutex
 	egressDNS          map[string]egressDNSEntry
-	landingWarpAt      time.Time
-	egressSyncWG       sync.WaitGroup  // background syncs after egress edits (tests wait)
-	layerApply         layerApplyState // debounced push after global rule saves (plan 134)
+	// Plan 149: exempt-source list cache (landingExemptSources).
+	egressExemptMu sync.Mutex
+	egressExempt   []string
+	egressExemptAt time.Time
+	landingWarpAt  time.Time
+	egressSyncWG   sync.WaitGroup  // background syncs after egress edits (tests wait)
+	layerApply     layerApplyState // debounced push after global rule saves (plan 134)
 	// landingRates keeps the last two committed counters per landing node for the
 	// monitor's live rates (memory only); see landing_monitor_rates.go.
 	landingRatesOnce sync.Once
