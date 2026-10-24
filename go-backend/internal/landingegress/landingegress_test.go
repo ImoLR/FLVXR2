@@ -326,8 +326,10 @@ func TestExemptSources(t *testing.T) {
 		}
 		return nil
 	}
-	got := ExemptSources([]string{"203.0.113.1", "Node.Example.COM", "", "203.0.113.1", "[2001:db8::1]", "203.0.113.7, 203.0.113.8", "unresolvable.example.org"}, []string{"192.0.2.0/24", "bad"}, resolve)
-	want := "192.0.2.0/24,198.51.100.20/32,2001:db8::1/128,2001:db8::20/128,203.0.113.1/32,203.0.113.7/32,203.0.113.8/32"
+	got := ExemptSources([]string{"203.0.113.1", "Node.Example.COM", "", "203.0.113.1", "[2001:db8::1]", "203.0.113.7, 203.0.113.8", "unresolvable.example.org"}, []string{"192.0.2.0/24", "bad", "2001:db8:5::7"}, resolve)
+	// Plan 149: node IPv6 addresses (literal or resolved) are exempt as their
+	// /64; whitelist entries stay exact.
+	want := "192.0.2.0/24,198.51.100.20/32,2001:db8:5::7/128,2001:db8::/64,203.0.113.1/32,203.0.113.7/32,203.0.113.8/32"
 	if strings.Join(got, ",") != want {
 		t.Fatalf("exempt = %v", got)
 	}

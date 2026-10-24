@@ -597,7 +597,7 @@ func NormalizeProfile(p *Profile, outbounds map[int64]bool) error {
 		if !ValidAction(r.Action, outbounds) {
 			return fmt.Errorf("%s 的出站无效或已删除", label)
 		}
-		if len(r.Domains)+len(r.IPs)+len(r.SourceIPs)+len(r.Protocols)+len(r.LandingNodeIDs) == 0 && r.Ports == "" && r.SourcePorts == "" && r.Network == "" {
+		if len(r.Domains)+len(r.IPs)+len(r.SourceIPs)+len(r.Protocols)+len(r.LandingNodeIDs)+len(r.InboundProtocols) == 0 && r.Ports == "" && r.SourcePorts == "" && r.Network == "" {
 			return fmt.Errorf("%s 至少需要一个匹配条件", label)
 		}
 		if RuleGeoBytes(*r) > MaxRuleGeoBytes {
