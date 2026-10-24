@@ -63,10 +63,10 @@ func TestConnModeNetnsE2E(t *testing.T) {
 	sh("ip", "link", "add", "flvxcm-l1", "type", "veth", "peer", "name", "flvxcm-t0")
 	sh("ip", "link", "set", "flvxcm-l1", "netns", "flvxcm-l")
 	sh("ip", "link", "set", "flvxcm-t0", "netns", "flvxcm-t")
-	sh("ip", "-n", "flvxcm-c", "addr", "add", "203.0.113.50/24", "dev", "flvxcm-c0")
-	sh("ip", "-n", "flvxcm-l", "addr", "add", "203.0.113.1/24", "dev", "flvxcm-l0")
-	sh("ip", "-n", "flvxcm-l", "addr", "add", "198.51.100.1/24", "dev", "flvxcm-l1")
-	sh("ip", "-n", "flvxcm-t", "addr", "add", "198.51.100.2/24", "dev", "flvxcm-t0")
+	sh("ip", "-n", "flvxcm-c", "addr", "add", "11.0.1.50/24", "dev", "flvxcm-c0")
+	sh("ip", "-n", "flvxcm-l", "addr", "add", "11.0.1.1/24", "dev", "flvxcm-l0")
+	sh("ip", "-n", "flvxcm-l", "addr", "add", "12.0.1.1/24", "dev", "flvxcm-l1")
+	sh("ip", "-n", "flvxcm-t", "addr", "add", "12.0.1.2/24", "dev", "flvxcm-t0")
 	for _, l := range [][2]string{{"flvxcm-c", "flvxcm-c0"}, {"flvxcm-l", "flvxcm-l0"}, {"flvxcm-l", "flvxcm-l1"}, {"flvxcm-t", "flvxcm-t0"}} {
 		sh("ip", "-n", l[0], "link", "set", l[1], "up")
 	}
@@ -120,10 +120,10 @@ while True:
 
 	// Client: the same Core as SS2022 client, one local port per landing node.
 	ss := func(n Node, tag string) map[string]any {
-		return map[string]any{"tag": tag, "protocol": "shadowsocks", "settings": map[string]any{"servers": []any{map[string]any{"address": "203.0.113.1", "port": n.Port, "method": SS2022Method, "password": n.SS2022.ServerKey + ":" + n.SS2022.UserKey}}}}
+		return map[string]any{"tag": tag, "protocol": "shadowsocks", "settings": map[string]any{"servers": []any{map[string]any{"address": "11.0.1.1", "port": n.Port, "method": SS2022Method, "password": n.SS2022.ServerKey + ":" + n.SS2022.UserKey}}}}
 	}
 	dokodemo := func(tag string, port int) map[string]any {
-		return map[string]any{"tag": tag, "listen": "127.0.0.1", "port": port, "protocol": "dokodemo-door", "settings": map[string]any{"address": "198.51.100.2", "port": 9100, "network": "tcp"}}
+		return map[string]any{"tag": tag, "listen": "127.0.0.1", "port": port, "protocol": "dokodemo-door", "settings": map[string]any{"address": "12.0.1.2", "port": 9100, "network": "tcp"}}
 	}
 	clientCfg, _ := json.Marshal(map[string]any{"log": map[string]any{"loglevel": "warning"},
 		"inbounds":  []any{dokodemo("in-inbound", 21001), dokodemo("in-total", 21002)},
@@ -245,7 +245,11 @@ for s in held:
 	if a.Accepted != 3 || a.CoreInbound != 3 || a.CoreTotal < 6 {
 		t.Fatalf("仅入站: %+v", a)
 	}
-	if b.Accepted != 3 || freed[len(freed)-1].CoreInbound != 0 || freed[len(freed)-1].AfterMs > 6000 {
+	// 7 s (plan 148): the test client is the pinned Core too, and the SS2022
+	// client of Core 2bf03c9 (XTLS's own implementation) closes about 1 s
+	// later than the old one (5.0 → 6.0 s, measured by mmwx core-sync-dht);
+	// the landing side releases as soon as the client is gone, as before.
+	if b.Accepted != 3 || freed[len(freed)-1].CoreInbound != 0 || freed[len(freed)-1].AfterMs > 7000 {
 		t.Fatalf("仅入站 reopen: %+v after %+v", b, freed)
 	}
 	if c.Accepted >= 3 {

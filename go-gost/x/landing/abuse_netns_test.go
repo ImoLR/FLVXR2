@@ -68,10 +68,10 @@ func TestAbuseGuardNetnsE2E(t *testing.T) {
 	sh("ip", "link", "add", "flvxab-l1", "type", "veth", "peer", "name", "flvxab-t0")
 	sh("ip", "link", "set", "flvxab-l1", "netns", "flvxab-l")
 	sh("ip", "link", "set", "flvxab-t0", "netns", "flvxab-t")
-	sh("ip", "-n", "flvxab-c", "addr", "add", "203.0.113.50/24", "dev", "flvxab-c0")
-	sh("ip", "-n", "flvxab-l", "addr", "add", "203.0.113.1/24", "dev", "flvxab-l0")
-	sh("ip", "-n", "flvxab-l", "addr", "add", "198.51.100.1/24", "dev", "flvxab-l1")
-	sh("ip", "-n", "flvxab-t", "addr", "add", "198.51.100.2/24", "dev", "flvxab-t0")
+	sh("ip", "-n", "flvxab-c", "addr", "add", "11.0.1.50/24", "dev", "flvxab-c0")
+	sh("ip", "-n", "flvxab-l", "addr", "add", "11.0.1.1/24", "dev", "flvxab-l0")
+	sh("ip", "-n", "flvxab-l", "addr", "add", "12.0.1.1/24", "dev", "flvxab-l1")
+	sh("ip", "-n", "flvxab-t", "addr", "add", "12.0.1.2/24", "dev", "flvxab-t0")
 	for _, l := range [][2]string{{"flvxab-c", "flvxab-c0"}, {"flvxab-l", "flvxab-l0"}, {"flvxab-l", "flvxab-l1"}, {"flvxab-t", "flvxab-t0"}} {
 		sh("ip", "-n", l[0], "link", "set", l[1], "up")
 	}
@@ -172,7 +172,7 @@ serve(8443, tls)
 	const uuid = "8a8e3c4d-1f2b-4c3d-9e8f-0a1b2c3d4e5f"
 	reality := func(id int64, port, guard int) Node {
 		return Node{ID: id, InboundTag: "flvxl-" + strconv.FormatInt(id, 10), Protocol: "vless_reality_vision", Port: port, Enabled: true, GuardPort: guard,
-			VLESS: &VLESS{UUID: uuid, Flow: "xtls-rprx-vision", Reality: Reality{Dest: "198.51.100.2:8443", ServerNames: []string{"www.flvx.test"}, PrivateKey: goldenChainPrivate, ShortIDs: []string{"a1b2c3d4"}}}}
+			VLESS: &VLESS{UUID: uuid, Flow: "xtls-rprx-vision", Reality: Reality{Dest: "12.0.1.2:8443", ServerNames: []string{"www.flvx.test"}, PrivateKey: goldenChainPrivate, ShortIDs: []string{"a1b2c3d4"}}}}
 	}
 	n1, n4 := testNode(t, 1), testNode(t, 4)
 	n1.Port, n4.Port = 31001, 31004
@@ -220,13 +220,13 @@ serve(8443, tls)
 		t.Fatalf("public key: %s", pubOut)
 	}
 	ss := func(n Node) map[string]any {
-		return map[string]any{"protocol": "shadowsocks", "settings": map[string]any{"servers": []any{map[string]any{"address": "203.0.113.1", "port": n.Port, "method": SS2022Method, "password": n.SS2022.ServerKey + ":" + n.SS2022.UserKey}}}}
+		return map[string]any{"protocol": "shadowsocks", "settings": map[string]any{"servers": []any{map[string]any{"address": "11.0.1.1", "port": n.Port, "method": SS2022Method, "password": n.SS2022.ServerKey + ":" + n.SS2022.UserKey}}}}
 	}
 	vlessAt := func(addr string, port int) map[string]any {
 		return map[string]any{"protocol": "vless", "settings": map[string]any{"vnext": []any{map[string]any{"address": addr, "port": port, "users": []any{map[string]any{"id": uuid, "flow": "xtls-rprx-vision", "encryption": "none"}}}}},
 			"streamSettings": map[string]any{"network": "tcp", "security": "reality", "realitySettings": map[string]any{"serverName": "www.flvx.test", "publicKey": pub, "shortId": "a1b2c3d4", "fingerprint": "chrome"}}}
 	}
-	vless := func(port int) map[string]any { return vlessAt("203.0.113.1", port) }
+	vless := func(port int) map[string]any { return vlessAt("11.0.1.1", port) }
 	// gl/ul: authenticated users whose first bytes (the ClientHello) reach the
 	// landing late, through a relay in the client namespace (FLVX_ABUSE_E2E_LATE).
 	outs := map[string]map[string]any{"n1": ss(n1), "n4": ss(n4), "g": vless(31002), "u": vless(31003), "gl": vlessAt("127.0.0.1", 25001), "ul": vlessAt("127.0.0.1", 25002)}
@@ -242,7 +242,7 @@ serve(8443, tls)
 	}
 	var inbounds, outbounds, rules []any
 	for i, r := range routes {
-		inbounds = append(inbounds, map[string]any{"tag": "in-" + r.name, "listen": "127.0.0.1", "port": 20001 + i, "protocol": "dokodemo-door", "settings": map[string]any{"address": "198.51.100.2", "port": r.port, "network": "tcp"}})
+		inbounds = append(inbounds, map[string]any{"tag": "in-" + r.name, "listen": "127.0.0.1", "port": 20001 + i, "protocol": "dokodemo-door", "settings": map[string]any{"address": "12.0.1.2", "port": r.port, "network": "tcp"}})
 		rules = append(rules, map[string]any{"type": "field", "inboundTag": []string{"in-" + r.name}, "outboundTag": "out-" + r.out})
 	}
 	for name, o := range outs {
@@ -318,7 +318,7 @@ print(json.dumps(out))
 	if err := json.Unmarshal([]byte(py("fetch.py", fetch, fetchArgs...)), &got); err != nil {
 		t.Fatal(err)
 	}
-	pass := func(port int) string { return fmt.Sprintf("peer=198.51.100.1 port=%d", port) }
+	pass := func(port int) string { return fmt.Sprintf("peer=12.0.1.1 port=%d", port) }
 	expect := map[string]string{
 		"n1-25": "", "n1-443": pass(443), "n1-587": pass(587), "n1-465": pass(465), "n1-bt": "", "n1-plain6881": "got=plain",
 		"n4-443": pass(443), "n4-587": "", "n4-465": "", "n4-2525": "", "n4-23": "", "n4-445": "", "n4-25": "", "n4-bt": "", "n4-8081": pass(8081),
@@ -341,7 +341,7 @@ for item in sys.argv[1:]:
     ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT); ctx.check_hostname = False; ctx.verify_mode = ssl.CERT_NONE
     ctx.minimum_version = ssl.TLSVersion.TLSv1_3
     try:
-        c = socket.create_connection(("203.0.113.1", int(port)), timeout=5); c.settimeout(5)
+        c = socket.create_connection(("11.0.1.1", int(port)), timeout=5); c.settimeout(5)
         if delay:
             time.sleep(delay)  # ClientHello sent late (slow client / lost segment)
         t = ctx.wrap_socket(c, server_hostname=(sni or None))
@@ -383,7 +383,7 @@ print(json.dumps(out))
 	if sniSeen["www.example.com"] != 1 || sniSeen["None"] != 0 {
 		t.Errorf("dest saw SNIs %v; want www.example.com exactly once (unguarded probe)", sniSeen)
 	}
-	if strings.Count(string(logRaw), "tcp 6881 198.51.100.1 bt") != 0 || strings.Count(string(logRaw), "tcp 25 ") != 0 {
+	if strings.Count(string(logRaw), "tcp 6881 12.0.1.1 bt") != 0 || strings.Count(string(logRaw), "tcp 25 ") != 0 {
 		t.Errorf("blocked traffic reached the target:\n%s", logRaw)
 	}
 
@@ -498,7 +498,7 @@ def serve(lport, rport):
     s = socket.socket(); s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1); s.bind(("127.0.0.1", lport)); s.listen(256)
     while True:
         c, _ = s.accept()
-        u = socket.create_connection(("203.0.113.1", rport))
+        u = socket.create_connection(("11.0.1.1", rport))
         threading.Thread(target=pipe, args=(c, u, True), daemon=True).start()
         threading.Thread(target=pipe, args=(u, c, False), daemon=True).start()
 threading.Thread(target=serve, args=(25001, 31002), daemon=True).start()

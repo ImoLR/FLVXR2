@@ -14,24 +14,25 @@ import (
 	"github.com/google/uuid"
 )
 
-// Plan 129: Custom v1.4.74 = Core b01adef0 (uTP sniffer fix, Xray #6667);
-// v1.4.75 / v1.4.76 ship the byte-identical Core.
-const CoreVersion = "v1.4.74"
+// Plan 148: Custom v1.4.77 = Core 2bf03c9a (Xray 26.10.21 sync; Mainline DHT
+// and UDP tracker sniffed as bittorrent; the Reality guard's loopback hop on
+// flvxg-* inbounds is no longer counted).
+const CoreVersion = "v1.4.77"
 const SS2022Method = "2022-blake3-aes-128-gcm"
 
 // These hashes were verified against both assets and checksums.txt in the pinned release.
 var CoreSHA256 = map[string]string{
-	"amd64": "488803a40a4825797fd26b1a8de25349f9f6cfc85ac2ede45d6005c28485a63f",
-	"arm64": "1225921919e2058848dcc8f2589ff6f05706548537aa6da7b2b0de291802b3da",
+	"amd64": "a175bd06addc3afe9a89af43b1ce319bf5a118e93bcc812f4490d9f258dd764a",
+	"arm64": "faa5932f6c5febc56bd6ce656f1c60e128aeff18b122e569d0fdd3963c93caab",
 }
 
-// CorePreviousSHA256 is the pin before CoreVersion (Custom v1.4.59 = Core
-// 8f5b6145). Plan 129: a node upgraded from it keeps running and reconciling
+// CorePreviousSHA256 is the pin before CoreVersion (Custom v1.4.74 = Core
+// b01adef0, plan 129). A node upgraded from it keeps running and reconciling
 // on that verified binary while the new pin cannot be downloaded yet (no disk
 // / memory headroom, mirrors down); the download retries with its backoff.
 var CorePreviousSHA256 = map[string]string{
-	"amd64": "ae4b83f0cf77c4aa73857cb1de773e7ec89b1bc5ded272a677b46d417cf40212",
-	"arm64": "aa61a9d865c7ccb7d68717abd8d8832a7de4ee0ee73670271097afb69461a2e4",
+	"amd64": "488803a40a4825797fd26b1a8de25349f9f6cfc85ac2ede45d6005c28485a63f",
+	"arm64": "1225921919e2058848dcc8f2589ff6f05706548537aa6da7b2b0de291802b3da",
 }
 
 type Desired struct {

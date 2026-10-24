@@ -62,7 +62,7 @@ const abuseRows: AbuseRow[] = [
     key: "bt",
     name: "屏蔽 BT",
     chips: ["协议 bittorrent"],
-    hint: "按流量特征识别 BT 下载并封锁：能识别 TCP 明文 BT 和 UDP 上的 uTP（需新版落地 Core），识别不了加密 BT 和 DHT",
+    hint: "按流量特征识别 BT 下载并封锁：能识别 TCP 明文 BT，以及 UDP 上的 uTP、DHT 和 UDP tracker（需新版落地 Core），识别不了加密 BT",
   },
 ];
 

@@ -45,8 +45,10 @@ func TestCoreUpdateState(t *testing.T) {
 // the new pin downloads the new binary under a running old Core and reports
 // core_update without restarting; only upgrade_core_epoch naming that Core
 // restarts it, exactly once, onto the new binary; inbounds come back.
-// FLVX_LANDING_OLD_CORE (v1.4.59 asset) makes the old Core really old; without
-// it the pinned binary plays both roles.
+// FLVX_LANDING_OLD_CORE (the previous pin's asset, v1.4.74 = b01adef) makes the
+// old Core really old; without it the pinned binary plays both roles. Plan 148:
+// the restarted Core must advertise the guard-hop feature that only the new pin
+// (2bf03c9) has, so the test proves the new binary really runs.
 func TestLandingRealCoreUpgradeRestart(t *testing.T) {
 	dir := t.TempDir()
 	newCore := realCore(t, dir)
@@ -101,7 +103,7 @@ func TestLandingRealCoreUpgradeRestart(t *testing.T) {
 	if status.CoreUpdate != "" || downloads != 0 {
 		t.Fatalf("old pin: update %q downloads %d", status.CoreUpdate, downloads)
 	}
-	oldFeatures := coreFeatures(ctx, m)
+	oldFeatures, oldList := coreFeatures(ctx, m)
 
 	// OTA: a new agent process (the Core keeps running) pins the new Core.
 	time.Sleep(1200 * time.Millisecond)
@@ -137,9 +139,12 @@ func TestLandingRealCoreUpgradeRestart(t *testing.T) {
 	if listed := string(mustAPI(t, m, "lsi")); !strings.Contains(listed, `"`+n.InboundTag+`"`) {
 		t.Fatalf("inbound missing after the upgrade restart: %s", listed)
 	}
-	newFeatures := coreFeatures(ctx, m)
-	if newFeatures != 200 {
-		t.Fatalf("restarted Core lacks /v1/features (%d): not the new binary", newFeatures)
+	newFeatures, newList := coreFeatures(ctx, m)
+	if newFeatures != 200 || !strings.Contains(newList, guardHopFeature) {
+		t.Fatalf("restarted Core lacks %s on /v1/features (%d %s): not the new binary", guardHopFeature, newFeatures, newList)
+	}
+	if os.Getenv("FLVX_LANDING_OLD_CORE") != "" && strings.Contains(oldList, guardHopFeature) {
+		t.Fatalf("old Core already advertises %s: not the previous pin", guardHopFeature)
 	}
 	upgraded := status.Epoch
 	// The persisted confirmation names the old epoch: later applies never restart.
@@ -149,7 +154,7 @@ func TestLandingRealCoreUpgradeRestart(t *testing.T) {
 			t.Fatalf("restarted again: %v epoch %s→%s", err, upgraded, status.Epoch)
 		}
 	}
-	t.Logf("old Core %s (/v1/features %d) → one confirmed restart → %s (/v1/features %d)", oldEpoch, oldFeatures, upgraded, newFeatures)
+	t.Logf("old Core %s (/v1/features %d %s) → one confirmed restart → %s (/v1/features %d %s)", oldEpoch, oldFeatures, oldList, upgraded, newFeatures, newList)
 }
 
 func writeTemp(t *testing.T, b []byte) string {
@@ -161,9 +166,13 @@ func writeTemp(t *testing.T, b []byte) string {
 	return p
 }
 
-// coreFeatures returns the HTTP status of the Core's /v1/features control
-// endpoint (added in the Core after the v1.4.59 pin; 404 on the old Core).
-func coreFeatures(ctx context.Context, m *Manager) int {
+// guardHopFeature: Core 2bf03c9+ (plan 148 pin) keeps the Reality guard's
+// loopback hop out of the connection counts and says so on /v1/features.
+const guardHopFeature = "flvx.reality_guard_hop_uncounted"
+
+// coreFeatures returns the HTTP status and body of the Core's /v1/features
+// control endpoint (404 on Cores before b01adef).
+func coreFeatures(ctx context.Context, m *Manager) (int, string) {
 	client := &http.Client{Timeout: 3 * time.Second, Transport: &http.Transport{DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
 		var d net.Dialer
 		return d.DialContext(ctx, "unix", m.socket())
@@ -171,11 +180,11 @@ func coreFeatures(ctx context.Context, m *Manager) int {
 	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, "http://core/v1/features", nil)
 	resp, err := client.Do(req)
 	if err != nil {
-		return 0
+		return 0, ""
 	}
 	defer resp.Body.Close()
-	_, _ = io.Copy(io.Discard, resp.Body)
-	return resp.StatusCode
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
+	return resp.StatusCode, string(body)
 }
 
 // TestCoreUpgradeDownloadFailureKeepsPrevious (plan 129): after an OTA the

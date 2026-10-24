@@ -69,15 +69,15 @@ func TestEgressNetnsDataPlane(t *testing.T) {
 	sh("ip", "link", "add", "flvxeg-l1", "type", "veth", "peer", "name", "flvxeg-t0")
 	sh("ip", "link", "set", "flvxeg-l1", "netns", "flvxeg-l")
 	sh("ip", "link", "set", "flvxeg-t0", "netns", "flvxeg-t")
-	for _, a := range []string{"1.0.1.2/24", "1.0.1.3/24", "203.0.113.50/24"} {
+	for _, a := range []string{"1.0.1.2/24", "1.0.1.3/24", "11.0.1.50/24"} {
 		sh("ip", "-n", "flvxeg-c", "addr", "add", a, "dev", "flvxeg-c0")
 	}
-	for _, a := range []string{"1.0.1.1/24", "203.0.113.1/24"} {
+	for _, a := range []string{"1.0.1.1/24", "11.0.1.1/24"} {
 		sh("ip", "-n", "flvxeg-l", "addr", "add", a, "dev", "flvxeg-l0")
 	}
-	sh("ip", "-n", "flvxeg-l", "addr", "add", "198.51.100.1/24", "dev", "flvxeg-l1")
+	sh("ip", "-n", "flvxeg-l", "addr", "add", "12.0.1.1/24", "dev", "flvxeg-l1")
 	sh("ip", "-n", "flvxeg-l", "addr", "add", "2001:db8:2::1/64", "dev", "flvxeg-l1", "nodad")
-	sh("ip", "-n", "flvxeg-t", "addr", "add", "198.51.100.2/24", "dev", "flvxeg-t0")
+	sh("ip", "-n", "flvxeg-t", "addr", "add", "12.0.1.2/24", "dev", "flvxeg-t0")
 	sh("ip", "-n", "flvxeg-t", "addr", "add", "2001:db8:2::2/64", "dev", "flvxeg-t0", "nodad")
 	for _, l := range [][2]string{{"flvxeg-c", "flvxeg-c0"}, {"flvxeg-l", "flvxeg-l0"}, {"flvxeg-l", "flvxeg-l1"}, {"flvxeg-t", "flvxeg-t0"}} {
 		sh("ip", "-n", l[0], "link", "set", l[1], "up")
@@ -85,7 +85,7 @@ func TestEgressNetnsDataPlane(t *testing.T) {
 	if err := os.MkdirAll("/etc/netns/flvxeg-l", 0755); err != nil {
 		t.Fatal(err)
 	}
-	hosts := "127.0.0.1 localhost\n2001:db8:2::2 v6only.flvx.test\n198.51.100.2 v4only.flvx.test\n198.51.100.2 both.flvx.test\n2001:db8:2::2 both.flvx.test\n"
+	hosts := "127.0.0.1 localhost\n2001:db8:2::2 v6only.flvx.test\n12.0.1.2 v4only.flvx.test\n12.0.1.2 both.flvx.test\n2001:db8:2::2 both.flvx.test\n"
 	if err := os.WriteFile("/etc/netns/flvxeg-l/hosts", []byte(hosts), 0644); err != nil {
 		t.Fatal(err)
 	}
@@ -139,7 +139,7 @@ udp()
 	m := NewManager(dir, true)
 	m.execPath = wrapper
 	m.detectLocal = func() localAddrs {
-		return localAddrs{v4: netip.MustParseAddr("198.51.100.1"), v6: netip.MustParseAddr("2001:db8:2::1")}
+		return localAddrs{v4: netip.MustParseAddr("12.0.1.1"), v6: netip.MustParseAddr("2001:db8:2::1")}
 	}
 	t.Cleanup(func() {
 		if m.proc != nil {
@@ -172,24 +172,24 @@ udp()
 	ss := func(n Node) string { return n.SS2022.ServerKey + ":" + n.SS2022.UserKey }
 	type route struct{ name, target, node, server, source string }
 	routes := []route{
-		{"f4-v4lit", "198.51.100.2", "1", "203.0.113.1", "203.0.113.50"},
-		{"f4-v6lit", "2001:db8:2::2", "1", "203.0.113.1", "203.0.113.50"},
-		{"f4-v6only", "v6only.flvx.test", "1", "203.0.113.1", "203.0.113.50"},
-		{"f4-both", "both.flvx.test", "1", "203.0.113.1", "203.0.113.50"},
-		{"f6-v6lit", "2001:db8:2::2", "2", "203.0.113.1", "203.0.113.50"},
-		{"f6-v4lit", "198.51.100.2", "2", "203.0.113.1", "203.0.113.50"},
-		{"f6-v4only", "v4only.flvx.test", "2", "203.0.113.1", "203.0.113.50"},
-		{"f6-both", "both.flvx.test", "2", "203.0.113.1", "203.0.113.50"},
-		{"sys-v6lit", "2001:db8:2::2", "4", "203.0.113.1", "203.0.113.50"},
-		{"sys-v4lit", "198.51.100.2", "4", "203.0.113.1", "203.0.113.50"},
-		{"cn-blocked", "198.51.100.2", "3", "1.0.1.1", "1.0.1.2"},
-		{"cn-exempt", "198.51.100.2", "3", "1.0.1.1", "1.0.1.3"},
-		{"cn-exempt-8081", "198.51.100.2:8081", "3", "1.0.1.1", "1.0.1.3"},
-		{"noncn", "198.51.100.2", "3", "203.0.113.1", "203.0.113.50"},
+		{"f4-v4lit", "12.0.1.2", "1", "11.0.1.1", "11.0.1.50"},
+		{"f4-v6lit", "2001:db8:2::2", "1", "11.0.1.1", "11.0.1.50"},
+		{"f4-v6only", "v6only.flvx.test", "1", "11.0.1.1", "11.0.1.50"},
+		{"f4-both", "both.flvx.test", "1", "11.0.1.1", "11.0.1.50"},
+		{"f6-v6lit", "2001:db8:2::2", "2", "11.0.1.1", "11.0.1.50"},
+		{"f6-v4lit", "12.0.1.2", "2", "11.0.1.1", "11.0.1.50"},
+		{"f6-v4only", "v4only.flvx.test", "2", "11.0.1.1", "11.0.1.50"},
+		{"f6-both", "both.flvx.test", "2", "11.0.1.1", "11.0.1.50"},
+		{"sys-v6lit", "2001:db8:2::2", "4", "11.0.1.1", "11.0.1.50"},
+		{"sys-v4lit", "12.0.1.2", "4", "11.0.1.1", "11.0.1.50"},
+		{"cn-blocked", "12.0.1.2", "3", "1.0.1.1", "1.0.1.2"},
+		{"cn-exempt", "12.0.1.2", "3", "1.0.1.1", "1.0.1.3"},
+		{"cn-exempt-8081", "12.0.1.2:8081", "3", "1.0.1.1", "1.0.1.3"},
+		{"noncn", "12.0.1.2", "3", "11.0.1.1", "11.0.1.50"},
 		// late-*: only fetched by the default-outbound switch phase at the end.
-		{"late-v6lit", "2001:db8:2::2", "4", "203.0.113.1", "203.0.113.50"},
-		{"late-v6only", "v6only.flvx.test", "4", "203.0.113.1", "203.0.113.50"},
-		{"late-both", "both.flvx.test", "4", "203.0.113.1", "203.0.113.50"},
+		{"late-v6lit", "2001:db8:2::2", "4", "11.0.1.1", "11.0.1.50"},
+		{"late-v6only", "v6only.flvx.test", "4", "11.0.1.1", "11.0.1.50"},
+		{"late-both", "both.flvx.test", "4", "11.0.1.1", "11.0.1.50"},
 	}
 	late := func(name string) bool { return strings.HasPrefix(name, "late-") }
 	var inbounds, outbounds, rules []any
@@ -211,7 +211,7 @@ udp()
 		n := nodes[idx-1]
 		tag := "udp-" + node
 		inbounds = append(inbounds, map[string]any{"tag": "in-" + tag, "listen": "127.0.0.1", "port": 1081 + i, "protocol": "socks", "settings": map[string]any{"udp": true, "auth": "noauth"}})
-		outbounds = append(outbounds, map[string]any{"tag": "out-" + tag, "protocol": "shadowsocks", "sendThrough": "203.0.113.50", "settings": map[string]any{"servers": []any{map[string]any{"address": "203.0.113.1", "port": n.Port, "method": SS2022Method, "password": ss(n)}}}})
+		outbounds = append(outbounds, map[string]any{"tag": "out-" + tag, "protocol": "shadowsocks", "sendThrough": "11.0.1.50", "settings": map[string]any{"servers": []any{map[string]any{"address": "11.0.1.1", "port": n.Port, "method": SS2022Method, "password": ss(n)}}}})
 		rules = append(rules, map[string]any{"type": "field", "inboundTag": []string{"in-" + tag}, "outboundTag": "out-" + tag})
 	}
 	clientCfg := map[string]any{"log": map[string]any{"loglevel": "warning"}, "inbounds": inbounds, "outbounds": outbounds, "routing": map[string]any{"rules": rules}}
@@ -275,10 +275,10 @@ print(json.dumps(out))
 	}
 	fetch := func(name string) string { return fetched[name] }
 	expect := map[string]string{
-		"f4-v4lit": "peer=198.51.100.1", "f4-v6lit": "", "f4-v6only": "", "f4-both": "peer=198.51.100.1",
+		"f4-v4lit": "peer=12.0.1.1", "f4-v6lit": "", "f4-v6only": "", "f4-both": "peer=12.0.1.1",
 		"f6-v6lit": "peer=2001:db8:2::1", "f6-v4lit": "", "f6-v4only": "", "f6-both": "peer=2001:db8:2::1",
-		"sys-v6lit": "peer=2001:db8:2::1", "sys-v4lit": "peer=198.51.100.1",
-		"cn-blocked": "", "cn-exempt": "peer=198.51.100.1", "cn-exempt-8081": "", "noncn": "peer=198.51.100.1",
+		"sys-v6lit": "peer=2001:db8:2::1", "sys-v4lit": "peer=12.0.1.1",
+		"cn-blocked": "", "cn-exempt": "peer=12.0.1.1", "cn-exempt-8081": "", "noncn": "peer=12.0.1.1",
 	}
 	results := map[string]string{}
 	for _, r := range routes {
@@ -325,13 +325,13 @@ print(",".join(out))
 		}
 		return strings.TrimSpace(string(out))
 	}
-	if got := udp(1081, "198.51.100.2", "2001:db8:2::2"); !strings.HasPrefix(got, "ok,") || strings.HasSuffix(got, ",ok") {
+	if got := udp(1081, "12.0.1.2", "2001:db8:2::2"); !strings.HasPrefix(got, "ok,") || strings.HasSuffix(got, ",ok") {
 		t.Errorf("force_ipv4 UDP session: %s", got)
 	}
-	if got := udp(1082, "2001:db8:2::2", "198.51.100.2"); !strings.HasPrefix(got, "ok,") || strings.HasSuffix(got, ",ok") {
+	if got := udp(1082, "2001:db8:2::2", "12.0.1.2"); !strings.HasPrefix(got, "ok,") || strings.HasSuffix(got, ",ok") {
 		t.Errorf("force_ipv6 UDP session: %s", got)
 	}
-	if got := udp(1083, "198.51.100.2", "2001:db8:2::2"); got != "ok,ok" {
+	if got := udp(1083, "12.0.1.2", "2001:db8:2::2"); got != "ok,ok" {
 		t.Errorf("system UDP session (control): %s", got)
 	}
 
@@ -361,10 +361,10 @@ print(",".join(out))
 	if v6From != 3 || v4From != 5 {
 		t.Errorf("target saw %d IPv4 and %d IPv6 TCP connections; want 5 and 3\n%s", v4From, v6From, logRaw)
 	}
-	if udpPeers["2001:db8:2::1 p1081"] != 0 || udpPeers["198.51.100.1 p1082"] != 0 {
+	if udpPeers["2001:db8:2::1 p1081"] != 0 || udpPeers["12.0.1.1 p1082"] != 0 {
 		t.Errorf("forbidden-family datagrams reached the target: %v", udpPeers)
 	}
-	if udpPeers["198.51.100.1 p1081"] != 1 || udpPeers["2001:db8:2::1 p1082"] != 1 || udpPeers["198.51.100.1 p1083"] != 1 || udpPeers["2001:db8:2::1 p1083"] != 1 {
+	if udpPeers["12.0.1.1 p1081"] != 1 || udpPeers["2001:db8:2::1 p1082"] != 1 || udpPeers["12.0.1.1 p1083"] != 1 || udpPeers["2001:db8:2::1 p1083"] != 1 {
 		t.Errorf("allowed datagrams missing: %v", udpPeers)
 	}
 	raw, _ := json.MarshalIndent(map[string]any{"tcp": results, "udp_peers": udpPeers, "target_v4_tcp": v4From, "target_v6_tcp": v6From}, "", "  ")
@@ -399,7 +399,7 @@ print(",".join(out))
 		t.Fatalf("apply forced default: %v %+v", err, status.Egress)
 	}
 	got := fetchLate("late-v6lit", "late-v6only", "late-both")
-	if got["late-v6lit#0"] != "" || got["late-v6only#1"] != "" || got["late-both#2"] != "peer=198.51.100.1" {
+	if got["late-v6lit#0"] != "" || got["late-v6only#1"] != "" || got["late-both#2"] != "peer=12.0.1.1" {
 		t.Errorf("default 强制 IPv4: %v", got)
 	}
 	if status, err := m.Apply(ctx, Desired{Revision: 3, Enabled: true, CoreMemoryMB: 256, CoreCPUPercent: 50, Nodes: nodes, Egress: plan}); err != nil || status.Egress.State != "applied" {
@@ -416,7 +416,7 @@ print(",".join(out))
 	bothV4, bothV6 := 0, 0
 	for i := 2; i < len(names); i++ {
 		switch got[fmt.Sprintf("late-both#%d", i)] {
-		case "peer=198.51.100.1":
+		case "peer=12.0.1.1":
 			bothV4++
 		case "peer=2001:db8:2::1":
 			bothV6++

@@ -60,18 +60,18 @@ func TestOnlineIPv6NetnsE2E(t *testing.T) {
 	for _, a := range []string{"2001:db8:1:1::10/64", "2001:db8:1:1::11/64", "2001:db8:1:2::10/64"} {
 		sh("ip", "-n", "flvx6-c", "addr", "add", a, "dev", "flvx6-c0", "nodad")
 	}
-	sh("ip", "-n", "flvx6-c", "addr", "add", "203.0.113.60/24", "dev", "flvx6-c0")
+	sh("ip", "-n", "flvx6-c", "addr", "add", "11.0.1.60/24", "dev", "flvx6-c0")
 	sh("ip", "-n", "flvx6-l", "addr", "add", "2001:db8:1:1::1/64", "dev", "flvx6-l0", "nodad")
 	sh("ip", "-n", "flvx6-l", "addr", "add", "2001:db8:1:2::1/64", "dev", "flvx6-l0", "nodad")
-	sh("ip", "-n", "flvx6-l", "addr", "add", "203.0.113.1/24", "dev", "flvx6-l0")
-	sh("ip", "-n", "flvx6-l", "addr", "add", "198.51.100.1/24", "dev", "flvx6-l1")
-	sh("ip", "-n", "flvx6-t", "addr", "add", "198.51.100.2/24", "dev", "flvx6-t0")
+	sh("ip", "-n", "flvx6-l", "addr", "add", "11.0.1.1/24", "dev", "flvx6-l0")
+	sh("ip", "-n", "flvx6-l", "addr", "add", "12.0.1.1/24", "dev", "flvx6-l1")
+	sh("ip", "-n", "flvx6-t", "addr", "add", "12.0.1.2/24", "dev", "flvx6-t0")
 	for _, l := range [][2]string{{"flvx6-c", "flvx6-c0"}, {"flvx6-l", "flvx6-l0"}, {"flvx6-l", "flvx6-l1"}, {"flvx6-t", "flvx6-t0"}} {
 		sh("ip", "-n", l[0], "link", "set", l[1], "up")
 	}
 	// Target: accepts and holds TCP connections.
 	hold := `import socket, threading, time
-s = socket.socket(); s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1); s.bind(("198.51.100.2", 9100)); s.listen(64)
+s = socket.socket(); s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1); s.bind(("12.0.1.2", 9100)); s.listen(64)
 keep = []
 while True:
     c, a = s.accept(); keep.append(c)
@@ -109,7 +109,7 @@ while True:
 		t.Fatal(err)
 	}
 	// Client Core: one SS2022 outbound per source address (sendThrough).
-	sources := map[string]string{"a": "2001:db8:1:1::10", "b": "2001:db8:1:1::11", "c": "2001:db8:1:2::10", "d": "203.0.113.60"}
+	sources := map[string]string{"a": "2001:db8:1:1::10", "b": "2001:db8:1:1::11", "c": "2001:db8:1:2::10", "d": "11.0.1.60"}
 	var inbounds, outbounds, rules []any
 	i := 0
 	for name, src := range sources {
@@ -118,9 +118,9 @@ while True:
 			server = "2001:db8:1:2::1"
 		}
 		if !strings.Contains(src, ":") {
-			server = "203.0.113.1"
+			server = "11.0.1.1"
 		}
-		inbounds = append(inbounds, map[string]any{"tag": "in-" + name, "listen": "127.0.0.1", "port": 21001 + i, "protocol": "dokodemo-door", "settings": map[string]any{"address": "198.51.100.2", "port": 9100, "network": "tcp"}})
+		inbounds = append(inbounds, map[string]any{"tag": "in-" + name, "listen": "127.0.0.1", "port": 21001 + i, "protocol": "dokodemo-door", "settings": map[string]any{"address": "12.0.1.2", "port": 9100, "network": "tcp"}})
 		outbounds = append(outbounds, map[string]any{"tag": "out-" + name, "sendThrough": src, "protocol": "shadowsocks", "settings": map[string]any{"servers": []any{map[string]any{"address": server, "port": n.Port, "method": SS2022Method, "password": n.SS2022.ServerKey + ":" + n.SS2022.UserKey}}}})
 		rules = append(rules, map[string]any{"type": "field", "inboundTag": []string{"in-" + name}, "outboundTag": "out-" + name})
 		i++
@@ -166,7 +166,7 @@ time.sleep(60)
 	}
 	got, _ := json.Marshal(counter.OnlineIPs)
 	t.Logf("native online IPs: count=%v list=%s", fmtPtr(counter.OnlineIPCount), got)
-	want := map[string]int64{"2001:db8:1:1::/64": 4, "2001:db8:1:2::/64": 2, "203.0.113.60": 2}
+	want := map[string]int64{"2001:db8:1:1::/64": 4, "2001:db8:1:2::/64": 2, "11.0.1.60": 2}
 	if counter.OnlineIPCount == nil || *counter.OnlineIPCount != 3 || len(counter.OnlineIPs) != 3 {
 		t.Fatalf("want 3 online IPs (two /64 + one IPv4): %s", got)
 	}

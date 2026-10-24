@@ -62,7 +62,7 @@ func TestEgressResourceProfile(t *testing.T) {
 	sh("ip", "netns", "add", ns)
 	sh("ip", "-n", ns, "link", "set", "lo", "up")
 	sh("ip", "-n", ns, "link", "add", "d0", "type", "dummy")
-	for _, a := range []string{"203.0.113.1/32", "198.51.100.2/32"} {
+	for _, a := range []string{"11.0.1.1/32", "12.0.1.2/32"} {
 		sh("ip", "-n", ns, "addr", "add", a, "dev", "d0")
 	}
 	sh("ip", "-n", ns, "link", "set", "d0", "up")
@@ -96,7 +96,7 @@ async def handle(r, w):
     finally:
         w.close()
 async def main():
-    s = await asyncio.start_server(handle, "198.51.100.2", 8080, backlog=4096)
+    s = await asyncio.start_server(handle, "12.0.1.2", 8080, backlog=4096)
     await s.serve_forever()
 asyncio.run(main())
 `
@@ -113,7 +113,7 @@ asyncio.run(main())
 	m.execPath = wrapper
 	var journal []string
 	m.logs = logsafe.NewRoutineLogger(func(line string) { journal = append(journal, line) })
-	m.detectLocal = func() localAddrs { return localAddrs{v4: netip.MustParseAddr("203.0.113.1")} }
+	m.detectLocal = func() localAddrs { return localAddrs{v4: netip.MustParseAddr("11.0.1.1")} }
 	t.Cleanup(func() {
 		if m.proc != nil {
 			_ = m.proc.Kill()
@@ -283,8 +283,8 @@ asyncio.run(main())
 
 	// 1000 concurrent connections through node 1 (forced IPv4 direct), then closed.
 	clientCfg := map[string]any{"log": map[string]any{"loglevel": "warning"},
-		"inbounds":  []any{map[string]any{"tag": "in", "listen": "127.0.0.1", "port": 20001, "protocol": "dokodemo-door", "settings": map[string]any{"address": "198.51.100.2", "port": 8080, "network": "tcp"}}},
-		"outbounds": []any{map[string]any{"tag": "out", "protocol": "shadowsocks", "settings": map[string]any{"servers": []any{map[string]any{"address": "203.0.113.1", "port": nodes[0].Port, "method": SS2022Method, "password": nodes[0].SS2022.ServerKey + ":" + nodes[0].SS2022.UserKey}}}}},
+		"inbounds":  []any{map[string]any{"tag": "in", "listen": "127.0.0.1", "port": 20001, "protocol": "dokodemo-door", "settings": map[string]any{"address": "12.0.1.2", "port": 8080, "network": "tcp"}}},
+		"outbounds": []any{map[string]any{"tag": "out", "protocol": "shadowsocks", "settings": map[string]any{"servers": []any{map[string]any{"address": "11.0.1.1", "port": nodes[0].Port, "method": SS2022Method, "password": nodes[0].SS2022.ServerKey + ":" + nodes[0].SS2022.UserKey}}}}},
 	}
 	b, _ := json.Marshal(clientCfg)
 	_ = os.WriteFile(filepath.Join(base, "client.json"), b, 0600)
