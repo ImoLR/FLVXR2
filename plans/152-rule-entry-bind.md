@@ -43,22 +43,38 @@ Branch: `feature/3.0.27-rule-entry-bind`. Build + screenshots only — no tag, n
 
 ## Checklist
 - [x] Investigate paths, write this plan
-- [ ] Part A model/migration + repo helpers (parse/format, set binding, list bound forwards)
-- [ ] Part A handler: create / update / chain pre-check / stale fallback / reconcile / tunnel entry add+remove /
+- [x] Part A model/migration + repo helpers (parse/format, set binding, list bound forwards)
+- [x] Part A handler: create / update / chain pre-check / stale fallback / reconcile / tunnel entry add+remove /
       batch change / delete migration / import / rollback / ingress text
-- [ ] Part A list `entryKey` + `entryLabel`
-- [ ] Part B node alias column + node create/update/list
-- [ ] Part B renderer + every consumer (list below)
-- [ ] Part C latency `entryKey`
-- [ ] Frontend: entryKey send rules, edit restore, hints, node form field, tunnel form nameTemplate, per-entry option names,
+- [x] Part A list `entryKey` + `entryLabel`
+- [x] Part B node alias column + node create/update/list
+- [x] Part B renderer + every consumer (list below)
+- [x] Part C latency `entryKey`
+- [x] Frontend: entryKey send rules, edit restore, hints, node form field, tunnel form nameTemplate, per-entry option names,
       per-option latency
-- [ ] Backend tests (SQLite + PostgreSQL)
-- [ ] Full go test vs known baseline (15 known failures)
-- [ ] Frontend tsc / lint / build + bundle delta
-- [ ] Prod-copy gates (picker union, no existing rule changes, timing/size) + netns E2E
-- [ ] Prod-data script + undo + dry-run name gate per user
-- [ ] Screenshots + gallery
+- [x] Backend tests (SQLite + PostgreSQL)
+- [x] Full go test vs known baseline (fork.92 list, 15 top-level/sub failures; nothing new)
+- [x] Frontend tsc / lint / build + bundle delta
+- [x] Prod-copy gates (picker union, no existing rule changes, timing/size) + netns E2E
+- [x] Prod-data script + undo + dry-run name gate per user
+- [x] Screenshots + gallery
 - [ ] Push, CI green, final.md / summary.md
+
+## Results (prod copy 10-25, netns, fork.92 binary vs this branch)
+- No existing rule changes: forward_port 36 rows identical (orig = fork.92 run = new run), 0 bound rules after migrate;
+  every list (picker, rule list, dashboard, latency, tunnel list, group list, per-user grants) identical for admin + 12
+  users except the intended latency `entryKey`.
+- Plan-144 pill gate: union == today's options — admin 54 (深港 10 / 沪日440 12 / 沪港666m 11 / 沪日IEPL 12 / 其他 9),
+  user 4: 22, user 8: 24, user 11: 12 — before and after the rename.
+- Rename dry run (`prod-data/apply.py`, 14 rows): every non-admin user's names byte-identical (users 3/4/7/8/11/13/16/23;
+  4/7/8/11 see the 12 shared tunnels); admin pills: 沪日440 → 12 × `mk沪日ixp440 -> …`, 沪日IEPL → 12 × `vmsilo沪日首发 -> …`;
+  admin rule list byte-identical too (rules on entry 23 keep `mk沪日ixp440 -> …`). Undo round trip exact.
+- Timing (min of 10, ms, fork.92 → new → renamed): admin rule list 11.05 → 11.24 → 11.45, admin picker 1.91 → 2.46 → 1.78,
+  tunnel list 2.83 → 3.12 → 2.75, user 4 picker 7.85 → 8.83 → 7.01. Sizes: admin picker +0 / +1958 B after rename,
+  tunnel list +1861 B (nameTemplate), latency +954 B (entryKey). Panel RSS 36 MB either way.
+- Frontend: main JS 2,998,298 → 3,001,043 B (+2.7 KB, 2.86 MiB < 5 MiB); tsc 0; eslint errors unchanged (17/8/4/0),
+  +35 prettier warnings on touched lines.
+
 
 ## Paths that compute a rule's entries (Part A)
 Invariant: `forward_port` rows = effective entries. Checked with
