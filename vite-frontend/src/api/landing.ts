@@ -138,7 +138,20 @@ export interface LandingServer {
   snellObfsHost?: string;
   mieruTransport?: string;
   busyPortCount?: number;
+  // plan 141: how 节点连接数 (connMode, also for nodes following the server)
+  // and the native 服务器总连接数 (maxConnMode) count; admin view only.
+  connMode?: LandingConnMode;
+  maxConnMode?: LandingConnMode;
+  /** false = the agent / 妙妙屋 Helper cannot apply 仅入站 yet (stays 入站+出站). */
+  connModeSupported?: boolean;
+  /** how `connections` counts: each node in its own effective mode. */
+  connectionsMode?: LandingConnSumMode;
+  /** effective mode of `maxConnections` (server total). */
+  maxConnectionsMode?: LandingConnMode;
 }
+/** plan 141: 仅入站 (client connections, like rule 连接数) / 入站+出站 */
+export type LandingConnMode = "total" | "inbound";
+export type LandingConnSumMode = LandingConnMode | "mixed";
 export interface LandingProtocolOpts {
   sni?: string;
   version?: number;
@@ -188,6 +201,12 @@ export interface LandingNode {
   egressLabel?: string;
   protocolOpts?: LandingProtocolOpts;
   certSha256?: string;
+  // plan 141: own 计算方式 (null = follow the server; admin only), the
+  // configured / applied mode and whether 仅入站 waits for an upgrade.
+  connMode?: LandingConnMode | null;
+  connModeConfigured?: LandingConnMode;
+  connModeEffective?: LandingConnMode;
+  connModePending?: boolean;
 }
 export interface LandingLink {
   name: string;
@@ -241,6 +260,7 @@ export const saveLandingServer = (
   server: LandingServer,
   egressRestartConfirmed = false,
   realityGuard?: boolean,
+  applyConnModeToNodes = false,
 ) => {
   const {
     id,
@@ -274,6 +294,7 @@ export const saveLandingServer = (
     snellObfsHost,
     mieruTransport,
   } = server;
+
   return Network.post<LandingServer>("/landing/server/save", {
     id,
     nodeId,
@@ -309,6 +330,13 @@ export const saveLandingServer = (
       ? { routeProfileId: server.routeProfileId, egressRestartConfirmed }
       : {}),
     ...(realityGuard !== undefined ? { realityGuard } : {}),
+    ...(server.connMode !== undefined
+      ? {
+          connMode: server.connMode,
+          maxConnMode: server.maxConnMode,
+          applyConnModeToNodes,
+        }
+      : {}),
   });
 };
 export const landingNodes = () =>
@@ -331,6 +359,7 @@ export const updateLandingNode = (node: LandingNode) => {
     expiryMode,
     expiresAt,
   } = node;
+
   return Network.post("/landing/node/update", {
     id,
     name,
@@ -345,6 +374,7 @@ export const updateLandingNode = (node: LandingNode) => {
     ...(node.routeProfileId !== undefined
       ? { routeProfileId: node.routeProfileId }
       : {}),
+    ...(node.connMode !== undefined ? { connMode: node.connMode } : {}),
   });
 };
 // Plan 131: admin-only global landing settings and node owner transfer.
@@ -465,6 +495,8 @@ export interface LandingMonitorNode {
   connections: number;
   onlineIps: number | null;
   maxConnections: number;
+  /** plan 141: how connections / maxConnections count (absent = 入站+出站). */
+  connMode?: LandingConnMode;
   maxOnlineIps: number;
   upRate: number | null;
   downRate: number | null;
@@ -488,6 +520,9 @@ export interface LandingMonitorServer {
   activeNodeCount: number;
   connections: number;
   maxConnections: number;
+  /** plan 141: label of the node sum / of the server limit. */
+  connectionsMode?: LandingConnSumMode;
+  maxConnectionsMode?: LandingConnMode;
   upRate: number | null;
   downRate: number | null;
   sampleAt: number;

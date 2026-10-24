@@ -31,6 +31,7 @@ import {
 } from "@/api/landing";
 import { useH5Mode } from "@/hooks/useH5Mode";
 import { MachineConnChip } from "@/pages/node/machine-conn";
+import { connModeTag } from "@/pages/landing/conn-mode";
 import { Button } from "@/shadcn-bridge/heroui/button";
 import { Card, CardBody, CardHeader } from "@/shadcn-bridge/heroui/card";
 import {
@@ -480,7 +481,8 @@ function IpCount({
   );
 }
 
-// Connection counts read as a plug icon + "当前/上限", like 妙妙屋.
+// Connection counts read as a plug icon + "当前/上限", like 妙妙屋; plan 141
+// appends how they count (入站 / 入站+出站).
 function ConnCount({ node }: { node: LandingMonitorNode }) {
   return (
     <span
@@ -489,8 +491,26 @@ function ConnCount({ node }: { node: LandingMonitorNode }) {
     >
       <Plug className="h-3.5 w-3.5 shrink-0" />
       {capText(node.connections, node.maxConnections)}
+      {node.connMode ? (
+        <span className="text-[11px] opacity-80">
+          {connModeTag(node.connMode)}
+        </span>
+      ) : null}
     </span>
   );
+}
+
+// Plan 141: label of a server's 实时连接 (node sum; admins also see the limit).
+function serverConnLabel(server: LandingMonitorServer, admin: boolean) {
+  if (!server.connectionsMode) return "实时连接";
+  const sum = server.connectionsMode;
+  const limit = server.maxConnectionsMode;
+
+  if (admin && server.maxConnections > 0 && limit && limit !== sum) {
+    return `实时连接 ${connModeTag(sum)} · 上限 ${connModeTag(limit)}`;
+  }
+
+  return `实时连接 ${connModeTag(sum)}`;
 }
 
 const trafficText = (bytes: number, cap: number) =>
@@ -592,7 +612,7 @@ function ServerHeader({
       <div className="grid grid-cols-2 gap-x-2 gap-y-3 xl:grid-cols-4 xl:gap-x-3">
         <StatBox
           hint={data.admin ? undefined : "我的节点合计"}
-          label="实时连接"
+          label={serverConnLabel(server, data.admin)}
           tile={accent.tile}
           value={
             <span className="inline-flex items-center gap-1.5">
@@ -785,8 +805,13 @@ function NodeTable({
         <TableColumn align="center">协议 / 端口</TableColumn>
         <TableColumn align="center">速率</TableColumn>
         <TableColumn align="center">
-          <span className="inline-flex items-center" title="连接数">
+          <span className="inline-flex items-center gap-1" title="连接数">
             <Plug className="h-4 w-4" />
+            {server.connectionsMode && server.connectionsMode !== "mixed" ? (
+              <span className="text-[11px] font-normal">
+                {connModeTag(server.connectionsMode)}
+              </span>
+            ) : null}
           </span>
         </TableColumn>
         <TableColumn align="center">IP</TableColumn>
@@ -836,6 +861,11 @@ function NodeTable({
             <TableCell>
               <span className="whitespace-nowrap font-mono text-xs tabular-nums text-default-600">
                 {capText(node.connections, node.maxConnections)}
+                {server.connectionsMode === "mixed" && node.connMode ? (
+                  <span className="ml-1 font-sans text-[11px] text-default-500">
+                    {connModeTag(node.connMode)}
+                  </span>
+                ) : null}
               </span>
             </TableCell>
             <TableCell>
@@ -1005,11 +1035,14 @@ export function LandingMonitorView({
     let nodes = 0;
     let activeNodes = 0;
     let connections = 0;
+    // Plan 141: one label when every server's node sum counts the same way.
+    const modes = new Set<string>();
 
     for (const s of servers) {
       nodes += s.nodeCount;
       activeNodes += s.activeNodeCount;
       connections += s.connections;
+      if (s.connectionsMode && s.nodeCount > 0) modes.add(s.connectionsMode);
       if (s.upRate !== null && s.downRate !== null) {
         up += s.upRate;
         down += s.downRate;
@@ -1023,6 +1056,12 @@ export function LandingMonitorView({
       nodes,
       activeNodes,
       connections,
+      connMode:
+        modes.size === 0
+          ? null
+          : modes.size === 1
+            ? (Array.from(modes)[0] as "total" | "inbound" | "mixed")
+            : ("mixed" as const),
       up: rated ? up : null,
       down: rated ? down : null,
     };
@@ -1058,6 +1097,11 @@ export function LandingMonitorView({
         </Pill>
         <Pill tone="primary">
           <Plug className="h-3 w-3" /> {summary.connections}
+          {summary.connMode ? (
+            <span className="text-[11px] opacity-80">
+              {connModeTag(summary.connMode)}
+            </span>
+          ) : null}
         </Pill>
         <Pill tone="default">
           <ArrowUp className="h-3 w-3" /> {formatRate(summary.up)}

@@ -1,7 +1,7 @@
-import { SharedCaps } from "./shared-caps";
-
 import { useEffect, useState } from "react";
 import toast from "react-hot-toast";
+
+import { SharedCaps } from "./shared-caps";
 
 import { getUserGroupList } from "@/api";
 import { LandingServer, saveLandingServer } from "@/api/landing";
@@ -20,6 +20,11 @@ import {
 import { Select, SelectItem } from "@/shadcn-bridge/heroui/select";
 import { Switch } from "@/shadcn-bridge/heroui/switch";
 import { ExtraProtocolSettings } from "@/pages/landing/extra-protocols";
+import {
+  CONN_MODE_HINT,
+  ConnModeSelect,
+  connModePendingText,
+} from "@/pages/landing/conn-mode";
 
 export const dateInput = (value?: number | null) =>
   value
@@ -47,6 +52,14 @@ export function ServerSettings({
   );
   const [profiles, setProfiles] = useState<EgressProfile[]>([]);
   const [restartConfirmed, setRestartConfirmed] = useState(false);
+  // Plan 141 「应用到现有节点」: off by default (existing nodes keep their mode).
+  const [applyConnMode, setApplyConnMode] = useState(false);
+  const connModeChanged =
+    (form.connMode ?? "total") !== (server.connMode ?? "total");
+  const connModePending =
+    server.connModeSupported === false &&
+    (form.connMode === "inbound" ||
+      (server.source !== "shared" && form.maxConnMode === "inbound"));
   const egress = server.egress;
   const profileId = form.routeProfileId ?? egress?.profileId ?? 0;
   const profileChanged = profileId !== (egress?.profileId ?? 0);
@@ -105,6 +118,7 @@ export function ServerSettings({
       form.coreCpuPercent <= 0
     ) {
       toast.error("请检查名称、地址、端口段、协议、倍率和资源上限");
+
       return;
     }
     if (needsRestart && !restartConfirmed) {
@@ -126,10 +140,13 @@ export function ServerSettings({
       guard && guard.state !== "shared" && guardEnabled !== guard.enabled
         ? guardEnabled
         : undefined,
+      applyConnMode,
     );
+
     setSaving(false);
     if (response.code !== 0) {
       toast.error(response.msg || "保存失败");
+
       return;
     }
     toast.success("落地服务器设置已保存");
@@ -201,6 +218,13 @@ export function ServerSettings({
               {numberField("流量倍率", "trafficRatio", 0.01, "0.01")}
               {server.source !== "shared" &&
                 numberField("服务器总连接数（0 不限）", "maxConnections")}
+              {server.source !== "shared" && server.connMode !== undefined && (
+                <ConnModeSelect
+                  label="总连接数计算方式"
+                  value={form.maxConnMode ?? "total"}
+                  onChange={(mode) => set("maxConnMode", mode ?? "total")}
+                />
+              )}
               {numberField("每人在本服务器最多节点数", "maxNodesPerUser", 1)}
             </div>
             <p className="text-xs text-default-500">
@@ -219,6 +243,13 @@ export function ServerSettings({
               )}
             <div className="grid grid-cols-2 gap-3">
               {numberField("节点连接数（0 不限）", "defaultMaxConnections")}
+              {server.connMode !== undefined && (
+                <ConnModeSelect
+                  label="节点连接数计算方式"
+                  value={form.connMode ?? "total"}
+                  onChange={(mode) => set("connMode", mode ?? "total")}
+                />
+              )}
               {numberField("在线 IP 数（0 不限）", "defaultMaxOnlineIps")}
               {numberField(
                 "流量上限 (GB，计费流量，0 不限)",
@@ -232,6 +263,35 @@ export function ServerSettings({
               限额和流量上限按计费流量：双向 (上传+下载)×倍率×2，单向
               (上传+下载)×倍率。
             </p>
+            {server.connMode !== undefined && (
+              <div className="space-y-2">
+                <p className="text-xs text-default-500">{CONN_MODE_HINT}</p>
+                {connModePending && (
+                  <p className="rounded-lg bg-warning-50 p-2 text-xs text-warning dark:bg-warning-500/10">
+                    {connModePendingText(server.source)}
+                  </p>
+                )}
+                {(server.nodeCount ?? 0) > 0 && (
+                  <Checkbox
+                    isSelected={applyConnMode}
+                    onValueChange={setApplyConnMode}
+                  >
+                    <span className="text-xs">
+                      同时应用到现有 {server.nodeCount}{" "}
+                      个节点（计算方式改为跟随本服务器，节点连接数改为{" "}
+                      {form.defaultMaxConnections || "不限"}）
+                    </span>
+                  </Checkbox>
+                )}
+                {connModeChanged &&
+                  !applyConnMode &&
+                  (server.nodeCount ?? 0) > 0 && (
+                    <p className="text-xs text-default-500">
+                      不勾选：现有节点保持原来的计算方式，新计算方式只用于新节点和之后改为跟随服务器的节点。
+                    </p>
+                  )}
+              </div>
+            )}
             <Select
               label="默认有效期"
               selectedKeys={[form.defaultExpiryMode]}
@@ -265,11 +325,11 @@ export function ServerSettings({
               {(["ss2022", "vless_reality_vision"] as const).map((protocol) => (
                 <Checkbox
                   key={protocol}
-                  isSelected={form.protocols.includes(protocol)}
                   isDisabled={Boolean(
                     server.sharedCaps &&
                       !server.sharedCaps.protocols.includes(protocol),
                   )}
+                  isSelected={form.protocols.includes(protocol)}
                   onValueChange={(checked) =>
                     set(
                       "protocols",
@@ -292,8 +352,8 @@ export function ServerSettings({
                   onChange={(event) => set("realityDest", event.target.value)}
                 />
                 <Input
-                  label="Reality Server Names"
                   description="多个域名用逗号分隔"
+                  label="Reality Server Names"
                   value={realityNamesInput}
                   variant="bordered"
                   onChange={(event) => setRealityNamesInput(event.target.value)}

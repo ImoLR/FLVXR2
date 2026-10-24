@@ -49,6 +49,7 @@ import { isAdmin } from "@/utils/auth";
 import { CreateLandingNodeDialog } from "@/pages/landing/create-node";
 import { LandingGlobalSettings } from "@/pages/landing/global-settings";
 import { NodeDetails } from "@/pages/landing/node-details";
+import { connModeTag } from "@/pages/landing/conn-mode";
 import { NodeRulesDialog } from "@/pages/landing/node-rules";
 import { ServerSettings } from "@/pages/landing/server-settings";
 import { OfflineQRCode } from "@/pages/node/node-deploy-modal";
@@ -151,6 +152,44 @@ function UserServerSummary({ server }: { server: LandingServer }) {
         </p>
       )}
     </>
+  );
+}
+
+// Plan 141: the server card's connection line. The node sum counts each node
+// in its own 计算方式; the limit is the server total (native: own mode,
+// shared: 妙妙屋's 入站+出站). One label when both count the same way.
+function serverConnRow(server: LandingServer): [string, string] {
+  const sum = server.connectionsMode ?? "total";
+  const limit = server.maxConnectionsMode ?? "total";
+  const value = `${server.connections ?? 0} / ${server.maxConnections || "不限"}`;
+
+  if (!server.maxConnections || sum === limit) {
+    return [`连接数 / 上限 ${connModeTag(sum)}`, value];
+  }
+
+  return [
+    "连接数 / 上限",
+    `${server.connections ?? 0} ${connModeTag(sum)} / ${server.maxConnections} ${connModeTag(limit)}`,
+  ];
+}
+
+// Plan 141: 「(入站)」 / 「(入站+出站)」 after a node's connection count; admins
+// also see when a 仅入站 setting waits for an agent / 妙妙屋 upgrade.
+function NodeConnTag({ node }: { node: LandingNode }) {
+  if (!node.connModeEffective) return null;
+
+  return (
+    <span className="ml-1 text-xs text-default-500">
+      {connModeTag(node.connModeEffective)}
+      {node.connModePending && (
+        <span
+          className="ml-1 text-warning"
+          title="仅入站需要升级节点程序（或妙妙屋侧升级）后生效，目前仍按入站+出站计算"
+        >
+          仅入站待升级
+        </span>
+      )}
+    </span>
   );
 }
 
@@ -612,10 +651,7 @@ export default function LandingPage() {
                           {(
                             [
                               ["计费流量", `${landingGB(server.usedBytes)} GB`],
-                              [
-                                "连接数 / 上限",
-                                `${server.connections ?? 0} / ${server.maxConnections || "不限"}`,
-                              ],
+                              serverConnRow(server),
                               [
                                 "节点数",
                                 `${server.nodeCount ?? 0} · 每人最多 ${server.maxNodesPerUser}`,
@@ -766,6 +802,7 @@ export default function LandingPage() {
                               <td className="whitespace-nowrap px-3 py-2">
                                 {node.connections ?? 0} /{" "}
                                 {node.maxConnections || "不限"}
+                                <NodeConnTag node={node} />
                               </td>
                               <td className="px-3 py-2">
                                 {landingDate(node.effectiveExpiresAt)}
@@ -820,6 +857,7 @@ export default function LandingPage() {
                             <p className="mt-2">
                               连接数：{node.connections ?? 0} /{" "}
                               {node.maxConnections || "不限"}
+                              <NodeConnTag node={node} />
                             </p>
                           )}
                           {node.egressLabel && (

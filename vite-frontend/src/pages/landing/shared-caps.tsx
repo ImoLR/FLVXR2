@@ -35,7 +35,10 @@ export function SharedCaps({ server }: { server: LandingServer }) {
           : "不限"}{" "}
         GB · 每月 {caps.reset_day} 日重置
       </p>
-      <p>总连接数上限：{caps.max_connections || "不限"}</p>
+      <p>
+        总连接数上限：{caps.max_connections || "不限"}
+        {caps.max_connections ? " (入站+出站)" : ""}
+      </p>
       <p>共享截止：{landingDate(caps.share_until)}</p>
       <p>允许协议：{caps.protocols.map(landingProtocolLabel).join("、")}</p>
       {(() => {

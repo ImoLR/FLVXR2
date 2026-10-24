@@ -3,6 +3,13 @@ import toast from "react-hot-toast";
 
 import { LANDING_NAME_TOO_LONG, landingNameTooLong } from "./create-node";
 import { dateInput, dateValue } from "./server-settings";
+import {
+  CONN_MODE_HINT,
+  CONN_MODE_NAME,
+  ConnModeSelect,
+  connModePendingText,
+  connModeTag,
+} from "./conn-mode";
 
 import { getAllUsers } from "@/api";
 import {
@@ -120,6 +127,22 @@ export function NodeDetails({
   const effectiveConnections = connectionCaps.length
     ? Math.min(...connectionCaps)
     : 0;
+  // Plan 141: how the limit counts (null = follow the server).
+  const serverConnMode = server?.connMode ?? "total";
+  const formConnMode = form.connMode ?? null;
+  const connModeShown = node.connModeEffective !== undefined;
+  const connModePending =
+    node.connModePending ||
+    (server?.connModeSupported === false &&
+      (formConnMode ?? serverConnMode) === "inbound");
+  const effectiveConnTag = !effectiveConnections
+    ? ""
+    : ` ${connModeTag(
+        effectiveConnections === server?.maxConnections &&
+          effectiveConnections !== node.maxConnections
+          ? server?.maxConnectionsMode
+          : node.connModeEffective,
+      )}`;
   const expirySource = !node.effectiveExpiresAt
     ? "未设置期限"
     : node.expiryMode === "fixed" && node.expiresAt === node.effectiveExpiresAt
@@ -147,13 +170,27 @@ export function NodeDetails({
     [
       "连接数",
       form.maxConnections || "不限",
-      effectiveConnections || "不限",
+      `${effectiveConnections || "不限"}${connModeShown ? effectiveConnTag : ""}`,
       !effectiveConnections
         ? "节点 / 服务器均不限"
         : effectiveConnections === server?.maxConnections
           ? "服务器总连接池"
           : "节点连接上限",
     ],
+    ...(connModeShown
+      ? [
+          [
+            "连接数计算方式",
+            formConnMode == null
+              ? `跟随服务器（${CONN_MODE_NAME[serverConnMode]}）`
+              : CONN_MODE_NAME[formConnMode],
+            `${CONN_MODE_NAME[node.connModeEffective ?? "total"]}${
+              node.connModePending ? "（待升级）" : ""
+            }`,
+            node.connMode == null ? "服务器" : "节点覆盖",
+          ],
+        ]
+      : []),
     [
       "在线 IP",
       form.maxOnlineIps || "不限",
@@ -274,6 +311,13 @@ export function NodeDetails({
                 set("maxConnections", Number(event.target.value))
               }
             />
+            {connModeShown && (
+              <ConnModeSelect
+                inheritMode={serverConnMode}
+                value={formConnMode}
+                onChange={(mode) => set("connMode", mode)}
+              />
+            )}
             <Input
               label="在线 IP（0 不限）"
               min="0"
@@ -312,6 +356,16 @@ export function NodeDetails({
               }
             />
           </div>
+          {connModeShown && (
+            <div className="space-y-2">
+              <p className="text-xs text-default-500">{CONN_MODE_HINT}</p>
+              {connModePending && (
+                <p className="rounded-lg bg-warning-50 p-2 text-xs text-warning dark:bg-warning-500/10">
+                  {connModePendingText(server?.source)}
+                </p>
+              )}
+            </div>
+          )}
           <Select
             label="流量计算覆盖"
             selectedKeys={[
