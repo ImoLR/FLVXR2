@@ -1,7 +1,8 @@
 // Plan 146: a 15 s "new" hint — a thin ring with a small comet dot running around an element.
 // Cost model: the ring is a static, masked 2px band; only the inner conic-gradient layer rotates
-// (CSS transform animation, compositor thread). One IntersectionObserver while waiting to play, one
-// setTimeout while playing, nothing at all after the 15 s (the ring is unmounted).
+// (CSS transform/opacity animation, compositor thread) one lap at a time with a rest in between.
+// One IntersectionObserver while waiting to play, a 15 s setTimeout plus one rest timer per lap
+// while playing, nothing at all after the 15 s (the ring is unmounted).
 import {
   useCallback,
   useEffect,
@@ -105,9 +106,15 @@ export function OnboardingRing({ active }: { active: boolean }) {
   return <OnboardingRingPlaying />;
 }
 
+// The comet runs one lap, then rests (static band only, no animation running) and starts again.
+// While nothing animates the compositor stays idle, so the 15 s cost is roughly halved.
+const ONBOARDING_LAP_REST_MS = 2600;
+
 function OnboardingRingPlaying() {
   const ringRef = useRef<HTMLSpanElement | null>(null);
   const [ratio, setRatio] = useState(1);
+  const [lap, setLap] = useState(true);
+  const restTimer = useRef<number | undefined>(undefined);
 
   // One size read when the ring starts: the rotating layer is stretched to the element's aspect
   // ratio so the dot travels around wide buttons and selects at an even pace.
@@ -117,6 +124,7 @@ function OnboardingRingPlaying() {
     if (!ring || !ring.offsetHeight) return;
     setRatio(Math.max(1, ring.offsetWidth / ring.offsetHeight));
   }, []);
+  useEffect(() => () => window.clearTimeout(restTimer.current), []);
 
   return (
     <span ref={ringRef} aria-hidden className="flvx-onboarding-ring">
@@ -125,7 +133,17 @@ function OnboardingRingPlaying() {
           className="flvx-onboarding-ring__scale"
           style={{ transform: `translate(-50%, -50%) scaleX(${ratio})` }}
         >
-          <span className="flvx-onboarding-ring__spin" />
+          <span
+            className="flvx-onboarding-ring__spin"
+            data-lap={lap ? "" : undefined}
+            onAnimationEnd={() => {
+              setLap(false);
+              restTimer.current = window.setTimeout(
+                () => setLap(true),
+                ONBOARDING_LAP_REST_MS,
+              );
+            }}
+          />
         </span>
       </span>
     </span>
