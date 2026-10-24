@@ -154,6 +154,7 @@ const REGION_OPTIONS = [...REGION_CODES].sort(compareRegions);
 interface Node extends LeiKwanNodeDetection {
   region?: string;
   regionCity?: string;
+  entryAlias?: string;
   id: number;
   inx?: number;
   name: string;
@@ -215,6 +216,7 @@ interface Node extends LeiKwanNodeDetection {
 interface NodeForm extends MachineProtectForm {
   region: string;
   regionCity: string;
+  entryAlias: string;
   id: number | null;
   name: string;
   remark: string;
@@ -437,6 +439,7 @@ export default function NodePage() {
     remark: "",
     region: "",
     regionCity: "",
+    entryAlias: "",
     expiryTime: 0,
     renewalCycle: "",
     groupId: null,
@@ -1176,6 +1179,11 @@ export default function NodePage() {
     if (Array.from(form.regionCity.trim()).length > 50) {
       newErrors.regionCity = "城市/备注不能超过50个字符";
     }
+    if (Array.from(form.entryAlias.trim()).length > 100) {
+      newErrors.entryAlias = "入口显示名不能超过100个字符";
+    } else if (form.entryAlias.includes("{入口}")) {
+      newErrors.entryAlias = "入口显示名不能包含 {入口}";
+    }
     const v4 = form.serverIpV4.trim();
     const v6 = form.serverIpV6.trim();
     const intranet = form.intranetIp.trim();
@@ -1231,6 +1239,7 @@ export default function NodePage() {
       remark: node.remark || "",
       region: node.region || "",
       regionCity: node.regionCity || "",
+      entryAlias: node.entryAlias || "",
       expiryTime: node.expiryTime || 0,
       renewalCycle: normalizeNodeRenewalCycle(node.renewalCycle),
       groupId: node.groupId || null,
@@ -1737,6 +1746,7 @@ export default function NodePage() {
         ...rest,
         remark: form.remark.trim(),
         regionCity: form.regionCity.trim(),
+        entryAlias: form.entryAlias.trim(),
         expiryTime: form.expiryTime,
         renewalCycle: form.renewalCycle,
         groupId: form.groupId,
@@ -1807,6 +1817,7 @@ export default function NodePage() {
                     remark: form.remark.trim(),
                     region: form.region,
                     regionCity: form.regionCity.trim(),
+                    entryAlias: form.entryAlias.trim(),
                     expiryTime: form.expiryTime,
                     renewalCycle: form.renewalCycle,
                     groupId: form.groupId,
@@ -1862,6 +1873,7 @@ export default function NodePage() {
       remark: "",
       region: "",
       regionCity: "",
+      entryAlias: "",
       expiryTime: 0,
       renewalCycle: "",
       groupId: null,
@@ -3367,6 +3379,18 @@ export default function NodePage() {
                   onChange={(event) => setForm((prev) => ({ ...prev, regionCity: event.target.value }))}
                 />
               </div>
+              {/* 入口显示名 (plan 152): what {入口} in tunnel names shows for this entry. */}
+              <Input
+                data-testid="node-entry-alias"
+                description="隧道名里的 {入口} 会显示成这个名字，普通用户也能看到"
+                errorMessage={errors.entryAlias}
+                isInvalid={!!errors.entryAlias}
+                label="入口显示名（可选）"
+                placeholder="例如：mk沪日ixp440"
+                value={form.entryAlias}
+                variant="bordered"
+                onChange={(event) => setForm((prev) => ({ ...prev, entryAlias: event.target.value }))}
+              />
               <Select
                 description="将节点分配到指定分组（可选）"
                 label="分组"

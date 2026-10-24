@@ -299,7 +299,8 @@ export interface ForwardClientIPsApiData {
 
 export interface UserTunnelApiItem {
   exitRegions?: string[];
-  entryGroups?: Array<{ key: string; label: string; region: string }>;
+  // name: the tunnel name rendered for this entry ({入口}, plan 152).
+  entryGroups?: Array<{ key: string; label: string; region: string; name?: string }>;
   // 线路分组 covering this tunnel's entryGroups keys ([] = all entries).
   groups?: Array<{ id: number; name: string; color?: string; inx?: number; entryKeys?: string[] }>;
   id: number;
@@ -374,7 +375,8 @@ export interface SpeedLimitBindingOptions {
 
 export interface TunnelLatencyApiItem {
   tunnelId: number;
-  entries: Array<{ latencyMs: number; status: "ok" | "timeout"; entryName?: string }>;
+  // entryKey: the viewer's picker key of the entry (plan 152 part C).
+  entries: Array<{ latencyMs: number; status: "ok" | "timeout"; entryName?: string; entryKey?: string }>;
   updatedAt: number;
 }
 

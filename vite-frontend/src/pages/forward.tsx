@@ -174,12 +174,15 @@ export interface Forward {
   chain?: ForwardChainInfo;
   lineMachine?: boolean;
   lineNonCompliant?: boolean;
+  // Plan 152: set when the rule opens only on some entries of its tunnel.
+  entryKey?: string;
+  entryLabel?: string;
 }
 interface Tunnel {
   lineMachine?: boolean;
   chainAvailable?: boolean;
   chainUnavailableReason?: string;
-  entryGroups?: Array<{ key: string; label: string; region: string }>;
+  entryGroups?: Array<{ key: string; label: string; region: string; name?: string }>;
   exitRegions?: string[];
   groups?: TunnelLineGroup[];
   id: number;
@@ -210,7 +213,8 @@ interface TunnelPickerSection {
   label: string;
   entryLabel: string;
   region: string;
-  options: Array<{ key: string; tunnel: Tunnel }>;
+  // name: the tunnel name rendered for this option's entry (plan 152).
+  options: Array<{ key: string; tunnel: Tunnel; entryKey: string; entryLabel: string; name: string }>;
 }
 
 function buildTunnelPickerSections(tunnels: Tunnel[]): TunnelPickerSection[] {
@@ -235,7 +239,7 @@ function buildTunnelPickerSections(tunnels: Tunnel[]): TunnelPickerSection[] {
         options: [],
       };
 
-      section.options.push({ key: JSON.stringify([tunnel.id, entry.key]), tunnel });
+      section.options.push({ key: JSON.stringify([tunnel.id, entry.key]), tunnel, entryKey: entry.key, entryLabel: entry.label, name: ("name" in entry && entry.name) || tunnel.name });
       sections.set(key, section);
     });
   });
@@ -334,6 +338,16 @@ function buildTunnelGroupPills(tunnels: Tunnel[]): TunnelGroupPill[] {
 }
 
 const tunnelGroupStorageKey = (userId: number | string | null) => `forward-tunnel-group:${userId ?? "anon"}`;
+
+// Plan 152 part C: an option stands for one entry, so it shows only that
+// entry's path latency (matched by the viewer's entry key). Older payloads
+// without keys keep showing every entry.
+type OptionLatencyEntries = TunnelLatencyApiItem["entries"];
+function optionLatency(entries: OptionLatencyEntries | undefined, entryKey: string): OptionLatencyEntries | undefined {
+  if (!entries?.length || !entries.some((entry) => entry.entryKey)) return entries;
+
+  return entries.filter((entry) => entry.entryKey === entryKey);
+}
 
 interface Node {
   id: number;
@@ -1584,6 +1598,11 @@ export default function ForwardPage() {
   const [tunnels, setTunnels] = useState<Tunnel[]>([]);
   const [allTunnels, setAllTunnels] = useState<Tunnel[]>([]);
   const [formTunnelOptionKey, setFormTunnelOptionKey] = useState("");
+  // Plan 152: only an option the user actively picks (re)binds a rule to an
+  // entry; editing without touching 选择隧道 keeps the stored binding.
+  const [entryTouched, setEntryTouched] = useState(false);
+  const [editBinding, setEditBinding] = useState<{ key: string; label: string } | null>(null);
+  const editOptionOriginRef = useRef("");
   const [filterTunnelOptionKey, setFilterTunnelOptionKey] = useState("");
   const tunnelPickerSections = useMemo(() => buildTunnelPickerSections(tunnels), [tunnels]);
   const tunnelPickerIds = useMemo(() => new Map(
@@ -1773,6 +1792,7 @@ export default function ForwardPage() {
     if (!modalOpen) {
       tunnelGroupReadyRef.current = false;
       editTunnelOriginRef.current = null;
+      editOptionOriginRef.current = "";
 
       return;
     }
@@ -1788,6 +1808,7 @@ export default function ForwardPage() {
         || tunnelGroupPills.find((pill) => pill.key === TUNNEL_GROUP_OTHER);
       if (isEdit && !editTunnelOriginRef.current) {
         editTunnelOriginRef.current = { tunnelId: form.tunnelId, inIp: form.inIp, targetMode: form.targetMode };
+        editOptionOriginRef.current = formTunnelOptionKey;
       }
     } else {
       const saved = localStorage.getItem(tunnelGroupStorageKey(tokenUserId));
@@ -1816,6 +1837,16 @@ export default function ForwardPage() {
     if (origin && origin.tunnelId !== null && pill.tunnelIds.has(origin.tunnelId)) {
       // Back in a group holding the rule's own tunnel: restore it.
       setForm((prev) => ({ ...prev, ...origin }));
+      const originKey = editOptionOriginRef.current;
+
+      if (originKey && pill.optionKeys.has(originKey)) {
+        setFormTunnelOptionKey(originKey);
+        setEntryTouched(false);
+      } else {
+        // Unbound rules stay unbound; a bound rule shown on another entry
+        // follows what the picker now shows.
+        setEntryTouched(Boolean(originKey));
+      }
     } else if (form.tunnelId !== null) {
       // Never keep a tunnel the chosen group does not list.
       setForm((prev) => ({ ...prev, tunnelId: null }));
@@ -2711,6 +2742,9 @@ export default function ForwardPage() {
     setIsEdit(false);
     setIsCopy(false);
     setInIpTouched(false);
+    setFormTunnelOptionKey("");
+    setEntryTouched(false);
+    setEditBinding(null);
     setForm({
       name: "",
       tunnelId: null,
@@ -2749,6 +2783,10 @@ export default function ForwardPage() {
     setIsEdit(true);
     setIsCopy(false);
     setInIpTouched(false);
+    // A bound rule reopens on its own (tunnel, entry) option and pill.
+    setFormTunnelOptionKey(forward.entryKey ? JSON.stringify([forward.tunnelId, forward.entryKey]) : "");
+    setEntryTouched(false);
+    setEditBinding(forward.entryKey ? { key: forward.entryKey, label: forward.entryLabel || "" } : null);
     setForm({
       id: forward.id,
       userId: forward.userId,
@@ -2785,6 +2823,10 @@ export default function ForwardPage() {
     setIsEdit(false);
     setIsCopy(true);
     setInIpTouched(false);
+    // A copy of a bound rule keeps its entry (as if picked again).
+    setFormTunnelOptionKey(forward.entryKey ? JSON.stringify([forward.tunnelId, forward.entryKey]) : "");
+    setEntryTouched(Boolean(forward.entryKey));
+    setEditBinding(null);
     setForm({
       userId: forward.userId,
       name: forward.name,
@@ -2973,6 +3015,54 @@ export default function ForwardPage() {
 
     setErrors((current) => ({ ...current, [field]: message }));
   };
+  // Plan 152 「只开所选入口」: the picked option binds the rule to its entry
+  // when the 线路分组 pills are shown and the chosen group lists only part of
+  // that tunnel's entries. key "" = every entry the owner may use.
+  const pickedEntryBinding = (): { key: string; label: string } | null => {
+    if (form.mode === "wg_path" || form.tunnelId === null) return null;
+    const pickedKey = tunnelPickerKey(formTunnelSections, form.tunnelId, formTunnelOptionKey)[0];
+    const option = formTunnelSections.flatMap((section) => section.options).find((item) => item.key === pickedKey);
+
+    if (!option) return null;
+    const total = tunnels.find((tunnel) => tunnel.id === form.tunnelId)?.entryGroups?.length ?? 0;
+    const listed = formTunnelSections.flatMap((section) => section.options).filter((item) => item.tunnel.id === form.tunnelId).length;
+
+    if (showTunnelGroups && option.entryKey !== "default" && total > 1 && listed < total) {
+      return { key: option.entryKey, label: option.entryLabel };
+    }
+
+    return { key: "", label: "" };
+  };
+  // Request field: omitted unless the user picked an option in this dialog,
+  // so an edit never binds (or unbinds) a rule silently.
+  const entryKeyField = (): { entryKey?: string } => {
+    if (!entryTouched) return {};
+    const binding = pickedEntryBinding();
+
+    if (!binding) return {};
+    if (binding.key) return { entryKey: binding.key };
+
+    return isEdit ? { entryKey: "" } : {};
+  };
+  // Small hint under 选择隧道 (plan 152).
+  const entryBindHint = ((): { bound: boolean; label: string } | null => {
+    if (!modalOpen || form.mode === "wg_path" || form.tunnelId === null) return null;
+    if (entryTouched) {
+      const binding = pickedEntryBinding();
+
+      return binding?.key ? { bound: true, label: binding.label } : null;
+    }
+    if (!isEdit) return null;
+    if (editBinding) {
+      const boundKey = JSON.stringify([form.tunnelId, editBinding.key]);
+      const option = tunnelPickerSections.flatMap((section) => section.options).find((item) => item.key === boundKey);
+
+      return { bound: true, label: option?.entryLabel || editBinding.label };
+    }
+    const total = tunnels.find((tunnel) => tunnel.id === form.tunnelId)?.entryGroups?.length ?? 0;
+
+    return showTunnelGroups && total > 1 ? { bound: false, label: "" } : null;
+  })();
   // 「我自己的节点」: save, then follow the preparation on the tunnel exits.
   const submitChain = async () => {
     setSubmitLoading(true);
@@ -2994,6 +3084,7 @@ export default function ForwardPage() {
         expiryTime: form.expiryTime,
         speedLimitEnabled: false,
         speedLimit: 0,
+        ...entryKeyField(),
       };
       let res;
 
@@ -3117,6 +3208,7 @@ export default function ForwardPage() {
           sourceCidr: form.sourceCidr,
           targetCidr: form.targetCidr,
           snatEnabled: form.snatEnabled,
+          ...entryKeyField(),
         };
 
         res = await updateForward(updateData);
@@ -3142,6 +3234,7 @@ export default function ForwardPage() {
           sourceCidr: form.sourceCidr,
           targetCidr: form.targetCidr,
           snatEnabled: form.snatEnabled,
+          ...entryKeyField(),
         };
 
         if (isAdmin && form.userId) {
@@ -6034,9 +6127,21 @@ export default function ForwardPage() {
                     <Select
                       classNames={{ listbox: "md:w-[calc(200%+0.5rem)]" }}
                       description={
-                        isEdit
-                          ? "更改隧道将释放原端口并在新隧道分配端口"
-                          : "根据地区、倍率和备注选择隧道"
+                        <>
+                          {isEdit
+                            ? "更改隧道将释放原端口并在新隧道分配端口"
+                            : "根据地区、倍率和备注选择隧道"}
+                          {entryBindHint && (
+                            <span
+                              className={`mt-0.5 block ${entryBindHint.bound ? "text-success-600 dark:text-success-400" : "text-default-500"}`}
+                              data-testid="entry-bind-hint"
+                            >
+                              {entryBindHint.bound
+                                ? `只在入口 ${entryBindHint.label} 上开放`
+                                : "当前在全部入口开放，选择分组里的隧道可改为只开该入口"}
+                            </span>
+                          )}
+                        </>
                       }
                       errorMessage={errors.tunnelId}
                       isInvalid={!!errors.tunnelId}
@@ -6054,6 +6159,7 @@ export default function ForwardPage() {
 
                         if (tunnelId !== undefined) {
                           setFormTunnelOptionKey(selectedKey);
+                          setEntryTouched(true);
                           handleTunnelChange(String(tunnelId));
                         }
                       }}
@@ -6065,17 +6171,17 @@ export default function ForwardPage() {
                           title={section.label}
                           tooltip={section.region === MULTI_REGION ? exitRegionLabel(section.options.flatMap(({ tunnel }) => tunnel.exitRegions || [])) : undefined}
                         >
-                          {section.options.map(({ key, tunnel }) => {
+                          {section.options.map(({ key, tunnel, entryKey, name }) => {
                             const trafficRatio = allTunnels.find((item) => item.id === tunnel.id)?.trafficRatio;
                             const formattedRatio = formatTunnelTrafficRatio(trafficRatio);
-                            const text = `${tunnel.name}${section.region === MULTI_REGION ? ` · ${exitRegionLabel(tunnel.exitRegions)}` : ""}`;
+                            const text = `${name}${section.region === MULTI_REGION ? ` · ${exitRegionLabel(tunnel.exitRegions)}` : ""}`;
 
                             return (
                               <SelectItem
                                 key={key}
                                 description={tunnel.remark ? `备注：${tunnel.remark}` : undefined}
                                 endContent={<span className="rounded bg-default-100 px-1.5 py-0.5 text-xs font-normal text-default-500">{formattedRatio}</span>}
-                                latency={tunnelLatency[tunnel.id]}
+                                latency={optionLatency(tunnelLatency[tunnel.id], entryKey)}
                                 textValue={text}
                               >
                                 {text}
