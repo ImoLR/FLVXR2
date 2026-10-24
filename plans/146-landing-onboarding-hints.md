@@ -46,3 +46,19 @@ with a small comet dot running around the element, then it disappears:
 - Without GPU acceleration the software compositor process is ~98 % busy during each lap because the
   surrounding glass card (`backdrop-filter: blur`) is re-blurred every frame (≈3.5 % with the blur off).
 - Left for the user to decide (accept, static ring, fewer laps). Numbers: runs/landing-onboarding-hints/final.md.
+
+## Release (fork.88, gold ring)
+User 2026-10-24 ~14:35 TW, after seeing the gallery and the cost (~3 % renderer CPU on the viewer's own device
+for ≤ 15 s, server 0): ring colour gold instead of blue, otherwise ship as is → **2 % perf gate waived by the user**.
+Branch `maintenance/3.0.27-fork.88-landing-onboarding-hints` from fork.87 head e4b5a801, plan 146 commits
+cherry-picked without conflicts. Panel only, frontend only, no DB change, no OTA.
+- [x] Cherry-pick plan 146 onto fork.87 (no conflicts; backend/agent untouched)
+- [x] Gold colour: only `--flvx-ring` / `--flvx-ring-head` (light #f2a900 / #ffd84d, dark #fcc419 / #ffe9a8);
+      glow, band, reduced-motion ring follow the variable; animation/timing/triggers/sizes unchanged
+- [x] tsc 0 errors, vite build ok, eslint on changed files = fork.87 base (698 = 698, new files clean)
+- [ ] Gold gallery (spin frames + strip, light/dark, desktop/H5) → preview `/landing-onboarding-hints-gold/`
+- [ ] Quick perf re-check of one view (record only)
+- [ ] Push, CI green, tag `3.0.27-fork.88`, release Latest with the same asset set as fork.87
+- [ ] Validated DB backup + rollback dir `pre-fork88-<ts>` + prune; upgrade `/opt/flvx-svc`
+- [ ] Prod checks: version.json, gold ring CSS in served bundle, backend healthy, nodes online unchanged,
+      config tables unchanged, 10-min CPU/RSS/log lines vs fork.87
