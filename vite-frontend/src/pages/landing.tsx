@@ -966,7 +966,7 @@ export default function LandingPage() {
                 <div className="grid gap-4 md:grid-cols-2">
                   {nodes.map((node) => (
                     <Card key={node.id} data-landing-node-card>
-                      <CardHeader className="flex items-start justify-between gap-2">
+                      <CardHeader className="flex flex-row items-start justify-between gap-2">
                         <div className="min-w-0">
                           <h2 className="break-all text-sm font-bold">
                             {node.name}
@@ -1163,7 +1163,9 @@ export default function LandingPage() {
                     <Pill tone={link.kind === "direct" ? "green" : "purple"}>
                       {link.kind === "direct" ? "直连" : "经规则转发"}
                     </Pill>
-                    <span className="min-w-0 break-all">{link.name}</span>
+                    {!(link.kind === "direct" && link.name === "直连") && (
+                      <span className="min-w-0 break-all">{link.name}</span>
+                    )}
                     {linkAddress(link.url) && (
                       <span className="break-all font-mono text-xs font-normal text-default-500">
                         {linkAddress(link.url)}

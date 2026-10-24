@@ -175,7 +175,8 @@ export function sharedHasProblem(server: LandingServer) {
 
 // Plan 145: the shared card's read-only block lives behind this button so
 // every server card has the same size. Problems stay visible on the card: the
-// button turns warning-coloured with 「· 异常」.
+// button turns warning-coloured with 「· 异常」. Plan 149: tinted purple (the
+// 妙妙屋共享 colour) instead of the white bordered button.
 export function SharedDetailsButton({
   server,
   onPress,
@@ -187,14 +188,13 @@ export function SharedDetailsButton({
 
   return (
     <Button
-      className={problem ? undefined : "text-default-600"}
-      color={problem ? "warning" : "default"}
+      color={problem ? "warning" : "secondary"}
       size="sm"
       startContent={<Info size={16} />}
       title={
         problem ? "同步异常或有提示，点开查看共享详情" : "查看妙妙屋共享详情"
       }
-      variant={problem ? "flat" : "bordered"}
+      variant="flat"
       onPress={onPress}
     >
       共享详情
