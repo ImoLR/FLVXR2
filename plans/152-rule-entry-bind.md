@@ -91,11 +91,34 @@ conflicts, code identical to the built `feature/3.0.27-rule-entry-bind` 3bb23034
       orig = fork.92 = new = renamed, 0 bound; every list identical for admin + 12 users (new fields stripped);
       rename dry run 14 rows, every non-admin user's names byte-identical (4/7/8/11 see the 12 shared tunnels),
       admin 沪日440 → 12 × `mk沪日ixp440 -> …`, 沪日IEPL → 12 × `vmsilo沪日首发 -> …`; undo exact. Copies deleted.
-- [ ] Push, CI green, tag `3.0.27-fork.93`, release Latest with the fork.92 asset set
-- [ ] Prod: validated backup + rollback dir `pre-fork93-*`, upgrade `/opt/flvx-svc`, prune (keep 2)
-- [ ] Prod verify: version, health, nodes, migrations once, bundle, 0 bound rules, forward_port unchanged, pill union
-- [ ] Prod data step: aliases 23/51 + 12 tunnels `{入口} -> X` (before-state + undo in the rollback dir), name checks
-- [ ] 10-min resources (CPU/RSS, DB size, log lines) vs fork.92
+- [x] Push, CI green, tag `3.0.27-fork.93`, release Latest with the fork.92 asset set — CI Build Check 40142385275,
+      Build and Push Images 40142500079 (tag → 144cc584), Latest, 10 assets = fork.92's, compose pins + install-script
+      PINNED_VERSION/REPO ok, gost sha256 ok, ghcr backend/frontend amd64+arm64
+- [x] Prod: validated backup + rollback dir `pre-fork93-20261024T233311Z` (quick/integrity ok, rollback.sh runs the data
+      undo first, no `--restore-db` needed), upgrade 10-25 07:33:25→07:33:37 TW healthy, prune (pre-fork91 + fork.90 images)
+- [x] Prod verify: version.json local + public `3.0.27-fork.93-mvn10i7v`, public/local bundle `index-CXzSlcE1.js` with the new
+      UI strings; 30/30 nodes reconnected, every node-scoped redeploy 0 updated / 0 failed; agents unchanged (27 fork.79,
+      1 fork.90, 2 fork.92); 2 new columns present, schema hash unchanged by a second restart (nothing repeats);
+      0 bound rules; forward_port 36 rows identical; 16/17 fingerprinted tables identical (landing_node = live counters);
+      pills union == pre-upgrade options for admin 54 + every enabled user (test 22, clot88 23, @jiuwei 24, @sure 12, …);
+      all lists identical for admin + 10 enabled users; unauth → 401
+- [x] Live bound-rule check: admin TEMP rule 162 on tunnel 25 with entryKey node-51 → entry_node_ids `51`, forward_port only
+      (51, 51072), rule list address only node 51's, port open on node 51, nothing listening on node 23 (ssh `ss`), deleted
+      14 s later (rows gone, port refused). Note: rule 诊断 still probes every tunnel entry's hop (pre-existing, not changed)
+- [x] Prod data step 07:38:44 TW (`pre-fork93-…/data-step-20261024T233844Z/`: before-state.json, apply logs, undo SQL):
+      aliases 23 `mk沪日ixp440` / 51 `vmsilo沪日首发`, 12 tunnels → `{入口} -> X` (14 rows). Real-JWT checks: all 10 enabled
+      non-admin users' names byte-identical (4/7/8/11 see the 12 shared tunnels); admin 沪日IEPL 12 × `vmsilo沪日首发 -> 出口…`,
+      沪日440 12 × `mk沪日ixp440 -> 出口…`; 隧道 page `mk沪日ixp440/vmsilo沪日首发 -> 出口…`; edit form keeps `{入口} -> …`;
+      admin rule list + dashboard unchanged
+- [x] 10-min resources vs fork.92 (07:11 TW baseline): backend RSS 29.7–29.9 → 28.0–28.5 MiB, CPU 2.4–5.3 % → 2.1–4.6 %,
+      DB 57.3 MB unchanged, non-request log lines/10 min 0 → 0 (clean window 07:45–07:55 TW, 30/30 online, 0 bound)
+
+**Status: RELEASED 10-25 07:33 TW as `3.0.27-fork.93` (panel only) + prod data step 07:38 TW.**
+Rollback: `bash /opt/flvx-svc/rollback/pre-fork93-20261024T233311Z/rollback.sh` (runs the data undo first, then fork.92
+images; no `--restore-db`). Data-only undo: `python3 …/data-step-20261024T233844Z/apply.py <db> --undo …/undo-20261024T233844Z.sql`.
+Open: rule 诊断 probes every tunnel entry's hop even for bound / partial-grant rules (pre-existing); H5 隧道 page truncates the
+longer `mk沪日ixp440/vmsilo沪日首发 -> …` names sooner (admin only); build suggestions (PostgreSQL `user` quoting in the rule
+list SQL, tunnel-card entry chip, user section headers by alias) not done.
 
 ## Paths that compute a rule's entries (Part A)
 Invariant: `forward_port` rows = effective entries. Checked with
