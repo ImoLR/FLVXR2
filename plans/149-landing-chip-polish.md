@@ -1,4 +1,4 @@
-# 149 — 落地 page chips + 路由规则 waterfall + 3rd 大陆 forced seed (BUILD + SCREENSHOTS, no release)
+# 149 — 落地 page chips + 路由规则 waterfall + 3rd 大陆 forced seed (BUILT + SCREENSHOTS — waits for user approval)
 
 Source: user 2026-10-24 voice messages (~16:50 TW chips / cards / links, ~17:40 + ~17:50 TW 大陆 seeds +
 路由规则 layout). Brief: `/root/flvx-workers/runs/landing-chip-polish/brief.md`. Base:
@@ -28,9 +28,9 @@ Release waits for the user's screenshot approval.
 - [x] 4g prod copy: plan diff before/after per server (only the 大陆 rules + exempt list)
 - [x] 5  路由规则 dialog: numbered always-visible layers ①–⑥ with counts + meaning + connector, compact rows with
          详情 toggle (H5 collapsed), 内置 collapsed on H5
-- [ ] 6  tsc / build / lint vs base, bundle delta; go test vs base
-- [ ] 7  screenshots before/after (desktop 1440 + H5 390, light + dark) on a prod-DB copy, gallery on :8791
-- [ ] 8  push branch, CI green, final.md + summary.md
+- [x] 6  tsc / build / lint vs base, bundle delta; go test vs base
+- [x] 7  screenshots before/after (desktop 1440 + H5 390, light + dark) on a prod-DB copy, gallery on :8791
+- [x] 8  push branch, CI green, final.md + summary.md
 
 ## Notes
 
@@ -68,3 +68,43 @@ Release waits for the user's screenshot approval.
 - Forwarded traffic: only forward 156 (node 48 → PQS TW node 105 SS2022) targets a landing directly; node 48 dials
   pqstw (A only, 36.232.0.161) over IPv4 NAT egress 114.35.6.24 (read via SSH) = not geoip:cn → unaffected.
   Mainland node addresses (52, 53/54, Mkcloud 2/22/23/32, IPv6 of 20/48/50/51) are all in the exempt list.
+
+### 5 — 路由规则 waterfall (`pages/landing/rule-layers.tsx`, `node-rules.tsx`)
+- ① 内置 (slate) ② 全局·强制 (purple) ③ 我的规则 (green) ④ 服务器规则 (teal) ⑤ 全局·默认 (cyan) ⑥ 默认出站 (pink):
+  numbered dot + connector line, count pill (「N 条」 / 「暂无」), one-line meaning; every layer always shown (empty
+  layers say why: 管理员没有设置… / 全局规则暂未应用…). Locked rows = lock + one-line name (title = full name) +
+  action pill + 「详情」 toggle (collapsed on H5, open on desktop). 内置 on H5 = one line per rule + 「展开详情」 to
+  the unchanged `BuiltinRuleList`. 我的规则 keeps `EgressRuleList` (editing unchanged) with 详情 folded on H5.
+  The compact LayerLegend row is dropped from this dialog (the headers are the legend); data, order, save unchanged.
+- A node's view lists only the global / server rules that apply to its protocol (VLESS nodes do not list
+  禁止大陆直连).
+
+### 6 — gates
+- tsc 0 errors (base 0); `vite build` OK; changed files lint 0 errors / 0 warnings (whole `src`: base 96 errors /
+  3754 warnings, all pre-existing in untouched files). Bundle: total 4,267,753 → 4,286,141 B (+18 KB), main
+  index.js 3,001,333 → 3,002,390 B (+1 KB, 2.86 MiB < 5 MiB PWA limit), CSS +7.4 KB, egress chunk +9.9 KB.
+- `go test ./...`: same failures as the unmodified base (10 top-level + 5 subtests: TestBackupExportImportRestore,
+  TestBuildFederationServiceConfig_NonTLSProtocol_NoNodelay, 3 × FederationDualPanel, 2 × OpenMigrates*Legacy*,
+  TestRunNodeRenewalCycleJob_AdvancesOverdueAnchorTimes, TestServiceMonitorResults,
+  TestTunnelUpdateRecoversFromAddressInUseContract). New/updated landing tests pass on SQLite and PostgreSQL
+  (local PG 18 + CI 「Go Backend PostgreSQL Contract」).
+- Handler tests written for the pre-149 fresh install keep it (`newFlowTestEnv` disables the seeds);
+  `newSeededFlowTestEnv` + `TestLandingSeededForcedSent` / `TestLandingCNDirectScopedToSS` cover the shipped state.
+
+### 7 — screenshots
+- Prod DB read-only copy (python sqlite3 online backup, credentials scrubbed), demo panel 127.0.0.1:16365 in an
+  offline netns, before = fork.89 binary + dist, after = this branch; Chromium in a 650 M scope. 140 shots (68 before
+  / 72 after), 164/164 automatic checks (no bridge badge / white pill on 落地, no clipped pill text, equal server
+  card sizes, no 「+N」 on any real prod card — user and admin, desktop and H5), 0 page errors, 0 write requests.
+  Link credentials masked in the browser. Gallery: `:8791/<token>/landing-chip-polish/`.
+- Demo-only data: user 26 also granted servers 4 / 6, three extra nodes (≤ 7 天, 宽限期, 长期 — 长期 via response
+  mock because the user's own expiry caps every node), offline 「正在同步」 shown as 正常, 路由规则 (a)/(c) mocks.
+
+### 8 — release notes (for the release worker, after the user approves)
+- Panel only, no agent / OTA, no mmwx change. Startup migration (global marker 3, preset marker 2) runs once and sets
+  the resync flag → every landing server re-pushed once; plans change only by 禁止大陆直连 on SS nodes + exempt list.
+- After release: 屏蔽大陆 IP / 网站 stay on (already on in prod), 禁止大陆直连 newly blocks DIRECT mainland clients of SS
+  nodes (all 4 prod landing nodes are SS2022). Verify forward 156 (node 48 → PQS TW) keeps working and that
+  `node.reported_ip_v4/v6` fill in as agents reconnect (exempt list grows).
+- Rollback to fork.89 needs `--restore-db` only if the 3rd rule must disappear (fork.89 would keep it as an unscoped
+  rule → blocks direct CN to every node incl. VLESS); new columns are add-only.
