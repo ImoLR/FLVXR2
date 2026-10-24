@@ -1,12 +1,14 @@
 import { useId, useState } from "react";
 import toast from "react-hot-toast";
 
+import { TintChip as Chip } from "./pill";
 import { invalidateEgressPresets } from "./use-egress-presets";
 
 import {
   EgressLandingNodeChoice,
   EgressOutbound,
   EgressRule,
+  inboundProtocolOptions,
   presetAskAction,
   saveEgressPreset,
   splitLines,
@@ -15,7 +17,6 @@ import {
 } from "@/api/landing-egress";
 import { Button } from "@/shadcn-bridge/heroui/button";
 import { Checkbox } from "@/shadcn-bridge/heroui/checkbox";
-import { Chip } from "@/shadcn-bridge/heroui/chip";
 import { Input, Textarea } from "@/shadcn-bridge/heroui/input";
 import {
   Modal,
@@ -145,8 +146,10 @@ export function RuleEditor({
       next.ips.length +
       next.sourceIps.length +
       next.protocols.length +
-      next.landingNodeIds.length >
+      next.landingNodeIds.length +
+      (next.inboundProtocols?.length ?? 0) >
       0 || Boolean(next.ports || next.sourcePorts || next.network);
+  const inbound = form.inboundProtocols ?? [];
 
   return (
     <Modal isOpen scrollBehavior="inside" size="lg" onClose={onClose}>
@@ -330,6 +333,36 @@ export function RuleEditor({
               按流量特征识别，例如 BitTorrent 下载。
             </p>
           </section>
+
+          {/* Plan 149: admin scopes only (a node rule covers one node, so one
+              protocol). Empty = every node. */}
+          {!hideSource && (
+            <section data-rule-inbound-protocols className="space-y-2">
+              <h3 className="font-medium">节点协议</h3>
+              <div className="flex flex-wrap gap-4">
+                {inboundProtocolOptions.map(([key, label]) => (
+                  <Checkbox
+                    key={key}
+                    isSelected={inbound.includes(key)}
+                    onValueChange={(checked) =>
+                      set({
+                        inboundProtocols: checked
+                          ? [...inbound, key]
+                          : inbound.filter((p) => p !== key),
+                      })
+                    }
+                  >
+                    {label}
+                  </Checkbox>
+                ))}
+              </div>
+              <p className="text-xs text-default-500">
+                只作用于这些协议的落地节点；不选 =
+                全部节点。例如「禁止大陆直连」只选 SS2022：SS 节点经 FLVX
+                转发使用，VLESS Reality 节点仍可从大陆直连。
+              </p>
+            </section>
+          )}
 
           {!hideNodeScope && (
             <section className="space-y-2">

@@ -12,6 +12,7 @@ import {
   Trash2,
 } from "lucide-react";
 
+import { TintChip as Chip } from "./pill";
 import { BuiltinRuleList, StateIcon } from "./egress-builtin-list";
 import { PresetPicker } from "./egress-preset-picker";
 import { RuleEditor } from "./egress-rule-editor";
@@ -30,7 +31,6 @@ import {
 } from "@/api/landing-egress";
 import { useMobileBreakpoint } from "@/hooks/useMobileBreakpoint";
 import { Button } from "@/shadcn-bridge/heroui/button";
-import { Chip } from "@/shadcn-bridge/heroui/chip";
 import {
   Dropdown,
   DropdownItem,

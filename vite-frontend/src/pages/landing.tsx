@@ -197,9 +197,10 @@ function NodeConnTag({ node }: { node: LandingNode }) {
 // Plan 149: `host:port` of a share link (`scheme://[user@]host:port…`), or ""
 // when the link does not carry it in that form (e.g. legacy base64 ss://).
 function linkAddress(url?: string) {
-  const m = /^[a-z][a-z0-9+.-]*:\/\/(?:[^@/?#]*@)?(\[[0-9a-f:.]+\]|[a-z0-9.-]+):(\d{1,5})(?:[/?#]|$)/i.exec(
-    url || "",
-  );
+  const m =
+    /^[a-z][a-z0-9+.-]*:\/\/(?:[^@/?#]*@)?(\[[0-9a-f:.]+\]|[a-z0-9.-]+):(\d{1,5})(?:[/?#]|$)/i.exec(
+      url || "",
+    );
 
   return m ? `${m[1]}:${m[2]}` : "";
 }
@@ -648,7 +649,10 @@ export default function LandingPage() {
                         </Pill>
                       ),
                       short: (
-                        <Pill title={`妙妙屋 · ${mode}：${modeTitle}`} tone="slate">
+                        <Pill
+                          title={`妙妙屋 · ${mode}：${modeTitle}`}
+                          tone="slate"
+                        >
                           {mode}
                         </Pill>
                       ),
@@ -1001,8 +1005,8 @@ export default function LandingPage() {
                       <CardBody className="space-y-3">
                         {/* Plan 149: one chip row — 剩余 · 连接数 · 规则 · 出站. */}
                         <div
-                          className="flex flex-wrap items-center gap-1"
                           data-landing-node-chips
+                          className="flex flex-wrap items-center gap-1"
                         >
                           <ExpiryPill node={node} now={now} />
                           <ConnPill admin={admin} node={node} />
@@ -1143,7 +1147,7 @@ export default function LandingPage() {
               {linksLoading && <Spinner />}
               {linkError && <p className="text-danger">{linkError}</p>}
               {links.length > 0 && (
-                <p className="text-sm text-default-600" data-links-summary>
+                <p data-links-summary className="text-sm text-default-600">
                   共 {links.length} 条链接：直连{" "}
                   {links.filter((link) => link.kind === "direct").length} ·
                   经规则转发{" "}

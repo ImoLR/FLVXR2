@@ -11,20 +11,19 @@ import {
 } from "lucide-react";
 
 import { StateIcon } from "./egress-builtin-list";
+import { Pill, actionTone } from "./pill";
 import { RuleEditor } from "./egress-rule-editor";
 import { PresetPicker } from "./egress-preset-picker";
 
 import {
   BuiltinActive,
   EgressRule,
-  actionColor,
   emptyRule,
   presetAskAction,
   ruleAttributeChips,
 } from "@/api/landing-egress";
 import { useMobileBreakpoint } from "@/hooks/useMobileBreakpoint";
 import { Button } from "@/shadcn-bridge/heroui/button";
-import { Chip } from "@/shadcn-bridge/heroui/chip";
 import {
   Dropdown,
   DropdownItem,
@@ -82,6 +81,7 @@ export function EgressRuleList({
   defaultChoice,
   savePreset = false,
   askOption = false,
+  collapseDetails = false,
 }: {
   rules: EgressRule[];
   onChange: (rules: EgressRule[]) => void;
@@ -104,8 +104,12 @@ export function EgressRuleList({
   defaultChoice?: number;
   savePreset?: boolean;
   askOption?: boolean;
+  // Plan 149 (路由规则 dialog): on H5 the matcher chips sit behind 「详情」.
+  collapseDetails?: boolean;
 }) {
   const isMobile = useMobileBreakpoint();
+  const [openDetails, setOpenDetails] = useState<Record<string, boolean>>({});
+  const folded = collapseDetails && isMobile;
   const [editing, setEditing] = useState<{
     index: number;
     rule: EgressRule;
@@ -159,31 +163,51 @@ export function EgressRuleList({
               <span className="mt-0.5 w-6 shrink-0 text-right text-sm text-default-400">
                 {numberFrom + index}
               </span>
-              <div className="min-w-0 space-y-1">
+              <div className="min-w-0 flex-1 space-y-1">
                 <div className="flex flex-wrap items-center gap-2">
-                  <span className="break-all font-medium">
+                  <span
+                    className={
+                      folded
+                        ? "min-w-0 truncate font-medium"
+                        : "break-all font-medium"
+                    }
+                    title={rule.name || `规则 ${index + 1}`}
+                  >
                     {rule.name || `规则 ${index + 1}`}
                   </span>
-                  <Chip
-                    color={actionColor(rule.action)}
-                    size="sm"
-                    variant="flat"
-                  >
+                  <Pill tone={actionTone(rule.action)}>
                     → {choiceLabel(rule.action, labels || choices)}
-                  </Chip>
-                </div>
-                <div className="flex flex-wrap gap-1">
-                  {ruleAttributeChips(rule).map((chip) => (
-                    <Chip
-                      key={chip}
-                      className="text-default-600"
-                      size="sm"
-                      variant="bordered"
+                  </Pill>
+                  {folded && ruleAttributeChips(rule).length > 0 && (
+                    <button
+                      aria-expanded={!!openDetails[rule.id]}
+                      className="inline-flex h-6 items-center gap-0.5 rounded-full px-1.5 text-xs text-default-500 hover:bg-default-200/70"
+                      type="button"
+                      onClick={() =>
+                        setOpenDetails((prev) => ({
+                          ...prev,
+                          [rule.id]: !prev[rule.id],
+                        }))
+                      }
                     >
-                      {chip}
-                    </Chip>
-                  ))}
+                      详情
+                      {openDetails[rule.id] ? (
+                        <ChevronUp size={13} />
+                      ) : (
+                        <ChevronDown size={13} />
+                      )}
+                    </button>
+                  )}
                 </div>
+                {(!folded || openDetails[rule.id]) && (
+                  <div className="flex flex-wrap gap-1">
+                    {ruleAttributeChips(rule).map((chip) => (
+                      <Pill key={chip} tone="slate">
+                        {chip}
+                      </Pill>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
             <div className="flex shrink-0 items-center gap-1 self-end sm:self-auto">
