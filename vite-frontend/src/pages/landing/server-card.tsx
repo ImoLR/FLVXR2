@@ -24,16 +24,25 @@ export type ChipLineItem = {
   key: string;
   label: string;
   node: ReactNode;
+  /**
+   * Plan 149: shorter form (e.g. 「强制 IPv4」 for 「出站：强制 IPv4」), used
+   * when the full line does not fit, before anything is folded.
+   */
+  short?: ReactNode;
   /** plan 147: always visible, never folded into 「+N」 (shown first). */
   pin?: boolean;
 };
 
 const CHIP_GAP = 4;
 
+type ChipFit = { visible: number; short: boolean };
+
 // Plan 145: one chip line that never wraps. Chips that do not fit are folded
 // into a 「+N」 chip; tap/click it (or hover for the title) to see the rest.
 // Widths come from a hidden measuring copy, re-checked only on resize.
 // Plan 147: pinned chips (warnings) go first and are never folded.
+// Plan 149: before folding, the line switches to the items' short forms; the
+// 「+N」 fold is only a last-resort safety net.
 export function ChipLine({ items: given }: { items: ChipLineItem[] }) {
   const items = [
     ...given.filter((item) => item.pin),
@@ -42,7 +51,10 @@ export function ChipLine({ items: given }: { items: ChipLineItem[] }) {
   const pinned = items.filter((item) => item.pin).length;
   const boxRef = useRef<HTMLDivElement>(null);
   const measureRef = useRef<HTMLDivElement>(null);
-  const [visible, setVisible] = useState(items.length);
+  const [fitState, setFit] = useState<ChipFit>({
+    visible: items.length,
+    short: false,
+  });
   const signature = items.map((item) => `${item.key}:${item.label}`).join("|");
 
   useLayoutEffect(() => {
@@ -50,18 +62,23 @@ export function ChipLine({ items: given }: { items: ChipLineItem[] }) {
     const measure = measureRef.current;
 
     if (!box || !measure) return;
+    const sum = (widths: number[]) =>
+      widths.reduce((total, w, index) => total + w + (index ? CHIP_GAP : 0), 0);
     const fit = () => {
       const width = box.clientWidth;
       const children = Array.from(measure.children) as HTMLElement[];
       const plus = children.pop();
-      const widths = children.map((child) => child.offsetWidth);
-      const total = widths.reduce(
-        (sum, w, index) => sum + w + (index ? CHIP_GAP : 0),
-        0,
-      );
+      const n = children.length / 2;
+      const full = children.slice(0, n).map((child) => child.offsetWidth);
+      const short = children.slice(n).map((child) => child.offsetWidth);
 
-      if (total <= width) {
-        setVisible(widths.length);
+      if (sum(full) <= width) {
+        setFit({ visible: n, short: false });
+
+        return;
+      }
+      if (sum(short) <= width) {
+        setFit({ visible: n, short: true });
 
         return;
       }
@@ -69,14 +86,14 @@ export function ChipLine({ items: given }: { items: ChipLineItem[] }) {
       let used = 0;
       let count = 0;
 
-      for (const w of widths) {
+      for (const w of short) {
         const next = used + (count ? CHIP_GAP : 0) + w;
 
         if (next + reserve > width) break;
         used = next;
         count += 1;
       }
-      setVisible(Math.max(count, pinned, 1));
+      setFit({ visible: Math.max(count, pinned, 1), short: true });
     };
 
     fit();
@@ -88,17 +105,20 @@ export function ChipLine({ items: given }: { items: ChipLineItem[] }) {
     return () => observer.disconnect();
   }, [signature, pinned]);
 
+  const { visible } = fitState;
   const hidden = items.slice(visible);
+  const show = (item: ChipLineItem) =>
+    fitState.short && item.short ? item.short : item.node;
 
   return (
-    <div className="relative h-6 min-w-0">
+    <div className="relative h-6 min-w-0" data-chip-line>
       <div
         ref={boxRef}
         className="flex h-6 min-w-0 flex-nowrap items-center gap-1 overflow-hidden"
       >
         {items.slice(0, visible).map((item) => (
           <span key={item.key} className="flex shrink-0">
-            {item.node}
+            {show(item)}
           </span>
         ))}
         {hidden.length > 0 && (
@@ -106,7 +126,8 @@ export function ChipLine({ items: given }: { items: ChipLineItem[] }) {
             <DropdownTrigger>
               <button
                 aria-label={`另外 ${hidden.length} 项：${hidden.map((item) => item.label).join("、")}`}
-                className="shrink-0 rounded-md border border-default-300 px-2 text-xs leading-[18px] text-default-600 hover:bg-default-100"
+                className="shrink-0 rounded-full bg-slate-500/15 px-2 text-xs font-semibold leading-[18px] text-slate-600 hover:brightness-95 dark:bg-slate-400/20 dark:text-slate-300"
+                data-chip-more
                 title={hidden.map((item) => item.label).join("、")}
                 type="button"
               >
@@ -135,7 +156,12 @@ export function ChipLine({ items: given }: { items: ChipLineItem[] }) {
             {item.node}
           </span>
         ))}
-        <span className="shrink-0 rounded-md border px-2 text-xs leading-[18px]">
+        {items.map((item) => (
+          <span key={`s-${item.key}`} className="flex shrink-0">
+            {item.short ?? item.node}
+          </span>
+        ))}
+        <span className="shrink-0 rounded-full px-2 text-xs font-semibold leading-[18px]">
           +{items.length}
         </span>
       </div>
