@@ -42,7 +42,7 @@ Base: `maintenance/3.0.27-fork.85-landing-compact` (fork.85, newer than the expe
 - [x] Contract doc `/root/flvx-workers/contracts/landing-conn-mode-v1.md`
 - [x] Screenshots desktop 1440 + H5 390, light + dark; review; gallery on :8791
 - [x] Push branch, CI green
-- [ ] final.md + summary.md
+- [x] final.md + summary.md
 
 ## Result (2026-10-24, build only — no tag, no release)
 - Commits c6b704c2 … a5520bff on `feature/3.0.27-landing-conn-mode` (base fork.85 7f4b1022); CI Build Check
@@ -64,3 +64,24 @@ Base: `maintenance/3.0.27-fork.85-landing-compact` (fork.85, newer than the expe
   http://104.145.236.29:8791/ea923e5e348dfb9548d4d0909b6de1ee/landing-conn-mode/
 - Release round: panel (columns only, rollback without --restore-db) → OTA native landing nodes 21 + 55 →
   mmwx Custom + Helper (one release) per contract §6.
+
+## Release (fork.86, task `release-landing-conn-mode`, 2026-10-24)
+Approval: user 2026-10-24 ~04:40 TW waived the screenshot gate for this queue; the release worker is the gate.
+Branch `maintenance/3.0.27-fork.86-landing-conn-mode` from the feature head 2e2bb9e1 (= fork.85 7f4b1022 + plan 141,
+fast-forward, no conflicts). mmwx Custom/Helper side is NOT built (contract only) → FLVX side only; shared servers
+degrade cleanly (仅入站 shows 「需要妙妙屋侧升级后生效」 and stays 入站+出站).
+
+- [x] Gallery gate (60 shots reviewed by the release worker; no real defect → no code change, no re-shoot)
+- [x] Rebase/branch, `go build ./...`, backend tests SQLite + PostgreSQL (only the 15 known failures), frontend tsc/build/lint
+      — fast-forward (no conflicts); go-backend + go-gost build ok; `go test ./...` SQLite 17 ok / 15 FAIL and PostgreSQL
+      17 ok / 15 FAIL, both lists identical to fork.85; `TestSharedLandingConnModeContract` sqlite+postgres PASS;
+      go-gost/x landing + socket ok; tsc 0 errors; build ok (index 2,991.25 kB, same as the build round); eslint 96 errors
+      (= fork.85), warnings 3762 → 3754
+- [x] Equivalence gate on a fresh read-only prod DB copy (native payloads + shared desired identical fork.85 vs fork.86), copy deleted
+      — servers 1/5 native payloads (105 / 1303 B) and shared 2/3/4/6 desired byte-identical, also with all agents
+      upgraded; server/node/monitor views: 0 changed values, only the new keys; list p50 +0.1–0.8 ms in-process
+- [ ] Push branch, CI green, tag `3.0.27-fork.86`, release Latest with the same asset set as fork.85
+- [ ] Prod panel: validated backup + rollback dir `pre-fork86-<ts>`, upgrade `/opt/flvx-svc`, prune (keep 2)
+- [ ] Prod verify: version, health, nodes online, migration once (2nd restart), new UI in bundle, real-JWT admin/non-admin checks, data untouched
+- [ ] OTA native landing nodes 21 (canary, SSH backup) then 55 (panel OTA), Core PID / traffic checks
+- [ ] After 10 min: CPU/RSS, DB size, log lines vs fork.85
