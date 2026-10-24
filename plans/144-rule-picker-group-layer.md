@@ -38,9 +38,9 @@ covers, `[]` = all entries, used for tunnels without entry nodes). Built by one 
 - [x] Frontend pill layer + filtering + default/switch logic
 - [x] tsc / lint / build, bundle size vs 5 MiB
 - [x] Prod-copy gate: admin + real user, union of pills == today's option set; query time
-- [ ] Screenshots (desktop 1440 + H5 390×844, light + dark), reviewed; gallery on :8791
-- [ ] Push branch, CI green
-- [ ] final.md / summary.md
+- [x] Screenshots (desktop 1440 + H5 390×844, light + dark), reviewed; gallery on :8791
+- [x] Push branch, CI green
+- [x] final.md / summary.md
 
 ## Results
 - Prod-copy gate (online backup of fork.83 prod SQLite, test under `unshare -n`, copy sha unchanged): union of pills ==
@@ -51,3 +51,14 @@ covers, `[]` = all entries, used for tunnels without entry nodes). Built by one 
 - Extra query on the prod copy: admin 0.12 ms, users 0.09-0.11 ms (best of 20); admin list 0.54 → 0.91 ms.
 - Frontend: tsc clean; eslint errors 17 = base 17 (new lines only add prettier-style warnings like the rest of the file);
   build OK, largest chunk 2,987,472 B (+2,997 B), dist total +3,444 B, limit 5 MiB.
+- Gate extended to user 11 @sure (single group, active; user 12 is disabled on prod and loops to logout in the UI): 12 = 12.
+- Screenshots: 50 shots (desktop 1440 + H5 390×844, light + dark), 56/56 automatic checks, 0 page errors; demo panel on a
+  prod-copy DB inside a loopback-only network namespace, every write route aborted in the browser. Gallery under the
+  token dir of the :8791 preview server (`…/rule-picker-group-layer/`), not a guessable path (real names/IPs in shots).
+- Review fix: colour dots only when groups have different colours (prod groups all keep the default blue).
+- Go tests: new repo tests pass on SQLite + PostgreSQL, new contract test passes; full suite has 10 failures, all failing
+  identically on the untouched fork.83 base (2 handler + 8 contract), none new.
+- CI Build Check green on 704866b9. No tag, no release, no prod change (release = panel only, no DB change; rollback =
+  fork.83 image).
+
+Status: BUILT, awaiting release.
