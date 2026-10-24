@@ -539,22 +539,25 @@ func (s *Server) handleNode(w http.ResponseWriter, r *http.Request, nodeID int64
 				}
 				continue
 			case "ReportPublicIP":
-				// 节点上报公网 IP
+				// Plan 147: new agents report their public addresses here (the
+				// encrypted session) instead of plain HTTP. Same fill-empty rule
+				// as /api/v1/node/report-ip: never overwrites an address.
 				var envelope struct {
 					Data struct {
-						PublicIP string `json:"public_ip"`
+						PublicIP   string `json:"public_ip"`
+						PublicIPV4 string `json:"public_ip_v4"`
+						PublicIPV6 string `json:"public_ip_v6"`
 					} `json:"data"`
 				}
-				if err := json.Unmarshal([]byte(msg), &envelope); err == nil && envelope.Data.PublicIP != "" {
-					// 更新节点公网 IP
-					if s.onNodeMetric != nil {
-						// 通过 repo 更新数据库
-						if err := s.repo.UpdateNodePublicIP(nodeID, envelope.Data.PublicIP); err != nil {
-							fmt.Printf("⚠️ 更新节点%d公网 IP 失败：%v\n", nodeID, err)
-						} else {
-							fmt.Printf("✅ 节点%d公网 IP 已更新：%s\n", nodeID, envelope.Data.PublicIP)
+				if json.Unmarshal([]byte(msg), &envelope) == nil {
+					v4, v6 := envelope.Data.PublicIPV4, envelope.Data.PublicIPV6
+					if v4 == "" && v6 == "" {
+						v4 = envelope.Data.PublicIP
+						if repo.PublicIPReportAddr(v4, "v6") != "" {
+							v4, v6 = "", envelope.Data.PublicIP
 						}
 					}
+					s.applyPublicIPReport(nodeID, v4, v6)
 				}
 				continue
 			case "UpgradeProgress":

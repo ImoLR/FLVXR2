@@ -16,16 +16,18 @@ import (
 // port range (node.port) so forwards never claim landing ports and
 // landingFreePort always has ports to hand out.
 //
-// Give-back rule (nothing new is stored): when the landing range moves,
-// shrinks or the landing is disabled, the ports that leave the landing range
-// return to the rule range only if they lie inside the hull [min, max] of the
-// node's current rule range and no landing node / chain node / Reality guard
-// still holds them. A landing range carved from the middle of the rule range
-// (the normal case, e.g. 10000-65535 minus 30000-39999) therefore comes back
-// whole; one that sat at an outer edge (rule 10000-65535, landing
-// 60000-65535 → rule 10000-59999) is not re-added automatically because the
-// panel cannot tell it apart from a landing range that never was part of the
-// rule range. Ports are never invented outside the node's own bounds.
+// Give-back rule (plan 147): every carve is recorded on the landing server
+// (landing_server.rule_carved, rule-spec syntax). When the landing range
+// moves, shrinks or the landing is disabled, a port that leaves the landing
+// range returns to the rule range when the landing had carved it (recorded)
+// or — for landings carved before the record existed — when it lies inside the
+// hull [min, max] of the node's current rule range; in both cases only while
+// no landing node / chain node / Reality guard still holds it (held ports stay
+// recorded and come back on a later change). So a range carved from the
+// middle (10000-65535 minus 30000-39999) and one carved at an outer edge
+// (rule 10000-65535, landing 60000-65535 → 10000-59999) both come back whole,
+// while a landing range that never was part of the rule range (nothing
+// recorded, outside the hull) is never added: ports are never invented.
 
 type portSpan struct{ lo, hi int }
 
@@ -141,28 +143,36 @@ func formatPortRange(lo, hi int) string {
 
 // landingRuleSpec computes the node rule spec after the native landing range
 // changes from old ([oldLo, oldHi], 0/0 = no active range) to new ([newLo,
-// newHi], 0/0 = landing disabled). held are ports landing/chain listeners
-// still own; they are never given back. An empty spec stays empty.
-func landingRuleSpec(spec string, oldLo, oldHi, newLo, newHi int, held map[int]bool) string {
+// newHi], 0/0 = landing disabled), plus the new carve record. carved is the
+// record before the change; held are ports landing/chain listeners still own:
+// they are never given back (and stay recorded). An empty spec stays empty.
+func landingRuleSpec(spec, carved string, oldLo, oldHi, newLo, newHi int, held map[int]bool) (string, string) {
 	spans := parsePortSpans(spec)
+	record := parsePortSpans(carved)
 	if len(spans) == 0 {
-		return strings.TrimSpace(spec)
+		return strings.TrimSpace(spec), strings.TrimSpace(carved)
 	}
 	hullLo, hullHi := spans[0].lo, spans[len(spans)-1].hi
+	newActive := newLo > 0 && newHi >= newLo
 	if oldLo > 0 && oldHi >= oldLo {
 		back := portSpansOverlap([]portSpan{{oldLo, oldHi}}, hullLo, hullHi)
-		if newLo > 0 && newHi >= newLo {
+		back = mergePortSpans(append(back, portSpansOverlap(record, oldLo, oldHi)...))
+		if newActive {
 			back = subtractPortSpan(back, newLo, newHi)
 		}
 		for p := range held {
 			back = subtractPortSpan(back, p, p)
 		}
 		spans = mergePortSpans(append(spans, back...))
+		for _, b := range back {
+			record = subtractPortSpan(record, b.lo, b.hi)
+		}
 	}
-	if newLo > 0 && newHi >= newLo {
+	if newActive {
+		record = mergePortSpans(append(record, portSpansOverlap(spans, newLo, newHi)...))
 		spans = subtractPortSpan(spans, newLo, newHi)
 	}
-	return formatPortSpans(spans)
+	return formatPortSpans(spans), formatPortSpans(mergePortSpans(record))
 }
 
 // landingHeldPorts are ports inside a native landing's range that its own
@@ -277,7 +287,15 @@ func applyNativeLandingRange(tx *gorm.DB, s *model.LandingServer, oldLo, oldHi, 
 			return err
 		}
 	}
-	next := landingRuleSpec(node.Port, oldLo, oldHi, newLo, newHi, held)
+	next, carved := landingRuleSpec(node.Port, s.RuleCarved, oldLo, oldHi, newLo, newHi, held)
+	if carved != s.RuleCarved {
+		s.RuleCarved = carved
+		if s.ID > 0 {
+			if err := tx.Model(&model.LandingServer{}).Where("id = ?", s.ID).Update("rule_carved", carved).Error; err != nil {
+				return err
+			}
+		}
+	}
 	if next == strings.TrimSpace(node.Port) || formatPortSpans(parsePortSpans(node.Port)) == next {
 		// Unchanged ports keep the admin's own spelling of the spec.
 		return nil

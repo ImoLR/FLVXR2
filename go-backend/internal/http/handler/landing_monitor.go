@@ -145,6 +145,11 @@ func (h *Handler) landingMonitor(w http.ResponseWriter, r *http.Request) {
 // landingNodeDisplayStatus is the status the 落地 page shows: shared nodes that
 // Custom has not confirmed are 等待同步 (with the not-ready reason) or 节点异常.
 func landingNodeDisplayStatus(n *model.LandingNode, s *model.LandingServer) (string, string) {
+	// Plan 147: a native node whose inbound the agent could not add (port busy
+	// on the machine) is 节点异常 with its reason in syncError.
+	if s != nil && s.Source == "native" && n.Status == "active" && n.SyncError != "" {
+		return "error", ""
+	}
 	if s == nil || s.Source != "shared" || n.Status != "active" {
 		return n.Status, ""
 	}

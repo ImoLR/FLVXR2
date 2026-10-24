@@ -78,8 +78,17 @@ type LandingServer struct {
 	// exactly that Core, cleared once the agent reports a current Core.
 	CoreStaleEpoch string `gorm:"not null;default:''" json:"-"`
 	CoreUpgradeOK  bool   `gorm:"not null;default:false" json:"-"`
-	CreatedTime    int64  `gorm:"not null" json:"createdTime"`
-	UpdatedTime    int64  `gorm:"not null" json:"updatedTime"`
+	// Plan 147 (native): RuleCarved records, in rule-spec syntax, the ports
+	// this landing actually took out of its node's rule port range ("" = none
+	// recorded, e.g. carved before plan 147). Give-back returns them even when
+	// they sat at an outer edge of the rule range; nothing else is invented.
+	RuleCarved string `gorm:"type:text;not null;default:''" json:"-"`
+	// Plan 147 (native): ports the agent reported busy on the machine (another
+	// program listens there), JSON {"<port>": unix ms}; skipped by the port
+	// picker for 24 h after the last report.
+	NativeBusyPorts string `gorm:"type:text;not null;default:''" json:"-"`
+	CreatedTime     int64  `gorm:"not null" json:"createdTime"`
+	UpdatedTime     int64  `gorm:"not null" json:"updatedTime"`
 }
 
 func (LandingServer) TableName() string { return "landing_server" }
@@ -147,13 +156,16 @@ type LandingNode struct {
 	// landing_conn_mode >= 1 and by 妙妙屋 shares with conn_modes v1; 0 otherwise.
 	InboundConnections int `gorm:"not null;default:0" json:"inboundConnections"`
 	// ConnMode overrides the server's 计算方式 for this node; nil follows it.
-	ConnMode         *string `json:"connMode"`
-	DeletePending    bool    `gorm:"not null;default:false" json:"deletePending"`
-	RemoteState      string  `gorm:"not null;default:''" json:"remoteState"`
-	SyncError        string  `gorm:"not null;default:''" json:"syncError"`
-	RejectedRevision int64   `gorm:"not null;default:0" json:"-"`
-	LastCounterAt    int64   `gorm:"not null;default:0" json:"-"`
-	RouteProfileID   *int64  `gorm:"index" json:"routeProfileId"`
+	ConnMode      *string `json:"connMode"`
+	DeletePending bool    `gorm:"not null;default:false" json:"deletePending"`
+	RemoteState   string  `gorm:"not null;default:''" json:"remoteState"`
+	SyncError     string  `gorm:"not null;default:''" json:"syncError"`
+	// Plan 147 (native): automatic port moves after the agent reported the
+	// node's port busy on the machine (never-used nodes only, at most 3).
+	PortMoves        int    `gorm:"not null;default:0" json:"-"`
+	RejectedRevision int64  `gorm:"not null;default:0" json:"-"`
+	LastCounterAt    int64  `gorm:"not null;default:0" json:"-"`
+	RouteProfileID   *int64 `gorm:"index" json:"routeProfileId"`
 	// Plan 121 (landing-protocols-v1): AnyTLS password / Snell PSK / Mieru
 	// password, Mieru username, the non-secret options fixed at creation
 	// (ProtocolOpts JSON: sni, version, obfs, obfsHost, transport) and the

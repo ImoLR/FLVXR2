@@ -5,7 +5,6 @@ import (
 	"strconv"
 	"strings"
 
-	"go-backend/internal/landingcustom"
 	"go-backend/internal/store/model"
 )
 
@@ -35,8 +34,13 @@ func validLandingConnMode(mode string) bool {
 }
 
 // LandingNodeConnMode is the node's configured 计算方式: its own override, else
-// the server's.
+// the server's. Plan 147: a shared (妙妙屋) server always counts 入站+出站 —
+// the setting is FLVX-native only (user 10-24: 妙妙屋侧不动), whatever a row
+// may hold.
 func LandingNodeConnMode(n *model.LandingNode, s *model.LandingServer) string {
+	if s != nil && s.Source == "shared" {
+		return LandingConnTotal
+	}
 	if n != nil && n.ConnMode != nil {
 		return NormalizeLandingConnMode(*n.ConnMode)
 	}
@@ -47,16 +51,21 @@ func LandingNodeConnMode(n *model.LandingNode, s *model.LandingServer) string {
 }
 
 // LandingConnModeSupported reports whether the server's runtime applies 仅入站:
-// a shared server whose share advertises landing-conn-mode-v1, or a native
-// server whose agent reports landing_conn_mode >= 1 (agentVersion).
+// a native server whose agent reports landing_conn_mode >= 1 (agentVersion).
+// Plan 147: never a shared server — FLVX does not offer the setting there and
+// never sends conn_mode to Custom, even if a share advertised
+// landing-conn-mode-v1 (contract 暂缓).
 func LandingConnModeSupported(s *model.LandingServer, agentVersion int) bool {
-	if s == nil {
+	if s == nil || s.Source == "shared" {
 		return false
 	}
-	if s.Source == "shared" {
-		return SharedLandingCaps(s).ConnModes.Supports(landingcustom.ConnModeVersion)
-	}
 	return agentVersion >= LandingConnModeVersion
+}
+
+// LandingConnModeFixed: the server has no 计算方式 choice (shared = 妙妙屋,
+// fixed 入站+出站, plan 147).
+func LandingConnModeFixed(s *model.LandingServer) bool {
+	return s != nil && s.Source == "shared"
 }
 
 // LandingEffectiveConnMode is the mode the runtime actually applies: 仅入站 only

@@ -351,7 +351,7 @@ func (r *Repository) ValidateNodeLandingPortRange(nodeID int64, spec string) err
 			continue
 		}
 		msg := "端口 " + formatPortRange(lo, hi) + " 已留给落地，请从规则端口段里排除"
-		if hint := landingRuleSpec(spec, 0, 0, lo, hi, nil); hint != "" {
+		if hint, _ := landingRuleSpec(spec, "", 0, 0, lo, hi, nil); hint != "" {
 			msg += "（例如改成 " + hint + "）"
 		}
 		return errors.New(msg)

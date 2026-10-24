@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"sort"
@@ -28,6 +29,9 @@ import (
 )
 
 type Handler struct {
+	// Plan 147: per-node gate for agent public-IP reports.
+	publicIPGateOnce sync.Once
+	publicIPGate     *repo.PublicIPReportGate
 	auth             authGuard
 	leikwanPipeLocks [64]sync.Mutex
 	leikwan          *leikwan.Client
@@ -2393,7 +2397,11 @@ func (h *Handler) nodeInfo(w http.ResponseWriter, r *http.Request) {
 	}))
 }
 
-// nodeReportIP 节点上报公网 IP
+// nodeReportIP 节点上报公网 IP (old agents, plain HTTP with the node secret).
+// Plan 147: authenticated by the node secret (the route skips the JWT check,
+// like node/info), applied under the fill-empty rule (repo.NodePublicIPFill:
+// a report never overwrites an address) and rate-limited per node. New agents
+// send the same report over the encrypted WS session instead.
 func (h *Handler) nodeReportIP(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		response.WriteJSON(w, response.ErrDefault("请求失败"))
@@ -2411,12 +2419,11 @@ func (h *Handler) nodeReportIP(w http.ResponseWriter, r *http.Request) {
 		PublicIPV4 string `json:"public_ip_v4"`
 		PublicIPV6 string `json:"public_ip_v6"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := json.NewDecoder(io.LimitReader(r.Body, 4096)).Decode(&req); err != nil {
 		response.WriteJSON(w, response.ErrDefault("无效的请求数据"))
 		return
 	}
 
-	// 通过 secret 找到节点
 	node, err := h.repo.GetNodeBySecret(secret)
 	if err != nil {
 		response.WriteJSON(w, response.Err(-2, "读取节点失败"))
@@ -2426,31 +2433,40 @@ func (h *Handler) nodeReportIP(w http.ResponseWriter, r *http.Request) {
 		response.WriteJSON(w, response.Err(401, "节点认证失败"))
 		return
 	}
-
-	// 支持新格式 (public_ip_v4 + public_ip_v6) 和旧格式 (public_ip)
-	if req.PublicIPV4 != "" || req.PublicIPV6 != "" {
-		// 新格式：分别更新 IPv4 和 IPv6
-		if err := h.repo.UpdateNodePublicIPs(node.ID, req.PublicIPV4, req.PublicIPV6); err != nil {
-			response.WriteJSON(w, response.Err(-1, fmt.Sprintf("更新 IP 失败：%v", err)))
-			return
+	v4, v6 := req.PublicIPV4, req.PublicIPV6
+	if v4 == "" && v6 == "" {
+		// Old format: one address of either family.
+		if repo.PublicIPReportAddr(req.PublicIP, "v6") != "" {
+			v6 = req.PublicIP
+		} else {
+			v4 = req.PublicIP
 		}
-		response.WriteJSON(w, response.OK(map[string]interface{}{
-			"node_id":      node.ID,
-			"public_ip_v4": req.PublicIPV4,
-			"public_ip_v6": req.PublicIPV6,
-		}))
-	} else if req.PublicIP != "" {
-		// 旧格式：只更新 server_ip（向后兼容）
-		if err := h.repo.UpdateNodePublicIP(node.ID, req.PublicIP); err != nil {
-			response.WriteJSON(w, response.Err(-1, fmt.Sprintf("更新 IP 失败：%v", err)))
-			return
-		}
-		response.WriteJSON(w, response.OK(map[string]interface{}{
-			"node_id":   node.ID,
-			"public_ip": req.PublicIP,
-		}))
-	} else {
+	}
+	if strings.TrimSpace(v4) == "" && strings.TrimSpace(v6) == "" {
 		response.WriteJSON(w, response.ErrDefault("IP 地址不能为空"))
 		return
 	}
+	filled := h.applyNodePublicIPReport(node.ID, v4, v6)
+	response.WriteJSON(w, response.OK(map[string]interface{}{"node_id": node.ID, "filled": filled}))
+}
+
+// applyNodePublicIPReport writes a report only where the fill-empty rule
+// allows it; one log line per filled node, nothing otherwise.
+func (h *Handler) applyNodePublicIPReport(nodeID int64, ipv4, ipv6 string) []string {
+	h.publicIPGateOnce.Do(func() { h.publicIPGate = repo.NewPublicIPReportGate() })
+	if !h.publicIPGate.Allow(nodeID, ipv4, ipv6, time.Now()) {
+		return []string{}
+	}
+	filled, err := h.repo.FillNodePublicIPs(nodeID, ipv4, ipv6)
+	if err != nil {
+		log.Printf("node %d public ip report not applied: %v", nodeID, err)
+		return []string{}
+	}
+	if len(filled) > 0 {
+		log.Printf("node %d public ip report filled empty %s", nodeID, strings.Join(filled, ","))
+	}
+	if filled == nil {
+		filled = []string{}
+	}
+	return filled
 }

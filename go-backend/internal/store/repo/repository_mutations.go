@@ -447,34 +447,6 @@ func (r *Repository) GetNodeStatusFields(nodeID int64) (status, httpFlag, tlsFla
 	return node.Status, node.HTTP, node.TLS, node.Socks, node.BlockOther, nil
 }
 
-// UpdateNodePublicIP 更新节点公网 IP
-func (r *Repository) UpdateNodePublicIP(nodeID int64, publicIP string) error {
-	if r == nil || r.db == nil {
-		return errors.New("repository not initialized")
-	}
-	// DDNS nodes (plan 142) keep their domain addresses.
-	return r.db.Model(&model.Node{}).
-		Where("id = ? AND ddns_enabled = ?", nodeID, false).
-		Update("server_ip", publicIP).Error
-}
-
-func (r *Repository) UpdateNodePublicIPs(nodeID int64, ipv4, ipv6 string) error {
-	if r == nil || r.db == nil {
-		return errors.New("repository not initialized")
-	}
-	serverIP := ipv6
-	if serverIP == "" {
-		serverIP = ipv4
-	}
-	return r.db.Model(&model.Node{}).
-		Where("id = ? AND ddns_enabled = ?", nodeID, false).
-		Updates(map[string]interface{}{
-			"server_ip":    serverIP,
-			"server_ip_v4": ipv4,
-			"server_ip_v6": ipv6,
-		}).Error
-}
-
 func (r *Repository) UpdateNode(id int64, name, serverIP string, serverIPV4, serverIPV6, intranetIP, port, interfaceName, extraIPs, remark, expiryTime, renewalCycle, groupID interface{}, httpFlag, tlsFlag, socksFlag, blockOtherFlag int, tcpAddr, udpAddr string, now int64, egressIPFamily, panelIPFamily string, region ...NodeRegion) error {
 	if r == nil || r.db == nil {
 		return errors.New("repository not initialized")

@@ -165,6 +165,10 @@ func validateLandingServer(s *model.LandingServer, keep map[string]bool) error {
 	if s.Source == "shared" && NormalizeLandingConnMode(s.MaxConnMode) != LandingConnTotal {
 		return errors.New("共享服务器总连接数由妙妙屋管理（按入站+出站计算）")
 	}
+	// Plan 147: 节点连接数计算方式 is FLVX-native only; shared nodes stay 入站+出站.
+	if s.Source == "shared" && NormalizeLandingConnMode(s.ConnMode) != LandingConnTotal {
+		return errors.New("共享服务器的节点连接数固定按入站+出站计算")
+	}
 	switch s.DefaultExpiryMode {
 	case "follow_user", "permanent":
 	case "days":
@@ -243,6 +247,8 @@ func (r *Repository) SaveLandingServerOpts(s *model.LandingServer, groups []int6
 		s.RealityGuardOff, s.GuardState, s.GuardNodes = old.RealityGuardOff, old.GuardState, old.GuardNodes
 		// Plan 129: the Core upgrade report / confirmation have their own paths.
 		s.CoreStaleEpoch, s.CoreUpgradeOK = old.CoreStaleEpoch, old.CoreUpgradeOK
+		// Plan 147: carve record and agent busy-port reports have their own paths.
+		s.RuleCarved, s.NativeBusyPorts = old.RuleCarved, old.NativeBusyPorts
 		keep := map[string]bool{}
 		var oldProtocols []string
 		_ = json.Unmarshal([]byte(old.Protocols), &oldProtocols)
@@ -290,7 +296,7 @@ func (r *Repository) SaveLandingServerOpts(s *model.LandingServer, groups []int6
 		// the admin applies the new one (and the server's 节点连接数) to all.
 		oldConnMode := NormalizeLandingConnMode(old.ConnMode)
 		s.ConnMode, s.MaxConnMode, s.ConnModeSig = NormalizeLandingConnMode(s.ConnMode), NormalizeLandingConnMode(s.MaxConnMode), old.ConnModeSig
-		if opts.ApplyConnModeToNodes {
+		if opts.ApplyConnModeToNodes && s.Source != "shared" {
 			if err := tx.Model(&model.LandingNode{}).Where("landing_server_id = ?", s.ID).Updates(map[string]any{"conn_mode": nil, "max_connections": s.DefaultMaxConnections}).Error; err != nil {
 				return err
 			}
@@ -782,6 +788,10 @@ func landingFreePort(tx *gorm.DB, s model.LandingServer) (int, error) {
 		for _, p := range guards {
 			used[p] = true
 		}
+		// Plan 147: ports the agent reported taken by another program.
+		for p := range nativeBusyPortsFresh(&s, time.Now()) {
+			used[p] = true
+		}
 	}
 	for p := s.PortMin; p <= s.PortMax; p++ {
 		if !used[p] {
@@ -839,6 +849,21 @@ func (r *Repository) UpdateLandingNode(n *model.LandingNode) error {
 		}
 		if err := validateSharedLandingNode(n, &server); err != nil {
 			return err
+		}
+		if server.Source == "shared" && n.ConnMode != nil {
+			// Plan 147: no 计算方式 override on a shared node (fixed 入站+出站).
+			// Asking for 仅入站 is refused; a value already stored (fork.86-88
+			// row, none on prod) is just cleared so the node stays editable.
+			if *n.ConnMode == LandingConnInbound {
+				var cur model.LandingNode
+				if err := tx.Select("id", "conn_mode").First(&cur, n.ID).Error; err != nil {
+					return err
+				}
+				if cur.ConnMode == nil || *cur.ConnMode != LandingConnInbound {
+					return errors.New("共享服务器的节点连接数固定按入站+出站计算")
+				}
+			}
+			n.ConnMode = nil
 		}
 		n.UpdatedTime = time.Now().UnixMilli()
 		if err := tx.Model(&model.LandingNode{}).Where("id = ?", n.ID).Updates(map[string]interface{}{"name": n.Name, "max_connections": n.MaxConnections, "max_online_ips": n.MaxOnlineIPs, "traffic_limit_bytes": n.TrafficLimitBytes, "flow_type": n.FlowType, "traffic_ratio": n.TrafficRatio, "conn_mode": n.ConnMode, "expiry_mode": n.ExpiryMode, "expires_at": n.ExpiresAt, "status": n.Status, "auto_disabled": n.AutoDisabled, "updated_time": n.UpdatedTime}).Error; err != nil {

@@ -201,6 +201,7 @@ func (h *Handler) landingServerViewWith(s model.LandingServer, admin bool, catal
 	// then counts each node in its own mode, labelled by connectionsMode.
 	supported := repo.LandingConnModeSupported(&s, connAgent)
 	v["connModeSupported"] = supported
+	v["connModeFixed"] = repo.LandingConnModeFixed(&s)
 	v["maxConnectionsMode"] = repo.LandingServerTotalConnMode(&s, supported)
 	v["connectionsMode"] = repo.LandingConnTotal
 	if supported {
@@ -253,6 +254,8 @@ func landingNodeViewData(n model.LandingNode, s *model.LandingServer, u *model.U
 	v["connModeConfigured"] = configured
 	v["connModeEffective"] = effective
 	v["connModePending"] = configured != effective
+	// Plan 147: no 计算方式 choice on a shared server (fixed 入站+出站).
+	v["connModeFixed"] = repo.LandingConnModeFixed(s)
 	flow, ratio := 2, 1.0
 	expires := int64(0)
 	minExpiry := func(t int64) {
@@ -275,6 +278,8 @@ func landingNodeViewData(n model.LandingNode, s *model.LandingServer, u *model.U
 			if caps := repo.SharedLandingCaps(s); caps.ShareUntil != nil {
 				minExpiry(*caps.ShareUntil)
 			}
+		} else if status, _ := landingNodeDisplayStatus(&n, s); status != n.Status {
+			v["status"] = status
 		}
 		flow = s.FlowType
 		ratio = s.TrafficRatio
@@ -583,6 +588,10 @@ func (h *Handler) landingNodeCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	h.reconcileLandingPolicy(time.Now())
 	h.syncLandingServer(n.LandingServerID)
+	// Plan 147: the sync may have moved a never-used node off a busy port.
+	if cur, err := h.repo.GetLandingNode(n.ID); err == nil && cur != nil {
+		n = cur
+	}
 	view := h.landingNodeView(*n)
 	if role != 0 {
 		hideLandingNodeEgressInternals(view)
@@ -600,6 +609,7 @@ func hideLandingNodeEgressInternals(view map[string]interface{}) {
 	delete(view, "connMode")
 	delete(view, "connModeConfigured")
 	delete(view, "connModePending")
+	delete(view, "connModeFixed")
 	delete(view, "inboundConnections")
 }
 func (h *Handler) landingOwnedNode(r *http.Request, id int64) (*model.LandingNode, error) {

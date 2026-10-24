@@ -138,6 +138,10 @@ func shouldSkip(path string) bool {
 		return true
 	case path == "/api/v1/node/info":
 		return true
+	case path == "/api/v1/node/report-ip":
+		// Plan 147: authenticated by the node secret in the handler (agents
+		// have no JWT); was rejected here as bad_token since it was added.
+		return true
 	case path == "/api/v1/federation/connect":
 		return true
 	case path == "/api/v1/federation/tunnel/create":

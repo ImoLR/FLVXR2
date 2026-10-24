@@ -121,6 +121,9 @@ type landingSyncSnapshot struct {
 	// Plan 129: "restart_required" = the running Core is older than the
 	// pinned binary the agent downloaded (absent on older agents).
 	CoreUpdate string `json:"core_update"`
+	// Plan 147: inbounds the agent could not add (port busy, Core refused);
+	// absent on older agents, which fail the whole apply instead.
+	NodeErrors []repo.LandingNodeReport `json:"node_errors"`
 }
 
 func (h *Handler) syncLandingServer(serverID int64) (*landingSyncSnapshot, error) {
@@ -130,6 +133,34 @@ func (h *Handler) syncLandingServer(serverID int64) (*landingSyncSnapshot, error
 	if server, err := h.repo.GetLandingServer(serverID); err == nil && server != nil && server.Source == "shared" {
 		return nil, h.syncSharedLandingServer(serverID)
 	}
+	// Plan 147: a never-used node whose port is busy on the machine moves to a
+	// free port; push again right away (each node moves at most 3 times, so
+	// this loop is bounded too).
+	for attempt := 0; ; attempt++ {
+		snapshot, moved, err := h.syncNativeLandingServer(serverID)
+		if err != nil || !moved || attempt >= 3 {
+			return snapshot, err
+		}
+	}
+}
+
+func (h *Handler) syncNativeLandingServer(serverID int64) (*landingSyncSnapshot, bool, error) {
+	snapshot, err := h.syncNativeLandingServerOnce(serverID)
+	if err != nil || snapshot == nil {
+		return snapshot, false, err
+	}
+	moved, err := h.repo.ApplyNativeLandingNodeErrors(serverID, snapshot.NodeErrors, time.Now())
+	if err != nil {
+		log.Printf("landing node errors not recorded server=%d: %v", serverID, err)
+		return snapshot, false, nil
+	}
+	if len(moved) > 0 {
+		log.Printf("landing server=%d moved never-used nodes %v off ports busy on the machine", serverID, moved)
+	}
+	return snapshot, len(moved) > 0, nil
+}
+
+func (h *Handler) syncNativeLandingServerOnce(serverID int64) (*landingSyncSnapshot, error) {
 	h.landingSyncMu.Lock()
 	defer h.landingSyncMu.Unlock()
 	s, err := h.repo.GetLandingServer(serverID)

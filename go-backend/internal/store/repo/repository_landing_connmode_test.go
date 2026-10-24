@@ -36,6 +36,9 @@ func TestLandingConnModeResolution(t *testing.T) {
 		{"own inbound on total server", ownInbound, native, true, LandingConnInbound, LandingConnInbound},
 		{"no server", ownInbound, nil, true, LandingConnInbound, LandingConnInbound},
 		{"garbage normalizes to total", &model.LandingNode{ConnMode: connModePtr("x")}, native, true, LandingConnTotal, LandingConnTotal},
+		// Plan 147: shared servers are fixed 入站+出站, whatever a row holds.
+		{"shared ignores node override", ownInbound, shared, true, LandingConnTotal, LandingConnTotal},
+		{"shared ignores server mode", follow, shared, true, LandingConnTotal, LandingConnTotal},
 	} {
 		if got := LandingNodeConnMode(tt.n, tt.s); got != tt.want {
 			t.Fatalf("%s: configured %q want %q", tt.name, got, tt.want)
@@ -61,9 +64,11 @@ func TestLandingConnModeResolution(t *testing.T) {
 	if !LandingConnModeSupported(native, 1) || LandingConnModeSupported(native, 0) || LandingConnModeSupported(shared, 5) || LandingConnModeSupported(nil, 1) {
 		t.Fatal("support gate")
 	}
+	// Plan 147: even a share advertising landing-conn-mode-v1 never gets it.
 	caps, _ := json.Marshal(landingcustom.Share{ID: 1, ConnModes: &landingcustom.ShareConnModes{Versions: []int{1}}})
-	if !LandingConnModeSupported(&model.LandingServer{Source: "shared", SharedCaps: string(caps)}, 0) {
-		t.Fatal("shared conn_modes v1 not supported")
+	advertised := &model.LandingServer{Source: "shared", SharedCaps: string(caps)}
+	if LandingConnModeSupported(advertised, 0) || LandingConnModeSupported(advertised, 1) || !LandingConnModeFixed(advertised) || LandingConnModeFixed(native) {
+		t.Fatal("shared conn mode must stay fixed 入站+出站")
 	}
 }
 
@@ -177,10 +182,12 @@ func TestLandingConnModeServerSaveNodesAndRevision(t *testing.T) {
 	}
 }
 
-// Shared desired: conn_mode only for shares advertising landing-conn-mode-v1;
-// 入站+出站 nodes stay byte-identical (no revision bump when the capability
-// arrives); the share cap still clamps 仅入站 nodes.
-func TestSharedLandingDesiredConnMode(t *testing.T) {
+// Plan 147 (user 10-24: 妙妙屋侧不动): a shared server never offers or sends
+// 仅入站. The admin API refuses it on shared servers and nodes, a legacy row
+// holding it is inert, the desired payload never carries conn_mode (also when
+// the share advertises landing-conn-mode-v1) and stays byte-identical, and
+// 「应用到现有节点」 does nothing on a shared server.
+func TestSharedLandingConnModeFixed(t *testing.T) {
 	for _, dialect := range []string{"sqlite", "postgres"} {
 		t.Run(dialect, func(t *testing.T) {
 			r, s := extraProtocolFixture(t, dialect)
@@ -188,80 +195,75 @@ func TestSharedLandingDesiredConnMode(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			inbound, err := r.CreateLandingNode(501, s.ID, "inbound", "ss2022", false)
+			legacy, err := r.CreateLandingNode(501, s.ID, "legacy", "ss2022", false)
 			if err != nil {
 				t.Fatal(err)
 			}
-			inbound.ConnMode, inbound.MaxConnections = connModePtr(LandingConnInbound), 100
-			if err := r.UpdateLandingNode(inbound); err != nil {
+			legacy.ConnMode, legacy.MaxConnections = connModePtr(LandingConnInbound), 100
+			if err := r.UpdateLandingNode(legacy); err == nil || !strings.Contains(err.Error(), "入站+出站") {
+				t.Fatalf("shared node 仅入站 accepted: %v", err)
+			}
+			legacy.ConnMode = connModePtr(LandingConnTotal)
+			if err := r.UpdateLandingNode(legacy); err != nil {
 				t.Fatal(err)
 			}
-			desired := func() (map[string]landingcustom.Node, int64, []byte) {
+			if n, _ := r.GetLandingNode(legacy.ID); n.ConnMode != nil || n.MaxConnections != 100 {
+				t.Fatalf("shared total override stored: %+v", n.ConnMode)
+			}
+			desired := func() ([]byte, int64) {
 				t.Helper()
 				d, err := r.SharedLandingDesired(s.ID, nil)
 				if err != nil {
 					t.Fatal(err)
 				}
-				out := map[string]landingcustom.Node{}
-				for _, n := range d.Nodes {
-					out[n.Name] = n
-				}
-				raw, _ := json.Marshal(out["total"])
-				return out, d.Revision, raw
+				raw, _ := json.Marshal(d.Nodes)
+				return raw, d.Revision
 			}
-			before, rev, totalRaw := desired()
-			if before["inbound"].ConnMode != "" || strings.Contains(string(totalRaw), "conn_mode") {
-				t.Fatalf("old share got conn_mode: %+v", before["inbound"])
+			clean, rev := desired()
+			// A row written by fork.86-88 with 仅入站 (none on prod) is inert.
+			if err := r.db.Model(&model.LandingNode{}).Where("id = ?", legacy.ID).Update("conn_mode", LandingConnInbound).Error; err != nil {
+				t.Fatal(err)
 			}
-			raw, _ := json.Marshal(before["inbound"])
-			if strings.Contains(string(raw), "conn_mode") {
-				t.Fatalf("old share payload carries conn_mode: %s", raw)
+			if err := r.db.Model(&model.LandingServer{}).Where("id = ?", s.ID).Update("conn_mode", LandingConnInbound).Error; err != nil {
+				t.Fatal(err)
 			}
-			// Capability arrives: only the inbound node changes.
 			share := extraProtocolShare(true)
 			share.ConnModes = &landingcustom.ShareConnModes{Versions: []int{1}}
 			if err := r.SyncSharedLandings([]landingcustom.Share{share}, time.Now().UnixMilli()); err != nil {
 				t.Fatal(err)
 			}
-			after, rev2, totalRaw2 := desired()
-			if after["inbound"].ConnMode != landingcustom.ConnModeInbound || after["total"].ConnMode != "" || string(totalRaw) != string(totalRaw2) || rev2 != rev+1 {
-				t.Fatalf("capable share: inbound=%q total=%q rev %d→%d", after["inbound"].ConnMode, after["total"].ConnMode, rev, rev2)
+			got, rev2 := desired()
+			if string(got) != string(clean) || strings.Contains(string(got), "conn_mode") || rev2 != rev {
+				t.Fatalf("shared desired changed: rev %d→%d\n%s\n%s", rev, rev2, clean, got)
 			}
-			// Without any 仅入站 node the desired hash (and revision) is unchanged.
-			inbound.ConnMode = nil
-			if err := r.UpdateLandingNode(inbound); err != nil {
+			// The legacy node stays editable; saving it clears the stored mode.
+			stored, _ := r.GetLandingNode(legacy.ID)
+			stored.Name = "legacy-renamed"
+			if err := r.UpdateLandingNode(stored); err != nil {
+				t.Fatalf("legacy shared 仅入站 node not editable: %v", err)
+			}
+			if n, _ := r.GetLandingNode(legacy.ID); n.ConnMode != nil || n.Name != "legacy-renamed" {
+				t.Fatalf("legacy mode kept: %v", n.ConnMode)
+			}
+			// Server save: 仅入站 refused; 「应用到现有节点」 ignored.
+			if err := r.db.Model(&model.LandingServer{}).Where("id = ?", s.ID).Update("conn_mode", LandingConnTotal).Error; err != nil {
 				t.Fatal(err)
-			}
-			_, rev3, _ := desired()
-			share.ConnModes = nil
-			if err := r.SyncSharedLandings([]landingcustom.Share{share}, time.Now().UnixMilli()); err != nil {
-				t.Fatal(err)
-			}
-			if _, rev4, _ := desired(); rev4 != rev3 {
-				t.Fatalf("capability loss bumped an all-total share: %d → %d", rev3, rev4)
-			}
-			// Share cap clamps 仅入站 nodes like before; validation still applies.
-			inbound.ConnMode = connModePtr(LandingConnInbound)
-			if err := r.UpdateLandingNode(inbound); err != nil {
-				t.Fatal(err)
-			}
-			share.MaxConnections = 50
-			if err := r.SyncSharedLandings([]landingcustom.Share{share}, time.Now().UnixMilli()); err != nil {
-				t.Fatal(err)
-			}
-			if n, _ := r.GetLandingNode(inbound.ID); n.MaxConnections != 50 || n.ConnMode == nil {
-				t.Fatalf("clamp: %+v", n)
-			}
-			inbound.MaxConnections = 60
-			if err := r.UpdateLandingNode(inbound); err == nil {
-				t.Fatal("inbound node above the share cap accepted")
 			}
 			srv := reloadServer(t, r, s.ID)
-			srv.MaxConnMode = LandingConnInbound
-			if err := r.SaveLandingServer(srv, nil); err == nil || !strings.Contains(err.Error(), "妙妙屋") {
-				t.Fatalf("shared 仅入站 total accepted: %v", err)
+			srv.ConnMode = LandingConnInbound
+			if err := r.SaveLandingServer(srv, nil); err == nil || !strings.Contains(err.Error(), "入站+出站") {
+				t.Fatalf("shared server 仅入站 accepted: %v", err)
 			}
-			_ = total
+			srv = reloadServer(t, r, s.ID)
+			srv.DefaultMaxConnections = 7
+			if err := r.SaveLandingServerOpts(srv, nil, LandingServerSaveOptions{ApplyConnModeToNodes: true}); err != nil {
+				t.Fatal(err)
+			}
+			for _, id := range []int64{total.ID, legacy.ID} {
+				if n, _ := r.GetLandingNode(id); n.MaxConnections == 7 {
+					t.Fatalf("apply-to-existing touched shared node %d", id)
+				}
+			}
 		})
 	}
 }
