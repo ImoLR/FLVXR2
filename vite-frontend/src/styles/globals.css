@@ -1720,8 +1720,8 @@ textarea:focus-visible {
   white-space: nowrap;
 }
 
-/* Plan 106 16px scale-up, now only on the two landing bits embedded in the 规则 page (forward.tsx chain progress,
-   rule-target line-machine picker) so that page stays exactly as it was. */
+/* Plan 106 16px scale-up, now only on the landing bits embedded in the 规则 page (forward.tsx chain progress,
+   rule-target line-machine picker, chain-links dialog) so that page stays exactly as it was. */
 .flvx-landing-text
   :is(
     .text-xs,
