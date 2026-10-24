@@ -27,6 +27,7 @@ import {
 } from "@/shadcn-bridge/heroui/modal";
 import { Select, SelectItem } from "@/shadcn-bridge/heroui/select";
 import { isAdmin } from "@/utils/auth";
+import { armLandingNodeHints } from "@/utils/onboarding-hints";
 
 // The panel stores up to 100 bytes (about 33 Chinese characters).
 export const LANDING_NAME_TOO_LONG = "名称太长：最多 100 字节（约 33 个汉字）";
@@ -120,6 +121,7 @@ export function CreateLandingNodeDialog({
 
         return;
       }
+      armLandingNodeHints(res.data);
       await onCreated(res.data);
       onClose();
     } catch {

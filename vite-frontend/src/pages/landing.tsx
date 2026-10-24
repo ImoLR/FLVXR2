@@ -32,6 +32,10 @@ import {
   landingStatus,
 } from "@/api/landing";
 import { AnimatedPage } from "@/components/animated-page";
+import {
+  OnboardingRing,
+  useOnboardingHint,
+} from "@/components/onboarding-ring";
 import { usePullToRefresh } from "@/hooks/usePullToRefresh";
 import { Button } from "@/shadcn-bridge/heroui/button";
 import { Card, CardBody, CardHeader } from "@/shadcn-bridge/heroui/card";
@@ -46,6 +50,7 @@ import {
 import { Spinner } from "@/shadcn-bridge/heroui/spinner";
 import { Tab, Tabs } from "@/shadcn-bridge/heroui/tabs";
 import { isAdmin } from "@/utils/auth";
+import { JwtUtil } from "@/utils/jwt";
 import { CreateLandingNodeDialog } from "@/pages/landing/create-node";
 import { LandingGlobalSettings } from "@/pages/landing/global-settings";
 import { NodeDetails } from "@/pages/landing/node-details";
@@ -313,6 +318,20 @@ export default function LandingPage() {
       disposed = true;
     };
   }, [linksFor]);
+  // Plan 146: first-time hint on 「用于新规则」 of the user's newest own node, once it is active.
+  const currentUserId = JwtUtil.getUserIdFromToken();
+  const hintNode = nodes.reduce<LandingNode | null>(
+    (newest, node) =>
+      node.userId === currentUserId &&
+      !node.deletePending &&
+      (!newest || node.id > newest.id)
+        ? node
+        : newest,
+    null,
+  );
+  const useNodeHint = useOnboardingHint("useNode", {
+    enabled: tab === "nodes" && hintNode?.status === "active",
+  });
   const actions = (node: LandingNode) => (
     <div className="flex flex-wrap gap-2">
       <Button
@@ -346,17 +365,23 @@ export default function LandingPage() {
         </Button>
       )}
       <Button
+        ref={node.id === hintNode?.id ? useNodeHint.ref : undefined}
+        className="relative"
         color="secondary"
         isDisabled={node.status !== "active"}
         size="sm"
         variant="flat"
-        onPress={() =>
+        onPress={() => {
+          useNodeHint.complete();
           navigate(
             `/forward?landingNodeId=${node.id}&landingUserId=${node.userId}`,
-          )
-        }
+          );
+        }}
       >
         用于新规则
+        {node.id === hintNode?.id && (
+          <OnboardingRing active={useNodeHint.active} />
+        )}
       </Button>
       <Button
         color="danger"

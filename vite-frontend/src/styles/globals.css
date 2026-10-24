@@ -1759,3 +1759,92 @@ textarea:focus-visible {
   font-size: 1.125rem;
   line-height: 1.75rem;
 }
+
+/* Plan 146: first-time 落地 hint ring (components/onboarding-ring.tsx). The ring and its mask are static;
+   only `.flvx-onboarding-ring__spin` rotates (transform) and the outer element fades (opacity), so the
+   15 s animation runs on the compositor without per-frame layout or paint. Never moves its host. */
+.flvx-onboarding-ring {
+  --flvx-ring: var(--primary);
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  border-radius: inherit;
+  pointer-events: none;
+  box-shadow: 0 0 6px 0 color-mix(in srgb, var(--flvx-ring) 35%, transparent);
+  animation: flvx-onboarding-fade 15s linear forwards;
+}
+
+.dark .flvx-onboarding-ring {
+  --flvx-ring: var(--primary-400, #60a5fa);
+}
+
+.flvx-onboarding-ring__band {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  padding: 2px;
+  border-radius: inherit;
+  background: color-mix(in srgb, var(--flvx-ring) 18%, transparent);
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  mask-composite: exclude;
+}
+
+.flvx-onboarding-ring__scale {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  height: 150%;
+  aspect-ratio: 1;
+}
+
+.flvx-onboarding-ring__spin {
+  position: absolute;
+  inset: 0;
+  background: conic-gradient(
+    transparent 0 60%,
+    color-mix(in srgb, var(--flvx-ring) 30%, transparent) 80%,
+    var(--flvx-ring) 95%,
+    color-mix(in srgb, var(--flvx-ring) 35%, #fff) 99%,
+    var(--flvx-ring) 100%
+  );
+  will-change: transform;
+  animation: flvx-onboarding-spin 2.4s linear infinite;
+}
+
+@keyframes flvx-onboarding-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes flvx-onboarding-fade {
+  0% {
+    opacity: 0;
+  }
+  3%,
+  96% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .flvx-onboarding-ring__band {
+    background: color-mix(in srgb, var(--flvx-ring) 55%, transparent);
+  }
+
+  .flvx-onboarding-ring__spin {
+    display: none;
+  }
+}

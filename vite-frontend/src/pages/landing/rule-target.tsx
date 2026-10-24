@@ -8,6 +8,10 @@ import {
   landingProtocolLabel,
   landingServers,
 } from "@/api/landing";
+import {
+  OnboardingAnchor,
+  useOnboardingHint,
+} from "@/components/onboarding-ring";
 import { ChainTargetInput } from "@/pages/landing/chain-target";
 import { CreateLandingNodeDialog } from "@/pages/landing/create-node";
 import { Button } from "@/shadcn-bridge/heroui/button";
@@ -104,6 +108,8 @@ export function RuleLandingTarget({
     return "";
   };
   const groups = Array.from(new Set(nodes.map((node) => node.landingServerId)));
+  // Plan 146: first-time hint on 「目标类型」 after a 落地 node was created.
+  const targetHint = useOnboardingHint("targetType");
   const selectNode = (node: LandingNode) =>
     onChange({ ...value, targetMode: "node", landingNodeId: node.id });
 
@@ -120,16 +126,19 @@ export function RuleLandingTarget({
         disabledKeys={lineMachine && !line?.chainAvailable ? ["chain"] : []}
         label="目标类型"
         selectedKeys={[mode]}
+        triggerOverlay={<OnboardingAnchor hint={targetHint} />}
         variant="bordered"
-        onSelectionChange={(keys) =>
+        onClick={targetHint.complete}
+        onSelectionChange={(keys) => {
+          targetHint.complete();
           onChange({
             targetMode: String(
               Array.from(keys)[0],
             ) as LandingTargetValue["targetMode"],
             landingNodeId: undefined,
             chainLink: "",
-          })
-        }
+          });
+        }}
       >
         {[
           ...(lineMachine
