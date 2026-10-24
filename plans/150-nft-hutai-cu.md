@@ -88,11 +88,11 @@ Echo/bulk server on the dev host (v4 104.145.236.29 + v6), probes with connected
 - [x] Fix (panel and/or agent) + unit/contract tests (fail without fix)
 - [x] Affected rules/nodes list from the prod copy
 - [x] Full backend tests SQLite + PostgreSQL vs fork.89 baseline; agent tests; frontend tsc/build/lint
-- [ ] Commit, push branch `maintenance/3.0.27-fork.90-nft-hutai`, tag `3.0.27-fork.90`, CI + release assets verified
-- [ ] Prod panel backup (rollback dir) + prune + upgrade + health/node checks
-- [ ] OTA only if the agent changed (node 48 canary first)
-- [ ] Re-run throwaway tests on prod node 48, delete throwaway rules, node 48 resource numbers before/after
-- [ ] Plan doc final notes + summary
+- [x] Commit, push branch `maintenance/3.0.27-fork.90-nft-hutai`, tag `3.0.27-fork.90`, CI + release assets verified
+- [x] Prod panel backup (rollback dir) + prune + upgrade + health/node checks
+- [x] OTA only if the agent changed (node 48 canary first)
+- [x] Re-run throwaway tests on prod node 48, delete throwaway rules, node 48 resource numbers before/after
+- [x] Plan doc final notes + summary
 
 ## Tests so far
 - Agent: `internal/net/udp` unit (127.0.0.2 / dual-stack / IPv6 loopback / fallback / cmsg parsing) — the plain socket
@@ -118,3 +118,52 @@ Echo/bulk server on the dev host (v4 104.145.236.29 + v6), probes with connected
   `TestDNATNeverCrossesAddressFamilies` + accounting test pass.
 - Screens (desktop light/dark + H5, 9/9 checks, demo panel offline in `unshare -n`):
   http://104.145.236.29:8791/ea923e5e348dfb9548d4d0909b6de1ee/nft-hutai/
+
+## Release / rollout (2026-10-24, times TW)
+- Branch `maintenance/3.0.27-fork.90-nft-hutai` (commits e18850af agent, 4cb365c3 panel, 4a3f89b2 UI, 98e8df28 plan),
+  tag `3.0.27-fork.90` → 98e8df28. CI Build Check 40098988446 ✓, Build and Push Images 40099101439 ✓.
+  Release: Latest, not prerelease, 10 assets = fork.89 set, compose pinned to fork.90, PINNED_VERSION/REPO ok,
+  gost sha256 ok, `gost-amd64 -V` = 3.0.27-fork.90, ghcr backend/frontend amd64+arm64.
+- Panel: rollback point `/opt/flvx-svc/rollback/pre-fork90-20261024T135001Z` (quick/integrity ok); prune removed
+  pre-fork88 + fork.87 images (kept pre-fork89, pre-fork90). Upgrade 21:50:10 → healthy 21:50:23, public
+  version.json `3.0.27-fork.90-mvmg6iov`, served bundle has the new hint and no old refusal text. 30/30 nodes back;
+  reconnect redeploy: every node 0 updates except node 48 (throwaway rule 160 re-pushed with the AAAA = intended).
+  forward / forward_port / node addresses / tunnels identical before/after. Backend 33.2 MiB / 2.5 % CPU, DB 57.34 MB.
+- Node 48 OTA: SSH backup `/root/flvxx-backup-20261024T135100Z-pre-fork90` (fork.82 + restore-agent.sh), panel OTA
+  21:51 → online with fork.90 in 5.6 s; panel redeployed its 8 forwards in 2.85 s; legacy dead rule 157 logged once.
+  Other nodes not OTA'd (no other node has extra IPs; they get the agent change with the next all-node OTA).
+- Prod after: rule 157 re-saved → saved as gost with the note; new nftables rule 161 → gost with the note.
+
+  | rule | mode now | CT TCP | CT UDP | CU TCP | CU UDP |
+  |---|---|---|---|---|---|
+  | A 157 (was nft→IPv4) | gost (auto) | OK | OK | OK | OK |
+  | B 158 nft→IPv6 | nftables | OK | OK 5/5 | OK | OK 5/5 |
+  | C 159 gost→IPv4 | gost | OK | OK 5/5 | OK | **OK 5/5** (was 0/5) |
+  | E 161 new nft→IPv4 | gost (auto) | OK | OK | OK | OK |
+  | D 160 nft→one.one.one.one | nftables, now `ip6 to [2606:4700:4700::1001]` | timeout | timeout | timeout | timeout |
+
+  D now matches (was refused) but node 48's IPv6 egress cannot reach Cloudflare/Google over IPv6 (direct test from the
+  node times out too) — node network, not FLVX. tcpdump: CU UDP replies now leave from 2408 (were 240e).
+  User forwards 110/113/126/156 diagnose OK before and after the OTA (35/33/46/34 ms).
+- Throwaway rules 157–161 deleted; node 48 back to 8 gost services, empty DNAT chain, same nft tables as before.
+- Node 48 resources: before fork.82 RSS 69.6 MB / 0.2 % CPU / 8 threads; after fork.90 (11 min) RSS 62.1 MB / 0.2 %
+  CPU / 7 threads, 25 sockets (8 listeners + live user connections), disk 19 %, journal 217 M (cap), agent journal
+  65 lines/10 min incl. the cleanup commands (SetQuotaGroups ~3/min is pre-existing).
+
+## Rollback
+- Panel → fork.89: `bash /opt/flvx-svc/rollback/pre-fork90-20261024T135001Z/rollback.sh` (no DB change in fork.90, do not
+  use `--restore-db`: it would also bring back the deleted throwaway rules). `pre-fork89-…` (→ fork.88) still kept.
+- Node 48 agent → fork.82 (panel OTA cannot downgrade): `ssh` to node 48, `sh /root/flvxx-backup-20261024T135100Z-pre-fork90/restore-agent.sh`.
+
+## Open
+- Node 48's CU line answers new inbound UDP flows with stray DTLS-looking 228/232-byte packets (provider side; real
+  clients drop them).
+- Node 48's IPv6 egress is mainland-side and reaches only some destinations, so even an nftables rule to an IPv6 target
+  does not use the IPLC's Taiwan exit → keep gost on node 48 (the user's rule 156 is gost: correct).
+- nftables keeps one DNAT per rule and protocol: on a dual-stack entry only one family can be served (the panel says so).
+- Rules saved before fork.90 are not converted automatically (none dead in prod); a push logs one line.
+- Agent UDP fix only on node 48 so far.
+- Plan 149 (`feature/3.0.27-landing-chip-polish`) must rebase onto fork.90.
+- Leftovers this session could not delete (no permission for rm / worktree remove): temp worktree
+  `/root/flvx-workers/runs/nft-hutai-cu/t/base-wt`, `vite-frontend/node_modules` symlink in this worktree, scratch DB
+  copies in the run dir (prune script removes `*.db` > 10 MB), demo binary `runs/nft-hutai-cu/demo/bin` (40 MB).
