@@ -1468,6 +1468,9 @@ func (r *Repository) UpdateForwardOrder(forwardID int64, inx int, now int64) {
 		Updates(map[string]interface{}{"inx": inx, "updated_time": now}).Error
 }
 
+// UpdateForwardTunnel moves a rule to another tunnel (batch 换隧道, tunnel
+// delete migration). An entry binding belongs to the old tunnel, so it is
+// cleared: the rule opens on every entry its owner may use (plan 152).
 func (r *Repository) UpdateForwardTunnel(forwardID, tunnelID int64, now int64) error {
 	if r == nil || r.db == nil {
 		return errors.New("repository not initialized")
@@ -1484,7 +1487,7 @@ func (r *Repository) UpdateForwardTunnel(forwardID, tunnelID int64, now int64) e
 		if err != nil {
 			return err
 		}
-		return tx.Model(&model.Forward{}).Where("id = ?", forwardID).Updates(map[string]interface{}{"tunnel_id": tunnelID, "landing_node_id": landingID, "updated_time": now}).Error
+		return tx.Model(&model.Forward{}).Where("id = ?", forwardID).Updates(map[string]interface{}{"tunnel_id": tunnelID, "landing_node_id": landingID, "updated_time": now, "entry_node_ids": ""}).Error
 	})
 }
 
@@ -2300,6 +2303,7 @@ func (r *Repository) RollbackForwardFields(id, userID int64, userName, name stri
 			"cn_blocked":             cnBlocked,
 			"cn_blocked_reason":      cnBlockedReason,
 			"cn_blocked_auto_paused": cnBlockedAutoPaused,
+			"entry_node_ids":         old.EntryNodeIDs,
 			"updated_time":           now,
 		}).Error
 }
@@ -2893,7 +2897,7 @@ func (r *Repository) EnsureUserTunnelGrant(userID, tunnelID int64) (int64, bool,
 // CreateForwardTx inserts a rule and its entry ports. With enforceRuleLimit the
 // owner's 规则数 (user.num) is checked in the same transaction with the owner
 // row locked, so parallel creates cannot overshoot it.
-func (r *Repository) CreateForwardTx(enforceRuleLimit bool, userID int64, userName, name string, tunnelID int64, remoteAddr, strategy string, now int64, inx int, entryNodeIDs []int64, port int, inIp string, speedID interface{}, maxConnections, maxClientIps int, trafficLimit int64, expiryTime interface{}, speedLimitEnabled bool, speedLimit int, mode string, wgPathID int64, wgRuleType, sourceCIDR, targetCIDR string, snatEnabled bool, landingNodeID ...int64) (int64, error) {
+func (r *Repository) CreateForwardTx(enforceRuleLimit bool, userID int64, userName, name string, tunnelID int64, remoteAddr, strategy string, now int64, inx int, entryNodeIDs []int64, port int, inIp string, speedID interface{}, maxConnections, maxClientIps int, trafficLimit int64, expiryTime interface{}, speedLimitEnabled bool, speedLimit int, mode string, wgPathID int64, wgRuleType, sourceCIDR, targetCIDR string, snatEnabled bool, entryBinding string, landingNodeID ...int64) (int64, error) {
 	if r == nil || r.db == nil {
 		return 0, errors.New("repository not initialized")
 	}
@@ -2930,6 +2934,7 @@ func (r *Repository) CreateForwardTx(enforceRuleLimit bool, userID int64, userNa
 			SourceCIDR:        sourceCIDR,
 			TargetCIDR:        targetCIDR,
 			SNATEnabled:       snatEnabled,
+			EntryNodeIDs:      FormatEntryNodeIDs(ParseEntryNodeIDs(entryBinding)),
 		}
 		if len(landingNodeID) > 0 {
 			fwd.LandingNodeID = landingNodeID[0]

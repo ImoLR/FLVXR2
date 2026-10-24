@@ -117,6 +117,12 @@ func (h *Handler) reconcileTunnelEntryPermissions(userID, tunnelID int64) []stri
 	if err != nil {
 		return []string{err.Error()}
 	}
+	// Bound rules (plan 152) converge here too, also for unrestricted owners:
+	// one query for the pairs that have any.
+	boundPairs, err := h.repo.BoundForwardPairs()
+	if err != nil {
+		return []string{err.Error()}
+	}
 	var warnings []string
 	for _, pair := range pairs {
 		if userID > 0 && pair.UserID != userID || tunnelID > 0 && pair.TunnelID != tunnelID {
@@ -127,12 +133,19 @@ func (h *Handler) reconcileTunnelEntryPermissions(userID, tunnelID int64) []stri
 			warnings = append(warnings, err.Error())
 			continue
 		}
-		if !restricted {
+		hasBound := boundPairs[[2]int64{pair.UserID, pair.TunnelID}]
+		if !restricted && !hasBound {
 			continue
 		}
-		if len(entries) == 0 {
+		if restricted && len(entries) == 0 {
 			h.cleanupForwardsForUserTunnel(pair.UserID, pair.TunnelID)
 			continue
+		}
+		if !restricted {
+			if entries, err = h.tunnelEntryNodeIDs(pair.TunnelID); err != nil {
+				warnings = append(warnings, err.Error())
+				continue
+			}
 		}
 		forwards, err := h.repo.ListForwardsByUserAndTunnel(pair.UserID, pair.TunnelID)
 		if err != nil {
@@ -140,7 +153,10 @@ func (h *Handler) reconcileTunnelEntryPermissions(userID, tunnelID int64) []stri
 			continue
 		}
 		for i := range forwards {
-			warnings = append(warnings, h.reconcileForwardEntries(&forwards[i], entries)...)
+			if !restricted && !forwardBound(&forwards[i]) {
+				continue // unrestricted unbound rules follow syncTunnelForwardsEntryPorts
+			}
+			warnings = append(warnings, h.reconcileForwardEntries(&forwards[i], h.applyForwardEntryBinding(&forwards[i], entries))...)
 		}
 	}
 	for _, warning := range warnings {

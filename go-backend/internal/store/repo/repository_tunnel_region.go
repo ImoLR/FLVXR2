@@ -16,12 +16,16 @@ type tunnelEntryNode struct {
 	Name       string `json:"name"`
 	Region     string `json:"region"`
 	RegionCity string `json:"regionCity"`
+	Alias      string `json:"entryAlias,omitempty"` // node.entry_alias, the {入口} display (plan 152)
 }
 
 type tunnelEntryGroup struct {
 	Key    string `json:"key"`
 	Label  string `json:"label"`
 	Region string `json:"region"`
+	// Name is the tunnel name rendered for this entry ({入口}, plan 152);
+	// set only on picker lists whose tunnel name has the token.
+	Name string `json:"name,omitempty"`
 }
 
 type tunnelRegionRow struct {
@@ -32,6 +36,7 @@ type tunnelRegionRow struct {
 	Name       string
 	Region     string
 	RegionCity string
+	EntryAlias string
 }
 
 type tunnelRegionInfo struct {
@@ -46,7 +51,7 @@ func (r *Repository) loadTunnelRegions(ids []int64) (map[int64]tunnelRegionInfo,
 	}
 	var rows []tunnelRegionRow
 	err := r.db.Table("chain_tunnel AS c").
-		Select("c.tunnel_id, t.type AS tunnel_type, c.chain_type, c.node_id, n.name, n.region, n.region_city").
+		Select("c.tunnel_id, t.type AS tunnel_type, c.chain_type, c.node_id, n.name, n.region, n.region_city, COALESCE(n.entry_alias, '') AS entry_alias").
 		Joins("JOIN tunnel AS t ON t.id = c.tunnel_id").
 		Joins("LEFT JOIN node AS n ON n.id = c.node_id").
 		Where("c.tunnel_id IN ? AND c.chain_type IN ?", ids, []string{"1", "3"}).
@@ -73,7 +78,7 @@ func deriveTunnelRegions(ids []int64, rows []tunnelRegionRow) map[int64]tunnelRe
 				}
 			}
 			if !found {
-				info.EntryNodes = append(info.EntryNodes, tunnelEntryNode{ID: row.NodeID, Name: row.Name, Region: row.Region, RegionCity: row.RegionCity})
+				info.EntryNodes = append(info.EntryNodes, tunnelEntryNode{ID: row.NodeID, Name: row.Name, Region: row.Region, RegionCity: row.RegionCity, Alias: row.EntryAlias})
 			}
 		}
 		if (row.TunnelType == 1 && row.ChainType == "1") || (row.TunnelType == 2 && row.ChainType == "3") {

@@ -53,6 +53,7 @@ func (r *Repository) ListActiveForwardsByUser(userID int64) ([]model.ForwardReco
 	rows := make([]model.ForwardRecord, 0, len(forwards))
 	for _, f := range forwards {
 		rows = append(rows, model.ForwardRecord{
+			EntryNodeIDs:      f.EntryNodeIDs,
 			ID:                f.ID,
 			LandingNodeID:     f.LandingNodeID,
 			LandingAutoPaused: f.LandingAutoPaused,
@@ -90,6 +91,7 @@ func (r *Repository) ListActiveForwardsByUserTunnel(userID, tunnelID int64) ([]m
 	rows := make([]model.ForwardRecord, 0, len(forwards))
 	for _, f := range forwards {
 		rows = append(rows, model.ForwardRecord{
+			EntryNodeIDs:      f.EntryNodeIDs,
 			ID:                f.ID,
 			LandingNodeID:     f.LandingNodeID,
 			LandingAutoPaused: f.LandingAutoPaused,
@@ -127,6 +129,7 @@ func (r *Repository) ListForwardsByUserAndTunnel(userID, tunnelID int64) ([]mode
 	rows := make([]model.ForwardRecord, 0, len(forwards))
 	for _, f := range forwards {
 		rows = append(rows, model.ForwardRecord{
+			EntryNodeIDs:      f.EntryNodeIDs,
 			ID:                f.ID,
 			LandingNodeID:     f.LandingNodeID,
 			LandingAutoPaused: f.LandingAutoPaused,
@@ -165,6 +168,7 @@ func (r *Repository) GetForwardRecord(forwardID int64) (*model.ForwardRecord, er
 		return nil, err
 	}
 	fr := model.ForwardRecord{
+		EntryNodeIDs:        f.EntryNodeIDs,
 		ID:                  f.ID,
 		LandingNodeID:       f.LandingNodeID,
 		LandingAutoPaused:   f.LandingAutoPaused,

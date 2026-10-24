@@ -79,6 +79,9 @@ type Forward struct {
 	CNBlocked           bool          `gorm:"column:cn_blocked;not null;default:false"`
 	CNBlockedReason     string        `gorm:"column:cn_blocked_reason;type:text;not null;default:''"`
 	CNBlockedAutoPaused bool          `gorm:"column:cn_blocked_auto_paused;not null;default:false"`
+	// EntryNodeIDs binds the rule to some of its tunnel's entries (CSV of node
+	// ids, plan 152). '' = unbound: every entry the owner may use.
+	EntryNodeIDs string `gorm:"column:entry_node_ids;type:text;not null;default:''"`
 }
 
 func (Forward) TableName() string { return "forward" }
@@ -123,6 +126,7 @@ type Node struct {
 	Remark                       sql.NullString `gorm:"column:remark;type:text"`
 	Region                       string         `gorm:"column:region;type:varchar(8);not null;default:''"`
 	RegionCity                   string         `gorm:"column:region_city;type:varchar(50);not null;default:''"`
+	EntryAlias                   string         `gorm:"column:entry_alias;type:varchar(100);not null;default:''"` // {入口} display (plan 152)
 	ExpiryTime                   sql.NullInt64  `gorm:"column:expiry_time"`
 	RenewalCycle                 sql.NullString `gorm:"column:renewal_cycle;type:varchar(20)"`
 	Secret                       string         `gorm:"type:varchar(100);not null"`
@@ -906,6 +910,7 @@ type ForwardRecord struct {
 	CNBlocked           bool
 	CNBlockedReason     string
 	CNBlockedAutoPaused bool
+	EntryNodeIDs        string
 }
 
 // TunnelRecord is a minimal tunnel view used by control plane.

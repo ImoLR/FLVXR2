@@ -2104,6 +2104,11 @@ func (h *Handler) cleanupTunnelForwardRuntimesOnRemovedEntryNodes(tunnelID int64
 		if f == nil {
 			continue
 		}
+		// Restricted owners and bound rules (plan 152) converge in
+		// reconcileTunnelEntryPermissions instead.
+		if forwardBound(f) {
+			continue
+		}
 		if _, restricted, err := h.repo.TunnelEntryRestriction(f.UserID, tunnelID, false); err != nil || restricted {
 			continue
 		}
@@ -2160,8 +2165,13 @@ func (h *Handler) validateTunnelEntryPortConflictsForNewEntriesTx(tx *gorm.DB, t
 		if err != nil {
 			return err
 		}
+		// A bound rule (plan 152) never gains a new entry.
+		bound := repo.ParseEntryNodeIDs(f.EntryNodeIDs)
 		for _, nodeID := range addedNodeIDs {
 			if restricted && len(diffInt64s([]int64{nodeID}, allowed)) > 0 {
+				continue
+			}
+			if len(bound) > 0 && len(diffInt64s([]int64{nodeID}, bound)) > 0 {
 				continue
 			}
 			node, nodeErr := h.repo.GetNodeRecordTx(tx, nodeID)
@@ -2194,7 +2204,7 @@ func (h *Handler) syncTunnelForwardsEntryPorts(tunnelID int64, entryNodeIDs []in
 
 	for i := range forwards {
 		f := &forwards[i]
-		if f == nil {
+		if f == nil || forwardBound(f) {
 			continue
 		}
 		if _, restricted, err := h.repo.TunnelEntryRestriction(f.UserID, tunnelID, false); err != nil || restricted {
@@ -3076,6 +3086,19 @@ func (h *Handler) forwardCreateWithReq(w http.ResponseWriter, r *http.Request, r
 		}
 		entryNodes, entryPermissionErr = h.allowedTunnelEntries(userID, tunnelID, roleID == 0 && actorUserID == userID)
 	}
+	// Plan 152: a rule picked under a 线路分组 covering part of the tunnel's
+	// entries opens only there (entryKey = the picker option's key).
+	entryBinding := ""
+	if mode != "wg_path" && entryPermissionErr == nil {
+		var bindErr error
+		if entryBinding, _, bindErr = h.entryBindingFromRequest(req, tunnelID, entryNodes, roleID == 0); bindErr != nil {
+			response.WriteJSON(w, response.ErrDefault(bindErr.Error()))
+			return
+		}
+		if entryBinding != "" {
+			entryNodes, _, _ = repo.EffectiveEntryNodes(entryNodes, entryBinding)
+		}
+	}
 	// A chain replay was already counted (under the user lock) when the
 	// pending chain was created, so only direct creates are checked here.
 	enforceRuleLimit := !isReplay && ruleLimitApplies(roleID)
@@ -3248,7 +3271,7 @@ func (h *Handler) forwardCreateWithReq(w http.ResponseWriter, r *http.Request, r
 			mode = "gost"
 		}
 	}
-	forwardID, err := h.repo.CreateForwardTx(enforceRuleLimit, userID, userName, name, tunnelID, remoteAddr, defaultString(asString(req["strategy"]), "fifo"), now, inx, entryNodes, port, inIp, nullableInt(speedID), maxConnections, maxClientIps, trafficLimit, expiryTime, speedLimitEnabled, speedLimit, mode, wgPathID, wgRuleType, sourceCIDR, targetCIDR, snatEnabled, landingID)
+	forwardID, err := h.repo.CreateForwardTx(enforceRuleLimit, userID, userName, name, tunnelID, remoteAddr, defaultString(asString(req["strategy"]), "fifo"), now, inx, entryNodes, port, inIp, nullableInt(speedID), maxConnections, maxClientIps, trafficLimit, expiryTime, speedLimitEnabled, speedLimit, mode, wgPathID, wgRuleType, sourceCIDR, targetCIDR, snatEnabled, entryBinding, landingID)
 	if err != nil {
 		if repo.IsRuleLimitError(err) {
 			response.WriteJSON(w, response.ErrDefault(err.Error()))
@@ -3388,6 +3411,24 @@ func (h *Handler) forwardUpdateWithReq(w http.ResponseWriter, r *http.Request, r
 		}
 		fwdEntryNodes, entryPermissionErr = h.allowedTunnelEntries(forward.UserID, tunnelID, actorRole == 0 && actorUserID == forward.UserID)
 	}
+	// Plan 152: entryKey absent keeps the stored binding (same tunnel only);
+	// "" unbinds; a key binds to that entry. An admin editing someone else's
+	// rule resolves against the owner's allowed entries (fwdEntryNodes).
+	newBinding := ""
+	if mode != "wg_path" && entryPermissionErr == nil {
+		binding, present, bindErr := h.entryBindingFromRequest(req, tunnelID, fwdEntryNodes, actorRole == 0)
+		if bindErr != nil {
+			response.WriteJSON(w, response.ErrDefault(bindErr.Error()))
+			return
+		}
+		if !present && tunnelID == forward.TunnelID {
+			binding = forward.EntryNodeIDs
+		}
+		if binding != "" {
+			fwdEntryNodes, binding, _ = repo.EffectiveEntryNodes(fwdEntryNodes, binding)
+		}
+		newBinding = binding
+	}
 
 	name := strings.TrimSpace(asString(req["name"]))
 	if name == "" {
@@ -3499,6 +3540,12 @@ func (h *Handler) forwardUpdateWithReq(w http.ResponseWriter, r *http.Request, r
 		removedNodeIDs = diffInt64s(oldNodeIDs, newNodeIDs)
 		keptNodeIDs = diffInt64s(oldNodeIDs, removedNodeIDs)
 	}
+	// Plan 152: a binding change on the same tunnel only touches the entries
+	// that left (services removed there after the sync) or joined.
+	var unboundNodeIDs []int64
+	if !tunnelChanged && mode != "wg_path" {
+		unboundNodeIDs = diffInt64s(oldNodeIDs, newNodeIDs)
+	}
 	for _, nodeID := range fwdEntryNodes {
 		node, nodeErr := h.getNodeRecord(nodeID)
 		if nodeErr != nil {
@@ -3576,6 +3623,13 @@ func (h *Handler) forwardUpdateWithReq(w http.ResponseWriter, r *http.Request, r
 		response.WriteJSON(w, response.Err(-2, err.Error()))
 		return
 	}
+	if newBinding != forward.EntryNodeIDs {
+		if err := h.repo.SetForwardEntryBinding(id, newBinding); err != nil {
+			h.rollbackForwardMutation(forward, oldPorts)
+			response.WriteJSON(w, response.Err(-2, err.Error()))
+			return
+		}
+	}
 	if forward.CNBlocked {
 		status := forward.Status
 		if forward.CNBlockedAutoPaused {
@@ -3650,6 +3704,27 @@ func (h *Handler) forwardUpdateWithReq(w http.ResponseWriter, r *http.Request, r
 		return
 	}
 	warnings = append(warnings, syncWarnings...)
+
+	// Entries that left on a binding change (same tunnel): remove the rule there.
+	if len(unboundNodeIDs) > 0 {
+		left := make([]forwardPortRecord, 0, len(unboundNodeIDs))
+		for _, fp := range oldPorts {
+			if len(diffInt64s([]int64{fp.NodeID}, unboundNodeIDs)) == 0 {
+				left = append(left, fp)
+			}
+		}
+		for _, nodeID := range unboundNodeIDs {
+			var delErr error
+			if strings.EqualFold(forward.Mode, "nftables") {
+				delErr = h.deleteNftablesRules(forward, filterForwardPortsByNode(left, nodeID))
+			} else {
+				delErr = h.deleteForwardServicesOnNode(forward, nodeID)
+			}
+			if delErr != nil && !isNotFoundError(delErr) {
+				warnings = append(warnings, fmt.Sprintf("节点 %d 清理不再开放的入口失败: %v", nodeID, delErr))
+			}
+		}
+	}
 
 	// Best-effort cleanup for old entry nodes after a successful tunnel switch.
 	// Avoid cleaning nodes that are still used by the updated forward.
@@ -6112,7 +6187,7 @@ func (h *Handler) replaceForwardPorts(forwardID, tunnelID int64, port int, inIp 
 	if err != nil {
 		return err
 	}
-	entryNodes, err := h.allowedTunnelEntries(forward.UserID, tunnelID, admin...)
+	entryNodes, err := h.forwardEntryNodes(forward, tunnelID, admin...)
 	if err != nil {
 		return err
 	}
@@ -6128,7 +6203,7 @@ func (h *Handler) replaceForwardPortsPreservingInIP(forwardID, tunnelID int64, p
 	if err != nil {
 		return err
 	}
-	entryNodes, err := h.allowedTunnelEntries(forward.UserID, tunnelID, admin...)
+	entryNodes, err := h.forwardEntryNodes(forward, tunnelID, admin...)
 	if err != nil {
 		return err
 	}

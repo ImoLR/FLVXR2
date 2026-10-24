@@ -3382,6 +3382,9 @@ func importForwards(tx *gorm.DB, forwards []model.ForwardBackup, now int64) (int
 			DoUpdates: clause.AssignmentColumns([]string{
 				"user_id", "user_name", "name", "tunnel_id", "remote_addr", "strategy",
 				"in_flow", "out_flow", "updated_time", "status", "inx", "max_connections", "max_client_ips",
+				// Backups carry no entry binding (plan 152): the imported ports
+				// stand as they are, unbound.
+				"entry_node_ids",
 			}),
 		}).Create(&item).Error
 		if err != nil {
@@ -4242,7 +4245,7 @@ func quoteSQLLiteral(value string) string {
 
 func resolveForwardIngress(db *gorm.DB, forwardID int64, tunnelID int64) (string, sql.NullInt64, error) {
 	var owner model.Forward
-	if err := db.Select("user_id").Where("id = ?", forwardID).Find(&owner).Error; err != nil {
+	if err := db.Select("user_id, entry_node_ids").Where("id = ?", forwardID).Find(&owner).Error; err != nil {
 		return "", sql.NullInt64{}, err
 	}
 	var allowed []int64
@@ -4252,6 +4255,18 @@ func resolveForwardIngress(db *gorm.DB, forwardID int64, tunnelID int64) (string
 		allowed, restricted, err = (&Repository{db: db}).TunnelEntryRestriction(owner.UserID, tunnelID, false)
 		if err != nil {
 			return "", sql.NullInt64{}, err
+		}
+		// A rule bound to some entries (plan 152) shows only their
+		// addresses, exactly like a partial entry permission.
+		if binding := ParseEntryNodeIDs(owner.EntryNodeIDs); len(binding) > 0 {
+			base := allowed
+			if !restricted {
+				base = make([]int64, 0)
+				db.Model(&model.ChainTunnel{}).Where("tunnel_id = ? AND chain_type = '1'", tunnelID).Order("inx ASC, id ASC").Pluck("node_id", &base)
+			}
+			if effective, _, _ := EffectiveEntryNodes(base, owner.EntryNodeIDs); len(effective) > 0 && len(effective) < len(base) || restricted {
+				allowed, restricted = effective, true
+			}
 		}
 	}
 	var entryCount int64

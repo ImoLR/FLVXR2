@@ -460,6 +460,13 @@ func (h *Handler) forwardCreateChain(w http.ResponseWriter, r *http.Request, req
 		fail(entryErr.Error())
 		return
 	}
+	// Plan 152: the replayed create binds the same way; check the key early.
+	if binding, _, bindErr := h.entryBindingFromRequest(req, tunnelID, entries, roleID == 0); bindErr != nil {
+		fail(bindErr.Error())
+		return
+	} else if binding != "" {
+		entries, _, _ = repo.EffectiveEntryNodes(entries, binding)
+	}
 	if port := asInt(req["inPort"], 0); port > 0 {
 		for _, nodeID := range entries {
 			node, nodeErr := h.getNodeRecord(nodeID)
