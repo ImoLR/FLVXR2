@@ -12,6 +12,8 @@ type LandingNodeListData struct {
 	Allowed          map[int64]bool
 	ForwardCounts    map[int64]int64
 	IntegrationError string
+	// ConnSupport (plan 141): native agents' 仅入站 capability per server.
+	ConnSupport LandingConnSupport
 }
 
 func (r *Repository) LandingNodeListData(nodes []model.LandingNode) (*LandingNodeListData, error) {
@@ -36,10 +38,19 @@ func (r *Repository) LandingNodeListData(nodes []model.LandingNode) (*LandingNod
 	if err := r.db.Where("id IN ?", serverIDs).Find(&servers).Error; err != nil {
 		return nil, err
 	}
-	shared := false
+	shared, native := false, false
 	for i := range servers {
 		out.Servers[servers[i].ID] = &servers[i]
 		shared = shared || servers[i].Source == "shared"
+		native = native || servers[i].Source == "native"
+	}
+	out.ConnSupport = LandingConnSupport{}
+	if native {
+		versions, err := r.NativeLandingConnModeVersions()
+		if err != nil {
+			return nil, err
+		}
+		out.ConnSupport = versions
 	}
 	var users []model.User
 	if err := r.db.Where("id IN ?", userIDs).Find(&users).Error; err != nil {

@@ -20,18 +20,21 @@ const landingMonitorAgeHintMs = int64(30 * 1000)
 const landingMonitorSharedAgeHintMs = int64(150 * 1000)
 
 type landingMonitorNodeView struct {
-	ID                int64    `json:"id"`
-	Name              string   `json:"name"`
-	UserID            int64    `json:"userId,omitempty"`
-	UserName          string   `json:"userName,omitempty"`
-	Protocol          string   `json:"protocol"`
-	Port              int      `json:"port"`
-	Status            string   `json:"status"`
-	PendingReason     string   `json:"pendingReason,omitempty"`
-	SyncError         string   `json:"syncError,omitempty"`
-	DeletePending     bool     `json:"deletePending,omitempty"`
-	Connections       int      `json:"connections"`
-	MaxConnections    int      `json:"maxConnections"`
+	ID             int64  `json:"id"`
+	Name           string `json:"name"`
+	UserID         int64  `json:"userId,omitempty"`
+	UserName       string `json:"userName,omitempty"`
+	Protocol       string `json:"protocol"`
+	Port           int    `json:"port"`
+	Status         string `json:"status"`
+	PendingReason  string `json:"pendingReason,omitempty"`
+	SyncError      string `json:"syncError,omitempty"`
+	DeletePending  bool   `json:"deletePending,omitempty"`
+	Connections    int    `json:"connections"`
+	MaxConnections int    `json:"maxConnections"`
+	// ConnMode (plan 141): how Connections and MaxConnections count — the
+	// node's effective 计算方式, "total" (入站+出站) or "inbound" (仅入站).
+	ConnMode          string   `json:"connMode"`
 	MaxOnlineIPs      int      `json:"maxOnlineIps"`
 	OnlineIPs         *int     `json:"onlineIps"`
 	UpRate            *float64 `json:"upRate"`
@@ -43,23 +46,27 @@ type landingMonitorNodeView struct {
 }
 
 type landingMonitorServerView struct {
-	ID              int64    `json:"id"`
-	Name            string   `json:"name"`
-	Source          string   `json:"source"`
-	Status          string   `json:"status"`
-	Online          bool     `json:"online"`
-	CoreState       string   `json:"coreState,omitempty"`
-	Notice          string   `json:"notice,omitempty"`
-	SyncError       string   `json:"syncError,omitempty"`
-	NodeCount       int      `json:"nodeCount"`
-	ActiveNodeCount int      `json:"activeNodeCount"`
-	Connections     int      `json:"connections"`
-	MaxConnections  int      `json:"maxConnections"`
-	UpRate          *float64 `json:"upRate"`
-	DownRate        *float64 `json:"downRate"`
-	SampleAt        int64    `json:"sampleAt"`
-	AgeHintMs       int64    `json:"ageHintMs"`
-	BilledBytes     int64    `json:"billedBytes"`
+	ID              int64  `json:"id"`
+	Name            string `json:"name"`
+	Source          string `json:"source"`
+	Status          string `json:"status"`
+	Online          bool   `json:"online"`
+	CoreState       string `json:"coreState,omitempty"`
+	Notice          string `json:"notice,omitempty"`
+	SyncError       string `json:"syncError,omitempty"`
+	NodeCount       int    `json:"nodeCount"`
+	ActiveNodeCount int    `json:"activeNodeCount"`
+	Connections     int    `json:"connections"`
+	MaxConnections  int    `json:"maxConnections"`
+	// Plan 141: ConnectionsMode labels the node sum ("total" / "inbound" /
+	// "mixed" = each node in its own mode), MaxConnectionsMode the limit.
+	ConnectionsMode    string   `json:"connectionsMode"`
+	MaxConnectionsMode string   `json:"maxConnectionsMode,omitempty"`
+	UpRate             *float64 `json:"upRate"`
+	DownRate           *float64 `json:"downRate"`
+	SampleAt           int64    `json:"sampleAt"`
+	AgeHintMs          int64    `json:"ageHintMs"`
+	BilledBytes        int64    `json:"billedBytes"`
 	// Admin, shared servers: the mmwx share's raw traffic used / limit.
 	ShareUsedBytes  int64 `json:"shareUsedBytes,omitempty"`
 	ShareLimitBytes int64 `json:"shareLimitBytes,omitempty"`
@@ -188,10 +195,18 @@ func buildLandingMonitorView(data *repo.LandingMonitorData, admin bool, tracker 
 		nodes := byServer[s.ID]
 		var upSum, downSum float64
 		rated, enabled := false, false
+		connSupported := repo.LandingConnModeSupported(s, data.NativeConnMode[s.NodeID])
+		inboundNodes, totalNodes := 0, 0
 		for j := range nodes {
 			n := &nodes[j]
 			status, reason := landingNodeDisplayStatus(n, s)
-			nv := landingMonitorNodeView{ID: n.ID, Name: n.Name, Protocol: n.Protocol, Port: n.Port, Status: status, PendingReason: reason, SyncError: landingNodeSyncError(n, s), DeletePending: n.DeletePending, Connections: repo.LandingLiveConnections(n), MaxConnections: n.MaxConnections, MaxOnlineIPs: n.MaxOnlineIPs, BilledBytes: n.BilledIn + n.BilledOut, TrafficLimitBytes: n.TrafficLimitBytes, AgeHintMs: ageHint}
+			mode := repo.LandingEffectiveConnMode(n, s, connSupported)
+			if mode == repo.LandingConnInbound {
+				inboundNodes++
+			} else {
+				totalNodes++
+			}
+			nv := landingMonitorNodeView{ID: n.ID, Name: n.Name, Protocol: n.Protocol, Port: n.Port, Status: status, PendingReason: reason, SyncError: landingNodeSyncError(n, s), DeletePending: n.DeletePending, Connections: repo.LandingModeConnections(n, mode), MaxConnections: n.MaxConnections, ConnMode: mode, MaxOnlineIPs: n.MaxOnlineIPs, BilledBytes: n.BilledIn + n.BilledOut, TrafficLimitBytes: n.TrafficLimitBytes, AgeHintMs: ageHint}
 			if admin {
 				nv.UserID = n.UserID
 				nv.UserName = data.OwnerNames[n.UserID]
@@ -218,6 +233,7 @@ func buildLandingMonitorView(data *repo.LandingMonitorData, admin bool, tracker 
 			}
 			view.Nodes = append(view.Nodes, nv)
 		}
+		view.ConnectionsMode = landingConnSumMode(inboundNodes, totalNodes)
 		// No nodes here (e.g. a user only granted the server): nothing can flow,
 		// so the honest numbers are 0, not 「-」 (which reads as missing data).
 		if rated || len(nodes) == 0 {
@@ -237,6 +253,7 @@ func buildLandingMonitorView(data *repo.LandingMonitorData, admin bool, tracker 
 				view.SampleAt = s.SharedCollectedAt
 			}
 			if admin {
+				view.MaxConnectionsMode = repo.LandingConnTotal
 				view.MaxConnections = minPositive(s.MaxConnections, caps.MaxConnections)
 				view.ShareUsedBytes = caps.TrafficUsed
 				view.ShareLimitBytes = caps.TrafficLimit
@@ -245,6 +262,7 @@ func buildLandingMonitorView(data *repo.LandingMonitorData, admin bool, tracker 
 			view.Online = data.NativeOnline[s.NodeID]
 			if admin {
 				view.MaxConnections = s.MaxConnections
+				view.MaxConnectionsMode = repo.LandingServerTotalConnMode(s, connSupported)
 			}
 		}
 		if !admin {

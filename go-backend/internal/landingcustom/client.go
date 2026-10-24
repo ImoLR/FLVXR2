@@ -58,6 +58,28 @@ type Share struct {
 	ProtocolCaps *ProtocolCaps `json:"protocol_caps,omitempty"`
 	ServerMode   string        `json:"server_mode,omitempty"`
 	BusyPorts    []int         `json:"busy_ports,omitempty"`
+	// Contract landing-conn-mode-v1: the share's Helper applies a node's
+	// 仅入站 limit (Node.ConnMode "inbound" → Core max_inbound_connections)
+	// and reports NodeStatus.InboundConnections. Absent = every node limit is
+	// 入站+出站 (max_total_connections), as before.
+	ConnModes *ShareConnModes `json:"conn_modes,omitempty"`
+}
+
+// ConnModeVersion is the landing-conn-mode contract version FLVX speaks.
+const ConnModeVersion = 1
+
+// ConnModeInbound is the only non-default Node.ConnMode value: the node's
+// max_connections counts accepted client connections only.
+const ConnModeInbound = "inbound"
+
+// ShareConnModes is the share list's conn_modes object.
+type ShareConnModes struct {
+	Versions []int `json:"versions"`
+}
+
+// Supports reports whether the share accepts conn-mode contract version v.
+func (c *ShareConnModes) Supports(v int) bool {
+	return c != nil && containsInt(c.Versions, v)
 }
 
 // Extra landing protocols of contract landing-protocols-v1.
@@ -219,6 +241,18 @@ func (s *Share) Sanitize() {
 	default:
 		s.ServerMode = ""
 	}
+	if s.ConnModes != nil {
+		versions := []int{}
+		for _, v := range s.ConnModes.Versions {
+			if v > 0 && v < 1000 && !containsInt(versions, v) && len(versions) < 8 {
+				versions = append(versions, v)
+			}
+		}
+		s.ConnModes = &ShareConnModes{Versions: versions}
+		if len(versions) == 0 {
+			s.ConnModes = nil
+		}
+	}
 }
 
 type ShareEgress struct {
@@ -262,17 +296,21 @@ type VLESS struct {
 	Reality Reality `json:"reality"`
 }
 type Node struct {
-	ID             string  `json:"id"`
-	Owner          Owner   `json:"owner"`
-	Name           string  `json:"name"`
-	Protocol       string  `json:"protocol"`
-	Port           int     `json:"port"`
-	Enabled        bool    `json:"enabled"`
-	MaxConnections int     `json:"max_connections"`
-	MaxOnlineIPs   int     `json:"max_online_ips"`
-	ExpiresAt      *int64  `json:"expires_at"`
-	SS2022         *SS2022 `json:"ss2022,omitempty"`
-	VLESS          *VLESS  `json:"vless,omitempty"`
+	ID             string `json:"id"`
+	Owner          Owner  `json:"owner"`
+	Name           string `json:"name"`
+	Protocol       string `json:"protocol"`
+	Port           int    `json:"port"`
+	Enabled        bool   `json:"enabled"`
+	MaxConnections int    `json:"max_connections"`
+	MaxOnlineIPs   int    `json:"max_online_ips"`
+	ExpiresAt      *int64 `json:"expires_at"`
+	// landing-conn-mode-v1: "inbound" = max_connections counts client
+	// connections only; omitted = 入站+出站 (byte-identical for older Custom).
+	// Sent only to shares whose ConnModes advertise version 1.
+	ConnMode string  `json:"conn_mode,omitempty"`
+	SS2022   *SS2022 `json:"ss2022,omitempty"`
+	VLESS    *VLESS  `json:"vless,omitempty"`
 	// landing-protocols-v1: exactly one object, matching Protocol. Only sent
 	// to shares whose ProtocolCaps advertise the protocol.
 	AnyTLS *AnyTLS `json:"anytls,omitempty"`
@@ -321,6 +359,9 @@ type NodeStatus struct {
 	Connections   int        `json:"connections"`
 	OnlineIPCount *int       `json:"online_ip_count,omitempty"`
 	OnlineIPs     []OnlineIP `json:"online_ips,omitempty"`
+	// landing-conn-mode-v1: live inbound (client) connections of the node's
+	// inbound (Core inbound_current); absent = unknown (older Helper).
+	InboundConnections *int `json:"inbound_connections,omitempty"`
 }
 type OnlineIP struct {
 	IP          string `json:"ip"`

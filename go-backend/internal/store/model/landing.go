@@ -61,8 +61,19 @@ type LandingServer struct {
 	// Custom's busy_ports (JSON int list), kept out of SharedCaps so the caps
 	// blob parsed per node view stays small; read only when picking a port.
 	SharedBusyPorts string `gorm:"type:text;not null;default:''" json:"-"`
-	CreatedTime     int64  `gorm:"not null" json:"createdTime"`
-	UpdatedTime     int64  `gorm:"not null" json:"updatedTime"`
+	// Plan 141: 计算方式 of the per-node connection limit of nodes that follow
+	// the server (ConnMode, also the default for new nodes) and of the native
+	// server total (MaxConnMode): "total" = 入站+出站 (Core max_total_connections:
+	// every TCP socket of the port in any state), "inbound" = 仅入站 (Core
+	// max_inbound_connections: accepted client connections, like rule 连接数).
+	// A shared server's total belongs to 妙妙屋 and is always "total".
+	ConnMode    string `gorm:"not null;default:'total'" json:"connMode"`
+	MaxConnMode string `gorm:"not null;default:'total'" json:"maxConnMode"`
+	// ConnModeSig is the 仅入站 signature last sent to the native agent; a change
+	// advances the revision (the agent rejects a reused revision with new content).
+	ConnModeSig string `gorm:"not null;default:''" json:"-"`
+	CreatedTime int64  `gorm:"not null" json:"createdTime"`
+	UpdatedTime int64  `gorm:"not null" json:"updatedTime"`
 }
 
 func (LandingServer) TableName() string { return "landing_server" }
@@ -125,12 +136,18 @@ type LandingNode struct {
 	LastSeenUp        int64    `gorm:"not null;default:0" json:"-"`
 	LastSeenDown      int64    `gorm:"not null;default:0" json:"-"`
 	Connections       int      `gorm:"not null;default:0" json:"connections"`
-	DeletePending     bool     `gorm:"not null;default:false" json:"deletePending"`
-	RemoteState       string   `gorm:"not null;default:''" json:"remoteState"`
-	SyncError         string   `gorm:"not null;default:''" json:"syncError"`
-	RejectedRevision  int64    `gorm:"not null;default:0" json:"-"`
-	LastCounterAt     int64    `gorm:"not null;default:0" json:"-"`
-	RouteProfileID    *int64   `gorm:"index" json:"routeProfileId"`
+	// Plan 141: the Core's live inbound (client) connections of this node, next
+	// to Connections (port in+out, all TCP states). Reported by agents with
+	// landing_conn_mode >= 1 and by 妙妙屋 shares with conn_modes v1; 0 otherwise.
+	InboundConnections int `gorm:"not null;default:0" json:"inboundConnections"`
+	// ConnMode overrides the server's 计算方式 for this node; nil follows it.
+	ConnMode         *string `json:"connMode"`
+	DeletePending    bool    `gorm:"not null;default:false" json:"deletePending"`
+	RemoteState      string  `gorm:"not null;default:''" json:"remoteState"`
+	SyncError        string  `gorm:"not null;default:''" json:"syncError"`
+	RejectedRevision int64   `gorm:"not null;default:0" json:"-"`
+	LastCounterAt    int64   `gorm:"not null;default:0" json:"-"`
+	RouteProfileID   *int64  `gorm:"index" json:"routeProfileId"`
 	// Plan 121 (landing-protocols-v1): AnyTLS password / Snell PSK / Mieru
 	// password, Mieru username, the non-secret options fixed at creation
 	// (ProtocolOpts JSON: sni, version, obfs, obfsHost, transport) and the

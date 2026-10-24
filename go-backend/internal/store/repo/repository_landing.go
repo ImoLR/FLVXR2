@@ -159,6 +159,12 @@ func validateLandingServer(s *model.LandingServer, keep map[string]bool) error {
 	if s.Status != "active" && s.Status != "disabled" {
 		return errors.New("落地状态无效")
 	}
+	if !validLandingConnMode(s.ConnMode) || !validLandingConnMode(s.MaxConnMode) {
+		return errors.New("连接数计算方式无效")
+	}
+	if s.Source == "shared" && NormalizeLandingConnMode(s.MaxConnMode) != LandingConnTotal {
+		return errors.New("共享服务器总连接数由妙妙屋管理（按入站+出站计算）")
+	}
 	switch s.DefaultExpiryMode {
 	case "follow_user", "permanent":
 	case "days":
@@ -203,6 +209,18 @@ func validateLandingServer(s *model.LandingServer, keep map[string]bool) error {
 	return validateSharedLandingSettings(s, keep)
 }
 func (r *Repository) SaveLandingServer(s *model.LandingServer, groups []int64) error {
+	return r.SaveLandingServerOpts(s, groups, LandingServerSaveOptions{})
+}
+
+// LandingServerSaveOptions are save-time choices that are not server columns.
+type LandingServerSaveOptions struct {
+	// ApplyConnModeToNodes (plan 141 「应用到现有节点」): every node of the
+	// server follows the server's 计算方式 again and gets its 节点连接数.
+	// Without it, a 计算方式 change keeps existing nodes on the old one.
+	ApplyConnModeToNodes bool
+}
+
+func (r *Repository) SaveLandingServerOpts(s *model.LandingServer, groups []int64, opts LandingServerSaveOptions) error {
 	return r.db.Transaction(func(tx *gorm.DB) error {
 		var old model.LandingServer
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&old, s.ID).Error; err != nil {
@@ -265,6 +283,19 @@ func (r *Repository) SaveLandingServer(s *model.LandingServer, groups []int64) e
 		newLo, newHi := activeLandingRange(s)
 		if err := applyNativeLandingRange(tx, s, oldLo, oldHi, newLo, newHi); err != nil {
 			return err
+		}
+		// Plan 141: nodes that follow the server keep the mode they had unless
+		// the admin applies the new one (and the server's 节点连接数) to all.
+		oldConnMode := NormalizeLandingConnMode(old.ConnMode)
+		s.ConnMode, s.MaxConnMode, s.ConnModeSig = NormalizeLandingConnMode(s.ConnMode), NormalizeLandingConnMode(s.MaxConnMode), old.ConnModeSig
+		if opts.ApplyConnModeToNodes {
+			if err := tx.Model(&model.LandingNode{}).Where("landing_server_id = ?", s.ID).Updates(map[string]any{"conn_mode": nil, "max_connections": s.DefaultMaxConnections}).Error; err != nil {
+				return err
+			}
+		} else if oldConnMode != s.ConnMode {
+			if err := tx.Model(&model.LandingNode{}).Where("landing_server_id = ? AND conn_mode IS NULL", s.ID).Update("conn_mode", oldConnMode).Error; err != nil {
+				return err
+			}
 		}
 		s.CreatedTime = old.CreatedTime
 		s.UpdatedTime = time.Now().UnixMilli()
@@ -787,6 +818,9 @@ func (r *Repository) UpdateLandingNode(n *model.LandingNode) error {
 	if n.FlowType != nil && *n.FlowType != 1 && *n.FlowType != 2 {
 		return errors.New("流量计算无效")
 	}
+	if n.ConnMode != nil && (*n.ConnMode == "" || !validLandingConnMode(*n.ConnMode)) {
+		return errors.New("连接数计算方式无效")
+	}
 	if n.TrafficRatio != nil && (math.IsNaN(*n.TrafficRatio) || math.IsInf(*n.TrafficRatio, 0) || *n.TrafficRatio <= 0 || *n.TrafficRatio > 1000) {
 		return errors.New("倍率无效")
 	}
@@ -805,7 +839,7 @@ func (r *Repository) UpdateLandingNode(n *model.LandingNode) error {
 			return err
 		}
 		n.UpdatedTime = time.Now().UnixMilli()
-		if err := tx.Model(&model.LandingNode{}).Where("id = ?", n.ID).Updates(map[string]interface{}{"name": n.Name, "max_connections": n.MaxConnections, "max_online_ips": n.MaxOnlineIPs, "traffic_limit_bytes": n.TrafficLimitBytes, "flow_type": n.FlowType, "traffic_ratio": n.TrafficRatio, "expiry_mode": n.ExpiryMode, "expires_at": n.ExpiresAt, "status": n.Status, "auto_disabled": n.AutoDisabled, "updated_time": n.UpdatedTime}).Error; err != nil {
+		if err := tx.Model(&model.LandingNode{}).Where("id = ?", n.ID).Updates(map[string]interface{}{"name": n.Name, "max_connections": n.MaxConnections, "max_online_ips": n.MaxOnlineIPs, "traffic_limit_bytes": n.TrafficLimitBytes, "flow_type": n.FlowType, "traffic_ratio": n.TrafficRatio, "conn_mode": n.ConnMode, "expiry_mode": n.ExpiryMode, "expires_at": n.ExpiresAt, "status": n.Status, "auto_disabled": n.AutoDisabled, "updated_time": n.UpdatedTime}).Error; err != nil {
 			return err
 		}
 		return tx.Model(&model.LandingServer{}).Where("id = ?", n.LandingServerID).Update("revision", gorm.Expr("revision + 1")).Error

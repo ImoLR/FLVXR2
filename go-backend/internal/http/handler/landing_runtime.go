@@ -149,15 +149,33 @@ func (h *Handler) syncLandingServer(serverID int64) (*landingSyncSnapshot, error
 	if node.LandingEgress < 1 {
 		plan = nil
 	}
-	revision, err := h.repo.TouchLandingEgress(s.ID, planHash(plan))
-	if err != nil {
-		return nil, errors.New("落地服务器状态不可用")
-	}
-	s.Revision = revision
 	nodes, err := h.repo.ListLandingNodes(0, true)
 	if err != nil {
 		return nil, errors.New("落地服务器状态不可用")
 	}
+	// Plan 141: 仅入站 only for agents that apply it (landing_conn_mode >= 1);
+	// older agents keep today's payload byte for byte (入站+出站). The
+	// signature joins the revision so an agent upgrade or a mode change never
+	// reuses a revision with new content.
+	connSupported := repo.LandingConnModeSupported(s, node.LandingConnMode)
+	inboundNodes := map[int64]bool{}
+	inboundIDs := []int64{}
+	if connSupported {
+		for i := range nodes {
+			n := &nodes[i]
+			if n.LandingServerID == s.ID && !landingcustom.IsExtraProtocol(n.Protocol) && repo.LandingNodeConnMode(n, s) == repo.LandingConnInbound {
+				inboundNodes[n.ID] = true
+				inboundIDs = append(inboundIDs, n.ID)
+			}
+		}
+	}
+	globalInbound := s.MaxConnections > 0 && repo.LandingServerTotalConnMode(s, connSupported) == repo.LandingConnInbound
+	connSig := repo.NativeLandingConnSig(inboundIDs, globalInbound)
+	revision, err := h.repo.TouchLandingRevision(s.ID, planHash(plan), &connSig)
+	if err != nil {
+		return nil, errors.New("落地服务器状态不可用")
+	}
+	s.Revision = revision
 	// Reality guard ports (plan 127) only for agents that apply them; older
 	// agents keep today's payload byte for byte.
 	guards := map[string]int{}
@@ -176,6 +194,9 @@ func (h *Handler) syncLandingServer(serverID int64) (*landingSyncSnapshot, error
 			continue
 		}
 		desired := map[string]interface{}{"id": n.ID, "inbound_tag": n.InboundTag, "protocol": n.Protocol, "port": n.Port, "enabled": n.Status == "active", "max_connections": n.MaxConnections, "max_online_ips": n.MaxOnlineIPs}
+		if inboundNodes[n.ID] {
+			desired["conn_mode"] = repo.LandingConnInbound
+		}
 		if n.Protocol == "ss2022" {
 			desired["ss2022"] = map[string]interface{}{"method": n.Method, "server_key": n.ServerKey, "user_key": n.UserKey}
 		}
@@ -205,6 +226,9 @@ func (h *Handler) syncLandingServer(serverID int64) (*landingSyncSnapshot, error
 		}
 	}
 	payload := map[string]interface{}{"revision": s.Revision, "enabled": s.Status == "active", "max_connections": s.MaxConnections, "core_memory_mb": s.CoreMemoryMB, "core_cpu_percent": s.CoreCPUPercent, "nodes": desiredNodes}
+	if globalInbound {
+		payload["max_conn_mode"] = repo.LandingConnInbound
+	}
 	if plan != nil {
 		payload["egress"] = plan
 	}

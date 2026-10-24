@@ -24,9 +24,12 @@ type LandingCounter struct {
 	Connections   int                      `json:"connections"`
 	OnlineIPCount *int                     `json:"online_ip_count,omitempty"`
 	OnlineIPs     []landingcustom.OnlineIP `json:"online_ips,omitempty"`
-	NodeID        int64                    `json:"-"`
-	ServerID      int64                    `json:"-"` // Set only by the authenticated Custom poller.
-	CollectedAt   int64                    `json:"-"`
+	// Plan 141: the Core's live inbound (client) connections; nil = the
+	// reporter does not know them (older agent / Helper).
+	InboundConnections *int  `json:"inbound_connections,omitempty"`
+	NodeID             int64 `json:"-"`
+	ServerID           int64 `json:"-"` // Set only by the authenticated Custom poller.
+	CollectedAt        int64 `json:"-"`
 }
 
 type ServerQuotaKey struct {
@@ -171,7 +174,13 @@ func applyLandingCountersTx(tx *gorm.DB, batch *FlowBatch, now time.Time) error 
 		n.LastSeenDown = c.DownBytes
 		n.CounterEpoch = c.Epoch
 		n.Connections = c.Connections
-		if err = tx.Model(&n).Updates(map[string]interface{}{"up_bytes": n.UpBytes, "down_bytes": n.DownBytes, "billed_in": n.BilledIn, "billed_out": n.BilledOut, "period_key": period, "last_seen_up": n.LastSeenUp, "last_seen_down": n.LastSeenDown, "counter_epoch": c.Epoch, "connections": c.Connections, "last_counter_at": n.LastCounterAt}).Error; err != nil {
+		updates := map[string]interface{}{"up_bytes": n.UpBytes, "down_bytes": n.DownBytes, "billed_in": n.BilledIn, "billed_out": n.BilledOut, "period_key": period, "last_seen_up": n.LastSeenUp, "last_seen_down": n.LastSeenDown, "counter_epoch": c.Epoch, "connections": c.Connections, "last_counter_at": n.LastCounterAt}
+		// Plan 141: same row write, one more column; a bad optional value never
+		// fails the billing batch.
+		if c.InboundConnections != nil {
+			updates["inbound_connections"] = max(*c.InboundConnections, 0)
+		}
+		if err = tx.Model(&n).Updates(updates).Error; err != nil {
 			return err
 		}
 		d := batch.Users[n.UserID]

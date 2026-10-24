@@ -111,7 +111,8 @@ type Node struct {
 	LandingCapable               bool           `gorm:"not null;default:false"`
 	LandingEgress                int            `gorm:"column:landing_egress;not null;default:0"`
 	LandingChain                 int            `gorm:"column:landing_chain;not null;default:0"`
-	LandingGuard                 int            `gorm:"column:landing_guard;not null;default:0"` // agent: Reality guard + builtin rules (plan 127)
+	LandingGuard                 int            `gorm:"column:landing_guard;not null;default:0"`     // agent: Reality guard + builtin rules (plan 127)
+	LandingConnMode              int            `gorm:"column:landing_conn_mode;not null;default:0"` // agent: 仅入站 landing connection limits + inbound counts (plan 141)
 	LineMachine                  bool           `gorm:"column:line_machine;not null;default:false"`
 	DefaultUserQuotaBytes        int64          `gorm:"not null;default:0"`
 	LeiKwanStatus                string         `gorm:"column:leikwan_status;type:varchar(10);not null;default:''"`

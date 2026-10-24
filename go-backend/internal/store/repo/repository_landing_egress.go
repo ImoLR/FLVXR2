@@ -590,6 +590,13 @@ func (r *Repository) LandingForwardChoices() ([]map[string]any, error) {
 // TouchLandingEgress advances the revision when the compiled plan changed, so
 // agents never see one revision with two contents.
 func (r *Repository) TouchLandingEgress(serverID int64, hash string) (int64, error) {
+	return r.TouchLandingRevision(serverID, hash, nil)
+}
+
+// TouchLandingRevision is TouchLandingEgress plus the plan-141 仅入站
+// signature (nil = leave it): one revision bump when either changed, e.g. an
+// agent upgrade that starts receiving conn_mode for unchanged nodes.
+func (r *Repository) TouchLandingRevision(serverID int64, hash string, connSig *string) (int64, error) {
 	var rev int64
 	err := r.db.Transaction(func(tx *gorm.DB) error {
 		var s model.LandingServer
@@ -597,11 +604,15 @@ func (r *Repository) TouchLandingEgress(serverID int64, hash string) (int64, err
 			return err
 		}
 		rev = s.Revision
-		if s.EgressHash == hash {
+		if s.EgressHash == hash && (connSig == nil || s.ConnModeSig == *connSig) {
 			return nil
 		}
 		rev = s.Revision + 1
-		return tx.Model(&s).Updates(map[string]any{"egress_hash": hash, "revision": rev}).Error
+		v := map[string]any{"egress_hash": hash, "revision": rev}
+		if connSig != nil {
+			v["conn_mode_sig"] = *connSig
+		}
+		return tx.Model(&s).Updates(v).Error
 	})
 	return rev, err
 }
@@ -888,17 +899,21 @@ func (r *Repository) DeleteLandingWarpAccount(serverID, outboundID int64) error 
 
 // SetNodeLandingCapabilities records the landing capability flags with one
 // conditional statement per agent report. versions are the chain-node schema
-// version (plan 108) and the Reality guard / builtin-rule version (plan 127);
-// agents that do not report them are version 0.
+// version (plan 108), the Reality guard / builtin-rule version (plan 127) and
+// the 仅入站 connection-limit version (plan 141); agents that do not report
+// them are version 0.
 func (r *Repository) SetNodeLandingCapabilities(id int64, capable bool, egress int, versions ...int) error {
-	chainVersion, guardVersion := 0, 0
+	chainVersion, guardVersion, connVersion := 0, 0, 0
 	if len(versions) > 0 {
 		chainVersion = versions[0]
 	}
 	if len(versions) > 1 {
 		guardVersion = versions[1]
 	}
-	return r.db.Model(&model.Node{}).Where("id = ? AND (landing_capable <> ? OR landing_egress <> ? OR landing_chain <> ? OR landing_guard <> ?)", id, capable, egress, chainVersion, guardVersion).Updates(map[string]any{"landing_capable": capable, "landing_egress": egress, "landing_chain": chainVersion, "landing_guard": guardVersion}).Error
+	if len(versions) > 2 {
+		connVersion = versions[2]
+	}
+	return r.db.Model(&model.Node{}).Where("id = ? AND (landing_capable <> ? OR landing_egress <> ? OR landing_chain <> ? OR landing_guard <> ? OR landing_conn_mode <> ?)", id, capable, egress, chainVersion, guardVersion, connVersion).Updates(map[string]any{"landing_capable": capable, "landing_egress": egress, "landing_chain": chainVersion, "landing_guard": guardVersion, "landing_conn_mode": connVersion}).Error
 }
 
 // UserNamesByIDs maps user IDs to login names in one query.

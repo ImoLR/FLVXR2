@@ -28,6 +28,8 @@ type LandingMonitorData struct {
 	OwnerNames map[int64]string
 	// NativeOnline maps the agent node id of each native server to its status.
 	NativeOnline map[int64]bool
+	// NativeConnMode maps the agent node id to its 仅入站 capability (plan 141).
+	NativeConnMode map[int64]int
 	// IntegrationSyncError is the Custom integration error that overrides the
 	// per-server shared sync error, as on the 落地 page.
 	IntegrationSyncError string
@@ -35,7 +37,7 @@ type LandingMonitorData struct {
 	Quotas map[int64]LandingMonitorQuota
 }
 
-var landingMonitorNodeColumns = []string{"id", "user_id", "landing_server_id", "name", "protocol", "port", "status", "sync_error", "remote_state", "delete_pending", "connections", "max_connections", "max_online_ips", "billed_in", "billed_out", "traffic_limit_bytes"}
+var landingMonitorNodeColumns = []string{"id", "user_id", "landing_server_id", "name", "protocol", "port", "status", "sync_error", "remote_state", "delete_pending", "connections", "inbound_connections", "conn_mode", "max_connections", "max_online_ips", "billed_in", "billed_out", "traffic_limit_bytes"}
 
 // ListLandingNodeIDs returns every landing node id. The monitor's in-memory rate
 // map is swept against it once a minute; it reads the primary key only.
@@ -61,7 +63,7 @@ func (r *Repository) CanViewLandingMonitorNode(userID, nodeID int64, admin bool)
 // see all servers and nodes; a user sees only active servers granted to them
 // (directly or through an enabled group) and only their own nodes there.
 func (r *Repository) LandingMonitorSnapshot(userID int64, admin bool, now time.Time) (*LandingMonitorData, error) {
-	out := &LandingMonitorData{OwnerNames: map[int64]string{}, NativeOnline: map[int64]bool{}, Quotas: map[int64]LandingMonitorQuota{}}
+	out := &LandingMonitorData{OwnerNames: map[int64]string{}, NativeOnline: map[int64]bool{}, NativeConnMode: map[int64]int{}, Quotas: map[int64]LandingMonitorQuota{}}
 	servers, err := r.ListLandingServers(userID, admin)
 	if err != nil {
 		return nil, err
@@ -104,6 +106,7 @@ func (r *Repository) LandingMonitorSnapshot(userID int64, admin bool, now time.T
 	nodeQuotaDefault := map[int64]int64{}
 	for _, n := range agentNodes {
 		out.NativeOnline[n.ID] = n.Status == 1
+		out.NativeConnMode[n.ID] = n.LandingConnMode
 		nodeQuotaDefault[n.ID] = n.DefaultUserQuotaBytes
 	}
 

@@ -53,10 +53,27 @@ type landingServerStats struct {
 	count, connections int
 	billed             int64
 	enabled            bool
+	// Plan 141: connections sums each node in its own effective 计算方式;
+	// these say which modes went into the sum (label 入站 / 入站+出站 / 混合).
+	inboundNodes, totalNodes int
 }
 
-// landingServerStatsByID aggregates all landing nodes per server in one pass.
-func landingServerStatsByID(all []model.LandingNode) map[int64]*landingServerStats {
+// landingConnSumMode labels a sum of node connection counts: "inbound" or
+// "total" when every node counts the same way, "mixed" otherwise.
+func landingConnSumMode(inbound, total int) string {
+	switch {
+	case inbound > 0 && total > 0:
+		return "mixed"
+	case inbound > 0:
+		return repo.LandingConnInbound
+	default:
+		return repo.LandingConnTotal
+	}
+}
+
+// landingServerStatsByID aggregates all landing nodes per server in one pass;
+// servers + support resolve each node's effective 计算方式 (plan 141).
+func landingServerStatsByID(all []model.LandingNode, servers map[int64]*model.LandingServer, support repo.LandingConnSupport) map[int64]*landingServerStats {
 	out := map[int64]*landingServerStats{}
 	for _, n := range all {
 		st := out[n.LandingServerID]
@@ -64,18 +81,34 @@ func landingServerStatsByID(all []model.LandingNode) map[int64]*landingServerSta
 			st = &landingServerStats{}
 			out[n.LandingServerID] = st
 		}
+		s := servers[n.LandingServerID]
+		mode := repo.LandingEffectiveConnMode(&n, s, support.Supported(s))
 		st.count++
-		st.connections += repo.LandingLiveConnections(&n)
+		st.connections += repo.LandingModeConnections(&n, mode)
+		if mode == repo.LandingConnInbound {
+			st.inboundNodes++
+		} else {
+			st.totalNodes++
+		}
 		st.billed += n.BilledIn + n.BilledOut
 		st.enabled = st.enabled || (n.Status == "active" && !n.DeletePending)
 	}
 	return out
 }
 
+// landingConnSupport is the per-request 仅入站 capability map (one query).
+func (h *Handler) landingConnSupport() repo.LandingConnSupport {
+	versions, err := h.repo.NativeLandingConnModeVersions()
+	if err != nil {
+		return repo.LandingConnSupport{}
+	}
+	return versions
+}
+
 // landingServerUserHidden are server fields a non-admin never receives:
 // admin limits and defaults, core sizing, and 妙妙屋 sync internals. Server-wide
 // aggregates (connections, traffic, other users' nodes) are not added at all.
-var landingServerUserHidden = []string{"chainOnly", "routeProfileId", "egressRestartOk", "egressState", "egressError", "egressReady", "egressCheckedAt", "remoteServerId", "maxConnections", "defaultMaxConnections", "defaultMaxOnlineIps", "defaultTrafficLimitBytes", "defaultUserQuotaBytes", "defaultExpiryMode", "defaultExpiryDays", "defaultExpiresAt", "coreMemoryMb", "coreCpuPercent", "revision", "sharedLastSyncAt", "sharedSyncError", "sharedPushedRevision", "sharedAppliedRevision", "createdTime", "updatedTime"}
+var landingServerUserHidden = []string{"chainOnly", "routeProfileId", "egressRestartOk", "egressState", "egressError", "egressReady", "egressCheckedAt", "remoteServerId", "maxConnections", "defaultMaxConnections", "connMode", "maxConnMode", "defaultMaxOnlineIps", "defaultTrafficLimitBytes", "defaultUserQuotaBytes", "defaultExpiryMode", "defaultExpiryDays", "defaultExpiresAt", "coreMemoryMb", "coreCpuPercent", "revision", "sharedLastSyncAt", "sharedSyncError", "sharedPushedRevision", "sharedAppliedRevision", "createdTime", "updatedTime"}
 
 // landingServerView renders one server for an admin, with server-wide
 // aggregates. Lists use landingServerAdminView / landingServerUserView with
@@ -88,11 +121,23 @@ func (h *Handler) landingServerView(s model.LandingServer, catalogs ...landingEg
 		catalog = h.landingEgressCatalog()
 	}
 	all, _ := h.repo.ListLandingNodes(0, true)
-	return h.landingServerAdminView(s, catalog, landingServerStatsByID(all)[s.ID])
+	support := h.landingConnSupport()
+	return h.landingServerAdminView(s, catalog, landingServerStatsByID(all, map[int64]*model.LandingServer{s.ID: &s}, support)[s.ID], support)
 }
 
-func (h *Handler) landingServerAdminView(s model.LandingServer, catalog landingEgressCatalog, st *landingServerStats) map[string]interface{} {
-	return h.landingServerViewWith(s, true, catalog, st, nil)
+func (h *Handler) landingServerAdminView(s model.LandingServer, catalog landingEgressCatalog, st *landingServerStats, support repo.LandingConnSupport) map[string]interface{} {
+	v := h.landingServerViewWith(s, true, catalog, st, nil)
+	// Plan 141: whether this server's runtime applies 仅入站 (false = an old
+	// agent / 妙妙屋 Helper: 仅入站 settings wait, limits stay 入站+出站).
+	supported := support.Supported(&s)
+	v["connModeSupported"] = supported
+	v["maxConnectionsMode"] = repo.LandingServerTotalConnMode(&s, supported)
+	if st != nil {
+		v["connectionsMode"] = landingConnSumMode(st.inboundNodes, st.totalNodes)
+	} else {
+		v["connectionsMode"] = repo.LandingConnTotal
+	}
+	return v
 }
 
 // landingServerUserView is a non-admin's view: own node count on the server and
@@ -189,12 +234,24 @@ func (h *Handler) landingNodeView(n model.LandingNode, catalogs ...landingEgress
 			integrationError = cfg.SyncError
 		}
 	}
-	return landingNodeViewData(n, s, u, catalog, integrationError)
+	supported := false
+	if s != nil {
+		supported = h.landingConnSupport().Supported(s)
+	}
+	return landingNodeViewData(n, s, u, catalog, integrationError, supported)
 }
 
-func landingNodeViewData(n model.LandingNode, s *model.LandingServer, u *model.User, catalog landingEgressCatalog, integrationError string) map[string]interface{} {
+// landingNodeViewData renders one node; connSupported says whether the
+// server's runtime applies 仅入站 (plan 141).
+func landingNodeViewData(n model.LandingNode, s *model.LandingServer, u *model.User, catalog landingEgressCatalog, integrationError string, connSupported bool) map[string]interface{} {
 	v := landingMap(n)
-	v["connections"] = repo.LandingLiveConnections(&n)
+	// Plan 141: the count shown next to the limit counts like the limit does.
+	configured := repo.LandingNodeConnMode(&n, s)
+	effective := repo.LandingEffectiveConnMode(&n, s, connSupported)
+	v["connections"] = repo.LandingModeConnections(&n, effective)
+	v["connModeConfigured"] = configured
+	v["connModeEffective"] = effective
+	v["connModePending"] = configured != effective
 	flow, ratio := 2, 1.0
 	expires := int64(0)
 	minExpiry := func(t int64) {
@@ -323,9 +380,14 @@ func (h *Handler) landingServerList(w http.ResponseWriter, r *http.Request) {
 			landingError(w, err)
 			return
 		}
-		stats := landingServerStatsByID(all)
+		byID := make(map[int64]*model.LandingServer, len(ss))
+		for i := range ss {
+			byID[ss[i].ID] = &ss[i]
+		}
+		support := h.landingConnSupport()
+		stats := landingServerStatsByID(all, byID, support)
 		for _, s := range ss {
-			out = append(out, h.landingServerAdminView(s, catalog, stats[s.ID]))
+			out = append(out, h.landingServerAdminView(s, catalog, stats[s.ID], support))
 		}
 	} else {
 		counts, err := h.repo.LandingUserNodeCounts(uid)
@@ -366,6 +428,10 @@ func (h *Handler) landingServerSave(w http.ResponseWriter, r *http.Request) {
 		MieruTransport   *string `json:"mieruTransport"`
 		// Reality guard switch (plan 127); absent = keep.
 		RealityGuard *bool `json:"realityGuard"`
+		// Plan 141 计算方式, shadowed (absent = keep), and 「应用到现有节点」.
+		ConnMode             *string `json:"connMode"`
+		MaxConnMode          *string `json:"maxConnMode"`
+		ApplyConnModeToNodes bool    `json:"applyConnModeToNodes"`
 	}
 	if err := landingDecode(r, &req); err != nil {
 		landingError(w, err)
@@ -411,11 +477,18 @@ func (h *Handler) landingServerSave(w http.ResponseWriter, r *http.Request) {
 	if req.MieruTransport != nil {
 		req.LandingServer.MieruTransport = *req.MieruTransport
 	}
+	req.LandingServer.ConnMode, req.LandingServer.MaxConnMode = old.ConnMode, old.MaxConnMode
+	if req.ConnMode != nil {
+		req.LandingServer.ConnMode = *req.ConnMode
+	}
+	if req.MaxConnMode != nil {
+		req.LandingServer.MaxConnMode = *req.MaxConnMode
+	}
 	b, _ := json.Marshal(req.Protocols)
 	req.LandingServer.Protocols = string(b)
 	b, _ = json.Marshal(req.RealityServerNames)
 	req.LandingServer.RealityServerNames = string(b)
-	if err := h.repo.SaveLandingServer(&req.LandingServer, req.UserGroupIDs); err != nil {
+	if err := h.repo.SaveLandingServerOpts(&req.LandingServer, req.UserGroupIDs, repo.LandingServerSaveOptions{ApplyConnModeToNodes: req.ApplyConnModeToNodes}); err != nil {
 		landingError(w, err)
 		return
 	}
@@ -469,7 +542,7 @@ func (h *Handler) landingNodeList(w http.ResponseWriter, r *http.Request) {
 	catalog := h.landingEgressCatalog()
 	for _, n := range nodes {
 		s := data.Servers[n.LandingServerID]
-		view := landingNodeViewData(n, s, data.Users[n.UserID], catalog, data.IntegrationError)
+		view := landingNodeViewData(n, s, data.Users[n.UserID], catalog, data.IntegrationError, data.ConnSupport.Supported(s))
 		view["forwardCount"] = data.ForwardCounts[n.ID]
 		view["serverAvailable"] = data.Allowed[n.ID] && s != nil && !s.ChainOnly && s.Status == "active" && (s.AvailableUntil == nil || *s.AvailableUntil > time.Now().UnixMilli()) && repo.SharedLandingAvailable(s)
 		if role != 0 {
@@ -514,6 +587,11 @@ func hideLandingNodeEgressInternals(view map[string]interface{}) {
 	delete(view, "routeProfileId")
 	delete(view, "effectiveRouteProfileId")
 	delete(view, "effectiveRouteProfileName")
+	// Plan 141: users only get the label of how their limit counts.
+	delete(view, "connMode")
+	delete(view, "connModeConfigured")
+	delete(view, "connModePending")
+	delete(view, "inboundConnections")
 }
 func (h *Handler) landingOwnedNode(r *http.Request, id int64) (*model.LandingNode, error) {
 	uid, role, err := userRoleFromRequest(r)
@@ -548,7 +626,7 @@ func (h *Handler) landingNodeUpdate(w http.ResponseWriter, r *http.Request) {
 		landingError(w, err)
 		return
 	}
-	allowed := map[string]interface{}{"name": &n.Name, "maxConnections": &n.MaxConnections, "maxOnlineIps": &n.MaxOnlineIPs, "trafficLimitBytes": &n.TrafficLimitBytes, "flowType": &n.FlowType, "trafficRatio": &n.TrafficRatio, "expiryMode": &n.ExpiryMode, "expiresAt": &n.ExpiresAt, "status": &n.Status}
+	allowed := map[string]interface{}{"name": &n.Name, "maxConnections": &n.MaxConnections, "maxOnlineIps": &n.MaxOnlineIPs, "trafficLimitBytes": &n.TrafficLimitBytes, "flowType": &n.FlowType, "trafficRatio": &n.TrafficRatio, "connMode": &n.ConnMode, "expiryMode": &n.ExpiryMode, "expiresAt": &n.ExpiresAt, "status": &n.Status}
 	profileChanged := false
 	var profileID *int64
 	if raw, ok := req["routeProfileId"]; ok {
