@@ -3060,8 +3060,11 @@ export default function ForwardPage() {
       return { bound: true, label: option?.entryLabel || editBinding.label };
     }
     const total = tunnels.find((tunnel) => tunnel.id === form.tunnelId)?.entryGroups?.length ?? 0;
+    // Only for the viewer's own rule: an admin's picker lists entries another
+    // owner may not have, so "全部入口" could mislead there.
+    const ownRule = !isAdmin || !form.userId || String(form.userId) === String(tokenUserId);
 
-    return showTunnelGroups && total > 1 ? { bound: false, label: "" } : null;
+    return ownRule && showTunnelGroups && total > 1 ? { bound: false, label: "" } : null;
   })();
   // 「我自己的节点」: save, then follow the preparation on the tunnel exits.
   const submitChain = async () => {

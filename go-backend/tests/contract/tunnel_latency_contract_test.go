@@ -91,7 +91,10 @@ func TestTunnelLatencyFullRouterJWTEntryPermissions(t *testing.T) {
 		}
 	}
 	entry := user[0]["entries"].([]interface{})[0].(map[string]interface{})
-	if len(entry) != 2 || entry["status"] != "timeout" {
+	// Plan 152 part C: the public picker key (hashed label, never a node id)
+	// lets each picker option show only its own entry's latency.
+	key, _ := entry["entryKey"].(string)
+	if len(entry) != 3 || entry["status"] != "timeout" || !strings.HasPrefix(key, "entry-") {
 		t.Fatalf("entry fields=%v", entry)
 	}
 	// Unauthenticated requests still require a session.
