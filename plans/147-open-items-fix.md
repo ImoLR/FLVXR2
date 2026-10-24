@@ -182,3 +182,25 @@ only (「妙妙屋那边…不要动」); ~15:50 TW 「其他的问题能修就�
   empty unless `server_ip` already is that literal (by design, 0 fills on prod).
 - Lab gaps: `TestLandingRealCoreUpgradeRestart` / `TestEgressRealCoreAcceptsRenderedConfig` need the previous Core
   pin / geo data (fail the same on fork.88).
+
+## Release (fork.89)
+Task `release-open-items-fix` (Claude, 10-24). Branch `maintenance/3.0.27-fork.89-open-items-fix` = feature head 4ea9ae49
+(fast-forward on fork.88 b3a87297, code identical to the build) + plan-doc commits only. Rollout: panel, then OTA of the
+native landing nodes 21 (canary, SSH backup) and 55 only; no mmwx change, never node 36.
+
+- [x] R1 gallery gate: 11 of 34 shots opened (shared settings desktop/H5, H5 total row, Core chip desktop/H5, shared node
+      details H5, all-nodes desktop/H5 with port-busy rows, user nodes H5) — no defect from this build → no fix, no re-shoot.
+      (Pre-existing, not touched: on H5 long labels such as 「流量上限 (GB，计费流量，0 不限)」 wrap and push their input down.)
+- [x] R2 build + tests on the release branch: go-backend + go-gost build ok; go-gost/x landing/socket/service ok;
+      backend SQLite 17 ok / PostgreSQL 17 ok, failing lists identical to fork.87/88 (10 tests + 5 subtests, each mode);
+      frontend tsc 0, build ok (index 3,001.33 kB), eslint src 96 errors / 3754 warnings = identical to fork.88 base.
+- [x] R3 prod-copy checks (fresh read-only copy, deleted after): report-ip fill rule on 30 nodes × 5 report variants
+      → **0 fills**; shared desired fork.88 vs fork.89 byte-identical (1543 B, 0 `conn_mode`); with the egress plan:
+      native payloads (21: 105 B, 55: 1303 B) and shared payloads identical; admin landing views only add `connModeFixed`;
+      list latency unchanged (server/list p50 2.6 ms both).
+- [ ] R4 push, CI green, tag `3.0.27-fork.89`, release Latest with the same 10 assets
+- [ ] R5 prod: validated backup + rollback dir, upgrade `/opt/flvx-svc`, prune (keep 2)
+- [ ] R6 prod checks: version, health, nodes online, node address fields identical, migrations once, report-ip
+      `bad_token` gone, shared 「入站+出站」, admin / non-admin JWT reads, no user data changed
+- [ ] R7 OTA 21 (canary, SSH backup) then 55; Core PID / landing state / traffic checks; Core pin confirmed
+- [ ] R8 10-min numbers (CPU/RSS, DB size, log lines) vs fork.88
