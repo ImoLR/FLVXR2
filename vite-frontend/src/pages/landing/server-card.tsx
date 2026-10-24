@@ -161,13 +161,13 @@ export function SharedDetailsButton({
     >
       共享详情
       {problem && (
-        <>
+        <span className="ml-0.5 inline-flex items-center gap-1">
           <span
             aria-hidden
             className="h-1.5 w-1.5 shrink-0 rounded-full bg-warning"
           />
-          <span>异常</span>
-        </>
+          异常
+        </span>
       )}
     </Button>
   );

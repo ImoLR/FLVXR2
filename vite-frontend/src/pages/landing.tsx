@@ -726,7 +726,7 @@ export default function LandingPage() {
                                 </div>
                               </td>
                               <td className="px-3 py-2">
-                                <div>
+                                <div className="whitespace-nowrap">
                                   {node.serverName ||
                                     servers.find(
                                       (server) =>
@@ -763,7 +763,7 @@ export default function LandingPage() {
                               <td className="whitespace-nowrap px-3 py-2">
                                 {usage(node)}
                               </td>
-                              <td className="px-3 py-2">
+                              <td className="whitespace-nowrap px-3 py-2">
                                 {node.connections ?? 0} /{" "}
                                 {node.maxConnections || "不限"}
                               </td>
