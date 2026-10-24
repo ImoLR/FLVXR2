@@ -1761,21 +1761,22 @@ textarea:focus-visible {
 }
 
 /* Plan 146: first-time 落地 hint ring (components/onboarding-ring.tsx). The ring and its mask are static;
-   only `.flvx-onboarding-ring__spin` rotates (transform) and the outer element fades (opacity), so the
-   15 s animation runs on the compositor without per-frame layout or paint. Never moves its host. */
+   only `.flvx-onboarding-ring__spin` animates (transform + opacity, compositor only): one lap, then the
+   component rests ~2.6 s with no animation running, then the next lap. Never moves its host. */
 .flvx-onboarding-ring {
   --flvx-ring: var(--primary);
+  --flvx-ring-head: var(--primary);
   position: absolute;
   inset: 0;
   z-index: 1;
   border-radius: inherit;
   pointer-events: none;
-  box-shadow: 0 0 6px 0 color-mix(in srgb, var(--flvx-ring) 35%, transparent);
-  animation: flvx-onboarding-fade 15s linear forwards;
+  box-shadow: 0 0 8px 1px color-mix(in srgb, var(--flvx-ring) 40%, transparent);
 }
 
 .dark .flvx-onboarding-ring {
-  --flvx-ring: var(--primary-400, #60a5fa);
+  --flvx-ring: var(--primary-400);
+  --flvx-ring-head: color-mix(in srgb, var(--primary-400) 45%, #fff);
 }
 
 .flvx-onboarding-ring__band {
@@ -1784,7 +1785,7 @@ textarea:focus-visible {
   overflow: hidden;
   padding: 2px;
   border-radius: inherit;
-  background: color-mix(in srgb, var(--flvx-ring) 18%, transparent);
+  background: color-mix(in srgb, var(--flvx-ring) 22%, transparent);
   -webkit-mask:
     linear-gradient(#000 0 0) content-box,
     linear-gradient(#000 0 0);
@@ -1806,36 +1807,33 @@ textarea:focus-visible {
 .flvx-onboarding-ring__spin {
   position: absolute;
   inset: 0;
+  opacity: 0;
   background: conic-gradient(
-    transparent 0 60%,
-    color-mix(in srgb, var(--flvx-ring) 30%, transparent) 80%,
-    var(--flvx-ring) 95%,
-    color-mix(in srgb, var(--flvx-ring) 35%, #fff) 99%,
+    transparent 0 58%,
+    color-mix(in srgb, var(--flvx-ring) 25%, transparent) 78%,
+    var(--flvx-ring) 94%,
+    var(--flvx-ring-head) 98.5%,
     var(--flvx-ring) 100%
   );
-  will-change: transform;
-  animation: flvx-onboarding-spin 2.4s linear infinite;
+  will-change: transform, opacity;
 }
 
-@keyframes flvx-onboarding-spin {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
-  }
+.flvx-onboarding-ring__spin[data-lap] {
+  animation: flvx-onboarding-lap 2.4s linear 1;
 }
 
-@keyframes flvx-onboarding-fade {
+@keyframes flvx-onboarding-lap {
   0% {
     opacity: 0;
+    transform: rotate(0deg);
   }
-  3%,
-  96% {
+  10%,
+  88% {
     opacity: 1;
   }
   100% {
     opacity: 0;
+    transform: rotate(420deg);
   }
 }
 
