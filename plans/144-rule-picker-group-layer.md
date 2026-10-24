@@ -61,7 +61,7 @@ covers, `[]` = all entries, used for tunnels without entry nodes). Built by one 
 - CI Build Check green on 704866b9. No tag, no release, no prod change (release = panel only, no DB change; rollback =
   fork.83 image).
 
-Status: BUILT, awaiting release.
+Status: RELEASED as 3.0.27-fork.84 (panel only), on prod since 10-24 09:47 TW. Rollback: `bash /opt/flvx-svc/rollback/pre-fork84-20261024T014647Z/rollback.sh` (no --restore-db needed).
 
 ## Release (fork.84, panel only)
 Branch `maintenance/3.0.27-fork.84-rule-picker-group-layer` = feature head 5b48d2c5 fast-forward (already on top of
@@ -71,7 +71,7 @@ fork.83 maintenance head 9ffec7f7, no conflicts). Gate waived by user 10-24; rel
 - [x] go build + go test ./... SQLite + PostgreSQL vs fork.83 base failure list (both identical to base: 15 env failures, 17 ok pkgs)
 - [x] Frontend tsc / build / lint (tsc 0, build ok main 2,987.51 kB, changed files 17 err = base, warnings +30 prettier only)
 - [x] Prod-copy gate re-run (fresh read-only copy, union of pills == plain option set), copy deleted — ALL_EQUAL: admin 54, test 22, @jiuwei 24, @sure 12, mraruer 12; 0 lost / 0 gained; grouped list +0.2–0.9 ms
-- [ ] Push, CI green, tag 3.0.27-fork.84, Images, Release Latest with the fork.83 asset set
-- [ ] Prod: validated DB backup + rollback dir pre-fork84-*, upgrade /opt/flvx-svc, prune
-- [ ] Prod checks: version.json, health, nodes online, agent versions, restart no repeat, bundle, real-JWT admin + user, union == pre-upgrade option set
-- [ ] After 10 min: CPU/RSS, DB size, log lines vs fork.83
+- [x] Push, CI green (40050448432), tag 3.0.27-fork.84 → b683ce04, Images 40050567013, Release Latest with the fork.83 asset set (10 assets, amd64+arm64, scripts pinned)
+- [x] Prod: validated DB backup + rollback dir pre-fork84-20261024T014647Z, upgraded /opt/flvx-svc 09:46:57–09:47:06 TW, prune (pre-fork82 + fork.81 images removed)
+- [x] Prod checks: version.json local+public fork.84, healthy, 30/30 online (29 fork.79 + node 48 fork.82), no migration (2nd restart clean), 线路分组 in served bundle; real-JWT read-only /tunnel/user/tunnel: imolr 54 / test 22 / @jiuwei 24 / @sure 12 options, pill union == pre-upgrade set (0 lost, 0 gained), users see only own group names, unauth → 401; config tables fingerprint-identical (only landing_node traffic counters moved)
+- [x] After 10 min: backend 25.1 MiB / 2.6–3.8 % CPU (fork.83: 31.1 MiB / 2.0–4.0 %), DB 56.77 MB (unchanged), 1 log line/10 min (hourly node_metric maintenance; fork.83: 0), 30/30 online
