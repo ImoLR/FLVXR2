@@ -172,7 +172,8 @@ type CNSeedResult struct {
 // EnableCNSeeds (plan 149 one-time migration of 全局·强制) switches on
 // seed-cn-ip / seed-cn-site when they still carry the original matchers and
 // adds seed-cn-direct right after them unless a rule with the same signature
-// exists. Edited seeds stay as they are; deleted ones are not re-added.
+// exists or the admin deleted both. Edited seeds stay as they are; deleted
+// ones are not re-added.
 func EnableCNSeeds(forced []Rule) ([]Rule, CNSeedResult) {
 	res := CNSeedResult{}
 	seeds := ForcedSeedRules()
@@ -208,6 +209,10 @@ func EnableCNSeeds(forced []Rule) ([]Rule, CNSeedResult) {
 	}
 	direct := seeds[2]
 	if have[RuleSignature(direct)] {
+		return out, res
+	}
+	if len(res.Missing) == len(seeds[:2]) {
+		// The admin deleted both 大陆 rules: no 大陆 blocking is wanted.
 		return out, res
 	}
 	if len(out) >= MaxGlobalRules {

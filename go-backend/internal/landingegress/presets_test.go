@@ -2,6 +2,7 @@ package landingegress
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -87,16 +88,32 @@ func TestAbuseDuplicateFollowsSwitch(t *testing.T) {
 }
 
 // The 全局·强制 seeds are disabled, valid, and never change a plan.
-func TestForcedSeedsDisabledAndIdentical(t *testing.T) {
+func TestForcedSeedsEnabledCN(t *testing.T) {
 	seeds := ForcedSeedRules()
-	// Plan 143: the 防滥用 seeds live in 内置 now; only the 大陆 rules remain.
-	if len(seeds) != 2 {
+	// Plan 143: the 防滥用 seeds live in 内置 now. Plan 149 (user 10-24): the
+	// three 大陆 rules, all enabled; 禁止大陆直连 only on SS nodes.
+	if len(seeds) != 3 {
 		t.Fatalf("seeds %d", len(seeds))
 	}
-	want := []string{"屏蔽大陆 IP", "屏蔽大陆网站"}
+	want := []string{"屏蔽大陆 IP", "屏蔽大陆网站", "禁止大陆直连"}
+	ids := []string{SeedCNIP, SeedCNSite, SeedCNDirect}
 	for i, r := range seeds {
-		if r.Enabled || r.Action != ActionBlock || r.Name != want[i] {
+		if !r.Enabled || r.Action != ActionBlock || r.Name != want[i] || r.ID != ids[i] || r.Preset != "block-cn" {
 			t.Fatalf("seed %d: %+v", i, r)
+		}
+	}
+	if len(seeds[0].InboundProtocols)+len(seeds[1].InboundProtocols) != 0 ||
+		strings.Join(seeds[2].InboundProtocols, ",") != "ss2022" || strings.Join(seeds[2].SourceIPs, ",") != "geoip:cn" {
+		t.Fatalf("scopes: %+v", seeds)
+	}
+	// Same rules as the 「屏蔽中国大陆」 preset.
+	preset := SeedPresets()[0]
+	if preset.SeedKey != "block-cn" || len(preset.Rules) != 3 || preset.Description != BlockCNDescription {
+		t.Fatalf("preset %+v", preset)
+	}
+	for i := range seeds {
+		if RuleSignature(seeds[i]) != RuleSignature(preset.Rules[i]) {
+			t.Fatalf("preset rule %d differs from the seed", i)
 		}
 	}
 	g := Global{Forced: AppendSeedRules(nil, seeds), Default: []Rule{}, DefaultAction: ActionDirect}
@@ -107,29 +124,80 @@ func TestForcedSeedsDisabledAndIdentical(t *testing.T) {
 	if after, _ := json.Marshal(g.Forced); string(after) != string(before) {
 		t.Fatalf("seeds are not in normalized form:\n%s\n%s", before, after)
 	}
-	if g.Active() {
-		t.Fatal("disabled seeds made the global group active")
-	}
-	for name, in := range map[string]CompileInput{"prod-shaped": layersInput(), "shared": func() CompileInput {
-		in := layersInput()
-		in.Builtin, in.ChainTags = false, nil
-		return in
-	}()} {
-		empty := in
-		empty.Global, empty.Layers, empty.NodeRules, empty.Markers = &Global{DefaultAction: ActionDirect}, true, true, in.Builtin
-		seeded := empty
-		seeded.Global = &g
-		a, wa := compileOK(t, empty)
-		b, wb := compileOK(t, seeded)
-		if planHashOf(t, a) != planHashOf(t, b) || strings.Join(wa, "|") != strings.Join(wb, "|") {
-			t.Fatalf("%s: disabled seeds changed the plan", name)
-		}
+	if !g.Active() {
+		t.Fatal("enabled seeds did not make the global group active")
 	}
 	// Appending twice never duplicates; an equal existing rule is kept as is.
 	existing := []Rule{{ID: "mine", Name: "我的大陆", Enabled: true, IPs: []string{"geoip:cn"}, Action: ActionBlock}}
 	out := AppendSeedRules(AppendSeedRules(existing, seeds), seeds)
-	if len(out) != 2 || out[0].ID != "mine" || !out[0].Enabled {
+	if len(out) != 3 || out[0].ID != "mine" || !out[0].Enabled {
 		t.Fatalf("append: %+v", out)
+	}
+	// The SS scope is part of the signature: an unscoped 禁止大陆直连 is a
+	// different rule.
+	unscoped := seeds[2]
+	unscoped.InboundProtocols = nil
+	if RuleSignature(unscoped) == RuleSignature(seeds[2]) {
+		t.Fatal("signature ignores 节点协议")
+	}
+	if RuleSignature(LegacyBlockCNRules()[2]) != RuleSignature(unscoped) {
+		t.Fatal("legacy preset rule changed")
+	}
+}
+
+// Plan 149 one-time migration of 全局·强制.
+func TestEnableCNSeeds(t *testing.T) {
+	legacy := func() []Rule {
+		seeds := ForcedSeedRules()[:2]
+		for i := range seeds {
+			seeds[i].Enabled = false
+		}
+		return seeds
+	}
+	mine := Rule{ID: "mine", Name: "mine", Enabled: true, Ports: "8443", Action: ActionBlock}
+	// Prod shape: both seeds present (on or off) → on, direct right after.
+	out, res := EnableCNSeeds(append(legacy(), mine))
+	if len(out) != 4 || out[2].ID != SeedCNDirect || out[3].ID != "mine" || !out[0].Enabled || !out[1].Enabled || !out[2].Enabled ||
+		!res.Added || len(res.Enabled) != 2 {
+		t.Fatalf("switch-on: %+v %+v", out, res)
+	}
+	// Running it again is a no-op.
+	again, res2 := EnableCNSeeds(out)
+	if len(again) != 4 || res2.Added || len(res2.Enabled) != 0 {
+		t.Fatalf("second run: %+v", res2)
+	}
+	// Edited seed: left alone (still disabled), reported; the other on.
+	edited := legacy()
+	edited[0].IPs = []string{"geoip:cn", "1.2.3.0/24"}
+	out, res = EnableCNSeeds(edited)
+	if out[0].Enabled || !out[1].Enabled || strings.Join(res.Edited, ",") != SeedCNIP || !res.Added {
+		t.Fatalf("edited: %+v %+v", out, res)
+	}
+	// One seed deleted: not re-added; direct goes after the remaining one.
+	out, res = EnableCNSeeds([]Rule{mine, legacy()[1]})
+	if len(out) != 3 || out[2].ID != SeedCNDirect || strings.Join(res.Missing, ",") != SeedCNIP {
+		t.Fatalf("one deleted: %+v %+v", out, res)
+	}
+	// Both deleted: nothing added (the admin wants no 大陆 blocking).
+	out, res = EnableCNSeeds([]Rule{mine})
+	if len(out) != 1 || res.Added || len(res.Missing) != 2 {
+		t.Fatalf("both deleted: %+v %+v", out, res)
+	}
+	// Same signature already there (other id): not added twice.
+	own := ForcedSeedRules()[2]
+	own.ID, own.Name = "own", "我的直连"
+	out, res = EnableCNSeeds(append(legacy(), own))
+	if len(out) != 3 || res.Added {
+		t.Fatalf("existing direct: %+v %+v", out, res)
+	}
+	// Full list: nothing appended.
+	full := legacy()
+	for len(full) < MaxGlobalRules {
+		full = append(full, Rule{ID: NewRuleID(), Name: "x", Enabled: true, Ports: fmt.Sprint(1000 + len(full)), Action: ActionBlock})
+	}
+	out, res = EnableCNSeeds(full)
+	if len(out) != MaxGlobalRules || res.Added || !res.Full || !out[0].Enabled {
+		t.Fatalf("full: %d %+v", len(out), res)
 	}
 }
 

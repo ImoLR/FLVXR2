@@ -26,19 +26,24 @@ func TestLandingSeedsAndPresets(t *testing.T) {
 				t.Fatal(err)
 			}
 			// Plan 143: fresh installs seed only the 大陆 rules into 强制.
-			if len(g.Forced) != 2 || len(g.Default) != 0 || g.Active() {
+			// Plan 149: three of them, enabled (禁止大陆直连 on SS nodes).
+			if len(g.Forced) != 3 || len(g.Default) != 0 || !g.Active() {
 				t.Fatalf("seeded global: %+v", g)
 			}
 			for _, rule := range g.Forced {
-				if rule.Enabled {
-					t.Fatalf("seed enabled: %+v", rule)
+				if !rule.Enabled {
+					t.Fatalf("seed disabled: %+v", rule)
 				}
+			}
+			if g.Forced[2].ID != landingegress.SeedCNDirect || len(g.Forced[2].InboundProtocols) != 1 || g.Forced[2].InboundProtocols[0] != "ss2022" {
+				t.Fatalf("direct seed: %+v", g.Forced[2])
 			}
 			presets, err := r.ListLandingEgressPresets()
 			if err != nil || len(presets) != 10 {
 				t.Fatalf("presets %d %v", len(presets), err)
 			}
-			if presets[0].SeedKey != "block-cn" || !presets[0].InsertTop || len(presets[0].Rules) != 3 || presets[7].SeedKey != "block-private" {
+			if presets[0].SeedKey != "block-cn" || !presets[0].InsertTop || len(presets[0].Rules) != 3 || presets[7].SeedKey != "block-private" ||
+				len(presets[0].Rules[2].InboundProtocols) != 1 || presets[0].Description != landingegress.BlockCNDescription {
 				t.Fatalf("seed order: %+v", presets[:2])
 			}
 			if presets[1].Rules[0].Action != landingegress.ActionAsk || !presets[1].AskOutbound {
@@ -165,8 +170,9 @@ func TestLandingSeedsOnUpgrade(t *testing.T) {
 	for _, rule := range g.Forced {
 		names = append(names, rule.Name)
 	}
-	// 「mine」 equals the 大陆 IP seed, so only 大陆网站 is appended.
-	if len(g.Forced) != 2 || g.Forced[0].ID != "mine" || !g.Forced[0].Enabled {
+	// 「mine」 equals the 大陆 IP seed, so only 大陆网站 and 禁止大陆直连 are
+	// appended (plan 149: enabled).
+	if len(g.Forced) != 3 || g.Forced[0].ID != "mine" || !g.Forced[0].Enabled || !g.Forced[1].Enabled || g.Forced[2].ID != landingegress.SeedCNDirect {
 		t.Fatalf("upgrade seeds: %v", names)
 	}
 	if p, _ := r.ListLandingEgressPresets(); len(p) != 10 {
@@ -179,7 +185,7 @@ func TestLandingSeedsOnUpgrade(t *testing.T) {
 		t.Fatal(err)
 	}
 	var row model.LandingEgressSetting
-	if err := r.db.First(&row, 1).Error; err != nil || row.GlobalSeedVersion != 2 || row.PresetSeedVersion != 1 || row.BuiltinSMTP != nil ||
+	if err := r.db.First(&row, 1).Error; err != nil || row.GlobalSeedVersion != 3 || row.PresetSeedVersion != 2 || row.BuiltinSMTP != nil ||
 		row.BuiltinMailPorts == nil || *row.BuiltinMailPorts || row.BuiltinTelnetSMB == nil || *row.BuiltinTelnetSMB {
 		t.Fatalf("recreated row %+v %v", row, err)
 	}

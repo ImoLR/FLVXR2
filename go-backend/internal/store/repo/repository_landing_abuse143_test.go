@@ -3,6 +3,7 @@ package repo
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 	"testing"
 
 	"go-backend/internal/landingegress"
@@ -74,9 +75,11 @@ func TestLandingAbuseSeedMove(t *testing.T) {
 		rest         string
 		resync       bool
 	}{
-		{"prod: both enabled", fmt.Sprintf(plan140Forced, true, true), true, true, "[seed-cn-ip seed-cn-site]", true},
-		{"mail only", fmt.Sprintf(plan140Forced, true, false), true, false, "[seed-cn-ip seed-cn-site]", true},
-		{"both disabled", fmt.Sprintf(plan140Forced, false, false), false, false, "[seed-cn-ip seed-cn-site]", false},
+		// Plan 149 runs right after (marker 3): 禁止大陆直连 joins the 大陆 rules
+		// when at least one of them is still there (plans change → resync).
+		{"prod: both enabled", fmt.Sprintf(plan140Forced, true, true), true, true, "[seed-cn-ip seed-cn-site seed-cn-direct]", true},
+		{"mail only", fmt.Sprintf(plan140Forced, true, false), true, false, "[seed-cn-ip seed-cn-site seed-cn-direct]", true},
+		{"both disabled", fmt.Sprintf(plan140Forced, false, false), false, false, "[seed-cn-ip seed-cn-site seed-cn-direct]", true},
 		{"deleted", `[]`, false, false, "[]", false},
 		{"renamed + edited", renamed, true, false, "[seed-telnet-smb]", true},
 	}
@@ -91,7 +94,7 @@ func TestLandingAbuseSeedMove(t *testing.T) {
 					t.Fatalf("resync %t %v", resync, err)
 				}
 				row := settingRow(t, r)
-				if row.GlobalSeedVersion != 2 || row.BuiltinMailPorts == nil || *row.BuiltinMailPorts != c.mail || row.BuiltinTelnetSMB == nil || *row.BuiltinTelnetSMB != c.telnet {
+				if row.GlobalSeedVersion != 3 || row.BuiltinMailPorts == nil || *row.BuiltinMailPorts != c.mail || row.BuiltinTelnetSMB == nil || *row.BuiltinTelnetSMB != c.telnet {
 					t.Fatalf("row %+v", row)
 				}
 				if got := forcedIDs(t, row.GlobalForced); got != c.rest {
@@ -111,6 +114,9 @@ func TestLandingAbuseSeedMove(t *testing.T) {
 				_ = json.Unmarshal([]byte(before.GlobalForced), &b)
 				_ = json.Unmarshal([]byte(row.GlobalForced), &a)
 				for _, x := range a {
+					if strings.Contains(string(x), `"seed-cn-direct"`) {
+						continue // plan 149 addition
+					}
 					found := false
 					for _, y := range b {
 						found = found || string(x) == string(y)

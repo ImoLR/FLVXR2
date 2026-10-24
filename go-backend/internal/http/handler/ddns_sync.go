@@ -265,6 +265,11 @@ func (h *Handler) ddnsSyncNode(ctx context.Context, nodeID int64, force bool) {
 			log.Printf("[ddns] node %d %s %s -> %s", nodeID, rec.RecordType, rec.Domain, desired)
 		}
 		rec.CurrentIP = desired
+		if oldIP != desired {
+			// Plan 149: landing source rules exempt the new address on the
+			// next plan sync (≤ 1 minute) instead of after the cache TTL.
+			h.invalidateLandingExempt()
+		}
 		if !rec.Applied {
 			h.ddnsApply(rec, desired)
 		} else if oldIP != "" && oldIP != desired {
