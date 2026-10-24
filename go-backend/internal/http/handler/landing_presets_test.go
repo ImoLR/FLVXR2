@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -89,10 +90,11 @@ func TestLandingBuiltinSwitchSync(t *testing.T) {
 	}
 }
 
-// The seeded 全局·强制 rules are disabled: the global view lists them, the
-// pushed plan is unchanged, and users see none of them.
-func TestLandingSeededForcedNotSent(t *testing.T) {
-	e := newFlowTestEnv(t)
+// Plan 149: the seeded 全局·强制 rules are ENABLED on a fresh install: the
+// global view lists them, the pushed plan carries the three 大陆 rules (禁止
+// 大陆直连 only on SS nodes), and the owner sees them as locked rows.
+func TestLandingSeededForcedSent(t *testing.T) {
+	e := newSeededFlowTestEnv(t)
 	e.addUser(2)
 	seedHandlerLanding(t, e, 2, 2, 1)
 	e.exec("UPDATE node SET landing_capable=?, landing_egress=1, landing_guard=2 WHERE id=2", true)
@@ -103,22 +105,32 @@ func TestLandingSeededForcedNotSent(t *testing.T) {
 		t.Fatal(err)
 	}
 	forced := view["forced"].([]landingegress.Rule)
-	if len(forced) != 2 || forced[0].Enabled {
+	if len(forced) != 3 || !forced[0].Enabled || !forced[2].Enabled || forced[2].ID != landingegress.SeedCNDirect {
 		t.Fatalf("seeded forced %+v", forced)
 	}
 	if _, err := e.h.syncLandingServer(1); err != nil {
 		t.Fatal(err)
 	}
 	p, _ := agent.payloads[len(agent.payloads)-1]["egress"].(*landingegress.Plan)
-	if p == nil || len(p.Rules) != 2 {
-		t.Fatalf("plan with disabled seeds: %+v", p)
+	if p == nil || len(p.Rules) != 5 {
+		t.Fatalf("plan with the seeds: %+v", p)
+	}
+	names := []string{}
+	for _, r := range p.Rules {
+		names = append(names, r.Name)
+	}
+	if strings.Join(names, ",") != "默认：屏蔽 SMTP 25,默认：屏蔽 BT,屏蔽大陆 IP,屏蔽大陆网站,禁止大陆直连" {
+		t.Fatalf("rules %v", names)
+	}
+	if len(p.ExemptSources) == 0 {
+		t.Fatal("source rule without exempt list")
 	}
 	n, _ := e.r.GetLandingNode(1)
 	nv, err := e.h.landingNodeRulesView(n, false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if g := nv["global"].(map[string]any); len(g["forced"].([]map[string]any)) != 0 {
-		t.Fatalf("user sees disabled seeds: %+v", g["forced"])
+	if g := nv["global"].(map[string]any); len(g["forced"].([]map[string]any)) != 3 {
+		t.Fatalf("owner view of the seeds: %+v", g["forced"])
 	}
 }
