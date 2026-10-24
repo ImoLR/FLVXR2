@@ -62,3 +62,16 @@ covers, `[]` = all entries, used for tunnels without entry nodes). Built by one 
   fork.83 image).
 
 Status: BUILT, awaiting release.
+
+## Release (fork.84, panel only)
+Branch `maintenance/3.0.27-fork.84-rule-picker-group-layer` = feature head 5b48d2c5 fast-forward (already on top of
+fork.83 maintenance head 9ffec7f7, no conflicts). Gate waived by user 10-24; release worker reviewed the gallery.
+- [x] Release worktree, branch from feature head (fast-forward over fork.83)
+- [x] Gallery review (H5/desktop, light/dark): no defect (pills wrap on H5, readable light+dark, picker unchanged), no re-shoot
+- [x] go build + go test ./... SQLite + PostgreSQL vs fork.83 base failure list (both identical to base: 15 env failures, 17 ok pkgs)
+- [x] Frontend tsc / build / lint (tsc 0, build ok main 2,987.51 kB, changed files 17 err = base, warnings +30 prettier only)
+- [x] Prod-copy gate re-run (fresh read-only copy, union of pills == plain option set), copy deleted — ALL_EQUAL: admin 54, test 22, @jiuwei 24, @sure 12, mraruer 12; 0 lost / 0 gained; grouped list +0.2–0.9 ms
+- [ ] Push, CI green, tag 3.0.27-fork.84, Images, Release Latest with the fork.83 asset set
+- [ ] Prod: validated DB backup + rollback dir pre-fork84-*, upgrade /opt/flvx-svc, prune
+- [ ] Prod checks: version.json, health, nodes online, agent versions, restart no repeat, bundle, real-JWT admin + user, union == pre-upgrade option set
+- [ ] After 10 min: CPU/RSS, DB size, log lines vs fork.83
