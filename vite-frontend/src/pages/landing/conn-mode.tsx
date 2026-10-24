@@ -13,12 +13,15 @@ export const CONN_MODE_NAME: Record<LandingConnMode, string> = {
 export const CONN_MODE_HINT =
   "仅入站 = 客户端连进来的连接，与规则连接数一致；入站+出站 = 该端口进出全部 TCP（含 TIME_WAIT/CLOSE_WAIT），通常约为入站的 2 倍以上";
 
-/** 「(入站)」 / 「(入站+出站)」 / 「(按各节点方式)」 after a displayed number. */
+/**
+ * 「(入站)」 / 「(入站+出站)」 after a displayed number; 「(按节点方式)」 for a
+ * sum whose nodes count differently (each node in its own 计算方式).
+ */
 export const connModeTag = (mode?: LandingConnSumMode | null) =>
   mode === "inbound"
     ? "(入站)"
     : mode === "mixed"
-      ? "(按各节点方式)"
+      ? "(按节点方式)"
       : "(入站+出站)";
 
 /** Why a 仅入站 setting does not apply yet (old agent / 妙妙屋 Helper). */

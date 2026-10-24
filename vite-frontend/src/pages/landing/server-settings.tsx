@@ -250,6 +250,35 @@ export function ServerSettings({
                   onChange={(mode) => set("connMode", mode ?? "total")}
                 />
               )}
+              {server.connMode !== undefined && (
+                <div className="col-span-2 space-y-2">
+                  <p className="text-xs text-default-500">{CONN_MODE_HINT}</p>
+                  {connModePending && (
+                    <p className="rounded-lg bg-warning-50 p-2 text-xs text-warning dark:bg-warning-500/10">
+                      {connModePendingText(server.source)}
+                    </p>
+                  )}
+                  {(server.nodeCount ?? 0) > 0 && (
+                    <Checkbox
+                      isSelected={applyConnMode}
+                      onValueChange={setApplyConnMode}
+                    >
+                      <span className="text-xs">
+                        同时应用到现有 {server.nodeCount}{" "}
+                        个节点（计算方式改为跟随本服务器，节点连接数改为{" "}
+                        {form.defaultMaxConnections || "不限"}）
+                      </span>
+                    </Checkbox>
+                  )}
+                  {connModeChanged &&
+                    !applyConnMode &&
+                    (server.nodeCount ?? 0) > 0 && (
+                      <p className="text-xs text-default-500">
+                        不勾选：现有节点保持原来的计算方式，新计算方式只用于新节点和之后改为跟随服务器的节点。
+                      </p>
+                    )}
+                </div>
+              )}
               {numberField("在线 IP 数（0 不限）", "defaultMaxOnlineIps")}
               {numberField(
                 "流量上限 (GB，计费流量，0 不限)",
@@ -263,35 +292,6 @@ export function ServerSettings({
               限额和流量上限按计费流量：双向 (上传+下载)×倍率×2，单向
               (上传+下载)×倍率。
             </p>
-            {server.connMode !== undefined && (
-              <div className="space-y-2">
-                <p className="text-xs text-default-500">{CONN_MODE_HINT}</p>
-                {connModePending && (
-                  <p className="rounded-lg bg-warning-50 p-2 text-xs text-warning dark:bg-warning-500/10">
-                    {connModePendingText(server.source)}
-                  </p>
-                )}
-                {(server.nodeCount ?? 0) > 0 && (
-                  <Checkbox
-                    isSelected={applyConnMode}
-                    onValueChange={setApplyConnMode}
-                  >
-                    <span className="text-xs">
-                      同时应用到现有 {server.nodeCount}{" "}
-                      个节点（计算方式改为跟随本服务器，节点连接数改为{" "}
-                      {form.defaultMaxConnections || "不限"}）
-                    </span>
-                  </Checkbox>
-                )}
-                {connModeChanged &&
-                  !applyConnMode &&
-                  (server.nodeCount ?? 0) > 0 && (
-                    <p className="text-xs text-default-500">
-                      不勾选：现有节点保持原来的计算方式，新计算方式只用于新节点和之后改为跟随服务器的节点。
-                    </p>
-                  )}
-              </div>
-            )}
             <Select
               label="默认有效期"
               selectedKeys={[form.defaultExpiryMode]}

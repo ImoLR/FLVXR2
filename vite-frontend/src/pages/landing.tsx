@@ -167,10 +167,7 @@ function serverConnRow(server: LandingServer): [string, string] {
     return [`连接数 / 上限 ${connModeTag(sum)}`, value];
   }
 
-  return [
-    "连接数 / 上限",
-    `${server.connections ?? 0} ${connModeTag(sum)} / ${server.maxConnections} ${connModeTag(limit)}`,
-  ];
+  return [`连接数 ${connModeTag(sum)} / 上限 ${connModeTag(limit)}`, value];
 }
 
 // Plan 141: 「(入站)」 / 「(入站+出站)」 after a node's connection count; admins

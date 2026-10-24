@@ -318,6 +318,16 @@ export function NodeDetails({
                 onChange={(mode) => set("connMode", mode)}
               />
             )}
+            {connModeShown && (
+              <div className="col-span-2 space-y-2">
+                <p className="text-xs text-default-500">{CONN_MODE_HINT}</p>
+                {connModePending && (
+                  <p className="rounded-lg bg-warning-50 p-2 text-xs text-warning dark:bg-warning-500/10">
+                    {connModePendingText(server?.source)}
+                  </p>
+                )}
+              </div>
+            )}
             <Input
               label="在线 IP（0 不限）"
               min="0"
@@ -356,16 +366,6 @@ export function NodeDetails({
               }
             />
           </div>
-          {connModeShown && (
-            <div className="space-y-2">
-              <p className="text-xs text-default-500">{CONN_MODE_HINT}</p>
-              {connModePending && (
-                <p className="rounded-lg bg-warning-50 p-2 text-xs text-warning dark:bg-warning-500/10">
-                  {connModePendingText(server?.source)}
-                </p>
-              )}
-            </div>
-          )}
           <Select
             label="流量计算覆盖"
             selectedKeys={[
