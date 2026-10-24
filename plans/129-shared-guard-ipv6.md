@@ -116,3 +116,37 @@ Pre-release prod read-only check: native servers 1 (node 21, 0 landing nodes) an
       coreUpgradeConfirmed; guard state shared→pending until mmwx applies); list p50 unchanged (server/list 2.24 → 2.13 ms);
       Core upgrade flow on the copy: stale report → no flag/no revision bump until confirmed → one payload with
       upgrade_core_epoch (rev +1) → cleared on the current-Core report (rev +1)
+- [x] Push branch, CI green, tag `3.0.27-fork.87`, release Latest with the same asset set as fork.86
+      — code CI Build Check 40075511248 green (4 jobs), doc commit 40076218247 green; tag → 6ae4fcdc; Build and Push
+      Images 40076226786 green; release gate 14/14 (Latest, 10 assets = fork.86, compose + scripts pinned, gost sha256,
+      ghcr amd64+arm64, released agent `gost 3.0.27-fork.87`)
+- [x] Prod panel: validated backup + rollback dir `pre-fork87-<ts>`, upgrade `/opt/flvx-svc`, prune (keep 2)
+      — `/opt/flvx-svc/rollback/pre-fork87-20261024T080857Z` (quick/integrity ok; rollback.sh → fork.86, no
+      `--restore-db` needed); upgraded 16:09:07 → healthy 16:09:22 TW; pruned pre-fork85 + fork.84 images
+- [x] Prod verify: version, health, nodes online, migration once (2nd restart), new UI in bundle, real-JWT admin/non-admin checks, data untouched
+      — version.json `3.0.27-fork.87-mvm3zqyf` (local + public), bundle has the plan-129 texts; 30/30 online; caps
+      refreshed at once → shared revisions 230→231 / 182→183 / 55→56 / 36→37 pushed + applied by mmwx within ~1 min,
+      no sync error, mmwx Core epochs of 7/5/10/16 unchanged (no Core reload anywhere; 0 Reality nodes), guard view
+      idle (「已开启：暂无 Reality 节点」) on all 6; real sing-box client through every landing node (10/95 Boil Hinet,
+      105 PQS TW, 97 NexKR): 3/3 before, after the panel upgrade and after the Core upgrades, same egress IPs/latency;
+      landing_server/landing_node columns vs the backup: only revision/hash/caps/sync timestamps + the 2 new columns
+      (defaults) + my test traffic counters (few KB); 2nd restart: config + schema identical, revisions stable,
+      30 reconnects 0 updated / 0 failed; admin sees guard + coreUpgrade fields, @jiuwei no new fields, other user's
+      node IPs 403, server/save 403, unauth 401; IPv6 /64 not demonstrable live (no IPv6 path from this host to a
+      landing port; covered by the build's real-Core E2E)
+- [x] OTA native landing nodes 21 (canary, SSH backup) then 55 (panel OTA) + admin-confirmed Core upgrade, impact measured
+      — node 21 16:15 TW: SSH backup `/root/flvxx-backup-20261024T081455Z-pre-fork87` (+ old Core v1.4.59), reconnect
+      4 s, wss→wss, diagnose 27/27 → 27/27, Core PID 890894 unchanged, disk Core b01adef (488803a4…), running exe
+      `(deleted)` → core_stale_epoch reported at once; confirm (API = settings save with the frontend's fields +
+      coreUpgradeConfirmed) 16:16:31: Core stopped/started in ~70 ms, PID → 1228701, `version` b01adef, stale cleared
+      in 0.4 s, config fields unchanged, revision 273 → 276 (flag on → off), agent/Core journal 0 lines / 10 min;
+      node 55 16:17 TW: panel OTA, reconnect 4 s, landing node 97 epoch unchanged until confirm; confirm 16:18:23: new
+      epoch, stale cleared in 1.3 s, egress hash 66f20ce5… unchanged, revision 20 → 23; live probe on node 97 every
+      0.5 s: 3 of 44 requests failed within ~1 s of the save, all others OK
+- [x] After 10 min: CPU/RSS, DB size, log lines vs fork.86
+      — backend 35 MiB / 2.7–4 % CPU (fork.86 just before: 51 MiB / 3.4 %), DB 57.11 MB (same), 0 log lines / 10 min,
+      restarts 0; node 21: Core RSS 32.8 MiB (7.6 MiB anon), agent 57.8 MiB, MemAvailable 169 → 178 MB
+
+Open after fork.87: encrypted BT / DHT still not recognised (both Cores); guard on shared servers only acts once FLVX
+Reality nodes exist there (0 today); a shared Reality connection may hold 2 extra conns ≈1 s while the guard is on;
+IPv6 counts per /64 (Core behaviour); nodes other than 21/55 stay fork.79 (48 fork.82) — they run no landing Core.
