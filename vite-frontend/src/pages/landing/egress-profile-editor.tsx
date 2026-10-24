@@ -156,7 +156,7 @@ export function ProfileEditor({
   return (
     <>
       <Modal isOpen scrollBehavior="inside" size="xl" onClose={onClose}>
-        <ModalContent className="flvx-landing-text">
+        <ModalContent className="flvx-landing">
           <ModalHeader>
             {profile?.id ? `编辑路由方案 · ${profile.name}` : "新建路由方案"}
           </ModalHeader>

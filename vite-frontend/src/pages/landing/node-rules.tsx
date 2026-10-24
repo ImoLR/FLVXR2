@@ -152,7 +152,7 @@ export function NodeRulesDialog({
   if (!view) {
     return (
       <Modal isOpen size="xl" onClose={onClose}>
-        <ModalContent className="flvx-landing-text">
+        <ModalContent className="flvx-landing">
           <ModalHeader>路由规则</ModalHeader>
           <ModalBody>
             <div className="flex justify-center p-6">
@@ -229,7 +229,7 @@ export function NodeRulesDialog({
   return (
     <>
       <Modal isOpen scrollBehavior="inside" size="xl" onClose={requestClose}>
-        <ModalContent className="flvx-landing-text">
+        <ModalContent className="flvx-landing">
           <ModalHeader className="flex flex-col gap-1">
             <span>路由规则 · {view.nodeName}</span>
             <span className="text-xs font-normal text-default-500">
@@ -443,7 +443,7 @@ export function NodeRulesDialog({
         size="sm"
         onClose={() => setConfirmDiscard(false)}
       >
-        <ModalContent className="flvx-landing-text">
+        <ModalContent className="flvx-landing">
           <ModalHeader>放弃未保存的修改？</ModalHeader>
           <ModalBody>
             <p className="text-sm">规则的修改还没有保存，关闭后会丢失。</p>

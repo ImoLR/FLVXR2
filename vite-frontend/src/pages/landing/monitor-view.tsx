@@ -444,7 +444,7 @@ function IpCount({
           <ModalContent
             aria-describedby={undefined}
             aria-label={`${node.name} 在线 IP`}
-            className="flvx-landing-text"
+            className="flvx-landing"
           >
             <ModalHeader>
               <div>在线 IP</div>
@@ -470,7 +470,7 @@ function IpCount({
     <Dropdown>
       <DropdownTrigger>{trigger}</DropdownTrigger>
       <DropdownMenu>
-        <div className="flvx-landing-text w-80 max-w-[85vw] space-y-2 p-3 text-left">
+        <div className="flvx-landing w-80 max-w-[85vw] space-y-2 p-3 text-left">
           <div className="text-base font-semibold">在线 IP</div>
           <div className="break-all text-sm text-default-500">{node.name}</div>
           <OnlineIpList nodeId={node.id} />
@@ -1042,7 +1042,7 @@ export function LandingMonitorView({
   }
 
   return (
-    <div className="flvx-landing-text flex w-full flex-col gap-4">
+    <div className="flvx-landing flex w-full flex-col gap-4">
       <div className="flex flex-wrap items-center gap-3">
         <div className="flex items-center gap-2 text-xs text-default-500">
           <LiveDot ok={!error && !!data} />

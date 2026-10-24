@@ -131,7 +131,7 @@ export function CreateLandingNodeDialog({
 
   return (
     <Modal isOpen scrollBehavior="inside" onClose={onClose}>
-      <ModalContent className="flvx-landing-text">
+      <ModalContent className="flvx-landing">
         <ModalHeader>创建落地节点</ModalHeader>
         <ModalBody className="space-y-4">
           {initialServer ? (

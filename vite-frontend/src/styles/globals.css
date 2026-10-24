@@ -1708,7 +1708,20 @@ textarea:focus-visible {
   }
 }
 
-/* Landing page and its dialogs: no text smaller than the 16px card titles; headings scale up to match. */
+/* Plan 145: the 落地 page, its tabs and dialogs use the same Tailwind sizes as the other pages (plan 106's
+   16px scale-up removed). Only chips get a 12px floor (bridge `sm` chips are 10px) and never wrap. */
+.flvx-landing [data-slot="badge"] {
+  font-size: 0.75rem;
+  line-height: 1rem;
+  white-space: nowrap;
+}
+
+.flvx-landing th {
+  white-space: nowrap;
+}
+
+/* Plan 106 16px scale-up, now only on the two landing bits embedded in the 规则 page (forward.tsx chain progress,
+   rule-target line-machine picker) so that page stays exactly as it was. */
 .flvx-landing-text
   :is(
     .text-xs,

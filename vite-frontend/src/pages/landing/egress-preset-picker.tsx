@@ -170,7 +170,7 @@ export function PresetPicker({
         </DropdownMenu>
       </Dropdown>
       <Modal isOpen={Boolean(askFor)} onClose={() => setAskFor(null)}>
-        <ModalContent className="flvx-landing-text">
+        <ModalContent className="flvx-landing">
           <ModalHeader>添加预设 · {askFor?.name}</ModalHeader>
           <ModalBody className="space-y-3">
             {askFor?.description && (

@@ -19,10 +19,12 @@ export function IntegrationSettings({ onSynced }: { onSynced: () => void }) {
   const [token, setToken] = useState("");
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
+
   useEffect(() => {
     void getLandingIntegration().then((res) => {
       if (res.code !== 0) {
         setError(res.msg);
+
         return;
       }
       setConfig(res.data);
@@ -35,6 +37,7 @@ export function IntegrationSettings({ onSynced }: { onSynced: () => void }) {
     try {
       if (action === "test") {
         const res = await testLandingIntegration({ baseUrl, token });
+
         if (res.code !== 0) setError(res.msg);
         else
           toast.success(
@@ -45,8 +48,10 @@ export function IntegrationSettings({ onSynced }: { onSynced: () => void }) {
           action === "save"
             ? await saveLandingIntegration({ baseUrl, token })
             : await syncLandingIntegration();
+
         if (res.code !== 0) {
           setError(res.msg);
+
           return;
         }
         setConfig(res.data);
@@ -61,13 +66,14 @@ export function IntegrationSettings({ onSynced }: { onSynced: () => void }) {
       setBusy("");
     }
   };
+
   return (
     <Card>
-      <CardHeader>
+      <CardHeader className="pb-2 md:pb-3">
         <h2 className="font-semibold">妙妙屋接入设置</h2>
       </CardHeader>
-      <CardBody className="space-y-4">
-        <div className="grid gap-4 md:grid-cols-2">
+      <CardBody className="space-y-3">
+        <div className="grid gap-3 md:grid-cols-2">
           <Input
             label="Custom 基础地址"
             value={baseUrl}
@@ -75,15 +81,15 @@ export function IntegrationSettings({ onSynced }: { onSynced: () => void }) {
             onChange={(event) => setBaseUrl(event.target.value)}
           />
           <Input
-            label="接入令牌"
-            type="password"
             autoComplete="new-password"
-            value={token}
+            label="接入令牌"
             placeholder={
               config?.hasToken
                 ? "已保存；留空保持原令牌"
                 : "填写 FLVX 专用接入令牌"
             }
+            type="password"
+            value={token}
             variant="bordered"
             onChange={(event) => setToken(event.target.value)}
           />
@@ -98,8 +104,8 @@ export function IntegrationSettings({ onSynced }: { onSynced: () => void }) {
           </p>
           {(error || config?.syncError) && (
             <p
+              className="rounded-lg bg-warning-50 p-2 text-warning"
               role="status"
-              className="rounded-lg bg-warning-50 p-3 text-warning"
             >
               同步异常 · {error || config?.syncError}
               。保留已有节点，连接恢复后自动重试。
@@ -111,24 +117,27 @@ export function IntegrationSettings({ onSynced }: { onSynced: () => void }) {
             color="primary"
             isDisabled={Boolean(busy)}
             isLoading={busy === "save"}
+            size="sm"
             onPress={() => void run("save")}
           >
             保存并同步
           </Button>
           <Button
             color="secondary"
-            variant="flat"
             isDisabled={Boolean(busy)}
             isLoading={busy === "test"}
+            size="sm"
+            variant="flat"
             onPress={() => void run("test")}
           >
             测试连接
           </Button>
           <Button
             color="success"
-            variant="flat"
             isDisabled={Boolean(busy) || !config?.hasToken}
             isLoading={busy === "sync"}
+            size="sm"
+            variant="flat"
             onPress={() => void run("sync")}
           >
             立即同步

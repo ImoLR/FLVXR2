@@ -10,9 +10,11 @@ import {
 
 export function SharedCaps({ server }: { server: LandingServer }) {
   const caps = server.sharedCaps;
+
   if (!caps) return null;
+
   return (
-    <div className="space-y-2 rounded-lg bg-default-100 p-3 text-xs">
+    <div className="space-y-1.5 rounded-lg bg-default-100 p-3 text-sm">
       <p className="font-medium">妙妙屋共享上限（只读）</p>
       <p>
         状态：

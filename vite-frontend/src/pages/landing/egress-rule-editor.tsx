@@ -150,7 +150,7 @@ export function RuleEditor({
 
   return (
     <Modal isOpen scrollBehavior="inside" size="lg" onClose={onClose}>
-      <ModalContent className="flvx-landing-text">
+      <ModalContent className="flvx-landing">
         <ModalHeader>
           {rule.name ? `编辑规则 · ${rule.name}` : "规则"}
         </ModalHeader>

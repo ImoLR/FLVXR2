@@ -1,10 +1,15 @@
-import { IntegrationSettings } from "./landing/integration-settings";
-import { SharedCaps } from "./landing/shared-caps";
-
 import { Suspense, lazy, useCallback, useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { Copy, Plus, QrCode, RefreshCw, Settings2 } from "lucide-react";
 import toast from "react-hot-toast";
+
+import {
+  ChipLine,
+  ChipLineItem,
+  SharedDetailsButton,
+  SharedDetailsDialog,
+} from "./landing/server-card";
+import { IntegrationSettings } from "./landing/integration-settings";
 
 import {
   LandingLink,
@@ -27,7 +32,6 @@ import {
   landingStatus,
 } from "@/api/landing";
 import { AnimatedPage } from "@/components/animated-page";
-import { useH5Mode } from "@/hooks/useH5Mode";
 import { usePullToRefresh } from "@/hooks/usePullToRefresh";
 import { Button } from "@/shadcn-bridge/heroui/button";
 import { Card, CardBody, CardHeader } from "@/shadcn-bridge/heroui/card";
@@ -56,16 +60,20 @@ async function copyToClipboard(value: string): Promise<boolean> {
   try {
     if (navigator.clipboard?.writeText) {
       await navigator.clipboard.writeText(value);
+
       return true;
     }
     const input = document.createElement("textarea");
+
     input.value = value;
     input.style.position = "fixed";
     input.style.opacity = "0";
     document.body.appendChild(input);
     input.select();
     const copied = document.execCommand("copy");
+
     input.remove();
+
     return copied;
   } catch {
     return false;
@@ -113,14 +121,16 @@ function UserServerSummary({ server }: { server: LandingServer }) {
 
   return (
     <>
-      <dl className="grid grid-cols-2 gap-3 text-sm">
+      <dl className="grid grid-cols-2 gap-x-3 gap-y-2">
         <div>
-          <dt className="text-default-500">我的节点</dt>
-          <dd className="mt-1">{server.nodeCount ?? 0}</dd>
+          <dt className="text-xs text-default-500">我的节点</dt>
+          <dd className="mt-0.5 text-sm">{server.nodeCount ?? 0}</dd>
         </div>
         <div>
-          <dt className="text-default-500">还可创建</dt>
-          <dd className={full ? "mt-1 text-warning" : "mt-1"}>
+          <dt className="text-xs text-default-500">还可创建</dt>
+          <dd
+            className={full ? "mt-0.5 text-sm text-warning" : "mt-0.5 text-sm"}
+          >
             {server.myRemaining === undefined
               ? "—"
               : full
@@ -129,8 +139,10 @@ function UserServerSummary({ server }: { server: LandingServer }) {
           </dd>
         </div>
         <div>
-          <dt className="text-default-500">可用至</dt>
-          <dd className="mt-1">{landingDate(server.availableUntil)}</dd>
+          <dt className="text-xs text-default-500">可用至</dt>
+          <dd className="mt-0.5 text-sm">
+            {landingDate(server.availableUntil)}
+          </dd>
         </div>
       </dl>
       {full && (
@@ -144,8 +156,6 @@ function UserServerSummary({ server }: { server: LandingServer }) {
 
 export default function LandingPage() {
   const admin = isAdmin();
-  // H5: protocol chips stack in a right-hand column of the server card header.
-  const stackProtocols = useH5Mode();
   const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
   const [servers, setServers] = useState<LandingServer[]>([]);
@@ -166,6 +176,9 @@ export default function LandingPage() {
   const [saving, setSaving] = useState(false);
   const [globalSettings, setGlobalSettings] = useState(false);
   const [rulesFor, setRulesFor] = useState<LandingNode | null>(null);
+  const [sharedDetails, setSharedDetails] = useState<LandingServer | null>(
+    null,
+  );
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -174,12 +187,14 @@ export default function LandingPage() {
       landingServers(),
       landingNodes(),
     ]);
+
     if (serverRes.code === 0) setServers(serverRes.data || []);
     else setError(serverRes.msg);
     if (nodeRes.code === 0) setNodes(nodeRes.data || []);
     else setError(nodeRes.msg);
     setLoading(false);
   }, []);
+
   useEffect(() => {
     void load();
   }, [load]);
@@ -234,8 +249,10 @@ export default function LandingPage() {
   }, [pendingKey]);
   useEffect(() => {
     const serverId = Number(params.get("server"));
+
     if (!admin || !serverId || !servers.length) return;
     const server = servers.find((item) => item.id === serverId);
+
     if (server) {
       setSettings(server);
       setParams({}, { replace: true });
@@ -244,6 +261,7 @@ export default function LandingPage() {
   useEffect(() => {
     if (!linksFor) return;
     let disposed = false;
+
     setLinks([]);
     setLinkError("");
     setQR("");
@@ -254,6 +272,7 @@ export default function LandingPage() {
       else setLinkError(res.msg);
       setLinksLoading(false);
     });
+
     return () => {
       disposed = true;
     };
@@ -371,11 +390,11 @@ export default function LandingPage() {
     `${landingGB(node.billedIn + node.billedOut)} / ${node.trafficLimitBytes ? landingGB(node.trafficLimitBytes) : "不限"} GB`;
 
   return (
-    <AnimatedPage>
-      <div className="flvx-landing-text space-y-6">
+    <AnimatedPage className="px-3 py-8 lg:px-6">
+      <div className="flvx-landing space-y-4">
         <div className="flex items-center justify-between gap-3">
-          <div>
-            <h1 className="text-2xl font-bold">落地</h1>
+          <div className="min-w-0">
+            <h1 className="text-xl font-semibold">落地</h1>
             <p className="mt-1 text-sm text-default-500">
               {admin
                 ? "管理自有与共享落地服务器、节点和独立限制"
@@ -393,6 +412,7 @@ export default function LandingPage() {
             {admin && (
               <Button
                 color="warning"
+                size="sm"
                 startContent={<Settings2 size={16} />}
                 variant="flat"
                 onPress={() => setGlobalSettings(true)}
@@ -404,15 +424,16 @@ export default function LandingPage() {
               isIconOnly
               aria-label="刷新落地"
               isLoading={loading}
+              size="sm"
               variant="flat"
               onPress={load}
             >
-              <RefreshCw size={18} />
+              <RefreshCw size={16} />
             </Button>
           </div>
         </div>
         {error && (
-          <p className="rounded-lg bg-danger-50 p-3 text-sm text-danger">
+          <p className="rounded-lg bg-danger-50 p-2 text-sm text-danger">
             {error}
           </p>
         )}
@@ -423,105 +444,158 @@ export default function LandingPage() {
           onSelectionChange={(key) => setTab(String(key))}
         >
           <Tab key="servers" title={admin ? "落地服务器" : "可用落地"}>
-            <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-              {servers.map((server) => (
-                <Card
-                  key={server.id}
-                  className={stackProtocols ? "min-w-0" : undefined}
-                >
-                  <CardHeader
-                    className={
-                      stackProtocols
-                        ? "flex-row items-start justify-between gap-3"
-                        : "flex items-start justify-between gap-3"
-                    }
-                  >
-                    <div
-                      className={
-                        stackProtocols
-                          ? "flex min-w-0 flex-1 flex-col items-start gap-3"
-                          : "contents"
-                      }
-                    >
-                      <div className="min-w-0">
-                        <h2
-                          className={
-                            stackProtocols
-                              ? "break-words font-semibold"
-                              : "truncate font-semibold"
-                          }
+            {/* Plan 145: same grid as 隧道/节点 cards; auto-rows-fr + h-full
+                cards = every card the same size, also across rows. */}
+            <div className="flvx-card-grid mt-4 grid auto-rows-fr gap-4">
+              {servers.map((server) => {
+                const online = server.online && server.status === "active";
+                const sourceItems: ChipLineItem[] = [];
+                const chipItems: ChipLineItem[] = [];
+
+                if (admin) {
+                  const source =
+                    server.source === "shared" ? "妙妙屋共享" : "FLVX 自有落地";
+
+                  sourceItems.push({
+                    key: "source",
+                    label: source,
+                    node: (
+                      <Chip
+                        className="text-default-600"
+                        size="sm"
+                        variant="bordered"
+                      >
+                        {source}
+                      </Chip>
+                    ),
+                  });
+                  const mode =
+                    server.source === "shared"
+                      ? landingServerModeLabel(server.sharedCaps?.server_mode)
+                      : "";
+
+                  if (mode)
+                    sourceItems.push({
+                      key: "mode",
+                      label: `妙妙屋 · ${mode}`,
+                      node: (
+                        <Chip
+                          className="text-default-600"
+                          size="sm"
+                          title="妙妙屋官方给这台服务器设置的运行模式，仅供参考；FLVX 节点运行在 FLVX 独立的 Core 中，连接数、在线 IP、流量限制照常生效"
+                          variant="bordered"
                         >
-                          {server.name}
-                        </h2>
-                        {admin && (
-                          <p className="mt-1 text-xs text-default-500">
-                            {server.source === "shared"
-                              ? "妙妙屋共享"
-                              : "FLVX 自有落地"}
-                          </p>
-                        )}
-                        {admin &&
-                          server.source === "shared" &&
-                          landingServerModeLabel(
-                            server.sharedCaps?.server_mode,
-                          ) && (
-                            <div className="mt-1 flex flex-wrap items-center gap-1">
-                              <Chip
-                                className="text-default-600"
-                                size="sm"
-                                title="妙妙屋官方给这台服务器设置的运行模式，仅供参考；FLVX 节点运行在 FLVX 独立的 Core 中，连接数、在线 IP、流量限制照常生效"
-                                variant="bordered"
-                              >
-                                妙妙屋 ·{" "}
-                                {landingServerModeLabel(
-                                  server.sharedCaps?.server_mode,
-                                )}
-                              </Chip>
-                            </div>
-                          )}
-                        {admin &&
-                          (server.chainOnly ||
-                            (server.chainNodeCount ?? 0) > 0) && (
-                            <div className="mt-1 flex flex-wrap items-center gap-1">
-                              {server.chainOnly && (
-                                <Chip
-                                  color="secondary"
-                                  size="sm"
-                                  title="自动安装，只承载「我自己的节点」链式规则，不对用户开放；在节点页「启用为落地」可转为公开落地"
-                                  variant="flat"
-                                >
-                                  链式
-                                </Chip>
-                              )}
-                              {(server.chainNodeCount ?? 0) > 0 && (
-                                <Chip
-                                  className="text-default-600"
-                                  size="sm"
-                                  variant="bordered"
-                                >
-                                  链式节点 {server.chainNodeCount}
-                                </Chip>
-                              )}
-                            </div>
-                          )}
-                      </div>
+                          妙妙屋 · {mode}
+                        </Chip>
+                      ),
+                    });
+                  if (server.chainOnly)
+                    sourceItems.push({
+                      key: "chain",
+                      label: "链式",
+                      node: (
+                        <Chip
+                          color="secondary"
+                          size="sm"
+                          title="自动安装，只承载「我自己的节点」链式规则，不对用户开放；在节点页「启用为落地」可转为公开落地"
+                          variant="flat"
+                        >
+                          链式
+                        </Chip>
+                      ),
+                    });
+                  if ((server.chainNodeCount ?? 0) > 0)
+                    sourceItems.push({
+                      key: "chain-nodes",
+                      label: `链式节点 ${server.chainNodeCount}`,
+                      node: (
+                        <Chip
+                          className="text-default-600"
+                          size="sm"
+                          variant="bordered"
+                        >
+                          链式节点 {server.chainNodeCount}
+                        </Chip>
+                      ),
+                    });
+                }
+                const flow = `${server.flowType === 2 ? "双向" : "单向"} · ${server.trafficRatio}×`;
+
+                chipItems.push({
+                  key: "flow",
+                  label: flow,
+                  node: (
+                    <Chip color="secondary" size="sm" variant="flat">
+                      {flow}
+                    </Chip>
+                  ),
+                });
+                for (const protocol of server.protocols || [])
+                  chipItems.push({
+                    key: `p-${protocol}`,
+                    label: landingProtocolLabel(protocol),
+                    node: (
+                      <Chip
+                        className="text-default-600"
+                        size="sm"
+                        title={landingProtocolLabel(protocol)}
+                        variant="bordered"
+                      >
+                        {landingProtocolShortLabel(protocol)}
+                      </Chip>
+                    ),
+                  });
+                if (server.egressLabel)
+                  chipItems.push({
+                    key: "egress",
+                    label: `出站：${server.egressLabel}`,
+                    node: (
+                      <Chip color="success" size="sm" variant="flat">
+                        出站：{server.egressLabel}
+                      </Chip>
+                    ),
+                  });
+                if (admin && server.egress?.state === "error")
+                  chipItems.push({
+                    key: "egress-error",
+                    label: "出站与路由应用失败",
+                    node: (
+                      <Chip color="danger" size="sm" variant="flat">
+                        出站与路由应用失败
+                      </Chip>
+                    ),
+                  });
+                if (admin && server.egress?.state === "restart_required")
+                  chipItems.push({
+                    key: "egress-restart",
+                    label: "出站与路由待重启生效",
+                    node: (
+                      <Chip color="warning" size="sm" variant="flat">
+                        出站与路由待重启生效
+                      </Chip>
+                    ),
+                  });
+
+                return (
+                  <Card
+                    key={server.id}
+                    className="flex h-full min-w-0 flex-col"
+                    data-landing-server-card={server.source}
+                  >
+                    <CardHeader className="flex flex-row items-center justify-between gap-2 pb-1.5 md:pb-1.5 md:pt-[18px]">
+                      <h2
+                        className="min-w-0 truncate text-sm font-bold"
+                        title={server.name}
+                      >
+                        {server.name}
+                      </h2>
                       <Chip
                         className={
-                          server.online && server.status === "active"
-                            ? undefined
-                            : "text-default-600"
+                          online ? "shrink-0" : "shrink-0 text-default-600"
                         }
-                        color={
-                          server.online && server.status === "active"
-                            ? "success"
-                            : "default"
-                        }
+                        color={online ? "success" : "default"}
                         size="sm"
-                        variant={
-                          server.online && server.status === "active"
-                            ? "flat"
-                            : "bordered"
-                        }
+                        variant={online ? "flat" : "bordered"}
                       >
                         {server.status !== "active"
                           ? "已停用"
@@ -529,145 +603,82 @@ export default function LandingPage() {
                             ? "在线"
                             : "离线"}
                       </Chip>
-                    </div>
-                    {stackProtocols && (server.protocols || []).length > 0 && (
-                      <div
-                        data-landing-protocol-column
-                        className="flex shrink-0 flex-col items-end gap-1"
-                      >
-                        {(server.protocols || []).map((protocol) => (
-                          <Chip
-                            key={protocol}
-                            className="text-default-600"
-                            size="sm"
-                            title={landingProtocolLabel(protocol)}
-                            variant="bordered"
-                          >
-                            {landingProtocolShortLabel(protocol)}
-                          </Chip>
-                        ))}
-                      </div>
-                    )}
-                  </CardHeader>
-                  <CardBody className="space-y-4">
-                    {admin && server.source === "shared" && (
-                      <>
-                        <SharedCaps server={server} />
-                        <p className="text-xs text-default-500">
-                          最近成功同步：
-                          {server.sharedLastSyncAt
-                            ? landingDate(server.sharedLastSyncAt)
-                            : "尚未同步"}
-                        </p>
-                        {server.sharedSyncError && (
-                          <p className="rounded-lg bg-warning-50 p-2 text-xs text-warning">
-                            同步异常 · {server.sharedSyncError}
-                          </p>
-                        )}
-                        {server.sharedNotice && (
-                          <p className="rounded-lg bg-warning-50 p-2 text-xs text-warning">
-                            {server.sharedNotice}
-                          </p>
-                        )}
-                      </>
-                    )}
-                    <div className="flex flex-wrap gap-2">
-                      <Chip color="secondary" size="sm" variant="flat">
-                        {server.flowType === 2 ? "双向" : "单向"} ·{" "}
-                        {server.trafficRatio}×
-                      </Chip>
-                      {!stackProtocols &&
-                        (server.protocols || []).map((protocol) => (
-                          <Chip
-                            key={protocol}
-                            className="text-default-600"
-                            size="sm"
-                            variant="bordered"
-                          >
-                            {landingProtocolLabel(protocol)}
-                          </Chip>
-                        ))}
-                      {server.egressLabel && (
-                        <Chip color="success" size="sm" variant="flat">
-                          出站：{server.egressLabel}
-                        </Chip>
+                    </CardHeader>
+                    <CardBody className="flex flex-1 flex-col gap-3 pb-3.5 md:pb-3.5">
+                      {admin && <ChipLine items={sourceItems} />}
+                      <ChipLine items={chipItems} />
+                      {admin ? (
+                        <dl className="grid grid-cols-2 gap-x-3 gap-y-2">
+                          {(
+                            [
+                              ["计费流量", `${landingGB(server.usedBytes)} GB`],
+                              [
+                                "连接数 / 上限",
+                                `${server.connections ?? 0} / ${server.maxConnections || "不限"}`,
+                              ],
+                              [
+                                "节点数",
+                                `${server.nodeCount ?? 0} · 每人最多 ${server.maxNodesPerUser}`,
+                              ],
+                              ["可用至", landingDate(server.availableUntil)],
+                            ] as const
+                          ).map(([label, value]) => (
+                            <div key={label} className="min-w-0">
+                              <dt className="text-xs text-default-500">
+                                {label}
+                              </dt>
+                              <dd
+                                className="mt-0.5 truncate text-sm"
+                                title={value}
+                              >
+                                {value}
+                              </dd>
+                            </div>
+                          ))}
+                        </dl>
+                      ) : (
+                        <UserServerSummary server={server} />
                       )}
-                      {admin && server.egress?.state === "error" && (
-                        <Chip color="danger" size="sm" variant="flat">
-                          出站与路由应用失败
-                        </Chip>
-                      )}
-                      {admin && server.egress?.state === "restart_required" && (
-                        <Chip color="warning" size="sm" variant="flat">
-                          出站与路由待重启生效
-                        </Chip>
-                      )}
-                    </div>
-                    {admin ? (
-                      <dl className="grid grid-cols-2 gap-3 text-sm">
-                        <div>
-                          <dt className="text-default-500">计费流量</dt>
-                          <dd className="mt-1">
-                            {landingGB(server.usedBytes)} GB
-                          </dd>
-                        </div>
-                        <div>
-                          <dt className="text-default-500">连接数 / 上限</dt>
-                          <dd className="mt-1">
-                            {server.connections ?? 0} /{" "}
-                            {server.maxConnections || "不限"}
-                          </dd>
-                        </div>
-                        <div>
-                          <dt className="text-default-500">节点数</dt>
-                          <dd className="mt-1">
-                            {server.nodeCount ?? 0} · 每人最多{" "}
-                            {server.maxNodesPerUser}
-                          </dd>
-                        </div>
-                        <div>
-                          <dt className="text-default-500">可用至</dt>
-                          <dd className="mt-1">
-                            {landingDate(server.availableUntil)}
-                          </dd>
-                        </div>
-                      </dl>
-                    ) : (
-                      <UserServerSummary server={server} />
-                    )}
-                    <div className="flex flex-wrap gap-2">
-                      <Button
-                        color="success"
-                        isDisabled={
-                          server.status !== "active" ||
-                          server.sharedAvailable === false ||
-                          (!admin && server.myRemaining === 0)
-                        }
-                        size="sm"
-                        startContent={<Plus size={16} />}
-                        onPress={() => setCreating(server)}
-                      >
-                        创建节点
-                      </Button>
-                      {admin && (
+                      <div className="mt-auto flex flex-nowrap gap-2 pt-1">
                         <Button
-                          color="warning"
+                          color="success"
+                          isDisabled={
+                            server.status !== "active" ||
+                            server.sharedAvailable === false ||
+                            (!admin && server.myRemaining === 0)
+                          }
                           size="sm"
-                          startContent={<Settings2 size={16} />}
-                          variant="flat"
-                          onPress={() => setSettings(server)}
+                          startContent={<Plus size={16} />}
+                          onPress={() => setCreating(server)}
                         >
-                          设置
+                          创建节点
                         </Button>
-                      )}
-                    </div>
-                  </CardBody>
-                </Card>
-              ))}
+                        {admin && (
+                          <Button
+                            color="warning"
+                            size="sm"
+                            startContent={<Settings2 size={16} />}
+                            variant="flat"
+                            onPress={() => setSettings(server)}
+                          >
+                            设置
+                          </Button>
+                        )}
+                        {admin && server.source === "shared" && (
+                          <SharedDetailsButton
+                            server={server}
+                            onPress={() => setSharedDetails(server)}
+                          />
+                        )}
+                      </div>
+                    </CardBody>
+                  </Card>
+                );
+              })}
             </div>
             {!loading && !servers.length && (
-              <Card className="mt-5">
-                <CardBody className="py-12 text-center text-default-500">
+              <Card className="mt-4">
+                <CardBody className="py-12 text-center text-sm text-default-500">
                   {admin
                     ? "暂无落地服务器，请在「节点」页选择「启用为落地」。节点程序需要支持落地功能。"
                     : "暂无获授权的落地服务器，请联系管理员授权。"}
@@ -676,7 +687,7 @@ export default function LandingPage() {
             )}
           </Tab>
           <Tab key="nodes" title={admin ? "全部节点" : "我的节点"}>
-            <div className="mt-5">
+            <div className="mt-4">
               {admin && nodes.length > 0 ? (
                 <Card>
                   <CardBody>
@@ -693,7 +704,10 @@ export default function LandingPage() {
                               "到期",
                               "操作",
                             ].map((label) => (
-                              <th key={label} className="whitespace-nowrap p-3">
+                              <th
+                                key={label}
+                                className="whitespace-nowrap px-3 py-2 text-xs font-semibold"
+                              >
                                 {label}
                               </th>
                             ))}
@@ -705,13 +719,13 @@ export default function LandingPage() {
                               key={node.id}
                               className="border-b border-divider"
                             >
-                              <td className="p-3">
+                              <td className="px-3 py-2">
                                 <div className="font-medium">{node.name}</div>
                                 <div className="text-xs text-default-500">
                                   {node.userName || `用户 ${node.userId}`}
                                 </div>
                               </td>
-                              <td className="p-3">
+                              <td className="px-3 py-2">
                                 <div>
                                   {node.serverName ||
                                     servers.find(
@@ -745,18 +759,20 @@ export default function LandingPage() {
                                   </div>
                                 )}
                               </td>
-                              <td className="p-3">{status(node)}</td>
-                              <td className="whitespace-nowrap p-3">
+                              <td className="px-3 py-2">{status(node)}</td>
+                              <td className="whitespace-nowrap px-3 py-2">
                                 {usage(node)}
                               </td>
-                              <td className="p-3">
+                              <td className="px-3 py-2">
                                 {node.connections ?? 0} /{" "}
                                 {node.maxConnections || "不限"}
                               </td>
-                              <td className="p-3">
+                              <td className="px-3 py-2">
                                 {landingDate(node.effectiveExpiresAt)}
                               </td>
-                              <td className="min-w-64 p-3">{actions(node)}</td>
+                              <td className="min-w-64 px-3 py-2">
+                                {actions(node)}
+                              </td>
                             </tr>
                           ))}
                         </tbody>
@@ -770,7 +786,7 @@ export default function LandingPage() {
                     <Card key={node.id}>
                       <CardHeader className="flex items-start justify-between gap-2">
                         <div>
-                          <h2 className="font-semibold">{node.name}</h2>
+                          <h2 className="text-sm font-bold">{node.name}</h2>
                           <p className="mt-1 text-xs text-default-500">
                             {node.serverName ||
                               servers.find(
@@ -797,7 +813,7 @@ export default function LandingPage() {
                         </div>
                         {status(node)}
                       </CardHeader>
-                      <CardBody className="space-y-4">
+                      <CardBody className="space-y-3">
                         <div className="text-sm">
                           <p>已用 / 上限：{usage(node)}</p>
                           {admin && (
@@ -860,6 +876,10 @@ export default function LandingPage() {
             <Spinner />
           </div>
         )}
+        <SharedDetailsDialog
+          server={sharedDetails}
+          onClose={() => setSharedDetails(null)}
+        />
         {settings && (
           <ServerSettings
             key={settings.id}
@@ -907,7 +927,7 @@ export default function LandingPage() {
           size="lg"
           onClose={() => setLinksFor(null)}
         >
-          <ModalContent className="flvx-landing-text">
+          <ModalContent className="flvx-landing">
             <ModalHeader>节点链接 · {linksFor?.name}</ModalHeader>
             <ModalBody className="space-y-4">
               {linksFor &&
@@ -1008,7 +1028,7 @@ export default function LandingPage() {
           </ModalContent>
         </Modal>
         <Modal isOpen={Boolean(deleting)} onClose={() => setDeleting(null)}>
-          <ModalContent className="flvx-landing-text">
+          <ModalContent className="flvx-landing">
             <ModalHeader>删除落地节点</ModalHeader>
             <ModalBody>
               <p>
@@ -1032,10 +1052,12 @@ export default function LandingPage() {
                   setSaving(true);
                   setDeleteError("");
                   const res = await deleteLandingNode(deleting.id);
+
                   setSaving(false);
                   if (res.code !== 0) {
                     setDeleteError(res.msg);
                     toast.error(res.msg);
+
                     return;
                   }
                   setDeleting(null);

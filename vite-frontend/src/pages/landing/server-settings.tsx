@@ -148,7 +148,7 @@ export function ServerSettings({
       size="lg"
       onClose={onClose}
     >
-      <ModalContent className="flvx-landing-text">
+      <ModalContent className="flvx-landing">
         <ModalHeader>落地服务器设置 · {server.name}</ModalHeader>
         <ModalBody className="space-y-6">
           {server.source === "shared" && <SharedCaps server={server} />}

@@ -600,7 +600,7 @@ export default function LandingEgressTab() {
         />
       )}
       <Modal isOpen={Boolean(confirm)} onClose={() => setConfirm(null)}>
-        <ModalContent className="flvx-landing-text">
+        <ModalContent className="flvx-landing">
           <ModalHeader>{confirm?.title}</ModalHeader>
           <ModalBody>
             <p>{confirm?.text}</p>

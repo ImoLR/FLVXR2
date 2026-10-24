@@ -93,7 +93,7 @@ export function PresetEditor({
 
   return (
     <Modal isOpen scrollBehavior="inside" size="xl" onClose={onClose}>
-      <ModalContent className="flvx-landing-text">
+      <ModalContent className="flvx-landing">
         <ModalHeader>
           {preset.id ? `编辑预设 · ${preset.name}` : "新增预设"}
         </ModalHeader>
@@ -248,7 +248,7 @@ export function PresetManager({
   return (
     <>
       <Modal isOpen scrollBehavior="inside" size="xl" onClose={onClose}>
-        <ModalContent className="flvx-landing-text">
+        <ModalContent className="flvx-landing">
           <ModalHeader>管理预设</ModalHeader>
           <ModalBody className="space-y-3">
             <p className="text-xs text-default-500">
@@ -426,7 +426,7 @@ export function PresetManager({
         />
       )}
       <Modal isOpen={Boolean(deleting)} onClose={() => setDeleting(null)}>
-        <ModalContent className="flvx-landing-text">
+        <ModalContent className="flvx-landing">
           <ModalHeader>删除预设</ModalHeader>
           <ModalBody>
             <p>

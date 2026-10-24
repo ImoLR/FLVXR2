@@ -65,7 +65,7 @@ export function LandingGlobalSettings({ onClose }: { onClose: () => void }) {
 
   return (
     <Modal isOpen scrollBehavior="inside" onClose={onClose}>
-      <ModalContent className="flvx-landing-text">
+      <ModalContent className="flvx-landing">
         <ModalHeader>落地全局设置</ModalHeader>
         <ModalBody className="space-y-4">
           {error && <p className="text-sm text-danger">{error}</p>}

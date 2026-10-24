@@ -190,7 +190,7 @@ export function NodeDetails({
 
   return (
     <Modal isOpen scrollBehavior="inside" size="lg" onClose={onClose}>
-      <ModalContent className="flvx-landing-text">
+      <ModalContent className="flvx-landing">
         <ModalHeader>节点详情 · {node.name}</ModalHeader>
         <ModalBody className="space-y-5">
           <div className="overflow-x-auto">

@@ -137,7 +137,7 @@ export function OutboundEditor({
 
   return (
     <Modal isOpen scrollBehavior="inside" size="lg" onClose={onClose}>
-      <ModalContent className="flvx-landing-text">
+      <ModalContent className="flvx-landing">
         <ModalHeader>
           {editing ? `编辑出站 · ${outbound?.name}` : "新建出站"}
         </ModalHeader>
