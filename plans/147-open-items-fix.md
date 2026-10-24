@@ -22,7 +22,7 @@ only (「妙妙屋那边…不要动」); ~15:50 TW 「其他的问题能修就�
       tsc/build/lint
 - [x] 6b screenshots desktop 1440 + H5 390, light + dark; gallery on :8791
 - [x] 6c resource numbers (agent CPU/RSS lab, panel request count)
-- [ ] push, CI green, rollout notes, final.md + summary.md
+- [x] push, CI green, rollout notes, final.md + summary.md
 
 ## Notes
 
@@ -165,3 +165,20 @@ only (「妙妙屋那边…不要动」); ~15:50 TW 「其他的问题能修就�
 - Check after OTA: node 21/55 landing status `running`, `node_errors` empty in the apply reply (panel log has no
   「moved never-used nodes」 line), servers 1/5 revisions unchanged unless a node error appears.
 - Never node 36; no mmwx change of any kind.
+
+## Result (build only — no tag, no release, no prod write, no OTA, no mmwx change)
+- Branch `feature/3.0.27-open-items-fix` on fork.88 (b3a87297): f4ba9c71 agent, 38f1e59d panel, bb02bd1e UI,
+  5b47d202 test + plan; CI Build Check 40085365700 green (backend, frontend, agent, PostgreSQL contract).
+- Gallery: http://104.145.236.29:8791/ea923e5e348dfb9548d4d0909b6de1ee/open-items-fix/
+
+## Still open
+- Landings carved at an outer edge BEFORE this release have no carve record → their edge ports still need a manual
+  widen after disabling (prod: none, servers 1 and 5 are middle carves).
+- Line-chain copies (exit-node chain nodes, 0 on prod): the agent reports a busy loopback port, the panel does not
+  show it yet (chain ids are not landing nodes).
+- mmwx Custom/Helper still reports the last connection count of removed nodes (mmwx side untouched by decision);
+  FLVX ignores it everywhere.
+- report-ip never adds a second address family or replaces a domain: a node whose v4/v6 field is empty keeps it
+  empty unless `server_ip` already is that literal (by design, 0 fills on prod).
+- Lab gaps: `TestLandingRealCoreUpgradeRestart` / `TestEgressRealCoreAcceptsRenderedConfig` need the previous Core
+  pin / geo data (fail the same on fork.88).
