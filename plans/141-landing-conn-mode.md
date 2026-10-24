@@ -28,18 +28,39 @@ Base: `maintenance/3.0.27-fork.85-landing-compact` (fork.85, newer than the expe
   stored in `landing_node.inbound_connections`; views show the count in the node's effective mode + label.
 
 ## Tasks
-- [ ] Model + migration (server conn_mode / max_conn_mode / conn_mode_sig, node conn_mode / inbound_connections,
+- [x] Model + migration (server conn_mode / max_conn_mode / conn_mode_sig, node conn_mode / inbound_connections,
       node.landing_conn_mode); mode resolution helpers + validation
-- [ ] Server save (pin / apply-to-existing), node update override, create node (follow server)
-- [ ] Agent: Desired/Node conn_mode, applyLimits inbound fields, Counter inbound_connections, WS capability
-- [ ] Panel native: capability persist, payload mapping + revision sig, counter ingest
-- [ ] Shared: landingcustom Share.ConnModes / Node.ConnMode / NodeStatus.InboundConnections, desired + status
-- [ ] Views: server/node/monitor connections in effective mode, labels, pending hints, user view label
-- [ ] Frontend: selectors + hints (server settings, node details), labels (cards, monitor, user view)
-- [ ] Unit tests (backend + agent) + contract tests SQLite + PostgreSQL; baseline comparison
-- [ ] Real Core lab (netns): inbound 3 accepts 3 with ≥3 outbound sockets, rejects 4th; total unchanged
-- [ ] Prod DB copy: payload/desired/plan identical before/after, list latency, payload size
-- [ ] Contract doc `/root/flvx-workers/contracts/landing-conn-mode-v1.md`
-- [ ] Screenshots desktop 1440 + H5 390, light + dark; review; gallery on :8791
-- [ ] Push branch, CI green
+- [x] Server save (pin / apply-to-existing), node update override, create node (follow server)
+- [x] Agent: Desired/Node conn_mode, applyLimits inbound fields, Counter inbound_connections, WS capability
+- [x] Panel native: capability persist, payload mapping + revision sig, counter ingest
+- [x] Shared: landingcustom Share.ConnModes / Node.ConnMode / NodeStatus.InboundConnections, desired + status
+- [x] Views: server/node/monitor connections in effective mode, labels, pending hints, user view label
+- [x] Frontend: selectors + hints (server settings, node details), labels (cards, monitor, user view)
+- [x] Unit tests (backend + agent) + contract tests SQLite + PostgreSQL; baseline comparison
+- [x] Real Core lab (netns): inbound 3 accepts 3 with ≥3 outbound sockets, rejects 4th; total unchanged
+- [x] Prod DB copy: payload/desired/plan identical before/after, list latency, payload size
+- [x] Contract doc `/root/flvx-workers/contracts/landing-conn-mode-v1.md`
+- [x] Screenshots desktop 1440 + H5 390, light + dark; review; gallery on :8791
+- [x] Push branch, CI green
 - [ ] final.md + summary.md
+
+## Result (2026-10-24, build only — no tag, no release)
+- Commits c6b704c2 … a5520bff on `feature/3.0.27-landing-conn-mode` (base fork.85 7f4b1022); CI Build Check
+  40065361123 green (backend, frontend, agent, PostgreSQL contract).
+- Core check: agent Core v1.4.59 = 8f5b6145, Helper pin cfb0f591, v1.4.76 = b01adef0 all have
+  `PortLimit.max_inbound_connections` + snapshot `inbound_current` → no Core change.
+- Tests: new unit tests (repo resolution/save/pin/apply/revision/desired/counters, handler payload gating + views,
+  landingcustom wire, agent control payload/validate/counters) + contract `TestSharedLandingConnModeContract`
+  (SQLite + PostgreSQL); `go test ./...` SQLite and PostgreSQL: 17 ok, the same 15 baseline failures as fork.85
+  (identical lists); `TestLandingTargetListQueryCount` kept (agent capability joined into existing queries);
+  admin server field-set test extended by the 5 new keys. go-gost/x `landing` + `socket` ok.
+- Real Core netns lab (`conn_mode_netns_test.go`, Core 8f5b6145): 仅入站 limit 3 → 3/5 accepted with 8 tracked
+  sockets, released ≈5.1 s after close (downlinkOnly), reopen 3/3; 入站+出站 limit 3 → 1/5.
+- Prod DB copy (offline): native payloads + shared desired byte-identical base vs new (also with all agents
+  upgraded), existing view values unchanged; list p50 1.65→1.82 / 0.91→1.22 / 0.57→0.66 ms.
+- Payload: Core control +31 B per 仅入站 node, 0 for 入站+出站; counter +≈25 B per node. Bundle +4.8 KB.
+- Contract `/root/flvx-workers/contracts/landing-conn-mode-v1.md` (mmwx changes §6, not implemented).
+- Gallery: 58 shots, 56/56 checks, 0 page errors, 0 writes —
+  http://104.145.236.29:8791/ea923e5e348dfb9548d4d0909b6de1ee/landing-conn-mode/
+- Release round: panel (columns only, rollback without --restore-db) → OTA native landing nodes 21 + 55 →
+  mmwx Custom + Helper (one release) per contract §6.
