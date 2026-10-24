@@ -80,8 +80,28 @@ degrade cleanly (仅入站 shows 「需要妙妙屋侧升级后生效」 and sta
 - [x] Equivalence gate on a fresh read-only prod DB copy (native payloads + shared desired identical fork.85 vs fork.86), copy deleted
       — servers 1/5 native payloads (105 / 1303 B) and shared 2/3/4/6 desired byte-identical, also with all agents
       upgraded; server/node/monitor views: 0 changed values, only the new keys; list p50 +0.1–0.8 ms in-process
-- [ ] Push branch, CI green, tag `3.0.27-fork.86`, release Latest with the same asset set as fork.85
-- [ ] Prod panel: validated backup + rollback dir `pre-fork86-<ts>`, upgrade `/opt/flvx-svc`, prune (keep 2)
-- [ ] Prod verify: version, health, nodes online, migration once (2nd restart), new UI in bundle, real-JWT admin/non-admin checks, data untouched
-- [ ] OTA native landing nodes 21 (canary, SSH backup) then 55 (panel OTA), Core PID / traffic checks
-- [ ] After 10 min: CPU/RSS, DB size, log lines vs fork.85
+- [x] Push branch, CI green, tag `3.0.27-fork.86`, release Latest with the same asset set as fork.85
+      — branch head 04800c57, CI Build Check 40067907191 green (4 jobs); tag → 04800c57; Build and Push Images
+      40068025889 green; release gate 13/13 (Latest, 10 assets = fork.85, compose + scripts pinned, gost sha256,
+      ghcr amd64+arm64); released agent `gost 3.0.27-fork.86`
+- [x] Prod panel: validated backup + rollback dir `pre-fork86-<ts>`, upgrade `/opt/flvx-svc`, prune (keep 2)
+      — `/opt/flvx-svc/rollback/pre-fork86-20261024T060354Z` (quick/integrity ok; rollback.sh → fork.85, no
+      `--restore-db` needed); upgraded 14:04:03 → healthy 14:04:12 TW; pruned pre-fork84 + fork.83 images
+- [x] Prod verify: version, health, nodes online, migration once (2nd restart), new UI in bundle, real-JWT admin/non-admin checks, data untouched
+      — version.json `3.0.27-fork.86-mvlzisdv` (local + public); 30/30 online; new columns all default (server
+      conn_mode/max_conn_mode = total ×6, sig '' ×6, node conn_mode NULL ×4); revisions 273/230/182/55/20/36 unchanged;
+      2nd restart: config tables + schema identical, no migration lines, 30 reconnects 0 updated/0 failed; bundle has
+      the 计算方式 / 仅入站 / hint texts; admin + @jiuwei read-only API: 0 changed values (only live counters), admin
+      gets connMode/maxConnMode/connModeSupported, @jiuwei node list only connModeEffective, server list no conn
+      fields, unauth 401; 16 config tables identical, landing_node identical except the 2 new columns
+- [x] OTA native landing nodes 21 (canary, SSH backup) then 55 (panel OTA), Core PID / traffic checks
+      — node 21: SSH backup `/root/flvxx-backup-20261024T060550Z-pre-fork86`, reconnect 4 s, wss→wss, Core PID
+      890894 unchanged, diagnose 27/27 → 27/27, capability landing_conn_mode=1, server 1 rev 273 unchanged (6 tunnels
+      re-applied once after the agent restart, as on every agent restart since fork.79); node 55: panel OTA, reconnect
+      4 s, Core epoch of landing node 97 unchanged, server 5 rev 20 + egress hash unchanged, capability 1
+- [x] After 10 min: CPU/RSS, DB size, log lines vs fork.85
+      — backend 33.4 MiB / 3–7 % CPU (fork.85 33.7 MiB / 4–6 %), DB 57.11 MB (same), 0 log lines / 10 min, restarts 0
+
+Open after fork.86: mmwx Custom + Helper side of `landing-conn-mode-v1` not built (shared servers show the hint and
+stay 入站+出站); PQS TW stays 500 入站+出站 until an admin switches it; node 21/55 are the only fork.86 agents (others
+fork.79, 48 fork.82); `sharedCaps.core` alternates between share-list version and status epoch (pre-existing, cosmetic).
