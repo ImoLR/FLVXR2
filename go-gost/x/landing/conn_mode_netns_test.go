@@ -17,7 +17,8 @@ import (
 // network namespaces (client → landing → target):
 //   - 仅入站 node, limit 3: 3 of 5 held client connections are accepted although
 //     the Core holds ≥ 3 outbound sockets as well (current_total ≥ 6); the 4th
-//     and 5th are rejected; right after closing them 3 new ones fit again;
+//     and 5th are rejected; once the clients close, the leases are released
+//     within the Core's downlinkOnly (5 s) and 3 new ones fit again;
 //   - 入站+出站 node, limit 3 (today's behaviour): in+out sockets share the
 //     limit, so far fewer client connections fit.
 //
@@ -214,21 +215,44 @@ for s in held:
 		t.Logf("%s: accepted %d/%d %v, Core while held: current_total=%d inbound_current=%d", name, p.Accepted, n, p.Results, totalNow, inboundNow)
 		return p
 	}
+	// release samples a node's counters after its clients closed: the Core
+	// keeps a request (and its inbound lease) until the downlink ends, at most
+	// policy downlinkOnly = 5 s after the client's FIN.
+	type sample struct {
+		AfterMs     int64 `json:"after_ms"`
+		CoreTotal   int64 `json:"core_current_total"`
+		CoreInbound int64 `json:"core_inbound_current"`
+	}
+	release := func(id int64, until func(total, inbound int64) bool, limit time.Duration) []sample {
+		start := time.Now()
+		var out []sample
+		for {
+			totalNow, inboundNow := counter(id)
+			out = append(out, sample{time.Since(start).Milliseconds(), totalNow, inboundNow})
+			if until(totalNow, inboundNow) || time.Since(start) > limit {
+				return out
+			}
+			time.Sleep(500 * time.Millisecond)
+		}
+	}
 	a := run("仅入站 limit 3, open 5", 21001, 5, 1)
-	time.Sleep(time.Second)
-	b := run("仅入站 limit 3, reopen 3 right after closing", 21001, 3, 1)
+	freed := release(1, func(_, inbound int64) bool { return inbound == 0 }, 10*time.Second)
+	t.Logf("仅入站 release after close: %+v", freed)
+	b := run("仅入站 limit 3, reopen 3 after the leases were released", 21001, 3, 1)
 	c := run("入站+出站 limit 3, open 5", 21002, 5, 2)
+	lingering := release(2, func(total, _ int64) bool { return false }, 6*time.Second)
+	t.Logf("入站+出站 after close (TIME_WAIT etc. stay counted): %+v", lingering)
 	if a.Accepted != 3 || a.CoreInbound != 3 || a.CoreTotal < 6 {
 		t.Fatalf("仅入站: %+v", a)
 	}
-	if b.Accepted != 3 {
-		t.Fatalf("仅入站 reopen: %+v", b)
+	if b.Accepted != 3 || freed[len(freed)-1].CoreInbound != 0 || freed[len(freed)-1].AfterMs > 6000 {
+		t.Fatalf("仅入站 reopen: %+v after %+v", b, freed)
 	}
 	if c.Accepted >= 3 {
 		t.Fatalf("入站+出站 accepted %d of limit 3 (in+out should share it): %+v", c.Accepted, c)
 	}
 	if out := os.Getenv("FLVX_CONNMODE_E2E_OUT"); out != "" {
-		raw, _ := json.MarshalIndent(map[string]any{"core": CoreVersion, "phases": []phase{a, b, c}}, "", "  ")
+		raw, _ := json.MarshalIndent(map[string]any{"core": CoreVersion, "phases": []phase{a, b, c}, "inbound_release_after_close": freed, "total_after_close": lingering}, "", "  ")
 		_ = os.WriteFile(out, raw, 0644)
 	}
 }
