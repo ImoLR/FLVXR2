@@ -17,19 +17,32 @@ with a small comet dot running around the element, then it disappears:
 - Armed & not done → plays once for 15 s when the element is first on screen (IntersectionObserver), marked
   played at start; replays only after the next trigger. Click/open → done forever. At most one ring at a time.
 - After 15 s the ring element is unmounted. Reduced motion → static ring.
-- Animation: transform-only rotation of a conic-gradient layer inside a static masked ring; no rAF/interval.
+- Animation: transform/opacity-only rotation of a conic-gradient layer inside a static masked ring; one lap
+  (2.4 s) then a 2.6 s rest with no animation running (3 laps in 15 s); no rAF/interval. Reduced motion →
+  static ring, no animation.
 
 ## Checklist
-- [ ] Plan doc
-- [ ] `utils/onboarding-hints.ts` state store + `components/onboarding-ring.tsx` (hook + ring) + CSS in globals.css
-- [ ] Bridge Select: optional `triggerOverlay` (relative wrapper around the native select / custom trigger)
-- [ ] Spot 1: landing.tsx actions(node) 「用于新规则」
-- [ ] Spot 2: rule-target.tsx 目标类型 select
-- [ ] Spot 3: chain-links.tsx ChainLinkButton (forward.tsx table/card/H5 unchanged call sites)
-- [ ] Triggers: create-node.tsx (hints 1/2), forward.tsx create success paths (hint 3)
-- [ ] tsc / lint / build vs base (no new errors/warnings), bundle delta
-- [ ] Perf measurement in Chromium (normal + 4× throttle, with/without ring, after 15 s)
-- [ ] Screenshots desktop 1440 + H5 390, light + dark, 3 spots mid-spin ×2, after 15 s, after click; frame strip
-- [ ] Gallery published under mmwx-preview `/landing-onboarding-hints/`
-- [ ] Push branch, CI green
-- [ ] final.md / summary.md
+- [x] Plan doc
+- [x] `utils/onboarding-hints.ts` state store + `components/onboarding-ring.tsx` (hook + ring) + CSS in globals.css
+- [x] Bridge Select: optional `triggerOverlay` (relative wrapper around the native select / custom trigger)
+- [x] Spot 1: landing.tsx actions(node) 「用于新规则」
+- [x] Spot 2: rule-target.tsx 目标类型 select
+- [x] Spot 3: chain-links.tsx ChainLinkButton (forward.tsx table/card/H5 unchanged call sites)
+- [x] Triggers: create-node.tsx (hints 1/2), forward.tsx create success paths (hint 3)
+- [x] tsc / lint / build vs base (no new errors/warnings), bundle delta
+- [x] Perf measurement in Chromium (normal + 4× throttle, with/without ring, after 15 s)
+- [x] Screenshots desktop 1440 + H5 390, light + dark, 3 spots mid-spin ×2, after 15 s, after click; frame strip
+- [x] Gallery published under mmwx-preview `/landing-onboarding-hints/`
+- [x] Push branch, CI green
+- [x] final.md / summary.md
+
+## Result (2026-10-24)
+**Not done: performance threshold missed** (brief go/no-go: > 2 % renderer CPU unthrottled → no release).
+- Code complete, CI green (40061067736), 106/106 browser checks, 62 screenshots.
+- Renderer CPU while the comet runs ≈ +2.7 % (落地 page) / +3.1 % (rule dialog). This equals the cost of
+  ANY running animation on these pages (a 1 px transparent element or the existing `animate-spin` loader
+  cost the same): it is the compositor's 60 Hz frame cost of the page, not the ring's drawing. No per-frame
+  Layout/Paint; rest phases and after 15 s = 0. With lap+rest: 15 s average +2.0 % / +2.6 %.
+- Without GPU acceleration the software compositor process is ~98 % busy during each lap because the
+  surrounding glass card (`backdrop-filter: blur`) is re-blurred every frame (≈3.5 % with the blur off).
+- Left for the user to decide (accept, static ring, fewer laps). Numbers: runs/landing-onboarding-hints/final.md.
