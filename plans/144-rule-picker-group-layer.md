@@ -32,12 +32,22 @@ covers, `[]` = all entries, used for tunnels without entry nodes). Built by one 
   switching back to a group that contains it. WG mode: no pills.
 
 ## Checklist
-- [ ] Backend repo method + handler wiring
-- [ ] Backend tests (SQLite + PostgreSQL): admin per-entry + multi-group, user 2 groups + direct (其他), foreign group names
+- [x] Backend repo method + handler wiring
+- [x] Backend tests (SQLite + PostgreSQL): admin per-entry + multi-group, user 2 groups + direct (其他), foreign group names
       hidden, disabled group, package path, backward compatibility
-- [ ] Frontend pill layer + filtering + default/switch logic
-- [ ] tsc / lint / build, bundle size vs 5 MiB
-- [ ] Prod-copy gate: admin + real user, union of pills == today's option set; query time
+- [x] Frontend pill layer + filtering + default/switch logic
+- [x] tsc / lint / build, bundle size vs 5 MiB
+- [x] Prod-copy gate: admin + real user, union of pills == today's option set; query time
 - [ ] Screenshots (desktop 1440 + H5 390×844, light + dark), reviewed; gallery on :8791
 - [ ] Push branch, CI green
 - [ ] final.md / summary.md
+
+## Results
+- Prod-copy gate (online backup of fork.83 prod SQLite, test under `unshare -n`, copy sha unchanged): union of pills ==
+  today's option set for admin (54 options / 42 tunnels: 深港 10, 沪日440 12, 沪港666m 11, 沪日IEPL 12, 其他 9), user 4
+  test (深港 10, 沪日440 12), user 8 @jiuwei (沪日440 12, 沪港666m 11, 其他 1), user 12 mraruer (沪日440 12 → one pill,
+  layer hidden). 0 lost / 0 gained. The 12 two-group tunnels show in both 沪日 groups with different entries (per-entry
+  rows), so no single option is in two pills on prod.
+- Extra query on the prod copy: admin 0.12 ms, users 0.09-0.11 ms (best of 20); admin list 0.54 → 0.91 ms.
+- Frontend: tsc clean; eslint errors 17 = base 17 (new lines only add prettier-style warnings like the rest of the file);
+  build OK, largest chunk 2,987,472 B (+2,997 B), dist total +3,444 B, limit 5 MiB.
