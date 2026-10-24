@@ -1,4 +1,4 @@
-# 149 — 落地 page chips + 路由规则 waterfall + 3rd 大陆 forced seed (BUILT + SCREENSHOTS — waits for user approval)
+# 149 — 落地 page chips + 路由规则 waterfall + 3rd 大陆 forced seed (APPROVED 10-24 ~20:40 TW → RELEASING as fork.91)
 
 Source: user 2026-10-24 voice messages (~16:50 TW chips / cards / links, ~17:40 + ~17:50 TW 大陆 seeds +
 路由规则 layout). Brief: `/root/flvx-workers/runs/landing-chip-polish/brief.md`. Base:
@@ -108,3 +108,23 @@ Release waits for the user's screenshot approval.
   `node.reported_ip_v4/v6` fill in as agents reconnect (exempt list grows).
 - Rollback to fork.89 needs `--restore-db` only if the 3rd rule must disappear (fork.89 would keep it as an unscoped
   rule → blocks direct CN to every node incl. VLESS); new columns are add-only.
+
+## Release (fork.91) — task `release-landing-chip-polish`
+User approved the gallery 10-24 ~20:40 TW (「可以发布吧」); released as built, no new scope, no mmwx change.
+Run dir `/root/flvx-workers/runs/release-landing-chip-polish`.
+
+- [x] R1 branch `maintenance/3.0.27-fork.91-landing-chip-polish` from `maintenance/3.0.27-fork.90-nft-hutai` (723e28ed,
+         plan 150 = prod); the 9 plan-149 commits cherry-picked without conflicts
+- [x] R2 gates on the rebased branch: `go build` + vet OK; `go test ./...` SQLite and PostgreSQL = the same 10 + 5 failures
+         as fork.90 (same 17 ok packages); 149 tests pass verbosely with the PG DSN; tsc 0, lint (15 changed files) 0,
+         `vite build` OK (main index.js 2,998,279 B)
+- [x] R3 fresh prod DB copy (credentials scrubbed, offline netns), fork.90 control start vs fork.91 start: only
+         `landing_egress_setting` (+禁止大陆直连 enabled, 节点协议 ss2022; global 2→3, preset 1→2),
+         `landing_egress_preset` 1 「屏蔽中国大陆」 (3rd rule scoped + description) and `node` +2 empty columns; every user
+         rule / limit / switch / landing node / forward identical; 2nd start changes nothing. Compiled plans: servers
+         3 / 5 / 6 +1 rule 禁止大陆直连 on their SS tags (flvxl-10/95, flvxl-97, flvxl-105) + `exempt_sources` (33 CIDRs incl.
+         node 48 240e/2408 /64), all other rules identical and in order; servers 1 / 2 / 4 unchanged. Copies deleted.
+- [ ] R4 push, CI green, tag `3.0.27-fork.91`, release Latest with the fork.90 asset set
+- [ ] R5 rollback dir + validated DB backup, upgrade `/opt/flvx-svc`, prune (keep 2)
+- [ ] R6 prod checks (version / health / nodes / migration once / 落地 API as admin + non-admin / plan 150 nft path /
+         real client test) + 10-min CPU / RSS / DB / log lines vs fork.90
