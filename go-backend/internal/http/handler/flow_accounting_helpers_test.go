@@ -26,6 +26,26 @@ type flowTestEnv struct {
 
 func newFlowTestEnv(t *testing.T) *flowTestEnv {
 	t.Helper()
+	e := newSeededFlowTestEnv(t)
+	// Plan 149 seeds the three 大陆 rules ENABLED. Most handler tests were
+	// written against the earlier fresh install (seeds disabled, no global
+	// rule in any plan); keep that state for them. Tests of the plan-149
+	// behaviour use newSeededFlowTestEnv or enable the seeds themselves.
+	g, _, err := e.r.GetLandingGlobal()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := range g.Forced {
+		g.Forced[i].Enabled = false
+	}
+	raw, _ := json.Marshal(g.Forced)
+	e.exec("UPDATE landing_egress_setting SET global_forced = ? WHERE id = 1", string(raw))
+	return e
+}
+
+// newSeededFlowTestEnv: a fresh install as shipped (plan 149: 大陆 seeds on).
+func newSeededFlowTestEnv(t *testing.T) *flowTestEnv {
+	t.Helper()
 	r, err := repo.Open(filepath.Join(t.TempDir(), "flow.db"))
 	if err != nil {
 		t.Fatalf("open repo: %v", err)

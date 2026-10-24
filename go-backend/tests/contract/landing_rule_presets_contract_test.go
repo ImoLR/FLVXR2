@@ -135,9 +135,15 @@ func TestLandingPresetLibraryContract(t *testing.T) {
 			if b["smtp"] != true || b["bt"] != false || b["mail"] != true || b["telnet"] != false {
 				t.Fatalf("builtin view %+v", b)
 			}
-			// Fresh installs seed only the 大陆 rules into 全局·强制 (disabled).
-			if forced := g.Data.(map[string]interface{})["forced"].([]interface{}); len(forced) != 2 || forced[0].(map[string]interface{})["enabled"] != false || forced[0].(map[string]interface{})["id"] != "seed-cn-ip" {
+			// Fresh installs seed only the 大陆 rules into 全局·强制; plan 149:
+			// three, enabled, 禁止大陆直连 scoped to SS nodes.
+			forced := g.Data.(map[string]interface{})["forced"].([]interface{})
+			if len(forced) != 3 || forced[0].(map[string]interface{})["enabled"] != true || forced[0].(map[string]interface{})["id"] != "seed-cn-ip" {
 				t.Fatalf("seeded forced rules: %+v", forced)
+			}
+			direct := forced[2].(map[string]interface{})
+			if direct["id"] != "seed-cn-direct" || direct["enabled"] != true || fmt.Sprint(direct["inboundProtocols"]) != "[ss2022]" || fmt.Sprint(direct["sourceIps"]) != "[geoip:cn]" {
+				t.Fatalf("禁止大陆直连 seed: %+v", direct)
 			}
 		})
 	}
