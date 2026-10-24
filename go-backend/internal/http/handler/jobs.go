@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"strings"
 	"time"
@@ -578,23 +579,42 @@ func (h *Handler) runNftablesDomainRefreshJob() {
 	for _, f := range forwards {
 		seen[f.ID] = struct{}{}
 
-		targets := splitRemoteTargets(f.RemoteAddr)
-		resolvedTargets := make([]string, len(targets))
-		hasDomain := false
-		for i, t := range targets {
-			resolved := resolveTargetIP(t)
-			resolvedTargets[i] = resolved
-			if resolved != t {
+		resolved := resolveNftTargets(f.RemoteAddr)
+		hasDomain, unresolved := false, false
+		for _, t := range resolved {
+			if t.isDomain() {
 				hasDomain = true
+				if len(t.ips) == 0 {
+					unresolved = true
+				}
 			}
 		}
 
-		if !hasDomain {
+		// Literal targets never change; an unresolvable name keeps the rules
+		// that are installed now (as before) and is retried next round.
+		if !hasDomain || unresolved {
 			delete(h.nftablesDomainCache, f.ID)
 			continue
 		}
 
-		joined := strings.Join(resolvedTargets, ",")
+		ports, err := h.listForwardPorts(f.ID)
+		if err != nil {
+			log.Printf("[nftables-dns] listForwardPorts(%d) 失败: %v", f.ID, err)
+			continue
+		}
+		if len(ports) == 0 {
+			continue
+		}
+		// The DNAT target per entry node, picked for the families that entry
+		// is reached with (plan 150), is what must stay current.
+		families := entryFamilyMap(h.nftEntryFamilies(f.TunnelID, ports))
+		picks := make([]string, 0, len(ports)*len(resolved))
+		for _, fp := range ports {
+			for _, t := range resolved {
+				picks = append(picks, fmt.Sprintf("%d=%s", fp.NodeID, t.pick(families[fp.NodeID])))
+			}
+		}
+		joined := strings.Join(picks, ",")
 		cached, exists := h.nftablesDomainCache[f.ID]
 		if exists && cached == joined {
 			continue
@@ -608,14 +628,6 @@ func (h *Handler) runNftablesDomainRefreshJob() {
 		tunnel, err := h.getTunnelRecord(f.TunnelID)
 		if err != nil {
 			log.Printf("[nftables-dns] getTunnelRecord(%d) 失败: %v", f.TunnelID, err)
-			continue
-		}
-		ports, err := h.listForwardPorts(f.ID)
-		if err != nil {
-			log.Printf("[nftables-dns] listForwardPorts(%d) 失败: %v", f.ID, err)
-			continue
-		}
-		if len(ports) == 0 {
 			continue
 		}
 		userTunnelID, _, speedLimit, err := h.resolveUserTunnelAndLimiter(f.UserID, f.TunnelID)

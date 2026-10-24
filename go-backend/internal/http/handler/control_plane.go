@@ -2049,28 +2049,6 @@ func processServerAddress(serverAddr string) string {
 	return serverAddr
 }
 
-// resolveTargetIP resolves domain name in target host:port to IP address.
-// If host is already an IP, returns target unchanged.
-func resolveTargetIP(target string) string {
-	host, port, err := net.SplitHostPort(target)
-	if err != nil {
-		return target
-	}
-	host = strings.TrimSpace(host)
-	port = strings.TrimSpace(port)
-	if net.ParseIP(host) != nil {
-		return target
-	}
-	ips, err := net.LookupHost(host)
-	if err != nil || len(ips) == 0 {
-		return target
-	}
-	if strings.Contains(ips[0], ":") {
-		return "[" + ips[0] + "]:" + port
-	}
-	return ips[0] + ":" + port
-}
-
 func normalizeServerAddressInput(serverAddr string) string {
 	serverAddr = strings.TrimSpace(serverAddr)
 	if serverAddr == "" {
@@ -2422,7 +2400,8 @@ func (h *Handler) syncNftablesRules(forward *forwardRecord, tunnel *tunnelRecord
 	}
 
 	chainNodes, _ := h.listChainNodesForTunnel(forward.TunnelID)
-	rules := buildNftablesRulePayloads(forward, tunnel, ports, chainNodes, userTunnelID, speedLimit)
+	rules, entries := h.nftRulePayloads(forward, tunnel, ports, chainNodes, userTunnelID, speedLimit)
+	logNftFamilyIssues(forward.ID, rules, entries)
 	if h.quotaGroups != nil {
 		nodeIDs := make([]int64, 0, len(ports))
 		for _, fp := range ports {
@@ -2505,14 +2484,17 @@ func (h *Handler) syncNftablesRules(forward *forwardRecord, tunnel *tunnelRecord
 	return nil
 }
 
-// buildNftablesRulePayloads build nftables rule payloads
+// buildNftablesRulePayloads build nftables rule payloads (targets in resolver
+// order; pushes use Handler.nftRulePayloads, which prefers the entry family).
 func buildNftablesRulePayloads(forward *forwardRecord, tunnel *tunnelRecord, ports []forwardPortRecord, chainNodes []chainNodeRecord, userTunnelID int64, speedLimit *int) []NftablesRulePayload {
+	return buildNftablesRulePayloadsFor(forward, tunnel, ports, chainNodes, userTunnelID, speedLimit, resolveNftTargets(forward.RemoteAddr), nil)
+}
+
+// buildNftablesRulePayloadsFor builds the payloads with each entry node's DNAT
+// target picked for the address families that node is reached with (plan 150).
+func buildNftablesRulePayloadsFor(forward *forwardRecord, tunnel *tunnelRecord, ports []forwardPortRecord, chainNodes []chainNodeRecord, userTunnelID int64, speedLimit *int, resolved []nftTarget, entryFamilies map[int64]addrFamilies) []NftablesRulePayload {
 	var rules []NftablesRulePayload
 	protocols := []string{"tcp", "udp"}
-	targets := splitRemoteTargets(forward.RemoteAddr)
-	for i, t := range targets {
-		targets[i] = resolveTargetIP(t)
-	}
 
 	spdLimit := 0
 	if forward.SpeedLimitEnabled && forward.SpeedLimit > 0 {
@@ -2523,7 +2505,8 @@ func buildNftablesRulePayloads(forward *forwardRecord, tunnel *tunnelRecord, por
 
 	for _, fp := range ports {
 		for _, protocol := range protocols {
-			for _, target := range targets {
+			for _, resolvedTarget := range resolved {
+				target := resolvedTarget.pick(entryFamilies[fp.NodeID])
 				quota := NftablesRulePayload{
 					MaxConnections: forward.MaxConnections,
 					MaxClientIps:   forward.MaxClientIps,

@@ -3235,6 +3235,19 @@ func (h *Handler) forwardCreateWithReq(w http.ResponseWriter, r *http.Request, r
 		response.WriteJSON(w, response.ErrDefault(entryPermissionErr.Error()))
 		return
 	}
+	// Plan 150: kernel forwarding cannot cross IPv4/IPv6; a rule no entry
+	// family can carry in nftables mode is saved as gost (with a note).
+	var createNotes []string
+	if mode == "nftables" && !isReplay {
+		probe := make([]forwardPortRecord, 0, len(entryNodes))
+		for _, nodeID := range entryNodes {
+			probe = append(probe, forwardPortRecord{NodeID: nodeID, Port: port, InIP: inIp})
+		}
+		var fallback bool
+		if fallback, createNotes = h.nftFamilyVerdict(tunnelID, probe, remoteAddr); fallback {
+			mode = "gost"
+		}
+	}
 	forwardID, err := h.repo.CreateForwardTx(enforceRuleLimit, userID, userName, name, tunnelID, remoteAddr, defaultString(asString(req["strategy"]), "fifo"), now, inx, entryNodes, port, inIp, nullableInt(speedID), maxConnections, maxClientIps, trafficLimit, expiryTime, speedLimitEnabled, speedLimit, mode, wgPathID, wgRuleType, sourceCIDR, targetCIDR, snatEnabled, landingID)
 	if err != nil {
 		if repo.IsRuleLimitError(err) {
@@ -3261,7 +3274,12 @@ func (h *Handler) forwardCreateWithReq(w http.ResponseWriter, r *http.Request, r
 			h.syncLandingServer(n.LandingServerID)
 		}
 	}
-	response.WriteJSON(w, response.OK(map[string]interface{}{"id": forwardID}))
+	created := map[string]interface{}{"id": forwardID}
+	if len(createNotes) > 0 {
+		created["warnings"] = createNotes
+		created["mode"] = mode
+	}
+	response.WriteJSON(w, response.OK(created))
 }
 
 func (h *Handler) forwardUpdate(w http.ResponseWriter, r *http.Request) {
@@ -3530,6 +3548,30 @@ func (h *Handler) forwardUpdateWithReq(w http.ResponseWriter, r *http.Request, r
 		response.WriteJSON(w, response.ErrDefault(entryPermissionErr.Error()))
 		return
 	}
+	// Plan 150 (see forwardCreateWithReq): check the entry addresses the rule
+	// will have after this save.
+	var updateNotes []string
+	if strings.EqualFold(mode, "nftables") && !isReplay {
+		var probe []forwardPortRecord
+		switch {
+		case hasInIP:
+			for _, nodeID := range fwdEntryNodes {
+				probe = append(probe, forwardPortRecord{NodeID: nodeID, Port: port, InIP: strings.TrimSpace(inIp)})
+			}
+		case tunnelChanged:
+			for _, nodeID := range fwdEntryNodes {
+				probe = append(probe, forwardPortRecord{NodeID: nodeID, Port: port})
+			}
+		default:
+			for _, e := range buildForwardPortEntriesWithPreservedInIP(fwdEntryNodes, oldPorts, port) {
+				probe = append(probe, forwardPortRecord{NodeID: e.NodeID, Port: e.Port, InIP: e.InIP})
+			}
+		}
+		var fallback bool
+		if fallback, updateNotes = h.nftFamilyVerdict(tunnelID, probe, remoteAddr); fallback {
+			mode = "gost"
+		}
+	}
 	if err := h.repo.UpdateForward(id, name, tunnelID, remoteAddr, strategy, now, newSpeedID, maxConnections, maxClientIps, trafficLimit, newExpiryTime, speedLimitEnabled, speedLimit, mode, wgPathID, wgRuleType, sourceCIDR, targetCIDR, snatEnabled, landingID); err != nil {
 		response.WriteJSON(w, response.Err(-2, err.Error()))
 		return
@@ -3546,7 +3588,7 @@ func (h *Handler) forwardUpdateWithReq(w http.ResponseWriter, r *http.Request, r
 		}
 	}
 
-	var warnings []string
+	warnings := append([]string(nil), updateNotes...)
 
 	// 检测转发模式切换，清理旧模式规则
 	modeSwitched := mode != "" && mode != forward.Mode
@@ -4175,6 +4217,16 @@ func (h *Handler) forwardBatchChangeTunnel(w http.ResponseWriter, r *http.Reques
 			fail++
 			failures = appendBatchFailure(failures, id, forward.Name, err)
 			continue
+		}
+		if strings.EqualFold(forward.Mode, "nftables") {
+			// Plan 150: never move an nftables rule onto entries it cannot use.
+			if targetEntries, entryErr := h.allowedTunnelEntries(forward.UserID, req.TargetTunnelID); entryErr == nil {
+				if reason := h.nftFamilyBlockReason(req.TargetTunnelID, targetEntries, forward.RemoteAddr); reason != "" {
+					fail++
+					failures = appendBatchFailureReason(failures, id, forward.Name, reason)
+					continue
+				}
+			}
 		}
 		oldPorts, listPortsErr := h.listForwardPorts(id)
 		if listPortsErr != nil {

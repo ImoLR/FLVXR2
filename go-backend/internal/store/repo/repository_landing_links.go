@@ -104,68 +104,33 @@ func (r *Repository) forwardEntries(f model.Forward, allAddresses ...bool) ([]fo
 	var t model.Tunnel
 	_ = r.db.First(&t, f.TunnelID).Error
 	expand := len(allAddresses) > 0 && allAddresses[0]
-	entries := map[int64]model.Node{}
-	addressOwners := map[string]map[int64]bool{}
+	var index *entryHostIndex
 	if expand && len(ports) > 0 {
 		ids := make([]int64, 0, len(ports))
 		for _, fp := range ports {
 			ids = append(ids, fp.NodeID)
 		}
-		var nodes []model.Node
-		if err := r.db.Where("id IN ? OR id IN (SELECT node_id FROM chain_tunnel WHERE tunnel_id = ? AND chain_type = ?)", ids, f.TunnelID, "1").Find(&nodes).Error; err != nil {
+		var err error
+		if index, err = r.loadEntryHostIndex(f.TunnelID, t.InIP.String, ids); err != nil {
 			return nil, err
-		}
-		for _, node := range nodes {
-			entries[node.ID] = node
-			addresses := nodeIngressAddresses(&node)
-			for _, address := range append(addresses[:], landingEntryHosts(node.ExtraIPs.String)...) {
-				host := normalizeLandingHost(address)
-				if host == "" {
-					continue
-				}
-				if addressOwners[host] == nil {
-					addressOwners[host] = map[int64]bool{}
-				}
-				addressOwners[host][node.ID] = true
-			}
 		}
 	}
 	out := []forwardEntry{}
 	for _, fp := range ports {
 		var entry model.Node
 		if expand {
-			var ok bool
-			if entry, ok = entries[fp.NodeID]; !ok {
+			// Copy links expose every selected entry IP. Other callers retain
+			// their existing address selection unless expansion is requested.
+			hosts, node, ok := index.hosts(fp.NodeID, fp.InIP.String)
+			if !ok {
 				continue
-			}
-		} else {
-			if err := r.db.First(&entry, fp.NodeID).Error; err != nil {
-				continue
-			}
-		}
-		// Copy links expose every selected entry IP. Other callers retain
-		// their existing address selection unless expansion is requested.
-		if expand {
-			hosts := landingEntryHosts(entry.ServerIP)
-			if t.InIP.Valid && strings.TrimSpace(t.InIP.String) != "" {
-				hosts = landingEntryHosts(t.InIP.String)
-				// Exclude addresses known to belong to another entry, but
-				// retain custom IPs/domains whose ownership is not recorded.
-				matched := []string{}
-				for _, host := range hosts {
-					owners := addressOwners[normalizeLandingHost(host)]
-					if len(owners) == 0 || owners[entry.ID] {
-						matched = append(matched, host)
-					}
-				}
-				hosts = matched
-			}
-			if fp.InIP.Valid && strings.TrimSpace(fp.InIP.String) != "" {
-				hosts = landingEntryHosts(fp.InIP.String)
 			}
 			for _, host := range hosts {
-				out = append(out, forwardEntry{Host: host, Port: fp.Port, NodeID: entry.ID, NodeName: entry.Name})
+				out = append(out, forwardEntry{Host: host, Port: fp.Port, NodeID: node.ID, NodeName: node.Name})
 			}
+			continue
+		}
+		if err := r.db.First(&entry, fp.NodeID).Error; err != nil {
 			continue
 		}
 		host := entry.ServerIP
@@ -183,6 +148,83 @@ func (r *Repository) forwardEntries(f model.Forward, allAddresses ...bool) ([]fo
 		out = append(out, forwardEntry{Host: host, Port: fp.Port, NodeID: entry.ID, NodeName: entry.Name})
 	}
 	return out, nil
+}
+
+// entryHostIndex resolves which tunnel entry addresses belong to which entry
+// node: the tunnel's entry list minus addresses owned by another entry (custom
+// IPs/domains without a recorded owner stay), a per-rule listen IP override,
+// or the node's own address.
+type entryHostIndex struct {
+	tunnelInIP string
+	nodes      map[int64]model.Node
+	owners     map[string]map[int64]bool
+}
+
+func (r *Repository) loadEntryHostIndex(tunnelID int64, tunnelInIP string, nodeIDs []int64) (*entryHostIndex, error) {
+	x := &entryHostIndex{tunnelInIP: strings.TrimSpace(tunnelInIP), nodes: map[int64]model.Node{}, owners: map[string]map[int64]bool{}}
+	var nodes []model.Node
+	if err := r.db.Where("id IN ? OR id IN (SELECT node_id FROM chain_tunnel WHERE tunnel_id = ? AND chain_type = ?)", nodeIDs, tunnelID, "1").Find(&nodes).Error; err != nil {
+		return nil, err
+	}
+	for _, node := range nodes {
+		x.nodes[node.ID] = node
+		addresses := nodeIngressAddresses(&node)
+		for _, address := range append(addresses[:], landingEntryHosts(node.ExtraIPs.String)...) {
+			host := normalizeLandingHost(address)
+			if host == "" {
+				continue
+			}
+			if x.owners[host] == nil {
+				x.owners[host] = map[int64]bool{}
+			}
+			x.owners[host][node.ID] = true
+		}
+	}
+	return x, nil
+}
+
+func (x *entryHostIndex) hosts(nodeID int64, portInIP string) ([]string, model.Node, bool) {
+	node, ok := x.nodes[nodeID]
+	if !ok {
+		return nil, node, false
+	}
+	if strings.TrimSpace(portInIP) != "" {
+		return landingEntryHosts(portInIP), node, true
+	}
+	if x.tunnelInIP == "" {
+		return landingEntryHosts(node.ServerIP), node, true
+	}
+	matched := []string{}
+	for _, host := range landingEntryHosts(x.tunnelInIP) {
+		owners := x.owners[normalizeLandingHost(host)]
+		if len(owners) == 0 || owners[node.ID] {
+			matched = append(matched, host)
+		}
+	}
+	return matched, node, true
+}
+
+// EntryHostsForNodes lists, per entry node, the addresses clients use to reach
+// a rule on tunnelID (the same selection as the copied 转发版 links).
+// portInIPs carries per-node listen IP overrides (forward_port.in_ip).
+func (r *Repository) EntryHostsForNodes(tunnelID int64, nodeIDs []int64, portInIPs map[int64]string) (map[int64][]string, map[int64]string, error) {
+	var t model.Tunnel
+	if err := r.db.First(&t, tunnelID).Error; err != nil {
+		return nil, nil, err
+	}
+	index, err := r.loadEntryHostIndex(tunnelID, t.InIP.String, nodeIDs)
+	if err != nil {
+		return nil, nil, err
+	}
+	hosts := make(map[int64][]string, len(nodeIDs))
+	names := make(map[int64]string, len(nodeIDs))
+	for _, id := range nodeIDs {
+		if h, node, ok := index.hosts(id, portInIPs[id]); ok {
+			hosts[id] = h
+			names[id] = node.Name
+		}
+	}
+	return hosts, names, nil
 }
 
 func landingEntryHosts(raw string) []string {

@@ -224,7 +224,8 @@ func (h *Handler) forwardRuntimeUnchangedOnNode(forward *forwardRecord, nodeID i
 	expected := map[string]string{}
 	if strings.EqualFold(forward.Mode, "nftables") {
 		chainNodes, _ := h.listChainNodesForTunnel(forward.TunnelID)
-		nodeRules := filterRulesByNodeID(buildNftablesRulePayloads(forward, in.tunnel, ports, chainNodes, in.userTunnelID, in.speed), nodeID)
+		rules, _ := h.nftRulePayloads(forward, in.tunnel, ports, chainNodes, in.userTunnelID, in.speed)
+		nodeRules := filterRulesByNodeID(rules, nodeID)
 		if len(nodeRules) == 0 {
 			return true
 		}
