@@ -761,6 +761,9 @@ const mapForwardApiItems = (items: ForwardApiItem[]): Forward[] => {
       typeof forward.cnBlockedReason === "string"
         ? forward.cnBlockedReason
         : "",
+    // Plan 152: present only for rules bound to some entries.
+    entryKey: typeof (forward as any).entryKey === "string" ? (forward as any).entryKey : undefined,
+    entryLabel: typeof (forward as any).entryLabel === "string" ? (forward as any).entryLabel : undefined,
   }));
 };
 
