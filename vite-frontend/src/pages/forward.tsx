@@ -3066,26 +3066,8 @@ export default function ForwardPage() {
   const handleSubmit = async () => {
     if (!validateForm()) return;
 
-    // 检测 IPv6 地址：按行判断，避免多行域名误判
-    const lines = form.remoteAddr
-      .split("\n")
-      .map((l) => l.trim())
-      .filter(Boolean);
-    const hasIPv6Target = (!form.targetMode || form.targetMode === "manual" || form.mode === "wg_path") && lines.some(
-      (line) => line.includes("[") || (line.match(/:/g) || []).length > 1,
-    );
-
-    if (form.mode === "nftables" && hasIPv6Target) {
-      toast(
-        "nftables 模式不支持 IPv4 客户端转发到 IPv6 落地机，请改用 gost 模式",
-        {
-          icon: "⚠️",
-          duration: 5000,
-        },
-      );
-
-      return;
-    }
+    // nftables 能否转发取决于入口与目标的地址类型（IPv4/IPv6），由后端按入口地址判断：
+    // 无法转发时自动改用 gost，并在保存结果里提示。
 
     if (form.mode !== "wg_path" && form.targetMode === "chain") {
       await submitChain();
@@ -6106,7 +6088,11 @@ export default function ForwardPage() {
                     )}
                     {/* 转发模式选择 */}
                     <Select
-                      description="WG 隧道用于承载出入口和内网转发规则"
+                      description={
+                        form.mode === "nftables"
+                          ? "内核转发，不能在 IPv4 和 IPv6 之间转换；入口和目标类型不一致时会自动改用 gost"
+                          : "WG 隧道用于承载出入口和内网转发规则"
+                      }
                       label="转发模式"
                       selectedKeys={[form.mode]}
                       variant="bordered"
