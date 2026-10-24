@@ -134,23 +134,29 @@ func regionName(code string) string {
 	return display.Chinese.Regions().Name(region)
 }
 
+// entryLabelKey is the picker label and option key of one entry node; users
+// get a key derived from public display fields only.
+func (node tunnelEntryNode) entryLabelKey(admin bool) (string, string) {
+	if admin {
+		return node.Name, "node-" + strconv.FormatInt(node.ID, 10)
+	}
+	label := strings.TrimSpace(node.RegionCity)
+	if label == "" {
+		label = regionName(node.Region)
+	}
+	if label == "" {
+		label = "默认入口"
+	}
+	// Only public display fields feed the key; node IDs and names never do.
+	digest := sha256.Sum256([]byte(node.Region + "\x00" + label))
+	return label, fmt.Sprintf("entry-%x", digest[:12])
+}
+
 func (info tunnelRegionInfo) entryGroups(admin bool) []tunnelEntryGroup {
 	groups := make([]tunnelEntryGroup, 0, len(info.EntryNodes))
 	seen := make(map[string]bool)
 	for _, node := range info.EntryNodes {
-		label, key := node.Name, "node-"+strconv.FormatInt(node.ID, 10)
-		if !admin {
-			label = strings.TrimSpace(node.RegionCity)
-			if label == "" {
-				label = regionName(node.Region)
-			}
-			if label == "" {
-				label = "默认入口"
-			}
-			// Only public display fields feed the key; node IDs and names never do.
-			digest := sha256.Sum256([]byte(node.Region + "\x00" + label))
-			key = fmt.Sprintf("entry-%x", digest[:12])
-		}
+		label, key := node.entryLabelKey(admin)
 		if !seen[key] {
 			groups = append(groups, tunnelEntryGroup{Key: key, Label: label, Region: node.Region})
 			seen[key] = true

@@ -1140,9 +1140,9 @@ func (h *Handler) userTunnelVisibleList(w http.ResponseWriter, r *http.Request) 
 
 	items := make([]map[string]interface{}, 0)
 	if roleID == 0 {
-		items, err = h.repo.ListEnabledTunnelSummaries()
+		items, err = h.repo.ListEnabledTunnelSummariesWithGroups()
 	} else {
-		items, err = h.repo.ListUserAccessibleTunnels(userID)
+		items, err = h.repo.ListUserAccessibleTunnelsWithGroups(userID)
 	}
 	if err != nil {
 		response.WriteJSON(w, response.Err(-2, err.Error()))

@@ -1517,6 +1517,16 @@ func (r *Repository) CountForwards() (int64, error) {
 }
 
 func (r *Repository) ListUserAccessibleTunnels(userID int64) ([]map[string]interface{}, error) {
+	return r.listUserAccessibleTunnels(userID, false)
+}
+
+// ListUserAccessibleTunnelsWithGroups is ListUserAccessibleTunnels plus the
+// rule picker's 线路分组 per item (one extra batched query).
+func (r *Repository) ListUserAccessibleTunnelsWithGroups(userID int64) ([]map[string]interface{}, error) {
+	return r.listUserAccessibleTunnels(userID, true)
+}
+
+func (r *Repository) listUserAccessibleTunnels(userID int64, withGroups bool) ([]map[string]interface{}, error) {
 	if r == nil || r.db == nil {
 		return nil, errors.New("repository not initialized")
 	}
@@ -1546,6 +1556,13 @@ func (r *Repository) ListUserAccessibleTunnels(userID int64) ([]map[string]inter
 	regionMap, err := r.loadTunnelRegions(tunnelIDs)
 	if err != nil {
 		return nil, err
+	}
+
+	var pickerGroups map[int64][]tunnelPickerGroupRow
+	if withGroups {
+		if pickerGroups, err = r.userTunnelPickerGroupRows(userID); err != nil {
+			return nil, err
+		}
 	}
 
 	items := make([]map[string]interface{}, 0, len(rows))
@@ -1583,6 +1600,9 @@ func (r *Repository) ListUserAccessibleTunnels(userID int64) ([]map[string]inter
 			"entryGroups":  info.entryGroups(false),
 			"exitRegions":  regionMap[rw.ID].ExitRegions,
 		}
+		if withGroups {
+			item["groups"] = buildTunnelPickerGroups(info.EntryNodes, false, restricted, pickerGroups[rw.ID])
+		}
 		if pr, ok := portRangeMap[rw.ID]; ok {
 			item["portRangeMin"] = pr.min
 			item["portRangeMax"] = pr.max
@@ -1593,6 +1613,16 @@ func (r *Repository) ListUserAccessibleTunnels(userID int64) ([]map[string]inter
 }
 
 func (r *Repository) ListEnabledTunnelSummaries() ([]map[string]interface{}, error) {
+	return r.listEnabledTunnelSummaries(false)
+}
+
+// ListEnabledTunnelSummariesWithGroups adds the admin rule picker's 线路分组
+// (every enabled tunnel_group) per item with one extra batched query.
+func (r *Repository) ListEnabledTunnelSummariesWithGroups() ([]map[string]interface{}, error) {
+	return r.listEnabledTunnelSummaries(true)
+}
+
+func (r *Repository) listEnabledTunnelSummaries(withGroups bool) ([]map[string]interface{}, error) {
 	if r == nil || r.db == nil {
 		return nil, errors.New("repository not initialized")
 	}
@@ -1619,6 +1649,13 @@ func (r *Repository) ListEnabledTunnelSummaries() ([]map[string]interface{}, err
 		return nil, err
 	}
 
+	var pickerGroups map[int64][]tunnelPickerGroupRow
+	if withGroups {
+		if pickerGroups, err = r.adminTunnelPickerGroupRows(); err != nil {
+			return nil, err
+		}
+	}
+
 	items := make([]map[string]interface{}, 0, len(rows))
 	for _, rw := range rows {
 		item := map[string]interface{}{
@@ -1628,6 +1665,9 @@ func (r *Repository) ListEnabledTunnelSummaries() ([]map[string]interface{}, err
 			"trafficRatio": rw.TrafficRatio,
 			"entryGroups":  regionMap[rw.ID].entryGroups(true),
 			"exitRegions":  regionMap[rw.ID].ExitRegions,
+		}
+		if withGroups {
+			item["groups"] = buildTunnelPickerGroups(regionMap[rw.ID].EntryNodes, true, false, pickerGroups[rw.ID])
 		}
 		if pr, ok := portRangeMap[rw.ID]; ok {
 			item["portRangeMin"] = pr.min
