@@ -300,6 +300,8 @@ export interface ForwardClientIPsApiData {
 export interface UserTunnelApiItem {
   exitRegions?: string[];
   entryGroups?: Array<{ key: string; label: string; region: string }>;
+  // 线路分组 covering this tunnel's entryGroups keys ([] = all entries).
+  groups?: Array<{ id: number; name: string; color?: string; inx?: number; entryKeys?: string[] }>;
   id: number;
   name: string;
   remark?: string;

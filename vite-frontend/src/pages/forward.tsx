@@ -180,6 +180,7 @@ interface Tunnel {
   chainUnavailableReason?: string;
   entryGroups?: Array<{ key: string; label: string; region: string }>;
   exitRegions?: string[];
+  groups?: TunnelLineGroup[];
   id: number;
   name: string;
   type?: number;
@@ -250,6 +251,88 @@ function tunnelPickerKey(sections: TunnelPickerSection[], id: number | null, pre
 
   return option ? [option.key] : [];
 }
+
+// 线路分组 (plan 144): the permission tunnel groups covering each picker option
+// (tunnel, entry key); entryKeys [] = every entry. Uncovered options → 其他.
+interface TunnelLineGroup {
+  id: number;
+  name: string;
+  color?: string;
+  inx?: number;
+  entryKeys?: string[];
+}
+
+interface TunnelGroupPill {
+  key: string;
+  label: string;
+  color: string;
+  sections: TunnelPickerSection[];
+  optionKeys: Set<string>;
+  tunnelIds: Set<number>;
+}
+
+const TUNNEL_GROUP_OTHER = "other";
+
+function buildTunnelGroupPills(tunnels: Tunnel[]): TunnelGroupPill[] {
+  const groups = new Map<string, { id: number; label: string; color: string; inx: number; tunnels: Tunnel[] }>();
+  const other: Tunnel[] = [];
+  const add = (key: string, group: TunnelLineGroup | null, tunnel: Tunnel) => {
+    if (!group) {
+      other.push(tunnel);
+
+      return;
+    }
+    const entry = groups.get(key) || { id: group.id, label: group.name, color: group.color || "", inx: group.inx ?? 0, tunnels: [] };
+
+    entry.tunnels.push(tunnel);
+    groups.set(key, entry);
+  };
+
+  tunnels.forEach((tunnel) => {
+    const entries = tunnel.entryGroups?.length ? tunnel.entryGroups : null;
+    const lineGroups = tunnel.groups || [];
+    const covers = (group: TunnelLineGroup, entryKey: string) => !group.entryKeys?.length || group.entryKeys.includes(entryKey);
+
+    if (!entries) {
+      // Single 默认入口 option.
+      lineGroups.forEach((group) => add(`g${group.id}`, group, tunnel));
+      if (!lineGroups.length) add(TUNNEL_GROUP_OTHER, null, tunnel);
+
+      return;
+    }
+    lineGroups.forEach((group) => {
+      const covered = entries.filter((entry) => covers(group, entry.key));
+
+      if (covered.length) add(`g${group.id}`, group, { ...tunnel, entryGroups: covered });
+    });
+    const uncovered = entries.filter((entry) => !lineGroups.some((group) => covers(group, entry.key)));
+
+    if (uncovered.length) add(TUNNEL_GROUP_OTHER, null, { ...tunnel, entryGroups: uncovered });
+  });
+
+  const pill = (key: string, label: string, color: string, list: Tunnel[]): TunnelGroupPill => {
+    const sections = buildTunnelPickerSections(list);
+    const options = sections.flatMap((section) => section.options);
+
+    return {
+      key,
+      label,
+      color,
+      sections,
+      optionKeys: new Set(options.map((option) => option.key)),
+      tunnelIds: new Set(options.map((option) => option.tunnel.id)),
+    };
+  };
+  const pills = Array.from(groups.entries())
+    .sort(([, a], [, b]) => a.inx - b.inx || a.id - b.id)
+    .map(([key, group]) => pill(key, group.label, group.color, group.tunnels));
+
+  if (other.length) pills.push(pill(TUNNEL_GROUP_OTHER, "其他", "", other));
+
+  return pills;
+}
+
+const tunnelGroupStorageKey = (userId: number | string | null) => `forward-tunnel-group:${userId ?? "anon"}`;
 
 interface Node {
   id: number;
@@ -1672,6 +1755,69 @@ export default function ForwardPage() {
     snatEnabled: true,
   });
   const [inIpTouched, setInIpTouched] = useState(false);
+  // 线路分组 pills in front of 选择隧道 (only with ≥ 2 pills, not for WG).
+  const tunnelGroupPills = useMemo(() => buildTunnelGroupPills(tunnels), [tunnels]);
+  const [formTunnelGroup, setFormTunnelGroup] = useState("");
+  const tunnelGroupReadyRef = useRef(false);
+  const editTunnelOriginRef = useRef<Pick<ForwardForm, "tunnelId" | "inIp" | "targetMode"> | null>(null);
+  const showTunnelGroups = tunnelGroupPills.length >= 2 && form.mode !== "wg_path";
+  const activeTunnelGroup = showTunnelGroups
+    ? tunnelGroupPills.find((pill) => pill.key === formTunnelGroup) || tunnelGroupPills[0]
+    : null;
+  const formTunnelSections = activeTunnelGroup ? activeTunnelGroup.sections : tunnelPickerSections;
+
+  useEffect(() => {
+    if (!modalOpen) {
+      tunnelGroupReadyRef.current = false;
+      editTunnelOriginRef.current = null;
+
+      return;
+    }
+    if (tunnelGroupPills.length < 2) return;
+    if (tunnelGroupReadyRef.current && tunnelGroupPills.some((pill) => pill.key === formTunnelGroup)) return;
+    tunnelGroupReadyRef.current = true;
+    let next: TunnelGroupPill | undefined;
+
+    if (form.tunnelId !== null) {
+      // Edit / copy: the first group holding the rule's tunnel, else 其他.
+      next = tunnelGroupPills.find((pill) => pill.optionKeys.has(formTunnelOptionKey) && pill.tunnelIds.has(form.tunnelId as number))
+        || tunnelGroupPills.find((pill) => pill.tunnelIds.has(form.tunnelId as number))
+        || tunnelGroupPills.find((pill) => pill.key === TUNNEL_GROUP_OTHER);
+      if (isEdit && !editTunnelOriginRef.current) {
+        editTunnelOriginRef.current = { tunnelId: form.tunnelId, inIp: form.inIp, targetMode: form.targetMode };
+      }
+    } else {
+      const saved = localStorage.getItem(tunnelGroupStorageKey(tokenUserId));
+
+      next = tunnelGroupPills.find((pill) => pill.key === saved);
+    }
+    setFormTunnelGroup((next || tunnelGroupPills[0]).key);
+  }, [modalOpen, tunnelGroupPills]);
+
+  const selectTunnelGroup = (key: string) => {
+    const pill = tunnelGroupPills.find((item) => item.key === key);
+
+    if (!pill || key === activeTunnelGroup?.key) return;
+    setFormTunnelGroup(key);
+    localStorage.setItem(tunnelGroupStorageKey(tokenUserId), key);
+    const current = form.tunnelId === null ? undefined : tunnelPickerKey(formTunnelSections, form.tunnelId, formTunnelOptionKey)[0];
+
+    if (current && pill.optionKeys.has(current)) {
+      setFormTunnelOptionKey(current);
+
+      return;
+    }
+    const origin = isEdit ? editTunnelOriginRef.current : null;
+
+    setFormTunnelOptionKey("");
+    if (origin && origin.tunnelId !== null && pill.tunnelIds.has(origin.tunnelId)) {
+      // Back in a group holding the rule's own tunnel: restore it.
+      setForm((prev) => ({ ...prev, ...origin }));
+    } else if (form.tunnelId !== null) {
+      // Never keep a tunnel the chosen group does not list.
+      setForm((prev) => ({ ...prev, tunnelId: null }));
+    }
+  };
   // 表单验证错误
   const [errors, setErrors] = useState<{ [key: string]: string }>({});
   // 批量操作相关状态
@@ -5856,6 +6002,38 @@ export default function ForwardPage() {
                     />
                   </div>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mb-2">
+                    {/* 线路分组 */}
+                    {showTunnelGroups && (
+                      <div className="md:col-span-2" data-testid="tunnel-group-pills">
+                        <div className="mb-1.5 text-small font-medium text-foreground">线路分组</div>
+                        <div aria-label="线路分组" className="flex flex-wrap gap-2" role="radiogroup">
+                          {tunnelGroupPills.map((pill) => {
+                            const selected = pill.key === activeTunnelGroup?.key;
+
+                            return (
+                              <button
+                                key={pill.key}
+                                aria-checked={selected}
+                                className={`inline-flex h-8 items-center gap-1.5 rounded-full border px-3 text-sm transition-colors ${
+                                  selected
+                                    ? "border-primary-300 bg-primary-500/10 font-medium text-primary-600 dark:border-primary-500/40 dark:text-primary-400"
+                                    : "border-default-200 bg-transparent text-default-600 hover:bg-default-100 dark:border-default-100"
+                                }`}
+                                role="radio"
+                                type="button"
+                                onClick={() => selectTunnelGroup(pill.key)}
+                              >
+                                {pill.color && (
+                                  <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: pill.color }} />
+                                )}
+                                <span>{pill.label}</span>
+                                <span className={selected ? "text-primary-500/80" : "text-default-400"}>· {pill.optionKeys.size}</span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
                     {/* 选择隧道 */}
                     {form.mode !== "wg_path" && (
                     <Select
@@ -5871,7 +6049,7 @@ export default function ForwardPage() {
                       listboxVariant="grouped"
                       placeholder="请选择关联的隧道"
                       selectedKeys={
-                        tunnelPickerKey(tunnelPickerSections, form.tunnelId, formTunnelOptionKey)
+                        tunnelPickerKey(formTunnelSections, form.tunnelId, formTunnelOptionKey)
                       }
                       variant="bordered"
                       onSelectionChange={(keys) => {
@@ -5885,7 +6063,7 @@ export default function ForwardPage() {
                         }
                       }}
                     >
-                      {tunnelPickerSections.map((section) => (
+                      {formTunnelSections.map((section) => (
                         <SelectSection
                           key={section.key}
                           description={isAdmin && section.region === "" ? "出口节点未设置地区，可在节点页设置" : undefined}
