@@ -1,4 +1,4 @@
-# 149 — 落地 page chips + 路由规则 waterfall + 3rd 大陆 forced seed (APPROVED 10-24 ~20:40 TW → RELEASING as fork.91)
+# 149 — 落地 page chips + 路由规则 waterfall + 3rd 大陆 forced seed (RELEASED 10-24 22:41 TW as fork.91, panel only)
 
 Source: user 2026-10-24 voice messages (~16:50 TW chips / cards / links, ~17:40 + ~17:50 TW 大陆 seeds +
 路由规则 layout). Brief: `/root/flvx-workers/runs/landing-chip-polish/brief.md`. Base:
@@ -124,7 +124,29 @@ Run dir `/root/flvx-workers/runs/release-landing-chip-polish`.
          rule / limit / switch / landing node / forward identical; 2nd start changes nothing. Compiled plans: servers
          3 / 5 / 6 +1 rule 禁止大陆直连 on their SS tags (flvxl-10/95, flvxl-97, flvxl-105) + `exempt_sources` (33 CIDRs incl.
          node 48 240e/2408 /64), all other rules identical and in order; servers 1 / 2 / 4 unchanged. Copies deleted.
-- [ ] R4 push, CI green, tag `3.0.27-fork.91`, release Latest with the fork.90 asset set
-- [ ] R5 rollback dir + validated DB backup, upgrade `/opt/flvx-svc`, prune (keep 2)
-- [ ] R6 prod checks (version / health / nodes / migration once / 落地 API as admin + non-admin / plan 150 nft path /
-         real client test) + 10-min CPU / RSS / DB / log lines vs fork.90
+- [x] R4 pushed (8712c3bc); CI Build Check 40102785543 green (frontend / agent / backend / PG contract); tag
+         `3.0.27-fork.91` → 8712c3bc; Build and Push Images 40102907499 green; release Latest, not draft, the fork.90 asset
+         set (10), compose + install scripts pinned to fork.91, gost-amd64/arm64 sha256 OK, `gost -V` = fork.91, ghcr
+         backend/frontend amd64 + arm64
+- [x] R5 rollback dir `/opt/flvx-svc/rollback/pre-fork91-20261024T144111Z` (validated online SQLite backup: quick_check /
+         integrity_check ok, local image tags, rollback.sh); prune kept pre-fork91 + pre-fork90 (pre-fork89 + fork.88
+         images removed); upgrade 22:41:20 → healthy 22:41:29 TW
+- [x] R6 prod: version.json `3.0.27-fork.91-mvmi1c3b`, served CSS = local build hash, JS has the 149 strings; 30/30 online;
+         migration log once (enabled [], 禁止大陆直连 added, preset updated); 2nd restart: no seed lines, no revision bump,
+         30/30 back in ~5 s. DB pre/post diff: only landing_egress_setting / the block-cn preset / node +2 columns, plus
+         counters and push state; forwards (incl. the 6 nft rules) unchanged, 30 reconnect redeploys 0 changes. Servers
+         3 / 5 / 6 re-pushed (rev 183→185, 23→25, 37→39: resync + exempt list growing 33→59 as agents reported IPs; all 30
+         nodes have reported IPs, node 48 = 114.35.6.24 + 240e…); shared 3 / 6 applied within ~1 min; stable after.
+         落地 API (admin, @jiuwei, leekao): same codes as before (users 403 on admin endpoints, -1 on others' nodes),
+         forced = 3 rules with 禁止大陆直连 → ss2022, egressLabel 强制 IPv4 unchanged, node rules state applied. Real client:
+         direct links nodes 10 / 95 / 97 / 105 3/3 each before and after; forward 156 via node 48 CT + CU 3/3 each.
+         Plan 150 commits are ancestors of the tag; nft_family.go / forward.tsx / go-gost identical to fork.90 → no OTA.
+         10 min after the 2nd restart: backend 26–27 MiB (fork.90 34 MiB), CPU 2–5.5 % (fork.90 3.5–4 %), DB 57.34 MB
+         (same), 38 log lines (37 = reconnect redeploy / ws lines; fork.90 sample 59 incl. access lines).
+
+### Release notes
+- Rollback → fork.90: `bash /opt/flvx-svc/rollback/pre-fork91-20261024T144111Z/rollback.sh`. fork.90 ignores
+  `inboundProtocols`, so 禁止大陆直连 would hit every landing node (today all 4 are SS2022 → same effect); with VLESS nodes
+  either disable it in 全局·强制 after the rollback or use `--restore-db` (drops every DB change since 22:41 TW).
+- The plan-149 resync is logged with the plan-143 text 「防滥用 moved to 内置, re-syncing 6 landing servers once」
+  (cosmetic, same flag).
