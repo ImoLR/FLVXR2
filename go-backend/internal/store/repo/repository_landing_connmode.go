@@ -109,24 +109,9 @@ func NativeLandingConnSig(inboundNodeIDs []int64, globalInbound bool) string {
 	return strings.Join(parts, ",")
 }
 
-// NativeLandingConnModeVersions maps native landing server id → the agent's
-// landing_conn_mode capability, in one query (views and the monitor).
-func (r *Repository) NativeLandingConnModeVersions() (map[int64]int, error) {
-	var rows []struct {
-		ID              int64
-		LandingConnMode int
-	}
-	err := r.db.Model(&model.LandingServer{}).Select("landing_server.id AS id", "node.landing_conn_mode AS landing_conn_mode").
-		Joins("JOIN node ON node.id = landing_server.node_id").Where("landing_server.source = ?", "native").Scan(&rows).Error
-	out := make(map[int64]int, len(rows))
-	for _, row := range rows {
-		out[row.ID] = row.LandingConnMode
-	}
-	return out, err
-}
-
-// LandingConnSupport answers LandingConnModeSupported for any server from one
-// NativeLandingConnModeVersions map.
+// LandingConnSupport maps native landing server id → the agent's
+// landing_conn_mode (filled by list queries) and answers
+// LandingConnModeSupported for any server.
 type LandingConnSupport map[int64]int
 
 func (m LandingConnSupport) Supported(s *model.LandingServer) bool {

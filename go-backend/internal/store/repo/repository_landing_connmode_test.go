@@ -151,14 +151,15 @@ func TestLandingConnModeServerSaveNodesAndRevision(t *testing.T) {
 			if err := r.SetNodeLandingCapabilities(601, true, 1, 1, 2, 1); err != nil {
 				t.Fatal(err)
 			}
-			versions, err := r.NativeLandingConnModeVersions()
-			if err != nil || versions[s.ID] != 1 {
-				t.Fatalf("versions %v %v", versions, err)
+			listed, _ := r.ListLandingNodes(0, true)
+			data, err := r.LandingNodeListData(listed)
+			if err != nil || data.ConnSupport[s.ID] != 1 || !data.ConnSupport.Supported(data.Servers[s.ID]) || data.Servers[s.ID].Name == "" {
+				t.Fatalf("list support %v %v", data, err)
 			}
 			if err := r.SetNodeLandingCapabilities(601, true, 1, 1, 2); err != nil {
 				t.Fatal(err)
 			}
-			if versions, _ = r.NativeLandingConnModeVersions(); versions[s.ID] != 0 {
+			if node, _ := r.GetNodeByID(601); node.LandingConnMode != 0 {
 				t.Fatal("old agent report kept the capability")
 			}
 			// Revision: the 仅入站 signature bumps once, unchanged input does not.

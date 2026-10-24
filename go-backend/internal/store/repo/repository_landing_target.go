@@ -34,23 +34,27 @@ func (r *Repository) LandingNodeListData(nodes []model.LandingNode) (*LandingNod
 			seenUsers[n.UserID] = true
 		}
 	}
-	var servers []model.LandingServer
-	if err := r.db.Where("id IN ?", serverIDs).Find(&servers).Error; err != nil {
+	// The native agent's landing_conn_mode (plan 141) rides on the server
+	// query: the list keeps its constant query count.
+	var rows []struct {
+		model.LandingServer
+		AgentConnMode int
+	}
+	if err := r.db.Model(&model.LandingServer{}).Select("landing_server.*, COALESCE(node.landing_conn_mode, 0) AS agent_conn_mode").
+		Joins("LEFT JOIN node ON node.id = landing_server.node_id AND landing_server.source = ?", "native").
+		Where("landing_server.id IN ?", serverIDs).Scan(&rows).Error; err != nil {
 		return nil, err
 	}
-	shared, native := false, false
-	for i := range servers {
+	servers := make([]model.LandingServer, len(rows))
+	out.ConnSupport = LandingConnSupport{}
+	shared := false
+	for i := range rows {
+		servers[i] = rows[i].LandingServer
 		out.Servers[servers[i].ID] = &servers[i]
 		shared = shared || servers[i].Source == "shared"
-		native = native || servers[i].Source == "native"
-	}
-	out.ConnSupport = LandingConnSupport{}
-	if native {
-		versions, err := r.NativeLandingConnModeVersions()
-		if err != nil {
-			return nil, err
+		if servers[i].Source == "native" {
+			out.ConnSupport[servers[i].ID] = rows[i].AgentConnMode
 		}
-		out.ConnSupport = versions
 	}
 	var users []model.User
 	if err := r.db.Where("id IN ?", userIDs).Find(&users).Error; err != nil {

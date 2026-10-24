@@ -53,9 +53,10 @@ type landingServerStats struct {
 	count, connections int
 	billed             int64
 	enabled            bool
-	// Plan 141: connections sums each node in its own effective 计算方式;
-	// these say which modes went into the sum (label 入站 / 入站+出站 / 混合).
-	inboundNodes, totalNodes int
+	// Plan 141: the node sum in each node's configured 计算方式 (used when the
+	// server's runtime applies 仅入站) and how many nodes count each way;
+	// connections stays the 入站+出站 sum (old agent / Helper).
+	modeConnections, inboundNodes, totalNodes int
 }
 
 // landingConnSumMode labels a sum of node connection counts: "inbound" or
@@ -72,8 +73,8 @@ func landingConnSumMode(inbound, total int) string {
 }
 
 // landingServerStatsByID aggregates all landing nodes per server in one pass;
-// servers + support resolve each node's effective 计算方式 (plan 141).
-func landingServerStatsByID(all []model.LandingNode, servers map[int64]*model.LandingServer, support repo.LandingConnSupport) map[int64]*landingServerStats {
+// servers resolve each node's configured 计算方式 (plan 141).
+func landingServerStatsByID(all []model.LandingNode, servers map[int64]*model.LandingServer) map[int64]*landingServerStats {
 	out := map[int64]*landingServerStats{}
 	for _, n := range all {
 		st := out[n.LandingServerID]
@@ -81,10 +82,10 @@ func landingServerStatsByID(all []model.LandingNode, servers map[int64]*model.La
 			st = &landingServerStats{}
 			out[n.LandingServerID] = st
 		}
-		s := servers[n.LandingServerID]
-		mode := repo.LandingEffectiveConnMode(&n, s, support.Supported(s))
+		mode := repo.LandingNodeConnMode(&n, servers[n.LandingServerID])
 		st.count++
-		st.connections += repo.LandingModeConnections(&n, mode)
+		st.connections += repo.LandingLiveConnections(&n)
+		st.modeConnections += repo.LandingModeConnections(&n, mode)
 		if mode == repo.LandingConnInbound {
 			st.inboundNodes++
 		} else {
@@ -94,15 +95,6 @@ func landingServerStatsByID(all []model.LandingNode, servers map[int64]*model.La
 		st.enabled = st.enabled || (n.Status == "active" && !n.DeletePending)
 	}
 	return out
-}
-
-// landingConnSupport is the per-request 仅入站 capability map (one query).
-func (h *Handler) landingConnSupport() repo.LandingConnSupport {
-	versions, err := h.repo.NativeLandingConnModeVersions()
-	if err != nil {
-		return repo.LandingConnSupport{}
-	}
-	return versions
 }
 
 // landingServerUserHidden are server fields a non-admin never receives:
@@ -121,23 +113,11 @@ func (h *Handler) landingServerView(s model.LandingServer, catalogs ...landingEg
 		catalog = h.landingEgressCatalog()
 	}
 	all, _ := h.repo.ListLandingNodes(0, true)
-	support := h.landingConnSupport()
-	return h.landingServerAdminView(s, catalog, landingServerStatsByID(all, map[int64]*model.LandingServer{s.ID: &s}, support)[s.ID], support)
+	return h.landingServerAdminView(s, catalog, landingServerStatsByID(all, map[int64]*model.LandingServer{s.ID: &s})[s.ID])
 }
 
-func (h *Handler) landingServerAdminView(s model.LandingServer, catalog landingEgressCatalog, st *landingServerStats, support repo.LandingConnSupport) map[string]interface{} {
-	v := h.landingServerViewWith(s, true, catalog, st, nil)
-	// Plan 141: whether this server's runtime applies 仅入站 (false = an old
-	// agent / 妙妙屋 Helper: 仅入站 settings wait, limits stay 入站+出站).
-	supported := support.Supported(&s)
-	v["connModeSupported"] = supported
-	v["maxConnectionsMode"] = repo.LandingServerTotalConnMode(&s, supported)
-	if st != nil {
-		v["connectionsMode"] = landingConnSumMode(st.inboundNodes, st.totalNodes)
-	} else {
-		v["connectionsMode"] = repo.LandingConnTotal
-	}
-	return v
+func (h *Handler) landingServerAdminView(s model.LandingServer, catalog landingEgressCatalog, st *landingServerStats) map[string]interface{} {
+	return h.landingServerViewWith(s, true, catalog, st, nil)
 }
 
 // landingServerUserView is a non-admin's view: own node count on the server and
@@ -148,6 +128,7 @@ func (h *Handler) landingServerUserView(s model.LandingServer, catalog landingEg
 
 func (h *Handler) landingServerViewWith(s model.LandingServer, admin bool, catalog landingEgressCatalog, st *landingServerStats, counts *repo.LandingUserNodeCounts) map[string]interface{} {
 	v := landingMap(s)
+	connAgent := 0 // plan 141: the native agent's landing_conn_mode
 	v["protocols"] = jsonStrings(s.Protocols)
 	v["realityServerNames"] = jsonStrings(s.RealityServerNames)
 	if admin {
@@ -185,6 +166,9 @@ func (h *Handler) landingServerViewWith(s model.LandingServer, admin bool, catal
 		node, _ := h.repo.GetNodeByID(s.NodeID)
 		v["online"] = node != nil && node.Status == 1
 		v["landingSupported"] = node != nil && node.LandingCapable
+		if node != nil {
+			connAgent = node.LandingConnMode
+		}
 		if admin {
 			nodeEgress, nodeGuard := 0, 0
 			if node != nil {
@@ -212,6 +196,17 @@ func (h *Handler) landingServerViewWith(s model.LandingServer, admin bool, catal
 	}
 	v["nodeCount"] = st.count
 	v["connections"] = st.connections
+	// Plan 141: whether the runtime applies 仅入站 (false = old agent / 妙妙屋
+	// Helper: 仅入站 settings wait, every limit stays 入站+出站); the node sum
+	// then counts each node in its own mode, labelled by connectionsMode.
+	supported := repo.LandingConnModeSupported(&s, connAgent)
+	v["connModeSupported"] = supported
+	v["maxConnectionsMode"] = repo.LandingServerTotalConnMode(&s, supported)
+	v["connectionsMode"] = repo.LandingConnTotal
+	if supported {
+		v["connections"] = st.modeConnections
+		v["connectionsMode"] = landingConnSumMode(st.inboundNodes, st.totalNodes)
+	}
 	v["billedBytes"] = st.billed
 	v["usedBytes"] = st.billed
 	return v
@@ -236,7 +231,13 @@ func (h *Handler) landingNodeView(n model.LandingNode, catalogs ...landingEgress
 	}
 	supported := false
 	if s != nil {
-		supported = h.landingConnSupport().Supported(s)
+		agent := 0
+		if s.Source == "native" {
+			if node, err := h.repo.GetNodeByID(s.NodeID); err == nil && node != nil {
+				agent = node.LandingConnMode
+			}
+		}
+		supported = repo.LandingConnModeSupported(s, agent)
 	}
 	return landingNodeViewData(n, s, u, catalog, integrationError, supported)
 }
@@ -384,10 +385,9 @@ func (h *Handler) landingServerList(w http.ResponseWriter, r *http.Request) {
 		for i := range ss {
 			byID[ss[i].ID] = &ss[i]
 		}
-		support := h.landingConnSupport()
-		stats := landingServerStatsByID(all, byID, support)
+		stats := landingServerStatsByID(all, byID)
 		for _, s := range ss {
-			out = append(out, h.landingServerAdminView(s, catalog, stats[s.ID], support))
+			out = append(out, h.landingServerAdminView(s, catalog, stats[s.ID]))
 		}
 	} else {
 		counts, err := h.repo.LandingUserNodeCounts(uid)
