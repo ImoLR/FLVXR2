@@ -573,7 +573,36 @@ func publicIPReportDue(local net.Addr, now time.Time) bool {
 var reportPublicIPsOnConnect = func(w *WebSocketReporter) {
 	ipv4 := getPublicIPv4()
 	ipv6 := getPublicIPv6()
-	w.reportPublicIPs(ipv4, ipv6)
+	w.sendPublicIPs(ipv4, ipv6)
+}
+
+// publicIPMessage is the WS report (plan 147). It carries only the v4/v6
+// fields: panels up to fork.88 read just "public_ip" from this message type
+// and overwrote server_ip with it, so they ignore this one; newer panels fill
+// empty address fields only (never overwrite).
+func publicIPMessage(ipv4, ipv6 string) []byte {
+	b, _ := json.Marshal(map[string]any{"type": "ReportPublicIP", "data": map[string]string{"public_ip_v4": ipv4, "public_ip_v6": ipv6}})
+	return b
+}
+
+// sendPublicIPs reports the public addresses over the session — AES with the
+// node secret inside wss — instead of the old plain-HTTP POST that carried the
+// node secret in a header. One message per report (≤ every 10 min, see
+// publicIPReportDue); nothing is retried: the next session reports again.
+func (w *WebSocketReporter) sendPublicIPs(ipv4, ipv6 string) {
+	if ipv4 == "" && ipv6 == "" {
+		return
+	}
+	data := w.encryptPayload(publicIPMessage(ipv4, ipv6))
+	w.connMutex.Lock()
+	defer w.connMutex.Unlock()
+	if w.conn == nil || !w.connected {
+		return
+	}
+	w.conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
+	if err := w.conn.WriteMessage(websocket.TextMessage, data); err != nil {
+		w.sessionErrorLocked(w.conn, causeWrite, err)
+	}
 }
 
 // getConfigDir 根据 serviceName 获取配置目录
@@ -795,55 +824,6 @@ func getDefaultRouteIP() string {
 	}
 
 	return ""
-}
-
-// reportPublicIPs 上报 IPv4 和 IPv6 公网地址到面板
-func (w *WebSocketReporter) reportPublicIPs(ipv4, ipv6 string) {
-	// 构建 HTTP API URL
-	httpURL := "http://" + w.addr + "/api/v1/node/report-ip"
-
-	// 使用 secret 作为 Authorization header
-	req, err := http.NewRequest("POST", httpURL, nil)
-	if err != nil {
-		fmt.Printf("⚠️ 创建上报 IP 请求失败：%s\n", logsafe.Text(logsafe.Error(err), w.secret))
-		return
-	}
-	req.Header.Set("Authorization", w.secret)
-	req.Header.Set("Content-Type", "application/json")
-
-	// 构建请求体（新格式：同时上报 IPv4 和 IPv6）
-	body := map[string]string{
-		"public_ip_v4": ipv4,
-		"public_ip_v6": ipv6,
-	}
-	jsonBody, _ := json.Marshal(body)
-	req.Body = io.NopCloser(bytes.NewReader(jsonBody))
-
-	client := &http.Client{Timeout: 5 * time.Second, Transport: panelconn.Default}
-	resp, err := client.Do(req)
-	if err != nil {
-		fmt.Printf("⚠️ 上报 IP 失败：%s\n", logsafe.Text(logsafe.Error(err), w.secret))
-		return
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode == http.StatusOK {
-		if ipv4 != "" && ipv6 != "" {
-			fmt.Printf("✅ 公网 IP 已上报：IPv4=%s, IPv6=%s\n", ipv4, ipv6)
-		} else if ipv4 != "" {
-			fmt.Printf("✅ 公网 IPv4 已上报：%s\n", ipv4)
-		} else if ipv6 != "" {
-			fmt.Printf("✅ 公网 IPv6 已上报：%s\n", ipv6)
-		}
-	} else {
-		fmt.Printf("⚠️ 上报 IP 失败：HTTP %d\n", resp.StatusCode)
-	}
-}
-
-// reportPublicIP 上报公网 IP 到面板（旧版本，保留兼容）
-// Deprecated: 使用 reportPublicIPs() 替代
-func (w *WebSocketReporter) reportPublicIP(publicIP string) {
-	w.reportPublicIPs(publicIP, "")
 }
 
 // buildWebSocketQuery is the handshake path + query (capabilities included).

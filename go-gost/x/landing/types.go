@@ -147,6 +147,10 @@ type Status struct {
 	// started before the pinned binary on disk was written (agent OTA with a
 	// new pin): the new Core only takes over after one restart.
 	CoreUpdate string `json:"core_update,omitempty"`
+	// NodeErrors (plan 147): nodes whose inbound could not be added, with port
+	// and reason. Always present on agents that report them (possibly empty);
+	// older agents omit it and fail the whole reconcile instead.
+	NodeErrors []NodeError `json:"node_errors"`
 }
 
 func (d *Desired) validate() error {

@@ -72,11 +72,12 @@ type Manager struct {
 	routingEpoch      string
 	routingOK         bool
 	restartedRevision int64
-	coreUpdate        string                    // plan 129: "restart_required" = running Core older than the binary
-	upgradedRevision  int64                     // revision whose confirmed Core upgrade restart was attempted
-	verified          map[string]fileStamp      // path -> stamp of the last matching SHA256
-	downloads         map[string]*downloadRetry // asset -> backoff after a failed download
-	limitsApplied     [2]int                    // MemoryMax MiB / CPUQuota % last set on the unit
+	coreUpdate        string                     // plan 129: "restart_required" = running Core older than the binary
+	upgradedRevision  int64                      // revision whose confirmed Core upgrade restart was attempted
+	verified          map[string]fileStamp       // path -> stamp of the last matching SHA256
+	downloads         map[string]*downloadRetry  // asset -> backoff after a failed download
+	limitsApplied     [2]int                     // MemoryMax MiB / CPUQuota % last set on the unit
+	inboundFails      map[string]*inboundFailure // plan 147: inbound tag -> failed add (backoff + report)
 	logs              *logsafe.RoutineLogger
 	proc              *os.Process // direct (test) mode only
 	execPath          string      // test hook, see command()
@@ -235,7 +236,7 @@ func (m *Manager) statusLocked() Status {
 	}
 	egress.Warnings = append([]string(nil), egress.Warnings...)
 	egress.Withheld = append([]string(nil), egress.Withheld...)
-	return Status{Revision: m.desired.Revision, Epoch: m.epoch, CoreVersion: CoreVersion, State: state, Error: m.lastError, Nodes: append([]Counter{}, m.counters...), Egress: &egress, CoreUpdate: m.coreUpdate}
+	return Status{Revision: m.desired.Revision, Epoch: m.epoch, CoreVersion: CoreVersion, State: state, Error: m.lastError, Nodes: append([]Counter{}, m.counters...), Egress: &egress, CoreUpdate: m.coreUpdate, NodeErrors: m.nodeErrors()}
 }
 func (m *Manager) Counters() []Counter {
 	// A first install can spend minutes on download mirrors. Cumulative landing

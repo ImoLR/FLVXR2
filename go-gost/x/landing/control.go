@@ -342,13 +342,11 @@ func (m *Manager) reconcile(ctx context.Context) error {
 		}
 	}
 	changed := len(remove) > 0
-	for tag, cfg := range wanted {
-		changed = changed || !present[tag] || m.applied.Inbounds[tag] != cfg
-	}
 	// Steady state (nothing to remove or add) needs no further samples: the one
 	// taken before the controls is current and the flow upload samples again
 	// every 5 s. Each sample runs the Core API CLI, so the 10 s tick stays at
-	// one statsquery instead of three.
+	// one statsquery instead of three. A node waiting for its add retry
+	// (plan 147) is not a change either.
 	if len(remove) > 0 {
 		// Removing an inbound drops its counters: sample once more right before.
 		// A failed sample must not prevent quota/expiry enforcement. Still reject
@@ -367,13 +365,43 @@ func (m *Manager) reconcile(ctx context.Context) error {
 			return err
 		}
 	}
-	for tag, cfg := range wanted {
+	// Plan 147: one inbound that cannot be added (port busy on the machine, or
+	// refused by the Core) no longer stops the others; it is reported per node
+	// (Status.NodeErrors) and retried with a backoff. Sorted for a stable order.
+	m.pruneInboundFailures(wanted)
+	nodesByTag := map[string]Node{}
+	for _, n := range m.desired.Nodes {
+		nodesByTag[n.InboundTag] = n
+	}
+	tags := make([]string, 0, len(wanted))
+	for tag := range wanted {
+		tags = append(tags, tag)
+	}
+	sort.Strings(tags)
+	now := m.clock()
+	for _, tag := range tags {
+		cfg := wanted[tag]
 		if present[tag] && m.applied.Inbounds[tag] == cfg {
+			m.clearInboundFailure(tag)
+			continue
+		}
+		if !m.inboundRetryDue(tag, cfg, now) {
 			continue
 		}
 		if err := m.addInbound(ctx, tag, cfg); err != nil {
-			return err
+			if ctx.Err() != nil {
+				return err
+			}
+			// The Core registers the handler before it starts listening, so a
+			// failed add leaves the tag behind (and, for SS2022, possibly the
+			// network that did bind). Drop it now: the backoff then costs no
+			// Core call per tick, and the retry starts clean.
+			_, _ = m.api(ctx, "rmi", tag)
+			m.noteInboundFailure(tag, cfg, nodesByTag[tag], err, now)
+			continue
 		}
+		m.clearInboundFailure(tag)
+		changed = true
 	}
 	// Guards no node points at any more go last.
 	for tag := range present {
