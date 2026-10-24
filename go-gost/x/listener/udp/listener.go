@@ -53,11 +53,13 @@ func (l *udpListener) Init(md md.Metadata) (err error) {
 		return
 	}
 
-	var conn net.PacketConn
-	conn, err = net.ListenUDP(network, laddr)
+	uc, err := net.ListenUDP(network, laddr)
 	if err != nil {
 		return
 	}
+	// Wildcard listeners answer each client from the address it sent to
+	// (multi-address entries such as node 48's second IPv6), see StickySource.
+	var conn net.PacketConn = udp.StickySource(uc)
 	conn = metrics.WrapPacketConn(l.options.Service, conn)
 	conn = stats.WrapPacketConn(conn, l.options.Stats)
 	conn = admission.WrapPacketConn(l.options.Admission, conn)
