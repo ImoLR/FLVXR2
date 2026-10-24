@@ -94,3 +94,16 @@ func filterForwardPortsByNode(ports []forwardPortRecord, nodeID int64) []forward
 	}
 	return out
 }
+
+// normalizeNodeEntryAlias checks a node's 入口显示名 (shown to every user
+// through {入口} in tunnel names).
+func normalizeNodeEntryAlias(value string) (string, error) {
+	value = strings.TrimSpace(value)
+	if len([]rune(value)) > 100 {
+		return "", errors.New("入口显示名不能超过100个字符")
+	}
+	if strings.Contains(value, repo.TunnelEntryToken) {
+		return "", errors.New("入口显示名不能包含 {入口}")
+	}
+	return value, nil
+}

@@ -597,11 +597,20 @@ func (h *Handler) federationRemoteUsageList(w http.ResponseWriter, r *http.Reque
 
 		usedSet := make(map[int]struct{})
 		bindings := make([]remoteUsageBindingItem, 0, len(bindingRows)+len(forwardPortRows))
+		// Local admin page: {入口} rendered with every entry (plan 152).
+		rawNames := make(map[int64]string, len(bindingRows)+len(forwardPortRows))
+		for _, b := range bindingRows {
+			rawNames[b.TunnelID] = b.TunnelName
+		}
+		for _, fp := range forwardPortRows {
+			rawNames[fp.TunnelID] = fp.TunnelName
+		}
+		names := h.repo.RenderTunnelNamesAdmin(rawNames)
 		for _, b := range bindingRows {
 			bindings = append(bindings, remoteUsageBindingItem{
 				BindingID:       b.ID,
 				TunnelID:        b.TunnelID,
-				TunnelName:      b.TunnelName,
+				TunnelName:      names[b.TunnelID],
 				ChainType:       b.ChainType,
 				HopInx:          b.HopInx,
 				AllocatedPort:   b.AllocatedPort,
@@ -617,7 +626,7 @@ func (h *Handler) federationRemoteUsageList(w http.ResponseWriter, r *http.Reque
 			bindings = append(bindings, remoteUsageBindingItem{
 				BindingID:       -fp.ForwardID,
 				TunnelID:        fp.TunnelID,
-				TunnelName:      fp.TunnelName,
+				TunnelName:      names[fp.TunnelID],
 				ChainType:       1,
 				HopInx:          0,
 				AllocatedPort:   fp.Port,
@@ -859,8 +868,41 @@ func (h *Handler) buildRemoteNodeDeletePreview(node *model.Node) (*remoteNodeDel
 			Reason:     keepTunnelReasons[tunnelID],
 		})
 	}
+	renderRemoteNodeDeletePreviewNames(h, preview)
 
 	return preview, nil
+}
+
+// renderRemoteNodeDeletePreviewNames renders {入口} in the admin delete
+// preview (plan 152): one batch, no query when nothing is templated.
+func renderRemoteNodeDeletePreviewNames(h *Handler, preview *remoteNodeDeletePreview) {
+	raw := make(map[int64]string)
+	for _, t := range preview.DeleteTunnels {
+		raw[t.TunnelID] = t.TunnelName
+		for _, f := range t.Forwards {
+			raw[f.TunnelID] = f.TunnelName
+		}
+	}
+	for _, f := range preview.DeleteForwards {
+		raw[f.TunnelID] = f.TunnelName
+	}
+	for _, t := range preview.KeepTunnels {
+		raw[t.TunnelID] = t.TunnelName
+	}
+	names := h.repo.RenderTunnelNamesAdmin(raw)
+	for i := range preview.DeleteTunnels {
+		t := &preview.DeleteTunnels[i]
+		t.TunnelName = names[t.TunnelID]
+		for j := range t.Forwards {
+			t.Forwards[j].TunnelName = names[t.Forwards[j].TunnelID]
+		}
+	}
+	for i := range preview.DeleteForwards {
+		preview.DeleteForwards[i].TunnelName = names[preview.DeleteForwards[i].TunnelID]
+	}
+	for i := range preview.KeepTunnels {
+		preview.KeepTunnels[i].TunnelName = names[preview.KeepTunnels[i].TunnelID]
+	}
 }
 
 func (h *Handler) deleteRemoteNodeWithPreview(preview *remoteNodeDeletePreview) (remoteNodeDeleteResult, error) {

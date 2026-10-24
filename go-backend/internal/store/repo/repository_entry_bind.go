@@ -34,7 +34,7 @@ func ParseEntryNodeIDs(csv string) []int64 {
 	return out
 }
 
-// FormatEntryNodeIDs writes a binding CSV ('' for none).
+// FormatEntryNodeIDs writes a binding CSV (” for none).
 func FormatEntryNodeIDs(ids []int64) string {
 	parts := make([]string, 0, len(ids))
 	seen := make(map[int64]bool)
@@ -437,4 +437,136 @@ func (r *Repository) SetNodeEntryAlias(nodeID int64, alias string) error {
 		return errors.New("repository not initialized")
 	}
 	return r.db.Model(&model.Node{}).Where("id = ?", nodeID).Update("entry_alias", strings.TrimSpace(alias)).Error
+}
+
+// DecorateForwardItems renders the rule list's tunnelName for the viewer and
+// adds entryKey/entryLabel (viewer's key format, never node ids or names to
+// non-admins) to bound rules: one binding query + one renderer batch.
+func (r *Repository) DecorateForwardItems(items []map[string]interface{}, viewer TunnelNameViewer) error {
+	if r == nil || r.db == nil || len(items) == 0 {
+		return nil
+	}
+	ids := make([]int64, 0, len(items))
+	raw := make(map[int64]string)
+	for _, item := range items {
+		ids = append(ids, toInt64(item["id"]))
+		if tid := toInt64(item["tunnelId"]); tid > 0 {
+			raw[tid], _ = item["tunnelName"].(string)
+		}
+	}
+	bindings, err := r.ForwardEntryBindings(ids)
+	if err != nil {
+		return err
+	}
+	extra := make([]int64, 0, len(bindings))
+	for _, item := range items {
+		if _, ok := bindings[toInt64(item["id"])]; ok {
+			extra = append(extra, toInt64(item["tunnelId"]))
+		}
+	}
+	tr, err := r.NewTunnelNameRenderer(viewer, raw, extra...)
+	if err != nil {
+		return err
+	}
+	for _, item := range items {
+		tid := toInt64(item["tunnelId"])
+		if tid <= 0 {
+			continue
+		}
+		name, _ := item["tunnelName"].(string)
+		binding, bound := bindings[toInt64(item["id"])]
+		if !bound {
+			item["tunnelName"] = tr.Name(tid, name)
+			continue
+		}
+		nodes := ParseEntryNodeIDs(binding)
+		item["tunnelName"] = tr.NameForNodes(tid, name, nodes)
+		if key, label := tr.EntryKeyLabel(tid, nodes); key != "" {
+			item["entryKey"] = key
+			item["entryLabel"] = label
+		}
+	}
+	return nil
+}
+
+func toInt64(v interface{}) int64 {
+	switch n := v.(type) {
+	case int64:
+		return n
+	case int:
+		return int64(n)
+	case float64:
+		return int64(n)
+	case int32:
+		return int64(n)
+	}
+	return 0
+}
+
+// RenderPackageTunnelNames renders the dashboard / user package tunnel names
+// in place (bound rules show their own entries).
+func (r *Repository) RenderPackageTunnelNames(tunnels []model.UserTunnelDetail, forwards []model.UserForwardDetail, viewer TunnelNameViewer) error {
+	raw := make(map[int64]string)
+	for _, t := range tunnels {
+		raw[t.TunnelID] = t.TunnelName
+	}
+	fids := make([]int64, 0, len(forwards))
+	for _, f := range forwards {
+		raw[f.TunnelID] = f.TunnelName
+		fids = append(fids, f.ID)
+	}
+	templated := false
+	for _, name := range raw {
+		templated = templated || HasTunnelEntryToken(name)
+	}
+	if !templated {
+		return nil // nothing to render: no query at all
+	}
+	bindings := map[int64]string{}
+	if len(fids) > 0 {
+		var err error
+		if bindings, err = r.ForwardEntryBindings(fids); err != nil {
+			return err
+		}
+	}
+	tr, err := r.NewTunnelNameRenderer(viewer, raw)
+	if err != nil {
+		return err
+	}
+	for i := range tunnels {
+		tunnels[i].TunnelName = tr.Name(tunnels[i].TunnelID, tunnels[i].TunnelName)
+	}
+	for i := range forwards {
+		if b, ok := bindings[forwards[i].ID]; ok {
+			forwards[i].TunnelName = tr.NameForNodes(forwards[i].TunnelID, forwards[i].TunnelName, ParseEntryNodeIDs(b))
+			continue
+		}
+		forwards[i].TunnelName = tr.Name(forwards[i].TunnelID, forwards[i].TunnelName)
+	}
+	return nil
+}
+
+// GetTunnelDisplayName is GetTunnelName rendered for admin output (every
+// entry). Internal code that parses names keeps using GetTunnelName.
+func (r *Repository) GetTunnelDisplayName(tunnelID int64) (string, error) {
+	raw, err := r.GetTunnelName(tunnelID)
+	if err != nil || !HasTunnelEntryToken(raw) {
+		return raw, err
+	}
+	return r.RenderTunnelNamesAdmin(map[int64]string{tunnelID: raw})[tunnelID], nil
+}
+
+// RenderTunnelNamesAdmin renders a batch of raw names for admin output (one
+// query when any is templated, none otherwise).
+func (r *Repository) RenderTunnelNamesAdmin(raw map[int64]string) map[int64]string {
+	out := make(map[int64]string, len(raw))
+	tr, err := r.NewTunnelNameRenderer(TunnelNameViewer{Admin: true}, raw)
+	for id, name := range raw {
+		if err != nil {
+			out[id] = name
+			continue
+		}
+		out[id] = tr.Name(id, name)
+	}
+	return out
 }

@@ -273,7 +273,7 @@ func (h *Handler) tunnelBatchDeleteWithForwards(w http.ResponseWriter, r *http.R
 
 	result := tunnelBatchDeleteWithForwardsResult{}
 	for _, tunnelID := range normalizedIDs {
-		tunnelName, _ := h.repo.GetTunnelName(tunnelID)
+		tunnelName, _ := h.repo.GetTunnelDisplayName(tunnelID)
 		pipe, pipeErr := h.repo.GetLeiKwanPipeByTunnel(tunnelID)
 		if pipeErr != nil {
 			result.FailCount++
@@ -319,7 +319,7 @@ func (h *Handler) buildTunnelDeletePreview(tunnelID int64) (*tunnelDeletePreview
 		return nil, err
 	}
 
-	tunnelName, err := h.repo.GetTunnelName(tunnelID)
+	tunnelName, err := h.repo.GetTunnelDisplayName(tunnelID)
 	if err != nil {
 		return nil, err
 	}

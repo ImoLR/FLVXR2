@@ -45,8 +45,11 @@ type pathLatencyPlan struct {
 }
 
 type pathEntryLatency struct {
-	NodeID    int64   `json:"-"`
-	EntryName string  `json:"entryName,omitempty"`
+	NodeID    int64  `json:"-"`
+	EntryName string `json:"entryName,omitempty"`
+	// EntryKey is the viewer's picker key of the entry (admin node-<id>, user
+	// hashed label key): one value per picker option (plan 152 part C).
+	EntryKey  string  `json:"entryKey,omitempty"`
 	LatencyMS float64 `json:"latencyMs"`
 	Status    string  `json:"status"`
 }
@@ -318,6 +321,20 @@ func (h *Handler) userTunnelLatency(w http.ResponseWriter, r *http.Request) {
 		}
 		if len(visible.Entries) > 0 && len(visible.Entries) == len(allowed) {
 			out = append(out, visible)
+		}
+	}
+	// One batched lookup for every entry shown; never node ids/names to users.
+	nodeIDs := make([]int64, 0)
+	for _, item := range out {
+		for _, entry := range item.Entries {
+			nodeIDs = append(nodeIDs, entry.NodeID)
+		}
+	}
+	if keys, keyErr := h.repo.EntryKeysForNodes(uniqueInt64s(nodeIDs), roleID == 0); keyErr == nil {
+		for i := range out {
+			for j := range out[i].Entries {
+				out[i].Entries[j].EntryKey = keys[out[i].Entries[j].NodeID]
+			}
 		}
 	}
 	response.WriteJSON(w, response.OK(out))

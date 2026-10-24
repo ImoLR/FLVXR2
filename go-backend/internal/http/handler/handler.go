@@ -928,6 +928,10 @@ func (h *Handler) forwardList(w http.ResponseWriter, r *http.Request) {
 		}
 		total = int64(len(items))
 	}
+	// Plan 152: {入口} tunnel names for this viewer + bound rules' entryKey.
+	if err := h.repo.DecorateForwardItems(items, repo.TunnelNameViewer{Admin: roleID == 0, UserID: userID}); err != nil {
+		log.Printf("[entry-bind] forward list decorate: %v", err)
+	}
 
 	// 补充当前连接数和实时带宽
 	for i := range items {
@@ -1182,6 +1186,10 @@ func (h *Handler) userTunnelList(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		response.WriteJSON(w, response.Err(-2, err.Error()))
 		return
+	}
+	// Admin-only view of a user's grants: {入口} with every entry (plan 152).
+	if err := h.repo.RenderPackageTunnelNames(tunnels, nil, repo.TunnelNameViewer{Admin: true}); err != nil {
+		log.Printf("[entry-bind] user tunnel names: %v", err)
 	}
 
 	out := make([]map[string]interface{}, 0, len(tunnels))
@@ -1548,6 +1556,9 @@ func (h *Handler) userPackage(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		response.WriteJSON(w, response.Err(-2, err.Error()))
 		return
+	}
+	if err := h.repo.RenderPackageTunnelNames(tunnels, forwards, repo.TunnelNameViewer{Admin: user.RoleID == 0, UserID: userID}); err != nil {
+		log.Printf("[entry-bind] package tunnel names: %v", err)
 	}
 
 	stats, err := h.repo.GetStatisticsFlows(userID, 24)

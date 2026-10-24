@@ -1095,7 +1095,7 @@ func (h *Handler) prepareTunnelDiagnosis(tunnelID int64) (string, string, []diag
 		return "", "", nil, err
 	}
 
-	tunnelName, err := h.repo.GetTunnelName(tunnelID)
+	tunnelName, err := h.repo.GetTunnelDisplayName(tunnelID)
 	if err != nil {
 		return "", "", nil, err
 	}

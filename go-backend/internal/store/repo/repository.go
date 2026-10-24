@@ -1097,6 +1097,7 @@ func (r *Repository) ListNodes(opts *ListNodesOptions) ([]map[string]interface{}
 			"id": n.ID, "inx": n.Inx, "name": n.Name,
 			"region":       n.Region,
 			"regionCity":   n.RegionCity,
+			"entryAlias":   n.EntryAlias,
 			"remark":       nullableString(n.Remark),
 			"expiryTime":   nullableInt64(n.ExpiryTime),
 			"renewalCycle": nullableString(n.RenewalCycle),
@@ -1252,6 +1253,7 @@ func (r *Repository) SpeedLimitBindingOptions() (map[string]interface{}, error) 
 	if err != nil {
 		return nil, err
 	}
+	_ = r.DecorateForwardItems(forwards, TunnelNameViewer{Admin: true})
 	nodes, err := r.ListNodes(nil)
 	if err != nil {
 		return nil, err
@@ -1594,10 +1596,10 @@ func (r *Repository) listUserAccessibleTunnels(userID int64, withGroups bool) ([
 		}
 		item := map[string]interface{}{
 			"id":           rw.ID,
-			"name":         rw.Name,
+			"name":         renderTunnelNameFor(rw.Name, info.EntryNodes, false),
 			"remark":       nullableString(rw.Remark),
 			"trafficRatio": rw.TrafficRatio,
-			"entryGroups":  info.entryGroups(false),
+			"entryGroups":  info.entryGroupsNamed(false, rw.Name),
 			"exitRegions":  regionMap[rw.ID].ExitRegions,
 		}
 		if withGroups {
@@ -1660,10 +1662,10 @@ func (r *Repository) listEnabledTunnelSummaries(withGroups bool) ([]map[string]i
 	for _, rw := range rows {
 		item := map[string]interface{}{
 			"id":           rw.ID,
-			"name":         rw.Name,
+			"name":         renderTunnelNameFor(rw.Name, regionMap[rw.ID].EntryNodes, true),
 			"remark":       nullableString(rw.Remark),
 			"trafficRatio": rw.TrafficRatio,
-			"entryGroups":  regionMap[rw.ID].entryGroups(true),
+			"entryGroups":  regionMap[rw.ID].entryGroupsNamed(true, rw.Name),
 			"exitRegions":  regionMap[rw.ID].ExitRegions,
 		}
 		if withGroups {
@@ -1974,6 +1976,12 @@ func (r *Repository) ListTunnels() ([]map[string]interface{}, error) {
 		if t, ok := tunnelMap[id]; ok {
 			t["entryNodes"] = regionMap[id].EntryNodes
 			t["exitRegions"] = regionMap[id].ExitRegions
+			// Admin-only listing: {入口} rendered with every entry; the raw
+			// template stays available for the tunnel edit form (plan 152).
+			if raw, _ := t["name"].(string); HasTunnelEntryToken(raw) {
+				t["nameTemplate"] = raw
+				t["name"] = renderTunnelNameFor(raw, regionMap[id].EntryNodes, true)
+			}
 			result = append(result, t)
 		}
 	}
@@ -1991,11 +1999,21 @@ func (r *Repository) ListTunnelGroups() ([]map[string]interface{}, error) {
 		return nil, err
 	}
 	result := make([]map[string]interface{}, 0, len(groups))
+	type memberNames struct {
+		ids   []int64
+		names []string
+	}
+	members := make([]memberNames, 0, len(groups))
+	raw := make(map[int64]string)
 	for _, g := range groups {
 		ids, names, err := r.listTunnelGroupMembers(g.ID)
 		if err != nil {
 			return nil, err
 		}
+		for i, id := range ids {
+			raw[id] = names[i]
+		}
+		members = append(members, memberNames{ids, names})
 		entries, err := r.TunnelGroupEntries(g.ID)
 		if err != nil {
 			return nil, err
@@ -2006,6 +2024,14 @@ func (r *Repository) ListTunnelGroups() ([]map[string]interface{}, error) {
 			"createdTime": g.CreatedTime, "updatedTime": g.UpdatedTime,
 			"tunnelCount": len(ids),
 		})
+	}
+	// Admin page: {入口} with every entry (plan 152); no query without token.
+	if tr, err := r.NewTunnelNameRenderer(TunnelNameViewer{Admin: true}, raw); err == nil {
+		for _, m := range members {
+			for i, id := range m.ids {
+				m.names[i] = tr.Name(id, m.names[i])
+			}
+		}
 	}
 	return result, nil
 }

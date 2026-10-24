@@ -786,6 +786,11 @@ func (h *Handler) nodeCreate(w http.ResponseWriter, r *http.Request) {
 		response.WriteJSON(w, response.ErrDefault(err.Error()))
 		return
 	}
+	entryAlias, err := normalizeNodeEntryAlias(asString(req["entryAlias"]))
+	if err != nil {
+		response.WriteJSON(w, response.ErrDefault(err.Error()))
+		return
+	}
 
 	var groupID interface{}
 	if _, ok := req["groupId"]; ok {
@@ -850,6 +855,14 @@ func (h *Handler) nodeCreate(w http.ResponseWriter, r *http.Request) {
 	if machineSet && machine != repo.DefaultMachineProtection() {
 		if created, err := h.repo.GetNodeBySecret(secret); err == nil && created != nil {
 			if err := h.repo.SetNodeMachineProtection(created.ID, machine); err != nil {
+				response.WriteJSON(w, response.Err(-2, err.Error()))
+				return
+			}
+		}
+	}
+	if entryAlias != "" {
+		if created, err := h.repo.GetNodeBySecret(secret); err == nil && created != nil {
+			if err := h.repo.SetNodeEntryAlias(created.ID, entryAlias); err != nil {
 				response.WriteJSON(w, response.Err(-2, err.Error()))
 				return
 			}
@@ -973,6 +986,14 @@ func (h *Handler) nodeUpdate(w http.ResponseWriter, r *http.Request) {
 		response.WriteJSON(w, response.ErrDefault(err.Error()))
 		return
 	}
+	entryAlias, entryAliasSet := oldNode.EntryAlias, false
+	if value, ok := req["entryAlias"]; ok {
+		if entryAlias, err = normalizeNodeEntryAlias(asString(value)); err != nil {
+			response.WriteJSON(w, response.ErrDefault(err.Error()))
+			return
+		}
+		entryAliasSet = entryAlias != oldNode.EntryAlias
+	}
 	// 从 serverIp(serverIpV4/serverIpV6/intranetIp) 中选择第一个非空作为 serverIP
 	// 优先使用 serverIp（兼容旧 API），否则从 serverIpV4/serverIpV6/intranetIp 中选择
 	serverIP := asString(req["serverIp"])
@@ -1073,6 +1094,12 @@ func (h *Handler) nodeUpdate(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		h.reconcileLandingPolicy(time.Now())
+	}
+	if entryAliasSet {
+		if err := h.repo.SetNodeEntryAlias(id, entryAlias); err != nil {
+			response.WriteJSON(w, response.Err(-2, err.Error()))
+			return
+		}
 	}
 	if setLineMachine && lineMachine != oldNode.LineMachine {
 		if err := h.repo.SetNodeLineMachine(id, lineMachine); err != nil {
@@ -2405,7 +2432,7 @@ func (h *Handler) tunnelBatchDelete(w http.ResponseWriter, r *http.Request) {
 	fail := 0
 	failures := make([]batchFailureDetail, 0)
 	for _, id := range ids {
-		tunnelName, _ := h.repo.GetTunnelName(id)
+		tunnelName, _ := h.repo.GetTunnelDisplayName(id)
 		if _, err := h.getTunnelRecord(id); err != nil {
 			fail++
 			failures = appendBatchFailure(failures, id, tunnelName, err)
@@ -2699,7 +2726,7 @@ func (h *Handler) tunnelBatchRedeploy(w http.ResponseWriter, r *http.Request) {
 			tunnel, tunnelErr := h.getTunnelRecord(id)
 			tunnelName := ""
 			if tunnelErr == nil && tunnel != nil {
-				tunnelName, _ = h.repo.GetTunnelName(id)
+				tunnelName, _ = h.repo.GetTunnelDisplayName(id)
 			}
 			if tunnelErr != nil {
 				mu.Lock()
@@ -6809,7 +6836,7 @@ func (h *Handler) tunnelListHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		tunnelNames := make([]string, 0, len(tunnelIDs))
 		for _, tid := range tunnelIDs {
-			tunnelName, err := h.repo.GetTunnelName(tid)
+			tunnelName, err := h.repo.GetTunnelDisplayName(tid)
 			if err != nil {
 				continue
 			}

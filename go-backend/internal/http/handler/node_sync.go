@@ -114,7 +114,7 @@ func (h *Handler) syncNodeUpdate(oldNode, newNode *model.Node) nodeSyncResult {
 		for _, tunnelID := range tunnelIDs {
 			coveredTunnels[tunnelID] = struct{}{}
 			jobs = append(jobs, func() {
-				tunnelName, err := h.repo.GetTunnelName(tunnelID)
+				tunnelName, err := h.repo.GetTunnelDisplayName(tunnelID)
 				if err != nil {
 					fail("tunnel", tunnelID, "", err)
 					return
