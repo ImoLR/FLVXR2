@@ -56,9 +56,17 @@ cherry-picked without conflicts. Panel only, frontend only, no DB change, no OTA
 - [x] Gold colour: only `--flvx-ring` / `--flvx-ring-head` (light #f2a900 / #ffd84d, dark #fcc419 / #ffe9a8);
       glow, band, reduced-motion ring follow the variable; animation/timing/triggers/sizes unchanged
 - [x] tsc 0 errors, vite build ok, eslint on changed files = fork.87 base (698 = 698, new files clean)
-- [ ] Gold gallery (spin frames + strip, light/dark, desktop/H5) → preview `/landing-onboarding-hints-gold/`
-- [ ] Quick perf re-check of one view (record only)
-- [ ] Push, CI green, tag `3.0.27-fork.88`, release Latest with the same asset set as fork.87
-- [ ] Validated DB backup + rollback dir `pre-fork88-<ts>` + prune; upgrade `/opt/flvx-svc`
-- [ ] Prod checks: version.json, gold ring CSS in served bundle, backend healthy, nodes online unchanged,
-      config tables unchanged, 10-min CPU/RSS/log lines vs fork.87
+- [x] Gold gallery (spin frames + strip, light/dark, desktop/H5) → preview `/landing-onboarding-hints-gold/`
+      (62 shots, 106/106 browser checks, 0 page errors, 0 saves; run dir runs/release-landing-onboarding-hints-gold)
+- [x] Quick perf re-check of one view (record only): 落地·全部节点 1× — renderer 15 s avg 2.22 %, lap peak 2.85 %,
+      after 15 s 0 %, no Layout/Paint per second (blue build: 2.1 % / 2.9 %) → same cost, gate waived by the user
+- [x] Push, CI green (40079035413), tag `3.0.27-fork.88` → 2e93f2a7, Images 40079415294, release Latest,
+      10 assets = fork.87 set, 13/13 release checks
+- [x] Validated DB backup + rollback dir `pre-fork88-20261024T090759Z` (quick/integrity ok) + prune (pre-fork86 +
+      fork.85 images removed); `/opt/flvx-svc` upgraded 2026-10-24 17:08 TW, healthy after 9 s
+- [x] Prod checks: version.json `3.0.27-fork.88-mvm5qpcj`; served `index-CQMJBKbw.css` = local build, gold vars
+      present; backend healthy; 30/30 online, agent versions unchanged; 30/30 reconnect redeploys 0 updated/0 failed;
+      16/17 config tables + landing settings/servers identical (landing_node only last_counter_at); 10 min after:
+      backend 27 MiB / 2–4 % CPU (fork.87: 37–42 MiB / 3–4 %), DB 57.11 MB, 29 log lines (fork.87: 54, user access)
+
+Rollback: `bash /opt/flvx-svc/rollback/pre-fork88-20261024T090759Z/rollback.sh` (→ fork.87, no `--restore-db`).
