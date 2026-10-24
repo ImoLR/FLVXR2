@@ -54,6 +54,7 @@ type SystemInfo struct {
 	LandingEgress          int                       `json:"landing_egress,omitempty"`
 	LandingChain           int                       `json:"landing_chain,omitempty"`
 	LandingGuard           int                       `json:"landing_guard,omitempty"`
+	LandingConnMode        int                       `json:"landing_conn_mode,omitempty"`
 	LeiKwan                *LeiKwanReport            `json:"leikwan,omitempty"`
 	EgressIPFamily         string                    `json:"egress_ip_family,omitempty"`
 	IPv6RAStatus           string                    `json:"ipv6_ra_status"`
@@ -1158,6 +1159,7 @@ func (w *WebSocketReporter) collectSystemInfo() SystemInfo {
 		LandingEgress:          landing.EgressVersion,
 		LandingChain:           landing.ChainVersion,
 		LandingGuard:           landing.GuardVersion,
+		LandingConnMode:        landing.ConnModeVersion,
 		LeiKwan:                w.leikwan.result(),
 		EgressIPFamily:         w.egress.family(),
 		IPv6RAStatus:           raStatus,

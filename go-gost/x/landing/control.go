@@ -31,6 +31,7 @@ type coreSnapshot struct {
 			User       string `json:"user"`
 		} `json:"identity"`
 		CurrentTotal     int64           `json:"current_total"`
+		InboundCurrent   *int64          `json:"inbound_current"`
 		InboundOnlineIPs json.RawMessage `json:"inbound_online_ips"`
 	} `json:"proxy_users"`
 }
@@ -81,16 +82,35 @@ func (m *Manager) snapshot(ctx context.Context) (coreSnapshot, error) {
 type portLimit struct {
 	InboundTag          string `json:"inbound_tag"`
 	MaxTotalConnections *int64 `json:"max_total_connections"`
-	MaxInboundOnlineIPs *int   `json:"max_inbound_online_ips"`
+	// Plan 141: a 仅入站 node's limit. Omitted for 入站+出站 nodes so their
+	// control payload stays byte-identical to older agents.
+	MaxInboundConnections *int64 `json:"max_inbound_connections,omitempty"`
+	MaxInboundOnlineIPs   *int   `json:"max_inbound_online_ips"`
+}
+
+// setConnections maps one connection limit to the Core field of its 计算方式.
+func (p *portLimit) setConnections(limit int64, mode string) {
+	if limit <= 0 {
+		return
+	}
+	if mode == ConnModeInbound {
+		p.MaxInboundConnections = &limit
+		return
+	}
+	p.MaxTotalConnections = &limit
 }
 
 func (m *Manager) applyLimits(ctx context.Context, snapshot coreSnapshot) error {
 	// Helper connectionSettings.coreConfig maps the enabled global total limit
 	// and ports to these v7 control-socket fields. nil means unlimited.
-	var global *int64
+	var global, globalInbound *int64
 	if m.desired.MaxConnections > 0 {
 		v := m.desired.MaxConnections
-		global = &v
+		if m.desired.MaxConnMode == ConnModeInbound {
+			globalInbound = &v
+		} else {
+			global = &v
+		}
 	}
 	// Removing an inbound only closes its listener. The pinned v7 control API
 	// closes existing sockets for blocked identities, including pre-auth sockets.
@@ -125,10 +145,7 @@ func (m *Manager) applyLimits(ctx context.Context, snapshot coreSnapshot) error 
 	ports := []portLimit{}
 	for _, n := range m.desired.Nodes {
 		p := portLimit{InboundTag: n.InboundTag}
-		if n.MaxConnections > 0 {
-			v := n.MaxConnections
-			p.MaxTotalConnections = &v
-		}
+		p.setConnections(n.MaxConnections, n.ConnMode)
 		if n.MaxOnlineIPs > 0 {
 			v := n.MaxOnlineIPs
 			p.MaxInboundOnlineIPs = &v
@@ -141,7 +158,7 @@ func (m *Manager) applyLimits(ctx context.Context, snapshot coreSnapshot) error 
 	if v := m.closeWait.Load(); v > 0 {
 		closeWait = &v
 	}
-	cfg := map[string]any{"max_global_total_connections": global, "max_global_inbound_connections": nil, "online_ip_grace_period_seconds": 0, "default_close_wait_timeout_seconds": closeWait, "port_limits": ports, "limits": []any{}, "management_mappings": []any{}, "management_limits": []any{}, "blocked_identities": blocked}
+	cfg := map[string]any{"max_global_total_connections": global, "max_global_inbound_connections": globalInbound, "online_ip_grace_period_seconds": 0, "default_close_wait_timeout_seconds": closeWait, "port_limits": ports, "limits": []any{}, "management_mappings": []any{}, "management_limits": []any{}, "blocked_identities": blocked}
 	var result struct {
 		Success bool `json:"success"`
 	}
@@ -442,6 +459,13 @@ func (m *Manager) collect(ctx context.Context) error {
 			continue
 		}
 		c.Connections += u.CurrentTotal
+		if u.InboundCurrent != nil {
+			v := *u.InboundCurrent
+			if c.InboundConnections != nil {
+				v += *c.InboundConnections
+			}
+			c.InboundConnections = &v
+		}
 		if c.OnlineIPCount != nil {
 			continue
 		}

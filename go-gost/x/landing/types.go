@@ -24,9 +24,13 @@ var CoreSHA256 = map[string]string{
 }
 
 type Desired struct {
-	Revision       int64   `json:"revision"`
-	Enabled        bool    `json:"enabled"`
-	MaxConnections int64   `json:"max_connections"`
+	Revision       int64 `json:"revision"`
+	Enabled        bool  `json:"enabled"`
+	MaxConnections int64 `json:"max_connections"`
+	// MaxConnMode (plan 141): "inbound" = MaxConnections counts the Core's
+	// accepted client connections (max_global_inbound_connections); empty =
+	// every TCP socket (max_global_total_connections), as before.
+	MaxConnMode    string  `json:"max_conn_mode,omitempty"`
 	CoreMemoryMB   int     `json:"core_memory_mb"`
 	CoreCPUPercent int     `json:"core_cpu_percent"`
 	Nodes          []Node  `json:"nodes"`
@@ -34,15 +38,19 @@ type Desired struct {
 }
 
 type Node struct {
-	ID             int64   `json:"id"`
-	InboundTag     string  `json:"inbound_tag"`
-	Protocol       string  `json:"protocol"`
-	Port           int     `json:"port"`
-	Enabled        bool    `json:"enabled"`
-	MaxConnections int64   `json:"max_connections"`
-	MaxOnlineIPs   int     `json:"max_online_ips"`
-	SS2022         *SS2022 `json:"ss2022,omitempty"`
-	VLESS          *VLESS  `json:"vless,omitempty"`
+	ID             int64  `json:"id"`
+	InboundTag     string `json:"inbound_tag"`
+	Protocol       string `json:"protocol"`
+	Port           int    `json:"port"`
+	Enabled        bool   `json:"enabled"`
+	MaxConnections int64  `json:"max_connections"`
+	MaxOnlineIPs   int    `json:"max_online_ips"`
+	// ConnMode (plan 141): "inbound" = MaxConnections counts accepted client
+	// connections of this inbound (Core max_inbound_connections, like a rule's
+	// 连接数); empty = all TCP sockets of the port (max_total_connections).
+	ConnMode string  `json:"conn_mode,omitempty"`
+	SS2022   *SS2022 `json:"ss2022,omitempty"`
+	VLESS    *VLESS  `json:"vless,omitempty"`
 	// Listen is empty (all addresses) or the loopback address of a chain node.
 	Listen string `json:"listen,omitempty"`
 	// Chain is the private upstream of a chain node (plan 108): everything the
@@ -53,6 +61,16 @@ type Node struct {
 	// share the port. See guard.go.
 	GuardPort int `json:"guard_port,omitempty"`
 }
+
+// ConnModeVersion is reported as landing_conn_mode: this agent applies
+// conn_mode / max_conn_mode "inbound" and reports Counter.InboundConnections.
+// Older agents ignore both fields, so the panel only sends them here.
+const ConnModeVersion = 1
+
+// ConnModeInbound is the only non-default conn_mode / max_conn_mode value.
+const ConnModeInbound = "inbound"
+
+func validConnMode(mode string) bool { return mode == "" || mode == "total" || mode == ConnModeInbound }
 
 // ChainVersion is the chain-node schema (listen + chain) this agent applies.
 // Older agents ignore both fields, so the panel only sends chain nodes to
@@ -92,6 +110,10 @@ type Counter struct {
 	Connections   int64      `json:"connections"`
 	OnlineIPCount *int       `json:"online_ip_count,omitempty"`
 	OnlineIPs     []OnlineIP `json:"online_ips,omitempty"`
+	// InboundConnections (plan 141) = the Core's live inbound client
+	// connections of this tag (sum of proxy_users inbound_current); nil while
+	// the Core snapshot has none (never for the pinned Core).
+	InboundConnections *int64 `json:"inbound_connections,omitempty"`
 }
 type OnlineIP struct {
 	IP          string `json:"ip"`
@@ -108,7 +130,7 @@ type Status struct {
 }
 
 func (d *Desired) validate() error {
-	if d.Revision <= 0 || d.MaxConnections < 0 {
+	if d.Revision <= 0 || d.MaxConnections < 0 || !validConnMode(d.MaxConnMode) {
 		return fmt.Errorf("invalid landing revision or limit")
 	}
 	if d.CoreMemoryMB == 0 {
@@ -124,7 +146,7 @@ func (d *Desired) validate() error {
 	chains := 0
 	for i := range d.Nodes {
 		n := &d.Nodes[i]
-		if n.ID <= 0 || n.Port < 1024 || n.Port > 65535 || ids[n.ID] || ports[n.Port] || n.MaxConnections < 0 || n.MaxOnlineIPs < 0 {
+		if n.ID <= 0 || n.Port < 1024 || n.Port > 65535 || ids[n.ID] || ports[n.Port] || n.MaxConnections < 0 || n.MaxOnlineIPs < 0 || !validConnMode(n.ConnMode) {
 			return fmt.Errorf("invalid landing node identity, port or limit")
 		}
 		ids[n.ID], ports[n.Port] = true, true
