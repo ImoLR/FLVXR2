@@ -20,14 +20,26 @@ import {
   ModalHeader,
 } from "@/shadcn-bridge/heroui/modal";
 
-export type ChipLineItem = { key: string; label: string; node: ReactNode };
+export type ChipLineItem = {
+  key: string;
+  label: string;
+  node: ReactNode;
+  /** plan 147: always visible, never folded into 「+N」 (shown first). */
+  pin?: boolean;
+};
 
 const CHIP_GAP = 4;
 
 // Plan 145: one chip line that never wraps. Chips that do not fit are folded
 // into a 「+N」 chip; tap/click it (or hover for the title) to see the rest.
 // Widths come from a hidden measuring copy, re-checked only on resize.
-export function ChipLine({ items }: { items: ChipLineItem[] }) {
+// Plan 147: pinned chips (warnings) go first and are never folded.
+export function ChipLine({ items: given }: { items: ChipLineItem[] }) {
+  const items = [
+    ...given.filter((item) => item.pin),
+    ...given.filter((item) => !item.pin),
+  ];
+  const pinned = items.filter((item) => item.pin).length;
   const boxRef = useRef<HTMLDivElement>(null);
   const measureRef = useRef<HTMLDivElement>(null);
   const [visible, setVisible] = useState(items.length);
@@ -64,7 +76,7 @@ export function ChipLine({ items }: { items: ChipLineItem[] }) {
         used = next;
         count += 1;
       }
-      setVisible(Math.max(count, 1));
+      setVisible(Math.max(count, pinned, 1));
     };
 
     fit();
@@ -74,7 +86,7 @@ export function ChipLine({ items }: { items: ChipLineItem[] }) {
     observer.observe(measure);
 
     return () => observer.disconnect();
-  }, [signature]);
+  }, [signature, pinned]);
 
   const hidden = items.slice(visible);
 

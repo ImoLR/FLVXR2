@@ -22,6 +22,7 @@ import { Switch } from "@/shadcn-bridge/heroui/switch";
 import { ExtraProtocolSettings } from "@/pages/landing/extra-protocols";
 import {
   CONN_MODE_HINT,
+  ConnModeFixed,
   ConnModeSelect,
   connModePendingText,
 } from "@/pages/landing/conn-mode";
@@ -58,10 +59,14 @@ export function ServerSettings({
   const [applyConnMode, setApplyConnMode] = useState(false);
   const connModeChanged =
     (form.connMode ?? "total") !== (server.connMode ?? "total");
+  // Plan 147: shared (妙妙屋) servers have no 计算方式 choice (入站+出站).
+  const connModeFixed = Boolean(
+    server.connModeFixed || server.source === "shared",
+  );
   const connModePending =
+    !connModeFixed &&
     server.connModeSupported === false &&
-    (form.connMode === "inbound" ||
-      (server.source !== "shared" && form.maxConnMode === "inbound"));
+    (form.connMode === "inbound" || form.maxConnMode === "inbound");
   const egress = server.egress;
   const profileId = form.routeProfileId ?? egress?.profileId ?? 0;
   const profileChanged = profileId !== (egress?.profileId ?? 0);
@@ -221,14 +226,21 @@ export function ServerSettings({
                 <SelectItem key="2">双向</SelectItem>
               </Select>
               {numberField("流量倍率", "trafficRatio", 0.01, "0.01")}
-              {server.source !== "shared" &&
-                numberField("服务器总连接数（0 不限）", "maxConnections")}
+              {/* Plan 147: on phones the long label wrapped and pushed the
+                  input half a row below the select; each takes a full row there. */}
+              {server.source !== "shared" && (
+                <div className="col-span-2 sm:col-span-1">
+                  {numberField("服务器总连接数（0 不限）", "maxConnections")}
+                </div>
+              )}
               {server.source !== "shared" && server.connMode !== undefined && (
-                <ConnModeSelect
-                  label="总连接数计算方式"
-                  value={form.maxConnMode ?? "total"}
-                  onChange={(mode) => set("maxConnMode", mode ?? "total")}
-                />
+                <div className="col-span-2 sm:col-span-1">
+                  <ConnModeSelect
+                    label="总连接数计算方式"
+                    value={form.maxConnMode ?? "total"}
+                    onChange={(mode) => set("maxConnMode", mode ?? "total")}
+                  />
+                </div>
               )}
               {numberField("每人在本服务器最多节点数", "maxNodesPerUser", 1)}
             </div>
@@ -248,19 +260,22 @@ export function ServerSettings({
               )}
             <div className="grid grid-cols-2 gap-3">
               {numberField("节点连接数（0 不限）", "defaultMaxConnections")}
-              {server.connMode !== undefined && (
+              {server.connMode !== undefined && connModeFixed && (
+                <ConnModeFixed label="节点连接数计算方式" />
+              )}
+              {server.connMode !== undefined && !connModeFixed && (
                 <ConnModeSelect
                   label="节点连接数计算方式"
                   value={form.connMode ?? "total"}
                   onChange={(mode) => set("connMode", mode ?? "total")}
                 />
               )}
-              {server.connMode !== undefined && (
+              {server.connMode !== undefined && !connModeFixed && (
                 <div className="col-span-2 space-y-2">
                   <p className="text-xs text-default-500">{CONN_MODE_HINT}</p>
                   {connModePending && (
                     <p className="rounded-lg bg-warning-50 p-2 text-xs text-warning dark:bg-warning-500/10">
-                      {connModePendingText(server.source)}
+                      {connModePendingText()}
                     </p>
                   )}
                   {(server.nodeCount ?? 0) > 0 && (

@@ -6,6 +6,7 @@ import { dateInput, dateValue } from "./server-settings";
 import {
   CONN_MODE_HINT,
   CONN_MODE_NAME,
+  ConnModeFixed,
   ConnModeSelect,
   connModePendingText,
   connModeTag,
@@ -131,10 +132,15 @@ export function NodeDetails({
   const serverConnMode = server?.connMode ?? "total";
   const formConnMode = form.connMode ?? null;
   const connModeShown = node.connModeEffective !== undefined;
+  // Plan 147: nodes of a shared (妙妙屋) server count 入站+出站, no choice.
+  const connModeFixed = Boolean(
+    node.connModeFixed || server?.source === "shared",
+  );
   const connModePending =
-    node.connModePending ||
-    (server?.connModeSupported === false &&
-      (formConnMode ?? serverConnMode) === "inbound");
+    !connModeFixed &&
+    (node.connModePending ||
+      (server?.connModeSupported === false &&
+        (formConnMode ?? serverConnMode) === "inbound"));
   const effectiveConnTag = !effectiveConnections
     ? ""
     : ` ${connModeTag(
@@ -181,13 +187,19 @@ export function NodeDetails({
       ? [
           [
             "连接数计算方式",
-            formConnMode == null
-              ? `跟随服务器（${CONN_MODE_NAME[serverConnMode]}）`
-              : CONN_MODE_NAME[formConnMode],
+            connModeFixed
+              ? "入站+出站（固定）"
+              : formConnMode == null
+                ? `跟随服务器（${CONN_MODE_NAME[serverConnMode]}）`
+                : CONN_MODE_NAME[formConnMode],
             `${CONN_MODE_NAME[node.connModeEffective ?? "total"]}${
               node.connModePending ? "（待升级）" : ""
             }`,
-            node.connMode == null ? "服务器" : "节点覆盖",
+            connModeFixed
+              ? "妙妙屋共享"
+              : node.connMode == null
+                ? "服务器"
+                : "节点覆盖",
           ],
         ]
       : []),
@@ -311,19 +323,20 @@ export function NodeDetails({
                 set("maxConnections", Number(event.target.value))
               }
             />
-            {connModeShown && (
+            {connModeShown && connModeFixed && <ConnModeFixed />}
+            {connModeShown && !connModeFixed && (
               <ConnModeSelect
                 inheritMode={serverConnMode}
                 value={formConnMode}
                 onChange={(mode) => set("connMode", mode)}
               />
             )}
-            {connModeShown && (
+            {connModeShown && !connModeFixed && (
               <div className="col-span-2 space-y-2">
                 <p className="text-xs text-default-500">{CONN_MODE_HINT}</p>
                 {connModePending && (
                   <p className="rounded-lg bg-warning-50 p-2 text-xs text-warning dark:bg-warning-500/10">
-                    {connModePendingText(server?.source)}
+                    {connModePendingText()}
                   </p>
                 )}
               </div>

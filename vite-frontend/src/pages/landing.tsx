@@ -636,9 +636,11 @@ export default function LandingPage() {
                       </Chip>
                     ),
                   });
+                // Plan 147: own chip on the admin line, never folded into +N.
                 if (admin && server.egress?.coreUpgradeRequired)
-                  chipItems.push({
+                  sourceItems.push({
                     key: "core-upgrade",
+                    pin: true,
                     label: "落地 Core 待升级",
                     node: (
                       <Chip

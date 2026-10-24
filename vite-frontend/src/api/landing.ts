@@ -142,8 +142,10 @@ export interface LandingServer {
   // and the native 服务器总连接数 (maxConnMode) count; admin view only.
   connMode?: LandingConnMode;
   maxConnMode?: LandingConnMode;
-  /** false = the agent / 妙妙屋 Helper cannot apply 仅入站 yet (stays 入站+出站). */
+  /** false = the agent cannot apply 仅入站 yet (stays 入站+出站). */
   connModeSupported?: boolean;
+  /** plan 147: shared (妙妙屋) server — no 计算方式 choice, fixed 入站+出站. */
+  connModeFixed?: boolean;
   /** how `connections` counts: each node in its own effective mode. */
   connectionsMode?: LandingConnSumMode;
   /** effective mode of `maxConnections` (server total). */
@@ -207,6 +209,8 @@ export interface LandingNode {
   connModeConfigured?: LandingConnMode;
   connModeEffective?: LandingConnMode;
   connModePending?: boolean;
+  /** plan 147: node of a shared server — fixed 入站+出站 (admin view). */
+  connModeFixed?: boolean;
 }
 export interface LandingLink {
   name: string;
@@ -332,7 +336,7 @@ export const saveLandingServer = (
       : {}),
     ...(realityGuard !== undefined ? { realityGuard } : {}),
     ...(coreUpgradeConfirmed ? { coreUpgradeConfirmed } : {}),
-    ...(server.connMode !== undefined
+    ...(server.connMode !== undefined && !server.connModeFixed
       ? {
           connMode: server.connMode,
           maxConnMode: server.maxConnMode,
@@ -376,7 +380,9 @@ export const updateLandingNode = (node: LandingNode) => {
     ...(node.routeProfileId !== undefined
       ? { routeProfileId: node.routeProfileId }
       : {}),
-    ...(node.connMode !== undefined ? { connMode: node.connMode } : {}),
+    ...(node.connMode !== undefined && !node.connModeFixed
+      ? { connMode: node.connMode }
+      : {}),
   });
 };
 // Plan 131: admin-only global landing settings and node owner transfer.

@@ -1,5 +1,6 @@
 import type { LandingConnMode, LandingConnSumMode } from "@/api/landing";
 
+import { Input } from "@/shadcn-bridge/heroui/input";
 import { Select, SelectItem } from "@/shadcn-bridge/heroui/select";
 
 // Plan 141: a landing connection limit counts either 仅入站 (client
@@ -24,11 +25,36 @@ export const connModeTag = (mode?: LandingConnSumMode | null) =>
       ? "(按节点方式)"
       : "(入站+出站)";
 
-/** Why a 仅入站 setting does not apply yet (old agent / 妙妙屋 Helper). */
-export const connModePendingText = (source?: string) =>
-  source === "shared"
-    ? "仅入站需要妙妙屋侧升级后生效，目前仍按入站+出站计算"
-    : "仅入站需要升级节点后生效，目前仍按入站+出站计算";
+/** Why a 仅入站 setting does not apply yet (old agent). */
+export const connModePendingText = () =>
+  "仅入站需要升级节点后生效，目前仍按入站+出站计算";
+
+/**
+ * Plan 147: a shared (妙妙屋) server has no 计算方式 choice — the limit counts
+ * 入站+出站 there, shown as a read-only field (same height as its neighbours)
+ * where the select would be.
+ */
+export function ConnModeFixed({
+  label = "连接数计算方式",
+}: {
+  label?: string;
+}) {
+  return (
+    <Input
+      data-conn-mode-fixed
+      readOnly
+      classNames={{
+        inputWrapper: "bg-default-100",
+        input: "cursor-default text-default-600",
+      }}
+      label={label}
+      tabIndex={-1}
+      title="妙妙屋共享服务器的连接数固定按入站+出站计算"
+      value="入站+出站"
+      variant="bordered"
+    />
+  );
+}
 
 export function ConnModeSelect({
   label = "连接数计算方式",
