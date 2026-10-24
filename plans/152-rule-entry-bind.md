@@ -76,6 +76,27 @@ Branch: `feature/3.0.27-rule-entry-bind`. Build + screenshots only — no tag, n
   +35 prettier warnings on touched lines.
 
 
+## Release (fork.93, task `release-rule-entry-bind`, 10-25 TW)
+Branch `maintenance/3.0.27-fork.93-rule-entry-bind` = fork.92 head 71c92de7 + the 11 plan-152 commits (fast-forward, no
+conflicts, code identical to the built `feature/3.0.27-rule-entry-bind` 3bb23034). Panel only, no OTA, no agent change.
+- [x] Screenshot gate: 44 build shots reviewed (desktop/H5, light/dark) — no defect, no code change
+- [x] Backend build/vet + full go test SQLite + PostgreSQL vs fork.92 failure list; frontend tsc/build/lint
+      — build/vet rc 0; SQLite and PostgreSQL each 17 packages ok, failure list line-for-line identical to fork.92's
+      (the 15 known, plan 151); the 9 plan-152 tests pass on PostgreSQL (verbose re-run); tsc 0, vite build ok, main JS
+      3,001,043 B (2.86 MiB < 5 MiB); eslint errors unchanged vs fork.92 (forward 17 / node 8 / tunnel 4 / types 0),
+      +38 prettier warnings on touched lines.
+- [x] Prod-copy gates on a fresh read-only copy (fork.92 image binary vs this branch): pills, forward_port, rename dry run
+      — pills union == today's options, own-only: admin 54 (深港 10 / 沪日440 12 / 沪港666m 11 / 沪日IEPL 12 / 其他 9),
+      user 4: 22, 8: 24, 11: 12 (before and after the rename); forward_port 36 rows + forward rows identical
+      orig = fork.92 = new = renamed, 0 bound; every list identical for admin + 12 users (new fields stripped);
+      rename dry run 14 rows, every non-admin user's names byte-identical (4/7/8/11 see the 12 shared tunnels),
+      admin 沪日440 → 12 × `mk沪日ixp440 -> …`, 沪日IEPL → 12 × `vmsilo沪日首发 -> …`; undo exact. Copies deleted.
+- [ ] Push, CI green, tag `3.0.27-fork.93`, release Latest with the fork.92 asset set
+- [ ] Prod: validated backup + rollback dir `pre-fork93-*`, upgrade `/opt/flvx-svc`, prune (keep 2)
+- [ ] Prod verify: version, health, nodes, migrations once, bundle, 0 bound rules, forward_port unchanged, pill union
+- [ ] Prod data step: aliases 23/51 + 12 tunnels `{入口} -> X` (before-state + undo in the rollback dir), name checks
+- [ ] 10-min resources (CPU/RSS, DB size, log lines) vs fork.92
+
 ## Paths that compute a rule's entries (Part A)
 Invariant: `forward_port` rows = effective entries. Checked with
 `grep -rn "allowedTunnelEntries\|TunnelEntryRestriction\|CreateForwardTx\|ReplaceForwardPorts\|ReconcileForwardEntryPorts\|ForwardPort{\|UpdateForwardTunnel\|tunnelEntryNodeIDs("`.
