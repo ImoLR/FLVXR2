@@ -63,6 +63,31 @@ type Share struct {
 	// and reports NodeStatus.InboundConnections. Absent = every node limit is
 	// 入站+出站 (max_total_connections), as before.
 	ConnModes *ShareConnModes `json:"conn_modes,omitempty"`
+	// Contract landing-reality-guard-v1 (plan 129): present only while this
+	// share's Helper renders the Reality guard; absent = FLVX sends no
+	// reality_guard field and the share behaves exactly as before.
+	RealityGuard *ShareRealityGuard `json:"reality_guard,omitempty"`
+}
+
+// RealityGuardVersion is the landing-reality-guard contract version FLVX speaks.
+const RealityGuardVersion = 1
+
+// ShareRealityGuard is the share list's reality_guard capability object.
+type ShareRealityGuard struct {
+	Versions []int `json:"versions"`
+}
+
+// Supports reports whether the share accepts guard contract version v.
+func (g *ShareRealityGuard) Supports(v int) bool {
+	return g != nil && containsInt(g.Versions, v)
+}
+
+// RealityGuardStatus is the Helper's guard report relayed by Custom: state
+// on | restart_required | error and the number of guarded nodes. Absent =
+// the guard is not asked for, or the share has no VLESS Reality node.
+type RealityGuardStatus struct {
+	State string `json:"state"`
+	Nodes int    `json:"nodes"`
 }
 
 // ConnModeVersion is the landing-conn-mode contract version FLVX speaks.
@@ -253,6 +278,18 @@ func (s *Share) Sanitize() {
 			s.ConnModes = nil
 		}
 	}
+	if s.RealityGuard != nil {
+		versions := []int{}
+		for _, v := range s.RealityGuard.Versions {
+			if v > 0 && v < 1000 && !containsInt(versions, v) && len(versions) < 8 {
+				versions = append(versions, v)
+			}
+		}
+		s.RealityGuard = &ShareRealityGuard{Versions: versions}
+		if len(versions) == 0 {
+			s.RealityGuard = nil
+		}
+	}
 }
 
 type ShareEgress struct {
@@ -349,6 +386,9 @@ type Desired struct {
 	Revision int64               `json:"revision"`
 	Nodes    []Node              `json:"nodes"`
 	Egress   *landingegress.Plan `json:"egress,omitempty"`
+	// RealityGuard (landing-reality-guard-v1) is the server's 防盗 switch,
+	// sent only to shares advertising the capability; absent = off there.
+	RealityGuard *bool `json:"reality_guard,omitempty"`
 }
 type NodeStatus struct {
 	ID            string     `json:"id"`
@@ -377,6 +417,27 @@ type Status struct {
 	// Machine is the shared server's whole-machine connection state (contract
 	// machine-protect-v1); absent (older Custom/Helper) = unknown.
 	Machine *Machine `json:"machine,omitempty"`
+	// RealityGuard (landing-reality-guard-v1); a malformed or unknown report
+	// is dropped (Client.Status) instead of failing the poll.
+	RealityGuard *RealityGuardStatus `json:"reality_guard,omitempty"`
+}
+
+// UnmarshalJSON never fails: a malformed optional guard object must not stop
+// the status poll (billing); Valid then rejects it.
+func (g *RealityGuardStatus) UnmarshalJSON(b []byte) error {
+	type plain RealityGuardStatus
+	var v plain
+	if json.Unmarshal(b, &v) != nil {
+		*g = RealityGuardStatus{}
+		return nil
+	}
+	*g = RealityGuardStatus(v)
+	return nil
+}
+
+// Valid reports a known state with a bounded node count.
+func (g *RealityGuardStatus) Valid() bool {
+	return g != nil && (g.State == "on" || g.State == "restart_required" || g.State == "error") && g.Nodes >= 0 && g.Nodes <= 1000
 }
 
 // MachineConns: every TCP+UDP socket row of the server (all states), the number
@@ -650,6 +711,9 @@ func (c *Client) Status(ctx context.Context, id int64) (Status, error) {
 	// Custom reports an unknown core as stopped; keep booking counters anyway.
 	if err == nil && strings.TrimSpace(out.Core.State) == "" {
 		out.Core.State = "stopped"
+	}
+	if out.RealityGuard != nil && !out.RealityGuard.Valid() {
+		out.RealityGuard = nil
 	}
 	return out, err
 }

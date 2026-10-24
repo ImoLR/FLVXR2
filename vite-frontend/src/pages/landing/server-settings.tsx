@@ -52,6 +52,8 @@ export function ServerSettings({
   );
   const [profiles, setProfiles] = useState<EgressProfile[]>([]);
   const [restartConfirmed, setRestartConfirmed] = useState(false);
+  // Plan 129: one restart of an outdated landing Core onto the pinned one.
+  const [coreUpgradeConfirmed, setCoreUpgradeConfirmed] = useState(false);
   // Plan 141 「应用到现有节点」: off by default (existing nodes keep their mode).
   const [applyConnMode, setApplyConnMode] = useState(false);
   const connModeChanged =
@@ -70,6 +72,8 @@ export function ServerSettings({
   // the routing API; the admin may confirm the one-time restart here.
   const abuseRestart = egress?.abuseDefaults === "restart" && !profileChanged;
   const guard = egress?.realityGuard;
+  // Plan 129: a shared server's guard runs in the 妙妙屋 Helper.
+  const isShared = server.source === "shared";
   const [guardEnabled, setGuardEnabled] = useState(guard?.enabled ?? true);
   const set = <K extends keyof LandingServer>(
     key: K,
@@ -141,6 +145,7 @@ export function ServerSettings({
         ? guardEnabled
         : undefined,
       applyConnMode,
+      coreUpgradeConfirmed,
     );
 
     setSaving(false);
@@ -455,6 +460,27 @@ export function ServerSettings({
                 </Checkbox>
               </div>
             )}
+            {egress?.coreUpgradeRequired && (
+              <div className="space-y-2 rounded-lg bg-warning-50 p-3 text-xs text-warning">
+                {egress.coreUpgradeConfirmed ? (
+                  <p>已确认升级：等待节点程序重启落地 Core（约 1 分钟内）。</p>
+                ) : (
+                  <>
+                    <p>
+                      新版落地 Core 已下载（可识别并拦截 UDP 上的 BT
+                      等），但正在运行的仍是旧版：需要重启一次落地 Core（约 1–3
+                      秒，落地连接短暂中断，客户端会自动重连）才会换成新版。不重启时旧版照常工作。
+                    </p>
+                    <Checkbox
+                      isSelected={coreUpgradeConfirmed}
+                      onValueChange={setCoreUpgradeConfirmed}
+                    >
+                      保存时重启落地 Core 以升级
+                    </Checkbox>
+                  </>
+                )}
+              </div>
+            )}
           </section>
           {guard && (
             <section className="space-y-3">
@@ -478,6 +504,12 @@ export function ServerSettings({
                   共享服务器的 Core 由妙妙屋运行，需妙妙屋支持后才能开启。
                 </p>
               )}
+              {isShared && guard.state !== "shared" && (
+                <p className="text-xs text-default-500">
+                  这台共享服务器的防盗由妙妙屋 Helper 执行，只作用于 FLVX
+                  的节点，妙妙屋自己的节点不受影响。
+                </p>
+              )}
               {guard.state !== "shared" && guardEnabled === guard.enabled && (
                 <p
                   className={`text-xs ${
@@ -493,20 +525,29 @@ export function ServerSettings({
                   {guard.state === "on" &&
                     `已生效：${guard.nodes} 个 Reality 节点`}
                   {guard.state === "idle" && "已开启：暂无 Reality 节点"}
+                  {guard.state === "pending" && "已开启：等待妙妙屋应用"}
                   {guard.state === "off" && "已关闭"}
                   {guard.state === "agent_old" &&
                     "节点程序版本过旧，升级后生效"}
                   {guard.state === "restart" &&
-                    "待生效：落地 Core 需重启一次（见上方勾选）"}
+                    (isShared
+                      ? "待生效：妙妙屋端的 FLVX Core 需重启一次，目前不拦截"
+                      : "待生效：落地 Core 需重启一次（见上方勾选）")}
                   {guard.state === "error" &&
-                    "未生效：路由规则应用失败，Reality 节点暂按未开启处理"}
+                    (isShared
+                      ? "未生效：妙妙屋端应用失败，Reality 节点暂按未开启处理"
+                      : "未生效：路由规则应用失败，Reality 节点暂按未开启处理")}
                 </p>
               )}
               {guard.state !== "shared" && guardEnabled !== guard.enabled && (
                 <p className="text-xs text-warning">
-                  {guardEnabled
-                    ? "保存后开启：Reality 节点会重新加载一次（已有连接不断）"
-                    : "保存后关闭：未经认证的探测会照旧转给伪装网站"}
+                  {isShared
+                    ? guardEnabled
+                      ? "保存后开启：妙妙屋会重新加载这台服务器的 Reality 节点一次，正在使用的连接断开一次，客户端几秒内自动重连"
+                      : "保存后关闭：妙妙屋会重新加载 Reality 节点一次，未经认证的探测会照旧转给伪装网站"
+                    : guardEnabled
+                      ? "保存后开启：Reality 节点会重新加载一次（已有连接不断）"
+                      : "保存后关闭：未经认证的探测会照旧转给伪装网站"}
                 </p>
               )}
             </section>

@@ -61,17 +61,20 @@ func (m *Manager) verifiedFile(path, expected string, size int64) bool {
 	if m.verified == nil {
 		m.verified = map[string]fileStamp{}
 	}
-	if old, ok := m.verified[path]; ok && old == stamp {
+	// Keyed by path and expected hash: the same file may be checked against
+	// the current and (plan 129) the previous Core pin.
+	key := path + "\x00" + expected
+	if old, ok := m.verified[key]; ok && old == stamp {
 		return true
 	}
-	delete(m.verified, path)
+	delete(m.verified, key)
 	if size >= 0 && info.Size() != size {
 		return false
 	}
 	if sum, err := m.hash(path); err != nil || sum != expected {
 		return false
 	}
-	m.verified[path] = stamp
+	m.verified[key] = stamp
 	return true
 }
 

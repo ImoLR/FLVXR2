@@ -68,6 +68,13 @@ func SharedLandingCaps(s *model.LandingServer) landingcustom.Share {
 	_ = json.Unmarshal([]byte(s.SharedCaps), &c)
 	return c
 }
+
+// SharedRealityGuardSupported: the share's Helper renders the Reality guard
+// (landing-reality-guard-v1 advertised in the share list).
+func SharedRealityGuardSupported(s *model.LandingServer) bool {
+	return s.Source == "shared" && SharedLandingCaps(s).RealityGuard.Supports(landingcustom.RealityGuardVersion)
+}
+
 func SharedLandingAvailable(s *model.LandingServer) bool {
 	if s.Source != "shared" {
 		return true
@@ -358,11 +365,26 @@ func (r *Repository) SharedLandingDesired(id int64, egress *landingegress.Plan) 
 			fillSharedExtraProtocol(n, &d)
 			out.Nodes = append(out.Nodes, d)
 		}
-		// Without egress the hash input stays the node list, so upgrading the
+		// Plan 129: the Reality guard switch goes only to a share whose Helper
+		// renders it (landing-reality-guard-v1); elsewhere the field is
+		// omitted, exactly as before.
+		if SharedRealityGuardSupported(&s) {
+			on := !s.RealityGuardOff
+			out.RealityGuard = &on
+		}
+		// Without egress / guard the hash input stays the node list (and
+		// with egress only, the same object as before), so upgrading the
 		// panel does not bump revisions of unchanged shares.
 		raw, _ := json.Marshal(out.Nodes)
-		if out.Egress != nil {
-			raw, _ = json.Marshal(map[string]any{"nodes": out.Nodes, "egress": out.Egress})
+		if out.Egress != nil || out.RealityGuard != nil {
+			in := map[string]any{"nodes": out.Nodes}
+			if out.Egress != nil {
+				in["egress"] = out.Egress
+			}
+			if out.RealityGuard != nil {
+				in["reality_guard"] = *out.RealityGuard
+			}
+			raw, _ = json.Marshal(in)
 		}
 		sum := sha256.Sum256(raw)
 		hash := hex.EncodeToString(sum[:])
@@ -430,7 +452,13 @@ func (r *Repository) RecordSharedStatus(id int64, status landingcustom.Status, n
 		c.Core = status.Core
 		c.TrafficUsed = status.TrafficUsed
 		raw, _ := json.Marshal(c)
-		if err := tx.Model(&s).Updates(map[string]any{"shared_caps": string(raw), "shared_applied_revision": status.AppliedRevision, "shared_collected_at": status.CollectedAt, "shared_last_sync_at": now}).Error; err != nil {
+		// Plan 129: the Helper's Reality guard report (absent = not asked for
+		// or no Reality node), in the same columns as a native agent's report.
+		guardState, guardNodes := "", 0
+		if g := status.RealityGuard; g != nil {
+			guardState, guardNodes = g.State, g.Nodes
+		}
+		if err := tx.Model(&s).Updates(map[string]any{"shared_caps": string(raw), "shared_applied_revision": status.AppliedRevision, "shared_collected_at": status.CollectedAt, "shared_last_sync_at": now, "guard_state": guardState, "guard_nodes": guardNodes}).Error; err != nil {
 			return err
 		}
 		for _, n := range status.Nodes {

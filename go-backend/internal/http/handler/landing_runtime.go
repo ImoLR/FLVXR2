@@ -118,6 +118,9 @@ type landingSyncSnapshot struct {
 	Error    string                `json:"error"`
 	Nodes    []repo.LandingCounter `json:"nodes"`
 	Egress   *landingEgressReport  `json:"egress"`
+	// Plan 129: "restart_required" = the running Core is older than the
+	// pinned binary the agent downloaded (absent on older agents).
+	CoreUpdate string `json:"core_update"`
 }
 
 func (h *Handler) syncLandingServer(serverID int64) (*landingSyncSnapshot, error) {
@@ -171,6 +174,13 @@ func (h *Handler) syncLandingServer(serverID int64) (*landingSyncSnapshot, error
 	}
 	globalInbound := s.MaxConnections > 0 && repo.LandingServerTotalConnMode(s, connSupported) == repo.LandingConnInbound
 	connSig := repo.NativeLandingConnSig(inboundIDs, globalInbound)
+	// Plan 129: the confirmed one-time Core upgrade restart joins the payload
+	// (and the signature, so the revision advances) only while the agent
+	// reports an outdated Core; it is never sent to agents that do not.
+	upgradeCore := s.CoreUpgradeOK && s.CoreStaleEpoch != ""
+	if upgradeCore {
+		connSig += ";upgrade_core=" + s.CoreStaleEpoch
+	}
 	revision, err := h.repo.TouchLandingRevision(s.ID, planHash(plan), &connSig)
 	if err != nil {
 		return nil, errors.New("落地服务器状态不可用")
@@ -232,6 +242,9 @@ func (h *Handler) syncLandingServer(serverID int64) (*landingSyncSnapshot, error
 	if plan != nil {
 		payload["egress"] = plan
 	}
+	if upgradeCore {
+		payload["upgrade_core_epoch"] = s.CoreStaleEpoch
+	}
 	result, err := h.sendNodeCommandWithTimeout(s.NodeID, "ApplyLandingDesired", payload, 30*time.Second, false, false)
 	if err != nil || !result.Success {
 		// Same single line as before, now with the agent's short reason (e.g.
@@ -262,6 +275,13 @@ func (h *Handler) syncLandingServer(serverID int64) (*landingSyncSnapshot, error
 		snapshot.Nodes[i].NodeID = s.NodeID
 	}
 	h.recordNativeEgress(s.ID, snapshot.Egress, egressWarnings, egressErr)
+	staleEpoch := ""
+	if snapshot.CoreUpdate == "restart_required" {
+		staleEpoch = snapshot.Epoch
+	}
+	if staleEpoch != s.CoreStaleEpoch {
+		_ = h.repo.RecordLandingCoreUpdate(s.ID, staleEpoch)
+	}
 	if snapshot.Egress != nil && snapshot.Egress.Ready && !s.EgressReady && !s.EgressRestartOK && node.LandingEgress >= 1 && h.landingServerReadyNow(s.ID) {
 		// First report of a Core with the routing API (e.g. a newly enabled
 		// landing): push again right away so the default and global rules

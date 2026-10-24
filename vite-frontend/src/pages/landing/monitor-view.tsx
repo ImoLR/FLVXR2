@@ -379,6 +379,9 @@ function OnlineIpList({ nodeId }: { nodeId: number }) {
           {data.onlineIps > data.ips.length ? (
             <p>仅显示连接数最多的 {data.ips.length} 个 IP</p>
           ) : null}
+          {data.ips.some(({ ip }) => ip.includes("/")) ? (
+            <p>IPv6 按 /64 网段合并，一个网段计为 1 个在线 IP</p>
+          ) : null}
           {data.sampleAt > 0 ? (
             <p>
               采样于{" "}

@@ -14,11 +14,22 @@ import (
 	"github.com/google/uuid"
 )
 
-const CoreVersion = "v1.4.59"
+// Plan 129: Custom v1.4.74 = Core b01adef0 (uTP sniffer fix, Xray #6667);
+// v1.4.75 / v1.4.76 ship the byte-identical Core.
+const CoreVersion = "v1.4.74"
 const SS2022Method = "2022-blake3-aes-128-gcm"
 
 // These hashes were verified against both assets and checksums.txt in the pinned release.
 var CoreSHA256 = map[string]string{
+	"amd64": "488803a40a4825797fd26b1a8de25349f9f6cfc85ac2ede45d6005c28485a63f",
+	"arm64": "1225921919e2058848dcc8f2589ff6f05706548537aa6da7b2b0de291802b3da",
+}
+
+// CorePreviousSHA256 is the pin before CoreVersion (Custom v1.4.59 = Core
+// 8f5b6145). Plan 129: a node upgraded from it keeps running and reconciling
+// on that verified binary while the new pin cannot be downloaded yet (no disk
+// / memory headroom, mirrors down); the download retries with its backoff.
+var CorePreviousSHA256 = map[string]string{
 	"amd64": "ae4b83f0cf77c4aa73857cb1de773e7ec89b1bc5ded272a677b46d417cf40212",
 	"arm64": "aa61a9d865c7ccb7d68717abd8d8832a7de4ee0ee73670271097afb69461a2e4",
 }
@@ -35,6 +46,11 @@ type Desired struct {
 	CoreCPUPercent int     `json:"core_cpu_percent"`
 	Nodes          []Node  `json:"nodes"`
 	Egress         *Egress `json:"egress,omitempty"`
+	// UpgradeCoreEpoch (plan 129): the admin confirmed one restart of the
+	// Core with this epoch, reported as running an older binary than the
+	// pinned one (Status.CoreUpdate). Any other epoch (the restarted Core, a
+	// later Core) never matches, so a persisted value cannot restart again.
+	UpgradeCoreEpoch string `json:"upgrade_core_epoch,omitempty"`
 }
 
 type Node struct {
@@ -127,6 +143,10 @@ type Status struct {
 	Error       string        `json:"error,omitempty"`
 	Nodes       []Counter     `json:"nodes"`
 	Egress      *EgressStatus `json:"egress,omitempty"`
+	// CoreUpdate (plan 129): "restart_required" while the running Core was
+	// started before the pinned binary on disk was written (agent OTA with a
+	// new pin): the new Core only takes over after one restart.
+	CoreUpdate string `json:"core_update,omitempty"`
 }
 
 func (d *Desired) validate() error {

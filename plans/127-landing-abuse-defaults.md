@@ -36,6 +36,8 @@
 - 嗅探：FLVX 原生入站（SS2022、VLESS Reality、链式）和妙妙屋 Helper 渲染的全部入站（含 AnyTLS/Snell/Mieru）都开了
   `sniffing.enabled`，Xray 在开启嗅探时运行全部协议嗅探器并写入 `protocol`，BT 规则可匹配。限制：加密 BT（MSE/PE）和
   DHT 无法识别；实测 Core（8f5b614）的 uTP 嗅探器把时间戳与 Unix 微秒全值比较，真实 uTP（UDP 上的 BT）永远识别不了。
+  （plan 129 更新：新版 Core `b01adef`（Custom v1.4.74，Xray #6667）已能识别 uTP，节点程序固定到该版本后
+  「默认：屏蔽 BT」也拦 UDP 上的 BT；加密 BT 和 DHT 仍识别不了。）
 
 ### B. Reality 防盗（需要新节点程序）
 - 每个 Reality 节点（按 dest + serverNames 分组，同组共用）一个辅助入站：`dokodemo-door` 监听 `127.0.0.1:<端口>`，

@@ -72,6 +72,8 @@ type Manager struct {
 	routingEpoch      string
 	routingOK         bool
 	restartedRevision int64
+	coreUpdate        string                    // plan 129: "restart_required" = running Core older than the binary
+	upgradedRevision  int64                     // revision whose confirmed Core upgrade restart was attempted
 	verified          map[string]fileStamp      // path -> stamp of the last matching SHA256
 	downloads         map[string]*downloadRetry // asset -> backoff after a failed download
 	limitsApplied     [2]int                    // MemoryMax MiB / CPUQuota % last set on the unit
@@ -233,7 +235,7 @@ func (m *Manager) statusLocked() Status {
 	}
 	egress.Warnings = append([]string(nil), egress.Warnings...)
 	egress.Withheld = append([]string(nil), egress.Withheld...)
-	return Status{Revision: m.desired.Revision, Epoch: m.epoch, CoreVersion: CoreVersion, State: state, Error: m.lastError, Nodes: append([]Counter{}, m.counters...), Egress: &egress}
+	return Status{Revision: m.desired.Revision, Epoch: m.epoch, CoreVersion: CoreVersion, State: state, Error: m.lastError, Nodes: append([]Counter{}, m.counters...), Egress: &egress, CoreUpdate: m.coreUpdate}
 }
 func (m *Manager) Counters() []Counter {
 	// A first install can spend minutes on download mirrors. Cumulative landing
@@ -271,6 +273,18 @@ var coreExpected = func() (string, bool) {
 	return expected, ok && runtime.GOOS == "linux"
 }
 
+// corePrevious is the previous pin's SHA256 (fallback only); tests override it.
+var corePrevious = func() (string, bool) {
+	previous, ok := CorePreviousSHA256[runtime.GOARCH]
+	return previous, ok && runtime.GOOS == "linux"
+}
+
+// previousCoreOK: the binary on disk is the previous pin, verified.
+func (m *Manager) previousCoreOK() bool {
+	previous, ok := corePrevious()
+	return ok && m.verifiedFile(m.binary(), previous, -1)
+}
+
 func (m *Manager) install(ctx context.Context) error {
 	expected, ok := coreExpected()
 	if !ok {
@@ -291,15 +305,42 @@ func (m *Manager) install(ctx context.Context) error {
 	if m.resourceCheck != nil {
 		check = m.resourceCheck
 	}
+	// Plan 129: an upgrade (previous pin on disk) never blocks the reconcile;
+	// the running Core keeps serving and the download is retried later.
+	fallback := m.previousCoreOK()
 	if err := check(m.dir); err != nil {
+		if fallback {
+			m.logger().Record("landing download", "core", "upgrade waits: "+err.Error())
+			return nil
+		}
 		return err
 	}
-	return m.retryDownload(ctx, "core", func(ctx context.Context) error {
+	err := m.retryDownload(ctx, "core", func(ctx context.Context) error {
 		if err := download(ctx, direct, m.binary(), expected, 128<<20, 0755); err != nil {
 			return fmt.Errorf("pinned landing Core download or SHA256 validation failed")
 		}
 		return nil
 	})
+	if err != nil && fallback {
+		return nil
+	}
+	return err
+}
+
+// coreUpdateState reports "restart_required" when the running Core started
+// before the current binary was written (setup has just verified that the
+// binary on disk is the pinned one): a newer pin was downloaded under a Core
+// that keeps running the old executable. One stat per tick; the 1 s margin
+// absorbs coarse file timestamps.
+func (m *Manager) coreUpdateState(snapshot coreSnapshot) string {
+	if snapshot.StartedAt.IsZero() {
+		return ""
+	}
+	info, err := os.Stat(m.binary())
+	if err != nil || !info.ModTime().After(snapshot.StartedAt.Add(time.Second)) {
+		return ""
+	}
+	return "restart_required"
 }
 
 func (m *Manager) geoDownloadFn() func(ctx context.Context, direct, path, expected string, limit int64, mode os.FileMode) error {

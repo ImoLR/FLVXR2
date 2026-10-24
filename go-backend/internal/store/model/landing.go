@@ -72,8 +72,14 @@ type LandingServer struct {
 	// ConnModeSig is the 仅入站 signature last sent to the native agent; a change
 	// advances the revision (the agent rejects a reused revision with new content).
 	ConnModeSig string `gorm:"not null;default:''" json:"-"`
-	CreatedTime int64  `gorm:"not null" json:"createdTime"`
-	UpdatedTime int64  `gorm:"not null" json:"updatedTime"`
+	// Plan 129 (native): CoreStaleEpoch is the epoch of a running Core the
+	// agent reports as older than the pinned binary on disk ("" = current or
+	// unknown); CoreUpgradeOK is the admin's one-shot confirmation to restart
+	// exactly that Core, cleared once the agent reports a current Core.
+	CoreStaleEpoch string `gorm:"not null;default:''" json:"-"`
+	CoreUpgradeOK  bool   `gorm:"not null;default:false" json:"-"`
+	CreatedTime    int64  `gorm:"not null" json:"createdTime"`
+	UpdatedTime    int64  `gorm:"not null" json:"updatedTime"`
 }
 
 func (LandingServer) TableName() string { return "landing_server" }

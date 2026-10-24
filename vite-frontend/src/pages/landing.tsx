@@ -611,6 +611,21 @@ export default function LandingPage() {
                       </Chip>
                     ),
                   });
+                if (admin && server.egress?.coreUpgradeRequired)
+                  chipItems.push({
+                    key: "core-upgrade",
+                    label: "落地 Core 待升级",
+                    node: (
+                      <Chip
+                        color="warning"
+                        size="sm"
+                        title="新版落地 Core 已下载，在「设置」里确认重启一次后生效"
+                        variant="flat"
+                      >
+                        落地 Core 待升级
+                      </Chip>
+                    ),
+                  });
 
                 return (
                   <Card

@@ -578,18 +578,22 @@ func (c landingEgressCatalog) profileName(id int64, s *model.LandingServer) stri
 }
 
 // landingGuardView: the Reality guard (plan 127) of a server for admins.
-// state: shared (FLVX builds no Core there) | off | agent_old | idle (on, no
-// guarded Reality listener reported) | on | restart (Core needs one confirmed
-// restart) | error (rules failed, nodes unguarded).
+// state: shared (妙妙屋 Helper does not render the guard yet) | off |
+// agent_old | idle (on, no guarded Reality listener reported) | on | restart
+// (Core needs one restart) | error (rules failed, nodes unguarded). Plan 129:
+// a shared server whose Helper advertises landing-reality-guard-v1 uses the
+// same states (its restart is the Helper's to do) plus pending (the Helper has
+// not applied the latest desired state yet).
 func landingGuardView(s model.LandingServer, nodeGuard ...int) map[string]any {
 	enabled := !s.RealityGuardOff
 	state := "idle"
+	shared := s.Source == "shared"
 	switch {
-	case s.Source == "shared":
+	case shared && !repo.SharedRealityGuardSupported(&s):
 		state = "shared"
 	case !enabled:
 		state = "off"
-	case len(nodeGuard) == 0 || nodeGuard[0] < 1:
+	case !shared && (len(nodeGuard) == 0 || nodeGuard[0] < 1):
 		state = "agent_old"
 	case s.GuardState == "on":
 		state = "on"
@@ -597,6 +601,10 @@ func landingGuardView(s model.LandingServer, nodeGuard ...int) map[string]any {
 		state = "restart"
 	case s.GuardState == "error":
 		state = "error"
+	case shared && s.SharedAppliedRevision < s.Revision:
+		// No report yet and the Helper has not applied the latest desired
+		// state (e.g. right after switching on): waiting, not "no node".
+		state = "pending"
 	}
 	return map[string]any{"enabled": enabled, "state": state, "nodes": s.GuardNodes}
 }
@@ -636,6 +644,9 @@ func (h *Handler) landingServerEgressView(s model.LandingServer, nodeEgress int,
 		"supported": supported, "unsupportedReason": reason, "abuseDefaults": abuse, "abuseRules": abuseRuleLabels(c.abuse()), "realityGuard": landingGuardView(s, nodeGuard...),
 		"restartRequired":  supported && s.Source == "native" && !s.EgressReady,
 		"restartConfirmed": s.EgressRestartOK, "state": s.EgressState, "error": s.EgressError, "warnings": warnings, "checkedAt": s.EgressCheckedAt,
+		// Plan 129: the native Core runs an older binary than the pinned one
+		// (agent OTA) and needs one admin-confirmed restart.
+		"coreUpgradeRequired": s.Source == "native" && s.CoreStaleEpoch != "", "coreUpgradeConfirmed": s.Source == "native" && s.CoreStaleEpoch != "" && s.CoreUpgradeOK,
 	}
 }
 

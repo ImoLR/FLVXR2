@@ -428,6 +428,8 @@ func (h *Handler) landingServerSave(w http.ResponseWriter, r *http.Request) {
 		MieruTransport   *string `json:"mieruTransport"`
 		// Reality guard switch (plan 127); absent = keep.
 		RealityGuard *bool `json:"realityGuard"`
+		// Plan 129: one restart of an outdated native Core onto the pinned one.
+		CoreUpgradeConfirmed bool `json:"coreUpgradeConfirmed"`
 		// Plan 141 计算方式, shadowed (absent = keep), and 「应用到现有节点」.
 		ConnMode             *string `json:"connMode"`
 		MaxConnMode          *string `json:"maxConnMode"`
@@ -508,8 +510,15 @@ func (h *Handler) landingServerSave(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if req.RealityGuard != nil && old.Source == "native" && *req.RealityGuard == old.RealityGuardOff {
+	// Plan 129: shared servers too, once their Helper renders the guard.
+	if req.RealityGuard != nil && (old.Source == "native" || repo.SharedRealityGuardSupported(old)) && *req.RealityGuard == old.RealityGuardOff {
 		if err := h.repo.SetLandingRealityGuard(req.ID, *req.RealityGuard); err != nil {
+			landingError(w, err)
+			return
+		}
+	}
+	if req.CoreUpgradeConfirmed && old.Source == "native" && old.CoreStaleEpoch != "" {
+		if err := h.repo.SetLandingCoreUpgrade(req.ID); err != nil {
 			landingError(w, err)
 			return
 		}

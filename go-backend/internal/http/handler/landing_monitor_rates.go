@@ -138,9 +138,8 @@ func (e *landingRateEntry) setOnlineIPs(c repo.LandingCounter) {
 	// retained by the tracker. A truncated list never changes the real count.
 	ips := make([]landingcustom.OnlineIP, 0, len(c.OnlineIPs))
 	for _, ip := range c.OnlineIPs {
-		addr, err := netip.ParseAddr(ip.IP)
-		if err == nil && addr.Zone() == "" && ip.Connections >= 0 {
-			ips = append(ips, landingcustom.OnlineIP{IP: addr.String(), Connections: ip.Connections})
+		if text, ok := onlineIPText(ip.IP); ok && ip.Connections >= 0 {
+			ips = append(ips, landingcustom.OnlineIP{IP: text, Connections: ip.Connections})
 		}
 	}
 	sort.Slice(ips, func(i, j int) bool {
@@ -151,6 +150,21 @@ func (e *landingRateEntry) setOnlineIPs(c repo.LandingCounter) {
 	})
 	e.onlineIPs = make([]landingcustom.OnlineIP, min(len(ips), landingOnlineIPLimit))
 	copy(e.onlineIPs, ips)
+}
+
+// onlineIPText canonicalises one online-IP entry: an address, or (plan 129) an
+// IPv6 network such as "2408:8748:a100:59::/64" — the Core counts IPv6 clients
+// per /64, so one entry is one online IP. Zones, IPv4 prefixes and unmasked
+// prefixes are rejected.
+func onlineIPText(raw string) (string, bool) {
+	if addr, err := netip.ParseAddr(raw); err == nil {
+		return addr.String(), addr.Zone() == ""
+	}
+	p, err := netip.ParsePrefix(raw)
+	if err != nil || !p.Addr().Is6() || p.Addr().Is4In6() || p.Bits() < 1 || p != p.Masked() {
+		return "", false
+	}
+	return p.String(), true
 }
 
 func (t *landingRateTracker) evictOldestLocked() {

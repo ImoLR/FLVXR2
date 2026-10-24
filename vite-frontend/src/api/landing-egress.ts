@@ -245,10 +245,15 @@ export interface ServerEgressView {
   // Plan 140 / 143: default rules switched on globally, e.g. ["SMTP 25", "BT"].
   abuseRules?: string[];
   realityGuard?: RealityGuardView;
+  // Plan 129 (native): the running Core is older than the pinned one and
+  // needs one confirmed restart; confirmed = waiting for the agent.
+  coreUpgradeRequired?: boolean;
+  coreUpgradeConfirmed?: boolean;
 }
 
-// Reality 防盗 (plan 127), native servers only. state: shared | off |
-// agent_old | idle | on | restart | error.
+// Reality 防盗 (plan 127). state: shared (妙妙屋 Helper without the guard) |
+// off | agent_old | idle | on | restart | error; plan 129: shared servers whose
+// Helper renders it use the same states plus pending (not applied yet).
 export interface RealityGuardView {
   enabled: boolean;
   state: string;

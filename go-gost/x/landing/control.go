@@ -230,6 +230,24 @@ func (m *Manager) reconcile(ctx context.Context) error {
 	m.epoch = epoch
 	// Capture the final live sample before controls terminate affected sockets.
 	collectErr := m.collect(ctx)
+	// Plan 129: a new pinned Core (agent OTA) replaces the binary on disk but
+	// the running process keeps the old one; it takes over only after one
+	// restart, done here once the admin confirmed it (never on our own).
+	m.coreUpdate = m.coreUpdateState(snapshot)
+	if m.coreUpdate != "" && m.desired.UpgradeCoreEpoch == epoch && m.upgradedRevision != m.desired.Revision && collectErr == nil {
+		m.upgradedRevision = m.desired.Revision
+		next, err := m.restartCore(ctx, snapshot)
+		if err != nil {
+			return fmt.Errorf("restart landing Core for the upgrade: %w", err)
+		}
+		snapshot = next
+		epoch = strconv.FormatInt(snapshot.StartedAt.UnixNano(), 10)
+		m.applied = appliedState{Epoch: epoch, Inbounds: map[string]string{}}
+		m.epoch = epoch
+		m.coreUpdate = m.coreUpdateState(snapshot)
+		// m.counters keep the old Core's final sample (old epoch) for this
+		// report; the next collect starts the new epoch from zero.
+	}
 	var guardWarnings []string
 	m.guardWant, m.guardByTag, guardWarnings = m.desired.guardGroups()
 	// Outbounds and rules go first: a fresh Core never serves an inbound before

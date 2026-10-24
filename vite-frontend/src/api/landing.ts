@@ -261,6 +261,7 @@ export const saveLandingServer = (
   egressRestartConfirmed = false,
   realityGuard?: boolean,
   applyConnModeToNodes = false,
+  coreUpgradeConfirmed = false,
 ) => {
   const {
     id,
@@ -330,6 +331,7 @@ export const saveLandingServer = (
       ? { routeProfileId: server.routeProfileId, egressRestartConfirmed }
       : {}),
     ...(realityGuard !== undefined ? { realityGuard } : {}),
+    ...(coreUpgradeConfirmed ? { coreUpgradeConfirmed } : {}),
     ...(server.connMode !== undefined
       ? {
           connMode: server.connMode,

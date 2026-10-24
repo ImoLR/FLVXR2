@@ -250,3 +250,18 @@ func guardSteady(members []guardMember, s model.LandingServer) (bool, map[string
 	}
 	return true, out
 }
+
+// SetLandingCoreUpgrade records the admin's one-shot confirmation to restart a
+// native server's outdated Core onto the pinned binary (plan 129); a no-op
+// unless the agent currently reports an outdated Core.
+func (r *Repository) SetLandingCoreUpgrade(serverID int64) error {
+	return r.db.Model(&model.LandingServer{}).Where("id = ? AND source = ? AND core_stale_epoch <> ?", serverID, "native", "").Update("core_upgrade_ok", true).Error
+}
+
+// RecordLandingCoreUpdate stores the epoch of an outdated running Core ("" =
+// current) when it changed. A different epoch (the Core restarted) consumes a
+// pending confirmation, so a later outdated Core asks the admin again.
+func (r *Repository) RecordLandingCoreUpdate(serverID int64, staleEpoch string) error {
+	return r.db.Model(&model.LandingServer{}).Where("id = ? AND core_stale_epoch <> ?", serverID, staleEpoch).
+		Updates(map[string]any{"core_stale_epoch": staleEpoch, "core_upgrade_ok": false}).Error
+}

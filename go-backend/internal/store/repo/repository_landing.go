@@ -241,6 +241,8 @@ func (r *Repository) SaveLandingServerOpts(s *model.LandingServer, groups []int6
 		s.ChainOnly = old.ChainOnly
 		// The Reality guard switch has its own path (SetLandingRealityGuard).
 		s.RealityGuardOff, s.GuardState, s.GuardNodes = old.RealityGuardOff, old.GuardState, old.GuardNodes
+		// Plan 129: the Core upgrade report / confirmation have their own paths.
+		s.CoreStaleEpoch, s.CoreUpgradeOK = old.CoreStaleEpoch, old.CoreUpgradeOK
 		keep := map[string]bool{}
 		var oldProtocols []string
 		_ = json.Unmarshal([]byte(old.Protocols), &oldProtocols)
