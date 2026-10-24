@@ -125,6 +125,7 @@ import { usePullToRefresh } from "@/hooks/usePullToRefresh";
 import { useMobileBreakpoint } from "@/hooks/useMobileBreakpoint";
 import { saveOrder } from "@/utils/order-storage";
 import { JwtUtil } from "@/utils/jwt";
+import { armOnboardingHint } from "@/utils/onboarding-hints";
 import { canonicalIp, parseExtraIPs } from "@/utils/node-ips";
 import { timestampToCalendarDate, calendarDateToTimestamp } from "@/utils/date";
 import { MULTI_REGION, compareRegions, exitRegionKey, exitRegionLabel, regionLabel } from "@/utils/region";
@@ -3014,6 +3015,10 @@ export default function ForwardPage() {
       }
       const status = res.data as ChainStatus | undefined;
 
+      // Plan 146: hint 「复制链接」 on the new rule once its chain is ready.
+      if (!isEdit && status?.forwardId)
+        armOnboardingHint("copyLink", status.forwardId);
+
       if (!status?.chainId || !status.opStartedAt) {
         toast.success(isEdit ? "修改成功" : "创建成功");
         setModalOpen(false);
@@ -3167,6 +3172,12 @@ export default function ForwardPage() {
         res = await createForward(createData);
       }
       if (res.code === 0) {
+        // Plan 146: hint 「复制链接」 on a new rule that targets 我的落地节点.
+        if (!isEdit && landingTarget.landingNodeId)
+          armOnboardingHint(
+            "copyLink",
+            Number((res as { data?: { id?: number } }).data?.id) || 0,
+          );
         const warningItems = Array.isArray((res as any).data?.warnings)
           ? (res as any).data.warnings
               .map((item: unknown) =>

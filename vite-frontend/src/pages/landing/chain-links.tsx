@@ -3,6 +3,10 @@ import { Copy, QrCode } from "lucide-react";
 import toast from "react-hot-toast";
 
 import { ChainLink, ForwardChainInfo, getChainLinks } from "@/api/line-chain";
+import {
+  OnboardingRing,
+  useOnboardingHint,
+} from "@/components/onboarding-ring";
 import { landingLinks } from "@/api/landing";
 import { Button } from "@/shadcn-bridge/heroui/button";
 import { Chip } from "@/shadcn-bridge/heroui/chip";
@@ -97,9 +101,16 @@ export function ChainLinkButton({
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [qr, setQR] = useState("");
+  const visible = forward.chain
+    ? forward.chain.state === "active"
+    : Boolean(forward.landingNodeId);
+  // Plan 146: first-time hint on the rule that was just created (chain rules: once ready).
+  const linkHint = useOnboardingHint("copyLink", {
+    enabled: visible,
+    match: forward.id,
+  });
 
-  if (forward.chain ? forward.chain.state !== "active" : !forward.landingNodeId)
-    return null;
+  if (!visible) return null;
 
   const load = async () => {
     setLoading(true);
@@ -139,15 +150,20 @@ export function ChainLinkButton({
   return (
     <>
       <Button
-        className={className || "min-h-7 px-2"}
+        ref={linkHint.ref}
+        className={`relative ${className || "min-h-7 px-2"}`}
         color="success"
         isLoading={loading}
         size="sm"
         title="复制链接"
         variant="flat"
-        onPress={() => void load()}
+        onPress={() => {
+          linkHint.complete();
+          void load();
+        }}
       >
         复制链接
+        <OnboardingRing active={linkHint.active} />
       </Button>
       <Modal
         isOpen={open}

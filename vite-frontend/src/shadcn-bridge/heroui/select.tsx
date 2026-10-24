@@ -48,6 +48,9 @@ export interface SelectProps<T = unknown> extends FieldMetaProps {
   isSearchable?: boolean;
   searchPlaceholder?: string;
   listboxVariant?: "grouped";
+  // Decoration drawn over the trigger (plan 146 onboarding ring). When set (even to null) the native
+  // select gets a `relative` wrapper so the overlay can hug its border.
+  triggerOverlay?: React.ReactNode;
 }
 
 export interface SelectItemProps {
@@ -256,6 +259,7 @@ export function Select<T>({
   isSearchable = false,
   searchPlaceholder = "搜索…",
   listboxVariant,
+  triggerOverlay,
   "aria-label": ariaLabel,
 }: SelectProps<T>) {
   const isGrouped = listboxVariant === "grouped" && selectionMode === "single";
@@ -682,6 +686,61 @@ export function Select<T>({
     );
   };
 
+  const renderNativeSelect = () => (
+    <select
+      className={cn(
+        "w-full rounded-md border border-input bg-background px-3 py-2 shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+        sizeClass(size),
+        classNames?.trigger,
+        className,
+      )}
+      disabled={isDisabled}
+      id={generatedId}
+      required={isRequired}
+      aria-label={ariaLabel}
+      value={singleValue}
+      onChange={handleChange}
+      onClick={onClick}
+    >
+      <option value="">{placeholder ?? "请选择"}</option>
+      {options.map((option, index) => {
+        if (
+          option.section &&
+          index > 0 &&
+          options[index - 1].section === option.section
+        )
+          return null;
+        const renderOption = (item: OptionItem) => (
+          <option
+            key={item.key}
+            disabled={disabled.has(item.key)}
+            value={item.key}
+          >
+            {item.label}
+          </option>
+        );
+
+        const sectionEnd = options.findIndex(
+          (item, next) => next > index && item.section !== option.section,
+        );
+
+        return option.section ? (
+          <optgroup
+            key={`section-${index}`}
+            label={option.section}
+            title={option.sectionTooltip || option.sectionDescription}
+          >
+            {options
+              .slice(index, sectionEnd < 0 ? options.length : sectionEnd)
+              .map(renderOption)}
+          </optgroup>
+        ) : (
+          renderOption(option)
+        );
+      })}
+    </select>
+  );
+
   return (
     <FieldContainer
       className={classNames?.base}
@@ -757,61 +816,16 @@ export function Select<T>({
               )}
             />
           </button>
+          {triggerOverlay}
           {renderMultipleListbox()}
         </div>
+      ) : triggerOverlay !== undefined ? (
+        <div className="relative flex w-full rounded-md">
+          {renderNativeSelect()}
+          {triggerOverlay}
+        </div>
       ) : (
-        <select
-          className={cn(
-            "w-full rounded-md border border-input bg-background px-3 py-2 shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-            sizeClass(size),
-            classNames?.trigger,
-            className,
-          )}
-          disabled={isDisabled}
-          id={generatedId}
-          required={isRequired}
-          aria-label={ariaLabel}
-          value={singleValue}
-          onChange={handleChange}
-          onClick={onClick}
-        >
-          <option value="">{placeholder ?? "请选择"}</option>
-          {options.map((option, index) => {
-            if (
-              option.section &&
-              index > 0 &&
-              options[index - 1].section === option.section
-            )
-              return null;
-            const renderOption = (item: OptionItem) => (
-              <option
-                key={item.key}
-                disabled={disabled.has(item.key)}
-                value={item.key}
-              >
-                {item.label}
-              </option>
-            );
-
-            const sectionEnd = options.findIndex(
-              (item, next) => next > index && item.section !== option.section,
-            );
-
-            return option.section ? (
-              <optgroup
-                key={`section-${index}`}
-                label={option.section}
-                title={option.sectionTooltip || option.sectionDescription}
-              >
-                {options
-                  .slice(index, sectionEnd < 0 ? options.length : sectionEnd)
-                  .map(renderOption)}
-              </optgroup>
-            ) : (
-              renderOption(option)
-            );
-          })}
-        </select>
+        renderNativeSelect()
       )}
     </FieldContainer>
   );
