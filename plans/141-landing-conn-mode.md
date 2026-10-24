@@ -71,7 +71,10 @@ Branch `maintenance/3.0.27-fork.86-landing-conn-mode` from the feature head 2e2b
 fast-forward, no conflicts). mmwx Custom/Helper side is NOT built (contract only) → FLVX side only; shared servers
 degrade cleanly (仅入站 shows 「需要妙妙屋侧升级后生效」 and stays 入站+出站).
 
-- [x] Gallery gate (60 shots reviewed by the release worker; no real defect → no code change, no re-shoot)
+- [x] Gallery gate (release worker opened 14 of the 60 shots covering every view — server settings native/shared/old
+      agent, node details pending, cards, all-nodes table, monitor, user monitor; desktop + H5, light + dark — plus the
+      build's 56/56 automated checks; no real defect → no code change, no re-shoot; H5 label wrap next to a select is
+      the same pre-existing pattern as 在线 IP / 流量上限)
 - [x] Rebase/branch, `go build ./...`, backend tests SQLite + PostgreSQL (only the 15 known failures), frontend tsc/build/lint
       — fast-forward (no conflicts); go-backend + go-gost build ok; `go test ./...` SQLite 17 ok / 15 FAIL and PostgreSQL
       17 ok / 15 FAIL, both lists identical to fork.85; `TestSharedLandingConnModeContract` sqlite+postgres PASS;
