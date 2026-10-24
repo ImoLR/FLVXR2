@@ -1,4 +1,4 @@
-# 147 — open items of 139 / 141 / 129 (build + tests + screenshots, NO release)
+# 147 — open items of 139 / 141 / 129 (built, RELEASED as fork.89 — complete)
 
 Source: user 2026-10-24 ~14:20 TW 「第四点你看着就修吧，把它能修复的就全部修复吧」 + plan 141 setting is FLVX-native
 only (「妙妙屋那边…不要动」); ~15:50 TW 「其他的问题能修就赶紧修」 (items 7, 8). Brief:
@@ -198,9 +198,32 @@ native landing nodes 21 (canary, SSH backup) and 55 only; no mmwx change, never 
       → **0 fills**; shared desired fork.88 vs fork.89 byte-identical (1543 B, 0 `conn_mode`); with the egress plan:
       native payloads (21: 105 B, 55: 1303 B) and shared payloads identical; admin landing views only add `connModeFixed`;
       list latency unchanged (server/list p50 2.6 ms both).
-- [ ] R4 push, CI green, tag `3.0.27-fork.89`, release Latest with the same 10 assets
-- [ ] R5 prod: validated backup + rollback dir, upgrade `/opt/flvx-svc`, prune (keep 2)
-- [ ] R6 prod checks: version, health, nodes online, node address fields identical, migrations once, report-ip
-      `bad_token` gone, shared 「入站+出站」, admin / non-admin JWT reads, no user data changed
-- [ ] R7 OTA 21 (canary, SSH backup) then 55; Core PID / landing state / traffic checks; Core pin confirmed
-- [ ] R8 10-min numbers (CPU/RSS, DB size, log lines) vs fork.88
+- [x] R4 push, CI green, tag `3.0.27-fork.89`, release Latest with the same 10 assets — branch CI 40087128569 green
+      (backend, frontend, agent, PostgreSQL contract); tag → 00a968ab; Build and Push Images 40087239795 green; release
+      validation 14/14 (Latest, not prerelease, 10 assets = fork.88, compose + both scripts pinned to fork.89, gost sha256 ok,
+      `gost 3.0.27-fork.89`, ghcr backend/frontend amd64 + arm64).
+- [x] R5 prod (10-24 18:56 TW): rollback dir `/opt/flvx-svc/rollback/pre-fork89-20261024T105647Z` (DB quick_check +
+      integrity_check ok, local image tags, rollback.sh, no `--restore-db` needed); upgraded, healthy after 13 s; prune kept
+      pre-fork89 + pre-fork88 (pre-fork87 removed).
+- [x] R6 prod checks: version.json `3.0.27-fork.89-mvm9zerl` local + public; 30/30 online; every node address field,
+      DDNS records, tunnel / chain / forward-port addresses identical before/after (also after the agents' reports);
+      only add-only columns appeared (rule_carved / native_busy_ports '' on all 6 servers, port_moves 0 on all 4 nodes),
+      old columns identical except traffic counters; 2nd restart: schema + config identical, nothing re-ran; report-ip
+      29× `-> 200` per restart, **0 `bad_token`**, 0 fills; shared servers 2/3/4/6 `connModeFixed=true` (入站+出站),
+      native 1/5 selectable; @jiuwei view unchanged (no new fields), save 403, report-ip without / wrong secret 401;
+      landing views pre/post differ only in live counters + `connModeFixed`; server revisions 276/231/183/56/23/37 unchanged.
+- [x] R7 OTA (panel `node/upgrade`): node 21 canary (SSH backup `/root/flvxx-backup-20261024T110139Z-pre-fork89`) and
+      node 55, both back in 4 s on fork.89; Core not restarted (21 PID 1228701, exe = disk b01adef, not deleted; 55 node 97
+      epoch = 16:18:23 TW = the plan-129 confirmed restart), `core_stale_epoch` empty on both → no Core confirm needed;
+      diagnose 21: 27/27 → 27/27; real sing-box client 3/3 on nodes 10/95/97/105 before and after; no port-busy lines.
+- [x] R8 10-min numbers (window 19:05–19:15 TW, after the OTA): backend 33.5 MiB, CPU 4.0–5.4 % (3-min /proc average
+      4.3 %) vs fork.88 31.9 MiB / 2.4–3.6 % (fork.83–88 ranged ~2–7 %; no new periodic work); DB 57.22 MB (57.11 before);
+      11 log lines / 10 min (all reconnect records of the known flapping nodes 12/26/45/55) vs 13; `bad_token` 0 (was one per
+      reconnect); final check: config tables, node addresses, server revisions identical to the pre-upgrade backup except
+      traffic counters and the add-only columns.
+
+### Rollback
+- Panel: `bash /opt/flvx-svc/rollback/pre-fork89-20261024T105647Z/rollback.sh` (→ fork.88, no `--restore-db` needed);
+  further back `pre-fork88-20261024T090759Z` (→ fork.87).
+- Node 21: `ssh mmwx-s11 sh /root/flvxx-backup-20261024T110139Z-pre-fork89/restore-agent.sh` (→ fork.87, Core untouched).
+- Node 55 (no SSH): node console `systemctl stop flvxx && cp -a /etc/flvxx/flvxx.old /etc/flvxx/flvxx && systemctl start flvxx`.
