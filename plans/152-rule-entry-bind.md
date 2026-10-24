@@ -58,7 +58,7 @@ Branch: `feature/3.0.27-rule-entry-bind`. Build + screenshots only — no tag, n
 - [x] Prod-copy gates (picker union, no existing rule changes, timing/size) + netns E2E
 - [x] Prod-data script + undo + dry-run name gate per user
 - [x] Screenshots + gallery
-- [ ] Push, CI green, final.md / summary.md
+- [x] Push, CI green, final.md / summary.md (no tag, no release; prod data step = `runs/rule-entry-bind/prod-data/apply.py`, run by the release worker)
 
 ## Results (prod copy 10-25, netns, fork.92 binary vs this branch)
 - No existing rule changes: forward_port 36 rows identical (orig = fork.92 run = new run), 0 bound rules after migrate;
