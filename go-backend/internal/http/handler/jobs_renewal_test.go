@@ -18,7 +18,12 @@ func TestRunNodeRenewalCycleJob_AdvancesOverdueAnchorTimes(t *testing.T) {
 		_ = r.Close()
 	})
 
-	now := time.Date(2026, 3, 8, 12, 0, 0, 0, time.UTC)
+	// Renewal cycles are calendar months in the panel's local time zone
+	// (advanceByMonths uses time.Local; the container runs TZ=Asia/Shanghai).
+	// Build the clock in that same zone so the test also holds on hosts with
+	// DST (e.g. Europe/London: Nov→May crosses the BST switch, which shifted
+	// a UTC-built expectation by one hour).
+	now := time.Date(2026, 3, 8, 12, 0, 0, 0, time.Local)
 	nowMs := now.UnixMilli()
 
 	nodeID := int64(101)
@@ -51,5 +56,13 @@ func TestRunNodeRenewalCycleJob_AdvancesOverdueAnchorTimes(t *testing.T) {
 	expectedAnchor := now.AddDate(0, 2, 0).UnixMilli()
 	if !anchor.Valid || anchor.Int64 != expectedAnchor {
 		t.Fatalf("expected anchor %d (2026-05-08), got %d", expectedAnchor, anchor.Int64)
+	}
+
+	var untouched sql.NullInt64
+	if err := r.DB().Raw(`SELECT expiry_time FROM node WHERE id = ?`, nodeID).Row().Scan(&untouched); err != nil {
+		t.Fatalf("query no-cycle expiry_time: %v", err)
+	}
+	if untouched.Valid {
+		t.Fatalf("expected node without renewal cycle to keep NULL expiry, got %d", untouched.Int64)
 	}
 }

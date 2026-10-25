@@ -15,6 +15,7 @@ import (
 	"github.com/gorilla/websocket"
 
 	"go-backend/internal/auth"
+	"go-backend/internal/http/handler"
 	"go-backend/internal/http/response"
 	"go-backend/internal/security"
 	"go-backend/internal/store/repo"
@@ -469,6 +470,13 @@ func insertPeerShare(t *testing.T, r *repo.Repository, share *repo.PeerShare) in
 
 func importRemoteNodeForContract(t *testing.T, router http.Handler, adminToken, remoteURL, token string) {
 	t.Helper()
+	// The provider panel here is a loopback httptest server. Since a09a2027
+	// (2026-06-06) /federation/node/import rejects loopback/private remote
+	// URLs (SSRF guard, covered by TestNodeImportRejectsRestrictedRemoteURL);
+	// lift the guard for this request only via the flag that exists for it.
+	prevSafeCheck := handler.DisableSafeRemoteAddrCheckForTesting
+	handler.DisableSafeRemoteAddrCheckForTesting = true
+	defer func() { handler.DisableSafeRemoteAddrCheckForTesting = prevSafeCheck }()
 	body, err := json.Marshal(map[string]string{
 		"remoteUrl": remoteURL,
 		"token":     token,
@@ -509,6 +517,43 @@ func assertCount(t *testing.T, r *repo.Repository, query string, arg interface{}
 	}
 }
 
+// installMockNodePongWait and awaitMockNodeRegistered make a mock node usable
+// only once the panel has registered its WebSocket session. Dial returns as
+// soon as the upgrade response is written, but ws.Server.handleNode stores the
+// session and marks the node online after that, and only then starts the
+// read loop that answers pings. A request sent in that gap sees the node as
+// offline (forward create then skips the dispatch with 「节点不在线，已跳过下发」
+// and returns code 0 — the intermittent
+// TestForwardCreateRollbackWhenLimiterDispatchFailsContract failure). One
+// ping/pong round trip therefore proves the registration finished. Install
+// the pong handler before the read goroutine starts: gorilla runs it inside
+// ReadMessage.
+func installMockNodePongWait(conn *websocket.Conn) <-chan struct{} {
+	ponged := make(chan struct{}, 1)
+	conn.SetPongHandler(func(string) error {
+		select {
+		case ponged <- struct{}{}:
+		default:
+		}
+		return nil
+	})
+	return ponged
+}
+
+func awaitMockNodeRegistered(t *testing.T, conn *websocket.Conn, ponged <-chan struct{}, stop func()) {
+	t.Helper()
+	if err := conn.WriteControl(websocket.PingMessage, []byte("mock-node-ready"), time.Now().Add(2*time.Second)); err != nil {
+		stop()
+		t.Fatalf("ping mock node session: %v", err)
+	}
+	select {
+	case <-ponged:
+	case <-time.After(5 * time.Second):
+		stop()
+		t.Fatalf("panel did not register the mock node session within 5s")
+	}
+}
+
 func startMockNodeSession(t *testing.T, baseURL string, nodeSecret string) func() {
 	return startMockNodeSessionWithHook(t, baseURL, nodeSecret, nil)
 }
@@ -538,6 +583,7 @@ func startMockNodeSessionWithHook(t *testing.T, baseURL string, nodeSecret strin
 	if err != nil {
 		t.Fatalf("dial mock node websocket: %v", err)
 	}
+	ponged := installMockNodePongWait(conn)
 
 	var wg sync.WaitGroup
 	wg.Add(1)
@@ -601,12 +647,14 @@ func startMockNodeSessionWithHook(t *testing.T, baseURL string, nodeSecret strin
 	}()
 
 	var stopOnce sync.Once
-	return func() {
+	stop := func() {
 		stopOnce.Do(func() {
 			_ = conn.Close()
 			wg.Wait()
 		})
 	}
+	awaitMockNodeRegistered(t, conn, ponged, stop)
+	return stop
 }
 
 func waitNodeStatus(t *testing.T, r *repo.Repository, nodeID int64, expectedStatus int) {

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -261,7 +262,14 @@ func TestBackupExportImportRestoreContracts(t *testing.T) {
 		assertCodeMsg(t, resp, 403, "权限不足，仅管理员可操作")
 	})
 
-	t.Run("standard and duplicate export routes both work", func(t *testing.T) {
+	// Backup format since upstream 1b4e0c0e (2026-04-11, 「修改了很多小bug」):
+	// the UI's 全量导出 (types [], mode full/core) is a raw table dump, version
+	// "2.0", keyed by table name; /backup/import and /backup/restore only
+	// restore that format, adding rows that are missing (existing primary or
+	// unique keys are kept, nothing is deleted). Typed exports (types set,
+	// version "1.0") are still offered but are not importable; the same commit
+	// dropped the duplicate-prefix /api/v1/api/v1/backup/* routes.
+	t.Run("typed and full export routes work, duplicate prefix route removed", func(t *testing.T) {
 		payloadA := exportBackupPayload(t, router, "/api/v1/backup/export", adminToken)
 		if len(payloadA.Configs) == 0 {
 			t.Fatalf("expected exported configs, got none")
@@ -270,71 +278,52 @@ func TestBackupExportImportRestoreContracts(t *testing.T) {
 			t.Fatalf("expected %q in exported configs", key)
 		}
 
-		payloadB := exportBackupPayload(t, router, "/api/v1/api/v1/backup/export", adminToken)
-		if len(payloadB.Configs) == 0 {
-			t.Fatalf("expected exported configs from duplicate-prefix route, got none")
+		full := exportFullBackup(t, router, adminToken)
+		if full["version"] != "2.0" {
+			t.Fatalf("expected full backup version 2.0, got %v", full["version"])
 		}
-	})
-
-	t.Run("backup import applies exported data", func(t *testing.T) {
-		payload := exportBackupPayload(t, router, "/api/v1/backup/export", adminToken)
-		payload.Configs[key] = "v2"
-		raw, err := json.Marshal(backupImportPayload{Types: []string{"configs"}, backupExportPayload: payload})
-		if err != nil {
-			t.Fatalf("marshal import payload: %v", err)
+		if got := backupRowValue(t, full, "vite_config", "name", key, "value"); got != "v1" {
+			t.Fatalf("expected %q=v1 in full backup vite_config, got %q", key, got)
 		}
 
-		req := httptest.NewRequest(http.MethodPost, "/api/v1/backup/import", bytes.NewReader(raw))
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/api/v1/backup/export", bytes.NewBufferString(`{"types":["configs"]}`))
 		req.Header.Set("Authorization", adminToken)
 		req.Header.Set("Content-Type", "application/json")
 		resp := httptest.NewRecorder()
-
 		router.ServeHTTP(resp, req)
-		var out response.R
-		if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
-			t.Fatalf("decode import response: %v", err)
-		}
-		if out.Code != 0 {
-			t.Fatalf("expected import code 0, got %d (%s)", out.Code, out.Msg)
-		}
-
-		cfg, err := r.GetConfigByName(key)
-		if err != nil {
-			t.Fatalf("query imported config: %v", err)
-		}
-		if cfg == nil || cfg.Value != "v2" {
-			t.Fatalf("expected imported config value v2, got %+v", cfg)
+		if resp.Code != http.StatusNotFound {
+			t.Fatalf("expected removed duplicate-prefix export route to return 404, got %d", resp.Code)
 		}
 	})
 
-	t.Run("backup restore alias applies exported data", func(t *testing.T) {
+	t.Run("backup import restores missing rows from a full export", func(t *testing.T) {
+		assertBackupRestoresConfigRow(t, router, r, adminToken, "/api/v1/backup/import", key, "v2")
+	})
+
+	t.Run("backup restore alias restores missing rows from a full export", func(t *testing.T) {
+		assertBackupRestoresConfigRow(t, router, r, adminToken, "/api/v1/backup/restore", key, "v3")
+	})
+
+	t.Run("typed 1.x backup import is refused instead of reporting success", func(t *testing.T) {
 		payload := exportBackupPayload(t, router, "/api/v1/backup/export", adminToken)
-		payload.Configs[key] = "v3"
+		before, err := r.GetConfigByName(key)
+		if err != nil || before == nil {
+			t.Fatalf("query config before typed import: %+v %v", before, err)
+		}
+		payload.Configs[key] = "typed-should-not-apply"
 		raw, err := json.Marshal(backupImportPayload{Types: []string{"configs"}, backupExportPayload: payload})
 		if err != nil {
-			t.Fatalf("marshal restore payload: %v", err)
+			t.Fatalf("marshal typed import payload: %v", err)
 		}
-
-		req := httptest.NewRequest(http.MethodPost, "/api/v1/backup/restore", bytes.NewReader(raw))
-		req.Header.Set("Authorization", adminToken)
-		req.Header.Set("Content-Type", "application/json")
-		resp := httptest.NewRecorder()
-
-		router.ServeHTTP(resp, req)
-		var out response.R
-		if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
-			t.Fatalf("decode restore response: %v", err)
+		for _, path := range []string{"/api/v1/backup/import", "/api/v1/backup/restore"} {
+			out := postBackupImport(t, router, path, adminToken, raw)
+			if out.Code != -1 || !strings.Contains(out.Msg, "旧版（1.x）") {
+				t.Fatalf("expected %s to refuse a typed 1.x backup, got code=%d msg=%q", path, out.Code, out.Msg)
+			}
 		}
-		if out.Code != 0 {
-			t.Fatalf("expected restore code 0, got %d (%s)", out.Code, out.Msg)
-		}
-
-		cfg, err := r.GetConfigByName(key)
-		if err != nil {
-			t.Fatalf("query restored config: %v", err)
-		}
-		if cfg == nil || cfg.Value != "v3" {
-			t.Fatalf("expected restored config value v3, got %+v", cfg)
+		after, err := r.GetConfigByName(key)
+		if err != nil || after == nil || after.Value != before.Value {
+			t.Fatalf("typed import must not change %q: before %+v after %+v (%v)", key, before, after, err)
 		}
 	})
 
@@ -439,35 +428,36 @@ func TestBackupExportImportRestoreContracts(t *testing.T) {
 			}
 		}
 
+		// Restore from the full (raw) export: the forward's ports are gone and an
+		// unrelated row was added since; import puts the exported rows back and,
+		// being additive, keeps the newer row.
+		full := exportFullBackup(t, router, adminToken)
 		if err := r.DB().Exec(`DELETE FROM forward_port WHERE forward_id = ?`, forwardID).Error; err != nil {
 			t.Fatalf("clear forward_port before import: %v", err)
 		}
 		if err := r.DB().Exec(`INSERT INTO forward_port(forward_id, node_id, port) VALUES(?, ?, ?)`, forwardID, 9999, 39999).Error; err != nil {
-			t.Fatalf("seed wrong forward_port before import: %v", err)
+			t.Fatalf("seed newer forward_port before import: %v", err)
 		}
 
-		payload["types"] = []string{"forwards"}
-		importBody, err := json.Marshal(payload)
+		importBody, err := json.Marshal(map[string]interface{}{
+			"version":      full["version"],
+			"exported_at":  full["exported_at"],
+			"types":        []string{"forward_port"},
+			"forward_port": full["forward_port"],
+		})
 		if err != nil {
 			t.Fatalf("marshal forwards import payload: %v", err)
 		}
-
-		importReq := httptest.NewRequest(http.MethodPost, "/api/v1/backup/import", bytes.NewReader(importBody))
-		importReq.Header.Set("Authorization", adminToken)
-		importReq.Header.Set("Content-Type", "application/json")
-		importResp := httptest.NewRecorder()
-		router.ServeHTTP(importResp, importReq)
-
-		var out response.R
-		if err := json.NewDecoder(importResp.Body).Decode(&out); err != nil {
-			t.Fatalf("decode forwards import response: %v", err)
-		}
+		out := postBackupImport(t, router, "/api/v1/backup/import", adminToken, importBody)
 		if out.Code != 0 {
 			t.Fatalf("expected forwards import code 0, got %d (%s)", out.Code, out.Msg)
 		}
+		if counts, _ := out.Data.(map[string]interface{}); counts == nil || counts["forward_port"] != float64(len(expected)) {
+			t.Fatalf("expected %d restored forward_port rows in import result, got %v", len(expected), out.Data)
+		}
 
 		after := mustQueryNodePorts(t, r, `SELECT node_id, port FROM forward_port WHERE forward_id = ? ORDER BY id ASC`, forwardID)
-
+		expected[9999] = 39999
 		if len(after) != len(expected) {
 			t.Fatalf("expected %d forward ports after import, got %d (%v)", len(expected), len(after), after)
 		}
@@ -594,6 +584,92 @@ func exportBackupPayload(t *testing.T, router http.Handler, path, token string) 
 	return payload
 }
 
+// exportFullBackup returns the UI's 全量导出 payload (raw tables, version 2.0).
+func exportFullBackup(t *testing.T, router http.Handler, token string) map[string]interface{} {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/backup/export", bytes.NewBufferString(`{"types":[],"mode":"full"}`))
+	req.Header.Set("Authorization", token)
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected full export status 200, got %d", resp.Code)
+	}
+	var payload map[string]interface{}
+	if err := json.Unmarshal(resp.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode full backup: %v", err)
+	}
+	return payload
+}
+
+// backupRowValue finds the row of table whose matchCol equals matchVal in a
+// full backup and returns its col value ("" when absent).
+func backupRowValue(t *testing.T, backup map[string]interface{}, table, matchCol, matchVal, col string) string {
+	t.Helper()
+	rows, _ := backup[table].([]interface{})
+	for _, item := range rows {
+		row, _ := item.(map[string]interface{})
+		if row != nil && fmt.Sprint(row[matchCol]) == matchVal {
+			return fmt.Sprint(row[col])
+		}
+	}
+	return ""
+}
+
+func postBackupImport(t *testing.T, router http.Handler, path, token string, body []byte) response.R {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodPost, path, bytes.NewReader(body))
+	req.Header.Set("Authorization", token)
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+	var out response.R
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		t.Fatalf("decode %s response: %v", path, err)
+	}
+	return out
+}
+
+// assertBackupRestoresConfigRow sets key=value, takes a full export, deletes
+// the row and imports the vite_config table back through path: exactly that
+// row must be restored with the exported value (the others already exist).
+func assertBackupRestoresConfigRow(t *testing.T, router http.Handler, r *repo.Repository, token, path, key, value string) {
+	t.Helper()
+	if err := r.DB().Exec(`UPDATE vite_config SET value = ? WHERE name = ?`, value, key).Error; err != nil {
+		t.Fatalf("set config before export: %v", err)
+	}
+	full := exportFullBackup(t, router, token)
+	if got := backupRowValue(t, full, "vite_config", "name", key, "value"); got != value {
+		t.Fatalf("expected %q=%s in full backup, got %q", key, value, got)
+	}
+	if err := r.DB().Exec(`DELETE FROM vite_config WHERE name = ?`, key).Error; err != nil {
+		t.Fatalf("delete config before import: %v", err)
+	}
+	raw, err := json.Marshal(map[string]interface{}{
+		"version":     full["version"],
+		"exported_at": full["exported_at"],
+		"types":       []string{"vite_config"},
+		"vite_config": full["vite_config"],
+	})
+	if err != nil {
+		t.Fatalf("marshal import payload: %v", err)
+	}
+	out := postBackupImport(t, router, path, token, raw)
+	if out.Code != 0 {
+		t.Fatalf("expected %s code 0, got %d (%s)", path, out.Code, out.Msg)
+	}
+	if counts, _ := out.Data.(map[string]interface{}); counts == nil || counts["vite_config"] != float64(1) {
+		t.Fatalf("expected exactly 1 restored vite_config row from %s, got %v", path, out.Data)
+	}
+	cfg, err := r.GetConfigByName(key)
+	if err != nil {
+		t.Fatalf("query restored config: %v", err)
+	}
+	if cfg == nil || cfg.Value != value {
+		t.Fatalf("expected restored config value %s, got %+v", value, cfg)
+	}
+}
+
 func setupContractRouter(t *testing.T, jwtSecret string) (http.Handler, *repo.Repository) {
 	t.Helper()
 	dbPath := filepath.Join(t.TempDir(), "contract.db")
@@ -609,6 +685,13 @@ func setupContractRouter(t *testing.T, jwtSecret string) (http.Handler, *repo.Re
 	return httpserver.NewRouter(h, jwtSecret, r), r
 }
 
+// The legacy tables below are written the way the old schema.sql files were
+// (springboot-backend and go-backend/internal/store/sqlite/sql, both removed):
+// two-space indented columns. They used to be indented with Go's tabs, which
+// no released schema ever had and which the glebarez/sqlite DDL parser treats
+// as quote characters (sqliteSeparator includes \t): its AlterColumn rebuild
+// then copied only half the columns into node__temp and failed with
+// "NOT NULL constraint failed: node__temp.name".
 func TestOpenMigratesLegacyNodeDualStackColumns(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "legacy-2.0.7-beta.db")
 	legacyDB, err := sql.Open("sqlite", dbPath)
@@ -621,40 +704,40 @@ func TestOpenMigratesLegacyNodeDualStackColumns(t *testing.T) {
 	})
 
 	if _, err := legacyDB.Exec(`
-		CREATE TABLE IF NOT EXISTS node (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			name VARCHAR(100) NOT NULL,
-			secret VARCHAR(100) NOT NULL,
-			server_ip VARCHAR(100) NOT NULL,
-			port TEXT NOT NULL,
-			interface_name VARCHAR(200),
-			version VARCHAR(100),
-			http INTEGER NOT NULL DEFAULT 0,
-			tls INTEGER NOT NULL DEFAULT 0,
-			socks INTEGER NOT NULL DEFAULT 0,
-			created_time INTEGER NOT NULL,
-			updated_time INTEGER,
-			status INTEGER NOT NULL,
-			tcp_listen_addr VARCHAR(100) NOT NULL DEFAULT '[::]',
-			udp_listen_addr VARCHAR(100) NOT NULL DEFAULT '[::]'
-		)
+CREATE TABLE IF NOT EXISTS node (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name VARCHAR(100) NOT NULL,
+  secret VARCHAR(100) NOT NULL,
+  server_ip VARCHAR(100) NOT NULL,
+  port TEXT NOT NULL,
+  interface_name VARCHAR(200),
+  version VARCHAR(100),
+  http INTEGER NOT NULL DEFAULT 0,
+  tls INTEGER NOT NULL DEFAULT 0,
+  socks INTEGER NOT NULL DEFAULT 0,
+  created_time INTEGER NOT NULL,
+  updated_time INTEGER,
+  status INTEGER NOT NULL,
+  tcp_listen_addr VARCHAR(100) NOT NULL DEFAULT '[::]',
+  udp_listen_addr VARCHAR(100) NOT NULL DEFAULT '[::]'
+)
 	`); err != nil {
 		t.Fatalf("create legacy node table: %v", err)
 	}
 
 	if _, err := legacyDB.Exec(`
-		CREATE TABLE IF NOT EXISTS tunnel (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			name VARCHAR(100) NOT NULL,
-			traffic_ratio REAL NOT NULL DEFAULT 1.0,
-			type INTEGER NOT NULL,
-			protocol VARCHAR(10) NOT NULL DEFAULT 'tls',
-			flow INTEGER NOT NULL,
-			created_time INTEGER NOT NULL,
-			updated_time INTEGER NOT NULL,
-			status INTEGER NOT NULL,
-			in_ip TEXT
-		)
+CREATE TABLE IF NOT EXISTS tunnel (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name VARCHAR(100) NOT NULL,
+  traffic_ratio REAL NOT NULL DEFAULT 1.0,
+  type INTEGER NOT NULL,
+  protocol VARCHAR(10) NOT NULL DEFAULT 'tls',
+  flow INTEGER NOT NULL,
+  created_time INTEGER NOT NULL,
+  updated_time INTEGER NOT NULL,
+  status INTEGER NOT NULL,
+  in_ip TEXT
+)
 	`); err != nil {
 		t.Fatalf("create legacy tunnel table: %v", err)
 	}
@@ -682,6 +765,7 @@ func TestOpenMigratesLegacyNodeDualStackColumns(t *testing.T) {
 	if len(nodes) != 1 {
 		t.Fatalf("expected 1 node after migration, got %d", len(nodes))
 	}
+	assertLegacyNodeRowSurvived(t, r)
 
 	columns := readTableColumns(t, r.DB(), "node")
 
@@ -711,38 +795,38 @@ func TestOpenMigratesVeryLegacyNodeAndTunnelColumns(t *testing.T) {
 	})
 
 	if _, err := legacyDB.Exec(`
-		CREATE TABLE IF NOT EXISTS node (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			name VARCHAR(100) NOT NULL,
-			secret VARCHAR(100) NOT NULL,
-			server_ip VARCHAR(100) NOT NULL,
-			port TEXT NOT NULL,
-			interface_name VARCHAR(200),
-			version VARCHAR(100),
-			http INTEGER NOT NULL DEFAULT 0,
-			tls INTEGER NOT NULL DEFAULT 0,
-			socks INTEGER NOT NULL DEFAULT 0,
-			created_time INTEGER NOT NULL,
-			updated_time INTEGER,
-			status INTEGER NOT NULL
-		)
+CREATE TABLE IF NOT EXISTS node (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name VARCHAR(100) NOT NULL,
+  secret VARCHAR(100) NOT NULL,
+  server_ip VARCHAR(100) NOT NULL,
+  port TEXT NOT NULL,
+  interface_name VARCHAR(200),
+  version VARCHAR(100),
+  http INTEGER NOT NULL DEFAULT 0,
+  tls INTEGER NOT NULL DEFAULT 0,
+  socks INTEGER NOT NULL DEFAULT 0,
+  created_time INTEGER NOT NULL,
+  updated_time INTEGER,
+  status INTEGER NOT NULL
+)
 	`); err != nil {
 		t.Fatalf("create very legacy node table: %v", err)
 	}
 
 	if _, err := legacyDB.Exec(`
-		CREATE TABLE IF NOT EXISTS tunnel (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			name VARCHAR(100) NOT NULL,
-			traffic_ratio REAL NOT NULL DEFAULT 1.0,
-			type INTEGER NOT NULL,
-			protocol VARCHAR(10) NOT NULL DEFAULT 'tls',
-			flow INTEGER NOT NULL,
-			created_time INTEGER NOT NULL,
-			updated_time INTEGER NOT NULL,
-			status INTEGER NOT NULL,
-			in_ip TEXT
-		)
+CREATE TABLE IF NOT EXISTS tunnel (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name VARCHAR(100) NOT NULL,
+  traffic_ratio REAL NOT NULL DEFAULT 1.0,
+  type INTEGER NOT NULL,
+  protocol VARCHAR(10) NOT NULL DEFAULT 'tls',
+  flow INTEGER NOT NULL,
+  created_time INTEGER NOT NULL,
+  updated_time INTEGER NOT NULL,
+  status INTEGER NOT NULL,
+  in_ip TEXT
+)
 	`); err != nil {
 		t.Fatalf("create very legacy tunnel table: %v", err)
 	}
@@ -762,6 +846,8 @@ func TestOpenMigratesVeryLegacyNodeAndTunnelColumns(t *testing.T) {
 	t.Cleanup(func() {
 		_ = r.Close()
 	})
+
+	assertLegacyNodeRowSurvived(t, r)
 
 	columns := readTableColumns(t, r.DB(), "node")
 	for _, required := range []string{
@@ -786,6 +872,32 @@ func TestOpenMigratesVeryLegacyNodeAndTunnelColumns(t *testing.T) {
 		if !tunnelColumns[required] {
 			t.Fatalf("expected tunnel column %q to exist after migration", required)
 		}
+	}
+}
+
+// assertLegacyNodeRowSurvived checks that the seeded legacy node keeps its
+// data through the migration (no column lost in a table rebuild).
+func assertLegacyNodeRowSurvived(t *testing.T, r *repo.Repository) {
+	t.Helper()
+	var row struct {
+		Name          string
+		Secret        string
+		ServerIP      string
+		Port          string
+		InterfaceName string
+		Version       string
+		HTTP          int
+		Socks         int
+		Status        int
+	}
+	if err := r.DB().Raw(`SELECT name, secret, server_ip, port, interface_name, version, http, socks, status FROM node`).Row().
+		Scan(&row.Name, &row.Secret, &row.ServerIP, &row.Port, &row.InterfaceName, &row.Version, &row.HTTP, &row.Socks, &row.Status); err != nil {
+		t.Fatalf("read migrated legacy node: %v", err)
+	}
+	want := "legacy-node legacy-secret 10.10.0.1 10000-10010 eth0 v-old 1 1 1"
+	got := fmt.Sprintf("%s %s %s %s %s %s %d %d %d", row.Name, row.Secret, row.ServerIP, row.Port, row.InterfaceName, row.Version, row.HTTP, row.Socks, row.Status)
+	if got != want {
+		t.Fatalf("legacy node row changed by migration: got %q, want %q", got, want)
 	}
 }
 

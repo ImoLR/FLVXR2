@@ -273,11 +273,22 @@ func TestBuildFederationServiceConfig_TLSTunnelProtocol_SetsNodelay(t *testing.T
 	}
 }
 
-func TestBuildFederationServiceConfig_NonTLSProtocol_NoNodelay(t *testing.T) {
+// Since upstream 2a0752f6 (2026-04-21) every relay handler gets nodelay and a
+// 5 s UDP TTL, not only TLS ones (same as buildTunnelChainServiceConfig), so
+// connection errors surface at once and middle-hop failover works for tcp too.
+func TestBuildFederationServiceConfig_NonTLSProtocol_AlsoSetsNodelay(t *testing.T) {
 	service := buildFederationServiceConfig("svc-tcp", ":40000", "tcp", "middle", "chain-next", 2, "")
 	handler := service["handler"].(map[string]interface{})
-	if _, hasMeta := handler["metadata"]; hasMeta {
-		t.Fatalf("expected no metadata for non-TLS protocol, got %v", handler["metadata"])
+	meta, ok := handler["metadata"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected handler metadata for non-TLS protocol, got %v", handler["metadata"])
+	}
+	if meta["nodelay"] != true || meta["udpTTL"] != "5s" || len(meta) != 2 {
+		t.Fatalf("expected metadata {nodelay:true udpTTL:5s} for non-TLS protocol, got %v", meta)
+	}
+	listener := service["listener"].(map[string]interface{})
+	if listener["type"] != "tcp" {
+		t.Fatalf("expected listener type tcp, got %v", listener["type"])
 	}
 }
 

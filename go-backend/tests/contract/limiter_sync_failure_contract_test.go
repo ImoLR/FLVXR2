@@ -591,10 +591,14 @@ func TestTunnelUpdateRecoversFromAddressInUseContract(t *testing.T) {
 	var commandMu sync.Mutex
 	commandCounts := map[string]int{}
 	var addServiceAddrs []string
+	var entryChainPayloads []string
 	stopEntry := startMockNodeSessionWithCommandRecorder(t, server.URL, "tunnel-bind-entry-secret", func(cmdType string, data json.RawMessage) (bool, string) {
 		commandMu.Lock()
 		defer commandMu.Unlock()
 		commandCounts["entry:"+strings.ToLower(strings.TrimSpace(cmdType))]++
+		if strings.EqualFold(strings.TrimSpace(cmdType), "AddChains") {
+			entryChainPayloads = append(entryChainPayloads, string(data))
+		}
 		return false, ""
 	})
 	defer stopEntry()
@@ -615,7 +619,7 @@ func TestTunnelUpdateRecoversFromAddressInUseContract(t *testing.T) {
 		}
 		commandMu.Unlock()
 		if strings.EqualFold(strings.TrimSpace(cmdType), "AddService") && attempt == 1 {
-			return true, "listen tcp 10.41.0.99:43101: bind: address already in use"
+			return true, "listen tcp 10.41.0.9:43101: bind: address already in use"
 		}
 		return false, ""
 	})
@@ -660,10 +664,26 @@ func TestTunnelUpdateRecoversFromAddressInUseContract(t *testing.T) {
 	if len(addServiceAddrs) < 2 {
 		t.Fatalf("expected recorded AddService addresses, got %v", addServiceAddrs)
 	}
+	// Since upstream 2a0752f6 (2026-04-21) a tunnel hop listens on its node's
+	// tcp_listen_addr; connectIp is only the address the previous hop dials
+	// (it may be a NAT/public IP the exit cannot bind). Both retries must keep
+	// the same listen address, and the entry must still dial the connectIp.
 	for _, addr := range addServiceAddrs {
-		if addr != "10.41.0.99:43101" {
-			t.Fatalf("expected connectIp to stay preferred in AddService addr, got %q", addr)
+		if addr != "10.41.0.9:43101" {
+			t.Fatalf("expected exit AddService to listen on tcp_listen_addr 10.41.0.9:43101, got %q", addr)
 		}
+	}
+	dialsConnectIP := false
+	for _, payload := range entryChainPayloads {
+		if strings.Contains(payload, "10.41.0.99:43101") {
+			dialsConnectIP = true
+		}
+		if strings.Contains(payload, "10.41.0.9:43101") || strings.Contains(payload, "10.41.0.2:43101") {
+			t.Fatalf("expected entry chain to dial connectIp 10.41.0.99:43101 only, got %s", payload)
+		}
+	}
+	if !dialsConnectIP {
+		t.Fatalf("expected entry AddChains to dial connectIp 10.41.0.99:43101, got %v", entryChainPayloads)
 	}
 }
 
@@ -1108,6 +1128,7 @@ func startMockNodeSessionWithCommandFailures(t *testing.T, baseURL string, nodeS
 	if err != nil {
 		t.Fatalf("dial mock node websocket: %v", err)
 	}
+	ponged := installMockNodePongWait(conn)
 
 	var wg sync.WaitGroup
 	wg.Add(1)
@@ -1170,12 +1191,14 @@ func startMockNodeSessionWithCommandFailures(t *testing.T, baseURL string, nodeS
 	}()
 
 	var stopOnce sync.Once
-	return func() {
+	stop := func() {
 		stopOnce.Do(func() {
 			_ = conn.Close()
 			wg.Wait()
 		})
 	}
+	awaitMockNodeRegistered(t, conn, ponged, stop)
+	return stop
 }
 
 func startMockNodeSessionWithCommandRecorder(t *testing.T, baseURL string, nodeSecret string, onCommand func(cmdType string, data json.RawMessage) (bool, string)) func() {
@@ -1204,6 +1227,7 @@ func startMockNodeSessionWithCommandRecorder(t *testing.T, baseURL string, nodeS
 	if err != nil {
 		t.Fatalf("dial mock node websocket: %v", err)
 	}
+	ponged := installMockNodePongWait(conn)
 
 	var wg sync.WaitGroup
 	wg.Add(1)
@@ -1270,12 +1294,14 @@ func startMockNodeSessionWithCommandRecorder(t *testing.T, baseURL string, nodeS
 	}()
 
 	var stopOnce sync.Once
-	return func() {
+	stop := func() {
 		stopOnce.Do(func() {
 			_ = conn.Close()
 			wg.Wait()
 		})
 	}
+	awaitMockNodeRegistered(t, conn, ponged, stop)
+	return stop
 }
 
 func sortedCommandCounts(counts map[string]int) []string {

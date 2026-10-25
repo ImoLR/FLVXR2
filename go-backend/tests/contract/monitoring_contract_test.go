@@ -706,7 +706,10 @@ func TestServiceMonitorResults(t *testing.T) {
 		}
 	})
 
-	t.Run("query results for non-existent monitor returns empty", func(t *testing.T) {
+	// Since upstream bdbbd689 (2026-05-25, per-node monitor permissions) the
+	// results endpoint loads the monitor first and answers 监控不存在 for an
+	// unknown id, like the update and run endpoints do.
+	t.Run("query results for non-existent monitor returns not found", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/api/v1/monitor/services/99999/results", nil)
 		req.Header.Set("Authorization", adminToken)
 		res := httptest.NewRecorder()
@@ -716,15 +719,11 @@ func TestServiceMonitorResults(t *testing.T) {
 		if err := json.NewDecoder(res.Body).Decode(&out); err != nil {
 			t.Fatalf("decode response: %v", err)
 		}
-		if out.Code != 0 {
-			t.Fatalf("expected code 0, got %d: %s", out.Code, out.Msg)
+		if out.Code != -1 || out.Msg != "监控不存在" {
+			t.Fatalf("expected code -1 监控不存在, got %d: %s", out.Code, out.Msg)
 		}
-		results, ok := out.Data.([]interface{})
-		if !ok {
-			t.Fatalf("expected array, got %T", out.Data)
-		}
-		if len(results) != 0 {
-			t.Fatalf("expected 0 results for non-existent monitor, got %d", len(results))
+		if out.Data != nil {
+			t.Fatalf("expected no results data for non-existent monitor, got %v", out.Data)
 		}
 	})
 
