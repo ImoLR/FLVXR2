@@ -2093,15 +2093,22 @@ func (h *Handler) backupImport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	autoBackup, err := h.repo.ExportAll("full")
-	if err != nil {
-		response.WriteJSON(w, response.Err(-2, fmt.Sprintf("导入前自动备份失败：%v", err)))
-		return
-	}
-
 	version, ok := rawJSON["version"].(string)
 	if !ok || version == "" {
 		response.WriteJSON(w, response.Err(500, "备份数据格式错误"))
+		return
+	}
+	// Typed 1.x backups (ExportPartial, and full exports from before upstream
+	// 1b4e0c0e) use keys like "users"/"configs" that ImportRaw cannot map to
+	// tables: they used to "import" nothing and still report success.
+	if isTypedBackupVersion(version) {
+		response.WriteJSON(w, response.ErrDefault("这是旧版（1.x）按类型导出的备份，无法导入；当前只支持全量导出的 2.0 备份，请重新导出后再导入"))
+		return
+	}
+
+	autoBackup, err := h.repo.ExportAll("full")
+	if err != nil {
+		response.WriteJSON(w, response.Err(-2, fmt.Sprintf("导入前自动备份失败：%v", err)))
 		return
 	}
 
@@ -2146,6 +2153,13 @@ func (h *Handler) backupImport(w http.ResponseWriter, r *http.Request) {
 
 	resultMap["auto_backup"] = autoBackup
 	response.WriteJSON(w, response.OK(resultMap))
+}
+
+// isTypedBackupVersion reports a typed (per-type, version 1.x) backup payload;
+// /backup/import only restores the raw table dump (version 2.0, ExportAll).
+func isTypedBackupVersion(version string) bool {
+	v := strings.TrimSpace(version)
+	return v == "1" || strings.HasPrefix(v, "1.")
 }
 
 func (h *Handler) getAnnouncement(w http.ResponseWriter, r *http.Request) {
