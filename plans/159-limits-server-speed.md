@@ -89,12 +89,12 @@ Contract for the mmwx side: `/root/flvx-workers/contracts/landing-user-limits-v1
 - [x] Agent: handshake capability, composite listener limiter, tests (shared bucket across services)
 - [x] Shared: contract §7 + FLVX side (capability v2, `max_rate_mbps`), fake-Custom test
 - [x] Frontend: row 速率 column, user default field + legacy note, 限速规则 bindings cleanup, labels; tsc/build/lint
-- [ ] Full `go test ./...` SQLite + PostgreSQL; go-gost / go-gost/x tests
+- [x] Full `go test ./...` SQLite + PostgreSQL; go-gost / go-gost/x tests
 - [x] E2E lab: panel + real agent (netns), two rules sharing a 50 Mbps row (throughput), old-agent fallback
 - [x] Resource numbers (agent CPU at full rate before/after, backend RSS/CPU)
 - [x] Screens 390 + 1440, light + dark → `/root/mmwx-preview/limits-server-speed/`
-- [ ] Push branch, CI green
-- [ ] Summary → `/root/flvx-workers/runs/limits-server-speed/summary.md`
+- [x] Push branch, CI green
+- [x] Summary → `/root/flvx-workers/runs/limits-server-speed/summary.md`
 
 ## Results
 
@@ -107,3 +107,8 @@ Contract for the mmwx side: `/root/flvx-workers/contracts/landing-user-limits-v1
   limiter 1.00–1.04 (= any existing rule limiter), rule + user limiter together 1.11. At 50 Mbps shared: base 6.0–6.6 %,
   new 5.3–6.2 %. Agent RSS 48–55 MB both. Panel idle (fresh, 60 s): fork.94 0.20 % / 35.1 MB, 159 0.20 % / 34.7 MB.
 - Screens: `/root/mmwx-preview/limits-server-speed/` (20 shots, 36/36 checks, 0 page errors).
+- Tests: go-backend `go test ./...` SQLite 19/19 and PostgreSQL 19/19 packages ok (new: repo rate/orphan/revoke
+  tests on both dialects, handler push/reconnect/fallback/config-report tests, shared v2 contract test on both);
+  go-gost/x 19/19 (new: shared bucket across services, combine), go-gost 1/1; frontend tsc 0, build ok, eslint no
+  new findings in the 6 touched files; CI (backend, PG contract, frontend, agent) green on every push.
+- Measuring tool: `lab/bin/tput` (iperf3 is not installed on this host; nothing was installed).
