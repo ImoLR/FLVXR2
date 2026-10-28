@@ -1098,6 +1098,7 @@ func (r *Repository) ListNodes(opts *ListNodesOptions) ([]map[string]interface{}
 			"region":       n.Region,
 			"regionCity":   n.RegionCity,
 			"entryAlias":   n.EntryAlias,
+			"adminNotice":  n.AdminNotice, // admins only: node/list strips it for other roles (plan 154)
 			"remark":       nullableString(n.Remark),
 			"expiryTime":   nullableInt64(n.ExpiryTime),
 			"renewalCycle": nullableString(n.RenewalCycle),

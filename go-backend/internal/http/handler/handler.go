@@ -841,6 +841,7 @@ func (h *Handler) nodeList(w http.ResponseWriter, r *http.Request) {
 			delete(item, "leikwanStatus")
 			delete(item, "leikwanForwards")
 			delete(item, "leikwanCheckedAt")
+			delete(item, "adminNotice")
 		}
 	}
 

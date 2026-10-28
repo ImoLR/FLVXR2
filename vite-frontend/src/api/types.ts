@@ -21,6 +21,7 @@ export interface NodeApiItem extends LeiKwanNodeDetection {
   ipv6RaStatus?: "" | "ok" | "warn" | "error";
   ipv6RaDetail?: string;
   ipv6RaCheckedAt?: number;
+  adminNotice?: string; // 节点提示, admins only (plan 154)
   id: number;
   name: string;
   status: number;

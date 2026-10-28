@@ -11,6 +11,7 @@ import { regionLabel } from "@/utils/region";
 
 import { getConnectionStatusMeta } from "./display";
 import { NodeIPv6RABadge } from "./ipv6-ra-badge";
+import { NodeAdminNoticeBadge } from "./admin-notice-badge";
 import { NodeLeiKwanBadge } from "./leikwan-badge";
 import { NodeDDNSBadge } from "./ddns-badge";
 import { MachineConnChip } from "./machine-conn";
@@ -58,6 +59,7 @@ interface Node extends LeiKwanNodeDetection {
   intranetIp?: string;
   serverIpV4?: string;
   serverIpV6?: string;
+  adminNotice?: string;
   ipv6RaStatus?: "" | "ok" | "warn" | "error";
   ipv6RaDetail?: string;
   ipv6RaCheckedAt?: number;
@@ -302,6 +304,7 @@ function SortableTableRow({
           >
             {node.name}
           </span>
+          <NodeAdminNoticeBadge notice={node.adminNotice} />
           <NodeIPv6RABadge node={node} />
               <NodeLeiKwanBadge node={node} />
               <NodeDDNSBadge ddns={(node as { ddns?: import("@/api/ddns").NodeDDNSView | null }).ddns} />

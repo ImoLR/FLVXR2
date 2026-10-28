@@ -791,6 +791,11 @@ func (h *Handler) nodeCreate(w http.ResponseWriter, r *http.Request) {
 		response.WriteJSON(w, response.ErrDefault(err.Error()))
 		return
 	}
+	adminNotice, err := normalizeNodeAdminNotice(req["adminNotice"])
+	if err != nil {
+		response.WriteJSON(w, response.ErrDefault(err.Error()))
+		return
+	}
 
 	var groupID interface{}
 	if _, ok := req["groupId"]; ok {
@@ -863,6 +868,14 @@ func (h *Handler) nodeCreate(w http.ResponseWriter, r *http.Request) {
 	if entryAlias != "" {
 		if created, err := h.repo.GetNodeBySecret(secret); err == nil && created != nil {
 			if err := h.repo.SetNodeEntryAlias(created.ID, entryAlias); err != nil {
+				response.WriteJSON(w, response.Err(-2, err.Error()))
+				return
+			}
+		}
+	}
+	if adminNotice != "" {
+		if created, err := h.repo.GetNodeBySecret(secret); err == nil && created != nil {
+			if err := h.repo.SetNodeAdminNotice(created.ID, adminNotice); err != nil {
 				response.WriteJSON(w, response.Err(-2, err.Error()))
 				return
 			}
@@ -994,6 +1007,15 @@ func (h *Handler) nodeUpdate(w http.ResponseWriter, r *http.Request) {
 		}
 		entryAliasSet = entryAlias != oldNode.EntryAlias
 	}
+	// 节点提示 (plan 154): an absent key keeps the stored notice.
+	adminNotice, adminNoticeSet := oldNode.AdminNotice, false
+	if value, ok := req["adminNotice"]; ok {
+		if adminNotice, err = normalizeNodeAdminNotice(value); err != nil {
+			response.WriteJSON(w, response.ErrDefault(err.Error()))
+			return
+		}
+		adminNoticeSet = adminNotice != oldNode.AdminNotice
+	}
 	// 从 serverIp(serverIpV4/serverIpV6/intranetIp) 中选择第一个非空作为 serverIP
 	// 优先使用 serverIp（兼容旧 API），否则从 serverIpV4/serverIpV6/intranetIp 中选择
 	serverIP := asString(req["serverIp"])
@@ -1097,6 +1119,12 @@ func (h *Handler) nodeUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 	if entryAliasSet {
 		if err := h.repo.SetNodeEntryAlias(id, entryAlias); err != nil {
+			response.WriteJSON(w, response.Err(-2, err.Error()))
+			return
+		}
+	}
+	if adminNoticeSet {
+		if err := h.repo.SetNodeAdminNotice(id, adminNotice); err != nil {
 			response.WriteJSON(w, response.Err(-2, err.Error()))
 			return
 		}

@@ -30,6 +30,7 @@ import { CSS } from "@dnd-kit/utilities";
 import { NodeGroupManager } from "./node/node-group-manager";
 import { NodeDeployModal } from "./node/node-deploy-modal";
 import { NodeIPv6RABadge } from "./node/ipv6-ra-badge";
+import { NodeAdminNoticeBadge } from "./node/admin-notice-badge";
 import { NodeLeiKwanBadge } from "./node/leikwan-badge";
 import {
   MachineConnChip,
@@ -155,6 +156,7 @@ interface Node extends LeiKwanNodeDetection {
   region?: string;
   regionCity?: string;
   entryAlias?: string;
+  adminNotice?: string;
   id: number;
   inx?: number;
   name: string;
@@ -217,6 +219,7 @@ interface NodeForm extends MachineProtectForm {
   region: string;
   regionCity: string;
   entryAlias: string;
+  adminNotice: string;
   id: number | null;
   name: string;
   remark: string;
@@ -440,6 +443,7 @@ export default function NodePage() {
     region: "",
     regionCity: "",
     entryAlias: "",
+    adminNotice: "",
     expiryTime: 0,
     renewalCycle: "",
     groupId: null,
@@ -1184,6 +1188,9 @@ export default function NodePage() {
     } else if (form.entryAlias.includes("{入口}")) {
       newErrors.entryAlias = "入口显示名不能包含 {入口}";
     }
+    if (Array.from(form.adminNotice.trim()).length > 512) {
+      newErrors.adminNotice = "节点提示不能超过512个字符";
+    }
     const v4 = form.serverIpV4.trim();
     const v6 = form.serverIpV6.trim();
     const intranet = form.intranetIp.trim();
@@ -1240,6 +1247,7 @@ export default function NodePage() {
       region: node.region || "",
       regionCity: node.regionCity || "",
       entryAlias: node.entryAlias || "",
+      adminNotice: node.adminNotice || "",
       expiryTime: node.expiryTime || 0,
       renewalCycle: normalizeNodeRenewalCycle(node.renewalCycle),
       groupId: node.groupId || null,
@@ -1747,6 +1755,7 @@ export default function NodePage() {
         remark: form.remark.trim(),
         regionCity: form.regionCity.trim(),
         entryAlias: form.entryAlias.trim(),
+        adminNotice: form.adminNotice.trim(),
         expiryTime: form.expiryTime,
         renewalCycle: form.renewalCycle,
         groupId: form.groupId,
@@ -1818,6 +1827,7 @@ export default function NodePage() {
                     region: form.region,
                     regionCity: form.regionCity.trim(),
                     entryAlias: form.entryAlias.trim(),
+                    adminNotice: form.adminNotice.trim(),
                     expiryTime: form.expiryTime,
                     renewalCycle: form.renewalCycle,
                     groupId: form.groupId,
@@ -1874,6 +1884,7 @@ export default function NodePage() {
       region: "",
       regionCity: "",
       entryAlias: "",
+      adminNotice: "",
       expiryTime: 0,
       renewalCycle: "",
       groupId: null,
@@ -2324,6 +2335,16 @@ export default function NodePage() {
               >
                 {node.name}
               </h3>
+              <NodeAdminNoticeBadge
+                compact={
+                  ["ok", "warn", "error"].includes(node.ipv6RaStatus || "") ||
+                  node.leikwanStatus === "running" ||
+                  node.leikwanStatus === "present" ||
+                  Boolean(node.ddns?.enabled && node.ddns.status) ||
+                  Boolean(node.lineMachine)
+                }
+                notice={node.adminNotice}
+              />
               <NodeIPv6RABadge node={node} />
               <NodeLeiKwanBadge node={node} />
               <NodeDDNSBadge ddns={node.ddns} />
@@ -3326,6 +3347,25 @@ export default function NodePage() {
                   }
                 />
               </div>
+              {/* 节点提示 (plan 154): admin-only ⚠ on the node card. */}
+              <Textarea
+                data-testid="node-admin-notice"
+                description="填写后节点卡片上显示 ⚠ 提示，留空则不显示"
+                errorMessage={errors.adminNotice}
+                isInvalid={!!errors.adminNotice}
+                label="节点提示（可选）"
+                maxLength={512}
+                minRows={2}
+                placeholder="例如：已关闭本机 IPv6 RA 自动路由，原因与恢复方法……"
+                value={form.adminNotice}
+                variant="bordered"
+                onChange={(event) =>
+                  setForm((prev) => ({
+                    ...prev,
+                    adminNotice: event.target.value,
+                  }))
+                }
+              />
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Select
