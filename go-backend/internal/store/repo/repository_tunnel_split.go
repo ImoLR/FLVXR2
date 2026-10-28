@@ -354,7 +354,7 @@ func (r *Repository) ApplyTunnelEntryMergeTx(tx *gorm.DB, tunnelID, twinID int64
 	back := model.ChainTunnel{
 		TunnelID: tunnelID, ChainType: "1", NodeID: nodeID,
 		Strategy: row.Strategy, Inx: sql.NullInt64{Int64: maxInx + 1, Valid: true},
-		Protocol: row.Protocol, ConnectIP: sql.NullString{String: "", Valid: true}, ConnectIPType: row.ConnectIPType,
+		Protocol: row.Protocol, ConnectIP: row.ConnectIP, ConnectIPType: row.ConnectIPType,
 	}
 	if err := tx.Create(&back).Error; err != nil {
 		return nil, err
