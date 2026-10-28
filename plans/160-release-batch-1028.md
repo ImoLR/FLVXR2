@@ -13,8 +13,10 @@ needed (no newer maintenance branch). Branch `maintenance/3.0.27-fork.94-batch-1
 
 ## Checklist
 - [x] Read finals of 151/154/155/156 (all finished, tests green, CI green) — go/no-go: GO, all four ship
-- [ ] Gates on the release branch: `go build ./...`, full `go test ./...` SQLite + PostgreSQL, frontend tsc / build / lint
-- [ ] Screenshot gate: galleries of 154 / 155 / 156 reviewed; defects fixed on this branch (if any)
+- [x] Gates on the release branch: `go build ./...` + vet OK, full `go test ./...` SQLite 19/19 + PostgreSQL 19/19 packages,
+      0 failures; frontend tsc 0 errors, build OK (main JS 3.0 MB), eslint 96 errors = fork.93 base 96 (no new); branch CI green
+- [x] Screenshot gate: galleries of 154 / 155 / 156 reviewed — no defect to fix. Note for the user: the 12 vmsilo twins inherit
+      the tunnel-page folder 「Mkcloud 沪日ixp 440」 (admin-only label; user decides whether to move them to a new folder)
 - [x] Fresh prod DB copy: new binary starts (migration add-only), 155 split dry-run + apply/undo rehearsal, 154 notice rehearsal
       (10-28 ~17:55 TW copy, release binary, netns panel + 30 fake agents: split 37/37 checks, node 23 0 pushes, users
       byte-identical; undo 26/26 identical; notice → 0 pushes, tunnel/forward tables identical)
