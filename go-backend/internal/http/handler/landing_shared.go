@@ -30,11 +30,16 @@ type sharedLandingState struct {
 	lastPushRevision    map[int64]int64
 	hostsHash           string
 	hostAddresses       map[string][]string
+	// Plan 158 (landing-user-limits-v1): last budgets sent per server (JSON),
+	// when, and the exchange sequence (monotonic per server).
+	userLimitsHash map[int64]string
+	userLimitsAt   map[int64]time.Time
+	userLimitsSeq  map[int64]int64
 }
 
 func (h *Handler) sharedState() *sharedLandingState {
 	if h.sharedLanding == nil {
-		h.sharedLanding = &sharedLandingState{retries: map[string]sharedRetry{}, lastPushRevision: map[int64]int64{}, hostAddresses: map[string][]string{}}
+		h.sharedLanding = &sharedLandingState{retries: map[string]sharedRetry{}, lastPushRevision: map[int64]int64{}, hostAddresses: map[string][]string{}, userLimitsHash: map[int64]string{}, userLimitsAt: map[int64]time.Time{}, userLimitsSeq: map[int64]int64{}}
 	}
 	return h.sharedLanding
 }
@@ -268,6 +273,11 @@ func (h *Handler) syncSharedIntegration(ctx context.Context, force bool) {
 			// Re-evaluate content even if revision was not bumped by an owner rename or renewal.
 			if e = h.pushSharedLanding(ctx, client, s, force, false); e != nil {
 				err = e
+			}
+			// Plan 158: per-user limits of shares that apply them.
+			if e = h.exchangeSharedUserLimits(ctx, client, s, force); e != nil {
+				err = e
+				_ = h.repo.SetSharedSyncError(s.ID, e.Error())
 			}
 		}
 		if err == nil {

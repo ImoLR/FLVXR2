@@ -33,6 +33,10 @@ type fakeCustom struct {
 	down          bool
 	reject        string
 	calls, pushes int
+	// Plan 158 (landing-user-limits-v1): every user-limits body received per
+	// share, and the usage the fake Helper reports back.
+	userLimits map[int64][]landingcustom.UserLimitsRequest
+	userUsage  map[int64][]landingcustom.UserLimitUsage
 }
 
 func (f *fakeCustom) serve(w http.ResponseWriter, r *http.Request) {
@@ -72,6 +76,27 @@ func (f *fakeCustom) serve(w http.ResponseWriter, r *http.Request) {
 	id, _ := strconv.ParseInt(parts[1], 10, 64)
 	if parts[2] == "status" && r.Method == "GET" {
 		write(f.status[id])
+		return
+	}
+	if parts[2] == "user-limits" && r.Method == "PUT" {
+		var req landingcustom.UserLimitsRequest
+		dec := json.NewDecoder(r.Body)
+		dec.DisallowUnknownFields()
+		if err := dec.Decode(&req); err != nil || req.Version != 1 || req.Sequence <= 0 {
+			w.WriteHeader(422)
+			write(map[string]any{"errors": []landingcustom.ValidationError{{Field: "users", Message: "bad shape"}}})
+			return
+		}
+		if f.userLimits == nil {
+			f.userLimits = map[int64][]landingcustom.UserLimitsRequest{}
+		}
+		prev := f.userLimits[id]
+		if len(prev) > 0 && req.Sequence <= prev[len(prev)-1].Sequence {
+			w.WriteHeader(409)
+			return
+		}
+		f.userLimits[id] = append(prev, req)
+		write(landingcustom.UserLimitsReport{AppliedSequence: req.Sequence, CollectedAt: time.Now().UnixMilli(), Users: f.userUsage[id]})
 		return
 	}
 	if parts[2] != "desired" || r.Method != "PUT" {

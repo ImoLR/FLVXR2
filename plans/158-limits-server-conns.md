@@ -72,12 +72,12 @@ Contract for the mmwx side: `/root/flvx-workers/contracts/landing-user-limits-v1
 ## Checklist
 
 - [x] Plan doc
-- [ ] Model + AutoMigrate: `user_server_quota.max_inbound_connections`, `node.landing_user_limits`
+- [x] Model + AutoMigrate: `user_server_quota.max_inbound_connections`, `node.landing_user_limits`
 - [ ] Save/get per-server 入站连接数 (validation, upsert, user dialog payload, 入口/落地 rows only in UI)
-- [ ] Forward services attach the user quota group when a per-server cap exists on that entry; resync on toggle
-- [ ] Coordinator: slots, per-server caps, landing budgets, relay reserve, live usage incl. landing; tests
-- [ ] Agent: landing Core management groups, budget apply path, usage report, capability; tests (unit + netns)
-- [ ] Panel → native agent desired: quota_group / user_limits gated by capability, revision signature
+- [x] Forward services attach the user quota group when a per-server cap exists on that entry; resync on toggle
+- [x] Coordinator: slots, per-server caps, landing budgets, relay reserve, live usage incl. landing; tests
+- [x] Agent: landing Core management groups, budget apply path, usage report, capability; tests (unit + netns)
+- [x] Panel → native agent desired: quota_group / user_limits gated by capability, revision signature
 - [ ] Shared: contract `landing-user-limits-v1.md`; client types, capability, desired conn_mode, exchange, usage;
       fake-Custom contract test (SQLite + PostgreSQL); today's behaviour without capability
 - [ ] Retire plan-141 selector (backend semantics + migration notes), machine cap hint data

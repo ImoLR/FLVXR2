@@ -751,3 +751,85 @@ func (c *Client) Status(ctx context.Context, id int64) (Status, error) {
 func (c *Client) PutHosts(ctx context.Context, hosts LandingHosts) error {
 	return c.request(ctx, http.MethodPut, "/landing-hosts", hosts, nil)
 }
+
+// Contract landing-user-limits-v1 (plan 158): per-user budgets for the FLVX
+// Core instance of one share, exchanged outside the signed desired state (no
+// revision change). null = unlimited, 0 = full, N >= 1 = limit.
+type UserLimitsRequest struct {
+	Version  int   `json:"version"`
+	Sequence int64 `json:"sequence"`
+	// Users is authoritative: a user not listed has no per-user limit.
+	Users []UserLimitBudget `json:"users"`
+}
+
+// UserLimitBudget is one owner's budget (UserID = Node.Owner.ID).
+type UserLimitBudget struct {
+	UserID string `json:"user_id"`
+	// MaxInboundConnections = the user-total budget for this share WITHOUT
+	// relayed connections (sources in flvx_node_hosts); the Helper adds its
+	// live relay count. ServerMaxInboundConnections = the user's 入站连接数 on
+	// this share, everything the Core receives (relays included).
+	MaxInboundConnections       *int64 `json:"max_inbound_connections"`
+	ServerMaxInboundConnections *int64 `json:"server_max_inbound_connections"`
+	// MaxInboundOnlineIPs excludes relay IPs; RelayIPReserve = our nodes that
+	// dial this user's nodes here (each keeps an IP slot).
+	MaxInboundOnlineIPs *int `json:"max_inbound_online_ips"`
+	RelayIPReserve      int  `json:"relay_ip_reserve"`
+}
+
+// UserLimitsReport is Custom's answer: the newest per-user usage the share's
+// Helper reported (≤ one Helper interval old) and the sequence it applies.
+type UserLimitsReport struct {
+	AppliedSequence int64            `json:"applied_sequence"`
+	CollectedAt     int64            `json:"collected_at"`
+	Users           []UserLimitUsage `json:"users"`
+}
+
+// UserLimitUsage: InboundConnections / OnlineIPs exclude relays (inbound
+// from flvx_node_hosts addresses), RelayConnections counts them.
+type UserLimitUsage struct {
+	UserID             string   `json:"user_id"`
+	InboundConnections int      `json:"inbound_connections"`
+	RelayConnections   int      `json:"relay_connections"`
+	OnlineIPs          []string `json:"online_ips"`
+}
+
+// maxUserLimitUsers / maxUserLimitIPs bound what FLVX accepts in a report.
+const (
+	maxUserLimitUsers = 10000
+	maxUserLimitIPs   = 1024
+)
+
+// PutUserLimits sends the budgets and returns the latest usage.
+func (c *Client) PutUserLimits(ctx context.Context, id int64, req UserLimitsRequest) (UserLimitsReport, error) {
+	var out UserLimitsReport
+	err := c.request(ctx, http.MethodPut, fmt.Sprintf("/shares/%d/user-limits", id), req, &out)
+	if err != nil {
+		return UserLimitsReport{}, err
+	}
+	if out.AppliedSequence < 0 || out.CollectedAt < 0 || len(out.Users) > maxUserLimitUsers {
+		return UserLimitsReport{}, errors.New("妙妙屋用户限额回报格式错误")
+	}
+	users := make([]UserLimitUsage, 0, len(out.Users))
+	for _, u := range out.Users {
+		if strings.TrimSpace(u.UserID) == "" || u.InboundConnections < 0 || u.RelayConnections < 0 {
+			continue
+		}
+		if len(u.OnlineIPs) > maxUserLimitIPs {
+			u.OnlineIPs = u.OnlineIPs[:maxUserLimitIPs]
+		}
+		ips := make([]string, 0, len(u.OnlineIPs))
+		for _, raw := range u.OnlineIPs {
+			if ip := net.ParseIP(strings.Trim(strings.TrimSpace(raw), "[]")); ip != nil {
+				if v4 := ip.To4(); v4 != nil {
+					ip = v4
+				}
+				ips = append(ips, ip.String())
+			}
+		}
+		u.OnlineIPs = ips
+		users = append(users, u)
+	}
+	out.Users = users
+	return out, nil
+}

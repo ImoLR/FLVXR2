@@ -258,3 +258,88 @@ func (h *Handler) landingUserGroups(s *model.LandingServer, owners []int64) (map
 	}
 	return groupOf, groups, nil
 }
+
+// Shared (妙妙屋) servers, contract landing-user-limits-v1: budgets go out on
+// the shared loop (every 5 s) when they changed and every
+// sharedUserLimitsRefresh otherwise (the answer carries the usage), only for
+// shares that advertise the capability and hold nodes of limited users.
+const (
+	sharedUserLimitsRefresh = 10 * time.Second
+)
+
+// exchangeSharedUserLimits runs with sharedLandingMu held (shared loop, 5 s).
+func (h *Handler) exchangeSharedUserLimits(ctx context.Context, client *landingcustom.Client, s model.LandingServer, force bool) error {
+	if h.quotaGroups == nil {
+		return nil
+	}
+	budgets, ok := h.quotaGroups.ShareBudgets(s.ID)
+	st := h.sharedState()
+	capable := repo.SharedUserLimitsSupported(&s) && repo.SharedLandingCaps(&s).Status == "active"
+	if !capable {
+		h.quotaGroups.ForgetShare(s.ID)
+		delete(st.userLimitsHash, s.ID)
+		delete(st.userLimitsAt, s.ID)
+		return nil
+	}
+	if !ok {
+		// No slot: no limited user has nodes here (or the coordinator has not
+		// run since the capability appeared — nothing else drives it on a
+		// shared-only panel). A share that had budgets gets one empty,
+		// authoritative list so 妙妙屋 drops them now, not after its expiry.
+		h.quotaGroups.Trigger()
+		h.quotaGroups.ForgetShare(s.ID)
+		if _, sent := st.userLimitsHash[s.ID]; !sent {
+			return nil
+		}
+		budgets = []quotaShareBudget{}
+	}
+	req := landingcustom.UserLimitsRequest{Version: landingcustom.UserLimitsVersion, Users: make([]landingcustom.UserLimitBudget, 0, len(budgets))}
+	for _, b := range budgets {
+		u := landingcustom.UserLimitBudget{UserID: fmt.Sprint(b.UserID), RelayIPReserve: b.RelayIps}
+		if b.MaxConnections >= 0 {
+			v := int64(b.MaxConnections)
+			u.MaxInboundConnections = &v
+		}
+		if b.ServerMaxConnections != nil {
+			v := int64(*b.ServerMaxConnections)
+			u.ServerMaxInboundConnections = &v
+		}
+		if b.MaxClientIps >= 0 {
+			v := b.MaxClientIps
+			u.MaxInboundOnlineIPs = &v
+		}
+		req.Users = append(req.Users, u)
+	}
+	raw, _ := json.Marshal(req.Users)
+	now := time.Now()
+	if !force && st.userLimitsHash[s.ID] == string(raw) && now.Sub(st.userLimitsAt[s.ID]) < sharedUserLimitsRefresh {
+		return nil
+	}
+	req.Sequence = max(st.userLimitsSeq[s.ID]+1, now.UnixMilli())
+	var report landingcustom.UserLimitsReport
+	err := h.sharedAttempt(fmt.Sprintf("user-limits:%d", s.ID), force, false, func() error {
+		var e error
+		report, e = client.PutUserLimits(ctx, s.RemoteServerID, req)
+		return e
+	})
+	if err != nil {
+		return err
+	}
+	st.userLimitsSeq[s.ID] = req.Sequence
+	if !ok {
+		delete(st.userLimitsHash, s.ID)
+		delete(st.userLimitsAt, s.ID)
+		return nil
+	}
+	st.userLimitsHash[s.ID], st.userLimitsAt[s.ID] = string(raw), now
+	usages := make([]quotaShareUsage, 0, len(report.Users))
+	for _, u := range report.Users {
+		var userID int64
+		if _, e := fmt.Sscan(u.UserID, &userID); e != nil || userID <= 0 {
+			continue
+		}
+		usages = append(usages, quotaShareUsage{UserID: userID, Connections: u.InboundConnections, Relay: u.RelayConnections, ClientIps: u.OnlineIPs})
+	}
+	h.quotaGroups.ObserveShare(s.ID, usages)
+	return nil
+}
