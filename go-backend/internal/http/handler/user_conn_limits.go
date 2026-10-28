@@ -309,6 +309,12 @@ func (h *Handler) exchangeSharedUserLimits(ctx context.Context, client *landingc
 		delete(st.userLimitsAt, s.ID)
 		return nil
 	}
+	// Plan 159 (contract §7): shares advertising version 2 also apply the
+	// user's 速率; users with only a rate are listed too.
+	var rates map[int64]int
+	if repo.SharedLandingCaps(&s).UserLimits.Supports(landingcustom.UserLimitsRateVersion) {
+		rates, _ = h.repo.SharedUserRates(s.ID)
+	}
 	if !ok {
 		// No slot: no limited user has nodes here (or the coordinator has not
 		// run since the capability appeared — nothing else drives it on a
@@ -316,14 +322,23 @@ func (h *Handler) exchangeSharedUserLimits(ctx context.Context, client *landingc
 		// authoritative list so 妙妙屋 drops them now, not after its expiry.
 		h.quotaGroups.Trigger()
 		h.quotaGroups.ForgetShare(s.ID)
-		if _, sent := st.userLimitsHash[s.ID]; !sent {
+		if _, sent := st.userLimitsHash[s.ID]; !sent && len(rates) == 0 {
 			return nil
 		}
 		budgets = []quotaShareBudget{}
 	}
-	req := landingcustom.UserLimitsRequest{Version: landingcustom.UserLimitsVersion, Users: make([]landingcustom.UserLimitBudget, 0, len(budgets))}
+	version := landingcustom.UserLimitsVersion
+	if rates != nil {
+		version = landingcustom.UserLimitsRateVersion
+	}
+	req := landingcustom.UserLimitsRequest{Version: version, Users: make([]landingcustom.UserLimitBudget, 0, len(budgets)+len(rates))}
+	listed := map[int64]bool{}
 	for _, b := range budgets {
+		listed[b.UserID] = true
 		u := landingcustom.UserLimitBudget{UserID: fmt.Sprint(b.UserID), RelayIPReserve: b.RelayIps}
+		if rate := rates[b.UserID]; rate > 0 {
+			u.MaxRateMbps = &rate
+		}
 		if b.MaxConnections >= 0 {
 			v := int64(b.MaxConnections)
 			u.MaxInboundConnections = &v
@@ -338,6 +353,18 @@ func (h *Handler) exchangeSharedUserLimits(ctx context.Context, client *landingc
 		}
 		req.Users = append(req.Users, u)
 	}
+	rateOnly := make([]int64, 0, len(rates))
+	for userID := range rates {
+		if !listed[userID] {
+			rateOnly = append(rateOnly, userID)
+		}
+	}
+	sort.Slice(rateOnly, func(i, j int) bool { return rateOnly[i] < rateOnly[j] })
+	for _, userID := range rateOnly {
+		rate := rates[userID]
+		req.Users = append(req.Users, landingcustom.UserLimitBudget{UserID: fmt.Sprint(userID), MaxRateMbps: &rate})
+	}
+	ok = ok || len(rates) > 0
 	raw, _ := json.Marshal(req.Users)
 	now := time.Now()
 	if !force && st.userLimitsHash[s.ID] == string(raw) && now.Sub(st.userLimitsAt[s.ID]) < sharedUserLimitsRefresh {

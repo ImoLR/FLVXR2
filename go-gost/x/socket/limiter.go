@@ -8,6 +8,12 @@ import (
 	"strings"
 )
 
+// userRateVersion is advertised in the WebSocket handshake (`userRate=1`,
+// FLVX plan 159): forward services honour metadata.userLimiter — the user's
+// shared limiter on this machine, applied together with the service's own
+// limiter (config/parsing/service, limiter/traffic.CombineTrafficLimiters).
+const userRateVersion = 1
+
 func createLimiter(req createLimiterRequest) error {
 	name := strings.TrimSpace(req.Data.Name)
 	if name == "" {

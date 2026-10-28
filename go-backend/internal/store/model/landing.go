@@ -223,12 +223,21 @@ type UserServerQuota struct {
 	// entering there, a landing server the user's inbound connections on its
 	// Core (relayed ones included — the Core cannot tell them apart).
 	// Enforced through the quota coordinator; older panels ignore the column.
-	MaxInboundConnections int   `gorm:"not null;default:0" json:"maxInboundConnections"`
-	CreatedTime           int64 `gorm:"not null" json:"createdTime"`
-	UpdatedTime           int64 `gorm:"not null" json:"updatedTime"`
+	MaxInboundConnections int `gorm:"not null;default:0" json:"maxInboundConnections"`
+	// RateMbps / RateOverride (plan 159) = 速率 of this user on this server:
+	// one shared limit for all of the user's rules entering the machine.
+	// RateOverride false follows the user's default (user.server_rate_mbps);
+	// true uses RateMbps, where 0 = 不限. Older panels ignore both columns.
+	RateMbps     int   `gorm:"not null;default:0" json:"rateMbps"`
+	RateOverride bool  `gorm:"not null;default:false" json:"rateOverride"`
+	CreatedTime  int64 `gorm:"not null" json:"createdTime"`
+	UpdatedTime  int64 `gorm:"not null" json:"updatedTime"`
 	// FollowDefault (request only, plan 158): the row keeps following the
 	// server's default traffic quota; a save changes only its 入站连接数.
 	FollowDefault bool `gorm:"-" json:"followDefault,omitempty"`
+	// RateKeep (request only, plan 159): the client sent no 速率 fields (an
+	// older frontend); the save keeps the stored rate instead of clearing it.
+	RateKeep bool `gorm:"-" json:"-"`
 }
 
 func (UserServerQuota) TableName() string { return "user_server_quota" }

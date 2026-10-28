@@ -11,6 +11,7 @@ import (
 	"github.com/go-gost/core/chain"
 	"github.com/go-gost/core/handler"
 	"github.com/go-gost/core/hop"
+	"github.com/go-gost/core/limiter/traffic"
 	"github.com/go-gost/core/listener"
 	"github.com/go-gost/core/logger"
 	"github.com/go-gost/core/observer"
@@ -114,6 +115,7 @@ func ParseService(cfg *config.ServiceConfig) (service.Service, error) {
 	var limiterRefreshInterval time.Duration
 	var limiterCleanupInterval time.Duration
 	var limiterScope string
+	var userLimiter string
 	var protocolFilterConfigured bool
 	var protocolFilterHTTP, protocolFilterTLS, protocolFilterSOCKS, protocolFilterBlockOther int
 
@@ -153,6 +155,7 @@ func ParseService(cfg *config.ServiceConfig) (service.Service, error) {
 		limiterRefreshInterval = mdutil.GetDuration(md, parsing.MDKeyLimiterRefreshInterval)
 		limiterCleanupInterval = mdutil.GetDuration(md, parsing.MDKeyLimiterCleanupInterval)
 		limiterScope = mdutil.GetString(md, parsing.MDKeyLimiterScope)
+		userLimiter = strings.TrimSpace(mdutil.GetString(md, parsing.MDKeyUserLimiter))
 
 		protocolFilterConfigured = mdutil.IsExists(md,
 			parsing.MDKeyProtocolFilterHTTP,
@@ -199,6 +202,7 @@ func ParseService(cfg *config.ServiceConfig) (service.Service, error) {
 	}
 
 	var trafficLimiter listener.Option
+	var serviceLimiter traffic.TrafficLimiter
 	if cfg.Limiter != "" {
 		lim := registry.TrafficLimiterRegistry().Get(cfg.Limiter)
 		if lim == nil {
@@ -214,14 +218,20 @@ func ParseService(cfg *config.ServiceConfig) (service.Service, error) {
 				)
 			}
 		}
-		trafficLimiter = listener.TrafficLimiterOption(
-			cache_limiter.NewCachedTrafficLimiter(
-				lim,
-				cache_limiter.RefreshIntervalOption(limiterRefreshInterval),
-				cache_limiter.CleanupIntervalOption(limiterCleanupInterval),
-				cache_limiter.ScopeOption(limiterScope),
-			),
+		serviceLimiter = cache_limiter.NewCachedTrafficLimiter(
+			lim,
+			cache_limiter.RefreshIntervalOption(limiterRefreshInterval),
+			cache_limiter.CleanupIntervalOption(limiterCleanupInterval),
+			cache_limiter.ScopeOption(limiterScope),
 		)
+	}
+	// FLVX plan 159: the user's shared 速率 limiter on this machine, looked up
+	// by name on every call (may be registered later or removed any time).
+	if userLimiter != "" {
+		serviceLimiter = xtraffic.CombineTrafficLimiters(serviceLimiter, registry.TrafficLimiterRegistry().Get(userLimiter))
+	}
+	if serviceLimiter != nil {
+		trafficLimiter = listener.TrafficLimiterOption(serviceLimiter)
 	}
 
 	listenOpts := []listener.Option{

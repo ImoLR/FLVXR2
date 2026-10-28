@@ -56,6 +56,7 @@ type nodeSession struct {
 	panelIPFamily   string // empty for agents without panel IP family support
 	machineProtect  int    // handshake capability; 0 = agent without machine protection
 	runtimeRevs     int    // handshake capability; >0 = agent reports runtime revisions (plan 138)
+	userRate        int    // handshake capability; >0 = agent applies metadata.userLimiter (plan 159)
 	startedAt       time.Time
 	via             string       // how the session reached the panel (Cloudflare colo / direct)
 	lastMsgAt       atomic.Int64 // unix nanos of the last data message (read loop)
@@ -418,6 +419,9 @@ func (s *Server) handleNode(w http.ResponseWriter, r *http.Request, nodeID int64
 	if v, err := strconv.Atoi(r.URL.Query().Get("addrReport")); err == nil && v > 0 {
 		ns.addrReport = v
 	}
+	if v, err := strconv.Atoi(r.URL.Query().Get("userRate")); err == nil && v > 0 {
+		ns.userRate = v
+	}
 	ns.clientIP = clientip.FromRequest(r)
 	s.nodes[nodeID] = ns
 	delete(s.serviceConnections, nodeID)
@@ -428,6 +432,9 @@ func (s *Server) handleNode(w http.ResponseWriter, r *http.Request, nodeID int64
 	s.mu.Unlock()
 
 	_ = s.repo.UpdateNodeOnline(nodeID, 1, version, httpVal, tlsVal, socksVal, blockOtherVal)
+	// Plan 159: remembered for the admin view (offline nodes); one write per
+	// session, only when the capability changed.
+	_ = s.repo.SetNodeUserRateCapability(nodeID, ns.userRate)
 	s.broadcastStatus(nodeID, 1)
 
 	s.mu.RLock()
@@ -978,6 +985,19 @@ func (s *Server) RuntimeRevsCapable(nodeID int64) bool {
 	defer s.mu.RUnlock()
 	ns := s.nodes[nodeID]
 	return ns != nil && ns.runtimeRevs > 0
+}
+
+// UserRateCapable reports whether the node's current agent session applies
+// a forward service's metadata.userLimiter together with its own limiter
+// (plan 159).
+func (s *Server) UserRateCapable(nodeID int64) bool {
+	if s == nil {
+		return false
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	ns := s.nodes[nodeID]
+	return ns != nil && ns.userRate > 0
 }
 
 // CommandsSent is the number of commands written to a node since the panel

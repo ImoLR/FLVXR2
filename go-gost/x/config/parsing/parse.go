@@ -40,4 +40,8 @@ const (
 	MDKeyQuotaGroup          = "quotaGroup"
 	MDKeyGroupMaxConnections = "groupMaxConnections"
 	MDKeyGroupMaxClientIPs   = "groupMaxClientIps"
+
+	// MDKeyUserLimiter (FLVX plan 159) names the user's shared traffic
+	// limiter on this machine; applied together with the service's limiter.
+	MDKeyUserLimiter = "userLimiter"
 )

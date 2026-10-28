@@ -846,6 +846,10 @@ func (h *Handler) landingUserGet(w http.ResponseWriter, r *http.Request) {
 	// maxNodes is the cap in force; maxNodesSource says whether it is the
 	// user's own value or the global default (plan 131).
 	view := map[string]interface{}{"userId": req.UserID, "maxNodes": limit.Effective, "maxNodesSource": limit.Source, "globalMaxNodes": limit.Global, "quotas": q, "fixedNodeCount": fixed, "serverIds": serverIDs}
+	// Plan 159: the user's 默认速率 (rows without their own 速率 follow it).
+	if u, err := h.repo.GetUserByID(req.UserID); err == nil && u != nil {
+		view["serverRateMbps"] = u.ServerRateMbps
+	}
 	// Plan 157: 共享流量池 + the servers related to this user (pickers).
 	pools, err := h.repo.UserTrafficPools(req.UserID, true, time.Now())
 	if err != nil {
@@ -883,11 +887,11 @@ func (h *Handler) landingUserSave(w http.ResponseWriter, r *http.Request) {
 		MaxNodes *int  `json:"maxNodes"`
 		// MaxNodesSource "global" follows the global default; "custom" or
 		// absent with a numeric maxNodes (older clients) sets an own value.
-		MaxNodesSource  string                  `json:"maxNodesSource"`
-		Quotas          []model.UserServerQuota `json:"quotas"`
-		ExtendFixedByMs int64                   `json:"extendFixedByMs"`
-		FixedNodeCount  int                     `json:"fixedNodeCount"`
-		ServerIDs       *[]int64                `json:"serverIds"`
+		MaxNodesSource  string                `json:"maxNodesSource"`
+		Quotas          []userServerQuotaInput `json:"quotas"`
+		ExtendFixedByMs int64                 `json:"extendFixedByMs"`
+		FixedNodeCount  int                   `json:"fixedNodeCount"`
+		ServerIDs       *[]int64              `json:"serverIds"`
 		// Plan 134 node-rule caps: source "global" follows the global
 		// default, "custom" uses the number; absent keeps the current choice.
 		RuleMaxNodeSource  string `json:"ruleMaxNodeSource"`
@@ -919,7 +923,14 @@ func (h *Handler) landingUserSave(w http.ResponseWriter, r *http.Request) {
 	// Plan 158: per-server 入站连接数 before the save, to re-push only the
 	// forwards whose entry joins or leaves the user's quota group.
 	capsBefore, capsErr := h.repo.UserServerConnCaps(req.UserID)
-	if err := h.repo.SaveLandingUserSettingFull(req.UserID, maxNodes, req.Quotas, req.ExtendFixedByMs, req.ServerIDs, req.Pools); err != nil {
+	// Plan 159: the user's 速率 per entry machine before the save.
+	rateBefore := h.userRateBefore(req.UserID)
+	quotas := make([]model.UserServerQuota, len(req.Quotas))
+	for i, q := range req.Quotas {
+		quotas[i] = q.UserServerQuota
+		quotas[i].RateKeep = !q.hasRate
+	}
+	if err := h.repo.SaveLandingUserSettingFull(req.UserID, maxNodes, quotas, req.ExtendFixedByMs, req.ServerIDs, req.Pools); err != nil {
 		landingError(w, err)
 		return
 	}
@@ -946,11 +957,32 @@ func (h *Handler) landingUserSave(w http.ResponseWriter, r *http.Request) {
 	if h.quotaGroups != nil {
 		h.quotaGroups.InvalidateInputs()
 	}
+	warnings = append(warnings, h.userRateAfter(req.UserID, rateBefore)...)
 	if len(warnings) > 0 {
 		response.WriteJSON(w, response.OK(map[string]interface{}{"warnings": warnings}))
 		return
 	}
 	response.WriteJSON(w, response.OKEmpty())
+}
+
+// userServerQuotaInput is one per-server row of a save; hasRate tells whether
+// the client sent the plan-159 速率 fields (older frontends do not: their
+// save keeps the stored rate).
+type userServerQuotaInput struct {
+	model.UserServerQuota
+	hasRate bool
+}
+
+func (q *userServerQuotaInput) UnmarshalJSON(b []byte) error {
+	if err := json.Unmarshal(b, &q.UserServerQuota); err != nil {
+		return err
+	}
+	var probe struct {
+		RateOverride *bool `json:"rateOverride"`
+	}
+	_ = json.Unmarshal(b, &probe)
+	q.hasRate = probe.RateOverride != nil
+	return nil
 }
 
 // landingRuleCapChoice maps a 跟随全局 / 自定义 choice onto the repo value

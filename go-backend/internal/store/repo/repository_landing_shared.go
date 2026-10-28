@@ -231,6 +231,13 @@ func (r *Repository) SyncSharedLandings(shares []landingcustom.Share, now int64)
 				normalizeLandingProtocolDefaults(&s)
 			} else {
 				old := SharedLandingCaps(&s)
+				// Plan 159: revocation is the end of a shared server (FLVX keeps
+				// the row for its nodes' history): its per-server rows go with it.
+				if old.Status != "revoked" && c.Status == "revoked" {
+					if err = deleteSharedServerRowsTx(tx, s.ID); err != nil {
+						return err
+					}
+				}
 				if old.ShareUntil != nil && s.AvailableUntil != nil && *old.ShareUntil == *s.AvailableUntil {
 					s.AvailableUntil = c.ShareUntil
 				}

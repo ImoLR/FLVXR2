@@ -80,6 +80,10 @@ type agentRuntimeInventory struct {
 	present map[string]bool
 	revs    map[string]string
 	boot    string
+	// userRates (plan 159): users with a rate on this node, loaded once per
+	// reconnect (userRateReconnectPush).
+	userRates       map[int64]int
+	userRatesLoaded bool
 }
 
 func newAgentRuntimeInventory(i runtimeInventory) *agentRuntimeInventory {
@@ -250,6 +254,11 @@ func (h *Handler) forwardRuntimeUnchangedOnNode(forward *forwardRecord, nodeID i
 			return false
 		}
 		services := buildForwardServiceConfigs(in.serviceBase, forward, in.tunnel, node, fp.Port, strings.TrimSpace(fp.InIP), in.limiterID, limiterName, tunnelTLSProtocol)
+		rate := inv.rateFor(forward.UserID)
+		if rate < 0 {
+			rate = h.userRateOnNode(forward.UserID, node)
+		}
+		applyUserRateRef(services, h.userRateRefFor(forward.UserID, node, rate))
 		mergeRevs(expected, ws.ExpectedRuntimeRevs("UpdateService", services))
 	}
 	return inv.matches(expected)

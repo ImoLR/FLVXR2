@@ -34,8 +34,15 @@ type User struct {
 	AutoBuyTrafficPackageID int64         `gorm:"column:auto_buy_traffic_package_id;default:0"` // 关联的自动购流套餐ID (0=使用自定义配置)
 	BaseFlow                int64         `gorm:"column:base_flow;default:0"`                   // 初始流量配额 (GB)
 	TrafficFlow             int64         `gorm:"column:traffic_flow;default:0"`                // 流量快餐累计 (GB)
-	SpeedLimit              int           `gorm:"column:speed_limit;default:0"`                 // 限速 MB/s (0=不限)
-	SpeedLimitID            sql.NullInt64 `gorm:"column:speed_limit_id"`
+	SpeedLimit              int           `gorm:"column:speed_limit;default:0"`                 // 套餐速率 Mbps (0=不限; stored from shop packages, not enforced)
+	// SpeedLimitID (legacy 「总限速规则」): copied into the user's NEW rules as
+	// their speed rule. Plan 159 retires it in the UI (cleared when an admin
+	// sets ServerRateMbps); kept for rules created while it is still set.
+	SpeedLimitID sql.NullInt64 `gorm:"column:speed_limit_id"`
+	// ServerRateMbps (plan 159) = the user's default 速率 on every server: all
+	// of the user's rules entering one machine share it (per machine, not a
+	// total across machines); a per-server row may override it. 0 = 不限.
+	ServerRateMbps int `gorm:"column:server_rate_mbps;not null;default:0"`
 	MaxRules                int           `gorm:"column:max_rules;default:0"`               // 最大规则数 (0=不限)
 	MaxConnections          int           `gorm:"column:max_connections;default:0"`         // 最大连接数 (0=不限)
 	MaxClientIps            int           `gorm:"column:max_client_ips;not null;default:0"` // 最大活跃接入 IP 数 (0=不限)
@@ -117,6 +124,7 @@ type Node struct {
 	LandingGuard                 int            `gorm:"column:landing_guard;not null;default:0"`     // agent: Reality guard + builtin rules (plan 127)
 	LandingConnMode              int            `gorm:"column:landing_conn_mode;not null;default:0"` // agent: 仅入站 landing connection limits + inbound counts (plan 141)
 	LandingUserLimits            int            `gorm:"column:landing_user_limits;not null;default:0"` // agent: per-user landing Core groups + usage report (plan 158)
+	UserRate                     int            `gorm:"column:user_rate;not null;default:0"`           // agent: shared per-user limiter on forward services (plan 159)
 	LineMachine                 bool           `gorm:"column:line_machine;not null;default:false"`
 	DefaultUserQuotaBytes        int64          `gorm:"not null;default:0"`
 	LeiKwanStatus                string         `gorm:"column:leikwan_status;type:varchar(10);not null;default:''"`

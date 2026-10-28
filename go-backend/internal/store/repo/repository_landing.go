@@ -484,6 +484,16 @@ func (r *Repository) SaveLandingUserSettingFull(userID int64, maxNodes int, quot
 			if q.MaxInboundConnections < 0 || q.MaxInboundConnections > MaxUserServerConnections {
 				return fmt.Errorf("服务器入站连接数须为 0（不限）到 %d", MaxUserServerConnections)
 			}
+			// Plan 159: 速率 (Mbps); without RateOverride the row follows
+			// the user's default and the stored value is irrelevant.
+			if q.RateKeep {
+				q.RateMbps, q.RateOverride = 0, false // new row: follows the default
+			} else if !q.RateOverride {
+				q.RateMbps = 0
+			}
+			if err := ValidServerRate(q.RateMbps); err != nil {
+				return err
+			}
 			if q.ServerKind == "node" {
 				var node model.Node
 				if err := tx.First(&node, q.ServerRefID).Error; err != nil {
@@ -494,16 +504,22 @@ func (r *Repository) SaveLandingUserSettingFull(userID int64, maxNodes int, quot
 				if err := tx.First(&server, q.ServerRefID).Error; err != nil || server.Source != "shared" {
 					return errors.New("共享服务器不存在")
 				}
+				// Plan 159: a share revoked while the dialog was open is gone;
+				// its row is not re-created (the revoke removed it).
+				if SharedLandingCaps(&server).Status == "revoked" {
+					continue
+				}
 				if !q.FollowDefault && capExceeded(q.LimitBytes, SharedLandingCaps(&server).TrafficLimit) {
 					return errors.New("服务器流量限额不能超过妙妙屋上限")
 				}
 			}
 			now := time.Now().UnixMilli()
 			if q.FollowDefault {
-				// Plan 158: only 入站连接数 changes; the traffic quota keeps
-				// following the server default (a new row starts that way).
-				row := model.UserServerQuota{UserID: userID, ServerKind: q.ServerKind, ServerRefID: q.ServerRefID, MaxInboundConnections: q.MaxInboundConnections, CreatedTime: now, UpdatedTime: now}
-				if err := tx.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "user_id"}, {Name: "server_kind"}, {Name: "server_ref_id"}}, DoUpdates: clause.Assignments(map[string]interface{}{"max_inbound_connections": q.MaxInboundConnections, "updated_time": now})}).Create(&row).Error; err != nil {
+				// Plan 158: only 入站连接数 (and plan 159 速率) change; the
+				// traffic quota keeps following the server default (a new row
+				// starts that way).
+				row := model.UserServerQuota{UserID: userID, ServerKind: q.ServerKind, ServerRefID: q.ServerRefID, MaxInboundConnections: q.MaxInboundConnections, RateMbps: q.RateMbps, RateOverride: q.RateOverride, CreatedTime: now, UpdatedTime: now}
+				if err := tx.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "user_id"}, {Name: "server_kind"}, {Name: "server_ref_id"}}, DoUpdates: clause.Assignments(quotaRateAssignments(q, map[string]interface{}{"max_inbound_connections": q.MaxInboundConnections, "updated_time": now}))}).Create(&row).Error; err != nil {
 					return err
 				}
 				continue
@@ -514,7 +530,7 @@ func (r *Repository) SaveLandingUserSettingFull(userID int64, maxNodes int, quot
 			q.UsedIn, q.UsedOut, q.PeriodKey, q.Paused = 0, 0, 0, false
 			q.CreatedTime = now
 			q.UpdatedTime = now
-			if err := tx.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "user_id"}, {Name: "server_kind"}, {Name: "server_ref_id"}}, DoUpdates: clause.Assignments(map[string]interface{}{"limit_bytes": q.LimitBytes, "limit_override": true, "max_inbound_connections": q.MaxInboundConnections, "updated_time": now})}).Create(&q).Error; err != nil {
+			if err := tx.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "user_id"}, {Name: "server_kind"}, {Name: "server_ref_id"}}, DoUpdates: clause.Assignments(quotaRateAssignments(q, map[string]interface{}{"limit_bytes": q.LimitBytes, "limit_override": true, "max_inbound_connections": q.MaxInboundConnections, "updated_time": now}))}).Create(&q).Error; err != nil {
 				return err
 			}
 		}
@@ -548,6 +564,15 @@ func (r *Repository) SaveLandingUserSettingFull(userID int64, maxNodes int, quot
 		return nil
 	})
 }
+// quotaRateAssignments adds the plan-159 速率 columns to a row upsert unless
+// the client did not send them (RateKeep: an existing row keeps its rate).
+func quotaRateAssignments(q model.UserServerQuota, m map[string]interface{}) map[string]interface{} {
+	if !q.RateKeep {
+		m["rate_mbps"], m["rate_override"] = q.RateMbps, q.RateOverride
+	}
+	return m
+}
+
 func (r *Repository) SetNodeLandingCapability(id int64, capable bool) error {
 	return r.db.Model(&model.Node{}).Where("id = ? AND landing_capable <> ?", id, capable).Update("landing_capable", capable).Error
 }

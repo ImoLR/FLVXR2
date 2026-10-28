@@ -78,6 +78,11 @@ type Share struct {
 // UserLimitsVersion is the landing-user-limits contract version FLVX speaks.
 const UserLimitsVersion = 1
 
+// UserLimitsRateVersion (plan 159, contract §7): the share also applies a
+// per-user 速率 (`users[].max_rate_mbps`). Advertised as an extra version
+// next to 1 ({"versions":[1,2]}).
+const UserLimitsRateVersion = 2
+
 // ShareUserLimits is the share list's user_limits capability object.
 type ShareUserLimits struct {
 	Versions []int `json:"versions"`
@@ -775,6 +780,10 @@ type UserLimitBudget struct {
 	// dial this user's nodes here (each keeps an IP slot).
 	MaxInboundOnlineIPs *int `json:"max_inbound_online_ips"`
 	RelayIPReserve      int  `json:"relay_ip_reserve"`
+	// MaxRateMbps (plan 159, version 2 only): the user's 速率 on this share —
+	// one limit for all of the user's nodes there, each direction; absent =
+	// 不限. Never sent with version 1 (omitempty keeps v1 bodies identical).
+	MaxRateMbps *int `json:"max_rate_mbps,omitempty"`
 }
 
 // UserLimitsReport is Custom's answer: the newest per-user usage the share's

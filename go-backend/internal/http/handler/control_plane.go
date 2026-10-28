@@ -389,7 +389,20 @@ func (h *Handler) syncForwardServicesWithWarningsOnNode(forward *forwardRecord, 
 		if err != nil {
 			return nil, err
 		}
+		// Plan 159: the user's 速率 on this machine (limiter before the
+		// services, so a newly referenced limiter applies at once).
+		rate := h.userRateOnNode(forward.UserID, node)
+		if rate > 0 {
+			if err := h.ensureUserRateLimiter(node.ID, forward.UserID, rate); err != nil {
+				if isNodeOfflineOrTimeoutError(err) {
+					warnings = append(warnings, fmt.Sprintf("节点 %s 不在线，已跳过下发", node.Name))
+					continue
+				}
+				return nil, err
+			}
+		}
 		services := buildForwardServiceConfigs(serviceBase, forward, tunnel, node, fp.Port, strings.TrimSpace(fp.InIP), limiterID, limiterName, tunnelTLSProtocol)
+		applyUserRateRef(services, h.userRateRefFor(forward.UserID, node, rate))
 		_, err = h.sendNodeCommand(node.ID, method, services, true, false)
 		if err != nil && allowFallbackAdd && method == "UpdateService" {
 			if isNotFoundError(err) {
@@ -455,6 +468,7 @@ func (h *Handler) fallbackForwardPortToDefaultBind(forward *forwardRecord, tunne
 
 	time.Sleep(150 * time.Millisecond)
 	defaultServices := buildForwardServiceConfigs(serviceBase, forward, tunnel, node, fp.Port, "", limiterID, limiterName, tunnelTLSProtocol)
+	applyUserRateRef(defaultServices, h.userRateRefFor(forward.UserID, node, h.userRateOnNode(forward.UserID, node)))
 	if _, err := h.sendNodeCommand(node.ID, "AddService", defaultServices, true, false); err != nil {
 		return "", err
 	}

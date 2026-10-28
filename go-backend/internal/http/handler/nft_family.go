@@ -189,6 +189,8 @@ func entryFamilyMap(entries map[int64]nftEntry) map[int64]addrFamilies {
 func (h *Handler) nftRulePayloads(forward *forwardRecord, tunnel *tunnelRecord, ports []forwardPortRecord, chainNodes []chainNodeRecord, userTunnelID int64, speedLimit *int) ([]NftablesRulePayload, map[int64]nftEntry) {
 	entries := h.nftEntryFamilies(forward.TunnelID, ports)
 	rules := buildNftablesRulePayloadsFor(forward, tunnel, ports, chainNodes, userTunnelID, speedLimit, resolveNftTargets(forward.RemoteAddr), entryFamilyMap(entries))
+	// Plan 159: each rule policed at min(own, the user's 速率 there).
+	h.capNftRulesByUserRate(forward.UserID, rules)
 	return rules, entries
 }
 

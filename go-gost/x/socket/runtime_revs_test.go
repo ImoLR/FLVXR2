@@ -172,6 +172,14 @@ func TestHandshakeAdvertisesRuntimeRevs(t *testing.T) {
 	}
 }
 
+// Plan 159: the panel only adds metadata.userLimiter for agents that say so.
+func TestHandshakeAdvertisesUserRate(t *testing.T) {
+	q := buildWebSocketQuery("s", "v", 0, 0, 0, 0)
+	if want := fmt.Sprintf("&userRate=%d", userRateVersion); !containsStr(q, want) {
+		t.Fatalf("query %s lacks %s", q, want)
+	}
+}
+
 func containsStr(s, sub string) bool {
 	for i := 0; i+len(sub) <= len(s); i++ {
 		if s[i:i+len(sub)] == sub {

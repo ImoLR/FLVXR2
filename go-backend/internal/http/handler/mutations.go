@@ -120,6 +120,11 @@ func (h *Handler) userCreate(w http.ResponseWriter, r *http.Request) {
 		response.WriteJSON(w, response.Err(-2, err.Error()))
 		return
 	}
+	serverRate := asInt(req["serverRateMbps"], 0)
+	if err := repo.ValidServerRate(serverRate); err != nil {
+		response.WriteJSON(w, response.ErrDefault(err.Error()))
+		return
+	}
 	roleID := 1
 	now := time.Now().UnixMilli()
 
@@ -132,6 +137,13 @@ func (h *Handler) userCreate(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		response.WriteJSON(w, response.Err(-2, err.Error()))
 		return
+	}
+	// Plan 159: 默认速率 (a new user has no rules yet: nothing to push).
+	if serverRate > 0 {
+		if err := h.repo.SetUserServerRate(userID, serverRate); err != nil {
+			response.WriteJSON(w, response.Err(-2, err.Error()))
+			return
+		}
 	}
 	if dailyQuotaGB > 0 || monthlyQuotaGB > 0 {
 		tx := h.repo.BeginTx()
@@ -249,6 +261,17 @@ func (h *Handler) userUpdate(w http.ResponseWriter, r *http.Request) {
 	if _, ok := req["speedLimitId"]; !ok && oldUser != nil && oldUser.SpeedLimitID.Valid {
 		speedLimitID = &oldUser.SpeedLimitID.Int64
 	}
+	// Plan 159: 默认速率 (Mbps) of the user on every server; absent keeps it
+	// (older clients).
+	rawServerRate, hasServerRate := req["serverRateMbps"]
+	serverRate := asInt(rawServerRate, 0)
+	if hasServerRate {
+		if err := repo.ValidServerRate(serverRate); err != nil {
+			response.WriteJSON(w, response.ErrDefault(err.Error()))
+			return
+		}
+	}
+	rateBefore := h.userRateBefore(id)
 	speedLimitID, err = h.normalizeSpeedLimitReference(speedLimitID)
 	if err != nil {
 		response.WriteJSON(w, response.Err(-2, err.Error()))
@@ -272,6 +295,13 @@ func (h *Handler) userUpdate(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if err := h.repo.UpdateUserWithPassword(id, username, pwdHash, name, flow, num, maxConnections, maxClientIps, expTime, flowResetTime, status, now, renewalAmount, balance, int64(autoRenew), nullableInt(speedLimitID)); err != nil {
+			response.WriteJSON(w, response.Err(-2, err.Error()))
+			return
+		}
+	}
+
+	if hasServerRate {
+		if err := h.repo.SetUserServerRate(id, serverRate); err != nil {
 			response.WriteJSON(w, response.Err(-2, err.Error()))
 			return
 		}
@@ -370,6 +400,11 @@ func (h *Handler) userUpdate(w http.ResponseWriter, r *http.Request) {
 		// Plan 158: the user's landing nodes join (or leave) the per-user
 		// landing Core group with the new 总连接数 / 总 IP 数.
 		h.syncUserLandingServersAsync(id)
+	}
+	if hasServerRate {
+		// Plan 159: entry machines whose rate changed (limiters only on
+		// capable agents).
+		warnings = append(warnings, h.userRateAfter(id, rateBefore)...)
 	}
 
 	if len(warnings) > 0 {
@@ -3312,6 +3347,18 @@ func (h *Handler) forwardCreateWithReq(w http.ResponseWriter, r *http.Request, r
 		response.WriteJSON(w, response.Err(-2, err.Error()))
 		return
 	}
+	// Plan 159: a rule speed the admin sets must fit the user's 速率 on each
+	// entry machine (inherited defaults are capped by the shared limiter).
+	if roleID == 0 {
+		requested := sql.NullInt64{}
+		if hasSpeedID && speedID != nil {
+			requested = sql.NullInt64{Int64: *speedID, Valid: true}
+		}
+		if err := h.validateRuleSpeedAgainstRows(userID, entryNodes, h.ruleOwnSpeed(speedLimitEnabled, speedLimit, requested)); err != nil {
+			response.WriteJSON(w, response.ErrDefault(err.Error()))
+			return
+		}
+	}
 	if entryPermissionErr != nil {
 		response.WriteJSON(w, response.ErrDefault(entryPermissionErr.Error()))
 		return
@@ -3646,6 +3693,13 @@ func (h *Handler) forwardUpdateWithReq(w http.ResponseWriter, r *http.Request, r
 		if err := validateForwardRuleCaps(owner, maxConnections, maxClientIps); err != nil {
 			response.WriteJSON(w, response.ErrDefault(err.Error()))
 			return
+		}
+		// Plan 159: only a changed rule speed is checked against the rows.
+		if speedLimitEnabled != forward.SpeedLimitEnabled || speedLimit != forward.SpeedLimit || newSpeedID != forward.SpeedID {
+			if err := h.validateRuleSpeedAgainstRows(forward.UserID, fwdEntryNodes, h.ruleOwnSpeed(speedLimitEnabled, speedLimit, newSpeedID)); err != nil {
+				response.WriteJSON(w, response.ErrDefault(err.Error()))
+				return
+			}
 		}
 	}
 
@@ -6732,13 +6786,19 @@ func asInt64Slice(v interface{}) []int64 {
 	return ids
 }
 
+// parseSpeedLimitBindings: plan 159 retires the 用户 / 节点 bindings in the
+// UI; a request without those keys keeps them as they are.
 func parseSpeedLimitBindings(raw interface{}) repo.SpeedLimitBindings {
 	m, _ := raw.(map[string]interface{})
+	_, hasUsers := m["userIds"]
+	_, hasNodes := m["nodeIds"]
 	return repo.SpeedLimitBindings{
 		UserIDs:    asInt64Slice(m["userIds"]),
 		TunnelIDs:  asInt64Slice(m["tunnelIds"]),
 		ForwardIDs: asInt64Slice(m["forwardIds"]),
 		NodeIDs:    asInt64Slice(m["nodeIds"]),
+		KeepUsers:  !hasUsers,
+		KeepNodes:  !hasNodes,
 	}
 }
 

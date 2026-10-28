@@ -3,6 +3,7 @@ package repo
 import (
 	"errors"
 	"fmt"
+	"go-backend/internal/landingcustom"
 	"sort"
 	"strings"
 	"time"
@@ -398,13 +399,21 @@ func replaceUserTrafficPoolsTx(tx *gorm.DB, user *model.User, pools []TrafficPoo
 			return errors.New("服务器不存在")
 		}
 	}
+	// Plan 159: a member on a share revoked meanwhile (dialog opened before)
+	// is dropped instead of failing the whole save.
+	revoked := map[int64]bool{}
 	if len(landingIDs) > 0 {
-		var count int64
-		if err := tx.Model(&model.LandingServer{}).Where("id IN ? AND source = ?", landingIDs, "shared").Count(&count).Error; err != nil {
+		var servers []model.LandingServer
+		if err := tx.Select("id", "source", "shared_caps").Where("id IN ? AND source = ?", landingIDs, "shared").Find(&servers).Error; err != nil {
 			return err
 		}
-		if count != int64(len(landingIDs)) {
+		if len(servers) != len(landingIDs) {
 			return errors.New("共享服务器不存在")
+		}
+		for i := range servers {
+			if SharedLandingCaps(&servers[i]).Status == "revoked" {
+				revoked[servers[i].ID] = true
+			}
 		}
 	}
 	if err := tx.Where("user_id = ?", user.ID).Delete(&model.UserTrafficPoolMember{}).Error; err != nil {
@@ -437,7 +446,13 @@ func replaceUserTrafficPoolsTx(tx *gorm.DB, user *model.User, pools []TrafficPoo
 		}
 		rows := make([]model.UserTrafficPoolMember, 0, len(in.Members))
 		for _, m := range in.Members {
+			if m.ServerKind == "landing" && revoked[m.ServerRefID] {
+				continue
+			}
 			rows = append(rows, model.UserTrafficPoolMember{PoolID: id, UserID: user.ID, ServerKind: m.ServerKind, ServerRefID: m.ServerRefID})
+		}
+		if len(rows) == 0 {
+			continue
 		}
 		if err := tx.Create(&rows).Error; err != nil {
 			return err
@@ -451,6 +466,11 @@ type RelatedServer struct {
 	TrafficPoolServer
 	Entry   bool `json:"entry"`
 	Landing bool `json:"landing"`
+	// Plan 159 (速率): RateOldAgent = entry node whose agent lacks the
+	// userRate capability (there, rules with their own limit are not counted
+	// in the shared rate); SharedRate = shared server applying a user 速率.
+	RateOldAgent bool `json:"rateOldAgent,omitempty"`
+	SharedRate   bool `json:"sharedRate,omitempty"`
 }
 
 // UserRelatedServers lists the servers related to the user: entry servers of
@@ -527,7 +547,7 @@ func (r *Repository) UserRelatedServers(userID int64) ([]RelatedServer, error) {
 		}
 	}
 	var servers []model.LandingServer
-	q := r.db.Select("id", "node_id", "source", "name").Where("chain_only = ?", false)
+	q := r.db.Select("id", "node_id", "source", "name", "shared_caps").Where("chain_only = ?", false)
 	if !admin {
 		q = q.Where("("+landingAccessCond("landing_server.id")+" OR landing_server.id IN (SELECT landing_server_id FROM landing_node WHERE user_id = ?))", userID, userID, userID)
 	}
@@ -557,10 +577,14 @@ func (r *Repository) UserRelatedServers(userID int64) ([]RelatedServer, error) {
 				continue
 			}
 			kind, ref = "node", s.NodeID
-		} else if s.Source != "shared" {
-			continue
+		} else if s.Source != "shared" || SharedLandingCaps(&s).Status == "revoked" {
+			continue // plan 159: a revoked share is gone
 		}
-		add(kind, ref).Landing = true
+		v := add(kind, ref)
+		v.Landing = true
+		if s.Source == "shared" {
+			v.SharedRate = SharedLandingCaps(&s).UserLimits.Supports(landingcustom.UserLimitsRateVersion)
+		}
 		landingNames[fmt.Sprintf("%s:%d", kind, ref)] = s.Name
 	}
 	keys := make([]TrafficPoolServer, 0, len(byKey))
@@ -587,5 +611,18 @@ func (r *Repository) UserRelatedServers(userID int64) ([]RelatedServer, error) {
 		}
 		return out[i].ServerRefID < out[j].ServerRefID
 	})
+	var entryNodes []int64
+	for _, v := range out {
+		if v.ServerKind == "node" && v.Entry {
+			entryNodes = append(entryNodes, v.ServerRefID)
+		}
+	}
+	if caps, err := r.NodeUserRateCapabilities(entryNodes); err == nil {
+		for i := range out {
+			if out[i].ServerKind == "node" && out[i].Entry {
+				out[i].RateOldAgent = caps[out[i].ServerRefID] < UserRateVersion
+			}
+		}
+	}
 	return out, nil
 }

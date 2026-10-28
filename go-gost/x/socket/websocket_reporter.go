@@ -834,7 +834,8 @@ func buildWebSocketQuery(secret string, version string, http int, tls int, socks
 		"&blockOther=" + strconv.Itoa(blockOther) + "&panelIpFamily=" + url.QueryEscape(panelconn.Default.Mode()) +
 		"&machineProtect=" + strconv.Itoa(machineProtectVersion) +
 		"&runtimeRevs=" + strconv.Itoa(runtimeRevsVersion) +
-		"&addrReport=" + strconv.Itoa(addrReportVersion)
+		"&addrReport=" + strconv.Itoa(addrReportVersion) +
+		"&userRate=" + strconv.Itoa(userRateVersion)
 }
 
 // buildWebSocketCandidates returns the primary and the fallback scheme URL of

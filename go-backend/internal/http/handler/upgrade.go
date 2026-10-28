@@ -433,6 +433,8 @@ func (h *Handler) redeployNodeRuntime(nodeID int64) {
 	// Plan 138: capable agents report what they run; unchanged objects are
 	// not pushed again (nil inventory = full redeploy as before).
 	inv, fullReason := h.reconnectInventory(nodeID)
+	// Plan 159: user rate limiters first (services may reference them).
+	userRates, ratePushed, rateNote := h.userRateReconnectPush(nodeID, inv)
 	tunnelIDs, err := h.repo.ListActiveTunnelIDsByNode(nodeID)
 	if err != nil {
 		fmt.Printf("redeploy: list tunnels for node %d failed: %v\n", nodeID, err)
@@ -507,13 +509,26 @@ func (h *Handler) redeployNodeRuntime(nodeID int64) {
 		}()
 	}
 	orphans, orphanNote := h.removeReconnectOrphans(nodeID, inv)
+	rateRemoved, staleNote := h.userRateReconnectStale(nodeID, inv, userRates)
+	for _, note := range []string{rateNote, staleNote} {
+		if note != "" {
+			orphanNote = strings.TrimPrefix(orphanNote+"; "+note, "; ")
+		}
+	}
+	if ratePushed > 0 || rateRemoved > 0 {
+		orphanNote = strings.TrimPrefix(orphanNote+fmt.Sprintf("; user rate limiters pushed=%d removed=%d", ratePushed, rateRemoved), "; ")
+	}
 	var commands int64
 	if h.wsServer != nil {
 		commands = h.wsServer.CommandsSent(nodeID) - commandsBefore
 	}
 	if inv == nil {
-		fmt.Printf("redeploy: node %d done (full: %s): tunnels ok=%d failed=%d, forwards ok=%d failed=%d, commands=%d, took %s\n",
+		line := fmt.Sprintf("redeploy: node %d done (full: %s): tunnels ok=%d failed=%d, forwards ok=%d failed=%d, commands=%d, took %s",
 			nodeID, fullReason, tunnelsOK, tunnelsFailed, forwardsOK, forwardsFailed, commands, formatRedeployTook(time.Since(started)))
+		if orphanNote != "" {
+			line += "; " + orphanNote
+		}
+		fmt.Println(line)
 		return
 	}
 	line := fmt.Sprintf("redeploy: node %d done (diff, agent boot %s): tunnels unchanged=%d updated=%d failed=%d, forwards unchanged=%d updated=%d failed=%d, orphans removed=%d, commands=%d, took %s",

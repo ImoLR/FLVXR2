@@ -163,6 +163,11 @@ func Open(path string) (*Repository, error) {
 		_ = sqlDB.Close()
 		return nil, fmt.Errorf("cleanup group orphans: %w", err)
 	}
+	// Plan 159: per-server rows of deleted nodes / revoked shared servers.
+	// Never blocks the start (the rows are inert, the next start retries).
+	if _, err := cleanupServerRowOrphans(db); err != nil {
+		log.Printf("[server-row-cleanup] skipped: %v", err)
+	}
 	if err := backfillLandingServerUsers(db); err != nil {
 		_ = sqlDB.Close()
 		return nil, fmt.Errorf("backfill landing server users: %w", err)
@@ -226,6 +231,11 @@ func OpenPostgres(dsn string) (*Repository, error) {
 	if err := cleanupGroupOrphans(db); err != nil {
 		_ = sqlDB.Close()
 		return nil, fmt.Errorf("cleanup group orphans: %w", err)
+	}
+	// Plan 159: per-server rows of deleted nodes / revoked shared servers.
+	// Never blocks the start (the rows are inert, the next start retries).
+	if _, err := cleanupServerRowOrphans(db); err != nil {
+		log.Printf("[server-row-cleanup] skipped: %v", err)
 	}
 	if err := backfillLandingServerUsers(db); err != nil {
 		_ = sqlDB.Close()
@@ -1173,6 +1183,7 @@ func (r *Repository) ListUsers() ([]map[string]interface{}, error) {
 			"baseFlow":                u.BaseFlow,
 			"maxConnections":          u.MaxConnections,
 			"maxClientIps":            u.MaxClientIps,
+			"serverRateMbps":          u.ServerRateMbps,
 		}
 		if u.SpeedLimitID.Valid {
 			item["speedLimitId"] = u.SpeedLimitID.Int64
@@ -1217,6 +1228,10 @@ type SpeedLimitBindings struct {
 	TunnelIDs  []int64 `json:"tunnelIds"`
 	ForwardIDs []int64 `json:"forwardIds"`
 	NodeIDs    []int64 `json:"nodeIds"`
+	// KeepUsers / KeepNodes (plan 159): the request had no userIds / nodeIds
+	// (bindings retired in the UI) — keep the stored ones.
+	KeepUsers bool `json:"-"`
+	KeepNodes bool `json:"-"`
 }
 
 func (r *Repository) SpeedLimitBindingSnapshot(speedID int64) (SpeedLimitBindings, error) {
@@ -1270,8 +1285,10 @@ func (r *Repository) ReplaceSpeedLimitBindings(speedID int64, bindings SpeedLimi
 		return errors.New("repository not initialized")
 	}
 	return r.db.Transaction(func(tx *gorm.DB) error {
-		if err := replaceSpeedBinding(tx, &model.User{}, "speed_limit_id", speedID, bindings.UserIDs); err != nil {
-			return err
+		if !bindings.KeepUsers {
+			if err := replaceSpeedBinding(tx, &model.User{}, "speed_limit_id", speedID, bindings.UserIDs); err != nil {
+				return err
+			}
 		}
 		if err := replaceSpeedBinding(tx, &model.Tunnel{}, "speed_id", speedID, bindings.TunnelIDs); err != nil {
 			return err
@@ -1281,8 +1298,10 @@ func (r *Repository) ReplaceSpeedLimitBindings(speedID int64, bindings SpeedLimi
 				return err
 			}
 		}
-		if err := replaceSpeedBinding(tx, &model.Node{}, "speed_id", speedID, bindings.NodeIDs); err != nil {
-			return err
+		if !bindings.KeepNodes {
+			if err := replaceSpeedBinding(tx, &model.Node{}, "speed_id", speedID, bindings.NodeIDs); err != nil {
+				return err
+			}
 		}
 		return nil
 	})

@@ -11,7 +11,7 @@ type SubscriptionPackage struct {
 	ValidityDays          int    `gorm:"column:validity_days;default:0" json:"validityDays"`     // 0=永久
 	TrafficLimit          int64  `gorm:"column:traffic_limit;default:0" json:"trafficLimit"`     // GB, 0=不限
 	PortCount             int    `gorm:"column:port_count;default:0" json:"portCount"`           // 0=不限
-	SpeedLimit            int    `gorm:"column:speed_limit;default:0" json:"speedLimit"`         // MB/s, 0=不限
+	SpeedLimit            int    `gorm:"column:speed_limit;default:0" json:"speedLimit"`         // Mbps (the admin UI always entered/showed Mbps), 0=不限; shown only, not enforced
 	MaxRules              int    `gorm:"column:max_rules;default:0" json:"maxRules"`             // 0=不限
 	MaxConnections        int    `gorm:"column:max_connections;default:0" json:"maxConnections"` // 0=不限
 	MaxIPAccess           int    `gorm:"column:max_ip_access;default:0" json:"maxIPAccess"`      // 0=不限
