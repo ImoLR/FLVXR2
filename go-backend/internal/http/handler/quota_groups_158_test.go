@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"fmt"
 	"sync"
 	"testing"
 
@@ -251,5 +252,40 @@ func TestForwardQuotaGroupJoinsOnServerCap(t *testing.T) {
 	}
 	if join, conns, _ := forwardQuotaGroup(f, 8); !join || conns != 10 {
 		t.Fatalf("uncapped entry with totals = %v %d, want join with 10", join, conns)
+	}
+}
+
+// BenchmarkComputeQuotaPlan158: 200 limited users × 3 entry nodes (of 30) +
+// one native landing slot each (5 landing nodes), half with per-server caps,
+// 2 client IPs per slot — above today's production size. The coordinator runs
+// at most once per second.
+func BenchmarkComputeQuotaPlan158(b *testing.B) {
+	extras := repo.QuotaPlanExtras{Users: map[int64]repo.QuotaUserLimits{}, Caps: map[repo.ServerQuotaKey]int{}}
+	var targets []repo.QuotaGroupTarget
+	usage := map[int64]map[quotaUsageKey]quotaNodeUsage{}
+	add := func(node int64, key quotaUsageKey, u quotaNodeUsage) {
+		if usage[node] == nil {
+			usage[node] = map[quotaUsageKey]quotaNodeUsage{}
+		}
+		usage[node][key] = u
+	}
+	for u := int64(1); u <= 200; u++ {
+		extras.Users[u] = repo.QuotaUserLimits{MaxConnections: 100, MaxClientIps: 5}
+		for k := int64(0); k < 3; k++ {
+			node := (u*3+k)%30 + 1
+			targets = append(targets, forwardTarget(u, node))
+			add(node, quotaUsageKey{UserID: u}, quotaUsage(int(u%7), fmt.Sprintf("198.51.%d.%d", u%250, k), fmt.Sprintf("203.0.%d.%d", u%250, k)))
+			if u%2 == 0 && k == 0 {
+				extras.Caps[repo.ServerQuotaKey{UserID: u, Kind: "node", RefID: node}] = 20
+			}
+		}
+		landingNode := 26 + u%5
+		extras.Landing = append(extras.Landing, repo.QuotaLandingSlot{UserID: u, ServerID: landingNode, NodeID: landingNode, NodeStatus: 1, RelayNodes: 1})
+		add(landingNode, quotaUsageKey{UserID: u, Landing: true}, landingUsage(int(u%5), int(u%3), fmt.Sprintf("192.0.2.%d", u%250)))
+	}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = computeQuotaPlan(targets, extras, usage, nil)
 	}
 }

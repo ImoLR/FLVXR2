@@ -274,10 +274,11 @@ func (h *Handler) syncSharedIntegration(ctx context.Context, force bool) {
 			if e = h.pushSharedLanding(ctx, client, s, force, false); e != nil {
 				err = e
 			}
-			// Plan 158: per-user limits of shares that apply them.
+			// Plan 158: per-user limits of shares that apply them. A failure is
+			// recorded on the integration status (sharedAttempt) and backs off;
+			// the share's usage expires after 2 minutes.
 			if e = h.exchangeSharedUserLimits(ctx, client, s, force); e != nil {
 				err = e
-				_ = h.repo.SetSharedSyncError(s.ID, e.Error())
 			}
 		}
 		if err == nil {

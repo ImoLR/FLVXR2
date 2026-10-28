@@ -152,11 +152,12 @@ const relaySourcesRefresh = 10 * time.Minute
 const maxRelaySources = 4096
 
 type relaySourceCache struct {
-	mu        sync.Mutex
-	hostsHash string
-	at        time.Time
-	resolved  map[string][]string
-	list      []string
+	mu         sync.Mutex
+	hostsHash  string
+	at         time.Time
+	resolved   map[string][]string
+	names      []string // resolved addresses of host names (background)
+	refreshing bool
 }
 
 func (h *Handler) relaySourceState() *relaySourceCache {
@@ -164,38 +165,49 @@ func (h *Handler) relaySourceState() *relaySourceCache {
 	return h.relaySources
 }
 
-// landingRelaySources returns the sorted IP literals of every FLVX node.
+// landingRelaySources returns the sorted IP literals of every FLVX node. It
+// never waits for DNS: literal addresses count at once, host names (DDNS
+// nodes) are resolved in the background at most every 10 minutes (or when
+// the host list changes) and join the next sync.
 func (h *Handler) landingRelaySources(ctx context.Context) []string {
+	set := map[string]bool{"127.0.0.1": true, "::1": true}
+	add := func(host string) bool {
+		ip, err := netip.ParseAddr(strings.Trim(strings.TrimSpace(host), "[]"))
+		if err == nil {
+			set[ip.Unmap().String()] = true
+		}
+		return err == nil
+	}
 	if h == nil || h.repo == nil {
 		return []string{"127.0.0.1", "::1"}
 	}
-	st := h.relaySourceState()
 	hosts, err := h.repo.LandingHostInventory()
+	st := h.relaySourceState()
 	st.mu.Lock()
-	defer st.mu.Unlock()
 	if err == nil {
-		sort.Strings(hosts.Nodes)
-		raw, _ := json.Marshal(hosts.Nodes)
-		if string(raw) != st.hostsHash || time.Since(st.at) >= relaySourcesRefresh || st.list == nil {
-			resolved, _ := resolveSharedHosts(ctx, landingcustom.LandingHosts{Nodes: hosts.Nodes, Native: []string{}}, st.resolved)
-			st.hostsHash, st.at = string(raw), time.Now()
-			st.list = resolved.Nodes
+		names := []string{}
+		for _, host := range hosts.Nodes {
+			if !add(host) {
+				names = append(names, host)
+			}
+		}
+		sort.Strings(names)
+		raw, _ := json.Marshal(names)
+		if !st.refreshing && len(names) > 0 && (string(raw) != st.hostsHash || time.Since(st.at) >= relaySourcesRefresh) {
+			st.refreshing = true
+			go h.refreshRelayNames(names, string(raw))
 		}
 	}
-	set := map[string]bool{"127.0.0.1": true, "::1": true}
-	for _, host := range st.list {
-		if ip, err := netip.ParseAddr(strings.Trim(strings.TrimSpace(host), "[]")); err == nil {
-			set[ip.Unmap().String()] = true
-		}
+	for _, ip := range st.names {
+		add(ip)
 	}
+	st.mu.Unlock()
 	if h.ddns != nil {
 		m := h.ddnsState()
 		m.mu.Lock()
 		for _, a := range m.addrs {
 			for _, ip := range append(append([]string{}, a.V4...), a.V6...) {
-				if addr, err := netip.ParseAddr(ip); err == nil {
-					set[addr.Unmap().String()] = true
-				}
+				add(ip)
 			}
 		}
 		m.mu.Unlock()
@@ -209,6 +221,22 @@ func (h *Handler) landingRelaySources(ctx context.Context) []string {
 		out = out[:maxRelaySources]
 	}
 	return out
+}
+
+// refreshRelayNames resolves node host names (2 s each, failures keep the
+// last addresses) outside every lock.
+func (h *Handler) refreshRelayNames(names []string, hash string) {
+	st := h.relaySourceState()
+	st.mu.Lock()
+	cache := make(map[string][]string, len(st.resolved))
+	for k, v := range st.resolved {
+		cache[k] = v
+	}
+	st.mu.Unlock()
+	resolved, _ := resolveSharedHosts(context.Background(), landingcustom.LandingHosts{Nodes: names, Native: []string{}}, cache)
+	st.mu.Lock()
+	st.resolved, st.names, st.hostsHash, st.at, st.refreshing = cache, resolved.Nodes, hash, time.Now(), false
+	st.mu.Unlock()
 }
 
 // landingUserLimitsForServer builds the plan-158 part of a native landing
