@@ -251,7 +251,9 @@ func chooseQuotaGate(q RuleQuota, usage quotaUsage, group service.QuotaGroupStat
 	gate := quotaGate{ruleIPsFull: q.MaxClientIPs > 0 && len(usage.ips) >= q.MaxClientIPs}
 	if q.Group != "" {
 		gate.groupConnectionsFull = group.MaxConnections >= 0 && group.Connections >= group.MaxConnections
-		gate.groupIPsFull = group.MaxClientIPs >= 0 && len(group.ClientIPs) >= group.MaxClientIPs
+		// Plan 158: shared IPs (counted on other nodes) never use this
+		// node's IP budget; while full, they stay allowed (in ClientIPs).
+		gate.groupIPsFull = group.MaxClientIPs >= 0 && group.CountedIPs >= group.MaxClientIPs
 	}
 	return gate
 }

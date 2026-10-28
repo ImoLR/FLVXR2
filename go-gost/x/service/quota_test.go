@@ -214,3 +214,39 @@ func TestServiceClientIPCountsWithAndWithoutLimit(t *testing.T) {
 		}
 	}
 }
+
+// Plan 158: an IP the user already uses elsewhere (another entry, a landing
+// server) is shared: it connects here even when this node's IP budget is 0,
+// and it never takes a slot from a truly new IP.
+func TestQuotaGroupSharedIPsAreNotNewIPs(t *testing.T) {
+	svc := &defaultService{}
+	svc.SetQuotaGroup("test-shared-ips", UnlimitedQuota, 5) // any capped start attaches the group
+	if err := SetQuotaGroupBudgets([]QuotaGroupBudget{{Group: "test-shared-ips", MaxConnections: UnlimitedQuota, MaxClientIPs: 0, SharedIPs: []string{"198.51.100.9"}}}); err != nil {
+		t.Fatal(err)
+	}
+	releaseShared := mustAcquire(t, svc, "198.51.100.9")
+	if release, reason, _, ok := svc.acquireConnection("192.0.2.20"); ok {
+		release()
+		t.Fatal("a new IP was admitted with budget 0")
+	} else if reason != "group client IPs" {
+		t.Fatalf("unexpected rejection reason %q", reason)
+	}
+	// Budget 1 + the shared IP open: one truly new IP still fits.
+	if err := SetQuotaGroupBudgets([]QuotaGroupBudget{{Group: "test-shared-ips", MaxConnections: UnlimitedQuota, MaxClientIPs: 1, SharedIPs: []string{"198.51.100.9"}}}); err != nil {
+		t.Fatal(err)
+	}
+	releaseNew := mustAcquire(t, svc, "192.0.2.20")
+	if release, _, _, ok := svc.acquireConnection("192.0.2.21"); ok {
+		release()
+		t.Fatal("a second new IP was admitted with budget 1")
+	}
+	state, _ := GetQuotaGroupState("test-shared-ips")
+	if state.CountedIPs != 1 || len(state.ClientIPs) != 2 {
+		t.Fatalf("state = %+v, want 1 counted IP and 2 allowed", state)
+	}
+	if err := SetQuotaGroupBudgets([]QuotaGroupBudget{{Group: "test-shared-ips", MaxConnections: UnlimitedQuota, MaxClientIPs: 1, SharedIPs: make([]string, maxSharedIPs+1)}}); err == nil {
+		t.Fatal("oversized shared IP list accepted")
+	}
+	releaseNew()
+	releaseShared()
+}

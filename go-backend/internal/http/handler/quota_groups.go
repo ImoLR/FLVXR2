@@ -40,7 +40,14 @@ type quotaGroupBudget struct {
 	// an IP slot). Forward groups never carry them (byte-identical payload).
 	ServerMaxConnections *int `json:"serverMaxConnections,omitempty"`
 	RelayIps             int  `json:"relayIps,omitempty"`
+	// SharedIps (plan 158, forward groups of a user with 总 IP 数): the user's
+	// IPs active on other slots; the entry admits them without using one of
+	// its IP slots (distinct IPs everywhere). Older agents ignore it.
+	SharedIps []string `json:"sharedIps,omitempty"`
 }
+
+// maxQuotaSharedIPs bounds one budget's shared-IP list (agents refuse more).
+const maxQuotaSharedIPs = 256
 
 type quotaNodeUsage struct {
 	Connections int
@@ -662,6 +669,7 @@ func computeQuotaPlan(targets []repo.QuotaGroupTarget, extras repo.QuotaPlanExtr
 				serverBudget = max(serverCap-(serverTotals[s.key]-s.serverUsage()), 0)
 			}
 			clientIPBudget := -1
+			var sharedIPs []string
 			if u.limits.MaxClientIps > 0 {
 				otherOnlyIps := make(map[string]struct{})
 				for _, other := range u.slots {
@@ -675,6 +683,16 @@ func computeQuotaPlan(targets []repo.QuotaGroupTarget, extras repo.QuotaPlanExtr
 					}
 				}
 				clientIPBudget = max(u.limits.MaxClientIps-len(otherOnlyIps), 0)
+				if s.kind == quotaSlotForward && len(otherOnlyIps) > 0 {
+					sharedIPs = make([]string, 0, len(otherOnlyIps))
+					for ip := range otherOnlyIps {
+						sharedIPs = append(sharedIPs, ip)
+					}
+					sort.Strings(sharedIPs)
+					if len(sharedIPs) > maxQuotaSharedIPs {
+						sharedIPs = sharedIPs[:maxQuotaSharedIPs]
+					}
+				}
 			}
 			switch s.kind {
 			case quotaSlotForward:
@@ -683,6 +701,7 @@ func computeQuotaPlan(targets []repo.QuotaGroupTarget, extras repo.QuotaPlanExtr
 					Group:          quotaGroupForUser(userID),
 					MaxConnections: minQuotaBudget(totalBudget, serverBudget),
 					MaxClientIps:   clientIPBudget,
+					SharedIps:      sharedIPs,
 				})
 			case quotaSlotLanding:
 				plan.NodeVersions[s.nodeID] = s.nodeVersion

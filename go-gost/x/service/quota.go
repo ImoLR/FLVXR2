@@ -15,7 +15,14 @@ type QuotaGroupBudget struct {
 	Group          string `json:"group"`
 	MaxConnections int    `json:"maxConnections"`
 	MaxClientIPs   int    `json:"maxClientIps"`
+	// SharedIPs (plan 158): the user's client IPs already counted on other
+	// nodes / landing servers. They may connect here without using one of
+	// this node's MaxClientIPs (用户总 IP 数 counts distinct IPs everywhere).
+	SharedIPs []string `json:"sharedIps,omitempty"`
 }
+
+// maxSharedIPs bounds one group's shared-IP list.
+const maxSharedIPs = 256
 
 type QuotaGroupUsage struct {
 	Group       string   `json:"group"`
@@ -36,6 +43,7 @@ type quotaGroup struct {
 	nftConnections int
 	nftClientIPs   map[string]int
 	services       int
+	sharedIPs      map[string]struct{} // plan 158: counted elsewhere, never a new IP here
 }
 
 // NftQuotaGroup keeps a quota group present while an nftables entry rule uses it.
@@ -45,7 +53,11 @@ type QuotaGroupState struct {
 	MaxConnections int
 	MaxClientIPs   int
 	Connections    int
-	ClientIPs      map[string]struct{}
+	// ClientIPs = IPs that may connect while the IP budget is full: the
+	// group's local IPs plus its shared IPs (plan 158).
+	ClientIPs map[string]struct{}
+	// CountedIPs = local IPs that use this node's budget (shared ones don't).
+	CountedIPs int
 }
 
 func AttachNftQuotaGroup(group string, maxConnections, maxClientIPs int) *NftQuotaGroup {
@@ -94,7 +106,8 @@ func GetQuotaGroupState(group string) (QuotaGroupState, bool) {
 		MaxConnections: g.maxConnections,
 		MaxClientIPs:   g.maxClientIPs,
 		Connections:    g.connections + g.nftConnections,
-		ClientIPs:      make(map[string]struct{}, len(g.clientIPs)+len(g.nftClientIPs)),
+		ClientIPs:      make(map[string]struct{}, len(g.clientIPs)+len(g.nftClientIPs)+len(g.sharedIPs)),
+		CountedIPs:     g.countedIPsLocked(),
 	}
 	for ip := range g.clientIPs {
 		state.ClientIPs[ip] = struct{}{}
@@ -102,7 +115,27 @@ func GetQuotaGroupState(group string) (QuotaGroupState, bool) {
 	for ip := range g.nftClientIPs {
 		state.ClientIPs[ip] = struct{}{}
 	}
+	for ip := range g.sharedIPs {
+		state.ClientIPs[ip] = struct{}{}
+	}
 	return state, true
+}
+
+// countedIPsLocked counts the distinct local IPs (gost + nftables) that are
+// not shared, i.e. that use this node's IP budget. Caller holds g.mu.
+func (g *quotaGroup) countedIPsLocked() int {
+	n := 0
+	for ip := range g.clientIPs {
+		if _, shared := g.sharedIPs[ip]; !shared {
+			n++
+		}
+	}
+	for ip := range g.nftClientIPs {
+		if _, shared := g.sharedIPs[ip]; !shared && g.clientIPs[ip] == 0 {
+			n++
+		}
+	}
+	return n
 }
 
 var quotaGroupRegistry = struct {
@@ -156,23 +189,14 @@ func (g *quotaGroup) acquire(clientIP string) (reason string, limit int, ok bool
 	if g.maxConnections >= 0 && g.connections+g.nftConnections >= g.maxConnections {
 		return "group connections", g.maxConnections, false
 	}
-	if g.maxClientIPs >= 0 && g.clientIPs[clientIP] == 0 && g.nftClientIPs[clientIP] == 0 && len(g.clientIPs)+countNftOnlyIPs(g) >= g.maxClientIPs {
+	_, shared := g.sharedIPs[clientIP]
+	if g.maxClientIPs >= 0 && !shared && g.clientIPs[clientIP] == 0 && g.nftClientIPs[clientIP] == 0 && g.countedIPsLocked() >= g.maxClientIPs {
 		return "group client IPs", g.maxClientIPs, false
 	}
 
 	g.connections++
 	g.clientIPs[clientIP]++
 	return "", 0, true
-}
-
-func countNftOnlyIPs(g *quotaGroup) int {
-	count := 0
-	for ip := range g.nftClientIPs {
-		if g.clientIPs[ip] == 0 {
-			count++
-		}
-	}
-	return count
 }
 
 func (g *quotaGroup) release(clientIP string) {
@@ -191,10 +215,19 @@ func (g *quotaGroup) release(clientIP string) {
 	g.mu.Unlock()
 }
 
-func (g *quotaGroup) setBudgets(maxConnections, maxClientIPs int) {
+func (g *quotaGroup) setBudgets(maxConnections, maxClientIPs int, shared []string) {
 	g.mu.Lock()
 	g.maxConnections = maxConnections
 	g.maxClientIPs = maxClientIPs
+	g.sharedIPs = nil
+	if len(shared) > 0 {
+		g.sharedIPs = make(map[string]struct{}, len(shared))
+		for _, ip := range shared {
+			if ip = strings.TrimSpace(ip); ip != "" {
+				g.sharedIPs[ip] = struct{}{}
+			}
+		}
+	}
 	g.mu.Unlock()
 }
 
@@ -208,7 +241,7 @@ func SetQuotaGroupBudgets(budgets []QuotaGroupBudget) error {
 		if budget.Group == "" {
 			return fmt.Errorf("quota group is required")
 		}
-		if budget.MaxConnections < UnlimitedQuota || budget.MaxClientIPs < UnlimitedQuota {
+		if budget.MaxConnections < UnlimitedQuota || budget.MaxClientIPs < UnlimitedQuota || len(budget.SharedIPs) > maxSharedIPs {
 			return fmt.Errorf("quota group %s has invalid budget", budget.Group)
 		}
 		normalized[i] = budget
@@ -226,7 +259,7 @@ func SetQuotaGroupBudgets(budgets []QuotaGroupBudget) error {
 			quotaGroupRegistry.groups[budget.Group] = g
 		}
 		quotaGroupRegistry.Unlock()
-		g.setBudgets(budget.MaxConnections, budget.MaxClientIPs)
+		g.setBudgets(budget.MaxConnections, budget.MaxClientIPs, budget.SharedIPs)
 	}
 	return nil
 }

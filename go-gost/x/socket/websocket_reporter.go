@@ -2129,6 +2129,8 @@ type quotaGroupBudgetWire struct {
 	MaxClientIPs         int    `json:"maxClientIps"`
 	ServerMaxConnections *int   `json:"serverMaxConnections,omitempty"`
 	RelayIPs             int    `json:"relayIps,omitempty"`
+	// SharedIPs (forward groups): the user's IPs counted elsewhere.
+	SharedIPs []string `json:"sharedIps,omitempty"`
 }
 
 func (w *WebSocketReporter) handleSetQuotaGroups(data interface{}) error {
@@ -2154,7 +2156,7 @@ func (w *WebSocketReporter) handleSetQuotaGroups(data interface{}) error {
 			landingBudgets = append(landingBudgets, landing.GroupBudget{Group: strings.TrimSpace(b.Group), MaxConnections: int64(b.MaxConnections), MaxClientIPs: b.MaxClientIPs, ServerMaxConnections: server, RelayIPs: b.RelayIPs})
 			continue
 		}
-		budgets = append(budgets, service.QuotaGroupBudget{Group: b.Group, MaxConnections: b.MaxConnections, MaxClientIPs: b.MaxClientIPs})
+		budgets = append(budgets, service.QuotaGroupBudget{Group: b.Group, MaxConnections: b.MaxConnections, MaxClientIPs: b.MaxClientIPs, SharedIPs: b.SharedIPs})
 	}
 	if err := landing.Default().SetGroupBudgets(landingBudgets); err != nil {
 		return err

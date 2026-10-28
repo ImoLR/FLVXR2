@@ -48,7 +48,7 @@ func TestConntrackAttributionAcrossPortsProtocolsAndUser(t *testing.T) {
 
 func TestQuotaGateDecisions(t *testing.T) {
 	usage := quotaUsage{connections: 2, ips: map[string]int{"192.0.2.1": 2}}
-	state := service.QuotaGroupState{MaxConnections: -1, MaxClientIPs: -1, Connections: 2, ClientIPs: map[string]struct{}{"192.0.2.1": {}}}
+	state := service.QuotaGroupState{MaxConnections: -1, MaxClientIPs: -1, Connections: 2, ClientIPs: map[string]struct{}{"192.0.2.1": {}}, CountedIPs: 1}
 	q := RuleQuota{MaxClientIPs: 1, Group: "user-7"}
 	gate := chooseQuotaGate(q, usage, state)
 	if !gate.ruleIPsFull || !quotaGateAllows(gate, usage.ips, state.ClientIPs, "192.0.2.1") || quotaGateAllows(gate, usage.ips, state.ClientIPs, "192.0.2.2") {
@@ -75,6 +75,17 @@ func TestQuotaGateDecisions(t *testing.T) {
 	gate = chooseQuotaGate(q, usage, state)
 	if gate.groupConnectionsFull || gate.groupIPsFull {
 		t.Fatalf("-1 pool must be unlimited: %+v", gate)
+	}
+	// Plan 158: an IP counted on another node / landing (shared) never uses
+	// this node's budget and stays allowed while the pool is full.
+	shared := service.QuotaGroupState{MaxConnections: -1, MaxClientIPs: 1, ClientIPs: map[string]struct{}{"192.0.2.1": {}, "198.51.100.9": {}}, CountedIPs: 1}
+	gate = chooseQuotaGate(q, usage, shared)
+	if !gate.groupIPsFull || !quotaGateAllows(gate, usage.ips, shared.ClientIPs, "198.51.100.9") || quotaGateAllows(gate, usage.ips, shared.ClientIPs, "192.0.2.2") {
+		t.Fatalf("shared IP gate = %+v", gate)
+	}
+	shared.CountedIPs = 0
+	if gate = chooseQuotaGate(q, quotaUsage{}, shared); gate.groupIPsFull {
+		t.Fatalf("shared IPs alone filled the pool: %+v", gate)
 	}
 }
 

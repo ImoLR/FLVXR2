@@ -132,6 +132,11 @@ func TestQuotaPlanClientIPsAcrossEntryAndLanding(t *testing.T) {
 	if fwd.MaxClientIps != 1 || land.MaxClientIps != 1 || land.RelayIps != 2 {
 		t.Fatalf("IP budgets entry=%+v landing=%+v, want 1 / 1 (+2 relay slots)", fwd, land)
 	}
+	// The entry may admit the landing's IP without a slot (distinct IPs);
+	// the landing Core cannot be told, so it gets none.
+	if len(fwd.SharedIps) != 1 || fwd.SharedIps[0] != "198.51.100.2" || land.SharedIps != nil {
+		t.Fatalf("shared IPs entry=%v landing=%v", fwd.SharedIps, land.SharedIps)
+	}
 	if got := plan.LiveUsage[7]; got.ClientIps != 2 {
 		t.Fatalf("live IPs = %+v, want 2", got)
 	}
