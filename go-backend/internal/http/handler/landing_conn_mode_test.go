@@ -21,9 +21,12 @@ func connModeNodes(payload map[string]interface{}) map[float64]map[string]interf
 	return out
 }
 
-// Plan 141 native payload: 仅入站 nodes carry conn_mode only for agents with
-// landing_conn_mode >= 1; an old agent gets today's payload byte for byte.
-// The 仅入站 signature advances the revision exactly when the content changes.
+// Native payload (plan 141, retired choice in plan 158): agents with
+// landing_conn_mode >= 1 get conn_mode "inbound" on every node; a total still
+// stored as 仅入站 keeps max_conn_mode until the server is saved again; an old
+// agent gets today's payload byte for byte. Plan 158 user limits (quota_group
+// + user_limits) go only to agents reporting landing_user_limits. Each content
+// change advances the revision exactly once.
 func TestNativeLandingPayloadConnMode(t *testing.T) {
 	e := newFlowTestEnv(t)
 	e.addUser(2)
@@ -44,50 +47,86 @@ func TestNativeLandingPayloadConnMode(t *testing.T) {
 		_ = json.Unmarshal(raw, &p)
 		return p, raw
 	}
-	base, baseRaw := sync()
-	baseRev := base["revision"]
+	_, baseRaw := sync()
 
-	// Configure 仅入站 (node 2 own, server total) — old agent: unchanged payload.
-	e.exec("UPDATE landing_node SET conn_mode = 'inbound' WHERE id = 2")
+	// A legacy 仅入站 total + an own node mode — old agent: unchanged payload.
+	e.exec("UPDATE landing_node SET conn_mode = 'total' WHERE id = 2")
 	e.exec("UPDATE landing_server SET max_conn_mode = 'inbound', max_connections = 500 WHERE id = 1")
 	old, oldRaw := sync()
-	if strings.Contains(string(oldRaw), "conn_mode") {
-		t.Fatalf("old agent got conn_mode: %s", oldRaw)
+	if strings.Contains(string(oldRaw), "conn_mode") || strings.Contains(string(oldRaw), "quota_group") || strings.Contains(string(oldRaw), "user_limits") {
+		t.Fatalf("old agent got new fields: %s", oldRaw)
 	}
 	if old["max_connections"].(float64) != 500 || connModeNodes(old)[2]["max_connections"].(float64) != 3 {
 		t.Fatalf("old agent limits: %s", oldRaw)
 	}
 	t.Logf("native payload, 2 nodes: before %d bytes", len(baseRaw))
 
-	// Agent upgraded: conn_mode for node 2 + max_conn_mode, revision bumped.
+	// Agent upgraded: every node counts 入站; the legacy 仅入站 total stays.
 	e.exec("UPDATE node SET landing_conn_mode = 1 WHERE id = 2")
 	newer, newRaw := sync()
 	nodes := connModeNodes(newer)
-	if nodes[2]["conn_mode"] != "inbound" || nodes[1]["conn_mode"] != nil || newer["max_conn_mode"] != "inbound" {
+	if nodes[1]["conn_mode"] != "inbound" || nodes[2]["conn_mode"] != "inbound" || newer["max_conn_mode"] != "inbound" {
 		t.Fatalf("capable agent payload: %s", newRaw)
 	}
 	if newer["revision"].(float64) <= old["revision"].(float64) {
 		t.Fatalf("revision not advanced: %v → %v", old["revision"], newer["revision"])
 	}
-	t.Logf("native payload, 2 nodes, 1 仅入站 + 仅入站 total: %d bytes (+%d vs old agent)", len(newRaw), len(newRaw)-len(oldRaw))
 	again, _ := sync()
 	if again["revision"] != newer["revision"] {
 		t.Fatal("identical content advanced the revision")
 	}
-	// Server follows: node 1 (NULL) follows a 仅入站 server.
-	e.exec("UPDATE landing_server SET conn_mode = 'inbound' WHERE id = 1")
-	follow, _ := sync()
-	if connModeNodes(follow)[1]["conn_mode"] != "inbound" || follow["revision"] == again["revision"] {
-		t.Fatalf("following node: %v rev %v", connModeNodes(follow)[1], follow["revision"])
+	// The total saved as 入站+出站: max_conn_mode disappears, nodes stay 入站.
+	e.exec("UPDATE landing_server SET max_conn_mode = 'total' WHERE id = 1")
+	total, totalRaw := sync()
+	if total["max_conn_mode"] != nil || connModeNodes(total)[1]["conn_mode"] != "inbound" || total["revision"] == again["revision"] {
+		t.Fatalf("total back to 入站+出站: %s", totalRaw)
 	}
-	// Back to all total: payload equals the pre-141 shape again (modulo revision).
-	e.exec("UPDATE landing_server SET conn_mode = 'total', max_conn_mode = 'total' WHERE id = 1")
-	e.exec("UPDATE landing_node SET conn_mode = NULL")
-	back, backRaw := sync()
-	if strings.Contains(string(backRaw), "conn_mode") || back["revision"] == follow["revision"] {
-		t.Fatalf("back to total: %s", backRaw)
+
+	// Plan 158: a limited owner (总连接数 4) on an agent with landing_user_limits.
+	e.exec("UPDATE \"user\" SET max_connections = 4, max_client_ips = 0 WHERE id = 2")
+	plain, plainRaw := sync()
+	if strings.Contains(string(plainRaw), "quota_group") || plain["revision"] != total["revision"] {
+		t.Fatalf("agent without landing_user_limits got user limits: %s", plainRaw)
 	}
-	_ = baseRev
+	e.exec("UPDATE node SET landing_user_limits = 1 WHERE id = 2")
+	ul, ulRaw := sync()
+	nodes = connModeNodes(ul)
+	if nodes[1]["quota_group"] != "landing-user-2" || nodes[2]["quota_group"] != "landing-user-2" || ul["revision"] == plain["revision"] {
+		t.Fatalf("user-limits payload nodes: %s", ulRaw)
+	}
+	limits, _ := ul["user_limits"].(map[string]interface{})
+	groups, _ := limits["groups"].([]interface{})
+	relays, _ := limits["relay_sources"].([]interface{})
+	if limits["version"].(float64) != 1 || len(groups) != 1 || groups[0].(map[string]interface{})["max_connections"].(float64) != 4 || groups[0].(map[string]interface{})["server_max_connections"].(float64) != -1 {
+		t.Fatalf("user_limits: %s", ulRaw)
+	}
+	hasLoop := false
+	for _, ip := range relays {
+		hasLoop = hasLoop || ip == "127.0.0.1"
+	}
+	if !hasLoop {
+		t.Fatalf("relay sources without loopback: %v", relays)
+	}
+	t.Logf("native payload, 2 nodes with user limits: %d bytes (+%d)", len(ulRaw), len(ulRaw)-len(totalRaw))
+	if same, _ := sync(); same["revision"] != ul["revision"] {
+		t.Fatal("identical user-limits content advanced the revision")
+	}
+	// A per-server 入站连接数 alone (no totals) still maps the owner's nodes.
+	e.exec("UPDATE \"user\" SET max_connections = 0 WHERE id = 2")
+	if err := e.r.DB().Create(&model.UserServerQuota{UserID: 2, ServerKind: "node", ServerRefID: 2, MaxInboundConnections: 6, CreatedTime: 1, UpdatedTime: 1}).Error; err != nil {
+		t.Fatal(err)
+	}
+	capped, cappedRaw := sync()
+	cg := capped["user_limits"].(map[string]interface{})["groups"].([]interface{})
+	if len(cg) != 1 || cg[0].(map[string]interface{})["server_max_connections"].(float64) != 6 || cg[0].(map[string]interface{})["max_connections"].(float64) != -1 {
+		t.Fatalf("per-server cap payload: %s", cappedRaw)
+	}
+	// Owner no longer limited: no quota_group, empty group list.
+	e.exec("UPDATE user_server_quota SET max_inbound_connections = 0")
+	free, freeRaw := sync()
+	if strings.Contains(string(freeRaw), "quota_group") || len(free["user_limits"].(map[string]interface{})["groups"].([]interface{})) != 0 {
+		t.Fatalf("unlimited owner payload: %s", freeRaw)
+	}
 }
 
 // Views: counts follow the effective mode, labels and the pending hint are

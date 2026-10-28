@@ -12,8 +12,10 @@ import (
 
 func connModePtr(mode string) *string { return &mode }
 
-// Plan 141 mode resolution: node override → server → default 入站+出站;
-// 仅入站 only where the runtime applies it; a shared total is always 入站+出站.
+// Plan 158 retired the plan-141 choice: every node limit counts 入站 (only
+// where the runtime applies it, else 入站+出站 as before); a shared server's
+// nodes count 入站 only with landing-user-limits-v1; the server total is
+// 入站+出站 except a native total still stored as 仅入站 (until saved again).
 func TestLandingConnModeResolution(t *testing.T) {
 	native := &model.LandingServer{Source: "native"}
 	inboundServer := &model.LandingServer{Source: "native", ConnMode: LandingConnInbound, MaxConnMode: LandingConnInbound}
@@ -21,6 +23,8 @@ func TestLandingConnModeResolution(t *testing.T) {
 	follow := &model.LandingNode{}
 	ownTotal := &model.LandingNode{ConnMode: connModePtr(LandingConnTotal)}
 	ownInbound := &model.LandingNode{ConnMode: connModePtr(LandingConnInbound)}
+	userLimitsCaps, _ := json.Marshal(landingcustom.Share{ID: 1, UserLimits: &landingcustom.ShareUserLimits{Versions: []int{1}}})
+	sharedUL := &model.LandingServer{Source: "shared", SharedCaps: string(userLimitsCaps)}
 	for _, tt := range []struct {
 		name      string
 		n         *model.LandingNode
@@ -29,16 +33,17 @@ func TestLandingConnModeResolution(t *testing.T) {
 		want      string
 		effective string
 	}{
-		{"pre-141 row follows empty server", follow, native, true, LandingConnTotal, LandingConnTotal},
+		{"pre-141 row on an empty server counts 入站", follow, native, true, LandingConnInbound, LandingConnInbound},
 		{"follows inbound server", follow, inboundServer, true, LandingConnInbound, LandingConnInbound},
 		{"old agent keeps total", follow, inboundServer, false, LandingConnInbound, LandingConnTotal},
-		{"own total beats inbound server", ownTotal, inboundServer, true, LandingConnTotal, LandingConnTotal},
+		{"a stored own 入站+出站 is ignored", ownTotal, inboundServer, true, LandingConnInbound, LandingConnInbound},
 		{"own inbound on total server", ownInbound, native, true, LandingConnInbound, LandingConnInbound},
 		{"no server", ownInbound, nil, true, LandingConnInbound, LandingConnInbound},
-		{"garbage normalizes to total", &model.LandingNode{ConnMode: connModePtr("x")}, native, true, LandingConnTotal, LandingConnTotal},
-		// Plan 147: shared servers are fixed 入站+出站, whatever a row holds.
+		{"garbage is ignored", &model.LandingNode{ConnMode: connModePtr("x")}, native, true, LandingConnInbound, LandingConnInbound},
+		// Shared servers stay 入站+出站 until 妙妙屋 applies user limits.
 		{"shared ignores node override", ownInbound, shared, true, LandingConnTotal, LandingConnTotal},
 		{"shared ignores server mode", follow, shared, true, LandingConnTotal, LandingConnTotal},
+		{"shared with user limits counts 入站", follow, sharedUL, true, LandingConnInbound, LandingConnInbound},
 	} {
 		if got := LandingNodeConnMode(tt.n, tt.s); got != tt.want {
 			t.Fatalf("%s: configured %q want %q", tt.name, got, tt.want)
@@ -47,7 +52,7 @@ func TestLandingConnModeResolution(t *testing.T) {
 			t.Fatalf("%s: effective %q want %q", tt.name, got, tt.effective)
 		}
 	}
-	if LandingServerTotalConnMode(inboundServer, true) != LandingConnInbound || LandingServerTotalConnMode(inboundServer, false) != LandingConnTotal || LandingServerTotalConnMode(shared, true) != LandingConnTotal {
+	if LandingServerTotalConnMode(inboundServer, true) != LandingConnInbound || LandingServerTotalConnMode(inboundServer, false) != LandingConnTotal || LandingServerTotalConnMode(shared, true) != LandingConnTotal || LandingServerTotalConnMode(native, true) != LandingConnTotal {
 		t.Fatal("server total mode")
 	}
 	n := &model.LandingNode{Connections: 9, InboundConnections: 4}
@@ -64,11 +69,14 @@ func TestLandingConnModeResolution(t *testing.T) {
 	if !LandingConnModeSupported(native, 1) || LandingConnModeSupported(native, 0) || LandingConnModeSupported(shared, 5) || LandingConnModeSupported(nil, 1) {
 		t.Fatal("support gate")
 	}
-	// Plan 147: even a share advertising landing-conn-mode-v1 never gets it.
+	// landing-conn-mode-v1 alone is still never used (plan 147); user limits are.
 	caps, _ := json.Marshal(landingcustom.Share{ID: 1, ConnModes: &landingcustom.ShareConnModes{Versions: []int{1}}})
 	advertised := &model.LandingServer{Source: "shared", SharedCaps: string(caps)}
 	if LandingConnModeSupported(advertised, 0) || LandingConnModeSupported(advertised, 1) || !LandingConnModeFixed(advertised) || LandingConnModeFixed(native) {
-		t.Fatal("shared conn mode must stay fixed 入站+出站")
+		t.Fatal("shared conn mode must stay fixed 入站+出站 with conn_modes only")
+	}
+	if !LandingConnModeSupported(sharedUL, 0) || !SharedUserLimitsSupported(sharedUL) || SharedUserLimitsSupported(advertised) {
+		t.Fatal("user_limits v1 must enable 入站 node limits on a share")
 	}
 }
 
