@@ -41,7 +41,7 @@ Build only: no tag, no release, no prod writes, no OTA. Screens go to the user b
       (absent = keep, for older clients); `/user/package` returns `trafficPools`
 - [x] Unit tests (repo + handler) on SQLite and PostgreSQL: once-per-pool accounting (entry+relay+exit, entry+landing,
       split tiers), one-pool-per-server, period roll, pause/resume of rules + landing nodes, block reason
-- [ ] Contract test (HTTP save/get + user view)
+- [x] Contract test (HTTP save/get + user view)
 - [ ] Frontend: related-servers picker (per-server list), 共享流量池 block, user 主页 card; tsc/build/lint
 - [ ] Full `go test ./...` SQLite + PostgreSQL vs base
 - [ ] End-to-end on a local panel + real agent (loopback): pool exhausts → rule paused on the agent; raise limit → resumed

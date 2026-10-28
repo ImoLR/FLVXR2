@@ -314,3 +314,7 @@ func filterChainCounters(in []repo.LandingCounter) []repo.LandingCounter {
 	}
 	return out
 }
+
+// WaitFlowEnforce waits for the enforcement started after /flow/upload
+// answers (contract tests, before closing the database).
+func (h *Handler) WaitFlowEnforce() { h.flowEnforceWG.Wait() }
