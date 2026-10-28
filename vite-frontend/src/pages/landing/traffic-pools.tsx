@@ -192,7 +192,7 @@ export function TrafficPoolsEditor({
               })}
               {pool.members.length === 0 && (
                 <span className="text-xs text-warning">
-                  至少选一台服务器才能保存
+                  还没有服务器，这个池暂不生效
                 </span>
               )}
             </div>

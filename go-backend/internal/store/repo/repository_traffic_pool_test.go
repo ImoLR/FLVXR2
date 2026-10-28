@@ -95,7 +95,6 @@ func TestTrafficPoolSaveRules(t *testing.T) {
 				{[]TrafficPoolInput{{Name: "a", Members: []TrafficPoolServer{srv("node", 1)}}, {Name: "b", Members: []TrafficPoolServer{srv("node", 1)}}}, "只能加入该用户的一个流量池"},
 				{[]TrafficPoolInput{{Name: "a", Members: []TrafficPoolServer{srv("node", 1)}}, {Name: "a", Members: []TrafficPoolServer{srv("node", 2)}}}, "名称重复"},
 				{[]TrafficPoolInput{{Name: " ", Members: []TrafficPoolServer{srv("node", 1)}}}, "请填写流量池名称"},
-				{[]TrafficPoolInput{{Name: "a"}}, "至少要选一台服务器"},
 				{[]TrafficPoolInput{{Name: "a", Members: []TrafficPoolServer{srv("node", 99)}}}, "服务器不存在"},
 				{[]TrafficPoolInput{{Name: "a", Members: []TrafficPoolServer{srv("landing", 99)}}}, "共享服务器不存在"},
 				{[]TrafficPoolInput{{Name: "a", LimitBytes: -1, Members: []TrafficPoolServer{srv("node", 1)}}}, "限额无效"},
@@ -127,6 +126,13 @@ func TestTrafficPoolSaveRules(t *testing.T) {
 			if len(pools) != 2 || pools[0].Name != "亚洲线路" || pools[0].UsedIn != 5 || pools[0].UsedOut != 6 || len(pools[0].Members) != 1 || pools[0].Members[0].ServerName != "JP-exit" || len(pools[1].Members) != 2 {
 				t.Fatalf("update: %+v", pools)
 			}
+			// An empty pool (e.g. its only node was deleted) never blocks saving.
+			if err := save(3, []TrafficPoolInput{{Name: "空池"}}); err != nil {
+				t.Fatalf("empty pool: %v", err)
+			}
+			if p, _ := r.UserTrafficPools(3, true, time.Now()); len(p) != 1 || len(p[0].Members) != 0 {
+				t.Fatalf("empty pool kept: %+v", p)
+			}
 			// nil pools (older client) keeps them.
 			if err := r.SaveLandingUserSettingFull(2, LandingMaxNodesFollowGlobal, nil, 0, nil, nil); err != nil {
 				t.Fatal(err)
@@ -148,6 +154,9 @@ func TestTrafficPoolSaveRules(t *testing.T) {
 				t.Fatalf("delete all: %+v members %d", pools, rows)
 			}
 			// Node delete removes it from pools; user delete removes the pools.
+			if err := save(3, []TrafficPoolInput{{Name: "亚洲", Members: []TrafficPoolServer{srv("node", 1)}}}); err != nil {
+				t.Fatal(err)
+			}
 			if err := r.DeleteNodeCascade(1); err != nil {
 				t.Fatal(err)
 			}

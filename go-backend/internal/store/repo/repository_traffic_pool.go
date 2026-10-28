@@ -368,9 +368,8 @@ func replaceUserTrafficPoolsTx(tx *gorm.DB, user *model.User, pools []TrafficPoo
 			}
 			seenIDs[p.ID] = true
 		}
-		if len(p.Members) == 0 {
-			return errors.New("流量池「" + p.Name + "」至少要选一台服务器")
-		}
+		// An empty pool has no effect. Allowed so that a pool emptied by a node
+		// deletion never blocks saving the user's other settings.
 		if len(p.Members) > TrafficPoolMaxMembers {
 			return fmt.Errorf("每个流量池最多 %d 台服务器", TrafficPoolMaxMembers)
 		}
@@ -432,6 +431,9 @@ func replaceUserTrafficPoolsTx(tx *gorm.DB, user *model.User, pools []TrafficPoo
 			if err := tx.Model(&model.UserTrafficPool{}).Where("id = ?", id).Updates(map[string]interface{}{"name": in.Name, "limit_bytes": in.LimitBytes, "updated_time": nowMs}).Error; err != nil {
 				return err
 			}
+		}
+		if len(in.Members) == 0 {
+			continue
 		}
 		rows := make([]model.UserTrafficPoolMember, 0, len(in.Members))
 		for _, m := range in.Members {
