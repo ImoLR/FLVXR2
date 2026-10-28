@@ -766,9 +766,18 @@ export default function LimitPage() {
                           按用户限速：到「用户 →
                           编辑」设置默认速率（每台服务器各算各的），或在「落地 →
                           服务器限额」逐台设置。绑定到节点从未生效，已停用。
-                          {(form.bindings.userIds.length > 0 ||
-                            form.bindings.nodeIds.length > 0) &&
-                            `这条规则原有的绑定保留不变：${form.bindings.userIds.length} 个用户（只作为他们新建规则的默认限速）、${form.bindings.nodeIds.length} 个节点（不生效）。`}
+                          {(() => {
+                            const kept = [
+                              form.bindings.userIds.length > 0 &&
+                                `${form.bindings.userIds.length} 个用户（只作为他们新建规则的默认限速）`,
+                              form.bindings.nodeIds.length > 0 &&
+                                `${form.bindings.nodeIds.length} 个节点（不生效）`,
+                            ].filter(Boolean);
+
+                            return kept.length > 0
+                              ? `这条规则原有的绑定保留不变：${kept.join("、")}。`
+                              : "";
+                          })()}
                         </p>
                       </div>
                     )}

@@ -491,7 +491,7 @@ export const LandingUserSettings = forwardRef<
             {/* Plan 158: phones put the server name on its own line (four
                 columns leave no room for it); desktop keeps one line. */}
             <div
-              className={`grid gap-2 text-xs text-default-500 ${rateSupported ? "grid-cols-4 sm:grid-cols-[minmax(0,1fr)_100px_96px_96px_80px]" : "grid-cols-3 sm:grid-cols-[minmax(0,1fr)_100px_96px_80px]"}`}
+              className={`grid gap-2 text-xs text-default-500 ${rateSupported ? "grid-cols-4 sm:grid-cols-[minmax(0,1fr)_72px_68px_84px_56px]" : "grid-cols-3 sm:grid-cols-[minmax(0,1fr)_100px_96px_80px]"}`}
             >
               <span className="hidden sm:block">服务器</span>
               <span>限额 (GB，计费流量)</span>
@@ -502,7 +502,7 @@ export const LandingUserSettings = forwardRef<
             {form.quotas.map((quota, index) => (
               <div
                 key={`${quota.serverKind}-${quota.serverRefId}`}
-                className={`grid items-center gap-2 ${rateSupported ? "grid-cols-4 sm:grid-cols-[minmax(0,1fr)_100px_96px_96px_80px]" : "grid-cols-3 sm:grid-cols-[minmax(0,1fr)_100px_96px_80px]"}`}
+                className={`grid items-center gap-2 ${rateSupported ? "grid-cols-4 sm:grid-cols-[minmax(0,1fr)_72px_68px_84px_56px]" : "grid-cols-3 sm:grid-cols-[minmax(0,1fr)_100px_96px_80px]"}`}
               >
                 <div
                   className={`${rateSupported ? "col-span-4" : "col-span-3"} min-w-0 text-sm sm:col-span-1`}
@@ -522,18 +522,6 @@ export const LandingUserSettings = forwardRef<
                   {quota.paused && (
                     <p className="text-xs text-warning">额度已用完</p>
                   )}
-                  {rateSupported &&
-                    rateAllowed(quota) &&
-                    effectiveRate(quota) > 0 &&
-                    relatedByKey.get(serverKey(quota))?.rateOldAgent && (
-                      <p
-                        data-rate-old-agent
-                        className="text-xs text-warning"
-                        title="升级该服务器的 agent 后，有单独限速的规则也计入速率"
-                      >
-                        agent 较旧：有单独限速的规则不计入速率
-                      </p>
-                    )}
                 </div>
                 <Input
                   aria-label={`${quota.serverName || quota.serverRefId} 限额 GB`}
@@ -615,6 +603,20 @@ export const LandingUserSettings = forwardRef<
                 <span className="text-sm">
                   {landingGB(quota.usedIn + quota.usedOut)}
                 </span>
+                {rateSupported &&
+                  rateAllowed(quota) &&
+                  effectiveRate(quota) > 0 &&
+                  relatedByKey.get(serverKey(quota))?.rateOldAgent && (
+                    <p
+                      data-rate-old-agent
+                      className="col-span-full -mt-1 text-xs text-warning"
+                      title="升级该服务器的 agent 后，有单独限速的规则也计入速率"
+                    >
+                      该服务器 agent
+                      较旧：有单独限速的规则不计入这里的速率（升级 agent
+                      后全部计入）
+                    </p>
+                  )}
               </div>
             ))}
           </div>
