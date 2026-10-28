@@ -42,10 +42,24 @@ Build only: no tag, no release, no prod writes, no OTA. Screens go to the user b
 - [x] Unit tests (repo + handler) on SQLite and PostgreSQL: once-per-pool accounting (entry+relay+exit, entry+landing,
       split tiers), one-pool-per-server, period roll, pause/resume of rules + landing nodes, block reason
 - [x] Contract test (HTTP save/get + user view)
-- [ ] Frontend: related-servers picker (per-server list), 共享流量池 block, user 主页 card; tsc/build/lint
+- [x] Frontend: related-servers picker (per-server list), 共享流量池 block, user 主页 card; tsc/build/lint
 - [ ] Full `go test ./...` SQLite + PostgreSQL vs base
-- [ ] End-to-end on a local panel + real agent (loopback): pool exhausts → rule paused on the agent; raise limit → resumed
-- [ ] Resource numbers (backend RSS/CPU, agent RSS/CPU before/after)
-- [ ] Screens 390 + 1440, light + dark → `/root/mmwx-preview/limits-traffic-pools/`
+- [x] End-to-end on a local panel + real agent (loopback): pool exhausts → rule paused on the agent; raise limit → resumed
+- [x] Resource numbers (backend RSS/CPU, agent RSS/CPU before/after)
+- [x] Screens 390 + 1440, light + dark → `/root/mmwx-preview/limits-traffic-pools/`
 - [ ] Push branch, CI green
 - [ ] Summary → `/root/flvx-workers/runs/limits-traffic-pools/summary.md`
+
+## Results
+
+- End-to-end (netns `flvx157`, loopback only, synthetic DB, real `flvx_agent` built from this branch): pool of HK-entry
+  with 20 MiB → 5 × 8 MiB through rule 20001 → billed from the agent's upload within 6–7 s (used 40 MiB, counted once),
+  pool paused → rule status 0 and the agent closed the port in the same second → user 恢复 refused with 「共享流量池已用完」
+  → user 主页 view shows the pool paused → limit raised to 1 GiB → rule resumed on the agent, traffic flows again.
+- Load (30 nodes uploading every 5 s, 300 rules incl. 10 relay+exit tunnels, 20 landing nodes with counters, 120 s):
+  fork.94 base CPU 24.5 % / mem ~20.5 MiB / p50 9.4 ms; this branch without pools 23.8 % / 20.7 MiB / 9.2 ms; with 40
+  pools 24.7 % / 20.4 MiB / 9.7 ms (all within noise). Pool of entry+exit of one tunnel = exactly half of its members'
+  per-server sum (counted once). Agent (unchanged code): 0.22 % CPU idle before and after a pause/resume cycle, ~23 MiB,
+  9 fds. No new pollers, timers or agent commands: billing rides the existing flow transaction (+1 indexed member query
+  per upload), pause/resume rides the existing reconcile.
+- Screens: `/root/mmwx-preview/limits-traffic-pools/` (24 shots, 390 + 1440, light + dark, 36/36 checks, 0 page errors).
