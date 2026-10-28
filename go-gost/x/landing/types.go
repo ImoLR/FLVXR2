@@ -52,6 +52,9 @@ type Desired struct {
 	// pinned one (Status.CoreUpdate). Any other epoch (the restarted Core, a
 	// later Core) never matches, so a persisted value cannot restart again.
 	UpgradeCoreEpoch string `json:"upgrade_core_epoch,omitempty"`
+	// UserLimits (plan 158): per-user Core groups (see user_limits.go). Only
+	// sent to agents reporting landing_user_limits.
+	UserLimits *UserLimits `json:"user_limits,omitempty"`
 }
 
 type Node struct {
@@ -77,6 +80,9 @@ type Node struct {
 	// VLESS Reality node; 0 = no guard. Nodes sharing dest and serverNames
 	// share the port. See guard.go.
 	GuardPort int `json:"guard_port,omitempty"`
+	// QuotaGroup (plan 158): the owner's landing group ("landing-user-<id>")
+	// when the owner is limited on this server; "" = no per-user group.
+	QuotaGroup string `json:"quota_group,omitempty"`
 }
 
 // ConnModeVersion is reported as landing_conn_mode: this agent applies
@@ -197,6 +203,9 @@ func (d *Desired) validate() error {
 	}
 	if chains > maxChainNodes {
 		return fmt.Errorf("too many chain nodes")
+	}
+	if err := d.UserLimits.validate(d.Nodes); err != nil {
+		return err
 	}
 	if d.Egress != nil {
 		tags := map[string]bool{}

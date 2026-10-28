@@ -21,6 +21,10 @@ type QuotaGroupUsage struct {
 	Group       string   `json:"group"`
 	Connections int      `json:"connections"`
 	ClientIPs   []string `json:"clientIps"`
+	// RelayConnections (plan 158, landing-user-* groups only): inbound on the
+	// landing Core from our own FLVX nodes (forward-rule relays), excluded
+	// from Connections / ClientIPs.
+	RelayConnections int `json:"relayConnections,omitempty"`
 }
 
 type quotaGroup struct {

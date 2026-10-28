@@ -34,6 +34,13 @@ type coreSnapshot struct {
 		InboundCurrent   *int64          `json:"inbound_current"`
 		InboundOnlineIPs json.RawMessage `json:"inbound_online_ips"`
 	} `json:"proxy_users"`
+	// Plan 158: per-user groups (management_mappings / management_limits);
+	// online IPs = active or within the Core's 30 s grace, with active leases.
+	ManagementGroups []struct {
+		Group            string     `json:"group"`
+		InboundCurrent   int64      `json:"inbound_current"`
+		InboundOnlineIPs []OnlineIP `json:"inbound_online_ips"`
+	} `json:"management_groups"`
 }
 
 func (m *Manager) control(ctx context.Context, method, path string, body any, result any) error {
@@ -142,6 +149,17 @@ func (m *Manager) applyLimits(ctx context.Context, snapshot coreSnapshot) error 
 	for _, u := range snapshot.Users {
 		block(u.Identity.InboundTag, u.Identity.User)
 	}
+	// Plan 158: per-user groups; a full group with nothing open is blocked
+	// (the Core reads 0 as unlimited), never twice in the list.
+	mappings, groupLimits, fullGroups := m.managementConfig()
+	for _, id := range fullGroups {
+		key := id["inbound_tag"] + "\x00" + id["user"]
+		if !seen[key] {
+			seen[key] = true
+			blocked = append(blocked, id)
+		}
+	}
+	m.lastSnapshot = &snapshot
 	ports := []portLimit{}
 	for _, n := range m.desired.Nodes {
 		p := portLimit{InboundTag: n.InboundTag}
@@ -158,7 +176,7 @@ func (m *Manager) applyLimits(ctx context.Context, snapshot coreSnapshot) error 
 	if v := m.closeWait.Load(); v > 0 {
 		closeWait = &v
 	}
-	cfg := map[string]any{"max_global_total_connections": global, "max_global_inbound_connections": globalInbound, "online_ip_grace_period_seconds": 0, "default_close_wait_timeout_seconds": closeWait, "port_limits": ports, "limits": []any{}, "management_mappings": []any{}, "management_limits": []any{}, "blocked_identities": blocked}
+	cfg := map[string]any{"max_global_total_connections": global, "max_global_inbound_connections": globalInbound, "online_ip_grace_period_seconds": 0, "default_close_wait_timeout_seconds": closeWait, "port_limits": ports, "limits": []any{}, "management_mappings": mappings, "management_limits": groupLimits, "blocked_identities": blocked}
 	var result struct {
 		Success bool `json:"success"`
 	}
@@ -447,6 +465,9 @@ func (m *Manager) collect(ctx context.Context) error {
 		return err
 	}
 	epoch := strconv.FormatInt(snapshot.StartedAt.UnixNano(), 10)
+	// Plan 158: per-user group state from the same snapshot (no extra call).
+	m.recordGroups(snapshot)
+	m.lastSnapshot = &snapshot
 	raw, err := m.api(ctx, "statsquery", "-pattern", "inbound>>>")
 	if err != nil {
 		return err

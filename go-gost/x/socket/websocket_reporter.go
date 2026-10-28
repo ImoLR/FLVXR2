@@ -55,6 +55,7 @@ type SystemInfo struct {
 	LandingChain           int                       `json:"landing_chain,omitempty"`
 	LandingGuard           int                       `json:"landing_guard,omitempty"`
 	LandingConnMode        int                       `json:"landing_conn_mode,omitempty"`
+	LandingUserLimits      int                       `json:"landing_user_limits,omitempty"`
 	LeiKwan                *LeiKwanReport            `json:"leikwan,omitempty"`
 	EgressIPFamily         string                    `json:"egress_ip_family,omitempty"`
 	IPv6RAStatus           string                    `json:"ipv6_ra_status"`
@@ -1140,6 +1141,7 @@ func (w *WebSocketReporter) collectSystemInfo() SystemInfo {
 		LandingChain:           landing.ChainVersion,
 		LandingGuard:           landing.GuardVersion,
 		LandingConnMode:        landing.ConnModeVersion,
+		LandingUserLimits:      landing.UserLimitsVersion,
 		LeiKwan:                w.leikwan.result(),
 		EgressIPFamily:         w.egress.family(),
 		IPv6RAStatus:           raStatus,
@@ -1168,7 +1170,7 @@ func (w *WebSocketReporter) collectSystemInfo() SystemInfo {
 		ServiceName:            w.serviceName,
 		ServiceConnections:     w.collectServiceConnections(),
 		ForwardMetrics:         collectForwardMetrics(),
-		QuotaGroups:            service.QuotaGroupUsages(),
+		QuotaGroups:            quotaGroupUsages(),
 	}
 }
 
@@ -2118,17 +2120,47 @@ func (w *WebSocketReporter) handleSetServiceMaxConnections(data interface{}) err
 	return nil
 }
 
+// quotaGroupBudgetWire is one SetQuotaGroups entry. Plan 158: landing-user-*
+// groups (per-user landing Core groups) carry two more fields and go to the
+// landing manager; every other group feeds the service registry as before.
+type quotaGroupBudgetWire struct {
+	Group                string `json:"group"`
+	MaxConnections       int    `json:"maxConnections"`
+	MaxClientIPs         int    `json:"maxClientIps"`
+	ServerMaxConnections *int   `json:"serverMaxConnections,omitempty"`
+	RelayIPs             int    `json:"relayIps,omitempty"`
+}
+
 func (w *WebSocketReporter) handleSetQuotaGroups(data interface{}) error {
 	jsonData, err := json.Marshal(data)
 	if err != nil {
 		return fmt.Errorf("序列化配额组失败: %v", err)
 	}
-	var budgets []service.QuotaGroupBudget
-	if err := json.Unmarshal(jsonData, &budgets); err != nil {
+	var wire []quotaGroupBudgetWire
+	if err := json.Unmarshal(jsonData, &wire); err != nil {
 		return fmt.Errorf("解析配额组失败: %v", err)
 	}
+	// An empty list resets the landing groups (the panel sends it only to
+	// agents reporting landing_user_limits, after their last landing group
+	// went away); forward groups are unchanged by it.
+	budgets := make([]service.QuotaGroupBudget, 0, len(wire))
+	landingBudgets := []landing.GroupBudget{}
+	for _, b := range wire {
+		if strings.HasPrefix(strings.TrimSpace(b.Group), landing.UserGroupPrefix) {
+			server := int64(-1)
+			if b.ServerMaxConnections != nil {
+				server = int64(*b.ServerMaxConnections)
+			}
+			landingBudgets = append(landingBudgets, landing.GroupBudget{Group: strings.TrimSpace(b.Group), MaxConnections: int64(b.MaxConnections), MaxClientIPs: b.MaxClientIPs, ServerMaxConnections: server, RelayIPs: b.RelayIPs})
+			continue
+		}
+		budgets = append(budgets, service.QuotaGroupBudget{Group: b.Group, MaxConnections: b.MaxConnections, MaxClientIPs: b.MaxClientIPs})
+	}
+	if err := landing.Default().SetGroupBudgets(landingBudgets); err != nil {
+		return err
+	}
 	if len(budgets) == 0 {
-		return fmt.Errorf("配额组列表不能为空")
+		return nil
 	}
 	if err := service.SetQuotaGroupBudgets(budgets); err != nil {
 		return err
@@ -2137,6 +2169,16 @@ func (w *WebSocketReporter) handleSetQuotaGroups(data interface{}) error {
 		return w.nftablesMgr.ReconcileQuota()
 	}
 	return nil
+}
+
+// quotaGroupUsages = the forward quota groups plus, since plan 158, the
+// per-user landing groups (last Core snapshot, no extra call).
+func quotaGroupUsages() []service.QuotaGroupUsage {
+	usages := service.QuotaGroupUsages()
+	for _, g := range landing.Default().GroupUsages() {
+		usages = append(usages, service.QuotaGroupUsage{Group: g.Group, Connections: g.Connections, ClientIPs: g.ClientIPs, RelayConnections: g.RelayConnections})
+	}
+	return usages
 }
 
 func (w *WebSocketReporter) handleResetTraffic(data interface{}) error {

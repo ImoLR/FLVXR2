@@ -90,6 +90,15 @@ type Manager struct {
 	resourceCheck func(dir string) error
 	now           func() time.Time
 
+	// Plan 158: per-user Core groups. budgets has its own lock (SetQuotaGroups
+	// must not wait for a reconcile); groupLive / lastSnapshot are guarded by
+	// m.mu; groupUsage is read lock-free by the telemetry report.
+	budgetsOnce  sync.Once
+	budgets      *budgetStore
+	groupLive    map[string]groupLive
+	groupUsage   atomic.Pointer[[]GroupUsage]
+	lastSnapshot *coreSnapshot
+
 	// Machine protection (plan 118), read without m.mu: reconciles can hold m.mu
 	// for minutes during a first download.
 	closeWait atomic.Int64               // default_close_wait_timeout_seconds; 0 = Core default
@@ -126,6 +135,7 @@ func (m *Manager) Run(ctx context.Context) {
 	}
 	m.started = true
 	m.mu.Unlock()
+	go m.runBudgetApplier(ctx)
 	ticker := time.NewTicker(10 * time.Second)
 	defer ticker.Stop()
 	for {
