@@ -430,8 +430,10 @@ export const LandingUserSettings = forwardRef<
             )}
           </div>
           <div className="space-y-2">
-            <div className="grid grid-cols-[minmax(0,1fr)_88px_76px_64px] gap-2 text-xs text-default-500 sm:grid-cols-[minmax(0,1fr)_100px_96px_80px]">
-              <span>服务器</span>
+            {/* Plan 158: phones put the server name on its own line (four
+                columns leave no room for it); desktop keeps one line. */}
+            <div className="grid grid-cols-3 gap-2 text-xs text-default-500 sm:grid-cols-[minmax(0,1fr)_100px_96px_80px]">
+              <span className="hidden sm:block">服务器</span>
               <span>限额 (GB，计费流量)</span>
               <span>入站连接数</span>
               <span>已用 (GB)</span>
@@ -439,9 +441,9 @@ export const LandingUserSettings = forwardRef<
             {form.quotas.map((quota, index) => (
               <div
                 key={`${quota.serverKind}-${quota.serverRefId}`}
-                className="grid grid-cols-[minmax(0,1fr)_88px_76px_64px] items-center gap-2 sm:grid-cols-[minmax(0,1fr)_100px_96px_80px]"
+                className="grid grid-cols-3 items-center gap-2 sm:grid-cols-[minmax(0,1fr)_100px_96px_80px]"
               >
-                <div className="min-w-0 text-sm">
+                <div className="col-span-3 min-w-0 text-sm sm:col-span-1">
                   <p className="flex min-w-0">
                     <RelatedServerLabel
                       name={
