@@ -213,9 +213,9 @@ func (h *Handler) landingServerViewWith(s model.LandingServer, admin bool, catal
 	v["usedBytes"] = st.billed
 	// Plan 158: the whole-machine protection cap shown next to the server total
 	// (a different, wider limit: whole machine TCP+UDP, all ports, all states).
-	if cap, owner := h.landingMachineCap(s); cap > 0 {
-		v["machineMaxTotal"], v["machineCapOwner"] = cap, owner
-	}
+	// 0 / "" = unknown (offline, protection off, old agent, no 妙妙屋 sample).
+	cap, owner := h.landingMachineCap(s)
+	v["machineMaxTotal"], v["machineCapOwner"] = cap, owner
 	// A native total stored as 仅入站 (plan 141) keeps working until the server
 	// is saved again; the dialog says so.
 	v["maxConnModeLegacy"] = s.Source != "shared" && s.MaxConnections > 0 && repo.NormalizeLandingConnMode(s.MaxConnMode) == repo.LandingConnInbound
