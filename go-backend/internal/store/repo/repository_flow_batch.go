@@ -28,12 +28,16 @@ type FlowBatch struct {
 	QuotaUsage map[int64]int64
 	// PeerShares maps a peer share id to the raw bytes added to its current_flow.
 	PeerShares map[int64]int64
+	// PoolFlows are the forward flows of this upload for 共享流量池 accounting
+	// (plan 157); landing counters add theirs inside the transaction.
+	PoolFlows []PoolFlow
 }
 
 // Empty reports whether the batch writes nothing.
 func (b FlowBatch) Empty() bool {
 	return len(b.Forwards) == 0 && len(b.Users) == 0 && len(b.UserTunnels) == 0 &&
-		len(b.QuotaUsage) == 0 && len(b.PeerShares) == 0 && len(b.LandingCounters) == 0 && len(b.ServerQuotas) == 0
+		len(b.QuotaUsage) == 0 && len(b.PeerShares) == 0 && len(b.LandingCounters) == 0 && len(b.ServerQuotas) == 0 &&
+		len(b.PoolFlows) == 0
 }
 
 // ApplyFlowBatch writes a whole flow upload in one transaction: either every counter of the
@@ -61,11 +65,15 @@ func (r *Repository) ApplyFlowBatch(batch FlowBatch, now time.Time) (map[int64]*
 		serverQuotas[key] = v
 	}
 	batch.ServerQuotas = serverQuotas
+	batch.PoolFlows = append(make([]PoolFlow, 0, len(batch.PoolFlows)), batch.PoolFlows...)
 	err := r.db.Transaction(func(tx *gorm.DB) error {
 		if err := applyLandingCountersTx(tx, &batch, now); err != nil {
 			return err
 		}
 		if err := applyServerQuotasTx(tx, batch.ServerQuotas, now); err != nil {
+			return err
+		}
+		if err := applyTrafficPoolsTx(tx, batch.PoolFlows, now); err != nil {
 			return err
 		}
 		if err := addFlowCountersTx(tx, &model.Forward{}, batch.Forwards); err != nil {

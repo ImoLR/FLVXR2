@@ -106,6 +106,11 @@ func (r *Repository) ReconcileLandingPolicy(now time.Time) (LandingReconcileResu
 		for _, q := range quotas {
 			paused[ServerQuotaKey{q.UserID, q.ServerKind, q.ServerRefID}] = q.Paused
 		}
+		// Plan 157: an exhausted 共享流量池 pauses exactly what a per-server
+		// quota pause of each member would.
+		if err := reconcileTrafficPoolsTx(tx, byUser, paused, now); err != nil {
+			return err
+		}
 		var userQuotas []model.UserQuota
 		if err := tx.Find(&userQuotas).Error; err != nil {
 			return err
@@ -210,7 +215,7 @@ func (r *Repository) ReconcileLandingPolicy(now time.Time) (LandingReconcileResu
 		// Scan only rules relevant to landing/quota policy. Normal rule behaviour is
 		// untouched while no landing or per-server quota exists for their owner.
 		var forwards []model.Forward
-		if err := tx.Where("landing_node_id > 0 OR user_id IN (SELECT user_id FROM landing_node) OR landing_auto_paused = ? OR user_id IN (SELECT user_id FROM user_server_quota WHERE paused = ?)", true, true).Order("id ASC").Find(&forwards).Error; err != nil {
+		if err := tx.Where("landing_node_id > 0 OR user_id IN (SELECT user_id FROM landing_node) OR landing_auto_paused = ? OR user_id IN (SELECT user_id FROM user_server_quota WHERE paused = ?) OR user_id IN (SELECT user_id FROM user_traffic_pool WHERE paused = ?)", true, true, true).Order("id ASC").Find(&forwards).Error; err != nil {
 			return err
 		}
 		for _, f := range forwards {
@@ -288,6 +293,13 @@ func (r *Repository) LandingForwardBlockReason(forwardID int64) error {
 	if count > 0 {
 		return errors.New("服务器流量限额已超额")
 	}
+	blocked, err := trafficPoolBlocksForward(r.db, &f)
+	if err != nil {
+		return err
+	}
+	if blocked {
+		return errors.New("共享流量池已用完")
+	}
 	return nil
 }
 
@@ -296,7 +308,7 @@ func deleteUserLandingsTx(tx *gorm.DB, userID int64) error {
 	if err := tx.Model(&model.LandingServer{}).Where("id IN (?)", ids).UpdateColumn("revision", gorm.Expr("revision + 1")).Error; err != nil {
 		return err
 	}
-	for _, row := range []interface{}{&model.LandingNode{}, &model.LandingUserSetting{}, &model.UserServerQuota{}, &model.LandingServerUser{}} {
+	for _, row := range []interface{}{&model.LandingNode{}, &model.LandingUserSetting{}, &model.UserServerQuota{}, &model.LandingServerUser{}, &model.UserTrafficPoolMember{}, &model.UserTrafficPool{}} {
 		if err := tx.Where("user_id = ?", userID).Delete(row).Error; err != nil {
 			return err
 		}
@@ -314,5 +326,8 @@ func resetUserLandingUsageTx(tx *gorm.DB, userID, nowMs int64) error {
 	if err := tx.Model(&model.LandingNode{}).Where("user_id = ?", userID).Updates(map[string]interface{}{"billed_in": 0, "billed_out": 0, "period_key": period}).Error; err != nil {
 		return err
 	}
-	return tx.Model(&model.UserServerQuota{}).Where("user_id = ?", userID).Updates(map[string]interface{}{"used_in": 0, "used_out": 0, "paused": false, "period_key": period}).Error
+	if err := tx.Model(&model.UserServerQuota{}).Where("user_id = ?", userID).Updates(map[string]interface{}{"used_in": 0, "used_out": 0, "paused": false, "period_key": period}).Error; err != nil {
+		return err
+	}
+	return tx.Model(&model.UserTrafficPool{}).Where("user_id = ?", userID).Updates(map[string]interface{}{"used_in": 0, "used_out": 0, "paused": false, "period_key": period, "updated_time": nowMs}).Error
 }

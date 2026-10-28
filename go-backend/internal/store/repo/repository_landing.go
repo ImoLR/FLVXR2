@@ -418,6 +418,12 @@ func (r *Repository) SaveLandingUserSetting(userID int64, maxNodes int, quotas [
 // maxNodes is the user's own total node cap; LandingMaxNodesFollowGlobal
 // makes the user follow the global default instead (plan 131).
 func (r *Repository) SaveLandingUserSettingWithGrants(userID int64, maxNodes int, quotas []model.UserServerQuota, extendFixedByMs int64, serverIDs *[]int64) error {
+	return r.SaveLandingUserSettingFull(userID, maxNodes, quotas, extendFixedByMs, serverIDs, nil)
+}
+
+// SaveLandingUserSettingFull also replaces the user's 共享流量池 when pools is
+// non-nil (plan 157; nil keeps them, for older clients).
+func (r *Repository) SaveLandingUserSettingFull(userID int64, maxNodes int, quotas []model.UserServerQuota, extendFixedByMs int64, serverIDs *[]int64, pools *[]TrafficPoolInput) error {
 	custom := maxNodes != LandingMaxNodesFollowGlobal
 	if !custom {
 		maxNodes = DefaultLandingUserMaxNodes
@@ -489,6 +495,12 @@ func (r *Repository) SaveLandingUserSettingWithGrants(userID int64, maxNodes int
 			q.CreatedTime = now
 			q.UpdatedTime = now
 			if err := tx.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "user_id"}, {Name: "server_kind"}, {Name: "server_ref_id"}}, DoUpdates: clause.Assignments(map[string]interface{}{"limit_bytes": q.LimitBytes, "limit_override": true, "updated_time": now})}).Create(&q).Error; err != nil {
+				return err
+			}
+		}
+		// After the quota rows: same lock order as the flow transaction.
+		if pools != nil {
+			if err := replaceUserTrafficPoolsTx(tx, &user, *pools, time.Now()); err != nil {
 				return err
 			}
 		}

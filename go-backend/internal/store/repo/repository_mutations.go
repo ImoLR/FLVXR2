@@ -997,6 +997,9 @@ func (r *Repository) DeleteNodeCascade(nodeID int64) error {
 		if err := tx.Where("server_kind = ? AND server_ref_id = ?", "node", nodeID).Delete(&model.UserServerQuota{}).Error; err != nil {
 			return err
 		}
+		if err := tx.Where("server_kind = ? AND server_ref_id = ?", "node", nodeID).Delete(&model.UserTrafficPoolMember{}).Error; err != nil {
+			return err
+		}
 		return tx.Where("id = ?", nodeID).Delete(&model.Node{}).Error
 	})
 }

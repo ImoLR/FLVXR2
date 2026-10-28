@@ -812,6 +812,18 @@ func (h *Handler) landingUserGet(w http.ResponseWriter, r *http.Request) {
 	// maxNodes is the cap in force; maxNodesSource says whether it is the
 	// user's own value or the global default (plan 131).
 	view := map[string]interface{}{"userId": req.UserID, "maxNodes": limit.Effective, "maxNodesSource": limit.Source, "globalMaxNodes": limit.Global, "quotas": q, "fixedNodeCount": fixed, "serverIds": serverIDs}
+	// Plan 157: 共享流量池 + the servers related to this user (pickers).
+	pools, err := h.repo.UserTrafficPools(req.UserID, true, time.Now())
+	if err != nil {
+		landingError(w, err)
+		return
+	}
+	related, err := h.repo.UserRelatedServers(req.UserID)
+	if err != nil {
+		landingError(w, err)
+		return
+	}
+	view["pools"], view["relatedServers"] = pools, related
 	if s.MaxNodesCustom {
 		view["customMaxNodes"] = s.MaxNodes
 	}
@@ -848,6 +860,8 @@ func (h *Handler) landingUserSave(w http.ResponseWriter, r *http.Request) {
 		RuleMaxNode        *int   `json:"ruleMaxNode"`
 		RuleMaxTotalSource string `json:"ruleMaxTotalSource"`
 		RuleMaxTotal       *int   `json:"ruleMaxTotal"`
+		// Plan 157: the user's 共享流量池; absent keeps them (older clients).
+		Pools *[]repo.TrafficPoolInput `json:"pools"`
 	}
 	if err := landingDecode(r, &req); err != nil {
 		landingError(w, err)
@@ -868,7 +882,7 @@ func (h *Handler) landingUserSave(w http.ResponseWriter, r *http.Request) {
 		landingError(w, err)
 		return
 	}
-	if err := h.repo.SaveLandingUserSettingWithGrants(req.UserID, maxNodes, req.Quotas, req.ExtendFixedByMs, req.ServerIDs); err != nil {
+	if err := h.repo.SaveLandingUserSettingFull(req.UserID, maxNodes, req.Quotas, req.ExtendFixedByMs, req.ServerIDs, req.Pools); err != nil {
 		landingError(w, err)
 		return
 	}

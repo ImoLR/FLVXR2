@@ -267,6 +267,7 @@ func autoMigrateAll(db *gorm.DB) error {
 
 	models := []interface{}{
 		&model.LandingIntegration{}, &model.LandingServer{}, &model.LandingServerUserGroup{}, &model.LandingServerUser{}, &model.LandingNode{}, &model.LandingUserSetting{}, &model.UserServerQuota{},
+		&model.UserTrafficPool{}, &model.UserTrafficPoolMember{},
 		&model.LandingOutbound{}, &model.LandingRouteProfile{}, &model.LandingWarpAccount{}, &model.LandingEgressSetting{}, &model.LandingEgressPreset{},
 		&model.ForwardChain{}, &model.ForwardChainNode{},
 		&model.User{},

@@ -224,6 +224,38 @@ type UserServerQuota struct {
 
 func (UserServerQuota) TableName() string { return "user_server_quota" }
 
+// UserTrafficPool is a per-user 共享流量池 (plan 157): several servers of the
+// user share one billed-bytes limit. A flow crossing several members counts
+// once, so Used is not the sum of the members' per-server usage. The period
+// follows the user's reset day like UserServerQuota.
+type UserTrafficPool struct {
+	ID          int64  `gorm:"primaryKey;autoIncrement" json:"id"`
+	UserID      int64  `gorm:"not null;index:idx_user_traffic_pool_user" json:"userId"`
+	Name        string `gorm:"not null;default:''" json:"name"`
+	LimitBytes  int64  `gorm:"not null;default:0" json:"limitBytes"`
+	UsedIn      int64  `gorm:"not null;default:0" json:"usedIn"`
+	UsedOut     int64  `gorm:"not null;default:0" json:"usedOut"`
+	PeriodKey   int64  `gorm:"not null;default:0" json:"periodKey"`
+	Paused      bool   `gorm:"not null;default:false" json:"paused"`
+	CreatedTime int64  `gorm:"not null" json:"createdTime"`
+	UpdatedTime int64  `gorm:"not null" json:"updatedTime"`
+}
+
+func (UserTrafficPool) TableName() string { return "user_traffic_pool" }
+
+// UserTrafficPoolMember puts one server (same kind/ref as UserServerQuota:
+// node = FLVX node incl. native landing, landing = shared server) into a pool.
+// The unique index keeps a server in at most one pool per user.
+type UserTrafficPoolMember struct {
+	ID          int64  `gorm:"primaryKey;autoIncrement" json:"-"`
+	PoolID      int64  `gorm:"not null;index:idx_user_traffic_pool_member_pool" json:"-"`
+	UserID      int64  `gorm:"not null;uniqueIndex:idx_user_traffic_pool_member" json:"-"`
+	ServerKind  string `gorm:"not null;uniqueIndex:idx_user_traffic_pool_member" json:"serverKind"`
+	ServerRefID int64  `gorm:"not null;uniqueIndex:idx_user_traffic_pool_member" json:"serverRefId"`
+}
+
+func (UserTrafficPoolMember) TableName() string { return "user_traffic_pool_member" }
+
 // Stored with the same private-column convention as LeiKwanAccount secrets.
 type LandingIntegration struct {
 	ID          int64  `gorm:"primaryKey;autoIncrement:false" json:"-"`

@@ -1656,6 +1656,13 @@ func (h *Handler) userPackage(w http.ResponseWriter, r *http.Request) {
 		"forwards":          forwardOut,
 		"statisticsFlows":   stats,
 	}
+	// Plan 157: the user's 共享流量池, read-only (name, used, limit). One
+	// indexed query; members are not shown to the user.
+	if pools, err := h.repo.UserTrafficPools(userID, false, time.Now()); err == nil {
+		payload["trafficPools"] = pools
+	} else {
+		log.Printf("[traffic-pool] user %d view: %v", userID, err)
+	}
 
 	response.WriteJSON(w, response.OK(payload))
 }

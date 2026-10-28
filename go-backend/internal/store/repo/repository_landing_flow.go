@@ -188,7 +188,9 @@ func applyLandingCountersTx(tx *gorm.DB, batch *FlowBatch, now time.Time) error 
 		d.Out += out
 		batch.Users[n.UserID] = d
 		batch.QuotaUsage[n.UserID] += in + out
-		addServerDelta(batch.ServerQuotas, landingQuotaKey(n.UserID, &s), in, out)
+		key := landingQuotaKey(n.UserID, &s)
+		addServerDelta(batch.ServerQuotas, key, in, out)
+		batch.PoolFlows = append(batch.PoolFlows, PoolFlow{UserID: n.UserID, Landing: key, LandingIn: in, LandingOut: out})
 	}
 	return nil
 }
@@ -331,6 +333,12 @@ func (r *Repository) ForwardServerWeights(tunnelID, entryNodeID int64) (map[int6
 	return weights, nil
 }
 
+// ForwardServerTiers exposes the path tiers so one flow item reads its chain
+// once for both the per-server usage and the plan-157 pool coverage.
+func (r *Repository) ForwardServerTiers(tunnelID, entryNodeID int64) ([][]int64, error) {
+	return r.forwardServerTiers(tunnelID, entryNodeID)
+}
+
 // ForwardServerUsage divides each tier evenly, assigning integer remainders in
 // stable node order so no billed byte disappears. A repeated server counts once.
 func (r *Repository) ForwardServerUsage(tunnelID, entryNodeID, in, out int64) (map[int64]FlowCounterDelta, error) {
@@ -338,17 +346,26 @@ func (r *Repository) ForwardServerUsage(tunnelID, entryNodeID, in, out int64) (m
 	if err != nil {
 		return nil, err
 	}
+	return ServerUsageFromTiers(tiers, in, out), nil
+}
+
+// tierShare is node i's part of a tier of count nodes (remainders to the
+// lowest positions, like ServerUsageFromTiers).
+func tierShare(total, count int64, i int) int64 {
+	v := total / count
+	if int64(i) < total%count {
+		v++
+	}
+	return v
+}
+
+// ServerUsageFromTiers is ForwardServerUsage on already loaded tiers.
+func ServerUsageFromTiers(tiers [][]int64, in, out int64) map[int64]FlowCounterDelta {
 	usage := map[int64]FlowCounterDelta{}
 	for _, ids := range tiers {
 		count := int64(len(ids))
 		for i, id := range ids {
-			a, b := in/count, out/count
-			if int64(i) < in%count {
-				a++
-			}
-			if int64(i) < out%count {
-				b++
-			}
+			a, b := tierShare(in, count, i), tierShare(out, count, i)
 			d := usage[id]
 			if a > d.In {
 				d.In = a
@@ -359,5 +376,5 @@ func (r *Repository) ForwardServerUsage(tunnelID, entryNodeID, in, out int64) (m
 			usage[id] = d
 		}
 	}
-	return usage, nil
+	return usage
 }
