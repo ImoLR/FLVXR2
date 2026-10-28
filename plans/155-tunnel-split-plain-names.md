@@ -67,7 +67,9 @@ idempotent (a split tunnel is reported as done).
 - [x] Resource numbers: one extra relay listener RSS/fd (local gost), projected per hop node
 - [x] Full `go test ./...` SQLite + PostgreSQL; frontend tsc/build/lint (SQLite 4m50s, PostgreSQL 10m46s: 19/19 packages ok each, 0 FAIL)
 - [x] Screens 390 + 1440 light/dark → `/root/mmwx-preview/tunnel-single-entry/` (28 shots, 32/32 checks)
-- [ ] Push, CI green, summary.md
+- [x] Push, CI green (CI Build Check 40661649708: backend / agent / frontend / PostgreSQL contract all success), summary.md
+
+**Status: BUILT 10-28 (branch `feature/3.0.27-tunnel-single-entry`), not released — shipped by release-batch-1028.**
 
 ## Results (build only, 10-28)
 - **Lab** (fresh prod copy 10-28 07:59Z, this branch's panel in netns `flvx155` with no outbound, 12 fake agents =
