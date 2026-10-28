@@ -111,4 +111,4 @@ Contract for the mmwx side: `/root/flvx-workers/contracts/landing-user-limits-v1
   tests on both dialects, handler push/reconnect/fallback/config-report tests, shared v2 contract test on both);
   go-gost/x 19/19 (new: shared bucket across services, combine), go-gost 1/1; frontend tsc 0, build ok, eslint no
   new findings in the 6 touched files; CI (backend, PG contract, frontend, agent) green on every push.
-- Measuring tool: `lab/bin/tput` (iperf3 is not installed on this host; nothing was installed).
+- Measuring tool: `runs/limits-server-speed/lab/tput/main.go` (iperf3 is not installed on this host; nothing was installed).
