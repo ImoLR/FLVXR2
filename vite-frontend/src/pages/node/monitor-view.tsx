@@ -81,6 +81,7 @@ import {
   DropdownItem,
 } from "@/shadcn-bridge/heroui/dropdown";
 import { Card, CardBody, CardHeader } from "@/shadcn-bridge/heroui/card";
+import { useTapTooltip } from "@/hooks/useTapTooltip";
 import { Progress } from "@/shadcn-bridge/heroui/progress";
 import { useNodeRealtime } from "@/pages/node/use-node-realtime";
 import { getAdminFlag } from "@/utils/session";
@@ -406,6 +407,7 @@ const NodeMetricsChartCard = React.memo(function NodeMetricsChartCard({
   nodeId,
   onRefresh,
 }: NodeMetricsChartCardProps) {
+  const tapTooltip = useTapTooltip();
   const chartConfig = (() => {
     switch (activeMetricType) {
       case "cpu":
@@ -540,13 +542,14 @@ const NodeMetricsChartCard = React.memo(function NodeMetricsChartCard({
           <div className="text-center py-8 text-danger text-sm">{error}</div>
         ) : data.length > 0 ? (
           <>
-            <div className="h-64">
+            <div ref={tapTooltip.containerRef} className="h-64">
               <ResponsiveContainer height="100%" width="100%">
-                <LineChart data={data}>
+                <LineChart data={data} onClick={tapTooltip.onChartClick}>
                   <CartesianGrid strokeDasharray="3 3" />
                   <XAxis dataKey="time" fontSize={12} />
                   <YAxis fontSize={12} tickFormatter={yAxisTickFormatter} />
                   <Tooltip
+                    {...tapTooltip.tooltipProps}
                     contentStyle={{
                       backgroundColor: "rgba(0,0,0,0.8)",
                       border: "none",
@@ -558,6 +561,7 @@ const NodeMetricsChartCard = React.memo(function NodeMetricsChartCard({
                   {chartConfig.lines.map((line) => (
                     <Line
                       key={line.dataKey}
+                      activeDot={tapTooltip.activeDot()}
                       dataKey={line.dataKey}
                       dot={false}
                       name={line.name}
@@ -594,6 +598,7 @@ const DEFAULT_SERVICE_MONITOR_LIMITS: ServiceMonitorLimitsApiData = {
 
 export function MonitorView({ nodeMap, viewMode = "grid" }: MonitorViewProps) {
   const isAdmin = getAdminFlag();
+  const latencyTapTooltip = useTapTooltip();
   const [detailNodeId, setDetailNodeId] = useState<number | null>(null);
   const [selectedNodeId, setSelectedNodeId] = useState<number | null>(null);
   const [metrics, setMetrics] = useState<NodeMetricApiItem[]>([]);
@@ -2137,9 +2142,15 @@ export function MonitorView({ nodeMap, viewMode = "grid" }: MonitorViewProps) {
 
                       {/* Chart area – same h-64 as node metrics */}
                       {activeLatencyData.length > 0 ? (
-                        <div className="h-64">
+                        <div
+                          ref={latencyTapTooltip.containerRef}
+                          className="h-64"
+                        >
                           <ResponsiveContainer height="100%" width="100%">
-                            <LineChart data={activeLatencyData}>
+                            <LineChart
+                              data={activeLatencyData}
+                              onClick={latencyTapTooltip.onChartClick}
+                            >
                               <CartesianGrid strokeDasharray="3 3" />
                               <XAxis dataKey="time" fontSize={12} />
                               <YAxis
@@ -2149,6 +2160,7 @@ export function MonitorView({ nodeMap, viewMode = "grid" }: MonitorViewProps) {
                                 }
                               />
                               <Tooltip
+                                {...latencyTapTooltip.tooltipProps}
                                 contentStyle={{
                                   backgroundColor: "rgba(0,0,0,0.8)",
                                   border: "none",
@@ -2161,6 +2173,7 @@ export function MonitorView({ nodeMap, viewMode = "grid" }: MonitorViewProps) {
                                 labelStyle={{ color: "#fff" }}
                               />
                               <Line
+                                activeDot={latencyTapTooltip.activeDot()}
                                 connectNulls={false}
                                 dataKey="latency"
                                 dot={false}

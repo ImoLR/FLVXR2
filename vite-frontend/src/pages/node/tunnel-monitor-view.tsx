@@ -22,6 +22,7 @@ import toast from "react-hot-toast";
 import { getMonitorTunnels, getTunnelMetrics } from "@/api";
 import { Button } from "@/shadcn-bridge/heroui/button";
 import { Card, CardBody, CardHeader } from "@/shadcn-bridge/heroui/card";
+import { useTapTooltip } from "@/hooks/useTapTooltip";
 import { Chip } from "@/shadcn-bridge/heroui/chip";
 import { Select, SelectItem } from "@/shadcn-bridge/heroui/select";
 import {
@@ -127,6 +128,7 @@ const TrafficChartCard = React.memo(function TrafficChartCard({
   tunnelId,
   onRefresh,
 }: TrafficChartCardProps) {
+  const tapTooltip = useTapTooltip();
   const yFormatter = (value: unknown) => {
     const n = Number(value);
 
@@ -162,9 +164,9 @@ const TrafficChartCard = React.memo(function TrafficChartCard({
         ) : error ? (
           <div className="text-center py-8 text-danger text-sm">{error}</div>
         ) : data.length > 0 ? (
-          <div className="h-64">
+          <div ref={tapTooltip.containerRef} className="h-64">
             <ResponsiveContainer height="100%" width="100%">
-              <LineChart data={data}>
+              <LineChart data={data} onClick={tapTooltip.onChartClick}>
                 <CartesianGrid opacity={0.3} strokeDasharray="3 3" />
                 <XAxis dataKey="time" fontSize={11} tick={{ fill: "#888" }} />
                 <YAxis
@@ -173,6 +175,7 @@ const TrafficChartCard = React.memo(function TrafficChartCard({
                   tickFormatter={yFormatter}
                 />
                 <Tooltip
+                  {...tapTooltip.tooltipProps}
                   contentStyle={{
                     backgroundColor: "rgba(0,0,0,0.85)",
                     border: "none",
@@ -183,6 +186,7 @@ const TrafficChartCard = React.memo(function TrafficChartCard({
                   labelStyle={{ color: "#fff" }}
                 />
                 <Line
+                  activeDot={tapTooltip.activeDot()}
                   dataKey="bytesIn"
                   dot={false}
                   name="入站流量"
@@ -191,6 +195,7 @@ const TrafficChartCard = React.memo(function TrafficChartCard({
                   type="monotone"
                 />
                 <Line
+                  activeDot={tapTooltip.activeDot()}
                   dataKey="bytesOut"
                   dot={false}
                   name="出站流量"

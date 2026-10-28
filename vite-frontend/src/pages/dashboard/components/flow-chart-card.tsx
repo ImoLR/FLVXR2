@@ -10,6 +10,7 @@ import {
 
 import { Card, CardBody, CardHeader } from "@/shadcn-bridge/heroui/card";
 import { PageEmptyState } from "@/components/page-state";
+import { useTapTooltip } from "@/hooks/useTapTooltip";
 
 interface FlowChartPoint {
   time: string;
@@ -27,6 +28,8 @@ export const FlowChartCard = ({
   chartData,
   formatFlow,
 }: FlowChartCardProps) => {
+  const tapTooltip = useTapTooltip();
+
   return (
     <Card className="mb-6 lg:mb-8 border border-gray-200 dark:border-default-200 shadow-md">
       <CardHeader className="pb-3">
@@ -49,9 +52,9 @@ export const FlowChartCard = ({
         {statisticsFlowsCount === 0 ? (
           <PageEmptyState className="h-48" message="暂无流量统计数据" />
         ) : (
-          <div className="h-64 lg:h-80 w-full">
+          <div ref={tapTooltip.containerRef} className="h-64 lg:h-80 w-full">
             <ResponsiveContainer height="100%" width="100%">
-              <LineChart data={chartData}>
+              <LineChart data={chartData} onClick={tapTooltip.onChartClick}>
                 <CartesianGrid className="opacity-30" strokeDasharray="3 3" />
                 <XAxis
                   axisLine={{ stroke: "#e5e7eb", strokeWidth: 1 }}
@@ -81,6 +84,7 @@ export const FlowChartCard = ({
                   tickLine={false}
                 />
                 <Tooltip
+                  {...tapTooltip.tooltipProps}
                   content={({
                     active,
                     payload,
@@ -112,12 +116,12 @@ export const FlowChartCard = ({
                   }}
                 />
                 <Line
-                  activeDot={{
+                  activeDot={tapTooltip.activeDot({
                     r: 4,
                     stroke: "#8b5cf6",
                     strokeWidth: 2,
                     fill: "#fff",
-                  }}
+                  })}
                   dataKey="flow"
                   dot={false}
                   stroke="#8b5cf6"
