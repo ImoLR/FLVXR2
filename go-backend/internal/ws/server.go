@@ -161,6 +161,7 @@ type SystemInfo struct {
 	LandingChain           int               `json:"landing_chain,omitempty"`
 	LandingGuard           int               `json:"landing_guard,omitempty"`
 	LandingConnMode        int               `json:"landing_conn_mode,omitempty"` // plan 141: applies 仅入站 limits + reports inbound counts
+	LandingUserLimits      int               `json:"landing_user_limits,omitempty"` // plan 158: per-user landing Core groups + landing-user-* usage
 	LeiKwan                *leiKwanReport    `json:"leikwan,omitempty"`
 	EgressIPFamily         string            `json:"egress_ip_family,omitempty"`
 	IPv6RAStatus           *string           `json:"ipv6_ra_status,omitempty"`
@@ -196,6 +197,10 @@ type QuotaGroupUsage struct {
 	Group       string   `json:"group"`
 	Connections int      `json:"connections"`
 	ClientIps   []string `json:"clientIps"`
+	// RelayConnections (plan 158, landing-user-* groups only): inbound
+	// connections on the landing Core whose source is one of our FLVX nodes
+	// (relayed by a forward rule). Connections / ClientIps exclude them.
+	RelayConnections int `json:"relayConnections,omitempty"`
 }
 
 // ForwardMetric 转发规则指标
@@ -494,7 +499,7 @@ func (s *Server) handleNode(w http.ResponseWriter, r *http.Request, nodeID int64
 						s.recordLeiKwan(ns, sysInfo.LeiKwan)
 						s.recordMachine(nodeID, sysInfo, time.Now())
 						s.recordAddrs(ns, sysInfo.Addrs)
-						_ = s.repo.SetNodeLandingCapabilities(nodeID, sysInfo.LandingCapable, sysInfo.LandingEgress, sysInfo.LandingChain, sysInfo.LandingGuard, sysInfo.LandingConnMode)
+						_ = s.repo.SetNodeLandingCapabilities(nodeID, sysInfo.LandingCapable, sysInfo.LandingEgress, sysInfo.LandingChain, sysInfo.LandingGuard, sysInfo.LandingConnMode, sysInfo.LandingUserLimits)
 						// 缓存服务连接数
 						s.mu.Lock()
 						s.serviceConnections[nodeID] = sysInfo.ServiceConnections
@@ -579,7 +584,7 @@ func (s *Server) handleNode(w http.ResponseWriter, r *http.Request, nodeID int64
 				s.recordIPv6RA(ns, sysInfo.IPv6RAStatus, sysInfo.IPv6RADetail)
 				s.recordLeiKwan(ns, sysInfo.LeiKwan)
 				s.recordMachine(nodeID, sysInfo, time.Now())
-				_ = s.repo.SetNodeLandingCapabilities(nodeID, sysInfo.LandingCapable, sysInfo.LandingEgress, sysInfo.LandingChain, sysInfo.LandingGuard, sysInfo.LandingConnMode)
+				_ = s.repo.SetNodeLandingCapabilities(nodeID, sysInfo.LandingCapable, sysInfo.LandingEgress, sysInfo.LandingChain, sysInfo.LandingGuard, sysInfo.LandingConnMode, sysInfo.LandingUserLimits)
 				// 缓存服务连接数
 				s.mu.Lock()
 				s.serviceConnections[nodeID] = sysInfo.ServiceConnections

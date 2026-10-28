@@ -365,8 +365,11 @@ func (h *Handler) userUpdate(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		if h.quotaGroups != nil {
-			h.quotaGroups.Trigger()
+			h.quotaGroups.InvalidateInputs()
 		}
+		// Plan 158: the user's landing nodes join (or leave) the per-user
+		// landing Core group with the new 总连接数 / 总 IP 数.
+		h.syncUserLandingServersAsync(id)
 	}
 
 	if len(warnings) > 0 {

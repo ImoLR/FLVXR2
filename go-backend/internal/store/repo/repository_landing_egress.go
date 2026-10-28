@@ -909,7 +909,7 @@ func (r *Repository) DeleteLandingWarpAccount(serverID, outboundID int64) error 
 // the 仅入站 connection-limit version (plan 141); agents that do not report
 // them are version 0.
 func (r *Repository) SetNodeLandingCapabilities(id int64, capable bool, egress int, versions ...int) error {
-	chainVersion, guardVersion, connVersion := 0, 0, 0
+	chainVersion, guardVersion, connVersion, userLimitsVersion := 0, 0, 0, 0
 	if len(versions) > 0 {
 		chainVersion = versions[0]
 	}
@@ -919,7 +919,11 @@ func (r *Repository) SetNodeLandingCapabilities(id int64, capable bool, egress i
 	if len(versions) > 2 {
 		connVersion = versions[2]
 	}
-	return r.db.Model(&model.Node{}).Where("id = ? AND (landing_capable <> ? OR landing_egress <> ? OR landing_chain <> ? OR landing_guard <> ? OR landing_conn_mode <> ?)", id, capable, egress, chainVersion, guardVersion, connVersion).Updates(map[string]any{"landing_capable": capable, "landing_egress": egress, "landing_chain": chainVersion, "landing_guard": guardVersion, "landing_conn_mode": connVersion}).Error
+	// Plan 158: landing_user_limits (per-user landing Core groups).
+	if len(versions) > 3 {
+		userLimitsVersion = versions[3]
+	}
+	return r.db.Model(&model.Node{}).Where("id = ? AND (landing_capable <> ? OR landing_egress <> ? OR landing_chain <> ? OR landing_guard <> ? OR landing_conn_mode <> ? OR landing_user_limits <> ?)", id, capable, egress, chainVersion, guardVersion, connVersion, userLimitsVersion).Updates(map[string]any{"landing_capable": capable, "landing_egress": egress, "landing_chain": chainVersion, "landing_guard": guardVersion, "landing_conn_mode": connVersion, "landing_user_limits": userLimitsVersion}).Error
 }
 
 // UserNamesByIDs maps user IDs to login names in one query.

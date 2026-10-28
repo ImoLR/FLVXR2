@@ -336,8 +336,9 @@ func (r *Repository) SharedLandingDesired(id int64, egress *landingegress.Plan) 
 			return errors.New("妙妙屋共享服务器最多支持 1000 个节点")
 		}
 		withheld := LandingWithheldFunc(&s)
-		// Plan 141: 仅入站 only to a share that applies it (landing-conn-mode-v1);
-		// elsewhere the field is omitted and the number stays 入站+出站.
+		// Plan 158: node limits count 入站 only on a share that applies user
+		// limits (landing-user-limits-v1); elsewhere the field is omitted and
+		// the number stays 入站+出站, byte-identical to before.
 		connModes := LandingConnModeSupported(&s, 0)
 		for _, n := range ns {
 			if n.DeletePending || withheld(&n) {
@@ -359,7 +360,7 @@ func (r *Repository) SharedLandingDesired(id int64, egress *landingegress.Plan) 
 				_ = json.Unmarshal([]byte(n.ServerNames), &names)
 				d.VLESS = &landingcustom.VLESS{UUID: n.UUID, Flow: n.Flow, Reality: landingcustom.Reality{Dest: n.Dest, ServerNames: names, PrivateKey: n.PrivateKey, ShortIDs: []string{n.ShortID}}}
 			}
-			if connModes && LandingNodeConnMode(&n, &s) == LandingConnInbound {
+			if connModes && n.MaxConnections > 0 && LandingNodeConnMode(&n, &s) == LandingConnInbound {
 				d.ConnMode = landingcustom.ConnModeInbound
 			}
 			fillSharedExtraProtocol(n, &d)

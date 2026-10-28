@@ -15,15 +15,39 @@ import (
 
 const quotaGroupPushInterval = time.Second
 
+// Plan 158: the static inputs (limited users, per-server caps, landing slots)
+// are re-read at most this often unless a mutation invalidates them; forward
+// targets are still read on every reconcile, as before.
+const quotaExtrasTTL = 5 * time.Second
+
+// Shared (妙妙屋) landing usage older than this no longer counts: the share's
+// exchange stopped (Custom down, capability withdrawn).
+const quotaSharedUsageTTL = 2 * time.Minute
+
+// landingQuotaGroupPrefix names a user's group on a landing Core (plan 158).
+// Older panels ignore these usage entries (they only parse "user-<id>").
+const landingQuotaGroupPrefix = "landing-"
+
 type quotaGroupBudget struct {
 	Group          string `json:"group"`
 	MaxConnections int    `json:"maxConnections"`
 	MaxClientIps   int    `json:"maxClientIps"`
+	// Plan 158, landing-user-* groups only. MaxConnections / MaxClientIps are
+	// then the user-total budgets WITHOUT relayed connections / relay IPs (the
+	// landing Core adds its live relay count); ServerMaxConnections is the
+	// per-server 入站连接数 budget in server scope (relays included), nil =
+	// none; RelayIps = our nodes that dial the user's nodes there (each keeps
+	// an IP slot). Forward groups never carry them (byte-identical payload).
+	ServerMaxConnections *int `json:"serverMaxConnections,omitempty"`
+	RelayIps             int  `json:"relayIps,omitempty"`
 }
 
 type quotaNodeUsage struct {
 	Connections int
 	ClientIps   map[string]struct{}
+	// Relay (landing groups only): connections from our own nodes, excluded
+	// from Connections; they still count for the server-scope cap.
+	Relay int
 }
 
 type quotaLiveUsage struct {
@@ -35,13 +59,41 @@ type quotaBudgetPlan struct {
 	Budgets      map[int64][]quotaGroupBudget
 	NodeVersions map[int64]string
 	LiveUsage    map[int64]quotaLiveUsage
+	// Shares: landing_server.id → per-user budgets for 妙妙屋 (plan 158).
+	Shares map[int64][]quotaShareBudget
+}
+
+// quotaShareBudget is one user's budget on a shared server (contract
+// landing-user-limits-v1, same meaning as a landing-user-* group budget).
+type quotaShareBudget struct {
+	UserID               int64
+	MaxConnections       int
+	ServerMaxConnections *int
+	MaxClientIps         int
+	RelayIps             int
 }
 
 type quotaTargetSource interface {
 	ListQuotaGroupTargets() ([]repo.QuotaGroupTarget, error)
 }
 
+// quotaExtrasSource is the plan-158 part of the source (the repository).
+type quotaExtrasSource interface {
+	LoadQuotaPlanExtras() (repo.QuotaPlanExtras, error)
+}
+
 type quotaCommandSender func(nodeID int64, budgets []quotaGroupBudget) error
+
+// quotaUsageKey separates a node's forward group from its landing group.
+type quotaUsageKey struct {
+	UserID  int64
+	Landing bool
+}
+
+type quotaSharedUsage struct {
+	at    time.Time
+	users map[int64]quotaNodeUsage
+}
 
 type quotaCoordinator struct {
 	source   quotaTargetSource
@@ -50,12 +102,18 @@ type quotaCoordinator struct {
 	now      func() time.Time
 
 	mu            sync.Mutex
-	usageByNode   map[int64]map[int64]quotaNodeUsage
+	usageByNode   map[int64]map[quotaUsageKey]quotaNodeUsage
+	usageByShare  map[int64]quotaSharedUsage
 	liveUsage     map[int64]quotaLiveUsage
+	shareBudgets  map[int64][]quotaShareBudget
+	landingPushed map[int64]bool
 	lastSent      map[int64]string
 	lastPush      map[int64]time.Time
 	unsupported   map[int64]bool
 	errorLogged   map[int64]bool
+	extras        repo.QuotaPlanExtras
+	extrasAt      time.Time
+	extrasStale   bool
 	running       bool
 	pending       bool
 	timer         *time.Timer
@@ -64,21 +122,30 @@ type quotaCoordinator struct {
 
 func newQuotaCoordinator(source quotaTargetSource, send quotaCommandSender) *quotaCoordinator {
 	return &quotaCoordinator{
-		source:      source,
-		send:        send,
-		interval:    quotaGroupPushInterval,
-		now:         time.Now,
-		usageByNode: make(map[int64]map[int64]quotaNodeUsage),
-		liveUsage:   make(map[int64]quotaLiveUsage),
-		lastSent:    make(map[int64]string),
-		lastPush:    make(map[int64]time.Time),
-		unsupported: make(map[int64]bool),
-		errorLogged: make(map[int64]bool),
+		source:        source,
+		send:          send,
+		interval:      quotaGroupPushInterval,
+		now:           time.Now,
+		usageByNode:   make(map[int64]map[quotaUsageKey]quotaNodeUsage),
+		usageByShare:  make(map[int64]quotaSharedUsage),
+		liveUsage:     make(map[int64]quotaLiveUsage),
+		shareBudgets:  make(map[int64][]quotaShareBudget),
+		landingPushed: make(map[int64]bool),
+		lastSent:      make(map[int64]string),
+		lastPush:      make(map[int64]time.Time),
+		unsupported:   make(map[int64]bool),
+		errorLogged:   make(map[int64]bool),
+		extrasStale:   true,
 	}
 }
 
 func quotaGroupForUser(userID int64) string {
 	return fmt.Sprintf("user-%d", userID)
+}
+
+// landingQuotaGroupForUser is the user's group on a landing Core.
+func landingQuotaGroupForUser(userID int64) string {
+	return landingQuotaGroupPrefix + quotaGroupForUser(userID)
 }
 
 func quotaGroupUserID(group string) (int64, bool) {
@@ -92,33 +159,96 @@ func quotaGroupUserID(group string) (int64, bool) {
 	return userID, true
 }
 
+// quotaUsageGroupKey parses "user-<id>" (forward) and "landing-user-<id>".
+func quotaUsageGroupKey(group string) (quotaUsageKey, bool) {
+	group = strings.TrimSpace(group)
+	landing := strings.HasPrefix(group, landingQuotaGroupPrefix)
+	userID, ok := quotaGroupUserID(strings.TrimPrefix(group, landingQuotaGroupPrefix))
+	return quotaUsageKey{UserID: userID, Landing: landing}, ok
+}
+
+func quotaUsageFrom(connections, relay int, rawIPs []string) quotaNodeUsage {
+	ips := make(map[string]struct{}, len(rawIPs))
+	for _, rawIP := range rawIPs {
+		if ip := strings.TrimSpace(rawIP); ip != "" {
+			ips[ip] = struct{}{}
+		}
+	}
+	return quotaNodeUsage{Connections: max(connections, 0), ClientIps: ips, Relay: max(relay, 0)}
+}
+
 func (c *quotaCoordinator) Observe(nodeID int64, usages []ws.QuotaGroupUsage) {
 	if c == nil || nodeID <= 0 {
 		return
 	}
-	nodeUsage := make(map[int64]quotaNodeUsage, len(usages))
+	nodeUsage := make(map[quotaUsageKey]quotaNodeUsage, len(usages))
 	for _, item := range usages {
-		userID, ok := quotaGroupUserID(item.Group)
+		key, ok := quotaUsageGroupKey(item.Group)
 		if !ok {
 			continue
 		}
-		ips := make(map[string]struct{}, len(item.ClientIps))
-		for _, rawIP := range item.ClientIps {
-			if ip := strings.TrimSpace(rawIP); ip != "" {
-				ips[ip] = struct{}{}
-			}
+		relay := 0
+		if key.Landing {
+			relay = item.RelayConnections
 		}
-		connections := item.Connections
-		if connections < 0 {
-			connections = 0
-		}
-		nodeUsage[userID] = quotaNodeUsage{Connections: connections, ClientIps: ips}
+		nodeUsage[key] = quotaUsageFrom(item.Connections, relay, item.ClientIps)
 	}
 
 	c.mu.Lock()
 	c.usageByNode[nodeID] = nodeUsage
 	c.mu.Unlock()
 	c.Trigger()
+}
+
+// quotaShareUsage is one user's usage on a shared server as Custom reports it.
+type quotaShareUsage struct {
+	UserID      int64
+	Connections int
+	Relay       int
+	ClientIps   []string
+}
+
+// ObserveShare records the per-user usage a 妙妙屋 share reported (plan 158).
+func (c *quotaCoordinator) ObserveShare(serverID int64, usages []quotaShareUsage) {
+	if c == nil || serverID <= 0 {
+		return
+	}
+	users := make(map[int64]quotaNodeUsage, len(usages))
+	for _, u := range usages {
+		if u.UserID > 0 {
+			users[u.UserID] = quotaUsageFrom(u.Connections, u.Relay, u.ClientIps)
+		}
+	}
+	c.mu.Lock()
+	c.usageByShare[serverID] = quotaSharedUsage{at: c.now(), users: users}
+	c.mu.Unlock()
+	c.Trigger()
+}
+
+// ForgetShare drops a share's usage (exchange no longer possible).
+func (c *quotaCoordinator) ForgetShare(serverID int64) {
+	if c == nil {
+		return
+	}
+	c.mu.Lock()
+	_, had := c.usageByShare[serverID]
+	delete(c.usageByShare, serverID)
+	c.mu.Unlock()
+	if had {
+		c.Trigger()
+	}
+}
+
+// ShareBudgets returns the latest per-user budgets of a shared server and
+// whether the server has a user-limits slot at all.
+func (c *quotaCoordinator) ShareBudgets(serverID int64) ([]quotaShareBudget, bool) {
+	if c == nil {
+		return nil, false
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	budgets, ok := c.shareBudgets[serverID]
+	return append([]quotaShareBudget(nil), budgets...), ok
 }
 
 func (c *quotaCoordinator) NodeOnline(nodeID int64) {
@@ -131,6 +261,7 @@ func (c *quotaCoordinator) NodeOnline(nodeID int64) {
 	delete(c.lastPush, nodeID)
 	delete(c.unsupported, nodeID)
 	delete(c.errorLogged, nodeID)
+	delete(c.landingPushed, nodeID)
 	c.mu.Unlock()
 	c.Trigger()
 }
@@ -143,6 +274,7 @@ func (c *quotaCoordinator) NodeOffline(nodeID int64) {
 	delete(c.usageByNode, nodeID)
 	delete(c.lastSent, nodeID)
 	delete(c.lastPush, nodeID)
+	delete(c.landingPushed, nodeID)
 	c.mu.Unlock()
 	c.Trigger()
 }
@@ -157,6 +289,19 @@ func (c *quotaCoordinator) InvalidateNodes(nodeIDs ...int64) {
 			delete(c.lastSent, nodeID)
 		}
 	}
+	c.extrasStale = true
+	c.mu.Unlock()
+	c.Trigger()
+}
+
+// InvalidateInputs re-reads limited users, per-server caps and landing slots
+// on the next reconcile (after a user / per-server limit / landing change).
+func (c *quotaCoordinator) InvalidateInputs() {
+	if c == nil {
+		return
+	}
+	c.mu.Lock()
+	c.extrasStale = true
 	c.mu.Unlock()
 	c.Trigger()
 }
@@ -217,20 +362,69 @@ func (c *quotaCoordinator) runReconcile() {
 	}
 }
 
+// loadExtras returns the cached plan-158 inputs, re-read when stale.
+func (c *quotaCoordinator) loadExtras() (repo.QuotaPlanExtras, bool) {
+	source, ok := c.source.(quotaExtrasSource)
+	if !ok {
+		return repo.QuotaPlanExtras{}, false
+	}
+	c.mu.Lock()
+	fresh := !c.extrasStale && !c.extrasAt.IsZero() && c.now().Sub(c.extrasAt) < quotaExtrasTTL
+	cached := c.extras
+	c.mu.Unlock()
+	if fresh {
+		return cached, true
+	}
+	extras, err := source.LoadQuotaPlanExtras()
+	if err != nil {
+		log.Printf("quota groups: load per-server/landing inputs failed: %v", err)
+		return cached, !c.extrasAt.IsZero()
+	}
+	c.mu.Lock()
+	c.extras, c.extrasAt, c.extrasStale = extras, c.now(), false
+	c.mu.Unlock()
+	return extras, true
+}
+
 func (c *quotaCoordinator) reconcileOnce() {
 	targets, err := c.source.ListQuotaGroupTargets()
 	if err != nil {
 		log.Printf("quota groups: list targets failed: %v", err)
 		return
 	}
+	extras, hasExtras := c.loadExtras()
 
 	c.mu.Lock()
-	usageSnapshot := cloneQuotaUsage(c.usageByNode)
+	now := c.now()
+	nodeUsage := cloneQuotaUsage(c.usageByNode)
+	shareUsage := make(map[int64]map[int64]quotaNodeUsage, len(c.usageByShare))
+	for serverID, s := range c.usageByShare {
+		if now.Sub(s.at) > quotaSharedUsageTTL {
+			delete(c.usageByShare, serverID)
+			continue
+		}
+		shareUsage[serverID] = s.users
+	}
 	c.mu.Unlock()
-	plan := computeQuotaBudgetPlan(targets, usageSnapshot)
+	var plan quotaBudgetPlan
+	if hasExtras {
+		plan = computeQuotaPlan(targets, extras, nodeUsage, shareUsage)
+	} else {
+		plan = computeQuotaPlan(targets, repo.QuotaPlanExtras{}, nodeUsage, shareUsage)
+	}
 
 	c.mu.Lock()
 	c.liveUsage = plan.LiveUsage
+	c.shareBudgets = plan.Shares
+	// A landing-capable agent that had landing groups and has none now gets
+	// one empty list: its landing groups fall back to the static desired.
+	resets := map[int64]bool{}
+	for nodeID := range c.landingPushed {
+		if _, ok := plan.Budgets[nodeID]; !ok {
+			plan.Budgets[nodeID] = []quotaGroupBudget{}
+			resets[nodeID] = true
+		}
+	}
 	c.mu.Unlock()
 
 	var wg sync.WaitGroup
@@ -249,8 +443,15 @@ func (c *quotaCoordinator) reconcileOnce() {
 
 		budgetsCopy := append([]quotaGroupBudget(nil), budgets...)
 		version := plan.NodeVersions[nodeID]
+		landing := false
+		for _, b := range budgets {
+			if strings.HasPrefix(b.Group, landingQuotaGroupPrefix) {
+				landing = true
+				break
+			}
+		}
 		wg.Add(1)
-		go func() {
+		go func(nodeID int64) {
 			defer wg.Done()
 			err := c.send(nodeID, budgetsCopy)
 			c.mu.Lock()
@@ -258,16 +459,23 @@ func (c *quotaCoordinator) reconcileOnce() {
 			if err == nil {
 				c.lastSent[nodeID] = hash
 				delete(c.errorLogged, nodeID)
+				if landing {
+					c.landingPushed[nodeID] = true
+				} else {
+					delete(c.landingPushed, nodeID)
+				}
 				return
 			}
-			if quotaAgentSupport(version) == quotaAgentUnknown {
+			// An empty reset list only goes to agents known to take landing
+			// groups; its failure (e.g. a reconnect) never marks them unsupported.
+			if !resets[nodeID] && quotaAgentSupport(version) == quotaAgentUnknown {
 				c.unsupported[nodeID] = true
 			}
 			if !c.errorLogged[nodeID] {
 				log.Printf("quota groups: node %d rejected SetQuotaGroups: %v", nodeID, err)
 				c.errorLogged[nodeID] = true
 			}
-		}()
+		}(nodeID)
 	}
 	wg.Wait()
 }
@@ -285,98 +493,221 @@ func (c *quotaCoordinator) LiveUsage() map[int64]quotaLiveUsage {
 	return out
 }
 
-func cloneQuotaUsage(source map[int64]map[int64]quotaNodeUsage) map[int64]map[int64]quotaNodeUsage {
-	out := make(map[int64]map[int64]quotaNodeUsage, len(source))
+func cloneQuotaUsage(source map[int64]map[quotaUsageKey]quotaNodeUsage) map[int64]map[quotaUsageKey]quotaNodeUsage {
+	out := make(map[int64]map[quotaUsageKey]quotaNodeUsage, len(source))
 	for nodeID, users := range source {
-		out[nodeID] = make(map[int64]quotaNodeUsage, len(users))
-		for userID, usage := range users {
+		out[nodeID] = make(map[quotaUsageKey]quotaNodeUsage, len(users))
+		for key, usage := range users {
 			ips := make(map[string]struct{}, len(usage.ClientIps))
 			for ip := range usage.ClientIps {
 				ips[ip] = struct{}{}
 			}
-			out[nodeID][userID] = quotaNodeUsage{Connections: usage.Connections, ClientIps: ips}
+			out[nodeID][key] = quotaNodeUsage{Connections: usage.Connections, ClientIps: ips, Relay: usage.Relay}
 		}
 	}
 	return out
 }
 
+// computeQuotaBudgetPlan is the forward-only plan (before plan 158), kept for
+// callers and tests that only know forward targets.
 func computeQuotaBudgetPlan(targets []repo.QuotaGroupTarget, usageByNode map[int64]map[int64]quotaNodeUsage) quotaBudgetPlan {
+	usage := make(map[int64]map[quotaUsageKey]quotaNodeUsage, len(usageByNode))
+	for nodeID, users := range usageByNode {
+		usage[nodeID] = make(map[quotaUsageKey]quotaNodeUsage, len(users))
+		for userID, u := range users {
+			usage[nodeID][quotaUsageKey{UserID: userID}] = u
+		}
+	}
+	return computeQuotaPlan(targets, repo.QuotaPlanExtras{}, usage, nil)
+}
+
+type quotaSlotKind uint8
+
+const (
+	quotaSlotForward quotaSlotKind = iota
+	quotaSlotLanding               // native landing Core, applied by the node's agent
+	quotaSlotShared                // 妙妙屋 shared server, applied by its Helper
+)
+
+// quotaSlot is one place where a user's inbound connections are counted and
+// limited. Per-server caps apply to all slots with the same server key.
+type quotaSlot struct {
+	kind        quotaSlotKind
+	nodeID      int64 // forward / native landing: the agent node
+	serverID    int64 // native / shared landing: landing_server.id
+	key         repo.ServerQuotaKey
+	relayNodes  int
+	pushable    bool
+	nodeVersion string
+	usage       quotaNodeUsage
+}
+
+// serverUsage is what the slot adds to its server's 入站连接数: a landing Core
+// counts every inbound it receives, relayed ones included.
+func (s *quotaSlot) serverUsage() int { return s.usage.Connections + s.usage.Relay }
+
+type quotaUserPlan struct {
+	limits repo.QuotaUserLimits
+	slots  []*quotaSlot
+}
+
+// computeQuotaPlan splits every limited user's budgets over the user's slots:
+// the user total (总连接数 / 总 IP 数, deduped: relayed landing inbound counted
+// at the entry only) and each server's 入站连接数 (server scope).
+func computeQuotaPlan(targets []repo.QuotaGroupTarget, extras repo.QuotaPlanExtras, usageByNode map[int64]map[quotaUsageKey]quotaNodeUsage, usageByShare map[int64]map[int64]quotaNodeUsage) quotaBudgetPlan {
 	plan := quotaBudgetPlan{
 		Budgets:      make(map[int64][]quotaGroupBudget),
 		NodeVersions: make(map[int64]string),
 		LiveUsage:    make(map[int64]quotaLiveUsage),
+		Shares:       make(map[int64][]quotaShareBudget),
 	}
-	type userLimits struct {
-		connections int
-		clientIps   int
-		nodes       map[int64]repo.QuotaGroupTarget
+	users := make(map[int64]*quotaUserPlan)
+	user := func(userID int64, limits repo.QuotaUserLimits) *quotaUserPlan {
+		u := users[userID]
+		if u == nil {
+			u = &quotaUserPlan{limits: limits}
+			users[userID] = u
+		}
+		return u
 	}
-	users := make(map[int64]*userLimits)
+	capUsers := make(map[int64]bool)
+	for key := range extras.Caps {
+		capUsers[key.UserID] = true
+	}
+	seenForward := make(map[[2]int64]bool)
 	for _, target := range targets {
-		if target.UserID <= 0 || target.NodeID <= 0 || (target.MaxConnections <= 0 && target.MaxClientIps <= 0) {
+		if target.UserID <= 0 || target.NodeID <= 0 {
 			continue
 		}
-		limits := users[target.UserID]
-		if limits == nil {
-			limits = &userLimits{nodes: make(map[int64]repo.QuotaGroupTarget)}
-			users[target.UserID] = limits
+		limits, known := extras.Users[target.UserID]
+		if !known {
+			limits = repo.QuotaUserLimits{MaxConnections: max(target.MaxConnections, 0), MaxClientIps: max(target.MaxClientIps, 0)}
 		}
-		limits.connections = target.MaxConnections
-		limits.clientIps = target.MaxClientIps
-		limits.nodes[target.NodeID] = target
-		plan.NodeVersions[target.NodeID] = target.NodeVersion
+		if limits.MaxConnections <= 0 && limits.MaxClientIps <= 0 && !capUsers[target.UserID] {
+			continue
+		}
+		pair := [2]int64{target.UserID, target.NodeID}
+		if seenForward[pair] {
+			continue
+		}
+		seenForward[pair] = true
+		u := user(target.UserID, limits)
+		u.slots = append(u.slots, &quotaSlot{
+			kind:        quotaSlotForward,
+			nodeID:      target.NodeID,
+			key:         repo.ServerQuotaKey{UserID: target.UserID, Kind: "node", RefID: target.NodeID},
+			pushable:    target.NodeStatus == 1 && quotaAgentSupport(target.NodeVersion) != quotaAgentUnsupported,
+			nodeVersion: target.NodeVersion,
+			usage:       usageByNode[target.NodeID][quotaUsageKey{UserID: target.UserID}],
+		})
+	}
+	for _, slot := range extras.Landing {
+		limits, known := extras.Users[slot.UserID]
+		if !known || (limits.MaxConnections <= 0 && limits.MaxClientIps <= 0 && !capUsers[slot.UserID]) {
+			continue
+		}
+		u := user(slot.UserID, limits)
+		if slot.Shared {
+			u.slots = append(u.slots, &quotaSlot{
+				kind:       quotaSlotShared,
+				serverID:   slot.ServerID,
+				key:        repo.ServerQuotaKey{UserID: slot.UserID, Kind: "landing", RefID: slot.ServerID},
+				relayNodes: slot.RelayNodes,
+				pushable:   true,
+				usage:      usageByShare[slot.ServerID][slot.UserID],
+			})
+			continue
+		}
+		u.slots = append(u.slots, &quotaSlot{
+			kind:        quotaSlotLanding,
+			nodeID:      slot.NodeID,
+			serverID:    slot.ServerID,
+			key:         repo.ServerQuotaKey{UserID: slot.UserID, Kind: "node", RefID: slot.NodeID},
+			relayNodes:  slot.RelayNodes,
+			pushable:    slot.NodeStatus == 1,
+			nodeVersion: slot.NodeVersion,
+			usage:       usageByNode[slot.NodeID][quotaUsageKey{UserID: slot.UserID, Landing: true}],
+		})
 	}
 
-	for userID, limits := range users {
+	for userID, u := range users {
+		total := 0
 		allIps := make(map[string]struct{})
-		totalConnections := 0
-		for nodeID := range limits.nodes {
-			usage := usageByNode[nodeID][userID]
-			totalConnections += usage.Connections
-			for ip := range usage.ClientIps {
+		serverTotals := make(map[repo.ServerQuotaKey]int)
+		for _, s := range u.slots {
+			total += s.usage.Connections
+			for ip := range s.usage.ClientIps {
 				allIps[ip] = struct{}{}
 			}
+			serverTotals[s.key] += s.serverUsage()
 		}
-		plan.LiveUsage[userID] = quotaLiveUsage{Connections: totalConnections, ClientIps: len(allIps)}
+		plan.LiveUsage[userID] = quotaLiveUsage{Connections: total, ClientIps: len(allIps)}
 
-		for nodeID, target := range limits.nodes {
-			if target.NodeStatus != 1 || quotaAgentSupport(target.NodeVersion) == quotaAgentUnsupported {
+		for _, s := range u.slots {
+			if !s.pushable {
 				continue
 			}
-			connectionBudget := -1
-			if limits.connections > 0 {
-				otherConnections := totalConnections - usageByNode[nodeID][userID].Connections
-				connectionBudget = limits.connections - otherConnections
-				if connectionBudget < 0 {
-					connectionBudget = 0
-				}
+			serverCap := extras.Caps[s.key]
+			if u.limits.MaxConnections <= 0 && u.limits.MaxClientIps <= 0 && serverCap <= 0 {
+				// Nothing limits this slot (the user's caps sit on other servers):
+				// its services never join the group, so no budget is pushed.
+				continue
 			}
-
+			totalBudget := -1
+			if u.limits.MaxConnections > 0 {
+				totalBudget = max(u.limits.MaxConnections-(total-s.usage.Connections), 0)
+			}
+			serverBudget := -1
+			if serverCap > 0 {
+				serverBudget = max(serverCap-(serverTotals[s.key]-s.serverUsage()), 0)
+			}
 			clientIPBudget := -1
-			if limits.clientIps > 0 {
-				localIps := usageByNode[nodeID][userID].ClientIps
+			if u.limits.MaxClientIps > 0 {
 				otherOnlyIps := make(map[string]struct{})
-				for otherNodeID := range limits.nodes {
-					if otherNodeID == nodeID {
+				for _, other := range u.slots {
+					if other == s {
 						continue
 					}
-					for ip := range usageByNode[otherNodeID][userID].ClientIps {
-						if _, activeLocally := localIps[ip]; !activeLocally {
+					for ip := range other.usage.ClientIps {
+						if _, local := s.usage.ClientIps[ip]; !local {
 							otherOnlyIps[ip] = struct{}{}
 						}
 					}
 				}
-				clientIPBudget = limits.clientIps - len(otherOnlyIps)
-				if clientIPBudget < 0 {
-					clientIPBudget = 0
-				}
+				clientIPBudget = max(u.limits.MaxClientIps-len(otherOnlyIps), 0)
 			}
-
-			plan.Budgets[nodeID] = append(plan.Budgets[nodeID], quotaGroupBudget{
-				Group:          quotaGroupForUser(userID),
-				MaxConnections: connectionBudget,
-				MaxClientIps:   clientIPBudget,
-			})
+			switch s.kind {
+			case quotaSlotForward:
+				plan.NodeVersions[s.nodeID] = s.nodeVersion
+				plan.Budgets[s.nodeID] = append(plan.Budgets[s.nodeID], quotaGroupBudget{
+					Group:          quotaGroupForUser(userID),
+					MaxConnections: minQuotaBudget(totalBudget, serverBudget),
+					MaxClientIps:   clientIPBudget,
+				})
+			case quotaSlotLanding:
+				plan.NodeVersions[s.nodeID] = s.nodeVersion
+				b := quotaGroupBudget{Group: landingQuotaGroupForUser(userID), MaxConnections: totalBudget, MaxClientIps: clientIPBudget, RelayIps: s.relayNodes}
+				if serverBudget >= 0 {
+					v := serverBudget
+					b.ServerMaxConnections = &v
+				}
+				plan.Budgets[s.nodeID] = append(plan.Budgets[s.nodeID], b)
+			case quotaSlotShared:
+				b := quotaShareBudget{UserID: userID, MaxConnections: totalBudget, MaxClientIps: clientIPBudget, RelayIps: s.relayNodes}
+				if serverBudget >= 0 {
+					v := serverBudget
+					b.ServerMaxConnections = &v
+				}
+				plan.Shares[s.serverID] = append(plan.Shares[s.serverID], b)
+			}
+		}
+	}
+	// Every capable share gets an entry (possibly empty) so its exchange runs.
+	for _, slot := range extras.Landing {
+		if slot.Shared {
+			if _, ok := plan.Shares[slot.ServerID]; !ok {
+				plan.Shares[slot.ServerID] = []quotaShareBudget{}
+			}
 		}
 	}
 
@@ -385,7 +716,26 @@ func computeQuotaBudgetPlan(targets []repo.QuotaGroupTarget, usageByNode map[int
 			return plan.Budgets[nodeID][i].Group < plan.Budgets[nodeID][j].Group
 		})
 	}
+	for serverID := range plan.Shares {
+		sort.Slice(plan.Shares[serverID], func(i, j int) bool {
+			return plan.Shares[serverID][i].UserID < plan.Shares[serverID][j].UserID
+		})
+	}
 	return plan
+}
+
+// minQuotaBudget combines two budgets where -1 = unlimited.
+func minQuotaBudget(a, b int) int {
+	switch {
+	case a < 0:
+		return b
+	case b < 0:
+		return a
+	case a < b:
+		return a
+	default:
+		return b
+	}
 }
 
 type quotaAgentSupportLevel int

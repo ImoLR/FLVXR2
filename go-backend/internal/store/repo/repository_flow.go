@@ -239,6 +239,8 @@ func attachForwardUserLimits(tx *gorm.DB, rows []model.ForwardRecord) {
 		rows[i].UserMaxConnections = connectionLimits[rows[i].UserID]
 		rows[i].UserMaxClientIps = clientIPLimits[rows[i].UserID]
 	}
+	// Plan 158: per-server 入站连接数 of the entry nodes (quota group attach).
+	attachForwardServerCaps(tx, rows, userIDs)
 }
 
 func (r *Repository) GetTunnelRecord(tunnelID int64) (*model.TunnelRecord, error) {

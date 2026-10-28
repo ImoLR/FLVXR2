@@ -882,6 +882,9 @@ func (h *Handler) landingUserSave(w http.ResponseWriter, r *http.Request) {
 		landingError(w, err)
 		return
 	}
+	// Plan 158: per-server 入站连接数 before the save, to re-push only the
+	// forwards whose entry joins or leaves the user's quota group.
+	capsBefore, capsErr := h.repo.UserServerConnCaps(req.UserID)
 	if err := h.repo.SaveLandingUserSettingFull(req.UserID, maxNodes, req.Quotas, req.ExtendFixedByMs, req.ServerIDs, req.Pools); err != nil {
 		landingError(w, err)
 		return
@@ -899,6 +902,19 @@ func (h *Handler) landingUserSave(w http.ResponseWriter, r *http.Request) {
 			h.syncLandingServer(n.LandingServerID)
 			seen[n.LandingServerID] = true
 		}
+	}
+	warnings := []string{}
+	if capsAfter, err := h.repo.UserServerConnCaps(req.UserID); err == nil && capsErr == nil {
+		if u, uErr := h.repo.GetUserByID(req.UserID); uErr == nil && u != nil {
+			warnings = h.resyncForwardsForCapToggle(req.UserID, repo.QuotaUserLimits{MaxConnections: u.MaxConnections, MaxClientIps: u.MaxClientIps}, capsBefore, capsAfter)
+		}
+	}
+	if h.quotaGroups != nil {
+		h.quotaGroups.InvalidateInputs()
+	}
+	if len(warnings) > 0 {
+		response.WriteJSON(w, response.OK(map[string]interface{}{"warnings": warnings}))
+		return
 	}
 	response.WriteJSON(w, response.OKEmpty())
 }

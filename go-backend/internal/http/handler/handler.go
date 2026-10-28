@@ -99,6 +99,9 @@ type Handler struct {
 	// monitor's live rates (memory only); see landing_monitor_rates.go.
 	landingRatesOnce sync.Once
 	landingRates     *landingRateTracker
+	// relaySources (plan 158): cached IPs of our own nodes (relay dedupe).
+	relaySourcesOnce sync.Once
+	relaySources     *relaySourceCache
 	// sharedMachine keeps the latest whole-machine sample of each shared landing
 	// server from Custom's status (plan 118, memory only).
 	sharedMachineMu sync.Mutex

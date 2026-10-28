@@ -218,8 +218,14 @@ type UserServerQuota struct {
 	UsedOut       int64  `gorm:"not null;default:0" json:"usedOut"`
 	PeriodKey     int64  `gorm:"not null;default:0" json:"periodKey"`
 	Paused        bool   `gorm:"not null;default:false" json:"paused"`
-	CreatedTime   int64  `gorm:"not null" json:"createdTime"`
-	UpdatedTime   int64  `gorm:"not null" json:"updatedTime"`
+	// MaxInboundConnections (plan 158) = 入站连接数 of this user on this server
+	// (0 = 不限): an entry server counts the user's forward inbound connections
+	// entering there, a landing server the user's inbound connections on its
+	// Core (relayed ones included — the Core cannot tell them apart).
+	// Enforced through the quota coordinator; older panels ignore the column.
+	MaxInboundConnections int   `gorm:"not null;default:0" json:"maxInboundConnections"`
+	CreatedTime           int64 `gorm:"not null" json:"createdTime"`
+	UpdatedTime           int64 `gorm:"not null" json:"updatedTime"`
 }
 
 func (UserServerQuota) TableName() string { return "user_server_quota" }

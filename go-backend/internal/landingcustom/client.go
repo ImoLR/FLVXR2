@@ -67,6 +67,25 @@ type Share struct {
 	// share's Helper renders the Reality guard; absent = FLVX sends no
 	// reality_guard field and the share behaves exactly as before.
 	RealityGuard *ShareRealityGuard `json:"reality_guard,omitempty"`
+	// Contract landing-user-limits-v1 (plan 158): present only while this
+	// share's Helper groups the FLVX Core instance's nodes per user (Core
+	// management groups), applies node limits as 入站 (conn_mode "inbound")
+	// and reports per-user inbound usage. Absent = FLVX sends nothing new and
+	// does not count this share in user totals (today's behaviour).
+	UserLimits *ShareUserLimits `json:"user_limits,omitempty"`
+}
+
+// UserLimitsVersion is the landing-user-limits contract version FLVX speaks.
+const UserLimitsVersion = 1
+
+// ShareUserLimits is the share list's user_limits capability object.
+type ShareUserLimits struct {
+	Versions []int `json:"versions"`
+}
+
+// Supports reports whether the share accepts user-limits contract version v.
+func (u *ShareUserLimits) Supports(v int) bool {
+	return u != nil && containsInt(u.Versions, v)
 }
 
 // RealityGuardVersion is the landing-reality-guard contract version FLVX speaks.
@@ -288,6 +307,18 @@ func (s *Share) Sanitize() {
 		s.RealityGuard = &ShareRealityGuard{Versions: versions}
 		if len(versions) == 0 {
 			s.RealityGuard = nil
+		}
+	}
+	if s.UserLimits != nil {
+		versions := []int{}
+		for _, v := range s.UserLimits.Versions {
+			if v > 0 && v < 1000 && !containsInt(versions, v) && len(versions) < 8 {
+				versions = append(versions, v)
+			}
+		}
+		s.UserLimits = &ShareUserLimits{Versions: versions}
+		if len(versions) == 0 {
+			s.UserLimits = nil
 		}
 	}
 }

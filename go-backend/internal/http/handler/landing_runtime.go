@@ -2,6 +2,8 @@ package handler
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -212,6 +214,31 @@ func (h *Handler) syncNativeLandingServerOnce(serverID int64) (*landingSyncSnaps
 	if upgradeCore {
 		connSig += ";upgrade_core=" + s.CoreStaleEpoch
 	}
+	// Plan 158: per-user landing Core groups (user totals + per-server 入站连接数)
+	// only for agents that apply them (landing_user_limits >= 1); older agents
+	// keep today's payload byte for byte. The content joins the signature.
+	userGroupOf := map[int64]string{}
+	var userLimits map[string]interface{}
+	if node.LandingUserLimits >= repo.LandingUserLimitsVersion {
+		owners := []int64{}
+		seenOwner := map[int64]bool{}
+		for i := range nodes {
+			n := &nodes[i]
+			if n.LandingServerID == s.ID && !landingcustom.IsExtraProtocol(n.Protocol) && !seenOwner[n.UserID] {
+				seenOwner[n.UserID] = true
+				owners = append(owners, n.UserID)
+			}
+		}
+		groupOf, groups, groupErr := h.landingUserGroups(s, owners)
+		if groupErr != nil {
+			return nil, errors.New("落地服务器状态不可用")
+		}
+		userGroupOf = groupOf
+		userLimits = map[string]interface{}{"version": repo.LandingUserLimitsVersion, "relay_sources": h.landingRelaySources(context.Background()), "groups": groups}
+		raw, _ := json.Marshal([]interface{}{userLimits, groupOf})
+		sum := sha256.Sum256(raw)
+		connSig += ";ul=" + hex.EncodeToString(sum[:8])
+	}
 	revision, err := h.repo.TouchLandingRevision(s.ID, planHash(plan), &connSig)
 	if err != nil {
 		return nil, errors.New("落地服务器状态不可用")
@@ -237,6 +264,9 @@ func (h *Handler) syncNativeLandingServerOnce(serverID int64) (*landingSyncSnaps
 		desired := map[string]interface{}{"id": n.ID, "inbound_tag": n.InboundTag, "protocol": n.Protocol, "port": n.Port, "enabled": n.Status == "active", "max_connections": n.MaxConnections, "max_online_ips": n.MaxOnlineIPs}
 		if inboundNodes[n.ID] {
 			desired["conn_mode"] = repo.LandingConnInbound
+		}
+		if group := userGroupOf[n.UserID]; group != "" {
+			desired["quota_group"] = group
 		}
 		if n.Protocol == "ss2022" {
 			desired["ss2022"] = map[string]interface{}{"method": n.Method, "server_key": n.ServerKey, "user_key": n.UserKey}
@@ -275,6 +305,9 @@ func (h *Handler) syncNativeLandingServerOnce(serverID int64) (*landingSyncSnaps
 	}
 	if upgradeCore {
 		payload["upgrade_core_epoch"] = s.CoreStaleEpoch
+	}
+	if userLimits != nil {
+		payload["user_limits"] = userLimits
 	}
 	result, err := h.sendNodeCommandWithTimeout(s.NodeID, "ApplyLandingDesired", payload, 30*time.Second, false, false)
 	if err != nil || !result.Success {

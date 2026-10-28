@@ -295,6 +295,13 @@ func (r *Repository) SaveLandingServerOpts(s *model.LandingServer, groups []int6
 		// Plan 141: nodes that follow the server keep the mode they had unless
 		// the admin applies the new one (and the server's 节点连接数) to all.
 		oldConnMode := NormalizeLandingConnMode(old.ConnMode)
+		// Plan 158: the 计算方式 selectors are retired. A client without them
+		// sends no connMode → keep the stored value (no node rows rewritten);
+		// a missing maxConnMode makes the server total 入站+出站 (a total stored
+		// as 仅入站 changes only now, on an explicit save, as the dialog says).
+		if s.ConnMode == "" {
+			s.ConnMode = old.ConnMode
+		}
 		s.ConnMode, s.MaxConnMode, s.ConnModeSig = NormalizeLandingConnMode(s.ConnMode), NormalizeLandingConnMode(s.MaxConnMode), old.ConnModeSig
 		if opts.ApplyConnModeToNodes && s.Source != "shared" {
 			if err := tx.Model(&model.LandingNode{}).Where("landing_server_id = ?", s.ID).Updates(map[string]any{"conn_mode": nil, "max_connections": s.DefaultMaxConnections}).Error; err != nil {
@@ -473,6 +480,10 @@ func (r *Repository) SaveLandingUserSettingFull(userID int64, maxNodes int, quot
 			if (q.ServerKind != "node" && q.ServerKind != "landing") || q.ServerRefID <= 0 || q.LimitBytes < 0 {
 				return errors.New("服务器流量限额无效")
 			}
+			// Plan 158: 入站连接数 of this user on this server (0 = 不限).
+			if q.MaxInboundConnections < 0 || q.MaxInboundConnections > MaxUserServerConnections {
+				return fmt.Errorf("服务器入站连接数须为 0（不限）到 %d", MaxUserServerConnections)
+			}
 			if q.ServerKind == "node" {
 				var node model.Node
 				if err := tx.First(&node, q.ServerRefID).Error; err != nil {
@@ -494,7 +505,7 @@ func (r *Repository) SaveLandingUserSettingFull(userID int64, maxNodes int, quot
 			q.UsedIn, q.UsedOut, q.PeriodKey, q.Paused = 0, 0, 0, false
 			q.CreatedTime = now
 			q.UpdatedTime = now
-			if err := tx.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "user_id"}, {Name: "server_kind"}, {Name: "server_ref_id"}}, DoUpdates: clause.Assignments(map[string]interface{}{"limit_bytes": q.LimitBytes, "limit_override": true, "updated_time": now})}).Create(&q).Error; err != nil {
+			if err := tx.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "user_id"}, {Name: "server_kind"}, {Name: "server_ref_id"}}, DoUpdates: clause.Assignments(map[string]interface{}{"limit_bytes": q.LimitBytes, "limit_override": true, "max_inbound_connections": q.MaxInboundConnections, "updated_time": now})}).Create(&q).Error; err != nil {
 				return err
 			}
 		}

@@ -1974,15 +1974,11 @@ func buildForwardServiceConfigs(baseName string, forward *forwardRecord, tunnel 
 		if forward.MaxClientIps > 0 {
 			meta["maxClientIps"] = forward.MaxClientIps
 		}
-		if forward.UserID > 0 && (forward.UserMaxConnections > 0 || forward.UserMaxClientIps > 0) {
-			groupMaxConnections := forward.UserMaxConnections
-			if groupMaxConnections <= 0 {
-				groupMaxConnections = -1
-			}
-			groupMaxClientIps := forward.UserMaxClientIps
-			if groupMaxClientIps <= 0 {
-				groupMaxClientIps = -1
-			}
+		nodeID := int64(0)
+		if node != nil {
+			nodeID = node.ID
+		}
+		if join, groupMaxConnections, groupMaxClientIps := forwardQuotaGroup(forward, nodeID); join {
 			meta["quotaGroup"] = quotaGroupForUser(forward.UserID)
 			meta["groupMaxConnections"] = groupMaxConnections
 			meta["groupMaxClientIps"] = groupMaxClientIps
@@ -2511,16 +2507,10 @@ func buildNftablesRulePayloadsFor(forward *forwardRecord, tunnel *tunnelRecord, 
 					MaxConnections: forward.MaxConnections,
 					MaxClientIps:   forward.MaxClientIps,
 				}
-				if forward.UserID > 0 && (forward.UserMaxConnections > 0 || forward.UserMaxClientIps > 0) {
+				if join, groupMaxConnections, groupMaxClientIps := forwardQuotaGroup(forward, fp.NodeID); join {
 					quota.QuotaGroup = quotaGroupForUser(forward.UserID)
-					quota.GroupMaxConnections = forward.UserMaxConnections
-					quota.GroupMaxClientIps = forward.UserMaxClientIps
-					if quota.GroupMaxConnections <= 0 {
-						quota.GroupMaxConnections = -1
-					}
-					if quota.GroupMaxClientIps <= 0 {
-						quota.GroupMaxClientIps = -1
-					}
+					quota.GroupMaxConnections = groupMaxConnections
+					quota.GroupMaxClientIps = groupMaxClientIps
 				}
 				if tunnel.Type == 1 {
 					quota.ForwardID = forward.ID

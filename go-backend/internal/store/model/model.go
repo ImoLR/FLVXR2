@@ -116,7 +116,8 @@ type Node struct {
 	LandingChain                 int            `gorm:"column:landing_chain;not null;default:0"`
 	LandingGuard                 int            `gorm:"column:landing_guard;not null;default:0"`     // agent: Reality guard + builtin rules (plan 127)
 	LandingConnMode              int            `gorm:"column:landing_conn_mode;not null;default:0"` // agent: 仅入站 landing connection limits + inbound counts (plan 141)
-	LineMachine                  bool           `gorm:"column:line_machine;not null;default:false"`
+	LandingUserLimits            int            `gorm:"column:landing_user_limits;not null;default:0"` // agent: per-user landing Core groups + usage report (plan 158)
+	LineMachine                 bool           `gorm:"column:line_machine;not null;default:false"`
 	DefaultUserQuotaBytes        int64          `gorm:"not null;default:0"`
 	LeiKwanStatus                string         `gorm:"column:leikwan_status;type:varchar(10);not null;default:''"`
 	LeiKwanForwards              string         `gorm:"column:leikwan_forwards;type:text;not null;default:'[]'"`
@@ -896,6 +897,9 @@ type ForwardRecord struct {
 	UserMaxConnections  int
 	MaxClientIps        int
 	UserMaxClientIps    int
+	// UserServerConnCaps (plan 158): entry node id → the user's 入站连接数 on
+	// that server (> 0 only); a capped entry joins the user's quota group.
+	UserServerConnCaps map[int64]int `gorm:"-"`
 	TrafficLimit        int64
 	ExpiryTime          sql.NullInt64
 	SpeedLimitEnabled   bool

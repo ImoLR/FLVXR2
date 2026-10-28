@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"strings"
 
+	"go-backend/internal/landingcustom"
 	"go-backend/internal/store/model"
 )
 
@@ -33,33 +34,37 @@ func validLandingConnMode(mode string) bool {
 	return mode == "" || mode == LandingConnTotal || mode == LandingConnInbound
 }
 
-// LandingNodeConnMode is the node's configured 计算方式: its own override, else
-// the server's. Plan 147: a shared (妙妙屋) server always counts 入站+出站 —
-// the setting is FLVX-native only (user 10-24: 妙妙屋侧不动), whatever a row
-// may hold.
+// LandingNodeConnMode is the node's configured 计算方式. Plan 158 retired the
+// plan-141 choice (user 10-28: server total always 入站+出站, everything per
+// user always 入站): every node limit counts 入站, whatever conn_mode a row
+// still holds (kept only so a rollback to an older panel behaves as before).
+// A shared (妙妙屋) server's nodes count 入站 only once its share applies user
+// limits (landing-user-limits-v1); until then 入站+出站 as before (plan 147).
 func LandingNodeConnMode(n *model.LandingNode, s *model.LandingServer) string {
-	if s != nil && s.Source == "shared" {
+	if s != nil && s.Source == "shared" && !SharedUserLimitsSupported(s) {
 		return LandingConnTotal
 	}
-	if n != nil && n.ConnMode != nil {
-		return NormalizeLandingConnMode(*n.ConnMode)
-	}
-	if s == nil {
-		return LandingConnTotal
-	}
-	return NormalizeLandingConnMode(s.ConnMode)
+	return LandingConnInbound
 }
 
 // LandingConnModeSupported reports whether the server's runtime applies 仅入站:
-// a native server whose agent reports landing_conn_mode >= 1 (agentVersion).
-// Plan 147: never a shared server — FLVX does not offer the setting there and
-// never sends conn_mode to Custom, even if a share advertised
-// landing-conn-mode-v1 (contract 暂缓).
+// a native server whose agent reports landing_conn_mode >= 1 (agentVersion),
+// a shared server whose share advertises landing-user-limits-v1 (plan 158;
+// landing-conn-mode-v1 alone stays unused, plan 147).
 func LandingConnModeSupported(s *model.LandingServer, agentVersion int) bool {
-	if s == nil || s.Source == "shared" {
+	if s == nil {
 		return false
 	}
+	if s.Source == "shared" {
+		return SharedUserLimitsSupported(s)
+	}
 	return agentVersion >= LandingConnModeVersion
+}
+
+// SharedUserLimitsSupported: the share's Helper applies per-user limits, 入站
+// node limits and reports per-user usage (landing-user-limits-v1, plan 158).
+func SharedUserLimitsSupported(s *model.LandingServer) bool {
+	return s != nil && s.Source == "shared" && SharedLandingCaps(s).UserLimits.Supports(landingcustom.UserLimitsVersion)
 }
 
 // LandingConnModeFixed: the server has no 计算方式 choice (shared = 妙妙屋,
@@ -78,7 +83,10 @@ func LandingEffectiveConnMode(n *model.LandingNode, s *model.LandingServer, supp
 }
 
 // LandingServerTotalConnMode is the effective mode of the server total: only a
-// native server's total can be 仅入站 (a shared total belongs to 妙妙屋).
+// native server's total can be 仅入站 (a shared total belongs to 妙妙屋). Plan
+// 158: the total is 入站+出站; a total stored as 仅入站 before keeps working
+// until the admin saves the server again (the dialog says so), so nothing
+// tightens silently.
 func LandingServerTotalConnMode(s *model.LandingServer, supported bool) string {
 	if s != nil && s.Source != "shared" && supported && NormalizeLandingConnMode(s.MaxConnMode) == LandingConnInbound {
 		return LandingConnInbound
