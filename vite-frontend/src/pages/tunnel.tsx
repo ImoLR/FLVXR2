@@ -935,7 +935,7 @@ export default function TunnelPage() {
     setForm({
       id: tunnel.id,
       leikwanPipeId: tunnel.leikwanPipeId,
-      // Plan 152: edit the raw template so {入口} survives a save.
+      // Plan 152 (placeholder hidden by plan 155): an old raw template survives a save.
       name: tunnel.nameTemplate || tunnel.name,
       type: tunnel.type,
       inNodeId: tunnel.inNodeId || [],
@@ -3970,7 +3970,6 @@ export default function TunnelPage() {
                       )}
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <Input
-                      description={form.name.includes("{入口}") ? "{入口} 会显示成入口节点的「入口显示名」" : undefined}
                       errorMessage={errors.name}
                       isInvalid={!!errors.name}
                       label="隧道名称"
