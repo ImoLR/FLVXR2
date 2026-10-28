@@ -43,12 +43,12 @@ Build only: no tag, no release, no prod writes, no OTA. Screens go to the user b
       split tiers), one-pool-per-server, period roll, pause/resume of rules + landing nodes, block reason
 - [x] Contract test (HTTP save/get + user view)
 - [x] Frontend: related-servers picker (per-server list), 共享流量池 block, user 主页 card; tsc/build/lint
-- [ ] Full `go test ./...` SQLite + PostgreSQL vs base
+- [x] Full `go test ./...` SQLite + PostgreSQL vs base
 - [x] End-to-end on a local panel + real agent (loopback): pool exhausts → rule paused on the agent; raise limit → resumed
 - [x] Resource numbers (backend RSS/CPU, agent RSS/CPU before/after)
 - [x] Screens 390 + 1440, light + dark → `/root/mmwx-preview/limits-traffic-pools/`
-- [ ] Push branch, CI green
-- [ ] Summary → `/root/flvx-workers/runs/limits-traffic-pools/summary.md`
+- [x] Push branch, CI green
+- [x] Summary → `/root/flvx-workers/runs/limits-traffic-pools/summary.md`
 
 ## Results
 
@@ -62,4 +62,12 @@ Build only: no tag, no release, no prod writes, no OTA. Screens go to the user b
   per-server sum (counted once). Agent (unchanged code): 0.22 % CPU idle before and after a pause/resume cycle, ~23 MiB,
   9 fds. No new pollers, timers or agent commands: billing rides the existing flow transaction (+1 indexed member query
   per upload), pause/resume rides the existing reconcile.
+- Tests: full `go test ./...` SQLite 19/19 packages ok, PostgreSQL 19/19 ok, 0 FAIL (fork.94 base was 19/19 green too,
+  plan 151/160). New: repo `TestPoolFlowShareCountsOncePerPool`, `TestTrafficPoolSaveRules`, `TestUserRelatedServers`;
+  handler `TestTrafficPoolCountsPathOnce`, `TestTrafficPoolLandingFlowCountedOnce` (native + shared, 5 billing cases × 3
+  pool shapes), `TestTrafficPoolPausesLikeServerQuota`, `TestTrafficPoolHTTP`; contract `TestTrafficPoolContract`
+  (router + encrypted uploads) — all on SQLite and PostgreSQL. Frontend `tsc --noEmit` 0 errors, `vite build` ok,
+  eslint: new files clean, changed files only the pre-existing base warnings/error.
+- Empty pools are allowed (no effect) so a pool emptied by a node deletion never blocks saving the dialog.
+- Rollback to fork.94: the two new tables are ignored; old reconcile lifts pool-caused pauses by itself.
 - Screens: `/root/mmwx-preview/limits-traffic-pools/` (24 shots, 390 + 1440, light + dark, 36/36 checks, 0 page errors).
