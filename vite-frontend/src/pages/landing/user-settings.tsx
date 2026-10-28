@@ -1,9 +1,17 @@
-import { forwardRef, useEffect, useImperativeHandle, useState } from "react";
+import {
+  forwardRef,
+  useEffect,
+  useImperativeHandle,
+  useMemo,
+  useState,
+} from "react";
 import toast from "react-hot-toast";
 
 import { getNodeList } from "@/api";
 import {
   LandingUserSetting,
+  PoolServer,
+  RelatedServer,
   ServerQuota,
   getLandingUser,
   landingGB,
@@ -16,6 +24,12 @@ import { Button } from "@/shadcn-bridge/heroui/button";
 import { Checkbox } from "@/shadcn-bridge/heroui/checkbox";
 import { Input } from "@/shadcn-bridge/heroui/input";
 import { Select, SelectItem } from "@/shadcn-bridge/heroui/select";
+import {
+  RelatedServerLabel,
+  TrafficPoolsEditor,
+  serverKey,
+  serverRoleText,
+} from "@/pages/landing/traffic-pools";
 
 export interface LandingUserSettingsHandle {
   // Saves unsaved 落地 edits (and the optional renewal) with the user's main save.
@@ -32,6 +46,12 @@ const landingSnapshot = (value: LandingUserSetting | null) =>
           limitBytes,
         ]),
         serverIds: [...(value.serverIds || [])].sort((a, b) => a - b),
+        pools: (value.pools || []).map((pool) => [
+          pool.id || 0,
+          pool.name,
+          pool.limitBytes,
+          pool.members.map(serverKey).sort(),
+        ]),
         ruleMaxNode: [
           value.ruleMaxNodeSource,
           value.ruleMaxNodeSource === "custom" ? value.ruleMaxNode : null,
@@ -172,6 +192,80 @@ export const LandingUserSettings = forwardRef<
     }),
     [extend, renewalDelta, form, userId, savedSnapshot],
   );
+  // Plan 157: servers related to this user (tunnel/rule entries + landing
+  // servers) for the per-server picker and the pools; 可用落地服务器 ticked but
+  // not saved yet count as 落地 too. Older panels send no list: keep the old
+  // picker (all FLVX nodes + shared servers).
+  const related = useMemo<RelatedServer[] | null>(() => {
+    if (!form?.relatedServers) return null;
+    const map = new Map<string, RelatedServer>();
+
+    for (const server of form.relatedServers)
+      map.set(serverKey(server), { ...server });
+    for (const id of form.serverIds || []) {
+      const server = allServers.find((item) => item.id === id);
+
+      if (!server || server.chainOnly) continue;
+      const shared = server.source === "shared";
+      const item: RelatedServer = {
+        serverKind: shared ? "landing" : "node",
+        serverRefId: shared ? server.id : server.nodeId,
+        serverName: shared
+          ? server.name
+          : nodes.find((node) => node.id === server.nodeId)?.name ||
+            server.name,
+        entry: false,
+        landing: true,
+      };
+      const existing = map.get(serverKey(item));
+
+      if (existing) existing.landing = true;
+      else map.set(serverKey(item), item);
+    }
+
+    return Array.from(map.values()).sort((a, b) =>
+      a.serverKind !== b.serverKind
+        ? a.serverKind === "node"
+          ? -1
+          : 1
+        : a.serverRefId - b.serverRefId,
+    );
+  }, [form?.relatedServers, form?.serverIds, allServers, nodes]);
+  const relatedByKey = useMemo(
+    () => new Map((related || []).map((server) => [serverKey(server), server])),
+    [related],
+  );
+  const serverName = (server: PoolServer) =>
+    server.serverName ||
+    relatedByKey.get(serverKey(server))?.serverName ||
+    (server.serverKind === "node" ? nodes : shared).find(
+      (item) => item.id === server.serverRefId,
+    )?.name ||
+    `${server.serverKind === "node" ? "节点" : "落地"} ${server.serverRefId}`;
+  const quotaOptions = related
+    ? related.map((server) => ({
+        key: serverKey(server),
+        kind: server.serverKind,
+        id: server.serverRefId,
+        name: serverName(server),
+        server,
+      }))
+    : [
+        ...nodes.map((node) => ({
+          key: `node:${node.id}`,
+          kind: "node" as const,
+          id: node.id,
+          name: node.name,
+          server: undefined,
+        })),
+        ...shared.map((server) => ({
+          key: `landing:${server.id}`,
+          kind: "landing" as const,
+          id: server.id,
+          name: `${server.name}（共享）`,
+          server: undefined,
+        })),
+      ];
   const setQuota = (index: number, limitBytes: number) =>
     setForm(
       (prev) =>
@@ -320,12 +414,17 @@ export const LandingUserSettings = forwardRef<
                 className="grid grid-cols-[minmax(0,1fr)_100px_80px] items-center gap-2"
               >
                 <div className="min-w-0 text-sm">
-                  <p className="truncate">
-                    {quota.serverName ||
-                      (quota.serverKind === "node" ? nodes : shared).find(
-                        (node) => node.id === quota.serverRefId,
-                      )?.name ||
-                      `${quota.serverKind === "node" ? "节点" : "落地"} ${quota.serverRefId}`}
+                  <p className="flex min-w-0">
+                    <RelatedServerLabel
+                      name={
+                        quota.serverName ||
+                        (quota.serverKind === "node" ? nodes : shared).find(
+                          (node) => node.id === quota.serverRefId,
+                        )?.name ||
+                        `${quota.serverKind === "node" ? "节点" : "落地"} ${quota.serverRefId}`
+                      }
+                      server={relatedByKey.get(serverKey(quota))}
+                    />
                   </p>
                   {quota.paused && (
                     <p className="text-xs text-warning">额度已用完</p>
@@ -362,31 +461,32 @@ export const LandingUserSettings = forwardRef<
             <Select
               className="min-w-0 flex-1"
               label="添加服务器限额"
-              placeholder="选择 FLVX 服务器"
+              placeholder={
+                related ? "选择该用户的相关服务器" : "选择 FLVX 服务器"
+              }
               selectedKeys={adding ? [adding] : []}
               onSelectionChange={(keys) =>
                 setAdding(String(Array.from(keys)[0] || ""))
               }
             >
-              {[
-                ...nodes.map((node) => ({ ...node, kind: "node" as const })),
-                ...shared.map((server) => ({
-                  ...server,
-                  kind: "landing" as const,
-                })),
-              ]
+              {quotaOptions
                 .filter(
-                  (node) =>
+                  (option) =>
                     !form.quotas.some(
                       (quota) =>
-                        quota.serverKind === node.kind &&
-                        quota.serverRefId === node.id,
+                        quota.serverKind === option.kind &&
+                        quota.serverRefId === option.id,
                     ),
                 )
-                .map((node) => (
-                  <SelectItem key={`${node.kind}:${node.id}`}>
-                    {node.name}
-                    {node.kind === "landing" ? "（共享）" : ""}
+                .map((option) => (
+                  <SelectItem
+                    key={option.key}
+                    textValue={`${option.name} ${serverRoleText(option.server)}`}
+                  >
+                    <RelatedServerLabel
+                      name={option.name}
+                      server={option.server}
+                    />
                   </SelectItem>
                 ))}
             </Select>
@@ -403,7 +503,10 @@ export const LandingUserSettings = forwardRef<
                 const quota: ServerQuota = {
                   serverKind: kind === "landing" ? "landing" : "node",
                   serverRefId: node.id,
-                  serverName: node.name,
+                  serverName: serverName({
+                    serverKind: kind === "landing" ? "landing" : "node",
+                    serverRefId: node.id,
+                  }),
                   limitBytes: Number(node.defaultUserQuotaBytes || 0),
                   usedIn: 0,
                   usedOut: 0,
@@ -425,6 +528,14 @@ export const LandingUserSettings = forwardRef<
               添加
             </Button>
           </div>
+          {form.pools && (
+            <TrafficPoolsEditor
+              candidates={related || []}
+              nameOf={serverName}
+              pools={form.pools}
+              onChange={(pools) => setForm({ ...form, pools })}
+            />
+          )}
           <Button
             color="primary"
             isLoading={saving}

@@ -233,6 +233,27 @@ export interface ServerQuota {
   usedOut: number;
   paused?: boolean;
 }
+/** Plan 157: one server in a 共享流量池 / related-servers picker. */
+export interface PoolServer {
+  serverKind: "node" | "landing";
+  serverRefId: number;
+  serverName?: string;
+}
+/** Plan 157: a server related to the user (入口 = tunnel/rule entry, 落地 = landing). */
+export interface RelatedServer extends PoolServer {
+  entry: boolean;
+  landing: boolean;
+}
+/** Plan 157: 共享流量池 — member servers share one billed-bytes limit. */
+export interface TrafficPool {
+  id?: number;
+  name: string;
+  limitBytes: number;
+  usedIn?: number;
+  usedOut?: number;
+  paused?: boolean;
+  members: PoolServer[];
+}
 export interface LandingUserSetting {
   // Effective total node cap; maxNodesSource says whether it is the user's
   // own value or the global default (plan 131).
@@ -252,6 +273,9 @@ export interface LandingUserSetting {
   ruleMaxTotalSource?: "global" | "custom" | "admin";
   globalRuleMaxTotal?: number;
   ruleUsed?: number;
+  /** Plan 157 (absent from older panels). */
+  pools?: TrafficPool[];
+  relatedServers?: RelatedServer[];
 }
 export const landingServers = (userId?: number) =>
   Network.post<LandingServer[]>(
@@ -423,6 +447,19 @@ export const saveLandingUser = (
         limitBytes,
       })),
     ...(data.extendFixedByMs ? { extendFixedByMs: data.extendFixedByMs } : {}),
+    ...(data.pools
+      ? {
+          pools: data.pools.map(({ id, name, limitBytes, members }) => ({
+            id: id || 0,
+            name,
+            limitBytes,
+            members: members.map(({ serverKind, serverRefId }) => ({
+              serverKind,
+              serverRefId,
+            })),
+          })),
+        }
+      : {}),
     ...(data.serverIds ? { serverIds: data.serverIds } : {}),
     ...(data.ruleMaxNodeSource === "global" ||
     data.ruleMaxNodeSource === "custom"

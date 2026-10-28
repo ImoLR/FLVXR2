@@ -18,6 +18,7 @@ import { PageEmptyState } from "@/components/page-state";
 import { AnnouncementBanner } from "@/pages/dashboard/components/announcement-banner";
 import { FlowChartCard } from "@/pages/dashboard/components/flow-chart-card";
 import { MetricCard } from "@/pages/dashboard/components/metric-card";
+import { TrafficPoolsCard } from "@/pages/dashboard/components/traffic-pools-card";
 import { USER_TOTAL_FLOW_HINT } from "@/utils/flow-hints";
 import {
   formatNodeRenewalTime,
@@ -43,6 +44,7 @@ export default function DashboardPage() {
     loading,
     userInfo,
     userTunnels,
+    trafficPools,
     forwardList,
     statisticsFlows,
     nodeExpiryReminders,
@@ -1031,6 +1033,7 @@ export default function DashboardPage() {
         </Card>
       )}
       {/* 隧道权限 - 管理员不显示 */}
+      <TrafficPoolsCard pools={trafficPools} />
       {!isAdmin && (
         <Card className="mb-6 lg:mb-8 border border-gray-200 dark:border-default-200 shadow-md">
           <CardHeader className="pb-3">

@@ -3,6 +3,7 @@ import type {
   NodeApiItem,
   UserQuotaHistoryItem,
 } from "@/api/types";
+import type { TrafficPool } from "@/api/landing";
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import toast from "react-hot-toast";
@@ -111,6 +112,7 @@ interface DashboardDataState {
   loading: boolean;
   userInfo: DashboardUserInfo;
   userTunnels: DashboardUserTunnel[];
+  trafficPools: TrafficPool[];
   forwardList: DashboardForward[];
   statisticsFlows: DashboardStatisticsFlow[];
   nodeExpiryReminders: DashboardNodeExpiryItem[];
@@ -277,6 +279,8 @@ export const useDashboardData = (): DashboardDataState => {
     {} as DashboardUserInfo,
   );
   const [userTunnels, setUserTunnels] = useState<DashboardUserTunnel[]>([]);
+  // Plan 157: the user's 共享流量池 (read-only).
+  const [trafficPools, setTrafficPools] = useState<TrafficPool[]>([]);
   const [forwardList, setForwardList] = useState<DashboardForward[]>([]);
   const [statisticsFlows, setStatisticsFlows] = useState<
     DashboardStatisticsFlow[]
@@ -299,6 +303,7 @@ export const useDashboardData = (): DashboardDataState => {
       tunnelPermissions?: DashboardUserTunnel[];
       forwards?: ForwardApiItem[];
       statisticsFlows?: DashboardStatisticsFlow[];
+      trafficPools?: TrafficPool[];
     }) => {
       const normalizedTunnelPermissions = normalizeTunnelPermissions(
         data.tunnelPermissions || [],
@@ -313,6 +318,7 @@ export const useDashboardData = (): DashboardDataState => {
       setUserTunnels(normalizedTunnelPermissions);
       setForwardList(normalizedForwards);
       setStatisticsFlows(data.statisticsFlows || []);
+      setTrafficPools(data.trafficPools || []);
 
       checkExpirationNotifications(
         data.userInfo || ({} as DashboardUserInfo),
@@ -495,6 +501,7 @@ export const useDashboardData = (): DashboardDataState => {
     loading,
     userInfo,
     userTunnels,
+    trafficPools,
     forwardList,
     statisticsFlows,
     nodeExpiryReminders,
