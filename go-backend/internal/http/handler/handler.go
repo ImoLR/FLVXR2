@@ -332,6 +332,9 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("/api/v1/tunnel/update-order", h.tunnelUpdateOrder)
 	mux.HandleFunc("/api/v1/tunnel/batch-delete", h.tunnelBatchDelete)
 	mux.HandleFunc("/api/v1/tunnel/batch-redeploy", h.tunnelBatchRedeploy)
+	// Plan 155: admin maintenance — move one entry into its own tunnel and back.
+	mux.HandleFunc("/api/v1/tunnel/split-entry", h.tunnelSplitEntry)
+	mux.HandleFunc("/api/v1/tunnel/merge-entry", h.tunnelMergeEntry)
 	mux.HandleFunc("/api/v1/tunnel/user/assign", h.userTunnelAssign)
 	mux.HandleFunc("/api/v1/tunnel/user/batch-assign", h.userTunnelBatchAssign)
 	mux.HandleFunc("/api/v1/tunnel/user/remove", h.userTunnelRemove)
