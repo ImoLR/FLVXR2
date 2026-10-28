@@ -73,15 +73,15 @@ Contract for the mmwx side: `/root/flvx-workers/contracts/landing-user-limits-v1
 
 - [x] Plan doc
 - [x] Model + AutoMigrate: `user_server_quota.max_inbound_connections`, `node.landing_user_limits`
-- [ ] Save/get per-server 入站连接数 (validation, upsert, user dialog payload, 入口/落地 rows only in UI)
+- [x] Save/get per-server 入站连接数 (validation, upsert, user dialog payload, 入口/落地 rows only in UI)
 - [x] Forward services attach the user quota group when a per-server cap exists on that entry; resync on toggle
 - [x] Coordinator: slots, per-server caps, landing budgets, relay reserve, live usage incl. landing; tests
 - [x] Agent: landing Core management groups, budget apply path, usage report, capability; tests (unit + netns)
 - [x] Panel → native agent desired: quota_group / user_limits gated by capability, revision signature
-- [ ] Shared: contract `landing-user-limits-v1.md`; client types, capability, desired conn_mode, exchange, usage;
+- [x] Shared: contract `landing-user-limits-v1.md`; client types, capability, desired conn_mode, exchange, usage;
       fake-Custom contract test (SQLite + PostgreSQL); today's behaviour without capability
-- [ ] Retire plan-141 selector (backend semantics + migration notes), machine cap hint data
-- [ ] Frontend: row field, server settings labels/hint/warning, node labels, user total hint; tsc/build/lint
+- [x] Retire plan-141 selector (backend semantics + migration notes), machine cap hint data
+- [x] Frontend: row field, server settings labels/hint/warning, node labels, user total hint; tsc/build/lint
 - [ ] Full `go test ./...` SQLite + PostgreSQL vs base; go-gost / go-gost/x tests
 - [ ] End-to-end on a local panel + real agent + real Core (netns): per-server cap, total incl. landing, relay dedupe
 - [ ] Resource numbers (backend RSS/CPU, agent RSS/CPU before/after)
