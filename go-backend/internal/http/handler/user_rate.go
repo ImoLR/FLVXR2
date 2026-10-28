@@ -390,6 +390,20 @@ func (h *Handler) userRateReconnectStale(nodeID int64, inv *agentRuntimeInventor
 	return removed, ""
 }
 
+// userRateLimiterInUse: name is a user rate limiter whose user still has a
+// rate on the node (kept by the config-report limiter cleanup).
+func (h *Handler) userRateLimiterInUse(nodeID int64, name string) bool {
+	userID, ok := userRateLimiterUser(name)
+	if !ok {
+		return false
+	}
+	node, err := h.getNodeRecord(nodeID)
+	if err != nil || node == nil {
+		return true // unsure: keep (the reconnect diff removes stale ones)
+	}
+	return h.userRateOnNode(userID, node) > 0
+}
+
 // rateFor is the user's rate on the inventory's node (loaded once per
 // reconnect by userRateReconnectPush; 0 when unknown).
 func (a *agentRuntimeInventory) rateFor(userID int64) int {

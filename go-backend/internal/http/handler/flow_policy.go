@@ -423,7 +423,10 @@ func (h *Handler) cleanOrphanedChains(nodeID int64, chains []namedConfigItem) {
 func (h *Handler) cleanOrphanedLimiters(nodeID int64, limiters []namedConfigItem) {
 	for _, item := range limiters {
 		name := strings.TrimSpace(item.Name)
-		if name == "" || h.speedLimiterExists(name) {
+		// Plan 159: a user's 速率 limiter stays while the user has a rate on
+		// this node (services look it up on every call: deleting it would lift
+		// the rate at once).
+		if name == "" || h.speedLimiterExists(name) || h.userRateLimiterInUse(nodeID, name) {
 			continue
 		}
 		_, _ = h.sendNodeCommand(nodeID, "DeleteLimiters", map[string]interface{}{"limiter": name}, false, true)

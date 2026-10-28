@@ -239,3 +239,31 @@ func TestRuleSpeedMustFitRow(t *testing.T) {
 		}
 	}
 }
+
+// The agent's config report (on connect, every 10 minutes) deletes limiters
+// the panel does not know; a user's rate limiter must survive it while the
+// user has a rate there, and go when the rate is gone.
+func TestConfigReportKeepsUserRateLimiter(t *testing.T) {
+	e, agent := newReconnectDiffEnv(t)
+	e.h.userRateCapableFn = func(int64) bool { return true }
+	deployAll(e, agent)
+	setUserRate(t, e, 7, 50)
+	report := `{"limiters":[{"name":"flvx_user_7_rate"},{"name":"flvx_user_99_rate"},{"name":"stray"}]}`
+	agent.reset()
+	e.h.cleanNodeConfigs(1, report)
+	m := strings.Join(agent.mutations(1), " | ")
+	if strings.Contains(m, "flvx_user_7_rate") {
+		t.Fatalf("config report deleted the user limiter in use: %s", m)
+	}
+	if !strings.Contains(m, "flvx_user_99_rate") || !strings.Contains(m, "stray") {
+		t.Fatalf("unknown limiters must still be cleaned: %s", m)
+	}
+	if err := e.r.SetUserServerRate(7, 0); err != nil {
+		t.Fatal(err)
+	}
+	agent.reset()
+	e.h.cleanNodeConfigs(1, report)
+	if m := strings.Join(agent.mutations(1), " | "); !strings.Contains(m, "flvx_user_7_rate") {
+		t.Fatalf("limiter of a user without a rate kept: %s", m)
+	}
+}
