@@ -398,7 +398,9 @@ func (h *Handler) syncForwardServicesWithWarningsOnNode(forward *forwardRecord, 
 					warnings = append(warnings, fmt.Sprintf("节点 %s 不在线，已跳过下发", node.Name))
 					continue
 				}
-				return nil, err
+				// The rule itself still works; the next reconnect retries
+				// the user's limiter.
+				warnings = append(warnings, fmt.Sprintf("节点 %s %v", node.Name, err))
 			}
 		}
 		services := buildForwardServiceConfigs(serviceBase, forward, tunnel, node, fp.Port, strings.TrimSpace(fp.InIP), limiterID, limiterName, tunnelTLSProtocol)

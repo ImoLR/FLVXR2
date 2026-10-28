@@ -67,6 +67,13 @@ Contract for the mmwx side: `/root/flvx-workers/contracts/landing-user-limits-v1
 - Native landing: no per-user rate (Core cannot) → row shows 「—」 for landing-only servers; 「需要用户决定」.
 - Shared: contract §7 (`max_rate_mbps` per user, capability version 2); FLVX sends it only to shares advertising it.
 
+### Found in the lab and fixed
+- The agent's config report (`/flow/config`, on connect + every 10 minutes) ran `cleanOrphanedLimiters`, which
+  deletes every limiter whose name is not a numeric 限速规则 id. A user rate limiter is looked up per call, so the
+  rate would have been lifted at the next report. It is now kept while the user has a rate on that node.
+  (Pre-existing, unchanged: the same sweep also deletes `forward_<id>_speed` / `arena_speed_*` limiters; gost's
+  per-service cache keeps them in force for running services.)
+
 ### Ride-along: orphan per-server rows
 - Node delete already removes `node` rows (quota + pool members) in its transaction (plan 157); shared share
   revoked → its `landing` rows (quota + pool members) removed in the sync transaction; startup cleanup of rows whose
@@ -74,17 +81,29 @@ Contract for the mmwx side: `/root/flvx-workers/contracts/landing-user-limits-v1
 
 ## Checklist
 
-- [ ] Plan doc
-- [ ] Model + AutoMigrate (3 columns), repo: effective rates, save/get rows + user default, capability persist
-- [ ] Orphan rows: revoke cleanup in tx + startup cleanup + tests (SQLite + PostgreSQL)
-- [ ] Panel runtime: limiter push/delete, service payload (capable / old / nft), reconnect diff + stale cleanup
-- [ ] Rate change propagation (row save, user default) + rule speed ≤ row validation
-- [ ] Agent: handshake capability, composite listener limiter, tests (shared bucket across services)
-- [ ] Shared: contract §7 + FLVX side (capability v2, `max_rate_mbps`), fake-Custom test
-- [ ] Frontend: row 速率 column, user default field + legacy note, 限速规则 bindings cleanup, labels; tsc/build/lint
+- [x] Plan doc
+- [x] Model + AutoMigrate (3 columns), repo: effective rates, save/get rows + user default, capability persist
+- [x] Orphan rows: revoke cleanup in tx + startup cleanup + tests (SQLite + PostgreSQL)
+- [x] Panel runtime: limiter push/delete, service payload (capable / old / nft), reconnect diff + stale cleanup
+- [x] Rate change propagation (row save, user default) + rule speed ≤ row validation
+- [x] Agent: handshake capability, composite listener limiter, tests (shared bucket across services)
+- [x] Shared: contract §7 + FLVX side (capability v2, `max_rate_mbps`), fake-Custom test
+- [x] Frontend: row 速率 column, user default field + legacy note, 限速规则 bindings cleanup, labels; tsc/build/lint
 - [ ] Full `go test ./...` SQLite + PostgreSQL; go-gost / go-gost/x tests
-- [ ] E2E lab: panel + real agent (netns), two rules sharing a 50 Mbps row (throughput), old-agent fallback
-- [ ] Resource numbers (agent CPU at full rate before/after, backend RSS/CPU)
-- [ ] Screens 390 + 1440, light + dark → `/root/mmwx-preview/limits-server-speed/`
+- [x] E2E lab: panel + real agent (netns), two rules sharing a 50 Mbps row (throughput), old-agent fallback
+- [x] Resource numbers (agent CPU at full rate before/after, backend RSS/CPU)
+- [x] Screens 390 + 1440, light + dark → `/root/mmwx-preview/limits-server-speed/`
 - [ ] Push branch, CI green
 - [ ] Summary → `/root/flvx-workers/runs/limits-server-speed/summary.md`
+
+## Results
+
+- Lab (netns, offline, synthetic data; `runs/limits-server-speed/lab/`): panel + real agent; FLVX Mbps = B/s / 131072.
+  Row 50 → two rules 24.8 + 24.8 = 49.6 (steady), one rule 49.6; rule own 20 under row 50 → 29.6 + 20.0 = 49.6;
+  rule own 60 > row 50 rejected; row removed → unlimited at once, 0 service restarts; user default 30 → 30.4;
+  older agent (plan-158 build) fallback 15.1 + 15.2 = 30.4; nftables rule 49.7 per rule (not pooled with gost);
+  rollback: fork.94 panel boots on the migrated DB.
+- Agent CPU (CPU-s per GB at full rate, median of 3): base 0.81, new without rate 0.86 (noise level), one active
+  limiter 1.00–1.04 (= any existing rule limiter), rule + user limiter together 1.11. At 50 Mbps shared: base 6.0–6.6 %,
+  new 5.3–6.2 %. Agent RSS 48–55 MB both. Panel idle (fresh, 60 s): fork.94 0.20 % / 35.1 MB, 159 0.20 % / 34.7 MB.
+- Screens: `/root/mmwx-preview/limits-server-speed/` (20 shots, 36/36 checks, 0 page errors).
