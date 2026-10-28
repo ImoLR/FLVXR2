@@ -243,6 +243,13 @@ export interface ServerQuota {
   paused?: boolean;
   /** plan 158: 入站连接数 of this user on this server (0 = 不限). */
   maxInboundConnections?: number;
+  /**
+   * plan 159: 速率 (Mbps) of this user on this server — one limit for all of
+   * the user's rules entering the machine. rateOverride false = follows the
+   * user's 默认速率; true = rateMbps (0 = 不限).
+   */
+  rateMbps?: number;
+  rateOverride?: boolean;
 }
 /** Plan 157: one server in a 共享流量池 / related-servers picker. */
 export interface PoolServer {
@@ -254,6 +261,10 @@ export interface PoolServer {
 export interface RelatedServer extends PoolServer {
   entry: boolean;
   landing: boolean;
+  /** plan 159: entry node whose agent predates the shared 速率 limiter. */
+  rateOldAgent?: boolean;
+  /** plan 159: shared server applying a per-user 速率 (妙妙屋 contract §7). */
+  sharedRate?: boolean;
 }
 /** Plan 157: 共享流量池 — member servers share one billed-bytes limit. */
 export interface TrafficPool {
@@ -287,6 +298,8 @@ export interface LandingUserSetting {
   /** Plan 157 (absent from older panels). */
   pools?: TrafficPool[];
   relatedServers?: RelatedServer[];
+  /** Plan 159: the user's 默认速率 (Mbps, 0 = 不限; absent = older panel). */
+  serverRateMbps?: number;
 }
 export const landingServers = (userId?: number) =>
   Network.post<LandingServer[]>(

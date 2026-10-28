@@ -216,6 +216,7 @@ export interface UserApiItem {
   activeConnections?: number;
   activeClientIps?: number;
   speedLimitId?: number | null;
+  serverRateMbps?: number;
   expTime?: number;
   flowResetTime?: number;
   inFlow?: number;
@@ -360,6 +361,17 @@ export interface SpeedLimitBindings {
   tunnelIds: number[];
   forwardIds: number[];
   nodeIds: number[];
+}
+
+/**
+ * Plan 159: what the 限速规则 dialog saves — 用户 / 节点 bindings are retired
+ * (omitted keys keep the stored ones on the panel).
+ */
+export interface SpeedLimitBindingsUpdate {
+  userIds?: number[];
+  tunnelIds: number[];
+  forwardIds: number[];
+  nodeIds?: number[];
 }
 
 export interface SpeedLimitDetailApiData extends SpeedLimitApiItem {
@@ -588,6 +600,7 @@ export interface UserMutationPayload {
   maxConnections?: number;
   maxClientIps?: number;
   speedLimitId?: number | null;
+  serverRateMbps?: number;
   expTime?: number | string;
   flowResetTime?: number;
   dailyQuotaGB?: number;
@@ -718,7 +731,7 @@ export interface SpeedLimitMutationPayload {
   speed?: number;
   status?: number;
   arenaMode?: number;
-  bindings?: SpeedLimitBindings;
+  bindings?: SpeedLimitBindingsUpdate;
 }
 
 export interface UpdatePasswordPayload {

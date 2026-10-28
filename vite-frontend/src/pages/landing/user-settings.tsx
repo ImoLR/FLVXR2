@@ -41,11 +41,19 @@ const landingSnapshot = (value: LandingUserSetting | null) =>
         maxNodesSource: value.maxNodesSource,
         maxNodes: value.maxNodesSource === "global" ? null : value.maxNodes,
         quotas: value.quotas.map(
-          ({ serverKind, serverRefId, limitBytes, maxInboundConnections }) => [
+          ({
+            serverKind,
+            serverRefId,
+            limitBytes,
+            maxInboundConnections,
+            rateOverride,
+            rateMbps,
+          }) => [
             serverKind,
             serverRefId,
             limitBytes,
             maxInboundConnections || 0,
+            rateOverride ? (rateMbps ?? 0) : null,
           ],
         ),
         serverIds: [...(value.serverIds || [])].sort((a, b) => a - b),
@@ -121,8 +129,17 @@ function RuleCapField({
 }
 export const LandingUserSettings = forwardRef<
   LandingUserSettingsHandle,
-  { userId: number; originalExpiry: number; expiry: number }
->(function LandingUserSettings({ userId, originalExpiry, expiry }, ref) {
+  {
+    userId: number;
+    originalExpiry: number;
+    expiry: number;
+    /** Plan 159: the 默认速率 being edited in the user form (Mbps). */
+    defaultRateMbps?: number;
+  }
+>(function LandingUserSettings(
+  { userId, originalExpiry, expiry, defaultRateMbps },
+  ref,
+) {
   const [form, setForm] = useState<LandingUserSetting | null>(null);
   const [nodes, setNodes] = useState<NodeApiItem[]>([]);
   const [shared, setShared] = useState<LandingServer[]>([]);
@@ -303,6 +320,47 @@ export const LandingUserSettings = forwardRef<
 
     return Boolean(server && (server.entry || server.landing));
   };
+  // Plan 159: 速率 of the user on this server; empty = follows the user's
+  // 默认速率, 0 = 不限. The default shown is the one in the form above.
+  const defaultRate =
+    defaultRateMbps ?? (form?.serverRateMbps ? form.serverRateMbps : 0);
+  const setQuotaRate = (index: number, raw: string) =>
+    setForm(
+      (prev) =>
+        prev && {
+          ...prev,
+          quotas: prev.quotas.map((quota, i) => {
+            if (i !== index) return quota;
+            if (raw.trim() === "")
+              return { ...quota, rateOverride: false, rateMbps: 0 };
+
+            return {
+              ...quota,
+              rateOverride: true,
+              rateMbps: Math.min(
+                100000,
+                Math.max(0, Math.floor(Number(raw) || 0)),
+              ),
+            };
+          }),
+        },
+    );
+  // Entry servers (the agent limits the user's rules there) and shared
+  // servers whose 妙妙屋 applies it; landing Cores cannot limit per user yet.
+  // Older panels send neither the related list nor 速率 (no column then).
+  const rateSupported = form?.serverRateMbps !== undefined;
+  const rateAllowed = (quota: ServerQuota) => {
+    if (!related) return quota.serverKind === "node";
+    const server = relatedByKey.get(serverKey(quota));
+
+    return Boolean(
+      server &&
+        (server.entry ||
+          (server.serverKind === "landing" && server.sharedRate)),
+    );
+  };
+  const effectiveRate = (quota: ServerQuota) =>
+    quota.rateOverride ? (quota.rateMbps ?? 0) : defaultRate;
 
   return (
     <section className="mt-5 space-y-3 border-t border-divider pt-5">
@@ -432,18 +490,23 @@ export const LandingUserSettings = forwardRef<
           <div className="space-y-2">
             {/* Plan 158: phones put the server name on its own line (four
                 columns leave no room for it); desktop keeps one line. */}
-            <div className="grid grid-cols-3 gap-2 text-xs text-default-500 sm:grid-cols-[minmax(0,1fr)_100px_96px_80px]">
+            <div
+              className={`grid gap-2 text-xs text-default-500 ${rateSupported ? "grid-cols-4 sm:grid-cols-[minmax(0,1fr)_100px_96px_96px_80px]" : "grid-cols-3 sm:grid-cols-[minmax(0,1fr)_100px_96px_80px]"}`}
+            >
               <span className="hidden sm:block">服务器</span>
               <span>限额 (GB，计费流量)</span>
               <span>入站连接数</span>
+              {rateSupported && <span>速率 (Mbps)</span>}
               <span>已用 (GB)</span>
             </div>
             {form.quotas.map((quota, index) => (
               <div
                 key={`${quota.serverKind}-${quota.serverRefId}`}
-                className="grid grid-cols-3 items-center gap-2 sm:grid-cols-[minmax(0,1fr)_100px_96px_80px]"
+                className={`grid items-center gap-2 ${rateSupported ? "grid-cols-4 sm:grid-cols-[minmax(0,1fr)_100px_96px_96px_80px]" : "grid-cols-3 sm:grid-cols-[minmax(0,1fr)_100px_96px_80px]"}`}
               >
-                <div className="col-span-3 min-w-0 text-sm sm:col-span-1">
+                <div
+                  className={`${rateSupported ? "col-span-4" : "col-span-3"} min-w-0 text-sm sm:col-span-1`}
+                >
                   <p className="flex min-w-0">
                     <RelatedServerLabel
                       name={
@@ -459,6 +522,18 @@ export const LandingUserSettings = forwardRef<
                   {quota.paused && (
                     <p className="text-xs text-warning">额度已用完</p>
                   )}
+                  {rateSupported &&
+                    rateAllowed(quota) &&
+                    effectiveRate(quota) > 0 &&
+                    relatedByKey.get(serverKey(quota))?.rateOldAgent && (
+                      <p
+                        data-rate-old-agent
+                        className="text-xs text-warning"
+                        title="升级该服务器的 agent 后，有单独限速的规则也计入速率"
+                      >
+                        agent 较旧：有单独限速的规则不计入速率
+                      </p>
+                    )}
                 </div>
                 <Input
                   aria-label={`${quota.serverName || quota.serverRefId} 限额 GB`}
@@ -506,6 +581,37 @@ export const LandingUserSettings = forwardRef<
                     —
                   </span>
                 )}
+                {rateSupported &&
+                  (rateAllowed(quota) ? (
+                    <Input
+                      data-server-rate
+                      aria-label={`${quota.serverName || quota.serverRefId} 速率 Mbps`}
+                      min="0"
+                      placeholder={
+                        defaultRate > 0 ? `默认 ${defaultRate}` : "不限"
+                      }
+                      size="sm"
+                      step="1"
+                      type="number"
+                      value={
+                        quota.rateOverride ? String(quota.rateMbps ?? 0) : ""
+                      }
+                      onChange={(event) =>
+                        setQuotaRate(index, event.target.value)
+                      }
+                    />
+                  ) : (
+                    <span
+                      className="text-center text-sm text-default-400"
+                      title={
+                        relatedByKey.get(serverKey(quota))?.landing
+                          ? "落地服务器的 Core 暂不支持按用户限速"
+                          : "只有该用户的入口服务器限速率"
+                      }
+                    >
+                      —
+                    </span>
+                  ))}
                 <span className="text-sm">
                   {landingGB(quota.usedIn + quota.usedOut)}
                 </span>
@@ -521,6 +627,18 @@ export const LandingUserSettings = forwardRef<
             <br />
             入站连接数 = 该用户在这台服务器上的入站连接，空或 0
             不限：入口服务器算进入这里的规则连接，落地服务器算这台落地收到的连接（含经本面板转发进来的）。另受用户总连接数限制。
+            {rateSupported && (
+              <>
+                <br />
+                速率 =
+                该用户进入这台服务器的所有规则合计的速率（上传、下载分别算），每台服务器各算各的。空
+                = 跟随用户的默认速率
+                {defaultRate > 0
+                  ? `（${defaultRate} Mbps）`
+                  : "（未设置 = 不限）"}
+                ，0 = 不限。落地服务器的 Core 暂不支持按用户限速，显示「—」。
+              </>
+            )}
           </p>
           <div className="flex items-end gap-2">
             <Select

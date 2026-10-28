@@ -38,6 +38,7 @@ export interface User {
   activeConnections?: number;
   activeClientIps?: number;
   speedLimitId?: number | null;
+  serverRateMbps?: number; // 默认速率 (Mbps, 每台服务器各自, 0=不限) — plan 159
 }
 
 export interface UserGroup {

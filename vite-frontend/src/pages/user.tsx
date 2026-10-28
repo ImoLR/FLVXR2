@@ -178,6 +178,8 @@ const formatUserPoolUsage = (user: User): string => {
 const USER_SEARCH_DEBOUNCE_MS = 250;
 const USER_VIEW_MODE_KEY = "user_view_mode";
 const USER_LIMIT_MAX_VALUE = 99999;
+// Plan 159: 默认速率 upper bound (Mbps), same as the panel's.
+const SERVER_RATE_MAX_MBPS = 100000;
 const USER_POOL_LIMIT_HINT = "转发规则入口与落地节点的入站一起计算（经本面板转发进落地的只算一次）；gost 与 nftables 规则及入口节点共享；nftables 需 fork.13 入口 agent，约每秒更新；留空或 0 表示不限制";
 const sanitizeIntegerDraft = (value: string, max = USER_LIMIT_MAX_VALUE) => {
   const digits = value.replace(/[^\d]/g, "");
@@ -245,6 +247,7 @@ const normalizeUserItem = (item: Partial<User>): UserWithHistory => {
     autoBuyTrafficPackageId: Number(item.autoBuyTrafficPackageId ?? 0),
     baseFlow: Number(item.baseFlow ?? 0),
     speedLimitId: item.speedLimitId ?? null,
+    serverRateMbps: Number(item.serverRateMbps ?? 0),
     quotaHistory: [],
     showHistory: false,
   };
@@ -355,6 +358,8 @@ export default function UserPage() {
     num: "10",
     maxConnections: "",
     maxClientIps: "",
+    // Plan 159: 默认速率 (Mbps), empty = 不限.
+    serverRateMbps: "",
   });
   const [userFormLoading, setUserFormLoading] = useState(false);
   const [autoBuyPackages, setAutoBuyPackages] = useState<
@@ -1003,6 +1008,7 @@ export default function UserPage() {
       num: "10",
       maxConnections: "",
       maxClientIps: "",
+      serverRateMbps: "",
     });
     onUserModalOpen();
   };
@@ -1131,6 +1137,8 @@ export default function UserPage() {
         (user.maxConnections ?? 0) > 0 ? String(user.maxConnections) : "",
       maxClientIps:
         (user.maxClientIps ?? 0) > 0 ? String(user.maxClientIps) : "",
+      serverRateMbps:
+        (user.serverRateMbps ?? 0) > 0 ? String(user.serverRateMbps) : "",
     });
     onUserModalOpen();
   };
@@ -1192,12 +1200,20 @@ export default function UserPage() {
         userLimitDraft.maxClientIps,
         "总接入IP数限制",
       );
+      const serverRateMbps = Math.min(
+        parseOptionalUserLimit(userLimitDraft.serverRateMbps, "默认速率"),
+        SERVER_RATE_MAX_MBPS,
+      );
       const submitData: any = {
         ...userForm,
         flow,
         num,
         maxConnections,
         maxClientIps,
+        serverRateMbps,
+        // Plan 159: a 默认速率 replaces the old 「总限速规则」 (only ever a
+        // default copied into new rules); the panel clears it too.
+        speedLimitId: serverRateMbps > 0 ? null : userForm.speedLimitId,
         balance: Math.round(userForm.balance * 100),
         renewalAmount: Math.round(userForm.renewalAmount * 100),
         expTime: userForm.expTime?.getTime() ?? 0,
@@ -2930,39 +2946,64 @@ export default function UserPage() {
                   }))
                 }
               />
-              <Select
-                description="新建规则默认继承该限速；留空表示不限速"
-                label="总限速规则"
-                placeholder="不限速"
-                selectedKeys={
-                  userForm.speedLimitId !== null
-                    ? [userForm.speedLimitId.toString()]
-                    : []
-                }
-                onSelectionChange={(keys) => {
-                  const selected = Array.from(keys)[0] as string | undefined;
+              {/* Plan 159: the old 「总限速规则」 binding becomes the user's
+                  默认速率 on every server (per machine, not a total). */}
+              <div className="space-y-1">
+                <Input
+                  data-user-server-rate
+                  description="该用户在每台服务器上所有规则合计的速率，每台服务器各算各的（不是所有服务器加起来）；可在下方「落地 → 服务器限额」逐台修改。留空表示不限"
+                  endContent={
+                    <span className="pointer-events-none text-small text-default-400">
+                      Mbps
+                    </span>
+                  }
+                  label="默认速率"
+                  min="0"
+                  placeholder="不限"
+                  type="number"
+                  value={userLimitDraft.serverRateMbps}
+                  onChange={(e) =>
+                    setUserLimitDraft((prev) => ({
+                      ...prev,
+                      serverRateMbps: sanitizeIntegerDraft(e.target.value),
+                    }))
+                  }
+                />
+                {userForm.speedLimitId !== null && (
+                  <div
+                    data-legacy-speed-binding
+                    className="flex flex-wrap items-center gap-2 rounded-lg bg-warning-50 px-2 py-1.5 text-xs text-warning-700 dark:bg-warning-500/10 dark:text-warning-300"
+                  >
+                    <span className="min-w-0 flex-1">
+                      {(() => {
+                        const legacy = speedLimits.find(
+                          (speedLimit) =>
+                            speedLimit.id === userForm.speedLimitId,
+                        );
+                        const label = legacy
+                          ? `${legacy.name || "限速"}（${legacy.speed ?? 0} Mbps）`
+                          : `#${userForm.speedLimitId}`;
 
-                  setUserForm((prev) => ({
-                    ...prev,
-                    speedLimitId: selected ? Number(selected) : null,
-                  }));
-                }}
-              >
-                {speedLimits
-                  .filter(
-                    (speedLimit) => !noLimitSpeedLimitIds.has(speedLimit.id),
-                  )
-                  .map((speedLimit) => (
-                    <SelectItem
-                      key={speedLimit.id.toString()}
-                      textValue={
-                        speedLimit.name || `限速 ${speedLimit.speed ?? 0} Mbps`
+                        return `原「总限速规则」${label}：只作为新建规则的默认限速${
+                          Number(userLimitDraft.serverRateMbps || 0) > 0
+                            ? "，设置默认速率后保存会清除它"
+                            : ""
+                        }`;
+                      })()}
+                    </span>
+                    <Button
+                      color="danger"
+                      size="sm"
+                      variant="flat"
+                      onPress={() =>
+                        setUserForm((prev) => ({ ...prev, speedLimitId: null }))
                       }
                     >
-                      {speedLimit.name || `限速 ${speedLimit.speed ?? 0} Mbps`}
-                    </SelectItem>
-                  ))}
-              </Select>
+                      清除
+                    </Button>
+                  </div>
+                )}
+              </div>
               <Select
                 label="归零日期"
                 selectedKeys={[userForm.flowResetTime.toString()]}
@@ -3215,7 +3256,7 @@ export default function UserPage() {
                 </div>
               )}
             </div>
-            {isEdit && userForm.id && <LandingUserSettings key={userForm.id} ref={landingSettingsRef} userId={userForm.id} originalExpiry={users.find((user) => user.id === userForm.id)?.expTime || 0} expiry={userForm.expTime?.getTime() || 0} />}
+            {isEdit && userForm.id && <LandingUserSettings key={userForm.id} ref={landingSettingsRef} defaultRateMbps={Number(userLimitDraft.serverRateMbps || 0)} userId={userForm.id} originalExpiry={users.find((user) => user.id === userForm.id)?.expTime || 0} expiry={userForm.expTime?.getTime() || 0} />}
           </ModalBody>
           <ModalFooter>
             <Button onPress={onUserModalClose}>取消</Button>

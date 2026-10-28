@@ -273,7 +273,12 @@ export default function LimitPage() {
         speed: form.speed,
         status: form.status,
         arenaMode: form.arenaMode === 1 ? 1 : 0,
-        bindings: form.bindings,
+        // Plan 159: 用户 / 节点 bindings are retired here (sent without
+        // userIds / nodeIds the panel keeps the stored ones).
+        bindings: {
+          tunnelIds: form.bindings.tunnelIds,
+          forwardIds: form.bindings.forwardIds,
+        },
       };
 
       if (isEdit) {
@@ -292,10 +297,8 @@ export default function LimitPage() {
             ? Number((res.data as { id?: unknown }).id || 0)
             : 0;
         const hasBindings =
-          payload.bindings.userIds.length > 0 ||
           payload.bindings.tunnelIds.length > 0 ||
-          payload.bindings.forwardIds.length > 0 ||
-          payload.bindings.nodeIds.length > 0;
+          payload.bindings.forwardIds.length > 0;
 
         if (res.code === 0 && createdId && hasBindings) {
           res = await updateSpeedLimit({
@@ -716,25 +719,6 @@ export default function LimitPage() {
                     ) : (
                       <div className="space-y-3">
                         <Select
-                          label="用户"
-                          placeholder="选择用户"
-                          selectedKeys={selectedBindingKeys(
-                            form.bindings.userIds,
-                          )}
-                          selectionMode="multiple"
-                          size="sm"
-                          variant="bordered"
-                          onSelectionChange={(keys) =>
-                            updateBinding("userIds", keysToNumbers(keys))
-                          }
-                        >
-                          {bindingOptions.users.map((user) => (
-                            <SelectItem key={user.id.toString()}>
-                              {user.name || user.user || `用户 ${user.id}`}
-                            </SelectItem>
-                          ))}
-                        </Select>
-                        <Select
                           label="隧道"
                           placeholder="选择隧道"
                           selectedKeys={selectedBindingKeys(
@@ -774,25 +758,18 @@ export default function LimitPage() {
                             ))}
                           </Select>
                         )}
-                        <Select
-                          label="节点"
-                          placeholder="选择节点"
-                          selectedKeys={selectedBindingKeys(
-                            form.bindings.nodeIds,
-                          )}
-                          selectionMode="multiple"
-                          size="sm"
-                          variant="bordered"
-                          onSelectionChange={(keys) =>
-                            updateBinding("nodeIds", keysToNumbers(keys))
-                          }
+                        {/* Plan 159: 用户 / 节点 bindings retired. */}
+                        <p
+                          data-retired-bindings
+                          className="rounded-lg bg-default-100 px-3 py-2 text-xs leading-relaxed text-default-600"
                         >
-                          {bindingOptions.nodes.map((node) => (
-                            <SelectItem key={node.id.toString()}>
-                              {node.name || `节点 ${node.id}`}
-                            </SelectItem>
-                          ))}
-                        </Select>
+                          按用户限速：到「用户 →
+                          编辑」设置默认速率（每台服务器各算各的），或在「落地 →
+                          服务器限额」逐台设置。绑定到节点从未生效，已停用。
+                          {(form.bindings.userIds.length > 0 ||
+                            form.bindings.nodeIds.length > 0) &&
+                            `这条规则原有的绑定保留不变：${form.bindings.userIds.length} 个用户（只作为他们新建规则的默认限速）、${form.bindings.nodeIds.length} 个节点（不生效）。`}
+                        </p>
                       </div>
                     )}
                   </div>
