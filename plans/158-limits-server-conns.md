@@ -82,9 +82,31 @@ Contract for the mmwx side: `/root/flvx-workers/contracts/landing-user-limits-v1
       fake-Custom contract test (SQLite + PostgreSQL); today's behaviour without capability
 - [x] Retire plan-141 selector (backend semantics + migration notes), machine cap hint data
 - [x] Frontend: row field, server settings labels/hint/warning, node labels, user total hint; tsc/build/lint
-- [ ] Full `go test ./...` SQLite + PostgreSQL vs base; go-gost / go-gost/x tests
-- [ ] End-to-end on a local panel + real agent + real Core (netns): per-server cap, total incl. landing, relay dedupe
-- [ ] Resource numbers (backend RSS/CPU, agent RSS/CPU before/after)
-- [ ] Screens 390 + 1440, light + dark → `/root/mmwx-preview/limits-server-conns/`
-- [ ] Push branch, CI green
-- [ ] Summary → `/root/flvx-workers/runs/limits-server-conns/summary.md`
+- [x] Full `go test ./...` SQLite + PostgreSQL vs base; go-gost / go-gost/x tests
+- [x] End-to-end on a local panel + real agent + real Core (netns): per-server cap, total incl. landing, relay dedupe
+- [x] Resource numbers (backend RSS/CPU, agent RSS/CPU before/after)
+- [x] Screens 390 + 1440, light + dark → `/root/mmwx-preview/limits-server-conns/`
+- [x] Push branch, CI green
+- [x] Summary → `/root/flvx-workers/runs/limits-server-conns/summary.md`
+
+## Results
+
+- **Panel + two real agents + pinned Core e2e** (netns, offline, synthetic data; `runs/limits-server-conns/lab/e2e.py`):
+  alice's rule on entry A relays into her landing node on B; she also connects to B directly.
+  P1 总连接数 3 → 2 relayed + 1 of 3 direct accepted, admin view 3 connections / 1 IP (relays counted once);
+  P2 landing server 入站连接数 3 → 2 relayed + 1 of 2 direct (the Core counts relays in server scope);
+  P3 entry server 入站连接数 1 → 1 of 2 via the rule, 2 of 2 direct; P4 总 IP 数 1 → direct .9 ok, direct .10 refused,
+  the rule from .9 ok (shared IP), admin view 1 IP; P5 (recorded) rule first then direct from the same IP → refused
+  at the landing (Core cannot be told which IPs are already counted; see summary).
+- **Agent + Core netns test** (`user_limits_netns_test.go`): IP reserve keeps the relay's slot; 4 relays + exactly 2 of 4
+  direct over two nodes of one user with budget 2; server cap 7 with 6 open → 1 of 2; another user's node 3/3; full
+  idle group blocked 0/1, budget 1 → 1/2.
+- **Resources** (fresh start, same activity: limits on, 2 relayed + 2 direct held, 60 s): fork.94 → branch: panel
+  0.40 → 0.45 % CPU, 34.2 → 34.9 MiB; entry agent 0.27 → 0.22 %, 49.2 → 49.1 MiB; landing agent 0.27 → 0.27 %,
+  49.3 → 49.8 MiB; landing Core 0.12 → 0.12 %, 65.3 → 65.8 MiB; fds equal. Coordinator pass 1.7 ms for 200 limited
+  users × 4 slots (≤ 1 pass/s). No new pollers: budgets ride SetQuotaGroups, usage the 1 s metric report, landing group
+  state the existing 5 s collect snapshot; shared exchange ≤ 1 PUT / 10 s per capable share.
+- **Rollback**: the fork.94 panel boots on the branch-migrated DB (lab), agents online, no errors.
+- **Tests**: full `go test ./...` SQLite 19/19 and PostgreSQL 19/19 (base was 19/19 too); go-gost/x `go test ./...`
+  18/18 packages, go-gost 1/1; frontend tsc 0 errors, build ok, lint no new warnings. CI run 40701242871 green.
+- **Screens**: `/root/mmwx-preview/limits-server-conns/` (28 shots, 56/56 checks, 0 page errors).
