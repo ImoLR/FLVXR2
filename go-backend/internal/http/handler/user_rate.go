@@ -405,7 +405,7 @@ func (h *Handler) userRateLimiterInUse(nodeID int64, name string) bool {
 }
 
 // rateFor is the user's rate on the inventory's node (loaded once per
-// reconnect by userRateReconnectPush; 0 when unknown).
+// reconnect by userRateReconnectPush; -1 = not loaded, 0 = no rate).
 func (a *agentRuntimeInventory) rateFor(userID int64) int {
 	if a == nil || !a.userRatesLoaded {
 		return -1
