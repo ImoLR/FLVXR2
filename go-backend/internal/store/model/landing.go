@@ -226,6 +226,9 @@ type UserServerQuota struct {
 	MaxInboundConnections int   `gorm:"not null;default:0" json:"maxInboundConnections"`
 	CreatedTime           int64 `gorm:"not null" json:"createdTime"`
 	UpdatedTime           int64 `gorm:"not null" json:"updatedTime"`
+	// FollowDefault (request only, plan 158): the row keeps following the
+	// server's default traffic quota; a save changes only its 入站连接数.
+	FollowDefault bool `gorm:"-" json:"followDefault,omitempty"`
 }
 
 func (UserServerQuota) TableName() string { return "user_server_quota" }

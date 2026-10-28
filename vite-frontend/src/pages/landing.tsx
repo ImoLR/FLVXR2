@@ -185,9 +185,9 @@ function NodeConnTag({ node }: { node: LandingNode }) {
       {node.connModePending && (
         <span
           className="ml-1 text-warning"
-          title="仅入站需要升级节点程序（或妙妙屋侧升级）后生效，目前仍按入站+出站计算"
+          title="按入站计算需要升级节点程序（或妙妙屋侧升级）后生效，目前仍按入站+出站计算"
         >
-          仅入站待升级
+          入站待升级
         </span>
       )}
     </span>

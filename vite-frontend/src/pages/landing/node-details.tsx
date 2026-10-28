@@ -3,14 +3,7 @@ import toast from "react-hot-toast";
 
 import { LANDING_NAME_TOO_LONG, landingNameTooLong } from "./create-node";
 import { dateInput, dateValue } from "./server-settings";
-import {
-  CONN_MODE_HINT,
-  CONN_MODE_NAME,
-  ConnModeFixed,
-  ConnModeSelect,
-  connModePendingText,
-  connModeTag,
-} from "./conn-mode";
+import { CONN_MODE_NAME, connModePendingText, connModeTag } from "./conn-mode";
 
 import { getAllUsers } from "@/api";
 import {
@@ -128,19 +121,15 @@ export function NodeDetails({
   const effectiveConnections = connectionCaps.length
     ? Math.min(...connectionCaps)
     : 0;
-  // Plan 141: how the limit counts (null = follow the server).
-  const serverConnMode = server?.connMode ?? "total";
-  const formConnMode = form.connMode ?? null;
+  // Plan 158: no 计算方式 choice any more — a node limit counts 入站 (a shared
+  // server's nodes once 妙妙屋 applies user limits, 入站+出站 before); an agent
+  // that cannot count 入站 yet keeps 入站+出站 until it is upgraded.
   const connModeShown = node.connModeEffective !== undefined;
-  // Plan 147: nodes of a shared (妙妙屋) server count 入站+出站, no choice.
   const connModeFixed = Boolean(
     node.connModeFixed || server?.source === "shared",
   );
-  const connModePending =
-    !connModeFixed &&
-    (node.connModePending ||
-      (server?.connModeSupported === false &&
-        (formConnMode ?? serverConnMode) === "inbound"));
+  const connModePending = !connModeFixed && Boolean(node.connModePending);
+  const nodeUnit = CONN_MODE_NAME[node.connModeConfigured ?? "inbound"];
   const effectiveConnTag = !effectiveConnections
     ? ""
     : ` ${connModeTag(
@@ -187,19 +176,11 @@ export function NodeDetails({
       ? [
           [
             "连接数计算方式",
-            connModeFixed
-              ? "入站+出站（固定）"
-              : formConnMode == null
-                ? `跟随服务器（${CONN_MODE_NAME[serverConnMode]}）`
-                : CONN_MODE_NAME[formConnMode],
+            nodeUnit,
             `${CONN_MODE_NAME[node.connModeEffective ?? "total"]}${
               node.connModePending ? "（待升级）" : ""
             }`,
-            connModeFixed
-              ? "妙妙屋共享"
-              : node.connMode == null
-                ? "服务器"
-                : "节点覆盖",
+            connModeFixed ? "妙妙屋共享" : "统一规则",
           ],
         ]
       : []),
@@ -315,7 +296,11 @@ export function NodeDetails({
           />
           <div className="grid grid-cols-2 gap-3">
             <Input
-              label="连接数（0 不限）"
+              label={
+                connModeShown
+                  ? `连接数（${nodeUnit}，0 不限）`
+                  : "连接数（0 不限）"
+              }
               min="0"
               type="number"
               value={String(form.maxConnections)}
@@ -323,24 +308,6 @@ export function NodeDetails({
                 set("maxConnections", Number(event.target.value))
               }
             />
-            {connModeShown && connModeFixed && <ConnModeFixed />}
-            {connModeShown && !connModeFixed && (
-              <ConnModeSelect
-                inheritMode={serverConnMode}
-                value={formConnMode}
-                onChange={(mode) => set("connMode", mode)}
-              />
-            )}
-            {connModeShown && !connModeFixed && (
-              <div className="col-span-2 space-y-2">
-                <p className="text-xs text-default-500">{CONN_MODE_HINT}</p>
-                {connModePending && (
-                  <p className="rounded-lg bg-warning-50 p-2 text-xs text-warning dark:bg-warning-500/10">
-                    {connModePendingText()}
-                  </p>
-                )}
-              </div>
-            )}
             <Input
               label="在线 IP（0 不限）"
               min="0"
@@ -350,6 +317,11 @@ export function NodeDetails({
                 set("maxOnlineIps", Number(event.target.value))
               }
             />
+            {connModePending && (
+              <p className="col-span-2 rounded-lg bg-warning-50 p-2 text-xs text-warning dark:bg-warning-500/10">
+                {connModePendingText()}
+              </p>
+            )}
             <Input
               description="按计费流量：双向 (上传+下载)×倍率×2，单向 (上传+下载)×倍率"
               label="流量上限 (GB，计费流量，0 不限)"

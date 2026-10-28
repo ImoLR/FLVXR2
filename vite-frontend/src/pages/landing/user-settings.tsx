@@ -40,11 +40,14 @@ const landingSnapshot = (value: LandingUserSetting | null) =>
     ? JSON.stringify({
         maxNodesSource: value.maxNodesSource,
         maxNodes: value.maxNodesSource === "global" ? null : value.maxNodes,
-        quotas: value.quotas.map(({ serverKind, serverRefId, limitBytes }) => [
-          serverKind,
-          serverRefId,
-          limitBytes,
-        ]),
+        quotas: value.quotas.map(
+          ({ serverKind, serverRefId, limitBytes, maxInboundConnections }) => [
+            serverKind,
+            serverRefId,
+            limitBytes,
+            maxInboundConnections || 0,
+          ],
+        ),
         serverIds: [...(value.serverIds || [])].sort((a, b) => a - b),
         pools: (value.pools || []).map((pool) => [
           pool.id || 0,
@@ -134,6 +137,7 @@ export const LandingUserSettings = forwardRef<
 
   useEffect(() => {
     let disposed = false;
+
     setForm(null);
     setError("");
     setExtend(false);
@@ -148,6 +152,7 @@ export const LandingUserSettings = forwardRef<
           ...settings.data,
           serverIds: settings.data.serverIds || [],
         };
+
         setForm(loaded);
         setSavedSnapshot(landingSnapshot(loaded));
       } else setError(settings.msg);
@@ -159,6 +164,7 @@ export const LandingUserSettings = forwardRef<
         setAllServers(serverRes.data || []);
       }
     });
+
     return () => {
       disposed = true;
     };
@@ -170,11 +176,13 @@ export const LandingUserSettings = forwardRef<
         if (!form) return;
         const renewing = extend && renewalDelta > 0;
         const dirty = landingSnapshot(form) !== savedSnapshot;
+
         if (!renewing && !dirty) return;
         const res = await saveLandingUser(userId, {
           ...form,
           extendFixedByMs: renewing ? renewalDelta : 0,
         });
+
         if (res.code === 0) {
           setSavedSnapshot(landingSnapshot(form));
           if (renewing) {
@@ -276,6 +284,25 @@ export const LandingUserSettings = forwardRef<
           ),
         },
     );
+  // Plan 158: 入站连接数 of the user on this server (0 = 不限).
+  const setQuotaConns = (index: number, maxInboundConnections: number) =>
+    setForm(
+      (prev) =>
+        prev && {
+          ...prev,
+          quotas: prev.quotas.map((quota, i) =>
+            i === index ? { ...quota, maxInboundConnections } : quota,
+          ),
+        },
+    );
+  // Only entry and landing servers count inbound connections of the user
+  // (relay / exit hops do not); an older panel sends no related list.
+  const connsAllowed = (quota: ServerQuota) => {
+    if (!related) return true;
+    const server = relatedByKey.get(serverKey(quota));
+
+    return Boolean(server && (server.entry || server.landing));
+  };
 
   return (
     <section className="mt-5 space-y-3 border-t border-divider pt-5">
@@ -403,15 +430,16 @@ export const LandingUserSettings = forwardRef<
             )}
           </div>
           <div className="space-y-2">
-            <div className="grid grid-cols-[minmax(0,1fr)_100px_80px] gap-2 text-xs text-default-500">
+            <div className="grid grid-cols-[minmax(0,1fr)_88px_76px_64px] gap-2 text-xs text-default-500 sm:grid-cols-[minmax(0,1fr)_100px_96px_80px]">
               <span>服务器</span>
               <span>限额 (GB，计费流量)</span>
+              <span>入站连接数</span>
               <span>已用 (GB)</span>
             </div>
             {form.quotas.map((quota, index) => (
               <div
                 key={`${quota.serverKind}-${quota.serverRefId}`}
-                className="grid grid-cols-[minmax(0,1fr)_100px_80px] items-center gap-2"
+                className="grid grid-cols-[minmax(0,1fr)_88px_76px_64px] items-center gap-2 sm:grid-cols-[minmax(0,1fr)_100px_96px_80px]"
               >
                 <div className="min-w-0 text-sm">
                   <p className="flex min-w-0">
@@ -444,6 +472,38 @@ export const LandingUserSettings = forwardRef<
                     )
                   }
                 />
+                {connsAllowed(quota) ? (
+                  <Input
+                    data-server-conns
+                    aria-label={`${quota.serverName || quota.serverRefId} 入站连接数`}
+                    min="0"
+                    placeholder="不限"
+                    size="sm"
+                    step="1"
+                    type="number"
+                    value={
+                      quota.maxInboundConnections
+                        ? String(quota.maxInboundConnections)
+                        : ""
+                    }
+                    onChange={(event) =>
+                      setQuotaConns(
+                        index,
+                        Math.max(
+                          0,
+                          Math.floor(Number(event.target.value) || 0),
+                        ),
+                      )
+                    }
+                  />
+                ) : (
+                  <span
+                    className="text-center text-sm text-default-400"
+                    title="只有该用户的入口服务器和落地服务器计入站连接数"
+                  >
+                    —
+                  </span>
+                )}
                 <span className="text-sm">
                   {landingGB(quota.usedIn + quota.usedOut)}
                 </span>
@@ -456,6 +516,9 @@ export const LandingUserSettings = forwardRef<
             <br />
             已用 = 计费流量：双向 (上传+下载)×倍率×2，单向
             (上传+下载)×倍率，按各服务器设置。
+            <br />
+            入站连接数 = 该用户在这台服务器上的入站连接，空或 0
+            不限：入口服务器算进入这里的规则连接，落地服务器算这台落地收到的连接（含经本面板转发进来的）。另受用户总连接数限制。
           </p>
           <div className="flex items-end gap-2">
             <Select
@@ -499,6 +562,7 @@ export const LandingUserSettings = forwardRef<
                 const node = (kind === "landing" ? shared : nodes).find(
                   (item) => item.id === Number(id),
                 );
+
                 if (!node) return;
                 const quota: ServerQuota = {
                   serverKind: kind === "landing" ? "landing" : "node",
@@ -512,6 +576,7 @@ export const LandingUserSettings = forwardRef<
                   usedOut: 0,
                 };
                 const serverIds = form.serverIds || [];
+
                 setForm({
                   ...form,
                   quotas: [...form.quotas, quota],
@@ -544,6 +609,7 @@ export const LandingUserSettings = forwardRef<
             onPress={async () => {
               setSaving(true);
               const res = await saveLandingUser(userId, form);
+
               setSaving(false);
               if (res.code === 0) {
                 setSavedSnapshot(landingSnapshot(form));

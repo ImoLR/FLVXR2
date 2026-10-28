@@ -14,6 +14,7 @@ import (
 	"go-backend/internal/landingegress"
 	"go-backend/internal/store/model"
 	"go-backend/internal/store/repo"
+	"go-backend/internal/ws"
 )
 
 func (h *Handler) registerLanding(mux *http.ServeMux) {
@@ -210,7 +211,40 @@ func (h *Handler) landingServerViewWith(s model.LandingServer, admin bool, catal
 	}
 	v["billedBytes"] = st.billed
 	v["usedBytes"] = st.billed
+	// Plan 158: the whole-machine protection cap shown next to the server total
+	// (a different, wider limit: whole machine TCP+UDP, all ports, all states).
+	if cap, owner := h.landingMachineCap(s); cap > 0 {
+		v["machineMaxTotal"], v["machineCapOwner"] = cap, owner
+	}
+	// A native total stored as 仅入站 (plan 141) keeps working until the server
+	// is saved again; the dialog says so.
+	v["maxConnModeLegacy"] = s.Source != "shared" && s.MaxConnections > 0 && repo.NormalizeLandingConnMode(s.MaxConnMode) == repo.LandingConnInbound
 	return v
+}
+
+// landingMachineCap is the whole-machine connection cap of the server's
+// machine: the live report (agent or 妙妙屋 Helper, incl. 由妙妙屋负责 machines),
+// else the node setting; 0 = unknown or off.
+func (h *Handler) landingMachineCap(s model.LandingServer) (int64, string) {
+	var view *ws.MachineView
+	if s.Source == "shared" {
+		view = h.sharedMachineView(s.ID, true, time.Now())
+	} else {
+		view = h.machineView(s.NodeID, true)
+	}
+	if view != nil && view.Protect != nil {
+		if view.Protect.Enabled && view.Protect.MaxTotal != nil && *view.Protect.MaxTotal > 0 {
+			return *view.Protect.MaxTotal, view.Protect.Owner
+		}
+		return 0, view.Protect.Owner
+	}
+	if s.Source == "shared" {
+		return 0, ""
+	}
+	if m, err := h.repo.GetNodeMachineProtection(s.NodeID); err == nil && m.Enabled && m.MaxTotal > 0 {
+		return m.MaxTotal, "flvx"
+	}
+	return 0, ""
 }
 func (h *Handler) landingNodeView(n model.LandingNode, catalogs ...landingEgressCatalog) map[string]interface{} {
 	var catalog landingEgressCatalog

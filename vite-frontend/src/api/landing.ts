@@ -150,6 +150,15 @@ export interface LandingServer {
   connectionsMode?: LandingConnSumMode;
   /** effective mode of `maxConnections` (server total). */
   maxConnectionsMode?: LandingConnMode;
+  /**
+   * plan 158: the whole-machine protection cap (整机保护上限: TCP+UDP, all
+   * ports, all states) of the server's machine, with its owner (flvx / mmwx);
+   * absent = unknown or off. Admin view only.
+   */
+  machineMaxTotal?: number;
+  machineCapOwner?: string;
+  /** plan 158: the native total was stored as 仅入站 (plan 141) — it becomes 入站+出站 on the next save. */
+  maxConnModeLegacy?: boolean;
 }
 /** plan 141: 仅入站 (client connections, like rule 连接数) / 入站+出站 */
 export type LandingConnMode = "total" | "inbound";
@@ -232,6 +241,8 @@ export interface ServerQuota {
   usedIn: number;
   usedOut: number;
   paused?: boolean;
+  /** plan 158: 入站连接数 of this user on this server (0 = 不限). */
+  maxInboundConnections?: number;
 }
 /** Plan 157: one server in a 共享流量池 / related-servers picker. */
 export interface PoolServer {
@@ -360,12 +371,11 @@ export const saveLandingServer = (
       : {}),
     ...(realityGuard !== undefined ? { realityGuard } : {}),
     ...(coreUpgradeConfirmed ? { coreUpgradeConfirmed } : {}),
+    // Plan 158: the 计算方式 selectors are retired — no connMode/maxConnMode is
+    // sent (the server keeps its stored node mode; the total becomes
+    // 入站+出站). The checkbox still copies 节点连接数 to existing nodes.
     ...(server.connMode !== undefined && !server.connModeFixed
-      ? {
-          connMode: server.connMode,
-          maxConnMode: server.maxConnMode,
-          applyConnModeToNodes,
-        }
+      ? { applyConnModeToNodes }
       : {}),
   });
 };
@@ -404,9 +414,6 @@ export const updateLandingNode = (node: LandingNode) => {
     ...(node.routeProfileId !== undefined
       ? { routeProfileId: node.routeProfileId }
       : {}),
-    ...(node.connMode !== undefined && !node.connModeFixed
-      ? { connMode: node.connMode }
-      : {}),
   });
 };
 // Plan 131: admin-only global landing settings and node owner transfer.
@@ -439,13 +446,31 @@ export const saveLandingUser = (
     ...(data.maxNodesSource === "global" || data.maxNodesSource === "custom"
       ? { maxNodesSource: data.maxNodesSource }
       : {}),
-    quotas: data.quotas
-      .filter((quota) => quota.limitOverride !== false)
-      .map(({ serverKind, serverRefId, limitBytes }) => ({
+    // Rows following the server default keep following it: only their
+    // 入站连接数 (plan 158) is sent (followDefault).
+    quotas: data.quotas.map(
+      ({
         serverKind,
         serverRefId,
         limitBytes,
-      })),
+        limitOverride,
+        maxInboundConnections,
+      }) =>
+        limitOverride === false
+          ? {
+              serverKind,
+              serverRefId,
+              limitBytes: 0,
+              maxInboundConnections: maxInboundConnections || 0,
+              followDefault: true,
+            }
+          : {
+              serverKind,
+              serverRefId,
+              limitBytes,
+              maxInboundConnections: maxInboundConnections || 0,
+            },
+    ),
     ...(data.extendFixedByMs ? { extendFixedByMs: data.extendFixedByMs } : {}),
     ...(data.pools
       ? {

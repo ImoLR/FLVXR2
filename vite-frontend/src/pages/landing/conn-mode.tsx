@@ -1,22 +1,22 @@
-import type { LandingConnMode, LandingConnSumMode } from "@/api/landing";
+import type {
+  LandingConnMode,
+  LandingConnSumMode,
+  LandingServer,
+} from "@/api/landing";
 
-import { Input } from "@/shadcn-bridge/heroui/input";
-import { Select, SelectItem } from "@/shadcn-bridge/heroui/select";
-
-// Plan 141: a landing connection limit counts either 仅入站 (client
+// Plan 141 labelled each landing connection number 仅入站 (client
 // connections, the same meaning as a rule's 连接数) or 入站+出站 (every TCP
-// socket of the node's port, today's behaviour).
+// socket of the node's port). Plan 158 retired the choice: the server total
+// is always 入站+出站 (server protection), every node limit counts 入站 (a
+// shared server's nodes once 妙妙屋 applies user limits).
 export const CONN_MODE_NAME: Record<LandingConnMode, string> = {
-  inbound: "仅入站",
+  inbound: "入站",
   total: "入站+出站",
 };
 
-export const CONN_MODE_HINT =
-  "仅入站 = 客户端连进来的连接，与规则连接数一致；入站+出站 = 该端口进出全部 TCP（含 TIME_WAIT/CLOSE_WAIT），通常约为入站的 2 倍以上";
-
 /**
  * 「(入站)」 / 「(入站+出站)」 after a displayed number; 「(按节点方式)」 for a
- * sum whose nodes count differently (each node in its own 计算方式).
+ * sum whose nodes count differently (some nodes not upgraded yet).
  */
 export const connModeTag = (mode?: LandingConnSumMode | null) =>
   mode === "inbound"
@@ -25,79 +25,62 @@ export const connModeTag = (mode?: LandingConnSumMode | null) =>
       ? "(按节点方式)"
       : "(入站+出站)";
 
-/** Why a 仅入站 setting does not apply yet (old agent). */
+/** Why a node limit still counts 入站+出站 (agent not upgraded yet). */
 export const connModePendingText = () =>
-  "仅入站需要升级节点后生效，目前仍按入站+出站计算";
+  "节点连接数按入站计算需要升级该节点的 agent，升级前仍按入站+出站计算";
+
+/** Unit of a server's node limits in labels: 入站, or 入站+出站 on a share that does not apply user limits yet. */
+export const nodeLimitUnit = (server?: LandingServer) =>
+  server?.source === "shared" && !server.connModeSupported
+    ? "入站+出站"
+    : "入站";
 
 /**
- * Plan 147: a shared (妙妙屋) server has no 计算方式 choice — the limit counts
- * 入站+出站 there, shown as a read-only field (same height as its neighbours)
- * where the select would be.
+ * Plan 158: the whole-machine protection cap next to the server total — a
+ * different limit (whole machine, TCP+UDP, every port and state) — with a
+ * warning when the server total is higher, plus the notice for a total still
+ * stored as 仅入站 (plan 141).
  */
-export function ConnModeFixed({
-  label = "连接数计算方式",
+export function MachineCapHint({
+  server,
+  total,
+  legacyInbound,
 }: {
-  label?: string;
+  server: LandingServer;
+  total: number;
+  legacyInbound: boolean;
 }) {
-  return (
-    <Input
-      data-conn-mode-fixed
-      readOnly
-      classNames={{
-        inputWrapper: "bg-default-100",
-        input: "cursor-default text-default-600",
-      }}
-      label={label}
-      tabIndex={-1}
-      title="妙妙屋共享服务器的连接数固定按入站+出站计算"
-      value="入站+出站"
-      variant="bordered"
-    />
-  );
-}
-
-export function ConnModeSelect({
-  label = "连接数计算方式",
-  value,
-  inheritMode,
-  description,
-  isDisabled,
-  onChange,
-}: {
-  label?: string;
-  /** null = follow the server (only offered when inheritMode is set). */
-  value: LandingConnMode | null;
-  inheritMode?: LandingConnMode;
-  description?: React.ReactNode;
-  isDisabled?: boolean;
-  onChange: (mode: LandingConnMode | null) => void;
-}) {
-  const key = value ?? "inherit";
+  const cap = Number(server.machineMaxTotal ?? 0);
+  const owner = server.machineCapOwner === "mmwx" ? "由妙妙屋负责" : "节点设置";
+  const shared = server.source === "shared";
 
   return (
-    <Select
-      description={description}
-      isDisabled={isDisabled}
-      label={label}
-      selectedKeys={[key]}
-      variant="bordered"
-      onSelectionChange={(keys) => {
-        const next = String(Array.from(keys)[0] || key);
-
-        onChange(next === "inherit" ? null : (next as LandingConnMode));
-      }}
-    >
-      {[
-        ...(inheritMode
-          ? [
-              <SelectItem key="inherit">
-                {`跟随服务器（${CONN_MODE_NAME[inheritMode]}）`}
-              </SelectItem>,
-            ]
-          : []),
-        <SelectItem key="inbound">仅入站</SelectItem>,
-        <SelectItem key="total">入站+出站</SelectItem>,
-      ]}
-    </Select>
+    <div data-machine-cap-hint className="space-y-2">
+      <p className="text-xs text-default-500">
+        {shared
+          ? `服务器总连接数 ${total > 0 ? total : "不限"}（入站+出站，由妙妙屋管理）。`
+          : "服务器总连接数 = 本服务器全部用户落地端口的入站+出站 TCP，用来保护服务器。"}
+        {cap > 0
+          ? `整机保护上限 ${cap}（${owner}，整台机器 TCP+UDP 全部端口，与服务器总连接数不是同一个数）。`
+          : "整机保护上限：未知（节点离线、未开启或旧版 agent）。"}
+      </p>
+      {cap > 0 && total > cap && (
+        <p
+          data-machine-cap-warning
+          className="rounded-lg bg-warning-50 p-2 text-xs text-warning dark:bg-warning-500/10"
+        >
+          服务器总连接数 {total} 高于整机保护上限 {cap}
+          ：整机先满时整台机器的业务端口都会拒绝新连接，服务器总连接数到不了。
+        </p>
+      )}
+      {legacyInbound && (
+        <p
+          data-legacy-inbound-total
+          className="rounded-lg bg-warning-50 p-2 text-xs text-warning dark:bg-warning-500/10"
+        >
+          此服务器的总连接数之前设为「仅入站」，目前仍按仅入站生效；保存服务器设置后改为按入站+出站计算。
+        </p>
+      )}
+    </div>
   );
 }

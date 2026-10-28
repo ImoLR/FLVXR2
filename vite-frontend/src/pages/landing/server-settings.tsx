@@ -21,10 +21,9 @@ import { Select, SelectItem } from "@/shadcn-bridge/heroui/select";
 import { Switch } from "@/shadcn-bridge/heroui/switch";
 import { ExtraProtocolSettings } from "@/pages/landing/extra-protocols";
 import {
-  CONN_MODE_HINT,
-  ConnModeFixed,
-  ConnModeSelect,
   connModePendingText,
+  MachineCapHint,
+  nodeLimitUnit,
 } from "@/pages/landing/conn-mode";
 
 export const dateInput = (value?: number | null) =>
@@ -55,18 +54,18 @@ export function ServerSettings({
   const [restartConfirmed, setRestartConfirmed] = useState(false);
   // Plan 129: one restart of an outdated landing Core onto the pinned one.
   const [coreUpgradeConfirmed, setCoreUpgradeConfirmed] = useState(false);
-  // Plan 141 「应用到现有节点」: off by default (existing nodes keep their mode).
+  // 「同时应用到现有节点」: off by default (existing nodes keep their number).
   const [applyConnMode, setApplyConnMode] = useState(false);
-  const connModeChanged =
-    (form.connMode ?? "total") !== (server.connMode ?? "total");
-  // Plan 147: shared (妙妙屋) servers have no 计算方式 choice (入站+出站).
+  // Plan 158: the 计算方式 selectors are retired — the server total counts
+  // 入站+出站, every node limit 入站 (a shared server's nodes once 妙妙屋
+  // applies user limits). A native agent that cannot count 入站 yet keeps
+  // 入站+出站 until it is upgraded.
   const connModeFixed = Boolean(
     server.connModeFixed || server.source === "shared",
   );
+  const nodeUnit = nodeLimitUnit(server);
   const connModePending =
-    !connModeFixed &&
-    server.connModeSupported === false &&
-    (form.connMode === "inbound" || form.maxConnMode === "inbound");
+    server.source !== "shared" && server.connModeSupported === false;
   const egress = server.egress;
   const profileId = form.routeProfileId ?? egress?.profileId ?? 0;
   const profileChanged = profileId !== (egress?.profileId ?? 0);
@@ -230,19 +229,32 @@ export function ServerSettings({
                   input half a row below the select; each takes a full row there. */}
               {server.source !== "shared" && (
                 <div className="col-span-2 sm:col-span-1">
-                  {numberField("服务器总连接数（0 不限）", "maxConnections")}
+                  {numberField(
+                    "服务器总连接数（入站+出站，0 不限）",
+                    "maxConnections",
+                  )}
                 </div>
               )}
-              {server.source !== "shared" && server.connMode !== undefined && (
-                <div className="col-span-2 sm:col-span-1">
-                  <ConnModeSelect
-                    label="总连接数计算方式"
-                    value={form.maxConnMode ?? "total"}
-                    onChange={(mode) => set("maxConnMode", mode ?? "total")}
-                  />
-                </div>
-              )}
-              {numberField("每人在本服务器最多节点数", "maxNodesPerUser", 1)}
+              <div
+                className={
+                  server.source !== "shared"
+                    ? "col-span-2 sm:col-span-1"
+                    : undefined
+                }
+              >
+                {numberField("每人在本服务器最多节点数", "maxNodesPerUser", 1)}
+              </div>
+              <div className="col-span-2">
+                <MachineCapHint
+                  legacyInbound={Boolean(server.maxConnModeLegacy)}
+                  server={server}
+                  total={
+                    server.source === "shared"
+                      ? Number(server.sharedCaps?.max_connections ?? 0)
+                      : Number(form.maxConnections ?? 0)
+                  }
+                />
+              </div>
             </div>
             <p className="text-xs text-default-500">
               落地计入用户同一个总流量。通过本人规则访问时按隧道与落地较贵的费率计费。
@@ -259,47 +271,34 @@ export function ServerSettings({
                 1073741824,
               )}
             <div className="grid grid-cols-2 gap-3">
-              {numberField("节点连接数（0 不限）", "defaultMaxConnections")}
-              {server.connMode !== undefined && connModeFixed && (
-                <ConnModeFixed label="节点连接数计算方式" />
-              )}
-              {server.connMode !== undefined && !connModeFixed && (
-                <ConnModeSelect
-                  label="节点连接数计算方式"
-                  value={form.connMode ?? "total"}
-                  onChange={(mode) => set("connMode", mode ?? "total")}
-                />
-              )}
-              {server.connMode !== undefined && !connModeFixed && (
-                <div className="col-span-2 space-y-2">
-                  <p className="text-xs text-default-500">{CONN_MODE_HINT}</p>
-                  {connModePending && (
-                    <p className="rounded-lg bg-warning-50 p-2 text-xs text-warning dark:bg-warning-500/10">
-                      {connModePendingText()}
-                    </p>
-                  )}
-                  {(server.nodeCount ?? 0) > 0 && (
-                    <Checkbox
-                      isSelected={applyConnMode}
-                      onValueChange={setApplyConnMode}
-                    >
-                      <span className="text-xs">
-                        同时应用到现有 {server.nodeCount}{" "}
-                        个节点（计算方式改为跟随本服务器，节点连接数改为{" "}
-                        {form.defaultMaxConnections || "不限"}）
-                      </span>
-                    </Checkbox>
-                  )}
-                  {connModeChanged &&
-                    !applyConnMode &&
-                    (server.nodeCount ?? 0) > 0 && (
-                      <p className="text-xs text-default-500">
-                        不勾选：现有节点保持原来的计算方式，新计算方式只用于新节点和之后改为跟随服务器的节点。
-                      </p>
-                    )}
-                </div>
+              {numberField(
+                `节点连接数（${nodeUnit}，0 不限）`,
+                "defaultMaxConnections",
               )}
               {numberField("在线 IP 数（0 不限）", "defaultMaxOnlineIps")}
+              {server.connMode !== undefined &&
+                !connModeFixed &&
+                (connModePending || (server.nodeCount ?? 0) > 0) && (
+                  <div className="col-span-2 space-y-2">
+                    {connModePending && (
+                      <p className="rounded-lg bg-warning-50 p-2 text-xs text-warning dark:bg-warning-500/10">
+                        {connModePendingText()}
+                      </p>
+                    )}
+                    {(server.nodeCount ?? 0) > 0 && (
+                      <Checkbox
+                        isSelected={applyConnMode}
+                        onValueChange={setApplyConnMode}
+                      >
+                        <span className="text-xs">
+                          同时应用到现有 {server.nodeCount}{" "}
+                          个节点（节点连接数改为{" "}
+                          {form.defaultMaxConnections || "不限"}）
+                        </span>
+                      </Checkbox>
+                    )}
+                  </div>
+                )}
               {numberField(
                 "流量上限 (GB，计费流量，0 不限)",
                 "defaultTrafficLimitBytes",

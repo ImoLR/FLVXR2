@@ -178,7 +178,7 @@ const formatUserPoolUsage = (user: User): string => {
 const USER_SEARCH_DEBOUNCE_MS = 250;
 const USER_VIEW_MODE_KEY = "user_view_mode";
 const USER_LIMIT_MAX_VALUE = 99999;
-const USER_POOL_LIMIT_HINT = "gost 与 nftables 规则及入口节点共享；nftables 需 fork.13 入口 agent，约每秒更新；留空或 0 表示不限制";
+const USER_POOL_LIMIT_HINT = "转发规则入口与落地节点的入站一起计算（经本面板转发进落地的只算一次）；gost 与 nftables 规则及入口节点共享；nftables 需 fork.13 入口 agent，约每秒更新；留空或 0 表示不限制";
 const sanitizeIntegerDraft = (value: string, max = USER_LIMIT_MAX_VALUE) => {
   const digits = value.replace(/[^\d]/g, "");
 

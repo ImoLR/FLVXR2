@@ -472,7 +472,7 @@ func (r *Repository) SaveLandingUserSettingFull(userID int64, maxNodes int, quot
 		}
 		autoGrant := []int64{}
 		for _, q := range quotas {
-			if q.ServerKind == "landing" && q.ServerRefID > 0 && !existingLanding[q.ServerRefID] {
+			if q.ServerKind == "landing" && q.ServerRefID > 0 && !existingLanding[q.ServerRefID] && !q.FollowDefault {
 				autoGrant = append(autoGrant, q.ServerRefID)
 			}
 		}
@@ -494,11 +494,20 @@ func (r *Repository) SaveLandingUserSettingFull(userID int64, maxNodes int, quot
 				if err := tx.First(&server, q.ServerRefID).Error; err != nil || server.Source != "shared" {
 					return errors.New("共享服务器不存在")
 				}
-				if capExceeded(q.LimitBytes, SharedLandingCaps(&server).TrafficLimit) {
+				if !q.FollowDefault && capExceeded(q.LimitBytes, SharedLandingCaps(&server).TrafficLimit) {
 					return errors.New("服务器流量限额不能超过妙妙屋上限")
 				}
 			}
 			now := time.Now().UnixMilli()
+			if q.FollowDefault {
+				// Plan 158: only 入站连接数 changes; the traffic quota keeps
+				// following the server default (a new row starts that way).
+				row := model.UserServerQuota{UserID: userID, ServerKind: q.ServerKind, ServerRefID: q.ServerRefID, MaxInboundConnections: q.MaxInboundConnections, CreatedTime: now, UpdatedTime: now}
+				if err := tx.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "user_id"}, {Name: "server_kind"}, {Name: "server_ref_id"}}, DoUpdates: clause.Assignments(map[string]interface{}{"max_inbound_connections": q.MaxInboundConnections, "updated_time": now})}).Create(&row).Error; err != nil {
+					return err
+				}
+				continue
+			}
 			q.ID = 0
 			q.UserID = userID
 			q.LimitOverride = true
