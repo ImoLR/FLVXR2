@@ -82,7 +82,26 @@ func (f *fakeCustom) serve(w http.ResponseWriter, r *http.Request) {
 		var req landingcustom.UserLimitsRequest
 		dec := json.NewDecoder(r.Body)
 		dec.DisallowUnknownFields()
-		if err := dec.Decode(&req); err != nil || req.Version != 1 || req.Sequence <= 0 {
+		// Plan 159 (§7): version 2 (max_rate_mbps) only for shares that
+		// advertise it; a v1 body never carries the field.
+		v2 := false
+		for _, sh := range f.shares {
+			if sh.ID == id && sh.UserLimits.Supports(landingcustom.UserLimitsRateVersion) {
+				v2 = true
+			}
+		}
+		bad := func(req landingcustom.UserLimitsRequest) bool {
+			if req.Version == 1 {
+				for _, u := range req.Users {
+					if u.MaxRateMbps != nil {
+						return true
+					}
+				}
+				return false
+			}
+			return req.Version != 2 || !v2
+		}
+		if err := dec.Decode(&req); err != nil || bad(req) || req.Sequence <= 0 {
 			w.WriteHeader(422)
 			write(map[string]any{"errors": []landingcustom.ValidationError{{Field: "users", Message: "bad shape"}}})
 			return
