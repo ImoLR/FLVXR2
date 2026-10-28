@@ -82,7 +82,9 @@ func TestTrafficPoolSaveRules(t *testing.T) {
 			save := func(userID int64, pools []TrafficPoolInput) error {
 				return r.SaveLandingUserSettingFull(userID, LandingMaxNodesFollowGlobal, nil, 0, nil, &pools)
 			}
-			srv := func(kind string, id int64) TrafficPoolServer { return TrafficPoolServer{ServerKind: kind, ServerRefID: id} }
+			srv := func(kind string, id int64) TrafficPoolServer {
+				return TrafficPoolServer{ServerKind: kind, ServerRefID: id}
+			}
 			if err := save(2, []TrafficPoolInput{{Name: "亚洲", LimitBytes: 100 << 30, Members: []TrafficPoolServer{srv("node", 1), srv("node", 3), srv("landing", 7)}}}); err != nil {
 				t.Fatal(err)
 			}
