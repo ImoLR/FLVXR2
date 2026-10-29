@@ -398,19 +398,27 @@ interface BatchProgressState {
   percent: number;
 }
 type ForwardGroupOrderMap = Record<string, string[]>;
-type ForwardGroupCollapsedMap = Record<string, boolean>;
+// Plan 163: stores EXPANDED tunnel groups only (missing key = collapsed).
+type ForwardGroupExpandedMap = Record<string, boolean>;
+type ForwardDisplayMode = "grouped" | "list" | "card";
 const UNKNOWN_FORWARD_USER_NAME = "未知用户";
 const UNCATEGORIZED_FORWARD_TUNNEL_NAME = "未分类";
-const FORWARD_COMPACT_MODE_CONFIG_KEY = "forward_compact_mode";
-const FORWARD_COMPACT_MODE_EVENT = "forwardCompactModeChanged";
+// Plan 163: the layout is a per-user, per-browser choice that defaults to the
+// tunnel-grouped layout. Versioned key so every existing user sees the new
+// default once; the global `forward_compact_mode` config is no longer used.
+const FORWARD_DISPLAY_MODE_LOCAL_STORAGE_PREFIX = "forward-display-mode:v2";
+const FORWARD_LEGACY_VIEW_MODE_KEY = "forward-view-mode";
 const FORWARD_POLL_INTERVAL_MS = 15000;
 // Federation share usage changes slowly; fetched on page load, then at most
 // every 5 minutes instead of on every list refresh (plan 136 F17).
 const FEDERATION_SHARE_CACHE_MS = 5 * 60 * 1000;
 const FORWARD_GROUP_ORDER_CONFIG_KEY = "forward_group_order_map";
-const FORWARD_GROUP_COLLAPSED_CONFIG_KEY = "forward_group_collapsed_map";
+const FORWARD_GROUP_EXPANDED_CONFIG_KEY = "forward_group_expanded_map";
 const FORWARD_GROUP_ORDER_LOCAL_STORAGE_PREFIX = "forward-group-order";
-const FORWARD_GROUP_COLLAPSED_LOCAL_STORAGE_PREFIX = "forward-group-collapsed";
+const FORWARD_GROUP_EXPANDED_LOCAL_STORAGE_PREFIX = "forward-group-expanded:v2";
+// Pre-163 "collapsed" map (missing = expanded); removed on first load.
+const FORWARD_LEGACY_GROUP_COLLAPSED_LOCAL_STORAGE_PREFIX =
+  "forward-group-collapsed";
 const FORWARD_TUNNEL_GROUP_SORTABLE_PREFIX = "forward-tunnel-group";
 const FORWARD_GROUPED_TABLE_MIN_WIDTH_CLASS = "min-w-[1370px]";
 const FORWARD_GROUPED_TABLE_COLUMN_CLASS = {
@@ -493,8 +501,27 @@ const formatTunnelTrafficRatio = (value?: number): string => {
 const buildForwardGroupOrderLocalKey = (tokenUserId: number): string => {
   return `${FORWARD_GROUP_ORDER_LOCAL_STORAGE_PREFIX}:u:${tokenUserId}`;
 };
-const buildForwardGroupCollapsedLocalKey = (tokenUserId: number): string => {
-  return `${FORWARD_GROUP_COLLAPSED_LOCAL_STORAGE_PREFIX}:u:${tokenUserId}`;
+const buildForwardGroupExpandedLocalKey = (tokenUserId: number): string => {
+  return `${FORWARD_GROUP_EXPANDED_LOCAL_STORAGE_PREFIX}:u:${tokenUserId}`;
+};
+const buildForwardDisplayModeLocalKey = (tokenUserId: number | null): string => {
+  return `${FORWARD_DISPLAY_MODE_LOCAL_STORAGE_PREFIX}:u:${tokenUserId ?? 0}`;
+};
+const readForwardDisplayMode = (tokenUserId: number | null): ForwardDisplayMode => {
+  try {
+    // One-time cleanup of the pre-163 keys: they must not pick the layout.
+    localStorage.removeItem(FORWARD_LEGACY_VIEW_MODE_KEY);
+    if (tokenUserId !== null) {
+      localStorage.removeItem(
+        `${FORWARD_LEGACY_GROUP_COLLAPSED_LOCAL_STORAGE_PREFIX}:u:${tokenUserId}`,
+      );
+    }
+    const saved = localStorage.getItem(buildForwardDisplayModeLocalKey(tokenUserId));
+
+    return saved === "list" || saved === "card" ? saved : "grouped";
+  } catch {
+    return "grouped";
+  }
 };
 const parsePreferenceMap = <T,>(
   raw: string | null,
@@ -537,19 +564,19 @@ const parseGroupOrderMap = (raw: string | null): ForwardGroupOrderMap => {
 
   return result;
 };
-const parseGroupCollapsedMap = (
+const parseGroupExpandedMap = (
   raw: string | null,
-): ForwardGroupCollapsedMap => {
+): ForwardGroupExpandedMap => {
   const parsed = parsePreferenceMap<unknown>(raw);
 
   if (!parsed) {
     return {};
   }
-  const result: ForwardGroupCollapsedMap = {};
+  const result: ForwardGroupExpandedMap = {};
 
   Object.entries(parsed).forEach(([key, value]) => {
-    if (typeof value === "boolean") {
-      result[key] = value;
+    if (value === true) {
+      result[key] = true;
     }
   });
 
@@ -621,11 +648,11 @@ const mergeVisibleGroupOrder = (
 
   return result.concat(queue);
 };
-const sanitizeGroupCollapsedMap = (
-  source: ForwardGroupCollapsedMap,
+const sanitizeGroupExpandedMap = (
+  source: ForwardGroupExpandedMap,
   availableCollapseKeys: Set<string>,
-): ForwardGroupCollapsedMap => {
-  const sanitized: ForwardGroupCollapsedMap = {};
+): ForwardGroupExpandedMap => {
+  const sanitized: ForwardGroupExpandedMap = {};
 
   availableCollapseKeys.forEach((key) => {
     if (source[key] === true) {
@@ -792,7 +819,7 @@ const SortableTunnelGroupContainer = ({
   wrapperClassName,
   headerClassName,
   titleClassName,
-  //countClassName,//注释隧道分组头部规则数量显示，保持界面简洁
+  countClassName,
   bodyClassName,
   children,
 }: {
@@ -829,12 +856,31 @@ const SortableTunnelGroupContainer = ({
     willChange: isDragging ? "transform" : undefined,
     zIndex: isDragging ? 1 : undefined,
   };
+  // Plan 163: groups start collapsed, so the header carries the rule count and
+  // a paused / abnormal hint (from the list already loaded, no extra request).
+  let pausedCount = 0;
+  let abnormalCount = 0;
+
+  tunnel.items.forEach((item) => {
+    if (item.status === 0) pausedCount++;
+    else if (item.status === -1) abnormalCount++;
+  });
 
   return (
     <div ref={setNodeRef} className={wrapperClassName} style={style}>
       <div
+        aria-expanded={!collapsed}
         className={`${headerClassName} cursor-pointer select-none transition-colors`}
+        role="button"
+        tabIndex={0}
         onClick={onToggleCollapsed}
+        onKeyDown={(e) => {
+          if (e.target !== e.currentTarget) return;
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            onToggleCollapsed();
+          }
+        }}
       >
         <div className="flex items-center gap-2 min-w-0">
           <Button
@@ -863,10 +909,18 @@ const SortableTunnelGroupContainer = ({
             {formatTunnelTrafficRatio(tunnel.tunnelTrafficRatio)}
           </span>
         </div>
-        <div className="flex items-center gap-2">
-          {/* 注释隧道分组头部规则数量显示，保持界面简洁
-          <span className={countClassName}>{tunnel.items.length} 个规则</span> 
-          */}
+        <div className="flex shrink-0 items-center gap-1.5">
+          {pausedCount > 0 && (
+            <span className="whitespace-nowrap rounded bg-warning-500/10 px-1.5 py-0.5 text-[10px] font-medium text-warning-600 dark:text-warning-400">
+              {pausedCount} 条已暂停
+            </span>
+          )}
+          {abnormalCount > 0 && (
+            <span className="whitespace-nowrap rounded bg-danger-500/10 px-1.5 py-0.5 text-[10px] font-medium text-danger-600 dark:text-danger-400">
+              {abnormalCount} 条异常
+            </span>
+          )}
+          <span className={countClassName}>{tunnel.items.length} 条</span>
           <div
             className="cursor-grab active:cursor-grabbing p-1 text-default-400 flex-shrink-0 hover:text-default-600 transition-colors"
             title="拖拽分组排序"
@@ -1627,16 +1681,18 @@ export default function ForwardPage() {
   const isMobile = useMobileBreakpoint();
   // searchKeyword removed
   // isSearchVisible removed
-  const [configuredCompactMode, setCompactMode] = useState(false);
-  const [hasSavedViewMode, setHasSavedViewMode] = useState(() => {
-    try {
-      return !!localStorage.getItem("forward-view-mode");
-    } catch {
-      return false;
-    }
-  });
-  // 手机首次访问仅在客户端默认卡片，不改变管理员共享的精简模式配置。
-  const compactMode = isMobile && !hasSavedViewMode ? true : configuredCompactMode;
+  // Plan 163: 分组（按隧道名分组）is the default on desktop and phone; the
+  // mode button choice is remembered per user in this browser.
+  const [displayMode, setDisplayMode] = useState<ForwardDisplayMode>(() =>
+    readForwardDisplayMode(tokenUserId),
+  );
+  const compactMode = displayMode !== "grouped";
+  const viewMode: "grouped" | "direct" =
+    displayMode === "card" ? "direct" : "grouped";
+
+  useEffect(() => {
+    setDisplayMode(readForwardDisplayMode(tokenUserId));
+  }, [tokenUserId]);
 
   // 用户切换时归零筛选条件
   useEffect(() => {
@@ -1657,16 +1713,6 @@ export default function ForwardPage() {
     // 保存当前用户 ID 到 localStorage
     localStorage.setItem("forward-last-user-id", currentUserId || "");
   }, [tokenUserId, setSearchParams]);
-  // 显示模式状态 - 从localStorage读取，默认为平铺显示
-  const [viewMode, setViewMode] = useState<"grouped" | "direct">(() => {
-    try {
-      const savedMode = localStorage.getItem("forward-view-mode");
-
-      return (savedMode as "grouped" | "direct") || "direct";
-    } catch {
-      return "direct";
-    }
-  });
   // 筛选状态
   // filterUserId removed
   // filterTunnelId removed
@@ -1893,8 +1939,20 @@ export default function ForwardPage() {
     percent: 0,
   });
   const [groupOrderMap, setGroupOrderMap] = useState<ForwardGroupOrderMap>({});
-  const [collapsedTunnelGroups, setCollapsedTunnelGroups] =
-    useState<ForwardGroupCollapsedMap>({});
+  const [expandedTunnelGroups, setExpandedTunnelGroups] =
+    useState<ForwardGroupExpandedMap>({});
+  // Plan 163: while a filter is active every shown group is open; clicks then
+  // only close/open groups for that filter (never saved).
+  const [filterClosedGroups, setFilterClosedGroups] = useState<Set<string>>(
+    () => new Set(),
+  );
+  // Plan 163: a newly created rule's group is opened once the list has it.
+  const revealForwardRef = useRef<{
+    id: number;
+    tunnelId: number;
+    userId: number | null;
+    at: number;
+  } | null>(null);
   const [groupPreferenceHydrated, setGroupPreferenceHydrated] = useState(false);
   const [advancedOptionsOpen, setAdvancedOptionsOpen] = useState(false);
   const [liveClientIPs, setLiveClientIPs] = useState<ForwardClientIPsApiData | null>(null);
@@ -2039,16 +2097,16 @@ export default function ForwardPage() {
       );
     } catch {}
   };
-  const persistGroupCollapsedToLocal = (
-    nextCollapsedMap: ForwardGroupCollapsedMap,
+  const persistGroupExpandedToLocal = (
+    nextExpandedMap: ForwardGroupExpandedMap,
   ) => {
     if (tokenUserId === null) {
       return;
     }
     try {
       localStorage.setItem(
-        buildForwardGroupCollapsedLocalKey(tokenUserId),
-        JSON.stringify(nextCollapsedMap),
+        buildForwardGroupExpandedLocalKey(tokenUserId),
+        JSON.stringify(nextExpandedMap),
       );
     } catch {}
   };
@@ -2080,26 +2138,26 @@ export default function ForwardPage() {
       toast.error("保存分组排序失败");
     }
   };
-  const persistGroupCollapsedToGlobal = async (
-    nextCollapsedMap: ForwardGroupCollapsedMap,
+  const persistGroupExpandedToGlobal = async (
+    nextExpandedMap: ForwardGroupExpandedMap,
   ): Promise<void> => {
     if (!isAdmin || tokenUserId === null) {
       return;
     }
     try {
       const currentRes = await getConfigByName(
-        FORWARD_GROUP_COLLAPSED_CONFIG_KEY,
+        FORWARD_GROUP_EXPANDED_CONFIG_KEY,
       );
       const globalMap =
-        parsePreferenceMap<ForwardGroupCollapsedMap>(
+        parsePreferenceMap<ForwardGroupExpandedMap>(
           currentRes.code === 0 && typeof currentRes.data?.value === "string"
             ? currentRes.data.value
             : null,
         ) || {};
 
-      globalMap[tokenUserId.toString()] = nextCollapsedMap;
+      globalMap[tokenUserId.toString()] = nextExpandedMap;
       const saveRes = await updateConfig(
-        FORWARD_GROUP_COLLAPSED_CONFIG_KEY,
+        FORWARD_GROUP_EXPANDED_CONFIG_KEY,
         JSON.stringify(globalMap),
       );
 
@@ -2117,14 +2175,14 @@ export default function ForwardPage() {
       if (tokenUserId === null) {
         if (!cancelled) {
           setGroupOrderMap({});
-          setCollapsedTunnelGroups({});
+          setExpandedTunnelGroups({});
           setGroupPreferenceHydrated(true);
         }
 
         return;
       }
       let localOrderMap: ForwardGroupOrderMap = {};
-      let localCollapsedMap: ForwardGroupCollapsedMap = {};
+      let localExpandedMap: ForwardGroupExpandedMap = {};
 
       try {
         localOrderMap = parseGroupOrderMap(
@@ -2134,17 +2192,17 @@ export default function ForwardPage() {
         localOrderMap = {};
       }
       try {
-        localCollapsedMap = parseGroupCollapsedMap(
-          localStorage.getItem(buildForwardGroupCollapsedLocalKey(tokenUserId)),
+        localExpandedMap = parseGroupExpandedMap(
+          localStorage.getItem(buildForwardGroupExpandedLocalKey(tokenUserId)),
         );
       } catch {
-        localCollapsedMap = {};
+        localExpandedMap = {};
       }
       if (isAdmin) {
         try {
-          const [globalOrderRes, globalCollapsedRes] = await Promise.all([
+          const [globalOrderRes, globalExpandedRes] = await Promise.all([
             getConfigByName(FORWARD_GROUP_ORDER_CONFIG_KEY),
-            getConfigByName(FORWARD_GROUP_COLLAPSED_CONFIG_KEY),
+            getConfigByName(FORWARD_GROUP_EXPANDED_CONFIG_KEY),
           ]);
           const globalOrderMap = parsePreferenceMap<ForwardGroupOrderMap>(
             globalOrderRes.code === 0 &&
@@ -2152,16 +2210,16 @@ export default function ForwardPage() {
               ? globalOrderRes.data.value
               : null,
           );
-          const globalCollapsedMap =
-            parsePreferenceMap<ForwardGroupCollapsedMap>(
-              globalCollapsedRes.code === 0 &&
-                typeof globalCollapsedRes.data?.value === "string"
-                ? globalCollapsedRes.data.value
+          const globalExpandedMap =
+            parsePreferenceMap<ForwardGroupExpandedMap>(
+              globalExpandedRes.code === 0 &&
+                typeof globalExpandedRes.data?.value === "string"
+                ? globalExpandedRes.data.value
                 : null,
             );
           const globalOrderBucket = globalOrderMap?.[tokenUserId.toString()];
-          const globalCollapsedBucket =
-            globalCollapsedMap?.[tokenUserId.toString()];
+          const globalExpandedBucket =
+            globalExpandedMap?.[tokenUserId.toString()];
 
           if (
             globalOrderBucket &&
@@ -2173,12 +2231,12 @@ export default function ForwardPage() {
             );
           }
           if (
-            globalCollapsedBucket &&
-            typeof globalCollapsedBucket === "object" &&
-            !Array.isArray(globalCollapsedBucket)
+            globalExpandedBucket &&
+            typeof globalExpandedBucket === "object" &&
+            !Array.isArray(globalExpandedBucket)
           ) {
-            localCollapsedMap = parseGroupCollapsedMap(
-              JSON.stringify(globalCollapsedBucket),
+            localExpandedMap = parseGroupExpandedMap(
+              JSON.stringify(globalExpandedBucket),
             );
           }
         } catch {}
@@ -2187,9 +2245,9 @@ export default function ForwardPage() {
         return;
       }
       setGroupOrderMap(localOrderMap);
-      setCollapsedTunnelGroups(localCollapsedMap);
+      setExpandedTunnelGroups(localExpandedMap);
       persistGroupOrderToLocal(localOrderMap);
-      persistGroupCollapsedToLocal(localCollapsedMap);
+      persistGroupExpandedToLocal(localExpandedMap);
       setGroupPreferenceHydrated(true);
     };
 
@@ -2200,41 +2258,6 @@ export default function ForwardPage() {
       cancelled = true;
     };
   }, [tokenUserId, isAdmin]);
-  useEffect(() => {
-    const loadForwardCompactMode = async () => {
-      try {
-        const response = await getConfigByName(FORWARD_COMPACT_MODE_CONFIG_KEY);
-        const enabled =
-          response.code === 0 &&
-          typeof response.data?.value === "string" &&
-          response.data.value === "true";
-
-        setCompactMode(enabled);
-      } catch {
-        setCompactMode(false);
-      }
-    };
-    const handleCompactModeChanged = (event: Event) => {
-      const customEvent = event as CustomEvent<{ enabled?: boolean }>;
-
-      if (typeof customEvent.detail?.enabled === "boolean") {
-        setCompactMode(customEvent.detail.enabled);
-      }
-    };
-
-    loadForwardCompactMode();
-    window.addEventListener(
-      FORWARD_COMPACT_MODE_EVENT,
-      handleCompactModeChanged,
-    );
-
-    return () => {
-      window.removeEventListener(
-        FORWARD_COMPACT_MODE_EVENT,
-        handleCompactModeChanged,
-      );
-    };
-  }, []);
   const parseShareIdFromTunnelName = (tunnelName: string): number | null => {
     const normalized = (tunnelName || "").trim();
 
@@ -2427,44 +2450,19 @@ export default function ForwardPage() {
     },
     [isAdmin],
   );
-  // 3形态模式切换（分组 -> 列表 -> 卡片）
-  const handleModeCycle = async () => {
-    let nextCompact = compactMode;
-    let nextView = viewMode;
+  // 3形态模式切换（分组 -> 列表 -> 卡片），按用户记在本浏览器（plan 163）
+  const handleModeCycle = () => {
+    const nextMode: ForwardDisplayMode =
+      displayMode === "grouped"
+        ? "list" // 1. 分组 -> 列表
+        : displayMode === "list"
+          ? "card" // 2. 列表 -> 卡片
+          : "grouped"; // 3. 卡片 -> 分组
 
-    if (!compactMode && viewMode === "grouped") {
-      nextCompact = true; // 1. 分组 -> 列表
-    } else if (compactMode && viewMode === "grouped") {
-      nextView = "direct"; // 2. 列表 -> 卡片
-    } else {
-      nextCompact = false; // 3. 卡片 -> 分组
-      nextView = "grouped";
-    }
-
-    // 保存列表/卡片状态
-    setViewMode(nextView);
-    setHasSavedViewMode(true);
+    setDisplayMode(nextMode);
     try {
-      localStorage.setItem("forward-view-mode", nextView);
+      localStorage.setItem(buildForwardDisplayModeLocalKey(tokenUserId), nextMode);
     } catch {}
-
-    // 保存精简/分组状态
-    if (nextCompact !== compactMode) {
-      setCompactMode(nextCompact);
-      try {
-        await updateConfig(
-          FORWARD_COMPACT_MODE_CONFIG_KEY,
-          nextCompact ? "true" : "false",
-        );
-        window.dispatchEvent(
-          new CustomEvent(FORWARD_COMPACT_MODE_EVENT, {
-            detail: { enabled: nextCompact },
-          }),
-        );
-      } catch (e) {
-        // 非管理员或网络错误忽略
-      }
-    }
   };
 
   // 根据当前状态推断按钮文本和颜色
@@ -3070,6 +3068,16 @@ export default function ForwardPage() {
     return ownRule && showTunnelGroups && total > 1 ? { bound: false, label: "" } : null;
   })();
   // 「我自己的节点」: save, then follow the preparation on the tunnel exits.
+  // Plan 163: remember a rule just created in the dialog so its tunnel group
+  // opens when the refreshed list contains it.
+  const armRevealCreatedForward = (id: number) => {
+    revealForwardRef.current = {
+      id,
+      tunnelId: form.tunnelId ?? 0,
+      userId: isAdmin && form.userId ? form.userId : tokenUserId,
+      at: Date.now(),
+    };
+  };
   const submitChain = async () => {
     setSubmitLoading(true);
     setChainError("");
@@ -3112,6 +3120,7 @@ export default function ForwardPage() {
       }
       const status = res.data as ChainStatus | undefined;
 
+      if (!isEdit) armRevealCreatedForward(Number(status?.forwardId) || 0);
       // Plan 146: hint 「复制链接」 on the new rule once its chain is ready.
       if (!isEdit && status?.forwardId)
         armOnboardingHint("copyLink", status.forwardId);
@@ -3253,6 +3262,10 @@ export default function ForwardPage() {
         res = await createForward(createData);
       }
       if (res.code === 0) {
+        if (!isEdit)
+          armRevealCreatedForward(
+            Number((res as { data?: { id?: number } }).data?.id) || 0,
+          );
         // Plan 146: hint 「复制链接」 on a new rule that targets 我的落地节点.
         if (!isEdit && landingTarget.landingNodeId)
           armOnboardingHint(
@@ -4436,13 +4449,13 @@ export default function ForwardPage() {
       ),
     [groupOrderMap, availableGroupData],
   );
-  const sanitizedCollapsedTunnelGroups = useMemo(
+  const sanitizedExpandedTunnelGroups = useMemo(
     () =>
-      sanitizeGroupCollapsedMap(
-        collapsedTunnelGroups,
+      sanitizeGroupExpandedMap(
+        expandedTunnelGroups,
         availableGroupData.availableCollapseKeys,
       ),
-    [collapsedTunnelGroups, availableGroupData],
+    [expandedTunnelGroups, availableGroupData],
   );
 
   // The sanitized maps are only used for display. Opening the page never writes
@@ -4789,21 +4802,105 @@ export default function ForwardPage() {
       setSelectedIds(new Set());
     }
   };
+  // Plan 163: groups are collapsed unless the user opened them (saved per
+  // user). While a filter is active (the 重置 button shows) every shown group
+  // is open and clicks only apply to that filter session.
+  const groupFilterActive = activeFilterCount > 0;
+  const groupFilterSignature = groupFilterActive
+    ? JSON.stringify([searchParams, searchKeyword.trim()])
+    : "";
+
+  useEffect(() => {
+    setFilterClosedGroups((prev) => (prev.size === 0 ? prev : new Set()));
+  }, [groupFilterSignature]);
+  const isTunnelGroupExpanded = (collapseKey: string): boolean =>
+    groupFilterActive
+      ? !filterClosedGroups.has(collapseKey)
+      : sanitizedExpandedTunnelGroups[collapseKey] === true;
+  const saveExpandedTunnelGroups = (
+    update: (next: ForwardGroupExpandedMap) => void,
+  ) => {
+    // Drop keys of tunnels that no longer have rules so the map can't grow.
+    const nextExpandedMap = sanitizeGroupExpandedMap(
+      expandedTunnelGroups,
+      availableGroupData.availableCollapseKeys,
+    );
+
+    update(nextExpandedMap);
+    setExpandedTunnelGroups(nextExpandedMap);
+    persistGroupExpandedToLocal(nextExpandedMap);
+    void persistGroupExpandedToGlobal(nextExpandedMap);
+  };
   const toggleTunnelGroupCollapsed = (userId: number, tunnelKey: string) => {
     const collapseKey = buildTunnelGroupCollapseKey(userId, tunnelKey);
-    const nextCollapsedMap: ForwardGroupCollapsedMap = {
-      ...collapsedTunnelGroups,
-    };
 
-    if (nextCollapsedMap[collapseKey] === true) {
-      delete nextCollapsedMap[collapseKey];
-    } else {
-      nextCollapsedMap[collapseKey] = true;
+    if (groupFilterActive) {
+      setFilterClosedGroups((prev) => {
+        const next = new Set(prev);
+
+        if (!next.delete(collapseKey)) next.add(collapseKey);
+
+        return next;
+      });
+
+      return;
     }
-    setCollapsedTunnelGroups(nextCollapsedMap);
-    persistGroupCollapsedToLocal(nextCollapsedMap);
-    void persistGroupCollapsedToGlobal(nextCollapsedMap);
+    saveExpandedTunnelGroups((next) => {
+      if (next[collapseKey] === true) {
+        delete next[collapseKey];
+      } else {
+        next[collapseKey] = true;
+      }
+    });
   };
+
+  // Plan 163: open the group of a rule created in the dialog once the list
+  // contains it (saved as open, like a click on its header).
+  useEffect(() => {
+    const pending = revealForwardRef.current;
+
+    if (!pending || forwards.length === 0) return;
+    if (Date.now() - pending.at > 60000) {
+      revealForwardRef.current = null;
+
+      return;
+    }
+    const created =
+      pending.id > 0
+        ? forwards.find((forward) => forward.id === pending.id)
+        : forwards
+            .filter(
+              (forward) =>
+                forward.tunnelId === pending.tunnelId &&
+                (pending.userId === null || forward.userId === pending.userId),
+            )
+            .reduce<Forward | undefined>(
+              (latest, forward) =>
+                !latest || forward.id > latest.id ? forward : latest,
+              undefined,
+            );
+
+    if (!created) return;
+    revealForwardRef.current = null;
+    const collapseKey = buildTunnelGroupCollapseKey(
+      created.userId ?? 0,
+      buildForwardTunnelGroupKey(created.tunnelName),
+    );
+
+    setFilterClosedGroups((prev) => {
+      if (!prev.has(collapseKey)) return prev;
+      const next = new Set(prev);
+
+      next.delete(collapseKey);
+
+      return next;
+    });
+    if (expandedTunnelGroups[collapseKey] !== true) {
+      saveExpandedTunnelGroups((next) => {
+        next[collapseKey] = true;
+      });
+    }
+  }, [forwards]);
   // 生成用作筛选项的用户和隧道列表
   const uniqueUsers = useMemo(() => {
     const userMap = new Map<number, { id: number; name: string }>();
@@ -5374,8 +5471,12 @@ export default function ForwardPage() {
           )}
         </div>
       </div>
-      {isMobile && (isAdmin || compactMode) && (!compactMode || viewMode === "grouped") && (
-        <div className={`grid gap-2 mb-4 ${isAdmin && compactMode ? "grid-cols-2" : "grid-cols-1"}`}>
+      {/* Plan 163: on desktop 分组 the admin user picker lives in the group
+          table headers, which are hidden while the groups are collapsed. */}
+      {(isMobile
+        ? (isAdmin || compactMode) && (!compactMode || viewMode === "grouped")
+        : isAdmin && !compactMode) && (
+        <div className={`grid gap-2 mb-4 ${isAdmin && compactMode ? "grid-cols-2" : "grid-cols-1"} ${isMobile ? "" : "max-w-xs"}`}>
           {isAdmin && (
             <Select
               aria-label="按用户筛选"
@@ -5781,22 +5882,21 @@ export default function ForwardPage() {
                           const tunnelSortableForwardIds = tunnel.items
                             .map((item) => item.id)
                             .filter((id) => id > 0);
-                          const collapsed =
-                            sanitizedCollapsedTunnelGroups[
-                              buildTunnelGroupCollapseKey(
-                                group.userId,
-                                tunnel.tunnelKey,
-                              )
-                            ] === true;
+                          const collapsed = !isTunnelGroupExpanded(
+                            buildTunnelGroupCollapseKey(
+                              group.userId,
+                              tunnel.tunnelKey,
+                            ),
+                          );
 
                           return (
                             <SortableTunnelGroupContainer
                               key={`grouped-table-${group.userId}-${tunnel.tunnelKey}`}
                               bodyClassName=""
                               collapsed={collapsed}
-                              countClassName="text-xs text-default-600"
+                              countClassName="whitespace-nowrap text-xs text-default-500"
                               groupUserId={group.userId}
-                              headerClassName="flex items-center justify-between border-b border-divider bg-default-100/50 hover:bg-default-200/50 px-4 py-2.5 max-md:px-2 max-md:gap-1"
+                              headerClassName={`flex items-center justify-between ${collapsed ? "" : "border-b border-divider "}bg-default-100/50 hover:bg-default-200/50 px-4 py-2.5 max-md:px-2 max-md:gap-1`}
                               titleClassName={isMobile ? "min-w-0 break-all text-sm font-semibold text-foreground" : "truncate text-sm font-semibold text-foreground"}
                               tunnel={tunnel}
                               wrapperClassName="overflow-hidden rounded-lg border border-divider bg-content1"
@@ -5807,207 +5907,210 @@ export default function ForwardPage() {
                                 )
                               }
                             >
-                              <DndContext
-                                collisionDetection={pointerWithin}
-                                sensors={sensors}
-                                onDragEnd={handleDragEnd}
-                              >
-                                {(() => {
-                                  const groupIds = tunnel.items.map(
-                                    (f) => f.id,
-                                  );
-                                  const isGroupSelected = groupIds.every((id) =>
-                                    selectedIds.has(id),
-                                  );
-                                  const handleGroupToggle = (
-                                    isSelected: boolean,
-                                  ) => {
-                                    const next = new Set(selectedIds);
-
-                                    groupIds.forEach((id) =>
-                                      isSelected
-                                        ? next.add(id)
-                                        : next.delete(id),
+                              {/* Plan 163: collapsed groups build no rows at all. */}
+                              {!collapsed && (
+                                <DndContext
+                                  collisionDetection={pointerWithin}
+                                  sensors={sensors}
+                                  onDragEnd={handleDragEnd}
+                                >
+                                  {(() => {
+                                    const groupIds = tunnel.items.map(
+                                      (f) => f.id,
                                     );
-                                    setSelectedIds(next);
-                                  };
+                                    const isGroupSelected = groupIds.every((id) =>
+                                      selectedIds.has(id),
+                                    );
+                                    const handleGroupToggle = (
+                                      isSelected: boolean,
+                                    ) => {
+                                      const next = new Set(selectedIds);
 
-                                  return isMobile ? (
-                                    <SortableContext items={tunnelSortableForwardIds} strategy={verticalListSortingStrategy}>
-                                      <div className="space-y-3 p-2">
-                                        <Checkbox aria-label="本组全选" className="px-1 py-1" isSelected={isGroupSelected} onValueChange={handleGroupToggle}>本组全选</Checkbox>
-                                        {tunnel.items.map((forward) => (
-                                          <SortableForwardCard key={forward.id} forward={forward} renderCard={renderForwardCard} />
-                                        ))}
-                                      </div>
-                                    </SortableContext>
-                                  ) : (
-                                    <Table
-                                      aria-label={`${group.userName}-${tunnel.tunnelName}规则列表`}
-                                      className={
-                                        FORWARD_GROUPED_TABLE_MIN_WIDTH_CLASS
-                                      }
-                                      classNames={{
-                                        th: "bg-default-100/50 text-default-600 font-semibold text-sm border-b border-divider py-3 uppercase tracking-wider text-left align-middle",
-                                        td: "py-3 border-b border-divider/50 group-data-[last=true]:border-b-0",
-                                        tr: "hover:bg-default-50/50 transition-colors",
-                                        wrapper: "bg-content1",
-                                      }}
-                                    >
-                                      <TableHeader>
-                                        <TableColumn
-                                          className={`whitespace-nowrap flex-shrink-0 ${FORWARD_GROUPED_TABLE_COLUMN_CLASS.select} text-left`}
-                                        >
-                                          <div className="flex items-center justify-center h-full">
-                                            <Checkbox
-                                              aria-label="本组全选"
-                                              isSelected={isGroupSelected}
-                                              onValueChange={handleGroupToggle}
-                                            />
-                                          </div>
-                                        </TableColumn>
-                                        <TableColumn className="whitespace-nowrap flex-shrink-0 w-16 pl-2 text-left">
-                                          排序
-                                        </TableColumn>
-                                        {/* <TableColumn className="whitespace-nowrap flex-shrink-0 w-[100px] text-left">用户名</TableColumn> */}
-                                        {isAdmin && (
+                                      groupIds.forEach((id) =>
+                                        isSelected
+                                          ? next.add(id)
+                                          : next.delete(id),
+                                      );
+                                      setSelectedIds(next);
+                                    };
+
+                                    return isMobile ? (
+                                      <SortableContext items={tunnelSortableForwardIds} strategy={verticalListSortingStrategy}>
+                                        <div className="space-y-3 p-2">
+                                          <Checkbox aria-label="本组全选" className="px-1 py-1" isSelected={isGroupSelected} onValueChange={handleGroupToggle}>本组全选</Checkbox>
+                                          {tunnel.items.map((forward) => (
+                                            <SortableForwardCard key={forward.id} forward={forward} renderCard={renderForwardCard} />
+                                          ))}
+                                        </div>
+                                      </SortableContext>
+                                    ) : (
+                                      <Table
+                                        aria-label={`${group.userName}-${tunnel.tunnelName}规则列表`}
+                                        className={
+                                          FORWARD_GROUPED_TABLE_MIN_WIDTH_CLASS
+                                        }
+                                        classNames={{
+                                          th: "bg-default-100/50 text-default-600 font-semibold text-sm border-b border-divider py-3 uppercase tracking-wider text-left align-middle",
+                                          td: "py-3 border-b border-divider/50 group-data-[last=true]:border-b-0",
+                                          tr: "hover:bg-default-50/50 transition-colors",
+                                          wrapper: "bg-content1",
+                                        }}
+                                      >
+                                        <TableHeader>
+                                          <TableColumn
+                                            className={`whitespace-nowrap flex-shrink-0 ${FORWARD_GROUPED_TABLE_COLUMN_CLASS.select} text-left`}
+                                          >
+                                            <div className="flex items-center justify-center h-full">
+                                              <Checkbox
+                                                aria-label="本组全选"
+                                                isSelected={isGroupSelected}
+                                                onValueChange={handleGroupToggle}
+                                              />
+                                            </div>
+                                          </TableColumn>
+                                          <TableColumn className="whitespace-nowrap flex-shrink-0 w-16 pl-2 text-left">
+                                            排序
+                                          </TableColumn>
+                                          {/* <TableColumn className="whitespace-nowrap flex-shrink-0 w-[100px] text-left">用户名</TableColumn> */}
+                                          {isAdmin && (
+                                            <TableColumn className="whitespace-nowrap flex-shrink-0 w-[100px] text-left">
+                                              <Select
+                                                aria-label="按用户筛选"
+                                                className="w-full min-w-[80px]"
+                                                classNames={{
+                                                  trigger:
+                                                    "bg-transparent border-none shadow-none p-0 min-h-0 h-auto gap-1.5 hover:bg-default-100/50 transition-colors flex flex-row items-center justify-start",
+                                                  value:
+                                                    "text-sm text-default-600 font-semibold uppercase tracking-wider p-0 order-last",
+                                                  selectorIcon:
+                                                    "text-default-400 w-3.5 h-3.5 static order-first m-0",
+                                                  innerWrapper: "w-fit flex-none",
+                                                  placeholder:
+                                                    "text-sm text-default-600 font-semibold uppercase tracking-wider",
+                                                }}
+                                                size="sm"
+                                                variant="flat"
+                                                onSelectionChange={(keys) => {
+                                                  const key = Array.from(
+                                                    keys,
+                                                  )[0] as string | undefined;
+                                                  setSearchParams(
+                                                    (prev: any) => ({
+                                                      ...prev,
+                                                      userId: key || "all",
+                                                    }),
+                                                  );
+                                                }}
+                                                placeholder="所属用户"
+                                                // 🎯 逻辑对齐：如果是 "all" 或者空，传 [] 让它显示 placeholder ("所属用户")
+                                                selectedKeys={
+                                                  !searchParams?.userId ||
+                                                  searchParams.userId === "all"
+                                                    ? []
+                                                    : [
+                                                        String(
+                                                          searchParams.userId,
+                                                        ),
+                                                      ]
+                                                }
+                                              >
+                                                <SelectItem
+                                                  key="all"
+                                                  textValue="全部用户"
+                                                >
+                                                  全部用户
+                                                </SelectItem>
+                                                {(uniqueUsers || []).map(
+                                                  (user: any) => (
+                                                    <SelectItem
+                                                      key={user.id.toString()}
+                                                      textValue={user.name}
+                                                    >
+                                                      {user.name}
+                                                    </SelectItem>
+                                                  ),
+                                                )}
+                                              </Select>
+                                            </TableColumn>
+                                          )}
+                                          <TableColumn className="whitespace-nowrap flex-shrink-0 w-[180px] text-left">
+                                            规则名称
+                                            <span className="text-xs text-primary-500 font-normal">
+                                              {tunnel.items.length}个
+                                            </span>
+                                          </TableColumn>
+                                          {/* {isAdmin && <TableColumn className="whitespace-nowrap flex-shrink-0 w-[100px] text-left">速度限制</TableColumn>} */}
+                                          <TableColumn className="whitespace-nowrap flex-shrink-0 w-[140px] text-left">
+                                            入口地址
+                                          </TableColumn>
+                                          <TableColumn className="whitespace-nowrap flex-shrink-0 w-[65px] text-left">
+                                            端口
+                                          </TableColumn>
+                                          <TableColumn className="whitespace-nowrap flex-shrink-0 w-[110px] text-left">
+                                            落地地址
+                                          </TableColumn>
+                                          <TableColumn className="whitespace-nowrap flex-shrink-0 w-[65px] text-left">
+                                            端口
+                                          </TableColumn>
                                           <TableColumn className="whitespace-nowrap flex-shrink-0 w-[100px] text-left">
-                                            <Select
-                                              aria-label="按用户筛选"
-                                              className="w-full min-w-[80px]"
-                                              classNames={{
-                                                trigger:
-                                                  "bg-transparent border-none shadow-none p-0 min-h-0 h-auto gap-1.5 hover:bg-default-100/50 transition-colors flex flex-row items-center justify-start",
-                                                value:
-                                                  "text-sm text-default-600 font-semibold uppercase tracking-wider p-0 order-last",
-                                                selectorIcon:
-                                                  "text-default-400 w-3.5 h-3.5 static order-first m-0",
-                                                innerWrapper: "w-fit flex-none",
-                                                placeholder:
-                                                  "text-sm text-default-600 font-semibold uppercase tracking-wider",
-                                              }}
-                                              size="sm"
-                                              variant="flat"
-                                              onSelectionChange={(keys) => {
-                                                const key = Array.from(
-                                                  keys,
-                                                )[0] as string | undefined;
-                                                setSearchParams(
-                                                  (prev: any) => ({
-                                                    ...prev,
-                                                    userId: key || "all",
-                                                  }),
-                                                );
-                                              }}
-                                              placeholder="所属用户"
-                                              // 🎯 逻辑对齐：如果是 "all" 或者空，传 [] 让它显示 placeholder ("所属用户")
-                                              selectedKeys={
-                                                !searchParams?.userId ||
-                                                searchParams.userId === "all"
-                                                  ? []
-                                                  : [
-                                                      String(
-                                                        searchParams.userId,
-                                                      ),
-                                                    ]
+                                            用量
+                                          </TableColumn>
+                                          <TableColumn className="whitespace-nowrap flex-shrink-0 w-[140px] text-left">
+                                            实时带宽
+                                          </TableColumn>
+                                          <TableColumn className="whitespace-nowrap flex-shrink-0 w-[100px] text-left">
+                                            状态
+                                          </TableColumn>
+                                          <TableColumn
+                                            align="left"
+                                            className="whitespace-nowrap flex-shrink-0 min-w-[220px] pl-4 text-left"
+                                          >
+                                            操作
+                                          </TableColumn>
+                                        </TableHeader>
+                                        <TableBody
+                                          emptyContent="暂无规则配置"
+                                          items={tunnel.items}
+                                        >
+                                          {(forward) => (
+                                            <SortableContext
+                                              key={forward.id}
+                                              items={tunnelSortableForwardIds}
+                                              strategy={
+                                                verticalListSortingStrategy
                                               }
                                             >
-                                              <SelectItem
-                                                key="all"
-                                                textValue="全部用户"
-                                              >
-                                                全部用户
-                                              </SelectItem>
-                                              {(uniqueUsers || []).map(
-                                                (user: any) => (
-                                                  <SelectItem
-                                                    key={user.id.toString()}
-                                                    textValue={user.name}
-                                                  >
-                                                    {user.name}
-                                                  </SelectItem>
-                                                ),
-                                              )}
-                                            </Select>
-                                          </TableColumn>
-                                        )}
-                                        <TableColumn className="whitespace-nowrap flex-shrink-0 w-[180px] text-left">
-                                          规则名称
-                                          <span className="text-xs text-primary-500 font-normal">
-                                            {tunnel.items.length}个
-                                          </span>
-                                        </TableColumn>
-                                        {/* {isAdmin && <TableColumn className="whitespace-nowrap flex-shrink-0 w-[100px] text-left">速度限制</TableColumn>} */}
-                                        <TableColumn className="whitespace-nowrap flex-shrink-0 w-[140px] text-left">
-                                          入口地址
-                                        </TableColumn>
-                                        <TableColumn className="whitespace-nowrap flex-shrink-0 w-[65px] text-left">
-                                          端口
-                                        </TableColumn>
-                                        <TableColumn className="whitespace-nowrap flex-shrink-0 w-[110px] text-left">
-                                          落地地址
-                                        </TableColumn>
-                                        <TableColumn className="whitespace-nowrap flex-shrink-0 w-[65px] text-left">
-                                          端口
-                                        </TableColumn>
-                                        <TableColumn className="whitespace-nowrap flex-shrink-0 w-[100px] text-left">
-                                          用量
-                                        </TableColumn>
-                                        <TableColumn className="whitespace-nowrap flex-shrink-0 w-[140px] text-left">
-                                          实时带宽
-                                        </TableColumn>
-                                        <TableColumn className="whitespace-nowrap flex-shrink-0 w-[100px] text-left">
-                                          状态
-                                        </TableColumn>
-                                        <TableColumn
-                                          align="left"
-                                          className="whitespace-nowrap flex-shrink-0 min-w-[220px] pl-4 text-left"
-                                        >
-                                          操作
-                                        </TableColumn>
-                                      </TableHeader>
-                                      <TableBody
-                                        emptyContent="暂无规则配置"
-                                        items={tunnel.items}
-                                      >
-                                        {(forward) => (
-                                          <SortableContext
-                                            key={forward.id}
-                                            items={tunnelSortableForwardIds}
-                                            strategy={
-                                              verticalListSortingStrategy
-                                            }
-                                          >
-                                            <SortableTableRow
-                                              copyToClipboard={copyToClipboard}
-                                              formatFlow={formatFlow}
-                                              formatSpeed={formatSpeed}
-                                              forward={forward}
-                                              getStrategyDisplay={
-                                                getStrategyDisplay
-                                              }
-                                              handleCopy={handleCopy}
-                                              handleDelete={handleDelete}
-                                              handleDiagnose={handleDiagnose}
-                                              handleEdit={handleEdit}
-                                              handleServiceToggle={
-                                                handleServiceToggle
-                                              }
-                                              handleViewTrafficResetLogs={
-                                                handleViewTrafficResetLogs
-                                              }
-                                              isAdmin={isAdmin}
-                                              selectedIds={selectedIds}
-                                              toggleSelect={toggleSelect}
-                                              togglingIds={togglingIds}
-                                            />
-                                          </SortableContext>
-                                        )}
-                                      </TableBody>
-                                    </Table>
-                                  );
-                                })()}
-                              </DndContext>
+                                              <SortableTableRow
+                                                copyToClipboard={copyToClipboard}
+                                                formatFlow={formatFlow}
+                                                formatSpeed={formatSpeed}
+                                                forward={forward}
+                                                getStrategyDisplay={
+                                                  getStrategyDisplay
+                                                }
+                                                handleCopy={handleCopy}
+                                                handleDelete={handleDelete}
+                                                handleDiagnose={handleDiagnose}
+                                                handleEdit={handleEdit}
+                                                handleServiceToggle={
+                                                  handleServiceToggle
+                                                }
+                                                handleViewTrafficResetLogs={
+                                                  handleViewTrafficResetLogs
+                                                }
+                                                isAdmin={isAdmin}
+                                                selectedIds={selectedIds}
+                                                toggleSelect={toggleSelect}
+                                                togglingIds={togglingIds}
+                                              />
+                                            </SortableContext>
+                                          )}
+                                        </TableBody>
+                                      </Table>
+                                    );
+                                  })()}
+                                </DndContext>
+                              )}
                             </SortableTunnelGroupContainer>
                           );
                         })}
