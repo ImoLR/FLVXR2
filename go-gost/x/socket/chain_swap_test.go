@@ -11,9 +11,9 @@ import (
 	"github.com/go-gost/core/chain"
 	corelogger "github.com/go-gost/core/logger"
 	xchain "github.com/go-gost/x/chain"
+	"github.com/go-gost/x/config"
 	_ "github.com/go-gost/x/connector/relay"
 	_ "github.com/go-gost/x/dialer/tls"
-	"github.com/go-gost/x/config"
 	xlogger "github.com/go-gost/x/logger"
 	"github.com/go-gost/x/registry"
 )
