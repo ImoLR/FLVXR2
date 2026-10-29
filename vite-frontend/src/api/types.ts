@@ -723,6 +723,8 @@ export interface ForwardMutationPayload {
   sourceCidr?: string;
   targetCidr?: string;
   snatEnabled?: boolean;
+  // Plan 164: admin 「已确认合规」 (update only; ignored for non-admins).
+  lineComplianceAck?: boolean;
 }
 
 export interface SpeedLimitMutationPayload {

@@ -174,6 +174,8 @@ export interface Forward {
   chain?: ForwardChainInfo;
   lineMachine?: boolean;
   lineNonCompliant?: boolean;
+  // Plan 164: admin view only — an admin confirmed the hand-typed target.
+  lineComplianceAck?: boolean;
   // Plan 152: set when the rule opens only on some entries of its tunnel.
   entryKey?: string;
   entryLabel?: string;
@@ -380,6 +382,8 @@ interface ForwardForm extends LandingTargetValue {
   sourceCidr: string;
   targetCidr: string;
   snatEnabled: boolean;
+  // Plan 164: 「已确认合规」 tick (admin, edit of a hand-typed 线路机 rule).
+  lineComplianceAck?: boolean;
 }
 interface ForwardUserGroup {
   userId: number;
@@ -747,6 +751,7 @@ const mapForwardApiItems = (items: ForwardApiItem[]): Forward[] => {
     chain: (forward as any).chain as ForwardChainInfo | undefined,
     lineMachine: (forward as any).lineMachine === true,
     lineNonCompliant: (forward as any).lineNonCompliant === true,
+    lineComplianceAck: (forward as any).lineComplianceAck === true,
     landingNodeId: Number(forward.landingNodeId || 0) || undefined,
     strategy: typeof forward.strategy === "string" ? forward.strategy : "fifo",
     status: typeof forward.status === "number" ? forward.status : 0,
@@ -811,6 +816,70 @@ const ForwardCNBlockedWarning = ({ forward }: { forward: Forward }) => {
     </div>
   );
 };
+// Plan 164: a rule reached from 「线路机不合规 N 条」 flashes for about 2 s —
+// cell background (table rows) or a ring (cards), so nothing moves.
+const flashForwardElement = (el: HTMLElement) => {
+  if (typeof el.animate !== "function") return;
+  const timing: KeyframeAnimationOptions = {
+    duration: 2000,
+    easing: "ease-out",
+  };
+
+  if (el.tagName === "TR") {
+    const tint = "rgba(245, 165, 36, 0.3)";
+
+    Array.from(el.children).forEach((cell) =>
+      (cell as HTMLElement).animate(
+        [
+          { backgroundColor: tint },
+          { backgroundColor: tint, offset: 0.55 },
+          { backgroundColor: "rgba(245, 165, 36, 0)" },
+        ],
+        timing,
+      ),
+    );
+
+    return;
+  }
+  const card = (el.firstElementChild as HTMLElement | null) ?? el;
+  const ring = "0 0 0 3px rgba(245, 165, 36, 0.9)";
+
+  card.animate(
+    [
+      { boxShadow: ring },
+      { boxShadow: ring, offset: 0.55 },
+      { boxShadow: "0 0 0 3px rgba(245, 165, 36, 0)" },
+    ],
+    timing,
+  );
+};
+// Scrolls a rule row/card into the middle of the screen once it is rendered.
+const revealForwardElement = (forwardId: number) => {
+  let tries = 0;
+  const find = () => {
+    const el = document.querySelector<HTMLElement>(
+      `[data-forward-id="${forwardId}"]`,
+    );
+
+    if (!el) {
+      tries += 1;
+      if (tries < 15) window.setTimeout(find, 100);
+
+      return;
+    }
+    const reduceMotion = window.matchMedia?.(
+      "(prefers-reduced-motion: reduce)",
+    ).matches;
+
+    el.scrollIntoView({
+      behavior: reduceMotion ? "auto" : "smooth",
+      block: "center",
+    });
+    flashForwardElement(el);
+  };
+
+  window.setTimeout(find, 60);
+};
 const SortableTunnelGroupContainer = ({
   groupKey,
   groupUserId,
@@ -862,10 +931,13 @@ const SortableTunnelGroupContainer = ({
   // a paused / abnormal hint (from the list already loaded, no extra request).
   let pausedCount = 0;
   let abnormalCount = 0;
+  let nonCompliantCount = 0;
 
   tunnel.items.forEach((item) => {
     if (item.status === 0) pausedCount++;
     else if (item.status === -1) abnormalCount++;
+    // Plan 164: 线路机 rules the panel flags (acknowledged ones are not).
+    if (item.lineNonCompliant) nonCompliantCount++;
   });
   const statusHints = (
     <>
@@ -877,6 +949,11 @@ const SortableTunnelGroupContainer = ({
       {abnormalCount > 0 && (
         <span className="whitespace-nowrap rounded bg-danger-500/10 px-1.5 py-0.5 text-[10px] font-medium text-danger-600 dark:text-danger-400">
           {abnormalCount} 条异常
+        </span>
+      )}
+      {nonCompliantCount > 0 && (
+        <span className="whitespace-nowrap rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:bg-amber-400/15 dark:text-amber-300">
+          {nonCompliantCount} 条不合规
         </span>
       )}
     </>
@@ -987,7 +1064,13 @@ const SortableForwardCard = ({ forward, renderCard }: any) => {
   };
 
   return (
-    <div ref={setNodeRef} className="h-full" style={style} {...attributes}>
+    <div
+      ref={setNodeRef}
+      className="h-full"
+      data-forward-id={forward.id}
+      style={style}
+      {...attributes}
+    >
       {renderCard(forward, listeners)}
     </div>
   );
@@ -1055,7 +1138,12 @@ const SortableTableRow = ({
     forward.remoteAddr.split(",")[0].match(/:(\d+)$/)?.[1] || "-";
 
   return (
-    <TableRow key={forward.id} ref={setNodeRef} style={style as any}>
+    <TableRow
+      key={forward.id}
+      ref={setNodeRef}
+      data-forward-id={forward.id}
+      style={style as any}
+    >
       <TableCell className={rowBg}>
         <div className="flex items-center justify-center h-full">
           <Checkbox
@@ -1363,7 +1451,12 @@ const SortableCompactTableRow = ({
     forward.remoteAddr.split(",")[0].match(/:(\d+)$/)?.[1] || "-";
 
   return (
-    <TableRow key={forward.id} ref={setNodeRef} style={style as any}>
+    <TableRow
+      key={forward.id}
+      ref={setNodeRef}
+      data-forward-id={forward.id}
+      style={style as any}
+    >
       <TableCell className={rowBg}>
         <div className="flex items-center justify-center h-full">
           <Checkbox
@@ -1678,6 +1771,11 @@ export default function ForwardPage() {
   // entry; editing without touching 选择隧道 keeps the stored binding.
   const [entryTouched, setEntryTouched] = useState(false);
   const [editBinding, setEditBinding] = useState<{ key: string; label: string } | null>(null);
+  // Plan 164: tunnel of the hand-typed 线路机 rule being edited when an admin
+  // may tick 「已确认合规」 (null = not offered).
+  const [editLineAckTunnelId, setEditLineAckTunnelId] = useState<
+    number | null
+  >(null);
   const editOptionOriginRef = useRef("");
   const [filterTunnelOptionKey, setFilterTunnelOptionKey] = useState("");
   const tunnelPickerSections = useMemo(() => buildTunnelPickerSections(tunnels), [tunnels]);
@@ -1965,6 +2063,14 @@ export default function ForwardPage() {
   const [filterClosedGroups, setFilterClosedGroups] = useState<Set<string>>(
     () => new Set(),
   );
+  // Plan 164: groups opened by 「线路机不合规 N 条」 stay open for this visit
+  // only — the saved open/closed state is not touched.
+  const [jumpOpenedGroups, setJumpOpenedGroups] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const [lineJumpId, setLineJumpId] = useState<number | null>(null);
+  const [lineJumpSeq, setLineJumpSeq] = useState(0);
+  const lineJumpPendingRef = useRef<{ id: number; at: number } | null>(null);
   // Plan 163: a newly created rule's group is opened once the list has it.
   const revealForwardRef = useRef<{
     id: number;
@@ -2076,6 +2182,13 @@ export default function ForwardPage() {
     ? forwards.find((forward) => forward.id === form.id)?.chain
     : undefined;
   const selectedLineTunnel = tunnels.find((tunnel) => tunnel.id === form.tunnelId);
+  // Plan 164: the tick stays while the rule keeps its tunnel and 手动填写 target.
+  const showLineAck =
+    isEdit &&
+    editLineAckTunnelId !== null &&
+    form.tunnelId === editLineAckTunnelId &&
+    (form.targetMode || "manual") === "manual" &&
+    form.mode !== "wg_path";
   const currentTunnelPortRange = useMemo(() => {
     if (!form.tunnelId) {
       return null;
@@ -2807,6 +2920,15 @@ export default function ForwardPage() {
     setFormTunnelOptionKey(forward.entryKey ? JSON.stringify([forward.tunnelId, forward.entryKey]) : "");
     setEntryTouched(false);
     setEditBinding(forward.entryKey ? { key: forward.entryKey, label: forward.entryLabel || "" } : null);
+    setEditLineAckTunnelId(
+      isAdmin &&
+        (forward.lineNonCompliant || forward.lineComplianceAck) &&
+        !forward.chain &&
+        !forward.landingNodeId &&
+        forward.mode !== "wg_path"
+        ? forward.tunnelId
+        : null,
+    );
     setForm({
       id: forward.id,
       userId: forward.userId,
@@ -2833,6 +2955,7 @@ export default function ForwardPage() {
       sourceCidr: forward.sourceCidr || "",
       targetCidr: forward.targetCidr || "",
       snatEnabled: forward.snatEnabled ?? true,
+      lineComplianceAck: forward.lineComplianceAck === true,
     });
     setErrors({});
     resetChainDialog();
@@ -3243,6 +3366,9 @@ export default function ForwardPage() {
           targetCidr: form.targetCidr,
           snatEnabled: form.snatEnabled,
           ...entryKeyField(),
+          ...(showLineAck
+            ? { lineComplianceAck: form.lineComplianceAck === true }
+            : {}),
         };
 
         res = await updateForward(updateData);
@@ -4835,7 +4961,8 @@ export default function ForwardPage() {
   const isTunnelGroupExpanded = (collapseKey: string): boolean =>
     groupFilterActive
       ? !filterClosedGroups.has(collapseKey)
-      : sanitizedExpandedTunnelGroups[collapseKey] === true;
+      : sanitizedExpandedTunnelGroups[collapseKey] === true ||
+        jumpOpenedGroups.has(collapseKey);
   const saveExpandedTunnelGroups = (
     update: (next: ForwardGroupExpandedMap) => void,
   ) => {
@@ -4864,6 +4991,18 @@ export default function ForwardPage() {
 
       return;
     }
+    // Plan 164: closing a group the jump opened leaves the saved state alone
+    // (unless it is also saved as open, then it is saved closed as usual).
+    if (jumpOpenedGroups.has(collapseKey)) {
+      setJumpOpenedGroups((prev) => {
+        const next = new Set(prev);
+
+        next.delete(collapseKey);
+
+        return next;
+      });
+      if (sanitizedExpandedTunnelGroups[collapseKey] !== true) return;
+    }
     saveExpandedTunnelGroups((next) => {
       if (next[collapseKey] === true) {
         delete next[collapseKey];
@@ -4872,6 +5011,103 @@ export default function ForwardPage() {
       }
     });
   };
+
+  // Plan 164: 「线路机不合规 N 条」 cycles through the flagged rules in the
+  // order they are shown (rules hidden by a filter come last).
+  const lineJumpOrder = useMemo((): Forward[] => {
+    const visible = sortedForwards.filter(
+      (forward) => forward.lineNonCompliant,
+    );
+    const shown = new Set(visible.map((forward) => forward.id));
+    const hidden = forwards
+      .filter((forward) => forward.lineNonCompliant && !shown.has(forward.id))
+      .sort((a, b) => (a.inx ?? 0) - (b.inx ?? 0) || a.id - b.id);
+
+    return [...visible, ...hidden];
+  }, [sortedForwards, forwards]);
+  const lineJumpPosition =
+    lineJumpOrder.findIndex((forward) => forward.id === lineJumpId) + 1;
+  const handleLineJump = () => {
+    if (lineJumpOrder.length === 0) return;
+    const target = lineJumpOrder[lineJumpPosition % lineJumpOrder.length];
+
+    if (!sortedForwards.some((forward) => forward.id === target.id)) {
+      // A filter (or the 所属用户 picker) hides it: show the rules again.
+      const keepUser =
+        searchParams.userId === "all" ||
+        searchParams.userId === String(target.userId ?? 0);
+
+      setSearchParams({
+        name: "",
+        userId: keepUser ? searchParams.userId : "all",
+        tunnelId: "all",
+        speedLimitId: undefined,
+        inPort: "",
+        remoteAddr: "",
+      });
+      setSearchKeyword("");
+    }
+    setLineJumpId(target.id);
+    lineJumpPendingRef.current = { id: target.id, at: Date.now() };
+    setLineJumpSeq((seq) => seq + 1);
+  };
+
+  // Plan 164: once the list shows the target (filters applied), go to its
+  // page, open its group, scroll it to the centre and flash it.
+  useEffect(() => {
+    const pending = lineJumpPendingRef.current;
+
+    if (!pending) return;
+    if (Date.now() - pending.at > 10000) {
+      lineJumpPendingRef.current = null;
+
+      return;
+    }
+    if (!compactMode) {
+      const groupIndex = groupedForwards.findIndex((group) =>
+        group.tunnels.some((tunnel) =>
+          tunnel.items.some((forward) => forward.id === pending.id),
+        ),
+      );
+
+      if (groupIndex < 0) return;
+      const group = groupedForwards[groupIndex];
+      const tunnel = group.tunnels.find((item) =>
+        item.items.some((forward) => forward.id === pending.id),
+      );
+
+      if (!tunnel) return;
+      const collapseKey = buildTunnelGroupCollapseKey(
+        group.userId,
+        tunnel.tunnelKey,
+      );
+
+      setGroupPage(Math.floor(groupIndex / groupPageSize) + 1);
+      if (groupFilterActive) {
+        setFilterClosedGroups((prev) => {
+          if (!prev.has(collapseKey)) return prev;
+          const next = new Set(prev);
+
+          next.delete(collapseKey);
+
+          return next;
+        });
+      } else if (sanitizedExpandedTunnelGroups[collapseKey] !== true) {
+        setJumpOpenedGroups((prev) =>
+          prev.has(collapseKey) ? prev : new Set(prev).add(collapseKey),
+        );
+      }
+    } else {
+      const index = sortedForwards.findIndex(
+        (forward) => forward.id === pending.id,
+      );
+
+      if (index < 0) return;
+      setForwardPage(Math.floor(index / forwardPageSize) + 1);
+    }
+    lineJumpPendingRef.current = null;
+    revealForwardElement(pending.id);
+  }, [lineJumpSeq, groupedForwards, sortedForwards, compactMode]);
 
   // Plan 163: open the group of a rule created in the dialog once the list
   // contains it (saved as open, like a click on its header).
@@ -5451,12 +5687,28 @@ export default function ForwardPage() {
               </Button>
               {isAdmin && lineNonCompliantCount > 0 && (
                 <Chip
+                  aria-label={`线路机不合规 ${lineNonCompliantCount} 条，定位到${lineJumpPosition > 0 ? "下一条" : "第一条"}`}
+                  className="cursor-pointer select-none"
                   color="warning"
+                  role="button"
                   size="sm"
-                  title="线路机隧道上目标不是 VLESS Reality Vision 落地或「我自己的节点」的规则；仍在运行，修改目标后即合规"
+                  tabIndex={0}
+                  title={`线路机隧道上目标不是 VLESS Reality Vision 落地或「我自己的节点」的规则；仍在运行，修改目标后即合规。点一下定位到规则${lineNonCompliantCount > 1 ? "，再点跳到下一条" : ""}`}
                   variant="flat"
+                  onClick={handleLineJump}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      handleLineJump();
+                    }
+                  }}
                 >
                   线路机不合规 {lineNonCompliantCount} 条
+                  {lineNonCompliantCount > 1 && lineJumpPosition > 0 && (
+                    <span className="ml-1 font-medium tabular-nums opacity-90">
+                      · {lineJumpPosition}/{lineNonCompliantCount}
+                    </span>
+                  )}
                 </Chip>
               )}
               <Button
@@ -6501,6 +6753,26 @@ export default function ForwardPage() {
                         }
                       }
                     />}
+                        {showLineAck && (
+                          <div className="rounded-lg bg-amber-500/10 px-3 py-2 dark:bg-amber-400/10">
+                            <Checkbox
+                              isSelected={form.lineComplianceAck === true}
+                              size="sm"
+                              onValueChange={(value) =>
+                                setForm((prev) => ({
+                                  ...prev,
+                                  lineComplianceAck: value,
+                                }))
+                              }
+                            >
+                              已确认合规
+                            </Checkbox>
+                            <p className="mt-1 text-xs leading-snug text-default-500">
+                              目标是手填地址，面板无法判断协议；勾选表示管理员已确认它是
+                              VLESS Reality Vision。只有管理员能看到；目标或隧道改了会自动取消。
+                            </p>
+                          </div>
+                        )}
                     {(!form.targetMode || form.targetMode === "manual" || form.mode === "wg_path") && getAddressCount(form.remoteAddr) > 1 && (
                       <Select
                         description="多个落地地址的负载均衡策略"

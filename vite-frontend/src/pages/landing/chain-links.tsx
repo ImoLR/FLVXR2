@@ -49,12 +49,15 @@ interface ChainRow {
   chain?: ForwardChainInfo;
   landingNodeId?: number;
   lineNonCompliant?: boolean;
+  lineComplianceAck?: boolean;
 }
 
 // Badges next to a rule name: 「我的节点」 for chain rules (with a busy or
-// error hint) and 「不合规」 for rules a 线路机 tunnel no longer allows.
+// error hint), 「不合规」 for rules a 线路机 tunnel no longer allows and (admin
+// only, plan 164) a quiet 「已确认合规」 once an admin confirmed the target.
 export function ForwardLineBadges({ forward }: { forward: ChainRow }) {
-  if (!forward.chain && !forward.lineNonCompliant) return null;
+  if (!forward.chain && !forward.lineNonCompliant && !forward.lineComplianceAck)
+    return null;
   const chain = forward.chain;
 
   return (
@@ -84,6 +87,14 @@ export function ForwardLineBadges({ forward }: { forward: ChainRow }) {
         >
           不合规
         </Chip>
+      )}
+      {forward.lineComplianceAck && !forward.lineNonCompliant && (
+        <span
+          className="inline-flex items-center whitespace-nowrap rounded-full bg-green-500/15 px-2 text-[10px] font-semibold leading-[18px] text-green-700 dark:bg-green-400/15 dark:text-green-300"
+          title="管理员已确认目标是 VLESS Reality Vision；目标、落地或隧道改了会自动取消"
+        >
+          已确认合规
+        </span>
       )}
     </div>
   );

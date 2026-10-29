@@ -40,9 +40,9 @@ Frontend (`forward.tsx`, `chain-links.tsx`)
 - Collapsed group header: orange 「N 条不合规」 hint next to 已暂停/异常 (from the loaded list, no request).
 
 ## Checklist
-- [ ] Backend: column + signature + repo set/get + clears on every target write path + rollback restore + import
-- [ ] Backend: decorate pass honours the ack (count, flags, admin vs user) + update field + admin endpoint + route
-- [ ] Backend tests: set/clear admin vs non-admin, target change clears, tunnel move clears, A→B→A stays cleared, count
+- [x] Backend: column + signature + repo set/get + clears on every target write path + rollback restore + import
+- [x] Backend: decorate pass honours the ack (count, flags, admin vs user) + update field + admin endpoint + route
+- [x] Backend tests: set/clear admin vs non-admin, target change clears, tunnel move clears, A→B→A stays cleared, count
       excludes acked, user view, rollback-safe signature check, ineligible rules refused
 - [ ] Full `go test ./...` SQLite and PostgreSQL green (base compared for any failure)
 - [ ] Frontend: dialog checkbox, 已确认 chip, group header hint, clickable chip with jump/expand/scroll/highlight + k/N
