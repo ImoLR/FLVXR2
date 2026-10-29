@@ -95,6 +95,16 @@ func (h *Handler) redeployTunnelRuntimeOnNodeDiffLocked(tunnelID, nodeID int64, 
 	if inv != nil && !plan.federation && inv.matches(plan.expectedRevs()) {
 		return false, nil
 	}
+	// Plan 165: only the chain differs (e.g. the agent still runs a 最优 order
+	// from before a panel restart) on an agent that swaps chains without a
+	// gap → send just the chain; the relay service keeps listening.
+	if inv != nil && !plan.federation && plan.chainData != nil && h.chainSwapCapable(nodeID) &&
+		(plan.serviceData == nil || inv.matches(ws.ExpectedRuntimeRevs("AddService", plan.serviceData))) {
+		if _, err := h.sendNodeCommand(nodeID, "UpdateChains", map[string]interface{}{"chain": fmt.Sprintf("chains_%d", state.TunnelID), "data": plan.chainData}, false, false); err != nil {
+			return true, plan.failed("下发转发链", err)
+		}
+		return true, nil
+	}
 	return true, h.applyTunnelRuntimePlan(state, plan)
 }
 

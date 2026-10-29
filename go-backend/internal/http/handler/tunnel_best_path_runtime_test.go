@@ -354,3 +354,64 @@ func TestChainRevMatchesAcrossAddAndUpdate(t *testing.T) {
 		t.Fatalf("revs differ: add %v update %v", add, upd)
 	}
 }
+
+func TestBestPathReconnectAfterPanelRestartSendsChainOnly(t *testing.T) {
+	e, commands := newBestPathEnv(t)
+	now := time.Unix(1_800_000_000, 0)
+	// Owner 2 (a 中转 node, owner of the 出口 layer): exit 5 is 70 ms faster.
+	lat := bpExampleLat()
+	lat[[2]int64{2, 4}], lat[[2]int64{2, 5}] = 100, 30
+	bestPathEnvRound(t, e, lat, now)
+	bestPathEnvRound(t, e, lat, now.Add(time.Minute))
+	var switched interface{}
+	for _, c := range commands.snapshot() {
+		if c.nodeID == 2 && c.method == "UpdateChains" {
+			switched = c.data
+		}
+	}
+	if switched == nil {
+		t.Fatalf("owner 2 did not switch: %+v", commands.snapshot())
+	}
+	// What node 2 runs now: the switched chain + its relay service.
+	state, err := e.h.reconstructTunnelState(20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := e.h.buildTunnelRuntimePlan(state, 2)
+	if err != nil || plan.serviceData == nil {
+		t.Fatalf("plan: %v %+v", err, plan)
+	}
+	revs := ws.ExpectedRuntimeRevs("UpdateChains", switched)
+	for k, v := range ws.ExpectedRuntimeRevs("AddService", plan.serviceData) {
+		revs[k] = v
+	}
+	inv := newAgentRuntimeInventory(runtimeInventory{Chains: []string{"chains_20"}, Services: []string{"20_tls"}, Revs: revs})
+
+	// Panel restart: decisions are memory only → DB order again. The reconnect
+	// sends only the chain (in-place reorder on the agent), never the service.
+	e.h.bestPath = newBestPathManager()
+	mark := len(commands.snapshot())
+	unlock := e.h.lockTunnelRuntime(20)
+	changed, err := e.h.redeployTunnelRuntimeOnNodeDiffLocked(20, 2, inv)
+	unlock()
+	after := commandsSince(commands, mark)
+	if err != nil || !changed || len(after) != 1 || after[0].method != "UpdateChains" {
+		t.Fatalf("reconnect: changed=%v err=%v commands=%+v", changed, err, after)
+	}
+	if addrs, _ := chainOrder(t, after[0].data); addrs[0] != "192.0.2.4:1304" {
+		t.Fatalf("restart must restore DB order, got %v", addrs)
+	}
+	// Old agent: the whole plan as before (DeleteChains/AddChains + service).
+	e.h.chainSwapCapableFn = func(int64) bool { return false }
+	mark = len(commands.snapshot())
+	unlock = e.h.lockTunnelRuntime(20)
+	_, err = e.h.redeployTunnelRuntimeOnNodeDiffLocked(20, 2, inv)
+	unlock()
+	methods := []string{}
+	for _, c := range commandsSince(commands, mark) {
+		methods = append(methods, c.method)
+	}
+	if err != nil || strings.Join(methods, ",") != "DeleteChains,DeleteService,AddChains,AddService" {
+		t.Fatalf("old agent reconnect: %v %v", methods, err)
+	}
+}
