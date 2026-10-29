@@ -22,6 +22,12 @@ import {
 import { NodeApiItem } from "@/api/types";
 import { Button } from "@/shadcn-bridge/heroui/button";
 import { Checkbox } from "@/shadcn-bridge/heroui/checkbox";
+import {
+  Dropdown,
+  DropdownMenu,
+  DropdownMenuLabel,
+  DropdownTrigger,
+} from "@/shadcn-bridge/heroui/dropdown";
 import { Input } from "@/shadcn-bridge/heroui/input";
 import { Select, SelectItem } from "@/shadcn-bridge/heroui/select";
 import {
@@ -127,6 +133,32 @@ function RuleCapField({
     </div>
   );
 }
+// Plan 161: a per-server limit that does not apply on this row (relay / exit
+// hops, unrelated servers). Grey 「不限」; the reason opens on click / tap
+// like the other info badges (plan 156: never on hover or a scroll).
+function NotLimited({ label, reason }: { label: string; reason: string }) {
+  return (
+    <Dropdown>
+      <DropdownTrigger>
+        <Button
+          data-not-limited
+          aria-label={label}
+          className="h-8 min-w-0 justify-self-center px-1 text-sm text-default-400 dark:text-default-500"
+          size="sm"
+          variant="light"
+        >
+          不限
+        </Button>
+      </DropdownTrigger>
+      <DropdownMenu aria-label={label}>
+        <DropdownMenuLabel className="max-w-[min(18rem,calc(100vw-2rem))] whitespace-normal text-xs font-normal text-default-600">
+          {reason}
+        </DropdownMenuLabel>
+      </DropdownMenu>
+    </Dropdown>
+  );
+}
+
 export const LandingUserSettings = forwardRef<
   LandingUserSettingsHandle,
   {
@@ -345,19 +377,38 @@ export const LandingUserSettings = forwardRef<
           }),
         },
     );
-  // Entry servers (the agent limits the user's rules there) and shared
-  // servers whose 妙妙屋 applies it; landing Cores cannot limit per user yet.
-  // Older panels send neither the related list nor 速率 (no column then).
+  // Entry servers (the agent limits the user's rules there) and landing
+  // servers (plan 161: own ones — the agent limits all of the user's landing
+  // nodes there in the kernel; shared ones — 妙妙屋 does). Relay / exit hops
+  // show 「不限」. Older panels send neither the related list nor 速率 (no
+  // column then).
   const rateSupported = form?.serverRateMbps !== undefined;
   const rateAllowed = (quota: ServerQuota) => {
     if (!related) return quota.serverKind === "node";
     const server = relatedByKey.get(serverKey(quota));
 
-    return Boolean(
-      server &&
-        (server.entry ||
-          (server.serverKind === "landing" && server.sharedRate)),
-    );
+    return Boolean(server && (server.entry || server.landing));
+  };
+  // Yellow note under a row whose 速率 cannot (fully) apply yet.
+  const rateNote = (server?: RelatedServer) => {
+    if (!server) return "";
+    if (server.serverKind === "landing")
+      return server.landing && !server.sharedRate
+        ? "该共享服务器的妙妙屋较旧（待升级）：这里的速率暂不生效"
+        : "";
+    const entryOld = server.entry && server.rateOldAgent;
+    const landingOld = server.landing && server.landingRateOldAgent;
+
+    if (entryOld && landingOld)
+      return "该服务器 agent 较旧（待升级）：有单独限速的规则不计入这里的速率，落地节点暂不限速（升级 agent 后全部生效）";
+    if (landingOld)
+      return "该服务器 agent 较旧（待升级）：落地节点暂不限速（升级 agent 后生效）";
+    if (entryOld)
+      return "该服务器 agent 较旧：有单独限速的规则不计入这里的速率（升级 agent 后全部计入）";
+    if (server.landing && server.landingRateError)
+      return `该服务器未能限制落地节点的速率：${server.landingRateError}`;
+
+    return "";
   };
   const effectiveRate = (quota: ServerQuota) =>
     quota.rateOverride ? (quota.rateMbps ?? 0) : defaultRate;
@@ -562,12 +613,10 @@ export const LandingUserSettings = forwardRef<
                     }
                   />
                 ) : (
-                  <span
-                    className="text-center text-sm text-default-400"
-                    title="只有该用户的入口服务器和落地服务器计入站连接数"
-                  >
-                    —
-                  </span>
+                  <NotLimited
+                    label={`${quota.serverName || quota.serverRefId} 入站连接数不限`}
+                    reason="连接数在入口/落地服务器限"
+                  />
                 )}
                 {rateSupported &&
                   (rateAllowed(quota) ? (
@@ -589,16 +638,10 @@ export const LandingUserSettings = forwardRef<
                       }
                     />
                   ) : (
-                    <span
-                      className="text-center text-sm text-default-400"
-                      title={
-                        relatedByKey.get(serverKey(quota))?.landing
-                          ? "落地服务器的 Core 暂不支持按用户限速"
-                          : "只有该用户的入口服务器限速率"
-                      }
-                    >
-                      —
-                    </span>
+                    <NotLimited
+                      label={`${quota.serverName || quota.serverRefId} 速率不限`}
+                      reason="速率在入口服务器限"
+                    />
                   ))}
                 <span className="text-sm">
                   {landingGB(quota.usedIn + quota.usedOut)}
@@ -606,15 +649,12 @@ export const LandingUserSettings = forwardRef<
                 {rateSupported &&
                   rateAllowed(quota) &&
                   effectiveRate(quota) > 0 &&
-                  relatedByKey.get(serverKey(quota))?.rateOldAgent && (
+                  rateNote(relatedByKey.get(serverKey(quota))) && (
                     <p
                       data-rate-old-agent
                       className="col-span-full -mt-1 text-xs text-warning"
-                      title="升级该服务器的 agent 后，有单独限速的规则也计入速率"
                     >
-                      该服务器 agent
-                      较旧：有单独限速的规则不计入这里的速率（升级 agent
-                      后全部计入）
+                      {rateNote(relatedByKey.get(serverKey(quota)))}
                     </p>
                   )}
               </div>
@@ -628,17 +668,17 @@ export const LandingUserSettings = forwardRef<
             (上传+下载)×倍率，按各服务器设置。
             <br />
             入站连接数 = 该用户在这台服务器上的入站连接，空或 0
-            不限：入口服务器算进入这里的规则连接，落地服务器算这台落地收到的连接（含经本面板转发进来的）。另受用户总连接数限制。
+            不限：入口服务器算进入这里的规则连接，落地服务器算这台落地收到的连接（含经本面板转发进来的）。另受用户总连接数限制。中转/出口服务器显示「不限」：连接数在入口/落地服务器限。
             {rateSupported && (
               <>
                 <br />
                 速率 =
-                该用户进入这台服务器的所有规则合计的速率（上传、下载分别算），每台服务器各算各的。空
+                该用户在这台服务器上合计的速率（上传、下载分别算），每台服务器各算各的：入口服务器算进入这里的所有规则，落地服务器算该用户在这里的所有落地节点（含经本面板转发进来的）。空
                 = 跟随用户的默认速率
                 {defaultRate > 0
                   ? `（${defaultRate} Mbps）`
                   : "（未设置 = 不限）"}
-                ，0 = 不限。落地服务器的 Core 暂不支持按用户限速，显示「—」。
+                ，0 = 不限。中转/出口服务器显示「不限」：速率在入口服务器限。
               </>
             )}
           </p>

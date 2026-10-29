@@ -265,6 +265,10 @@ export interface RelatedServer extends PoolServer {
   rateOldAgent?: boolean;
   /** plan 159: shared server applying a per-user 速率 (妙妙屋 contract §7). */
   sharedRate?: boolean;
+  /** plan 161: own landing server whose agent cannot limit its landing nodes yet. */
+  landingRateOldAgent?: boolean;
+  /** plan 161: why the agent could not apply the 速率 to the landing nodes. */
+  landingRateError?: string;
 }
 /** Plan 157: 共享流量池 — member servers share one billed-bytes limit. */
 export interface TrafficPool {
