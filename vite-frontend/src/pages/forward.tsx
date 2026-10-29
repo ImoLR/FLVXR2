@@ -816,8 +816,11 @@ const ForwardCNBlockedWarning = ({ forward }: { forward: Forward }) => {
     </div>
   );
 };
+// Plan 164: helper text under the 「已确认合规」 tick in the rule dialog.
+const LINE_ACK_HELP =
+  "目标是手填地址，面板无法判断协议；勾选表示管理员已确认它是 VLESS Reality Vision。只有管理员能看到；目标或隧道改了会自动取消。";
 // Plan 164: a rule reached from 「线路机不合规 N 条」 flashes for about 2 s —
-// cell background (table rows) or a ring (cards), so nothing moves.
+// cell background (table rows) or an outline ring (cards), so nothing moves.
 const flashForwardElement = (el: HTMLElement) => {
   if (typeof el.animate !== "function") return;
   const timing: KeyframeAnimationOptions = {
@@ -841,14 +844,19 @@ const flashForwardElement = (el: HTMLElement) => {
 
     return;
   }
+  // Cards: an outline ring (the card's own box-shadow is !important).
   const card = (el.firstElementChild as HTMLElement | null) ?? el;
-  const ring = "0 0 0 3px rgba(245, 165, 36, 0.9)";
+  const ring = {
+    outlineStyle: "solid",
+    outlineWidth: "3px",
+    outlineOffset: "2px",
+  };
 
   card.animate(
     [
-      { boxShadow: ring },
-      { boxShadow: ring, offset: 0.55 },
-      { boxShadow: "0 0 0 3px rgba(245, 165, 36, 0)" },
+      { ...ring, outlineColor: "rgba(245, 165, 36, 0.95)" },
+      { ...ring, outlineColor: "rgba(245, 165, 36, 0.95)", offset: 0.55 },
+      { ...ring, outlineColor: "rgba(245, 165, 36, 0)" },
     ],
     timing,
   );
@@ -1773,9 +1781,9 @@ export default function ForwardPage() {
   const [editBinding, setEditBinding] = useState<{ key: string; label: string } | null>(null);
   // Plan 164: tunnel of the hand-typed 线路机 rule being edited when an admin
   // may tick 「已确认合规」 (null = not offered).
-  const [editLineAckTunnelId, setEditLineAckTunnelId] = useState<
-    number | null
-  >(null);
+  const [editLineAckTunnelId, setEditLineAckTunnelId] = useState<number | null>(
+    null,
+  );
   const editOptionOriginRef = useRef("");
   const [filterTunnelOptionKey, setFilterTunnelOptionKey] = useState("");
   const tunnelPickerSections = useMemo(() => buildTunnelPickerSections(tunnels), [tunnels]);
@@ -2070,7 +2078,10 @@ export default function ForwardPage() {
   );
   const [lineJumpId, setLineJumpId] = useState<number | null>(null);
   const [lineJumpSeq, setLineJumpSeq] = useState(0);
-  const lineJumpPendingRef = useRef<{ id: number; at: number } | null>(null);
+  const lineJumpPendingRef = useRef<{
+    afterId: number | null;
+    at: number;
+  } | null>(null);
   // Plan 163: a newly created rule's group is opened once the list has it.
   const revealForwardRef = useRef<{
     id: number;
@@ -5013,29 +5024,29 @@ export default function ForwardPage() {
   };
 
   // Plan 164: 「线路机不合规 N 条」 cycles through the flagged rules in the
-  // order they are shown (rules hidden by a filter come last).
-  const lineJumpOrder = useMemo((): Forward[] => {
-    const visible = sortedForwards.filter(
-      (forward) => forward.lineNonCompliant,
-    );
-    const shown = new Set(visible.map((forward) => forward.id));
-    const hidden = forwards
-      .filter((forward) => forward.lineNonCompliant && !shown.has(forward.id))
-      .sort((a, b) => (a.inx ?? 0) - (b.inx ?? 0) || a.id - b.id);
+  // order they are shown; hidden counts those a filter hides right now.
+  const lineJump = useMemo(() => {
+    const order = sortedForwards.filter((forward) => forward.lineNonCompliant);
+    const hidden =
+      forwards.filter((forward) => forward.lineNonCompliant).length -
+      order.length;
 
-    return [...visible, ...hidden];
+    return { order, hidden };
   }, [sortedForwards, forwards]);
   const lineJumpPosition =
-    lineJumpOrder.findIndex((forward) => forward.id === lineJumpId) + 1;
+    lineJump.order.findIndex((forward) => forward.id === lineJumpId) + 1;
   const handleLineJump = () => {
-    if (lineJumpOrder.length === 0) return;
-    const target = lineJumpOrder[lineJumpPosition % lineJumpOrder.length];
-
-    if (!sortedForwards.some((forward) => forward.id === target.id)) {
-      // A filter (or the 所属用户 picker) hides it: show the rules again.
+    if (lineNonCompliantCount === 0) return;
+    if (lineJump.hidden > 0) {
+      // A filter (or the 所属用户 picker) hides some of them: show the rules
+      // again; the target is picked once the list shows all of them.
       const keepUser =
         searchParams.userId === "all" ||
-        searchParams.userId === String(target.userId ?? 0);
+        forwards.every(
+          (forward) =>
+            !forward.lineNonCompliant ||
+            String(forward.userId ?? 0) === searchParams.userId,
+        );
 
       setSearchParams({
         name: "",
@@ -5047,33 +5058,39 @@ export default function ForwardPage() {
       });
       setSearchKeyword("");
     }
-    setLineJumpId(target.id);
-    lineJumpPendingRef.current = { id: target.id, at: Date.now() };
+    lineJumpPendingRef.current = { afterId: lineJumpId, at: Date.now() };
     setLineJumpSeq((seq) => seq + 1);
   };
 
-  // Plan 164: once the list shows the target (filters applied), go to its
-  // page, open its group, scroll it to the centre and flash it.
+  // Plan 164: once the list shows every flagged rule (filters applied), pick
+  // the next one, go to its page, open its group, scroll it to the centre and
+  // flash it.
   useEffect(() => {
     const pending = lineJumpPendingRef.current;
 
     if (!pending) return;
-    if (Date.now() - pending.at > 10000) {
+    if (Date.now() - pending.at > 10000 || lineNonCompliantCount === 0) {
       lineJumpPendingRef.current = null;
 
       return;
     }
+    if (lineJump.hidden > 0 || lineJump.order.length === 0) return;
+    const at = lineJump.order.findIndex(
+      (forward) => forward.id === pending.afterId,
+    );
+    const targetId = lineJump.order[(at + 1) % lineJump.order.length].id;
+
     if (!compactMode) {
       const groupIndex = groupedForwards.findIndex((group) =>
         group.tunnels.some((tunnel) =>
-          tunnel.items.some((forward) => forward.id === pending.id),
+          tunnel.items.some((forward) => forward.id === targetId),
         ),
       );
 
       if (groupIndex < 0) return;
       const group = groupedForwards[groupIndex];
       const tunnel = group.tunnels.find((item) =>
-        item.items.some((forward) => forward.id === pending.id),
+        item.items.some((forward) => forward.id === targetId),
       );
 
       if (!tunnel) return;
@@ -5099,15 +5116,16 @@ export default function ForwardPage() {
       }
     } else {
       const index = sortedForwards.findIndex(
-        (forward) => forward.id === pending.id,
+        (forward) => forward.id === targetId,
       );
 
       if (index < 0) return;
       setForwardPage(Math.floor(index / forwardPageSize) + 1);
     }
     lineJumpPendingRef.current = null;
-    revealForwardElement(pending.id);
-  }, [lineJumpSeq, groupedForwards, sortedForwards, compactMode]);
+    setLineJumpId(targetId);
+    revealForwardElement(targetId);
+  }, [lineJumpSeq, lineJump, groupedForwards, sortedForwards, compactMode]);
 
   // Plan 163: open the group of a rule created in the dialog once the list
   // contains it (saved as open, like a click on its header).
@@ -6756,6 +6774,7 @@ export default function ForwardPage() {
                         {showLineAck && (
                           <div className="rounded-lg bg-amber-500/10 px-3 py-2 dark:bg-amber-400/10">
                             <Checkbox
+                              aria-label="已确认合规"
                               isSelected={form.lineComplianceAck === true}
                               size="sm"
                               onValueChange={(value) =>
@@ -6768,8 +6787,7 @@ export default function ForwardPage() {
                               已确认合规
                             </Checkbox>
                             <p className="mt-1 text-xs leading-snug text-default-500">
-                              目标是手填地址，面板无法判断协议；勾选表示管理员已确认它是
-                              VLESS Reality Vision。只有管理员能看到；目标或隧道改了会自动取消。
+                              {LINE_ACK_HELP}
                             </p>
                           </div>
                         )}
