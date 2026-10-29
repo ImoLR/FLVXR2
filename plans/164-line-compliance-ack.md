@@ -34,9 +34,12 @@ Frontend (`forward.tsx`, `chain-links.tsx`)
   checkbox 「已确认合规」 + helper text.
 - Acknowledged rule (admin): small green 「已确认」 chip instead of 「不合规」.
 - Toolbar chip 「线路机不合规 N 条」 is clickable: jumps to the next non-compliant rule in display order (wrap around),
-  shows 「k/N」 after the first click. Makes it visible: resets filters that hide it (all users), right page, opens its tunnel
-  group for this visit only (not saved — the saved open/closed state is untouched, a reload shows it collapsed again), scrolls
-  it to the centre and flashes it ≈2 s (background/box-shadow animation, no layout change). Works in 分组 / 列表 / 卡片.
+  shows 「k/N」 after the first click. Makes it visible: when filters / the 所属用户 picker hide any flagged rule it resets
+  them first (user → 全部用户 unless all flagged rules are that user's) and picks the target once the list shows all of
+  them (so the first click is 1/N), right page, opens its tunnel group **for this visit only** (not saved — the saved
+  open/closed state is untouched, a reload shows it collapsed again; closing it by hand does not save either), scrolls it to
+  the centre and flashes it ≈2 s (cell tint for table rows, outline ring for cards — no layout change). Works in
+  分组 / 列表 / 卡片.
 - Collapsed group header: orange 「N 条不合规」 hint next to 已暂停/异常 (from the loaded list, no request).
 
 ## Checklist
@@ -44,9 +47,22 @@ Frontend (`forward.tsx`, `chain-links.tsx`)
 - [x] Backend: decorate pass honours the ack (count, flags, admin vs user) + update field + admin endpoint + route
 - [x] Backend tests: set/clear admin vs non-admin, target change clears, tunnel move clears, A→B→A stays cleared, count
       excludes acked, user view, rollback-safe signature check, ineligible rules refused
-- [ ] Full `go test ./...` SQLite and PostgreSQL green (base compared for any failure)
-- [ ] Frontend: dialog checkbox, 已确认 chip, group header hint, clickable chip with jump/expand/scroll/highlight + k/N
-- [ ] tsc / build / lint — no new errors
-- [ ] Local demo panel (seeded, no prod) + screens 390/1440 light/dark → `/root/mmwx-preview/line-compliance-ack/`
-- [ ] Commit, push, CI green
-- [ ] `runs/line-compliance-ack/release-notes.md` + summary/final.md, cleanup
+- [x] Full `go test ./...` SQLite and PostgreSQL green (base compared for any failure)
+- [x] Frontend: dialog checkbox, 已确认 chip, group header hint, clickable chip with jump/expand/scroll/highlight + k/N
+- [x] tsc / build / lint — no new errors
+- [x] Local demo panel (seeded, no prod) + screens 390/1440 light/dark → `/root/mmwx-preview/line-compliance-ack/`
+- [x] Commit, push, CI green (code commits 208498db, 430dc6fc, 67fcb8ad; CI 40948471397 + 40950815256: backend, PostgreSQL contract, frontend, agent all success)
+- [x] `runs/line-compliance-ack/release-notes.md` + summary, cleanup (demo panel stopped, netns + temp worktree/dirs removed)
+
+## Results
+- Backend: new tests `TestLineComplianceAckSigNormalization`, `TestLineComplianceAckWritePathsBothDialects` (SQLite +
+  PostgreSQL), `TestLineComplianceAck` (handler: 403 / ignored for users, ineligible refused, count + flags, list payload
+  admin vs user, rename keeps, signature safety net, dialog tick/untick, batch 换隧道 clears). Full `go test ./...`
+  (GOMAXPROCS=2, -p=1): SQLite 19/19 packages ok, PostgreSQL (`FLVX_POSTGRES_TEST_DSN`, local postgres:18) 19/19 ok, 0 FAIL.
+- Frontend: tsc 0 errors; eslint on the 3 changed files = base (forward.tsx 16 errors / 647 warnings, all pre-existing;
+  chain-links.tsx 0/0; types.ts 0/3); vite build ok, main bundle 3,023,205 → 3,027,281 B (+4 KB).
+- Demo (synthetic DB, panel in loopback-only netns, never prod): 71/71 checks, 0 page errors, 31 screens (390 + 1440,
+  light + dark) → `/root/mmwx-preview/line-compliance-ack/`.
+- Resource use: no timers/pollers added; one batched `SELECT id, line_compliance_ack_sig … WHERE id IN (…)` per list load,
+  only when hand-typed non-compliant rules exist. Demo (22 rules): `/forward/list` 4.5–4.7 ms avg (50 calls), paneld RSS
+  36 MB, 9 threads, 9 fds. Highlight = one WAAPI animation per cell/card for 2 s, removed by the browser when done.
