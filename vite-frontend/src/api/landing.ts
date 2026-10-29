@@ -460,7 +460,7 @@ export const saveLandingUser = (
       ? { maxNodesSource: data.maxNodesSource }
       : {}),
     // Rows following the server default keep following it: only their
-    // 入站连接数 (plan 158) is sent (followDefault).
+    // 入站连接数 (plan 158) and 速率 are sent (followDefault).
     quotas: data.quotas.map(
       ({
         serverKind,
@@ -468,21 +468,34 @@ export const saveLandingUser = (
         limitBytes,
         limitOverride,
         maxInboundConnections,
-      }) =>
-        limitOverride === false
+        rateOverride,
+        rateMbps,
+      }) => {
+        // Plan 159/161: the row's 速率 (rateOverride false = follows the
+        // user's 默认速率). Without these fields the panel keeps the stored
+        // rate (older panels send none, so nothing is sent back to them).
+        const rate =
+          rateOverride === undefined
+            ? {}
+            : { rateOverride, rateMbps: rateOverride ? (rateMbps ?? 0) : 0 };
+
+        return limitOverride === false
           ? {
               serverKind,
               serverRefId,
               limitBytes: 0,
               maxInboundConnections: maxInboundConnections || 0,
               followDefault: true,
+              ...rate,
             }
           : {
               serverKind,
               serverRefId,
               limitBytes,
               maxInboundConnections: maxInboundConnections || 0,
-            },
+              ...rate,
+            };
+      },
     ),
     ...(data.extendFixedByMs ? { extendFixedByMs: data.extendFixedByMs } : {}),
     ...(data.pools
