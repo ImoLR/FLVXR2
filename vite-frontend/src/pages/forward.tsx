@@ -5931,7 +5931,7 @@ export default function ForwardPage() {
                               countClassName="whitespace-nowrap text-xs text-default-500"
                               groupUserId={group.userId}
                               headerClassName={`flex items-center justify-between ${collapsed ? "" : "border-b border-divider "}bg-default-100/50 hover:bg-default-200/50 px-4 py-2.5 max-md:px-2 max-md:gap-1`}
-                              titleClassName={isMobile ? "min-w-0 break-all text-sm font-semibold text-foreground" : "truncate text-sm font-semibold text-foreground"}
+                              titleClassName={isMobile ? "min-w-0 break-words text-sm font-semibold text-foreground" : "truncate text-sm font-semibold text-foreground"}
                               tunnel={tunnel}
                               wrapperClassName="overflow-hidden rounded-lg border border-divider bg-content1"
                               onToggleCollapsed={() =>
