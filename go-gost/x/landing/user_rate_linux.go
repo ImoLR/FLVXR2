@@ -359,12 +359,8 @@ func (e *tcRateEngine) sync(want rateWant, scan rateScan, now time.Time) error {
 			continue
 		}
 		for k, slot := range d.filters {
-			if want, ok := wantFilters[k]; ok {
-				if want != slot {
-					// The port changed owner: replaced in step 3.
-					continue
-				}
-				continue
+			if _, ok := wantFilters[k]; ok {
+				continue // kept; replaced in step 3 if the port changed owner
 			}
 			// A port no longer limited: a removed node goes at once; the ports
 			// of a user whose rate went stay until his release is over.
