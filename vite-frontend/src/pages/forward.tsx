@@ -812,6 +812,7 @@ const ForwardCNBlockedWarning = ({ forward }: { forward: Forward }) => {
   );
 };
 const SortableTunnelGroupContainer = ({
+  groupKey,
   groupUserId,
   tunnel,
   collapsed,
@@ -823,6 +824,7 @@ const SortableTunnelGroupContainer = ({
   bodyClassName,
   children,
 }: {
+  groupKey: string;
   groupUserId: number;
   tunnel: ForwardTunnelGroup;
   collapsed: boolean;
@@ -865,9 +867,28 @@ const SortableTunnelGroupContainer = ({
     if (item.status === 0) pausedCount++;
     else if (item.status === -1) abnormalCount++;
   });
+  const statusHints = (
+    <>
+      {pausedCount > 0 && (
+        <span className="whitespace-nowrap rounded bg-warning-500/10 px-1.5 py-0.5 text-[10px] font-medium text-warning-600 dark:text-warning-400">
+          {pausedCount} 条已暂停
+        </span>
+      )}
+      {abnormalCount > 0 && (
+        <span className="whitespace-nowrap rounded bg-danger-500/10 px-1.5 py-0.5 text-[10px] font-medium text-danger-600 dark:text-danger-400">
+          {abnormalCount} 条异常
+        </span>
+      )}
+    </>
+  );
 
   return (
-    <div ref={setNodeRef} className={wrapperClassName} style={style}>
+    <div
+      ref={setNodeRef}
+      className={wrapperClassName}
+      data-group-key={groupKey}
+      style={style}
+    >
       <div
         aria-expanded={!collapsed}
         className={`${headerClassName} cursor-pointer select-none transition-colors`}
@@ -903,23 +924,21 @@ const SortableTunnelGroupContainer = ({
               <path d="m6 9 6 6 6-6" />
             </svg>
           </Button>
-          <span className={titleClassName}>{tunnel.tunnelName}</span>
-          {/* 隧道倍率标识 - 统一 10px 字体 */}
-          <span className="shrink-0 whitespace-nowrap rounded bg-default-100 px-1.5 py-0.5 text-[10px] font-normal text-default-500 mr-1.5">
-            {formatTunnelTrafficRatio(tunnel.tunnelTrafficRatio)}
-          </span>
+          {/* Plan 163: phones put the ratio + hints under the name so long
+              tunnel names keep the full width. */}
+          <div className="flex min-w-0 flex-col gap-1 md:flex-row md:items-center md:gap-2">
+            <span className={titleClassName}>{tunnel.tunnelName}</span>
+            <div className="flex flex-wrap items-center gap-1.5">
+              {/* 隧道倍率标识 - 统一 10px 字体 */}
+              <span className="shrink-0 whitespace-nowrap rounded bg-default-100 px-1.5 py-0.5 text-[10px] font-normal text-default-500 md:mr-1.5">
+                {formatTunnelTrafficRatio(tunnel.tunnelTrafficRatio)}
+              </span>
+              <span className="contents md:hidden">{statusHints}</span>
+            </div>
+          </div>
         </div>
         <div className="flex shrink-0 items-center gap-1.5">
-          {pausedCount > 0 && (
-            <span className="whitespace-nowrap rounded bg-warning-500/10 px-1.5 py-0.5 text-[10px] font-medium text-warning-600 dark:text-warning-400">
-              {pausedCount} 条已暂停
-            </span>
-          )}
-          {abnormalCount > 0 && (
-            <span className="whitespace-nowrap rounded bg-danger-500/10 px-1.5 py-0.5 text-[10px] font-medium text-danger-600 dark:text-danger-400">
-              {abnormalCount} 条异常
-            </span>
-          )}
+          <span className="contents max-md:hidden">{statusHints}</span>
           <span className={countClassName}>{tunnel.items.length} 条</span>
           <div
             className="cursor-grab active:cursor-grabbing p-1 text-default-400 flex-shrink-0 hover:text-default-600 transition-colors"
@@ -4900,6 +4919,17 @@ export default function ForwardPage() {
         next[collapseKey] = true;
       });
     }
+    // Bring the opened group into view when it is off screen.
+    window.setTimeout(() => {
+      const el = Array.from(
+        document.querySelectorAll<HTMLElement>("[data-group-key]"),
+      ).find((node) => node.dataset.groupKey === collapseKey);
+      const rect = el?.getBoundingClientRect();
+
+      if (el && rect && (rect.top < 0 || rect.top > window.innerHeight - 160)) {
+        el.scrollIntoView({ behavior: "smooth", block: "center" });
+      }
+    }, 120);
   }, [forwards]);
   // 生成用作筛选项的用户和隧道列表
   const uniqueUsers = useMemo(() => {
@@ -5893,6 +5923,10 @@ export default function ForwardPage() {
                             <SortableTunnelGroupContainer
                               key={`grouped-table-${group.userId}-${tunnel.tunnelKey}`}
                               bodyClassName=""
+                              groupKey={buildTunnelGroupCollapseKey(
+                                group.userId,
+                                tunnel.tunnelKey,
+                              )}
                               collapsed={collapsed}
                               countClassName="whitespace-nowrap text-xs text-default-500"
                               groupUserId={group.userId}
