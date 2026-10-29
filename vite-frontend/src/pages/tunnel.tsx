@@ -118,6 +118,12 @@ import {
   regionLabel,
 } from "@/utils/region";
 import {
+  BEST_PATH_HINT,
+  BestPathChips,
+  type BestPathState,
+  normalizeBestPathState,
+} from "@/pages/tunnel/best-path-chips";
+import {
   buildBatchFailureMessage,
   extractBatchFailures,
   extractApiErrorMessage,
@@ -131,23 +137,6 @@ interface ChainTunnel {
   port?: number;
   connectIpType?: string;
   connectIp?: string;
-}
-interface BestExitStateItem {
-  ownerNodeId: number;
-  ownerNodeName: string;
-  ownerRole: "entry" | "chain";
-  exitNodeId?: number;
-  exitNodeName: string;
-  updatedAt?: number;
-  reason?: string;
-}
-interface BestExitState {
-  enabled: boolean;
-  summary: string;
-  status: "applied" | "waiting";
-  updatedAt?: number;
-  reason?: string;
-  items: BestExitStateItem[];
 }
 interface Tunnel {
   // Raw name with the {入口} placeholder (admin list only, plan 152).
@@ -181,7 +170,7 @@ interface Tunnel {
   createdTime: string;
   tunnelGroupId?: number | null;
   remark?: string;
-  bestExitState?: BestExitState | null;
+  bestPathState?: BestPathState | null;
   http?: number;
   tls?: number;
   socks?: number;
@@ -436,15 +425,7 @@ const mapTunnelApiItems = (items: any[]): Tunnel[] => {
     remark: tunnel.remark || "",
     speedId: tunnel.speedId ?? null,
     speedLimitName: tunnel.speedLimitName ?? null,
-    bestExitState:
-      tunnel.bestExitState && typeof tunnel.bestExitState === "object"
-        ? {
-            ...tunnel.bestExitState,
-            items: Array.isArray(tunnel.bestExitState.items)
-              ? tunnel.bestExitState.items
-              : [],
-          }
-        : null,
+    bestPathState: normalizeBestPathState(tunnel.bestPathState),
   }));
 };
 
@@ -490,50 +471,8 @@ const mapWGPathToTunnel = (detail: PathTunnelDetailApiItem): Tunnel => {
     createdTime: path.createdTime ? String(path.createdTime) : "",
     tunnelGroupId: path.tunnelGroupId ?? null,
     remark: path.remark || "",
-    bestExitState: null,
+    bestPathState: null,
   };
-};
-
-const bestExitOwnerRoleText = (role: BestExitStateItem["ownerRole"]) => {
-  return role === "chain" ? "中转" : "入口";
-};
-
-const bestExitDetailTitle = (state?: BestExitState | null) => {
-  if (!state?.enabled || !state.items?.length) {
-    return "";
-  }
-
-  return state.items
-    .map((item) => {
-      const ownerName =
-        item.ownerNodeName ||
-        `${bestExitOwnerRoleText(item.ownerRole)} ${item.ownerNodeId}`;
-      const exitName = item.exitNodeName || "等待探测";
-
-      return `${ownerName} -> ${exitName}`;
-    })
-    .join("\n");
-};
-
-const renderBestExitState = (state?: BestExitState | null) => {
-  if (!state?.enabled) {
-    return null;
-  }
-  const title = bestExitDetailTitle(state);
-  const isWaiting = state.status === "waiting";
-
-  return (
-    <div
-      className={`mt-1 text-[11px] leading-4 ${
-        isWaiting
-          ? "text-default-500"
-          : "text-emerald-700 dark:text-emerald-300"
-      }`}
-      title={title || undefined}
-    >
-      最优出口：{state.summary || "等待探测"}
-    </div>
-  );
 };
 
 export default function TunnelPage() {
@@ -1473,7 +1412,9 @@ export default function TunnelPage() {
       const chainNodes = [...(prev.chainNodes || [])];
       const currentGroup = chainNodes[groupIndex] || [];
       const protocol = currentGroup[0]?.protocol || "tls";
-      const strategy = currentGroup[0]?.strategy || "round";
+      const strategy = currentGroup[0]
+        ? currentGroup[0].strategy || "round"
+        : "best";
       const realNodes = currentGroup.filter((node) => node.nodeId !== -1);
       const mergedNodes = mergeOrderedNodes(
         realNodes,
@@ -3337,7 +3278,10 @@ export default function TunnelPage() {
                                   <span className="font-medium text-foreground">
                                     {outCount}个
                                   </span>
-                                  {renderBestExitState(tunnel.bestExitState)}
+                                  <BestPathChips
+                                    className="mt-1"
+                                    state={tunnel.bestPathState}
+                                  />
                                 </td>
                                 <td className="py-3 px-4 text-center align-middle">
                                   <span className="font-medium text-foreground">
@@ -3690,11 +3634,9 @@ export default function TunnelPage() {
                                         </div>
                                       </div>
                                     </div>
-                                    <div className="text-center">
-                                      {renderBestExitState(
-                                        tunnel.bestExitState,
-                                      )}
-                                    </div>
+                                    <BestPathChips
+                                      state={tunnel.bestPathState}
+                                    />
                                     {/* 流量配置 */}
                                     <div
                                       className={`grid gap-2 ${tunnel.type === 2 && tunnel.ipPreference ? "grid-cols-3" : "grid-cols-2"}`}
@@ -4340,7 +4282,7 @@ export default function TunnelPage() {
                             const strategy =
                               groupNodes.length > 0
                                 ? groupNodes[0].strategy || "round"
-                                : "round";
+                                : "best";
 
                             return (
                               <div
@@ -4576,6 +4518,14 @@ export default function TunnelPage() {
                                     <SelectItem key="rand">随机</SelectItem>
                                   </Select>
                                 </div>
+                                {strategy === "best" && (
+                                  <p
+                                    className="mt-1 text-xs text-default-500"
+                                    data-best-path-hint="hop"
+                                  >
+                                    {BEST_PATH_HINT}
+                                  </p>
+                                )}
                                 {/* 连接 IP 和连接端口 - 转发链节点 */}
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mt-3">
                                   <Input
@@ -4663,7 +4613,7 @@ export default function TunnelPage() {
                                               nodeId: -1,
                                               chainType: 2,
                                               protocol: "tls",
-                                              strategy: "round",
+                                              strategy: "best",
                                             },
                                           ],
                                         ],
@@ -4693,7 +4643,7 @@ export default function TunnelPage() {
                                         nodeId: -1,
                                         chainType: 2,
                                         protocol: "tls",
-                                        strategy: "round",
+                                        strategy: "best",
                                       },
                                     ],
                                   ],
@@ -4775,7 +4725,9 @@ export default function TunnelPage() {
                                       const protocol =
                                         currentOutNodes[0]?.protocol || "tls";
                                       const strategy =
-                                        currentOutNodes[0]?.strategy || "round";
+                                        currentOutNodes[0]
+                                          ? currentOutNodes[0].strategy || "round"
+                                          : "best";
                                       const realNodes = currentOutNodes.filter(
                                         (ct) => ct.nodeId !== -1,
                                       );
@@ -4887,7 +4839,7 @@ export default function TunnelPage() {
                                         currentOutNodes.length > 0
                                           ? currentOutNodes[0].strategy ||
                                             "round"
-                                          : "round";
+                                          : "best";
 
                                       if (currentOutNodes.length === 0) {
                                         // 如果还没有出口节点，创建一个占位节点保存设置
@@ -4939,7 +4891,7 @@ export default function TunnelPage() {
                                       !form.outNodeId ||
                                       form.outNodeId.length === 0
                                     )
-                                      return "round";
+                                      return "best";
 
                                     return (
                                       form.outNodeId[0].strategy || "round"
@@ -4994,6 +4946,15 @@ export default function TunnelPage() {
                                 <SelectItem key="rand">随机</SelectItem>
                               </Select>
                             </div>
+                            {(!form.outNodeId?.length ||
+                              form.outNodeId[0].strategy === "best") && (
+                              <p
+                                className="mt-1 text-xs text-default-500"
+                                data-best-path-hint="exit"
+                              >
+                                {BEST_PATH_HINT}
+                              </p>
+                            )}
                             {/* 连接端口和连接 IP 类型 - 出口节点 */}
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mt-3">
                               <Input
