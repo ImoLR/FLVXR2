@@ -41,15 +41,33 @@ Base: `origin/feature/3.0.27-line-compliance-ack` (163 + 164 on fork.95). Branch
 
 ## Checklist
 - [x] Investigate fork.95 code paths (path-latency round, chain builders, agent chain update, capability handshake, nft/WG/federation)
-- [ ] Agent: atomic `UpdateChains` (in-place reorder / atomic replace) + `chainSwap=1` capability + tests
-- [ ] Panel: capability parse (`ChainSwapCapable`), best→fifo runtime mapping, ordered targets in every chain builder, UpdateChains on capable redeploys
-- [ ] Panel: decision engine (cost, 15 ms × 2 rounds, failover, storm guard, cleanup) + switch push + logs/summary
-- [ ] Panel: default `best` on tunnel create paths
-- [ ] Display state per best layer (admin) + frontend chips/hint + form defaults
-- [ ] Unit tests (ranking example 10/100 vs 30/20, threshold, 2 rounds, failover, push-only-on-change, reconnect/resync order, cleanup) + benchmark (200×3×3)
-- [ ] `go test ./...` SQLite + PostgreSQL, agent tests, frontend tsc/lint/build
-- [ ] Real proof: local panel + agents in netns with `tc netem` (switch, long-lived conn survives, dead node)
-- [ ] Screens 390 + 1440 light/dark → `/root/mmwx-preview/best-path-select/`
-- [ ] Release notes for the batch worker (`runs/best-path-select/release-notes.md`)
-- [ ] Commit, push, CI green
-- [ ] Summary (`runs/best-path-select/summary.md` + `final.md`)
+- [x] Agent: atomic `UpdateChains` (in-place reorder / atomic replace) + `chainSwap=1` capability + tests
+- [x] Panel: capability parse (`ChainSwapCapable`), best→fifo runtime mapping, ordered targets in every chain builder, UpdateChains on capable redeploys
+- [x] Panel: decision engine (cost, 15 ms × 2 rounds, failover, storm guard, cleanup) + switch push + logs/summary
+- [x] Panel: default `best` on tunnel create paths
+- [x] Display state per best layer (admin) + frontend chips/hint + form defaults
+- [x] Unit tests (ranking example 10/100 vs 30/20, threshold, 2 rounds, failover, push-only-on-change, reconnect/resync order, cleanup) + benchmark (200×3×3)
+- [x] Reconnect diff: chain-only `UpdateChains` when only the chain differs on a chainSwap agent (panel restart after a switch never touches services)
+- [x] `go test ./...` SQLite + PostgreSQL, agent tests, frontend tsc/lint/build
+- [x] Real proof: local panel + agents in netns with `tc netem` (switch, long-lived conn survives, dead node)
+- [x] Screens 390 + 1440 light/dark → `/root/mmwx-preview/best-path-select/`
+- [x] Release notes for the batch worker (`runs/best-path-select/release-notes.md`)
+- [x] Commit, push, CI green (run 40960010981: backend, PostgreSQL contract, frontend, agent all success)
+- [x] Summary (`runs/best-path-select/summary.md` + `final.md`)
+
+## Results
+- Tests: backend `go test ./...` SQLite 19/19 packages ok, PostgreSQL (`FLVX_POSTGRES_TEST_DSN`, throwaway postgres:18)
+  19/19 ok; agent `go test ./socket ./hop ./registry ./chain ./config/... ./selector/...` ok (incl. `-race` on the swap tests);
+  frontend tsc 0 errors, eslint on changed files: tunnel.tsx 4 errors = same 4 as the base (jsx-a11y, untouched lines),
+  +20 prettier warnings only on changed lines inside the already mis-indented form block; vite build ok.
+- Agent gap evidence: old `Unregister`→`Register` with 4 concurrent dialers × 600 updates: 259,144 of 266,000 lookups found
+  no chain (router → direct dial); new `updateChain`: 0 misses (`TestUpdateChainNeverLeavesAWindowWithoutRoute`).
+- Lab (netns, real panel + 5 agents, tc netem, 60 s rounds): hop layer switched after exactly 2 rounds
+  (`H1 111ms -> H2 50ms`), new connections moved to H2, a long-lived connection stayed on H1 (413/413 echoes over all
+  switches); 10 ms advantage → 0 switches in 200 s; exit layer switched (`X1 80ms -> X2 25ms`), new connections exit X2, an
+  open one stayed on X1; dead node → failover at the next round without the 2-round wait (`H2 unreachable -> H1 56ms`);
+  panel restart → only H2 (which had switched) got one `UpdateChains`, no service delete/add, others unchanged.
+- Resources: decision step 1.7–1.8 ms CPU and 1.3 MB transient allocations per 60 s round for 200 tunnels × 3 最优 layers
+  × 3 nodes (1,400 owners); state ≈ 246 B per owner, dropped when the tunnel/layer/owner goes; 0 probes and 0 connections
+  added (reorder = same node objects); logs: one line per switch + counters in the existing hourly line; no DB writes.
+- Screens (28, 28/28 checks, 0 page errors): `/root/mmwx-preview/best-path-select/` (:8791).
