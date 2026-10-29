@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"sort"
 	"time"
 
 	"go-backend/internal/landingcustom"
@@ -126,6 +127,14 @@ type landingSyncSnapshot struct {
 	// Plan 147: inbounds the agent could not add (port busy, Core refused);
 	// absent on older agents, which fail the whole apply instead.
 	NodeErrors []repo.LandingNodeReport `json:"node_errors"`
+	// Plan 161: kernel state of the per-user 速率 (agents with landingRate).
+	UserRate *landingRateReport `json:"user_rate"`
+}
+
+// landingRateReport is the agent's per-user 速率 state: off | on | error.
+type landingRateReport struct {
+	State string `json:"state"`
+	Error string `json:"error"`
 }
 
 func (h *Handler) syncLandingServer(serverID int64) (*landingSyncSnapshot, error) {
@@ -239,6 +248,35 @@ func (h *Handler) syncNativeLandingServerOnce(serverID int64) (*landingSyncSnaps
 		sum := sha256.Sum256(raw)
 		connSig += ";ul=" + hex.EncodeToString(sum[:8])
 	}
+	// Plan 161: per-user 速率 (row of the server's node, else the user's
+	// default) only for agents that shape it (landingRate >= 1); older agents
+	// keep today's payload byte for byte, and so does a capable agent while
+	// no owner has a rate. The content joins the signature.
+	rateGroupOf := map[int64]string{}
+	var userRates map[string]interface{}
+	if node.LandingRate >= repo.LandingRateVersion {
+		rates, rateErr := h.repo.NativeLandingUserRates(s.ID, s.NodeID)
+		if rateErr != nil {
+			return nil, errors.New("落地服务器状态不可用")
+		}
+		if len(rates) > 0 {
+			owners := make([]int64, 0, len(rates))
+			for userID := range rates {
+				owners = append(owners, userID)
+			}
+			sort.Slice(owners, func(i, j int) bool { return owners[i] < owners[j] })
+			groups := make([]map[string]interface{}, 0, len(owners))
+			for _, userID := range owners {
+				group := landingQuotaGroupForUser(userID)
+				rateGroupOf[userID] = group
+				groups = append(groups, map[string]interface{}{"group": group, "rate_mbps": rates[userID]})
+			}
+			userRates = map[string]interface{}{"version": repo.LandingRateVersion, "groups": groups}
+			raw, _ := json.Marshal(userRates)
+			sum := sha256.Sum256(raw)
+			connSig += ";ur=" + hex.EncodeToString(sum[:8])
+		}
+	}
 	revision, err := h.repo.TouchLandingRevision(s.ID, planHash(plan), &connSig)
 	if err != nil {
 		return nil, errors.New("落地服务器状态不可用")
@@ -267,6 +305,9 @@ func (h *Handler) syncNativeLandingServerOnce(serverID int64) (*landingSyncSnaps
 		}
 		if group := userGroupOf[n.UserID]; group != "" {
 			desired["quota_group"] = group
+		}
+		if group := rateGroupOf[n.UserID]; group != "" {
+			desired["rate_group"] = group
 		}
 		if n.Protocol == "ss2022" {
 			desired["ss2022"] = map[string]interface{}{"method": n.Method, "server_key": n.ServerKey, "user_key": n.UserKey}
@@ -309,6 +350,9 @@ func (h *Handler) syncNativeLandingServerOnce(serverID int64) (*landingSyncSnaps
 	if userLimits != nil {
 		payload["user_limits"] = userLimits
 	}
+	if userRates != nil {
+		payload["user_rates"] = userRates
+	}
 	result, err := h.sendNodeCommandWithTimeout(s.NodeID, "ApplyLandingDesired", payload, 30*time.Second, false, false)
 	if err != nil || !result.Success {
 		// Same single line as before, now with the agent's short reason (e.g.
@@ -339,6 +383,15 @@ func (h *Handler) syncNativeLandingServerOnce(serverID int64) (*landingSyncSnaps
 		snapshot.Nodes[i].NodeID = s.NodeID
 	}
 	h.recordNativeEgress(s.ID, snapshot.Egress, egressWarnings, egressErr)
+	// Plan 161: the reason a capable agent could not shape (shown on the
+	// user's row); cleared once applied or when nothing is to be applied.
+	rateErr := ""
+	if snapshot.UserRate != nil && snapshot.UserRate.State == "error" {
+		rateErr = snapshot.UserRate.Error
+	}
+	if rateErr != s.RateError {
+		_ = h.repo.RecordLandingRateError(s.ID, rateErr)
+	}
 	staleEpoch := ""
 	if snapshot.CoreUpdate == "restart_required" {
 		staleEpoch = snapshot.Epoch
@@ -398,4 +451,23 @@ func chainDesiredNode(c repo.ChainCopy) map[string]interface{} {
 		"vless": map[string]interface{}{"uuid": c.Chain.UUID, "flow": "xtls-rprx-vision", "reality": map[string]interface{}{"dest": c.Chain.Dest, "server_names": repo.ChainServerNames(c.Chain), "private_key": c.Chain.PrivateKey, "short_ids": []string{c.Chain.ShortID}}},
 		"chain": upstream,
 	}
+}
+
+// syncNativeLandingOnReconnect (plan 161): an agent that applies the per-user
+// 速率 (e.g. right after its OTA) gets its native landing desired state now
+// instead of at the next minute of the landing loop. Older agents keep
+// today's timing; one command per reconnect of a landing node.
+func (h *Handler) syncNativeLandingOnReconnect(nodeID int64) {
+	if h == nil || h.repo == nil {
+		return
+	}
+	node, err := h.repo.GetNodeByID(nodeID)
+	if err != nil || node == nil || !node.LandingCapable || node.LandingRate < repo.LandingRateVersion {
+		return
+	}
+	serverID, err := h.repo.NativeLandingServerIDForNode(nodeID)
+	if err != nil || serverID <= 0 {
+		return
+	}
+	go func() { _, _ = h.syncLandingServer(serverID) }()
 }

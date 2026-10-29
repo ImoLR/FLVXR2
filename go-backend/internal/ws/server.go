@@ -57,6 +57,7 @@ type nodeSession struct {
 	machineProtect  int    // handshake capability; 0 = agent without machine protection
 	runtimeRevs     int    // handshake capability; >0 = agent reports runtime revisions (plan 138)
 	userRate        int    // handshake capability; >0 = agent applies metadata.userLimiter (plan 159)
+	landingRate     int    // handshake capability; >0 = agent shapes user_rates on its landing nodes (plan 161)
 	startedAt       time.Time
 	via             string       // how the session reached the panel (Cloudflare colo / direct)
 	lastMsgAt       atomic.Int64 // unix nanos of the last data message (read loop)
@@ -422,6 +423,9 @@ func (s *Server) handleNode(w http.ResponseWriter, r *http.Request, nodeID int64
 	if v, err := strconv.Atoi(r.URL.Query().Get("userRate")); err == nil && v > 0 {
 		ns.userRate = v
 	}
+	if v, err := strconv.Atoi(r.URL.Query().Get("landingRate")); err == nil && v > 0 {
+		ns.landingRate = v
+	}
 	ns.clientIP = clientip.FromRequest(r)
 	s.nodes[nodeID] = ns
 	delete(s.serviceConnections, nodeID)
@@ -435,6 +439,8 @@ func (s *Server) handleNode(w http.ResponseWriter, r *http.Request, nodeID int64
 	// Plan 159: remembered for the admin view (offline nodes); one write per
 	// session, only when the capability changed.
 	_ = s.repo.SetNodeUserRateCapability(nodeID, ns.userRate)
+	// Plan 161: read by the native landing sync (user_rates only for >= 1).
+	_ = s.repo.SetNodeLandingRateCapability(nodeID, ns.landingRate)
 	s.broadcastStatus(nodeID, 1)
 
 	s.mu.RLock()

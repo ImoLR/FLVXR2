@@ -87,8 +87,11 @@ type LandingServer struct {
 	// program listens there), JSON {"<port>": unix ms}; skipped by the port
 	// picker for 24 h after the last report.
 	NativeBusyPorts string `gorm:"type:text;not null;default:''" json:"-"`
-	CreatedTime     int64  `gorm:"not null" json:"createdTime"`
-	UpdatedTime     int64  `gorm:"not null" json:"updatedTime"`
+	// Plan 161 (native): why the agent could not apply the per-user 速率 in
+	// the kernel ("" = applied, nothing to apply, or an agent without it).
+	RateError   string `gorm:"type:text;not null;default:''" json:"-"`
+	CreatedTime int64  `gorm:"not null" json:"createdTime"`
+	UpdatedTime int64  `gorm:"not null" json:"updatedTime"`
 }
 
 func (LandingServer) TableName() string { return "landing_server" }

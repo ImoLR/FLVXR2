@@ -125,6 +125,7 @@ type Node struct {
 	LandingConnMode              int            `gorm:"column:landing_conn_mode;not null;default:0"` // agent: 仅入站 landing connection limits + inbound counts (plan 141)
 	LandingUserLimits            int            `gorm:"column:landing_user_limits;not null;default:0"` // agent: per-user landing Core groups + usage report (plan 158)
 	UserRate                     int            `gorm:"column:user_rate;not null;default:0"`           // agent: shared per-user limiter on forward services (plan 159)
+	LandingRate                  int            `gorm:"column:landing_rate;not null;default:0"`        // agent: per-user 速率 on its landing nodes, in the kernel (plan 161)
 	LineMachine                 bool           `gorm:"column:line_machine;not null;default:false"`
 	DefaultUserQuotaBytes        int64          `gorm:"not null;default:0"`
 	LeiKwanStatus                string         `gorm:"column:leikwan_status;type:varchar(10);not null;default:''"`

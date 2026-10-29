@@ -265,8 +265,22 @@ func cleanupServerRowOrphans(db *gorm.DB) (ServerRowCleanup, error) {
 // shared server: their row for the server (kind "landing") when it overrides,
 // else their default. Sent to 妙妙屋 shares that apply it (contract §7).
 func (r *Repository) SharedUserRates(serverID int64) (map[int64]int, error) {
+	return r.landingOwnerRates(serverID, "landing", serverID)
+}
+
+// NativeLandingUserRates (plan 161) returns the 速率 (> 0 only) of the owners
+// of nodes on one FLVX-native landing server: their row for the server's node
+// (kind "node", the same row that limits their forward entries there) when it
+// overrides, else their default. The agent shapes all of an owner's node
+// ports on that machine together.
+func (r *Repository) NativeLandingUserRates(serverID, nodeID int64) (map[int64]int, error) {
+	return r.landingOwnerRates(serverID, "node", nodeID)
+}
+
+// landingOwnerRates: three queries, independent of the number of nodes.
+func (r *Repository) landingOwnerRates(serverID int64, kind string, ref int64) (map[int64]int, error) {
 	out := map[int64]int{}
-	if r == nil || r.db == nil || serverID <= 0 {
+	if r == nil || r.db == nil || serverID <= 0 || ref <= 0 {
 		return out, nil
 	}
 	var userIDs []int64
@@ -282,7 +296,7 @@ func (r *Repository) SharedUserRates(serverID int64) (map[int64]int, error) {
 	}
 	var rows []userRateRow
 	if err := r.db.Model(&model.UserServerQuota{}).Select("user_id", "server_ref_id", "rate_mbps").
-		Where("server_kind = ? AND server_ref_id = ? AND rate_override = ? AND user_id IN ?", "landing", serverID, true, userIDs).Find(&rows).Error; err != nil {
+		Where("server_kind = ? AND server_ref_id = ? AND rate_override = ? AND user_id IN ?", kind, ref, true, userIDs).Find(&rows).Error; err != nil {
 		return nil, err
 	}
 	own := map[int64]int{}
@@ -299,4 +313,46 @@ func (r *Repository) SharedUserRates(serverID int64) (map[int64]int, error) {
 		}
 	}
 	return out, nil
+}
+
+// LandingRateVersion (plan 161) is the agent capability (handshake
+// `landingRate=1`): the agent shapes each user's landing node ports in the
+// kernel from user_rates / rate_group of the desired state.
+const LandingRateVersion = 1
+
+// SetNodeLandingRateCapability records the handshake capability (written only
+// when it changed).
+func (r *Repository) SetNodeLandingRateCapability(nodeID int64, version int) error {
+	if r == nil || r.db == nil {
+		return errors.New("repository not initialized")
+	}
+	return r.db.Model(&model.Node{}).Where("id = ? AND landing_rate <> ?", nodeID, version).Update("landing_rate", version).Error
+}
+
+// RecordLandingRateError stores why the agent could not apply the rates in the
+// kernel ("" clears); one conditional statement.
+func (r *Repository) RecordLandingRateError(serverID int64, text string) error {
+	if r == nil || r.db == nil {
+		return errors.New("repository not initialized")
+	}
+	if rs := []rune(text); len(rs) > 300 {
+		text = string(rs[:300])
+	}
+	return r.db.Model(&model.LandingServer{}).Where("id = ? AND rate_error <> ?", serverID, text).Update("rate_error", text).Error
+}
+
+// NativeLandingServerIDForNode is the FLVX-native landing server running on
+// the node (0 = none; at most one per node).
+func (r *Repository) NativeLandingServerIDForNode(nodeID int64) (int64, error) {
+	if r == nil || r.db == nil {
+		return 0, errors.New("repository not initialized")
+	}
+	var ids []int64
+	if err := r.db.Model(&model.LandingServer{}).Where("node_id = ? AND source = ?", nodeID, "native").Limit(1).Pluck("id", &ids).Error; err != nil {
+		return 0, err
+	}
+	if len(ids) == 0 {
+		return 0, nil
+	}
+	return ids[0], nil
 }

@@ -405,6 +405,12 @@ func (h *Handler) userUpdate(w http.ResponseWriter, r *http.Request) {
 		// Plan 159: entry machines whose rate changed (limiters only on
 		// capable agents).
 		warnings = append(warnings, h.userRateAfter(id, rateBefore)...)
+		// Plan 161: rows without their own 速率 on the user's native landing
+		// servers follow the default too (shared servers pick it up on their
+		// next exchange).
+		if oldUser == nil || oldUser.ServerRateMbps != serverRate {
+			h.syncUserLandingServersAsync(id)
+		}
 	}
 
 	if len(warnings) > 0 {

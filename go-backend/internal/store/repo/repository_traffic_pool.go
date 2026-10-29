@@ -471,6 +471,12 @@ type RelatedServer struct {
 	// in the shared rate); SharedRate = shared server applying a user 速率.
 	RateOldAgent bool `json:"rateOldAgent,omitempty"`
 	SharedRate   bool `json:"sharedRate,omitempty"`
+	// Plan 161 (FLVX-native landing servers): LandingRateOldAgent = the
+	// server's agent lacks the landingRate capability (its landing nodes are
+	// not limited yet); LandingRateError = the agent could not apply the rate
+	// in the kernel (its reason).
+	LandingRateOldAgent bool   `json:"landingRateOldAgent,omitempty"`
+	LandingRateError    string `json:"landingRateError,omitempty"`
 }
 
 // UserRelatedServers lists the servers related to the user: entry servers of
@@ -547,7 +553,7 @@ func (r *Repository) UserRelatedServers(userID int64) ([]RelatedServer, error) {
 		}
 	}
 	var servers []model.LandingServer
-	q := r.db.Select("id", "node_id", "source", "name", "shared_caps").Where("chain_only = ?", false)
+	q := r.db.Select("id", "node_id", "source", "name", "shared_caps", "rate_error").Where("chain_only = ?", false)
 	if !admin {
 		q = q.Where("("+landingAccessCond("landing_server.id")+" OR landing_server.id IN (SELECT landing_server_id FROM landing_node WHERE user_id = ?))", userID, userID, userID)
 	}
@@ -570,6 +576,7 @@ func (r *Repository) UserRelatedServers(userID int64) ([]RelatedServer, error) {
 		}
 	}
 	landingNames := map[string]string{}
+	rateErrors := map[int64]string{} // native landing node → agent rate error
 	for _, s := range servers {
 		kind, ref := "landing", s.ID
 		if s.Source == "native" {
@@ -584,6 +591,8 @@ func (r *Repository) UserRelatedServers(userID int64) ([]RelatedServer, error) {
 		v.Landing = true
 		if s.Source == "shared" {
 			v.SharedRate = SharedLandingCaps(&s).UserLimits.Supports(landingcustom.UserLimitsRateVersion)
+		} else {
+			rateErrors[ref] = s.RateError
 		}
 		landingNames[fmt.Sprintf("%s:%d", kind, ref)] = s.Name
 	}
@@ -621,6 +630,31 @@ func (r *Repository) UserRelatedServers(userID int64) ([]RelatedServer, error) {
 		for i := range out {
 			if out[i].ServerKind == "node" && out[i].Entry {
 				out[i].RateOldAgent = caps[out[i].ServerRefID] < UserRateVersion
+			}
+		}
+	}
+	// Plan 161: native landing servers (their node's row) — agent capability
+	// and the last kernel error the agent reported.
+	var landingNodes []int64
+	for _, v := range out {
+		if v.ServerKind == "node" && v.Landing {
+			landingNodes = append(landingNodes, v.ServerRefID)
+		}
+	}
+	if len(landingNodes) > 0 {
+		var rows []model.Node
+		if err := r.db.Select("id", "landing_rate").Where("id IN ?", landingNodes).Find(&rows).Error; err == nil {
+			capable := map[int64]bool{}
+			for _, n := range rows {
+				capable[n.ID] = n.LandingRate >= LandingRateVersion
+			}
+			for i := range out {
+				if out[i].ServerKind == "node" && out[i].Landing {
+					out[i].LandingRateOldAgent = !capable[out[i].ServerRefID]
+					if capable[out[i].ServerRefID] {
+						out[i].LandingRateError = rateErrors[out[i].ServerRefID]
+					}
+				}
 			}
 		}
 	}

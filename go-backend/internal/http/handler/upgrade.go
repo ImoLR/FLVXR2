@@ -422,6 +422,7 @@ func (h *Handler) onNodeOnline(nodeID int64) {
 		h.quotaGroups.NodeOnline(nodeID)
 	}
 	h.ddnsNodeOnline(nodeID)
+	h.syncNativeLandingOnReconnect(nodeID)
 }
 
 func (h *Handler) redeployNodeRuntime(nodeID int64) {
