@@ -99,6 +99,11 @@ type Manager struct {
 	groupUsage   atomic.Pointer[[]GroupUsage]
 	lastSnapshot *coreSnapshot
 
+	// Plan 161: per-user 速率 in the kernel (guarded by m.mu).
+	rates         rateEngine
+	rateStatus    RateStatus
+	ratesReleased bool // ReleaseRates ran: the agent is stopping
+
 	// Machine protection (plan 118), read without m.mu: reconciles can hold m.mu
 	// for minutes during a first download.
 	closeWait atomic.Int64               // default_close_wait_timeout_seconds; 0 = Core default
@@ -153,6 +158,9 @@ func (m *Manager) Run(ctx context.Context) {
 		if m.loaded {
 			m.noteResult(m.reconcile(ctx))
 		}
+		// Plan 161: independent of the Core (only ports matter); without a
+		// desired state the first tick removes what an earlier process left.
+		m.applyRates()
 		m.mu.Unlock()
 		select {
 		case <-ctx.Done():
@@ -190,6 +198,7 @@ func (m *Manager) Apply(ctx context.Context, d Desired) (Status, error) {
 	m.ports.Store(d.publicPorts())
 	err := m.reconcile(ctx)
 	m.noteResult(err)
+	m.applyRates()
 	return m.statusLocked(), err
 }
 
@@ -246,7 +255,12 @@ func (m *Manager) statusLocked() Status {
 	}
 	egress.Warnings = append([]string(nil), egress.Warnings...)
 	egress.Withheld = append([]string(nil), egress.Withheld...)
-	return Status{Revision: m.desired.Revision, Epoch: m.epoch, CoreVersion: CoreVersion, State: state, Error: m.lastError, Nodes: append([]Counter{}, m.counters...), Egress: &egress, CoreUpdate: m.coreUpdate, NodeErrors: m.nodeErrors()}
+	rate := m.rateStatus
+	rate.Devices = append([]string(nil), rate.Devices...)
+	if rate.State == "" {
+		rate.State = "off"
+	}
+	return Status{Revision: m.desired.Revision, Epoch: m.epoch, CoreVersion: CoreVersion, State: state, Error: m.lastError, Nodes: append([]Counter{}, m.counters...), Egress: &egress, CoreUpdate: m.coreUpdate, NodeErrors: m.nodeErrors(), UserRate: &rate}
 }
 func (m *Manager) Counters() []Counter {
 	// A first install can spend minutes on download mirrors. Cumulative landing

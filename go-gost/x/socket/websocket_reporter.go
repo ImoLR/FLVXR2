@@ -293,6 +293,11 @@ func (w *WebSocketReporter) Stop() {
 		w.conn.Close()
 	}
 	w.connMutex.Unlock()
+	// Plan 161: no per-user landing 速率 objects outlive the agent (a rollback
+	// to an older agent must not keep enforcing them); rebuilt at the next start.
+	if w.nodeID != 36 {
+		landing.Default().ReleaseRates(3 * time.Second)
+	}
 }
 
 // backoffWithJitter 返回带随机抖动的退避时间（±25%）
@@ -835,7 +840,9 @@ func buildWebSocketQuery(secret string, version string, http int, tls int, socks
 		"&machineProtect=" + strconv.Itoa(machineProtectVersion) +
 		"&runtimeRevs=" + strconv.Itoa(runtimeRevsVersion) +
 		"&addrReport=" + strconv.Itoa(addrReportVersion) +
-		"&userRate=" + strconv.Itoa(userRateVersion)
+		"&userRate=" + strconv.Itoa(userRateVersion) +
+		// Plan 161: per-user 速率 on this machine's landing nodes (kernel).
+		"&landingRate=" + strconv.Itoa(landing.LandingRateVersion)
 }
 
 // buildWebSocketCandidates returns the primary and the fallback scheme URL of

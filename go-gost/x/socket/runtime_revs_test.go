@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	corelogger "github.com/go-gost/core/logger"
+	"github.com/go-gost/x/landing"
 	xlogger "github.com/go-gost/x/logger"
 	"github.com/go-gost/x/registry"
 )
@@ -176,6 +177,14 @@ func TestHandshakeAdvertisesRuntimeRevs(t *testing.T) {
 func TestHandshakeAdvertisesUserRate(t *testing.T) {
 	q := buildWebSocketQuery("s", "v", 0, 0, 0, 0)
 	if want := fmt.Sprintf("&userRate=%d", userRateVersion); !containsStr(q, want) {
+		t.Fatalf("query %s lacks %s", q, want)
+	}
+}
+
+// Plan 161: the panel only sends user_rates / rate_group to agents that say so.
+func TestHandshakeAdvertisesLandingRate(t *testing.T) {
+	q := buildWebSocketQuery("s", "v", 0, 0, 0, 0)
+	if want := fmt.Sprintf("&landingRate=%d", landing.LandingRateVersion); !containsStr(q, want) {
 		t.Fatalf("query %s lacks %s", q, want)
 	}
 }

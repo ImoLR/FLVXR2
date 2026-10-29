@@ -55,6 +55,9 @@ type Desired struct {
 	// UserLimits (plan 158): per-user Core groups (see user_limits.go). Only
 	// sent to agents reporting landing_user_limits.
 	UserLimits *UserLimits `json:"user_limits,omitempty"`
+	// UserRates (plan 161): per-user 速率, enforced in the kernel (see
+	// user_rate.go). Only sent to agents advertising landingRate.
+	UserRates *UserRates `json:"user_rates,omitempty"`
 }
 
 type Node struct {
@@ -83,6 +86,9 @@ type Node struct {
 	// QuotaGroup (plan 158): the owner's landing group ("landing-user-<id>")
 	// when the owner is limited on this server; "" = no per-user group.
 	QuotaGroup string `json:"quota_group,omitempty"`
+	// RateGroup (plan 161): the owner's rate group ("landing-user-<id>") when
+	// the owner has a 速率 on this server; "" = not shaped.
+	RateGroup string `json:"rate_group,omitempty"`
 }
 
 // ConnModeVersion is reported as landing_conn_mode: this agent applies
@@ -158,6 +164,9 @@ type Status struct {
 	// and reason. Always present on agents that report them (possibly empty);
 	// older agents omit it and fail the whole reconcile instead.
 	NodeErrors []NodeError `json:"node_errors"`
+	// UserRate (plan 161): the kernel state of the per-user 速率; present on
+	// agents advertising landingRate.
+	UserRate *RateStatus `json:"user_rate,omitempty"`
 }
 
 func (d *Desired) validate() error {
@@ -205,6 +214,9 @@ func (d *Desired) validate() error {
 		return fmt.Errorf("too many chain nodes")
 	}
 	if err := d.UserLimits.validate(d.Nodes); err != nil {
+		return err
+	}
+	if err := d.UserRates.validate(d.Nodes); err != nil {
 		return err
 	}
 	if d.Egress != nil {
