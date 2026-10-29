@@ -5,7 +5,7 @@ dfdec478). Panel upgrade of `/opt/flvx-svc` + OTA of ALL online agents + NAT ext
 Run dir `/root/flvx-workers/runs/release-limits-batch/`. Approval: user 2026-10-29 ~15:30 TW.
 
 ## Checklist
-- [ ] 0. Inputs read: 157/158/159/161 final.md + release-notes.md all say finished (build only); galleries exist.
+- [x] 0. Inputs read: 157/158/159/161 final.md + release-notes.md all say finished (build only); galleries exist.
 - [ ] 1. Gates on the release branch: `go build ./...` + vet, backend tests SQLite + PostgreSQL, agent tests (go-gost/x, go-gost), frontend tsc / eslint / build; compare failures with the feature-branch runs.
 - [ ] 2. Migration dry-run on a fresh prod DB copy with the new paneld (time it; orphan-cleanup log line vs 159 read-only SQL counts); 158/159 read-only SQL summary tables.
 - [ ] 3. Screenshot gate: four galleries viewed; defects fixed on the release branch (re-shoot affected views only).
