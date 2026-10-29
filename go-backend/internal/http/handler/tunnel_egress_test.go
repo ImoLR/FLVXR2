@@ -153,28 +153,20 @@ func TestNodeEgressAPIPersistence(t *testing.T) {
 	}
 }
 
-func TestBestExitUsesConnectIPType(t *testing.T) {
+func TestBestPathUsesConnectIPType(t *testing.T) {
 	from := &nodeRecord{ID: 1, ServerIPv6: "2001:db8::1"}
 	to := &nodeRecord{ID: 2, ServerIPv4: "192.0.2.2", ServerIPv6: "2001:db8::2"}
-	rows := []chainNodeRecord{{NodeID: 2, Port: 1234, ConnectIP: "198.51.100.99", ConnectIPType: "v4"}}
-	targets := chainRecordsToRuntimeTargets(rows)
-	if targets[0].ConnectIPType != "v4" {
-		t.Fatalf("type = %q", targets[0].ConnectIPType)
-	}
+	targets := []tunnelRuntimeNode{{NodeID: 2, Port: 1234, ConnectIP: "198.51.100.99", ConnectIPType: "v4", Strategy: "best"}}
 	nodes := map[int64]*nodeRecord{1: from, 2: to}
 	config, err := buildTunnelChainConfig(1, 1, targets, nodes, "v6")
 	data, _ := json.Marshal(config)
-	if err != nil || !strings.Contains(string(data), "198.51.100.99:1234") {
+	if err != nil || !strings.Contains(string(data), "198.51.100.99:1234") || !strings.Contains(string(data), `"strategy":"fifo"`) {
 		t.Fatalf("chain: %s %v", data, err)
 	}
-	scores := evaluateBestExitOwner(chainNodeRecord{NodeID: 1}, rows, nodes, "v6", diagnosisExecOptions{}, func(id int64, ip string, port int, _ diagnosisExecOptions) (float64, float64, error) {
-		if id == 1 && (ip != "198.51.100.99" || port != 1234) {
-			t.Fatalf("best exit probed %s:%d", ip, port)
-		}
-		return 1, 0, nil
-	})
-	if len(scores) != 1 {
-		t.Fatalf("scores = %+v", scores)
+	// 最优 decides from the path-latency round, which probes the same address.
+	host, port, err := resolveChainProbeTarget(from, to, 1234, "v6", "v4", "198.51.100.99")
+	if err != nil || host != "198.51.100.99" || port != 1234 {
+		t.Fatalf("path probe: %s:%d %v", host, port, err)
 	}
 	ip, _, err := resolveChainProbeTarget(from, to, 1234, "v6", "v4")
 	if err != nil || ip != "192.0.2.2" {

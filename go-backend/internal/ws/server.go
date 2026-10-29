@@ -58,6 +58,7 @@ type nodeSession struct {
 	runtimeRevs     int    // handshake capability; >0 = agent reports runtime revisions (plan 138)
 	userRate        int    // handshake capability; >0 = agent applies metadata.userLimiter (plan 159)
 	landingRate     int    // handshake capability; >0 = agent shapes user_rates on its landing nodes (plan 161)
+	chainSwap       int    // handshake capability; >0 = UpdateChains swaps a chain without a gap (plan 165)
 	startedAt       time.Time
 	via             string       // how the session reached the panel (Cloudflare colo / direct)
 	lastMsgAt       atomic.Int64 // unix nanos of the last data message (read loop)
@@ -425,6 +426,9 @@ func (s *Server) handleNode(w http.ResponseWriter, r *http.Request, nodeID int64
 	}
 	if v, err := strconv.Atoi(r.URL.Query().Get("landingRate")); err == nil && v > 0 {
 		ns.landingRate = v
+	}
+	if v, err := strconv.Atoi(r.URL.Query().Get("chainSwap")); err == nil && v > 0 {
+		ns.chainSwap = v
 	}
 	ns.clientIP = clientip.FromRequest(r)
 	s.nodes[nodeID] = ns
@@ -1004,6 +1008,30 @@ func (s *Server) UserRateCapable(nodeID int64) bool {
 	defer s.mu.RUnlock()
 	ns := s.nodes[nodeID]
 	return ns != nil && ns.userRate > 0
+}
+
+// ChainSwapCapable reports whether the node's current agent session swaps a
+// chain on UpdateChains without a window (in-place node reorder or one atomic
+// store, plan 165). Only such nodes get 最优 reorders and UpdateChains
+// redeploys; others keep DeleteChains + AddChains and the static order.
+func (s *Server) ChainSwapCapable(nodeID int64) bool {
+	if s == nil {
+		return false
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	ns := s.nodes[nodeID]
+	return ns != nil && ns.chainSwap > 0
+}
+
+// NodeOnline reports whether the node has a live agent session.
+func (s *Server) NodeOnline(nodeID int64) bool {
+	if s == nil {
+		return false
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.nodes[nodeID] != nil
 }
 
 // CommandsSent is the number of commands written to a node since the panel

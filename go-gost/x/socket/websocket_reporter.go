@@ -841,6 +841,8 @@ func buildWebSocketQuery(secret string, version string, http int, tls int, socks
 		"&runtimeRevs=" + strconv.Itoa(runtimeRevsVersion) +
 		"&addrReport=" + strconv.Itoa(addrReportVersion) +
 		"&userRate=" + strconv.Itoa(userRateVersion) +
+		// Plan 165: UpdateChains swaps chains without a gap (最优 reorder).
+		"&chainSwap=" + strconv.Itoa(chainSwapVersion) +
 		// Plan 161: per-user 速率 on this machine's landing nodes (kernel).
 		"&landingRate=" + strconv.Itoa(landing.LandingRateVersion)
 }
@@ -2286,8 +2288,10 @@ func (w *WebSocketReporter) handleUpdateChain(data interface{}) error {
 		Data  config.ChainConfig `json:"data"`
 	}
 
-	// 尝试解析为更新请求格式
-	if err := json.Unmarshal(jsonData, &updateReq); err != nil {
+	// 尝试解析为更新请求格式。A plain ChainConfig also decodes into the envelope
+	// without an error (unknown fields are ignored), so an envelope without
+	// chain data falls back to the plain form too.
+	if err := json.Unmarshal(jsonData, &updateReq); err != nil || (strings.TrimSpace(updateReq.Data.Name) == "" && len(updateReq.Data.Hops) == 0) {
 		// 如果失败，可能是直接的ChainConfig，从name字段获取chain名称
 		var chainConfig config.ChainConfig
 		if err := json.Unmarshal(jsonData, &chainConfig); err != nil {

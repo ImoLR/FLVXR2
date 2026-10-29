@@ -1601,7 +1601,8 @@ func (h *Handler) federationRuntimeApplyRole(w http.ResponseWriter, r *http.Requ
 	}
 
 	protocol := defaultString(req.Protocol, runtime.Protocol)
-	strategy := defaultString(req.Strategy, "round")
+	// A consumer's 最优 has no decisions on this side: static order (plan 165).
+	strategy := runtimeTunnelStrategy(defaultString(req.Strategy, "round"))
 	chainName := fmt.Sprintf("fed_chain_%d", runtime.ID)
 	serviceName := fmt.Sprintf("fed_svc_%d", runtime.ID)
 

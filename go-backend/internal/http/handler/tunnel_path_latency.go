@@ -42,6 +42,13 @@ type pathLatencyPlan struct {
 	TunnelID int64
 	Entries  []chainNodeRecord
 	Layers   [][]pathLatencyEdge
+	// Plan 165 (最优): all groups [entries, hops…, exits] in DB order, whether
+	// the tunnel runs (status 1), has a LeiKwan pipe entry, and its remote
+	// (federation) nodes.
+	Groups [][]chainNodeRecord
+	Active bool
+	Pipe   bool
+	Remote map[int64]bool
 }
 
 type pathEntryLatency struct {
@@ -102,9 +109,20 @@ func (h *Handler) planPathLatencyRound() ([]pathLatencyPlan, map[pathProbeKey]*n
 		}
 		pipe, hasPipe := tunnel["leikwanPipe"].(model.LeiKwanPipe)
 		entries, hops, exits := splitChainNodeGroups(rows)
-		plan := pathLatencyPlan{TunnelID: id, Entries: entries}
+		plan := pathLatencyPlan{TunnelID: id, Entries: entries, Active: asInt(tunnel["status"], 0) == 1, Pipe: hasPipe}
 		groups := append([][]chainNodeRecord{entries}, hops...)
 		groups = append(groups, exits)
+		plan.Groups = groups
+		for _, group := range groups {
+			for _, row := range group {
+				if n := load(row.NodeID); n != nil && n.IsRemote == 1 {
+					if plan.Remote == nil {
+						plan.Remote = make(map[int64]bool)
+					}
+					plan.Remote[row.NodeID] = true
+				}
+			}
+		}
 		for i := 1; i < len(groups); i++ {
 			edges := make([]pathLatencyEdge, 0)
 			for _, from := range groups[i-1] {
@@ -258,10 +276,15 @@ func (h *Handler) runPathLatencyRound(ctx context.Context) {
 	h.pathLatencyMu.Lock()
 	h.pathLatency = snapshots
 	h.pathLatencyMu.Unlock()
+	// Plan 165: 最优 decisions from this round's edges (no probes of its own).
+	bestStart := time.Now()
+	h.runBestPathRound(plans, results, now)
+	bestDuration := time.Since(bestStart)
 	// One summary line per hour (was one per minute, ~1.4k lines/day).
 	if last := pathLatencyLoggedAt.Load(); now.Unix()-last >= 3600 {
 		pathLatencyLoggedAt.Store(now.Unix())
-		log.Printf("[path-latency] round tunnels=%d edges=%d pairs=%d retries=%d duration=%s (logged hourly)", len(plans), edges, len(pairs), retries, time.Since(start).Round(time.Millisecond))
+		owners, switches, deferred, failures := h.bestPath.takeCounters()
+		log.Printf("[path-latency] round tunnels=%d edges=%d pairs=%d retries=%d duration=%s best_owners=%d best_switches=%d best_deferred=%d best_push_fail=%d best_round=%s (logged hourly)", len(plans), edges, len(pairs), retries, time.Since(start).Round(time.Millisecond), owners, switches, deferred, failures, bestDuration.Round(time.Microsecond))
 	}
 }
 

@@ -1533,6 +1533,7 @@ func (h *Handler) tunnelCreate(w http.ResponseWriter, r *http.Request) {
 		response.WriteJSON(w, response.ErrDefault(err.Error()))
 		return
 	}
+	defaultNewTunnelLayerStrategies(req)
 
 	name := asString(req["name"])
 	if name == "" {
@@ -1805,7 +1806,7 @@ func (h *Handler) tunnelGet(w http.ResponseWriter, r *http.Request) {
 		response.WriteJSON(w, response.Err(-2, err.Error()))
 		return
 	}
-	h.attachBestExitStatesOrLog(items)
+	h.attachBestPathStatesOrLog(items)
 	for _, it := range items {
 		if asInt64(it["id"], 0) == id {
 			response.WriteJSON(w, response.OK(it))
@@ -5258,7 +5259,7 @@ func (h *Handler) applyFederationRuntime(state *tunnelCreateState, localDomain s
 			ResourceKey:   resourceKey,
 			Role:          "exit",
 			Protocol:      defaultString(outNode.Protocol, "tls"),
-			Strategy:      defaultString(outNode.Strategy, "round"),
+			Strategy:      runtimeTunnelStrategy(defaultString(outNode.Strategy, "round")),
 		}
 		applyRes, err := fc.ApplyRole(remoteURL, remoteToken, localDomain, applyReq)
 		if err != nil {
@@ -5360,7 +5361,7 @@ func (h *Handler) applyFederationRuntime(state *tunnelCreateState, localDomain s
 				ResourceKey:   resourceKey,
 				Role:          "middle",
 				Protocol:      defaultString(chainNode.Protocol, "tls"),
-				Strategy:      defaultString(chainNode.Strategy, "round"),
+				Strategy:      runtimeTunnelStrategy(defaultString(chainNode.Strategy, "round")),
 				Targets:       applyTargets,
 			}
 			applyRes, err := fc.ApplyRole(remoteURL, remoteToken, localDomain, applyReq)
@@ -5468,7 +5469,7 @@ func (h *Handler) applyTunnelRuntime(state *tunnelCreateState) ([]int64, []int64
 		if err != nil {
 			return createdChains, createdServices, err
 		}
-		chainData, err := buildTunnelChainConfig(state.TunnelID, inNode.NodeID, targets, state.Nodes, state.IPPreference)
+		chainData, err := h.tunnelChainConfigFor(state, inNode.NodeID, targets)
 		if err != nil {
 			return createdChains, createdServices, err
 		}
@@ -5490,7 +5491,7 @@ func (h *Handler) applyTunnelRuntime(state *tunnelCreateState) ([]int64, []int64
 			if node := state.Nodes[chainNode.NodeID]; node != nil && node.IsRemote == 1 {
 				continue
 			}
-			chainData, err := buildTunnelChainConfig(state.TunnelID, chainNode.NodeID, nextTargets, state.Nodes, state.IPPreference)
+			chainData, err := h.tunnelChainConfigFor(state, chainNode.NodeID, nextTargets)
 			if err != nil {
 				return createdChains, createdServices, err
 			}
@@ -5648,7 +5649,8 @@ func buildTunnelChainConfig(tunnelID int64, fromNodeID int64, targets []tunnelRu
 		})
 	}
 
-	strategy := defaultString(strings.TrimSpace(targets[0].Strategy), "round")
+	// 最优 runs as a fifo hop in the panel-maintained order (plan 165).
+	strategy := runtimeTunnelStrategy(defaultString(strings.TrimSpace(targets[0].Strategy), "round"))
 	hop := map[string]interface{}{
 		"name": fmt.Sprintf("hop_%d", tunnelID),
 		"selector": map[string]interface{}{
@@ -5939,6 +5941,25 @@ func pickNodeAddressV6(node *nodeRecord) string {
 		return v
 	}
 	return strings.TrimSpace(node.ServerIP)
+}
+
+// defaultNewTunnelLayerStrategies: a new tunnel's 出口 group and 中转 hop
+// groups default to 最优 (plan 165) when the request leaves the strategy
+// empty. Entries are not a choice layer; existing tunnels keep their stored
+// strategy (tunnel update is not touched).
+func defaultNewTunnelLayerStrategies(req map[string]interface{}) {
+	for _, item := range asMapSlice(req["outNodeId"]) {
+		if strings.TrimSpace(asString(item["strategy"])) == "" {
+			item["strategy"] = tunnelStrategyBest
+		}
+	}
+	for _, group := range asAnySlice(req["chainNodes"]) {
+		for _, item := range asMapSlice(group) {
+			if strings.TrimSpace(asString(item["strategy"])) == "" {
+				item["strategy"] = tunnelStrategyBest
+			}
+		}
+	}
 }
 
 func (h *Handler) replaceTunnelChainsTx(tx *gorm.DB, tunnelID int64, req map[string]interface{}) error {

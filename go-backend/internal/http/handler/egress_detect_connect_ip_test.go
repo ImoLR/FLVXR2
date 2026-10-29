@@ -77,10 +77,6 @@ func TestCustomConnectIPOverridesType(t *testing.T) {
 		if err != nil || host != ip || port != 1302 {
 			t.Fatalf("probe: %s %d %v", host, port, err)
 		}
-		host, port, err = resolveBestExitProbeTarget(nodes[1], nodes[2], 1302, "v6", "v4", ip)
-		if err != nil || host != ip || port != 1302 {
-			t.Fatalf("best exit: %s %d %v", host, port, err)
-		}
 	}
 }
 

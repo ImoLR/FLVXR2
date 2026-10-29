@@ -40,7 +40,7 @@ type Handler struct {
 	wsServer         *ws.Server
 	metrics          *metrics.IngestionService
 	healthCheck      *health.Checker
-	bestExit         *bestExitManager
+	bestPath         *bestPathManager
 	fluxVersion      string
 	cnLandingChecker *cnlanding.Checker
 	quotaGroups      *quotaCoordinator
@@ -68,10 +68,14 @@ type Handler struct {
 	userRatePushed userRatePushLog
 	// userRateCapableFn overrides the userRate handshake check; tests replace it.
 	userRateCapableFn func(int64) bool
-	nodeRedeployMu    sync.Mutex
-	nodeRedeploy      *nodeRedeployScheduler
-	redeployRetryMu   sync.Mutex
-	redeployPending   map[tunnelNodeKey]*tunnelNodeRetry
+	// chainSwapCapableFn / nodeOnlineFn override the chainSwap handshake check
+	// and the agent session lookup (plan 165); tests replace them.
+	chainSwapCapableFn func(int64) bool
+	nodeOnlineFn       func(int64) bool
+	nodeRedeployMu     sync.Mutex
+	nodeRedeploy       *nodeRedeployScheduler
+	redeployRetryMu    sync.Mutex
+	redeployPending    map[tunnelNodeKey]*tunnelNodeRetry
 
 	nodeGroupHandler *NodeGroupHandler
 	nodeTagHandler   *NodeTagHandler
@@ -186,7 +190,7 @@ func New(repo *repo.Repository, jwtSecret string, fluxVersion string) *Handler {
 		wsServer:            ws.NewServer(repo, jwtSecret),
 		metrics:             metrics.NewIngestionService(repo),
 		healthCheck:         nil,
-		bestExit:            newBestExitManager(),
+		bestPath:            newBestPathManager(),
 		fluxVersion:         fluxVersion,
 		cnLandingChecker:    cnlanding.New(nil),
 		captchaTokens:       make(map[string]int64),
@@ -871,7 +875,7 @@ func (h *Handler) tunnelList(w http.ResponseWriter, r *http.Request) {
 		response.WriteJSON(w, response.Err(-2, err.Error()))
 		return
 	}
-	h.attachBestExitStatesOrLog(items)
+	h.attachBestPathStatesOrLog(items)
 	response.WriteJSON(w, response.OK(items))
 }
 

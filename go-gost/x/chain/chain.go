@@ -75,6 +75,14 @@ func (c *Chain) Marker() selector.Marker {
 	return c.marker
 }
 
+// Hops returns the chain's hops (plan 165: in-place node reorder).
+func (c *Chain) Hops() []hop.Hop {
+	if c == nil {
+		return nil
+	}
+	return c.hops
+}
+
 func (c *Chain) Name() string {
 	return c.name
 }

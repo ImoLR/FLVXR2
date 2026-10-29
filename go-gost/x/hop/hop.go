@@ -383,6 +383,45 @@ func (p *chainHop) parseNode(r io.Reader) ([]*chain.Node, error) {
 	return nodes, nil
 }
 
+// ReorderNodes puts the hop's nodes into the given address order in place
+// (plan 165, 最优): the node objects (transports with their mux sessions,
+// fail markers) are kept, so a reorder opens no connection and leaves no
+// window without nodes. It only applies when addrs is a permutation of the
+// current node addresses (unique) of a static hop (no loaders, no periodic
+// reload); otherwise it changes nothing and returns false.
+func (p *chainHop) ReorderNodes(addrs []string) bool {
+	if p == nil || p.options.period > 0 || p.options.fileLoader != nil || p.options.redisLoader != nil || p.options.httpLoader != nil {
+		return false
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if len(addrs) != len(p.nodes) || len(p.options.nodes) != len(p.nodes) {
+		return false
+	}
+	byAddr := make(map[string]*chain.Node, len(p.nodes))
+	for _, node := range p.nodes {
+		if node == nil {
+			return false
+		}
+		if _, dup := byAddr[node.Addr]; dup {
+			return false
+		}
+		byAddr[node.Addr] = node
+	}
+	ordered := make([]*chain.Node, 0, len(addrs))
+	for _, addr := range addrs {
+		node, ok := byAddr[addr]
+		if !ok {
+			return false
+		}
+		delete(byAddr, addr)
+		ordered = append(ordered, node)
+	}
+	p.nodes = ordered
+	p.options.nodes = append([]*chain.Node(nil), ordered...)
+	return true
+}
+
 func (p *chainHop) Close() error {
 	p.cancelFunc()
 	if p.options.fileLoader != nil {

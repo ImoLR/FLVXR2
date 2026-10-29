@@ -158,6 +158,7 @@ type tunnelRuntimePlan struct {
 	federation  bool // remote role: federation protocol, never diffed
 	chainData   map[string]interface{}
 	serviceData []map[string]interface{}
+	targets     []tunnelRuntimeNode // next layer in DB order (chain owners)
 }
 
 func (p *tunnelRuntimePlan) failed(action string, err error) error {
@@ -231,8 +232,9 @@ func (h *Handler) buildTunnelRuntimePlan(state *tunnelCreateState, nodeID int64)
 		plan.federation = true
 		return plan, nil
 	}
+	plan.targets = targets
 	if plan.runtimeNode.ChainType != 3 {
-		chainData, err := buildTunnelChainConfig(state.TunnelID, nodeID, targets, state.Nodes, state.IPPreference)
+		chainData, err := h.tunnelChainConfigFor(state, nodeID, targets)
 		if err != nil {
 			return nil, plan.failed("生成转发链", err)
 		}
@@ -256,8 +258,13 @@ func (h *Handler) applyTunnelRuntimePlan(state *tunnelCreateState, plan *tunnelR
 		}
 		return nil
 	}
-	if plan.chainData != nil {
-		if _, err := h.sendNodeCommand(nodeID, "DeleteChains", map[string]interface{}{"chain": fmt.Sprintf("chains_%d", state.TunnelID)}, false, true); err != nil {
+	// Plan 165: agents that swap chains without a gap get one UpdateChains
+	// (no moment without the chain, in which dials would go direct); older
+	// agents keep DeleteChains + AddChains.
+	chainName := fmt.Sprintf("chains_%d", state.TunnelID)
+	swap := plan.chainData != nil && h.chainSwapCapable(nodeID)
+	if plan.chainData != nil && !swap {
+		if _, err := h.sendNodeCommand(nodeID, "DeleteChains", map[string]interface{}{"chain": chainName}, false, true); err != nil {
 			return plan.failed("清理转发链", err)
 		}
 	}
@@ -266,7 +273,11 @@ func (h *Handler) applyTunnelRuntimePlan(state *tunnelCreateState, plan *tunnelR
 			return plan.failed("清理服务", err)
 		}
 	}
-	if plan.chainData != nil {
+	if swap {
+		if _, err := h.sendNodeCommand(nodeID, "UpdateChains", map[string]interface{}{"chain": chainName, "data": plan.chainData}, false, false); err != nil {
+			return plan.failed("下发转发链", err)
+		}
+	} else if plan.chainData != nil {
 		if _, err := h.sendNodeCommand(nodeID, "AddChains", plan.chainData, true, false); err != nil {
 			return plan.failed("下发转发链", err)
 		}

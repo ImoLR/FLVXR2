@@ -675,7 +675,7 @@ func (h *Handler) applyTunnelMerge(plan *tunnelMergePlan, inIP *string) error {
 			var targets []tunnelRuntimeNode
 			if targets, err = leiKwanEntryTargets(state); err == nil {
 				var chainData map[string]interface{}
-				if chainData, err = buildTunnelChainConfig(plan.TunnelID, plan.EntryNodeID, targets, state.Nodes, state.IPPreference); err == nil {
+				if chainData, err = h.tunnelChainConfigFor(state, plan.EntryNodeID, targets); err == nil {
 					_, err = h.sendNodeCommand(plan.EntryNodeID, "AddChains", chainData, true, false)
 				}
 			}
