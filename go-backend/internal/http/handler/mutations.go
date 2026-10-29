@@ -3863,6 +3863,13 @@ func (h *Handler) forwardUpdateWithReq(w http.ResponseWriter, r *http.Request, r
 			h.syncLandingServer(n.LandingServerID)
 		}
 	}
+	// Plan 164: 「已确认合规」 from the rule dialog — admins only (ignored for
+	// users), applied to the target the rule has after this save.
+	if rawAck, ok := req["lineComplianceAck"]; ok && actorRole == 0 && !isReplay {
+		if ackErr := h.setLineComplianceAck(id, asBool(rawAck, false)); ackErr != nil {
+			warnings = append(warnings, "已确认合规未保存："+ackErr.Error())
+		}
+	}
 	if len(warnings) > 0 {
 		response.WriteJSON(w, response.OK(map[string]interface{}{"warnings": warnings}))
 		return

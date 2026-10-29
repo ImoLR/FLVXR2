@@ -343,7 +343,11 @@ func matchLandingTarget(db *gorm.DB, userID, tunnelID int64, remoteAddr string) 
 	return own, nil
 }
 func (r *Repository) SetForwardLandingNode(id, landingID int64) error {
-	return r.db.Model(&model.Forward{}).Where("id = ?", id).Update("landing_node_id", landingID).Error
+	return r.db.Model(&model.Forward{}).Where("id = ?", id).Updates(map[string]interface{}{
+		"landing_node_id": landingID,
+		// Plan 164: a new landing drops a 「已确认合规」 confirmation.
+		"line_compliance_ack_sig": gorm.Expr("CASE WHEN landing_node_id = ? THEN line_compliance_ack_sig ELSE '' END", landingID),
+	}).Error
 }
 func (r *Repository) ClearForwardLandingPause(id int64) error {
 	return r.db.Model(&model.Forward{}).Where("id = ?", id).Update("landing_auto_paused", false).Error

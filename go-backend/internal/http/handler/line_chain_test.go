@@ -886,7 +886,7 @@ func TestLineMachineTargetEnforcement(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if n := e.h.decorateForwardChains(listItems); n != 1 {
+	if n := e.h.decorateForwardChains(listItems, true); n != 1 {
 		t.Fatalf("non-compliant count: %d", n)
 	}
 	marked := false

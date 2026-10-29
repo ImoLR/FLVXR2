@@ -1433,9 +1433,13 @@ func (r *Repository) UpdateForward(id int64, name string, tunnelID int64, remote
 		return errors.New("repository not initialized")
 	}
 	updates := map[string]interface{}{}
+	landingForAck := int64(-1)
 	if len(landingNodeID) > 0 {
 		updates["landing_node_id"] = landingNodeID[0]
+		landingForAck = landingNodeID[0]
 	}
+	// Plan 164: a changed target drops the 「已确认合规」 confirmation.
+	updates["line_compliance_ack_sig"] = lineAckKeepExpr(tunnelID, remoteAddr, landingForAck)
 	fields := map[string]interface{}{
 		"name":                name,
 		"tunnel_id":           tunnelID,
@@ -1490,7 +1494,12 @@ func (r *Repository) UpdateForwardTunnel(forwardID, tunnelID int64, now int64) e
 		if err != nil {
 			return err
 		}
-		return tx.Model(&model.Forward{}).Where("id = ?", forwardID).Updates(map[string]interface{}{"tunnel_id": tunnelID, "landing_node_id": landingID, "updated_time": now, "entry_node_ids": ""}).Error
+		// Plan 164: a confirmation belongs to the old tunnel/target.
+		ackSig := f.LineComplianceAckSig
+		if tunnelID != f.TunnelID || landingID != f.LandingNodeID {
+			ackSig = ""
+		}
+		return tx.Model(&model.Forward{}).Where("id = ?", forwardID).Updates(map[string]interface{}{"tunnel_id": tunnelID, "landing_node_id": landingID, "updated_time": now, "entry_node_ids": "", "line_compliance_ack_sig": ackSig}).Error
 	})
 }
 
@@ -2278,37 +2287,41 @@ func (r *Repository) RollbackForwardFields(id, userID int64, userName, name stri
 	if r == nil || r.db == nil {
 		return
 	}
-	_ = r.db.Model(&model.Forward{}).
-		Where("id = ?", id).
-		Updates(map[string]interface{}{
-			"mode":                   old.Mode,
-			"landing_node_id":        old.LandingNodeID,
-			"landing_auto_paused":    old.LandingAutoPaused,
-			"wg_path_id":             old.WGPathID,
-			"wg_rule_type":           old.WGRuleType,
-			"source_cidr":            old.SourceCIDR,
-			"target_cidr":            old.TargetCIDR,
-			"snat_enabled":           old.SNATEnabled,
-			"speed_limit_enabled":    old.SpeedLimitEnabled,
-			"speed_limit":            old.SpeedLimit,
-			"traffic_limit":          old.TrafficLimit,
-			"expiry_time":            old.ExpiryTime,
-			"user_id":                userID,
-			"user_name":              userName,
-			"name":                   name,
-			"tunnel_id":              tunnelID,
-			"remote_addr":            remoteAddr,
-			"strategy":               strategy,
-			"status":                 status,
-			"speed_id":               nullInt64FromInterface(speedID),
-			"max_connections":        maxConnections,
-			"max_client_ips":         maxClientIps,
-			"cn_blocked":             cnBlocked,
-			"cn_blocked_reason":      cnBlockedReason,
-			"cn_blocked_auto_paused": cnBlockedAutoPaused,
-			"entry_node_ids":         old.EntryNodeIDs,
-			"updated_time":           now,
-		}).Error
+	fields := map[string]interface{}{
+		"mode":                   old.Mode,
+		"landing_node_id":        old.LandingNodeID,
+		"landing_auto_paused":    old.LandingAutoPaused,
+		"wg_path_id":             old.WGPathID,
+		"wg_rule_type":           old.WGRuleType,
+		"source_cidr":            old.SourceCIDR,
+		"target_cidr":            old.TargetCIDR,
+		"snat_enabled":           old.SNATEnabled,
+		"speed_limit_enabled":    old.SpeedLimitEnabled,
+		"speed_limit":            old.SpeedLimit,
+		"traffic_limit":          old.TrafficLimit,
+		"expiry_time":            old.ExpiryTime,
+		"user_id":                userID,
+		"user_name":              userName,
+		"name":                   name,
+		"tunnel_id":              tunnelID,
+		"remote_addr":            remoteAddr,
+		"strategy":               strategy,
+		"status":                 status,
+		"speed_id":               nullInt64FromInterface(speedID),
+		"max_connections":        maxConnections,
+		"max_client_ips":         maxClientIps,
+		"cn_blocked":             cnBlocked,
+		"cn_blocked_reason":      cnBlockedReason,
+		"cn_blocked_auto_paused": cnBlockedAutoPaused,
+		"entry_node_ids":         old.EntryNodeIDs,
+		"updated_time":           now,
+	}
+	// Plan 164: the failed edit may have cleared the confirmation; put it back
+	// (only loaded by GetForwardRecord, so an empty value leaves the column as is).
+	if old.LineComplianceAckSig != "" {
+		fields["line_compliance_ack_sig"] = old.LineComplianceAckSig
+	}
+	_ = r.db.Model(&model.Forward{}).Where("id = ?", id).Updates(fields).Error
 }
 
 func (r *Repository) GetUsedPortsOnNodeAsMap(nodeID int64) (map[int]bool, error) {

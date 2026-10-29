@@ -2,10 +2,13 @@ package handler
 
 import (
 	"errors"
+	"log"
 	"net"
+	"net/http"
 	"strconv"
 	"strings"
 
+	"go-backend/internal/http/response"
 	"go-backend/internal/store/model"
 	"go-backend/internal/store/repo"
 )
@@ -154,8 +157,11 @@ func (h *Handler) decorateTunnelLineInfo(items []map[string]interface{}) {
 }
 
 // decorateForwardChains adds chain info and the 不合规 mark to rule list
-// items with three batched queries; it returns the non-compliant count.
-func (h *Handler) decorateForwardChains(items []map[string]interface{}) int {
+// items with three batched queries (a fourth, only when hand-typed
+// non-compliant rules are listed, reads their 「已确认合规」 confirmations);
+// it returns the non-compliant count. admin: the viewer is an admin (only
+// admins see lineComplianceAck).
+func (h *Handler) decorateForwardChains(items []map[string]interface{}, admin bool) int {
 	if h == nil || h.repo == nil || len(items) == 0 {
 		return 0
 	}
@@ -176,7 +182,8 @@ func (h *Handler) decorateForwardChains(items []map[string]interface{}) int {
 		return 0
 	}
 	protocols, _ := h.repo.LandingNodeProtocols(landingIDs)
-	count := 0
+	var nonCompliant []map[string]interface{}
+	var ackable []int64
 	for _, item := range items {
 		id := asInt64(item["id"], 0)
 		c, chained := chains[id]
@@ -194,9 +201,98 @@ func (h *Handler) decorateForwardChains(items []map[string]interface{}) int {
 		item["lineMachine"] = true
 		f := model.Forward{LandingNodeID: asInt64(item["landingNodeId"], 0)}
 		if !forwardLineCompliant(f, chained && c.State == model.ChainStateActive, protocols) {
-			item["lineNonCompliant"] = true
-			count++
+			nonCompliant = append(nonCompliant, item)
+			if !chained && f.LandingNodeID <= 0 {
+				ackable = append(ackable, id)
+			}
 		}
 	}
+	acks := map[int64]string{}
+	if len(ackable) > 0 {
+		if got, err := h.repo.ForwardLineComplianceAckSigs(ackable); err == nil {
+			acks = got
+		} else {
+			log.Printf("[line-ack] read confirmations: %v", err)
+		}
+	}
+	count := 0
+	for _, item := range nonCompliant {
+		if lineComplianceAckValid(item, acks) {
+			if admin {
+				item["lineComplianceAck"] = true
+			}
+			continue
+		}
+		item["lineNonCompliant"] = true
+		count++
+	}
 	return count
+}
+
+// lineComplianceAckValid: a hand-typed rule whose stored confirmation was
+// given for exactly its current tunnel + target (plan 164).
+func lineComplianceAckValid(item map[string]interface{}, acks map[int64]string) bool {
+	sig, ok := acks[asInt64(item["id"], 0)]
+	if !ok || sig == "" || asInt64(item["landingNodeId"], 0) > 0 {
+		return false
+	}
+	return sig == repo.LineComplianceAckSig(asInt64(item["tunnelId"], 0), 0, asString(item["remoteAddr"]))
+}
+
+// lineComplianceAckEligible: only a hand-typed target on a 线路机 tunnel can be
+// confirmed — the panel cannot judge its protocol. Landing-node targets are
+// known (not Reality) and chain rules are system-managed.
+func (h *Handler) lineComplianceAckEligible(f *forwardRecord) error {
+	if f == nil {
+		return errors.New("转发不存在")
+	}
+	if strings.EqualFold(f.Mode, "wg_path") || !h.isLineMachineTunnel(f.TunnelID) {
+		return errors.New("只有线路机隧道上的规则需要确认合规")
+	}
+	if chain, _ := h.repo.GetForwardChainByForward(f.ID); chain != nil {
+		return errors.New("「我自己的节点」规则由面板管理，不能手动确认合规")
+	}
+	if f.LandingNodeID > 0 {
+		return errors.New("目标是落地节点，面板已知协议，不能手动确认合规")
+	}
+	return nil
+}
+
+// setLineComplianceAck stores or clears an admin's confirmation for the
+// rule's current target. Clearing is always allowed.
+func (h *Handler) setLineComplianceAck(forwardID int64, ack bool) error {
+	f, err := h.getForwardRecord(forwardID)
+	if err != nil {
+		if errors.Is(err, errForwardNotFound) {
+			return errors.New("转发不存在")
+		}
+		return err
+	}
+	if ack {
+		if err := h.lineComplianceAckEligible(f); err != nil {
+			return err
+		}
+	}
+	return h.repo.SetForwardLineComplianceAck(forwardID, ack)
+}
+
+// forwardLineComplianceAck: POST /api/v1/forward/line-compliance-ack
+// {id, ack} — admin only; panel-side mark, nothing is sent to nodes.
+func (h *Handler) forwardLineComplianceAck(w http.ResponseWriter, r *http.Request) {
+	if !requireAdminRequest(w, r) {
+		return
+	}
+	var req struct {
+		ID  int64 `json:"id"`
+		Ack bool  `json:"ack"`
+	}
+	if err := decodeJSON(r.Body, &req); err != nil || req.ID <= 0 {
+		response.WriteJSON(w, response.ErrDefault("请求参数错误"))
+		return
+	}
+	if err := h.setLineComplianceAck(req.ID, req.Ack); err != nil {
+		response.WriteJSON(w, response.ErrDefault(err.Error()))
+		return
+	}
+	response.WriteJSON(w, response.OKEmpty())
 }

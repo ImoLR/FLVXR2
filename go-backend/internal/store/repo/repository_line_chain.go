@@ -1060,7 +1060,11 @@ func (r *Repository) FindChainTargetForward(userID, tunnelID int64, target strin
 
 // SetForwardRemoteAddr points a chain rule at its (moved) loopback target.
 func (r *Repository) SetForwardRemoteAddr(id int64, addr string) error {
-	return r.db.Model(&model.Forward{}).Where("id = ?", id).Updates(map[string]interface{}{"remote_addr": addr, "updated_time": time.Now().UnixMilli()}).Error
+	return r.db.Model(&model.Forward{}).Where("id = ?", id).Updates(map[string]interface{}{
+		"remote_addr": addr, "updated_time": time.Now().UnixMilli(),
+		// Plan 164: a new target drops a 「已确认合规」 confirmation.
+		"line_compliance_ack_sig": gorm.Expr("CASE WHEN remote_addr = ? THEN line_compliance_ack_sig ELSE '' END", addr),
+	}).Error
 }
 
 // ForwardEntryAddress is one entry address of a rule (the 转发版 address).

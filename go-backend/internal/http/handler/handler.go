@@ -359,6 +359,8 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("/api/v1/forward/diagnose", h.forwardDiagnose)
 	mux.HandleFunc("/api/v1/forward/diagnose/stream", h.forwardDiagnoseStream)
 	mux.HandleFunc("/api/v1/forward/update-order", h.forwardUpdateOrder)
+	// Plan 164: admin 「已确认合规」 on a hand-typed 线路机 rule target.
+	mux.HandleFunc("/api/v1/forward/line-compliance-ack", h.forwardLineComplianceAck)
 	mux.HandleFunc("/api/v1/forward/batch-delete", h.limitMutation(mutationForward, h.forwardBatchDelete))
 	mux.HandleFunc("/api/v1/forward/batch-pause", h.limitMutation(mutationForward, h.forwardBatchPause))
 	mux.HandleFunc("/api/v1/forward/batch-resume", h.limitMutation(mutationForward, h.forwardBatchResume))
@@ -979,7 +981,7 @@ func (h *Handler) forwardList(w http.ResponseWriter, r *http.Request) {
 		"items": items,
 		"total": total,
 	}
-	if nonCompliant := h.decorateForwardChains(items); roleID == 0 {
+	if nonCompliant := h.decorateForwardChains(items, roleID == 0); roleID == 0 {
 		payload["lineNonCompliantCount"] = nonCompliant
 	}
 	response.WriteJSON(w, response.OK(payload))

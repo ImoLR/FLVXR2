@@ -3432,6 +3432,8 @@ func importForwards(tx *gorm.DB, forwards []model.ForwardBackup, now int64) (int
 				// Backups carry no entry binding (plan 152): the imported ports
 				// stand as they are, unbound.
 				"entry_node_ids",
+				// Nor a 「已确认合规」 confirmation (plan 164).
+				"line_compliance_ack_sig",
 			}),
 		}).Create(&item).Error
 		if err != nil {

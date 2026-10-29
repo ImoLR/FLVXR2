@@ -89,6 +89,11 @@ type Forward struct {
 	// EntryNodeIDs binds the rule to some of its tunnel's entries (CSV of node
 	// ids, plan 152). '' = unbound: every entry the owner may use.
 	EntryNodeIDs string `gorm:"column:entry_node_ids;type:text;not null;default:''"`
+	// LineComplianceAckSig (plan 164): an admin confirmed the hand-typed
+	// target of this 线路机 rule is VLESS Reality Vision. Holds the signature
+	// of the target it was given for ('' = not confirmed); it only counts
+	// while the rule's current target has the same signature.
+	LineComplianceAckSig string `gorm:"column:line_compliance_ack_sig;type:varchar(80);not null;default:''"`
 }
 
 func (Forward) TableName() string { return "forward" }
@@ -927,6 +932,8 @@ type ForwardRecord struct {
 	CNBlockedReason     string
 	CNBlockedAutoPaused bool
 	EntryNodeIDs        string
+	// LineComplianceAckSig is loaded by GetForwardRecord only (plan 164).
+	LineComplianceAckSig string
 }
 
 // TunnelRecord is a minimal tunnel view used by control plane.
