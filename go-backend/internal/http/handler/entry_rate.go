@@ -497,7 +497,7 @@ func entryRateNodeNote(name string, mode int, errText string) string {
 		}
 		return ""
 	case ws.EntryRateModeKernel:
-		return fmt.Sprintf("入口 %s 的内核不支持 tc（%s），仍按旧方式限速", name, errText)
+		return fmt.Sprintf("入口 %s 没有用 tc 限速（%s），仍按旧方式限速", name, errText)
 	}
 	return fmt.Sprintf("入口 %s 的 agent 较旧（待升级），仍按旧方式限速", name)
 }

@@ -753,6 +753,8 @@ const mapForwardApiItems = (items: ForwardApiItem[]): Forward[] => {
     chain: (forward as any).chain as ForwardChainInfo | undefined,
     lineMachine: (forward as any).lineMachine === true,
     lineNonCompliant: (forward as any).lineNonCompliant === true,
+    // plan 168: entry nodes still limiting this rule the old way (admin list)
+    rateFallback: (forward as any).rateFallback || undefined,
     lineComplianceAck: (forward as any).lineComplianceAck === true,
     landingNodeId: Number(forward.landingNodeId || 0) || undefined,
     strategy: typeof forward.strategy === "string" ? forward.strategy : "fifo",
