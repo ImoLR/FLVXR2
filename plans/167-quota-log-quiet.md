@@ -21,10 +21,10 @@ Worktree `/root/projects/flvxx/flvxx-quota-log`. Run dir `/root/flvx-workers/run
       distinct error (rate-limited); other commands unchanged; unit tests — c08817c3 (24 h audit: SetQuotaGroups is the only timer-driven command still logged)
 - [x] Other FLVX noise found in the fleet audit fixed if per-connection / per-second: TcpPing partial-loss pairs (≈95 % of 首次失败/已恢复, up to 748/day on 42) → one hourly line; per-connection handler errors (47: 1596/day, 48: 684/day) → per service × class summary; blocked connections no longer logged twice
 - [x] Gates: go build, backend tests SQLite + PostgreSQL (compare with base), agent tests (`go-gost/x`) — SQLite 19/19 + PG 19/19 ok, 0 failures (fork.96 base: 0/0); handler + contract re-run on the final code (aa44f509) SQLite + PG ok; go-gost/x (short TMPDIR) + go-gost ok; quota tests 30× `-race` ok. Review round (subagent): 1 bug (failed push kept the old baseline) + 7 risks/nits fixed in aa44f509; `-count=3` service failures are pre-existing (same on fork.96: global registries)
-- [ ] Tag `3.0.27-fork.97`, CI + Images green, release assets validated
-- [ ] Panel backup + upgrade `/opt/flvx-svc`, prune backups, health + 30/30 online
+- [x] Tag `3.0.27-fork.97` (dc07b896), CI 41016590282 + Images 41016592668 green, release assets validated (Latest, 10 assets = fork.96 set, pins, sha256, amd64+arm64)
+- [x] Panel backup `pre-fork97-20261030T070119Z` (quick/integrity ok), upgrade 15:01:43 TW healthy, pruned (kept pre-fork96 + pre-fork97), 30/30 online, counts identical, reconnects diff-only (node 21: 2 chain-only UpdateChains = plan-165 best order after a panel restart)
 - [ ] OTA one at a time: 32 (canary) → 21 → 55 → rest (never 36)
 - [x] Journald cap `flvx-cap.conf` (SystemMaxUse=1G) on FLVX-only hosts with a default cap > 1G: 2, 14, 22, 23, 32 (journal ~4G → ~1G each, ~3 G disk back each, agents same PID); hosts with existing ≤ 200M caps kept (15/17/18/20/42/47/48/52), small disks (12/26/39, default < 1G) untouched; mmwx-shared hosts report only (21/30/31/34/35/36/45/53)
-- [ ] After numbers (≥ 30 min on 32 / 23), agent RSS/CPU 32/21/55, panel CPU/RAM
-- [ ] Prod proof: temp user + rules on two nodes, total conn limit enforced across nodes, idle push count low, 0 residue
+- [ ] After numbers (≥ 30 min on 32 / 23), agent RSS/CPU 32/21/55, panel CPU/RAM — panel-only window (fork.97 panel, fork.96 agents, 30 min): pushes/h 32 1326 → 72, 48 1264 → 46, 23 146 → 56
+- [x] Prod proof: temp user 53 (总连接数 3) + rules on 47 / 15 → 4th conn refused on both, held conns alive, after one closed the other node admits within 7 s, then refuses again; passed with fork.96 agents (pushes during the 36 s test 2 + 2, idle 180 s 0 + 0) and again with fork.97 agents; cleanup 0 rows, ports closed
 - [ ] Summary `runs/quota-log-quiet/summary.md`; plan complete
