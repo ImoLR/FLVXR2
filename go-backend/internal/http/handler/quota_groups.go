@@ -15,6 +15,27 @@ import (
 
 const quotaGroupPushInterval = time.Second
 
+// Plan 167: a node's budgets move whenever the user's live counts move on
+// other nodes, so pushing every difference sent one SetQuotaGroups per second
+// to busy entries (node 32: ~1350/h) while the user sat far below the limit.
+// Differences are now classed (quotaPushClass): urgent ones still go out at
+// once (quotaGroupPushInterval apart), the rest wait.
+const (
+	// Loosening beyond the band while the node is not about to refuse.
+	quotaPushSoonInterval = 15 * time.Second
+	// Drift inside the band: harmless either way, refreshed this often.
+	quotaPushRefreshInterval = 5 * time.Minute
+	// One summary line of push counts at most this often (only when pushes happened).
+	quotaPushStatsInterval = time.Hour
+	// The band: a change smaller than 1/quotaPushBandDivisor of the node's
+	// remaining room (budget minus its live usage) may wait. Near the limit the
+	// room shrinks, so every change becomes urgent and enforcement is exact.
+	quotaPushBandDivisor = 4
+	// Room at or below this is "at the limit": every change is urgent.
+	quotaPushConnSlack = 2
+	quotaPushIPSlack   = 1
+)
+
 // Plan 158: the static inputs (limited users, per-server caps, landing slots)
 // are re-read at most this often unless a mutation invalidates them; forward
 // targets are still read on every reconcile, as before.
@@ -68,6 +89,35 @@ type quotaBudgetPlan struct {
 	LiveUsage    map[int64]quotaLiveUsage
 	// Shares: landing_server.id → per-user budgets for 妙妙屋 (plan 158).
 	Shares map[int64][]quotaShareBudget
+	// Usage (plan 167): node → group → the node's own live usage that each
+	// budget is compared with when deciding how urgent a change is.
+	Usage map[int64]map[string]quotaBudgetUsage
+}
+
+// quotaBudgetUsage is a node's own live usage of one group: Connections is
+// compared with MaxConnections, Server with ServerMaxConnections (landing,
+// relays included) and ClientIps (local distinct IPs) with MaxClientIps.
+type quotaBudgetUsage struct {
+	Connections int
+	Server      int
+	ClientIps   int
+}
+
+// quotaPushUrgency classes the difference between a node's last pushed and
+// current budgets (plan 167).
+type quotaPushUrgency uint8
+
+const (
+	quotaPushNone  quotaPushUrgency = iota // identical
+	quotaPushLater                         // drift inside the band: quotaPushRefreshInterval
+	quotaPushSoon                          // loosening beyond the band: quotaPushSoonInterval
+	quotaPushNow                           // tightening that matters, node about to refuse, structure: at once
+)
+
+type quotaPushStats struct {
+	since                    time.Time
+	now, soon, later, failed int
+	perNode                  map[int64]int
 }
 
 // quotaShareBudget is one user's budget on a shared server (contract
@@ -106,7 +156,10 @@ type quotaCoordinator struct {
 	source   quotaTargetSource
 	send     quotaCommandSender
 	interval time.Duration
-	now      func() time.Time
+	// Plan 167 push classes (see quotaPushClass).
+	soonInterval    time.Duration
+	refreshInterval time.Duration
+	now             func() time.Time
 
 	mu            sync.Mutex
 	usageByNode   map[int64]map[quotaUsageKey]quotaNodeUsage
@@ -115,6 +168,11 @@ type quotaCoordinator struct {
 	shareBudgets  map[int64][]quotaShareBudget
 	landingPushed map[int64]bool
 	lastSent      map[int64]string
+	// sentBudgets: the budgets of lastSent, compared field by field.
+	sentBudgets map[int64][]quotaGroupBudget
+	// forcePush: limits / landing inputs changed — push every changed node now.
+	forcePush     bool
+	stats         quotaPushStats
 	lastPush      map[int64]time.Time
 	unsupported   map[int64]bool
 	errorLogged   map[int64]bool
@@ -129,20 +187,23 @@ type quotaCoordinator struct {
 
 func newQuotaCoordinator(source quotaTargetSource, send quotaCommandSender) *quotaCoordinator {
 	return &quotaCoordinator{
-		source:        source,
-		send:          send,
-		interval:      quotaGroupPushInterval,
-		now:           time.Now,
-		usageByNode:   make(map[int64]map[quotaUsageKey]quotaNodeUsage),
-		usageByShare:  make(map[int64]quotaSharedUsage),
-		liveUsage:     make(map[int64]quotaLiveUsage),
-		shareBudgets:  make(map[int64][]quotaShareBudget),
-		landingPushed: make(map[int64]bool),
-		lastSent:      make(map[int64]string),
-		lastPush:      make(map[int64]time.Time),
-		unsupported:   make(map[int64]bool),
-		errorLogged:   make(map[int64]bool),
-		extrasStale:   true,
+		source:          source,
+		send:            send,
+		interval:        quotaGroupPushInterval,
+		soonInterval:    quotaPushSoonInterval,
+		refreshInterval: quotaPushRefreshInterval,
+		now:             time.Now,
+		usageByNode:     make(map[int64]map[quotaUsageKey]quotaNodeUsage),
+		usageByShare:    make(map[int64]quotaSharedUsage),
+		liveUsage:       make(map[int64]quotaLiveUsage),
+		shareBudgets:    make(map[int64][]quotaShareBudget),
+		landingPushed:   make(map[int64]bool),
+		lastSent:        make(map[int64]string),
+		sentBudgets:     make(map[int64][]quotaGroupBudget),
+		lastPush:        make(map[int64]time.Time),
+		unsupported:     make(map[int64]bool),
+		errorLogged:     make(map[int64]bool),
+		extrasStale:     true,
 	}
 }
 
@@ -265,6 +326,7 @@ func (c *quotaCoordinator) NodeOnline(nodeID int64) {
 	c.mu.Lock()
 	delete(c.usageByNode, nodeID)
 	delete(c.lastSent, nodeID)
+	delete(c.sentBudgets, nodeID)
 	delete(c.lastPush, nodeID)
 	delete(c.unsupported, nodeID)
 	delete(c.errorLogged, nodeID)
@@ -280,12 +342,15 @@ func (c *quotaCoordinator) NodeOffline(nodeID int64) {
 	c.mu.Lock()
 	delete(c.usageByNode, nodeID)
 	delete(c.lastSent, nodeID)
+	delete(c.sentBudgets, nodeID)
 	delete(c.lastPush, nodeID)
 	delete(c.landingPushed, nodeID)
 	c.mu.Unlock()
 	c.Trigger()
 }
 
+// InvalidateNodes forces a fresh push to the nodes (their forwards changed:
+// services were re-created and joined their groups with static budgets).
 func (c *quotaCoordinator) InvalidateNodes(nodeIDs ...int64) {
 	if c == nil {
 		return
@@ -294,6 +359,7 @@ func (c *quotaCoordinator) InvalidateNodes(nodeIDs ...int64) {
 	for _, nodeID := range nodeIDs {
 		if nodeID > 0 {
 			delete(c.lastSent, nodeID)
+			delete(c.sentBudgets, nodeID)
 		}
 	}
 	c.extrasStale = true
@@ -302,13 +368,15 @@ func (c *quotaCoordinator) InvalidateNodes(nodeIDs ...int64) {
 }
 
 // InvalidateInputs re-reads limited users, per-server caps and landing slots
-// on the next reconcile (after a user / per-server limit / landing change).
+// on the next reconcile (after a user / per-server limit / landing change);
+// every budget that changes because of it is pushed at once (plan 167).
 func (c *quotaCoordinator) InvalidateInputs() {
 	if c == nil {
 		return
 	}
 	c.mu.Lock()
 	c.extrasStale = true
+	c.forcePush = true
 	c.mu.Unlock()
 	c.Trigger()
 }
@@ -394,9 +462,18 @@ func (c *quotaCoordinator) loadExtras() (repo.QuotaPlanExtras, bool) {
 }
 
 func (c *quotaCoordinator) reconcileOnce() {
+	// Read before the inputs: an invalidation racing this reconcile keeps
+	// its flag for the next one.
+	c.mu.Lock()
+	force := c.forcePush
+	c.forcePush = false
+	c.mu.Unlock()
 	targets, err := c.source.ListQuotaGroupTargets()
 	if err != nil {
 		log.Printf("quota groups: list targets failed: %v", err)
+		c.mu.Lock()
+		c.forcePush = c.forcePush || force
+		c.mu.Unlock()
 		return
 	}
 	extras, hasExtras := c.loadExtras()
@@ -441,11 +518,23 @@ func (c *quotaCoordinator) reconcileOnce() {
 		now := c.now()
 
 		c.mu.Lock()
-		if c.unsupported[nodeID] || c.lastSent[nodeID] == hash || (!c.lastPush[nodeID].IsZero() && now.Sub(c.lastPush[nodeID]) < c.interval) {
+		if c.unsupported[nodeID] || c.lastSent[nodeID] == hash {
+			c.mu.Unlock()
+			continue
+		}
+		class := quotaPushNow
+		if sent, ok := c.sentBudgets[nodeID]; ok && !force && !resets[nodeID] {
+			class = quotaPushClass(sent, budgets, plan.Usage[nodeID])
+		}
+		if !c.pushDue(class, c.lastPush[nodeID], now) {
+			// Not due yet: the next reconcile (every agent report) re-checks;
+			// a forced push stays forced until it went out.
+			c.forcePush = c.forcePush || force
 			c.mu.Unlock()
 			continue
 		}
 		c.lastPush[nodeID] = now
+		c.countPush(nodeID, class)
 		c.mu.Unlock()
 
 		budgetsCopy := append([]quotaGroupBudget(nil), budgets...)
@@ -465,6 +554,7 @@ func (c *quotaCoordinator) reconcileOnce() {
 			defer c.mu.Unlock()
 			if err == nil {
 				c.lastSent[nodeID] = hash
+				c.sentBudgets[nodeID] = budgetsCopy
 				delete(c.errorLogged, nodeID)
 				if landing {
 					c.landingPushed[nodeID] = true
@@ -473,6 +563,7 @@ func (c *quotaCoordinator) reconcileOnce() {
 				}
 				return
 			}
+			c.stats.failed++
 			// An empty reset list only goes to agents known to take landing
 			// groups; its failure (e.g. a reconnect) never marks them unsupported.
 			if !resets[nodeID] && quotaAgentSupport(version) == quotaAgentUnknown {
@@ -485,6 +576,173 @@ func (c *quotaCoordinator) reconcileOnce() {
 		}(nodeID)
 	}
 	wg.Wait()
+	c.logPushStats()
+}
+
+// pushDue reports whether a difference of the given class may be pushed now,
+// given the node's last push. Caller holds c.mu.
+func (c *quotaCoordinator) pushDue(class quotaPushUrgency, last, now time.Time) bool {
+	if last.IsZero() {
+		return true
+	}
+	wait := c.interval
+	switch class {
+	case quotaPushSoon:
+		wait = max(c.soonInterval, c.interval)
+	case quotaPushLater:
+		wait = max(c.refreshInterval, c.interval)
+	}
+	return now.Sub(last) >= wait
+}
+
+// countPush records one push for the hourly summary. Caller holds c.mu.
+func (c *quotaCoordinator) countPush(nodeID int64, class quotaPushUrgency) {
+	if c.stats.perNode == nil {
+		c.stats.perNode = make(map[int64]int)
+	}
+	if c.stats.since.IsZero() {
+		c.stats.since = c.now()
+	}
+	switch class {
+	case quotaPushSoon:
+		c.stats.soon++
+	case quotaPushLater:
+		c.stats.later++
+	default:
+		c.stats.now++
+	}
+	c.stats.perNode[nodeID]++
+}
+
+// logPushStats writes one line with the push counts at most every
+// quotaPushStatsInterval, and nothing in an hour without pushes.
+func (c *quotaCoordinator) logPushStats() {
+	c.mu.Lock()
+	s := c.stats
+	if s.since.IsZero() || c.now().Sub(s.since) < quotaPushStatsInterval {
+		c.mu.Unlock()
+		return
+	}
+	c.stats = quotaPushStats{}
+	c.mu.Unlock()
+	total := s.now + s.soon + s.later
+	nodes := make([]int64, 0, len(s.perNode))
+	for nodeID := range s.perNode {
+		nodes = append(nodes, nodeID)
+	}
+	sort.Slice(nodes, func(i, j int) bool {
+		return s.perNode[nodes[i]] > s.perNode[nodes[j]] || (s.perNode[nodes[i]] == s.perNode[nodes[j]] && nodes[i] < nodes[j])
+	})
+	if len(nodes) > 8 {
+		nodes = nodes[:8]
+	}
+	parts := make([]string, 0, len(nodes))
+	for _, nodeID := range nodes {
+		parts = append(parts, fmt.Sprintf("%d:%d", nodeID, s.perNode[nodeID]))
+	}
+	log.Printf("quota groups: %d SetQuotaGroups pushes in %s (now %d, soon %d, refresh %d, failed %d), top nodes %s",
+		total, c.now().Sub(s.since).Round(time.Minute), s.now, s.soon, s.later, s.failed, strings.Join(parts, " "))
+}
+
+// quotaPushClass classes the difference between the last pushed budgets of a
+// node and the current ones (plan 167). Over-admission can only come from a
+// stale budget that is too high, and only by its excess; refusals only from a
+// stale budget the node's usage has reached. So:
+//   - tightening is urgent when the excess is at least 1/quotaPushBandDivisor
+//     of the room left under the new budget, or the room is at the limit
+//     (≤ slack): an over-limit user gets 0 at once, as before; a smaller
+//     excess waits for the refresh (it cannot be used up before the room
+//     itself shrinks, which makes it urgent);
+//   - loosening is urgent when the node is at (or near) its stale budget; a
+//     loosening beyond the band waits quotaPushSoonInterval, a smaller one the
+//     refresh;
+//   - added / removed groups, unlimited <-> limited, server cap or relay IP
+//     changes are urgent.
+func quotaPushClass(sent, current []quotaGroupBudget, usage map[string]quotaBudgetUsage) quotaPushUrgency {
+	if len(sent) != len(current) {
+		return quotaPushNow
+	}
+	byGroup := make(map[string]quotaGroupBudget, len(sent))
+	for _, b := range sent {
+		byGroup[b.Group] = b
+	}
+	worst := quotaPushNone
+	for _, b := range current {
+		old, ok := byGroup[b.Group]
+		if !ok || old.RelayIps != b.RelayIps || (old.ServerMaxConnections == nil) != (b.ServerMaxConnections == nil) {
+			return quotaPushNow
+		}
+		u := usage[b.Group]
+		worst = max(worst, quotaLimitUrgency(old.MaxConnections, b.MaxConnections, u.Connections, quotaPushConnSlack))
+		worst = max(worst, quotaLimitUrgency(old.MaxClientIps, b.MaxClientIps, u.ClientIps, quotaPushIPSlack))
+		if b.ServerMaxConnections != nil {
+			worst = max(worst, quotaLimitUrgency(*old.ServerMaxConnections, *b.ServerMaxConnections, u.Server, quotaPushConnSlack))
+		}
+		worst = max(worst, quotaSharedIPsUrgency(old, b, u.ClientIps))
+		if worst == quotaPushNow {
+			return worst
+		}
+	}
+	return worst
+}
+
+// quotaLimitUrgency classes one budget change (-1 = unlimited) against the
+// node's own live usage of it.
+func quotaLimitUrgency(sent, current, used, slack int) quotaPushUrgency {
+	switch {
+	case sent == current:
+		return quotaPushNone
+	case sent < 0 || current < 0:
+		return quotaPushNow
+	case current < sent:
+		room := current - used
+		if room <= slack || (sent-current)*quotaPushBandDivisor >= room {
+			return quotaPushNow
+		}
+		return quotaPushLater
+	default:
+		room := sent - used
+		if room <= slack {
+			return quotaPushNow
+		}
+		if (current-sent)*quotaPushBandDivisor >= room {
+			return quotaPushSoon
+		}
+		return quotaPushLater
+	}
+}
+
+// quotaSharedIPsUrgency: an IP left off the list stays free on the node until
+// the push, which only matters if the IP budget does not grow by as much at
+// the same time (the IP then counts again, one slot more). Added IPs only make
+// the stale list stricter: urgent when the node is at its IP budget.
+func quotaSharedIPsUrgency(sent, current quotaGroupBudget, usedIPs int) quotaPushUrgency {
+	if len(sent.SharedIps) == 0 && len(current.SharedIps) == 0 {
+		return quotaPushNone
+	}
+	now := make(map[string]struct{}, len(current.SharedIps))
+	for _, ip := range current.SharedIps {
+		now[ip] = struct{}{}
+	}
+	removed := 0
+	for _, ip := range sent.SharedIps {
+		if _, ok := now[ip]; ok {
+			delete(now, ip)
+		} else {
+			removed++
+		}
+	}
+	added := len(now)
+	switch {
+	case removed == 0 && added == 0:
+		return quotaPushNone
+	case removed > 0 && (sent.MaxClientIps < 0 || current.MaxClientIps < 0 || current.MaxClientIps-sent.MaxClientIps < removed):
+		return quotaPushNow
+	case sent.MaxClientIps >= 0 && sent.MaxClientIps-usedIPs <= quotaPushIPSlack:
+		return quotaPushNow
+	default:
+		return quotaPushSoon
+	}
 }
 
 func (c *quotaCoordinator) LiveUsage() map[int64]quotaLiveUsage {
@@ -567,6 +825,13 @@ func computeQuotaPlan(targets []repo.QuotaGroupTarget, extras repo.QuotaPlanExtr
 		NodeVersions: make(map[int64]string),
 		LiveUsage:    make(map[int64]quotaLiveUsage),
 		Shares:       make(map[int64][]quotaShareBudget),
+		Usage:        make(map[int64]map[string]quotaBudgetUsage),
+	}
+	noteUsage := func(nodeID int64, group string, s *quotaSlot) {
+		if plan.Usage[nodeID] == nil {
+			plan.Usage[nodeID] = make(map[string]quotaBudgetUsage)
+		}
+		plan.Usage[nodeID][group] = quotaBudgetUsage{Connections: s.usage.Connections, Server: s.serverUsage(), ClientIps: len(s.usage.ClientIps)}
 	}
 	users := make(map[int64]*quotaUserPlan)
 	user := func(userID int64, limits repo.QuotaUserLimits) *quotaUserPlan {
@@ -697,6 +962,7 @@ func computeQuotaPlan(targets []repo.QuotaGroupTarget, extras repo.QuotaPlanExtr
 			switch s.kind {
 			case quotaSlotForward:
 				plan.NodeVersions[s.nodeID] = s.nodeVersion
+				noteUsage(s.nodeID, quotaGroupForUser(userID), s)
 				plan.Budgets[s.nodeID] = append(plan.Budgets[s.nodeID], quotaGroupBudget{
 					Group:          quotaGroupForUser(userID),
 					MaxConnections: minQuotaBudget(totalBudget, serverBudget),
@@ -705,6 +971,7 @@ func computeQuotaPlan(targets []repo.QuotaGroupTarget, extras repo.QuotaPlanExtr
 				})
 			case quotaSlotLanding:
 				plan.NodeVersions[s.nodeID] = s.nodeVersion
+				noteUsage(s.nodeID, landingQuotaGroupForUser(userID), s)
 				b := quotaGroupBudget{Group: landingQuotaGroupForUser(userID), MaxConnections: totalBudget, MaxClientIps: clientIPBudget, RelayIps: s.relayNodes}
 				if serverBudget >= 0 {
 					v := serverBudget
