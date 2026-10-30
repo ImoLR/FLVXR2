@@ -43,10 +43,10 @@ type User struct {
 	// of the user's rules entering one machine share it (per machine, not a
 	// total across machines); a per-server row may override it. 0 = 不限.
 	ServerRateMbps int `gorm:"column:server_rate_mbps;not null;default:0"`
-	MaxRules                int           `gorm:"column:max_rules;default:0"`               // 最大规则数 (0=不限)
-	MaxConnections          int           `gorm:"column:max_connections;default:0"`         // 最大连接数 (0=不限)
-	MaxClientIps            int           `gorm:"column:max_client_ips;not null;default:0"` // 最大活跃接入 IP 数 (0=不限)
-	MaxIPAccess             int           `gorm:"column:max_ip_access;default:0"`           // 单 IP 接入限制 (0=不限)
+	MaxRules       int `gorm:"column:max_rules;default:0"`               // 最大规则数 (0=不限)
+	MaxConnections int `gorm:"column:max_connections;default:0"`         // 最大连接数 (0=不限)
+	MaxClientIps   int `gorm:"column:max_client_ips;not null;default:0"` // 最大活跃接入 IP 数 (0=不限)
+	MaxIPAccess    int `gorm:"column:max_ip_access;default:0"`           // 单 IP 接入限制 (0=不限)
 }
 
 func (User) TableName() string { return "user" }
@@ -126,12 +126,14 @@ type Node struct {
 	LandingCapable               bool           `gorm:"not null;default:false"`
 	LandingEgress                int            `gorm:"column:landing_egress;not null;default:0"`
 	LandingChain                 int            `gorm:"column:landing_chain;not null;default:0"`
-	LandingGuard                 int            `gorm:"column:landing_guard;not null;default:0"`     // agent: Reality guard + builtin rules (plan 127)
-	LandingConnMode              int            `gorm:"column:landing_conn_mode;not null;default:0"` // agent: 仅入站 landing connection limits + inbound counts (plan 141)
-	LandingUserLimits            int            `gorm:"column:landing_user_limits;not null;default:0"` // agent: per-user landing Core groups + usage report (plan 158)
-	UserRate                     int            `gorm:"column:user_rate;not null;default:0"`           // agent: shared per-user limiter on forward services (plan 159)
-	LandingRate                  int            `gorm:"column:landing_rate;not null;default:0"`        // agent: per-user 速率 on its landing nodes, in the kernel (plan 161)
-	LineMachine                 bool           `gorm:"column:line_machine;not null;default:false"`
+	LandingGuard                 int            `gorm:"column:landing_guard;not null;default:0"`               // agent: Reality guard + builtin rules (plan 127)
+	LandingConnMode              int            `gorm:"column:landing_conn_mode;not null;default:0"`           // agent: 仅入站 landing connection limits + inbound counts (plan 141)
+	LandingUserLimits            int            `gorm:"column:landing_user_limits;not null;default:0"`         // agent: per-user landing Core groups + usage report (plan 158)
+	UserRate                     int            `gorm:"column:user_rate;not null;default:0"`                   // agent: shared per-user limiter on forward services (plan 159)
+	LandingRate                  int            `gorm:"column:landing_rate;not null;default:0"`                // agent: per-user 速率 on its landing nodes, in the kernel (plan 161)
+	EntryRateTc                  int            `gorm:"column:entry_rate_tc;not null;default:0"`               // plan 168: 0 = agent without tc entry limits, 1 = tc, 2 = kernel cannot (old path)
+	EntryRateError               string         `gorm:"column:entry_rate_error;type:text;not null;default:''"` // plan 168: probe reason / shaper error ("" = fine)
+	LineMachine                  bool           `gorm:"column:line_machine;not null;default:false"`
 	DefaultUserQuotaBytes        int64          `gorm:"not null;default:0"`
 	LeiKwanStatus                string         `gorm:"column:leikwan_status;type:varchar(10);not null;default:''"`
 	LeiKwanForwards              string         `gorm:"column:leikwan_forwards;type:text;not null;default:'[]'"`
@@ -896,24 +898,24 @@ type ImportResult struct {
 
 // ForwardRecord is a minimal forward view used by control plane and flow policy.
 type ForwardRecord struct {
-	LandingAutoPaused   bool
-	LandingNodeID       int64
-	ID                  int64
-	UserID              int64
-	UserName            string
-	Name                string
-	TunnelID            int64
-	RemoteAddr          string
-	Strategy            string
-	Status              int
-	SpeedID             sql.NullInt64
-	MaxConnections      int
-	UserMaxConnections  int
-	MaxClientIps        int
-	UserMaxClientIps    int
+	LandingAutoPaused  bool
+	LandingNodeID      int64
+	ID                 int64
+	UserID             int64
+	UserName           string
+	Name               string
+	TunnelID           int64
+	RemoteAddr         string
+	Strategy           string
+	Status             int
+	SpeedID            sql.NullInt64
+	MaxConnections     int
+	UserMaxConnections int
+	MaxClientIps       int
+	UserMaxClientIps   int
 	// UserServerConnCaps (plan 158): entry node id → the user's 入站连接数 on
 	// that server (> 0 only); a capped entry joins the user's quota group.
-	UserServerConnCaps map[int64]int `gorm:"-"`
+	UserServerConnCaps  map[int64]int `gorm:"-"`
 	TrafficLimit        int64
 	ExpiryTime          sql.NullInt64
 	SpeedLimitEnabled   bool

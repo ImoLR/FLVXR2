@@ -29,7 +29,7 @@ func (h *Handler) StartBackgroundJobs() {
 	ctx, cancel := context.WithCancel(context.Background())
 	h.jobsCancel = cancel
 	h.jobsStarted = true
-	h.jobsWG.Add(16)
+	h.jobsWG.Add(17)
 	h.jobsMu.Unlock()
 
 	go h.runLandingReconcileLoop(ctx)
@@ -48,6 +48,7 @@ func (h *Handler) StartBackgroundJobs() {
 	go h.runExpirePackageSubscriptionsLoop(ctx)
 	go h.runPathLatencyLoop(ctx)
 	go h.runDDNSLoop(ctx)
+	go h.runEntryRateLoop(ctx)
 	h.resyncLandingAfterMigration()
 }
 

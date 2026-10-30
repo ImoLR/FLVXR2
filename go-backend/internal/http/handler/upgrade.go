@@ -434,7 +434,9 @@ func (h *Handler) redeployNodeRuntime(nodeID int64) {
 	// Plan 138: capable agents report what they run; unchanged objects are
 	// not pushed again (nil inventory = full redeploy as before).
 	inv, fullReason := h.reconnectInventory(nodeID)
-	// Plan 159: user rate limiters first (services may reference them).
+	// Plan 168: the entry rate tree first (tc agents), then plan-159 user
+	// rate limiters (services may reference them).
+	entryNote := h.entryRateReconnect(nodeID, inv)
 	userRates, ratePushed, rateNote := h.userRateReconnectPush(nodeID, inv)
 	tunnelIDs, err := h.repo.ListActiveTunnelIDsByNode(nodeID)
 	if err != nil {
@@ -511,7 +513,7 @@ func (h *Handler) redeployNodeRuntime(nodeID int64) {
 	}
 	orphans, orphanNote := h.removeReconnectOrphans(nodeID, inv)
 	rateRemoved, staleNote := h.userRateReconnectStale(nodeID, inv, userRates)
-	for _, note := range []string{rateNote, staleNote} {
+	for _, note := range []string{entryNote, rateNote, staleNote} {
 		if note != "" {
 			orphanNote = strings.TrimPrefix(orphanNote+"; "+note, "; ")
 		}

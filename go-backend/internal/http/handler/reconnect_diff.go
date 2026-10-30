@@ -84,6 +84,10 @@ type agentRuntimeInventory struct {
 	// reconnect (userRateReconnectPush).
 	userRates       map[int64]int
 	userRatesLoaded bool
+	// entryPlan (plan 168): the node's entry rate tree, loaded once per
+	// reconnect (entryRateReconnect); nil = old path.
+	entryPlan       *entryRatePlan
+	entryPlanLoaded bool
 }
 
 func newAgentRuntimeInventory(i runtimeInventory) *agentRuntimeInventory {
@@ -241,13 +245,18 @@ func (h *Handler) forwardRuntimeUnchangedOnNode(forward *forwardRecord, nodeID i
 		return false
 	}
 	var limiterName string
+	plan := inv.planFor(h, nodeID) // plan 168: nil = old path
 	for _, fp := range ports {
 		if in.dynamicLimiterName != "" {
-			mergeRevs(expected, ws.ExpectedRuntimeRevs("AddLimiters", buildDynamicLimiterPayload(in.dynamicLimiterName, forward.SpeedLimit)))
+			if !plan.tcCovers(forward.ID) {
+				mergeRevs(expected, ws.ExpectedRuntimeRevs("AddLimiters", buildDynamicLimiterPayload(in.dynamicLimiterName, forward.SpeedLimit)))
+			}
 		} else if in.limiterID != nil && in.speed != nil {
 			limiterName = buildRuntimeLimiterName(*in.limiterID, fp.NodeID, in.arenaMode)
-			_, addPayload := buildNamedLimiterAddPayload(strings.TrimSpace(limiterName), *in.speed)
-			mergeRevs(expected, ws.ExpectedRuntimeRevs("AddLimiters", addPayload))
+			if !plan.tcCovers(forward.ID) {
+				_, addPayload := buildNamedLimiterAddPayload(strings.TrimSpace(limiterName), *in.speed)
+				mergeRevs(expected, ws.ExpectedRuntimeRevs("AddLimiters", addPayload))
+			}
 		}
 		node, err := h.getNodeRecord(fp.NodeID)
 		if err != nil || node == nil {
@@ -258,7 +267,7 @@ func (h *Handler) forwardRuntimeUnchangedOnNode(forward *forwardRecord, nodeID i
 		if rate < 0 {
 			rate = h.userRateOnNode(forward.UserID, node)
 		}
-		applyUserRateRef(services, h.userRateRefFor(forward.UserID, node, rate))
+		h.applyRateRefs(services, forward, node, rate, plan)
 		mergeRevs(expected, ws.ExpectedRuntimeRevs("UpdateService", services))
 	}
 	return inv.matches(expected)

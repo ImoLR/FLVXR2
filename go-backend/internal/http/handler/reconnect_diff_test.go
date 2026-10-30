@@ -71,6 +71,9 @@ func (a *fakeRuntimeAgent) send(nodeID int64, method string, data interface{}, _
 		lists := map[string][]string{"service": {}, "chain": {}, "limiter": {}, "nft": {}}
 		for key := range objs {
 			kind, name, _ := strings.Cut(key, ":")
+			if kind == "entryrate" {
+				continue // reported through revs only (like the real agent)
+			}
 			lists[kind] = append(lists[kind], name)
 		}
 		for kind, field := range map[string]string{"service": "services", "chain": "chains", "limiter": "limiters", "nft": "nftables"} {
@@ -122,6 +125,13 @@ func (a *fakeRuntimeAgent) send(nodeID int64, method string, data interface{}, _
 		drop("chain", str("chain"))
 	case "DeleteLimiters":
 		drop("limiter", str("limiter"))
+	case "SetEntryRates":
+		// plan 168: one tree per node; an empty tree has no revision.
+		if expected := ws.ExpectedRuntimeRevs(method, data); len(expected) > 0 {
+			set(expected)
+		} else {
+			drop("entryrate", "entry")
+		}
 	case "DeleteNftablesRules":
 		ids, _ := g["forward_ids"].([]interface{})
 		for _, v := range ids {
@@ -144,7 +154,11 @@ func (a *fakeRuntimeAgent) restart(nodeID int64) {
 			delete(objs, key)
 		}
 	}
+	kept := a.revs[nodeID]["entryrate:entry"] // plan 168: entry_rates.json survives restarts
 	a.revs[nodeID] = map[string]string{}
+	if kept != "" {
+		a.revs[nodeID]["entryrate:entry"] = kept
+	}
 	a.boot += "-restarted"
 }
 

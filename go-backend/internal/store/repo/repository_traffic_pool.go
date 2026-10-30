@@ -477,6 +477,11 @@ type RelatedServer struct {
 	// in the kernel (its reason).
 	LandingRateOldAgent bool   `json:"landingRateOldAgent,omitempty"`
 	LandingRateError    string `json:"landingRateError,omitempty"`
+	// Plan 168 (entry servers): EntryRateFallback = the node still limits
+	// the old way ("agent" = agent without tc entry limits, "kernel" = its
+	// kernel cannot); EntryRateError = probe reason / tc error.
+	EntryRateFallback string `json:"entryRateFallback,omitempty"`
+	EntryRateError    string `json:"entryRateError,omitempty"`
 }
 
 // UserRelatedServers lists the servers related to the user: entry servers of
@@ -630,6 +635,22 @@ func (r *Repository) UserRelatedServers(userID int64) ([]RelatedServer, error) {
 		for i := range out {
 			if out[i].ServerKind == "node" && out[i].Entry {
 				out[i].RateOldAgent = caps[out[i].ServerRefID] < UserRateVersion
+			}
+		}
+	}
+	if modes, err := r.NodeEntryRateModes(entryNodes); err == nil {
+		for i := range out {
+			n, ok := modes[out[i].ServerRefID]
+			if out[i].ServerKind != "node" || !out[i].Entry || !ok || n.IsRemote == 1 {
+				continue
+			}
+			switch n.EntryRateTc {
+			case 1:
+				out[i].EntryRateError = n.EntryRateError
+			case 2:
+				out[i].EntryRateFallback, out[i].EntryRateError = "kernel", n.EntryRateError
+			default:
+				out[i].EntryRateFallback = "agent"
 			}
 		}
 	}

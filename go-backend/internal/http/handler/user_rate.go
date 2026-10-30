@@ -134,8 +134,23 @@ func (h *Handler) capNftRulesByUserRate(userID int64, rules []NftablesRulePayloa
 		return
 	}
 	rates := map[int64]int{}
+	plans := map[int64]*entryRatePlan{}
 	for i := range rules {
 		nodeID := rules[i].NodeID
+		// Plan 168: a tc node shapes the rule in the kernel tree — no
+		// policer, except a rule whose arena stays on the agent path (per-rule
+		// policer at the arena speed as before; its user's 速率 is in the tree).
+		plan, seen := plans[nodeID]
+		if !seen {
+			plan = h.entryRatePlanFor(nodeID)
+			plans[nodeID] = plan
+		}
+		if plan != nil {
+			if plan.tcCovers(rules[i].ForwardID) {
+				rules[i].SpeedLimit = 0
+			}
+			continue
+		}
 		rate, ok := rates[nodeID]
 		if !ok {
 			node, err := h.getNodeRecord(nodeID)
@@ -248,6 +263,14 @@ func (h *Handler) applyUserRateChanges(userID int64, before, after map[int64]int
 			warnings = append(warnings, fmt.Sprintf("服务器 %s 不在线，速率在它上线后自动生效", node.Name))
 			continue
 		}
+		if h.entryRateTc(nodeID) {
+			// Plan 168: the user's group in the node's tree (class change,
+			// no service or rule push).
+			if err := h.syncEntryRates(nodeID); err != nil {
+				warnings = append(warnings, fmt.Sprintf("服务器 %s %v", node.Name, err))
+			}
+			continue
+		}
 		capable := h.userRateCapable(nodeID)
 		if newRate > 0 {
 			if err := h.ensureUserRateLimiter(nodeID, userID, newRate); err != nil {
@@ -343,6 +366,11 @@ func (h *Handler) userRateReconnectPush(nodeID int64, inv *agentRuntimeInventory
 	}
 	if inv != nil {
 		inv.userRates, inv.userRatesLoaded = rates, true
+	}
+	if h.entryRateTc(nodeID) {
+		// Plan 168: the 速率 lives in the kernel tree; no user limiter is
+		// needed, leftovers are removed by userRateReconnectStale.
+		return map[int64]int{}, 0, ""
 	}
 	session := h.nodeSessionStart(nodeID)
 	pushed := 0

@@ -4608,6 +4608,7 @@ func (h *Handler) speedLimitUpdate(w http.ResponseWriter, r *http.Request) {
 		response.WriteJSON(w, response.Err(-2, err.Error()))
 		return
 	}
+	h.markAllEntryRatesDirty() // plan 168: speed / arena of the limit may be in a tree
 	if hasBindings {
 		_, actorRole, _ := userRoleFromRequest(r)
 		if err := h.repo.ReplaceSpeedLimitBindings(id, bindings, actorRole == 0); err != nil {
@@ -4642,6 +4643,7 @@ func (h *Handler) speedLimitDelete(w http.ResponseWriter, r *http.Request) {
 		response.WriteJSON(w, response.Err(-2, err.Error()))
 		return
 	}
+	h.markAllEntryRatesDirty() // plan 168
 
 	response.WriteJSON(w, response.OKEmpty())
 }

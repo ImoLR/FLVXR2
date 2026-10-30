@@ -355,8 +355,10 @@ func (h *Handler) syncForwardServicesWithWarningsOnNode(forward *forwardRecord, 
 	}
 
 	for _, fp := range ports {
+		// Plan 168: on a tc node the tree carries the rule's limits (nil = old path).
+		plan := h.entryRatePlanFor(fp.NodeID)
 		// ✅ 应用动态限速器
-		if dynamicLimiterName != "" {
+		if dynamicLimiterName != "" && !plan.tcCovers(forward.ID) {
 			if err := h.ensureDynamicLimiterOnNode(fp.NodeID, dynamicLimiterName, forward.SpeedLimit); err != nil {
 				if isNodeOfflineOrTimeoutError(err) {
 					node, _ := h.getNodeRecord(fp.NodeID)
@@ -369,19 +371,21 @@ func (h *Handler) syncForwardServicesWithWarningsOnNode(forward *forwardRecord, 
 					return nil, err
 				}
 			}
-		} else if limiterID != nil && speed != nil {
+		} else if limiterID != nil && speed != nil && dynamicLimiterName == "" {
 			limiterName = buildRuntimeLimiterName(*limiterID, fp.NodeID, arenaMode)
-			if err := h.ensureNamedLimiterOnNode(fp.NodeID, limiterName, *speed); err != nil {
-				if isNodeOfflineOrTimeoutError(err) {
-					node, _ := h.getNodeRecord(fp.NodeID)
-					nodeName := fmt.Sprintf("%d", fp.NodeID)
-					if node != nil && strings.TrimSpace(node.Name) != "" {
-						nodeName = strings.TrimSpace(node.Name)
+			if !plan.tcCovers(forward.ID) {
+				if err := h.ensureNamedLimiterOnNode(fp.NodeID, limiterName, *speed); err != nil {
+					if isNodeOfflineOrTimeoutError(err) {
+						node, _ := h.getNodeRecord(fp.NodeID)
+						nodeName := fmt.Sprintf("%d", fp.NodeID)
+						if node != nil && strings.TrimSpace(node.Name) != "" {
+							nodeName = strings.TrimSpace(node.Name)
+						}
+						warnings = append(warnings, fmt.Sprintf("节点 %s 不在线，已跳过下发", nodeName))
+						continue
 					}
-					warnings = append(warnings, fmt.Sprintf("节点 %s 不在线，已跳过下发", nodeName))
-					continue
+					return nil, err
 				}
-				return nil, err
 			}
 		}
 
@@ -392,7 +396,7 @@ func (h *Handler) syncForwardServicesWithWarningsOnNode(forward *forwardRecord, 
 		// Plan 159: the user's 速率 on this machine (limiter before the
 		// services, so a newly referenced limiter applies at once).
 		rate := h.userRateOnNode(forward.UserID, node)
-		if rate > 0 {
+		if rate > 0 && plan == nil {
 			if err := h.ensureUserRateLimiter(node.ID, forward.UserID, rate); err != nil {
 				if isNodeOfflineOrTimeoutError(err) {
 					warnings = append(warnings, fmt.Sprintf("节点 %s 不在线，已跳过下发", node.Name))
@@ -404,7 +408,7 @@ func (h *Handler) syncForwardServicesWithWarningsOnNode(forward *forwardRecord, 
 			}
 		}
 		services := buildForwardServiceConfigs(serviceBase, forward, tunnel, node, fp.Port, strings.TrimSpace(fp.InIP), limiterID, limiterName, tunnelTLSProtocol)
-		applyUserRateRef(services, h.userRateRefFor(forward.UserID, node, rate))
+		h.applyRateRefs(services, forward, node, rate, plan)
 		_, err = h.sendNodeCommand(node.ID, method, services, true, false)
 		if err != nil && allowFallbackAdd && method == "UpdateService" {
 			if isNotFoundError(err) {
@@ -470,7 +474,7 @@ func (h *Handler) fallbackForwardPortToDefaultBind(forward *forwardRecord, tunne
 
 	time.Sleep(150 * time.Millisecond)
 	defaultServices := buildForwardServiceConfigs(serviceBase, forward, tunnel, node, fp.Port, "", limiterID, limiterName, tunnelTLSProtocol)
-	applyUserRateRef(defaultServices, h.userRateRefFor(forward.UserID, node, h.userRateOnNode(forward.UserID, node)))
+	h.applyRateRefs(defaultServices, forward, node, h.userRateOnNode(forward.UserID, node), h.entryRatePlanFor(node.ID))
 	if _, err := h.sendNodeCommand(node.ID, "AddService", defaultServices, true, false); err != nil {
 		return "", err
 	}
@@ -759,6 +763,7 @@ func (h *Handler) sendNodeCommandWithTimeout(nodeID int64, commandType string, d
 	}
 
 	h.recentPushes.note(nodeID, commandType, data, time.Now())
+	h.noteEntryRateCommand(nodeID, commandType) // plan 168: re-check the node's entry rate tree
 	node, nodeErr := h.getNodeRecord(nodeID)
 	if h.nodeCommandSender != nil {
 		result, err = h.nodeCommandSender(nodeID, commandType, data, timeout)

@@ -59,6 +59,9 @@ type nodeSession struct {
 	userRate        int    // handshake capability; >0 = agent applies metadata.userLimiter (plan 159)
 	landingRate     int    // handshake capability; >0 = agent shapes user_rates on its landing nodes (plan 161)
 	chainSwap       int    // handshake capability; >0 = UpdateChains swaps a chain without a gap (plan 165)
+	entryRateTc     int    // handshake capability; >0 = entry speed limits via SetEntryRates in the kernel (plan 168)
+	entryRateTcErr  string // the agent's kernel cannot run the shaper (probe reason) → gost / nft fallback
+	entryRateKey    string // last entry rate status recorded (read loop only)
 	startedAt       time.Time
 	via             string       // how the session reached the panel (Cloudflare colo / direct)
 	lastMsgAt       atomic.Int64 // unix nanos of the last data message (read loop)
@@ -163,7 +166,7 @@ type SystemInfo struct {
 	LandingEgress          int               `json:"landing_egress,omitempty"`
 	LandingChain           int               `json:"landing_chain,omitempty"`
 	LandingGuard           int               `json:"landing_guard,omitempty"`
-	LandingConnMode        int               `json:"landing_conn_mode,omitempty"` // plan 141: applies 仅入站 limits + reports inbound counts
+	LandingConnMode        int               `json:"landing_conn_mode,omitempty"`   // plan 141: applies 仅入站 limits + reports inbound counts
 	LandingUserLimits      int               `json:"landing_user_limits,omitempty"` // plan 158: per-user landing Core groups + landing-user-* usage
 	LeiKwan                *leiKwanReport    `json:"leikwan,omitempty"`
 	EgressIPFamily         string            `json:"egress_ip_family,omitempty"`
@@ -187,7 +190,8 @@ type SystemInfo struct {
 	UDPConns               int64             `json:"udp_conns"`
 	MachineConns           *MachineConns     `json:"machine_conns,omitempty"`
 	MachineProtect         *MachineProtect   `json:"machine_protect,omitempty"`
-	Addrs                  *NodeAddrs        `json:"addrs,omitempty"` // only when changed (plan 142)
+	Addrs                  *NodeAddrs        `json:"addrs,omitempty"`      // only when changed (plan 142)
+	EntryRate              *EntryRateReport  `json:"entry_rate,omitempty"` // only when changed (plan 168)
 	NetInSpeed             int64             `json:"net_in_speed"`
 	NetOutSpeed            int64             `json:"net_out_speed"`
 	ServiceName            string            `json:"service_name,omitempty"`
@@ -430,6 +434,10 @@ func (s *Server) handleNode(w http.ResponseWriter, r *http.Request, nodeID int64
 	if v, err := strconv.Atoi(r.URL.Query().Get("chainSwap")); err == nil && v > 0 {
 		ns.chainSwap = v
 	}
+	if v, err := strconv.Atoi(r.URL.Query().Get("entryRateTc")); err == nil && v > 0 {
+		ns.entryRateTc = v
+		ns.entryRateTcErr = strings.TrimSpace(r.URL.Query().Get("entryRateTcErr"))
+	}
 	ns.clientIP = clientip.FromRequest(r)
 	s.nodes[nodeID] = ns
 	delete(s.serviceConnections, nodeID)
@@ -445,6 +453,9 @@ func (s *Server) handleNode(w http.ResponseWriter, r *http.Request, nodeID int64
 	_ = s.repo.SetNodeUserRateCapability(nodeID, ns.userRate)
 	// Plan 161: read by the native landing sync (user_rates only for >= 1).
 	_ = s.repo.SetNodeLandingRateCapability(nodeID, ns.landingRate)
+	// Plan 168: 0 = older agent (gost / nft path), 1 = tc, 2 = the kernel
+	// cannot (probe reason kept for the admin view).
+	_ = s.repo.SetNodeEntryRateCapability(nodeID, entryRateMode(ns), ns.entryRateTcErr)
 	s.broadcastStatus(nodeID, 1)
 
 	s.mu.RLock()
@@ -516,6 +527,7 @@ func (s *Server) handleNode(w http.ResponseWriter, r *http.Request, nodeID int64
 						s.recordLeiKwan(ns, sysInfo.LeiKwan)
 						s.recordMachine(nodeID, sysInfo, time.Now())
 						s.recordAddrs(ns, sysInfo.Addrs)
+						s.recordEntryRate(ns, sysInfo.EntryRate)
 						_ = s.repo.SetNodeLandingCapabilities(nodeID, sysInfo.LandingCapable, sysInfo.LandingEgress, sysInfo.LandingChain, sysInfo.LandingGuard, sysInfo.LandingConnMode, sysInfo.LandingUserLimits)
 						// 缓存服务连接数
 						s.mu.Lock()

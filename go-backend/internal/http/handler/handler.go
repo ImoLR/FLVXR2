@@ -68,6 +68,12 @@ type Handler struct {
 	userRatePushed userRatePushLog
 	// userRateCapableFn overrides the userRate handshake check; tests replace it.
 	userRateCapableFn func(int64) bool
+	// Plan 168: entry limits in the agent's kernel. entryRateTcFn overrides
+	// the capability check (tests); entryRateMu serializes tree pushes.
+	entryRateTcFn   func(int64) bool
+	entryRateMu     sync.Mutex
+	entryRatePushed entryRatePushLog
+	entryRateDirty  entryRateDirty
 	// chainSwapCapableFn / nodeOnlineFn override the chainSwap handshake check
 	// and the agent session lookup (plan 165); tests replace them.
 	chainSwapCapableFn func(int64) bool
@@ -951,6 +957,7 @@ func (h *Handler) forwardList(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 补充当前连接数和实时带宽
+	entryNodes := map[int64][]int64{} // plan 168: forward → entry nodes (rate fallback hint)
 	for i := range items {
 		forwardID := asInt64(items[i]["id"], 0)
 		if forwardID > 0 {
@@ -961,6 +968,7 @@ func (h *Handler) forwardList(w http.ResponseWriter, r *http.Request) {
 				for _, port := range ports {
 					nodeIDs = append(nodeIDs, port.NodeID)
 				}
+				entryNodes[forwardID] = nodeIDs
 				items[i]["currentConnections"] = sumForwardConnections(nodeIDs, func(nodeID int64) int {
 					return h.GetForwardConnections(nodeID, forwardID)
 				})
@@ -981,6 +989,9 @@ func (h *Handler) forwardList(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	if roleID == 0 {
+		h.decorateForwardRateFallback(items, entryNodes)
+	}
 	payload := map[string]interface{}{
 		"items": items,
 		"total": total,

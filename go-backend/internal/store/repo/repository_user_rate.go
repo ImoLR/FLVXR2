@@ -1,6 +1,7 @@
 package repo
 
 import (
+	"database/sql"
 	"errors"
 	"fmt"
 	"log"
@@ -355,4 +356,163 @@ func (r *Repository) NativeLandingServerIDForNode(nodeID int64) (int64, error) {
 		return 0, nil
 	}
 	return ids[0], nil
+}
+
+// SetNodeEntryRateCapability stores the plan-168 entry rate mode of the node's
+// agent (0 old / 1 tc / 2 kernel cannot) and the probe / shaper error ("" =
+// fine); one conditional statement, nothing written when unchanged.
+func (r *Repository) SetNodeEntryRateCapability(nodeID int64, mode int, text string) error {
+	if r == nil || r.db == nil {
+		return errors.New("repository not initialized")
+	}
+	if rs := []rune(text); len(rs) > 300 {
+		text = string(rs[:300])
+	}
+	return r.db.Model(&model.Node{}).Where("id = ? AND (entry_rate_tc <> ? OR entry_rate_error <> ?)", nodeID, mode, text).
+		Updates(map[string]interface{}{"entry_rate_tc": mode, "entry_rate_error": text}).Error
+}
+
+// NodeEntryRateModes maps node ID → (mode, error) for the given nodes (admin view).
+func (r *Repository) NodeEntryRateModes(nodeIDs []int64) (map[int64]model.Node, error) {
+	out := map[int64]model.Node{}
+	if r == nil || r.db == nil || len(nodeIDs) == 0 {
+		return out, nil
+	}
+	var rows []model.Node
+	if err := r.db.Select("id", "name", "is_remote", "entry_rate_tc", "entry_rate_error").Where("id IN ?", nodeIDs).Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	for _, n := range rows {
+		out[n.ID] = n
+	}
+	return out, nil
+}
+
+// EntryRateRuleRow is one active forward entering the node, with everything
+// its entry speed limits depend on (plan 168).
+type EntryRateRuleRow struct {
+	ForwardID         int64  `gorm:"column:forward_id"`
+	UserID            int64  `gorm:"column:user_id"`
+	TunnelID          int64  `gorm:"column:tunnel_id"`
+	Mode              string `gorm:"column:mode"`
+	Port              int    `gorm:"column:port"`
+	SpeedLimitEnabled bool   `gorm:"column:speed_limit_enabled"`
+	SpeedLimit        int    `gorm:"column:speed_limit"`
+	// the rule's 限速规则 (forward.speed_id) else the user tunnel's
+	LimitID    int64 `gorm:"-"`
+	LimitSpeed int   `gorm:"-"`
+	LimitArena bool  `gorm:"-"`
+}
+
+// EntryRateRules lists the active forwards entering the node with their own
+// limit inputs (mirrors resolveForwardRuntimeInputs: the rule's 限速规则 when
+// its speed > 0, else the first user tunnel's), in four queries.
+func (r *Repository) EntryRateRules(nodeID int64) ([]EntryRateRuleRow, error) {
+	if r == nil || r.db == nil {
+		return nil, errors.New("repository not initialized")
+	}
+	type raw struct {
+		EntryRateRuleRow
+		SpeedID sql.NullInt64 `gorm:"column:speed_id"`
+	}
+	var rows []raw
+	if err := r.db.Table("forward_port AS fp").
+		Select("f.id AS forward_id, f.user_id, f.tunnel_id, f.mode, fp.port, f.speed_limit_enabled, f.speed_limit, f.speed_id").
+		Joins("JOIN forward AS f ON f.id = fp.forward_id").
+		Where("fp.node_id = ? AND f.status = ?", nodeID, 1).
+		Order("f.id ASC, fp.port ASC").Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+	if len(rows) == 0 {
+		return nil, nil
+	}
+	type limit struct {
+		ID        int64 `gorm:"column:id"`
+		Speed     int   `gorm:"column:speed"`
+		ArenaMode int   `gorm:"column:arena_mode"`
+	}
+	limitIDs := map[int64]bool{}
+	pairs := map[[2]int64]bool{}
+	userIDs := map[int64]bool{}
+	for _, row := range rows {
+		if row.SpeedID.Valid && row.SpeedID.Int64 > 0 {
+			limitIDs[row.SpeedID.Int64] = true
+		}
+		pairs[[2]int64{row.UserID, row.TunnelID}] = true
+		userIDs[row.UserID] = true
+	}
+	type utRow struct {
+		ID       int64         `gorm:"column:id"`
+		UserID   int64         `gorm:"column:user_id"`
+		TunnelID int64         `gorm:"column:tunnel_id"`
+		SpeedID  sql.NullInt64 `gorm:"column:speed_id"`
+	}
+	var uts []utRow
+	if err := r.db.Model(&model.UserTunnel{}).Select("id", "user_id", "tunnel_id", "speed_id").
+		Where("user_id IN ?", keysOf(userIDs)).Order("id ASC").Find(&uts).Error; err != nil {
+		return nil, err
+	}
+	utLimit := map[[2]int64]int64{} // first user tunnel (lowest id) per pair → speed id (0 = none)
+	for _, ut := range uts {
+		k := [2]int64{ut.UserID, ut.TunnelID}
+		if !pairs[k] {
+			continue
+		}
+		if _, seen := utLimit[k]; seen {
+			continue
+		}
+		id := int64(0)
+		if ut.SpeedID.Valid && ut.SpeedID.Int64 > 0 {
+			id = ut.SpeedID.Int64
+			limitIDs[id] = true
+		}
+		utLimit[k] = id
+	}
+	limits := map[int64]limit{}
+	if len(limitIDs) > 0 {
+		var ls []limit
+		if err := r.db.Model(&model.SpeedLimit{}).Select("id", "speed", "arena_mode").Where("id IN ?", keysOf(limitIDs)).Find(&ls).Error; err != nil {
+			return nil, err
+		}
+		for _, l := range ls {
+			limits[l.ID] = l
+		}
+	}
+	out := make([]EntryRateRuleRow, 0, len(rows))
+	for _, row := range rows {
+		rec := row.EntryRateRuleRow
+		if row.SpeedID.Valid && row.SpeedID.Int64 > 0 {
+			if l, ok := limits[row.SpeedID.Int64]; ok && l.Speed > 0 {
+				rec.LimitID, rec.LimitSpeed, rec.LimitArena = l.ID, l.Speed, l.ArenaMode == 1
+			}
+		}
+		if rec.LimitID == 0 {
+			if id := utLimit[[2]int64{row.UserID, row.TunnelID}]; id > 0 {
+				if l, ok := limits[id]; ok {
+					rec.LimitID, rec.LimitSpeed, rec.LimitArena = l.ID, l.Speed, l.ArenaMode == 1
+				}
+			}
+		}
+		out = append(out, rec)
+	}
+	return out, nil
+}
+
+func keysOf(m map[int64]bool) []int64 {
+	out := make([]int64, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	return out
+}
+
+// ListNodeIDsByEntryRateMode lists the nodes whose agent reported the given
+// plan-168 entry rate mode.
+func (r *Repository) ListNodeIDsByEntryRateMode(mode int) ([]int64, error) {
+	if r == nil || r.db == nil {
+		return nil, errors.New("repository not initialized")
+	}
+	var ids []int64
+	err := r.db.Model(&model.Node{}).Where("entry_rate_tc = ?", mode).Order("id ASC").Pluck("id", &ids).Error
+	return ids, err
 }

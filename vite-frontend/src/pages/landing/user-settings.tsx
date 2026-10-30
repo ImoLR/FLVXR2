@@ -407,6 +407,13 @@ export const LandingUserSettings = forwardRef<
       return "该服务器 agent 较旧：有单独限速的规则不计入这里的速率（升级 agent 后全部计入）";
     if (server.landing && server.landingRateError)
       return `该服务器未能限制落地节点的速率：${server.landingRateError}`;
+    // Plan 168: entry limits normally run in the kernel (tc).
+    if (server.entry && server.entryRateFallback === "kernel")
+      return `该服务器内核不支持 tc 限速（${server.entryRateError || "未知原因"}）：速率仍按旧方式限制，多条连接可能分得不均`;
+    if (server.entry && server.entryRateFallback === "agent")
+      return "该服务器 agent 较旧（待升级）：速率仍按旧方式限制，升级后改为 tc（多条连接平分）";
+    if (server.entry && server.entryRateError)
+      return `该服务器 tc 限速未完全生效：${server.entryRateError}`;
 
     return "";
   };

@@ -269,6 +269,10 @@ export interface RelatedServer extends PoolServer {
   landingRateOldAgent?: boolean;
   /** plan 161: why the agent could not apply the 速率 to the landing nodes. */
   landingRateError?: string;
+  /** plan 168: entry node still limiting the old way (agent = not upgraded, kernel = no tc). */
+  entryRateFallback?: "agent" | "kernel";
+  /** plan 168: probe reason (kernel) or why tc could not fully apply. */
+  entryRateError?: string;
 }
 /** Plan 157: 共享流量池 — member servers share one billed-bytes limit. */
 export interface TrafficPool {

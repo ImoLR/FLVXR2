@@ -136,6 +136,22 @@ func tagRuntimeRevs(cmdType string, g interface{}) map[string]string {
 			rev = revOfLimiter(target)
 		}
 		tag(kind, target, rev, "name")
+	case "SetEntryRates":
+		// Plan 168: one object per node, the complete entry rate tree; an
+		// empty tree carries no revision (= nothing applied on the agent).
+		m, ok := g.(map[string]interface{})
+		if !ok {
+			return revs
+		}
+		classes, _ := m["classes"].([]interface{})
+		ports, _ := m["ports"].([]interface{})
+		if len(classes) == 0 && len(ports) == 0 {
+			delete(m, RuntimeRevKey)
+			return revs
+		}
+		rev := revOfObject(m)
+		m[RuntimeRevKey] = rev
+		revs["entryrate:entry"] = rev
 	case "AddNftablesRules", "UpdateNftablesRules":
 		m, ok := g.(map[string]interface{})
 		if !ok {
@@ -154,7 +170,7 @@ func tagRuntimeRevs(cmdType string, g interface{}) map[string]string {
 
 func isRevCommand(cmdType string) bool {
 	switch cmdType {
-	case "AddService", "UpdateService", "AddChains", "UpdateChains", "AddLimiters", "UpdateLimiters", "AddNftablesRules", "UpdateNftablesRules":
+	case "AddService", "UpdateService", "AddChains", "UpdateChains", "AddLimiters", "UpdateLimiters", "AddNftablesRules", "UpdateNftablesRules", "SetEntryRates":
 		return true
 	}
 	return false

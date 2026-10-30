@@ -160,6 +160,8 @@ export interface Forward {
   expiryTime?: number | null;
   speedLimitEnabled?: boolean;
   speedLimit?: number;
+  /** plan 168 (admin): entry nodes that still limit this rule the old way (gost / nftables). */
+  rateFallback?: string;
   inSpeed?: number; // 新增：实时上行速度 (bytes/s)
   outSpeed?: number; // 新增：实时下行速度 (bytes/s)
   mode?: "gost" | "nftables" | "wg_path";
@@ -2191,6 +2193,10 @@ export default function ForwardPage() {
   }, [allTunnels, form.tunnelId]);
   const editingChain = isEdit
     ? forwards.find((forward) => forward.id === form.id)?.chain
+    : undefined;
+  // Plan 168: the rule's speed still runs the old way on some entry node.
+  const editingRateFallback = isEdit
+    ? forwards.find((forward) => forward.id === form.id)?.rateFallback
     : undefined;
   const selectedLineTunnel = tunnels.find((tunnel) => tunnel.id === form.tunnelId);
   // Plan 164: the tick stays while the rule keeps its tunnel and 手动填写 target.
@@ -6852,6 +6858,14 @@ export default function ForwardPage() {
                             setForm((prev) => ({ ...prev, speedId }))
                           }
                         />
+                        {editingRateFallback && (
+                          <p
+                            data-rate-fallback
+                            className="-mt-2 text-xs text-warning"
+                          >
+                            {editingRateFallback}
+                          </p>
+                        )}
                         {/* 连接/IP 限制与流量控制 */}
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mb-2">
                           <ConnectionLimitField
