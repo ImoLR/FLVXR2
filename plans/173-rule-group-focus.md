@@ -40,5 +40,8 @@ Follow-up to plan 163 (grouped by tunnel, collapsed by default) and 164 (「线�
       untouched unformatted code, 0 messages in changed lines) / vite build OK
 - [x] Demo panel (fork.98 paneld, synthetic DB, `unshare -n`) + headless checks 104/104 + screenshots 390/1440
       light/dark (a–f + jump/create/footer) + WebM recording of d) + gallery :8791 /rule-group-focus/
-- [ ] Commit + push, branch CI green
-- [ ] release-notes.md + summary.md / final.md
+- [x] Commit + push, branch CI green (5d98b641, CI Build Check run 41138913593: 4/4 jobs success)
+- [x] release-notes.md + summary.md / final.md (`/root/flvx-workers/runs/rule-group-focus/`)
+
+Status: BUILT, not released — waits for the user's screenshot approval, then ships in the next batch release
+(panel frontend only, no DB change, rollback = previous panel image without `--restore-db`).
