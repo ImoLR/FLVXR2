@@ -1523,6 +1523,10 @@ func (h *Handler) tunnelCreate(w http.ResponseWriter, r *http.Request) {
 		response.WriteJSON(w, response.ErrDefault(err.Error()))
 		return
 	}
+	if err := validateTunnelBillingRequest(req); err != nil {
+		response.WriteJSON(w, response.ErrDefault(err.Error()))
+		return
+	}
 	defaultNewTunnelLayerStrategies(req)
 
 	name := asString(req["name"])
@@ -1816,6 +1820,10 @@ func (h *Handler) tunnelUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := validateTunnelConnectIPConstraints(req); err != nil {
+		response.WriteJSON(w, response.ErrDefault(err.Error()))
+		return
+	}
+	if err := validateTunnelBillingRequest(req); err != nil {
 		response.WriteJSON(w, response.ErrDefault(err.Error()))
 		return
 	}
