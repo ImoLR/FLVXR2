@@ -121,8 +121,8 @@ export function OnboardingRing({ active }: { active: boolean }) {
 }
 
 // The comet runs one lap, then rests (static band only, no animation running) and starts again.
-// While nothing animates the compositor stays idle (plan 169: 1.2 s lap + 0.8 s rest, ~7 laps in 15 s).
-const ONBOARDING_LAP_REST_MS = 800;
+// While nothing animates the compositor stays idle, so the 15 s cost is roughly halved.
+const ONBOARDING_LAP_REST_MS = 2600;
 
 function OnboardingRingPlaying() {
   const ringRef = useRef<HTMLSpanElement | null>(null);
