@@ -148,14 +148,15 @@ func (h *Handler) reconnectInventory(nodeID int64) (*agentRuntimeInventory, stri
 
 // forwardRuntimeInputs are the resolved inputs of every gost/nftables push of
 // a forward (shared by the push and the reconnect comparison).
+//
+// Plan 170: a rule has no own speed limit any more (限速规则 / 竞技场 via
+// forward.speed_id or user_tunnel.speed_id, dynamic forward.speed_limit are
+// retired and never read here); its only entry limit is the user's 速率 on the
+// machine (applyRateRefs / capNftRulesByUserRate / the plan-168 tc tree).
 type forwardRuntimeInputs struct {
-	tunnel             *tunnelRecord
-	userTunnelID       int64
-	limiterID          *int64
-	speed              *int
-	arenaMode          bool
-	dynamicLimiterName string
-	serviceBase        string
+	tunnel       *tunnelRecord
+	userTunnelID int64
+	serviceBase  string
 }
 
 func (h *Handler) resolveForwardRuntimeInputs(forward *forwardRecord) (*forwardRuntimeInputs, error) {
@@ -164,31 +165,11 @@ func (h *Handler) resolveForwardRuntimeInputs(forward *forwardRecord) (*forwardR
 		return nil, err
 	}
 	// Resolve user tunnel first so runtime service name can carry the real user_tunnel id.
-	userTunnelID, utLimiterID, utSpeed, err := h.resolveUserTunnelAndLimiter(forward.UserID, forward.TunnelID)
+	userTunnelID, err := h.resolveUserTunnelID(forward.UserID, forward.TunnelID)
 	if err != nil {
 		return nil, err
 	}
 	in := &forwardRuntimeInputs{tunnel: tunnel, userTunnelID: userTunnelID}
-	// Determine limiter from forward's SpeedID first, fallback to UserTunnel's limiter.
-	if forward.SpeedID.Valid && forward.SpeedID.Int64 > 0 {
-		limit, err := h.repo.GetSpeedLimit(forward.SpeedID.Int64)
-		if err == nil && limit.Speed > 0 {
-			id := forward.SpeedID.Int64
-			speedVal := limit.Speed
-			in.limiterID, in.speed, in.arenaMode = &id, &speedVal, limit.ArenaMode == 1
-		}
-	}
-	if in.limiterID == nil {
-		in.limiterID, in.speed = utLimiterID, utSpeed
-		if in.limiterID != nil {
-			if limit, err := h.repo.GetSpeedLimit(*in.limiterID); err == nil && limit != nil {
-				in.arenaMode = limit.ArenaMode == 1
-			}
-		}
-	}
-	if forward.SpeedLimitEnabled && forward.SpeedLimit > 0 {
-		in.dynamicLimiterName = fmt.Sprintf("forward_%d_speed", forward.ID)
-	}
 	in.serviceBase = buildForwardServiceBaseWithResolvedUserTunnel(forward.ID, forward.UserID, userTunnelID)
 	return in, nil
 }
@@ -232,7 +213,7 @@ func (h *Handler) forwardRuntimeUnchangedOnNode(forward *forwardRecord, nodeID i
 	expected := map[string]string{}
 	if strings.EqualFold(forward.Mode, "nftables") {
 		chainNodes, _ := h.listChainNodesForTunnel(forward.TunnelID)
-		rules, _ := h.nftRulePayloads(forward, in.tunnel, ports, chainNodes, in.userTunnelID, in.speed)
+		rules, _ := h.nftRulePayloads(forward, in.tunnel, ports, chainNodes, in.userTunnelID)
 		nodeRules := filterRulesByNodeID(rules, nodeID)
 		if len(nodeRules) == 0 {
 			return true
@@ -244,25 +225,13 @@ func (h *Handler) forwardRuntimeUnchangedOnNode(forward *forwardRecord, nodeID i
 	if err != nil {
 		return false
 	}
-	var limiterName string
 	plan := inv.planFor(h, nodeID) // plan 168: nil = old path
 	for _, fp := range ports {
-		if in.dynamicLimiterName != "" {
-			if !plan.tcCovers(forward.ID) {
-				mergeRevs(expected, ws.ExpectedRuntimeRevs("AddLimiters", buildDynamicLimiterPayload(in.dynamicLimiterName, forward.SpeedLimit)))
-			}
-		} else if in.limiterID != nil && in.speed != nil {
-			limiterName = buildRuntimeLimiterName(*in.limiterID, fp.NodeID, in.arenaMode)
-			if !plan.tcCovers(forward.ID) {
-				_, addPayload := buildNamedLimiterAddPayload(strings.TrimSpace(limiterName), *in.speed)
-				mergeRevs(expected, ws.ExpectedRuntimeRevs("AddLimiters", addPayload))
-			}
-		}
 		node, err := h.getNodeRecord(fp.NodeID)
 		if err != nil || node == nil {
 			return false
 		}
-		services := buildForwardServiceConfigs(in.serviceBase, forward, in.tunnel, node, fp.Port, strings.TrimSpace(fp.InIP), in.limiterID, limiterName, tunnelTLSProtocol)
+		services := buildForwardServiceConfigs(in.serviceBase, forward, in.tunnel, node, fp.Port, strings.TrimSpace(fp.InIP), tunnelTLSProtocol)
 		rate := inv.rateFor(forward.UserID)
 		if rate < 0 {
 			rate = h.userRateOnNode(forward.UserID, node)

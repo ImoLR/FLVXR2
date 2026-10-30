@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"hash/fnv"
 	"net"
 	"net/http"
 	"net/url"
@@ -231,15 +230,14 @@ func (h *Handler) getNodeRecord(nodeID int64) (*nodeRecord, error) {
 	return n, nil
 }
 
-func (h *Handler) resolveUserTunnelAndLimiter(userID, tunnelID int64) (int64, *int64, *int, error) {
+// resolveUserTunnelID: the user's first user tunnel of the tunnel (0 = none).
+// Plan 170: its 限速 (user_tunnel.speed_id) is retired and not read.
+func (h *Handler) resolveUserTunnelID(userID, tunnelID int64) (int64, error) {
 	info, err := h.repo.ResolveUserTunnelAndLimiter(userID, tunnelID)
-	if err != nil {
-		return 0, nil, nil, err
+	if err != nil || info == nil {
+		return 0, err
 	}
-	if info == nil {
-		return 0, nil, nil, nil
-	}
-	return info.UserTunnelID, info.LimiterID, info.Speed, nil
+	return info.UserTunnelID, nil
 }
 
 func (h *Handler) listUserTunnelIDs(userID, tunnelID int64) ([]int64, error) {
@@ -320,15 +318,13 @@ func (h *Handler) syncForwardServicesWithWarningsOnNode(forward *forwardRecord, 
 		return nil, err
 	}
 	tunnel, userTunnelID := in.tunnel, in.userTunnelID
-	limiterID, speed, arenaMode := in.limiterID, in.speed, in.arenaMode
-	var limiterName string
 
 	warnings := make([]string, 0)
 
 	// nftables mode branch
 	if strings.EqualFold(forward.Mode, "nftables") {
 		fmt.Printf("[nft.debug] syncForwardServicesWithWarnings: nft mode branch, forwardID=%d\n", forward.ID)
-		return nil, h.syncNftablesRules(forward, tunnel, ports, userTunnelID, speed, nodeID > 0)
+		return nil, h.syncNftablesRules(forward, tunnel, ports, userTunnelID, nodeID > 0)
 	}
 	if h.quotaGroups != nil {
 		nodeIDs := make([]int64, 0, len(ports))
@@ -346,8 +342,6 @@ func (h *Handler) syncForwardServicesWithWarningsOnNode(forward *forwardRecord, 
 		defer h.quotaGroups.InvalidateNodes(nodeIDs...)
 	}
 
-	// ✅ 动态限速器名称
-	dynamicLimiterName := in.dynamicLimiterName
 	serviceBase := in.serviceBase
 	tunnelTLSProtocol, err := h.isTunnelSelectedTLSProtocol(forward.TunnelID)
 	if err != nil {
@@ -355,40 +349,9 @@ func (h *Handler) syncForwardServicesWithWarningsOnNode(forward *forwardRecord, 
 	}
 
 	for _, fp := range ports {
-		// Plan 168: on a tc node the tree carries the rule's limits (nil = old path).
+		// Plan 168: on a tc node the tree carries the user's 速率 (nil = old path).
+		// Plan 170: rules have no own limiter any more.
 		plan := h.entryRatePlanFor(fp.NodeID)
-		// ✅ 应用动态限速器
-		if dynamicLimiterName != "" && !plan.tcCovers(forward.ID) {
-			if err := h.ensureDynamicLimiterOnNode(fp.NodeID, dynamicLimiterName, forward.SpeedLimit); err != nil {
-				if isNodeOfflineOrTimeoutError(err) {
-					node, _ := h.getNodeRecord(fp.NodeID)
-					nodeName := fmt.Sprintf("%d", fp.NodeID)
-					if node != nil && strings.TrimSpace(node.Name) != "" {
-						nodeName = strings.TrimSpace(node.Name)
-					}
-					warnings = append(warnings, fmt.Sprintf("节点 %s 不在线，已跳过下发", nodeName))
-				} else {
-					return nil, err
-				}
-			}
-		} else if limiterID != nil && speed != nil && dynamicLimiterName == "" {
-			limiterName = buildRuntimeLimiterName(*limiterID, fp.NodeID, arenaMode)
-			if !plan.tcCovers(forward.ID) {
-				if err := h.ensureNamedLimiterOnNode(fp.NodeID, limiterName, *speed); err != nil {
-					if isNodeOfflineOrTimeoutError(err) {
-						node, _ := h.getNodeRecord(fp.NodeID)
-						nodeName := fmt.Sprintf("%d", fp.NodeID)
-						if node != nil && strings.TrimSpace(node.Name) != "" {
-							nodeName = strings.TrimSpace(node.Name)
-						}
-						warnings = append(warnings, fmt.Sprintf("节点 %s 不在线，已跳过下发", nodeName))
-						continue
-					}
-					return nil, err
-				}
-			}
-		}
-
 		node, err := h.getNodeRecord(fp.NodeID)
 		if err != nil {
 			return nil, err
@@ -407,7 +370,7 @@ func (h *Handler) syncForwardServicesWithWarningsOnNode(forward *forwardRecord, 
 				warnings = append(warnings, fmt.Sprintf("节点 %s %v", node.Name, err))
 			}
 		}
-		services := buildForwardServiceConfigs(serviceBase, forward, tunnel, node, fp.Port, strings.TrimSpace(fp.InIP), limiterID, limiterName, tunnelTLSProtocol)
+		services := buildForwardServiceConfigs(serviceBase, forward, tunnel, node, fp.Port, strings.TrimSpace(fp.InIP), tunnelTLSProtocol)
 		h.applyRateRefs(services, forward, node, rate, plan)
 		if plan != nil && nodeID == 0 && forward.Status == 1 && strings.EqualFold(method, "UpdateService") && h.agentRunsServices(node.ID, services) {
 			// Plan 168: a rule edit that only changed its speed changes the
@@ -430,7 +393,7 @@ func (h *Handler) syncForwardServicesWithWarningsOnNode(forward *forwardRecord, 
 		}
 		if err != nil && strings.EqualFold(strings.TrimSpace(method), "UpdateService") && isCannotAssignRequestedAddressError(err) {
 			var warning string
-			warning, err = h.fallbackForwardPortToDefaultBind(forward, tunnel, node, fp, serviceBase, limiterID, limiterName, tunnelTLSProtocol)
+			warning, err = h.fallbackForwardPortToDefaultBind(forward, tunnel, node, fp, serviceBase, tunnelTLSProtocol)
 			if err == nil && warning != "" {
 				warnings = append(warnings, warning)
 			}
@@ -463,7 +426,7 @@ func (h *Handler) syncForwardServicesWithWarningsOnNode(forward *forwardRecord, 
 	return warnings, nil
 }
 
-func (h *Handler) fallbackForwardPortToDefaultBind(forward *forwardRecord, tunnel *tunnelRecord, node *nodeRecord, fp forwardPortRecord, serviceBase string, limiterID *int64, limiterName string, tunnelTLSProtocol bool) (string, error) {
+func (h *Handler) fallbackForwardPortToDefaultBind(forward *forwardRecord, tunnel *tunnelRecord, node *nodeRecord, fp forwardPortRecord, serviceBase string, tunnelTLSProtocol bool) (string, error) {
 	if h == nil || forward == nil || tunnel == nil || node == nil {
 		return "", errors.New("invalid bind fallback context")
 	}
@@ -480,7 +443,7 @@ func (h *Handler) fallbackForwardPortToDefaultBind(forward *forwardRecord, tunne
 	}
 
 	time.Sleep(150 * time.Millisecond)
-	defaultServices := buildForwardServiceConfigs(serviceBase, forward, tunnel, node, fp.Port, "", limiterID, limiterName, tunnelTLSProtocol)
+	defaultServices := buildForwardServiceConfigs(serviceBase, forward, tunnel, node, fp.Port, "", tunnelTLSProtocol)
 	h.applyRateRefs(defaultServices, forward, node, h.userRateOnNode(forward.UserID, node), h.entryRatePlanFor(node.ID))
 	if _, err := h.sendNodeCommand(node.ID, "AddService", defaultServices, true, false); err != nil {
 		return "", err
@@ -548,7 +511,7 @@ func (h *Handler) forwardServiceBaseCandidates(forward *forwardRecord) ([]string
 	if h == nil || forward == nil {
 		return nil, errors.New("invalid forward service base context")
 	}
-	userTunnelID, _, _, err := h.resolveUserTunnelAndLimiter(forward.UserID, forward.TunnelID)
+	userTunnelID, err := h.resolveUserTunnelID(forward.UserID, forward.TunnelID)
 	if err != nil {
 		return nil, err
 	}
@@ -597,7 +560,7 @@ func (h *Handler) controlForwardServices(forward *forwardRecord, commandType str
 	if len(ports) == 0 {
 		return nil
 	}
-	userTunnelID, _, _, err := h.resolveUserTunnelAndLimiter(forward.UserID, forward.TunnelID)
+	userTunnelID, err := h.resolveUserTunnelID(forward.UserID, forward.TunnelID)
 	if err != nil {
 		return err
 	}
@@ -1922,19 +1885,16 @@ func compactErrorMessage(msg string) string {
 	return strings.Join(strings.Fields(strings.ToLower(msg)), "")
 }
 
-func buildForwardServiceConfigs(baseName string, forward *forwardRecord, tunnel *tunnelRecord, node *nodeRecord, port int, bindIP string, limiterID *int64, limiterName string, tunnelTLSProtocol bool) []map[string]interface{} {
+// buildForwardServiceConfigs builds a rule's gost services on one entry node.
+// Plan 170: no rule limiter (限速规则 / 竞技场 / dynamic speed are retired);
+// the user's 速率 reference is added by applyRateRefs.
+func buildForwardServiceConfigs(baseName string, forward *forwardRecord, tunnel *tunnelRecord, node *nodeRecord, port int, bindIP string, tunnelTLSProtocol bool) []map[string]interface{} {
 	protocols := []string{"tcp", "udp"}
 	services := make([]map[string]interface{}, 0, 2)
 	targets := splitRemoteTargets(forward.RemoteAddr)
 	strategy := strings.TrimSpace(forward.Strategy)
 	if strategy == "" {
 		strategy = "fifo"
-	}
-
-	// ✅ 动态限速器名称
-	var dynamicLimiterName string
-	if forward.SpeedLimitEnabled && forward.SpeedLimit > 0 {
-		dynamicLimiterName = fmt.Sprintf("forward_%d_speed", forward.ID)
 	}
 
 	for _, protocol := range protocols {
@@ -2013,14 +1973,6 @@ func buildForwardServiceConfigs(baseName string, forward *forwardRecord, tunnel 
 		}
 		if len(meta) > 0 {
 			service["metadata"] = meta
-		}
-		// ✅ 应用限速器（优先使用动态限速器）
-		if dynamicLimiterName != "" {
-			service["limiter"] = dynamicLimiterName
-		} else if strings.TrimSpace(limiterName) != "" {
-			service["limiter"] = strings.TrimSpace(limiterName)
-		} else if limiterID != nil && *limiterID > 0 {
-			service["limiter"] = strconv.FormatInt(*limiterID, 10)
 		}
 		services = append(services, service)
 	}
@@ -2113,84 +2065,8 @@ func asBool(v interface{}, def bool) bool {
 	}
 }
 
-func (h *Handler) ensureLimiterOnNode(nodeID int64, limiterID int64, speed int) error {
-	if err := h.upsertLimiterOnNode(nodeID, limiterID, speed); err != nil {
-		return fmt.Errorf("限速规则下发失败：%w", err)
-	}
-
-	return nil
-}
-
-func (h *Handler) ensureNamedLimiterOnNode(nodeID int64, limiterName string, speed int) error {
-	if strings.TrimSpace(limiterName) == "" {
-		return errors.New("limiter name is empty")
-	}
-	if err := h.upsertNamedLimiterOnNode(nodeID, limiterName, speed); err != nil {
-		return fmt.Errorf("限速规则下发失败：%w", err)
-	}
-	return nil
-}
-
-// ✅ 新增：确保 Forward 动态限速器存在（所有入口节点）
-func (h *Handler) ensureForwardDynamicLimiter(forward *forwardRecord, limiterName string) error {
-	ports, err := h.listForwardPorts(forward.ID)
-	if err != nil {
-		return err
-	}
-
-	for _, fp := range ports {
-		if err := h.ensureDynamicLimiterOnNode(fp.NodeID, limiterName, forward.SpeedLimit); err != nil {
-			if !isNodeOfflineOrTimeoutError(err) {
-				return err
-			}
-		}
-	}
-	return nil
-}
-
-// buildDynamicLimiterPayload is the AddLimiters payload of a forward's own
-// speed limit (Mbps in the UI, MB/s for gost; the same value up and down).
-func buildDynamicLimiterPayload(limiterName string, speedLimit int) map[string]interface{} {
-	speedMB := float64(speedLimit) / 8.0
-	return map[string]interface{}{
-		"name":   limiterName,
-		"limits": []string{fmt.Sprintf("$ %.1fMB %.1fMB", speedMB, speedMB)},
-	}
-}
-
-// ✅ 新增：在节点上创建/更新动态限速器
-func (h *Handler) ensureDynamicLimiterOnNode(nodeID int64, limiterName string, speedLimit int) error {
-	// 构建限速器配置
-	// gost traffic limiter 使用 MB/s 作为单位（通过 units.ParseBase2Bytes 解析）
-	// 前端输入是 Mbps，需要转换：MB/s = Mbps / 8
-	// 配置格式："$ <in> <out>"，其中 $ 是 ServiceLimitKey（buildDynamicLimiterPayload）
-	if speedLimit <= 0 {
-		// 没设置限速，删除限速器
-		_, _ = h.sendNodeCommand(nodeID, "DeleteLimiters", map[string]interface{}{
-			"limiter": limiterName,
-		}, false, true)
-		return nil
-	}
-
-	// 先尝试删除已存在的限速器（确保更新时配置被刷新）
-	_, _ = h.sendNodeCommand(nodeID, "DeleteLimiters", map[string]interface{}{
-		"limiter": limiterName,
-	}, false, true)
-
-	// 等待一小段时间让删除生效
-	time.Sleep(100 * time.Millisecond)
-
-	// 创建新的限速器
-	addPayload := buildDynamicLimiterPayload(limiterName, speedLimit)
-
-	if _, err := h.sendNodeCommand(nodeID, "AddLimiters", addPayload, false, false); err != nil {
-		return err
-	}
-
-	return nil
-}
-
-// ✅ 新增：删除 Forward 动态限速器
+// deleteForwardDynamicLimiter removes a leftover pre-plan-170 rule speed
+// limiter (forward_<id>_speed) when the rule is deleted (best effort).
 func (h *Handler) deleteForwardDynamicLimiter(forward *forwardRecord) {
 	limiterName := fmt.Sprintf("forward_%d_speed", forward.ID)
 	ports, _ := h.listForwardPorts(forward.ID)
@@ -2204,11 +2080,6 @@ func (h *Handler) deleteForwardDynamicLimiter(forward *forwardRecord) {
 			"limiter": limiterName,
 		}, false, true)
 	}
-}
-
-func buildLimiterAddPayload(limiterID int64, speed int) (string, map[string]interface{}) {
-	name := strconv.FormatInt(limiterID, 10)
-	return buildNamedLimiterAddPayload(name, speed)
 }
 
 func buildNamedLimiterAddPayload(name string, speed int) (string, map[string]interface{}) {
@@ -2226,11 +2097,6 @@ func buildLimiterUpdatePayload(name string, data map[string]interface{}) map[str
 		"limiter": name,
 		"data":    data,
 	}
-}
-
-func (h *Handler) upsertLimiterOnNode(nodeID int64, limiterID int64, speed int) error {
-	name, addPayload := buildLimiterAddPayload(limiterID, speed)
-	return h.upsertLimiterPayloadOnNode(nodeID, name, addPayload)
 }
 
 func (h *Handler) upsertNamedLimiterOnNode(nodeID int64, limiterName string, speed int) error {
@@ -2253,20 +2119,6 @@ func (h *Handler) upsertLimiterPayloadOnNode(nodeID int64, name string, addPaylo
 	}
 
 	return nil
-}
-
-func buildRuntimeLimiterName(limiterID int64, entryNodeID int64, arenaMode bool) string {
-	if !arenaMode || limiterID <= 0 {
-		return strconv.FormatInt(limiterID, 10)
-	}
-	scope := fmt.Sprintf("speed_limit=%d", limiterID)
-	return fmt.Sprintf("arena_speed_%d_node_%d_%s", limiterID, entryNodeID, shortStableHash(scope))
-}
-
-func shortStableHash(value string) string {
-	h := fnv.New32a()
-	_, _ = h.Write([]byte(value))
-	return fmt.Sprintf("%08x", h.Sum32())
 }
 
 // NftablesRulePayload nftables rule payload (matches agent side)
@@ -2404,7 +2256,7 @@ func (h *Handler) syncWGForwardRuleOnNode(forward *forwardRecord, ports []forwar
 }
 
 // syncNftablesRules sync nftables forwarding rules to nodes
-func (h *Handler) syncNftablesRules(forward *forwardRecord, tunnel *tunnelRecord, ports []forwardPortRecord, userTunnelID int64, speedLimit *int, reportOffline ...bool) error {
+func (h *Handler) syncNftablesRules(forward *forwardRecord, tunnel *tunnelRecord, ports []forwardPortRecord, userTunnelID int64, reportOffline ...bool) error {
 	if h == nil || forward == nil {
 		return errors.New("invalid nftables sync context")
 	}
@@ -2424,7 +2276,7 @@ func (h *Handler) syncNftablesRules(forward *forwardRecord, tunnel *tunnelRecord
 	}
 
 	chainNodes, _ := h.listChainNodesForTunnel(forward.TunnelID)
-	rules, entries := h.nftRulePayloads(forward, tunnel, ports, chainNodes, userTunnelID, speedLimit)
+	rules, entries := h.nftRulePayloads(forward, tunnel, ports, chainNodes, userTunnelID)
 	logNftFamilyIssues(forward.ID, rules, entries)
 	if h.quotaGroups != nil {
 		nodeIDs := make([]int64, 0, len(ports))
@@ -2510,22 +2362,18 @@ func (h *Handler) syncNftablesRules(forward *forwardRecord, tunnel *tunnelRecord
 
 // buildNftablesRulePayloads build nftables rule payloads (targets in resolver
 // order; pushes use Handler.nftRulePayloads, which prefers the entry family).
-func buildNftablesRulePayloads(forward *forwardRecord, tunnel *tunnelRecord, ports []forwardPortRecord, chainNodes []chainNodeRecord, userTunnelID int64, speedLimit *int) []NftablesRulePayload {
-	return buildNftablesRulePayloadsFor(forward, tunnel, ports, chainNodes, userTunnelID, speedLimit, resolveNftTargets(forward.RemoteAddr), nil)
+func buildNftablesRulePayloads(forward *forwardRecord, tunnel *tunnelRecord, ports []forwardPortRecord, chainNodes []chainNodeRecord, userTunnelID int64) []NftablesRulePayload {
+	return buildNftablesRulePayloadsFor(forward, tunnel, ports, chainNodes, userTunnelID, resolveNftTargets(forward.RemoteAddr), nil)
 }
 
 // buildNftablesRulePayloadsFor builds the payloads with each entry node's DNAT
 // target picked for the address families that node is reached with (plan 150).
-func buildNftablesRulePayloadsFor(forward *forwardRecord, tunnel *tunnelRecord, ports []forwardPortRecord, chainNodes []chainNodeRecord, userTunnelID int64, speedLimit *int, resolved []nftTarget, entryFamilies map[int64]addrFamilies) []NftablesRulePayload {
+//
+// Plan 170: rules have no own speed (SpeedLimit 0 here); the user's 速率 on a
+// non-tc entry is applied afterwards by capNftRulesByUserRate.
+func buildNftablesRulePayloadsFor(forward *forwardRecord, tunnel *tunnelRecord, ports []forwardPortRecord, chainNodes []chainNodeRecord, userTunnelID int64, resolved []nftTarget, entryFamilies map[int64]addrFamilies) []NftablesRulePayload {
 	var rules []NftablesRulePayload
 	protocols := []string{"tcp", "udp"}
-
-	spdLimit := 0
-	if forward.SpeedLimitEnabled && forward.SpeedLimit > 0 {
-		spdLimit = forward.SpeedLimit
-	} else if speedLimit != nil {
-		spdLimit = *speedLimit
-	}
 
 	for _, fp := range ports {
 		for _, protocol := range protocols {
@@ -2548,11 +2396,10 @@ func buildNftablesRulePayloadsFor(forward *forwardRecord, tunnel *tunnelRecord, 
 					quota.Protocol = protocol
 					quota.Port = fp.Port
 					quota.Target = target
-					quota.SpeedLimit = spdLimit
 					quota.ChainType = 1
 					rules = append(rules, quota)
 				} else if tunnel.Type == 2 {
-					chainRule := buildChainNftablesRule(forward.ID, forward.UserID, userTunnelID, chainNodes, fp, protocol, target, spdLimit)
+					chainRule := buildChainNftablesRule(forward.ID, forward.UserID, userTunnelID, chainNodes, fp, protocol, target, 0)
 					chainRule.MaxConnections = quota.MaxConnections
 					chainRule.MaxClientIps = quota.MaxClientIps
 					chainRule.QuotaGroup = quota.QuotaGroup

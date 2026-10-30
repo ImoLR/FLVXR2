@@ -186,9 +186,9 @@ func entryFamilyMap(entries map[int64]nftEntry) map[int64]addrFamilies {
 
 // nftRulePayloads builds the AddNftablesRules payloads with family-aware
 // targets; every push and the reconnect comparison go through it.
-func (h *Handler) nftRulePayloads(forward *forwardRecord, tunnel *tunnelRecord, ports []forwardPortRecord, chainNodes []chainNodeRecord, userTunnelID int64, speedLimit *int) ([]NftablesRulePayload, map[int64]nftEntry) {
+func (h *Handler) nftRulePayloads(forward *forwardRecord, tunnel *tunnelRecord, ports []forwardPortRecord, chainNodes []chainNodeRecord, userTunnelID int64) ([]NftablesRulePayload, map[int64]nftEntry) {
 	entries := h.nftEntryFamilies(forward.TunnelID, ports)
-	rules := buildNftablesRulePayloadsFor(forward, tunnel, ports, chainNodes, userTunnelID, speedLimit, resolveNftTargets(forward.RemoteAddr), entryFamilyMap(entries))
+	rules := buildNftablesRulePayloadsFor(forward, tunnel, ports, chainNodes, userTunnelID, resolveNftTargets(forward.RemoteAddr), entryFamilyMap(entries))
 	// Plan 159: each rule policed at min(own, the user's 速率 there).
 	h.capNftRulesByUserRate(forward.UserID, rules)
 	return rules, entries
@@ -258,7 +258,7 @@ func (h *Handler) nftFamilyVerdict(tunnelID int64, ports []forwardPortRecord, re
 		return false, nil
 	}
 	chainNodes, _ := h.listChainNodesForTunnel(tunnelID)
-	rules, entries := h.nftRulePayloads(&forwardRecord{TunnelID: tunnelID, RemoteAddr: remoteAddr, Mode: "nftables"}, tunnel, ports, chainNodes, 0, nil)
+	rules, entries := h.nftRulePayloads(&forwardRecord{TunnelID: tunnelID, RemoteAddr: remoteAddr, Mode: "nftables"}, tunnel, ports, chainNodes, 0)
 	issues := nftFamilyIssues(rules, entries)
 	for _, i := range issues {
 		if i.allDead {
@@ -289,7 +289,7 @@ func (h *Handler) nftFamilyBlockReason(tunnelID int64, nodeIDs []int64, remoteAd
 		probe = append(probe, forwardPortRecord{NodeID: id})
 	}
 	chainNodes, _ := h.listChainNodesForTunnel(tunnelID)
-	rules, entries := h.nftRulePayloads(&forwardRecord{TunnelID: tunnelID, RemoteAddr: remoteAddr, Mode: "nftables"}, tunnel, probe, chainNodes, 0, nil)
+	rules, entries := h.nftRulePayloads(&forwardRecord{TunnelID: tunnelID, RemoteAddr: remoteAddr, Mode: "nftables"}, tunnel, probe, chainNodes, 0)
 	for _, i := range nftFamilyIssues(rules, entries) {
 		if i.allDead {
 			return i.reason() + "；" + nftNoFamilyChange + "，请单独编辑这条规则（保存时会自动改用 gost）"

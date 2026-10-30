@@ -989,9 +989,6 @@ func (h *Handler) forwardList(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if roleID == 0 {
-		h.decorateForwardRateFallback(items, entryNodes)
-	}
 	payload := map[string]interface{}{
 		"items": items,
 		"total": total,

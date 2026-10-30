@@ -378,7 +378,7 @@ func TestRetryTunnelServiceAddWithCleanupReturnsCleanupError(t *testing.T) {
 func TestBuildForwardServiceConfigs_UsesBindIPForListen(t *testing.T) {
 	forward := &forwardRecord{RemoteAddr: "1.2.3.4:80", Strategy: "fifo", TunnelID: 7}
 	node := &nodeRecord{TCPListenAddr: "[::]", UDPListenAddr: "[::]"}
-	services := buildForwardServiceConfigs("1_2_0", forward, nil, node, 22000, "10.9.8.7", nil, "", false)
+	services := buildForwardServiceConfigs("1_2_0", forward, nil, node, 22000, "10.9.8.7", false)
 	if len(services) != 2 {
 		t.Fatalf("expected 2 services, got %d", len(services))
 	}
@@ -393,7 +393,7 @@ func TestBuildForwardServiceConfigs_UsesBindIPForListen(t *testing.T) {
 func TestBuildForwardServiceConfigs_DefaultListenAddrWhenBindIPEmpty(t *testing.T) {
 	forward := &forwardRecord{RemoteAddr: "1.2.3.4:80", Strategy: "fifo", TunnelID: 7}
 	node := &nodeRecord{TCPListenAddr: "0.0.0.0", UDPListenAddr: "[::]"}
-	services := buildForwardServiceConfigs("1_2_0", forward, nil, node, 22001, "", nil, "", false)
+	services := buildForwardServiceConfigs("1_2_0", forward, nil, node, 22001, "", false)
 	if len(services) != 2 {
 		t.Fatalf("expected 2 services, got %d", len(services))
 	}
@@ -411,7 +411,7 @@ func TestBuildForwardServiceConfigs_IncludesTunnelProtocolFilter(t *testing.T) {
 	forward := &forwardRecord{RemoteAddr: "1.2.3.4:80", Strategy: "fifo", TunnelID: 7}
 	tunnel := &tunnelRecord{HTTP: 1, TLS: 0, Socks: 1, BlockOther: 0}
 	node := &nodeRecord{TCPListenAddr: "0.0.0.0", UDPListenAddr: "0.0.0.0"}
-	services := buildForwardServiceConfigs("1_2_0", forward, tunnel, node, 22001, "", nil, "", false)
+	services := buildForwardServiceConfigs("1_2_0", forward, tunnel, node, 22001, "", false)
 	if len(services) != 2 {
 		t.Fatalf("expected 2 services, got %d", len(services))
 	}
@@ -448,7 +448,7 @@ func TestBuildForwardServiceConfigs_IncludesRuleAndUserQuotaMetadata(t *testing.
 		UserMaxClientIps:   5,
 	}
 	node := &nodeRecord{TCPListenAddr: "0.0.0.0", UDPListenAddr: "0.0.0.0"}
-	services := buildForwardServiceConfigs("1_42_0", forward, nil, node, 22001, "", nil, "", false)
+	services := buildForwardServiceConfigs("1_42_0", forward, nil, node, 22001, "", false)
 	if len(services) != 2 {
 		t.Fatalf("expected 2 services, got %d", len(services))
 	}
@@ -485,7 +485,7 @@ func TestBuildForwardServiceConfigs_KeepsLegacyFallbackAndUnlimitedEncoding(t *t
 		UserMaxClientIps:   0,
 	}
 	node := &nodeRecord{TCPListenAddr: "0.0.0.0", UDPListenAddr: "0.0.0.0"}
-	services := buildForwardServiceConfigs("1_42_0", forward, nil, node, 22001, "", nil, "", false)
+	services := buildForwardServiceConfigs("1_42_0", forward, nil, node, 22001, "", false)
 
 	for _, svc := range services {
 		metadata := svc["metadata"].(map[string]interface{})
@@ -501,7 +501,7 @@ func TestBuildForwardServiceConfigs_KeepsLegacyFallbackAndUnlimitedEncoding(t *t
 func TestBuildForwardServiceConfigs_BindIPAlreadyContainsPort(t *testing.T) {
 	forward := &forwardRecord{RemoteAddr: "1.2.3.4:80", Strategy: "fifo", TunnelID: 7}
 	node := &nodeRecord{TCPListenAddr: "[::]", UDPListenAddr: "[::]"}
-	services := buildForwardServiceConfigs("1_2_0", forward, nil, node, 55555, "3.3.3.3:12345", nil, "", false)
+	services := buildForwardServiceConfigs("1_2_0", forward, nil, node, 55555, "3.3.3.3:12345", false)
 	if len(services) != 2 {
 		t.Fatalf("expected 2 services, got %d", len(services))
 	}
@@ -556,7 +556,7 @@ func TestBuildForwardServiceConfigs_IPv6BindIP(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			forward := &forwardRecord{RemoteAddr: "1.2.3.4:80", Strategy: "fifo", TunnelID: 7}
 			node := &nodeRecord{TCPListenAddr: "[::]", UDPListenAddr: "[::]"}
-			services := buildForwardServiceConfigs("1_2_0", forward, nil, node, tt.port, tt.bindIP, nil, "", false)
+			services := buildForwardServiceConfigs("1_2_0", forward, nil, node, tt.port, tt.bindIP, false)
 			if len(services) != 2 {
 				t.Fatalf("expected 2 services, got %d", len(services))
 			}
@@ -567,26 +567,6 @@ func TestBuildForwardServiceConfigs_IPv6BindIP(t *testing.T) {
 				}
 			}
 		})
-	}
-}
-
-func TestBuildRuntimeLimiterNameArenaScope(t *testing.T) {
-	if got := buildRuntimeLimiterName(12, 5, false); got != "12" {
-		t.Fatalf("expected ordinary limiter name 12, got %q", got)
-	}
-	first := buildRuntimeLimiterName(12, 5, true)
-	second := buildRuntimeLimiterName(12, 5, true)
-	if first == "" || first != second {
-		t.Fatalf("expected stable arena limiter name, got %q and %q", first, second)
-	}
-	if first == "12" {
-		t.Fatalf("expected arena limiter name to differ from ordinary limiter id")
-	}
-	if otherNode := buildRuntimeLimiterName(12, 6, true); otherNode == first {
-		t.Fatalf("expected different entry nodes to use different arena limiter names")
-	}
-	if otherRule := buildRuntimeLimiterName(13, 5, true); otherRule == first {
-		t.Fatalf("expected different speed limit rules to use different arena limiter names")
 	}
 }
 

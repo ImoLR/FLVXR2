@@ -168,6 +168,10 @@ func Open(path string) (*Repository, error) {
 	if _, err := cleanupServerRowOrphans(db); err != nil {
 		log.Printf("[server-row-cleanup] skipped: %v", err)
 	}
+	// Plan 170: references to deleted 限速规则 (inert, never blocks the start).
+	if _, err := cleanupSpeedLimitOrphans(db); err != nil {
+		log.Printf("[speed-ref-cleanup] skipped: %v", err)
+	}
 	if err := backfillLandingServerUsers(db); err != nil {
 		_ = sqlDB.Close()
 		return nil, fmt.Errorf("backfill landing server users: %w", err)
@@ -236,6 +240,10 @@ func OpenPostgres(dsn string) (*Repository, error) {
 	// Never blocks the start (the rows are inert, the next start retries).
 	if _, err := cleanupServerRowOrphans(db); err != nil {
 		log.Printf("[server-row-cleanup] skipped: %v", err)
+	}
+	// Plan 170: references to deleted 限速规则 (inert, never blocks the start).
+	if _, err := cleanupSpeedLimitOrphans(db); err != nil {
+		log.Printf("[speed-ref-cleanup] skipped: %v", err)
 	}
 	if err := backfillLandingServerUsers(db); err != nil {
 		_ = sqlDB.Close()
@@ -1228,10 +1236,6 @@ type SpeedLimitBindings struct {
 	TunnelIDs  []int64 `json:"tunnelIds"`
 	ForwardIDs []int64 `json:"forwardIds"`
 	NodeIDs    []int64 `json:"nodeIds"`
-	// KeepUsers / KeepNodes (plan 159): the request had no userIds / nodeIds
-	// (bindings retired in the UI) — keep the stored ones.
-	KeepUsers bool `json:"-"`
-	KeepNodes bool `json:"-"`
 }
 
 func (r *Repository) SpeedLimitBindingSnapshot(speedID int64) (SpeedLimitBindings, error) {
@@ -1278,44 +1282,6 @@ func (r *Repository) SpeedLimitBindingOptions() (map[string]interface{}, error) 
 	return map[string]interface{}{
 		"users": users, "tunnels": tunnels, "forwards": forwards, "nodes": nodes,
 	}, nil
-}
-
-func (r *Repository) ReplaceSpeedLimitBindings(speedID int64, bindings SpeedLimitBindings, allowForward bool) error {
-	if r == nil || r.db == nil {
-		return errors.New("repository not initialized")
-	}
-	return r.db.Transaction(func(tx *gorm.DB) error {
-		if !bindings.KeepUsers {
-			if err := replaceSpeedBinding(tx, &model.User{}, "speed_limit_id", speedID, bindings.UserIDs); err != nil {
-				return err
-			}
-		}
-		if err := replaceSpeedBinding(tx, &model.Tunnel{}, "speed_id", speedID, bindings.TunnelIDs); err != nil {
-			return err
-		}
-		if allowForward {
-			if err := replaceSpeedBinding(tx, &model.Forward{}, "speed_id", speedID, bindings.ForwardIDs); err != nil {
-				return err
-			}
-		}
-		if !bindings.KeepNodes {
-			if err := replaceSpeedBinding(tx, &model.Node{}, "speed_id", speedID, bindings.NodeIDs); err != nil {
-				return err
-			}
-		}
-		return nil
-	})
-}
-
-func replaceSpeedBinding(tx *gorm.DB, modelValue interface{}, column string, speedID int64, ids []int64) error {
-	cleanIDs := uniquePositiveInt64s(ids)
-	if err := tx.Model(modelValue).Where(column+" = ?", speedID).Update(column, nil).Error; err != nil {
-		return err
-	}
-	if len(cleanIDs) == 0 {
-		return nil
-	}
-	return tx.Model(modelValue).Where("id IN ?", cleanIDs).Update(column, speedID).Error
 }
 
 func uniquePositiveInt64s(ids []int64) []int64 {

@@ -21,7 +21,10 @@ import (
 	"go-backend/internal/security"
 )
 
-func TestForwardCreateRollbackWhenLimiterDispatchFailsContract(t *testing.T) {
+// Plan 170: a rule has no own speed — the retired speedId is ignored, so no
+// limiter is dispatched and an agent that would fail AddLimiters does not
+// matter (before: the create was rolled back).
+func TestForwardCreateIgnoresRetiredSpeedIDContract(t *testing.T) {
 	secret := "contract-jwt-secret"
 	router, r := setupContractRouter(t, secret)
 	server := httptest.NewServer(router)
@@ -90,13 +93,13 @@ func TestForwardCreateRollbackWhenLimiterDispatchFailsContract(t *testing.T) {
 	if err := json.NewDecoder(res.Body).Decode(&out); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	if out.Code == 0 {
-		t.Fatalf("expected create failure on limiter dispatch, got code=0")
+	if out.Code != 0 {
+		t.Fatalf("create with a retired speedId failed: code=%d msg=%s", out.Code, out.Msg)
 	}
 
-	forwardCount := mustQueryInt(t, r, `SELECT COUNT(1) FROM forward WHERE name = ?`, "limiter-fail-forward")
-	if forwardCount != 0 {
-		t.Fatalf("expected forward rollback delete on limiter failure, got count=%d", forwardCount)
+	forwardCount := mustQueryInt(t, r, `SELECT COUNT(1) FROM forward WHERE name = ? AND speed_id IS NULL`, "limiter-fail-forward")
+	if forwardCount != 1 {
+		t.Fatalf("expected the forward kept without a speed id, got count=%d", forwardCount)
 	}
 }
 
@@ -179,7 +182,8 @@ func TestForwardCreateSucceedsWhenLimiterAlreadyExistsAndUpdateSucceedsContract(
 	}
 }
 
-func TestForwardCreateRollbackWhenLimiterAlreadyExistsAndUpdateFailsContract(t *testing.T) {
+// Plan 170: see TestForwardCreateIgnoresRetiredSpeedIDContract.
+func TestForwardCreateIgnoresRetiredSpeedIDWhenLimiterUpdateWouldFailContract(t *testing.T) {
 	secret := "contract-jwt-secret"
 	router, r := setupContractRouter(t, secret)
 	server := httptest.NewServer(router)
@@ -249,16 +253,13 @@ func TestForwardCreateRollbackWhenLimiterAlreadyExistsAndUpdateFailsContract(t *
 	if err := json.NewDecoder(res.Body).Decode(&out); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	if out.Code == 0 {
-		t.Fatalf("expected create failure when update limiter fails, got code=0")
-	}
-	if !strings.Contains(out.Msg, "mock update limiters failed") {
-		t.Fatalf("expected update failure message, got %q", out.Msg)
+	if out.Code != 0 {
+		t.Fatalf("create with a retired speedId failed: code=%d msg=%s", out.Code, out.Msg)
 	}
 
-	forwardCount := mustQueryInt(t, r, `SELECT COUNT(1) FROM forward WHERE name = ?`, "limiter-exists-update-fail-forward")
-	if forwardCount != 0 {
-		t.Fatalf("expected forward rollback delete when update limiter fails, got count=%d", forwardCount)
+	forwardCount := mustQueryInt(t, r, `SELECT COUNT(1) FROM forward WHERE name = ? AND speed_id IS NULL`, "limiter-exists-update-fail-forward")
+	if forwardCount != 1 {
+		t.Fatalf("expected the forward kept without a speed id, got count=%d", forwardCount)
 	}
 }
 
@@ -333,7 +334,9 @@ func TestForwardCreateRollbackWhenServiceDispatchReturnsAddressInUseContract(t *
 	}
 }
 
-func TestBatchAssignRollbackWhenLimiterDispatchFailsContract(t *testing.T) {
+// Plan 170: 用户隧道权限 限速 (speedId) is retired — ignored, stored NULL,
+// no limiter dispatched (before: the assign was rolled back).
+func TestBatchAssignIgnoresRetiredSpeedIDContract(t *testing.T) {
 	secret := "contract-jwt-secret"
 	router, r := setupContractRouter(t, secret)
 	server := httptest.NewServer(router)
@@ -428,8 +431,8 @@ func TestBatchAssignRollbackWhenLimiterDispatchFailsContract(t *testing.T) {
 	if err := json.NewDecoder(res.Body).Decode(&out); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	if out.Code == 0 {
-		t.Fatalf("expected assign failure on limiter dispatch, got code=0")
+	if out.Code != 0 {
+		t.Fatalf("assign with a retired speedId failed: code=%d msg=%s", out.Code, out.Msg)
 	}
 
 	var persistedSpeedID sql.NullInt64
@@ -437,11 +440,12 @@ func TestBatchAssignRollbackWhenLimiterDispatchFailsContract(t *testing.T) {
 		t.Fatalf("query user_tunnel speed_id: %v", err)
 	}
 	if persistedSpeedID.Valid {
-		t.Fatalf("expected speed_id rollback to NULL, got %d", persistedSpeedID.Int64)
+		t.Fatalf("expected speed_id NULL, got %d", persistedSpeedID.Int64)
 	}
 }
 
-func TestBatchAssignInsertRollbackWhenLimiterDispatchFailsContract(t *testing.T) {
+// Plan 170: see TestBatchAssignIgnoresRetiredSpeedIDContract (new grant).
+func TestBatchAssignInsertIgnoresRetiredSpeedIDContract(t *testing.T) {
 	secret := "contract-jwt-secret"
 	router, r := setupContractRouter(t, secret)
 	server := httptest.NewServer(router)
@@ -529,13 +533,13 @@ func TestBatchAssignInsertRollbackWhenLimiterDispatchFailsContract(t *testing.T)
 	if err := json.NewDecoder(res.Body).Decode(&out); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	if out.Code == 0 {
-		t.Fatalf("expected assign(insert) failure on limiter dispatch, got code=0")
+	if out.Code != 0 {
+		t.Fatalf("assign(insert) with a retired speedId failed: code=%d msg=%s", out.Code, out.Msg)
 	}
 
-	insertedCount := mustQueryInt(t, r, `SELECT COUNT(1) FROM user_tunnel WHERE user_id = 3 AND tunnel_id = ?`, tunnelID)
-	if insertedCount != 0 {
-		t.Fatalf("expected inserted user_tunnel rollback delete, got count=%d", insertedCount)
+	insertedCount := mustQueryInt(t, r, `SELECT COUNT(1) FROM user_tunnel WHERE user_id = 3 AND tunnel_id = ? AND speed_id IS NULL`, tunnelID)
+	if insertedCount != 1 {
+		t.Fatalf("expected the grant inserted without a speed id, got count=%d", insertedCount)
 	}
 }
 

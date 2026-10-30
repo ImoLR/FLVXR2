@@ -400,21 +400,44 @@ func TestReconnectOldAgentGetsFullDeploy(t *testing.T) {
 	}
 }
 
-func TestReconnectSpeedLimiterChangeResendsLimiterAndService(t *testing.T) {
+// Plan 170: a rule's own speed (dynamic, 限速规则, user tunnel 限速) is
+// retired. Stale values are ignored: nothing deployed for them and changing
+// them does not make a reconnect push anything.
+func TestReconnectRetiredRuleSpeedIgnored(t *testing.T) {
 	e, agent := newReconnectDiffEnv(t)
-	e.exec(`UPDATE forward SET speed_limit_enabled = 1, speed_limit = 80 WHERE id = 100`)
+	e.exec(`INSERT INTO speed_limit(id, name, speed, status, arena_mode, created_time, updated_time) VALUES(5, 'old', 20, 1, 0, 0, 0)`)
+	e.exec(`INSERT INTO speed_limit(id, name, speed, status, arena_mode, created_time, updated_time) VALUES(6, 'arena', 30, 1, 1, 0, 0)`)
+	e.exec(`UPDATE forward SET speed_limit_enabled = 1, speed_limit = 80, speed_id = 5 WHERE id = 100`)
+	e.exec(`UPDATE forward SET speed_limit_enabled = 1, speed_limit = 40 WHERE id = 101`)
+	e.exec(`UPDATE user_tunnel SET speed_id = 6`)
 	deployAll(e, agent)
-	if !agent.has(1, "limiter:forward_100_speed") {
-		t.Fatalf("limiter not deployed: %+v", agent.objects[1])
+	for _, m := range agent.mutations(1) {
+		if strings.Contains(m, "Limiters") {
+			t.Fatalf("retired rule speed deployed: %v", agent.mutations(1))
+		}
 	}
+	for _, id := range []int64{100, 101} {
+		f, _ := e.h.getForwardRecord(id)
+		if err := e.h.syncForwardServicesOnNode(f, 1); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if svc := lastServicePayload(agent, 1, "100_7_70_tcp"); svc == nil || svc["limiter"] != nil {
+		t.Fatalf("gost rule references a retired limiter: %v", svc)
+	}
+	if v, ok := lastNftSpeed(agent, 1, 101); !ok || v != 0 {
+		t.Fatalf("nft rule carries a retired speed: %v %v", v, ok)
+	}
+	agent.reset()
 	e.h.redeployNodeRuntime(1)
 	if m := agent.mutations(1); len(m) != 0 {
-		t.Fatalf("unchanged limiter reconnect sent %v", m)
+		t.Fatalf("unchanged reconnect sent %v", m)
 	}
 	e.exec(`UPDATE forward SET speed_limit = 160 WHERE id = 100`)
+	e.exec(`UPDATE speed_limit SET speed = 99`)
 	e.h.redeployNodeRuntime(1)
-	if agent.count(1, "AddLimiters") != 1 || agent.count(1, "UpdateService") != 1 {
-		t.Fatalf("speed change not pushed: %v", agent.mutations(1))
+	if m := agent.mutations(1); len(m) != 0 {
+		t.Fatalf("retired speed change pushed %v", m)
 	}
 }
 

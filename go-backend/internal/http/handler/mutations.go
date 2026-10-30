@@ -115,11 +115,8 @@ func (h *Handler) userCreate(w http.ResponseWriter, r *http.Request) {
 		response.WriteJSON(w, response.ErrDefault("续费金额和余额不能小于 0"))
 		return
 	}
-	speedLimitID, err := h.normalizeSpeedLimitReference(asAnyToInt64Ptr(req["speedLimitId"]))
-	if err != nil {
-		response.WriteJSON(w, response.Err(-2, err.Error()))
-		return
-	}
+	// Plan 170: the legacy 「总限速规则」 (speedLimitId) is retired — ignored,
+	// stored empty; the user's speed is 默认速率 + per-server 速率 only.
 	serverRate := asInt(req["serverRateMbps"], 0)
 	if err := repo.ValidServerRate(serverRate); err != nil {
 		response.WriteJSON(w, response.ErrDefault(err.Error()))
@@ -133,7 +130,7 @@ func (h *Handler) userCreate(w http.ResponseWriter, r *http.Request) {
 		response.WriteJSON(w, response.Err(-2, err.Error()))
 		return
 	}
-	userID, err := h.repo.CreateUser(username, pwdHash, roleID, expTime, flow, flowResetTime, num, maxConnections, maxClientIps, status, now, renewalAmount, balance, int64(autoRenew), nullableInt(speedLimitID))
+	userID, err := h.repo.CreateUser(username, pwdHash, roleID, expTime, flow, flowResetTime, num, maxConnections, maxClientIps, status, now, renewalAmount, balance, int64(autoRenew), nil)
 	if err != nil {
 		response.WriteJSON(w, response.Err(-2, err.Error()))
 		return
@@ -257,10 +254,8 @@ func (h *Handler) userUpdate(w http.ResponseWriter, r *http.Request) {
 		response.WriteJSON(w, response.ErrDefault("该用户已在其他页面被修改，请关闭弹窗、刷新后重新编辑"))
 		return
 	}
-	speedLimitID := asAnyToInt64Ptr(req["speedLimitId"])
-	if _, ok := req["speedLimitId"]; !ok && oldUser != nil && oldUser.SpeedLimitID.Valid {
-		speedLimitID = &oldUser.SpeedLimitID.Int64
-	}
+	// Plan 170: speedLimitId (legacy 「总限速规则」) is ignored; a stale stored
+	// value is cleared on save (nothing reads it any more).
 	// Plan 159: 默认速率 (Mbps) of the user on every server; absent keeps it
 	// (older clients).
 	rawServerRate, hasServerRate := req["serverRateMbps"]
@@ -272,18 +267,13 @@ func (h *Handler) userUpdate(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	rateBefore := h.userRateBefore(id)
-	speedLimitID, err = h.normalizeSpeedLimitReference(speedLimitID)
-	if err != nil {
-		response.WriteJSON(w, response.Err(-2, err.Error()))
-		return
-	}
 
 	name := asString(req["name"]) // 解析前端传来的备注名称
 	pwd := asString(req["pwd"])
 
 	if strings.TrimSpace(pwd) == "" {
 		// 在参数里增加了 name
-		if err := h.repo.UpdateUserWithoutPassword(id, username, name, flow, num, maxConnections, maxClientIps, expTime, flowResetTime, status, now, renewalAmount, balance, int64(autoRenew), nullableInt(speedLimitID)); err != nil {
+		if err := h.repo.UpdateUserWithoutPassword(id, username, name, flow, num, maxConnections, maxClientIps, expTime, flowResetTime, status, now, renewalAmount, balance, int64(autoRenew), nil); err != nil {
 			response.WriteJSON(w, response.Err(-2, err.Error()))
 			return
 		}
@@ -294,7 +284,7 @@ func (h *Handler) userUpdate(w http.ResponseWriter, r *http.Request) {
 			response.WriteJSON(w, response.Err(-2, err.Error()))
 			return
 		}
-		if err := h.repo.UpdateUserWithPassword(id, username, pwdHash, name, flow, num, maxConnections, maxClientIps, expTime, flowResetTime, status, now, renewalAmount, balance, int64(autoRenew), nullableInt(speedLimitID)); err != nil {
+		if err := h.repo.UpdateUserWithPassword(id, username, pwdHash, name, flow, num, maxConnections, maxClientIps, expTime, flowResetTime, status, now, renewalAmount, balance, int64(autoRenew), nil); err != nil {
 			response.WriteJSON(w, response.Err(-2, err.Error()))
 			return
 		}
@@ -1556,11 +1546,9 @@ func (h *Handler) tunnelCreate(w http.ResponseWriter, r *http.Request) {
 	trafficRatio := asFloat(req["trafficRatio"], 1.0)
 	inIP := asString(req["inIp"])
 	ipPreference := asString(req["ipPreference"])
-	speedID, err := h.normalizeSpeedLimitReference(asAnyToInt64Ptr(req["speedId"]))
-	if err != nil {
-		response.WriteJSON(w, response.Err(-2, err.Error()))
-		return
-	}
+	// Plan 170: 隧道限速 (default 限速规则 of new rules) is retired — speedId
+	// is ignored and stored empty.
+	var speedID *int64
 	now := time.Now().UnixMilli()
 	inx := h.repo.NextIndex("tunnel")
 	localDomain := h.federationLocalDomain()
@@ -1865,11 +1853,9 @@ func (h *Handler) tunnelUpdate(w http.ResponseWriter, r *http.Request) {
 	now := time.Now().UnixMilli()
 	typeVal := asInt(req["type"], 1)
 	ipPreference := asString(req["ipPreference"])
-	speedID, err := h.normalizeSpeedLimitReference(asAnyToInt64Ptr(req["speedId"]))
-	if err != nil {
-		response.WriteJSON(w, response.Err(-2, err.Error()))
-		return
-	}
+	// Plan 170: 隧道限速 (default 限速规则 of new rules) is retired — speedId
+	// is ignored and stored empty.
+	var speedID *int64
 	localDomain := h.federationLocalDomain()
 
 	// Handle tunnelGroupId the same way as node groupId
@@ -2853,10 +2839,7 @@ func (h *Handler) userTunnelBatchAssign(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	for _, t := range req.Tunnels {
-		m := map[string]interface{}{"userId": req.UserID, "tunnelId": t.TunnelID}
-		if t.SpeedID != nil {
-			m["speedId"] = *t.SpeedID
-		}
+		m := map[string]interface{}{"userId": req.UserID, "tunnelId": t.TunnelID} // plan 170: speedId ignored
 		if err := h.upsertUserTunnel(m); err != nil {
 			response.WriteJSON(w, response.Err(-2, err.Error()))
 			return
@@ -2931,21 +2914,8 @@ func (h *Handler) userTunnelUpdate(w http.ResponseWriter, r *http.Request) {
 		flowResetTime = asInt64(v, 1)
 	}
 
-	// speedId 需要特殊处理
+	// Plan 170: speedId (用户隧道权限 限速) is retired — ignored, stored empty.
 	var speedID *int64
-	if v, ok := req["speedId"]; ok {
-		speedID = asAnyToInt64Ptr(v)
-		var normErr error
-		speedID, normErr = h.normalizeSpeedLimitReference(speedID)
-		if normErr != nil {
-			response.WriteJSON(w, response.Err(-2, normErr.Error()))
-			return
-		}
-	} else {
-		if oldSpeedID.Valid {
-			speedID = &oldSpeedID.Int64
-		}
-	}
 
 	status := oldStatus
 	if v, ok := req["status"]; ok && v != nil {
@@ -3266,17 +3236,9 @@ func (h *Handler) forwardCreateWithReq(w http.ResponseWriter, r *http.Request, r
 			}
 		}
 	}
-	hasSpeedID := false
-	var speedID *int64
-	if roleID == 0 {
-		_, hasSpeedID = req["speedId"]
-		speedID = asAnyToInt64Ptr(req["speedId"])
-		speedID, err = h.normalizeSpeedLimitReference(speedID)
-		if err != nil {
-			response.WriteJSON(w, response.Err(-2, err.Error()))
-			return
-		}
-	}
+	// Plan 170: a rule has no own speed (speedId / speedLimitEnabled /
+	// speedLimit are ignored) and inherits none (tunnel / user 限速规则 are
+	// retired); the user's 速率 on the entry server is the only entry limit.
 	port := asInt(req["inPort"], 0)
 	if port <= 0 {
 		port = h.pickTunnelPort(tunnelID, entryNodes)
@@ -3318,15 +3280,11 @@ func (h *Handler) forwardCreateWithReq(w http.ResponseWriter, r *http.Request, r
 	}
 	trafficLimit := int64(0)
 	var expiryTime *int64
-	speedLimitEnabled := false
-	speedLimit := 0
 	maxConnections := 0
 	maxClientIps := 0
 	if roleID == 0 {
 		trafficLimit = asInt64(req["trafficLimit"], 0)
 		expiryTime = asAnyToInt64Ptr(req["expiryTime"])
-		speedLimitEnabled = asBool(req["speedLimitEnabled"], false)
-		speedLimit = asInt(req["speedLimit"], 0)
 		maxConnections = normalizeUserMaxConnections(asInt(req["maxConnections"], 0))
 		maxClientIps = normalizeUserMaxConnections(asInt(req["maxClientIps"], 0))
 	}
@@ -3337,31 +3295,6 @@ func (h *Handler) forwardCreateWithReq(w http.ResponseWriter, r *http.Request, r
 	}
 	if roleID == 0 {
 		if err := validateForwardRuleCaps(owner, maxConnections, maxClientIps); err != nil {
-			response.WriteJSON(w, response.ErrDefault(err.Error()))
-			return
-		}
-	}
-	if !hasSpeedID && speedID == nil && owner != nil && owner.SpeedLimitID.Valid {
-		speedID = &owner.SpeedLimitID.Int64
-	}
-	if !hasSpeedID && speedID == nil && tunnelID > 0 {
-		if tunnel, tunnelErr := h.getTunnelRecord(tunnelID); tunnelErr == nil && tunnel != nil && tunnel.SpeedID.Valid {
-			speedID = &tunnel.SpeedID.Int64
-		}
-	}
-	speedID, err = h.normalizeSpeedLimitReference(speedID)
-	if err != nil {
-		response.WriteJSON(w, response.Err(-2, err.Error()))
-		return
-	}
-	// Plan 159: a rule speed the admin sets must fit the user's 速率 on each
-	// entry machine (inherited defaults are capped by the shared limiter).
-	if roleID == 0 {
-		requested := sql.NullInt64{}
-		if hasSpeedID && speedID != nil {
-			requested = sql.NullInt64{Int64: *speedID, Valid: true}
-		}
-		if err := h.validateRuleSpeedAgainstRows(userID, entryNodes, h.ruleOwnSpeed(speedLimitEnabled, speedLimit, requested)); err != nil {
 			response.WriteJSON(w, response.ErrDefault(err.Error()))
 			return
 		}
@@ -3383,7 +3316,7 @@ func (h *Handler) forwardCreateWithReq(w http.ResponseWriter, r *http.Request, r
 			mode = "gost"
 		}
 	}
-	forwardID, err := h.repo.CreateForwardTx(enforceRuleLimit, userID, userName, name, tunnelID, remoteAddr, defaultString(asString(req["strategy"]), "fifo"), now, inx, entryNodes, port, inIp, nullableInt(speedID), maxConnections, maxClientIps, trafficLimit, expiryTime, speedLimitEnabled, speedLimit, mode, wgPathID, wgRuleType, sourceCIDR, targetCIDR, snatEnabled, entryBinding, landingID)
+	forwardID, err := h.repo.CreateForwardTx(enforceRuleLimit, userID, userName, name, tunnelID, remoteAddr, defaultString(asString(req["strategy"]), "fifo"), now, inx, entryNodes, port, inIp, nil, maxConnections, maxClientIps, trafficLimit, expiryTime, false, 0, mode, wgPathID, wgRuleType, sourceCIDR, targetCIDR, snatEnabled, entryBinding, landingID)
 	if err != nil {
 		if repo.IsRuleLimitError(err) {
 			response.WriteJSON(w, response.ErrDefault(err.Error()))
@@ -3605,21 +3538,9 @@ func (h *Handler) forwardUpdateWithReq(w http.ResponseWriter, r *http.Request, r
 	if strategy == "" {
 		strategy = forward.Strategy
 	}
-	newSpeedID := forward.SpeedID
-	if actorRole == 0 {
-		rawSpeedID, hasSpeedID := req["speedId"]
-		requestedSpeedID := asAnyToInt64Ptr(rawSpeedID)
-		requestedSpeedID, err = h.normalizeSpeedLimitReference(requestedSpeedID)
-		if err != nil {
-			response.WriteJSON(w, response.Err(-2, err.Error()))
-			return
-		}
-		if requestedSpeedID != nil {
-			newSpeedID = sql.NullInt64{Int64: *requestedSpeedID, Valid: true}
-		} else if hasSpeedID {
-			newSpeedID = sql.NullInt64{Valid: false}
-		}
-	}
+	// Plan 170: the rule's own speed is retired — request fields are ignored
+	// and a stale stored value is cleared on save (it was never read anyway).
+	newSpeedID := sql.NullInt64{}
 
 	port := asInt(req["inPort"], 0)
 	if port <= 0 {
@@ -3681,8 +3602,7 @@ func (h *Handler) forwardUpdateWithReq(w http.ResponseWriter, r *http.Request, r
 	maxClientIps := forward.MaxClientIps
 	trafficLimit := forward.TrafficLimit
 	var newExpiryTime interface{} = forward.ExpiryTime
-	speedLimitEnabled := forward.SpeedLimitEnabled
-	speedLimit := forward.SpeedLimit
+	speedLimitEnabled, speedLimit := false, 0
 	if actorRole == 0 {
 		maxConnections = normalizeUserMaxConnections(asInt(req["maxConnections"], forward.MaxConnections))
 		maxClientIps = normalizeUserMaxConnections(asInt(req["maxClientIps"], forward.MaxClientIps))
@@ -3690,8 +3610,6 @@ func (h *Handler) forwardUpdateWithReq(w http.ResponseWriter, r *http.Request, r
 		if _, ok := req["expiryTime"]; ok {
 			newExpiryTime = asAnyToInt64Ptr(req["expiryTime"])
 		}
-		speedLimitEnabled = asBool(req["speedLimitEnabled"], forward.SpeedLimitEnabled)
-		speedLimit = asInt(req["speedLimit"], forward.SpeedLimit)
 		owner, ownerErr := h.repo.GetUserByID(forward.UserID)
 		if ownerErr != nil {
 			response.WriteJSON(w, response.Err(-2, ownerErr.Error()))
@@ -3700,13 +3618,6 @@ func (h *Handler) forwardUpdateWithReq(w http.ResponseWriter, r *http.Request, r
 		if err := validateForwardRuleCaps(owner, maxConnections, maxClientIps); err != nil {
 			response.WriteJSON(w, response.ErrDefault(err.Error()))
 			return
-		}
-		// Plan 159: only a changed rule speed is checked against the rows.
-		if speedLimitEnabled != forward.SpeedLimitEnabled || speedLimit != forward.SpeedLimit || newSpeedID != forward.SpeedID {
-			if err := h.validateRuleSpeedAgainstRows(forward.UserID, fwdEntryNodes, h.ruleOwnSpeed(speedLimitEnabled, speedLimit, newSpeedID)); err != nil {
-				response.WriteJSON(w, response.ErrDefault(err.Error()))
-				return
-			}
 		}
 	}
 
@@ -4531,107 +4442,27 @@ func (h *Handler) forwardBatchChangeTunnel(w http.ResponseWriter, r *http.Reques
 	response.WriteJSON(w, response.OK(batchOperationResult{SuccessCount: success, FailCount: fail, Failures: failures}))
 }
 
+// Plan 170: 限速规则 (incl. 竞技场) are retired — a user's speed is only
+// 默认速率 + 每台服务器的速率 (编辑用户). Create / update are refused (old
+// clients get a plain message, no 500); list / detail stay read-only and
+// delete still works (it clears every reference, see speedLimitDelete).
+const speedLimitRetiredMsg = "限速规则已停用：请在「编辑用户」里设置默认速率和每台服务器的速率"
+
 func (h *Handler) speedLimitCreate(w http.ResponseWriter, r *http.Request) {
-
-	var req map[string]interface{}
-	if err := decodeJSON(r.Body, &req); err != nil {
-		response.WriteJSON(w, response.ErrDefault("请求参数错误"))
-		return
-	}
-
-	name := asString(req["name"])
-	if name == "" {
-		response.WriteJSON(w, response.ErrDefault("名称不能为空"))
-		return
-	}
-
-	speed := asInt(req["speed"], 100)
-	arenaMode := asInt(req["arenaMode"], 0)
-
-	now := time.Now().UnixMilli()
-	id, err := h.repo.CreateSpeedLimit(name, speed, now, asInt(req["status"], 1), arenaMode)
-	if err != nil {
-		response.WriteJSON(w, response.Err(-2, err.Error()))
-		return
-	}
-
-	response.WriteJSON(w, response.OK(map[string]interface{}{"id": id}))
+	response.WriteJSON(w, response.ErrDefault(speedLimitRetiredMsg))
 }
 
 func (h *Handler) speedLimitUpdate(w http.ResponseWriter, r *http.Request) {
-
-	var req map[string]interface{}
-	if err := decodeJSON(r.Body, &req); err != nil {
-		response.WriteJSON(w, response.ErrDefault("请求参数错误"))
-		return
-	}
-
-	id := asInt64(req["id"], 0)
-	if id <= 0 {
-		response.WriteJSON(w, response.ErrDefault("限速规则ID不能为空"))
-		return
-	}
-
-	name := asString(req["name"])
-	if name == "" {
-		response.WriteJSON(w, response.ErrDefault("名称不能为空"))
-		return
-	}
-
-	speed := asInt(req["speed"], 100)
-	arenaMode := asInt(req["arenaMode"], 0)
-	var before repo.SpeedLimitBindings
-	var changedForwardIDs []int64
-	hasBindings := false
-	var bindings repo.SpeedLimitBindings
-	if raw, ok := req["bindings"]; ok {
-		hasBindings = true
-		bindings = parseSpeedLimitBindings(raw)
-		_, actorRole, roleErr := userRoleFromRequest(r)
-		if roleErr != nil {
-			response.WriteJSON(w, response.Err(401, "无效的token或token已过期"))
-			return
-		}
-		if actorRole != 0 && len(bindings.ForwardIDs) > 0 {
-			response.WriteJSON(w, response.Err(403, "普通用户不能修改规则绑定"))
-			return
-		}
-		var snapErr error
-		before, snapErr = h.repo.SpeedLimitBindingSnapshot(id)
-		if snapErr != nil {
-			response.WriteJSON(w, response.Err(-2, snapErr.Error()))
-			return
-		}
-	}
-
-	if err := h.repo.UpdateSpeedLimit(id, name, speed, asInt(req["status"], 1), arenaMode, time.Now().UnixMilli()); err != nil {
-		response.WriteJSON(w, response.Err(-2, err.Error()))
-		return
-	}
-	h.markAllEntryRatesDirty() // plan 168: speed / arena of the limit may be in a tree
-	if hasBindings {
-		_, actorRole, _ := userRoleFromRequest(r)
-		if err := h.repo.ReplaceSpeedLimitBindings(id, bindings, actorRole == 0); err != nil {
-			response.WriteJSON(w, response.Err(-2, err.Error()))
-			return
-		}
-		after, err := h.repo.SpeedLimitBindingSnapshot(id)
-		if err != nil {
-			response.WriteJSON(w, response.Err(-2, err.Error()))
-			return
-		}
-		changedForwardIDs = unionInt64s(before.ForwardIDs, after.ForwardIDs)
-		for _, forwardID := range changedForwardIDs {
-			forward, err := h.getForwardRecord(forwardID)
-			if err == nil && forward != nil && forward.Status == 1 {
-				_ = h.syncForwardServices(forward, "UpdateService", true)
-			}
-		}
-	}
-
-	response.WriteJSON(w, response.OKEmpty())
+	response.WriteJSON(w, response.ErrDefault(speedLimitRetiredMsg))
 }
 
+// speedLimitDelete removes a 限速规则 and, in the same transaction, every
+// reference to it (forward / tunnel / user_tunnel / node speed_id, user
+// speed_limit_id). Before plan 170 the references stayed behind and the
+// affected rules were not re-pushed. The rules that referenced it (directly
+// or through their user tunnel) are then compared with what their agents run
+// and re-pushed where they differ (e.g. an agent still running an old
+// limiter); unchanged ones are left alone (no service restart).
 func (h *Handler) speedLimitDelete(w http.ResponseWriter, r *http.Request) {
 
 	id := idFromBody(r, w)
@@ -4639,13 +4470,52 @@ func (h *Handler) speedLimitDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.repo.DeleteSpeedLimit(id); err != nil {
+	forwardIDs, err := h.repo.DeleteSpeedLimitAndRefs(id)
+	if err != nil {
 		response.WriteJSON(w, response.Err(-2, err.Error()))
 		return
 	}
-	h.markAllEntryRatesDirty() // plan 168
+	for _, warning := range h.resyncForwardsAfterSpeedLimitDelete(forwardIDs) {
+		log.Printf("[speed-limit] delete %d: %s", id, warning)
+	}
 
 	response.WriteJSON(w, response.OKEmpty())
+}
+
+// resyncForwardsAfterSpeedLimitDelete: per entry node one inventory, then only
+// the active rules whose runtime differs are re-pushed. Offline nodes are
+// skipped (the reconnect comparison fixes them when they come back).
+func (h *Handler) resyncForwardsAfterSpeedLimitDelete(forwardIDs []int64) []string {
+	invs := map[int64]*agentRuntimeInventory{}
+	var warnings []string
+	for _, id := range forwardIDs {
+		forward, err := h.getForwardRecord(id)
+		if err != nil || forward == nil || forward.Status != 1 {
+			continue
+		}
+		ports, err := h.listForwardPorts(id)
+		if err != nil {
+			warnings = append(warnings, fmt.Sprintf("rule %d: %v", id, err))
+			continue
+		}
+		for _, nodeID := range forwardPortNodeIDs(ports) {
+			if !h.nodeOnline(nodeID) {
+				continue
+			}
+			inv, seen := invs[nodeID]
+			if !seen {
+				inv, _ = h.reconnectInventory(nodeID)
+				invs[nodeID] = inv
+			}
+			if h.forwardRuntimeUnchangedOnNode(forward, nodeID, inv) {
+				continue
+			}
+			if err := h.syncForwardServicesOnNode(forward, nodeID); err != nil {
+				warnings = append(warnings, fmt.Sprintf("rule %d on node %d: %v", id, nodeID, err))
+			}
+		}
+	}
+	return warnings
 }
 
 func (h *Handler) groupTunnelCreate(w http.ResponseWriter, r *http.Request) {
@@ -6409,12 +6279,9 @@ func (h *Handler) upsertUserTunnel(req map[string]interface{}) error {
 	existingID, currentFlow, currentNum, currentExpTime, currentFlowReset, currentSpeedID, currentStatus, lookupErr :=
 		h.repo.GetExistingUserTunnel(userID, tunnelID)
 
-	speedID := asAnyToInt64Ptr(req["speedId"])
-	var err error
-	speedID, err = h.normalizeSpeedLimitReference(speedID)
-	if err != nil {
-		return err
-	}
+	// Plan 170: 用户隧道权限 限速 (speedId) is retired — ignored, stored empty
+	// (a stale value is cleared on the next save).
+	var speedID *int64
 
 	reqFlow := asInt64(req["flow"], -1)
 	reqNum := asInt(req["num"], -1)
@@ -6504,12 +6371,7 @@ func (h *Handler) upsertUserTunnel(req map[string]interface{}) error {
 		newStatus = reqStatus
 	}
 
-	newSpeedID := currentSpeedID
-	if speedID != nil {
-		newSpeedID = sql.NullInt64{Int64: *speedID, Valid: true}
-	} else if _, ok := req["speedId"]; ok {
-		newSpeedID = sql.NullInt64{Valid: false}
-	}
+	newSpeedID := sql.NullInt64{}
 
 	if err := h.repo.UpdateUserTunnelFields(existingID, newSpeedID, newFlow, newNum, newExpTime, newFlowReset, newStatus); err != nil {
 		return err
@@ -6822,21 +6684,6 @@ func asInt64Slice(v interface{}) []int64 {
 	return ids
 }
 
-// parseSpeedLimitBindings: plan 159 retires the 用户 / 节点 bindings in the
-// UI; a request without those keys keeps them as they are.
-func parseSpeedLimitBindings(raw interface{}) repo.SpeedLimitBindings {
-	m, _ := raw.(map[string]interface{})
-	_, hasUsers := m["userIds"]
-	_, hasNodes := m["nodeIds"]
-	return repo.SpeedLimitBindings{
-		UserIDs:    asInt64Slice(m["userIds"]),
-		TunnelIDs:  asInt64Slice(m["tunnelIds"]),
-		ForwardIDs: asInt64Slice(m["forwardIds"]),
-		NodeIDs:    asInt64Slice(m["nodeIds"]),
-		KeepUsers:  !hasUsers,
-		KeepNodes:  !hasNodes,
-	}
-}
 
 func unionInt64s(a, b []int64) []int64 {
 	seen := make(map[int64]bool, len(a)+len(b))

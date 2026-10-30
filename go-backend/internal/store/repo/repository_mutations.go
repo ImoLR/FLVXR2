@@ -2400,13 +2400,6 @@ func (r *Repository) UpdateSpeedLimit(id int64, name string, speed int, status i
 		Updates(updates).Error
 }
 
-func (r *Repository) DeleteSpeedLimit(id int64) error {
-	if r == nil || r.db == nil {
-		return errors.New("repository not initialized")
-	}
-	return r.db.Where("id = ?", id).Delete(&model.SpeedLimit{}).Error
-}
-
 func (r *Repository) GroupCreate(table, name string, status int, now int64) error {
 	if r == nil || r.db == nil {
 		return errors.New("repository not initialized")

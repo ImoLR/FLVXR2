@@ -8,8 +8,7 @@ import (
 )
 
 // Plan 168: the inputs of a node's entry rate tree (active forwards entering
-// it with their own limit resolved like resolveForwardRuntimeInputs) and the
-// agent's entry rate mode.
+// it; plan 170: without any rule limit) and the agent's entry rate mode.
 
 func TestEntryRateRulesAndMode(t *testing.T) {
 	for _, dialect := range []string{"sqlite", "postgres"} {
@@ -50,17 +49,18 @@ func TestEntryRateRulesAndMode(t *testing.T) {
 			if len(got) != 4 {
 				t.Fatalf("rows %+v", rows)
 			}
-			if g := got[100]; g.Port != 1500 || g.LimitID != 2 || g.LimitSpeed != 30 || !g.LimitArena || g.UserID != 2 {
+			// Plan 170: the stale rule limits (arena via user tunnel, own 限速规则,
+			// dynamic speed) are not read — every row carries none.
+			for id, g := range got {
+				if g.SpeedLimitEnabled || g.SpeedLimit != 0 || g.LimitID != 0 || g.LimitSpeed != 0 || g.LimitArena {
+					t.Fatalf("%d carries a retired limit: %+v", id, g)
+				}
+			}
+			if g := got[100]; g.Port != 1500 || g.UserID != 2 || g.TunnelID != 1 || g.Mode != "gost" {
 				t.Fatalf("100 %+v", g)
 			}
-			if g := got[101]; g.LimitID != 1 || g.LimitSpeed != 50 || g.LimitArena || g.Mode != "nftables" {
+			if g := got[101]; g.Port != 1501 || g.Mode != "nftables" {
 				t.Fatalf("101 %+v", g)
-			}
-			if g := got[102]; !g.SpeedLimitEnabled || g.SpeedLimit != 8 || g.LimitID != 0 {
-				t.Fatalf("102 %+v", g)
-			}
-			if g := got[104]; g.LimitID != 0 {
-				t.Fatalf("104 %+v", g)
 			}
 			if rows, _ := r.EntryRateRules(6); len(rows) != 0 {
 				t.Fatalf("unrelated node %+v", rows)

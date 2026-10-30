@@ -190,7 +190,7 @@ func (h *Handler) ensureUserTunnelForwardAllowed(userID int64, tunnelID int64, n
 		return err
 	}
 
-	userTunnelID, _, _, err := h.resolveUserTunnelAndLimiter(userID, tunnelID)
+	userTunnelID, err := h.resolveUserTunnelID(userID, tunnelID)
 	if err != nil {
 		return err
 	}
@@ -425,8 +425,10 @@ func (h *Handler) cleanOrphanedLimiters(nodeID int64, limiters []namedConfigItem
 		name := strings.TrimSpace(item.Name)
 		// Plan 159: a user's 速率 limiter stays while the user has a rate on
 		// this node (services look it up on every call: deleting it would lift
-		// the rate at once).
-		if name == "" || h.speedLimiterExists(name) || h.userRateLimiterInUse(nodeID, name) {
+		// the rate at once). Plan 170: that is the only limiter the panel still
+		// uses — 限速规则 ("<id>", "arena_speed_*") and rule speed
+		// ("forward_<id>_speed") limiters are leftovers and go.
+		if name == "" || h.userRateLimiterInUse(nodeID, name) {
 			continue
 		}
 		_, _ = h.sendNodeCommand(nodeID, "DeleteLimiters", map[string]interface{}{"limiter": name}, false, true)
@@ -440,18 +442,6 @@ func (h *Handler) tunnelExists(tunnelID int64) bool {
 
 func (h *Handler) forwardExists(forwardID int64) bool {
 	ok, _ := h.repo.ForwardExists(forwardID)
-	return ok
-}
-
-func (h *Handler) speedLimiterExists(name string) bool {
-	if name == "" {
-		return false
-	}
-	id, err := strconv.ParseInt(name, 10, 64)
-	if err != nil {
-		return false
-	}
-	ok, _ := h.repo.SpeedLimitExists(id)
 	return ok
 }
 

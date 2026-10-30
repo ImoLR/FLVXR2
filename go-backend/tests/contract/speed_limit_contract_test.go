@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -15,164 +16,69 @@ import (
 	"go-backend/internal/store/repo"
 )
 
-func TestSpeedLimitWithoutTunnelContract(t *testing.T) {
+// Plan 170: 限速规则 (incl. 竞技场) are retired. Create / update are refused
+// with a plain message (no 500); list / detail stay read-only.
+func TestSpeedLimitRetiredWritesContract(t *testing.T) {
 	secret := "contract-jwt-secret"
-	router, _ := setupContractRouter(t, secret)
+	router, r := setupContractRouter(t, secret)
 
 	adminToken, err := auth.GenerateToken(1, "admin_user", 0, secret)
 	if err != nil {
 		t.Fatalf("generate admin token: %v", err)
 	}
-
-	t.Run("create speed limit", func(t *testing.T) {
-		body := `{"name":"test-limit-no-tunnel","speed":100,"status":1}`
-		req := httptest.NewRequest(http.MethodPost, "/api/v1/speed-limit/create", bytes.NewBufferString(body))
+	call := func(path, body string) response.R {
+		t.Helper()
+		req := httptest.NewRequest(http.MethodPost, path, bytes.NewBufferString(body))
 		req.Header.Set("Authorization", adminToken)
 		req.Header.Set("Content-Type", "application/json")
 		res := httptest.NewRecorder()
 		router.ServeHTTP(res, req)
-
-		assertCode(t, res, 0)
-	})
-
-	t.Run("list does not expose tunnel binding fields", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodPost, "/api/v1/speed-limit/list", nil)
-		req.Header.Set("Authorization", adminToken)
-		res := httptest.NewRecorder()
-		router.ServeHTTP(res, req)
-
+		if res.Code != http.StatusOK {
+			t.Fatalf("%s: http %d", path, res.Code)
+		}
 		var out response.R
 		if err := json.NewDecoder(res.Body).Decode(&out); err != nil {
-			t.Fatalf("decode response: %v", err)
+			t.Fatalf("%s: decode: %v", path, err)
 		}
-		if out.Code != 0 {
-			t.Fatalf("expected code 0, got %d", out.Code)
-		}
-
-		data, ok := out.Data.([]interface{})
-		if !ok {
-			t.Fatalf("expected data to be array, got %T", out.Data)
-		}
-
-		for _, item := range data {
-			m, ok := item.(map[string]interface{})
-			if !ok {
-				continue
-			}
-			if m["name"] != "test-limit-no-tunnel" {
-				continue
-			}
-			if tunnelID, exists := m["tunnelId"]; exists && tunnelID != nil {
-				t.Fatalf("expected tunnelId to be absent or nil, got %v", tunnelID)
-			}
-			if tunnelName, exists := m["tunnelName"]; exists && tunnelName != nil && tunnelName != "" {
-				t.Fatalf("expected tunnelName to be absent or empty, got %v", tunnelName)
-			}
-			return
-		}
-
-		t.Fatal("speed limit 'test-limit-no-tunnel' not found in list")
-	})
-
-	t.Run("create and list arena mode", func(t *testing.T) {
-		body := `{"name":"test-limit-arena-mode","speed":100,"status":1,"arenaMode":1}`
-		req := httptest.NewRequest(http.MethodPost, "/api/v1/speed-limit/create", bytes.NewBufferString(body))
-		req.Header.Set("Authorization", adminToken)
-		req.Header.Set("Content-Type", "application/json")
-		res := httptest.NewRecorder()
-		router.ServeHTTP(res, req)
-
-		assertCode(t, res, 0)
-
-		listReq := httptest.NewRequest(http.MethodPost, "/api/v1/speed-limit/list", nil)
-		listReq.Header.Set("Authorization", adminToken)
-		listRes := httptest.NewRecorder()
-		router.ServeHTTP(listRes, listReq)
-
-		var out response.R
-		if err := json.NewDecoder(listRes.Body).Decode(&out); err != nil {
-			t.Fatalf("decode response: %v", err)
-		}
-		if out.Code != 0 {
-			t.Fatalf("expected code 0, got %d", out.Code)
-		}
-		data, ok := out.Data.([]interface{})
-		if !ok {
-			t.Fatalf("expected data to be array, got %T", out.Data)
-		}
-		for _, item := range data {
-			m, ok := item.(map[string]interface{})
-			if !ok || m["name"] != "test-limit-arena-mode" {
-				continue
-			}
-			if arenaMode, ok := m["arenaMode"].(float64); !ok || arenaMode != 1 {
-				t.Fatalf("expected arenaMode=1, got %#v", m["arenaMode"])
-			}
-			return
-		}
-		t.Fatal("speed limit 'test-limit-arena-mode' not found in list")
-	})
-}
-
-func TestSpeedLimitCreateIgnoresTunnelBindingContract(t *testing.T) {
-	secret := "contract-jwt-secret"
-	router, r := setupContractRouter(t, secret)
-
-	adminToken, err := auth.GenerateToken(1, "admin_user", 0, secret)
-	if err != nil {
-		t.Fatalf("generate admin token: %v", err)
+		return out
 	}
 
-	tunnelID := mustCreateSpeedLimitTunnel(t, r, "test-speed-limit-create-ignore-tunnel")
-
-	body := `{"name":"test-limit-ignore-tunnel","speed":200,"tunnelId":` + jsonInt(tunnelID) + `,"status":1}`
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/speed-limit/create", bytes.NewBufferString(body))
-	req.Header.Set("Authorization", adminToken)
-	req.Header.Set("Content-Type", "application/json")
-	res := httptest.NewRecorder()
-	router.ServeHTTP(res, req)
-
-	assertCode(t, res, 0)
-
-	req = httptest.NewRequest(http.MethodPost, "/api/v1/speed-limit/list", nil)
-	req.Header.Set("Authorization", adminToken)
-	res = httptest.NewRecorder()
-	router.ServeHTTP(res, req)
-
-	var out response.R
-	if err := json.NewDecoder(res.Body).Decode(&out); err != nil {
-		t.Fatalf("decode response: %v", err)
+	existing := mustCreateSpeedLimitRepo(t, r, "old-limit")
+	for _, c := range []struct{ path, body string }{
+		{"/api/v1/speed-limit/create", `{"name":"x","speed":100,"status":1}`},
+		{"/api/v1/speed-limit/create", `{"name":"arena","speed":100,"status":1,"arenaMode":1}`},
+		{"/api/v1/speed-limit/update", `{"id":` + jsonInt(existing) + `,"name":"old-limit","speed":5,"status":1,"arenaMode":1,"bindings":{"tunnelIds":[1],"forwardIds":[1]}}`},
+	} {
+		out := call(c.path, c.body)
+		if out.Code == 0 || !strings.Contains(out.Msg, "已停用") {
+			t.Fatalf("%s %s: expected the retired message, got code=%d msg=%q", c.path, c.body, out.Code, out.Msg)
+		}
 	}
-	if out.Code != 0 {
-		t.Fatalf("expected code 0, got %d", out.Code)
+	if n := mustQueryInt(t, r, `SELECT COUNT(1) FROM speed_limit`); n != 1 {
+		t.Fatalf("speed_limit rows changed: %d", n)
+	}
+	var speed, arena int
+	if err := r.DB().Raw(`SELECT speed, arena_mode FROM speed_limit WHERE id = ?`, existing).Row().Scan(&speed, &arena); err != nil || speed != 100 || arena != 0 {
+		t.Fatalf("existing limit changed: speed=%d arena=%d err=%v", speed, arena, err)
 	}
 
+	out := call("/api/v1/speed-limit/list", `{}`)
 	data, ok := out.Data.([]interface{})
-	if !ok {
-		t.Fatalf("expected data to be array, got %T", out.Data)
+	if out.Code != 0 || !ok || len(data) != 1 {
+		t.Fatalf("list: code=%d data=%#v", out.Code, out.Data)
 	}
-
-	for _, item := range data {
-		m, ok := item.(map[string]interface{})
-		if !ok {
-			continue
-		}
-		if m["name"] != "test-limit-ignore-tunnel" {
-			continue
-		}
-		if tunnelIDVal, exists := m["tunnelId"]; exists && tunnelIDVal != nil {
-			t.Fatalf("expected tunnelId ignored and nil, got %v", tunnelIDVal)
-		}
-		if tunnelNameVal, exists := m["tunnelName"]; exists && tunnelNameVal != nil && tunnelNameVal != "" {
-			t.Fatalf("expected tunnelName ignored and empty, got %v", tunnelNameVal)
-		}
-		return
+	if m, _ := data[0].(map[string]interface{}); m["name"] != "old-limit" || (m["tunnelId"] != nil) {
+		t.Fatalf("list item %#v", data[0])
 	}
-
-	t.Fatal("speed limit 'test-limit-ignore-tunnel' not found in list")
+	if out := call("/api/v1/speed-limit/detail", `{"id":`+jsonInt(existing)+`}`); out.Code != 0 {
+		t.Fatalf("detail: code=%d msg=%s", out.Code, out.Msg)
+	}
 }
 
-func TestSpeedLimitUpdateIgnoresTunnelBindingContract(t *testing.T) {
+// Plan 170 bug fix: deleting a 限速规则 clears every reference to it in the same
+// transaction (before, forward / tunnel / user_tunnel / user / node kept the
+// dangling id).
+func TestSpeedLimitDeleteClearsReferencesContract(t *testing.T) {
 	secret := "contract-jwt-secret"
 	router, r := setupContractRouter(t, secret)
 
@@ -181,149 +87,56 @@ func TestSpeedLimitUpdateIgnoresTunnelBindingContract(t *testing.T) {
 		t.Fatalf("generate admin token: %v", err)
 	}
 
-	tunnelID := mustCreateSpeedLimitTunnel(t, r, "test-speed-limit-update-ignore-tunnel")
-	speedLimitID := mustCreateSpeedLimitRepo(t, r, "test-limit-update-ignore-tunnel")
-
-	body := `{"id":` + jsonInt(speedLimitID) + `,"name":"test-limit-update-ignore-tunnel","speed":256,"tunnelId":` + jsonInt(tunnelID) + `,"status":1}`
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/speed-limit/update", bytes.NewBufferString(body))
-	req.Header.Set("Authorization", adminToken)
-	req.Header.Set("Content-Type", "application/json")
-	res := httptest.NewRecorder()
-	router.ServeHTTP(res, req)
-
-	assertCode(t, res, 0)
-
-	req = httptest.NewRequest(http.MethodPost, "/api/v1/speed-limit/list", nil)
-	req.Header.Set("Authorization", adminToken)
-	res = httptest.NewRecorder()
-	router.ServeHTTP(res, req)
-
-	var out response.R
-	if err := json.NewDecoder(res.Body).Decode(&out); err != nil {
-		t.Fatalf("decode response: %v", err)
-	}
-	if out.Code != 0 {
-		t.Fatalf("expected code 0, got %d", out.Code)
-	}
-
-	data, ok := out.Data.([]interface{})
-	if !ok {
-		t.Fatalf("expected data to be array, got %T", out.Data)
-	}
-
-	for _, item := range data {
-		m, ok := item.(map[string]interface{})
-		if !ok {
-			continue
-		}
-		if m["name"] != "test-limit-update-ignore-tunnel" {
-			continue
-		}
-		if tunnelIDVal, exists := m["tunnelId"]; exists && tunnelIDVal != nil {
-			t.Fatalf("expected tunnelId ignored and nil after update, got %v", tunnelIDVal)
-		}
-		if speedVal, ok := m["speed"].(float64); !ok || int(speedVal) != 256 {
-			t.Fatalf("expected speed 256 after update, got %v", m["speed"])
-		}
-		return
-	}
-
-	t.Fatal("speed limit 'test-limit-update-ignore-tunnel' not found in list")
-}
-
-func TestSpeedLimitBindingsContract(t *testing.T) {
-	secret := "contract-jwt-secret"
-	router, r := setupContractRouter(t, secret)
-
-	adminToken, err := auth.GenerateToken(1, "admin_user", 0, secret)
-	if err != nil {
-		t.Fatalf("generate admin token: %v", err)
-	}
-
+	speedID := mustCreateSpeedLimitRepo(t, r, "bind-limit")
+	otherID := mustCreateSpeedLimitRepo(t, r, "other-limit")
 	now := time.Now().UnixMilli()
-	if err := r.DB().Exec(`
-		INSERT INTO user(id, user, pwd, role_id, exp_time, flow, in_flow, out_flow, flow_reset_time, num, created_time, updated_time, status)
-		VALUES(101, 'bind_user', 'pwd', 1, ?, 100, 0, 0, 1, 10, ?, ?, 1)
-	`, now+86400000, now, now).Error; err != nil {
-		t.Fatalf("insert user: %v", err)
-	}
-	if err := r.DB().Exec(`
-		INSERT INTO node(id, name, secret, server_ip, server_ip_v4, server_ip_v6, port, interface_name, version, http, tls, socks, created_time, updated_time, status, tcp_listen_addr, udp_listen_addr, inx)
-		VALUES(201, 'bind_node', 'secret', '10.0.0.201', '10.0.0.201', '', '20000-30000', 'eth0', 'test', 0, 0, 0, ?, ?, 1, '[::]', '[::]', 1)
-	`, now, now).Error; err != nil {
-		t.Fatalf("insert node: %v", err)
-	}
-	if err := r.DB().Exec(`
-		INSERT INTO tunnel(id, name, type, flow, traffic_ratio, created_time, updated_time, status, inx)
-		VALUES(301, 'bind_tunnel', 1, 1, 1.0, ?, ?, 1, 1)
-	`, now, now).Error; err != nil {
-		t.Fatalf("insert tunnel: %v", err)
-	}
-	if err := r.DB().Exec(`
-		INSERT INTO forward(id, user_id, user_name, name, tunnel_id, remote_addr, strategy, in_flow, out_flow, created_time, updated_time, status, inx)
-		VALUES(401, 101, 'bind_user', 'bind_forward', 301, '127.0.0.1:80', 'fifo', 0, 0, ?, ?, 0, 1)
-	`, now, now).Error; err != nil {
-		t.Fatalf("insert forward: %v", err)
+	for _, q := range []struct {
+		sql  string
+		args []interface{}
+	}{
+		{`INSERT INTO user(id, user, pwd, role_id, exp_time, flow, in_flow, out_flow, flow_reset_time, num, created_time, updated_time, status, speed_limit_id)
+		  VALUES(101, 'bind_user', 'pwd', 1, ?, 100, 0, 0, 1, 10, ?, ?, 1, ?)`, []interface{}{now + 86400000, now, now, speedID}},
+		{`INSERT INTO node(id, name, secret, server_ip, server_ip_v4, server_ip_v6, port, interface_name, version, http, tls, socks, created_time, updated_time, status, tcp_listen_addr, udp_listen_addr, inx, speed_id)
+		  VALUES(201, 'bind_node', 'secret', '10.0.0.201', '10.0.0.201', '', '20000-30000', 'eth0', 'test', 0, 0, 0, ?, ?, 1, '[::]', '[::]', 1, ?)`, []interface{}{now, now, speedID}},
+		{`INSERT INTO tunnel(id, name, type, flow, traffic_ratio, created_time, updated_time, status, inx, speed_id)
+		  VALUES(301, 'bind_tunnel', 1, 1, 1.0, ?, ?, 1, 1, ?)`, []interface{}{now, now, speedID}},
+		{`INSERT INTO tunnel(id, name, type, flow, traffic_ratio, created_time, updated_time, status, inx, speed_id)
+		  VALUES(302, 'other_tunnel', 1, 1, 1.0, ?, ?, 1, 2, ?)`, []interface{}{now, now, otherID}},
+		{`INSERT INTO user_tunnel(id, user_id, tunnel_id, speed_id, num, flow, in_flow, out_flow, flow_reset_time, exp_time, status)
+		  VALUES(501, 101, 301, ?, 10, 100, 0, 0, 1, ?, 1)`, []interface{}{speedID, now + 86400000}},
+		{`INSERT INTO forward(id, user_id, user_name, name, tunnel_id, remote_addr, strategy, in_flow, out_flow, created_time, updated_time, status, inx, speed_id)
+		  VALUES(401, 101, 'bind_user', 'bind_forward', 301, '127.0.0.1:80', 'fifo', 0, 0, ?, ?, 0, 1, ?)`, []interface{}{now, now, speedID}},
+	} {
+		if err := r.DB().Exec(q.sql, q.args...).Error; err != nil {
+			t.Fatalf("seed: %v", err)
+		}
 	}
 
-	createReq := httptest.NewRequest(http.MethodPost, "/api/v1/speed-limit/create", bytes.NewBufferString(`{"name":"bind-limit","speed":88,"status":1}`))
-	createReq.Header.Set("Authorization", adminToken)
-	createReq.Header.Set("Content-Type", "application/json")
-	createRes := httptest.NewRecorder()
-	router.ServeHTTP(createRes, createReq)
-	var createOut response.R
-	if err := json.NewDecoder(createRes.Body).Decode(&createOut); err != nil {
-		t.Fatalf("decode create: %v", err)
-	}
-	if createOut.Code != 0 {
-		t.Fatalf("create code=%d msg=%s", createOut.Code, createOut.Msg)
-	}
-	createData, ok := createOut.Data.(map[string]interface{})
-	if !ok {
-		t.Fatalf("expected create data object, got %T", createOut.Data)
-	}
-	speedID := int64(createData["id"].(float64))
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/speed-limit/delete", bytes.NewBufferString(`{"id":`+jsonInt(speedID)+`}`))
+	req.Header.Set("Authorization", adminToken)
+	req.Header.Set("Content-Type", "application/json")
+	res := httptest.NewRecorder()
+	router.ServeHTTP(res, req)
+	assertCode(t, res, 0)
 
-	updateBody := `{"id":` + jsonInt(speedID) + `,"name":"bind-limit","speed":88,"status":1,"arenaMode":1,"bindings":{"userIds":[101],"tunnelIds":[301],"forwardIds":[401],"nodeIds":[201]}}`
-	updateReq := httptest.NewRequest(http.MethodPost, "/api/v1/speed-limit/update", bytes.NewBufferString(updateBody))
-	updateReq.Header.Set("Authorization", adminToken)
-	updateReq.Header.Set("Content-Type", "application/json")
-	updateRes := httptest.NewRecorder()
-	router.ServeHTTP(updateRes, updateReq)
-	assertCode(t, updateRes, 0)
-
-	assertSpeedID := func(table, column string, id int64) {
+	for _, c := range []struct {
+		table, column string
+		id            int64
+	}{{"user", "speed_limit_id", 101}, {"node", "speed_id", 201}, {"tunnel", "speed_id", 301}, {"user_tunnel", "speed_id", 501}, {"forward", "speed_id", 401}} {
 		var got sql.NullInt64
-		if err := r.DB().Raw(`SELECT `+column+` FROM `+table+` WHERE id = ?`, id).Row().Scan(&got); err != nil {
-			t.Fatalf("query %s.%s: %v", table, column, err)
+		if err := r.DB().Raw(`SELECT `+c.column+` FROM "`+c.table+`" WHERE id = ?`, c.id).Row().Scan(&got); err != nil {
+			t.Fatalf("query %s.%s: %v", c.table, c.column, err)
 		}
-		if !got.Valid || got.Int64 != speedID {
-			t.Fatalf("expected %s.%s speed id %d, got %#v", table, column, speedID, got)
+		if got.Valid {
+			t.Fatalf("%s.%s still references the deleted limit: %d", c.table, c.column, got.Int64)
 		}
 	}
-	assertSpeedID("user", "speed_limit_id", 101)
-	assertSpeedID("tunnel", "speed_id", 301)
-	assertSpeedID("forward", "speed_id", 401)
-	assertSpeedID("node", "speed_id", 201)
-
-	detailReq := httptest.NewRequest(http.MethodPost, "/api/v1/speed-limit/detail", bytes.NewBufferString(`{"id":`+jsonInt(speedID)+`}`))
-	detailReq.Header.Set("Authorization", adminToken)
-	detailRes := httptest.NewRecorder()
-	router.ServeHTTP(detailRes, detailReq)
-	var detailOut response.R
-	if err := json.NewDecoder(detailRes.Body).Decode(&detailOut); err != nil {
-		t.Fatalf("decode detail: %v", err)
+	if n := mustQueryInt(t, r, `SELECT COUNT(1) FROM speed_limit WHERE id = ?`, speedID); n != 0 {
+		t.Fatalf("limit not deleted")
 	}
-	if detailOut.Code != 0 {
-		t.Fatalf("detail code=%d msg=%s", detailOut.Code, detailOut.Msg)
-	}
-	data := detailOut.Data.(map[string]interface{})
-	if arenaMode := data["arenaMode"].(float64); arenaMode != 1 {
-		t.Fatalf("expected arenaMode=1, got %v", arenaMode)
-	}
-	bindings := data["bindings"].(map[string]interface{})
-	if len(bindings["userIds"].([]interface{})) != 1 || len(bindings["tunnelIds"].([]interface{})) != 1 || len(bindings["forwardIds"].([]interface{})) != 1 || len(bindings["nodeIds"].([]interface{})) != 1 {
-		t.Fatalf("unexpected bindings: %#v", bindings)
+	var other sql.NullInt64
+	if err := r.DB().Raw(`SELECT speed_id FROM tunnel WHERE id = 302`).Row().Scan(&other); err != nil || !other.Valid || other.Int64 != otherID {
+		t.Fatalf("unrelated reference touched: %v %v", other, err)
 	}
 }
 

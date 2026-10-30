@@ -171,41 +171,37 @@ func TestEntryRateTcNodeHotAndQuiet(t *testing.T) {
 	if v, ok := lastNftSpeed(agent, 1, 101); !ok || v != 0 {
 		t.Fatalf("tc node nft policer %v %v", v, ok)
 	}
-	// Rule own speed 10: a child of the user's class, still no limiter.
+	// Plan 170: a stale rule speed (dynamic / 限速规则) is ignored — no
+	// limiter, no rule class: the tree keeps only the user's class.
 	agent.reset()
-	e.exec(`UPDATE forward SET speed_limit_enabled = 1, speed_limit = 10 WHERE id = 100`)
+	e.exec(`INSERT INTO speed_limit(id, name, speed, status, arena_mode, created_time, updated_time) VALUES(5, 'old', 20, 1, 0, 0, 0)`)
+	e.exec(`UPDATE forward SET speed_limit_enabled = 1, speed_limit = 10, speed_id = 5 WHERE id = 100`)
 	f100, _ = e.h.getForwardRecord(100)
 	if err := e.h.syncForwardServicesOnNode(f100, 1); err != nil {
 		t.Fatal(err)
 	}
 	drainEntryRates(e)
 	m = strings.Join(agent.mutations(1), " | ")
-	if strings.Contains(m, "AddLimiters") || strings.Contains(m, "forward_100_speed") {
-		t.Fatalf("own speed pushed as a limiter: %s", m)
+	if strings.Contains(m, "Limiters") || strings.Contains(m, "SetEntryRates") {
+		t.Fatalf("stale rule speed pushed a limiter or changed the tree: %s", m)
 	}
 	if svc := lastServicePayload(agent, 1, "100_7_70_tcp"); svc == nil || svc["limiter"] != nil {
-		t.Fatalf("own speed referenced: %v", svc)
+		t.Fatalf("stale rule speed referenced: %v", svc)
 	}
-	g, _ = lastEntryRates(agent, 1)
-	if c := entryClasses(g); c["u7"] != "@50" || c["r100"] != "u7@10" {
-		t.Fatalf("tree with own speed %v", c)
+	if plan := e.h.entryRatePlanFor(1); plan == nil || len(plan.agentArena) != 0 {
+		t.Fatalf("plan %+v", plan)
+	} else if c := entryClasses(genericOf(plan.payload).(map[string]interface{})); len(c) != 1 || c["u7"] != "@50" {
+		t.Fatalf("tree with a stale rule speed %v", c)
 	}
-	// A speed-only edit (rule dialog → syncForwardServices): the agent runs
-	// the same services already → no UpdateService (no restart), only the tree.
+	// A rule edit (rule dialog → syncForwardServices) on a tc node whose agent
+	// runs the same services already → no UpdateService (no restart).
 	agent.reset()
-	e.exec(`UPDATE forward SET speed_limit = 12 WHERE id = 100`)
-	f100, _ = e.h.getForwardRecord(100)
 	if _, err := e.h.syncForwardServicesWithWarnings(f100, "UpdateService", true); err != nil {
 		t.Fatal(err)
 	}
 	drainEntryRates(e)
-	m = strings.Join(agent.mutations(1), " | ")
-	if strings.Contains(m, "UpdateService") || !strings.Contains(m, "SetEntryRates") {
-		t.Fatalf("speed-only edit restarted the service or missed the tree: %s", m)
-	}
-	g, _ = lastEntryRates(agent, 1)
-	if c := entryClasses(g); c["r100"] != "u7@12" {
-		t.Fatalf("tree after speed edit %v", c)
+	if m := strings.Join(agent.mutations(1), " | "); strings.Contains(m, "UpdateService") || strings.Contains(m, "SetEntryRates") {
+		t.Fatalf("unchanged rule edit restarted the service or pushed the tree: %s", m)
 	}
 	// Reconnect with everything in place: quiet; agent restart (tree file
 	// kept): quiet for the tree.
@@ -236,9 +232,6 @@ func TestEntryRateTcNodeHotAndQuiet(t *testing.T) {
 	// Everything removed: an empty tree clears the agent.
 	agent.reset()
 	setUserRate(t, e, 7, 0)
-	e.exec(`UPDATE forward SET speed_limit_enabled = 0, speed_limit = 0 WHERE id = 100`)
-	f100, _ = e.h.getForwardRecord(100)
-	_ = e.h.syncForwardServicesOnNode(f100, 1)
 	drainEntryRates(e)
 	g, _ = lastEntryRates(agent, 1)
 	if c := entryClasses(g); len(c) != 0 || agent.has(1, "entryrate:entry") {
@@ -266,14 +259,17 @@ func TestEntryRateFallbackNodeUnchanged(t *testing.T) {
 	}
 }
 
-func TestEntryRateArenaAcrossUsers(t *testing.T) {
+// Plan 170: 竞技场 / 限速规则 are retired. An arena referenced by two users'
+// rules (forward.speed_id and user_tunnel.speed_id) never reaches the tree or
+// the agent, with or without a user 速率.
+func TestEntryRateRetiredArenaIgnored(t *testing.T) {
 	e, agent := newEntryRateEnv(t)
-	// arena 限速规则 5 (30 Mbps) used by user 7's gost rule 100 and user 8's rule 102
 	e.exec(`INSERT INTO speed_limit(id, name, speed, status, arena_mode, created_time, updated_time) VALUES(5, 'arena', 30, 1, 1, 0, 0)`)
 	e.addUser(8)
 	e.addUserTunnel(80, 8, 10)
 	e.addForward(102, 8, 10)
-	e.exec(`UPDATE forward SET mode = 'gost', remote_addr = '1.1.1.1:443', speed_id = 5 WHERE id = 102`)
+	e.exec(`UPDATE forward SET mode = 'gost', remote_addr = '1.1.1.1:443' WHERE id = 102`)
+	e.exec(`UPDATE user_tunnel SET speed_id = 5 WHERE id = 80`)
 	e.exec(`INSERT INTO forward_port(forward_id, node_id, port) VALUES(102, 1, 1502)`)
 	e.exec(`UPDATE forward SET speed_id = 5 WHERE id = 100`)
 	for _, id := range []int64{100, 102} {
@@ -283,31 +279,30 @@ func TestEntryRateArenaAcrossUsers(t *testing.T) {
 		}
 	}
 	drainEntryRates(e)
-	g, _ := lastEntryRates(agent, 1)
-	if c := entryClasses(g); c["a5"] != "@30" {
-		t.Fatalf("arena without rows must be one shared class: %v", c)
+	if _, sent := lastEntryRates(agent, 1); sent {
+		t.Fatal("tree pushed for a retired arena")
 	}
-	if svc := lastServicePayload(agent, 1, "100_7_70_tcp"); svc == nil || svc["limiter"] != nil {
-		t.Fatalf("arena in the tree still referenced on the agent: %v", svc)
+	for _, name := range []string{"100_7_70_tcp", "102_8_80_tcp"} {
+		if svc := lastServicePayload(agent, 1, name); svc == nil || svc["limiter"] != nil {
+			t.Fatalf("%s references a retired limiter: %v", name, svc)
+		}
 	}
-	// user 7 gets a 速率 → the arena crosses users with a row: the arena
-	// goes back to the agent (shared gost limiter), u7 stays in the tree.
+	// user 7 gets a 速率: only u7 (rules 100 + 101), user 8's rule stays out,
+	// the cross-user-arena fallback never triggers.
 	agent.reset()
 	setUserRate(t, e, 7, 50)
 	drainEntryRates(e)
-	g, _ = lastEntryRates(agent, 1)
-	c := entryClasses(g)
-	if c["u7"] != "@50" || c["a5"] != "" {
-		t.Fatalf("conflict tree %v", c)
+	g, _ := lastEntryRates(agent, 1)
+	if c := entryClasses(g); len(c) != 1 || c["u7"] != "@50" {
+		t.Fatalf("tree %v", c)
 	}
-	svc := lastServicePayload(agent, 1, "100_7_70_tcp")
-	if svc == nil || !strings.HasPrefix(asString(svc["limiter"]), "arena_speed_5_node_1_") || userLimiterMeta(svc) != "" {
-		t.Fatalf("conflict: rule 100 must reference the arena limiter: %v", svc)
+	if ports, _ := g["ports"].([]interface{}); len(ports) != 2 {
+		t.Fatalf("ports %v", g["ports"])
 	}
-	if svc := lastServicePayload(agent, 1, "102_8_80_tcp"); svc == nil || !strings.HasPrefix(asString(svc["limiter"]), "arena_speed_5_node_1_") {
-		t.Fatalf("conflict: rule 102 must reference the arena limiter: %v", svc)
+	if plan := e.h.entryRatePlanFor(1); plan == nil || len(plan.agentArena) != 0 {
+		t.Fatalf("agent arena %+v", plan)
 	}
-	if !strings.Contains(strings.Join(agent.mutations(1), " "), "arena_speed_5_node_1_") {
-		t.Fatalf("arena limiter not pushed: %v", agent.mutations(1))
+	if m := strings.Join(agent.mutations(1), " "); strings.Contains(m, "arena_speed") || strings.Contains(m, "Limiters") {
+		t.Fatalf("arena limiter pushed: %s", m)
 	}
 }

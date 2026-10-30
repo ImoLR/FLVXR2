@@ -19,7 +19,7 @@ func TestNftablesPayloadIncludesRuleAndUserQuotas(t *testing.T) {
 	}
 	ports := []forwardPortRecord{{NodeID: 9, Port: 31001}}
 	for _, tunnelType := range []int{1, 2} {
-		rules := buildNftablesRulePayloads(forward, &tunnelRecord{Type: tunnelType}, ports, nil, 12, nil)
+		rules := buildNftablesRulePayloads(forward, &tunnelRecord{Type: tunnelType}, ports, nil, 12)
 		if len(rules) != 2 {
 			t.Fatalf("tunnel type %d: got %d rules", tunnelType, len(rules))
 		}
@@ -44,7 +44,7 @@ func TestNftablesPayloadIncludesRuleAndUserQuotas(t *testing.T) {
 	}
 	forward.UserMaxConnections = 0
 	forward.UserMaxClientIps = 3
-	rules := buildNftablesRulePayloads(forward, &tunnelRecord{Type: 1}, ports, nil, 12, nil)
+	rules := buildNftablesRulePayloads(forward, &tunnelRecord{Type: 1}, ports, nil, 12)
 	if rules[0].GroupMaxConnections != -1 || rules[0].GroupMaxClientIps != 3 {
 		t.Fatalf("unlimited connection budget encoded as %+v", rules[0])
 	}

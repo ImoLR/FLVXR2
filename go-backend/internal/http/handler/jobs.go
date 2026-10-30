@@ -631,13 +631,13 @@ func (h *Handler) runNftablesDomainRefreshJob() {
 			log.Printf("[nftables-dns] getTunnelRecord(%d) 失败: %v", f.TunnelID, err)
 			continue
 		}
-		userTunnelID, _, speedLimit, err := h.resolveUserTunnelAndLimiter(f.UserID, f.TunnelID)
+		userTunnelID, err := h.resolveUserTunnelID(f.UserID, f.TunnelID)
 		if err != nil {
-			log.Printf("[nftables-dns] resolveUserTunnelAndLimiter(%d,%d) 失败: %v", f.UserID, f.TunnelID, err)
+			log.Printf("[nftables-dns] resolveUserTunnelID(%d,%d) 失败: %v", f.UserID, f.TunnelID, err)
 			continue
 		}
 
-		if err := h.syncNftablesRules(forwardRec, tunnel, ports, userTunnelID, speedLimit); err != nil {
+		if err := h.syncNftablesRules(forwardRec, tunnel, ports, userTunnelID); err != nil {
 			log.Printf("[nftables-dns] forward %d 更新失败: %v", f.ID, err)
 			continue
 		}

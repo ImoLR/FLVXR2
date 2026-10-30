@@ -142,7 +142,7 @@ func TestNftFamilyVerdict(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			rules, _ := h.nftRulePayloads(&forwardRecord{ID: 160, TunnelID: s.ipv6Only, RemoteAddr: "dual.test:53"}, tunnel, on48, nil, 0, nil)
+			rules, _ := h.nftRulePayloads(&forwardRecord{ID: 160, TunnelID: s.ipv6Only, RemoteAddr: "dual.test:53"}, tunnel, on48, nil, 0)
 			if len(rules) != 2 || rules[0].Target != "[2606:4700:4700::1111]:53" || rules[1].Target != "[2606:4700:4700::1111]:53" {
 				t.Fatalf("dual target payloads: %+v", rules)
 			}

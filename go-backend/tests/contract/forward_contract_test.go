@@ -593,7 +593,9 @@ func TestUserTunnelSaveIgnoresDeletedSpeedLimitContract(t *testing.T) {
 	})
 }
 
-func TestForwardSpeedIDWriteAndClearContracts(t *testing.T) {
+// Plan 170: the rule's own speed is retired — speedId / speedLimitEnabled /
+// speedLimit are ignored on create, a stale stored value is cleared on update.
+func TestForwardRetiredSpeedFieldsContract(t *testing.T) {
 	secret := "contract-jwt-secret"
 	router, repo := setupContractRouter(t, secret)
 	now := time.Now().UnixMilli()
@@ -660,6 +662,9 @@ func TestForwardSpeedIDWriteAndClearContracts(t *testing.T) {
 		"remoteAddr": "1.1.1.1:443",
 		"strategy":   "fifo",
 		"speedId":    speedIDA,
+		// dynamic rule speed: ignored as well
+		"speedLimitEnabled": true,
+		"speedLimit":        77,
 	}
 	createBody, err := json.Marshal(createPayload)
 	if err != nil {
@@ -673,13 +678,22 @@ func TestForwardSpeedIDWriteAndClearContracts(t *testing.T) {
 	assertCode(t, createRes, 0)
 
 	forwardID := mustLastInsertID(t, repo, "forward-speed-target")
-	storedSpeed := repo.DB().Raw(`SELECT speed_id FROM forward WHERE id = ?`, forwardID).Row()
-	var createdSpeed sql.NullInt64
-	if err := storedSpeed.Scan(&createdSpeed); err != nil {
-		t.Fatalf("query created forward speed_id: %v", err)
+	readSpeed := func() (sql.NullInt64, bool, int) {
+		t.Helper()
+		var id sql.NullInt64
+		var enabled bool
+		var dyn int
+		if err := repo.DB().Raw(`SELECT speed_id, speed_limit_enabled, speed_limit FROM forward WHERE id = ?`, forwardID).Row().Scan(&id, &enabled, &dyn); err != nil {
+			t.Fatalf("query forward speed fields: %v", err)
+		}
+		return id, enabled, dyn
 	}
-	if !createdSpeed.Valid || createdSpeed.Int64 != speedIDA {
-		t.Fatalf("expected created speed_id=%d, got valid=%v value=%d", speedIDA, createdSpeed.Valid, createdSpeed.Int64)
+	if id, enabled, dyn := readSpeed(); id.Valid || enabled || dyn != 0 {
+		t.Fatalf("retired speed stored on create: speed_id=%v enabled=%v speed=%d", id, enabled, dyn)
+	}
+	// A stale stored value (written before plan 170) …
+	if err := repo.DB().Exec(`UPDATE forward SET speed_id = ?, speed_limit_enabled = ?, speed_limit = 33 WHERE id = ?`, speedIDA, true, forwardID).Error; err != nil {
+		t.Fatalf("seed stale speed: %v", err)
 	}
 
 	updateToBPayload := map[string]interface{}{
@@ -697,13 +711,9 @@ func TestForwardSpeedIDWriteAndClearContracts(t *testing.T) {
 	router.ServeHTTP(updateToBRes, updateToBReq)
 	assertCode(t, updateToBRes, 0)
 
-	storedSpeed = repo.DB().Raw(`SELECT speed_id FROM forward WHERE id = ?`, forwardID).Row()
-	var updatedSpeed sql.NullInt64
-	if err := storedSpeed.Scan(&updatedSpeed); err != nil {
-		t.Fatalf("query updated forward speed_id: %v", err)
-	}
-	if !updatedSpeed.Valid || updatedSpeed.Int64 != speedIDB {
-		t.Fatalf("expected updated speed_id=%d, got valid=%v value=%d", speedIDB, updatedSpeed.Valid, updatedSpeed.Int64)
+	// … is cleared by an update, the requested speedId is ignored.
+	if id, enabled, dyn := readSpeed(); id.Valid || enabled || dyn != 0 {
+		t.Fatalf("retired speed kept / stored on update: speed_id=%v enabled=%v speed=%d", id, enabled, dyn)
 	}
 
 	clearPayload := map[string]interface{}{
@@ -721,17 +731,14 @@ func TestForwardSpeedIDWriteAndClearContracts(t *testing.T) {
 	router.ServeHTTP(clearRes, clearReq)
 	assertCode(t, clearRes, 0)
 
-	storedSpeed = repo.DB().Raw(`SELECT speed_id FROM forward WHERE id = ?`, forwardID).Row()
-	var clearedSpeed sql.NullInt64
-	if err := storedSpeed.Scan(&clearedSpeed); err != nil {
-		t.Fatalf("query cleared forward speed_id: %v", err)
-	}
-	if clearedSpeed.Valid {
-		t.Fatalf("expected cleared speed_id to be NULL, got %d", clearedSpeed.Int64)
+	if id, _, _ := readSpeed(); id.Valid {
+		t.Fatalf("expected cleared speed_id to be NULL, got %d", id.Int64)
 	}
 }
 
-func TestForwardCreateInheritsUserSpeedLimitContract(t *testing.T) {
+// Plan 170: new rules inherit no 限速规则 from the user (legacy speed_limit_id)
+// or the tunnel (speed_id) any more.
+func TestForwardCreateInheritsNoSpeedLimitContract(t *testing.T) {
 	secret := "contract-jwt-secret"
 	router, repo := setupContractRouter(t, secret)
 
@@ -792,6 +799,9 @@ func TestForwardCreateInheritsUserSpeedLimitContract(t *testing.T) {
 		t.Fatalf("insert tunnel: %v", err)
 	}
 	tunnelID := mustLastInsertID(t, repo, "user-default-speed-tunnel")
+	if err := repo.DB().Exec(`UPDATE tunnel SET speed_id = ? WHERE id = ?`, speedID, tunnelID).Error; err != nil {
+		t.Fatalf("set tunnel speed_id: %v", err)
+	}
 
 	if err := repo.DB().Exec(`
 		INSERT INTO node(name, secret, server_ip, server_ip_v4, server_ip_v6, port, interface_name, version, http, tls, socks, created_time, updated_time, status, tcp_listen_addr, udp_listen_addr, inx)
@@ -836,8 +846,8 @@ func TestForwardCreateInheritsUserSpeedLimitContract(t *testing.T) {
 	if err := repo.DB().Raw(`SELECT speed_id FROM forward WHERE id = ?`, forwardID).Row().Scan(&inheritedSpeed); err != nil {
 		t.Fatalf("query inherited forward speed_id: %v", err)
 	}
-	if !inheritedSpeed.Valid || inheritedSpeed.Int64 != speedID {
-		t.Fatalf("expected inherited speed_id=%d, got valid=%v value=%d", speedID, inheritedSpeed.Valid, inheritedSpeed.Int64)
+	if inheritedSpeed.Valid {
+		t.Fatalf("expected no inherited speed_id, got %d", inheritedSpeed.Int64)
 	}
 }
 

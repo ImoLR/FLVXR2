@@ -1,7 +1,6 @@
 package handler
 
 import (
-	"database/sql"
 	"fmt"
 	"strconv"
 	"strings"
@@ -297,8 +296,8 @@ func (h *Handler) nodeOnline(nodeID int64) bool {
 
 // resyncForwardsForRate re-pushes the user's forwards on one machine whose
 // payload depends on the rate change: nftables rules whose policer changes,
-// and (older agents) gost rules without an own limiter when the rate starts
-// or stops.
+// and (older agents) gost rules when the rate starts or stops (plan 170: no
+// rule has an own limiter any more).
 func (h *Handler) resyncForwardsForRate(userID, nodeID int64, oldRate, newRate int, capable bool) []string {
 	forwards, err := h.repo.ListActiveForwardsByUser(userID)
 	if err != nil {
@@ -324,25 +323,12 @@ func (h *Handler) resyncForwardsForRate(userID, nodeID int64, oldRate, newRate i
 		if !onNode {
 			continue
 		}
-		in, err := h.resolveForwardRuntimeInputs(forward)
-		if err != nil {
-			continue
-		}
 		if strings.EqualFold(forward.Mode, "nftables") {
-			own := 0
-			if forward.SpeedLimitEnabled && forward.SpeedLimit > 0 {
-				own = forward.SpeedLimit
-			} else if in.speed != nil {
-				own = *in.speed
-			}
-			if nftRuleSpeed(own, oldRate) == nftRuleSpeed(own, newRate) {
+			if nftRuleSpeed(0, oldRate) == nftRuleSpeed(0, newRate) {
 				continue
 			}
-		} else {
-			ownLimiter := in.dynamicLimiterName != "" || (in.limiterID != nil && *in.limiterID > 0)
-			if capable || ownLimiter || (oldRate > 0) == (newRate > 0) {
-				continue
-			}
+		} else if capable || (oldRate > 0) == (newRate > 0) {
+			continue
 		}
 		if err := h.syncForwardServicesOnNode(forward, nodeID); err != nil {
 			warnings = append(warnings, fmt.Sprintf("规则 %s 速率下发失败: %v", forward.Name, err))
@@ -461,36 +447,4 @@ func (h *Handler) userRateAfter(userID int64, before map[int64]int) []string {
 		return []string{fmt.Sprintf("速率同步失败: %v", err)}
 	}
 	return h.applyUserRateChanges(userID, before, after)
-}
-
-// ruleOwnSpeed is the Mbps of a rule's own limit: the dynamic speed when
-// enabled, else its 限速规则 (0 = none).
-func (h *Handler) ruleOwnSpeed(dynamicEnabled bool, dynamic int, speedID sql.NullInt64) int {
-	if dynamicEnabled && dynamic > 0 {
-		return dynamic
-	}
-	if speedID.Valid && speedID.Int64 > 0 && h != nil && h.repo != nil {
-		if limit, err := h.repo.GetSpeedLimit(speedID.Int64); err == nil && limit != nil && limit.Speed > 0 {
-			return limit.Speed
-		}
-	}
-	return 0
-}
-
-// validateRuleSpeedAgainstRows: an admin-set rule speed (Mbps) may not exceed
-// the user's rate on any entry machine of the rule.
-func (h *Handler) validateRuleSpeedAgainstRows(userID int64, nodeIDs []int64, speed int) error {
-	if h == nil || speed <= 0 || userID <= 0 {
-		return nil
-	}
-	for _, nodeID := range nodeIDs {
-		node, err := h.getNodeRecord(nodeID)
-		if err != nil || node == nil {
-			continue
-		}
-		if rate := h.userRateOnNode(userID, node); rate > 0 && speed > rate {
-			return fmt.Errorf("规则限速 %d Mbps 不能超过该用户在服务器「%s」的速率 %d Mbps", speed, node.Name, rate)
-		}
-	}
-	return nil
 }

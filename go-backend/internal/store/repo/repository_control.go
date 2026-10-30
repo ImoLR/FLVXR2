@@ -369,15 +369,14 @@ func (r *Repository) ResolveUserTunnelAndLimiter(userID, tunnelID int64) (*model
 	if r == nil || r.db == nil {
 		return nil, errors.New("repository not initialized")
 	}
+	// Plan 170: the user tunnel's 限速 (speed_id) is retired — only the id is
+	// resolved (LimiterID / Speed stay nil).
 	type row struct {
-		UserTunnelID int64         `gorm:"column:user_tunnel_id"`
-		LimiterID    sql.NullInt64 `gorm:"column:limiter_id"`
-		Speed        sql.NullInt64 `gorm:"column:speed"`
+		UserTunnelID int64 `gorm:"column:user_tunnel_id"`
 	}
 	var rec row
 	err := r.db.Model(&model.UserTunnel{}).
-		Select("user_tunnel.id AS user_tunnel_id, speed_limit.id AS limiter_id, speed_limit.speed AS speed").
-		Joins("LEFT JOIN speed_limit ON speed_limit.id = user_tunnel.speed_id").
+		Select("user_tunnel.id AS user_tunnel_id").
 		Where("user_tunnel.user_id = ? AND user_tunnel.tunnel_id = ?", userID, tunnelID).
 		Order("user_tunnel.id ASC").
 		Limit(1).
@@ -388,14 +387,7 @@ func (r *Repository) ResolveUserTunnelAndLimiter(userID, tunnelID int64) (*model
 		}
 		return nil, err
 	}
-	info := &model.UserTunnelLimiterInfo{UserTunnelID: rec.UserTunnelID}
-	if rec.LimiterID.Valid && rec.LimiterID.Int64 > 0 {
-		v := rec.LimiterID.Int64
-		info.LimiterID = &v
-		s := int(rec.Speed.Int64)
-		info.Speed = &s
-	}
-	return info, nil
+	return &model.UserTunnelLimiterInfo{UserTunnelID: rec.UserTunnelID}, nil
 }
 
 func (r *Repository) ListUserTunnelIDs(userID, tunnelID int64) ([]int64, error) {

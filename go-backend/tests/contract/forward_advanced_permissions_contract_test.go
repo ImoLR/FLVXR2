@@ -51,8 +51,9 @@ func TestNonAdminForwardAdvancedFieldsAreIgnored(t *testing.T) {
 	if created.ExpiryTime.Valid || created.SpeedLimitEnabled || created.SpeedLimit != 0 {
 		t.Fatalf("advanced expiry/speed values were not ignored: expiry=%v enabled=%v speed=%d", created.ExpiryTime, created.SpeedLimitEnabled, created.SpeedLimit)
 	}
-	if !created.SpeedID.Valid || created.SpeedID.Int64 != 10 {
-		t.Fatalf("expected existing user speed fallback 10, got %+v", created.SpeedID)
+	// Plan 170: no 限速规则 is inherited from the user (speed_limit_id 10) any more.
+	if created.SpeedID.Valid {
+		t.Fatalf("expected no inherited speed id, got %+v", created.SpeedID)
 	}
 	var bindIP string
 	if err := repository.DB().Raw("SELECT COALESCE(in_ip, '') FROM forward_port WHERE forward_id = ? LIMIT 1", created.ID).Row().Scan(&bindIP); err != nil {
@@ -104,8 +105,10 @@ func TestNonAdminForwardAdvancedFieldsAreIgnored(t *testing.T) {
 	if updated.MaxConnections != 1 || updated.MaxClientIps != 1 || updated.TrafficLimit != 7 || !updated.ExpiryTime.Valid || updated.ExpiryTime.Int64 != futureExpiry {
 		t.Fatalf("stored advanced limits changed: %+v", updated)
 	}
-	if !updated.SpeedID.Valid || updated.SpeedID.Int64 != 11 || !updated.SpeedLimitEnabled || updated.SpeedLimit != 42 {
-		t.Fatalf("stored speed fields changed: speedId=%+v enabled=%v speed=%d", updated.SpeedID, updated.SpeedLimitEnabled, updated.SpeedLimit)
+	// Plan 170: the rule's own speed is retired — a stale stored value is
+	// cleared on save (it is never read at runtime).
+	if updated.SpeedID.Valid || updated.SpeedLimitEnabled || updated.SpeedLimit != 0 {
+		t.Fatalf("stale speed fields kept: speedId=%+v enabled=%v speed=%d", updated.SpeedID, updated.SpeedLimitEnabled, updated.SpeedLimit)
 	}
 	if err := repository.DB().Raw("SELECT COALESCE(in_ip, '') FROM forward_port WHERE forward_id = ? LIMIT 1", created.ID).Row().Scan(&bindIP); err != nil {
 		t.Fatalf("load updated bind IP: %v", err)

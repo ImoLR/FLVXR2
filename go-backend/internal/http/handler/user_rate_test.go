@@ -171,17 +171,23 @@ func TestUserRateOlderAgentFallback(t *testing.T) {
 	if m := agent.mutations(1); len(m) != 0 {
 		t.Fatalf("reconnect after fallback sent %v", m)
 	}
-	// A rule with its own speed keeps its own limiter on an older agent.
-	e.exec(`UPDATE forward SET speed_limit_enabled = 1, speed_limit = 10 WHERE id = 100`)
+	// Plan 170: a stale rule speed (dynamic / 限速规则) is ignored — the rule
+	// keeps the user limiter and no rule limiter is pushed.
+	e.exec(`INSERT INTO speed_limit(id, name, speed, status, arena_mode, created_time, updated_time) VALUES(5, 'old', 20, 1, 0, 0, 0)`)
+	e.exec(`UPDATE forward SET speed_limit_enabled = 1, speed_limit = 10, speed_id = 5 WHERE id = 100`)
 	f, err := e.h.getForwardRecord(100)
 	if err != nil {
 		t.Fatal(err)
 	}
+	agent.reset()
 	if err := e.h.syncForwardServicesOnNode(f, 1); err != nil {
 		t.Fatal(err)
 	}
-	if svc := lastServicePayload(agent, 1, "100_7_70_tcp"); svc == nil || svc["limiter"] != "forward_100_speed" {
-		t.Fatalf("own limiter replaced: %v", svc)
+	if svc := lastServicePayload(agent, 1, "100_7_70_tcp"); svc == nil || svc["limiter"] != "flvx_user_7_rate" {
+		t.Fatalf("stale rule speed must not replace the user limiter: %v", svc)
+	}
+	if m := strings.Join(agent.mutations(1), " "); strings.Contains(m, "forward_100_speed") || strings.Contains(m, "AddLimiters") {
+		t.Fatalf("stale rule speed pushed a limiter: %s", m)
 	}
 	// Removing the rate re-pushes rules that referenced it, then deletes it.
 	e.exec(`UPDATE forward SET speed_limit_enabled = 0, speed_limit = 0 WHERE id = 100`)
@@ -213,20 +219,9 @@ func TestUserRateNoRateNoChange(t *testing.T) {
 	}
 }
 
-func TestRuleSpeedMustFitRow(t *testing.T) {
-	e, _ := newReconnectDiffEnv(t)
-	if err := e.r.SetUserServerRate(7, 50); err != nil {
-		t.Fatal(err)
-	}
-	if err := e.h.validateRuleSpeedAgainstRows(7, []int64{1}, 50); err != nil {
-		t.Fatalf("equal speed rejected: %v", err)
-	}
-	if err := e.h.validateRuleSpeedAgainstRows(7, []int64{1}, 60); err == nil || !strings.Contains(err.Error(), "50 Mbps") {
-		t.Fatalf("speed above the row accepted: %v", err)
-	}
-	if err := e.h.validateRuleSpeedAgainstRows(7, []int64{1}, 0); err != nil {
-		t.Fatalf("no own speed must pass: %v", err)
-	}
+// Plan 170: rules have no own speed any more (the plan-159 「rule speed ≤ row」
+// check went with it); the helpers below stay.
+func TestUserRateLimiterHelpers(t *testing.T) {
 	if nftRuleSpeed(0, 50) != 50 || nftRuleSpeed(80, 50) != 50 || nftRuleSpeed(20, 50) != 20 || nftRuleSpeed(20, 0) != 20 {
 		t.Fatal("nftRuleSpeed")
 	}

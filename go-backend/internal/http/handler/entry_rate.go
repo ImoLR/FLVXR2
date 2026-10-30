@@ -27,6 +27,11 @@ import (
 // a 速率 on the node cannot sit in one HTB tree with the users' classes (a rule
 // has one parent); its rules keep the arena on the agent path (gost shared
 // limiter / nft per-rule policer as today), their users' 速率 goes to tc.
+//
+// Plan 170: rule limits (dynamic speed, 限速规则, 竞技场) are retired —
+// repo.EntryRateRules no longer reads them, so the tree only holds the users'
+// 速率 groups (+ their default leaves) and agentArena is always empty. The rule
+// / arena branches below stay (tested) but are not reached.
 
 const (
 	entryRateDebounce = 1500 * time.Millisecond
@@ -399,16 +404,6 @@ func (h *Handler) noteEntryRateCommand(nodeID int64, commandType string) {
 	}
 }
 
-// markAllEntryRatesDirty: a 限速规则 changed (speed / arena), every tc node may
-// use it.
-func (h *Handler) markAllEntryRatesDirty() {
-	ids, err := h.repo.ListNodeIDsByEntryRateMode(ws.EntryRateModeTc)
-	if err != nil {
-		return
-	}
-	h.markEntryRatesDirty(ids...)
-}
-
 // runEntryRateLoop is the safety pass: once a minute every tc node's tree is
 // recomputed (a few queries per node) and pushed only if it changed — catches
 // changes no command marked (e.g. a rule deleted right after its commands).
@@ -435,57 +430,6 @@ func (h *Handler) runEntryRateLoop(ctx context.Context) {
 			}
 		}
 	}
-}
-
-// decorateForwardRateFallback marks (admin list) rules with an own speed whose
-// entry node still limits it the old way (gost / nftables) or reports a tc
-// error: rateFallback = the nodes and why (yellow hint in the rule dialog).
-func (h *Handler) decorateForwardRateFallback(items []map[string]interface{}, entryNodes map[int64][]int64) {
-	var ids []int64
-	seen := map[int64]bool{}
-	for i := range items {
-		if !forwardItemHasOwnSpeed(items[i]) {
-			continue
-		}
-		for _, id := range entryNodes[asInt64(items[i]["id"], 0)] {
-			if !seen[id] {
-				seen[id] = true
-				ids = append(ids, id)
-			}
-		}
-	}
-	if len(ids) == 0 {
-		return
-	}
-	modes, err := h.repo.NodeEntryRateModes(ids)
-	if err != nil {
-		return
-	}
-	for i := range items {
-		if !forwardItemHasOwnSpeed(items[i]) {
-			continue
-		}
-		var notes []string
-		for _, id := range entryNodes[asInt64(items[i]["id"], 0)] {
-			n, ok := modes[id]
-			if !ok || n.IsRemote == 1 {
-				continue
-			}
-			if note := entryRateNodeNote(n.Name, n.EntryRateTc, n.EntryRateError); note != "" {
-				notes = append(notes, note)
-			}
-		}
-		if len(notes) > 0 {
-			items[i]["rateFallback"] = strings.Join(notes, "；")
-		}
-	}
-}
-
-func forwardItemHasOwnSpeed(item map[string]interface{}) bool {
-	if enabled, _ := item["speedLimitEnabled"].(bool); enabled && asInt64(item["speedLimit"], 0) > 0 {
-		return true
-	}
-	return asInt64(item["speedId"], 0) > 0
 }
 
 // entryRateNodeNote: why a node does not shape with tc ("" = it does).
