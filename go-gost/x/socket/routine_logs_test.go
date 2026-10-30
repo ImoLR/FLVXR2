@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-gost/x/logsafe"
 	"github.com/gorilla/websocket"
 )
 
@@ -127,18 +128,56 @@ func TestRoutineFailuresAndResponseErrorsDoNotFlood(t *testing.T) {
 	}
 }
 
-func TestRoutinePartialFailuresRecoveryAndRedaction(t *testing.T) {
+// Plan 167: a partial TcpPing loss is no longer a 首次失败/已恢复 episode; all
+// partial losses share one line per hour. A full failure still opens one.
+func TestRoutinePartialLossIsHourlyLineNotEpisode(t *testing.T) {
+	pingLossLogs = logsafe.NewEventSummaryEvery(nil, time.Hour)
 	reporter := &WebSocketReporter{secret: "private-psk"}
 	cmd := CommandMessage{Type: "TcpPing", Data: TcpPingRequest{IP: "private-psk", Port: 443}}
-	response := CommandResponse{Success: true, Data: TcpPingResponse{Success: true, PacketLoss: 50}}
+	other := CommandMessage{Type: "TcpPing", Data: TcpPingRequest{IP: "192.0.2.1", Port: 443}}
+	partial := CommandResponse{Success: true, Data: TcpPingResponse{Success: true, PacketLoss: 50}}
+	ok := CommandResponse{Success: true, Data: TcpPingResponse{Success: true}}
+	failed := CommandResponse{Success: true, Data: TcpPingResponse{Success: false, ErrorMessage: "所有TCP连接尝试都失败"}}
 	out := captureRoutineOutput(t, func() {
-		reporter.logRoutineResult(cmd, response, nil)
-		reporter.logRoutineResult(cmd, response, nil)
-		response.Data = TcpPingResponse{Success: true}
-		reporter.logRoutineResult(cmd, response, nil)
-		reporter.logRoutineResult(cmd, response, nil)
+		for i := 0; i < 30; i++ {
+			reporter.logRoutineResult(cmd, partial, nil)
+			reporter.logRoutineResult(cmd, ok, nil)
+			reporter.logRoutineResult(other, partial, nil)
+		}
+		reporter.logRoutineResult(cmd, failed, nil)
+		reporter.logRoutineResult(cmd, failed, nil)
+		reporter.logRoutineResult(cmd, partial, nil) // reachable again: recovers
 	})
-	if strings.Contains(out, "private-psk") || strings.Count(out, "\n") != 2 || !strings.Contains(out, "丢包 50.0%") || !strings.Contains(out, "已恢复") {
+	if strings.Contains(out, "private-psk") || strings.Count(out, "\n") != 3 || strings.Count(out, "部分丢包") != 1 || !strings.Contains(out, "丢包 50.0%") ||
+		strings.Count(out, "首次失败") != 1 || strings.Count(out, "已恢复") != 1 || strings.Contains(out, "探测部分失败") {
+		t.Fatal(out)
+	}
+}
+
+// Plan 167: SetQuotaGroups arrives on the quota coordinator's schedule — no
+// line per command; a failing push is logged once, then summarized, then its
+// recovery.
+func TestSetQuotaGroupsIsRoutine(t *testing.T) {
+	reporter, peer := routineTestReporter(t)
+	valid := []map[string]interface{}{{"group": "user-167", "maxConnections": 5, "maxClientIps": -1}}
+	invalid := []map[string]interface{}{{"group": "user-167", "maxConnections": -5, "maxClientIps": -1}}
+	out := captureRoutineOutput(t, func() {
+		for i := 0; i < 50; i++ {
+			reporter.routeCommand(CommandMessage{Type: "SetQuotaGroups", RequestId: fmt.Sprint(i), Data: valid})
+			if r := readRoutineResponse(t, peer); !r.Success || r.Type != "SetQuotaGroupsResponse" || r.RequestId != fmt.Sprint(i) {
+				t.Fatalf("response changed: %+v", r)
+			}
+		}
+		for i := 0; i < 20; i++ {
+			reporter.routeCommand(CommandMessage{Type: "SetQuotaGroups", Data: invalid})
+			if r := readRoutineResponse(t, peer); r.Success {
+				t.Fatalf("invalid budget accepted: %+v", r)
+			}
+		}
+		reporter.routeCommand(CommandMessage{Type: "SetQuotaGroups", Data: valid})
+		readRoutineResponse(t, peer)
+	})
+	if strings.Contains(out, "收到命令") || strings.Count(out, "首次失败") != 1 || strings.Count(out, "已恢复") != 1 || strings.Count(out, "\n") != 2 {
 		t.Fatal(out)
 	}
 }

@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/go-gost/x/logsafe"
 )
@@ -15,7 +16,10 @@ func isRoutineCommand(command string) bool {
 	// ApplyLandingDesired: the panel re-sends the desired landing state every
 	// minute; failures are still logged (first + summary + recovery), and the
 	// landing runtime logs its own reconcile errors (plan 137).
-	case "TcpPing", "PipePing", "ServiceMonitorCheck", "GetServiceClientIPs", "ListServices", "ApplyLandingDesired":
+	// SetQuotaGroups: the panel's quota coordinator re-sends live budgets
+	// whenever a user's counts move on other nodes (plan 167: it was one
+	// 「收到命令」 line per push, ~1350/h on node 32); failures as above.
+	case "TcpPing", "PipePing", "ServiceMonitorCheck", "GetServiceClientIPs", "ListServices", "ApplyLandingDesired", "SetQuotaGroups":
 		return true
 	default:
 		return false
@@ -50,6 +54,10 @@ func routineCommandTarget(cmd CommandMessage) string {
 	}
 }
 
+// pingLossLogs: partial TcpPing losses of all targets — the first at once,
+// then one count per hour (plan 167).
+var pingLossLogs = logsafe.NewEventSummaryEvery(nil, time.Hour)
+
 func (w *WebSocketReporter) logRoutineResult(cmd CommandMessage, response CommandResponse, sendErr error) {
 	failure := ""
 	if !response.Success {
@@ -60,7 +68,11 @@ func (w *WebSocketReporter) logRoutineResult(cmd CommandMessage, response Comman
 			if !result.Success {
 				failure = "探测失败: " + result.ErrorMessage
 			} else if result.PacketLoss > 0 {
-				failure = fmt.Sprintf("探测部分失败: 丢包 %.1f%%", result.PacketLoss)
+				// Plan 167: a partial loss is not an outage (the target answered
+				// and the panel shows the loss). It used to open and close a
+				// failure episode — a 首次失败/已恢复 pair, ~30/h on some nodes —
+				// so it is counted in one hourly line per node instead.
+				pingLossLogs.Record(cmd.Type, fmt.Sprintf("⚠️ %s 部分丢包 target=%q 丢包 %.1f%%", cmd.Type, logsafe.Text(routineCommandTarget(cmd), w.secret), result.PacketLoss))
 			}
 		case ServiceMonitorCheckResult:
 			if !result.Success {

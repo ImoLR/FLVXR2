@@ -433,7 +433,7 @@ func (s *defaultService) Serve() error {
 
 			if err := s.handler.Handle(ctx, conn); err != nil {
 				if !errors.Is(err, net.ErrClosed) {
-					log.Error(err)
+					recordHandlerError(s.name, err, func(line string) { log.Error(line) })
 				}
 				if v := xmetrics.GetCounter(xmetrics.MetricServiceHandlerErrorsCounter,
 					metrics.Labels{"service": s.name, "client": clientIP}); v != nil {
@@ -638,7 +638,7 @@ func (c *detectConn) Read(b []byte) (int, error) {
 		}
 		if detectProtocol(b[:n], c.Conn, flags) {
 			c.Conn.Close()
-			return 0, fmt.Errorf("connection blocked")
+			return 0, errConnectionBlocked
 		}
 	}
 	return n, err
@@ -672,6 +672,65 @@ func IsProtocolBlocked(data []byte) bool {
 // count at most every ten minutes (plan 137, QA F13: this ran for every
 // connection, and allowed TLS printed a line each time).
 var blockLogs = logsafe.NewEventSummary(nil)
+
+// errConnectionBlocked: a protocol filter closed the connection (blockLogs
+// already counted it).
+var errConnectionBlocked = errors.New("connection blocked")
+
+// handlerErrLogs (plan 167): a failed connection wrote one error line each —
+// client resets, target timeouts, scanners on relay ports (node 47: ~1400/day
+// 「relay: unknown command」). Now the first error of each service × class is
+// written at once and later ones as one count per ten minutes.
+var handlerErrLogs = logsafe.NewEventSummary(nil)
+
+// recordHandlerError logs a connection's handler error through emit (the
+// connection's logger), summarized per service and error class.
+func recordHandlerError(service string, err error, emit func(string)) {
+	class := handlerErrorClass(err)
+	if class == "blocked" {
+		return
+	}
+	handlerErrLogs.RecordWith(service+"|"+class, err.Error(), emit)
+}
+
+// handlerErrorClass maps a handler error to "<operation>:<cause>" from a small
+// fixed set, so addresses and ports never make new keys.
+func handlerErrorClass(err error) string {
+	if errors.Is(err, errConnectionBlocked) {
+		return "blocked"
+	}
+	msg := strings.ToLower(err.Error())
+	if strings.Contains(msg, "connection blocked") {
+		return "blocked"
+	}
+	op := "other"
+	if i := strings.IndexAny(msg, " :"); i > 0 {
+		switch first := msg[:i]; first {
+		case "readfrom", "writeto", "dial", "read", "write", "relay", "socks5", "socks4", "tls", "http", "accept", "handshake":
+			op = first
+		}
+	}
+	cause := "other"
+	for _, c := range [...]struct{ match, class string }{
+		{"unknown command", "unknown-command"},
+		{"bad version", "bad-version"},
+		{"connection reset", "reset"},
+		{"broken pipe", "broken-pipe"},
+		{"i/o timeout", "timeout"},
+		{"timed out", "timeout"},
+		{"connection refused", "refused"},
+		{"unreachable", "unreachable"},
+		{"no route to host", "unreachable"},
+		{"eof", "eof"},
+		{"use of closed", "closed"},
+	} {
+		if strings.Contains(msg, c.match) {
+			cause = c.class
+			break
+		}
+	}
+	return op + ":" + cause
+}
 
 func isProtocolBlocked(data []byte, flags protocolBlockFlags) bool {
 	if detectHTTP(data) {
