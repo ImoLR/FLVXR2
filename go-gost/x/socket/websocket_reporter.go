@@ -275,6 +275,11 @@ func NewWebSocketReporter(serverURL string, secret string) *WebSocketReporter {
 // Start 启动WebSocket报告器
 func (w *WebSocketReporter) Start() {
 	if w.nodeID != 36 {
+		// Plan 168: a machine that cannot (or must not) shape entry limits
+		// drops a tree kept from an earlier run before the first tick.
+		if entryRateProbeResult() != "" {
+			landing.Default().DisableEntryRates()
+		}
 		go landing.Default().Run(w.ctx)
 	}
 	go w.egress.run(w.ctx, (&net.Dialer{}).DialContext)

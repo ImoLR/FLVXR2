@@ -278,3 +278,30 @@ func TestEntryRatesApplyPersistStatus(t *testing.T) {
 		t.Fatal("apply after release accepted")
 	}
 }
+
+func TestEntryRatesDisabled(t *testing.T) {
+	dir := t.TempDir()
+	m := NewManager(dir, false)
+	m.rates = &fakeRateEngine{}
+	r := entryTestTree()
+	if _, err := m.ApplyEntryRates(r); err != nil {
+		t.Fatal(err)
+	}
+	// next process: kernel probe failed / kill switch → the kept tree goes
+	m2 := NewManager(dir, false)
+	fake := &fakeRateEngine{}
+	m2.rates = fake
+	m2.DisableEntryRates()
+	m2.mu.Lock()
+	m2.applyRates()
+	m2.mu.Unlock()
+	if len(fake.calls) != 1 || fake.calls[0].entry != nil {
+		t.Fatalf("disabled machine shaped the kept tree: %+v", fake.calls)
+	}
+	if _, err := os.Stat(filepath.Join(dir, entryRatesFile)); !os.IsNotExist(err) {
+		t.Fatal("kept tree file not removed")
+	}
+	if _, err := m2.ApplyEntryRates(r); err == nil {
+		t.Fatal("disabled machine accepted SetEntryRates")
+	}
+}

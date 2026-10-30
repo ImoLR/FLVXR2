@@ -205,9 +205,8 @@ func TestEntryRateKernelNetns(t *testing.T) {
 	if c := r.classTree(rateIfbDown)[rateClassHandle(2050)]; c.ceil != rateUnlimited/8 {
 		t.Fatalf("released group %+v", c)
 	}
-	for i := 1; i <= 3; i++ {
-		e.ensure(want, t1.Add(time.Duration(i)*10*time.Second))
-	}
+	// one tick later: children and the group are gone in the same pass
+	e.ensure(want, t1.Add(10*time.Second))
 	got = r.classTree(rateIfbDown)
 	if _, ok := got[rateClassHandle(2050)]; ok || len(got) != 3 {
 		t.Fatalf("group not cleaned up: %v", got)

@@ -357,7 +357,20 @@ func (e *tcRateEngine) sync(want rateWant, scan rateScan, now time.Time) error {
 	// without filters (step 1 removed them in the same pass) or children.
 	// Plan 168: a released child keeps its parent's limit (rate minimal, ceil
 	// unlimited: it borrows from the parent like before).
-	for slot, cur := range e.classes {
+	// Children first, so a released group goes in the same pass as its
+	// children (plan 168).
+	current := make([]shapeClass, 0, len(e.classes))
+	for _, c := range e.classes {
+		current = append(current, c)
+	}
+	sort.Slice(current, func(i, j int) bool {
+		if (current[i].parent == 0) != (current[j].parent == 0) {
+			return current[i].parent != 0
+		}
+		return current[i].slot < current[j].slot
+	})
+	for _, cur := range current {
+		slot := cur.slot
 		if w, ok := wantClasses[slot]; ok {
 			if w.parent == cur.parent && w.leaf == cur.leaf {
 				delete(e.releasing, slot)

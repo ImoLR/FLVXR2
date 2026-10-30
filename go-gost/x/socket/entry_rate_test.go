@@ -35,6 +35,11 @@ func TestEntryRateHandshake(t *testing.T) {
 	if !strings.HasPrefix(q, "&entryRateTc=1&entryRateTcErr=") || !strings.Contains(q, "%E5%86%85") {
 		t.Fatalf("probe failure not reported: %q", q)
 	}
+	t.Setenv("FLVX_ENTRY_RATE_TC", "off")
+	resetEntryProbe("")
+	if q := entryRateQuery(5); !strings.Contains(q, "entryRateTcErr=") {
+		t.Fatalf("kill switch not reported: %q", q)
+	}
 	w := &WebSocketReporter{nodeID: 5}
 	if _, err := w.handleSetEntryRates(map[string]interface{}{"version": 1}); err == nil {
 		t.Fatal("kernel without tc accepted SetEntryRates")

@@ -4,7 +4,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
+	"os"
 	"strconv"
+	"strings"
 	"sync"
 
 	"github.com/go-gost/x/landing"
@@ -26,7 +28,15 @@ var (
 )
 
 func entryRateProbeResult() string {
-	entryRateProbeOnce.Do(func() { entryRateProbeReason = entryRateProbe() })
+	entryRateProbeOnce.Do(func() {
+		// Kill switch per machine (systemd Environment=): the panel then
+		// keeps the gost / nftables path for this node.
+		if strings.EqualFold(strings.TrimSpace(os.Getenv("FLVX_ENTRY_RATE_TC")), "off") {
+			entryRateProbeReason = "已在本机关闭（FLVX_ENTRY_RATE_TC=off）"
+			return
+		}
+		entryRateProbeReason = entryRateProbe()
+	})
 	return entryRateProbeReason
 }
 

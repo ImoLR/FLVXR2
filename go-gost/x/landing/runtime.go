@@ -111,11 +111,12 @@ type Manager struct {
 	// Plan 168: entry speed limits in the same kernel tree (guarded by
 	// rateMu; entryRep is the lock-free copy for the 1 s report and the
 	// inventory).
-	entry       *EntryRates
-	entryLoaded bool
-	entrySlots  entrySlots
-	entryStatus EntryRateStatus
-	entryRep    atomic.Pointer[entryReport]
+	entry         *EntryRates
+	entryLoaded   bool
+	entryDisabled bool // probe failed / kill switch: never shape entry limits
+	entrySlots    entrySlots
+	entryStatus   EntryRateStatus
+	entryRep      atomic.Pointer[entryReport]
 
 	// Machine protection (plan 118), read without m.mu: reconciles can hold m.mu
 	// for minutes during a first download.

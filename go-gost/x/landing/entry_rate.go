@@ -367,6 +367,19 @@ type entryReport struct {
 	rev    string
 }
 
+// DisableEntryRates is called at start when this machine must not shape
+// entry limits (kernel probe failed or FLVX_ENTRY_RATE_TC=off): a tree kept
+// from an earlier run is dropped (file deleted, objects removed on the next
+// tick) and SetEntryRates is refused; the panel then uses the old path.
+func (m *Manager) DisableEntryRates() {
+	m.rateMu.Lock()
+	defer m.rateMu.Unlock()
+	m.entryDisabled = true
+	m.entryLoaded = true
+	m.entry = nil
+	_ = os.Remove(filepath.Join(m.dir, entryRatesFile))
+}
+
 // loadEntryLocked reads entry_rates.json once per process. Caller holds m.rateMu.
 func (m *Manager) loadEntryLocked() {
 	if m.entryLoaded {
@@ -394,6 +407,9 @@ func (m *Manager) ApplyEntryRates(r EntryRates) (EntryRateStatus, error) {
 	defer m.rateMu.Unlock()
 	if m.ratesReleased {
 		return m.entryStatus, errors.New("agent is stopping")
+	}
+	if m.entryDisabled {
+		return EntryRateStatus{State: "off"}, errors.New("entry rates are disabled on this machine")
 	}
 	m.loadEntryLocked()
 	if r.empty() {
