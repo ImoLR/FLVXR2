@@ -28,7 +28,7 @@ During the fork.98 release test a temp tunnel was created via the API with `flow
 - [x] Unit + contract tests (edge values accepted, 0/negative/too large/NaN rejected; create + update)
 - [x] `go test ./...` in go-backend green
 - [x] Existing contract tests that posted `flow: 99999` to `/tunnel/create|update` (root of the copied proof-script habit) → `flow: 1`
-- [ ] Commit + push, CI green
+- [x] Commit + push, CI green — code commit 1b7421ad, CI Build Check 41134484437 success (backend, PostgreSQL contract, agent, frontend)
 
 ## Resource efficiency
 Pure input validation on already-decoded request fields: no new DB queries, no new goroutines, no extra memory per request.
