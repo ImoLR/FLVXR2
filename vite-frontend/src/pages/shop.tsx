@@ -346,16 +346,6 @@ export default function ShopPage() {
                         >
                           {formatTraffic(pkg.trafficLimit)}
                         </Chip>
-                        <Chip
-                          className="rounded-xs"
-                          color="success"
-                          size="sm"
-                          variant="solid"
-                        >
-                          {pkg.speedLimit > 0
-                            ? `${pkg.speedLimit} Mbps`
-                            : "不限速"}
-                        </Chip>
                       </div>
                           <div className="text-xs text-gray-400 space-y-0.5">
                             <div>

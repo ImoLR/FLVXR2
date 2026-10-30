@@ -96,7 +96,7 @@ export interface UserTunnelForm {
 
 export interface TunnelAssignItem {
   tunnelId: number;
-  speedId: number | null;
+  speedId?: number | null; // plan 170: retired, not sent
 }
 
 export interface UserTunnelBatchAssignForm {

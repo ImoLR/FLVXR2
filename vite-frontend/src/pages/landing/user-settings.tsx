@@ -396,15 +396,12 @@ export const LandingUserSettings = forwardRef<
       return server.landing && !server.sharedRate
         ? "该共享服务器的妙妙屋较旧（待升级）：这里的速率暂不生效"
         : "";
-    const entryOld = server.entry && server.rateOldAgent;
+    // Plan 170: rules have no own speed any more, so an older entry agent
+    // still applies this rate to all of the user's rules (no caveat).
     const landingOld = server.landing && server.landingRateOldAgent;
 
-    if (entryOld && landingOld)
-      return "该服务器 agent 较旧（待升级）：有单独限速的规则不计入这里的速率，落地节点暂不限速（升级 agent 后全部生效）";
     if (landingOld)
       return "该服务器 agent 较旧（待升级）：落地节点暂不限速（升级 agent 后生效）";
-    if (entryOld)
-      return "该服务器 agent 较旧：有单独限速的规则不计入这里的速率（升级 agent 后全部计入）";
     if (server.landing && server.landingRateError)
       return `该服务器未能限制落地节点的速率：${server.landingRateError}`;
     // Plan 168: entry limits normally run in the kernel (tc).

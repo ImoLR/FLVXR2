@@ -14,7 +14,6 @@ import type {
   ForwardClientIPsApiData,
   PathTunnelApiItem,
   PathTunnelDetailApiItem,
-  SpeedLimitApiItem,
   TunnelLatencyApiItem,
 } from "@/api/types";
 
@@ -75,7 +74,6 @@ import {
   createForward,
   getForwardList,
 	getForwardClientIPs,
-  getSpeedLimitList,
   getPeerShareList,
   getPeerRemoteUsageList,
   updateForward,
@@ -161,7 +159,6 @@ export interface Forward {
   speedLimitEnabled?: boolean;
   speedLimit?: number;
   /** plan 168 (admin): entry nodes that still limit this rule the old way (gost / nftables). */
-  rateFallback?: string;
   inSpeed?: number; // 新增：实时上行速度 (bytes/s)
   outSpeed?: number; // 新增：实时下行速度 (bytes/s)
   mode?: "gost" | "nftables" | "wg_path";
@@ -753,8 +750,6 @@ const mapForwardApiItems = (items: ForwardApiItem[]): Forward[] => {
     chain: (forward as any).chain as ForwardChainInfo | undefined,
     lineMachine: (forward as any).lineMachine === true,
     lineNonCompliant: (forward as any).lineNonCompliant === true,
-    // plan 168: entry nodes still limiting this rule the old way (admin list)
-    rateFallback: (forward as any).rateFallback || undefined,
     lineComplianceAck: (forward as any).lineComplianceAck === true,
     landingNodeId: Number(forward.landingNodeId || 0) || undefined,
     strategy: typeof forward.strategy === "string" ? forward.strategy : "fifo",
@@ -1799,7 +1794,6 @@ export default function ForwardPage() {
     Record<number, PathTunnelDetailApiItem>
   >({});
   const [nodes, setNodes] = useState<Node[]>([]);
-  const [speedLimits, setSpeedLimits] = useState<SpeedLimitApiItem[]>([]);
   const [forwardPage, setForwardPage] = useState(1);
   const [forwardPageSize, setForwardPageSize] = useLocalStorageState(
     "forwardPageSize",
@@ -2195,10 +2189,6 @@ export default function ForwardPage() {
   }, [allTunnels, form.tunnelId]);
   const editingChain = isEdit
     ? forwards.find((forward) => forward.id === form.id)?.chain
-    : undefined;
-  // Plan 168: the rule's speed still runs the old way on some entry node.
-  const editingRateFallback = isEdit
-    ? forwards.find((forward) => forward.id === form.id)?.rateFallback
     : undefined;
   const selectedLineTunnel = tunnels.find((tunnel) => tunnel.id === form.tunnelId);
   // Plan 164: the tick stays while the rule keeps its tunnel and 手动填写 target.
@@ -2677,14 +2667,11 @@ export default function ForwardPage() {
       setLoading(lod);
       try {
         const params = {}; // 永远拉取全量数据
-        const [tunnelsRes, forwardsRes, speedLimitsRes, wgPathsRes] =
+        // Plan 170: 限速规则 are retired — no speed limit list any more.
+        const [tunnelsRes, forwardsRes, wgPathsRes] =
           await Promise.all([
             userTunnel(),
             getForwardList(params),
-            // Speed limits are admin-only data (403 for normal users).
-            isAdmin
-              ? getSpeedLimitList()
-              : Promise.resolve({ code: 0, msg: "", data: [] }),
             isAdmin
               ? getPathTunnelList()
               : Promise.resolve({ code: 0, msg: "", data: [] }),
@@ -2699,8 +2686,6 @@ export default function ForwardPage() {
             mapForwardApiItems(forwardsRes.data?.items ?? []),
           );
         }
-        if (speedLimitsRes.code === 0)
-          setSpeedLimits(speedLimitsRes.data || []);
         if (wgPathsRes.code === 0) {
           const paths = (wgPathsRes.data || []) as PathTunnelApiItem[];
 
@@ -2762,51 +2747,6 @@ export default function ForwardPage() {
     };
   }, [loading, refreshForwardList]);
   // 表单验证
-  const noLimitSpeedLimitIds = useMemo(() => {
-    return new Set(
-      speedLimits
-        .filter((speedLimit) => {
-          const name = speedLimit.name || "";
-
-          return name.includes("不限速") || speedLimit.speed === 0;
-        })
-        .map((speedLimit) => speedLimit.id),
-    );
-  }, [speedLimits]);
-  const speedLimitIds = useMemo(() => {
-    return new Set(speedLimits.map((speedLimit) => speedLimit.id));
-  }, [speedLimits]);
-  const normalizeSpeedId = (speedId?: number | null): number | null => {
-    if (speedId === null || speedId === undefined) {
-      return null;
-    }
-    if (noLimitSpeedLimitIds.has(speedId)) {
-      return null;
-    }
-    if (speedLimits.length > 0 && !speedLimitIds.has(speedId)) {
-      return null;
-    }
-
-    return speedId;
-  };
-  const isMissingSpeedLimit = (speedId?: number | null): boolean => {
-    if (speedId === null || speedId === undefined) {
-      return false;
-    }
-    if (speedLimits.length === 0 || noLimitSpeedLimitIds.has(speedId)) {
-      return false;
-    }
-
-    return !speedLimitIds.has(speedId);
-  };
-  const availableSpeedLimits = useMemo(
-    () =>
-      speedLimits.filter(
-        (speedLimit) => !noLimitSpeedLimitIds.has(speedLimit.id),
-      ),
-    [speedLimits, noLimitSpeedLimitIds],
-  );
-  const selectedSpeedId = normalizeSpeedId(form.speedId);
   const validateForm = (): boolean => {
     const newErrors: { [key: string]: string } = {};
 
@@ -2961,7 +2901,7 @@ export default function ForwardPage() {
       chainLink: "",
       interfaceName: forward.interfaceName || "",
       strategy: forward.strategy || "fifo",
-      speedId: normalizeSpeedId(forward.speedId),
+      speedId: null, // plan 170: rule speed retired
       maxConnections: forward.maxConnections ?? 0,
       maxClientIps: forward.maxClientIps ?? 0,
       trafficLimit: forward.trafficLimit ?? 0,
@@ -3001,7 +2941,7 @@ export default function ForwardPage() {
       chainLink: "",
       interfaceName: forward.interfaceName || "",
       strategy: forward.strategy || "fifo",
-      speedId: normalizeSpeedId(forward.speedId),
+      speedId: null, // plan 170: rule speed retired
       maxConnections: forward.maxConnections ?? 0,
       maxClientIps: forward.maxClientIps ?? 0,
       trafficLimit: forward.trafficLimit ?? 0,
@@ -3252,13 +3192,10 @@ export default function ForwardPage() {
         chainLink: (form.chainLink || "").trim(),
         mode: "gost",
         strategy: "fifo",
-        speedId: normalizeSpeedId(form.speedId),
         maxConnections: form.maxConnections,
         maxClientIps: form.maxClientIps,
         trafficLimit: form.trafficLimit,
         expiryTime: form.expiryTime,
-        speedLimitEnabled: false,
-        speedLimit: 0,
         ...entryKeyField(),
       };
       let res;
@@ -3358,8 +3295,6 @@ export default function ForwardPage() {
         : {};
       const addressCount = processedRemoteAddr.split(",").length;
       let res: { code: number; msg: string };
-      const normalizedSpeedId = normalizeSpeedId(form.speedId);
-      const speedLimitAutoCleared = isMissingSpeedLimit(form.speedId);
 
       if (isEdit) {
         const updateData = {
@@ -3371,13 +3306,10 @@ export default function ForwardPage() {
           remoteAddr: form.targetMode && form.targetMode !== "manual" && form.mode !== "wg_path" ? "" : processedRemoteAddr,
           ...landingTarget,
           strategy: addressCount > 1 ? form.strategy : "fifo",
-          speedId: normalizedSpeedId,
           maxConnections: form.maxConnections,
           maxClientIps: form.maxClientIps,
           trafficLimit: form.trafficLimit,
           expiryTime: form.expiryTime,
-          speedLimitEnabled: false,
-          speedLimit: 0,
           mode: form.mode,
           wgPathId: form.wgPathId,
           wgRuleType: form.wgRuleType,
@@ -3400,13 +3332,10 @@ export default function ForwardPage() {
           remoteAddr: form.targetMode && form.targetMode !== "manual" && form.mode !== "wg_path" ? "" : processedRemoteAddr,
           ...landingTarget,
           strategy: addressCount > 1 ? form.strategy : "fifo",
-          speedId: normalizedSpeedId,
           maxConnections: form.maxConnections,
           maxClientIps: form.maxClientIps,
           trafficLimit: form.trafficLimit,
           expiryTime: form.expiryTime,
-          speedLimitEnabled: false,
-          speedLimit: 0,
           mode: form.mode,
           wgPathId: form.wgPathId,
           wgRuleType: form.wgRuleType,
@@ -3450,12 +3379,6 @@ export default function ForwardPage() {
             duration: 5000,
           });
         });
-        if (speedLimitAutoCleared) {
-          toast("所选限速规则不存在，已自动清除为不限速", {
-            icon: "⚠️",
-            duration: 5000,
-          });
-        }
         toast.success(isEdit ? "修改成功" : "创建成功");
         setModalOpen(false);
         await refreshForwardList(false);
@@ -4495,7 +4418,7 @@ export default function ForwardPage() {
         (f) => f.tunnelId === targetTunnelId,
       );
     }
-    // 添加限速规则筛选
+    // 限速规则筛选 (plan 170: retired; the filter is never set any more)
     if (searchParams.speedLimitId !== undefined) {
       if (searchParams.speedLimitId === -1) {
         // 不限速（speedId 为 null 或 undefined）
@@ -6853,21 +6776,6 @@ export default function ForwardPage() {
                     </button>
                     {advancedOptionsOpen && (
                       <div className="p-4 space-y-4 bg-content1">
-                        <SpeedLimitRuleField
-                          availableSpeedLimits={availableSpeedLimits}
-                          selectedSpeedId={selectedSpeedId}
-                          onChange={(speedId) =>
-                            setForm((prev) => ({ ...prev, speedId }))
-                          }
-                        />
-                        {editingRateFallback && (
-                          <p
-                            data-rate-fallback
-                            className="-mt-2 text-xs text-warning"
-                          >
-                            {editingRateFallback}
-                          </p>
-                        )}
                         {/* 连接/IP 限制与流量控制 */}
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mb-2">
                           <ConnectionLimitField
@@ -8511,40 +8419,6 @@ function ClientIPLimitField({
         onChange={handleChange}
       />
     </div>
-  );
-}
-// ─── Speed Limit Rule Field ──────────────────────────────────────────────
-function SpeedLimitRuleField({
-  availableSpeedLimits,
-  selectedSpeedId,
-  onChange,
-}: {
-  availableSpeedLimits: SpeedLimitApiItem[];
-  selectedSpeedId: number | null;
-  onChange: (val: number | null) => void;
-}) {
-  return (
-    <Select
-      description="选择已创建的限速规则；留空表示不限速"
-      label="规则限速"
-      placeholder="不限速"
-      selectedKeys={selectedSpeedId !== null ? [selectedSpeedId.toString()] : []}
-      variant="bordered"
-      onSelectionChange={(keys) => {
-        const selectedKey = Array.from(keys)[0] as string | undefined;
-
-        onChange(selectedKey ? Number(selectedKey) : null);
-      }}
-    >
-      {availableSpeedLimits.map((speedLimit) => (
-        <SelectItem
-          key={speedLimit.id.toString()}
-          textValue={speedLimit.name || `限速 ${speedLimit.speed} Mbps`}
-        >
-          {speedLimit.name || `限速 ${speedLimit.speed} Mbps`}
-        </SelectItem>
-      ))}
-    </Select>
   );
 }
 // ─── Traffic Limit Field (form input) ──────────────────────────────────────

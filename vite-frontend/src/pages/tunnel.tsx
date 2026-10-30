@@ -70,7 +70,6 @@ import {
   createTunnel,
   batchDeleteTunnelsWithForwards,
   getTunnelList,
-  getSpeedLimitList,
   updateTunnel,
   deleteTunnelWithForwards,
   getNodeList,
@@ -490,9 +489,6 @@ export default function TunnelPage() {
   const [tunnels, setTunnels] = useState<Tunnel[]>([]);
   const [tunnelOrder, setTunnelOrder] = useState<number[]>([]);
   const [nodes, setNodes] = useState<Node[]>([]);
-  const [speedLimits, setSpeedLimits] = useState<
-    Array<{ id: number; name: string; speed: number }>
-  >([]);
   const [searchKeyword, setSearchKeyword] = useLocalStorageState(
     "tunnel-search-keyword",
     "",
@@ -681,19 +677,6 @@ export default function TunnelPage() {
       }
     } catch {}
   }, []);
-  const refreshSpeedLimits = useCallback(async () => {
-    try {
-      const res = await getSpeedLimitList();
-
-      if (res.code === 0) {
-        setSpeedLimits(
-          (res.data || []).filter(
-            (item) => item.name?.trim() !== "不限速",
-          ),
-        );
-      }
-    } catch {}
-  }, []);
   // 加载隧道分组
   const loadTunnelGroupsNew = useCallback(async () => {
     const res = await getTunnelGroupNewList();
@@ -709,7 +692,6 @@ export default function TunnelPage() {
       await Promise.all([
         refreshTunnelList(false),
         refreshNodes(),
-        refreshSpeedLimits(),
         loadTunnelGroupsNew(),
       ]);
     } catch {
@@ -717,7 +699,7 @@ export default function TunnelPage() {
     } finally {
       setLoading(false);
     }
-  }, [refreshNodes, refreshTunnelList, refreshSpeedLimits, loadTunnelGroupsNew]);
+  }, [refreshNodes, refreshTunnelList, loadTunnelGroupsNew]);
 
   useEffect(() => {
     loadData();
@@ -1598,7 +1580,8 @@ export default function TunnelPage() {
         outNodeId: cleanedOutNodeId,
         chainNodes: cleanedChainNodes,
         tunnelGroupId: form.tunnelGroupId,
-        speedId: form.speedId ?? null,
+        // Plan 170: 隧道限速 retired — never sent.
+        speedId: null,
         // 下划线命名，给更新接口看 (强制绑定)
         in_ip: inIpString,
         in_node_id: (form.inNodeId || []).map((n) => ({
@@ -1609,7 +1592,7 @@ export default function TunnelPage() {
         out_node_id: cleanedOutNodeId,
         chain_nodes: cleanedChainNodes,
         tunnel_group_id: form.tunnelGroupId,
-        speed_id: form.speedId ?? null,
+        speed_id: null,
       };
       const response = isEdit
         ? await updateTunnel(data)
@@ -5066,36 +5049,6 @@ export default function TunnelPage() {
                       仅对 GOST 模式的 TCP 转发生效；UDP 和 nftables
                       模式转发不会过滤。
                     </div>
-                  </div>
-                </div>
-                <div className="mt-4">
-                  <Select
-                    label="隧道限速"
-                    placeholder="选择规则限速的规则来限制"
-                    selectedKeys={
-                      form.speedId ? [form.speedId.toString()] : []
-                    }
-                    size="sm"
-                    variant="bordered"
-                    onSelectionChange={(keys) => {
-                      const selected = Array.from(keys)[0] as
-                        | string
-                        | undefined;
-
-                      setForm((prev) => ({
-                        ...prev,
-                        speedId: selected ? Number(selected) : null,
-                      }));
-                    }}
-                  >
-                    {speedLimits.map((speedLimit) => (
-                      <SelectItem key={speedLimit.id.toString()}>
-                        {speedLimit.name || `${speedLimit.speed}Mbps`}
-                      </SelectItem>
-                    ))}
-                  </Select>
-                  <div className="mt-1 text-xs text-default-400">
-                    该限速会作为此隧道下新建规则的默认限制；已有规则不会被自动覆盖。
                   </div>
                 </div>
                 <Alert

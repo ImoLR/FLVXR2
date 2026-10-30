@@ -16,9 +16,6 @@ import type {
   NodeTagApiItem,
   NodeTagMutationPayload,
   OfflineDeployPayload,
-  SpeedLimitApiItem,
-  SpeedLimitBindingOptions,
-  SpeedLimitDetailApiData,
   TunnelBatchDeletePreviewApiData,
   TunnelBatchDeleteWithForwardsApiData,
   TunnelDeletePreviewApiData,
@@ -47,7 +44,6 @@ import type {
   UserTunnelAssignPayload,
   UserTunnelRemovePayload,
   ForwardMutationPayload,
-  SpeedLimitMutationPayload,
   UpdatePasswordPayload,
   BackupImportPayload,
   NodeMetricApiItem,
@@ -414,20 +410,6 @@ export const diagnoseForward = (forwardId: number) =>
 export const updateForwardOrder = (data: {
   forwards: Array<{ id: number; inx: number }>;
 }) => Network.post("/forward/update-order", data);
-
-// 限速规则CRUD操作 - 全部使用POST请求
-export const createSpeedLimit = (data: SpeedLimitMutationPayload) =>
-  Network.post("/speed-limit/create", data);
-export const getSpeedLimitList = () =>
-  Network.post<SpeedLimitApiItem[]>("/speed-limit/list");
-export const getSpeedLimitDetail = (id: number) =>
-  Network.post<SpeedLimitDetailApiData>("/speed-limit/detail", { id });
-export const getSpeedLimitOptions = () =>
-  Network.post<SpeedLimitBindingOptions>("/speed-limit/options");
-export const updateSpeedLimit = (data: SpeedLimitMutationPayload) =>
-  Network.post("/speed-limit/update", data);
-export const deleteSpeedLimit = (id: number) =>
-  Network.post("/speed-limit/delete", { id });
 
 // 修改密码接口
 export const updatePassword = (data: UpdatePasswordPayload) =>

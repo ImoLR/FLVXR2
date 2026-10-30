@@ -1,4 +1,10 @@
-import { Route, Routes, useNavigate, useLocation } from "react-router-dom";
+import {
+  Navigate,
+  Route,
+  Routes,
+  useNavigate,
+  useLocation,
+} from "react-router-dom";
 import { useEffect } from "react";
 
 import IndexPage from "@/pages/index";
@@ -15,7 +21,6 @@ import TLSPage from "@/pages/tls";
 import UserPage from "@/pages/user";
 import GroupPage from "@/pages/group";
 import ProfilePage from "@/pages/profile";
-import LimitPage from "@/pages/limit";
 import ConfigPage from "@/pages/config";
 import PanelSharingPage from "@/pages/panel-sharing";
 import ShopPage from "@/pages/shop";
@@ -219,14 +224,8 @@ function App() {
         }
         path="/profile"
       />
-      <Route
-        element={
-          <ProtectedRoute>
-            <LimitPage />
-          </ProtectedRoute>
-        }
-        path="/limit"
-      />
+      {/* Plan 170: 限速规则 retired (speed = 编辑用户 → 默认速率 + 服务器速率). */}
+      <Route element={<Navigate replace to="/dashboard" />} path="/limit" />
       <Route
         element={
           <ProtectedRoute>

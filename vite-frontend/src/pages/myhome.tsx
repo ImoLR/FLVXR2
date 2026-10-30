@@ -282,7 +282,7 @@ export default function MyHomePage() {
           </CardHeader>
           <CardBody className="pt-2">
             {subData?.subscription ? (
-              <div className="grid grid-cols-2 sm:grid-cols-6 gap-2">
+              <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
                 <div className="p-3 bg-green-50 dark:bg-green-900/10 rounded-lg">                 
                   <span className="text-sm font-semibold text-foreground">
                     价格
@@ -308,16 +308,6 @@ export default function MyHomePage() {
                   <p className="font-bold text-primary-500 mt-1 text-lg">
                     {subData.package!.trafficLimit > 0
                       ? `${subData.package!.trafficLimit} GB`
-                      : "不限"}
-                  </p>
-                </div>
-                <div className="p-3 bg-success-50 dark:bg-success-900/10 rounded-lg">
-                  <span className="text-sm font-semibold text-foreground">
-                    限速
-                  </span>
-                  <p className="font-bold text-success-500 mt-1 text-lg">
-                    {subData.package!.speedLimit > 0
-                      ? `${subData.package!.speedLimit} Mbps`
                       : "不限"}
                   </p>
                 </div>

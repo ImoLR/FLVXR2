@@ -71,7 +71,6 @@ import {
   UserTunnel,
   TunnelAssignItem,
   Tunnel,
-  SpeedLimit,
   Pagination as PaginationType,
 } from "@/types";
 import {
@@ -84,7 +83,6 @@ import {
   getUserTunnelList,
   removeUserTunnel,
   updateUserTunnel,
-  getSpeedLimitList,
   resetUserFlow,
   getUserGroupList,
   listAutoBuyTrafficPackages,
@@ -619,41 +617,7 @@ export default function UserPage() {
   const [batchResetUserList, setBatchResetUserList] = useState<User[]>([]);
   // 其他数据
   const [tunnels, setTunnels] = useState<Tunnel[]>([]);
-  const [speedLimits, setSpeedLimits] = useState<SpeedLimit[]>([]);
   const [userGroups, setUserGroups] = useState<UserGroup[]>([]);
-  const noLimitSpeedLimitIds = useMemo(() => {
-    return new Set(
-      speedLimits
-        .filter((speedLimit) => speedLimit.name.trim() === "不限速")
-        .map((speedLimit) => speedLimit.id),
-    );
-  }, [speedLimits]);
-  const speedLimitIds = useMemo(() => {
-    return new Set(speedLimits.map((speedLimit) => speedLimit.id));
-  }, [speedLimits]);
-  const normalizeSpeedId = (speedId?: number | null): number | null => {
-    if (speedId === null || speedId === undefined) {
-      return null;
-    }
-    if (noLimitSpeedLimitIds.has(speedId)) {
-      return null;
-    }
-    if (speedLimits.length > 0 && !speedLimitIds.has(speedId)) {
-      return null;
-    }
-
-    return speedId;
-  };
-  const isMissingSpeedLimit = (speedId?: number | null): boolean => {
-    if (speedId === null || speedId === undefined) {
-      return false;
-    }
-    if (speedLimits.length === 0 || noLimitSpeedLimitIds.has(speedId)) {
-      return false;
-    }
-
-    return !speedLimitIds.has(speedId);
-  };
   // 视图模式切换
   const handleViewModeToggle = useCallback((mode: "card" | "list") => {
     setViewMode(mode);
@@ -878,23 +842,6 @@ export default function UserPage() {
       }
     } catch {}
   }, []);
-  const loadSpeedLimits = useCallback(async () => {
-    try {
-      const response = await getSpeedLimitList();
-
-      if (response.code === 0) {
-        const speedLimitList = Array.isArray(response.data)
-          ? response.data.map((item) => ({
-              ...item,
-              uploadSpeed: item.uploadSpeed ?? item.speed ?? 0,
-              downloadSpeed: item.downloadSpeed ?? item.speed ?? 0,
-            }))
-          : [];
-
-        setSpeedLimits(speedLimitList);
-      }
-    } catch {}
-  }, []);
   const loadUserGroups = useCallback(async () => {
     try {
       const response = await getUserGroupList();
@@ -928,10 +875,9 @@ export default function UserPage() {
   // 生命周期
   useEffect(() => {
     void loadTunnels();
-    void loadSpeedLimits();
     void loadUserGroups();
     void loadMonitorPermissions();
-  }, [loadSpeedLimits, loadTunnels, loadUserGroups]);
+  }, [loadTunnels, loadUserGroups]);
   useEffect(() => {
     void loadUsers();
   }, [loadUsers]);
@@ -1116,7 +1062,7 @@ export default function UserPage() {
       num: user.num,
       maxConnections: user.maxConnections ?? 0,
       maxClientIps: user.maxClientIps ?? 0,
-      speedLimitId: normalizeSpeedId(user.speedLimitId),
+      speedLimitId: null, // plan 170: legacy 「总限速规则」 retired
       expTime: user.expTime ? new Date(user.expTime) : null,
       flowResetTime: user.flowResetTime ?? 0,
       groupIds: currentGroupIds,
@@ -1211,9 +1157,9 @@ export default function UserPage() {
         maxConnections,
         maxClientIps,
         serverRateMbps,
-        // Plan 159: a 默认速率 replaces the old 「总限速规则」 (only ever a
-        // default copied into new rules); the panel clears it too.
-        speedLimitId: serverRateMbps > 0 ? null : userForm.speedLimitId,
+        // Plan 170: the legacy 「总限速规则」 is retired (the panel ignores
+        // and clears it).
+        speedLimitId: null,
         balance: Math.round(userForm.balance * 100),
         renewalAmount: Math.round(userForm.renewalAmount * 100),
         expTime: userForm.expTime?.getTime() ?? 0,
@@ -1393,33 +1339,16 @@ export default function UserPage() {
     }
     setAssignLoading(true);
     try {
-      let speedLimitAutoCleared = false;
+      // Plan 170: 用户隧道权限 限速 is retired — only the tunnels are sent.
       const tunnelsToAssign: TunnelAssignItem[] = Array.from(
-        batchTunnelSelections.entries(),
-      ).map(([tunnelId, speedId]) => ({
-        tunnelId,
-        speedId: (() => {
-          const cleared = normalizeSpeedId(speedId);
-
-          if (isMissingSpeedLimit(speedId)) {
-            speedLimitAutoCleared = true;
-          }
-
-          return cleared;
-        })(),
-      }));
+        batchTunnelSelections.keys(),
+      ).map((tunnelId) => ({ tunnelId }));
       const response = await batchAssignUserTunnel({
         userId: currentUser.id,
         tunnels: tunnelsToAssign,
       });
 
       if (response.code === 0) {
-        if (speedLimitAutoCleared) {
-          toast("所选限速规则不存在，已自动清除为不限速", {
-            icon: "⚠️",
-            duration: 5000,
-          });
-        }
         toast.success(response.msg || "分配成功");
         setBatchTunnelSelections(new Map());
         setIsTunnelListExpanded(false);
@@ -1436,7 +1365,6 @@ export default function UserPage() {
   const handleEditTunnel = (userTunnel: UserTunnel) => {
     setEditTunnelForm({
       ...userTunnel,
-      speedId: normalizeSpeedId(userTunnel.speedId),
       expTime: userTunnel.expTime,
     });
     onEditTunnelModalOpen();
@@ -1445,38 +1373,23 @@ export default function UserPage() {
     if (!editTunnelForm) return;
     setEditTunnelLoading(true);
     try {
-      const speedLimitAutoCleared = isMissingSpeedLimit(editTunnelForm.speedId);
       const response = await updateUserTunnel({
         id: editTunnelForm.id,
         flow: editTunnelForm.flow,
         num: editTunnelForm.num,
         expTime: editTunnelForm.expTime,
         flowResetTime: editTunnelForm.flowResetTime,
-        speedId: normalizeSpeedId(editTunnelForm.speedId),
         status: editTunnelForm.status,
       });
 
       if (response.code === 0) {
-        if (speedLimitAutoCleared) {
-          toast("所选限速规则不存在，已自动清除为不限速", {
-            icon: "⚠️",
-            duration: 5000,
-          });
-        }
         toast.success("更新成功");
         onEditTunnelModalClose();
         if (currentUser) {
           const nextTunnel = normalizeUserTunnelItem({
             ...editTunnelForm,
-            speedId: normalizeSpeedId(editTunnelForm.speedId),
-            speedLimitName:
-              normalizeSpeedId(editTunnelForm.speedId) !== null
-                ? speedLimits.find(
-                    (speedLimit) =>
-                      speedLimit.id ===
-                      normalizeSpeedId(editTunnelForm.speedId),
-                  )?.name
-                : undefined,
+            speedId: null,
+            speedLimitName: undefined,
           });
 
           setUserTunnels((prev) => replaceItemById(prev, nextTunnel));
@@ -1817,15 +1730,6 @@ export default function UserPage() {
       setBatchOperationLoading((prev) => ({ ...prev, delete: false }));
     }
   };
-  const editAvailableSpeedLimits = speedLimits.filter(
-    (speedLimit) => !noLimitSpeedLimitIds.has(speedLimit.id),
-  );
-  const getSpeedLimitsForTunnel = (_tunnelId: number) => {
-    return speedLimits.filter(
-      (speedLimit) => !noLimitSpeedLimitIds.has(speedLimit.id),
-    );
-  };
-  const editTunnelSelectedSpeedId = normalizeSpeedId(editTunnelForm?.speedId);
   const toggleTunnelSelection = (tunnelId: number) => {
     setBatchTunnelSelections((prev) => {
       const newMap = new Map(prev);
@@ -1835,15 +1739,6 @@ export default function UserPage() {
       } else {
         newMap.set(tunnelId, null);
       }
-
-      return newMap;
-    });
-  };
-  const updateTunnelSpeedLimit = (tunnelId: number, speedId: number | null) => {
-    setBatchTunnelSelections((prev) => {
-      const newMap = new Map(prev);
-
-      newMap.set(tunnelId, speedId);
 
       return newMap;
     });
@@ -2946,8 +2841,8 @@ export default function UserPage() {
                   }))
                 }
               />
-              {/* Plan 159: the old 「总限速规则」 binding becomes the user's
-                  默认速率 on every server (per machine, not a total). */}
+              {/* Plan 159: 默认速率 on every server (per machine, not a total).
+                  Plan 170: the legacy 「总限速规则」 binding is retired. */}
               <div className="space-y-1">
                 <Input
                   data-user-server-rate
@@ -2969,40 +2864,6 @@ export default function UserPage() {
                     }))
                   }
                 />
-                {userForm.speedLimitId !== null && (
-                  <div
-                    data-legacy-speed-binding
-                    className="flex flex-wrap items-center gap-2 rounded-lg bg-warning-50 px-2 py-1.5 text-xs text-warning-700 dark:bg-warning-500/10 dark:text-warning-300"
-                  >
-                    <span className="min-w-0 flex-1">
-                      {(() => {
-                        const legacy = speedLimits.find(
-                          (speedLimit) =>
-                            speedLimit.id === userForm.speedLimitId,
-                        );
-                        const label = legacy
-                          ? `${legacy.name || "限速"}（${legacy.speed ?? 0} Mbps）`
-                          : `#${userForm.speedLimitId}`;
-
-                        return `原「总限速规则」${label}：只作为新建规则的默认限速${
-                          Number(userLimitDraft.serverRateMbps || 0) > 0
-                            ? "，设置默认速率后保存会清除它"
-                            : ""
-                        }`;
-                      })()}
-                    </span>
-                    <Button
-                      color="danger"
-                      size="sm"
-                      variant="flat"
-                      onPress={() =>
-                        setUserForm((prev) => ({ ...prev, speedLimitId: null }))
-                      }
-                    >
-                      清除
-                    </Button>
-                  </div>
-                )}
               </div>
               <Select
                 label="归零日期"
@@ -3576,20 +3437,11 @@ export default function UserPage() {
                             <TableColumn className="w-[120px] sm:w-[150px]">
                               隧道名称
                             </TableColumn>
-                            <TableColumn className="w-[120px] sm:w-[150px]">
-                              限速
-                            </TableColumn>
                           </TableHeader>
                           <TableBody>
                             {tunnels.map((tunnel) => {
                               const isAssigned = isTunnelAssigned(tunnel.id);
                               const isSelected = batchTunnelSelections.has(
-                                tunnel.id,
-                              );
-                              const tunnelSpeedLimits = getSpeedLimitsForTunnel(
-                                tunnel.id,
-                              );
-                              const currentSpeedId = batchTunnelSelections.get(
                                 tunnel.id,
                               );
 
@@ -3617,50 +3469,6 @@ export default function UserPage() {
                                     >
                                       {tunnel.name}
                                     </span>
-                                  </TableCell>
-                                  <TableCell>
-                                    {isSelected && !isAssigned ? (
-                                      <div onClick={(e) => e.stopPropagation()}>
-                                        <Select
-                                          aria-label="限速选择"
-                                          className="w-[100px] sm:w-[120px]"
-                                          placeholder="不限速"
-                                          selectedKeys={
-                                            currentSpeedId
-                                              ? [currentSpeedId.toString()]
-                                              : []
-                                          }
-                                          size="sm"
-                                          variant="bordered"
-                                          onSelectionChange={(keys) => {
-                                            const selectedKey =
-                                              Array.from(keys)[0];
-
-                                            updateTunnelSpeedLimit(
-                                              tunnel.id,
-                                              selectedKey
-                                                ? Number(selectedKey)
-                                                : null,
-                                            );
-                                          }}
-                                        >
-                                          {tunnelSpeedLimits.map((sl) => (
-                                            <SelectItem
-                                              key={sl.id.toString()}
-                                              textValue={sl.name}
-                                            >
-                                              <span className="text-xs sm:text-sm">
-                                                {sl.name}
-                                              </span>
-                                            </SelectItem>
-                                          ))}
-                                        </Select>
-                                      </div>
-                                    ) : (
-                                      <span className="text-xs sm:text-sm text-default-400">
-                                        -
-                                      </span>
-                                    )}
                                   </TableCell>
                                 </TableRow>
                               );
@@ -3748,9 +3556,6 @@ export default function UserPage() {
                         <TableColumn className="w-[140px] sm:w-[160px]">
                           流量统计
                         </TableColumn>
-                        <TableColumn className="w-[90px] sm:w-[100px]">
-                          限速
-                        </TableColumn>
                         <TableColumn className="w-[60px] sm:w-[80px]">
                           状态
                         </TableColumn>
@@ -3804,16 +3609,6 @@ export default function UserPage() {
                                   {formatFlow(userTunnel.flow, "gb")}
                                 </span>
                               </div>
-                            </TableCell>
-                            <TableCell>
-                              <span className="text-xs sm:text-sm text-default-600 bg-default-100 px-1.5 py-0.5 sm:px-2 sm:py-1 rounded">
-                                {userTunnel.speedLimitName
-                                  ? userTunnel.speedLimitName.replace(
-                                      /^限速\s*/,
-                                      "",
-                                    )
-                                  : "不限速"}
-                              </span>
                             </TableCell>
                             <TableCell>
                               <div
@@ -3995,38 +3790,6 @@ export default function UserPage() {
           <ModalBody>
             {editTunnelForm && (
               <>
-                <Select
-                  label="限速规则"
-                  placeholder="不限速"
-                  selectedKeys={
-                    editTunnelSelectedSpeedId !== null
-                      ? [editTunnelSelectedSpeedId.toString()]
-                      : []
-                  }
-                  onSelectionChange={(keys) => {
-                    const selectedKey = Array.from(keys)[0] as
-                      | string
-                      | undefined;
-
-                    setEditTunnelForm((prev) =>
-                      prev
-                        ? {
-                            ...prev,
-                            speedId: selectedKey ? Number(selectedKey) : null,
-                          }
-                        : null,
-                    );
-                  }}
-                >
-                  {editAvailableSpeedLimits.map((speedLimit) => (
-                    <SelectItem
-                      key={speedLimit.id.toString()}
-                      textValue={speedLimit.name}
-                    >
-                      {speedLimit.name}
-                    </SelectItem>
-                  ))}
-                </Select>
                 <RadioGroup
                   label="状态"
                   orientation="horizontal"
