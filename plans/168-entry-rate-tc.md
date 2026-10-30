@@ -4,6 +4,12 @@ Brief: `/root/flvx-workers/runs/entry-rate-tc/brief.md` (user 2026-10-30 「把�
 Branch `feature/3.0.27-entry-rate-tc` from tag `3.0.27-fork.97` (= prod). Build only: no tag, no release, no prod writes, no OTA.
 Base reading: plans 159 / 161, `runs/limits-landing-rate/final.md` + `lab/fair/`, `contracts/limits-unify-decisions.md`.
 
+> **Superseded in part by plan 170 (speed-simplify, 2026-10-30 ~23:50 TW):** the user retired 限速规则 / 竞技场 and the
+> rule's own speed — only 用户默认速率 + per-user per-server 速率 remain. The tree now only gets user classes
+> (`repo.EntryRateRules` no longer reads rule limits), so the user decisions 2 (cross-user 竞技场 vs user 速率) and 3
+> (non-arena 限速规则 per rule vs shared) in `runs/entry-rate-tc/final.md` became moot. The rule / arena class code
+> stays (tested) but is not reached.
+
 ## Facts (code, fork.97)
 
 - A rule has at most ONE own limit on its entry machine: dynamic `forward.speed_limit` (`forward_<id>_speed`) else
