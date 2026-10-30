@@ -63,30 +63,19 @@ const (
 	rateDrain = 2 * time.Second
 )
 
-// rateUnlimited is the HTB rate of a class whose limit was removed (above any
-// NIC; HTB carries it as a 64-bit rate).
-var rateUnlimited = rateWire(uint64(maxRateMbps) * RateBytesPerMbps)
-
-// rateWire converts a FLVX rate (payload bytes/s) into the HTB rate in bits/s.
-// HTB counts whole frames (Ethernet + IP + TCP headers of every segment);
-// FLVX rates are payload, as counted by the agent's own limiters. The plan-161
-// lab measured payload = 0.935–0.945 of the HTB rate for TCP through the
-// Core over IPv4 and IPv6, so the class gets 6 % on top.
-func rateWire(bytesPerSec uint64) uint64 { return bytesPerSec * 8 * 106 / 100 }
-
 func rateClassMinor(slot uint16) uint16 { return slot << 4 }
 
 func rateClassHandle(slot uint16) uint32 {
 	return netlink.MakeHandle(rateHTBMajor, rateClassMinor(slot))
 }
 
-// rateKey is one filter; its handle is unique within its tcf_proto (device,
-// hook, protocol).
-type rateKey struct {
-	egress bool
-	v6     bool
-	udp    bool
-	port   uint16
+// rateParentHandle is the HTB parent of a class: the root qdisc (slot 0) or
+// a user class (plan 168).
+func rateParentHandle(parent uint16) uint32 {
+	if parent == 0 {
+		return netlink.MakeHandle(rateHTBMajor, 0)
+	}
+	return rateClassHandle(parent)
 }
 
 func (k rateKey) handle() uint32 {
@@ -106,10 +95,10 @@ type tcRateEngine struct {
 	h *netlink.Handle
 	// known: this process removed whatever an earlier one left (first call).
 	known    bool
-	active   bool              // IFBs + roots exist
-	up, dn   int               // IFB ifindex
-	classes  map[uint16]uint64 // slot → HTB rate (bits/s)
-	devs     map[int]*rateDev  // ifindex → device with our filters
+	active   bool                  // IFBs + roots exist
+	up, dn   int                   // IFB ifindex
+	classes  map[uint16]shapeClass // slot → class as applied (HTB bits/s)
+	devs     map[int]*rateDev      // ifindex → device with our filters
 	lastFull time.Time
 	// releasing: slots whose rate went (class unlimited, filters kept) →
 	// since when; cleaned up after rateDrain.
@@ -318,7 +307,7 @@ func (e *tcRateEngine) setup() error {
 	}
 	e.up, e.dn = idx[0], idx[1]
 	e.active = true
-	e.classes = map[uint16]uint64{}
+	e.classes = map[uint16]shapeClass{}
 	e.devs = map[int]*rateDev{}
 	e.releasing = map[uint16]time.Time{}
 	return nil
@@ -328,23 +317,7 @@ func (e *tcRateEngine) setup() error {
 // stale filters first, then classes, then new filters. Partial failures are
 // recorded per object and retried on the next tick.
 func (e *tcRateEngine) sync(want rateWant, scan rateScan, now time.Time) error {
-	wantFilters := map[rateKey]uint16{}
-	wantClasses := map[uint16]uint64{}
-	for _, g := range want.groups {
-		wantClasses[g.slot] = rateWire(g.bytesPerSec)
-		for _, set := range []struct {
-			udp   bool
-			ports []uint16
-		}{{false, g.tcp}, {true, g.udp}} {
-			for _, p := range set.ports {
-				for _, egress := range []bool{false, true} {
-					for _, v6 := range []bool{false, true} {
-						wantFilters[rateKey{egress: egress, v6: v6, udp: set.udp, port: p}] = g.slot
-					}
-				}
-			}
-		}
-	}
+	wantFilters, wantClasses := want.shape()
 	var errs []error
 	// 1. Filters that go: devices no longer selected, ports / slots that changed.
 	for idx, d := range e.devs {
@@ -381,50 +354,64 @@ func (e *tcRateEngine) sync(want rateWant, scan rateScan, now time.Time) error {
 	}
 	// 2. Classes no longer wanted: released first (unlimited, its queue
 	// leaves at once and in order), deleted once released long enough and
-	// without filters (step 1 removed them in the same pass).
-	for slot, rate := range e.classes {
-		if _, ok := wantClasses[slot]; ok {
-			delete(e.releasing, slot)
-			continue
+	// without filters (step 1 removed them in the same pass) or children.
+	// Plan 168: a released child keeps its parent's limit (rate minimal, ceil
+	// unlimited: it borrows from the parent like before).
+	for slot, cur := range e.classes {
+		if w, ok := wantClasses[slot]; ok {
+			if w.parent == cur.parent && w.leaf == cur.leaf {
+				delete(e.releasing, slot)
+			}
+			continue // a changed shape is rebuilt below
 		}
 		since, ok := e.releasing[slot]
 		if !ok {
-			if rate != rateUnlimited {
-				if err := e.setClass(slot, rateUnlimited, true); err != nil {
+			rel := cur.released()
+			if rel != cur {
+				if err := e.setClass(rel, true); err != nil {
 					errs = append(errs, err)
 					continue
 				}
-				e.classes[slot] = rateUnlimited
+				e.classes[slot] = rel
 			}
 			e.releasing[slot] = now
 			continue
 		}
-		if now.Sub(since) < rateDrain || e.slotHasFilters(slot) {
+		if now.Sub(since) < rateDrain || e.slotHasFilters(slot) || e.hasChildren(slot) {
 			continue
 		}
-		if err := e.delClass(slot); err != nil {
+		if err := e.delClass(cur); err != nil {
 			errs = append(errs, err)
 			continue
 		}
 		delete(e.classes, slot)
 		delete(e.releasing, slot)
 	}
-	slots := make([]uint16, 0, len(wantClasses))
-	for slot := range wantClasses {
-		slots = append(slots, slot)
-	}
-	sort.Slice(slots, func(i, j int) bool { return slots[i] < slots[j] })
-	for _, slot := range slots {
-		rate := wantClasses[slot]
-		cur, ok := e.classes[slot]
-		if ok && cur == rate {
+	for _, c := range orderedClasses(wantClasses) {
+		cur, ok := e.classes[c.slot]
+		if ok && cur == c {
 			continue
 		}
-		if err := e.setClass(slot, rate, ok); err != nil {
+		if ok && (cur.parent != c.parent || cur.leaf != c.leaf) {
+			// Same slot, other place in the tree (a landing user took an
+			// entry slot): rebuild it, children first.
+			if err := e.dropSubtree(c.slot); err != nil {
+				errs = append(errs, err)
+				continue
+			}
+			ok = false
+		}
+		if c.parent != 0 {
+			if _, pok := e.classes[c.parent]; !pok {
+				continue // its parent failed above; retried next tick
+			}
+		}
+		if err := e.setClass(c, ok); err != nil {
 			errs = append(errs, err)
 			continue
 		}
-		e.classes[slot] = rate
+		e.classes[c.slot] = c
+		delete(e.releasing, c.slot)
 	}
 	// 3. New filters, only for classes that exist (a filter of a missing class
 	// would just pass unshaped, but keep the state exact).
@@ -490,10 +477,10 @@ func keyLess(a, b rateKey) bool {
 	return !a.egress && b.egress
 }
 
-func (e *tcRateEngine) setClass(slot uint16, rate uint64, exists bool) error {
+func (e *tcRateEngine) setClass(c shapeClass, exists bool) error {
 	for _, idx := range []int{e.up, e.dn} {
-		class := netlink.NewHtbClass(netlink.ClassAttrs{LinkIndex: idx, Parent: netlink.MakeHandle(rateHTBMajor, 0), Handle: rateClassHandle(slot)},
-			netlink.HtbClassAttrs{Rate: rate, Ceil: rate, Quantum: rateQuantum})
+		class := netlink.NewHtbClass(netlink.ClassAttrs{LinkIndex: idx, Parent: rateParentHandle(c.parent), Handle: rateClassHandle(c.slot)},
+			netlink.HtbClassAttrs{Rate: c.rate, Ceil: c.ceil, Quantum: rateQuantum})
 		if exists {
 			// In place: queued packets and the leaf are kept.
 			if err := e.h.ClassChange(class); err != nil {
@@ -504,7 +491,10 @@ func (e *tcRateEngine) setClass(slot uint16, rate uint64, exists bool) error {
 		if err := e.h.ClassReplace(class); err != nil {
 			return fmt.Errorf("创建限速类失败: %w", err)
 		}
-		leaf := netlink.NewFqCodel(netlink.QdiscAttrs{LinkIndex: idx, Parent: rateClassHandle(slot), Handle: netlink.MakeHandle(slot, 0)})
+		if !c.leaf {
+			continue // inner class (plan 168): its children carry the queues
+		}
+		leaf := netlink.NewFqCodel(netlink.QdiscAttrs{LinkIndex: idx, Parent: rateClassHandle(c.slot), Handle: netlink.MakeHandle(c.slot, 0)})
 		leaf.Flows, leaf.MemoryLimit = rateLeafFlows, rateLeafMemory
 		if err := e.h.QdiscReplace(leaf); err != nil {
 			return fmt.Errorf("创建 fq_codel 失败: %w", err)
@@ -513,14 +503,43 @@ func (e *tcRateEngine) setClass(slot uint16, rate uint64, exists bool) error {
 	return nil
 }
 
-func (e *tcRateEngine) delClass(slot uint16) error {
+func (e *tcRateEngine) delClass(c shapeClass) error {
 	for _, idx := range []int{e.up, e.dn} {
-		class := &netlink.GenericClass{ClassAttrs: netlink.ClassAttrs{LinkIndex: idx, Parent: netlink.MakeHandle(rateHTBMajor, 0), Handle: rateClassHandle(slot)}, ClassType: "htb"}
+		class := &netlink.GenericClass{ClassAttrs: netlink.ClassAttrs{LinkIndex: idx, Parent: rateParentHandle(c.parent), Handle: rateClassHandle(c.slot)}, ClassType: "htb"}
 		// Deleting the class also deletes its leaf.
 		if err := e.h.ClassDel(class); err != nil && !errors.Is(err, unix.ENOENT) {
 			return fmt.Errorf("删除限速类失败: %w", err)
 		}
 	}
+	return nil
+}
+
+func (e *tcRateEngine) hasChildren(slot uint16) bool {
+	for _, c := range e.classes {
+		if c.parent == slot {
+			return true
+		}
+	}
+	return false
+}
+
+// dropSubtree deletes a class and its children at once (no drain; only when a
+// slot changes its place in the tree).
+func (e *tcRateEngine) dropSubtree(slot uint16) error {
+	for child, c := range e.classes {
+		if c.parent == slot {
+			if err := e.dropSubtree(child); err != nil {
+				return err
+			}
+		}
+	}
+	if c, ok := e.classes[slot]; ok {
+		if err := e.delClass(c); err != nil {
+			return err
+		}
+	}
+	delete(e.classes, slot)
+	delete(e.releasing, slot)
 	return nil
 }
 

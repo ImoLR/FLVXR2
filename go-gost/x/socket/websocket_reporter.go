@@ -79,6 +79,7 @@ type SystemInfo struct {
 	MachineConns           *machineprotect.Conns     `json:"machine_conns,omitempty"`   // 整机连接数（每 5 秒一次）
 	MachineProtect         *machineprotect.Protect   `json:"machine_protect,omitempty"` // 整机连接保护状态
 	Addrs                  *nodeaddr.Report          `json:"addrs,omitempty"`           // 网卡公网地址，仅变化时（plan 142）
+	EntryRate              *landing.EntryRateStatus  `json:"entry_rate,omitempty"`      // 入口 tc 限速状态，仅变化时（plan 168）
 	NetInSpeed             int64                     `json:"net_in_speed"`
 	NetOutSpeed            int64                     `json:"net_out_speed"`
 	ServiceName            string                    `json:"service_name,omitempty"` // 服务名
@@ -237,6 +238,7 @@ type WebSocketReporter struct {
 	machineSentSeq     uint64                    // last protection sample sent on this connection
 	addrs              addrReporter              // interface addresses for node DDNS (plan 142)
 	addrsSentSeq       uint64                    // last address report sent on this connection
+	entryRateSentSeq   uint64                    // last entry rate status sent on this connection (plan 168)
 }
 
 var wsDial = func(ctx context.Context, dialer *websocket.Dialer, rawURL string) (*websocket.Conn, *http.Response, error) {
@@ -464,7 +466,7 @@ func (w *WebSocketReporter) connect() error {
 		return err
 	}
 	target := parsePanelTarget(w.addr)
-	query := buildWebSocketQuery(w.secret, w.version, cfg.Http, cfg.Tls, cfg.Socks, cfg.BlockOther)
+	query := buildWebSocketQuery(w.secret, w.version, cfg.Http, cfg.Tls, cfg.Socks, cfg.BlockOther) + entryRateQuery(w.nodeID)
 
 	// The dial runs without connMutex: writers of the previous session fail
 	// fast ("连接未建立") instead of waiting for a slow round, and Stop()
@@ -493,6 +495,7 @@ func (w *WebSocketReporter) connect() error {
 	w.reconnectRequested = false
 	w.machineSentSeq = 0 // the first metric of a new session carries the latest sample
 	w.addrsSentSeq = 0   // ... and the current address report
+	w.entryRateSentSeq = 0
 	w.session = panelSessionInfo{target: target, scheme: res.scheme, ip: res.ip, startedAt: time.Now()}
 	w.lastPongAt.Store(0)
 	w.lastRecvAt.Store(0)
@@ -1175,6 +1178,7 @@ func (w *WebSocketReporter) collectSystemInfo() SystemInfo {
 		MachineConns:           machineConns,
 		MachineProtect:         machineProtect,
 		Addrs:                  w.addrsReport(),
+		EntryRate:              w.entryRateReport(),
 		NetInSpeed:             netInSpeed,
 		NetOutSpeed:            netOutSpeed,
 		ServiceName:            w.serviceName,
@@ -1566,6 +1570,9 @@ func (w *WebSocketReporter) routeCommand(cmd CommandMessage) {
 	case "ApplyLandingDesired":
 		response.Data, err = w.handleApplyLandingDesired(cmd.Data)
 		response.Type = "ApplyLandingDesiredResponse"
+	case "SetEntryRates":
+		response.Data, err = w.handleSetEntryRates(cmd.Data)
+		response.Type = "SetEntryRatesResponse"
 	case "GetLandingStatus":
 		_ = landing.Default().Counters()
 		response.Data = landing.Default().Status()

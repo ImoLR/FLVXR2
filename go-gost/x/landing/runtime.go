@@ -99,10 +99,23 @@ type Manager struct {
 	groupUsage   atomic.Pointer[[]GroupUsage]
 	lastSnapshot *coreSnapshot
 
-	// Plan 161: per-user 速率 in the kernel (guarded by m.mu).
+	// Plan 161: per-user 速率 in the kernel. Plan 168: guarded by rateMu
+	// (taken after m.mu when both are held), so an entry rate change never
+	// waits for a landing reconcile.
+	rateMu        sync.Mutex
 	rates         rateEngine
 	rateStatus    RateStatus
-	ratesReleased bool // ReleaseRates ran: the agent is stopping
+	ratesReleased bool     // ReleaseRates ran: the agent is stopping
+	landingWant   rateWant // landing part of the last applyRates (m.mu side)
+
+	// Plan 168: entry speed limits in the same kernel tree (guarded by
+	// rateMu; entryRep is the lock-free copy for the 1 s report and the
+	// inventory).
+	entry       *EntryRates
+	entryLoaded bool
+	entrySlots  entrySlots
+	entryStatus EntryRateStatus
+	entryRep    atomic.Pointer[entryReport]
 
 	// Machine protection (plan 118), read without m.mu: reconciles can hold m.mu
 	// for minutes during a first download.
@@ -255,7 +268,9 @@ func (m *Manager) statusLocked() Status {
 	}
 	egress.Warnings = append([]string(nil), egress.Warnings...)
 	egress.Withheld = append([]string(nil), egress.Withheld...)
+	m.rateMu.Lock()
 	rate := m.rateStatus
+	m.rateMu.Unlock()
 	rate.Devices = append([]string(nil), rate.Devices...)
 	if rate.State == "" {
 		rate.State = "off"

@@ -86,6 +86,7 @@ func TestUserRatesWant(t *testing.T) {
 
 type fakeRateEngine struct {
 	calls []rateWant
+	state string // "error" = the kernel refused (plan 168 tests)
 }
 
 func (f *fakeRateEngine) release() RateStatus {
@@ -97,6 +98,9 @@ func (f *fakeRateEngine) ensure(want rateWant, _ time.Time) RateStatus {
 	f.calls = append(f.calls, want)
 	if !want.active() {
 		return RateStatus{State: "off"}
+	}
+	if f.state == "error" {
+		return RateStatus{State: "error", Error: "内核限速失败：test", Groups: len(want.groups), Ports: want.ports()}
 	}
 	return RateStatus{State: "on", Groups: len(want.groups), Ports: want.ports()}
 }

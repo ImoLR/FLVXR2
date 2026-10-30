@@ -78,9 +78,11 @@ func (u *UserRates) validate(nodes []Node) error {
 }
 
 // rateWant is what the kernel should enforce: one entry per user with at
-// least one public enabled node, sorted by group.
+// least one public enabled node, sorted by group. entry (plan 168) adds the
+// entry speed limits of this machine to the same HTB tree; nil = none.
 type rateWant struct {
 	groups []rateGroupWant
+	entry  *entryShape
 }
 
 type rateGroupWant struct {
@@ -90,7 +92,105 @@ type rateGroupWant struct {
 	tcp, udp    []uint16
 }
 
-func (w rateWant) active() bool { return len(w.groups) > 0 }
+func (w rateWant) active() bool { return len(w.groups) > 0 || w.entry.active() }
+
+// rateUnlimited is the HTB rate of a class whose limit was removed (above any
+// NIC; HTB carries it as a 64-bit rate).
+var rateUnlimited = rateWire(uint64(maxRateMbps) * RateBytesPerMbps)
+
+// rateMinimum is the guaranteed rate of a released child class (plan 168): it
+// keeps borrowing from its parent, so the parent's limit still holds.
+const rateMinimum = 8000
+
+// rateWire converts a FLVX rate (payload bytes/s) into the HTB rate in bits/s.
+// HTB counts whole frames (Ethernet + IP + TCP headers of every segment);
+// FLVX rates are payload, as counted by the agent's own limiters. The plan-161
+// lab measured payload = 0.935–0.945 of the HTB rate for TCP through the
+// Core over IPv4 and IPv6, so the class gets 6 % on top.
+func rateWire(bytesPerSec uint64) uint64 { return bytesPerSec * 8 * 106 / 100 }
+
+// rateKey is one filter; its handle is unique within its tcf_proto (device,
+// hook, protocol).
+type rateKey struct {
+	egress bool
+	v6     bool
+	udp    bool
+	port   uint16
+}
+
+// shapeClass is one HTB class as the kernel should have it (on both IFBs).
+type shapeClass struct {
+	slot, parent uint16 // parent 0 = the root qdisc
+	rate, ceil   uint64 // bits/s, wire
+	leaf         bool   // fq_codel leaf; false = inner class (plan 168 user group)
+}
+
+// released is the class while its queue drains: a top-level class goes
+// unlimited, a child keeps borrowing from its parent (whose limit holds).
+func (c shapeClass) released() shapeClass {
+	if c.parent == 0 {
+		c.rate, c.ceil = rateUnlimited, rateUnlimited
+	} else {
+		c.rate, c.ceil = rateMinimum, rateUnlimited
+	}
+	return c
+}
+
+// shape is the complete wanted state: filters (key → class slot) and classes
+// (landing users as top-level leaves exactly as plan 161, then the entry tree).
+func (w rateWant) shape() (map[rateKey]uint16, map[uint16]shapeClass) {
+	filters := map[rateKey]uint16{}
+	classes := map[uint16]shapeClass{}
+	for _, g := range w.groups {
+		r := rateWire(g.bytesPerSec)
+		classes[g.slot] = shapeClass{slot: g.slot, rate: r, ceil: r, leaf: true}
+		for _, set := range []struct {
+			udp   bool
+			ports []uint16
+		}{{false, g.tcp}, {true, g.udp}} {
+			for _, p := range set.ports {
+				for _, egress := range []bool{false, true} {
+					for _, v6 := range []bool{false, true} {
+						filters[rateKey{egress: egress, v6: v6, udp: set.udp, port: p}] = g.slot
+					}
+				}
+			}
+		}
+	}
+	if w.entry != nil {
+		for _, c := range w.entry.classes {
+			if _, taken := classes[c.slot]; !taken {
+				classes[c.slot] = c
+			}
+		}
+		for k, slot := range w.entry.filters {
+			if _, taken := filters[k]; !taken {
+				filters[k] = slot
+			}
+		}
+	}
+	return filters, classes
+}
+
+// orderedClasses lists classes parents first (top-level by slot, then the
+// children by parent and slot), the order HTB needs to create them.
+func orderedClasses(m map[uint16]shapeClass) []shapeClass {
+	out := make([]shapeClass, 0, len(m))
+	for _, c := range m {
+		out = append(out, c)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		a, b := out[i], out[j]
+		if (a.parent == 0) != (b.parent == 0) {
+			return a.parent == 0
+		}
+		if a.parent != b.parent {
+			return a.parent < b.parent
+		}
+		return a.slot < b.slot
+	})
+	return out
+}
 
 func (w rateWant) ports() int {
 	n := 0
@@ -196,19 +296,43 @@ type rateEngine interface {
 // every apply and on the 10 s tick, independent of the Core's state (the
 // shaping needs only the ports). Caller holds m.mu.
 func (m *Manager) applyRates() {
+	var want rateWant
+	if m.loaded {
+		want = m.desired.rateWant()
+	}
+	m.rateMu.Lock()
+	defer m.rateMu.Unlock()
+	m.landingWant = want
+	m.applyRatesLocked()
+}
+
+// applyRatesLocked merges the last landing state with the entry tree (plan
+// 168: one set of kernel objects, landing first) and brings the kernel in
+// line. Caller holds m.rateMu (not necessarily m.mu: an entry change must not
+// wait for a long landing reconcile).
+func (m *Manager) applyRatesLocked() {
 	if m.ratesReleased {
 		return // the agent is stopping
 	}
 	if m.rates == nil {
 		m.rates = newRateEngine()
 	}
-	var want rateWant
-	if m.loaded {
-		want = m.desired.rateWant()
+	want := m.landingWant
+	now := m.clock()
+	m.loadEntryLocked()
+	shape := buildEntryShape(m.entry, want, &m.entrySlots, now)
+	landingActive := len(want.groups) > 0
+	want.entry = shape
+	st := m.rates.ensure(want, now)
+	if landingActive || shape == nil {
+		m.rateStatus = st
+		m.logger().Record("landing user rate", "kernel", st.Error)
+	} else {
+		m.rateStatus = RateStatus{State: "off"}
 	}
-	st := m.rates.ensure(want, m.clock())
-	m.rateStatus = st
-	m.logger().Record("landing user rate", "kernel", st.Error)
+	m.entryStatus = entryStatusOf(shape, st)
+	m.logger().Record("entry rate", "kernel", m.entryStatus.Error)
+	m.publishEntryLocked()
 }
 
 // ReleaseRates removes the kernel objects when the agent stops gracefully, so
@@ -226,10 +350,16 @@ func (m *Manager) ReleaseRates(timeout time.Duration) {
 		time.Sleep(20 * time.Millisecond)
 	}
 	defer m.mu.Unlock()
+	m.rateMu.Lock()
+	defer m.rateMu.Unlock()
 	m.ratesReleased = true
 	if m.rates == nil {
 		return // never applied by this process
 	}
 	m.rateStatus = m.rates.release()
 	m.logger().Record("landing user rate", "kernel", m.rateStatus.Error)
+	if m.entry != nil {
+		m.entryStatus = EntryRateStatus{State: "off"}
+		m.publishEntryLocked()
+	}
 }

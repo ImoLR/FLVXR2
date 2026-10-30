@@ -2,6 +2,7 @@ package socket
 
 import (
 	"fmt"
+	"github.com/go-gost/x/landing"
 	"net"
 	"os"
 	"sort"
@@ -88,6 +89,14 @@ func (w *WebSocketReporter) listServices() (serviceInventory, error) {
 	i.WGPaths = inventoryNames(paths)
 	sort.Strings(i.WGForwards)
 	i.Revs = runtimeRevs.snapshot(i)
+	// Plan 168: the applied entry rate tree (kept in entry_rates.json, so it
+	// survives restarts; "" = none).
+	if rev := landing.Default().EntryRatesRev(); rev != "" {
+		if i.Revs == nil {
+			i.Revs = map[string]string{}
+		}
+		i.Revs[runtimeRevKeyOf("entryrate", "entry")] = rev
+	}
 	i.Boot = agentBootID
 	return i, nil
 }
