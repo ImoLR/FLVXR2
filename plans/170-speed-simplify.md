@@ -77,8 +77,8 @@ the release changes no live traffic. (`node.user_rate` / `landing_rate` are capa
 - [x] Frontend: hide all spots; tsc 0 errors, build ok, lint no new errors
 - [x] Headless UI check on a local demo panel (PNGs in run dir), backend RSS / CPU idle before / after
 - [x] Plan 168 doc note (decisions 2 / 3 moot)
-- [ ] Push branch, CI green
-- [ ] `runs/speed-simplify/release-notes.md`, `summary.md`
+- [x] Push branch, CI green
+- [x] `runs/speed-simplify/release-notes.md`, `summary.md`
 
 ## Results
 
@@ -93,7 +93,7 @@ the release changes no live traffic. (`node.user_rate` / `landing_rate` are capa
   branch (plan 168).
 - Frontend: tsc 0 errors, `npm run build` ok, eslint on the 12 touched files 28 errors / 1999 warnings vs base 29 / 2048
   (no new findings). Trial merge with plan 169 (`origin/feature/3.0.27-onboarding-hints-always`): no conflicts, tsc 0.
-- Headless check (local demo panel 127.0.0.1:16701, synthetic SQLite data incl. stale speed refs): 21/21 checks —
+- Headless check (local demo panel 127.0.0.1:16701, synthetic SQLite data incl. stale speed refs): 20/20 checks + H5 「更多」 —
   sidebar / H5 tabs / H5 「更多」 / 我的 have no 限速, `/limit` → `/dashboard`, rule 高级功能 has no 规则限速 / hint,
   用户隧道权限 list + edit have no 限速, tunnel form has no 隧道限速, 编辑用户 keeps 默认速率 + server 速率 rows (+ the
   plan-168 yellow hint). PNGs: `runs/speed-simplify/screens/` (release worker only).
@@ -102,3 +102,8 @@ the release changes no live traffic. (`node.user_rate` / `landing_rate` are capa
 - Resources (idle 60 s, same demo DB copy, 2 rounds): base 32.8 / 33.0 MB RSS, 1–2 CPU ticks; new 33.8 / 34.0 MB,
   1 tick (noise level). No new poller or per-tick query; per push fewer queries (`EntryRateRules` 4 → 1, no
   `GetSpeedLimit` lookups); startup cleanup = 5 UPDATEs once.
+- CI (4 jobs: backend, PostgreSQL contract, frontend, agent) green on 67a97870
+  (https://github.com/ImoLR/FLVXR2/actions/runs/41090167133) and on e3def097 (dead-helper cleanup,
+  https://github.com/ImoLR/FLVXR2/actions/runs/41090963928).
+- Release notes for the batch release worker: `/root/flvx-workers/runs/speed-simplify/release-notes.md`
+  (no schema change, panel only, rollback = image back, no `--restore-db`). Summary: `runs/speed-simplify/summary.md`.
