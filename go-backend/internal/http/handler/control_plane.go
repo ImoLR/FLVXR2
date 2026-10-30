@@ -409,6 +409,13 @@ func (h *Handler) syncForwardServicesWithWarningsOnNode(forward *forwardRecord, 
 		}
 		services := buildForwardServiceConfigs(serviceBase, forward, tunnel, node, fp.Port, strings.TrimSpace(fp.InIP), limiterID, limiterName, tunnelTLSProtocol)
 		h.applyRateRefs(services, forward, node, rate, plan)
+		if plan != nil && nodeID == 0 && forward.Status == 1 && strings.EqualFold(method, "UpdateService") && h.agentRunsServices(node.ID, services) {
+			// Plan 168: a rule edit that only changed its speed changes the
+			// node's entry tree, not the service: no restart, no dropped
+			// connection (the tree follows within seconds).
+			h.markEntryRatesDirty(node.ID)
+			continue
+		}
 		_, err = h.sendNodeCommand(node.ID, method, services, true, false)
 		if err != nil && allowFallbackAdd && method == "UpdateService" {
 			if isNotFoundError(err) {

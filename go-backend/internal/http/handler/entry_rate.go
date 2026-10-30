@@ -501,3 +501,11 @@ func entryRateNodeNote(name string, mode int, errText string) string {
 	}
 	return fmt.Sprintf("入口 %s 的 agent 较旧（待升级），仍按旧方式限速", name)
 }
+
+// agentRunsServices: the node's agent already runs exactly these service
+// payloads (runtime revisions; one ListServices). Only asked for user edits
+// on tc nodes (syncForwardServices without a node filter).
+func (h *Handler) agentRunsServices(nodeID int64, services []map[string]interface{}) bool {
+	inv, _ := h.reconnectInventory(nodeID)
+	return inv != nil && inv.matches(ws.ExpectedRuntimeRevs("UpdateService", services))
+}

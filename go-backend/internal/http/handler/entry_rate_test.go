@@ -190,6 +190,23 @@ func TestEntryRateTcNodeHotAndQuiet(t *testing.T) {
 	if c := entryClasses(g); c["u7"] != "@50" || c["r100"] != "u7@10" {
 		t.Fatalf("tree with own speed %v", c)
 	}
+	// A speed-only edit (rule dialog → syncForwardServices): the agent runs
+	// the same services already → no UpdateService (no restart), only the tree.
+	agent.reset()
+	e.exec(`UPDATE forward SET speed_limit = 12 WHERE id = 100`)
+	f100, _ = e.h.getForwardRecord(100)
+	if _, err := e.h.syncForwardServicesWithWarnings(f100, "UpdateService", true); err != nil {
+		t.Fatal(err)
+	}
+	drainEntryRates(e)
+	m = strings.Join(agent.mutations(1), " | ")
+	if strings.Contains(m, "UpdateService") || !strings.Contains(m, "SetEntryRates") {
+		t.Fatalf("speed-only edit restarted the service or missed the tree: %s", m)
+	}
+	g, _ = lastEntryRates(agent, 1)
+	if c := entryClasses(g); c["r100"] != "u7@12" {
+		t.Fatalf("tree after speed edit %v", c)
+	}
 	// Reconnect with everything in place: quiet; agent restart (tree file
 	// kept): quiet for the tree.
 	agent.reset()
