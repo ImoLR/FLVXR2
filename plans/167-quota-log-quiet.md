@@ -20,7 +20,7 @@ Worktree `/root/projects/flvxx/flvxx-quota-log`. Run dir `/root/flvx-workers/run
 - [x] Agent: SetQuotaGroups (and other timer-driven commands found in the audit) quiet on success; errors logged once per
       distinct error (rate-limited); other commands unchanged; unit tests — c08817c3 (24 h audit: SetQuotaGroups is the only timer-driven command still logged)
 - [x] Other FLVX noise found in the fleet audit fixed if per-connection / per-second: TcpPing partial-loss pairs (≈95 % of 首次失败/已恢复, up to 748/day on 42) → one hourly line; per-connection handler errors (47: 1596/day, 48: 684/day) → per service × class summary; blocked connections no longer logged twice
-- [ ] Gates: go build, backend tests SQLite + PostgreSQL (compare with base), agent tests (`go-gost/x`)
+- [x] Gates: go build, backend tests SQLite + PostgreSQL (compare with base), agent tests (`go-gost/x`) — SQLite 19/19 + PG 19/19 ok, 0 failures (fork.96 base: 0/0); handler + contract re-run on the final code (aa44f509) SQLite + PG ok; go-gost/x (short TMPDIR) + go-gost ok; quota tests 30× `-race` ok. Review round (subagent): 1 bug (failed push kept the old baseline) + 7 risks/nits fixed in aa44f509; `-count=3` service failures are pre-existing (same on fork.96: global registries)
 - [ ] Tag `3.0.27-fork.97`, CI + Images green, release assets validated
 - [ ] Panel backup + upgrade `/opt/flvx-svc`, prune backups, health + 30/30 online
 - [ ] OTA one at a time: 32 (canary) → 21 → 55 → rest (never 36)
