@@ -3,6 +3,7 @@ package handler
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"log"
 	"strings"
 	"sync"
@@ -129,9 +130,19 @@ func TestQuotaPushClassStructureAndSharedIPs(t *testing.T) {
 	if got := quotaPushClass(base, []quotaGroupBudget{{Group: "user-9", MaxConnections: 300, MaxClientIps: 3}}, usage); got != quotaPushNow {
 		t.Fatalf("replaced group = %d, want now", got)
 	}
-	// An IP left elsewhere and the IP budget grew by one: neutral, may wait.
+	// An IP left elsewhere and the IP budget grew by one: the IP budget
+	// loosening (3 → 4 with room 3) is "soon"; the list change alone waits.
 	if got := quotaPushClass(base, clone(func(b *quotaGroupBudget) { b.SharedIps = []string{"a"}; b.MaxClientIps = 4 }), usage); got != quotaPushSoon {
 		t.Fatalf("compensated removal = %d, want soon", got)
+	}
+	if got := quotaSharedIPsUrgency(base[0], clone(func(b *quotaGroupBudget) { b.SharedIps = []string{"a"}; b.MaxClientIps = 4 })[0], 0); got != quotaPushLater {
+		t.Fatalf("compensated removal list part = %d, want later", got)
+	}
+	if got := quotaSharedIPsUrgency(base[0], clone(func(b *quotaGroupBudget) { b.SharedIps = []string{"a", "b", "c"} })[0], 0); got != quotaPushLater {
+		t.Fatalf("added shared IP far from the IP budget = %d, want later", got)
+	}
+	if got := quotaSharedIPsUrgency(base[0], clone(func(b *quotaGroupBudget) { b.SharedIps = []string{"a", "b", "c"} })[0], 2); got != quotaPushNow {
+		t.Fatalf("added shared IP at the IP budget = %d, want now", got)
 	}
 	// An IP left the list without a larger budget: it would stay free here.
 	if got := quotaPushClass(base, clone(func(b *quotaGroupBudget) { b.SharedIps = []string{"a", "c"} }), usage); got != quotaPushNow {
@@ -399,7 +410,7 @@ func TestQuotaCoordinatorPushStatsLine(t *testing.T) {
 	}
 	clock.add(31 * time.Minute)
 	c.reconcileOnce()
-	if out := buf.String(); strings.Count(out, "\n") != 1 || !strings.Contains(out, "2 SetQuotaGroups pushes") || !strings.Contains(out, "now 2") {
+	if out := buf.String(); strings.Count(out, "\n") != 1 || !strings.Contains(out, "2 SetQuotaGroups attempts") || !strings.Contains(out, "now 2") || !strings.Contains(out, "0 failed") {
 		t.Fatalf("stats line = %q", out)
 	}
 	buf.Reset()
@@ -407,5 +418,93 @@ func TestQuotaCoordinatorPushStatsLine(t *testing.T) {
 	c.reconcileOnce()
 	if buf.Len() != 0 {
 		t.Fatalf("idle hour logged: %q", buf.String())
+	}
+}
+
+// A failed push (e.g. a 5 s timeout that the agent still applied) leaves the
+// agent state unknown: the next difference is retried as urgent, not classed
+// against the older baseline.
+func TestQuotaCoordinatorFailedPushRetriesUrgently(t *testing.T) {
+	clock := newFakeQuotaClock()
+	var mu sync.Mutex
+	fail := false
+	var last []quotaGroupBudget
+	pushes := 0
+	c := newQuotaCoordinator(limitedTargets(9, 100, 0, 1, 2), func(nodeID int64, budgets []quotaGroupBudget) error {
+		mu.Lock()
+		defer mu.Unlock()
+		if nodeID != 2 {
+			return nil
+		}
+		pushes++
+		last = append([]quotaGroupBudget(nil), budgets...)
+		if fail {
+			return fmt.Errorf("等待节点响应超时")
+		}
+		return nil
+	})
+	c.now = clock.now
+	c.running = true
+	setQuotaUsage(c, 1, 9, 90)
+	c.reconcileOnce() // node 2: 10
+	// Node 1 drops to 0: node 2 would get 100 (loosening beyond the band → soon).
+	clock.add(quotaPushSoonInterval)
+	setQuotaUsage(c, 1, 9, 0)
+	mu.Lock()
+	fail = true
+	mu.Unlock()
+	c.reconcileOnce() // the push of 100 "fails" (but the agent may hold 100 now)
+	mu.Lock()
+	fail = false
+	mu.Unlock()
+	// The truth tightens back to 12 (= 2 above the old baseline of 10).
+	clock.add(time.Second)
+	setQuotaUsage(c, 1, 9, 88)
+	c.reconcileOnce()
+	mu.Lock()
+	defer mu.Unlock()
+	if pushes != 3 || len(last) != 1 || last[0].MaxConnections != 12 {
+		t.Fatalf("pushes = %d, last = %+v, want the 12 retried at once after the failed push", pushes, last)
+	}
+}
+
+type failingExtrasSource struct {
+	extrasQuotaTargets
+	fail bool
+}
+
+func (s *failingExtrasSource) LoadQuotaPlanExtras() (repo.QuotaPlanExtras, error) {
+	s.mu.Lock()
+	failNow := s.fail
+	s.mu.Unlock()
+	if failNow {
+		return repo.QuotaPlanExtras{}, fmt.Errorf("database is locked")
+	}
+	return s.extrasQuotaTargets.LoadQuotaPlanExtras()
+}
+
+// A limit edit whose inputs fail to load once keeps its force until they load.
+func TestQuotaCoordinatorForceSurvivesFailedInputLoad(t *testing.T) {
+	clock := newFakeQuotaClock()
+	sender := newRecordingSender()
+	source := &failingExtrasSource{extrasQuotaTargets: extrasQuotaTargets{
+		targets: []repo.QuotaGroupTarget{forwardTarget(5, 1), forwardTarget(5, 2)},
+		extras:  repo.QuotaPlanExtras{Users: map[int64]repo.QuotaUserLimits{5: {MaxConnections: 100}}},
+	}}
+	c := newTestCoordinator(source, sender, clock)
+	setQuotaUsage(c, 1, 5, 10)
+	c.reconcileOnce()
+	source.mu.Lock()
+	source.extras = repo.QuotaPlanExtras{Users: map[int64]repo.QuotaUserLimits{5: {MaxConnections: 101}}}
+	source.mu.Unlock()
+	source.fail = true
+	clock.add(time.Second)
+	c.InvalidateInputs()
+	c.reconcileOnce() // load fails: cached inputs, nothing changes
+	source.fail = false
+	clock.add(time.Second)
+	c.reconcileOnce() // loads 101: a tiny loosening, but forced → at once
+	if b := sender.budget(t, 2, "user-5"); b.MaxConnections != 91 {
+		t.Fatalf("budget after the edit = %d, want 91 at once", b.MaxConnections)
 	}
 }

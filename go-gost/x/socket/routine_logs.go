@@ -28,6 +28,12 @@ func isRoutineCommand(command string) bool {
 
 // Only extract target identifiers; never log command bodies or request IDs.
 func routineCommandTarget(cmd CommandMessage) string {
+	switch cmd.Type {
+	case "SetQuotaGroups", "ApplyLandingDesired", "ListServices":
+		// Node-wide commands: no target, and their payload (a budget list,
+		// the landing desired state) is not worth decoding per command.
+		return "node"
+	}
 	var req struct {
 		IP         string  `json:"ip"`
 		Port       int     `json:"port"`

@@ -202,6 +202,9 @@ func TestQuotaCoordinatorLandingGroupsObserveAndReset(t *testing.T) {
 		return nil
 	})
 	coordinator.interval = 0
+	// No background reconcile racing the explicit ones below (plan 167: it
+	// could push twice and fail the count now and then).
+	coordinator.running = true
 	coordinator.Observe(5, []ws.QuotaGroupUsage{{Group: "landing-user-7", Connections: 2, RelayConnections: 4, ClientIps: []string{"198.51.100.3"}}, {Group: "landing-bogus", Connections: 9}})
 	coordinator.reconcileOnce()
 	if live := coordinator.LiveUsage()[7]; live.Connections != 2 || live.ClientIps != 1 {

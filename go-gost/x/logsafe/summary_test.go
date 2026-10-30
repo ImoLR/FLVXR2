@@ -58,10 +58,20 @@ func TestEventSummaryEveryWithWriterAndKeyBound(t *testing.T) {
 	if len(own) != 1 || own[0] != "readfrom: reset ×101（近 60 分钟）" {
 		t.Fatalf("hourly summary = %q", own)
 	}
+	before := len(own)
 	for i := 0; i < maxEventSummaryKeys+10; i++ {
 		s.Record(time.Duration(i).String(), "x")
 	}
-	if len(s.entries) > maxEventSummaryKeys {
+	if len(s.entries) > maxEventSummaryKeys+1 {
 		t.Fatalf("keys not bounded: %d", len(s.entries))
+	}
+	// Known keys keep their state; keys past the bound share one entry
+	// (one first line for all of them).
+	if got := len(own) - before; got != maxEventSummaryKeys {
+		t.Fatalf("first lines = %d, want %d (one per key up to the bound + one overflow)", got, maxEventSummaryKeys)
+	}
+	s.RecordWith("svc|readfrom:reset", "readfrom: reset", writer)
+	if len(call) != 1 {
+		t.Fatalf("known key logged a new first line after the bound: %q", call)
 	}
 }

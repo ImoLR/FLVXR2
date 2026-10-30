@@ -10,6 +10,7 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"regexp"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -690,7 +691,25 @@ func recordHandlerError(service string, err error, emit func(string)) {
 	if class == "blocked" {
 		return
 	}
-	handlerErrLogs.RecordWith(service+"|"+class, err.Error(), emit)
+	msg := err.Error()
+	if strings.HasSuffix(class, ":other") {
+		// Unknown causes are keyed by their text without addresses / numbers,
+		// so a new kind of error is still written at once.
+		class += ":" + handlerErrorShape(msg)
+	}
+	handlerErrLogs.RecordWith(service+"|"+class, msg, emit)
+}
+
+// handlerErrorVariable matches the per-connection parts of an error text:
+// tokens with a digit (addresses, ports, ids) and bracketed IPv6 addresses.
+var handlerErrorVariable = regexp.MustCompile(`\[[0-9a-fA-F:.%]*\]|[0-9A-Za-z_.:/%-]*[0-9][0-9A-Za-z_.:/%-]*`)
+
+func handlerErrorShape(msg string) string {
+	shape := handlerErrorVariable.ReplaceAllString(strings.ToLower(msg), "#")
+	if len(shape) > 96 {
+		shape = shape[:96]
+	}
+	return shape
 }
 
 // handlerErrorClass maps a handler error to "<operation>:<cause>" from a small
@@ -723,6 +742,12 @@ func handlerErrorClass(err error) string {
 		{"no route to host", "unreachable"},
 		{"eof", "eof"},
 		{"use of closed", "closed"},
+		{"no such host", "dns"},
+		{"permission denied", "permission"},
+		{"x509", "certificate"},
+		{"certificate", "certificate"},
+		{"handshake", "handshake"},
+		{"auth", "auth"},
 	} {
 		if strings.Contains(msg, c.match) {
 			cause = c.class

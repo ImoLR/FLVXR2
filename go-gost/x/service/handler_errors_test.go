@@ -45,7 +45,13 @@ func TestRecordHandlerErrorSummarizes(t *testing.T) {
 		recordHandlerError("13_8_3_tls", errors.New("relay: unknown command"), emit)
 	}
 	recordHandlerError("12_8_3_tcp", errors.New("dial tcp 1.1.1.1:443: i/o timeout"), emit)
-	if len(lines) != 3 || !strings.Contains(lines[0], "connection reset") || !strings.Contains(lines[1], "unknown command") || !strings.Contains(lines[2], "i/o timeout") {
+	// Unknown causes: a new kind is written at once, the same kind with other
+	// addresses is not.
+	recordHandlerError("12_8_3_tcp", errors.New("dial tcp: lookup a.example on 127.0.0.53:53: server misbehaving"), emit)
+	recordHandlerError("12_8_3_tcp", errors.New("dial tcp: lookup b2.example on 127.0.0.53:53: server misbehaving"), emit)
+	recordHandlerError("12_8_3_tcp", errors.New("dial tcp 9.9.9.9:443: setsockopt: invalid argument"), emit)
+	if len(lines) != 6 || !strings.Contains(lines[0], "connection reset") || !strings.Contains(lines[1], "unknown command") || !strings.Contains(lines[2], "i/o timeout") ||
+		!strings.Contains(lines[3], "a.example") || !strings.Contains(lines[4], "b2.example") || !strings.Contains(lines[5], "invalid argument") {
 		t.Fatalf("lines = %q", lines)
 	}
 	for _, line := range lines {

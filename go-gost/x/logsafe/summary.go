@@ -9,8 +9,11 @@ import (
 const eventSummaryInterval = 10 * time.Minute
 
 // maxEventSummaryKeys bounds an EventSummary whose keys come from a larger
-// set (plan 167: service × error class). Past it the counts start over.
+// set (plan 167: service × error class). Past it, new keys share one
+// overflow entry (known keys keep their counts).
 const maxEventSummaryKeys = 4096
+
+const eventSummaryOverflowKey = "\x00overflow"
 
 type eventCount struct {
 	last    time.Time
@@ -65,8 +68,12 @@ func (s *EventSummary) RecordWith(key, message string, emit func(string)) {
 		interval = eventSummaryInterval
 	}
 	entry := s.entries[key]
+	if entry == nil && len(s.entries) >= maxEventSummaryKeys {
+		key = eventSummaryOverflowKey
+		entry = s.entries[key]
+	}
 	if entry == nil {
-		if s.entries == nil || len(s.entries) >= maxEventSummaryKeys {
+		if s.entries == nil {
 			s.entries = make(map[string]*eventCount)
 		}
 		s.entries[key] = &eventCount{last: now}

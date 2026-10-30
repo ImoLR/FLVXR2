@@ -437,28 +437,29 @@ func (c *quotaCoordinator) runReconcile() {
 	}
 }
 
-// loadExtras returns the cached plan-158 inputs, re-read when stale.
-func (c *quotaCoordinator) loadExtras() (repo.QuotaPlanExtras, bool) {
-	source, ok := c.source.(quotaExtrasSource)
-	if !ok {
-		return repo.QuotaPlanExtras{}, false
+// loadExtras returns the cached plan-158 inputs, re-read when stale; failed
+// reports a re-read that did not work (the cached inputs are returned).
+func (c *quotaCoordinator) loadExtras() (extras repo.QuotaPlanExtras, ok bool, failed bool) {
+	source, isExtras := c.source.(quotaExtrasSource)
+	if !isExtras {
+		return repo.QuotaPlanExtras{}, false, false
 	}
 	c.mu.Lock()
 	fresh := !c.extrasStale && !c.extrasAt.IsZero() && c.now().Sub(c.extrasAt) < quotaExtrasTTL
 	cached := c.extras
 	c.mu.Unlock()
 	if fresh {
-		return cached, true
+		return cached, true, false
 	}
-	extras, err := source.LoadQuotaPlanExtras()
+	loaded, err := source.LoadQuotaPlanExtras()
 	if err != nil {
 		log.Printf("quota groups: load per-server/landing inputs failed: %v", err)
-		return cached, !c.extrasAt.IsZero()
+		return cached, !c.extrasAt.IsZero(), true
 	}
 	c.mu.Lock()
-	c.extras, c.extrasAt, c.extrasStale = extras, c.now(), false
+	c.extras, c.extrasAt, c.extrasStale = loaded, c.now(), false
 	c.mu.Unlock()
-	return extras, true
+	return loaded, true, false
 }
 
 func (c *quotaCoordinator) reconcileOnce() {
@@ -476,7 +477,14 @@ func (c *quotaCoordinator) reconcileOnce() {
 		c.mu.Unlock()
 		return
 	}
-	extras, hasExtras := c.loadExtras()
+	extras, hasExtras, extrasFailed := c.loadExtras()
+	if extrasFailed && force {
+		// The edited inputs were not read: keep forcing until they are.
+		c.mu.Lock()
+		c.forcePush = true
+		c.mu.Unlock()
+		force = false
+	}
 
 	c.mu.Lock()
 	now := c.now()
@@ -564,6 +572,9 @@ func (c *quotaCoordinator) reconcileOnce() {
 				return
 			}
 			c.stats.failed++
+			// The agent may or may not hold these budgets (a timeout can still
+			// apply them): drop the baseline so the retry is urgent (1 s, as before).
+			delete(c.sentBudgets, nodeID)
 			// An empty reset list only goes to agents known to take landing
 			// groups; its failure (e.g. a reconnect) never marks them unsupported.
 			if !resets[nodeID] && quotaAgentSupport(version) == quotaAgentUnknown {
@@ -640,7 +651,7 @@ func (c *quotaCoordinator) logPushStats() {
 	for _, nodeID := range nodes {
 		parts = append(parts, fmt.Sprintf("%d:%d", nodeID, s.perNode[nodeID]))
 	}
-	log.Printf("quota groups: %d SetQuotaGroups pushes in %s (now %d, soon %d, refresh %d, failed %d), top nodes %s",
+	log.Printf("quota groups: %d SetQuotaGroups attempts in %s (now %d, soon %d, refresh %d; %d failed), top nodes %s",
 		total, c.now().Sub(s.since).Round(time.Minute), s.now, s.soon, s.later, s.failed, strings.Join(parts, " "))
 }
 
@@ -715,7 +726,8 @@ func quotaLimitUrgency(sent, current, used, slack int) quotaPushUrgency {
 // quotaSharedIPsUrgency: an IP left off the list stays free on the node until
 // the push, which only matters if the IP budget does not grow by as much at
 // the same time (the IP then counts again, one slot more). Added IPs only make
-// the stale list stricter: urgent when the node is at its IP budget.
+// the stale list stricter: urgent when the node is at its IP budget, else the
+// refresh (the IP budget change that comes with them is classed on its own).
 func quotaSharedIPsUrgency(sent, current quotaGroupBudget, usedIPs int) quotaPushUrgency {
 	if len(sent.SharedIps) == 0 && len(current.SharedIps) == 0 {
 		return quotaPushNone
@@ -741,7 +753,7 @@ func quotaSharedIPsUrgency(sent, current quotaGroupBudget, usedIPs int) quotaPus
 	case sent.MaxClientIps >= 0 && sent.MaxClientIps-usedIPs <= quotaPushIPSlack:
 		return quotaPushNow
 	default:
-		return quotaPushSoon
+		return quotaPushLater
 	}
 }
 
