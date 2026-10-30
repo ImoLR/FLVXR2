@@ -14,17 +14,17 @@ Worktree `/root/projects/flvxx/flvxx-quota-log`. Run dir `/root/flvx-workers/run
 - Agent logs `🔔 收到命令: SetQuotaGroups (data redacted)` at info for every command → ~1350 lines/h on node 32.
 
 ## Checklist
-- [ ] Before numbers: pushes/h + agent lines/h on 32 / mk-hr-1188 (23), panel CPU/RAM, fleet journal audit (read-only)
-- [ ] Panel: hysteresis push policy (urgent tighten / near-limit / structural changes at once, loosening + small moves
-      coalesced per node), unit tests (over-limit still blocked within the old bound, steady-state push reduction ≥ 90 %)
-- [ ] Agent: SetQuotaGroups (and other timer-driven commands found in the audit) quiet on success; errors logged once per
-      distinct error (rate-limited); other commands unchanged; unit tests
-- [ ] Other FLVX noise found in the fleet audit fixed if per-connection / per-second
+- [x] Before numbers: 24 h SetQuotaGroups 32 = 32331, 48 = 27546, 23 = 10449 (others ≤ 21); lines/h 32 1290, 48 1284, 23 168; agent CPU/RSS 32 0.35 %/63 MB, 21 0.33 %/61 MB, 48 0.25 %/97 MB, 23 1.78 %/79 MB; panel ~3 %/36 MiB; fleet audit of 24 hosts in `runs/quota-log-quiet/audit/before/` (cause: user 8, 400 conns / 5 IPs, ~80–115 live on 23 → budgets of 32/48 change every 1–2 s)
+- [x] Panel: hysteresis push policy (urgent tighten / near-limit / structural changes at once, loosening + small moves
+      coalesced per node), unit tests (over-limit still blocked within the old bound, steady-state push reduction ≥ 90 %) — c4b3d8d3; sim of the prod pattern: 32 3183 → 110/h, 48 3047 → 12/h
+- [x] Agent: SetQuotaGroups (and other timer-driven commands found in the audit) quiet on success; errors logged once per
+      distinct error (rate-limited); other commands unchanged; unit tests — c08817c3 (24 h audit: SetQuotaGroups is the only timer-driven command still logged)
+- [x] Other FLVX noise found in the fleet audit fixed if per-connection / per-second: TcpPing partial-loss pairs (≈95 % of 首次失败/已恢复, up to 748/day on 42) → one hourly line; per-connection handler errors (47: 1596/day, 48: 684/day) → per service × class summary; blocked connections no longer logged twice
 - [ ] Gates: go build, backend tests SQLite + PostgreSQL (compare with base), agent tests (`go-gost/x`)
 - [ ] Tag `3.0.27-fork.97`, CI + Images green, release assets validated
 - [ ] Panel backup + upgrade `/opt/flvx-svc`, prune backups, health + 30/30 online
 - [ ] OTA one at a time: 32 (canary) → 21 → 55 → rest (never 36)
-- [ ] Journald cap `flvx-cap.conf` (SystemMaxUse=1G) on FLVX-only hosts; shared hosts report only
+- [x] Journald cap `flvx-cap.conf` (SystemMaxUse=1G) on FLVX-only hosts with a default cap > 1G: 2, 14, 22, 23, 32 (journal ~4G → ~1G each, ~3 G disk back each, agents same PID); hosts with existing ≤ 200M caps kept (15/17/18/20/42/47/48/52), small disks (12/26/39, default < 1G) untouched; mmwx-shared hosts report only (21/30/31/34/35/36/45/53)
 - [ ] After numbers (≥ 30 min on 32 / 23), agent RSS/CPU 32/21/55, panel CPU/RAM
 - [ ] Prod proof: temp user + rules on two nodes, total conn limit enforced across nodes, idle push count low, 0 residue
 - [ ] Summary `runs/quota-log-quiet/summary.md`; plan complete
