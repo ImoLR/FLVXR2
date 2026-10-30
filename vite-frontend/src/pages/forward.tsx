@@ -17,7 +17,14 @@ import type {
   TunnelLatencyApiItem,
 } from "@/api/types";
 
-import { useState, useEffect, useMemo, useRef, useCallback } from "react";
+import {
+  useState,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useCallback,
+} from "react";
 import toast from "react-hot-toast";
 import {
   DndContext,
@@ -886,6 +893,31 @@ const revealForwardElement = (forwardId: number) => {
 
   window.setTimeout(find, 60);
 };
+// Plan 173: helpers for keeping a tunnel group header in view after a click.
+const findTunnelGroupElement = (collapseKey: string): HTMLElement | null =>
+  Array.from(document.querySelectorAll<HTMLElement>("[data-group-key]")).find(
+    (node) => node.dataset.groupKey === collapseKey,
+  ) || null;
+// Nearest ancestor that actually scrolls (desktop: the layout <main>); null
+// means the page itself scrolls (phone layout).
+const findScrollParent = (el: HTMLElement): HTMLElement | null => {
+  for (
+    let node = el.parentElement;
+    node && node !== document.body && node !== document.documentElement;
+    node = node.parentElement
+  ) {
+    const { overflowY } = window.getComputedStyle(node);
+
+    if (
+      (overflowY === "auto" || overflowY === "scroll") &&
+      node.scrollHeight > node.clientHeight
+    ) {
+      return node;
+    }
+  }
+
+  return null;
+};
 const SortableTunnelGroupContainer = ({
   groupKey,
   groupUserId,
@@ -975,6 +1007,7 @@ const SortableTunnelGroupContainer = ({
       <div
         aria-expanded={!collapsed}
         className={`${headerClassName} cursor-pointer select-none transition-colors`}
+        data-group-header=""
         role="button"
         tabIndex={0}
         onClick={onToggleCollapsed}
@@ -1043,6 +1076,32 @@ const SortableTunnelGroupContainer = ({
         </div>
       </div>
       {!collapsed && <div className={bodyClassName}>{children}</div>}
+      {/* Plan 173: a clear end of the open group; closes it like the header. */}
+      {!collapsed && (
+        <button
+          aria-label={`收起 ${tunnel.tunnelName}`}
+          className="flvx-rule-group-footer flex w-full items-center justify-center border-t px-3 py-2"
+          type="button"
+          onClick={onToggleCollapsed}
+        >
+          <span className="flvx-rule-group-footer-pill inline-flex min-w-0 max-w-full items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium">
+            <svg
+              aria-hidden="true"
+              className="h-3.5 w-3.5 shrink-0"
+              fill="none"
+              stroke="currentColor"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth="2"
+              viewBox="0 0 24 24"
+            >
+              <path d="m18 15-6-6-6 6" />
+            </svg>
+            <span className="shrink-0">收起 ·</span>
+            <span className="min-w-0 truncate">{tunnel.tunnelName}</span>
+          </span>
+        </button>
+      )}
     </div>
   );
 };
@@ -2068,11 +2127,20 @@ export default function ForwardPage() {
   const [filterClosedGroups, setFilterClosedGroups] = useState<Set<string>>(
     () => new Set(),
   );
-  // Plan 164: groups opened by 「线路机不合规 N 条」 stay open for this visit
-  // only — the saved open/closed state is not touched.
-  const [jumpOpenedGroups, setJumpOpenedGroups] = useState<Set<string>>(
-    () => new Set(),
-  );
+  // Plan 164: the group opened by 「线路机不合规 N 条」 is open for this visit
+  // only — the saved state is not written. Plan 173: it is the one open group
+  // (accordion) until the next header / footer click.
+  const [jumpOpenKey, setJumpOpenKey] = useState<string | null>(null);
+  // Plan 173: after a group header / footer click the tapped header is kept
+  // where it was (closing a long group above must not move it off screen);
+  // an opened group is then scrolled so its header sits at the top.
+  const pendingGroupScrollRef = useRef<{
+    key: string;
+    open: boolean;
+    toTop: boolean;
+    anchorTop: number | null;
+  } | null>(null);
+  const [groupScrollSeq, setGroupScrollSeq] = useState(0);
   const [lineJumpId, setLineJumpId] = useState<number | null>(null);
   const [lineJumpSeq, setLineJumpSeq] = useState(0);
   const lineJumpPendingRef = useRef<{
@@ -4890,29 +4958,77 @@ export default function ForwardPage() {
   useEffect(() => {
     setFilterClosedGroups((prev) => (prev.size === 0 ? prev : new Set()));
   }, [groupFilterSignature]);
+  // Plan 173: accordion — outside filter mode at most one group is open
+  // (page-wide, admin view across users too). The saved map keeps its format
+  // and holds at most one key; an older map with several open keys shows only
+  // the first one in display order (trimmed on the next click).
+  const savedOpenTunnelGroupKey = useMemo((): string | null => {
+    for (const group of groupedForwards) {
+      for (const tunnel of group.tunnels) {
+        const key = buildTunnelGroupCollapseKey(group.userId, tunnel.tunnelKey);
+
+        if (sanitizedExpandedTunnelGroups[key] === true) return key;
+      }
+    }
+
+    return null;
+  }, [groupedForwards, sanitizedExpandedTunnelGroups]);
+  const openTunnelGroupKey = jumpOpenKey ?? savedOpenTunnelGroupKey;
   const isTunnelGroupExpanded = (collapseKey: string): boolean =>
     groupFilterActive
       ? !filterClosedGroups.has(collapseKey)
-      : sanitizedExpandedTunnelGroups[collapseKey] === true ||
-        jumpOpenedGroups.has(collapseKey);
-  const saveExpandedTunnelGroups = (
-    update: (next: ForwardGroupExpandedMap) => void,
-  ) => {
-    // Drop keys of tunnels that no longer have rules so the map can't grow.
-    const nextExpandedMap = sanitizeGroupExpandedMap(
-      expandedTunnelGroups,
-      availableGroupData.availableCollapseKeys,
+      : collapseKey === openTunnelGroupKey;
+  const saveOpenTunnelGroup = (collapseKey: string | null) => {
+    const savedKeys = Object.keys(expandedTunnelGroups).filter(
+      (key) => expandedTunnelGroups[key] === true,
     );
 
-    update(nextExpandedMap);
+    if (
+      collapseKey === null
+        ? savedKeys.length === 0
+        : savedKeys.length === 1 && savedKeys[0] === collapseKey
+    ) {
+      return;
+    }
+    const nextExpandedMap: ForwardGroupExpandedMap =
+      collapseKey === null ? {} : { [collapseKey]: true };
+
     setExpandedTunnelGroups(nextExpandedMap);
     persistGroupExpandedToLocal(nextExpandedMap);
     void persistGroupExpandedToGlobal(nextExpandedMap);
+  };
+  const queueTunnelGroupScroll = (
+    collapseKey: string,
+    open: boolean,
+    toTop: boolean,
+    anchor: boolean,
+  ) => {
+    const header = anchor
+      ? findTunnelGroupElement(collapseKey)?.querySelector<HTMLElement>(
+          "[data-group-header]",
+        )
+      : null;
+
+    pendingGroupScrollRef.current = {
+      key: collapseKey,
+      open,
+      toTop,
+      anchorTop: header ? header.getBoundingClientRect().top : null,
+    };
+    setGroupScrollSeq((seq) => seq + 1);
   };
   const toggleTunnelGroupCollapsed = (userId: number, tunnelKey: string) => {
     const collapseKey = buildTunnelGroupCollapseKey(userId, tunnelKey);
 
     if (groupFilterActive) {
+      // Filter mode is unchanged: every match open, clicks only for this
+      // filter session, no accordion and no scroll to the top.
+      queueTunnelGroupScroll(
+        collapseKey,
+        filterClosedGroups.has(collapseKey),
+        false,
+        true,
+      );
       setFilterClosedGroups((prev) => {
         const next = new Set(prev);
 
@@ -4923,26 +5039,64 @@ export default function ForwardPage() {
 
       return;
     }
-    // Plan 164: closing a group the jump opened leaves the saved state alone
-    // (unless it is also saved as open, then it is saved closed as usual).
-    if (jumpOpenedGroups.has(collapseKey)) {
-      setJumpOpenedGroups((prev) => {
-        const next = new Set(prev);
+    const open = collapseKey !== openTunnelGroupKey;
 
-        next.delete(collapseKey);
-
-        return next;
-      });
-      if (sanitizedExpandedTunnelGroups[collapseKey] !== true) return;
-    }
-    saveExpandedTunnelGroups((next) => {
-      if (next[collapseKey] === true) {
-        delete next[collapseKey];
-      } else {
-        next[collapseKey] = true;
-      }
-    });
+    queueTunnelGroupScroll(collapseKey, open, true, true);
+    // A click ends a jump-opened group (plan 164); the click is saved.
+    setJumpOpenKey(null);
+    saveOpenTunnelGroup(open ? collapseKey : null);
   };
+
+  // Plan 173: runs once after a header / footer click (or a reveal) has been
+  // rendered — no scroll listeners. First keep the tapped header where it was
+  // (a long group above may just have collapsed), then scroll an opened group
+  // so its header sits at the top; a closed one only if it left the screen.
+  useLayoutEffect(() => {
+    const pending = pendingGroupScrollRef.current;
+
+    if (!pending) return;
+    pendingGroupScrollRef.current = null;
+    const wrapper = findTunnelGroupElement(pending.key);
+    const header = wrapper?.querySelector<HTMLElement>("[data-group-header]");
+
+    if (!wrapper || !header) return;
+    const scroller = findScrollParent(wrapper);
+    const viewTop = scroller
+      ? scroller.getBoundingClientRect().top + scroller.clientTop
+      : 0;
+    const viewBottom = scroller
+      ? viewTop + scroller.clientHeight
+      : window.innerHeight;
+    // The sticky top (safe area on phones) is mirrored in scroll-margin-top.
+    const restTop =
+      viewTop +
+      (parseFloat(window.getComputedStyle(wrapper).scrollMarginTop) || 0);
+    const scrollByY = (dy: number, smooth: boolean) => {
+      if (Math.abs(dy) < 1) return;
+      // "auto" = instant here (no CSS scroll-behavior is set anywhere).
+      (scroller ?? window).scrollBy({
+        top: dy,
+        behavior: smooth ? "smooth" : "auto",
+      });
+    };
+
+    if (pending.anchorTop !== null) {
+      scrollByY(header.getBoundingClientRect().top - pending.anchorTop, false);
+    }
+    const top = header.getBoundingClientRect().top;
+
+    if (pending.open && pending.toTop) {
+      const reduceMotion = window.matchMedia?.(
+        "(prefers-reduced-motion: reduce)",
+      ).matches;
+
+      scrollByY(top - restTop, !reduceMotion);
+    } else if (top + header.offsetHeight <= viewTop || top >= viewBottom) {
+      // Only when it has left the screen completely (a tapped header is
+      // kept where it was by the anchor above).
+      scrollByY(top - restTop, false);
+    }
+  }, [groupScrollSeq]);
 
   // Plan 164: 「线路机不合规 N 条」 cycles through the flagged rules in the
   // order they are shown; hidden counts those a filter hides right now.
@@ -5030,10 +5184,9 @@ export default function ForwardPage() {
 
           return next;
         });
-      } else if (sanitizedExpandedTunnelGroups[collapseKey] !== true) {
-        setJumpOpenedGroups((prev) =>
-          prev.has(collapseKey) ? prev : new Set(prev).add(collapseKey),
-        );
+      } else if (openTunnelGroupKey !== collapseKey) {
+        // Plan 173: accordion — this group becomes the one open group.
+        setJumpOpenKey(collapseKey);
       }
     } else {
       const index = sortedForwards.findIndex(
@@ -5089,22 +5242,12 @@ export default function ForwardPage() {
 
       return next;
     });
-    if (expandedTunnelGroups[collapseKey] !== true) {
-      saveExpandedTunnelGroups((next) => {
-        next[collapseKey] = true;
-      });
-    }
-    // Bring the opened group into view when it is off screen.
-    window.setTimeout(() => {
-      const el = Array.from(
-        document.querySelectorAll<HTMLElement>("[data-group-key]"),
-      ).find((node) => node.dataset.groupKey === collapseKey);
-      const rect = el?.getBoundingClientRect();
-
-      if (el && rect && (rect.top < 0 || rect.top > window.innerHeight - 160)) {
-        el.scrollIntoView({ behavior: "smooth", block: "center" });
-      }
-    }, 120);
+    // Plan 173: accordion — saved as the one open group.
+    setJumpOpenKey(null);
+    saveOpenTunnelGroup(collapseKey);
+    // Bring the opened group into view: header to the top (filter mode: only
+    // when it is off screen, as before).
+    queueTunnelGroupScroll(collapseKey, true, !groupFilterActive, false);
   }, [forwards]);
   // 生成用作筛选项的用户和隧道列表
   const uniqueUsers = useMemo(() => {
@@ -6072,7 +6215,8 @@ export default function ForwardPage() {
               return (
                 <div
                   key={`grouped-table-${group.userId}-${group.userName}`}
-                  className="overflow-hidden rounded-xl border border-divider bg-content1 shadow-md"
+                  // Plan 173: clip (not hidden) so the open group header can stick.
+                  className="overflow-hidden supports-[overflow:clip]:overflow-clip rounded-xl border border-divider bg-content1 shadow-md"
                 >
                   <div className="flex items-center justify-between border-b border-divider bg-default-100/40 px-4 py-3 max-md:gap-2">
                     <div className="flex items-center gap-2 max-md:min-w-0">
@@ -6084,7 +6228,7 @@ export default function ForwardPage() {
                       {groupForwardCount} 个规则
                     </span>
                   </div>
-                  <div className={isMobile ? "space-y-3 p-2" : "space-y-4 p-4"}>
+                  <div className={isMobile ? "space-y-4 p-2" : "space-y-5 p-4"}>
                     <DndContext
                       collisionDetection={pointerWithin}
                       sensors={sensors}
@@ -6121,10 +6265,16 @@ export default function ForwardPage() {
                               collapsed={collapsed}
                               countClassName="whitespace-nowrap text-xs text-default-500"
                               groupUserId={group.userId}
-                              headerClassName={`flex items-center justify-between ${collapsed ? "" : "border-b border-divider "}bg-default-100/50 hover:bg-default-200/50 px-4 py-2.5 max-md:px-2 max-md:gap-1`}
-                              titleClassName={isMobile ? "min-w-0 break-words text-sm font-semibold text-foreground" : "truncate text-sm font-semibold text-foreground"}
+                              // Plan 173: the open group's header sticks (solid
+                              // tint); collapsed headers are unchanged.
+                              headerClassName={
+                                collapsed
+                                  ? "flex items-center justify-between bg-default-100/50 hover:bg-default-200/50 px-4 py-2.5 max-md:px-2 max-md:gap-1"
+                                  : "flvx-rule-group-head-open sticky z-20 flex items-center justify-between border-b px-4 py-2.5 max-md:px-2 max-md:gap-1"
+                              }
+                              titleClassName={`${isMobile ? "min-w-0 break-words" : "truncate"} text-sm ${collapsed ? "font-semibold" : "font-bold"} text-foreground`}
                               tunnel={tunnel}
-                              wrapperClassName="overflow-hidden rounded-lg border border-divider bg-content1"
+                              wrapperClassName={`flvx-rule-group overflow-hidden supports-[overflow:clip]:overflow-clip rounded-lg border border-divider bg-content1${collapsed ? "" : " flvx-rule-group-open"}`}
                               onToggleCollapsed={() =>
                                 toggleTunnelGroupCollapsed(
                                   group.userId,

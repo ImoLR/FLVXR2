@@ -1847,3 +1847,110 @@ textarea:focus-visible {
     display: none;
   }
 }
+
+/* Plan 173: rules page tunnel groups — the one open group gets a calm teal
+   accent (3px bar over header + rows, stronger border), a solid tinted sticky
+   header and a 「收起 · 隧道名」 footer. Collapsed groups keep their look. */
+.flvx-rule-group {
+  scroll-margin-top: env(safe-area-inset-top, 0px);
+}
+
+.flvx-rule-group.flvx-rule-group-open {
+  position: relative;
+}
+
+.flvx-rule-group.flvx-rule-group-open,
+.flvx-mobile-main .flvx-rule-group.flvx-rule-group-open.rounded-lg.border {
+  border-color: rgba(13, 148, 136, 0.5) !important;
+}
+
+.dark .flvx-rule-group.flvx-rule-group-open,
+.dark .flvx-mobile-main .flvx-rule-group.flvx-rule-group-open.rounded-lg.border {
+  border-color: rgba(45, 212, 191, 0.42) !important;
+}
+
+.flvx-rule-group.flvx-rule-group-open::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 30;
+  width: 3px;
+  background: #14b8a6;
+  pointer-events: none;
+}
+
+.dark .flvx-rule-group.flvx-rule-group-open::before {
+  background: #2dd4bf;
+}
+
+/* Solid (not translucent) so rows never show through while it is pinned. */
+.flvx-rule-group-head-open {
+  top: env(safe-area-inset-top, 0px);
+  background: #effaf8;
+  border-bottom-color: rgba(13, 148, 136, 0.22);
+}
+
+.flvx-rule-group-head-open:hover {
+  background: #e2f5f1;
+}
+
+/* Desktop: sticky offsets count from inside the layout <main> scroller's 24px
+   padding; cancel it so the header pins right under the top bar and no rows
+   peek out above it (and matches the scroll target used by the page). */
+@media (min-width: 769px) {
+  .flvx-luminous-main .flvx-rule-group-head-open {
+    top: -24px;
+  }
+}
+
+.dark .flvx-rule-group-head-open {
+  background: #0f2830;
+  border-bottom-color: rgba(45, 212, 191, 0.2);
+}
+
+.dark .flvx-rule-group-head-open:hover {
+  background: #133039;
+}
+
+.flvx-rule-group-footer {
+  border-top-color: rgba(13, 148, 136, 0.16);
+  background: rgba(239, 250, 248, 0.7);
+  cursor: pointer;
+}
+
+.dark .flvx-rule-group-footer {
+  border-top-color: rgba(45, 212, 191, 0.14);
+  background: rgba(15, 40, 48, 0.55);
+}
+
+.flvx-rule-group-footer-pill {
+  background: rgba(20, 184, 166, 0.13);
+  color: #0f766e;
+  transition: background-color 0.15s ease;
+}
+
+.flvx-rule-group-footer:hover .flvx-rule-group-footer-pill {
+  background: rgba(20, 184, 166, 0.22);
+}
+
+.dark .flvx-rule-group-footer-pill {
+  background: rgba(45, 212, 191, 0.14);
+  color: #5eead4;
+}
+
+.dark .flvx-rule-group-footer:hover .flvx-rule-group-footer-pill {
+  background: rgba(45, 212, 191, 0.24);
+}
+
+/* The phone shell clipped sideways with overflow-x: hidden, which also made it
+   a (never scrolling) scroll container, so position: sticky inside it never
+   stuck. clip gives the same clipping without that (old browsers keep hidden). */
+@media (max-width: 768px) {
+  @supports (overflow-x: clip) {
+    .flvx-mobile-shell {
+      overflow-x: clip;
+    }
+  }
+}
