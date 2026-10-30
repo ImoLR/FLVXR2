@@ -108,7 +108,7 @@ export function RuleLandingTarget({
     return "";
   };
   const groups = Array.from(new Set(nodes.map((node) => node.landingServerId)));
-  // Plan 146: first-time hint on 「目标类型」 after a 落地 node was created.
+  // Plan 146/169: hint on 「目标类型」 until the user has opened it once.
   const targetHint = useOnboardingHint("targetType");
   const selectNode = (node: LandingNode) =>
     onChange({ ...value, targetMode: "node", landingNodeId: node.id });

@@ -115,11 +115,8 @@ export function ChainLinkButton({
   const visible = forward.chain
     ? forward.chain.state === "active"
     : Boolean(forward.landingNodeId);
-  // Plan 146: first-time hint on the rule that was just created (chain rules: once ready).
-  const linkHint = useOnboardingHint("copyLink", {
-    enabled: visible,
-    match: forward.id,
-  });
+  // Plan 146/169: hint until the user has copied a link once (one rule row plays per visit).
+  const linkHint = useOnboardingHint("copyLink", { enabled: visible });
 
   if (!visible) return null;
 
