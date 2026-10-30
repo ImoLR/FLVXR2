@@ -443,7 +443,7 @@ export default function LandingPage() {
       disposed = true;
     };
   }, [linksFor]);
-  // Plan 146: first-time hint on 「用于新规则」 of the user's newest own node, once it is active.
+  // Plan 146/169: hint on 「用于新规则」 of the user's newest own active node until clicked once.
   const currentUserId = JwtUtil.getUserIdFromToken();
   const hintNode = nodes.reduce<LandingNode | null>(
     (newest, node) =>

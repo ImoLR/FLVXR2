@@ -3,6 +3,7 @@
 // (CSS transform/opacity animation, compositor thread) one lap at a time with a rest in between.
 // One IntersectionObserver while waiting to play, a 15 s setTimeout plus one rest timer per lap
 // while playing, nothing at all after the 15 s (the ring is unmounted).
+// Plan 169: plays on every page visit until the element was clicked once (no create trigger).
 import {
   useCallback,
   useEffect,
@@ -16,7 +17,6 @@ import {
   ONBOARDING_HINT_EVENT,
   OnboardingHintKey,
   completeOnboardingHint,
-  markOnboardingHintPlayed,
   pendingOnboardingHint,
 } from "@/utils/onboarding-hints";
 
@@ -35,37 +35,44 @@ const subscribe = (listener: () => void) => {
 // At most one ring plays at a time: a newly starting ring stops the previous one.
 let stopCurrent: (() => void) | null = null;
 
+// One element per hint plays per page visit (e.g. the first visible 「复制链接」 of many rule rows).
+// The claim is released when that element unmounts, so the next visit plays again.
+const claims = new Map<OnboardingHintKey, object>();
+
+const setClaim = (hint: OnboardingHintKey, owner: object | null) => {
+  if (owner) claims.set(hint, owner);
+  else claims.delete(hint);
+  window.dispatchEvent(new Event(ONBOARDING_HINT_EVENT));
+};
+
 export function useOnboardingHint(
   hint: OnboardingHintKey,
-  {
-    enabled = true,
-    match,
-  }: {
-    enabled?: boolean;
-    // Only play for this trigger token (e.g. the forward id of the new rule).
-    match?: number;
-  } = {},
+  { enabled = true }: { enabled?: boolean } = {},
 ) {
-  const token = useSyncExternalStore(
+  const self = useRef({}).current;
+  const open = useSyncExternalStore(
     subscribe,
-    () => pendingOnboardingHint(hint),
-    () => 0,
+    () =>
+      pendingOnboardingHint(hint) &&
+      (!claims.has(hint) || claims.get(hint) === self),
+    () => false,
   );
   const [element, setElement] = useState<HTMLElement | null>(null);
   const [active, setActive] = useState(false);
-  const eligible =
-    enabled && token > 0 && (match === undefined || match === token);
+  const [played, setPlayed] = useState(false);
+  const eligible = enabled && open && !played;
 
   useEffect(() => {
-    if (!eligible || !element || active) return;
+    if (!eligible || !element) return;
     const observer = new IntersectionObserver(
       (entries) => {
         if (!entries.some((entry) => entry.isIntersecting)) return;
         observer.disconnect();
-        // Another copy of the element (table + card view) may have played it already.
-        if (pendingOnboardingHint(hint) !== token) return;
-        markOnboardingHintPlayed(hint, token);
+        // Another copy of the element (table + card view) may have claimed it already.
+        if (claims.has(hint) || !pendingOnboardingHint(hint)) return;
+        setPlayed(true);
         setActive(true);
+        setClaim(hint, self);
       },
       { threshold: 0.6 },
     );
@@ -73,7 +80,14 @@ export function useOnboardingHint(
     observer.observe(element);
 
     return () => observer.disconnect();
-  }, [eligible, element, active, hint, token]);
+  }, [eligible, element, hint, self]);
+
+  useEffect(
+    () => () => {
+      if (claims.get(hint) === self) setClaim(hint, null);
+    },
+    [hint, self],
+  );
 
   useEffect(() => {
     if (!active) return;
@@ -94,8 +108,8 @@ export function useOnboardingHint(
     completeOnboardingHint(hint);
   }, [hint]);
 
-  // The ref is only attached while the hint can play, so the many rule rows that never ring
-  // don't re-render or get observed.
+  // The ref is only attached while the hint can play, so once one element has claimed the hint
+  // the other rule rows don't re-render or get observed.
   return { ref: eligible || active ? setElement : undefined, active, complete };
 }
 
@@ -107,8 +121,8 @@ export function OnboardingRing({ active }: { active: boolean }) {
 }
 
 // The comet runs one lap, then rests (static band only, no animation running) and starts again.
-// While nothing animates the compositor stays idle, so the 15 s cost is roughly halved.
-const ONBOARDING_LAP_REST_MS = 2600;
+// While nothing animates the compositor stays idle (plan 169: 1.2 s lap + 0.8 s rest, ~7 laps in 15 s).
+const ONBOARDING_LAP_REST_MS = 800;
 
 function OnboardingRingPlaying() {
   const ringRef = useRef<HTMLSpanElement | null>(null);

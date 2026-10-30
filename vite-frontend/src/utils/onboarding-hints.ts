@@ -1,15 +1,12 @@
-// Plan 146: first-time 落地 hints (a 15 s spinning ring on three spots). Client-side only: the state
-// lives in localStorage per user, no API. A hint is (re)armed by a trigger (node / rule create), plays
-// once for that trigger, and never plays again after the user has clicked its element.
+// Plan 146: 落地 "new" hints (a 15 s spinning ring on three spots). Client-side only: the state
+// lives in localStorage per user, no API. Plan 169: no trigger any more — a hint plays on every
+// page visit until the user has clicked its element once, then never again.
 import { JwtUtil } from "@/utils/jwt";
 
 export type OnboardingHintKey = "useNode" | "targetType" | "copyLink";
 
 interface HintState {
   done?: boolean;
-  // Token of the last trigger (node id / forward id) and the token that already played.
-  trigger?: number;
-  played?: number;
 }
 
 type HintStore = Partial<Record<OnboardingHintKey, HintState>>;
@@ -81,46 +78,10 @@ export const readOnboardingHint = (hint: OnboardingHintKey): HintState => {
   return key ? readStore(key)[hint] || {} : {};
 };
 
-// Arms a not-done hint for a new trigger token (it plays once more).
-export const armOnboardingHint = (hint: OnboardingHintKey, token: number) =>
-  update(hint, (state) =>
-    state.done || !token || state.trigger === token
-      ? null
-      : { ...state, trigger: token },
-  );
-
-export const markOnboardingHintPlayed = (
-  hint: OnboardingHintKey,
-  token: number,
-) =>
-  update(hint, (state) =>
-    state.played === token ? null : { ...state, played: token },
-  );
-
 // The user used the element: the hint never shows again.
 export const completeOnboardingHint = (hint: OnboardingHintKey) =>
   update(hint, (state) => (state.done ? null : { ...state, done: true }));
 
-// Returns the trigger token that should play now, or 0.
-export const pendingOnboardingHint = (hint: OnboardingHintKey): number => {
-  const state = readOnboardingHint(hint);
-
-  return !state.done && state.trigger && state.trigger !== state.played
-    ? state.trigger
-    : 0;
-};
-
-// A successful 落地 node create (re)arms 「用于新规则」 (own nodes only: it rings on the user's newest
-// node) and the rule dialog's 「目标类型」.
-export const armLandingNodeHints = (node?: {
-  id?: number;
-  userId?: number;
-}) => {
-  const id = Number(node?.id) || 0;
-
-  if (!id) return;
-  const userId = JwtUtil.getUserIdFromToken();
-
-  if (!node?.userId || node.userId === userId) armOnboardingHint("useNode", id);
-  armOnboardingHint("targetType", id);
-};
+// Plays (again) on the next page visit until the user has used the element.
+export const pendingOnboardingHint = (hint: OnboardingHintKey): boolean =>
+  !readOnboardingHint(hint).done;
