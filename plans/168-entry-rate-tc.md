@@ -61,24 +61,58 @@ Base reading: plans 159 / 161, `runs/limits-landing-rate/final.md` + `lab/fair/`
 ## Checklist
 
 - [x] Plan doc
-- [ ] Agent: tree engine (groups, children, drain, reparent), entry snapshot (validate, merge, persist), probe,
+- [x] Agent: tree engine (groups, children, drain, reparent), entry snapshot (validate, merge, persist), probe,
       handshake, status report, SetEntryRates command + revision
-- [ ] Agent tests: unit + kernel netns (tree, hot change, reparent, landing + entry together, restart, 500 ports);
+- [x] Agent tests: unit + kernel netns (tree, hot change, reparent, landing + entry together, restart, 500 ports);
       landing kernel / netns tests unchanged and green
-- [ ] Panel: columns + capability, snapshot builder, push / memo / reconnect / safety pass, tc-aware gost + nft payloads,
+- [x] Panel: columns + capability, snapshot builder, push / memo / reconnect / safety pass, tc-aware gost + nft payloads,
       status, API fields; tests SQLite + PostgreSQL
-- [ ] UI: yellow fallback hint (row + rule); tsc / build / lint
-- [ ] Lab: gost limiter vs nft policer vs tc (gost + nft rules), 20/100/500, 2/4 flows, stagger, both directions,
+- [x] UI: yellow fallback hint (row + rule); tsc / build / lint
+- [x] Lab: gost limiter vs nft policer vs tc (gost + nft rules), 20/100/500, 2/4 flows, stagger, both directions,
       work-conserving cases, accuracy, CPU; 500-port filter scale
-- [ ] DNAT check in netns: ingress sees listen port before DNAT, egress after un-NAT (v4 + v6, TCP + UDP)
-- [ ] E2E: real panel + real agent (row 20 over gost + nft rule, rule 5 under it, second user, live change / removal,
+- [x] DNAT check in netns: ingress sees listen port before DNAT, egress after un-NAT (v4 + v6, TCP + UDP)
+- [x] E2E: real panel + real agent (row 20 over gost + nft rule, rule 5 under it, second user, live change / removal,
       restart → one set, landing on the same node, old agent / no-IFB fallback)
-- [ ] Resource numbers (agent RSS / CPU / goroutines, kernel CPU 20 / 100 / 500)
-- [ ] Full `go test ./...` SQLite + PostgreSQL; go-gost / go-gost/x touched packages incl. netns tests
-- [ ] Screens of the yellow hint
-- [ ] Push branch, CI green
-- [ ] `runs/entry-rate-tc/release-notes.md`, summary.md / final.md
+- [x] Resource numbers (agent RSS / CPU / goroutines, kernel CPU 20 / 100 / 500)
+- [x] Full `go test ./...` SQLite + PostgreSQL; go-gost / go-gost/x touched packages incl. netns tests
+- [x] Screens of the yellow hint
+- [x] Push branch, CI green
+- [x] `runs/entry-rate-tc/release-notes.md`, summary.md / final.md
 
 ## Results
 
-(filled in as the work goes)
+Lab: `runs/entry-rate-tc/lab/` (netns, offline, synthetic data; real panel + agent A; fork.97 agent for today's paths).
+
+### Fairness / accuracy (one rule limit, 2 / 4 connections, staggered, both directions, 40 ms RTT; `lab/fair/`)
+| method | slowest/fastest median (worst) at 20 / 100 / 500 | payload / set |
+|---|---|---|
+| gost limiter (fork.97) | 1.00 / 1.00 / 0.99 (0.96) | 1.00 |
+| nft policer (fork.97) | 0.80 / 0.54 / 0.81 (0.19) | 0.98–1.00 |
+| tc, gost rule | 0.98 / 0.97 / 0.97 (0.94) | 1.00 / 0.96 / 0.92 |
+| tc, nft rule | 0.98 / 1.00 / 0.96 (0.42 = fq_codel bucket collision, 4 flows) | 1.00 / 0.98 / 0.93 |
+Work-conserving (100): capped 5 + greedy → 95.6 / 92.0 (tc gost / nft, download); one flow alone 97.9 / 91.5.
+
+### CPU (softirq + agent process, % of one core, median of 3; `lab/fair/cpu.json`)
+gost limiter 8.3 / 15.4 / 27.7, nft policer 5.1 / 6.8 / 10.4, tc gost 11.2 / 19.4 / 24.8, tc nft 8.9 / 16.7 / 16.9
+(20 / 100 / 500). Agent at a 500 Mbps rule limit: fork.97 35 % → 6.7 %. RSS 50–52 MB both, 13 threads both.
+500 limited ports: 4024 filters / 102 classes, apply 0.5–0.7 s, tick 3–7 ms, full verify ~0.1 s; an unlimited
+400 Mbps flow costs the same with 3 or 500 limited ports (softirq 8.3 vs 9.8).
+
+### E2E (`lab/e2e.py`, 22/22) + DNAT v6 (`lab/dnat_v6.py`)
+Row 20 over gost + nft rule 9.85 + 9.98 down / 9.80 + 9.91 up, bob 674; own 5 under it 4.9 + 14.6; live 20 → 40 →
+removed on running connections (0.18 s, no drop); 3 restarts + kill -9 → one set, tree not re-pushed; panel restart
+quiet (updated=0); IPv6 gost 4.8 + 14.5; UDP nft 19.7 / 20.4, gost 5.1; nft v6 DNAT TCP 9.6 + 9.6, UDP 19.5 / 19.9;
+fork.97 agent and FLVX_ENTRY_RATE_TC=off → old path, no tc objects; back to tc; all removed → nothing left.
+Tests: go-backend `go test ./...` SQLite 19/19, PostgreSQL 19/19; go-gost/x 20/20 packages (root kernel / netns tests
+included; one first-run failure was the unix socket path of an over-long TMPDIR, passes with a short one); go-gost
+1/1; frontend tsc 0 errors, build ok, lint no new errors (+5 prettier warnings in an already mis-indented block).
+CI green. Screens: `/root/mmwx-preview/entry-rate-tc/` (16 shots, checks pass). Report: `runs/entry-rate-tc/final.md`.
+Landing real-Core netns E2E (pinned Core v1.4.77): 3 of 4 runs pass on this branch (one borderline dip 35.2 < 36
+right after heavy lab traffic), fork.97 2/2.
+
+### Found and fixed during the lab
+- Kill switch / failed probe still re-applied a kept `entry_rates.json` at start → now dropped and SetEntryRates refused.
+- A removed user group needed 3 ticks to clean up (parent visited before children) → children first, gone in 1 tick.
+- A speed-only rule edit restarted the gost service (UpdateService) → skipped on tc nodes when the agent already runs
+  the identical service revision; only the tree changes.
+- Rule list dropped the new `rateFallback` field (explicit mapping) → mapped.
