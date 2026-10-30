@@ -6439,30 +6439,6 @@ func (h *Handler) cleanupForwardsForUserTunnel(userID, tunnelID int64) {
 	}
 }
 
-func (h *Handler) normalizeSpeedLimitReference(speedID *int64) (*int64, error) {
-	if speedID == nil {
-		return nil, nil
-	}
-
-	exists, err := h.repo.SpeedLimitExists(*speedID)
-	if err != nil {
-		return nil, err
-	}
-	if !exists {
-		return nil, nil
-	}
-
-	return speedID, nil
-}
-
-func sameSpeedLimitSelection(current sql.NullInt64, requested *int64) bool {
-	if requested == nil {
-		return !current.Valid
-	}
-
-	return current.Valid && current.Int64 == *requested
-}
-
 func asAnySlice(v interface{}) []interface{} {
 	if v == nil {
 		return nil
@@ -6682,20 +6658,6 @@ func asInt64Slice(v interface{}) []int64 {
 		}
 	}
 	return ids
-}
-
-
-func unionInt64s(a, b []int64) []int64 {
-	seen := make(map[int64]bool, len(a)+len(b))
-	out := make([]int64, 0, len(a)+len(b))
-	for _, id := range append(a, b...) {
-		if id <= 0 || seen[id] {
-			continue
-		}
-		seen[id] = true
-		out = append(out, id)
-	}
-	return out
 }
 
 func validateLocalNodePort(node *nodeRecord, port int) error {

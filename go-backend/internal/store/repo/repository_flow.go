@@ -360,18 +360,6 @@ func (r *Repository) MapForwardIDsToTunnelIDs(forwardIDs []int64) (map[int64]int
 	return out, nil
 }
 
-func (r *Repository) SpeedLimitExists(id int64) (bool, error) {
-	if r == nil || r.db == nil {
-		return false, errors.New("repository not initialized")
-	}
-	var count int64
-	err := r.db.Model(&model.SpeedLimit{}).Where("id = ?", id).Count(&count).Error
-	if err != nil {
-		return false, err
-	}
-	return count > 0, nil
-}
-
 func (r *Repository) GetSpeedLimitSpeed(id int64) (int, error) {
 	if r == nil || r.db == nil {
 		return 0, errors.New("repository not initialized")
