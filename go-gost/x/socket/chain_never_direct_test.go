@@ -46,8 +46,9 @@ func TestChainHopAllFailedStillRoutesThroughHop(t *testing.T) {
 	}
 	nodes := runningHopNodes(t, name)
 	markAll(nodes)
-	// Every node is marked once: in order → A; the dial through A fails →
-	// A is marked again → B next, then C: a retry walks through all of them.
+	// Every node is marked once (same second): in order → A; the dial
+	// through A fails → A is marked again → B next, then C: a retry walks
+	// through all of them.
 	for i, want := range []string{exitA, exitB, exitC} {
 		got := firstRouteAddr(name)
 		if got != want {
@@ -63,6 +64,25 @@ func TestChainHopAllFailedStillRoutesThroughHop(t *testing.T) {
 	nodes[1].Marker().Reset()
 	if got := firstRouteAddr(name); got != exitB {
 		t.Fatalf("after B recovered first = %q, want %s", got, exitB)
+	}
+}
+
+// A node that failed a while ago is tried before one that just failed, even
+// with more failures (it is the one most likely back).
+func TestChainHopAllFailedPrefersOldestFailure(t *testing.T) {
+	name := "chains_180r2_oldest"
+	swapTestCleanup(t, name)
+	if err := createChain(createChainRequest{Data: swapTestChainConfig(name, exitA, exitB)}); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	nodes := runningHopNodes(t, name)
+	for i := 0; i < 3; i++ {
+		nodes[1].Marker().Mark() // B: three failures, earlier
+	}
+	time.Sleep(1100 * time.Millisecond) // marks have second resolution
+	nodes[0].Marker().Mark()            // A: one failure, just now
+	if got := firstRouteAddr(name); got != exitB {
+		t.Fatalf("all marked: first = %q, want the older failure %s", got, exitB)
 	}
 }
 

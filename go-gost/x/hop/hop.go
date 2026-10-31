@@ -102,7 +102,7 @@ type chainHop struct {
 }
 
 // MarkChainHop flags h as a hop of a chain: when every node is fail-marked
-// it still selects one (the least-failed) instead of nil, so the chain
+// it still selects one (the oldest failure) instead of nil, so the chain
 // never degrades into a direct dial. Forwarder hops (a rule's targets) are
 // not marked and keep returning nil.
 func MarkChainHop(h hop.Hop) {
@@ -111,18 +111,21 @@ func MarkChainHop(h hop.Hop) {
 	}
 }
 
-// leastFailedNode: the node with the fewest recorded failures, in order on
-// ties (fail mark times only have second resolution, the count always moves).
-func leastFailedNode(nodes []*chain.Node) *chain.Node {
+// oldestFailedNode: the node whose last failure is the oldest; on the same
+// second (marks have second resolution) the fewest failures, then the order.
+// Nodes without a marker come first.
+func oldestFailedNode(nodes []*chain.Node) *chain.Node {
 	var best *chain.Node
+	var bestAt time.Time
 	var bestCount int64
 	for _, node := range nodes {
-		var count int64
-		if marker := node.Marker(); marker != nil {
-			count = marker.Count()
+		marker := node.Marker()
+		if marker == nil {
+			return node
 		}
-		if best == nil || count < bestCount {
-			best, bestCount = node, count
+		at, count := marker.Time(), marker.Count()
+		if best == nil || at.Before(bestAt) || (at.Equal(bestAt) && count < bestCount) {
+			best, bestAt, bestCount = node, at, count
 		}
 	}
 	return best
@@ -263,10 +266,11 @@ func (p *chainHop) Select(ctx context.Context, opts ...hop.SelectOption) *chain.
 			// would then return a route without this hop and the router
 			// would dial the destination directly — bypassing the next hop
 			// (e.g. a 中转 reaching the landing itself, exposing its own IP).
-			// Try them in order, the least-failed first: a failure adds
-			// to its count, so the router's retries walk through all of
+			// Try the one whose last failure is the oldest (most likely
+			// back), then the fewest failures, then the order: a failure
+			// re-marks it, so the router's retries walk through all of
 			// them and the dial fails when they all fail.
-			return leastFailedNode(nodes)
+			return oldestFailedNode(nodes)
 		}
 		// Return nil to signal "no healthy nodes available" to the caller.
 		// The handler's retry loop will handle this appropriately.
