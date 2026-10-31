@@ -1,4 +1,4 @@
-import { ChevronDown } from "lucide-react";
+import { ChevronDown, Route } from "lucide-react";
 
 import { landingToneClass, type LandingTone } from "@/pages/landing/pill";
 import {
@@ -68,7 +68,7 @@ const statusText: Record<string, string> = {
 };
 
 const pillBase =
-  "inline-flex max-w-full items-center gap-1 rounded-full px-2 text-[11px] font-semibold leading-[18px]";
+  "inline-flex max-w-full flex-wrap items-center gap-x-1 rounded-lg px-2 py-px text-left text-[11px] font-semibold leading-[17px]";
 
 // Same-room paths are sub-millisecond: 「<1 ms」, never 「0 ms」.
 const num = (v?: number) => ((v ?? 0) < 1 ? "<1" : String(Math.round(v ?? 0)));
@@ -99,17 +99,28 @@ export const normalizeRuleBestPick = (raw: unknown): RuleBestPick | null => {
 function PickText({ pick }: { pick: RuleBestPick }) {
   const applied = pick.status === "applied";
   const msText = pickMs(pick);
+  // Segments break only between hops: 「中转 东京B」「→ 出口 新加坡A」「· 38 ms」.
+  const segs =
+    applied && pick.layers && pick.layers.length > 0
+      ? pick.layers.map((l, i) => `${i > 0 ? "→ " : ""}${l.label} ${l.name}`)
+      : [applied ? pick.summary : statusText[pick.status] || pick.summary];
 
   return (
     <>
-      <span className="shrink-0 opacity-80">最优</span>
-      <span className="min-w-0 truncate">
-        {applied ? pick.summary : statusText[pick.status] || pick.summary}
-      </span>
-      {msText && <span className="shrink-0">· {msText}</span>}
-      {applied && pick.withTarget && (
-        <span className="shrink-0 rounded-full bg-white/60 px-1 text-[10px] font-medium leading-[14px] dark:bg-black/20">
-          含落地
+      <Route aria-label="最优" className="h-3 w-3 shrink-0" />
+      {segs.map((seg, i) => (
+        <span key={i} className="whitespace-nowrap">
+          {seg}
+        </span>
+      ))}
+      {msText && (
+        <span className="inline-flex items-center gap-1 whitespace-nowrap">
+          · {msText}
+          {pick.withTarget && (
+            <span className="rounded-full bg-white/60 px-1 text-[10px] font-medium leading-[14px] dark:bg-black/20">
+              含落地
+            </span>
+          )}
         </span>
       )}
     </>

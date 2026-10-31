@@ -37,14 +37,28 @@ BUILD ONLY (no tag / release / prod writes / OTA). Approval: user 2026-10-31/11-
       `tunnelChainConfigFor` + push (one UpdateChains per changed owner, shared storm guard) + logs/counters
 - [x] 5. Panel: switch OFF removes per-destination orders on that tunnel (push) ; tunnel edit / rule edit cleanup
 - [x] 6. Panel: `bestPick` on the rule list (rule-level / tunnel decision, multi-entry / multi-target, states)
-- [ ] 7. Frontend: rule list pick line + tap popover (desktop + phone); tunnel form switch 「规则最优」
-- [ ] 8. Unit tests panel (cost, margin, failover, back-off, dedupe, cleanup, OFF byte-compare vs fork.102 for all
+- [x] 7. Frontend: rule list pick line + tap popover (desktop + phone); tunnel form switch 「规则最优」
+- [x] 8. Unit tests panel (cost, margin, failover, back-off, dedupe, cleanup, OFF byte-compare vs fork.102 for all
       prod-shaped tunnels, capability gating, multi-target, entry-bound rules)
-- [ ] 9. Full `go test ./...` SQLite + PostgreSQL; go-gost / go-gost/x touched packages; frontend tsc/build/lint
-- [ ] 10. netns proof (tc netem): per-target exits on one tunnel, switch after delay change, dead exit failover,
+- [x] 9. Full `go test ./...` SQLite + PostgreSQL; go-gost / go-gost/x touched packages; frontend tsc/build/lint
+- [x] 10. netns proof (tc netem): per-target exits on one tunnel, switch after delay change, dead exit failover,
       long-lived conn survives pushes, old agent stays on tunnel order, OFF = fork.102
-- [ ] 11. Resource numbers (probes/round prod-like + 200 rules, round time, ss, panel CPU/RSS, agent select cost)
-- [ ] 12. Screens 390 + 1440 light + dark → gallery /root/mmwx-preview/rule-best/
-- [ ] 13. `runs/rule-best/release-notes.md` (OTA order, canary, capability check, pre/post client checks, prod
+- [x] 11. Resource numbers (probes/round prod-like + 200 rules, round time, ss, panel CPU/RSS, agent select cost)
+- [x] 12. Screens 390 + 1440 light + dark → gallery /root/mmwx-preview/rule-best/
+- [x] 13. `runs/rule-best/release-notes.md` (OTA order, canary, capability check, pre/post client checks, prod
       proof with temp objects, rollback, kill switch)
 - [ ] 14. Push branch, CI green, summary/final.md
+
+## Results (2026-11-01 TW)
+
+- Tests: backend `go test ./...` SQLite 20/20 packages ok, PostgreSQL (`FLVX_POSTGRES_TEST_DSN`) 20/20 ok; go-gost/x
+  hop, socket, config, handler/forward ok; go-gost root ok; frontend tsc 0 errors, build ok, eslint errors 20 = 20 on
+  fork.102 (none in new code).
+- 228 chain configs of the 31 prod-shaped tunnels byte-identical to fork.102 with the switch off (unit test); lab:
+  OFF tunnel agent configs identical between the new panel and the fork.102 panel; fork.102 boots on the migrated DB.
+- netns lab (`runs/rule-best/lab`): same tunnel, rule A → 东京出口, rule B → 新加坡出口 (TCP + UDP); 2-target rule
+  alternates per target; switch after a delay change in 2 rounds; dead preferred exit: new connections fail over at
+  once; long-lived connections survived 5 push rounds and 2 panel restarts; fork.102 agent on a 中转 = tunnel order.
+- Resources: prod copy 126 → 140 probes per round (+14); 200 seeded rules +208 (cap 300); decision 0.1 ms (prod) /
+  0.5 ms (200 rules) per round; lab panel CPU per 5 min 2.94 s = fork.102 2.94 s, RSS 36.8 vs 36.4 MiB; TIME_WAIT 0.
+- Screens: http://104.145.236.29:8791/rule-best/
