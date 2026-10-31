@@ -3062,7 +3062,10 @@ export default function TunnelPage() {
               <div className="space-y-3">
                 {/* 拓扑结构 */}
                 <div className="pt-2 border-t border-divider">
-                  <div className="flex items-center justify-center gap-2 text-xs">
+                  <div
+                    className="flex items-center justify-center gap-2 text-xs"
+                    data-tunnel-chain=""
+                  >
                     {/* 入口节点 */}
                     <div className="flex items-center gap-1 px-2 py-1 bg-primary-50 dark:bg-primary-100/20 rounded border border-primary-200 dark:border-primary-300/20">
                       <svg
@@ -3322,144 +3325,30 @@ export default function TunnelPage() {
   // Plan 178: grouped views get the rules-page group look — collapsed header
   // with name + count, accordion, sticky tinted open header, teal accent bar,
   // tree line and a 「收起 · 组名」 footer. Collapsed groups render no rows.
-  const renderTunnelSubHeader = (
-    sub: TunnelTreeSub,
-    open: boolean,
-    view: "card" | "list",
-  ) => (
-    <TreeGroupHeader
-      className={`flvx-tunnel-tree-sub-head${open ? " flvx-tunnel-tree-sub-head-open" : ""} flex items-center justify-between gap-2 rounded-lg bg-default-100/60 px-2 hover:bg-default-200/50 ${view === "card" ? "py-3" : "py-1.5"}`}
-      collapsed={!open}
-      onToggle={() => toggleTunnelSubGroup(sub.key)}
-    >
-      <span className="flex min-w-0 items-center gap-2" title={sub.title}>
-        <TreeGroupChevron collapsed={!open} />
-        <span className="shrink-0 text-sm font-semibold text-foreground">
-          {sub.label}
-        </span>
-        {isAdmin && sub.region === "" && (
-          <span className="min-w-0 truncate text-xs font-normal text-default-500">
-            出口节点未设置地区，可在节点页设置
-          </span>
-        )}
-      </span>
-      <span className="shrink-0 whitespace-nowrap text-xs text-default-500">
-        {sub.tunnels.length} 个隧道
-      </span>
-    </TreeGroupHeader>
-  );
-  const renderTunnelGroupCards = (group: TunnelTreeGroup) => {
-    if (!group.subs) {
-      return (
-        <SortableContext
-          items={group.tunnels.map((tunnel) => tunnel.id)}
-          strategy={rectSortingStrategy}
-        >
-          <div className="flvx-tunnel-tree-grid-wrap">
-            <div className="flvx-tunnel-tree-grid">
-              {group.tunnels.map((tunnel) =>
-                renderTunnelCard(tunnel, {
-                  key: `${group.key}/tunnel:${tunnel.id}`,
-                  sortableId: tunnel.id,
-                  sortDisabled: false,
-                  className: "flvx-tunnel-tree-leaf",
-                  hideGroupChip: true,
-                }),
-              )}
-            </div>
-          </div>
-        </SortableContext>
-      );
-    }
-
-    return (
-      <div className="flvx-rule-tree-cards space-y-3 py-2 pr-1 md:pr-2">
-        {group.subs.map((sub) => {
-          const open = isTunnelSubGroupOpen(sub.key);
-
-          return (
-            <div
-              key={sub.key}
-              className="flvx-rule-tree-node"
-              data-group-key={sub.key}
-            >
-              {renderTunnelSubHeader(sub, open, "card")}
-              {open && (
-                <div className="flvx-tunnel-tree-grid-wrap">
-                  <div className="flvx-tunnel-tree-grid">
-                    {sub.tunnels.map((tunnel) => {
-                      const key = `${sub.key}/tunnel:${tunnel.id}`;
-
-                      return renderTunnelCard(tunnel, {
-                        key,
-                        sortableId: key,
-                        sortDisabled: true,
-                        className: "flvx-tunnel-tree-leaf",
-                        hideRegionChip: sub.region !== MULTI_REGION,
-                      });
-                    })}
-                  </div>
-                </div>
-              )}
-            </div>
-          );
-        })}
-      </div>
-    );
-  };
-  const renderTunnelGroupTable = (group: TunnelTreeGroup) => {
-    const groupIds = Array.from(new Set(group.tunnels.map((t) => t.id)));
-    const isGroupSelected =
-      groupIds.length > 0 && groupIds.every((id) => selectedTunnelIds.has(id));
-    const handleGroupToggle = (isSelected: boolean) =>
+  // Round 2 (region mode): every exit region of an open entry is its own amber
+  // box — the teal entry line elbows into each region header, the region
+  // header sticks right below the pinned entry header (CSS only) and the
+  // region's tunnels hang off an amber line from the region chevron.
+  const renderTunnelTreeTable = (
+    tunnels: Tunnel[],
+    opts: {
+      keyPrefix: string;
+      sortable: boolean;
+      hideRegionChip: boolean;
+      selectLabel: string;
+    },
+  ) => {
+    const ids = Array.from(new Set(tunnels.map((t) => t.id)));
+    const isAllSelected =
+      ids.length > 0 && ids.every((id) => selectedTunnelIds.has(id));
+    const handleSelectAll = (isSelected: boolean) =>
       setSelectedTunnelIds((prev) => {
         const next = new Set(prev);
 
-        groupIds.forEach((id) => (isSelected ? next.add(id) : next.delete(id)));
+        ids.forEach((id) => (isSelected ? next.add(id) : next.delete(id)));
 
         return next;
       });
-    const subs = group.subs;
-    const rows = subs
-      ? subs.flatMap((sub, subIndex) => {
-          const open = isTunnelSubGroupOpen(sub.key);
-          const lastSub = subIndex === subs.length - 1;
-          const subRow = (
-            <tr key={sub.key} data-group-key={sub.key}>
-              <td
-                className={`flvx-tunnel-tree-subcell${lastSub ? " is-last" : ""}`}
-                colSpan={13}
-              >
-                {renderTunnelSubHeader(sub, open, "list")}
-              </td>
-            </tr>
-          );
-
-          if (!open) return [subRow];
-
-          return [
-            subRow,
-            ...sub.tunnels.map((tunnel, index) => {
-              const key = `${sub.key}/tunnel:${tunnel.id}`;
-
-              return renderTunnelListRow(tunnel, {
-                key,
-                sortableId: key,
-                sortDisabled: true,
-                hideRegionChip: sub.region !== MULTI_REGION,
-                treeCellClassName: `flvx-tunnel-tree-cell2${index === sub.tunnels.length - 1 ? " is-last" : ""}${lastSub ? "" : " is-pass"} py-3 pr-2 align-middle`,
-              });
-            }),
-          ];
-        })
-      : group.tunnels.map((tunnel) =>
-          renderTunnelListRow(tunnel, {
-            key: `${group.key}/tunnel:${tunnel.id}`,
-            sortableId: tunnel.id,
-            sortDisabled: false,
-            treeCellClassName: "flvx-rule-tree-cell py-3 pr-2 align-middle",
-          }),
-        );
 
     return (
       <div className="overflow-x-auto">
@@ -3469,19 +3358,19 @@ export default function TunnelPage() {
               <th className="flvx-rule-tree-cell py-3 pr-2 align-middle">
                 <div className="flex h-full items-center">
                   <Checkbox
-                    aria-label="本组全选"
-                    isSelected={isGroupSelected}
-                    onValueChange={handleGroupToggle}
+                    aria-label={opts.selectLabel}
+                    isSelected={isAllSelected}
+                    onValueChange={handleSelectAll}
                   />
                 </div>
               </th>
               <th className="py-3 px-4 w-[56px] text-center align-middle">
-                {subs ? "" : "排序"}
+                {opts.sortable ? "排序" : ""}
               </th>
               <th className="py-3 px-4 w-[200px] align-middle">
                 隧道名称
                 <span className="text-xs text-primary-500 font-normal">
-                  ^{groupIds.length}个
+                  ^{ids.length}个
                 </span>
               </th>
               <th className="py-3 px-4 w-[140px] align-middle">
@@ -3511,15 +3400,114 @@ export default function TunnelPage() {
             </tr>
           </thead>
           <SortableContext
-            items={subs ? [] : groupIds}
+            items={opts.sortable ? ids : []}
             strategy={verticalListSortingStrategy}
           >
-            <tbody>{rows}</tbody>
+            <tbody>
+              {tunnels.map((tunnel) => {
+                const key = `${opts.keyPrefix}/tunnel:${tunnel.id}`;
+
+                return renderTunnelListRow(tunnel, {
+                  key,
+                  sortableId: opts.sortable ? tunnel.id : key,
+                  sortDisabled: !opts.sortable,
+                  hideRegionChip: opts.hideRegionChip,
+                  treeCellClassName:
+                    "flvx-rule-tree-cell py-3 pr-2 align-middle",
+                });
+              })}
+            </tbody>
           </SortableContext>
         </table>
       </div>
     );
   };
+  const renderTunnelRegionHeader = (sub: TunnelTreeSub, open: boolean) => (
+    <TreeGroupHeader
+      className={`flvx-tunnel-region-head${open ? " flvx-tunnel-region-head-open" : ""} flex items-center justify-between gap-2 px-2`}
+      collapsed={!open}
+      onToggle={() => toggleTunnelSubGroup(sub.key)}
+    >
+      <span className="flex min-w-0 items-center gap-2" title={sub.title}>
+        <TreeGroupChevron collapsed={!open} />
+        <span className="shrink-0 text-sm font-semibold text-foreground">
+          {sub.label}
+        </span>
+        {isAdmin && sub.region === "" && (
+          <span className="min-w-0 truncate text-xs font-normal text-default-500">
+            出口节点未设置地区，可在节点页设置
+          </span>
+        )}
+      </span>
+      <span className="flvx-tunnel-region-count shrink-0 whitespace-nowrap text-xs">
+        {sub.tunnels.length} 个隧道
+      </span>
+    </TreeGroupHeader>
+  );
+  const renderTunnelRegionList = (subs: TunnelTreeSub[]) => (
+    <div className="flvx-tunnel-region-list">
+      {subs.map((sub) => {
+        const open = isTunnelSubGroupOpen(sub.key);
+        const hideRegionChip = sub.region !== MULTI_REGION;
+
+        return (
+          <div key={sub.key} className="flvx-tunnel-region-node">
+            <section
+              className={`flvx-tunnel-region-box ${viewMode === "list" ? "flvx-tunnel-region-box-table" : "flvx-tunnel-region-box-cards"}`}
+              data-group-key={sub.key}
+            >
+              {renderTunnelRegionHeader(sub, open)}
+              {open &&
+                (viewMode === "list" ? (
+                  renderTunnelTreeTable(sub.tunnels, {
+                    keyPrefix: sub.key,
+                    sortable: false,
+                    hideRegionChip,
+                    selectLabel: "本地区全选",
+                  })
+                ) : (
+                  <div className="flvx-tunnel-tree-grid-wrap">
+                    <div className="flvx-tunnel-tree-grid">
+                      {sub.tunnels.map((tunnel) => {
+                        const key = `${sub.key}/tunnel:${tunnel.id}`;
+
+                        return renderTunnelCard(tunnel, {
+                          key,
+                          sortableId: key,
+                          sortDisabled: true,
+                          className: "flvx-tunnel-tree-leaf",
+                          hideRegionChip,
+                        });
+                      })}
+                    </div>
+                  </div>
+                ))}
+            </section>
+          </div>
+        );
+      })}
+    </div>
+  );
+  const renderTunnelGroupCards = (group: TunnelTreeGroup) => (
+    <SortableContext
+      items={group.tunnels.map((tunnel) => tunnel.id)}
+      strategy={rectSortingStrategy}
+    >
+      <div className="flvx-tunnel-tree-grid-wrap">
+        <div className="flvx-tunnel-tree-grid">
+          {group.tunnels.map((tunnel) =>
+            renderTunnelCard(tunnel, {
+              key: `${group.key}/tunnel:${tunnel.id}`,
+              sortableId: tunnel.id,
+              sortDisabled: false,
+              className: "flvx-tunnel-tree-leaf",
+              hideGroupChip: true,
+            }),
+          )}
+        </div>
+      </div>
+    </SortableContext>
+  );
   const renderTunnelTreeGroup = (group: TunnelTreeGroup) => {
     const collapsed = !isTunnelGroupOpen(group.key);
     const toggle = () => toggleTunnelGroup(group.key);
@@ -3527,7 +3515,7 @@ export default function TunnelPage() {
     return (
       <div
         key={group.key}
-        className={`${treeGroupWrapperClass(collapsed)} flvx-tunnel-tree-group`}
+        className={`${treeGroupWrapperClass(collapsed)} flvx-tunnel-tree-group${group.subs ? " flvx-tunnel-tree-group-region" : ""}`}
         data-group-key={group.key}
       >
         <TreeGroupHeader
@@ -3545,7 +3533,8 @@ export default function TunnelPage() {
               />
             )}
             <span
-              className={`min-w-0 break-words md:truncate text-sm ${collapsed ? "font-semibold" : "font-bold"} text-foreground`}
+              className={`min-w-0 ${group.subs && !collapsed ? "truncate" : "break-words md:truncate"} text-sm ${collapsed ? "font-semibold" : "font-bold"} text-foreground`}
+              title={group.subs && !collapsed ? group.label : undefined}
             >
               {group.label}
             </span>
@@ -3555,9 +3544,16 @@ export default function TunnelPage() {
           </span>
         </TreeGroupHeader>
         {!collapsed &&
-          (viewMode === "list"
-            ? renderTunnelGroupTable(group)
-            : renderTunnelGroupCards(group))}
+          (group.subs
+            ? renderTunnelRegionList(group.subs)
+            : viewMode === "list"
+              ? renderTunnelTreeTable(group.tunnels, {
+                  keyPrefix: group.key,
+                  sortable: true,
+                  hideRegionChip: false,
+                  selectLabel: "本组全选",
+                })
+              : renderTunnelGroupCards(group))}
         {!collapsed && <TreeGroupFooter name={group.label} onToggle={toggle} />}
       </div>
     );

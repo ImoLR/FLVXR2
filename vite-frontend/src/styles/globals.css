@@ -2104,29 +2104,14 @@ td.flvx-rule-tree-dim > * {
    sticky header, footer, tree line). Custom groups (隧道分组 → 隧道): the cards
    hang off the line like the phone rule cards; in a wider grid only the first
    card of each row gets the elbow (the column count comes from a container
-   query, so it always matches the grid). Region groups (入口 → 出口地区 → 隧道):
-   the exit-region sub-headers hang off the line; on wide screens their tunnels
-   hang off a second line under the sub-header chevron, phones keep one level so
-   the cards stay wide enough. The table view draws both levels in its first
-   column. Pure CSS; collapsed groups render no rows. */
+   query, so it always matches the grid). Region groups (入口 → 出口地区 → 隧道,
+   round 2): every exit region is its own amber box inside the teal entry box;
+   the teal line elbows into each region header, the region header sticks right
+   below the pinned entry header and the region's tunnels hang off an amber line
+   from the region chevron. Pure CSS (no listeners); collapsed groups and
+   collapsed regions render no rows. */
 .flvx-tunnel-tree-group {
-  --flvx-tree-x2: 22px;
   --flvx-tree-leaf-y: 27px;
-}
-
-.flvx-tunnel-tree-sub-head {
-  position: relative;
-}
-
-.flvx-tunnel-tree-sub-head-open::after {
-  content: "";
-  position: absolute;
-  left: calc(var(--flvx-tree-x2) - 1px);
-  top: calc(50% + 14px);
-  bottom: 0;
-  width: 2px;
-  background: var(--flvx-tree-line);
-  pointer-events: none;
 }
 
 .flvx-tunnel-tree-grid-wrap {
@@ -2143,10 +2128,6 @@ td.flvx-rule-tree-dim > * {
 /* Custom groups: the cards' first row also holds the drag handle (taller). */
 .flvx-tunnel-tree-group > .flvx-tunnel-tree-grid-wrap {
   --flvx-tree-leaf-y: 30px;
-}
-
-.flvx-rule-tree-node > .flvx-tunnel-tree-grid-wrap {
-  padding: 8px 0 0 calc(var(--flvx-tree-x2) + 10px);
 }
 
 .flvx-tunnel-tree-grid {
@@ -2309,20 +2290,9 @@ td.flvx-rule-tree-dim > * {
   }
 }
 
-/* Phones: the region level only (cards under their sub-header, not indented
-   again); cards in the tree use 16px side padding so 「1入口 › 0跳 › 1出口」
+/* Phones: cards in the tree use 16px side padding so 「1入口 › 0跳 › 1出口」
    stays on one line at 375–390px. */
 @media (max-width: 767.98px) {
-  .flvx-rule-tree-node > .flvx-tunnel-tree-grid-wrap {
-    padding-left: 0;
-  }
-
-  .flvx-rule-tree-node > .flvx-tunnel-tree-grid-wrap .flvx-tunnel-tree-leaf::before,
-  .flvx-rule-tree-node > .flvx-tunnel-tree-grid-wrap .flvx-tunnel-tree-leaf::after,
-  .flvx-rule-tree-node > .flvx-tunnel-tree-sub-head-open::after {
-    display: none;
-  }
-
   .flvx-tunnel-tree-grid [data-tunnel-card="true"] [data-slot="card-header"],
   .flvx-tunnel-tree-grid [data-tunnel-card="true"] [data-slot="card-body"] {
     padding-left: 16px;
@@ -2330,56 +2300,68 @@ td.flvx-rule-tree-dim > * {
   }
 }
 
-/* Table view, region groups: sub-header rows on the first line, tunnel rows on
-   a second line under the sub-header chevron (x + 10px cell padding + 22px). */
-td.flvx-tunnel-tree-subcell {
-  position: relative;
-  padding: 6px 16px 6px calc(var(--flvx-tree-x) + 10px);
+/* Region mode, round 2. The open entry header is one line of fixed height
+   (--flvx-entry-head-h: 28px chevron + 2 × 10px padding + 1px border), so the
+   open region header can stick right below it without measuring anything:
+   top = the entry header's sticky top + its height (- 1px: it tucks under the
+   entry header's bottom border, no gap on fractional zoom). */
+.flvx-tunnel-tree-group-region {
+  --flvx-entry-head-h: 49px;
+  --flvx-region-head-h: 44px;
 }
 
-td.flvx-tunnel-tree-subcell::before,
-td.flvx-tunnel-tree-cell2::before {
+.flvx-tunnel-tree-group-region > .flvx-rule-group-head-open {
+  height: var(--flvx-entry-head-h);
+}
+
+/* Teal level: one node per region box, the entry line passes them and elbows
+   into each region header; the last region ends it (rounded corner). */
+.flvx-tunnel-region-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 10px 4px 12px calc(var(--flvx-tree-x) + 10px);
+}
+
+@media (min-width: 768px) {
+  .flvx-tunnel-region-list {
+    padding-right: 12px;
+  }
+}
+
+.flvx-tunnel-region-node {
+  position: relative;
+}
+
+.flvx-tunnel-region-node::before {
   content: "";
   position: absolute;
-  left: calc(var(--flvx-tree-x) - 1px);
-  top: -1px;
-  bottom: -1px;
+  left: -11px;
+  top: -12px;
+  bottom: 0;
   width: 2px;
   background: var(--flvx-tree-line);
   pointer-events: none;
 }
 
-td.flvx-tunnel-tree-subcell::after,
-td.flvx-tunnel-tree-cell2::after {
+.flvx-tunnel-region-node:first-child::before {
+  top: -10px;
+}
+
+.flvx-tunnel-region-node::after {
   content: "";
   position: absolute;
-  left: calc(var(--flvx-tree-x) - 1px);
-  top: calc(50% - 1px);
+  left: -11px;
+  top: calc(var(--flvx-region-head-h) / 2);
   width: 11px;
   height: 2px;
   background: var(--flvx-tree-line);
   pointer-events: none;
 }
 
-td.flvx-tunnel-tree-cell2 {
-  position: relative;
-  width: calc(var(--flvx-tree-x) + 78px);
-  padding-left: calc(var(--flvx-tree-x) + 46px);
-}
-
-td.flvx-tunnel-tree-cell2::before,
-td.flvx-tunnel-tree-cell2::after {
-  left: calc(var(--flvx-tree-x) + 31px);
-}
-
-td.flvx-tunnel-tree-subcell .flvx-tunnel-tree-sub-head-open::after {
-  bottom: -6px;
-}
-
-td.flvx-tunnel-tree-subcell.is-last::before,
-td.flvx-tunnel-tree-cell2.is-last::before {
+.flvx-tunnel-region-node:last-child::before {
   bottom: auto;
-  height: calc(50% + 2px);
+  height: calc(var(--flvx-region-head-h) / 2 + 14px);
   width: 11px;
   background: none;
   border-left: 2px solid var(--flvx-tree-line);
@@ -2387,15 +2369,145 @@ td.flvx-tunnel-tree-cell2.is-last::before {
   border-bottom-left-radius: 7px;
 }
 
-td.flvx-tunnel-tree-subcell.is-last::after,
-td.flvx-tunnel-tree-cell2.is-last::after {
+.flvx-tunnel-region-node:first-child:last-child::before {
+  height: calc(var(--flvx-region-head-h) / 2 + 12px);
+}
+
+.flvx-tunnel-region-node:last-child::after {
   display: none;
 }
 
-/* The first line keeps going past the tunnels of every sub-group but the last. */
-td.flvx-tunnel-tree-cell2.is-pass {
-  background-image: linear-gradient(var(--flvx-tree-line), var(--flvx-tree-line));
-  background-position: calc(var(--flvx-tree-x) - 1px) 0;
-  background-repeat: no-repeat;
-  background-size: 2px 100%;
+/* Amber level: the region box (one calm amber for every region; the flag and
+   name tell them apart). Its tree line / x are amber and under the region
+   chevron (8px header padding + half of the 28px chevron) for everything
+   inside: the card leaves and the table tree cells above reuse them. */
+.flvx-tunnel-region-box {
+  --flvx-tree-line: rgba(217, 119, 6, 0.45);
+  --flvx-tree-x: 22px;
+  --flvx-tree-leaf-y: 27px;
+  position: relative;
+  border: 1px solid rgba(217, 119, 6, 0.3);
+  border-left: 3px solid #e59e1c;
+  border-radius: 10px;
+  background: var(--content1);
+}
+
+.dark .flvx-tunnel-region-box {
+  --flvx-tree-line: rgba(251, 191, 36, 0.45);
+  border-color: rgba(251, 191, 36, 0.24);
+  border-left-color: #e2a336;
+}
+
+.flvx-tunnel-region-head {
+  height: var(--flvx-region-head-h);
+  background: #fdf6e7;
+  border-radius: 7px;
+}
+
+.flvx-tunnel-region-head:hover {
+  background: #fbefd4;
+}
+
+.dark .flvx-tunnel-region-head {
+  background: #2a2316;
+}
+
+.dark .flvx-tunnel-region-head:hover {
+  background: #33291a;
+}
+
+.flvx-tunnel-region-count {
+  color: #b45309;
+}
+
+.dark .flvx-tunnel-region-count {
+  color: #f3c46b;
+}
+
+/* Clip the box corners instead of rounding the header, so a pinned header is
+   square (old browsers without overflow: clip keep the rounded header). clip,
+   not hidden: hidden would make the box a scroll container and stop the
+   header from sticking. */
+@supports (overflow: clip) {
+  .flvx-tunnel-region-box {
+    overflow: clip;
+  }
+
+  .flvx-tunnel-region-head {
+    border-radius: 0;
+  }
+}
+
+/* Open region: solid tinted header sticks under the pinned entry header
+   (desktop: the entry header pins at -24px inside the layout <main>). */
+.flvx-tunnel-region-head-open {
+  position: sticky;
+  z-index: 10;
+  top: calc(env(safe-area-inset-top, 0px) + var(--flvx-entry-head-h) - 1px);
+  border-bottom: 1px solid rgba(217, 119, 6, 0.2);
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+@media (min-width: 769px) {
+  .flvx-luminous-main .flvx-tunnel-region-head-open {
+    top: calc(var(--flvx-entry-head-h) - 25px);
+  }
+}
+
+.dark .flvx-tunnel-region-head-open {
+  border-bottom-color: rgba(251, 191, 36, 0.18);
+}
+
+/* The amber line leaves the region chevron (also while the header is pinned). */
+.flvx-tunnel-region-head-open::after {
+  content: "";
+  position: absolute;
+  left: calc(var(--flvx-tree-x) - 1px);
+  top: calc(50% + 14px);
+  bottom: -1px;
+  width: 2px;
+  background: var(--flvx-tree-line);
+  pointer-events: none;
+}
+
+/* Phone card view: the amber box is the second level (no second indent and
+   no amber card lines); inside it the cards use 12px side padding and a 6px
+   gap in 「1入口 › 0跳 › 1出口」 so that line stays on one line at 375–390px.
+   The table view keeps both lines (it scrolls sideways anyway). */
+@media (max-width: 767.98px) {
+  .flvx-tunnel-region-list {
+    padding-left: calc(var(--flvx-tree-x) + 6px);
+    padding-right: 2px;
+  }
+
+  .flvx-tunnel-region-node::before,
+  .flvx-tunnel-region-node::after {
+    left: -7px;
+  }
+
+  .flvx-tunnel-region-node::after,
+  .flvx-tunnel-region-node:last-child::before {
+    width: 7px;
+  }
+
+  .flvx-tunnel-region-box-cards > .flvx-tunnel-tree-grid-wrap {
+    padding: 6px 4px 8px;
+  }
+
+  .flvx-tunnel-region-box-cards .flvx-tunnel-tree-leaf::before,
+  .flvx-tunnel-region-box-cards .flvx-tunnel-tree-leaf::after,
+  .flvx-tunnel-region-box-cards > .flvx-tunnel-region-head-open::after {
+    display: none;
+  }
+
+  .flvx-tunnel-region-box-cards [data-tunnel-card="true"] [data-slot="card-header"],
+  .flvx-tunnel-region-box-cards [data-tunnel-card="true"] [data-slot="card-body"] {
+    padding-left: 12px;
+    padding-right: 12px;
+  }
+
+  .flvx-tunnel-region-box-cards [data-tunnel-chain] {
+    gap: 6px;
+  }
 }
