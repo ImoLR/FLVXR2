@@ -36,6 +36,9 @@ func TestForkVersionComparison(t *testing.T) {
 		{name: "baseline precedes first fork", left: "3.0.27", right: "3.0.27-fork.1", expects: -1},
 		{name: "fork revisions are numeric", left: "3.0.27-fork.2", right: "3.0.27-fork.10", expects: -1},
 		{name: "newer fork revision", left: "3.0.27-fork.10", right: "3.0.27-fork.2", expects: 1},
+		{name: "three-digit fork is newer than fork.99", left: "3.0.27-fork.99", right: "3.0.27-fork.100", expects: -1},
+		{name: "fork.100 is not older than fork.99", left: "3.0.27-fork.100", right: "3.0.27-fork.99", expects: 1},
+		{name: "fork.100 equals itself", left: "3.0.27-fork.100", right: "3.0.27-fork.100", expects: 0},
 		{name: "official release from another baseline is separate", left: "3.0.28", right: "3.0.27-fork.10", expects: 0},
 		{name: "fork is separate from another official baseline", left: "3.0.27-fork.10", right: "3.0.28", expects: 0},
 	}
@@ -58,6 +61,21 @@ func TestForkVersionComparison(t *testing.T) {
 func TestSystemUpdateDecisionKeepsForkLineSeparate(t *testing.T) {
 	if got := systemUpgradeVersionResponse("3.0.27-fork.2", releaseChannelStable, "3.0.27-fork.10", nil, systemUpgradeCapabilityData{}); !got.HasUpdate {
 		t.Fatal("fork.2 should offer fork.10 as an update")
+	}
+	if got := systemUpgradeVersionResponse("3.0.27-fork.99", releaseChannelStable, "3.0.27-fork.100", nil, systemUpgradeCapabilityData{}); !got.HasUpdate {
+		t.Fatal("fork.99 should offer fork.100 as an update")
+	}
+	if got := systemUpgradeVersionResponse("3.0.27-fork.100", releaseChannelStable, "3.0.27-fork.99", nil, systemUpgradeCapabilityData{}); got.HasUpdate {
+		t.Fatal("fork.100 must not offer fork.99 as an update")
+	}
+	if got := systemUpgradeVersionResponse("3.0.27-fork.100", releaseChannelStable, "3.0.27-fork.100", nil, systemUpgradeCapabilityData{}); got.HasUpdate {
+		t.Fatal("fork.100 must not offer itself as an update")
+	}
+	if releaseChannelFromTag("3.0.27-fork.100") != releaseChannelStable {
+		t.Fatal("fork.100 must be on the stable channel")
+	}
+	if quotaAgentSupport("3.0.27-fork.100") != quotaAgentSupported {
+		t.Fatal("fork.100 agents support quota groups")
 	}
 	if got := systemUpgradeVersionResponse("3.0.28", releaseChannelStable, "3.0.27-fork.10", nil, systemUpgradeCapabilityData{}); got.HasUpdate {
 		t.Fatal("an official release from another baseline must not auto-update to the fork line")
