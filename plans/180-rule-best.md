@@ -75,23 +75,46 @@ fail → 「规则最优」 OFF for that rule (persisted, add-only columns on `f
 admin-only notice like 线路机不合规 + one-click 「重新开启规则最优」. Agent: a chain hop whose nodes are all fail-marked never
 yields an empty route (no direct dial from 中转 / entry); chain-hop failTimeout 600 s → 60 s (rule forwarder unchanged).
 
-- [ ] r2-1. Agent: chain hop with every node fail-marked → oldest-marked node (in order on ties), never nil → no direct
+- [x] r2-1. Agent: chain hop with every node fail-marked → oldest-marked node (in order on ties), never nil → no direct
       dial; forwarder (rule targets) unchanged; unit tests (chain route never empty, forwarder unchanged, walk order)
-- [ ] r2-2. Panel: tunnel chain hop failTimeout 600 s → 60 s (rule forwarder + federation unchanged); OFF byte-compare vs
+- [x] r2-2. Panel: tunnel chain hop failTimeout 600 s → 60 s (rule forwarder + federation unchanged); OFF byte-compare vs
       fork.102 re-run, exact diff reported
-- [ ] r2-3. Panel: `forward.rule_best_off_sig/_target/_time` (add-only, SQLite + PostgreSQL) + repo set/clear/list; edit of
+- [x] r2-3. Panel: `forward.rule_best_off_sig/_target/_time` (add-only, SQLite + PostgreSQL) + repo set/clear/list; edit of
       tunnel/target invalidates it (signature)
-- [ ] r2-4. Panel: per (tunnel, destination) retry schedule +1/+3/+10/+60 min, confirm 1 min later, resume at next point,
+- [x] r2-4. Panel: per (tunnel, destination) retry schedule +1/+3/+10/+60 min, confirm 1 min later, resume at next point,
       1 h healthy reset; recovered → rule-best at once; all fail → persist OFF per rule, drop probes/orders, one log line
-- [ ] r2-5. Panel: admin notice data on the rule list (admin only) + POST `/forward/rule-best-reenable` (one log line, resets
+- [x] r2-5. Panel: admin notice data on the rule list (admin only) + POST `/forward/rule-best-reenable` (one log line, resets
       the schedule); user view = tunnel pick
-- [ ] r2-6. Frontend: 「规则最优已关闭 N 条」 header chip (jump like 线路机不合规) + per-rule admin badge with the notice
+- [x] r2-6. Frontend: 「规则最优已关闭 N 条」 header chip (jump like 线路机不合规) + per-rule admin badge with the notice
       text and 「重新开启规则最优」
-- [ ] r2-7. Unit tests (fake clock schedule, confirm, flap, 1 h reset, one-exit-fails, auto-OFF persisted + order removed +
+- [x] r2-7. Unit tests (fake clock schedule, confirm, flap, 1 h reset, one-exit-fails, auto-OFF persisted + order removed +
       probes stop, notice / re-enable, multi-target, restart keeps OFF, migration SQLite + PostgreSQL, fork.102 boots)
-- [ ] r2-8. Full `go test ./...` SQLite + PostgreSQL; go-gost/x touched packages; frontend tsc/build/lint
-- [ ] r2-9. netns lab: dead target retry points (real time), auto-OFF + notice, re-enable, other rules unaffected, long-lived
+- [x] r2-8. Full `go test ./...` SQLite + PostgreSQL; go-gost/x touched packages; frontend tsc/build/lint
+- [x] r2-9. netns lab: dead target retry points (real time), auto-OFF + notice, re-enable, other rules unaffected, long-lived
       conn; all exits blocked → no direct packet from 中转/entry, exits back → resumes; recovered exit used again ≤ ~1 min;
       dead-node extra latency per 60 s
-- [ ] r2-10. Resource numbers; screens 390 + 1440 light + dark (notice, auto-OFF admin + user, re-enable) → gallery (r2)
+- [x] r2-10. Resource numbers; screens 390 + 1440 light + dark (notice, auto-OFF admin + user, re-enable) → gallery (r2)
 - [ ] r2-11. release-notes (new columns, notice check, failTimeout re-push, agent note), push, CI green, summary + final.md
+
+## Round 2 results (2026-11-01 TW)
+
+- Tests: backend `go test ./...` SQLite 20/20 ok, PostgreSQL 20/20 ok (r2 repo tests ran on both dialects); go-gost/x
+  hop, socket, config/loader, config/parsing/parser, config/parsing/service, handler/forward/local ok; go-gost root ok;
+  frontend tsc 0 errors, build ok, eslint: forward.tsx 16 errors = 16 on the r1 base (none new), best-pick.tsx 0.
+  New tests: schedule exact points (+1/+3/+10/+60 with drifting rounds), success → confirm → rule-best at once, failed
+  confirmation → next point (and after +60 ⇒ off), flapping within 1 h resumes the schedule and ends in off, 1 h healthy
+  resets, one exit failing ≠ dead, runtime auto-off (2 rules, one multi-target; probes stop; orders removed; one log line
+  per rule; admin notice / user none; restart keeps OFF; re-enable API + 403 for users; edit clears), forward columns
+  migration SQLite + PostgreSQL, chain never-direct (route never empty, oldest failure first, destOrder kept, after
+  in-place / replaced updates, router never dials the target, forwarder hop unchanged — fails on the old code).
+- Byte compare: 228 prod-shaped chain configs from this branch vs a dump of the fork.102 tree: identical except
+  `"failTimeout":600000000000` → `60000000000` in every one.
+- netns lab (real time): retries of a dead landing exactly at +1/+3/+10/+60 min, auto-off of both rules using it 8 s
+  after the last retry, no probes afterwards (also after a panel restart), admin notice only, re-enable → probing next
+  round and rule-best back in 2 rounds; fork.102 panel boots on the migrated DB and re-pushes 600 s chains, the new panel
+  60 s again, the auto-off survives; long-lived connection 89 min, 0 failures, max gap 0.55 s. fork.102 agents dial the
+  landing directly from 中转 / entry when both exits fail (5 + 4 times); new agents never (0 packets), traffic back on
+  the first connection after the exits return; recovered exit used again ≤ 60 s after its mark.
+- Resources: panel per 5 min (fresh + 3 min) new 2.14 s / 35.3 MiB vs fork.102 2.15 s / 35.3 MiB; TIME_WAIT 0; agents
+  30–34 MiB, 8 threads. Dead landing: 20 handshakes per exit until the auto-off, then 0 (r1: 48 per exit per hour).
+- Screens (r2 section, marked): http://104.145.236.29:8791/rule-best/
