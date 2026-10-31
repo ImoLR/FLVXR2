@@ -5566,7 +5566,7 @@ func buildTunnelChainConfig(tunnelID int64, fromNodeID int64, targets []tunnelRu
 		"selector": map[string]interface{}{
 			"strategy":    strategy,
 			"maxFails":    1,
-			"failTimeout": int64(600000000000),
+			"failTimeout": int64(tunnelChainFailTimeout),
 		},
 		"nodes": nodeItems,
 	}
@@ -5579,6 +5579,12 @@ func buildTunnelChainConfig(tunnelID int64, fromNodeID int64, targets []tunnelRu
 		"hops": []map[string]interface{}{hop},
 	}, nil
 }
+
+// tunnelChainFailTimeout: how long a tunnel chain hop skips a node after a
+// failed dial (maxFails 1). Plan 180 r2 (user 11-01): 600 s → 60 s (= the
+// path-latency round) so a recovered 中转 / 出口 is used again within about a
+// minute. The rule target forwarder keeps its 600 s.
+const tunnelChainFailTimeout = 60 * time.Second
 
 func buildTunnelChainServiceConfig(tunnelID int64, chainNode tunnelRuntimeNode, node *nodeRecord, nextHopCandidateCount int) []map[string]interface{} {
 	if node == nil {

@@ -16,7 +16,7 @@ import (
 // whole path owner → candidate → … → exits, from the per-edge results of the
 // existing 60 s path-latency round (no probes of its own). The owner's chain
 // is a fifo hop in that order (best first, the rest as backups with the
-// usual maxFails=1/failTimeout=600 s failover).
+// usual maxFails=1 failover; failTimeout 60 s since plan 180 r2, 600 s before).
 //
 // The first place changes only when a challenger is ≥ bestPathSwitchMarginMS
 // faster in bestPathConfirmRounds consecutive rounds, or at once when the
