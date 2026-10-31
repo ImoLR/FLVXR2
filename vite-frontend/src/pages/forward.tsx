@@ -1177,6 +1177,10 @@ const SortableTableRow = ({
   const rowBg = selectedIds.has(forward.id)
     ? "bg-primary-50/70 dark:bg-primary-900/40"
     : "";
+  // Plan 175: a paused rule is muted inside its tunnel group (tree line,
+  // checkbox, drag handle, 状态 and 操作 stay at full strength); only the cell
+  // content fades, so zebra / hover / selection tints stay even.
+  const dim = forward.status === 0 ? " flvx-rule-tree-dim" : "";
   const rawInIp = forward.inIp ? forward.inIp.replace(/\s/g, "") : "默认 IP";
   const inAddrNoPorts =
     rawInIp === "默认 IP"
@@ -1206,11 +1210,16 @@ const SortableTableRow = ({
     <TableRow
       key={forward.id}
       ref={setNodeRef}
+      className="flvx-rule-tree-row"
       data-forward-id={forward.id}
+      data-paused={forward.status === 0 ? "" : undefined}
+      data-selected={selectedIds.has(forward.id) ? "" : undefined}
       style={style as any}
     >
-      <TableCell className={rowBg}>
-        <div className="flex items-center justify-center h-full">
+      {/* Plan 175: the tree line from the group header runs through this
+          cell with an elbow into the checkbox (pure CSS, globals.css). */}
+      <TableCell className={`flvx-rule-tree-cell ${rowBg}`}>
+        <div className="flex h-full items-center">
           <Checkbox
             isSelected={selectedIds.has(forward.id)}
             onValueChange={() => toggleSelect(forward.id)}
@@ -1235,7 +1244,7 @@ const SortableTableRow = ({
       </TableCell>
       {/* 添加用户名单元格 */}
       {isAdmin && (
-        <TableCell className={`whitespace-nowrap ${rowBg}`}>
+        <TableCell className={`whitespace-nowrap ${rowBg}${dim}`}>
           <span className="text-sm text-foreground">
             {forward.userRemark && forward.userRemark.trim()
               ? forward.userRemark.trim()
@@ -1243,10 +1252,10 @@ const SortableTableRow = ({
           </span>
         </TableCell>
       )}
-      <TableCell className={`text-foreground ${rowBg}`}>
+      <TableCell className={`text-foreground ${rowBg}${dim}`}>
         <div className="min-w-[180px] max-w-[320px]">
           <span
-            className="cursor-pointer hover:text-primary transition-colors text-foreground"
+            className="cursor-pointer text-sm font-medium text-foreground transition-colors hover:text-primary"
             onClick={() => copyToClipboard(forward.name, "规则名称")}
           >
             {forward.name}
@@ -1260,7 +1269,7 @@ const SortableTableRow = ({
           <ForwardLineBadges forward={forward} />
         </div>
       </TableCell>
-      <TableCell className={rowBg}>
+      <TableCell className={`${rowBg}${dim}`}>
         <div className="flex items-center gap-1.5 overflow-hidden">
           <svg
             className="w-3.5 h-3.5 text-primary hover:text-primary-600 cursor-pointer shrink-0 transition-colors"
@@ -1289,7 +1298,7 @@ const SortableTableRow = ({
           </span>
         </div>
       </TableCell>
-      <TableCell className={rowBg}>
+      <TableCell className={`${rowBg}${dim}`}>
         <span
           className="text-sm font-medium text-foreground cursor-pointer hover:bg-default-200/50 rounded px-1 transition-colors"
           onClick={() => copyToClipboard(forward.inPort.toString(), "入口端口")}
@@ -1297,7 +1306,7 @@ const SortableTableRow = ({
           {forward.inPort}
         </span>
       </TableCell>
-      <TableCell className={rowBg}>
+      <TableCell className={`${rowBg}${dim}`}>
         <div className="flex items-center gap-1.5 overflow-hidden">
           <svg
             className="w-3.5 h-3.5 text-primary hover:text-primary-600 cursor-pointer shrink-0 transition-colors"
@@ -1324,7 +1333,7 @@ const SortableTableRow = ({
           )}
         </div>
       </TableCell>
-      <TableCell className={rowBg}>
+      <TableCell className={`${rowBg}${dim}`}>
         <span
           className="text-sm font-medium text-foreground cursor-pointer hover:bg-default-200/50 rounded px-1 transition-colors"
           onClick={() => copyToClipboard(remotePortOnly, "落地端口")}
@@ -1332,7 +1341,7 @@ const SortableTableRow = ({
           {remotePortOnly}
         </span>
       </TableCell>
-      <TableCell className={`whitespace-nowrap ${rowBg}`}>
+      <TableCell className={`whitespace-nowrap ${rowBg}${dim}`}>
         <div className="flex items-center gap-1">
           <Button
             isIconOnly
@@ -1361,7 +1370,7 @@ const SortableTableRow = ({
           </span>
         </div>
       </TableCell>
-      <TableCell className={`whitespace-nowrap ${rowBg}`}>
+      <TableCell className={`whitespace-nowrap ${rowBg}${dim}`}>
         <div className="flex flex-col gap-1 w-full">
           <span
             className="block w-full min-w-[80px] min-h-[20px] px-1.5 py-0.5 rounded text-[10px] font-medium bg-blue-500/10 text-blue-600 dark:text-blue-400"
@@ -1811,12 +1820,15 @@ export default function ForwardPage() {
     "forward-search-keyword",
     "",
   );
+  // Plan 175: an admin's 所属用户 pick (another user) still counts for the
+  // 筛选(N) badge and the 重置 button, but it is not a filter for the tunnel
+  // groups: they stay collapsed with the plan-173 accordion.
+  const userPickActive =
+    searchParams.userId !== "all" &&
+    searchParams.userId !== (tokenUserId ? tokenUserId.toString() : "all");
   const activeFilterCount =
     (searchParams.name ? 1 : 0) +
-    (searchParams.userId !== "all" &&
-    searchParams.userId !== (tokenUserId ? tokenUserId.toString() : "all")
-      ? 1
-      : 0) +
+    (userPickActive ? 1 : 0) +
     (searchParams.tunnelId !== "all" ? 1 : 0) +
     (searchParams.speedLimitId !== undefined ? 1 : 0) +
     (searchParams.inPort ? 1 : 0) +
@@ -4948,9 +4960,11 @@ export default function ForwardPage() {
     }
   };
   // Plan 163: groups are collapsed unless the user opened them (saved per
-  // user). While a filter is active (the 重置 button shows) every shown group
-  // is open and clicks only apply to that filter session.
-  const groupFilterActive = activeFilterCount > 0;
+  // user). While a filter is active every shown group is open and clicks only
+  // apply to that filter session. Plan 175: an admin picking a user alone is
+  // not filter mode (keyword / name / tunnel / port / 落地 / speed are, also
+  // combined with a user pick).
+  const groupFilterActive = activeFilterCount - (userPickActive ? 1 : 0) > 0;
   const groupFilterSignature = groupFilterActive
     ? JSON.stringify([searchParams, searchKeyword.trim()])
     : "";
@@ -5333,7 +5347,11 @@ export default function ForwardPage() {
   }, [tunnels, forwards, searchParams.userId]);
   const filterTunnelSections = useMemo(() => buildTunnelPickerSections(availableTunnels), [availableTunnels]);
   // 渲染规则卡片
-  const renderForwardCard = (forward: Forward, listeners?: any) => {
+  const renderForwardCard = (
+    forward: Forward,
+    listeners?: any,
+    inTunnelGroup = false,
+  ) => {
     const rawInIp = forward.inIp ? forward.inIp.replace(/\s/g, "") : "默认IP";
     const inAddrNoPorts =
       rawInIp === "默认IP"
@@ -5354,11 +5372,22 @@ export default function ForwardPage() {
             .join(",");
     const statusDisplay = getStatusDisplay(forward.status);
     const strategyDisplay = getStrategyDisplay(forward.strategy);
+    const strategyChip = (
+      <div
+        className={`inline-flex items-center justify-center px-2 py-0.5 rounded text-xs font-medium flex-shrink-0 ${strategyDisplay.color === "primary" ? "bg-primary-500/10 text-primary-600 dark:text-primary-400" : strategyDisplay.color === "success" ? "bg-success-500/10 text-success-600 dark:text-success-400" : strategyDisplay.color === "warning" ? "bg-warning-500/10 text-warning-600 dark:text-warning-400" : strategyDisplay.color === "danger" ? "bg-danger-500/10 text-danger-600 dark:text-danger-400" : "bg-default-500/10 text-default-500"}`}
+      >
+        {strategyDisplay.text}
+      </div>
+    );
+    // Plan 175: inside a tunnel group the header already names the tunnel
+    // (and its 倍率), so the card skips that line; a paused rule is muted.
+    const dim = inTunnelGroup && forward.status === 0 ? " opacity-60" : "";
 
     return (
       <Card
         key={forward.id}
         className="group h-full flex flex-col shadow-sm border border-divider hover:shadow-md transition-shadow duration-200 overflow-hidden"
+        data-rule-card={inTunnelGroup ? "tree" : undefined}
       >
         <CardHeader className="pb-2 md:pb-2 flex-col items-start gap-1.5">
           {/* 第一行：复选框与开关 */}
@@ -5408,7 +5437,7 @@ export default function ForwardPage() {
             </div>
           </div>
           {/* 第二行：规则名与隧道信息 */}
-          <div className="flex-1 min-w-0 w-full pl-0.5">
+          <div className={`flex-1 min-w-0 w-full pl-0.5${dim}`}>
             <div className="flex items-center justify-between gap-2 mb-1">
               <div className="flex items-center gap-1.5 min-w-0 flex-1">
                 <h3
@@ -5423,32 +5452,31 @@ export default function ForwardPage() {
                   </span>
                 )}
               </div>
+              {inTunnelGroup && strategyChip}
             </div>
           </div>
-          <div className="flex-1 min-w-0 w-full pl-0.5">
-            <div className="flex items-center justify-between gap-2 mt-0.5">
-              <span className="text-xs text-foreground font-bold truncate flex items-center max-md:min-w-0 max-md:whitespace-normal">
-                <span className="truncate max-md:whitespace-normal max-md:break-all">
-                  {normalizeForwardTunnelName(forward.tunnelName)}
+          {!inTunnelGroup && (
+            <div className="flex-1 min-w-0 w-full pl-0.5">
+              <div className="flex items-center justify-between gap-2 mt-0.5">
+                <span className="text-xs text-foreground font-bold truncate flex items-center max-md:min-w-0 max-md:whitespace-normal">
+                  <span className="truncate max-md:whitespace-normal max-md:break-all">
+                    {normalizeForwardTunnelName(forward.tunnelName)}
+                  </span>
+                  <span className="shrink-0 whitespace-nowrap rounded bg-default-100 px-1.5 py-0.5 text-[10px] font-normal text-default-500 ml-1">
+                    {formatTunnelTrafficRatio(forward.tunnelTrafficRatio)}
+                  </span>
                 </span>
-                <span className="shrink-0 whitespace-nowrap rounded bg-default-100 px-1.5 py-0.5 text-[10px] font-normal text-default-500 ml-1">
-                  {formatTunnelTrafficRatio(forward.tunnelTrafficRatio)}
-                </span>
-              </span>
-              {/* 隧道模式标识 */}
-              <div
-                className={`inline-flex items-center justify-center px-2 py-0.5 rounded text-xs font-medium flex-shrink-0 ${strategyDisplay.color === "primary" ? "bg-primary-500/10 text-primary-600 dark:text-primary-400" : strategyDisplay.color === "success" ? "bg-success-500/10 text-success-600 dark:text-success-400" : strategyDisplay.color === "warning" ? "bg-warning-500/10 text-warning-600 dark:text-warning-400" : strategyDisplay.color === "danger" ? "bg-danger-500/10 text-danger-600 dark:text-danger-400" : "bg-default-500/10 text-default-500"}`}
-              >
-                {strategyDisplay.text}
+                {/* 隧道模式标识 */}
+                {strategyChip}
               </div>
             </div>
-          </div>
+          )}
           <ForwardCNBlockedWarning forward={forward} />
           <ForwardLineBadges forward={forward} />
         </CardHeader>
         {/* 卡片视图卡片布局显示 */}
         <CardBody className="flex flex-1 flex-col pt-0 pb-3 md:pt-0 md:pb-3">
-          <div className="space-y-3 flex-1 py-1">
+          <div className={`space-y-3 flex-1 py-1${dim}`}>
             {/* 入口信息区 */}
             <div className="space-y-1">
               <div className="flex gap-1 px-1 text-[11px] font-bold text-foreground uppercase tracking-wider">
@@ -5571,7 +5599,10 @@ export default function ForwardPage() {
               </div>
             </div>
           </div>
-          <div className="text-[11px] text-default-500 px-1 pb-1 truncate max-md:whitespace-normal max-md:break-all" title="实时带宽和当前连接数">
+          <div
+            className={`text-[11px] text-default-500 px-1 pb-1 truncate max-md:whitespace-normal max-md:break-all${dim}`}
+            title="实时带宽和当前连接数"
+          >
             <span className="text-blue-600 dark:text-blue-400">↑ {formatSpeed(forward.inSpeed || 0)}</span>
             {" · "}
             <span className="text-purple-600 dark:text-purple-400">↓ {formatSpeed(forward.outSpeed || 0)}</span>
@@ -5579,7 +5610,9 @@ export default function ForwardPage() {
             <span className={getConnectionColorClass(forward.currentConnections ?? 0)}>{forward.currentConnections ?? 0} 连接</span>
           </div>
           {/* 底部 Chip 区 */}
-          <div className="flex items-center justify-between pt-2 border-t border-divider gap-1 whitespace-nowrap max-md:flex-wrap">
+          <div
+            className={`flex items-center justify-between pt-2 border-t border-divider gap-1 whitespace-nowrap max-md:flex-wrap${dim}`}
+          >
             <div className="flex items-center gap-1 max-md:flex-wrap">
               <span className="inline-flex items-center justify-center px-2 py-0.5 rounded text-xs font-medium bg-blue-500/10 text-blue-600 dark:text-blue-400">
                 ↑{formatFlow(forward.inFlow || 0)}
@@ -5640,6 +5673,9 @@ export default function ForwardPage() {
       </Card>
     );
   };
+
+  const renderTunnelGroupForwardCard = (forward: Forward, listeners?: any) =>
+    renderForwardCard(forward, listeners, true);
 
   if (loading || !groupPreferenceHydrated) {
     return <PageLoadingState message="正在加载..." />;
@@ -6310,11 +6346,34 @@ export default function ForwardPage() {
                                     };
 
                                     return isMobile ? (
-                                      <SortableContext items={tunnelSortableForwardIds} strategy={verticalListSortingStrategy}>
-                                        <div className="space-y-3 p-2">
-                                          <Checkbox aria-label="本组全选" className="px-1 py-1" isSelected={isGroupSelected} onValueChange={handleGroupToggle}>本组全选</Checkbox>
+                                      <SortableContext
+                                        items={tunnelSortableForwardIds}
+                                        strategy={verticalListSortingStrategy}
+                                      >
+                                        {/* Plan 175: rules hang off the header chevron (tree line + elbows, pure CSS). */}
+                                        <div className="flvx-rule-tree-cards space-y-3 py-2 pr-2">
+                                          <div className="flvx-rule-tree-node flvx-rule-tree-pass">
+                                            <Checkbox
+                                              aria-label="本组全选"
+                                              className="px-1 py-1"
+                                              isSelected={isGroupSelected}
+                                              onValueChange={handleGroupToggle}
+                                            >
+                                              本组全选
+                                            </Checkbox>
+                                          </div>
                                           {tunnel.items.map((forward) => (
-                                            <SortableForwardCard key={forward.id} forward={forward} renderCard={renderForwardCard} />
+                                            <div
+                                              key={forward.id}
+                                              className="flvx-rule-tree-node"
+                                            >
+                                              <SortableForwardCard
+                                                forward={forward}
+                                                renderCard={
+                                                  renderTunnelGroupForwardCard
+                                                }
+                                              />
+                                            </div>
                                           ))}
                                         </div>
                                       </SortableContext>
@@ -6333,9 +6392,9 @@ export default function ForwardPage() {
                                       >
                                         <TableHeader>
                                           <TableColumn
-                                            className={`whitespace-nowrap flex-shrink-0 ${FORWARD_GROUPED_TABLE_COLUMN_CLASS.select} text-left`}
+                                            className={`flvx-rule-tree-cell whitespace-nowrap flex-shrink-0 ${FORWARD_GROUPED_TABLE_COLUMN_CLASS.select} text-left`}
                                           >
-                                            <div className="flex items-center justify-center h-full">
+                                            <div className="flex h-full items-center">
                                               <Checkbox
                                                 aria-label="本组全选"
                                                 isSelected={isGroupSelected}

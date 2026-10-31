@@ -1,6 +1,6 @@
 import { Suspense, lazy, useCallback, useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { Copy, Plug, Plus, QrCode, RefreshCw, Settings2 } from "lucide-react";
+import { Plug, Plus, RefreshCw, Settings2 } from "lucide-react";
 import toast from "react-hot-toast";
 
 import {
@@ -10,6 +10,7 @@ import {
   SharedDetailsDialog,
 } from "./landing/server-card";
 import { IntegrationSettings } from "./landing/integration-settings";
+import { LandingLinkCard } from "./landing/link-card";
 import { LandingTone, Pill, ProtocolPill } from "./landing/pill";
 
 import {
@@ -56,68 +57,9 @@ import { NodeDetails } from "@/pages/landing/node-details";
 import { connModeTag } from "@/pages/landing/conn-mode";
 import { NodeRulesDialog } from "@/pages/landing/node-rules";
 import { ServerSettings } from "@/pages/landing/server-settings";
-import { OfflineQRCode } from "@/pages/node/node-deploy-modal";
 
 // Admin-only tab, loaded on demand to keep the main bundle unchanged.
 const LandingEgressTab = lazy(() => import("@/pages/landing/egress"));
-
-async function copyToClipboard(value: string): Promise<boolean> {
-  try {
-    if (navigator.clipboard?.writeText) {
-      await navigator.clipboard.writeText(value);
-
-      return true;
-    }
-    const input = document.createElement("textarea");
-
-    input.value = value;
-    input.style.position = "fixed";
-    input.style.opacity = "0";
-    document.body.appendChild(input);
-    input.select();
-    const copied = document.execCommand("copy");
-
-    input.remove();
-
-    return copied;
-  } catch {
-    return false;
-  }
-}
-
-// Plan 121: client config block (Clash / mihomo entry, Surge line) shown only
-// for AnyTLS / Snell / Mieru links.
-function LandingClientConfig({
-  label,
-  value,
-}: {
-  label: string;
-  value?: string;
-}) {
-  if (!value) return null;
-
-  return (
-    <div className="space-y-2">
-      <p className="text-xs font-medium text-default-600">{label}</p>
-      <pre className="overflow-x-auto whitespace-pre-wrap break-all rounded bg-default-100 p-2 text-xs">
-        {value}
-      </pre>
-      <Button
-        color="success"
-        size="sm"
-        startContent={<Copy size={15} />}
-        variant="flat"
-        onPress={() =>
-          void copyToClipboard(value).then((ok) =>
-            ok ? toast.success(`${label} 配置已复制`) : toast.error("复制失败"),
-          )
-        }
-      >
-        复制 {label} 配置
-      </Button>
-    </div>
-  );
-}
 
 // Plan 132: a non-admin's server card shows only their own node count, how
 // many more they can create there (both caps) and the server's end date.
@@ -192,17 +134,6 @@ function NodeConnTag({ node }: { node: LandingNode }) {
       )}
     </span>
   );
-}
-
-// Plan 149: `host:port` of a share link (`scheme://[user@]host:port…`), or ""
-// when the link does not carry it in that form (e.g. legacy base64 ss://).
-function linkAddress(url?: string) {
-  const m =
-    /^[a-z][a-z0-9+.-]*:\/\/(?:[^@/?#]*@)?(\[[0-9a-f:.]+\]|[a-z0-9.-]+):(\d{1,5})(?:[/?#]|$)/i.exec(
-      url || "",
-    );
-
-  return m ? `${m[1]}:${m[2]}` : "";
 }
 
 const DAY_MS = 86_400_000;
@@ -1155,61 +1086,12 @@ export default function LandingPage() {
                 </p>
               )}
               {links.map((link, index) => (
-                <div
+                <LandingLinkCard
                   key={`${link.kind}-${index}`}
-                  className="space-y-2 rounded-lg border border-divider p-3"
+                  link={link}
+                  qrOpen={qr === link.url}
+                  onToggleQR={() => setQR(qr === link.url ? "" : link.url)}
                 >
-                  <h3 className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 font-medium">
-                    <Pill tone={link.kind === "direct" ? "green" : "purple"}>
-                      {link.kind === "direct" ? "直连" : "经规则转发"}
-                    </Pill>
-                    {!(link.kind === "direct" && link.name === "直连") && (
-                      <span className="min-w-0 break-all">{link.name}</span>
-                    )}
-                    {linkAddress(link.url) && (
-                      <span className="break-all font-mono text-xs font-normal text-default-500">
-                        {linkAddress(link.url)}
-                      </span>
-                    )}
-                  </h3>
-                  {link.url && (
-                    <p className="break-all rounded bg-default-100 p-2 text-xs">
-                      {link.url}
-                    </p>
-                  )}
-                  {link.url && (
-                    <div className="flex gap-2">
-                      <Button
-                        color="success"
-                        size="sm"
-                        startContent={<Copy size={15} />}
-                        variant="flat"
-                        onPress={() =>
-                          void copyToClipboard(link.url).then((ok) =>
-                            ok
-                              ? toast.success("链接已复制")
-                              : toast.error("复制失败"),
-                          )
-                        }
-                      >
-                        复制链接
-                      </Button>
-                      <Button
-                        color="secondary"
-                        size="sm"
-                        startContent={<QrCode size={15} />}
-                        variant="flat"
-                        onPress={() => setQR(qr === link.url ? "" : link.url)}
-                      >
-                        二维码
-                      </Button>
-                    </div>
-                  )}
-                  {link.url && qr === link.url && (
-                    <div className="flex justify-center py-2">
-                      <OfflineQRCode value={link.url} />
-                    </div>
-                  )}
                   {linksFor?.protocol === "anytls" && link.url && (
                     <p className="text-xs text-default-500">
                       链接导入（v2rayN、NekoBox、Shadowrocket
@@ -1223,12 +1105,7 @@ export default function LandingPage() {
                       mihomo 配置。
                     </p>
                   )}
-                  <LandingClientConfig
-                    label="Clash / mihomo"
-                    value={link.clash}
-                  />
-                  <LandingClientConfig label="Surge" value={link.surge} />
-                </div>
+                </LandingLinkCard>
               ))}
               {!linksLoading &&
                 !linkError &&

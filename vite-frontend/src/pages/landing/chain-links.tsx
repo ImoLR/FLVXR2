@@ -1,8 +1,9 @@
 import { useState } from "react";
-import { Copy, QrCode } from "lucide-react";
 import toast from "react-hot-toast";
 
-import { ChainLink, ForwardChainInfo, getChainLinks } from "@/api/line-chain";
+import { LandingLinkCard, LinkCardLink, copyToClipboard } from "./link-card";
+
+import { ForwardChainInfo, getChainLinks } from "@/api/line-chain";
 import {
   OnboardingRing,
   useOnboardingHint,
@@ -17,31 +18,6 @@ import {
   ModalFooter,
   ModalHeader,
 } from "@/shadcn-bridge/heroui/modal";
-import { OfflineQRCode } from "@/pages/node/node-deploy-modal";
-
-async function copyText(value: string): Promise<boolean> {
-  try {
-    if (navigator.clipboard?.writeText) {
-      await navigator.clipboard.writeText(value);
-
-      return true;
-    }
-    const input = document.createElement("textarea");
-
-    input.value = value;
-    input.style.position = "fixed";
-    input.style.opacity = "0";
-    document.body.appendChild(input);
-    input.select();
-    const copied = document.execCommand("copy");
-
-    input.remove();
-
-    return copied;
-  } catch {
-    return false;
-  }
-}
 
 interface ChainRow {
   id: number;
@@ -108,7 +84,7 @@ export function ChainLinkButton({
   forward: ChainRow;
   className?: string;
 }) {
-  const [links, setLinks] = useState<Pick<ChainLink, "name" | "url">[]>([]);
+  const [links, setLinks] = useState<LinkCardLink[]>([]);
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [qr, setQR] = useState("");
@@ -126,19 +102,27 @@ export function ChainLinkButton({
       const res = forward.chain
         ? await getChainLinks(forward.id)
         : await landingLinks(forward.landingNodeId!);
-      const entries = forward.chain
-        ? res.data
+      // Plan 175: every link of a rule runs through that rule (经规则转发);
+      // chain links carry no kind, landing links keep theirs.
+      const entries: LinkCardLink[] = forward.chain
+        ? (res.data || []).map((link) => ({
+            ...link,
+            kind: "forward" as const,
+          }))
         : (res.data || []).filter(
             (link) => "forwardId" in link && link.forwardId === forward.id,
           );
 
-      if (res.code !== 0 || !entries?.length) {
+      if (res.code !== 0 || !entries.length) {
         toast.error(res.msg || "链接获取失败");
 
         return;
       }
-      if (entries.length === 1) {
-        const ok = await copyText(entries[0].url);
+      setQR("");
+      // One plain link copies at once; a link-less entry (Snell: client
+      // configs only) opens the dialog instead of copying an empty string.
+      if (entries.length === 1 && entries[0].url) {
+        const ok = await copyToClipboard(entries[0].url);
 
         if (ok) toast.success("链接已复制");
         else {
@@ -179,50 +163,17 @@ export function ChainLinkButton({
         size="lg"
         onClose={() => setOpen(false)}
       >
-        <ModalContent className="flvx-landing-text">
+        {/* Plan 175: same card as the 落地 page 「节点链接」 dialog. */}
+        <ModalContent className="flvx-landing">
           <ModalHeader>节点链接 · {forward.name}</ModalHeader>
           <ModalBody className="space-y-4">
-            {links.map((link) => (
-              <div
-                key={link.url}
-                className="space-y-2 rounded-lg border border-divider p-3"
-              >
-                <h3 className="font-medium">经规则转发 · {link.name}</h3>
-                <p className="break-all rounded bg-default-100 p-2 text-xs">
-                  {link.url}
-                </p>
-                <div className="flex gap-2">
-                  <Button
-                    color="success"
-                    size="sm"
-                    startContent={<Copy size={15} />}
-                    variant="flat"
-                    onPress={() =>
-                      void copyText(link.url).then((ok) =>
-                        ok
-                          ? toast.success("链接已复制")
-                          : toast.error("复制失败"),
-                      )
-                    }
-                  >
-                    复制链接
-                  </Button>
-                  <Button
-                    color="secondary"
-                    size="sm"
-                    startContent={<QrCode size={15} />}
-                    variant="flat"
-                    onPress={() => setQR(qr === link.url ? "" : link.url)}
-                  >
-                    二维码
-                  </Button>
-                </div>
-                {qr === link.url && (
-                  <div className="flex justify-center py-2">
-                    <OfflineQRCode value={link.url} />
-                  </div>
-                )}
-              </div>
+            {links.map((link, index) => (
+              <LandingLinkCard
+                key={`${link.kind}-${index}`}
+                link={link}
+                qrOpen={qr === link.url}
+                onToggleQR={() => setQR(qr === link.url ? "" : link.url)}
+              />
             ))}
           </ModalBody>
           <ModalFooter>

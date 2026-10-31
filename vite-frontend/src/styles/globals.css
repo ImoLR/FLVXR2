@@ -1944,6 +1944,151 @@ textarea:focus-visible {
   background: rgba(45, 212, 191, 0.24);
 }
 
+/* Plan 175: rules hang off the open group header like a tree. A thin teal line drops from under the
+   header chevron (--flvx-tree-x = header padding + half of the 28px chevron) down the first table column /
+   the left of the phone cards, with an elbow into every rule; the last rule ends it (rounded corner).
+   Pure CSS on elements that already exist (no listeners); collapsed groups still render no rows. The
+   sticky header keeps its own stub, so mid-scroll the line still leaves the pinned header. */
+.flvx-rule-group {
+  --flvx-tree-line: rgba(13, 148, 136, 0.45);
+  --flvx-tree-x: 30px;
+}
+
+.dark .flvx-rule-group {
+  --flvx-tree-line: rgba(45, 212, 191, 0.5);
+}
+
+@media (max-width: 767.98px) {
+  .flvx-rule-group {
+    --flvx-tree-x: 22px;
+  }
+}
+
+.flvx-rule-group-head-open::after {
+  content: "";
+  position: absolute;
+  left: calc(var(--flvx-tree-x) - 1px);
+  top: calc(50% + 16px);
+  bottom: -1px;
+  width: 2px;
+  background: var(--flvx-tree-line);
+  pointer-events: none;
+}
+
+/* Desktop table: first column (本组全选 / row checkboxes) sits right of the line. */
+.flvx-rule-tree-cell {
+  position: relative;
+  width: calc(var(--flvx-tree-x) + 46px);
+  padding-left: calc(var(--flvx-tree-x) + 14px);
+}
+
+.flvx-rule-tree-cell::before {
+  content: "";
+  position: absolute;
+  left: calc(var(--flvx-tree-x) - 1px);
+  top: -1px;
+  bottom: -1px;
+  width: 2px;
+  background: var(--flvx-tree-line);
+  pointer-events: none;
+}
+
+td.flvx-rule-tree-cell::after {
+  content: "";
+  position: absolute;
+  left: calc(var(--flvx-tree-x) - 1px);
+  top: calc(50% - 1px);
+  width: 11px;
+  height: 2px;
+  background: var(--flvx-tree-line);
+  pointer-events: none;
+}
+
+tr:last-child > td.flvx-rule-tree-cell::before {
+  bottom: auto;
+  height: calc(50% + 2px);
+  width: 11px;
+  background: none;
+  border-left: 2px solid var(--flvx-tree-line);
+  border-bottom: 2px solid var(--flvx-tree-line);
+  border-bottom-left-radius: 7px;
+}
+
+tr:last-child > td.flvx-rule-tree-cell::after {
+  display: none;
+}
+
+/* A paused rule: its data cells fade (content only, not the cell background). */
+td.flvx-rule-tree-dim > * {
+  opacity: 0.6;
+}
+
+/* Subtle zebra + teal hover tint (a selected row keeps its own highlight). */
+.flvx-rule-tree-row:nth-child(even):not([data-selected]) > td {
+  background-color: rgba(100, 116, 139, 0.045);
+}
+
+.flvx-rule-tree-row:not([data-selected]):hover > td {
+  background-color: rgba(20, 184, 166, 0.07);
+}
+
+.dark .flvx-rule-tree-row:nth-child(even):not([data-selected]) > td {
+  background-color: rgba(148, 163, 184, 0.05);
+}
+
+.dark .flvx-rule-tree-row:not([data-selected]):hover > td {
+  background-color: rgba(45, 212, 191, 0.08);
+}
+
+/* Phone cards: indented right of the line; each card gets an elbow at its first row. */
+.flvx-rule-tree-cards {
+  padding-left: calc(var(--flvx-tree-x) + 10px);
+}
+
+.flvx-rule-tree-node {
+  position: relative;
+}
+
+.flvx-rule-tree-node::before {
+  content: "";
+  position: absolute;
+  left: -11px;
+  top: -12px;
+  bottom: 0;
+  width: 2px;
+  background: var(--flvx-tree-line);
+  pointer-events: none;
+}
+
+.flvx-rule-tree-node:first-child::before {
+  top: -8px;
+}
+
+.flvx-rule-tree-node:not(.flvx-rule-tree-pass)::after {
+  content: "";
+  position: absolute;
+  left: -11px;
+  top: 25px;
+  width: 11px;
+  height: 2px;
+  background: var(--flvx-tree-line);
+  pointer-events: none;
+}
+
+.flvx-rule-tree-node:last-child::before {
+  bottom: auto;
+  height: 39px;
+  width: 11px;
+  background: none;
+  border-left: 2px solid var(--flvx-tree-line);
+  border-bottom: 2px solid var(--flvx-tree-line);
+  border-bottom-left-radius: 7px;
+}
+
+.flvx-rule-tree-node:last-child::after {
+  display: none;
+}
+
 /* The phone shell clipped sideways with overflow-x: hidden, which also made it
    a (never scrolling) scroll container, so position: sticky inside it never
    stuck. clip gives the same clipping without that (old browsers keep hidden). */
