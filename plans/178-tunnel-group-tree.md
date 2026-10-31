@@ -42,3 +42,36 @@ Reference: rules page (`pages/forward.tsx`, plans 163 / 173 / 175) — copy the 
 - Verification: 175 headless checks (geometry of lines/elbows vs chevrons and checkboxes, accordion, scroll-to-top,
   sticky, reload memory, sub-groups, filters, drag-sort, no sideways overflow, DOM identity of rules page and 不分组
   view vs fork.101, listener counts) — all pass, 0 page errors.
+
+## Round 2 (user feedback 10-31 TW): region level = real second level
+User: entry level fine (teal frame, sticky entry header); in 「按入口/地区」 the exit-region level looks weak. Coordinator:
+ONE warm amber colour for every region (no per-region rainbow). Same branch, BUILD ONLY, frontend only.
+
+### Tasks (round 2)
+- [x] Region boxes: each exit region of an open entry is its own box inside the teal entry box — thin amber border +
+      amber left accent bar + tinted amber header (flag/name, N 个隧道, chevron); one amber for all regions, light + dark.
+- [x] Region header sticky below the pinned entry header (navbar → entry → region), CSS only: the open entry header in
+      region mode gets a fixed height (CSS var), region `top` = entry sticky top + that height (desktop + H5 offsets);
+      next region replaces it, both release at the entry end. No scroll listeners / ResizeObserver.
+- [x] Tree lines: teal entry line → short teal elbows into each region header (rounded └ on the last region);
+      tunnels hang off the REGION header with the variant-A line in amber inside the amber box (cards + table).
+- [x] Table view: one table per region box (the horizontal scroller sits below the sticky region header, so the
+      header can pin); column header row + 本地区全选 per region box.
+- [x] Regions default open with their entry, each collapsible (collapsed = amber header only, not sticky); no region
+      footer (the box border already closes it; an extra 「收起 · 地区」 row looked crowded); entry footer stays.
+- [x] Phone 390: 「1入口 › 0跳 › 1出口」 must not wrap — phone card view: the amber box is level 2 (teal line to the
+      boxes, no amber card lines: a second indent leaves ~250px cards, the line wraps); cards in a region box use 12px
+      side padding + 6px gap in that line (`data-tunnel-chain` hook) → 278px cards, one line. Phone table: both lines.
+- [x] 自定义分组 / 不分组 / rules page unchanged vs round 1 / fork.101 (DOM check: byte-identical except the
+      `data-tunnel-chain` attribute on cards).
+- [x] tsc / build / eslint no new errors (tunnel.tsx 4 errors = fork.101, warnings 1272 vs 1273); no new timers /
+      polling / API calls / scroll listeners / ResizeObservers (scroll 3, resize 5, interval 0, RO 5 = round 1).
+- [x] Screens 390 + 1440, light + dark (a–f + unset-region entry), 37 screens, 202 checks pass, 0 page errors;
+      gallery 「第 2 轮」 section on top of round 1; release-notes updated (trial merge into fork.102 clean).
+- [x] Push, CI green (code `f2f954aa`); summary → runs/tunnel-group-tree-r2/{summary,final}.md.
+
+### Notes (round 2)
+- BUILT 10-31 ~23:55 TW, not released (ships in the next batch after the user approves the gallery).
+- Table view trade-off: one table per region (the sideways scroller would stop the region header from sticking), so
+  every region box has its own column header + 「本地区全选」 (no entry-level 「本组全选」 in region mode) and columns
+  of different region tables are sized by their own content (not perfectly aligned between regions).
