@@ -47,7 +47,7 @@ BUILD ONLY (no tag / release / prod writes / OTA). Approval: user 2026-10-31/11-
 - [x] 12. Screens 390 + 1440 light + dark → gallery /root/mmwx-preview/rule-best/
 - [x] 13. `runs/rule-best/release-notes.md` (OTA order, canary, capability check, pre/post client checks, prod
       proof with temp objects, rollback, kill switch)
-- [ ] 14. Push branch, CI green, summary/final.md
+- [x] 14. Push branch, CI green (run 41228365215: backend, PostgreSQL contract, frontend, agent), summary/final.md
 
 ## Results (2026-11-01 TW)
 
@@ -62,3 +62,6 @@ BUILD ONLY (no tag / release / prod writes / OTA). Approval: user 2026-10-31/11-
 - Resources: prod copy 126 → 140 probes per round (+14); 200 seeded rules +208 (cap 300); decision 0.1 ms (prod) /
   0.5 ms (200 rules) per round; lab panel CPU per 5 min 2.94 s = fork.102 2.94 s, RSS 36.8 vs 36.4 MiB; TIME_WAIT 0.
 - Screens: http://104.145.236.29:8791/rule-best/
+- CI: https://github.com/ImoLR/FLVXR2/actions/runs/41228365215 — all 4 jobs green.
+- Not done (blocked by the permission system, no approver): deleting lab binaries / the fork.102 comparison worktree
+  `/root/tmp-offload-20261008/rb-base` / `vite-frontend/dist` + `node_modules` symlink — see summary.
