@@ -37,6 +37,13 @@ Follow-up to plans 163 (grouped by tunnel), 164 (compliance ack), 173 (accordion
 - [x] Item 3: tree hierarchy in grouped desktop table + grouped mobile cards; tunnel name dropped in grouped rows only
 - [x] tsc 0 errors / eslint forward.tsx errors 16 = base 16, warnings 646 → 639, 0 messages in changed lines;
       landing.tsx / chain-links.tsx / link-card.tsx 0/0 / vite build OK
-- [ ] Demo panel (synthetic DB, loopback netns) + headless checks + screenshots 390/1440 light/dark (a–g) + gallery :8791
-- [ ] Commit + push, branch CI green
-- [ ] release-notes.md + summary.md / final.md
+- [x] Demo panel (fork.99 paneld, synthetic DB, `unshare -n`) + headless checks (after 66/66, before 6/6, 0 page
+      errors, 0 writes reached the backend) + 72 screenshots 390/1440 light/dark (a–g) + gallery :8791 /rule-row-tree/
+- [x] Commit + push, branch CI green (16436c43, CI Build Check run 41188693672: 4/4 jobs success)
+- [x] release-notes.md + summary.md / final.md (`/root/flvx-workers/runs/rule-row-tree/`)
+
+Status: BUILT, not released — waits for the user's screenshot approval, then ships in the next batch release
+(panel frontend only, no DB change, rollback = previous panel image without `--restore-db`).
+Resources: no new timers / polling / requests / scroll listeners (measured 3 scroll listeners + 2 intervals before
+and after); tree line = CSS pseudo-elements; collapsed groups still render no rows; open 9-rule group DOM:
+desktop 755 → 755, phone 826 → 789 elements (tunnel-name line removed from each card).
