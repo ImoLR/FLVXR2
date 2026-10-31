@@ -3309,6 +3309,9 @@ func importNodes(tx *gorm.DB, nodes []model.NodeBackup, now int64) (int, error) 
 func importTunnels(tx *gorm.DB, tunnels []model.TunnelBackup, now int64) (int, error) {
 	count := 0
 	for _, t := range tunnels {
+		if err := validateImportedTunnelBilling(t.Flow, t.TrafficRatio); err != nil {
+			return count, fmt.Errorf("隧道 %d（%s）：%s", t.ID, t.Name, err.Error())
+		}
 		item := model.Tunnel{
 			ID:           t.ID,
 			Name:         t.Name,

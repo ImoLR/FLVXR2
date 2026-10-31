@@ -2170,6 +2170,10 @@ func (h *Handler) backupImport(w http.ResponseWriter, r *http.Request) {
 		response.WriteJSON(w, response.ErrDefault(err.Error()))
 		return
 	}
+	if err := checkTunnelImportBilling(rawJSON, typesToImport); err != nil {
+		response.WriteJSON(w, response.ErrDefault(err.Error()))
+		return
+	}
 
 	result, err := h.repo.ImportRaw(rawJSON, typesToImport)
 	if err != nil {

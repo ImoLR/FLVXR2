@@ -164,6 +164,10 @@ func (h *Handler) pathCreate(w http.ResponseWriter, r *http.Request) {
 		response.WriteJSON(w, response.ErrDefault("同一条 Path 内不能重复选择节点"))
 		return
 	}
+	if err := validatePathBilling(req.Flow, req.TrafficRatio); err != nil {
+		response.WriteJSON(w, response.ErrDefault(err.Error()))
+		return
+	}
 	if req.Flow <= 0 {
 		req.Flow = 1
 	}
@@ -234,6 +238,10 @@ func (h *Handler) pathUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 	if hasDuplicateNodeIDs(req.NodeIDs) {
 		response.WriteJSON(w, response.ErrDefault("同一条 Path 内不能重复选择节点"))
+		return
+	}
+	if err := validatePathBilling(req.Flow, req.TrafficRatio); err != nil {
+		response.WriteJSON(w, response.ErrDefault(err.Error()))
 		return
 	}
 	if req.Flow <= 0 {
