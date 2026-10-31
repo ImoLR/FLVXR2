@@ -56,6 +56,11 @@ import { LandingGlobalSettings } from "@/pages/landing/global-settings";
 import { NodeDetails } from "@/pages/landing/node-details";
 import { connModeTag } from "@/pages/landing/conn-mode";
 import { NodeRulesDialog } from "@/pages/landing/node-rules";
+import {
+  ChainNote,
+  ChainPill,
+  ChainProxyDialog,
+} from "@/pages/landing/chain-proxy";
 import { ServerSettings } from "@/pages/landing/server-settings";
 
 // Admin-only tab, loaded on demand to keep the main bundle unchanged.
@@ -273,6 +278,7 @@ export default function LandingPage() {
   const [saving, setSaving] = useState(false);
   const [globalSettings, setGlobalSettings] = useState(false);
   const [rulesFor, setRulesFor] = useState<LandingNode | null>(null);
+  const [chainFor, setChainFor] = useState<LandingNode | null>(null);
   const [sharedDetails, setSharedDetails] = useState<LandingServer | null>(
     null,
   );
@@ -418,6 +424,21 @@ export default function LandingPage() {
           {node.routeRuleCount
             ? `路由规则（${node.routeRuleCount}）`
             : "路由规则"}
+        </Button>
+      )}
+      {/* Plan 177: 链式代理; muted (but tappable, shows the reason) where the
+          server cannot carry it and the node is not chained. */}
+      {!node.deletePending && node.chainSupport && (
+        <Button
+          data-chain-button
+          color={
+            node.chainSupport.supported || node.chain ? "primary" : "default"
+          }
+          size="sm"
+          variant="flat"
+          onPress={() => setChainFor(node)}
+        >
+          链式代理
         </Button>
       )}
       <Button
@@ -859,10 +880,17 @@ export default function LandingPage() {
                                     {MIERU_UDP_HINT}
                                   </div>
                                 )}
-                                {node.egressLabel && (
-                                  <div className="whitespace-nowrap text-xs text-default-500">
-                                    出站：{node.egressLabel}
+                                {node.chain ? (
+                                  <div className="mt-1 flex flex-wrap gap-1">
+                                    <ChainPill node={node} />
+                                    <ChainNote node={node} />
                                   </div>
+                                ) : (
+                                  node.egressLabel && (
+                                    <div className="whitespace-nowrap text-xs text-default-500">
+                                      出站：{node.egressLabel}
+                                    </div>
+                                  )
                                 )}
                               </td>
                               <td className="px-3 py-2">{status(node)}</td>
@@ -944,21 +972,27 @@ export default function LandingPage() {
                           {(node.forwardCount || 0) > 0 && (
                             <Pill tone="purple">规则 {node.forwardCount}</Pill>
                           )}
-                          {node.egressLabel && (
-                            <Pill
-                              title={`出站：${node.egressLabel}`}
-                              tone="teal"
-                            >
-                              出站：{node.egressLabel}
-                            </Pill>
+                          {node.chain ? (
+                            <ChainPill node={node} />
+                          ) : (
+                            node.egressLabel && (
+                              <Pill
+                                title={`出站：${node.egressLabel}`}
+                                tone="teal"
+                              >
+                                出站：{node.egressLabel}
+                              </Pill>
+                            )
                           )}
                         </div>
                         {(node.syncError ||
                           node.sharedSyncError ||
+                          node.chain?.state === "error" ||
                           (node.status === "pending" &&
                             node.pendingReason)) && (
                           <div className="flex flex-wrap gap-1">
                             {nodeNotes(node)}
+                            <ChainNote node={node} />
                           </div>
                         )}
                         <div className="text-sm">
@@ -1037,9 +1071,19 @@ export default function LandingPage() {
             onSaved={() => void load()}
           />
         )}
+        {chainFor && (
+          <ChainProxyDialog
+            key={chainFor.id}
+            admin={admin}
+            node={chainFor}
+            onClose={() => setChainFor(null)}
+            onSaved={() => void load()}
+          />
+        )}
         {rulesFor && (
           <NodeRulesDialog
             key={rulesFor.id}
+            chainName={rulesFor.chain?.name}
             nodeId={rulesFor.id}
             onClose={() => setRulesFor(null)}
             onSaved={() => void load()}

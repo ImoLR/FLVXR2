@@ -220,6 +220,19 @@ export interface LandingNode {
   connModePending?: boolean;
   /** plan 147: node of a shared server — fixed 入站+出站 (admin view). */
   connModeFixed?: boolean;
+  /** plan 177 「链式代理」: the owner's external node (0 = 直连). */
+  chainExternalId?: number;
+  chain?: LandingNodeChain;
+  chainSupport?: { supported: boolean; reason: string; shared: boolean };
+}
+export interface LandingNodeChain {
+  externalId: number;
+  name?: string;
+  protocolLabel?: string;
+  summary?: string;
+  /** applied = 已生效, syncing = 正在同步, error = 未生效 (reason) */
+  state: "applied" | "syncing" | "error";
+  reason?: string;
 }
 export interface LandingLink {
   name: string;
