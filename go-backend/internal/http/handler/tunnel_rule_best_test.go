@@ -412,7 +412,9 @@ func TestRuleBestDestOrderMaterialisation(t *testing.T) {
 }
 
 // Switch off (and on without a differing decision) = the chain config of
-// fork.102 byte for byte, for every owner of every prod-shaped tunnel.
+// fork.102 byte for byte, for every owner of every prod-shaped tunnel —
+// except the hop's failTimeout, 600 s → 60 s since round 2 (checked against
+// a dump of the fork.102 tree: the only difference in all 228 configs).
 // Shapes: the 31 tunnel-type tunnels of prod on 2026-10-31 (node ids only;
 // addresses are synthetic). 「*」 = best.
 var rbProdShapes = []string{
@@ -475,6 +477,9 @@ func TestRuleBestSwitchOffChainConfigIdenticalToFork102(t *testing.T) {
 						t.Fatal(err)
 					}
 					wantJSON, _ := json.Marshal(want)
+					if strings.Count(string(wantJSON), `"failTimeout":60000000000,`) != 1 || strings.Contains(string(wantJSON), "600000000000") {
+						t.Fatalf("chain hop failTimeout is not 60 s: %s", wantJSON)
+					}
 					got, err := h.tunnelChainConfigFor(state, owner.NodeID, next)
 					if err != nil {
 						t.Fatal(err)
