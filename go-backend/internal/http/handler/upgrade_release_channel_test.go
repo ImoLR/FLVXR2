@@ -1,6 +1,9 @@
 package handler
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestReleaseChannelFromTag(t *testing.T) {
 	tests := []struct {
@@ -103,6 +106,68 @@ func TestNormalizeReleaseChannel(t *testing.T) {
 	for _, tc := range tests {
 		if got := normalizeReleaseChannel(tc.input); got != tc.expects {
 			t.Fatalf("normalizeReleaseChannel(%q) = %q, want %q", tc.input, got, tc.expects)
+		}
+	}
+}
+
+// GitHub's release list is not in version order (seen 2026-10-31 right after
+// 3.0.27-fork.100: fork.99, fork.100, fork.98, …, fork.16, fork.9, fork.8, fork.15).
+func githubOrderAfterFork100() []githubRelease {
+	tags := []string{"3.0.27-fork.99", "3.0.27-fork.100", "3.0.27-fork.98", "3.0.27-fork.16", "3.0.27-fork.9",
+		"3.0.27-fork.8", "3.0.27-fork.15", "3.0.27-fork.10", "3.0.27-fork.101-rc1"}
+	out := make([]githubRelease, 0, len(tags))
+	for _, tag := range tags {
+		out = append(out, githubRelease{TagName: tag})
+	}
+	return out
+}
+
+func TestResolveLatestReleaseUsesVersionOrderNotGitHubOrder(t *testing.T) {
+	fetch := func(int) ([]githubRelease, error) { return githubOrderAfterFork100(), nil }
+	if got, err := resolveLatestReleaseFrom(releaseChannelStable, fetch); err != nil || got != "3.0.27-fork.100" {
+		t.Fatalf("stable latest = %q, %v; want 3.0.27-fork.100", got, err)
+	}
+	if got, err := resolveLatestReleaseFrom("", fetch); err != nil || got != "3.0.27-fork.101-rc1" {
+		t.Fatalf("any-channel latest = %q, %v; want 3.0.27-fork.101-rc1", got, err)
+	}
+	if got, err := resolveLatestReleaseFrom(releaseChannelDev, fetch); err != nil || got != "3.0.27-fork.101-rc1" {
+		t.Fatalf("dev latest = %q, %v; want 3.0.27-fork.101-rc1", got, err)
+	}
+}
+
+func TestCheckUpdatesReleaseListIsVersionOrdered(t *testing.T) {
+	items := releasesForChannel(sortReleasesNewestFirst(githubOrderAfterFork100()), releaseChannelStable)
+	var got []string
+	for _, item := range items {
+		got = append(got, item.Version)
+	}
+	want := []string{"3.0.27-fork.100", "3.0.27-fork.99", "3.0.27-fork.98", "3.0.27-fork.16", "3.0.27-fork.15",
+		"3.0.27-fork.10", "3.0.27-fork.9", "3.0.27-fork.8"}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("stable releases = %v, want %v", got, want)
+	}
+	if r := systemUpgradeVersionResponse("3.0.27-fork.99", releaseChannelStable, items[0].Version, nil, systemUpgradeCapabilityData{}); !r.HasUpdate {
+		t.Fatal("fork.99 panel must see fork.100 as an update")
+	}
+	if r := systemUpgradeVersionResponse("3.0.27-fork.100", releaseChannelStable, items[0].Version, nil, systemUpgradeCapabilityData{}); r.HasUpdate {
+		t.Fatal("fork.100 panel must not see an update")
+	}
+}
+
+func TestReleaseTagOrderIsNumeric(t *testing.T) {
+	cases := []struct {
+		left, right string
+		want        int
+	}{
+		{"3.0.27-fork.100", "3.0.27-fork.99", 1},
+		{"3.0.27-fork.9", "3.0.27-fork.10", -1},
+		{"3.0.27", "3.0.27-fork.1", -1},
+		{"3.0.28", "3.0.27-fork.100", 1},
+		{"3.0.27-fork.100", "3.0.27-fork.100", 0},
+	}
+	for _, c := range cases {
+		if got := releaseTagOrder(c.left, c.right); got != c.want {
+			t.Fatalf("releaseTagOrder(%q, %q) = %d, want %d", c.left, c.right, got, c.want)
 		}
 	}
 }

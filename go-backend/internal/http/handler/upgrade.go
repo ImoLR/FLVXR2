@@ -166,12 +166,44 @@ func resolveLatestReleaseByChannelFresh(channel string) (string, error) {
 	return resolveLatestReleaseFrom(channel, fetchGitHubReleasesFresh)
 }
 
+// sortReleasesNewestFirst orders releases by version number, newest first.
+// GitHub's list order is not version order: since 3.0.27-fork.100 it returns
+// fork.99 before fork.100 (and fork.9/fork.8 between fork.16 and fork.15), so
+// "first release in the list" must never be read as "latest".
+func sortReleasesNewestFirst(releases []githubRelease) []githubRelease {
+	out := append([]githubRelease(nil), releases...)
+	sort.SliceStable(out, func(i, j int) bool {
+		return releaseTagOrder(out[i].TagName, out[j].TagName) > 0
+	})
+	return out
+}
+
+// releaseTagOrder is a total order on release tags: numeric base version
+// first, then the numeric fork revision (a plain base sorts before its forks).
+func releaseTagOrder(left, right string) int {
+	left = strings.TrimPrefix(strings.TrimSpace(left), "v")
+	right = strings.TrimPrefix(strings.TrimSpace(right), "v")
+	leftBase, _, leftRevision := splitForkVersion(left)
+	rightBase, _, rightRevision := splitForkVersion(right)
+	if order := compareNumericVersions(leftBase, rightBase); order != 0 {
+		return order
+	}
+	switch {
+	case leftRevision < rightRevision:
+		return -1
+	case leftRevision > rightRevision:
+		return 1
+	}
+	return 0
+}
+
 func resolveLatestReleaseFrom(channel string, fetch func(int) ([]githubRelease, error)) (string, error) {
 	normalizedChannel := normalizeReleaseChannel(channel)
 	releases, err := fetch(50)
 	if err != nil {
 		return "", err
 	}
+	releases = sortReleasesNewestFirst(releases)
 
 	// 如果 channel 为空，返回第一个非 draft 的 release（最新版本）
 	if normalizedChannel == "" {

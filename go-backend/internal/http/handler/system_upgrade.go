@@ -473,7 +473,7 @@ func (h *Handler) systemCheckUpdates(w http.ResponseWriter, r *http.Request) {
 		response.WriteJSON(w, response.Err(-2, fmt.Sprintf("获取版本列表失败：%v", err)))
 		return
 	}
-	releases := releasesForChannel(githubReleases, channel)
+	releases := releasesForChannel(sortReleasesNewestFirst(githubReleases), channel)
 	latest := ""
 	if len(releases) > 0 {
 		latest = releases[0].Version
