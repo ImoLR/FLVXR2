@@ -40,6 +40,8 @@ export const createTunnelFormDefaults = () => {
     socks: 0,
     blockOther: 0,
     speedId: null as number | null,
+    // Plan 180 「规则最优」: on by default.
+    ruleBest: 1,
   };
 };
 

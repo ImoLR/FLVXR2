@@ -2,6 +2,11 @@
 import { RuleLandingTarget, LandingTargetValue } from "@/pages/landing/rule-target";
 import { ChainLinkButton, ForwardLineBadges } from "@/pages/landing/chain-links";
 import {
+  RuleBestPickLine,
+  normalizeRuleBestPick,
+  type RuleBestPick,
+} from "@/pages/forward/best-pick";
+import {
   ChainStatus,
   ForwardChainInfo,
   createChainForward,
@@ -184,6 +189,8 @@ export interface Forward {
   // Plan 152: set when the rule opens only on some entries of its tunnel.
   entryKey?: string;
   entryLabel?: string;
+  // Plan 180: the 最优 pick line (rules on tunnels with a 最优 layer).
+  bestPick?: RuleBestPick | null;
 }
 interface Tunnel {
   lineMachine?: boolean;
@@ -754,6 +761,7 @@ const mapForwardApiItems = (items: ForwardApiItem[]): Forward[] => {
       ? formatChainTarget((forward as any).chain as ForwardChainInfo)
       : forward.remoteAddr || "",
     chain: (forward as any).chain as ForwardChainInfo | undefined,
+    bestPick: normalizeRuleBestPick((forward as any).bestPick),
     lineMachine: (forward as any).lineMachine === true,
     lineNonCompliant: (forward as any).lineNonCompliant === true,
     lineComplianceAck: (forward as any).lineComplianceAck === true,
@@ -1267,6 +1275,7 @@ const SortableTableRow = ({
           </span>
           <ForwardCNBlockedWarning forward={forward} />
           <ForwardLineBadges forward={forward} />
+          <RuleBestPickLine pick={forward.bestPick} />
         </div>
       </TableCell>
       <TableCell className={`${rowBg}${dim}`}>
@@ -1580,6 +1589,7 @@ const SortableCompactTableRow = ({
           </span>
           <ForwardCNBlockedWarning forward={forward} />
           <ForwardLineBadges forward={forward} />
+          <RuleBestPickLine pick={forward.bestPick} />
         </div>
       </TableCell>
       <TableCell className={`whitespace-nowrap ${rowBg}`}>
@@ -5473,6 +5483,7 @@ export default function ForwardPage() {
           )}
           <ForwardCNBlockedWarning forward={forward} />
           <ForwardLineBadges forward={forward} />
+          <RuleBestPickLine pick={forward.bestPick} />
         </CardHeader>
         {/* 卡片视图卡片布局显示 */}
         <CardBody className="flex flex-1 flex-col pt-0 pb-3 md:pt-0 md:pb-3">

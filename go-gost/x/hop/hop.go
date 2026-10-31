@@ -32,6 +32,8 @@ type options struct {
 	httpLoader  loader.Loader
 	period      time.Duration
 	logger      logger.Logger
+	// Plan 180: per-destination preferred node order (see dest_order.go).
+	destOrder map[string][]string
 }
 
 type Option func(*options)
@@ -152,8 +154,12 @@ func (p *chainHop) Select(ctx context.Context, opts ...hop.SelectOption) *chain.
 	// Debug logging for failover analysis
 	log.Debugf("[hop.Select] excludeNodes=%v, totalNodes=%d", excludeNodes, len(p.Nodes()))
 
+	p.mu.RLock()
+	all, destOrder := p.nodes, p.options.destOrder
+	p.mu.RUnlock()
+
 	var nodes []*chain.Node
-	for _, node := range p.Nodes() {
+	for _, node := range all {
 		if node == nil {
 			continue
 		}
@@ -202,6 +208,11 @@ func (p *chainHop) Select(ctx context.Context, opts ...hop.SelectOption) *chain.
 
 	if nodes[0].Options().Priority > 0 {
 		return nodes[0]
+	}
+
+	// Plan 180: the panel's preferred order for this destination (规则最优).
+	if order := destOrderFor(destOrder, options.Host, options.Addr); order != nil {
+		nodes = applyDestOrder(nodes, order)
 	}
 
 	// Use selector with FailFilter for proper failover.

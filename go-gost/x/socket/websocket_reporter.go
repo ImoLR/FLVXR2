@@ -851,6 +851,8 @@ func buildWebSocketQuery(secret string, version string, http int, tls int, socks
 		"&userRate=" + strconv.Itoa(userRateVersion) +
 		// Plan 165: UpdateChains swaps chains without a gap (最优 reorder).
 		"&chainSwap=" + strconv.Itoa(chainSwapVersion) +
+		// Plan 180: chain hops honour a per-destination node order (规则最优).
+		"&destOrder=" + strconv.Itoa(destOrderVersion) +
 		// Plan 161: per-user 速率 on this machine's landing nodes (kernel).
 		"&landingRate=" + strconv.Itoa(landing.LandingRateVersion)
 }

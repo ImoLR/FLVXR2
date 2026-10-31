@@ -49,6 +49,10 @@ type pathLatencyPlan struct {
 	Active bool
 	Pipe   bool
 	Remote map[int64]bool
+	// Plan 180 「规则最优」: the tunnel's switch, and (filled by
+	// attachRuleBestProbes) its destinations with their exit probes.
+	RuleBestOn bool
+	RuleBest   *ruleBestPlan
 }
 
 type pathEntryLatency struct {
@@ -109,7 +113,7 @@ func (h *Handler) planPathLatencyRound() ([]pathLatencyPlan, map[pathProbeKey]*n
 		}
 		pipe, hasPipe := tunnel["leikwanPipe"].(model.LeiKwanPipe)
 		entries, hops, exits := splitChainNodeGroups(rows)
-		plan := pathLatencyPlan{TunnelID: id, Entries: entries, Active: asInt(tunnel["status"], 0) == 1, Pipe: hasPipe}
+		plan := pathLatencyPlan{TunnelID: id, Entries: entries, Active: asInt(tunnel["status"], 0) == 1, Pipe: hasPipe, RuleBestOn: asInt(tunnel["ruleBest"], 1) == 1}
 		groups := append([][]chainNodeRecord{entries}, hops...)
 		groups = append(groups, exits)
 		plan.Groups = groups
@@ -264,6 +268,9 @@ func (h *Handler) runPathLatencyRound(ctx context.Context) {
 		log.Printf("[path-latency] plan failed: %v", err)
 		return
 	}
+	// Plan 180: exit→destination probes of the 「规则最优」 tunnels, deduped
+	// with each other and the edges, in the same round.
+	ruleBestProbes := h.attachRuleBestProbes(plans, pairs, start)
 	results, retries := probePathPairs(ctx, pairs, h.probePathPair, waitPathRetry)
 	if ctx.Err() != nil {
 		return
@@ -278,13 +285,18 @@ func (h *Handler) runPathLatencyRound(ctx context.Context) {
 	h.pathLatencyMu.Unlock()
 	// Plan 165: 最优 decisions from this round's edges (no probes of its own).
 	bestStart := time.Now()
-	h.runBestPathRound(plans, results, now)
+	guard := newBestPathPushGuard(time.Now)
+	h.runBestPathRound(plans, results, guard, now)
+	// Plan 180: rule-level decisions after the tunnel ones, same storm guard.
+	h.runRuleBestRound(plans, results, guard, now)
+	h.ruleBest.count(0, 0, ruleBestProbes)
 	bestDuration := time.Since(bestStart)
 	// One summary line per hour (was one per minute, ~1.4k lines/day).
 	if last := pathLatencyLoggedAt.Load(); now.Unix()-last >= 3600 {
 		pathLatencyLoggedAt.Store(now.Unix())
 		owners, switches, deferred, failures := h.bestPath.takeCounters()
-		log.Printf("[path-latency] round tunnels=%d edges=%d pairs=%d retries=%d duration=%s best_owners=%d best_switches=%d best_deferred=%d best_push_fail=%d best_round=%s (logged hourly)", len(plans), edges, len(pairs), retries, time.Since(start).Round(time.Millisecond), owners, switches, deferred, failures, bestDuration.Round(time.Microsecond))
+		rbStates, rbDests, rbDead, rbSwitches, rbDeferred, rbFailures, rbProbes, rbDeadRounds := h.ruleBest.takeCounters()
+		log.Printf("[path-latency] round tunnels=%d edges=%d pairs=%d retries=%d duration=%s best_owners=%d best_switches=%d best_deferred=%d best_push_fail=%d best_round=%s rule_best_dests=%d rule_best_states=%d rule_best_probes=%d rule_best_dead=%d rule_best_dead_rounds=%d rule_best_switches=%d rule_best_deferred=%d rule_best_push_fail=%d (logged hourly)", len(plans), edges, len(pairs), retries, time.Since(start).Round(time.Millisecond), owners, switches, deferred, failures, bestDuration.Round(time.Microsecond), rbDests, rbStates, rbProbes, rbDead, rbDeadRounds, rbSwitches, rbDeferred, rbFailures)
 	}
 }
 

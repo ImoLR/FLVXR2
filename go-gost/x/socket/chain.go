@@ -11,6 +11,7 @@ import (
 	xchain "github.com/go-gost/x/chain"
 	"github.com/go-gost/x/config"
 	parser "github.com/go-gost/x/config/parsing/chain"
+	xhop "github.com/go-gost/x/hop"
 	"github.com/go-gost/x/registry"
 )
 
@@ -48,6 +49,12 @@ func createChain(req createChainRequest) error {
 // no chain (and would fall back to a direct dial), so the panel may reorder
 // the nodes of a 最优 hop on this agent.
 const chainSwapVersion = 1
+
+// destOrderVersion is advertised in the WebSocket handshake (`destOrder=1`,
+// plan 180 规则最优): chain hops honour the `destOrder` metadata (a preferred
+// node order per dialed destination) and UpdateChains changes it in place.
+// The panel only sends destOrder to agents that advertise it.
+const destOrderVersion = 1
 
 // updateChain replaces a chain without a gap (plan 165). The new config is
 // parsed first. When it differs from the running one only in the order of
@@ -111,6 +118,10 @@ type nodeReorderer interface {
 	ReorderNodes(addrs []string) bool
 }
 
+type destOrderSetter interface {
+	SetDestOrder(m map[string][]string) bool
+}
+
 // reorderChainInPlace reorders the registered chain's hop nodes to next's
 // order when next equals old except for the node order (and node names,
 // which follow the position). It returns false, changing nothing, when that
@@ -128,6 +139,7 @@ func reorderChainInPlace(name string, old, next *config.ChainConfig) bool {
 		return false
 	}
 	orders := make([][]string, len(hops))
+	destOrders := make([]map[string][]string, len(hops))
 	for i, h := range hops {
 		if _, ok := h.(nodeReorderer); !ok || next.Hops[i] == nil {
 			return false
@@ -138,6 +150,11 @@ func reorderChainInPlace(name string, old, next *config.ChainConfig) bool {
 			}
 			orders[i] = append(orders[i], n.Addr)
 		}
+		// Plan 180: a destOrder change rides the same in-place path.
+		destOrders[i] = hopDestOrder(next.Hops[i])
+		if _, ok := h.(destOrderSetter); !ok && (destOrders[i] != nil || hopDestOrder(old.Hops[i]) != nil) {
+			return false
+		}
 	}
 	for i, h := range hops {
 		// A hop refusing the order (only possible for a hop that is not a plain
@@ -145,8 +162,18 @@ func reorderChainInPlace(name string, old, next *config.ChainConfig) bool {
 		if !h.(nodeReorderer).ReorderNodes(orders[i]) {
 			return false
 		}
+		if setter, ok := h.(destOrderSetter); ok && !setter.SetDestOrder(destOrders[i]) {
+			return false
+		}
 	}
 	return true
+}
+
+func hopDestOrder(h *config.HopConfig) map[string][]string {
+	if h == nil || h.Metadata == nil {
+		return nil
+	}
+	return xhop.ParseDestOrder(h.Metadata[xhop.DestOrderMetadataKey])
 }
 
 // sameChainExceptNodeOrder compares two chain configs with each hop's nodes
@@ -169,6 +196,13 @@ func canonicalChainConfig(c *config.ChainConfig) ([]byte, bool) {
 	for _, h := range cp.Hops {
 		if h == nil {
 			continue
+		}
+		// Plan 180: destOrder is applied in place as well (SetDestOrder).
+		if h.Metadata != nil {
+			delete(h.Metadata, xhop.DestOrderMetadataKey)
+			if len(h.Metadata) == 0 {
+				h.Metadata = nil
+			}
 		}
 		seen := make(map[string]struct{}, len(h.Nodes))
 		for _, n := range h.Nodes {

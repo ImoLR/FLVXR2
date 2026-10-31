@@ -41,6 +41,7 @@ type Handler struct {
 	metrics          *metrics.IngestionService
 	healthCheck      *health.Checker
 	bestPath         *bestPathManager
+	ruleBest         *ruleBestManager // plan 180 「规则最优」 decisions (memory only)
 	fluxVersion      string
 	cnLandingChecker *cnlanding.Checker
 	quotaGroups      *quotaCoordinator
@@ -78,6 +79,8 @@ type Handler struct {
 	// and the agent session lookup (plan 165); tests replace them.
 	chainSwapCapableFn func(int64) bool
 	nodeOnlineFn       func(int64) bool
+	// destOrderCapableFn overrides the destOrder handshake check (plan 180).
+	destOrderCapableFn func(int64) bool
 	nodeRedeployMu     sync.Mutex
 	nodeRedeploy       *nodeRedeployScheduler
 	redeployRetryMu    sync.Mutex
@@ -200,6 +203,7 @@ func New(repo *repo.Repository, jwtSecret string, fluxVersion string) *Handler {
 		metrics:             metrics.NewIngestionService(repo),
 		healthCheck:         nil,
 		bestPath:            newBestPathManager(),
+		ruleBest:            newRuleBestManager(),
 		fluxVersion:         fluxVersion,
 		cnLandingChecker:    cnlanding.New(nil),
 		captchaTokens:       make(map[string]int64),
@@ -991,6 +995,9 @@ func (h *Handler) forwardList(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+
+	// Plan 180: the 最优 pick line of every rule (memory only).
+	h.attachRuleBestPicksOrLog(items, entryNodes)
 
 	payload := map[string]interface{}{
 		"items": items,

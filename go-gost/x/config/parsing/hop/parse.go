@@ -52,12 +52,15 @@ func ParseHop(cfg *config.HopConfig, log logger.Logger) (hop.Hop, error) {
 
 	ifce := cfg.Interface
 	var netns string
+	var destOrder map[string][]string
 	if cfg.Metadata != nil {
 		md := metadata.NewMetadata(cfg.Metadata)
 		if v := mdutil.GetString(md, parsing.MDKeyInterface); v != "" {
 			ifce = v
 		}
 		netns = mdutil.GetString(md, "netns")
+		// Plan 180: per-destination preferred node order (规则最优).
+		destOrder = xhop.ParseDestOrder(cfg.Metadata[xhop.DestOrderMetadataKey])
 	}
 
 	var nodes []*chain.Node
@@ -117,6 +120,7 @@ func ParseHop(cfg *config.HopConfig, log logger.Logger) (hop.Hop, error) {
 		xhop.SelectorOption(sel),
 		xhop.BypassOption(xbypass.BypassGroup(bypass_parser.List(cfg.Bypass, cfg.Bypasses...)...)),
 		xhop.ReloadPeriodOption(cfg.Reload),
+		xhop.DestOrderOption(destOrder),
 		xhop.LoggerOption(log.WithFields(map[string]any{
 			"kind": "hop",
 			"hop":  cfg.Name,

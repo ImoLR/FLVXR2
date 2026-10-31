@@ -59,7 +59,7 @@ func bestPathEnvRound(t *testing.T, e *flowTestEnv, lat map[[2]int64]float64, at
 			}
 		}
 	}
-	e.h.runBestPathRound(plans, results, at)
+	e.h.runBestPathRound(plans, results, newBestPathPushGuard(time.Now), at)
 }
 
 func bpExampleLat() map[[2]int64]float64 {

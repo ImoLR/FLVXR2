@@ -268,6 +268,13 @@ type bestPathEdge struct{ From, To int64 }
 // node to any exit over edges that answered in this round (exits cost 0), and
 // the edge results per layer.
 func bestPathCosts(plan pathLatencyPlan, results map[pathProbeKey]pathProbeResult) ([]map[int64]float64, []map[bestPathEdge]pathProbeResult) {
+	return bestPathCostsWith(plan, results, nil)
+}
+
+// bestPathCostsWith is bestPathCosts with a cost per exit (plan 180: the
+// exit→destination latency; exits missing from exitCost are unreachable).
+// exitCost nil = every exit costs 0 (plan 165).
+func bestPathCostsWith(plan pathLatencyPlan, results map[pathProbeKey]pathProbeResult, exitCost map[int64]float64) ([]map[int64]float64, []map[bestPathEdge]pathProbeResult) {
 	groups := plan.Groups
 	costs := make([]map[int64]float64, len(groups))
 	edges := make([]map[bestPathEdge]pathProbeResult, len(plan.Layers))
@@ -283,7 +290,11 @@ func bestPathCosts(plan pathLatencyPlan, results map[pathProbeKey]pathProbeResul
 	last := len(groups) - 1
 	costs[last] = make(map[int64]float64, len(groups[last]))
 	for _, exit := range groups[last] {
-		costs[last][exit.NodeID] = 0
+		if exitCost == nil {
+			costs[last][exit.NodeID] = 0
+		} else if c, ok := exitCost[exit.NodeID]; ok {
+			costs[last][exit.NodeID] = c
+		}
 	}
 	for g := last - 1; g >= 0; g-- {
 		costs[g] = make(map[int64]float64, len(groups[g]))
@@ -473,12 +484,24 @@ func (h *Handler) bestOrderedTargets(tunnelID, ownerID int64, targets []tunnelRu
 // tunnelChainConfigFor builds the owner's chain object; every chain push
 // (create, edit, redeploy, reconnect, entry split/merge, 最优 switch) goes
 // through it so none of them reverts a 最优 decision to DB order.
+//
+// Plan 180: on a 「规则最优」 tunnel the hop also carries the owner's
+// per-destination orders (metadata.destOrder) where they differ from the
+// hop's first place; with the switch off (or no such decision, or an agent
+// without destOrder) the config is exactly the plan-165 one.
 func (h *Handler) tunnelChainConfigFor(state *tunnelCreateState, ownerID int64, targets []tunnelRuntimeNode) (map[string]interface{}, error) {
-	return buildTunnelChainConfig(state.TunnelID, ownerID, h.bestOrderedTargets(state.TunnelID, ownerID, targets), state.Nodes, state.IPPreference)
+	ordered := h.bestOrderedTargets(state.TunnelID, ownerID, targets)
+	cfg, err := buildTunnelChainConfig(state.TunnelID, ownerID, ordered, state.Nodes, state.IPPreference)
+	if err != nil || !state.RuleBest {
+		return cfg, err
+	}
+	attachDestOrder(cfg, h.ruleBestDestOrders(state, ownerID, ordered, chainHopAddrs(cfg)))
+	return cfg, nil
 }
 
-// runBestPathRound decides and applies after a path-latency round.
-func (h *Handler) runBestPathRound(plans []pathLatencyPlan, results map[pathProbeKey]pathProbeResult, now time.Time) {
+// runBestPathRound decides and applies after a path-latency round. guard is
+// the round's storm guard (shared with the plan-180 rule-best pushes).
+func (h *Handler) runBestPathRound(plans []pathLatencyPlan, results map[pathProbeKey]pathProbeResult, guard *bestPathPushGuard, now time.Time) {
 	if h == nil || h.bestPath == nil {
 		return
 	}
@@ -491,35 +514,74 @@ func (h *Handler) runBestPathRound(plans []pathLatencyPlan, results map[pathProb
 	if len(switches) == 0 {
 		return
 	}
-	_, deferred, failed := applyBestPathSwitches(switches, time.Now, h.applyBestPathSwitch)
+	_, deferred, failed := applyBestPathSwitchesWith(guard, switches, h.applyBestPathSwitch)
 	h.bestPath.count(deferred, failed)
 }
 
-// applyBestPathSwitches applies confirmed switches under the storm guard: at
-// most bestPathMaxPushNode pushes per owner node and bestPathMaxPushRound per
+// bestPathPushGuard is the storm guard of one round: at most
+// bestPathMaxPushNode pushes per owner node and bestPathMaxPushRound per
 // round, within bestPathRoundPushBudget; a node whose push failed gets no
-// more pushes this round. Deferred switches stay confirmed for the next round.
+// more pushes this round. Plan 165 switches and plan 180 rule-best pushes
+// share one guard per round.
+type bestPathPushGuard struct {
+	clock      func() time.Time
+	start      time.Time
+	applied    int
+	perNode    map[int64]int
+	failedNode map[int64]bool
+}
+
+func newBestPathPushGuard(clock func() time.Time) *bestPathPushGuard {
+	if clock == nil {
+		clock = time.Now
+	}
+	return &bestPathPushGuard{clock: clock, start: clock(), perNode: make(map[int64]int), failedNode: make(map[int64]bool)}
+}
+
+func (g *bestPathPushGuard) allow(owner int64) bool {
+	return g.applied < bestPathMaxPushRound && g.perNode[owner] < bestPathMaxPushNode && !g.failedNode[owner] && g.clock().Sub(g.start) <= bestPathRoundPushBudget
+}
+
+// done records one push result: applied, deferred (tunnel busy) or failed
+// (stale = neither).
+func (g *bestPathPushGuard) done(owner int64, err error) (applied, deferred, failed bool) {
+	switch {
+	case err == nil:
+		g.applied++
+		g.perNode[owner]++
+		return true, false, false
+	case errors.Is(err, errBestPathBusy):
+		return false, true, false
+	case errors.Is(err, errBestPathStale):
+		return false, false, false
+	default:
+		g.failedNode[owner] = true
+		return false, false, true
+	}
+}
+
+// applyBestPathSwitches applies confirmed switches under a fresh storm
+// guard. Deferred switches stay confirmed for the next round.
 func applyBestPathSwitches(switches []bestPathSwitch, clock func() time.Time, apply func(bestPathSwitch) error) (applied, deferred, failed int) {
-	start := clock()
-	perNode := make(map[int64]int)
-	failedNode := make(map[int64]bool)
+	return applyBestPathSwitchesWith(newBestPathPushGuard(clock), switches, apply)
+}
+
+func applyBestPathSwitchesWith(guard *bestPathPushGuard, switches []bestPathSwitch, apply func(bestPathSwitch) error) (applied, deferred, failed int) {
 	for _, sw := range switches {
 		owner := sw.Key.OwnerNodeID
-		if applied >= bestPathMaxPushRound || perNode[owner] >= bestPathMaxPushNode || failedNode[owner] || clock().Sub(start) > bestPathRoundPushBudget {
+		if !guard.allow(owner) {
 			deferred++
 			continue
 		}
-		err := apply(sw)
-		switch {
-		case err == nil:
+		a, d, f := guard.done(owner, apply(sw))
+		if a {
 			applied++
-			perNode[owner]++
-		case errors.Is(err, errBestPathBusy):
+		}
+		if d {
 			deferred++
-		case errors.Is(err, errBestPathStale):
-		default:
+		}
+		if f {
 			failed++
-			failedNode[owner] = true
 		}
 	}
 	return applied, deferred, failed

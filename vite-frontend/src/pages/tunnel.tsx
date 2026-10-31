@@ -165,6 +165,7 @@ interface Tunnel {
   flow: number;
   trafficRatio: number;
   ipPreference?: string;
+  ruleBest?: number; // plan 180 「规则最优」
   status: number;
   createdTime: string;
   tunnelGroupId?: number | null;
@@ -284,6 +285,8 @@ interface TunnelForm {
   socks: number;
   blockOther: number;
   speedId: number | null;
+  // Plan 180 「规则最优」: 1 on (default), 0 off.
+  ruleBest?: number;
 }
 interface BatchProgressState {
   active: boolean;
@@ -879,6 +882,7 @@ export default function TunnelPage() {
       socks: typeof tunnel.socks === "number" ? tunnel.socks : 0,
       blockOther: typeof tunnel.blockOther === "number" ? tunnel.blockOther : 0,
       speedId: tunnel.speedId ?? null,
+      ruleBest: tunnel.ruleBest === 0 ? 0 : 1,
     });
     setErrors({});
     setModalOpen(true);
@@ -4938,6 +4942,41 @@ export default function TunnelPage() {
                                 {BEST_PATH_HINT}
                               </p>
                             )}
+                            {!editingPipe &&
+                              (!form.outNodeId?.length ||
+                                form.outNodeId[0].strategy === "best") && (
+                                <div
+                                  className="mt-2 flex items-start justify-between gap-3 rounded-lg bg-teal-500/10 px-3 py-2 dark:bg-teal-400/10"
+                                  data-rule-best-switch={
+                                    form.ruleBest === 0 ? "off" : "on"
+                                  }
+                                >
+                                  <div className="min-w-0">
+                                    <div className="text-sm font-semibold text-foreground">
+                                      规则最优
+                                    </div>
+                                    <p className="text-xs text-default-500">
+                                      开启后，规则会把出口到落地的延迟也算进最优选路
+                                      {(form.outNodeId?.filter(
+                                        (n) => n.nodeId > 0,
+                                      ).length ?? 0) < 2
+                                        ? "（出口至少 2 个节点时生效）"
+                                        : ""}
+                                    </p>
+                                  </div>
+                                  <Switch
+                                    aria-label="规则最优"
+                                    className="mt-0.5 shrink-0"
+                                    isSelected={form.ruleBest !== 0}
+                                    onValueChange={(on) =>
+                                      setForm((prev) => ({
+                                        ...prev,
+                                        ruleBest: on ? 1 : 0,
+                                      }))
+                                    }
+                                  />
+                                </div>
+                              )}
                             {/* 连接端口和连接 IP 类型 - 出口节点 */}
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mt-3">
                               <Input

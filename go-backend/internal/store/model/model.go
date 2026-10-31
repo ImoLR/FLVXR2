@@ -410,6 +410,9 @@ type Tunnel struct {
 	TLS           int            `gorm:"column:tls;not null;default:0"`
 	Socks         int            `gorm:"column:socks;not null;default:0"`
 	BlockOther    int            `gorm:"column:block_other;not null;default:0"`
+	// Plan 180 「规则最优」: 1 = rules on this tunnel also count exit→target in
+	// the 最优 choice (default on); 0 = tunnel 最优 only (plan 165 behaviour).
+	RuleBest int `gorm:"column:rule_best;not null;default:1"`
 }
 
 func (Tunnel) TableName() string { return "tunnel" }
@@ -943,6 +946,7 @@ type TunnelRecord struct {
 	ID           int64
 	Type         int
 	Status       int
+	RuleBest     int // plan 180
 	Flow         int64
 	TrafficRatio float64
 	SpeedID      sql.NullInt64

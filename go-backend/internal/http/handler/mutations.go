@@ -1589,6 +1589,8 @@ func (h *Handler) tunnelCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	runtimeState.IPPreference = ipPreference
+	ruleBest := tunnelRuleBestFromRequest(req, 1)
+	runtimeState.RuleBest = ruleBest == 1
 	if strings.TrimSpace(inIP) == "" {
 		inIP = buildTunnelInIP(runtimeState.InNodes, runtimeState.Nodes, ipPreference)
 	}
@@ -1680,12 +1682,20 @@ func (h *Handler) tunnelCreate(w http.ResponseWriter, r *http.Request) {
 		Socks:         asInt(req["socks"], 0),
 		BlockOther:    asInt(req["blockOther"], 0),
 		SpeedID:       tunnelSpeedID,
+		RuleBest:      ruleBest,
 	}
 	if err := tx.Create(&tunnel).Error; err != nil {
 		response.WriteJSON(w, response.Err(-2, err.Error()))
 		return
 	}
 	tunnelID := tunnel.ID
+	// GORM skips a zero value with a column default: store 「规则最优」 off explicitly.
+	if ruleBest == 0 {
+		if err := h.repo.SetTunnelRuleBestTx(tx, tunnelID, 0); err != nil {
+			response.WriteJSON(w, response.Err(-2, err.Error()))
+			return
+		}
+	}
 	unlock, locked := h.tryLockTunnelRuntime(tunnelID)
 	if !locked {
 		response.WriteJSON(w, response.ErrDefault("隧道运行时正在同步，请稍后重试"))
@@ -1878,6 +1888,12 @@ func (h *Handler) tunnelUpdate(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Plan 180: 「规则最优」 — absent from the request = keep the stored value
+	// (read before the transaction: SQLite has one connection).
+	previousRuleBest := 1
+	if current, curErr := h.getTunnelRecord(id); curErr == nil && current != nil {
+		previousRuleBest = current.RuleBest
+	}
 	tx := h.repo.BeginTx()
 	if tx.Error != nil {
 		response.WriteJSON(w, response.Err(-2, tx.Error.Error()))
@@ -1892,6 +1908,18 @@ func (h *Handler) tunnelUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 	runtimeState.TunnelID = id
 	runtimeState.IPPreference = ipPreference
+	ruleBest := tunnelRuleBestFromRequest(req, previousRuleBest)
+	runtimeState.RuleBest = ruleBest == 1
+	if ruleBest != previousRuleBest {
+		if err := h.repo.SetTunnelRuleBestTx(tx, id, ruleBest); err != nil {
+			response.WriteJSON(w, response.Err(-2, err.Error()))
+			return
+		}
+	}
+	if ruleBest == 0 {
+		// Switched off: the redeploy below writes chains without destOrder.
+		h.ruleBest.forgetTunnel(id)
+	}
 
 	newEntryNodeIDs := make([]int64, 0, len(runtimeState.InNodes))
 	for _, in := range runtimeState.InNodes {
@@ -2549,6 +2577,7 @@ func (h *Handler) reconstructTunnelState(tunnelID int64, allowInconsistentPipe .
 		TunnelID:     tunnelID,
 		Type:         tunnel.Type,
 		IPPreference: ipPreference,
+		RuleBest:     tunnel.RuleBest == 1,
 		InNodes:      make([]tunnelRuntimeNode, 0),
 		ChainHops:    make([][]tunnelRuntimeNode, 0),
 		OutNodes:     make([]tunnelRuntimeNode, 0),
@@ -4803,6 +4832,7 @@ type tunnelCreateState struct {
 	TunnelID     int64
 	Type         int
 	IPPreference string // "" = auto, "v4" = prefer IPv4, "v6" = prefer IPv6
+	RuleBest     bool   // plan 180 「规则最优」 switch (chain hops may carry destOrder)
 	InNodes      []tunnelRuntimeNode
 	ChainHops    [][]tunnelRuntimeNode
 	OutNodes     []tunnelRuntimeNode
@@ -7055,4 +7085,27 @@ func (h *Handler) userRegister(w http.ResponseWriter, r *http.Request) {
 		"name":    req.User,
 		"role_id": 1,
 	}))
+}
+
+// tunnelRuleBestFromRequest reads the 「规则最优」 switch (plan 180): 0 = off,
+// anything else = on; absent = fallback.
+func tunnelRuleBestFromRequest(req map[string]interface{}, fallback int) int {
+	v, ok := req["ruleBest"]
+	if !ok || v == nil {
+		if fallback == 0 {
+			return 0
+		}
+		return 1
+	}
+	switch b := v.(type) {
+	case bool:
+		if b {
+			return 1
+		}
+		return 0
+	}
+	if asInt(v, 1) == 0 {
+		return 0
+	}
+	return 1
 }

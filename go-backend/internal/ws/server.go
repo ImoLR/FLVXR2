@@ -59,6 +59,7 @@ type nodeSession struct {
 	userRate        int    // handshake capability; >0 = agent applies metadata.userLimiter (plan 159)
 	landingRate     int    // handshake capability; >0 = agent shapes user_rates on its landing nodes (plan 161)
 	chainSwap       int    // handshake capability; >0 = UpdateChains swaps a chain without a gap (plan 165)
+	destOrder       int    // handshake capability; >0 = chain hops honour metadata.destOrder (plan 180 规则最优)
 	entryRateTc     int    // handshake capability; >0 = entry speed limits via SetEntryRates in the kernel (plan 168)
 	entryRateTcErr  string // the agent's kernel cannot run the shaper (probe reason) → gost / nft fallback
 	entryRateKey    string // last entry rate status recorded (read loop only)
@@ -433,6 +434,9 @@ func (s *Server) handleNode(w http.ResponseWriter, r *http.Request, nodeID int64
 	}
 	if v, err := strconv.Atoi(r.URL.Query().Get("chainSwap")); err == nil && v > 0 {
 		ns.chainSwap = v
+	}
+	if v, err := strconv.Atoi(r.URL.Query().Get("destOrder")); err == nil && v > 0 {
+		ns.destOrder = v
 	}
 	if v, err := strconv.Atoi(r.URL.Query().Get("entryRateTc")); err == nil && v > 0 {
 		ns.entryRateTc = v
@@ -1034,6 +1038,19 @@ func (s *Server) ChainSwapCapable(nodeID int64) bool {
 	defer s.mu.RUnlock()
 	ns := s.nodes[nodeID]
 	return ns != nil && ns.chainSwap > 0
+}
+
+// DestOrderCapable reports whether the node's current agent session honours a
+// per-destination node order on chain hops (plan 180, handshake destOrder=1;
+// such agents also swap chains without a gap). Others keep the tunnel order.
+func (s *Server) DestOrderCapable(nodeID int64) bool {
+	if s == nil {
+		return false
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	ns := s.nodes[nodeID]
+	return ns != nil && ns.destOrder > 0 && ns.chainSwap > 0
 }
 
 // NodeOnline reports whether the node has a live agent session.

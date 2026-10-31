@@ -261,6 +261,7 @@ func (r *Repository) GetTunnelRecord(tunnelID int64) (*model.TunnelRecord, error
 		ID:           t.ID,
 		Type:         t.Type,
 		Status:       t.Status,
+		RuleBest:     t.RuleBest,
 		Flow:         t.Flow,
 		TrafficRatio: t.TrafficRatio,
 		SpeedID:      t.SpeedID,
