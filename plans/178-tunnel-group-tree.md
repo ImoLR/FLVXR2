@@ -26,9 +26,10 @@ Reference: rules page (`pages/forward.tsx`, plans 163 / 173 / 175) — copy the 
 - [x] Shared scroll fix: switching from a very long open group measured the new (sticky) header at its pinned spot and
       left the group start above the screen; the helper now uses the group's top edge (rules page benefits too).
 - [x] tsc / build / eslint: no new errors vs base (forward 16 / tunnel 4 errors = fork.101; warnings 639 / 1273 vs 639 / 1277).
-- [ ] Screens 390 + 1440, light + dark (a–h), gallery `/root/mmwx-preview/tunnel-group-tree/` with Chinese captions.
-- [ ] Push branch, CI green.
-- [ ] `runs/tunnel-group-tree/release-notes.md`, summary/final.md.
+- [x] Screens 390 + 1440, light + dark (a–h), gallery `/root/mmwx-preview/tunnel-group-tree/` with Chinese captions
+      (59 screens, 175 checks pass).
+- [x] Push branch, CI green (code `28a24c6f`: run 41206394219, 4/4 jobs success).
+- [x] `runs/tunnel-group-tree/release-notes.md`, summary/final.md.
 
 ## Resource efficiency
 - No new polling, timers, API calls or scroll listeners (measured: scroll 3 / resize 5 / interval 0 = fork.101; 8 API
@@ -36,6 +37,7 @@ Reference: rules page (`pages/forward.tsx`, plans 163 / 173 / 175) — copy the 
 - Collapsed groups render nothing: page DOM 226 nodes all collapsed / 708 with one entry open vs 1782 before (desktop).
 
 ## Notes
+- BUILT 10-31 21:40 TW; not released (ships in a batch after the user approves the gallery).
 - Phone cards inside the tree use 16px side padding (was 24px) so 「1入口 › 0跳 › 1出口」 stays on one line at 375–390px.
 - Verification: 175 headless checks (geometry of lines/elbows vs chevrons and checkboxes, accordion, scroll-to-top,
   sticky, reload memory, sub-groups, filters, drag-sort, no sideways overflow, DOM identity of rules page and 不分组
