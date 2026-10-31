@@ -10,13 +10,13 @@ Branch `maintenance/3.0.27-fork.99-batch-1031b` from tag `3.0.27-fork.98` + merg
 Run dir `/root/flvx-workers/runs/release-batch-1031b`.
 
 ## Checklist
-- [ ] Gates: go build/vet, backend tests SQLite + PostgreSQL, frontend tsc/build/lint, branch CI
-- [ ] Fresh prod DB copy: all tunnels pass 172's validation (expect 42 tunnels, flow 1/2, ratio 1.0)
+- [x] Gates: go build ok (vet: only the pre-existing leikwan/testapi unkeyed-fields notes, same as fork.98), backend tests SQLite 19/19 + PostgreSQL 19/19 ok (0 FAIL), frontend tsc 0 errors, eslint 94 errors (= fork.98, no new), build ok; branch CI 41178310305 green
+- [x] Fresh prod DB copy: 42 tunnels, flow 1 ×2 / 2 ×40, traffic_ratio 1.0 ×42 → 0 rows outside 172's bounds (copy deleted)
 - [ ] Tag `3.0.27-fork.99`, CI + Images green, release assets validated
 - [ ] Panel backup + rollback dir, upgrade, version check, backups pruned
 - [ ] Post-upgrade: all nodes online as before, forward_port + per-node services identical, agents not upgraded
 - [ ] Prod proof (temp tunnel): `flow: 99999` / `trafficRatio: 1000` rejected in Chinese, DB unchanged; UI 单向/双向 save works
 - [ ] Prod UI: rules 分组 accordion / sticky header / footer collapse (phone + desktop); no horizontal scroll on other pages
 - [ ] Resources before/after (backend RSS/CPU, 0 new non-request log lines in 10 min)
-- [ ] Node 52: net.conf fq_codel → fq + fleet-bbr apply.sh (backup, pids, latency, rate trees, restore.sh covers net.conf); jump hosts 2 / nbnet still reachable
+- [x] Node 52 (done 14:54 TW, see summary): net.conf fq_codel → fq + fleet-bbr apply.sh (backup, pids, latency, rate trees, restore.sh covers net.conf); jump hosts 2 / nbnet still reachable
 - [ ] Summary `runs/release-batch-1031b/summary.md`; plan complete
