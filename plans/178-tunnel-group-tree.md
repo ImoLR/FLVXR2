@@ -114,3 +114,23 @@ BUILD ONLY, frontend only.
 - BUILT 11-01 ~00:20 TW, not released (ships in the next batch after the user approves the gallery, with plan 179).
 - Tone table: HK amber, TW violet, JP rose, SG lime, KR fuchsia, US blue, DE orange; other codes hash into the same 7
   (e.g. MO/NL rose, GB lime, FR blue, CA amber) — rare codes can share a colour; 多地区 / 未设置地区 slate.
+
+## Round 4 (user feedback 11-01 TW on round 3): no side lines on the region boxes
+User likes round 3 (per-region colours stay default). With the region boxes almost flush in the teal entry box, the
+region box's 3px left accent bar + 1px left/right frame ran right beside the teal entry frame → two differently
+coloured vertical lines side by side. Remove the region box's border lines (left bar + side frame); keep the tinted
+sticky region header (name, N 个隧道, chevron, collapse, stacked sticky), the region → tunnel tree line in the region
+colour (indent, rounded └ last), and the teal entry frame / bar / header / footer. Same branch, BUILD ONLY, CSS only.
+
+### Tasks (round 4)
+- [x] `.flvx-tunnel-region-box`: drop the frame + left accent bar (light + dark); regions separated by the tinted
+      header + the existing 10px (desktop) / list gap; no other rule changed.
+- [x] tsc / build no new errors (CSS-only diff, eslint not affected); no new timers / listeners / API calls.
+- [x] Screens r3 vs r4 side by side (same data): 390 card, 390 list, 1440 table, light + dark, mid-scroll stacked
+      sticky; checks (no border on region boxes, tree line still under the region chevron in the region colour,
+      indent, └ last, stacked sticky) pass; gallery 「第 4 轮」 section on top; release-notes updated.
+- [x] Push, CI green; summary → runs/tunnel-group-tree-r5/summary.md (copy in r4).
+- BUILT 11-01 02:45 TW (code `09d067f4`, CSS only), not released. Screens r3 vs r4 on the same seeded demo data in the
+  gallery 「第 4 轮」 section; 301 r4 checks + 124 r3 checks pass, 0 page errors; scroll/resize listeners, timers,
+  ResizeObservers and DOM node counts identical to round 3, no new API calls. tsc clean. Ships with the branch head +
+  plan 179 (`c9218b55`) in the next batch release after the user approves.
