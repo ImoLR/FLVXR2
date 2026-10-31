@@ -71,7 +71,7 @@ ONE warm amber colour for every region (no per-region rainbow). Same branch, BUI
 - [x] Push, CI green (code `f2f954aa`); summary → runs/tunnel-group-tree-r2/{summary,final}.md.
 
 ### Notes (round 2)
-- BUILT 10-31 ~23:55 TW, not released (ships in the next batch after the user approves the gallery).
+- BUILT 10-31 23:15 TW, not released (ships in the next batch after the user approves the gallery).
 - Table view trade-off: one table per region (the sideways scroller would stop the region header from sticking), so
   every region box has its own column header + 「本地区全选」 (no entry-level 「本组全选」 in region mode) and columns
   of different region tables are sized by their own content (not perfectly aligned between regions).
