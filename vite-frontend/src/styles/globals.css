@@ -2331,7 +2331,7 @@ td.flvx-rule-tree-dim > * {
 
 /* Region tones (round 3): one calm colour per exit region (utils/region.ts
    regionTone, stable by region code; no teal). One var set per tone — the
-   box frame, left bar, header tint, count text and tree line all derive from
+   header tint, count text and tree line all derive from
    it. Count text (--flvx-region-ink) ≥ 4.5:1 on the tinted header. */
 [data-region-tone="amber"] {
   --flvx-region-rgb: 217 140 10;
@@ -2416,7 +2416,10 @@ td.flvx-rule-tree-dim > * {
 /* The region box: its tree line / x / elbow are in the region colour and
    under the region chevron (header padding + half of the 28px chevron) for
    everything inside — the card leaves and the table tree cells above reuse
-   them. Desktop: 12px padding → line at 26px, cards/checkboxes at 40px. */
+   them. Desktop: 12px padding → line at 26px, cards/checkboxes at 40px.
+   Round 4: no frame and no left accent bar — they ran right beside the teal
+   entry frame (two coloured vertical lines). Regions are told apart by the
+   tinted header + the gap between boxes; the region line stays. */
 .flvx-tunnel-region-box {
   --flvx-tree-line: rgb(var(--flvx-region-rgb) / 0.45);
   --flvx-tree-x: 26px;
@@ -2424,16 +2427,12 @@ td.flvx-rule-tree-dim > * {
   --flvx-tree-leaf-y: 27px;
   --flvx-region-tint: 0.08;
   position: relative;
-  border: 1px solid rgb(var(--flvx-region-rgb) / 0.3);
-  border-left: 3px solid rgb(var(--flvx-region-rgb));
   border-radius: 10px;
   background: var(--content1);
 }
 
 .dark .flvx-tunnel-region-box {
   --flvx-region-tint: 0.12;
-  border-color: rgb(var(--flvx-region-rgb) / 0.24);
-  border-left-color: rgb(var(--flvx-region-rgb));
 }
 
 /* Solid header: the page colour under a tint of the region colour, so rows
