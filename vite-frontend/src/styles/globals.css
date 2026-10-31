@@ -2099,3 +2099,303 @@ td.flvx-rule-tree-dim > * {
     }
   }
 }
+
+/* Plan 178: tunnel page groups reuse the rules-page group look above (accent,
+   sticky header, footer, tree line). Custom groups (隧道分组 → 隧道): the cards
+   hang off the line like the phone rule cards; in a wider grid only the first
+   card of each row gets the elbow (the column count comes from a container
+   query, so it always matches the grid). Region groups (入口 → 出口地区 → 隧道):
+   the exit-region sub-headers hang off the line; on wide screens their tunnels
+   hang off a second line under the sub-header chevron, phones keep one level so
+   the cards stay wide enough. The table view draws both levels in its first
+   column. Pure CSS; collapsed groups render no rows. */
+.flvx-tunnel-tree-group {
+  --flvx-tree-x2: 22px;
+  --flvx-tree-leaf-y: 27px;
+}
+
+.flvx-tunnel-tree-sub-head {
+  position: relative;
+}
+
+.flvx-tunnel-tree-sub-head-open::after {
+  content: "";
+  position: absolute;
+  left: calc(var(--flvx-tree-x2) - 1px);
+  top: calc(50% + 14px);
+  bottom: 0;
+  width: 2px;
+  background: var(--flvx-tree-line);
+  pointer-events: none;
+}
+
+.flvx-tunnel-tree-grid-wrap {
+  container-type: inline-size;
+  padding: 8px 4px 8px calc(var(--flvx-tree-x) + 10px);
+}
+
+@media (min-width: 768px) {
+  .flvx-tunnel-tree-grid-wrap {
+    padding-right: 8px;
+  }
+}
+
+/* Custom groups: the cards' first row also holds the drag handle (taller). */
+.flvx-tunnel-tree-group > .flvx-tunnel-tree-grid-wrap {
+  --flvx-tree-leaf-y: 30px;
+}
+
+.flvx-rule-tree-node > .flvx-tunnel-tree-grid-wrap {
+  padding: 8px 0 0 calc(var(--flvx-tree-x2) + 10px);
+}
+
+.flvx-tunnel-tree-grid {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.flvx-tunnel-tree-leaf {
+  position: relative;
+}
+
+.flvx-tunnel-tree-leaf::before {
+  content: "";
+  position: absolute;
+  left: -11px;
+  top: -16px;
+  bottom: 0;
+  width: 2px;
+  background: var(--flvx-tree-line);
+  pointer-events: none;
+}
+
+.flvx-tunnel-tree-leaf:first-child::before {
+  top: -8px;
+}
+
+.flvx-tunnel-tree-leaf::after {
+  content: "";
+  position: absolute;
+  left: -11px;
+  top: var(--flvx-tree-leaf-y);
+  width: 11px;
+  height: 2px;
+  background: var(--flvx-tree-line);
+  pointer-events: none;
+}
+
+.flvx-tunnel-tree-leaf:last-child::before {
+  bottom: auto;
+  height: calc(var(--flvx-tree-leaf-y) + 18px);
+  width: 11px;
+  background: none;
+  border-left: 2px solid var(--flvx-tree-line);
+  border-bottom: 2px solid var(--flvx-tree-line);
+  border-bottom-left-radius: 7px;
+}
+
+.flvx-tunnel-tree-leaf:first-child:last-child::before {
+  height: calc(var(--flvx-tree-leaf-y) + 10px);
+}
+
+.flvx-tunnel-tree-leaf:last-child::after {
+  display: none;
+}
+
+/* N columns (370px cards, 16px gap): elbows on the first card of each row, the
+   first card of the last row ends the line. */
+@container (min-width: 756px) and (max-width: 1141.98px) {
+  .flvx-tunnel-tree-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .flvx-tunnel-tree-leaf:not(:nth-child(2n + 1))::before,
+  .flvx-tunnel-tree-leaf:not(:nth-child(2n + 1))::after,
+  .flvx-tunnel-tree-leaf:nth-child(2n + 1):nth-last-child(-n + 2)::after {
+    display: none;
+  }
+
+  .flvx-tunnel-tree-leaf:nth-child(2n + 1):nth-last-child(-n + 2)::before {
+    bottom: auto;
+    height: calc(var(--flvx-tree-leaf-y) + 18px);
+    width: 11px;
+    background: none;
+    border-left: 2px solid var(--flvx-tree-line);
+    border-bottom: 2px solid var(--flvx-tree-line);
+    border-bottom-left-radius: 7px;
+  }
+
+  .flvx-tunnel-tree-leaf:first-child:nth-last-child(-n + 2)::before {
+    height: calc(var(--flvx-tree-leaf-y) + 10px);
+  }
+}
+
+@container (min-width: 1142px) and (max-width: 1527.98px) {
+  .flvx-tunnel-tree-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .flvx-tunnel-tree-leaf:not(:nth-child(3n + 1))::before,
+  .flvx-tunnel-tree-leaf:not(:nth-child(3n + 1))::after,
+  .flvx-tunnel-tree-leaf:nth-child(3n + 1):nth-last-child(-n + 3)::after {
+    display: none;
+  }
+
+  .flvx-tunnel-tree-leaf:nth-child(3n + 1):nth-last-child(-n + 3)::before {
+    bottom: auto;
+    height: calc(var(--flvx-tree-leaf-y) + 18px);
+    width: 11px;
+    background: none;
+    border-left: 2px solid var(--flvx-tree-line);
+    border-bottom: 2px solid var(--flvx-tree-line);
+    border-bottom-left-radius: 7px;
+  }
+
+  .flvx-tunnel-tree-leaf:first-child:nth-last-child(-n + 3)::before {
+    height: calc(var(--flvx-tree-leaf-y) + 10px);
+  }
+}
+
+@container (min-width: 1528px) and (max-width: 1913.98px) {
+  .flvx-tunnel-tree-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .flvx-tunnel-tree-leaf:not(:nth-child(4n + 1))::before,
+  .flvx-tunnel-tree-leaf:not(:nth-child(4n + 1))::after,
+  .flvx-tunnel-tree-leaf:nth-child(4n + 1):nth-last-child(-n + 4)::after {
+    display: none;
+  }
+
+  .flvx-tunnel-tree-leaf:nth-child(4n + 1):nth-last-child(-n + 4)::before {
+    bottom: auto;
+    height: calc(var(--flvx-tree-leaf-y) + 18px);
+    width: 11px;
+    background: none;
+    border-left: 2px solid var(--flvx-tree-line);
+    border-bottom: 2px solid var(--flvx-tree-line);
+    border-bottom-left-radius: 7px;
+  }
+
+  .flvx-tunnel-tree-leaf:first-child:nth-last-child(-n + 4)::before {
+    height: calc(var(--flvx-tree-leaf-y) + 10px);
+  }
+}
+
+@container (min-width: 1914px) {
+  .flvx-tunnel-tree-grid {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+
+  .flvx-tunnel-tree-leaf:not(:nth-child(5n + 1))::before,
+  .flvx-tunnel-tree-leaf:not(:nth-child(5n + 1))::after,
+  .flvx-tunnel-tree-leaf:nth-child(5n + 1):nth-last-child(-n + 5)::after {
+    display: none;
+  }
+
+  .flvx-tunnel-tree-leaf:nth-child(5n + 1):nth-last-child(-n + 5)::before {
+    bottom: auto;
+    height: calc(var(--flvx-tree-leaf-y) + 18px);
+    width: 11px;
+    background: none;
+    border-left: 2px solid var(--flvx-tree-line);
+    border-bottom: 2px solid var(--flvx-tree-line);
+    border-bottom-left-radius: 7px;
+  }
+
+  .flvx-tunnel-tree-leaf:first-child:nth-last-child(-n + 5)::before {
+    height: calc(var(--flvx-tree-leaf-y) + 10px);
+  }
+}
+
+/* Phones: the region level only (cards under their sub-header, not indented
+   again); cards in the tree use 16px side padding so 「1入口 › 0跳 › 1出口」
+   stays on one line at 375–390px. */
+@media (max-width: 767.98px) {
+  .flvx-rule-tree-node > .flvx-tunnel-tree-grid-wrap {
+    padding-left: 0;
+  }
+
+  .flvx-rule-tree-node > .flvx-tunnel-tree-grid-wrap .flvx-tunnel-tree-leaf::before,
+  .flvx-rule-tree-node > .flvx-tunnel-tree-grid-wrap .flvx-tunnel-tree-leaf::after,
+  .flvx-rule-tree-node > .flvx-tunnel-tree-sub-head-open::after {
+    display: none;
+  }
+
+  .flvx-tunnel-tree-grid [data-tunnel-card="true"] [data-slot="card-header"],
+  .flvx-tunnel-tree-grid [data-tunnel-card="true"] [data-slot="card-body"] {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+}
+
+/* Table view, region groups: sub-header rows on the first line, tunnel rows on
+   a second line under the sub-header chevron (x + 10px cell padding + 22px). */
+td.flvx-tunnel-tree-subcell {
+  position: relative;
+  padding: 6px 16px 6px calc(var(--flvx-tree-x) + 10px);
+}
+
+td.flvx-tunnel-tree-subcell::before,
+td.flvx-tunnel-tree-cell2::before {
+  content: "";
+  position: absolute;
+  left: calc(var(--flvx-tree-x) - 1px);
+  top: -1px;
+  bottom: -1px;
+  width: 2px;
+  background: var(--flvx-tree-line);
+  pointer-events: none;
+}
+
+td.flvx-tunnel-tree-subcell::after,
+td.flvx-tunnel-tree-cell2::after {
+  content: "";
+  position: absolute;
+  left: calc(var(--flvx-tree-x) - 1px);
+  top: calc(50% - 1px);
+  width: 11px;
+  height: 2px;
+  background: var(--flvx-tree-line);
+  pointer-events: none;
+}
+
+td.flvx-tunnel-tree-cell2 {
+  position: relative;
+  width: calc(var(--flvx-tree-x) + 78px);
+  padding-left: calc(var(--flvx-tree-x) + 46px);
+}
+
+td.flvx-tunnel-tree-cell2::before,
+td.flvx-tunnel-tree-cell2::after {
+  left: calc(var(--flvx-tree-x) + 31px);
+}
+
+td.flvx-tunnel-tree-subcell .flvx-tunnel-tree-sub-head-open::after {
+  bottom: -6px;
+}
+
+td.flvx-tunnel-tree-subcell.is-last::before,
+td.flvx-tunnel-tree-cell2.is-last::before {
+  bottom: auto;
+  height: calc(50% + 2px);
+  width: 11px;
+  background: none;
+  border-left: 2px solid var(--flvx-tree-line);
+  border-bottom: 2px solid var(--flvx-tree-line);
+  border-bottom-left-radius: 7px;
+}
+
+td.flvx-tunnel-tree-subcell.is-last::after,
+td.flvx-tunnel-tree-cell2.is-last::after {
+  display: none;
+}
+
+/* The first line keeps going past the tunnels of every sub-group but the last. */
+td.flvx-tunnel-tree-cell2.is-pass {
+  background-image: linear-gradient(var(--flvx-tree-line), var(--flvx-tree-line));
+  background-position: calc(var(--flvx-tree-x) - 1px) 0;
+  background-repeat: no-repeat;
+  background-size: 2px 100%;
+}

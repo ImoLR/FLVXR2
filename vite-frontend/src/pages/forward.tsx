@@ -127,6 +127,18 @@ import {
 import { buildForwardOrder, FORWARD_ORDER_KEY } from "@/pages/forward/order";
 import { PageLoadingState } from "@/components/page-state";
 import { usePullToRefresh } from "@/hooks/usePullToRefresh";
+import {
+  TreeGroupChevron,
+  TreeGroupFooter,
+  TreeGroupHeader,
+  treeGroupHeaderClass,
+  treeGroupWrapperClass,
+} from "@/components/tree-group";
+import {
+  buildPendingGroupScroll,
+  settleGroupScroll,
+  type PendingGroupScroll,
+} from "@/utils/group-accordion";
 import { useMobileBreakpoint } from "@/hooks/useMobileBreakpoint";
 import { saveOrder } from "@/utils/order-storage";
 import { JwtUtil } from "@/utils/jwt";
@@ -893,31 +905,6 @@ const revealForwardElement = (forwardId: number) => {
 
   window.setTimeout(find, 60);
 };
-// Plan 173: helpers for keeping a tunnel group header in view after a click.
-const findTunnelGroupElement = (collapseKey: string): HTMLElement | null =>
-  Array.from(document.querySelectorAll<HTMLElement>("[data-group-key]")).find(
-    (node) => node.dataset.groupKey === collapseKey,
-  ) || null;
-// Nearest ancestor that actually scrolls (desktop: the layout <main>); null
-// means the page itself scrolls (phone layout).
-const findScrollParent = (el: HTMLElement): HTMLElement | null => {
-  for (
-    let node = el.parentElement;
-    node && node !== document.body && node !== document.documentElement;
-    node = node.parentElement
-  ) {
-    const { overflowY } = window.getComputedStyle(node);
-
-    if (
-      (overflowY === "auto" || overflowY === "scroll") &&
-      node.scrollHeight > node.clientHeight
-    ) {
-      return node;
-    }
-  }
-
-  return null;
-};
 const SortableTunnelGroupContainer = ({
   groupKey,
   groupUserId,
@@ -1004,42 +991,13 @@ const SortableTunnelGroupContainer = ({
       data-group-key={groupKey}
       style={style}
     >
-      <div
-        aria-expanded={!collapsed}
-        className={`${headerClassName} cursor-pointer select-none transition-colors`}
-        data-group-header=""
-        role="button"
-        tabIndex={0}
-        onClick={onToggleCollapsed}
-        onKeyDown={(e) => {
-          if (e.target !== e.currentTarget) return;
-          if (e.key === "Enter" || e.key === " ") {
-            e.preventDefault();
-            onToggleCollapsed();
-          }
-        }}
+      <TreeGroupHeader
+        className={headerClassName}
+        collapsed={collapsed}
+        onToggle={onToggleCollapsed}
       >
         <div className="flex items-center gap-2 min-w-0">
-          <Button
-            isIconOnly
-            aria-label={collapsed ? "展开分组" : "折叠分组"}
-            className="h-7 w-7 min-w-7 pointer-events-none"
-            size="sm"
-            variant="flat"
-          >
-            <svg
-              aria-hidden="true"
-              className={`h-4 w-4 transition-transform ${collapsed ? "-rotate-90" : "rotate-0"}`}
-              fill="none"
-              stroke="currentColor"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth="2"
-              viewBox="0 0 24 24"
-            >
-              <path d="m6 9 6 6 6-6" />
-            </svg>
-          </Button>
+          <TreeGroupChevron collapsed={collapsed} />
           {/* Plan 163: phones put the ratio + hints under the name so long
               tunnel names keep the full width. */}
           <div className="flex min-w-0 flex-col gap-1 md:flex-row md:items-center md:gap-2">
@@ -1074,33 +1032,14 @@ const SortableTunnelGroupContainer = ({
             </svg>
           </div>
         </div>
-      </div>
+      </TreeGroupHeader>
       {!collapsed && <div className={bodyClassName}>{children}</div>}
       {/* Plan 173: a clear end of the open group; closes it like the header. */}
       {!collapsed && (
-        <button
-          aria-label={`收起 ${tunnel.tunnelName}`}
-          className="flvx-rule-group-footer flex w-full items-center justify-center border-t px-3 py-2"
-          type="button"
-          onClick={onToggleCollapsed}
-        >
-          <span className="flvx-rule-group-footer-pill inline-flex min-w-0 max-w-full items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium">
-            <svg
-              aria-hidden="true"
-              className="h-3.5 w-3.5 shrink-0"
-              fill="none"
-              stroke="currentColor"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth="2"
-              viewBox="0 0 24 24"
-            >
-              <path d="m18 15-6-6-6 6" />
-            </svg>
-            <span className="shrink-0">收起 ·</span>
-            <span className="min-w-0 truncate">{tunnel.tunnelName}</span>
-          </span>
-        </button>
+        <TreeGroupFooter
+          name={tunnel.tunnelName}
+          onToggle={onToggleCollapsed}
+        />
       )}
     </div>
   );
@@ -2146,12 +2085,7 @@ export default function ForwardPage() {
   // Plan 173: after a group header / footer click the tapped header is kept
   // where it was (closing a long group above must not move it off screen);
   // an opened group is then scrolled so its header sits at the top.
-  const pendingGroupScrollRef = useRef<{
-    key: string;
-    open: boolean;
-    toTop: boolean;
-    anchorTop: number | null;
-  } | null>(null);
+  const pendingGroupScrollRef = useRef<PendingGroupScroll | null>(null);
   const [groupScrollSeq, setGroupScrollSeq] = useState(0);
   const [lineJumpId, setLineJumpId] = useState<number | null>(null);
   const [lineJumpSeq, setLineJumpSeq] = useState(0);
@@ -5017,18 +4951,12 @@ export default function ForwardPage() {
     toTop: boolean,
     anchor: boolean,
   ) => {
-    const header = anchor
-      ? findTunnelGroupElement(collapseKey)?.querySelector<HTMLElement>(
-          "[data-group-header]",
-        )
-      : null;
-
-    pendingGroupScrollRef.current = {
-      key: collapseKey,
+    pendingGroupScrollRef.current = buildPendingGroupScroll(
+      collapseKey,
       open,
       toTop,
-      anchorTop: header ? header.getBoundingClientRect().top : null,
-    };
+      anchor,
+    );
     setGroupScrollSeq((seq) => seq + 1);
   };
   const toggleTunnelGroupCollapsed = (userId: number, tunnelKey: string) => {
@@ -5070,46 +4998,7 @@ export default function ForwardPage() {
 
     if (!pending) return;
     pendingGroupScrollRef.current = null;
-    const wrapper = findTunnelGroupElement(pending.key);
-    const header = wrapper?.querySelector<HTMLElement>("[data-group-header]");
-
-    if (!wrapper || !header) return;
-    const scroller = findScrollParent(wrapper);
-    const viewTop = scroller
-      ? scroller.getBoundingClientRect().top + scroller.clientTop
-      : 0;
-    const viewBottom = scroller
-      ? viewTop + scroller.clientHeight
-      : window.innerHeight;
-    // The sticky top (safe area on phones) is mirrored in scroll-margin-top.
-    const restTop =
-      viewTop +
-      (parseFloat(window.getComputedStyle(wrapper).scrollMarginTop) || 0);
-    const scrollByY = (dy: number, smooth: boolean) => {
-      if (Math.abs(dy) < 1) return;
-      // "auto" = instant here (no CSS scroll-behavior is set anywhere).
-      (scroller ?? window).scrollBy({
-        top: dy,
-        behavior: smooth ? "smooth" : "auto",
-      });
-    };
-
-    if (pending.anchorTop !== null) {
-      scrollByY(header.getBoundingClientRect().top - pending.anchorTop, false);
-    }
-    const top = header.getBoundingClientRect().top;
-
-    if (pending.open && pending.toTop) {
-      const reduceMotion = window.matchMedia?.(
-        "(prefers-reduced-motion: reduce)",
-      ).matches;
-
-      scrollByY(top - restTop, !reduceMotion);
-    } else if (top + header.offsetHeight <= viewTop || top >= viewBottom) {
-      // Only when it has left the screen completely (a tapped header is
-      // kept where it was by the anchor above).
-      scrollByY(top - restTop, false);
-    }
+    settleGroupScroll(pending);
   }, [groupScrollSeq]);
 
   // Plan 164: 「线路机不合规 N 条」 cycles through the flagged rules in the
@@ -6303,14 +6192,12 @@ export default function ForwardPage() {
                               groupUserId={group.userId}
                               // Plan 173: the open group's header sticks (solid
                               // tint); collapsed headers are unchanged.
-                              headerClassName={
-                                collapsed
-                                  ? "flex items-center justify-between bg-default-100/50 hover:bg-default-200/50 px-4 py-2.5 max-md:px-2 max-md:gap-1"
-                                  : "flvx-rule-group-head-open sticky z-20 flex items-center justify-between border-b px-4 py-2.5 max-md:px-2 max-md:gap-1"
-                              }
+                              headerClassName={treeGroupHeaderClass(collapsed)}
                               titleClassName={`${isMobile ? "min-w-0 break-words" : "truncate"} text-sm ${collapsed ? "font-semibold" : "font-bold"} text-foreground`}
                               tunnel={tunnel}
-                              wrapperClassName={`flvx-rule-group overflow-hidden supports-[overflow:clip]:overflow-clip rounded-lg border border-divider bg-content1${collapsed ? "" : " flvx-rule-group-open"}`}
+                              wrapperClassName={treeGroupWrapperClass(
+                                collapsed,
+                              )}
                               onToggleCollapsed={() =>
                                 toggleTunnelGroupCollapsed(
                                   group.userId,
