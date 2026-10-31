@@ -1,6 +1,10 @@
-import { ChevronDown, Route } from "lucide-react";
+import { useState } from "react";
+import toast from "react-hot-toast";
+import { ChevronDown, Route, TriangleAlert } from "lucide-react";
 
+import { reenableRuleBest } from "@/api";
 import { landingToneClass, type LandingTone } from "@/pages/landing/pill";
+import { Button } from "@/shadcn-bridge/heroui/button";
 import {
   Dropdown,
   DropdownMenu,
@@ -214,6 +218,116 @@ export function RuleBestPickLine({
                 item={item}
               />
             ))}
+          </div>
+        </DropdownMenu>
+      </Dropdown>
+    </div>
+  );
+}
+
+// Plan 180 r2: 「规则最优」 turned off automatically — the rule's landing was
+// unreachable from every exit through the retries (1/3/10/60 min). Admin
+// only (the data only reaches admins): an amber pill under the rule name;
+// a tap opens the notice and 「重新开启规则最优」 (one click). The rule keeps
+// running on the tunnel pick meanwhile.
+
+export interface RuleBestOff {
+  target: string;
+  at: number;
+  text: string;
+}
+
+export const RULE_BEST_OFF_CHANGED = "flvx:rule-best-off-changed";
+
+export const normalizeRuleBestOff = (raw: unknown): RuleBestOff | null => {
+  if (!raw || typeof raw !== "object") return null;
+  const off = raw as Partial<RuleBestOff>;
+
+  if (typeof off.text !== "string" || off.text === "") return null;
+
+  return {
+    target: typeof off.target === "string" ? off.target : "",
+    at: typeof off.at === "number" ? off.at : 0,
+    text: off.text,
+  };
+};
+
+const offTime = (at: number) => {
+  if (!at) return "";
+  const d = new Date(at);
+  const pad = (n: number) => String(n).padStart(2, "0");
+
+  return `${d.getMonth() + 1}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+};
+
+export function RuleBestOffBadge({
+  forwardId,
+  off,
+  className = "",
+}: {
+  forwardId: number;
+  off?: RuleBestOff | null;
+  className?: string;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [done, setDone] = useState(false);
+
+  if (!off || done) return null;
+  const reenable = async () => {
+    setBusy(true);
+    try {
+      const res = await reenableRuleBest(forwardId);
+
+      if (res.code === 0) {
+        toast.success("已重新开启规则最优，下一轮探测（约 1 分钟内）开始");
+        setDone(true);
+        window.dispatchEvent(new Event(RULE_BEST_OFF_CHANGED));
+      } else {
+        toast.error(res.msg || "重新开启失败");
+      }
+    } catch {
+      toast.error("重新开启失败");
+    } finally {
+      setBusy(false);
+    }
+  };
+  const when = offTime(off.at);
+
+  return (
+    <div className={`mt-1 flex min-w-0 ${className}`}>
+      <Dropdown>
+        <DropdownTrigger>
+          <button
+            aria-label="规则最优已自动关闭，点按查看并重新开启"
+            className={`${pillBase} ${landingToneClass.amber} cursor-pointer hover:brightness-95 focus-visible:outline-2 focus-visible:outline-offset-1 dark:hover:brightness-110`}
+            data-rule-best-off={forwardId}
+            type="button"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <TriangleAlert aria-hidden className="h-3 w-3 shrink-0" />
+            <span className="whitespace-nowrap">规则最优已自动关闭</span>
+            <ChevronDown aria-hidden className="h-3 w-3 shrink-0" />
+          </button>
+        </DropdownTrigger>
+        <DropdownMenu aria-label="规则最优已自动关闭">
+          <div className="max-w-[86vw] space-y-2 p-2 text-left sm:max-w-sm">
+            <p className="whitespace-normal break-words text-xs leading-relaxed text-foreground">
+              {off.text}
+            </p>
+            <p className="text-[11px] text-default-500">
+              {when ? `${when} 关闭 · ` : ""}
+              规则仍在运行，按隧道选路；只有管理员能看到
+            </p>
+            <Button
+              color="success"
+              data-rule-best-reenable={forwardId}
+              isLoading={busy}
+              size="sm"
+              variant="flat"
+              onPress={reenable}
+            >
+              重新开启规则最优
+            </Button>
           </div>
         </DropdownMenu>
       </Dropdown>

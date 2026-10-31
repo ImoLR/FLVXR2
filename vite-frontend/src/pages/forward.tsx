@@ -2,8 +2,12 @@
 import { RuleLandingTarget, LandingTargetValue } from "@/pages/landing/rule-target";
 import { ChainLinkButton, ForwardLineBadges } from "@/pages/landing/chain-links";
 import {
+  RULE_BEST_OFF_CHANGED,
+  RuleBestOffBadge,
   RuleBestPickLine,
+  normalizeRuleBestOff,
   normalizeRuleBestPick,
+  type RuleBestOff,
   type RuleBestPick,
 } from "@/pages/forward/best-pick";
 import {
@@ -191,6 +195,8 @@ export interface Forward {
   entryLabel?: string;
   // Plan 180: the 最优 pick line (rules on tunnels with a 最优 layer).
   bestPick?: RuleBestPick | null;
+  // Plan 180 r2: admin view only — 「规则最优」 was turned off automatically.
+  ruleBestOff?: RuleBestOff | null;
 }
 interface Tunnel {
   lineMachine?: boolean;
@@ -414,6 +420,8 @@ interface BatchProgressState {
   percent: number;
 }
 type ForwardGroupOrderMap = Record<string, string[]>;
+// Plan 164 / 180 r2: header chips that jump through flagged rules.
+type JumpKind = "line" | "ruleBest";
 // Plan 163: stores EXPANDED tunnel groups only (missing key = collapsed).
 type ForwardGroupExpandedMap = Record<string, boolean>;
 type ForwardDisplayMode = "grouped" | "list" | "card";
@@ -762,6 +770,7 @@ const mapForwardApiItems = (items: ForwardApiItem[]): Forward[] => {
       : forward.remoteAddr || "",
     chain: (forward as any).chain as ForwardChainInfo | undefined,
     bestPick: normalizeRuleBestPick((forward as any).bestPick),
+    ruleBestOff: normalizeRuleBestOff((forward as any).ruleBestOff),
     lineMachine: (forward as any).lineMachine === true,
     lineNonCompliant: (forward as any).lineNonCompliant === true,
     lineComplianceAck: (forward as any).lineComplianceAck === true,
@@ -1276,6 +1285,7 @@ const SortableTableRow = ({
           <ForwardCNBlockedWarning forward={forward} />
           <ForwardLineBadges forward={forward} />
           <RuleBestPickLine pick={forward.bestPick} />
+          <RuleBestOffBadge forwardId={forward.id} off={forward.ruleBestOff} />
         </div>
       </TableCell>
       <TableCell className={`${rowBg}${dim}`}>
@@ -1590,6 +1600,7 @@ const SortableCompactTableRow = ({
           <ForwardCNBlockedWarning forward={forward} />
           <ForwardLineBadges forward={forward} />
           <RuleBestPickLine pick={forward.bestPick} />
+          <RuleBestOffBadge forwardId={forward.id} off={forward.ruleBestOff} />
         </div>
       </TableCell>
       <TableCell className={`whitespace-nowrap ${rowBg}`}>
@@ -1849,6 +1860,11 @@ export default function ForwardPage() {
   const [forwards, setForwards] = useState<Forward[]>([]);
   const lineNonCompliantCount = useMemo(
     () => forwards.filter((forward) => forward.lineNonCompliant).length,
+    [forwards],
+  );
+  // Plan 180 r2: rules whose 「规则最优」 was turned off automatically (admin).
+  const ruleBestOffCount = useMemo(
+    () => forwards.filter((forward) => forward.ruleBestOff).length,
     [forwards],
   );
   const [tunnels, setTunnels] = useState<Tunnel[]>([]);
@@ -2164,10 +2180,13 @@ export default function ForwardPage() {
   } | null>(null);
   const [groupScrollSeq, setGroupScrollSeq] = useState(0);
   const [lineJumpId, setLineJumpId] = useState<number | null>(null);
+  // Plan 180 r2: 「规则最优已关闭 N 条」 cycles the same way.
+  const [ruleBestJumpId, setRuleBestJumpId] = useState<number | null>(null);
   const [lineJumpSeq, setLineJumpSeq] = useState(0);
   const lineJumpPendingRef = useRef<{
     afterId: number | null;
     at: number;
+    kind: JumpKind;
   } | null>(null);
   // Plan 163: a newly created rule's group is opened once the list has it.
   const revealForwardRef = useRef<{
@@ -2829,10 +2848,15 @@ export default function ForwardPage() {
     };
 
     document.addEventListener("visibilitychange", onVisibility);
+    // Plan 180 r2: 「重新开启规则最优」 refreshes the list (badge + header count).
+    const onRuleBestChanged = () => refreshForwardList(false);
+
+    window.addEventListener(RULE_BEST_OFF_CHANGED, onRuleBestChanged);
 
     return () => {
       clearInterval(interval);
       document.removeEventListener("visibilitychange", onVisibility);
+      window.removeEventListener(RULE_BEST_OFF_CHANGED, onRuleBestChanged);
     };
   }, [loading, refreshForwardList]);
   // 表单验证
@@ -5124,26 +5148,38 @@ export default function ForwardPage() {
 
   // Plan 164: 「线路机不合规 N 条」 cycles through the flagged rules in the
   // order they are shown; hidden counts those a filter hides right now.
-  const lineJump = useMemo(() => {
-    const order = sortedForwards.filter((forward) => forward.lineNonCompliant);
-    const hidden =
-      forwards.filter((forward) => forward.lineNonCompliant).length -
-      order.length;
+  // Plan 180 r2: 「规则最优已关闭 N 条」 works the same way (kind ruleBest).
+  const jumps = useMemo(() => {
+    const build = (flagged: (forward: Forward) => boolean) => {
+      const order = sortedForwards.filter(flagged);
+      const hidden = forwards.filter(flagged).length - order.length;
 
-    return { order, hidden };
+      return { order, hidden, flagged };
+    };
+
+    return {
+      line: build((forward) => Boolean(forward.lineNonCompliant)),
+      ruleBest: build((forward) => Boolean(forward.ruleBestOff)),
+    };
   }, [sortedForwards, forwards]);
+  const lineJump = jumps.line;
   const lineJumpPosition =
     lineJump.order.findIndex((forward) => forward.id === lineJumpId) + 1;
-  const handleLineJump = () => {
-    if (lineNonCompliantCount === 0) return;
-    if (lineJump.hidden > 0) {
+  const ruleBestJumpPosition =
+    jumps.ruleBest.order.findIndex((forward) => forward.id === ruleBestJumpId) +
+    1;
+  const handleJump = (kind: JumpKind) => {
+    const jump = jumps[kind];
+
+    if (jump.order.length + jump.hidden === 0) return;
+    if (jump.hidden > 0) {
       // A filter (or the 所属用户 picker) hides some of them: show the rules
       // again; the target is picked once the list shows all of them.
       const keepUser =
         searchParams.userId === "all" ||
         forwards.every(
           (forward) =>
-            !forward.lineNonCompliant ||
+            !jump.flagged(forward) ||
             String(forward.userId ?? 0) === searchParams.userId,
         );
 
@@ -5157,9 +5193,15 @@ export default function ForwardPage() {
       });
       setSearchKeyword("");
     }
-    lineJumpPendingRef.current = { afterId: lineJumpId, at: Date.now() };
+    lineJumpPendingRef.current = {
+      afterId: kind === "ruleBest" ? ruleBestJumpId : lineJumpId,
+      at: Date.now(),
+      kind,
+    };
     setLineJumpSeq((seq) => seq + 1);
   };
+  const handleLineJump = () => handleJump("line");
+  const handleRuleBestJump = () => handleJump("ruleBest");
 
   // Plan 164: once the list shows every flagged rule (filters applied), pick
   // the next one, go to its page, open its group, scroll it to the centre and
@@ -5168,16 +5210,21 @@ export default function ForwardPage() {
     const pending = lineJumpPendingRef.current;
 
     if (!pending) return;
-    if (Date.now() - pending.at > 10000 || lineNonCompliantCount === 0) {
+    const jump = jumps[pending.kind];
+
+    if (
+      Date.now() - pending.at > 10000 ||
+      jump.order.length + jump.hidden === 0
+    ) {
       lineJumpPendingRef.current = null;
 
       return;
     }
-    if (lineJump.hidden > 0 || lineJump.order.length === 0) return;
-    const at = lineJump.order.findIndex(
+    if (jump.hidden > 0 || jump.order.length === 0) return;
+    const at = jump.order.findIndex(
       (forward) => forward.id === pending.afterId,
     );
-    const targetId = lineJump.order[(at + 1) % lineJump.order.length].id;
+    const targetId = jump.order[(at + 1) % jump.order.length].id;
 
     if (!compactMode) {
       const groupIndex = groupedForwards.findIndex((group) =>
@@ -5221,9 +5268,13 @@ export default function ForwardPage() {
       setForwardPage(Math.floor(index / forwardPageSize) + 1);
     }
     lineJumpPendingRef.current = null;
-    setLineJumpId(targetId);
+    if (pending.kind === "ruleBest") {
+      setRuleBestJumpId(targetId);
+    } else {
+      setLineJumpId(targetId);
+    }
     revealForwardElement(targetId);
-  }, [lineJumpSeq, lineJump, groupedForwards, sortedForwards, compactMode]);
+  }, [lineJumpSeq, jumps, groupedForwards, sortedForwards, compactMode]);
 
   // Plan 163: open the group of a rule created in the dialog once the list
   // contains it (saved as open, like a click on its header).
@@ -5484,6 +5535,7 @@ export default function ForwardPage() {
           <ForwardCNBlockedWarning forward={forward} />
           <ForwardLineBadges forward={forward} />
           <RuleBestPickLine pick={forward.bestPick} />
+          <RuleBestOffBadge forwardId={forward.id} off={forward.ruleBestOff} />
         </CardHeader>
         {/* 卡片视图卡片布局显示 */}
         <CardBody className="flex flex-1 flex-col pt-0 pb-3 md:pt-0 md:pb-3">
@@ -5836,6 +5888,33 @@ export default function ForwardPage() {
                   {lineNonCompliantCount > 1 && lineJumpPosition > 0 && (
                     <span className="ml-1 font-medium tabular-nums opacity-90">
                       · {lineJumpPosition}/{lineNonCompliantCount}
+                    </span>
+                  )}
+                </Chip>
+              )}
+              {isAdmin && ruleBestOffCount > 0 && (
+                <Chip
+                  aria-label={`规则最优已关闭 ${ruleBestOffCount} 条，定位到${ruleBestJumpPosition > 0 ? "下一条" : "第一条"}`}
+                  className="cursor-pointer select-none"
+                  color="warning"
+                  data-rule-best-off-count={ruleBestOffCount}
+                  role="button"
+                  size="sm"
+                  tabIndex={0}
+                  title={`这些规则的落地从所有出口都连不上（已重试 1/3/10/60 分钟），已自动关闭规则最优，改按隧道选路，仍在运行。检查出口或落地后，在规则上点「重新开启规则最优」。点一下定位到规则${ruleBestOffCount > 1 ? "，再点跳到下一条" : ""}`}
+                  variant="flat"
+                  onClick={handleRuleBestJump}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      handleRuleBestJump();
+                    }
+                  }}
+                >
+                  规则最优已关闭 {ruleBestOffCount} 条
+                  {ruleBestOffCount > 1 && ruleBestJumpPosition > 0 && (
+                    <span className="ml-1 font-medium tabular-nums opacity-90">
+                      · {ruleBestJumpPosition}/{ruleBestOffCount}
                     </span>
                   )}
                 </Chip>

@@ -1440,6 +1440,8 @@ func (r *Repository) UpdateForward(id int64, name string, tunnelID int64, remote
 	}
 	// Plan 164: a changed target drops the 「已确认合规」 confirmation.
 	updates["line_compliance_ack_sig"] = lineAckKeepExpr(tunnelID, remoteAddr, landingForAck)
+	// Plan 180 r2: and a changed tunnel / target the 「规则最优」 auto-off.
+	updates["rule_best_off_sig"] = ruleBestOffKeepExpr(tunnelID, remoteAddr)
 	fields := map[string]interface{}{
 		"name":                name,
 		"tunnel_id":           tunnelID,
@@ -2320,6 +2322,10 @@ func (r *Repository) RollbackForwardFields(id, userID int64, userName, name stri
 	// (only loaded by GetForwardRecord, so an empty value leaves the column as is).
 	if old.LineComplianceAckSig != "" {
 		fields["line_compliance_ack_sig"] = old.LineComplianceAckSig
+	}
+	// Plan 180 r2: same for a 「规则最优」 auto-off.
+	if old.RuleBestOffSig != "" {
+		fields["rule_best_off_sig"] = old.RuleBestOffSig
 	}
 	_ = r.db.Model(&model.Forward{}).Where("id = ?", id).Updates(fields).Error
 }

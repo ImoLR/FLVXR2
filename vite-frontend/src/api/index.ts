@@ -387,6 +387,9 @@ export const getForwardClientIPs = (id: number) =>
   Network.post<ForwardClientIPsApiData>("/forward/client-ips", { id });
 export const updateForward = (data: ForwardMutationPayload) =>
   Network.post("/forward/update", data);
+// Plan 180 r2: admin turns 「规则最优」 back on after an automatic shut-off.
+export const reenableRuleBest = (id: number) =>
+  Network.post("/forward/rule-best-reenable", { id });
 export const deleteForward = (id: number) =>
   Network.post("/forward/delete", { id });
 export const forceDeleteForward = (id: number) =>

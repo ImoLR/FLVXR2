@@ -3404,6 +3404,8 @@ func importForwards(tx *gorm.DB, forwards []model.ForwardBackup, now int64) (int
 				"entry_node_ids",
 				// Nor a 「已确认合规」 confirmation (plan 164).
 				"line_compliance_ack_sig",
+				// Nor a 「规则最优」 auto-off (plan 180 r2).
+				"rule_best_off_sig",
 			}),
 		}).Create(&item).Error
 		if err != nil {

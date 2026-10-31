@@ -5,12 +5,14 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"net/http"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
+	"go-backend/internal/http/response"
 	"go-backend/internal/store/repo"
 )
 
@@ -26,12 +28,34 @@ import (
 // destination whose decision differs from the tunnel's first place is written
 // into the owner's chain hop as metadata.destOrder (the agent then orders the
 // hop for dials to that destination); equal ⇒ no entry. Only agents with the
-// destOrder handshake capability get it; others stay on the tunnel order. A
-// destination unreachable from every exit is probed only every 5 min and
-// uses the tunnel order meanwhile. Everything lives in memory.
-const (
-	ruleBestDeadBackoff = 5 * time.Minute
-	destOrderMetaKey    = "destOrder"
+// destOrder handshake capability get it; others stay on the tunnel order.
+// Decisions live in memory.
+//
+// Round 2 (user 11-01): a destination unreachable from every exit of its
+// tunnel uses the tunnel order at once and is re-probed only at fixed points
+// after that failure (+1, +3, +10 min, +1 h). A retry that answers is
+// confirmed by the next round (1 min later): OK ⇒ rule-best again at once;
+// not OK ⇒ the same schedule goes on at its next point. The schedule only
+// starts over once the destination stayed reachable for 1 h (a flapping
+// landing ends in the notice instead of looping). When the last point fails,
+// 「规则最优」 is turned off for every rule of that tunnel using it (persisted
+// per rule, admin notice) and it is no longer probed until an admin turns it
+// back on. Schedules are memory only (a panel restart starts them over).
+const destOrderMetaKey = "destOrder"
+
+var (
+	// ruleBestRetryOffsets: the retry points after a destination was found
+	// unreachable from every exit.
+	ruleBestRetryOffsets = []time.Duration{time.Minute, 3 * time.Minute, 10 * time.Minute, time.Hour}
+	// ruleBestRetryEarly: a 60 s round may come a little before a point; it
+	// takes the point when it is at most this early (the round nearest to it).
+	ruleBestRetryEarly = pathLatencyInterval / 2
+	// ruleBestConfirmDelay: a retry that answered is checked again this much
+	// later (= the next round).
+	ruleBestConfirmDelay = pathLatencyInterval
+	// ruleBestHealthyReset: reachable this long without a break ⇒ the
+	// schedule is forgotten (the next failure starts at +1 min again).
+	ruleBestHealthyReset = time.Hour
 )
 
 // ruleBestMaxProbes caps the new exit→target probes of one round (prod
@@ -53,6 +77,7 @@ type ruleBestPlanDest struct {
 	Probe     ruleBestTarget
 	Exits     map[int64]pathProbeKey // exit node → probe (empty when backed off)
 	BackedOff bool
+	Rules     []repo.RuleBestForward // the tunnel's eligible rules using it
 }
 
 type ruleBestPlan struct {
@@ -101,9 +126,9 @@ func isLoopbackDestHost(host string) bool {
 }
 
 // ruleBestForwardEligible: gost rules only (nftables / wg_path rules bypass
-// the chain on the entry), running rules only.
+// the chain on the entry), running rules only, not auto-off (round 2).
 func ruleBestForwardEligible(f repo.RuleBestForward) bool {
-	if f.Status != 1 {
+	if f.Status != 1 || f.RuleBestOff() {
 		return false
 	}
 	switch strings.ToLower(strings.TrimSpace(f.Mode)) {
@@ -161,9 +186,14 @@ func ruleBestDestinations(forwards []repo.RuleBestForward, chainUpstreams map[in
 			} else if isLoopbackDestHost(target.Host) {
 				continue
 			}
-			if _, seen := byKey[key]; !seen {
-				byKey[key] = len(dests)
+			i, seen := byKey[key]
+			if !seen {
+				i = len(dests)
+				byKey[key] = i
 				dests = append(dests, ruleBestPlanDest{Key: key, Label: label, Probe: target})
+			}
+			if n := len(dests[i].Rules); n == 0 || dests[i].Rules[n-1].ID != f.ID {
+				dests[i].Rules = append(dests[i].Rules, f)
 			}
 			perForward[f.ID] = appendUniqueString(perForward[f.ID], key)
 		}
@@ -223,7 +253,7 @@ func (h *Handler) attachRuleBestProbes(plans []pathLatencyPlan, pairs map[pathPr
 		exits := plan.Groups[len(plan.Groups)-1]
 		for d := range dests {
 			dest := &dests[d]
-			if !h.ruleBest.probeDue(dest.Probe, now) {
+			if !h.ruleBest.probeDue(ruleBestDeadKey{TunnelID: plan.TunnelID, Dest: dest.Key}, now) {
 				dest.BackedOff = true
 				continue
 			}
@@ -279,6 +309,7 @@ type ruleBestSwitch struct {
 	Order      []int64
 	Candidates []int64
 	Failover   bool
+	Recovered  bool // destination reachable again: best at once (round 2)
 	Gain       float64
 }
 
@@ -292,8 +323,47 @@ type ruleBestPush struct {
 	Gain     float64
 }
 
+// ruleBestDeadKey: the retry schedule is per tunnel (its own exits) and
+// destination.
+type ruleBestDeadKey struct {
+	TunnelID int64
+	Dest     string
+}
+
+// ruleBestDeadState is the retry schedule of one destination (round 2).
 type ruleBestDeadState struct {
-	NextProbe time.Time
+	Since       time.Time // the failure the pending points count from
+	Next        int       // index of the next pending point in ruleBestRetryOffsets
+	Dead        bool      // tunnel order; probed only at the points
+	ConfirmAt   time.Time // a retry answered: confirm at the round ≥ this
+	RecoveredAt time.Time // reachable again since (forgotten 1 h later)
+	OffLogged   bool      // a failed auto-off write was logged once
+}
+
+func (st *ruleBestDeadState) exhausted() bool {
+	return st.Dead && st.ConfirmAt.IsZero() && st.Next >= len(ruleBestRetryOffsets)
+}
+
+// due: probe this round? Reachable destinations every round; dead ones only
+// at the confirmation or the next pending point.
+func (st *ruleBestDeadState) due(now time.Time) bool {
+	switch {
+	case st == nil || !st.Dead:
+		return true
+	case !st.ConfirmAt.IsZero():
+		return !now.Before(st.ConfirmAt.Add(-ruleBestRetryEarly))
+	case st.Next >= len(ruleBestRetryOffsets):
+		return false
+	default:
+		return !now.Before(st.Since.Add(ruleBestRetryOffsets[st.Next] - ruleBestRetryEarly))
+	}
+}
+
+// ruleBestOffEvent: every retry failed — 「规则最优」 goes off for these rules.
+type ruleBestOffEvent struct {
+	Key   ruleBestDeadKey
+	Label string
+	Rules []repo.RuleBestForward
 }
 
 // ruleBestView is the latest round's data of one tunnel for the rule list.
@@ -317,76 +387,143 @@ type ruleBestViewDest struct {
 type ruleBestManager struct {
 	mu     sync.Mutex
 	states map[ruleBestKey]*ruleBestState
-	dead   map[ruleBestTarget]*ruleBestDeadState
+	dead   map[ruleBestDeadKey]*ruleBestDeadState
 	// Owners whose agent may still hold a destOrder entry memory no longer
 	// has (rule deleted, destination dead): one cleanup push is due.
 	dirty map[bestPathKey]bool
 	views map[int64]*ruleBestView
 	// Since the last hourly summary.
 	switches, deferred, pushFailures, probes, deadRounds, capped int64
+	retries, autoOff                                             int64
 	lastDests                                                    int
 }
 
 func newRuleBestManager() *ruleBestManager {
 	return &ruleBestManager{
 		states: make(map[ruleBestKey]*ruleBestState),
-		dead:   make(map[ruleBestTarget]*ruleBestDeadState),
+		dead:   make(map[ruleBestDeadKey]*ruleBestDeadState),
 		dirty:  make(map[bestPathKey]bool),
 		views:  make(map[int64]*ruleBestView),
 	}
 }
 
-func (m *ruleBestManager) probeDue(t ruleBestTarget, now time.Time) bool {
+func (m *ruleBestManager) probeDue(key ruleBestDeadKey, now time.Time) bool {
 	if m == nil {
 		return true
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	st := m.dead[t]
-	return st == nil || !now.Before(st.NextProbe)
+	return m.dead[key].due(now)
 }
 
-// updateDead records, per probe target probed this round, whether any exit
-// reached it. Unreachable from every exit ⇒ next probe in 5 min. Targets no
-// longer used are dropped.
-func (m *ruleBestManager) updateDead(plans []pathLatencyPlan, results map[pathProbeKey]pathProbeResult, now time.Time) map[ruleBestTarget]bool {
-	probed := make(map[ruleBestTarget]bool) // target → any exit OK
-	used := make(map[ruleBestTarget]bool)
+// updateDead moves every destination probed this round through its retry
+// schedule (see the top of the file). It returns the destinations on the
+// tunnel order (dead or confirming), those reachable again this round
+// (rule-best at once, no 2-round wait) and the auto-off events (all retries
+// failed; repeated each round until forgetDead after the write).
+// Destinations no longer used are dropped.
+func (m *ruleBestManager) updateDead(plans []pathLatencyPlan, results map[pathProbeKey]pathProbeResult, now time.Time) (dead, recovered map[ruleBestDeadKey]bool, offs []ruleBestOffEvent) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	used := make(map[ruleBestDeadKey]bool)
+	recovered = make(map[ruleBestDeadKey]bool)
+	last := len(ruleBestRetryOffsets)
 	for _, plan := range plans {
 		if plan.RuleBest == nil {
 			continue
 		}
 		for _, d := range plan.RuleBest.Dests {
-			used[d.Probe] = true
-			for _, key := range d.Exits {
-				res, ok := results[key]
-				if !ok {
-					continue
+			key := ruleBestDeadKey{TunnelID: plan.TunnelID, Dest: d.Key}
+			used[key] = true
+			answered, ok := false, false
+			for _, pk := range d.Exits {
+				if res, found := results[pk]; found {
+					answered = true
+					ok = ok || res.OK
 				}
-				probed[d.Probe] = probed[d.Probe] || res.OK
+			}
+			st := m.dead[key]
+			off := false
+			switch {
+			case !answered:
+				off = st != nil && st.exhausted() // auto-off write still pending
+			case st == nil:
+				if !ok {
+					m.dead[key] = &ruleBestDeadState{Since: now, Dead: true}
+					m.deadRounds++
+				}
+			case !st.Dead: // reachable again, within the hour
+				if ok {
+					if !now.Before(st.RecoveredAt.Add(ruleBestHealthyReset)) {
+						delete(m.dead, key)
+					}
+					break
+				}
+				// Died again: the old schedule goes on (its next point, counted
+				// from now); nothing left ⇒ off.
+				st.Dead, st.Since, st.ConfirmAt = true, now, time.Time{}
+				m.deadRounds++
+				off = st.Next >= last
+			case !st.ConfirmAt.IsZero(): // the confirmation round
+				st.ConfirmAt = time.Time{}
+				if ok {
+					st.Dead, st.RecoveredAt = false, now
+					recovered[key] = true
+					break
+				}
+				off = st.Next >= last
+			default: // a retry point
+				st.Next++
+				m.retries++
+				if ok {
+					st.ConfirmAt = now.Add(ruleBestConfirmDelay)
+					break
+				}
+				off = st.Next >= last
+			}
+			if off {
+				offs = append(offs, ruleBestOffEvent{Key: key, Label: d.Label, Rules: d.Rules})
 			}
 		}
 	}
+	for key := range m.dead {
+		if !used[key] {
+			delete(m.dead, key)
+		}
+	}
+	dead = make(map[ruleBestDeadKey]bool, len(m.dead))
+	for key, st := range m.dead {
+		if st.Dead {
+			dead[key] = true
+		}
+	}
+	return dead, recovered, offs
+}
+
+// forgetDead drops a destination's schedule (auto-off written, or an admin
+// turned 「规则最优」 back on).
+func (m *ruleBestManager) forgetDead(keys ...ruleBestDeadKey) {
+	if m == nil {
+		return
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	for t, ok := range probed {
-		if ok {
-			delete(m.dead, t)
-			continue
-		}
-		m.dead[t] = &ruleBestDeadState{NextProbe: now.Add(ruleBestDeadBackoff)}
-		m.deadRounds++
+	for _, key := range keys {
+		delete(m.dead, key)
 	}
-	for t := range m.dead {
-		if !used[t] {
-			delete(m.dead, t)
-		}
+}
+
+// offWriteFailed reports whether this is the first failed auto-off write of
+// the destination (logged once, retried every round).
+func (m *ruleBestManager) offWriteFailed(key ruleBestDeadKey) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	st := m.dead[key]
+	if st == nil || st.OffLogged {
+		return false
 	}
-	dead := make(map[ruleBestTarget]bool, len(m.dead))
-	for t := range m.dead {
-		dead[t] = true
-	}
-	return dead
+	st.OffLogged = true
+	return true
 }
 
 func (m *ruleBestManager) snapshot(key ruleBestKey) (ruleBestState, bool) {
@@ -470,7 +607,7 @@ func (m *ruleBestManager) forgetTunnel(tunnelID int64) {
 // destOrder capability. It returns the confirmed first-place changes (not yet
 // applied) grouped per owner, plus the owners due for a cleanup push, and
 // drops every state that is no longer a rule-best (tunnel, owner, destination).
-func (m *ruleBestManager) evaluate(plans []pathLatencyPlan, results map[pathProbeKey]pathProbeResult, dead map[ruleBestTarget]bool, tunnelOrder func(bestPathKey) []int64, owner func(int64) (online, capable bool), now time.Time) []ruleBestPush {
+func (m *ruleBestManager) evaluate(plans []pathLatencyPlan, results map[pathProbeKey]pathProbeResult, dead, recovered map[ruleBestDeadKey]bool, tunnelOrder func(bestPathKey) []int64, owner func(int64) (online, capable bool), now time.Time) []ruleBestPush {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	visited := make(map[ruleBestKey]bool)
@@ -490,9 +627,12 @@ func (m *ruleBestManager) evaluate(plans []pathLatencyPlan, results map[pathProb
 		}
 		last := len(plan.Groups) - 1
 		for _, dest := range plan.RuleBest.Dests {
-			if dest.BackedOff || dead[dest.Probe] {
+			deadKey := ruleBestDeadKey{TunnelID: plan.TunnelID, Dest: dest.Key}
+			if dest.BackedOff || dead[deadKey] {
 				continue // tunnel order meanwhile (落地自己挂了 ≠ reason to switch)
 			}
+			// Reachable again (confirmed): the best decision at once.
+			again := recovered[deadKey]
 			destCount++
 			exitCost := make(map[int64]float64, len(dest.Exits))
 			for exitID, key := range dest.Exits {
@@ -559,10 +699,11 @@ func (m *ruleBestManager) evaluate(plans []pathLatencyPlan, results map[pathProb
 						sw.Failover = true
 					case cur.CostMS-best.CostMS >= bestPathSwitchMarginMS:
 						st.PendingN++
-						if st.PendingN < bestPathConfirmRounds {
+						if st.PendingN < bestPathConfirmRounds && !again {
 							continue
 						}
 						sw.Gain = cur.CostMS - best.CostMS
+						sw.Recovered = again && st.PendingN < bestPathConfirmRounds
 					default:
 						st.PendingN = 0
 						continue
@@ -698,17 +839,34 @@ func (m *ruleBestManager) count(deferred, failures, probes int) {
 	m.mu.Unlock()
 }
 
+// ruleBestCounters is the hourly summary.
+type ruleBestCounters struct {
+	States, Dests, Dead                                                        int
+	Switches, Deferred, Failures, Probes, DeadRounds, Capped, Retries, AutoOff int64
+}
+
 // takeCounters returns and resets the counters of the hourly summary.
-func (m *ruleBestManager) takeCounters() (states, dests, dead int, switches, deferred, failures, probes, deadRounds, capped int64) {
+func (m *ruleBestManager) takeCounters() (c ruleBestCounters) {
 	if m == nil {
 		return
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	states, dests, dead = len(m.states), m.lastDests, len(m.dead)
-	switches, deferred, failures, probes, deadRounds, capped = m.switches, m.deferred, m.pushFailures, m.probes, m.deadRounds, m.capped
-	m.switches, m.deferred, m.pushFailures, m.probes, m.deadRounds, m.capped = 0, 0, 0, 0, 0, 0
+	for _, st := range m.dead {
+		if st.Dead {
+			c.Dead++
+		}
+	}
+	c.States, c.Dests = len(m.states), m.lastDests
+	c.Switches, c.Deferred, c.Failures, c.Probes, c.DeadRounds, c.Capped, c.Retries, c.AutoOff = m.switches, m.deferred, m.pushFailures, m.probes, m.deadRounds, m.capped, m.retries, m.autoOff
+	m.switches, m.deferred, m.pushFailures, m.probes, m.deadRounds, m.capped, m.retries, m.autoOff = 0, 0, 0, 0, 0, 0, 0, 0
 	return
+}
+
+func (m *ruleBestManager) countAutoOff() {
+	m.mu.Lock()
+	m.autoOff++
+	m.mu.Unlock()
 }
 
 func (m *ruleBestManager) countCapped() {
@@ -721,7 +879,7 @@ func (m *ruleBestManager) countCapped() {
 }
 
 // storeViews keeps the latest round's data per tunnel for the rule list.
-func (m *ruleBestManager) storeViews(plans []pathLatencyPlan, results map[pathProbeKey]pathProbeResult, dead map[ruleBestTarget]bool, now time.Time) {
+func (m *ruleBestManager) storeViews(plans []pathLatencyPlan, results map[pathProbeKey]pathProbeResult, dead map[ruleBestDeadKey]bool, now time.Time) {
 	views := make(map[int64]*ruleBestView)
 	for _, plan := range plans {
 		if !plan.Active || !planHasBestLayer(plan) {
@@ -738,7 +896,7 @@ func (m *ruleBestManager) storeViews(plans []pathLatencyPlan, results map[pathPr
 		if plan.RuleBest != nil {
 			v.Dests = make(map[string]ruleBestViewDest, len(plan.RuleBest.Dests))
 			for _, d := range plan.RuleBest.Dests {
-				vd := ruleBestViewDest{Label: d.Label, BackedOff: d.BackedOff, Dead: dead[d.Probe], Exit: make(map[int64]float64, len(d.Exits))}
+				vd := ruleBestViewDest{Label: d.Label, BackedOff: d.BackedOff, Dead: dead[ruleBestDeadKey{TunnelID: plan.TunnelID, Dest: d.Key}], Exit: make(map[int64]float64, len(d.Exits))}
 				for exitID, key := range d.Exits {
 					if res, ok := results[key]; ok && res.OK {
 						vd.Exit[exitID] = res.LatencyMS
@@ -832,15 +990,17 @@ func chainHopAddrs(chain map[string]interface{}) []string {
 	return out
 }
 
-// runRuleBestRound updates the back-off, decides and applies after the
-// plan-165 round, under the same storm guard.
-func (h *Handler) runRuleBestRound(plans []pathLatencyPlan, results map[pathProbeKey]pathProbeResult, guard *bestPathPushGuard, now time.Time) {
+// runRuleBestRound moves the retry schedules (clocked by the round's start,
+// the time attachRuleBestProbes checked them with), decides and applies after
+// the plan-165 round, under the same storm guard.
+func (h *Handler) runRuleBestRound(plans []pathLatencyPlan, results map[pathProbeKey]pathProbeResult, guard *bestPathPushGuard, roundStart, now time.Time) {
 	if h == nil || h.ruleBest == nil {
 		return
 	}
-	dead := h.ruleBest.updateDead(plans, results, now)
+	dead, recovered, offs := h.ruleBest.updateDead(plans, results, roundStart)
+	h.applyRuleBestOffs(offs, now)
 	h.ruleBest.storeViews(plans, results, dead, now)
-	pushes := h.ruleBest.evaluate(plans, results, dead, func(k bestPathKey) []int64 {
+	pushes := h.ruleBest.evaluate(plans, results, dead, recovered, func(k bestPathKey) []int64 {
 		return h.bestPath.order(k)
 	}, func(id int64) (bool, bool) {
 		if !h.nodeAgentOnline(id) {
@@ -933,8 +1093,11 @@ func (h *Handler) applyRuleBestPush(p ruleBestPush) error {
 	for _, sw := range p.Switches {
 		reason := "faster"
 		from := fmt.Sprintf("%.0fms", sw.FromCost)
-		if sw.Failover {
+		switch {
+		case sw.Failover:
 			reason, from = "failover", "unreachable"
+		case sw.Recovered:
+			reason = "recovered"
 		}
 		log.Printf("[rule-best] switch tunnel=%d owner=%s(%d) dest=%s layer=%d %s(%d) %s -> %s(%d) %.0fms reason=%s",
 			sw.Key.TunnelID, nodeDisplayName(state.Nodes[owner]), owner, sw.Key.Dest, sw.Layer,
@@ -942,4 +1105,125 @@ func (h *Handler) applyRuleBestPush(p ruleBestPush) error {
 			nodeDisplayName(state.Nodes[sw.ToID]), sw.ToID, sw.ToCost, reason)
 	}
 	return nil
+}
+
+// ---- round 2: auto-off and re-enable --------------------------------------
+
+// applyRuleBestOffs turns 「规则最优」 off for the rules of every destination
+// whose retries all failed: one DB write and one log line per rule, then the
+// schedule is dropped (the rules are no longer eligible, so the destination
+// is not probed again and its decisions are gone — the cleanup push of the
+// dead destination already ran when it first failed). A failed write is
+// retried the next round (logged once).
+func (h *Handler) applyRuleBestOffs(offs []ruleBestOffEvent, now time.Time) {
+	if h == nil || h.repo == nil || len(offs) == 0 {
+		return
+	}
+	for _, off := range offs {
+		var writeErr error
+		for _, f := range off.Rules {
+			changed, err := h.repo.SetForwardRuleBestOff(f.ID, f.TunnelID, f.RemoteAddr, off.Label, now.UnixMilli())
+			if err != nil {
+				writeErr = err
+				continue
+			}
+			if changed {
+				h.ruleBest.countAutoOff()
+				log.Printf("[rule-best] auto-off rule=%s(%d) tunnel=%d target=%s: unreachable from every exit, retries at 1/3/10/60 min failed; 规则最优 off until an admin turns it back on",
+					f.Name, f.ID, f.TunnelID, off.Label)
+			}
+		}
+		if writeErr != nil {
+			if h.ruleBest.offWriteFailed(off.Key) {
+				log.Printf("[rule-best] auto-off write failed tunnel=%d target=%s (retried each round): %v", off.Key.TunnelID, off.Label, writeErr)
+			}
+			continue
+		}
+		h.ruleBest.forgetDead(off.Key)
+	}
+}
+
+// ruleBestOffNotice is the admin notice text of an auto-off rule.
+func ruleBestOffNotice(name, target string) string {
+	return fmt.Sprintf("规则「%s」的落地 %s 从所有出口都连不上（已重试 1/3/10/60 分钟），已自动关闭规则最优，请检查出口或落地", name, target)
+}
+
+// decorateRuleBestOff marks the auto-off rules of an admin's rule list
+// (ruleBestOff: target, time, notice) with one query and returns how many.
+// Users never get it: their rule line just shows the tunnel pick.
+func (h *Handler) decorateRuleBestOff(items []map[string]interface{}) int {
+	if h == nil || h.repo == nil || len(items) == 0 {
+		return 0
+	}
+	ids := make([]int64, 0, len(items))
+	for _, item := range items {
+		ids = append(ids, asInt64(item["id"], 0))
+	}
+	offs, err := h.repo.ForwardRuleBestOffs(ids)
+	if err != nil {
+		log.Printf("[rule-best] read auto-off marks: %v", err)
+		return 0
+	}
+	count := 0
+	for _, item := range items {
+		off, ok := offs[asInt64(item["id"], 0)]
+		if !ok {
+			continue
+		}
+		item["ruleBestOff"] = map[string]interface{}{
+			"target": off.Target,
+			"at":     off.Time,
+			"text":   ruleBestOffNotice(asString(item["name"]), off.Target),
+		}
+		count++
+	}
+	return count
+}
+
+// reenableRuleBest turns 「规则最优」 back on for a rule (admin): the mark is
+// cleared and the schedules of its destinations on its tunnel are dropped,
+// so the next round probes them as new.
+func (h *Handler) reenableRuleBest(forwardID int64) error {
+	f, err := h.getForwardRecord(forwardID)
+	if err != nil {
+		if errors.Is(err, errForwardNotFound) {
+			return errors.New("转发不存在")
+		}
+		return err
+	}
+	cleared, err := h.repo.ClearForwardRuleBestOff(forwardID)
+	if err != nil {
+		return err
+	}
+	var keys []ruleBestDeadKey
+	for _, raw := range splitRemoteTargets(f.RemoteAddr) {
+		if key := normalizeDestKey(raw); key != "" {
+			keys = append(keys, ruleBestDeadKey{TunnelID: f.TunnelID, Dest: key})
+		}
+	}
+	h.ruleBest.forgetDead(keys...)
+	if cleared {
+		log.Printf("[rule-best] re-enabled rule=%s(%d) tunnel=%d by an admin", f.Name, f.ID, f.TunnelID)
+	}
+	return nil
+}
+
+// forwardRuleBestReenable: POST /api/v1/forward/rule-best-reenable {id} —
+// admin only; panel-side, the next 60 s round picks the rule up again.
+func (h *Handler) forwardRuleBestReenable(w http.ResponseWriter, r *http.Request) {
+	if !requireAdminRequest(w, r) {
+		return
+	}
+	var req struct {
+		ID int64 `json:"id"`
+	}
+	if err := decodeJSON(r.Body, &req); err != nil || req.ID <= 0 {
+		response.WriteJSON(w, response.ErrDefault("请求参数错误"))
+		return
+	}
+	if err := h.reenableRuleBest(req.ID); err != nil {
+		response.WriteJSON(w, response.ErrDefault(err.Error()))
+		return
+	}
+	response.WriteJSON(w, response.OKEmpty())
 }

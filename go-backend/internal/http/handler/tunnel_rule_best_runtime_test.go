@@ -63,7 +63,7 @@ func rbEnvRound(t *testing.T, e *flowTestEnv, edges map[[2]int64]float64, dests 
 	}
 	guard := newBestPathPushGuard(time.Now)
 	e.h.runBestPathRound(plans, results, guard, at)
-	e.h.runRuleBestRound(plans, results, guard, at)
+	e.h.runRuleBestRound(plans, results, guard, at, at)
 	return rbRoundInfo{plans: plans, pairs: len(pairs), probes: probes}
 }
 
@@ -180,7 +180,8 @@ func TestRuleBestRuntimeProbesPushesAndRedeploy(t *testing.T) {
 	}
 	e.h.destOrderCapableFn = func(int64) bool { return true }
 
-	// Target b dies everywhere: entries for b removed once, no switch, 5 min back-off.
+	// Target b dies everywhere: entries for b removed once, no switch, then
+	// probed only at the retry points (round 2: +1, +3, +10, +60 min).
 	mark = len(commands.snapshot())
 	dead := rbEnvDests()
 	delete(dead, "b.example:443")
@@ -190,8 +191,12 @@ func TestRuleBestRuntimeProbesPushesAndRedeploy(t *testing.T) {
 		t.Fatalf("dead target cleanup %+v", cleanup)
 	}
 	info = rbEnvRound(t, e, rbEnvEdges(), dead, now.Add(5*time.Minute))
+	if info.probes != 4 {
+		t.Fatalf("+1 min retry point: %d probes, want 4 (a and b)", info.probes)
+	}
+	info = rbEnvRound(t, e, rbEnvEdges(), dead, now.Add(6*time.Minute))
 	if info.probes != 2 {
-		t.Fatalf("backed-off target still probed: %d probes", info.probes)
+		t.Fatalf("between retry points the dead target is still probed: %d probes", info.probes)
 	}
 }
 
@@ -474,7 +479,7 @@ func TestRuleBestProbeCap(t *testing.T) {
 	if backed != 1 {
 		t.Fatalf("capped destinations = %d", backed)
 	}
-	if _, _, _, _, _, _, _, _, capped := e.h.ruleBest.takeCounters(); capped != 1 {
-		t.Fatalf("capped counter = %d", capped)
+	if c := e.h.ruleBest.takeCounters(); c.Capped != 1 {
+		t.Fatalf("capped counter = %d", c.Capped)
 	}
 }

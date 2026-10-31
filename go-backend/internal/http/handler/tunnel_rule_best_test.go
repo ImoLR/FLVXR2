@@ -104,8 +104,8 @@ func rbAllCapable(int64) (bool, bool) { return true, true }
 func rbNoTunnelOrder(bestPathKey) []int64 { return nil }
 
 func rbEval(m *ruleBestManager, plans []pathLatencyPlan, results map[pathProbeKey]pathProbeResult, at time.Time) []ruleBestPush {
-	dead := m.updateDead(plans, results, at)
-	return m.evaluate(plans, results, dead, rbNoTunnelOrder, rbAllCapable, at)
+	dead, recovered, _ := m.updateDead(plans, results, at)
+	return m.evaluate(plans, results, dead, recovered, rbNoTunnelOrder, rbAllCapable, at)
 }
 
 // rbApply marks every push applied (what a successful UpdateChains does).
@@ -193,8 +193,9 @@ func TestRuleBestMarginTwoRoundsAndFailover(t *testing.T) {
 	}
 }
 
-// A target down from every exit: no switch, probed only every 5 min, the
-// destination falls back to the tunnel order (its entry is removed once).
+// A target down from every exit: no switch, probed only at the retry points
+// (round 2), the destination falls back to the tunnel order (its entry is
+// removed once).
 func TestRuleBestDeadTargetBacksOffAndUsesTunnelOrder(t *testing.T) {
 	key := "dead.example:443"
 	plan := rbPlan(9, [][]int64{{1}, {4, 5}})
@@ -220,12 +221,13 @@ func TestRuleBestDeadTargetBacksOffAndUsesTunnelOrder(t *testing.T) {
 	if o := m.ownerOrders(bestPathKey{9, 1}); len(o) != 0 {
 		t.Fatalf("dead target kept a decision: %v", o)
 	}
-	target, _ := splitDestTarget(key)
-	if m.probeDue(target, now.Add(2*time.Minute+4*time.Minute)) {
-		t.Fatalf("dead target probed again within 5 min")
+	// Round 2: the next probe is the +1 min retry point (nothing before it).
+	dk := ruleBestDeadKey{TunnelID: 9, Dest: key}
+	if m.probeDue(dk, now.Add(2*time.Minute+20*time.Second)) {
+		t.Fatalf("dead target probed again before the +1 min point")
 	}
-	if !m.probeDue(target, now.Add(2*time.Minute+ruleBestDeadBackoff)) {
-		t.Fatalf("dead target not probed after 5 min")
+	if !m.probeDue(dk, now.Add(3*time.Minute)) {
+		t.Fatalf("dead target not probed at the +1 min point")
 	}
 	// Back-off rounds: the planner marks the dest; nothing is evaluated.
 	plan.RuleBest.Dests[0].BackedOff = true
@@ -236,19 +238,22 @@ func TestRuleBestDeadTargetBacksOffAndUsesTunnelOrder(t *testing.T) {
 	if states, dead, _, _ := m.size(); states != 0 || dead != 1 {
 		t.Fatalf("states=%d dead=%d", states, dead)
 	}
-	// Up again: fresh state that follows the tunnel order, 2 rounds to switch.
+	// Up again at a retry point: still the tunnel order (the answer is
+	// confirmed by the next round), then the best decision at once — no
+	// 2-round wait (round 2).
 	revived := rbPlan(9, [][]int64{{1}, {4, 5}})
 	rbDest(&revived, key)
 	plans = []pathLatencyPlan{revived}
 	good = rbResults(plans, edges, map[string]map[int64]float64{key: {4: 80, 5: 20}})
-	if p := rbEval(m, plans, good, now.Add(8*time.Minute)); len(p) != 0 {
-		t.Fatalf("revived target switched in its first round: %+v", p)
+	if p := rbEval(m, plans, good, now.Add(3*time.Minute)); len(p) != 0 {
+		t.Fatalf("revived target switched before the confirmation: %+v", p)
 	}
-	if _, dead, _, _ := m.size(); dead != 0 {
-		t.Fatalf("revived target still dead")
+	p := rbEval(m, plans, good, now.Add(4*time.Minute))
+	if len(p) != 1 || p[0].Switches[0].ToID != 5 || !p[0].Switches[0].Recovered {
+		t.Fatalf("confirmed target did not switch at once: %+v", p)
 	}
-	if p := rbEval(m, plans, good, now.Add(9*time.Minute)); len(p) != 1 || p[0].Switches[0].ToID != 5 {
-		t.Fatalf("revived target second round: %+v", p)
+	if _, dead, _, _ := m.size(); dead != 1 {
+		t.Fatalf("schedule forgotten before 1 h healthy (dead=%d)", dead)
 	}
 }
 
@@ -289,8 +294,8 @@ func TestRuleBestCleanupAndCapabilityGating(t *testing.T) {
 	// Owner online without destOrder: no state, never a push.
 	old := func(int64) (bool, bool) { return true, false }
 	for i := 0; i < 3; i++ {
-		dead := m.updateDead(plans, res, now)
-		if p := m.evaluate(plans, res, dead, rbNoTunnelOrder, old, now.Add(time.Duration(10+i)*time.Minute)); len(p) != 0 {
+		dead, recovered, _ := m.updateDead(plans, res, now)
+		if p := m.evaluate(plans, res, dead, recovered, rbNoTunnelOrder, old, now.Add(time.Duration(10+i)*time.Minute)); len(p) != 0 {
 			t.Fatalf("old agent got a push: %+v", p)
 		}
 	}
@@ -318,8 +323,8 @@ func TestRuleBestMultiTargetAndSharedDestination(t *testing.T) {
 		return nil
 	}
 	for i := 0; i < 2; i++ {
-		dead := m.updateDead(plans, res, now)
-		pushes := m.evaluate(plans, res, dead, tunnelOrder, rbAllCapable, now.Add(time.Duration(i)*time.Minute))
+		dead, recovered, _ := m.updateDead(plans, res, now)
+		pushes := m.evaluate(plans, res, dead, recovered, tunnelOrder, rbAllCapable, now.Add(time.Duration(i)*time.Minute))
 		if i == 0 {
 			continue
 		}

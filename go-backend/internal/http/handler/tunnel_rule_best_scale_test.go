@@ -98,9 +98,9 @@ func rbScaleReport(t *testing.T, name string, h *Handler) {
 	const rounds = 20
 	for i := 0; i < rounds; i++ {
 		at := now.Add(time.Duration(i) * time.Minute)
-		dead := h.ruleBest.updateDead(plans, results, at)
+		dead, recovered, _ := h.ruleBest.updateDead(plans, results, at)
 		h.ruleBest.storeViews(plans, results, dead, at)
-		h.ruleBest.evaluate(plans, results, dead, func(k bestPathKey) []int64 { return h.bestPath.order(k) }, func(int64) (bool, bool) { return true, true }, at)
+		h.ruleBest.evaluate(plans, results, dead, recovered, func(k bestPathKey) []int64 { return h.bestPath.order(k) }, func(int64) (bool, bool) { return true, true }, at)
 	}
 	per := time.Since(start) / rounds
 	runtime.GC()

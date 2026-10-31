@@ -65,3 +65,33 @@ BUILD ONLY (no tag / release / prod writes / OTA). Approval: user 2026-10-31/11-
 - CI: https://github.com/ImoLR/FLVXR2/actions/runs/41228365215 — all 4 jobs green.
 - Not done (blocked by the permission system, no approver): deleting lab binaries / the fork.102 comparison worktree
   `/root/tmp-offload-20261008/rb-base` / `vite-frontend/dist` + `node_modules` symlink — see summary.
+
+## Round 2 (2026-11-01, user) — dead landing: retry 1/3/10/60 min → auto-OFF + admin notice; agent never dials direct; chain failTimeout 60 s
+
+Binding (r2 brief, user 11-01): target unreachable from **every** exit of its tunnel → tunnel decision at once, re-probed
+only at +1/+3/+10/+60 min after the failure; a successful retry is confirmed by the next round (1 min later) → rule-best at
+once (no 2-round wait); confirm fails → same schedule, next pending point; counters reset only after 1 h reachable; all four
+fail → 「规则最优」 OFF for that rule (persisted, add-only columns on `forward`), probes stop, per-destination order removed,
+admin-only notice like 线路机不合规 + one-click 「重新开启规则最优」. Agent: a chain hop whose nodes are all fail-marked never
+yields an empty route (no direct dial from 中转 / entry); chain-hop failTimeout 600 s → 60 s (rule forwarder unchanged).
+
+- [ ] r2-1. Agent: chain hop with every node fail-marked → oldest-marked node (in order on ties), never nil → no direct
+      dial; forwarder (rule targets) unchanged; unit tests (chain route never empty, forwarder unchanged, walk order)
+- [ ] r2-2. Panel: tunnel chain hop failTimeout 600 s → 60 s (rule forwarder + federation unchanged); OFF byte-compare vs
+      fork.102 re-run, exact diff reported
+- [ ] r2-3. Panel: `forward.rule_best_off_sig/_target/_time` (add-only, SQLite + PostgreSQL) + repo set/clear/list; edit of
+      tunnel/target invalidates it (signature)
+- [ ] r2-4. Panel: per (tunnel, destination) retry schedule +1/+3/+10/+60 min, confirm 1 min later, resume at next point,
+      1 h healthy reset; recovered → rule-best at once; all fail → persist OFF per rule, drop probes/orders, one log line
+- [ ] r2-5. Panel: admin notice data on the rule list (admin only) + POST `/forward/rule-best-reenable` (one log line, resets
+      the schedule); user view = tunnel pick
+- [ ] r2-6. Frontend: 「规则最优已关闭 N 条」 header chip (jump like 线路机不合规) + per-rule admin badge with the notice
+      text and 「重新开启规则最优」
+- [ ] r2-7. Unit tests (fake clock schedule, confirm, flap, 1 h reset, one-exit-fails, auto-OFF persisted + order removed +
+      probes stop, notice / re-enable, multi-target, restart keeps OFF, migration SQLite + PostgreSQL, fork.102 boots)
+- [ ] r2-8. Full `go test ./...` SQLite + PostgreSQL; go-gost/x touched packages; frontend tsc/build/lint
+- [ ] r2-9. netns lab: dead target retry points (real time), auto-OFF + notice, re-enable, other rules unaffected, long-lived
+      conn; all exits blocked → no direct packet from 中转/entry, exits back → resumes; recovered exit used again ≤ ~1 min;
+      dead-node extra latency per 60 s
+- [ ] r2-10. Resource numbers; screens 390 + 1440 light + dark (notice, auto-OFF admin + user, re-enable) → gallery (r2)
+- [ ] r2-11. release-notes (new columns, notice check, failTimeout re-push, agent note), push, CI green, summary + final.md

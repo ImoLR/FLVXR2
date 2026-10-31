@@ -288,15 +288,15 @@ func (h *Handler) runPathLatencyRound(ctx context.Context) {
 	guard := newBestPathPushGuard(time.Now)
 	h.runBestPathRound(plans, results, guard, now)
 	// Plan 180: rule-level decisions after the tunnel ones, same storm guard.
-	h.runRuleBestRound(plans, results, guard, now)
+	h.runRuleBestRound(plans, results, guard, start, now)
 	h.ruleBest.count(0, 0, ruleBestProbes)
 	bestDuration := time.Since(bestStart)
 	// One summary line per hour (was one per minute, ~1.4k lines/day).
 	if last := pathLatencyLoggedAt.Load(); now.Unix()-last >= 3600 {
 		pathLatencyLoggedAt.Store(now.Unix())
 		owners, switches, deferred, failures := h.bestPath.takeCounters()
-		rbStates, rbDests, rbDead, rbSwitches, rbDeferred, rbFailures, rbProbes, rbDeadRounds, rbCapped := h.ruleBest.takeCounters()
-		log.Printf("[path-latency] round tunnels=%d edges=%d pairs=%d retries=%d duration=%s best_owners=%d best_switches=%d best_deferred=%d best_push_fail=%d best_round=%s rule_best_dests=%d rule_best_states=%d rule_best_probes=%d rule_best_dead=%d rule_best_dead_rounds=%d rule_best_switches=%d rule_best_deferred=%d rule_best_push_fail=%d rule_best_capped=%d (logged hourly)", len(plans), edges, len(pairs), retries, time.Since(start).Round(time.Millisecond), owners, switches, deferred, failures, bestDuration.Round(time.Microsecond), rbDests, rbStates, rbProbes, rbDead, rbDeadRounds, rbSwitches, rbDeferred, rbFailures, rbCapped)
+		rb := h.ruleBest.takeCounters()
+		log.Printf("[path-latency] round tunnels=%d edges=%d pairs=%d retries=%d duration=%s best_owners=%d best_switches=%d best_deferred=%d best_push_fail=%d best_round=%s rule_best_dests=%d rule_best_states=%d rule_best_probes=%d rule_best_dead=%d rule_best_dead_rounds=%d rule_best_retries=%d rule_best_auto_off=%d rule_best_switches=%d rule_best_deferred=%d rule_best_push_fail=%d rule_best_capped=%d (logged hourly)", len(plans), edges, len(pairs), retries, time.Since(start).Round(time.Millisecond), owners, switches, deferred, failures, bestDuration.Round(time.Microsecond), rb.Dests, rb.States, rb.Probes, rb.Dead, rb.DeadRounds, rb.Retries, rb.AutoOff, rb.Switches, rb.Deferred, rb.Failures, rb.Capped)
 	}
 }
 

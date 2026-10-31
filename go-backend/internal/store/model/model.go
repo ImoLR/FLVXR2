@@ -94,6 +94,14 @@ type Forward struct {
 	// of the target it was given for ('' = not confirmed); it only counts
 	// while the rule's current target has the same signature.
 	LineComplianceAckSig string `gorm:"column:line_compliance_ack_sig;type:varchar(80);not null;default:''"`
+	// Plan 180 r2: 「规则最优」 turned off automatically for this rule — one of
+	// its targets was unreachable from every exit of the tunnel through all
+	// retries (1/3/10/60 min). RuleBestOffSig is the signature of the tunnel +
+	// targets it was turned off for ('' = on); it only counts while the rule
+	// still has them. An admin turns it back on (one click).
+	RuleBestOffSig    string `gorm:"column:rule_best_off_sig;type:varchar(80);not null;default:''"`
+	RuleBestOffTarget string `gorm:"column:rule_best_off_target;type:varchar(255);not null;default:''"`
+	RuleBestOffTime   int64  `gorm:"column:rule_best_off_time;not null;default:0"`
 }
 
 func (Forward) TableName() string { return "forward" }
@@ -939,6 +947,8 @@ type ForwardRecord struct {
 	EntryNodeIDs        string
 	// LineComplianceAckSig is loaded by GetForwardRecord only (plan 164).
 	LineComplianceAckSig string
+	// RuleBestOffSig likewise (plan 180 r2), for a failed edit's rollback.
+	RuleBestOffSig string
 }
 
 // TunnelRecord is a minimal tunnel view used by control plane.

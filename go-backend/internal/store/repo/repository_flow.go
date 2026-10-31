@@ -199,6 +199,7 @@ func (r *Repository) GetForwardRecord(forwardID int64) (*model.ForwardRecord, er
 		CNBlockedAutoPaused: f.CNBlockedAutoPaused,
 		// Plan 164: kept so a failed edit's rollback can restore it.
 		LineComplianceAckSig: f.LineComplianceAckSig,
+		RuleBestOffSig:       f.RuleBestOffSig,
 	}
 	if strings.TrimSpace(fr.Strategy) == "" {
 		fr.Strategy = "fifo"
