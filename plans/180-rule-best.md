@@ -94,7 +94,7 @@ yields an empty route (no direct dial from 中转 / entry); chain-hop failTimeou
       conn; all exits blocked → no direct packet from 中转/entry, exits back → resumes; recovered exit used again ≤ ~1 min;
       dead-node extra latency per 60 s
 - [x] r2-10. Resource numbers; screens 390 + 1440 light + dark (notice, auto-OFF admin + user, re-enable) → gallery (r2)
-- [ ] r2-11. release-notes (new columns, notice check, failTimeout re-push, agent note), push, CI green, summary + final.md
+- [x] r2-11. release-notes (new columns, notice check, failTimeout re-push, agent note), push, CI green, summary + final.md
 
 ## Round 2 results (2026-11-01 TW)
 
@@ -118,3 +118,5 @@ yields an empty route (no direct dial from 中转 / entry); chain-hop failTimeou
 - Resources: panel per 5 min (fresh + 3 min) new 2.14 s / 35.3 MiB vs fork.102 2.15 s / 35.3 MiB; TIME_WAIT 0; agents
   30–34 MiB, 8 threads. Dead landing: 20 handshakes per exit until the auto-off, then 0 (r1: 48 per exit per hour).
 - Screens (r2 section, marked): http://104.145.236.29:8791/rule-best/
+- CI: https://github.com/ImoLR/FLVXR2/actions/runs/41244060816 (2d3b3daa) — all 4 jobs green; release notes
+  `runs/rule-best/release-notes.md` (Round 2 sections); summary `runs/rule-best-r2/summary.md`.
