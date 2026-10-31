@@ -18,6 +18,7 @@ import (
 	"go-backend/internal/landingegress"
 	"go-backend/internal/landingsub"
 	"go-backend/internal/store/model"
+	"go-backend/internal/store/repo"
 )
 
 // Plan 177 「外部节点」 / 「链式代理」 handler tests.
@@ -539,5 +540,139 @@ func TestChainSaveRefusesWhenServerFull(t *testing.T) {
 	used, _ := e.r.ListLandingExternalNodes(2)
 	if out := layerCall(t, e.h, "/api/v1/landing/node/chain/save", map[string]any{"id": 1, "externalId": used[0].ID}, 2, 1); out.Code != 0 {
 		t.Fatalf("shared outbound refused: %+v", out)
+	}
+}
+
+// Every protocol the Helper takes, chained on one shared server, compiles to
+// the plan-107 field form; FLVX_HELPER_GOLDEN writes the plan for the
+// Helper-validator harness (the mmwx validator itself lives in mmwx-custom).
+func TestChainSharedHelperGolden(t *testing.T) {
+	e, _, _ := extEnv(t)
+	caps := landingcustom.Share{ID: 7, Name: "shared", Status: "active", PortMin: 30000, PortMax: 30010, Protocols: []string{"ss2022"}, Hosts: landingcustom.Hosts{IPv4: "203.0.113.70"}, Egress: &landingcustom.ShareEgress{Versions: []int{1}, Allowed: true}}
+	raw, _ := json.Marshal(caps)
+	if err := e.r.DB().Create(&model.LandingServer{ID: 5, Source: "shared", RemoteServerID: 7, Name: "妙妙屋", PublicHost: "203.0.113.70", PortMin: 30000, PortMax: 30010, FlowType: 2, TrafficRatio: 1, Status: "active", SharedCaps: string(raw)}).Error; err != nil {
+		t.Fatal(err)
+	}
+	key := base64.StdEncoding.EncodeToString([]byte("0123456789abcdef"))
+	links := []string{
+		"socks5://u:p@198.51.124.4:1080#socks",
+		"http://u:p@198.51.124.4:3128#http",
+		"ss://" + base64.RawURLEncoding.EncodeToString([]byte("chacha20-ietf-poly1305:pw")) + "@198.51.124.3:8388#ss",
+		"ss://" + base64.RawURLEncoding.EncodeToString([]byte("2022-blake3-aes-128-gcm:"+key)) + "@198.51.124.3:8389#ss2022",
+		extReality,
+	}
+	tags := []string{}
+	for i, link := range links {
+		id := int64(50 + i)
+		if err := e.r.DB().Create(&model.LandingNode{ID: id, UserID: 2, LandingServerID: 5, Name: fmt.Sprintf("s%d", i), Protocol: "ss2022", Port: 30000 + i, InboundTag: fmt.Sprintf("flvxl-%d", id), Status: "active"}).Error; err != nil {
+			t.Fatal(err)
+		}
+		item := extCreate(t, e, 2, 1, link, nil)
+		if item["sharedOk"] != true {
+			t.Fatalf("%s not shared-ok: %+v", link, item)
+		}
+		if out := layerCall(t, e.h, "/api/v1/landing/node/chain/save", map[string]any{"id": id, "externalId": item["id"]}, 2, 1); out.Code != 0 {
+			t.Fatalf("%s: %+v", link, out)
+		}
+		tags = append(tags, fmt.Sprintf("flvxl-%d", id))
+	}
+	plan, _, err := e.h.compileLandingEgress(5)
+	if err != nil || plan == nil {
+		t.Fatal(plan, err)
+	}
+	chains := 0
+	for _, o := range plan.Outbounds {
+		if strings.HasPrefix(o.Tag, "flvxo-x") {
+			chains++
+			if o.Network != "" || o.Security != "" || o.TLS != nil || o.WS != nil || o.GRPC != nil || o.Cipher != "" || o.Obfs != "" {
+				t.Fatalf("transport fields on a shared outbound: %+v", o)
+			}
+		}
+	}
+	if chains != len(links) {
+		t.Fatalf("%d chain outbounds", chains)
+	}
+	if path := os.Getenv("FLVX_HELPER_GOLDEN"); path != "" {
+		b, _ := json.MarshalIndent(map[string]any{"plan": plan, "node_tags": tags}, "", "  ")
+		if err := os.WriteFile(path, b, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// Repository behaviour on both dialects: migration, cap under parallel adds
+// (user row lock), duplicates, chain set / in-use delete refusal, transfer
+// refusal, user delete cleanup, egress data loading.
+func TestExternalNodesBothDialects(t *testing.T) {
+	for _, dialect := range []string{"sqlite", "postgres"} {
+		t.Run(dialect, func(t *testing.T) {
+			r := sharedLandingTestRepo(t, dialect)
+			now := int64(1793440000000)
+			for _, id := range []int64{20, 30} {
+				if err := r.DB().Create(&model.User{ID: id, User: fmt.Sprintf("u%d", id), Pwd: "x", RoleID: 1, ExpTime: now + 86400000, Flow: 100, FlowResetTime: 1, Num: 10, CreatedTime: now, Status: 1}).Error; err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := r.DB().Create(&model.LandingServer{ID: 9, Source: "native", NodeID: 0, Name: "s", PublicHost: "203.0.113.9", Status: "active"}).Error; err != nil {
+				t.Fatal(err)
+			}
+			if err := r.DB().Create(&model.LandingNode{ID: 90, UserID: 20, LandingServerID: 9, Name: "n90", Protocol: "ss2022", Port: 30090, InboundTag: "flvxl-90", Status: "active", CreatedTime: now, UpdatedTime: now}).Error; err != nil {
+				t.Fatal(err)
+			}
+			item := func(i int) model.LandingExternalNode {
+				return model.LandingExternalNode{Name: fmt.Sprintf("e%d", i), Protocol: "socks", Host: "198.51.124.4", Port: 1000 + i, Summary: "SOCKS5", Upstream: `{"type":"socks"}`, UpstreamHash: fmt.Sprintf("h%d", i)}
+			}
+			var wg sync.WaitGroup
+			for i := 0; i < 30; i++ {
+				wg.Add(1)
+				go func(i int) {
+					defer wg.Done()
+					_, _ = r.CreateLandingExternalNodes(20, []model.LandingExternalNode{item(i)}, model.MaxExternalNodesPerUser)
+				}(i)
+			}
+			wg.Wait()
+			list, err := r.ListLandingExternalNodes(20)
+			if err != nil || len(list) != model.MaxExternalNodesPerUser {
+				t.Fatalf("parallel adds: %d %v", len(list), err)
+			}
+			res, err := r.CreateLandingExternalNodes(30, []model.LandingExternalNode{item(1), item(1), item(2)}, 0)
+			if err != nil || len(res.Created) != 2 || len(res.Duplicates) != 1 {
+				t.Fatalf("duplicates in batch: %+v %v", res, err)
+			}
+			if _, err := r.SetLandingNodeChain(90, res.Created[0].ID); err == nil {
+				t.Fatal("chained another user's external node")
+			}
+			if _, err := r.SetLandingNodeChain(90, list[0].ID); err != nil {
+				t.Fatal(err)
+			}
+			uses, err := r.DeleteLandingExternalNode(list[0].ID, 20)
+			if err != nil || len(uses) != 1 || uses[0].Name != "n90" {
+				t.Fatalf("in-use delete: %+v %v", uses, err)
+			}
+			if _, err := r.DeleteLandingExternalNode(list[0].ID, 30); err != repo.ErrExternalNodeNotFound {
+				t.Fatalf("foreign delete: %v", err)
+			}
+			if m, _ := r.LandingExternalUses(20); len(m[list[0].ID]) != 1 {
+				t.Fatalf("uses %+v", m)
+			}
+			d, err := r.LandingEgressData(9)
+			if err != nil || d.Externals[list[0].ID].Name != list[0].Name {
+				t.Fatalf("egress data externals %+v %v", d, err)
+			}
+			if _, err := r.TransferLandingNode(90, 30); err == nil || !strings.Contains(err.Error(), "链式代理") {
+				t.Fatalf("transfer: %v", err)
+			}
+			if err := r.DeleteUserCascade(20); err != nil {
+				t.Fatal(err)
+			}
+			var left int64
+			r.DB().Model(&model.LandingExternalNode{}).Where("user_id = ?", 20).Count(&left)
+			if left != 0 {
+				t.Fatalf("%d external nodes left after user delete", left)
+			}
+			if rest, _ := r.ListLandingExternalNodes(30); len(rest) != 2 {
+				t.Fatalf("other user's nodes touched: %d", len(rest))
+			}
+		})
 	}
 }

@@ -247,6 +247,7 @@ export function ChainProxyDialog({
                 {list && (
                   <div className="flex items-end gap-2">
                     <Select
+                      isSearchable
                       className="min-w-0 flex-1"
                       disabledKeys={items
                         .filter((item) => !usable(item))
@@ -255,6 +256,7 @@ export function ChainProxyDialog({
                       placeholder={
                         items.length ? "选择外部节点" : "还没有外部节点，先添加"
                       }
+                      searchPlaceholder="搜索名称或地址"
                       selectedKeys={selected ? [selected] : []}
                       variant="bordered"
                       onSelectionChange={(keys) =>
@@ -265,11 +267,9 @@ export function ChainProxyDialog({
                         <SelectItem
                           key={String(item.id)}
                           description={
-                            usable(item)
-                              ? `${item.protocolLabel} · ${item.host}:${item.port}`
-                              : SHARED_UNSUPPORTED
+                            usable(item) ? undefined : SHARED_UNSUPPORTED
                           }
-                          textValue={item.name}
+                          textValue={`${item.name} ${item.host}`}
                         >
                           {item.name} · {item.protocolLabel} · {item.host}:
                           {item.port}

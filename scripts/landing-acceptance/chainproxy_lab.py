@@ -17,7 +17,8 @@ Topology (TEST-NET style addresses, no internet):
   chained: client → landing → external → target, the target sees 198.51.143.1
 
   chainproxy_lab.py run --panel paneld --agent flvx-agent --core mmwxc-core \
-                        --scratch DIR [--keep]
+                        --scratch DIR [--geo DIR] [--keep]
+  (core = the agent's pinned Core, geo = the pinned geoip.dat / geosite.dat)
   chainproxy_lab.py cleanup --scratch DIR
 """
 import argparse
@@ -114,6 +115,7 @@ class Lab:
         self.panel_bin, self.agent_bin, self.core_bin = a.panel, a.agent, a.core
         self.scratch = pathlib.Path(a.scratch)
         self.keep = a.keep
+        self.geo = a.geo
         self.procs = []
         self.results = {}
         self.jwt_secret = secrets.token_hex(24)
@@ -221,6 +223,12 @@ class Lab:
         d = self.scratch / "agent"
         (d / "landing").mkdir(parents=True, exist_ok=True)
         shutil.copy2(self.core_bin, d / "landing" / "flvx-landing-core")
+        # A fresh install enables the 大陆 global rules (plan 149): the agent
+        # needs the pinned geo files, which it cannot download offline.
+        for name in ("geoip.dat", "geosite.dat"):
+            src = pathlib.Path(self.geo) / name
+            if src.exists():
+                shutil.copy2(src, d / "landing" / name)
         (d / "config.json").write_text(json.dumps({"addr": f"{HOST}:{PANEL_PORT}", "secret": secret, "node_id": node_id, "http": 0, "tls": 0, "socks": 0, "block_other": 0}))
         (d / "gost.json").write_text("{}")
         env = dict(os.environ, FLVX_LANDING_TEST_DIRECT="1", FLVX_LANDING_TEST_DIR=str(d / "landing"), GOMAXPROCS="2", TMPDIR=str(self.scratch))
@@ -232,7 +240,7 @@ class Lab:
         self.services()
         self.panel()
         api = self.api
-        api.call("node/create", {"name": "HK-landing-lab", "serverIp": LAND, "serverIpV4": LAND, "port": "33000-33099"})
+        api.call("node/create", {"name": "HK-landing-lab", "serverIp": LAND, "serverIpV4": LAND, "port": "40000-40099"})
         n = self.q("select id, secret from node")[0]
         self.node = n["id"]
         self.start_agent(n["id"], n["secret"])
@@ -289,18 +297,19 @@ class Lab:
             except OSError:
                 pass
         try:
-            gor = json.loads(self.core_api("statssys")).get("NumGoroutine")
+            sys_stats = json.loads(self.core_api("statssys"))
+            gor, heap = sys_stats.get("NumGoroutine"), sys_stats.get("Alloc")
         except ValueError:
-            gor = None
+            gor, heap = None, None
         stat = pathlib.Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()
-        return {"rss_kib": rss, "fds": len(fds), "socket_fds": sockets, "goroutines": gor, "cpu_s": round((int(stat[11]) + int(stat[12])) / os.sysconf("SC_CLK_TCK"), 2)}
+        return {"rss_kib": rss, "heap_kib": (heap or 0) // 1024, "fds": len(fds), "socket_fds": sockets, "goroutines": gor, "cpu_s": round((int(stat[11]) + int(stat[12])) / os.sysconf("SC_CLK_TCK"), 2)}
 
     def idle_usage(self):
         samples = []
         for _ in range(5):
             time.sleep(1)
             samples.append(self.usage())
-        return {k: min(s[k] for s in samples) for k in ("rss_kib", "fds", "socket_fds", "goroutines")}
+        return {k: min(s[k] for s in samples) for k in ("rss_kib", "heap_kib", "fds", "socket_fds", "goroutines")}
 
     def http_get(self, path, port=FIX_PORT, timeout=8, local=None):
         s = coreclient.socks_connect(local or self.client.port, T_L, port, timeout)
@@ -321,9 +330,9 @@ class Lab:
     def add_external(self, link, name):
         return self.api.call("landing/external/create", {"link": link, "name": name}, self.user)
 
-    def chain(self, landing_id, external_id):
+    def chain(self, landing_id, external_id, who=None):
         before = self.q("select revision from landing_server where id = ?", self.server)[0]["revision"]
-        out = self.api.call("landing/node/chain/save", {"id": landing_id, "externalId": external_id}, self.user, timeout=60)
+        out = self.api.call("landing/node/chain/save", {"id": landing_id, "externalId": external_id}, who or self.user, timeout=60)
         # Applied = the agent reported the plan hash the panel sent.
         wait_for("plan applied", lambda: self.q("select egress_state from landing_server where id = ?", self.server)[0]["egress_state"] in ("applied", "none"), timeout=30, interval=0.5)
         time.sleep(1.0)
@@ -381,57 +390,73 @@ class Lab:
         r["P5_back_direct"] = {"exit": self.exit_ip(), "core_pid_same": self.core_pid() == pid0, "chain_outbounds": [t for t in self.outbound_tags() if t.startswith("flvxo-x")]}
         assert r["P5_back_direct"]["exit"] == L_T and not r["P5_back_direct"]["chain_outbounds"] and r["P5_back_direct"]["core_pid_same"], r["P5_back_direct"]
         self.save()
-        self.resources(idle0, ext, socks)
+        self.resources(ext, socks)
         self.save()
         self.log("ALL PASS")
 
-    def resources(self, idle0, ext, socks):
-        r = self.results["R"] = {"idle_0_chained": idle0}
-        logs0 = {p.name: p.stat().st_size for p in self.scratch.glob("*.log")}
-        state = self.scratch / "agent" / "landing"
-        self.chain(self.landing, ext["家里-SS"])
-        r["idle_1_chained"] = self.idle_usage()
-        # ~20 chained nodes over 7 distinct external nodes (the server's
-        # outbound room is 8; identical external nodes share one outbound).
-        extra = [self.add_external(socks(i), f"家里-SOCKS-{i}")["id"] for i in range(1, 7)]
-        pool = [ext["家里-SS"]] + extra
-        made = []
-        for i in range(19):
-            n = self.api.call("landing/node/create", {"landingServerId": self.server, "name": f"lab-{i}", "protocol": "ss2022"}, self.user)
-            made.append(n["id"])
-        wait_for("nodes active", lambda: all(x.get("status") == "active" for x in self.api.nodes(self.user)), timeout=60)
-        for i, nid in enumerate(made):
-            self.chain(nid, pool[i % len(pool)])
-        r["chain_outbounds_20"] = len([t for t in self.outbound_tags() if t.startswith("flvxo-x")])
-        r["idle_20_chained"] = self.idle_usage()
-        r["state_files_bytes"] = sum(p.stat().st_size for p in state.glob("*.json"))
-        # 1000 connections through a chain (50 at a time), byte-verified.
+    def burst(self, n=1000, parallel=50, size=16384):
+        """n byte-verified downloads through the client (parallel at a time),
+        then the idle figures after 20 s (Go returns garbage lazily)."""
         before = self.idle_usage()
-        errors = []
-        lock = threading.Lock()
+        errors, lock = [], threading.Lock()
         started = time.monotonic()
 
-        def worker(k):
-            for _ in range(20):
+        def worker():
+            for _ in range(n // parallel):
                 try:
-                    coreclient.download(self.client.port, T_L, FIX_PORT, 16384, timeout=30)
+                    coreclient.download(self.client.port, T_L, FIX_PORT, size, timeout=30)
                 except Exception as e:  # noqa: BLE001
                     with lock:
                         errors.append(str(e))
-        threads = [threading.Thread(target=worker, args=(k,)) for k in range(50)]
+        threads = [threading.Thread(target=worker) for _ in range(parallel)]
         for t in threads:
             t.start()
+        peak = self.usage()
         for t in threads:
             t.join()
-        r["conn_1000"] = {"seconds": round(time.monotonic() - started, 1), "errors": len(errors), "first_error": errors[:1]}
-        time.sleep(8)
+        seconds = round(time.monotonic() - started, 1)
+        right_after = self.usage()
+        time.sleep(20)
         after = self.idle_usage()
-        r["conn_1000"]["idle_before"], r["conn_1000"]["idle_after"] = before, after
+        assert not errors, errors[:3]
+        assert after["fds"] <= before["fds"] + 2 and after["goroutines"] <= before["goroutines"] + 2, (before, after)
+        return {"connections": n, "parallel": parallel, "seconds": seconds, "errors": len(errors), "idle_before": before, "during": peak, "right_after": right_after, "idle_after_20s": after}
+
+    def resources(self, ext, socks):
+        # Same warmed-up Core for every figure (P1-P5 already ran, now 直连);
+        # bulk setup as the admin (acting for the user; not rate limited).
+        from flvxapi import ADMIN
+        time.sleep(5)
+        r = self.results["R"] = {}
+        logs0 = {p.name: p.stat().st_size for p in self.scratch.glob("*.log")}
+        state = self.scratch / "agent" / "landing"
+        # Same 1000-connection burst direct, then chained (control vs chain).
+        r["burst_direct"] = self.burst()
+        r["idle_0_chained"] = self.idle_usage()
+        self.chain(self.landing, ext["家里-SS"], ADMIN)
+        r["idle_1_chained"] = self.idle_usage()
+        r["burst_chained"] = self.burst()
+        # ~20 chained nodes over 7 distinct external nodes (the server's
+        # outbound room is 8; identical external nodes share one outbound).
+        extra = [self.api.call("landing/external/create", {"link": socks(i), "name": f"家里-SOCKS-{i}", "userId": self.user.uid})["id"] for i in range(1, 7)]
+        pool = [ext["家里-SS"]] + extra
+        made = []
+        for i in range(19):
+            n = self.api.call("landing/node/create", {"landingServerId": self.server, "name": f"lab-{i}", "protocol": "ss2022", "userId": self.user.uid})
+            made.append(n["id"])
+        wait_for("nodes active", lambda: all(x.get("status") == "active" for x in self.api.nodes(self.user)), timeout=60)
+        time.sleep(3)
+        r["idle_20_nodes_1_chained"] = self.idle_usage()
+        for i, nid in enumerate(made):
+            self.chain(nid, pool[i % len(pool)], ADMIN)
+        r["chain_outbounds_20"] = len([t for t in self.outbound_tags() if t.startswith("flvxo-x")])
+        r["idle_20_chained"] = self.idle_usage()
+        r["state_files_bytes"] = sum(p.stat().st_size for p in state.glob("*.json"))
+        r["burst_20_chained"] = self.burst()
         r["log_growth_bytes"] = {p.name: p.stat().st_size - logs0.get(p.name, 0) for p in self.scratch.glob("*.log") if p.name in ("panel.log", "agent.log", "external.log")}
         panel_logs = self.scratch / "panel-logs"
         r["panel_log_dir_bytes"] = sum(p.stat().st_size for p in panel_logs.rglob("*") if p.is_file())
-        assert not errors, errors[:3]
-        assert after["fds"] <= before["fds"] + 2 and after["goroutines"] <= before["goroutines"] + 2, (before, after)
+        r["core_mem_limit_note"] = "lab Core runs without the systemd MemoryMax of production (FLVX_LANDING_TEST_DIRECT)"
 
     # ----------------------------------------------------------- cleanup
     def cleanup(self):
@@ -479,6 +504,7 @@ def main():
     run.add_argument("--core", required=True)
     run.add_argument("--scratch", required=True)
     run.add_argument("--keep", action="store_true")
+    run.add_argument("--geo", default="/root/tmp-work/landing-egress/geo", help="dir with the pinned geoip.dat / geosite.dat")
     clean = sub.add_parser("cleanup")
     clean.add_argument("--scratch", required=True)
     a = ap.parse_args()
