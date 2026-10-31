@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/go-gost/core/bypass"
@@ -95,6 +96,36 @@ type chainHop struct {
 	mu         sync.RWMutex
 	cancelFunc context.CancelFunc
 	options    options
+	// chainHop: this hop is a hop of a chain (set by the chain parser), not
+	// a forwarder's target list — see Select (plan 180 r2).
+	chainHop atomic.Bool
+}
+
+// MarkChainHop flags h as a hop of a chain: when every node is fail-marked
+// it still selects one (the least-failed) instead of nil, so the chain
+// never degrades into a direct dial. Forwarder hops (a rule's targets) are
+// not marked and keep returning nil.
+func MarkChainHop(h hop.Hop) {
+	if p, ok := h.(*chainHop); ok && p != nil {
+		p.chainHop.Store(true)
+	}
+}
+
+// leastFailedNode: the node with the fewest recorded failures, in order on
+// ties (fail mark times only have second resolution, the count always moves).
+func leastFailedNode(nodes []*chain.Node) *chain.Node {
+	var best *chain.Node
+	var bestCount int64
+	for _, node := range nodes {
+		var count int64
+		if marker := node.Marker(); marker != nil {
+			count = marker.Count()
+		}
+		if best == nil || count < bestCount {
+			best, bestCount = node, count
+		}
+	}
+	return best
 }
 
 func NewHop(opts ...Option) hop.Hop {
@@ -227,6 +258,16 @@ func (p *chainHop) Select(ctx context.Context, opts ...hop.SelectOption) *chain.
 			return node
 		}
 		// All nodes filtered out by FailFilter - all are marked as failed.
+		if p.chainHop.Load() {
+			// Plan 180 r2: a chain hop never answers nil here. Chain.Route
+			// would then return a route without this hop and the router
+			// would dial the destination directly — bypassing the next hop
+			// (e.g. a 中转 reaching the landing itself, exposing its own IP).
+			// Try them in order, the least-failed first: a failure adds
+			// to its count, so the router's retries walk through all of
+			// them and the dial fails when they all fail.
+			return leastFailedNode(nodes)
+		}
 		// Return nil to signal "no healthy nodes available" to the caller.
 		// The handler's retry loop will handle this appropriately.
 		log.Debugf("all %d nodes filtered out by FailFilter, no healthy nodes available", len(nodes))

@@ -8,6 +8,7 @@ import (
 	xchain "github.com/go-gost/x/chain"
 	"github.com/go-gost/x/config"
 	hop_parser "github.com/go-gost/x/config/parsing/hop"
+	xhop "github.com/go-gost/x/hop"
 	mdx "github.com/go-gost/x/metadata"
 	"github.com/go-gost/x/registry"
 )
@@ -40,6 +41,9 @@ func ParseChain(cfg *config.ChainConfig, log logger.Logger) (chain.Chainer, erro
 			if hop, err = hop_parser.ParseHop(ch, log); err != nil {
 				return nil, err
 			}
+			// Plan 180 r2: all nodes fail-marked ⇒ still through the hop,
+			// never a direct dial.
+			xhop.MarkChainHop(hop)
 		} else {
 			hop = registry.HopRegistry().Get(ch.Name)
 		}
