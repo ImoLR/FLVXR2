@@ -27,7 +27,7 @@ import (
 const (
 	tunnelStrategyBest      = "best"
 	bestRuntimeStrategy     = "fifo"
-	bestPathSwitchMarginMS  = 15.0
+	bestPathSwitchMarginMS  = 5.0
 	bestPathConfirmRounds   = 2
 	bestPathMaxPushRound    = 40
 	bestPathMaxPushNode     = 10
