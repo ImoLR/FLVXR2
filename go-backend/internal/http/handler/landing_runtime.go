@@ -299,7 +299,10 @@ func (h *Handler) syncNativeLandingServerOnce(serverID int64) (*landingSyncSnaps
 		if n.LandingServerID != s.ID || landingcustom.IsExtraProtocol(n.Protocol) {
 			continue
 		}
-		desired := map[string]interface{}{"id": n.ID, "inbound_tag": n.InboundTag, "protocol": n.Protocol, "port": n.Port, "enabled": n.Status == "active", "max_connections": n.MaxConnections, "max_online_ips": n.MaxOnlineIPs}
+		// Plan 177: a chained node on an agent without egress plans would
+		// leave directly; keep it off instead (fail closed).
+		enabled := n.Status == "active" && (n.ChainExternalID == 0 || node.LandingEgress >= 1)
+		desired := map[string]interface{}{"id": n.ID, "inbound_tag": n.InboundTag, "protocol": n.Protocol, "port": n.Port, "enabled": enabled, "max_connections": n.MaxConnections, "max_online_ips": n.MaxOnlineIPs}
 		if inboundNodes[n.ID] {
 			desired["conn_mode"] = repo.LandingConnInbound
 		}

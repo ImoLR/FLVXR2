@@ -198,6 +198,10 @@ func (r *Repository) TransferLandingNode(nodeID, targetUserID int64) (*LandingTr
 		if s.ChainOnly {
 			return errors.New("线路机专用落地节点不能转移")
 		}
+		if n.ChainExternalID > 0 {
+			// Plan 177: the external node belongs to the current owner.
+			return errors.New("该节点开启了链式代理（外部节点属于原用户），请先在「链式代理」里改回直连再转移")
+		}
 		if target.RoleID != 0 {
 			ok, err := landingPermission(tx, target.ID, s.ID)
 			if err != nil {

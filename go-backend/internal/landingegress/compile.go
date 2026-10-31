@@ -1,6 +1,8 @@
 package landingegress
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -21,7 +23,33 @@ type NodeRef struct {
 	// ("" follows the upper layers); used only when CompileInput.NodeRules.
 	Rules   []Rule
 	Default string
+	// Plan 177 「链式代理」: the owner's external node as a resolved outbound
+	// (the compiler sets its tag), or ChainErr when it cannot be used here.
+	// Either one makes the node chained: only block rules of the other
+	// layers keep applying, then all its traffic leaves through Chain;
+	// ChainErr (or no room for the outbound) blocks it — never direct.
+	Chain    *PlanOutbound
+	ChainErr string
 }
+
+// Chained reports a node with 「链式代理」 on (working or not).
+func (n NodeRef) Chained() bool { return n.Chain != nil || n.ChainErr != "" }
+
+// ChainOutboundTag names a chain outbound by its content, so identical
+// external nodes on one server share one outbound and a changed node gets a
+// new tag (added before the rules switch, like templates).
+func ChainOutboundTag(o PlanOutbound) string {
+	o.Tag = ""
+	b, _ := json.Marshal(o)
+	sum := sha256.Sum256(b)
+	return "flvxo-x" + hex.EncodeToString(sum[:])[:24]
+}
+
+// Chain rule names (plan 177).
+const (
+	ChainRuleName      = "链式代理"
+	ChainBlockRuleName = "链式代理不可用，暂停转发"
+)
 
 // CompileInput carries everything Compile needs; Resolve turns a template ID
 // into a concrete outbound for this server (WARP account, upstream node creds).
@@ -70,6 +98,9 @@ type Report struct {
 	NodeNotes map[int64][]string
 	// GlobalNotes: global rules skipped on this server.
 	GlobalNotes []string
+	// ChainNotes (plan 177): per chained node, why its traffic is blocked
+	// instead of leaving through its external node.
+	ChainNotes map[int64]string
 }
 
 func (r *Report) note(id int64, msg string) {
@@ -86,10 +117,12 @@ func OutboundTag(id int64) string { return "flvxo-" + strconv.FormatInt(id, 10) 
 
 // Layer of a plan rule, used for fallbacks only (never sent).
 const (
-	layerServer = iota // profile rules and profile defaults (pre-134 output)
-	layerForced        // 全局·强制
-	layerNode          // node rules and node defaults
-	layerGlobal        // 全局·默认 and the 全局默认出站
+	layerServer      = iota // profile rules and profile defaults (pre-134 output)
+	layerForced             // 全局·强制
+	layerNode               // node rules and node defaults
+	layerGlobal             // 全局·默认 and the 全局默认出站
+	layerChainBlocks        // plan 177: block rules of a chained node's profile
+	layerChain              // plan 177: chained nodes' catch-all rules
 )
 
 type groupRule struct {
@@ -169,9 +202,13 @@ func CompileLayers(in CompileInput) (*Plan, Report, error) {
 		if dropGlobal {
 			f, d, g = nil, nil, ActionDirect
 		}
-		plan, warnings, err := compilePlan(in, nodes, f, d, g)
+		plan, warnings, chainNotes, err := compilePlan(in, nodes, f, d, g)
 		var le limitError
 		if err == nil || !errors.As(err, &le) {
+			rep.ChainNotes = chainNotes
+			if len(chainNotes) > 0 {
+				warnings = append(warnings, fmt.Sprintf("%d 个节点的链式代理未生效，流量暂时封锁（见节点卡片）", len(chainNotes)))
+			}
 			rep.Warnings = append(rep.Warnings, warnings...)
 			rep.Warnings = append(rep.Warnings, rep.GlobalNotes...)
 			if len(rep.NodeNotes) > 0 {
@@ -229,6 +266,10 @@ func (in CompileInput) nodeLayer(n *NodeRef, rep *Report) {
 		return
 	}
 	n.Rules = enabled(n.Rules)
+	if n.Chained() {
+		// Plan 177: the chain replaces every non-block route of the node.
+		n.Rules, n.Default = blockOnly(n.Rules), ""
+	}
 	if ip, site := RulesUseGeo(n.Rules); (ip && !in.GeoIP) || (site && !in.GeoSite) {
 		rep.note(n.ID, "该服务器没有 geo 数据，使用 geoip / geosite 的节点规则未生效")
 		n.Rules = nil
@@ -332,6 +373,9 @@ func routesTraffic(rules []Rule) bool {
 // EffectiveLabel is the read-only outbound summary users see for a server
 // (node == nil) or one node, e.g. 「强制 IPv4」 or 「按规则分流」.
 func (in CompileInput) EffectiveLabel(node *NodeRef) string {
+	if node != nil && node.Chained() {
+		return ChainRuleName
+	}
 	pid := in.ServerProfileID
 	if node != nil {
 		pid = EffectiveProfile(pid, node.Override)
@@ -453,7 +497,7 @@ func defaultRuleName(layer int) string {
 	return "默认出站"
 }
 
-func compilePlan(in CompileInput, nodes []NodeRef, forced, deflt []Rule, gdef string) (*Plan, []string, error) {
+func compilePlan(in CompileInput, nodes []NodeRef, forced, deflt []Rule, gdef string) (*Plan, []string, map[int64]string, error) {
 	plan := &Plan{Version: Version, AllowCoreRestart: in.AllowCoreRestart, Outbounds: []PlanOutbound{}, Rules: []PlanRule{}}
 	layers := []int{}
 	emit := func(g groupRule) {
@@ -469,11 +513,23 @@ func compilePlan(in CompileInput, nodes []NodeRef, forced, deflt []Rule, gdef st
 	nodeTag := map[int64]string{}
 	tagProto := map[string]string{}
 	allTags := []string{}
+	// Plan 177: chained nodes keep only the block rules of each layer (their
+	// profile's in chainGroups) and get no default rule; their catch-all
+	// chain rule comes after everything else.
+	chained := map[string]bool{}
+	chainGroups := map[int64][]string{}
 	for _, n := range nodes {
 		nodeTag[n.ID] = n.Tag
 		tagProto[n.Tag] = n.Protocol
 		allTags = append(allTags, n.Tag)
 		pid := EffectiveProfile(in.ServerProfileID, n.Override)
+		if n.Chained() {
+			chained[n.Tag] = true
+			if pid != 0 {
+				chainGroups[pid] = append(chainGroups[pid], n.Tag)
+			}
+			continue
+		}
 		def, layer := nodeDefault(n, pid, in.Profiles, gdef)
 		if pid == 0 && def == ActionDirect {
 			continue
@@ -495,6 +551,24 @@ func compilePlan(in CompileInput, nodes []NodeRef, forced, deflt []Rule, gdef st
 			}
 		}
 		return out
+	}
+	// routed: the tags a non-block rule may cover (chained nodes excluded).
+	routed := func(action string, tags []string) []string {
+		if action == ActionBlock || len(chained) == 0 {
+			return tags
+		}
+		out := []string{}
+		for _, t := range tags {
+			if !chained[t] {
+				out = append(out, t)
+			}
+		}
+		return out
+	}
+	// Chained nodes' profiles contribute their block rules only; a blockOnly
+	// group is keyed apart from the normal groups of the same profile.
+	for pid, tags := range chainGroups {
+		groups[groupKey{pid, layerChainBlocks, ActionDirect}] = tags
 	}
 	keys := make([]groupKey, 0, len(groups))
 	for k := range groups {
@@ -529,7 +603,7 @@ func compilePlan(in CompileInput, nodes []NodeRef, forced, deflt []Rule, gdef st
 		if k.pid != 0 {
 			p, ok := in.Profiles[k.pid]
 			if !ok {
-				return nil, nil, fmt.Errorf("路由方案 %d 不存在", k.pid)
+				return nil, nil, nil, fmt.Errorf("路由方案 %d 不存在", k.pid)
 			}
 			abuse := in.Abuse && AbuseOn(k.pid, in.Profiles)
 			inGroup := map[string]bool{}
@@ -537,7 +611,7 @@ func compilePlan(in CompileInput, nodes []NodeRef, forced, deflt []Rule, gdef st
 				inGroup[t] = true
 			}
 			for _, r := range p.Rules {
-				if !r.Enabled || (abuse && in.AbuseOff.On(AbuseDuplicateOf(r))) {
+				if !r.Enabled || (abuse && in.AbuseOff.On(AbuseDuplicateOf(r))) || (k.layer == layerChainBlocks && r.Action != ActionBlock) {
 					// A profile rule that only repeats a default rule (e.g. the
 					// 「屏蔽 BT」 preset) is already covered right after safety.
 					continue
@@ -562,7 +636,7 @@ func compilePlan(in CompileInput, nodes []NodeRef, forced, deflt []Rule, gdef st
 				list = append(list, groupRule{key: ruleKey(pr), rule: pr, tags: scope, layer: layerServer})
 			}
 		}
-		if k.def != ActionDirect {
+		if k.def != ActionDirect && k.layer != layerChainBlocks {
 			pr := PlanRule{Name: defaultRuleName(k.layer), Outbound: refer(k.def)}
 			if k.layer == layerGlobal && in.Markers {
 				pr.Builtin = BuiltinGlobal
@@ -587,7 +661,7 @@ func compilePlan(in CompileInput, nodes []NodeRef, forced, deflt []Rule, gdef st
 	}
 	if len(forcedTags) > 0 {
 		for _, r := range forced {
-			tags := scoped(r, forcedTags)
+			tags := routed(r.Action, scoped(r, forcedTags))
 			if len(tags) == 0 {
 				continue
 			}
@@ -626,7 +700,7 @@ func compilePlan(in CompileInput, nodes []NodeRef, forced, deflt []Rule, gdef st
 	// Layer 5: 全局·默认 over every non-chain node.
 	if len(allTags) > 0 {
 		for _, r := range deflt {
-			tags := scoped(r, allTags)
+			tags := routed(r.Action, scoped(r, allTags))
 			if len(tags) == 0 {
 				continue
 			}
@@ -683,7 +757,7 @@ func compilePlan(in CompileInput, nodes []NodeRef, forced, deflt []Rule, gdef st
 			if len(plan.Rules)+len(defaults) > MaxPlanRules {
 				if layered {
 					// Global and node rules never push the defaults out.
-					return nil, nil, limitError{fmt.Sprintf("同一服务器的规则合计最多 %d 条", MaxPlanRules)}
+					return nil, nil, nil, limitError{fmt.Sprintf("同一服务器的规则合计最多 %d 条", MaxPlanRules)}
 				}
 				// Never turn a valid plan into a rejected one (which would
 				// block nodes): skip the defaults and say so.
@@ -745,6 +819,7 @@ func compilePlan(in CompileInput, nodes []NodeRef, forced, deflt []Rule, gdef st
 			warnings = append(warnings, "全局规则："+reason+"，全局规则中使用它的流量暂时改为直连")
 		}
 	}
+	chainNotes := in.appendChainRules(plan, nodes)
 	// Limits and capabilities.
 	items, geoBytes := 0, 0
 	sources := false
@@ -752,10 +827,10 @@ func compilePlan(in CompileInput, nodes []NodeRef, forced, deflt []Rule, gdef st
 		ip, site := usesGeo(r.IP, r.SourceIP)
 		_, site2 := usesGeo(r.Domain)
 		if ip && !in.GeoIP {
-			return nil, warnings, errors.New("该服务器没有 geoip 数据，不能使用 geoip 规则")
+			return nil, warnings, nil, errors.New("该服务器没有 geoip 数据，不能使用 geoip 规则")
 		}
 		if (site || site2) && !in.GeoSite {
-			return nil, warnings, errors.New("该服务器没有 geosite 数据，不能使用 geosite 规则")
+			return nil, warnings, nil, errors.New("该服务器没有 geosite 数据，不能使用 geosite 规则")
 		}
 		rr := Rule{Domains: r.Domain, IPs: r.IP, SourceIPs: r.SourceIP, Protocols: r.Protocol, Ports: r.Port, SourcePorts: r.SourcePort}
 		items += RuleItems(rr)
@@ -764,25 +839,76 @@ func compilePlan(in CompileInput, nodes []NodeRef, forced, deflt []Rule, gdef st
 	}
 	switch {
 	case len(plan.Outbounds) > MaxPlanOutbounds:
-		return nil, warnings, limitError{fmt.Sprintf("同一服务器最多使用 %d 个出站模板", MaxPlanOutbounds)}
+		return nil, warnings, nil, limitError{fmt.Sprintf("同一服务器最多使用 %d 个出站模板", MaxPlanOutbounds)}
 	case len(plan.Rules) > MaxPlanRules:
-		return nil, warnings, limitError{fmt.Sprintf("同一服务器的规则合计最多 %d 条", MaxPlanRules)}
+		return nil, warnings, nil, limitError{fmt.Sprintf("同一服务器的规则合计最多 %d 条", MaxPlanRules)}
 	case items > MaxPlanItems:
-		return nil, warnings, limitError{fmt.Sprintf("同一服务器的匹配条目合计最多 %d 条", MaxPlanItems)}
+		return nil, warnings, nil, limitError{fmt.Sprintf("同一服务器的匹配条目合计最多 %d 条", MaxPlanItems)}
 	case geoBytes > MaxPlanGeoBytes:
-		return nil, warnings, limitError{"同一服务器上的 geo 分类合计过大（超过 3 MiB），请让节点使用同一个方案或改用更小的分类"}
+		return nil, warnings, nil, limitError{"同一服务器上的 geo 分类合计过大（超过 3 MiB），请让节点使用同一个方案或改用更小的分类"}
 	}
 	if sources && in.Exempt != nil {
 		exempt, err := in.Exempt()
 		if err != nil {
-			return nil, warnings, err
+			return nil, warnings, nil, err
 		}
 		if len(exempt) > MaxExemptSources {
-			return nil, warnings, fmt.Errorf("来源豁免地址超过 %d 条", MaxExemptSources)
+			return nil, warnings, nil, fmt.Errorf("来源豁免地址超过 %d 条", MaxExemptSources)
 		}
 		plan.ExemptSources = exempt
 	}
-	return plan, warnings, nil
+	return plan, warnings, chainNotes, nil
+}
+
+// appendChainRules adds the chained nodes' catch-all rules (plan 177) after
+// every other rule, so all block rules covering them match first. Identical
+// external nodes share one outbound; outbounds beyond the server's room
+// (MaxPlanOutbounds, earliest node first) and unusable chains block the node
+// instead (fail closed, never direct). It returns why nodes are blocked.
+func (in CompileInput) appendChainRules(plan *Plan, nodes []NodeRef) map[int64]string {
+	ordered := append([]NodeRef(nil), nodes...)
+	sort.Slice(ordered, func(i, j int) bool { return ordered[i].ID < ordered[j].ID })
+	var order []string
+	outs := map[string]PlanOutbound{}
+	scopes := map[string][]string{}
+	var blocked []string
+	notes := map[int64]string{}
+	for _, n := range ordered {
+		if !n.Chained() {
+			continue
+		}
+		if n.Chain == nil || n.ChainErr != "" {
+			blocked = append(blocked, n.Tag)
+			notes[n.ID] = n.ChainErr
+			continue
+		}
+		o := *n.Chain
+		o.Tag = ChainOutboundTag(o)
+		if _, ok := outs[o.Tag]; !ok {
+			if len(plan.Outbounds)+len(order) >= MaxPlanOutbounds {
+				blocked = append(blocked, n.Tag)
+				notes[n.ID] = fmt.Sprintf("该服务器的出站已满（每台服务器最多 %d 个不同的出站），链式代理未生效，本节点的流量暂时封锁", MaxPlanOutbounds)
+				continue
+			}
+			outs[o.Tag] = o
+			order = append(order, o.Tag)
+		}
+		scopes[o.Tag] = append(scopes[o.Tag], n.Tag)
+	}
+	for _, tag := range order {
+		plan.Outbounds = append(plan.Outbounds, outs[tag])
+		tags := scopes[tag]
+		sort.Strings(tags)
+		plan.Rules = append(plan.Rules, PlanRule{Name: ChainRuleName, InboundTags: tags, Outbound: tag})
+	}
+	if len(blocked) > 0 {
+		sort.Strings(blocked)
+		plan.Rules = append(plan.Rules, PlanRule{Name: ChainBlockRuleName, InboundTags: blocked, Outbound: ActionBlock})
+	}
+	if len(notes) == 0 {
+		return nil
+	}
+	return notes
 }
 
 // Label is the read-only summary shown to users, e.g. 「出站：WARP」.

@@ -356,6 +356,12 @@ func (r *Repository) SharedLandingDesired(id int64, egress *landingegress.Plan) 
 				return err
 			}
 			d := landingcustom.Node{ID: strconv.FormatInt(n.ID, 10), Owner: landingcustom.Owner{ID: strconv.FormatInt(n.UserID, 10), Name: u.User}, Name: n.Name, Protocol: n.Protocol, Port: n.Port, Enabled: n.Status == "active" && s.Status == "active" && SharedLandingAvailable(&s), MaxConnections: n.MaxConnections, MaxOnlineIPs: n.MaxOnlineIPs}
+			if n.ChainExternalID > 0 && !SharedChainSupported(&s) {
+				// Plan 177: the share no longer takes FLVX egress plans, so the
+				// chain cannot apply; the node stays off instead of leaving
+				// directly (fail closed). It comes back with the capability.
+				d.Enabled = false
+			}
 			if expiry := EffectiveLandingExpiry(&n, &s, &u); expiry > 0 {
 				d.ExpiresAt = &expiry
 			}

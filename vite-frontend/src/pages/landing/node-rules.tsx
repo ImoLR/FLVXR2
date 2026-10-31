@@ -53,10 +53,13 @@ const countText = (n: number) => (n > 0 ? `${n} 条` : "暂无");
 
 export function NodeRulesDialog({
   nodeId,
+  chainName,
   onClose,
   onSaved,
 }: {
   nodeId: number;
+  /** Plan 177: the node's 链式代理 external node (only block rules apply). */
+  chainName?: string;
   onClose: () => void;
   onSaved?: () => void;
 }) {
@@ -200,6 +203,16 @@ export function NodeRulesDialog({
             </span>
           </ModalHeader>
           <ModalBody className="space-y-4">
+            {chainName && (
+              <p
+                data-chain-note
+                className="rounded-lg bg-teal-500/10 p-2 text-xs text-teal-700 dark:text-teal-300"
+              >
+                已开启链式代理：此节点的流量全部从外部节点「{chainName}
+                」出去。下面的封锁规则仍然生效，其他出站规则（直连 / WARP /
+                代理）暂不生效，改回直连后恢复。
+              </p>
+            )}
             <div className="flex flex-wrap items-center gap-2">
               <Pill tone={chip.tone}>{chip.label}</Pill>
               <Pill tone={overCap ? "amber" : "slate"}>{counters}</Pill>
