@@ -75,3 +75,42 @@ ONE warm amber colour for every region (no per-region rainbow). Same branch, BUI
 - Table view trade-off: one table per region (the sideways scroller would stop the region header from sticking), so
   every region box has its own column header + 「本地区全选」 (no entry-level 「本组全选」 in region mode) and columns
   of different region tables are sized by their own content (not perfectly aligned between regions).
+
+## Round 3 (user feedback 10-31 TW on round 2): flatter entry level, clear region → tunnel step, one colour per region
+User: 「金色地区头跟具体隧道卡片之间层次感不够」. Coordinator decisions: entry → region (almost) no indent and no teal
+elbows (teal frame + accent bar + sticky teal header carry level 1); region → tunnel = the main step (clear indent +
+variant-A line in the region's colour, also on phone cards); each exit region its own calm colour (stable by region
+code, overrides the round-2 single amber; single amber kept as a one-line constant for comparison). Same branch,
+BUILD ONLY, frontend only.
+
+### Tasks (round 3)
+- [x] Entry → region: region boxes nearly flush inside the teal entry box (6px desktop / 4px phone); teal entry stub
+      and entry → region elbows removed in region mode (custom mode keeps its teal tree line); no region-node wrapper.
+- [x] Region → tunnel: clear indent with the variant-A line (elbows, rounded └ last) from the region chevron in the
+      region's colour — desktop cards, desktop table, phone cards (lines back on), phone table. Region header padding
+      12px desktop / 6px phone → line at 26 / 20px, cards + checkboxes at 40 / 28px (leaf elbow length is the CSS var
+      `--flvx-tree-elbow`, 11px default = custom groups unchanged). Phone cards 278px at 390 / 263px at 375; the
+      topology line in region boxes uses a 4px gap + 6px pill padding (needs ~223px instead of ~243px), so it stays on
+      one line at 375px too (round 2 wrapped there).
+- [x] Region colours: 7 calm tones (amber, orange, rose, fuchsia, violet, blue, lime; none teal) + neutral slate for
+      多地区 / 未设置地区; fixed table HK/TW/JP/SG/KR/US/DE, hash fallback into the same 7 for other codes; one var
+      set per tone (CSS custom properties on `data-region-tone`: `--flvx-region-rgb` + `--flvx-region-ink`), light +
+      dark; header = solid page colour + tint layer (opaque when pinned); count text contrast ≥ 4.78 (hover incl.),
+      title ≥ 10; nearest tone pair ΔE(OKLab) 11 light / 10 dark.
+- [x] `TUNNEL_REGION_COLORS` constant ("multi" default / "amber" = one amber for every region, round-2 look).
+- [x] Everything else from round 2 unchanged: stacked sticky entry + region headers, region collapse, entry footer,
+      自定义分组, 不分组, rules page.
+- [x] tsc / build / eslint no new errors (tunnel.tsx 4 errors / 1272 warnings, region.ts 0 / 1 = round 2); no new
+      timers / polling / API calls / scroll listeners / ResizeObservers (scroll 3, resize 5/4, interval 0, RO 5 = round
+      2 on the same data; 7 fewer DOM nodes with one entry open).
+- [x] Screens 390 + 1440, light + dark: a) entry open (desktop table, phone card, phone list); b) both headers
+      pinned; c) region swap; d) collapsed region; e) round 2 vs round 3; f) single amber vs multi-colour;
+      gallery 「第 3 轮」 section on top (48 screens + colour table), 336 checks pass (r3 267 + single-amber 69), 0 page
+      errors; 自定义分组 / 不分组 / rules page DOM byte-identical to round 2; release-notes updated; trial merge into
+      fork.102 clean.
+- [x] Push, CI green (code `5970d066`); summary → runs/tunnel-group-tree-r3/summary.md.
+
+### Notes (round 3)
+- BUILT 11-01 ~00:20 TW, not released (ships in the next batch after the user approves the gallery, with plan 179).
+- Tone table: HK amber, TW violet, JP rose, SG lime, KR fuchsia, US blue, DE orange; other codes hash into the same 7
+  (e.g. MO/NL rose, GB lime, FR blue, CA amber) — rare codes can share a colour; 多地区 / 未设置地区 slate.
