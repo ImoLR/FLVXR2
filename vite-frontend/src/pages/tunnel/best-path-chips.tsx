@@ -166,7 +166,7 @@ function BestPathLayerChip({ layer }: { layer: BestPathLayer }) {
                 item.candidates?.[0]?.reachable &&
                 item.candidates[0].nodeId !== item.bestNodeId && (
                   <p className="text-[11px] text-default-400">
-                    更快的不到 15 ms 或还没连续 2 分钟，先不换
+                    更快的不到 5 ms 或还没连续 2 分钟，先不换
                   </p>
                 )}
               {item.switchedAt ? (

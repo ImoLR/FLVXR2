@@ -95,11 +95,11 @@ func TestBestPathRanksWholePathNotFirstHop(t *testing.T) {
 	}
 }
 
-func TestBestPathMarginIs15ms(t *testing.T) {
+func TestBestPathMarginIs5ms(t *testing.T) {
 	for _, tc := range []struct {
 		gain    float64
 		switch_ bool
-	}{{14.9, false}, {15, true}, {40, true}} {
+	}{{4.9, false}, {5, true}, {40, true}} {
 		m := newBestPathManager()
 		n := bpExample()
 		// via A: 10 + 50 = 60; via B: 60 - gain.
@@ -120,7 +120,7 @@ func TestBestPathNeedsTwoConsecutiveRounds(t *testing.T) {
 	m := newBestPathManager()
 	now := time.Unix(1_800_000_000, 0)
 	good, spike := bpExample(), bpExample()
-	spike.lat = map[[2]int64]float64{{1, 2}: 10, {2, 9}: 100, {1, 3}: 30, {3, 9}: 75} // B 105: gain 5
+	spike.lat = map[[2]int64]float64{{1, 2}: 10, {2, 9}: 100, {1, 3}: 30, {3, 9}: 77} // B 107: gain 3
 	steps := []struct {
 		n    bpNet
 		want int
