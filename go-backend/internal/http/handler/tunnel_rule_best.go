@@ -34,6 +34,11 @@ const (
 	destOrderMetaKey    = "destOrder"
 )
 
+// ruleBestMaxProbes caps the new exit→target probes of one round (prod
+// 2026-10-31: 14; 200 rules: ~210). Destinations beyond it keep the tunnel
+// order this round — a safety net so the round stays well under 60 s.
+var ruleBestMaxProbes = 300
+
 // ruleBestTarget is what the exits probe for a destination.
 type ruleBestTarget struct {
 	Host string
@@ -222,6 +227,11 @@ func (h *Handler) attachRuleBestProbes(plans []pathLatencyPlan, pairs map[pathPr
 				dest.BackedOff = true
 				continue
 			}
+			if probes+len(exits) > ruleBestMaxProbes {
+				dest.BackedOff = true // over the cap: tunnel order this round
+				h.ruleBest.countCapped()
+				continue
+			}
 			dest.Exits = make(map[int64]pathProbeKey, len(exits))
 			for _, exit := range exits {
 				node := load(exit.NodeID)
@@ -313,8 +323,8 @@ type ruleBestManager struct {
 	dirty map[bestPathKey]bool
 	views map[int64]*ruleBestView
 	// Since the last hourly summary.
-	switches, deferred, pushFailures, probes, deadRounds int64
-	lastDests                                            int
+	switches, deferred, pushFailures, probes, deadRounds, capped int64
+	lastDests                                                    int
 }
 
 func newRuleBestManager() *ruleBestManager {
@@ -689,16 +699,25 @@ func (m *ruleBestManager) count(deferred, failures, probes int) {
 }
 
 // takeCounters returns and resets the counters of the hourly summary.
-func (m *ruleBestManager) takeCounters() (states, dests, dead int, switches, deferred, failures, probes, deadRounds int64) {
+func (m *ruleBestManager) takeCounters() (states, dests, dead int, switches, deferred, failures, probes, deadRounds, capped int64) {
 	if m == nil {
 		return
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	states, dests, dead = len(m.states), m.lastDests, len(m.dead)
-	switches, deferred, failures, probes, deadRounds = m.switches, m.deferred, m.pushFailures, m.probes, m.deadRounds
-	m.switches, m.deferred, m.pushFailures, m.probes, m.deadRounds = 0, 0, 0, 0, 0
+	switches, deferred, failures, probes, deadRounds, capped = m.switches, m.deferred, m.pushFailures, m.probes, m.deadRounds, m.capped
+	m.switches, m.deferred, m.pushFailures, m.probes, m.deadRounds, m.capped = 0, 0, 0, 0, 0, 0
 	return
+}
+
+func (m *ruleBestManager) countCapped() {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	m.capped++
+	m.mu.Unlock()
 }
 
 // storeViews keeps the latest round's data per tunnel for the rule list.

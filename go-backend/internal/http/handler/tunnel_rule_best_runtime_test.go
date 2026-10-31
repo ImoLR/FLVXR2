@@ -454,3 +454,27 @@ func TestRuleBestNoProbesWithoutBestExitLayer(t *testing.T) {
 		t.Fatalf("probes = %d", info.probes)
 	}
 }
+
+// The per-round probe cap: destinations beyond it keep the tunnel order.
+func TestRuleBestProbeCap(t *testing.T) {
+	e, _ := newRuleBestEnv(t)
+	saved := ruleBestMaxProbes
+	ruleBestMaxProbes = 2
+	defer func() { ruleBestMaxProbes = saved }()
+	info := rbEnvRound(t, e, rbEnvEdges(), rbEnvDests(), time.Now())
+	if info.probes != 2 {
+		t.Fatalf("probes = %d, want 2", info.probes)
+	}
+	backed := 0
+	for _, d := range info.plans[0].RuleBest.Dests {
+		if d.BackedOff {
+			backed++
+		}
+	}
+	if backed != 1 {
+		t.Fatalf("capped destinations = %d", backed)
+	}
+	if _, _, _, _, _, _, _, _, capped := e.h.ruleBest.takeCounters(); capped != 1 {
+		t.Fatalf("capped counter = %d", capped)
+	}
+}

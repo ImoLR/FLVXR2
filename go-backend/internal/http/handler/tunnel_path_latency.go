@@ -295,8 +295,8 @@ func (h *Handler) runPathLatencyRound(ctx context.Context) {
 	if last := pathLatencyLoggedAt.Load(); now.Unix()-last >= 3600 {
 		pathLatencyLoggedAt.Store(now.Unix())
 		owners, switches, deferred, failures := h.bestPath.takeCounters()
-		rbStates, rbDests, rbDead, rbSwitches, rbDeferred, rbFailures, rbProbes, rbDeadRounds := h.ruleBest.takeCounters()
-		log.Printf("[path-latency] round tunnels=%d edges=%d pairs=%d retries=%d duration=%s best_owners=%d best_switches=%d best_deferred=%d best_push_fail=%d best_round=%s rule_best_dests=%d rule_best_states=%d rule_best_probes=%d rule_best_dead=%d rule_best_dead_rounds=%d rule_best_switches=%d rule_best_deferred=%d rule_best_push_fail=%d (logged hourly)", len(plans), edges, len(pairs), retries, time.Since(start).Round(time.Millisecond), owners, switches, deferred, failures, bestDuration.Round(time.Microsecond), rbDests, rbStates, rbProbes, rbDead, rbDeadRounds, rbSwitches, rbDeferred, rbFailures)
+		rbStates, rbDests, rbDead, rbSwitches, rbDeferred, rbFailures, rbProbes, rbDeadRounds, rbCapped := h.ruleBest.takeCounters()
+		log.Printf("[path-latency] round tunnels=%d edges=%d pairs=%d retries=%d duration=%s best_owners=%d best_switches=%d best_deferred=%d best_push_fail=%d best_round=%s rule_best_dests=%d rule_best_states=%d rule_best_probes=%d rule_best_dead=%d rule_best_dead_rounds=%d rule_best_switches=%d rule_best_deferred=%d rule_best_push_fail=%d rule_best_capped=%d (logged hourly)", len(plans), edges, len(pairs), retries, time.Since(start).Round(time.Millisecond), owners, switches, deferred, failures, bestDuration.Round(time.Microsecond), rbDests, rbStates, rbProbes, rbDead, rbDeadRounds, rbSwitches, rbDeferred, rbFailures, rbCapped)
 	}
 }
 
