@@ -16,11 +16,11 @@ behaviour change, no DB change, no agent OTA. Run dir `/root/flvx-workers/runs/r
 - [x] 6. Panel backup + rollback dir, upgrade `/opt/flvx-svc`, health + version.json, prune backups (keep 2)
 - [x] 7. After: nodes online as before, forward_port + per-node runtime objects identical
 - [x] 7b. Found at fork.100 on prod: panel says latest = fork.99 (GitHub list order ≠ version order) → fix + tests
-- [ ] 7c. Gates again, branch `maintenance/3.0.27-fork.101-release-order`, CI, tag `3.0.27-fork.101`, release validated
-- [ ] 7d. Backup + upgrade to fork.101, prune, state diff, check-updates shows fork.101 current / latest
-- [ ] 8. Prod read-only UI checks 390 + 1440 (screenshots in run dir), sidebar update entry shows the running fork as current
-- [ ] 9. Resources: backend RSS/CPU before/after, 0 new non-request log lines in 10 min
-- [ ] 10. Plan complete commit + summary
+- [x] 7c. Gates again, branch `maintenance/3.0.27-fork.101-release-order`, CI, tag `3.0.27-fork.101`, release validated
+- [x] 7d. Backup + upgrade to fork.101, prune, state diff, check-updates shows fork.101 current / latest
+- [x] 8. Prod read-only UI checks 390 + 1440 (screenshots in run dir), sidebar update entry shows the running fork as current
+- [x] 9. Resources: backend RSS/CPU before/after, 0 new non-request log lines in 10 min
+- [x] 10. Plan complete commit + summary
 
 ## Notes
 
@@ -66,3 +66,36 @@ behaviour change, no DB change, no agent OTA. Run dir `/root/flvx-workers/runs/r
   and before building the check-updates release list. Tests with the real GitHub order fail on the old code and pass now.
 - Gates on the fix: `go build` ok, vet output identical to fork.99/100; `go test ./...` SQLite 19/19 + PostgreSQL 19/19.
   No frontend change (frontend gates from step 3 still apply).
+
+### fork.101 release + upgrade (steps 7c–7d)
+- Branch `maintenance/3.0.27-fork.101-release-order` (fork.100 head + d50122a1). CI 41195267924 green (4 jobs);
+  tag `3.0.27-fork.101` → d50122a1; Images 41195414517 green; validate-release 13/13 (same 10 assets as fork.100).
+  GitHub still lists `fork.99, fork.101, fork.100, …` → the fix is needed.
+- Backup `/opt/flvx-svc/rollback/pre-fork101-20261031T111928Z` (quick/integrity ok); upgraded 19:19 TW, healthy in 9 s,
+  version.json `3.0.27-fork.101-mvwas9hz`. Prune kept pre-fork101 + pre-fork100 (removed pre-fork99 dir/tags, fork.98 images).
+- Version endpoints on prod: `system/check-updates`, `panel/upgrade/check`, `system/version` → current = latest =
+  `3.0.27-fork.101`, hasUpdate false; release list 101, 100, 99, 98.
+- State pre-fork100 → post-fork101: forward_port 38 identical, forwards identical, 30 → 30 online, per-node runtime objects
+  identical (235), agents unchanged (29× fork.98, node 36 fork.95). No OTA, no DB change.
+
+### Prod UI checks (step 8) — `runs/release-rule-row-tree/prodcheck100.cjs`, 41/41
+- Read-only: API whitelist (only list/get/links/check-updates style reads reach prod; 42 other calls answered locally,
+  e.g. `config/update-single`, `package/store-status`); admin JWT + user 8 JWT minted in memory; 0 page errors.
+- 1440 + 390: admin own groups collapsed; pick user @jiuwei → collapsed (重置 shown); + keyword 「SSH」 → both matching groups
+  open; 重置 → own rules, collapsed, no filter badge; open group: tree items = rules, last elbow rounded (7px), header stub,
+  sticky header, footer 「收起 · 隧道名」, accordion; rule 156 复制链接 → 3 cards, all purple 「经规则转发」 (admin and user 8);
+  user 8 落地页 → 链接 → 直连 + 3× 经规则转发; no page-level horizontal scroll on 规则/主页/隧道/节点/落地/用户/设置;
+  sidebar 「当前版本 3.0.27-fork.101」 without the red update dot. Screenshots: `runs/release-rule-row-tree/shots/`.
+- Phone groups have one extra `flvx-rule-tree-pass` segment (line passing the 「本组全选」 row) — by design.
+
+### Resources (step 9)
+- Backend before (fork.99): 7–12 % CPU (Go tests running on the host), RSS 38.8 MiB; fork.100: 2.5–5.5 %, RSS 39.9 MiB;
+  fork.101 after the browser checks: 2–6 %, RSS 46.7 MiB. DB 57,335,808 bytes unchanged.
+- Logs: per upgrade only the 30 startup `redeploy: node N done (diff …)` reconnect lines + the existing periodic
+  `node_metric maintenance` line; 0 other non-request lines.
+- 10-min window after fork.101 (11:21–11:30Z): 7 non-request lines, all the existing 10-min nftables domain refresh of
+  rule 98 (`[nftables-dns] forward 98 域名IP已更新`, same as fork.99) → 0 new lines. Backend 0 restarts, 30/30 online.
+
+**Status: DONE 2026-10-31 19:31 TW — prod runs `3.0.27-fork.101` (panel only; fork.100 = plan 175, fork.101 = release-order fix).**
+Rollback: `/opt/flvx-svc/rollback/pre-fork101-20261031T111928Z/rollback.sh` (→ fork.100) or
+`pre-fork100-20261031T104024Z/rollback.sh` (→ fork.99); no `--restore-db` needed.
