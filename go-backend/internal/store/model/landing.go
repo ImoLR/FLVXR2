@@ -186,8 +186,12 @@ type LandingNode struct {
 	RouteRules     string `gorm:"type:text;not null;default:'[]'" json:"-"`
 	RouteRuleCount int    `gorm:"not null;default:0" json:"routeRuleCount"`
 	RouteDefault   string `gorm:"not null;default:''" json:"-"`
-	CreatedTime    int64  `gorm:"not null;index:idx_landing_reuse,priority:5" json:"createdTime"`
-	UpdatedTime    int64  `gorm:"not null" json:"updatedTime"`
+	// Plan 177 「链式代理」: the owner's external node all traffic of this node
+	// leaves through (0 = 直连 / the normal outbound layers). Block rules still
+	// apply first; no fallback to direct when the external node fails.
+	ChainExternalID int64 `gorm:"not null;default:0;index" json:"chainExternalId"`
+	CreatedTime     int64 `gorm:"not null;index:idx_landing_reuse,priority:5" json:"createdTime"`
+	UpdatedTime     int64 `gorm:"not null" json:"updatedTime"`
 }
 
 func (LandingNode) TableName() string { return "landing_node" }

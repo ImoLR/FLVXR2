@@ -19,6 +19,7 @@ import (
 
 func (h *Handler) registerLanding(mux *http.ServeMux) {
 	h.registerLandingEgress(mux)
+	h.registerLandingExternal(mux)
 	for path, fn := range map[string]http.HandlerFunc{"integration/get": h.landingIntegrationGet, "integration/save": h.landingIntegrationSave, "integration/test": h.landingIntegrationTest, "integration/sync": h.landingIntegrationSync, "server/enable": h.landingServerEnable, "server/list": h.landingServerList, "server/save": h.landingServerSave, "node/list": h.landingNodeList, "node/create": h.limitMutation(mutationLanding, h.landingNodeCreate), "node/update": h.limitMutation(mutationLanding, h.landingNodeUpdate), "node/delete": h.limitMutation(mutationLanding, h.landingNodeDelete), "node/links": h.landingNodeLinks, "user/get": h.landingUserGet, "user/save": h.landingUserSave, "settings/get": h.landingSettingsGet, "settings/save": h.landingSettingsSave, "node/transfer": h.limitMutation(mutationLanding, h.landingNodeTransfer), "monitor": h.landingMonitor, "monitor/ips": h.landingMonitorIPs, "node/rules/get": h.landingNodeRulesGet, "node/rules/save": h.limitMutation(mutationLanding, h.landingNodeRulesSave), "preset/list": h.landingPresetList} {
 		mux.HandleFunc("/api/v1/landing/"+path, func(w http.ResponseWriter, r *http.Request) {
 			if r.Method != http.MethodPost {
@@ -274,7 +275,11 @@ func (h *Handler) landingNodeView(n model.LandingNode, catalogs ...landingEgress
 		}
 		supported = repo.LandingConnModeSupported(s, agent)
 	}
-	return landingNodeViewData(n, s, u, catalog, integrationError, supported)
+	view := landingNodeViewData(n, s, u, catalog, integrationError, supported)
+	if s != nil {
+		h.landingChainViews([]map[string]interface{}{view}, []model.LandingNode{n}, map[int64]*model.LandingServer{s.ID: s}, catalog)
+	}
+	return view
 }
 
 // landingNodeViewData renders one node; connSupported says whether the
@@ -598,6 +603,7 @@ func (h *Handler) landingNodeList(w http.ResponseWriter, r *http.Request) {
 		}
 		out = append(out, view)
 	}
+	h.landingChainViews(out, nodes, data.Servers, catalog)
 	response.WriteJSON(w, response.OK(out))
 }
 func (h *Handler) landingNodeCreate(w http.ResponseWriter, r *http.Request) {

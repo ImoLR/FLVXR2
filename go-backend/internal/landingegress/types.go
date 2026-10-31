@@ -116,6 +116,33 @@ type PlanOutbound struct {
 	Flow      string         `json:"flow,omitempty"`
 	Reality   *PlanReality   `json:"reality,omitempty"`
 	WireGuard *PlanWireGuard `json:"wireguard,omitempty"`
+	// Transport options of chain upstreams (plan 108 / 177 「链式代理」, native
+	// agents only; the same JSON as the agent's EgressOutbound). Empty for
+	// every template outbound, so plan 107 output is unchanged.
+	Network  string    `json:"network,omitempty"`
+	Security string    `json:"security,omitempty"`
+	TLS      *PlanTLS  `json:"tls,omitempty"`
+	WS       *PlanWS   `json:"ws,omitempty"`
+	GRPC     *PlanGRPC `json:"grpc,omitempty"`
+	Cipher   string    `json:"cipher,omitempty"`
+	Obfs     string    `json:"obfs,omitempty"`
+}
+
+type PlanTLS struct {
+	ServerName   string   `json:"server_name,omitempty"`
+	ALPN         []string `json:"alpn,omitempty"`
+	Fingerprint  string   `json:"fingerprint,omitempty"`
+	PinnedSHA256 string   `json:"pinned_sha256,omitempty"`
+}
+
+type PlanWS struct {
+	Path string `json:"path,omitempty"`
+	Host string `json:"host,omitempty"`
+}
+
+type PlanGRPC struct {
+	ServiceName string `json:"service_name,omitempty"`
+	MultiMode   bool   `json:"multi_mode,omitempty"`
 }
 
 type PlanReality struct {

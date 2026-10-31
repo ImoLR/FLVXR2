@@ -308,7 +308,7 @@ func deleteUserLandingsTx(tx *gorm.DB, userID int64) error {
 	if err := tx.Model(&model.LandingServer{}).Where("id IN (?)", ids).UpdateColumn("revision", gorm.Expr("revision + 1")).Error; err != nil {
 		return err
 	}
-	for _, row := range []interface{}{&model.LandingNode{}, &model.LandingUserSetting{}, &model.UserServerQuota{}, &model.LandingServerUser{}, &model.UserTrafficPoolMember{}, &model.UserTrafficPool{}} {
+	for _, row := range []interface{}{&model.LandingNode{}, &model.LandingUserSetting{}, &model.UserServerQuota{}, &model.LandingServerUser{}, &model.UserTrafficPoolMember{}, &model.UserTrafficPool{}, &model.LandingExternalNode{}} {
 		if err := tx.Where("user_id = ?", userID).Delete(row).Error; err != nil {
 			return err
 		}

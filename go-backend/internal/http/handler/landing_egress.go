@@ -229,7 +229,11 @@ func landingEgressInput(d *repo.LandingEgressData) landingegress.CompileInput {
 			continue
 		}
 		rules, def := repo.NodeRulesFromModel(n)
-		in.Nodes = append(in.Nodes, landingegress.NodeRef{ID: n.ID, Tag: n.InboundTag, Protocol: n.Protocol, Override: n.RouteProfileID, Rules: rules, Default: def})
+		ref := landingegress.NodeRef{ID: n.ID, Tag: n.InboundTag, Protocol: n.Protocol, Override: n.RouteProfileID, Rules: rules, Default: def}
+		if n.ChainExternalID > 0 {
+			ref.Chain, ref.ChainErr = landingChainOutbound(d, n)
+		}
+		in.Nodes = append(in.Nodes, ref)
 	}
 	in.Resolve = func(id int64) (landingegress.PlanOutbound, error) { return resolveLandingOutbound(d, id) }
 	return in
@@ -249,7 +253,8 @@ func coveredLandingTags(d *repo.LandingEgressData) []string {
 	tags := []string{}
 	withheld := repo.LandingWithheldFunc(&d.Server)
 	for _, n := range d.Nodes {
-		if !n.DeletePending && !withheld(&n) && landingegress.EffectiveProfile(d.Server.RouteProfileID, n.RouteProfileID) != 0 {
+		// Chained nodes (plan 177) are blocked too: never direct by accident.
+		if !n.DeletePending && !withheld(&n) && (landingegress.EffectiveProfile(d.Server.RouteProfileID, n.RouteProfileID) != 0 || n.ChainExternalID > 0) {
 			tags = append(tags, n.InboundTag)
 		}
 	}
@@ -271,7 +276,9 @@ func (h *Handler) compileLandingEgress(serverID int64) (*landingegress.Plan, []s
 	in := landingEgressInput(d)
 	in.GeoIP, in.GeoSite = geoIP, geoSite
 	in.Exempt = h.landingExemptSources
-	plan, warnings, err := landingegress.Compile(in)
+	plan, rep, err := landingegress.CompileLayers(in)
+	warnings := rep.Warnings
+	h.external.setChainNotes(serverID, rep.ChainNotes, err)
 	if err != nil {
 		return landingegress.BlockPlan(coveredLandingTags(d), d.Server.EgressRestartOK), warnings, err
 	}
@@ -312,6 +319,18 @@ func (h *Handler) validateLandingEgress(serverIDs []int64, mutate func(d *repo.L
 		_, rep, err := landingegress.CompileLayers(in)
 		if err != nil {
 			return fmt.Errorf("落地服务器「%s」：%w", d.Server.Name, err)
+		}
+		// Plan 177: a change that takes the outbound room of a working
+		// 链式代理 (which would block that node) is refused.
+		if len(rep.ChainNotes) > 0 && mutate != nil {
+			if fresh, err := h.repo.LandingEgressData(id); err == nil && fresh != nil {
+				base := landingEgressInput(fresh)
+				base.GeoIP, base.GeoSite = geoIP, geoSite
+				base.Exempt = in.Exempt
+				if _, prev, err := landingegress.CompileLayers(base); err == nil && len(chainNotesAdded(prev.ChainNotes, rep.ChainNotes, 0)) > 0 {
+					return fmt.Errorf("落地服务器「%s」：改动后放不下已开启的链式代理（每台服务器最多 %d 个不同的出站）", d.Server.Name, landingegress.MaxPlanOutbounds)
+				}
+			}
 		}
 		// A change that would push the global rules out of a server is refused
 		// (node rules beyond the budget are dropped and shown on the node).
@@ -561,7 +580,11 @@ func (c landingEgressCatalog) serverLabel(s model.LandingServer) string {
 // node rules included).
 func (c landingEgressCatalog) nodeLabel(s model.LandingServer, n model.LandingNode) string {
 	rules, def := repo.NodeRulesFromModel(n)
-	return c.labelInput(s).EffectiveLabel(&landingegress.NodeRef{ID: n.ID, Tag: n.InboundTag, Protocol: n.Protocol, Override: n.RouteProfileID, Rules: rules, Default: def})
+	ref := landingegress.NodeRef{ID: n.ID, Tag: n.InboundTag, Protocol: n.Protocol, Override: n.RouteProfileID, Rules: rules, Default: def}
+	if n.ChainExternalID > 0 {
+		ref.ChainErr = "chained" // label only: 「链式代理」 (plan 177)
+	}
+	return c.labelInput(s).EffectiveLabel(&ref)
 }
 
 // defaultProfileName names the built-in default profile (id 0) on a server:

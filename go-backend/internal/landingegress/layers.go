@@ -49,6 +49,17 @@ func (g *Global) Active() bool {
 	return len(enabled(g.Forced)) > 0 || len(enabled(g.Default)) > 0 || (g.DefaultAction != "" && g.DefaultAction != ActionDirect)
 }
 
+// blockOnly keeps the 封锁 rules (chained nodes, plan 177).
+func blockOnly(rules []Rule) []Rule {
+	out := []Rule{}
+	for _, r := range rules {
+		if r.Action == ActionBlock {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
 func enabled(rules []Rule) []Rule {
 	out := []Rule{}
 	for _, r := range rules {
