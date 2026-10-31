@@ -117,7 +117,10 @@ function PickText({ pick }: { pick: RuleBestPick }) {
 }
 
 function PickItemRow({ item }: { item: RuleBestPickItem }) {
-  const head = [item.entry && `入口 ${item.entry}`, item.target && `目标 ${item.target}`]
+  const head = [
+    item.entry && `入口 ${item.entry}`,
+    item.target && `目标 ${item.target}`,
+  ]
     .filter(Boolean)
     .join(" · ");
 
@@ -134,7 +137,9 @@ function PickItemRow({ item }: { item: RuleBestPickItem }) {
             <span key={`${hop.label}-${i}`} className="break-all">
               {i > 0 && <span className="mx-0.5 text-default-400">→</span>}
               <span className="text-default-500">{hop.label}</span>{" "}
-              <span className="text-teal-700 dark:text-teal-300">{hop.name}</span>
+              <span className="text-teal-700 dark:text-teal-300">
+                {hop.name}
+              </span>
             </span>
           ))}
           <span className="text-default-500">
@@ -193,7 +198,10 @@ export function RuleBestPickLine({
           <div className="max-w-[86vw] space-y-2 p-2 text-left sm:max-w-sm">
             <p className="text-xs text-default-500">{RULE_BEST_PICK_HINT}</p>
             {items.map((item, i) => (
-              <PickItemRow key={`${item.entry}-${item.target}-${i}`} item={item} />
+              <PickItemRow
+                key={`${item.entry}-${item.target}-${i}`}
+                item={item}
+              />
             ))}
           </div>
         </DropdownMenu>
