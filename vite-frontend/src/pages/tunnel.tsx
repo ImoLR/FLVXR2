@@ -135,6 +135,8 @@ import {
   exitRegionKey,
   exitRegionLabel,
   regionLabel,
+  regionTone,
+  type RegionTone,
 } from "@/utils/region";
 import {
   BEST_PATH_HINT,
@@ -355,6 +357,12 @@ interface TunnelCardOptions {
 // Plan 178: the one open group per grouping mode, per user and browser.
 // Versioned so everyone starts with every group collapsed once.
 const TUNNEL_GROUP_OPEN_KEY_PREFIX = "tunnel-group-open:v1";
+// Plan 178 r3: region boxes get one colour per exit region ("multi",
+// utils/region.ts regionTone). "amber" = the round-2 look (one amber for
+// every region). A build-time choice, not a user setting.
+const TUNNEL_REGION_COLORS = "multi" as "multi" | "amber";
+const tunnelRegionTone = (region: string): RegionTone =>
+  TUNNEL_REGION_COLORS === "amber" ? "amber" : regionTone(region);
 
 type TunnelDeleteAction = "replace" | "delete_forwards";
 const EMPTY_BATCH_RESULT_MODAL_STATE: BatchResultModalState = {
@@ -3325,10 +3333,11 @@ export default function TunnelPage() {
   // Plan 178: grouped views get the rules-page group look — collapsed header
   // with name + count, accordion, sticky tinted open header, teal accent bar,
   // tree line and a 「收起 · 组名」 footer. Collapsed groups render no rows.
-  // Round 2 (region mode): every exit region of an open entry is its own amber
-  // box — the teal entry line elbows into each region header, the region
-  // header sticks right below the pinned entry header (CSS only) and the
-  // region's tunnels hang off an amber line from the region chevron.
+  // Round 2 (region mode): every exit region of an open entry is its own box;
+  // the region header sticks right below the pinned entry header (CSS only).
+  // Round 3: region boxes sit almost flush in the teal entry box (no teal
+  // elbows), each region has its own colour (data-region-tone) and its tunnels
+  // hang off a line in that colour from the region chevron (clear indent).
   const renderTunnelTreeTable = (
     tunnels: Tunnel[],
     opts: {
@@ -3424,7 +3433,7 @@ export default function TunnelPage() {
   };
   const renderTunnelRegionHeader = (sub: TunnelTreeSub, open: boolean) => (
     <TreeGroupHeader
-      className={`flvx-tunnel-region-head${open ? " flvx-tunnel-region-head-open" : ""} flex items-center justify-between gap-2 px-2`}
+      className={`flvx-tunnel-region-head${open ? " flvx-tunnel-region-head-open" : ""} flex items-center justify-between gap-2 px-1.5 md:px-3`}
       collapsed={!open}
       onToggle={() => toggleTunnelSubGroup(sub.key)}
     >
@@ -3451,39 +3460,39 @@ export default function TunnelPage() {
         const hideRegionChip = sub.region !== MULTI_REGION;
 
         return (
-          <div key={sub.key} className="flvx-tunnel-region-node">
-            <section
-              className={`flvx-tunnel-region-box ${viewMode === "list" ? "flvx-tunnel-region-box-table" : "flvx-tunnel-region-box-cards"}`}
-              data-group-key={sub.key}
-            >
-              {renderTunnelRegionHeader(sub, open)}
-              {open &&
-                (viewMode === "list" ? (
-                  renderTunnelTreeTable(sub.tunnels, {
-                    keyPrefix: sub.key,
-                    sortable: false,
-                    hideRegionChip,
-                    selectLabel: "本地区全选",
-                  })
-                ) : (
-                  <div className="flvx-tunnel-tree-grid-wrap">
-                    <div className="flvx-tunnel-tree-grid">
-                      {sub.tunnels.map((tunnel) => {
-                        const key = `${sub.key}/tunnel:${tunnel.id}`;
+          <section
+            key={sub.key}
+            className={`flvx-tunnel-region-box ${viewMode === "list" ? "flvx-tunnel-region-box-table" : "flvx-tunnel-region-box-cards"}`}
+            data-group-key={sub.key}
+            data-region-tone={tunnelRegionTone(sub.region)}
+          >
+            {renderTunnelRegionHeader(sub, open)}
+            {open &&
+              (viewMode === "list" ? (
+                renderTunnelTreeTable(sub.tunnels, {
+                  keyPrefix: sub.key,
+                  sortable: false,
+                  hideRegionChip,
+                  selectLabel: "本地区全选",
+                })
+              ) : (
+                <div className="flvx-tunnel-tree-grid-wrap">
+                  <div className="flvx-tunnel-tree-grid">
+                    {sub.tunnels.map((tunnel) => {
+                      const key = `${sub.key}/tunnel:${tunnel.id}`;
 
-                        return renderTunnelCard(tunnel, {
-                          key,
-                          sortableId: key,
-                          sortDisabled: true,
-                          className: "flvx-tunnel-tree-leaf",
-                          hideRegionChip,
-                        });
-                      })}
-                    </div>
+                      return renderTunnelCard(tunnel, {
+                        key,
+                        sortableId: key,
+                        sortDisabled: true,
+                        className: "flvx-tunnel-tree-leaf",
+                        hideRegionChip,
+                      });
+                    })}
                   </div>
-                ))}
-            </section>
-          </div>
+                </div>
+              ))}
+          </section>
         );
       })}
     </div>

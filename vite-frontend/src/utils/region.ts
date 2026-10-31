@@ -91,3 +91,41 @@ export function exitRegionLabel(codes?: string[]): string {
     ? `多地区（${[...new Set(codes)].sort(compareRegions).map(regionLabel).join("、")}）`
     : regionLabel(key);
 }
+
+// Plan 178 r3: one calm colour per exit region (tunnel page region boxes,
+// CSS `[data-region-tone]` in styles/globals.css). Stable by region code:
+// a fixed tone for the common codes, a hash into the same 7 tones for the
+// rest; 多地区 / 未设置地区 stay neutral (slate). No teal (entry colour).
+export const REGION_TONES = [
+  "amber",
+  "orange",
+  "rose",
+  "fuchsia",
+  "violet",
+  "blue",
+  "lime",
+] as const;
+export type RegionTone = (typeof REGION_TONES)[number] | "slate";
+const FIXED_REGION_TONES: Record<string, RegionTone> = {
+  HK: "amber",
+  TW: "violet",
+  JP: "rose",
+  SG: "lime",
+  KR: "fuchsia",
+  US: "blue",
+  DE: "orange",
+};
+
+export function regionTone(code?: string): RegionTone {
+  if (!code || code === MULTI_REGION) return "slate";
+  const normalized = code.toUpperCase();
+
+  if (FIXED_REGION_TONES[normalized]) return FIXED_REGION_TONES[normalized];
+  let hash = 0;
+
+  for (const char of normalized) {
+    hash = (hash * 31 + char.charCodeAt(0)) >>> 0;
+  }
+
+  return REGION_TONES[hash % REGION_TONES.length];
+}
