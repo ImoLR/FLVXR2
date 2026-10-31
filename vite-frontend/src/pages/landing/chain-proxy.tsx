@@ -247,7 +247,6 @@ export function ChainProxyDialog({
                 {list && (
                   <div className="flex items-end gap-2">
                     <Select
-                      isSearchable
                       className="min-w-0 flex-1"
                       disabledKeys={items
                         .filter((item) => !usable(item))
@@ -256,7 +255,6 @@ export function ChainProxyDialog({
                       placeholder={
                         items.length ? "选择外部节点" : "还没有外部节点，先添加"
                       }
-                      searchPlaceholder="搜索名称或地址"
                       selectedKeys={selected ? [selected] : []}
                       variant="bordered"
                       onSelectionChange={(keys) =>
@@ -266,13 +264,9 @@ export function ChainProxyDialog({
                       {items.map((item) => (
                         <SelectItem
                           key={String(item.id)}
-                          description={
-                            usable(item) ? undefined : SHARED_UNSUPPORTED
-                          }
-                          textValue={`${item.name} ${item.host}`}
+                          textValue={`${item.name} · ${item.protocolLabel} · ${item.host}:${item.port}${usable(item) ? "" : `（${SHARED_UNSUPPORTED}）`}`}
                         >
-                          {item.name} · {item.protocolLabel} · {item.host}:
-                          {item.port}
+                          {item.name}
                         </SelectItem>
                       ))}
                     </Select>
@@ -284,6 +278,17 @@ export function ChainProxyDialog({
                       + 添加
                     </Button>
                   </div>
+                )}
+                {support.shared && items.some((item) => !usable(item)) && (
+                  <p data-shared-unusable className="text-xs text-default-500">
+                    {SHARED_UNSUPPORTED}（灰色不可选）：
+                    {items
+                      .filter((item) => !usable(item))
+                      .map((item) => `${item.name}（${item.protocolLabel}）`)
+                      .join("、")}
+                    。妙妙屋共享服务器只支持 SOCKS5 / HTTP / Shadowsocks / VLESS
+                    Reality。
+                  </p>
                 )}
                 {list && (
                   <div className="flex flex-wrap items-center gap-2 text-xs">
@@ -803,20 +808,26 @@ function SubscriptionTab({
               variant="bordered"
               onChange={(e) => setQuery(e.target.value)}
             />
-            <Checkbox
-              isDisabled={!visibleSelectable.length}
-              isSelected={allPicked}
-              onValueChange={(on) => {
-                const next = new Set(picked);
+            {/* label: tapping the text toggles too (the bridge Checkbox is a
+                button, a labelable element) */}
+            {/* eslint-disable-next-line jsx-a11y/label-has-associated-control */}
+            <label data-sub-all className="cursor-pointer">
+              <Checkbox
+                aria-label="全选"
+                isDisabled={!visibleSelectable.length}
+                isSelected={allPicked}
+                onValueChange={(on) => {
+                  const next = new Set(picked);
 
-                visibleSelectable.forEach((item) =>
-                  on ? next.add(item.index) : next.delete(item.index),
-                );
-                setPicked(next);
-              }}
-            >
-              全选
-            </Checkbox>
+                  visibleSelectable.forEach((item) =>
+                    on ? next.add(item.index) : next.delete(item.index),
+                  );
+                  setPicked(next);
+                }}
+              >
+                全选
+              </Checkbox>
+            </label>
           </div>
           <div
             data-sub-list
@@ -833,9 +844,9 @@ function SubscriptionTab({
                     : "";
 
               return (
-                <div
+                <label
                   key={item.index}
-                  className={`flex items-start gap-2 p-2 ${ok ? "" : "opacity-50"}`}
+                  className={`flex items-start gap-2 p-2 ${ok ? "cursor-pointer hover:bg-default-100" : "opacity-50"}`}
                 >
                   <Checkbox
                     aria-label={item.name}
@@ -862,7 +873,7 @@ function SubscriptionTab({
                       </p>
                     )}
                   </div>
-                </div>
+                </label>
               );
             })}
             {!visible.length && (

@@ -81,10 +81,38 @@ worktree `/root/projects/flvxx/flvxx-landing-chain-proxy`。
 - [x] 前端：卡片「链式代理」按钮 + 链式标签 / ⚠ 标签、链式代理弹窗、添加弹窗两个标签页、管理列表、路由规则弹窗提示。
       规则弹窗「从我的外部节点选择」未做（见「还没解决」）。
 - [x] 本机端到端（一次性实验网）：流量经外部节点出去、热切回直连、外部节点断开 = 连接失败；共享计划过 Helper 校验器。
-- [ ] 资源测量（0 / 1 / ~20 链式节点 Core RSS，1000 连接前后 fd/goroutine，日志增长）。
-- [ ] 截图集（390 + 1440，亮 + 暗）→ `/root/mmwx-preview/landing-chain-proxy/`。
-- [ ] 推送分支、CI 全绿、release-notes.md、summary.md / final.md。
+- [x] 资源测量（0 / 1 / ~20 链式节点 Core RSS，1000 连接前后 fd/goroutine，日志增长）。
+- [x] 截图集（390 + 1440，亮 + 暗）→ `/root/mmwx-preview/landing-chain-proxy/`（56 张，54/54 检查通过，0 页面报错）。
+- [x] 推送分支、CI 全绿、release-notes.md、summary.md / final.md。
 
-## 核验记录
+## 核验记录（2026-10-31，台湾时间）
 
-（实现中补充）
+- 后端全量 `GOMAXPROCS=2 go test -p 1 -count=1 ./...`（完整 worktree）：20 个包全部 ok，0 失败。fork.100 基线（git archive 副本）
+  4 个失败（`TestChainUpstreamFixtureForAgent`、`TestExplicitVersionInstallerHasNoAgentFallback`、`TestInstallerMirrorChainMatchesPanel`、
+  `TestPanelImageCleanupPatternTargetsPanelImages`），都是副本里缺仓库根目录文件，完整 worktree 中通过；无新增失败。
+- PostgreSQL 18（一次性容器，仅 127.0.0.1，384 MiB，tmpfs，测完删除）：`Postgres|BothDialects|Dialects|TestSharedLanding` 三个包，分支与
+  基线都 0 失败（含新 `TestExternalNodesBothDialects`：30 个并发添加只存 20 个）。第一次 192 MiB 容器跑完基线后崩溃导致的失败是环境问题，已换新容器复测。
+- 新测试：`landingegress/chain177_test.go`（封锁先行、非封锁被替换、去重、失败封锁、出站满、其他节点不变）、`landingsub`（三种格式、
+  base64 变体、信息节点过滤、SSRF：内网字面量 / 任一解析结果内网 / 跳转到内网 / 跳转后 DNS 重绑定 / 跳转过多 / 2 MB / 超时 / 协议 / 带账号、
+  错误不泄露内部细节、钉住 IP 拨号）、`handler/landing_external_test.go`（归属/IDOR、密钥不回传、上限 + 并发、判重、地址校验、保存下发计划、
+  检测失败不保存、删除占用拒绝、转移拒绝、旧节点程序 enabled=false、删用户清理、共享门槛 + 白名单 + 收回能力即停用、订阅导入、出站满拒绝）。
+- Helper 校验器（妙妙屋 `internal/flvx` 只读复制到临时模块）：本分支编译出的共享计划（SOCKS / HTTP / SS AEAD / SS2022 / VLESS Reality 五个链式出站）
+  严格解码 + `ValidateEgress` 通过；VMess 和带传输字段的形式被拒（对照）。
+- 本机端到端 `scripts/landing-acceptance/chainproxy_lab.py`（3 个网络命名空间，本分支 paneld + fork.100 节点程序 + 钉死的 Core v1.4.77，全部 ALL PASS）：
+  直连出口 198.51.142.1 → 链式后出口 198.51.143.1（SS / SOCKS5 / VLESS Reality / VMess WS 四种，每次保存约 1.4 s 生效，Core PID 不变，
+  始终只有 1 个链式出站）；封锁规则先生效（被封端口失败，其他端口走外部节点）；外部节点停掉后 5 次请求全部失败，目标端 0 次看到直连来源；
+  外部节点恢复后自动恢复；改回直连热生效，链式出站被移除。
+- 资源（实验网 Core，无生产的 systemd MemoryMax）：
+  | 场景 | RSS KiB | Go 堆 KiB | fd | goroutine |
+  |---|---:|---:|---:|---:|
+  | 0 个链式（预热后） | 104,564 | 60,170 | 10 | 14 |
+  | 1 个链式 | 103,820 | 59,671 | 10 | 14 |
+  | 20 个落地节点、1 个链式 | 92,624 | 35,772 | 48 | 69 |
+  | 20 个落地节点全部链式（7 个不同外部节点 → 7 个出站） | 98,740 | 64,099 | 48 | 69 |
+  - 1000 次连接（50 并发、每次 16 KiB 校验）：直连 0.7 s / 0 失败；链式 0.7 s / 0 失败；20 个链式时同样 0 失败。20 s 后 fd / goroutine
+    全部回到压测前（10/14、48/69）。压测刚结束的峰值：直连 2,010 fd / 4,014 goroutine，链式 2,010 fd / 6,014 goroutine（每条连接多一条出站）。
+  - 堆内存：压测后 Go 还没回收的垃圾，直连约 145 MiB、链式约 222 MiB，GC 后回到约 62 MiB（不是泄漏）。极端突发下链式峰值内存比直连高约一半。
+  - 日志：资源阶段节点程序 0 B、外部节点 0 B、面板 3.5 KB（请求日志）；落地状态文件 27 KB。Core 日志级别不变，无访问日志。
+  - 面板：订阅只在点击时拉一次；缓存有界（每用户 3 份、全局 64 份、10 分钟）；落地列表一次批量查外部节点（无 N+1），前端无新轮询。
+- 前端：`tsc` 通过；改动文件 eslint 0 错误 0 警告；`npm run build` 通过，主包 3,018 → 3,034 kB（+16 kB）。
+- CI：见 summary（Build Check 全绿）。
