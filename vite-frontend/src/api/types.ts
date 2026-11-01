@@ -258,6 +258,10 @@ export interface TunnelApiItem {
   remark?: string;
   speedId?: number | null;
   speedLimitName?: string | null;
+  // Plan 184 (admin list): 「显示地区」 override ('' = automatic) and the real
+  // exit regions behind it; exitRegions already carries the chosen region.
+  regionOverride?: string;
+  autoExitRegions?: string[];
   [key: string]: unknown;
 }
 
@@ -667,6 +671,8 @@ export interface TunnelMutationPayload {
   tls?: number;
   socks?: number;
   blockOther?: number;
+  // Plan 184 「显示地区」: '' = automatic; absent on update = keep.
+  regionOverride?: string;
 }
 
 export interface UserQuotaResetPayload {

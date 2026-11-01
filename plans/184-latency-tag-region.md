@@ -44,14 +44,14 @@ User request (2026-11-01, session 9db8c70d):
 
 ## Tasks
 - [x] Plan doc + branch/worktree, WIP push
-- [ ] A1 latency tone helper + LatencyTag component (variant constant)
-- [ ] A2 rules page pick line + dropdown rows
-- [ ] A3 tunnel page 最优 chips + detail rows
+- [x] A1 latency tone helper + LatencyTag component (variant constant)
+- [x] A2 rules page pick line + dropdown rows
+- [x] A3 tunnel page 最优 chips + detail rows
 - [x] B1 model column + normalize/validate + deriveTunnelRegions override + list outputs
 - [x] B2 create/update/region endpoint + split twin + typed backup field
 - [x] B3 unit tests (deriveTunnelRegions type 1/2 override) + contract tests (create/update/region/list, invalid code,
       non-admin view)
-- [ ] B4 frontend: form select, 手动 marker, fallback, region-only save via /tunnel/region
+- [x] B4 frontend: form select, 手动 marker, fallback, region-only save via /tunnel/region
 - [ ] Gates: go build/vet, go test ./... (SQLite), PostgreSQL contract, tsc/build/lint vs base
 - [ ] Demo panel + screens gallery :8791 /latency-tag-region/ (390 + 1440, light + dark, A vs B)
 - [ ] Resource numbers (tunnel list latency before/after, bundle delta)

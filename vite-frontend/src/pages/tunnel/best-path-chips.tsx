@@ -1,6 +1,8 @@
 import { ChevronDown } from "lucide-react";
 
+import { LATENCY_TAG_STYLE, LatencyTag } from "@/components/latency-tag";
 import { landingToneClass, type LandingTone } from "@/pages/landing/pill";
+import { latencyNumber, latencyText } from "@/utils/latency-tone";
 import {
   Dropdown,
   DropdownMenu,
@@ -68,16 +70,15 @@ const pillBase =
   "inline-flex max-w-full shrink-0 items-center gap-1 whitespace-nowrap rounded-full px-2 text-xs font-semibold leading-[18px]";
 
 // Same-room paths are sub-millisecond: 「<1 ms」, never 「0 ms」.
-const num = (v?: number) => ((v ?? 0) < 1 ? "<1" : String(Math.round(v ?? 0)));
-const ms = (v?: number) => `${num(v)} ms`;
+const ms = (v?: number) => `${latencyNumber(v)} ms`;
 
-const layerMs = (layer: BestPathLayer) => {
-  if (layer.status !== "applied") return "";
-  const min = num(layer.minMs);
-  const max = num(layer.maxMs);
-
-  return min === max ? ` · ${min} ms` : ` · ${min}–${max} ms`;
-};
+// Plan 184: the ms is its own coloured tag (components/latency-tag.tsx) —
+// a sibling chip after the 最优 chip (A) or nested inside it (B). In A the
+// chip may shrink (its text truncates) so chip + tag stay on one line.
+const nestedMs = LATENCY_TAG_STYLE === "nested";
+const triggerBase = nestedMs
+  ? pillBase
+  : pillBase.replace("shrink-0", "min-w-0 shrink");
 
 const timeText = (at?: number) => {
   if (!at) return "";
@@ -103,18 +104,29 @@ export const normalizeBestPathState = (raw: unknown): BestPathState | null => {
 
 function BestPathLayerChip({ layer }: { layer: BestPathLayer }) {
   const tone = statusTone[layer.status] ?? "slate";
-  const text = `${layer.label}最优：${layer.summary || "等待探测"}${layerMs(layer)}`;
+  const applied = layer.status === "applied";
+  const text = `${layer.label}最优：${layer.summary || "等待探测"}`;
+  const msLabel = applied ? ` · ${latencyText(layer.minMs, layer.maxMs)}` : "";
+  const tag = applied ? (
+    <LatencyTag
+      maxMs={layer.maxMs}
+      minMs={layer.minMs}
+      nested={nestedMs}
+      size="chip"
+    />
+  ) : null;
 
-  return (
+  const dropdown = (
     <Dropdown>
       <DropdownTrigger>
         <button
-          aria-label={`${text}，点按查看详情`}
-          className={`${pillBase} ${landingToneClass[tone]} cursor-pointer hover:brightness-95 focus-visible:outline-2 focus-visible:outline-offset-1 dark:hover:brightness-110`}
+          aria-label={`${text}${msLabel}，点按查看详情`}
+          className={`${triggerBase} ${landingToneClass[tone]} cursor-pointer hover:brightness-95 focus-visible:outline-2 focus-visible:outline-offset-1 dark:hover:brightness-110`}
           data-best-path-chip={layer.status}
           type="button"
         >
           <span className="min-w-0 truncate">{text}</span>
+          {nestedMs && tag}
           <ChevronDown aria-hidden className="h-3 w-3 shrink-0" />
         </button>
       </DropdownTrigger>
@@ -130,9 +142,12 @@ function BestPathLayerChip({ layer }: { layer: BestPathLayer }) {
                 <span className="break-all">{item.ownerName}</span>
                 <span className="text-default-400">→</span>
                 {item.status === "applied" ? (
-                  <span className="break-all text-green-700 dark:text-green-300">
-                    {item.bestName} · {ms(item.costMs)}
-                  </span>
+                  <>
+                    <span className="break-all text-green-700 dark:text-green-300">
+                      {item.bestName}
+                    </span>
+                    <LatencyTag minMs={item.costMs} size="row" />
+                  </>
                 ) : (
                   <span className="text-default-500">
                     {statusText[item.status] ?? item.status}
@@ -179,6 +194,15 @@ function BestPathLayerChip({ layer }: { layer: BestPathLayer }) {
         </div>
       </DropdownMenu>
     </Dropdown>
+  );
+
+  if (nestedMs || !tag) return dropdown;
+
+  return (
+    <span className="inline-flex min-w-0 max-w-full items-center gap-1">
+      {dropdown}
+      {tag}
+    </span>
   );
 }
 

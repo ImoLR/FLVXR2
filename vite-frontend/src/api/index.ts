@@ -310,6 +310,12 @@ export const getTunnelList = () =>
   Network.post<TunnelApiItem[]>("/tunnel/list");
 export const getTunnelById = (id: number) =>
   Network.post<TunnelApiItem>("/tunnel/get", { id });
+// Plan 184: 「显示地区」 only — DB write, no node push (unlike /tunnel/update).
+export const updateTunnelRegion = (data: {
+  id: number;
+  regionOverride: string;
+}) =>
+  Network.post<{ id: number; regionOverride: string }>("/tunnel/region", data);
 export const updateTunnel = (data: TunnelMutationPayload) =>
   Network.post("/tunnel/update", data);
 export const deleteTunnel = (id: number) =>

@@ -3,6 +3,7 @@ import toast from "react-hot-toast";
 import { ChevronDown, Route, TriangleAlert } from "lucide-react";
 
 import { reenableRuleBest } from "@/api";
+import { LATENCY_TAG_STYLE, LatencyTag } from "@/components/latency-tag";
 import { landingToneClass, type LandingTone } from "@/pages/landing/pill";
 import { Button } from "@/shadcn-bridge/heroui/button";
 import {
@@ -74,17 +75,29 @@ const statusText: Record<string, string> = {
 const pillBase =
   "inline-flex max-w-full flex-wrap items-center gap-x-1 rounded-lg px-2 py-px text-left text-[11px] font-semibold leading-[17px]";
 
-// Same-room paths are sub-millisecond: 「<1 ms」, never 「0 ms」.
-const num = (v?: number) => ((v ?? 0) < 1 ? "<1" : String(Math.round(v ?? 0)));
+// Plan 184: the ms is its own coloured tag (components/latency-tag.tsx) —
+// a sibling chip after the route pill (A) or nested inside it (B).
+const nestedMs = LATENCY_TAG_STYLE === "nested";
 
-const pickMs = (pick: RuleBestPick) => {
-  if (pick.status !== "applied") return "";
-  const min = num(pick.minMs);
+function PickLatency({
+  pick,
+  nested,
+}: {
+  pick: RuleBestPick;
+  nested: boolean;
+}) {
+  if (pick.status !== "applied") return null;
 
-  if (!pick.maxMs || num(pick.maxMs) === min) return `${min} ms`;
-
-  return `${min}–${num(pick.maxMs)} ms`;
-};
+  return (
+    <LatencyTag
+      maxMs={pick.maxMs}
+      minMs={pick.minMs}
+      nested={nested}
+      size="pick"
+      withTarget={!!pick.withTarget}
+    />
+  );
+}
 
 export const normalizeRuleBestPick = (raw: unknown): RuleBestPick | null => {
   if (!raw || typeof raw !== "object") return null;
@@ -102,8 +115,7 @@ export const normalizeRuleBestPick = (raw: unknown): RuleBestPick | null => {
 
 function PickText({ pick }: { pick: RuleBestPick }) {
   const applied = pick.status === "applied";
-  const msText = pickMs(pick);
-  // Segments break only between hops: 「中转 东京B」「→ 出口 新加坡A」「· 38 ms」.
+  // Segments break only between hops: 「中转 东京B」「→ 出口 新加坡A」 + ms tag.
   const segs =
     applied && pick.layers && pick.layers.length > 0
       ? pick.layers.map((l, i) => `${i > 0 ? "→ " : ""}${l.label} ${l.name}`)
@@ -117,16 +129,7 @@ function PickText({ pick }: { pick: RuleBestPick }) {
           {seg}
         </span>
       ))}
-      {msText && (
-        <span className="inline-flex items-center gap-1 whitespace-nowrap">
-          · {msText}
-          {pick.withTarget && (
-            <span className="rounded-full bg-white/60 px-1 text-[10px] font-medium leading-[14px] dark:bg-black/20">
-              含落地
-            </span>
-          )}
-        </span>
-      )}
+      {nestedMs && <PickLatency nested pick={pick} />}
     </>
   );
 }
@@ -157,9 +160,11 @@ function PickItemRow({ item }: { item: RuleBestPickItem }) {
               </span>
             </span>
           ))}
-          <span className="text-default-500">
-            · {num(item.ms)} ms{item.withTarget ? "（含落地）" : ""}
-          </span>
+          <LatencyTag
+            minMs={item.ms}
+            size="row"
+            withTarget={!!item.withTarget}
+          />
         </div>
       ) : (
         <div className="text-xs text-default-500">
@@ -183,19 +188,24 @@ export function RuleBestPickLine({
 
   if (!pick.multi || items.length < 2) {
     return (
-      <div className={`mt-1 flex min-w-0 ${className}`}>
+      <div
+        className={`mt-1 flex min-w-0 flex-wrap items-center gap-1 ${className}`}
+      >
         <span
           className={`${pillBase} ${landingToneClass[tone]}`}
           data-rule-best-pick={pick.status}
         >
           <PickText pick={pick} />
         </span>
+        {!nestedMs && <PickLatency nested={false} pick={pick} />}
       </div>
     );
   }
 
   return (
-    <div className={`mt-1 flex min-w-0 ${className}`}>
+    <div
+      className={`mt-1 flex min-w-0 flex-wrap items-center gap-1 ${className}`}
+    >
       <Dropdown>
         <DropdownTrigger>
           <button
@@ -221,6 +231,7 @@ export function RuleBestPickLine({
           </div>
         </DropdownMenu>
       </Dropdown>
+      {!nestedMs && <PickLatency nested={false} pick={pick} />}
     </div>
   );
 }
