@@ -74,6 +74,18 @@ func (r *Repository) ListEnabledTunnelIDs() ([]int64, error) {
 	return ids, err
 }
 
+// ListTunnelIDsWithForwards returns the ids of tunnels that at least one rule
+// uses (any status: a paused rule keeps its entry services). Plan 182: one
+// query per path-latency round decides which 最优 tunnels may switch.
+func (r *Repository) ListTunnelIDsWithForwards() ([]int64, error) {
+	if r == nil || r.db == nil {
+		return nil, errors.New("repository not initialized")
+	}
+	ids := make([]int64, 0)
+	err := r.db.Model(&model.Forward{}).Where("tunnel_id > 0").Distinct().Pluck("tunnel_id", &ids).Error
+	return ids, err
+}
+
 func (r *Repository) ListForwardsByTunnel(tunnelID int64) ([]model.ForwardRecord, error) {
 	if r == nil || r.db == nil {
 		return nil, errors.New("repository not initialized")

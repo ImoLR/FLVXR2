@@ -612,10 +612,17 @@ func (m *ruleBestManager) evaluate(plans []pathLatencyPlan, results map[pathProb
 	defer m.mu.Unlock()
 	visited := make(map[ruleBestKey]bool)
 	inPlan := make(map[int64]bool)
+	idle := make(map[int64]bool)
 	var switches []ruleBestSwitch
 	destCount := 0
 	for _, plan := range plans {
 		inPlan[plan.TunnelID] = true
+		if plan.Idle {
+			// Plan 182: the tunnel's last rule is gone — no per-destination
+			// pushes; a cleanup stays pending until it has rules again.
+			idle[plan.TunnelID] = true
+			continue
+		}
 		if plan.RuleBest == nil || !plan.Active || len(plan.Groups) < 2 {
 			continue
 		}
@@ -755,7 +762,7 @@ func (m *ruleBestManager) evaluate(plans []pathLatencyPlan, results map[pathProb
 		}
 	}
 	for bk := range m.dirty {
-		if byOwner[bk] == nil {
+		if byOwner[bk] == nil && !idle[bk.TunnelID] {
 			byOwner[bk] = &ruleBestPush{Key: bk, Cleanup: true}
 			order = append(order, bk)
 		}
@@ -823,6 +830,9 @@ func (m *ruleBestManager) markPushed(p ruleBestPush, at time.Time) {
 }
 
 func (m *ruleBestManager) clearDirty(key bestPathKey) {
+	if m == nil {
+		return
+	}
 	m.mu.Lock()
 	delete(m.dirty, key)
 	m.mu.Unlock()

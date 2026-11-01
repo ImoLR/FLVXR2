@@ -232,6 +232,11 @@ func bestPathDisplayOwner(tunnelID, ownerID int64, g int, dbOrder []int64, m *be
 		item.Candidates = append(item.Candidates, dc)
 	}
 	cur := byID[effectiveOrder(dbOrder, st.Order)[0]]
+	if st.Idle {
+		// Plan 182: no rule uses the tunnel, so nothing is switched; show the
+		// node its first rule will start on.
+		cur = st.Ranked[0]
+	}
 	item.BestNodeID = cur.NodeID
 	item.BestName = info(cur.NodeID).Name
 	if item.BestName == "" {

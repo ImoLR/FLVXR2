@@ -149,6 +149,13 @@ type bestPathState struct {
 	Ranked      []bestPathCandidate
 	EvaluatedAt int64 // unix ms of the latest evaluation (0 = waiting)
 	SwitchedAt  int64
+	// Plan 182: Candidates is the layer in DB order at the latest evaluation.
+	// Idle: no rule uses the tunnel — ranked and shown, never switched.
+	// Activate: the tunnel just got its first rule — the next push takes the
+	// current best at once (no confirm rounds); cleared once applied.
+	Candidates []int64
+	Idle       bool
+	Activate   bool
 }
 
 type bestPathSwitch struct {
@@ -162,6 +169,7 @@ type bestPathSwitch struct {
 	Candidates []int64 // the layer in DB order when decided
 	Failover   bool
 	Gain       float64
+	Activate   bool // plan 182: first rule on a tunnel without rules
 }
 
 type bestPathManager struct {
@@ -214,6 +222,7 @@ func (m *bestPathManager) markSwitched(key bestPathKey, at time.Time) {
 	if st := m.states[key]; st != nil {
 		st.PendingN = 0
 		st.SwitchedAt = at.UnixMilli()
+		st.Activate = false
 	}
 	m.switches++
 }
@@ -231,7 +240,24 @@ func (m *bestPathManager) snapshot(key bestPathKey) (bestPathState, bool) {
 	out := *st
 	out.Order = append([]int64(nil), st.Order...)
 	out.Ranked = append([]bestPathCandidate(nil), st.Ranked...)
+	out.Candidates = append([]int64(nil), st.Candidates...)
 	return out, true
+}
+
+// idleTunnels counts the 最优 tunnels without rules (hourly summary).
+func (m *bestPathManager) idleTunnels() int {
+	if m == nil {
+		return 0
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	idle := make(map[int64]bool)
+	for key, st := range m.states {
+		if st.Idle {
+			idle[key.TunnelID] = true
+		}
+	}
+	return len(idle)
 }
 
 func (m *bestPathManager) size() int {
@@ -392,15 +418,26 @@ func (m *bestPathManager) evaluate(plans []pathLatencyPlan, results map[pathProb
 				visited[key] = true
 				st := m.states[key]
 				if st == nil || st.Layer != g {
-					st = &bestPathState{Layer: g}
+					st = &bestPathState{Layer: g, Idle: plan.Idle}
 					m.states[key] = st
 				}
+				st.Candidates = dbOrder
+				// Plan 182: a tunnel without rules is measured and shown but
+				// never switched; its first rule takes the best at once.
+				if st.Idle && !plan.Idle {
+					st.Activate = true
+				}
+				st.Idle = plan.Idle
 				if !online {
 					continue // keep the decision; the reconnect pushes it
 				}
 				ranked := rankBestCandidates(ownerID, layer, edges[g-1], costs[g])
 				st.Ranked = ranked
 				st.EvaluatedAt = now.UnixMilli()
+				if plan.Idle {
+					st.PendingN = 0
+					continue
+				}
 				current := effectiveOrder(dbOrder, st.Order)
 				curID := current[0]
 				var cur bestPathCandidate
@@ -418,9 +455,13 @@ func (m *bestPathManager) evaluate(plans []pathLatencyPlan, results map[pathProb
 				switch {
 				case !best.Reachable || best.NodeID == curID:
 					st.PendingN = 0
+					st.Activate = false
 					continue
 				case !cur.Reachable:
 					sw.Failover = true
+				case st.Activate:
+					sw.Activate = true
+					sw.Gain = cur.CostMS - best.CostMS
 				case cur.CostMS-best.CostMS >= bestPathSwitchMarginMS:
 					st.PendingN++
 					if st.PendingN < bestPathConfirmRounds {
@@ -444,14 +485,87 @@ func (m *bestPathManager) evaluate(plans []pathLatencyPlan, results map[pathProb
 			delete(m.states, key)
 		}
 	}
-	// Failovers first, then the biggest gains (the storm guard defers the rest).
+	// Failovers first, then first rules, then the biggest gains (the storm
+	// guard defers the rest).
+	sortBestPathSwitches(switches)
+	return switches
+}
+
+func sortBestPathSwitches(switches []bestPathSwitch) {
 	sort.SliceStable(switches, func(i, j int) bool {
 		if switches[i].Failover != switches[j].Failover {
 			return switches[i].Failover
 		}
+		if switches[i].Activate != switches[j].Activate {
+			return switches[i].Activate
+		}
 		return switches[i].Gain > switches[j].Gain
 	})
+}
+
+// activationSwitches (plan 182) takes the tunnel's owners out of idle when a
+// rule is deployed on it and returns the pushes that put the current best
+// first, from the latest round's ranking (no probe, no wait). Owners whose
+// ranking is missing, stale or offline keep Activate for the next round.
+func (m *bestPathManager) activationSwitches(tunnelID int64, owner func(int64) (online, capable bool), now time.Time) []bestPathSwitch {
+	if m == nil {
+		return nil
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var switches []bestPathSwitch
+	for key, st := range m.states {
+		if key.TunnelID != tunnelID || !st.Idle {
+			continue
+		}
+		st.Idle, st.Activate, st.PendingN = false, true, 0
+		if len(st.Ranked) == 0 || len(st.Candidates) == 0 || st.EvaluatedAt <= 0 || now.Sub(time.UnixMilli(st.EvaluatedAt)) > pathLatencyMaxAge {
+			continue
+		}
+		if online, capable := owner(key.OwnerNodeID); !online || !capable {
+			continue
+		}
+		curID := effectiveOrder(st.Candidates, st.Order)[0]
+		best := st.Ranked[0]
+		if !best.Reachable || best.NodeID == curID {
+			st.Activate = false
+			continue
+		}
+		sw := bestPathSwitch{Key: key, Layer: st.Layer, FromID: curID, ToID: best.NodeID, FromCost: -1, ToCost: best.CostMS,
+			Candidates: append([]int64(nil), st.Candidates...), Activate: true}
+		for _, c := range st.Ranked {
+			if c.NodeID == curID && c.Reachable {
+				sw.FromCost = c.CostMS
+				sw.Gain = c.CostMS - best.CostMS
+			}
+			sw.Order = append(sw.Order, c.NodeID)
+		}
+		sw.Failover = sw.FromCost < 0
+		switches = append(switches, sw)
+	}
+	sortBestPathSwitches(switches)
 	return switches
+}
+
+// activateBestPathTunnel is called before a rule's services are deployed:
+// when the tunnel had no rules at the latest round, its 最优 owners get the
+// current best order now, so the rule's first connections use it. A busy
+// tunnel or failed push leaves Activate set and the next round pushes it.
+func (h *Handler) activateBestPathTunnel(tunnelID int64) {
+	if h == nil || h.bestPath == nil || tunnelID <= 0 {
+		return
+	}
+	switches := h.bestPath.activationSwitches(tunnelID, func(id int64) (bool, bool) {
+		if !h.nodeAgentOnline(id) {
+			return false, false
+		}
+		return true, h.chainSwapCapable(id)
+	}, time.Now())
+	if len(switches) == 0 {
+		return
+	}
+	_, deferred, failed := applyBestPathSwitches(switches, time.Now, h.applyBestPathSwitch)
+	h.bestPath.count(deferred, failed)
 }
 
 func (h *Handler) chainSwapCapable(nodeID int64) bool {
@@ -652,8 +766,16 @@ func (h *Handler) applyBestPathSwitch(sw bestPathSwitch) error {
 		return err
 	}
 	h.bestPath.markSwitched(sw.Key, time.Now())
+	if sw.Activate {
+		// The push carried the owner's whole chain (incl. any current
+		// per-destination orders), so a cleanup left from the idle time is done.
+		h.ruleBest.clearDirty(sw.Key)
+	}
 	reason := "faster"
 	from := fmt.Sprintf("%.0fms", sw.FromCost)
+	if sw.Activate {
+		reason = "first-rule"
+	}
 	if sw.Failover {
 		reason, from = "failover", "unreachable"
 	}

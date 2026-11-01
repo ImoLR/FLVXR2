@@ -757,9 +757,28 @@ func handlerErrorClass(err error) string {
 	return op + ":" + cause
 }
 
+// Connections closed by the protocol filter since the agent started, per kind
+// (plan 182). Atomic adds on a block only; the metric report carries them.
+const (
+	blockKindHTTP = iota
+	blockKindTLS
+	blockKindSOCKS
+	blockKindOther
+	blockKinds
+)
+
+var blockCounts [blockKinds]atomic.Uint64
+
+// ProtocolBlockCounts returns the blocked-connection counters since start.
+func ProtocolBlockCounts() (http, tls, socks, other uint64) {
+	return blockCounts[blockKindHTTP].Load(), blockCounts[blockKindTLS].Load(),
+		blockCounts[blockKindSOCKS].Load(), blockCounts[blockKindOther].Load()
+}
+
 func isProtocolBlocked(data []byte, flags protocolBlockFlags) bool {
 	if detectHTTP(data) {
 		if flags.http == 1 {
+			blockCounts[blockKindHTTP].Add(1)
 			blockLogs.Record("http", "🚫 BLOCK HTTP")
 			return true
 		}
@@ -767,6 +786,7 @@ func isProtocolBlocked(data []byte, flags protocolBlockFlags) bool {
 	}
 	if detectTLS(data) {
 		if flags.tls == 1 {
+			blockCounts[blockKindTLS].Add(1)
 			blockLogs.Record("tls", "🚫 BLOCK TLS/Reality/AnyTLS")
 			return true
 		}
@@ -774,12 +794,14 @@ func isProtocolBlocked(data []byte, flags protocolBlockFlags) bool {
 	}
 	if detectSOCKS(data) {
 		if flags.socks == 1 {
+			blockCounts[blockKindSOCKS].Add(1)
 			blockLogs.Record("socks", "🚫 BLOCK SOCKS")
 			return true
 		}
 		return false
 	}
 	if flags.blockOther == 1 {
+		blockCounts[blockKindOther].Add(1)
 		blockLogs.Record("other", "🚫 BLOCK OTHER (unknown protocol)")
 		return true
 	}
@@ -830,36 +852,87 @@ func detectTLS(data []byte) bool {
 	return false
 }
 
+// SOCKS detection (plan 182). A SOCKS client sends its greeting alone and
+// waits for the server's answer — captured from curl (--socks5/-hostname/
+// --socks4/--socks4a/user:pass), Go x/net/proxy, PySocks, Xray, sing-box and
+// Chromium: none sends anything more before a reply — so the first read of a
+// real SOCKS connection is exactly one greeting. The old check took any first
+// read starting with 0x05 that had a 0x00/0x02 among the next data[1] bytes,
+// which random Shadowsocks / SS2022 / VMess first packets matched about once
+// in 450–6000 connections. Same single read, no buffering, no allocation.
+const (
+	socks5MaxMethods = 10  // assigned codes 0x00–0x09 once each; real clients send 1–3
+	socks4MaxField   = 255 // longest SOCKS4 userid / SOCKS4a hostname accepted
+)
+
 func detectSOCKS(data []byte) bool {
-	if len(data) == 0 {
+	if len(data) < 3 {
 		return false
 	}
-
 	switch data[0] {
-	case 0x04:
-		if len(data) < 7 {
-			return false
-		}
-		cmd := data[1]
-		if cmd != 0x01 && cmd != 0x02 {
-			return false
-		}
-		return true
 	case 0x05:
-		if len(data) < 2 {
-			return false
-		}
-		nMethods := int(data[1])
-		if len(data) < 2+nMethods {
-			return false
-		}
-		for _, method := range data[2 : 2+nMethods] {
-			if method == 0x00 || method == 0x02 {
-				return true
-			}
-		}
+		return isSOCKS5Greeting(data)
+	case 0x04:
+		return isSOCKS4Request(data)
 	}
 	return false
+}
+
+// isSOCKS5Greeting: exactly 05 n m1..mn (1 ≤ n ≤ socks5MaxMethods, nothing
+// after), every method an assigned (0x00–0x09) or private (0x80–0xFE) code,
+// and no-auth (0x00) or username/password (0x02) offered.
+func isSOCKS5Greeting(data []byte) bool {
+	n := int(data[1])
+	if n < 1 || n > socks5MaxMethods || len(data) != 2+n {
+		return false
+	}
+	usable := false
+	for _, m := range data[2:] {
+		switch {
+		case m == 0x00 || m == 0x02:
+			usable = true
+		case m <= 0x09 || (m >= 0x80 && m != 0xFF):
+		default:
+			return false
+		}
+	}
+	return usable
+}
+
+// isSOCKS4Request: exactly 04 cmd port(2) ip(4) userid 00 — SOCKS4a (ip
+// 0.0.0.x, x ≠ 0) adds hostname 00 — with cmd CONNECT/BIND, userid and
+// hostname printable ASCII of at most socks4MaxField bytes (hostname not
+// empty), and the last NUL as the last byte.
+func isSOCKS4Request(data []byte) bool {
+	if len(data) < 9 || (data[1] != 0x01 && data[1] != 0x02) {
+		return false
+	}
+	rest, ok := cutSOCKS4Field(data[8:], false)
+	if !ok {
+		return false
+	}
+	if data[4] == 0 && data[5] == 0 && data[6] == 0 && data[7] != 0 {
+		if rest, ok = cutSOCKS4Field(rest, true); !ok {
+			return false
+		}
+	}
+	return len(rest) == 0
+}
+
+// cutSOCKS4Field splits one NUL-terminated printable field off b.
+func cutSOCKS4Field(b []byte, nonEmpty bool) ([]byte, bool) {
+	for i, c := range b {
+		switch {
+		case c == 0:
+			if nonEmpty && i == 0 {
+				return nil, false
+			}
+			return b[i+1:], true
+		case i >= socks4MaxField || c < 0x20 || c > 0x7e:
+			return nil, false
+		}
+	}
+	return nil, false
 }
 
 // Config 配置结构体

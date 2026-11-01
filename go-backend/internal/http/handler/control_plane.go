@@ -278,6 +278,9 @@ func (h *Handler) syncForwardServicesWithWarningsOnNode(forward *forwardRecord, 
 		return nil, errors.New("invalid forward sync context")
 	}
 	if !strings.EqualFold(strings.TrimSpace(method), "DeleteService") {
+		// Plan 182: the first rule on a 最优 tunnel without rules starts on
+		// the current best order (in-memory no-op otherwise).
+		h.activateBestPathTunnel(forward.TunnelID)
 		if forward.Status == 1 {
 			if err := h.repo.LandingForwardBlockReason(forward.ID); err != nil {
 				return nil, err

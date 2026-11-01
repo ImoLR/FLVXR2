@@ -53,6 +53,10 @@ type pathLatencyPlan struct {
 	// attachRuleBestProbes) its destinations with their exit probes.
 	RuleBestOn bool
 	RuleBest   *ruleBestPlan
+	// Plan 182: no rule uses the tunnel (set by markIdleTunnels after the
+	// probes): latency is still measured and shown, but 最优 / 规则最优 push
+	// nothing for it.
+	Idle bool
 }
 
 type pathEntryLatency struct {
@@ -285,6 +289,7 @@ func (h *Handler) runPathLatencyRound(ctx context.Context) {
 	h.pathLatencyMu.Unlock()
 	// Plan 165: 最优 decisions from this round's edges (no probes of its own).
 	bestStart := time.Now()
+	h.markIdleTunnels(plans)
 	guard := newBestPathPushGuard(time.Now)
 	h.runBestPathRound(plans, results, guard, now)
 	// Plan 180: rule-level decisions after the tunnel ones, same storm guard.
@@ -296,11 +301,31 @@ func (h *Handler) runPathLatencyRound(ctx context.Context) {
 		pathLatencyLoggedAt.Store(now.Unix())
 		owners, switches, deferred, failures := h.bestPath.takeCounters()
 		rb := h.ruleBest.takeCounters()
-		log.Printf("[path-latency] round tunnels=%d edges=%d pairs=%d retries=%d duration=%s best_owners=%d best_switches=%d best_deferred=%d best_push_fail=%d best_round=%s rule_best_dests=%d rule_best_states=%d rule_best_probes=%d rule_best_dead=%d rule_best_dead_rounds=%d rule_best_retries=%d rule_best_auto_off=%d rule_best_switches=%d rule_best_deferred=%d rule_best_push_fail=%d rule_best_capped=%d (logged hourly)", len(plans), edges, len(pairs), retries, time.Since(start).Round(time.Millisecond), owners, switches, deferred, failures, bestDuration.Round(time.Microsecond), rb.Dests, rb.States, rb.Probes, rb.Dead, rb.DeadRounds, rb.Retries, rb.AutoOff, rb.Switches, rb.Deferred, rb.Failures, rb.Capped)
+		log.Printf("[path-latency] round tunnels=%d edges=%d pairs=%d retries=%d duration=%s best_owners=%d best_idle_tunnels=%d best_switches=%d best_deferred=%d best_push_fail=%d best_round=%s rule_best_dests=%d rule_best_states=%d rule_best_probes=%d rule_best_dead=%d rule_best_dead_rounds=%d rule_best_retries=%d rule_best_auto_off=%d rule_best_switches=%d rule_best_deferred=%d rule_best_push_fail=%d rule_best_capped=%d (logged hourly)", len(plans), edges, len(pairs), retries, time.Since(start).Round(time.Millisecond), owners, h.bestPath.idleTunnels(), switches, deferred, failures, bestDuration.Round(time.Microsecond), rb.Dests, rb.States, rb.Probes, rb.Dead, rb.DeadRounds, rb.Retries, rb.AutoOff, rb.Switches, rb.Deferred, rb.Failures, rb.Capped)
 	}
 }
 
 var pathLatencyLoggedAt atomic.Int64
+
+// markIdleTunnels (plan 182) flags the plans of tunnels no rule uses, from one
+// query per round, right before the decisions (so a rule created during the
+// probes counts). A failed query leaves every tunnel switching as before.
+func (h *Handler) markIdleTunnels(plans []pathLatencyPlan) {
+	if h == nil || h.repo == nil || len(plans) == 0 {
+		return
+	}
+	ids, err := h.repo.ListTunnelIDsWithForwards()
+	if err != nil {
+		return
+	}
+	used := make(map[int64]bool, len(ids))
+	for _, id := range ids {
+		used[id] = true
+	}
+	for i := range plans {
+		plans[i].Idle = !used[plans[i].TunnelID]
+	}
+}
 
 func (h *Handler) userTunnelLatency(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
