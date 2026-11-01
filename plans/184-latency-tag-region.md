@@ -97,3 +97,24 @@ User (session e42e8ad8): the rules-page 最优 line must read like the 隧道 pa
   the 隧道 chips, 隧道 chips = round 1).
 - Bundle: JS +413 B / CSS +6 B vs round 1; JS +4,513 B / CSS +2,690 B vs fork.104. No new requests / timers.
 - Not released: ships with round 1 in the next batch after the user picks A or B.
+
+## r3 不显示范围、多落地分行 + 方案 B (latency-tag-multi, 2026-11-01)
+User (session 9db8c70d, after 「28–128 ms」 in the r1/r2 galleries): never show a `min–max` range on the rules page (line or
+popup); several targets / entries → one row per target 「落地1 · 28 ms」「落地2 · 128 ms」, each with its own coloured tag
+(same thresholds); >3 rows → first 3 + 「还有 N 个」 (tap = popup with all); addresses only in the popup. Variant B
+(nested) picked → `LATENCY_TAG_STYLE = "nested"`. Same idea on the 隧道 page chips (per-owner rows, no range text).
+Prod today: 0 multi-target rules, 0 multi-entry tunnels.
+
+Found while building: the backend drops `items` when the targets share one path and only the ms differ (`multi` was
+only set for different nodes / statuses) — the frontend then has nothing but min/max. Smallest fix: `summarizeRulePick`
+also sets `multi` when the targets' rounded ms differ (items kept, ≤ entries × targets small structs, no new probes).
+So this round is frontend + one backend line (panel only, no DB change, no OTA).
+
+- [ ] R3-1 latency-tone / LatencyTag: single ms only (range branch removed), `LATENCY_TAG_STYLE = "nested"`
+- [ ] R3-2 Rules pick line: per-target / per-entry rows (落地N, 入口：X, X · 落地N), 3 + 还有 N 个, popup rows with address + own path
+- [ ] R3-3 隧道 chips: layers whose owners differ in ms → per-owner rows, no range
+- [ ] R3-4 Backend: `multi` when rounded ms differ + unit test
+- [ ] R3-5 Gates: tsc / build / lint vs e03fe705; go test handler
+- [ ] R3-6 Demo + gallery :8791 /latency-tag-multi/ (390 + 1440, light + dark)
+- [ ] R3-7 Bundle delta, release-notes.md, push, CI green
+- [ ] R3-8 Summary
