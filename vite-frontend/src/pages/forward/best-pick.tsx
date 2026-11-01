@@ -233,9 +233,11 @@ export function RuleBestPickLine({
       ? ` · ${latencyText(pick.minMs, pick.maxMs)}`
       : "";
 
+  // max-w-full: in the phone card (flex-col items-start) the line would
+  // otherwise grow with a long node name past the card edge.
   return (
     <div
-      className={`mt-1 flex min-w-0 flex-wrap items-center gap-1 ${className}`}
+      className={`mt-1 flex min-w-0 max-w-full flex-wrap items-center gap-1 ${className}`}
     >
       <Dropdown>
         <DropdownTrigger>

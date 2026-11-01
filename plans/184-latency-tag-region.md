@@ -80,9 +80,11 @@ User (session e42e8ad8): the rules-page 最优 line must read like the 隧道 pa
 - Phone: wraps only between hops; a long node name truncates inside its hop (full name in the popover); no horizontal
   scroll in the rule card.
 
-- [ ] R2-1 Pick line wording + always-tappable popover (single + multi), dropdown row wording
-- [ ] R2-2 Gates: tsc / build / lint vs round 1; backend untouched (git diff)
-- [ ] R2-3 Demo panel + gallery :8791 /latency-tag-align/ (before/after, A vs B, 390 + 1440, light + dark, tunnel chips)
-- [ ] R2-4 Bundle delta vs round 1 and vs fork.104
+- [x] R2-1 Pick line wording + always-tappable popover (single + multi), dropdown row wording
+- [x] R2-2 Gates: tsc / build / lint vs round 1; backend untouched (git diff)
+- [x] R2-3 Demo panel + gallery :8791 /latency-tag-align/ (before/after, A vs B, 390 + 1440, light + dark, tunnel chips)
+- [x] R2-4 Bundle delta vs round 1 and vs fork.104
+- [x] R2-1b Phone fix: the pick line's box is capped at the card width (`max-w-full`) — before, a long node name pushed
+      the pill past the card edge (also on fork.104); now the name truncates inside its hop
 - [ ] R2-5 release-notes.md + push + CI green
 - [ ] R2-6 Summary
