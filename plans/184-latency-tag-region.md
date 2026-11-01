@@ -116,5 +116,14 @@ So this round is frontend + one backend line (panel only, no DB change, no OTA).
 - [x] R3-4 Backend: `multi` when rounded ms differ + unit test
 - [x] R3-5 Gates: tsc / build / lint vs e03fe705; go test handler
 - [x] R3-6 Demo + gallery :8791 /latency-tag-multi/ (390 + 1440, light + dark)
-- [ ] R3-7 Bundle delta, release-notes.md, push, CI green
-- [ ] R3-8 Summary
+- [x] R3-7 Bundle delta, release-notes.md, push, CI green
+- [x] R3-8 Summary
+
+### r3 result (build, 2026-11-01)
+- Commits 167c0dfd (plan) · a884c51e (frontend + backend line + unit test) · 200c72f7 (row chip one line); CI Build Check green.
+- Backend: `summarizeRulePick` keeps items when the targets' rounded ms differ (+ `TestSummarizeRulePickKeepsItemsWhenMsDiffer`);
+  go test ./... OK except `TestExternalNodesBothDialects` (fails identically on e03fe705, pre-existing).
+- Frontend: tsc / build OK; eslint 94 errors / 3794 warnings = e03fe705. `LATENCY_TAG_STYLE = "nested"`.
+- Gallery `/root/mmwx-preview/latency-tag-multi/` (:8791), 58 screens, 241/241 browser checks (no range text anywhere).
+- Bundle: JS +3,532 B / CSS +581 B vs r2; no new requests / timers.
+- Not released: ships as 184 (r1 + r2 + r3) in the next batch after the user approves the screens.
