@@ -86,5 +86,14 @@ User (session e42e8ad8): the rules-page 最优 line must read like the 隧道 pa
 - [x] R2-4 Bundle delta vs round 1 and vs fork.104
 - [x] R2-1b Phone fix: the pick line's box is capped at the card width (`max-w-full`) — before, a long node name pushed
       the pill past the card edge (also on fork.104); now the name truncates inside its hop
-- [ ] R2-5 release-notes.md + push + CI green
-- [ ] R2-6 Summary
+- [x] R2-5 release-notes.md + push + CI green
+- [x] R2-6 Summary
+
+### r2 result (build, 2026-11-01)
+- Frontend only (`pages/forward/best-pick.tsx`); backend / agent: `git diff 254b1874 -- go-backend go-gost` empty.
+- Gates: tsc OK, vite build OK, eslint 94 errors on fork.104 = round 1 = r2 (warnings: r2 adds 0); CI Build Check green.
+- Gallery `/root/mmwx-preview/latency-tag-align/` (:8791), 63 screens, 109/109 browser checks (wording, tones, tappable +
+  chevron, no hover open, popover rows, group stays open, no mid-name wrap, line inside the phone card, same wording as
+  the 隧道 chips, 隧道 chips = round 1).
+- Bundle: JS +413 B / CSS +6 B vs round 1; JS +4,513 B / CSS +2,690 B vs fork.104. No new requests / timers.
+- Not released: ships with round 1 in the next batch after the user picks A or B.
