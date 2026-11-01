@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"go-backend/internal/cnlanding"
 	"go-backend/internal/landingcustom"
@@ -609,7 +610,7 @@ func TestExternalNodesBothDialects(t *testing.T) {
 			r := sharedLandingTestRepo(t, dialect)
 			now := int64(1793440000000)
 			for _, id := range []int64{20, 30} {
-				if err := r.DB().Create(&model.User{ID: id, User: fmt.Sprintf("u%d", id), Pwd: "x", RoleID: 1, ExpTime: now + 86400000, Flow: 100, FlowResetTime: 1, Num: 10, CreatedTime: now, Status: 1}).Error; err != nil {
+				if err := r.DB().Create(&model.User{ID: id, User: fmt.Sprintf("u%d", id), Pwd: "x", RoleID: 1, ExpTime: time.Now().UnixMilli() + 365*86400000, Flow: 100, FlowResetTime: 1, Num: 10, CreatedTime: now, Status: 1}).Error; err != nil {
 					t.Fatal(err)
 				}
 			}
