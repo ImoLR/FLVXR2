@@ -6,6 +6,7 @@ import (
 	"io"
 	mrand "math/rand/v2"
 	"os"
+	"strconv"
 	"testing"
 )
 
@@ -169,6 +170,9 @@ func TestDetectSOCKSRandomFalsePositives(t *testing.T) {
 	samples := 200000
 	if testing.Short() {
 		samples = 20000
+	}
+	if v, err := strconv.Atoi(os.Getenv("FLVX_FP_RANDOM")); err == nil && v > 0 {
+		samples = v
 	}
 	r := mrand.NewChaCha8([32]byte{1, 8, 2})
 	buf := make([]byte, 2048)
