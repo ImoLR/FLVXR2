@@ -17,29 +17,29 @@ import {
 // The admin / user app (everything except the public probe page, see
 // main.tsx). Unchanged behaviour: service worker, freshness watch, router.
 export function startAdmin() {
-const updateSW = registerSW({
-  immediate: true,
-  onNeedRefresh() {
-    showBuildUpdating();
-    void updateSW(true);
-  },
-  onRegisteredSW(_swScriptUrl, registration) {
-    if (registration) {
-      attachServiceWorkerRegistration(registration);
-    }
-  },
-});
+  const updateSW = registerSW({
+    immediate: true,
+    onNeedRefresh() {
+      showBuildUpdating();
+      void updateSW(true);
+    },
+    onRegisteredSW(_swScriptUrl, registration) {
+      if (registration) {
+        attachServiceWorkerRegistration(registration);
+      }
+    },
+  });
 
-showBuildUpdatedToast();
-startFrontendFreshnessWatch();
+  showBuildUpdatedToast();
+  startFrontendFreshnessWatch();
 
-ReactDOM.createRoot(document.getElementById("root")!).render(
-  <BrowserRouter>
-    <Provider>
-      <>
-        <App />
-      </>
-    </Provider>
-  </BrowserRouter>,
-);
+  ReactDOM.createRoot(document.getElementById("root")!).render(
+    <BrowserRouter>
+      <Provider>
+        <>
+          <App />
+        </>
+      </Provider>
+    </BrowserRouter>,
+  );
 }

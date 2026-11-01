@@ -26,7 +26,12 @@ export function ProbeSettingsCard({ enabled }: { enabled: boolean }) {
 
   const snapshot = useCallback(
     (t: string, d: string, l: boolean, n: ProbeAdminNode[]) =>
-      JSON.stringify([t.trim(), d.trim(), l, n.map((x) => [x.id, x.hidden, x.probeName.trim()])]),
+      JSON.stringify([
+        t.trim(),
+        d.trim(),
+        l,
+        n.map((x) => [x.id, x.hidden, x.probeName.trim()]),
+      ]),
     [],
   );
 
@@ -46,8 +51,17 @@ export function ProbeSettingsCard({ enabled }: { enabled: boolean }) {
   }, [snapshot]);
 
   const dirty = loaded && snapshot(title, domain, latency, nodes) !== initial;
-  const shownCount = useMemo(() => nodes.filter((n) => !n.hidden).length, [nodes]);
-  const sameHost = domain.trim() !== "" && domain.trim().toLowerCase().replace(/^https?:\/\//, "").split("/")[0] === window.location.hostname;
+  const shownCount = useMemo(
+    () => nodes.filter((n) => !n.hidden).length,
+    [nodes],
+  );
+  const sameHost =
+    domain.trim() !== "" &&
+    domain
+      .trim()
+      .toLowerCase()
+      .replace(/^https?:\/\//, "")
+      .split("/")[0] === window.location.hostname;
 
   const save = async () => {
     setSaving(true);
@@ -56,7 +70,11 @@ export function ProbeSettingsCard({ enabled }: { enabled: boolean }) {
         title: title.trim(),
         domain: domain.trim(),
         latency,
-        nodes: nodes.map((n) => ({ id: n.id, hidden: n.hidden, probeName: n.probeName.trim() })),
+        nodes: nodes.map((n) => ({
+          id: n.id,
+          hidden: n.hidden,
+          probeName: n.probeName.trim(),
+        })),
       });
 
       if (res.code !== 0) {
@@ -70,7 +88,14 @@ export function ProbeSettingsCard({ enabled }: { enabled: boolean }) {
       if (fresh.code === 0 && fresh.data) {
         setDomain(fresh.data.domain);
         setNodes(fresh.data.nodes);
-        setInitial(snapshot(fresh.data.title, fresh.data.domain, fresh.data.latency, fresh.data.nodes));
+        setInitial(
+          snapshot(
+            fresh.data.title,
+            fresh.data.domain,
+            fresh.data.latency,
+            fresh.data.nodes,
+          ),
+        );
       }
     } finally {
       setSaving(false);
@@ -88,8 +113,10 @@ export function ProbeSettingsCard({ enabled }: { enabled: boolean }) {
             <h2 className="text-lg font-semibold">公开探针页</h2>
             <p className="text-xs text-gray-500 dark:text-gray-400">
               {enabled ? "已开启：" : "未开启（在「快捷开关」里打开）："}
-              任何人都能打开 <span className="font-mono">/tz</span> 查看下面勾选的服务器：CPU、内存、硬盘、负载、网速、流量、TCP 连接数和机器之间的延迟。
-              不公开 IP、端口、节点编号、程序版本、隧道、规则和用户。
+              任何人都能打开 <span className="font-mono">/tz</span>{" "}
+              查看下面勾选的服务器：CPU、内存、硬盘、负载、网速、流量、TCP
+              连接数和机器之间的延迟。 不公开
+              IP、端口、节点编号、程序版本、隧道、规则和用户。
             </p>
           </div>
           <a
@@ -114,7 +141,11 @@ export function ProbeSettingsCard({ enabled }: { enabled: boolean }) {
         />
         <Input
           description="可选。把一个专门给探针用的域名指向本面板（在 Cloudflare 里自己添加），填在这里后：这个域名只能打开探针页，后台和所有其它接口在这个域名下都是 404。不能填你现在登录用的域名。"
-          errorMessage={sameHost ? "这是你现在正在使用的域名，保存后会进不了后台" : undefined}
+          errorMessage={
+            sameHost
+              ? "这是你现在正在使用的域名，保存后会进不了后台"
+              : undefined
+          }
           isInvalid={sameHost}
           label="探针专用域名"
           placeholder="例如 status.example.com"
@@ -123,27 +154,49 @@ export function ProbeSettingsCard({ enabled }: { enabled: boolean }) {
         />
         <div className="flex items-center justify-between gap-4">
           <div className="flex flex-col">
-            <span className="text-sm font-semibold text-gray-700 dark:text-gray-300">显示延迟</span>
+            <span className="text-sm font-semibold text-gray-700 dark:text-gray-300">
+              显示延迟
+            </span>
             <span className="text-xs text-gray-400 dark:text-gray-500">
               显示机器之间的 TCP 延迟（来自面板每分钟一次的线路测速，不额外测）
             </span>
           </div>
-          <Switch color="primary" isSelected={latency} size="sm" onValueChange={setLatency} />
+          <Switch
+            color="primary"
+            isSelected={latency}
+            size="sm"
+            onValueChange={setLatency}
+          />
         </div>
         <div>
           <div className="mb-2 flex items-center justify-between text-sm">
-            <span className="font-semibold text-gray-700 dark:text-gray-300">在探针显示的服务器</span>
+            <span className="font-semibold text-gray-700 dark:text-gray-300">
+              在探针显示的服务器
+            </span>
             <span className="text-xs text-gray-400">
               显示 {shownCount} / {nodes.length}
             </span>
           </div>
           <div className="max-h-80 overflow-y-auto rounded-lg border border-divider">
             {nodes.map((n) => (
-              <div key={n.id} className="flex items-center gap-3 border-b border-divider px-3 py-2 last:border-b-0">
-                <Switch aria-label={`在探针显示 ${n.name}`} color="success" isSelected={!n.hidden} size="sm" onValueChange={(v) => setNode(n.id, { hidden: !v })} />
-                <div className={`min-w-0 flex-1 truncate text-sm ${n.hidden ? "text-default-400 line-through" : "text-foreground"}`}>
+              <div
+                key={n.id}
+                className="flex items-center gap-3 border-b border-divider px-3 py-2 last:border-b-0"
+              >
+                <Switch
+                  aria-label={`在探针显示 ${n.name}`}
+                  color="success"
+                  isSelected={!n.hidden}
+                  size="sm"
+                  onValueChange={(v) => setNode(n.id, { hidden: !v })}
+                />
+                <div
+                  className={`min-w-0 flex-1 truncate text-sm ${n.hidden ? "text-default-400 line-through" : "text-foreground"}`}
+                >
                   {regionFlag(n.region)} {n.name}
-                  <span className={`ml-2 inline-block h-1.5 w-1.5 rounded-full align-middle ${n.online ? "bg-green-500" : "bg-default-300"}`} />
+                  <span
+                    className={`ml-2 inline-block h-1.5 w-1.5 rounded-full align-middle ${n.online ? "bg-green-500" : "bg-default-300"}`}
+                  />
                 </div>
                 <input
                   aria-label={`${n.name} 的探针显示名`}
@@ -156,11 +209,22 @@ export function ProbeSettingsCard({ enabled }: { enabled: boolean }) {
                 />
               </div>
             ))}
-            {loaded && nodes.length === 0 && <div className="px-3 py-4 text-center text-xs text-default-400">还没有节点</div>}
+            {loaded && nodes.length === 0 && (
+              <div className="px-3 py-4 text-center text-xs text-default-400">
+                还没有节点
+              </div>
+            )}
           </div>
         </div>
         <div className="flex justify-end gap-2">
-          <Button color="success" isDisabled={!dirty || sameHost} isLoading={saving} size="sm" variant="flat" onPress={() => void save()}>
+          <Button
+            color="success"
+            isDisabled={!dirty || sameHost}
+            isLoading={saving}
+            size="sm"
+            variant="flat"
+            onPress={() => void save()}
+          >
             保存探针设置
           </Button>
         </div>

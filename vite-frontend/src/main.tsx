@@ -4,17 +4,23 @@
 import "@/styles/globals.css";
 
 const PROBE_PATH = /^\/tz(\/|$)/;
-const apiBase = ((import.meta.env.VITE_API_BASE as string | undefined) || "").replace(/\/$/, "");
+const apiBase = (
+  (import.meta.env.VITE_API_BASE as string | undefined) || ""
+).replace(/\/$/, "");
 
 function startProbe() {
   // First paint: the snapshot request starts before the page chunk loads.
-  window.__flvxProbeFirst = fetch(`${apiBase}/api/v1/probe/snapshot`, { cache: "no-cache" });
+  window.__flvxProbeFirst = fetch(`${apiBase}/api/v1/probe/snapshot`, {
+    cache: "no-cache",
+  });
   void import("./probe/entry").then((m) => m.mountProbe());
 }
 
 function probeHostCheck(): Promise<boolean | null> {
   return fetch(`${apiBase}/api/v1/probe/host`, { cache: "no-store" })
-    .then(async (r) => (r.ok ? (await r.json())?.data?.probeOnly === true : false))
+    .then(async (r) =>
+      r.ok ? (await r.json())?.data?.probeOnly === true : false,
+    )
     .catch(() => null);
 }
 

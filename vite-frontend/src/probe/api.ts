@@ -46,7 +46,9 @@ export interface ProbeState {
   live: boolean;
 }
 
-const BASE = ((import.meta.env.VITE_API_BASE as string | undefined) || "").replace(/\/$/, "");
+const BASE = (
+  (import.meta.env.VITE_API_BASE as string | undefined) || ""
+).replace(/\/$/, "");
 
 export const probeUrl = (path: string) => `${BASE}/api/v1/probe/${path}`;
 
@@ -91,29 +93,55 @@ function sample(snap: ProbeSnapshot) {
 
 function sameLatency(a?: ProbeLatency[], b?: ProbeLatency[]) {
   if (a === b) return true;
-  if (!a || !b || a.length !== b.length) return (a?.length ?? 0) === 0 && (b?.length ?? 0) === 0;
+  if (!a || !b || a.length !== b.length)
+    return (a?.length ?? 0) === 0 && (b?.length ?? 0) === 0;
   for (let i = 0; i < a.length; i++) {
-    if (a[i].to !== b[i].to || a[i].ms !== b[i].ms || a[i].ok !== b[i].ok) return false;
+    if (a[i].to !== b[i].to || a[i].ms !== b[i].ms || a[i].ok !== b[i].ok)
+      return false;
   }
 
   return true;
 }
 
 const SCALARS: (keyof ProbeNode)[] = [
-  "name", "region", "online", "os", "arch", "seen", "cpu", "load1", "mem", "disk",
-  "net_in", "net_out", "traffic_in", "traffic_out", "uptime", "tcp",
+  "name",
+  "region",
+  "online",
+  "os",
+  "arch",
+  "seen",
+  "cpu",
+  "load1",
+  "mem",
+  "disk",
+  "net_in",
+  "net_out",
+  "traffic_in",
+  "traffic_out",
+  "uptime",
+  "tcp",
 ];
 
 /** Keep the previous object of every node whose visible data did not change,
  *  so memoized cards skip the render. Returns prev itself if nothing changed. */
-export function mergeSnapshot(prev: ProbeSnapshot | null, next: ProbeSnapshot): ProbeSnapshot {
+export function mergeSnapshot(
+  prev: ProbeSnapshot | null,
+  next: ProbeSnapshot,
+): ProbeSnapshot {
   if (!prev) return next;
   const old = new Map(prev.nodes.map((n) => [n.k, n]));
-  let changed = prev.nodes.length !== next.nodes.length || prev.title !== next.title || prev.latency_on !== next.latency_on;
+  let changed =
+    prev.nodes.length !== next.nodes.length ||
+    prev.title !== next.title ||
+    prev.latency_on !== next.latency_on;
   const nodes = next.nodes.map((n, i) => {
     const o = old.get(n.k);
 
-    if (o && SCALARS.every((f) => o[f] === n[f]) && sameLatency(o.latency, n.latency)) {
+    if (
+      o &&
+      SCALARS.every((f) => o[f] === n[f]) &&
+      sameLatency(o.latency, n.latency)
+    ) {
       if (prev.nodes[i] !== o) changed = true;
 
       return o;
@@ -140,7 +168,11 @@ const OFF_POLL_MS = 30_000;
 
 /** Live probe data: WebSocket (2 s pushes) + GET fallback poll. */
 export function useProbe(): ProbeState {
-  const [state, setState] = useState<ProbeState>({ snap: null, status: "loading", live: false });
+  const [state, setState] = useState<ProbeState>({
+    snap: null,
+    status: "loading",
+    live: false,
+  });
 
   useEffect(() => {
     let socket: WebSocket | null = null;
@@ -157,7 +189,11 @@ export function useProbe(): ProbeState {
     let live = false;
 
     const publish = (status: ProbeStatus) => {
-      setState((s) => (s.snap === current && s.status === status && s.live === live ? s : { snap: current, status, live }));
+      setState((s) =>
+        s.snap === current && s.status === status && s.live === live
+          ? s
+          : { snap: current, status, live },
+      );
     };
     const receive = (snap: ProbeSnapshot, fromSocket: boolean) => {
       if (!snap || !Array.isArray(snap.nodes)) return;
@@ -362,12 +398,21 @@ export interface ProbeSeries {
 
 const seriesCache = new Map<string, { at: number; data: ProbeSeries }>();
 
-export async function fetchSeries(k: string, range: string, points: number): Promise<ProbeSeries | null> {
+export async function fetchSeries(
+  k: string,
+  range: string,
+  points: number,
+): Promise<ProbeSeries | null> {
   const key = `${k}|${range}|${points}`;
   const hit = seriesCache.get(key);
 
   if (hit && Date.now() - hit.at < 30_000) return hit.data;
-  const res = await fetch(probeUrl(`series?k=${encodeURIComponent(k)}&range=${range}&points=${points}`), { cache: "no-cache" });
+  const res = await fetch(
+    probeUrl(
+      `series?k=${encodeURIComponent(k)}&range=${range}&points=${points}`,
+    ),
+    { cache: "no-cache" },
+  );
 
   if (!res.ok) return null;
   const body = await res.json();

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"runtime"
 	"sort"
 	"strings"
 	"sync/atomic"
@@ -304,5 +305,29 @@ func TestHubLoopOnlyWithViewersAndSwitchOff(t *testing.T) {
 	time.Sleep(80 * time.Millisecond)
 	if builds.Load() != n {
 		t.Fatal("builds continue without viewers")
+	}
+}
+
+// TestLatencyBookMemory: the rings stay small (resource budget, plan 187).
+func TestLatencyBookMemory(t *testing.T) {
+	var before, after runtime.MemStats
+	runtime.GC()
+	runtime.ReadMemStats(&before)
+	var b LatencyBook
+	t0 := time.Unix(1_800_000_000, 0)
+	const pairs = 200
+	for round := 0; round < LatencyRounds; round++ {
+		edges := make([]Edge, 0, pairs)
+		for i := 0; i < pairs; i++ {
+			edges = append(edges, Edge{From: int64(i/20 + 1), To: int64(i%20 + 100), MS: float64(i), OK: true})
+		}
+		b.Record(edges, t0.Add(time.Duration(round)*time.Minute))
+	}
+	runtime.GC()
+	runtime.ReadMemStats(&after)
+	per := float64(after.HeapAlloc-before.HeapAlloc) / pairs
+	t.Logf("latency rings: %d pairs × %d rounds ≈ %.0f B per pair (%.1f KB total)", b.Pairs(), LatencyRounds, per, per*pairs/1024)
+	if b.Pairs() != pairs || per > 4096 {
+		t.Fatalf("pairs %d, %.0f B per pair", b.Pairs(), per)
 	}
 }

@@ -31,6 +31,15 @@ export function formatDuration(seconds: number): string {
   return `${Math.max(1, m)} 分钟`;
 }
 
+/** Badge length: 「3 天」「5 小时」「12 分钟」. */
+export function formatShort(seconds: number): string {
+  if (!seconds || seconds < 0) return "1 分钟";
+  if (seconds >= 86400) return `${Math.floor(seconds / 86400)} 天`;
+  if (seconds >= 3600) return `${Math.floor(seconds / 3600)} 小时`;
+
+  return `${Math.max(1, Math.floor(seconds / 60))} 分钟`;
+}
+
 export function formatAgo(ms: number, now: number): string {
   if (!ms) return "很久以前";
 
@@ -42,7 +51,14 @@ export function pct(v: number): string {
 }
 
 /** Usage colour: green < 60, amber < 85, red above. */
-export type Tone = "green" | "amber" | "red" | "slate" | "teal" | "purple" | "cyan";
+export type Tone =
+  | "green"
+  | "amber"
+  | "red"
+  | "slate"
+  | "teal"
+  | "purple"
+  | "cyan";
 
 export function usageTone(p: number): Tone {
   if (p >= 85) return "red";
@@ -61,12 +77,16 @@ export function latencyTone(ms: number, ok: boolean): Tone {
 }
 
 export const toneText: Record<Tone, string> = {
-  green: "bg-green-500/15 text-green-700 dark:bg-green-400/15 dark:text-green-300",
-  amber: "bg-amber-500/15 text-amber-700 dark:bg-amber-400/15 dark:text-amber-300",
+  green:
+    "bg-green-500/15 text-green-700 dark:bg-green-400/15 dark:text-green-300",
+  amber:
+    "bg-amber-500/15 text-amber-700 dark:bg-amber-400/15 dark:text-amber-300",
   red: "bg-red-500/15 text-red-700 dark:bg-red-400/20 dark:text-red-300",
-  slate: "bg-slate-500/15 text-slate-600 dark:bg-slate-400/20 dark:text-slate-300",
+  slate:
+    "bg-slate-500/15 text-slate-600 dark:bg-slate-400/20 dark:text-slate-300",
   teal: "bg-teal-500/15 text-teal-700 dark:bg-teal-400/15 dark:text-teal-300",
-  purple: "bg-purple-500/15 text-purple-700 dark:bg-purple-400/20 dark:text-purple-300",
+  purple:
+    "bg-purple-500/15 text-purple-700 dark:bg-purple-400/20 dark:text-purple-300",
   cyan: "bg-cyan-500/15 text-cyan-700 dark:bg-cyan-400/15 dark:text-cyan-300",
 };
 

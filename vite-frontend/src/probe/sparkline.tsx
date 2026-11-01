@@ -18,7 +18,9 @@ export const Sparkline = memo(function Sparkline({
   className?: string;
   label?: string;
 }) {
-  const nums = values.filter((v): v is number => v != null && Number.isFinite(v));
+  const nums = values.filter(
+    (v): v is number => v != null && Number.isFinite(v),
+  );
   const top = Math.max(max ?? 0, ...nums, 1);
   const step = values.length > 1 ? width / (values.length - 1) : width;
   let d = "";
@@ -47,7 +49,15 @@ export const Sparkline = memo(function Sparkline({
       viewBox={`0 0 ${width} ${height}`}
       width="100%"
     >
-      <path d={d} fill="none" stroke={color} strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} vectorEffect="non-scaling-stroke" />
+      <path
+        d={d}
+        fill="none"
+        stroke={color}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth={2}
+        vectorEffect="non-scaling-stroke"
+      />
     </svg>
   );
 });
