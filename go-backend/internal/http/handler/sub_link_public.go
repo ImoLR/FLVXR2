@@ -24,7 +24,7 @@ import (
 const (
 	subCacheEntries = 256
 	subCacheBytes   = 16 << 20
-	subRenderTTL     = 60 * time.Second
+	subRenderTTL    = 60 * time.Second
 	subPullMarkGap  = 60 * time.Second
 )
 

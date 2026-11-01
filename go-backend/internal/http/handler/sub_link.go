@@ -143,7 +143,9 @@ func subDecode(r *http.Request, v interface{}) error {
 	return nil
 }
 
-func subFail(w http.ResponseWriter, err error) { response.WriteJSON(w, response.ErrDefault(err.Error())) }
+func subFail(w http.ResponseWriter, err error) {
+	response.WriteJSON(w, response.ErrDefault(err.Error()))
+}
 
 // ---------------------------------------------------------- resolution
 
@@ -807,7 +809,12 @@ func subPreviewItems(res *landingsub.Result) ([]sublink.SourceNode, []interface{
 	nodes := []sublink.SourceNode{}
 	items := []interface{}{}
 	for _, e := range res.Entries {
-		item := map[string]interface{}{"name": e.Name, "supported": e.Err == "", "reason": e.Err}
+		reason := e.Err
+		// Landing-specific advice after 「：」 does not apply here.
+		if i := strings.Index(reason, "："); i > 0 {
+			reason = reason[:i]
+		}
+		item := map[string]interface{}{"name": e.Name, "supported": e.Err == "", "reason": reason}
 		if e.Err == "" {
 			up := e.Upstream
 			up.Tag = ""
