@@ -35,6 +35,18 @@ type Entry struct {
 	// Err: the node cannot be used (unsupported protocol / field), shown
 	// greyed with this reason.
 	Err string
+	// Insecure: the link asked to skip certificate verification (only kept
+	// with Options.AllowInsecure, plan 185 subscription sources).
+	Insecure bool
+}
+
+// Options change what Parse accepts.
+type Options struct {
+	// AllowInsecure keeps nodes that skip certificate verification
+	// (allowInsecure / insecure / skip-cert-verify) instead of refusing
+	// them. Only for plan-185 subscription sources, where the user's own
+	// client connects; landing 链式代理 imports keep refusing them.
+	AllowInsecure bool
 }
 
 // Result is a parsed subscription.
@@ -46,6 +58,8 @@ type Result struct {
 	Invalid int
 	// Truncated: more than MaxEntries items; the rest were ignored.
 	Truncated bool
+
+	opt Options
 }
 
 // infoName matches provider info entries; the words come from mmwx's default
@@ -76,7 +90,10 @@ func IsInfoNode(name, host string, port int) bool {
 }
 
 // Parse reads a subscription body (any of the three formats).
-func Parse(body []byte) (*Result, error) {
+func Parse(body []byte) (*Result, error) { return ParseWith(body, Options{}) }
+
+// ParseWith is Parse with options.
+func ParseWith(body []byte, opt Options) (*Result, error) {
 	body = bytes.TrimPrefix(body, []byte("\xef\xbb\xbf"))
 	text := strings.TrimSpace(string(body))
 	if text == "" {
@@ -86,7 +103,7 @@ func Parse(body []byte) (*Result, error) {
 		text = strings.ToValidUTF8(text, "")
 	}
 	if looksLikeClash(text) {
-		return parseClash(text)
+		return parseClash(text, opt)
 	}
 	if !strings.Contains(text, "://") {
 		if decoded, ok := decodeBase64Body(text); ok {
@@ -99,7 +116,7 @@ func Parse(body []byte) (*Result, error) {
 		}
 		return nil, errors.New("无法识别订阅内容（支持 Base64 / 节点链接列表 / Clash YAML）")
 	}
-	return parseLines(text), nil
+	return parseLines(text, opt), nil
 }
 
 func looksLikeClash(text string) bool {
@@ -126,8 +143,8 @@ func decodeBase64Body(text string) (string, bool) {
 	return "", false
 }
 
-func parseLines(text string) *Result {
-	res := &Result{}
+func parseLines(text string, opt Options) *Result {
+	res := &Result{opt: opt}
 	for _, line := range strings.Split(text, "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, "//") {
@@ -148,6 +165,10 @@ func parseLines(text string) *Result {
 
 // add parses one share link; fallbackName names entries whose link has none.
 func (res *Result) add(link, fallbackName string) {
+	insecure := false
+	if res.opt.AllowInsecure {
+		link, insecure = stripInsecure(link)
+	}
 	up, name, err := linechain.ParseLink(link)
 	if name == "" {
 		name = fallbackName
@@ -174,7 +195,84 @@ func (res *Result) add(link, fallbackName string) {
 	if name == "" {
 		name = up.ProtocolLabel() + " " + up.Address()
 	}
-	res.Entries = append(res.Entries, Entry{Name: CleanName(name), Upstream: up})
+	res.Entries = append(res.Entries, Entry{Name: CleanName(name), Upstream: up, Insecure: insecure})
+}
+
+func base64Loose(s string) ([]byte, error) {
+	s = strings.TrimSpace(s)
+	var err error
+	for _, enc := range []*base64.Encoding{base64.StdEncoding, base64.RawStdEncoding, base64.URLEncoding, base64.RawURLEncoding} {
+		var b []byte
+		if b, err = enc.DecodeString(s); err == nil {
+			return b, nil
+		}
+	}
+	return nil, err
+}
+
+var insecureKeys = []string{"allowInsecure", "allowinsecure", "insecure", "skip-cert-verify"}
+
+func truthy(v string) bool {
+	v = strings.Trim(strings.ToLower(strings.TrimSpace(v)), `"`)
+	return v == "1" || v == "true"
+}
+
+// stripInsecure removes the skip-verification flag from a share link and
+// reports whether it was set, so the parser accepts the node.
+func stripInsecure(link string) (string, bool) {
+	body, fragment := link, ""
+	if i := strings.Index(link, "#"); i >= 0 {
+		body, fragment = link[:i], link[i:]
+	}
+	if strings.HasPrefix(strings.ToLower(body), "vmess://") {
+		decoded, err := base64Loose(body[len("vmess://"):])
+		if err != nil {
+			return link, false
+		}
+		var j map[string]interface{}
+		if json.Unmarshal(decoded, &j) != nil {
+			return link, false
+		}
+		found := false
+		for _, k := range insecureKeys {
+			if v, ok := j[k]; ok {
+				if truthy(fmt.Sprint(v)) {
+					found = true
+				}
+				delete(j, k)
+			}
+		}
+		if !found {
+			return link, false
+		}
+		b, _ := json.Marshal(j)
+		return "vmess://" + base64.StdEncoding.EncodeToString(b) + fragment, true
+	}
+	qi := strings.Index(body, "?")
+	if qi < 0 {
+		return link, false
+	}
+	q, err := url.ParseQuery(body[qi+1:])
+	if err != nil {
+		return link, false
+	}
+	found := false
+	for _, k := range insecureKeys {
+		if _, ok := q[k]; ok {
+			if truthy(q.Get(k)) {
+				found = true
+			}
+			q.Del(k)
+		}
+	}
+	if !found {
+		return link, false
+	}
+	out := body[:qi]
+	if enc := q.Encode(); enc != "" {
+		out += "?" + enc
+	}
+	return out + fragment, true
 }
 
 // CleanName makes a display name: valid UTF-8, no control characters, at most
@@ -240,7 +338,7 @@ type clashDoc struct {
 	Proxies []map[string]interface{} `yaml:"proxies"`
 }
 
-func parseClash(text string) (*Result, error) {
+func parseClash(text string, opt Options) (*Result, error) {
 	var doc clashDoc
 	if err := yaml.Unmarshal([]byte(text), &doc); err != nil {
 		return nil, errors.New("Clash 订阅内容格式错误，无法解析")
@@ -248,7 +346,7 @@ func parseClash(text string) (*Result, error) {
 	if len(doc.Proxies) == 0 {
 		return nil, errors.New("Clash 订阅里没有节点（proxies 为空）")
 	}
-	res := &Result{}
+	res := &Result{opt: opt}
 	for _, p := range doc.Proxies {
 		if len(res.Entries) >= MaxEntries {
 			res.Truncated = true
@@ -260,7 +358,7 @@ func parseClash(text string) (*Result, error) {
 			res.Info++
 			continue
 		}
-		link, err := clashLink(p)
+		link, err := clashLink(p, opt)
 		if err != nil {
 			if name == "" {
 				name = str(p["type"]) + " 节点"
@@ -351,7 +449,7 @@ func transport(p map[string]interface{}, q url.Values) error {
 
 // clashLink converts a Clash proxy into the equivalent share link, so the
 // one link parser validates both formats the same way.
-func clashLink(p map[string]interface{}) (string, error) {
+func clashLink(p map[string]interface{}, opt Options) (string, error) {
 	typ := strings.ToLower(str(p["type"]))
 	name := url.PathEscape(str(p["name"]))
 	q := url.Values{}
@@ -404,10 +502,13 @@ func clashLink(p map[string]interface{}) (string, error) {
 		}
 		return "trojan://" + url.PathEscape(str(p["password"])) + "@" + hostPort(p) + "?" + q.Encode() + "#" + name, nil
 	case "vmess":
-		if insecure {
+		if insecure && !opt.AllowInsecure {
 			return "", errors.New("不支持跳过证书验证（skip-cert-verify）的节点")
 		}
 		j := map[string]interface{}{"v": "2", "ps": str(p["name"]), "add": str(p["server"]), "port": num(p["port"]), "id": str(p["uuid"]), "aid": num(p["alterId"]), "scy": str(p["cipher"]), "net": strings.ToLower(str(p["network"])), "type": "none"}
+		if insecure {
+			j["allowInsecure"] = "1"
+		}
 		if flag(p["tls"]) {
 			j["tls"] = "tls"
 			j["sni"] = str(p["servername"])

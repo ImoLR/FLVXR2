@@ -182,6 +182,13 @@ func (r *Repository) DeleteUserCascade(userID int64) error {
 		if err := deleteUserLandingsTx(tx, userID); err != nil {
 			return err
 		}
+		// Plan 185: the user's subscription links and sources.
+		if err := tx.Where("user_id = ?", userID).Delete(&model.UserSubscription{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("user_id = ?", userID).Delete(&model.UserSubSource{}).Error; err != nil {
+			return err
+		}
 		return tx.Where("id = ?", userID).Delete(&model.User{}).Error
 	})
 }

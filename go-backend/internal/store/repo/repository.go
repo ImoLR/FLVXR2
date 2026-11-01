@@ -288,6 +288,7 @@ func autoMigrateAll(db *gorm.DB) error {
 		&model.UserTrafficPool{}, &model.UserTrafficPoolMember{},
 		&model.LandingOutbound{}, &model.LandingRouteProfile{}, &model.LandingWarpAccount{}, &model.LandingEgressSetting{}, &model.LandingEgressPreset{},
 		&model.ForwardChain{}, &model.ForwardChainNode{}, &model.LandingExternalNode{},
+		&model.UserSubscription{}, &model.UserSubSource{},
 		&model.User{},
 		&model.UserQuota{},
 		&model.UserQuotaHistory{},
