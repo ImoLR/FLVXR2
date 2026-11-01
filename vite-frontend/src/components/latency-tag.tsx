@@ -11,11 +11,11 @@ import {
 // 「含落地」 rides inside the tag.
 //
 // A build-time choice, not a user setting (like TUNNEL_REGION_COLORS):
-//   "sibling" (A, default) — a separate chip right after the route pill, same
-//             line, wraps together with it on phones;
-//   "nested"  (B) — the chip sits inside the route pill with its own
-//             background (kept for the screenshot comparison).
-export const LATENCY_TAG_STYLE = "sibling" as "sibling" | "nested";
+//   "sibling" (A) — a separate chip right after the route pill, same line,
+//             wraps together with it on phones (kept as the dormant option);
+//   "nested"  (B, picked by the user 2026-11-01) — the chip sits inside the
+//             route pill with its own background.
+export const LATENCY_TAG_STYLE = "nested" as "sibling" | "nested";
 
 type LatencyTagSize = "pick" | "chip" | "row";
 
@@ -38,28 +38,26 @@ const nestedClass: Record<LatencyTone, string> = {
 };
 
 export function LatencyTag({
-  minMs,
-  maxMs,
+  ms,
   withTarget = false,
   size = "pick",
   nested = false,
   className = "",
 }: {
-  minMs?: number;
-  maxMs?: number;
+  ms?: number;
   withTarget?: boolean;
   size?: LatencyTagSize;
   nested?: boolean;
   className?: string;
 }) {
-  const tone = latencyTone(minMs, maxMs);
+  const tone = latencyTone(ms);
 
   return (
     <span
       className={`inline-flex shrink-0 items-center gap-1 whitespace-nowrap font-semibold ${sizeClass[size]} ${landingToneClass[tone]} ${nested ? nestedClass[tone] : ""} ${className}`}
       data-latency-tone={tone}
     >
-      {latencyText(minMs, maxMs)}
+      {latencyText(ms)}
       {withTarget && (
         <span className="rounded-full bg-white/60 px-1 text-[10px] font-medium leading-[14px] dark:bg-black/20">
           含落地

@@ -324,6 +324,11 @@ func summarizeRulePick(pick *rulePick) {
 	if pick.MaxMs == pick.MinMs {
 		pick.MaxMs = 0
 	}
+	// Plan 184 r3: the UI never shows a ms range — targets / entries whose
+	// shown (whole) ms differ keep their items, one row each.
+	if math.Round(pick.MaxMs) != math.Round(pick.MinMs) && pick.MaxMs > 0 {
+		pick.Multi = true
+	}
 	// Layers: the applied items share the same layer labels (same tunnel).
 	parts := make([]string, 0, len(applied[0].Hops))
 	for i, hop := range applied[0].Hops {
