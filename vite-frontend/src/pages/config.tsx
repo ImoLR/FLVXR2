@@ -971,7 +971,8 @@ export default function ConfigPage() {
   return (
     <div className="grid lg:grid-cols-2 gap-6 max-w-7xl mx-auto p-6">
       {/* 左栏：基本设置 */}
-      <div>
+      {/* min-w-0: the 公开探针页 card must not widen the column on phones (plan 189) */}
+      <div className="min-w-0">
         <Card className="shadow-md dark:bg-content1">
           <CardHeader className="pb-6">
             <div className="flex items-center w-full">

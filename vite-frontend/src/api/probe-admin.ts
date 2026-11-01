@@ -10,6 +10,16 @@ export interface ProbeAdminNode {
   online: boolean;
 }
 
+// Plan 189 custom groups. New groups carry a temporary id ≤ 0; the panel
+// assigns the real one on save.
+export interface ProbeAdminGroup {
+  id: number;
+  name: string;
+  nodes: number[];
+}
+
+export type ProbeGroupMode = "region" | "group";
+
 export interface ProbeAdminSettings {
   enabled: boolean;
   title: string;
@@ -17,6 +27,8 @@ export interface ProbeAdminSettings {
   latency: boolean;
   nodes: ProbeAdminNode[];
   defaultTitle: string;
+  groups: ProbeAdminGroup[];
+  groupMode: ProbeGroupMode;
 }
 
 export interface ProbeAdminSave {
@@ -24,6 +36,8 @@ export interface ProbeAdminSave {
   domain: string;
   latency: boolean;
   nodes: { id: number; probeName: string; hidden: boolean }[];
+  groups: ProbeAdminGroup[];
+  groupMode: ProbeGroupMode;
 }
 
 export const getProbeSettings = () =>

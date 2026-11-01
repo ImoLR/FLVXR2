@@ -1,4 +1,8 @@
-import type { ProbeAdminNode } from "@/api/probe-admin";
+import type {
+  ProbeAdminGroup,
+  ProbeAdminNode,
+  ProbeGroupMode,
+} from "@/api/probe-admin";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import toast from "react-hot-toast";
@@ -10,10 +14,15 @@ import { Divider } from "@/shadcn-bridge/heroui/divider";
 import { Input } from "@/shadcn-bridge/heroui/input";
 import { Switch } from "@/shadcn-bridge/heroui/switch";
 import { regionFlag } from "@/utils/region";
+import { useMobileBreakpoint } from "@/hooks/useMobileBreakpoint";
+import {
+  ProbeGroupPicker,
+  ProbeGroupsEditor,
+} from "@/pages/probe-groups-editor";
 
 // Plan 187 设置 → 公开探针页: title, optional probe-only domain, latency on/off
 // and per-node 「在探针显示」 + 探针显示名. The on/off switch itself stays in
-// 快捷开关 (login_monitor_link).
+// 快捷开关 (login_monitor_link). Plan 189 adds 探针分组 + 默认分组方式.
 export function ProbeSettingsCard({ enabled }: { enabled: boolean }) {
   const [loaded, setLoaded] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -22,15 +31,28 @@ export function ProbeSettingsCard({ enabled }: { enabled: boolean }) {
   const [domain, setDomain] = useState("");
   const [latency, setLatency] = useState(true);
   const [nodes, setNodes] = useState<ProbeAdminNode[]>([]);
+  const [groups, setGroups] = useState<ProbeAdminGroup[]>([]);
+  const [groupMode, setGroupMode] = useState<ProbeGroupMode>("region");
   const [initial, setInitial] = useState("");
+  // Phones: 显示名 goes under the name (plan 189), so the name keeps its room.
+  const narrow = useMobileBreakpoint(640);
 
   const snapshot = useCallback(
-    (t: string, d: string, l: boolean, n: ProbeAdminNode[]) =>
+    (
+      t: string,
+      d: string,
+      l: boolean,
+      n: ProbeAdminNode[],
+      g: ProbeAdminGroup[],
+      m: ProbeGroupMode,
+    ) =>
       JSON.stringify([
         t.trim(),
         d.trim(),
         l,
         n.map((x) => [x.id, x.hidden, x.probeName.trim()]),
+        g.map((x) => [x.id, x.name, [...x.nodes].sort((a, b) => a - b)]),
+        m,
       ]),
     [],
   );
@@ -45,15 +67,50 @@ export function ProbeSettingsCard({ enabled }: { enabled: boolean }) {
       setDomain(d.domain);
       setLatency(d.latency);
       setNodes(d.nodes);
-      setInitial(snapshot(d.title, d.domain, d.latency, d.nodes));
+      setGroups(d.groups ?? []);
+      setGroupMode(d.groupMode ?? "region");
+      setInitial(
+        snapshot(
+          d.title,
+          d.domain,
+          d.latency,
+          d.nodes,
+          d.groups ?? [],
+          d.groupMode ?? "region",
+        ),
+      );
       setLoaded(true);
     });
   }, [snapshot]);
 
-  const dirty = loaded && snapshot(title, domain, latency, nodes) !== initial;
+  const dirty =
+    loaded &&
+    snapshot(title, domain, latency, nodes, groups, groupMode) !== initial;
   const shownCount = useMemo(
     () => nodes.filter((n) => !n.hidden).length,
     [nodes],
+  );
+  const shownIds = useMemo(
+    () => new Set(nodes.filter((n) => !n.hidden).map((n) => n.id)),
+    [nodes],
+  );
+  const toggleGroup = useCallback(
+    (groupId: number, nodeId: number, on: boolean) =>
+      setGroups((list) =>
+        list.map((g) =>
+          g.id !== groupId
+            ? g
+            : {
+                ...g,
+                nodes: on
+                  ? g.nodes.includes(nodeId)
+                    ? g.nodes
+                    : [...g.nodes, nodeId]
+                  : g.nodes.filter((id) => id !== nodeId),
+              },
+        ),
+      ),
+    [],
   );
   const sameHost =
     domain.trim() !== "" &&
@@ -75,6 +132,12 @@ export function ProbeSettingsCard({ enabled }: { enabled: boolean }) {
           hidden: n.hidden,
           probeName: n.probeName.trim(),
         })),
+        groups: groups.map((g) => ({
+          id: g.id > 0 ? g.id : 0,
+          name: g.name.trim(),
+          nodes: g.nodes,
+        })),
+        groupMode,
       });
 
       if (res.code !== 0) {
@@ -88,12 +151,16 @@ export function ProbeSettingsCard({ enabled }: { enabled: boolean }) {
       if (fresh.code === 0 && fresh.data) {
         setDomain(fresh.data.domain);
         setNodes(fresh.data.nodes);
+        setGroups(fresh.data.groups ?? []);
+        setGroupMode(fresh.data.groupMode ?? "region");
         setInitial(
           snapshot(
             fresh.data.title,
             fresh.data.domain,
             fresh.data.latency,
             fresh.data.nodes,
+            fresh.data.groups ?? [],
+            fresh.data.groupMode ?? "region",
           ),
         );
       }
@@ -104,6 +171,18 @@ export function ProbeSettingsCard({ enabled }: { enabled: boolean }) {
 
   const setNode = (id: number, patch: Partial<ProbeAdminNode>) =>
     setNodes((list) => list.map((n) => (n.id === id ? { ...n, ...patch } : n)));
+  // 显示名: right of the name on wide screens, under it on phones (plan 189).
+  const nameInput = (n: ProbeAdminNode, cls: string) => (
+    <input
+      aria-label={`${n.name} 的探针显示名`}
+      className={`h-8 rounded-md border border-divider bg-transparent px-2 text-sm outline-none placeholder:text-default-400 focus:border-teal-500 disabled:opacity-50 ${cls}`}
+      disabled={n.hidden}
+      maxLength={30}
+      placeholder="显示名（默认原名）"
+      value={n.probeName}
+      onChange={(e) => setNode(n.id, { probeName: e.target.value })}
+    />
+  );
 
   return (
     <Card className="mt-6 shadow-md dark:bg-content1">
@@ -168,6 +247,13 @@ export function ProbeSettingsCard({ enabled }: { enabled: boolean }) {
             onValueChange={setLatency}
           />
         </div>
+        <ProbeGroupsEditor
+          groups={groups}
+          mode={groupMode}
+          shownIds={shownIds}
+          onGroups={setGroups}
+          onMode={setGroupMode}
+        />
         <div>
           <div className="mb-2 flex items-center justify-between text-sm">
             <span className="font-semibold text-gray-700 dark:text-gray-300">
@@ -177,11 +263,14 @@ export function ProbeSettingsCard({ enabled }: { enabled: boolean }) {
               显示 {shownCount} / {nodes.length}
             </span>
           </div>
-          <div className="max-h-80 overflow-y-auto rounded-lg border border-divider">
+          <div
+            className={`${groups.length > 0 ? "max-h-[28rem]" : "max-h-80"} overflow-y-auto rounded-lg border border-divider`}
+          >
             {nodes.map((n) => (
               <div
                 key={n.id}
                 className="flex items-center gap-3 border-b border-divider px-3 py-2 last:border-b-0"
+                data-probe-node={n.name}
               >
                 <Switch
                   aria-label={`在探针显示 ${n.name}`}
@@ -190,23 +279,29 @@ export function ProbeSettingsCard({ enabled }: { enabled: boolean }) {
                   size="sm"
                   onValueChange={(v) => setNode(n.id, { hidden: !v })}
                 />
-                <div
-                  className={`min-w-0 flex-1 truncate text-sm ${n.hidden ? "text-default-400 line-through" : "text-foreground"}`}
-                >
-                  {regionFlag(n.region)} {n.name}
-                  <span
-                    className={`ml-2 inline-block h-1.5 w-1.5 rounded-full align-middle ${n.online ? "bg-green-500" : "bg-default-300"}`}
-                  />
+                <div className="min-w-0 flex-1">
+                  <div
+                    className={`truncate text-sm ${n.hidden ? "text-default-400 line-through" : "text-foreground"}`}
+                  >
+                    {regionFlag(n.region)} {n.name}
+                    <span
+                      className={`ml-2 inline-block h-1.5 w-1.5 rounded-full align-middle ${n.online ? "bg-green-500" : "bg-default-300"}`}
+                    />
+                  </div>
+                  {groups.length > 0 && (
+                    <div className="mt-1">
+                      <ProbeGroupPicker
+                        dim={n.hidden}
+                        groups={groups}
+                        nodeId={n.id}
+                        nodeName={n.name}
+                        onToggle={toggleGroup}
+                      />
+                    </div>
+                  )}
+                  {narrow && nameInput(n, "mt-1.5 w-full")}
                 </div>
-                <input
-                  aria-label={`${n.name} 的探针显示名`}
-                  className="h-8 w-40 rounded-md border border-divider bg-transparent px-2 text-sm outline-none placeholder:text-default-400 focus:border-teal-500 disabled:opacity-50"
-                  disabled={n.hidden}
-                  maxLength={30}
-                  placeholder="显示名（默认原名）"
-                  value={n.probeName}
-                  onChange={(e) => setNode(n.id, { probeName: e.target.value })}
-                />
+                {!narrow && nameInput(n, "w-40 shrink-0")}
               </div>
             ))}
             {loaded && nodes.length === 0 && (

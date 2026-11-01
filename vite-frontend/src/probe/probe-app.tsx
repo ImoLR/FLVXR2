@@ -2,7 +2,7 @@
 // first data from a GET fired before this chunk loaded, no spinner after the
 // first paint, memoized cards keyed by the opaque node key, CSS transitions
 // for bars, tabular numbers, nothing animated on entry.
-import type { ProbeNode, ProbeSnapshot } from "./api";
+import type { ProbeGroupMode, ProbeNode, ProbeSnapshot } from "./api";
 
 import {
   Suspense,
@@ -35,6 +35,10 @@ type ViewMode = "cards" | "table";
 
 const VIEW_KEY = "flvx-probe-view";
 const SORT_KEY = "flvx-probe-sort";
+// Plan 189: the visitor's 地区 / 分组 choice (absent = the admin default).
+const GROUP_MODE_KEY = "flvx-probe-group-mode";
+// Pill value for machines in no custom group.
+const UNGROUPED = "\u0000none";
 
 function useCoarseNow(everyMs: number) {
   const [now, setNow] = useState(() => Date.now());
@@ -293,6 +297,12 @@ export default function ProbeApp() {
   const [view, setView] = useState<ViewMode>(() =>
     stored(VIEW_KEY, ["cards", "table"] as const, "cards"),
   );
+  const [modePref, setModePref] = useState<ProbeGroupMode | null>(() => {
+    const v = stored(GROUP_MODE_KEY, ["region", "group", ""] as const, "");
+
+    return v === "" ? null : v;
+  });
+  const [group, setGroup] = useState("");
   const [openKey, setOpenKey] = useState<string | null>(null);
   const [probeHost, setProbeHost] = useState<boolean | null>(() => {
     try {
@@ -364,6 +374,37 @@ export default function ProbeApp() {
     return [...counts.entries()].sort((a, b) => compareRegions(a[0], b[0]));
   }, [nodes]);
 
+  // Plan 189 custom groups: published only when one holds a shown machine.
+  const groupSig = (snap?.groups ?? []).map((g) => g.name).join("\u0000");
+  const groupNames = useMemo(
+    () => (groupSig === "" ? [] : groupSig.split("\u0000")),
+    [groupSig],
+  );
+  const hasGroups = groupNames.length > 0;
+  const mode: ProbeGroupMode = hasGroups
+    ? (modePref ?? snap?.group_mode ?? "region")
+    : "region";
+  const groupCounts = useMemo(() => {
+    const counts = groupNames.map(() => 0);
+    let none = 0;
+
+    for (const n of nodes ?? []) {
+      if (!n.g?.length) none++;
+      for (const i of n.g ?? []) if (i < counts.length) counts[i]++;
+    }
+
+    return { counts, none };
+  }, [nodes, groupNames]);
+  // A pill whose group the admin removed meanwhile falls back to 全部.
+  const groupIdx =
+    group === "" || group === UNGROUPED ? -1 : groupNames.indexOf(group);
+  const groupSel =
+    group === UNGROUPED && groupCounts.none > 0
+      ? UNGROUPED
+      : groupIdx >= 0
+        ? group
+        : "";
+
   const shown = useMemo(() => {
     let list: ProbeNode[] = nodes ?? [];
     const q = query.trim().toLowerCase();
@@ -371,10 +412,17 @@ export default function ProbeApp() {
     if (q)
       list = list.filter(
         (n) =>
-          n.name.toLowerCase().includes(q) || regionName(n.region).includes(q),
+          n.name.toLowerCase().includes(q) ||
+          regionName(n.region).includes(q) ||
+          (mode === "group" &&
+            (n.g ?? []).some((i) => groupNames[i]?.toLowerCase().includes(q))),
       );
-    if (region)
+    if (mode === "region" && region)
       list = list.filter((n) => n.region === (region === "-" ? "" : region));
+    if (mode === "group" && groupSel === UNGROUPED)
+      list = list.filter((n) => !n.g?.length);
+    else if (mode === "group" && groupIdx >= 0)
+      list = list.filter((n) => n.g?.includes(groupIdx));
     if (sort !== "default") {
       const val = (n: ProbeNode) =>
         sort === "cpu" ? n.cpu : n.net_in + n.net_out;
@@ -385,7 +433,7 @@ export default function ProbeApp() {
     }
 
     return list;
-  }, [nodes, query, region, sort]);
+  }, [nodes, query, region, sort, mode, groupSel, groupIdx, groupNames]);
 
   const onOpen = useCallback((k: string) => setOpenKey(k), []);
   const openNode = openKey ? nodes?.find((n) => n.k === openKey) : undefined;
@@ -401,6 +449,16 @@ export default function ProbeApp() {
       /* ignore */
     }
   };
+  const setModeStored = (v: ProbeGroupMode) => {
+    setModePref(v);
+    try {
+      localStorage.setItem(GROUP_MODE_KEY, v);
+    } catch {
+      /* ignore */
+    }
+  };
+  const pill = (active: boolean) =>
+    `${SEG} ${active ? "bg-teal-500/20 text-teal-700 dark:bg-teal-400/20 dark:text-teal-200" : "bg-slate-500/10 text-default-600 dark:bg-slate-400/10"}`;
   const setViewStored = (v: ViewMode) => {
     setView(v);
     try {
@@ -461,7 +519,50 @@ export default function ProbeApp() {
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
               />
-              {regions.length > 1 && (
+              {hasGroups && (
+                <Segmented
+                  label="分组方式"
+                  options={[
+                    { v: "region", t: "地区" },
+                    { v: "group", t: "分组" },
+                  ]}
+                  value={mode}
+                  onChange={setModeStored}
+                />
+              )}
+              {mode === "group" && (
+                <div className="flex flex-wrap gap-1.5">
+                  <button
+                    className={pill(groupSel === "")}
+                    type="button"
+                    onClick={() => setGroup("")}
+                  >
+                    全部 {snap.nodes.length}
+                  </button>
+                  {groupNames.map((name, i) => (
+                    <button
+                      key={name}
+                      className={pill(groupSel === name)}
+                      type="button"
+                      onClick={() => setGroup(groupSel === name ? "" : name)}
+                    >
+                      {name} {groupCounts.counts[i]}
+                    </button>
+                  ))}
+                  {groupCounts.none > 0 && (
+                    <button
+                      className={pill(groupSel === UNGROUPED)}
+                      type="button"
+                      onClick={() =>
+                        setGroup(groupSel === UNGROUPED ? "" : UNGROUPED)
+                      }
+                    >
+                      未分组 {groupCounts.none}
+                    </button>
+                  )}
+                </div>
+              )}
+              {mode === "region" && regions.length > 1 && (
                 <div className="flex flex-wrap gap-1.5">
                   <button
                     className={`${SEG} ${region === "" ? "bg-teal-500/20 text-teal-700 dark:bg-teal-400/20 dark:text-teal-200" : "bg-slate-500/10 text-default-600 dark:bg-slate-400/10"}`}

@@ -28,13 +28,24 @@ export interface ProbeNode {
   uptime: number;
   tcp: number;
   latency?: ProbeLatency[];
+  /** Plan 189: indexes into ProbeSnapshot.groups (absent = in no group). */
+  g?: number[];
 }
+
+export interface ProbeGroup {
+  name: string;
+}
+
+export type ProbeGroupMode = "region" | "group";
 
 export interface ProbeSnapshot {
   title: string;
   ts: number;
   latency_on: boolean;
   nodes: ProbeNode[];
+  /** Plan 189: only groups with a shown machine; absent when none. */
+  groups?: ProbeGroup[];
+  group_mode?: ProbeGroupMode;
 }
 
 export type ProbeStatus = "loading" | "ok" | "off" | "error";
@@ -103,6 +114,17 @@ function sameLatency(a?: ProbeLatency[], b?: ProbeLatency[]) {
   return true;
 }
 
+function sameNums(a?: number[], b?: number[]) {
+  if (a === b) return true;
+  if ((a?.length ?? 0) !== (b?.length ?? 0)) return false;
+  for (let i = 0; i < (a?.length ?? 0); i++) if (a![i] !== b![i]) return false;
+
+  return true;
+}
+
+const groupSig = (s: ProbeSnapshot) =>
+  `${s.group_mode ?? ""}|${(s.groups ?? []).map((g) => g.name).join("\u0000")}`;
+
 const SCALARS: (keyof ProbeNode)[] = [
   "name",
   "region",
@@ -133,14 +155,16 @@ export function mergeSnapshot(
   let changed =
     prev.nodes.length !== next.nodes.length ||
     prev.title !== next.title ||
-    prev.latency_on !== next.latency_on;
+    prev.latency_on !== next.latency_on ||
+    groupSig(prev) !== groupSig(next);
   const nodes = next.nodes.map((n, i) => {
     const o = old.get(n.k);
 
     if (
       o &&
       SCALARS.every((f) => o[f] === n[f]) &&
-      sameLatency(o.latency, n.latency)
+      sameLatency(o.latency, n.latency) &&
+      sameNums(o.g, n.g)
     ) {
       if (prev.nodes[i] !== o) changed = true;
 
