@@ -421,6 +421,10 @@ type Tunnel struct {
 	// Plan 180 「规则最优」: 1 = rules on this tunnel also count exit→target in
 	// the 最优 choice (default on); 0 = tunnel 最优 only (plan 165 behaviour).
 	RuleBest int `gorm:"column:rule_best;not null;default:1"`
+	// Plan 184 「显示地区」: ISO region code users see the tunnel under (picker
+	// sections, tunnel page groups); '' = automatic (exit-node region, entry
+	// region for 端口转发). Display only — never changes the route.
+	RegionOverride string `gorm:"column:region_override;type:varchar(8);not null;default:''"`
 }
 
 func (Tunnel) TableName() string { return "tunnel" }
@@ -776,19 +780,21 @@ type NodeBackup struct {
 }
 
 type TunnelBackup struct {
-	ID           int64               `json:"id"`
-	Name         string              `json:"name"`
-	TrafficRatio float64             `json:"trafficRatio"`
-	Type         int                 `json:"type"`
-	Protocol     string              `json:"protocol"`
-	Flow         int64               `json:"flow"`
-	CreatedTime  int64               `json:"createdTime"`
-	UpdatedTime  int64               `json:"updatedTime"`
-	Status       int                 `json:"status"`
-	InIP         string              `json:"inIp,omitempty"`
-	Inx          int                 `json:"inx"`
-	IPPreference string              `json:"ipPreference,omitempty"`
-	ChainTunnels []ChainTunnelBackup `json:"chainTunnels,omitempty"`
+	ID           int64   `json:"id"`
+	Name         string  `json:"name"`
+	TrafficRatio float64 `json:"trafficRatio"`
+	Type         int     `json:"type"`
+	Protocol     string  `json:"protocol"`
+	Flow         int64   `json:"flow"`
+	CreatedTime  int64   `json:"createdTime"`
+	UpdatedTime  int64   `json:"updatedTime"`
+	Status       int     `json:"status"`
+	InIP         string  `json:"inIp,omitempty"`
+	Inx          int     `json:"inx"`
+	IPPreference string  `json:"ipPreference,omitempty"`
+	// RegionOverride: 「显示地区」 (plan 184).
+	RegionOverride string              `json:"regionOverride,omitempty"`
+	ChainTunnels   []ChainTunnelBackup `json:"chainTunnels,omitempty"`
 }
 
 type ChainTunnelBackup struct {
@@ -953,17 +959,19 @@ type ForwardRecord struct {
 
 // TunnelRecord is a minimal tunnel view used by control plane.
 type TunnelRecord struct {
-	ID           int64
-	Type         int
-	Status       int
-	RuleBest     int // plan 180
-	Flow         int64
-	TrafficRatio float64
-	SpeedID      sql.NullInt64
-	HTTP         int
-	TLS          int
-	Socks        int
-	BlockOther   int
+	ID       int64
+	Type     int
+	Status   int
+	RuleBest int // plan 180
+	// RegionOverride is the 「显示地区」 (plan 184), '' = automatic.
+	RegionOverride string
+	Flow           int64
+	TrafficRatio   float64
+	SpeedID        sql.NullInt64
+	HTTP           int
+	TLS            int
+	Socks          int
+	BlockOther     int
 }
 
 type UserQuotaView struct {

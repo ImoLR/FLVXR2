@@ -2,6 +2,7 @@ package repo
 
 import (
 	"crypto/sha256"
+	"errors"
 	"fmt"
 	"sort"
 	"strconv"
@@ -9,6 +10,9 @@ import (
 
 	"golang.org/x/text/language"
 	"golang.org/x/text/language/display"
+	"gorm.io/gorm"
+
+	"go-backend/internal/store/model"
 )
 
 type tunnelEntryNode struct {
@@ -29,33 +33,41 @@ type tunnelEntryGroup struct {
 }
 
 type tunnelRegionRow struct {
-	TunnelID   int64
-	TunnelType int
-	ChainType  string
-	NodeID     int64
-	Name       string
-	Region     string
-	RegionCity string
-	EntryAlias string
+	TunnelID       int64
+	TunnelType     int
+	RegionOverride string // tunnel.region_override (plan 184), same on every row of a tunnel
+	ChainType      string // '' on the single row of a tunnel without entry/exit rows
+	NodeID         int64
+	Name           string
+	Region         string
+	RegionCity     string
+	EntryAlias     string
 }
 
 type tunnelRegionInfo struct {
-	EntryNodes  []tunnelEntryNode
+	EntryNodes []tunnelEntryNode
+	// ExitRegions is what everyone sees the tunnel under: the 「显示地区」
+	// override when set (one region), else the automatic exit regions.
 	ExitRegions []string
+	// AutoExitRegions are the automatic (real) exit regions; admin only.
+	AutoExitRegions []string
+	RegionOverride  string
 }
 
-// One query for the entire list, including tunnels with several entries/exits.
+// One query for the entire list, including tunnels with several entries/exits
+// (plan 184: driven by tunnel so the override also reaches a tunnel without
+// chain rows; still one query, one extra column).
 func (r *Repository) loadTunnelRegions(ids []int64) (map[int64]tunnelRegionInfo, error) {
 	if len(ids) == 0 {
 		return map[int64]tunnelRegionInfo{}, nil
 	}
 	var rows []tunnelRegionRow
-	err := r.db.Table("chain_tunnel AS c").
-		Select("c.tunnel_id, t.type AS tunnel_type, c.chain_type, c.node_id, n.name, n.region, n.region_city, COALESCE(n.entry_alias, '') AS entry_alias").
-		Joins("JOIN tunnel AS t ON t.id = c.tunnel_id").
+	err := r.db.Table("tunnel AS t").
+		Select("t.id AS tunnel_id, t.type AS tunnel_type, COALESCE(t.region_override, '') AS region_override, COALESCE(c.chain_type, '') AS chain_type, COALESCE(c.node_id, 0) AS node_id, COALESCE(n.name, '') AS name, COALESCE(n.region, '') AS region, COALESCE(n.region_city, '') AS region_city, COALESCE(n.entry_alias, '') AS entry_alias").
+		Joins("LEFT JOIN chain_tunnel AS c ON c.tunnel_id = t.id AND c.chain_type IN ?", []string{"1", "3"}).
 		Joins("LEFT JOIN node AS n ON n.id = c.node_id").
-		Where("c.tunnel_id IN ? AND c.chain_type IN ?", ids, []string{"1", "3"}).
-		Order("c.tunnel_id ASC, c.chain_type ASC, c.inx ASC, c.id ASC").Find(&rows).Error
+		Where("t.id IN ?", ids).
+		Order("t.id ASC, c.chain_type ASC, c.inx ASC, c.id ASC").Find(&rows).Error
 	if err != nil {
 		return nil, err
 	}
@@ -69,6 +81,9 @@ func deriveTunnelRegions(ids []int64, rows []tunnelRegionRow) map[int64]tunnelRe
 	}
 	for _, row := range rows {
 		info := result[row.TunnelID]
+		if row.RegionOverride != "" {
+			info.RegionOverride = row.RegionOverride
+		}
 		if row.ChainType == "1" {
 			found := false
 			for _, entry := range info.EntryNodes {
@@ -106,9 +121,44 @@ func deriveTunnelRegions(ids []int64, rows []tunnelRegionRow) map[int64]tunnelRe
 			}
 			return regionName(a) < regionName(b)
 		})
+		info.AutoExitRegions = info.ExitRegions
+		if override := normalizedRegionOverride(info.RegionOverride); override != "" {
+			info.RegionOverride = override
+			info.ExitRegions = []string{override}
+		} else {
+			info.RegionOverride = ""
+		}
 		result[id] = info
 	}
 	return result
+}
+
+// normalizedRegionOverride returns a stored 「显示地区」 code in canonical
+// form, or ” when it is empty or not a valid region (treated as automatic).
+func normalizedRegionOverride(code string) string {
+	normalized, err := NormalizeTunnelRegionOverride(code)
+	if err != nil {
+		return ""
+	}
+	return normalized
+}
+
+// NormalizeTunnelRegionOverride validates a 「显示地区」 code (plan 184): ”
+// (automatic) or a two-letter ISO 3166-1 country/region code, upper-cased —
+// the same list the node region editor offers.
+func NormalizeTunnelRegionOverride(code string) (string, error) {
+	code = strings.ToUpper(strings.TrimSpace(code))
+	if code == "" {
+		return "", nil
+	}
+	if len(code) != 2 || code[0] < 'A' || code[0] > 'Z' || code[1] < 'A' || code[1] > 'Z' {
+		return "", errors.New("显示地区须为两位地区代码或留空（自动）")
+	}
+	region, err := language.ParseRegion(code)
+	if err != nil || !region.IsCountry() {
+		return "", errors.New("未知的显示地区代码：" + code)
+	}
+	return code, nil
 }
 
 func regionOrder(code string) int {
@@ -168,4 +218,22 @@ func (info tunnelRegionInfo) entryGroups(admin bool) []tunnelEntryGroup {
 		}
 	}
 	return groups
+}
+
+// SetTunnelRegionOverrideTx stores the 「显示地区」 of a tunnel (plan 184):
+// a column write only — no runtime push, nothing on the nodes changes.
+// tx nil = the repository connection. Returns false when the tunnel is gone.
+func (r *Repository) SetTunnelRegionOverrideTx(tx *gorm.DB, tunnelID int64, code string) (bool, error) {
+	if r == nil || r.db == nil {
+		return false, errors.New("repository not initialized")
+	}
+	normalized, err := NormalizeTunnelRegionOverride(code)
+	if err != nil {
+		return false, err
+	}
+	if tx == nil {
+		tx = r.db
+	}
+	res := tx.Model(&model.Tunnel{}).Where("id = ?", tunnelID).Update("region_override", normalized)
+	return res.RowsAffected > 0, res.Error
 }

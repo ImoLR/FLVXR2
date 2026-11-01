@@ -346,6 +346,8 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("/api/v1/tunnel/create", h.tunnelCreate)
 	mux.HandleFunc("/api/v1/tunnel/get", h.tunnelGet)
 	mux.HandleFunc("/api/v1/tunnel/update", h.tunnelUpdate)
+	// Plan 184: 「显示地区」 only (DB write, no node push).
+	mux.HandleFunc("/api/v1/tunnel/region", h.tunnelRegionUpdate)
 	mux.HandleFunc("/api/v1/tunnel/delete", h.tunnelDelete)
 	mux.HandleFunc("/api/v1/tunnel/delete-preview", h.tunnelDeletePreview)
 	mux.HandleFunc("/api/v1/tunnel/delete-with-forwards", h.tunnelDeleteWithForwards)

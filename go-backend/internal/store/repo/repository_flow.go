@@ -259,17 +259,18 @@ func (r *Repository) GetTunnelRecord(tunnelID int64) (*model.TunnelRecord, error
 		return nil, err
 	}
 	tr := model.TunnelRecord{
-		ID:           t.ID,
-		Type:         t.Type,
-		Status:       t.Status,
-		RuleBest:     t.RuleBest,
-		Flow:         t.Flow,
-		TrafficRatio: t.TrafficRatio,
-		SpeedID:      t.SpeedID,
-		HTTP:         t.HTTP,
-		TLS:          t.TLS,
-		Socks:        t.Socks,
-		BlockOther:   t.BlockOther,
+		ID:             t.ID,
+		Type:           t.Type,
+		Status:         t.Status,
+		RuleBest:       t.RuleBest,
+		RegionOverride: t.RegionOverride,
+		Flow:           t.Flow,
+		TrafficRatio:   t.TrafficRatio,
+		SpeedID:        t.SpeedID,
+		HTTP:           t.HTTP,
+		TLS:            t.TLS,
+		Socks:          t.Socks,
+		BlockOther:     t.BlockOther,
 	}
 	if tr.Flow <= 0 {
 		tr.Flow = 1

@@ -47,9 +47,9 @@ User request (2026-11-01, session 9db8c70d):
 - [ ] A1 latency tone helper + LatencyTag component (variant constant)
 - [ ] A2 rules page pick line + dropdown rows
 - [ ] A3 tunnel page 最优 chips + detail rows
-- [ ] B1 model column + normalize/validate + deriveTunnelRegions override + list outputs
-- [ ] B2 create/update/region endpoint + split twin + typed backup field
-- [ ] B3 unit tests (deriveTunnelRegions type 1/2 override) + contract tests (create/update/region/list, invalid code,
+- [x] B1 model column + normalize/validate + deriveTunnelRegions override + list outputs
+- [x] B2 create/update/region endpoint + split twin + typed backup field
+- [x] B3 unit tests (deriveTunnelRegions type 1/2 override) + contract tests (create/update/region/list, invalid code,
       non-admin view)
 - [ ] B4 frontend: form select, 手动 marker, fallback, region-only save via /tunnel/region
 - [ ] Gates: go build/vet, go test ./... (SQLite), PostgreSQL contract, tsc/build/lint vs base

@@ -1964,6 +1964,10 @@ func (r *Repository) ListTunnels() ([]map[string]interface{}, error) {
 		if t, ok := tunnelMap[id]; ok {
 			t["entryNodes"] = regionMap[id].EntryNodes
 			t["exitRegions"] = regionMap[id].ExitRegions
+			// Plan 184 (admin listing only): the 「显示地区」 override and the
+			// real exit regions behind it (the 「手动」 marker's 实际出口).
+			t["regionOverride"] = regionMap[id].RegionOverride
+			t["autoExitRegions"] = regionMap[id].AutoExitRegions
 			// Admin-only listing: {入口} rendered with every entry; the raw
 			// template stays available for the tunnel edit form (plan 152).
 			if raw, _ := t["name"].(string); HasTunnelEntryToken(raw) {
@@ -2913,6 +2917,7 @@ func (r *Repository) exportTunnels() ([]model.TunnelBackup, error) {
 			Type: t.Type, Protocol: t.Protocol, Flow: t.Flow,
 			CreatedTime: t.CreatedTime, UpdatedTime: t.UpdatedTime,
 			Status: t.Status, Inx: t.Inx, IPPreference: t.IPPreference,
+			RegionOverride: t.RegionOverride,
 		}
 		if t.InIP.Valid {
 			b.InIP = t.InIP.String
