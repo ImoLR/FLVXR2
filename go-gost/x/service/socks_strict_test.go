@@ -242,7 +242,7 @@ func TestProtocolBlockCountersCountBlocksOnly(t *testing.T) {
 	isProtocolBlocked([]byte{0x16, 0x03, 0x01, 0x02, 0x00}, flags)
 	isProtocolBlocked(mustHex(t, "050100"), flags)
 	isProtocolBlocked(mustHex(t, "050100"), flags)
-	isProtocolBlocked(mustHex(t, "0501000000"), flags)                    // not SOCKS, other allowed
+	isProtocolBlocked(mustHex(t, "0501000000"), flags)                   // not SOCKS, other allowed
 	isProtocolBlocked(mustHex(t, "050100"), protocolBlockFlags{http: 1}) // SOCKS allowed
 	isProtocolBlocked([]byte{0x99, 0x01}, protocolBlockFlags{blockOther: 1})
 	h1, t1, s1, o1 := ProtocolBlockCounts()

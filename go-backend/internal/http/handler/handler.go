@@ -862,6 +862,12 @@ func (h *Handler) nodeList(w http.ResponseWriter, r *http.Request) {
 		if view := ddnsViews[id]; view != nil {
 			item["ddns"] = view
 		}
+		// Plan 182: protocol-filter counters since agent start, admin only.
+		if role == 0 && h.wsServer != nil {
+			if p := h.wsServer.ProtocolBlocks(id); p != nil {
+				item["protocolBlocks"] = p
+			}
+		}
 	}
 	if role != 0 {
 		for _, item := range items {

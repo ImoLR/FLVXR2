@@ -80,12 +80,33 @@ type SystemInfo struct {
 	MachineProtect         *machineprotect.Protect   `json:"machine_protect,omitempty"` // 整机连接保护状态
 	Addrs                  *nodeaddr.Report          `json:"addrs,omitempty"`           // 网卡公网地址，仅变化时（plan 142）
 	EntryRate              *landing.EntryRateStatus  `json:"entry_rate,omitempty"`      // 入口 tc 限速状态，仅变化时（plan 168）
+	ProtocolBlocks         *ProtocolBlockReport      `json:"protocol_blocks,omitempty"` // 协议拦截计数，会话首条 + 变化时（plan 182）
 	NetInSpeed             int64                     `json:"net_in_speed"`
 	NetOutSpeed            int64                     `json:"net_out_speed"`
 	ServiceName            string                    `json:"service_name,omitempty"` // 服务名
 	ServiceConnections     map[string]int            `json:"serviceConnections"`
 	ForwardMetrics         []ForwardMetric           `json:"forward_metrics,omitempty"` // 转发规则指标
 	QuotaGroups            []service.QuotaGroupUsage `json:"quotaGroups,omitempty"`
+}
+
+// ProtocolBlockReport (plan 182): connections the protocol filter closed since
+// the agent started, per kind. Sent in the first metric of a session and then
+// only when a counter changed (the panel keeps the latest in memory).
+type ProtocolBlockReport struct {
+	HTTP  uint64 `json:"http"`
+	TLS   uint64 `json:"tls"`
+	SOCKS uint64 `json:"socks"`
+	Other uint64 `json:"other"`
+}
+
+func (w *WebSocketReporter) protocolBlocksReport() *ProtocolBlockReport {
+	h, t, s, o := service.ProtocolBlockCounts()
+	cur := ProtocolBlockReport{HTTP: h, TLS: t, SOCKS: s, Other: o}
+	if w.blocksSent != nil && *w.blocksSent == cur {
+		return nil
+	}
+	w.blocksSent = &cur
+	return &cur
 }
 
 // ForwardMetric 转发规则指标（与 stats 包保持一致）
@@ -239,6 +260,7 @@ type WebSocketReporter struct {
 	addrs              addrReporter              // interface addresses for node DDNS (plan 142)
 	addrsSentSeq       uint64                    // last address report sent on this connection
 	entryRateSentSeq   uint64                    // last entry rate status sent on this connection (plan 168)
+	blocksSent         *ProtocolBlockReport      // last protocol-filter counters sent on this connection (plan 182)
 }
 
 var wsDial = func(ctx context.Context, dialer *websocket.Dialer, rawURL string) (*websocket.Conn, *http.Response, error) {
@@ -501,6 +523,7 @@ func (w *WebSocketReporter) connect() error {
 	w.machineSentSeq = 0 // the first metric of a new session carries the latest sample
 	w.addrsSentSeq = 0   // ... and the current address report
 	w.entryRateSentSeq = 0
+	w.blocksSent = nil
 	w.session = panelSessionInfo{target: target, scheme: res.scheme, ip: res.ip, startedAt: time.Now()}
 	w.lastPongAt.Store(0)
 	w.lastRecvAt.Store(0)
@@ -1186,6 +1209,7 @@ func (w *WebSocketReporter) collectSystemInfo() SystemInfo {
 		MachineProtect:         machineProtect,
 		Addrs:                  w.addrsReport(),
 		EntryRate:              w.entryRateReport(),
+		ProtocolBlocks:         w.protocolBlocksReport(),
 		NetInSpeed:             netInSpeed,
 		NetOutSpeed:            netOutSpeed,
 		ServiceName:            w.serviceName,

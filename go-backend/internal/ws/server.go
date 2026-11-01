@@ -84,6 +84,8 @@ type nodeSession struct {
 	addrReport int    // handshake capability; >0 = agent reports its interface addresses
 	clientIP   string // address the panel sees for this session (Cloudflare client IP)
 	addrsKey   string // last address report handed to the hook (read loop only)
+	// Protocol-filter counters of this session (plan 182, memory only).
+	protocolBlocks atomic.Pointer[ProtocolBlocks]
 }
 
 // browserMetricInterval: browser views (node list, monitor, status page) get
@@ -191,8 +193,9 @@ type SystemInfo struct {
 	UDPConns               int64             `json:"udp_conns"`
 	MachineConns           *MachineConns     `json:"machine_conns,omitempty"`
 	MachineProtect         *MachineProtect   `json:"machine_protect,omitempty"`
-	Addrs                  *NodeAddrs        `json:"addrs,omitempty"`      // only when changed (plan 142)
-	EntryRate              *EntryRateReport  `json:"entry_rate,omitempty"` // only when changed (plan 168)
+	Addrs                  *NodeAddrs        `json:"addrs,omitempty"`           // only when changed (plan 142)
+	EntryRate              *EntryRateReport  `json:"entry_rate,omitempty"`      // only when changed (plan 168)
+	ProtocolBlocks         *ProtocolBlocks   `json:"protocol_blocks,omitempty"` // session start + on change (plan 182)
 	NetInSpeed             int64             `json:"net_in_speed"`
 	NetOutSpeed            int64             `json:"net_out_speed"`
 	ServiceName            string            `json:"service_name,omitempty"`
@@ -532,6 +535,7 @@ func (s *Server) handleNode(w http.ResponseWriter, r *http.Request, nodeID int64
 						s.recordMachine(nodeID, sysInfo, time.Now())
 						s.recordAddrs(ns, sysInfo.Addrs)
 						s.recordEntryRate(ns, sysInfo.EntryRate)
+						s.recordProtocolBlocks(ns, sysInfo.ProtocolBlocks)
 						_ = s.repo.SetNodeLandingCapabilities(nodeID, sysInfo.LandingCapable, sysInfo.LandingEgress, sysInfo.LandingChain, sysInfo.LandingGuard, sysInfo.LandingConnMode, sysInfo.LandingUserLimits)
 						// 缓存服务连接数
 						s.mu.Lock()

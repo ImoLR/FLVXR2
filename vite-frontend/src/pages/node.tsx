@@ -150,6 +150,31 @@ declare global {
   }
 }
 const NODE_FALLBACK_REFRESH_INTERVAL_MS = 15000;
+
+interface NodeProtocolBlocks {
+  http: number;
+  tls: number;
+  socks: number;
+  other: number;
+}
+
+// Plan 182: 「协议拦截」 shows only where the filter is on or has blocked
+// something (counters live in panel memory, since the agent started).
+const protocolBlocksOf = (node: {
+  http?: number;
+  tls?: number;
+  socks?: number;
+  protocolBlocks?: NodeProtocolBlocks | null;
+}): NodeProtocolBlocks | null => {
+  const p = node.protocolBlocks;
+
+  if (!p) return null;
+  const any = p.http + p.tls + p.socks + p.other > 0;
+
+  return any || node.http === 1 || node.tls === 1 || node.socks === 1
+    ? p
+    : null;
+};
 const REGION_OPTIONS = [...REGION_CODES].sort(compareRegions);
 
 interface Node extends LeiKwanNodeDetection {
@@ -200,6 +225,9 @@ interface Node extends LeiKwanNodeDetection {
   machineProtectCapable?: boolean;
   machine?: MachineView | null;
   ddns?: NodeDDNSView | null;
+  // Plan 182: protocol-filter blocked connections since agent start (admin
+  // node list only; absent for old agents / offline nodes).
+  protocolBlocks?: NodeProtocolBlocks | null;
   connectionStatus: "online" | "offline";
   systemInfo?: NodeSystemInfo | null;
   copyLoading?: boolean;
@@ -2545,6 +2573,26 @@ export default function NodePage() {
                 showLabel={false}
               />
             </div>
+            {(() => {
+              const blocks = protocolBlocksOf(node);
+
+              if (!blocks) return null;
+
+              return (
+                <div
+                  className="flex justify-between items-center gap-2 text-xs text-default-500"
+                  title="协议过滤断开的连接数，自 agent 启动起累计（面板内存，不写库，agent 重启后归零）"
+                >
+                  <span className="shrink-0">协议拦截</span>
+                  <span className="truncate tabular-nums">
+                    SOCKS {blocks.socks} · HTTP {blocks.http} · TLS{" "}
+                    {blocks.tls}
+                    {blocks.other > 0 ? ` · 其他 ${blocks.other}` : ""}
+                    <span className="text-default-400">（自 agent 启动）</span>
+                  </span>
+                </div>
+              );
+            })()}
             <div className="flex justify-between text-sm">
               <span className="text-default-600">周期流量</span>
               <span className="font-medium text-sm text-danger-600 dark:text-danger-400">
