@@ -51,30 +51,84 @@ User approval 2026-11-01 (coordinator 6e28c3e5): public, no login, whitelisted f
 
 | # | Threat | Defence | Test |
 |---|--------|---------|------|
-| T1 | Auth bypass on public routes reaching admin/agent functions | probe routes only read in-memory snapshot / bucketed metrics; no handler on the probe path calls SendCommand, diagnose, writes, or the node control plane | code review + grep (no `SendCommand`/`repo.Upsert`/`Update` in probe files) |
-| T2 | Data leak (IP, ports, ids, secrets, agent version, users/tunnels/rules) | dedicated whitelist structs; exact JSON key-set tests; byte scans for IP/secret/id/version | `TestProbeSnapshotKeySet`, `TestProbeNoLeak*` |
-| T3 | IDOR via ids | opaque HMAC key; unknown/hidden key → 404; no numeric id accepted | `TestProbeSeriesRejectsUnknownAndHidden` |
-| T4 | WS hijack / cross-site | Origin must match Host/X-Forwarded-Host or FLVX_WS_ALLOWED_ORIGINS (same as /system-info); stream is public read-only data anyway, no cookies used | `TestProbeWSOrigin` |
-| T5 | Resource exhaustion | caps 5/IP + 200 total, queue 4, read limit 512 B, rate buckets with key caps, bounded caches (keys from node set × 3 ranges × 12 point steps), builder runs only with viewers | `TestProbeWSCaps`, `TestProbeSlowClientDropped`, `TestProbeRateLimit` |
-| T6 | Command injection / exec / file access | nothing of the kind exists on the probe path; no shell, no file reads, client messages discarded | review |
-| T7 | Switch off but data still served | 404 on all probe endpoints, WS refused, open streams closed within one tick | `TestProbeSwitchOff404` |
-| T8 | Probe domain used to reach admin API | host gate 404 for every non-probe path on that host (API, WS, /flow, /s) | `TestProbeHostGate` |
-| T9 | Log flooding / IP logging | probe requests suppress the request log; refusals counted (one summary line / min) | review |
-| T10 | Admin settings abuse | admin-only endpoints (middleware + handler), title ≤ 40, display names ≤ 30, domain format check, lock-out guard | `TestProbeSettingsValidation` |
+| T1 | Auth bypass on public routes reaching admin / agent functions | the 4 public probe routes only read the in-memory snapshot / bucketed `node_metric`; no probe file calls SendCommand, diagnose, TCP ping, a write or the node control plane (grep: the only write is `UpsertConfig` in the admin-only save handler) | review + `TestProbeContract` (user / anonymous → 403 / 401 on settings) |
+| T2 | Data leak (IP, ports, ids, secrets, agent version, users / tunnels / rules) | dedicated whitelist structs in `internal/probe`; version reduced to `(distro/arch)` tokens `[a-z0-9._-]` | `TestBuildSnapshotWhitelist`, `TestProbeSnapshotLiveData`, `TestProbeContract` (exact key sets, byte scans for IP / secret / `"id"` / `version` / port range / hidden name), `TestProbeWebSocket` (frame bytes) |
+| T3 | IDOR via ids | opaque HMAC key (10 chars base32 of HMAC-SHA256 with the JWT secret); numeric id, unknown or hidden key → 404 | `TestProbeContract` (k of hidden node, `k=701`, `k=nope` → 404), `TestKeyerOpaqueStable` |
+| T4 | WebSocket hijack / cross-site | same Origin rule as `/system-info` (Origin host = Host / X-Forwarded-Host / FLVX_WS_ALLOWED_ORIGINS); stream carries only public data, no cookie is read | `TestProbeWebSocket` (foreign Origin → 403) |
+| T5 | Resource exhaustion | WS 5 / address, 200 total (503), queue 4 (slow client dropped), read limit 512 B, client frames discarded, ping 25 s / pong 60 s; GET 60/min, series 30/min, WS connects 20/min per address (buckets capped at 4096 keys); series: ≤ 2 queries at a time, cache keys only (shown node × 3 ranges × 12 point steps), ≤ 512 entries; builder runs only with viewers | `TestHubCapsAndSlowClient`, `TestHubLoopOnlyWithViewersAndSwitchOff`, `TestProbeWebSocket` (6th stream → 429), `TestProbeContract` (GET → 429), `TestClampPointsAndStep` |
+| T6 | Command injection / exec / file access | nothing of the kind on the probe path (no shell, no file reads; client WS frames are read and dropped) | review + `TestProbeWebSocket` sends junk |
+| T7 | Switch off but data still served | 404 on all probe routes, WS refused, open streams closed with 4404 at the next tick (settings cache reset on save) | `TestProbeContract` (before / after), `TestProbeWebSocket` (4404), `TestHubLoopOnlyWithViewersAndSwitchOff` |
+| T8 | Probe domain used to reach the admin API | outermost host gate: on that Host every non-probe path (API, `/system-info`, `/flow`, `/s`, old public endpoints) → 404; lock-out guard on save | `TestProbeContract` (8 paths + X-Forwarded-Host → 404, main host unaffected) |
+| T9 | Log flooding / IP logging | probe handlers suppress the per-request log; gate refusals + limits counted (one summary line per minute); nginx `access_log off` for `/api/v1/probe/` | review (grep: no log calls in probe code) |
+| T10 | Admin settings abuse | admin-only (middleware `requiresAdmin` + handler `ensureAdminAccess`), title ≤ 40, names ≤ 30, domain regex, body ≤ 64 KB, unknown node ids dropped; generic config API validates the same keys | `TestProbeContract` (invalid inputs rejected, lock-out, broken JSON) |
 
 ## Tasks
 - [x] Plan docs 187 + 188
-- [ ] Backend `internal/probe` (types, hub, latency rings, series helpers) + unit tests
-- [ ] Handler glue: metric observe, node cache, settings, endpoints, host gate, path-latency hook, old endpoint tightening
-- [ ] Router / middleware (`shouldSkip`, admin path), nginx.conf (WS upgrade block), vite dev proxy
-- [ ] Contract tests SQLite + PostgreSQL (settings + endpoints + host gate + switch off)
-- [ ] Frontend entry split + probe page (cards, table, KPI, detail, live hook)
-- [ ] 设置: switch relabel + probe settings card
-- [ ] Demo panel (25 nodes, fake live metrics, offline nodes, latency edges), screens 1440/390 light/dark, frames
-- [ ] Resource numbers (snapshot bytes, CPU 0/1/50 clients, ring memory, series timing, bundle gz)
-- [ ] Gates: go build/vet, go test (SQLite + PG), tsc/build/lint, push, CI green
-- [ ] Security self-review written below
-- [ ] release-notes.md + summary.md
+- [x] Backend `internal/probe` (types, hub, latency rings, series helpers) + unit tests
+- [x] Handler glue: metric observe, node cache, settings, endpoints, host gate, path-latency hook, old endpoint tightening
+- [x] Router / middleware (`shouldSkip`, admin path), nginx.conf (WS upgrade block); vite dev proxy: none exists in this
+      repo (dev uses `VITE_API_BASE` straight to the backend), the probe page uses the same base — nothing to add
+- [x] Contract tests SQLite + PostgreSQL (settings + endpoints + host gate + switch off)
+- [x] Frontend entry split + probe page (cards, table, KPI, detail, live hook)
+- [x] 设置: switch relabel + probe settings card
+- [x] Demo panel (25 nodes, fake live metrics, offline nodes, latency edges), screens 1440/390 light/dark, frames
+- [x] Resource numbers (snapshot bytes, CPU 0/1/50 clients, ring memory, series timing, bundle gz)
+- [x] Gates: go build/vet, go test (SQLite + PG), tsc/build/lint, push, CI green
+- [x] Security self-review written below
+- [x] release-notes.md + summary.md
 
-## Results
-(filled in as work completes)
+## Results (2026-11-02 TW)
+
+Commits on `feature/3.0.27-probe-page`: 5014df3b (plans), d40cbc94 (backend), 77b173a3 (frontend), 7bfee660 / 7f50044e
+(plan 188), f931045f (hardening). CI Build Check green on every push (last: 41323489810 on 7f50044e).
+`git merge-tree` against `origin/feature/3.0.27-latency-tag-region` (plan 184): clean, no conflicts.
+
+### Tests
+- `go build ./...` OK; `go vet ./...`: only the 5 old `internal/leikwan/testapi` unkeyed-field notes (untouched files).
+- `go test ./...` with SQLite **and** PostgreSQL (`FLVX_POSTGRES_TEST_DSN`, temporary postgres:18-alpine, removed after):
+  all 22 packages pass (first PG run died on a full tmpfs WAL — infra only; rerun on a disk volume: repo + contract OK,
+  0 skips). New: `internal/probe` (keys, OS parsing, whitelist + hidden targets, latency rings + memory, hub
+  build-once/shared bytes/caps/slow drop/idle/switch-off, point clamp), `handler.TestProbeSnapshotLiveData`,
+  `contract.TestProbeContract` (sqlite + postgres), `contract.TestProbeWebSocket`.
+- Frontend: `tsc --noEmit` clean; `vite build` OK; `eslint src`: 94 errors / 3753 warnings vs base fork.105 94 / 3754
+  (no new errors; new files 0 warnings; changed files no new warnings).
+
+### Demo (local, loopback-only netns, synthetic DB, never prod)
+25 nodes (22 fake agents on the normal `/system-info?type=1` ingest path, metrics every 1 s, TcpPing answered from a
+region table so the panel's own 60 s path rounds produce edges; 3 offline), 24 h of seeded `node_metric` history.
+Gallery: http://104.145.236.29:8791/probe-page/ — 33 screens (1440 + 390, light + dark), 27/27 automatic checks, 0 page
+errors. Smoothness on the demo: snapshot response at 39 ms after navigation start, cards on screen ~170 ms, 25/25 card
+DOM nodes kept over 12 s of live updates (no re-mount), layout shift 0, 0 long tasks.
+
+### Resource numbers (demo panel, GOMAXPROCS=2)
+- Snapshot (25 nodes): 7 944 B raw, 2 341 B gzip; built once per 2 s only while somebody watches, one marshal + one gzip,
+  the same byte slices for every viewer (test asserts identity).
+- Panel CPU / RSS (40 s each, 22 agents reporting): 0 viewers 0.67 % / 43.7 MB; 1 viewer 0.82 % / 44.9 MB; 50 viewers
+  (distinct addresses, gzip frames) 0.80 % / 47.5 MB; back to 0 viewers 0.60 % / 44.6 MB; threads 8 throughout.
+  Per viewer: 30 frames / min, 68 KB / min.
+- Latency rings: ~870 B per node pair (60 rounds), e.g. 200 pairs ≈ 170 KB; pairs not measured for 2 h are dropped.
+- Series (720 points): 1 h 11 ms cold / 3 ms cached (28 KB), 6 h 10 / 3 ms (32 KB), 24 h 15 / 5 ms (32 KB);
+  at most 2 queries at a time.
+- Probe bundle: 77.6 KB gz JS (React + page) + 36 KB gz shared CSS; chart chunk (recharts) ~151 KB gz, fetched when idle.
+
+### Security self-review (Komari CVE class)
+- **Auth bypass on public routes:** the public surface is exactly 4 GET routes; they read memory / averaged metrics only.
+  The only write in the probe code is `UpsertConfig` inside the admin-only save handler (middleware `requiresAdmin` +
+  `ensureAdminAccess`). No route on the probe path can reach `SendCommand`, diagnostics, upgrades or files.
+- **Remote exec / web terminal / file access:** none exists or was added; client WS frames are read (≤ 512 B) and dropped.
+- **WS hijack / origin:** same Origin rule as `/system-info`; no cookie or token is used by the probe stream.
+- **IDOR:** no numeric ids accepted or returned; HMAC keys; hidden / unknown keys 404; old public endpoints now return
+  opaque numbers too.
+- **Leaks:** whitelist structs, exact key-set tests and byte scans (IP, secret, id, version, port range, hidden names).
+- **DoS:** per-address buckets (bounded key maps), global WS cap, slow-client drop, series semaphore, bounded caches,
+  builder idle without viewers, no per-request logs (nginx `access_log off` on probe paths).
+- **Probe domain:** outermost gate, every non-probe path 404 on that host, lock-out guard. Note: if the config read
+  fails, the gate falls back to "no probe domain" (fail-open for the gate, fail-closed for the probe itself) — the
+  admin API on that host is still behind JWT, so this is a convenience boundary, not an auth boundary.
+- Pre-existing, unchanged, noted: the global CORS middleware reflects any Origin with credentials (all APIs); the probe
+  does not rely on cookies, so it adds no exposure. Not changed here (out of scope).
+
+### Not done / limits
+- 「今日流量」 not shown (no cheap source); the header shows 累计流量 since boot of the online machines.
+- Load bar scale = 4.0 (cores are not reported); the number itself is exact.
+- Phase 2 latency (agents pinging 三网 / Telegram / Google) not in this build, as agreed.
