@@ -8,6 +8,7 @@ import { Button } from "@/shadcn-bridge/heroui/button";
 import { resetSubLinkSwitchCheck } from "@/api/sub-link";
 import { Card, CardBody, CardHeader } from "@/shadcn-bridge/heroui/card";
 import { DNSProviderCard } from "@/pages/node/dns-provider-card";
+import { ProbeSettingsCard } from "@/pages/probe-settings-card";
 import { Input } from "@/shadcn-bridge/heroui/input";
 import { Textarea } from "@/shadcn-bridge/heroui/input";
 import { Spinner } from "@/shadcn-bridge/heroui/spinner";
@@ -151,8 +152,9 @@ const CONFIG_ITEMS: ConfigItem[] = [
   },
   {
     key: "login_monitor_link",
-    label: "探针入口",
-    description: "开启后，登录页右上角显示探针入口按钮，点击可查看节点实时状态",
+    label: "公开探针页",
+    description:
+      "开启后任何人（不用登录）都能打开 /tz 查看服务器状态，登录页右上角也会显示入口；只公开下方「公开探针页」里勾选的服务器，不含 IP、端口和规则",
     type: "switch",
   },
   {
@@ -1170,6 +1172,8 @@ export default function ConfigPage() {
             </div>
           </CardBody>
         </Card>
+        {/* 公开探针页（plan 187） */}
+        <ProbeSettingsCard enabled={configs.login_monitor_link === "true"} />
       </div>
 
       {/* 右栏：公告管理、导出数据 */}
