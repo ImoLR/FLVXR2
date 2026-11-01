@@ -234,7 +234,7 @@ function PickRowChip({ row }: { row: PickRow }) {
   ) : null;
   const chip = (
     <span
-      className={`${pillBase} min-w-0 flex-nowrap ${landingToneClass[tone]}`}
+      className={`${pillBase.replace("flex-wrap", "flex-nowrap")} min-w-0 ${landingToneClass[tone]}`}
       data-rule-best-row={item.status}
     >
       <span data-rule-best-row-label className="min-w-0 truncate">

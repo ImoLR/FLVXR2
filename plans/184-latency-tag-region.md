@@ -110,11 +110,11 @@ only set for different nodes / statuses) — the frontend then has nothing but m
 also sets `multi` when the targets' rounded ms differ (items kept, ≤ entries × targets small structs, no new probes).
 So this round is frontend + one backend line (panel only, no DB change, no OTA).
 
-- [ ] R3-1 latency-tone / LatencyTag: single ms only (range branch removed), `LATENCY_TAG_STYLE = "nested"`
-- [ ] R3-2 Rules pick line: per-target / per-entry rows (落地N, 入口：X, X · 落地N), 3 + 还有 N 个, popup rows with address + own path
-- [ ] R3-3 隧道 chips: layers whose owners differ in ms → per-owner rows, no range
-- [ ] R3-4 Backend: `multi` when rounded ms differ + unit test
-- [ ] R3-5 Gates: tsc / build / lint vs e03fe705; go test handler
-- [ ] R3-6 Demo + gallery :8791 /latency-tag-multi/ (390 + 1440, light + dark)
+- [x] R3-1 latency-tone / LatencyTag: single ms only (range branch removed), `LATENCY_TAG_STYLE = "nested"`
+- [x] R3-2 Rules pick line: per-target / per-entry rows (落地N, 入口：X, X · 落地N), 3 + 还有 N 个, popup rows with address + own path
+- [x] R3-3 隧道 chips: layers whose owners differ in ms → per-owner rows, no range
+- [x] R3-4 Backend: `multi` when rounded ms differ + unit test
+- [x] R3-5 Gates: tsc / build / lint vs e03fe705; go test handler
+- [x] R3-6 Demo + gallery :8791 /latency-tag-multi/ (390 + 1440, light + dark)
 - [ ] R3-7 Bundle delta, release-notes.md, push, CI green
 - [ ] R3-8 Summary
