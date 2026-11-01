@@ -36,7 +36,7 @@ type tunnelRegionRow struct {
 	TunnelID       int64
 	TunnelType     int
 	RegionOverride string // tunnel.region_override (plan 184), same on every row of a tunnel
-	ChainType      string // '' on the single row of a tunnel without entry/exit rows
+	ChainType      string
 	NodeID         int64
 	Name           string
 	Region         string
@@ -55,19 +55,18 @@ type tunnelRegionInfo struct {
 }
 
 // One query for the entire list, including tunnels with several entries/exits
-// (plan 184: driven by tunnel so the override also reaches a tunnel without
-// chain rows; still one query, one extra column).
+// (plan 184: plus tunnel.region_override, one extra column of the same query).
 func (r *Repository) loadTunnelRegions(ids []int64) (map[int64]tunnelRegionInfo, error) {
 	if len(ids) == 0 {
 		return map[int64]tunnelRegionInfo{}, nil
 	}
 	var rows []tunnelRegionRow
-	err := r.db.Table("tunnel AS t").
-		Select("t.id AS tunnel_id, t.type AS tunnel_type, COALESCE(t.region_override, '') AS region_override, COALESCE(c.chain_type, '') AS chain_type, COALESCE(c.node_id, 0) AS node_id, COALESCE(n.name, '') AS name, COALESCE(n.region, '') AS region, COALESCE(n.region_city, '') AS region_city, COALESCE(n.entry_alias, '') AS entry_alias").
-		Joins("LEFT JOIN chain_tunnel AS c ON c.tunnel_id = t.id AND c.chain_type IN ?", []string{"1", "3"}).
+	err := r.db.Table("chain_tunnel AS c").
+		Select("c.tunnel_id, t.type AS tunnel_type, COALESCE(t.region_override, '') AS region_override, c.chain_type, c.node_id, n.name, n.region, n.region_city, COALESCE(n.entry_alias, '') AS entry_alias").
+		Joins("JOIN tunnel AS t ON t.id = c.tunnel_id").
 		Joins("LEFT JOIN node AS n ON n.id = c.node_id").
-		Where("t.id IN ?", ids).
-		Order("t.id ASC, c.chain_type ASC, c.inx ASC, c.id ASC").Find(&rows).Error
+		Where("c.tunnel_id IN ? AND c.chain_type IN ?", ids, []string{"1", "3"}).
+		Order("c.tunnel_id ASC, c.chain_type ASC, c.inx ASC, c.id ASC").Find(&rows).Error
 	if err != nil {
 		return nil, err
 	}

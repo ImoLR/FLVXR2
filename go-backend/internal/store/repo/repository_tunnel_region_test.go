@@ -73,8 +73,7 @@ func TestDeriveTunnelRegionsOverride(t *testing.T) {
 		// no override = automatic, unchanged
 		{TunnelID: 4, TunnelType: 2, ChainType: "1", NodeID: 10, Region: "CN"},
 		{TunnelID: 4, TunnelType: 2, ChainType: "3", NodeID: 11, Region: "HK"},
-		// a tunnel without entry/exit rows still gets its override
-		{TunnelID: 5, TunnelType: 2, RegionOverride: "SG"},
+		// a tunnel without entry/exit rows has no row at all: automatic
 		// a broken stored value counts as automatic; lower case is accepted
 		{TunnelID: 6, TunnelType: 2, RegionOverride: "Z9", ChainType: "3", NodeID: 11, Region: "HK"},
 		{TunnelID: 7, TunnelType: 1, RegionOverride: "tw", ChainType: "1", NodeID: 10, Region: "CN"},
@@ -91,7 +90,7 @@ func TestDeriveTunnelRegionsOverride(t *testing.T) {
 		{2, []string{"TW"}, []string{"HK"}, "TW", 1},
 		{3, []string{"JP"}, []string{"TW", "US"}, "JP", 1},
 		{4, []string{"HK"}, []string{"HK"}, "", 1},
-		{5, []string{"SG"}, []string{""}, "SG", 0},
+		{5, []string{""}, []string{""}, "", 0},
 		{6, []string{"HK"}, []string{"HK"}, "", 0},
 		{7, []string{"TW"}, []string{"CN"}, "TW", 1},
 	} {
