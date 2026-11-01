@@ -29,10 +29,29 @@ User rule (11-01): no added latency, no log risk, no extra CPU / memory.
 
 ## Gates
 
-- [ ] G1 go build + vet (backend, go-gost, go-gost/x)
-- [ ] G2 backend go test ./... SQLite + PostgreSQL contract
-- [ ] G3 go-gost / go-gost/x tests of touched packages
-- [ ] G4 frontend tsc / build / lint (no new errors)
-- [ ] G5 Screenshots 390 + 1440 of the counter line
-- [ ] G6 Push, CI green
-- [ ] G7 `runs/socks-strict/release-notes.md` + summary.md
+- [x] G1 go build + vet (backend, go-gost, go-gost/x)
+- [x] G2 backend go test ./... SQLite + PostgreSQL contract
+- [x] G3 go-gost / go-gost/x tests of touched packages
+- [x] G4 frontend tsc / build / lint (no new errors)
+- [x] G5 Screenshots 390 + 1440 of the counter line
+- [x] G6 Push, CI green
+- [x] G7 `runs/socks-strict/release-notes.md` + summary.md
+
+## Results (build round 1, 2026-11-01)
+
+- 20 real SOCKS clients captured (curl socks5/5h/4/4a/user:pass, Go x/net/proxy, PySocks, Xray, sing-box 5/5u/4/4a,
+  Chromium 5/4): all send the greeting alone → strict match, no pipelined form.
+- False positives old → new: 120,022 real first reads (sing-box + Xray SS aes-128-gcm / chacha20-ietf-poly1305 /
+  2022-blake3-aes-128-gcm / VMess) 244 (≈1/492) → 0; 2,000,000 random first packets 3,721 (≈1/537) → 0.
+- Lab netns, real agents, 20 k SS/SS2022/VMess connections per run, prod flags (http=tls=socks=1): old cut 36/46/40/41,
+  new 0 ×4; real SOCKS5/5h/4/4a still cut. Setup latency without possible false blocks identical (p50 82.0 vs 81.9 ms);
+  agent CPU new ≤ old; RSS same (70–73 MB HWM).
+- Detector 0 allocs; isProtocolBlocked 5.3–5.5 ns both; SOCKS check ≈ 2.0–2.2 ns both.
+- Demo panel (real panel + 3 agents, alternating exits): fork.103 switched rule-less T2 ×2; new ×0; T1 (rule) ×2 both;
+  first rule on T2 → one `first-rule` push inside the create call (16 ms).
+- Prod replay (read-only logs since fork.103, 06:25–16:20 TW): 118 最优 pushes, all on tunnels with 0 rules → 0.
+- Panel cost: +1 query per 60 s round (6 µs p50 on a prod DB copy); decision step unchanged within noise.
+- Gates: build + vet (only pre-existing leikwan testapi vet note), backend go test ./... + contract on SQLite and
+  PostgreSQL green, go-gost/x service/socket/handler + go-gost green, frontend tsc + vite build green, eslint node.tsx
+  60 problems = fork.103 baseline, CI green, screenshots 390/1440 in runs/socks-strict/screens.
+- Release notes: runs/socks-strict/release-notes.md (OTA only nodes 2, 15, 23, 32, 48, 50, 51, 54; no DB change).
