@@ -114,9 +114,12 @@ type probeState struct {
 
 	getRL    *ratelimit.Bucket
 	seriesRL *ratelimit.Bucket
-	wsRL     *ratelimit.Bucket
-	refusals ratelimit.Refusals
-	upgrader websocket.Upgrader
+	// seriesSem: at most 2 history queries at a time, whatever the number
+	// of client addresses (protects the SQLite writer).
+	seriesSem chan struct{}
+	wsRL      *ratelimit.Bucket
+	refusals  ratelimit.Refusals
+	upgrader  websocket.Upgrader
 	// online overrides the agent session check (tests only).
 	online func(nodeID int64) bool
 }
@@ -128,6 +131,7 @@ func (h *Handler) probeInit() *probeState {
 		p.samples = make(map[int64]probe.Sample)
 		p.lastSeen = make(map[int64]int64)
 		p.seriesCache = make(map[probeSeriesKey]probeSeriesEntry)
+		p.seriesSem = make(chan struct{}, 2)
 		// 60 per minute per address (burst 60): the page needs one GET on load,
 		// one per tab return, and 12/min only while the stream is down.
 		p.getRL = &ratelimit.Bucket{Burst: 60, Every: time.Second, MaxKeys: 4096}
@@ -270,6 +274,18 @@ func (h *Handler) probeNodeRows(now time.Time) ([]repo.ProbeNodeRow, map[int64]i
 	if err != nil {
 		return p.nodes, p.lastSeen
 	}
+	// Deleted nodes leave the in-memory sample map with the next refresh.
+	alive := make(map[int64]bool, len(rows))
+	for _, n := range rows {
+		alive[n.ID] = true
+	}
+	p.samplesMu.Lock()
+	for id := range p.samples {
+		if !alive[id] {
+			delete(p.samples, id)
+		}
+	}
+	p.samplesMu.Unlock()
 	p.samplesMu.RLock()
 	seen := make(map[int64]int64, len(rows))
 	missing := make([]int64, 0)
@@ -608,8 +624,18 @@ func (h *Handler) probeSeries(w http.ResponseWriter, r *http.Request) {
 	}
 	p.seriesMu.Unlock()
 
+	select {
+	case p.seriesSem <- struct{}{}:
+	case <-time.After(2 * time.Second):
+		p.refusals.Note("series_busy")
+		probeJSON(w, http.StatusServiceUnavailable, -1, "暂时不可用")
+		return
+	}
 	step := probe.StepFor(dur, points)
-	rows, err := h.repo.NodeMetricBuckets(id, now.Add(-dur).UnixMilli(), now.UnixMilli(), step, points)
+	rows, err := func() ([]repo.NodeMetricBucket, error) {
+		defer func() { <-p.seriesSem }()
+		return h.repo.NodeMetricBuckets(id, now.Add(-dur).UnixMilli(), now.UnixMilli(), step, points)
+	}()
 	if err != nil {
 		probeJSON(w, http.StatusServiceUnavailable, -1, "暂时不可用")
 		return
