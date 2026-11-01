@@ -261,10 +261,41 @@ func (s *Server) publicEnabled() bool {
 	return on
 }
 
+// ResetPublicSwitch makes the next public check re-read the switch (plan 187:
+// called when the admin saves it).
+func (s *Server) ResetPublicSwitch() {
+	if s != nil {
+		s.resetPublicSwitchCache()
+	}
+}
+
 func (s *Server) resetPublicSwitchCache() {
 	s.publicMu.Lock()
 	s.publicAt = time.Time{}
 	s.publicMu.Unlock()
+}
+
+// OriginAllowed is originAllowed for other public streams (plan 187 probe WS):
+// one Origin rule for every browser socket of the panel.
+func (s *Server) OriginAllowed(r *http.Request) bool { return s.originAllowed(r) }
+
+// SetPublicNodeView (plan 187) maps a node to what the public status stream
+// (type=2) may show: an opaque number instead of the node id, and false for
+// nodes the admin hid from the probe. nil = old behaviour (tests).
+func (s *Server) SetPublicNodeView(fn func(nodeID int64) (int64, bool)) {
+	s.mu.Lock()
+	s.publicView = fn
+	s.mu.Unlock()
+}
+
+func (s *Server) publicNode(nodeID int64) (int64, bool) {
+	s.mu.RLock()
+	fn := s.publicView
+	s.mu.RUnlock()
+	if fn == nil {
+		return nodeID, true
+	}
+	return fn(nodeID)
 }
 
 // originAllowed: browsers always send Origin on WebSocket handshakes; it must
@@ -534,7 +565,26 @@ func (s *Server) broadcastStatus(nodeID int64, status int) {
 		"type": "status",
 		"data": status,
 	})
+	var publicRaw []byte
+	publicOK, publicChecked := false, false
 	for _, c := range clients {
+		if c.kind == kindPublic {
+			if !publicChecked {
+				publicChecked = true
+				var pubID int64
+				if pubID, publicOK = s.publicNode(nodeID); publicOK {
+					publicRaw, _ = json.Marshal(map[string]interface{}{
+						"id":   strconv.FormatInt(pubID, 10),
+						"type": "status",
+						"data": status,
+					})
+				}
+			}
+			if publicOK {
+				s.enqueue(c, publicRaw)
+			}
+			continue
+		}
 		if c.canSee(nodeID) {
 			s.enqueue(c, raw)
 		}
@@ -577,6 +627,7 @@ func (s *Server) broadcastMetric(nodeID int64, data []byte, fwd []ForwardMetric)
 		fields              map[string]json.RawMessage
 		parsed, parseOK     bool
 		adminMsg, publicMsg []byte
+		publicHidden        bool
 		userBase            map[string]json.RawMessage
 		userBaseMsg         []byte
 		ownByUser           map[int64][]ForwardMetric
@@ -600,10 +651,18 @@ func (s *Server) broadcastMetric(nodeID int64, data []byte, fwd []ForwardMetric)
 			s.enqueue(c, adminMsg)
 		case kindPublic:
 			if publicMsg == nil {
+				if publicHidden {
+					continue
+				}
+				pubID, ok := s.publicNode(nodeID)
+				if !ok {
+					publicHidden = true
+					continue
+				}
 				if !parse() {
 					continue
 				}
-				publicMsg = marshalBroadcast(nodeID, "metric", pickFields(fields, publicMetricFields, nil))
+				publicMsg = marshalBroadcast(pubID, "metric", pickFields(fields, publicMetricFields, nil))
 			}
 			s.enqueue(c, publicMsg)
 		case kindUser:

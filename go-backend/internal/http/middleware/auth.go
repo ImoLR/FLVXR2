@@ -116,6 +116,10 @@ func shouldSkip(path string) bool {
 		return true
 	case path == "/api/v1/monitor/public/nodes":
 		return true
+	case path == "/api/v1/probe/snapshot", path == "/api/v1/probe/ws", path == "/api/v1/probe/series", path == "/api/v1/probe/host":
+		// Plan 187 public probe: anonymous, read-only; the handlers check the
+		// 公开探针页 switch themselves.
+		return true
 	case path == "/api/v1/monitor/public/nodes/metrics":
 		return true
 	case strings.HasPrefix(path, "/api/v1/open_api/"):
@@ -182,6 +186,10 @@ func requiresAdmin(path string) bool {
 	}
 
 	if strings.HasPrefix(path, "/api/v1/speed-limit/") {
+		return true
+	}
+
+	if path == "/api/v1/config/probe" || strings.HasPrefix(path, "/api/v1/config/probe/") {
 		return true
 	}
 

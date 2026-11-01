@@ -287,6 +287,8 @@ func (h *Handler) runPathLatencyRound(ctx context.Context) {
 	h.pathLatencyMu.Lock()
 	h.pathLatency = snapshots
 	h.pathLatencyMu.Unlock()
+	// Plan 187: the same round's node→node edges for the public probe.
+	h.probeRecordLatency(plans, results, now)
 	// Plan 165: 最优 decisions from this round's edges (no probes of its own).
 	bestStart := time.Now()
 	h.markIdleTunnels(plans)

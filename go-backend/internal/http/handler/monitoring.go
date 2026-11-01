@@ -998,18 +998,30 @@ func (h *Handler) monitorPublicNodeListHandler(w http.ResponseWriter, r *http.Re
 		return
 	}
 
+	// Plan 187: old public view (kept for stale /tz clients) follows the probe
+	// rules: hidden nodes dropped, opaque number instead of the node id, no
+	// agent version (only 「(distro/arch)」 for the icon), probe display name.
+	st := h.probeSettings()
 	items := make([]monitorPublicNodeListItem, 0, len(nodes))
 	for _, n := range nodes {
+		pubID, ok := h.probePublicNode(n.ID)
+		if !ok {
+			continue
+		}
 		updated := int64(0)
 		if n.UpdatedTime.Valid {
 			updated = n.UpdatedTime.Int64
 		}
+		name := n.Name
+		if v := st.Names[n.ID]; v != "" {
+			name = v
+		}
 		items = append(items, monitorPublicNodeListItem{
-			ID:          n.ID,
+			ID:          pubID,
 			Inx:         n.Inx,
-			Name:        n.Name,
+			Name:        name,
 			Status:      n.Status,
-			Version:     n.Version.String,
+			Version:     publicOSArch(n.Version.String),
 			UpdatedTime: updated,
 		})
 	}
@@ -1050,23 +1062,32 @@ func (h *Handler) monitorPublicNodeMetricsHandler(w http.ResponseWriter, r *http
 
 	nodes, err := h.repo.ListMonitorNodes()
 	if err != nil {
-		response.WriteJSON(w, response.Err(-2, err.Error()))
+		response.WriteJSON(w, response.Err(-2, "暂时不可用"))
 		return
 	}
 
+	st := h.probeSettings()
 	items := make([]monitorPublicNodeMetricsItem, 0, len(nodes))
 	for _, n := range nodes {
+		pubID, ok := h.probePublicNode(n.ID)
+		if !ok {
+			continue
+		}
 		updated := int64(0)
 		if n.UpdatedTime.Valid {
 			updated = n.UpdatedTime.Int64
 		}
+		name := n.Name
+		if v := st.Names[n.ID]; v != "" {
+			name = v
+		}
 
 		item := monitorPublicNodeMetricsItem{
-			ID:          n.ID,
+			ID:          pubID,
 			Inx:         n.Inx,
-			Name:        n.Name,
+			Name:        name,
 			Status:      n.Status,
-			Version:     n.Version.String,
+			Version:     publicOSArch(n.Version.String),
 			UpdatedTime: updated,
 		}
 

@@ -145,6 +145,7 @@ type Server struct {
 	userState             *authstate.Cache
 	scopeFn               func(userID int64) (NodeScope, error)
 	extraOrigins          []string
+	publicView            func(nodeID int64) (int64, bool) // plan 187: public stream node mapping
 	refusals              ratelimit.Refusals
 	stats                 clientStats
 	publicMu              sync.Mutex
