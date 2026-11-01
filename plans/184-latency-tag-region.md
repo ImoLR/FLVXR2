@@ -52,8 +52,19 @@ User request (2026-11-01, session 9db8c70d):
 - [x] B3 unit tests (deriveTunnelRegions type 1/2 override) + contract tests (create/update/region/list, invalid code,
       non-admin view)
 - [x] B4 frontend: form select, 手动 marker, fallback, region-only save via /tunnel/region
-- [ ] Gates: go build/vet, go test ./... (SQLite), PostgreSQL contract, tsc/build/lint vs base
-- [ ] Demo panel + screens gallery :8791 /latency-tag-region/ (390 + 1440, light + dark, A vs B)
-- [ ] Resource numbers (tunnel list latency before/after, bundle delta)
-- [ ] release-notes.md for the release worker, push, CI green
-- [ ] Summary
+- [x] Gates: go build/vet, go test ./... (SQLite), PostgreSQL contract, tsc/build/lint vs base
+- [x] Demo panel + screens gallery :8791 /latency-tag-region/ (390 + 1440, light + dark, A vs B)
+- [x] Resource numbers (tunnel list latency before/after, bundle delta)
+- [x] release-notes.md for the release worker, push, CI green
+- [x] Summary
+
+## Result (build, 2026-11-01)
+- Backend + frontend done; `loadTunnelRegions` keeps its single query (one extra column `t.region_override`).
+- Tests: unit + contract (SQLite + PostgreSQL) green; `TestExternalNodesBothDialects` and the
+  `internal/leikwan/testapi` vet warning fail identically on unmodified fork.104 (pre-existing).
+- Local prod-DB copy (read-only copy, deleted after): migration clean, all 40 tunnels' regions identical to fork.104
+  before the data step; the data step (4, 61 → TW; 57, 105 → HK; 39 → JP via /tunnel/region) changed only those 5.
+- Gallery `/root/mmwx-preview/latency-tag-region/` (:8791), 50 screens, 64/64 browser checks; variant A (sibling)
+  is the default, B (nested) for comparison — user decides.
+- Release notes for the batch release worker: `runs/latency-tag-region/release-notes.md` (panel only, no OTA, additive
+  column, data step via /tunnel/region, rollback = panel rollback.sh, column can stay).
