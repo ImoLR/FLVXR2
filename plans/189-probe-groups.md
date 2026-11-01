@@ -24,19 +24,35 @@ Branch `feature/3.0.27-probe-page` (same as plans 187 + 188). BUILD ONLY + scree
   published. Per node `g:[0,2]` (indexes into `groups`, omitted when none). No group ids, no node ids.
 
 ## Checklist
-- [ ] Backend: settings load/validate (`probe_groups`, `probe_group_mode`) incl. generic config API
-- [ ] Backend: admin GET/save carry groups + default mode (prune deleted nodes)
-- [ ] Backend: snapshot `groups` / `group_mode` / node `g` (internal/probe BuildSnapshot)
-- [ ] Unit tests (probe package + handler validation)
-- [ ] Contract tests SQLite + PostgreSQL (CRUD/validation, multi-membership, hidden, empty group, deleted node, key set)
-- [ ] Frontend probe page: mode switch, group pills, 未分组, localStorage, merge of `g`/groups
-- [ ] Frontend settings card: group list (add/rename/delete-confirm/order), per-machine multi-select, default mode
-- [ ] go build / vet / test (SQLite + PostgreSQL); tsc / build / lint vs base
-- [ ] Snapshot size delta measured
-- [ ] Demo + screens gallery `/root/mmwx-preview/probe-groups/` (:8791)
-- [ ] Push, CI green
-- [ ] release-notes.md updated (184 + 187 + 188 + 189 batch, merge-tree re-check)
-- [ ] Summary `runs/probe-groups/summary.md`
+- [x] Backend: settings load/validate (`probe_groups`, `probe_group_mode`) incl. generic config API
+- [x] Backend: admin GET/save carry groups + default mode (prune deleted nodes)
+- [x] Backend: snapshot `groups` / `group_mode` / node `g` (internal/probe BuildSnapshot)
+- [x] Unit tests (probe package + handler validation)
+- [x] Contract tests SQLite + PostgreSQL (CRUD/validation, multi-membership, hidden, empty group, deleted node, key set)
+- [x] Frontend probe page: mode switch, group pills, 未分组, localStorage, merge of `g`/groups
+- [x] Frontend settings card: group list (add/rename/delete-confirm/order), per-machine multi-select, default mode
+- [x] go build / vet / test (SQLite + PostgreSQL); tsc / build / lint vs base
+- [x] Snapshot size delta measured
+- [x] Demo + screens gallery `/root/mmwx-preview/probe-groups/` (:8791)
+- [x] Push, CI green
+- [x] release-notes.md updated (184 + 187 + 188 + 189 batch, merge-tree re-check)
+- [x] Summary `runs/probe-groups/summary.md`
 
-## Results
-(filled in at the end)
+- [x] Extra (found while taking screens): the 187 settings card widened the whole 设置 page on phones (all cards 410 px
+      on a 390 px screen) → left grid column `min-w-0`, 显示名 box under the name on narrow screens
+
+## Results (2026-11-02, BUILD ONLY — no tag, no prod change)
+- Commits: 21fa65cc (backend), e8ebe395 (frontend), plan doc. CI Build Check green (41344336566, 41346268955).
+- Storage: config rows `probe_groups` + `probe_group_mode` (additive, admin-only, no schema change). Public snapshot:
+  `groups:[{name}]` + `group_mode` (omitted when nothing is published) and per node `g:[idx]`.
+- Tests: `go vet` = same single pre-existing finding as base (leikwan/testapi unkeyed fields); `go test ./...` with
+  FLVX_POSTGRES_TEST_DSN → 22/22 packages ok (SQLite + PostgreSQL). New: `TestBuildSnapshotGroups`,
+  `TestNormalizeProbeGroups`, `TestProbeGroupsContract` (sqlite + postgres).
+- Frontend: tsc 0; build ok; eslint whole project 94 errors / 3753 warnings, none in changed files (changed files: 0
+  errors, same 2 pre-existing prettier warnings in config.tsx as base).
+- Sizes: snapshot (25 machines, 2 demo groups, same frame) raw 7914 → 8068 B (+154), gzip 2317 → 2382 B (+65).
+  JS gzip: /tz probe-app +435 B, shared sparkline chunk +82 B; admin-main +2.4 KB.
+- CPU: BuildSnapshot 5.7 µs → 18.3 µs worst case (30 groups × 25 machines), once per 2 s tick only while watched.
+- Demo + screens: 37 shots, 67/67 checks, 0 page errors — http://104.145.236.29:8791/probe-groups/
+- `git merge-tree` with origin/feature/3.0.27-latency-tag-region (39a4826d): clean. Release notes:
+  `runs/probe-page/release-notes.md` (batch 184 + 187 + 188 + 189).
