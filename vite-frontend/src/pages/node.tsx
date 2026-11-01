@@ -2584,11 +2584,12 @@ export default function NodePage() {
                   title="协议过滤断开的连接数，自 agent 启动起累计（面板内存，不写库，agent 重启后归零）"
                 >
                   <span className="shrink-0">协议拦截</span>
-                  <span className="truncate tabular-nums">
-                    SOCKS {blocks.socks} · HTTP {blocks.http} · TLS{" "}
-                    {blocks.tls}
+                  <span className="text-right tabular-nums">
+                    SOCKS {blocks.socks} · HTTP {blocks.http} · TLS {blocks.tls}
                     {blocks.other > 0 ? ` · 其他 ${blocks.other}` : ""}
-                    <span className="text-default-400">（自 agent 启动）</span>
+                    <span className="whitespace-nowrap text-default-400">
+                      （自 agent 启动）
+                    </span>
                   </span>
                 </div>
               );

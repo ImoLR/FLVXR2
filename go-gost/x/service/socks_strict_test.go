@@ -162,8 +162,18 @@ func randomFirstPacket(r *mrand.ChaCha8, buf []byte, pick uint64) []byte {
 		n = 500 + int(pick>>8%1300) // with a ClientHello
 	}
 	b := buf[:n]
-	_, _ = r.Read(b)
+	fillRandom(r, b)
 	return b
+}
+
+// fillRandom fills b from r (ChaCha8.Read needs go1.23; this module is go1.22).
+func fillRandom(r *mrand.ChaCha8, b []byte) {
+	for i := 0; i < len(b); i += 8 {
+		v := r.Uint64()
+		for j := 0; j < 8 && i+j < len(b); j++ {
+			b[i+j] = byte(v >> (8 * j))
+		}
+	}
 }
 
 func TestDetectSOCKSRandomFalsePositives(t *testing.T) {
