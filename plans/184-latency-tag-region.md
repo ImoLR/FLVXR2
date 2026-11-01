@@ -68,3 +68,21 @@ User request (2026-11-01, session 9db8c70d):
   is the default, B (nested) for comparison — user decides.
 - Release notes for the batch release worker: `runs/latency-tag-region/release-notes.md` (panel only, no OTA, additive
   column, data step via /tunnel/region, rollback = panel rollback.sh, column can stay).
+
+## r2 对齐隧道写法 (latency-tag-align, 2026-11-01)
+User (session e42e8ad8): the rules-page 最优 line must read like the 隧道 page chips — 「中转最优：东京B → 出口最优：新加坡A」
++ the round-1 ms tag; keep ALL of round 1 as built (incl. the ms tag on the 隧道 chips). Frontend only.
+- Pick line: each layer `${label}最优：${name}`, joined by 「→」; multi 「出口最优：2 个节点」; ms tag (A sibling / B nested)
+  unchanged, 含落地 stays in the tag. Non-applied states keep their text (no ms tag).
+- Always tappable (tap/click, never hover): the single-pick line also opens the popover — hint (`RULE_BEST_PICK_HINT`)
+  + item row(s); ChevronDown on every line; `stopPropagation` as before.
+- Dropdown rows: 「中转最优 东京B → 出口最优 新加坡A」 + ms tag.
+- Phone: wraps only between hops; a long node name truncates inside its hop (full name in the popover); no horizontal
+  scroll in the rule card.
+
+- [ ] R2-1 Pick line wording + always-tappable popover (single + multi), dropdown row wording
+- [ ] R2-2 Gates: tsc / build / lint vs round 1; backend untouched (git diff)
+- [ ] R2-3 Demo panel + gallery :8791 /latency-tag-align/ (before/after, A vs B, 390 + 1440, light + dark, tunnel chips)
+- [ ] R2-4 Bundle delta vs round 1 and vs fork.104
+- [ ] R2-5 release-notes.md + push + CI green
+- [ ] R2-6 Summary

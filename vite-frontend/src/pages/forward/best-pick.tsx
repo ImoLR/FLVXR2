@@ -5,6 +5,7 @@ import { ChevronDown, Route, TriangleAlert } from "lucide-react";
 import { reenableRuleBest } from "@/api";
 import { LATENCY_TAG_STYLE, LatencyTag } from "@/components/latency-tag";
 import { landingToneClass, type LandingTone } from "@/pages/landing/pill";
+import { latencyText } from "@/utils/latency-tone";
 import { Button } from "@/shadcn-bridge/heroui/button";
 import {
   Dropdown,
@@ -13,11 +14,13 @@ import {
 } from "@/shadcn-bridge/heroui/dropdown";
 
 // Plan 180: under a rule on a tunnel with a 「最优」 layer, the node(s) the
-// 最优 layers use right now — 「中转 东京B → 出口 新加坡A · 38 ms」. With
-// 「规则最优」 the ms include exit → target (含落地). When the rule's entries or
-// targets pick different nodes the line says 「N 个节点」 and a tap / click
-// opens the per-entry / per-target picks (touch first, never hover; plan 156).
-// The data comes with the rule list (no extra request).
+// 最优 layers use right now. With 「规则最优」 the ms include exit → target
+// (含落地). When the rule's entries or targets pick different nodes the line
+// says 「N 个节点」. The data comes with the rule list (no extra request).
+//
+// Plan 184 r2: worded like the 隧道 page 最优 chips — 「中转最优：东京B →
+// 出口最优：新加坡A」 + the ms tag — and, like them, every line is tappable
+// (tap / click, never hover; plan 156): the hint, then the pick row(s).
 
 export interface RuleBestPickHop {
   label: string;
@@ -113,28 +116,56 @@ export const normalizeRuleBestPick = (raw: unknown): RuleBestPick | null => {
   };
 };
 
-function PickText({ pick }: { pick: RuleBestPick }) {
+// Plan 184 r2: 「${label}最优：${name}」 per 最优 layer (backend labels stay
+// 中转 / 中转N / 出口), joined by 「→」. Non-applied states keep their text.
+const pickSegments = (pick: RuleBestPick): string[] => {
   const applied = pick.status === "applied";
-  // Segments break only between hops: 「中转 东京B」「→ 出口 新加坡A」 + ms tag.
-  const segs =
-    applied && pick.layers && pick.layers.length > 0
-      ? pick.layers.map((l, i) => `${i > 0 ? "→ " : ""}${l.label} ${l.name}`)
-      : [applied ? pick.summary : statusText[pick.status] || pick.summary];
 
+  return applied && pick.layers && pick.layers.length > 0
+    ? pick.layers.map((l, i) => `${i > 0 ? "→ " : ""}${l.label}最优：${l.name}`)
+    : [applied ? pick.summary : statusText[pick.status] || pick.summary];
+};
+
+function PickText({ pick }: { pick: RuleBestPick }) {
+  const segs = pickSegments(pick);
+  const chevron = <ChevronDown aria-hidden className="h-3 w-3 shrink-0" />;
+  // B: the chevron follows the nested ms tag; A: it rides on the last hop.
+  const chevronOnTag = nestedMs && pick.status === "applied";
+
+  // The line breaks only between hops: 「🔀 中转最优：东京B」「→ 出口最优：新加坡A ⌄」;
+  // the icon / chevron stick to their hop, a long node name truncates inside
+  // its hop (the popover row shows it in full).
   return (
     <>
-      <Route aria-label="最优" className="h-3 w-3 shrink-0" />
       {segs.map((seg, i) => (
-        <span key={i} className="whitespace-nowrap">
-          {seg}
+        <span
+          key={i}
+          className="inline-flex min-w-0 max-w-full items-center gap-1"
+        >
+          {i === 0 && <Route aria-label="最优" className="h-3 w-3 shrink-0" />}
+          <span className="min-w-0 truncate" data-rule-best-seg={i}>
+            {seg}
+          </span>
+          {i === segs.length - 1 && !chevronOnTag && chevron}
         </span>
       ))}
-      {nestedMs && <PickLatency nested pick={pick} />}
+      {chevronOnTag && (
+        <span className="inline-flex shrink-0 items-center gap-1">
+          <PickLatency nested pick={pick} />
+          {chevron}
+        </span>
+      )}
     </>
   );
 }
 
-function PickItemRow({ item }: { item: RuleBestPickItem }) {
+function PickItemRow({
+  item,
+  maxMs,
+}: {
+  item: RuleBestPickItem;
+  maxMs?: number;
+}) {
   const head = [
     item.entry && `入口 ${item.entry}`,
     item.target && `目标 ${item.target}`,
@@ -154,13 +185,14 @@ function PickItemRow({ item }: { item: RuleBestPickItem }) {
           {(item.hops || []).map((hop, i) => (
             <span key={`${hop.label}-${i}`} className="break-all">
               {i > 0 && <span className="mx-0.5 text-default-400">→</span>}
-              <span className="text-default-500">{hop.label}</span>{" "}
+              <span className="text-default-500">{hop.label}最优</span>{" "}
               <span className="text-teal-700 dark:text-teal-300">
                 {hop.name}
               </span>
             </span>
           ))}
           <LatencyTag
+            maxMs={maxMs}
             minMs={item.ms}
             size="row"
             withTarget={!!item.withTarget}
@@ -175,6 +207,16 @@ function PickItemRow({ item }: { item: RuleBestPickItem }) {
   );
 }
 
+// A single pick comes without items (backend); its popover row is built from
+// the line itself: same hops, same ms (range) and 含落地.
+const singlePickItem = (pick: RuleBestPick): RuleBestPickItem => ({
+  status: pick.status,
+  summary: statusText[pick.status] || pick.summary,
+  hops: (pick.layers || []).map((l) => ({ label: l.label, name: l.name })),
+  ms: pick.minMs,
+  withTarget: pick.withTarget,
+});
+
 export function RuleBestPickLine({
   pick,
   className = "",
@@ -184,23 +226,12 @@ export function RuleBestPickLine({
 }) {
   if (!pick) return null;
   const tone = statusTone[pick.status] ?? "slate";
-  const items = pick.items || [];
-
-  if (!pick.multi || items.length < 2) {
-    return (
-      <div
-        className={`mt-1 flex min-w-0 flex-wrap items-center gap-1 ${className}`}
-      >
-        <span
-          className={`${pillBase} ${landingToneClass[tone]}`}
-          data-rule-best-pick={pick.status}
-        >
-          <PickText pick={pick} />
-        </span>
-        {!nestedMs && <PickLatency nested={false} pick={pick} />}
-      </div>
-    );
-  }
+  const multi = !!pick.multi && (pick.items || []).length >= 2;
+  const items = multi ? pick.items || [] : [singlePickItem(pick)];
+  const msText =
+    pick.status === "applied"
+      ? ` · ${latencyText(pick.minMs, pick.maxMs)}`
+      : "";
 
   return (
     <div
@@ -209,14 +240,14 @@ export function RuleBestPickLine({
       <Dropdown>
         <DropdownTrigger>
           <button
-            aria-label="最优线路，点按查看每个入口 / 目标"
+            aria-label={`${pickSegments(pick).join(" ")}${msText}，点按查看${multi ? "每个入口 / 目标" : "说明"}`}
             className={`${pillBase} ${landingToneClass[tone]} cursor-pointer hover:brightness-95 focus-visible:outline-2 focus-visible:outline-offset-1 dark:hover:brightness-110`}
+            data-rule-best-multi={multi ? "" : undefined}
             data-rule-best-pick={pick.status}
             type="button"
             onClick={(e) => e.stopPropagation()}
           >
             <PickText pick={pick} />
-            <ChevronDown aria-hidden className="h-3 w-3 shrink-0" />
           </button>
         </DropdownTrigger>
         <DropdownMenu aria-label="最优线路详情">
@@ -226,6 +257,7 @@ export function RuleBestPickLine({
               <PickItemRow
                 key={`${item.entry}-${item.target}-${i}`}
                 item={item}
+                maxMs={multi ? undefined : pick.maxMs}
               />
             ))}
           </div>
