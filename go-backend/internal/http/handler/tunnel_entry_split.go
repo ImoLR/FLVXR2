@@ -240,6 +240,10 @@ func (h *Handler) planTunnelSplit(req tunnelSplitRequest) (*tunnelSplitPlan, err
 	if t.Remark.Valid {
 		twinReq["remark"] = t.Remark.String
 	}
+	if t.RegionOverride != "" {
+		// Plan 184: the twin keeps the 「显示地区」 (same exit, same purpose).
+		twinReq["regionOverride"] = t.RegionOverride
+	}
 	plan.TwinRequest = twinReq
 
 	for _, id := range twinNodes {

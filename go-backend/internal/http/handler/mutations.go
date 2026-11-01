@@ -1528,6 +1528,11 @@ func (h *Handler) tunnelCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defaultNewTunnelLayerStrategies(req)
+	regionOverride, err := tunnelRegionOverrideFromRequest(req, "")
+	if err != nil {
+		response.WriteJSON(w, response.ErrDefault(err.Error()))
+		return
+	}
 
 	name := asString(req["name"])
 	if name == "" {
@@ -1683,6 +1688,8 @@ func (h *Handler) tunnelCreate(w http.ResponseWriter, r *http.Request) {
 		BlockOther:    asInt(req["blockOther"], 0),
 		SpeedID:       tunnelSpeedID,
 		RuleBest:      ruleBest,
+		// Plan 184 「显示地区」 ('' = automatic).
+		RegionOverride: regionOverride,
 	}
 	if err := tx.Create(&tunnel).Error; err != nil {
 		response.WriteJSON(w, response.Err(-2, err.Error()))
@@ -1842,6 +1849,14 @@ func (h *Handler) tunnelUpdate(w http.ResponseWriter, r *http.Request) {
 		response.WriteJSON(w, response.ErrDefault("隧道ID不能为空"))
 		return
 	}
+	// Plan 184 「显示地区」: validated before the runtime is torn down below;
+	// absent from the request = keep the stored value.
+	_, regionOverrideSet := req["regionOverride"]
+	regionOverride, err := tunnelRegionOverrideFromRequest(req, "")
+	if err != nil {
+		response.WriteJSON(w, response.ErrDefault(err.Error()))
+		return
+	}
 	unlock := h.lockTunnelRuntime(id)
 	defer unlock()
 	oldEntryNodeIDs, _ := h.tunnelEntryNodeIDs(id)
@@ -1891,8 +1906,13 @@ func (h *Handler) tunnelUpdate(w http.ResponseWriter, r *http.Request) {
 	// Plan 180: 「规则最优」 — absent from the request = keep the stored value
 	// (read before the transaction: SQLite has one connection).
 	previousRuleBest := 1
+	previousRegionOverride := ""
 	if current, curErr := h.getTunnelRecord(id); curErr == nil && current != nil {
 		previousRuleBest = current.RuleBest
+		previousRegionOverride = current.RegionOverride
+	}
+	if !regionOverrideSet || req["regionOverride"] == nil {
+		regionOverride = previousRegionOverride
 	}
 	tx := h.repo.BeginTx()
 	if tx.Error != nil {
@@ -1919,6 +1939,12 @@ func (h *Handler) tunnelUpdate(w http.ResponseWriter, r *http.Request) {
 	if ruleBest == 0 {
 		// Switched off: the redeploy below writes chains without destOrder.
 		h.ruleBest.forgetTunnel(id)
+	}
+	if regionOverride != previousRegionOverride {
+		if _, err := h.repo.SetTunnelRegionOverrideTx(tx, id, regionOverride); err != nil {
+			response.WriteJSON(w, response.Err(-2, err.Error()))
+			return
+		}
 	}
 
 	newEntryNodeIDs := make([]int64, 0, len(runtimeState.InNodes))
@@ -7091,6 +7117,20 @@ func (h *Handler) userRegister(w http.ResponseWriter, r *http.Request) {
 		"name":    req.User,
 		"role_id": 1,
 	}))
+}
+
+// tunnelRegionOverrideFromRequest reads the 「显示地区」 (plan 184): absent or
+// null = fallback, otherwise a validated region code (” = automatic).
+func tunnelRegionOverrideFromRequest(req map[string]interface{}, fallback string) (string, error) {
+	v, ok := req["regionOverride"]
+	if !ok || v == nil {
+		return fallback, nil
+	}
+	s, isString := v.(string)
+	if !isString {
+		return "", errors.New("显示地区须为两位地区代码或留空（自动）")
+	}
+	return repo.NormalizeTunnelRegionOverride(s)
 }
 
 // tunnelRuleBestFromRequest reads the 「规则最优」 switch (plan 180): 0 = off,

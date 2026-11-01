@@ -19,6 +19,7 @@ import {
   useCallback,
 } from "react";
 import toast from "react-hot-toast";
+import { PenLine } from "lucide-react";
 import {
   DndContext,
   KeyboardSensor,
@@ -78,6 +79,7 @@ import {
   batchDeleteTunnelsWithForwards,
   getTunnelList,
   updateTunnel,
+  updateTunnelRegion,
   deleteTunnelWithForwards,
   getNodeList,
   diagnoseTunnel,
@@ -115,6 +117,7 @@ import {
 } from "@/pages/tunnel/form";
 import { useLocalStorageState } from "@/hooks/use-local-storage-state";
 import { EntryIpPicker } from "@/pages/tunnel/entry-ip-picker";
+import { landingToneClass } from "@/pages/landing/pill";
 import {
   addressKey,
   nodeIpOptions,
@@ -131,6 +134,7 @@ import {
 import { loadStoredOrder, saveOrder } from "@/utils/order-storage";
 import {
   MULTI_REGION,
+  REGION_CODES,
   compareRegions,
   exitRegionKey,
   exitRegionLabel,
@@ -178,6 +182,10 @@ interface Tunnel {
     regionCity: string;
   }>;
   exitRegions?: string[];
+  // Plan 184 (admin list): 「显示地区」 override ('' = automatic) and the real
+  // exit regions behind it.
+  regionOverride?: string;
+  autoExitRegions?: string[];
   inNodeId: ChainTunnel[];
   outNodeId?: ChainTunnel[];
   chainNodes?: ChainTunnel[][];
@@ -309,6 +317,8 @@ interface TunnelForm {
   speedId: number | null;
   // Plan 180 「规则最优」: 1 on (default), 0 off.
   ruleBest?: number;
+  // Plan 184 「显示地区」: '' = automatic.
+  regionOverride: string;
 }
 interface BatchProgressState {
   active: boolean;
@@ -463,6 +473,15 @@ const mapChainNodes = (nodes: any[]) =>
     port: n.port || n.allocatedPort || n.allocated_port || 0,
   }));
 
+// Plan 184 「显示地区」 options: 自动 + the node region editor's list.
+const REGION_OVERRIDE_AUTO = "auto";
+const REGION_OVERRIDE_OPTIONS = [...REGION_CODES].sort(compareRegions);
+
+// Plan 184: the edit form minus 显示地区 — equal to the opened form means
+// only 显示地区 changed.
+const tunnelFormSignature = (form: TunnelForm) =>
+  JSON.stringify({ ...form, regionOverride: "" });
+
 const mapTunnelApiItems = (items: any[]): Tunnel[] => {
   return (items || []).map((tunnel) => ({
     ...tunnel,
@@ -569,6 +588,10 @@ export default function TunnelPage() {
   const [wgTunnelMode, setWGTunnelMode] = useState(false);
   const [wgEditPathId, setWGEditPathId] = useState<number | null>(null);
   const [submitLoading, setSubmitLoading] = useState(false);
+  const editBaselineRef = useRef<{
+    signature: string;
+    regionOverride: string;
+  } | null>(null);
   const [deleteLoading, setDeleteLoading] = useState(false);
   const [deletePreviewLoading, setDeletePreviewLoading] = useState(false);
   const [diagnosisLoading, setDiagnosisLoading] = useState(false);
@@ -935,7 +958,7 @@ export default function TunnelPage() {
     }
     setIsEdit(true);
     setWGTunnelMode(false);
-    setForm({
+    const editForm: TunnelForm = {
       id: tunnel.id,
       leikwanPipeId: tunnel.leikwanPipeId,
       // Plan 152 (placeholder hidden by plan 155): an old raw template survives a save.
@@ -962,7 +985,16 @@ export default function TunnelPage() {
       blockOther: typeof tunnel.blockOther === "number" ? tunnel.blockOther : 0,
       speedId: tunnel.speedId ?? null,
       ruleBest: tunnel.ruleBest === 0 ? 0 : 1,
-    });
+      regionOverride: tunnel.regionOverride || "",
+    };
+
+    // Plan 184: what the dialog opened with, to save a 显示地区-only change
+    // through /tunnel/region (no redeploy).
+    editBaselineRef.current = {
+      signature: tunnelFormSignature(editForm),
+      regionOverride: editForm.regionOverride,
+    };
+    setForm(editForm);
     setErrors({});
     setModalOpen(true);
   };
@@ -1530,7 +1562,46 @@ export default function TunnelPage() {
   };
 
   // 提交表单
+  // Plan 184: 显示地区 is display only. When it is the only change of an
+  // edit, save it through /tunnel/region (one column, no node push) — a full
+  // /tunnel/update redeploys the tunnel and every rule (connections drop).
+  const saveRegionOnly = async (): Promise<boolean> => {
+    const base = editBaselineRef.current;
+
+    if (
+      !isEdit ||
+      !form.id ||
+      editingPipe ||
+      !base ||
+      base.regionOverride === form.regionOverride ||
+      base.signature !== tunnelFormSignature(form)
+    ) {
+      return false;
+    }
+    setSubmitLoading(true);
+    try {
+      const res = await updateTunnelRegion({
+        id: form.id,
+        regionOverride: form.regionOverride,
+      });
+
+      if (res.code === 0) {
+        toast.success("显示地区已保存（只改显示，线路未重新下发）");
+        setModalOpen(false);
+        refreshTunnelList(false);
+      } else {
+        toast.error(res.msg || "保存显示地区失败");
+      }
+    } catch (error) {
+      toast.error(extractApiErrorMessage(error, "保存显示地区失败"));
+    } finally {
+      setSubmitLoading(false);
+    }
+
+    return true;
+  };
   const handleSubmit = async (pipeConfirmed = false) => {
+    if (await saveRegionOnly()) return;
     if (!validateForm()) return;
     if (editingPipe) {
       const groups = (form.chainNodes || [])
@@ -2379,6 +2450,19 @@ export default function TunnelPage() {
       coordinateGetter: sortableKeyboardCoordinates,
     }),
   );
+  // Plan 184: 「自动（按出口：香港）」 — what 自动 means for the form's current
+  // nodes (exit nodes; entry nodes for 端口转发).
+  const autoRegionText = useMemo(() => {
+    const regionOf = new Map(nodes.map((node) => [node.id, node.region || ""]));
+    const ids = (form.type === 1 ? form.inNodeId : form.outNodeId || [])
+      .map((item) => item.nodeId)
+      .filter((id) => id > 0);
+    const basis = form.type === 1 ? "按入口" : "按出口";
+
+    if (ids.length === 0) return `自动（${basis}）`;
+
+    return `自动（${basis}：${exitRegionLabel(ids.map((id) => regionOf.get(id) || ""))}）`;
+  }, [nodes, form.type, form.inNodeId, form.outNodeId]);
   const tunnelRegions = useMemo(() => {
     const nodeById = new Map(nodes.map((node) => [node.id, node]));
 
@@ -2398,7 +2482,7 @@ export default function TunnelPage() {
             ]),
           ).values(),
         );
-        const exitRegions =
+        const autoRegions =
           tunnel.exitRegions ??
           Array.from(
             new Set(
@@ -2408,6 +2492,11 @@ export default function TunnelPage() {
               ).map(({ nodeId }) => nodeById.get(nodeId)?.region || ""),
             ),
           );
+        // Plan 184: a 「显示地区」 override wins (the server already sends it
+        // as exitRegions; the node-derived fallback must respect it too).
+        const exitRegions = tunnel.regionOverride
+          ? [tunnel.regionOverride]
+          : autoRegions;
 
         return [
           tunnel.id,
@@ -2736,6 +2825,44 @@ export default function TunnelPage() {
       {exitRegionLabel(tunnelRegions.get(tunnel.id)?.exitRegions)}
     </Chip>
   );
+  // Plan 184: admin marker of a 「显示地区」 override — a tiny 「手动」 pill
+  // next to the region chip (alone inside region-tree boxes, where the chip is
+  // hidden); a tap shows the real exit (tap only, plan 156). Users never get
+  // this data.
+  const renderRegionOverrideMark = (tunnel: Tunnel) => {
+    if (!isAdmin || !tunnel.regionOverride) return null;
+    const real = exitRegionLabel(
+      tunnel.autoExitRegions?.length ? tunnel.autoExitRegions : [""],
+    );
+
+    return (
+      <Dropdown>
+        <DropdownTrigger>
+          <button
+            aria-label={`显示地区为手动设置（${regionLabel(tunnel.regionOverride)}），实际出口：${real}，点按查看`}
+            className={`inline-flex shrink-0 cursor-pointer items-center gap-0.5 whitespace-nowrap rounded-full px-1.5 text-[11px] font-semibold leading-[18px] ${landingToneClass.slate} hover:brightness-95 focus-visible:outline-2 focus-visible:outline-offset-1 dark:hover:brightness-110`}
+            data-region-override={tunnel.regionOverride}
+            type="button"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <PenLine aria-hidden className="h-3 w-3" />
+            手动
+          </button>
+        </DropdownTrigger>
+        <DropdownMenu aria-label="显示地区">
+          <div className="max-w-[86vw] space-y-1 p-2 text-left text-xs sm:max-w-xs">
+            <p className="font-semibold text-foreground">
+              显示地区：{regionLabel(tunnel.regionOverride)}（手动）
+            </p>
+            <p className="text-default-600">实际出口：{real}</p>
+            <p className="text-default-500">
+              用户选隧道时按这个地区分组；不影响实际线路。改回「自动」请编辑隧道。
+            </p>
+          </div>
+        </DropdownMenu>
+      </Dropdown>
+    );
+  };
   // Plan 178: one tunnel row / card, shared by the flat ("none") view and the
   // grouped tree views.
   const renderTunnelListRow = (tunnel: Tunnel, opts: TunnelListRowOptions) => {
@@ -2831,6 +2958,7 @@ export default function TunnelPage() {
                   </Chip>
                 )}
                 {!opts.hideRegionChip && renderExitRegion(tunnel)}
+                {renderRegionOverrideMark(tunnel)}
               </div>
             </td>
             <td className="py-3 px-4 align-middle">
@@ -3043,6 +3171,7 @@ export default function TunnelPage() {
                     </Chip>
                   )}
                   {!opts.hideRegionChip && renderExitRegion(tunnel)}
+                  {renderRegionOverrideMark(tunnel)}
                   <div className={tunnelTypeChipClassName}>
                     {typeDisplay.text}
                   </div>
@@ -4398,6 +4527,46 @@ export default function TunnelPage() {
                         }))
                       }
                     />
+                  </div>
+                  {/* Plan 184: 「显示地区」 — display only, default 自动. */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <Select
+                      isSearchable
+                      description="用户选隧道时按这个地区分组；不影响实际线路"
+                      label="显示地区"
+                      searchPlaceholder="搜索地区名称或代码"
+                      selectedKeys={[
+                        form.regionOverride || REGION_OVERRIDE_AUTO,
+                      ]}
+                      variant="bordered"
+                      onSelectionChange={(keys) => {
+                        const selected = Array.from(keys)[0];
+
+                        if (selected === undefined) return;
+                        setForm((prev) => ({
+                          ...prev,
+                          regionOverride:
+                            String(selected) === REGION_OVERRIDE_AUTO
+                              ? ""
+                              : String(selected),
+                        }));
+                      }}
+                    >
+                      <SelectItem
+                        key={REGION_OVERRIDE_AUTO}
+                        textValue={autoRegionText}
+                      >
+                        {autoRegionText}
+                      </SelectItem>
+                      {REGION_OVERRIDE_OPTIONS.map((code) => (
+                        <SelectItem
+                          key={code}
+                          textValue={`${regionLabel(code)} (${code})`}
+                        >
+                          {regionLabel(code)} ({code})
+                        </SelectItem>
+                      ))}
+                    </Select>
                   </div>
                   <Divider />
                   <h3 className="text-lg font-semibold">入口配置</h3>
