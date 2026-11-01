@@ -11,6 +11,11 @@ import { AnimatePresence, motion } from "framer-motion";
 
 import { Button } from "@/shadcn-bridge/heroui/button";
 import {
+  refreshSubLinkEnabled,
+  subLinkEnabledCached,
+  subMenuSeen,
+} from "@/api/sub-link";
+import {
   Dropdown,
   DropdownTrigger,
   DropdownMenu,
@@ -236,6 +241,27 @@ export default function AdminLayout({
       path: "/landing",
       label: "落地",
       icon: <svg aria-hidden="true" className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={1.8} viewBox="0 0 24 24"><path d="M12 3v12m-4-4 4 4 4-4M5 15v5h14v-5" strokeLinecap="round" strokeLinejoin="round" /></svg>,
+    },
+    {
+      path: "/sub",
+      label: "订阅",
+      icon: (
+        <svg
+          aria-hidden="true"
+          className="w-5 h-5"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth={1.8}
+          viewBox="0 0 24 24"
+        >
+          <path
+            d="M5 5a14 14 0 0 1 14 14M5 11a8 8 0 0 1 8 8"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+          <circle cx="6" cy="18" fill="currentColor" r="1.6" stroke="none" />
+        </svg>
+      ),
     },
     {
       path: "/node",
@@ -598,11 +624,30 @@ export default function AdminLayout({
     return true;
   })();
 
+  // Plan 185: 订阅 menu — hidden when the admin switched it off, 「新」 until opened once.
+  const [subEnabled, setSubEnabled] = useState(subLinkEnabledCached);
+  const [subSeen, setSubSeen] = useState(subMenuSeen);
+
+  useEffect(() => {
+    void refreshSubLinkEnabled().then(setSubEnabled);
+    const onSeen = () => setSubSeen(true);
+    const onSwitch = () => setSubEnabled(subLinkEnabledCached());
+
+    window.addEventListener("flvxSubLinkSeen", onSeen);
+    window.addEventListener("flvxSubLinkSwitch", onSwitch);
+
+    return () => {
+      window.removeEventListener("flvxSubLinkSeen", onSeen);
+      window.removeEventListener("flvxSubLinkSwitch", onSwitch);
+    };
+  }, []);
+
   const filteredMenuItems = menuItems.filter(
     (item) =>
       !(item.adminOnly && !isAdmin) &&
       !(item.userOnly && isAdmin) &&
       item.path !== "/tls" &&
+      !(item.path === "/sub" && !subEnabled) &&
       !(item.path === "/monitor" && monitorAllowed !== true) &&
       !(item.path === "/shop" && !isAdmin && !storeEnabled) &&
       !(
@@ -746,6 +791,11 @@ export default function AdminLayout({
                         <span className="font-medium text-sm relative z-10 whitespace-nowrap">
                           {item.label}
                         </span>
+                        {item.path === "/sub" && !subSeen && (
+                          <span className="relative z-10 ml-2 rounded-md bg-amber-500/15 px-1.5 text-[10.5px] font-bold leading-[18px] text-amber-700 dark:bg-amber-400/15 dark:text-amber-300">
+                            新
+                          </span>
+                        )}
                       </div>
                     </motion.button>
                   </li>

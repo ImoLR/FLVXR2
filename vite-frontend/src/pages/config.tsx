@@ -5,6 +5,7 @@ import toast from "react-hot-toast";
 import { AnimatePresence, motion } from "framer-motion";
 
 import { Button } from "@/shadcn-bridge/heroui/button";
+import { resetSubLinkSwitchCheck } from "@/api/sub-link";
 import { Card, CardBody, CardHeader } from "@/shadcn-bridge/heroui/card";
 import { DNSProviderCard } from "@/pages/node/dns-provider-card";
 import { Input } from "@/shadcn-bridge/heroui/input";
@@ -46,6 +47,7 @@ interface ConfigItem {
   options?: { label: string; value: string; description?: string }[];
   dependsOn?: string | string[]; // 依赖的配置项key，数组时为 OR 逻辑
   dependsValue?: string; // 依赖的配置项值
+  defaultValue?: string; // 未保存过时的取值（plan 185 订阅链接默认开启）
 }
 const BRAND_PREVIEW_KEYS = [
   "app_logo",
@@ -69,6 +71,7 @@ const STANDALONE_SWITCH_KEYS = [
   "payment_enabled",
   "registration_enabled",
   "login_monitor_link",
+  "sub_link_enabled",
 ];
 const POWERED_BADGE_VISIBILITY_KEY = "flvx_powered_badge_visible";
 const POWERED_BADGE_VISIBILITY_EVENT = "flvxPoweredBadgeVisibilityChanged";
@@ -151,6 +154,14 @@ const CONFIG_ITEMS: ConfigItem[] = [
     label: "探针入口",
     description: "开启后，登录页右上角显示探针入口按钮，点击可查看节点实时状态",
     type: "switch",
+  },
+  {
+    key: "sub_link_enabled",
+    label: "订阅链接",
+    description:
+      "开启后，所有用户可以在「订阅」里生成自己的订阅链接；关闭后菜单隐藏，已有链接停止更新",
+    type: "switch",
+    defaultValue: "true",
   },
   {
     key: "cloudflare_site_key",
@@ -396,6 +407,10 @@ export default function ConfigPage() {
           detail: { changedKeys: Object.keys(payload) },
         }),
       );
+      if (key === "sub_link_enabled") {
+        resetSubLinkSwitchCheck();
+        window.dispatchEvent(new Event("flvxSubLinkSwitch"));
+      }
       if (key === "payment_enabled") {
         window.dispatchEvent(
           new CustomEvent("paymentEnabledChanged", {
@@ -1119,7 +1134,9 @@ export default function ConfigPage() {
                   <div className="flex-shrink-0">
                     <Switch
                       color="primary"
-                      isSelected={configs[item.key] === "true"}
+                      isSelected={
+                        (configs[item.key] ?? item.defaultValue) === "true"
+                      }
                       size="sm"
                       onValueChange={(checked) =>
                         handleDirectSwitchChange(item.key, checked)
