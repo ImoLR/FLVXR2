@@ -12,7 +12,10 @@ Release ONLY plan 185 (plan 184 latency-tag-region/align is not included). Panel
 ## Checklist
 - [x] Pre-checks: no other release running, prod = fork.104, latest tag fork.104, head CI green, plan 186 free
 - [x] Release branch + this plan doc
-- [ ] Gates on release head: backend build/vet, go test SQLite + PostgreSQL, frontend tsc/build/lint (compare with fork.104)
+- [x] Gates on release head: backend build/vet, go test SQLite + PostgreSQL, frontend tsc/build/lint (compare with fork.104)
+  - build ok; vet = same 5 leikwan/testapi findings as fork.104; tsc 0; vite build ok; eslint 94 errors = fork.104
+  - `TestExternalNodesBothDialects` failed on fork.104 too (hard-coded 2026-10-31 expiry) → test-only fix f7108278;
+    after it: 20/20 packages on SQLite and PostgreSQL
 - [ ] Push branch, tag `3.0.27-fork.105`, CI + Images (backend/frontend amd64+arm64) green, release assets verified
 - [ ] Baselines: panel CPU/RSS, health, node online count, real-rule client check, prod state snapshot
 - [ ] Panel backup (validated DB) + rollback dir + image tags
