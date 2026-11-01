@@ -112,3 +112,52 @@ func TestProbeSnapshotLiveData(t *testing.T) {
 		t.Fatal("hidden node visible on the old public stream")
 	}
 }
+
+// TestNormalizeProbeGroups: plan 189 validation — limits, trimmed unique
+// names, no control characters, members deduplicated and existing, ids kept
+// when valid and assigned when new or clashing.
+func TestNormalizeProbeGroups(t *testing.T) {
+	known := map[int64]bool{1: true, 2: true, 3: true}
+	got, err := normalizeProbeGroups([]probeGroup{
+		{ID: 7, Name: "  IXP ", Nodes: []int64{1, 2, 2}},
+		{ID: 0, Name: "三网优化", Nodes: []int64{2, 3}},
+		{ID: 7, Name: "空组"},
+	}, known)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 3 || got[0].ID != 7 || got[0].Name != "IXP" || len(got[0].Nodes) != 2 || got[1].ID != 8 || got[2].ID != 9 || got[2].Nodes == nil {
+		t.Fatalf("normalized %+v", got)
+	}
+	tooMany := make([]probeGroup, 31)
+	for i := range tooMany {
+		tooMany[i] = probeGroup{Name: "g" + strings.Repeat("x", i%5) + string(rune('a'+i))}
+	}
+	for name, bad := range map[string][]probeGroup{
+		"31 groups":     tooMany,
+		"empty name":    {{Name: "   "}},
+		"21 chars":      {{Name: strings.Repeat("组", 21)}},
+		"duplicate":     {{Name: "IXP"}, {Name: " ixp"}},
+		"control char":  {{Name: "a\nb"}},
+		"unknown node":  {{Name: "IXP", Nodes: []int64{1, 99}}},
+		"negative node": {{Name: "IXP", Nodes: []int64{-1}}},
+	} {
+		if _, err := normalizeProbeGroups(bad, known); err == nil {
+			t.Fatalf("%s accepted", name)
+		}
+	}
+	if _, err := normalizeProbeGroups([]probeGroup{{Name: strings.Repeat("组", 20), Nodes: []int64{99}}}, nil); err != nil {
+		t.Fatalf("20 chars / no existence check on the generic path: %v", err)
+	}
+	if v, err := normalizeProbeConfigValue(probeGroupsKey, `[{"name":"IXP","nodes":[1]}]`); err != nil || v != `[{"id":1,"name":"IXP","nodes":[1]}]` {
+		t.Fatalf("generic value %q %v", v, err)
+	}
+	for _, bad := range []string{"{broken", `{"name":"x"}`, `[{"name":""}]`} {
+		if _, err := normalizeProbeConfigValue(probeGroupsKey, bad); err == nil {
+			t.Fatalf("generic %q accepted", bad)
+		}
+	}
+	if _, err := normalizeProbeConfigValue(probeGroupModeKey, "tree"); err == nil {
+		t.Fatal("bad mode accepted")
+	}
+}

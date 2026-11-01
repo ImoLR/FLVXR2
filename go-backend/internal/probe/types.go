@@ -25,7 +25,23 @@ type Snapshot struct {
 	TS        int64  `json:"ts"`
 	LatencyOn bool   `json:"latency_on"`
 	Nodes     []Node `json:"nodes"`
+	// Plan 189 custom groups: only groups with ≥ 1 shown node, in the admin's
+	// order; both fields are omitted when no group is published.
+	GroupMode string  `json:"group_mode,omitempty"`
+	Groups    []Group `json:"groups,omitempty"`
 }
+
+// Group is a custom group as the page sees it: just its name. Nodes point at
+// it by index (Node.G), never by any internal id.
+type Group struct {
+	Name string `json:"name"`
+}
+
+// Group modes (admin default; the visitor may switch on the page).
+const (
+	GroupModeRegion = "region"
+	GroupModeGroup  = "group"
+)
 
 // Node is one server card. Metrics are zero while the node is offline (the
 // page shows 「最后在线 …」 from Seen instead).
@@ -48,6 +64,8 @@ type Node struct {
 	Uptime     int64     `json:"uptime"`
 	TCP        int64     `json:"tcp"`
 	Latency    []Latency `json:"latency,omitempty"`
+	// G: indexes into Snapshot.Groups (plan 189), omitted when in none.
+	G []int `json:"g,omitempty"`
 }
 
 // Latency is the newest measured TCP latency from this node to another shown

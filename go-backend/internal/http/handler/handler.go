@@ -1505,7 +1505,7 @@ func (h *Handler) updateSingleConfig(w http.ResponseWriter, r *http.Request) {
 
 func normalizeAndValidateConfigValue(key, value string) (string, error) {
 	switch strings.TrimSpace(key) {
-	case probeTitleKey, probeDomainKey, probeLatencyKey, probeNodesKey:
+	case probeTitleKey, probeDomainKey, probeLatencyKey, probeNodesKey, probeGroupsKey, probeGroupModeKey:
 		return normalizeProbeConfigValue(strings.TrimSpace(key), value)
 	case repo.LandingDefaultMaxNodesKey:
 		n, err := repo.ParseLandingDefaultMaxNodes(value)

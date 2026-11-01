@@ -382,3 +382,224 @@ func sortedKeys(m map[string]json.RawMessage) string {
 	sort.Strings(keys)
 	return strings.Join(keys, ",")
 }
+
+// TestProbeGroupsContract: plan 189 custom groups on SQLite and PostgreSQL —
+// admin-only validated CRUD (≤ 30, names 1–20 unique, existing nodes), a node
+// in several groups, hidden nodes and empty groups never published, deleted
+// nodes pruned on read, the snapshot still carries no id / IP / version and
+// names groups by index only.
+func TestProbeGroupsContract(t *testing.T) {
+	for _, dialect := range []string{"sqlite", "postgres"} {
+		t.Run(dialect, func(t *testing.T) {
+			r := landingContractRepo(t, dialect)
+			for _, row := range []*model.Node{
+				{ID: 721, Name: "香港 IXP", Region: "HK", Secret: "grp-secret-721", ServerIP: "203.0.113.121", Port: "1-2", Version: sqlNullString("3.0.27-fork.104 (debian/amd64)"), Inx: 1, Status: 1},
+				{ID: 722, Name: "东京 IXP", Region: "JP", Secret: "grp-secret-722", ServerIP: "203.0.113.122", Port: "1-2", Version: sqlNullString("3.0.27-fork.104 (debian/amd64)"), Inx: 2, Status: 1},
+				{ID: 723, Name: "洛杉矶 CN2", Region: "US", Secret: "grp-secret-723", ServerIP: "203.0.113.123", Port: "1-2", Inx: 3, Status: 1},
+				{ID: 724, Name: "内部隐藏", Region: "SG", Secret: "grp-secret-724", ServerIP: "203.0.113.124", Port: "1-2", Inx: 4, Status: 1},
+				{ID: 725, Name: "待删除", Region: "DE", Secret: "grp-secret-725", ServerIP: "203.0.113.125", Port: "1-2", Inx: 5, Status: 1},
+			} {
+				if err := r.DB().Create(row).Error; err != nil {
+					t.Fatal(err)
+				}
+			}
+			h := handler.New(r, probeSecret, "test")
+			router := httpserver.NewRouter(h, probeSecret, r)
+			admin, _ := auth.GenerateToken(1, "admin", 0, probeSecret)
+			keyer := probe.NewKeyer(probeSecret)
+			call := func(path, token string, body interface{}) response.R {
+				t.Helper()
+				raw, _ := json.Marshal(body)
+				req := httptest.NewRequest(http.MethodPost, "/api/v1/"+path, bytes.NewReader(raw))
+				req.Host = "panel.example.com"
+				if token != "" {
+					req.Header.Set("Authorization", token)
+				}
+				w := httptest.NewRecorder()
+				router.ServeHTTP(w, req)
+				var out response.R
+				if err := json.Unmarshal(w.Body.Bytes(), &out); err != nil {
+					t.Fatalf("%s: %v %s", path, err, w.Body.String())
+				}
+				return out
+			}
+			snapshot := func() (map[string]json.RawMessage, []byte) {
+				t.Helper()
+				req := httptest.NewRequest(http.MethodGet, "/api/v1/probe/snapshot", nil)
+				w := httptest.NewRecorder()
+				router.ServeHTTP(w, req)
+				if w.Code != http.StatusOK {
+					t.Fatalf("snapshot %d %s", w.Code, w.Body.String())
+				}
+				var env struct {
+					Data map[string]json.RawMessage `json:"data"`
+				}
+				_ = json.Unmarshal(w.Body.Bytes(), &env)
+				return env.Data, w.Body.Bytes()
+			}
+			type adminView struct {
+				Groups []struct {
+					ID    int64   `json:"id"`
+					Name  string  `json:"name"`
+					Nodes []int64 `json:"nodes"`
+				} `json:"groups"`
+				GroupMode string `json:"groupMode"`
+			}
+			adminGet := func() adminView {
+				t.Helper()
+				out := call("config/probe", admin, nil)
+				if out.Code != 0 {
+					t.Fatalf("admin get %+v", out)
+				}
+				raw, _ := json.Marshal(out.Data)
+				var v adminView
+				_ = json.Unmarshal(raw, &v)
+				return v
+			}
+			grp := func(id int64, name string, nodes ...int64) map[string]interface{} {
+				return map[string]interface{}{"id": id, "name": name, "nodes": nodes}
+			}
+			base := func(groups interface{}, mode string) map[string]interface{} {
+				return map[string]interface{}{"title": "", "latency": true, "groups": groups, "groupMode": mode,
+					"nodes": []map[string]interface{}{{"id": 724, "hidden": true}}}
+			}
+
+			// Defaults: no groups, region mode.
+			if v := adminGet(); len(v.Groups) != 0 || v.GroupMode != "region" {
+				t.Fatalf("defaults %+v", v)
+			}
+			// Admin only.
+			if err := r.DB().Create(&model.User{ID: 852, User: "probe-grp-user", Pwd: "x", RoleID: 1, Status: 1, Flow: 100, ExpTime: time.Now().UnixMilli() + 86400000, FlowResetTime: 1, Num: 10}).Error; err != nil {
+				t.Fatal(err)
+			}
+			user, _ := auth.GenerateToken(852, "probe-grp-user", 1, probeSecret)
+			if out := call("config/probe/save", user, base([]interface{}{grp(0, "IXP", 721)}, "group")); out.Code != 403 {
+				t.Fatalf("user saved groups: %+v", out)
+			}
+			// Validation: nothing is written on any error.
+			tooMany := make([]interface{}, 31)
+			for i := range tooMany {
+				tooMany[i] = grp(0, "组"+strconv.Itoa(i))
+			}
+			for name, bad := range map[string]map[string]interface{}{
+				"31 groups":    base(tooMany, "group"),
+				"empty name":   base([]interface{}{grp(0, "  ")}, "group"),
+				"21 chars":     base([]interface{}{grp(0, strings.Repeat("网", 21))}, "group"),
+				"duplicate":    base([]interface{}{grp(0, "IXP"), grp(0, " ixp ")}, "group"),
+				"unknown node": base([]interface{}{grp(0, "IXP", 721, 999)}, "group"),
+				"bad mode":     base([]interface{}{grp(0, "IXP", 721)}, "tree"),
+			} {
+				if out := call("config/probe/save", admin, bad); out.Code == 0 {
+					t.Fatalf("%s accepted", name)
+				}
+			}
+			if v := adminGet(); len(v.Groups) != 0 {
+				t.Fatalf("invalid save wrote groups: %+v", v)
+			}
+			if out := call("config/update", admin, map[string]string{"probe_groups": "[{\"name\":\"\"}]"}); out.Code == 0 {
+				t.Fatal("generic config API accepted an empty group name")
+			}
+			if out := call("config/update", admin, map[string]string{"probe_group_mode": "tree"}); out.Code == 0 {
+				t.Fatal("generic config API accepted a bad group mode")
+			}
+
+			// Create: 721 in two groups, 「隐藏组」 has only the hidden node,
+			// 「空组」 has nobody; ordered as sent.
+			save := base([]interface{}{
+				grp(0, " IXP ", 721, 722, 721),
+				grp(0, "隐藏组", 724),
+				grp(0, "三网优化", 721, 723, 725),
+				grp(0, "空组"),
+			}, "group")
+			if out := call("config/probe/save", admin, save); out.Code != 0 {
+				t.Fatalf("save: %+v", out)
+			}
+			v := adminGet()
+			if len(v.Groups) != 4 || v.Groups[0].Name != "IXP" || len(v.Groups[0].Nodes) != 2 || v.Groups[2].Name != "三网优化" || v.GroupMode != "group" {
+				t.Fatalf("stored groups %+v", v)
+			}
+			ids := map[int64]bool{}
+			for _, g := range v.Groups {
+				if g.ID <= 0 || ids[g.ID] {
+					t.Fatalf("group ids %+v", v.Groups)
+				}
+				ids[g.ID] = true
+			}
+			// Groups and mode are admin-only config rows.
+			anon := call("config/list", "", nil)
+			if raw, _ := json.Marshal(anon.Data); strings.Contains(string(raw), "probe_group") || strings.Contains(string(raw), "三网优化") {
+				t.Fatalf("anonymous config/list shows groups: %s", raw)
+			}
+
+			if out := call("config/update", admin, map[string]string{"login_monitor_link": "true"}); out.Code != 0 {
+				t.Fatal(out)
+			}
+			snap, body := snapshot()
+			if got := sortedKeys(snap); got != "group_mode,groups,latency_on,nodes,title,ts" {
+				t.Fatalf("snapshot keys %s", got)
+			}
+			if string(snap["groups"]) != `[{"name":"IXP"},{"name":"三网优化"}]` || string(snap["group_mode"]) != `"group"` {
+				t.Fatalf("published groups %s mode %s", snap["groups"], snap["group_mode"])
+			}
+			for _, bad := range []string{"隐藏组", "空组", "内部隐藏", "203.0.113.", "grp-secret", "fork.104", `"id"`, `"version"`, `"721"`, `"nodes":[7`, keyer.Key(724)} {
+				if bytes.Contains(body, []byte(bad)) {
+					t.Fatalf("snapshot leaks %q: %s", bad, body)
+				}
+			}
+			var nodes []map[string]json.RawMessage
+			_ = json.Unmarshal(snap["nodes"], &nodes)
+			if len(nodes) != 4 {
+				t.Fatalf("nodes %s", snap["nodes"])
+			}
+			wantG := map[string]string{keyer.Key(721): "[0,1]", keyer.Key(722): "[0]", keyer.Key(723): "[1]", keyer.Key(725): "[1]"}
+			for _, n := range nodes {
+				var k string
+				_ = json.Unmarshal(n["k"], &k)
+				if string(n["g"]) != wantG[k] {
+					t.Fatalf("node %s g=%s want %s", n["name"], n["g"], wantG[k])
+				}
+				if got := sortedKeys(n); got != "arch,cpu,disk,g,k,load1,mem,name,net_in,net_out,online,os,region,seen,tcp,traffic_in,traffic_out,uptime" {
+					t.Fatalf("node keys %s", got)
+				}
+			}
+
+			// Delete node 725: pruned from the admin view and the snapshot;
+			// rename + reorder + delete a group, mode back to region.
+			if err := r.DB().Delete(&model.Node{}, 725).Error; err != nil {
+				t.Fatal(err)
+			}
+			v = adminGet()
+			if g := v.Groups[2]; g.Name != "三网优化" || len(g.Nodes) != 2 {
+				t.Fatalf("deleted node not pruned: %+v", g)
+			}
+			ixp, sanwang := v.Groups[0], v.Groups[2]
+			save = base([]interface{}{grp(sanwang.ID, "三网精品", sanwang.Nodes...), grp(ixp.ID, "IXP", 722)}, "region")
+			if out := call("config/probe/save", admin, save); out.Code != 0 {
+				t.Fatalf("resave: %+v", out)
+			}
+			v = adminGet()
+			if len(v.Groups) != 2 || v.Groups[0].ID != sanwang.ID || v.Groups[0].Name != "三网精品" || v.Groups[1].ID != ixp.ID || v.GroupMode != "region" {
+				t.Fatalf("rename/reorder/delete %+v", v)
+			}
+			snap, _ = snapshot()
+			if string(snap["groups"]) != `[{"name":"三网精品"},{"name":"IXP"}]` || string(snap["group_mode"]) != `"region"` {
+				t.Fatalf("groups after edit %s %s", snap["groups"], snap["group_mode"])
+			}
+			// An older card (no groups field) leaves the groups alone.
+			if out := call("config/probe/save", admin, map[string]interface{}{"title": "旧卡片", "latency": true}); out.Code != 0 {
+				t.Fatal(out)
+			}
+			if v := adminGet(); len(v.Groups) != 2 {
+				t.Fatalf("groups lost on a save without groups: %+v", v)
+			}
+			// Clear all → fields gone from the snapshot.
+			if out := call("config/probe/save", admin, base([]interface{}{}, "group")); out.Code != 0 {
+				t.Fatal(out)
+			}
+			snap, _ = snapshot()
+			if got := sortedKeys(snap); got != "latency_on,nodes,title,ts" {
+				t.Fatalf("snapshot keys after clear %s", got)
+			}
+		})
+	}
+}

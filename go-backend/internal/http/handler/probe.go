@@ -19,6 +19,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/gorilla/websocket"
@@ -32,22 +33,26 @@ import (
 )
 
 const (
-	probeSwitchKey   = "login_monitor_link" // 公开探针页 (was 登录页显示监控链接)
-	probeTitleKey    = "probe_title"
-	probeDomainKey   = "probe_domain"
-	probeLatencyKey  = "probe_latency"
-	probeNodesKey    = "probe_nodes"
-	probeAppNameKey  = "app_name"
-	probeTitleMax    = 40
-	probeNameMax     = 30
-	probeSettingsTTL = 5 * time.Second
-	probeNodesTTL    = 15 * time.Second
-	probeSeriesTTL   = 30 * time.Second
-	probeEdgeMaxAge  = 3 * time.Minute
-	probeWSReadLimit = 512
-	probeWSPing      = 25 * time.Second
-	probeWSPongWait  = 60 * time.Second
-	probeWSWriteWait = 10 * time.Second
+	probeSwitchKey    = "login_monitor_link" // 公开探针页 (was 登录页显示监控链接)
+	probeTitleKey     = "probe_title"
+	probeDomainKey    = "probe_domain"
+	probeLatencyKey   = "probe_latency"
+	probeNodesKey     = "probe_nodes"
+	probeGroupsKey    = "probe_groups"     // plan 189: [{id,name,nodes:[ids]}] in order
+	probeGroupModeKey = "probe_group_mode" // plan 189: region (default) | group
+	probeAppNameKey   = "app_name"
+	probeGroupsMax    = 30
+	probeGroupNameMax = 20
+	probeTitleMax     = 40
+	probeNameMax      = 30
+	probeSettingsTTL  = 5 * time.Second
+	probeNodesTTL     = 15 * time.Second
+	probeSeriesTTL    = 30 * time.Second
+	probeEdgeMaxAge   = 3 * time.Minute
+	probeWSReadLimit  = 512
+	probeWSPing       = 25 * time.Second
+	probeWSPongWait   = 60 * time.Second
+	probeWSWriteWait  = 10 * time.Second
 	// Close code sent when the admin switches the probe off.
 	probeCloseOff = 4404
 )
@@ -73,11 +78,22 @@ type probeSettings struct {
 	Latency bool
 	Hidden  map[int64]bool
 	Names   map[int64]string
+	// Plan 189 custom groups (member ids as stored; the snapshot and the
+	// admin view drop deleted / hidden ones).
+	Groups    []probeGroup
+	GroupMode string
 }
 
 type probeNodesConfig struct {
 	Hidden []int64           `json:"hidden"`
 	Names  map[string]string `json:"names"`
+}
+
+// probeGroup is one stored custom group (probe_groups row, admin only).
+type probeGroup struct {
+	ID    int64   `json:"id"`
+	Name  string  `json:"name"`
+	Nodes []int64 `json:"nodes"`
 }
 
 type probeSeriesKey struct {
@@ -215,7 +231,7 @@ func (h *Handler) resetProbeSettings() {
 // (and the old public stream within its own 10 s cache).
 func (h *Handler) noteProbeConfigChange(key string) {
 	switch key {
-	case probeSwitchKey, probeAppNameKey, probeTitleKey, probeDomainKey, probeLatencyKey, probeNodesKey:
+	case probeSwitchKey, probeAppNameKey, probeTitleKey, probeDomainKey, probeLatencyKey, probeNodesKey, probeGroupsKey, probeGroupModeKey:
 		h.resetProbeSettings()
 		if key == probeSwitchKey {
 			h.wsServer.ResetPublicSwitch()
@@ -224,11 +240,11 @@ func (h *Handler) noteProbeConfigChange(key string) {
 }
 
 func (h *Handler) loadProbeSettings() probeSettings {
-	st := probeSettings{Latency: true, Hidden: map[int64]bool{}, Names: map[int64]string{}}
+	st := probeSettings{Latency: true, Hidden: map[int64]bool{}, Names: map[int64]string{}, GroupMode: probe.GroupModeRegion}
 	if h.repo == nil {
 		return st
 	}
-	cfg, err := h.repo.GetConfigsByNames([]string{probeSwitchKey, probeTitleKey, probeDomainKey, probeLatencyKey, probeNodesKey, probeAppNameKey})
+	cfg, err := h.repo.GetConfigsByNames([]string{probeSwitchKey, probeTitleKey, probeDomainKey, probeLatencyKey, probeNodesKey, probeAppNameKey, probeGroupsKey, probeGroupModeKey})
 	if err != nil {
 		// Fail closed: a DB hiccup must not open the page.
 		return st
@@ -257,7 +273,100 @@ func (h *Handler) loadProbeSettings() probeSettings {
 			}
 		}
 	}
+	if raw := strings.TrimSpace(cfg[probeGroupsKey]); raw != "" {
+		// A stored row that no longer validates (hand-edited) publishes no
+		// groups rather than something half-checked.
+		if groups, err := parseProbeGroups(raw); err == nil {
+			st.Groups = groups
+		}
+	}
+	if cfg[probeGroupModeKey] == probe.GroupModeGroup {
+		st.GroupMode = probe.GroupModeGroup
+	}
 	return st
+}
+
+// parseProbeGroups decodes and validates a probe_groups value (no node
+// existence check: deleted nodes are dropped where the groups are read).
+func parseProbeGroups(raw string) ([]probeGroup, error) {
+	var groups []probeGroup
+	if err := json.Unmarshal([]byte(raw), &groups); err != nil {
+		return nil, errors.New("探针分组格式不正确")
+	}
+	return normalizeProbeGroups(groups, nil)
+}
+
+// normalizeProbeGroups validates custom groups: ≤ 30, names trimmed 1–20
+// characters without control characters and unique (case-insensitive),
+// member ids deduplicated (and, when known is given, existing nodes only).
+// Ids stay stable when valid; new / clashing ones get the next free number.
+func normalizeProbeGroups(groups []probeGroup, known map[int64]bool) ([]probeGroup, error) {
+	if len(groups) > probeGroupsMax {
+		return nil, errors.New("探针分组最多 30 个")
+	}
+	out := make([]probeGroup, 0, len(groups))
+	names := make(map[string]bool, len(groups))
+	ids := make(map[int64]bool, len(groups))
+	var maxID int64
+	for _, g := range groups {
+		if g.ID > maxID && g.ID < 1<<40 {
+			maxID = g.ID
+		}
+	}
+	for _, g := range groups {
+		name := strings.TrimSpace(g.Name)
+		if name == "" {
+			return nil, errors.New("分组名不能为空")
+		}
+		if n := utf8.RuneCountInString(name); n > probeGroupNameMax || !utf8.ValidString(name) {
+			return nil, errors.New("分组名最多 20 个字")
+		}
+		for _, r := range name {
+			if unicode.IsControl(r) || r == ' ' || r == ' ' {
+				return nil, errors.New("分组名不能包含控制字符")
+			}
+		}
+		lower := strings.ToLower(name)
+		if names[lower] {
+			return nil, errors.New("分组名「" + name + "」重复了")
+		}
+		names[lower] = true
+		id := g.ID
+		if id <= 0 || id >= 1<<40 || ids[id] {
+			maxID++
+			id = maxID
+		}
+		ids[id] = true
+		if len(g.Nodes) > 4096 {
+			return nil, errors.New("分组里的服务器过多")
+		}
+		members := make([]int64, 0, len(g.Nodes))
+		seen := make(map[int64]bool, len(g.Nodes))
+		for _, nid := range g.Nodes {
+			if seen[nid] {
+				continue
+			}
+			if nid <= 0 || (known != nil && !known[nid]) {
+				return nil, errors.New("分组「" + name + "」里有不存在的服务器，请刷新后再试")
+			}
+			seen[nid] = true
+			members = append(members, nid)
+		}
+		out = append(out, probeGroup{ID: id, Name: name, Nodes: members})
+	}
+	return out, nil
+}
+
+// probeGroupInputs: the stored groups as the snapshot builder takes them.
+func probeGroupInputs(groups []probeGroup) []probe.GroupInput {
+	if len(groups) == 0 {
+		return nil
+	}
+	out := make([]probe.GroupInput, 0, len(groups))
+	for _, g := range groups {
+		out = append(out, probe.GroupInput{Name: g.Name, Nodes: g.Nodes})
+	}
+	return out
 }
 
 // probeNodeRows: local nodes, cached 15 s (only refreshed while somebody
@@ -349,6 +458,8 @@ func (h *Handler) buildProbeFrame(now time.Time) ([]byte, error) {
 		Online:    h.probeOnline,
 		Edges:     edges,
 		Key:       p.keyer.Key,
+		Groups:    probeGroupInputs(st.Groups),
+		GroupMode: st.GroupMode,
 	})
 	return json.Marshal(response.R{Code: 0, Msg: "ok", TS: now.UnixMilli(), Data: snap})
 }
@@ -716,6 +827,9 @@ type probeAdminSettings struct {
 	Nodes   []probeAdminNode `json:"nodes"`
 	// Shown in the card: what anonymous viewers get.
 	DefaultTitle string `json:"defaultTitle"`
+	// Plan 189: custom groups (deleted nodes pruned) + default mode.
+	Groups    []probeGroup `json:"groups"`
+	GroupMode string       `json:"groupMode"`
 }
 
 type probeAdminSave struct {
@@ -727,6 +841,10 @@ type probeAdminSave struct {
 		ProbeName string `json:"probeName"`
 		Hidden    bool   `json:"hidden"`
 	} `json:"nodes"`
+	// Plan 189. Groups nil = leave the stored groups as they are (an older
+	// open card); an empty list clears them.
+	Groups    *[]probeGroup `json:"groups"`
+	GroupMode string        `json:"groupMode"`
 }
 
 func (h *Handler) probeAdminGet(w http.ResponseWriter, r *http.Request) {
@@ -754,9 +872,22 @@ func (h *Handler) probeAdminGet(w http.ResponseWriter, r *http.Request) {
 	if app := strings.TrimSpace(cfg[probeAppNameKey]); app != "" {
 		out.DefaultTitle = truncateRunes(app+" 探针", probeTitleMax)
 	}
+	known := make(map[int64]bool, len(rows))
 	for _, n := range rows {
+		known[n.ID] = true
 		out.Nodes = append(out.Nodes, probeAdminNode{ID: n.ID, Name: n.Name, ProbeName: st.Names[n.ID], Hidden: st.Hidden[n.ID], Region: probe.CleanRegion(n.Region), Online: h.probeOnline(n.ID)})
 	}
+	out.Groups = make([]probeGroup, 0, len(st.Groups))
+	for _, g := range st.Groups {
+		members := make([]int64, 0, len(g.Nodes))
+		for _, id := range g.Nodes {
+			if known[id] {
+				members = append(members, id)
+			}
+		}
+		out.Groups = append(out.Groups, probeGroup{ID: g.ID, Name: g.Name, Nodes: members})
+	}
+	out.GroupMode = st.GroupMode
 	response.WriteJSON(w, response.OK(out))
 }
 
@@ -820,6 +951,18 @@ func normalizeProbeConfigValue(key, value string) (string, error) {
 		}
 		raw, _ := json.Marshal(nc)
 		return string(raw), nil
+	case probeGroupsKey:
+		groups, err := parseProbeGroups(value)
+		if err != nil {
+			return "", err
+		}
+		raw, _ := json.Marshal(groups)
+		return string(raw), nil
+	case probeGroupModeKey:
+		if v := strings.TrimSpace(value); v == probe.GroupModeRegion || v == probe.GroupModeGroup {
+			return v, nil
+		}
+		return "", errors.New("默认分组方式只能是 region 或 group")
 	}
 	return value, nil
 }
@@ -903,8 +1046,27 @@ func (h *Handler) probeAdminSave(w http.ResponseWriter, r *http.Request) {
 	if req.Latency != nil && !*req.Latency {
 		latency = "false"
 	}
+	writes := [][2]string{{probeTitleKey, title}, {probeDomainKey, domain}, {probeLatencyKey, latency}, {probeNodesKey, string(nodesJSON)}}
+	// Plan 189 custom groups: validated in full before anything is written.
+	if req.Groups != nil {
+		groups, err := normalizeProbeGroups(*req.Groups, known)
+		if err != nil {
+			response.WriteJSON(w, response.ErrDefault(err.Error()))
+			return
+		}
+		groupsJSON, _ := json.Marshal(groups)
+		writes = append(writes, [2]string{probeGroupsKey, string(groupsJSON)})
+	}
+	switch req.GroupMode {
+	case "":
+	case probe.GroupModeRegion, probe.GroupModeGroup:
+		writes = append(writes, [2]string{probeGroupModeKey, req.GroupMode})
+	default:
+		response.WriteJSON(w, response.ErrDefault("默认分组方式只能是 按地区 或 按自定义分组"))
+		return
+	}
 	now := time.Now().UnixMilli()
-	for _, kv := range [][2]string{{probeTitleKey, title}, {probeDomainKey, domain}, {probeLatencyKey, latency}, {probeNodesKey, string(nodesJSON)}} {
+	for _, kv := range writes {
 		if err := h.repo.UpsertConfig(kv[0], kv[1], now); err != nil {
 			response.WriteJSON(w, response.Err(-2, "保存失败"))
 			return

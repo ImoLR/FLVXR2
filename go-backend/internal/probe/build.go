@@ -39,6 +39,16 @@ type BuildInput struct {
 	Online    func(id int64) bool
 	Edges     map[int64][]Edge // from node id → newest edges
 	Key       func(id int64) string
+	// Plan 189: admin groups in order (member ids may include hidden or
+	// deleted nodes; only shown ones count) and the default mode.
+	Groups    []GroupInput
+	GroupMode string
+}
+
+// GroupInput is one admin-defined custom group.
+type GroupInput struct {
+	Name  string
+	Nodes []int64
 }
 
 const (
@@ -100,7 +110,40 @@ func BuildSnapshot(in BuildInput) Snapshot {
 		}
 		out.Nodes = append(out.Nodes, node)
 	}
+	applyGroups(&out, in.Groups, in.GroupMode, shown)
 	return out
+}
+
+// applyGroups publishes the groups that still hold a shown node. Indexes are
+// assigned after dropping the empty ones, so a hidden-only group leaves no
+// gap and no trace.
+func applyGroups(out *Snapshot, groups []GroupInput, mode string, shown map[int64]int) {
+	for _, g := range groups {
+		idx := len(out.Groups)
+		used := false
+		for _, id := range g.Nodes {
+			pos, ok := shown[id]
+			if !ok {
+				continue // hidden or deleted
+			}
+			n := &out.Nodes[pos]
+			if len(n.G) > 0 && n.G[len(n.G)-1] == idx {
+				continue // duplicate member id
+			}
+			n.G = append(n.G, idx)
+			used = true
+		}
+		if used {
+			out.Groups = append(out.Groups, Group{Name: g.Name})
+		}
+	}
+	if len(out.Groups) == 0 {
+		return
+	}
+	out.GroupMode = GroupModeRegion
+	if mode == GroupModeGroup {
+		out.GroupMode = GroupModeGroup
+	}
 }
 
 func nonNeg(v int64) int64 {

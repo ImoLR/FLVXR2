@@ -131,6 +131,61 @@ func TestBuildSnapshotWhitelist(t *testing.T) {
 	}
 }
 
+// Plan 189: custom groups — order kept, multi-membership, hidden / deleted
+// members and empty groups dropped (indexes renumbered), whitelist keys.
+func TestBuildSnapshotGroups(t *testing.T) {
+	now := time.Unix(1_800_000_000, 0)
+	in := demoInput(now)
+	in.Groups = []GroupInput{
+		{Name: "隐藏组", Nodes: []int64{99, 77}}, // only hidden / deleted members → not published
+		{Name: "IXP", Nodes: []int64{12, 11, 11}},
+		{Name: "空组"},
+		{Name: "三网优化", Nodes: []int64{11, 99}},
+	}
+	in.GroupMode = GroupModeGroup
+	snap := BuildSnapshot(in)
+	if got := strings.Join(keysOf(t, snap), ","); got != "group_mode,groups,latency_on,nodes,title,ts" {
+		t.Fatalf("snapshot keys %s", got)
+	}
+	if len(snap.Groups) != 2 || snap.Groups[0].Name != "IXP" || snap.Groups[1].Name != "三网优化" || snap.GroupMode != GroupModeGroup {
+		t.Fatalf("groups %+v mode %q", snap.Groups, snap.GroupMode)
+	}
+	if got := strings.Join(keysOf(t, snap.Groups[0]), ","); got != "name" {
+		t.Fatalf("group keys %s", got)
+	}
+	if g := snap.Nodes[0].G; len(g) != 2 || g[0] != 0 || g[1] != 1 {
+		t.Fatalf("node 11 in both groups once each: %v", g)
+	}
+	if g := snap.Nodes[1].G; len(g) != 1 || g[0] != 0 {
+		t.Fatalf("node 12 groups %v", g)
+	}
+	if snap.Nodes[2].G != nil {
+		t.Fatalf("node 13 is in no group: %v", snap.Nodes[2].G)
+	}
+	want := "arch,cpu,disk,g,k,latency,load1,mem,name,net_in,net_out,online,os,region,seen,tcp,traffic_in,traffic_out,uptime"
+	if got := strings.Join(keysOf(t, snap.Nodes[0]), ","); got != want {
+		t.Fatalf("node keys\n got %s\nwant %s", got, want)
+	}
+	raw, _ := json.Marshal(snap)
+	for _, bad := range []string{"隐藏组", "空组", `"id"`, `"nodes":[1`, `"99"`, `"11"`} {
+		if bytes.Contains(raw, []byte(bad)) {
+			t.Fatalf("snapshot contains %s: %s", bad, raw)
+		}
+	}
+	// Hide node 11 and 12 → no group left at all, fields omitted.
+	in.Nodes = in.Nodes[2:]
+	if s := BuildSnapshot(in); s.Groups != nil || s.GroupMode != "" || s.Nodes[0].G != nil {
+		t.Fatalf("groups of hidden nodes published: %+v", s)
+	}
+	// Default mode is region; unknown modes fall back to it.
+	in = demoInput(now)
+	in.Groups = []GroupInput{{Name: "IXP", Nodes: []int64{13}}}
+	in.GroupMode = "bogus"
+	if s := BuildSnapshot(in); s.GroupMode != GroupModeRegion || len(s.Groups) != 1 {
+		t.Fatalf("mode %q groups %+v", s.GroupMode, s.Groups)
+	}
+}
+
 func TestBuildSnapshotHiddenTargetDropped(t *testing.T) {
 	now := time.Now()
 	in := demoInput(now)
