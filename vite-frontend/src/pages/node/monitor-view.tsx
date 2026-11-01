@@ -8,6 +8,7 @@ import type {
 } from "@/api/types";
 
 import React, {
+  memo,
   useCallback,
   useEffect,
   useMemo,
@@ -103,6 +104,8 @@ interface MonitorViewProps {
     }
   >;
   viewMode?: "list" | "grid";
+  /** Plan 188: false while another 监控 tab is shown (polling pauses). */
+  active?: boolean;
 }
 
 type RealtimeNodeMetric = {
@@ -204,35 +207,30 @@ function LiveDot() {
   );
 }
 
-function ServerCard({
+// Plan 188: memoized; props keep their identity while a node's data is
+// unchanged (stable node objects, no-op realtime merges, stable onOpen), so a
+// realtime flush re-renders only the cards whose numbers moved.
+const ServerCard = memo(function ServerCard({
   node,
   metric,
   machine,
   admin,
-  onPress,
+  onOpen,
 }: {
   node: any;
   metric: RealtimeNodeMetric | null;
   machine?: MachineView | null;
   admin?: boolean;
-  onPress?: () => void;
+  onOpen?: (id: number) => void;
 }) {
   const isOnline = node.connectionStatus === "online";
   const distro = parseDistroFromVersion(node.version);
   const distroColor = getDistroColor(distro);
 
-  function setDetailNodeId(_id: any) {
-    throw new Error("Function not implemented.");
-  }
-
-  function setSelectedNodeId(_id: any) {
-    throw new Error("Function not implemented.");
-  }
-
   return (
     <Card
       className="group h-full flex flex-col overflow-hidden border border-divider bg-content1 shadow-sm transition-shadow duration-200 hover:shadow-md cursor-pointer"
-      onClick={onPress}
+      onClick={() => onOpen?.(node.id)}
     >
       <CardHeader className="pb-3 md:pb-3">
         <div className="flex flex-col gap-2 w-full">
@@ -271,10 +269,7 @@ function ServerCard({
                 isIconOnly
                 size="sm"
                 variant="light"
-                onPress={() => {
-                  setDetailNodeId(node.id);
-                  setSelectedNodeId(node.id);
-                }}
+                onPress={() => onOpen?.(node.id)}
               >
                 <Eye className="w-4 h-4 text-primary" />
               </Button>
@@ -357,7 +352,176 @@ function ServerCard({
       </CardBody>
     </Card>
   );
-}
+});
+
+// Plan 188: list-view row as its own memoized component (same markup as the
+// inline row it replaces); unchanged nodes skip the render on realtime flushes.
+const NodeTableRow = memo(function NodeTableRow({
+  node,
+  metric,
+  machine,
+  admin,
+  onOpen,
+}: {
+  node: any;
+  metric: RealtimeNodeMetric | null;
+  machine: MachineView | null;
+  admin: boolean;
+  onOpen: (id: number) => void;
+}) {
+  const isOnline = node.connectionStatus === "online";
+
+  return (
+    <TableRow
+      key={node.id}
+      className="cursor-pointer"
+      onClick={() => onOpen(node.id)}
+    >
+      <TableCell>
+        <div className="flex justify-center w-full">
+          <div
+            className={`w-2 h-2 rounded-full ${isOnline ? "bg-success" : "bg-danger"}`}
+          />
+        </div>
+      </TableCell>
+      <TableCell>
+        <div className="flex justify-center w-full">
+          <Button
+            isIconOnly
+            size="sm"
+            variant="light"
+            onPress={() => onOpen(node.id)}
+          >
+            <Eye className="w-4 h-4 text-primary" />
+          </Button>
+        </div>
+      </TableCell>
+      <TableCell>
+        <div className="flex flex-col items-center gap-1 w-full">
+          <div className="flex items-center justify-center gap-2 w-full">
+            <DistroIcon
+              className="w-4 h-4 flex-shrink-0"
+              distro={parseDistroFromVersion(node.version)}
+              style={{
+                color: isOnline
+                  ? getDistroColor(parseDistroFromVersion(node.version))
+                  : undefined,
+              }}
+            />
+            <span className="font-semibold text-sm whitespace-nowrap">
+              {node.name}
+            </span>
+          </div>
+          <MachineConnChip admin={admin} machine={machine} />
+        </div>
+      </TableCell>
+      <TableCell>
+        <div className="flex flex-col items-center gap-2 py-1 text-xs whitespace-nowrap w-full">
+          <div className="flex items-center justify-center gap-1.5 font-mono text-success-500 w-full">
+            <span className="w-[76px] text-center inline-block tabular-nums">
+              {metric ? formatBytesPerSecond(metric.netOutSpeed) : "-"}
+            </span>
+            <div className="flex items-center justify-center p-[3px] rounded-full bg-success-50 dark:bg-success-500/10 text-success-500 shrink-0">
+              <ArrowUp className="w-3 h-3" strokeWidth={2.5} />
+            </div>
+          </div>
+          <div className="flex items-center justify-center gap-1.5 font-mono text-primary-500 w-full">
+            <span className="w-[76px] text-center inline-block tabular-nums">
+              {metric ? formatBytesPerSecond(metric.netInSpeed) : "-"}
+            </span>
+            <div className="flex items-center justify-center p-[3px] rounded-full bg-primary-50 dark:bg-primary-500/10 text-primary-500 shrink-0">
+              <ArrowDown className="w-3 h-3" strokeWidth={2.5} />
+            </div>
+          </div>
+        </div>
+      </TableCell>
+      <TableCell>
+        <div className="flex flex-col items-center gap-2 py-1 text-xs whitespace-nowrap w-full">
+          <div className="flex items-center justify-center gap-1.5 font-mono text-default-600 w-full">
+            <span className="w-[76px] text-center inline-block tabular-nums">
+              {metric ? formatBytes(metric.netOutBytes) : "-"}
+            </span>
+            <div className="flex items-center justify-center p-[3px] rounded-full bg-default-100 text-default-500 dark:bg-default-100/50 shrink-0">
+              <ArrowUp className="w-3 h-3" strokeWidth={2.5} />
+            </div>
+          </div>
+          <div className="flex items-center justify-center gap-1.5 font-mono text-default-600 w-full">
+            <span className="w-[76px] text-center inline-block tabular-nums">
+              {metric ? formatBytes(metric.netInBytes) : "-"}
+            </span>
+            <div className="flex items-center justify-center p-[3px] rounded-full bg-default-100 text-default-500 dark:bg-default-100/50 shrink-0">
+              <ArrowDown className="w-3 h-3" strokeWidth={2.5} />
+            </div>
+          </div>
+        </div>
+      </TableCell>
+      <TableCell>
+        <div className="flex justify-center w-full">
+          <span className="font-mono text-xs text-default-500 whitespace-nowrap tabular-nums">
+            {metric ? formatUptime(metric.uptime) : "-"}
+          </span>
+        </div>
+      </TableCell>
+      <TableCell>
+        <div className="flex flex-col items-center gap-1.5 text-xs font-mono text-default-500 px-1 w-full tabular-nums">
+          <div>TCP {metric ? metric.tcpConns : "-"}</div>
+          <div>UDP {metric ? metric.udpConns : "-"}</div>
+        </div>
+      </TableCell>
+      <TableCell>
+        <div className="flex items-center justify-center gap-2 w-full">
+          {metric ? (
+            <Progress
+              className="w-[40px] md:w-[60px]"
+              color={getColorByUsage(metric.cpuUsage)}
+              size="sm"
+              value={metric.cpuUsage}
+            />
+          ) : (
+            <div className="w-[40px] md:w-[60px] h-2 rounded-full bg-default-100" />
+          )}
+          <span className="text-xs font-mono w-[36px] text-center text-default-500 tabular-nums">
+            {metric ? `${metric.cpuUsage.toFixed(1)}%` : "-"}
+          </span>
+        </div>
+      </TableCell>
+      <TableCell>
+        <div className="flex items-center justify-center gap-2 w-full">
+          {metric ? (
+            <Progress
+              className="w-[40px] md:w-[60px]"
+              color={getColorByUsage(metric.memoryUsage)}
+              size="sm"
+              value={metric.memoryUsage}
+            />
+          ) : (
+            <div className="w-[40px] md:w-[60px] h-2 rounded-full bg-default-100" />
+          )}
+          <span className="text-xs font-mono w-[36px] text-center text-default-500 tabular-nums">
+            {metric ? `${metric.memoryUsage.toFixed(1)}%` : "-"}
+          </span>
+        </div>
+      </TableCell>
+      <TableCell>
+        <div className="flex items-center justify-center gap-2 w-full">
+          {metric ? (
+            <Progress
+              className="w-[40px] md:w-[60px]"
+              color={getColorByUsage(metric.diskUsage)}
+              size="sm"
+              value={metric.diskUsage}
+            />
+          ) : (
+            <div className="w-[40px] md:w-[60px] h-2 rounded-full bg-default-100" />
+          )}
+          <span className="text-xs font-mono w-[36px] text-center text-default-500 tabular-nums">
+            {metric ? `${metric.diskUsage.toFixed(1)}%` : "-"}
+          </span>
+        </div>
+      </TableCell>
+    </TableRow>
+  );
+});
 
 type MetricType =
   | "cpu"
@@ -549,6 +713,7 @@ const NodeMetricsChartCard = React.memo(function NodeMetricsChartCard({
                   <XAxis dataKey="time" fontSize={12} />
                   <YAxis fontSize={12} tickFormatter={yAxisTickFormatter} />
                   <Tooltip
+                    isAnimationActive={false}
                     {...tapTooltip.tooltipProps}
                     contentStyle={{
                       backgroundColor: "rgba(0,0,0,0.8)",
@@ -564,6 +729,7 @@ const NodeMetricsChartCard = React.memo(function NodeMetricsChartCard({
                       activeDot={tapTooltip.activeDot()}
                       dataKey={line.dataKey}
                       dot={false}
+                      isAnimationActive={false}
                       name={line.name}
                       stroke={line.color}
                       strokeWidth={2}
@@ -596,7 +762,100 @@ const DEFAULT_SERVICE_MONITOR_LIMITS: ServiceMonitorLimitsApiData = {
   maxTimeoutSec: 60,
 };
 
-export function MonitorView({ nodeMap, viewMode = "grid" }: MonitorViewProps) {
+// Plan 188: realtime metrics arrive ~1 per node per 1.5 s; they are merged in
+// one batch at most once a second and unchanged values keep their objects.
+const REALTIME_FLUSH_MS = 1000;
+const sameRealtimeMetric = (a: RealtimeNodeMetric, b: RealtimeNodeMetric) =>
+  a.cpuUsage === b.cpuUsage &&
+  a.memoryUsage === b.memoryUsage &&
+  a.diskUsage === b.diskUsage &&
+  a.netInBytes === b.netInBytes &&
+  a.netOutBytes === b.netOutBytes &&
+  a.netInSpeed === b.netInSpeed &&
+  a.netOutSpeed === b.netOutSpeed &&
+  a.load1 === b.load1 &&
+  a.load5 === b.load5 &&
+  a.load15 === b.load15 &&
+  a.tcpConns === b.tcpConns &&
+  a.udpConns === b.udpConns &&
+  a.uptime === b.uptime;
+const sameJSON = (a: unknown, b: unknown) =>
+  a === b || JSON.stringify(a) === JSON.stringify(b);
+// Chart thinning (plan 188): at most this many points are drawn.
+const CHART_MAX_POINTS = 1000;
+const chartWeight = (m: NodeMetricApiItem, type: MetricType): number => {
+  switch (type) {
+    case "memory":
+      return m.memoryUsage;
+    case "disk":
+      return m.diskUsage;
+    case "network":
+      return m.netInSpeed + m.netOutSpeed;
+    case "load":
+      return m.load1;
+    case "connections":
+      return m.tcpConns + m.udpConns;
+    default:
+      return m.cpuUsage;
+  }
+};
+
+// Largest-triangle-three-buckets: keeps first/last and, per bucket, the row
+// that spans the largest triangle with its neighbours (peaks survive).
+function thinRows<T>(rows: T[], max: number, y: (row: T) => number): T[] {
+  if (rows.length <= max || max < 3) return rows;
+  const out: T[] = [rows[0]];
+  const every = (rows.length - 2) / (max - 2);
+  let a = 0;
+
+  for (let i = 0; i < max - 2; i++) {
+    const nextStart = Math.floor((i + 1) * every) + 1;
+    const nextEnd = Math.min(Math.floor((i + 2) * every) + 1, rows.length);
+    let avgX = 0;
+    let avgY = 0;
+
+    for (let j = nextStart; j < nextEnd; j++) {
+      avgX += j;
+      avgY += y(rows[j]);
+    }
+    const n = Math.max(1, nextEnd - nextStart);
+
+    avgX /= n;
+    avgY /= n;
+    const start = Math.floor(i * every) + 1;
+    const end = Math.floor((i + 1) * every) + 1;
+    const ay = y(rows[a]);
+    let best = start;
+    let bestArea = -1;
+
+    for (let j = start; j < end; j++) {
+      const area = Math.abs(
+        (a - avgX) * (y(rows[j]) - ay) - (a - j) * (avgY - ay),
+      );
+
+      if (area > bestArea) {
+        bestArea = area;
+        best = j;
+      }
+    }
+    out.push(rows[best]);
+    a = best;
+  }
+  out.push(rows[rows.length - 1]);
+
+  return out;
+}
+
+// Ranges up to 1 h are raw 1 s rows: refresh appends only the new tail.
+const TAIL_RANGE_MS = 60 * 60 * 1000;
+const pageHidden = () =>
+  typeof document !== "undefined" && document.visibilityState === "hidden";
+
+export function MonitorView({
+  nodeMap,
+  viewMode = "grid",
+  active = true,
+}: MonitorViewProps) {
   const isAdmin = getAdminFlag();
   const latencyTapTooltip = useTapTooltip();
   const [detailNodeId, setDetailNodeId] = useState<number | null>(null);
@@ -737,18 +996,31 @@ export function MonitorView({ nodeMap, viewMode = "grid" }: MonitorViewProps) {
     new Map(),
   );
 
+  // Plan 188: a node keeps its object while neither the list entry nor its
+  // realtime status changed (memoized cards skip the render).
+  const nodeCacheRef = useRef(
+    new Map<number, { base: unknown; status: string; out: any }>(),
+  );
   const nodes = useMemo(() => {
     return Array.from(nodeMap.values()).map((n) => {
       const status = realtimeNodeStatus[n.id];
 
-      if (!status) {
+      if (!status || status === n.connectionStatus) {
         return n;
       }
+      const cached = nodeCacheRef.current.get(n.id);
 
-      return {
+      if (cached && cached.base === n && cached.status === status) {
+        return cached.out;
+      }
+      const out = {
         ...n,
         connectionStatus: status,
       };
+
+      nodeCacheRef.current.set(n.id, { base: n, status, out });
+
+      return out;
     });
   }, [nodeMap, realtimeNodeStatus]);
 
@@ -757,6 +1029,93 @@ export function MonitorView({ nodeMap, viewMode = "grid" }: MonitorViewProps) {
 
   const resolvedServiceMonitorLimits =
     serviceMonitorLimits ?? DEFAULT_SERVICE_MONITOR_LIMITS;
+
+  const pendingRealtimeRef = useRef({
+    metrics: new Map<number, RealtimeNodeMetric>(),
+    machine: new Map<number, MachineView>(),
+    online: new Set<number>(),
+  });
+  const flushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastFlushRef = useRef(0);
+
+  const flushRealtime = useCallback(() => {
+    flushTimerRef.current = null;
+    lastFlushRef.current = Date.now();
+    const pending = pendingRealtimeRef.current;
+
+    if (pending.metrics.size > 0) {
+      const batch = pending.metrics;
+
+      pending.metrics = new Map();
+      setRealtimeNodeMetrics((prev) => {
+        let next = prev;
+
+        batch.forEach((m, id) => {
+          const old = prev[id];
+          const merged = m.uptime || !old ? m : { ...m, uptime: old.uptime };
+
+          if (old && sameRealtimeMetric(old, merged)) return;
+          if (next === prev) next = { ...prev };
+          next[id] = merged;
+        });
+
+        return next;
+      });
+    }
+    if (pending.machine.size > 0) {
+      const batch = pending.machine;
+
+      pending.machine = new Map();
+      setMachineLive((prev) => {
+        let next = prev;
+
+        batch.forEach((m, id) => {
+          if (prev[id] && sameJSON(prev[id], m)) return;
+          if (next === prev) next = { ...prev };
+          next[id] = m;
+        });
+
+        return next;
+      });
+    }
+    if (pending.online.size > 0) {
+      const ids = pending.online;
+
+      pending.online = new Set();
+      setRealtimeNodeStatus((prev) => {
+        let next = prev;
+
+        ids.forEach((id) => {
+          if (prev[id] === "online") return;
+          if (next === prev) next = { ...prev };
+          next[id] = "online";
+        });
+
+        return next;
+      });
+    }
+  }, []);
+
+  const scheduleRealtimeFlush = useCallback(() => {
+    if (flushTimerRef.current) return;
+    const wait = Math.max(
+      0,
+      REALTIME_FLUSH_MS - (Date.now() - lastFlushRef.current),
+    );
+
+    flushTimerRef.current = setTimeout(flushRealtime, wait);
+  }, [flushRealtime]);
+
+  useEffect(
+    () => () => {
+      if (flushTimerRef.current) clearTimeout(flushTimerRef.current);
+    },
+    [],
+  );
+  // Stable entry point for the (deps-free) realtime message handler.
+  const scheduleRealtimeFlushRef = useRef(scheduleRealtimeFlush);
+
+  scheduleRealtimeFlushRef.current = scheduleRealtimeFlush;
 
   const handleRealtimeMessage = useCallback((message: any) => {
     const nodeId = Number(message?.id ?? 0);
@@ -778,20 +1137,20 @@ export function MonitorView({ nodeMap, viewMode = "grid" }: MonitorViewProps) {
           clearTimeout(timer);
           offlineTimersRef.current.delete(nodeId);
         }
-        setRealtimeNodeStatus((prev) => ({
-          ...prev,
-          [nodeId]: "online",
-        }));
+        setRealtimeNodeStatus((prev) =>
+          prev[nodeId] === "online" ? prev : { ...prev, [nodeId]: "online" },
+        );
       } else {
         const timer = offlineTimersRef.current.get(nodeId);
 
         if (timer) clearTimeout(timer);
         const t = setTimeout(() => {
           offlineTimersRef.current.delete(nodeId);
-          setRealtimeNodeStatus((prev) => ({
-            ...prev,
-            [nodeId]: "offline",
-          }));
+          setRealtimeNodeStatus((prev) =>
+            prev[nodeId] === "offline"
+              ? prev
+              : { ...prev, [nodeId]: "offline" },
+          );
         }, 3000);
 
         offlineTimersRef.current.set(nodeId, t);
@@ -818,7 +1177,7 @@ export function MonitorView({ nodeMap, viewMode = "grid" }: MonitorViewProps) {
       const receivedAt = Date.now();
       const incomingUptime = Number(metric.uptime ?? 0);
 
-      setRealtimeNodeMetrics((prev) => {
+      {
         const normalized: RealtimeNodeMetric = {
           receivedAt,
           cpuUsage: Number(metric.cpuUsage ?? metric.cpu_usage ?? 0),
@@ -835,33 +1194,32 @@ export function MonitorView({ nodeMap, viewMode = "grid" }: MonitorViewProps) {
           load15: Number(metric.load15 ?? 0),
           tcpConns: Number(metric.tcpConns ?? metric.tcp_conns ?? 0),
           udpConns: Number(metric.udpConns ?? metric.udp_conns ?? 0),
-          uptime: incomingUptime || prev[nodeId]?.uptime || 0,
+          // 0 = keep the last known uptime (merged in flushRealtime).
+          uptime: incomingUptime || 0,
         };
 
-        return {
-          ...prev,
-          [nodeId]: normalized,
-        };
-      });
+        pendingRealtimeRef.current.metrics.set(nodeId, normalized);
+      }
       const machine = machineFromMetric(metric, receivedAt);
 
       if (machine) {
-        setMachineLive((prev) => ({ ...prev, [nodeId]: machine }));
+        pendingRealtimeRef.current.machine.set(nodeId, machine);
       }
-      setRealtimeNodeStatus((prev) => ({
-        ...prev,
-        [nodeId]: "online",
-      }));
+      pendingRealtimeRef.current.online.add(nodeId);
+      scheduleRealtimeFlushRef.current();
 
       return;
     }
 
     if (type === "info") {
-      setRealtimeNodeStatus((prev) => ({
-        ...prev,
-        [nodeId]: "online",
-      }));
+      pendingRealtimeRef.current.online.add(nodeId);
+      scheduleRealtimeFlushRef.current();
     }
+  }, []);
+
+  const openDetail = useCallback((id: number) => {
+    setDetailNodeId(id);
+    setSelectedNodeId(id);
   }, []);
 
   const { wsConnected, wsConnecting } = useNodeRealtime({
@@ -875,24 +1233,56 @@ export function MonitorView({ nodeMap, viewMode = "grid" }: MonitorViewProps) {
     }
   }, [preferredNodeId, selectedNodeId]);
 
+  // Which node / range the rows in `metrics` belong to (tail refreshes).
+  const metricsKeyRef = useRef("");
+  const metricsRowsRef = useRef<NodeMetricApiItem[]>([]);
+
   const loadMetrics = useCallback(
-    async (nodeId: number, options?: { silent?: boolean }) => {
+    async (nodeId: number, options?: { silent?: boolean; tail?: boolean }) => {
       const silent = options?.silent ?? false;
+      const key = `${nodeId}:${metricsRangeMs}`;
+      const have = metricsRowsRef.current;
+      // Plan 188: a refresh of a ≤ 1 h chart asks only for rows after the
+      // last one shown and appends them (was the whole hour, ~1 MB, every
+      // 15 s); longer ranges are server-side buckets and reload whole.
+      const tail =
+        !!options?.tail &&
+        metricsRangeMs <= TAIL_RANGE_MS &&
+        metricsKeyRef.current === key &&
+        have.length > 0;
 
       if (!silent) setMetricsLoading(true);
       try {
         const end = Date.now();
-        const start = end - metricsRangeMs;
+        const start = tail
+          ? have[have.length - 1].timestamp + 1
+          : end - metricsRangeMs;
         const response = await getNodeMetrics(nodeId, start, end);
 
         if (response.code === 0 && Array.isArray(response.data)) {
           setAccessDenied(null);
           setMetricsError(null);
-          setMetricsTruncated(response.data.length >= METRICS_MAX_ROWS);
           const ordered = [...response.data].sort(
             (a, b) => a.timestamp - b.timestamp,
           );
 
+          if (tail) {
+            if (metricsKeyRef.current !== key) return;
+            if (ordered.length === 0) return;
+            const last = have[have.length - 1].timestamp;
+            const cutoff = end - metricsRangeMs;
+            const merged = have
+              .filter((m) => m.timestamp >= cutoff)
+              .concat(ordered.filter((m) => m.timestamp > last));
+
+            metricsRowsRef.current = merged;
+            setMetrics(merged);
+
+            return;
+          }
+          setMetricsTruncated(response.data.length >= METRICS_MAX_ROWS);
+          metricsKeyRef.current = key;
+          metricsRowsRef.current = ordered;
           setMetrics(ordered);
 
           return;
@@ -935,7 +1325,9 @@ export function MonitorView({ nodeMap, viewMode = "grid" }: MonitorViewProps) {
         if (response.code === 0 && response.data) {
           setAccessDenied(null);
           setMonitorsError(null);
-          setServiceMonitors(response.data);
+          const list = response.data;
+
+          setServiceMonitors((prev) => (sameJSON(prev, list) ? prev : list));
 
           return;
         }
@@ -1014,9 +1406,7 @@ export function MonitorView({ nodeMap, viewMode = "grid" }: MonitorViewProps) {
         setAccessDenied(null);
         setLatestResultsError(null);
         setMonitorResults((prev) => {
-          const next: Record<number, ServiceMonitorResultApiItem[]> = {
-            ...prev,
-          };
+          let next = prev;
 
           response.data.forEach((r) => {
             const monitorId = Number(r?.monitorId ?? 0);
@@ -1024,6 +1414,10 @@ export function MonitorView({ nodeMap, viewMode = "grid" }: MonitorViewProps) {
             if (monitorId <= 0) return;
 
             const existing = next[monitorId];
+
+            // Plan 188: same newest result → keep the entry (and the map).
+            if (existing && existing[0] && sameJSON(existing[0], r)) return;
+            if (next === prev) next = { ...prev };
 
             if (existing && existing.length > 1) {
               const rest = existing.filter((x) => x.id !== r.id);
@@ -1076,30 +1470,48 @@ export function MonitorView({ nodeMap, viewMode = "grid" }: MonitorViewProps) {
     loadServiceMonitors,
   ]);
 
+  // Plan 188: only while this tab is shown and the browser tab is visible;
+  // catches up at once when it becomes visible again.
   useEffect(() => {
-    if (!isAdmin) return;
-    const timer = window.setInterval(() => {
+    if (!isAdmin || !active) return;
+    const tick = () => {
+      if (pageHidden()) return;
       void loadServiceMonitors({ silent: true });
       void loadLatestMonitorResults();
-    }, 5_000);
+    };
+    const timer = window.setInterval(tick, 5_000);
+    const onVisible = () => {
+      if (!pageHidden()) tick();
+    };
 
-    return () => window.clearInterval(timer);
-  }, [isAdmin, loadLatestMonitorResults, loadServiceMonitors]);
+    document.addEventListener("visibilitychange", onVisible);
 
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [active, isAdmin, loadLatestMonitorResults, loadServiceMonitors]);
+
+  // Plan 188: node history only while a node's detail is open (it used to
+  // load for the first online node and refresh every 15 s on the list too).
   useEffect(() => {
-    if (selectedNodeId) {
-      loadMetrics(selectedNodeId);
+    if (detailNodeId) {
+      loadMetrics(detailNodeId);
     }
-  }, [selectedNodeId, loadMetrics]);
+  }, [detailNodeId, loadMetrics]);
 
   useEffect(() => {
-    if (!selectedNodeId) return;
-    const timer = window.setInterval(() => {
-      void loadMetrics(selectedNodeId, { silent: true });
-    }, 15_000);
+    if (!detailNodeId || !active) return;
+    const timer = window.setInterval(
+      () => {
+        if (pageHidden()) return;
+        void loadMetrics(detailNodeId, { silent: true, tail: true });
+      },
+      metricsRangeMs <= TAIL_RANGE_MS ? 15_000 : 60_000,
+    );
 
     return () => window.clearInterval(timer);
-  }, [selectedNodeId, loadMetrics]);
+  }, [active, detailNodeId, loadMetrics, metricsRangeMs]);
 
   useEffect(() => {
     if (!isAdmin || !resultsModalOpen || !resultsMonitorId) return;
@@ -1145,23 +1557,29 @@ export function MonitorView({ nodeMap, viewMode = "grid" }: MonitorViewProps) {
     loadMonitorResults,
   ]);
 
-  const chartData = useMemo(
-    () =>
-      metrics.map((m) => ({
-        time: formatTimestamp(m.timestamp, metricsRangeMs),
-        cpu: m.cpuUsage,
-        memory: m.memoryUsage,
-        disk: m.diskUsage,
-        netIn: m.netInSpeed,
-        netOut: m.netOutSpeed,
-        load1: m.load1,
-        load5: m.load5,
-        load15: m.load15,
-        tcp: m.tcpConns,
-        udp: m.udpConns,
-      })),
-    [metrics, metricsRangeMs],
-  );
+  // Plan 188: a 1 h chart has ~3600 raw rows; drawing them all made every
+  // refresh a 70–100 ms main-thread task. Above CHART_MAX_POINTS the rows are
+  // thinned with largest-triangle-three-buckets on the shown series, which
+  // keeps the peaks and the shape (the chart is narrower than 1000 px anyway).
+  const chartData = useMemo(() => {
+    const picked = thinRows(metrics, CHART_MAX_POINTS, (m) =>
+      chartWeight(m, activeMetricType),
+    );
+
+    return picked.map((m) => ({
+      time: formatTimestamp(m.timestamp, metricsRangeMs),
+      cpu: m.cpuUsage,
+      memory: m.memoryUsage,
+      disk: m.diskUsage,
+      netIn: m.netInSpeed,
+      netOut: m.netOutSpeed,
+      load1: m.load1,
+      load5: m.load5,
+      load15: m.load15,
+      tcp: m.tcpConns,
+      udp: m.udpConns,
+    }));
+  }, [activeMetricType, metrics, metricsRangeMs]);
 
   const handleOpenEditModal = (monitor?: ServiceMonitorApiItem) => {
     if (!isAdmin) return;
@@ -1548,10 +1966,7 @@ export function MonitorView({ nodeMap, viewMode = "grid" }: MonitorViewProps) {
                         machine={machineFor(node)}
                         metric={metric}
                         node={node}
-                        onPress={() => {
-                          setDetailNodeId(node.id);
-                          setSelectedNodeId(node.id);
-                        }}
+                        onOpen={openDetail}
                       />
                     );
                   })}
@@ -1593,190 +2008,16 @@ export function MonitorView({ nodeMap, viewMode = "grid" }: MonitorViewProps) {
                   <TableColumn align="center">存储</TableColumn>
                 </TableHeader>
                 <TableBody emptyContent="暂无节点">
-                  {nodes.map((node) => {
-                    const metric = realtimeNodeMetrics[node.id] || null;
-                    const isOnline = node.connectionStatus === "online";
-
-                    return (
-                      <TableRow
-                        key={node.id}
-                        className="cursor-pointer"
-                        onClick={() => {
-                          setDetailNodeId(node.id);
-                          setSelectedNodeId(node.id);
-                        }}
-                      >
-                        <TableCell>
-                          <div className="flex justify-center w-full">
-                            <div
-                              className={`w-2 h-2 rounded-full ${isOnline ? "bg-success" : "bg-danger"}`}
-                            />
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex justify-center w-full">
-                            <Button
-                              isIconOnly
-                              size="sm"
-                              variant="light"
-                              onPress={() => {
-                                setDetailNodeId(node.id);
-                                setSelectedNodeId(node.id);
-                              }}
-                            >
-                              <Eye className="w-4 h-4 text-primary" />
-                            </Button>
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex flex-col items-center gap-1 w-full">
-                            <div className="flex items-center justify-center gap-2 w-full">
-                              <DistroIcon
-                                className="w-4 h-4 flex-shrink-0"
-                                distro={parseDistroFromVersion(node.version)}
-                                style={{
-                                  color: isOnline
-                                    ? getDistroColor(
-                                        parseDistroFromVersion(node.version),
-                                      )
-                                    : undefined,
-                                }}
-                              />
-                              <span className="font-semibold text-sm whitespace-nowrap">
-                                {node.name}
-                              </span>
-                            </div>
-                            <MachineConnChip
-                              admin={isAdmin}
-                              machine={machineFor(node)}
-                            />
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex flex-col items-center gap-2 py-1 text-xs whitespace-nowrap w-full">
-                            <div className="flex items-center justify-center gap-1.5 font-mono text-success-500 w-full">
-                              <span className="w-[76px] text-center inline-block tabular-nums">
-                                {metric
-                                  ? formatBytesPerSecond(metric.netOutSpeed)
-                                  : "-"}
-                              </span>
-                              <div className="flex items-center justify-center p-[3px] rounded-full bg-success-50 dark:bg-success-500/10 text-success-500 shrink-0">
-                                <ArrowUp
-                                  className="w-3 h-3"
-                                  strokeWidth={2.5}
-                                />
-                              </div>
-                            </div>
-                            <div className="flex items-center justify-center gap-1.5 font-mono text-primary-500 w-full">
-                              <span className="w-[76px] text-center inline-block tabular-nums">
-                                {metric
-                                  ? formatBytesPerSecond(metric.netInSpeed)
-                                  : "-"}
-                              </span>
-                              <div className="flex items-center justify-center p-[3px] rounded-full bg-primary-50 dark:bg-primary-500/10 text-primary-500 shrink-0">
-                                <ArrowDown
-                                  className="w-3 h-3"
-                                  strokeWidth={2.5}
-                                />
-                              </div>
-                            </div>
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex flex-col items-center gap-2 py-1 text-xs whitespace-nowrap w-full">
-                            <div className="flex items-center justify-center gap-1.5 font-mono text-default-600 w-full">
-                              <span className="w-[76px] text-center inline-block tabular-nums">
-                                {metric ? formatBytes(metric.netOutBytes) : "-"}
-                              </span>
-                              <div className="flex items-center justify-center p-[3px] rounded-full bg-default-100 text-default-500 dark:bg-default-100/50 shrink-0">
-                                <ArrowUp
-                                  className="w-3 h-3"
-                                  strokeWidth={2.5}
-                                />
-                              </div>
-                            </div>
-                            <div className="flex items-center justify-center gap-1.5 font-mono text-default-600 w-full">
-                              <span className="w-[76px] text-center inline-block tabular-nums">
-                                {metric ? formatBytes(metric.netInBytes) : "-"}
-                              </span>
-                              <div className="flex items-center justify-center p-[3px] rounded-full bg-default-100 text-default-500 dark:bg-default-100/50 shrink-0">
-                                <ArrowDown
-                                  className="w-3 h-3"
-                                  strokeWidth={2.5}
-                                />
-                              </div>
-                            </div>
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex justify-center w-full">
-                            <span className="font-mono text-xs text-default-500 whitespace-nowrap tabular-nums">
-                              {metric ? formatUptime(metric.uptime) : "-"}
-                            </span>
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex flex-col items-center gap-1.5 text-xs font-mono text-default-500 px-1 w-full tabular-nums">
-                            <div>TCP {metric ? metric.tcpConns : "-"}</div>
-                            <div>UDP {metric ? metric.udpConns : "-"}</div>
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex items-center justify-center gap-2 w-full">
-                            {metric ? (
-                              <Progress
-                                className="w-[40px] md:w-[60px]"
-                                color={getColorByUsage(metric.cpuUsage)}
-                                size="sm"
-                                value={metric.cpuUsage}
-                              />
-                            ) : (
-                              <div className="w-[40px] md:w-[60px] h-2 rounded-full bg-default-100" />
-                            )}
-                            <span className="text-xs font-mono w-[36px] text-center text-default-500 tabular-nums">
-                              {metric ? `${metric.cpuUsage.toFixed(1)}%` : "-"}
-                            </span>
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex items-center justify-center gap-2 w-full">
-                            {metric ? (
-                              <Progress
-                                className="w-[40px] md:w-[60px]"
-                                color={getColorByUsage(metric.memoryUsage)}
-                                size="sm"
-                                value={metric.memoryUsage}
-                              />
-                            ) : (
-                              <div className="w-[40px] md:w-[60px] h-2 rounded-full bg-default-100" />
-                            )}
-                            <span className="text-xs font-mono w-[36px] text-center text-default-500 tabular-nums">
-                              {metric
-                                ? `${metric.memoryUsage.toFixed(1)}%`
-                                : "-"}
-                            </span>
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex items-center justify-center gap-2 w-full">
-                            {metric ? (
-                              <Progress
-                                className="w-[40px] md:w-[60px]"
-                                color={getColorByUsage(metric.diskUsage)}
-                                size="sm"
-                                value={metric.diskUsage}
-                              />
-                            ) : (
-                              <div className="w-[40px] md:w-[60px] h-2 rounded-full bg-default-100" />
-                            )}
-                            <span className="text-xs font-mono w-[36px] text-center text-default-500 tabular-nums">
-                              {metric ? `${metric.diskUsage.toFixed(1)}%` : "-"}
-                            </span>
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    );
-                  })}
+                  {nodes.map((node) => (
+                    <NodeTableRow
+                      key={node.id}
+                      admin={isAdmin}
+                      machine={machineFor(node)}
+                      metric={realtimeNodeMetrics[node.id] || null}
+                      node={node}
+                      onOpen={openDetail}
+                    />
+                  ))}
                 </TableBody>
               </Table>
             </Card>
@@ -2160,6 +2401,7 @@ export function MonitorView({ nodeMap, viewMode = "grid" }: MonitorViewProps) {
                                 }
                               />
                               <Tooltip
+                                  isAnimationActive={false}
                                 {...latencyTapTooltip.tooltipProps}
                                 contentStyle={{
                                   backgroundColor: "rgba(0,0,0,0.8)",
@@ -2173,10 +2415,11 @@ export function MonitorView({ nodeMap, viewMode = "grid" }: MonitorViewProps) {
                                 labelStyle={{ color: "#fff" }}
                               />
                               <Line
-                                activeDot={latencyTapTooltip.activeDot()}
+                                  activeDot={latencyTapTooltip.activeDot()}
                                 connectNulls={false}
                                 dataKey="latency"
                                 dot={false}
+                                  isAnimationActive={false}
                                 name="延迟"
                                 stroke="#10b981"
                                 strokeWidth={2}

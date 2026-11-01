@@ -1,6 +1,6 @@
 import type { MonitorNodeApiItem } from "@/api/types";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import toast from "react-hot-toast";
 
 import { AnimatedPage } from "@/components/animated-page";
@@ -61,6 +61,7 @@ export default function MonitorPage() {
     });
   }, []);
 
+  const lastNodesRawRef = useRef("");
   const loadNodes = useCallback(
     async (options?: {
       silent?: boolean;
@@ -73,7 +74,14 @@ export default function MonitorPage() {
 
         if (response.code === 0 && Array.isArray(response.data)) {
           setNodesError(null);
-          setNodes(response.data);
+          // Plan 188: an unchanged list keeps its array, so nodeMap and every
+          // node card keep their identity (no re-render every 30 s).
+          const raw = JSON.stringify(response.data);
+
+          if (raw !== lastNodesRawRef.current) {
+            lastNodesRawRef.current = raw;
+            setNodes(response.data);
+          }
 
           return response.data;
         }
@@ -125,24 +133,37 @@ export default function MonitorPage() {
 
   useEffect(() => {
     const timer = window.setInterval(() => {
+      // Plan 188: a hidden browser tab does not poll.
+      if (document.visibilityState === "hidden") return;
       void loadNodes({ silent: true });
     }, 30_000);
 
     return () => window.clearInterval(timer);
   }, [loadNodes]);
 
+  // Plan 188: entries whose fields did not change keep their objects.
+  const nodeMapRef = useRef(new Map<number, MonitorNode>());
   const nodeMap = useMemo(() => {
+    const prev = nodeMapRef.current;
     const list: MonitorNode[] = nodes
       .filter((n) => Number(n.id) > 0)
-      .map((n) => ({
-        id: Number(n.id),
-        name: String(n.name ?? ""),
-        connectionStatus: n.status === 1 ? "online" : "offline",
-        version: n.version,
-        machine: n.machine ?? null,
-      }));
+      .map((n) => {
+        const next: MonitorNode = {
+          id: Number(n.id),
+          name: String(n.name ?? ""),
+          connectionStatus: n.status === 1 ? "online" : "offline",
+          version: n.version,
+          machine: n.machine ?? null,
+        };
+        const old = prev.get(next.id);
 
-    return new Map<number, MonitorNode>(list.map((n) => [n.id, n]));
+        return old && JSON.stringify(old) === JSON.stringify(next) ? old : next;
+      });
+    const map = new Map<number, MonitorNode>(list.map((n) => [n.id, n]));
+
+    nodeMapRef.current = map;
+
+    return map;
   }, [nodes]);
 
   return (
@@ -228,10 +249,15 @@ export default function MonitorPage() {
       </div>
       <>
         <div className={activeTab === "nodes" ? "block" : "hidden"}>
-          <MonitorView nodeMap={nodeMap} viewMode={viewMode} />
+          <MonitorView
+            active={activeTab === "nodes"}
+            nodeMap={nodeMap}
+            viewMode={viewMode}
+          />
         </div>
         <div className={activeTab === "tunnels" ? "block" : "hidden"}>
           <TunnelMonitorView
+            active={activeTab === "tunnels"}
             refreshTrigger={tunnelRefreshTrigger}
             viewMode={viewMode}
             onLoadingChange={setTunnelsLoading}

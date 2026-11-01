@@ -5,13 +5,12 @@ import {
   useNavigate,
   useLocation,
 } from "react-router-dom";
-import { useEffect } from "react";
+import { Suspense, lazy, useEffect } from "react";
 
 import IndexPage from "@/pages/index";
 import ChangePasswordPage from "@/pages/change-password";
 import DashboardPage from "@/pages/dashboard";
 import MonitorPage from "@/pages/monitor";
-import TZPage from "@/pages/tz";
 import ForwardPage from "@/pages/forward";
 import TunnelPage from "@/pages/tunnel";
 import LeiKwanPage from "@/pages/leikwan";
@@ -39,6 +38,10 @@ import {
   updateSiteConfig,
 } from "@/config/site";
 import { useH5Mode } from "@/hooks/useH5Mode";
+
+// Plan 187: the public probe page is its own chunk (main.tsx loads it directly
+// for a fresh /tz visit; this route covers in-app navigation to /tz).
+const ProbeApp = lazy(() => import("@/probe/probe-app"));
 
 const RESTRICTED_PATHS = ["/myhome", "/shop", "/dashboard"];
 
@@ -135,7 +138,14 @@ function App() {
   return (
     <Routes>
       <Route element={<LoginRoute />} path="/" />
-      <Route element={<TZPage />} path="/tz" />
+      <Route
+        element={
+          <Suspense fallback={null}>
+            <ProbeApp />
+          </Suspense>
+        }
+        path="/tz/*"
+      />
       <Route
         element={
           <ProtectedRoute skipLayout={true}>

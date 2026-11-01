@@ -38,6 +38,8 @@ interface TunnelMonitorViewProps {
   viewMode?: "list" | "grid";
   refreshTrigger?: number;
   onLoadingChange?: (loading: boolean) => void;
+  /** Plan 188: false while another 监控 tab is shown (polling pauses). */
+  active?: boolean;
 }
 
 const formatTimestamp = (ts: number, rangeMs?: number): string => {
@@ -175,6 +177,7 @@ const TrafficChartCard = React.memo(function TrafficChartCard({
                   tickFormatter={yFormatter}
                 />
                 <Tooltip
+                  isAnimationActive={false}
                   {...tapTooltip.tooltipProps}
                   contentStyle={{
                     backgroundColor: "rgba(0,0,0,0.85)",
@@ -189,6 +192,7 @@ const TrafficChartCard = React.memo(function TrafficChartCard({
                   activeDot={tapTooltip.activeDot()}
                   dataKey="bytesIn"
                   dot={false}
+                  isAnimationActive={false}
                   name="入站流量"
                   stroke="#10b981"
                   strokeWidth={2}
@@ -198,6 +202,7 @@ const TrafficChartCard = React.memo(function TrafficChartCard({
                   activeDot={tapTooltip.activeDot()}
                   dataKey="bytesOut"
                   dot={false}
+                  isAnimationActive={false}
                   name="出站流量"
                   stroke="#ef4444"
                   strokeWidth={2}
@@ -218,6 +223,7 @@ export function TunnelMonitorView({
   viewMode = "grid",
   refreshTrigger,
   onLoadingChange,
+  active = true,
 }: TunnelMonitorViewProps) {
   const [tunnels, setTunnels] = useState<MonitorTunnelApiItem[]>([]);
   const [tunnelsLoading, setTunnelsLoading] = useState(false);
@@ -294,13 +300,16 @@ export function TunnelMonitorView({
     void loadTunnels();
   }, [loadTunnels, refreshTrigger]);
 
+  // Plan 188: no polling while another tab / a hidden browser tab is shown.
   useEffect(() => {
+    if (!active) return;
     const timer = window.setInterval(() => {
+      if (document.visibilityState === "hidden") return;
       void loadTunnels({ silent: true });
     }, 60_000);
 
     return () => window.clearInterval(timer);
-  }, [loadTunnels]);
+  }, [active, loadTunnels]);
 
   // --- Load tunnel traffic metrics for detail chart ---
   const loadTunnelMetrics = useCallback(
@@ -341,13 +350,14 @@ export function TunnelMonitorView({
 
   // Auto-refresh detail charts
   useEffect(() => {
-    if (!detailTunnelId) return;
+    if (!detailTunnelId || !active) return;
     const timer = window.setInterval(() => {
+      if (document.visibilityState === "hidden") return;
       void loadTunnelMetrics(detailTunnelId, { silent: true });
     }, 30_000);
 
     return () => window.clearInterval(timer);
-  }, [detailTunnelId, loadTunnelMetrics]);
+  }, [active, detailTunnelId, loadTunnelMetrics]);
 
   // Memoize chart data so React.memo sub-components see stable references
   const tunnelChartData = useMemo(

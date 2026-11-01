@@ -17,5 +17,7 @@ func NewRouter(h *handler.Handler, jwtSecret string, r *repo.Repository) http.Ha
 	wrapped = middleware.JWT(middleware.AuthOptions{JWTSecret: jwtSecret, UserState: h.UserState()})(wrapped)
 	wrapped = middleware.RequestLog(wrapped)
 	wrapped = middleware.CORS(wrapped)
+	// Plan 187: on the 探针专用域名 only the probe routes exist.
+	wrapped = h.ProbeHostGate(wrapped)
 	return wrapped
 }

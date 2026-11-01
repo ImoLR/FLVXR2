@@ -23,6 +23,7 @@ import (
 	"go-backend/internal/http/response"
 	"go-backend/internal/leikwan"
 	"go-backend/internal/metrics"
+	"go-backend/internal/probe"
 	"go-backend/internal/security"
 	"go-backend/internal/store/repo"
 	"go-backend/internal/ws"
@@ -136,6 +137,9 @@ type Handler struct {
 	external externalState
 	// subLink: plan 185 subscription links (caches and limits, memory only).
 	subLink subLinkState
+	// probe: plan 187 公开探针 (latest reports, latency rings, snapshot hub;
+	// memory only).
+	probe probeState
 }
 
 // GetForwardConnections 获取指定转发的当前连接数
@@ -245,6 +249,11 @@ func New(repo *repo.Repository, jwtSecret string, fluxVersion string) *Handler {
 			NetOutSpeed:            info.NetOutSpeed,
 		}
 		h.metrics.RecordNodeMetric(nodeID, metricInfo)
+		h.probeObserve(nodeID, probe.Sample{
+			At: time.Now().UnixMilli(), CPU: info.CPUUsage, Mem: info.MemoryUsage, Disk: info.DiskUsage, Load1: info.Load1,
+			NetIn: info.NetInSpeed, NetOut: info.NetOutSpeed, RxTotal: int64(info.BytesReceived), TxTotal: int64(info.BytesTransmitted),
+			Uptime: int64(info.Uptime), TCP: info.TCPConns,
+		})
 		h.quotaGroups.Observe(nodeID, info.QuotaGroups)
 	})
 	h.nodeGroupHandler = NewNodeGroupHandler(repo)
@@ -260,6 +269,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	h.registerLeiKwan(mux)
 	h.registerLanding(mux)
 	h.registerDDNS(mux)
+	h.registerProbe(mux)
 	mux.HandleFunc(StaleFrontendKickPath, h.staleFrontendKick)
 	mux.HandleFunc("/api/v1/user/login", h.login)
 	mux.HandleFunc("/api/v1/user/logout", h.logout)
@@ -1410,6 +1420,9 @@ func (h *Handler) updateConfigs(w http.ResponseWriter, r *http.Request) {
 		}
 
 		value, err := normalizeAndValidateConfigValue(key, v)
+		if err == nil {
+			err = probeDomainLockout(r, key, value)
+		}
 		if err != nil {
 			response.WriteJSON(w, response.ErrDefault(err.Error()))
 			return
@@ -1432,6 +1445,7 @@ func (h *Handler) updateConfigs(w http.ResponseWriter, r *http.Request) {
 			response.WriteJSON(w, response.Err(-2, err.Error()))
 			return
 		}
+		h.noteProbeConfigChange(key)
 	}
 
 	response.WriteJSON(w, response.OKEmpty())
@@ -1455,12 +1469,15 @@ func (h *Handler) updateSingleConfig(w http.ResponseWriter, r *http.Request) {
 	}
 
 	value, err := normalizeAndValidateConfigValue(name, req.Value)
+	if err == nil {
+		err = probeDomainLockout(r, name, value)
+	}
 	if err != nil {
 		response.WriteJSON(w, response.ErrDefault(err.Error()))
 		return
 	}
 
-	if value == "" && name != "app_logo" && name != "app_favicon" && name != "app_bg_image" && name != configKeyGlobalAppBackground {
+	if value == "" && name != "app_logo" && name != "app_favicon" && name != "app_bg_image" && name != configKeyGlobalAppBackground && name != probeTitleKey && name != probeDomainKey {
 		response.WriteJSON(w, response.ErrDefault("配置值不能为空"))
 		return
 	}
@@ -1483,12 +1500,15 @@ func (h *Handler) updateSingleConfig(w http.ResponseWriter, r *http.Request) {
 		response.WriteJSON(w, response.Err(-2, err.Error()))
 		return
 	}
+	h.noteProbeConfigChange(name)
 
 	response.WriteJSON(w, response.OKEmpty())
 }
 
 func normalizeAndValidateConfigValue(key, value string) (string, error) {
 	switch strings.TrimSpace(key) {
+	case probeTitleKey, probeDomainKey, probeLatencyKey, probeNodesKey, probeGroupsKey, probeGroupModeKey:
+		return normalizeProbeConfigValue(strings.TrimSpace(key), value)
 	case repo.LandingDefaultMaxNodesKey:
 		n, err := repo.ParseLandingDefaultMaxNodes(value)
 		if err != nil {
