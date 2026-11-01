@@ -39,7 +39,7 @@ recommended decisions). Keep it as simple as the draft or simpler.
 - [x] 13. Gates: go build/vet/test, frontend tsc/build/lint vs base
 - [x] 14. Demo panel + screens gallery :8791 /sub-link/ (1440 + 390, light + dark) + text samples
 - [x] 15. Resource numbers (render 50 / 300 nodes cold+cached, cache memory, DB queries/pull, bundle delta)
-- [ ] 16. Push, CI green, `runs/sub-link/release-notes.md`, summary
+- [x] 16. Push, CI green, `runs/sub-link/release-notes.md`, summary
 
 ## Results (build round 1, 2026-11-01)
 
@@ -55,3 +55,4 @@ recommended decisions). Keep it as simple as the draft or simpler.
 - Resources (demo, GOMAXPROCS=2): 50 nodes cold 2.5–16 ms / cached ≈1 ms; 300 nodes cold 5–84 ms / cached 1–2 ms;
   DB statements per pull 14 cold / 3 cached; cache fill 270 × 300-node renders → RSS 55 → 86 MB (cache capped 256
   entries / 16 MiB), 270 × 50-node → no RSS change; 0 log lines per pull; bundle main chunk +31.6 kB (+7.9 kB gzip).
+- CI green on 903ec836 (run 41304626548). Release notes: /root/flvx-workers/runs/sub-link/release-notes.md. Waiting for the user's screen approval; release in a batch.
