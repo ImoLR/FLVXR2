@@ -75,8 +75,8 @@ function SourceRow({
       className="rounded-xl border border-divider px-3 py-2.5"
       data-sub-source={source.id}
     >
-      <div className="flex items-center gap-2">
-        <div className="min-w-0 flex-1">
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="min-w-[14rem] flex-1">
           <div className="flex items-center gap-1.5">
             <span className="truncate font-semibold">{source.name}</span>
             <Pill tone="amber">{source.nodeCount} 个节点</Pill>

@@ -302,6 +302,7 @@ h1{font-size:20px;margin:0 0 4px}.muted{color:#6b7280;font-size:13px}
 button{border:0;border-radius:10px;padding:8px 14px;font-weight:600;background:#16a34a;color:#fff;font-size:14px;cursor:pointer}
 .qr{text-align:center;margin:16px 0 6px}.qr img{width:220px;height:220px;image-rendering:pixelated}
 ul{padding-left:18px;margin:6px 0 0}li{margin:3px 0}
+@media (max-width:480px){.card{margin:14px 12px;padding:18px}}
 @media (prefers-color-scheme:dark){body{background:#0f172a;color:#e5e7eb}.card{background:#111827;box-shadow:0 0 0 1px #1f2937}.url{background:#1f2937}.muted{color:#9ca3af}.pill{color:#86efac}}
 </style></head><body><div class="card">
 <h1>{{.Name}}</h1><div class="muted"><span class="pill">{{.Count}} 个节点</span> · 这是一条代理订阅链接，请在客户端里导入</div>

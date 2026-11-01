@@ -197,11 +197,14 @@ export function subAgo(ms: number) {
 
   if (diff < 60_000) return "刚刚";
   if (diff < 3_600_000) return `${Math.floor(diff / 60_000)} 分钟前`;
-  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)} 小时前`;
+  if (diff < 6 * 3_600_000) return `${Math.floor(diff / 3_600_000)} 小时前`;
   const d = new Date(ms);
   const hm = `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+  const day = (t: Date) => new Date(t).setHours(0, 0, 0, 0);
+  const days = Math.round((day(new Date()) - day(d)) / 86_400_000);
 
-  if (diff < 2 * 86_400_000) return `昨天 ${hm}`;
+  if (days === 0) return `今天 ${hm}`;
+  if (days === 1) return `昨天 ${hm}`;
 
   return `${d.getMonth() + 1}月${d.getDate()}日 ${hm}`;
 }
