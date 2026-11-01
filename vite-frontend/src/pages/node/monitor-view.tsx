@@ -781,6 +781,71 @@ const sameRealtimeMetric = (a: RealtimeNodeMetric, b: RealtimeNodeMetric) =>
   a.uptime === b.uptime;
 const sameJSON = (a: unknown, b: unknown) =>
   a === b || JSON.stringify(a) === JSON.stringify(b);
+// Chart thinning (plan 188): at most this many points are drawn.
+const CHART_MAX_POINTS = 1000;
+const chartWeight = (m: NodeMetricApiItem, type: MetricType): number => {
+  switch (type) {
+    case "memory":
+      return m.memoryUsage;
+    case "disk":
+      return m.diskUsage;
+    case "network":
+      return m.netInSpeed + m.netOutSpeed;
+    case "load":
+      return m.load1;
+    case "connections":
+      return m.tcpConns + m.udpConns;
+    default:
+      return m.cpuUsage;
+  }
+};
+
+// Largest-triangle-three-buckets: keeps first/last and, per bucket, the row
+// that spans the largest triangle with its neighbours (peaks survive).
+function thinRows<T>(rows: T[], max: number, y: (row: T) => number): T[] {
+  if (rows.length <= max || max < 3) return rows;
+  const out: T[] = [rows[0]];
+  const every = (rows.length - 2) / (max - 2);
+  let a = 0;
+
+  for (let i = 0; i < max - 2; i++) {
+    const nextStart = Math.floor((i + 1) * every) + 1;
+    const nextEnd = Math.min(Math.floor((i + 2) * every) + 1, rows.length);
+    let avgX = 0;
+    let avgY = 0;
+
+    for (let j = nextStart; j < nextEnd; j++) {
+      avgX += j;
+      avgY += y(rows[j]);
+    }
+    const n = Math.max(1, nextEnd - nextStart);
+
+    avgX /= n;
+    avgY /= n;
+    const start = Math.floor(i * every) + 1;
+    const end = Math.floor((i + 1) * every) + 1;
+    const ay = y(rows[a]);
+    let best = start;
+    let bestArea = -1;
+
+    for (let j = start; j < end; j++) {
+      const area = Math.abs(
+        (a - avgX) * (y(rows[j]) - ay) - (a - j) * (avgY - ay),
+      );
+
+      if (area > bestArea) {
+        bestArea = area;
+        best = j;
+      }
+    }
+    out.push(rows[best]);
+    a = best;
+  }
+  out.push(rows[rows.length - 1]);
+
+  return out;
+}
+
 // Ranges up to 1 h are raw 1 s rows: refresh appends only the new tail.
 const TAIL_RANGE_MS = 60 * 60 * 1000;
 const pageHidden = () =>
@@ -1492,23 +1557,29 @@ export function MonitorView({
     loadMonitorResults,
   ]);
 
-  const chartData = useMemo(
-    () =>
-      metrics.map((m) => ({
-        time: formatTimestamp(m.timestamp, metricsRangeMs),
-        cpu: m.cpuUsage,
-        memory: m.memoryUsage,
-        disk: m.diskUsage,
-        netIn: m.netInSpeed,
-        netOut: m.netOutSpeed,
-        load1: m.load1,
-        load5: m.load5,
-        load15: m.load15,
-        tcp: m.tcpConns,
-        udp: m.udpConns,
-      })),
-    [metrics, metricsRangeMs],
-  );
+  // Plan 188: a 1 h chart has ~3600 raw rows; drawing them all made every
+  // refresh a 70–100 ms main-thread task. Above CHART_MAX_POINTS the rows are
+  // thinned with largest-triangle-three-buckets on the shown series, which
+  // keeps the peaks and the shape (the chart is narrower than 1000 px anyway).
+  const chartData = useMemo(() => {
+    const picked = thinRows(metrics, CHART_MAX_POINTS, (m) =>
+      chartWeight(m, activeMetricType),
+    );
+
+    return picked.map((m) => ({
+      time: formatTimestamp(m.timestamp, metricsRangeMs),
+      cpu: m.cpuUsage,
+      memory: m.memoryUsage,
+      disk: m.diskUsage,
+      netIn: m.netInSpeed,
+      netOut: m.netOutSpeed,
+      load1: m.load1,
+      load5: m.load5,
+      load15: m.load15,
+      tcp: m.tcpConns,
+      udp: m.udpConns,
+    }));
+  }, [activeMetricType, metrics, metricsRangeMs]);
 
   const handleOpenEditModal = (monitor?: ServiceMonitorApiItem) => {
     if (!isAdmin) return;
