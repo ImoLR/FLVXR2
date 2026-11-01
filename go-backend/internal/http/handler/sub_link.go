@@ -758,7 +758,12 @@ func (h *Handler) subReset(w http.ResponseWriter, r *http.Request) {
 		subFail(w, errors.New("重置失败"))
 		return
 	}
-	h.subState().cache.purgeSub(s.ID)
+	st := h.subState()
+	st.cache.purgeSub(s.ID)
+	// The new link's first pull is recorded at once (「最近拉取」 was cleared).
+	st.mu.Lock()
+	delete(st.marked, s.ID)
+	st.mu.Unlock()
 	s.Token = token
 	response.WriteJSON(w, response.OK(subView(s)))
 }
