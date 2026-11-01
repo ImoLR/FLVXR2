@@ -295,3 +295,22 @@ func ValidToken(t string) bool {
 	}
 	return true
 }
+
+// SourceNode is one cached node of an external subscription source.
+type SourceNode struct {
+	Name     string             `json:"n"`
+	Up       linechain.Upstream `json:"u"`
+	Insecure bool               `json:"i,omitempty"`
+}
+
+// ParseSourceNodes reads a source's cache; broken JSON yields nothing.
+func ParseSourceNodes(s string) []SourceNode {
+	var out []SourceNode
+	if json.Unmarshal([]byte(s), &out) != nil {
+		return nil
+	}
+	return out
+}
+
+// Node converts a cached source node.
+func (s SourceNode) Node() Node { return Node{Name: s.Name, Up: s.Up, Insecure: s.Insecure} }

@@ -217,6 +217,8 @@ var publicConfigKeys = map[string]bool{
 // Extra keys logged-in normal users read (rules page layout switch).
 var userConfigKeys = map[string]bool{
 	"forward_compact_mode": true,
+	// Plan 185: hides the 订阅 menu when the admin switched it off.
+	"sub_link_enabled": true,
 }
 
 // configVisibility: 0 anonymous, 1 logged-in user, 2 admin.

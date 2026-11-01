@@ -120,6 +120,9 @@ func shouldSkip(path string) bool {
 		return true
 	case strings.HasPrefix(path, "/api/v1/open_api/"):
 		return true
+	case strings.HasPrefix(path, "/s/"):
+		// Plan 185 subscription links: the token in the path is the auth.
+		return true
 	case strings.HasPrefix(path, "/api/v1/captcha/"):
 		return true
 	case path == "/api/v1/config/get":

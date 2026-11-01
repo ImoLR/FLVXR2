@@ -134,6 +134,8 @@ type Handler struct {
 	// Plan 177 「外部节点」 / 「链式代理」: subscription fetch cache + limits,
 	// and the last compile's per-node chain notes per landing server.
 	external externalState
+	// subLink: plan 185 subscription links (caches and limits, memory only).
+	subLink subLinkState
 }
 
 // GetForwardConnections 获取指定转发的当前连接数

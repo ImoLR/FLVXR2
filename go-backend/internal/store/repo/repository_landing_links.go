@@ -161,11 +161,17 @@ type entryHostIndex struct {
 }
 
 func (r *Repository) loadEntryHostIndex(tunnelID int64, tunnelInIP string, nodeIDs []int64) (*entryHostIndex, error) {
-	x := &entryHostIndex{tunnelInIP: strings.TrimSpace(tunnelInIP), nodes: map[int64]model.Node{}, owners: map[string]map[int64]bool{}}
 	var nodes []model.Node
 	if err := r.db.Where("id IN ? OR id IN (SELECT node_id FROM chain_tunnel WHERE tunnel_id = ? AND chain_type = ?)", nodeIDs, tunnelID, "1").Find(&nodes).Error; err != nil {
 		return nil, err
 	}
+	return newEntryHostIndex(tunnelInIP, nodes), nil
+}
+
+// newEntryHostIndex builds the index from already loaded nodes (the rule's
+// port nodes plus the tunnel's entry nodes); plan 185 batch-loads them.
+func newEntryHostIndex(tunnelInIP string, nodes []model.Node) *entryHostIndex {
+	x := &entryHostIndex{tunnelInIP: strings.TrimSpace(tunnelInIP), nodes: map[int64]model.Node{}, owners: map[string]map[int64]bool{}}
 	for _, node := range nodes {
 		x.nodes[node.ID] = node
 		addresses := nodeIngressAddresses(&node)
@@ -180,7 +186,7 @@ func (r *Repository) loadEntryHostIndex(tunnelID int64, tunnelInIP string, nodeI
 			x.owners[host][node.ID] = true
 		}
 	}
-	return x, nil
+	return x
 }
 
 func (x *entryHostIndex) hosts(nodeID int64, portInIP string) ([]string, model.Node, bool) {
