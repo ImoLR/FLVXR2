@@ -1,0 +1,1485 @@
+{
+  "log": {
+    "level": "warn"
+  },
+  "dns": {
+    "servers": [
+      {
+        "type": "https",
+        "tag": "dns-remote",
+        "server": "1.1.1.1",
+        "detour": "节点选择"
+      },
+      {
+        "type": "https",
+        "tag": "dns-local",
+        "server": "223.5.5.5"
+      }
+    ],
+    "rules": [
+      {
+        "rule_set": "geosite-cn",
+        "server": "dns-local"
+      }
+    ],
+    "final": "dns-remote",
+    "strategy": "prefer_ipv4"
+  },
+  "inbounds": [
+    {
+      "type": "tun",
+      "tag": "tun-in",
+      "address": [
+        "172.19.0.1/30",
+        "fdfe:dcba:9876::1/126"
+      ],
+      "auto_route": true,
+      "strict_route": true
+    },
+    {
+      "type": "mixed",
+      "tag": "mixed-in",
+      "listen": "127.0.0.1",
+      "listen_port": 2080
+    }
+  ],
+  "outbounds": [
+    {
+      "type": "selector",
+      "tag": "节点选择",
+      "outbounds": [
+        "自动选择",
+        "ss 0",
+        "ss2022 1",
+        "ss2022-chacha 2",
+        "vless-reality-vision 3",
+        "vless-reality-grpc 4",
+        "vless-ws-tls 5",
+        "vless-tcp 6",
+        "vmess-ws-tls 7",
+        "vmess-tcp 8",
+        "vmess-grpc 9",
+        "trojan 10",
+        "trojan-ws 11",
+        "trojan-grpc 12",
+        "hysteria2 13",
+        "hysteria2-obfs 14",
+        "socks5 15",
+        "http 16",
+        "https 17",
+        "anytls 18",
+        "ss 22",
+        "ss2022 23",
+        "ss2022-chacha 24",
+        "vless-reality-vision 25",
+        "vless-reality-grpc 26",
+        "vless-ws-tls 27",
+        "vless-tcp 28",
+        "vmess-ws-tls 29",
+        "vmess-tcp 30",
+        "vmess-grpc 31",
+        "trojan 32",
+        "trojan-ws 33",
+        "trojan-grpc 34",
+        "hysteria2 35",
+        "hysteria2-obfs 36",
+        "socks5 37",
+        "http 38",
+        "https 39",
+        "anytls 40",
+        "ss 44",
+        "ss2022 45",
+        "ss2022-chacha 46",
+        "vless-reality-vision 47",
+        "vless-reality-grpc 48",
+        "vless-ws-tls 49",
+        "vless-tcp 50",
+        "vmess-ws-tls 51",
+        "vmess-tcp 52",
+        "vmess-grpc 53",
+        "trojan 54",
+        "trojan-ws 55",
+        "trojan-grpc 56",
+        "hysteria2 57",
+        "hysteria2-obfs 58",
+        "socks5 59",
+        "http 60",
+        "https 61",
+        "anytls 62",
+        "ss 66",
+        "ss2022 67",
+        "ss2022-chacha 68",
+        "vless-reality-vision 69",
+        "vless-reality-grpc 70",
+        "vless-ws-tls 71",
+        "vless-tcp 72",
+        "vmess-ws-tls 73",
+        "vmess-tcp 74",
+        "vmess-grpc 75",
+        "trojan 76",
+        "trojan-ws 77",
+        "trojan-grpc 78",
+        "hysteria2 79",
+        "hysteria2-obfs 80",
+        "socks5 81",
+        "http 82",
+        "https 83",
+        "anytls 84",
+        "ss 88",
+        "ss2022 89",
+        "ss2022-chacha 90",
+        "vless-reality-vision 91",
+        "vless-reality-grpc 92",
+        "vless-ws-tls 93",
+        "vless-tcp 94",
+        "vmess-ws-tls 95",
+        "vmess-tcp 96",
+        "vmess-grpc 97",
+        "trojan 98",
+        "trojan-ws 99",
+        "direct"
+      ],
+      "default": "自动选择"
+    },
+    {
+      "type": "urltest",
+      "tag": "自动选择",
+      "outbounds": [
+        "ss 0",
+        "ss2022 1",
+        "ss2022-chacha 2",
+        "vless-reality-vision 3",
+        "vless-reality-grpc 4",
+        "vless-ws-tls 5",
+        "vless-tcp 6",
+        "vmess-ws-tls 7",
+        "vmess-tcp 8",
+        "vmess-grpc 9",
+        "trojan 10",
+        "trojan-ws 11",
+        "trojan-grpc 12",
+        "hysteria2 13",
+        "hysteria2-obfs 14",
+        "socks5 15",
+        "http 16",
+        "https 17",
+        "anytls 18",
+        "ss 22",
+        "ss2022 23",
+        "ss2022-chacha 24",
+        "vless-reality-vision 25",
+        "vless-reality-grpc 26",
+        "vless-ws-tls 27",
+        "vless-tcp 28",
+        "vmess-ws-tls 29",
+        "vmess-tcp 30",
+        "vmess-grpc 31",
+        "trojan 32",
+        "trojan-ws 33",
+        "trojan-grpc 34",
+        "hysteria2 35",
+        "hysteria2-obfs 36",
+        "socks5 37",
+        "http 38",
+        "https 39",
+        "anytls 40",
+        "ss 44",
+        "ss2022 45",
+        "ss2022-chacha 46",
+        "vless-reality-vision 47",
+        "vless-reality-grpc 48",
+        "vless-ws-tls 49",
+        "vless-tcp 50",
+        "vmess-ws-tls 51",
+        "vmess-tcp 52",
+        "vmess-grpc 53",
+        "trojan 54",
+        "trojan-ws 55",
+        "trojan-grpc 56",
+        "hysteria2 57",
+        "hysteria2-obfs 58",
+        "socks5 59",
+        "http 60",
+        "https 61",
+        "anytls 62",
+        "ss 66",
+        "ss2022 67",
+        "ss2022-chacha 68",
+        "vless-reality-vision 69",
+        "vless-reality-grpc 70",
+        "vless-ws-tls 71",
+        "vless-tcp 72",
+        "vmess-ws-tls 73",
+        "vmess-tcp 74",
+        "vmess-grpc 75",
+        "trojan 76",
+        "trojan-ws 77",
+        "trojan-grpc 78",
+        "hysteria2 79",
+        "hysteria2-obfs 80",
+        "socks5 81",
+        "http 82",
+        "https 83",
+        "anytls 84",
+        "ss 88",
+        "ss2022 89",
+        "ss2022-chacha 90",
+        "vless-reality-vision 91",
+        "vless-reality-grpc 92",
+        "vless-ws-tls 93",
+        "vless-tcp 94",
+        "vmess-ws-tls 95",
+        "vmess-tcp 96",
+        "vmess-grpc 97",
+        "trojan 98",
+        "trojan-ws 99"
+      ],
+      "url": "https://www.gstatic.com/generate_204",
+      "interval": "5m",
+      "tolerance": 50
+    },
+    {
+      "type": "shadowsocks",
+      "tag": "ss 0",
+      "server": "203.0.113.40",
+      "server_port": 8388,
+      "method": "aes-256-gcm",
+      "password": "pw123"
+    },
+    {
+      "type": "shadowsocks",
+      "tag": "ss2022 1",
+      "server": "198.51.100.7",
+      "server_port": 20009,
+      "method": "2022-blake3-aes-128-gcm",
+      "password": "MDEyMzQ1Njc4OWFiY2RlZg=="
+    },
+    {
+      "type": "shadowsocks",
+      "tag": "ss2022-chacha 2",
+      "server": "198.51.100.8",
+      "server_port": 20010,
+      "method": "2022-blake3-chacha20-poly1305",
+      "password": "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="
+    },
+    {
+      "type": "vless",
+      "tag": "vless-reality-vision 3",
+      "server": "203.0.113.21",
+      "server_port": 20008,
+      "uuid": "8a4f3f6e-1c2b-4d5e-9f00-112233445566",
+      "flow": "xtls-rprx-vision",
+      "tls": {
+        "enabled": true,
+        "server_name": "www.microsoft.com",
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        },
+        "reality": {
+          "enabled": true,
+          "public_key": "Y5u4vH0Qp6yG9mKZr3QZbqSx2n8Hk8TtZl1u8rH0v0E",
+          "short_id": "6ba85179e30d4fc2"
+        }
+      }
+    },
+    {
+      "type": "vless",
+      "tag": "vless-reality-grpc 4",
+      "server": "203.0.113.22",
+      "server_port": 20008,
+      "uuid": "8a4f3f6e-1c2b-4d5e-9f00-112233445566",
+      "tls": {
+        "enabled": true,
+        "server_name": "www.microsoft.com",
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        },
+        "reality": {
+          "enabled": true,
+          "public_key": "Y5u4vH0Qp6yG9mKZr3QZbqSx2n8Hk8TtZl1u8rH0v0E",
+          "short_id": "6ba8"
+        }
+      },
+      "transport": {
+        "type": "grpc",
+        "service_name": "gun"
+      }
+    },
+    {
+      "type": "vless",
+      "tag": "vless-ws-tls 5",
+      "server": "ws.example.com",
+      "server_port": 443,
+      "uuid": "8a4f3f6e-1c2b-4d5e-9f00-112233445566",
+      "tls": {
+        "enabled": true,
+        "server_name": "ws.example.com"
+      },
+      "transport": {
+        "type": "ws",
+        "path": "/ws",
+        "headers": {
+          "Host": "cdn.example.com"
+        }
+      }
+    },
+    {
+      "type": "vless",
+      "tag": "vless-tcp 6",
+      "server": "203.0.113.23",
+      "server_port": 8080,
+      "uuid": "8a4f3f6e-1c2b-4d5e-9f00-112233445566"
+    },
+    {
+      "type": "vmess",
+      "tag": "vmess-ws-tls 7",
+      "server": "vm.example.com",
+      "server_port": 443,
+      "uuid": "b831381d-6324-4d53-ad4f-8cda48b30811",
+      "security": "auto",
+      "alter_id": 0,
+      "tls": {
+        "enabled": true,
+        "server_name": "vm.example.com"
+      },
+      "transport": {
+        "type": "ws",
+        "path": "/ray",
+        "headers": {
+          "Host": "cdn.example.com"
+        }
+      }
+    },
+    {
+      "type": "vmess",
+      "tag": "vmess-tcp 8",
+      "server": "vm.example.com",
+      "server_port": 443,
+      "uuid": "b831381d-6324-4d53-ad4f-8cda48b30811",
+      "security": "auto",
+      "alter_id": 0
+    },
+    {
+      "type": "vmess",
+      "tag": "vmess-grpc 9",
+      "server": "vm.example.com",
+      "server_port": 443,
+      "uuid": "b831381d-6324-4d53-ad4f-8cda48b30811",
+      "security": "auto",
+      "alter_id": 0,
+      "tls": {
+        "enabled": true,
+        "server_name": "vm.example.com"
+      },
+      "transport": {
+        "type": "grpc",
+        "service_name": "/ray"
+      }
+    },
+    {
+      "type": "trojan",
+      "tag": "trojan 10",
+      "server": "tj.example.com",
+      "server_port": 443,
+      "password": "secret",
+      "tls": {
+        "enabled": true,
+        "server_name": "tj.example.com"
+      }
+    },
+    {
+      "type": "trojan",
+      "tag": "trojan-ws 11",
+      "server": "tj.example.com",
+      "server_port": 443,
+      "password": "secret",
+      "tls": {
+        "enabled": true,
+        "server_name": "tj.example.com"
+      },
+      "transport": {
+        "type": "ws",
+        "path": "/tj",
+        "headers": {
+          "Host": "cdn.example.com"
+        }
+      }
+    },
+    {
+      "type": "trojan",
+      "tag": "trojan-grpc 12",
+      "server": "tj.example.com",
+      "server_port": 443,
+      "password": "secret",
+      "tls": {
+        "enabled": true,
+        "server_name": "tj.example.com"
+      },
+      "transport": {
+        "type": "grpc",
+        "service_name": "gun"
+      }
+    },
+    {
+      "type": "hysteria2",
+      "tag": "hysteria2 13",
+      "server": "hy.example.com",
+      "server_port": 8443,
+      "password": "pass",
+      "tls": {
+        "enabled": true,
+        "server_name": "hy.example.com"
+      }
+    },
+    {
+      "type": "hysteria2",
+      "tag": "hysteria2-obfs 14",
+      "server": "hy.example.com",
+      "server_port": 8444,
+      "password": "pass",
+      "obfs": {
+        "type": "salamander",
+        "password": "ob"
+      },
+      "tls": {
+        "enabled": true,
+        "server_name": "hy.example.com",
+        "insecure": true
+      }
+    },
+    {
+      "type": "socks",
+      "tag": "socks5 15",
+      "server": "home.example.net",
+      "server_port": 1080,
+      "version": "5",
+      "username": "user",
+      "password": "pw"
+    },
+    {
+      "type": "http",
+      "tag": "http 16",
+      "server": "proxy.example.net",
+      "server_port": 8080,
+      "username": "u",
+      "password": "p"
+    },
+    {
+      "type": "http",
+      "tag": "https 17",
+      "server": "proxy.example.net",
+      "server_port": 8443,
+      "username": "u",
+      "password": "p",
+      "tls": {
+        "enabled": true,
+        "server_name": "proxy.example.net"
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "anytls 18",
+      "server": "anytls.example.com",
+      "server_port": 8443,
+      "password": "p@ss:w/rd",
+      "tls": {
+        "enabled": true,
+        "server_name": "anytls.example.com",
+        "insecure": true,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "shadowsocks",
+      "tag": "ss 22",
+      "server": "203.0.113.40",
+      "server_port": 8388,
+      "method": "aes-256-gcm",
+      "password": "pw123"
+    },
+    {
+      "type": "shadowsocks",
+      "tag": "ss2022 23",
+      "server": "198.51.100.7",
+      "server_port": 20009,
+      "method": "2022-blake3-aes-128-gcm",
+      "password": "MDEyMzQ1Njc4OWFiY2RlZg=="
+    },
+    {
+      "type": "shadowsocks",
+      "tag": "ss2022-chacha 24",
+      "server": "198.51.100.8",
+      "server_port": 20010,
+      "method": "2022-blake3-chacha20-poly1305",
+      "password": "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="
+    },
+    {
+      "type": "vless",
+      "tag": "vless-reality-vision 25",
+      "server": "203.0.113.21",
+      "server_port": 20008,
+      "uuid": "8a4f3f6e-1c2b-4d5e-9f00-112233445566",
+      "flow": "xtls-rprx-vision",
+      "tls": {
+        "enabled": true,
+        "server_name": "www.microsoft.com",
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        },
+        "reality": {
+          "enabled": true,
+          "public_key": "Y5u4vH0Qp6yG9mKZr3QZbqSx2n8Hk8TtZl1u8rH0v0E",
+          "short_id": "6ba85179e30d4fc2"
+        }
+      }
+    },
+    {
+      "type": "vless",
+      "tag": "vless-reality-grpc 26",
+      "server": "203.0.113.22",
+      "server_port": 20008,
+      "uuid": "8a4f3f6e-1c2b-4d5e-9f00-112233445566",
+      "tls": {
+        "enabled": true,
+        "server_name": "www.microsoft.com",
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        },
+        "reality": {
+          "enabled": true,
+          "public_key": "Y5u4vH0Qp6yG9mKZr3QZbqSx2n8Hk8TtZl1u8rH0v0E",
+          "short_id": "6ba8"
+        }
+      },
+      "transport": {
+        "type": "grpc",
+        "service_name": "gun"
+      }
+    },
+    {
+      "type": "vless",
+      "tag": "vless-ws-tls 27",
+      "server": "ws.example.com",
+      "server_port": 443,
+      "uuid": "8a4f3f6e-1c2b-4d5e-9f00-112233445566",
+      "tls": {
+        "enabled": true,
+        "server_name": "ws.example.com"
+      },
+      "transport": {
+        "type": "ws",
+        "path": "/ws",
+        "headers": {
+          "Host": "cdn.example.com"
+        }
+      }
+    },
+    {
+      "type": "vless",
+      "tag": "vless-tcp 28",
+      "server": "203.0.113.23",
+      "server_port": 8080,
+      "uuid": "8a4f3f6e-1c2b-4d5e-9f00-112233445566"
+    },
+    {
+      "type": "vmess",
+      "tag": "vmess-ws-tls 29",
+      "server": "vm.example.com",
+      "server_port": 443,
+      "uuid": "b831381d-6324-4d53-ad4f-8cda48b30811",
+      "security": "auto",
+      "alter_id": 0,
+      "tls": {
+        "enabled": true,
+        "server_name": "vm.example.com"
+      },
+      "transport": {
+        "type": "ws",
+        "path": "/ray",
+        "headers": {
+          "Host": "cdn.example.com"
+        }
+      }
+    },
+    {
+      "type": "vmess",
+      "tag": "vmess-tcp 30",
+      "server": "vm.example.com",
+      "server_port": 443,
+      "uuid": "b831381d-6324-4d53-ad4f-8cda48b30811",
+      "security": "auto",
+      "alter_id": 0
+    },
+    {
+      "type": "vmess",
+      "tag": "vmess-grpc 31",
+      "server": "vm.example.com",
+      "server_port": 443,
+      "uuid": "b831381d-6324-4d53-ad4f-8cda48b30811",
+      "security": "auto",
+      "alter_id": 0,
+      "tls": {
+        "enabled": true,
+        "server_name": "vm.example.com"
+      },
+      "transport": {
+        "type": "grpc",
+        "service_name": "/ray"
+      }
+    },
+    {
+      "type": "trojan",
+      "tag": "trojan 32",
+      "server": "tj.example.com",
+      "server_port": 443,
+      "password": "secret",
+      "tls": {
+        "enabled": true,
+        "server_name": "tj.example.com"
+      }
+    },
+    {
+      "type": "trojan",
+      "tag": "trojan-ws 33",
+      "server": "tj.example.com",
+      "server_port": 443,
+      "password": "secret",
+      "tls": {
+        "enabled": true,
+        "server_name": "tj.example.com"
+      },
+      "transport": {
+        "type": "ws",
+        "path": "/tj",
+        "headers": {
+          "Host": "cdn.example.com"
+        }
+      }
+    },
+    {
+      "type": "trojan",
+      "tag": "trojan-grpc 34",
+      "server": "tj.example.com",
+      "server_port": 443,
+      "password": "secret",
+      "tls": {
+        "enabled": true,
+        "server_name": "tj.example.com"
+      },
+      "transport": {
+        "type": "grpc",
+        "service_name": "gun"
+      }
+    },
+    {
+      "type": "hysteria2",
+      "tag": "hysteria2 35",
+      "server": "hy.example.com",
+      "server_port": 8443,
+      "password": "pass",
+      "tls": {
+        "enabled": true,
+        "server_name": "hy.example.com"
+      }
+    },
+    {
+      "type": "hysteria2",
+      "tag": "hysteria2-obfs 36",
+      "server": "hy.example.com",
+      "server_port": 8444,
+      "password": "pass",
+      "obfs": {
+        "type": "salamander",
+        "password": "ob"
+      },
+      "tls": {
+        "enabled": true,
+        "server_name": "hy.example.com",
+        "insecure": true
+      }
+    },
+    {
+      "type": "socks",
+      "tag": "socks5 37",
+      "server": "home.example.net",
+      "server_port": 1080,
+      "version": "5",
+      "username": "user",
+      "password": "pw"
+    },
+    {
+      "type": "http",
+      "tag": "http 38",
+      "server": "proxy.example.net",
+      "server_port": 8080,
+      "username": "u",
+      "password": "p"
+    },
+    {
+      "type": "http",
+      "tag": "https 39",
+      "server": "proxy.example.net",
+      "server_port": 8443,
+      "username": "u",
+      "password": "p",
+      "tls": {
+        "enabled": true,
+        "server_name": "proxy.example.net"
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "anytls 40",
+      "server": "anytls.example.com",
+      "server_port": 8443,
+      "password": "p@ss:w/rd",
+      "tls": {
+        "enabled": true,
+        "server_name": "anytls.example.com",
+        "insecure": true,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "shadowsocks",
+      "tag": "ss 44",
+      "server": "203.0.113.40",
+      "server_port": 8388,
+      "method": "aes-256-gcm",
+      "password": "pw123"
+    },
+    {
+      "type": "shadowsocks",
+      "tag": "ss2022 45",
+      "server": "198.51.100.7",
+      "server_port": 20009,
+      "method": "2022-blake3-aes-128-gcm",
+      "password": "MDEyMzQ1Njc4OWFiY2RlZg=="
+    },
+    {
+      "type": "shadowsocks",
+      "tag": "ss2022-chacha 46",
+      "server": "198.51.100.8",
+      "server_port": 20010,
+      "method": "2022-blake3-chacha20-poly1305",
+      "password": "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="
+    },
+    {
+      "type": "vless",
+      "tag": "vless-reality-vision 47",
+      "server": "203.0.113.21",
+      "server_port": 20008,
+      "uuid": "8a4f3f6e-1c2b-4d5e-9f00-112233445566",
+      "flow": "xtls-rprx-vision",
+      "tls": {
+        "enabled": true,
+        "server_name": "www.microsoft.com",
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        },
+        "reality": {
+          "enabled": true,
+          "public_key": "Y5u4vH0Qp6yG9mKZr3QZbqSx2n8Hk8TtZl1u8rH0v0E",
+          "short_id": "6ba85179e30d4fc2"
+        }
+      }
+    },
+    {
+      "type": "vless",
+      "tag": "vless-reality-grpc 48",
+      "server": "203.0.113.22",
+      "server_port": 20008,
+      "uuid": "8a4f3f6e-1c2b-4d5e-9f00-112233445566",
+      "tls": {
+        "enabled": true,
+        "server_name": "www.microsoft.com",
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        },
+        "reality": {
+          "enabled": true,
+          "public_key": "Y5u4vH0Qp6yG9mKZr3QZbqSx2n8Hk8TtZl1u8rH0v0E",
+          "short_id": "6ba8"
+        }
+      },
+      "transport": {
+        "type": "grpc",
+        "service_name": "gun"
+      }
+    },
+    {
+      "type": "vless",
+      "tag": "vless-ws-tls 49",
+      "server": "ws.example.com",
+      "server_port": 443,
+      "uuid": "8a4f3f6e-1c2b-4d5e-9f00-112233445566",
+      "tls": {
+        "enabled": true,
+        "server_name": "ws.example.com"
+      },
+      "transport": {
+        "type": "ws",
+        "path": "/ws",
+        "headers": {
+          "Host": "cdn.example.com"
+        }
+      }
+    },
+    {
+      "type": "vless",
+      "tag": "vless-tcp 50",
+      "server": "203.0.113.23",
+      "server_port": 8080,
+      "uuid": "8a4f3f6e-1c2b-4d5e-9f00-112233445566"
+    },
+    {
+      "type": "vmess",
+      "tag": "vmess-ws-tls 51",
+      "server": "vm.example.com",
+      "server_port": 443,
+      "uuid": "b831381d-6324-4d53-ad4f-8cda48b30811",
+      "security": "auto",
+      "alter_id": 0,
+      "tls": {
+        "enabled": true,
+        "server_name": "vm.example.com"
+      },
+      "transport": {
+        "type": "ws",
+        "path": "/ray",
+        "headers": {
+          "Host": "cdn.example.com"
+        }
+      }
+    },
+    {
+      "type": "vmess",
+      "tag": "vmess-tcp 52",
+      "server": "vm.example.com",
+      "server_port": 443,
+      "uuid": "b831381d-6324-4d53-ad4f-8cda48b30811",
+      "security": "auto",
+      "alter_id": 0
+    },
+    {
+      "type": "vmess",
+      "tag": "vmess-grpc 53",
+      "server": "vm.example.com",
+      "server_port": 443,
+      "uuid": "b831381d-6324-4d53-ad4f-8cda48b30811",
+      "security": "auto",
+      "alter_id": 0,
+      "tls": {
+        "enabled": true,
+        "server_name": "vm.example.com"
+      },
+      "transport": {
+        "type": "grpc",
+        "service_name": "/ray"
+      }
+    },
+    {
+      "type": "trojan",
+      "tag": "trojan 54",
+      "server": "tj.example.com",
+      "server_port": 443,
+      "password": "secret",
+      "tls": {
+        "enabled": true,
+        "server_name": "tj.example.com"
+      }
+    },
+    {
+      "type": "trojan",
+      "tag": "trojan-ws 55",
+      "server": "tj.example.com",
+      "server_port": 443,
+      "password": "secret",
+      "tls": {
+        "enabled": true,
+        "server_name": "tj.example.com"
+      },
+      "transport": {
+        "type": "ws",
+        "path": "/tj",
+        "headers": {
+          "Host": "cdn.example.com"
+        }
+      }
+    },
+    {
+      "type": "trojan",
+      "tag": "trojan-grpc 56",
+      "server": "tj.example.com",
+      "server_port": 443,
+      "password": "secret",
+      "tls": {
+        "enabled": true,
+        "server_name": "tj.example.com"
+      },
+      "transport": {
+        "type": "grpc",
+        "service_name": "gun"
+      }
+    },
+    {
+      "type": "hysteria2",
+      "tag": "hysteria2 57",
+      "server": "hy.example.com",
+      "server_port": 8443,
+      "password": "pass",
+      "tls": {
+        "enabled": true,
+        "server_name": "hy.example.com"
+      }
+    },
+    {
+      "type": "hysteria2",
+      "tag": "hysteria2-obfs 58",
+      "server": "hy.example.com",
+      "server_port": 8444,
+      "password": "pass",
+      "obfs": {
+        "type": "salamander",
+        "password": "ob"
+      },
+      "tls": {
+        "enabled": true,
+        "server_name": "hy.example.com",
+        "insecure": true
+      }
+    },
+    {
+      "type": "socks",
+      "tag": "socks5 59",
+      "server": "home.example.net",
+      "server_port": 1080,
+      "version": "5",
+      "username": "user",
+      "password": "pw"
+    },
+    {
+      "type": "http",
+      "tag": "http 60",
+      "server": "proxy.example.net",
+      "server_port": 8080,
+      "username": "u",
+      "password": "p"
+    },
+    {
+      "type": "http",
+      "tag": "https 61",
+      "server": "proxy.example.net",
+      "server_port": 8443,
+      "username": "u",
+      "password": "p",
+      "tls": {
+        "enabled": true,
+        "server_name": "proxy.example.net"
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "anytls 62",
+      "server": "anytls.example.com",
+      "server_port": 8443,
+      "password": "p@ss:w/rd",
+      "tls": {
+        "enabled": true,
+        "server_name": "anytls.example.com",
+        "insecure": true,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "shadowsocks",
+      "tag": "ss 66",
+      "server": "203.0.113.40",
+      "server_port": 8388,
+      "method": "aes-256-gcm",
+      "password": "pw123"
+    },
+    {
+      "type": "shadowsocks",
+      "tag": "ss2022 67",
+      "server": "198.51.100.7",
+      "server_port": 20009,
+      "method": "2022-blake3-aes-128-gcm",
+      "password": "MDEyMzQ1Njc4OWFiY2RlZg=="
+    },
+    {
+      "type": "shadowsocks",
+      "tag": "ss2022-chacha 68",
+      "server": "198.51.100.8",
+      "server_port": 20010,
+      "method": "2022-blake3-chacha20-poly1305",
+      "password": "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="
+    },
+    {
+      "type": "vless",
+      "tag": "vless-reality-vision 69",
+      "server": "203.0.113.21",
+      "server_port": 20008,
+      "uuid": "8a4f3f6e-1c2b-4d5e-9f00-112233445566",
+      "flow": "xtls-rprx-vision",
+      "tls": {
+        "enabled": true,
+        "server_name": "www.microsoft.com",
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        },
+        "reality": {
+          "enabled": true,
+          "public_key": "Y5u4vH0Qp6yG9mKZr3QZbqSx2n8Hk8TtZl1u8rH0v0E",
+          "short_id": "6ba85179e30d4fc2"
+        }
+      }
+    },
+    {
+      "type": "vless",
+      "tag": "vless-reality-grpc 70",
+      "server": "203.0.113.22",
+      "server_port": 20008,
+      "uuid": "8a4f3f6e-1c2b-4d5e-9f00-112233445566",
+      "tls": {
+        "enabled": true,
+        "server_name": "www.microsoft.com",
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        },
+        "reality": {
+          "enabled": true,
+          "public_key": "Y5u4vH0Qp6yG9mKZr3QZbqSx2n8Hk8TtZl1u8rH0v0E",
+          "short_id": "6ba8"
+        }
+      },
+      "transport": {
+        "type": "grpc",
+        "service_name": "gun"
+      }
+    },
+    {
+      "type": "vless",
+      "tag": "vless-ws-tls 71",
+      "server": "ws.example.com",
+      "server_port": 443,
+      "uuid": "8a4f3f6e-1c2b-4d5e-9f00-112233445566",
+      "tls": {
+        "enabled": true,
+        "server_name": "ws.example.com"
+      },
+      "transport": {
+        "type": "ws",
+        "path": "/ws",
+        "headers": {
+          "Host": "cdn.example.com"
+        }
+      }
+    },
+    {
+      "type": "vless",
+      "tag": "vless-tcp 72",
+      "server": "203.0.113.23",
+      "server_port": 8080,
+      "uuid": "8a4f3f6e-1c2b-4d5e-9f00-112233445566"
+    },
+    {
+      "type": "vmess",
+      "tag": "vmess-ws-tls 73",
+      "server": "vm.example.com",
+      "server_port": 443,
+      "uuid": "b831381d-6324-4d53-ad4f-8cda48b30811",
+      "security": "auto",
+      "alter_id": 0,
+      "tls": {
+        "enabled": true,
+        "server_name": "vm.example.com"
+      },
+      "transport": {
+        "type": "ws",
+        "path": "/ray",
+        "headers": {
+          "Host": "cdn.example.com"
+        }
+      }
+    },
+    {
+      "type": "vmess",
+      "tag": "vmess-tcp 74",
+      "server": "vm.example.com",
+      "server_port": 443,
+      "uuid": "b831381d-6324-4d53-ad4f-8cda48b30811",
+      "security": "auto",
+      "alter_id": 0
+    },
+    {
+      "type": "vmess",
+      "tag": "vmess-grpc 75",
+      "server": "vm.example.com",
+      "server_port": 443,
+      "uuid": "b831381d-6324-4d53-ad4f-8cda48b30811",
+      "security": "auto",
+      "alter_id": 0,
+      "tls": {
+        "enabled": true,
+        "server_name": "vm.example.com"
+      },
+      "transport": {
+        "type": "grpc",
+        "service_name": "/ray"
+      }
+    },
+    {
+      "type": "trojan",
+      "tag": "trojan 76",
+      "server": "tj.example.com",
+      "server_port": 443,
+      "password": "secret",
+      "tls": {
+        "enabled": true,
+        "server_name": "tj.example.com"
+      }
+    },
+    {
+      "type": "trojan",
+      "tag": "trojan-ws 77",
+      "server": "tj.example.com",
+      "server_port": 443,
+      "password": "secret",
+      "tls": {
+        "enabled": true,
+        "server_name": "tj.example.com"
+      },
+      "transport": {
+        "type": "ws",
+        "path": "/tj",
+        "headers": {
+          "Host": "cdn.example.com"
+        }
+      }
+    },
+    {
+      "type": "trojan",
+      "tag": "trojan-grpc 78",
+      "server": "tj.example.com",
+      "server_port": 443,
+      "password": "secret",
+      "tls": {
+        "enabled": true,
+        "server_name": "tj.example.com"
+      },
+      "transport": {
+        "type": "grpc",
+        "service_name": "gun"
+      }
+    },
+    {
+      "type": "hysteria2",
+      "tag": "hysteria2 79",
+      "server": "hy.example.com",
+      "server_port": 8443,
+      "password": "pass",
+      "tls": {
+        "enabled": true,
+        "server_name": "hy.example.com"
+      }
+    },
+    {
+      "type": "hysteria2",
+      "tag": "hysteria2-obfs 80",
+      "server": "hy.example.com",
+      "server_port": 8444,
+      "password": "pass",
+      "obfs": {
+        "type": "salamander",
+        "password": "ob"
+      },
+      "tls": {
+        "enabled": true,
+        "server_name": "hy.example.com",
+        "insecure": true
+      }
+    },
+    {
+      "type": "socks",
+      "tag": "socks5 81",
+      "server": "home.example.net",
+      "server_port": 1080,
+      "version": "5",
+      "username": "user",
+      "password": "pw"
+    },
+    {
+      "type": "http",
+      "tag": "http 82",
+      "server": "proxy.example.net",
+      "server_port": 8080,
+      "username": "u",
+      "password": "p"
+    },
+    {
+      "type": "http",
+      "tag": "https 83",
+      "server": "proxy.example.net",
+      "server_port": 8443,
+      "username": "u",
+      "password": "p",
+      "tls": {
+        "enabled": true,
+        "server_name": "proxy.example.net"
+      }
+    },
+    {
+      "type": "anytls",
+      "tag": "anytls 84",
+      "server": "anytls.example.com",
+      "server_port": 8443,
+      "password": "p@ss:w/rd",
+      "tls": {
+        "enabled": true,
+        "server_name": "anytls.example.com",
+        "insecure": true,
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "shadowsocks",
+      "tag": "ss 88",
+      "server": "203.0.113.40",
+      "server_port": 8388,
+      "method": "aes-256-gcm",
+      "password": "pw123"
+    },
+    {
+      "type": "shadowsocks",
+      "tag": "ss2022 89",
+      "server": "198.51.100.7",
+      "server_port": 20009,
+      "method": "2022-blake3-aes-128-gcm",
+      "password": "MDEyMzQ1Njc4OWFiY2RlZg=="
+    },
+    {
+      "type": "shadowsocks",
+      "tag": "ss2022-chacha 90",
+      "server": "198.51.100.8",
+      "server_port": 20010,
+      "method": "2022-blake3-chacha20-poly1305",
+      "password": "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="
+    },
+    {
+      "type": "vless",
+      "tag": "vless-reality-vision 91",
+      "server": "203.0.113.21",
+      "server_port": 20008,
+      "uuid": "8a4f3f6e-1c2b-4d5e-9f00-112233445566",
+      "flow": "xtls-rprx-vision",
+      "tls": {
+        "enabled": true,
+        "server_name": "www.microsoft.com",
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        },
+        "reality": {
+          "enabled": true,
+          "public_key": "Y5u4vH0Qp6yG9mKZr3QZbqSx2n8Hk8TtZl1u8rH0v0E",
+          "short_id": "6ba85179e30d4fc2"
+        }
+      }
+    },
+    {
+      "type": "vless",
+      "tag": "vless-reality-grpc 92",
+      "server": "203.0.113.22",
+      "server_port": 20008,
+      "uuid": "8a4f3f6e-1c2b-4d5e-9f00-112233445566",
+      "tls": {
+        "enabled": true,
+        "server_name": "www.microsoft.com",
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        },
+        "reality": {
+          "enabled": true,
+          "public_key": "Y5u4vH0Qp6yG9mKZr3QZbqSx2n8Hk8TtZl1u8rH0v0E",
+          "short_id": "6ba8"
+        }
+      },
+      "transport": {
+        "type": "grpc",
+        "service_name": "gun"
+      }
+    },
+    {
+      "type": "vless",
+      "tag": "vless-ws-tls 93",
+      "server": "ws.example.com",
+      "server_port": 443,
+      "uuid": "8a4f3f6e-1c2b-4d5e-9f00-112233445566",
+      "tls": {
+        "enabled": true,
+        "server_name": "ws.example.com"
+      },
+      "transport": {
+        "type": "ws",
+        "path": "/ws",
+        "headers": {
+          "Host": "cdn.example.com"
+        }
+      }
+    },
+    {
+      "type": "vless",
+      "tag": "vless-tcp 94",
+      "server": "203.0.113.23",
+      "server_port": 8080,
+      "uuid": "8a4f3f6e-1c2b-4d5e-9f00-112233445566"
+    },
+    {
+      "type": "vmess",
+      "tag": "vmess-ws-tls 95",
+      "server": "vm.example.com",
+      "server_port": 443,
+      "uuid": "b831381d-6324-4d53-ad4f-8cda48b30811",
+      "security": "auto",
+      "alter_id": 0,
+      "tls": {
+        "enabled": true,
+        "server_name": "vm.example.com"
+      },
+      "transport": {
+        "type": "ws",
+        "path": "/ray",
+        "headers": {
+          "Host": "cdn.example.com"
+        }
+      }
+    },
+    {
+      "type": "vmess",
+      "tag": "vmess-tcp 96",
+      "server": "vm.example.com",
+      "server_port": 443,
+      "uuid": "b831381d-6324-4d53-ad4f-8cda48b30811",
+      "security": "auto",
+      "alter_id": 0
+    },
+    {
+      "type": "vmess",
+      "tag": "vmess-grpc 97",
+      "server": "vm.example.com",
+      "server_port": 443,
+      "uuid": "b831381d-6324-4d53-ad4f-8cda48b30811",
+      "security": "auto",
+      "alter_id": 0,
+      "tls": {
+        "enabled": true,
+        "server_name": "vm.example.com"
+      },
+      "transport": {
+        "type": "grpc",
+        "service_name": "/ray"
+      }
+    },
+    {
+      "type": "trojan",
+      "tag": "trojan 98",
+      "server": "tj.example.com",
+      "server_port": 443,
+      "password": "secret",
+      "tls": {
+        "enabled": true,
+        "server_name": "tj.example.com"
+      }
+    },
+    {
+      "type": "trojan",
+      "tag": "trojan-ws 99",
+      "server": "tj.example.com",
+      "server_port": 443,
+      "password": "secret",
+      "tls": {
+        "enabled": true,
+        "server_name": "tj.example.com"
+      },
+      "transport": {
+        "type": "ws",
+        "path": "/tj",
+        "headers": {
+          "Host": "cdn.example.com"
+        }
+      }
+    },
+    {
+      "type": "direct",
+      "tag": "direct"
+    }
+  ],
+  "route": {
+    "rules": [
+      {
+        "action": "sniff"
+      },
+      {
+        "protocol": "dns",
+        "action": "hijack-dns"
+      },
+      {
+        "ip_is_private": true,
+        "outbound": "direct"
+      },
+      {
+        "rule_set": [
+          "geosite-cn",
+          "geoip-cn"
+        ],
+        "outbound": "direct"
+      }
+    ],
+    "rule_set": [
+      {
+        "type": "remote",
+        "tag": "geosite-cn",
+        "format": "binary",
+        "url": "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-cn.srs",
+        "download_detour": "节点选择"
+      },
+      {
+        "type": "remote",
+        "tag": "geoip-cn",
+        "format": "binary",
+        "url": "https://raw.githubusercontent.com/SagerNet/sing-geoip/rule-set/geoip-cn.srs",
+        "download_detour": "节点选择"
+      }
+    ],
+    "final": "节点选择",
+    "auto_detect_interface": true,
+    "default_domain_resolver": "dns-local"
+  },
+  "experimental": {
+    "cache_file": {
+      "enabled": true
+    }
+  }
+}

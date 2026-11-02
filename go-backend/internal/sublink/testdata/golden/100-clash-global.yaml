@@ -1,0 +1,1218 @@
+mixed-port: 7890
+allow-lan: false
+mode: rule
+log-level: warning
+unified-delay: true
+dns:
+  enable: true
+  ipv6: false
+  enhanced-mode: fake-ip
+  fake-ip-range: 198.18.0.1/16
+  fake-ip-filter:
+    - +.lan
+    - +.local
+    - localhost.ptlogin2.qq.com
+  default-nameserver:
+    - 223.5.5.5
+    - 119.29.29.29
+  nameserver:
+    - https://1.1.1.1/dns-query
+    - https://8.8.8.8/dns-query
+  proxy-server-nameserver:
+    - https://223.5.5.5/dns-query
+    - https://120.53.53.53/dns-query
+proxies:
+  - name: ss 0
+    type: ss
+    server: 203.0.113.40
+    port: 8388
+    cipher: aes-256-gcm
+    password: pw123
+    udp: true
+  - name: ss2022 1
+    type: ss
+    server: 198.51.100.7
+    port: 20009
+    cipher: 2022-blake3-aes-128-gcm
+    password: MDEyMzQ1Njc4OWFiY2RlZg==
+    udp: true
+  - name: ss2022-chacha 2
+    type: ss
+    server: 198.51.100.8
+    port: 20010
+    cipher: 2022-blake3-chacha20-poly1305
+    password: MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=
+    udp: true
+  - name: vless-reality-vision 3
+    type: vless
+    server: 203.0.113.21
+    port: 20008
+    uuid: 8a4f3f6e-1c2b-4d5e-9f00-112233445566
+    udp: true
+    network: tcp
+    tls: true
+    flow: xtls-rprx-vision
+    servername: www.microsoft.com
+    reality-opts:
+      public-key: Y5u4vH0Qp6yG9mKZr3QZbqSx2n8Hk8TtZl1u8rH0v0E
+      short-id: 6ba85179e30d4fc2
+    client-fingerprint: chrome
+  - name: vless-reality-grpc 4
+    type: vless
+    server: 203.0.113.22
+    port: 20008
+    uuid: 8a4f3f6e-1c2b-4d5e-9f00-112233445566
+    udp: true
+    network: grpc
+    grpc-opts:
+      grpc-service-name: gun
+    tls: true
+    servername: www.microsoft.com
+    reality-opts:
+      public-key: Y5u4vH0Qp6yG9mKZr3QZbqSx2n8Hk8TtZl1u8rH0v0E
+      short-id: 6ba8
+    client-fingerprint: chrome
+  - name: vless-ws-tls 5
+    type: vless
+    server: ws.example.com
+    port: 443
+    uuid: 8a4f3f6e-1c2b-4d5e-9f00-112233445566
+    udp: true
+    network: ws
+    ws-opts:
+      path: /ws
+      headers:
+        Host: cdn.example.com
+    tls: true
+    servername: ws.example.com
+  - name: vless-tcp 6
+    type: vless
+    server: 203.0.113.23
+    port: 8080
+    uuid: 8a4f3f6e-1c2b-4d5e-9f00-112233445566
+    udp: true
+    network: tcp
+    tls: false
+  - name: vmess-ws-tls 7
+    type: vmess
+    server: vm.example.com
+    port: 443
+    uuid: b831381d-6324-4d53-ad4f-8cda48b30811
+    alterId: 0
+    cipher: auto
+    udp: true
+    network: ws
+    ws-opts:
+      path: /ray
+      headers:
+        Host: cdn.example.com
+    tls: true
+    servername: vm.example.com
+  - name: vmess-tcp 8
+    type: vmess
+    server: vm.example.com
+    port: 443
+    uuid: b831381d-6324-4d53-ad4f-8cda48b30811
+    alterId: 0
+    cipher: auto
+    udp: true
+    network: tcp
+  - name: vmess-grpc 9
+    type: vmess
+    server: vm.example.com
+    port: 443
+    uuid: b831381d-6324-4d53-ad4f-8cda48b30811
+    alterId: 0
+    cipher: auto
+    udp: true
+    network: grpc
+    grpc-opts:
+      grpc-service-name: /ray
+    tls: true
+    servername: vm.example.com
+  - name: trojan 10
+    type: trojan
+    server: tj.example.com
+    port: 443
+    password: secret
+    udp: true
+    network: tcp
+    sni: tj.example.com
+  - name: trojan-ws 11
+    type: trojan
+    server: tj.example.com
+    port: 443
+    password: secret
+    udp: true
+    network: ws
+    ws-opts:
+      path: /tj
+      headers:
+        Host: cdn.example.com
+    sni: tj.example.com
+  - name: trojan-grpc 12
+    type: trojan
+    server: tj.example.com
+    port: 443
+    password: secret
+    udp: true
+    network: grpc
+    grpc-opts:
+      grpc-service-name: gun
+    sni: tj.example.com
+  - name: hysteria2 13
+    type: hysteria2
+    server: hy.example.com
+    port: 8443
+    password: pass
+    sni: hy.example.com
+  - name: hysteria2-obfs 14
+    type: hysteria2
+    server: hy.example.com
+    port: 8444
+    password: pass
+    obfs: salamander
+    obfs-password: ob
+    sni: hy.example.com
+    skip-cert-verify: true
+  - name: socks5 15
+    type: socks5
+    server: home.example.net
+    port: 1080
+    username: user
+    password: pw
+    udp: true
+  - name: http 16
+    type: http
+    server: proxy.example.net
+    port: 8080
+    username: u
+    password: p
+  - name: https 17
+    type: http
+    server: proxy.example.net
+    port: 8443
+    username: u
+    password: p
+    tls: true
+    sni: proxy.example.net
+  - name: anytls 18
+    type: anytls
+    server: anytls.example.com
+    port: 8443
+    password: p@ss:w/rd
+    sni: anytls.example.com
+    fingerprint: abababababababababababababababababababababababababababababababab
+    client-fingerprint: chrome
+    udp: true
+  - name: snell 19
+    type: snell
+    server: 203.0.113.30
+    port: 9000
+    psk: snellpsk
+    version: 4
+    udp: true
+    obfs-opts:
+      mode: http
+      host: bing.com
+  - name: snell-tls-obfs 20
+    type: snell
+    server: 203.0.113.31
+    port: 9001
+    psk: snellpsk
+    version: 5
+    udp: false
+    obfs-opts:
+      mode: tls
+      host: bing.com
+  - name: mieru 21
+    type: mieru
+    server: 203.0.113.32
+    port: 9100
+    transport: TCP
+    username: u
+    password: pw
+    multiplexing: MULTIPLEXING_LOW
+  - name: ss 22
+    type: ss
+    server: 203.0.113.40
+    port: 8388
+    cipher: aes-256-gcm
+    password: pw123
+    udp: true
+  - name: ss2022 23
+    type: ss
+    server: 198.51.100.7
+    port: 20009
+    cipher: 2022-blake3-aes-128-gcm
+    password: MDEyMzQ1Njc4OWFiY2RlZg==
+    udp: true
+  - name: ss2022-chacha 24
+    type: ss
+    server: 198.51.100.8
+    port: 20010
+    cipher: 2022-blake3-chacha20-poly1305
+    password: MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=
+    udp: true
+  - name: vless-reality-vision 25
+    type: vless
+    server: 203.0.113.21
+    port: 20008
+    uuid: 8a4f3f6e-1c2b-4d5e-9f00-112233445566
+    udp: true
+    network: tcp
+    tls: true
+    flow: xtls-rprx-vision
+    servername: www.microsoft.com
+    reality-opts:
+      public-key: Y5u4vH0Qp6yG9mKZr3QZbqSx2n8Hk8TtZl1u8rH0v0E
+      short-id: 6ba85179e30d4fc2
+    client-fingerprint: chrome
+  - name: vless-reality-grpc 26
+    type: vless
+    server: 203.0.113.22
+    port: 20008
+    uuid: 8a4f3f6e-1c2b-4d5e-9f00-112233445566
+    udp: true
+    network: grpc
+    grpc-opts:
+      grpc-service-name: gun
+    tls: true
+    servername: www.microsoft.com
+    reality-opts:
+      public-key: Y5u4vH0Qp6yG9mKZr3QZbqSx2n8Hk8TtZl1u8rH0v0E
+      short-id: 6ba8
+    client-fingerprint: chrome
+  - name: vless-ws-tls 27
+    type: vless
+    server: ws.example.com
+    port: 443
+    uuid: 8a4f3f6e-1c2b-4d5e-9f00-112233445566
+    udp: true
+    network: ws
+    ws-opts:
+      path: /ws
+      headers:
+        Host: cdn.example.com
+    tls: true
+    servername: ws.example.com
+  - name: vless-tcp 28
+    type: vless
+    server: 203.0.113.23
+    port: 8080
+    uuid: 8a4f3f6e-1c2b-4d5e-9f00-112233445566
+    udp: true
+    network: tcp
+    tls: false
+  - name: vmess-ws-tls 29
+    type: vmess
+    server: vm.example.com
+    port: 443
+    uuid: b831381d-6324-4d53-ad4f-8cda48b30811
+    alterId: 0
+    cipher: auto
+    udp: true
+    network: ws
+    ws-opts:
+      path: /ray
+      headers:
+        Host: cdn.example.com
+    tls: true
+    servername: vm.example.com
+  - name: vmess-tcp 30
+    type: vmess
+    server: vm.example.com
+    port: 443
+    uuid: b831381d-6324-4d53-ad4f-8cda48b30811
+    alterId: 0
+    cipher: auto
+    udp: true
+    network: tcp
+  - name: vmess-grpc 31
+    type: vmess
+    server: vm.example.com
+    port: 443
+    uuid: b831381d-6324-4d53-ad4f-8cda48b30811
+    alterId: 0
+    cipher: auto
+    udp: true
+    network: grpc
+    grpc-opts:
+      grpc-service-name: /ray
+    tls: true
+    servername: vm.example.com
+  - name: trojan 32
+    type: trojan
+    server: tj.example.com
+    port: 443
+    password: secret
+    udp: true
+    network: tcp
+    sni: tj.example.com
+  - name: trojan-ws 33
+    type: trojan
+    server: tj.example.com
+    port: 443
+    password: secret
+    udp: true
+    network: ws
+    ws-opts:
+      path: /tj
+      headers:
+        Host: cdn.example.com
+    sni: tj.example.com
+  - name: trojan-grpc 34
+    type: trojan
+    server: tj.example.com
+    port: 443
+    password: secret
+    udp: true
+    network: grpc
+    grpc-opts:
+      grpc-service-name: gun
+    sni: tj.example.com
+  - name: hysteria2 35
+    type: hysteria2
+    server: hy.example.com
+    port: 8443
+    password: pass
+    sni: hy.example.com
+  - name: hysteria2-obfs 36
+    type: hysteria2
+    server: hy.example.com
+    port: 8444
+    password: pass
+    obfs: salamander
+    obfs-password: ob
+    sni: hy.example.com
+    skip-cert-verify: true
+  - name: socks5 37
+    type: socks5
+    server: home.example.net
+    port: 1080
+    username: user
+    password: pw
+    udp: true
+  - name: http 38
+    type: http
+    server: proxy.example.net
+    port: 8080
+    username: u
+    password: p
+  - name: https 39
+    type: http
+    server: proxy.example.net
+    port: 8443
+    username: u
+    password: p
+    tls: true
+    sni: proxy.example.net
+  - name: anytls 40
+    type: anytls
+    server: anytls.example.com
+    port: 8443
+    password: p@ss:w/rd
+    sni: anytls.example.com
+    fingerprint: abababababababababababababababababababababababababababababababab
+    client-fingerprint: chrome
+    udp: true
+  - name: snell 41
+    type: snell
+    server: 203.0.113.30
+    port: 9000
+    psk: snellpsk
+    version: 4
+    udp: true
+    obfs-opts:
+      mode: http
+      host: bing.com
+  - name: snell-tls-obfs 42
+    type: snell
+    server: 203.0.113.31
+    port: 9001
+    psk: snellpsk
+    version: 5
+    udp: false
+    obfs-opts:
+      mode: tls
+      host: bing.com
+  - name: mieru 43
+    type: mieru
+    server: 203.0.113.32
+    port: 9100
+    transport: TCP
+    username: u
+    password: pw
+    multiplexing: MULTIPLEXING_LOW
+  - name: ss 44
+    type: ss
+    server: 203.0.113.40
+    port: 8388
+    cipher: aes-256-gcm
+    password: pw123
+    udp: true
+  - name: ss2022 45
+    type: ss
+    server: 198.51.100.7
+    port: 20009
+    cipher: 2022-blake3-aes-128-gcm
+    password: MDEyMzQ1Njc4OWFiY2RlZg==
+    udp: true
+  - name: ss2022-chacha 46
+    type: ss
+    server: 198.51.100.8
+    port: 20010
+    cipher: 2022-blake3-chacha20-poly1305
+    password: MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=
+    udp: true
+  - name: vless-reality-vision 47
+    type: vless
+    server: 203.0.113.21
+    port: 20008
+    uuid: 8a4f3f6e-1c2b-4d5e-9f00-112233445566
+    udp: true
+    network: tcp
+    tls: true
+    flow: xtls-rprx-vision
+    servername: www.microsoft.com
+    reality-opts:
+      public-key: Y5u4vH0Qp6yG9mKZr3QZbqSx2n8Hk8TtZl1u8rH0v0E
+      short-id: 6ba85179e30d4fc2
+    client-fingerprint: chrome
+  - name: vless-reality-grpc 48
+    type: vless
+    server: 203.0.113.22
+    port: 20008
+    uuid: 8a4f3f6e-1c2b-4d5e-9f00-112233445566
+    udp: true
+    network: grpc
+    grpc-opts:
+      grpc-service-name: gun
+    tls: true
+    servername: www.microsoft.com
+    reality-opts:
+      public-key: Y5u4vH0Qp6yG9mKZr3QZbqSx2n8Hk8TtZl1u8rH0v0E
+      short-id: 6ba8
+    client-fingerprint: chrome
+  - name: vless-ws-tls 49
+    type: vless
+    server: ws.example.com
+    port: 443
+    uuid: 8a4f3f6e-1c2b-4d5e-9f00-112233445566
+    udp: true
+    network: ws
+    ws-opts:
+      path: /ws
+      headers:
+        Host: cdn.example.com
+    tls: true
+    servername: ws.example.com
+  - name: vless-tcp 50
+    type: vless
+    server: 203.0.113.23
+    port: 8080
+    uuid: 8a4f3f6e-1c2b-4d5e-9f00-112233445566
+    udp: true
+    network: tcp
+    tls: false
+  - name: vmess-ws-tls 51
+    type: vmess
+    server: vm.example.com
+    port: 443
+    uuid: b831381d-6324-4d53-ad4f-8cda48b30811
+    alterId: 0
+    cipher: auto
+    udp: true
+    network: ws
+    ws-opts:
+      path: /ray
+      headers:
+        Host: cdn.example.com
+    tls: true
+    servername: vm.example.com
+  - name: vmess-tcp 52
+    type: vmess
+    server: vm.example.com
+    port: 443
+    uuid: b831381d-6324-4d53-ad4f-8cda48b30811
+    alterId: 0
+    cipher: auto
+    udp: true
+    network: tcp
+  - name: vmess-grpc 53
+    type: vmess
+    server: vm.example.com
+    port: 443
+    uuid: b831381d-6324-4d53-ad4f-8cda48b30811
+    alterId: 0
+    cipher: auto
+    udp: true
+    network: grpc
+    grpc-opts:
+      grpc-service-name: /ray
+    tls: true
+    servername: vm.example.com
+  - name: trojan 54
+    type: trojan
+    server: tj.example.com
+    port: 443
+    password: secret
+    udp: true
+    network: tcp
+    sni: tj.example.com
+  - name: trojan-ws 55
+    type: trojan
+    server: tj.example.com
+    port: 443
+    password: secret
+    udp: true
+    network: ws
+    ws-opts:
+      path: /tj
+      headers:
+        Host: cdn.example.com
+    sni: tj.example.com
+  - name: trojan-grpc 56
+    type: trojan
+    server: tj.example.com
+    port: 443
+    password: secret
+    udp: true
+    network: grpc
+    grpc-opts:
+      grpc-service-name: gun
+    sni: tj.example.com
+  - name: hysteria2 57
+    type: hysteria2
+    server: hy.example.com
+    port: 8443
+    password: pass
+    sni: hy.example.com
+  - name: hysteria2-obfs 58
+    type: hysteria2
+    server: hy.example.com
+    port: 8444
+    password: pass
+    obfs: salamander
+    obfs-password: ob
+    sni: hy.example.com
+    skip-cert-verify: true
+  - name: socks5 59
+    type: socks5
+    server: home.example.net
+    port: 1080
+    username: user
+    password: pw
+    udp: true
+  - name: http 60
+    type: http
+    server: proxy.example.net
+    port: 8080
+    username: u
+    password: p
+  - name: https 61
+    type: http
+    server: proxy.example.net
+    port: 8443
+    username: u
+    password: p
+    tls: true
+    sni: proxy.example.net
+  - name: anytls 62
+    type: anytls
+    server: anytls.example.com
+    port: 8443
+    password: p@ss:w/rd
+    sni: anytls.example.com
+    fingerprint: abababababababababababababababababababababababababababababababab
+    client-fingerprint: chrome
+    udp: true
+  - name: snell 63
+    type: snell
+    server: 203.0.113.30
+    port: 9000
+    psk: snellpsk
+    version: 4
+    udp: true
+    obfs-opts:
+      mode: http
+      host: bing.com
+  - name: snell-tls-obfs 64
+    type: snell
+    server: 203.0.113.31
+    port: 9001
+    psk: snellpsk
+    version: 5
+    udp: false
+    obfs-opts:
+      mode: tls
+      host: bing.com
+  - name: mieru 65
+    type: mieru
+    server: 203.0.113.32
+    port: 9100
+    transport: TCP
+    username: u
+    password: pw
+    multiplexing: MULTIPLEXING_LOW
+  - name: ss 66
+    type: ss
+    server: 203.0.113.40
+    port: 8388
+    cipher: aes-256-gcm
+    password: pw123
+    udp: true
+  - name: ss2022 67
+    type: ss
+    server: 198.51.100.7
+    port: 20009
+    cipher: 2022-blake3-aes-128-gcm
+    password: MDEyMzQ1Njc4OWFiY2RlZg==
+    udp: true
+  - name: ss2022-chacha 68
+    type: ss
+    server: 198.51.100.8
+    port: 20010
+    cipher: 2022-blake3-chacha20-poly1305
+    password: MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=
+    udp: true
+  - name: vless-reality-vision 69
+    type: vless
+    server: 203.0.113.21
+    port: 20008
+    uuid: 8a4f3f6e-1c2b-4d5e-9f00-112233445566
+    udp: true
+    network: tcp
+    tls: true
+    flow: xtls-rprx-vision
+    servername: www.microsoft.com
+    reality-opts:
+      public-key: Y5u4vH0Qp6yG9mKZr3QZbqSx2n8Hk8TtZl1u8rH0v0E
+      short-id: 6ba85179e30d4fc2
+    client-fingerprint: chrome
+  - name: vless-reality-grpc 70
+    type: vless
+    server: 203.0.113.22
+    port: 20008
+    uuid: 8a4f3f6e-1c2b-4d5e-9f00-112233445566
+    udp: true
+    network: grpc
+    grpc-opts:
+      grpc-service-name: gun
+    tls: true
+    servername: www.microsoft.com
+    reality-opts:
+      public-key: Y5u4vH0Qp6yG9mKZr3QZbqSx2n8Hk8TtZl1u8rH0v0E
+      short-id: 6ba8
+    client-fingerprint: chrome
+  - name: vless-ws-tls 71
+    type: vless
+    server: ws.example.com
+    port: 443
+    uuid: 8a4f3f6e-1c2b-4d5e-9f00-112233445566
+    udp: true
+    network: ws
+    ws-opts:
+      path: /ws
+      headers:
+        Host: cdn.example.com
+    tls: true
+    servername: ws.example.com
+  - name: vless-tcp 72
+    type: vless
+    server: 203.0.113.23
+    port: 8080
+    uuid: 8a4f3f6e-1c2b-4d5e-9f00-112233445566
+    udp: true
+    network: tcp
+    tls: false
+  - name: vmess-ws-tls 73
+    type: vmess
+    server: vm.example.com
+    port: 443
+    uuid: b831381d-6324-4d53-ad4f-8cda48b30811
+    alterId: 0
+    cipher: auto
+    udp: true
+    network: ws
+    ws-opts:
+      path: /ray
+      headers:
+        Host: cdn.example.com
+    tls: true
+    servername: vm.example.com
+  - name: vmess-tcp 74
+    type: vmess
+    server: vm.example.com
+    port: 443
+    uuid: b831381d-6324-4d53-ad4f-8cda48b30811
+    alterId: 0
+    cipher: auto
+    udp: true
+    network: tcp
+  - name: vmess-grpc 75
+    type: vmess
+    server: vm.example.com
+    port: 443
+    uuid: b831381d-6324-4d53-ad4f-8cda48b30811
+    alterId: 0
+    cipher: auto
+    udp: true
+    network: grpc
+    grpc-opts:
+      grpc-service-name: /ray
+    tls: true
+    servername: vm.example.com
+  - name: trojan 76
+    type: trojan
+    server: tj.example.com
+    port: 443
+    password: secret
+    udp: true
+    network: tcp
+    sni: tj.example.com
+  - name: trojan-ws 77
+    type: trojan
+    server: tj.example.com
+    port: 443
+    password: secret
+    udp: true
+    network: ws
+    ws-opts:
+      path: /tj
+      headers:
+        Host: cdn.example.com
+    sni: tj.example.com
+  - name: trojan-grpc 78
+    type: trojan
+    server: tj.example.com
+    port: 443
+    password: secret
+    udp: true
+    network: grpc
+    grpc-opts:
+      grpc-service-name: gun
+    sni: tj.example.com
+  - name: hysteria2 79
+    type: hysteria2
+    server: hy.example.com
+    port: 8443
+    password: pass
+    sni: hy.example.com
+  - name: hysteria2-obfs 80
+    type: hysteria2
+    server: hy.example.com
+    port: 8444
+    password: pass
+    obfs: salamander
+    obfs-password: ob
+    sni: hy.example.com
+    skip-cert-verify: true
+  - name: socks5 81
+    type: socks5
+    server: home.example.net
+    port: 1080
+    username: user
+    password: pw
+    udp: true
+  - name: http 82
+    type: http
+    server: proxy.example.net
+    port: 8080
+    username: u
+    password: p
+  - name: https 83
+    type: http
+    server: proxy.example.net
+    port: 8443
+    username: u
+    password: p
+    tls: true
+    sni: proxy.example.net
+  - name: anytls 84
+    type: anytls
+    server: anytls.example.com
+    port: 8443
+    password: p@ss:w/rd
+    sni: anytls.example.com
+    fingerprint: abababababababababababababababababababababababababababababababab
+    client-fingerprint: chrome
+    udp: true
+  - name: snell 85
+    type: snell
+    server: 203.0.113.30
+    port: 9000
+    psk: snellpsk
+    version: 4
+    udp: true
+    obfs-opts:
+      mode: http
+      host: bing.com
+  - name: snell-tls-obfs 86
+    type: snell
+    server: 203.0.113.31
+    port: 9001
+    psk: snellpsk
+    version: 5
+    udp: false
+    obfs-opts:
+      mode: tls
+      host: bing.com
+  - name: mieru 87
+    type: mieru
+    server: 203.0.113.32
+    port: 9100
+    transport: TCP
+    username: u
+    password: pw
+    multiplexing: MULTIPLEXING_LOW
+  - name: ss 88
+    type: ss
+    server: 203.0.113.40
+    port: 8388
+    cipher: aes-256-gcm
+    password: pw123
+    udp: true
+  - name: ss2022 89
+    type: ss
+    server: 198.51.100.7
+    port: 20009
+    cipher: 2022-blake3-aes-128-gcm
+    password: MDEyMzQ1Njc4OWFiY2RlZg==
+    udp: true
+  - name: ss2022-chacha 90
+    type: ss
+    server: 198.51.100.8
+    port: 20010
+    cipher: 2022-blake3-chacha20-poly1305
+    password: MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=
+    udp: true
+  - name: vless-reality-vision 91
+    type: vless
+    server: 203.0.113.21
+    port: 20008
+    uuid: 8a4f3f6e-1c2b-4d5e-9f00-112233445566
+    udp: true
+    network: tcp
+    tls: true
+    flow: xtls-rprx-vision
+    servername: www.microsoft.com
+    reality-opts:
+      public-key: Y5u4vH0Qp6yG9mKZr3QZbqSx2n8Hk8TtZl1u8rH0v0E
+      short-id: 6ba85179e30d4fc2
+    client-fingerprint: chrome
+  - name: vless-reality-grpc 92
+    type: vless
+    server: 203.0.113.22
+    port: 20008
+    uuid: 8a4f3f6e-1c2b-4d5e-9f00-112233445566
+    udp: true
+    network: grpc
+    grpc-opts:
+      grpc-service-name: gun
+    tls: true
+    servername: www.microsoft.com
+    reality-opts:
+      public-key: Y5u4vH0Qp6yG9mKZr3QZbqSx2n8Hk8TtZl1u8rH0v0E
+      short-id: 6ba8
+    client-fingerprint: chrome
+  - name: vless-ws-tls 93
+    type: vless
+    server: ws.example.com
+    port: 443
+    uuid: 8a4f3f6e-1c2b-4d5e-9f00-112233445566
+    udp: true
+    network: ws
+    ws-opts:
+      path: /ws
+      headers:
+        Host: cdn.example.com
+    tls: true
+    servername: ws.example.com
+  - name: vless-tcp 94
+    type: vless
+    server: 203.0.113.23
+    port: 8080
+    uuid: 8a4f3f6e-1c2b-4d5e-9f00-112233445566
+    udp: true
+    network: tcp
+    tls: false
+  - name: vmess-ws-tls 95
+    type: vmess
+    server: vm.example.com
+    port: 443
+    uuid: b831381d-6324-4d53-ad4f-8cda48b30811
+    alterId: 0
+    cipher: auto
+    udp: true
+    network: ws
+    ws-opts:
+      path: /ray
+      headers:
+        Host: cdn.example.com
+    tls: true
+    servername: vm.example.com
+  - name: vmess-tcp 96
+    type: vmess
+    server: vm.example.com
+    port: 443
+    uuid: b831381d-6324-4d53-ad4f-8cda48b30811
+    alterId: 0
+    cipher: auto
+    udp: true
+    network: tcp
+  - name: vmess-grpc 97
+    type: vmess
+    server: vm.example.com
+    port: 443
+    uuid: b831381d-6324-4d53-ad4f-8cda48b30811
+    alterId: 0
+    cipher: auto
+    udp: true
+    network: grpc
+    grpc-opts:
+      grpc-service-name: /ray
+    tls: true
+    servername: vm.example.com
+  - name: trojan 98
+    type: trojan
+    server: tj.example.com
+    port: 443
+    password: secret
+    udp: true
+    network: tcp
+    sni: tj.example.com
+  - name: trojan-ws 99
+    type: trojan
+    server: tj.example.com
+    port: 443
+    password: secret
+    udp: true
+    network: ws
+    ws-opts:
+      path: /tj
+      headers:
+        Host: cdn.example.com
+    sni: tj.example.com
+proxy-groups:
+  - name: 节点选择
+    type: select
+    proxies:
+      - 自动选择
+      - ss 0
+      - ss2022 1
+      - ss2022-chacha 2
+      - vless-reality-vision 3
+      - vless-reality-grpc 4
+      - vless-ws-tls 5
+      - vless-tcp 6
+      - vmess-ws-tls 7
+      - vmess-tcp 8
+      - vmess-grpc 9
+      - trojan 10
+      - trojan-ws 11
+      - trojan-grpc 12
+      - hysteria2 13
+      - hysteria2-obfs 14
+      - socks5 15
+      - http 16
+      - https 17
+      - anytls 18
+      - snell 19
+      - snell-tls-obfs 20
+      - mieru 21
+      - ss 22
+      - ss2022 23
+      - ss2022-chacha 24
+      - vless-reality-vision 25
+      - vless-reality-grpc 26
+      - vless-ws-tls 27
+      - vless-tcp 28
+      - vmess-ws-tls 29
+      - vmess-tcp 30
+      - vmess-grpc 31
+      - trojan 32
+      - trojan-ws 33
+      - trojan-grpc 34
+      - hysteria2 35
+      - hysteria2-obfs 36
+      - socks5 37
+      - http 38
+      - https 39
+      - anytls 40
+      - snell 41
+      - snell-tls-obfs 42
+      - mieru 43
+      - ss 44
+      - ss2022 45
+      - ss2022-chacha 46
+      - vless-reality-vision 47
+      - vless-reality-grpc 48
+      - vless-ws-tls 49
+      - vless-tcp 50
+      - vmess-ws-tls 51
+      - vmess-tcp 52
+      - vmess-grpc 53
+      - trojan 54
+      - trojan-ws 55
+      - trojan-grpc 56
+      - hysteria2 57
+      - hysteria2-obfs 58
+      - socks5 59
+      - http 60
+      - https 61
+      - anytls 62
+      - snell 63
+      - snell-tls-obfs 64
+      - mieru 65
+      - ss 66
+      - ss2022 67
+      - ss2022-chacha 68
+      - vless-reality-vision 69
+      - vless-reality-grpc 70
+      - vless-ws-tls 71
+      - vless-tcp 72
+      - vmess-ws-tls 73
+      - vmess-tcp 74
+      - vmess-grpc 75
+      - trojan 76
+      - trojan-ws 77
+      - trojan-grpc 78
+      - hysteria2 79
+      - hysteria2-obfs 80
+      - socks5 81
+      - http 82
+      - https 83
+      - anytls 84
+      - snell 85
+      - snell-tls-obfs 86
+      - mieru 87
+      - ss 88
+      - ss2022 89
+      - ss2022-chacha 90
+      - vless-reality-vision 91
+      - vless-reality-grpc 92
+      - vless-ws-tls 93
+      - vless-tcp 94
+      - vmess-ws-tls 95
+      - vmess-tcp 96
+      - vmess-grpc 97
+      - trojan 98
+      - trojan-ws 99
+      - DIRECT
+  - name: 自动选择
+    type: url-test
+    proxies:
+      - ss 0
+      - ss2022 1
+      - ss2022-chacha 2
+      - vless-reality-vision 3
+      - vless-reality-grpc 4
+      - vless-ws-tls 5
+      - vless-tcp 6
+      - vmess-ws-tls 7
+      - vmess-tcp 8
+      - vmess-grpc 9
+      - trojan 10
+      - trojan-ws 11
+      - trojan-grpc 12
+      - hysteria2 13
+      - hysteria2-obfs 14
+      - socks5 15
+      - http 16
+      - https 17
+      - anytls 18
+      - snell 19
+      - snell-tls-obfs 20
+      - mieru 21
+      - ss 22
+      - ss2022 23
+      - ss2022-chacha 24
+      - vless-reality-vision 25
+      - vless-reality-grpc 26
+      - vless-ws-tls 27
+      - vless-tcp 28
+      - vmess-ws-tls 29
+      - vmess-tcp 30
+      - vmess-grpc 31
+      - trojan 32
+      - trojan-ws 33
+      - trojan-grpc 34
+      - hysteria2 35
+      - hysteria2-obfs 36
+      - socks5 37
+      - http 38
+      - https 39
+      - anytls 40
+      - snell 41
+      - snell-tls-obfs 42
+      - mieru 43
+      - ss 44
+      - ss2022 45
+      - ss2022-chacha 46
+      - vless-reality-vision 47
+      - vless-reality-grpc 48
+      - vless-ws-tls 49
+      - vless-tcp 50
+      - vmess-ws-tls 51
+      - vmess-tcp 52
+      - vmess-grpc 53
+      - trojan 54
+      - trojan-ws 55
+      - trojan-grpc 56
+      - hysteria2 57
+      - hysteria2-obfs 58
+      - socks5 59
+      - http 60
+      - https 61
+      - anytls 62
+      - snell 63
+      - snell-tls-obfs 64
+      - mieru 65
+      - ss 66
+      - ss2022 67
+      - ss2022-chacha 68
+      - vless-reality-vision 69
+      - vless-reality-grpc 70
+      - vless-ws-tls 71
+      - vless-tcp 72
+      - vmess-ws-tls 73
+      - vmess-tcp 74
+      - vmess-grpc 75
+      - trojan 76
+      - trojan-ws 77
+      - trojan-grpc 78
+      - hysteria2 79
+      - hysteria2-obfs 80
+      - socks5 81
+      - http 82
+      - https 83
+      - anytls 84
+      - snell 85
+      - snell-tls-obfs 86
+      - mieru 87
+      - ss 88
+      - ss2022 89
+      - ss2022-chacha 90
+      - vless-reality-vision 91
+      - vless-reality-grpc 92
+      - vless-ws-tls 93
+      - vless-tcp 94
+      - vmess-ws-tls 95
+      - vmess-tcp 96
+      - vmess-grpc 97
+      - trojan 98
+      - trojan-ws 99
+    url: https://www.gstatic.com/generate_204
+    interval: 300
+    tolerance: 50
+rules:
+  - IP-CIDR,127.0.0.0/8,DIRECT,no-resolve
+  - IP-CIDR,10.0.0.0/8,DIRECT,no-resolve
+  - IP-CIDR,172.16.0.0/12,DIRECT,no-resolve
+  - IP-CIDR,192.168.0.0/16,DIRECT,no-resolve
+  - IP-CIDR,169.254.0.0/16,DIRECT,no-resolve
+  - IP-CIDR6,::1/128,DIRECT,no-resolve
+  - IP-CIDR6,fc00::/7,DIRECT,no-resolve
+  - IP-CIDR6,fe80::/10,DIRECT,no-resolve
+  - MATCH,节点选择

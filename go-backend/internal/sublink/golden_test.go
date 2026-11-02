@@ -75,3 +75,27 @@ func TestGoldenV1(t *testing.T) {
 }
 
 func b64url(s string) string { return base64.RawURLEncoding.EncodeToString([]byte(s)) }
+
+// TestGolden100 (plan 193): 100 mixed nodes in every format. The files were
+// written at fork.107 (before the low-allocation Clash writer) and must stay
+// byte-identical.
+func TestGolden100(t *testing.T) {
+	nodes := nodes100(t)
+	for _, c := range []struct {
+		name string
+		fn   func() ([]byte, int)
+	}{
+		{"100-clash-cn.yaml", func() ([]byte, int) { return Clash(nodes, ModeCNDirect, false) }},
+		{"100-clash-global.yaml", func() ([]byte, int) { return Clash(nodes, ModeGlobal, false) }},
+		{"100-stash-cn.yaml", func() ([]byte, int) { return Clash(nodes, ModeCNDirect, true) }},
+		{"100-singbox-cn.json", func() ([]byte, int) { return SingBox(nodes, ModeCNDirect) }},
+		{"100-base64.txt", func() ([]byte, int) { return Base64(nodes) }},
+		{"100-surge.conf", func() ([]byte, int) { return Surge(nodes, ModeCNDirect, false) }},
+		{"100-surfboard.conf", func() ([]byte, int) { return Surge(nodes, ModeGlobal, true) }},
+		{"100-loon.txt", func() ([]byte, int) { return Loon(nodes) }},
+		{"100-qx.txt", func() ([]byte, int) { return QX(nodes) }},
+	} {
+		body, _ := c.fn()
+		checkGolden(t, c.name, body)
+	}
+}
