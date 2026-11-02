@@ -38,6 +38,10 @@ into a later release. Brief: `/root/flvx-workers/runs/probe-oldpanel/brief.md` (
   addresses never match. While a 救命版 host name is still resolving the machine stays out of the snapshot (no flash of
   a duplicate card).
 - Matched pair → ONE card with FLVX data (FLVX expiry; if FLVX has none, the 救命版 one).
+- **Added in round 2 (measured):** the GeoIP region of 救命版 machines is cached per candidate-address set and only
+  recomputed when an address changes; `geoip.LookupMany` decodes a private exact-size copy of the tables for that batch
+  and drops it (or uses the shared tables if the 节点 page loaded them). Before: the first frame loaded the 15.5 MB
+  tables for good → demo panel RSS 84 MB vs 43 MB off; after: 49–50 MB vs 43 MB.
 - 救命版-only machine: name (or 显示名), region = embedded GeoIP of its public address (same `internal/geoip` as the
   节点 page), OS/arch from its version string, metrics, rolling expiry (plan 194 helper), no latency.
 - **Added after the live dry run:** GeoIP is wrong for several 救命版-only machines (Vmsilo US / JP / KR / sh-de have a
@@ -67,13 +71,41 @@ into a later release. Brief: `/root/flvx-workers/runs/probe-oldpanel/brief.md` (
       log throttle
 - [x] Settings: `old_shown` / `old_names` / group `old`, admin GET/save (negative ids), generic config API validation,
       default hidden
-- [ ] Contract tests SQLite + PostgreSQL (whitelist byte scans incl. 救命版 machines, switch off, env unset, missing DB,
+- [x] Contract tests SQLite + PostgreSQL (whitelist byte scans incl. 救命版 machines, switch off, env unset, missing DB,
       matching by IP/host, default hidden, mixed groups, old-format settings)
-- [ ] Frontend settings card: source chips, search, 全部显示/全部隐藏, hint; group picker works for 救命版 rows
-- [ ] WAL safety: `:ro` vs rw mount test on a copy (docker), 10 min WAL size with reader vs without; short ro run on
+- [x] Frontend settings card: source chips, search, 全部显示/全部隐藏, hint; group picker works for 救命版 rows
+- [x] WAL safety: `:ro` vs rw mount test on a copy (docker), 10 min WAL size with reader vs without; short ro run on
       the live file
-- [ ] go build / vet / test (SQLite + PostgreSQL); tsc / build / lint vs base
-- [ ] Resource numbers (tick ms/rows, node refresh ms, RSS/CPU 0 / 10 viewers on vs off, snapshot bytes, idle = 0)
-- [ ] Demo (fake 救命版 DB, 25+ machines) + screens gallery `/root/mmwx-preview/probe-oldpanel/`
-- [ ] Push, CI green
-- [ ] `runs/probe-oldpanel/release-notes.md` (compose mount + env, prod check, rollback) + summary
+- [x] go build / vet / test (SQLite + PostgreSQL); tsc / build / lint vs base
+- [x] Resource numbers (tick ms/rows, node refresh ms, RSS/CPU 0 / 10 viewers on vs off, snapshot bytes, idle = 0)
+- [x] Demo (fake 救命版 DB, 25+ machines) + screens gallery `/root/mmwx-preview/probe-oldpanel/`
+- [x] Push, CI green
+- [x] `runs/probe-oldpanel/release-notes.md` (compose mount + env, prod check, rollback) + summary
+
+## Results (round 2, 2026-11-03 TW)
+
+### WAL safety (`runs/probe-oldpanel/wal/`)
+- Copy of the demo 救命版 DB, 10 min, three copies at once, writer = 救命版-like batches (every 10–20 s) + a PASSIVE
+  checkpoint after every batch: writer only / reader with `:ro` mount / reader with rw mount → incomplete checkpoints
+  0 / 0 / 0, `-wal` max 407 912 / 412 032 / 412 032 bytes (same within one batch), reader errors 0 / 0, rows read 3213 /
+  3213, newest row age avg 9.8 s / 10.6 s (max 22 s). → `:ro` + `mode=ro` works; chosen for prod.
+- Live 救命版 file, `:ro` mount in a throwaway container, 180 s (after a 120 s stat-only baseline): `-wal` stayed at
+  8 553 152 bytes before and during (救命版 kept writing: mtime changed on every sample); 36 polls, 0 errors, 2197 rows,
+  avg 0.54 ms, max 2.1 ms; node list (48) 4.1 ms cold / 0.5 ms warm; 1 h series 120 ms cold / 4 ms warm.
+
+### Resources (demo panel, same flow on vs off: pick 9 救命版 machines, 60 s idle, 60 s with viewers)
+- Idle (no viewer): 救命版 file handles 0 (connection closed after 60 s idle), CPU 0.57 % vs 0.65 % (noise, fake agents).
+- Viewers (10 sockets, 5 accepted = existing per-IP cap; one shared frame per 2 s): CPU 0.73 % vs 0.70 %, RSS
+  50.1 MB vs 42.8 MB, 3 file handles while viewed.
+- Snapshot: 24 machines 7209 B (off) → 33 machines 9889 B (9 救命版 picked, ≈ 300 B each, like FLVX machines).
+
+### Gates
+- `go build ./...`, `go vet` (only the pre-existing `internal/leikwan/testapi` unkeyed-field notes), `go test ./...`
+  with PostgreSQL: 0 failures (twice: 786 s before and 677 s after the GeoIP change); TestProbeOldPanelContract sqlite + postgres both ran.
+- Frontend: tsc 0 errors, vite build ok, eslint on the changed files clean.
+- Demo: 21 screens, 65/65 checks, 0 page errors → `/root/mmwx-preview/probe-oldpanel/`.
+- CI: run 41514008192 (220b4067) and 41521026516 (b0e3cc6f) green — Go backend, frontend, agent, PostgreSQL contract.
+- With the 救命版 stopped (clean shutdown removes `-wal`/`-shm`) the `:ro` open fails (`unable to open database file`,
+  tested on a copy) → its machines are absent until it runs again (retry ≤ 15 s), one log line per 10 min.
+
+Status: BUILT, not released (coordinator batches it). Release notes: `runs/probe-oldpanel/release-notes.md`.
