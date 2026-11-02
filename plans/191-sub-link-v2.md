@@ -18,7 +18,7 @@ Panel only, no agent change, no OTA, no DB change, no new goroutines/timers, sam
 - [x] 6. Public handler: formats, managed-config line built from the request (cache stays per token+format), headers, Content-Type
 - [x] 7. Text: browser HTML page client list + 订阅 page QR hint (no layout change)
 - [x] 8. Unit tests (protocol × client, skip, empty, names, rule modes, managed line, real UA strings) + handler/contract tests
-- [ ] 9. Sub-Store parser round-trip oracle (test only, deleted afterwards)
+- [x] 9. Sub-Store parser round-trip oracle (test only, deleted afterwards)
 - [ ] 10. Demo panel: curl with each UA, samples; render timing 300 nodes (Surge / QX cold + cached vs Clash)
 - [ ] 11. Gates: go build / vet / test (SQLite + PostgreSQL contract), frontend tsc / build / lint vs base; push; CI green
 - [ ] 12. Gallery :8791 /sub-link-v2/ + `runs/sub-link-v2/release-notes.md` + summary
@@ -46,8 +46,10 @@ nsloon.app docs/Node, github.com/crossutility/Quantumult-X sample.conf). Enforce
 | Snell v4/v5 with TLS obfs | ✗ (v4/v5 HTTP obfs only) | ✓ (docs allow tls) | ✗ | ✗ |
 | Mieru | ✗ | ✗ | ✗ | ✗ |
 
-Also skipped: secrets a format cannot write (Surge / Loon: `"` or `\` in a quoted value; QX and Surfboard's
-unquoted Trojan / SOCKS / HTTP credentials: comma, quote, whitespace). Unsupported → left out silently.
+Also skipped: secrets a format cannot write — Surge / Surfboard: a comma (commas inside quotes are not documented and
+Sub-Store's Surge parser cuts there), `"` or `\`; Loon: `"` or `\` (Loon documents commas inside quotes); QX and
+Surfboard's unquoted Trojan / SOCKS / HTTP credentials and Loon's salamander-password: comma, quote, whitespace.
+Same for WebSocket paths with a comma (Surge / QX). Unsupported → left out silently.
 
 ## Format decisions
 
@@ -72,4 +74,11 @@ unquoted Trojan / SOCKS / HTTP credentials: comma, quote, whitespace). Unsupport
   profile-update-interval, profile-title, content-disposition (`.conf` Surge/Surfboard, `.txt` Loon/QX).
 
 ## Notes
+
+- Sub-Store oracle (task 9): Sub-Store backend cloned once into the run dir, its Surge / Loon / QX parsers bundled with
+  esbuild into `oracle.cjs` (stub for its app logger), `TestSubStoreOracle` (env `SUBLINK_SUBSTORE_ORACLE`, skipped
+  otherwise) parses our output back and compares name / server / port / type / secret / cipher / uuid / ws path+Host /
+  SNI / Reality key+sid / flow / obfs / pin / skip-cert-verify per node. Result: Surge 16/16, Surfboard 18/18,
+  Loon 20/20, QX 17/17 (matrix + escaping + IPv6 + insecure + pinned nodes). Two fixes came out of it: Surge cannot
+  carry a comma inside a quoted password (node now skipped), Loon `salamander-password` must be unquoted.
 
