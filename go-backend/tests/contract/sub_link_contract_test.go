@@ -204,6 +204,78 @@ func TestSubLinkContract(t *testing.T) {
 			if w = pull(token, "clash.meta", "?t=base64"); !strings.HasPrefix(w.Header().Get("Content-Type"), "text/plain") {
 				t.Fatal("?t=base64 ignored")
 			}
+			// Plan 191: native Surge / Surfboard / Loon / Quantumult X.
+			pullVia := func(ua, query string) *httptest.ResponseRecorder {
+				t.Helper()
+				ip++
+				req := httptest.NewRequest(http.MethodGet, "/s/"+token+query, nil)
+				req.RemoteAddr = "203.0.113." + strconv.Itoa(100+ip%50) + ":4000"
+				req.Host = "panel.example.com"
+				req.Header.Set("User-Agent", ua)
+				req.Header.Set("X-Forwarded-Proto", "https")
+				w := httptest.NewRecorder()
+				router.ServeHTTP(w, req)
+				if w.Code != 200 || !strings.HasPrefix(w.Header().Get("Content-Type"), "text/plain; charset=utf-8") ||
+					w.Header().Get("subscription-userinfo") != info || w.Header().Get("profile-title") == "" {
+					t.Fatalf("%s%s: %d %v", ua, query, w.Code, w.Header())
+				}
+				return w
+			}
+			section := func(body, name string) []string {
+				var out []string
+				in := false
+				for _, l := range strings.Split(body, "\n") {
+					if strings.HasPrefix(l, "[") {
+						in = l == "["+name+"]"
+					} else if in && l != "" {
+						out = append(out, strings.SplitN(l, " = ", 2)[0])
+					}
+				}
+				return out
+			}
+			managed := "#!MANAGED-CONFIG https://panel.example.com/s/" + token
+			surge := pullVia("Surge iOS/3051", "").Body.String()
+			// Surge has no VLESS: the Reality landing is left out.
+			if !strings.HasPrefix(surge, managed+" interval=43200 strict=false\n[General]\n") || !strings.Contains(surge, "loglevel = notify") ||
+				strings.Join(section(surge, "Proxy"), "|") != "游戏加速 · 上海联通入口|我家宽带 Socks|🇭🇰 香港 01 ①|🇭🇰 香港 01 ②" ||
+				!strings.Contains(surge, "GEOIP,CN,DIRECT") || strings.Contains(surge, subUUID) {
+				t.Fatalf("surge:\n%s", surge)
+			}
+			if w = pullVia("Surge Mac/2565", ""); !strings.Contains(w.Header().Get("content-disposition"), ".conf") {
+				t.Fatalf("surge mac headers %v", w.Header())
+			}
+			surfboard := pullVia("Surfboard/2.24.4 (Android 14)", "").Body.String()
+			if !strings.HasPrefix(surfboard, managed+" interval=") || strings.Contains(surfboard, "loglevel") || strings.Contains(surfboard, "no-resolve") ||
+				len(section(surfboard, "Proxy")) != 4 {
+				t.Fatalf("surfboard:\n%s", surfboard)
+			}
+			forced := pullVia("Surge iOS/3051", "?t=Surfboard").Body.String()
+			if !strings.HasPrefix(forced, managed+"?t=surfboard interval=") || strings.Contains(forced, "loglevel") {
+				t.Fatalf("?t=surfboard:\n%s", forced[:200])
+			}
+			if junk := pullVia("Surge iOS/3051", "?t=nonsense").Body.String(); !strings.HasPrefix(junk, managed+" interval=") {
+				t.Fatalf("?t=nonsense must not reach the managed line: %s", junk[:120])
+			}
+			loon := pullVia("Loon/3.2.4 (iPhone; iOS 17.4.1; Scale/3.00)", "").Body.String()
+			loonLines := strings.Split(strings.TrimSpace(loon), "\n")
+			if len(loonLines) != 5 || !strings.HasPrefix(loonLines[1], "我的落地·东京（直连） = VLESS,203.0.113.21,30001,\""+subUUID+"\",transport=tcp,flow=xtls-rprx-vision,public-key=\""+subPBK+"\"") ||
+				!strings.HasPrefix(loonLines[3], "🇭🇰 香港 01 ① = Hysteria2,hk1.provider.example,443,\"airport-pw\"") {
+				t.Fatalf("loon:\n%s", loon)
+			}
+			qx := pullVia("Quantumult%20X/1.4.1 (iPhone15,2; iOS 17.4)", "").Body.String()
+			qxLines := strings.Split(strings.TrimSpace(qx), "\n")
+			// Quantumult X has no Hysteria2: the two airport nodes are left out.
+			if len(qxLines) != 3 || !strings.HasPrefix(qxLines[0], "shadowsocks=198.51.100.10:20009, method=2022-blake3-aes-128-gcm, password=") ||
+				!strings.HasSuffix(qxLines[1], ", tag=我的落地·东京（直连）") || !strings.Contains(qxLines[1], "reality-base64-pubkey="+subPBK) ||
+				qxLines[2] != "socks5=home.example.net:1080, username=u, password=socks-secret-pw, udp-relay=true, tag=我家宽带 Socks" {
+				t.Fatalf("qx:\n%s", qx)
+			}
+			if w = pullVia("clash.meta", "?t=qx"); w.Body.String() != qx {
+				t.Fatal("?t=qx ignored")
+			}
+			if w = pullVia("clash.meta", "?t=loon"); w.Body.String() != loon {
+				t.Fatal("?t=loon ignored")
+			}
 			// Browser: small page, no secrets, no userinfo header.
 			w = pull(token, "Mozilla/5.0 (Windows NT 10.0) Chrome/120 Safari/537.36", "")
 			page := w.Body.String()

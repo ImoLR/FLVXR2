@@ -456,3 +456,47 @@ func TestMaskSourceURL(t *testing.T) {
 		}
 	}
 }
+
+// Plan 191: the Surge managed-config line follows the request (scheme from
+// X-Forwarded-Proto / CF-Visitor, host as requested, a valid ?t=) while the
+// rendered profile behind it comes from the shared 60 s cache.
+func TestSubSurgeManagedLine(t *testing.T) {
+	e := subEnv(t)
+	seedSubPanel(t, e)
+	sub := dataMap(t, subCall(t, e.h, "create", map[string]any{"name": "s", "items": []any{map[string]any{"kind": "landing_direct", "landingId": 22}}}, 2, 1))
+	token := sub["token"].(string)
+	pull := func(host, query string, hdr map[string]string) string {
+		mux := http.NewServeMux()
+		e.h.registerSubLink(mux)
+		req := httptest.NewRequest("GET", "/s/"+token+query, nil)
+		req.RemoteAddr = "203.0.113.20:5555"
+		req.Host = host
+		req.Header.Set("User-Agent", "Surge iOS/3051")
+		for k, v := range hdr {
+			req.Header.Set(k, v)
+		}
+		w := httptest.NewRecorder()
+		mux.ServeHTTP(w, req)
+		if w.Code != 200 || w.Header().Get("Content-Length") != strconv.Itoa(w.Body.Len()) {
+			t.Fatalf("pull %d, length %s vs %d", w.Code, w.Header().Get("Content-Length"), w.Body.Len())
+		}
+		return w.Body.String()
+	}
+	a := pull("a.example.com", "", map[string]string{"X-Forwarded-Proto": "https"})
+	b := pull("b.example.com:8443", "?t=SURGE", map[string]string{"CF-Visitor": `{"scheme":"https"}`})
+	c := pull("c.example.com", "?t=x%0A", nil)
+	lineA, restA, _ := strings.Cut(a, "\n")
+	lineB, restB, _ := strings.Cut(b, "\n")
+	lineC, _, _ := strings.Cut(c, "\n")
+	if lineA != "#!MANAGED-CONFIG https://a.example.com/s/"+token+" interval=43200 strict=false" ||
+		lineB != "#!MANAGED-CONFIG https://b.example.com:8443/s/"+token+"?t=surge interval=43200 strict=false" ||
+		lineC != "#!MANAGED-CONFIG http://c.example.com/s/"+token+" interval=43200 strict=false" {
+		t.Fatalf("managed lines:\n%s\n%s\n%s", lineA, lineB, lineC)
+	}
+	if restA != restB || !strings.HasPrefix(restA, "[General]\n") || !strings.Contains(restA, "游戏加速（直连） = ss, ") {
+		t.Fatalf("profile body differs or is wrong:\n%s", restA)
+	}
+	if n, _ := e.h.subState().cache.stats(); n != 1 {
+		t.Fatalf("cache entries %d, want 1 (token|surge)", n)
+	}
+}
