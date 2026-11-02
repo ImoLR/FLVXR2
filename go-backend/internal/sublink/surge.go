@@ -13,12 +13,15 @@ import (
 func surgeProxy(n Node, sb bool) (string, bool) {
 	var p []string
 	kv := func(k, v string) { p = append(p, k+"="+v) }
+	// Secrets are quoted; a comma inside quotes is not documented for Surge,
+	// so such a node is left out (Loon documents it, Quantumult X cannot).
 	secret := func(k, v string) bool {
 		q, ok := quoted(v)
-		if ok {
+		if ok && !strings.Contains(v, ",") {
 			kv(k, q)
+			return true
 		}
-		return ok
+		return false
 	}
 	tlsParams := func(sni, pin string, insecure bool) {
 		if sni != "" {
@@ -84,11 +87,10 @@ func surgeProxy(n Node, sb bool) (string, bool) {
 			if u.WS != nil {
 				path, host = u.WS.Path, u.WS.Host
 			}
-			v, ok := pathValue(path)
-			if !ok {
+			if !plain(path) {
 				return false
 			}
-			kv("ws-path", v)
+			kv("ws-path", path)
 			if host != "" {
 				kv("ws-headers", "Host:"+host)
 			}

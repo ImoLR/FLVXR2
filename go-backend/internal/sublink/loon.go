@@ -147,11 +147,11 @@ func loonProxy(n Node) (string, bool) {
 		}
 		tlsParams(sni, pin, n.Insecure)
 		if u.Obfs != "" {
-			q, ok := quoted(u.Obfs)
-			if !ok {
+			// Unquoted, as in Loon's documentation.
+			if !plain(u.Obfs) {
 				return "", false
 			}
-			kv("salamander-password", q)
+			kv("salamander-password", u.Obfs)
 		}
 		kv("udp", "true")
 	case "socks", "http":

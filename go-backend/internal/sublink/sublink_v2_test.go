@@ -300,7 +300,7 @@ func TestLoonLines(t *testing.T) {
 				t.Errorf("ss: %q", l)
 			}
 		case "hysteria2-obfs":
-			if pos[0] != "Hysteria2" || kv["salamander-password"] != "ob" || kv["skip-cert-verify"] != "true" {
+			if pos[0] != "Hysteria2" || !strings.Contains(l, ",salamander-password=ob,") || kv["skip-cert-verify"] != "true" {
 				t.Errorf("hy2: %q", l)
 			}
 		case "anytls":
@@ -403,8 +403,11 @@ func TestUnsafeSecretsSkipped(t *testing.T) {
 	comma := Node{Name: "c", Up: mustParse(t, "ss://"+b64url("aes-128-gcm:a,b")+"@203.0.113.60:1")}
 	quote := Node{Name: "q", Up: mustParse(t, "ss://"+b64url(`aes-128-gcm:a"b`)+"@203.0.113.61:1")}
 	space := Node{Name: "s", Up: mustParse(t, "trojan://a%20b@t.example.com:443")}
-	if l, ok := surgeProxy(comma, false); !ok || !strings.Contains(l, `password="a,b"`) {
-		t.Errorf("surge comma password must be quoted: %q", l)
+	if _, ok := surgeProxy(comma, false); ok {
+		t.Error("surge: comma in password must skip (not documented inside quotes)")
+	}
+	if l, ok := loonProxy(comma); !ok || !strings.Contains(l, `,"a,b",`) {
+		t.Errorf("loon comma password must be quoted: %q", l)
 	}
 	if _, ok := surgeProxy(quote, false); ok {
 		t.Error("surge: quote in password must skip")
