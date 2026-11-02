@@ -27,6 +27,7 @@ import (
 	"go-backend/internal/clientip"
 	"go-backend/internal/http/middleware"
 	"go-backend/internal/http/response"
+	"go-backend/internal/oldpanel"
 	"go-backend/internal/probe"
 	"go-backend/internal/ratelimit"
 	"go-backend/internal/store/repo"
@@ -85,18 +86,31 @@ type probeSettings struct {
 	GroupMode string
 	// Plan 194: publish 「剩余天数」 (default on).
 	Expiry bool
+	// Plan 195: 救命版-only machines are hidden unless ticked (old ids).
+	OldShown map[int64]bool
+	OldNames map[int64]string
+	// 救命版 has no region column: GeoIP by default, admin may override.
+	OldRegions map[int64]string
 }
 
+// probeNodesConfig is the probe_nodes row. Plan 195 adds the 救命版 fields
+// (additive: an older binary ignores them).
 type probeNodesConfig struct {
-	Hidden []int64           `json:"hidden"`
-	Names  map[string]string `json:"names"`
+	Hidden   []int64           `json:"hidden"`
+	Names    map[string]string `json:"names"`
+	OldShown   []int64           `json:"old_shown,omitempty"`
+	OldNames   map[string]string `json:"old_names,omitempty"`
+	OldRegions map[string]string `json:"old_regions,omitempty"`
 }
 
 // probeGroup is one stored custom group (probe_groups row, admin only).
+// Nodes = FLVX node ids, Old = 救命版 node ids (plan 195, additive). The
+// admin API instead carries one list with 救命版 machines as negative ids.
 type probeGroup struct {
 	ID    int64   `json:"id"`
 	Name  string  `json:"name"`
 	Nodes []int64 `json:"nodes"`
+	Old   []int64 `json:"old,omitempty"`
 }
 
 type probeSeriesKey struct {
@@ -115,6 +129,8 @@ type probeState struct {
 	keyer   *probe.Keyer
 	hub     *probe.Hub
 	latency probe.LatencyBook
+	// Plan 195: read-only 救命版 source (off unless FLVX_OLDPANEL_DB is set).
+	old oldPanelState
 
 	samplesMu sync.RWMutex
 	samples   map[int64]probe.Sample
@@ -127,6 +143,9 @@ type probeState struct {
 	nodes    []repo.ProbeNodeRow
 	lastSeen map[int64]int64
 	nodesAt  time.Time
+	// Parsed addresses of the FLVX nodes (plan 195 matching; only filled
+	// while the 救命版 source is on).
+	nodeAddrs map[int64]oldpanel.Addrs
 
 	seriesMu    sync.Mutex
 	seriesCache map[probeSeriesKey]probeSeriesEntry
@@ -147,6 +166,7 @@ func (h *Handler) probeInit() *probeState {
 	p := &h.probe
 	p.once.Do(func() {
 		p.keyer = probe.NewKeyer(h.jwtSecret)
+		p.old.init()
 		p.samples = make(map[int64]probe.Sample)
 		p.lastSeen = make(map[int64]int64)
 		p.seriesCache = make(map[probeSeriesKey]probeSeriesEntry)
@@ -243,7 +263,8 @@ func (h *Handler) noteProbeConfigChange(key string) {
 }
 
 func (h *Handler) loadProbeSettings() probeSettings {
-	st := probeSettings{Latency: true, Expiry: true, Hidden: map[int64]bool{}, Names: map[int64]string{}, GroupMode: probe.GroupModeRegion}
+	st := probeSettings{Latency: true, Expiry: true, Hidden: map[int64]bool{}, Names: map[int64]string{}, GroupMode: probe.GroupModeRegion,
+		OldShown: map[int64]bool{}, OldNames: map[int64]string{}, OldRegions: map[int64]string{}}
 	if h.repo == nil {
 		return st
 	}
@@ -275,6 +296,21 @@ func (h *Handler) loadProbeSettings() probeSettings {
 					st.Names[id] = strings.TrimSpace(v)
 				}
 			}
+			for _, id := range nc.OldShown {
+				if id > 0 {
+					st.OldShown[id] = true
+				}
+			}
+			for k, v := range nc.OldNames {
+				if id, err := strconv.ParseInt(k, 10, 64); err == nil && id > 0 && strings.TrimSpace(v) != "" {
+					st.OldNames[id] = strings.TrimSpace(v)
+				}
+			}
+			for k, v := range nc.OldRegions {
+				if id, err := strconv.ParseInt(k, 10, 64); err == nil && id > 0 && probe.CleanRegion(v) != "" {
+					st.OldRegions[id] = probe.CleanRegion(v)
+				}
+			}
 		}
 	}
 	if raw := strings.TrimSpace(cfg[probeGroupsKey]); raw != "" {
@@ -297,14 +333,15 @@ func parseProbeGroups(raw string) ([]probeGroup, error) {
 	if err := json.Unmarshal([]byte(raw), &groups); err != nil {
 		return nil, errors.New("探针分组格式不正确")
 	}
-	return normalizeProbeGroups(groups, nil)
+	return normalizeProbeGroups(groups, nil, nil)
 }
 
 // normalizeProbeGroups validates custom groups: ≤ 30, names trimmed 1–20
 // characters without control characters and unique (case-insensitive),
-// member ids deduplicated (and, when known is given, existing nodes only).
+// member ids deduplicated (and, when known / knownOld is given, existing
+// nodes only). Storage form: Nodes = FLVX ids, Old = 救命版 ids, both > 0.
 // Ids stay stable when valid; new / clashing ones get the next free number.
-func normalizeProbeGroups(groups []probeGroup, known map[int64]bool) ([]probeGroup, error) {
+func normalizeProbeGroups(groups []probeGroup, known, knownOld map[int64]bool) ([]probeGroup, error) {
 	if len(groups) > probeGroupsMax {
 		return nil, errors.New("探针分组最多 30 个")
 	}
@@ -341,24 +378,57 @@ func normalizeProbeGroups(groups []probeGroup, known map[int64]bool) ([]probeGro
 			id = maxID
 		}
 		ids[id] = true
-		if len(g.Nodes) > 4096 {
+		if len(g.Nodes)+len(g.Old) > 4096 {
 			return nil, errors.New("分组里的服务器过多")
 		}
-		members := make([]int64, 0, len(g.Nodes))
-		seen := make(map[int64]bool, len(g.Nodes))
-		for _, nid := range g.Nodes {
-			if seen[nid] {
-				continue
-			}
-			if nid <= 0 || (known != nil && !known[nid]) {
-				return nil, errors.New("分组「" + name + "」里有不存在的服务器，请刷新后再试")
-			}
-			seen[nid] = true
-			members = append(members, nid)
+		members, err := probeGroupMembers(g.Nodes, known, name)
+		if err != nil {
+			return nil, err
 		}
-		out = append(out, probeGroup{ID: id, Name: name, Nodes: members})
+		var old []int64
+		if len(g.Old) > 0 {
+			if old, err = probeGroupMembers(g.Old, knownOld, name); err != nil {
+				return nil, err
+			}
+		}
+		out = append(out, probeGroup{ID: id, Name: name, Nodes: members, Old: old})
 	}
 	return out, nil
+}
+
+func probeGroupMembers(ids []int64, known map[int64]bool, group string) ([]int64, error) {
+	members := make([]int64, 0, len(ids))
+	seen := make(map[int64]bool, len(ids))
+	for _, nid := range ids {
+		if seen[nid] {
+			continue
+		}
+		if nid <= 0 || (known != nil && !known[nid]) {
+			return nil, errors.New("分组「" + group + "」里有不存在的服务器，请刷新后再试")
+		}
+		seen[nid] = true
+		members = append(members, nid)
+	}
+	return members, nil
+}
+
+// probeGroupsFromAPI: the admin API lists 救命版 machines as negative ids in
+// one member list; storage keeps them apart (Old).
+func probeGroupsFromAPI(groups []probeGroup) []probeGroup {
+	out := make([]probeGroup, 0, len(groups))
+	for _, g := range groups {
+		ng := probeGroup{ID: g.ID, Name: g.Name, Nodes: make([]int64, 0, len(g.Nodes))}
+		for _, id := range g.Nodes {
+			if id < 0 {
+				ng.Old = append(ng.Old, -id)
+			} else {
+				ng.Nodes = append(ng.Nodes, id)
+			}
+		}
+		ng.Old = append(ng.Old, g.Old...)
+		out = append(out, ng)
+	}
+	return out
 }
 
 // probeGroupInputs: the stored groups as the snapshot builder takes them.
@@ -368,7 +438,15 @@ func probeGroupInputs(groups []probeGroup) []probe.GroupInput {
 	}
 	out := make([]probe.GroupInput, 0, len(groups))
 	for _, g := range groups {
-		out = append(out, probe.GroupInput{Name: g.Name, Nodes: g.Nodes})
+		nodes := g.Nodes
+		if len(g.Old) > 0 { // 救命版 members are negative ids inside the probe
+			nodes = make([]int64, 0, len(g.Nodes)+len(g.Old))
+			nodes = append(nodes, g.Nodes...)
+			for _, id := range g.Old {
+				nodes = append(nodes, -id)
+			}
+		}
+		out = append(out, probe.GroupInput{Name: g.Name, Nodes: nodes})
 	}
 	return out
 }
@@ -376,16 +454,16 @@ func probeGroupInputs(groups []probeGroup) []probe.GroupInput {
 // probeNodeRows: local nodes, cached 15 s (only refreshed while somebody
 // looks). Offline nodes without a report since the panel started get their
 // 「最后在线」 from one index seek each.
-func (h *Handler) probeNodeRows(now time.Time) ([]repo.ProbeNodeRow, map[int64]int64) {
+func (h *Handler) probeNodeRows(now time.Time) ([]repo.ProbeNodeRow, map[int64]int64, map[int64]oldpanel.Addrs) {
 	p := h.probeInit()
 	p.nodesMu.Lock()
 	defer p.nodesMu.Unlock()
 	if !p.nodesAt.IsZero() && now.Sub(p.nodesAt) < probeNodesTTL {
-		return p.nodes, p.lastSeen
+		return p.nodes, p.lastSeen, p.nodeAddrs
 	}
 	rows, err := h.repo.ListProbeNodes()
 	if err != nil {
-		return p.nodes, p.lastSeen
+		return p.nodes, p.lastSeen, p.nodeAddrs
 	}
 	// Deleted nodes leave the in-memory sample map with the next refresh.
 	alive := make(map[int64]bool, len(rows))
@@ -417,13 +495,23 @@ func (h *Handler) probeNodeRows(now time.Time) ([]repo.ProbeNodeRow, map[int64]i
 		seen[id] = ts
 	}
 	p.nodes, p.lastSeen, p.nodesAt = rows, seen, now
-	return rows, seen
+	if p.old.reader != nil {
+		addrs := make(map[int64]oldpanel.Addrs, len(rows))
+		for _, n := range rows {
+			addrs[n.ID] = oldpanel.ParseAddrs(n.ServerIP, n.ServerIPV4, n.ServerIPV6, n.ExtraIPs)
+		}
+		p.nodeAddrs = addrs
+	}
+	return rows, seen, p.nodeAddrs
 }
 
-// probeShown resolves the shown nodes with their display names.
+// probeShown resolves the shown machines with their display names: FLVX
+// nodes, then the ticked 救命版-only machines (plan 195, negative ids).
 func (h *Handler) probeShown(now time.Time, st probeSettings) []probe.NodeInput {
-	rows, seen := h.probeNodeRows(now)
-	out := make([]probe.NodeInput, 0, len(rows))
+	rows, seen, addrs := h.probeNodeRows(now)
+	h.oldPanelTick(now)
+	m := h.oldPanelMerge(rows, addrs)
+	out := make([]probe.NodeInput, 0, len(rows)+len(st.OldShown))
 	for _, n := range rows {
 		if st.Hidden[n.ID] {
 			continue
@@ -432,9 +520,15 @@ func (h *Handler) probeShown(now time.Time, st probeSettings) []probe.NodeInput 
 		if v := st.Names[n.ID]; v != "" {
 			name = v
 		}
-		out = append(out, probe.NodeInput{ID: n.ID, Name: name, Region: n.Region, Version: n.Version, LastSeen: seen[n.ID], ExpiryTime: n.ExpiryTime, RenewalCycle: n.RenewalCycle})
+		in := probe.NodeInput{ID: n.ID, Name: name, Region: n.Region, Version: n.Version, LastSeen: seen[n.ID], ExpiryTime: n.ExpiryTime, RenewalCycle: n.RenewalCycle}
+		if in.ExpiryTime <= 0 {
+			if exp, cycle, ok := oldPanelExpiry(m, n.ID); ok {
+				in.ExpiryTime, in.RenewalCycle = exp, cycle
+			}
+		}
+		out = append(out, in)
 	}
-	return out
+	return append(out, h.oldPanelInputs(m, st)...)
 }
 
 func (h *Handler) buildProbeFrame(now time.Time) ([]byte, error) {
@@ -443,12 +537,26 @@ func (h *Handler) buildProbeFrame(now time.Time) ([]byte, error) {
 	nodes := h.probeShown(now, st)
 	p.samplesMu.RLock()
 	samples := make(map[int64]probe.Sample, len(nodes))
+	hasOld := false
 	for _, n := range nodes {
-		if s, ok := p.samples[n.ID]; ok {
+		if n.ID < 0 {
+			hasOld = true
+		} else if s, ok := p.samples[n.ID]; ok {
 			samples[n.ID] = s
 		}
 	}
 	p.samplesMu.RUnlock()
+	if hasOld {
+		v := h.oldPanelView()
+		for _, n := range nodes {
+			if n.ID >= 0 {
+				continue
+			}
+			if s, ok := v.samples[-n.ID]; ok {
+				samples[n.ID] = s
+			}
+		}
+	}
 	var edges map[int64][]probe.Edge
 	if st.Latency {
 		edges = p.latency.Latest(now, probeEdgeMaxAge)
@@ -470,6 +578,9 @@ func (h *Handler) buildProbeFrame(now time.Time) ([]byte, error) {
 }
 
 func (h *Handler) probeOnline(nodeID int64) bool {
+	if nodeID < 0 { // 救命版 machine: fresh row in its database
+		return h.oldPanelOnline(-nodeID, time.Now())
+	}
 	if fn := h.probe.online; fn != nil {
 		return fn(nodeID)
 	}
@@ -750,6 +861,14 @@ func (h *Handler) probeSeries(w http.ResponseWriter, r *http.Request) {
 	step := probe.StepFor(dur, points)
 	rows, err := func() ([]repo.NodeMetricBucket, error) {
 		defer func() { <-p.seriesSem }()
+		if id < 0 { // 救命版 machine (plan 195): its own database, read-only
+			old, err := h.oldPanelSeries(-id, now.Add(-dur).UnixMilli(), now.UnixMilli(), step, points)
+			out := make([]repo.NodeMetricBucket, 0, len(old))
+			for _, b := range old {
+				out = append(out, repo.NodeMetricBucket{Timestamp: b.At, CPUUsage: b.CPU, MemUsage: b.Mem, NetInSpeed: b.NetInSpeed, NetOutSpeed: b.NetOutSpeed, TCPConns: b.TCP})
+			}
+			return out, err
+		}
 		return h.repo.NodeMetricBuckets(id, now.Add(-dur).UnixMilli(), now.UnixMilli(), step, points)
 	}()
 	if err != nil {
@@ -763,7 +882,7 @@ func (h *Handler) probeSeries(w http.ResponseWriter, r *http.Request) {
 			float64(int64(b.NetInSpeed)), float64(int64(b.NetOutSpeed)), float64(int64(b.TCPConns + 0.5)),
 		})
 	}
-	if st.Latency {
+	if st.Latency && id > 0 {
 		for to, pts := range p.latency.History(id) {
 			k, ok := keys[to]
 			if !ok || to == id {
@@ -815,6 +934,9 @@ func writeProbeBody(w http.ResponseWriter, body []byte) {
 
 // ─── admin settings (设置 → 公开探针页) ─────────────────────────────
 
+// probeAdminNode: one machine of the 设置 list. Plan 195: Source "old" =
+// 救命版-only machine, its ID is the negative 救命版 node id; OldMatch = the
+// 救命版 name of an FLVX node that also runs there (admin only).
 type probeAdminNode struct {
 	ID        int64  `json:"id"`
 	Name      string `json:"name"`
@@ -822,6 +944,11 @@ type probeAdminNode struct {
 	Hidden    bool   `json:"hidden"`
 	Region    string `json:"region"`
 	Online    bool   `json:"online"`
+	Source    string `json:"source"`
+	OldMatch  string `json:"oldMatch,omitempty"`
+	// 救命版 rows: GeoIP region and the admin's override ("" = automatic).
+	RegionAuto     string `json:"regionAuto,omitempty"`
+	RegionOverride string `json:"regionOverride,omitempty"`
 }
 
 type probeAdminSettings struct {
@@ -837,6 +964,8 @@ type probeAdminSettings struct {
 	GroupMode string       `json:"groupMode"`
 	// Plan 194: 显示到期天数.
 	Expiry bool `json:"expiry"`
+	// Plan 195: 救命版 source — "" (not configured), "ok", "error".
+	OldPanel string `json:"oldPanel"`
 }
 
 type probeAdminSave struct {
@@ -847,6 +976,8 @@ type probeAdminSave struct {
 		ID        int64  `json:"id"`
 		ProbeName string `json:"probeName"`
 		Hidden    bool   `json:"hidden"`
+		// Plan 195, 救命版 rows only: region override ("" = automatic).
+		Region *string `json:"region"`
 	} `json:"nodes"`
 	// Plan 189. Groups nil = leave the stored groups as they are (an older
 	// open card); an empty list clears them.
@@ -881,23 +1012,56 @@ func (h *Handler) probeAdminGet(w http.ResponseWriter, r *http.Request) {
 	if app := strings.TrimSpace(cfg[probeAppNameKey]); app != "" {
 		out.DefaultTitle = truncateRunes(app+" 探针", probeTitleMax)
 	}
+	m, knownOld := h.oldPanelAdminMerge(rows)
 	known := make(map[int64]bool, len(rows))
 	for _, n := range rows {
 		known[n.ID] = true
-		out.Nodes = append(out.Nodes, probeAdminNode{ID: n.ID, Name: n.Name, ProbeName: st.Names[n.ID], Hidden: st.Hidden[n.ID], Region: probe.CleanRegion(n.Region), Online: h.probeOnline(n.ID)})
+		row := probeAdminNode{ID: n.ID, Name: n.Name, ProbeName: st.Names[n.ID], Hidden: st.Hidden[n.ID], Region: probe.CleanRegion(n.Region), Online: h.probeOnline(n.ID), Source: "flvx"}
+		if ids := m.byFLVX[n.ID]; len(ids) > 0 {
+			for _, on := range m.view.nodes {
+				if on.ID == ids[0] {
+					row.OldMatch = on.Name
+				}
+			}
+		}
+		out.Nodes = append(out.Nodes, row)
+	}
+	// Plan 195: 救命版-only machines after the FLVX nodes (default hidden).
+	if m.view.on && m.view.ok {
+		now := time.Now()
+		for _, n := range m.view.nodes {
+			if _, ok := m.matched[n.ID]; ok {
+				continue
+			}
+			auto := h.oldPanelRegion(m.view.addrs[n.ID])
+			region := auto
+			if v := st.OldRegions[n.ID]; v != "" {
+				region = v
+			}
+			out.Nodes = append(out.Nodes, probeAdminNode{ID: -n.ID, Name: n.Name, ProbeName: st.OldNames[n.ID], Hidden: !st.OldShown[n.ID],
+				Region: region, RegionAuto: auto, RegionOverride: st.OldRegions[n.ID], Online: h.oldPanelOnline(n.ID, now), Source: "old"})
+		}
 	}
 	out.Groups = make([]probeGroup, 0, len(st.Groups))
 	for _, g := range st.Groups {
-		members := make([]int64, 0, len(g.Nodes))
+		members := make([]int64, 0, len(g.Nodes)+len(g.Old))
 		for _, id := range g.Nodes {
 			if known[id] {
 				members = append(members, id)
+			}
+		}
+		// 救命版 members travel as negative ids; kept as stored while the
+		// 救命版 cannot be read (nothing is lost by a save in that state).
+		for _, id := range g.Old {
+			if knownOld == nil || knownOld[id] {
+				members = append(members, -id)
 			}
 		}
 		out.Groups = append(out.Groups, probeGroup{ID: g.ID, Name: g.Name, Nodes: members})
 	}
 	out.GroupMode = st.GroupMode
 	out.Expiry = st.Expiry
+	out.OldPanel = h.oldPanelStatus()
 	response.WriteJSON(w, response.OK(out))
 }
 
@@ -950,13 +1114,29 @@ func normalizeProbeConfigValue(key, value string) (string, error) {
 		if err := json.Unmarshal([]byte(value), &nc); err != nil {
 			return "", errors.New("探针节点设置格式不正确")
 		}
-		if len(nc.Hidden) > 4096 || len(nc.Names) > 4096 {
+		if len(nc.Hidden) > 4096 || len(nc.Names) > 4096 || len(nc.OldShown) > 4096 || len(nc.OldNames) > 4096 || len(nc.OldRegions) > 4096 {
 			return "", errors.New("探针节点设置过多")
 		}
 		for k, v := range nc.Names {
 			if _, err := strconv.ParseInt(k, 10, 64); err != nil || utf8.RuneCountInString(strings.TrimSpace(v)) > probeNameMax {
 				return "", errors.New("探针显示名最多 30 个字")
 			}
+		}
+		for k, v := range nc.OldNames {
+			if id, err := strconv.ParseInt(k, 10, 64); err != nil || id <= 0 || utf8.RuneCountInString(strings.TrimSpace(v)) > probeNameMax {
+				return "", errors.New("探针显示名最多 30 个字")
+			}
+		}
+		for _, id := range nc.OldShown {
+			if id <= 0 {
+				return "", errors.New("探针节点设置格式不正确")
+			}
+		}
+		for k, v := range nc.OldRegions {
+			if id, err := strconv.ParseInt(k, 10, 64); err != nil || id <= 0 || probe.CleanRegion(v) == "" {
+				return "", errors.New("地区格式不正确")
+			}
+			nc.OldRegions[k] = probe.CleanRegion(v)
 		}
 		if nc.Hidden == nil {
 			nc.Hidden = []int64{}
@@ -1039,21 +1219,80 @@ func (h *Handler) probeAdminSave(w http.ResponseWriter, r *http.Request) {
 	for _, n := range rows {
 		known[n.ID] = true
 	}
+	// Plan 195: 救命版 machines (negative ids). Picks of machines the request
+	// does not mention are kept; machines gone from the 救命版 are dropped
+	// (only when it can be read right now).
+	knownOld := h.oldPanelKnownIDs()
+	cur := h.probeSettings()
+	oldShown := make(map[int64]bool, len(cur.OldShown))
+	oldNames := make(map[int64]string, len(cur.OldNames))
+	oldRegions := make(map[int64]string, len(cur.OldRegions))
+	for id, v := range cur.OldRegions {
+		if knownOld == nil || knownOld[id] {
+			oldRegions[id] = v
+		}
+	}
+	for id, on := range cur.OldShown {
+		if knownOld == nil || knownOld[id] {
+			oldShown[id] = on
+		}
+	}
+	for id, v := range cur.OldNames {
+		if knownOld == nil || knownOld[id] {
+			oldNames[id] = v
+		}
+	}
 	nc := probeNodesConfig{Hidden: []int64{}, Names: map[string]string{}}
 	for _, n := range req.Nodes {
-		if !known[n.ID] {
-			continue
-		}
 		name := strings.TrimSpace(n.ProbeName)
 		if utf8.RuneCountInString(name) > probeNameMax {
 			response.WriteJSON(w, response.ErrDefault("探针显示名最多 30 个字"))
 			return
+		}
+		if n.ID < 0 {
+			oid := -n.ID
+			if knownOld == nil || !knownOld[oid] {
+				continue
+			}
+			oldShown[oid] = !n.Hidden
+			delete(oldNames, oid)
+			if name != "" {
+				oldNames[oid] = name
+			}
+			if n.Region != nil {
+				code := strings.TrimSpace(*n.Region)
+				if code != "" && probe.CleanRegion(code) == "" {
+					response.WriteJSON(w, response.ErrDefault("地区格式不正确"))
+					return
+				}
+				delete(oldRegions, oid)
+				if code != "" {
+					oldRegions[oid] = probe.CleanRegion(code)
+				}
+			}
+			continue
+		}
+		if !known[n.ID] {
+			continue
 		}
 		if n.Hidden {
 			nc.Hidden = append(nc.Hidden, n.ID)
 		}
 		if name != "" {
 			nc.Names[strconv.FormatInt(n.ID, 10)] = name
+		}
+	}
+	nc.OldShown = sortedOldIDs(oldShown)
+	if len(oldNames) > 0 {
+		nc.OldNames = make(map[string]string, len(oldNames))
+		for id, v := range oldNames {
+			nc.OldNames[strconv.FormatInt(id, 10)] = v
+		}
+	}
+	if len(oldRegions) > 0 {
+		nc.OldRegions = make(map[string]string, len(oldRegions))
+		for id, v := range oldRegions {
+			nc.OldRegions[strconv.FormatInt(id, 10)] = v
 		}
 	}
 	nodesJSON, _ := json.Marshal(nc)
@@ -1064,7 +1303,7 @@ func (h *Handler) probeAdminSave(w http.ResponseWriter, r *http.Request) {
 	writes := [][2]string{{probeTitleKey, title}, {probeDomainKey, domain}, {probeLatencyKey, latency}, {probeNodesKey, string(nodesJSON)}}
 	// Plan 189 custom groups: validated in full before anything is written.
 	if req.Groups != nil {
-		groups, err := normalizeProbeGroups(*req.Groups, known)
+		groups, err := normalizeProbeGroups(probeGroupsFromAPI(*req.Groups), known, knownOld)
 		if err != nil {
 			response.WriteJSON(w, response.ErrDefault(err.Error()))
 			return

@@ -386,3 +386,33 @@ func TestLatencyBookMemory(t *testing.T) {
 		t.Fatalf("pairs %d, %.0f B per pair", b.Pairs(), per)
 	}
 }
+
+// TestKeyerSourceQualified: plan 195 — a 救命版 machine (negative id) gets a
+// key of its own source ("old:<id>"), never the FLVX key of the same number;
+// FLVX keys are unchanged.
+func TestKeyerSourceQualified(t *testing.T) {
+	k := NewKeyer("secret")
+	if k.Key(-35) == k.Key(35) || len(k.Key(-35)) != 10 || k.Key(-35) != NewKeyer("secret").Key(-35) {
+		t.Fatalf("old key %q vs flvx %q", k.Key(-35), k.Key(35))
+	}
+	if k.Key(-35) == NewKeyer("other").Key(-35) {
+		t.Fatal("key does not depend on the secret")
+	}
+}
+
+// TestBuildSnapshotSampleMaxAge: 救命版 rows arrive in batches; a 40 s old
+// sample is live data for such a machine but not for an FLVX node.
+func TestBuildSnapshotSampleMaxAge(t *testing.T) {
+	now := time.Now()
+	old := Sample{At: now.Add(-40 * time.Second).UnixMilli(), CPU: 12}
+	snap := BuildSnapshot(BuildInput{
+		Now:     now,
+		Nodes:   []NodeInput{{ID: 1, Name: "a"}, {ID: -2, Name: "b", SampleMaxAge: 45 * time.Second}},
+		Samples: map[int64]Sample{1: old, -2: old},
+		Online:  func(int64) bool { return true },
+		Key:     NewKeyer("s").Key,
+	})
+	if snap.Nodes[0].CPU != 0 || snap.Nodes[1].CPU != 12 {
+		t.Fatalf("cpu %v / %v", snap.Nodes[0].CPU, snap.Nodes[1].CPU)
+	}
+}

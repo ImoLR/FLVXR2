@@ -118,9 +118,16 @@ func NewKeyer(secret string) *Keyer {
 	return &Keyer{secret: []byte("flvx-probe:" + secret), keys: map[int64]string{}, ids: map[int64]int64{}}
 }
 
+// mac: FLVX node ids hash "node:<id>" (keys unchanged since plan 187); a
+// negative id is a 救命版 machine (plan 195) and hashes the source-qualified
+// "old:<id>", so the two id spaces never share a key.
 func (k *Keyer) mac(id int64) []byte {
 	m := hmac.New(sha256.New, k.secret)
-	m.Write([]byte("node:" + strconv.FormatInt(id, 10)))
+	if id < 0 {
+		m.Write([]byte("old:" + strconv.FormatInt(-id, 10)))
+	} else {
+		m.Write([]byte("node:" + strconv.FormatInt(id, 10)))
+	}
 	return m.Sum(nil)
 }
 

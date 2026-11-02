@@ -21,6 +21,12 @@ type ProbeNodeRow struct {
 	// cycle. The public page only ever gets the derived day count.
 	ExpiryTime   int64
 	RenewalCycle string
+	// Plan 195: addresses, only to match a 救命版 machine with this node
+	// (same machine running both agents). Never published.
+	ServerIP   string
+	ServerIPV4 string
+	ServerIPV6 string
+	ExtraIPs   string
 }
 
 func (r *Repository) ListProbeNodes() ([]ProbeNodeRow, error) {
@@ -28,7 +34,7 @@ func (r *Repository) ListProbeNodes() ([]ProbeNodeRow, error) {
 		return nil, errors.New("repository not initialized")
 	}
 	var nodes []model.Node
-	err := r.db.Select("id", "inx", "name", "region", "version", "expiry_time", "renewal_cycle").
+	err := r.db.Select("id", "inx", "name", "region", "version", "expiry_time", "renewal_cycle", "server_ip", "server_ip_v4", "server_ip_v6", "extra_ips").
 		Where("is_remote = ?", 0).
 		Order("inx ASC, id ASC").
 		Find(&nodes).Error
@@ -37,7 +43,8 @@ func (r *Repository) ListProbeNodes() ([]ProbeNodeRow, error) {
 	}
 	out := make([]ProbeNodeRow, 0, len(nodes))
 	for _, n := range nodes {
-		row := ProbeNodeRow{ID: n.ID, Inx: n.Inx, Name: n.Name, Region: n.Region, Version: n.Version.String, RenewalCycle: n.RenewalCycle.String}
+		row := ProbeNodeRow{ID: n.ID, Inx: n.Inx, Name: n.Name, Region: n.Region, Version: n.Version.String, RenewalCycle: n.RenewalCycle.String,
+			ServerIP: n.ServerIP, ServerIPV4: n.ServerIPV4.String, ServerIPV6: n.ServerIPV6.String, ExtraIPs: n.ExtraIPs.String}
 		if n.ExpiryTime.Valid && n.ExpiryTime.Int64 > 0 {
 			row.ExpiryTime = n.ExpiryTime.Int64
 		}

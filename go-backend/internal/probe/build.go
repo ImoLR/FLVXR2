@@ -17,6 +17,9 @@ type NodeInput struct {
 	// only the derived day count / cycle token are published.
 	ExpiryTime   int64
 	RenewalCycle string
+	// SampleMaxAge: how old the newest sample may be to count as live data
+	// (0 = 30 s). Plan 195: 救命版 machines report in batches → 45 s.
+	SampleMaxAge time.Duration
 }
 
 // Sample is the newest agent report of a node, kept in memory (1 s reports).
@@ -86,7 +89,11 @@ func BuildSnapshot(in BuildInput) Snapshot {
 				node.Days, node.Cycle = &d, cycle
 			}
 		}
-		if node.Online && has && now-s.At <= sampleMaxAge.Milliseconds() {
+		maxAge := sampleMaxAge
+		if n.SampleMaxAge > 0 {
+			maxAge = n.SampleMaxAge
+		}
+		if node.Online && has && now-s.At <= maxAge.Milliseconds() {
 			node.CPU = Round1(s.CPU)
 			node.Mem = Round1(s.Mem)
 			node.Disk = Round1(s.Disk)

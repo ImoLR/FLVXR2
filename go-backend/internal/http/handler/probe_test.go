@@ -122,7 +122,7 @@ func TestNormalizeProbeGroups(t *testing.T) {
 		{ID: 7, Name: "  IXP ", Nodes: []int64{1, 2, 2}},
 		{ID: 0, Name: "三网优化", Nodes: []int64{2, 3}},
 		{ID: 7, Name: "空组"},
-	}, known)
+	}, known, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -142,11 +142,11 @@ func TestNormalizeProbeGroups(t *testing.T) {
 		"unknown node":  {{Name: "IXP", Nodes: []int64{1, 99}}},
 		"negative node": {{Name: "IXP", Nodes: []int64{-1}}},
 	} {
-		if _, err := normalizeProbeGroups(bad, known); err == nil {
+		if _, err := normalizeProbeGroups(bad, known, nil); err == nil {
 			t.Fatalf("%s accepted", name)
 		}
 	}
-	if _, err := normalizeProbeGroups([]probeGroup{{Name: strings.Repeat("组", 20), Nodes: []int64{99}}}, nil); err != nil {
+	if _, err := normalizeProbeGroups([]probeGroup{{Name: strings.Repeat("组", 20), Nodes: []int64{99}}}, nil, nil); err != nil {
 		t.Fatalf("20 chars / no existence check on the generic path: %v", err)
 	}
 	if v, err := normalizeProbeConfigValue(probeGroupsKey, `[{"name":"IXP","nodes":[1]}]`); err != nil || v != `[{"id":1,"name":"IXP","nodes":[1]}]` {
