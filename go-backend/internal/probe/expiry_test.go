@@ -7,11 +7,13 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"go-backend/internal/renewal"
 )
 
 // tw builds a UTC+8 wall-clock time (tests read like the operators' clock).
 func tw(y int, m time.Month, d, hh, mm int) time.Time {
-	return time.Date(y, m, d, hh, mm, 0, 0, expiryZone)
+	return time.Date(y, m, d, hh, mm, 0, 0, renewal.Zone)
 }
 
 func TestExpiryDays(t *testing.T) {
@@ -63,10 +65,10 @@ func TestExpiryDays(t *testing.T) {
 			t.Errorf("expiry %d accepted", ms)
 		}
 	}
-	if days, _, _ := ExpiryDays(tw(9999, 12, 31, 0, 0).UnixMilli(), "", now); days != maxExpiryDays {
+	if days, _, _ := ExpiryDays(tw(9999, 12, 31, 0, 0).UnixMilli(), "", now); days != renewal.MaxDays {
 		t.Errorf("far future not clamped: %d", days)
 	}
-	if days, _, _ := ExpiryDays(1, "", now); days >= 0 || days < -maxExpiryDays {
+	if days, _, _ := ExpiryDays(1, "", now); days >= 0 || days < -renewal.MaxDays {
 		t.Errorf("1970 without cycle: %d", days)
 	}
 	if days, _, _ := ExpiryDays(1, "month", now); days < 0 || days > 31 {
@@ -124,5 +126,32 @@ func TestBuildSnapshotExpiry(t *testing.T) {
 	raw, _ = json.Marshal(off)
 	if bytes.Contains(raw, []byte(`"days"`)) || bytes.Contains(raw, []byte(`"cycle"`)) {
 		t.Fatalf("switch off still publishes: %s", raw)
+	}
+}
+
+// BenchmarkBuildSnapshotExpiry: 25 shown nodes (resource numbers in plan
+// 194); anchors one cycle in the past so every node rolls once.
+func BenchmarkBuildSnapshotExpiry(b *testing.B) {
+	now := tw(2026, 11, 2, 23, 30)
+	k := NewKeyer("s")
+	in := BuildInput{Title: "探针", LatencyOn: true, Now: now, Key: k.Key, Samples: map[int64]Sample{}, Edges: map[int64][]Edge{},
+		Online: func(int64) bool { return true }}
+	cycles := []string{"month", "year", "quarter", "halfYear", ""}
+	for i := int64(1); i <= 25; i++ {
+		in.Nodes = append(in.Nodes, NodeInput{ID: i, Name: "n" + strconv.FormatInt(i, 10), Region: "HK", Version: "3.0.27-fork.108 (debian/amd64)",
+			ExpiryTime: tw(2026, 10, int(i), 0, 0).UnixMilli(), RenewalCycle: cycles[i%5]})
+		in.Samples[i] = Sample{At: now.UnixMilli(), CPU: 10, Mem: 20, Uptime: 3600}
+		for j := int64(1); j <= 12; j++ {
+			in.Edges[i] = append(in.Edges[i], Edge{From: i, To: (i+j)%25 + 1, MS: 12.3, OK: true})
+		}
+	}
+	for _, on := range []bool{false, true} {
+		in.ExpiryOn = on
+		b.Run(map[bool]string{false: "off", true: "on"}[on], func(b *testing.B) {
+			b.ReportAllocs()
+			for i := 0; i < b.N; i++ {
+				_ = BuildSnapshot(in)
+			}
+		})
 	}
 }

@@ -1,0 +1,25 @@
+{
+  "comment": "Shared fixtures: Go renewal.Compute and the 节点 page TS helper getNodeRenewalSnapshot (TZ=Asia/Taipei) must agree on next (rolled due date) for every case with a cycle; days are calendar days in UTC+8 and equal the TS diffDays for 00:00 TW anchors (all prod anchors). tsDays marks the one deliberate difference (non-midnight anchor: TS rounds hours up). anchor null = no expiry.",
+  "cases": [
+    {"name": "month due 00:00 TW tomorrow at 23:30 TW", "anchor": "2026-11-03T00:00:00+08:00", "cycle": "month", "now": "2026-11-02T23:30:00+08:00", "next": "2026-11-03T00:00:00+08:00", "days": 1},
+    {"name": "month anchor a cycle in the past rolls once", "anchor": "2026-10-03T00:00:00+08:00", "cycle": "month", "now": "2026-11-02T23:30:00+08:00", "next": "2026-11-03T00:00:00+08:00", "days": 1},
+    {"name": "month due exactly now = today", "anchor": "2026-11-02T00:00:00+08:00", "cycle": "month", "now": "2026-11-02T00:00:00+08:00", "next": "2026-11-02T00:00:00+08:00", "days": 0},
+    {"name": "month 1 ms after due rolls to next month", "anchor": "2026-11-02T00:00:00+08:00", "cycle": "month", "now": "2026-11-02T00:00:00.001+08:00", "next": "2026-12-02T00:00:00+08:00", "days": 30},
+    {"name": "month 3 days", "anchor": "2026-11-05T00:00:00+08:00", "cycle": "month", "now": "2026-11-02T23:30:00+08:00", "next": "2026-11-05T00:00:00+08:00", "days": 3},
+    {"name": "month 7 days", "anchor": "2026-11-09T00:00:00+08:00", "cycle": "MONTH", "now": "2026-11-02T23:30:00+08:00", "next": "2026-11-09T00:00:00+08:00", "days": 7},
+    {"name": "month-end chain Jan 31 -> Mar 3 -> Apr 3 -> May 3", "anchor": "2026-01-31T00:00:00+08:00", "cycle": "month", "now": "2026-04-10T12:00:00+08:00", "next": "2026-05-03T00:00:00+08:00", "days": 23},
+    {"name": "quarter chain from Jan 31", "anchor": "2026-01-31T00:00:00+08:00", "cycle": "quarter", "now": "2026-11-02T23:30:00+08:00", "next": "2027-02-01T00:00:00+08:00", "days": 91},
+    {"name": "halfYear mixed case", "anchor": "2026-05-10T00:00:00+08:00", "cycle": " halfYear ", "now": "2026-11-02T23:30:00+08:00", "next": "2026-11-10T00:00:00+08:00", "days": 8},
+    {"name": "year rolls twice", "anchor": "2025-02-14T00:00:00+08:00", "cycle": "year", "now": "2026-11-02T23:30:00+08:00", "next": "2027-02-14T00:00:00+08:00", "days": 104},
+    {"name": "year anchored on the 1st (TW)", "anchor": "2026-03-01T00:00:00+08:00", "cycle": "year", "now": "2026-11-02T23:30:00+08:00", "next": "2027-03-01T00:00:00+08:00", "days": 119},
+    {"name": "year from Feb 29 chains to Mar 1", "anchor": "2024-02-29T00:00:00+08:00", "cycle": "year", "now": "2026-11-02T23:30:00+08:00", "next": "2027-03-01T00:00:00+08:00", "days": 119},
+    {"name": "monthly anchor in 1970 rolls ~680 steps", "anchor": "1970-01-01T08:00:00.001+08:00", "cycle": "month", "now": "2026-11-02T23:30:00+08:00", "next": "2026-12-01T08:00:00.001+08:00", "days": 29},
+    {"name": "UTC+8 midnight, not UTC", "anchor": "2026-11-04T00:00:00+08:00", "cycle": "month", "now": "2026-11-02T16:30:00Z", "next": "2026-11-04T00:00:00+08:00", "days": 1},
+    {"name": "non-midnight anchor: calendar days (TS rounds up)", "anchor": "2026-10-04T20:00:00+08:00", "cycle": "month", "now": "2026-11-02T08:00:00+08:00", "next": "2026-11-04T20:00:00+08:00", "days": 2, "tsDays": 3},
+    {"name": "no cycle, expired 3 days", "anchor": "2026-10-30T00:00:00+08:00", "cycle": "", "now": "2026-11-02T23:30:00+08:00", "next": "2026-10-30T00:00:00+08:00", "days": -3},
+    {"name": "no cycle, due today", "anchor": "2026-11-02T00:00:00+08:00", "cycle": "", "now": "2026-11-02T23:30:00+08:00", "next": "2026-11-02T00:00:00+08:00", "days": 0},
+    {"name": "no cycle, 12 days", "anchor": "2026-11-14T00:00:00+08:00", "cycle": "", "now": "2026-11-02T23:30:00+08:00", "next": "2026-11-14T00:00:00+08:00", "days": 12},
+    {"name": "unknown cycle never rolls", "anchor": "2026-10-30T00:00:00+08:00", "cycle": "weekly", "now": "2026-11-02T23:30:00+08:00", "next": "2026-10-30T00:00:00+08:00", "days": -3},
+    {"name": "no expiry", "anchor": null, "cycle": "month", "now": "2026-11-02T23:30:00+08:00"}
+  ]
+}
