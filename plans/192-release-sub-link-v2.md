@@ -11,8 +11,11 @@ fixed here. Panel only: **no OTA, no agent change, no DB change**. Prod settings
 
 ## Checklist
 - [x] Pre-checks: no other release running, prod = fork.106, latest tag fork.106, head CI green, plan 192 free
-- [ ] Release branch + this plan doc
-- [ ] Gates on release head: backend build/vet, go test SQLite + PostgreSQL, frontend tsc/build/lint (vs fork.106)
+- [x] Release branch + this plan doc
+- [x] Gates on release head: backend build/vet, go test SQLite + PostgreSQL, frontend tsc/build/lint (vs fork.106)
+  - build ok; vet = same 5 leikwan/testapi findings; go test 22/22 packages ok SQLite and 22/22 PostgreSQL, 0 FAIL
+  - frontend: `npm ci` refuses the lockfile with this host's npm (lockfile unchanged since fork.106) → `npm install
+    --no-package-lock`; tsc ok, vite build ok, eslint 3887 problems (94 errors) = identical to fork.106, same file list
 - [ ] Push branch → CI Build Check green; tag `3.0.27-fork.107` → Build and Push Images green
 - [ ] Release validated: Latest, not prerelease, same asset set as fork.106, pins, gost sha256, ghcr amd64+arm64
 - [ ] Baselines: panel CPU/RSS, health, nodes online, real-rule client check, runtime state snapshot
