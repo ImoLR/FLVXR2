@@ -9,6 +9,7 @@ import { resetSubLinkSwitchCheck } from "@/api/sub-link";
 import { Card, CardBody, CardHeader } from "@/shadcn-bridge/heroui/card";
 import { DNSProviderCard } from "@/pages/node/dns-provider-card";
 import { ProbeSettingsCard } from "@/pages/probe-settings-card";
+import { TelegramBotCard } from "@/pages/telegram-bot-card";
 import { Input } from "@/shadcn-bridge/heroui/input";
 import { Textarea } from "@/shadcn-bridge/heroui/input";
 import { Spinner } from "@/shadcn-bridge/heroui/spinner";
@@ -1248,6 +1249,8 @@ export default function ConfigPage() {
             )}
           </CardBody>
         </Card>
+        {/* Telegram 通知 bot：到期提醒 + 已续费（plan 196） */}
+        <TelegramBotCard />
         {/* 主题设置
       <div className="mt-6 shadow-md">
         <ThemeSettings />

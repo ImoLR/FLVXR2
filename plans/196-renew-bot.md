@@ -43,15 +43,15 @@ never asks anyone to edit dates.
 
 ## Checklist
 - [x] Plan doc
-- [ ] Backend: models + migrations, repo methods (chats, sent, ack, prune, renewal nodes, node dismissal), config key hiding
+- [x] Backend: models + migrations, repo methods (chats, sent, ack, prune, renewal nodes, node dismissal), config key hiding
       + export strip, node/list `expiryReminderDismissedUntil`
-- [ ] Backend: `internal/tgbot` (client + redaction, signing, settings, reminder selection, texts, manager loop / back-off /
+- [x] Backend: `internal/tgbot` (client + redaction, signing, settings, reminder selection, texts, manager loop / back-off /
       daily run / updates / bind codes / test send / status)
-- [ ] Backend: handler glue (machines FLVX + 救命版, renewed hook, admin API `config/tgbot*`, start/stop with jobs), admin
+- [x] Backend: handler glue (machines FLVX + 救命版, renewed hook, admin API `config/tgbot*`, start/stop with jobs), admin
       middleware
-- [ ] Unit tests (tgbot): signing / forgery, settings validation, reminder selection (rolling, N list, mute, ack), texts,
+- [x] Unit tests (tgbot): signing / forgery, settings validation, reminder selection (rolling, N list, mute, ack), texts,
       back-off sequence + log throttle, token redaction, fake-server client
-- [ ] Contract tests SQLite + PostgreSQL with a fake Telegram server: bind flow, wrong chat ignored, forged callback
+- [x] Contract tests SQLite + PostgreSQL with a fake Telegram server: bind flow, wrong chat ignored, forged callback
       rejected, 已续费 / 不再提醒 effects incl. FLVX dismissal + 救命版 untouched, dedupe across restart, rolling reset,
       missed-send catch-up, token never returned / logged, generic config API refusal, export strip
 - [ ] Frontend: 「Telegram 通知」 card + API; 节点 card colour honours dismissed-until; dashboard list skips dismissed

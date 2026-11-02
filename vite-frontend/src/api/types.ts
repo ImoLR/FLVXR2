@@ -32,6 +32,8 @@ export interface NodeApiItem extends LeiKwanNodeDetection {
   expiryTime?: number;
   renewalCycle?: "month" | "quarter" | "halfYear" | "halfyear" | "" | "year";
   expiryReminderDismissed?: number;
+  /** Plan 196: dismissed until (unix seconds), set by 「已续费」 in Telegram. */
+  expiryReminderDismissedUntil?: number | null;
   syncError?: string;
   // 周期流量统计
   periodTraffic?: {

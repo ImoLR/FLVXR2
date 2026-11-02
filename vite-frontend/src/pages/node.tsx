@@ -274,6 +274,14 @@ const EXPIRING_SOON_DAYS = 7;
 
 type NodeExpiryState = "permanent" | "healthy" | "expiringSoon" | "expired";
 type NodeFilterMode = "all" | "expiringSoon" | "expired" | "withExpiry";
+// Dismissed = expiry_reminder_dismissed, limited by dismissed-until when set
+// (plan 196: 「已续费」 in Telegram lasts until that cycle's due date).
+const isExpiryReminderDismissed = (node: Node): boolean =>
+  node.expiryReminderDismissed === 1 &&
+  !(
+    node.expiryReminderDismissedUntil &&
+    node.expiryReminderDismissedUntil * 1000 < Date.now()
+  );
 const getNodeReminderEnabled = (node: Node): boolean => {
   return !!node.expiryTime && node.expiryTime > 0 && !!node.renewalCycle;
 };
@@ -2204,7 +2212,7 @@ export default function NodePage() {
       <Card
         key={node.id}
         className={`group relative overflow-visible shadow-sm border border-divider hover:shadow-md transition-shadow duration-200 h-full flex flex-col ${
-          node.expiryReminderDismissed ? "" : expiryMeta.accentClassName
+          isExpiryReminderDismissed(node) ? "" : expiryMeta.accentClassName
         }`}
         data-node-card="true"
       >

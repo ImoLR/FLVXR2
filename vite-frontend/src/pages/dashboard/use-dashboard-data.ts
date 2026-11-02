@@ -237,11 +237,18 @@ const normalizeTunnelPermissions = (items: DashboardUserTunnel[]) => {
   }));
 };
 
+// Plan 196: 「已续费」 in Telegram dismisses this cycle (until its due date).
+const renewedThisCycle = (item: NodeApiItem, now: number) =>
+  item.expiryReminderDismissed === 1 &&
+  !!item.expiryReminderDismissedUntil &&
+  item.expiryReminderDismissedUntil * 1000 >= now;
+
 const normalizeNodeExpiryReminders = (items: NodeApiItem[]) => {
   const now = Date.now();
   const warningWindowMs = 7 * 24 * 60 * 60 * 1000;
 
   return (items || [])
+    .filter((item) => !renewedThisCycle(item, now))
     .map((item) => ({
       id: item.id,
       name: item.name || "",
