@@ -242,9 +242,23 @@ var privateCIDRs = []string{
 // fake-ip template using the client's built-in GEOSITE / GEOIP data (no rule
 // lists downloaded from FLVX); 全部走代理 needs no geo data at all. It returns
 // the YAML and how many nodes it contains.
+//
+// Plan 193: the document is written by the small block-YAML writer in
+// clash_yaml.go (byte-identical to the yaml.v3 output of fork.107, ~1/30 of
+// the allocations); a document with a string the writer does not handle
+// (line breaks, invalid UTF-8) goes through yaml.v3 as before.
 func Clash(nodes []Node, mode string, stash bool) ([]byte, int) {
-	proxies := []omap{}
-	names := []string{}
+	doc, n := clashDoc(nodes, mode, stash)
+	if out, ok := writeBlockYAML(doc, 1024+len(nodes)*320); ok {
+		return out, n
+	}
+	return clashYAMLv3(doc), n
+}
+
+// clashDoc builds the ordered Clash document and its node count.
+func clashDoc(nodes []Node, mode string, stash bool) (omap, int) {
+	proxies := make([]omap, 0, len(nodes))
+	names := make([]string, 0, len(nodes))
 	for _, n := range nodes {
 		if p, ok := clashProxy(n, stash); ok {
 			proxies = append(proxies, p)
@@ -291,10 +305,16 @@ func Clash(nodes []Node, mode string, stash bool) ([]byte, int) {
 		{"proxy-groups", groups},
 		{"rules", rules},
 	}
+	return doc, len(names)
+}
+
+// clashYAMLv3 is the fork.107 encoder (yaml.v3 through omap.MarshalYAML),
+// kept for documents writeBlockYAML refuses and as the test oracle.
+func clashYAMLv3(doc omap) []byte {
 	var b strings.Builder
 	enc := yaml.NewEncoder(&b)
 	enc.SetIndent(2)
 	_ = enc.Encode(doc)
 	_ = enc.Close()
-	return []byte(b.String()), len(names)
+	return []byte(b.String())
 }
