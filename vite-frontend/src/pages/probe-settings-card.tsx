@@ -13,7 +13,13 @@ import { Card, CardBody, CardHeader } from "@/shadcn-bridge/heroui/card";
 import { Divider } from "@/shadcn-bridge/heroui/divider";
 import { Input } from "@/shadcn-bridge/heroui/input";
 import { Switch } from "@/shadcn-bridge/heroui/switch";
-import { regionFlag } from "@/utils/region";
+import {
+  REGION_CODES,
+  compareRegions,
+  regionFlag,
+  regionLabel,
+  regionName,
+} from "@/utils/region";
 import { useMobileBreakpoint } from "@/hooks/useMobileBreakpoint";
 import {
   ProbeGroupPicker,
@@ -23,6 +29,15 @@ import {
 // Plan 187 设置 → 公开探针页: title, optional probe-only domain, latency on/off
 // and per-node 「在探针显示」 + 探针显示名. The on/off switch itself stays in
 // 快捷开关 (login_monitor_link). Plan 189 adds 探针分组 + 默认分组方式.
+// Plan 195: machines that only run in the 救命版 are listed too (negative ids,
+// default hidden) with a source chip, a 地区 select, search and bulk show/hide.
+
+const REGION_OPTIONS = [...REGION_CODES].sort(compareRegions);
+const SOURCE_CHIP =
+  "inline-flex shrink-0 items-center rounded-full px-1.5 py-px align-middle text-[10px] font-semibold leading-4";
+const BULK =
+  "rounded-full px-2.5 py-1 text-xs font-semibold transition-colors disabled:pointer-events-none disabled:opacity-40";
+
 export function ProbeSettingsCard({ enabled }: { enabled: boolean }) {
   const [loaded, setLoaded] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -34,6 +49,8 @@ export function ProbeSettingsCard({ enabled }: { enabled: boolean }) {
   const [nodes, setNodes] = useState<ProbeAdminNode[]>([]);
   const [groups, setGroups] = useState<ProbeAdminGroup[]>([]);
   const [groupMode, setGroupMode] = useState<ProbeGroupMode>("region");
+  const [oldPanel, setOldPanel] = useState<"" | "ok" | "error">("");
+  const [query, setQuery] = useState("");
   const [initial, setInitial] = useState("");
   // Phones: 显示名 goes under the name (plan 189), so the name keeps its room.
   const narrow = useMobileBreakpoint(640);
@@ -52,7 +69,12 @@ export function ProbeSettingsCard({ enabled }: { enabled: boolean }) {
         t.trim(),
         d.trim(),
         l,
-        n.map((x) => [x.id, x.hidden, x.probeName.trim()]),
+        n.map((x) => [
+          x.id,
+          x.hidden,
+          x.probeName.trim(),
+          x.regionOverride ?? "",
+        ]),
         g.map((x) => [x.id, x.name, [...x.nodes].sort((a, b) => a - b)]),
         m,
         e,
@@ -73,6 +95,7 @@ export function ProbeSettingsCard({ enabled }: { enabled: boolean }) {
       setNodes(d.nodes);
       setGroups(d.groups ?? []);
       setGroupMode(d.groupMode ?? "region");
+      setOldPanel(d.oldPanel ?? "");
       setInitial(
         snapshot(
           d.title,
@@ -133,11 +156,16 @@ export function ProbeSettingsCard({ enabled }: { enabled: boolean }) {
         title: title.trim(),
         domain: domain.trim(),
         latency,
-        nodes: nodes.map((n) => ({
-          id: n.id,
-          hidden: n.hidden,
-          probeName: n.probeName.trim(),
-        })),
+        nodes: nodes.map((n) =>
+          n.source === "old"
+            ? {
+                id: n.id,
+                hidden: n.hidden,
+                probeName: n.probeName.trim(),
+                region: n.regionOverride ?? "",
+              }
+            : { id: n.id, hidden: n.hidden, probeName: n.probeName.trim() },
+        ),
         groups: groups.map((g) => ({
           id: g.id > 0 ? g.id : 0,
           name: g.name.trim(),
@@ -160,6 +188,7 @@ export function ProbeSettingsCard({ enabled }: { enabled: boolean }) {
         setNodes(fresh.data.nodes);
         setGroups(fresh.data.groups ?? []);
         setGroupMode(fresh.data.groupMode ?? "region");
+        setOldPanel(fresh.data.oldPanel ?? "");
         setInitial(
           snapshot(
             fresh.data.title,
@@ -179,6 +208,89 @@ export function ProbeSettingsCard({ enabled }: { enabled: boolean }) {
 
   const setNode = (id: number, patch: Partial<ProbeAdminNode>) =>
     setNodes((list) => list.map((n) => (n.id === id ? { ...n, ...patch } : n)));
+  // Plan 195: chips / search / bulk only matter once the 救命版 source is set.
+  const oldOn = oldPanel !== "";
+  const oldCount = useMemo(
+    () => nodes.filter((n) => n.source === "old").length,
+    [nodes],
+  );
+  const q = query.trim().toLowerCase();
+  const visible = useMemo(
+    () =>
+      q === ""
+        ? nodes
+        : nodes.filter((n) =>
+            [
+              n.name,
+              n.probeName,
+              n.oldMatch ?? "",
+              regionName(n.region),
+              n.source === "old" ? "救命版" : "转发面板",
+            ].some((v) => v.toLowerCase().includes(q)),
+          ),
+    [nodes, q],
+  );
+  const setAllVisible = (show: boolean) => {
+    const ids = new Set(visible.map((n) => n.id));
+
+    setNodes((list) =>
+      list.map((n) => (ids.has(n.id) ? { ...n, hidden: !show } : n)),
+    );
+  };
+  const sourceChips = (n: ProbeAdminNode) => {
+    if (!oldOn) return null;
+    if (n.source === "old")
+      return (
+        <span
+          className={`${SOURCE_CHIP} ml-1.5 bg-amber-500/15 text-amber-700 dark:bg-amber-400/20 dark:text-amber-200`}
+        >
+          救命版
+        </span>
+      );
+
+    return (
+      <>
+        <span
+          className={`${SOURCE_CHIP} ml-1.5 border border-divider text-default-500`}
+        >
+          转发面板
+        </span>
+        {n.oldMatch && (
+          <span
+            className={`${SOURCE_CHIP} ml-1 border border-amber-500/40 text-amber-700 dark:text-amber-300`}
+            title={`救命版里也有这台（叫「${n.oldMatch}」），探针只显示一张卡片，用转发面板的数据`}
+          >
+            救命版同机
+          </span>
+        )}
+      </>
+    );
+  };
+  // 救命版 has no region: GeoIP by default, admin may pick one (plan 195).
+  const regionSelect = (n: ProbeAdminNode, cls: string) => (
+    <select
+      aria-label={`${n.name} 的地区`}
+      className={`h-8 rounded-md border border-divider bg-transparent px-1.5 text-sm outline-none focus:border-teal-500 disabled:opacity-50 dark:[color-scheme:dark] ${cls}`}
+      disabled={n.hidden}
+      title="救命版没有地区信息，默认按 IP 自动识别，不准可以在这里改"
+      value={n.regionOverride ?? ""}
+      onChange={(e) =>
+        setNode(n.id, {
+          regionOverride: e.target.value,
+          region: e.target.value || n.regionAuto || "",
+        })
+      }
+    >
+      <option value="">
+        {n.regionAuto ? `自动 · ${regionLabel(n.regionAuto)}` : "自动 · 未识别"}
+      </option>
+      {REGION_OPTIONS.map((code) => (
+        <option key={code} value={code}>
+          {regionLabel(code)}
+        </option>
+      ))}
+    </select>
+  );
   // 显示名: right of the name on wide screens, under it on phones (plan 189).
   const nameInput = (n: ProbeAdminNode, cls: string) => (
     <input
@@ -288,14 +400,57 @@ export function ProbeSettingsCard({ enabled }: { enabled: boolean }) {
               显示 {shownCount} / {nodes.length}
             </span>
           </div>
+          {oldOn && (
+            <p className="mb-2 text-xs text-gray-400 dark:text-gray-500">
+              {oldPanel === "error" ? (
+                <span className="text-amber-600 dark:text-amber-300">
+                  救命版的数据暂时读不到，它的机器先不列出；已经选好的设置会保留。
+                </span>
+              ) : (
+                <>
+                  也列出了只在救命版里的 {oldCount}{" "}
+                  台机器（只读救命版的数据，不用装新程序），默认不显示，打开想要的即可。两边都有的机器只算一台，用转发面板的数据。
+                </>
+              )}
+            </p>
+          )}
+          {(oldOn || nodes.length > 12) && (
+            <div className="mb-2 flex flex-wrap items-center gap-2">
+              <input
+                aria-label="搜索服务器"
+                className="h-8 w-0 min-w-0 flex-1 rounded-md border border-divider bg-transparent px-2 text-sm outline-none placeholder:text-default-400 focus:border-teal-500 sm:max-w-xs"
+                placeholder="搜索名称、地区或「救命版」"
+                type="search"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+              />
+              <button
+                className={`${BULK} bg-green-500/15 text-green-700 hover:bg-green-500/25 dark:bg-green-400/20 dark:text-green-300`}
+                disabled={visible.length === 0}
+                type="button"
+                onClick={() => setAllVisible(true)}
+              >
+                {q ? "这些全部显示" : "全部显示"}
+              </button>
+              <button
+                className={`${BULK} border border-divider text-default-600 hover:bg-slate-500/10`}
+                disabled={visible.length === 0}
+                type="button"
+                onClick={() => setAllVisible(false)}
+              >
+                {q ? "这些全部隐藏" : "全部隐藏"}
+              </button>
+            </div>
+          )}
           <div
             className={`${groups.length > 0 ? "max-h-[28rem]" : "max-h-80"} overflow-y-auto rounded-lg border border-divider`}
           >
-            {nodes.map((n) => (
+            {visible.map((n) => (
               <div
                 key={n.id}
                 className="flex items-center gap-3 border-b border-divider px-3 py-2 last:border-b-0"
                 data-probe-node={n.name}
+                data-probe-source={n.source ?? "flvx"}
               >
                 <Switch
                   aria-label={`在探针显示 ${n.name}`}
@@ -312,6 +467,7 @@ export function ProbeSettingsCard({ enabled }: { enabled: boolean }) {
                     <span
                       className={`ml-2 inline-block h-1.5 w-1.5 rounded-full align-middle ${n.online ? "bg-green-500" : "bg-default-300"}`}
                     />
+                    {sourceChips(n)}
                   </div>
                   {groups.length > 0 && (
                     <div className="mt-1">
@@ -324,14 +480,27 @@ export function ProbeSettingsCard({ enabled }: { enabled: boolean }) {
                       />
                     </div>
                   )}
-                  {narrow && nameInput(n, "mt-1.5 w-full")}
+                  {narrow && (
+                    <div className="mt-1.5 flex gap-1.5">
+                      {nameInput(n, "min-w-0 flex-1")}
+                      {n.source === "old" && regionSelect(n, "w-28 shrink-0")}
+                    </div>
+                  )}
                 </div>
+                {!narrow &&
+                  n.source === "old" &&
+                  regionSelect(n, "w-32 shrink-0")}
                 {!narrow && nameInput(n, "w-40 shrink-0")}
               </div>
             ))}
             {loaded && nodes.length === 0 && (
               <div className="px-3 py-4 text-center text-xs text-default-400">
                 还没有节点
+              </div>
+            )}
+            {loaded && nodes.length > 0 && visible.length === 0 && (
+              <div className="px-3 py-4 text-center text-xs text-default-400">
+                没有找到「{query.trim()}」
               </div>
             )}
           </div>
