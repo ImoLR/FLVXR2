@@ -656,7 +656,7 @@ func (h *Handler) subValidate(ctx context.Context, uid int64, req *subSaveReq) (
 		kept = append(kept, ref)
 	}
 	if total > model.MaxSubscriptionNodes {
-		return nil, fmt.Errorf("一条订阅最多 %d 个节点，现在是 %d 个，请先移除一些", model.MaxSubscriptionNodes, total)
+		return nil, fmt.Errorf("每条订阅最多 %d 个节点，现在是 %d 个，如需更多请联系管理员", model.MaxSubscriptionNodes, total)
 	}
 	return kept, nil
 }

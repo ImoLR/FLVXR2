@@ -272,7 +272,8 @@ export function SubSourcesDialog({
                       <span className="block text-xs text-amber-700 dark:text-amber-300">
                         这个订阅有{" "}
                         {preview.total || "超过 " + (preview.maxNodes || 100)}{" "}
-                        个节点，只保留前 {preview.maxNodes || 100} 个
+                        个节点，只保留前 {preview.maxNodes || 100}{" "}
+                        个，如需更多请联系管理员
                       </span>
                     )}
                   </span>

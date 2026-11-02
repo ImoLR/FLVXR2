@@ -265,8 +265,9 @@ export function SubEditor({
   // Plan 193: at most maxNodes (100) nodes per subscription.
   const maxNodes = pool?.maxNodes || 100;
   const over = nodeTotal > maxNodes;
-  const capMsg = (total: number) =>
-    `一条订阅最多 ${maxNodes} 个节点，加入后是 ${total} 个，先移除一些再加`;
+  // Plan 197: over-limit hints point to the admin (~4 s toast).
+  const capToast = { id: "sub-node-cap", duration: 4000 };
+  const capMsg = `每条订阅最多 ${maxNodes} 个节点，如需更多请联系管理员`;
 
   const groups: Group[] = useMemo(() => {
     if (!pool) return [];
@@ -330,7 +331,7 @@ export function SubEditor({
   });
   const add = (n: SubPoolNode, g: Group) => {
     if (!keys.has(n.key) && nodeTotal + 1 > maxNodes) {
-      toast.error(capMsg(nodeTotal + 1));
+      toast.error(capMsg, capToast);
 
       return;
     }
@@ -346,7 +347,7 @@ export function SubEditor({
     const adding = g.nodes.filter((n) => !keys.has(n.key)).length;
 
     if (nodeTotal + adding > maxNodes) {
-      toast.error(capMsg(nodeTotal + adding));
+      toast.error(capMsg, capToast);
 
       return;
     }
@@ -367,7 +368,7 @@ export function SubEditor({
       const total = nodeTotal - singles + s.nodeCount;
 
       if (total > maxNodes) {
-        toast.error(capMsg(total));
+        toast.error(capMsg, capToast);
 
         return;
       }
@@ -404,7 +405,8 @@ export function SubEditor({
   const save = async () => {
     if (over) {
       toast.error(
-        `一条订阅最多 ${maxNodes} 个节点，现在是 ${nodeTotal} 个，请先移除一些`,
+        `每条订阅最多 ${maxNodes} 个节点，现在是 ${nodeTotal} 个，如需更多请联系管理员`,
+        capToast,
       );
 
       return;
@@ -637,8 +639,8 @@ export function SubEditor({
       )}
       {over && (
         <p className="border-b border-divider bg-red-500/10 px-3 py-1.5 text-xs text-red-700 dark:text-red-300">
-          超过 {maxNodes} 个节点的上限：客户端只会拿到前 {maxNodes} 个，请移除{" "}
-          {nodeTotal - maxNodes} 个再保存
+          超过 {maxNodes} 个节点的上限：客户端只会拿到前 {maxNodes}{" "}
+          个，如需更多请联系管理员
         </p>
       )}
       <div
