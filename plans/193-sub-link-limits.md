@@ -68,3 +68,7 @@ right away (fork.108, panel only, no OTA). Base = `3.0.27-fork.107` (db582010), 
   limiter before its refund — pre-existing, real clients pull one at a time.)
 - Screens (synthetic data) at http://104.145.236.29:8791/sub-link-limits/ — editor 120/100 + notice,
   101st node blocked, source 「这个订阅有 150 个节点，只保留前 100 个」, Snell TLS-obfs link note.
+
+## Release (fork.108)
+- Branch `maintenance/3.0.27-fork.108-sub-link-limits` = feature head eda0160d + this note; tag `3.0.27-fork.108`.
+- Panel only, no OTA, no DB schema/data change. Rollback = `pre-fork108-*/rollback.sh` (no --restore-db).
