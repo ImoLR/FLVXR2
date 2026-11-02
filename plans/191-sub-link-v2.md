@@ -19,9 +19,9 @@ Panel only, no agent change, no OTA, no DB change, no new goroutines/timers, sam
 - [x] 7. Text: browser HTML page client list + 订阅 page QR hint (no layout change)
 - [x] 8. Unit tests (protocol × client, skip, empty, names, rule modes, managed line, real UA strings) + handler/contract tests
 - [x] 9. Sub-Store parser round-trip oracle (test only, deleted afterwards)
-- [ ] 10. Demo panel: curl with each UA, samples; render timing 300 nodes (Surge / QX cold + cached vs Clash)
-- [ ] 11. Gates: go build / vet / test (SQLite + PostgreSQL contract), frontend tsc / build / lint vs base; push; CI green
-- [ ] 12. Gallery :8791 /sub-link-v2/ + `runs/sub-link-v2/release-notes.md` + summary
+- [x] 10. Demo panel: curl with each UA, samples; render timing 300 nodes (Surge / QX cold + cached vs Clash)
+- [x] 11. Gates: go build / vet / test (SQLite + PostgreSQL contract), frontend tsc / build / lint vs base; push; CI green
+- [x] 12. Gallery :8791 /sub-link-v2/ + `runs/sub-link-v2/release-notes.md` + summary
 
 ## Support matrix
 
@@ -81,4 +81,15 @@ Same for WebSocket paths with a comma (Surge / QX). Unsupported → left out sil
   SNI / Reality key+sid / flow / obfs / pin / skip-cert-verify per node. Result: Surge 16/16, Surfboard 18/18,
   Loon 20/20, QX 17/17 (matrix + escaping + IPv6 + insecure + pinned nodes). Two fixes came out of it: Surge cannot
   carry a comma inside a quoted password (node now skipped), Loon `salamander-password` must be unquoted.
+- Demo panel (local netns, synthetic SQLite, demo-only resolver file never committed): one subscription with 9 panel
+  nodes + 3 external + 3 airport sources → Clash 63 / Base64 60 / Surge 46 / Surfboard 47 / Loon 58 / QX 49 nodes; the
+  panel output parsed back by the Sub-Store oracle 46/46, 47/47, 58/58, 49/49. Headers as listed in the release notes.
+- Resource numbers (300 mixed nodes, loopback HTTP, 2 rounds): cold Clash 54 / 43 ms, Surge 3.2 / 1.6 ms,
+  Surfboard 1.7 / 1.7 ms, Loon 2.5 / 3.1 ms, QX 1.7 / 1.6 ms; cached all 0.5–0.75 ms. Generator alone (Go benchmark,
+  300 nodes): Clash 49.7 ms / 56 MB allocated, Surge 0.20 ms / 0.35 MB, Surfboard 0.22 ms, Loon 0.29 ms, QX 0.25 ms.
+  Panel RSS 40 → 38 MB; `/s/` pulls log nothing. (Plan 185's Clash 300-node number was 5–84 ms cold, 1–2 ms cached.)
+- Gates: go build / vet (5 known leikwan/testapi findings only), go test ./... all 34 packages OK incl. contract on
+  SQLite + PostgreSQL 18; frontend tsc + vite build OK, eslint + prettier clean (base clean too); CI Build Check green.
+- Gallery: http://104.145.236.29:8791/sub-link-v2/ ; release notes `runs/sub-link-v2/release-notes.md`.
+- Not verified: no Surge / Surfboard / Loon / Quantumult X app on this box — real import + connection untested.
 
