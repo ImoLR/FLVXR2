@@ -54,9 +54,17 @@ never asks anyone to edit dates.
 - [x] Contract tests SQLite + PostgreSQL with a fake Telegram server: bind flow, wrong chat ignored, forged callback
       rejected, 已续费 / 不再提醒 effects incl. FLVX dismissal + 救命版 untouched, dedupe across restart, rolling reset,
       missed-send catch-up, token never returned / logged, generic config API refusal, export strip
-- [ ] Frontend: 「Telegram 通知」 card + API; 节点 card colour honours dismissed-until; dashboard list skips dismissed
-- [ ] Gates: go build / vet, `go test ./...` SQLite + PG, tsc / build / lint
-- [ ] Resource numbers (idle = 0 goroutines; running = 1 goroutine + 1 connection; CPU / RSS; daily run cost)
-- [ ] Demo + screens 1440 / 390 light / dark (unset / bound / reminder list), gallery `/root/mmwx-preview/renew-bot/`,
-      sample messages
+- [x] Frontend: 「Telegram 通知」 card + API; 节点 card colour honours dismissed-until; dashboard list skips dismissed
+- [x] Gates: go build OK; go vet only the pre-existing `internal/leikwan/testapi` unkeyed-field notes; `go test ./...` with
+      `FLVX_POSTGRES_TEST_DSN` rc=0 (717 s, 25 packages, 0 failures; `TestTelegramBotContract/{sqlite,postgres}` both ran,
+      also `-race -count=2`); tsc 0 errors, vite build OK, eslint: new files clean, touched files same counts as base
+      (node.tsx 8 errors / 52 warnings before and after, pre-existing)
+- [x] Resource numbers (demo binary, loopback fake Telegram, 60 s each): no token → 0 bot goroutines / 0 connections /
+      CPU 0.0 % / RSS 36.1 MB; token but no chat → still idle; running (1 chat) → 1 loop goroutine + 1 keep-alive
+      connection, CPU 0.017 %, RSS 36.0 MB (unchanged), 2 long polls/min with the 25 s fake (≈ 1.2/min on Telegram's
+      50 s). Daily run: 12 messages in 11.0 s (= the 1 s spacing between sends); machine list (FLVX + 救命版) + card view
+      0.7–1.4 ms per call. One daily log line.
+- [x] Demo + screens: 24 screens (unset / token / bind code / bound + list / after 已续费 + 不再提醒 / Telegram side), 1440 +
+      390, light + dark, 14/14 checks, 0 page errors; gallery `/root/mmwx-preview/renew-bot/` (:8791/renew-bot/); demo runs in
+      a loopback-only netns (no route to Telegram)
 - [ ] Push, CI green; `runs/renew-bot/release-notes.md`; summary

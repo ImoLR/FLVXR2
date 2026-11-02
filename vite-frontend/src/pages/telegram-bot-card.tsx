@@ -317,28 +317,30 @@ export function TelegramBotCard() {
                 )}
               </span>
               <span className="flex-1" />
-              <Button
-                color="warning"
-                size="sm"
-                variant="flat"
-                onPress={() => {
-                  setEditingToken(true);
-                  setConfirmClear(false);
-                }}
-              >
-                更换
-              </Button>
-              <Button
-                color="danger"
-                isLoading={busy === "clear"}
-                size="sm"
-                variant="flat"
-                onPress={() =>
-                  confirmClear ? void clearToken() : setConfirmClear(true)
-                }
-              >
-                {confirmClear ? "确认删除？" : "删除"}
-              </Button>
+              <div className="flex gap-2">
+                <Button
+                  color="warning"
+                  size="sm"
+                  variant="flat"
+                  onPress={() => {
+                    setEditingToken(true);
+                    setConfirmClear(false);
+                  }}
+                >
+                  更换
+                </Button>
+                <Button
+                  color="danger"
+                  isLoading={busy === "clear"}
+                  size="sm"
+                  variant="flat"
+                  onPress={() =>
+                    confirmClear ? void clearToken() : setConfirmClear(true)
+                  }
+                >
+                  {confirmClear ? "确认删除？" : "删除"}
+                </Button>
+              </div>
             </div>
           ) : (
             <div className="space-y-2">
@@ -549,10 +551,12 @@ export function TelegramBotCard() {
               onChange={(e) => setDaysText(e.target.value)}
             />
             <Input
-              description="台湾时间"
+              description="台湾时间，24 小时制，例如 10:00"
+              inputMode="numeric"
               isDisabled={!enabled}
               label="发送时间"
-              type="time"
+              maxLength={5}
+              placeholder="10:00"
               value={time}
               onChange={(e) => setTime(e.target.value)}
             />

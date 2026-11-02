@@ -462,6 +462,11 @@ func (m *Manager) maybeDaily(ctx context.Context, client *Client, now time.Time)
 	if err := m.store.UpsertConfig(KeyLastRun, today, now.UnixMilli()); err != nil {
 		m.noteErr("save last run", err)
 	}
+	m.mu.Lock()
+	sent, ms := m.stats.LastDailySent, m.stats.LastDailyMs
+	m.mu.Unlock()
+	// One line per day.
+	m.opt.Logf("[tgbot] daily reminders %s: %d messages sent, %.1f ms", today, sent, ms)
 }
 
 // runDaily sends today's reminders that were not sent yet. A transient
