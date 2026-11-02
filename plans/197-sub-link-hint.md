@@ -28,7 +28,7 @@ N always comes from the API (`maxNodes`) / the Go constant, never a hard-coded 1
 - [x] runs/sub-link-hint/release-notes.md
 - [x] Clean demo panels, summary
 
-## Results (2026-11-03 00:30 TW)
+## Results (2026-11-03 00:10 TW)
 - Code commit 31a2682f; CI Build Check 41478146887 green.
 - `go build ./...` ok; `go test ./...` (SQLite) 22 packages ok, 0 FAIL (same as fork.108); PostgreSQL contract + handler
   tests (`FLVX_POSTGRES_TEST_DSN`, throwaway postgres:18 container, removed) ok.
