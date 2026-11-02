@@ -88,6 +88,8 @@ export interface LinkCardLink {
   kind?: "direct" | "forward";
   clash?: string;
   surge?: string;
+  /** plan 193: why a Snell node has no Surge line */
+  surgeNote?: string;
 }
 
 export function LandingLinkCard({
@@ -162,6 +164,9 @@ export function LandingLinkCard({
       {children}
       <LandingClientConfig label="Clash / mihomo" value={link.clash} />
       <LandingClientConfig label="Surge" value={link.surge} />
+      {link.surgeNote && (
+        <p className="text-xs text-default-500">{link.surgeNote}</p>
+      )}
     </div>
   );
 }

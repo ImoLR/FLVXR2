@@ -131,6 +131,9 @@ export interface SubPreview {
   info: number;
   invalid: number;
   truncated: boolean;
+  /** plan 193: nodes in the subscription (when truncated) and the cap */
+  total?: number;
+  maxNodes?: number;
   urlHint: string;
 }
 

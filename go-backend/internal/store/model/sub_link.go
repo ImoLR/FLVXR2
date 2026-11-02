@@ -52,8 +52,12 @@ type UserSubSource struct {
 func (UserSubSource) TableName() string { return "user_sub_source" }
 
 // Per-user caps (admins: unlimited subscriptions, same source cap).
+// Plan 193: 100 nodes per subscription (saved items and rendered output, a
+// followed source counts with its nodes) and the first 100 usable nodes of
+// an external subscription source.
 const (
 	MaxSubscriptionsPerUser = 5
 	MaxSubSourcesPerUser    = 3
-	MaxSubscriptionNodes    = 300
+	MaxSubscriptionNodes    = 100
+	MaxSubSourceNodes       = 100
 )

@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 	"unicode"
 
@@ -63,6 +64,10 @@ type subLinkState struct {
 	missRL   *ratelimit.Bucket
 	refusals ratelimit.Refusals
 
+	// Plan 193: cold-render slots and the number of pulls waiting for one.
+	slots   chan struct{}
+	waiting atomic.Int32
+
 	mu       sync.Mutex
 	previews map[string]*subPreview
 	flights  map[int64]*subFlight
@@ -76,6 +81,7 @@ func (h *Handler) subState() *subLinkState {
 	s := &h.subLink
 	s.once.Do(func() {
 		s.cache = newSubRenderCache(subCacheEntries, subCacheBytes, subRenderTTL)
+		s.slots = make(chan struct{}, subRenderSlots)
 		// 60 pulls per hour per subscription.
 		s.tokenRL = &ratelimit.Bucket{Burst: 60, Every: time.Minute, MaxKeys: 10000}
 		// Unknown tokens: 10 misses at once, then one per minute per address.
@@ -245,7 +251,12 @@ func (h *Handler) subLoad(ctx context.Context, userID int64, refs []sublink.Ref,
 		}
 		for id, s := range rows {
 			d.sources[id] = s
-			d.srcNodes[id] = sublink.ParseSourceNodes(s.CachedNodes)
+			nodes := sublink.ParseSourceNodes(s.CachedNodes)
+			if len(nodes) > model.MaxSubSourceNodes {
+				// A cache written before plan 193 may hold more.
+				nodes = nodes[:model.MaxSubSourceNodes]
+			}
+			d.srcNodes[id] = nodes
 		}
 	}
 	return d, nil
@@ -275,10 +286,18 @@ func (d *subData) panelLink(ref sublink.Ref) (repo.SubPanelLink, bool) {
 	return repo.SubPanelLink{}, false
 }
 
-// resolve turns refs into nodes (in order) and card counts.
-func (d *subData) resolve(refs []sublink.Ref) ([]sublink.Node, subCounts) {
+// resolve turns refs into nodes (in order) and card counts. At most max
+// nodes are built (plan 193: a render needs only the first 100; the counts
+// still cover every node, so an over-limit subscription shows its total).
+func (d *subData) resolve(refs []sublink.Ref, max int) ([]sublink.Node, subCounts) {
 	nodes := []sublink.Node{}
 	c := subCounts{Sources: []subSourceCount{}}
+	keep := func(n sublink.Node) {
+		c.Total++
+		if len(nodes) < max {
+			nodes = append(nodes, n)
+		}
+	}
 	srcCount := map[int64]*subSourceCount{}
 	srcOrder := []int64{}
 	countSrc := func(id int64, all bool, n int) {
@@ -295,14 +314,14 @@ func (d *subData) resolve(refs []sublink.Ref) ([]sublink.Node, subCounts) {
 		switch ref.Kind {
 		case sublink.RefForwardLink, sublink.RefLandingDirect:
 			if l, ok := d.panelLink(ref); ok {
-				nodes = append(nodes, l.Node)
+				keep(l.Node)
 				c.Panel++
 				continue
 			}
 		case sublink.RefExternalNode:
 			if e, ok := d.externals[ref.ExternalID]; ok {
 				if n, ok := externalNode(e); ok {
-					nodes = append(nodes, n)
+					keep(n)
 					c.External++
 					continue
 				}
@@ -311,7 +330,7 @@ func (d *subData) resolve(refs []sublink.Ref) ([]sublink.Node, subCounts) {
 			if _, ok := d.sources[ref.SourceID]; ok {
 				list := d.srcNodes[ref.SourceID]
 				for _, sn := range list {
-					nodes = append(nodes, sn.Node())
+					keep(sn.Node())
 				}
 				countSrc(ref.SourceID, true, len(list))
 				continue
@@ -321,7 +340,7 @@ func (d *subData) resolve(refs []sublink.Ref) ([]sublink.Node, subCounts) {
 				found := false
 				for _, sn := range d.srcNodes[ref.SourceID] {
 					if sn.Name == ref.Name {
-						nodes = append(nodes, sn.Node())
+						keep(sn.Node())
 						countSrc(ref.SourceID, false, 1)
 						found = true
 						break
@@ -337,7 +356,6 @@ func (d *subData) resolve(refs []sublink.Ref) ([]sublink.Node, subCounts) {
 	for _, id := range srcOrder {
 		c.Sources = append(c.Sources, *srcCount[id])
 	}
-	c.Total = len(nodes)
 	return nodes, c
 }
 
@@ -384,7 +402,11 @@ func nodeDetail(n sublink.Node) string {
 }
 
 func subSourceView(s model.UserSubSource, usedBy int) map[string]interface{} {
-	return map[string]interface{}{"id": s.ID, "name": s.Name, "urlHint": s.URLHint, "nodeCount": s.NodeCount, "lastOkAt": s.LastOkAt,
+	count := s.NodeCount
+	if count > model.MaxSubSourceNodes {
+		count = model.MaxSubSourceNodes // pre-plan-193 cache, used as its first 100
+	}
+	return map[string]interface{}{"id": s.ID, "name": s.Name, "urlHint": s.URLHint, "nodeCount": count, "lastOkAt": s.LastOkAt,
 		"lastFetchAt": s.LastFetchAt, "lastError": s.LastError, "usedBy": usedBy}
 }
 
@@ -433,7 +455,7 @@ func (h *Handler) subList(w http.ResponseWriter, r *http.Request) {
 	views := []interface{}{}
 	for _, s := range subs {
 		refs := sublink.ParseRefs(s.Items)
-		_, counts := d.resolve(refs)
+		_, counts := d.resolve(refs, 0)
 		seen := map[int64]bool{}
 		for _, ref := range refs {
 			if (ref.Kind == sublink.RefSourceAll || ref.Kind == sublink.RefSourceNode) && !seen[ref.SourceID] {
@@ -593,7 +615,7 @@ type subSaveReq struct {
 }
 
 // subValidate checks a save request against the user's own data: only refs
-// that resolve are kept (other users' ids never do), at most 300 nodes.
+// that resolve are kept (other users' ids never do), at most 100 nodes.
 func (h *Handler) subValidate(ctx context.Context, uid int64, req *subSaveReq) ([]sublink.Ref, error) {
 	req.Name = landingsub.CleanName(strings.TrimSpace(req.Name))
 	if req.Name == "" {
@@ -620,7 +642,7 @@ func (h *Handler) subValidate(ctx context.Context, uid int64, req *subSaveReq) (
 	kept := make([]sublink.Ref, 0, len(refs))
 	total := 0
 	for _, ref := range refs {
-		nodes, c := d.resolve([]sublink.Ref{ref})
+		_, c := d.resolve([]sublink.Ref{ref}, 0)
 		if c.Missing > 0 {
 			continue
 		}
@@ -630,11 +652,11 @@ func (h *Handler) subValidate(ctx context.Context, uid int64, req *subSaveReq) (
 				ref = l.Ref
 			}
 		}
-		total += len(nodes)
+		total += c.Total
 		kept = append(kept, ref)
 	}
 	if total > model.MaxSubscriptionNodes {
-		return nil, fmt.Errorf("一条订阅最多 %d 个节点，现在是 %d 个", model.MaxSubscriptionNodes, total)
+		return nil, fmt.Errorf("一条订阅最多 %d 个节点，现在是 %d 个，请先移除一些", model.MaxSubscriptionNodes, total)
 	}
 	return kept, nil
 }
@@ -840,7 +862,8 @@ func (h *Handler) subFetchURL(ctx context.Context, raw string) (*landingsub.Resu
 	if err != nil {
 		return nil, err
 	}
-	return landingsub.ParseWith(body, landingsub.Options{AllowInsecure: true})
+	// Plan 193: only the first 100 usable nodes are parsed and kept.
+	return landingsub.ParseWith(body, landingsub.Options{AllowInsecure: true, MaxNodes: model.MaxSubSourceNodes})
 }
 
 func (h *Handler) subTakeFetch(uid int64) error {
@@ -885,7 +908,7 @@ func (h *Handler) subSourceFetch(w http.ResponseWriter, r *http.Request) {
 	}
 	id := h.subPutPreview(&subPreview{owner: uid, url: strings.TrimSpace(req.URL), nodes: nodes})
 	response.WriteJSON(w, response.OK(map[string]interface{}{"fetchId": id, "items": items, "count": len(nodes), "info": res.Info,
-		"invalid": res.Invalid, "truncated": res.Truncated, "urlHint": maskSourceURL(req.URL)}))
+		"invalid": res.Invalid, "truncated": res.Truncated, "total": res.Total, "maxNodes": model.MaxSubSourceNodes, "urlHint": maskSourceURL(req.URL)}))
 }
 
 func (h *Handler) subPutPreview(p *subPreview) string {
@@ -1099,6 +1122,26 @@ func (h *Handler) subDoFetch(src model.UserSubSource) (model.UserSubSource, erro
 	}
 	src.CachedNodes, src.NodeCount, src.LastOkAt, src.LastFetchAt, src.LastError = string(b), len(nodes), now, now, ""
 	return src, nil
+}
+
+// subRefreshRefs refetches the stale external sources refs point at (see
+// subRefreshStale); nothing to do for subscriptions without sources.
+func (h *Handler) subRefreshRefs(ctx context.Context, userID int64, refs []sublink.Ref) error {
+	var ids []int64
+	for _, ref := range refs {
+		if ref.Kind == sublink.RefSourceNode || ref.Kind == sublink.RefSourceAll {
+			ids = append(ids, ref.SourceID)
+		}
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+	rows, err := h.repo.SubSourcesByIDs(userID, ids)
+	if err != nil {
+		return err
+	}
+	h.subRefreshStale(ctx, rows)
+	return nil
 }
 
 // subRefreshStale refetches stale sources concurrently; the whole pull

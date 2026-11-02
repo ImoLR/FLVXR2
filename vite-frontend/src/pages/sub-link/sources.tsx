@@ -268,6 +268,13 @@ export function SubSourcesDialog({
                     获取到 <b>{preview.count}</b> 个可用节点
                     {unsupported > 0 && `（另有 ${unsupported} 个不支持）`}
                     {preview.info > 0 && `，跳过 ${preview.info} 条信息`}
+                    {preview.truncated && (
+                      <span className="block text-xs text-amber-700 dark:text-amber-300">
+                        这个订阅有{" "}
+                        {preview.total || "超过 " + (preview.maxNodes || 100)}{" "}
+                        个节点，只保留前 {preview.maxNodes || 100} 个
+                      </span>
+                    )}
                   </span>
                   <Button
                     color="success"

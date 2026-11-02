@@ -4,6 +4,7 @@ import (
 	"container/list"
 	"context"
 	"encoding/base64"
+	"errors"
 	"html/template"
 	"net/http"
 	"net/url"
@@ -123,8 +124,46 @@ const (
 	subFlavorSurfboard = "surfboard" // Surge profile limited to Surfboard
 )
 
+// Plan 193 burst guard: cold renders (cache misses) run at most
+// subRenderSlots at a time; a pull waits at most subRenderWait for a slot and
+// at most subRenderWaiters pulls wait at all, the rest get 503 at once.
+const (
+	subRenderSlots   = 3
+	subRenderWaiters = 16
+)
+
+var subRenderWait = 3 * time.Second // var: tests shorten it
+
+var errSubBusy = errors.New("sub link: render busy")
+
+// subRenderSlot takes a cold-render slot; release must be called when ok.
+func (st *subLinkState) subRenderSlot(ctx context.Context) (release func(), ok bool) {
+	select {
+	case st.slots <- struct{}{}:
+		return func() { <-st.slots }, true
+	default:
+	}
+	if st.waiting.Add(1) > subRenderWaiters {
+		st.waiting.Add(-1)
+		return nil, false
+	}
+	defer st.waiting.Add(-1)
+	t := time.NewTimer(subRenderWait)
+	defer t.Stop()
+	select {
+	case st.slots <- struct{}{}:
+		return func() { <-st.slots }, true
+	case <-t.C:
+	case <-ctx.Done():
+	}
+	return nil, false
+}
+
 // subRenderFor renders (or reuses) a subscription in one format; "count"
 // only resolves the nodes (browser page). flavor is "" or a subFlavor*.
+// Stale external sources are refetched first, outside the render slot (the
+// fetch is network-bound and single-flight per source); the slot covers the
+// database load, resolution and generation. errSubBusy: no slot in time.
 func (h *Handler) subRenderFor(ctx context.Context, s *model.UserSubscription, format, flavor string) (*subRender, error) {
 	st := h.subState()
 	key := s.Token + "|" + format
@@ -135,14 +174,23 @@ func (h *Handler) subRenderFor(ctx context.Context, s *model.UserSubscription, f
 		return v, nil
 	}
 	refs := sublink.ParseRefs(s.Items)
-	d, err := h.subLoad(ctx, s.UserID, refs, false, true)
+	if err := h.subRefreshRefs(ctx, s.UserID, refs); err != nil {
+		return nil, err
+	}
+	release, ok := st.subRenderSlot(ctx)
+	if !ok {
+		return nil, errSubBusy
+	}
+	defer release()
+	// Another pull of the same link may have rendered it while this one waited.
+	if v := st.cache.get(key); v != nil {
+		return v, nil
+	}
+	d, err := h.subLoad(ctx, s.UserID, refs, false, false)
 	if err != nil {
 		return nil, err
 	}
-	nodes, _ := d.resolve(refs)
-	if len(nodes) > model.MaxSubscriptionNodes {
-		nodes = nodes[:model.MaxSubscriptionNodes]
-	}
+	nodes, _ := d.resolve(refs, model.MaxSubscriptionNodes)
 	sublink.FinalizeNames(nodes)
 	v := &subRender{key: key, subID: s.ID, userID: s.UserID, at: time.Now()}
 	switch format {
@@ -170,6 +218,9 @@ func subPlain(w http.ResponseWriter, code int, msg string) {
 	w.Header().Set("Cache-Control", "no-store")
 	if code == http.StatusTooManyRequests {
 		w.Header().Set("Retry-After", "60")
+	}
+	if code == http.StatusServiceUnavailable {
+		w.Header().Set("Retry-After", "5")
 	}
 	w.WriteHeader(code)
 	_, _ = w.Write([]byte(msg))
@@ -294,6 +345,11 @@ func (h *Handler) subPublic(w http.ResponseWriter, r *http.Request) {
 	}
 	v, err := h.subRenderFor(r.Context(), s, format, flavor)
 	if err != nil {
+		if errors.Is(err, errSubBusy) {
+			st.refusals.Note("busy")
+			subPlain(w, http.StatusServiceUnavailable, "服务器繁忙，请过几秒再更新订阅")
+			return
+		}
 		subPlain(w, http.StatusServiceUnavailable, "暂时不可用，请稍后再试")
 		return
 	}

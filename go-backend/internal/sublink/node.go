@@ -162,14 +162,15 @@ func EntryKey(nodeID int64, host string) string {
 	return strconv.FormatInt(nodeID, 10) + "|" + strings.ToLower(strings.Trim(strings.TrimSpace(host), "[]"))
 }
 
-// MaxItems bounds the references of one subscription.
-const MaxItems = 300
+// MaxItems bounds the references of one subscription (plan 193: 100, the
+// same as model.MaxSubscriptionNodes; every kept reference is ≥1 node).
+const MaxItems = 100
 
 // CleanRefs validates and dedupes references (order kept). Unknown kinds or
 // empty ids are an error: they only come from a broken client.
 func CleanRefs(refs []Ref) ([]Ref, error) {
 	if len(refs) > MaxItems {
-		return nil, errors.New("订阅里的节点太多（最多 " + strconv.Itoa(MaxItems) + " 个）")
+		return nil, errors.New("一条订阅最多 " + strconv.Itoa(MaxItems) + " 个节点，现在是 " + strconv.Itoa(len(refs)) + " 个，请先移除一些")
 	}
 	out := make([]Ref, 0, len(refs))
 	seen := map[string]bool{}

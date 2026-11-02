@@ -244,6 +244,8 @@ export interface LandingLink {
   clash?: string;
   /** plan 121: Surge proxy line (Snell) */
   surge?: string;
+  /** plan 193: why a Snell node has no Surge line (v4/v5 + TLS obfs) */
+  surgeNote?: string;
 }
 export interface ServerQuota {
   serverKind: "node" | "landing";

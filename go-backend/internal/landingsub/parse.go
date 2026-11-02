@@ -47,6 +47,9 @@ type Options struct {
 	// them. Only for plan-185 subscription sources, where the user's own
 	// client connects; landing 链式代理 imports keep refusing them.
 	AllowInsecure bool
+	// MaxNodes > 0: stop after this many usable nodes (plan 193 subscription
+	// sources keep 100); 0 = MaxEntries entries as before.
+	MaxNodes int
 }
 
 // Result is a parsed subscription.
@@ -56,10 +59,20 @@ type Result struct {
 	Info int
 	// Invalid: lines that were not node links at all (or broken YAML items).
 	Invalid int
-	// Truncated: more than MaxEntries items; the rest were ignored.
+	// Truncated: more than MaxEntries items (or Options.MaxNodes usable
+	// nodes); the rest were ignored.
 	Truncated bool
+	// Total: proxies / link lines in the subscription (plan 193: shown as
+	// 「这个订阅有 N 个节点」 when truncated). Counted without parsing them.
+	Total int
 
-	opt Options
+	opt    Options
+	usable int
+}
+
+// full: a cap is reached (no further entry may be added).
+func (res *Result) full() bool {
+	return len(res.Entries) >= MaxEntries || res.opt.MaxNodes > 0 && res.usable >= res.opt.MaxNodes
 }
 
 // infoName matches provider info entries; the words come from mmwx's default
@@ -145,7 +158,9 @@ func decodeBase64Body(text string) (string, bool) {
 
 func parseLines(text string, opt Options) *Result {
 	res := &Result{opt: opt}
-	for _, line := range strings.Split(text, "\n") {
+	for rest := text; rest != ""; {
+		line, after, _ := strings.Cut(rest, "\n")
+		rest = after
 		line = strings.TrimSpace(line)
 		if line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, "//") {
 			continue
@@ -154,9 +169,11 @@ func parseLines(text string, opt Options) *Result {
 			res.Invalid++
 			continue
 		}
-		if len(res.Entries) >= MaxEntries {
+		res.Total++
+		if res.full() {
+			// Only counted from here on (plan 193: no parsing past the cap).
 			res.Truncated = true
-			break
+			continue
 		}
 		res.add(line, "")
 	}
@@ -196,6 +213,7 @@ func (res *Result) add(link, fallbackName string) {
 		name = up.ProtocolLabel() + " " + up.Address()
 	}
 	res.Entries = append(res.Entries, Entry{Name: CleanName(name), Upstream: up, Insecure: insecure})
+	res.usable++
 }
 
 func base64Loose(s string) ([]byte, error) {
@@ -338,7 +356,49 @@ type clashDoc struct {
 	Proxies []map[string]interface{} `yaml:"proxies"`
 }
 
+// clashSlack: proxies decoded beyond the cap in the first pass (info
+// entries and unsupported nodes do not count towards it).
+const clashSlack = 16
+
+// parseClash decodes only the top-level `proxies:` block, and only as many
+// items as needed (plan 193): an airport config is mostly groups and rules,
+// and yaml.v3 builds a node tree for whatever it decodes. The prefix grows
+// (doubling) while unsupported / info items leave the cap unfilled. A block
+// the line scanner cannot delimit, or a prefix that does not decode alone
+// (e.g. an alias to an anchor outside it), falls back to the whole document.
 func parseClash(text string, opt Options) (*Result, error) {
+	if start, items, end, ok := clashProxyBlock(text); ok {
+		if len(items) == 0 {
+			return nil, errors.New("Clash 订阅里没有节点（proxies 为空）")
+		}
+		limit := MaxEntries
+		if opt.MaxNodes > 0 && opt.MaxNodes < limit {
+			limit = opt.MaxNodes
+		}
+		k := limit + clashSlack
+		for {
+			if k > len(items) {
+				k = len(items)
+			}
+			cut := end
+			if k < len(items) {
+				cut = items[k]
+			}
+			var doc clashDoc
+			if yaml.Unmarshal([]byte(text[start:cut]), &doc) != nil {
+				break
+			}
+			res := clashEntries(doc.Proxies, opt)
+			if res.full() && (res.Truncated || k < len(items)) {
+				res.Truncated = true
+			} else if k < len(items) {
+				k *= 2
+				continue
+			}
+			res.Total = len(items)
+			return res, nil
+		}
+	}
 	var doc clashDoc
 	if err := yaml.Unmarshal([]byte(text), &doc); err != nil {
 		return nil, errors.New("Clash 订阅内容格式错误，无法解析")
@@ -346,9 +406,71 @@ func parseClash(text string, opt Options) (*Result, error) {
 	if len(doc.Proxies) == 0 {
 		return nil, errors.New("Clash 订阅里没有节点（proxies 为空）")
 	}
+	res := clashEntries(doc.Proxies, opt)
+	res.Total = len(doc.Proxies)
+	return res, nil
+}
+
+// clashProxyBlock delimits the top-level `proxies:` block sequence by lines:
+// start of the `proxies:` line, start offsets of its items, end of the
+// block. ok=false when there is no such block or it is not a plain block
+// sequence (inline / flow value, tab indentation).
+func clashProxyBlock(text string) (start int, items []int, end int, ok bool) {
+	found, seqIndent := false, -1
+	for pos := 0; pos < len(text); {
+		next := len(text)
+		lineEnd := len(text)
+		if i := strings.IndexByte(text[pos:], '\n'); i >= 0 {
+			lineEnd, next = pos+i, pos+i+1
+		}
+		line := strings.TrimRight(text[pos:lineEnd], "\r")
+		if !found {
+			if strings.HasPrefix(line, "proxies:") {
+				rest := strings.TrimSpace(line[len("proxies:"):])
+				if rest != "" && !strings.HasPrefix(rest, "#") {
+					return 0, nil, 0, false
+				}
+				found, start = true, pos
+			}
+			pos = next
+			continue
+		}
+		content := strings.TrimLeft(line, " ")
+		if content == "" || content[0] == '#' {
+			pos = next
+			continue
+		}
+		if content[0] == '\t' {
+			return 0, nil, 0, false
+		}
+		ind := len(line) - len(content)
+		dash := content[0] == '-' && (len(content) == 1 || content[1] == ' ' || content[1] == '\t')
+		switch {
+		case seqIndent < 0 && dash:
+			seqIndent = ind
+			items = append(items, pos)
+		case seqIndent < 0 && ind == 0:
+			return start, nil, pos, true // proxies: (empty) followed by the next key
+		case seqIndent < 0:
+			return 0, nil, 0, false
+		case ind == seqIndent && dash:
+			items = append(items, pos)
+		case ind <= seqIndent:
+			return start, items, pos, true
+		}
+		pos = next
+	}
+	if !found {
+		return 0, nil, 0, false
+	}
+	return start, items, len(text), true
+}
+
+// clashEntries turns decoded proxies into entries until a cap is reached.
+func clashEntries(proxies []map[string]interface{}, opt Options) *Result {
 	res := &Result{opt: opt}
-	for _, p := range doc.Proxies {
-		if len(res.Entries) >= MaxEntries {
+	for _, p := range proxies {
+		if res.full() {
 			res.Truncated = true
 			break
 		}
@@ -368,7 +490,7 @@ func parseClash(text string, opt Options) (*Result, error) {
 		}
 		res.add(link, name)
 	}
-	return res, nil
+	return res
 }
 
 func str(v interface{}) string {

@@ -1,6 +1,7 @@
 package landingsub
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -191,10 +192,17 @@ func (f *Fetcher) Fetch(ctx context.Context, raw string) ([]byte, error) {
 	if resp.ContentLength > MaxBodyBytes {
 		return nil, errFetch("订阅内容超过 2 MB，无法导入")
 	}
-	body, err := io.ReadAll(io.LimitReader(resp.Body, MaxBodyBytes+1))
-	if err != nil {
+	// Plan 193: one buffer of the announced size (io.ReadAll would double
+	// its way up, ~2x the body in garbage).
+	size := 64 << 10
+	if resp.ContentLength > 0 {
+		size = int(resp.ContentLength) + bytes.MinRead
+	}
+	buf := bytes.NewBuffer(make([]byte, 0, size))
+	if _, err := buf.ReadFrom(io.LimitReader(resp.Body, MaxBodyBytes+1)); err != nil {
 		return nil, friendlyFetchError(err)
 	}
+	body := buf.Bytes()
 	if len(body) > MaxBodyBytes {
 		return nil, errFetch("订阅内容超过 2 MB，无法导入")
 	}

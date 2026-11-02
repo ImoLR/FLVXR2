@@ -24,6 +24,8 @@ type LandingLink struct {
 	// is empty), a Surge proxy line.
 	Clash string `json:"clash,omitempty"`
 	Surge string `json:"surge,omitempty"`
+	// SurgeNote: why a Snell node has no Surge line (plan 193).
+	SurgeNote string `json:"surgeNote,omitempty"`
 }
 
 func LandingURL(n model.LandingNode, host string, port int) string {
@@ -60,7 +62,7 @@ func (r *Repository) LandingNodeLinks(n model.LandingNode) ([]LandingLink, error
 	link := func(name, kind, host string, port int) LandingLink {
 		l := LandingLink{Name: name, URL: LandingURL(n, host, port), Kind: kind}
 		if landingcustom.IsExtraProtocol(n.Protocol) {
-			l.Clash, l.Surge = LandingClientConfigs(n, host, port, udp)
+			l.Clash, l.Surge, l.SurgeNote = LandingClientConfigs(n, host, port, udp)
 		}
 		return l
 	}

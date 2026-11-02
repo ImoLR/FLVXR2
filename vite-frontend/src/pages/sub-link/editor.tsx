@@ -262,6 +262,11 @@ export function SubEditor({
     (n, s) => n + (s.missing ? 0 : s.group === "source_all" ? s.count || 0 : 1),
     0,
   );
+  // Plan 193: at most maxNodes (100) nodes per subscription.
+  const maxNodes = pool?.maxNodes || 100;
+  const over = nodeTotal > maxNodes;
+  const capMsg = (total: number) =>
+    `一条订阅最多 ${maxNodes} 个节点，加入后是 ${total} 个，先移除一些再加`;
 
   const groups: Group[] = useMemo(() => {
     if (!pool) return [];
@@ -323,15 +328,28 @@ export function SubEditor({
     group: g.sel,
     sourceName: g.source?.name,
   });
-  const add = (n: SubPoolNode, g: Group) =>
+  const add = (n: SubPoolNode, g: Group) => {
+    if (!keys.has(n.key) && nodeTotal + 1 > maxNodes) {
+      toast.error(capMsg(nodeTotal + 1));
+
+      return;
+    }
     setSelected((cur) =>
       cur.some((s) => s.key === n.key) ? cur : [...cur, toItem(n, g)],
     );
+  };
   const remove = (key: string) =>
     setSelected((cur) => cur.filter((s) => s.key !== key));
   const toggle = (n: SubPoolNode, g: Group) =>
     keys.has(n.key) ? remove(n.key) : add(n, g);
-  const addAll = (g: Group) =>
+  const addAll = (g: Group) => {
+    const adding = g.nodes.filter((n) => !keys.has(n.key)).length;
+
+    if (nodeTotal + adding > maxNodes) {
+      toast.error(capMsg(nodeTotal + adding));
+
+      return;
+    }
     setSelected((cur) => {
       const have = new Set(cur.map((s) => s.key));
 
@@ -340,7 +358,20 @@ export function SubEditor({
         ...g.nodes.filter((n) => !have.has(n.key)).map((n) => toItem(n, g)),
       ];
     });
-  const toggleFollow = (s: SubPoolSource) =>
+  };
+  const toggleFollow = (s: SubPoolSource) => {
+    if (!keys.has(s.followKey)) {
+      const singles = selected.filter(
+        (x) => x.group === "source" && x.ref.sourceId === s.id && !x.missing,
+      ).length;
+      const total = nodeTotal - singles + s.nodeCount;
+
+      if (total > maxNodes) {
+        toast.error(capMsg(total));
+
+        return;
+      }
+    }
     setSelected((cur) => {
       if (cur.some((x) => x.key === s.followKey))
         return cur.filter((x) => x.key !== s.followKey);
@@ -358,6 +389,7 @@ export function SubEditor({
         },
       ];
     });
+  };
 
   const onDragEnd = (e: DragEndEvent) => {
     if (!e.over || e.active.id === e.over.id) return;
@@ -370,6 +402,13 @@ export function SubEditor({
   };
 
   const save = async () => {
+    if (over) {
+      toast.error(
+        `一条订阅最多 ${maxNodes} 个节点，现在是 ${nodeTotal} 个，请先移除一些`,
+      );
+
+      return;
+    }
     setSaving(true);
     try {
       const body = {
@@ -586,12 +625,21 @@ export function SubEditor({
       {!isH5 && (
         <div className="flex items-center justify-between border-b border-divider bg-default-50 px-3 py-2.5 dark:bg-default-100/40">
           <span className="text-sm font-semibold">
-            订阅里的节点 · {nodeTotal}
+            订阅里的节点 ·{" "}
+            <span className={over ? "text-danger" : ""}>
+              {nodeTotal} / {maxNodes}
+            </span>
           </span>
           <span className="text-xs text-default-500">
             拖动排序 = 客户端里的顺序
           </span>
         </div>
+      )}
+      {over && (
+        <p className="border-b border-divider bg-red-500/10 px-3 py-1.5 text-xs text-red-700 dark:text-red-300">
+          超过 {maxNodes} 个节点的上限：客户端只会拿到前 {maxNodes} 个，请移除{" "}
+          {nodeTotal - maxNodes} 个再保存
+        </p>
       )}
       <div
         className={`overflow-y-auto ${isH5 ? "flex-1" : "max-h-[52vh] min-h-[320px]"}`}
@@ -687,7 +735,7 @@ export function SubEditor({
               {(
                 [
                   ["pool", `可选 ${poolTotal}`],
-                  ["selected", `已选 ${nodeTotal}`],
+                  ["selected", `已选 ${nodeTotal}/${maxNodes}`],
                 ] as const
               ).map(([k, text]) => (
                 <button

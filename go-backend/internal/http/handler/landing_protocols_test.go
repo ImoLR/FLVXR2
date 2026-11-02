@@ -120,7 +120,10 @@ func TestLandingExtraProtocolsHandlers(t *testing.T) {
 	var ls []repo.LandingLink
 	b, _ := json.Marshal(links.Data)
 	_ = json.Unmarshal(b, &ls)
-	if len(ls) != 1 || ls[0].URL != "" || !strings.Contains(ls[0].Surge, "version=5, obfs=tls, obfs-host=www.bing.com") || !strings.Contains(ls[0].Clash, "udp: false") {
+	// Plan 193: Surge's Snell v4/v5 has no TLS obfuscation → no Surge line,
+	// a note instead; the Clash entry keeps obfs-opts tls (mihomo has it).
+	if len(ls) != 1 || ls[0].URL != "" || ls[0].Surge != "" || ls[0].SurgeNote != repo.SnellSurgeNoTLSObfs ||
+		!strings.Contains(ls[0].Clash, "mode: tls") || !strings.Contains(ls[0].Clash, "udp: false") {
 		t.Fatalf("snell links %+v", ls)
 	}
 	links = protocolsCall(t, e.h, 2, 1, "/api/v1/landing/node/links", map[string]any{"id": ids["anytls"]})

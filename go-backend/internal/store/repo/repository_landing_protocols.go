@@ -475,9 +475,15 @@ func yamlString(v string) string {
 	return string(b)
 }
 
+// SnellSurgeNoTLSObfs explains why a Snell node has no Surge line: Surge's
+// Snell v4 / v5 only know HTTP obfuscation (manual.nssurge.com, policies /
+// Snell: "v4 and v5: http only"). Plan 193.
+const SnellSurgeNoTLSObfs = "Surge 的 Snell v4/v5 不支持 TLS 混淆，这个节点没有 Surge 配置（Surfboard、Clash / mihomo 可以用）"
+
 // LandingClientConfigs returns the Clash (mihomo) proxy entry and, for Snell,
-// the Surge proxy line. udp follows the share's capability for the protocol.
-func LandingClientConfigs(n model.LandingNode, host string, port int, udp bool) (string, string) {
+// the Surge proxy line, or why there is none (surgeNote). udp follows the
+// share's capability for the protocol.
+func LandingClientConfigs(n model.LandingNode, host string, port int, udp bool) (clash, surge, surgeNote string) {
 	host = strings.Trim(strings.TrimSpace(host), "[]")
 	o := LandingNodeOpts(&n)
 	var b strings.Builder
@@ -511,12 +517,16 @@ func LandingClientConfigs(n model.LandingNode, host string, port int, udp bool) 
 			line("    mode: %s", o.Obfs)
 			line("    host: %s", yamlString(o.ObfsHost))
 		}
-		name := strings.NewReplacer(",", " ", "=", " ", "\n", " ", "\r", " ").Replace(n.Name)
-		surge := fmt.Sprintf("%s = snell, %s, %d, psk=%s, version=%d", strings.TrimSpace(name), host, port, n.Password, version)
-		if o.Obfs == "http" || o.Obfs == "tls" {
-			surge += ", obfs=" + o.Obfs + ", obfs-host=" + o.ObfsHost
+		clash = strings.TrimRight(b.String(), "\n")
+		if o.Obfs == "tls" && version >= 4 {
+			return clash, "", SnellSurgeNoTLSObfs
 		}
-		return strings.TrimRight(b.String(), "\n"), surge
+		name := strings.NewReplacer(",", " ", "=", " ", "\n", " ", "\r", " ").Replace(n.Name)
+		surge = fmt.Sprintf("%s = snell, %s, %d, psk=%s, version=%d", strings.TrimSpace(name), host, port, n.Password, version)
+		if o.Obfs == "http" {
+			surge += ", obfs=http, obfs-host=" + o.ObfsHost
+		}
+		return clash, surge, ""
 	case landingcustom.ProtocolMieru:
 		transport := o.Transport
 		if transport == "" {
@@ -530,7 +540,7 @@ func LandingClientConfigs(n model.LandingNode, host string, port int, udp bool) 
 		line("  password: %s", yamlString(n.Password))
 		line("  multiplexing: MULTIPLEXING_LOW")
 	default:
-		return "", ""
+		return "", "", ""
 	}
-	return strings.TrimRight(b.String(), "\n"), ""
+	return strings.TrimRight(b.String(), "\n"), "", ""
 }

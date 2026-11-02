@@ -343,7 +343,7 @@ func TestSubResolveMissingAndAddressChange(t *testing.T) {
 	if len(refs) != 2 || refs[0].Entry != "602|198.51.100.99" {
 		t.Fatalf("saved items %s", row.Items)
 	}
-	// 300-node cap on save.
+	// 100-node cap on save (plan 193; was 300).
 	many := []any{}
 	for i := 0; i < 301; i++ {
 		many = append(many, map[string]any{"kind": "landing_direct", "landingId": 22})
