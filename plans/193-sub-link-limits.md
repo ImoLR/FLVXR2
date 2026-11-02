@@ -30,8 +30,8 @@ right away (fork.108, panel only, no OTA). Base = `3.0.27-fork.107` (db582010), 
 - [x] Screens of changed UI text → /root/mmwx-preview/sub-link-limits/
 - [x] Prod read-only counts (subs/sources >100, Snell landing nodes)
 - [x] Push, CI green
-- [ ] Release fork.108: baselines, backup, upgrade, post-checks, prune, cleanup
-- [ ] Plan marked complete
+- [x] Release fork.108: baselines, backup, upgrade, post-checks, prune, cleanup
+- [x] Plan marked complete
 
 ## Notes
 - Generators, 100 mixed nodes (go test -bench Render100, GOMAXPROCS=2), fork.107 → plan 193:
@@ -72,3 +72,19 @@ right away (fork.108, panel only, no OTA). Base = `3.0.27-fork.107` (db582010), 
 ## Release (fork.108)
 - Branch `maintenance/3.0.27-fork.108-sub-link-limits` = feature head eda0160d + this note; tag `3.0.27-fork.108`.
 - Panel only, no OTA, no DB schema/data change. Rollback = `pre-fork108-*/rollback.sh` (no --restore-db).
+- DONE 2026-11-02 22:53 TW: prod `/opt/flvx-svc` runs 3.0.27-fork.108 (tag → d2e73678; Images 41463392962,
+  CI 41463389169 green; release Latest, assets = fork.107, pins/sha256/arches ok). Panel only, no OTA, no DB change.
+- Rollback: `/opt/flvx-svc/rollback/pre-fork108-20261102T145303Z/rollback.sh` (no --restore-db; DB backup
+  quick/integrity ok). Kept backups: pre-fork107 + pre-fork108 (pre-fork106 pruned).
+- Post-checks via Cloudflare (admin temp subscription, deleted after, 0 left, old token 404): Surge iOS/Mac,
+  Surfboard, Loon, QX, clash.meta, sing-box, Shadowrocket, browser page and all ?t= 200 with the right format,
+  cf-cache DYNAMIC, 0 `/s/` log lines; 101 nodes refused at create and update ("一条订阅最多 100 个节点，现在是
+  101 个"); 复制链接 ok for all 5 SS2022 landing nodes; offline A/B on a prod DB copy: 12 outputs (clash, mihomo,
+  stash, sing-box, base64/Shadowrocket/v2rayN, surge, surfboard, loon, qx, ?t=) byte-identical fork.107 vs
+  fork.108; backend RSS during 16 pulls 46 → 46 MiB.
+- Prod state: 29/29 online, 41 forward ports, 251 runtime objects identical, 0 orphans / missing; 12 real rules
+  reachable before and after (rule 123 SSH banner missing once, OK on recheck; rule 37 hinet 2/4 = known).
+- Resources: CPU 15.04 → 15.55 s / 5 min, RSS 45.5 → 45.3 MiB (10+ min after restart), non-request log lines
+  23 → 31 / 10 min (node WS reconnect / redeploy lines only, same kinds as before). No new goroutines or timers
+  per subscription or source (a waiting pull holds one stopped-on-exit timer).
+- Prod 0 subscriptions / 0 sources / 0 Snell nodes → no over-limit data anywhere.
