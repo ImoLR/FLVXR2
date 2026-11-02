@@ -2,6 +2,7 @@ package sublink
 
 import (
 	"encoding/base64"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -454,5 +455,36 @@ func TestDetectClientV2(t *testing.T) {
 		if ValidFormat(f) {
 			t.Errorf("%s must not be a stored format", f)
 		}
+	}
+}
+
+// BenchmarkRender300: generator time for 300 nodes (the subscription cap),
+// mixed protocols, per format (plan 191 resource numbers).
+func BenchmarkRender300(b *testing.B) {
+	t := &testing.T{}
+	keys, m := matrixNodes(t)
+	nodes := make([]Node, 0, 300)
+	for i := 0; len(nodes) < 300; i++ {
+		n := m[keys[i%len(keys)]]
+		n.Name = keys[i%len(keys)] + " " + strconv.Itoa(i)
+		nodes = append(nodes, n)
+	}
+	FinalizeNames(nodes)
+	for _, c := range []struct {
+		name string
+		fn   func() ([]byte, int)
+	}{
+		{"clash", func() ([]byte, int) { return Clash(nodes, ModeCNDirect, false) }},
+		{"surge", func() ([]byte, int) { return Surge(nodes, ModeCNDirect, false) }},
+		{"surfboard", func() ([]byte, int) { return Surge(nodes, ModeCNDirect, true) }},
+		{"loon", func() ([]byte, int) { return Loon(nodes) }},
+		{"qx", func() ([]byte, int) { return QX(nodes) }},
+	} {
+		b.Run(c.name, func(b *testing.B) {
+			b.ReportAllocs()
+			for i := 0; i < b.N; i++ {
+				c.fn()
+			}
+		})
 	}
 }
