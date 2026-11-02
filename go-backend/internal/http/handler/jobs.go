@@ -50,6 +50,8 @@ func (h *Handler) StartBackgroundJobs() {
 	go h.runDDNSLoop(ctx)
 	go h.runEntryRateLoop(ctx)
 	h.resyncLandingAfterMigration()
+	// Plan 196: no goroutine unless a bot token + bound chat exist.
+	h.EnableTelegramBot()
 }
 
 func (h *Handler) runCNLandingCheckLoop(ctx context.Context) {
@@ -138,6 +140,7 @@ func (h *Handler) StopBackgroundJobs() {
 		return
 	}
 	h.stopNodeRedeploys()
+	h.StopTelegramBot()
 
 	h.jobsMu.Lock()
 	if !h.jobsStarted {

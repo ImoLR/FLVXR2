@@ -289,6 +289,7 @@ func autoMigrateAll(db *gorm.DB) error {
 		&model.LandingOutbound{}, &model.LandingRouteProfile{}, &model.LandingWarpAccount{}, &model.LandingEgressSetting{}, &model.LandingEgressPreset{},
 		&model.ForwardChain{}, &model.ForwardChainNode{}, &model.LandingExternalNode{},
 		&model.UserSubscription{}, &model.UserSubSource{},
+		&model.TGBotChat{}, &model.TGBotSent{}, &model.TGBotAck{},
 		&model.User{},
 		&model.UserQuota{},
 		&model.UserQuotaHistory{},
@@ -1148,10 +1149,13 @@ func (r *Repository) ListNodes(opts *ListNodesOptions) ([]map[string]interface{}
 			"remoteToken":             nullableString(n.RemoteToken),
 			"remoteConfig":            nullableString(n.RemoteConfig),
 			"expiryReminderDismissed": n.ExpiryReminderDismissed,
-			"groupId":                 nullableInt64(n.GroupID),
-			"speedId":                 nullableInt64(n.SpeedID),
-			"ownerUserId":             n.OwnerUserID,
-			"canDeploy":               opts != nil && opts.ActorUserID > 0 && n.OwnerUserID == opts.ActorUserID,
+			// Plan 196: 「已续费」 from the Telegram bot dismisses until the
+			// renewed due date (unix seconds; null = no limit).
+			"expiryReminderDismissedUntil": nullableInt64(n.ExpiryReminderDismissedUntil),
+			"groupId":                      nullableInt64(n.GroupID),
+			"speedId":                      nullableInt64(n.SpeedID),
+			"ownerUserId":                  n.OwnerUserID,
+			"canDeploy":                    opts != nil && opts.ActorUserID > 0 && n.OwnerUserID == opts.ActorUserID,
 		})
 	}
 	return items, nil
@@ -2642,6 +2646,20 @@ func (r *Repository) ExportAll(mode string) (map[string]interface{}, error) {
 			log.Printf("export table %s failed: %v", table, err)
 			continue
 		}
+		if table == "vite_config" { // plan 196: bot token / key never exported
+			kept := data[:0]
+			for _, row := range data {
+				name, _ := row["name"].(string)
+				if b, ok := row["name"].([]byte); ok {
+					name = string(b)
+				}
+				if IsHiddenConfigKey(name) {
+					continue
+				}
+				kept = append(kept, row)
+			}
+			data = kept
+		}
 		result[table] = data
 	}
 
@@ -2812,6 +2830,11 @@ func (r *Repository) ExportPartial(types []string) (*model.BackupData, error) {
 		v, err := r.ListConfigs()
 		if err != nil {
 			return nil, fmt.Errorf("export configs failed: %w", err)
+		}
+		for name := range v {
+			if IsHiddenConfigKey(name) { // plan 196: bot token / key never exported
+				delete(v, name)
+			}
 		}
 		backup.Configs = v
 	}

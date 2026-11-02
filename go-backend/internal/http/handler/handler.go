@@ -50,6 +50,9 @@ type Handler struct {
 	captchaMu     sync.Mutex
 	captchaTokens map[string]int64
 
+	// Plan 196: Telegram 通知 bot (idle unless a token + bound chat).
+	tg tgBotState
+
 	jobsMu      sync.Mutex
 	jobsCancel  context.CancelFunc
 	jobsStarted bool
@@ -270,6 +273,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	h.registerLanding(mux)
 	h.registerDDNS(mux)
 	h.registerProbe(mux)
+	h.registerTelegramBot(mux)
 	mux.HandleFunc(StaleFrontendKickPath, h.staleFrontendKick)
 	mux.HandleFunc("/api/v1/user/login", h.login)
 	mux.HandleFunc("/api/v1/user/logout", h.logout)
@@ -705,7 +709,7 @@ func (h *Handler) getConfigByName(w http.ResponseWriter, r *http.Request) {
 	}
 
 	name := strings.TrimSpace(req.Name)
-	if !configKeyVisible(name, h.configVisibility(r)) {
+	if repo.IsHiddenConfigKey(name) || !configKeyVisible(name, h.configVisibility(r)) {
 		// Same answer as a missing key: anonymous callers learn nothing.
 		response.WriteJSON(w, response.ErrDefault("配置不存在"))
 		return
@@ -758,11 +762,11 @@ func (h *Handler) getConfigs(w http.ResponseWriter, r *http.Request) {
 		response.WriteJSON(w, response.Err(-2, err.Error()))
 		return
 	}
-	if level := h.configVisibility(r); level < 2 {
-		for name := range cfgMap {
-			if !configKeyVisible(name, level) {
-				delete(cfgMap, name)
-			}
+	level := h.configVisibility(r)
+	for name := range cfgMap {
+		// Plan 196: tg_bot_* (token, HMAC key) never leave the panel.
+		if repo.IsHiddenConfigKey(name) || (level < 2 && !configKeyVisible(name, level)) {
+			delete(cfgMap, name)
 		}
 	}
 	if globalValue, ok := cfgMap[configKeyGlobalAppBackground]; ok {
@@ -1423,6 +1427,9 @@ func (h *Handler) updateConfigs(w http.ResponseWriter, r *http.Request) {
 		if err == nil {
 			err = probeDomainLockout(r, key, value)
 		}
+		if repo.IsHiddenConfigKey(key) {
+			err = errTGBotConfigKey
+		}
 		if err != nil {
 			response.WriteJSON(w, response.ErrDefault(err.Error()))
 			return
@@ -1471,6 +1478,9 @@ func (h *Handler) updateSingleConfig(w http.ResponseWriter, r *http.Request) {
 	value, err := normalizeAndValidateConfigValue(name, req.Value)
 	if err == nil {
 		err = probeDomainLockout(r, name, value)
+	}
+	if repo.IsHiddenConfigKey(name) {
+		err = errTGBotConfigKey
 	}
 	if err != nil {
 		response.WriteJSON(w, response.ErrDefault(err.Error()))
