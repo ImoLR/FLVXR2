@@ -55,5 +55,6 @@ it into a later release. Brief: user 2026-11-02 (coordinator 3d7c53c7) 「机器
       sort, table, detail, settings, switch off; 1440 + 390, light + dark), 49/49 checks, 0 page errors; anchors at
       00:00 TW like prod incl. 3 anchors one or more cycles back that rolled; switch off → card geometry identical to
       the fork.108 frontend (24 cards × 4 combos)
-- [ ] Push, CI green
-- [ ] Summary `runs/probe-expiry/summary.md`
+- [x] Push, CI green: run 41478596826 on 906e881b (Go backend, frontend, Go PostgreSQL contract, agent)
+- [x] Summary `runs/probe-expiry/summary.md` (open: temp PG volume removal was permission-blocked in the worker
+      session; red-at-≤3-days and 「今天到期」 on the due day itself left for the user to decide)
