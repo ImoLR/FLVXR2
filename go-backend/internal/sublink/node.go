@@ -1,7 +1,8 @@
 // Package sublink renders plan-185 user subscriptions: the node model shared
 // by every output format, the item references a subscription stores, the
 // User-Agent → format table and the Clash (mihomo) / sing-box / Base64
-// generators. It is pure (no database, no network).
+// generators, plus (plan 191) Surge / Surfboard, Loon and Quantumult X. It is
+// pure (no database, no network).
 package sublink
 
 import (
@@ -21,6 +22,13 @@ const (
 	FormatClash   = "clash"
 	FormatSingBox = "singbox"
 	FormatBase64  = "base64"
+
+	// Plan 191: native Surge (+ Surfboard flavour) / Loon / Quantumult X
+	// output. Chosen by User-Agent or ?t= only, never stored (the editor
+	// keeps auto | clash | singbox | base64).
+	FormatSurge = "surge"
+	FormatLoon  = "loon"
+	FormatQX    = "qx"
 
 	ModeCNDirect = "cn_direct"
 	ModeGlobal   = "global"

@@ -10,6 +10,8 @@ type Client struct {
 	Label string
 	// Stash: Clash YAML without the protocols Stash cannot load.
 	Stash bool
+	// Surfboard: Surge profile limited to what Surfboard documents.
+	Surfboard bool
 	// Browser: a web browser (gets the small HTML page).
 	Browser bool
 }
@@ -22,17 +24,16 @@ type uaRule struct {
 
 // uaRules: the ORDER is the priority (ported from mmwx client_ua.go):
 // Stash's UA contains "clash" and must come first; the Clash family is last.
-// Surge / Loon / Quantumult X / Surfboard formats are a later phase: Loon and
-// Quantumult X import Base64 link lists; Surge / Surfboard cannot import any
-// v1 format (they get Base64 and the card shows which client pulled).
+// Plan 191: Surge (iOS "Surge iOS/…", Mac "Surge Mac/…") and Surfboard get a
+// managed Surge profile, Loon and Quantumult X their native node lists.
 var uaRules = []uaRule{
 	{[]string{"stash"}, FormatClash, "Stash"},
 	{[]string{"shadowrocket"}, FormatBase64, "Shadowrocket"},
-	{[]string{"surge"}, FormatBase64, "Surge"},
-	{[]string{"loon"}, FormatBase64, "Loon"},
-	{[]string{"quantumult%20x", "quantumult x", "quantumultx"}, FormatBase64, "Quantumult X"},
+	{[]string{"surge"}, FormatSurge, "Surge"},
+	{[]string{"loon"}, FormatLoon, "Loon"},
+	{[]string{"quantumult%20x", "quantumult x", "quantumultx"}, FormatQX, "Quantumult X"},
 	{[]string{"egern"}, FormatClash, "Egern"},
-	{[]string{"surfboard"}, FormatBase64, "Surfboard"},
+	{[]string{"surfboard"}, FormatSurge, "Surfboard"},
 	{[]string{"hiddify"}, FormatSingBox, "Hiddify"},
 	{[]string{"sing-box", "sfi/", "sfa/", "sfm/", "sft/"}, FormatSingBox, "sing-box"},
 	{[]string{"v2rayng"}, FormatBase64, "v2rayNG"},
@@ -56,7 +57,7 @@ func DetectClient(ua string) Client {
 	for _, r := range uaRules {
 		for _, kw := range r.keywords {
 			if strings.Contains(l, kw) {
-				return Client{Format: r.format, Label: r.label, Stash: r.label == "Stash"}
+				return Client{Format: r.format, Label: r.label, Stash: r.label == "Stash", Surfboard: r.label == "Surfboard"}
 			}
 		}
 	}

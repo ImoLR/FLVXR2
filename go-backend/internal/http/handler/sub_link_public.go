@@ -117,13 +117,19 @@ func (c *subRenderCache) stats() (int, int) {
 	return c.ll.Len(), c.bytes
 }
 
+// Render flavours of one format (part of the cache key).
+const (
+	subFlavorStash     = "stash"     // Clash without what Stash cannot load
+	subFlavorSurfboard = "surfboard" // Surge profile limited to Surfboard
+)
+
 // subRenderFor renders (or reuses) a subscription in one format; "count"
-// only resolves the nodes (browser page).
-func (h *Handler) subRenderFor(ctx context.Context, s *model.UserSubscription, format string, stash bool) (*subRender, error) {
+// only resolves the nodes (browser page). flavor is "" or a subFlavor*.
+func (h *Handler) subRenderFor(ctx context.Context, s *model.UserSubscription, format, flavor string) (*subRender, error) {
 	st := h.subState()
 	key := s.Token + "|" + format
-	if stash {
-		key += "|stash"
+	if flavor != "" {
+		key += "|" + flavor
 	}
 	if v := st.cache.get(key); v != nil {
 		return v, nil
@@ -144,10 +150,16 @@ func (h *Handler) subRenderFor(ctx context.Context, s *model.UserSubscription, f
 		v.body, v.nodes = sublink.SingBox(nodes, s.RuleMode)
 	case sublink.FormatBase64:
 		v.body, v.nodes = sublink.Base64(nodes)
+	case sublink.FormatSurge:
+		v.body, v.nodes = sublink.Surge(nodes, s.RuleMode, flavor == subFlavorSurfboard)
+	case sublink.FormatLoon:
+		v.body, v.nodes = sublink.Loon(nodes)
+	case sublink.FormatQX:
+		v.body, v.nodes = sublink.QX(nodes)
 	case "count":
 		v.nodes = len(nodes)
 	default:
-		v.body, v.nodes = sublink.Clash(nodes, s.RuleMode, stash)
+		v.body, v.nodes = sublink.Clash(nodes, s.RuleMode, flavor == subFlavorStash)
 	}
 	st.cache.put(v)
 	return v, nil
@@ -163,16 +175,47 @@ func subPlain(w http.ResponseWriter, code int, msg string) {
 	_, _ = w.Write([]byte(msg))
 }
 
-func queryFormat(t string) string {
+// queryFormat maps ?t= to a format ("" = not given / unknown). surfboard is
+// the Surge format in its Surfboard flavour.
+func queryFormat(t string) (format string, surfboard bool) {
 	switch strings.ToLower(strings.TrimSpace(t)) {
 	case "clash", "mihomo", "stash":
-		return sublink.FormatClash
+		return sublink.FormatClash, false
 	case "singbox", "sing-box":
-		return sublink.FormatSingBox
+		return sublink.FormatSingBox, false
 	case "base64", "v2ray", "shadowrocket":
-		return sublink.FormatBase64
+		return sublink.FormatBase64, false
+	case "surge":
+		return sublink.FormatSurge, false
+	case "surfboard":
+		return sublink.FormatSurge, true
+	case "loon":
+		return sublink.FormatLoon, false
+	case "qx", "quanx", "quantumultx":
+		return sublink.FormatQX, false
 	}
-	return ""
+	return "", false
+}
+
+// subPublicURL is the address of a subscription as the client requested it:
+// scheme from the TLS state, X-Forwarded-Proto (nginx passes cloudflared's
+// value through for /s/) or Cloudflare's CF-Visitor, host as requested.
+// query is appended as is ("" for none).
+func subPublicURL(r *http.Request, token, query string) string {
+	scheme := "http"
+	if r.TLS != nil {
+		scheme = "https"
+	}
+	if p := strings.TrimSpace(strings.Split(r.Header.Get("X-Forwarded-Proto"), ",")[0]); p == "https" || p == "http" {
+		scheme = p
+	} else if v := r.Header.Get("CF-Visitor"); strings.Contains(v, `"https"`) {
+		scheme = "https"
+	}
+	link := scheme + "://" + r.Host + "/s/" + token
+	if query != "" {
+		link += "?" + query
+	}
+	return link
 }
 
 // subPublic serves GET /s/<token> without login. Nothing is logged per
@@ -228,22 +271,44 @@ func (h *Handler) subPublic(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	client := sublink.DetectClient(r.Header.Get("User-Agent"))
-	format := queryFormat(r.URL.Query().Get("t"))
+	tParam := strings.TrimSpace(r.URL.Query().Get("t"))
+	format, surfboard := queryFormat(tParam)
+	fromQuery := format != ""
 	if format == "" && client.Browser {
 		h.subPage(w, r, s)
 		return
 	}
 	if format == "" {
+		// The saved choice (auto | clash | singbox | base64), auto = by UA.
 		format = s.Format
+		if format == sublink.FormatAuto || !sublink.ValidFormat(format) {
+			format = client.Format
+		}
 	}
-	if format == sublink.FormatAuto || !sublink.ValidFormat(format) {
-		format = client.Format
+	flavor := ""
+	switch {
+	case format == sublink.FormatClash && client.Stash:
+		flavor = subFlavorStash
+	case format == sublink.FormatSurge && (surfboard || client.Surfboard):
+		flavor = subFlavorSurfboard
 	}
-	stash := client.Stash && format == sublink.FormatClash
-	v, err := h.subRenderFor(r.Context(), s, format, stash)
+	v, err := h.subRenderFor(r.Context(), s, format, flavor)
 	if err != nil {
 		subPlain(w, http.StatusServiceUnavailable, "暂时不可用，请稍后再试")
 		return
+	}
+	body := v.body
+	if format == sublink.FormatSurge {
+		// The managed-config line names the exact URL the client pulled (incl.
+		// a valid ?t=) so updates come back to the same format; it is not part
+		// of the cached body (it depends on the request).
+		query := ""
+		if fromQuery {
+			query = "t=" + url.QueryEscape(strings.ToLower(tParam))
+		}
+		line := sublink.SurgeManagedLine(subPublicURL(r, s.Token, query))
+		body = make([]byte, 0, len(line)+len(v.body))
+		body = append(append(body, line...), v.body...)
 	}
 	const giga = int64(1024 * 1024 * 1024)
 	info := "upload=0; download=" + strconv.FormatInt(user.InFlow+user.OutFlow, 10) + "; total=" + strconv.FormatInt(user.Flow*giga, 10)
@@ -254,8 +319,10 @@ func (h *Handler) subPublic(w http.ResponseWriter, r *http.Request) {
 	switch format {
 	case sublink.FormatSingBox:
 		ext, ctype = ".json", "application/json; charset=utf-8"
-	case sublink.FormatBase64:
+	case sublink.FormatBase64, sublink.FormatLoon, sublink.FormatQX:
 		ext, ctype = ".txt", "text/plain; charset=utf-8"
+	case sublink.FormatSurge:
+		ext, ctype = ".conf", "text/plain; charset=utf-8"
 	}
 	hd := w.Header()
 	hd.Set("Content-Type", ctype)
@@ -264,8 +331,8 @@ func (h *Handler) subPublic(w http.ResponseWriter, r *http.Request) {
 	hd.Set("profile-update-interval", "12")
 	hd.Set("profile-title", "base64:"+base64.StdEncoding.EncodeToString([]byte(s.Name)))
 	hd.Set("content-disposition", "attachment; filename=\"flvx"+ext+"\"; filename*=UTF-8''"+url.PathEscape(s.Name+ext))
-	hd.Set("Content-Length", strconv.Itoa(len(v.body)))
-	_, _ = w.Write(v.body)
+	hd.Set("Content-Length", strconv.Itoa(len(body)))
+	_, _ = w.Write(body)
 	h.subMarkPulled(s.ID, client.Label, v.nodes, now)
 }
 
@@ -314,6 +381,8 @@ ul{padding-left:18px;margin:6px 0 0}li{margin:3px 0}
 <li>Clash Verge / mihomo / Stash：订阅 → 新建 → 粘贴链接</li>
 <li>sing-box（SFA / SFI / SFM）：配置 → 新建 → 远程 → 粘贴链接</li>
 <li>Shadowrocket / v2rayN / v2rayNG：添加订阅 → 粘贴链接或扫码</li>
+<li>Surge / Surfboard：从 URL 下载配置 → 粘贴链接</li>
+<li>Loon / Quantumult X：订阅节点（节点资源）→ 添加 → 粘贴链接</li>
 </ul>
 <p class="muted">链接就是你的密码，不要发给别人；泄露了请在面板「订阅」里重置。</p>
 </div></body></html>`))
@@ -321,19 +390,12 @@ ul{padding-left:18px;margin:6px 0 0}li{margin:3px 0}
 // subPage is the small page a browser gets: name, node count, the link and
 // a QR code. No node secrets.
 func (h *Handler) subPage(w http.ResponseWriter, r *http.Request, s *model.UserSubscription) {
-	v, err := h.subRenderFor(r.Context(), s, "count", false)
+	v, err := h.subRenderFor(r.Context(), s, "count", "")
 	count := 0
 	if err == nil {
 		count = v.nodes
 	}
-	scheme := "http"
-	if r.TLS != nil {
-		scheme = "https"
-	}
-	if p := strings.TrimSpace(strings.Split(r.Header.Get("X-Forwarded-Proto"), ",")[0]); p == "https" || p == "http" {
-		scheme = p
-	}
-	link := scheme + "://" + r.Host + "/s/" + s.Token
+	link := subPublicURL(r, s.Token, "")
 	data := map[string]interface{}{"Name": s.Name, "Count": count, "URL": link}
 	if code, err := qr.Encode(link, qr.M); err == nil {
 		code.Scale = 6
