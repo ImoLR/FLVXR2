@@ -67,4 +67,6 @@ never asks anyone to edit dates.
 - [x] Demo + screens: 24 screens (unset / token / bind code / bound + list / after 已续费 + 不再提醒 / Telegram side), 1440 +
       390, light + dark, 14/14 checks, 0 page errors; gallery `/root/mmwx-preview/renew-bot/` (:8791/renew-bot/); demo runs in
       a loopback-only netns (no route to Telegram)
-- [ ] Push, CI green; `runs/renew-bot/release-notes.md`; summary
+- [x] Push, CI green: run 41533094219 on e9898843 (Go backend, frontend, Go PostgreSQL contract, agent); dce953de's first
+      frontend job failed on an npm registry miss (@tailwindcss/node@4.3.4 ETARGET, no package change), rerun green.
+      `runs/renew-bot/release-notes.md` (token step, user binding steps, verify, rollback); summary `runs/renew-bot/summary.md`
