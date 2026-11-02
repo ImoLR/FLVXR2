@@ -23,7 +23,18 @@ N always comes from the API (`maxNodes`) / the Go constant, never a hard-coded 1
 - [x] Backend messages (sub_link.go, sublink/node.go) + tests still match
 - [x] go build / go test (SQLite + PG contract) vs fork.108 baseline
 - [x] Frontend tsc / build / lint vs fork.108
-- [ ] Push branch, CI green
-- [ ] Demo panel screens 1440 + 390 → /root/mmwx-preview/sub-link-hint/
-- [ ] runs/sub-link-hint/release-notes.md
-- [ ] Clean demo panels, summary
+- [x] Push branch, CI green
+- [x] Demo panel screens 1440 + 390 → /root/mmwx-preview/sub-link-hint/
+- [x] runs/sub-link-hint/release-notes.md
+- [x] Clean demo panels, summary
+
+## Results (2026-11-03 00:30 TW)
+- Code commit 31a2682f; CI Build Check 41478146887 green.
+- `go build ./...` ok; `go test ./...` (SQLite) 22 packages ok, 0 FAIL (same as fork.108); PostgreSQL contract + handler
+  tests (`FLVX_POSTGRES_TEST_DSN`, throwaway postgres:18 container, removed) ok.
+- Frontend `tsc --noEmit` ok, eslint 0 problems on the changed files, `npm run build` ok.
+- Demo panel (loopback-only netns, synthetic DB, plan-193 kit) checks at 1440 and 390: all 5 texts found, the cap toast is
+  still shown at 3.5 s and gone at 6 s; 0 page errors. Gallery /root/mmwx-preview/sub-link-hint/.
+- The subscription list cards have no over-limit indicator (plan 193 only flags it inside the editor), so item 2 of the
+  brief = the editor's red counter bar; no new UI added.
+- Release notes: /root/flvx-workers/runs/sub-link-hint/release-notes.md. Build only — ships in release-batch-1103.
