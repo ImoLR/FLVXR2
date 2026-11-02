@@ -1,4 +1,5 @@
 // Formatting helpers of the probe page (plain functions, no deps).
+import { getNodeRenewalCycleLabel } from "@/pages/node/renewal";
 
 const UNITS = ["B", "KB", "MB", "GB", "TB", "PB"];
 
@@ -102,3 +103,44 @@ export const toneBar: Record<Tone, string> = {
 
 export const pillBase =
   "inline-flex max-w-full shrink-0 items-center gap-1 whitespace-nowrap rounded-full px-2 text-xs font-semibold leading-[18px]";
+
+/**
+ * Plan 194 「剩余天数」 tag text. `days` comes from the panel (calendar days in
+ * UTC+8; a node with a cycle has already rolled to its next due date, so only
+ * no-cycle nodes go negative). The cycle prefix (月付 / 年付 …, same words as
+ * the 节点 page) is separate so narrow cards can drop it.
+ */
+export function expiryParts(
+  days: number,
+  cycle?: string,
+): { prefix: string; core: string } {
+  const label = cycle ? getNodeRenewalCycleLabel(cycle) : "";
+
+  return {
+    prefix: label && label !== "未设置" ? label : "",
+    core:
+      days > 1
+        ? `剩 ${days} 天`
+        : days === 1
+          ? "明天到期"
+          : days === 0
+            ? "今天到期"
+            : `已过期 ${-days} 天`,
+  };
+}
+
+export function expiryText(days: number, cycle?: string): string {
+  const { prefix, core } = expiryParts(days, cycle);
+
+  return prefix ? `${prefix} · ${core}` : core;
+}
+
+/** Same thresholds as the 节点 page: amber within 7 days, red today / expired. */
+export const EXPIRY_WARN_DAYS = 7;
+
+export function expiryTone(days: number): Tone {
+  if (days <= 0) return "red";
+  if (days <= EXPIRY_WARN_DAYS) return "amber";
+
+  return "slate";
+}

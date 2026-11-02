@@ -22,7 +22,7 @@ import {
 } from "recharts";
 
 import { fetchSeries } from "./api";
-import { LatencyRows, Pill } from "./card";
+import { ExpiryPill, LatencyRows, Pill } from "./card";
 import {
   formatBytes,
   formatDuration,
@@ -172,7 +172,7 @@ const ChartCard = memo(function ChartCard({
   );
 });
 
-function Spec({ label, value }: { label: string; value: string }) {
+function Spec({ label, value }: { label: string; value: React.ReactNode }) {
   return (
     <div className="flex min-w-0 justify-between gap-2 border-b border-divider py-1.5 text-xs last:border-b-0">
       <span className="text-default-500">{label}</span>
@@ -255,6 +255,9 @@ export default function Detail({
             label="运行"
             value={node.online ? formatDuration(node.uptime) : "—"}
           />
+          {node.days !== undefined && (
+            <Spec label="到期" value={<ExpiryPill node={node} />} />
+          )}
         </div>
         <div>
           <Spec label="CPU" value={node.online ? pct(node.cpu) : "—"} />

@@ -3,6 +3,8 @@ import type { ProbeLatency, ProbeNode } from "./api";
 import { memo } from "react";
 
 import {
+  expiryParts,
+  expiryTone,
   formatAgo,
   formatBytes,
   formatShort,
@@ -155,6 +157,28 @@ export function StatusPill({ node, now }: { node: ProbeNode; now: number }) {
   );
 }
 
+/**
+ * Plan 194 「剩余天数」 tag (nothing when the snapshot carries no days). With
+ * `fit`, the 月付 / 年付 prefix only shows when the enclosing `@container`
+ * (the card) is at least 17rem wide inside (desktop 4 columns at 1440, phones
+ * ≥ 360 px), so narrower cards keep 「剩 12 天」 and the name keeps its room.
+ */
+export function ExpiryPill({ node, fit }: { node: ProbeNode; fit?: boolean }) {
+  if (node.days === undefined) return null;
+  const { prefix, core } = expiryParts(node.days, node.cycle);
+
+  return (
+    <Pill className="tabular-nums" tone={expiryTone(node.days)}>
+      {prefix && (
+        <span className={fit ? "hidden @[17rem]:inline" : undefined}>
+          {prefix} ·
+        </span>
+      )}
+      {core}
+    </Pill>
+  );
+}
+
 export function LatencyRows({
   rows,
   names,
@@ -220,6 +244,8 @@ interface CardProps {
   names: Map<string, string>;
   now: number;
   onOpen: (k: string) => void;
+  /** Table only: render the 「到期」 column (plan 194). */
+  expiryCol?: boolean;
 }
 
 /** Server card. Memoized per node object: an unchanged node never re-renders. */
@@ -233,13 +259,20 @@ export const ServerCard = memo(function ServerCard({
 
   return (
     <button
-      className={`group flex h-full w-full flex-col gap-3 rounded-xl border border-divider bg-content1 p-4 text-left shadow-sm transition-shadow duration-200 hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 ${off ? "opacity-60" : ""}`}
+      className={`group @container flex h-full w-full flex-col gap-3 rounded-xl border border-divider bg-content1 p-4 text-left shadow-sm transition-shadow duration-200 hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 ${off ? "opacity-60" : ""}`}
       type="button"
       onClick={() => onOpen(node.k)}
     >
       <div className="flex w-full items-start justify-between gap-2">
         <NodeTitle node={node} />
-        <StatusPill node={node} now={now} />
+        {node.days === undefined ? (
+          <StatusPill node={node} now={now} />
+        ) : (
+          <div className="flex shrink-0 flex-col items-end gap-0.5">
+            <StatusPill node={node} now={now} />
+            <ExpiryPill fit node={node} />
+          </div>
+        )}
       </div>
       <div className="grid w-full grid-cols-2 gap-x-4 gap-y-2.5">
         <Meter
@@ -307,6 +340,7 @@ export const CompactRow = memo(function CompactRow({
   names,
   now,
   onOpen,
+  expiryCol,
 }: CardProps) {
   const off = !node.online;
   const cell = "px-3 py-2 align-middle tabular-nums";
@@ -323,6 +357,11 @@ export const CompactRow = memo(function CompactRow({
       <td className={cell}>
         <StatusPill node={node} now={now} />
       </td>
+      {expiryCol && (
+        <td className={cell}>
+          {node.days === undefined ? "—" : <ExpiryPill node={node} />}
+        </td>
+      )}
       <td className={cell}>
         {off ? "—" : <Pill tone={usageTone(node.cpu)}>{pct(node.cpu)}</Pill>}
       </td>

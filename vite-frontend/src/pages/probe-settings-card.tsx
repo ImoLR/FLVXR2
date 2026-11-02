@@ -30,6 +30,7 @@ export function ProbeSettingsCard({ enabled }: { enabled: boolean }) {
   const [defaultTitle, setDefaultTitle] = useState("FLVX 探针");
   const [domain, setDomain] = useState("");
   const [latency, setLatency] = useState(true);
+  const [expiry, setExpiry] = useState(true);
   const [nodes, setNodes] = useState<ProbeAdminNode[]>([]);
   const [groups, setGroups] = useState<ProbeAdminGroup[]>([]);
   const [groupMode, setGroupMode] = useState<ProbeGroupMode>("region");
@@ -45,6 +46,7 @@ export function ProbeSettingsCard({ enabled }: { enabled: boolean }) {
       n: ProbeAdminNode[],
       g: ProbeAdminGroup[],
       m: ProbeGroupMode,
+      e: boolean,
     ) =>
       JSON.stringify([
         t.trim(),
@@ -53,6 +55,7 @@ export function ProbeSettingsCard({ enabled }: { enabled: boolean }) {
         n.map((x) => [x.id, x.hidden, x.probeName.trim()]),
         g.map((x) => [x.id, x.name, [...x.nodes].sort((a, b) => a - b)]),
         m,
+        e,
       ]),
     [],
   );
@@ -66,6 +69,7 @@ export function ProbeSettingsCard({ enabled }: { enabled: boolean }) {
       setDefaultTitle(d.defaultTitle);
       setDomain(d.domain);
       setLatency(d.latency);
+      setExpiry(d.expiry ?? true);
       setNodes(d.nodes);
       setGroups(d.groups ?? []);
       setGroupMode(d.groupMode ?? "region");
@@ -77,6 +81,7 @@ export function ProbeSettingsCard({ enabled }: { enabled: boolean }) {
           d.nodes,
           d.groups ?? [],
           d.groupMode ?? "region",
+          d.expiry ?? true,
         ),
       );
       setLoaded(true);
@@ -85,7 +90,8 @@ export function ProbeSettingsCard({ enabled }: { enabled: boolean }) {
 
   const dirty =
     loaded &&
-    snapshot(title, domain, latency, nodes, groups, groupMode) !== initial;
+    snapshot(title, domain, latency, nodes, groups, groupMode, expiry) !==
+      initial;
   const shownCount = useMemo(
     () => nodes.filter((n) => !n.hidden).length,
     [nodes],
@@ -138,6 +144,7 @@ export function ProbeSettingsCard({ enabled }: { enabled: boolean }) {
           nodes: g.nodes,
         })),
         groupMode,
+        expiry,
       });
 
       if (res.code !== 0) {
@@ -161,6 +168,7 @@ export function ProbeSettingsCard({ enabled }: { enabled: boolean }) {
             fresh.data.nodes,
             fresh.data.groups ?? [],
             fresh.data.groupMode ?? "region",
+            fresh.data.expiry ?? true,
           ),
         );
       }
@@ -194,8 +202,8 @@ export function ProbeSettingsCard({ enabled }: { enabled: boolean }) {
               {enabled ? "已开启：" : "未开启（在「快捷开关」里打开）："}
               任何人都能打开 <span className="font-mono">/tz</span>{" "}
               查看下面勾选的服务器：CPU、内存、硬盘、负载、网速、流量、TCP
-              连接数和机器之间的延迟。 不公开
-              IP、端口、节点编号、程序版本、隧道、规则和用户。
+              连接数和机器之间的延迟{expiry ? "，以及到期剩余天数" : ""}。
+              不公开 IP、端口、节点编号、程序版本、隧道、规则和用户。
             </p>
           </div>
           <a
@@ -245,6 +253,23 @@ export function ProbeSettingsCard({ enabled }: { enabled: boolean }) {
             isSelected={latency}
             size="sm"
             onValueChange={setLatency}
+          />
+        </div>
+        <div className="flex items-center justify-between gap-4">
+          <div className="flex flex-col">
+            <span className="text-sm font-semibold text-gray-700 dark:text-gray-300">
+              显示到期天数
+            </span>
+            <span className="text-xs text-gray-400 dark:text-gray-500">
+              在每台服务器上显示「月付 · 剩 12
+              天」这样的小标签（按节点的到期时间和续费周期，和节点页一样到期后自动顺延到下一期；按台湾时间算天数，只显示天数，不公开具体日期）
+            </span>
+          </div>
+          <Switch
+            color="primary"
+            isSelected={expiry}
+            size="sm"
+            onValueChange={setExpiry}
           />
         </div>
         <ProbeGroupsEditor

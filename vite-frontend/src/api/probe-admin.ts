@@ -29,6 +29,8 @@ export interface ProbeAdminSettings {
   defaultTitle: string;
   groups: ProbeAdminGroup[];
   groupMode: ProbeGroupMode;
+  /** Plan 194: 显示到期天数 (default on). */
+  expiry: boolean;
 }
 
 export interface ProbeAdminSave {
@@ -38,6 +40,8 @@ export interface ProbeAdminSave {
   nodes: { id: number; probeName: string; hidden: boolean }[];
   groups: ProbeAdminGroup[];
   groupMode: ProbeGroupMode;
+  /** Plan 194: 显示到期天数 (default on). */
+  expiry: boolean;
 }
 
 export const getProbeSettings = () =>

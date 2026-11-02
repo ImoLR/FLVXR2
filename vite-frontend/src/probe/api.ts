@@ -30,7 +30,16 @@ export interface ProbeNode {
   latency?: ProbeLatency[];
   /** Plan 189: indexes into ProbeSnapshot.groups (absent = in no group). */
   g?: number[];
+  /**
+   * Plan 194: whole days (UTC+8) until the next due date, 0 = today,
+   * negative = expired; absent = no expiry set or 显示到期天数 off.
+   */
+  days?: number;
+  /** Plan 194: renewal cycle token (absent = not set). */
+  cycle?: ProbeCycle;
 }
+
+export type ProbeCycle = "month" | "quarter" | "halfyear" | "year";
 
 export interface ProbeGroup {
   name: string;

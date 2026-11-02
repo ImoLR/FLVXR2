@@ -30,7 +30,7 @@ import {
 const loadDetail = () => import("./detail");
 const Detail = lazy(loadDetail);
 
-type SortKey = "default" | "cpu" | "net";
+type SortKey = "default" | "cpu" | "net" | "expiry";
 type ViewMode = "cards" | "table";
 
 const VIEW_KEY = "flvx-probe-view";
@@ -292,7 +292,7 @@ export default function ProbeApp() {
   const [query, setQuery] = useState("");
   const [region, setRegion] = useState("");
   const [sort, setSort] = useState<SortKey>(() =>
-    stored(SORT_KEY, ["default", "cpu", "net"] as const, "default"),
+    stored(SORT_KEY, ["default", "cpu", "net", "expiry"] as const, "default"),
   );
   const [view, setView] = useState<ViewMode>(() =>
     stored(VIEW_KEY, ["cards", "table"] as const, "cards"),
@@ -365,6 +365,11 @@ export default function ProbeApp() {
     [nameSig],
   );
 
+  // Plan 194: 「到期」 sort / table column only while the snapshot carries days
+  // (admin switch 显示到期天数 off → the page looks exactly as before).
+  const hasExpiry = !!nodes?.some((n) => n.days !== undefined);
+  const sortBy: SortKey = sort === "expiry" && !hasExpiry ? "default" : sort;
+
   const regions = useMemo(() => {
     const counts = new Map<string, number>();
 
@@ -423,9 +428,14 @@ export default function ProbeApp() {
       list = list.filter((n) => !n.g?.length);
     else if (mode === "group" && groupIdx >= 0)
       list = list.filter((n) => n.g?.includes(groupIdx));
-    if (sort !== "default") {
+    if (sortBy === "expiry") {
+      // Soonest first (expired on top), machines without expiry last.
+      const left = (n: ProbeNode) => n.days ?? Number.MAX_SAFE_INTEGER;
+
+      list = [...list].sort((a, b) => left(a) - left(b));
+    } else if (sortBy !== "default") {
       const val = (n: ProbeNode) =>
-        sort === "cpu" ? n.cpu : n.net_in + n.net_out;
+        sortBy === "cpu" ? n.cpu : n.net_in + n.net_out;
 
       list = [...list].sort(
         (a, b) => Number(b.online) - Number(a.online) || val(b) - val(a),
@@ -433,7 +443,7 @@ export default function ProbeApp() {
     }
 
     return list;
-  }, [nodes, query, region, sort, mode, groupSel, groupIdx, groupNames]);
+  }, [nodes, query, region, sortBy, mode, groupSel, groupIdx, groupNames]);
 
   const onOpen = useCallback((k: string) => setOpenKey(k), []);
   const openNode = openKey ? nodes?.find((n) => n.k === openKey) : undefined;
@@ -592,8 +602,9 @@ export default function ProbeApp() {
                     { v: "default", t: "默认" },
                     { v: "cpu", t: "CPU" },
                     { v: "net", t: "网速" },
+                    ...(hasExpiry ? [{ v: "expiry" as const, t: "到期" }] : []),
                   ]}
-                  value={sort}
+                  value={sortBy}
                   onChange={setSortStored}
                 />
                 <Segmented
@@ -635,6 +646,7 @@ export default function ProbeApp() {
                         {[
                           "服务器",
                           "状态",
+                          ...(hasExpiry ? ["到期"] : []),
                           "CPU",
                           "内存",
                           "硬盘",
@@ -654,6 +666,7 @@ export default function ProbeApp() {
                       {shown.map((n) => (
                         <CompactRow
                           key={n.k}
+                          expiryCol={hasExpiry}
                           names={names}
                           node={n}
                           now={n.online ? 0 : now}
