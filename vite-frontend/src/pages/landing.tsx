@@ -1145,8 +1145,8 @@ export default function LandingPage() {
                   )}
                   {linksFor?.protocol === "snell" && !link.url && (
                     <p className="text-xs text-default-500">
-                      Snell 没有通用的分享链接，请使用下方 Surge 或 Clash /
-                      mihomo 配置。
+                      Snell 没有通用的分享链接，请使用下方
+                      {link.surge ? " Surge 或 " : " "}Clash / mihomo 配置。
                     </p>
                   )}
                 </LandingLinkCard>
