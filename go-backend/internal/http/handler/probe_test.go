@@ -161,3 +161,17 @@ func TestNormalizeProbeGroups(t *testing.T) {
 		t.Fatal("bad mode accepted")
 	}
 }
+
+// Plan 194: 显示到期天数 through the generic config API is true / false only.
+func TestNormalizeProbeExpiry(t *testing.T) {
+	for _, v := range []string{"true", " false "} {
+		if got, err := normalizeAndValidateConfigValue(probeExpiryKey, v); err != nil || got != strings.TrimSpace(v) {
+			t.Fatalf("%q → %q %v", v, got, err)
+		}
+	}
+	for _, bad := range []string{"", "1", "yes", "TRUE"} {
+		if _, err := normalizeAndValidateConfigValue(probeExpiryKey, bad); err == nil {
+			t.Fatalf("%q accepted", bad)
+		}
+	}
+}

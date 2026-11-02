@@ -17,6 +17,10 @@ type ProbeNodeRow struct {
 	Name    string
 	Region  string
 	Version string
+	// Plan 194: next renewal / expiry (ms, 0 = not set) and the raw renewal
+	// cycle. The public page only ever gets the derived day count.
+	ExpiryTime   int64
+	RenewalCycle string
 }
 
 func (r *Repository) ListProbeNodes() ([]ProbeNodeRow, error) {
@@ -24,7 +28,7 @@ func (r *Repository) ListProbeNodes() ([]ProbeNodeRow, error) {
 		return nil, errors.New("repository not initialized")
 	}
 	var nodes []model.Node
-	err := r.db.Select("id", "inx", "name", "region", "version").
+	err := r.db.Select("id", "inx", "name", "region", "version", "expiry_time", "renewal_cycle").
 		Where("is_remote = ?", 0).
 		Order("inx ASC, id ASC").
 		Find(&nodes).Error
@@ -33,7 +37,11 @@ func (r *Repository) ListProbeNodes() ([]ProbeNodeRow, error) {
 	}
 	out := make([]ProbeNodeRow, 0, len(nodes))
 	for _, n := range nodes {
-		out = append(out, ProbeNodeRow{ID: n.ID, Inx: n.Inx, Name: n.Name, Region: n.Region, Version: n.Version.String})
+		row := ProbeNodeRow{ID: n.ID, Inx: n.Inx, Name: n.Name, Region: n.Region, Version: n.Version.String, RenewalCycle: n.RenewalCycle.String}
+		if n.ExpiryTime.Valid && n.ExpiryTime.Int64 > 0 {
+			row.ExpiryTime = n.ExpiryTime.Int64
+		}
+		out = append(out, row)
 	}
 	return out, nil
 }

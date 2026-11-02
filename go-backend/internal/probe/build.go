@@ -13,6 +13,10 @@ type NodeInput struct {
 	Region   string
 	Version  string
 	LastSeen int64 // ms of the newest stored metric (fallback for 「最后在线」), 0 unknown
+	// Plan 194: stored next due date (ms, 0 = none) + raw renewal cycle;
+	// only the derived day count / cycle token are published.
+	ExpiryTime   int64
+	RenewalCycle string
 }
 
 // Sample is the newest agent report of a node, kept in memory (1 s reports).
@@ -43,6 +47,8 @@ type BuildInput struct {
 	// deleted nodes; only shown ones count) and the default mode.
 	Groups    []GroupInput
 	GroupMode string
+	// ExpiryOn: publish 「剩余天数」 (plan 194 switch probe_expiry).
+	ExpiryOn bool
 }
 
 // GroupInput is one admin-defined custom group.
@@ -74,6 +80,12 @@ func BuildSnapshot(in BuildInput) Snapshot {
 			node.Seen = s.At
 		}
 		node.Online = in.Online != nil && in.Online(n.ID)
+		if in.ExpiryOn {
+			if days, cycle, ok := ExpiryDays(n.ExpiryTime, n.RenewalCycle, in.Now); ok {
+				d := days
+				node.Days, node.Cycle = &d, cycle
+			}
+		}
 		if node.Online && has && now-s.At <= sampleMaxAge.Milliseconds() {
 			node.CPU = Round1(s.CPU)
 			node.Mem = Round1(s.Mem)

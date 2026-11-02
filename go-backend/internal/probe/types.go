@@ -66,6 +66,11 @@ type Node struct {
 	Latency    []Latency `json:"latency,omitempty"`
 	// G: indexes into Snapshot.Groups (plan 189), omitted when in none.
 	G []int `json:"g,omitempty"`
+	// Plan 194: whole calendar days (UTC+8) until the next due date, ≤ 0 =
+	// today / expired; Cycle is one of the Cycle* tokens. Both omitted when
+	// the node has no expiry or the admin switched 显示到期天数 off.
+	Days  *int   `json:"days,omitempty"`
+	Cycle string `json:"cycle,omitempty"`
 }
 
 // Latency is the newest measured TCP latency from this node to another shown

@@ -40,6 +40,7 @@ const (
 	probeNodesKey     = "probe_nodes"
 	probeGroupsKey    = "probe_groups"     // plan 189: [{id,name,nodes:[ids]}] in order
 	probeGroupModeKey = "probe_group_mode" // plan 189: region (default) | group
+	probeExpiryKey    = "probe_expiry"     // plan 194: 显示到期天数, default on
 	probeAppNameKey   = "app_name"
 	probeGroupsMax    = 30
 	probeGroupNameMax = 20
@@ -82,6 +83,8 @@ type probeSettings struct {
 	// admin view drop deleted / hidden ones).
 	Groups    []probeGroup
 	GroupMode string
+	// Plan 194: publish 「剩余天数」 (default on).
+	Expiry bool
 }
 
 type probeNodesConfig struct {
@@ -231,7 +234,7 @@ func (h *Handler) resetProbeSettings() {
 // (and the old public stream within its own 10 s cache).
 func (h *Handler) noteProbeConfigChange(key string) {
 	switch key {
-	case probeSwitchKey, probeAppNameKey, probeTitleKey, probeDomainKey, probeLatencyKey, probeNodesKey, probeGroupsKey, probeGroupModeKey:
+	case probeSwitchKey, probeAppNameKey, probeTitleKey, probeDomainKey, probeLatencyKey, probeNodesKey, probeGroupsKey, probeGroupModeKey, probeExpiryKey:
 		h.resetProbeSettings()
 		if key == probeSwitchKey {
 			h.wsServer.ResetPublicSwitch()
@@ -240,11 +243,11 @@ func (h *Handler) noteProbeConfigChange(key string) {
 }
 
 func (h *Handler) loadProbeSettings() probeSettings {
-	st := probeSettings{Latency: true, Hidden: map[int64]bool{}, Names: map[int64]string{}, GroupMode: probe.GroupModeRegion}
+	st := probeSettings{Latency: true, Expiry: true, Hidden: map[int64]bool{}, Names: map[int64]string{}, GroupMode: probe.GroupModeRegion}
 	if h.repo == nil {
 		return st
 	}
-	cfg, err := h.repo.GetConfigsByNames([]string{probeSwitchKey, probeTitleKey, probeDomainKey, probeLatencyKey, probeNodesKey, probeAppNameKey, probeGroupsKey, probeGroupModeKey})
+	cfg, err := h.repo.GetConfigsByNames([]string{probeSwitchKey, probeTitleKey, probeDomainKey, probeLatencyKey, probeNodesKey, probeAppNameKey, probeGroupsKey, probeGroupModeKey, probeExpiryKey})
 	if err != nil {
 		// Fail closed: a DB hiccup must not open the page.
 		return st
@@ -260,6 +263,7 @@ func (h *Handler) loadProbeSettings() probeSettings {
 	}
 	st.Domain = strings.TrimSpace(cfg[probeDomainKey])
 	st.Latency = cfg[probeLatencyKey] != "false"
+	st.Expiry = cfg[probeExpiryKey] != "false"
 	if raw := strings.TrimSpace(cfg[probeNodesKey]); raw != "" {
 		var nc probeNodesConfig
 		if json.Unmarshal([]byte(raw), &nc) == nil {
@@ -428,7 +432,7 @@ func (h *Handler) probeShown(now time.Time, st probeSettings) []probe.NodeInput 
 		if v := st.Names[n.ID]; v != "" {
 			name = v
 		}
-		out = append(out, probe.NodeInput{ID: n.ID, Name: name, Region: n.Region, Version: n.Version, LastSeen: seen[n.ID]})
+		out = append(out, probe.NodeInput{ID: n.ID, Name: name, Region: n.Region, Version: n.Version, LastSeen: seen[n.ID], ExpiryTime: n.ExpiryTime, RenewalCycle: n.RenewalCycle})
 	}
 	return out
 }
@@ -460,6 +464,7 @@ func (h *Handler) buildProbeFrame(now time.Time) ([]byte, error) {
 		Key:       p.keyer.Key,
 		Groups:    probeGroupInputs(st.Groups),
 		GroupMode: st.GroupMode,
+		ExpiryOn:  st.Expiry,
 	})
 	return json.Marshal(response.R{Code: 0, Msg: "ok", TS: now.UnixMilli(), Data: snap})
 }
@@ -830,6 +835,8 @@ type probeAdminSettings struct {
 	// Plan 189: custom groups (deleted nodes pruned) + default mode.
 	Groups    []probeGroup `json:"groups"`
 	GroupMode string       `json:"groupMode"`
+	// Plan 194: 显示到期天数.
+	Expiry bool `json:"expiry"`
 }
 
 type probeAdminSave struct {
@@ -845,6 +852,8 @@ type probeAdminSave struct {
 	// open card); an empty list clears them.
 	Groups    *[]probeGroup `json:"groups"`
 	GroupMode string        `json:"groupMode"`
+	// Plan 194. nil = leave the stored switch as it is (an older open card).
+	Expiry *bool `json:"expiry"`
 }
 
 func (h *Handler) probeAdminGet(w http.ResponseWriter, r *http.Request) {
@@ -888,6 +897,7 @@ func (h *Handler) probeAdminGet(w http.ResponseWriter, r *http.Request) {
 		out.Groups = append(out.Groups, probeGroup{ID: g.ID, Name: g.Name, Nodes: members})
 	}
 	out.GroupMode = st.GroupMode
+	out.Expiry = st.Expiry
 	response.WriteJSON(w, response.OK(out))
 }
 
@@ -930,6 +940,11 @@ func normalizeProbeConfigValue(key, value string) (string, error) {
 			return v, nil
 		}
 		return "", errors.New("显示延迟只能是 true 或 false")
+	case probeExpiryKey:
+		if v := strings.TrimSpace(value); v == "true" || v == "false" {
+			return v, nil
+		}
+		return "", errors.New("显示到期天数只能是 true 或 false")
 	case probeNodesKey:
 		var nc probeNodesConfig
 		if err := json.Unmarshal([]byte(value), &nc); err != nil {
@@ -1056,6 +1071,13 @@ func (h *Handler) probeAdminSave(w http.ResponseWriter, r *http.Request) {
 		}
 		groupsJSON, _ := json.Marshal(groups)
 		writes = append(writes, [2]string{probeGroupsKey, string(groupsJSON)})
+	}
+	if req.Expiry != nil {
+		expiry := "true"
+		if !*req.Expiry {
+			expiry = "false"
+		}
+		writes = append(writes, [2]string{probeExpiryKey, expiry})
 	}
 	switch req.GroupMode {
 	case "":
