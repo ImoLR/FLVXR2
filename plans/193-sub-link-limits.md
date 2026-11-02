@@ -25,11 +25,11 @@ right away (fork.108, panel only, no OTA). Base = `3.0.27-fork.107` (db582010), 
 - [x] A4 sing-box check / fix
 - [x] A5 cold-render slot limit (503 quick), refetch outside the slot
 - [x] B Snell: 复制链接 Surge line omitted for v4/v5 + tls obfs (with reason); generators verified
-- [ ] Tests: unit + contract SQLite + PostgreSQL; frontend tsc/build/lint vs base
-- [ ] A6 demo panel: peak RSS, 20 distinct 100-node subs cold, before vs after
-- [ ] Screens of changed UI text → /root/mmwx-preview/sub-link-limits/
+- [x] Tests: unit + contract SQLite + PostgreSQL; frontend tsc/build/lint vs base
+- [x] A6 demo panel: peak RSS, 20 distinct 100-node subs cold, before vs after
+- [x] Screens of changed UI text → /root/mmwx-preview/sub-link-limits/
 - [x] Prod read-only counts (subs/sources >100, Snell landing nodes)
-- [ ] Push, CI green
+- [x] Push, CI green
 - [ ] Release fork.108: baselines, backup, upgrade, post-checks, prune, cleanup
 - [ ] Plan marked complete
 
@@ -56,3 +56,15 @@ right away (fork.108, panel only, no OTA). Base = `3.0.27-fork.107` (db582010), 
   was wrong.
 - Prod read-only (11-02 ~22:05 TW): 0 subscriptions, 0 sources, 0 Snell landing nodes (5 SS2022 nodes; 6 landing
   servers default Snell v4 / none) → nothing over 100, nothing to trim.
+- Gates (feature head e2520c35): go build ok; go vet = the same 5 unkeyed-field hints in
+  internal/leikwan/testapi/fake.go as fork.106/107 (file untouched); go test ./... 22/22 packages ok on SQLite
+  and on PostgreSQL, 0 failures; frontend tsc ok, eslint 0 problems on the changed files, vite build ok
+  (precache 3345 KiB); CI Build Check 41459138490 green.
+- Demo panel (loopback-only netns, synthetic DB: 4 users × 5 subscriptions × 100 external nodes = 20 distinct
+  100-node subscriptions; 3 waves of 20 concurrent cold pulls: clash.meta, Stash, sing-box), peak RSS (VmHWM):
+  GOMAXPROCS=2: fork.107 37 → 65 MiB, plan 193 36 → 46 MiB; Clash wave 360 ms → 109 ms.
+  GOMAXPROCS=8 (prod default): fork.107 35 → 75 MiB, plan 193 39 → 50 MiB; Clash wave 397 ms → 90 ms.
+  (One 429 per run in either version: >10 simultaneous pulls from ONE address can trip the unknown-token
+  limiter before its refund — pre-existing, real clients pull one at a time.)
+- Screens (synthetic data) at http://104.145.236.29:8791/sub-link-limits/ — editor 120/100 + notice,
+  101st node blocked, source 「这个订阅有 150 个节点，只保留前 100 个」, Snell TLS-obfs link note.
