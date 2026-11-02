@@ -390,8 +390,8 @@ export default function SubLinkPage() {
                   {maskedSubLink(qr.token)}
                 </p>
                 <p className="text-center text-xs text-default-500">
-                  用手机客户端扫码导入（Shadowrocket、Clash、sing-box、v2rayNG、
-                  Surge、Loon、Quantumult X 都能识别）
+                  用手机客户端扫码导入（Shadowrocket、Clash、sing-box、v2rayNG、Surge、Loon、Quantumult
+                  X 都能识别）
                 </p>
               </div>
             )}
