@@ -16,6 +16,7 @@ import (
 	"net/netip"
 	"os"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -53,6 +54,8 @@ type oldPanelStats struct {
 	LastNodesMs float64
 	SeenSeeks   int64
 	SeriesReads int64
+	// GeoIP batches for the 救命版 regions (only when an address changed).
+	RegionLookups int64
 }
 
 type oldPanelState struct {
@@ -60,6 +63,12 @@ type oldPanelState struct {
 	dns    *oldpanel.DNSCache
 
 	tickMu sync.Mutex // one tick at a time (DB reads)
+
+	// GeoIP regions of the 救命版 nodes, keyed by their candidate addresses
+	// (recomputed only when one changes; see oldPanelRegions).
+	regionMu  sync.Mutex
+	regionSig string
+	regions   map[int64]string
 
 	mu        sync.Mutex
 	nodes     []oldpanel.Node
@@ -381,9 +390,10 @@ func (h *Handler) oldPanelKnownIDs() map[int64]bool {
 	return known
 }
 
-// oldPanelRegion: GeoIP of the machine's public address (IPv4 first, literal
-// before resolved), like the 节点 page's auto-detection.
-func (h *Handler) oldPanelRegion(a oldpanel.Addrs) string {
+// oldPanelCandidates: the machine's public addresses for GeoIP, IPv4 first,
+// literal addresses before resolved host names (from the DNS cache, never
+// blocking), like the 节点 page's auto-detection.
+func (h *Handler) oldPanelCandidates(a oldpanel.Addrs) []netip.Addr {
 	o := &h.probeInit().old
 	var cand []netip.Addr
 	for _, want4 := range []bool{true, false} {
@@ -401,12 +411,61 @@ func (h *Handler) oldPanelRegion(a oldpanel.Addrs) string {
 			}
 		}
 	}
-	for _, ip := range cand {
-		if r := geoip.Lookup(ip); r != "" {
-			return r
+	return cand
+}
+
+// oldPanelRegions: GeoIP region of every 救命版 node not matched to an FLVX
+// node. Built from the candidate addresses on every call (cheap), but the
+// GeoIP lookup itself only runs when one of them changed (start, node list
+// or DNS change); geoip.LookupMany then decodes its tables for that batch
+// and drops them, so the probe does not keep ~15 MB resident.
+func (h *Handler) oldPanelRegions(m oldPanelMatch) map[int64]string {
+	o := &h.probeInit().old
+	var (
+		sig   strings.Builder
+		flat  []netip.Addr
+		ids   []int64
+		spans []int
+	)
+	for _, n := range m.view.nodes {
+		if _, ok := m.matched[n.ID]; ok {
+			continue
 		}
+		cand := h.oldPanelCandidates(m.view.addrs[n.ID])
+		sig.WriteString(strconv.FormatInt(n.ID, 10))
+		sig.WriteByte(':')
+		for _, ip := range cand {
+			sig.WriteString(ip.String())
+			sig.WriteByte(',')
+		}
+		sig.WriteByte(';')
+		flat = append(flat, cand...)
+		ids = append(ids, n.ID)
+		spans = append(spans, len(flat))
 	}
-	return ""
+	key := sig.String()
+	o.regionMu.Lock()
+	defer o.regionMu.Unlock()
+	if o.regions != nil && o.regionSig == key {
+		return o.regions
+	}
+	found := geoip.LookupMany(flat)
+	regions := make(map[int64]string, len(ids))
+	start := 0
+	for i, id := range ids {
+		for _, r := range found[start:spans[i]] {
+			if r != "" {
+				regions[id] = r
+				break
+			}
+		}
+		start = spans[i]
+	}
+	o.regions, o.regionSig = regions, key
+	o.mu.Lock()
+	o.stats.RegionLookups++
+	o.mu.Unlock()
+	return regions
 }
 
 // oldPanelInputs: the shown 救命版-only machines (default hidden: only the
@@ -416,6 +475,7 @@ func (h *Handler) oldPanelInputs(m oldPanelMatch, st probeSettings) []probe.Node
 		return nil
 	}
 	out := make([]probe.NodeInput, 0, len(st.OldShown))
+	var regions map[int64]string
 	for _, n := range m.view.nodes {
 		if _, ok := m.matched[n.ID]; ok || m.pending[n.ID] || !st.OldShown[n.ID] {
 			continue
@@ -430,7 +490,10 @@ func (h *Handler) oldPanelInputs(m oldPanelMatch, st probeSettings) []probe.Node
 		}
 		region := st.OldRegions[n.ID]
 		if region == "" {
-			region = h.oldPanelRegion(m.view.addrs[n.ID])
+			if regions == nil {
+				regions = h.oldPanelRegions(m)
+			}
+			region = regions[n.ID]
 		}
 		out = append(out, probe.NodeInput{
 			ID: -n.ID, Name: name, Region: region, Version: n.Version, LastSeen: seen,

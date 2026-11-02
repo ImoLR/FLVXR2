@@ -46,25 +46,25 @@ func lookupMap(m map[string][]string, pending ...string) Lookup {
 
 func TestMatch(t *testing.T) {
 	flvx := []Side{
-		{ID: 21, Addrs: ParseAddrs("87.76.190.35")},                          // Breadcloud JP
-		{ID: 49, Addrs: ParseAddrs("dmitnathan.example.org")},                // same host name both sides
-		{ID: 35, Addrs: ParseAddrs("us2.example.org")},                       // resolves to the old literal
+		{ID: 21, Addrs: ParseAddrs("87.76.190.35")},                            // Breadcloud JP
+		{ID: 49, Addrs: ParseAddrs("dmitnathan.example.org")},                  // same host name both sides
+		{ID: 35, Addrs: ParseAddrs("us2.example.org")},                         // resolves to the old literal
 		{ID: 51, Addrs: ParseAddrs("240e:96c:7100:1fe::e4", `["10.0.2.230"]`)}, // v6 literal
-		{ID: 60, Addrs: ParseAddrs("proxied-a.example.org")},                 // Cloudflare-proxied name
-		{ID: 61, Addrs: ParseAddrs("10.7.177.91")},                           // private only
+		{ID: 60, Addrs: ParseAddrs("proxied-a.example.org")},                   // Cloudflare-proxied name
+		{ID: 61, Addrs: ParseAddrs("10.7.177.91")},                             // private only
 		{ID: 70, Addrs: ParseAddrs("203.0.113.70")},
 		{ID: 71, Addrs: ParseAddrs("203.0.113.70")}, // same IP twice: first in order wins
 	}
 	old := []Side{
-		{ID: 13, Addrs: ParseAddrs("jp.example.org")},                         // → 21 via its A record
-		{ID: 72, Addrs: ParseAddrs("DmitNathan.example.org")},                 // → 49
-		{ID: 21, Addrs: ParseAddrs("143.20.196.111")},                         // → 35 (FLVX host resolves here)
+		{ID: 13, Addrs: ParseAddrs("jp.example.org")},                          // → 21 via its A record
+		{ID: 72, Addrs: ParseAddrs("DmitNathan.example.org")},                  // → 49
+		{ID: 21, Addrs: ParseAddrs("143.20.196.111")},                          // → 35 (FLVX host resolves here)
 		{ID: 73, Addrs: ParseAddrs("10.0.2.230", "", "240e:96c:7100:1fe::e4")}, // → 51
-		{ID: 80, Addrs: ParseAddrs("proxied-b.example.org")},                  // same CF IP as 60: NO match
-		{ID: 2, Addrs: ParseAddrs("10.7.177.91")},                             // private equal: NO match
-		{ID: 1, Addrs: ParseAddrs("pqstw.example.org")},                       // unique
-		{ID: 90, Addrs: ParseAddrs("203.0.113.70")},                           // → 70
-		{ID: 91, Addrs: ParseAddrs("")},                                       // no address at all
+		{ID: 80, Addrs: ParseAddrs("proxied-b.example.org")},                   // same CF IP as 60: NO match
+		{ID: 2, Addrs: ParseAddrs("10.7.177.91")},                              // private equal: NO match
+		{ID: 1, Addrs: ParseAddrs("pqstw.example.org")},                        // unique
+		{ID: 90, Addrs: ParseAddrs("203.0.113.70")},                            // → 70
+		{ID: 91, Addrs: ParseAddrs("")},                                        // no address at all
 	}
 	dns := map[string][]string{
 		"jp.example.org":         {"87.76.190.35"},

@@ -270,7 +270,7 @@ export function ProbeSettingsCard({ enabled }: { enabled: boolean }) {
   const regionSelect = (n: ProbeAdminNode, cls: string) => (
     <select
       aria-label={`${n.name} 的地区`}
-      className={`h-8 rounded-md border border-divider bg-transparent px-1.5 text-sm outline-none focus:border-teal-500 disabled:opacity-50 dark:[color-scheme:dark] ${cls}`}
+      className={`rounded-md border border-divider bg-transparent px-1.5 outline-none focus:border-teal-500 disabled:opacity-50 dark:[color-scheme:dark] ${cls}`}
       disabled={n.hidden}
       title="救命版没有地区信息，默认按 IP 自动识别，不准可以在这里改"
       value={n.regionOverride ?? ""}
@@ -469,27 +469,32 @@ export function ProbeSettingsCard({ enabled }: { enabled: boolean }) {
                     />
                     {sourceChips(n)}
                   </div>
-                  {groups.length > 0 && (
-                    <div className="mt-1">
-                      <ProbeGroupPicker
-                        dim={n.hidden}
-                        groups={groups}
-                        nodeId={n.id}
-                        nodeName={n.name}
-                        onToggle={toggleGroup}
-                      />
+                  {(groups.length > 0 || (!narrow && n.source === "old")) && (
+                    <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                      {groups.length > 0 && (
+                        <ProbeGroupPicker
+                          dim={n.hidden}
+                          groups={groups}
+                          nodeId={n.id}
+                          nodeName={n.name}
+                          onToggle={toggleGroup}
+                        />
+                      )}
+                      {/* Wide screens: the card is narrow, so 地区 sits on the
+                          second line and the name keeps its room. */}
+                      {!narrow &&
+                        n.source === "old" &&
+                        regionSelect(n, "h-6 w-32 text-xs")}
                     </div>
                   )}
                   {narrow && (
                     <div className="mt-1.5 flex gap-1.5">
                       {nameInput(n, "min-w-0 flex-1")}
-                      {n.source === "old" && regionSelect(n, "w-28 shrink-0")}
+                      {n.source === "old" &&
+                        regionSelect(n, "h-8 w-28 shrink-0 text-sm")}
                     </div>
                   )}
                 </div>
-                {!narrow &&
-                  n.source === "old" &&
-                  regionSelect(n, "w-32 shrink-0")}
                 {!narrow && nameInput(n, "w-40 shrink-0")}
               </div>
             ))}

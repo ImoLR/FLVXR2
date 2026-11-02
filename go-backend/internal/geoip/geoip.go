@@ -16,6 +16,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -24,6 +25,7 @@ var countryData []byte
 
 var (
 	loadOnce sync.Once
+	loaded   atomic.Bool // set once load() has filled the shared tables
 	v4Table  []byte
 	v6Table  []byte
 )
@@ -42,6 +44,64 @@ func load() {
 	if err != nil {
 		log.Printf("geoip: decode embedded data: %v", err)
 	}
+	loaded.Store(true)
+}
+
+// readTables decodes a private copy of the tables into exactly sized
+// buffers (no ReadAll growth garbage). Used by LookupMany.
+func readTables() ([]byte, []byte, error) {
+	reader, err := gzip.NewReader(bytes.NewReader(countryData))
+	if err != nil {
+		return nil, nil, err
+	}
+	defer reader.Close()
+	var head [16]byte
+	if _, err := io.ReadFull(reader, head[:]); err != nil || string(head[:8]) != "FLVXGEO1" {
+		return nil, nil, fmt.Errorf("invalid country data header")
+	}
+	n4, n6 := uint64(binary.BigEndian.Uint32(head[8:12])), uint64(binary.BigEndian.Uint32(head[12:16]))
+	if 16+n4*10+n6*34 > 64<<20 {
+		return nil, nil, fmt.Errorf("invalid country data length")
+	}
+	v4, v6 := make([]byte, n4*10), make([]byte, n6*34)
+	if _, err := io.ReadFull(reader, v4); err != nil {
+		return nil, nil, fmt.Errorf("invalid country data length")
+	}
+	if _, err := io.ReadFull(reader, v6); err != nil {
+		return nil, nil, fmt.Errorf("invalid country data length")
+	}
+	return v4, v6, nil
+}
+
+// LookupMany is Lookup for an occasional batch (plan 195: regions of the
+// 救命版 machines, recomputed only when their addresses change). It uses the
+// shared tables when something (the 节点 page) already loaded them; otherwise
+// it decodes a private copy that is dropped afterwards, so a rare caller does
+// not keep the ~15 MB tables resident for the life of the panel.
+func LookupMany(addrs []netip.Addr) []string {
+	out := make([]string, len(addrs))
+	need := false
+	for _, a := range addrs {
+		if public(a) {
+			need = true
+			break
+		}
+	}
+	if !need {
+		return out
+	}
+	t4, t6 := v4Table, v6Table
+	if !loaded.Load() {
+		var err error
+		if t4, t6, err = readTables(); err != nil {
+			log.Printf("geoip: decode embedded data: %v", err)
+			return out
+		}
+	}
+	for i, a := range addrs {
+		out[i] = lookupIn(a, t4, t6)
+	}
+	return out
 }
 
 func decode(data []byte) ([]byte, []byte, error) {
@@ -90,11 +150,19 @@ func Lookup(addr netip.Addr) string {
 		return ""
 	}
 	loadOnce.Do(load)
+	return lookupIn(addr, v4Table, v6Table)
+}
+
+func lookupIn(addr netip.Addr, t4, t6 []byte) string {
+	addr = addr.Unmap()
+	if !public(addr) {
+		return ""
+	}
 	var key []byte
-	table, width := v6Table, 16
+	table, width := t6, 16
 	if addr.Is4() {
 		ip := addr.As4()
-		key, table, width = ip[:], v4Table, 4
+		key, table, width = ip[:], t4, 4
 	} else {
 		ip := addr.As16()
 		key = ip[:]

@@ -19,6 +19,7 @@ import (
 	_ "github.com/glebarez/go-sqlite"
 
 	"go-backend/internal/auth"
+	"go-backend/internal/geoip"
 	httpserver "go-backend/internal/http"
 	"go-backend/internal/http/handler"
 	"go-backend/internal/http/response"
@@ -283,6 +284,13 @@ func TestProbeOldPanelContract(t *testing.T) {
 			if !byID[-35].Online || byID[-41].Online || (len(byID[-35].Region) != 0 && len(byID[-35].Region) != 2) {
 				t.Fatalf("online / region: %+v %+v", byID[-35], byID[-41])
 			}
+			// Automatic region = GeoIP of the public address (cached batch).
+			for id, ip := range map[int64]string{-28: "194.127.192.26", -41: "103.49.61.123"} {
+				want := geoip.Lookup(netip.MustParseAddr(ip))
+				if want == "" || byID[id].Auto != want || byID[id].Region != want {
+					t.Fatalf("region of %d: auto %q region %q want %q", id, byID[id].Auto, byID[id].Region, want)
+				}
+			}
 
 			// Default hidden: the public page has only the FLVX machines; the
 			// matched FLVX node without its own expiry borrows the 救命版 one.
@@ -307,7 +315,7 @@ func TestProbeOldPanelContract(t *testing.T) {
 					{"id": 761, "hidden": false}, {"id": 762, "hidden": false}, {"id": 763, "hidden": false},
 					{"id": -1, "hidden": false}, {"id": -35, "hidden": false, "probeName": " 首尔 Vmiss ", "region": "kr"},
 					{"id": -28, "hidden": true, "probeName": "隐藏的名字"}, {"id": -41, "hidden": false},
-					{"id": -13, "hidden": false}, // matched: not a machine of its own, but a 救命版 id — accepted, never shown
+					{"id": -13, "hidden": false},  // matched: not a machine of its own, but a 救命版 id — accepted, never shown
 					{"id": -555, "hidden": false}, // unknown: dropped
 				},
 				"groups": []map[string]interface{}{
@@ -321,7 +329,7 @@ func TestProbeOldPanelContract(t *testing.T) {
 				t.Fatalf("save: %+v", out)
 			}
 			var stored struct {
-				Hidden   []int64           `json:"hidden"`
+				Hidden     []int64           `json:"hidden"`
 				OldShown   []int64           `json:"old_shown"`
 				OldNames   map[string]string `json:"old_names"`
 				OldRegions map[string]string `json:"old_regions"`
@@ -421,6 +429,21 @@ func TestProbeOldPanelContract(t *testing.T) {
 				if sd.expiry != 0 && (bytes.Contains(body, []byte(strconv.FormatInt(sd.expiry, 10))) || bytes.Contains(body, []byte(strconv.FormatInt(sd.expiry/1000, 10)))) {
 					t.Fatalf("snapshot leaks the 救命版 expiry of %s", sd.name)
 				}
+			}
+
+			// GeoIP regions are cached: more admin lists / frames with the same
+			// addresses run no new GeoIP batch (the tables are not kept).
+			before := e.h.OldPanelStats().RegionLookups
+			if before < 1 {
+				t.Fatalf("region batches %d", before)
+			}
+			for i := 0; i < 3; i++ {
+				if out := call(e, "config/probe", nil); out.Code != 0 {
+					t.Fatal(out)
+				}
+			}
+			if after := e.h.OldPanelStats().RegionLookups; after != before {
+				t.Fatalf("region batches %d → %d with unchanged addresses", before, after)
 			}
 
 			// 6. Series by opaque key only.

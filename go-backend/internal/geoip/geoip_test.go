@@ -146,3 +146,39 @@ func TestEmbeddedDatabaseValid(t *testing.T) {
 		t.Fatal("invalid data accepted")
 	}
 }
+
+// Plan 195: the private batch decode gives the same answers as Lookup, both
+// before and after the shared tables are loaded.
+func TestLookupManyMatchesLookup(t *testing.T) {
+	var addrs []netip.Addr
+	for _, s := range []string{"8.8.8.8", "114.114.114.114", "168.95.1.1", "2400:3200::1", "2001:b000:168::1", "::ffff:8.8.8.8", "10.0.0.1", "203.0.113.5", "::1"} {
+		addrs = append(addrs, netip.MustParseAddr(s))
+	}
+	t4, t6, err := readTables()
+	if err != nil {
+		t.Fatal(err)
+	}
+	private := make([]string, len(addrs))
+	for i, a := range addrs {
+		private[i] = lookupIn(a, t4, t6)
+	}
+	got := LookupMany(addrs)
+	for i, a := range addrs {
+		want := Lookup(a)
+		if private[i] != want || got[i] != want {
+			t.Fatalf("%s: private %q batch %q lookup %q", a, private[i], got[i], want)
+		}
+	}
+	if !loaded.Load() {
+		t.Fatal("Lookup should have loaded the shared tables")
+	}
+	again := LookupMany(addrs)
+	for i := range addrs {
+		if again[i] != got[i] {
+			t.Fatalf("%s: shared %q private %q", addrs[i], again[i], got[i])
+		}
+	}
+	if none := LookupMany([]netip.Addr{netip.MustParseAddr("10.1.2.3")}); none[0] != "" {
+		t.Fatalf("private address got %q", none[0])
+	}
+}

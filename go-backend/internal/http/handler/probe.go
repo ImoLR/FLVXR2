@@ -96,8 +96,8 @@ type probeSettings struct {
 // probeNodesConfig is the probe_nodes row. Plan 195 adds the 救命版 fields
 // (additive: an older binary ignores them).
 type probeNodesConfig struct {
-	Hidden   []int64           `json:"hidden"`
-	Names    map[string]string `json:"names"`
+	Hidden     []int64           `json:"hidden"`
+	Names      map[string]string `json:"names"`
 	OldShown   []int64           `json:"old_shown,omitempty"`
 	OldNames   map[string]string `json:"old_names,omitempty"`
 	OldRegions map[string]string `json:"old_regions,omitempty"`
@@ -1029,11 +1029,12 @@ func (h *Handler) probeAdminGet(w http.ResponseWriter, r *http.Request) {
 	// Plan 195: 救命版-only machines after the FLVX nodes (default hidden).
 	if m.view.on && m.view.ok {
 		now := time.Now()
+		regions := h.oldPanelRegions(m)
 		for _, n := range m.view.nodes {
 			if _, ok := m.matched[n.ID]; ok {
 				continue
 			}
-			auto := h.oldPanelRegion(m.view.addrs[n.ID])
+			auto := regions[n.ID]
 			region := auto
 			if v := st.OldRegions[n.ID]; v != "" {
 				region = v
