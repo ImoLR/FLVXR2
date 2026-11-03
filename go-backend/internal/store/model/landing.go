@@ -89,7 +89,12 @@ type LandingServer struct {
 	NativeBusyPorts string `gorm:"type:text;not null;default:''" json:"-"`
 	// Plan 161 (native): why the agent could not apply the per-user 速率 in
 	// the kernel ("" = applied, nothing to apply, or an agent without it).
-	RateError   string `gorm:"type:text;not null;default:''" json:"-"`
+	RateError string `gorm:"type:text;not null;default:''" json:"-"`
+	// Plan 202 (native) 「禁止端口扫描」: ScanSeenSeq = highest Core hit seq
+	// recorded (sent back as scan_guard.seen); ScanState = the agent's last
+	// guard state ("" = old agent / not reported, off, on, core_update, error).
+	ScanSeenSeq int64  `gorm:"not null;default:0" json:"-"`
+	ScanState   string `gorm:"not null;default:''" json:"-"`
 	CreatedTime int64  `gorm:"not null" json:"createdTime"`
 	UpdatedTime int64  `gorm:"not null" json:"updatedTime"`
 }
@@ -190,11 +195,43 @@ type LandingNode struct {
 	// leaves through (0 = 直连 / the normal outbound layers). Block rules still
 	// apply first; no fallback to direct when the external node fails.
 	ChainExternalID int64 `gorm:"not null;default:0;index" json:"chainExternalId"`
-	CreatedTime     int64 `gorm:"not null;index:idx_landing_reuse,priority:5" json:"createdTime"`
-	UpdatedTime     int64 `gorm:"not null" json:"updatedTime"`
+	// Plan 202 「禁止端口扫描」: > 0 = disabled because its landing Core caught a
+	// port scan (unix ms of the record); the node keeps status "disabled"
+	// (manual), its port, credentials and links; only an admin lifts it.
+	// ScanBlock is the reason (JSON landing scan hit), kept on the node so the
+	// event retention never loses it.
+	ScanBlockedAt int64  `gorm:"not null;default:0" json:"scanBlockedAt"`
+	ScanBlock     string `gorm:"type:text;not null;default:''" json:"-"`
+	CreatedTime   int64  `gorm:"not null;index:idx_landing_reuse,priority:5" json:"createdTime"`
+	UpdatedTime   int64  `gorm:"not null" json:"updatedTime"`
 }
 
 func (LandingNode) TableName() string { return "landing_node" }
+
+// LandingScanEvent is one 禁止端口扫描 hit (plan 202) on a native landing
+// server: the node it disabled, the pattern and when an admin lifted it.
+// (server, seq) is unique, so an agent report repeated after a lost answer is
+// recorded once. Kept 30 days and at most 5000 rows.
+type LandingScanEvent struct {
+	ID              int64  `gorm:"primaryKey;autoIncrement" json:"id"`
+	LandingServerID int64  `gorm:"not null;uniqueIndex:idx_landing_scan_event_seq,priority:1" json:"landingServerId"`
+	Seq             int64  `gorm:"not null;uniqueIndex:idx_landing_scan_event_seq,priority:2" json:"-"`
+	LandingNodeID   int64  `gorm:"not null;index" json:"landingNodeId"`
+	UserID          int64  `gorm:"not null;default:0" json:"userId"`
+	NodeName        string `gorm:"not null;default:''" json:"nodeName"`
+	Type            string `gorm:"type:varchar(16);not null;default:''" json:"type"`
+	Count           int    `gorm:"not null;default:0" json:"count"`
+	Port            int    `gorm:"not null;default:0" json:"port"`
+	Host            string `gorm:"type:varchar(64);not null;default:''" json:"host"`
+	WindowS         int    `gorm:"not null;default:0" json:"windowS"`
+	HitAt           int64  `gorm:"not null;default:0" json:"hitAt"`
+	Blocked         bool   `gorm:"not null;default:false" json:"blocked"`
+	UnblockedAt     int64  `gorm:"not null;default:0" json:"unblockedAt"`
+	UnblockedBy     string `gorm:"type:varchar(64);not null;default:''" json:"unblockedBy"`
+	CreatedTime     int64  `gorm:"not null;index" json:"createdTime"`
+}
+
+func (LandingScanEvent) TableName() string { return "landing_scan_event" }
 
 type LandingUserSetting struct {
 	UserID   int64 `gorm:"primaryKey;autoIncrement:false" json:"userId"`

@@ -260,6 +260,12 @@ func (h *Handler) landingGlobalView() (map[string]any, error) {
 	if err != nil {
 		return nil, err
 	}
+	// Plan 202: 禁止端口扫描 (switch + thresholds + per-server state).
+	if scan, err := h.landingScanAdminView(); err == nil {
+		builtin["scanGuard"] = scan
+	} else {
+		return nil, err
+	}
 	perNode, total, err := h.repo.LandingRuleCapDefaults()
 	if err != nil {
 		return nil, err
@@ -508,7 +514,7 @@ func (h *Handler) landingNodeRulesView(n *model.LandingNode, admin bool) (map[st
 		"rules": rules, "defaultAction": def, "inheritedAction": inherited, "inheritedLabel": labelOf(inherited), "inheritedFrom": inheritedFrom,
 		"outbounds": outboundChoices, "supported": supported, "state": state, "stateReason": stateReason, "notes": notes,
 		"global":  map[string]any{"active": globalOn, "forced": ruleSummaries(nodeProtocolRules(d.Global.Forced, n.Protocol), d.Outbounds, admin), "default": ruleSummaries(nodeProtocolRules(d.Global.Default, n.Protocol), d.Outbounds, admin), "defaultLabel": labelOf(d.Global.DefaultAction)},
-		"builtin": landingBuiltinNodeView(d, pid, globalOn),
+		"builtin": h.landingBuiltinNodeViewWithScan(d, pid, globalOn),
 		"server":  server,
 		"caps":    map[string]any{"perNode": caps.PerNode, "total": caps.Total, "used": used, "unlimited": caps.Unlimited || admin, "perNodeSource": caps.PerNodeSource, "totalSource": caps.TotalSource},
 		"admin":   admin,

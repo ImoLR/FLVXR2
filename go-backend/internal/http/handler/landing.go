@@ -3,6 +3,7 @@ package handler
 import (
 	"encoding/json"
 	"errors"
+	"log"
 	"net"
 	"net/http"
 	"strconv"
@@ -21,6 +22,7 @@ func (h *Handler) registerLanding(mux *http.ServeMux) {
 	h.registerLandingEgress(mux)
 	h.registerLandingExternal(mux)
 	h.registerSubLink(mux)
+	h.registerLandingScan(mux)
 	for path, fn := range map[string]http.HandlerFunc{"integration/get": h.landingIntegrationGet, "integration/save": h.landingIntegrationSave, "integration/test": h.landingIntegrationTest, "integration/sync": h.landingIntegrationSync, "server/enable": h.landingServerEnable, "server/list": h.landingServerList, "server/save": h.landingServerSave, "node/list": h.landingNodeList, "node/create": h.limitMutation(mutationLanding, h.landingNodeCreate), "node/update": h.limitMutation(mutationLanding, h.landingNodeUpdate), "node/delete": h.limitMutation(mutationLanding, h.landingNodeDelete), "node/links": h.landingNodeLinks, "user/get": h.landingUserGet, "user/save": h.landingUserSave, "settings/get": h.landingSettingsGet, "settings/save": h.landingSettingsSave, "node/transfer": h.limitMutation(mutationLanding, h.landingNodeTransfer), "monitor": h.landingMonitor, "monitor/ips": h.landingMonitorIPs, "node/rules/get": h.landingNodeRulesGet, "node/rules/save": h.limitMutation(mutationLanding, h.landingNodeRulesSave), "preset/list": h.landingPresetList} {
 		mux.HandleFunc("/api/v1/landing/"+path, func(w http.ResponseWriter, r *http.Request) {
 			if r.Method != http.MethodPost {
@@ -296,6 +298,10 @@ func landingNodeViewData(n model.LandingNode, s *model.LandingServer, u *model.U
 	v["connModePending"] = configured != effective
 	// Plan 147: no 计算方式 choice on a shared server (fixed 入站+出站).
 	v["connModeFixed"] = repo.LandingConnModeFixed(s)
+	// Plan 202: why a node is disabled by 禁止端口扫描 (owner + admin).
+	if block := landingScanBlockView(&n); block != nil {
+		v["scanBlock"] = block
+	}
 	flow, ratio := 2, 1.0
 	expires := int64(0)
 	minExpiry := func(t int64) {
@@ -730,9 +736,19 @@ func (h *Handler) landingNodeUpdate(w http.ResponseWriter, r *http.Request) {
 	if _, ok := req["status"]; ok {
 		n.AutoDisabled = false
 	}
+	// Plan 202: enabling a node disabled by 禁止端口扫描 is 解除禁用 (logged
+	// on its event like the 「解除禁用」 button).
+	liftScan := n.ScanBlockedAt > 0 && n.Status != "disabled"
 	if err := h.repo.UpdateLandingNode(n); err != nil {
 		landingError(w, err)
 		return
+	}
+	if liftScan {
+		_, by := h.landingActorName(r)
+		if lifted, err := h.repo.LiftLandingScanBlock(n.ID, by, false, time.Now()); err == nil {
+			n.ScanBlockedAt, n.ScanBlock = lifted.ScanBlockedAt, lifted.ScanBlock
+			log.Printf("[landing-scan] node=%d unblocked by=%q (status edit)", n.ID, by)
+		}
 	}
 	if profileChanged {
 		if err := h.repo.SetLandingNodeRouteProfile(n.ID, profileID); err != nil {

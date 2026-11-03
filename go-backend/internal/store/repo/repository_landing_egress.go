@@ -934,7 +934,12 @@ func (r *Repository) SetNodeLandingCapabilities(id int64, capable bool, egress i
 	if len(versions) > 3 {
 		userLimitsVersion = versions[3]
 	}
-	return r.db.Model(&model.Node{}).Where("id = ? AND (landing_capable <> ? OR landing_egress <> ? OR landing_chain <> ? OR landing_guard <> ? OR landing_conn_mode <> ? OR landing_user_limits <> ?)", id, capable, egress, chainVersion, guardVersion, connVersion, userLimitsVersion).Updates(map[string]any{"landing_capable": capable, "landing_egress": egress, "landing_chain": chainVersion, "landing_guard": guardVersion, "landing_conn_mode": connVersion, "landing_user_limits": userLimitsVersion}).Error
+	// Plan 202: landing_scan_guard (禁止端口扫描).
+	scanVersion := 0
+	if len(versions) > 4 {
+		scanVersion = versions[4]
+	}
+	return r.db.Model(&model.Node{}).Where("id = ? AND (landing_capable <> ? OR landing_egress <> ? OR landing_chain <> ? OR landing_guard <> ? OR landing_conn_mode <> ? OR landing_user_limits <> ? OR landing_scan_guard <> ?)", id, capable, egress, chainVersion, guardVersion, connVersion, userLimitsVersion, scanVersion).Updates(map[string]any{"landing_capable": capable, "landing_egress": egress, "landing_chain": chainVersion, "landing_guard": guardVersion, "landing_conn_mode": connVersion, "landing_user_limits": userLimitsVersion, "landing_scan_guard": scanVersion}).Error
 }
 
 // UserNamesByIDs maps user IDs to login names in one query.
