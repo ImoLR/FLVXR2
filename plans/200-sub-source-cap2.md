@@ -31,7 +31,16 @@ all of them: they still refresh and render; only adding is blocked until they ar
 - [x] Tests: cap 2, error text, existing 3 still list/render; update tests assuming 3
 - [x] go build / vet / go test (SQLite + PG contract) vs fork.110 baseline
 - [x] Frontend tsc / build / lint vs fork.110
-- [ ] Push branch, CI green
-- [ ] Demo panel screens 1440 + 390, light + dark → /root/mmwx-preview/sub-source-cap2/
-- [ ] runs/sub-source-cap2/release-notes.md
-- [ ] Clean demo panels, summary
+- [x] Push branch, CI green (41616851925)
+- [x] Demo panel screens 1440 + 390, light + dark → /root/mmwx-preview/sub-source-cap2/
+- [x] runs/sub-source-cap2/release-notes.md
+- [x] Clean demo panels, summary
+
+## Result (2026-11-03, build only)
+- go build / vet (only pre-existing unkeyed-field warnings in `leikwan/testapi/fake.go`), `go test ./...` 25/25 packages OK
+  (SQLite), contract tests OK on PostgreSQL 18 (temp container, removed).
+- Frontend: tsc 0 errors, build OK, eslint 0 problems in `sources.tsx` (repo-wide errors are in untouched files).
+- Demo screens 1440 + 390, light + dark, at cap (2) and over cap (3): 56/56 automated checks OK, no page errors →
+  `/root/mmwx-preview/sub-source-cap2/` (:8791).
+- Resource use: no new goroutines/timers/background work; one indexed COUNT per 获取 click.
+- Not released (batch rule). Release notes: `runs/sub-source-cap2/release-notes.md` (panel only, no OTA, no DB change).
