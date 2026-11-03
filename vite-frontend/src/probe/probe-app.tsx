@@ -30,7 +30,7 @@ import {
 const loadDetail = () => import("./detail");
 const Detail = lazy(loadDetail);
 
-type SortKey = "default" | "cpu" | "net" | "expiry";
+type SortKey = "default" | "cpu" | "net" | "tcp" | "expiry";
 type ViewMode = "cards" | "table";
 
 const VIEW_KEY = "flvx-probe-view";
@@ -292,10 +292,16 @@ export default function ProbeApp() {
   const [query, setQuery] = useState("");
   const [region, setRegion] = useState("");
   const [sort, setSort] = useState<SortKey>(() =>
-    stored(SORT_KEY, ["default", "cpu", "net", "expiry"] as const, "default"),
+    stored(
+      SORT_KEY,
+      ["default", "cpu", "net", "tcp", "expiry"] as const,
+      "default",
+    ),
   );
   const [view, setView] = useState<ViewMode>(() =>
-    stored(VIEW_KEY, ["cards", "table"] as const, "cards"),
+    // Plan 201: 表格 is the default view on desktop and phone; a stored
+    // 卡片 choice is still honoured.
+    stored(VIEW_KEY, ["cards", "table"] as const, "table"),
   );
   const [modePref, setModePref] = useState<ProbeGroupMode | null>(() => {
     const v = stored(GROUP_MODE_KEY, ["region", "group", ""] as const, "");
@@ -435,7 +441,11 @@ export default function ProbeApp() {
       list = [...list].sort((a, b) => left(a) - left(b));
     } else if (sortBy !== "default") {
       const val = (n: ProbeNode) =>
-        sortBy === "cpu" ? n.cpu : n.net_in + n.net_out;
+        sortBy === "cpu"
+          ? n.cpu
+          : sortBy === "tcp"
+            ? n.tcp
+            : n.net_in + n.net_out;
 
       list = [...list].sort(
         (a, b) => Number(b.online) - Number(a.online) || val(b) - val(a),
@@ -595,13 +605,14 @@ export default function ProbeApp() {
                   ))}
                 </div>
               )}
-              <div className="ml-auto flex items-center gap-2">
+              <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
                 <Segmented
                   label="排序"
                   options={[
                     { v: "default", t: "默认" },
                     { v: "cpu", t: "CPU" },
                     { v: "net", t: "网速" },
+                    { v: "tcp", t: "TCP" },
                     ...(hasExpiry ? [{ v: "expiry" as const, t: "到期" }] : []),
                   ]}
                   value={sortBy}
