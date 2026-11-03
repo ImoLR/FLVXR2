@@ -122,6 +122,11 @@ type Manager struct {
 	// for minutes during a first download.
 	closeWait atomic.Int64               // default_close_wait_timeout_seconds; 0 = Core default
 	ports     atomic.Pointer[PortsInUse] // public inbound ports of the desired state
+
+	// Plan 202: 禁止端口扫描 state (m.mu) and the highest unrecorded hit seq
+	// for the lock-free 1 s system info.
+	scan    scanState
+	scanSeq atomic.Int64
 }
 
 // PortsInUse are the public inbound ports of the enabled landing nodes.
@@ -276,7 +281,7 @@ func (m *Manager) statusLocked() Status {
 	if rate.State == "" {
 		rate.State = "off"
 	}
-	return Status{Revision: m.desired.Revision, Epoch: m.epoch, CoreVersion: CoreVersion, State: state, Error: m.lastError, Nodes: append([]Counter{}, m.counters...), Egress: &egress, CoreUpdate: m.coreUpdate, NodeErrors: m.nodeErrors(), UserRate: &rate}
+	return Status{Revision: m.desired.Revision, Epoch: m.epoch, CoreVersion: CoreVersion, State: state, Error: m.lastError, Nodes: append([]Counter{}, m.counters...), Egress: &egress, CoreUpdate: m.coreUpdate, NodeErrors: m.nodeErrors(), UserRate: &rate, ScanGuard: m.scanStatus()}
 }
 func (m *Manager) Counters() []Counter {
 	// A first install can spend minutes on download mirrors. Cumulative landing

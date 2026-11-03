@@ -1,4 +1,4 @@
-# 202 — 落地端口扫描检测（内置「禁止端口扫描」）— STOPPED at the research gate
+# 202 — 落地端口扫描检测（内置「禁止端口扫描」）— round 1 research, round 2 build
 
 Base: tag `3.0.27-fork.110` · branch `feature/3.0.27-landing-scan-detect` · build only.
 Brief: `/root/flvx-workers/runs/landing-scan-detect/brief.md` (user approved the design 2026-11-03, revised ~19:40 TW:
@@ -59,5 +59,38 @@ within milliseconds; no node attribution).
 - [x] Prod landing inventory (read-only)
 - [x] Micro-benchmark options A and B (CPU per conn, bounded memory at 100k IPs)
 - [x] STOP report with options (`runs/landing-scan-detect/summary.md`)
-- [ ] Decision by user/coordinator: A (mmwx Core change first) or B (FLVX-only access-log FIFO)
-- [ ] Build (agent + panel + UI + lab + screens) — not started, blocked on the decision
+- [x] Decision by user/coordinator: A + Core self-block (「按你推荐的」); Core = mmwx Custom v1.4.83 (Core f6f58447), contract `/root/flvx-workers/contracts/landing-scan-guard-v1.md` §8
+
+## Round 2 — build (brief `/root/flvx-workers/runs/landing-scan-guard/brief.md`, build only, no release/OTA/prod)
+
+Design (binding user decisions 11-03): native landing nodes only; built-in 「禁止端口扫描」 visible to users (locked) and
+admins (switch + thresholds); ON by default; over a threshold the Core blocks the node at once, the panel disables it
+(status `disabled` + scan reason, port/creds/links kept), admin notified (TG if bound, rate-limited), user sees
+「该落地节点因检测到端口扫描（…）已被禁用，如有疑问请联系管理员」; only an admin lifts it (「解除禁用」, logged).
+Defaults: 横向 same port ≥100 IPs / 60 s (80/443 ≥500), 纵向 same IP ≥30 ports / 60 s, 总量 ≥1000 IPs / 5 min, TCP only.
+
+Wire (agent ↔ panel): desired `scan_guard {enabled, identities, thresholds, seen}` only to agents with
+`landing_scan_guard >= 1`; the agent sends Core `scan_guard` only when `/v1/features` lists `scan_guard.v1`; it reads
+`/v1/scan?after=` once per 10 s reconcile tick, keeps hits the panel has not seen (seq > seen, persisted in
+`scan.json`) blocked itself, lifts a Core block once the panel has seen it and the node is enabled again
+(`scan_unblock {identity, seq}`), and reports pending hits in Status (`scan_guard`) + the highest pending seq in the
+1 s system info (`landing_scan_seq`, triggers an immediate panel sync).
+
+### Checklist
+- [ ] Agent: Core pin v1.4.83 (hashes, previous = v1.4.77)
+- [ ] Agent: desired `scan_guard` + validation; capability `landing_scan_guard`; Status `scan_guard`; system info seq
+- [ ] Agent: `/v1/features` per Core epoch, `/v1/scan` per tick, pending hits (scan.json), self-hold, unblock rule
+- [ ] Agent unit tests (fake control socket) + netns lab with the real Core (horizontal / vertical / slow total /
+      heavy normal browsing / restart persistence / unblock)
+- [ ] Panel: model columns (setting, server, node, node capability) + `landing_scan_event` table + retention
+- [ ] Panel: 内置 admin view/save (switch + thresholds), node view (locked row + reason), sync payload
+- [ ] Panel: status processing (events batched, node disabled, seen), ws seq trigger, TG admin notice (rate-limited)
+- [ ] Panel: 「解除禁用」 endpoint + admin enable path logs the unblock; user cannot re-enable; event list endpoint
+- [ ] Panel tests (handler + contract SQLite + PostgreSQL)
+- [ ] UI: 内置 row (admin switch + threshold edit, user locked row, shared 「暂不支持」, old agent 「需要升级节点」)
+- [ ] UI: node card (admin reason + 解除禁用, user 联系管理员 message, desktop + H5), event list dialog
+- [ ] Gates: go build/vet/test (backend, go-gost, go-gost/x), frontend tsc/build/lint vs base
+- [ ] Resource numbers (agent CPU/RSS at 200 / 2000 new conns/s with/without, 100k-IP scan)
+- [ ] Screens gallery `/root/mmwx-preview/landing-scan-detect/` (:8791), desktop 1440 + H5 390, light + dark
+- [ ] Release notes `runs/landing-scan-guard/release-notes.md`; push; CI green
+- [ ] Summary `runs/landing-scan-guard/summary.md`
