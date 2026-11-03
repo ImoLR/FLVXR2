@@ -1,4 +1,4 @@
-# 202 — 落地端口扫描检测（内置「禁止端口扫描」）— round 1 research, round 2 build
+# 202 — 落地端口扫描检测（内置「禁止端口扫描」）— BUILT (round 2), release in release-batch-1104
 
 Base: tag `3.0.27-fork.110` · branch `feature/3.0.27-landing-scan-detect` · build only.
 Brief: `/root/flvx-workers/runs/landing-scan-detect/brief.md` (user approved the design 2026-11-03, revised ~19:40 TW:
@@ -89,14 +89,19 @@ Wire (agent ↔ panel): desired `scan_guard {enabled, identities, thresholds, se
 - [x] Panel tests (handler + contract SQLite + PostgreSQL)
 - [x] UI: 内置 row (admin switch + threshold edit, user locked row, shared 「暂不支持」, old agent 「需要升级节点」)
 - [x] UI: node card (admin reason + 解除禁用, user 联系管理员 message, desktop + H5), event list dialog
-- [ ] Gates: go build/vet/test (backend, go-gost, go-gost/x), frontend tsc/build/lint vs base
+- [x] Gates: go build/vet/test (backend, go-gost, go-gost/x), frontend tsc/build/lint vs base
 - [x] Resource numbers (agent CPU/RSS at 200 / 2000 new conns/s with/without, 100k-IP scan)
 - [x] Screens gallery `/root/mmwx-preview/landing-scan-detect/` (:8791), desktop 1440 + H5 390, light + dark
-- [ ] Release notes `runs/landing-scan-guard/release-notes.md`; push; CI green
-- [ ] Summary `runs/landing-scan-guard/summary.md`
+- [x] Release notes `runs/landing-scan-guard/release-notes.md`; push; CI green (41681194032)
+- [x] Summary `runs/landing-scan-guard/summary.md`
 
 ### Round 2 notes
 - Existing real-Core tests adjusted for the new previous pin (v1.4.77): the Core-upgrade test now proves the new
   binary by `scan_guard.v1`; the guard-hop and uTP "old Core" control runs only for Cores before v1.4.77 (v1.4.77
   already has both fixes, so it cannot serve as a control).
 - Admin notice line on the 落地 page while nodes are disabled by a scan (panel notice when no Telegram chat is bound).
+- Gates: backend go test (SQLite + PostgreSQL) 24/24 packages (one handler flake `TestChainOfflineExitDeleteConverges`
+  not reproducible in 5 reruns, base passes too); go-gost + go-gost/x all packages; real-Core landing suite incl. the
+  netns scan lab; frontend tsc 0, build ok, eslint 94 errors / 3793 warnings = fork.110.
+- Release notes: `/root/flvx-workers/runs/landing-scan-guard/release-notes.md` (panel first, OTA Breadcloud JP canary
+  → confirm one Core restart → NexKR → rest; no scan trigger on prod; rollback panel first).
