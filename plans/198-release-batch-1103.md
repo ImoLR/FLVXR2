@@ -13,7 +13,10 @@ plan 197 sub-link-hint (text/toast only). Panel only: **no OTA, no agent change*
 ## Checklist
 - [x] Pre-checks: prod = fork.108, latest tag fork.108, all 4 final.md clean, branch CI green, plan 198 free
 - [x] Release branch (clean merge of 197) + this plan doc
-- [ ] Gates on release head: backend build/vet, go test SQLite + PostgreSQL, frontend tsc/build/lint (vs fork.108)
+- [x] Gates on release head: backend build/vet, go test SQLite + PostgreSQL, frontend tsc/build/lint (vs fork.108)
+  - build ok; vet = only the known leikwan/testapi unkeyed-field notes; go test 25/25 packages ok SQLite and 25/25
+    PostgreSQL (contract incl.), 0 FAIL
+  - frontend: tsc 0 errors, vite build ok, eslint 94 errors / 3793 warnings = identical to fork.108 per file
 - [ ] Push branch → CI Build Check green; tag `3.0.27-fork.109` → Build and Push Images green
 - [ ] Release validated: Latest, not prerelease, same asset set as fork.108, pins, ghcr amd64+arm64
 - [ ] Baselines: panel CPU/RSS, health, nodes online, real-rule client check, runtime state; 救命版 health/WAL/online
