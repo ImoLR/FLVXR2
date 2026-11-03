@@ -45,10 +45,10 @@ func TestCoreUpdateState(t *testing.T) {
 // the new pin downloads the new binary under a running old Core and reports
 // core_update without restarting; only upgrade_core_epoch naming that Core
 // restarts it, exactly once, onto the new binary; inbounds come back.
-// FLVX_LANDING_OLD_CORE (the previous pin's asset, v1.4.74 = b01adef) makes the
-// old Core really old; without it the pinned binary plays both roles. Plan 148:
-// the restarted Core must advertise the guard-hop feature that only the new pin
-// (2bf03c9) has, so the test proves the new binary really runs.
+// FLVX_LANDING_OLD_CORE (the previous pin's asset, v1.4.77 = 2bf03c9) makes the
+// old Core really old; without it the pinned binary plays both roles. Plan 202:
+// the restarted Core must advertise scan_guard.v1, which only the new pin
+// (f6f5844) has, so the test proves the new binary really runs.
 func TestLandingRealCoreUpgradeRestart(t *testing.T) {
 	dir := t.TempDir()
 	newCore := realCore(t, dir)
@@ -140,11 +140,11 @@ func TestLandingRealCoreUpgradeRestart(t *testing.T) {
 		t.Fatalf("inbound missing after the upgrade restart: %s", listed)
 	}
 	newFeatures, newList := coreFeatures(ctx, m)
-	if newFeatures != 200 || !strings.Contains(newList, guardHopFeature) {
-		t.Fatalf("restarted Core lacks %s on /v1/features (%d %s): not the new binary", guardHopFeature, newFeatures, newList)
+	if newFeatures != 200 || !strings.Contains(newList, pinFeature) || !strings.Contains(newList, guardHopFeature) {
+		t.Fatalf("restarted Core lacks %s on /v1/features (%d %s): not the new binary", pinFeature, newFeatures, newList)
 	}
-	if os.Getenv("FLVX_LANDING_OLD_CORE") != "" && strings.Contains(oldList, guardHopFeature) {
-		t.Fatalf("old Core already advertises %s: not the previous pin", guardHopFeature)
+	if os.Getenv("FLVX_LANDING_OLD_CORE") != "" && strings.Contains(oldList, pinFeature) {
+		t.Fatalf("old Core already advertises %s: not the previous pin", pinFeature)
 	}
 	upgraded := status.Epoch
 	// The persisted confirmation names the old epoch: later applies never restart.
@@ -169,6 +169,9 @@ func writeTemp(t *testing.T, b []byte) string {
 // guardHopFeature: Core 2bf03c9+ (plan 148 pin) keeps the Reality guard's
 // loopback hop out of the connection counts and says so on /v1/features.
 const guardHopFeature = "flvx.reality_guard_hop_uncounted"
+
+// pinFeature: only the current pin (Custom v1.4.83, plan 202) lists it.
+const pinFeature = scanGuardFeature
 
 // coreFeatures returns the HTTP status and body of the Core's /v1/features
 // control endpoint (404 on Cores before b01adef).

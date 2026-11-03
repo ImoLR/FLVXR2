@@ -77,20 +77,26 @@ Wire (agent ↔ panel): desired `scan_guard {enabled, identities, thresholds, se
 1 s system info (`landing_scan_seq`, triggers an immediate panel sync).
 
 ### Checklist
-- [ ] Agent: Core pin v1.4.83 (hashes, previous = v1.4.77)
-- [ ] Agent: desired `scan_guard` + validation; capability `landing_scan_guard`; Status `scan_guard`; system info seq
-- [ ] Agent: `/v1/features` per Core epoch, `/v1/scan` per tick, pending hits (scan.json), self-hold, unblock rule
-- [ ] Agent unit tests (fake control socket) + netns lab with the real Core (horizontal / vertical / slow total /
+- [x] Agent: Core pin v1.4.83 (hashes, previous = v1.4.77)
+- [x] Agent: desired `scan_guard` + validation; capability `landing_scan_guard`; Status `scan_guard`; system info seq
+- [x] Agent: `/v1/features` per Core epoch, `/v1/scan` per tick, pending hits (scan.json), self-hold, unblock rule
+- [x] Agent unit tests (fake control socket) + netns lab with the real Core (horizontal / vertical / slow total /
       heavy normal browsing / restart persistence / unblock)
-- [ ] Panel: model columns (setting, server, node, node capability) + `landing_scan_event` table + retention
-- [ ] Panel: 内置 admin view/save (switch + thresholds), node view (locked row + reason), sync payload
-- [ ] Panel: status processing (events batched, node disabled, seen), ws seq trigger, TG admin notice (rate-limited)
-- [ ] Panel: 「解除禁用」 endpoint + admin enable path logs the unblock; user cannot re-enable; event list endpoint
-- [ ] Panel tests (handler + contract SQLite + PostgreSQL)
-- [ ] UI: 内置 row (admin switch + threshold edit, user locked row, shared 「暂不支持」, old agent 「需要升级节点」)
-- [ ] UI: node card (admin reason + 解除禁用, user 联系管理员 message, desktop + H5), event list dialog
+- [x] Panel: model columns (setting, server, node, node capability) + `landing_scan_event` table + retention
+- [x] Panel: 内置 admin view/save (switch + thresholds), node view (locked row + reason), sync payload
+- [x] Panel: status processing (events batched, node disabled, seen), ws seq trigger, TG admin notice (rate-limited)
+- [x] Panel: 「解除禁用」 endpoint + admin enable path logs the unblock; user cannot re-enable; event list endpoint
+- [x] Panel tests (handler + contract SQLite + PostgreSQL)
+- [x] UI: 内置 row (admin switch + threshold edit, user locked row, shared 「暂不支持」, old agent 「需要升级节点」)
+- [x] UI: node card (admin reason + 解除禁用, user 联系管理员 message, desktop + H5), event list dialog
 - [ ] Gates: go build/vet/test (backend, go-gost, go-gost/x), frontend tsc/build/lint vs base
-- [ ] Resource numbers (agent CPU/RSS at 200 / 2000 new conns/s with/without, 100k-IP scan)
-- [ ] Screens gallery `/root/mmwx-preview/landing-scan-detect/` (:8791), desktop 1440 + H5 390, light + dark
+- [x] Resource numbers (agent CPU/RSS at 200 / 2000 new conns/s with/without, 100k-IP scan)
+- [x] Screens gallery `/root/mmwx-preview/landing-scan-detect/` (:8791), desktop 1440 + H5 390, light + dark
 - [ ] Release notes `runs/landing-scan-guard/release-notes.md`; push; CI green
 - [ ] Summary `runs/landing-scan-guard/summary.md`
+
+### Round 2 notes
+- Existing real-Core tests adjusted for the new previous pin (v1.4.77): the Core-upgrade test now proves the new
+  binary by `scan_guard.v1`; the guard-hop and uTP "old Core" control runs only for Cores before v1.4.77 (v1.4.77
+  already has both fixes, so it cannot serve as a control).
+- Admin notice line on the 落地 page while nodes are disabled by a scan (panel notice when no Telegram chat is bound).

@@ -564,6 +564,27 @@ export default function LandingPage() {
             {error}
           </p>
         )}
+        {/* Plan 202: admin notice while nodes are disabled by 禁止端口扫描. */}
+        {admin && nodes.some((node) => node.scanBlock) && (
+          <div
+            className="flex flex-wrap items-center gap-2 rounded-lg bg-danger-50 px-3 py-2 text-sm text-danger-700 dark:bg-danger-500/10 dark:text-danger-400"
+            data-scan-notice
+          >
+            <span>
+              {nodes.filter((node) => node.scanBlock).length}{" "}
+              个落地节点因端口扫描已被禁用，用户看到的是「联系管理员」提示
+            </span>
+            <Button
+              className="h-7"
+              color="danger"
+              size="sm"
+              variant="flat"
+              onPress={() => setTab("nodes")}
+            >
+              查看节点
+            </Button>
+          </div>
+        )}
         {admin && <IntegrationSettings onSynced={() => void load()} />}
         <Tabs
           aria-label="落地管理"
