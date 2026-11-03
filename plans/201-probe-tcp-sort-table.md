@@ -23,5 +23,7 @@ Resource efficiency: sorting is client-side over the existing snapshot — no ne
 - [x] tsc / build / lint vs base (no new errors)
 - [x] Phone toolbar overflow from the extra button → wrap (measured 360/375/390/414)
 - [x] Screens desktop 1440 + H5 390, light + dark (gallery :8791 /probe-tcp-sort/), demo data only — 40/40 checks pass
-- [ ] Push + CI green
-- [ ] Release notes `runs/probe-tcp-sort-table/release-notes.md`
+- [x] Push + CI green (CI Build Check run 41620738341 on c5dd2a2c)
+- [x] Release notes `runs/probe-tcp-sort-table/release-notes.md`
+
+**Status: BUILT (build only)** — 2026-11-03. Ships in the next batch release together with plan 200 (panel only, no OTA, no DB change).
