@@ -405,7 +405,7 @@ export function TelegramBotCard() {
                   className="flex items-center gap-2 border-b border-divider px-3 py-2 last:border-b-0"
                   data-tgbot-chat={c.title}
                 >
-                  <div className="min-w-0 flex-1">
+                  <div className="w-0 min-w-0 flex-1">
                     <div className="truncate text-sm">
                       {c.title || c.chatId}
                       <span
@@ -639,7 +639,7 @@ export function TelegramBotCard() {
                         })
                       }
                     />
-                    <div className="min-w-0 flex-1">
+                    <div className="w-0 min-w-0 flex-1">
                       <div
                         className={`truncate text-sm ${on ? "text-foreground" : "text-default-400 line-through"}`}
                       >

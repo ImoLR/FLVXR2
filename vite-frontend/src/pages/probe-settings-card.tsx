@@ -459,7 +459,7 @@ export function ProbeSettingsCard({ enabled }: { enabled: boolean }) {
                   size="sm"
                   onValueChange={(v) => setNode(n.id, { hidden: !v })}
                 />
-                <div className="min-w-0 flex-1">
+                <div className="w-0 min-w-0 flex-1">
                   <div
                     className={`truncate text-sm ${n.hidden ? "text-default-400 line-through" : "text-foreground"}`}
                   >
