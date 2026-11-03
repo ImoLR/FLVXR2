@@ -10,11 +10,14 @@ import {
 } from "lucide-react";
 
 import { Pill } from "./pill";
+import { ScanGuardCompactRow, ScanGuardSection } from "./scan-guard";
 
 import {
   type AbuseKey,
   type AbuseOffReason,
   type AbuseValues,
+  type EgressBuiltin,
+  type ScanGuardAdmin,
   saveEgressWhitelist,
   splitList,
 } from "@/api/landing-egress";
@@ -95,9 +98,12 @@ const abuseShort: Record<AbuseKey, string> = {
 export function BuiltinCompactRows({
   values,
   offReasons = {},
+  scanGuard,
 }: {
   values: AbuseValues;
   offReasons?: Partial<Record<AbuseKey, AbuseOffReason>>;
+  // Plan 202: the 禁止端口扫描 line (node view).
+  scanGuard?: EgressBuiltin["scanGuard"];
 }) {
   const rows: { key: string; name: string; on: boolean; label: string }[] = [
     {
@@ -132,6 +138,7 @@ export function BuiltinCompactRows({
           <StateIcon label={row.label} on={row.on} />
         </div>
       ))}
+      {scanGuard && <ScanGuardCompactRow guard={scanGuard} />}
     </div>
   );
 }
@@ -164,6 +171,8 @@ export function BuiltinRuleList({
   exemptNodeCount,
   whitelist,
   onWhitelistSaved,
+  scanGuard,
+  onScanSaved,
 }: {
   safety: string[];
   // admin: the global switches; read-only: whether each applies here.
@@ -181,6 +190,10 @@ export function BuiltinRuleList({
   exemptNodeCount?: number;
   whitelist?: string[];
   onWhitelistSaved?: (list: string[]) => void;
+  // Plan 202: 禁止端口扫描 (admin global view: editable via onScanSaved;
+  // node view: read-only with the node's server state).
+  scanGuard?: EgressBuiltin["scanGuard"];
+  onScanSaved?: (g: ScanGuardAdmin) => void;
 }) {
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState(false);
@@ -331,6 +344,13 @@ export function BuiltinRuleList({
           {profilesOff.map((p) => p.name).join("、")}
           ），使用这些方案的节点不受上面的防滥用规则限制
         </p>
+      )}
+      {scanGuard && (
+        <ScanGuardSection
+          admin={admin && Boolean(onScanSaved)}
+          guard={scanGuard}
+          onSaved={onScanSaved}
+        />
       )}
       <div className="flex items-start gap-3 p-3">
         <Lock className="mt-1 shrink-0 text-default-400" size={14} />

@@ -56,6 +56,7 @@ import { LandingGlobalSettings } from "@/pages/landing/global-settings";
 import { NodeDetails } from "@/pages/landing/node-details";
 import { connModeTag } from "@/pages/landing/conn-mode";
 import { NodeRulesDialog } from "@/pages/landing/node-rules";
+import { ScanBlockNote } from "@/pages/landing/scan-guard";
 import {
   ChainNote,
   ChainPill,
@@ -152,6 +153,9 @@ function nodeStatusTone(status: string): LandingTone {
 }
 
 function NodeStatusPill({ node }: { node: LandingNode }) {
+  // Plan 202: disabled by 禁止端口扫描 (only an admin lifts it).
+  if (node.scanBlock) return <Pill tone="red">因端口扫描已禁用</Pill>;
+
   return (
     <Pill tone={nodeStatusTone(node.status)}>
       {landingStatus[node.status] || node.status}
@@ -500,6 +504,12 @@ export default function LandingPage() {
       )}
       {node.deletePending && <Pill tone="amber">删除中</Pill>}
       {nodeNotes(node)}
+      <ScanBlockNote
+        compact
+        admin={admin}
+        node={node}
+        onUnblocked={() => void load()}
+      />
     </div>
   );
   const now = Date.now();
@@ -985,6 +995,11 @@ export default function LandingPage() {
                             )
                           )}
                         </div>
+                        <ScanBlockNote
+                          admin={admin}
+                          node={node}
+                          onUnblocked={() => void load()}
+                        />
                         {(node.syncError ||
                           node.sharedSyncError ||
                           node.chain?.state === "error" ||

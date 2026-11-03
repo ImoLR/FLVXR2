@@ -305,7 +305,7 @@ func (r *Repository) ListLandingScanEvents(nodeID int64, limit int) ([]LandingSc
 		return nil, 0, err
 	}
 	var rows []model.LandingScanEvent
-	if err := q.Order("id DESC").Limit(limit).Find(&rows).Error; err != nil {
+	if err := q.Order("created_time DESC, id DESC").Limit(limit).Find(&rows).Error; err != nil {
 		return nil, 0, err
 	}
 	serverIDs, userIDs, nodeIDs := []int64{}, []int64{}, []int64{}

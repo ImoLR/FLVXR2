@@ -170,8 +170,23 @@ export interface LandingProtocolOpts {
   obfsHost?: string;
   transport?: string;
 }
+// Plan 202: why a node is disabled by 禁止端口扫描.
+export interface LandingScanBlock {
+  type: string;
+  typeLabel: string;
+  count: number;
+  port?: number;
+  host?: string;
+  windowS: number;
+  at: number;
+  blockedAt: number;
+  reason: string;
+  message: string;
+}
+
 export interface LandingNode {
   deletePending?: boolean;
+  scanBlock?: LandingScanBlock;
   // Plan 134: number of the owner's node rules.
   routeRuleCount?: number;
   forwardCount?: number;
@@ -466,6 +481,9 @@ export const saveLandingSettings = (defaultMaxNodes: number) =>
 // userId 0 = the calling admin.
 export const transferLandingNode = (id: number, userId: number) =>
   Network.post<LandingNode>("/landing/node/transfer", { id, userId });
+// Plan 202: 「解除禁用」 of a node disabled by 禁止端口扫描 (admin).
+export const unblockLandingScan = (id: number) =>
+  Network.post<LandingNode>("/landing/node/scan/unblock", { id });
 export const deleteLandingNode = (id: number) =>
   Network.post<{ pending?: boolean }>("/landing/node/delete", { id });
 export const landingLinks = (id: number) =>
