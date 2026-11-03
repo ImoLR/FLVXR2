@@ -567,8 +567,8 @@ export default function LandingPage() {
         {/* Plan 202: admin notice while nodes are disabled by 禁止端口扫描. */}
         {admin && nodes.some((node) => node.scanBlock) && (
           <div
-            className="flex flex-wrap items-center gap-2 rounded-lg bg-danger-50 px-3 py-2 text-sm text-danger-700 dark:bg-danger-500/10 dark:text-danger-400"
             data-scan-notice
+            className="flex flex-wrap items-center gap-2 rounded-lg bg-danger-50 px-3 py-2 text-sm text-danger-700 dark:bg-danger-500/10 dark:text-danger-400"
           >
             <span>
               {nodes.filter((node) => node.scanBlock).length}{" "}
