@@ -755,8 +755,12 @@ func scanLoad(t *testing.T, m *Manager, mu *sync.Mutex, cur *Desired, ctx contex
 			t.Fatal(err)
 		}
 	}
+	order := []bool{false, true}
+	if os.Getenv("FLVX_SCAN_E2E_LOAD_ON_FIRST") == "1" {
+		order = []bool{true, false} // RSS of one Core process grows run by run
+	}
 	for _, rate := range []int{200, 2000} {
-		for _, on := range []bool{false, true} {
+		for _, on := range order {
 			setGuard(on)
 			time.Sleep(2 * time.Second)
 			label := fmt.Sprintf("rate%d_guard_%t", rate, on)

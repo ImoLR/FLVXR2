@@ -3,6 +3,7 @@ package landing
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -251,5 +252,45 @@ func TestScanGuardValidate(t *testing.T) {
 	d.ScanGuard = &ScanGuard{Identities: []string{"flvxl-1"}, Horizontal: 999999}
 	if err := d.validate(); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// The agent keeps at most maxScanPending hits whatever the Core reports.
+func TestScanGuardPendingBounded(t *testing.T) {
+	m := NewManager(t.TempDir(), true)
+	core := newScanCore(t, m, true)
+	nodes := []Node{}
+	tags := []string{}
+	for i := int64(1); i <= 50; i++ {
+		n := testNode(t, i)
+		nodes = append(nodes, n)
+		tags = append(tags, n.InboundTag)
+	}
+	m.desired = Desired{Revision: 1, Enabled: true, Nodes: nodes, ScanGuard: &ScanGuard{Enabled: true, Identities: tags}}
+	hits := make([]string, 0, 10000)
+	for i := 0; i < 10000; i++ {
+		hits = append(hits, fmt.Sprintf(`{"identity":"flvxl-%d","type":"total","count":1000,"window_s":300,"at":"2026-11-03T12:30:00Z","seq":%d}`, i%50+1, 1793709225987084+int64(i)))
+	}
+	core.set(`{"version":1,"hits":[` + strings.Join(hits, ",") + `],"blocked":[]}`)
+	scanTick(t, m, "e1")
+	if n := len(m.scanStatus().Hits); n != maxScanPending {
+		t.Fatalf("pending %d", n)
+	}
+	if m.ScanSeq() != 1793709225987084+9999 {
+		t.Fatal("newest hit dropped")
+	}
+}
+
+// BenchmarkScanTick: the guard's cost per 10 s reconcile tick in the steady
+// state (one control-socket GET with empty lists + the limits push).
+func BenchmarkScanTick(b *testing.B) {
+	t := &testing.T{}
+	m := NewManager(b.TempDir(), true)
+	newScanCore(t, m, true)
+	m.desired = Desired{Revision: 1, Enabled: true, Nodes: []Node{testNode(t, 1), testNode(t, 2)}, ScanGuard: &ScanGuard{Enabled: true, Identities: []string{"flvxl-1", "flvxl-2"}}}
+	m.epoch = "e1"
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		m.readScan(context.Background())
 	}
 }
