@@ -170,7 +170,7 @@ const MaxItems = 100
 // empty ids are an error: they only come from a broken client.
 func CleanRefs(refs []Ref) ([]Ref, error) {
 	if len(refs) > MaxItems {
-		return nil, errors.New("一条订阅最多 " + strconv.Itoa(MaxItems) + " 个节点，现在是 " + strconv.Itoa(len(refs)) + " 个，请先移除一些")
+		return nil, errors.New("每条订阅最多 " + strconv.Itoa(MaxItems) + " 个节点，现在是 " + strconv.Itoa(len(refs)) + " 个，如需更多请联系管理员")
 	}
 	out := make([]Ref, 0, len(refs))
 	seen := map[string]bool{}
