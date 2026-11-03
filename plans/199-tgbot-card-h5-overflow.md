@@ -19,7 +19,10 @@ Frontend only, 2 files, 3 class names. No backend / DB / agent change.
 - [x] Reproduce on prod (headless Chromium, admin, 390 px): all 7 cards 436 px in a 366 px column; Telegram card is the cause
 - [x] Fix + live check of the built dist (local server :18899 → prod API, writes faked): cards 318 px @390, 288 @360, 604 @1440
 - [x] tsc 0 errors, vite build ok, eslint on the 2 changed files clean
-- [ ] Push → CI green; tag → images green; release validated (Latest, assets = fork.109, pins, amd64+arm64)
-- [ ] Backup → upgrade `/opt/flvx-svc` (keep the plan-195 compose lines) → health → prune
-- [ ] Post-check on prod: card widths at 390, screenshots, bot/probe state unchanged, business + 救命版 unchanged
-- [ ] Mark plan complete
+- [x] Push → CI green (41569454602); tag → c0bfe9c1, images green (41569456005); release validated 13/13
+- [x] Backup `pre-fork110-20261103T032137Z` → upgraded 11:21 TW (plan-195 compose lines kept) → healthy → pruned
+      (kept pre-fork109 + pre-fork110; pre-fork108 dir + fork.107 images removed)
+- [x] Post-check on prod: cards 288 @360, 318 @390, 604 @1440 (full width); screenshots; probe 404 anon+admin; bot
+      token kept (@Fxboard_bot, 0 chats, bind code generated, not bound); 22 救命版 machines hidden; real rules 13/13
+      identical; 251 runtime objects, 0 orphans/missing; 29/29 online; 救命版 48/48, WAL 8 553 152 B unchanged
+- [x] Mark plan complete

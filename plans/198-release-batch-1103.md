@@ -17,15 +17,22 @@ plan 197 sub-link-hint (text/toast only). Panel only: **no OTA, no agent change*
   - build ok; vet = only the known leikwan/testapi unkeyed-field notes; go test 25/25 packages ok SQLite and 25/25
     PostgreSQL (contract incl.), 0 FAIL
   - frontend: tsc 0 errors, vite build ok, eslint 94 errors / 3793 warnings = identical to fork.108 per file
-- [ ] Push branch → CI Build Check green; tag `3.0.27-fork.109` → Build and Push Images green
-- [ ] Release validated: Latest, not prerelease, same asset set as fork.108, pins, ghcr amd64+arm64
-- [ ] Baselines: panel CPU/RSS, health, nodes online, real-rule client check, runtime state; 救命版 health/WAL/online
-- [ ] Backup (rollback dir + validated DB + compose + image tags) → upgrade `/opt/flvx-svc` incl. 195 compose change
-      (ro mount of 救命版 data dir + `FLVX_OLDPANEL_DB`) → version + health → prune backups
-- [ ] 196: @Fxboard_bot token from the ForwardX backup → getWebhookInfo idle → save via admin API → getMe = Fxboard_bot;
-      token extract shredded; no chat bound; reminders ON with defaults
-- [ ] Post-checks: probe 404 while switch off (anon + admin); settings probe card lists 救命版 machines default hidden
+- [x] Push branch → CI Build Check green (41566676523); tag `3.0.27-fork.109` → 50631bbe, Build and Push Images green (41566678414)
+- [x] Release validated: Latest, not prerelease, same asset set as fork.108, pins, ghcr amd64+arm64 (13/13)
+- [x] Baselines: panel CPU 13.73 s/5 min, RSS 43.6 MiB, 29/29 online, 13 real rules, 251 runtime objects; 救命版 48/48 online,
+      API 0, WAL 8 553 152 B, container up since 08-15, 0 restarts
+- [x] Backup `pre-fork109-20261103T025303Z` → upgraded 10:53 TW incl. 195 compose change
+      (ro mount of 救命版 data dir + `FLVX_OLDPANEL_DB`) → version + health → prune backups (pre-fork107 removed)
+- [x] 196: @Fxboard_bot token from the ForwardX backup → getWebhookInfo idle (url empty, 0 pending) → saved via admin API → profile Fxboard_bot;
+      extract deleted + token file shredded; no chat bound; reminders ON 7/3/1/0 @ 10:00; token absent from config/list + config/get
+- [x] Post-checks: probe 404 while switch off (anon + admin, via CF and local); settings probe card lists 22 救命版 machines, all hidden
       (screenshot); bot card shows @Fxboard_bot, bind code generated (not bound); 197 wording in bundle/backend
-- [ ] Business unchanged: real rules, nodes online, runtime state; 救命版 unchanged (API, WAL, online count)
-- [ ] Resources after upgrade vs baseline; non-request log lines in 10 min
-- [ ] Mark plan complete
+  - **Found: 设置 page too wide on phones (Telegram card rows) → fixed forward as fork.110, plan 199**
+- [x] Business unchanged: real rules, nodes online, runtime state; 救命版 unchanged (API, WAL, online count)
+- [x] Resources after upgrade vs baseline; non-request log lines in 10 min (measured on fork.110, see plan 199)
+  - CPU 13.73 → 11.77 / 11.89 s per 5 min; VmRSS 43.6 → 66.4 MiB = anon 39.2 + 27.8 MiB paneld file pages (reclaimable;
+    the embedded IP table is touched by the 救命版 region lookup); docker stats 45 MiB; DB 57.3 MB unchanged
+  - non-request lines: 32 / 10 min, all node 48 Leikwanhost 沪台IPLC WS pong timeouts via Cloudflare SIN 11:29–11:31
+    (8 min after the restart, same reconnect pattern as before), recovered 11:32, rules on 48 pass; `[tgbot] stopped
+    (nothing to do)` after the bind code expired
+- [x] Mark plan complete — prod runs 3.0.27-fork.110 (= fork.109 + plan 199)
