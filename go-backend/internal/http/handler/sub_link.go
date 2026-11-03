@@ -892,6 +892,14 @@ func (h *Handler) subSourceFetch(w http.ResponseWriter, r *http.Request) {
 		subFail(w, err)
 		return
 	}
+	// Plan 200: at the cap, say so before fetching anything.
+	if n, err := h.repo.CountSubSources(uid); err != nil {
+		subFail(w, errors.New("获取失败"))
+		return
+	} else if n >= model.MaxSubSourcesPerUser {
+		subFail(w, subSourceCapErr())
+		return
+	}
 	if err := h.subTakeFetch(uid); err != nil {
 		subFail(w, err)
 		return
@@ -947,6 +955,11 @@ func (h *Handler) subTakePreview(id string, owner int64) *subPreview {
 	return p
 }
 
+// subSourceCapErr: plan 200 wording (no per-user override; ask the admin).
+func subSourceCapErr() error {
+	return fmt.Errorf("外部订阅最多 %d 个，如需更多请联系管理员", model.MaxSubSourcesPerUser)
+}
+
 func (h *Handler) subSourceCreate(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Name    string `json:"name"`
@@ -983,7 +996,7 @@ func (h *Handler) subSourceCreate(w http.ResponseWriter, r *http.Request) {
 		CachedNodes: string(nodesJSON), NodeCount: len(p.nodes), CreatedTime: now, UpdatedTime: now}
 	if err := h.repo.CreateSubSource(src, model.MaxSubSourcesPerUser); err != nil {
 		if errors.Is(err, repo.ErrSubCap) {
-			err = fmt.Errorf("最多 %d 个外部订阅源", model.MaxSubSourcesPerUser)
+			err = subSourceCapErr()
 		}
 		subFail(w, err)
 		return

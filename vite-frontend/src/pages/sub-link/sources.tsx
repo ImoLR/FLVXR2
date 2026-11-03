@@ -165,8 +165,16 @@ export function SubSourcesDialog({
   const [saving, setSaving] = useState(false);
   const [preview, setPreview] = useState<SubPreview | null>(null);
   const full = cap > 0 && sources.length >= cap;
+  // Plan 200: at the cap 获取 stays clickable and explains (no request).
+  const capMsg = `外部订阅最多 ${cap} 个，如需更多请联系管理员`;
+  const capToast = { id: "sub-source-cap", duration: 4000 };
 
   const fetchNow = async () => {
+    if (full) {
+      toast.error(capMsg, capToast);
+
+      return;
+    }
     setFetching(true);
     setPreview(null);
     try {
@@ -248,7 +256,7 @@ export function SubSourcesDialog({
               />
               <Button
                 color="secondary"
-                isDisabled={!url.trim() || full}
+                isDisabled={!url.trim() && !full}
                 isLoading={fetching}
                 variant="flat"
                 onPress={fetchNow}
@@ -258,7 +266,9 @@ export function SubSourcesDialog({
             </div>
             {full && (
               <p className="text-xs text-amber-700 dark:text-amber-300">
-                最多 {cap} 个订阅源，删除一个才能再添加。
+                {sources.length > cap
+                  ? `已有 ${sources.length} 个（上限 ${cap} 个），如需更多请联系管理员`
+                  : capMsg}
               </p>
             )}
             {preview && (

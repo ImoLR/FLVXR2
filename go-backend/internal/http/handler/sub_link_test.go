@@ -170,24 +170,42 @@ func TestSubSourcePreviewCreateAndSecrets(t *testing.T) {
 	if strings.Contains(string(raw), "SECRET123") || strings.Contains(string(raw), "tpw") {
 		t.Fatal("list leaks the URL or node secrets")
 	}
-	// Cap 3 sources.
-	addSource(t, e, 2, "b")
-	addSource(t, e, 2, "c")
-	pre = subCall(t, e.h, "source/fetch", map[string]any{"url": subURL}, 2, 1)
-	if pre.Code != 0 {
-		// The landing importer's 5/min limit is shared: 4 fetches so far.
-		t.Fatalf("4th fetch: %+v", pre)
+	// Plan 200: cap 2 sources. A preview fetched below the cap is refused
+	// on save once the cap is reached; at the cap 获取 is refused before
+	// any outbound fetch (and does not use up the per-minute fetches).
+	capMsg := "外部订阅最多 2 个，如需更多请联系管理员"
+	// (The 2nd source arrives from another tab while this preview is open.)
+	p2 := subCall(t, e.h, "source/fetch", map[string]any{"url": subURL}, 2, 1)
+	if p2.Code != 0 {
+		t.Fatalf("fetch below cap: %+v", p2)
 	}
-	if out := subCall(t, e.h, "source/create", map[string]any{"fetchId": dataMap(t, pre)["fetchId"]}, 2, 1); out.Code == 0 {
-		t.Fatal("4th source accepted")
+	if err := e.r.DB().Create(&model.UserSubSource{UserID: 2, Name: "b", CachedNodes: "[]"}).Error; err != nil {
+		t.Fatal(err)
 	}
-	if out := subCall(t, e.h, "source/fetch", map[string]any{"url": subURL}, 2, 1); out.Code != 0 {
-		t.Fatalf("5th fetch in a minute: %+v", out)
+	if out := subCall(t, e.h, "source/create", map[string]any{"fetchId": dataMap(t, p2)["fetchId"]}, 2, 1); out.Code == 0 || out.Msg != capMsg {
+		t.Fatalf("3rd source: %+v", out)
 	}
-	if out := subCall(t, e.h, "source/fetch", map[string]any{"url": subURL}, 2, 1); out.Code == 0 || !strings.Contains(out.Msg, "太频繁") {
+	for i := 0; i < 3; i++ {
+		if out := subCall(t, e.h, "source/fetch", map[string]any{"url": subURL}, 2, 1); out.Code == 0 || out.Msg != capMsg {
+			t.Fatalf("fetch at cap: %+v", out)
+		}
+	}
+	if src.hits.Load() != 2 {
+		t.Fatalf("hits at cap %d", src.hits.Load())
+	}
+	if list := dataMap(t, subCall(t, e.h, "list", nil, 2, 1)); list["sourceCap"].(float64) != 2 || len(list["sources"].([]any)) != 2 {
+		t.Fatalf("list cap %v sources %d", list["sourceCap"], len(list["sources"].([]any)))
+	}
+	// The landing importer's 5/min limit is per user and shared.
+	for i := 0; i < 5; i++ {
+		if out := subCall(t, e.h, "source/fetch", map[string]any{"url": subURL}, 3, 1); out.Code != 0 {
+			t.Fatalf("user 3 fetch %d: %+v", i+1, out)
+		}
+	}
+	if out := subCall(t, e.h, "source/fetch", map[string]any{"url": subURL}, 3, 1); out.Code == 0 || !strings.Contains(out.Msg, "太频繁") {
 		t.Fatalf("6th fetch in a minute: %+v", out)
 	}
-	if src.hits.Load() != 5 {
+	if src.hits.Load() != 7 {
 		t.Fatalf("hits %d", src.hits.Load())
 	}
 	// Another user cannot refresh or delete it.

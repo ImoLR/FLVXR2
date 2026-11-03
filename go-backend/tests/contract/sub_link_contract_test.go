@@ -154,6 +154,23 @@ func TestSubLinkContract(t *testing.T) {
 			if bl := data(call("sub/list", b, nil)); len(bl["subs"].([]interface{})) != 0 {
 				t.Fatal("B sees A's subscription")
 			}
+			// Plan 200: 2 sources per account. A (1 source) is below the cap;
+			// B with 3 older sources keeps them listed but cannot add one
+			// (refused before any fetch).
+			if al := data(call("sub/list", a, nil)); al["sourceCap"].(float64) != 2 || len(al["sources"].([]interface{})) != 1 {
+				t.Fatalf("A sources: cap %v n %d", al["sourceCap"], len(al["sources"].([]interface{})))
+			}
+			for i := int64(1); i <= 3; i++ {
+				if err := r.DB().Create(&model.UserSubSource{ID: 50 + i, UserID: 802, Name: "旧源", URLEnc: "x", CachedNodes: "[]", CreatedTime: now}).Error; err != nil {
+					t.Fatal(err)
+				}
+			}
+			if bl := data(call("sub/list", b, nil)); bl["sourceCap"].(float64) != 2 || len(bl["sources"].([]interface{})) != 3 {
+				t.Fatalf("B sources: cap %v n %d", bl["sourceCap"], len(bl["sources"].([]interface{})))
+			}
+			if out := call("sub/source/fetch", b, map[string]interface{}{"url": "https://sub.provider.example/api?token=t"}); out.Code == 0 || out.Msg != "外部订阅最多 2 个，如需更多请联系管理员" {
+				t.Fatalf("B 4th source: %+v", out)
+			}
 			for _, path := range []string{"sub/pool", "sub/delete", "sub/reset"} {
 				if out := call(path, b, map[string]interface{}{"id": subID}); out.Code == 0 {
 					t.Fatalf("B could %s A's subscription", path)

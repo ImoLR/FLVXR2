@@ -127,6 +127,13 @@ func (r *Repository) SubSourcesByIDs(userID int64, ids []int64) (map[int64]model
 	return out, nil
 }
 
+// CountSubSources: how many external sources the user has (cap pre-check).
+func (r *Repository) CountSubSources(userID int64) (int64, error) {
+	var n int64
+	err := r.db.Model(&model.UserSubSource{}).Where("user_id = ?", userID).Count(&n).Error
+	return n, err
+}
+
 func (r *Repository) CreateSubSource(s *model.UserSubSource, cap int) error {
 	return r.db.Transaction(func(tx *gorm.DB) error {
 		if cap > 0 {
