@@ -271,8 +271,15 @@ func (r *Repository) LiftLandingScanBlock(nodeID int64, by string, activate bool
 		if len(by) > 64 {
 			by = by[:64]
 		}
-		return tx.Model(&model.LandingScanEvent{}).Where("landing_node_id = ? AND blocked = ? AND unblocked_at = 0", nodeID, true).
-			Updates(map[string]any{"unblocked_at": nowMs, "unblocked_by": by}).Error
+		if err := tx.Model(&model.LandingScanEvent{}).Where("landing_node_id = ? AND blocked = ? AND unblocked_at = 0", nodeID, true).
+			Updates(map[string]any{"unblocked_at": nowMs, "unblocked_by": by}).Error; err != nil {
+			return err
+		}
+		// The node's enabled flag is not part of the egress hash / signature,
+		// so move the revision like every other node status change; otherwise
+		// the agent refuses the unblocked payload as "landing revision reused
+		// with different content" and the Core keeps the block (fork.111).
+		return tx.Model(&model.LandingServer{}).Where("id = ?", out.LandingServerID).UpdateColumn("revision", gorm.Expr("revision + 1")).Error
 	})
 	if err != nil {
 		return nil, err

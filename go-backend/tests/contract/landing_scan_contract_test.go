@@ -84,10 +84,14 @@ func TestLandingScanGuardContract(t *testing.T) {
 				t.Fatalf("counts %d %d", blocked, evs)
 			}
 
-			// 解除禁用.
+			// 解除禁用 (moves the server revision: the node status is not in the egress hash).
+			before, _ := r.GetLandingServer(1)
 			out, err := r.LiftLandingScanBlock(21, "admin", true, now)
 			if err != nil || out.Status != "active" || out.ScanBlockedAt != 0 {
 				t.Fatalf("lift %+v %v", out, err)
+			}
+			if after, _ := r.GetLandingServer(1); after.Revision != before.Revision+1 {
+				t.Fatalf("lift kept revision %d -> %d", before.Revision, after.Revision)
 			}
 			events, _, _ = r.ListLandingScanEvents(21, 50)
 			if events[1].UnblockedBy != "admin" || events[1].UnblockedAt == 0 || events[0].UnblockedBy != "" {

@@ -2,6 +2,7 @@ package handler
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 	"sync"
 	"testing"
@@ -157,12 +158,17 @@ func TestLandingScanGuardFlow(t *testing.T) {
 		t.Fatalf("admin view %v", admin)
 	}
 
-	// 解除禁用 by the admin.
+	// 解除禁用 by the admin: the agent rejects a reused revision with other
+	// content, so the unblocked payload must carry a new revision.
+	revBlocked := last()["revision"]
 	out := layerCall(t, e.h, "/api/v1/landing/node/scan/unblock", map[string]any{"id": 4}, 1, 0)
 	if out.Code != 0 {
 		t.Fatal(out.Msg)
 	}
 	e.h.egressSyncWG.Wait()
+	if fmt.Sprint(last()["revision"]) == fmt.Sprint(revBlocked) {
+		t.Fatalf("unblock pushed the blocked revision %v again", revBlocked)
+	}
 	if n, _ := e.r.GetLandingNode(4); n.Status != "active" || n.ScanBlockedAt != 0 || n.ScanBlock != "" {
 		t.Fatalf("after unblock %+v", n)
 	}

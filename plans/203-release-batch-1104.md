@@ -11,10 +11,11 @@ Run dir: `/root/flvx-workers/runs/release-batch-1104`.
 - [x] Release branch: fork.110 + 200 (ff) + 202 (merge, no conflicts)
 - [x] Gates on release head: backend build ok / vet only the known leikwan/testapi unkeyed-field notes; go test SQLite 25/25 + PG 25/25 packages, 0 failures; go-gost build/vet/test ok; go-gost/x vet ok, test 19 pkgs ok + landing 62 pass (24 real-Core skips; run by the 202 worker) — first landing run failed only on the >108-char unix-socket TMPDIR path, re-run with a short TMPDIR passed; frontend tsc 0, build ok, eslint 94 errors / 3793 warnings = identical to fork.110 per file
 - [x] Baselines (10:05–10:20 TW, files in run dir): panel CPU/RSS/health/online, client check per entry/rule group, landing links (JP, NexKR, shared ×3), 救命版
-- [ ] Push branch + tag `3.0.27-fork.111`; CI + images + release assets verified
-- [ ] Panel backup (DB) + rollback dir → upgrade `/opt/flvx-svc`; prune backups (keep 2)
-- [ ] Business check after panel = baseline
-- [ ] OTA Breadcloud JP (SSH backup first) + Core restart confirm; scan_guard.v1; temp test node scan trigger → block → 解除禁用 → delete; resources; logs 15 min
+- [x] Push branch + tag `3.0.27-fork.111` (→ f1b808d7, 10:29 TW); CI 41761043940 + Images 41761046395 green; release Latest, 10 assets = fork.110 set, pins + sha256 + ghcr amd64/arm64 ok
+- [x] Panel backup `pre-fork111-20261104T024420Z` (DB quick/integrity ok) → upgraded 10:44 TW, healthy, 救命版 ro mount re-applied; pruned (kept pre-fork110 + pre-fork111)
+- [x] Business check after panel = baseline (12 real rules / 8 entries, 6 temp rules, 5 landing links, 29/29, 253 runtime objects, 救命版 unchanged; old agents get no scan_guard)
+- [x] OTA Breadcloud JP 10:48 TW (SSH backup first, back in 6 s) + Core restart confirm 10:49 (0/222 port probes failed) → v1.4.83 running, scan_guard.v1, 生效中; rules through JP + 大妈日本落地 pass
+- [x] Scan test on temp node: loopback targets never counted (agent flvx-safety blocks 127/8 + private before the dialer) → vertical on JP's own IP: blocked at port 30, panel disabled in 4 s, event row; **解除禁用 did not take effect (revision reused) → plan 204 fix → fork.112**
 - [ ] OTA NexKR the same way
 - [ ] Final business check + 救命版 + resources + logs 10 min
 - [ ] Summary (final.md / summary.md), plan marked complete
