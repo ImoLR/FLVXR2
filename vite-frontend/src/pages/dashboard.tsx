@@ -1,6 +1,6 @@
 import type { SubscriptionPackageApiItem } from "@/api/types";
 
-import { useEffect, useState } from "react";
+import { Suspense, lazy, useEffect, useState } from "react";
 import toast from "react-hot-toast";
 
 import { AnimatedPage } from "@/components/animated-page";
@@ -39,6 +39,15 @@ import {
   listAutoBuyTrafficPackages,
 } from "@/api";
 import { Select, SelectItem } from "@/shadcn-bridge/heroui/select";
+
+// Plan 212: the traffic cards load after the page shows its data (own chunks,
+// own requests); admins get 流量排行, users 服务器流量.
+const ServerTrafficCard = lazy(
+  () => import("@/pages/dashboard/components/server-traffic-card"),
+);
+const TrafficRankingCard = lazy(
+  () => import("@/pages/dashboard/components/traffic-ranking-card"),
+);
 
 export default function DashboardPage() {
   const [quotaHistoryModalOpen, setQuotaHistoryModalOpen] = useState(false);
@@ -1046,6 +1055,9 @@ export default function DashboardPage() {
           </CardBody>
         </Card>
       )}
+      <Suspense fallback={null}>
+        {isAdmin ? <TrafficRankingCard /> : <ServerTrafficCard />}
+      </Suspense>
       {/* 隧道权限 - 管理员不显示 */}
       <TrafficPoolsCard pools={trafficPools} />
       {!isAdmin && (
