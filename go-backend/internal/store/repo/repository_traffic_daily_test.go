@@ -309,8 +309,8 @@ func TestTrafficRankingWindows(t *testing.T) {
 				row(20261101, 3, TrafficKindTotal, 0, 50, 0), row(20261101, 3, "landing", 7, 50, 0),
 				row(20261030, 2, TrafficKindTotal, 0, 100, 100), row(20261030, 2, "node", 1, 100, 100),
 				row(20261027, 3, TrafficKindTotal, 0, 1000, 0), // before the week and the month
-				row(20261103, 77, TrafficKindTotal, 0, 5, 5),    // deleted user: skipped
-				row(20261103, 2, "node", 6, 0, 0),               // zero row: not active
+				row(20261103, 77, TrafficKindTotal, 0, 5, 5),   // deleted user: skipped
+				row(20261103, 2, "node", 6, 0, 0),              // zero row: not active
 			)
 			exec(`INSERT INTO vite_config(name, value, time) VALUES ('traffic_daily_since', ?, 0) ON CONFLICT(name) DO UPDATE SET value = excluded.value`,
 				i64s(time.Date(2026, 10, 29, 14, 0, 0, 0, TrafficDayZone).UnixMilli()))
