@@ -172,14 +172,34 @@ func regionOrder(code string) int {
 	return 6
 }
 
+// regionNames is the one table of common regions: the full Chinese name
+// (tunnel / picker groups) and the short form the rule list builds its
+// 「日美最优」 labels from (plan 207). Short forms are the usual one-character
+// abbreviations; AU / ID / AE keep two or three characters so they never read
+// as 澳门 / 印度 / another place.
+var regionNames = map[string]struct{ full, short string }{
+	"HK": {"香港", "港"}, "TW": {"台湾", "台"}, "JP": {"日本", "日"}, "SG": {"新加坡", "新"}, "KR": {"韩国", "韩"},
+	"US": {"美国", "美"}, "CN": {"中国大陆", "中"}, "MO": {"澳门", "澳"}, "GB": {"英国", "英"}, "DE": {"德国", "德"},
+	"NL": {"荷兰", "荷"}, "FR": {"法国", "法"}, "CA": {"加拿大", "加"}, "AU": {"澳大利亚", "澳洲"}, "RU": {"俄罗斯", "俄"},
+	"MY": {"马来西亚", "马"}, "TH": {"泰国", "泰"}, "VN": {"越南", "越"}, "PH": {"菲律宾", "菲"}, "ID": {"印度尼西亚", "印尼"},
+	"IN": {"印度", "印"}, "TR": {"土耳其", "土"}, "AE": {"阿联酋", "阿联酋"},
+}
+
+// RegionName is the Chinese name of a region code (「香港」, 「日本」).
+func RegionName(code string) string {
+	return regionName(strings.ToUpper(strings.TrimSpace(code)))
+}
+
+// RegionShort is the short form of a common region code (「港」, 「日」) and
+// whether the table knows it; unknown or empty codes return false.
+func RegionShort(code string) (string, bool) {
+	r, ok := regionNames[strings.ToUpper(strings.TrimSpace(code))]
+	return r.short, ok
+}
+
 func regionName(code string) string {
-	common := map[string]string{
-		"HK": "香港", "TW": "台湾", "JP": "日本", "SG": "新加坡", "KR": "韩国", "US": "美国", "CN": "中国大陆", "MO": "澳门",
-		"GB": "英国", "DE": "德国", "NL": "荷兰", "FR": "法国", "CA": "加拿大", "AU": "澳大利亚", "RU": "俄罗斯",
-		"MY": "马来西亚", "TH": "泰国", "VN": "越南", "PH": "菲律宾", "ID": "印度尼西亚", "IN": "印度", "TR": "土耳其", "AE": "阿联酋",
-	}
-	if name := common[code]; name != "" {
-		return name
+	if r, ok := regionNames[code]; ok {
+		return r.full
 	}
 	region, err := language.ParseRegion(code)
 	if err != nil || code == "" {
