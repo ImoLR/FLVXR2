@@ -64,7 +64,7 @@ Branch `feature/3.0.27-landing-node-total` from tag `3.0.27-fork.115` (prod). BU
 - [x] Demo panel + screenshots (desktop 1440 + H5 390, light + dark) → /root/mmwx-preview/landing-node-total/
 - [x] Resource numbers (panel RSS/CPU, monitor payload before/after)
 - [x] runs/landing-node-total/mmwx-needed.md, release-notes.md, RELEASE-LEDGER row
-- [ ] Push + CI green; summary.md
+- [x] Push + CI green (41904267953 on 6580bfcf); summary.md — BUILD ONLY, awaiting screenshot approval
 
 ## Results
 - Screens: http://104.145.236.29:8791/landing-node-total/ (48 shots, 96/96 checks, 0 page errors).
