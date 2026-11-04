@@ -46,7 +46,13 @@ func TestGuardHopCountNetnsE2E(t *testing.T) {
 	}
 	cases := []coreCase{{"pinned", pinned, true}}
 	if old := os.Getenv("FLVX_LANDING_OLD_CORE"); old != "" {
-		cases = append(cases, coreCase{"old-previous-pin", old, false})
+		// Plan 202: the previous pin is now v1.4.77 (2bf03c9), which already
+		// keeps the hop out; only a Core before it (e.g. v1.4.74) is a control.
+		if hash, _ := fileHash(old); hash == CorePreviousSHA256["amd64"] {
+			t.Log("previous pin already uncounts the guard hop: no control run")
+		} else {
+			cases = append(cases, coreCase{"old-previous-pin", old, false})
+		}
 	}
 	results := map[string]any{}
 	for _, c := range cases {

@@ -64,10 +64,15 @@ func TestUTPNetnsE2E(t *testing.T) {
 	}
 	cases := []coreCase{{"pinned", pinned, true, true}}
 	if old := os.Getenv("FLVX_LANDING_OLD_CORE"); old != "" {
-		// The previous pin (b01adef, plan 129) already blocks uTP; older
-		// Cores (v1.4.59 = 8f5b614) block none of the three.
-		hash, _ := fileHash(old)
-		cases = append(cases, coreCase{"old-control", old, hash == CorePreviousSHA256["amd64"], false})
+		// v1.4.74 (b01adef, plan 129) already blocks uTP; older Cores
+		// (v1.4.59 = 8f5b614) block none of the three. Plan 202: the previous
+		// pin is now v1.4.77, which blocks all three, so it is no control.
+		const v1474 = "488803a40a4825797fd26b1a8de25349f9f6cfc85ac2ede45d6005c28485a63f"
+		if hash, _ := fileHash(old); hash == CorePreviousSHA256["amd64"] {
+			t.Log("previous pin already blocks DHT and the UDP tracker: no control run")
+		} else {
+			cases = append(cases, coreCase{"old-control", old, hash == v1474, false})
+		}
 	}
 	results := map[string]any{}
 	for _, c := range cases {

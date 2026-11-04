@@ -116,6 +116,8 @@ type Handler struct {
 	landingWarpAt  time.Time
 	egressSyncWG   sync.WaitGroup  // background syncs after egress edits (tests wait)
 	layerApply     layerApplyState // debounced push after global rule saves (plan 134)
+	// Plan 202: rate limit of the 禁止端口扫描 admin Telegram notices.
+	landingScanNote landingScanNotifier
 	// landingRates keeps the last two committed counters per landing node for the
 	// monitor's live rates (memory only); see landing_monitor_rates.go.
 	landingRatesOnce sync.Once
@@ -229,6 +231,7 @@ func New(repo *repo.Repository, jwtSecret string, fluxVersion string) *Handler {
 	})
 	h.wsServer.SetNodeOnlineHook(h.onNodeOnline)
 	h.wsServer.SetNodeOfflineHook(h.onNodeOffline)
+	h.wsServer.SetLandingScanHook(h.onLandingScan)
 	h.wsServer.SetNodeAddrsHook(h.onNodeAddrs)
 	h.wsServer.SetNodeMetricHook(func(nodeID int64, info ws.SystemInfo) {
 		metricInfo := metrics.SystemInfo{

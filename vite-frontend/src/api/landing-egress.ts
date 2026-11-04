@@ -164,7 +164,88 @@ export interface EgressBuiltin extends AbuseValues {
   safety: string[];
   profilesOff?: { id: number; name: string }[];
   offReasons?: Partial<Record<AbuseKey, AbuseOffReason>>;
+  // Plan 202: 禁止端口扫描 (admin view: settings + servers; node view:
+  // settings + whether it works on the node's server).
+  scanGuard?: ScanGuardAdmin & Partial<ScanGuardNodeState>;
 }
+
+// Plan 202 「禁止端口扫描」 (FLVX-native landing nodes): the Core counts
+// every outbound TCP dial per node and disables the node at once when a
+// pattern crosses its threshold; only an admin lifts it.
+export type ScanGuardState =
+  | "on"
+  | "off"
+  | "shared"
+  | "agent"
+  | "core"
+  | "error"
+  | "pending";
+
+export interface ScanGuardThresholds {
+  on: boolean;
+  horizontal: number;
+  horizontalWeb: number;
+  vertical: number;
+  total: number;
+}
+
+export interface ScanGuardSettings extends ScanGuardThresholds {
+  windowS: number;
+  totalWindowS: number;
+  webPorts: number[];
+}
+
+export interface ScanGuardServer {
+  id: number;
+  name: string;
+  source: "native" | "shared" | string;
+  state: ScanGuardState;
+  label: string;
+}
+
+export interface ScanGuardAdmin extends ScanGuardSettings {
+  servers?: ScanGuardServer[];
+  blockedNodes?: number;
+  events?: number;
+}
+
+export interface ScanGuardNodeState {
+  state: ScanGuardState;
+  label: string;
+}
+
+export interface ScanEvent {
+  id: number;
+  landingServerId: number;
+  landingNodeId: number;
+  userId: number;
+  nodeName: string;
+  serverName: string;
+  userName: string;
+  type: "horizontal" | "vertical" | "total" | string;
+  typeLabel: string;
+  count: number;
+  port: number;
+  host: string;
+  windowS: number;
+  hitAt: number;
+  blocked: boolean;
+  unblockedAt: number;
+  unblockedBy: string;
+  createdTime: number;
+  reason: string;
+  nodeBlocked: boolean;
+}
+
+export const saveScanGuard = (v: ScanGuardThresholds) =>
+  Network.post<ScanGuardAdmin>("/landing/scan/save", v);
+export const getScanGuard = () =>
+  Network.post<ScanGuardAdmin>("/landing/scan/get", {});
+export const listScanEvents = (nodeId = 0) =>
+  Network.post<{ events: ScanEvent[]; total: number }>("/landing/scan/events", {
+    nodeId,
+    limit: 200,
+  });
 
 export interface RuleSummary {
   id: string;

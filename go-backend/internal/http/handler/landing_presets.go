@@ -57,6 +57,15 @@ func landingBuiltinNodeView(d *repo.LandingEgressData, profileID int64, ready bo
 	return view
 }
 
+// landingBuiltinNodeViewWithScan adds the read-only 禁止端口扫描 row (plan
+// 202) to a node's 内置 list.
+func (h *Handler) landingBuiltinNodeViewWithScan(d *repo.LandingEgressData, profileID int64, ready bool) map[string]any {
+	view := landingBuiltinNodeView(d, profileID, ready)
+	server := d.Server
+	view["scanGuard"] = h.landingScanNodeView(&server)
+	return view
+}
+
 // landingEgressBuiltinSave stores the global switches of the default rules
 // and pushes every landing server once (the same debounced path as a global
 // group save).

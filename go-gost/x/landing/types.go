@@ -14,25 +14,24 @@ import (
 	"github.com/google/uuid"
 )
 
-// Plan 148: Custom v1.4.77 = Core 2bf03c9a (Xray 26.10.21 sync; Mainline DHT
-// and UDP tracker sniffed as bittorrent; the Reality guard's loopback hop on
-// flvxg-* inbounds is no longer counted).
-const CoreVersion = "v1.4.77"
+// Plan 202: Custom v1.4.83 = Core f6f58447 (v1.4.77 + port-scan guard
+// scan_guard.v1: /v1/config scan_guard + scan_unblock, GET /v1/scan).
+const CoreVersion = "v1.4.83"
 const SS2022Method = "2022-blake3-aes-128-gcm"
 
 // These hashes were verified against both assets and checksums.txt in the pinned release.
 var CoreSHA256 = map[string]string{
-	"amd64": "a175bd06addc3afe9a89af43b1ce319bf5a118e93bcc812f4490d9f258dd764a",
-	"arm64": "faa5932f6c5febc56bd6ce656f1c60e128aeff18b122e569d0fdd3963c93caab",
+	"amd64": "1929c07329f1c257b55c2adb20e54b2f4d3a7e6afa6254b22339d8eae9d943b9",
+	"arm64": "6c6403e8a4179d6d296323d3c1749b60097c5e7876cabae42abee56b7718a679",
 }
 
-// CorePreviousSHA256 is the pin before CoreVersion (Custom v1.4.74 = Core
-// b01adef0, plan 129). A node upgraded from it keeps running and reconciling
+// CorePreviousSHA256 is the pin before CoreVersion (Custom v1.4.77 = Core
+// 2bf03c9a, plan 148). A node upgraded from it keeps running and reconciling
 // on that verified binary while the new pin cannot be downloaded yet (no disk
 // / memory headroom, mirrors down); the download retries with its backoff.
 var CorePreviousSHA256 = map[string]string{
-	"amd64": "488803a40a4825797fd26b1a8de25349f9f6cfc85ac2ede45d6005c28485a63f",
-	"arm64": "1225921919e2058848dcc8f2589ff6f05706548537aa6da7b2b0de291802b3da",
+	"amd64": "a175bd06addc3afe9a89af43b1ce319bf5a118e93bcc812f4490d9f258dd764a",
+	"arm64": "faa5932f6c5febc56bd6ce656f1c60e128aeff18b122e569d0fdd3963c93caab",
 }
 
 type Desired struct {
@@ -58,6 +57,9 @@ type Desired struct {
 	// UserRates (plan 161): per-user 速率, enforced in the kernel (see
 	// user_rate.go). Only sent to agents advertising landingRate.
 	UserRates *UserRates `json:"user_rates,omitempty"`
+	// ScanGuard (plan 202): 禁止端口扫描, see scan_guard.go. Only sent to
+	// agents reporting landing_scan_guard.
+	ScanGuard *ScanGuard `json:"scan_guard,omitempty"`
 }
 
 type Node struct {
@@ -167,6 +169,9 @@ type Status struct {
 	// UserRate (plan 161): the kernel state of the per-user 速率; present on
 	// agents advertising landingRate.
 	UserRate *RateStatus `json:"user_rate,omitempty"`
+	// ScanGuard (plan 202): the 禁止端口扫描 state and the hits the panel has
+	// not recorded yet; present on agents reporting landing_scan_guard.
+	ScanGuard *ScanStatus `json:"scan_guard,omitempty"`
 }
 
 func (d *Desired) validate() error {
@@ -217,6 +222,9 @@ func (d *Desired) validate() error {
 		return err
 	}
 	if err := d.UserRates.validate(d.Nodes); err != nil {
+		return err
+	}
+	if err := d.ScanGuard.validate(d.Nodes); err != nil {
 		return err
 	}
 	if d.Egress != nil {

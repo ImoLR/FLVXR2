@@ -86,6 +86,14 @@ type LandingEgressSetting struct {
 	// the seed had.
 	BuiltinMailPorts *bool `gorm:"column:builtin_mail_ports" json:"-"`
 	BuiltinTelnetSMB *bool `gorm:"column:builtin_telnet_smb" json:"-"`
+	// Plan 202 「禁止端口扫描」 (native landing nodes): the switch (NULL = ON,
+	// a 内置 rule) and the thresholds (0 = default: 横向 100 IPs / 60 s, 80/443
+	// 500, 纵向 30 ports / 60 s, 总量 1000 IPs / 5 min).
+	BuiltinScanGuard  *bool `gorm:"column:builtin_scan_guard" json:"-"`
+	ScanHorizontal    int   `gorm:"column:scan_horizontal;not null;default:0" json:"-"`
+	ScanHorizontalWeb int   `gorm:"column:scan_horizontal_web;not null;default:0" json:"-"`
+	ScanVertical      int   `gorm:"column:scan_vertical;not null;default:0" json:"-"`
+	ScanTotal         int   `gorm:"column:scan_total;not null;default:0" json:"-"`
 	// One-time seed markers (plan 140): the disabled 全局·强制 starter rules and
 	// the preset library. Once set, deleted seeds never come back.
 	// GlobalSeedVersion 2 (plan 143): the 防滥用 seeds were moved to 内置.

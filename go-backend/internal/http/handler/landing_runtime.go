@@ -129,6 +129,10 @@ type landingSyncSnapshot struct {
 	NodeErrors []repo.LandingNodeReport `json:"node_errors"`
 	// Plan 161: kernel state of the per-user 速率 (agents with landingRate).
 	UserRate *landingRateReport `json:"user_rate"`
+	// Plan 202: 禁止端口扫描 state + unrecorded hits (landing_scan_guard).
+	ScanGuard *landingScanReport `json:"scan_guard"`
+	// scanAdvanced: hits were recorded; push again right away.
+	scanAdvanced bool
 }
 
 // landingRateReport is the agent's per-user 速率 state: off | on | error.
@@ -163,12 +167,12 @@ func (h *Handler) syncNativeLandingServer(serverID int64) (*landingSyncSnapshot,
 	moved, err := h.repo.ApplyNativeLandingNodeErrors(serverID, snapshot.NodeErrors, time.Now())
 	if err != nil {
 		log.Printf("landing node errors not recorded server=%d: %v", serverID, err)
-		return snapshot, false, nil
+		return snapshot, snapshot.scanAdvanced, nil
 	}
 	if len(moved) > 0 {
 		log.Printf("landing server=%d moved never-used nodes %v off ports busy on the machine", serverID, moved)
 	}
-	return snapshot, len(moved) > 0, nil
+	return snapshot, len(moved) > 0 || snapshot.scanAdvanced, nil
 }
 
 func (h *Handler) syncNativeLandingServerOnce(serverID int64) (*landingSyncSnapshot, error) {
@@ -277,6 +281,16 @@ func (h *Handler) syncNativeLandingServerOnce(serverID int64) (*landingSyncSnaps
 			connSig += ";ur=" + hex.EncodeToString(sum[:8])
 		}
 	}
+	// Plan 202: 禁止端口扫描 for agents that apply it (landing_scan_guard >= 1);
+	// older agents keep today's payload byte for byte. The content (incl.
+	// the recorded-hit mark) joins the signature.
+	var scanGuard map[string]interface{}
+	if node.LandingScanGuard >= repo.LandingScanGuardVersion {
+		if scanGuard, err = h.landingScanPayload(s, nodes); err != nil {
+			return nil, errors.New("落地服务器状态不可用")
+		}
+		connSig += landingScanSig(scanGuard)
+	}
 	revision, err := h.repo.TouchLandingRevision(s.ID, planHash(plan), &connSig)
 	if err != nil {
 		return nil, errors.New("落地服务器状态不可用")
@@ -356,6 +370,9 @@ func (h *Handler) syncNativeLandingServerOnce(serverID int64) (*landingSyncSnaps
 	if userRates != nil {
 		payload["user_rates"] = userRates
 	}
+	if scanGuard != nil {
+		payload["scan_guard"] = scanGuard
+	}
 	result, err := h.sendNodeCommandWithTimeout(s.NodeID, "ApplyLandingDesired", payload, 30*time.Second, false, false)
 	if err != nil || !result.Success {
 		// Same single line as before, now with the agent's short reason (e.g.
@@ -386,6 +403,9 @@ func (h *Handler) syncNativeLandingServerOnce(serverID int64) (*landingSyncSnaps
 		snapshot.Nodes[i].NodeID = s.NodeID
 	}
 	h.recordNativeEgress(s.ID, snapshot.Egress, egressWarnings, egressErr)
+	if node.LandingScanGuard >= repo.LandingScanGuardVersion {
+		snapshot.scanAdvanced = h.recordNativeScan(s, snapshot.ScanGuard)
+	}
 	// Plan 161: the reason a capable agent could not shape (shown on the
 	// user's row); cleared once applied or when nothing is to be applied.
 	rateErr := ""

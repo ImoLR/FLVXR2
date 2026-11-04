@@ -294,6 +294,7 @@ export function LandingGlobalRules({
                 exemptNodeCount={overview.exemptNodeCount}
                 profilesOff={builtin.profilesOff}
                 safety={builtin.safety}
+                scanGuard={builtin.scanGuard}
                 switching={saving === "builtin"}
                 values={{
                   smtp: builtin.smtp,
@@ -302,6 +303,9 @@ export function LandingGlobalRules({
                   bt: builtin.bt,
                 }}
                 whitelist={overview.whitelist || []}
+                onScanSaved={(scanGuard) =>
+                  setBuiltin((cur) => ({ ...cur, scanGuard }))
+                }
                 onSwitch={(next) => void saveBuiltin(next)}
                 onWhitelistSaved={onWhitelistSaved}
               />

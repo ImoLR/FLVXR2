@@ -170,7 +170,9 @@ export function NodeRulesDialog({
     ? serverRules.length
     : view.server.ruleCount || 0;
   const builtinOn =
-    1 + (Object.values(builtinValues).filter(Boolean).length as number);
+    1 +
+    (Object.values(builtinValues).filter(Boolean).length as number) +
+    (builtin.scanGuard?.state === "on" ? 1 : 0);
 
   const save = async () => {
     setSaving(true);
@@ -261,12 +263,14 @@ export function NodeRulesDialog({
                 {isMobile && !builtinOpen ? (
                   <BuiltinCompactRows
                     offReasons={builtin.offReasons}
+                    scanGuard={builtin.scanGuard}
                     values={builtinValues}
                   />
                 ) : (
                   <BuiltinRuleList
                     offReasons={builtin.offReasons}
                     safety={builtin.safety}
+                    scanGuard={builtin.scanGuard}
                     values={builtinValues}
                   />
                 )}

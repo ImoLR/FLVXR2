@@ -86,6 +86,8 @@ type nodeSession struct {
 	addrsKey   string // last address report handed to the hook (read loop only)
 	// Protocol-filter counters of this session (plan 182, memory only).
 	protocolBlocks atomic.Pointer[ProtocolBlocks]
+	// Plan 202: last landing_scan_seq handed to the hook (read loop only).
+	landingScanSeq int64
 }
 
 // browserMetricInterval: browser views (node list, monitor, status page) get
@@ -138,6 +140,7 @@ type Server struct {
 	onNodeOnline  func(nodeID int64)
 	onNodeOffline func(nodeID int64)
 	onNodeMetric  func(nodeID int64, info SystemInfo)
+	onLandingScan func(nodeID int64)                  // plan 202: new unrecorded scan hit
 	onNodeAddrs   func(nodeID int64, addrs NodeAddrs) // plan 142
 
 	mu                    sync.RWMutex
@@ -172,6 +175,8 @@ type SystemInfo struct {
 	LandingGuard           int               `json:"landing_guard,omitempty"`
 	LandingConnMode        int               `json:"landing_conn_mode,omitempty"`   // plan 141: applies 仅入站 limits + reports inbound counts
 	LandingUserLimits      int               `json:"landing_user_limits,omitempty"` // plan 158: per-user landing Core groups + landing-user-* usage
+	LandingScanGuard       int               `json:"landing_scan_guard,omitempty"`  // plan 202: 禁止端口扫描
+	LandingScanSeq         int64             `json:"landing_scan_seq,omitempty"`    // plan 202: highest unrecorded scan hit seq
 	LeiKwan                *leiKwanReport    `json:"leikwan,omitempty"`
 	EgressIPFamily         string            `json:"egress_ip_family,omitempty"`
 	IPv6RAStatus           *string           `json:"ipv6_ra_status,omitempty"`
@@ -244,6 +249,31 @@ func (s *Server) SetNodeOfflineHook(fn func(nodeID int64)) {
 	s.mu.Lock()
 	s.onNodeOffline = fn
 	s.mu.Unlock()
+}
+
+// SetLandingScanHook (plan 202) is called once per new landing_scan_seq of a
+// node (a scan hit its landing Core caught that the panel has not recorded).
+func (s *Server) SetLandingScanHook(fn func(nodeID int64)) {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	s.onLandingScan = fn
+	s.mu.Unlock()
+}
+
+// recordLandingScan hands a new landing_scan_seq to the hook (read loop only).
+func (s *Server) recordLandingScan(ns *nodeSession, nodeID int64, seq int64) {
+	if ns == nil || seq <= 0 || seq == ns.landingScanSeq {
+		return
+	}
+	ns.landingScanSeq = seq
+	s.mu.RLock()
+	fn := s.onLandingScan
+	s.mu.RUnlock()
+	if fn != nil {
+		fn(nodeID)
+	}
 }
 
 func (s *Server) SetNodeMetricHook(fn func(nodeID int64, info SystemInfo)) {
@@ -537,7 +567,8 @@ func (s *Server) handleNode(w http.ResponseWriter, r *http.Request, nodeID int64
 						s.recordAddrs(ns, sysInfo.Addrs)
 						s.recordEntryRate(ns, sysInfo.EntryRate)
 						s.recordProtocolBlocks(ns, sysInfo.ProtocolBlocks)
-						_ = s.repo.SetNodeLandingCapabilities(nodeID, sysInfo.LandingCapable, sysInfo.LandingEgress, sysInfo.LandingChain, sysInfo.LandingGuard, sysInfo.LandingConnMode, sysInfo.LandingUserLimits)
+						_ = s.repo.SetNodeLandingCapabilities(nodeID, sysInfo.LandingCapable, sysInfo.LandingEgress, sysInfo.LandingChain, sysInfo.LandingGuard, sysInfo.LandingConnMode, sysInfo.LandingUserLimits, sysInfo.LandingScanGuard)
+						s.recordLandingScan(ns, nodeID, sysInfo.LandingScanSeq)
 						// 缓存服务连接数
 						s.mu.Lock()
 						s.serviceConnections[nodeID] = sysInfo.ServiceConnections
@@ -622,7 +653,8 @@ func (s *Server) handleNode(w http.ResponseWriter, r *http.Request, nodeID int64
 				s.recordIPv6RA(ns, sysInfo.IPv6RAStatus, sysInfo.IPv6RADetail)
 				s.recordLeiKwan(ns, sysInfo.LeiKwan)
 				s.recordMachine(nodeID, sysInfo, time.Now())
-				_ = s.repo.SetNodeLandingCapabilities(nodeID, sysInfo.LandingCapable, sysInfo.LandingEgress, sysInfo.LandingChain, sysInfo.LandingGuard, sysInfo.LandingConnMode, sysInfo.LandingUserLimits)
+				_ = s.repo.SetNodeLandingCapabilities(nodeID, sysInfo.LandingCapable, sysInfo.LandingEgress, sysInfo.LandingChain, sysInfo.LandingGuard, sysInfo.LandingConnMode, sysInfo.LandingUserLimits, sysInfo.LandingScanGuard)
+				s.recordLandingScan(ns, nodeID, sysInfo.LandingScanSeq)
 				// 缓存服务连接数
 				s.mu.Lock()
 				s.serviceConnections[nodeID] = sysInfo.ServiceConnections

@@ -289,7 +289,7 @@ func autoMigrateAll(db *gorm.DB) error {
 		&model.LandingOutbound{}, &model.LandingRouteProfile{}, &model.LandingWarpAccount{}, &model.LandingEgressSetting{}, &model.LandingEgressPreset{},
 		&model.ForwardChain{}, &model.ForwardChainNode{}, &model.LandingExternalNode{},
 		&model.UserSubscription{}, &model.UserSubSource{},
-		&model.TGBotChat{}, &model.TGBotSent{}, &model.TGBotAck{},
+		&model.TGBotChat{}, &model.TGBotSent{}, &model.TGBotAck{}, &model.LandingScanEvent{},
 		&model.User{},
 		&model.UserQuota{},
 		&model.UserQuotaHistory{},

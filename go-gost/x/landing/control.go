@@ -123,10 +123,13 @@ func (m *Manager) applyLimits(ctx context.Context, snapshot coreSnapshot) error 
 	// closes existing sockets for blocked identities, including pre-auth sockets.
 	// Include removed tags while the previous applied state still identifies them.
 	active := map[string]bool{}
+	// Plan 202: a node whose scan hit the panel has not recorded yet stays
+	// blocked by the agent too (the Core's own block is lost on a restart).
+	held := m.scanHeld()
 	for _, n := range m.desired.Nodes {
 		// Nodes withheld by a failed routing plan lose existing sockets too, so
 		// nothing keeps leaving through the default outbound.
-		active[n.InboundTag] = m.desired.Enabled && n.Enabled && !m.withheld[n.InboundTag]
+		active[n.InboundTag] = m.desired.Enabled && n.Enabled && !m.withheld[n.InboundTag] && !held[n.InboundTag]
 	}
 	blocked := []map[string]string{}
 	seen := map[string]bool{}
@@ -177,6 +180,16 @@ func (m *Manager) applyLimits(ctx context.Context, snapshot coreSnapshot) error 
 		closeWait = &v
 	}
 	cfg := map[string]any{"max_global_total_connections": global, "max_global_inbound_connections": globalInbound, "online_ip_grace_period_seconds": 0, "default_close_wait_timeout_seconds": closeWait, "port_limits": ports, "limits": []any{}, "management_mappings": mappings, "management_limits": groupLimits, "blocked_identities": blocked}
+	// Plan 202: only for a Core listing scan_guard.v1 (an older Core rejects
+	// both keys); absent keys = guard off, byte-identical to before.
+	if guard, unblock := m.scanControl(active); guard != nil || unblock != nil {
+		if guard != nil {
+			cfg["scan_guard"] = guard
+		}
+		if unblock != nil {
+			cfg["scan_unblock"] = unblock
+		}
+	}
 	var result struct {
 		Success bool `json:"success"`
 	}
@@ -274,6 +287,9 @@ func (m *Manager) reconcile(ctx context.Context) error {
 	snapshot, _ = m.applyEgress(ctx, snapshot)
 	m.egress.Warnings = append(m.egress.Warnings, guardWarnings...)
 	m.withheld = m.withheldTags()
+	// Plan 202: the Core's scan hits and blocks, read right before the
+	// limits that carry the guard settings and the unblocks.
+	m.readScan(ctx)
 	m.egress.Withheld = nil
 	for tag := range m.withheld {
 		m.egress.Withheld = append(m.egress.Withheld, tag)

@@ -962,6 +962,54 @@ func (m *Manager) Unbind(chatID int64) error {
 }
 
 // SendTest sends the test message to every bound chat; sent = successes.
+// SendNotice sends one plain panel notice (plan 202: a landing node disabled
+// by a port scan) to every bound chat: no buttons, nothing recorded, the
+// reminder switch does not apply (it is about renewals). ErrNoToken /
+// ErrNoChats when the bot cannot send; the caller rate-limits.
+func (m *Manager) SendNotice(ctx context.Context, text string) (int, error) {
+	m.Reconcile()
+	m.mu.Lock()
+	token := m.token
+	m.mu.Unlock()
+	if token == "" {
+		return 0, ErrNoToken
+	}
+	chats, err := m.store.TGBotListChats()
+	if err != nil {
+		return 0, err
+	}
+	if len(chats) == 0 {
+		return 0, ErrNoChats
+	}
+	client := NewClient(m.opt.APIBase, token, m.opt.HTTPClient)
+	sent := 0
+	var last error
+	now := m.opt.Now().UnixMilli()
+	for i, c := range chats {
+		if i > 0 && !sleepCtx(ctx, m.opt.SendGap) {
+			break
+		}
+		cctx, cancel := context.WithTimeout(ctx, m.opt.CallTimeout)
+		_, err := client.SendMessage(cctx, c.ChatID, text, nil)
+		cancel()
+		if err != nil {
+			last = err
+			if IsPermanent(err) {
+				_ = m.store.TGBotSetChatError(c.ChatID, Redact(err.Error(), token), now)
+			}
+			continue
+		}
+		sent++
+		if c.LastError != "" {
+			_ = m.store.TGBotSetChatError(c.ChatID, "", 0)
+		}
+	}
+	if sent == 0 && last != nil {
+		return 0, fmt.Errorf("发送失败：%s", Redact(last.Error(), token))
+	}
+	return sent, nil
+}
+
 func (m *Manager) SendTest(ctx context.Context) (int, error) {
 	m.Reconcile()
 	m.mu.Lock()

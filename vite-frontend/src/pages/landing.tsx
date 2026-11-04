@@ -56,6 +56,7 @@ import { LandingGlobalSettings } from "@/pages/landing/global-settings";
 import { NodeDetails } from "@/pages/landing/node-details";
 import { connModeTag } from "@/pages/landing/conn-mode";
 import { NodeRulesDialog } from "@/pages/landing/node-rules";
+import { ScanBlockNote } from "@/pages/landing/scan-guard";
 import {
   ChainNote,
   ChainPill,
@@ -152,6 +153,9 @@ function nodeStatusTone(status: string): LandingTone {
 }
 
 function NodeStatusPill({ node }: { node: LandingNode }) {
+  // Plan 202: disabled by 禁止端口扫描 (only an admin lifts it).
+  if (node.scanBlock) return <Pill tone="red">因端口扫描已禁用</Pill>;
+
   return (
     <Pill tone={nodeStatusTone(node.status)}>
       {landingStatus[node.status] || node.status}
@@ -500,6 +504,12 @@ export default function LandingPage() {
       )}
       {node.deletePending && <Pill tone="amber">删除中</Pill>}
       {nodeNotes(node)}
+      <ScanBlockNote
+        compact
+        admin={admin}
+        node={node}
+        onUnblocked={() => void load()}
+      />
     </div>
   );
   const now = Date.now();
@@ -553,6 +563,27 @@ export default function LandingPage() {
           <p className="rounded-lg bg-danger-50 p-2 text-sm text-danger">
             {error}
           </p>
+        )}
+        {/* Plan 202: admin notice while nodes are disabled by 禁止端口扫描. */}
+        {admin && nodes.some((node) => node.scanBlock) && (
+          <div
+            data-scan-notice
+            className="flex flex-wrap items-center gap-2 rounded-lg bg-danger-50 px-3 py-2 text-sm text-danger-700 dark:bg-danger-500/10 dark:text-danger-400"
+          >
+            <span>
+              {nodes.filter((node) => node.scanBlock).length}{" "}
+              个落地节点因端口扫描已被禁用，用户看到的是「联系管理员」提示
+            </span>
+            <Button
+              className="h-7"
+              color="danger"
+              size="sm"
+              variant="flat"
+              onPress={() => setTab("nodes")}
+            >
+              查看节点
+            </Button>
+          </div>
         )}
         {admin && <IntegrationSettings onSynced={() => void load()} />}
         <Tabs
@@ -985,6 +1016,11 @@ export default function LandingPage() {
                             )
                           )}
                         </div>
+                        <ScanBlockNote
+                          admin={admin}
+                          node={node}
+                          onUnblocked={() => void load()}
+                        />
                         {(node.syncError ||
                           node.sharedSyncError ||
                           node.chain?.state === "error" ||
