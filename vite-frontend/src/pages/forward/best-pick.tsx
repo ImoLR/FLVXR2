@@ -21,10 +21,16 @@ import {
 // Plan 184 r2: worded like the 隧道 page 最优 chips — 「中转最优：东京B →
 // 出口最优：新加坡A」 + the ms tag — and, like them, every line is tappable
 // (tap / click, never hover; plan 156): the hint, then the pick row(s).
+//
+// Plan 207: the line names the region interconnect instead of the nodes —
+// JP 中转 → US 出口 = 「日美最优」, one region = 「香港最优」 (built by the
+// backend from node.region: regionLabel / regionHint). The node names stay in
+// the popup. No label (old backend, a node without region) → the old wording.
 
 export interface RuleBestPickHop {
   label: string;
   name: string;
+  region?: string;
 }
 
 export interface RuleBestPickItem {
@@ -35,12 +41,15 @@ export interface RuleBestPickItem {
   hops?: RuleBestPickHop[];
   ms?: number;
   withTarget?: boolean;
+  regionLabel?: string;
+  regionHint?: string;
 }
 
 export interface RuleBestPickLayer {
   label: string;
   name: string;
   count: number;
+  region?: string;
 }
 
 export interface RuleBestPick {
@@ -53,10 +62,14 @@ export interface RuleBestPick {
   multi?: boolean;
   items?: RuleBestPickItem[];
   updatedAt?: number;
+  regionLabel?: string;
+  regionHint?: string;
 }
 
-export const RULE_BEST_PICK_HINT =
-  "最优：每分钟按延迟自动选最快的节点，断线自动切备用；「含落地」= 出口到目标的延迟也算在内";
+const HINT_TAIL =
+  "每分钟按延迟自动选最快的节点，断线自动切备用；「含落地」= 出口到目标的延迟也算在内";
+
+export const RULE_BEST_PICK_HINT = `最优：${HINT_TAIL}`;
 
 const statusTone: Record<string, LandingTone> = {
   applied: "teal",
@@ -101,14 +114,64 @@ export const normalizeRuleBestPick = (raw: unknown): RuleBestPick | null => {
   };
 };
 
+// Plan 207: how the region labels apply to a pick —
+//   line:  one label for the whole line (「日美最优」, rows as before);
+//   rows:  several targets / entries with different labels — the line says
+//          「最优线路」 and every applied row carries its own;
+//   none:  no (complete) label → the node names as before.
+type RegionMode = "line" | "rows" | "none";
+
+const regionMode = (pick: RuleBestPick): RegionMode => {
+  if (pick.status !== "applied") return "none";
+  if (pick.regionLabel) return "line";
+  const applied = (pick.items || []).filter((it) => it.status === "applied");
+
+  return pick.multi &&
+    applied.length > 0 &&
+    applied.every((it) => !!it.regionLabel)
+    ? "rows"
+    : "none";
+};
+
+const regionWord = (label: string) => `${label}最优`;
+
 // Plan 184 r2: 「${label}最优：${name}」 per 最优 layer (backend labels stay
 // 中转 / 中转N / 出口), joined by 「→」. Non-applied states keep their text.
+// Plan 207: with region labels the line is 「日美最优」 / 「最优线路」.
 const pickSegments = (pick: RuleBestPick): string[] => {
   const applied = pick.status === "applied";
+  const mode = regionMode(pick);
+
+  if (mode === "line") return [regionWord(pick.regionLabel!)];
+  if (mode === "rows") return ["最优线路"];
 
   return applied && pick.layers && pick.layers.length > 0
     ? pick.layers.map((l, i) => `${i > 0 ? "→ " : ""}${l.label}最优：${l.name}`)
     : [applied ? pick.summary : statusText[pick.status] || pick.summary];
+};
+
+// Plan 207: the popup hint explains the label(s): 「日美最优 = 经日本中转、
+// 美国出口，每分钟…」; several labels → one definition each, then the rest.
+const pickHint = (pick: RuleBestPick): string => {
+  const mode = regionMode(pick);
+
+  if (mode === "line") {
+    return `${regionWord(pick.regionLabel!)} = ${pick.regionHint || ""}，${HINT_TAIL}`;
+  }
+  if (mode === "rows") {
+    const defs: string[] = [];
+
+    for (const it of pick.items || []) {
+      if (it.status !== "applied" || !it.regionLabel) continue;
+      const def = `${regionWord(it.regionLabel)} = ${it.regionHint || ""}`;
+
+      if (!defs.includes(def)) defs.push(def);
+    }
+
+    return `${defs.join("；")}。${HINT_TAIL}`;
+  }
+
+  return RULE_BEST_PICK_HINT;
 };
 
 // Plan 184 r3: a rule with several targets (or a tunnel with several entries)
@@ -118,13 +181,15 @@ const pickSegments = (pick: RuleBestPick): string[] => {
 interface PickRow {
   label: string;
   item: RuleBestPickItem;
+  // Plan 207 (region mode 「rows」): 「日美最优」 after the label.
+  region?: string;
 }
 
 const MAX_LINE_ROWS = 3;
 
 const itemSig = (it: RuleBestPickItem) =>
   it.status === "applied"
-    ? `${(it.hops || []).map((h) => `${h.label}:${h.name}`).join(">")}|${latencyNumber(it.ms)}|${!!it.withTarget}`
+    ? `${(it.hops || []).map((h) => `${h.label}:${h.name}`).join(">")}|${latencyNumber(it.ms)}|${!!it.withTarget}|${it.regionLabel || ""}`
     : `~${it.status}`;
 
 const pickRows = (pick: RuleBestPick): PickRow[] => {
@@ -138,6 +203,7 @@ const pickRows = (pick: RuleBestPick): PickRow[] => {
   for (const it of items) {
     if (it.target && !targets.includes(it.target)) targets.push(it.target);
   }
+  const ownRegion = regionMode(pick) === "rows";
 
   return items.map((item, i) => {
     const t = item.target ? `落地${targets.indexOf(item.target) + 1}` : "";
@@ -146,10 +212,17 @@ const pickRows = (pick: RuleBestPick): PickRow[] => {
         ? `${item.entry} · ${t}`
         : `入口：${item.entry}`
       : t || `线路${i + 1}`;
+    const region =
+      ownRegion && item.status === "applied" && item.regionLabel
+        ? regionWord(item.regionLabel)
+        : undefined;
 
-    return { label, item };
+    return { label, item, region };
   });
 };
+
+const rowSpoken = (row: PickRow) =>
+  row.region ? `${row.label} · ${row.region}` : row.label;
 
 // A single pick comes without items (backend); its popover row is built from
 // the line itself: same hops, same ms and 含落地. With equal items the first
@@ -240,6 +313,14 @@ function PickRowChip({ row }: { row: PickRow }) {
       <span data-rule-best-row-label className="min-w-0 truncate">
         {row.label}
       </span>
+      {row.region && (
+        <span
+          className="shrink-0 whitespace-nowrap"
+          data-rule-best-row-region={row.region}
+        >
+          · {row.region}
+        </span>
+      )}
       {!applied && (
         <span className="shrink-0 whitespace-nowrap font-medium">
           · {statusText[item.status] || item.summary || item.status}
@@ -317,7 +398,7 @@ export function RuleBestPickLine({
   const more = rows.length - shown.length;
   const popupRows: PickRow[] = multi ? rows : [{ label: "", item: single! }];
   const spoken = multi
-    ? `，${rows.map((r) => `${r.label} ${r.item.status === "applied" ? latencyText(r.item.ms) : statusText[r.item.status] || r.item.status}`).join("，")}`
+    ? `，${rows.map((r) => `${rowSpoken(r)} ${r.item.status === "applied" ? latencyText(r.item.ms) : statusText[r.item.status] || r.item.status}`).join("，")}`
     : single && single.status === "applied"
       ? ` · ${latencyText(single.ms)}`
       : "";
@@ -375,12 +456,14 @@ export function RuleBestPickLine({
         </DropdownTrigger>
         <DropdownMenu aria-label="最优线路详情">
           <div className="max-w-[86vw] space-y-2 p-2 text-left sm:max-w-sm">
-            <p className="text-xs text-default-500">{RULE_BEST_PICK_HINT}</p>
+            <p data-rule-best-hint className="text-xs text-default-500">
+              {pickHint(pick)}
+            </p>
             {popupRows.map((row, i) => (
               <PickItemRow
                 key={`${row.label}-${i}`}
                 item={row.item}
-                label={row.label}
+                label={rowSpoken(row)}
               />
             ))}
           </div>
