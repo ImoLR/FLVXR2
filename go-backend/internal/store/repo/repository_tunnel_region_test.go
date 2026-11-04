@@ -1,9 +1,12 @@
 package repo
 
 import (
+	"database/sql"
 	"reflect"
 	"strings"
 	"testing"
+
+	"go-backend/internal/store/model"
 )
 
 func TestDeriveTunnelRegions(t *testing.T) {
@@ -148,5 +151,35 @@ func TestRegionShortTable(t *testing.T) {
 	}
 	if regionName("HK") != "香港" || RegionName("jp") != "日本" || regionName("IT") != "意大利" || regionName("") != "" {
 		t.Fatalf("regionName changed: %q %q %q", regionName("HK"), RegionName("jp"), regionName("IT"))
+	}
+}
+
+// Plan 207: the chain query of the path-latency round carries node.region
+// (both dialects; a node row may be missing → empty region).
+func TestListChainNodesForTunnelRegionBothDialects(t *testing.T) {
+	for _, dialect := range []string{"sqlite", "postgres"} {
+		t.Run(dialect, func(t *testing.T) {
+			r := orphanTestRepo(t, dialect)
+			orphanSeed(t, r,
+				&model.Node{ID: 31, Name: "entry", Region: "CN"},
+				&model.Node{ID: 32, Name: "relay", Region: "jp"},
+				&model.Node{ID: 33, Name: "exit", Region: ""},
+				&model.ChainTunnel{TunnelID: 7, ChainType: "1", NodeID: 31},
+				&model.ChainTunnel{TunnelID: 7, ChainType: "2", NodeID: 32, Port: sql.NullInt64{Int64: 1200, Valid: true}, Inx: sql.NullInt64{Int64: 1, Valid: true}},
+				&model.ChainTunnel{TunnelID: 7, ChainType: "3", NodeID: 33, Port: sql.NullInt64{Int64: 1300, Valid: true}},
+				&model.ChainTunnel{TunnelID: 7, ChainType: "3", NodeID: 34, Port: sql.NullInt64{Int64: 1400, Valid: true}},
+			)
+			rows, err := r.ListChainNodesForTunnel(7)
+			if err != nil {
+				t.Fatal(err)
+			}
+			got := map[int64]string{}
+			for _, row := range rows {
+				got[row.NodeID] = row.Region
+			}
+			if len(rows) != 4 || got[31] != "CN" || got[32] != "JP" || got[33] != "" || got[34] != "" {
+				t.Fatalf("regions %v (%d rows)", got, len(rows))
+			}
+		})
 	}
 }
