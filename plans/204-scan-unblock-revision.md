@@ -26,7 +26,7 @@ agent does not enforce the revision rule, so the build round did not see it.
 - [x] Reproduce on prod (test node only) + find root cause
 - [x] Fix + tests (fail before, pass after; SQLite + PG)
 - [x] Full backend suite SQLite + PG on the release head (25/25 + 25/25 packages, 0 failures); build + vet ok
-- [ ] Tag `3.0.27-fork.112`, CI + images + assets verified
-- [ ] Panel upgrade (backup first), business checks = baseline
-- [ ] Re-run the scan test on Breadcloud JP: block → 解除禁用 → traffic back within seconds → delete test node
-- [ ] Continue plan 203 (NexKR OTA)
+- [x] Tag `3.0.27-fork.112` (→ 17ba3568, 11:28 TW; branch alias `maintenance/3.0.27-fork.112-scan-unblock`); CI + Images 41767393731 green; release Latest, assets = fork.111 set, pins/sha256/arches ok
+- [x] Panel upgrade 11:41 TW (backup `pre-fork112-20261104T034142Z`), business checks = baseline (one entry-23 blip in the first round, clean on re-run)
+- [x] Re-run the scan test on Breadcloud JP: blocked at port 30 → 解除禁用 → traffic back in 1 s → test node deleted; agent log clean
+- [x] Continue plan 203 (NexKR OTA → fork.112, same scan test passed)

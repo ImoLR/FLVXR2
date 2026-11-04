@@ -16,6 +16,9 @@ Run dir: `/root/flvx-workers/runs/release-batch-1104`.
 - [x] Business check after panel = baseline (12 real rules / 8 entries, 6 temp rules, 5 landing links, 29/29, 253 runtime objects, 救命版 unchanged; old agents get no scan_guard)
 - [x] OTA Breadcloud JP 10:48 TW (SSH backup first, back in 6 s) + Core restart confirm 10:49 (0/222 port probes failed) → v1.4.83 running, scan_guard.v1, 生效中; rules through JP + 大妈日本落地 pass
 - [x] Scan test on temp node: loopback targets never counted (agent flvx-safety blocks 127/8 + private before the dialer) → vertical on JP's own IP: blocked at port 30, panel disabled in 4 s, event row; **解除禁用 did not take effect (revision reused) → plan 204 fix → fork.112**
-- [ ] OTA NexKR the same way
-- [ ] Final business check + 救命版 + resources + logs 10 min
-- [ ] Summary (final.md / summary.md), plan marked complete
+- [x] fork.112 (plan 204) panel 11:41 TW; JP scan test re-run: 解除禁用 → traffic back in 1 s
+- [x] OTA NexKR 11:50 TW → fork.112 (SSH backup first, back in 6 s), Core restart confirm 11:51 (2/123 probes failed ≈ 0.5 s) → v1.4.83, 生效中; 自己用kr passes; scan test passed (block → 解除禁用 1 s → delete)
+- [x] Final business check = baseline (10 real rules / 8 entries — 123/124 SSH targets dropped from probing; 6 temp; 5 landing links), 救命版 unchanged, panel CPU 11.05→13.47 s/5 min (quiet; past range 11–14), RSS 59→50 MiB, 2 non-request lines/10 min; JP/NexKR agent+Core ≈ baseline, journals quiet
+- [x] Summary (run dir final.md / summary.md), plan marked complete
+
+**DONE 2026-11-04 12:15 TW** — prod panel fork.112; agents: Breadcloud JP fork.111, NexKR fork.112 (same agent code), others unchanged; both landing Cores v1.4.83.
