@@ -17,6 +17,9 @@ type IdleWindow = Window & {
 };
 
 const IDLE_TIMEOUT_MS = 3000;
+// After the visitor opens another page, its own requests go first.
+const PAUSE_AFTER_NAVIGATION_MS = 2000;
+let pausedUntil = 0;
 const groups = new Map<string, Array<() => Promise<unknown>>>();
 const started = new Set<string>();
 
@@ -53,6 +56,11 @@ const whenIdle = (callback: () => void): void => {
   }
 };
 
+// Called on every in-app page change: the next queued chunk waits a moment.
+export const pausePrefetch = (): void => {
+  pausedUntil = Date.now() + PAUSE_AFTER_NAVIGATION_MS;
+};
+
 export const prefetchOnIdle = (key: string): void => {
   const loaders = groups.get(key);
 
@@ -68,6 +76,13 @@ export const prefetchOnIdle = (key: string): void => {
 
   const run = (index: number): void => {
     if (index >= loaders.length) {
+      return;
+    }
+    const wait = pausedUntil - Date.now();
+
+    if (wait > 0) {
+      window.setTimeout(() => run(index), wait);
+
       return;
     }
     whenIdle(() => {

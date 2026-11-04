@@ -5,7 +5,7 @@ import {
   useNavigate,
   useLocation,
 } from "react-router-dom";
-import { Suspense, lazy, useEffect } from "react";
+import { Suspense, lazy, useEffect, useRef } from "react";
 
 import IndexPage from "@/pages/index";
 import AdminLayout from "@/layouts/admin";
@@ -20,7 +20,7 @@ import {
 import { useH5Mode } from "@/hooks/useH5Mode";
 import { pages } from "@/routes/pages";
 import { FlowChartPlot } from "@/pages/dashboard/flow-chart-lazy";
-import { definePrefetch } from "@/utils/idle-prefetch";
+import { definePrefetch, pausePrefetch } from "@/utils/idle-prefetch";
 
 // Plan 209: every page except the login page is its own chunk (see
 // routes/page-loaders.ts); the layout stays mounted while a page loads.
@@ -139,6 +139,20 @@ const LoginRoute = () => {
 };
 
 function App() {
+  const { pathname } = useLocation();
+  const firstPath = useRef(true);
+
+  // Plan 209: a page the visitor just opened gets the network first; queued
+  // idle prefetches wait a moment (not on the first page of a load).
+  useEffect(() => {
+    if (firstPath.current) {
+      firstPath.current = false;
+
+      return;
+    }
+    pausePrefetch();
+  }, [pathname]);
+
   // 立即设置页面标题（使用已从缓存读取的配置）
   useEffect(() => {
     document.title = siteConfig.name;
