@@ -25,7 +25,7 @@ agent does not enforce the revision rule, so the build round did not see it.
 ## Checklist
 - [x] Reproduce on prod (test node only) + find root cause
 - [x] Fix + tests (fail before, pass after; SQLite + PG)
-- [ ] Full backend suite SQLite + PG on the release head
+- [x] Full backend suite SQLite + PG on the release head (25/25 + 25/25 packages, 0 failures); build + vet ok
 - [ ] Tag `3.0.27-fork.112`, CI + images + assets verified
 - [ ] Panel upgrade (backup first), business checks = baseline
 - [ ] Re-run the scan test on Breadcloud JP: block → 解除禁用 → traffic back within seconds → delete test node
