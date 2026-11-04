@@ -42,9 +42,9 @@ type landingMonitorNodeView struct {
 	// TCP = the latest socket breakdown (nil = the runtime reports none).
 	InboundConnections    int                      `json:"inboundConnections"`
 	TotalConnections      int                      `json:"totalConnections"`
-	InboundKnown          bool                     `json:"inboundKnown"`
+	InboundKnown          bool                     `json:"inboundKnown,omitempty"`
 	MaxTotalConnections   int                      `json:"maxTotalConnections"`
-	MaxInboundConnections int                      `json:"maxInboundConnections"`
+	MaxInboundConnections int                      `json:"maxInboundConnections,omitempty"`
 	TotalPending          bool                     `json:"totalPending,omitempty"`
 	TCP                   *landingcustom.TCPCounts `json:"tcp,omitempty"`
 	MaxOnlineIPs          int                      `json:"maxOnlineIps"`

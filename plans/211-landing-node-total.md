@@ -15,7 +15,9 @@ Branch `feature/3.0.27-landing-node-total` from tag `3.0.27-fork.115` (prod). BU
 - Real machines (read-only, 11-05 ~03:30 TW): Breadcloud JP and NexKR FLVX landing Cores answer
   control API v7 with the same `proxy_users[].inbound_tcp/outbound_tcp/current_total` fields;
   both had 0 live connections at the time (no traffic), so the TIME_WAIT/CLOSE_WAIT inclusion is
-  proven by the lab test with the same pinned Core (task below), not by live numbers.
+  proven by the lab test with the same pinned Core binary (copied read-only from Breadcloud JP, sha256
+  1929c073…): total 8 → 4 clients; after close 4 TIME_WAIT still counted and only 2 new clients fit;
+  half-closing target → 3 CLOSE_WAIT counted; 入站 3 + 总 5 → total hit first; 入站 2 + 总 100 → inbound first.
 - Agent today: per node either `max_inbound_connections` (conn_mode inbound) **or**
   `max_total_connections` (no conn_mode). Helper (mmwx-custom `flvx_runtime.go limits`) is the
   same either/or. → A node total can be enforced **panel-only** whenever the node's inbound limit
@@ -54,12 +56,23 @@ Branch `feature/3.0.27-landing-node-total` from tag `3.0.27-fork.115` (prod). BU
 - [x] Agent: max_total_connections + tcp breakdown + capability 2 + tests (cd9b291b)
 - [x] Counters: tcp breakdown into rate tracker (native + shared)
 - [x] Views: node view (inbound/total/limits/pending), server view, monitor (node + server sums + native machine) (ec374be5)
-- [ ] Frontend: 落地服务器设置 (native + shared)
-- [ ] Frontend: 节点详情 info-only (+ 转移)
-- [ ] Frontend: 监控 落地 node row 入站/总/上限 + amber/red + breakdown popover; server row sums + 整机兜底
-- [ ] Frontend: 用户设置 「总」 labels; landing cards/table/ConnPill/serverConnRow/conn-mode hints
-- [ ] Backend tests (go test ./...), agent tests, frontend tsc/build/lint vs base
-- [ ] Demo panel + screenshots (desktop 1440 + H5 390, light + dark) → /root/mmwx-preview/landing-node-total/
-- [ ] Resource numbers (panel RSS/CPU, monitor payload before/after)
-- [ ] runs/landing-node-total/mmwx-needed.md, release-notes.md, RELEASE-LEDGER row
+- [x] Frontend: 落地服务器设置 (native + shared)
+- [x] Frontend: 节点详情 info-only (+ 转移)
+- [x] Frontend: 监控 落地 node row 入站/总/上限 + amber/red + breakdown popover; server row sums + 整机兜底
+- [x] Frontend: 用户设置 「总」 labels; landing cards/table/ConnPill/serverConnRow/conn-mode hints
+- [x] Backend tests (go test ./...), agent tests, frontend tsc/build/lint vs base
+- [x] Demo panel + screenshots (desktop 1440 + H5 390, light + dark) → /root/mmwx-preview/landing-node-total/
+- [x] Resource numbers (panel RSS/CPU, monitor payload before/after)
+- [x] runs/landing-node-total/mmwx-needed.md, release-notes.md, RELEASE-LEDGER row
 - [ ] Push + CI green; summary.md
+
+## Results
+- Screens: http://104.145.236.29:8791/landing-node-total/ (48 shots, 96/96 checks, 0 page errors).
+- Demo e2e: fake agents (landing_conn_mode 2 / 1) got `conn_mode inbound + max_total_connections 400` /
+  `max_connections 400` (no conn_mode) resp.; node with 入站 50 on the v1 agent keeps 入站 only (「总上限待升级」).
+- Release notes: runs/landing-node-total/release-notes.md; 妙妙屋: runs/landing-node-total/mmwx-needed.md.
+- Tests: backend `go test ./...` green (incl. contract; 3 contract tests updated to the new semantics);
+  repo + landing contract tests also on PostgreSQL 18 (temp container); agent `landing` + `socket` green, real-Core
+  netns tests (node total, conn mode, CLOSE_WAIT) green; frontend tsc + build OK, eslint 0 (base 0).
+- Resources (demo, same seed, fork.115 → 211): panel RSS 39.0 → 38.8 MiB, CPU same; admin monitor 5 478 → 7 762 B
+  (gzip 1 020 → 1 442 B) for 7 servers / 9 nodes; node list 12 353 → 13 186 B; agent upload +≈80 B per node / 5 s.
