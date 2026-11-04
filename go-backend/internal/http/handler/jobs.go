@@ -270,6 +270,12 @@ func (h *Handler) runResetAndExpiryJob(now time.Time) {
 	h.resetNodeMonthlyTraffic(now)
 	h.reconcileLandingPolicy(now)
 	h.verifyBalances(now)
+	// Plan 212: day rows older than the retention window.
+	if n, err := h.repo.PurgeTrafficDaily(now); err != nil {
+		log.Printf("[traffic-daily] purge failed: %v", err)
+	} else if n > 0 {
+		log.Printf("[traffic-daily] purged %d day rows", n)
+	}
 }
 
 func (h *Handler) verifyBalances(now time.Time) {
