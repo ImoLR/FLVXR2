@@ -32,8 +32,8 @@ Branch `feature/3.0.27-traffic-stats` from tag `3.0.27-fork.115`. Panel only (no
 - [x] 7. Demo panel (prod-shaped synthetic data, 30 days fake history in DEMO only) + gallery
         `/root/mmwx-preview/traffic-stats/` (desktop 1440 + H5 390, light + dark, before/after of unchanged parts)
 - [x] 8. Speed before/after (主页 JS gzip, Slow 4G + CPU 4×), card query timing, payload size, rows/day estimate
-- [ ] 9. Gates: `go test ./...`, tsc / build / lint vs base; push; CI green
-- [ ] 10. release-notes.md, RELEASE-LEDGER row, summary.md
+- [x] 9. Gates: `go test ./...`, tsc / build / lint vs base; push; CI green
+- [x] 10. release-notes.md, RELEASE-LEDGER row, summary.md
 
 ## Results (build)
 - Backend: `go test ./...` 25/25 packages ok (SQLite + PostgreSQL via FLVX_POSTGRES_TEST_DSN); new tests:
@@ -51,4 +51,5 @@ Branch `feature/3.0.27-traffic-stats` from tag `3.0.27-fork.115`. Panel only (no
   drill-down 1.2 ms / 1.7 KB.
 - Screens: http://104.145.236.29:8791/traffic-stats/ — existing parts markup identical 36/36, pixels 29/36 (rest =
   translucent background shading only).
+- CI Build Check 41902978455 green on c31759be (frontend, backend, agent, PostgreSQL contract).
 - Prod sizing (read-only): ~60 rows/day → ~22 k rows, ~2–3 MB per year (400-day cap).
