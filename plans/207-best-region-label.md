@@ -32,8 +32,8 @@ fields; old frontends ignore them, a new frontend on an old backend shows today'
 - [x] 3. `walkRulePick` region per layer (incl. fixed layers); label/hint builder; pick-level label when uniform
 - [x] 4. Go unit tests: builder (dedupe, 1 region, unknown fallback, 3 regions, 中转2) + end-to-end pick via the real round env
 - [x] 5. Frontend `best-pick.tsx`: line wording, rows with own label when mixed, popup hint, aria-label
-- [ ] 6. Gates: go build / vet / test (SQLite), PG contract if repo query touched; frontend tsc / build / lint vs base
-- [ ] 7. Rule-list API timing before/after on a demo panel with ~40 rules
-- [ ] 8. Demo panel + screens (desktop 1440 + H5 390, light + dark, line + popup) → gallery `/root/mmwx-preview/best-region-label/`
+- [x] 6. Gates: go build / vet / test (SQLite), PG contract if repo query touched; frontend tsc / build / lint vs base
+- [x] 7. Rule-list API timing before/after on a demo panel with ~40 rules
+- [x] 8. Demo panel + screens (desktop 1440 + H5 390, light + dark, line + popup) → gallery `/root/mmwx-preview/best-region-label/`
 - [ ] 9. Push, CI green
 - [ ] 10. `runs/best-region-label/release-notes.md` + summary; clean demo panels / temp files
