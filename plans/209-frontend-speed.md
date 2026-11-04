@@ -32,11 +32,24 @@ CacheStorage and reloads once, so the first visit downloads everything again whi
 - [x] Chunk-load failure after a release (old tab, files gone) → version check → reload onto the new build;
       otherwise retry once, then one guarded reload
 ### Measure + UI parity
-- [ ] Demo panel (synthetic data ≈ prod shape: 42 rules, 48 tunnels, 29 nodes, admin + user), Playwright Slow 4G + 4× CPU
+- [x] Demo panel (synthetic data ≈ prod shape: 42 rules, 48 tunnels, 29 nodes, admin + user), Playwright Slow 4G + 4× CPU
       and unthrottled: cold login, login → 主页, first 规则 / 隧道, warm reload, release N → N+1, JS bytes per page
-- [ ] Screens base vs branch (admin + user, 1440 + 390, light + dark), pixel diff, gallery `/root/mmwx-preview/frontend-speed/`
-- [ ] Click-through (login, 主页, 规则 expand/popups/复制链接, 隧道, 节点, 落地 tabs, 用户, 设置, 探针, H5); console clean
+- [x] Screens base vs branch (admin + user, 1440 + 390, light + dark), pixel diff, gallery `/root/mmwx-preview/frontend-speed/`
+- [x] Click-through (login, 主页, 规则 expand/popups/复制链接, 隧道, 节点, 落地 tabs, 用户, 设置, 探针, H5); console clean
 ### Gates + hand-off
-- [ ] tsc / build / lint (no new errors vs base); go build still passes (backend untouched)
-- [ ] Push branch, CI green
-- [ ] `runs/frontend-speed/release-notes.md` + `summary.md`; clean demo panels / browsers
+- [x] tsc / build / lint (no new errors vs base); go build still passes (backend untouched)
+- [x] Push branch, CI green
+- [x] `runs/frontend-speed/release-notes.md` + `summary.md`; clean demo panels / browsers
+
+## Results (details: /root/flvx-workers/runs/frontend-speed/final.md)
+- JS gzip: login page 826 → 213 KB (−74 %), login + 主页 826 → 377 KB (−54 %), all JS 851 → 742 KB.
+- Slow 4G + 4× CPU, medians of 3: cold login page 5961 → 2920 ms; click 登录 → 主页 data 1904 → 1293 ms (first
+  visit), 1169 → 988 ms (returning); after a release 4959 → 1298 ms, 1426 → 74 KB, no old build, 1 page load.
+  Returning user's login page +121 ms (network-first page load, by design). 规则 first open noisy (1104–1611 vs
+  1126–1532 ms).
+- UI: 144/144 scenes pixel-identical (admin + user, 1440 + 390, light + dark); no new console errors/warnings.
+- Checks: Data Saver skips prefetch; old tab after a release reloads once onto the new build when a page file is
+  gone; login across a release lands on the new build with the session kept; /s/ links reach the server.
+- Gates: tsc / build OK, eslint 94 errors = base (no new), go build OK (backend untouched), CI 41869243697 green.
+- Build only — not released.
+
