@@ -106,6 +106,8 @@ export interface LandingServer {
   trafficRatio: number;
   maxConnections: number;
   defaultMaxConnections: number;
+  /** plan 211: 新节点默认 节点总连接数 (入站+出站 incl. TIME_WAIT/CLOSE_WAIT; 0 = 不限). Admin only. */
+  defaultMaxTotalConnections?: number;
   defaultMaxOnlineIps: number;
   defaultTrafficLimitBytes: number;
   defaultExpiryMode: string;
@@ -162,6 +164,17 @@ export interface LandingServer {
   machineCapOwner?: string;
   /** plan 158: the native total was stored as 仅入站 (plan 141) — it becomes 入站+出站 on the next save. */
   maxConnModeLegacy?: boolean;
+  /**
+   * plan 211 (admin): live sums of the server's nodes — 入站 (client
+   * connections; inboundKnown = the runtime reports them) and 总 (every socket,
+   * 入站+出站 incl. TIME_WAIT/CLOSE_WAIT); whether the runtime applies a
+   * 节点总连接数 next to a 入站 limit; shared: the 妙妙屋 share cap (read-only).
+   */
+  inboundConnections?: number;
+  totalConnections?: number;
+  inboundKnown?: boolean;
+  nodeTotalSupported?: boolean;
+  shareMaxConnections?: number;
 }
 /** plan 141: 仅入站 (client connections, like rule 连接数) / 入站+出站 */
 export type LandingConnMode = "total" | "inbound";
@@ -207,6 +220,8 @@ export interface LandingNode {
   port: number;
   inboundTag: string;
   maxConnections: number;
+  /** plan 211: 节点总连接数 (入站+出站 incl. TIME_WAIT/CLOSE_WAIT; 0 = 不限). */
+  maxTotalConnections?: number;
   maxOnlineIps: number;
   trafficLimitBytes: number;
   flowType: number | null;
@@ -238,6 +253,14 @@ export interface LandingNode {
   connModePending?: boolean;
   /** plan 147: node of a shared server — fixed 入站+出站 (admin view). */
   connModeFixed?: boolean;
+  /**
+   * plan 211: live 入站 (client connections; inboundKnown = reported) and 总
+   * (every socket of the port); admin: the 节点总连接数 waits for an upgrade.
+   */
+  inboundConnections?: number;
+  totalConnections?: number;
+  inboundKnown?: boolean;
+  nodeTotalPending?: boolean;
   /** plan 177 「链式代理」: the owner's external node (0 = 直连). */
   chainExternalId?: number;
   chain?: LandingNodeChain;
@@ -355,6 +378,7 @@ export const saveLandingServer = (
   realityGuard?: boolean,
   applyConnModeToNodes = false,
   coreUpgradeConfirmed = false,
+  applyNodeTotalToNodes = false,
 ) => {
   const {
     id,
@@ -430,6 +454,13 @@ export const saveLandingServer = (
     // 入站+出站). The checkbox still copies 节点连接数 to existing nodes.
     ...(server.connMode !== undefined && !server.connModeFixed
       ? { applyConnModeToNodes }
+      : {}),
+    // Plan 211: absent = the panel keeps the stored default.
+    ...(server.defaultMaxTotalConnections !== undefined
+      ? {
+          defaultMaxTotalConnections: server.defaultMaxTotalConnections,
+          applyNodeTotalToNodes,
+        }
       : {}),
   });
 };
@@ -637,6 +668,19 @@ export interface LandingMonitorNode {
   maxConnections: number;
   /** plan 141: how connections / maxConnections count (absent = 入站+出站). */
   connMode?: LandingConnMode;
+  /**
+   * plan 211: 入站 (client connections, inboundKnown = reported), 总 (every
+   * socket, 入站+出站 incl. TIME_WAIT/CLOSE_WAIT), the 节点总连接数 cap (0 = 不限),
+   * the 入站 cap, whether the cap waits for an upgrade, and the latest socket
+   * breakdown (absent = the runtime reports none).
+   */
+  inboundConnections?: number;
+  totalConnections?: number;
+  inboundKnown?: boolean;
+  maxTotalConnections?: number;
+  maxInboundConnections?: number;
+  totalPending?: boolean;
+  tcp?: LandingTcpCounts | null;
   maxOnlineIps: number;
   upRate: number | null;
   downRate: number | null;
@@ -663,6 +707,11 @@ export interface LandingMonitorServer {
   /** plan 141: label of the node sum / of the server limit. */
   connectionsMode?: LandingConnSumMode;
   maxConnectionsMode?: LandingConnMode;
+  /** plan 211: Σ 入站 / Σ 总 of the nodes; admin, shared: the 妙妙屋 share cap. */
+  inboundConnections?: number;
+  totalConnections?: number;
+  inboundKnown?: boolean;
+  shareMaxConnections?: number;
   upRate: number | null;
   downRate: number | null;
   sampleAt: number;
@@ -674,8 +723,16 @@ export interface LandingMonitorServer {
   quotaLimitBytes?: number;
   quotaPaused?: boolean;
   nodes: LandingMonitorNode[];
-  /** Shared servers: whole-machine connections from 妙妙屋 (absent = unknown). */
+  /** Whole-machine connections + 整机兜底 (shared: 妙妙屋; native: agent, plan 211). */
   machine?: MachineView | null;
+}
+/** plan 211: a landing node's sockets by direction and state. */
+export interface LandingTcpCounts {
+  inbound: number;
+  outbound: number;
+  established: number;
+  time_wait: number;
+  close_wait: number;
 }
 export interface LandingMonitorData {
   generatedAt: number;

@@ -36,8 +36,10 @@ export function SharedCaps({ server }: { server: LandingServer }) {
         GB · 每月 {caps.reset_day} 日重置
       </p>
       <p>
-        总连接数上限：{caps.max_connections || "不限"}
-        {caps.max_connections ? " (入站+出站)" : ""}
+        共享总连接数上限：{caps.max_connections || "不限"}
+        {caps.max_connections
+          ? "（这台服务器全部 FLVX 节点合计，入站+出站，由妙妙屋执行）"
+          : ""}
       </p>
       <p>共享截止：{landingDate(caps.share_until)}</p>
       <p>允许协议：{caps.protocols.map(landingProtocolLabel).join("、")}</p>

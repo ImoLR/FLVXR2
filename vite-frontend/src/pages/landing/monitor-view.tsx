@@ -30,8 +30,13 @@ import {
   landingStatus,
 } from "@/api/landing";
 import { useH5Mode } from "@/hooks/useH5Mode";
-import { MachineConnChip } from "@/pages/node/machine-conn";
-import { connModeTag } from "@/pages/landing/conn-mode";
+import { MachineBreakdown } from "@/pages/node/machine-conn";
+import {
+  NODE_TOTAL_NAME,
+  NODE_TOTAL_UNIT,
+  connLevel,
+  nodeTotalPendingText,
+} from "@/pages/landing/conn-mode";
 import { Button } from "@/shadcn-bridge/heroui/button";
 import { Card, CardBody, CardHeader } from "@/shadcn-bridge/heroui/card";
 import {
@@ -295,9 +300,6 @@ function StatBox({
   );
 }
 
-const capText = (value: number, cap: number) =>
-  `${value}/${cap > 0 ? cap : "∞"}`;
-
 const unknownIpsHint = "节点程序版本过旧，暂不支持在线 IP";
 
 // Mounted only when its popover/dialog opens, independently of the monitor's
@@ -485,36 +487,283 @@ function IpCount({
   );
 }
 
-// Connection counts read as a plug icon + "当前/上限", like 妙妙屋; plan 141
-// appends how they count (入站 / 入站+出站).
-function ConnCount({ node }: { node: LandingMonitorNode }) {
+// Plan 211: a node's live connections, always labelled: 「入站 12 / 总 87 /
+// 上限 400」 — 入站 = client connections, 总 = every socket of the port
+// (入站+出站, incl. TIME_WAIT/CLOSE_WAIT), 上限 = 节点总连接数. Amber from 80 %
+// of the cap, red at the cap. Hover shows the breakdown, click/tap opens it.
+const nodeTotal = (node: LandingMonitorNode) =>
+  node.totalConnections ?? node.connections;
+
+const levelClass = {
+  ok: "",
+  warn: "text-warning-600 dark:text-warning-400",
+  full: "text-danger-600 dark:text-danger-400",
+} as const;
+
+const connTone = (node: LandingMonitorNode): Tone => {
+  const level = connLevel(nodeTotal(node), node.maxTotalConnections);
+
+  return level === "full"
+    ? "danger"
+    : level === "warn"
+      ? "warning"
+      : "secondary";
+};
+
+function connText(node: LandingMonitorNode) {
+  const cap = node.maxTotalConnections ?? 0;
+  const parts = [
+    ...(node.inboundKnown ? [`入站 ${node.inboundConnections ?? 0}`] : []),
+    `总 ${nodeTotal(node)}`,
+    `上限 ${cap > 0 ? cap : "∞"}`,
+  ];
+
+  return parts.join(" / ");
+}
+
+function connBreakdownLines(node: LandingMonitorNode, shared: boolean) {
+  const total = nodeTotal(node);
+  const cap = node.maxTotalConnections ?? 0;
+  const lines = [
+    node.inboundKnown
+      ? `入站 ${node.inboundConnections ?? 0}（客户端连接）`
+      : "入站：节点程序较旧，暂不上报",
+    `总 ${total}${cap > 0 ? ` / ${NODE_TOTAL_NAME} ${cap}` : ""}（${NODE_TOTAL_UNIT}）`,
+  ];
+
+  if (node.tcp) {
+    lines.push(
+      `入站 socket ${node.tcp.inbound} · 出站 socket ${node.tcp.outbound}`,
+      `ESTABLISHED ${node.tcp.established} · TIME_WAIT ${node.tcp.time_wait} · CLOSE_WAIT ${node.tcp.close_wait}`,
+    );
+  } else if (node.inboundKnown) {
+    lines.push(
+      `总 − 入站 = ${Math.max(total - (node.inboundConnections ?? 0), 0)}（出站和关闭中的连接）`,
+      shared
+        ? "TIME_WAIT / CLOSE_WAIT 明细：待妙妙屋升级后显示"
+        : "TIME_WAIT / CLOSE_WAIT 明细：升级该服务器的 agent 后显示",
+    );
+  }
+  if ((node.maxInboundConnections ?? 0) > 0) {
+    lines.push(`入站上限 ${node.maxInboundConnections}`);
+  }
+  if (node.totalPending) lines.push(nodeTotalPendingText(shared));
+
+  return lines;
+}
+
+function ConnBreakdown({
+  node,
+  shared,
+}: {
+  node: LandingMonitorNode;
+  shared: boolean;
+}) {
+  const total = nodeTotal(node);
+  const cap = node.maxTotalConnections ?? 0;
+  const row = (label: string, value: ReactNode) => (
+    <div className="flex items-center justify-between gap-6">
+      <span className="text-default-500">{label}</span>
+      <span className="font-mono tabular-nums text-foreground">{value}</span>
+    </div>
+  );
+
   return (
-    <span
-      className="inline-flex items-center gap-1 whitespace-nowrap"
-      title="连接数"
-    >
-      <Plug className="h-3.5 w-3.5 shrink-0" />
-      {capText(node.connections, node.maxConnections)}
-      {node.connMode ? (
-        <span className="text-[11px] opacity-80">
-          {connModeTag(node.connMode)}
-        </span>
+    <div data-conn-breakdown className="space-y-2 text-xs">
+      <div>
+        <p
+          className={`text-sm font-semibold text-foreground ${levelClass[connLevel(total, cap)]}`}
+        >
+          总 {total}
+          <span className="text-default-500">
+            {" "}
+            / {NODE_TOTAL_NAME} {cap > 0 ? cap : "不限"}
+          </span>
+        </p>
+        <p className="text-default-500">
+          {NODE_TOTAL_UNIT}；到上限只拒绝新连接
+        </p>
+      </div>
+      <div className="space-y-1 rounded-lg border border-divider bg-default-50/70 p-2 dark:bg-default-100/10">
+        {row(
+          "入站（客户端连接）",
+          node.inboundKnown ? (node.inboundConnections ?? 0) : "-",
+        )}
+        {node.tcp ? (
+          <>
+            {row("入站 socket", node.tcp.inbound)}
+            {row("出站 socket", node.tcp.outbound)}
+            {row("ESTABLISHED", node.tcp.established)}
+            {row("TIME_WAIT", node.tcp.time_wait)}
+            {row("CLOSE_WAIT", node.tcp.close_wait)}
+          </>
+        ) : node.inboundKnown ? (
+          row(
+            "出站和关闭中",
+            Math.max(total - (node.inboundConnections ?? 0), 0),
+          )
+        ) : null}
+      </div>
+      {!node.tcp ? (
+        <p className="text-default-500">
+          {shared
+            ? "TIME_WAIT / CLOSE_WAIT 明细待妙妙屋升级后显示。"
+            : "TIME_WAIT / CLOSE_WAIT 明细在该服务器的 agent 升级后显示。"}
+        </p>
       ) : null}
-    </span>
+      {(node.maxInboundConnections ?? 0) > 0 ? (
+        <p className="text-default-600">
+          入站上限 {node.maxInboundConnections}
+          （另受用户总入站连接数、整机兜底限制）
+        </p>
+      ) : null}
+      {node.totalPending ? (
+        <p className="text-warning-700 dark:text-warning-400">
+          {nodeTotalPendingText(shared)}
+        </p>
+      ) : null}
+    </div>
   );
 }
 
-// Plan 141: label of a server's 实时连接 (node sum; admins also see the limit).
-function serverConnLabel(server: LandingMonitorServer, admin: boolean) {
-  if (!server.connectionsMode) return "实时连接";
-  const sum = server.connectionsMode;
-  const limit = server.maxConnectionsMode;
+function ConnCount({
+  node,
+  shared = false,
+  pill = false,
+}: {
+  node: LandingMonitorNode;
+  shared?: boolean;
+  pill?: boolean;
+}) {
+  const isH5 = useH5Mode();
+  const [open, setOpen] = useState(false);
+  const level = connLevel(nodeTotal(node), node.maxTotalConnections);
+  const label = (
+    <span className="inline-flex items-center gap-1 whitespace-nowrap">
+      <Plug className="h-3.5 w-3.5 shrink-0" />
+      <span className={pill ? undefined : levelClass[level]}>
+        {connText(node)}
+      </span>
+    </span>
+  );
+  const trigger = (
+    <button
+      aria-label={`查看 ${node.name} 的连接明细`}
+      className="cursor-pointer whitespace-nowrap rounded transition-colors hover:bg-default-200/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+      data-conn-level={level}
+      title={connBreakdownLines(node, shared).join("\n")}
+      type="button"
+      onClick={isH5 ? () => setOpen(true) : undefined}
+    >
+      {pill ? <Pill tone={connTone(node)}>{label}</Pill> : label}
+    </button>
+  );
 
-  if (admin && server.maxConnections > 0 && limit && limit !== sum) {
-    return `实时连接 ${connModeTag(sum)} · 上限 ${connModeTag(limit)}`;
+  if (isH5) {
+    return (
+      <>
+        {trigger}
+        <Modal isOpen={open} size="sm" onOpenChange={setOpen}>
+          <ModalContent
+            aria-describedby={undefined}
+            aria-label={`${node.name} 连接明细`}
+            className="flvx-landing"
+          >
+            <ModalHeader>
+              <div>连接明细</div>
+              <div className="break-all text-sm font-normal text-default-500">
+                {node.name}
+              </div>
+            </ModalHeader>
+            <ModalBody>
+              <ConnBreakdown node={node} shared={shared} />
+            </ModalBody>
+            <ModalFooter>
+              <Button
+                color="danger"
+                variant="flat"
+                onPress={() => setOpen(false)}
+              >
+                关闭
+              </Button>
+            </ModalFooter>
+          </ModalContent>
+        </Modal>
+      </>
+    );
   }
 
-  return `实时连接 ${connModeTag(sum)}`;
+  return (
+    <Dropdown>
+      <DropdownTrigger>{trigger}</DropdownTrigger>
+      <DropdownMenu>
+        <div className="flvx-landing w-80 max-w-[85vw] space-y-2 p-3 text-left">
+          <div className="text-base font-semibold">连接明细</div>
+          <div className="break-all text-sm text-default-500">{node.name}</div>
+          <ConnBreakdown node={node} shared={shared} />
+        </div>
+      </DropdownMenu>
+    </Dropdown>
+  );
+}
+
+// Plan 211: a server's live sums, always labelled (入站 / 总).
+function serverConnValue(server: LandingMonitorServer) {
+  const total = server.totalConnections ?? server.connections;
+
+  return server.inboundKnown
+    ? `入站 ${server.inboundConnections ?? 0} / 总 ${total}`
+    : `总 ${total}`;
+}
+
+// Plan 211: 整机兜底 live — 整机连接 X / 上限 and TIME_WAIT X / 上限 (admins
+// see the TIME_WAIT cap), click/tap for the full machine breakdown.
+function MachineValue({
+  server,
+  admin,
+}: {
+  server: LandingMonitorServer;
+  admin: boolean;
+}) {
+  const m = server.machine;
+  const c = m?.conns;
+  const p = m?.protect;
+  const cap = p?.enabled && p.maxTotal ? p.maxTotal : 0;
+  const tw = p?.enabled && p.twBuckets ? p.twBuckets : 0;
+  const level = connLevel(c?.total ?? 0, cap);
+
+  return (
+    <Dropdown>
+      <DropdownTrigger>
+        <button
+          aria-label="整机兜底详情"
+          className="inline-flex cursor-pointer flex-wrap items-center gap-x-2 rounded text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+          data-machine-level={p?.blocking ? "full" : level}
+          type="button"
+        >
+          {c ? (
+            <>
+              <span className={levelClass[p?.blocking ? "full" : level]}>
+                整机 {c.total}
+                {cap ? `/${cap}` : ""}
+              </span>
+              <span className="text-default-600">
+                TIME_WAIT {c.timeWait}
+                {tw ? `/${tw}` : ""}
+              </span>
+            </>
+          ) : (
+            <span className="text-default-500">暂无数据</span>
+          )}
+        </button>
+      </DropdownTrigger>
+      <DropdownMenu aria-label="整机兜底详情">
+        <div className="flvx-landing w-72 max-w-[min(18rem,calc(100vw-2rem))] p-3 text-left">
+          <MachineBreakdown admin={admin} machine={m} />
+        </div>
+      </DropdownMenu>
+    </Dropdown>
+  );
 }
 
 const trafficText = (bytes: number, cap: number) =>
@@ -592,9 +841,6 @@ function ServerHeader({
             <Pill tone="default">
               节点 {server.activeNodeCount}/{server.nodeCount}
             </Pill>
-            {server.source === "shared" ? (
-              <MachineConnChip admin={data.admin} machine={server.machine} />
-            ) : null}
             <AgeHint
               ageHintMs={server.ageHintMs}
               data={data}
@@ -613,17 +859,23 @@ function ServerHeader({
           同步异常 · {server.syncError}
         </p>
       ) : null}
-      <div className="grid grid-cols-2 gap-x-2 gap-y-3 xl:grid-cols-4 xl:gap-x-3">
+      <div
+        className={`grid grid-cols-2 gap-x-2 gap-y-3 xl:gap-x-3 ${server.machine ? "xl:grid-cols-5" : "xl:grid-cols-4"}`}
+      >
         <StatBox
-          hint={data.admin ? undefined : "我的节点合计"}
-          label={serverConnLabel(server, data.admin)}
+          hint={
+            !data.admin
+              ? "我的节点合计"
+              : server.source === "shared" && server.shareMaxConnections
+                ? `妙妙屋共享上限 ${server.shareMaxConnections}（入站+出站）`
+                : "全部节点合计"
+          }
+          label="实时连接"
           tile={accent.tile}
           value={
             <span className="inline-flex items-center gap-1.5">
               <Plug className="h-4 w-4 shrink-0" />
-              {data.admin
-                ? capText(server.connections, server.maxConnections)
-                : server.connections}
+              {serverConnValue(server)}
             </span>
           }
         />
@@ -640,6 +892,18 @@ function ServerHeader({
           tile={accent.tile}
           value={traffic.value}
         />
+        {server.machine ? (
+          <StatBox
+            hint={
+              server.machine.protect?.owner === "mmwx"
+                ? "由妙妙屋负责 · 整台机器"
+                : "整台机器 TCP+UDP"
+            }
+            label="整机兜底"
+            tile={accent.tile}
+            value={<MachineValue admin={data.admin} server={server} />}
+          />
+        ) : null}
       </div>
     </div>
   );
@@ -718,9 +982,11 @@ function NodeRates({ node }: { node: LandingMonitorNode }) {
 function NodeCard({
   node,
   data,
+  shared,
 }: {
   node: LandingMonitorNode;
   data: LandingMonitorData;
+  shared: boolean;
 }) {
   return (
     <div className="flex h-full flex-col gap-1.5 rounded-[14px] border border-default-200/90 bg-default-50/80 px-3 py-2 dark:border-white/10 dark:bg-white/[0.04]">
@@ -739,9 +1005,7 @@ function NodeCard({
       <NodeNotes node={node} />
       <NodeRates node={node} />
       <div className="flex flex-wrap items-center gap-1.5">
-        <Pill tone="primary">
-          <ConnCount node={node} />
-        </Pill>
+        <ConnCount pill node={node} shared={shared} />
         <Pill tone="success">
           {trafficText(node.billedBytes, node.trafficLimitBytes)}
         </Pill>
@@ -755,9 +1019,11 @@ function NodeCard({
 function NodeListRow({
   node,
   data,
+  shared,
 }: {
   node: LandingMonitorNode;
   data: LandingMonitorData;
+  shared: boolean;
 }) {
   return (
     <div className="space-y-1 px-3 py-2">
@@ -772,7 +1038,7 @@ function NodeListRow({
         />
       </div>
       <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-default-600">
-        <ConnCount node={node} />
+        <ConnCount node={node} shared={shared} />
         <IpCount node={node} />
         <span className="whitespace-nowrap">
           {trafficText(node.billedBytes, node.trafficLimitBytes)}
@@ -809,13 +1075,12 @@ function NodeTable({
         <TableColumn align="center">协议 / 端口</TableColumn>
         <TableColumn align="center">速率</TableColumn>
         <TableColumn align="center">
-          <span className="inline-flex items-center gap-1" title="连接数">
+          <span
+            className="inline-flex items-center gap-1"
+            title={`入站 = 客户端连接；总 = ${NODE_TOTAL_UNIT}；上限 = ${NODE_TOTAL_NAME}`}
+          >
             <Plug className="h-4 w-4" />
-            {server.connectionsMode && server.connectionsMode !== "mixed" ? (
-              <span className="text-[11px] font-normal">
-                {connModeTag(server.connectionsMode)}
-              </span>
-            ) : null}
+            <span className="text-[11px] font-normal">入站 / 总 / 上限</span>
           </span>
         </TableColumn>
         <TableColumn align="center">IP</TableColumn>
@@ -864,12 +1129,7 @@ function NodeTable({
             </TableCell>
             <TableCell>
               <span className="whitespace-nowrap font-mono text-xs tabular-nums text-default-600">
-                {capText(node.connections, node.maxConnections)}
-                {server.connectionsMode === "mixed" && node.connMode ? (
-                  <span className="ml-1 font-sans text-[11px] text-default-500">
-                    {connModeTag(node.connMode)}
-                  </span>
-                ) : null}
+                <ConnCount node={node} shared={server.source === "shared"} />
               </span>
             </TableCell>
             <TableCell>
@@ -933,7 +1193,11 @@ function ServerBlock({
       <div className="grid grid-cols-[minmax(0,1fr)] gap-2 md:grid-cols-[repeat(auto-fill,minmax(300px,1fr))] md:gap-3">
         {server.nodes.map((node) => (
           <div key={node.id} className={tick}>
-            <NodeCard data={data} node={node} />
+            <NodeCard
+              data={data}
+              node={node}
+              shared={server.source === "shared"}
+            />
           </div>
         ))}
       </div>
@@ -948,7 +1212,12 @@ function ServerBlock({
           className={`divide-y divide-default-200/80 md:hidden dark:divide-white/10 ${flatPanel}`}
         >
           {server.nodes.map((node) => (
-            <NodeListRow key={node.id} data={data} node={node} />
+            <NodeListRow
+              key={node.id}
+              data={data}
+              node={node}
+              shared={server.source === "shared"}
+            />
           ))}
         </div>
       </>
@@ -1038,15 +1307,19 @@ export function LandingMonitorView({
     let rated = false;
     let nodes = 0;
     let activeNodes = 0;
-    let connections = 0;
-    // Plan 141: one label when every server's node sum counts the same way.
-    const modes = new Set<string>();
+    // Plan 211: Σ 入站 (where reported) and Σ 总 over all servers.
+    let inbound = 0;
+    let total = 0;
+    let inboundKnown = false;
 
     for (const s of servers) {
       nodes += s.nodeCount;
       activeNodes += s.activeNodeCount;
-      connections += s.connections;
-      if (s.connectionsMode && s.nodeCount > 0) modes.add(s.connectionsMode);
+      total += s.totalConnections ?? s.connections;
+      if (s.inboundKnown) {
+        inboundKnown = true;
+        inbound += s.inboundConnections ?? 0;
+      }
       if (s.upRate !== null && s.downRate !== null) {
         up += s.upRate;
         down += s.downRate;
@@ -1059,13 +1332,8 @@ export function LandingMonitorView({
       online: servers.filter((s) => s.online && s.status === "active").length,
       nodes,
       activeNodes,
-      connections,
-      connMode:
-        modes.size === 0
-          ? null
-          : modes.size === 1
-            ? (Array.from(modes)[0] as "total" | "inbound" | "mixed")
-            : ("mixed" as const),
+      inbound: inboundKnown ? inbound : null,
+      total,
       up: rated ? up : null,
       down: rated ? down : null,
     };
@@ -1099,13 +1367,10 @@ export function LandingMonitorView({
         <Pill tone="secondary">
           节点 {summary.activeNodes}/{summary.nodes}
         </Pill>
-        <Pill tone="primary">
-          <Plug className="h-3 w-3" /> {summary.connections}
-          {summary.connMode ? (
-            <span className="text-[11px] opacity-80">
-              {connModeTag(summary.connMode)}
-            </span>
-          ) : null}
+        <Pill tone="secondary">
+          <Plug className="h-3 w-3" />
+          {summary.inbound !== null ? `入站 ${summary.inbound} / ` : ""}总{" "}
+          {summary.total}
         </Pill>
         <Pill tone="default">
           <ArrowUp className="h-3 w-3" /> {formatRate(summary.up)}

@@ -45,15 +45,15 @@ Branch `feature/3.0.27-landing-node-total` from tag `3.0.27-fork.115` (prod). BU
 
 ## Checklist
 
-- [ ] Lab test: pinned Core counts TIME_WAIT/CLOSE_WAIT in current_total and rejects at the port total
-- [ ] Model + one-shot migration (400 defaults, server totals → 0, shared copies → 0) + tests
-- [ ] Server save: hide/force server total 0, default node total + 「同时应用到现有 N 个节点」
-- [ ] Node create: default node total; shared sync no longer copies share cap
-- [ ] Native payload + signature (panel-only path + capability 2 path)
-- [ ] Shared desired (panel-only path + `node_total` v1 path) + capability parse
-- [ ] Agent: max_total_connections + tcp breakdown + capability 2 + tests
-- [ ] Counters: tcp breakdown into rate tracker (native + shared)
-- [ ] Views: node view (inbound/total/limits/pending), server view, monitor (node + server sums + native machine)
+- [x] Lab test: pinned Core counts TIME_WAIT/CLOSE_WAIT in current_total and rejects at the port total (`TestNodeTotalNetnsE2E`, runs/landing-node-total/nodetotal-e2e.json)
+- [x] Model + one-shot migration (400 defaults, server totals → 0, shared copies → 0) + tests
+- [x] Server save: hide/force server total 0, default node total + 「同时应用到现有 N 个节点」
+- [x] Node create: default node total; shared sync no longer copies share cap
+- [x] Native payload + signature (panel-only path + capability 2 path)
+- [x] Shared desired (panel-only path + `node_total` v1 path) + capability parse
+- [x] Agent: max_total_connections + tcp breakdown + capability 2 + tests (cd9b291b)
+- [x] Counters: tcp breakdown into rate tracker (native + shared)
+- [x] Views: node view (inbound/total/limits/pending), server view, monitor (node + server sums + native machine) (ec374be5)
 - [ ] Frontend: 落地服务器设置 (native + shared)
 - [ ] Frontend: 节点详情 info-only (+ 转移)
 - [ ] Frontend: 监控 落地 node row 入站/总/上限 + amber/red + breakdown popover; server row sums + 整机兜底
