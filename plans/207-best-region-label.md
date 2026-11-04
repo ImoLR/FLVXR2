@@ -35,5 +35,15 @@ fields; old frontends ignore them, a new frontend on an old backend shows today'
 - [x] 6. Gates: go build / vet / test (SQLite), PG contract if repo query touched; frontend tsc / build / lint vs base
 - [x] 7. Rule-list API timing before/after on a demo panel with ~40 rules
 - [x] 8. Demo panel + screens (desktop 1440 + H5 390, light + dark, line + popup) → gallery `/root/mmwx-preview/best-region-label/`
-- [ ] 9. Push, CI green
-- [ ] 10. `runs/best-region-label/release-notes.md` + summary; clean demo panels / temp files
+- [x] 9. Push, CI green
+- [x] 10. `runs/best-region-label/release-notes.md` + summary; clean demo panels / temp files
+
+## Result (11-04 19:35 TW, build only — not released)
+- Backend `cde60659`, frontend `3144dadf`, PG test `fa1e7bf9`; CI run 41820884513 green (backend, PG contract, frontend, agent).
+- `go test ./...` (SQLite) all ok; repo / handler / contract packages with `FLVX_POSTGRES_TEST_DSN` all ok; tsc ok; eslint on
+  `best-pick.tsx` 0 errors / 0 warnings (base 0 / 0); prettier clean.
+- Demo panel (synthetic DB, real 60 s round on a fake probe table, loopback netns): 62 screens, 249/249 checks,
+  gallery `/root/mmwx-preview/best-region-label/` on :8791.
+- Rule list API, 40 rules, 400 calls each (two alternating rounds): base median 8.46 / 6.24 ms, new 6.38 / 6.03 ms; body
+  40 187 → 44 187 B; panel RSS 38–39 MiB both. JS bundle +0.9 KB, CSS ±0.
+- Release notes: `/root/flvx-workers/runs/best-region-label/release-notes.md` (panel only, no OTA, no DB change).
