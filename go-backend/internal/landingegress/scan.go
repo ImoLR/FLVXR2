@@ -10,8 +10,9 @@ import (
 // nodes. The pinned landing Core (Custom v1.4.83, scan_guard.v1) counts every
 // outbound TCP dial per node and blocks the node itself when one of three
 // patterns crosses its threshold within the window; the panel then disables
-// the node until an admin lifts it. UDP is never counted. mmwx-shared servers
-// would need a Helper release (not done): 共享服务器暂不支持.
+// the node until an admin lifts it. UDP is never counted. Plan 205: mmwx
+// shares whose Helper + FLVX Core advertise it (landing-scan-guard-v1 §9) run
+// the same rule; older shares show 共享服务器暂不支持.
 
 // Fixed windows and web ports (only the thresholds are editable).
 const (

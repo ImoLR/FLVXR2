@@ -187,7 +187,7 @@ export function ScanGuardSection({
         </span>
         <span className="min-w-0 text-xs text-default-500">
           {admin
-            ? "按连接行为判断，超过阈值立即禁用节点；只对自有落地生效"
+            ? "按连接行为判断，超过阈值立即禁用节点；自有落地和已支持的妙妙屋共享生效"
             : "1 条，节点规则不能放行"}
         </span>
       </div>
