@@ -9,8 +9,8 @@ Run dir: `/root/flvx-workers/runs/release-batch-1104`.
 - [x] Read inputs (200/202 final + release notes, Core v1.4.83 report, recipe); both clean → ship both
 - [x] Free dev-box disk (Go build cache entries > 1 day: 9.1 → 3.7 GB; 1.4 → 6.8 GB free)
 - [x] Release branch: fork.110 + 200 (ff) + 202 (merge, no conflicts)
-- [ ] Gates on release head: backend build/vet, go test SQLite + PG, go-gost + go-gost/x tests, frontend tsc/build/lint
-- [ ] Baselines: panel CPU/RSS/health/online, client check per entry/rule group, landing links (JP, NexKR, shared ×3), 救命版
+- [x] Gates on release head: backend build ok / vet only the known leikwan/testapi unkeyed-field notes; go test SQLite 25/25 + PG 25/25 packages, 0 failures; go-gost build/vet/test ok; go-gost/x vet ok, test 19 pkgs ok + landing 62 pass (24 real-Core skips; run by the 202 worker) — first landing run failed only on the >108-char unix-socket TMPDIR path, re-run with a short TMPDIR passed; frontend tsc 0, build ok, eslint 94 errors / 3793 warnings = identical to fork.110 per file
+- [x] Baselines (10:05–10:20 TW, files in run dir): panel CPU/RSS/health/online, client check per entry/rule group, landing links (JP, NexKR, shared ×3), 救命版
 - [ ] Push branch + tag `3.0.27-fork.111`; CI + images + release assets verified
 - [ ] Panel backup (DB) + rollback dir → upgrade `/opt/flvx-svc`; prune backups (keep 2)
 - [ ] Business check after panel = baseline
