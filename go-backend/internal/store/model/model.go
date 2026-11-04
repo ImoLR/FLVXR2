@@ -1028,6 +1028,9 @@ type ChainNodeRecord struct {
 	Strategy      string
 	ConnectIP     string
 	ConnectIPType string
+	// Region is node.region (plan 207: the rule list's 「日美最优」 label);
+	// filled by ListChainNodesForTunnel only.
+	Region string
 }
 
 type UserTunnelLimiterInfo struct {

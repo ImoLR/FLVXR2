@@ -6,6 +6,8 @@ import (
 	"math"
 	"strings"
 	"time"
+
+	"go-backend/internal/store/repo"
 )
 
 // Plan 180 part 1: the rule list shows, under each rule on a tunnel with a
@@ -16,10 +18,16 @@ import (
 // ids, IPs or other users' data. Source per owner: the rule-level decision
 // when 「规则最优」 is active for it (ms then includes exit→target: 含落地), else
 // the tunnel decision (ms entry→exit, as on the admin tunnel card).
+//
+// Plan 207: the line names the region interconnect of the pick instead of
+// the nodes — JP 中转 → US 出口 = 「日美最优」 (regionLabel 「日美」, regionHint
+// 「经日本中转、美国出口」). Regions come with the round's own chain query
+// (node.region), so still no DB read here. Node names stay for the popup.
 
 type rulePickHop struct {
-	Label string `json:"label"`
-	Name  string `json:"name"`
+	Label  string `json:"label"`
+	Name   string `json:"name"`
+	Region string `json:"region,omitempty"` // node.region of the picked node (plan 207)
 }
 
 type rulePickItem struct {
@@ -30,12 +38,17 @@ type rulePickItem struct {
 	Hops       []rulePickHop `json:"hops,omitempty"`
 	Ms         float64       `json:"ms,omitempty"`
 	WithTarget bool          `json:"withTarget,omitempty"`
+	// Plan 207: 「日美」 / 「香港」 and 「经日本中转、美国出口」; empty when a
+	// node on the path has no (known) region — the UI keeps the node names.
+	RegionLabel string `json:"regionLabel,omitempty"`
+	RegionHint  string `json:"regionHint,omitempty"`
 }
 
 type rulePickLayer struct {
-	Label string `json:"label"`
-	Name  string `json:"name"`
-	Count int    `json:"count"` // distinct nodes over the items (>1 ⇒ Name = 「N 个节点」)
+	Label  string `json:"label"`
+	Name   string `json:"name"`
+	Count  int    `json:"count"`            // distinct nodes over the items (>1 ⇒ Name = 「N 个节点」)
+	Region string `json:"region,omitempty"` // when every item's node there has the same region
 }
 
 type rulePick struct {
@@ -48,6 +61,9 @@ type rulePick struct {
 	Multi      bool            `json:"multi,omitempty"`
 	Items      []rulePickItem  `json:"items,omitempty"`
 	UpdatedAt  int64           `json:"updatedAt,omitempty"`
+	// Plan 207: set when every applied item has the same region label.
+	RegionLabel string `json:"regionLabel,omitempty"`
+	RegionHint  string `json:"regionHint,omitempty"`
 }
 
 // rulePickOwner is what the display needs to know about an owner.
@@ -106,6 +122,45 @@ func rulePickLayerLabel(g, last, hopGroups int) string {
 		return fmt.Sprintf("中转%d", g)
 	}
 	return "中转"
+}
+
+// ruleRegionLabel is the plan-207 label of one path from the regions of the
+// nodes its 中转 layers (in path order) and its 出口 use — the entry is not
+// part of it. Consecutive duplicates collapse (JP → TW → TW = 日台); two or
+// more regions → their short names joined (「港日美」), one region → its full
+// name (「香港」). The hint spells it out: 「经日本中转、美国出口」. Any region
+// missing or not in the table → ok = false (the line keeps the node names).
+func ruleRegionLabel(relays []string, exit string) (label, hint string, ok bool) {
+	norm := func(c string) string { return strings.ToUpper(strings.TrimSpace(c)) }
+	var shorts, codes []string
+	for _, c := range append(append(make([]string, 0, len(relays)+1), relays...), exit) {
+		c = norm(c)
+		short, known := repo.RegionShort(c)
+		if !known {
+			return "", "", false
+		}
+		if len(codes) > 0 && codes[len(codes)-1] == c {
+			continue
+		}
+		codes, shorts = append(codes, c), append(shorts, short)
+	}
+	if len(codes) == 1 {
+		label = repo.RegionName(codes[0])
+	} else {
+		label = strings.Join(shorts, "")
+	}
+	var via []string
+	prev := ""
+	for _, c := range relays {
+		if c = norm(c); c != prev {
+			via, prev = append(via, repo.RegionName(c)), c
+		}
+	}
+	hint = repo.RegionName(norm(exit)) + "出口"
+	if len(via) > 0 {
+		hint = "经" + strings.Join(via, "、") + "中转、" + hint
+	}
+	return label, hint, true
 }
 
 func (h *Handler) buildRulePick(tunnelID int64, view *ruleBestView, entryIDs []int64, remoteAddr string, owner func(int64) rulePickOwner, now time.Time) *rulePick {
@@ -176,11 +231,16 @@ func (h *Handler) walkRulePick(tunnelID int64, view *ruleBestView, entryID int64
 	last := len(view.Groups) - 1
 	hopGroups := last - 1
 	names := map[int64]string{}
+	regions := map[int64]string{}
 	for _, group := range view.Groups {
 		for _, row := range group {
 			names[row.NodeID] = row.NodeName
+			regions[row.NodeID] = row.Region
 		}
 	}
+	// Plan 207: the region of the node used at every layer after the entry
+	// (fixed layers too), in path order.
+	path := make([]string, 0, last)
 	name := func(id int64) string {
 		if n := strings.TrimSpace(names[id]); n != "" {
 			return n
@@ -208,6 +268,7 @@ func (h *Handler) walkRulePick(tunnelID int64, view *ruleBestView, entryID int64
 			}
 			ms += view.Edges[bestPathEdge{cur, next}]
 			cur = next
+			path = append(path, regions[cur])
 			continue
 		}
 		pickID, status, fromRule := h.rulePickAt(tunnelID, view, cur, g, layer, dest, hasDest, owner)
@@ -223,9 +284,15 @@ func (h *Handler) walkRulePick(tunnelID int64, view *ruleBestView, entryID int64
 			item.Hops = nil
 			return item
 		}
-		item.Hops = append(item.Hops, rulePickHop{Label: rulePickLayerLabel(g, last, hopGroups), Name: name(pickID)})
+		item.Hops = append(item.Hops, rulePickHop{Label: rulePickLayerLabel(g, last, hopGroups), Name: name(pickID), Region: regions[pickID]})
 		ms += edge
 		cur = pickID
+		path = append(path, regions[cur])
+	}
+	if n := len(path); n > 0 {
+		if label, hint, ok := ruleRegionLabel(path[:n-1], path[n-1]); ok {
+			item.RegionLabel, item.RegionHint = label, hint
+		}
 	}
 	if allRule {
 		if c, ok := vd.Exit[cur]; ok {
@@ -329,16 +396,29 @@ func summarizeRulePick(pick *rulePick) {
 	if math.Round(pick.MaxMs) != math.Round(pick.MinMs) && pick.MaxMs > 0 {
 		pick.Multi = true
 	}
+	// Plan 207: one region label for the line when every applied item has
+	// the same one (else each row has its own, or the node names stay).
+	pick.RegionLabel, pick.RegionHint = applied[0].RegionLabel, applied[0].RegionHint
+	for _, it := range applied[1:] {
+		if it.RegionLabel != pick.RegionLabel || it.RegionHint != pick.RegionHint {
+			pick.RegionLabel, pick.RegionHint = "", ""
+			break
+		}
+	}
 	// Layers: the applied items share the same layer labels (same tunnel).
 	parts := make([]string, 0, len(applied[0].Hops))
 	for i, hop := range applied[0].Hops {
 		distinct := map[string]bool{}
+		region := hop.Region
 		for _, it := range applied {
 			if i < len(it.Hops) {
 				distinct[it.Hops[i].Name] = true
+				if it.Hops[i].Region != region {
+					region = ""
+				}
 			}
 		}
-		layer := rulePickLayer{Label: hop.Label, Name: hop.Name, Count: len(distinct)}
+		layer := rulePickLayer{Label: hop.Label, Name: hop.Name, Count: len(distinct), Region: region}
 		if len(distinct) > 1 {
 			layer.Name = fmt.Sprintf("%d 个节点", len(distinct))
 			pick.Multi = true

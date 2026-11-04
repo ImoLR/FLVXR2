@@ -1,9 +1,12 @@
 package repo
 
 import (
+	"database/sql"
 	"reflect"
 	"strings"
 	"testing"
+
+	"go-backend/internal/store/model"
 )
 
 func TestDeriveTunnelRegions(t *testing.T) {
@@ -117,5 +120,66 @@ func TestNormalizeTunnelRegionOverride(t *testing.T) {
 		if got, err := NormalizeTunnelRegionOverride(bad); err == nil {
 			t.Fatalf("%q accepted as %q", bad, got)
 		}
+	}
+}
+
+// Plan 207: one table — full names unchanged, every short form set and
+// unique (a 「日美最优」 label must never be ambiguous).
+func TestRegionShortTable(t *testing.T) {
+	seen := map[string]string{}
+	for code, r := range regionNames {
+		if r.full == "" || r.short == "" {
+			t.Fatalf("%s: empty name %+v", code, r)
+		}
+		if other, dup := seen[r.short]; dup {
+			t.Fatalf("short form %q used by %s and %s", r.short, other, code)
+		}
+		seen[r.short] = code
+	}
+	for code, want := range map[string]string{"HK": "港", "JP": "日", "US": "美", "TW": "台", "SG": "新", "KR": "韩", "CN": "中", "DE": "德", "GB": "英", "FR": "法", "NL": "荷"} {
+		if got, ok := RegionShort(code); !ok || got != want {
+			t.Fatalf("RegionShort(%s) = %q %v, want %q", code, got, ok, want)
+		}
+	}
+	if got, ok := RegionShort(" jp "); !ok || got != "日" {
+		t.Fatalf("RegionShort normalises: %q %v", got, ok)
+	}
+	for _, code := range []string{"", "XX", "IT"} {
+		if _, ok := RegionShort(code); ok {
+			t.Fatalf("RegionShort(%q) should be unknown", code)
+		}
+	}
+	if regionName("HK") != "香港" || RegionName("jp") != "日本" || regionName("IT") != "意大利" || regionName("") != "" {
+		t.Fatalf("regionName changed: %q %q %q", regionName("HK"), RegionName("jp"), regionName("IT"))
+	}
+}
+
+// Plan 207: the chain query of the path-latency round carries node.region
+// (both dialects; a node row may be missing → empty region).
+func TestListChainNodesForTunnelRegionBothDialects(t *testing.T) {
+	for _, dialect := range []string{"sqlite", "postgres"} {
+		t.Run(dialect, func(t *testing.T) {
+			r := orphanTestRepo(t, dialect)
+			orphanSeed(t, r,
+				&model.Node{ID: 31, Name: "entry", Region: "CN"},
+				&model.Node{ID: 32, Name: "relay", Region: "jp"},
+				&model.Node{ID: 33, Name: "exit", Region: ""},
+				&model.ChainTunnel{TunnelID: 7, ChainType: "1", NodeID: 31},
+				&model.ChainTunnel{TunnelID: 7, ChainType: "2", NodeID: 32, Port: sql.NullInt64{Int64: 1200, Valid: true}, Inx: sql.NullInt64{Int64: 1, Valid: true}},
+				&model.ChainTunnel{TunnelID: 7, ChainType: "3", NodeID: 33, Port: sql.NullInt64{Int64: 1300, Valid: true}},
+				&model.ChainTunnel{TunnelID: 7, ChainType: "3", NodeID: 34, Port: sql.NullInt64{Int64: 1400, Valid: true}},
+			)
+			rows, err := r.ListChainNodesForTunnel(7)
+			if err != nil {
+				t.Fatal(err)
+			}
+			got := map[int64]string{}
+			for _, row := range rows {
+				got[row.NodeID] = row.Region
+			}
+			if len(rows) != 4 || got[31] != "CN" || got[32] != "JP" || got[33] != "" || got[34] != "" {
+				t.Fatalf("regions %v (%d rows)", got, len(rows))
+			}
+		})
 	}
 }

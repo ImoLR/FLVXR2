@@ -459,10 +459,11 @@ func (r *Repository) ListChainNodesForTunnel(tunnelID int64) ([]model.ChainNodeR
 		Strategy      sql.NullString
 		ConnectIP     sql.NullString
 		ConnectIPType sql.NullString
+		Region        sql.NullString
 	}
 	var rows []row
 	err := r.db.Model(&model.ChainTunnel{}).
-		Select("chain_tunnel.chain_type, chain_tunnel.inx, chain_tunnel.node_id, chain_tunnel.port, node.name, chain_tunnel.protocol, chain_tunnel.strategy, chain_tunnel.connect_ip, chain_tunnel.connect_ip_type").
+		Select("chain_tunnel.chain_type, chain_tunnel.inx, chain_tunnel.node_id, chain_tunnel.port, node.name, chain_tunnel.protocol, chain_tunnel.strategy, chain_tunnel.connect_ip, chain_tunnel.connect_ip_type, node.region").
 		Joins("LEFT JOIN node ON node.id = chain_tunnel.node_id").
 		Where("chain_tunnel.tunnel_id = ?", tunnelID).
 		Order("chain_tunnel.chain_type ASC, chain_tunnel.inx ASC, chain_tunnel.id ASC").
@@ -513,6 +514,7 @@ func (r *Repository) ListChainNodesForTunnel(tunnelID int64) ([]model.ChainNodeR
 		if row.ConnectIPType.Valid {
 			item.ConnectIPType = row.ConnectIPType.String
 		}
+		item.Region = strings.ToUpper(strings.TrimSpace(row.Region.String))
 		result = append(result, item)
 	}
 	return result, nil
