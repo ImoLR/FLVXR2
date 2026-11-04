@@ -169,7 +169,8 @@ export interface EgressBuiltin extends AbuseValues {
   scanGuard?: ScanGuardAdmin & Partial<ScanGuardNodeState>;
 }
 
-// Plan 202 「禁止端口扫描」 (FLVX-native landing nodes): the Core counts
+// Plan 202 「禁止端口扫描」 (FLVX-native landing nodes; plan 205: also mmwx
+// shares that advertise it — shared_core / idle are share-only): the Core counts
 // every outbound TCP dial per node and disables the node at once when a
 // pattern crosses its threshold; only an admin lifts it.
 export type ScanGuardState =
@@ -178,6 +179,8 @@ export type ScanGuardState =
   | "shared"
   | "agent"
   | "core"
+  | "shared_core"
+  | "idle"
   | "error"
   | "pending";
 
@@ -207,6 +210,8 @@ export interface ScanGuardAdmin extends ScanGuardSettings {
   servers?: ScanGuardServer[];
   blockedNodes?: number;
   events?: number;
+  // Plan 205: blocked nodes deleted before 解除禁用 (owner cannot create).
+  deletedBlocked?: number;
 }
 
 export interface ScanGuardNodeState {
@@ -241,6 +246,9 @@ export const saveScanGuard = (v: ScanGuardThresholds) =>
   Network.post<ScanGuardAdmin>("/landing/scan/save", v);
 export const getScanGuard = () =>
   Network.post<ScanGuardAdmin>("/landing/scan/get", {});
+// Plan 205: 「解除禁用」 on an event row (also for a node deleted meanwhile).
+export const unblockScanEvent = (id: number) =>
+  Network.post<{ nodeId: number }>("/landing/scan/event/unblock", { id });
 export const listScanEvents = (nodeId = 0) =>
   Network.post<{ events: ScanEvent[]; total: number }>("/landing/scan/events", {
     nodeId,

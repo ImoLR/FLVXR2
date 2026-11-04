@@ -446,8 +446,19 @@ func (h *Handler) landingServerList(w http.ResponseWriter, r *http.Request) {
 			landingError(w, err)
 			return
 		}
+		// Plan 205: a user kept from creating by 禁止端口扫描 sees why on
+		// every server card (creation itself is refused in the repository).
+		scanBlock, err := h.repo.LandingScanUserBlock(uid)
+		if err != nil {
+			landingError(w, err)
+			return
+		}
 		for _, s := range ss {
-			out = append(out, h.landingServerUserView(s, catalog, &counts))
+			v := h.landingServerUserView(s, catalog, &counts)
+			if scanBlock != nil {
+				v["scanCreateBlocked"] = landingegress.ScanCreateMessage(scanBlock.Reason())
+			}
+			out = append(out, v)
 		}
 	}
 	response.WriteJSON(w, response.OK(out))

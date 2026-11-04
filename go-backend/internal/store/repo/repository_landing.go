@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"go-backend/internal/landingcustom"
+	"go-backend/internal/landingegress"
 	"go-backend/internal/store/model"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -722,6 +723,18 @@ func (r *Repository) createLandingNode(userID, serverID int64, name, protocol st
 				}
 				n = candidate
 				return nil
+			}
+		}
+		// Plan 205: a user with a node disabled by 禁止端口扫描 (also one
+		// deleted before an admin lifted it) cannot create a new node until
+		// an admin 解除禁用. Admins are not limited.
+		if !admin {
+			block, err := landingScanUserBlockTx(tx, userID)
+			if err != nil {
+				return err
+			}
+			if block != nil {
+				return errors.New(landingegress.ScanCreateMessage(block.Reason()))
 			}
 		}
 		limit, _, err := effectiveLandingMaxNodes(tx, &u)

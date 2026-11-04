@@ -16,6 +16,7 @@ import {
   type ScanGuardState,
   listScanEvents,
   saveScanGuard,
+  unblockScanEvent,
 } from "@/api/landing-egress";
 import { Button } from "@/shadcn-bridge/heroui/button";
 import { Input } from "@/shadcn-bridge/heroui/input";
@@ -41,6 +42,8 @@ const stateTone: Record<ScanGuardState, LandingTone> = {
   shared: "slate",
   agent: "amber",
   core: "amber",
+  shared_core: "amber",
+  idle: "slate",
   error: "red",
   pending: "slate",
 };
@@ -52,6 +55,8 @@ const stateShort: Record<ScanGuardState, string> = {
   shared: "共享服务器暂不支持",
   agent: "需要升级节点",
   core: "需重启落地 Core",
+  shared_core: "需升级共享 Core",
+  idle: "暂无节点",
   error: "检测异常",
   pending: "等待同步",
 };
@@ -85,7 +90,7 @@ export function scanGuardChips(g: Guard, admin: boolean): string[] {
     "仅 TCP",
   ];
 
-  if (admin) chips.push("仅自有落地");
+  if (admin) chips.push("自有落地 + 妙妙屋共享");
 
   return chips;
 }
@@ -152,13 +157,20 @@ export function ScanGuardSection({
 
       return;
     }
-    toast.success("禁止端口扫描已保存，正在同步到自有落地服务器");
+    toast.success("禁止端口扫描已保存，正在同步到落地服务器");
     setEditing(false);
     onSaved?.(res.data);
   };
 
-  const native = (guard.servers || []).filter((s) => s.source === "native");
-  const shared = (guard.servers || []).filter((s) => s.source === "shared");
+  // Plan 205: shares that run it get their own chip like native servers;
+  // the rest stay in one 「暂不支持」 chip.
+  const native = (guard.servers || []).filter(
+    (s) =>
+      s.source === "native" || (s.source === "shared" && s.state !== "shared"),
+  );
+  const shared = (guard.servers || []).filter(
+    (s) => s.source === "shared" && s.state === "shared",
+  );
   const hint = admin
     ? "落地节点被用来批量探测别人服务器的端口时，落地 Core 立即禁用这个节点（端口、密钥和链接都保留）并通知管理员，只有管理员能「解除禁用」。正常上网、看视频、测速达不到这些数字。"
     : `如果有人用这个落地节点批量扫描端口（例如同一端口 1 分钟内连接 ${guard.horizontal} 个以上不同 IP），节点会被立即禁用，需要联系管理员解除。正常上网、看视频、下载不受影响。`;
@@ -303,6 +315,8 @@ export function ScanGuardSection({
                 <span>
                   当前因端口扫描禁用 {guard.blockedNodes ?? 0} 个节点 · 记录{" "}
                   {guard.events ?? 0} 条（保留 30 天）
+                  {(guard.deletedBlocked ?? 0) > 0 &&
+                    ` · 已删除未解除 ${guard.deletedBlocked} 个（用户不能新建节点）`}
                 </span>
                 {editable && !editing && (
                   <Button
@@ -375,20 +389,71 @@ const typeTone: Record<string, LandingTone> = {
   total: "pink",
 };
 
-function EventStatus({ e }: { e: ScanEvent }) {
-  if (!e.blocked) return <Pill tone="slate">仅记录（节点已禁用）</Pill>;
-  if (e.nodeBlocked && !e.unblockedAt) return <Pill tone="red">禁用中</Pill>;
-  if (e.unblockedAt)
-    return (
-      <Pill
-        title={`${e.unblockedBy} · ${landingDate(e.unblockedAt)}`}
-        tone="green"
-      >
-        已解除 · {e.unblockedBy || "管理员"}
-      </Pill>
-    );
+function EventStatus({
+  e,
+  onUnblocked,
+}: {
+  e: ScanEvent;
+  onUnblocked: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
 
-  return <Pill tone="slate">节点已删除或已解除</Pill>;
+  if (!e.blocked) return <Pill tone="slate">仅记录（节点已禁用）</Pill>;
+  // Plan 205: an open block (node disabled, or deleted before 解除禁用 —
+  // the owner cannot create nodes until it is lifted).
+  if (!e.unblockedAt) {
+    const unblock = async () => {
+      setBusy(true);
+      const res = await unblockScanEvent(e.id);
+
+      setBusy(false);
+      if (res.code !== 0) {
+        toast.error(res.msg || "解除禁用失败");
+
+        return;
+      }
+      toast.success(
+        e.nodeBlocked
+          ? "已解除禁用，正在同步到落地服务器"
+          : "已解除，该用户可以重新新建落地节点",
+      );
+      onUnblocked();
+    };
+
+    return (
+      <div className="flex flex-wrap items-center gap-1 sm:justify-end">
+        <Pill
+          title={
+            e.nodeBlocked
+              ? undefined
+              : "节点已被删除，但禁用还没有解除：该用户暂不能新建落地节点"
+          }
+          tone="red"
+        >
+          {e.nodeBlocked ? "禁用中" : "节点已删除 · 未解除"}
+        </Pill>
+        <Button
+          className="h-6 min-w-0 px-2 text-xs"
+          color="success"
+          isLoading={busy}
+          size="sm"
+          variant="flat"
+          onPress={() => void unblock()}
+        >
+          解除禁用
+        </Button>
+      </div>
+    );
+  }
+
+  return (
+    <Pill
+      title={`${e.unblockedBy} · ${landingDate(e.unblockedAt)}`}
+      tone="green"
+    >
+      已解除 · {e.unblockedBy || "管理员"}
+    </Pill>
+  );
 }
 
 /** Admin list of 禁止端口扫描 events (newest 200, kept 30 days). */
@@ -404,6 +469,7 @@ export function ScanEventsDialog({
   const [events, setEvents] = useState<ScanEvent[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
+  const [reload, setReload] = useState(0);
 
   useEffect(() => {
     if (!open) return;
@@ -425,7 +491,7 @@ export function ScanEventsDialog({
     return () => {
       alive = false;
     };
-  }, [open, nodeId]);
+  }, [open, nodeId, reload]);
 
   return (
     <Modal isOpen={open} scrollBehavior="inside" size="2xl" onClose={onClose}>
@@ -470,7 +536,10 @@ export function ScanEventsDialog({
                     <p className="text-xs text-default-600">{e.reason}</p>
                   </div>
                   <div className="sm:justify-self-end">
-                    <EventStatus e={e} />
+                    <EventStatus
+                      e={e}
+                      onUnblocked={() => setReload((v) => v + 1)}
+                    />
                   </div>
                 </div>
               ))}

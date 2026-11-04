@@ -71,6 +71,7 @@ const LandingEgressTab = lazy(() => import("@/pages/landing/egress"));
 // many more they can create there (both caps) and the server's end date.
 function UserServerSummary({ server }: { server: LandingServer }) {
   const full = server.myRemaining === 0;
+  const scanBlocked = Boolean(server.scanCreateBlocked);
 
   return (
     <>
@@ -82,13 +83,21 @@ function UserServerSummary({ server }: { server: LandingServer }) {
         <div>
           <dt className="text-xs text-default-500">还可创建</dt>
           <dd
-            className={full ? "mt-0.5 text-sm text-warning" : "mt-0.5 text-sm"}
+            className={
+              scanBlocked
+                ? "mt-0.5 text-sm text-danger"
+                : full
+                  ? "mt-0.5 text-sm text-warning"
+                  : "mt-0.5 text-sm"
+            }
           >
-            {server.myRemaining === undefined
-              ? "—"
-              : full
-                ? "已达上限"
-                : server.myRemaining}
+            {scanBlocked
+              ? "暂不能新建"
+              : server.myRemaining === undefined
+                ? "—"
+                : full
+                  ? "已达上限"
+                  : server.myRemaining}
           </dd>
         </div>
         <div>
@@ -98,10 +107,16 @@ function UserServerSummary({ server }: { server: LandingServer }) {
           </dd>
         </div>
       </dl>
-      {full && (
-        <p className="text-xs text-default-500">
-          已达到可创建的节点数，删除不用的节点后可再创建，或联系管理员调整。
+      {scanBlocked ? (
+        <p data-scan-create-blocked className="text-xs text-danger">
+          {server.scanCreateBlocked}
         </p>
+      ) : (
+        full && (
+          <p className="text-xs text-default-500">
+            已达到可创建的节点数，删除不用的节点后可再创建，或联系管理员调整。
+          </p>
+        )
       )}
     </>
   );
@@ -803,7 +818,8 @@ export default function LandingPage() {
                           isDisabled={
                             server.status !== "active" ||
                             server.sharedAvailable === false ||
-                            (!admin && server.myRemaining === 0)
+                            (!admin && server.myRemaining === 0) ||
+                            (!admin && Boolean(server.scanCreateBlocked))
                           }
                           size="sm"
                           startContent={<Plus size={16} />}

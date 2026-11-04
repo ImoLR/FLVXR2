@@ -104,6 +104,12 @@ func ScanUserMessage(reason string) string {
 	return "该落地节点因检测到端口扫描（" + reason + "）已被禁用，如有疑问请联系管理员"
 }
 
+// ScanCreateMessage (plan 205) refuses a new landing node to a user whose
+// node is (or was, until an admin lifts it) disabled by a scan.
+func ScanCreateMessage(reason string) string {
+	return "你的落地节点因检测到端口扫描（" + reason + "）已被禁用，暂不能新建落地节点，如有疑问请联系管理员"
+}
+
 // ScanTime formats a hit time for messages (UTC+8, the panel's zone).
 func ScanTime(ms int64) string {
 	return time.UnixMilli(ms).In(time.FixedZone("UTC+8", 8*3600)).Format("2006-01-02 15:04:05")

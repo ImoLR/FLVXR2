@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -21,9 +22,10 @@ import (
 	"go-backend/internal/tgbot"
 )
 
-// Plan 202 「禁止端口扫描」 (FLVX-native landing nodes only): the 内置 row
-// (admin switch + thresholds, read-only for users), the agent payload, the
-// agent's hits (node disabled at once, events, admin notice) and 解除禁用.
+// Plan 202 「禁止端口扫描」 (FLVX-native landing nodes; plan 205: also mmwx
+// shares advertising landing-scan-guard-v1 §9, same payload and records): the
+// 内置 row (admin switch + thresholds, read-only for users), the payload, the
+// reported hits (node disabled at once, events, admin notice) and 解除禁用.
 
 // landingScanReport is the agent's Status.scan_guard.
 type landingScanReport struct {
@@ -47,7 +49,8 @@ const landingScanNoticeGap = time.Minute
 func (h *Handler) registerLandingScan(mux *http.ServeMux) {
 	routes := map[string]http.HandlerFunc{
 		"scan/get": h.landingScanGet, "scan/save": h.landingScanSave, "scan/events": h.landingScanEvents,
-		"node/scan/unblock": h.limitMutation(mutationLanding, h.landingScanUnblock),
+		"node/scan/unblock":  h.limitMutation(mutationLanding, h.landingScanUnblock),
+		"scan/event/unblock": h.limitMutation(mutationLanding, h.landingScanEventUnblock),
 	}
 	for path, fn := range routes {
 		fn := fn
@@ -78,12 +81,7 @@ func (h *Handler) landingScanPayload(s *model.LandingServer, nodes []model.Landi
 	if g.On {
 		ids = repo.NativeLandingScanTargets(nodes, s.ID, landingcustom.IsExtraProtocol)
 	}
-	return map[string]interface{}{
-		"enabled": g.On && len(ids) > 0, "identities": ids,
-		"horizontal": g.Horizontal, "horizontal_web": g.HorizontalWeb, "web_ports": landingegress.ScanWebPorts, "window_s": landingegress.ScanWindowS,
-		"vertical": g.Vertical, "total": g.Total, "total_window_s": landingegress.ScanTotalWindowS,
-		"seen": s.ScanSeenSeq,
-	}, nil
+	return repo.LandingScanPayload(g, ids, s.ScanSeenSeq), nil
 }
 
 // landingScanSig joins the payload into the revision signature.
@@ -93,9 +91,24 @@ func landingScanSig(payload map[string]interface{}) string {
 	return ";sg=" + hex.EncodeToString(sum[:8])
 }
 
-// recordNativeScan stores the agent's guard state and its new hits; true =
-// the seen mark moved (push again so the agent drops them and gets the
-// disabled nodes).
+// sharedScanReport turns a share's relayed report (contract §9.3, node ids
+// as strings) into the native agent's report shape.
+func sharedScanReport(g *landingcustom.ScanGuardReport) *landingScanReport {
+	if g == nil {
+		return nil
+	}
+	rep := &landingScanReport{State: g.State, Error: g.Error, Hits: make([]repo.LandingScanHit, 0, len(g.Hits)), Blocked: g.Blocked}
+	for _, hit := range g.Hits {
+		id, _ := strconv.ParseInt(strings.TrimPrefix(hit.InboundTag, "flvxl-"), 10, 64)
+		rep.Hits = append(rep.Hits, repo.LandingScanHit{ID: id, InboundTag: hit.InboundTag, Type: hit.Type, Count: hit.Count, Port: hit.Port, Host: hit.Host, WindowS: hit.WindowS, At: hit.At, Seq: hit.Seq})
+	}
+	return rep
+}
+
+// recordNativeScan stores the reported guard state and the new hits of a
+// native agent or (plan 205) a share's status poll; true = the seen mark
+// moved (push again so the agent / Helper drops them and gets the disabled
+// nodes).
 func (h *Handler) recordNativeScan(s *model.LandingServer, rep *landingScanReport) bool {
 	if rep == nil {
 		return false
@@ -213,7 +226,7 @@ func landingScanServerState(s *model.LandingServer, agent *model.Node, on bool) 
 	case s == nil:
 		return "pending", "未生效：落地服务器状态未知"
 	case s.Source == "shared":
-		return "shared", "共享服务器暂不支持"
+		return landingScanSharedState(s, on, -1)
 	case !on:
 		return "off", "未生效：全局已关闭"
 	case agent == nil || agent.LandingScanGuard < repo.LandingScanGuardVersion:
@@ -226,6 +239,27 @@ func landingScanServerState(s *model.LandingServer, agent *model.Node, on bool) 
 		return "on", "生效中"
 	}
 	return "pending", "未生效：等待同步到落地服务器"
+}
+
+// landingScanSharedState (plan 205): a share without landing-scan-guard-v1
+// keeps 共享服务器暂不支持; otherwise the Helper's relayed state. nodes = the
+// share's node count (-1 unknown): without nodes nothing is guarded yet.
+func landingScanSharedState(s *model.LandingServer, on bool, nodes int) (string, string) {
+	switch {
+	case !repo.SharedScanGuardSupported(s):
+		return "shared", "共享服务器暂不支持"
+	case !on:
+		return "off", "未生效：全局已关闭"
+	case s.ScanState == "core_update":
+		return "shared_core", "未生效：共享服务器的 FLVX Core 需要升级（妙妙屋端处理）"
+	case s.ScanState == "error":
+		return "error", "检测异常：读取共享服务器的扫描记录失败"
+	case s.ScanState == "on":
+		return "on", "生效中"
+	case nodes == 0:
+		return "idle", "暂无节点：新建节点后自动生效"
+	}
+	return "pending", "未生效：等待同步到共享服务器"
 }
 
 // landingScanSettingsView is the switch + thresholds part of the views.
@@ -245,6 +279,21 @@ func (h *Handler) landingScanAdminView() (map[string]any, error) {
 	if err != nil {
 		return nil, err
 	}
+	sharedNodes := map[int64]int{}
+	for i := range servers {
+		if servers[i].Source == "shared" {
+			nodes, err := h.repo.ListLandingNodes(0, true)
+			if err != nil {
+				return nil, err
+			}
+			for _, n := range nodes {
+				if !n.DeletePending {
+					sharedNodes[n.LandingServerID]++
+				}
+			}
+			break
+		}
+	}
 	list := []map[string]any{}
 	for i := range servers {
 		s := &servers[i]
@@ -253,6 +302,9 @@ func (h *Handler) landingScanAdminView() (map[string]any, error) {
 			agent, _ = h.repo.GetNodeByID(s.NodeID)
 		}
 		state, label := landingScanServerState(s, agent, g.On)
+		if s.Source == "shared" {
+			state, label = landingScanSharedState(s, g.On, sharedNodes[s.ID])
+		}
 		list = append(list, map[string]any{"id": s.ID, "name": s.Name, "source": s.Source, "state": state, "label": label})
 	}
 	view["servers"] = list
@@ -261,6 +313,12 @@ func (h *Handler) landingScanAdminView() (map[string]any, error) {
 		return nil, err
 	}
 	view["blockedNodes"], view["events"] = blocked, events
+	// Plan 205: blocked nodes deleted before 解除禁用 (owners cannot create).
+	deletedOpen, err := h.repo.LandingScanDeletedOpen()
+	if err != nil {
+		return nil, err
+	}
+	view["deletedBlocked"] = deletedOpen
 	return view, nil
 }
 
@@ -327,14 +385,18 @@ func (h *Handler) landingScanSave(w http.ResponseWriter, r *http.Request) {
 			landingError(w, err)
 			return
 		}
-		native := []int64{}
+		native, shared := []int64{}, 0
 		for _, s := range servers {
 			if s.Source == "native" {
 				native = append(native, s.ID)
+			} else if repo.SharedScanGuardSupported(&s) {
+				shared++
 			}
 		}
 		_, by := h.landingActorName(r)
-		log.Printf("[landing-scan] settings by=%q on=%t horizontal=%d web=%d vertical=%d total=%d servers=%d", by, req.On, req.Horizontal, req.HorizontalWeb, req.Vertical, req.Total, len(native))
+		log.Printf("[landing-scan] settings by=%q on=%t horizontal=%d web=%d vertical=%d total=%d servers=%d shared=%d", by, req.On, req.Horizontal, req.HorizontalWeb, req.Vertical, req.Total, len(native), shared)
+		// Shares pick the change up on the shared loop's next pass (≤ 5 s):
+		// their desired content (and revision) follows the setting.
 		h.scheduleLandingLayerApply(native)
 	}
 	view, err := h.landingScanAdminView()
@@ -401,4 +463,32 @@ func (h *Handler) landingScanUnblock(w http.ResponseWriter, r *http.Request) {
 		n = cur
 	}
 	response.WriteJSON(w, response.OK(h.landingNodeView(*n)))
+}
+
+// landingScanEventUnblock is 「解除禁用」 on a row of the event list (plan
+// 205): a node still disabled is lifted like its own button; for a node the
+// owner deleted meanwhile the record closes, so the owner may create again.
+func (h *Handler) landingScanEventUnblock(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		ID int64 `json:"id"`
+	}
+	if err := landingDecode(r, &req); err != nil {
+		landingError(w, err)
+		return
+	}
+	_, by := h.landingActorName(r)
+	n, err := h.repo.LiftLandingScanEvent(req.ID, by, time.Now())
+	if err != nil {
+		landingError(w, err)
+		return
+	}
+	if n == nil {
+		log.Printf("[landing-scan] event=%d (node deleted) unblocked by=%q", req.ID, by)
+		response.WriteJSON(w, response.OK(map[string]any{"nodeId": 0}))
+		return
+	}
+	log.Printf("[landing-scan] node=%d unblocked by=%q (event %d)", n.ID, by, req.ID)
+	h.reconcileLandingPolicy(time.Now())
+	h.syncLandingServer(n.LandingServerID)
+	response.WriteJSON(w, response.OK(map[string]any{"nodeId": n.ID}))
 }

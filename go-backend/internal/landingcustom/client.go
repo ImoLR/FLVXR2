@@ -11,6 +11,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -73,6 +74,135 @@ type Share struct {
 	// and reports per-user inbound usage. Absent = FLVX sends nothing new and
 	// does not count this share in user totals (today's behaviour).
 	UserLimits *ShareUserLimits `json:"user_limits,omitempty"`
+	// Contract landing-scan-guard-v1 §9 (plan 205): present only while this
+	// share's Helper and FLVX Core run 禁止端口扫描. Absent = FLVX sends no
+	// scan_guard and shows 「共享服务器暂不支持」 (today's behaviour).
+	ScanGuard *ShareScanGuard `json:"scan_guard,omitempty"`
+}
+
+// ScanGuardVersion is the landing-scan-guard contract version FLVX speaks.
+const ScanGuardVersion = 1
+
+// ShareScanGuard is the share list's scan_guard capability object.
+type ShareScanGuard struct {
+	Versions []int `json:"versions"`
+}
+
+// Supports reports whether the share accepts scan-guard contract version v.
+func (g *ShareScanGuard) Supports(v int) bool {
+	return g != nil && containsInt(g.Versions, v)
+}
+
+// ScanGuardReport is the share's 禁止端口扫描 report relayed by Custom (the
+// native agent's Status.scan_guard): state off | on | core_update | error,
+// the Core hits FLVX has not recorded (seq > seen, oldest first) and the tags
+// the shared Core blocks right now. A malformed object decodes to the zero
+// value (Valid = false) so it never fails the status poll (billing).
+type ScanGuardReport struct {
+	State   string         `json:"state"`
+	Error   string         `json:"error,omitempty"`
+	Hits    []ScanGuardHit `json:"hits"`
+	Blocked []string       `json:"blocked"`
+}
+
+// ScanGuardHit is one Core hit. ID is the FLVX node id (a string in this API;
+// a number is accepted too); InboundTag = "flvxl-" + ID.
+type ScanGuardHit struct {
+	ID         ScanHitID `json:"id"`
+	InboundTag string    `json:"inbound_tag"`
+	Type       string    `json:"type"`
+	Count      int       `json:"count"`
+	Port       int       `json:"port"`
+	Host       string    `json:"host"`
+	WindowS    int       `json:"window_s"`
+	At         time.Time `json:"at"`
+	Seq        int64     `json:"seq"`
+}
+
+// ScanHitID accepts the node id as a JSON string or number; anything else
+// decodes to "" (that hit is then dropped, never the whole report).
+type ScanHitID string
+
+func (id *ScanHitID) UnmarshalJSON(b []byte) error {
+	var s string
+	if json.Unmarshal(b, &s) == nil {
+		*id = ScanHitID(s)
+		return nil
+	}
+	var n json.Number
+	if json.Unmarshal(b, &n) == nil {
+		*id = ScanHitID(n.String())
+		return nil
+	}
+	*id = ""
+	return nil
+}
+
+// Report bounds (contract §9.3: ≤ 256 hits; seq ≤ 2^53−1).
+const (
+	scanGuardMaxHits = 256
+	scanGuardMaxSeq  = 9007199254740991
+)
+
+func (g *ScanGuardReport) UnmarshalJSON(b []byte) error {
+	var raw struct {
+		State   string            `json:"state"`
+		Error   string            `json:"error"`
+		Hits    []json.RawMessage `json:"hits"`
+		Blocked []string          `json:"blocked"`
+	}
+	if json.Unmarshal(b, &raw) != nil {
+		*g = ScanGuardReport{}
+		return nil
+	}
+	*g = ScanGuardReport{State: raw.State, Error: raw.Error, Hits: []ScanGuardHit{}, Blocked: raw.Blocked}
+	// One hit with a wrong type is dropped on its own (sanitize drops the
+	// incomplete ones), never the whole report.
+	for _, h := range raw.Hits {
+		var hit ScanGuardHit
+		if json.Unmarshal(h, &hit) == nil {
+			g.Hits = append(g.Hits, hit)
+		}
+	}
+	return nil
+}
+
+// Valid reports a known state.
+func (g *ScanGuardReport) Valid() bool {
+	if g == nil {
+		return false
+	}
+	switch g.State {
+	case "off", "on", "core_update", "error":
+		return true
+	}
+	return false
+}
+
+// sanitize keeps at most 256 well-formed hits (tag "flvxl-<id>", seq in
+// 1..2^53−1) and bounds the texts; the tag is derived from id when absent.
+func (g *ScanGuardReport) sanitize() {
+	if len(g.Error) > 200 {
+		g.Error = g.Error[:200]
+	}
+	hits := make([]ScanGuardHit, 0, min(len(g.Hits), scanGuardMaxHits))
+	for _, h := range g.Hits {
+		if len(hits) >= scanGuardMaxHits {
+			break
+		}
+		if h.InboundTag == "" && h.ID != "" {
+			h.InboundTag = "flvxl-" + string(h.ID)
+		}
+		id, err := strconv.ParseInt(strings.TrimPrefix(h.InboundTag, "flvxl-"), 10, 64)
+		if err != nil || id <= 0 || h.InboundTag != "flvxl-"+strconv.FormatInt(id, 10) || h.Seq <= 0 || h.Seq > scanGuardMaxSeq {
+			continue
+		}
+		hits = append(hits, h)
+	}
+	g.Hits = hits
+	if len(g.Blocked) > 1000 {
+		g.Blocked = g.Blocked[:1000]
+	}
 }
 
 // UserLimitsVersion is the landing-user-limits contract version FLVX speaks.
@@ -326,6 +456,18 @@ func (s *Share) Sanitize() {
 			s.UserLimits = nil
 		}
 	}
+	if s.ScanGuard != nil {
+		versions := []int{}
+		for _, v := range s.ScanGuard.Versions {
+			if v > 0 && v < 1000 && !containsInt(versions, v) && len(versions) < 8 {
+				versions = append(versions, v)
+			}
+		}
+		s.ScanGuard = &ShareScanGuard{Versions: versions}
+		if len(versions) == 0 {
+			s.ScanGuard = nil
+		}
+	}
 }
 
 type ShareEgress struct {
@@ -425,6 +567,10 @@ type Desired struct {
 	// RealityGuard (landing-reality-guard-v1) is the server's 防盗 switch,
 	// sent only to shares advertising the capability; absent = off there.
 	RealityGuard *bool `json:"reality_guard,omitempty"`
+	// ScanGuard (landing-scan-guard-v1 §9.2) is exactly the native agent's
+	// Desired.scan_guard (enabled, identities, thresholds, seen), sent only
+	// to shares advertising the capability; absent = none of it there.
+	ScanGuard map[string]interface{} `json:"scan_guard,omitempty"`
 }
 type NodeStatus struct {
 	ID            string     `json:"id"`
@@ -456,6 +602,9 @@ type Status struct {
 	// RealityGuard (landing-reality-guard-v1); a malformed or unknown report
 	// is dropped (Client.Status) instead of failing the poll.
 	RealityGuard *RealityGuardStatus `json:"reality_guard,omitempty"`
+	// ScanGuard (landing-scan-guard-v1 §9.3); a malformed or unknown report
+	// is dropped (Client.Status) instead of failing the poll.
+	ScanGuard *ScanGuardReport `json:"scan_guard,omitempty"`
 }
 
 // UnmarshalJSON never fails: a malformed optional guard object must not stop
@@ -750,6 +899,13 @@ func (c *Client) Status(ctx context.Context, id int64) (Status, error) {
 	}
 	if out.RealityGuard != nil && !out.RealityGuard.Valid() {
 		out.RealityGuard = nil
+	}
+	if out.ScanGuard != nil {
+		if out.ScanGuard.Valid() {
+			out.ScanGuard.sanitize()
+		} else {
+			out.ScanGuard = nil
+		}
 	}
 	return out, err
 }

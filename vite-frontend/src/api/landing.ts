@@ -125,6 +125,9 @@ export interface LandingServer {
   // own nodes, plus myRemaining = how many more the caller can create here.
   nodeCount?: number;
   myRemaining?: number;
+  // Plan 205 (non-admin): set while a node of the caller is (or was, until
+  // an admin lifts it) disabled by 禁止端口扫描 — creating is refused.
+  scanCreateBlocked?: string;
   connections?: number;
   usedBytes?: number;
   routeProfileId?: number;

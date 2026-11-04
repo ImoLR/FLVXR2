@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -73,6 +74,12 @@ func SharedLandingCaps(s *model.LandingServer) landingcustom.Share {
 // (landing-reality-guard-v1 advertised in the share list).
 func SharedRealityGuardSupported(s *model.LandingServer) bool {
 	return s.Source == "shared" && SharedLandingCaps(s).RealityGuard.Supports(landingcustom.RealityGuardVersion)
+}
+
+// SharedScanGuardSupported: the share's Helper and FLVX Core run 禁止端口扫描
+// (landing-scan-guard-v1 §9.1 advertised in the share list, plan 205).
+func SharedScanGuardSupported(s *model.LandingServer) bool {
+	return s.Source == "shared" && SharedLandingCaps(s).ScanGuard.Supports(landingcustom.ScanGuardVersion)
 }
 
 func SharedLandingAvailable(s *model.LandingServer) bool {
@@ -386,17 +393,36 @@ func (r *Repository) SharedLandingDesired(id int64, egress *landingegress.Plan) 
 			on := !s.RealityGuardOff
 			out.RealityGuard = &on
 		}
-		// Without egress / guard the hash input stays the node list (and
+		// Plan 205: 禁止端口扫描 goes only to a share that advertises it
+		// (landing-scan-guard-v1 §9), also while the rule is off (enabled
+		// false + seen), exactly the native object. Guarded = every node of
+		// this desired state (the shared Core counts any listed tag).
+		if SharedScanGuardSupported(&s) {
+			g, err := landingScanGuardTx(tx)
+			if err != nil {
+				return err
+			}
+			ids := make([]string, 0, len(out.Nodes))
+			for _, d := range out.Nodes {
+				ids = append(ids, "flvxl-"+d.ID)
+			}
+			sort.Strings(ids)
+			out.ScanGuard = LandingScanPayload(g, ids, s.ScanSeenSeq)
+		}
+		// Without egress / guards the hash input stays the node list (and
 		// with egress only, the same object as before), so upgrading the
 		// panel does not bump revisions of unchanged shares.
 		raw, _ := json.Marshal(out.Nodes)
-		if out.Egress != nil || out.RealityGuard != nil {
+		if out.Egress != nil || out.RealityGuard != nil || out.ScanGuard != nil {
 			in := map[string]any{"nodes": out.Nodes}
 			if out.Egress != nil {
 				in["egress"] = out.Egress
 			}
 			if out.RealityGuard != nil {
 				in["reality_guard"] = *out.RealityGuard
+			}
+			if out.ScanGuard != nil {
+				in["scan_guard"] = out.ScanGuard
 			}
 			raw, _ = json.Marshal(in)
 		}

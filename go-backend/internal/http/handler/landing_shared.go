@@ -395,6 +395,12 @@ func (h *Handler) pollSharedLanding(ctx context.Context, client *landingcustom.C
 		return apply, errors.New("妙妙屋节点状态保存失败")
 	}
 	h.recordSharedMachine(s.ID, status.Machine, time.Now())
+	// Plan 205: the share's 禁止端口扫描 report rides on this poll (no extra
+	// request). New hits disable their nodes and move the seen mark, so the
+	// push right after this poll carries a new revision (seen + enabled:false).
+	if status.ScanGuard != nil {
+		h.recordNativeScan(&s, sharedScanReport(status.ScanGuard))
+	}
 	if status.Egress != nil {
 		_ = h.repo.RecordLandingEgressStatus(s.ID, status.Egress.State, status.Egress.Error, true, status.Egress.Warnings)
 	}

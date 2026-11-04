@@ -14,9 +14,10 @@ import (
 	"gorm.io/gorm/clause"
 )
 
-// Plan 202 「禁止端口扫描」 (native landing nodes): the global switch and
-// thresholds, the agent's hits (recorded once per server + seq, the node
-// disabled in the same transaction), 解除禁用 and the event list.
+// Plan 202 「禁止端口扫描」 (native landing nodes; plan 205 adds mmwx-shared
+// servers through Custom, same records): the global switch and thresholds,
+// the reported hits (recorded once per server + seq, the node disabled in the
+// same transaction), 解除禁用, the event list and the owner's 新建 restriction.
 
 // LandingScanGuardVersion is the agent capability (landing_scan_guard) that
 // applies Desired.scan_guard and reports scan hits.
@@ -98,8 +99,12 @@ func scanGuardFromSetting(s model.LandingEgressSetting) landingegress.ScanGuard 
 
 // GetLandingScanGuard returns the global setting (defaults while unset).
 func (r *Repository) GetLandingScanGuard() (landingegress.ScanGuard, error) {
+	return landingScanGuardTx(r.db)
+}
+
+func landingScanGuardTx(db *gorm.DB) (landingegress.ScanGuard, error) {
 	var rows []model.LandingEgressSetting
-	if err := r.db.Where("id = ?", 1).Limit(1).Find(&rows).Error; err != nil {
+	if err := db.Where("id = ?", 1).Limit(1).Find(&rows).Error; err != nil {
 		return landingegress.ScanGuardDefaults(), err
 	}
 	if len(rows) == 0 {
@@ -149,7 +154,7 @@ func (r *Repository) RecordLandingScanStatus(serverID int64, state string, hits 
 			}
 		}
 		sort.Slice(fresh, func(i, j int) bool { return fresh[i].Seq < fresh[j].Seq })
-		if len(fresh) > 0 && s.Source == "native" {
+		if len(fresh) > 0 && (s.Source == "native" || s.Source == "shared") {
 			tags := make([]string, 0, len(fresh))
 			for _, h := range fresh {
 				tags = append(tags, h.InboundTag)
@@ -220,10 +225,15 @@ func (r *Repository) RecordLandingScanStatus(serverID int64, state string, hits 
 	return notices, advanced, nil
 }
 
-// pruneLandingScanEvents keeps 30 days and at most 5000 rows (runs only
-// when hits were recorded, i.e. rarely).
+// landingScanOpenBlock matches the events that disabled a node and were not
+// lifted yet: they carry the owner's 新建 restriction (plan 205), also after
+// the node is deleted, so retention never removes them.
+const landingScanOpenBlock = "blocked = ? AND unblocked_at = 0"
+
+// pruneLandingScanEvents keeps 30 days and at most 5000 rows, open blocks
+// excepted (runs only when hits were recorded, i.e. rarely).
 func pruneLandingScanEvents(tx *gorm.DB, now time.Time) error {
-	if err := tx.Where("created_time < ?", now.Add(-landingScanEventKeep).UnixMilli()).Delete(&model.LandingScanEvent{}).Error; err != nil {
+	if err := tx.Where("created_time < ?", now.Add(-landingScanEventKeep).UnixMilli()).Where("NOT ("+landingScanOpenBlock+")", true).Delete(&model.LandingScanEvent{}).Error; err != nil {
 		return err
 	}
 	var count int64
@@ -237,7 +247,7 @@ func pruneLandingScanEvents(tx *gorm.DB, now time.Time) error {
 	if err := tx.Model(&model.LandingScanEvent{}).Order("id DESC").Offset(landingScanEventMaxRows).Limit(1).Pluck("id", &cut).Error; err != nil || len(cut) == 0 {
 		return err
 	}
-	return tx.Where("id <= ?", cut[0]).Delete(&model.LandingScanEvent{}).Error
+	return tx.Where("id <= ?", cut[0]).Where("NOT ("+landingScanOpenBlock+")", true).Delete(&model.LandingScanEvent{}).Error
 }
 
 // ErrNotScanBlocked: 解除禁用 on a node that is not disabled by a scan.
@@ -285,6 +295,90 @@ func (r *Repository) LiftLandingScanBlock(nodeID int64, by string, activate bool
 		return nil, err
 	}
 	return &out, nil
+}
+
+// ErrScanEventNotOpen: 解除禁用 on a record that has nothing to lift.
+var ErrScanEventNotOpen = errors.New("该记录没有待解除的禁用")
+
+// LiftLandingScanEvent is 解除禁用 from the event list (plan 205). A node
+// still disabled by the scan is lifted exactly like its 「解除禁用」 button
+// (returned, the caller pushes its server); for a node deleted meanwhile only
+// the open record closes, which ends the owner's 新建 restriction (nil node).
+func (r *Repository) LiftLandingScanEvent(eventID int64, by string, now time.Time) (*model.LandingNode, error) {
+	var ev model.LandingScanEvent
+	if err := r.db.First(&ev, eventID).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, errors.New("记录不存在")
+		}
+		return nil, err
+	}
+	if !ev.Blocked || ev.UnblockedAt > 0 {
+		return nil, ErrScanEventNotOpen
+	}
+	var nodes []model.LandingNode
+	if err := r.db.Select("id").Where("id = ? AND scan_blocked_at > 0", ev.LandingNodeID).Limit(1).Find(&nodes).Error; err != nil {
+		return nil, err
+	}
+	if len(nodes) == 1 {
+		return r.LiftLandingScanBlock(ev.LandingNodeID, by, true, now)
+	}
+	if len(by) > 64 {
+		by = by[:64]
+	}
+	return nil, r.db.Model(&model.LandingScanEvent{}).Where("landing_node_id = ? AND "+landingScanOpenBlock, ev.LandingNodeID, true).
+		Updates(map[string]any{"unblocked_at": now.UnixMilli(), "unblocked_by": by}).Error
+}
+
+// LandingScanUserBlock (plan 205) is the scan block that keeps a user from
+// creating landing nodes: one of their nodes is disabled by a scan, or a node
+// disabled by a scan was deleted before an admin lifted it (its open record).
+// nil = no restriction.
+func (r *Repository) LandingScanUserBlock(userID int64) (*LandingScanBlock, error) {
+	return landingScanUserBlockTx(r.db, userID)
+}
+
+func landingScanUserBlockTx(db *gorm.DB, userID int64) (*LandingScanBlock, error) {
+	var nodes []model.LandingNode
+	if err := db.Select("id", "scan_blocked_at", "scan_block").Where("user_id = ? AND scan_blocked_at > 0", userID).Order("scan_blocked_at DESC, id DESC").Limit(1).Find(&nodes).Error; err != nil {
+		return nil, err
+	}
+	if len(nodes) == 1 {
+		return LandingScanBlockOf(&nodes[0]), nil
+	}
+	var evs []model.LandingScanEvent
+	if err := db.Where("user_id = ? AND "+landingScanOpenBlock, userID, true).Order("id DESC").Limit(1).Find(&evs).Error; err != nil {
+		return nil, err
+	}
+	if len(evs) == 0 {
+		return nil, nil
+	}
+	e := evs[0]
+	return &LandingScanBlock{Type: e.Type, Count: e.Count, Port: e.Port, Host: e.Host, WindowS: e.WindowS, At: e.HitAt, Seq: e.Seq}, nil
+}
+
+// LandingScanDeletedOpen counts open blocks whose node is gone (deleted
+// before 解除禁用): each still keeps its owner from creating nodes.
+func (r *Repository) LandingScanDeletedOpen() (int64, error) {
+	var n int64
+	err := r.db.Model(&model.LandingScanEvent{}).Where(landingScanOpenBlock, true).
+		Where("NOT EXISTS (SELECT 1 FROM landing_node WHERE landing_node.id = landing_scan_event.landing_node_id AND landing_node.scan_blocked_at > 0)").Count(&n).Error
+	return n, err
+}
+
+// LandingScanPayload is the desired scan_guard object, one shape for native
+// agents and mmwx shares (contract landing-scan-guard-v1 §8.1 / §9.2): the
+// thresholds, the guarded tags (empty while the rule is off) and the highest
+// hit seq the panel recorded for that server.
+func LandingScanPayload(g landingegress.ScanGuard, ids []string, seen int64) map[string]interface{} {
+	if !g.On || ids == nil {
+		ids = []string{}
+	}
+	return map[string]interface{}{
+		"enabled": g.On && len(ids) > 0, "identities": ids,
+		"horizontal": g.Horizontal, "horizontal_web": g.HorizontalWeb, "web_ports": landingegress.ScanWebPorts, "window_s": landingegress.ScanWindowS,
+		"vertical": g.Vertical, "total": g.Total, "total_window_s": landingegress.ScanTotalWindowS,
+		"seen": seen,
+	}
 }
 
 // LandingScanEventView is one row of the admin event list.
