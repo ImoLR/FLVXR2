@@ -33,6 +33,10 @@ type coreSnapshot struct {
 		CurrentTotal     int64           `json:"current_total"`
 		InboundCurrent   *int64          `json:"inbound_current"`
 		InboundOnlineIPs json.RawMessage `json:"inbound_online_ips"`
+		// Plan 211: kernel TCP sockets of the identity by state (Core v6+;
+		// current_total = inbound_tcp.total + outbound_tcp.total).
+		InboundTCP  *coreTCPStates `json:"inbound_tcp"`
+		OutboundTCP *coreTCPStates `json:"outbound_tcp"`
 	} `json:"proxy_users"`
 	// Plan 158: per-user groups (management_mappings / management_limits);
 	// online IPs = active or within the Core's 30 s grace, with active leases.
@@ -41,6 +45,15 @@ type coreSnapshot struct {
 		InboundCurrent   int64      `json:"inbound_current"`
 		InboundOnlineIPs []OnlineIP `json:"inbound_online_ips"`
 	} `json:"management_groups"`
+}
+
+// coreTCPStates is the part of the Core's per-direction TCP state counts the
+// panel shows (every non-LISTEN state is in Total, Core key "tcp_total").
+type coreTCPStates struct {
+	Total       int64 `json:"tcp_total"`
+	Established int64 `json:"established"`
+	TimeWait    int64 `json:"time_wait"`
+	CloseWait   int64 `json:"close_wait"`
 }
 
 func (m *Manager) control(ctx context.Context, method, path string, body any, result any) error {
@@ -107,6 +120,18 @@ func (p *portLimit) setConnections(limit int64, mode string) {
 	p.MaxTotalConnections = &limit
 }
 
+// setTotal adds the plan-211 节点总连接数 (every socket of the port); a total
+// already set by a total-mode MaxConnections keeps the smaller of the two.
+func (p *portLimit) setTotal(limit int64) {
+	if limit <= 0 {
+		return
+	}
+	if p.MaxTotalConnections != nil && *p.MaxTotalConnections <= limit {
+		return
+	}
+	p.MaxTotalConnections = &limit
+}
+
 func (m *Manager) applyLimits(ctx context.Context, snapshot coreSnapshot) error {
 	// Helper connectionSettings.coreConfig maps the enabled global total limit
 	// and ports to these v7 control-socket fields. nil means unlimited.
@@ -167,6 +192,7 @@ func (m *Manager) applyLimits(ctx context.Context, snapshot coreSnapshot) error 
 	for _, n := range m.desired.Nodes {
 		p := portLimit{InboundTag: n.InboundTag}
 		p.setConnections(n.MaxConnections, n.ConnMode)
+		p.setTotal(n.MaxTotalConnections)
 		if n.MaxOnlineIPs > 0 {
 			v := n.MaxOnlineIPs
 			p.MaxInboundOnlineIPs = &v
@@ -542,6 +568,24 @@ func (m *Manager) collect(ctx context.Context) error {
 			continue
 		}
 		c.Connections += u.CurrentTotal
+		if u.InboundTCP != nil || u.OutboundTCP != nil {
+			if c.TCP == nil {
+				c.TCP = &TCPCounts{}
+			}
+			for i, s := range []*coreTCPStates{u.InboundTCP, u.OutboundTCP} {
+				if s == nil {
+					continue
+				}
+				if i == 0 {
+					c.TCP.Inbound += s.Total
+				} else {
+					c.TCP.Outbound += s.Total
+				}
+				c.TCP.Established += s.Established
+				c.TCP.TimeWait += s.TimeWait
+				c.TCP.CloseWait += s.CloseWait
+			}
+		}
 		if u.InboundCurrent != nil {
 			v := *u.InboundCurrent
 			if c.InboundConnections != nil {
