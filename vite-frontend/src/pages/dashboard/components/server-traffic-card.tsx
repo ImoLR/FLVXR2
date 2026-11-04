@@ -137,10 +137,7 @@ export default function ServerTrafficCard() {
               {rows.length}
             </span>
           </div>
-          <p className="text-xs text-default-500">
-            {period}
-            。按服务器计的计费流量；一条规则经过的每台服务器都会计入，用完的服务器上的规则会暂停。
-          </p>
+          <p className="text-xs text-default-500">{period} · 计费流量</p>
         </div>
       </CardHeader>
       <CardBody className="pt-0">
@@ -149,6 +146,9 @@ export default function ServerTrafficCard() {
             <ServerRow key={`${row.serverKind}:${row.serverRefId}`} row={row} />
           ))}
         </div>
+        <p className="mt-3 text-xs text-default-500">
+          规则经过的每台服务器都会计入；某台服务器用完后，经过它的规则会暂停，到重置日或管理员调高额度后恢复。
+        </p>
       </CardBody>
     </Card>
   );

@@ -103,42 +103,55 @@ function RankRow({
   const isUser = item.userId !== undefined;
   const title = isUser ? item.user || `#${item.userId}` : item.name;
   const subtitle = isUser ? item.name : "";
+  const pills = !isUser && (item.roles || []).length > 0 && (
+    <span className="flex shrink-0 items-center gap-1">
+      {(item.roles || []).map((role) => (
+        <RolePill key={role} kind={role} />
+      ))}
+    </span>
+  );
+  const amount = (
+    <span className="inline-block shrink-0 text-sm font-semibold tabular-nums text-foreground sm:w-28 sm:text-right">
+      {formatBytes(value)}
+    </span>
+  );
+  // Desktop: one line (name | bar | amount | share). H5: name + amount, the
+  // role pills, then bar + share.
   const content = (
     <>
       <span
-        className={`w-6 shrink-0 text-right text-sm tabular-nums ${rank <= 3 ? "font-semibold text-foreground" : "text-default-400"}`}
+        className={`w-6 shrink-0 self-start text-right text-sm leading-5 tabular-nums sm:self-center ${rank <= 3 ? "font-semibold text-foreground" : "text-default-400"}`}
       >
         {rank}
       </span>
-      <div className="min-w-0 flex-1 space-y-1.5">
-        <div className="flex items-center justify-between gap-2">
+      <div className="flex min-w-0 flex-1 flex-col gap-1.5 sm:flex-row sm:items-center sm:gap-4">
+        <div className="flex min-w-0 items-center justify-between gap-2 sm:w-72 sm:shrink-0 sm:justify-start">
           <div className="flex min-w-0 items-center gap-1.5">
             <span
-              className={`min-w-0 truncate text-sm font-medium ${item.deleted ? "text-default-400 line-through" : "text-foreground"}`}
+              className={`min-w-0 truncate text-sm font-medium leading-5 ${item.deleted ? "text-default-400 line-through" : "text-foreground"}`}
               title={title}
             >
               {item.deleted && !title ? `已删除 #${item.serverRefId}` : title}
             </span>
             {subtitle && (
-              <span className="hidden min-w-0 truncate text-xs text-default-400 sm:inline">
+              <span className="min-w-0 truncate text-xs text-default-400">
                 {subtitle}
               </span>
             )}
-            {!isUser &&
-              (item.roles || []).map((role) => (
-                <RolePill key={role} kind={role} />
-              ))}
+            {pills && <span className="hidden sm:flex">{pills}</span>}
           </div>
-          <span className="shrink-0 text-sm tabular-nums">
-            <span className="font-semibold text-foreground">
-              {formatBytes(value)}
-            </span>
-            <span className="ml-2 inline-block w-12 text-right text-xs text-default-500">
-              {share.toFixed(1)}%
-            </span>
+          <span className="sm:hidden">{amount}</span>
+        </div>
+        {pills && <div className="flex sm:hidden">{pills}</div>}
+        <div className="flex min-w-0 items-center gap-3 sm:flex-1">
+          <div className="min-w-0 flex-1">
+            <Meter label={`${title} 占 ${share.toFixed(1)}%`} percent={share} />
+          </div>
+          <span className="hidden shrink-0 sm:block">{amount}</span>
+          <span className="w-12 shrink-0 text-right text-xs tabular-nums text-default-500">
+            {share.toFixed(1)}%
           </span>
         </div>
-        <Meter label={`${title} 占 ${share.toFixed(1)}%`} percent={share} />
       </div>
     </>
   );

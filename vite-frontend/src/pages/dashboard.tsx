@@ -92,6 +92,29 @@ export default function DashboardPage() {
       prefetchOnIdle("after-dashboard");
     }
   }, [loading]);
+  // Plan 212: the traffic cards mount once the browser is idle after the page
+  // has its data, so they never delay the existing cards (or the chart).
+  const [trafficCardsReady, setTrafficCardsReady] = useState(false);
+
+  useEffect(() => {
+    if (loading || trafficCardsReady) return;
+    const idleWindow = window as Window & {
+      requestIdleCallback?: (cb: () => void, o?: { timeout: number }) => number;
+      cancelIdleCallback?: (id: number) => void;
+    };
+
+    if (typeof idleWindow.requestIdleCallback === "function") {
+      const id = idleWindow.requestIdleCallback(
+        () => setTrafficCardsReady(true),
+        { timeout: 2000 },
+      );
+
+      return () => idleWindow.cancelIdleCallback?.(id);
+    }
+    const timer = window.setTimeout(() => setTrafficCardsReady(true), 300);
+
+    return () => window.clearTimeout(timer);
+  }, [loading, trafficCardsReady]);
 
   const handleToggleAutoRenew = async (enabled: boolean) => {
     if (!userInfo.id || autoRenewSwitchLoading) return;
@@ -1055,9 +1078,11 @@ export default function DashboardPage() {
           </CardBody>
         </Card>
       )}
-      <Suspense fallback={null}>
-        {isAdmin ? <TrafficRankingCard /> : <ServerTrafficCard />}
-      </Suspense>
+      {trafficCardsReady && (
+        <Suspense fallback={null}>
+          {isAdmin ? <TrafficRankingCard /> : <ServerTrafficCard />}
+        </Suspense>
+      )}
       {/* 隧道权限 - 管理员不显示 */}
       <TrafficPoolsCard pools={trafficPools} />
       {!isAdmin && (
