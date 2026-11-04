@@ -120,12 +120,15 @@ func validateSharedLandingSettings(s *model.LandingServer, keep map[string]bool)
 	if s.PortMin < c.PortMin || s.PortMax > c.PortMax {
 		return errors.New("FLVX 端口段不能超出妙妙屋共享端口段")
 	}
-	// v1 has no server-limit field in desired. The server total is owned by Custom.
-	if s.MaxConnections != c.MaxConnections {
+	// v1 has no server-limit field in desired. The share's own total belongs to
+	// 妙妙屋 (its Helper enforces it); FLVX keeps none (plan 211).
+	if s.MaxConnections != 0 {
 		return errors.New("共享服务器总连接数由妙妙屋管理")
 	}
-	if capExceeded(int64(s.DefaultMaxConnections), int64(c.MaxConnections)) || capExceeded(s.DefaultTrafficLimitBytes, c.TrafficLimit) || capExceeded(s.DefaultUserQuotaBytes, c.TrafficLimit) {
-		return errors.New("FLVX 默认连接数或流量限额不能超过妙妙屋上限（0 表示不限）")
+	// Plan 211: node limits count 入站 / per node, not the share's pool, so
+	// they are no longer bounded by (or copied from) the share's total.
+	if capExceeded(s.DefaultTrafficLimitBytes, c.TrafficLimit) || capExceeded(s.DefaultUserQuotaBytes, c.TrafficLimit) {
+		return errors.New("FLVX 默认流量限额不能超过妙妙屋上限（0 表示不限）")
 	}
 	if c.ShareUntil != nil && ((s.DefaultExpiryMode == "fixed" && s.DefaultExpiresAt != nil && *s.DefaultExpiresAt > *c.ShareUntil) || (s.DefaultExpiryMode == "days" && int64(s.DefaultExpiryDays) > (*c.ShareUntil-time.Now().UnixMilli())/86400000)) {
 		return errors.New("新节点默认有效期不能超过妙妙屋共享期限")
@@ -172,8 +175,8 @@ func validateSharedLandingNode(n *model.LandingNode, s *model.LandingServer) err
 		return nil
 	}
 	c := SharedLandingCaps(s)
-	if capExceeded(int64(n.MaxConnections), int64(c.MaxConnections)) || capExceeded(n.TrafficLimitBytes, c.TrafficLimit) {
-		return errors.New("节点连接数或流量限额不能超过妙妙屋上限")
+	if capExceeded(n.TrafficLimitBytes, c.TrafficLimit) {
+		return errors.New("节点流量限额不能超过妙妙屋上限")
 	}
 	// follow_user/permanent remain useful defaults; effective expiry is capped.
 	if n.ExpiresAt != nil && c.ShareUntil != nil && *n.ExpiresAt > *c.ShareUntil {
@@ -283,8 +286,13 @@ func (r *Repository) SyncSharedLandings(shares []landingcustom.Share, now int64)
 				b, _ := json.Marshal(allowed)
 				s.Protocols = string(b)
 			}
-			s.MaxConnections = c.MaxConnections
-			s.DefaultMaxConnections = int(capValue(int64(s.DefaultMaxConnections), int64(c.MaxConnections)))
+			// Plan 211: the share's total stays in SharedCaps (妙妙屋 enforces
+			// it); it is no longer copied into FLVX's server total, the node
+			// defaults or the nodes (that made the 「800 (入站)」 node limits).
+			s.MaxConnections = 0
+			if fresh {
+				s.DefaultMaxTotalConnections = LandingDefaultNodeTotal
+			}
 			s.DefaultTrafficLimitBytes = capValue(s.DefaultTrafficLimitBytes, c.TrafficLimit)
 			s.DefaultUserQuotaBytes = capValue(s.DefaultUserQuotaBytes, c.TrafficLimit)
 			s.MaxNodesPerUser = min(s.MaxNodesPerUser, c.PortMax-c.PortMin+1, 1000)
@@ -311,11 +319,6 @@ func (r *Repository) SyncSharedLandings(shares []landingcustom.Share, now int64)
 				}
 			}
 			// Existing overrides remain bounded if the owner tightens their share.
-			if c.MaxConnections > 0 {
-				if err = tx.Model(&model.LandingNode{}).Where("landing_server_id = ? AND (max_connections = 0 OR max_connections > ?)", s.ID, c.MaxConnections).Update("max_connections", c.MaxConnections).Error; err != nil {
-					return err
-				}
-			}
 			if c.TrafficLimit > 0 {
 				if err = tx.Model(&model.LandingNode{}).Where("landing_server_id = ? AND (traffic_limit_bytes = 0 OR traffic_limit_bytes > ?)", s.ID, c.TrafficLimit).Update("traffic_limit_bytes", c.TrafficLimit).Error; err != nil {
 					return err
@@ -354,6 +357,10 @@ func (r *Repository) SharedLandingDesired(id int64, egress *landingegress.Plan) 
 		// limits (landing-user-limits-v1); elsewhere the field is omitted and
 		// the number stays 入站+出站, byte-identical to before.
 		connModes := LandingConnModeSupported(&s, 0)
+		// Plan 211: 节点总连接数 — both limits to a share with node_total v1;
+		// elsewhere the total travels as a plain (入站+出站) max_connections
+		// when the node has no 入站 limit (see LandingSendLimits).
+		nodeTotal := SharedNodeTotalSupported(&s)
 		for _, n := range ns {
 			if n.DeletePending || withheld(&n) {
 				continue
@@ -380,7 +387,9 @@ func (r *Repository) SharedLandingDesired(id int64, egress *landingegress.Plan) 
 				_ = json.Unmarshal([]byte(n.ServerNames), &names)
 				d.VLESS = &landingcustom.VLESS{UUID: n.UUID, Flow: n.Flow, Reality: landingcustom.Reality{Dest: n.Dest, ServerNames: names, PrivateKey: n.PrivateKey, ShortIDs: []string{n.ShortID}}}
 			}
-			if connModes && n.MaxConnections > 0 && LandingNodeConnMode(&n, &s) == LandingConnInbound {
+			sent := LandingSendLimits(n.MaxConnections, n.MaxTotalConnections, connModes && LandingNodeConnMode(&n, &s) == LandingConnInbound, nodeTotal)
+			d.MaxConnections, d.MaxTotalConnections = sent.MaxConnections, sent.MaxTotal
+			if sent.Inbound && sent.MaxConnections > 0 {
 				d.ConnMode = landingcustom.ConnModeInbound
 			}
 			fillSharedExtraProtocol(n, &d)

@@ -94,7 +94,9 @@ func TestSharedLandingConnModeContract(t *testing.T) {
 				t.Fatalf("server view %+v", sv)
 			}
 			raw, _ := json.Marshal(e.ok(t, "node/list", e.user, map[string]any{}).Data)
-			if strings.Contains(string(raw), "connModePending") || strings.Contains(string(raw), "inboundConnections") || strings.Contains(string(raw), `"connMode"`) || !strings.Contains(string(raw), `"connModeEffective":"total"`) {
+			// Plan 211: owners see both labelled live numbers (入站 / 总) of
+			// their nodes; pending states stay admin data.
+			if strings.Contains(string(raw), "connModePending") || strings.Contains(string(raw), "nodeTotalPending") || !strings.Contains(string(raw), `"totalConnections":9`) || strings.Contains(string(raw), `"connMode"`) || !strings.Contains(string(raw), `"connModeEffective":"total"`) {
 				t.Fatalf("user node view: %s", raw)
 			}
 			raw, _ = json.Marshal(e.ok(t, "server/list", e.user, map[string]any{}).Data)

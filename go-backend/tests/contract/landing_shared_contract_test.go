@@ -282,8 +282,13 @@ func TestSharedLandingCustomContract(t *testing.T) {
 			if len(d.Nodes) != 2 || d.Nodes[0].Owner.ID != "501" || d.Nodes[0].SS2022 == nil || d.Nodes[1].VLESS == nil {
 				t.Fatal("desired shape")
 			}
-			if e.call(t, "node/update", e.admin, map[string]any{"id": id, "maxConnections": 101}).Code == 0 {
-				t.Fatal("connection cap bypass")
+			// Plan 211: node 入站 / 总 limits are per node, no longer bounded by
+			// (or copied from) the share's pool, which 妙妙屋 enforces itself.
+			if out := e.call(t, "node/update", e.admin, map[string]any{"id": id, "maxConnections": 101, "maxTotalConnections": 150}); out.Code != 0 {
+				t.Fatalf("per-node limits above the share pool refused: %+v", out)
+			}
+			if cur, _ := e.r.GetLandingNode(id); cur.MaxConnections != 101 || cur.MaxTotalConnections != 150 {
+				t.Fatalf("node limits not stored: %d / %d", cur.MaxConnections, cur.MaxTotalConnections)
 			}
 			if e.call(t, "node/update", e.admin, map[string]any{"id": id, "trafficLimitBytes": 11 << 30}).Code == 0 {
 				t.Fatal("traffic cap bypass")

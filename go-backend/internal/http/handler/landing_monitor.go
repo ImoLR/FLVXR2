@@ -34,15 +34,27 @@ type landingMonitorNodeView struct {
 	MaxConnections int    `json:"maxConnections"`
 	// ConnMode (plan 141): how Connections and MaxConnections count — the
 	// node's effective 计算方式, "total" (入站+出站) or "inbound" (仅入站).
-	ConnMode          string   `json:"connMode"`
-	MaxOnlineIPs      int      `json:"maxOnlineIps"`
-	OnlineIPs         *int     `json:"onlineIps"`
-	UpRate            *float64 `json:"upRate"`
-	DownRate          *float64 `json:"downRate"`
-	SampleAt          int64    `json:"sampleAt"`
-	AgeHintMs         int64    `json:"ageHintMs"`
-	BilledBytes       int64    `json:"billedBytes"`
-	TrafficLimitBytes int64    `json:"trafficLimitBytes"`
+	ConnMode string `json:"connMode"`
+	// Plan 211: 入站 = live client connections (InboundKnown: the runtime
+	// reports them), 总 = every socket of the port (入站+出站, incl.
+	// TIME_WAIT/CLOSE_WAIT), the 节点总连接数 cap (0 = 不限) and the 入站 cap;
+	// TotalPending = the cap is set but waits for an agent / 妙妙屋 upgrade.
+	// TCP = the latest socket breakdown (nil = the runtime reports none).
+	InboundConnections    int                      `json:"inboundConnections"`
+	TotalConnections      int                      `json:"totalConnections"`
+	InboundKnown          bool                     `json:"inboundKnown"`
+	MaxTotalConnections   int                      `json:"maxTotalConnections"`
+	MaxInboundConnections int                      `json:"maxInboundConnections"`
+	TotalPending          bool                     `json:"totalPending,omitempty"`
+	TCP                   *landingcustom.TCPCounts `json:"tcp,omitempty"`
+	MaxOnlineIPs          int                      `json:"maxOnlineIps"`
+	OnlineIPs             *int                     `json:"onlineIps"`
+	UpRate                *float64                 `json:"upRate"`
+	DownRate              *float64                 `json:"downRate"`
+	SampleAt              int64                    `json:"sampleAt"`
+	AgeHintMs             int64                    `json:"ageHintMs"`
+	BilledBytes           int64                    `json:"billedBytes"`
+	TrafficLimitBytes     int64                    `json:"trafficLimitBytes"`
 }
 
 type landingMonitorServerView struct {
@@ -60,13 +72,20 @@ type landingMonitorServerView struct {
 	MaxConnections  int    `json:"maxConnections"`
 	// Plan 141: ConnectionsMode labels the node sum ("total" / "inbound" /
 	// "mixed" = each node in its own mode), MaxConnectionsMode the limit.
-	ConnectionsMode    string   `json:"connectionsMode"`
-	MaxConnectionsMode string   `json:"maxConnectionsMode,omitempty"`
-	UpRate             *float64 `json:"upRate"`
-	DownRate           *float64 `json:"downRate"`
-	SampleAt           int64    `json:"sampleAt"`
-	AgeHintMs          int64    `json:"ageHintMs"`
-	BilledBytes        int64    `json:"billedBytes"`
+	ConnectionsMode    string `json:"connectionsMode"`
+	MaxConnectionsMode string `json:"maxConnectionsMode,omitempty"`
+	// Plan 211: Σ 入站 and Σ 总 of the nodes (see the node fields); admin,
+	// shared: the 妙妙屋 share cap (all FLVX nodes together, 入站+出站,
+	// enforced by 妙妙屋).
+	InboundConnections  int      `json:"inboundConnections"`
+	TotalConnections    int      `json:"totalConnections"`
+	InboundKnown        bool     `json:"inboundKnown"`
+	ShareMaxConnections int      `json:"shareMaxConnections,omitempty"`
+	UpRate              *float64 `json:"upRate"`
+	DownRate            *float64 `json:"downRate"`
+	SampleAt            int64    `json:"sampleAt"`
+	AgeHintMs           int64    `json:"ageHintMs"`
+	BilledBytes         int64    `json:"billedBytes"`
 	// Admin, shared servers: the mmwx share's raw traffic used / limit.
 	ShareUsedBytes  int64 `json:"shareUsedBytes,omitempty"`
 	ShareLimitBytes int64 `json:"shareLimitBytes,omitempty"`
@@ -75,7 +94,9 @@ type landingMonitorServerView struct {
 	QuotaLimitBytes int64                    `json:"quotaLimitBytes,omitempty"`
 	QuotaPaused     bool                     `json:"quotaPaused,omitempty"`
 	Nodes           []landingMonitorNodeView `json:"nodes"`
-	// Machine: shared servers' whole-machine connections (absent = unknown).
+	// Machine: the whole-machine connections + 整机兜底 (shared: Custom's
+	// status; native, plan 211: the agent's machine_conns metric); absent =
+	// unknown.
 	Machine *ws.MachineView `json:"machine,omitempty"`
 }
 
@@ -133,10 +154,17 @@ func (h *Handler) landingMonitor(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	view := buildLandingMonitorView(data, admin, h.landingRateTracker(), now)
-	// Shared servers: whole-machine connections from Custom's status (plan 118).
+	// Whole-machine connections: shared from Custom's status (plan 118),
+	// native from the agent's live machine metric (plan 211, already in memory).
+	nativeNode := make(map[int64]int64, len(data.Servers))
+	for _, s := range data.Servers {
+		nativeNode[s.ID] = s.NodeID
+	}
 	for i := range view.Servers {
 		if view.Servers[i].Source == "shared" {
 			view.Servers[i].Machine = h.sharedMachineView(view.Servers[i].ID, admin, now)
+		} else if nodeID := nativeNode[view.Servers[i].ID]; nodeID > 0 {
+			view.Servers[i].Machine = h.machineView(nodeID, admin)
 		}
 	}
 	response.WriteJSON(w, response.OK(view))
@@ -201,6 +229,8 @@ func buildLandingMonitorView(data *repo.LandingMonitorData, admin bool, tracker 
 		var upSum, downSum float64
 		rated, enabled := false, false
 		connSupported := repo.LandingConnModeSupported(s, data.NativeConnMode[s.NodeID])
+		totalSupported := repo.LandingNodeTotalSupported(s, data.NativeConnMode[s.NodeID])
+		view.InboundKnown = connSupported
 		inboundNodes, totalNodes := 0, 0
 		for j := range nodes {
 			n := &nodes[j]
@@ -212,6 +242,11 @@ func buildLandingMonitorView(data *repo.LandingMonitorData, admin bool, tracker 
 				totalNodes++
 			}
 			nv := landingMonitorNodeView{ID: n.ID, Name: n.Name, Protocol: n.Protocol, Port: n.Port, Status: status, PendingReason: reason, SyncError: landingNodeSyncError(n, s), DeletePending: n.DeletePending, Connections: repo.LandingModeConnections(n, mode), MaxConnections: n.MaxConnections, ConnMode: mode, MaxOnlineIPs: n.MaxOnlineIPs, BilledBytes: n.BilledIn + n.BilledOut, TrafficLimitBytes: n.TrafficLimitBytes, AgeHintMs: ageHint}
+			nv.InboundConnections = repo.LandingModeConnections(n, repo.LandingConnInbound)
+			nv.TotalConnections = repo.LandingLiveConnections(n)
+			nv.InboundKnown = connSupported
+			nv.MaxTotalConnections, nv.MaxInboundConnections = n.MaxTotalConnections, n.MaxConnections
+			nv.TotalPending = repo.LandingSendLimits(n.MaxConnections, n.MaxTotalConnections, connSupported && repo.LandingNodeConnMode(n, s) == repo.LandingConnInbound, totalSupported).TotalPending
 			if admin {
 				nv.UserID = n.UserID
 				nv.UserName = data.OwnerNames[n.UserID]
@@ -219,6 +254,7 @@ func buildLandingMonitorView(data *repo.LandingMonitorData, admin bool, tracker 
 			if rate, ok := rates[n.ID]; ok {
 				nv.SampleAt = rate.SampleAt
 				nv.OnlineIPs = rate.OnlineIPs
+				nv.TCP = rate.TCP
 				if rate.RateOK {
 					nv.UpRate, nv.DownRate = ratePtr(rate.UpRate), ratePtr(rate.DownRate)
 					upSum += rate.UpRate
@@ -230,6 +266,8 @@ func buildLandingMonitorView(data *repo.LandingMonitorData, admin bool, tracker 
 				view.SampleAt = nv.SampleAt
 			}
 			view.Connections += nv.Connections
+			view.InboundConnections += nv.InboundConnections
+			view.TotalConnections += nv.TotalConnections
 			view.BilledBytes += nv.BilledBytes
 			view.NodeCount++
 			if n.Status == "active" && !n.DeletePending {
@@ -260,6 +298,7 @@ func buildLandingMonitorView(data *repo.LandingMonitorData, admin bool, tracker 
 			if admin {
 				view.MaxConnectionsMode = repo.LandingConnTotal
 				view.MaxConnections = minPositive(s.MaxConnections, caps.MaxConnections)
+				view.ShareMaxConnections = caps.MaxConnections
 				view.ShareUsedBytes = caps.TrafficUsed
 				view.ShareLimitBytes = caps.TrafficLimit
 			}

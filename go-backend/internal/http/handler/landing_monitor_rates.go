@@ -44,6 +44,8 @@ type landingRateEntry struct {
 	onlineIPCount int
 	onlineIPKnown bool
 	onlineIPs     []landingcustom.OnlineIP
+	// Plan 211: the latest socket breakdown (nil = the reporter has none).
+	tcp *landingcustom.TCPCounts
 }
 
 // landingRate is what the monitor shows for one landing node. SampleAt is zero
@@ -55,6 +57,8 @@ type landingRate struct {
 	DownRate    float64 // bytes per second, client download
 	RateOK      bool
 	OnlineIPs   *int
+	// TCP (plan 211): latest socket breakdown while the sample is fresh.
+	TCP *landingcustom.TCPCounts
 }
 
 type landingRateTracker struct {
@@ -109,6 +113,7 @@ func (t *landingRateTracker) observe(counters []repo.LandingCounter, nowMs int64
 			}
 			e = &landingRateEntry{shared: shared, last: s}
 			e.setOnlineIPs(c)
+			e.setTCP(c)
 			t.entries[c.ID] = e
 			continue
 		}
@@ -120,7 +125,19 @@ func (t *landingRateTracker) observe(counters []repo.LandingCounter, nowMs int64
 		}
 		e.last = s
 		e.setOnlineIPs(c)
+		e.setTCP(c)
 	}
+}
+
+// setTCP keeps a copy of a valid breakdown whose sockets add up to the
+// reported total (a mismatching one is dropped, never shown).
+func (e *landingRateEntry) setTCP(c repo.LandingCounter) {
+	e.tcp = nil
+	if c.TCP == nil || !c.TCP.Valid() || c.TCP.Inbound+c.TCP.Outbound != int64(c.Connections) {
+		return
+	}
+	v := *c.TCP
+	e.tcp = &v
 }
 
 func (e *landingRateEntry) setOnlineIPs(c repo.LandingCounter) {
@@ -234,6 +251,10 @@ func (t *landingRateTracker) snapshotLocked(id, nowMs int64) landingRate {
 	if e.onlineIPKnown {
 		count := e.onlineIPCount
 		out.OnlineIPs = &count
+	}
+	if e.tcp != nil {
+		v := *e.tcp
+		out.TCP = &v
 	}
 	if !e.hasBase {
 		return out

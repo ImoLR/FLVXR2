@@ -62,6 +62,9 @@ type landingServerStats struct {
 	// server's runtime applies 仅入站) and how many nodes count each way;
 	// connections stays the 入站+出站 sum (old agent / Helper).
 	modeConnections, inboundNodes, totalNodes int
+	// Plan 211: Σ live 入站 (client) connections; connections above is Σ 总
+	// (入站+出站 sockets, incl. TIME_WAIT/CLOSE_WAIT).
+	inbound int
 }
 
 // landingConnSumMode labels a sum of node connection counts: "inbound" or
@@ -91,6 +94,7 @@ func landingServerStatsByID(all []model.LandingNode, servers map[int64]*model.La
 		st.count++
 		st.connections += repo.LandingLiveConnections(&n)
 		st.modeConnections += repo.LandingModeConnections(&n, mode)
+		st.inbound += repo.LandingModeConnections(&n, repo.LandingConnInbound)
 		if mode == repo.LandingConnInbound {
 			st.inboundNodes++
 		} else {
@@ -105,7 +109,7 @@ func landingServerStatsByID(all []model.LandingNode, servers map[int64]*model.La
 // landingServerUserHidden are server fields a non-admin never receives:
 // admin limits and defaults, core sizing, and 妙妙屋 sync internals. Server-wide
 // aggregates (connections, traffic, other users' nodes) are not added at all.
-var landingServerUserHidden = []string{"chainOnly", "routeProfileId", "egressRestartOk", "egressState", "egressError", "egressReady", "egressCheckedAt", "remoteServerId", "maxConnections", "defaultMaxConnections", "connMode", "maxConnMode", "defaultMaxOnlineIps", "defaultTrafficLimitBytes", "defaultUserQuotaBytes", "defaultExpiryMode", "defaultExpiryDays", "defaultExpiresAt", "coreMemoryMb", "coreCpuPercent", "revision", "sharedLastSyncAt", "sharedSyncError", "sharedPushedRevision", "sharedAppliedRevision", "createdTime", "updatedTime"}
+var landingServerUserHidden = []string{"chainOnly", "routeProfileId", "egressRestartOk", "egressState", "egressError", "egressReady", "egressCheckedAt", "remoteServerId", "maxConnections", "defaultMaxConnections", "defaultMaxTotalConnections", "connMode", "maxConnMode", "defaultMaxOnlineIps", "defaultTrafficLimitBytes", "defaultUserQuotaBytes", "defaultExpiryMode", "defaultExpiryDays", "defaultExpiresAt", "coreMemoryMb", "coreCpuPercent", "revision", "sharedLastSyncAt", "sharedSyncError", "sharedPushedRevision", "sharedAppliedRevision", "createdTime", "updatedTime"}
 
 // landingServerView renders one server for an admin, with server-wide
 // aggregates. Lists use landingServerAdminView / landingServerUserView with
@@ -213,6 +217,19 @@ func (h *Handler) landingServerViewWith(s model.LandingServer, admin bool, catal
 		v["connections"] = st.modeConnections
 		v["connectionsMode"] = landingConnSumMode(st.inboundNodes, st.totalNodes)
 	}
+	// Plan 211: both live sums, always labelled — 入站 (client connections,
+	// known once the runtime reports them) and 总 (入站+出站 sockets, incl.
+	// TIME_WAIT/CLOSE_WAIT) — and whether the runtime applies 节点总连接数 next
+	// to a 入站 limit (else such nodes show 「待升级」).
+	v["inboundConnections"] = st.inbound
+	v["totalConnections"] = st.connections
+	v["inboundKnown"] = supported
+	v["nodeTotalSupported"] = repo.LandingNodeTotalSupported(&s, connAgent)
+	if s.Source == "shared" {
+		// The 妙妙屋 share cap: all FLVX nodes of this share together, 入站+出站,
+		// enforced by 妙妙屋 (read-only here, never copied into node limits).
+		v["shareMaxConnections"] = repo.SharedLandingCaps(&s).MaxConnections
+	}
 	v["billedBytes"] = st.billed
 	v["usedBytes"] = st.billed
 	// Plan 158: the whole-machine protection cap shown next to the server total
@@ -268,7 +285,7 @@ func (h *Handler) landingNodeView(n model.LandingNode, catalogs ...landingEgress
 			integrationError = cfg.SyncError
 		}
 	}
-	supported := false
+	supported, totalSupported := false, false
 	if s != nil {
 		agent := 0
 		if s.Source == "native" {
@@ -277,8 +294,9 @@ func (h *Handler) landingNodeView(n model.LandingNode, catalogs ...landingEgress
 			}
 		}
 		supported = repo.LandingConnModeSupported(s, agent)
+		totalSupported = repo.LandingNodeTotalSupported(s, agent)
 	}
-	view := landingNodeViewData(n, s, u, catalog, integrationError, supported)
+	view := landingNodeViewData(n, s, u, catalog, integrationError, supported, totalSupported)
 	if s != nil {
 		h.landingChainViews([]map[string]interface{}{view}, []model.LandingNode{n}, map[int64]*model.LandingServer{s.ID: s}, catalog)
 	}
@@ -286,9 +304,18 @@ func (h *Handler) landingNodeView(n model.LandingNode, catalogs ...landingEgress
 }
 
 // landingNodeViewData renders one node; connSupported says whether the
-// server's runtime applies 仅入站 (plan 141).
-func landingNodeViewData(n model.LandingNode, s *model.LandingServer, u *model.User, catalog landingEgressCatalog, integrationError string, connSupported bool) map[string]interface{} {
+// server's runtime applies 仅入站 (plan 141), totalSupported whether it applies
+// 节点总连接数 next to a 入站 limit (plan 211).
+func landingNodeViewData(n model.LandingNode, s *model.LandingServer, u *model.User, catalog landingEgressCatalog, integrationError string, connSupported, totalSupported bool) map[string]interface{} {
 	v := landingMap(n)
+	// Plan 211: both live numbers, always labelled: 入站 = client connections
+	// (known once the runtime reports them), 总 = every socket of the port
+	// (入站+出站, incl. TIME_WAIT/CLOSE_WAIT); and whether the 节点总连接数
+	// waits for an upgrade (入站 limit set too, runtime cannot take both).
+	v["inboundConnections"] = repo.LandingModeConnections(&n, repo.LandingConnInbound)
+	v["totalConnections"] = repo.LandingLiveConnections(&n)
+	v["inboundKnown"] = connSupported
+	v["nodeTotalPending"] = repo.LandingSendLimits(n.MaxConnections, n.MaxTotalConnections, connSupported && repo.LandingNodeConnMode(&n, s) == repo.LandingConnInbound, totalSupported).TotalPending
 	// Plan 141: the count shown next to the limit counts like the limit does.
 	configured := repo.LandingNodeConnMode(&n, s)
 	effective := repo.LandingEffectiveConnMode(&n, s, connSupported)
@@ -496,6 +523,10 @@ func (h *Handler) landingServerSave(w http.ResponseWriter, r *http.Request) {
 		ConnMode             *string `json:"connMode"`
 		MaxConnMode          *string `json:"maxConnMode"`
 		ApplyConnModeToNodes bool    `json:"applyConnModeToNodes"`
+		// Plan 211 新节点默认 节点总连接数, shadowed (absent = keep, so a stale
+		// client never resets it) and 「同时应用到现有 N 个节点」.
+		DefaultMaxTotalConnections *int `json:"defaultMaxTotalConnections"`
+		ApplyNodeTotalToNodes      bool `json:"applyNodeTotalToNodes"`
 	}
 	if err := landingDecode(r, &req); err != nil {
 		landingError(w, err)
@@ -548,11 +579,18 @@ func (h *Handler) landingServerSave(w http.ResponseWriter, r *http.Request) {
 	if req.MaxConnMode != nil {
 		req.LandingServer.MaxConnMode = *req.MaxConnMode
 	}
+	req.LandingServer.DefaultMaxTotalConnections = old.DefaultMaxTotalConnections
+	if req.DefaultMaxTotalConnections != nil {
+		req.LandingServer.DefaultMaxTotalConnections = *req.DefaultMaxTotalConnections
+	}
+	// Plan 211: 服务器总连接数 is hidden and not enforced by FLVX (a shared
+	// server's own cap belongs to 妙妙屋, which enforces it itself).
+	req.LandingServer.MaxConnections = 0
 	b, _ := json.Marshal(req.Protocols)
 	req.LandingServer.Protocols = string(b)
 	b, _ = json.Marshal(req.RealityServerNames)
 	req.LandingServer.RealityServerNames = string(b)
-	if err := h.repo.SaveLandingServerOpts(&req.LandingServer, req.UserGroupIDs, repo.LandingServerSaveOptions{ApplyConnModeToNodes: req.ApplyConnModeToNodes}); err != nil {
+	if err := h.repo.SaveLandingServerOpts(&req.LandingServer, req.UserGroupIDs, repo.LandingServerSaveOptions{ApplyConnModeToNodes: req.ApplyConnModeToNodes, ApplyNodeTotalToNodes: req.ApplyNodeTotalToNodes}); err != nil {
 		landingError(w, err)
 		return
 	}
@@ -613,7 +651,7 @@ func (h *Handler) landingNodeList(w http.ResponseWriter, r *http.Request) {
 	catalog := h.landingEgressCatalog()
 	for _, n := range nodes {
 		s := data.Servers[n.LandingServerID]
-		view := landingNodeViewData(n, s, data.Users[n.UserID], catalog, data.IntegrationError, data.ConnSupport.Supported(s))
+		view := landingNodeViewData(n, s, data.Users[n.UserID], catalog, data.IntegrationError, data.ConnSupport.Supported(s), data.ConnSupport.TotalSupported(s))
 		view["forwardCount"] = data.ForwardCounts[n.ID]
 		view["serverAvailable"] = data.Allowed[n.ID] && s != nil && !s.ChainOnly && s.Status == "active" && (s.AvailableUntil == nil || *s.AvailableUntil > time.Now().UnixMilli()) && repo.SharedLandingAvailable(s)
 		if role != 0 {
@@ -668,7 +706,9 @@ func hideLandingNodeEgressInternals(view map[string]interface{}) {
 	delete(view, "connModeConfigured")
 	delete(view, "connModePending")
 	delete(view, "connModeFixed")
-	delete(view, "inboundConnections")
+	// Plan 211: users see both live numbers of their node (入站 / 总, labelled);
+	// whether the total waits for an upgrade is admin data.
+	delete(view, "nodeTotalPending")
 }
 func (h *Handler) landingOwnedNode(r *http.Request, id int64) (*model.LandingNode, error) {
 	uid, role, err := userRoleFromRequest(r)
@@ -703,7 +743,7 @@ func (h *Handler) landingNodeUpdate(w http.ResponseWriter, r *http.Request) {
 		landingError(w, err)
 		return
 	}
-	allowed := map[string]interface{}{"name": &n.Name, "maxConnections": &n.MaxConnections, "maxOnlineIps": &n.MaxOnlineIPs, "trafficLimitBytes": &n.TrafficLimitBytes, "flowType": &n.FlowType, "trafficRatio": &n.TrafficRatio, "connMode": &n.ConnMode, "expiryMode": &n.ExpiryMode, "expiresAt": &n.ExpiresAt, "status": &n.Status}
+	allowed := map[string]interface{}{"name": &n.Name, "maxConnections": &n.MaxConnections, "maxTotalConnections": &n.MaxTotalConnections, "maxOnlineIps": &n.MaxOnlineIPs, "trafficLimitBytes": &n.TrafficLimitBytes, "flowType": &n.FlowType, "trafficRatio": &n.TrafficRatio, "connMode": &n.ConnMode, "expiryMode": &n.ExpiryMode, "expiresAt": &n.ExpiresAt, "status": &n.Status}
 	profileChanged := false
 	var profileID *int64
 	if raw, ok := req["routeProfileId"]; ok {

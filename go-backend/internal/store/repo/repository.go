@@ -283,6 +283,10 @@ func autoMigrateAll(db *gorm.DB) error {
 		}
 	}
 
+	// Plan 211: an existing database without landing_node.max_total_connections
+	// gets the one-shot 节点总连接数 data step right after AutoMigrate adds it.
+	nodeTotalMigration := db.Migrator().HasTable(&model.LandingNode{}) && !db.Migrator().HasColumn(&model.LandingNode{}, "max_total_connections")
+
 	models := []interface{}{
 		&model.LandingIntegration{}, &model.LandingServer{}, &model.LandingServerUserGroup{}, &model.LandingServerUser{}, &model.LandingNode{}, &model.LandingUserSetting{}, &model.UserServerQuota{},
 		&model.UserTrafficPool{}, &model.UserTrafficPoolMember{},
@@ -368,6 +372,12 @@ func autoMigrateAll(db *gorm.DB) error {
 			if err := db.AutoMigrate(item); err != nil {
 				return err
 			}
+		}
+	}
+
+	if nodeTotalMigration {
+		if err := landingNodeTotalMigration(db); err != nil {
+			return fmt.Errorf("migrate landing node total: %w", err)
 		}
 	}
 

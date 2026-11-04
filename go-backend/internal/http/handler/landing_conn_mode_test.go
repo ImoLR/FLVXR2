@@ -187,9 +187,13 @@ func monitorFor(t *testing.T, e *flowTestEnv, admin bool) landingMonitorView {
 
 // User node views drop the admin-only conn-mode internals.
 func TestLandingUserNodeViewHidesConnModeInternals(t *testing.T) {
-	v := map[string]interface{}{"connMode": "inbound", "connModeConfigured": "inbound", "connModePending": true, "inboundConnections": 3, "connModeEffective": "total", "connections": 9}
+	v := map[string]interface{}{"connMode": "inbound", "connModeConfigured": "inbound", "connModePending": true, "nodeTotalPending": true, "inboundConnections": 3, "totalConnections": 9, "connModeEffective": "total", "connections": 9}
 	hideLandingNodeEgressInternals(v)
-	for _, k := range []string{"connMode", "connModeConfigured", "connModePending", "inboundConnections"} {
+	// Plan 211: the labelled live numbers (入站 / 总) stay for the owner.
+	if v["inboundConnections"] != 3 || v["totalConnections"] != 9 {
+		t.Fatal("owner lost the live 入站 / 总 numbers")
+	}
+	for _, k := range []string{"connMode", "connModeConfigured", "connModePending", "nodeTotalPending"} {
 		if _, ok := v[k]; ok {
 			t.Fatalf("%s leaked to users", k)
 		}

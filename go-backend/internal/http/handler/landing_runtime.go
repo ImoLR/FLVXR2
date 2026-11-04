@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"log"
 	"sort"
+	"strings"
 	"time"
 
 	"go-backend/internal/landingcustom"
@@ -207,19 +208,36 @@ func (h *Handler) syncNativeLandingServerOnce(serverID int64) (*landingSyncSnaps
 	// signature joins the revision so an agent upgrade or a mode change never
 	// reuses a revision with new content.
 	connSupported := repo.LandingConnModeSupported(s, node.LandingConnMode)
-	inboundNodes := map[int64]bool{}
+	// Plan 211: 节点总连接数 next to the 入站 limit for agents that apply both
+	// (landing_conn_mode >= 2); older agents get the total the old way when
+	// the node has no 入站 limit (see LandingSendLimits). What each node gets
+	// joins the signature, so an agent upgrade or a new total never reuses a
+	// revision.
+	totalSupported := repo.NativeNodeTotalSupported(node.LandingConnMode)
+	sentLimits := map[int64]repo.LandingSentLimits{}
 	inboundIDs := []int64{}
-	if connSupported {
-		for i := range nodes {
-			n := &nodes[i]
-			if n.LandingServerID == s.ID && !landingcustom.IsExtraProtocol(n.Protocol) && repo.LandingNodeConnMode(n, s) == repo.LandingConnInbound {
-				inboundNodes[n.ID] = true
-				inboundIDs = append(inboundIDs, n.ID)
-			}
+	totalSig := []string{}
+	for i := range nodes {
+		n := &nodes[i]
+		if n.LandingServerID != s.ID || landingcustom.IsExtraProtocol(n.Protocol) {
+			continue
+		}
+		sent := repo.LandingSendLimits(n.MaxConnections, n.MaxTotalConnections, connSupported && repo.LandingNodeConnMode(n, s) == repo.LandingConnInbound, totalSupported)
+		sentLimits[n.ID] = sent
+		if sent.Inbound {
+			inboundIDs = append(inboundIDs, n.ID)
+		}
+		if n.MaxTotalConnections > 0 {
+			totalSig = append(totalSig, fmt.Sprintf("%d:%d:%t:%d", n.ID, sent.MaxConnections, sent.Inbound, sent.MaxTotal))
 		}
 	}
 	globalInbound := s.MaxConnections > 0 && repo.LandingServerTotalConnMode(s, connSupported) == repo.LandingConnInbound
 	connSig := repo.NativeLandingConnSig(inboundIDs, globalInbound)
+	if len(totalSig) > 0 {
+		sort.Strings(totalSig)
+		sum := sha256.Sum256([]byte(strings.Join(totalSig, ",")))
+		connSig += ";nt=" + hex.EncodeToString(sum[:8])
+	}
 	// Plan 129: the confirmed one-time Core upgrade restart joins the payload
 	// (and the signature, so the revision advances) only while the agent
 	// reports an outdated Core; it is never sent to agents that do not.
@@ -316,9 +334,13 @@ func (h *Handler) syncNativeLandingServerOnce(serverID int64) (*landingSyncSnaps
 		// Plan 177: a chained node on an agent without egress plans would
 		// leave directly; keep it off instead (fail closed).
 		enabled := n.Status == "active" && (n.ChainExternalID == 0 || node.LandingEgress >= 1)
-		desired := map[string]interface{}{"id": n.ID, "inbound_tag": n.InboundTag, "protocol": n.Protocol, "port": n.Port, "enabled": enabled, "max_connections": n.MaxConnections, "max_online_ips": n.MaxOnlineIPs}
-		if inboundNodes[n.ID] {
+		sent := sentLimits[n.ID]
+		desired := map[string]interface{}{"id": n.ID, "inbound_tag": n.InboundTag, "protocol": n.Protocol, "port": n.Port, "enabled": enabled, "max_connections": sent.MaxConnections, "max_online_ips": n.MaxOnlineIPs}
+		if sent.Inbound {
 			desired["conn_mode"] = repo.LandingConnInbound
+		}
+		if sent.MaxTotal > 0 {
+			desired["max_total_connections"] = sent.MaxTotal
 		}
 		if group := userGroupOf[n.UserID]; group != "" {
 			desired["quota_group"] = group
