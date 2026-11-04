@@ -5,6 +5,7 @@ import { toast } from "react-hot-toast";
 import { Card } from "@/shadcn-bridge/heroui/card";
 import { siteConfig } from "@/config/site";
 import { isWebViewFunc } from "@/utils/panel";
+import { currentBuildId } from "@/utils/build-id";
 
 const LAST_BUILD_KEY = "flvx-last-build";
 let updating = false;
@@ -60,12 +61,12 @@ export const showBuildUpdatedToast = (): void => {
       | undefined;
     const updated =
       (typeof previousBuild === "string" &&
-        previousBuild !== __APP_BUILD_ID__) ||
+        previousBuild !== currentBuildId()) ||
       (raw === null && navigation?.type === "reload");
 
     localStorage.setItem(
       LAST_BUILD_KEY,
-      JSON.stringify({ build: __APP_BUILD_ID__, version: siteConfig.version }),
+      JSON.stringify({ build: currentBuildId(), version: siteConfig.version }),
     );
     if (updated) {
       toast.success(`已更新到 v${siteConfig.version}`, {

@@ -21,6 +21,7 @@ import { formatBytes, formatSpeed } from "./format";
 import { Sparkline, seriesColors } from "./sparkline";
 
 import { compareRegions, regionFlag, regionName } from "@/utils/region";
+import { currentBuildId } from "@/utils/build-id";
 import {
   getEffectiveMode,
   reapplyActiveTheme,
@@ -349,10 +350,13 @@ export default function ProbeApp() {
         const res = await fetch("/version.json", { cache: "no-store" });
         const body = await res.json();
 
+        const current = currentBuildId();
+
         if (
           body?.build &&
-          body.build !== __APP_BUILD_ID__ &&
-          !String(__APP_BUILD_ID__).startsWith("local")
+          current &&
+          body.build !== current &&
+          !current.startsWith("local")
         ) {
           window.location.reload();
         }

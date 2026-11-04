@@ -2,6 +2,7 @@
 // chunk; everything else loads the admin / user app. On the 探针专用域名 every
 // route goes to the probe page.
 import "@/styles/globals.css";
+import { currentPageKey, pageLoaders } from "@/routes/page-loaders";
 
 const PROBE_PATH = /^\/tz(\/|$)/;
 const apiBase = (
@@ -22,6 +23,16 @@ function probeHostCheck(): Promise<boolean | null> {
       r.ok ? (await r.json())?.data?.probeOnly === true : false,
     )
     .catch(() => null);
+}
+
+// Plan 209: a signed-in visit starts the current page's chunk together with
+// the app shell instead of after it (the router picks the same module up).
+function preloadCurrentPage() {
+  const key = currentPageKey();
+
+  if (key) {
+    void pageLoaders[key]().catch(() => undefined);
+  }
 }
 
 function bootAdmin() {
@@ -46,6 +57,8 @@ function bootAdmin() {
   });
   const toProbe = () => window.location.replace("/tz");
   const admin = import("./admin-main");
+
+  preloadCurrentPage();
 
   if (cached === "0") {
     // Known panel host: start at once, re-check in the background.
