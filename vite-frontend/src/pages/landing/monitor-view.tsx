@@ -497,7 +497,7 @@ const nodeTotal = (node: LandingMonitorNode) =>
 const levelClass = {
   ok: "",
   warn: "text-warning-600 dark:text-warning-400",
-  full: "text-danger-600 dark:text-danger-400",
+  full: "font-semibold text-danger-600 dark:text-danger-400",
 } as const;
 
 const connTone = (node: LandingMonitorNode): Tone => {

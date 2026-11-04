@@ -982,7 +982,7 @@ export default function LandingPage() {
                               </td>
                               <td className="whitespace-nowrap px-3 py-2">
                                 <span
-                                  className={`inline-flex items-center gap-1 ${connTone(node, admin) === "red" ? "text-danger" : connTone(node, admin) === "amber" ? "text-warning" : ""}`}
+                                  className={`inline-flex items-center gap-1 ${connTone(node, admin) === "red" ? "font-semibold text-danger" : connTone(node, admin) === "amber" ? "text-warning" : ""}`}
                                   title={nodeConnTitle(node, admin)}
                                 >
                                   <Plug
