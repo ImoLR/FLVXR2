@@ -5,29 +5,9 @@ import {
   useNavigate,
   useLocation,
 } from "react-router-dom";
-import { Suspense, lazy, useEffect } from "react";
+import { Suspense, lazy, useEffect, useRef } from "react";
 
 import IndexPage from "@/pages/index";
-import ChangePasswordPage from "@/pages/change-password";
-import DashboardPage from "@/pages/dashboard";
-import MonitorPage from "@/pages/monitor";
-import ForwardPage from "@/pages/forward";
-import TunnelPage from "@/pages/tunnel";
-import LeiKwanPage from "@/pages/leikwan";
-import LandingPage from "@/pages/landing";
-import SubLinkPage from "@/pages/sub-link";
-import NodePage from "@/pages/node";
-import TLSPage from "@/pages/tls";
-import UserPage from "@/pages/user";
-import GroupPage from "@/pages/group";
-import ProfilePage from "@/pages/profile";
-import ConfigPage from "@/pages/config";
-import PanelSharingPage from "@/pages/panel-sharing";
-import ShopPage from "@/pages/shop";
-import MyHomePage from "@/pages/myhome";
-import AdminPlansPage from "@/pages/admin-plans";
-import AdminOrdersPage from "@/pages/admin-orders";
-import AdminPaymentPage from "@/pages/admin-payment";
 import AdminLayout from "@/layouts/admin";
 import H5Layout from "@/layouts/h5";
 import { isLoggedIn } from "@/utils/auth";
@@ -38,6 +18,46 @@ import {
   updateSiteConfig,
 } from "@/config/site";
 import { useH5Mode } from "@/hooks/useH5Mode";
+import { pages } from "@/routes/pages";
+import { FlowChartPlot } from "@/pages/dashboard/flow-chart-lazy";
+import { definePrefetch, pausePrefetch } from "@/utils/idle-prefetch";
+
+// Plan 209: every page except the login page is its own chunk (see
+// routes/page-loaders.ts); the layout stays mounted while a page loads.
+const {
+  changePassword: ChangePasswordPage,
+  dashboard: DashboardPage,
+  monitor: MonitorPage,
+  forward: ForwardPage,
+  tunnel: TunnelPage,
+  leikwan: LeiKwanPage,
+  landing: LandingPage,
+  subLink: SubLinkPage,
+  node: NodePage,
+  tls: TLSPage,
+  user: UserPage,
+  group: GroupPage,
+  profile: ProfilePage,
+  config: ConfigPage,
+  panelSharing: PanelSharingPage,
+  shop: ShopPage,
+  myhome: MyHomePage,
+  adminPlans: AdminPlansPage,
+  adminOrders: AdminOrdersPage,
+  adminPayment: AdminPaymentPage,
+} = pages;
+
+// Plan 209 idle prefetch: the login page fetches 主页 (and its chart) while
+// the visitor types; 主页 fetches the pages opened next.
+definePrefetch("after-login-page", [
+  DashboardPage.preload,
+  FlowChartPlot.preload,
+]);
+definePrefetch("after-dashboard", [
+  ForwardPage.preload,
+  TunnelPage.preload,
+  LandingPage.preload,
+]);
 
 // Plan 187: the public probe page is its own chunk (main.tsx loads it directly
 // for a fresh /tz visit; this route covers in-app navigation to /tz).
@@ -75,13 +95,15 @@ const ProtectedRoute = ({
     );
   }
 
+  const page = <Suspense fallback={null}>{children}</Suspense>;
+
   if (skipLayout) {
-    return <>{children}</>;
+    return page;
   }
 
   const Layout = isH5 ? H5Layout : AdminLayout;
 
-  return <Layout>{children}</Layout>;
+  return <Layout>{page}</Layout>;
 };
 
 // 登录页面路由组件 - 已登录则重定向到dashboard（或 sessionStorage 中的重定向地址）
@@ -117,6 +139,20 @@ const LoginRoute = () => {
 };
 
 function App() {
+  const { pathname } = useLocation();
+  const firstPath = useRef(true);
+
+  // Plan 209: a page the visitor just opened gets the network first; queued
+  // idle prefetches wait a moment (not on the first page of a load).
+  useEffect(() => {
+    if (firstPath.current) {
+      firstPath.current = false;
+
+      return;
+    }
+    pausePrefetch();
+  }, [pathname]);
+
   // 立即设置页面标题（使用已从缓存读取的配置）
   useEffect(() => {
     document.title = siteConfig.name;
@@ -194,7 +230,14 @@ function App() {
         }
         path="/leikwan"
       />
-      <Route path="/landing" element={<ProtectedRoute><LandingPage /></ProtectedRoute>} />
+      <Route
+        element={
+          <ProtectedRoute>
+            <LandingPage />
+          </ProtectedRoute>
+        }
+        path="/landing"
+      />
       <Route
         element={
           <ProtectedRoute>

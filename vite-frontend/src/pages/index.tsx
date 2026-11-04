@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import toast from "react-hot-toast";
 import { Turnstile } from "@marsidev/react-turnstile";
 import { motion } from "framer-motion";
@@ -13,13 +14,20 @@ import {
   ModalBody,
   ModalFooter,
 } from "@/shadcn-bridge/heroui/modal";
-import { siteConfig } from "@/config/site";
+import {
+  invalidateCachedConfigs,
+  siteConfig,
+  updateSiteConfig,
+} from "@/config/site";
 import { title } from "@/components/primitives";
 import { VersionFooter } from "@/components/version-footer";
 import DefaultLayout from "@/layouts/default";
 import { login, register, LoginData, getConfigByName } from "@/api";
 import { writeLoginSession } from "@/utils/session";
 import { useWebViewMode } from "@/hooks/useWebViewMode";
+import { resetSubLinkSwitchCheck } from "@/api/sub-link";
+import { checkFrontendBuild } from "@/utils/build-freshness";
+import { prefetchOnIdle } from "@/utils/idle-prefetch";
 
 interface LoginForm {
   username: string;
@@ -34,6 +42,7 @@ export default function IndexPage() {
   const [errors, setErrors] = useState<Partial<LoginForm>>({});
   const [loading, setLoading] = useState(false);
   const isWebView = useWebViewMode();
+  const navigate = useNavigate();
   const [siteKey, setSiteKey] = useState("");
   const [regSiteKey, setRegSiteKey] = useState("");
 
@@ -57,11 +66,18 @@ export default function IndexPage() {
   const [showRegCaptcha, setShowRegCaptcha] = useState(false);
   const [regCaptchaId, setRegCaptchaId] = useState("");
 
+  // Plan 209: while the visitor types, fetch the 主页 chunks so the page after
+  // login renders at once (idle time, once; skipped on Data Saver / 2G).
+  useEffect(() => {
+    prefetchOnIdle("after-login-page");
+  }, []);
+
   useEffect(() => {
     getConfigByName("registration_enabled")
       .then((res) => {
         if (res.code === 0 && res.data) {
           const v = res.data.value;
+
           setRegEnabled(v === "1" || v === "true");
         }
       })
@@ -141,7 +157,15 @@ export default function IndexPage() {
 
       writeLoginSession(response.data);
       toast.success("登录成功");
-      window.location.href = "/dashboard";
+      // Plan 209: open 主页 in-app — the app is already loaded, so a full page
+      // load would only download and start it again. Redo what that fresh
+      // start did: signed-in config, the per-load sub-link switch check and
+      // the frontend build check (it reloads onto a newer build, token kept).
+      invalidateCachedConfigs();
+      resetSubLinkSwitchCheck();
+      void updateSiteConfig();
+      navigate("/dashboard");
+      void checkFrontendBuild();
     } catch {
       toast.error("网络错误，请稍后重试");
     } finally {

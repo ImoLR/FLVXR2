@@ -17,6 +17,8 @@ import {
 import { PageEmptyState } from "@/components/page-state";
 import { AnnouncementBanner } from "@/pages/dashboard/components/announcement-banner";
 import { FlowChartCard } from "@/pages/dashboard/components/flow-chart-card";
+import { FlowChartPlot } from "@/pages/dashboard/flow-chart-lazy";
+import { prefetchOnIdle } from "@/utils/idle-prefetch";
 import { MetricCard } from "@/pages/dashboard/components/metric-card";
 import { TrafficPoolsCard } from "@/pages/dashboard/components/traffic-pools-card";
 import { USER_TOTAL_FLOW_HINT } from "@/utils/flow-hints";
@@ -69,6 +71,18 @@ export default function DashboardPage() {
   const [autoBuyPackages, setAutoBuyPackages] = useState<
     SubscriptionPackageApiItem[]
   >([]);
+
+  // Plan 209: the chart chunk loads in parallel with the data; once 主页 shows
+  // its data, the next pages people open (规则 / 隧道 / 落地) are fetched while
+  // idle (once per page load; skipped on Data Saver / 2G).
+  useEffect(() => {
+    void FlowChartPlot.preload().catch(() => undefined);
+  }, []);
+  useEffect(() => {
+    if (!loading) {
+      prefetchOnIdle("after-dashboard");
+    }
+  }, [loading]);
 
   const handleToggleAutoRenew = async (enabled: boolean) => {
     if (!userInfo.id || autoRenewSwitchLoading) return;
