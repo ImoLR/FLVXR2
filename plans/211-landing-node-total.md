@@ -65,6 +65,7 @@ Branch `feature/3.0.27-landing-node-total` from tag `3.0.27-fork.115` (prod). BU
 - [x] Resource numbers (panel RSS/CPU, monitor payload before/after)
 - [x] runs/landing-node-total/mmwx-needed.md, release-notes.md, RELEASE-LEDGER row
 - [x] Push + CI green (41904267953 on 6580bfcf); summary.md — BUILD ONLY, awaiting screenshot approval
+- [x] Follow-up (user approved 11-05): 节点详情 「停用」/「启用」 pill + 已启用/已停用 chip + inline confirm; status-only `/landing/node/update {id, status}` (backend unchanged; status-only path already covered by `landing_scan_test.go`); screens 4/4b/4c (2cf75b9d)
 
 ## Results
 - Screens: http://104.145.236.29:8791/landing-node-total/ (48 shots, 96/96 checks, 0 page errors).
@@ -76,3 +77,7 @@ Branch `feature/3.0.27-landing-node-total` from tag `3.0.27-fork.115` (prod). BU
   netns tests (node total, conn mode, CLOSE_WAIT) green; frontend tsc + build OK, eslint 0 (base 0).
 - Resources (demo, same seed, fork.115 → 211): panel RSS 39.0 → 38.8 MiB, CPU same; admin monitor 5 478 → 7 762 B
   (gzip 1 020 → 1 442 B) for 7 servers / 9 nodes; node list 12 353 → 13 186 B; agent upload +≈80 B per node / 5 s.
+- Follow-up 11-05 (节点详情 停用/启用): 13 new/replaced shots (details / details-confirm / details-disabled × desktop+H5 ×
+  light+dark, + enable confirm), 132/132 checks; the demo sends `{id, status}` only and the list shows 已停用 after.
+  停用 = native: the agent removes the inbound (port closed) and closes existing sockets; shared: sent to 妙妙屋 as disabled.
+  启用 lifts a 禁止端口扫描 block (logged) and is re-paused by the lifecycle when quota / expiry / user / server says so.
