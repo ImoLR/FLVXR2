@@ -1,4 +1,4 @@
-# 220 — sub-dns-fix: 订阅 DNS / 各客户端对照妙妙屋 (fork.118, panel only)
+# 220 — sub-dns-fix: 订阅 DNS / 各客户端对照妙妙屋 (fork.118, panel only) — DONE 2026-11-06 00:17 TW
 
 User report 2026-11-05 ~23:00 TW: FlClash + FLVX 订阅 → every site stalls 2–3 s on 「Dmit中转 · Dmit Nathan」, the mmwx
 sub to the same landing is instant. Urgent prod fix (4th FLVX release of 11-05, allowed for urgent fixes).
@@ -45,13 +45,59 @@ Landing side checked: no FLVX landing preset blocks 1.1.1.1 / 8.8.8.8 / DoH or p
 - [x] Code: clash.go DNS + no-resolve + fake-ip-filter, Stash variant, sing-box empty, Surge General lines
 - [x] Golden files + tests (`clash_dns_test.go`); `go test ./internal/sublink/...` green
 - [x] mihomo v1.19.32 `-t` OK (clash cn/global/empty, 100-node, stash); sing-box 1.12.25 / 1.13.21 / 1.14.4 `check` OK
-- [ ] Mainland proof on leikwan-sh (mihomo + sing-box, proxy + TUN-style): new ≈ mmwx; dev box (US) no regression
-- [ ] bench100 not regressed
-- [ ] Gates: go build/vet/test (SQLite + PG contract); frontend untouched (no diff vs fork.117)
-- [ ] Baselines (pre)
-- [ ] Release branch `maintenance/3.0.27-fork.118-sub-dns`, push, CI green, tag 3.0.27-fork.118, Images + Release + assets verified
-- [ ] Backup + rollback dir; prune (keep 2); upgrade /opt/flvx-svc panel
-- [ ] Post checks = baseline; version.json fork.118; old profile ≤ 1 reload; /api/clients/v2/rpc 403
-- [ ] Prod sub (usb2) on leikwan-sh as cfgP ≈ B; sing-box / Surge UAs still parse
-- [ ] Ledger 220 → 已发布 fork.118
-- [ ] Cleanup (leikwan-sh /root/mh-test, temp users/rules/subs/browsers); final.md / summary.md; plan marked complete
+- [x] Mainland proof on leikwan-sh (mihomo + sing-box, proxy + TUN-style): new ≈ mmwx; dev box (US) no regression
+- [x] bench100 not regressed
+- [x] Gates: go build/vet/test (SQLite + PG contract); frontend untouched (no diff vs fork.117)
+- [x] Baselines (pre)
+- [x] Release branch `maintenance/3.0.27-fork.118-sub-dns`, push, CI green, tag 3.0.27-fork.118, Images + Release + assets verified
+- [x] Backup + rollback dir; prune (keep 2); upgrade /opt/flvx-svc panel
+- [x] Post checks = baseline; version.json fork.118; old profile ≤ 1 reload; /api/clients/v2/rpc 403
+- [x] Prod sub (usb2) on leikwan-sh as cfgP ≈ B; sing-box / Surge UAs still parse
+- [x] Ledger 220 → 已发布 fork.118
+- [x] Cleanup (leikwan-sh /root/mh-test, temp users/rules/subs/browsers); final.md / summary.md; plan marked complete
+
+## Results
+Release: branch `maintenance/3.0.27-fork.118-sub-dns`, tag `3.0.27-fork.118` → 5d0cc831, CI Build Check 42059330693,
+Build and Push Images 42061219766 (Create Release hit a GitHub HTTP 500, failed job re-run → green), Latest, 10 assets,
+pins / sha256 / ghcr amd64+arm64 verified. Prod upgraded 11-06 00:17 TW (panel only, no OTA, no DB change), 30/30 nodes online.
+Rollback → fork.117: `/opt/flvx-svc/rollback/pre-fork118-20261105T161706Z/rollback.sh` (image swap; `--restore-db` last resort).
+
+Gates: go build/vet OK; `go test ./...` with the PostgreSQL DSN = 25 packages ok, 0 failures (fork.117 base: 25 ok, 0 failures);
+frontend / agent untouched (no diff vs fork.117). bench100: Clash 156.5→157.1 KB, 1864→1887 allocs, ~0.2 ms (noise);
+Stash +21 allocs; others unchanged.
+
+TTFB (8 sites × cold/warm1/warm2, sequential; proxy = HTTP proxy with the domain, tun = DNS via the client's
+resolver then SOCKS5 to that IP, like a phone VPN):
+## mainland (leikwan-sh, Volcengine Shanghai) 11-05 ~23:40–00:05 TW, mihomo v1.19.32 / sing-box 1.14.4, Dmit中转 · Dmit Nathan → Boil Hinet 158
+| config | mode | ok/total | DNS median ms | TTFB(+DNS) median s | cold median | warm median | max s | client DNS log lines / failures |
+|---|---|---|---|---|---|---|---|---|
+| mhA | proxy | 24/24 | - | 5.37 | 5.37 | 5.40 | 5.68 | 188 / 24 |
+| mhA | tun | 24/24 | 20 | 5.39 | 5.39 | 5.39 | 5.97 | 176 / 24 |
+| mhB | proxy | 24/24 | - | 0.36 | 0.36 | 0.37 | 0.68 | 50 / 0 |
+| mhB | tun | 24/24 | 21 | 0.42 | 0.47 | 0.39 | 5.53 | 82 / 0 |
+| mhE | proxy | 24/24 | - | 0.36 | 0.35 | 0.38 | 0.69 | 48 / 0 |
+| mhE | tun | 24/24 | 19 | 0.38 | 0.38 | 0.38 | 0.73 | 48 / 0 |
+| sbA | proxy | 24/24 | - | 0.38 | 0.40 | 0.37 | 1.14 | 48 / 0 |
+| sbA | tun | 24/24 | 82 | 0.44 | 0.45 | 0.43 | 0.69 | 215 / 0 ("NOERROR" lines excluded) |
+| sbD | proxy | 24/24 | - | 0.37 | 0.35 | 0.41 | 0.60 | 48 / 0 |
+| sbD | tun | 24/24 | 82 | 0.44 | 0.45 | 0.44 | 0.59 | 217 / 0 ("NOERROR" lines excluded) |
+
+## dev box (US) same configs
+| config | mode | ok/total | DNS median ms | TTFB(+DNS) median s | cold median | warm median | max s | client DNS log lines / failures |
+|---|---|---|---|---|---|---|---|---|
+| mhA | proxy | 24/24 | - | 1.09 | 1.08 | 1.09 | 1.47 | 158 / 0 |
+| mhA | tun | 24/24 | 10 | 1.10 | 1.16 | 1.09 | 1.74 | 159 / 0 |
+| mhE | proxy | 24/24 | - | 1.10 | 1.09 | 1.10 | 1.68 | 48 / 0 |
+| mhE | tun | 24/24 | 10 | 1.11 | 1.10 | 1.12 | 6.00 | 48 / 0 |
+| sbA | proxy | 24/24 | - | 1.10 | 1.11 | 1.10 | 1.44 | 48 / 0 |
+| sbA | tun | 24/24 | 251 | 1.33 | 1.35 | 1.33 | 2.15 | 215 / 0 |
+
+## after deploy: usb2's real prod sub pulled on leikwan-sh (fork.118), Dmit中转 · Dmit Nathan
+| config | mode | ok/total | DNS median ms | TTFB(+DNS) median s | cold median | warm median | max s | client DNS log lines / failures |
+|---|---|---|---|---|---|---|---|---|
+| mhP | proxy | 24/24 | - | 0.38 | 0.39 | 0.37 | 0.47 | 54 / 0 |
+| mhP | tun | 24/24 | 20 | 0.38 | 0.38 | 0.38 | 0.48 | 48 / 0 |
+
+Prod after deploy: version.json fork.118, `/api/clients/v2/rpc` 403 (CF + local), old fork.117 browser profile → fork.118 with
+1 reload, no loop / logout / blank; all real rules same signature as before (rule 37 2/4 pre-existing), 6 temp tunnels 2/2,
+8 landing links 2/2, 救命版 unchanged; panel CPU 14.14 → 14.08 s / 5 min, RSS 44.3 → 45.5 MiB.
