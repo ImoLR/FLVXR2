@@ -202,6 +202,8 @@ export interface LandingScanBlock {
 
 export interface LandingNode {
   deletePending?: boolean;
+  /** disabled by the panel (user / server stopped, no permission), not by an admin. */
+  autoDisabled?: boolean;
   scanBlock?: LandingScanBlock;
   // Plan 134: number of the owner's node rules.
   routeRuleCount?: number;
@@ -501,6 +503,13 @@ export const updateLandingNode = (node: LandingNode) => {
       : {}),
   });
 };
+// Plan 211 follow-up: 节点详情 停用 / 启用 only — same /landing/node/update
+// path as before, but just the status so no other field is rewritten.
+export const setLandingNodeStatus = (id: number, disabled: boolean) =>
+  Network.post<LandingNode>("/landing/node/update", {
+    id,
+    status: disabled ? "disabled" : "active",
+  });
 // Plan 131: admin-only global landing settings and node owner transfer.
 export interface LandingGlobalSettings {
   defaultMaxNodes: number;
