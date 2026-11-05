@@ -111,7 +111,7 @@ func TestNativeLandingRangeCarveAndGiveBack(t *testing.T) {
 			orphanSeed(t, r, &model.ForwardPort{ForwardID: 902, NodeID: 655, Port: 45001}, &model.ChainTunnel{TunnelID: 901, NodeID: 655, ChainType: "2", Port: sql.NullInt64{Int64: 45002, Valid: true}})
 			s.PortMin, s.PortMax = 30000, 49999
 			err = r.SaveLandingServer(s, nil)
-			if err == nil || !strings.Contains(err.Error(), "45001、45002（共 2 个）") {
+			if err == nil || !strings.Contains(err.Error(), "端口 45001 被规则 #902 使用；端口 45002 被隧道 #901 使用") {
 				t.Fatalf("conflict refusal: %v", err)
 			}
 			if got := nodeSpec(t, r, 655); got != "10000-29999,31000-65535" {
@@ -142,12 +142,80 @@ func TestNativeLandingRangeCarveAndGiveBack(t *testing.T) {
 	}
 }
 
-func TestNativeLandingEnableRefusesUsedPorts(t *testing.T) {
+// Plan 216: a used port in 30000-39999 no longer blocks the enable — the
+// first free aligned 1000-port block is taken and carved instead.
+func TestNativeLandingEnablePicksFreeBlock(t *testing.T) {
+	for _, dialect := range []string{"sqlite", "postgres"} {
+		t.Run(dialect, func(t *testing.T) {
+			r := nativePortsFixture(t, dialect, "10000-65535")
+			orphanSeed(t, r,
+				&model.Tunnel{ID: 65, Name: "mk沪港ixp 666m -> US"},
+				&model.ChainTunnel{TunnelID: 65, NodeID: 655, ChainType: "2", Port: sql.NullInt64{Int64: 34060, Valid: true}})
+			s, note, err := r.EnableLandingServerNote(655)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if s.PortMin != 30000 || s.PortMax != 30999 || s.RuleCarved != "30000-30999" {
+				t.Fatalf("picked %d-%d carved %q", s.PortMin, s.PortMax, s.RuleCarved)
+			}
+			if got := nodeSpec(t, r, 655); got != "10000-29999,31000-65535" {
+				t.Fatalf("carve: %q", got)
+			}
+			if !strings.Contains(note, "端口段 30000-30999（30000-39999 有端口被占用：端口 34060 被隧道「mk沪港ixp 666m -> US」使用）") {
+				t.Fatalf("note: %q", note)
+			}
+			stored, _ := r.GetLandingServer(s.ID)
+			if stored.PortMin != 30000 || stored.PortMax != 30999 {
+				t.Fatalf("stored %d-%d", stored.PortMin, stored.PortMax)
+			}
+		})
+	}
+}
+
+func TestNativeLandingEnableDefaultRangeWhenFree(t *testing.T) {
 	r := nativePortsFixture(t, "sqlite", "10000-65535")
-	orphanSeed(t, r, &model.ForwardPort{ForwardID: 1, NodeID: 655, Port: 30010})
+	// Ports outside 30000-39999 do not move the default.
+	orphanSeed(t, r, &model.ForwardPort{ForwardID: 1, NodeID: 655, Port: 29999}, &model.ForwardPort{ForwardID: 1, NodeID: 655, Port: 40000})
+	s, note, err := r.EnableLandingServerNote(655)
+	if err != nil || note != "" {
+		t.Fatalf("enable: %v note %q", err, note)
+	}
+	if s.PortMin != 30000 || s.PortMax != 39999 || nodeSpec(t, r, 655) != "10000-29999,40000-65535" {
+		t.Fatalf("default: %d-%d spec %q", s.PortMin, s.PortMax, nodeSpec(t, r, 655))
+	}
+}
+
+func TestNativeLandingEnableBlockRules(t *testing.T) {
+	// Blocks must lie wholly inside the rule range and skip guard / other
+	// chain-node ports: 30000 block busy (forward), 31000 not in the rule
+	// range, 32000 has a guard port, 33000 a chain node → 35000? no: 34000.
+	r := nativePortsFixture(t, "sqlite", "10000-30999,32000-65535")
+	orphanSeed(t, r,
+		&model.Forward{ID: 7, UserID: 1, TunnelID: 1, Name: "日本游戏", Status: 1},
+		&model.ForwardPort{ForwardID: 7, NodeID: 655, Port: 30010},
+		&model.ForwardChainNode{ChainID: 1, LandingServerID: 99, NodeID: 655, Port: 33001, GuardPort: 32500, State: model.ChainNodeActive})
+	s, note, err := r.EnableLandingServerNote(655)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.PortMin != 34000 || s.PortMax != 34999 || !strings.Contains(note, "规则「日本游戏」") {
+		t.Fatalf("picked %d-%d note %q", s.PortMin, s.PortMax, note)
+	}
+}
+
+func TestNativeLandingEnableAllBusyNamesHolders(t *testing.T) {
+	r := nativePortsFixture(t, "sqlite", "10000-65535")
+	orphanSeed(t, r, &model.Tunnel{ID: 65, Name: "mk沪港ixp 666m -> US"}, &model.Forward{ID: 8, UserID: 1, TunnelID: 1, Name: "美西", Status: 1})
+	orphanSeed(t, r, &model.ChainTunnel{TunnelID: 65, NodeID: 655, ChainType: "2", Port: sql.NullInt64{Int64: 34060, Valid: true}})
+	for lo := 10000; lo+999 <= 65535; lo += 1000 {
+		if lo == 34000 {
+			continue
+		}
+		orphanSeed(t, r, &model.ForwardPort{ForwardID: 8, NodeID: 655, Port: lo + 500})
+	}
 	_, err := r.EnableLandingServer(655)
-	if err == nil || !strings.Contains(err.Error(), "30010") || !strings.Contains(err.Error(), "NexKR") {
-		t.Fatalf("enable over a used port: %v", err)
+	if err == nil || !strings.Contains(err.Error(), "隧道「mk沪港ixp 666m -> US」") || !strings.Contains(err.Error(), "规则「美西」") || !strings.Contains(err.Error(), "NexKR") {
+		t.Fatalf("all busy: %v", err)
 	}
 	if got := nodeSpec(t, r, 655); got != "10000-65535" {
 		t.Fatalf("refused enable changed spec: %q", got)
@@ -156,6 +224,43 @@ func TestNativeLandingEnableRefusesUsedPorts(t *testing.T) {
 	r.db.Model(&model.LandingServer{}).Count(&count)
 	if count != 0 {
 		t.Fatal("refused enable created a server")
+	}
+}
+
+// Chain-only exit → public: a busy range moves only to a block that still
+// holds the exit's own chain-node listeners.
+func TestChainOnlyEnablePicksBlockKeepingOwnPorts(t *testing.T) {
+	r := nativePortsFixture(t, "sqlite", "10000-65535")
+	orphanSeed(t, r, &model.LandingServer{ID: 5, Source: "native", NodeID: 655, Name: "NexKR", PublicHost: "203.0.113.55", PortMin: 30000, PortMax: 39999, ChainOnly: true, Status: "active", FlowType: 2, TrafficRatio: 1, MaxNodesPerUser: 3, CoreMemoryMB: 256, CoreCPUPercent: 50},
+		&model.ForwardChainNode{ChainID: 1, LandingServerID: 5, NodeID: 655, Port: 30005, State: model.ChainNodeActive},
+		&model.ForwardPort{ForwardID: 1, NodeID: 655, Port: 34060})
+	s, note, err := r.EnableLandingServerNote(655)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.ChainOnly || s.PortMin != 30000 || s.PortMax != 30999 || note == "" || nodeSpec(t, r, 655) != "10000-29999,31000-65535" {
+		t.Fatalf("chain-only enable: %+v note %q spec %q", s, note, nodeSpec(t, r, 655))
+	}
+	// Own listener outside every free block → refused, nothing changes.
+	r2 := nativePortsFixture(t, "sqlite", "10000-65535")
+	orphanSeed(t, r2, &model.LandingServer{ID: 5, Source: "native", NodeID: 655, Name: "NexKR", PublicHost: "203.0.113.55", PortMin: 30000, PortMax: 39999, ChainOnly: true, Status: "active", FlowType: 2, TrafficRatio: 1, MaxNodesPerUser: 3, CoreMemoryMB: 256, CoreCPUPercent: 50},
+		&model.ForwardChainNode{ChainID: 1, LandingServerID: 5, NodeID: 655, Port: 30005, State: model.ChainNodeActive},
+		&model.ForwardPort{ForwardID: 1, NodeID: 655, Port: 30500})
+	if _, err := r2.EnableLandingServer(655); err == nil {
+		t.Fatal("chain-only enable must not drop its own listener out of range")
+	}
+	cur, _ := r2.GetLandingServer(5)
+	if !cur.ChainOnly || cur.PortMin != 30000 || nodeSpec(t, r2, 655) != "10000-65535" {
+		t.Fatalf("refused chain-only enable changed state: %+v", cur)
+	}
+}
+
+func TestPortHoldersLabel(t *testing.T) {
+	h := map[int][]string{1: {"隧道「A」"}, 2: {"隧道「A」"}, 3: {"规则「B」"}, 4: {"规则「C」"}, 5: {"入站「D」"}, 6: {"隧道「A」"}, 7: {"隧道「A」"}}
+	got := portHoldersLabel([]int{1, 2, 3, 4, 5, 6, 7}, h)
+	want := "端口 1、2、6 等 4 个被隧道「A」使用；端口 3 被规则「B」使用；端口 4 被规则「C」使用 等"
+	if got != want {
+		t.Fatalf("got %q", got)
 	}
 }
 
