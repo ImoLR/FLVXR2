@@ -1,6 +1,7 @@
 package repo
 
 import (
+	"database/sql"
 	"errors"
 	"fmt"
 	"sort"
@@ -199,52 +200,226 @@ func landingHeldPorts(tx *gorm.DB, s *model.LandingServer) (map[int]bool, error)
 	return held, nil
 }
 
-// landingRangeRuleConflicts lists ports in [lo, hi] that forwards, tunnel
-// listeners or other node listeners already use on the node (sorted).
-func landingRangeRuleConflicts(tx *gorm.DB, nodeID int64, lo, hi int) ([]int, error) {
-	set := map[int]bool{}
+// landingPortHolders maps a node port to who uses it: forwards (规则), tunnel
+// listeners (隧道), deployed inbounds and runtime resources — the sources a
+// landing range must stay clear of. lo/hi = 0 loads the whole node at once
+// (plan 216: the enable block search scans this map in memory).
+func landingPortHolders(tx *gorm.DB, nodeID int64, lo, hi int) (map[int][]string, error) {
+	type row struct {
+		Port int
+		Name sql.NullString
+		ID   int64
+	}
+	holders := map[int][]string{}
 	for _, q := range []struct {
-		m      interface{}
-		column string
-		where  string
+		table, port, sel, join, where, kind string
 	}{
-		{&model.ForwardPort{}, "port", "node_id = ? AND port BETWEEN ? AND ?"},
-		{&model.ChainTunnel{}, "port", "node_id = ? AND port IS NOT NULL AND port BETWEEN ? AND ?"},
-		{&model.NodeDeployedInbound{}, "listen_port", "node_id = ? AND listen_port BETWEEN ? AND ?"},
-		{&model.NodeRuntimeResource{}, "port", "node_id = ? AND status <> 'released' AND port BETWEEN ? AND ?"},
+		{"forward_port", "forward_port.port", "forward_port.port AS port, forward.name AS name, forward_port.forward_id AS id", "LEFT JOIN forward ON forward.id = forward_port.forward_id", "forward_port.node_id = ?", "规则"},
+		{"chain_tunnel", "chain_tunnel.port", "chain_tunnel.port AS port, tunnel.name AS name, chain_tunnel.tunnel_id AS id", "LEFT JOIN tunnel ON tunnel.id = chain_tunnel.tunnel_id", "chain_tunnel.node_id = ? AND chain_tunnel.port IS NOT NULL", "隧道"},
+		{"node_deployed_inbound", "listen_port", "listen_port AS port, display_name AS name, id", "", "node_id = ?", "入站"},
+		{"node_runtime_resource", "port", "port, resource_key AS name, id", "", "node_id = ? AND status <> 'released' AND port > 0", "运行资源"},
 	} {
-		var ports []int
-		if err := tx.Model(q.m).Where(q.where, nodeID, lo, hi).Pluck(q.column, &ports).Error; err != nil {
+		db := tx.Table(q.table).Select(q.sel)
+		if q.join != "" {
+			db = db.Joins(q.join)
+		}
+		db = db.Where(q.where, nodeID)
+		if lo > 0 {
+			db = db.Where(q.port+" BETWEEN ? AND ?", lo, hi)
+		}
+		var rows []row
+		if err := db.Scan(&rows).Error; err != nil {
 			return nil, err
 		}
-		for _, p := range ports {
-			set[p] = true
+		for _, r := range rows {
+			label := landingHolderLabel(q.kind, r.Name.String, r.ID)
+			dup := false
+			for _, l := range holders[r.Port] {
+				dup = dup || l == label
+			}
+			if !dup {
+				holders[r.Port] = append(holders[r.Port], label)
+			}
 		}
 	}
-	out := make([]int, 0, len(set))
-	for p := range set {
+	return holders, nil
+}
+
+func landingHolderLabel(kind, name string, id int64) string {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return fmt.Sprintf("%s #%d", kind, id)
+	}
+	if r := []rune(name); len(r) > 40 {
+		name = string(r[:40]) + "…"
+	}
+	return fmt.Sprintf("%s「%s」", kind, name)
+}
+
+func sortedPorts(holders map[int][]string) []int {
+	out := make([]int, 0, len(holders))
+	for p := range holders {
 		out = append(out, p)
 	}
 	sort.Ints(out)
-	return out, nil
+	return out
 }
 
-func portListLabel(ports []int) string {
-	shown := ports
-	if len(shown) > 5 {
-		shown = shown[:5]
+// landingRangeRuleConflicts lists ports in [lo, hi] that forwards, tunnel
+// listeners or other node listeners already use on the node (sorted).
+func landingRangeRuleConflicts(tx *gorm.DB, nodeID int64, lo, hi int) ([]int, error) {
+	holders, err := landingPortHolders(tx, nodeID, lo, hi)
+	if err != nil {
+		return nil, err
 	}
-	parts := make([]string, len(shown))
-	for i, p := range shown {
-		parts[i] = strconv.Itoa(p)
+	return sortedPorts(holders), nil
+}
+
+// portHoldersLabel names who holds the given ports, grouped by holder in port
+// order: 「端口 34060 被隧道「X」使用；端口 30010、30011 被规则「Y」使用」 —
+// at most 3 holders, then 「等」.
+func portHoldersLabel(ports []int, holders map[int][]string) string {
+	var order []string
+	byLabel := map[string][]int{}
+	for _, p := range ports {
+		labels := holders[p]
+		if len(labels) == 0 {
+			labels = []string{"其他监听"}
+		}
+		for _, l := range labels {
+			if _, ok := byLabel[l]; !ok {
+				order = append(order, l)
+			}
+			byLabel[l] = append(byLabel[l], p)
+		}
 	}
-	label := strings.Join(parts, "、")
-	if len(ports) > 5 {
-		label += fmt.Sprintf(" 等共 %d 个", len(ports))
-	} else {
-		label += fmt.Sprintf("（共 %d 个）", len(ports))
+	shown := order
+	if len(shown) > 3 {
+		shown = shown[:3]
 	}
-	return label
+	parts := make([]string, 0, len(shown))
+	for _, l := range shown {
+		ps := byLabel[l]
+		nums := make([]string, 0, 3)
+		for i, p := range ps {
+			if i == 3 {
+				break
+			}
+			nums = append(nums, strconv.Itoa(p))
+		}
+		label := strings.Join(nums, "、") + " "
+		if len(ps) > 3 {
+			label += fmt.Sprintf("等 %d 个", len(ps))
+		}
+		sep := ""
+		if !strings.HasSuffix(l, "」") {
+			sep = " "
+		}
+		parts = append(parts, fmt.Sprintf("端口 %s被%s%s使用", label, l, sep))
+	}
+	out := strings.Join(parts, "；")
+	if len(order) > 3 {
+		out += " 等"
+	}
+	return out
+}
+
+// Plan 216: enable keeps the default 30000-39999 when it is free; otherwise it
+// takes the first free 1000-port block, aligned to 1000 (30000-30999 …
+// 64000-64999, then 10000-10999 … 29000-29999).
+const (
+	landingDefaultPortMin = 30000
+	landingDefaultPortMax = 39999
+	landingPortBlock      = 1000
+)
+
+func landingBlockCandidates() [][2]int {
+	var out [][2]int
+	for _, start := range [][2]int{{30000, 65535}, {10000, 29999}} {
+		for lo := start[0]; lo+landingPortBlock-1 <= start[1]; lo += landingPortBlock {
+			out = append(out, [2]int{lo, lo + landingPortBlock - 1})
+		}
+	}
+	return out
+}
+
+func portsIn(sorted []int, lo, hi int) bool {
+	i := sort.SearchInts(sorted, lo)
+	return i < len(sorted) && sorted[i] <= hi
+}
+
+// pickNativeLandingRange chooses the range a native landing reserves when it
+// is enabled (fresh, or chain-only → public). [prefLo, prefHi] is kept when
+// no forward / tunnel / inbound / runtime resource on the node uses a port in
+// it (the check applyNativeLandingRange makes). Otherwise the first aligned
+// 1000-port block that lies wholly inside the node's rule range (node.port;
+// empty = unrestricted), leaves some rule ports, holds no used port, no
+// Reality guard port and no other landing's chain-node port, and contains
+// every listener the server already owns (own). note explains a non-default
+// pick. One load of the node's ports, then an in-memory scan.
+func pickNativeLandingRange(tx *gorm.DB, node model.Node, serverID int64, prefLo, prefHi int, own []int) (int, int, string, error) {
+	holders, err := landingPortHolders(tx, node.ID, 0, 0)
+	if err != nil {
+		return 0, 0, "", err
+	}
+	used := sortedPorts(holders)
+	if !portsIn(used, prefLo, prefHi) {
+		return prefLo, prefHi, "", nil
+	}
+	busy := map[int]bool{}
+	for p := range holders {
+		busy[p] = true
+	}
+	guards, err := landingGuardPortsOnNode(tx, node.ID)
+	if err != nil {
+		return 0, 0, "", err
+	}
+	var chain []int
+	if err := tx.Model(&model.ForwardChainNode{}).Where("node_id = ? AND landing_server_id <> ?", node.ID, serverID).Pluck("port", &chain).Error; err != nil {
+		return 0, 0, "", err
+	}
+	for _, list := range [][]int{guards, chain} {
+		for _, p := range list {
+			busy[p] = true
+		}
+	}
+	busyList := make([]int, 0, len(busy))
+	for p := range busy {
+		busyList = append(busyList, p)
+	}
+	sort.Ints(busyList)
+	spans := parsePortSpans(node.Port)
+	for _, c := range landingBlockCandidates() {
+		lo, hi := c[0], c[1]
+		if lo == prefLo && hi == prefHi {
+			continue
+		}
+		if len(spans) > 0 {
+			in := portSpansOverlap(spans, lo, hi)
+			if len(in) != 1 || in[0].lo != lo || in[0].hi != hi || len(subtractPortSpan(spans, lo, hi)) == 0 {
+				continue
+			}
+		}
+		if portsIn(busyList, lo, hi) {
+			continue
+		}
+		fits := true
+		for _, p := range own {
+			fits = fits && p >= lo && p <= hi
+		}
+		if !fits {
+			continue
+		}
+		note := fmt.Sprintf("端口段 %s（%s 有端口被占用：%s）", formatPortRange(lo, hi), formatPortRange(prefLo, prefHi), portHoldersLabel(conflictsIn(used, prefLo, prefHi), holders))
+		return lo, hi, note, nil
+	}
+	return 0, 0, "", fmt.Errorf("节点「%s」找不到空闲的 %d 端口段来启用落地：默认端口段 %s 内%s，其他端口段也有端口被占用或不在节点规则端口段 %s 内。请先修改这些规则或隧道的端口，或在节点编辑里调整规则端口段", node.Name, landingPortBlock, formatPortRange(prefLo, prefHi), portHoldersLabel(conflictsIn(used, prefLo, prefHi), holders), node.Port)
+}
+
+func conflictsIn(sorted []int, lo, hi int) []int {
+	i := sort.SearchInts(sorted, lo)
+	j := sort.SearchInts(sorted, hi+1)
+	return sorted[i:j]
 }
 
 // applyNativeLandingRange moves the node rule range in step with a native
@@ -263,10 +438,11 @@ func applyNativeLandingRange(tx *gorm.DB, s *model.LandingServer, oldLo, oldHi, 
 	if newLo > 0 {
 		// Ports newly entering the landing range, and rule-range ports about to
 		// be carved, must not be in use by the node's rules or tunnels.
-		conflicts, err := landingRangeRuleConflicts(tx, s.NodeID, newLo, newHi)
+		holders, err := landingPortHolders(tx, s.NodeID, newLo, newHi)
 		if err != nil {
 			return err
 		}
+		conflicts := sortedPorts(holders)
 		spans := parsePortSpans(node.Port)
 		var bad []int
 		for _, p := range conflicts {
@@ -277,7 +453,7 @@ func applyNativeLandingRange(tx *gorm.DB, s *model.LandingServer, oldLo, oldHi, 
 			}
 		}
 		if len(bad) > 0 {
-			return fmt.Errorf("落地端口段 %s 内的端口 %s已被节点「%s」上的规则或隧道使用；不会移动用户的规则，请换一个落地端口段，或先修改这些规则的端口", formatPortRange(newLo, newHi), portListLabel(bad), node.Name)
+			return fmt.Errorf("落地端口段 %s 内有 %d 个端口已被节点「%s」上的规则或隧道使用：%s。不会移动用户的规则，请换一个落地端口段，或先修改这些规则的端口", formatPortRange(newLo, newHi), len(bad), node.Name, portHoldersLabel(bad, holders))
 		}
 	}
 	held := map[int]bool{}

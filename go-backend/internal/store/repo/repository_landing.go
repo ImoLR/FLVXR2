@@ -77,11 +77,20 @@ func (r *Repository) LandingServerGroupIDs(id int64) ([]int64, error) {
 }
 
 func (r *Repository) EnableLandingServer(nodeID int64) (*model.LandingServer, error) {
+	s, _, err := r.EnableLandingServerNote(nodeID)
+	return s, err
+}
+
+// EnableLandingServerNote enables a native landing on the node. note is set
+// when the default range 30000-39999 had used ports and another free block
+// was picked (plan 216), e.g. 「端口段 30000-30999（30000-39999 有端口被占用：…）」.
+func (r *Repository) EnableLandingServerNote(nodeID int64) (*model.LandingServer, string, error) {
 	// This production host must never run a FLVX landing core, regardless of privileges.
 	if nodeID == 36 {
-		return nil, errors.New("节点 36 是妙妙屋生产主机，禁止启用落地")
+		return nil, "", errors.New("节点 36 是妙妙屋生产主机，禁止启用落地")
 	}
 	var s model.LandingServer
+	note := ""
 	err := r.db.Transaction(func(tx *gorm.DB) error {
 		var n model.Node
 		if err := tx.First(&n, nodeID).Error; err != nil {
@@ -101,11 +110,23 @@ func (r *Repository) EnableLandingServer(nodeID int64) (*model.LandingServer, er
 				existing.ChainOnly = false
 				existing.Protocols = `["ss2022","vless_reality_vision"]`
 				existing.UpdatedTime = time.Now().UnixMilli()
-				if err := tx.Model(&existing).Updates(map[string]interface{}{"chain_only": false, "protocols": existing.Protocols, "updated_time": existing.UpdatedTime}).Error; err != nil {
+				// Now public: reserve its range like a fresh enable (plan 139);
+				// a busy range moves to a free block that still holds the
+				// exit's chain-node / landing-node listeners (plan 216).
+				lo, hi := activeLandingRange(&existing)
+				if lo > 0 && existing.Source == "native" {
+					own, err := landingServerOwnPorts(tx, existing.ID)
+					if err != nil {
+						return err
+					}
+					if lo, hi, note, err = pickNativeLandingRange(tx, n, existing.ID, lo, hi, own); err != nil {
+						return err
+					}
+					existing.PortMin, existing.PortMax = lo, hi
+				}
+				if err := tx.Model(&existing).Updates(map[string]interface{}{"chain_only": false, "protocols": existing.Protocols, "port_min": existing.PortMin, "port_max": existing.PortMax, "updated_time": existing.UpdatedTime}).Error; err != nil {
 					return err
 				}
-				// Now public: reserve its range like a fresh enable (plan 139).
-				lo, hi := activeLandingRange(&existing)
 				if err := applyNativeLandingRange(tx, &existing, 0, 0, lo, hi); err != nil {
 					return err
 				}
@@ -120,14 +141,35 @@ func (r *Repository) EnableLandingServer(nodeID int64) (*model.LandingServer, er
 		if n.ServerIPV4.Valid && n.ServerIPV4.String != "" {
 			host = n.ServerIPV4.String
 		}
-		s = model.LandingServer{Source: "native", NodeID: nodeID, Name: n.Name, PublicHost: host, PortMin: 30000, PortMax: 39999, FlowType: 2, TrafficRatio: 1, DefaultExpiryMode: "follow_user", MaxNodesPerUser: 3, DefaultMaxTotalConnections: LandingDefaultNodeTotal, Protocols: `["ss2022","vless_reality_vision"]`, RealityDest: "www.lovelive-anime.jp:443", RealityServerNames: `["www.lovelive-anime.jp"]`, CoreMemoryMB: 256, CoreCPUPercent: 50, Status: "active", Revision: 1, CreatedTime: now, UpdatedTime: now}
+		lo, hi, picked, err := pickNativeLandingRange(tx, n, 0, landingDefaultPortMin, landingDefaultPortMax, nil)
+		if err != nil {
+			return err
+		}
+		note = picked
+		s = model.LandingServer{Source: "native", NodeID: nodeID, Name: n.Name, PublicHost: host, PortMin: lo, PortMax: hi, FlowType: 2, TrafficRatio: 1, DefaultExpiryMode: "follow_user", MaxNodesPerUser: 3, DefaultMaxTotalConnections: LandingDefaultNodeTotal, Protocols: `["ss2022","vless_reality_vision"]`, RealityDest: "www.lovelive-anime.jp:443", RealityServerNames: `["www.lovelive-anime.jp"]`, CoreMemoryMB: 256, CoreCPUPercent: 50, Status: "active", Revision: 1, CreatedTime: now, UpdatedTime: now}
 		// Plan 139: the landing range leaves the node's rule range.
 		if err := applyNativeLandingRange(tx, &s, 0, 0, s.PortMin, s.PortMax); err != nil {
 			return err
 		}
 		return tx.Create(&s).Error
 	})
-	return &s, err
+	if err != nil {
+		note = ""
+	}
+	return &s, note, err
+}
+
+// landingServerOwnPorts are the listener ports a landing server already hands
+// out (landing nodes + chain nodes).
+func landingServerOwnPorts(tx *gorm.DB, serverID int64) ([]int, error) {
+	var ports, chain []int
+	if err := tx.Model(&model.LandingNode{}).Where("landing_server_id = ?", serverID).Pluck("port", &ports).Error; err != nil {
+		return nil, err
+	}
+	if err := tx.Model(&model.ForwardChainNode{}).Where("landing_server_id = ?", serverID).Pluck("port", &chain).Error; err != nil {
+		return nil, err
+	}
+	return append(ports, chain...), nil
 }
 func ValidateLandingServer(s *model.LandingServer) error { return validateLandingServer(s, nil) }
 

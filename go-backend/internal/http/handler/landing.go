@@ -417,13 +417,16 @@ func (h *Handler) landingServerEnable(w http.ResponseWriter, r *http.Request) {
 		landingError(w, err)
 		return
 	}
-	s, err := h.repo.EnableLandingServer(req.NodeID)
+	s, note, err := h.repo.EnableLandingServerNote(req.NodeID)
 	if err != nil {
 		landingError(w, err)
 		return
 	}
 	h.syncLandingServer(s.ID)
-	response.WriteJSON(w, response.OK(h.landingServerView(*s)))
+	view := h.landingServerView(*s)
+	// Plan 216: set when 30000-39999 was busy and another block was picked.
+	view["rangeNote"] = note
+	response.WriteJSON(w, response.OK(view))
 }
 func (h *Handler) landingServerList(w http.ResponseWriter, r *http.Request) {
 	uid, role, _ := userRoleFromRequest(r)
