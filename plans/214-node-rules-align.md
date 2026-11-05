@@ -146,3 +146,15 @@ rows, action pills ≤ 2 lines at 390 (1 line at 1440), toggle → ✗ at once, 
 置顶 / 置底 / 删除 (取消 + 确认) all work, 保存 + discard prompt unchanged; every other layer
 (内置 … 默认出站; default / collapsed / expanded; user + admin; 390 + 1440; light + dark), the
 chain-proxy ✗ layer and the admin 出站与路由 page pixel-identical to r2.
+
+## Final tweak (release-1105d, user approved 11-05 19:30 TW)
+User: 「可以就按你推荐的改然后发布」 — 我的规则 collapsed chip uses the short label like 全局·强制.
+- [x] `outboundShortLabel` (landing-egress.ts) composes the existing `outboundTypeLabel` /
+      `ipVersionLabel` maps the way the backend `landingegress.ActionLabel` does (WARP / 代理 /
+      FLVX 落地节点 by type, else 强制 IPv4 / 强制 IPv6 / 直连); `RuleChoice.short` carries it,
+      only the collapsed 我的规则 chip uses it (user + admin). 命中后 keeps the full name.
+- [x] tsc 0, eslint clean on the 3 files, build ok
+- [x] Demo r3 vs final: 328/328 checks (chips = → 强制 IPv4 / → 封锁 / → 直连; 命中后 = 走出站「直连-强制ipv4出站」),
+      every other layer + chain ✗ + admin 出站与路由 127/127 pixel-identical to r3
+- [x] Gallery: 「r3 → 最终」 section (390 + 1440 light collapsed) at the top
+- [x] Commit, push, CI green
