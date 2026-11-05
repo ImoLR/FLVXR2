@@ -179,6 +179,10 @@ func (r *Repository) DeleteUserCascade(userID int64) error {
 		if err := tx.Where("user_id = ?", userID).Delete(&model.UserQuota{}).Error; err != nil {
 			return err
 		}
+		// Plan 212: the user's day rows (the rankings skip deleted users anyway).
+		if err := tx.Where("user_id = ?", userID).Delete(&model.TrafficDaily{}).Error; err != nil {
+			return err
+		}
 		if err := deleteUserLandingsTx(tx, userID); err != nil {
 			return err
 		}

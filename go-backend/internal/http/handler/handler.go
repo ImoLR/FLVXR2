@@ -310,6 +310,10 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("/api/v1/captcha/check", h.checkCaptcha)
 	mux.HandleFunc("/api/v1/captcha/verify", h.captchaVerify)
 	mux.HandleFunc("/api/v1/user/package", h.userPackage)
+	// Plan 212: 主页 「服务器流量」 (own servers) and admin 「流量排行」.
+	mux.HandleFunc("/api/v1/traffic/servers", h.trafficServers)
+	mux.HandleFunc("/api/v1/traffic/ranking", h.trafficRanking)
+	mux.HandleFunc("/api/v1/traffic/ranking/user", h.trafficRankingUser)
 	mux.HandleFunc("/api/v1/user/my-subscription", h.userMySubscription)
 	mux.HandleFunc("/api/v1/user/updatePassword", h.updatePassword)
 	mux.HandleFunc("/api/v1/node/list", h.nodeList)

@@ -202,6 +202,11 @@ func requiresAdmin(path string) bool {
 		return true
 	}
 
+	// Plan 212: 主页 流量排行 (every user's traffic).
+	if path == "/api/v1/traffic/ranking" || strings.HasPrefix(path, "/api/v1/traffic/ranking/") {
+		return true
+	}
+
 	if strings.HasPrefix(path, "/api/v1/api/v1/backup/") {
 		return true
 	}

@@ -180,6 +180,8 @@ func Open(path string) (*Repository, error) {
 		_ = sqlDB.Close()
 		return nil, fmt.Errorf("backfill landing user max nodes: %w", err)
 	}
+	// Plan 212: when the traffic_daily rollup started (first start only).
+	ensureTrafficDailySince(db)
 	resync, err := seedLandingEgressDefaults(db)
 	if err != nil {
 		_ = sqlDB.Close()
@@ -253,6 +255,8 @@ func OpenPostgres(dsn string) (*Repository, error) {
 		_ = sqlDB.Close()
 		return nil, fmt.Errorf("backfill landing user max nodes: %w", err)
 	}
+	// Plan 212: when the traffic_daily rollup started (first start only).
+	ensureTrafficDailySince(db)
 	resync, err := seedLandingEgressDefaults(db)
 	if err != nil {
 		_ = sqlDB.Close()
@@ -349,6 +353,7 @@ func autoMigrateAll(db *gorm.DB) error {
 		&model.UserTrafficBuyLog{},
 		&model.BalanceLog{},
 		&model.UserTrafficHistory{},
+		&model.TrafficDaily{},
 		&model.Order{},
 		&model.PaymentConfig{},
 		&model.LeiKwanAccount{},

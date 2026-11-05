@@ -1,6 +1,6 @@
 import type { SubscriptionPackageApiItem } from "@/api/types";
 
-import { useEffect, useState } from "react";
+import { Suspense, lazy, useEffect, useState } from "react";
 import toast from "react-hot-toast";
 
 import { AnimatedPage } from "@/components/animated-page";
@@ -39,6 +39,15 @@ import {
   listAutoBuyTrafficPackages,
 } from "@/api";
 import { Select, SelectItem } from "@/shadcn-bridge/heroui/select";
+
+// Plan 212: the traffic cards load after the page shows its data (own chunks,
+// own requests); admins get 流量排行, users 服务器流量.
+const ServerTrafficCard = lazy(
+  () => import("@/pages/dashboard/components/server-traffic-card"),
+);
+const TrafficRankingCard = lazy(
+  () => import("@/pages/dashboard/components/traffic-ranking-card"),
+);
 
 export default function DashboardPage() {
   const [quotaHistoryModalOpen, setQuotaHistoryModalOpen] = useState(false);
@@ -83,6 +92,29 @@ export default function DashboardPage() {
       prefetchOnIdle("after-dashboard");
     }
   }, [loading]);
+  // Plan 212: the traffic cards mount once the browser is idle after the page
+  // has its data, so they never delay the existing cards (or the chart).
+  const [trafficCardsReady, setTrafficCardsReady] = useState(false);
+
+  useEffect(() => {
+    if (loading || trafficCardsReady) return;
+    const idleWindow = window as Window & {
+      requestIdleCallback?: (cb: () => void, o?: { timeout: number }) => number;
+      cancelIdleCallback?: (id: number) => void;
+    };
+
+    if (typeof idleWindow.requestIdleCallback === "function") {
+      const id = idleWindow.requestIdleCallback(
+        () => setTrafficCardsReady(true),
+        { timeout: 2000 },
+      );
+
+      return () => idleWindow.cancelIdleCallback?.(id);
+    }
+    const timer = window.setTimeout(() => setTrafficCardsReady(true), 300);
+
+    return () => window.clearTimeout(timer);
+  }, [loading, trafficCardsReady]);
 
   const handleToggleAutoRenew = async (enabled: boolean) => {
     if (!userInfo.id || autoRenewSwitchLoading) return;
@@ -999,6 +1031,12 @@ export default function DashboardPage() {
         formatFlow={formatFlow}
         statisticsFlowsCount={statisticsFlows.length}
       />
+      {/* Plan 212: admin 流量排行 sits right under the 24 h chart. */}
+      {isAdmin && trafficCardsReady && (
+        <Suspense fallback={null}>
+          <TrafficRankingCard />
+        </Suspense>
+      )}
       {isAdmin && nodeExpiryReminders.length > 0 && (
         <Card className="mb-6 lg:mb-8 border border-amber-200/80 bg-gradient-to-br from-amber-50/90 via-background to-orange-50/70 shadow-md dark:border-amber-500/20 dark:from-amber-950/10 dark:to-orange-950/10">
           <CardHeader className="pb-3">
@@ -1045,6 +1083,11 @@ export default function DashboardPage() {
             )}
           </CardBody>
         </Card>
+      )}
+      {!isAdmin && trafficCardsReady && (
+        <Suspense fallback={null}>
+          <ServerTrafficCard />
+        </Suspense>
       )}
       {/* 隧道权限 - 管理员不显示 */}
       <TrafficPoolsCard pools={trafficPools} />

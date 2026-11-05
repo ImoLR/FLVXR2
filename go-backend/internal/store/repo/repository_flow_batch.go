@@ -95,6 +95,11 @@ func (r *Repository) ApplyFlowBatch(batch FlowBatch, now time.Time) (map[int64]*
 			}
 			views[userID] = view
 		}
+		// Plan 212: the same billed bytes into today's rollup rows (exactly once
+		// with the counters above: a rejected upload rolls them back too).
+		if err := addTrafficDailyTx(tx, batch.Users, batch.ServerQuotas, now); err != nil {
+			return err
+		}
 		for _, shareID := range sortedFlowKeys(batch.PeerShares) {
 			delta := batch.PeerShares[shareID]
 			if shareID <= 0 || delta <= 0 {
