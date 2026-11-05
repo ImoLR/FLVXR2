@@ -19,8 +19,8 @@ User 2026-11-06 ~03:00 TW: 「共享服务器在转发面板上 CPU 和内存的
 - [x] tsc / build / lint no new errors vs base
 - [x] Screens 390 + 1440, shared + native → /root/mmwx-preview/shared-core-unlimited/
 - [x] Resource numbers (landing list latency before/after)
-- [ ] Push, CI green
-- [ ] Ledger row (ready) + summary
+- [x] Push, CI green (run 42112240754: Build Agent / Frontend / Go Backend / PostgreSQL Contract all success)
+- [x] Ledger row (ready) + summary (runs/shared-core-unlimited-r2/summary.md)
 
 ## Results (round 2, 11-06 TW)
 - Item 4 re-checked: `internal/landingcustom` has no memory / CPU field at all; `core_memory_mb` / `core_cpu_percent` only appear in the native agent payload (`landing_runtime.go`, `Source != "native"` returns early). Shared push unchanged.
