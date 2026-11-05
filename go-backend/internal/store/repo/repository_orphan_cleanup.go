@@ -34,6 +34,16 @@ var groupOrphanCleanupRules = []struct {
 	{"node_tag_node", `NOT EXISTS (SELECT 1 FROM node WHERE node.id = node_tag_node.node_id) OR NOT EXISTS (SELECT 1 FROM node_tag WHERE node_tag.id = node_tag_node.tag_id)`},
 }
 
+// Plan 221: monitor grants of users deleted before DeleteUserCascade removed
+// them. Idempotent and cheap (tiny table), so it runs on every start.
+func cleanupMonitorPermissionOrphans(db *gorm.DB) (int64, error) {
+	res := db.Where("user_id NOT IN (?)", db.Model(&model.User{}).Select("id")).Delete(&model.MonitorPermission{})
+	if res.Error == nil && res.RowsAffected > 0 {
+		log.Printf("[monitor-permission-cleanup] removed %d orphan rows", res.RowsAffected)
+	}
+	return res.RowsAffected, res.Error
+}
+
 // Run before serving requests, after entry backfill. All deletions and the
 // marker commit together; a failed migration remains retryable on next startup.
 func cleanupGroupOrphans(db *gorm.DB) error {

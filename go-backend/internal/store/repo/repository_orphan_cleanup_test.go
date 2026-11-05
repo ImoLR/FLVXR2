@@ -414,3 +414,33 @@ func TestNodeDeleteRuntimeResources(t *testing.T) {
 		}
 	}
 }
+
+// Plan 221: deleting a user drops its monitor grant; startup removes grants
+// left behind by older deletes and keeps the ones of live users.
+func TestMonitorPermissionUserDelete(t *testing.T) {
+	for _, dialect := range []string{"sqlite", "postgres"} {
+		t.Run(dialect, func(t *testing.T) {
+			r := orphanTestRepo(t, dialect)
+			orphanSeed(t, r,
+				&model.User{ID: 2, User: "monitor-gone", RoleID: 1},
+				&model.User{ID: 3, User: "monitor-kept", RoleID: 1},
+				&model.MonitorPermission{ID: 1, UserID: 2, CreatedTime: 1},
+				&model.MonitorPermission{ID: 2, UserID: 3, CreatedTime: 1},
+				&model.MonitorPermission{ID: 3, UserID: 63, CreatedTime: 1},
+			)
+			if err := r.DeleteUserCascade(2); err != nil {
+				t.Fatal(err)
+			}
+			orphanCount(t, r, "monitor_permission", "user_id = ?", 0, 2)
+			n, err := cleanupMonitorPermissionOrphans(r.db)
+			if err != nil || n != 1 {
+				t.Fatalf("cleanup: n=%d err=%v, want 1 row", n, err)
+			}
+			orphanCount(t, r, "monitor_permission", "user_id = ?", 0, 63)
+			orphanCount(t, r, "monitor_permission", "user_id = ?", 1, 3)
+			if n, err = cleanupMonitorPermissionOrphans(r.db); err != nil || n != 0 {
+				t.Fatalf("second cleanup: n=%d err=%v, want 0", n, err)
+			}
+		})
+	}
+}

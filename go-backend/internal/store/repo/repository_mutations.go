@@ -173,6 +173,10 @@ func (r *Repository) DeleteUserCascade(userID int64) error {
 		if err := tx.Where("user_id = ?", userID).Delete(&model.UserGroupUser{}).Error; err != nil {
 			return err
 		}
+		// Plan 221: a left-over row would hand the monitor grant to whoever reuses the id.
+		if err := tx.Where("user_id = ?", userID).Delete(&model.MonitorPermission{}).Error; err != nil {
+			return err
+		}
 		if err := tx.Where("user_id = ?", userID).Delete(&model.StatisticsFlow{}).Error; err != nil {
 			return err
 		}
