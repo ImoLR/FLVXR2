@@ -65,3 +65,44 @@ release. Avoid 211's files (node-details, server-settings, shared-caps, user-set
 - [x] Commit, push, CI green (316c59fe, CI 41999004686 success)
 - [x] RELEASE-LEDGER row (built — screens pending user approval)
 - [x] Cleanup demo panel / browsers; final.md + summary.md (runs/node-rules-align)
+
+## r2 (2026-11-05 evening) — restore the ORIGINAL 内置 row; every layer one line
+
+User 11-05 ~17:30 TW after the r1 screens: the original 内置 UI (fork.115) is the
+reference and must not change; one rule = one line with an ellipsis, never wrap;
+details only via the layer header 「展开详情」; desktop same style.
+
+Approach:
+- `egress-builtin-list.tsx` + `scan-guard.tsx` restored byte-for-byte to fork.115;
+  node-rules wires 内置 exactly like fork.115 (collapsed = `BuiltinCompactRows`,
+  expanded = `BuiltinRuleList`). `LayerStep` header restored to fork.115.
+- Other layers: an exact clone of the `BuiltinCompactRows` row
+  (`grid-cols-[14px_minmax(0,1fr)_auto_auto] items-center gap-2 px-3 py-2`,
+  truncate name, short capped `shrink-0` chip, ✓/✗). No collapsed summary line;
+  matchers + 「命中后」 only under 展开详情 (r1 detail list kept).
+- 我的规则: same row + h-5 Switch + compact 「更多」 menu (编辑, 置顶…置底, 删除) on
+  desktop and H5, so the row stays one line at the 内置 height. On H5 (390 px) the
+  switch + 「更多」 leave no room for the action chip (name was squeezed to 0 px), so
+  我的规则 drops the chip on phones only; the action is in 展开详情 (「命中后」).
+  Other layers keep the chip (capped 7.5rem / 12rem, truncates; name gets room first).
+- Headers of 全局·强制 / 我的规则 / 服务器 / 全局·默认: on phones the hint goes under the
+  title so the toggle stays top-right (`hintBelow`); 内置 header = fork.115.
+- Default state: fork.115 desktop always showed 内置 expanded, so desktop starts
+  expanded (all layers), H5 collapsed; every layer still has its header toggle.
+
+### r2 checklist
+- [x] Restore 内置 files + wiring + LayerStep header to fork.115
+- [x] One-line clone row for 全局·强制 / 服务器 / 全局·默认 (details under 展开详情)
+- [x] 我的规则 one-line row with Switch + 更多 menu (desktop + H5)
+- [x] Default open state (desktop expanded / H5 collapsed)
+- [x] tsc / build / lint vs fork.115; bundle delta
+- [x] Demo screenshots fork.115 vs r2 (内置 pair first), one-line/overlap/scroll auto-check
+- [ ] Gallery regenerated; commit, push, CI green
+- [ ] Ledger row → built r2; cleanup; final.md + summary.md
+
+r2 results: tsc 0 errors, eslint no new warnings (3 pre-existing in enable-button.tsx),
+build ok. Bundle vs fork.115: +4.77 kB raw / +1.02 kB gzip (egress-rule-list +7.6,
+landing −3.2, css +0.3). Demo 148/148 checks, 0 page errors, 76 shots: 内置 fork.115 vs r2
+pixel-identical (H5 default + expanded, desktop list box; desktop header only gains 「收起」;
+markup byte-identical), every collapsed row height == 内置 row (36 px + divider), no
+overlap / no horizontal scroll at 390 and 1440, admin 出站与路由 sections pixel-identical.

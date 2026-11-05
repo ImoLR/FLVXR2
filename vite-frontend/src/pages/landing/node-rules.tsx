@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import toast from "react-hot-toast";
 
-import { BuiltinLayerRows } from "./egress-builtin-list";
+import { BuiltinCompactRows, BuiltinRuleList } from "./egress-builtin-list";
 import { EgressRuleList } from "./egress-rule-list";
 import { LandingTone, Pill } from "./pill";
 import {
@@ -19,6 +19,7 @@ import {
   getNodeRules,
   saveNodeRules,
 } from "@/api/landing-egress";
+import { useMobileBreakpoint } from "@/hooks/useMobileBreakpoint";
 import { Button } from "@/shadcn-bridge/heroui/button";
 import {
   Modal,
@@ -36,10 +37,11 @@ import { Spinner } from "@/shadcn-bridge/heroui/spinner";
 // is always visible (「暂无」 when empty), rows are one line with the matchers
 // behind 「详情」 (collapsed on H5), and 内置 collapses to one line per rule on
 // H5. Rule semantics, order, editing and saving are unchanged.
-// Plan 214: every layer uses the 内置 look — one shared row per rule (name,
-// action chip that wraps under the name, ✓ / ✗ at the far right) and one
-// 「展开详情」 toggle per layer header (desktop + H5, collapsed by default)
-// instead of a 「详情」 button on every rule.
+// Plan 214: 内置 stays exactly as in fork.115; every other layer uses an
+// exact clone of the 内置 one-line row (name with ellipsis, short action
+// chip, ✓ / ✗ at the far right, never wrapping) and one 「展开详情」 toggle
+// per layer header instead of a 「详情」 button on every rule. Like 内置 in
+// fork.115, layers start expanded on desktop and collapsed on H5.
 
 type LayerKey = "builtin" | "forced" | "node" | "server" | "default";
 
@@ -79,12 +81,15 @@ export function NodeRulesDialog({
   const [openLayers, setOpenLayers] = useState<
     Partial<Record<LayerKey, boolean>>
   >({});
-  const isOpen = (key: LayerKey) => Boolean(openLayers[key]);
+  const isMobile = useMobileBreakpoint();
+  const isOpen = (key: LayerKey) => openLayers[key] ?? !isMobile;
   const toggle = (key: LayerKey, title: string) => (
     <LayerToggle
       layer={title}
       open={isOpen(key)}
-      onToggle={() => setOpenLayers((prev) => ({ ...prev, [key]: !prev[key] }))}
+      onToggle={() =>
+        setOpenLayers((prev) => ({ ...prev, [key]: !isOpen(key) }))
+      }
     />
   );
 
@@ -271,16 +276,24 @@ export function NodeRulesDialog({
                 title="内置"
                 tone={layerTones.builtin}
               >
-                <BuiltinLayerRows
-                  offReasons={builtin.offReasons}
-                  open={isOpen("builtin")}
-                  safety={builtin.safety}
-                  scanGuard={builtin.scanGuard}
-                  values={builtinValues}
-                />
+                {isOpen("builtin") ? (
+                  <BuiltinRuleList
+                    offReasons={builtin.offReasons}
+                    safety={builtin.safety}
+                    scanGuard={builtin.scanGuard}
+                    values={builtinValues}
+                  />
+                ) : (
+                  <BuiltinCompactRows
+                    offReasons={builtin.offReasons}
+                    scanGuard={builtin.scanGuard}
+                    values={builtinValues}
+                  />
+                )}
               </LayerStep>
 
               <LayerStep
+                hintBelow
                 aside={
                   forced.length ? toggle("forced", "全局·强制") : undefined
                 }
@@ -314,6 +327,7 @@ export function NodeRulesDialog({
               </LayerStep>
 
               <LayerStep
+                hintBelow
                 aside={rules.length ? toggle("node", "我的规则") : undefined}
                 count={countText(rules.length)}
                 hint="只作用于这个节点，可覆盖下面的规则"
@@ -363,8 +377,9 @@ export function NodeRulesDialog({
               </LayerStep>
 
               <LayerStep
+                hintBelow
                 aside={
-                  <>
+                  <span className="flex items-center gap-2">
                     <Pill
                       title="服务器的路由方案（没有方案时为默认）"
                       tone={layerTones.server}
@@ -374,7 +389,7 @@ export function NodeRulesDialog({
                         : view.server.label}
                     </Pill>
                     {serverRules.length > 0 && toggle("server", "服务器规则")}
-                  </>
+                  </span>
                 }
                 count={countText(serverCount)}
                 hint="可被你的规则覆盖"
@@ -406,6 +421,7 @@ export function NodeRulesDialog({
               </LayerStep>
 
               <LayerStep
+                hintBelow
                 aside={
                   globalDefault.length
                     ? toggle("default", "全局·默认")

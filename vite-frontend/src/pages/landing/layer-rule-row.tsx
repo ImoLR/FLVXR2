@@ -1,7 +1,8 @@
 import type { ReactNode } from "react";
 
-import { CircleCheck, CircleX, Lock } from "lucide-react";
+import { Lock } from "lucide-react";
 
+import { StateIcon } from "./egress-builtin-list";
 import { LandingTone, Pill, landingToneClass } from "./pill";
 
 import {
@@ -10,35 +11,18 @@ import {
   inboundProtocolLabel,
 } from "@/api/landing-egress";
 
-// Plan 214: the one rule row of the 路由规则 dialog, used by every layer
-// (① 内置 … ⑤ 全局·默认, the editable 我的规则 included). It is the plan-149
-// 内置 compact row made general:
-//   lead icon │ name · action chip · one-line summary (wrapping) │ ✓ / ✗
-// The action chip follows the name inside a wrapping line, so on a 390 px
-// phone it moves under the name instead of squeezing it; nothing is drawn
-// over text. The layer's single 「展开详情」 toggle opens a label / value list
-// under every row (matchers + 「命中后」 in plain words).
+// Plan 214 r2: the one rule row of the 路由规则 dialog for the layers after
+// 内置 (全局·强制 / 我的规则 / 服务器 / 全局·默认). It is an exact clone of the
+// fork.115 内置 compact row (BuiltinCompactRows in egress-builtin-list.tsx):
+//   lead icon │ name (one line, ellipsis) │ short action chip │ ✓ / ✗
+// The row never wraps: the name truncates first, the chip is capped and
+// truncates too. The layer's single 「展开详情」 toggle opens the matchers and
+// 「命中后」 under every row; nothing else is shown in the collapsed row.
 
 export type RowState = { on: boolean; label: string };
 
 /** One line of the expanded details: label + plain value or value chips. */
 export type DetailItem = { label: string; value: string | string[] };
-
-// In force = green ✓, not in force = red ✗; the label carries the reason.
-export function StateIcon({ on, label }: { on: boolean; label: string }) {
-  const Icon = on ? CircleCheck : CircleX;
-
-  return (
-    <span
-      aria-label={label}
-      className={`inline-flex shrink-0 ${on ? "text-success" : "text-danger"}`}
-      role="img"
-      title={label}
-    >
-      <Icon aria-hidden size={16} strokeWidth={2.25} />
-    </span>
-  );
-}
 
 /** Left column icon: locked (强制 / 内置) or overridable (服务器 / 默认). */
 export function LockLead({ locked }: { locked: boolean }) {
@@ -115,11 +99,14 @@ export function DetailList({ items }: { items: DetailItem[] }) {
   );
 }
 
+// Cap of the action chip: the name gets the room first, a long outbound
+// name (「→ 直连-强制ipv4出站」) is cut with an ellipsis (full text as title).
+const chipCap = "max-w-[7.5rem] sm:max-w-[12rem]";
+
 export function LayerRuleRow({
   lead,
   name,
   action,
-  summary,
   open,
   details = [],
   note,
@@ -127,15 +114,12 @@ export function LayerRuleRow({
   state,
   dim = false,
   controls,
-  controlsBelow = false,
   dataKey,
 }: {
   lead: ReactNode;
   name: string;
-  /** Action chip: 「→ 封锁」, 「→ 直连-强制ipv4出站」 … */
+  /** Action chip: 「封锁」, 「直连」, 「强制 IPv4」 … (shown as 「→ …」). */
   action?: { label: string; tone: LandingTone };
-  /** One-line gray summary of the matchers (collapsed rows only). */
-  summary?: string;
   /** The layer's 「展开详情」 state. */
   open: boolean;
   details?: DetailItem[];
@@ -145,68 +129,47 @@ export function LayerRuleRow({
   offNote?: string;
   state?: RowState;
   dim?: boolean;
-  /** 我的规则: switch / move / edit / delete. */
+  /** 我的规则: switch + 「更多」 menu (all h-5, the row stays one line). */
   controls?: ReactNode;
-  /** H5: controls on their own line under the content. */
-  controlsBelow?: boolean;
   dataKey?: string;
 }) {
-  const inline = Boolean(controls) && !controlsBelow;
-  // First line height = the right-side height, so icon, name and ✓ align.
-  const lineH = inline ? "min-h-8" : "min-h-5";
-  const boxH = inline ? "h-8" : "h-5";
-
   return (
-    <div
-      className="grid grid-cols-[14px_minmax(0,1fr)_auto] items-start gap-x-2 px-3 py-2"
-      data-layer-rule={dataKey}
-    >
-      <span className={`flex ${boxH} items-center`}>{lead}</span>
-      <div className="min-w-0">
-        <div
-          className={`flex ${lineH} flex-wrap items-center gap-x-2 gap-y-1 ${dim ? "opacity-70" : ""}`}
-        >
-          <span className="min-w-0 break-words text-sm font-medium leading-5">
-            {name}
+    <div className="px-3 py-2" data-layer-rule={dataKey}>
+      <div
+        data-layer-rule-line
+        className={`grid ${controls ? "grid-cols-[14px_minmax(0,1fr)_auto_auto_auto]" : "grid-cols-[14px_minmax(0,1fr)_auto_auto]"} items-center gap-2 ${dim ? "opacity-70" : ""}`}
+      >
+        {lead}
+        <span className="truncate text-sm font-medium" title={name}>
+          {name}
+        </span>
+        {action ? (
+          <span className={`flex min-w-0 ${chipCap}`}>
+            <Pill title={`→ ${action.label}`} tone={action.tone}>
+              → {action.label}
+            </Pill>
           </span>
-          {action && <Pill tone={action.tone}>→ {action.label}</Pill>}
-          {!open && summary && (
-            <span
-              className="min-w-0 max-w-full truncate text-xs text-default-500"
-              title={summary}
-            >
-              {summary}
-            </span>
-          )}
-        </div>
-        {open && (
+        ) : (
+          <span className="w-0" />
+        )}
+        {controls && (
+          <span className="flex items-center gap-1">{controls}</span>
+        )}
+        {state ? (
+          <StateIcon label={state.label} on={state.on} />
+        ) : (
+          <span className="w-0" />
+        )}
+      </div>
+      {open && (details.length > 0 || note || offNote) && (
+        <div data-layer-rule-details className="pl-[22px]">
           <div className={dim ? "opacity-80" : ""}>
             <DetailList items={details} />
             {note && <p className="mt-1 text-xs text-default-500">{note}</p>}
           </div>
-        )}
-        {open && offNote && (
-          <p className="mt-1 text-xs text-danger">{offNote}</p>
-        )}
-        {controls && controlsBelow && (
-          <div className="mt-1 flex flex-wrap items-center justify-end gap-1">
-            {controls}
-          </div>
-        )}
-      </div>
-      <span className={`flex ${boxH} items-center gap-1`}>
-        {inline && controls}
-        {state && <StateIcon label={state.label} on={state.on} />}
-      </span>
-    </div>
-  );
-}
-
-/** One rule list box: rows separated by thin lines, tinted (no white). */
-export function RuleRows({ children }: { children: ReactNode }) {
-  return (
-    <div className="divide-y divide-default-200 overflow-hidden rounded-lg bg-default-100/60 dark:divide-default-100 dark:bg-default-50/60">
-      {children}
+          {offNote && <p className="mt-1 text-xs text-danger">{offNote}</p>}
+        </div>
+      )}
     </div>
   );
 }
@@ -225,7 +188,6 @@ type Matchers = {
   landingNodes?: number;
 };
 
-const count = (v: number | string[]) => (Array.isArray(v) ? v.length : v);
 const networkText = (n: string) =>
   n === "tcp" ? "TCP" : n === "udp" ? "UDP" : "";
 const inboundText = (keys?: string[] | null) =>
@@ -242,25 +204,6 @@ const fromRule = (r: EgressRule): Matchers => ({
   inboundProtocols: r.inboundProtocols,
   landingNodes: r.landingNodeIds.length,
 });
-
-/** 「目标域名 2 条 · TCP」 — the collapsed one-line summary. */
-function summaryOf(m: Matchers) {
-  const parts: string[] = [];
-
-  if (count(m.domains)) parts.push(`目标域名 ${count(m.domains)} 条`);
-  if (count(m.ips)) parts.push(`目标 IP ${count(m.ips)} 条`);
-  if (m.ports) parts.push(`目标端口 ${m.ports}`);
-  if (count(m.sourceIps)) parts.push(`来源 IP ${count(m.sourceIps)} 条`);
-  if (m.sourcePorts) parts.push(`来源端口 ${m.sourcePorts}`);
-  if (networkText(m.network)) parts.push(networkText(m.network));
-  if (m.protocols && m.protocols.length)
-    parts.push(`协议 ${m.protocols.join("/")}`);
-  if (m.landingNodes) parts.push(`适用节点 ${m.landingNodes} 个`);
-  if (m.inboundProtocols && m.inboundProtocols.length)
-    parts.push(`仅 ${inboundText(m.inboundProtocols)} 节点`);
-
-  return parts.join(" · ");
-}
 
 /** Label / value lines of the expanded details. */
 function detailsOf(m: Matchers): DetailItem[] {
@@ -300,7 +243,5 @@ export function actionWords(action: string, label: string) {
   return `走出站「${label}」`;
 }
 
-export const ruleSummaryText = (r: RuleSummary) => summaryOf(r);
 export const ruleSummaryDetails = (r: RuleSummary) => detailsOf(r);
-export const editableSummaryText = (r: EgressRule) => summaryOf(fromRule(r));
 export const editableDetails = (r: EgressRule) => detailsOf(fromRule(r));

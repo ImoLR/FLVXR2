@@ -10,15 +10,14 @@ import {
   Trash2,
 } from "lucide-react";
 
+import { StateIcon } from "./egress-builtin-list";
 import {
   LayerRuleRow,
   NumberLead,
-  RuleRows,
-  StateIcon,
   actionWords,
   editableDetails,
-  editableSummaryText,
 } from "./layer-rule-row";
+import { RuleRows } from "./rule-layers";
 import { Pill, actionTone } from "./pill";
 import { RuleEditor } from "./egress-rule-editor";
 import { PresetPicker } from "./egress-preset-picker";
@@ -138,11 +137,11 @@ export function EgressRuleList({
       ] as const
     ).filter(([, , , possible]) => possible);
 
-  // Row controls (same in both layouts): 停用/启用, 置顶…置底 (desktop) or
-  // the 「更多」 menu (H5), 编辑, 删除.
-  const controls = (rule: EgressRule, index: number, withState = true) => (
+  // Row controls of the list layout: 停用/启用, 置顶…置底 (desktop) or the
+  // 「更多」 menu (H5), 编辑, 删除.
+  const controls = (rule: EgressRule, index: number) => (
     <>
-      {withState && !rule.enabled && (
+      {!rule.enabled && (
         <StateIcon label="未生效：已停用，不会下发" on={false} />
       )}
       <Switch
@@ -230,6 +229,61 @@ export function EgressRuleList({
     </>
   );
 
+  // Plan 214 r2: controls of the one-line layer row (desktop + H5): the h-5
+  // switch and one compact 「更多」 menu with 编辑, 置顶…置底 and 删除, so the
+  // row keeps the 内置 row height and never wraps.
+  const layerControls = (rule: EgressRule, index: number) => (
+    <>
+      <Switch
+        aria-label={rule.enabled ? "停用规则" : "启用规则"}
+        isSelected={rule.enabled}
+        onValueChange={(enabled) =>
+          onChange(rules.map((r, i) => (i === index ? { ...r, enabled } : r)))
+        }
+      />
+      <Dropdown placement="bottom-end">
+        <DropdownTrigger>
+          <button
+            aria-label="更多操作"
+            className="inline-flex h-5 w-6 items-center justify-center rounded-md text-default-500 hover:bg-default-200/70 hover:text-default-700"
+            title="更多"
+            type="button"
+          >
+            <MoreHorizontal size={16} />
+          </button>
+        </DropdownTrigger>
+        <DropdownMenu aria-label="规则操作">
+          {[
+            <DropdownItem
+              key="edit"
+              startContent={<Pencil size={16} />}
+              onPress={() => setEditing({ index, rule })}
+            >
+              编辑
+            </DropdownItem>,
+            ...moves(index).map(([move, label, Icon]) => (
+              <DropdownItem
+                key={move}
+                startContent={<Icon size={16} />}
+                onPress={() => onChange(moveRule(rules, index, move))}
+              >
+                {label}
+              </DropdownItem>
+            )),
+            <DropdownItem
+              key="delete"
+              color="danger"
+              startContent={<Trash2 size={16} />}
+              onPress={() => onChange(rules.filter((_, i) => i !== index))}
+            >
+              删除
+            </DropdownItem>,
+          ]}
+        </DropdownMenu>
+      </Dropdown>
+    </>
+  );
+
   return (
     <div className="space-y-2">
       <div className="flex flex-wrap items-center justify-end gap-2">
@@ -273,9 +327,14 @@ export function EgressRuleList({
               return (
                 <LayerRuleRow
                   key={rule.id}
-                  action={{ label, tone: actionTone(rule.action) }}
-                  controls={controls(rule, index, false)}
-                  controlsBelow={isMobile}
+                  // H5: the switch + 「更多」 leave no room for the chip at
+                  // 390 px; the action is in 展开详情 (「命中后」).
+                  action={
+                    isMobile
+                      ? undefined
+                      : { label, tone: actionTone(rule.action) }
+                  }
+                  controls={layerControls(rule, index)}
                   dataKey={rule.id}
                   details={[
                     ...editableDetails(rule),
@@ -287,7 +346,6 @@ export function EgressRuleList({
                   offNote={state.on ? undefined : state.label}
                   open={detailsOpen}
                   state={state}
-                  summary={editableSummaryText(rule)}
                 />
               );
             })}

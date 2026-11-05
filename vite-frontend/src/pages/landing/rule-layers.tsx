@@ -5,10 +5,8 @@ import { ChevronDown, ChevronUp } from "lucide-react";
 import {
   LayerRuleRow,
   LockLead,
-  RuleRows,
   actionWords,
   ruleSummaryDetails,
-  ruleSummaryText,
 } from "./layer-rule-row";
 import { LandingTone, Pill, actionTone, landingToneClass } from "./pill";
 
@@ -17,8 +15,9 @@ import { RuleSummary } from "@/api/landing-egress";
 // Plan 149: the 路由规则 waterfall — one numbered, always visible header per
 // layer (① 内置 … ⑥ 默认出站) with its rule count and meaning, joined by a
 // thin connector; compact one-line rule rows with the matchers behind 「详情」.
-// Plan 214: every layer uses the shared LayerRuleRow (layer-rule-row.tsx) and
-// one 「展开详情」 toggle in its header instead of a 「详情」 button per rule.
+// Plan 214: every layer after 内置 uses LayerRuleRow (layer-rule-row.tsx, an
+// exact clone of the 内置 one-line row) and one 「展开详情」 toggle in its
+// header instead of a 「详情」 button per rule.
 
 const dotClass: Record<LandingTone, string> = {
   green: "bg-green-600 text-white dark:bg-green-500 dark:text-green-950",
@@ -49,6 +48,7 @@ export function LayerStep({
   hint,
   last = false,
   aside,
+  hintBelow = false,
   children,
 }: {
   index: number;
@@ -59,6 +59,9 @@ export function LayerStep({
   hint: string;
   last?: boolean;
   aside?: ReactNode;
+  /** Plan 214: on phones the hint takes its own line under the title so a
+   *  header toggle stays on the title line (not used by 内置 = fork.115). */
+  hintBelow?: boolean;
   children?: ReactNode;
 }) {
   return (
@@ -79,18 +82,12 @@ export function LayerStep({
         <div className="flex min-h-7 flex-wrap items-center gap-x-2 gap-y-1">
           <h3 className="font-semibold">{title}</h3>
           {count !== undefined && <Pill tone={tone}>{count}</Pill>}
-          {/* Plan 214: with a header toggle, the hint takes its own line on
-              phones so the toggle stays on the title line. */}
           <span
-            className={`min-w-0 text-xs text-default-500 ${aside ? "order-last basis-full sm:order-none sm:basis-auto" : ""}`}
+            className={`min-w-0 text-xs text-default-500 ${hintBelow ? "order-last basis-full sm:order-none sm:basis-auto" : ""}`}
           >
             {hint}
           </span>
-          {aside && (
-            <span className="ml-auto flex shrink-0 flex-wrap items-center justify-end gap-1">
-              {aside}
-            </span>
-          )}
+          {aside && <span className="ml-auto flex shrink-0">{aside}</span>}
         </div>
         {children}
       </div>
@@ -98,8 +95,14 @@ export function LayerStep({
   );
 }
 
-// Plan 214: the tinted rule box lives with the shared row.
-export { RuleRows };
+/** One rule list box: rows separated by thin lines, tinted (no white). */
+export function RuleRows({ children }: { children: ReactNode }) {
+  return (
+    <div className="divide-y divide-default-200 overflow-hidden rounded-lg bg-default-100/60 dark:divide-default-100 dark:bg-default-50/60">
+      {children}
+    </div>
+  );
+}
 
 export function EmptyLayer({ text }: { text: string }) {
   return (
@@ -110,9 +113,9 @@ export function EmptyLayer({ text }: { text: string }) {
 }
 
 /**
- * Plan 214: a read-only rule (全局·强制 / 服务器 / 全局·默认) on the shared
- * layer row: lock + name + action chip + summary, ✓ at the far right; the
- * matchers open with the layer's 「展开详情」 (no per-row 「详情」 button).
+ * Plan 214: a read-only rule (全局·强制 / 服务器 / 全局·默认) on the 内置
+ * row: lock + name + action chip, ✓ at the far right, one line; the matchers
+ * open with the layer's 「展开详情」 (no per-row 「详情」 button).
  */
 export function SummaryRuleRow({
   rule,
@@ -147,7 +150,6 @@ export function SummaryRuleRow({
       offNote={inactive}
       open={open}
       state={state}
-      summary={ruleSummaryText(rule)}
     />
   );
 }
