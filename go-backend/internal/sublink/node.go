@@ -35,7 +35,7 @@ const (
 
 	GroupSelect = "节点选择"
 	GroupAuto   = "自动选择"
-	TestURL     = "https://www.gstatic.com/generate_204"
+	TestURL     = "http://cp.cloudflare.com/"
 )
 
 // ValidFormat / ValidMode guard stored values.
