@@ -168,7 +168,11 @@ export const attentionTitle = (attention: AdminAttention) =>
 export const attentionSections = (attention: AdminAttention | null) =>
   new Set(attention?.reasons.flatMap((r) => r.sections) ?? []);
 
-/** The ⚠ sign: amber with a dark 「!」, red with a white one for errors. */
+/**
+ * The ⚠ sign: amber with a dark 「!」, red with a white one for errors. The
+ * red one's white outline melts into a light card and reads a size smaller,
+ * so it is scaled up a bit (transform only: the layout box stays the same).
+ */
 export function AttentionIcon({
   level,
   className,
@@ -182,7 +186,7 @@ export function AttentionIcon({
       className={cn(
         "h-4 w-4 shrink-0",
         level === "error"
-          ? "fill-red-500 text-white dark:text-red-950"
+          ? "scale-[1.2] fill-red-500 text-white dark:text-red-950"
           : "fill-amber-400 text-amber-950",
         className,
       )}
