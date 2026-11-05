@@ -65,8 +65,8 @@ So the feature set is per node, not per protocol name:
 - [x] go test ./... + contract; tsc/build/lint no new errors
 - [x] Landing list API latency before/after
 - [x] Screens 390 + 1440 → /root/mmwx-preview/tls-block-guard/
-- [ ] Commit + push, CI green
-- [ ] Ledger row (ready) + summary
+- [x] Commit + push, CI green (73b52d69, CI 42126328063 all 4 jobs green)
+- [x] Ledger row (ready) + summary
 
 ## Results
 - go test ./... (SQLite + PostgreSQL contract, -timeout 45m): all packages ok. Two pinned
