@@ -507,6 +507,9 @@ type landingEgressCatalog struct {
 	settings  func() (landingegress.Global, landingegress.AbuseSwitches)
 	nodeFacts func() map[int64]repo.LandingNativeNodeFacts
 	inputs    map[int64]landingegress.CompileInput
+	// scanOn (plan 218): the global 禁止端口扫描 switch, read at most once per
+	// request (admin server cards show each server's state).
+	scanOn func() bool
 }
 
 func (h *Handler) landingEgressCatalog() landingEgressCatalog {
@@ -522,8 +525,17 @@ func (h *Handler) landingEgressCatalog() landingEgressCatalog {
 		factsOnce.Do(func() { facts, _ = h.repo.LandingNativeNodeFactsAll() })
 		return facts
 	}
+	var scanOnce sync.Once
+	var scanOn bool
 	c := landingEgressCatalog{settings: settings, nodeFacts: nodeFacts, inputs: map[int64]landingegress.CompileInput{}}
 	c.abuse = func() landingegress.AbuseSwitches { _, sw := settings(); return sw }
+	c.scanOn = func() bool {
+		scanOnce.Do(func() {
+			g, err := h.repo.GetLandingScanGuard()
+			scanOn = err == nil && g.On
+		})
+		return scanOn
+	}
 	o, p, err := h.repo.LandingEgressCatalog()
 	if err != nil {
 		c.outbounds, c.profiles = map[int64]landingegress.Outbound{}, map[int64]landingegress.Profile{}
@@ -668,6 +680,15 @@ func (h *Handler) landingServerEgressView(s model.LandingServer, nodeEgress int,
 	}
 	warnings := []string{}
 	_ = json.Unmarshal([]byte(s.EgressWarnings), &warnings)
+	// Plan 218: nodes the agent keeps offline because the routing plan did not
+	// take effect (the card's admin-attention marker turns red).
+	withheld := 0
+	for _, w := range warnings {
+		var n int
+		if _, err := fmt.Sscanf(w, landingEgressWithheldFormat, &n); err == nil && n > 0 {
+			withheld += n
+		}
+	}
 	// Default anti-abuse rules (plan 127): active | off (server profile switched
 	// them off) | global_off (plan 140: both switched off globally) | restart
 	// (native Core needs one confirmed restart) | unsupported.
@@ -687,6 +708,7 @@ func (h *Handler) landingServerEgressView(s model.LandingServer, nodeEgress int,
 		"supported": supported, "unsupportedReason": reason, "abuseDefaults": abuse, "abuseRules": abuseRuleLabels(c.abuse()), "realityGuard": landingGuardView(s, nodeGuard...),
 		"restartRequired":  supported && s.Source == "native" && !s.EgressReady,
 		"restartConfirmed": s.EgressRestartOK, "state": s.EgressState, "error": s.EgressError, "warnings": warnings, "checkedAt": s.EgressCheckedAt,
+		"withheldNodes": withheld,
 		// Plan 129: the native Core runs an older binary than the pinned one
 		// (agent OTA) and needs one admin-confirmed restart.
 		"coreUpgradeRequired": s.Source == "native" && s.CoreStaleEpoch != "", "coreUpgradeConfirmed": s.Source == "native" && s.CoreStaleEpoch != "" && s.CoreUpgradeOK,

@@ -21,6 +21,14 @@ import { Select, SelectItem } from "@/shadcn-bridge/heroui/select";
 import { Switch } from "@/shadcn-bridge/heroui/switch";
 import { ExtraProtocolSettings } from "@/pages/landing/extra-protocols";
 import {
+  AttentionIcon,
+  AttentionList,
+  AttentionSection,
+  SectionTitle,
+  sectionLevel,
+  serverAdminAttention,
+} from "@/pages/landing/admin-attention";
+import {
   connModePendingText,
   MachineCapHint,
   NODE_TOTAL_NAME,
@@ -83,6 +91,27 @@ export function ServerSettings({
   // Plan 129: a shared server's guard runs in the 妙妙屋 Helper.
   const isShared = server.source === "shared";
   const [guardEnabled, setGuardEnabled] = useState(guard?.enabled ?? true);
+  // Plan 218: what this server waits for (same helper as the card's ⚠); the
+  // banner lists it, the sections and warning blocks carry the same ⚠.
+  const attention = serverAdminAttention(server);
+  const has = (key: string) =>
+    Boolean(attention?.reasons.some((reason) => reason.key === key));
+  const mark = (key: string, level: "warn" | "error" = "warn") =>
+    has(key) ? (
+      <AttentionIcon
+        className="mr-1 inline-block h-3.5 w-3.5 align-[-2px]"
+        level={level}
+      />
+    ) : null;
+  const sectionProps = (section: AttentionSection) =>
+    sectionLevel(attention, section)
+      ? { "data-attention-section": section }
+      : {};
+  const scrollToSection = (section: AttentionSection) =>
+    document
+      .querySelector(`[data-attention-section="${section}"]`)
+      ?.scrollIntoView({ behavior: "smooth", block: "start" });
+  const scan = !isShared ? server.scanGuard?.state : undefined;
   const set = <K extends keyof LandingServer>(
     key: K,
     value: LandingServer[K],
@@ -182,6 +211,21 @@ export function ServerSettings({
       <ModalContent className="flvx-landing">
         <ModalHeader>落地服务器设置 · {server.name}</ModalHeader>
         <ModalBody className="space-y-6">
+          {attention && (
+            <div
+              className={`rounded-lg p-3 text-xs ${
+                attention.level === "error"
+                  ? "bg-red-500/10 dark:bg-red-400/15"
+                  : "bg-amber-500/10 dark:bg-amber-400/15"
+              }`}
+              data-attention-banner={attention.level}
+            >
+              <AttentionList
+                attention={attention}
+                onPick={(reason) => scrollToSection(reason.sections[0])}
+              />
+            </div>
+          )}
           {server.source === "shared" && <SharedCaps server={server} />}
           <section className="space-y-3">
             <h3 className="font-medium">基本设置</h3>
@@ -238,8 +282,10 @@ export function ServerSettings({
               落地计入用户同一个总流量。通过本人规则访问时按隧道与落地较贵的费率计费。
             </p>
           </section>
-          <section className="space-y-3">
-            <h3 className="font-medium">新节点默认值</h3>
+          <section className="space-y-3" {...sectionProps("defaults")}>
+            <SectionTitle attention={sectionLevel(attention, "defaults")}>
+              新节点默认值
+            </SectionTitle>
             {server.source === "shared" &&
               numberField(
                 "每个用户默认服务器限额 (GB，计费流量)",
@@ -260,6 +306,7 @@ export function ServerSettings({
                   <div className="col-span-2 space-y-2">
                     {connModePending && (
                       <p className="rounded-lg bg-warning-50 p-2 text-xs text-warning dark:bg-warning-500/10">
+                        {mark("agent")}
                         {connModePendingText()}
                       </p>
                     )}
@@ -384,10 +431,13 @@ export function ServerSettings({
             )}
             <ExtraProtocolSettings form={form} server={server} set={set} />
           </section>
-          <section className="space-y-3">
-            <h3 className="font-medium">出站与路由</h3>
+          <section className="space-y-3" {...sectionProps("egress")}>
+            <SectionTitle attention={sectionLevel(attention, "egress")}>
+              出站与路由
+            </SectionTitle>
             {egress && !egress.supported && (
               <p className="rounded-lg bg-warning-50 p-2 text-xs text-warning">
+                {!isShared && mark("agent")}
                 {egress.unsupportedReason}
               </p>
             )}
@@ -425,16 +475,20 @@ export function ServerSettings({
             )}
             {egress?.state === "error" && egress.error && (
               <p className="rounded-lg bg-danger-50 p-2 text-xs text-danger">
+                {mark("egress-error", "error")}
                 应用失败：{egress.error}
               </p>
             )}
             {egress?.state === "restart_required" && !needsRestart && (
               <p className="rounded-lg bg-warning-50 p-2 text-xs text-warning">
+                {mark("core-restart")}
                 等待落地 Core 重启后生效
               </p>
             )}
             {(egress?.warnings || []).map((warning) => (
               <p key={warning} className="text-xs text-warning">
+                {warning.includes("因出站与路由未生效已暂停") &&
+                  mark("withheld", "error")}
                 {warning}
               </p>
             ))}
@@ -464,6 +518,7 @@ export function ServerSettings({
             {abuseRestart && (
               <div className="space-y-2 rounded-lg bg-warning-50 p-3 text-xs text-warning">
                 <p>
+                  {mark("core-restart")}
                   内置防滥用规则（SMTP 25、发信端口、Telnet/SMB、BT）和 Reality
                   防盗还没在这台服务器生效：落地 Core
                   是旧配置启动的，需要重启一次（约 1–3
@@ -484,6 +539,7 @@ export function ServerSettings({
                 ) : (
                   <>
                     <p>
+                      {mark("core-upgrade")}
                       新版落地 Core 已下载（可识别并拦截 UDP 上的 BT
                       等），但正在运行的仍是旧版：需要重启一次落地 Core（约 1–3
                       秒，落地连接短暂中断，客户端会自动重连）才会换成新版。不重启时旧版照常工作。
@@ -498,12 +554,41 @@ export function ServerSettings({
                 )}
               </div>
             )}
+            {/* Plan 218: 禁止端口扫描 on this server when the admin must act
+                (same state as 内置; only shown then). */}
+            {(scan === "core" || scan === "agent" || scan === "error") && (
+              <p
+                className={`rounded-lg p-2 text-xs ${
+                  scan === "error"
+                    ? "bg-danger-50 text-danger"
+                    : "bg-warning-50 text-warning"
+                }`}
+                data-attention-scan={scan}
+              >
+                {scan === "error" && mark("scan-error", "error")}
+                {scan === "agent" && mark("agent")}
+                {scan === "core" &&
+                  mark(has("core-upgrade") ? "core-upgrade" : "scan-core")}
+                {scan === "agent" &&
+                  "禁止端口扫描未生效：需要先在「节点」页升级这台服务器的节点程序。"}
+                {scan === "error" &&
+                  "禁止端口扫描检测异常：读取落地 Core 的扫描记录失败。"}
+                {scan === "core" &&
+                  (egress?.coreUpgradeConfirmed
+                    ? "禁止端口扫描未生效：已确认升级，等待节点程序重启落地 Core。"
+                    : egress?.coreUpgradeRequired
+                      ? "禁止端口扫描未生效：运行中的落地 Core 还不支持，勾选上方「保存时重启落地 Core 以升级」并保存后生效。"
+                      : "禁止端口扫描未生效：落地 Core 需要重启一次，新版 Core 下载完成后这里会出现确认勾选。")}
+              </p>
+            )}
           </section>
           {guard && (
-            <section className="space-y-3">
+            <section className="space-y-3" {...sectionProps("guard")}>
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0 space-y-1">
-                  <h3 className="font-medium">Reality 防盗</h3>
+                  <SectionTitle attention={sectionLevel(attention, "guard")}>
+                    Reality 防盗
+                  </SectionTitle>
                   <p className="text-xs text-default-500">
                     Reality
                     节点只把带本节点伪装域名（serverNames）的探测转给伪装网站，其它域名一律断开，防止落地被当成免费中转偷流量。已认证用户的数据不经过防盗，用户链接不变。
@@ -544,12 +629,19 @@ export function ServerSettings({
                   {guard.state === "idle" && "已开启：暂无 Reality 节点"}
                   {guard.state === "pending" && "已开启：等待妙妙屋应用"}
                   {guard.state === "off" && "已关闭"}
+                  {guard.state === "agent_old" && mark("agent")}
                   {guard.state === "agent_old" &&
                     "节点程序版本过旧，升级后生效"}
+                  {guard.state === "restart" &&
+                    !isShared &&
+                    mark("core-restart")}
                   {guard.state === "restart" &&
                     (isShared
                       ? "待生效：妙妙屋端的 FLVX Core 需重启一次，目前不拦截"
                       : "待生效：落地 Core 需重启一次（见上方勾选）")}
+                  {guard.state === "error" &&
+                    !isShared &&
+                    mark("guard-error", "error")}
                   {guard.state === "error" &&
                     (isShared
                       ? "未生效：妙妙屋端应用失败，Reality 节点暂按未开启处理"

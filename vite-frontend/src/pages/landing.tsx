@@ -1,4 +1,12 @@
-import { Suspense, lazy, useCallback, useEffect, useState } from "react";
+import {
+  Suspense,
+  lazy,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { Plug, Plus, RefreshCw, Settings2 } from "lucide-react";
 import toast from "react-hot-toast";
@@ -68,6 +76,53 @@ import {
   ChainProxyDialog,
 } from "@/pages/landing/chain-proxy";
 import { ServerSettings } from "@/pages/landing/server-settings";
+import {
+  AdminAttention,
+  AttentionCorner,
+  AttentionIcon,
+  AttentionNameMarker,
+  attentionTitle,
+  serverAdminAttention,
+  useAttentionPeek,
+} from "@/pages/landing/admin-attention";
+
+// Plan 218: the card's 「设置」 button; with an admin-attention state it gets
+// the corner ⚠, the reasons as hover title and a long-press bubble. Without
+// one it renders exactly the original button.
+function ServerSettingsButton({
+  attention,
+  onPress,
+}: {
+  attention: AdminAttention | null;
+  onPress: () => void;
+}) {
+  const { handlers, bubble } = useAttentionPeek(attention);
+
+  return (
+    <>
+      <Button
+        color="warning"
+        size="sm"
+        startContent={<Settings2 size={16} />}
+        variant="flat"
+        onPress={onPress}
+        {...(attention
+          ? {
+              className:
+                "relative select-none overflow-visible [-webkit-touch-callout:none]",
+              title: attentionTitle(attention),
+              "data-attention-settings": attention.level,
+              ...handlers,
+            }
+          : {})}
+      >
+        设置
+        {attention && <AttentionCorner level={attention.level} />}
+      </Button>
+      {bubble}
+    </>
+  );
+}
 
 // Admin-only tab, loaded on demand to keep the main bundle unchanged.
 const LandingEgressTab = lazy(() => import("@/pages/landing/egress"));
@@ -337,6 +392,43 @@ export default function LandingPage() {
   const [sharedDetails, setSharedDetails] = useState<LandingServer | null>(
     null,
   );
+  // Plan 218: which servers need the admin (one helper decides), and the card
+  // the header notice jumps to.
+  const attentionById = useMemo(
+    () =>
+      new Map(
+        admin
+          ? servers.map((server) => [server.id, serverAdminAttention(server)])
+          : [],
+      ),
+    [admin, servers],
+  );
+  const attentionServers = servers.filter((server) =>
+    attentionById.get(server.id),
+  );
+  const attentionLevel = attentionServers.some(
+    (server) => attentionById.get(server.id)?.level === "error",
+  )
+    ? "error"
+    : "warn";
+  const [flashId, setFlashId] = useState(0);
+  const jumpToAttention = () => {
+    const first = attentionServers[0];
+
+    if (!first) return;
+    setTab("servers");
+    window.setTimeout(() => {
+      document
+        .querySelector(`[data-attention-card="${first.id}"]`)
+        ?.scrollIntoView({ behavior: "smooth", block: "center" });
+      setFlashId(first.id);
+      window.setTimeout(() => setFlashId(0), 1600);
+    }, 50);
+  };
+  // Plan 218: the 路由规则 dialog reads the server's 禁止端口扫描 state fresh;
+  // when it differs from the (older) card list, reload the list once on close
+  // so the card's ⚠ matches (no polling).
+  const rulesStale = useRef(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -636,6 +728,32 @@ export default function LandingPage() {
             </Button>
           </div>
         )}
+        {/* Plan 218: servers whose 设置 waits for the admin. */}
+        {admin && attentionServers.length > 0 && (
+          <div
+            data-attention-notice
+            className={`flex items-center gap-2 rounded-lg px-3 py-2 text-sm ${
+              attentionLevel === "error"
+                ? "bg-red-500/15 text-red-700 dark:bg-red-400/20 dark:text-red-300"
+                : "bg-amber-500/15 text-amber-700 dark:bg-amber-400/15 dark:text-amber-300"
+            }`}
+          >
+            <AttentionIcon level={attentionLevel} />
+            <span className="min-w-0 flex-1">
+              {attentionServers.length} 台服务器需要处理：
+              {attentionServers.map((server) => server.name).join("、")}
+            </span>
+            <Button
+              className="h-7 shrink-0"
+              color="warning"
+              size="sm"
+              variant="flat"
+              onPress={jumpToAttention}
+            >
+              查看
+            </Button>
+          </div>
+        )}
         {admin && <IntegrationSettings onSynced={() => void load()} />}
         <Tabs
           aria-label="落地管理"
@@ -719,6 +837,7 @@ export default function LandingPage() {
                     });
                 }
                 const flow = `${server.flowType === 2 ? "双向" : "单向"} · ${server.trafficRatio}×`;
+                const attention = attentionById.get(server.id) ?? null;
 
                 chipItems.push({
                   key: "flow",
@@ -798,16 +917,38 @@ export default function LandingPage() {
                 return (
                   <Card
                     key={server.id}
-                    className="flex h-full min-w-0 flex-col"
+                    className={`flex h-full min-w-0 flex-col${
+                      flashId === server.id
+                        ? " ring-2 ring-amber-400 transition-shadow"
+                        : ""
+                    }`}
                     data-landing-server-card={server.source}
+                    {...(attention
+                      ? { "data-attention-card": String(server.id) }
+                      : {})}
                   >
                     <CardHeader className="flex flex-row items-center justify-between gap-2 pb-1.5 md:pb-1.5 md:pt-[18px]">
-                      <h2
-                        className="min-w-0 truncate text-sm font-bold"
-                        title={server.name}
-                      >
-                        {server.name}
-                      </h2>
+                      {attention ? (
+                        <div className="flex min-w-0 items-center gap-1.5">
+                          <h2
+                            className="min-w-0 truncate text-sm font-bold"
+                            title={server.name}
+                          >
+                            {server.name}
+                          </h2>
+                          <AttentionNameMarker
+                            attention={attention}
+                            onOpen={() => setSettings(server)}
+                          />
+                        </div>
+                      ) : (
+                        <h2
+                          className="min-w-0 truncate text-sm font-bold"
+                          title={server.name}
+                        >
+                          {server.name}
+                        </h2>
+                      )}
                       <Pill tone={online ? "green" : "slate"}>
                         {server.status !== "active"
                           ? "已停用"
@@ -864,15 +1005,10 @@ export default function LandingPage() {
                           创建节点
                         </Button>
                         {admin && (
-                          <Button
-                            color="warning"
-                            size="sm"
-                            startContent={<Settings2 size={16} />}
-                            variant="flat"
+                          <ServerSettingsButton
+                            attention={attention}
                             onPress={() => setSettings(server)}
-                          >
-                            设置
-                          </Button>
+                          />
                         )}
                         {admin && server.source === "shared" && (
                           <SharedDetailsButton
@@ -1190,8 +1326,27 @@ export default function LandingPage() {
             key={rulesFor.id}
             chainName={rulesFor.chain?.name}
             nodeId={rulesFor.id}
-            onClose={() => setRulesFor(null)}
+            onClose={() => {
+              setRulesFor(null);
+              if (rulesStale.current) {
+                rulesStale.current = false;
+                void load();
+              }
+            }}
             onSaved={() => void load()}
+            onScanState={(state) => {
+              const card = servers.find(
+                (server) => server.id === rulesFor.landingServerId,
+              );
+
+              if (
+                admin &&
+                card?.scanGuard &&
+                state &&
+                state !== card.scanGuard.state
+              )
+                rulesStale.current = true;
+            }}
           />
         )}
         {creating && (

@@ -460,6 +460,11 @@ func (h *Handler) landingServerReadyNow(id int64) bool {
 	return err == nil && cur != nil && cur.EgressReady
 }
 
+// landingEgressWithheldFormat is the stored warning for nodes the agent keeps
+// offline while the routing plan has not taken effect; plan 218 parses it
+// back into egress.withheldNodes (keep one format for both).
+const landingEgressWithheldFormat = "%d 个节点因出站与路由未生效已暂停"
+
 // recordNativeEgress stores the agent's egress report plus panel-side
 // compile warnings/errors (e.g. a WARP device still registering).
 func (h *Handler) recordNativeEgress(serverID int64, report *landingEgressReport, compileWarnings []string, compileErr error) {
@@ -469,7 +474,7 @@ func (h *Handler) recordNativeEgress(serverID int64, report *landingEgressReport
 	state, errText := report.State, report.Error
 	warnings := append(append([]string{}, compileWarnings...), report.Warnings...)
 	if len(report.Withheld) > 0 {
-		warnings = append(warnings, fmt.Sprintf("%d 个节点因出站与路由未生效已暂停", len(report.Withheld)))
+		warnings = append(warnings, fmt.Sprintf(landingEgressWithheldFormat, len(report.Withheld)))
 	}
 	if compileErr != nil {
 		state, errText = "error", compileErr.Error()
