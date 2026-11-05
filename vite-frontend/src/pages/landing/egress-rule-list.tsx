@@ -44,7 +44,10 @@ import { Switch } from "@/shadcn-bridge/heroui/switch";
 
 type Move = "top" | "up" | "down" | "bottom";
 
-export type RuleChoice = { id: number; name: string };
+// `short`: the chip form of the outbound (「强制 IPv4」, 「直连」 …) shown on the
+// collapsed 我的规则 row, the same wording 全局·强制 uses; the full name stays
+// in 展开详情 (「命中后」).
+export type RuleChoice = { id: number; name: string; short?: string };
 
 function moveRule(rules: EgressRule[], index: number, move: Move) {
   const next = [...rules];
@@ -70,6 +73,17 @@ export const choiceLabel = (action: string, choices: RuleChoice[]) => {
   const id = Number(action.replace("outbound:", ""));
 
   return choices.find((o) => o.id === id)?.name || "已删除的出站";
+};
+
+const choiceChip = (action: string, choices: RuleChoice[]) => {
+  const id = action.startsWith("outbound:")
+    ? Number(action.replace("outbound:", ""))
+    : 0;
+
+  return (
+    (id && choices.find((o) => o.id === id)?.short) ||
+    choiceLabel(action, choices)
+  );
 };
 
 export function EgressRuleList({
@@ -371,7 +385,10 @@ export function EgressRuleList({
                   key={rule.id}
                   // r3: the same row as 全局·强制 (chip on H5 too); the
                   // switch + actions only under 展开详情.
-                  action={{ label, tone: actionTone(rule.action) }}
+                  action={{
+                    label: choiceChip(rule.action, labels || choices),
+                    tone: actionTone(rule.action),
+                  }}
                   actions={layerActions(rule, index)}
                   dataKey={rule.id}
                   details={[

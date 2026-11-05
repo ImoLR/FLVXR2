@@ -17,6 +17,7 @@ import {
   EgressRule,
   NodeRulesView,
   getNodeRules,
+  outboundShortLabel,
   saveNodeRules,
 } from "@/api/landing-egress";
 import { useMobileBreakpoint } from "@/hooks/useMobileBreakpoint";
@@ -117,11 +118,16 @@ export function NodeRulesDialog({
     () =>
       (view?.outbounds || [])
         .filter((o) => o.allowed)
-        .map((o) => ({ id: o.id, name: o.name })),
+        .map((o) => ({ id: o.id, name: o.name, short: outboundShortLabel(o) })),
     [view],
   );
   const labelChoices = useMemo(
-    () => (view?.outbounds || []).map((o) => ({ id: o.id, name: o.name })),
+    () =>
+      (view?.outbounds || []).map((o) => ({
+        id: o.id,
+        name: o.name,
+        short: outboundShortLabel(o),
+      })),
     [view],
   );
 
