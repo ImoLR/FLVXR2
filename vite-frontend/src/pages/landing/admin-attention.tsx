@@ -170,8 +170,10 @@ export const attentionSections = (attention: AdminAttention | null) =>
 
 /**
  * The ⚠ sign: amber with a dark 「!」, red with a white one for errors. The
- * red one's white outline melts into a light card and reads a size smaller,
- * so it is scaled up a bit (transform only: the layout box stays the same).
+ * red triangle's own outline is red-700 (not the 「!」 colour): a white
+ * outline melts into a light card and the sign read a size smaller than the
+ * amber one (measured 11 vs 14 px); with the dark outline both read the same
+ * on light cards and dark ones, and the layout box is unchanged.
  */
 export function AttentionIcon({
   level,
@@ -186,7 +188,7 @@ export function AttentionIcon({
       className={cn(
         "h-4 w-4 shrink-0",
         level === "error"
-          ? "scale-[1.2] fill-red-500 text-white dark:text-red-950"
+          ? "fill-red-500 text-white dark:text-red-950 [&>path:first-child]:stroke-red-700"
           : "fill-amber-400 text-amber-950",
         className,
       )}
