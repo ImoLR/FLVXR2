@@ -45,5 +45,17 @@ User rule (binding): every state that needs an admin action gets a small ⚠ on 
 - [x] Header 「N 台服务器需要处理」
 - [x] Gates: tsc / lint / build vs base; go test ./... green
 - [x] Demo panel + screenshots (H5 390 / desktop 1440, light/dark), gallery /root/mmwx-preview/admin-attention/
-- [ ] Push, CI green
-- [ ] Ledger row, final.md / summary.md, cleanup
+- [x] Push, CI green (run 42050701573, code commit 0726e239)
+- [x] Ledger row, final.md / summary.md, cleanup
+
+## Result (BUILD ONLY — not released, prod untouched)
+- Root cause (prod log, read-only): Breadcloud US agent OTA 22:17:25 TW; server list loaded 22:17:35, before the
+  agent's first report set `core_stale_epoch` / `scan_state=core_update`; not reloaded until 22:25:39 while the
+  路由规则 dialog was opened 4×. The card could not show 「Core 待升级」 (stale list); both signals come from the same
+  agent report, so `coreUpgradeRequired` and scan `core` agree once the list is fresh.
+- Tests: `go test ./...` green (new `TestLandingServerListAdminAttention`; contract key pin + `scanGuard`);
+  frontend tsc 0, build ok, eslint totals identical to base (94 errors / 3789 warnings, all pre-existing).
+- Demo: 126/126 checks (clean cards / clean 设置 / user page pixel-identical to fork.117, long-press, tap,
+  banner scroll, header 查看, one reload after a stale 路由规则 dialog, none otherwise).
+- Bundle: landing chunk +9.6 KB (+3.1 KB gzip), index +1.5 KB (+0.2 KB gzip, shared TriangleAlert icon).
+- Gallery: http://104.145.236.29:8791/admin-attention/ — recommend option B; release after the user approves.
