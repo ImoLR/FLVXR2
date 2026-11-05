@@ -113,7 +113,7 @@ func TestLandingPortBusyNodeErrors(t *testing.T) {
 		t.Fatalf("used node: port %d err %q", n.Port, n.SyncError)
 	}
 	s, _ := e.r.GetLandingServer(1)
-	view := landingNodeViewData(*n, s, nil, e.h.landingEgressCatalog(), "", false)
+	view := landingNodeViewData(*n, s, nil, e.h.landingEgressCatalog(), "", false, false)
 	if view["status"] != "error" || view["syncError"] != want {
 		t.Fatalf("view %v %v", view["status"], view["syncError"])
 	}

@@ -73,9 +73,14 @@ type Node struct {
 	// ConnMode (plan 141): "inbound" = MaxConnections counts accepted client
 	// connections of this inbound (Core max_inbound_connections, like a rule's
 	// 连接数); empty = all TCP sockets of the port (max_total_connections).
-	ConnMode string  `json:"conn_mode,omitempty"`
-	SS2022   *SS2022 `json:"ss2022,omitempty"`
-	VLESS    *VLESS  `json:"vless,omitempty"`
+	ConnMode string `json:"conn_mode,omitempty"`
+	// MaxTotalConnections (plan 211, landing_conn_mode 2): the node's 节点总连接数
+	// = every TCP socket of the port in any state (Core port
+	// max_total_connections), applied next to an inbound MaxConnections. 0 =
+	// none; with a total-mode MaxConnections as well, the smaller one wins.
+	MaxTotalConnections int64   `json:"max_total_connections,omitempty"`
+	SS2022              *SS2022 `json:"ss2022,omitempty"`
+	VLESS               *VLESS  `json:"vless,omitempty"`
 	// Listen is empty (all addresses) or the loopback address of a chain node.
 	Listen string `json:"listen,omitempty"`
 	// Chain is the private upstream of a chain node (plan 108): everything the
@@ -96,7 +101,9 @@ type Node struct {
 // ConnModeVersion is reported as landing_conn_mode: this agent applies
 // conn_mode / max_conn_mode "inbound" and reports Counter.InboundConnections.
 // Older agents ignore both fields, so the panel only sends them here.
-const ConnModeVersion = 1
+// Version 2 (plan 211) also applies nodes[].max_total_connections next to an
+// inbound limit and reports Counter.TCP (the socket breakdown).
+const ConnModeVersion = 2
 
 // ConnModeInbound is the only non-default conn_mode / max_conn_mode value.
 const ConnModeInbound = "inbound"
@@ -145,6 +152,21 @@ type Counter struct {
 	// connections of this tag (sum of proxy_users inbound_current); nil while
 	// the Core snapshot has none (never for the pinned Core).
 	InboundConnections *int64 `json:"inbound_connections,omitempty"`
+	// TCP (plan 211): the port's sockets by direction and state, summed from
+	// the same Core snapshot (Inbound + Outbound = Connections); nil while the
+	// Core reports no TCP state counts.
+	TCP *TCPCounts `json:"tcp,omitempty"`
+}
+
+// TCPCounts is a node's socket breakdown: inbound (client side) and outbound
+// sockets in any state, and how many of all of them are ESTABLISHED /
+// TIME_WAIT / CLOSE_WAIT (zeros omitted: the object is sent every 5 s).
+type TCPCounts struct {
+	Inbound     int64 `json:"inbound,omitempty"`
+	Outbound    int64 `json:"outbound,omitempty"`
+	Established int64 `json:"established,omitempty"`
+	TimeWait    int64 `json:"time_wait,omitempty"`
+	CloseWait   int64 `json:"close_wait,omitempty"`
 }
 type OnlineIP struct {
 	IP          string `json:"ip"`
@@ -191,7 +213,7 @@ func (d *Desired) validate() error {
 	chains := 0
 	for i := range d.Nodes {
 		n := &d.Nodes[i]
-		if n.ID <= 0 || n.Port < 1024 || n.Port > 65535 || ids[n.ID] || ports[n.Port] || n.MaxConnections < 0 || n.MaxOnlineIPs < 0 || !validConnMode(n.ConnMode) {
+		if n.ID <= 0 || n.Port < 1024 || n.Port > 65535 || ids[n.ID] || ports[n.Port] || n.MaxConnections < 0 || n.MaxTotalConnections < 0 || n.MaxOnlineIPs < 0 || !validConnMode(n.ConnMode) {
 			return fmt.Errorf("invalid landing node identity, port or limit")
 		}
 		ids[n.ID], ports[n.Port] = true, true

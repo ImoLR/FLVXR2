@@ -137,3 +137,11 @@ func (m LandingConnSupport) Supported(s *model.LandingServer) bool {
 	}
 	return LandingConnModeSupported(s, m[s.ID])
 }
+
+// TotalSupported answers LandingNodeTotalSupported (plan 211) for any server.
+func (m LandingConnSupport) TotalSupported(s *model.LandingServer) bool {
+	if s == nil {
+		return false
+	}
+	return LandingNodeTotalSupported(s, m[s.ID])
+}

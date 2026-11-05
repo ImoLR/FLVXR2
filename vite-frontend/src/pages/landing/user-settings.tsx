@@ -549,9 +549,9 @@ export const LandingUserSettings = forwardRef<
               className={`grid gap-2 text-xs text-default-500 ${rateSupported ? "grid-cols-4 sm:grid-cols-[minmax(0,1fr)_72px_68px_84px_56px]" : "grid-cols-3 sm:grid-cols-[minmax(0,1fr)_100px_96px_80px]"}`}
             >
               <span className="hidden sm:block">服务器</span>
-              <span>限额 (GB，计费流量)</span>
-              <span>入站连接数</span>
-              {rateSupported && <span>速率 (Mbps)</span>}
+              <span>总流量限额 (GB，计费流量)</span>
+              <span>总入站连接数</span>
+              {rateSupported && <span>总速率 (Mbps)</span>}
               <span>已用 (GB)</span>
             </div>
             {form.quotas.map((quota, index) => (
@@ -579,7 +579,7 @@ export const LandingUserSettings = forwardRef<
                   )}
                 </div>
                 <Input
-                  aria-label={`${quota.serverName || quota.serverRefId} 限额 GB`}
+                  aria-label={`${quota.serverName || quota.serverRefId} 总流量限额 GB`}
                   min="0"
                   size="sm"
                   step="0.01"
@@ -595,7 +595,7 @@ export const LandingUserSettings = forwardRef<
                 {connsAllowed(quota) ? (
                   <Input
                     data-server-conns
-                    aria-label={`${quota.serverName || quota.serverRefId} 入站连接数`}
+                    aria-label={`${quota.serverName || quota.serverRefId} 总入站连接数`}
                     min="0"
                     placeholder="不限"
                     size="sm"
@@ -618,7 +618,7 @@ export const LandingUserSettings = forwardRef<
                   />
                 ) : (
                   <NotLimited
-                    label={`${quota.serverName || quota.serverRefId} 入站连接数不限`}
+                    label={`${quota.serverName || quota.serverRefId} 总入站连接数不限`}
                     reason="连接数在入口/落地服务器限"
                   />
                 )}
@@ -626,7 +626,7 @@ export const LandingUserSettings = forwardRef<
                   (rateAllowed(quota) ? (
                     <Input
                       data-server-rate
-                      aria-label={`${quota.serverName || quota.serverRefId} 速率 Mbps`}
+                      aria-label={`${quota.serverName || quota.serverRefId} 总速率 Mbps`}
                       min="0"
                       placeholder={
                         defaultRate > 0 ? `默认 ${defaultRate}` : "不限"
@@ -643,7 +643,7 @@ export const LandingUserSettings = forwardRef<
                     />
                   ) : (
                     <NotLimited
-                      label={`${quota.serverName || quota.serverRefId} 速率不限`}
+                      label={`${quota.serverName || quota.serverRefId} 总速率不限`}
                       reason="速率在入口服务器限"
                     />
                   ))}
@@ -665,19 +665,22 @@ export const LandingUserSettings = forwardRef<
             ))}
           </div>
           <p className="text-xs text-default-500">
-            0
+            每一行都是总数 = 该用户在这台服务器上所有节点 / 规则加起来。
+            <br />
+            总流量限额 0
             不限；未单独设置的服务器使用「每个用户默认限额」，周期跟随用户流量重置日。
             <br />
             已用 = 计费流量：双向 (上传+下载)×倍率×2，单向
             (上传+下载)×倍率，按各服务器设置。
             <br />
-            入站连接数 = 该用户在这台服务器上的入站连接，空或 0
+            总入站连接数 = 该用户在这台服务器上所有节点 /
+            规则的入站连接加起来，空或 0
             不限：入口服务器算进入这里的规则连接，落地服务器算这台落地收到的连接（含经本面板转发进来的）。另受用户总连接数限制。中转/出口服务器显示「不限」：连接数在入口/落地服务器限。
             {rateSupported && (
               <>
                 <br />
-                速率 =
-                该用户在这台服务器上合计的速率（上传、下载分别算），每台服务器各算各的：入口服务器算进入这里的所有规则，落地服务器算该用户在这里的所有落地节点（含经本面板转发进来的）。空
+                总速率 = 该用户在这台服务器上所有节点 /
+                规则合计的速率（上传、下载分别算），每台服务器各算各的：入口服务器算进入这里的所有规则，落地服务器算该用户在这里的所有落地节点（含经本面板转发进来的）。空
                 = 跟随用户的默认速率
                 {defaultRate > 0
                   ? `（${defaultRate} Mbps）`

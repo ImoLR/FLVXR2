@@ -54,7 +54,12 @@ import { JwtUtil } from "@/utils/jwt";
 import { CreateLandingNodeDialog } from "@/pages/landing/create-node";
 import { LandingGlobalSettings } from "@/pages/landing/global-settings";
 import { NodeDetails } from "@/pages/landing/node-details";
-import { connModeTag } from "@/pages/landing/conn-mode";
+import {
+  NODE_TOTAL_NAME,
+  NODE_TOTAL_UNIT,
+  connLevel,
+  nodeTotalPendingText,
+} from "@/pages/landing/conn-mode";
 import { NodeRulesDialog } from "@/pages/landing/node-rules";
 import { ScanBlockNote } from "@/pages/landing/scan-guard";
 import {
@@ -122,37 +127,69 @@ function UserServerSummary({ server }: { server: LandingServer }) {
   );
 }
 
-// Plan 141: the server card's connection line. The node sum counts each node
-// in its own 计算方式; the limit is the server total (native: own mode,
-// shared: 妙妙屋's 入站+出站). One label when both count the same way.
+// Plan 211: the server card's live connection line — Σ 入站 and Σ 总 of the
+// nodes, both labelled (the hidden server total no longer appears).
 function serverConnRow(server: LandingServer): [string, string] {
-  const sum = server.connectionsMode ?? "total";
-  const limit = server.maxConnectionsMode ?? "total";
-  const value = `${server.connections ?? 0} / ${server.maxConnections || "不限"}`;
+  const total = server.totalConnections ?? server.connections ?? 0;
 
-  if (!server.maxConnections || sum === limit) {
-    return [`连接数 / 上限 ${connModeTag(sum)}`, value];
-  }
+  if (!server.inboundKnown) return ["实时连接 · 总", String(total)];
 
-  return [`连接数 ${connModeTag(sum)} / 上限 ${connModeTag(limit)}`, value];
+  return [
+    "实时连接 · 入站 / 总",
+    `${server.inboundConnections ?? 0} / ${total}`,
+  ];
 }
 
-// Plan 141: 「(入站)」 / 「(入站+出站)」 after a node's connection count; admins
-// also see when a 仅入站 setting waits for an agent / 妙妙屋 upgrade.
-function NodeConnTag({ node }: { node: LandingNode }) {
-  if (!node.connModeEffective) return null;
+// Plan 211: the node's live 入站 / 总 and (admins) its 节点总连接数, e.g.
+// 「入站 12 · 总 87/400」; amber from 80 % of the cap, red at the cap.
+function nodeConnText(node: LandingNode, admin: boolean) {
+  const total = node.totalConnections ?? node.connections ?? 0;
+  const cap = node.maxTotalConnections ?? 0;
+  const totalText = admin
+    ? `总 ${total}/${cap > 0 ? cap : "不限"}`
+    : `总 ${total}`;
+
+  return node.inboundKnown
+    ? `入站 ${node.inboundConnections ?? 0} · ${totalText}`
+    : totalText;
+}
+
+function nodeConnTitle(node: LandingNode, admin: boolean) {
+  const cap = node.maxTotalConnections ?? 0;
+
+  return `${node.inboundKnown ? `入站 ${node.inboundConnections ?? 0}（客户端连接）· ` : ""}总 ${node.totalConnections ?? node.connections ?? 0}（${NODE_TOTAL_UNIT}）${
+    admin
+      ? `\n${NODE_TOTAL_NAME} ${cap > 0 ? cap : "不限"}${node.maxConnections > 0 ? ` · 入站上限 ${node.maxConnections}` : ""}`
+      : ""
+  }`;
+}
+
+const connTone = (node: LandingNode, admin: boolean): LandingTone => {
+  if (!admin) return "purple";
+  const level = connLevel(
+    node.totalConnections ?? node.connections ?? 0,
+    node.maxTotalConnections,
+  );
+
+  return level === "full" ? "red" : level === "warn" ? "amber" : "purple";
+};
+
+// Plan 211: admins see when the 节点总连接数 waits for an agent / 妙妙屋 upgrade.
+function NodeTotalPending({
+  node,
+  shared,
+}: {
+  node: LandingNode;
+  shared: boolean;
+}) {
+  if (!node.nodeTotalPending) return null;
 
   return (
-    <span className="ml-1 text-xs text-default-500">
-      {connModeTag(node.connModeEffective)}
-      {node.connModePending && (
-        <span
-          className="ml-1 text-warning"
-          title="按入站计算需要升级节点程序（或妙妙屋侧升级）后生效，目前仍按入站+出站计算"
-        >
-          入站待升级
-        </span>
-      )}
+    <span
+      className="ml-1 text-xs text-warning"
+      title={nodeTotalPendingText(shared)}
+    >
+      总上限待升级
     </span>
   );
 }
@@ -224,28 +261,27 @@ function ExpiryPill({ node, now }: { node: LandingNode; now: number }) {
 
 // Plan 149: plug + current connections. Users see the count only (plan 132
 // hid the limits); admins also see the limit and the 计算方式 tag.
-function ConnPill({ node, admin }: { node: LandingNode; admin: boolean }) {
-  const count = node.connections ?? 0;
+function ConnPill({
+  node,
+  admin,
+  shared = false,
+}: {
+  node: LandingNode;
+  admin: boolean;
+  shared?: boolean;
+}) {
   const icon = <Plug aria-hidden className="h-3 w-3 shrink-0" />;
-
-  if (!admin) {
-    return (
-      <Pill icon={icon} title={`当前连接数 ${count}`} tone="purple">
-        {count}
-      </Pill>
-    );
-  }
 
   return (
     <span className="inline-flex items-center">
       <Pill
         icon={icon}
-        title={`连接数 ${count} / ${node.maxConnections || "不限"}`}
-        tone="purple"
+        title={nodeConnTitle(node, admin)}
+        tone={connTone(node, admin)}
       >
-        {count} / {node.maxConnections || "不限"}
+        {nodeConnText(node, admin)}
       </Pill>
-      <NodeConnTag node={node} />
+      {admin && <NodeTotalPending node={node} shared={shared} />}
     </span>
   );
 }
@@ -874,7 +910,7 @@ export default function LandingPage() {
                               "服务器 / 协议",
                               "状态",
                               "已用 / 上限",
-                              "连接数",
+                              "连接（入站 · 总/上限）",
                               "到期",
                               "操作",
                             ].map((label) => (
@@ -945,15 +981,25 @@ export default function LandingPage() {
                                 {usage(node)}
                               </td>
                               <td className="whitespace-nowrap px-3 py-2">
-                                <span className="inline-flex items-center gap-1">
+                                <span
+                                  className={`inline-flex items-center gap-1 ${connTone(node, admin) === "red" ? "font-semibold text-danger" : connTone(node, admin) === "amber" ? "text-warning" : ""}`}
+                                  title={nodeConnTitle(node, admin)}
+                                >
                                   <Plug
                                     aria-hidden
                                     className="h-3.5 w-3.5 shrink-0 text-purple-600 dark:text-purple-300"
                                   />
-                                  {node.connections ?? 0} /{" "}
-                                  {node.maxConnections || "不限"}
+                                  {nodeConnText(node, admin)}
                                 </span>
-                                <NodeConnTag node={node} />
+                                <NodeTotalPending
+                                  node={node}
+                                  shared={
+                                    servers.find(
+                                      (item) =>
+                                        item.id === node.landingServerId,
+                                    )?.source === "shared"
+                                  }
+                                />
                               </td>
                               <td className="whitespace-nowrap px-3 py-2">
                                 <ExpiryPill node={node} now={now} />
@@ -1015,7 +1061,15 @@ export default function LandingPage() {
                           className="flex flex-wrap items-center gap-1"
                         >
                           <ExpiryPill node={node} now={now} />
-                          <ConnPill admin={admin} node={node} />
+                          <ConnPill
+                            admin={admin}
+                            node={node}
+                            shared={
+                              servers.find(
+                                (item) => item.id === node.landingServerId,
+                              )?.source === "shared"
+                            }
+                          />
                           {(node.forwardCount || 0) > 0 && (
                             <Pill tone="purple">规则 {node.forwardCount}</Pill>
                           )}
@@ -1119,7 +1173,6 @@ export default function LandingPage() {
             node={details}
             server={servers.find((item) => item.id === details.landingServerId)}
             onClose={() => setDetails(null)}
-            onOpenRules={(node) => setRulesFor(node)}
             onSaved={() => void load()}
           />
         )}

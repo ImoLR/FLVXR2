@@ -23,6 +23,8 @@ import { ExtraProtocolSettings } from "@/pages/landing/extra-protocols";
 import {
   connModePendingText,
   MachineCapHint,
+  NODE_TOTAL_NAME,
+  NODE_TOTAL_UNIT,
   nodeLimitUnit,
 } from "@/pages/landing/conn-mode";
 
@@ -56,6 +58,8 @@ export function ServerSettings({
   const [coreUpgradeConfirmed, setCoreUpgradeConfirmed] = useState(false);
   // 「同时应用到现有节点」: off by default (existing nodes keep their number).
   const [applyConnMode, setApplyConnMode] = useState(false);
+  // Plan 211: same pattern for the 节点总连接数 default.
+  const [applyNodeTotal, setApplyNodeTotal] = useState(false);
   // Plan 158: the 计算方式 selectors are retired — the server total counts
   // 入站+出站, every node limit 入站 (a shared server's nodes once 妙妙屋
   // applies user limits). A native agent that cannot count 入站 yet keeps
@@ -150,6 +154,7 @@ export function ServerSettings({
         : undefined,
       applyConnMode,
       coreUpgradeConfirmed,
+      applyNodeTotal,
     );
 
     setSaving(false);
@@ -225,36 +230,9 @@ export function ServerSettings({
                 <SelectItem key="2">双向</SelectItem>
               </Select>
               {numberField("流量倍率", "trafficRatio", 0.01, "0.01")}
-              {/* Plan 147: on phones the long label wrapped and pushed the
-                  input half a row below the select; each takes a full row there. */}
-              {server.source !== "shared" && (
-                <div className="col-span-2 sm:col-span-1">
-                  {numberField(
-                    "服务器总连接数（入站+出站，0 不限）",
-                    "maxConnections",
-                  )}
-                </div>
-              )}
-              <div
-                className={
-                  server.source !== "shared"
-                    ? "col-span-2 sm:col-span-1"
-                    : undefined
-                }
-              >
-                {numberField("每人在本服务器最多节点数", "maxNodesPerUser", 1)}
-              </div>
-              <div className="col-span-2">
-                <MachineCapHint
-                  legacyInbound={Boolean(server.maxConnModeLegacy)}
-                  server={server}
-                  total={
-                    server.source === "shared"
-                      ? Number(server.sharedCaps?.max_connections ?? 0)
-                      : Number(form.maxConnections ?? 0)
-                  }
-                />
-              </div>
+              {/* Plan 211: 服务器总连接数 is hidden (not used, not enforced);
+                  each node has its own 节点总连接数 below. */}
+              {numberField("每人在本服务器最多节点数", "maxNodesPerUser", 1)}
             </div>
             <p className="text-xs text-default-500">
               落地计入用户同一个总流量。通过本人规则访问时按隧道与落地较贵的费率计费。
@@ -299,6 +277,31 @@ export function ServerSettings({
                     )}
                   </div>
                 )}
+              {/* Plan 211: per-node 入站+出站 cap (incl. TIME_WAIT/CLOSE_WAIT). */}
+              {server.defaultMaxTotalConnections !== undefined && (
+                <div data-node-total-default className="col-span-2 space-y-2">
+                  {numberField(
+                    `${NODE_TOTAL_NAME}（${NODE_TOTAL_UNIT}，0 不限）`,
+                    "defaultMaxTotalConnections",
+                  )}
+                  {(server.nodeCount ?? 0) > 0 && (
+                    <Checkbox
+                      isSelected={applyNodeTotal}
+                      onValueChange={setApplyNodeTotal}
+                    >
+                      <span className="text-xs">
+                        同时应用到现有 {server.nodeCount} 个节点（
+                        {NODE_TOTAL_NAME}
+                        改为 {form.defaultMaxTotalConnections || "不限"}）
+                      </span>
+                    </Checkbox>
+                  )}
+                  <MachineCapHint
+                    nodeTotal={Number(form.defaultMaxTotalConnections ?? 0)}
+                    server={server}
+                  />
+                </div>
+              )}
               {numberField(
                 "流量上限 (GB，计费流量，0 不限)",
                 "defaultTrafficLimitBytes",

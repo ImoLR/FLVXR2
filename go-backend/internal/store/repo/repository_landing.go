@@ -120,7 +120,7 @@ func (r *Repository) EnableLandingServer(nodeID int64) (*model.LandingServer, er
 		if n.ServerIPV4.Valid && n.ServerIPV4.String != "" {
 			host = n.ServerIPV4.String
 		}
-		s = model.LandingServer{Source: "native", NodeID: nodeID, Name: n.Name, PublicHost: host, PortMin: 30000, PortMax: 39999, FlowType: 2, TrafficRatio: 1, DefaultExpiryMode: "follow_user", MaxNodesPerUser: 3, Protocols: `["ss2022","vless_reality_vision"]`, RealityDest: "www.lovelive-anime.jp:443", RealityServerNames: `["www.lovelive-anime.jp"]`, CoreMemoryMB: 256, CoreCPUPercent: 50, Status: "active", Revision: 1, CreatedTime: now, UpdatedTime: now}
+		s = model.LandingServer{Source: "native", NodeID: nodeID, Name: n.Name, PublicHost: host, PortMin: 30000, PortMax: 39999, FlowType: 2, TrafficRatio: 1, DefaultExpiryMode: "follow_user", MaxNodesPerUser: 3, DefaultMaxTotalConnections: LandingDefaultNodeTotal, Protocols: `["ss2022","vless_reality_vision"]`, RealityDest: "www.lovelive-anime.jp:443", RealityServerNames: `["www.lovelive-anime.jp"]`, CoreMemoryMB: 256, CoreCPUPercent: 50, Status: "active", Revision: 1, CreatedTime: now, UpdatedTime: now}
 		// Plan 139: the landing range leaves the node's rule range.
 		if err := applyNativeLandingRange(tx, &s, 0, 0, s.PortMin, s.PortMax); err != nil {
 			return err
@@ -153,6 +153,9 @@ func validateLandingServer(s *model.LandingServer, keep map[string]bool) error {
 	}
 	if (s.FlowType != 1 && s.FlowType != 2) || math.IsNaN(s.TrafficRatio) || math.IsInf(s.TrafficRatio, 0) || s.TrafficRatio <= 0 || s.TrafficRatio > 1000 {
 		return errors.New("流量计算或倍率无效")
+	}
+	if s.DefaultMaxTotalConnections < 0 || s.DefaultMaxTotalConnections > MaxLandingNodeTotal || s.DefaultMaxConnections > MaxLandingNodeTotal {
+		return errors.New("节点连接数须为 0（不限）到 10000000")
 	}
 	if s.MaxConnections < 0 || s.DefaultMaxConnections < 0 || s.DefaultMaxOnlineIPs < 0 || s.DefaultTrafficLimitBytes < 0 || s.DefaultUserQuotaBytes < 0 || s.MaxNodesPerUser < 1 || s.CoreMemoryMB < 64 || s.CoreCPUPercent < 1 {
 		return errors.New("落地限制无效")
@@ -223,6 +226,9 @@ type LandingServerSaveOptions struct {
 	// server follows the server's 计算方式 again and gets its 节点连接数.
 	// Without it, a 计算方式 change keeps existing nodes on the old one.
 	ApplyConnModeToNodes bool
+	// ApplyNodeTotalToNodes (plan 211 「同时应用到现有 N 个节点」): every node of
+	// the server gets the server's 新节点默认 节点总连接数.
+	ApplyNodeTotalToNodes bool
 }
 
 func (r *Repository) SaveLandingServerOpts(s *model.LandingServer, groups []int64, opts LandingServerSaveOptions) error {
@@ -250,6 +256,9 @@ func (r *Repository) SaveLandingServerOpts(s *model.LandingServer, groups []int6
 		s.CoreStaleEpoch, s.CoreUpgradeOK = old.CoreStaleEpoch, old.CoreUpgradeOK
 		// Plan 147: carve record and agent busy-port reports have their own paths.
 		s.RuleCarved, s.NativeBusyPorts = old.RuleCarved, old.NativeBusyPorts
+		// Plan 211: 服务器总连接数 is hidden and never enforced by FLVX (a
+		// shared server's own total belongs to 妙妙屋).
+		s.MaxConnections = 0
 		keep := map[string]bool{}
 		var oldProtocols []string
 		_ = json.Unmarshal([]byte(old.Protocols), &oldProtocols)
@@ -304,6 +313,11 @@ func (r *Repository) SaveLandingServerOpts(s *model.LandingServer, groups []int6
 			s.ConnMode = old.ConnMode
 		}
 		s.ConnMode, s.MaxConnMode, s.ConnModeSig = NormalizeLandingConnMode(s.ConnMode), NormalizeLandingConnMode(s.MaxConnMode), old.ConnModeSig
+		if opts.ApplyNodeTotalToNodes {
+			if err := tx.Model(&model.LandingNode{}).Where("landing_server_id = ?", s.ID).Update("max_total_connections", s.DefaultMaxTotalConnections).Error; err != nil {
+				return err
+			}
+		}
 		if opts.ApplyConnModeToNodes && s.Source != "shared" {
 			if err := tx.Model(&model.LandingNode{}).Where("landing_server_id = ?", s.ID).Updates(map[string]any{"conn_mode": nil, "max_connections": s.DefaultMaxConnections}).Error; err != nil {
 				return err
@@ -767,7 +781,7 @@ func (r *Repository) createLandingNode(userID, serverID int64, name, protocol st
 		if err != nil {
 			return err
 		}
-		n = model.LandingNode{UserID: userID, LandingServerID: serverID, Name: name, Protocol: protocol, Port: port, MaxConnections: s.DefaultMaxConnections, MaxOnlineIPs: s.DefaultMaxOnlineIPs, TrafficLimitBytes: s.DefaultTrafficLimitBytes, ExpiryMode: "follow_user", Status: "active", Dest: s.RealityDest, ServerNames: s.RealityServerNames, CreatedTime: now, UpdatedTime: now}
+		n = model.LandingNode{UserID: userID, LandingServerID: serverID, Name: name, Protocol: protocol, Port: port, MaxConnections: s.DefaultMaxConnections, MaxTotalConnections: s.DefaultMaxTotalConnections, MaxOnlineIPs: s.DefaultMaxOnlineIPs, TrafficLimitBytes: s.DefaultTrafficLimitBytes, ExpiryMode: "follow_user", Status: "active", Dest: s.RealityDest, ServerNames: s.RealityServerNames, CreatedTime: now, UpdatedTime: now}
 		switch s.DefaultExpiryMode {
 		case "days":
 			v := now + int64(s.DefaultExpiryDays)*86400000
@@ -894,7 +908,7 @@ func (r *Repository) UpdateLandingNode(n *model.LandingNode) error {
 	if err := landingNodeNameError(n.Name); err != nil {
 		return err
 	}
-	if n.MaxConnections < 0 || n.MaxOnlineIPs < 0 || n.TrafficLimitBytes < 0 {
+	if n.MaxConnections < 0 || n.MaxOnlineIPs < 0 || n.TrafficLimitBytes < 0 || n.MaxTotalConnections < 0 || n.MaxTotalConnections > MaxLandingNodeTotal {
 		return errors.New("节点限制无效")
 	}
 	if n.FlowType != nil && *n.FlowType != 1 && *n.FlowType != 2 {
@@ -936,7 +950,7 @@ func (r *Repository) UpdateLandingNode(n *model.LandingNode) error {
 			n.ConnMode = nil
 		}
 		n.UpdatedTime = time.Now().UnixMilli()
-		if err := tx.Model(&model.LandingNode{}).Where("id = ?", n.ID).Updates(map[string]interface{}{"name": n.Name, "max_connections": n.MaxConnections, "max_online_ips": n.MaxOnlineIPs, "traffic_limit_bytes": n.TrafficLimitBytes, "flow_type": n.FlowType, "traffic_ratio": n.TrafficRatio, "conn_mode": n.ConnMode, "expiry_mode": n.ExpiryMode, "expires_at": n.ExpiresAt, "status": n.Status, "auto_disabled": n.AutoDisabled, "updated_time": n.UpdatedTime}).Error; err != nil {
+		if err := tx.Model(&model.LandingNode{}).Where("id = ?", n.ID).Updates(map[string]interface{}{"name": n.Name, "max_connections": n.MaxConnections, "max_total_connections": n.MaxTotalConnections, "max_online_ips": n.MaxOnlineIPs, "traffic_limit_bytes": n.TrafficLimitBytes, "flow_type": n.FlowType, "traffic_ratio": n.TrafficRatio, "conn_mode": n.ConnMode, "expiry_mode": n.ExpiryMode, "expires_at": n.ExpiresAt, "status": n.Status, "auto_disabled": n.AutoDisabled, "updated_time": n.UpdatedTime}).Error; err != nil {
 			return err
 		}
 		return tx.Model(&model.LandingServer{}).Where("id = ?", n.LandingServerID).Update("revision", gorm.Expr("revision + 1")).Error

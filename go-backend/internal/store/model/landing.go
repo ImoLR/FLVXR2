@@ -2,50 +2,55 @@ package model
 
 // Landing models deliberately use portable scalar columns on SQLite and PostgreSQL.
 type LandingServer struct {
-	ID                       int64   `gorm:"primaryKey;autoIncrement" json:"id"`
-	Source                   string  `gorm:"not null;default:'native'" json:"source"`
-	NodeID                   int64   `gorm:"not null;default:0;uniqueIndex:idx_landing_native_node,where:node_id > 0" json:"nodeId"`
-	RemoteServerID           int64   `gorm:"not null;default:0;uniqueIndex:idx_landing_remote_server,where:source = 'shared'" json:"remoteServerId"`
-	Name                     string  `gorm:"not null" json:"name"`
-	PublicHost               string  `gorm:"not null" json:"publicHost"`
-	PortMin                  int     `gorm:"not null;default:30000" json:"portMin"`
-	PortMax                  int     `gorm:"not null;default:39999" json:"portMax"`
-	FlowType                 int     `gorm:"not null;default:2" json:"flowType"`
-	TrafficRatio             float64 `gorm:"not null;default:1" json:"trafficRatio"`
-	MaxConnections           int     `gorm:"not null;default:0" json:"maxConnections"`
-	DefaultMaxConnections    int     `gorm:"not null;default:0" json:"defaultMaxConnections"`
-	DefaultMaxOnlineIPs      int     `gorm:"not null;default:0" json:"defaultMaxOnlineIps"`
-	DefaultTrafficLimitBytes int64   `gorm:"not null;default:0" json:"defaultTrafficLimitBytes"`
-	DefaultUserQuotaBytes    int64   `gorm:"not null;default:0" json:"defaultUserQuotaBytes"`
-	DefaultExpiryMode        string  `gorm:"not null;default:'follow_user'" json:"defaultExpiryMode"`
-	DefaultExpiryDays        int     `gorm:"not null;default:0" json:"defaultExpiryDays"`
-	DefaultExpiresAt         *int64  `json:"defaultExpiresAt"`
-	MaxNodesPerUser          int     `gorm:"not null;default:3" json:"maxNodesPerUser"`
-	Protocols                string  `gorm:"type:text;not null;default:'[\"ss2022\",\"vless_reality_vision\"]'" json:"-"`
-	RealityDest              string  `gorm:"not null;default:'www.lovelive-anime.jp:443'" json:"realityDest"`
-	RealityServerNames       string  `gorm:"type:text;not null;default:'[\"www.lovelive-anime.jp\"]'" json:"-"`
-	AvailableUntil           *int64  `json:"availableUntil"`
-	CoreMemoryMB             int     `gorm:"not null;default:256" json:"coreMemoryMb"`
-	CoreCPUPercent           int     `gorm:"not null;default:50" json:"coreCpuPercent"`
-	Status                   string  `gorm:"not null;default:'active'" json:"status"`
-	Revision                 int64   `gorm:"not null;default:1" json:"revision"`
-	SharedCaps               string  `gorm:"type:text;not null;default:''" json:"-"`
-	SharedLastSyncAt         int64   `gorm:"not null;default:0" json:"sharedLastSyncAt"`
-	SharedSyncError          string  `gorm:"not null;default:''" json:"sharedSyncError"`
-	SharedDesiredHash        string  `gorm:"not null;default:''" json:"-"`
-	SharedPushedRevision     int64   `gorm:"not null;default:0" json:"sharedPushedRevision"`
-	SharedAppliedRevision    int64   `gorm:"not null;default:0" json:"sharedAppliedRevision"`
-	SharedLastPushAt         int64   `gorm:"not null;default:0" json:"-"`
-	SharedCollectedAt        int64   `gorm:"not null;default:0" json:"-"`
-	RouteProfileID           int64   `gorm:"not null;default:0;index" json:"routeProfileId"`
-	EgressHash               string  `gorm:"not null;default:''" json:"-"`
-	EgressRestartOK          bool    `gorm:"not null;default:false" json:"egressRestartOk"`
-	EgressState              string  `gorm:"not null;default:''" json:"egressState"`
-	EgressError              string  `gorm:"type:text;not null;default:''" json:"egressError"`
-	EgressReady              bool    `gorm:"not null;default:false" json:"egressReady"`
-	EgressCheckedAt          int64   `gorm:"not null;default:0" json:"egressCheckedAt"`
-	EgressWarnings           string  `gorm:"type:text;not null;default:''" json:"-"`
-	ChainOnly                bool    `gorm:"not null;default:false" json:"chainOnly"` // exit landing auto-created for chain rules (plan 108); never shown to or usable by users
+	ID                    int64   `gorm:"primaryKey;autoIncrement" json:"id"`
+	Source                string  `gorm:"not null;default:'native'" json:"source"`
+	NodeID                int64   `gorm:"not null;default:0;uniqueIndex:idx_landing_native_node,where:node_id > 0" json:"nodeId"`
+	RemoteServerID        int64   `gorm:"not null;default:0;uniqueIndex:idx_landing_remote_server,where:source = 'shared'" json:"remoteServerId"`
+	Name                  string  `gorm:"not null" json:"name"`
+	PublicHost            string  `gorm:"not null" json:"publicHost"`
+	PortMin               int     `gorm:"not null;default:30000" json:"portMin"`
+	PortMax               int     `gorm:"not null;default:39999" json:"portMax"`
+	FlowType              int     `gorm:"not null;default:2" json:"flowType"`
+	TrafficRatio          float64 `gorm:"not null;default:1" json:"trafficRatio"`
+	MaxConnections        int     `gorm:"not null;default:0" json:"maxConnections"`
+	DefaultMaxConnections int     `gorm:"not null;default:0" json:"defaultMaxConnections"`
+
+	// Plan 211: 新节点默认 节点总连接数 (入站+出站, every TCP state incl.
+	// TIME_WAIT/CLOSE_WAIT; 0 = 不限). Existing servers got 400 on migration.
+	DefaultMaxTotalConnections int `gorm:"not null;default:0" json:"defaultMaxTotalConnections"`
+
+	DefaultMaxOnlineIPs      int    `gorm:"not null;default:0" json:"defaultMaxOnlineIps"`
+	DefaultTrafficLimitBytes int64  `gorm:"not null;default:0" json:"defaultTrafficLimitBytes"`
+	DefaultUserQuotaBytes    int64  `gorm:"not null;default:0" json:"defaultUserQuotaBytes"`
+	DefaultExpiryMode        string `gorm:"not null;default:'follow_user'" json:"defaultExpiryMode"`
+	DefaultExpiryDays        int    `gorm:"not null;default:0" json:"defaultExpiryDays"`
+	DefaultExpiresAt         *int64 `json:"defaultExpiresAt"`
+	MaxNodesPerUser          int    `gorm:"not null;default:3" json:"maxNodesPerUser"`
+	Protocols                string `gorm:"type:text;not null;default:'[\"ss2022\",\"vless_reality_vision\"]'" json:"-"`
+	RealityDest              string `gorm:"not null;default:'www.lovelive-anime.jp:443'" json:"realityDest"`
+	RealityServerNames       string `gorm:"type:text;not null;default:'[\"www.lovelive-anime.jp\"]'" json:"-"`
+	AvailableUntil           *int64 `json:"availableUntil"`
+	CoreMemoryMB             int    `gorm:"not null;default:256" json:"coreMemoryMb"`
+	CoreCPUPercent           int    `gorm:"not null;default:50" json:"coreCpuPercent"`
+	Status                   string `gorm:"not null;default:'active'" json:"status"`
+	Revision                 int64  `gorm:"not null;default:1" json:"revision"`
+	SharedCaps               string `gorm:"type:text;not null;default:''" json:"-"`
+	SharedLastSyncAt         int64  `gorm:"not null;default:0" json:"sharedLastSyncAt"`
+	SharedSyncError          string `gorm:"not null;default:''" json:"sharedSyncError"`
+	SharedDesiredHash        string `gorm:"not null;default:''" json:"-"`
+	SharedPushedRevision     int64  `gorm:"not null;default:0" json:"sharedPushedRevision"`
+	SharedAppliedRevision    int64  `gorm:"not null;default:0" json:"sharedAppliedRevision"`
+	SharedLastPushAt         int64  `gorm:"not null;default:0" json:"-"`
+	SharedCollectedAt        int64  `gorm:"not null;default:0" json:"-"`
+	RouteProfileID           int64  `gorm:"not null;default:0;index" json:"routeProfileId"`
+	EgressHash               string `gorm:"not null;default:''" json:"-"`
+	EgressRestartOK          bool   `gorm:"not null;default:false" json:"egressRestartOk"`
+	EgressState              string `gorm:"not null;default:''" json:"egressState"`
+	EgressError              string `gorm:"type:text;not null;default:''" json:"egressError"`
+	EgressReady              bool   `gorm:"not null;default:false" json:"egressReady"`
+	EgressCheckedAt          int64  `gorm:"not null;default:0" json:"egressCheckedAt"`
+	EgressWarnings           string `gorm:"type:text;not null;default:''" json:"-"`
+	ChainOnly                bool   `gorm:"not null;default:false" json:"chainOnly"` // exit landing auto-created for chain rules (plan 108); never shown to or usable by users
 	// Reality guard (plan 127): admin switch (stored inverted, default on) and
 	// the last state the agent reported ("", on, restart_required, error).
 	RealityGuardOff bool   `gorm:"not null;default:false" json:"-"`
@@ -129,18 +134,24 @@ type LandingNode struct {
 	InboundTag      string `gorm:"not null" json:"inboundTag"`
 	// GuardPort is the loopback port of this Reality node's guard (plan 127);
 	// nodes with the same dest and serverNames on a server share it. 0 = none.
-	GuardPort         int      `gorm:"not null;default:0" json:"-"`
-	Method            string   `gorm:"not null;default:''" json:"method"`
-	ServerKey         string   `gorm:"not null;default:''" json:"-"`
-	UserKey           string   `gorm:"not null;default:''" json:"-"`
-	UUID              string   `gorm:"not null;default:''" json:"-"`
-	Flow              string   `gorm:"not null;default:''" json:"flow"`
-	PrivateKey        string   `gorm:"not null;default:''" json:"-"`
-	PublicKey         string   `gorm:"not null;default:''" json:"publicKey"`
-	ShortID           string   `gorm:"not null;default:''" json:"shortId"`
-	Dest              string   `gorm:"not null;default:''" json:"dest"`
-	ServerNames       string   `gorm:"type:text;not null;default:'[]'" json:"-"`
-	MaxConnections    int      `gorm:"not null;default:0" json:"maxConnections"`
+	GuardPort      int    `gorm:"not null;default:0" json:"-"`
+	Method         string `gorm:"not null;default:''" json:"method"`
+	ServerKey      string `gorm:"not null;default:''" json:"-"`
+	UserKey        string `gorm:"not null;default:''" json:"-"`
+	UUID           string `gorm:"not null;default:''" json:"-"`
+	Flow           string `gorm:"not null;default:''" json:"flow"`
+	PrivateKey     string `gorm:"not null;default:''" json:"-"`
+	PublicKey      string `gorm:"not null;default:''" json:"publicKey"`
+	ShortID        string `gorm:"not null;default:''" json:"shortId"`
+	Dest           string `gorm:"not null;default:''" json:"dest"`
+	ServerNames    string `gorm:"type:text;not null;default:'[]'" json:"-"`
+	MaxConnections int    `gorm:"not null;default:0" json:"maxConnections"`
+
+	// Plan 211: 节点总连接数 = every TCP socket of the node's port in any state
+	// (Core port max_total_connections, incl. TIME_WAIT/CLOSE_WAIT), next to
+	// the 入站 MaxConnections; whichever is hit first refuses new connections.
+	MaxTotalConnections int `gorm:"not null;default:0" json:"maxTotalConnections"`
+
 	MaxOnlineIPs      int      `gorm:"not null;default:0" json:"maxOnlineIps"`
 	TrafficLimitBytes int64    `gorm:"not null;default:0" json:"trafficLimitBytes"`
 	FlowType          *int     `json:"flowType"`

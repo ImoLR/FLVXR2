@@ -78,6 +78,25 @@ type Share struct {
 	// share's Helper and FLVX Core run 禁止端口扫描. Absent = FLVX sends no
 	// scan_guard and shows 「共享服务器暂不支持」 (today's behaviour).
 	ScanGuard *ShareScanGuard `json:"scan_guard,omitempty"`
+	// Contract landing-node-total-v1 (plan 211): present only while this
+	// share's Helper applies Node.MaxTotalConnections (Core port
+	// max_total_connections) next to an inbound limit and reports
+	// NodeStatus.TCP. Absent = FLVX sends a node total only the old way
+	// (max_connections without conn_mode, when the node has no 入站 limit).
+	NodeTotal *ShareNodeTotal `json:"node_total,omitempty"`
+}
+
+// NodeTotalVersion is the landing-node-total contract version FLVX speaks.
+const NodeTotalVersion = 1
+
+// ShareNodeTotal is the share list's node_total capability object.
+type ShareNodeTotal struct {
+	Versions []int `json:"versions"`
+}
+
+// Supports reports whether the share accepts node-total contract version v.
+func (n *ShareNodeTotal) Supports(v int) bool {
+	return n != nil && containsInt(n.Versions, v)
 }
 
 // ScanGuardVersion is the landing-scan-guard contract version FLVX speaks.
@@ -456,6 +475,18 @@ func (s *Share) Sanitize() {
 			s.UserLimits = nil
 		}
 	}
+	if s.NodeTotal != nil {
+		versions := []int{}
+		for _, v := range s.NodeTotal.Versions {
+			if v > 0 && v < 1000 && !containsInt(versions, v) && len(versions) < 8 {
+				versions = append(versions, v)
+			}
+		}
+		s.NodeTotal = &ShareNodeTotal{Versions: versions}
+		if len(versions) == 0 {
+			s.NodeTotal = nil
+		}
+	}
 	if s.ScanGuard != nil {
 		versions := []int{}
 		for _, v := range s.ScanGuard.Versions {
@@ -523,9 +554,14 @@ type Node struct {
 	// landing-conn-mode-v1: "inbound" = max_connections counts client
 	// connections only; omitted = 入站+出站 (byte-identical for older Custom).
 	// Sent only to shares whose ConnModes advertise version 1.
-	ConnMode string  `json:"conn_mode,omitempty"`
-	SS2022   *SS2022 `json:"ss2022,omitempty"`
-	VLESS    *VLESS  `json:"vless,omitempty"`
+	ConnMode string `json:"conn_mode,omitempty"`
+	// landing-node-total-v1 (plan 211): 节点总连接数 = every TCP socket of the
+	// node's port in any state (Core port max_total_connections), applied
+	// next to an inbound max_connections. Omitted when 0 (byte-identical
+	// payload); sent only to shares advertising node_total v1.
+	MaxTotalConnections int     `json:"max_total_connections,omitempty"`
+	SS2022              *SS2022 `json:"ss2022,omitempty"`
+	VLESS               *VLESS  `json:"vless,omitempty"`
 	// landing-protocols-v1: exactly one object, matching Protocol. Only sent
 	// to shares whose ProtocolCaps advertise the protocol.
 	AnyTLS *AnyTLS `json:"anytls,omitempty"`
@@ -584,7 +620,28 @@ type NodeStatus struct {
 	// landing-conn-mode-v1: live inbound (client) connections of the node's
 	// inbound (Core inbound_current); absent = unknown (older Helper).
 	InboundConnections *int `json:"inbound_connections,omitempty"`
+	// landing-node-total-v1: the node's sockets by direction and state (same
+	// keys as the native agent's counter tcp object); absent = unknown.
+	TCP *TCPCounts `json:"tcp,omitempty"`
 }
+
+// TCPCounts: inbound (client side) and outbound sockets of a landing node's
+// port in any state, and how many of all of them are ESTABLISHED / TIME_WAIT
+// / CLOSE_WAIT (native agent counter tcp, landing-node-total-v1 status).
+type TCPCounts struct {
+	Inbound     int64 `json:"inbound"`
+	Outbound    int64 `json:"outbound"`
+	Established int64 `json:"established"`
+	TimeWait    int64 `json:"time_wait"`
+	CloseWait   int64 `json:"close_wait"`
+}
+
+// Valid: no negative counts, states within the sockets counted.
+func (c *TCPCounts) Valid() bool {
+	return c != nil && c.Inbound >= 0 && c.Outbound >= 0 && c.Established >= 0 && c.TimeWait >= 0 && c.CloseWait >= 0 &&
+		c.Established+c.TimeWait+c.CloseWait <= c.Inbound+c.Outbound
+}
+
 type OnlineIP struct {
 	IP          string `json:"ip"`
 	Connections int    `json:"connections"`

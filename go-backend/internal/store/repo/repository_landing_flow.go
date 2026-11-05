@@ -26,10 +26,13 @@ type LandingCounter struct {
 	OnlineIPs     []landingcustom.OnlineIP `json:"online_ips,omitempty"`
 	// Plan 141: the Core's live inbound (client) connections; nil = the
 	// reporter does not know them (older agent / Helper).
-	InboundConnections *int  `json:"inbound_connections,omitempty"`
-	NodeID             int64 `json:"-"`
-	ServerID           int64 `json:"-"` // Set only by the authenticated Custom poller.
-	CollectedAt        int64 `json:"-"`
+	InboundConnections *int `json:"inbound_connections,omitempty"`
+	// Plan 211: the node's socket breakdown (agent landing_conn_mode >= 2,
+	// share node_total v1); nil = unknown. Kept in memory only (monitor).
+	TCP         *landingcustom.TCPCounts `json:"tcp,omitempty"`
+	NodeID      int64                    `json:"-"`
+	ServerID    int64                    `json:"-"` // Set only by the authenticated Custom poller.
+	CollectedAt int64                    `json:"-"`
 }
 
 type ServerQuotaKey struct {

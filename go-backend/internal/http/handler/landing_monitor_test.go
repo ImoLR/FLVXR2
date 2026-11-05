@@ -324,14 +324,16 @@ func TestLandingMonitorEndpointVisibilityAndRates(t *testing.T) {
 				t.Fatalf("admin response %s", raw)
 			}
 			jp := admin.Servers[0]
-			if jp.ID != native.ID || len(jp.Nodes) != 2 || jp.Connections != 11 || jp.MaxConnections != 300 || !jp.Online || jp.UpRate == nil || *jp.UpRate != float64(12*mb) || *jp.DownRate != float64(14*mb) {
+			// Plan 211: the server total is hidden and saved as 0 (not enforced);
+			// nodes carry the default 节点总连接数 400 and both live sums.
+			if jp.ID != native.ID || len(jp.Nodes) != 2 || jp.Connections != 11 || jp.TotalConnections != 11 || jp.MaxConnections != 0 || jp.Nodes[0].MaxTotalConnections != 400 || jp.Nodes[1].TotalConnections != 7 || !jp.Online || jp.UpRate == nil || *jp.UpRate != float64(12*mb) || *jp.DownRate != float64(14*mb) {
 				t.Fatalf("admin native server %+v", jp)
 			}
 			if jp.Nodes[0].UserName != "alice" || jp.Nodes[1].UserName != "bob" || jp.Nodes[0].UpRate == nil || *jp.Nodes[0].UpRate != float64(2*mb) {
 				t.Fatalf("admin nodes %+v", jp.Nodes)
 			}
 			us := admin.Servers[1]
-			if us.Source != "shared" || us.MaxConnections != 500 || us.ShareLimitBytes != 100<<30 || us.ShareUsedBytes != 1<<30 || !us.Online || us.CoreState != "running" || us.SampleAt != ms-90_000 {
+			if us.Source != "shared" || us.MaxConnections != 500 || us.ShareMaxConnections != 500 || us.ShareLimitBytes != 100<<30 || us.ShareUsedBytes != 1<<30 || !us.Online || us.CoreState != "running" || us.SampleAt != ms-90_000 {
 				t.Fatalf("admin shared server %+v", us)
 			}
 			if us.Nodes[0].UpRate == nil || *us.Nodes[0].UpRate != float64(mb) || us.Nodes[0].SampleAt != ms-90_000 {
