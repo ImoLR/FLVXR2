@@ -252,7 +252,7 @@ function SplitModal({
             </ul>
           )}
           <p className="text-xs text-default-500">
-            同一条流量经过的每台服务器（入口、中转、出口、落地）都会计入，所以各服务器相加会大于合计。
+            只列入口和落地服务器。经入口到落地的流量在两台上各算一次，所以各服务器相加可能大于合计。
           </p>
         </ModalBody>
         <ModalFooter>
@@ -388,7 +388,8 @@ export default function TrafficRankingCard() {
                 </span>
               </span>
               <span>
-                {items.length} {view === "users" ? "个活跃用户" : "台服务器"}
+                {items.length}{" "}
+                {view === "users" ? "个活跃用户（不含管理员）" : "台服务器"}
               </span>
               {win?.partial && data && data.since > 0 && (
                 <Pill
@@ -401,7 +402,7 @@ export default function TrafficRankingCard() {
             </div>
             {view === "servers" && items.length > 0 && (
               <p className="mb-1 text-xs text-default-400">
-                一条流量经过的每台服务器都会计入，各服务器相加大于用户合计。
+                只列入口和落地服务器，含全部用户（包括管理员）的流量；经入口到落地的流量在两台上各算一次，所以服务器相加可能大于用户合计。
               </p>
             )}
             {items.length === 0 ? (

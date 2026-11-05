@@ -272,7 +272,7 @@ type TrafficRankItem struct {
 	User        string   `json:"user,omitempty"`
 	ServerKind  string   `json:"serverKind,omitempty"`
 	ServerRefID int64    `json:"serverRefId,omitempty"`
-	Roles       []string `json:"roles,omitempty"` // entry | relay | exit | landing
+	Roles       []string `json:"roles,omitempty"` // entry | landing
 	Name        string   `json:"name"`
 	Deleted     bool     `json:"deleted,omitempty"`
 	In          int64    `json:"in"`
@@ -372,15 +372,21 @@ func (r *Repository) TrafficRanking(now time.Time) (TrafficRankingView, error) {
 				continue
 			}
 			if row.ServerKind == TrafficKindTotal {
+				u, ok := users[row.UserID]
+				if !ok || u.RoleID == 0 {
+					continue // admins' own traffic is not ranked (it still counts on the servers)
+				}
 				it := userSum[row.UserID]
 				if it == nil {
-					u := users[row.UserID]
 					it = &TrafficRankItem{UserID: row.UserID, User: u.User, Name: u.Name}
 					userSum[row.UserID] = it
 				}
 				it.In += row.InBytes
 				it.Out += row.OutBytes
 				continue
+			}
+			if !servers.listed(row.ServerKind, row.ServerRefID) {
+				continue // only 入口 and 落地 servers are ranked
 			}
 			key := fmt.Sprintf("%s:%d", row.ServerKind, row.ServerRefID)
 			it := serverSum[key]
@@ -445,6 +451,9 @@ func (r *Repository) UserTrafficSplit(userID int64, window string, now time.Time
 			view.In, view.Out = row.InBytes, row.OutBytes
 			continue
 		}
+		if !servers.listed(row.ServerKind, row.ServerRefID) {
+			continue
+		}
 		it := servers.item(row.ServerKind, row.ServerRefID)
 		it.In, it.Out = row.InBytes, row.OutBytes
 		sum[fmt.Sprintf("%s:%d", row.ServerKind, row.ServerRefID)] = it
@@ -492,7 +501,7 @@ func (r *Repository) trafficUserNames(rows []trafficDayRow) (map[int64]model.Use
 		list = append(list, id)
 	}
 	var users []model.User
-	if err := r.db.Select("id", "user", "name").Where("id IN ?", list).Find(&users).Error; err != nil {
+	if err := r.db.Select("id", "user", "name", "role_id").Where("id IN ?", list).Find(&users).Error; err != nil {
 		return nil, err
 	}
 	for _, u := range users {
@@ -515,8 +524,16 @@ func (s trafficServers) item(kind string, ref int64) *TrafficRankItem {
 	return it
 }
 
-// trafficServerInfo resolves names and roles (入口 / 中转 / 出口 from the
-// tunnels' chain rows, 落地 from landing servers) of the servers in rows.
+// listed reports whether a server takes part in the server ranking: only 入口
+// and 落地 servers (the scope of the user's 「服务器流量」 card); relay / exit
+// only nodes and deleted nodes (role unknown) are left out.
+func (s trafficServers) listed(kind string, ref int64) bool {
+	return len(s.roles[fmt.Sprintf("%s:%d", kind, ref)]) > 0
+}
+
+// trafficServerInfo resolves names and roles (入口 from the tunnels' entry
+// chain rows, 落地 from landing servers) of the servers in rows. Relay and exit
+// hops give no role: those servers are not ranked.
 func (r *Repository) trafficServerInfo(rows []trafficDayRow) (trafficServers, error) {
 	out := trafficServers{names: map[string]string{}, roles: map[string][]string{}}
 	seen := map[string]bool{}
@@ -551,7 +568,7 @@ func (r *Repository) trafficServerInfo(rows []trafficDayRow) (trafficServers, er
 			NodeID    int64
 			ChainType string
 		}
-		if err := r.db.Model(&model.ChainTunnel{}).Distinct("node_id", "chain_type").Where("node_id IN ?", nodeIDs).Scan(&chains).Error; err != nil {
+		if err := r.db.Model(&model.ChainTunnel{}).Distinct("node_id", "chain_type").Where("node_id IN ? AND chain_type = ?", nodeIDs, "1").Scan(&chains).Error; err != nil {
 			return out, err
 		}
 		has := map[int64]map[string]bool{}
@@ -562,10 +579,6 @@ func (r *Repository) trafficServerInfo(rows []trafficDayRow) (trafficServers, er
 			switch c.ChainType {
 			case "1":
 				has[c.NodeID]["entry"] = true
-			case "2":
-				has[c.NodeID]["relay"] = true
-			case "3":
-				has[c.NodeID]["exit"] = true
 			}
 		}
 		var natives []int64
@@ -580,7 +593,7 @@ func (r *Repository) trafficServerInfo(rows []trafficDayRow) (trafficServers, er
 		}
 		for id, set := range has {
 			roles := []string{}
-			for _, role := range []string{"entry", "relay", "exit", "landing"} {
+			for _, role := range []string{"entry", "landing"} {
 				if set[role] {
 					roles = append(roles, role)
 				}

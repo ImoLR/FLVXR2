@@ -1031,6 +1031,12 @@ export default function DashboardPage() {
         formatFlow={formatFlow}
         statisticsFlowsCount={statisticsFlows.length}
       />
+      {/* Plan 212: admin 流量排行 sits right under the 24 h chart. */}
+      {isAdmin && trafficCardsReady && (
+        <Suspense fallback={null}>
+          <TrafficRankingCard />
+        </Suspense>
+      )}
       {isAdmin && nodeExpiryReminders.length > 0 && (
         <Card className="mb-6 lg:mb-8 border border-amber-200/80 bg-gradient-to-br from-amber-50/90 via-background to-orange-50/70 shadow-md dark:border-amber-500/20 dark:from-amber-950/10 dark:to-orange-950/10">
           <CardHeader className="pb-3">
@@ -1078,9 +1084,9 @@ export default function DashboardPage() {
           </CardBody>
         </Card>
       )}
-      {trafficCardsReady && (
+      {!isAdmin && trafficCardsReady && (
         <Suspense fallback={null}>
-          {isAdmin ? <TrafficRankingCard /> : <ServerTrafficCard />}
+          <ServerTrafficCard />
         </Suspense>
       )}
       {/* 隧道权限 - 管理员不显示 */}

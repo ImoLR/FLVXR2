@@ -80,14 +80,10 @@ export function Meter({
 
 const roleText: Record<TrafficRole, string> = {
   entry: "入口",
-  relay: "中转",
-  exit: "出口",
   landing: "落地",
 };
 const roleTone: Record<TrafficRole, LandingTone> = {
   entry: "teal",
-  relay: "slate",
-  exit: "slate",
   landing: "purple",
 };
 

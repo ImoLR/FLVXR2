@@ -398,8 +398,16 @@ func (c LandingUserNodeCounts) Remaining(serverID int64, maxNodesPerUser int) in
 // value or 5 when following the global default), the cap in force and the
 // per-server quotas.
 func (r *Repository) GetLandingUserSetting(userID int64) (model.LandingUserSetting, LandingMaxNodes, []model.UserServerQuota, error) {
+	return r.getLandingUserSettingAt(userID, time.Now())
+}
+
+// getLandingUserSettingAt returns the per-server rows as of now: a row whose
+// stored period has elapsed reads 已用 0 and not paused, exactly like
+// applyServerQuotasTx (which zeroes it on the next upload) and the user's
+// 主页 「服务器流量」 card. Only the view changes; stored counters stay.
+func (r *Repository) getLandingUserSettingAt(userID int64, now time.Time) (model.LandingUserSetting, LandingMaxNodes, []model.UserServerQuota, error) {
 	var u model.User
-	if err := r.db.Select("id", "role_id").First(&u, userID).Error; err != nil {
+	if err := r.db.Select("id", "role_id", "flow_reset_time").First(&u, userID).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return model.LandingUserSetting{}, LandingMaxNodes{}, nil, errors.New("用户不存在")
 		}
@@ -411,6 +419,12 @@ func (r *Repository) GetLandingUserSetting(userID int64) (model.LandingUserSetti
 	}
 	qs := []model.UserServerQuota{}
 	err = r.db.Where("user_id = ?", userID).Order("server_kind, server_ref_id").Find(&qs).Error
+	period := LandingPeriodKey(u.FlowResetTime, now)
+	for i := range qs {
+		if qs[i].PeriodKey != period {
+			qs[i].UsedIn, qs[i].UsedOut, qs[i].Paused = 0, 0, false
+		}
+	}
 	return s, limit, qs, err
 }
 func (r *Repository) SaveLandingUserSetting(userID int64, maxNodes int, quotas []model.UserServerQuota, extendFixedByMs int64) error {

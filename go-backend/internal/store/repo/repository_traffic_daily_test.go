@@ -311,6 +311,9 @@ func TestTrafficRankingWindows(t *testing.T) {
 				row(20261027, 3, TrafficKindTotal, 0, 1000, 0), // before the week and the month
 				row(20261103, 77, TrafficKindTotal, 0, 5, 5),   // deleted user: skipped
 				row(20261103, 2, "node", 6, 0, 0),              // zero row: not active
+				row(20261103, 2, "node", 2, 999, 999),          // relay-only node: not ranked, not in the split
+				row(20261103, 9, TrafficKindTotal, 0, 5000, 0), // admin: not in the user ranking ...
+				row(20261103, 9, "node", 1, 5000, 0),           // ... but counted on the server
 			)
 			exec(`INSERT INTO vite_config(name, value, time) VALUES ('traffic_daily_since', ?, 0) ON CONFLICT(name) DO UPDATE SET value = excluded.value`,
 				i64s(time.Date(2026, 10, 29, 14, 0, 0, 0, TrafficDayZone).UnixMilli()))
@@ -346,14 +349,27 @@ func TestTrafficRankingWindows(t *testing.T) {
 			if len(month.Users) != 2 || month.Users[0].UserID != 3 || month.Users[1].In+month.Users[1].Out != 20 {
 				t.Fatalf("month users %+v", month.Users)
 			}
-			// Servers: names + roles (node 3 = exit of t1 and entry of t2).
-			if len(week.Servers) != 3 || week.Servers[0].ServerRefID != 1 || week.Servers[0].In != 110 || week.Servers[0].Name != "HK-entry" {
+			// Servers: only 入口 + 落地, all users incl. the admin (node 3 = exit of t1 and
+			// entry of t2 → listed as 入口; node 2 = relay only → left out).
+			if len(week.Servers) != 3 || week.Servers[0].ServerRefID != 1 || week.Servers[0].In != 5110 || week.Servers[0].Name != "HK-entry" {
 				t.Fatalf("week servers %+v", week.Servers)
+			}
+			for _, w := range view.Windows {
+				for _, u := range w.Users {
+					if u.UserID == 9 {
+						t.Fatalf("%s: admin ranked %+v", w.Key, w.Users)
+					}
+				}
+				for _, s := range w.Servers {
+					if s.ServerKind == "node" && s.ServerRefID == 2 {
+						t.Fatalf("%s: relay node ranked %+v", w.Key, w.Servers)
+					}
+				}
 			}
 			for _, s := range week.Servers {
 				switch {
 				case s.ServerKind == "node" && s.ServerRefID == 3:
-					if len(s.Roles) != 2 || s.Roles[0] != "entry" || s.Roles[1] != "exit" {
+					if len(s.Roles) != 1 || s.Roles[0] != "entry" {
 						t.Fatalf("node 3 roles %v", s.Roles)
 					}
 				case s.ServerKind == "landing":
@@ -378,6 +394,80 @@ func TestTrafficRankingWindows(t *testing.T) {
 				t.Fatal(err)
 			}
 			orphanCount(t, r, "traffic_daily", "user_id = 3", 0)
+		})
+	}
+}
+
+// 后台 落地 → 用户设置 「已用」 reads the current period like enforcement and the
+// 主页 card: after the reset day an untouched row shows 0 (and not 额度已用完),
+// the stored counters are not changed, and new traffic starts from 0.
+func TestLandingUserSettingUsedIsCurrentPeriod(t *testing.T) {
+	for _, dialect := range []string{"sqlite", "postgres"} {
+		t.Run(dialect, func(t *testing.T) {
+			r := poolRepoFixture(t, dialect)
+			orphanSeed(t, r, &model.LandingServer{ID: 7, Source: "shared", RemoteServerID: 16, Name: "PQS-TW", Status: "active", DefaultUserQuotaBytes: 1000})
+			// User 2 resets on day 1; node 1 has its own 100-byte limit.
+			if err := r.SaveLandingUserSetting(2, 5, []model.UserServerQuota{{ServerKind: "node", ServerRefID: 1, LimitBytes: 100}}, 0); err != nil {
+				t.Fatal(err)
+			}
+			apply := func(key ServerQuotaKey, in, out int64, at time.Time) {
+				t.Helper()
+				if _, err := r.ApplyFlowBatch(FlowBatch{ServerQuotas: map[ServerQuotaKey]FlowCounterDelta{key: {In: in, Out: out}}}, at); err != nil {
+					t.Fatal(err)
+				}
+			}
+			last := time.Date(2026, 10, 31, 23, 59, 59, 0, time.Local)
+			apply(ServerQuotaKey{2, "node", 1}, 100, 50, last.Add(-time.Hour)) // 150 of 100 → paused in October
+			apply(ServerQuotaKey{2, "landing", 7}, 30, 0, last.Add(-time.Hour))
+			used := func(at time.Time) map[string]model.UserServerQuota {
+				t.Helper()
+				_, _, qs, err := r.getLandingUserSettingAt(2, at)
+				if err != nil {
+					t.Fatal(err)
+				}
+				out := map[string]model.UserServerQuota{}
+				for _, q := range qs {
+					out[q.ServerKind+":"+i64s(q.ServerRefID)] = q
+				}
+				return out
+			}
+			// Before the reset day: the October numbers.
+			before := used(last)
+			if q := before["node:1"]; q.UsedIn+q.UsedOut != 150 || !q.Paused || q.LimitBytes != 100 {
+				t.Fatalf("before reset node 1 %+v", q)
+			}
+			if q := before["landing:7"]; q.UsedIn+q.UsedOut != 30 {
+				t.Fatalf("before reset landing 7 %+v", q)
+			}
+			// After the reset, no traffic yet: 0 and not paused; limit kept.
+			first := time.Date(2026, 11, 1, 0, 0, 1, 0, time.Local)
+			after := used(first)
+			if q := after["node:1"]; q.UsedIn != 0 || q.UsedOut != 0 || q.Paused || q.LimitBytes != 100 || !q.LimitOverride {
+				t.Fatalf("after reset node 1 %+v", q)
+			}
+			if q := after["landing:7"]; q.UsedIn+q.UsedOut != 0 {
+				t.Fatalf("after reset landing 7 %+v", q)
+			}
+			// Same numbers as the 主页 card (which follows enforcement).
+			card, err := r.UserServerTraffic(2, first)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, s := range card.Servers {
+				if q, ok := after[s.ServerKind+":"+i64s(s.ServerRefID)]; ok && q.UsedIn+q.UsedOut != s.UsedIn+s.UsedOut {
+					t.Fatalf("card %+v vs setting %+v", s, q)
+				}
+			}
+			// Display only: the stored row still holds October until the next upload.
+			var stored model.UserServerQuota
+			if err := r.db.Where("user_id = 2 AND server_kind = 'node' AND server_ref_id = 1").First(&stored).Error; err != nil || stored.UsedIn+stored.UsedOut != 150 || !stored.Paused {
+				t.Fatalf("stored row changed %+v %v", stored, err)
+			}
+			// New traffic in November counts from 0 (enforcement rolls the row).
+			apply(ServerQuotaKey{2, "node", 1}, 20, 5, first.Add(time.Hour))
+			if q := used(first.Add(2 * time.Hour))["node:1"]; q.UsedIn+q.UsedOut != 25 || q.Paused {
+				t.Fatalf("november node 1 %+v", q)
+			}
 		})
 	}
 }

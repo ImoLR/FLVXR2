@@ -24,7 +24,8 @@ export interface ServerTrafficView {
   servers: ServerTrafficRow[];
 }
 
-export type TrafficRole = "entry" | "relay" | "exit" | "landing";
+// Plan 212 fix: rankings list only 入口 and 落地 servers.
+export type TrafficRole = "entry" | "landing";
 
 export interface TrafficRankItem {
   userId?: number;

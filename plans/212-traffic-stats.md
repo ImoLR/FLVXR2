@@ -53,3 +53,13 @@ Branch `feature/3.0.27-traffic-stats` from tag `3.0.27-fork.115`. Panel only (no
   translucent background shading only).
 - CI Build Check 41902978455 green on c31759be (frontend, backend, agent, PostgreSQL contract).
 - Prod sizing (read-only): ~60 rows/day → ~22 k rows, ~2–3 MB per year (400-day cap).
+
+## Follow-up (user 2026-11-05 「都按你的建议做」) — BUILD ONLY
+- [x] F1. 「流量排行 → 服务器」 lists only 入口 + 落地 servers (relay/exit-only nodes and deleted nodes left out; roles
+        shown are 入口/落地 only); same filter for the user drill-down; note reworded (经入口到落地的流量两台各算一次).
+- [x] F2. Admin 「流量排行」 card moved right under the 24 h chart (user 「服务器流量」 card and existing cards unchanged).
+- [x] F3. Admin accounts' own traffic left out of the 用户 ranking (server totals still include it); UI says 「不含管理员」.
+- [x] F4. 后台 「落地 → 用户设置」 已用 = current period: `GetLandingUserSetting` zeroes 已用 / 额度已用完 of rows whose
+        period has elapsed (display only, stored counters untouched); test `TestLandingUserSettingUsedIsCurrentPeriod`.
+- [ ] F5. Gates: `go test ./...`, tsc / build / lint vs base; push; CI green
+- [ ] F6. Screens (moved card, server toggle, 用户设置 after reset; 1440 + 390, light + dark), release notes, ledger, summary
