@@ -8,12 +8,13 @@ The data-side fix went live the same day: a 「放行谷歌系」 rule (`geosite
 
 ## Change
 
-- `sublink.TestURL`: `https://www.gstatic.com/generate_204` → `https://cp.cloudflare.com/generate_204` (returns 204 and is not in geosite:cn).
+- `sublink.TestURL`: `https://www.gstatic.com/generate_204` → `http://cp.cloudflare.com/` (user's choice, same as NekoBox; the root path returns 204 like `/generate_204`, and the domain is not in geosite:cn).
+- 2026-11-05 later: 全局·强制 rule renamed 「放行谷歌/苹果」, now `geosite:google@cn` + `geosite:apple@cn`.
 - Golden files updated, URL string only.
 
 ## Tasks
 
 - [x] Switch TestURL and update the golden files
 - [x] `go test ./internal/sublink/...` passes
-- [x] Checked through landing node 「vless 直连」 (Boil Hinet 158) after the rule fix: cp.cloudflare.com 204, www.gstatic.com 204
-- [ ] Release with the next batch (panel only, no DB change), then pull a Clash subscription and confirm `url: https://cp.cloudflare.com/generate_204`
+- [x] Checked through landing node 「vless 直连」 (Boil Hinet 158) after the rule fix: http://cp.cloudflare.com/ 204, www.gstatic.com 204
+- [ ] Release with the next batch (panel only, no DB change), then pull a Clash subscription and confirm `url: http://cp.cloudflare.com/`
