@@ -61,5 +61,9 @@ Branch `feature/3.0.27-traffic-stats` from tag `3.0.27-fork.115`. Panel only (no
 - [x] F3. Admin accounts' own traffic left out of the 用户 ranking (server totals still include it); UI says 「不含管理员」.
 - [x] F4. 后台 「落地 → 用户设置」 已用 = current period: `GetLandingUserSetting` zeroes 已用 / 额度已用完 of rows whose
         period has elapsed (display only, stored counters untouched); test `TestLandingUserSettingUsedIsCurrentPeriod`.
-- [ ] F5. Gates: `go test ./...`, tsc / build / lint vs base; push; CI green
-- [ ] F6. Screens (moved card, server toggle, 用户设置 after reset; 1440 + 390, light + dark), release notes, ledger, summary
+- [x] F5. Gates: `go test ./...` 25/25 (SQLite + PostgreSQL); tsc clean; lint 94 errors / 3789 warnings = base; build ok;
+        pushed 9316ff73; CI Build Check 41987781889 green
+- [x] F6. Screens (moved card, server toggle, 用户设置 after reset; 1440 + 390, light + dark) in /traffic-stats/ gallery
+        (markup of existing parts identical 36/36), release notes, ledger, summary
+- Note: the landing reconcile (every minute) already rolls stale rows on prod (read-only check 11-05: all rows on their
+  current period), so F4 only closes the < 1 min window after a reset; it makes the view independent of that timing.
