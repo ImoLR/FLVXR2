@@ -106,3 +106,34 @@ landing −3.2, css +0.3). Demo 148/148 checks, 0 page errors, 76 shots: 内置 
 pixel-identical (H5 default + expanded, desktop list box; desktop header only gains 「收起」;
 markup byte-identical), every collapsed row height == 内置 row (36 px + divider), no
 overlap / no horizontal scroll at 390 and 1440, admin 出站与路由 sections pixel-identical.
+
+## r3 (2026-11-05 ~19:00 TW) — 我的规则 collapsed row = 全局·强制 row; controls into 展开详情
+
+User after the r2 screens: r2 approved except 我的规则. Collapsed 我的规则 rows must look
+exactly like 内置 / 全局·强制: number + name (ellipsis) + coloured action chip + ✓/✗, one
+line, same height, phone and desktop. No switch and no 「⋯」 on the collapsed row; both
+move into the layer's 「展开详情」. Disabled rule → ✗ + dimmed, chip stays.
+
+Approach:
+- `LayerRuleRow`: drop the `controls` slot; new `actions` slot rendered at the end of
+  the row's details block (only when the layer is expanded).
+- `EgressRuleList` layer layout: chip on H5 too (same capped `Pill` as 全局·强制);
+  per-rule action line under 「命中后」: Switch 「启用」 + flat pills 编辑 / 上移 / 下移 /
+  置顶 / 置底 / 删除 (moves hidden at the ends, as the r2 menu did). 删除 asks inline
+  (「确认删除」 / 「取消」) — r2 had no confirm; still buffered until the dialog 「保存」.
+  Move pills are text only (编辑 / 删除 keep their icons) so the 7 actions fit 2 lines
+  at 390 px (with icons they took 3).
+  The pills wrap inside the details block on 390 px; collapsed rows stay one line.
+- 添加预设 / 添加规则 stay above the list. Other layers / 内置 / admin page unchanged.
+
+### r3 checklist
+- [x] LayerRuleRow: controls slot → actions slot in details
+- [x] 我的规则: chip on H5, action line (启用 switch + pills + inline delete confirm)
+- [x] tsc / build / lint vs r2 + fork.115; bundle delta vs fork.115
+- [x] Demo r2 vs r3: 我的规则 pairs (390/1440, light/dark, collapsed/expanded, disabled ✗)
+- [x] Auto-checks: row height == 全局·强制, chip visible 390, no switch/⋯ collapsed,
+      actions work, no overlap / h-scroll; other layers + admin page 0 px diff vs r2
+- [x] Gallery: r3 pairs first, older sections below
+- [ ] Trial merge onto 3.0.27-fork.116 (not pushed), report conflicts
+- [ ] Commit, push, CI green
+- [ ] Ledger row → built r3; cleanup; final.md + summary.md

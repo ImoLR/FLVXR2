@@ -18,6 +18,8 @@ import {
 // The row never wraps: the name truncates first, the chip is capped and
 // truncates too. The layer's single 「展开详情」 toggle opens the matchers and
 // 「命中后」 under every row; nothing else is shown in the collapsed row.
+// r3: 我的规则 uses the very same row; its 启用 switch and 编辑 / 移动 / 删除
+// pills sit in the details block (`actions`), never on the collapsed line.
 
 export type RowState = { on: boolean; label: string };
 
@@ -113,7 +115,7 @@ export function LayerRuleRow({
   offNote,
   state,
   dim = false,
-  controls,
+  actions,
   dataKey,
 }: {
   lead: ReactNode;
@@ -129,15 +131,15 @@ export function LayerRuleRow({
   offNote?: string;
   state?: RowState;
   dim?: boolean;
-  /** 我的规则: switch + 「更多」 menu (all h-5, the row stays one line). */
-  controls?: ReactNode;
+  /** 我的规则: 启用 switch + 编辑 / 移动 / 删除, shown only with the details. */
+  actions?: ReactNode;
   dataKey?: string;
 }) {
   return (
     <div className="px-3 py-2" data-layer-rule={dataKey}>
       <div
         data-layer-rule-line
-        className={`grid ${controls ? "grid-cols-[14px_minmax(0,1fr)_auto_auto_auto]" : "grid-cols-[14px_minmax(0,1fr)_auto_auto]"} items-center gap-2 ${dim ? "opacity-70" : ""}`}
+        className={`grid grid-cols-[14px_minmax(0,1fr)_auto_auto] items-center gap-2 ${dim ? "opacity-70" : ""}`}
       >
         {lead}
         <span className="truncate text-sm font-medium" title={name}>
@@ -152,22 +154,20 @@ export function LayerRuleRow({
         ) : (
           <span className="w-0" />
         )}
-        {controls && (
-          <span className="flex items-center gap-1">{controls}</span>
-        )}
         {state ? (
           <StateIcon label={state.label} on={state.on} />
         ) : (
           <span className="w-0" />
         )}
       </div>
-      {open && (details.length > 0 || note || offNote) && (
+      {open && (details.length > 0 || note || offNote || actions) && (
         <div data-layer-rule-details className="pl-[22px]">
           <div className={dim ? "opacity-80" : ""}>
             <DetailList items={details} />
             {note && <p className="mt-1 text-xs text-default-500">{note}</p>}
           </div>
           {offNote && <p className="mt-1 text-xs text-danger">{offNote}</p>}
+          {actions}
         </div>
       )}
     </div>

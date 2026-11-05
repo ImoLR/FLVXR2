@@ -126,6 +126,7 @@ export function EgressRuleList({
     index: number;
     rule: EgressRule;
   } | null>(null);
+  const [deleting, setDeleting] = useState<string | null>(null);
 
   const moves = (index: number) =>
     (
@@ -229,59 +230,100 @@ export function EgressRuleList({
     </>
   );
 
-  // Plan 214 r2: controls of the one-line layer row (desktop + H5): the h-5
-  // switch and one compact 「更多」 menu with 编辑, 置顶…置底 and 删除, so the
-  // row keeps the 内置 row height and never wraps.
-  const layerControls = (rule: EgressRule, index: number) => (
-    <>
-      <Switch
-        aria-label={rule.enabled ? "停用规则" : "启用规则"}
-        isSelected={rule.enabled}
-        onValueChange={(enabled) =>
-          onChange(rules.map((r, i) => (i === index ? { ...r, enabled } : r)))
-        }
-      />
-      <Dropdown placement="bottom-end">
-        <DropdownTrigger>
-          <button
-            aria-label="更多操作"
-            className="inline-flex h-5 w-6 items-center justify-center rounded-md text-default-500 hover:bg-default-200/70 hover:text-default-700"
-            title="更多"
-            type="button"
+  // Plan 214 r3: 我的规则 actions live in the layer's 「展开详情」, under each
+  // rule's matchers: 启用 switch + flat tinted pills (编辑, 上移…置底, 删除).
+  // The moves that can't happen at the ends are hidden, like the r2 menu.
+  // 删除 asks once inline (still only applied by the dialog's 「保存」).
+  const pill = "h-7 rounded-full px-2.5 gap-1";
+  const layerActions = (rule: EgressRule, index: number) => (
+    <div
+      className="mt-2 flex flex-wrap items-center gap-1.5"
+      data-rule-actions={rule.id}
+    >
+      <span className="mr-1 inline-flex items-center gap-1.5">
+        <Switch
+          aria-label={rule.enabled ? "停用规则" : "启用规则"}
+          id={`rule-enable-${rule.id}`}
+          isSelected={rule.enabled}
+          onValueChange={(enabled) =>
+            onChange(rules.map((r, i) => (i === index ? { ...r, enabled } : r)))
+          }
+        />
+        <label
+          className="cursor-pointer text-xs font-semibold text-default-600"
+          htmlFor={`rule-enable-${rule.id}`}
+        >
+          启用
+        </label>
+      </span>
+      <Button
+        className={pill}
+        color="primary"
+        size="sm"
+        startContent={<Pencil size={14} />}
+        variant="flat"
+        onPress={() => setEditing({ index, rule })}
+      >
+        编辑
+      </Button>
+      {(
+        [
+          ["up", "上移", index > 0],
+          ["down", "下移", index < rules.length - 1],
+          ["top", "置顶", index > 0],
+          ["bottom", "置底", index < rules.length - 1],
+        ] as const
+      )
+        .filter(([, , possible]) => possible)
+        .map(([move, label]) => (
+          // Text only, so the 7 actions fit 2 lines on a 390 px phone.
+          <Button
+            key={move}
+            className={pill}
+            size="sm"
+            variant="flat"
+            onPress={() => onChange(moveRule(rules, index, move))}
           >
-            <MoreHorizontal size={16} />
-          </button>
-        </DropdownTrigger>
-        <DropdownMenu aria-label="规则操作">
-          {[
-            <DropdownItem
-              key="edit"
-              startContent={<Pencil size={16} />}
-              onPress={() => setEditing({ index, rule })}
-            >
-              编辑
-            </DropdownItem>,
-            ...moves(index).map(([move, label, Icon]) => (
-              <DropdownItem
-                key={move}
-                startContent={<Icon size={16} />}
-                onPress={() => onChange(moveRule(rules, index, move))}
-              >
-                {label}
-              </DropdownItem>
-            )),
-            <DropdownItem
-              key="delete"
-              color="danger"
-              startContent={<Trash2 size={16} />}
-              onPress={() => onChange(rules.filter((_, i) => i !== index))}
-            >
-              删除
-            </DropdownItem>,
-          ]}
-        </DropdownMenu>
-      </Dropdown>
-    </>
+            {label}
+          </Button>
+        ))}
+      {deleting === rule.id ? (
+        <>
+          <Button
+            className={pill}
+            color="danger"
+            size="sm"
+            startContent={<Trash2 size={14} />}
+            onPress={() => {
+              setDeleting(null);
+              onChange(rules.filter((_, i) => i !== index));
+            }}
+          >
+            确认删除
+          </Button>
+          <Button
+            className={pill}
+            color="danger"
+            size="sm"
+            variant="flat"
+            onPress={() => setDeleting(null)}
+          >
+            取消
+          </Button>
+        </>
+      ) : (
+        <Button
+          className={pill}
+          color="danger"
+          size="sm"
+          startContent={<Trash2 size={14} />}
+          variant="flat"
+          onPress={() => setDeleting(rule.id)}
+        >
+          删除
+        </Button>
+      )}
+    </div>
   );
 
   return (
@@ -327,14 +369,10 @@ export function EgressRuleList({
               return (
                 <LayerRuleRow
                   key={rule.id}
-                  // H5: the switch + 「更多」 leave no room for the chip at
-                  // 390 px; the action is in 展开详情 (「命中后」).
-                  action={
-                    isMobile
-                      ? undefined
-                      : { label, tone: actionTone(rule.action) }
-                  }
-                  controls={layerControls(rule, index)}
+                  // r3: the same row as 全局·强制 (chip on H5 too); the
+                  // switch + actions only under 展开详情.
+                  action={{ label, tone: actionTone(rule.action) }}
+                  actions={layerActions(rule, index)}
                   dataKey={rule.id}
                   details={[
                     ...editableDetails(rule),
