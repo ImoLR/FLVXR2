@@ -96,7 +96,7 @@ export function scanGuardChips(g: Guard, admin: boolean): string[] {
 }
 
 /** In force on the viewed node (node view) or globally (admin view). */
-function guardState(
+export function guardState(
   g: Guard,
   nodeView: boolean,
 ): { on: boolean; label: string } {
@@ -106,6 +106,13 @@ function guardState(
   return g.on
     ? { on: true, label: "生效中" }
     : { on: false, label: "未生效：全局已关闭" };
+}
+
+/** The explanation line (admin global card / node view). */
+export function scanGuardHint(guard: Guard, admin: boolean) {
+  return admin
+    ? "落地节点被用来批量探测别人服务器的端口时，落地 Core 立即禁用这个节点（端口、密钥和链接都保留）并通知管理员，只有管理员能「解除禁用」。正常上网、看视频、测速达不到这些数字。"
+    : `如果有人用这个落地节点批量扫描端口（例如同一端口 1 分钟内连接 ${guard.horizontal} 个以上不同 IP），节点会被立即禁用，需要联系管理员解除。正常上网、看视频、下载不受影响。`;
 }
 
 export function ScanGuardSection({
@@ -171,9 +178,7 @@ export function ScanGuardSection({
   const shared = (guard.servers || []).filter(
     (s) => s.source === "shared" && s.state === "shared",
   );
-  const hint = admin
-    ? "落地节点被用来批量探测别人服务器的端口时，落地 Core 立即禁用这个节点（端口、密钥和链接都保留）并通知管理员，只有管理员能「解除禁用」。正常上网、看视频、测速达不到这些数字。"
-    : `如果有人用这个落地节点批量扫描端口（例如同一端口 1 分钟内连接 ${guard.horizontal} 个以上不同 IP），节点会被立即禁用，需要联系管理员解除。正常上网、看视频、下载不受影响。`;
+  const hint = scanGuardHint(guard, Boolean(admin));
 
   return (
     <>
@@ -361,25 +366,6 @@ export function ScanGuardSection({
         />
       )}
     </>
-  );
-}
-
-/** Plan 202: the collapsed H5 line of the 内置 layer. */
-export function ScanGuardCompactRow({ guard }: { guard: Guard }) {
-  const state = guardState(guard, true);
-
-  return (
-    <div
-      className={`grid grid-cols-[14px_minmax(0,1fr)_auto_auto] items-center gap-2 px-3 py-2 ${state.on ? "" : "opacity-70"}`}
-      data-builtin-compact="scan"
-    >
-      <Lock aria-label="锁定" className="text-default-500" size={14} />
-      <span className="truncate text-sm font-medium" title="禁止端口扫描">
-        禁止端口扫描
-      </span>
-      <Pill tone="red">→ 禁用节点</Pill>
-      <ScanStateIcon label={state.label} on={state.on} />
-    </div>
   );
 }
 

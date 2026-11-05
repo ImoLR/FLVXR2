@@ -1,16 +1,21 @@
 import { useEffect, useState } from "react";
 import toast from "react-hot-toast";
-import {
-  ChevronDown,
-  ChevronUp,
-  CircleCheck,
-  CircleX,
-  Lock,
-  ShieldCheck,
-} from "lucide-react";
+import { ChevronDown, ChevronUp, Lock, ShieldCheck } from "lucide-react";
 
+import {
+  type DetailItem,
+  LayerRuleRow,
+  LockLead,
+  RuleRows,
+  StateIcon,
+} from "./layer-rule-row";
 import { Pill } from "./pill";
-import { ScanGuardCompactRow, ScanGuardSection } from "./scan-guard";
+import {
+  ScanGuardSection,
+  guardState,
+  scanGuardChips,
+  scanGuardHint,
+} from "./scan-guard";
 
 import {
   type AbuseKey,
@@ -91,73 +96,126 @@ const abuseShort: Record<AbuseKey, string> = {
   bt: "屏蔽 BT",
 };
 
+/** Plan 214: matchers of the 内置 rows in the label / value details. */
+const abuseMatch: Record<AbuseKey, DetailItem[]> = {
+  smtp: [
+    { label: "目标端口", value: "25" },
+    { label: "网络", value: "TCP" },
+  ],
+  mail: [
+    { label: "目标端口", value: "465、587、2525" },
+    { label: "网络", value: "TCP" },
+  ],
+  telnet: [
+    { label: "目标端口", value: "23、135-139、445" },
+    { label: "网络", value: "TCP + UDP" },
+  ],
+  bt: [{ label: "协议", value: "bittorrent（按流量特征识别）" }],
+};
+
+const blockAction = { label: "封锁", tone: "red" } as const;
+const blockWords = { label: "命中后", value: "封锁，连接直接断开" };
+
 /**
- * Plan 149: the 内置 layer collapsed to one line per rule (name + action +
- * ✓ / ✗), for the H5 路由规则 dialog; the full list opens on demand.
+ * Plan 149 / 214: the 内置 layer of the 路由规则 dialog on the shared layer
+ * row (same look as every other layer): one line per rule (name + action +
+ * ✓ / ✗); the layer's 「展开详情」 adds the matchers, the explanation, the
+ * CIDR list and the 来源白名单 line.
  */
-export function BuiltinCompactRows({
+export function BuiltinLayerRows({
   values,
   offReasons = {},
   scanGuard,
+  safety,
+  open,
 }: {
   values: AbuseValues;
   offReasons?: Partial<Record<AbuseKey, AbuseOffReason>>;
   // Plan 202: the 禁止端口扫描 line (node view).
   scanGuard?: EgressBuiltin["scanGuard"];
+  safety: string[];
+  open: boolean;
 }) {
-  const rows: { key: string; name: string; on: boolean; label: string }[] = [
-    {
-      key: "safety",
-      name: "禁止访问内网 / 云元数据",
-      on: true,
-      label: "生效中（锁定，始终生效）",
-    },
-    ...abuseRows.map((row) => ({
-      key: row.key,
-      name: abuseShort[row.key],
-      on: values[row.key],
-      label: values[row.key]
-        ? "生效中"
-        : offReasonText[offReasons[row.key] || "global"] || "未生效",
-    })),
-  ];
+  const scan = scanGuard ? guardState(scanGuard, true) : null;
 
   return (
-    <div className="divide-y divide-default-200 overflow-hidden rounded-lg bg-default-100/60 dark:divide-default-100 dark:bg-default-50/60">
-      {rows.map((row) => (
-        <div
-          key={row.key}
-          className={`grid grid-cols-[14px_minmax(0,1fr)_auto_auto] items-center gap-2 px-3 py-2 ${row.on ? "" : "opacity-70"}`}
-          data-builtin-compact={row.key}
-        >
-          <Lock aria-label="锁定" className="text-default-500" size={14} />
-          <span className="truncate text-sm font-medium" title={row.name}>
-            {row.name}
-          </span>
-          <BlockChip />
-          <StateIcon label={row.label} on={row.on} />
-        </div>
-      ))}
-      {scanGuard && <ScanGuardCompactRow guard={scanGuard} />}
-    </div>
+    <RuleRows>
+      <LayerRuleRow
+        action={blockAction}
+        dataKey="builtin-safety"
+        details={[
+          {
+            label: "目标 IP",
+            value: safety.length ? safety : "内网 / 回环 / 链路本地 / 组播",
+          },
+          blockWords,
+        ]}
+        lead={<LockLead locked />}
+        name="禁止访问内网 / 云元数据"
+        note="禁止访问内网、回环、链路本地、云元数据和组播地址，保护落地服务器自己的内网和云厂商元数据接口（169.254.169.254 等）；节点程序本身也强制执行，任何规则都不能放行。"
+        open={open}
+        state={{ on: true, label: "生效中（锁定，始终生效）" }}
+      />
+      {abuseRows.map((row) => {
+        const on = values[row.key];
+        const label = on
+          ? "生效中"
+          : offReasonText[offReasons[row.key] || "global"] || "未生效";
+
+        return (
+          <LayerRuleRow
+            key={row.key}
+            action={blockAction}
+            dataKey={`builtin-${row.key}`}
+            details={[...abuseMatch[row.key], blockWords]}
+            dim={!on}
+            lead={<LockLead locked />}
+            name={abuseShort[row.key]}
+            note={row.hint}
+            offNote={on ? undefined : label}
+            open={open}
+            state={{ on, label }}
+          />
+        );
+      })}
+      {scanGuard && scan && (
+        <LayerRuleRow
+          action={{ label: "禁用节点", tone: "red" }}
+          dataKey="builtin-scan"
+          details={[
+            { label: "检测", value: scanGuardChips(scanGuard, false) },
+            {
+              label: "命中后",
+              value: "立即禁用这个节点，需要联系管理员解除",
+            },
+          ]}
+          dim={!scan.on}
+          lead={<LockLead locked />}
+          name="禁止端口扫描"
+          note={scanGuardHint(scanGuard, false)}
+          offNote={scan.on ? undefined : scan.label}
+          open={open}
+          state={scan}
+        />
+      )}
+      {open && (
+        <LayerRuleRow
+          action={{ label: "不受来源规则影响", tone: "green" }}
+          dataKey="builtin-whitelist"
+          lead={<LockLead locked={false} />}
+          name="来源白名单"
+          note="经 FLVX 节点转发进来的流量和管理员白名单里的地址，不受「来源 IP / 来源端口」规则影响（例如禁止大陆直连）。"
+          open={open}
+          state={{ on: true, label: "始终生效" }}
+        />
+      )}
+    </RuleRows>
   );
 }
 
-// In force = green ✓, not in force = red ✗; the label carries the reason.
-export function StateIcon({ on, label }: { on: boolean; label: string }) {
-  const Icon = on ? CircleCheck : CircleX;
-
-  return (
-    <span
-      aria-label={label}
-      className={`inline-flex shrink-0 ${on ? "text-success" : "text-danger"}`}
-      role="img"
-      title={label}
-    >
-      <Icon aria-hidden size={16} strokeWidth={2.25} />
-    </span>
-  );
-}
+// Plan 214: the state icon moved to the shared layer row; re-exported for
+// the existing importers (rule list, profile editor).
+export { StateIcon };
 
 export function BuiltinRuleList({
   safety,
