@@ -19,7 +19,7 @@ and the red toast vanished after 2 s.
 - [x] Gates: go test ./... vs fork.116; tsc / build / lint vs base
 - [x] Screenshots H5 390 + desktop → /root/mmwx-preview/landing-enable-range/
 - [x] Enable latency before/after on seeded demo
-- [ ] Push, CI green, ledger row, final.md
+- [x] Push, CI green (run 42012031878 on 794f728c), ledger row, final.md — BUILD ONLY, not released
 
 ## Results
 - `go test ./...` (go-backend): all packages ok (incl. handler + contract); new repo tests also pass on PostgreSQL 18.
