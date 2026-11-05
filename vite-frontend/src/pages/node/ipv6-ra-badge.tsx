@@ -16,7 +16,11 @@ interface IPv6RAReport {
 
 const states = {
   ok: { label: "IPv6 RA 已兼容", color: "success", className: "text-success" },
-  warn: { label: "IPv6 RA 待恢复", color: "warning", className: "text-warning" },
+  warn: {
+    label: "IPv6 RA 待恢复",
+    color: "warning",
+    className: "text-warning",
+  },
   error: { label: "IPv6 需处理", color: "danger", className: "text-danger" },
 } as const;
 

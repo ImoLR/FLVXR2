@@ -1,24 +1,4 @@
-﻿import { useLocation } from "react-router-dom";
-import { RuleLandingTarget, LandingTargetValue } from "@/pages/landing/rule-target";
-import { ChainLinkButton, ForwardLineBadges } from "@/pages/landing/chain-links";
-import {
-  RULE_BEST_OFF_CHANGED,
-  RuleBestOffBadge,
-  RuleBestPickLine,
-  normalizeRuleBestOff,
-  normalizeRuleBestPick,
-  type RuleBestOff,
-  type RuleBestPick,
-} from "@/pages/forward/best-pick";
-import {
-  ChainStatus,
-  ForwardChainInfo,
-  createChainForward,
-  newSubmitKey,
-  updateChainForward,
-  waitChainOperation,
-} from "@/api/line-chain";
-import type {
+﻿import type {
   ForwardApiItem,
   ForwardClientIPsApiData,
   PathTunnelApiItem,
@@ -26,6 +6,7 @@ import type {
   TunnelLatencyApiItem,
 } from "@/api/types";
 
+import { useLocation } from "react-router-dom";
 import {
   useState,
   useEffect,
@@ -55,6 +36,31 @@ import {
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 
+import {
+  ChainStatus,
+  ForwardChainInfo,
+  createChainForward,
+  newSubmitKey,
+  updateChainForward,
+  waitChainOperation,
+} from "@/api/line-chain";
+import {
+  RULE_BEST_OFF_CHANGED,
+  RuleBestOffBadge,
+  RuleBestPickLine,
+  normalizeRuleBestOff,
+  normalizeRuleBestPick,
+  type RuleBestOff,
+  type RuleBestPick,
+} from "@/pages/forward/best-pick";
+import {
+  ChainLinkButton,
+  ForwardLineBadges,
+} from "@/pages/landing/chain-links";
+import {
+  RuleLandingTarget,
+  LandingTargetValue,
+} from "@/pages/landing/rule-target";
 import { AnimatedPage } from "@/components/animated-page";
 import { SearchBar } from "@/components/search-bar";
 import { Card, CardBody, CardHeader } from "@/shadcn-bridge/heroui/card";
@@ -62,7 +68,11 @@ import { Button } from "@/shadcn-bridge/heroui/button";
 import { Chip } from "@/shadcn-bridge/heroui/chip";
 import { Input } from "@/shadcn-bridge/heroui/input";
 import { Textarea } from "@/shadcn-bridge/heroui/input";
-import { Select, SelectItem, SelectSection } from "@/shadcn-bridge/heroui/select";
+import {
+  Select,
+  SelectItem,
+  SelectSection,
+} from "@/shadcn-bridge/heroui/select";
 import { DatePicker } from "@/shadcn-bridge/heroui/date-picker";
 import { DatePresets } from "@/shadcn-bridge/heroui/date-presets";
 import { useLocalStorageState } from "@/hooks/use-local-storage-state";
@@ -89,7 +99,7 @@ import { Checkbox } from "@/shadcn-bridge/heroui/checkbox";
 import {
   createForward,
   getForwardList,
-	getForwardClientIPs,
+  getForwardClientIPs,
   getPeerShareList,
   getPeerRemoteUsageList,
   updateForward,
@@ -153,7 +163,13 @@ import { saveOrder } from "@/utils/order-storage";
 import { JwtUtil } from "@/utils/jwt";
 import { canonicalIp, parseExtraIPs } from "@/utils/node-ips";
 import { timestampToCalendarDate, calendarDateToTimestamp } from "@/utils/date";
-import { MULTI_REGION, compareRegions, exitRegionKey, exitRegionLabel, regionLabel } from "@/utils/region";
+import {
+  MULTI_REGION,
+  compareRegions,
+  exitRegionKey,
+  exitRegionLabel,
+  regionLabel,
+} from "@/utils/region";
 
 export interface Forward {
   landingNodeId?: number;
@@ -214,7 +230,12 @@ interface Tunnel {
   lineMachine?: boolean;
   chainAvailable?: boolean;
   chainUnavailableReason?: string;
-  entryGroups?: Array<{ key: string; label: string; region: string; name?: string }>;
+  entryGroups?: Array<{
+    key: string;
+    label: string;
+    region: string;
+    name?: string;
+  }>;
   exitRegions?: string[];
   groups?: TunnelLineGroup[];
   id: number;
@@ -231,11 +252,12 @@ interface Tunnel {
 }
 
 function getConnectionColorClass(count: number, badge = false): string {
-  const [text, background] = count > 500
-    ? ["text-danger-600 dark:text-danger-400", "bg-danger-500/10"]
-    : count >= 300
-      ? ["text-warning-600 dark:text-warning-400", "bg-warning-500/10"]
-      : ["text-success-600 dark:text-success-400", "bg-success-500/10"];
+  const [text, background] =
+    count > 500
+      ? ["text-danger-600 dark:text-danger-400", "bg-danger-500/10"]
+      : count >= 300
+        ? ["text-warning-600 dark:text-warning-400", "bg-warning-500/10"]
+        : ["text-success-600 dark:text-success-400", "bg-success-500/10"];
 
   return badge ? `${text} ${background}` : text;
 }
@@ -246,7 +268,13 @@ interface TunnelPickerSection {
   entryLabel: string;
   region: string;
   // name: the tunnel name rendered for this option's entry (plan 152).
-  options: Array<{ key: string; tunnel: Tunnel; entryKey: string; entryLabel: string; name: string }>;
+  options: Array<{
+    key: string;
+    tunnel: Tunnel;
+    entryKey: string;
+    entryLabel: string;
+    name: string;
+  }>;
 }
 
 function buildTunnelPickerSections(tunnels: Tunnel[]): TunnelPickerSection[] {
@@ -271,20 +299,34 @@ function buildTunnelPickerSections(tunnels: Tunnel[]): TunnelPickerSection[] {
         options: [],
       };
 
-      section.options.push({ key: JSON.stringify([tunnel.id, entry.key]), tunnel, entryKey: entry.key, entryLabel: entry.label, name: ("name" in entry && entry.name) || tunnel.name });
+      section.options.push({
+        key: JSON.stringify([tunnel.id, entry.key]),
+        tunnel,
+        entryKey: entry.key,
+        entryLabel: entry.label,
+        name: ("name" in entry && entry.name) || tunnel.name,
+      });
       sections.set(key, section);
     });
   });
 
-  return Array.from(sections.values()).sort((a, b) =>
-    a.entryLabel.localeCompare(b.entryLabel, "zh-CN") || compareRegions(a.region, b.region) || a.key.localeCompare(b.key),
+  return Array.from(sections.values()).sort(
+    (a, b) =>
+      a.entryLabel.localeCompare(b.entryLabel, "zh-CN") ||
+      compareRegions(a.region, b.region) ||
+      a.key.localeCompare(b.key),
   );
 }
 
-function tunnelPickerKey(sections: TunnelPickerSection[], id: number | null, preferred: string): string[] {
+function tunnelPickerKey(
+  sections: TunnelPickerSection[],
+  id: number | null,
+  preferred: string,
+): string[] {
   const options = sections.flatMap((section) => section.options);
-  const option = options.find((item) => item.key === preferred && item.tunnel.id === id)
-    || options.find((item) => item.tunnel.id === id);
+  const option =
+    options.find((item) => item.key === preferred && item.tunnel.id === id) ||
+    options.find((item) => item.tunnel.id === id);
 
   return option ? [option.key] : [];
 }
@@ -311,7 +353,10 @@ interface TunnelGroupPill {
 const TUNNEL_GROUP_OTHER = "other";
 
 function buildTunnelGroupPills(tunnels: Tunnel[]): TunnelGroupPill[] {
-  const groups = new Map<string, { id: number; label: string; color: string; inx: number; tunnels: Tunnel[] }>();
+  const groups = new Map<
+    string,
+    { id: number; label: string; color: string; inx: number; tunnels: Tunnel[] }
+  >();
   const other: Tunnel[] = [];
   const add = (key: string, group: TunnelLineGroup | null, tunnel: Tunnel) => {
     if (!group) {
@@ -319,7 +364,13 @@ function buildTunnelGroupPills(tunnels: Tunnel[]): TunnelGroupPill[] {
 
       return;
     }
-    const entry = groups.get(key) || { id: group.id, label: group.name, color: group.color || "", inx: group.inx ?? 0, tunnels: [] };
+    const entry = groups.get(key) || {
+      id: group.id,
+      label: group.name,
+      color: group.color || "",
+      inx: group.inx ?? 0,
+      tunnels: [],
+    };
 
     entry.tunnels.push(tunnel);
     groups.set(key, entry);
@@ -328,7 +379,8 @@ function buildTunnelGroupPills(tunnels: Tunnel[]): TunnelGroupPill[] {
   tunnels.forEach((tunnel) => {
     const entries = tunnel.entryGroups?.length ? tunnel.entryGroups : null;
     const lineGroups = tunnel.groups || [];
-    const covers = (group: TunnelLineGroup, entryKey: string) => !group.entryKeys?.length || group.entryKeys.includes(entryKey);
+    const covers = (group: TunnelLineGroup, entryKey: string) =>
+      !group.entryKeys?.length || group.entryKeys.includes(entryKey);
 
     if (!entries) {
       // Single 默认入口 option.
@@ -340,14 +392,23 @@ function buildTunnelGroupPills(tunnels: Tunnel[]): TunnelGroupPill[] {
     lineGroups.forEach((group) => {
       const covered = entries.filter((entry) => covers(group, entry.key));
 
-      if (covered.length) add(`g${group.id}`, group, { ...tunnel, entryGroups: covered });
+      if (covered.length)
+        add(`g${group.id}`, group, { ...tunnel, entryGroups: covered });
     });
-    const uncovered = entries.filter((entry) => !lineGroups.some((group) => covers(group, entry.key)));
+    const uncovered = entries.filter(
+      (entry) => !lineGroups.some((group) => covers(group, entry.key)),
+    );
 
-    if (uncovered.length) add(TUNNEL_GROUP_OTHER, null, { ...tunnel, entryGroups: uncovered });
+    if (uncovered.length)
+      add(TUNNEL_GROUP_OTHER, null, { ...tunnel, entryGroups: uncovered });
   });
 
-  const pill = (key: string, label: string, color: string, list: Tunnel[]): TunnelGroupPill => {
+  const pill = (
+    key: string,
+    label: string,
+    color: string,
+    list: Tunnel[],
+  ): TunnelGroupPill => {
     const sections = buildTunnelPickerSections(list);
     const options = sections.flatMap((section) => section.options);
 
@@ -369,14 +430,19 @@ function buildTunnelGroupPills(tunnels: Tunnel[]): TunnelGroupPill[] {
   return pills;
 }
 
-const tunnelGroupStorageKey = (userId: number | string | null) => `forward-tunnel-group:${userId ?? "anon"}`;
+const tunnelGroupStorageKey = (userId: number | string | null) =>
+  `forward-tunnel-group:${userId ?? "anon"}`;
 
 // Plan 152 part C: an option stands for one entry, so it shows only that
 // entry's path latency (matched by the viewer's entry key). Older payloads
 // without keys keep showing every entry.
 type OptionLatencyEntries = TunnelLatencyApiItem["entries"];
-function optionLatency(entries: OptionLatencyEntries | undefined, entryKey: string): OptionLatencyEntries | undefined {
-  if (!entries?.length || !entries.some((entry) => entry.entryKey)) return entries;
+function optionLatency(
+  entries: OptionLatencyEntries | undefined,
+  entryKey: string,
+): OptionLatencyEntries | undefined {
+  if (!entries?.length || !entries.some((entry) => entry.entryKey))
+    return entries;
 
   return entries.filter((entry) => entry.entryKey === entryKey);
 }
@@ -540,10 +606,14 @@ const buildForwardGroupOrderLocalKey = (tokenUserId: number): string => {
 const buildForwardGroupExpandedLocalKey = (tokenUserId: number): string => {
   return `${FORWARD_GROUP_EXPANDED_LOCAL_STORAGE_PREFIX}:u:${tokenUserId}`;
 };
-const buildForwardDisplayModeLocalKey = (tokenUserId: number | null): string => {
+const buildForwardDisplayModeLocalKey = (
+  tokenUserId: number | null,
+): string => {
   return `${FORWARD_DISPLAY_MODE_LOCAL_STORAGE_PREFIX}:u:${tokenUserId ?? 0}`;
 };
-const readForwardDisplayMode = (tokenUserId: number | null): ForwardDisplayMode => {
+const readForwardDisplayMode = (
+  tokenUserId: number | null,
+): ForwardDisplayMode => {
   try {
     // One-time cleanup of the pre-163 keys: they must not pick the layout.
     localStorage.removeItem(FORWARD_LEGACY_VIEW_MODE_KEY);
@@ -552,7 +622,9 @@ const readForwardDisplayMode = (tokenUserId: number | null): ForwardDisplayMode 
         `${FORWARD_LEGACY_GROUP_COLLAPSED_LOCAL_STORAGE_PREFIX}:u:${tokenUserId}`,
       );
     }
-    const saved = localStorage.getItem(buildForwardDisplayModeLocalKey(tokenUserId));
+    const saved = localStorage.getItem(
+      buildForwardDisplayModeLocalKey(tokenUserId),
+    );
 
     return saved === "list" || saved === "card" ? saved : "grouped";
   } catch {
@@ -600,9 +672,7 @@ const parseGroupOrderMap = (raw: string | null): ForwardGroupOrderMap => {
 
   return result;
 };
-const parseGroupExpandedMap = (
-  raw: string | null,
-): ForwardGroupExpandedMap => {
+const parseGroupExpandedMap = (raw: string | null): ForwardGroupExpandedMap => {
   const parsed = parsePreferenceMap<unknown>(raw);
 
   if (!parsed) {
@@ -770,7 +840,7 @@ const mapForwardApiItems = (items: ForwardApiItem[]): Forward[] => {
     tunnelId: forward.tunnelId ?? 0,
     tunnelName:
       (forward as any).mode === "wg_path"
-        ? ((forward as any).pathName || "WG 隧道")
+        ? (forward as any).pathName || "WG 隧道"
         : forward.tunnelName || "",
     tunnelTrafficRatio: normalizeTunnelTrafficRatio(forward.tunnelTrafficRatio),
     inIp: forward.inIp || "",
@@ -828,8 +898,14 @@ const mapForwardApiItems = (items: ForwardApiItem[]): Forward[] => {
         ? forward.cnBlockedReason
         : "",
     // Plan 152: present only for rules bound to some entries.
-    entryKey: typeof (forward as any).entryKey === "string" ? (forward as any).entryKey : undefined,
-    entryLabel: typeof (forward as any).entryLabel === "string" ? (forward as any).entryLabel : undefined,
+    entryKey:
+      typeof (forward as any).entryKey === "string"
+        ? (forward as any).entryKey
+        : undefined,
+    entryLabel:
+      typeof (forward as any).entryLabel === "string"
+        ? (forward as any).entryLabel
+        : undefined,
   }));
 };
 
@@ -1812,7 +1888,10 @@ export default function ForwardPage() {
   // Plan 152: only an option the user actively picks (re)binds a rule to an
   // entry; editing without touching 选择隧道 keeps the stored binding.
   const [entryTouched, setEntryTouched] = useState(false);
-  const [editBinding, setEditBinding] = useState<{ key: string; label: string } | null>(null);
+  const [editBinding, setEditBinding] = useState<{
+    key: string;
+    label: string;
+  } | null>(null);
   // Plan 164: tunnel of the hand-typed 线路机 rule being edited when an admin
   // may tick 「已确认合规」 (null = not offered).
   const [editLineAckTunnelId, setEditLineAckTunnelId] = useState<number | null>(
@@ -1820,10 +1899,21 @@ export default function ForwardPage() {
   );
   const editOptionOriginRef = useRef("");
   const [filterTunnelOptionKey, setFilterTunnelOptionKey] = useState("");
-  const tunnelPickerSections = useMemo(() => buildTunnelPickerSections(tunnels), [tunnels]);
-  const tunnelPickerIds = useMemo(() => new Map(
-    tunnelPickerSections.flatMap((section) => section.options.map((option) => [option.key, option.tunnel.id] as const)),
-  ), [tunnelPickerSections]);
+  const tunnelPickerSections = useMemo(
+    () => buildTunnelPickerSections(tunnels),
+    [tunnels],
+  );
+  const tunnelPickerIds = useMemo(
+    () =>
+      new Map(
+        tunnelPickerSections.flatMap((section) =>
+          section.options.map(
+            (option) => [option.key, option.tunnel.id] as const,
+          ),
+        ),
+      ),
+    [tunnelPickerSections],
+  );
   const [wgPaths, setWGPaths] = useState<PathTunnelApiItem[]>([]);
   const [wgPathDetails, setWGPathDetails] = useState<
     Record<number, PathTunnelDetailApiItem>
@@ -1878,7 +1968,9 @@ export default function ForwardPage() {
   const [forwardOrder, setForwardOrder] = useState<number[]>([]);
   // 弹窗状态
   const [modalOpen, setModalOpen] = useState(false);
-  const [tunnelLatency, setTunnelLatency] = useState<Record<number, TunnelLatencyApiItem["entries"]>>({});
+  const [tunnelLatency, setTunnelLatency] = useState<
+    Record<number, TunnelLatencyApiItem["entries"]>
+  >({});
 
   useEffect(() => {
     if (!modalOpen) return;
@@ -1889,7 +1981,16 @@ export default function ForwardPage() {
         const result = await getUserTunnelLatency();
 
         if (!closed) {
-          setTunnelLatency(result.code === 0 ? Object.fromEntries((result.data || []).map((item) => [item.tunnelId, item.entries])) : {});
+          setTunnelLatency(
+            result.code === 0
+              ? Object.fromEntries(
+                  (result.data || []).map((item) => [
+                    item.tunnelId,
+                    item.entries,
+                  ]),
+                )
+              : {},
+          );
         }
       } catch {
         if (!closed) setTunnelLatency({});
@@ -1899,7 +2000,10 @@ export default function ForwardPage() {
     void refresh();
     const timer = window.setInterval(refresh, 60000);
 
-    return () => { closed = true; window.clearInterval(timer); };
+    return () => {
+      closed = true;
+      window.clearInterval(timer);
+    };
   }, [modalOpen]);
   // isFilterModalOpen removed
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
@@ -1983,17 +2087,29 @@ export default function ForwardPage() {
   });
   const [inIpTouched, setInIpTouched] = useState(false);
   // 线路分组 pills in front of 选择隧道 (only with ≥ 2 pills, not for WG).
-  const tunnelGroupPills = useMemo(() => buildTunnelGroupPills(tunnels), [tunnels]);
+  const tunnelGroupPills = useMemo(
+    () => buildTunnelGroupPills(tunnels),
+    [tunnels],
+  );
   const [formTunnelGroup, setFormTunnelGroup] = useState("");
   const tunnelGroupReadyRef = useRef(false);
-  const editTunnelOriginRef = useRef<Pick<ForwardForm, "tunnelId" | "inIp" | "targetMode"> | null>(null);
-  const showTunnelGroups = tunnelGroupPills.length >= 2 && form.mode !== "wg_path";
+  const editTunnelOriginRef = useRef<Pick<
+    ForwardForm,
+    "tunnelId" | "inIp" | "targetMode"
+  > | null>(null);
+  const showTunnelGroups =
+    tunnelGroupPills.length >= 2 && form.mode !== "wg_path";
   const activeTunnelGroup = showTunnelGroups
-    ? tunnelGroupPills.find((pill) => pill.key === formTunnelGroup) || tunnelGroupPills[0]
+    ? tunnelGroupPills.find((pill) => pill.key === formTunnelGroup) ||
+      tunnelGroupPills[0]
     : null;
-  const formTunnelSections = activeTunnelGroup ? activeTunnelGroup.sections : tunnelPickerSections;
+  const formTunnelSections = activeTunnelGroup
+    ? activeTunnelGroup.sections
+    : tunnelPickerSections;
   // Colour dots only help when the groups have different colours (prod: all default blue).
-  const tunnelGroupDots = new Set(tunnelGroupPills.map((pill) => pill.color).filter(Boolean)).size > 1;
+  const tunnelGroupDots =
+    new Set(tunnelGroupPills.map((pill) => pill.color).filter(Boolean)).size >
+    1;
 
   useEffect(() => {
     if (!modalOpen) {
@@ -2004,17 +2120,32 @@ export default function ForwardPage() {
       return;
     }
     if (tunnelGroupPills.length < 2) return;
-    if (tunnelGroupReadyRef.current && tunnelGroupPills.some((pill) => pill.key === formTunnelGroup)) return;
+    if (
+      tunnelGroupReadyRef.current &&
+      tunnelGroupPills.some((pill) => pill.key === formTunnelGroup)
+    )
+      return;
     tunnelGroupReadyRef.current = true;
     let next: TunnelGroupPill | undefined;
 
     if (form.tunnelId !== null) {
       // Edit / copy: the first group holding the rule's tunnel, else 其他.
-      next = tunnelGroupPills.find((pill) => pill.optionKeys.has(formTunnelOptionKey) && pill.tunnelIds.has(form.tunnelId as number))
-        || tunnelGroupPills.find((pill) => pill.tunnelIds.has(form.tunnelId as number))
-        || tunnelGroupPills.find((pill) => pill.key === TUNNEL_GROUP_OTHER);
+      next =
+        tunnelGroupPills.find(
+          (pill) =>
+            pill.optionKeys.has(formTunnelOptionKey) &&
+            pill.tunnelIds.has(form.tunnelId as number),
+        ) ||
+        tunnelGroupPills.find((pill) =>
+          pill.tunnelIds.has(form.tunnelId as number),
+        ) ||
+        tunnelGroupPills.find((pill) => pill.key === TUNNEL_GROUP_OTHER);
       if (isEdit && !editTunnelOriginRef.current) {
-        editTunnelOriginRef.current = { tunnelId: form.tunnelId, inIp: form.inIp, targetMode: form.targetMode };
+        editTunnelOriginRef.current = {
+          tunnelId: form.tunnelId,
+          inIp: form.inIp,
+          targetMode: form.targetMode,
+        };
         editOptionOriginRef.current = formTunnelOptionKey;
       }
     } else {
@@ -2031,7 +2162,14 @@ export default function ForwardPage() {
     if (!pill || key === activeTunnelGroup?.key) return;
     setFormTunnelGroup(key);
     localStorage.setItem(tunnelGroupStorageKey(tokenUserId), key);
-    const current = form.tunnelId === null ? undefined : tunnelPickerKey(formTunnelSections, form.tunnelId, formTunnelOptionKey)[0];
+    const current =
+      form.tunnelId === null
+        ? undefined
+        : tunnelPickerKey(
+            formTunnelSections,
+            form.tunnelId,
+            formTunnelOptionKey,
+          )[0];
 
     if (current && pill.optionKeys.has(current)) {
       setFormTunnelOptionKey(current);
@@ -2041,7 +2179,11 @@ export default function ForwardPage() {
     const origin = isEdit ? editTunnelOriginRef.current : null;
 
     setFormTunnelOptionKey("");
-    if (origin && origin.tunnelId !== null && pill.tunnelIds.has(origin.tunnelId)) {
+    if (
+      origin &&
+      origin.tunnelId !== null &&
+      pill.tunnelIds.has(origin.tunnelId)
+    ) {
       // Back in a group holding the rule's own tunnel: restore it.
       setForm((prev) => ({ ...prev, ...origin }));
       const originKey = editOptionOriginRef.current;
@@ -2131,15 +2273,18 @@ export default function ForwardPage() {
   } | null>(null);
   const [groupPreferenceHydrated, setGroupPreferenceHydrated] = useState(false);
   const [advancedOptionsOpen, setAdvancedOptionsOpen] = useState(false);
-  const [liveClientIPs, setLiveClientIPs] = useState<ForwardClientIPsApiData | null>(null);
+  const [liveClientIPs, setLiveClientIPs] =
+    useState<ForwardClientIPsApiData | null>(null);
   const [liveClientIPsLoading, setLiveClientIPsLoading] = useState(false);
   const [liveClientIPsError, setLiveClientIPsError] = useState("");
   const liveClientIPsRequest = useRef(0);
   const refreshLiveClientIPs = useCallback(async () => {
     if (!form.id) return;
     const request = ++liveClientIPsRequest.current;
+
     setLiveClientIPsLoading(true);
     const res = await getForwardClientIPs(form.id);
+
     if (request !== liveClientIPsRequest.current) return;
     setLiveClientIPsLoading(false);
     if (res.code === 0) {
@@ -2157,15 +2302,24 @@ export default function ForwardPage() {
       setLiveClientIPs(null);
       setLiveClientIPsError("");
       setLiveClientIPsLoading(false);
+
       return;
     }
     void refreshLiveClientIPs();
     const timer = window.setInterval(() => void refreshLiveClientIPs(), 5000);
+
     return () => {
       window.clearInterval(timer);
       liveClientIPsRequest.current++;
     };
-  }, [isAdmin, modalOpen, isEdit, advancedOptionsOpen, form.id, refreshLiveClientIPs]);
+  }, [
+    isAdmin,
+    modalOpen,
+    isEdit,
+    advancedOptionsOpen,
+    form.id,
+    refreshLiveClientIPs,
+  ]);
   const parseNodeIPs = (node?: Node): string[] => {
     if (!node) {
       return [];
@@ -2232,7 +2386,9 @@ export default function ForwardPage() {
   const editingChain = isEdit
     ? forwards.find((forward) => forward.id === form.id)?.chain
     : undefined;
-  const selectedLineTunnel = tunnels.find((tunnel) => tunnel.id === form.tunnelId);
+  const selectedLineTunnel = tunnels.find(
+    (tunnel) => tunnel.id === form.tunnelId,
+  );
   // Plan 164: the tick stays while the rule keeps its tunnel and 手动填写 target.
   const showLineAck =
     isEdit &&
@@ -2393,13 +2549,12 @@ export default function ForwardPage() {
               ? globalOrderRes.data.value
               : null,
           );
-          const globalExpandedMap =
-            parsePreferenceMap<ForwardGroupExpandedMap>(
-              globalExpandedRes.code === 0 &&
-                typeof globalExpandedRes.data?.value === "string"
-                ? globalExpandedRes.data.value
-                : null,
-            );
+          const globalExpandedMap = parsePreferenceMap<ForwardGroupExpandedMap>(
+            globalExpandedRes.code === 0 &&
+              typeof globalExpandedRes.data?.value === "string"
+              ? globalExpandedRes.data.value
+              : null,
+          );
           const globalOrderBucket = globalOrderMap?.[tokenUserId.toString()];
           const globalExpandedBucket =
             globalExpandedMap?.[tokenUserId.toString()];
@@ -2644,7 +2799,10 @@ export default function ForwardPage() {
 
     setDisplayMode(nextMode);
     try {
-      localStorage.setItem(buildForwardDisplayModeLocalKey(tokenUserId), nextMode);
+      localStorage.setItem(
+        buildForwardDisplayModeLocalKey(tokenUserId),
+        nextMode,
+      );
     } catch {}
   };
 
@@ -2710,14 +2868,13 @@ export default function ForwardPage() {
       try {
         const params = {}; // 永远拉取全量数据
         // Plan 170: 限速规则 are retired — no speed limit list any more.
-        const [tunnelsRes, forwardsRes, wgPathsRes] =
-          await Promise.all([
-            userTunnel(),
-            getForwardList(params),
-            isAdmin
-              ? getPathTunnelList()
-              : Promise.resolve({ code: 0, msg: "", data: [] }),
-          ]);
+        const [tunnelsRes, forwardsRes, wgPathsRes] = await Promise.all([
+          userTunnel(),
+          getForwardList(params),
+          isAdmin
+            ? getPathTunnelList()
+            : Promise.resolve({ code: 0, msg: "", data: [] }),
+        ]);
 
         if (tunnelsRes.code === 0) {
           setTunnels(tunnelsRes.data || []);
@@ -2830,7 +2987,8 @@ export default function ForwardPage() {
       }
     }
     if (form.mode !== "wg_path" && form.targetMode === "chain") {
-      if (form.mode !== "gost") newErrors.remoteAddr = "「我自己的节点」只支持 gost 模式";
+      if (form.mode !== "gost")
+        newErrors.remoteAddr = "「我自己的节点」只支持 gost 模式";
       else if (!(form.chainLink || "").trim() && !(isEdit && editingChain))
         newErrors.remoteAddr = "请粘贴你的节点链接";
     } else if (form.mode !== "wg_path" && form.targetMode === "node") {
@@ -2910,12 +3068,24 @@ export default function ForwardPage() {
     resetChainDialog();
     setModalOpen(true);
   };
+
   useEffect(() => {
-    const nodeId = Number(new URLSearchParams(landingLocation.search).get("landingNodeId"));
+    const nodeId = Number(
+      new URLSearchParams(landingLocation.search).get("landingNodeId"),
+    );
+
     if (!nodeId) return;
     handleAdd();
-    const ownerId = Number(new URLSearchParams(landingLocation.search).get("landingUserId"));
-    setForm((prev) => ({ ...prev, targetMode: "node", landingNodeId: nodeId, ...(isAdmin && ownerId > 0 ? { userId: ownerId } : {}) }));
+    const ownerId = Number(
+      new URLSearchParams(landingLocation.search).get("landingUserId"),
+    );
+
+    setForm((prev) => ({
+      ...prev,
+      targetMode: "node",
+      landingNodeId: nodeId,
+      ...(isAdmin && ownerId > 0 ? { userId: ownerId } : {}),
+    }));
   }, [landingLocation.search]);
   // 编辑规则
   const handleEdit = (forward: Forward) => {
@@ -2923,9 +3093,17 @@ export default function ForwardPage() {
     setIsCopy(false);
     setInIpTouched(false);
     // A bound rule reopens on its own (tunnel, entry) option and pill.
-    setFormTunnelOptionKey(forward.entryKey ? JSON.stringify([forward.tunnelId, forward.entryKey]) : "");
+    setFormTunnelOptionKey(
+      forward.entryKey
+        ? JSON.stringify([forward.tunnelId, forward.entryKey])
+        : "",
+    );
     setEntryTouched(false);
-    setEditBinding(forward.entryKey ? { key: forward.entryKey, label: forward.entryLabel || "" } : null);
+    setEditBinding(
+      forward.entryKey
+        ? { key: forward.entryKey, label: forward.entryLabel || "" }
+        : null,
+    );
     setEditLineAckTunnelId(
       isAdmin &&
         (forward.lineNonCompliant || forward.lineComplianceAck) &&
@@ -2944,7 +3122,11 @@ export default function ForwardPage() {
       inIp: forward.inIp || "",
       remoteAddr: forward.chain ? "" : forward.remoteAddr.split(",").join("\n"),
       landingNodeId: forward.landingNodeId,
-      targetMode: forward.chain ? "chain" : forward.landingNodeId ? "node" : "manual",
+      targetMode: forward.chain
+        ? "chain"
+        : forward.landingNodeId
+          ? "node"
+          : "manual",
       chainLink: "",
       interfaceName: forward.interfaceName || "",
       strategy: forward.strategy || "fifo",
@@ -2973,7 +3155,11 @@ export default function ForwardPage() {
     setIsCopy(true);
     setInIpTouched(false);
     // A copy of a bound rule keeps its entry (as if picked again).
-    setFormTunnelOptionKey(forward.entryKey ? JSON.stringify([forward.tunnelId, forward.entryKey]) : "");
+    setFormTunnelOptionKey(
+      forward.entryKey
+        ? JSON.stringify([forward.tunnelId, forward.entryKey])
+        : "",
+    );
     setEntryTouched(Boolean(forward.entryKey));
     setEditBinding(null);
     setForm({
@@ -2984,7 +3170,11 @@ export default function ForwardPage() {
       inIp: forward.inIp || "",
       remoteAddr: forward.chain ? "" : forward.remoteAddr.split(",").join("\n"),
       landingNodeId: forward.landingNodeId,
-      targetMode: forward.chain ? "chain" : forward.landingNodeId ? "node" : "manual",
+      targetMode: forward.chain
+        ? "chain"
+        : forward.landingNodeId
+          ? "node"
+          : "manual",
       chainLink: "",
       interfaceName: forward.interfaceName || "",
       strategy: forward.strategy || "fifo",
@@ -3138,7 +3328,10 @@ export default function ForwardPage() {
       let targetMode = prev.targetMode;
 
       if (prev.mode !== "wg_path") {
-        if (nextTunnel?.lineMachine && (!targetMode || targetMode === "manual")) {
+        if (
+          nextTunnel?.lineMachine &&
+          (!targetMode || targetMode === "manual")
+        ) {
           targetMode = nextTunnel.chainAvailable ? "chain" : "node";
         } else if (!nextTunnel?.lineMachine && targetMode === "chain") {
           targetMode = "manual";
@@ -3169,14 +3362,29 @@ export default function ForwardPage() {
   // that tunnel's entries. key "" = every entry the owner may use.
   const pickedEntryBinding = (): { key: string; label: string } | null => {
     if (form.mode === "wg_path" || form.tunnelId === null) return null;
-    const pickedKey = tunnelPickerKey(formTunnelSections, form.tunnelId, formTunnelOptionKey)[0];
-    const option = formTunnelSections.flatMap((section) => section.options).find((item) => item.key === pickedKey);
+    const pickedKey = tunnelPickerKey(
+      formTunnelSections,
+      form.tunnelId,
+      formTunnelOptionKey,
+    )[0];
+    const option = formTunnelSections
+      .flatMap((section) => section.options)
+      .find((item) => item.key === pickedKey);
 
     if (!option) return null;
-    const total = tunnels.find((tunnel) => tunnel.id === form.tunnelId)?.entryGroups?.length ?? 0;
-    const listed = formTunnelSections.flatMap((section) => section.options).filter((item) => item.tunnel.id === form.tunnelId).length;
+    const total =
+      tunnels.find((tunnel) => tunnel.id === form.tunnelId)?.entryGroups
+        ?.length ?? 0;
+    const listed = formTunnelSections
+      .flatMap((section) => section.options)
+      .filter((item) => item.tunnel.id === form.tunnelId).length;
 
-    if (showTunnelGroups && option.entryKey !== "default" && total > 1 && listed < total) {
+    if (
+      showTunnelGroups &&
+      option.entryKey !== "default" &&
+      total > 1 &&
+      listed < total
+    ) {
       return { key: option.entryKey, label: option.entryLabel };
     }
 
@@ -3195,7 +3403,8 @@ export default function ForwardPage() {
   };
   // Small hint under 选择隧道 (plan 152).
   const entryBindHint = ((): { bound: boolean; label: string } | null => {
-    if (!modalOpen || form.mode === "wg_path" || form.tunnelId === null) return null;
+    if (!modalOpen || form.mode === "wg_path" || form.tunnelId === null)
+      return null;
     if (entryTouched) {
       const binding = pickedEntryBinding();
 
@@ -3204,16 +3413,23 @@ export default function ForwardPage() {
     if (!isEdit) return null;
     if (editBinding) {
       const boundKey = JSON.stringify([form.tunnelId, editBinding.key]);
-      const option = tunnelPickerSections.flatMap((section) => section.options).find((item) => item.key === boundKey);
+      const option = tunnelPickerSections
+        .flatMap((section) => section.options)
+        .find((item) => item.key === boundKey);
 
       return { bound: true, label: option?.entryLabel || editBinding.label };
     }
-    const total = tunnels.find((tunnel) => tunnel.id === form.tunnelId)?.entryGroups?.length ?? 0;
+    const total =
+      tunnels.find((tunnel) => tunnel.id === form.tunnelId)?.entryGroups
+        ?.length ?? 0;
     // Only for the viewer's own rule: an admin's picker lists entries another
     // owner may not have, so "全部入口" could mislead there.
-    const ownRule = !isAdmin || !form.userId || String(form.userId) === String(tokenUserId);
+    const ownRule =
+      !isAdmin || !form.userId || String(form.userId) === String(tokenUserId);
 
-    return ownRule && showTunnelGroups && total > 1 ? { bound: false, label: "" } : null;
+    return ownRule && showTunnelGroups && total > 1
+      ? { bound: false, label: "" }
+      : null;
   })();
   // 「我自己的节点」: save, then follow the preparation on the tunnel exits.
   // Plan 163: remember a rule just created in the dialog so its tunnel group
@@ -3334,9 +3550,10 @@ export default function ForwardPage() {
         .map((addr) => addr.trim())
         .filter((addr) => addr)
         .join(",");
-      const landingTarget = form.mode !== "wg_path" && form.targetMode === "node"
-        ? { landingNodeId: form.landingNodeId }
-        : {};
+      const landingTarget =
+        form.mode !== "wg_path" && form.targetMode === "node"
+          ? { landingNodeId: form.landingNodeId }
+          : {};
       const addressCount = processedRemoteAddr.split(",").length;
       let res: { code: number; msg: string };
 
@@ -3347,7 +3564,12 @@ export default function ForwardPage() {
           tunnelId: form.tunnelId,
           inPort: form.inPort,
           ...(inIpTouched ? { inIp: form.inIp || "" } : {}),
-          remoteAddr: form.targetMode && form.targetMode !== "manual" && form.mode !== "wg_path" ? "" : processedRemoteAddr,
+          remoteAddr:
+            form.targetMode &&
+            form.targetMode !== "manual" &&
+            form.mode !== "wg_path"
+              ? ""
+              : processedRemoteAddr,
           ...landingTarget,
           strategy: addressCount > 1 ? form.strategy : "fifo",
           maxConnections: form.maxConnections,
@@ -3373,7 +3595,12 @@ export default function ForwardPage() {
           tunnelId: form.tunnelId,
           inPort: form.inPort,
           inIp: form.inIp || undefined,
-          remoteAddr: form.targetMode && form.targetMode !== "manual" && form.mode !== "wg_path" ? "" : processedRemoteAddr,
+          remoteAddr:
+            form.targetMode &&
+            form.targetMode !== "manual" &&
+            form.mode !== "wg_path"
+              ? ""
+              : processedRemoteAddr,
           ...landingTarget,
           strategy: addressCount > 1 ? form.strategy : "fifo",
           maxConnections: form.maxConnections,
@@ -5185,11 +5412,9 @@ export default function ForwardPage() {
                 forward.tunnelId === pending.tunnelId &&
                 (pending.userId === null || forward.userId === pending.userId),
             )
-            .reduce<Forward | undefined>(
-              (latest, forward) =>
-                !latest || forward.id > latest.id ? forward : latest,
-              undefined,
-            );
+            .reduce<
+              Forward | undefined
+            >((latest, forward) => (!latest || forward.id > latest.id ? forward : latest), undefined);
 
     if (!created) return;
     revealForwardRef.current = null;
@@ -5295,7 +5520,10 @@ export default function ForwardPage() {
 
     return tunnels.filter((tunnel) => tunnelIdsWithForwards.has(tunnel.id));
   }, [tunnels, forwards, searchParams.userId]);
-  const filterTunnelSections = useMemo(() => buildTunnelPickerSections(availableTunnels), [availableTunnels]);
+  const filterTunnelSections = useMemo(
+    () => buildTunnelPickerSections(availableTunnels),
+    [availableTunnels],
+  );
   // 渲染规则卡片
   const renderForwardCard = (
     forward: Forward,
@@ -5490,9 +5718,14 @@ export default function ForwardPage() {
                       className="ml-1 inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-default-500/10 text-default-500"
                       title="查看全部落地地址"
                       type="button"
-                      onClick={() => showAddressModal(forward.remoteAddr, null, "落地地址")}
+                      onClick={() =>
+                        showAddressModal(forward.remoteAddr, null, "落地地址")
+                      }
                     >
-                      +{forward.remoteAddr.split(",").filter((address) => address.trim()).length - 1}
+                      +
+                      {forward.remoteAddr
+                        .split(",")
+                        .filter((address) => address.trim()).length - 1}
                     </button>
                   )}
                 </span>
@@ -5555,11 +5788,21 @@ export default function ForwardPage() {
             className={`text-[11px] text-default-500 px-1 pb-1 truncate max-md:whitespace-normal max-md:break-all${dim}`}
             title="实时带宽和当前连接数"
           >
-            <span className="text-blue-600 dark:text-blue-400">↑ {formatSpeed(forward.inSpeed || 0)}</span>
+            <span className="text-blue-600 dark:text-blue-400">
+              ↑ {formatSpeed(forward.inSpeed || 0)}
+            </span>
             {" · "}
-            <span className="text-purple-600 dark:text-purple-400">↓ {formatSpeed(forward.outSpeed || 0)}</span>
+            <span className="text-purple-600 dark:text-purple-400">
+              ↓ {formatSpeed(forward.outSpeed || 0)}
+            </span>
             {" · "}
-            <span className={getConnectionColorClass(forward.currentConnections ?? 0)}>{forward.currentConnections ?? 0} 连接</span>
+            <span
+              className={getConnectionColorClass(
+                forward.currentConnections ?? 0,
+              )}
+            >
+              {forward.currentConnections ?? 0} 连接
+            </span>
           </div>
           {/* 底部 Chip 区 */}
           <div
@@ -5855,7 +6098,9 @@ export default function ForwardPage() {
       {(isMobile
         ? (isAdmin || compactMode) && (!compactMode || viewMode === "grouped")
         : isAdmin && !compactMode) && (
-        <div className={`grid gap-2 mb-4 ${isAdmin && compactMode ? "grid-cols-2" : "grid-cols-1"} ${isMobile ? "" : "max-w-xs"}`}>
+        <div
+          className={`grid gap-2 mb-4 ${isAdmin && compactMode ? "grid-cols-2" : "grid-cols-1"} ${isMobile ? "" : "max-w-xs"}`}
+        >
           {isAdmin && (
             <Select
               aria-label="按用户筛选"
@@ -5866,11 +6111,18 @@ export default function ForwardPage() {
               variant="flat"
               onSelectionChange={(keys) => {
                 const key = Array.from(keys)[0] as string | undefined;
+
                 setSearchParams((prev) => ({ ...prev, userId: key || "all" }));
               }}
             >
-              <SelectItem key="all" textValue="全部用户">全部用户</SelectItem>
-              {uniqueUsers.map((user) => <SelectItem key={String(user.id)} textValue={user.name}>{user.name}</SelectItem>)}
+              <SelectItem key="all" textValue="全部用户">
+                全部用户
+              </SelectItem>
+              {uniqueUsers.map((user) => (
+                <SelectItem key={String(user.id)} textValue={user.name}>
+                  {user.name}
+                </SelectItem>
+              ))}
             </Select>
           )}
           {compactMode && (
@@ -5878,28 +6130,57 @@ export default function ForwardPage() {
               aria-label="按所属隧道筛选"
               className="min-w-0"
               label="隧道名称"
-              selectedKeys={searchParams.tunnelId !== "all" ? tunnelPickerKey(filterTunnelSections, Number(searchParams.tunnelId), filterTunnelOptionKey) : ["all"]}
+              selectedKeys={
+                searchParams.tunnelId !== "all"
+                  ? tunnelPickerKey(
+                      filterTunnelSections,
+                      Number(searchParams.tunnelId),
+                      filterTunnelOptionKey,
+                    )
+                  : ["all"]
+              }
               size="sm"
               variant="flat"
               onSelectionChange={(keys) => {
                 const key = Array.from(keys)[0] as string | undefined;
+
                 setFilterTunnelOptionKey(key || "");
                 setSearchParams((prev) => ({
                   ...prev,
-                  tunnelId: key && tunnelPickerIds.has(key) ? String(tunnelPickerIds.get(key)) : "all",
+                  tunnelId:
+                    key && tunnelPickerIds.has(key)
+                      ? String(tunnelPickerIds.get(key))
+                      : "all",
                 }));
               }}
             >
-              <SelectItem key="all" textValue="全部隧道">全部隧道</SelectItem>
+              <SelectItem key="all" textValue="全部隧道">
+                全部隧道
+              </SelectItem>
               {filterTunnelSections.map((section) => (
                 <SelectSection
                   key={section.key}
-                  description={isAdmin && section.region === "" ? "出口节点未设置地区，可在节点页设置" : undefined}
+                  description={
+                    isAdmin && section.region === ""
+                      ? "出口节点未设置地区，可在节点页设置"
+                      : undefined
+                  }
                   title={section.label}
-                  tooltip={section.region === MULTI_REGION ? exitRegionLabel(section.options.flatMap(({ tunnel }) => tunnel.exitRegions || [])) : undefined}
+                  tooltip={
+                    section.region === MULTI_REGION
+                      ? exitRegionLabel(
+                          section.options.flatMap(
+                            ({ tunnel }) => tunnel.exitRegions || [],
+                          ),
+                        )
+                      : undefined
+                  }
                 >
                   {section.options.map(({ key, tunnel }) => (
-                    <SelectItem key={key} textValue={`${tunnel.name}${tunnel.remark ? ` (${tunnel.remark})` : ""}${section.region === MULTI_REGION ? ` · ${exitRegionLabel(tunnel.exitRegions)}` : ""}`}>
+                    <SelectItem
+                      key={key}
+                      textValue={`${tunnel.name}${tunnel.remark ? ` (${tunnel.remark})` : ""}${section.region === MULTI_REGION ? ` · ${exitRegionLabel(tunnel.exitRegions)}` : ""}`}
+                    >
                       {tunnel.name}
                     </SelectItem>
                   ))}
@@ -5953,198 +6234,243 @@ export default function ForwardPage() {
                     {isMobile ? (
                       <div className="space-y-3 p-2">
                         <div className="flex flex-wrap items-center justify-between gap-2 px-1 py-1 text-xs text-default-500">
-                          <Checkbox aria-label="全选" isSelected={isAllSelected} onValueChange={handleSelectAllToggle}>全选</Checkbox>
+                          <Checkbox
+                            aria-label="全选"
+                            isSelected={isAllSelected}
+                            onValueChange={handleSelectAllToggle}
+                          >
+                            全选
+                          </Checkbox>
                           <span>{sortedForwards.length} 个规则</span>
                         </div>
                         {paginatedForwards.map((forward) => (
-                          <SortableForwardCard key={forward.id} forward={forward} renderCard={renderForwardCard} />
+                          <SortableForwardCard
+                            key={forward.id}
+                            forward={forward}
+                            renderCard={renderForwardCard}
+                          />
                         ))}
                       </div>
                     ) : (
-                    <Table
-                      aria-label="全部规则列表"
-                      className={FORWARD_GROUPED_TABLE_MIN_WIDTH_CLASS}
-                      classNames={{
-                        th: "bg-default-100/50 text-default-600 text-foreground font-semibold text-sm border-b border-divider py-3 uppercase tracking-wider text-left align-middle",
-                        td: "py-3 border-b border-divider/50 group-data-[last=true]:border-b-0",
-                        tr: "hover:bg-default-50/50 transition-colors",
-                      }}
-                    >
-                      <TableHeader>
-                        {true && (
-                          <TableColumn className="whitespace-nowrap flex-shrink-0 w-14 text-left">
-                            {/* @ts-ignore */}
-                            <div className="flex items-center justify-center h-full">
-                              <Checkbox
-                                aria-label="全选"
-                                isSelected={isAllSelected}
-                                onValueChange={handleSelectAllToggle}
-                              />
-                            </div>
+                      <Table
+                        aria-label="全部规则列表"
+                        className={FORWARD_GROUPED_TABLE_MIN_WIDTH_CLASS}
+                        classNames={{
+                          th: "bg-default-100/50 text-default-600 text-foreground font-semibold text-sm border-b border-divider py-3 uppercase tracking-wider text-left align-middle",
+                          td: "py-3 border-b border-divider/50 group-data-[last=true]:border-b-0",
+                          tr: "hover:bg-default-50/50 transition-colors",
+                        }}
+                      >
+                        <TableHeader>
+                          {true && (
+                            <TableColumn className="whitespace-nowrap flex-shrink-0 w-14 text-left">
+                              {/* @ts-ignore */}
+                              <div className="flex items-center justify-center h-full">
+                                <Checkbox
+                                  aria-label="全选"
+                                  isSelected={isAllSelected}
+                                  onValueChange={handleSelectAllToggle}
+                                />
+                              </div>
+                            </TableColumn>
+                          )}
+                          <TableColumn className="whitespace-nowrap flex-shrink-0 w-16 pl-2 text-left">
+                            排序
                           </TableColumn>
-                        )}
-                        <TableColumn className="whitespace-nowrap flex-shrink-0 w-16 pl-2 text-left">
-                          排序
-                        </TableColumn>
-                        {/* <TableColumn className="whitespace-nowrap flex-shrink-0 w-[100px] text-left">用户名</TableColumn> */}
-                        {isAdmin && (
-                          <TableColumn className="whitespace-nowrap flex-shrink-0 w-[100px] text-left">
+                          {/* <TableColumn className="whitespace-nowrap flex-shrink-0 w-[100px] text-left">用户名</TableColumn> */}
+                          {isAdmin && (
+                            <TableColumn className="whitespace-nowrap flex-shrink-0 w-[100px] text-left">
+                              <Select
+                                aria-label="按用户筛选"
+                                className="w-full min-w-[80px]"
+                                classNames={{
+                                  trigger:
+                                    "bg-transparent border-none shadow-none p-0 min-h-0 h-auto gap-1.5 hover:bg-default-100/50 transition-colors flex flex-row items-center justify-start",
+                                  value:
+                                    "text-sm text-default-600 font-semibold uppercase tracking-wider p-0 order-last",
+                                  selectorIcon:
+                                    "text-default-400 w-3.5 h-3.5 static order-first m-0",
+                                  innerWrapper: "w-fit flex-none",
+                                  placeholder:
+                                    "text-sm text-default-600 font-semibold uppercase tracking-wider",
+                                }}
+                                size="sm"
+                                variant="flat"
+                                onSelectionChange={(keys) => {
+                                  const key = Array.from(keys)[0] as
+                                    | string
+                                    | undefined;
+
+                                  setSearchParams((prev: any) => ({
+                                    ...prev,
+                                    userId: key || "all",
+                                  }));
+                                }}
+                                placeholder="所属用户"
+                                // 🎯 逻辑对齐：如果是 "all" 或者空，传 [] 让它显示 placeholder ("所属用户")
+                                selectedKeys={
+                                  !searchParams?.userId ||
+                                  searchParams.userId === "all"
+                                    ? []
+                                    : [String(searchParams.userId)]
+                                }
+                              >
+                                <SelectItem key="all" textValue="全部用户">
+                                  全部用户
+                                </SelectItem>
+                                {(uniqueUsers || []).map((user: any) => (
+                                  <SelectItem
+                                    key={user.id.toString()}
+                                    textValue={user.name}
+                                  >
+                                    {user.name}
+                                  </SelectItem>
+                                ))}
+                              </Select>
+                            </TableColumn>
+                          )}
+                          <TableColumn className="whitespace-nowrap flex-shrink-0 w-[180px] text-left">
+                            规则名称
+                            <span className="text-xs text-primary-500 font-normal">
+                              {sortedForwards.length}个
+                            </span>
+                          </TableColumn>
+                          {/* <TableColumn className="whitespace-nowrap flex-shrink-0 w-[180px] text-left">隧道倍率</TableColumn> */}
+                          <TableColumn className="whitespace-nowrap flex-shrink-0 w-[180px] text-left">
                             <Select
-                              aria-label="按用户筛选"
-                              className="w-full min-w-[80px]"
+                              aria-label="按所属隧道筛选"
+                              className="w-full"
                               classNames={{
-                                trigger: "bg-transparent border-none shadow-none p-0 min-h-0 h-auto gap-1.5 hover:bg-default-100/50 transition-colors flex flex-row items-center justify-start",
-                                value: "text-sm text-default-600 font-semibold uppercase tracking-wider p-0 order-last",
-                                selectorIcon: "text-default-400 w-3.5 h-3.5 static order-first m-0",
-                                innerWrapper: "w-fit flex-none",
-                                placeholder: "text-sm text-default-600 font-semibold uppercase tracking-wider",
+                                trigger:
+                                  "bg-transparent border-none shadow-none p-0 min-h-0 h-auto gap-1 hover:bg-default-100/50 transition-colors",
+                                value:
+                                  "text-sm text-default-600 font-semibold uppercase tracking-wider p-0",
+                                selectorIcon:
+                                  "text-default-400 static w-3.5 h-3.5",
                               }}
+                              placeholder="隧道名称"
+                              selectedKeys={
+                                searchParams.tunnelId &&
+                                searchParams.tunnelId !== "all"
+                                  ? tunnelPickerKey(
+                                      filterTunnelSections,
+                                      Number(searchParams.tunnelId),
+                                      filterTunnelOptionKey,
+                                    )
+                                  : []
+                              }
                               size="sm"
                               variant="flat"
                               onSelectionChange={(keys) => {
-                                const key = Array.from(keys)[0] as string | undefined;
-                                setSearchParams((prev: any) => ({
+                                const key = Array.from(keys)[0] as
+                                  | string
+                                  | undefined;
+
+                                setFilterTunnelOptionKey(key || "");
+                                setSearchParams((prev) => ({
                                   ...prev,
-                                  userId: key || "all",
+                                  tunnelId:
+                                    key && tunnelPickerIds.has(key)
+                                      ? String(tunnelPickerIds.get(key))
+                                      : "all",
                                 }));
                               }}
-                              placeholder="所属用户"
-                              // 🎯 逻辑对齐：如果是 "all" 或者空，传 [] 让它显示 placeholder ("所属用户")
-                              selectedKeys={(!searchParams?.userId || searchParams.userId === "all") ? [] : [String(searchParams.userId)]}
                             >
-                              <SelectItem key="all" textValue="全部用户">
-                                全部用户
+                              <SelectItem key="all" textValue="全部隧道">
+                                全部隧道
                               </SelectItem>
-                              {(uniqueUsers || []).map((user: any) => (
-                                <SelectItem
-                                  key={user.id.toString()}
-                                  textValue={user.name}
+                              {filterTunnelSections.map((section) => (
+                                <SelectSection
+                                  key={section.key}
+                                  description={
+                                    isAdmin && section.region === ""
+                                      ? "出口节点未设置地区，可在节点页设置"
+                                      : undefined
+                                  }
+                                  title={section.label}
+                                  tooltip={
+                                    section.region === MULTI_REGION
+                                      ? exitRegionLabel(
+                                          section.options.flatMap(
+                                            ({ tunnel }) =>
+                                              tunnel.exitRegions || [],
+                                          ),
+                                        )
+                                      : undefined
+                                  }
                                 >
-                                  {user.name}
-                                </SelectItem>
+                                  {section.options.map(({ key, tunnel }) => (
+                                    <SelectItem
+                                      key={key}
+                                      textValue={`${tunnel.name}${tunnel.remark ? ` (${tunnel.remark})` : ""}${section.region === MULTI_REGION ? ` · ${exitRegionLabel(tunnel.exitRegions)}` : ""}`}
+                                    >
+                                      {tunnel.name}
+                                    </SelectItem>
+                                  ))}
+                                </SelectSection>
                               ))}
                             </Select>
                           </TableColumn>
-                        )}
-                        <TableColumn className="whitespace-nowrap flex-shrink-0 w-[180px] text-left">
-                          规则名称
-                          <span className="text-xs text-primary-500 font-normal">
-                            {sortedForwards.length}个
-                          </span>
-                        </TableColumn>
-                        {/* <TableColumn className="whitespace-nowrap flex-shrink-0 w-[180px] text-left">隧道倍率</TableColumn> */}
-                        <TableColumn className="whitespace-nowrap flex-shrink-0 w-[180px] text-left">
-                          <Select
-                            aria-label="按所属隧道筛选"
-                            className="w-full"
-                            classNames={{
-                              trigger:
-                                "bg-transparent border-none shadow-none p-0 min-h-0 h-auto gap-1 hover:bg-default-100/50 transition-colors",
-                              value:
-                                "text-sm text-default-600 font-semibold uppercase tracking-wider p-0",
-                              selectorIcon:
-                                "text-default-400 static w-3.5 h-3.5",
-                            }}
-                            placeholder="隧道名称"
-                            selectedKeys={
-                              searchParams.tunnelId &&
-                              searchParams.tunnelId !== "all"
-                                ? tunnelPickerKey(filterTunnelSections, Number(searchParams.tunnelId), filterTunnelOptionKey)
-                                : []
-                            }
-                            size="sm"
-                            variant="flat"
-                            onSelectionChange={(keys) => {
-                              const key = Array.from(keys)[0] as
-                                | string
-                                | undefined;
-
-                              setFilterTunnelOptionKey(key || "");
-                              setSearchParams((prev) => ({
-                                ...prev,
-                                tunnelId: key && tunnelPickerIds.has(key) ? String(tunnelPickerIds.get(key)) : "all",
-                              }));
-                            }}
+                          <TableColumn className="whitespace-nowrap flex-shrink-0 w-[140px] text-left">
+                            入口地址
+                          </TableColumn>
+                          <TableColumn className="whitespace-nowrap flex-shrink-0 w-[65px] text-left">
+                            端口
+                          </TableColumn>
+                          <TableColumn className="whitespace-nowrap flex-shrink-0 w-[110px] text-left">
+                            落地地址
+                          </TableColumn>
+                          <TableColumn className="whitespace-nowrap flex-shrink-0 w-[65px] text-left">
+                            端口
+                          </TableColumn>
+                          <TableColumn className="whitespace-nowrap flex-shrink-0 w-[100px] text-left">
+                            用量
+                          </TableColumn>
+                          <TableColumn className="whitespace-nowrap flex-shrink-0 w-[140px] text-left">
+                            实时带宽
+                          </TableColumn>
+                          <TableColumn className="whitespace-nowrap flex-shrink-0 w-[80px] text-left">
+                            状态
+                          </TableColumn>
+                          <TableColumn
+                            align="left"
+                            className="whitespace-nowrap flex-shrink-0 min-w-[220px] pl-4"
                           >
-                            <SelectItem key="all" textValue="全部隧道">
-                              全部隧道
-                            </SelectItem>
-                            {filterTunnelSections.map((section) => (
-                              <SelectSection
-                                key={section.key}
-                                description={isAdmin && section.region === "" ? "出口节点未设置地区，可在节点页设置" : undefined}
-                                title={section.label}
-                                tooltip={section.region === MULTI_REGION ? exitRegionLabel(section.options.flatMap(({ tunnel }) => tunnel.exitRegions || [])) : undefined}
-                              >
-                                {section.options.map(({ key, tunnel }) => (
-                                  <SelectItem key={key} textValue={`${tunnel.name}${tunnel.remark ? ` (${tunnel.remark})` : ""}${section.region === MULTI_REGION ? ` · ${exitRegionLabel(tunnel.exitRegions)}` : ""}`}>
-                                    {tunnel.name}
-                                  </SelectItem>
-                                ))}
-                              </SelectSection>
-                            ))}
-                          </Select>
-                        </TableColumn>
-                        <TableColumn className="whitespace-nowrap flex-shrink-0 w-[140px] text-left">
-                          入口地址
-                        </TableColumn>
-                        <TableColumn className="whitespace-nowrap flex-shrink-0 w-[65px] text-left">
-                          端口
-                        </TableColumn>
-                        <TableColumn className="whitespace-nowrap flex-shrink-0 w-[110px] text-left">
-                          落地地址
-                        </TableColumn>
-                        <TableColumn className="whitespace-nowrap flex-shrink-0 w-[65px] text-left">
-                          端口
-                        </TableColumn>
-                        <TableColumn className="whitespace-nowrap flex-shrink-0 w-[100px] text-left">
-                          用量
-                        </TableColumn>
-                        <TableColumn className="whitespace-nowrap flex-shrink-0 w-[140px] text-left">
-                          实时带宽
-                        </TableColumn>
-                        <TableColumn className="whitespace-nowrap flex-shrink-0 w-[80px] text-left">
-                          状态
-                        </TableColumn>
-                        <TableColumn
-                          align="left"
-                          className="whitespace-nowrap flex-shrink-0 min-w-[220px] pl-4"
+                            操作
+                          </TableColumn>
+                        </TableHeader>
+                        <TableBody
+                          emptyContent="暂无规则配置"
+                          items={paginatedForwards}
                         >
-                          操作
-                        </TableColumn>
-                      </TableHeader>
-                      <TableBody
-                        emptyContent="暂无规则配置"
-                        items={paginatedForwards}
-                      >
-                        {(forward) => (
-                          <SortableCompactTableRow
-                            copyToClipboard={copyToClipboard}
-                            formatFlow={formatFlow}
-                            formatInAddress={formatInAddress}
-                            formatRemoteAddress={formatRemoteAddress}
-                            formatSpeed={formatSpeed}
-                            forward={forward}
-                            getStrategyDisplay={getStrategyDisplay}
-                            handleCopy={handleCopy}
-                            handleDelete={handleDelete}
-                            handleDiagnose={handleDiagnose}
-                            handleEdit={handleEdit}
-                            handleServiceToggle={handleServiceToggle}
-                            handleViewTrafficResetLogs={
-                              handleViewTrafficResetLogs
-                            }
-                            hasMultipleAddresses={hasMultipleAddresses}
-                            isAdmin={isAdmin}
-                            selectMode={selectMode}
-                            selectedIds={selectedIds}
-                            showAddressModal={showAddressModal}
-                            toggleSelect={toggleSelect}
-                            togglingIds={togglingIds}
-                          />
-                        )}
-                      </TableBody>
-                    </Table>
+                          {(forward) => (
+                            <SortableCompactTableRow
+                              copyToClipboard={copyToClipboard}
+                              formatFlow={formatFlow}
+                              formatInAddress={formatInAddress}
+                              formatRemoteAddress={formatRemoteAddress}
+                              formatSpeed={formatSpeed}
+                              forward={forward}
+                              getStrategyDisplay={getStrategyDisplay}
+                              handleCopy={handleCopy}
+                              handleDelete={handleDelete}
+                              handleDiagnose={handleDiagnose}
+                              handleEdit={handleEdit}
+                              handleServiceToggle={handleServiceToggle}
+                              handleViewTrafficResetLogs={
+                                handleViewTrafficResetLogs
+                              }
+                              hasMultipleAddresses={hasMultipleAddresses}
+                              isAdmin={isAdmin}
+                              selectMode={selectMode}
+                              selectedIds={selectedIds}
+                              showAddressModal={showAddressModal}
+                              toggleSelect={toggleSelect}
+                              togglingIds={togglingIds}
+                            />
+                          )}
+                        </TableBody>
+                      </Table>
                     )}
                   </SortableContext>
                 </DndContext>
@@ -6189,7 +6515,13 @@ export default function ForwardPage() {
                     items={sortableForwardIds}
                     strategy={rectSortingStrategy}
                   >
-                    <div className={isMobile ? "grid grid-cols-1 gap-4" : "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-4"}>
+                    <div
+                      className={
+                        isMobile
+                          ? "grid grid-cols-1 gap-4"
+                          : "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-4"
+                      }
+                    >
                       {paginatedForwards.map((forward) =>
                         forward && forward.id ? (
                           <SortableForwardCard
@@ -6273,12 +6605,12 @@ export default function ForwardPage() {
                             <SortableTunnelGroupContainer
                               key={`grouped-table-${group.userId}-${tunnel.tunnelKey}`}
                               bodyClassName=""
+                              collapsed={collapsed}
+                              countClassName="whitespace-nowrap text-xs text-default-500"
                               groupKey={buildTunnelGroupCollapseKey(
                                 group.userId,
                                 tunnel.tunnelKey,
                               )}
-                              collapsed={collapsed}
-                              countClassName="whitespace-nowrap text-xs text-default-500"
                               groupUserId={group.userId}
                               // Plan 173: the open group's header sticks (solid
                               // tint); collapsed headers are unchanged.
@@ -6306,8 +6638,8 @@ export default function ForwardPage() {
                                     const groupIds = tunnel.items.map(
                                       (f) => f.id,
                                     );
-                                    const isGroupSelected = groupIds.every((id) =>
-                                      selectedIds.has(id),
+                                    const isGroupSelected = groupIds.every(
+                                      (id) => selectedIds.has(id),
                                     );
                                     const handleGroupToggle = (
                                       isSelected: boolean,
@@ -6375,7 +6707,9 @@ export default function ForwardPage() {
                                               <Checkbox
                                                 aria-label="本组全选"
                                                 isSelected={isGroupSelected}
-                                                onValueChange={handleGroupToggle}
+                                                onValueChange={
+                                                  handleGroupToggle
+                                                }
                                               />
                                             </div>
                                           </TableColumn>
@@ -6492,7 +6826,9 @@ export default function ForwardPage() {
                                               }
                                             >
                                               <SortableTableRow
-                                                copyToClipboard={copyToClipboard}
+                                                copyToClipboard={
+                                                  copyToClipboard
+                                                }
                                                 formatFlow={formatFlow}
                                                 formatSpeed={formatSpeed}
                                                 forward={forward}
@@ -6612,11 +6948,21 @@ export default function ForwardPage() {
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mb-2">
                     {/* 线路分组 */}
                     {showTunnelGroups && (
-                      <div className="md:col-span-2" data-testid="tunnel-group-pills">
-                        <div className="mb-1.5 text-small font-medium text-foreground">线路分组</div>
-                        <div aria-label="线路分组" className="flex flex-wrap gap-2" role="radiogroup">
+                      <div
+                        className="md:col-span-2"
+                        data-testid="tunnel-group-pills"
+                      >
+                        <div className="mb-1.5 text-small font-medium text-foreground">
+                          线路分组
+                        </div>
+                        <div
+                          aria-label="线路分组"
+                          className="flex flex-wrap gap-2"
+                          role="radiogroup"
+                        >
                           {tunnelGroupPills.map((pill) => {
-                            const selected = pill.key === activeTunnelGroup?.key;
+                            const selected =
+                              pill.key === activeTunnelGroup?.key;
 
                             return (
                               <button
@@ -6632,10 +6978,21 @@ export default function ForwardPage() {
                                 onClick={() => selectTunnelGroup(pill.key)}
                               >
                                 {tunnelGroupDots && pill.color && (
-                                  <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: pill.color }} />
+                                  <span
+                                    className="h-2 w-2 shrink-0 rounded-full"
+                                    style={{ backgroundColor: pill.color }}
+                                  />
                                 )}
                                 <span>{pill.label}</span>
-                                <span className={selected ? "text-primary-500/80" : "text-default-400"}>· {pill.optionKeys.size}</span>
+                                <span
+                                  className={
+                                    selected
+                                      ? "text-primary-500/80"
+                                      : "text-default-400"
+                                  }
+                                >
+                                  · {pill.optionKeys.size}
+                                </span>
                               </button>
                             );
                           })}
@@ -6644,73 +7001,103 @@ export default function ForwardPage() {
                     )}
                     {/* 选择隧道 */}
                     {form.mode !== "wg_path" && (
-                    <Select
-                      classNames={{ listbox: "md:w-[calc(200%+0.5rem)]" }}
-                      description={
-                        <>
-                          {isEdit
-                            ? "更改隧道将释放原端口并在新隧道分配端口"
-                            : "根据地区、倍率和备注选择隧道"}
-                          {entryBindHint && (
-                            <span
-                              className={`mt-0.5 block ${entryBindHint.bound ? "text-success-600 dark:text-success-400" : "text-default-500"}`}
-                              data-testid="entry-bind-hint"
-                            >
-                              {entryBindHint.bound
-                                ? `只在入口 ${entryBindHint.label} 上开放`
-                                : "当前在全部入口开放，选择分组里的隧道可改为只开该入口"}
-                            </span>
-                          )}
-                        </>
-                      }
-                      errorMessage={errors.tunnelId}
-                      isInvalid={!!errors.tunnelId}
-                      label="选择隧道"
-                      listboxVariant="grouped"
-                      placeholder="请选择关联的隧道"
-                      selectedKeys={
-                        tunnelPickerKey(formTunnelSections, form.tunnelId, formTunnelOptionKey)
-                      }
-                      variant="bordered"
-                      onSelectionChange={(keys) => {
-                        const selectedKey = Array.from(keys)[0] as string;
-
-                        const tunnelId = tunnelPickerIds.get(selectedKey);
-
-                        if (tunnelId !== undefined) {
-                          setFormTunnelOptionKey(selectedKey);
-                          setEntryTouched(true);
-                          handleTunnelChange(String(tunnelId));
-                        }
-                      }}
-                    >
-                      {formTunnelSections.map((section) => (
-                        <SelectSection
-                          key={section.key}
-                          description={isAdmin && section.region === "" ? "出口节点未设置地区，可在节点页设置" : undefined}
-                          title={section.label}
-                          tooltip={section.region === MULTI_REGION ? exitRegionLabel(section.options.flatMap(({ tunnel }) => tunnel.exitRegions || [])) : undefined}
-                        >
-                          {section.options.map(({ key, tunnel, entryKey, name }) => {
-                            const trafficRatio = allTunnels.find((item) => item.id === tunnel.id)?.trafficRatio;
-                            const formattedRatio = formatTunnelTrafficRatio(trafficRatio);
-                            const text = `${name}${section.region === MULTI_REGION ? ` · ${exitRegionLabel(tunnel.exitRegions)}` : ""}`;
-
-                            return (
-                              <SelectItem
-                                key={key}
-                                description={tunnel.remark ? `备注：${tunnel.remark}` : undefined}
-                                endContent={<span className="rounded bg-default-100 px-1.5 py-0.5 text-xs font-normal text-default-500">{formattedRatio}</span>}
-                                latency={optionLatency(tunnelLatency[tunnel.id], entryKey)}
-                                textValue={text}
+                      <Select
+                        classNames={{ listbox: "md:w-[calc(200%+0.5rem)]" }}
+                        description={
+                          <>
+                            {isEdit
+                              ? "更改隧道将释放原端口并在新隧道分配端口"
+                              : "根据地区、倍率和备注选择隧道"}
+                            {entryBindHint && (
+                              <span
+                                className={`mt-0.5 block ${entryBindHint.bound ? "text-success-600 dark:text-success-400" : "text-default-500"}`}
+                                data-testid="entry-bind-hint"
                               >
-                                {text}
-                              </SelectItem>
-                            );
-                          })}
-                        </SelectSection>
-                      ))}
-                    </Select>
+                                {entryBindHint.bound
+                                  ? `只在入口 ${entryBindHint.label} 上开放`
+                                  : "当前在全部入口开放，选择分组里的隧道可改为只开该入口"}
+                              </span>
+                            )}
+                          </>
+                        }
+                        errorMessage={errors.tunnelId}
+                        isInvalid={!!errors.tunnelId}
+                        label="选择隧道"
+                        listboxVariant="grouped"
+                        placeholder="请选择关联的隧道"
+                        selectedKeys={tunnelPickerKey(
+                          formTunnelSections,
+                          form.tunnelId,
+                          formTunnelOptionKey,
+                        )}
+                        variant="bordered"
+                        onSelectionChange={(keys) => {
+                          const selectedKey = Array.from(keys)[0] as string;
+
+                          const tunnelId = tunnelPickerIds.get(selectedKey);
+
+                          if (tunnelId !== undefined) {
+                            setFormTunnelOptionKey(selectedKey);
+                            setEntryTouched(true);
+                            handleTunnelChange(String(tunnelId));
+                          }
+                        }}
+                      >
+                        {formTunnelSections.map((section) => (
+                          <SelectSection
+                            key={section.key}
+                            description={
+                              isAdmin && section.region === ""
+                                ? "出口节点未设置地区，可在节点页设置"
+                                : undefined
+                            }
+                            title={section.label}
+                            tooltip={
+                              section.region === MULTI_REGION
+                                ? exitRegionLabel(
+                                    section.options.flatMap(
+                                      ({ tunnel }) => tunnel.exitRegions || [],
+                                    ),
+                                  )
+                                : undefined
+                            }
+                          >
+                            {section.options.map(
+                              ({ key, tunnel, entryKey, name }) => {
+                                const trafficRatio = allTunnels.find(
+                                  (item) => item.id === tunnel.id,
+                                )?.trafficRatio;
+                                const formattedRatio =
+                                  formatTunnelTrafficRatio(trafficRatio);
+                                const text = `${name}${section.region === MULTI_REGION ? ` · ${exitRegionLabel(tunnel.exitRegions)}` : ""}`;
+
+                                return (
+                                  <SelectItem
+                                    key={key}
+                                    description={
+                                      tunnel.remark
+                                        ? `备注：${tunnel.remark}`
+                                        : undefined
+                                    }
+                                    endContent={
+                                      <span className="rounded bg-default-100 px-1.5 py-0.5 text-xs font-normal text-default-500">
+                                        {formattedRatio}
+                                      </span>
+                                    }
+                                    latency={optionLatency(
+                                      tunnelLatency[tunnel.id],
+                                      entryKey,
+                                    )}
+                                    textValue={text}
+                                  >
+                                    {text}
+                                  </SelectItem>
+                                );
+                              },
+                            )}
+                          </SelectSection>
+                        ))}
+                      </Select>
                     )}
                     {/* 转发模式选择 */}
                     <Select
@@ -6739,7 +7126,9 @@ export default function ForwardPage() {
                     >
                       <SelectItem key="gost">Gost 模式</SelectItem>
                       <SelectItem key="nftables">NFtables 模式</SelectItem>
-                      {isAdmin && <SelectItem key="wg_path">WG 隧道</SelectItem>}
+                      {isAdmin && (
+                        <SelectItem key="wg_path">WG 隧道</SelectItem>
+                      )}
                     </Select>
                   </div>
                   {form.mode === "wg_path" && (
@@ -6792,7 +7181,9 @@ export default function ForwardPage() {
                         <div className="md:col-span-2 rounded-xl border border-default-200 bg-default-50/70 px-3 py-2 text-sm text-default-600">
                           链路：
                           {[...wgPathDetails[form.wgPathId].segments]
-                            .sort((a, b) => (a.sequence || 0) - (b.sequence || 0))
+                            .sort(
+                              (a, b) => (a.sequence || 0) - (b.sequence || 0),
+                            )
                             .map((segment, index) =>
                               index === 0
                                 ? `${segment.fromNodeId} -> ${segment.toNodeId}`
@@ -6822,18 +7213,16 @@ export default function ForwardPage() {
                             placeholder="例如 192.168.50.0/24"
                             value={form.targetCidr}
                             variant="bordered"
-                            onChange={(e) =>
-                              {
-                                setForm((prev) => ({
-                                  ...prev,
-                                  targetCidr: e.target.value,
-                                }));
-                                setErrors((current) => ({
-                                  ...current,
-                                  targetCidr: "",
-                                }));
-                              }
-                            }
+                            onChange={(e) => {
+                              setForm((prev) => ({
+                                ...prev,
+                                targetCidr: e.target.value,
+                              }));
+                              setErrors((current) => ({
+                                ...current,
+                                targetCidr: "",
+                              }));
+                            }}
                           />
                         </>
                       )}
@@ -6851,33 +7240,65 @@ export default function ForwardPage() {
                     </div>
                   )}
                   <div className="space-y-4 pb-4">
-                    {!(form.mode === "wg_path" && form.wgRuleType === "cidr") && (
+                    {!(
+                      form.mode === "wg_path" && form.wgRuleType === "cidr"
+                    ) && (
                       <>
-                    {form.mode !== "wg_path" && <RuleLandingTarget chainError={form.targetMode === "chain" ? errors.remoteAddr : undefined} chainSummary={editingChain?.summary} line={selectedLineTunnel} value={form} userId={form.userId || tokenUserId || 0} onChange={(target) => { setForm((prev) => ({ ...prev, ...target })); setErrors((prev) => ({ ...prev, remoteAddr: "" })); setChainError(""); }} />}
-                    {form.mode !== "wg_path" && form.targetMode && form.targetMode !== "manual" && form.targetMode !== "chain" && errors.remoteAddr && <p className="text-sm text-danger">{errors.remoteAddr}</p>}
-                    {(!form.targetMode || form.targetMode === "manual" || form.mode === "wg_path") && <Textarea
-                      description="格式: IP:端口 或 域名:端口，支持多个地址（每行一个）"
-                      errorMessage={errors.remoteAddr}
-                      isInvalid={!!errors.remoteAddr}
-                      label="落地地址"
-                      maxRows={6}
-                      minRows={3}
-                      placeholder="请输入落地地址，多个地址用换行分隔，例如:&#10;8.8.8.8:10000&#10;[2001:db8::10]:10086&#10;test.example.com:10010"
-                      value={form.remoteAddr}
-                      variant="bordered"
-                      onChange={(e) =>
-                        {
-                          setForm((prev) => ({
-                            ...prev,
-                            remoteAddr: e.target.value,
-                          }));
-                          setErrors((current) => ({
-                            ...current,
-                            remoteAddr: "",
-                          }));
-                        }
-                      }
-                    />}
+                        {form.mode !== "wg_path" && (
+                          <RuleLandingTarget
+                            chainError={
+                              form.targetMode === "chain"
+                                ? errors.remoteAddr
+                                : undefined
+                            }
+                            chainSummary={editingChain?.summary}
+                            line={selectedLineTunnel}
+                            userId={form.userId || tokenUserId || 0}
+                            value={form}
+                            onChange={(target) => {
+                              setForm((prev) => ({ ...prev, ...target }));
+                              setErrors((prev) => ({
+                                ...prev,
+                                remoteAddr: "",
+                              }));
+                              setChainError("");
+                            }}
+                          />
+                        )}
+                        {form.mode !== "wg_path" &&
+                          form.targetMode &&
+                          form.targetMode !== "manual" &&
+                          form.targetMode !== "chain" &&
+                          errors.remoteAddr && (
+                            <p className="text-sm text-danger">
+                              {errors.remoteAddr}
+                            </p>
+                          )}
+                        {(!form.targetMode ||
+                          form.targetMode === "manual" ||
+                          form.mode === "wg_path") && (
+                          <Textarea
+                            description="格式: IP:端口 或 域名:端口，支持多个地址（每行一个）"
+                            errorMessage={errors.remoteAddr}
+                            isInvalid={!!errors.remoteAddr}
+                            label="落地地址"
+                            maxRows={6}
+                            minRows={3}
+                            placeholder="请输入落地地址，多个地址用换行分隔，例如:&#10;8.8.8.8:10000&#10;[2001:db8::10]:10086&#10;test.example.com:10010"
+                            value={form.remoteAddr}
+                            variant="bordered"
+                            onChange={(e) => {
+                              setForm((prev) => ({
+                                ...prev,
+                                remoteAddr: e.target.value,
+                              }));
+                              setErrors((current) => ({
+                                ...current,
+                                remoteAddr: "",
+                              }));
+                            }}
+                          />
+                        )}
                         {showLineAck && (
                           <div className="rounded-lg bg-amber-500/10 px-3 py-2 dark:bg-amber-400/10">
                             <Checkbox
@@ -6898,205 +7319,264 @@ export default function ForwardPage() {
                             </p>
                           </div>
                         )}
-                    {(!form.targetMode || form.targetMode === "manual" || form.mode === "wg_path") && getAddressCount(form.remoteAddr) > 1 && (
-                      <Select
-                        description="多个落地地址的负载均衡策略"
-                        label="负载策略"
-                        placeholder="请选择负载均衡策略"
-                        selectedKeys={[form.strategy]}
-                        variant="bordered"
-                        onSelectionChange={(keys) => {
-                          const selectedKey = Array.from(keys)[0] as string;
+                        {(!form.targetMode ||
+                          form.targetMode === "manual" ||
+                          form.mode === "wg_path") &&
+                          getAddressCount(form.remoteAddr) > 1 && (
+                            <Select
+                              description="多个落地地址的负载均衡策略"
+                              label="负载策略"
+                              placeholder="请选择负载均衡策略"
+                              selectedKeys={[form.strategy]}
+                              variant="bordered"
+                              onSelectionChange={(keys) => {
+                                const selectedKey = Array.from(
+                                  keys,
+                                )[0] as string;
 
-                          setForm((prev) => ({
-                            ...prev,
-                            strategy: selectedKey,
-                          }));
-                        }}
-                      >
-                        <SelectItem key="fifo">主备模式 - 自上而下</SelectItem>
-                        <SelectItem key="round">轮询模式 - 依次轮换</SelectItem>
-                        <SelectItem key="rand">随机模式 - 随机选择</SelectItem>
-                        <SelectItem key="hash">哈希模式 - IP 哈希</SelectItem>
-                      </Select>
-                    )}
+                                setForm((prev) => ({
+                                  ...prev,
+                                  strategy: selectedKey,
+                                }));
+                              }}
+                            >
+                              <SelectItem key="fifo">
+                                主备模式 - 自上而下
+                              </SelectItem>
+                              <SelectItem key="round">
+                                轮询模式 - 依次轮换
+                              </SelectItem>
+                              <SelectItem key="rand">
+                                随机模式 - 随机选择
+                              </SelectItem>
+                              <SelectItem key="hash">
+                                哈希模式 - IP 哈希
+                              </SelectItem>
+                            </Select>
+                          )}
                       </>
                     )}
                   </div>
                   {/* 高级功能仅管理员可见 */}
                   {isAdmin && (
                     <div className="border border-divider rounded-lg overflow-hidden mt-4">
-                    <button
-                      className="w-full flex items-center justify-between px-4 py-3 bg-default-100/50 hover:bg-default-100 transition-colors"
-                      type="button"
-                      onClick={() =>
-                        setAdvancedOptionsOpen(!advancedOptionsOpen)
-                      }
-                    >
-                      <span className="text-sm font-semibold text-foreground">
-                        高级功能
-                      </span>
-                      <svg
-                        className={`w-5 h-5 text-default-400 transition-transform ${advancedOptionsOpen ? "rotate-180" : ""}`}
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
+                      <button
+                        className="w-full flex items-center justify-between px-4 py-3 bg-default-100/50 hover:bg-default-100 transition-colors"
+                        type="button"
+                        onClick={() =>
+                          setAdvancedOptionsOpen(!advancedOptionsOpen)
+                        }
                       >
-                        <path
-                          d="M19 9l-7 7-7-7"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={2}
-                        />
-                      </svg>
-                    </button>
-                    {advancedOptionsOpen && (
-                      <div className="p-4 space-y-4 bg-content1">
-                        {/* 连接/IP 限制与流量控制 */}
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mb-2">
-                          <ConnectionLimitField
-                            value={form.maxConnections}
-                            onChange={(val) =>
-                              setForm((prev) => ({
-                                ...prev,
-                                maxConnections: val,
-                              }))
-                            }
+                        <span className="text-sm font-semibold text-foreground">
+                          高级功能
+                        </span>
+                        <svg
+                          className={`w-5 h-5 text-default-400 transition-transform ${advancedOptionsOpen ? "rotate-180" : ""}`}
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            d="M19 9l-7 7-7-7"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
                           />
-                          <ClientIPLimitField
-                            value={form.maxClientIps}
-                            onChange={(val) =>
-                              setForm((prev) => ({
-                                ...prev,
-                                maxClientIps: val,
-                              }))
-                            }
-                          />
-                          <TrafficLimitField
-                            value={form.trafficLimit}
-                            onChange={(val) =>
-                              setForm((prev) => ({
-                                ...prev,
-                                trafficLimit: val,
-                              }))
-                            }
-                          />
-                          {/* 监听ip */}
-                          <Select
-                            description={
-                              isCurrentTunnelMultiEntrance
-                                ? "多入口隧道不支持自定义监听IP，使用各节点默认IP"
-                                : "从入口节点IP中选择，留空使用默认"
-                            }
-                            isDisabled={
-                              !form.tunnelId ||
-                              currentTunnelIpOptions.length === 0 ||
-                              isCurrentTunnelMultiEntrance
-                            }
-                            label="监听IP"
-                            placeholder={
-                              isCurrentTunnelMultiEntrance
-                                ? "多入口隧道使用节点默认IP"
-                                : form.tunnelId
-                                  ? currentTunnelIpOptions.length > 0
-                                    ? "选择入口监听IP"
-                                    : "当前隧道入口节点暂无可选IP"
-                                  : "请先选择隧道"
-                            }
-                            selectedKeys={[form.inIp || "__default__"]}
-                            variant="bordered"
-                            onSelectionChange={(keys) => {
-                              const selectedKey = Array.from(keys)[0] as string;
+                        </svg>
+                      </button>
+                      {advancedOptionsOpen && (
+                        <div className="p-4 space-y-4 bg-content1">
+                          {/* 连接/IP 限制与流量控制 */}
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mb-2">
+                            <ConnectionLimitField
+                              value={form.maxConnections}
+                              onChange={(val) =>
+                                setForm((prev) => ({
+                                  ...prev,
+                                  maxConnections: val,
+                                }))
+                              }
+                            />
+                            <ClientIPLimitField
+                              value={form.maxClientIps}
+                              onChange={(val) =>
+                                setForm((prev) => ({
+                                  ...prev,
+                                  maxClientIps: val,
+                                }))
+                              }
+                            />
+                            <TrafficLimitField
+                              value={form.trafficLimit}
+                              onChange={(val) =>
+                                setForm((prev) => ({
+                                  ...prev,
+                                  trafficLimit: val,
+                                }))
+                              }
+                            />
+                            {/* 监听ip */}
+                            <Select
+                              description={
+                                isCurrentTunnelMultiEntrance
+                                  ? "多入口隧道不支持自定义监听IP，使用各节点默认IP"
+                                  : "从入口节点IP中选择，留空使用默认"
+                              }
+                              isDisabled={
+                                !form.tunnelId ||
+                                currentTunnelIpOptions.length === 0 ||
+                                isCurrentTunnelMultiEntrance
+                              }
+                              label="监听IP"
+                              placeholder={
+                                isCurrentTunnelMultiEntrance
+                                  ? "多入口隧道使用节点默认IP"
+                                  : form.tunnelId
+                                    ? currentTunnelIpOptions.length > 0
+                                      ? "选择入口监听IP"
+                                      : "当前隧道入口节点暂无可选IP"
+                                    : "请先选择隧道"
+                              }
+                              selectedKeys={[form.inIp || "__default__"]}
+                              variant="bordered"
+                              onSelectionChange={(keys) => {
+                                const selectedKey = Array.from(
+                                  keys,
+                                )[0] as string;
 
-                              setInIpTouched(true);
-                              setForm((prev) => ({
-                                ...prev,
-                                inIp:
-                                  selectedKey === "__default__"
-                                    ? ""
-                                    : selectedKey,
-                              }));
-                            }}
-                          >
-                            <SelectItem key="__default__">
-                              默认入口IP
-                            </SelectItem>
-                            {currentTunnelIpOptions.map((ip) => (
-                              <SelectItem key={ip}>{ip}</SelectItem>
-                            ))}
-                          </Select>
-                          {/* 有效期 */}
-                          <ExpiryTimeField
-                            value={form.expiryTime}
-                            onChange={(val) =>
-                              setForm((prev) => ({
-                                ...prev,
-                                expiryTime: val,
-                              }))
-                            }
-                          />
-                        </div>
-                        {isEdit && form.id && (
-                          <div className="rounded-lg border border-divider p-3 space-y-2">
-                            <div className="flex items-center justify-between gap-2">
-                              <div>
-                                <div className="text-sm font-medium text-foreground">当前连接 IP</div>
-                                <div className="text-xs text-default-500">
-                                  {liveClientIPs
-                                    ? `当前${liveClientIPs.truncated ? "至少" : ""} ${liveClientIPs.ipCount} 个 IP · ${liveClientIPs.connectionCount} 个连接`
-                                    : liveClientIPsLoading ? "读取中..." : "当前无连接"}
-                                </div>
-                              </div>
-                              <Button size="sm" variant="flat" isLoading={liveClientIPsLoading} onPress={() => void refreshLiveClientIPs()}>
-                                刷新
-                              </Button>
-                            </div>
-                            {liveClientIPsError && <div className="text-xs text-danger">{liveClientIPsError}</div>}
-                            {liveClientIPs?.ips.length ? (
-                              <div className="max-h-48 overflow-y-auto text-xs divide-y divide-divider">
-                                <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] gap-2 py-1 text-default-500">
-                                  <span>IP</span><span>连接数</span><span>入口节点</span>
-                                </div>
-                                {liveClientIPs.ips.map((item) => (
-                                  <div key={item.ip} className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] gap-2 py-1.5 items-center">
-                                    <span className="font-mono truncate" title={item.ip}>{item.ip}</span>
-                                    <span>{item.connections} 连接</span>
-                                    <span className="truncate text-default-500" title={item.nodes.join("、")}>{item.nodes.join("、")}</span>
-                                  </div>
-                                ))}
-                              </div>
-                            ) : !liveClientIPsLoading && !liveClientIPsError && <div className="text-xs text-default-500">当前无连接</div>}
-                            {liveClientIPs?.truncated && <div className="text-xs text-default-500">仅显示前 500 个</div>}
-                            {liveClientIPs?.nodeErrors.map((item) => (
-                              <div key={item.nodeName} className="text-xs text-warning-600 dark:text-warning-400">
-                                {item.nodeName}：{item.reason}
-                              </div>
-                            ))}
+                                setInIpTouched(true);
+                                setForm((prev) => ({
+                                  ...prev,
+                                  inIp:
+                                    selectedKey === "__default__"
+                                      ? ""
+                                      : selectedKey,
+                                }));
+                              }}
+                            >
+                              <SelectItem key="__default__">
+                                默认入口IP
+                              </SelectItem>
+                              {currentTunnelIpOptions.map((ip) => (
+                                <SelectItem key={ip}>{ip}</SelectItem>
+                              ))}
+                            </Select>
+                            {/* 有效期 */}
+                            <ExpiryTimeField
+                              value={form.expiryTime}
+                              onChange={(val) =>
+                                setForm((prev) => ({
+                                  ...prev,
+                                  expiryTime: val,
+                                }))
+                              }
+                            />
                           </div>
-                        )}
-                      </div>
-                    )}
+                          {isEdit && form.id && (
+                            <div className="rounded-lg border border-divider p-3 space-y-2">
+                              <div className="flex items-center justify-between gap-2">
+                                <div>
+                                  <div className="text-sm font-medium text-foreground">
+                                    当前连接 IP
+                                  </div>
+                                  <div className="text-xs text-default-500">
+                                    {liveClientIPs
+                                      ? `当前${liveClientIPs.truncated ? "至少" : ""} ${liveClientIPs.ipCount} 个 IP · ${liveClientIPs.connectionCount} 个连接`
+                                      : liveClientIPsLoading
+                                        ? "读取中..."
+                                        : "当前无连接"}
+                                  </div>
+                                </div>
+                                <Button
+                                  isLoading={liveClientIPsLoading}
+                                  size="sm"
+                                  variant="flat"
+                                  onPress={() => void refreshLiveClientIPs()}
+                                >
+                                  刷新
+                                </Button>
+                              </div>
+                              {liveClientIPsError && (
+                                <div className="text-xs text-danger">
+                                  {liveClientIPsError}
+                                </div>
+                              )}
+                              {liveClientIPs?.ips.length ? (
+                                <div className="max-h-48 overflow-y-auto text-xs divide-y divide-divider">
+                                  <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] gap-2 py-1 text-default-500">
+                                    <span>IP</span>
+                                    <span>连接数</span>
+                                    <span>入口节点</span>
+                                  </div>
+                                  {liveClientIPs.ips.map((item) => (
+                                    <div
+                                      key={item.ip}
+                                      className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] gap-2 py-1.5 items-center"
+                                    >
+                                      <span
+                                        className="font-mono truncate"
+                                        title={item.ip}
+                                      >
+                                        {item.ip}
+                                      </span>
+                                      <span>{item.connections} 连接</span>
+                                      <span
+                                        className="truncate text-default-500"
+                                        title={item.nodes.join("、")}
+                                      >
+                                        {item.nodes.join("、")}
+                                      </span>
+                                    </div>
+                                  ))}
+                                </div>
+                              ) : (
+                                !liveClientIPsLoading &&
+                                !liveClientIPsError && (
+                                  <div className="text-xs text-default-500">
+                                    当前无连接
+                                  </div>
+                                )
+                              )}
+                              {liveClientIPs?.truncated && (
+                                <div className="text-xs text-default-500">
+                                  仅显示前 500 个
+                                </div>
+                              )}
+                              {liveClientIPs?.nodeErrors.map((item) => (
+                                <div
+                                  key={item.nodeName}
+                                  className="text-xs text-warning-600 dark:text-warning-400"
+                                >
+                                  {item.nodeName}：{item.reason}
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
-                {form.mode !== "wg_path" && form.targetMode === "chain" && (chainRunning || chainError) && (
-                  <div className="flvx-landing-text mt-3 space-y-1 rounded-lg border border-divider p-3 text-sm">
-                    {chainRunning && (
-                      <div className="flex items-center gap-2 text-default-600">
-                        <Spinner size="sm" />
-                        <span>{chainProgress || "正在准备出口…"}</span>
-                      </div>
-                    )}
-                    {chainRunning && (
-                      <p className="text-xs text-default-500">
-                        可以关闭弹窗，系统会在后台继续，完成后规则会出现在列表中。
-                      </p>
-                    )}
-                    {!chainRunning && chainError && (
-                      <p className="text-danger">{chainError}</p>
-                    )}
-                  </div>
-                )}
+                {form.mode !== "wg_path" &&
+                  form.targetMode === "chain" &&
+                  (chainRunning || chainError) && (
+                    <div className="flvx-landing-text mt-3 space-y-1 rounded-lg border border-divider p-3 text-sm">
+                      {chainRunning && (
+                        <div className="flex items-center gap-2 text-default-600">
+                          <Spinner size="sm" />
+                          <span>{chainProgress || "正在准备出口…"}</span>
+                        </div>
+                      )}
+                      {chainRunning && (
+                        <p className="text-xs text-default-500">
+                          可以关闭弹窗，系统会在后台继续，完成后规则会出现在列表中。
+                        </p>
+                      )}
+                      {!chainRunning && chainError && (
+                        <p className="text-danger">{chainError}</p>
+                      )}
+                    </div>
+                  )}
               </ModalBody>
               <ModalFooter>
                 <Button variant="flat" onPress={onClose}>
@@ -8583,9 +9063,7 @@ function ClientIPLimitField({
 
   return (
     <div className="space-y-2">
-      <span className="text-sm font-medium text-foreground">
-        接入IP数限制
-      </span>
+      <span className="text-sm font-medium text-foreground">接入IP数限制</span>
       <Input
         description="gost 与 nftables 均适用；nftables 约每秒更新；留空表示不限制"
         placeholder="不限制"

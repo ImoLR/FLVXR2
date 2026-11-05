@@ -173,6 +173,15 @@ func landingServerOwnPorts(tx *gorm.DB, serverID int64) ([]int, error) {
 }
 func ValidateLandingServer(s *model.LandingServer) error { return validateLandingServer(s, nil) }
 
+// validLandingCoreLimits: native servers keep their Core caps (≥64 MiB,
+// ≥1 %); shared servers store 0 / 0 = 不限制 (plan 223, decided by 妙妙屋).
+func validLandingCoreLimits(s *model.LandingServer) bool {
+	if s.Source == "shared" {
+		return s.CoreMemoryMB >= 0 && s.CoreCPUPercent >= 0
+	}
+	return s.CoreMemoryMB >= 64 && s.CoreCPUPercent >= 1
+}
+
 // validateLandingServer: keep lists protocols already enabled on the server;
 // an extra protocol among them stays allowed even while the share does not
 // advertise it (its nodes are withheld, see LandingNodeWithheld), so a
@@ -199,7 +208,7 @@ func validateLandingServer(s *model.LandingServer, keep map[string]bool) error {
 	if s.DefaultMaxTotalConnections < 0 || s.DefaultMaxTotalConnections > MaxLandingNodeTotal || s.DefaultMaxConnections > MaxLandingNodeTotal {
 		return errors.New("节点连接数须为 0（不限）到 10000000")
 	}
-	if s.MaxConnections < 0 || s.DefaultMaxConnections < 0 || s.DefaultMaxOnlineIPs < 0 || s.DefaultTrafficLimitBytes < 0 || s.DefaultUserQuotaBytes < 0 || s.MaxNodesPerUser < 1 || s.CoreMemoryMB < 64 || s.CoreCPUPercent < 1 {
+	if s.MaxConnections < 0 || s.DefaultMaxConnections < 0 || s.DefaultMaxOnlineIPs < 0 || s.DefaultTrafficLimitBytes < 0 || s.DefaultUserQuotaBytes < 0 || s.MaxNodesPerUser < 1 || !validLandingCoreLimits(s) {
 		return errors.New("落地限制无效")
 	}
 	if s.Status != "active" && s.Status != "disabled" {
@@ -301,6 +310,11 @@ func (r *Repository) SaveLandingServerOpts(s *model.LandingServer, groups []int6
 		// Plan 211: 服务器总连接数 is hidden and never enforced by FLVX (a
 		// shared server's own total belongs to 妙妙屋).
 		s.MaxConnections = 0
+		// Plan 223: a shared server's Core memory / CPU are decided by the
+		// sharer (妙妙屋); FLVX shows them read-only as 不限制 (0 / 0).
+		if s.Source == "shared" {
+			s.CoreMemoryMB, s.CoreCPUPercent = 0, 0
+		}
 		keep := map[string]bool{}
 		var oldProtocols []string
 		_ = json.Unmarshal([]byte(old.Protocols), &oldProtocols)

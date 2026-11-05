@@ -146,7 +146,9 @@ export default function GroupPage() {
   const [selectedTunnelKeys, setSelectedTunnelKeys] = useState<Set<string>>(
     new Set(),
   );
-  const [selectedEntries, setSelectedEntries] = useState<Record<number, number[]>>({});
+  const [selectedEntries, setSelectedEntries] = useState<
+    Record<number, number[]>
+  >({});
   const [selectedUserKeys, setSelectedUserKeys] = useState<Set<string>>(
     new Set(),
   );
@@ -369,7 +371,16 @@ export default function GroupPage() {
       const res = await assignTunnelsToGroup({
         groupId: assignTunnelGroup.id,
         tunnelIds,
-        tunnelEntries: Object.fromEntries(tunnelIds.map((id) => [id, selectedEntries[id] ?? tunnels.find((tunnel) => tunnel.id === id)?.entryNodes?.map((entry) => entry.id) ?? []])),
+        tunnelEntries: Object.fromEntries(
+          tunnelIds.map((id) => [
+            id,
+            selectedEntries[id] ??
+              tunnels
+                .find((tunnel) => tunnel.id === id)
+                ?.entryNodes?.map((entry) => entry.id) ??
+              [],
+          ]),
+        ),
       });
 
       if (res.code === 0) {
@@ -1053,14 +1064,19 @@ export default function GroupPage() {
               selectedKeys={selectedTunnelKeys}
               selectionMode="multiple"
               onSelectionChange={(keys) => {
-                const next = new Set(Array.from(keys as Set<React.Key>).map(String));
+                const next = new Set(
+                  Array.from(keys as Set<React.Key>).map(String),
+                );
 
                 setSelectedEntries((current) => {
                   const updated = { ...current };
 
                   next.forEach((key) => {
                     if (!selectedTunnelKeys.has(key)) {
-                      updated[Number(key)] = tunnels.find((tunnel) => tunnel.id === Number(key))?.entryNodes?.map((entry) => entry.id) || [];
+                      updated[Number(key)] =
+                        tunnels
+                          .find((tunnel) => tunnel.id === Number(key))
+                          ?.entryNodes?.map((entry) => entry.id) || [];
                     }
                   });
 
@@ -1080,26 +1096,49 @@ export default function GroupPage() {
             <p className="text-xs text-default-500">
               不选择任何隧道并保存将清空该分组隧道
             </p>
-            {tunnels.filter((tunnel) => selectedTunnelKeys.has(String(tunnel.id)) && (tunnel.entryNodes?.length || 0) > 1).map((tunnel) => (
-              <div key={tunnel.id} className="space-y-2 rounded-lg border border-divider p-3">
-                <p className="text-sm font-medium">{tunnel.name} · 入口</p>
-                <div className="flex flex-wrap gap-x-4 gap-y-2">
-                  {tunnel.entryNodes?.map((entry) => (
-                    <Checkbox
-                      key={entry.id}
-                      isSelected={(selectedEntries[tunnel.id] ?? tunnel.entryNodes?.map((item) => item.id) ?? []).includes(entry.id)}
-                      onValueChange={(checked) => setSelectedEntries((current) => {
-                        const ids = current[tunnel.id] ?? tunnel.entryNodes?.map((item) => item.id) ?? [];
+            {tunnels
+              .filter(
+                (tunnel) =>
+                  selectedTunnelKeys.has(String(tunnel.id)) &&
+                  (tunnel.entryNodes?.length || 0) > 1,
+              )
+              .map((tunnel) => (
+                <div
+                  key={tunnel.id}
+                  className="space-y-2 rounded-lg border border-divider p-3"
+                >
+                  <p className="text-sm font-medium">{tunnel.name} · 入口</p>
+                  <div className="flex flex-wrap gap-x-4 gap-y-2">
+                    {tunnel.entryNodes?.map((entry) => (
+                      <Checkbox
+                        key={entry.id}
+                        isSelected={(
+                          selectedEntries[tunnel.id] ??
+                          tunnel.entryNodes?.map((item) => item.id) ??
+                          []
+                        ).includes(entry.id)}
+                        onValueChange={(checked) =>
+                          setSelectedEntries((current) => {
+                            const ids =
+                              current[tunnel.id] ??
+                              tunnel.entryNodes?.map((item) => item.id) ??
+                              [];
 
-                        return { ...current, [tunnel.id]: checked ? [...ids, entry.id] : ids.filter((id) => id !== entry.id) };
-                      })}
-                    >
-                      {entry.name}
-                    </Checkbox>
-                  ))}
+                            return {
+                              ...current,
+                              [tunnel.id]: checked
+                                ? [...ids, entry.id]
+                                : ids.filter((id) => id !== entry.id),
+                            };
+                          })
+                        }
+                      >
+                        {entry.name}
+                      </Checkbox>
+                    ))}
+                  </div>
                 </div>
-              </div>
-            ))}
+              ))}
           </ModalBody>
           <ModalFooter className="mt-auto">
             <Button variant="flat" onPress={onTunnelAssignModalClose}>

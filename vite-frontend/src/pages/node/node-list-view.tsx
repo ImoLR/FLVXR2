@@ -1,4 +1,3 @@
-import { EnableLandingButton } from "@/pages/landing/enable-button";
 import type { LeiKwanNodeDetection, MachineView } from "@/api/types";
 import type { NodeRenewalCycle } from "./renewal";
 import type { NodeSystemInfo } from "./system-info";
@@ -6,8 +5,6 @@ import type { NodeSystemInfo } from "./system-info";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { useState, useRef, useEffect } from "react";
-
-import { regionLabel } from "@/utils/region";
 
 import { getConnectionStatusMeta } from "./display";
 import { NodeIPv6RABadge } from "./ipv6-ra-badge";
@@ -17,6 +14,8 @@ import { NodeDDNSBadge } from "./ddns-badge";
 import { MachineConnChip } from "./machine-conn";
 import { getNodeRenewalSnapshot, formatNodeRenewalTime } from "./renewal";
 
+import { regionLabel } from "@/utils/region";
+import { EnableLandingButton } from "@/pages/landing/enable-button";
 import { Checkbox } from "@/shadcn-bridge/heroui/checkbox";
 import { Button } from "@/shadcn-bridge/heroui/button";
 import { Chip } from "@/shadcn-bridge/heroui/chip";
@@ -306,15 +305,27 @@ function SortableTableRow({
           </span>
           <NodeAdminNoticeBadge notice={node.adminNotice} />
           <NodeIPv6RABadge node={node} />
-              <NodeLeiKwanBadge node={node} />
-              <NodeDDNSBadge ddns={(node as { ddns?: import("@/api/ddns").NodeDDNSView | null }).ddns} />
+          <NodeLeiKwanBadge node={node} />
+          <NodeDDNSBadge
+            ddns={
+              (node as { ddns?: import("@/api/ddns").NodeDDNSView | null }).ddns
+            }
+          />
         </div>
         <div className="mt-1 text-xs text-default-500">
-          {node.region ? regionLabel(node.region) : (
-            <Chip className="bg-default-100 text-default-500" color="default" size="sm" variant="flat">
+          {node.region ? (
+            regionLabel(node.region)
+          ) : (
+            <Chip
+              className="bg-default-100 text-default-500"
+              color="default"
+              size="sm"
+              variant="flat"
+            >
               未设置地区
             </Chip>
-          )}{node.regionCity ? ` · ${node.regionCity}` : ""}
+          )}
+          {node.regionCity ? ` · ${node.regionCity}` : ""}
         </div>
         {machineOf ? (
           <div className="mt-1">
@@ -359,7 +370,9 @@ function SortableTableRow({
               className="font-medium text-xs cursor-pointer hover:bg-default-200/50 rounded px-1 transition-colors truncate shrink min-w-0 ml-auto text-right max-w-[130px]"
               title={
                 node.serverIpV4?.trim() ||
-                (node.serverIp?.trim() && !node.serverIp.includes(":") && node.serverIp.trim() !== node.serverIpV6?.trim()
+                (node.serverIp?.trim() &&
+                !node.serverIp.includes(":") &&
+                node.serverIp.trim() !== node.serverIpV6?.trim()
                   ? node.serverIp.trim()
                   : undefined) ||
                 "暂无"
@@ -368,7 +381,9 @@ function SortableTableRow({
                 e.stopPropagation();
                 const val =
                   node.serverIpV4?.trim() ||
-                  (node.serverIp?.trim() && !node.serverIp.includes(":") && node.serverIp.trim() !== node.serverIpV6?.trim()
+                  (node.serverIp?.trim() &&
+                  !node.serverIp.includes(":") &&
+                  node.serverIp.trim() !== node.serverIpV6?.trim()
                     ? node.serverIp.trim()
                     : undefined);
 
@@ -378,7 +393,9 @@ function SortableTableRow({
               {(() => {
                 const val =
                   node.serverIpV4?.trim() ||
-                  (node.serverIp?.trim() && !node.serverIp.includes(":") && node.serverIp.trim() !== node.serverIpV6?.trim()
+                  (node.serverIp?.trim() &&
+                  !node.serverIp.includes(":") &&
+                  node.serverIp.trim() !== node.serverIpV6?.trim()
                     ? node.serverIp.trim()
                     : undefined);
 

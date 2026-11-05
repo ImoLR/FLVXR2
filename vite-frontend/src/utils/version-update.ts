@@ -138,9 +138,11 @@ export const compareVersions = (left: string, right: string): number => {
   const a = parseVersionParts(left);
   const b = parseVersionParts(right);
 
-  return compareNumberArrays(a.numbers, b.numbers) ||
+  return (
+    compareNumberArrays(a.numbers, b.numbers) ||
     a.stageRank - b.stageRank ||
-    a.stageNumber - b.stageNumber;
+    a.stageNumber - b.stageNumber
+  );
 };
 
 const compareNumericVersions = (left: string, right: string): number => {

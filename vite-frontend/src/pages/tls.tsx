@@ -1,3 +1,5 @@
+import type { NodeTLSTemplateApiItem } from "@/api/types";
+
 import { useEffect, useMemo, useState } from "react";
 import toast from "react-hot-toast";
 import {
@@ -17,7 +19,6 @@ import {
   getTLSTemplates,
   saveTLSTemplate,
 } from "@/api";
-import type { NodeTLSTemplateApiItem } from "@/api/types";
 import { Button } from "@/shadcn-bridge/heroui/button";
 import { Input, Textarea } from "@/shadcn-bridge/heroui/input";
 import {
@@ -144,8 +145,7 @@ const splitLines = (value: string) =>
     .map((item) => item.trim())
     .filter(Boolean);
 
-const splitCSV = (value: string) =>
-  value.split(",").map((item) => item.trim());
+const splitCSV = (value: string) => value.split(",").map((item) => item.trim());
 
 const normalizePort = (value: string) => {
   const port = Number(value);
@@ -213,7 +213,10 @@ const toForm = (item?: NodeTLSTemplateApiItem): TLSFormState => {
     publicKey: client.reality?.public_key || "",
     shortIds: asCSV(reality.short_id),
     fingerprint:
-      client.utls?.fingerprint || client.utls_fingerprint || extra.utls?.fingerprint || "chrome",
+      client.utls?.fingerprint ||
+      client.utls_fingerprint ||
+      extra.utls?.fingerprint ||
+      "chrome",
   };
 };
 
@@ -230,6 +233,7 @@ const toPayload = (form: TLSFormState): Partial<NodeTLSTemplateApiItem> => {
     disable_sni: form.disableSni,
     insecure: form.insecure,
   };
+
   if (form.fingerprint.trim()) {
     client.utls = {
       enabled: true,
@@ -250,6 +254,7 @@ const toPayload = (form: TLSFormState): Partial<NodeTLSTemplateApiItem> => {
     const realityShortIds = splitCSV(form.shortIds);
     const firstRealityShortId =
       realityShortIds.find((item) => item.trim() !== "") || "";
+
     server.reality = {
       enabled: true,
       handshake: {
@@ -306,8 +311,9 @@ const TLSPage = ({ embedded = false }: { embedded?: boolean }) => {
   const stats = useMemo(() => {
     return {
       total: items.length,
-      reality: items.filter((item) => getTemplateSummary(item).type === "reality")
-        .length,
+      reality: items.filter(
+        (item) => getTemplateSummary(item).type === "reality",
+      ).length,
       used: items.reduce((sum, item) => sum + (item.usageCount || 0), 0),
     };
   }, [items]);
@@ -332,6 +338,7 @@ const TLSPage = ({ embedded = false }: { embedded?: boolean }) => {
   const openCreate = () => {
     if (!isAdmin) {
       toast.error("仅管理员可添加 TLS 模板");
+
       return;
     }
     setForm({ ...emptyForm });
@@ -342,6 +349,7 @@ const TLSPage = ({ embedded = false }: { embedded?: boolean }) => {
   const openEdit = (item: NodeTLSTemplateApiItem) => {
     if (!isAdmin) {
       toast.error("仅管理员可编辑 TLS 模板");
+
       return;
     }
     setForm(toForm(item));
@@ -356,6 +364,7 @@ const TLSPage = ({ embedded = false }: { embedded?: boolean }) => {
   const handleSave = async () => {
     if (!isAdmin) {
       toast.error("仅管理员可保存 TLS 模板");
+
       return;
     }
     if (!form.name.trim()) {
@@ -384,6 +393,7 @@ const TLSPage = ({ embedded = false }: { embedded?: boolean }) => {
   const handleDelete = async (item: NodeTLSTemplateApiItem) => {
     if (!isAdmin) {
       toast.error("仅管理员可删除 TLS 模板");
+
       return;
     }
     if (!window.confirm(`删除 TLS 模板「${item.name}」？`)) {
@@ -401,6 +411,7 @@ const TLSPage = ({ embedded = false }: { embedded?: boolean }) => {
   const handleDuplicate = async (item: NodeTLSTemplateApiItem) => {
     if (!isAdmin) {
       toast.error("仅管理员可复制 TLS 模板");
+
       return;
     }
     try {
@@ -421,6 +432,7 @@ const TLSPage = ({ embedded = false }: { embedded?: boolean }) => {
   const handleRealityKeypair = async () => {
     if (!isAdmin) {
       toast.error("仅管理员可生成 Reality 密钥");
+
       return;
     }
     try {
@@ -436,6 +448,7 @@ const TLSPage = ({ embedded = false }: { embedded?: boolean }) => {
   const handleRealityShortIds = async () => {
     if (!isAdmin) {
       toast.error("仅管理员可刷新 Short IDs");
+
       return;
     }
     try {
@@ -444,7 +457,9 @@ const TLSPage = ({ embedded = false }: { embedded?: boolean }) => {
       patchForm({ shortIds: data.shortIds.join(",") });
       toast.success("Short IDs 已刷新");
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "刷新 Short IDs 失败");
+      toast.error(
+        error instanceof Error ? error.message : "刷新 Short IDs 失败",
+      );
     }
   };
 
@@ -462,7 +477,13 @@ const TLSPage = ({ embedded = false }: { embedded?: boolean }) => {
               <span>入站引用 {stats.used}</span>
             </div>
           </div>
-          <Button color="primary" isDisabled={!isAdmin} startContent={<Plus className="h-4 w-4" />} title={readonlyTitle} onPress={openCreate}>
+          <Button
+            color="primary"
+            isDisabled={!isAdmin}
+            startContent={<Plus className="h-4 w-4" />}
+            title={readonlyTitle}
+            onPress={openCreate}
+          >
             添加
           </Button>
         </div>
@@ -486,11 +507,19 @@ const TLSPage = ({ embedded = false }: { embedded?: boolean }) => {
                   className="flex min-h-[190px] flex-col rounded-3xl border border-white/70 bg-white/60 shadow-sm backdrop-blur-xl dark:border-white/10 dark:bg-gray-950/55"
                 >
                   <div className="border-b border-gray-200 px-4 py-3 dark:border-gray-800">
-                    <div className="truncate text-lg font-semibold" title={item.name}>
+                    <div
+                      className="truncate text-lg font-semibold"
+                      title={item.name}
+                    >
                       {item.name}
                     </div>
-                    <div className="truncate text-xs text-gray-500" title={summary.sni}>
-                      {summary.type === "reality" ? summary.handshake : summary.sni}
+                    <div
+                      className="truncate text-xs text-gray-500"
+                      title={summary.sni}
+                    >
+                      {summary.type === "reality"
+                        ? summary.handshake
+                        : summary.sni}
                     </div>
                   </div>
                   <div className="grid flex-1 grid-cols-[92px_1fr] gap-y-2 px-4 py-3 text-sm">
@@ -546,7 +575,12 @@ const TLSPage = ({ embedded = false }: { embedded?: boolean }) => {
         )}
       </div>
 
-      <Modal isOpen={modalOpen} scrollBehavior="inside" size="4xl" onClose={() => setModalOpen(false)}>
+      <Modal
+        isOpen={modalOpen}
+        scrollBehavior="inside"
+        size="4xl"
+        onClose={() => setModalOpen(false)}
+      >
         <ModalContent>
           <ModalHeader>{form.id ? "编辑 TLS" : "添加 TLS"}</ModalHeader>
           <ModalBody>
@@ -609,13 +643,17 @@ const TLSPage = ({ embedded = false }: { embedded?: boolean }) => {
                       label="证书文件路径"
                       placeholder="/etc/ssl/fullchain.pem"
                       value={form.certPath}
-                      onChange={(event) => patchForm({ certPath: event.target.value })}
+                      onChange={(event) =>
+                        patchForm({ certPath: event.target.value })
+                      }
                     />
                     <Input
                       label="私钥文件路径"
                       placeholder="/etc/ssl/privkey.pem"
                       value={form.keyPath}
-                      onChange={(event) => patchForm({ keyPath: event.target.value })}
+                      onChange={(event) =>
+                        patchForm({ keyPath: event.target.value })
+                      }
                     />
                   </div>
                 ) : (
@@ -624,13 +662,17 @@ const TLSPage = ({ embedded = false }: { embedded?: boolean }) => {
                       label="证书内容"
                       minRows={6}
                       value={form.certContent}
-                      onChange={(event) => patchForm({ certContent: event.target.value })}
+                      onChange={(event) =>
+                        patchForm({ certContent: event.target.value })
+                      }
                     />
                     <Textarea
                       label="私钥内容"
                       minRows={6}
                       value={form.keyContent}
-                      onChange={(event) => patchForm({ keyContent: event.target.value })}
+                      onChange={(event) =>
+                        patchForm({ keyContent: event.target.value })
+                      }
                     />
                   </div>
                 )}
@@ -642,20 +684,26 @@ const TLSPage = ({ embedded = false }: { embedded?: boolean }) => {
                     label="握手服务器"
                     placeholder="www.microsoft.com"
                     value={form.handshakeServer}
-                    onChange={(event) => patchForm({ handshakeServer: event.target.value })}
+                    onChange={(event) =>
+                      patchForm({ handshakeServer: event.target.value })
+                    }
                   />
                   <Input
                     label="服务器端口"
                     placeholder="443"
                     value={form.handshakePort}
-                    onChange={(event) => patchForm({ handshakePort: event.target.value })}
+                    onChange={(event) =>
+                      patchForm({ handshakePort: event.target.value })
+                    }
                   />
                 </div>
                 <div className="grid grid-cols-[1fr_auto] gap-3">
                   <Input
                     label="私钥"
                     value={form.privateKey}
-                    onChange={(event) => patchForm({ privateKey: event.target.value })}
+                    onChange={(event) =>
+                      patchForm({ privateKey: event.target.value })
+                    }
                   />
                   <Button
                     isIconOnly
@@ -672,13 +720,17 @@ const TLSPage = ({ embedded = false }: { embedded?: boolean }) => {
                 <Input
                   label="公钥"
                   value={form.publicKey}
-                  onChange={(event) => patchForm({ publicKey: event.target.value })}
+                  onChange={(event) =>
+                    patchForm({ publicKey: event.target.value })
+                  }
                 />
                 <div className="grid grid-cols-[1fr_auto] gap-3">
                   <Input
                     label="Short IDs"
                     value={form.shortIds}
-                    onChange={(event) => patchForm({ shortIds: event.target.value })}
+                    onChange={(event) =>
+                      patchForm({ shortIds: event.target.value })
+                    }
                   />
                   <Button
                     isIconOnly
@@ -739,7 +791,9 @@ const TLSPage = ({ embedded = false }: { embedded?: boolean }) => {
                   label="高级 TLS JSON"
                   minRows={5}
                   value={form.tlsOptions}
-                  onChange={(event) => patchForm({ tlsOptions: event.target.value })}
+                  onChange={(event) =>
+                    patchForm({ tlsOptions: event.target.value })
+                  }
                 />
               ) : null}
             </div>
@@ -758,13 +812,17 @@ const TLSPage = ({ embedded = false }: { embedded?: boolean }) => {
                     label="域名"
                     placeholder="example.com,*.example.com"
                     value={form.acmeDomains}
-                    onChange={(event) => patchForm({ acmeDomains: event.target.value })}
+                    onChange={(event) =>
+                      patchForm({ acmeDomains: event.target.value })
+                    }
                   />
                   <Input
                     label="邮箱"
                     placeholder="admin@example.com"
                     value={form.acmeEmail}
-                    onChange={(event) => patchForm({ acmeEmail: event.target.value })}
+                    onChange={(event) =>
+                      patchForm({ acmeEmail: event.target.value })
+                    }
                   />
                 </div>
               ) : null}
@@ -783,7 +841,9 @@ const TLSPage = ({ embedded = false }: { embedded?: boolean }) => {
                   label="ECH 配置"
                   minRows={3}
                   value={form.echConfig}
-                  onChange={(event) => patchForm({ echConfig: event.target.value })}
+                  onChange={(event) =>
+                    patchForm({ echConfig: event.target.value })
+                  }
                 />
               ) : null}
             </div>
@@ -792,7 +852,12 @@ const TLSPage = ({ embedded = false }: { embedded?: boolean }) => {
             <Button variant="bordered" onPress={() => setModalOpen(false)}>
               关闭
             </Button>
-            <Button color="primary" isDisabled={!isAdmin} isLoading={saving} onPress={handleSave}>
+            <Button
+              color="primary"
+              isDisabled={!isAdmin}
+              isLoading={saving}
+              onPress={handleSave}
+            >
               保存
             </Button>
           </ModalFooter>

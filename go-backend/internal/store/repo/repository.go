@@ -385,6 +385,9 @@ func autoMigrateAll(db *gorm.DB) error {
 			return fmt.Errorf("migrate landing node total: %w", err)
 		}
 	}
+	if err := sharedCoreUnlimitedMigration(db); err != nil {
+		return fmt.Errorf("migrate shared core limits: %w", err)
+	}
 
 	// 执行数据迁移
 	if err := migrateTunnelGroupNew(db); err != nil {

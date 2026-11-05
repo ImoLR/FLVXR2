@@ -16,7 +16,11 @@ interface OptionItem {
   label: string;
   description?: React.ReactNode;
   endContent?: React.ReactNode;
-  latency?: Array<{ latencyMs: number; status: "ok" | "timeout"; entryName?: string }>;
+  latency?: Array<{
+    latencyMs: number;
+    status: "ok" | "timeout";
+    entryName?: string;
+  }>;
   section?: string;
   sectionDescription?: string;
   sectionTooltip?: string;
@@ -57,25 +61,56 @@ export interface SelectItemProps {
   children?: React.ReactNode;
   description?: React.ReactNode;
   endContent?: React.ReactNode;
-  latency?: Array<{ latencyMs: number; status: "ok" | "timeout"; entryName?: string }>;
+  latency?: Array<{
+    latencyMs: number;
+    status: "ok" | "timeout";
+    entryName?: string;
+  }>;
   textValue?: string;
 }
 
-function OptionLatency({ entries, muted = false }: { entries?: SelectItemProps["latency"]; muted?: boolean }) {
+function OptionLatency({
+  entries,
+  muted = false,
+}: {
+  entries?: SelectItemProps["latency"];
+  muted?: boolean;
+}) {
   if (!entries?.length) return null;
 
   return (
-    <span className={cn("inline-flex max-w-[55%] shrink-0 flex-wrap items-center justify-end gap-x-1 text-xs font-normal tabular-nums", muted ? "text-default-500" : "text-foreground")}>
+    <span
+      className={cn(
+        "inline-flex max-w-[55%] shrink-0 flex-wrap items-center justify-end gap-x-1 text-xs font-normal tabular-nums",
+        muted ? "text-default-500" : "text-foreground",
+      )}
+    >
       {entries.map((entry, index) => (
         <React.Fragment key={index}>
           {index > 0 && <span className="text-default-400">/</span>}
-          <span className="inline-flex items-center gap-1 whitespace-nowrap" title={entry.entryName}>
+          <span
+            className="inline-flex items-center gap-1 whitespace-nowrap"
+            title={entry.entryName}
+          >
             {entry.status === "timeout" ? (
               <span className="text-default-400">○ 超时</span>
             ) : (
               <>
-                <span aria-hidden="true" className={entry.latencyMs <= 80 ? "text-success-600 dark:text-success-400" : entry.latencyMs <= 180 ? "text-warning-600 dark:text-warning-400" : "text-danger-600 dark:text-danger-400"}>●</span>
-                <span>{entry.latencyMs < 1 ? "<1" : Math.round(entry.latencyMs)}ms</span>
+                <span
+                  aria-hidden="true"
+                  className={
+                    entry.latencyMs <= 80
+                      ? "text-success-600 dark:text-success-400"
+                      : entry.latencyMs <= 180
+                        ? "text-warning-600 dark:text-warning-400"
+                        : "text-danger-600 dark:text-danger-400"
+                  }
+                >
+                  ●
+                </span>
+                <span>
+                  {entry.latencyMs < 1 ? "<1" : Math.round(entry.latencyMs)}ms
+                </span>
               </>
             )}
           </span>
@@ -300,10 +335,15 @@ export function Select<T>({
 
       if (!trigger || !listbox) return;
       const bounds = trigger.getBoundingClientRect();
-      const dialog = trigger.closest('[role="dialog"]')?.getBoundingClientRect();
-      const available = dropdownPlacement === "top"
-        ? bounds.top - Math.max(0, dialog?.top ?? 0) - 8
-        : Math.min(window.innerHeight, dialog?.bottom ?? window.innerHeight) - bounds.bottom - 8;
+      const dialog = trigger
+        .closest('[role="dialog"]')
+        ?.getBoundingClientRect();
+      const available =
+        dropdownPlacement === "top"
+          ? bounds.top - Math.max(0, dialog?.top ?? 0) - 8
+          : Math.min(window.innerHeight, dialog?.bottom ?? window.innerHeight) -
+            bounds.bottom -
+            8;
 
       listbox.style.maxHeight = `${Math.max(0, Math.min(window.innerHeight * 0.6, 384, available))}px`;
     };
@@ -329,12 +369,16 @@ export function Select<T>({
     const selectedGroup = selectedOption?.closest('[role="group"]');
 
     if (listbox && selectedGroup) {
-      listbox.scrollTop += selectedGroup.getBoundingClientRect().top - listbox.getBoundingClientRect().top - 1;
+      listbox.scrollTop +=
+        selectedGroup.getBoundingClientRect().top -
+        listbox.getBoundingClientRect().top -
+        1;
     }
 
     focusGroupedOption(
       listbox,
-      selectedOption || buttons?.[groupedFocusLast.current ? buttons.length - 1 : 0],
+      selectedOption ||
+        buttons?.[groupedFocusLast.current ? buttons.length - 1 : 0],
     );
   }, [isExpanded, isGrouped]);
   const selected = React.useMemo(() => toSet(selectedKeys), [selectedKeys]);
@@ -479,6 +523,10 @@ export function Select<T>({
     return (
       <div
         ref={listboxRef}
+        aria-label={
+          ariaLabel || (typeof label === "string" ? label : undefined)
+        }
+        aria-multiselectable={selectionMode === "multiple" || undefined}
         className={cn(
           isGrouped
             ? "absolute left-0 z-50 w-full max-h-[min(60vh,24rem)] overflow-y-auto overscroll-contain whitespace-normal rounded-md border border-divider bg-background shadow-md"
@@ -488,10 +536,6 @@ export function Select<T>({
         )}
         id={`${generatedId}-listbox`}
         role="listbox"
-        aria-label={
-          ariaLabel || (typeof label === "string" ? label : undefined)
-        }
-        aria-multiselectable={selectionMode === "multiple" || undefined}
         onKeyDown={(event) => {
           if (event.key === "Escape") {
             event.preventDefault();
@@ -543,7 +587,10 @@ export function Select<T>({
           </div>
         ) : isGrouped ? (
           visibleOptions.map((option, index) => {
-            if (index > 0 && visibleOptions[index - 1].section === option.section) {
+            if (
+              index > 0 &&
+              visibleOptions[index - 1].section === option.section
+            ) {
               return null;
             }
             const sectionEnd = visibleOptions.findIndex(
@@ -568,7 +615,10 @@ export function Select<T>({
                     title={option.sectionTooltip}
                   >
                     <div className="flex items-start justify-between gap-2">
-                      <span className="min-w-0 break-words font-semibold" id={headingId}>
+                      <span
+                        className="min-w-0 break-words font-semibold"
+                        id={headingId}
+                      >
                         {option.section}
                       </span>
                       <span className="shrink-0 text-xs font-normal leading-5 text-default-500">
@@ -612,7 +662,9 @@ export function Select<T>({
                       <span className="shrink-0">{item.endContent}</span>
                     )}
                     <span className="h-5 w-4 shrink-0 text-primary">
-                      {selected.has(item.key) && <CheckIcon aria-hidden="true" className="h-5 w-4" />}
+                      {selected.has(item.key) && (
+                        <CheckIcon aria-hidden="true" className="h-5 w-4" />
+                      )}
                     </span>
                   </button>
                 ))}
@@ -659,13 +711,13 @@ export function Select<T>({
                     />
                   )}
                   <button
+                    aria-selected={selected.has(option.key)}
                     className={cn(
                       "min-w-0 flex-1 truncate text-left text-foreground",
                       textSizeClass(size),
                       optionDisabled ? "cursor-not-allowed" : "cursor-pointer",
                       selected.has(option.key) && "font-semibold text-primary",
                     )}
-                    aria-selected={selected.has(option.key)}
                     disabled={optionDisabled}
                     role="option"
                     type="button"
@@ -688,6 +740,7 @@ export function Select<T>({
 
   const renderNativeSelect = () => (
     <select
+      aria-label={ariaLabel}
       className={cn(
         "w-full rounded-md border border-input bg-background px-3 py-2 shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-ring",
         sizeClass(size),
@@ -697,7 +750,6 @@ export function Select<T>({
       disabled={isDisabled}
       id={generatedId}
       required={isRequired}
-      aria-label={ariaLabel}
       value={singleValue}
       onChange={handleChange}
       onClick={onClick}
@@ -755,18 +807,22 @@ export function Select<T>({
         <div
           ref={containerRef}
           className={cn("relative w-full", className)}
-          onBlur={isGrouped ? (event) => {
-            if (!event.currentTarget.contains(event.relatedTarget)) {
-              setIsExpanded(false);
-            }
-          } : undefined}
+          onBlur={
+            isGrouped
+              ? (event) => {
+                  if (!event.currentTarget.contains(event.relatedTarget)) {
+                    setIsExpanded(false);
+                  }
+                }
+              : undefined
+          }
         >
           <button
             ref={triggerRef}
-            aria-label={ariaLabel}
             aria-controls={`${generatedId}-listbox`}
             aria-expanded={isExpanded}
             aria-haspopup="listbox"
+            aria-label={ariaLabel}
             className={cn(
               "flex w-full min-w-0 items-center gap-2 overflow-hidden rounded-md border border-input bg-background px-3 py-2 text-left shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-ring",
               isDisabled ? "cursor-not-allowed opacity-60" : "",
@@ -782,13 +838,16 @@ export function Select<T>({
                 if (isGrouped) {
                   groupedFocusLast.current = event.key === "ArrowUp";
                   if (isExpanded) {
-                    const buttons = listboxRef.current?.querySelectorAll<HTMLButtonElement>(
-                      'button[role="option"]:not(:disabled)',
-                    );
+                    const buttons =
+                      listboxRef.current?.querySelectorAll<HTMLButtonElement>(
+                        'button[role="option"]:not(:disabled)',
+                      );
 
                     focusGroupedOption(
                       listboxRef.current,
-                      buttons?.[groupedFocusLast.current ? buttons.length - 1 : 0],
+                      buttons?.[
+                        groupedFocusLast.current ? buttons.length - 1 : 0
+                      ],
                     );
                   }
                 }
@@ -808,7 +867,14 @@ export function Select<T>({
             >
               {selectedText}
             </span>
-            {isGrouped && <OptionLatency entries={options.find((item) => item.key === singleValue)?.latency} muted />}
+            {isGrouped && (
+              <OptionLatency
+                muted
+                entries={
+                  options.find((item) => item.key === singleValue)?.latency
+                }
+              />
+            )}
             <ChevronDownIcon
               className={cn(
                 "h-4 w-4 flex-shrink-0 text-default-500 transition-transform",

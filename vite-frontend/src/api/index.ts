@@ -273,8 +273,13 @@ export const updatePathTunnel = (data: {
 export const applyPathTunnel = (id: number) =>
   Network.post("/path/apply", { id }, { timeout: NODE_DEPLOY_REQUEST_TIMEOUT });
 export const removePathTunnel = (id: number) =>
-  Network.post("/path/remove", { id }, { timeout: NODE_DEPLOY_REQUEST_TIMEOUT });
-export const deletePathTunnel = (id: number) => Network.post("/path/delete", { id });
+  Network.post(
+    "/path/remove",
+    { id },
+    { timeout: NODE_DEPLOY_REQUEST_TIMEOUT },
+  );
+export const deletePathTunnel = (id: number) =>
+  Network.post("/path/delete", { id });
 export const getPathTunnelStatus = (id: number) =>
   Network.post<Record<string, unknown>>("/path/status", { id });
 

@@ -495,640 +495,715 @@ export default function PanelSharingPage() {
         </Card>
       ) : (
         <>
-      {/* <div className="flex justify-between items-center">
+          {/* <div className="flex justify-between items-center">
         <h1 className="text-2xl font-bold">面板共享 (Panel Peering)</h1>
       </div> */}
-      <Tabs
-        disableCursorAnimation
-        aria-label="Options"
-        selectedKey={selectedTab}
-        onSelectionChange={(k) => setSelectedTab(k as string)}
-      >
-        <Tab
-          key="my-shares"
-          title={
-            <div className="flex items-center gap-2">
-              {/* <span className="text-sm font-semibold text-foreground">
+          <Tabs
+            disableCursorAnimation
+            aria-label="Options"
+            selectedKey={selectedTab}
+            onSelectionChange={(k) => setSelectedTab(k as string)}
+          >
+            <Tab
+              key="my-shares"
+              title={
+                <div className="flex items-center gap-2">
+                  {/* <span className="text-sm font-semibold text-foreground">
                 Provider
               </span> */}
-              <span className="text-md text-default-500">我分享的</span>
-            </div>
-          }
-        >
-          <Card>
-            <CardBody className="space-y-5">
-              <div className="mt-4 flex flex-col gap-4 rounded-lg border border-divider bg-default-50/60 dark:bg-default-100/20 p-4 md:flex-row md:items-center md:justify-between">
-                <div className="space-y-1">
-                  <h2 className="text-lg font-semibold text-foreground">
-                    共享
-                  </h2>
-                  <p className="text-sm text-default-500">
-                    将本地节点分享给其他面板，统一管理
-                    Token、端口范围和到期策略。
-                  </p>
+                  <span className="text-md text-default-500">我分享的</span>
                 </div>
-                <Button
-                  className="self-start md:self-auto"
-                  color="primary"
-                  onPress={() => setCreateShareOpen(true)}
-                >
-                  创建分享
-                </Button>
-              </div>
-              {loading ? (
-                <div className="text-center py-12 text-default-500">
-                  加载中...
-                </div>
-              ) : shares.length === 0 ? (
-                <div className="rounded-lg border border-dashed border-divider bg-default-50/60 dark:bg-default-100/20 px-6 py-10 text-center">
-                  <p className="text-base font-semibold text-foreground">
-                    暂无分享
-                  </p>
-                  <p className="mt-2 text-sm text-default-500">
-                    先创建一个分享，把本地节点共享给其他面板使用。
-                  </p>
-                  <div className="mt-5 flex justify-center">
+              }
+            >
+              <Card>
+                <CardBody className="space-y-5">
+                  <div className="mt-4 flex flex-col gap-4 rounded-lg border border-divider bg-default-50/60 dark:bg-default-100/20 p-4 md:flex-row md:items-center md:justify-between">
+                    <div className="space-y-1">
+                      <h2 className="text-lg font-semibold text-foreground">
+                        共享
+                      </h2>
+                      <p className="text-sm text-default-500">
+                        将本地节点分享给其他面板，统一管理
+                        Token、端口范围和到期策略。
+                      </p>
+                    </div>
                     <Button
+                      className="self-start md:self-auto"
                       color="primary"
-                      variant="flat"
                       onPress={() => setCreateShareOpen(true)}
                     >
-                      创建第一个分享
+                      创建分享
                     </Button>
                   </div>
-                </div>
-              ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {shares.map((share) => (
-                    <Card
-                      key={share.id}
-                      className="border border-divider shadow-sm"
-                    >
-                      <CardHeader className="flex justify-between pb-2 md:pb-2">
-                        <h3 className="font-bold">{share.name}</h3>
-                        <div className="flex gap-2">
-                          <Button
-                            size="sm"
-                            variant="flat"
-                            onPress={() => openEditShare(share)}
-                          >
-                            编辑
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="flat"
-                            onPress={() => handleResetShareFlow(share.id)}
-                          >
-                            归零流量
-                          </Button>
-                          <Button
-                            color="danger"
-                            size="sm"
-                            variant="flat"
-                            onPress={() => handleDeleteShare(share.id)}
-                          >
-                            删除
-                          </Button>
-                        </div>
-                      </CardHeader>
-                      <CardBody className="text-sm space-y-2 pt-0 md:pt-0">
-                        <p>
-                          端口范围: {share.portRangeStart} -{" "}
-                          {share.portRangeEnd}
-                        </p>
-                        <p>
-                          流量上限:{" "}
-                          {share.maxBandwidth > 0
-                            ? formatFlowGB(share.maxBandwidth)
-                            : "不限制"}
-                        </p>
-                        <p>当前流量: {formatFlowGB(share.currentFlow || 0)}</p>
-                        <p>
-                          远程占用端口:{" "}
-                          {share.usedPorts && share.usedPorts.length > 0
-                            ? share.usedPorts.join(", ")
-                            : "暂无"}
-                        </p>
-                        {share.usedPortDetails &&
-                          share.usedPortDetails.length > 0 && (
-                            <div className="flex flex-wrap gap-2">
-                              {share.usedPortDetails.map((item) => (
-                                <span
-                                  key={item.runtimeId}
-                                  className="text-xs rounded-full px-2 py-1 bg-default-100"
-                                >
-                                  {item.port} / {item.role || "reserved"}
-                                </span>
-                              ))}
+                  {loading ? (
+                    <div className="text-center py-12 text-default-500">
+                      加载中...
+                    </div>
+                  ) : shares.length === 0 ? (
+                    <div className="rounded-lg border border-dashed border-divider bg-default-50/60 dark:bg-default-100/20 px-6 py-10 text-center">
+                      <p className="text-base font-semibold text-foreground">
+                        暂无分享
+                      </p>
+                      <p className="mt-2 text-sm text-default-500">
+                        先创建一个分享，把本地节点共享给其他面板使用。
+                      </p>
+                      <div className="mt-5 flex justify-center">
+                        <Button
+                          color="primary"
+                          variant="flat"
+                          onPress={() => setCreateShareOpen(true)}
+                        >
+                          创建第一个分享
+                        </Button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                      {shares.map((share) => (
+                        <Card
+                          key={share.id}
+                          className="border border-divider shadow-sm"
+                        >
+                          <CardHeader className="flex justify-between pb-2 md:pb-2">
+                            <h3 className="font-bold">{share.name}</h3>
+                            <div className="flex gap-2">
+                              <Button
+                                size="sm"
+                                variant="flat"
+                                onPress={() => openEditShare(share)}
+                              >
+                                编辑
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="flat"
+                                onPress={() => handleResetShareFlow(share.id)}
+                              >
+                                归零流量
+                              </Button>
+                              <Button
+                                color="danger"
+                                size="sm"
+                                variant="flat"
+                                onPress={() => handleDeleteShare(share.id)}
+                              >
+                                删除
+                              </Button>
                             </div>
-                          )}
-                        {share.allowedDomains && (
-                          <p>允许域名: {share.allowedDomains}</p>
-                        )}
-                        {share.allowedIps && (
-                          <p>允许API IP: {share.allowedIps}</p>
-                        )}
-                        <p>
-                          过期时间:{" "}
-                          {share.expiryTime === 0
-                            ? "永久"
-                            : new Date(share.expiryTime).toLocaleDateString()}
-                        </p>
-                        <div className="flex gap-2">
-                          <Input readOnly size="sm" value={share.token} />
-                          <Button
-                            size="sm"
-                            onPress={() => copyToken(share.token)}
-                          >
-                            复制
-                          </Button>
-                        </div>
-                      </CardBody>
-                    </Card>
-                  ))}
-                </div>
-              )}
-            </CardBody>
-          </Card>
-        </Tab>
-        <Tab
-          key="remote-nodes"
-          title={
-            <div className="flex items-center gap-2">
-              {/* <span className="text-sm font-semibold text-foreground">
+                          </CardHeader>
+                          <CardBody className="text-sm space-y-2 pt-0 md:pt-0">
+                            <p>
+                              端口范围: {share.portRangeStart} -{" "}
+                              {share.portRangeEnd}
+                            </p>
+                            <p>
+                              流量上限:{" "}
+                              {share.maxBandwidth > 0
+                                ? formatFlowGB(share.maxBandwidth)
+                                : "不限制"}
+                            </p>
+                            <p>
+                              当前流量: {formatFlowGB(share.currentFlow || 0)}
+                            </p>
+                            <p>
+                              远程占用端口:{" "}
+                              {share.usedPorts && share.usedPorts.length > 0
+                                ? share.usedPorts.join(", ")
+                                : "暂无"}
+                            </p>
+                            {share.usedPortDetails &&
+                              share.usedPortDetails.length > 0 && (
+                                <div className="flex flex-wrap gap-2">
+                                  {share.usedPortDetails.map((item) => (
+                                    <span
+                                      key={item.runtimeId}
+                                      className="text-xs rounded-full px-2 py-1 bg-default-100"
+                                    >
+                                      {item.port} / {item.role || "reserved"}
+                                    </span>
+                                  ))}
+                                </div>
+                              )}
+                            {share.allowedDomains && (
+                              <p>允许域名: {share.allowedDomains}</p>
+                            )}
+                            {share.allowedIps && (
+                              <p>允许API IP: {share.allowedIps}</p>
+                            )}
+                            <p>
+                              过期时间:{" "}
+                              {share.expiryTime === 0
+                                ? "永久"
+                                : new Date(
+                                    share.expiryTime,
+                                  ).toLocaleDateString()}
+                            </p>
+                            <div className="flex gap-2">
+                              <Input readOnly size="sm" value={share.token} />
+                              <Button
+                                size="sm"
+                                onPress={() => copyToken(share.token)}
+                              >
+                                复制
+                              </Button>
+                            </div>
+                          </CardBody>
+                        </Card>
+                      ))}
+                    </div>
+                  )}
+                </CardBody>
+              </Card>
+            </Tab>
+            <Tab
+              key="remote-nodes"
+              title={
+                <div className="flex items-center gap-2">
+                  {/* <span className="text-sm font-semibold text-foreground">
                 Consumer
               </span> */}
-              <span className="text-md text-default-500">远程节点</span>
-            </div>
-          }
-        >
-          <Card>
-            <CardBody className="space-y-5">
-              <div className="mt-4 flex flex-col gap-4 rounded-lg border border-divider bg-default-50/60 dark:bg-default-100/20 p-4 md:flex-row md:items-center md:justify-between">
-                <div className="space-y-1">
-                  <h2 className="text-lg font-semibold text-foreground">
-                    导入
-                  </h2>
-                  <p className="text-sm text-default-500">
-                    导入远程节点后，可在这里查看端口占用和同步状态。
-                  </p>
+                  <span className="text-md text-default-500">远程节点</span>
                 </div>
-                <Button
-                  className="self-start md:self-auto"
-                  color="secondary"
-                  onPress={() => setImportNodeOpen(true)}
-                >
-                  导入节点
-                </Button>
-              </div>
-              {remoteUsageLoading ? (
-                <div className="text-center py-12 text-default-500">
-                  加载中...
-                </div>
-              ) : remoteUsageNodes.length === 0 ? (
-                <div className="rounded-lg border border-dashed border-divider bg-default-50/60 dark:bg-default-100/20 px-6 py-10 text-center">
-                  <p className="text-base font-semibold text-foreground">
-                    暂无远程节点占用记录
-                  </p>
-                  <p className="mt-2 text-sm text-default-500">
-                    导入远程节点并创建隧道后，这里会显示远端端口占用情况。
-                  </p>
-                  <div className="mt-5 flex justify-center">
+              }
+            >
+              <Card>
+                <CardBody className="space-y-5">
+                  <div className="mt-4 flex flex-col gap-4 rounded-lg border border-divider bg-default-50/60 dark:bg-default-100/20 p-4 md:flex-row md:items-center md:justify-between">
+                    <div className="space-y-1">
+                      <h2 className="text-lg font-semibold text-foreground">
+                        导入
+                      </h2>
+                      <p className="text-sm text-default-500">
+                        导入远程节点后，可在这里查看端口占用和同步状态。
+                      </p>
+                    </div>
                     <Button
+                      className="self-start md:self-auto"
                       color="secondary"
-                      variant="flat"
                       onPress={() => setImportNodeOpen(true)}
                     >
-                      导入第一个节点
+                      导入节点
                     </Button>
                   </div>
-                </div>
-              ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {remoteUsageNodes.map((node) => (
-                    <Card
-                      key={node.nodeId}
-                      className="border border-divider shadow-sm"
-                    >
-                      <CardHeader className="flex justify-between pb-2 md:pb-2">
-                        <div className="flex items-center gap-2">
-                          <h3 className="font-bold">{node.nodeName}</h3>
-                          <Button
-                            color="danger"
-                            size="sm"
-                            variant="flat"
-                            onPress={() => handleDeleteRemoteNode(node)}
-                          >
-                            删除
-                          </Button>
-                        </div>
-                        <span className="text-xs text-default-500">
-                          绑定 {node.activeBindingNum || 0}
-                        </span>
-                      </CardHeader>
-                      <CardBody className="text-sm space-y-2 pt-0 md:pt-0">
-                        {node.syncError && (
-                          <div className="px-2 py-1.5 rounded-md bg-warning-50 dark:bg-warning-100/10 text-warning-700 dark:text-warning-400 text-xs">
-                            {node.syncError === "provider_share_deleted"
-                              ? "提供方已删除该分享"
-                              : node.syncError === "provider_share_disabled"
-                                ? "提供方已禁用该分享"
-                                : node.syncError === "provider_share_expired"
-                                  ? "提供方分享已过期"
-                                  : `远程同步失败: ${node.syncError}`}
-                          </div>
-                        )}
-                        {node.remoteUrl && <p>远程地址: {node.remoteUrl}</p>}
-                        <p>Provider: {providerLabel(node.providerType)}</p>
-                        <p>Protocol: {node.protocolVersion || "baseline"}</p>
-                        <p>
-                          Runtime:{" "}
-                          {node.runtimeModes && node.runtimeModes.length > 0
-                            ? node.runtimeModes.join(", ")
-                            : "gost"}
-                        </p>
-                        {node.providerType === "sagit-chu-compatible" && (
-                          <div className="px-2 py-1.5 rounded-md bg-default-100/70 text-default-600 text-xs">
-                            Baseline provider: WG Path, TLS inbound deployment,
-                            and sing-box node deploy actions are disabled for
-                            this imported panel.
-                          </div>
-                        )}
-                        <p>共享ID: {node.shareId || "-"}</p>
-                        <p>
-                          端口范围:{" "}
-                          {node.portRangeStart > 0 && node.portRangeEnd > 0
-                            ? `${node.portRangeStart} - ${node.portRangeEnd}`
-                            : "-"}
-                        </p>
-                        <p>
-                          共享流量:{" "}
-                          {node.maxBandwidth > 0
-                            ? `${formatFlowGB(node.currentFlow || 0)} / ${formatFlowGB(node.maxBandwidth)}`
-                            : `${formatFlowGB(node.currentFlow || 0)} / 不限制`}
-                        </p>
-                        <p>
-                          远端占用端口:{" "}
-                          {node.usedPorts && node.usedPorts.length > 0
-                            ? node.usedPorts.join(", ")
-                            : "暂无"}
-                        </p>
-                        {node.bindings && node.bindings.length > 0 && (
-                          <div className="space-y-1 pt-1">
-                            {node.bindings.map((binding) => (
-                              <p
-                                key={binding.bindingId}
-                                className="text-xs text-default-600"
-                              >
-                                隧道{" "}
-                                {binding.tunnelName || `#${binding.tunnelId}`}
-                                {" · "}
-                                端口 {binding.allocatedPort}
-                                {" · "}
-                                {formatChainType(
-                                  binding.chainType,
-                                  binding.hopInx,
-                                )}
-                              </p>
-                            ))}
-                          </div>
-                        )}
-                      </CardBody>
-                    </Card>
-                  ))}
-                </div>
-              )}
-            </CardBody>
-          </Card>
-        </Tab>
-      </Tabs>
-      {/* Create Share Modal */}
-      <Modal
-        backdrop="blur"
-        classNames={{
-          base: "!w-[calc(100%-32px)] !mx-auto sm:!w-full rounded-2xl overflow-hidden",
-        }}
-        isOpen={createShareOpen}
-        scrollBehavior="inside"
-        onClose={() => setCreateShareOpen(false)}
-      >
-        <ModalContent>
-          <ModalHeader>创建分享</ModalHeader>
-          <ModalBody>
-            <Input
-              label="名称"
-              placeholder="备注名称"
-              value={shareForm.name}
-              onChange={(e) =>
-                setShareForm({ ...shareForm, name: e.target.value })
-              }
-            />
-            <Select
-              label="选择节点"
-              placeholder="选择要分享的本地节点"
-              selectedKeys={shareForm.nodeId ? [shareForm.nodeId] : []}
-              onChange={(e) =>
-                setShareForm({ ...shareForm, nodeId: e.target.value })
-              }
-            >
-              {nodes.map((node) => (
-                <SelectItem key={node.id} textValue={node.name}>
-                  {node.name}
-                </SelectItem>
-              ))}
-            </Select>
-            <div className="flex gap-4">
-              <Input
-                label="起始端口"
-                type="number"
-                value={shareForm.portRangeStart.toString()}
-                onChange={(e) =>
-                  setShareForm({
-                    ...shareForm,
-                    portRangeStart: parseInt(e.target.value),
-                  })
-                }
-              />
-              <Input
-                label="结束端口"
-                type="number"
-                value={shareForm.portRangeEnd.toString()}
-                onChange={(e) =>
-                  setShareForm({
-                    ...shareForm,
-                    portRangeEnd: parseInt(e.target.value),
-                  })
-                }
-              />
-            </div>
-            <Input
-              description="0 表示永久"
-              label="有效期 (天)"
-              type="number"
-              value={shareForm.expiryDays.toString()}
-              onChange={(e) =>
-                setShareForm({
-                  ...shareForm,
-                  expiryDays: parseInt(e.target.value),
-                })
-              }
-            />
-            <Input
-              description="0 表示不限流量"
-              label="流量上限 (GB)"
-              type="number"
-              value={shareForm.maxBandwidth.toString()}
-              onChange={(e) =>
-                setShareForm({
-                  ...shareForm,
-                  maxBandwidth: parseInt(e.target.value, 10) || 0,
-                })
-              }
-            />
-            <Input
-              description="限制使用此Token的来源面板域名，多个域名用逗号分隔，留空不限制"
-              label="允许的域名 (可选)"
-              placeholder="example.com, panel.test.com"
-              value={shareForm.allowedDomains}
-              onChange={(e) =>
-                setShareForm({ ...shareForm, allowedDomains: e.target.value })
-              }
-            />
-            <Input
-              description="仅白名单IP可导入此分享，支持IPv4/IPv6/CIDR，多个用逗号分隔"
-              label="允许的API IP (可选)"
-              placeholder="203.0.113.10, 2001:db8::10, 198.51.100.0/24"
-              value={shareForm.allowedIps}
-              onChange={(e) =>
-                setShareForm({ ...shareForm, allowedIps: e.target.value })
-              }
-            />
-          </ModalBody>
-          <ModalFooter>
-            <Button onPress={() => setCreateShareOpen(false)}>取消</Button>
-            <Button color="primary" onPress={handleCreateShare}>
-              创建
-            </Button>
-          </ModalFooter>
-        </ModalContent>
-      </Modal>
-      {/* Edit Share Modal */}
-      <Modal
-        backdrop="blur"
-        classNames={{
-          base: "!w-[calc(100%-32px)] !mx-auto sm:!w-full rounded-2xl overflow-hidden",
-        }}
-        isOpen={editShareOpen}
-        scrollBehavior="inside"
-        onClose={() => setEditShareOpen(false)}
-      >
-        <ModalContent>
-          <ModalHeader>编辑分享</ModalHeader>
-          <ModalBody>
-            <Input
-              label="名称"
-              placeholder="备注名称"
-              value={editForm.name}
-              onChange={(e) =>
-                setEditForm({ ...editForm, name: e.target.value })
-              }
-            />
-            <div className="flex gap-4">
-              <Input
-                label="起始端口"
-                type="number"
-                value={editForm.portRangeStart.toString()}
-                onChange={(e) =>
-                  setEditForm({
-                    ...editForm,
-                    portRangeStart: parseInt(e.target.value) || 0,
-                  })
-                }
-              />
-              <Input
-                label="结束端口"
-                type="number"
-                value={editForm.portRangeEnd.toString()}
-                onChange={(e) =>
-                  setEditForm({
-                    ...editForm,
-                    portRangeEnd: parseInt(e.target.value) || 0,
-                  })
-                }
-              />
-            </div>
-            <Input
-              description="0 表示不限流量"
-              label="流量上限 (GB)"
-              type="number"
-              value={editForm.maxBandwidth.toString()}
-              onChange={(e) =>
-                setEditForm({
-                  ...editForm,
-                  maxBandwidth: parseInt(e.target.value, 10) || 0,
-                })
-              }
-            />
-            <DatePicker
-              showMonthAndYearPickers
-              description="留空表示永久有效"
-              label="过期时间"
-              permanentLabel="永久有效"
-              value={timestampToCalendarDate(
-                editForm.expiryTime > 0 ? editForm.expiryTime : null,
-              )}
-              onChange={(date) => {
-                const timestamp = calendarDateToTimestamp(date) || 0;
-
-                setEditForm({
-                  ...editForm,
-                  expiryTime: timestamp,
-                });
-              }}
-            >
-              <DatePresets
-                onChange={(timestamp) => {
-                  setEditForm({
-                    ...editForm,
-                    expiryTime: timestamp,
-                  });
-                }}
-              />
-            </DatePicker>
-            <Input
-              description="限制使用此Token的来源面板域名，多个域名用逗号分隔，留空不限制"
-              label="允许的域名 (可选)"
-              placeholder="example.com, panel.test.com"
-              value={editForm.allowedDomains}
-              onChange={(e) =>
-                setEditForm({ ...editForm, allowedDomains: e.target.value })
-              }
-            />
-            <Input
-              description="仅白名单IP可导入此分享，支持IPv4/IPv6/CIDR，多个用逗号分隔"
-              label="允许的API IP (可选)"
-              placeholder="203.0.113.10, 2001:db8::10, 198.51.100.0/24"
-              value={editForm.allowedIps}
-              onChange={(e) =>
-                setEditForm({ ...editForm, allowedIps: e.target.value })
-              }
-            />
-          </ModalBody>
-          <ModalFooter>
-            <Button onPress={() => setEditShareOpen(false)}>取消</Button>
-            <Button color="primary" onPress={handleEditShare}>
-              保存
-            </Button>
-          </ModalFooter>
-        </ModalContent>
-      </Modal>
-      {/* Import Node Modal */}
-      <Modal
-        backdrop="blur"
-        classNames={{
-          base: "!w-[calc(100%-32px)] !mx-auto sm:!w-full rounded-2xl overflow-hidden",
-        }}
-        isOpen={importNodeOpen}
-        onClose={() => setImportNodeOpen(false)}
-      >
-        <ModalContent>
-          <ModalHeader>导入远程节点</ModalHeader>
-          <ModalBody>
-            <div className="rounded-lg border border-divider bg-default-50/70 px-3 py-2 text-xs text-default-600">
-              Compatible with Sagit-chu panel share links. Legacy providers are
-              imported as baseline GOST/port-forward resources; FLVX-only WG
-              Path and TLS inbound deployment stay disabled unless the provider
-              advertises support.
-            </div>
-            <Input
-              label="远程面板地址"
-              placeholder="http://panel.example.com:8088"
-              value={importForm.remoteUrl}
-              onChange={(e) =>
-                setImportForm({ ...importForm, remoteUrl: e.target.value })
-              }
-            />
-            <Input
-              label="Token"
-              placeholder="Bearer Token"
-              value={importForm.token}
-              onChange={(e) =>
-                setImportForm({ ...importForm, token: e.target.value })
-              }
-            />
-          </ModalBody>
-          <ModalFooter>
-            <Button onPress={() => setImportNodeOpen(false)}>取消</Button>
-            <Button color="secondary" onPress={handleImportNode}>
-              导入
-            </Button>
-          </ModalFooter>
-        </ModalContent>
-      </Modal>
-      {/* Remote Node Delete Preview Modal */}
-      <Modal
-        backdrop="blur"
-        classNames={{
-          base: "!w-[calc(100%-32px)] !mx-auto sm:!w-full rounded-3xl overflow-hidden",
-        }}
-        isOpen={deletePreviewOpen}
-        onClose={resetDeletePreview}
-        size="4xl"
-      >
-        <ModalContent>
-          <ModalHeader className="flex flex-col gap-1">
-            <span>删除远程节点</span>
-            <span className="text-sm font-normal text-default-500">
-              {deletePreview?.nodeName ||
-                deleteTargetNode?.nodeName ||
-                "正在分析影响"}
-            </span>
-          </ModalHeader>
-          <ModalBody>
-            {deletePreviewLoading ? (
-              <div className="rounded-2xl border border-default-200 bg-default-50/80 p-5 text-sm text-default-600">
-                正在分析该远程节点关联的隧道和规则...
-              </div>
-            ) : deletePreview ? (
-              <div className="space-y-4">
-                <div className="grid gap-3 sm:grid-cols-3">
-                  <div className="rounded-2xl border border-danger-200/70 bg-danger-50/80 p-4 dark:bg-danger-500/10">
-                    <div className="text-xs text-danger-600">删除隧道</div>
-                    <div className="mt-1 text-2xl font-semibold text-danger">
-                      {deletePreview.deleteTunnels.length}
+                  {remoteUsageLoading ? (
+                    <div className="text-center py-12 text-default-500">
+                      加载中...
                     </div>
-                  </div>
-                  <div className="rounded-2xl border border-warning-200/70 bg-warning-50/80 p-4 dark:bg-warning-500/10">
-                    <div className="text-xs text-warning-700">删除规则</div>
-                    <div className="mt-1 text-2xl font-semibold text-warning-700">
-                      {deletePreview.deleteForwards.length +
-                        deletePreview.deleteTunnels.reduce(
-                          (total, item) => total + item.forwards.length,
-                          0,
-                        )}
-                    </div>
-                  </div>
-                  <div className="rounded-2xl border border-primary-200/70 bg-primary-50/70 p-4 dark:bg-primary-500/10">
-                    <div className="text-xs text-primary-700">保留中继隧道</div>
-                    <div className="mt-1 text-2xl font-semibold text-primary">
-                      {deletePreview.keepTunnels.length}
-                    </div>
-                  </div>
-                </div>
-
-                {deletePreview.deleteTunnels.length > 0 && (
-                  <div className="rounded-2xl border border-danger-200/70 bg-danger-50/70 p-4 dark:bg-danger-500/10">
-                    <div className="mb-3 text-sm font-semibold text-danger">
-                      将一并删除的隧道
-                    </div>
-                    <div className="space-y-3">
-                      {deletePreview.deleteTunnels.map((tunnel) => (
-                        <div
-                          key={tunnel.tunnelId}
-                          className="rounded-xl border border-danger-200/70 bg-background/70 p-3"
+                  ) : remoteUsageNodes.length === 0 ? (
+                    <div className="rounded-lg border border-dashed border-divider bg-default-50/60 dark:bg-default-100/20 px-6 py-10 text-center">
+                      <p className="text-base font-semibold text-foreground">
+                        暂无远程节点占用记录
+                      </p>
+                      <p className="mt-2 text-sm text-default-500">
+                        导入远程节点并创建隧道后，这里会显示远端端口占用情况。
+                      </p>
+                      <div className="mt-5 flex justify-center">
+                        <Button
+                          color="secondary"
+                          variant="flat"
+                          onPress={() => setImportNodeOpen(true)}
                         >
-                          <div className="flex items-start justify-between gap-3">
-                            <div>
+                          导入第一个节点
+                        </Button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {remoteUsageNodes.map((node) => (
+                        <Card
+                          key={node.nodeId}
+                          className="border border-divider shadow-sm"
+                        >
+                          <CardHeader className="flex justify-between pb-2 md:pb-2">
+                            <div className="flex items-center gap-2">
+                              <h3 className="font-bold">{node.nodeName}</h3>
+                              <Button
+                                color="danger"
+                                size="sm"
+                                variant="flat"
+                                onPress={() => handleDeleteRemoteNode(node)}
+                              >
+                                删除
+                              </Button>
+                            </div>
+                            <span className="text-xs text-default-500">
+                              绑定 {node.activeBindingNum || 0}
+                            </span>
+                          </CardHeader>
+                          <CardBody className="text-sm space-y-2 pt-0 md:pt-0">
+                            {node.syncError && (
+                              <div className="px-2 py-1.5 rounded-md bg-warning-50 dark:bg-warning-100/10 text-warning-700 dark:text-warning-400 text-xs">
+                                {node.syncError === "provider_share_deleted"
+                                  ? "提供方已删除该分享"
+                                  : node.syncError === "provider_share_disabled"
+                                    ? "提供方已禁用该分享"
+                                    : node.syncError ===
+                                        "provider_share_expired"
+                                      ? "提供方分享已过期"
+                                      : `远程同步失败: ${node.syncError}`}
+                              </div>
+                            )}
+                            {node.remoteUrl && (
+                              <p>远程地址: {node.remoteUrl}</p>
+                            )}
+                            <p>Provider: {providerLabel(node.providerType)}</p>
+                            <p>
+                              Protocol: {node.protocolVersion || "baseline"}
+                            </p>
+                            <p>
+                              Runtime:{" "}
+                              {node.runtimeModes && node.runtimeModes.length > 0
+                                ? node.runtimeModes.join(", ")
+                                : "gost"}
+                            </p>
+                            {node.providerType === "sagit-chu-compatible" && (
+                              <div className="px-2 py-1.5 rounded-md bg-default-100/70 text-default-600 text-xs">
+                                Baseline provider: WG Path, TLS inbound
+                                deployment, and sing-box node deploy actions are
+                                disabled for this imported panel.
+                              </div>
+                            )}
+                            <p>共享ID: {node.shareId || "-"}</p>
+                            <p>
+                              端口范围:{" "}
+                              {node.portRangeStart > 0 && node.portRangeEnd > 0
+                                ? `${node.portRangeStart} - ${node.portRangeEnd}`
+                                : "-"}
+                            </p>
+                            <p>
+                              共享流量:{" "}
+                              {node.maxBandwidth > 0
+                                ? `${formatFlowGB(node.currentFlow || 0)} / ${formatFlowGB(node.maxBandwidth)}`
+                                : `${formatFlowGB(node.currentFlow || 0)} / 不限制`}
+                            </p>
+                            <p>
+                              远端占用端口:{" "}
+                              {node.usedPorts && node.usedPorts.length > 0
+                                ? node.usedPorts.join(", ")
+                                : "暂无"}
+                            </p>
+                            {node.bindings && node.bindings.length > 0 && (
+                              <div className="space-y-1 pt-1">
+                                {node.bindings.map((binding) => (
+                                  <p
+                                    key={binding.bindingId}
+                                    className="text-xs text-default-600"
+                                  >
+                                    隧道{" "}
+                                    {binding.tunnelName ||
+                                      `#${binding.tunnelId}`}
+                                    {" · "}
+                                    端口 {binding.allocatedPort}
+                                    {" · "}
+                                    {formatChainType(
+                                      binding.chainType,
+                                      binding.hopInx,
+                                    )}
+                                  </p>
+                                ))}
+                              </div>
+                            )}
+                          </CardBody>
+                        </Card>
+                      ))}
+                    </div>
+                  )}
+                </CardBody>
+              </Card>
+            </Tab>
+          </Tabs>
+          {/* Create Share Modal */}
+          <Modal
+            backdrop="blur"
+            classNames={{
+              base: "!w-[calc(100%-32px)] !mx-auto sm:!w-full rounded-2xl overflow-hidden",
+            }}
+            isOpen={createShareOpen}
+            scrollBehavior="inside"
+            onClose={() => setCreateShareOpen(false)}
+          >
+            <ModalContent>
+              <ModalHeader>创建分享</ModalHeader>
+              <ModalBody>
+                <Input
+                  label="名称"
+                  placeholder="备注名称"
+                  value={shareForm.name}
+                  onChange={(e) =>
+                    setShareForm({ ...shareForm, name: e.target.value })
+                  }
+                />
+                <Select
+                  label="选择节点"
+                  placeholder="选择要分享的本地节点"
+                  selectedKeys={shareForm.nodeId ? [shareForm.nodeId] : []}
+                  onChange={(e) =>
+                    setShareForm({ ...shareForm, nodeId: e.target.value })
+                  }
+                >
+                  {nodes.map((node) => (
+                    <SelectItem key={node.id} textValue={node.name}>
+                      {node.name}
+                    </SelectItem>
+                  ))}
+                </Select>
+                <div className="flex gap-4">
+                  <Input
+                    label="起始端口"
+                    type="number"
+                    value={shareForm.portRangeStart.toString()}
+                    onChange={(e) =>
+                      setShareForm({
+                        ...shareForm,
+                        portRangeStart: parseInt(e.target.value),
+                      })
+                    }
+                  />
+                  <Input
+                    label="结束端口"
+                    type="number"
+                    value={shareForm.portRangeEnd.toString()}
+                    onChange={(e) =>
+                      setShareForm({
+                        ...shareForm,
+                        portRangeEnd: parseInt(e.target.value),
+                      })
+                    }
+                  />
+                </div>
+                <Input
+                  description="0 表示永久"
+                  label="有效期 (天)"
+                  type="number"
+                  value={shareForm.expiryDays.toString()}
+                  onChange={(e) =>
+                    setShareForm({
+                      ...shareForm,
+                      expiryDays: parseInt(e.target.value),
+                    })
+                  }
+                />
+                <Input
+                  description="0 表示不限流量"
+                  label="流量上限 (GB)"
+                  type="number"
+                  value={shareForm.maxBandwidth.toString()}
+                  onChange={(e) =>
+                    setShareForm({
+                      ...shareForm,
+                      maxBandwidth: parseInt(e.target.value, 10) || 0,
+                    })
+                  }
+                />
+                <Input
+                  description="限制使用此Token的来源面板域名，多个域名用逗号分隔，留空不限制"
+                  label="允许的域名 (可选)"
+                  placeholder="example.com, panel.test.com"
+                  value={shareForm.allowedDomains}
+                  onChange={(e) =>
+                    setShareForm({
+                      ...shareForm,
+                      allowedDomains: e.target.value,
+                    })
+                  }
+                />
+                <Input
+                  description="仅白名单IP可导入此分享，支持IPv4/IPv6/CIDR，多个用逗号分隔"
+                  label="允许的API IP (可选)"
+                  placeholder="203.0.113.10, 2001:db8::10, 198.51.100.0/24"
+                  value={shareForm.allowedIps}
+                  onChange={(e) =>
+                    setShareForm({ ...shareForm, allowedIps: e.target.value })
+                  }
+                />
+              </ModalBody>
+              <ModalFooter>
+                <Button onPress={() => setCreateShareOpen(false)}>取消</Button>
+                <Button color="primary" onPress={handleCreateShare}>
+                  创建
+                </Button>
+              </ModalFooter>
+            </ModalContent>
+          </Modal>
+          {/* Edit Share Modal */}
+          <Modal
+            backdrop="blur"
+            classNames={{
+              base: "!w-[calc(100%-32px)] !mx-auto sm:!w-full rounded-2xl overflow-hidden",
+            }}
+            isOpen={editShareOpen}
+            scrollBehavior="inside"
+            onClose={() => setEditShareOpen(false)}
+          >
+            <ModalContent>
+              <ModalHeader>编辑分享</ModalHeader>
+              <ModalBody>
+                <Input
+                  label="名称"
+                  placeholder="备注名称"
+                  value={editForm.name}
+                  onChange={(e) =>
+                    setEditForm({ ...editForm, name: e.target.value })
+                  }
+                />
+                <div className="flex gap-4">
+                  <Input
+                    label="起始端口"
+                    type="number"
+                    value={editForm.portRangeStart.toString()}
+                    onChange={(e) =>
+                      setEditForm({
+                        ...editForm,
+                        portRangeStart: parseInt(e.target.value) || 0,
+                      })
+                    }
+                  />
+                  <Input
+                    label="结束端口"
+                    type="number"
+                    value={editForm.portRangeEnd.toString()}
+                    onChange={(e) =>
+                      setEditForm({
+                        ...editForm,
+                        portRangeEnd: parseInt(e.target.value) || 0,
+                      })
+                    }
+                  />
+                </div>
+                <Input
+                  description="0 表示不限流量"
+                  label="流量上限 (GB)"
+                  type="number"
+                  value={editForm.maxBandwidth.toString()}
+                  onChange={(e) =>
+                    setEditForm({
+                      ...editForm,
+                      maxBandwidth: parseInt(e.target.value, 10) || 0,
+                    })
+                  }
+                />
+                <DatePicker
+                  showMonthAndYearPickers
+                  description="留空表示永久有效"
+                  label="过期时间"
+                  permanentLabel="永久有效"
+                  value={timestampToCalendarDate(
+                    editForm.expiryTime > 0 ? editForm.expiryTime : null,
+                  )}
+                  onChange={(date) => {
+                    const timestamp = calendarDateToTimestamp(date) || 0;
+
+                    setEditForm({
+                      ...editForm,
+                      expiryTime: timestamp,
+                    });
+                  }}
+                >
+                  <DatePresets
+                    onChange={(timestamp) => {
+                      setEditForm({
+                        ...editForm,
+                        expiryTime: timestamp,
+                      });
+                    }}
+                  />
+                </DatePicker>
+                <Input
+                  description="限制使用此Token的来源面板域名，多个域名用逗号分隔，留空不限制"
+                  label="允许的域名 (可选)"
+                  placeholder="example.com, panel.test.com"
+                  value={editForm.allowedDomains}
+                  onChange={(e) =>
+                    setEditForm({ ...editForm, allowedDomains: e.target.value })
+                  }
+                />
+                <Input
+                  description="仅白名单IP可导入此分享，支持IPv4/IPv6/CIDR，多个用逗号分隔"
+                  label="允许的API IP (可选)"
+                  placeholder="203.0.113.10, 2001:db8::10, 198.51.100.0/24"
+                  value={editForm.allowedIps}
+                  onChange={(e) =>
+                    setEditForm({ ...editForm, allowedIps: e.target.value })
+                  }
+                />
+              </ModalBody>
+              <ModalFooter>
+                <Button onPress={() => setEditShareOpen(false)}>取消</Button>
+                <Button color="primary" onPress={handleEditShare}>
+                  保存
+                </Button>
+              </ModalFooter>
+            </ModalContent>
+          </Modal>
+          {/* Import Node Modal */}
+          <Modal
+            backdrop="blur"
+            classNames={{
+              base: "!w-[calc(100%-32px)] !mx-auto sm:!w-full rounded-2xl overflow-hidden",
+            }}
+            isOpen={importNodeOpen}
+            onClose={() => setImportNodeOpen(false)}
+          >
+            <ModalContent>
+              <ModalHeader>导入远程节点</ModalHeader>
+              <ModalBody>
+                <div className="rounded-lg border border-divider bg-default-50/70 px-3 py-2 text-xs text-default-600">
+                  Compatible with Sagit-chu panel share links. Legacy providers
+                  are imported as baseline GOST/port-forward resources;
+                  FLVX-only WG Path and TLS inbound deployment stay disabled
+                  unless the provider advertises support.
+                </div>
+                <Input
+                  label="远程面板地址"
+                  placeholder="http://panel.example.com:8088"
+                  value={importForm.remoteUrl}
+                  onChange={(e) =>
+                    setImportForm({ ...importForm, remoteUrl: e.target.value })
+                  }
+                />
+                <Input
+                  label="Token"
+                  placeholder="Bearer Token"
+                  value={importForm.token}
+                  onChange={(e) =>
+                    setImportForm({ ...importForm, token: e.target.value })
+                  }
+                />
+              </ModalBody>
+              <ModalFooter>
+                <Button onPress={() => setImportNodeOpen(false)}>取消</Button>
+                <Button color="secondary" onPress={handleImportNode}>
+                  导入
+                </Button>
+              </ModalFooter>
+            </ModalContent>
+          </Modal>
+          {/* Remote Node Delete Preview Modal */}
+          <Modal
+            backdrop="blur"
+            classNames={{
+              base: "!w-[calc(100%-32px)] !mx-auto sm:!w-full rounded-3xl overflow-hidden",
+            }}
+            isOpen={deletePreviewOpen}
+            size="4xl"
+            onClose={resetDeletePreview}
+          >
+            <ModalContent>
+              <ModalHeader className="flex flex-col gap-1">
+                <span>删除远程节点</span>
+                <span className="text-sm font-normal text-default-500">
+                  {deletePreview?.nodeName ||
+                    deleteTargetNode?.nodeName ||
+                    "正在分析影响"}
+                </span>
+              </ModalHeader>
+              <ModalBody>
+                {deletePreviewLoading ? (
+                  <div className="rounded-2xl border border-default-200 bg-default-50/80 p-5 text-sm text-default-600">
+                    正在分析该远程节点关联的隧道和规则...
+                  </div>
+                ) : deletePreview ? (
+                  <div className="space-y-4">
+                    <div className="grid gap-3 sm:grid-cols-3">
+                      <div className="rounded-2xl border border-danger-200/70 bg-danger-50/80 p-4 dark:bg-danger-500/10">
+                        <div className="text-xs text-danger-600">删除隧道</div>
+                        <div className="mt-1 text-2xl font-semibold text-danger">
+                          {deletePreview.deleteTunnels.length}
+                        </div>
+                      </div>
+                      <div className="rounded-2xl border border-warning-200/70 bg-warning-50/80 p-4 dark:bg-warning-500/10">
+                        <div className="text-xs text-warning-700">删除规则</div>
+                        <div className="mt-1 text-2xl font-semibold text-warning-700">
+                          {deletePreview.deleteForwards.length +
+                            deletePreview.deleteTunnels.reduce(
+                              (total, item) => total + item.forwards.length,
+                              0,
+                            )}
+                        </div>
+                      </div>
+                      <div className="rounded-2xl border border-primary-200/70 bg-primary-50/70 p-4 dark:bg-primary-500/10">
+                        <div className="text-xs text-primary-700">
+                          保留中继隧道
+                        </div>
+                        <div className="mt-1 text-2xl font-semibold text-primary">
+                          {deletePreview.keepTunnels.length}
+                        </div>
+                      </div>
+                    </div>
+
+                    {deletePreview.deleteTunnels.length > 0 && (
+                      <div className="rounded-2xl border border-danger-200/70 bg-danger-50/70 p-4 dark:bg-danger-500/10">
+                        <div className="mb-3 text-sm font-semibold text-danger">
+                          将一并删除的隧道
+                        </div>
+                        <div className="space-y-3">
+                          {deletePreview.deleteTunnels.map((tunnel) => (
+                            <div
+                              key={tunnel.tunnelId}
+                              className="rounded-xl border border-danger-200/70 bg-background/70 p-3"
+                            >
+                              <div className="flex items-start justify-between gap-3">
+                                <div>
+                                  <div className="font-medium">
+                                    {tunnel.tunnelName || `#${tunnel.tunnelId}`}
+                                  </div>
+                                  <div className="text-xs text-default-500">
+                                    {tunnel.reason}
+                                  </div>
+                                </div>
+                                <div className="rounded-full bg-danger-100 px-2 py-1 text-xs text-danger-700">
+                                  {tunnel.forwards.length} 条规则
+                                </div>
+                              </div>
+                              {tunnel.forwards.length > 0 && (
+                                <div className="mt-3 flex flex-wrap gap-2">
+                                  {tunnel.forwards.map((forward) => (
+                                    <span
+                                      key={`${tunnel.tunnelId}-${forward.id}`}
+                                      className="rounded-full bg-default-100 px-2 py-1 text-xs text-default-600"
+                                    >
+                                      {forward.name || `规则 #${forward.id}`}:
+                                      {forward.inPort}
+                                    </span>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {deletePreview.deleteForwards.length > 0 && (
+                      <div className="rounded-2xl border border-warning-200/70 bg-warning-50/70 p-4 dark:bg-warning-500/10">
+                        <div className="mb-3 text-sm font-semibold text-warning-700">
+                          将一并删除的独立规则
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          {deletePreview.deleteForwards.map((forward) => (
+                            <span
+                              key={forward.id}
+                              className="rounded-full bg-background/80 px-3 py-1 text-xs text-default-700"
+                            >
+                              {forward.name || `规则 #${forward.id}`}:
+                              {forward.inPort}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {deletePreview.keepTunnels.length > 0 && (
+                      <div className="rounded-2xl border border-primary-200/70 bg-primary-50/70 p-4 dark:bg-primary-500/10">
+                        <div className="mb-3 text-sm font-semibold text-primary">
+                          仅移除该远程节点中继引用，隧道与规则保留
+                        </div>
+                        <div className="space-y-2">
+                          {deletePreview.keepTunnels.map((tunnel) => (
+                            <div
+                              key={tunnel.tunnelId}
+                              className="rounded-xl border border-primary-200/60 bg-background/70 px-3 py-2"
+                            >
                               <div className="font-medium">
                                 {tunnel.tunnelName || `#${tunnel.tunnelId}`}
                               </div>
@@ -1136,97 +1211,38 @@ export default function PanelSharingPage() {
                                 {tunnel.reason}
                               </div>
                             </div>
-                            <div className="rounded-full bg-danger-100 px-2 py-1 text-xs text-danger-700">
-                              {tunnel.forwards.length} 条规则
-                            </div>
-                          </div>
-                          {tunnel.forwards.length > 0 && (
-                            <div className="mt-3 flex flex-wrap gap-2">
-                              {tunnel.forwards.map((forward) => (
-                                <span
-                                  key={`${tunnel.tunnelId}-${forward.id}`}
-                                  className="rounded-full bg-default-100 px-2 py-1 text-xs text-default-600"
-                                >
-                                  {forward.name || `规则 #${forward.id}`}:
-                                  {forward.inPort}
-                                </span>
-                              ))}
-                            </div>
-                          )}
+                          ))}
                         </div>
-                      ))}
-                    </div>
+                      </div>
+                    )}
+
+                    {deletePreview.warnings?.length ? (
+                      <div className="rounded-2xl border border-default-200 bg-default-50/80 p-4 text-xs text-default-600">
+                        {deletePreview.warnings.map((warning) => (
+                          <div key={warning}>{warning}</div>
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
+                ) : (
+                  <div className="rounded-2xl border border-default-200 bg-default-50/80 p-5 text-sm text-default-600">
+                    暂无可展示的删除影响。
                   </div>
                 )}
-
-                {deletePreview.deleteForwards.length > 0 && (
-                  <div className="rounded-2xl border border-warning-200/70 bg-warning-50/70 p-4 dark:bg-warning-500/10">
-                    <div className="mb-3 text-sm font-semibold text-warning-700">
-                      将一并删除的独立规则
-                    </div>
-                    <div className="flex flex-wrap gap-2">
-                      {deletePreview.deleteForwards.map((forward) => (
-                        <span
-                          key={forward.id}
-                          className="rounded-full bg-background/80 px-3 py-1 text-xs text-default-700"
-                        >
-                          {forward.name || `规则 #${forward.id}`}:{forward.inPort}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {deletePreview.keepTunnels.length > 0 && (
-                  <div className="rounded-2xl border border-primary-200/70 bg-primary-50/70 p-4 dark:bg-primary-500/10">
-                    <div className="mb-3 text-sm font-semibold text-primary">
-                      仅移除该远程节点中继引用，隧道与规则保留
-                    </div>
-                    <div className="space-y-2">
-                      {deletePreview.keepTunnels.map((tunnel) => (
-                        <div
-                          key={tunnel.tunnelId}
-                          className="rounded-xl border border-primary-200/60 bg-background/70 px-3 py-2"
-                        >
-                          <div className="font-medium">
-                            {tunnel.tunnelName || `#${tunnel.tunnelId}`}
-                          </div>
-                          <div className="text-xs text-default-500">
-                            {tunnel.reason}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {deletePreview.warnings?.length ? (
-                  <div className="rounded-2xl border border-default-200 bg-default-50/80 p-4 text-xs text-default-600">
-                    {deletePreview.warnings.map((warning) => (
-                      <div key={warning}>{warning}</div>
-                    ))}
-                  </div>
-                ) : null}
-              </div>
-            ) : (
-              <div className="rounded-2xl border border-default-200 bg-default-50/80 p-5 text-sm text-default-600">
-                暂无可展示的删除影响。
-              </div>
-            )}
-          </ModalBody>
-          <ModalFooter>
-            <Button onPress={resetDeletePreview}>关闭</Button>
-            <Button
-              color="danger"
-              isDisabled={deletePreviewLoading || !deletePreview}
-              isLoading={deleteExecuting}
-              onPress={confirmDeleteRemoteNode}
-            >
-              确认删除
-            </Button>
-          </ModalFooter>
-        </ModalContent>
-      </Modal>
+              </ModalBody>
+              <ModalFooter>
+                <Button onPress={resetDeletePreview}>关闭</Button>
+                <Button
+                  color="danger"
+                  isDisabled={deletePreviewLoading || !deletePreview}
+                  isLoading={deleteExecuting}
+                  onPress={confirmDeleteRemoteNode}
+                >
+                  确认删除
+                </Button>
+              </ModalFooter>
+            </ModalContent>
+          </Modal>
         </>
       )}
     </div>
