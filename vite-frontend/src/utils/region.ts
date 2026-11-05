@@ -30,7 +30,6 @@ const COMMON_NAMES: Record<string, string> = {
   AE: "阿联酋",
 };
 const FIRST_REGIONS = ["HK", "TW", "JP", "SG", "KR", "US"];
-
 export const MULTI_REGION = "multi";
 export const UNKNOWN_REGION = "";
 const displayNames =

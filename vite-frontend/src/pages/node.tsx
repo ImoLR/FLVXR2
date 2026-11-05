@@ -1,3 +1,4 @@
+import { EnableLandingButton } from "@/pages/landing/enable-button";
 import type { LeiKwanNodeDetection, MachineView } from "@/api/types";
 import type {
   NodeGroupApiItem,
@@ -44,7 +45,6 @@ import {
 } from "./node/machine-conn";
 import TLSPage from "./tls";
 
-import { EnableLandingButton } from "@/pages/landing/enable-button";
 import {
   DistroIcon,
   parseDistroFromVersion,
@@ -540,8 +540,7 @@ export default function NodePage() {
         addresses.serverIpV4 !== latest.serverIpV4.trim() ||
         addresses.serverIp !== regionDetectServerIp.current.trim() ||
         addresses.serverIpV6 !== latest.serverIpV6.trim()
-      )
-        return;
+      ) return;
       if (res.code === 0 && res.data) {
         if (res.data.region && !REGION_CODES.includes(res.data.region)) {
           setRegionDetection(null);
@@ -560,50 +559,36 @@ export default function NodePage() {
           if (!latest.region && !regionEdited.current) {
             setForm((prev) => ({ ...prev, region: res.data.region }));
           }
-          if (!automatic)
-            toast.success(`已识别：${regionLabel(res.data.region)}`);
+          if (!automatic) toast.success(`已识别：${regionLabel(res.data.region)}`);
         }
       } else {
         setRegionDetection({
-          region: "",
-          ip: "",
-          family: "",
-          source: "",
+          region: "", ip: "", family: "", source: "",
           reason: res.msg || "地区识别失败，请手动选择",
         });
       }
     } catch {
       if (revision === regionDetectRevision.current) {
         setRegionDetection({
-          region: "",
-          ip: "",
-          family: "",
-          source: "",
+          region: "", ip: "", family: "", source: "",
           reason: "地区识别失败，请手动选择",
         });
       }
     } finally {
-      if (revision === regionDetectRevision.current)
-        setRegionDetectLoading(false);
+      if (revision === regionDetectRevision.current) setRegionDetectLoading(false);
     }
   };
   let regionDetectHint = regionDetection?.reason || "";
 
   if (regionDetection?.region) {
-    if (
-      form.region !== regionDetection.region &&
-      (form.region || regionEdited.current)
-    ) {
+    if (form.region !== regionDetection.region && (form.region || regionEdited.current)) {
       regionDetectHint = `自动识别结果为 ${regionLabel(regionDetection.region)}，当前为手动设置`;
     } else {
-      const viaDNS =
-        regionDetection.source === "dns_a" ||
-        regionDetection.source === "dns_aaaa";
+      const viaDNS = regionDetection.source === "dns_a" || regionDetection.source === "dns_aaaa";
       const family = regionDetection.family === "v6" ? "IPv6" : "IPv4";
 
       regionDetectHint = `已按 ${viaDNS ? "域名解析 " : ""}${family} ${regionDetection.ip} 识别为 ${regionLabel(regionDetection.region)}`;
-      if (regionDetection.reason)
-        regionDetectHint += `（${regionDetection.reason}）`;
+      if (regionDetection.reason) regionDetectHint += `（${regionDetection.reason}）`;
     }
   }
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -711,12 +696,10 @@ export default function NodePage() {
   const openDeployModal = useCallback((node: Node) => {
     if (node.isRemote === 1) {
       toast.error("远程共享节点不支持部署功能");
-
       return;
     }
     if (!node.canDeploy) {
       toast.error("只有该节点所属账号可以使用部署功能");
-
       return;
     }
     setDeployTargetNode(node);
@@ -2402,19 +2385,11 @@ export default function NodePage() {
               )}
             </div>
             <div className="text-xs text-default-500">
-              {node.region ? (
-                regionLabel(node.region)
-              ) : (
-                <Chip
-                  className="bg-default-100 text-default-500"
-                  color="default"
-                  size="sm"
-                  variant="flat"
-                >
+              {node.region ? regionLabel(node.region) : (
+                <Chip className="bg-default-100 text-default-500" color="default" size="sm" variant="flat">
                   未设置地区
                 </Chip>
-              )}
-              {node.regionCity ? ` · ${node.regionCity}` : ""}
+              )}{node.regionCity ? ` · ${node.regionCity}` : ""}
             </div>
           </div>
         </CardHeader>
@@ -2432,9 +2407,7 @@ export default function NodePage() {
                   className="font-medium text-sm cursor-pointer hover:bg-default-200/50 rounded px-1 transition-colors truncate shrink min-w-0 ml-auto"
                   title={
                     node.serverIpV4?.trim() ||
-                    (node.serverIp?.trim() &&
-                    !node.serverIp.includes(":") &&
-                    node.serverIp.trim() !== node.serverIpV6?.trim()
+                    (node.serverIp?.trim() && !node.serverIp.includes(":") && node.serverIp.trim() !== node.serverIpV6?.trim()
                       ? node.serverIp.trim()
                       : undefined) ||
                     "暂无"
@@ -2443,9 +2416,7 @@ export default function NodePage() {
                     e.stopPropagation();
                     const val =
                       node.serverIpV4?.trim() ||
-                      (node.serverIp?.trim() &&
-                      !node.serverIp.includes(":") &&
-                      node.serverIp.trim() !== node.serverIpV6?.trim()
+                      (node.serverIp?.trim() && !node.serverIp.includes(":") && node.serverIp.trim() !== node.serverIpV6?.trim()
                         ? node.serverIp.trim()
                         : undefined);
 
@@ -2455,9 +2426,7 @@ export default function NodePage() {
                   {(() => {
                     const val =
                       node.serverIpV4?.trim() ||
-                      (node.serverIp?.trim() &&
-                      !node.serverIp.includes(":") &&
-                      node.serverIp.trim() !== node.serverIpV6?.trim()
+                      (node.serverIp?.trim() && !node.serverIp.includes(":") && node.serverIp.trim() !== node.serverIpV6?.trim()
                         ? node.serverIp.trim()
                         : undefined);
 
@@ -3456,34 +3425,22 @@ export default function NodePage() {
                       const selected = String(Array.from(keys)[0] || "unset");
 
                       setErrors((prev) => ({ ...prev, region: "" }));
-                      setForm((prev) => ({
-                        ...prev,
-                        region: selected === "unset" ? "" : selected,
-                      }));
+                      setForm((prev) => ({ ...prev, region: selected === "unset" ? "" : selected }));
                     }}
                   >
                     <SelectItem key="unset">未设置</SelectItem>
                     {REGION_OPTIONS.map((code) => (
-                      <SelectItem
-                        key={code}
-                        textValue={`${regionLabel(code)} (${code})`}
-                      >
+                      <SelectItem key={code} textValue={`${regionLabel(code)} (${code})`}>
                         {regionLabel(code)} ({code})
                       </SelectItem>
                     ))}
                   </Select>
                   {regionDetectHint && (
-                    <p className="break-words text-xs text-default-500">
-                      {regionDetectHint}
-                    </p>
+                    <p className="break-words text-xs text-default-500">{regionDetectHint}</p>
                   )}
                   <Button
                     color="primary"
-                    isDisabled={
-                      !form.serverIpV4.trim() &&
-                      !regionDetectServerIp.current.trim() &&
-                      !form.serverIpV6.trim()
-                    }
+                    isDisabled={!form.serverIpV4.trim() && !regionDetectServerIp.current.trim() && !form.serverIpV6.trim()}
                     isLoading={regionDetectLoading}
                     size="sm"
                     variant="flat"
@@ -3493,23 +3450,8 @@ export default function NodePage() {
                   </Button>
                   <p className="text-xs text-default-500">
                     自动识别仅预填，可手动修正。离线数据：
-                    <a
-                      className="underline"
-                      href="https://db-ip.com"
-                      rel="noreferrer"
-                      target="_blank"
-                    >
-                      DB-IP
-                    </a>
-                    {" · "}
-                    <a
-                      className="underline"
-                      href="https://creativecommons.org/licenses/by/4.0/"
-                      rel="noreferrer"
-                      target="_blank"
-                    >
-                      CC BY 4.0
-                    </a>
+                    <a className="underline" href="https://db-ip.com" rel="noreferrer" target="_blank">DB-IP</a>
+                    {" · "}<a className="underline" href="https://creativecommons.org/licenses/by/4.0/" rel="noreferrer" target="_blank">CC BY 4.0</a>
                   </p>
                 </div>
                 <Input
@@ -3519,12 +3461,7 @@ export default function NodePage() {
                   placeholder="例如：葵涌、深圳"
                   value={form.regionCity}
                   variant="bordered"
-                  onChange={(event) =>
-                    setForm((prev) => ({
-                      ...prev,
-                      regionCity: event.target.value,
-                    }))
-                  }
+                  onChange={(event) => setForm((prev) => ({ ...prev, regionCity: event.target.value }))}
                 />
               </div>
               <Select
@@ -3629,12 +3566,7 @@ export default function NodePage() {
                     readOnly
                     classNames={{ inputWrapper: "bg-default-100" }}
                     data-testid="ddns-owned-v4"
-                    description={ddnsOwnedHint(
-                      form.ddns,
-                      "A",
-                      form.serverIpV4,
-                      editingNode?.ddns,
-                    )}
+                    description={ddnsOwnedHint(form.ddns, "A", form.serverIpV4, editingNode?.ddns)}
                     label="域名/公网IPv4地址"
                     value={ddnsMainDomain(form.ddns, "A")}
                     variant="bordered"
@@ -3652,10 +3584,7 @@ export default function NodePage() {
                     onChange={(e) => {
                       invalidateRegionDetection();
                       regionDetectServerIp.current = "";
-                      setForm((prev) => ({
-                        ...prev,
-                        serverIpV4: e.target.value,
-                      }));
+                      setForm((prev) => ({ ...prev, serverIpV4: e.target.value }));
                     }}
                   />
                 )}
@@ -3693,12 +3622,7 @@ export default function NodePage() {
                     readOnly
                     classNames={{ inputWrapper: "bg-default-100" }}
                     data-testid="ddns-owned-v6"
-                    description={ddnsOwnedHint(
-                      form.ddns,
-                      "AAAA",
-                      form.serverIpV6,
-                      editingNode?.ddns,
-                    )}
+                    description={ddnsOwnedHint(form.ddns, "AAAA", form.serverIpV6, editingNode?.ddns)}
                     label="域名/公网IPv6地址"
                     value={ddnsMainDomain(form.ddns, "AAAA")}
                     variant="bordered"
@@ -3716,10 +3640,7 @@ export default function NodePage() {
                     onChange={(e) => {
                       invalidateRegionDetection();
                       regionDetectServerIp.current = "";
-                      setForm((prev) => ({
-                        ...prev,
-                        serverIpV6: e.target.value,
-                      }));
+                      setForm((prev) => ({ ...prev, serverIpV6: e.target.value }));
                     }}
                   />
                 )}
@@ -3749,9 +3670,7 @@ export default function NodePage() {
                 }}
                 onSynced={(view) =>
                   setNodeList((prev) =>
-                    prev.map((n) =>
-                      n.id === form.id ? ({ ...n, ddns: view } as Node) : n,
-                    ),
+                    prev.map((n) => (n.id === form.id ? ({ ...n, ddns: view } as Node) : n)),
                   )
                 }
               />
@@ -3761,12 +3680,9 @@ export default function NodePage() {
                 selectedKeys={[form.panelIpFamily || "auto"]}
                 variant="bordered"
                 onSelectionChange={(keys) => {
-                  const value = Array.from(
-                    keys,
-                  )[0] as NodeForm["panelIpFamily"];
+                  const value = Array.from(keys)[0] as NodeForm["panelIpFamily"];
 
-                  if (value)
-                    setForm((prev) => ({ ...prev, panelIpFamily: value }));
+                  if (value) setForm((prev) => ({ ...prev, panelIpFamily: value }));
                 }}
               >
                 <SelectItem key="auto">自动</SelectItem>
@@ -3784,9 +3700,7 @@ export default function NodePage() {
 
                   setForm((prev) => ({
                     ...prev,
-                    egressIpFamily: (value === "auto"
-                      ? ""
-                      : value) as NodeForm["egressIpFamily"],
+                    egressIpFamily: (value === "auto" ? "" : value) as NodeForm["egressIpFamily"],
                   }));
                 }}
               >
@@ -3794,62 +3708,30 @@ export default function NodePage() {
                   {(() => {
                     const node = nodeList.find((item) => item.id === form.id);
                     const family = node?.egressDetected;
-                    const label =
-                      family === "dual"
-                        ? "双栈"
-                        : family === "v4"
-                          ? "IPv4"
-                          : "IPv6";
+                    const label = family === "dual" ? "双栈" : family === "v4" ? "IPv4" : "IPv6";
                     const time = node?.egressDetectedAt
-                      ? new Date(node.egressDetectedAt).toLocaleTimeString(
-                          "zh-CN",
-                          { hour: "2-digit", minute: "2-digit", hour12: false },
-                        )
+                      ? new Date(node.egressDetectedAt).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false })
                       : "";
 
-                    return family
-                      ? `自动（检测到：${label}${time ? `，${time}` : ""}）`
-                      : "自动（未检测，按入口地址推断）";
+                    return family ? `自动（检测到：${label}${time ? `，${time}` : ""}）` : "自动（未检测，按入口地址推断）";
                   })()}
                 </SelectItem>
                 <SelectItem key="v4">仅 IPv4</SelectItem>
                 <SelectItem key="v6">仅 IPv6</SelectItem>
                 <SelectItem key="dual">双栈 (IPv4+IPv6)</SelectItem>
               </Select>
-              <Input
-                description="0 不限；该用户经过本服务器的规则和落地流量合并计算，随用户流量重置日重置"
-                label="每个用户默认限额 (GB)"
-                min="0"
-                step="0.01"
-                type="number"
-                value={String(form.defaultUserQuotaBytes / 1073741824)}
-                variant="bordered"
-                onChange={(event) =>
-                  setForm((prev) => ({
-                    ...prev,
-                    defaultUserQuotaBytes: Math.max(
-                      0,
-                      Math.round(Number(event.target.value) * 1073741824),
-                    ),
-                  }))
-                }
-              />
+              <Input label="每个用户默认限额 (GB)" description="0 不限；该用户经过本服务器的规则和落地流量合并计算，随用户流量重置日重置" min="0" step="0.01" type="number" value={String(form.defaultUserQuotaBytes / 1073741824)} variant="bordered" onChange={(event) => setForm((prev) => ({ ...prev, defaultUserQuotaBytes: Math.max(0, Math.round(Number(event.target.value) * 1073741824)) }))} />
               <div className="space-y-1">
                 <div className="flex items-center gap-2 text-sm">
                   <Switch
                     aria-label="线路机"
                     isSelected={form.lineMachine}
-                    onValueChange={(lineMachine) =>
-                      setForm((prev) => ({ ...prev, lineMachine }))
-                    }
+                    onValueChange={(lineMachine) => setForm((prev) => ({ ...prev, lineMachine }))}
                   />
                   <span>线路机</span>
                 </div>
                 <p className="text-xs text-default-500">
-                  公网线路（如
-                  DMIT，非专线/IPLC）。作为隧道入口时，规则只能转发到 VLESS
-                  Reality Vision
-                  落地或「我自己的节点」；线路机本身不会承载链式节点。
+                  公网线路（如 DMIT，非专线/IPLC）。作为隧道入口时，规则只能转发到 VLESS Reality Vision 落地或「我自己的节点」；线路机本身不会承载链式节点。
                 </p>
               </div>
               {(() => {
@@ -3989,13 +3871,9 @@ export default function NodePage() {
                   此操作不可恢复，请谨慎操作。
                 </p>
                 {nodeToDelete?.ddns?.records?.length ? (
-                  <p
-                    className="text-small text-warning"
-                    data-testid="ddns-delete-note"
-                  >
+                  <p className="text-small text-warning" data-testid="ddns-delete-note">
                     该节点开启过 DDNS：删除节点不会删除 Cloudflare 里的记录（
-                    {nodeToDelete.ddns.records.map((r) => r.domain).join("、")}
-                    ），不需要时请到 Cloudflare 手动删除。
+                    {nodeToDelete.ddns.records.map((r) => r.domain).join("、")}），不需要时请到 Cloudflare 手动删除。
                   </p>
                 ) : null}
               </ModalBody>

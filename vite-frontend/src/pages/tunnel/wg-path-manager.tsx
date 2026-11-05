@@ -1,8 +1,7 @@
-import type { TunnelGroupNewApiItem } from "@/api/types";
-
 import { useEffect, useMemo, useState } from "react";
 import toast from "react-hot-toast";
 
+import type { TunnelGroupNewApiItem } from "@/api/types";
 import { createPathTunnel, getPathTunnelDetail, updatePathTunnel } from "@/api";
 import { Button } from "@/shadcn-bridge/heroui/button";
 import { Input } from "@/shadcn-bridge/heroui/input";
@@ -40,7 +39,8 @@ export function WGPathManager({
   const [listenStart, setListenStart] = useState("51820");
 
   const nodeOptions = useMemo(
-    () => nodes.filter((node) => Number(node.id) > 0 && node.isRemote !== 1),
+    () =>
+      nodes.filter((node) => Number(node.id) > 0 && node.isRemote !== 1),
     [nodes],
   );
   const selectedNodeIds = useMemo(
@@ -121,17 +121,14 @@ export function WGPathManager({
 
     if (!name.trim() || !entryNodeId || !exitNodeId) {
       toast.error("请填写名称，并选择入口和出口节点");
-
       return;
     }
     if (orderedNodeIds.length < 2) {
       toast.error("WG 隧道至少需要入口和出口两个节点");
-
       return;
     }
     if (new Set(orderedNodeIds).size !== orderedNodeIds.length) {
       toast.error("同一条 WG 隧道不能重复选择节点");
-
       return;
     }
     setSubmitting(true);
@@ -155,7 +152,6 @@ export function WGPathManager({
 
       if (res.code !== 0) {
         toast.error(res.msg || (pathId ? "更新失败" : "创建失败"));
-
         return;
       }
       if (!pathId) {
@@ -306,7 +302,6 @@ export function WGPathManager({
                   variant="bordered"
                   onSelectionChange={(keys) => {
                     const nextValue = Array.from(keys)[0]?.toString() || "";
-
                     setChainNodeIds((prev) =>
                       prev.map((item, i) => (i === index ? nextValue : item)),
                     );
@@ -319,8 +314,8 @@ export function WGPathManager({
                   ))}
                 </Select>
                 <Button
-                  className="self-end"
                   color="danger"
+                  className="self-end"
                   variant="flat"
                   onPress={() => removeChainNode(index)}
                 >

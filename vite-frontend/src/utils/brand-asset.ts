@@ -131,7 +131,6 @@ export const convertBrandAssetToPngDataURL = async (
 
   const sourceDataURL = await readFileAsDataURL(file);
   const image = await loadImage(sourceDataURL);
-
   if (kind === "background") {
     const output = drawBackgroundJPEG(image);
 

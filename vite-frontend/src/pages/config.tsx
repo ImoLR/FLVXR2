@@ -109,8 +109,7 @@ const CONFIG_ITEMS: ConfigItem[] = [
   {
     key: "app_bg_image",
     label: "页面背景",
-    description:
-      "用于全站毛玻璃背景，上传后会压缩为适合网页显示的图片并持久化保存",
+    description: "用于全站毛玻璃背景，上传后会压缩为适合网页显示的图片并持久化保存",
     type: "input",
   },
   {
@@ -711,9 +710,7 @@ export default function ConfigPage() {
               : "当前是旧版 URL 配置，建议重新上传图片以启用无闪烁加载"}
           </p>
         ) : null}
-        {isBackground &&
-        previewUrl.length > 0 &&
-        !isBrandImageDataURL(previewUrl) ? (
+        {isBackground && previewUrl.length > 0 && !isBrandImageDataURL(previewUrl) ? (
           <p className="mt-2 text-xs text-warning-600 dark:text-warning-400">
             背景建议通过上传生成内置图片数据
           </p>

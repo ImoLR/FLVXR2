@@ -45,16 +45,13 @@ export function EnableLandingButton({
       onPress={async () => {
         if (enabled) {
           navigate(`/landing?server=${node.landingServerId}`);
-
           return;
         }
         setLoading(true);
         const response = await enableLandingServer(node.id);
-
         setLoading(false);
         if (response.code !== 0) {
           toast.error(response.msg || "启用失败");
-
           return;
         }
         // Plan 216: 30000-39999 busy → the panel picked another free block.

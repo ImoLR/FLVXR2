@@ -12,7 +12,6 @@ interface JWTPayload {
 
 const parseStoredNumber = (key: string): number | null => {
   const value = localStorage.getItem(key);
-
   if (value === null) return null;
   const num = Number.parseInt(value, 10);
 

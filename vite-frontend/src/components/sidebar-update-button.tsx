@@ -1,5 +1,3 @@
-import type { SystemUpgradeCheckApiData } from "@/api/types";
-
 import { useCallback, useEffect, useMemo, useState } from "react";
 import toast from "react-hot-toast";
 import {
@@ -23,6 +21,7 @@ import {
   runSystemUpgrade,
   type ReleaseChannel,
 } from "@/api";
+import type { SystemUpgradeCheckApiData } from "@/api/types";
 import {
   UPDATE_CHANNEL_CHANGED_EVENT,
   getUpdateReleaseChannel,

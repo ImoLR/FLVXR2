@@ -2163,289 +2163,286 @@ export function MonitorView({
           />
 
           {/* Service monitors chart – same style as node metrics */}
-          {isAdmin &&
-            (() => {
-              // Resolve which monitor is active
-              const resolvedActiveMonitor =
-                detailServiceMonitors.find(
-                  (m) => m.id === activeServiceMonitorId,
-                ) ||
-                detailServiceMonitors[0] ||
-                null;
-              const resolvedActiveMonitorId = resolvedActiveMonitor?.id ?? null;
-              const activeLatestResult =
-                resolvedActiveMonitorId != null
-                  ? getLatestResult(resolvedActiveMonitorId)
-                  : null;
-              const activeStale = resolvedActiveMonitor
-                ? isResultStale(resolvedActiveMonitor, activeLatestResult)
-                : false;
-              const activeResults =
-                resolvedActiveMonitorId != null
-                  ? monitorResults[resolvedActiveMonitorId] || []
-                  : [];
-              const activeLatencyData = [...activeResults].map((r) => ({
-                time: formatTimestamp(r.timestamp, serviceMonitorRangeMs),
-                latency: r.success === 1 ? r.latencyMs : null,
-                success: r.success,
-              }));
+          {isAdmin && (() => {
+            // Resolve which monitor is active
+            const resolvedActiveMonitor =
+              detailServiceMonitors.find(
+                (m) => m.id === activeServiceMonitorId,
+              ) ||
+              detailServiceMonitors[0] ||
+              null;
+            const resolvedActiveMonitorId = resolvedActiveMonitor?.id ?? null;
+            const activeLatestResult =
+              resolvedActiveMonitorId != null
+                ? getLatestResult(resolvedActiveMonitorId)
+                : null;
+            const activeStale = resolvedActiveMonitor
+              ? isResultStale(resolvedActiveMonitor, activeLatestResult)
+              : false;
+            const activeResults =
+              resolvedActiveMonitorId != null
+                ? monitorResults[resolvedActiveMonitorId] || []
+                : [];
+            const activeLatencyData = [...activeResults].map((r) => ({
+              time: formatTimestamp(r.timestamp, serviceMonitorRangeMs),
+              latency: r.success === 1 ? r.latencyMs : null,
+              success: r.success,
+            }));
 
-              return (
-                <Card className="overflow-hidden rounded-xl border border-divider bg-content1 shadow-md">
-                  <CardHeader className="flex flex-row items-center justify-between">
-                    <h3 className="text-lg font-semibold">服务监控</h3>
-                    <div className="flex items-center gap-2">
-                      <Select
-                        className="w-22 sm:w-30"
-                        selectedKeys={[String(serviceMonitorRangeMs)]}
-                        size="sm"
-                        onSelectionChange={(keys) => {
-                          const v = Number(Array.from(keys)[0]);
+            return (
+              <Card className="overflow-hidden rounded-xl border border-divider bg-content1 shadow-md">
+                <CardHeader className="flex flex-row items-center justify-between">
+                  <h3 className="text-lg font-semibold">服务监控</h3>
+                  <div className="flex items-center gap-2">
+                    <Select
+                      className="w-22 sm:w-30"
+                      selectedKeys={[String(serviceMonitorRangeMs)]}
+                      size="sm"
+                      onSelectionChange={(keys) => {
+                        const v = Number(Array.from(keys)[0]);
 
-                          if (v > 0) setServiceMonitorRangeMs(v);
-                        }}
-                      >
-                        <SelectItem key={String(60 * 60 * 1000)}>
-                          1小时
-                        </SelectItem>
-                        <SelectItem key={String(6 * 60 * 60 * 1000)}>
-                          6小时
-                        </SelectItem>
-                        <SelectItem key={String(24 * 60 * 60 * 1000)}>
-                          24小时
-                        </SelectItem>
-                      </Select>
-                      {resolvedActiveMonitorId != null && (
-                        <Button
-                          size="sm"
-                          variant="flat"
-                          onPress={() => {
-                            void loadMonitorResults(resolvedActiveMonitorId, {
-                              rangeMs: serviceMonitorRangeMs,
-                            });
-                          }}
-                        >
-                          刷新
-                        </Button>
-                      )}
+                        if (v > 0) setServiceMonitorRangeMs(v);
+                      }}
+                    >
+                      <SelectItem key={String(60 * 60 * 1000)}>
+                        1小时
+                      </SelectItem>
+                      <SelectItem key={String(6 * 60 * 60 * 1000)}>
+                        6小时
+                      </SelectItem>
+                      <SelectItem key={String(24 * 60 * 60 * 1000)}>
+                        24小时
+                      </SelectItem>
+                    </Select>
+                    {resolvedActiveMonitorId != null && (
                       <Button
-                        color="primary"
                         size="sm"
                         variant="flat"
-                        onPress={() => handleOpenEditModal()}
+                        onPress={() => {
+                          void loadMonitorResults(resolvedActiveMonitorId, {
+                            rangeMs: serviceMonitorRangeMs,
+                          });
+                        }}
                       >
-                        监控
+                        刷新
                       </Button>
-                    </div>
-                  </CardHeader>
-                  <CardBody className="space-y-4">
-                    {monitorsLoading ? (
-                      <div className="flex justify-center py-8">
-                        <RefreshCw className="w-6 h-6 animate-spin" />
-                      </div>
-                    ) : detailServiceMonitors.length > 0 ? (
-                      <>
-                        {/* Monitor switcher buttons – like metric type tabs */}
-                        <div className="flex flex-wrap gap-2">
-                          {detailServiceMonitors.map((monitor) => {
-                            const lr = getLatestResult(monitor.id);
-                            const statusColor =
-                              monitor.enabled !== 1
-                                ? "default"
-                                : !lr
-                                  ? "default"
-                                  : lr.success === 1
-                                    ? "success"
-                                    : "danger";
-                            const isActive =
-                              monitor.id === resolvedActiveMonitorId;
-
-                            return (
-                              <Button
-                                key={monitor.id}
-                                color={
-                                  isActive ? "primary" : (statusColor as any)
-                                }
-                                size="sm"
-                                variant={isActive ? "solid" : "flat"}
-                                onPress={() => {
-                                  setActiveServiceMonitorId(monitor.id);
-                                  // Load results for this monitor if not loaded
-                                  if (
-                                    !monitorResults[monitor.id] ||
-                                    monitorResults[monitor.id].length <= 1
-                                  ) {
-                                    void loadMonitorResults(monitor.id, {
-                                      rangeMs: serviceMonitorRangeMs,
-                                    });
-                                  }
-                                }}
-                              >
-                                <div
-                                  className={`w-2 h-2 rounded-full shrink-0 mr-1 ${
-                                    monitor.enabled !== 1
-                                      ? "bg-default-300"
-                                      : !lr
-                                        ? "bg-default-400"
-                                        : lr.success === 1
-                                          ? isActive
-                                            ? "bg-white"
-                                            : "bg-success"
-                                          : isActive
-                                            ? "bg-white"
-                                            : "bg-danger"
-                                  }`}
-                                />
-                                {monitor.name}
-                              </Button>
-                            );
-                          })}
-                        </div>
-
-                        {/* Active monitor info bar */}
-                        {resolvedActiveMonitor && (
-                          <div className="flex items-center justify-between gap-3 p-3 rounded-lg bg-default-50 dark:bg-default-100/30 border border-divider">
-                            <div className="flex items-center gap-3 min-w-0 flex-wrap">
-                              <Chip color="primary" size="sm" variant="flat">
-                                {resolvedActiveMonitor.type.toUpperCase()}
-                              </Chip>
-                              <span className="font-mono text-xs text-default-500">
-                                {resolvedActiveMonitor.target}
-                              </span>
-                              <span className="text-xs text-default-500">
-                                每秒测试，30秒上报
-                              </span>
-                              {activeLatestResult &&
-                              Number.isFinite(activeLatestResult.latencyMs) ? (
-                                <span className="font-mono text-xs font-semibold text-success">
-                                  {activeLatestResult.latencyMs.toFixed(0)}ms
-                                </span>
-                              ) : null}
-                              {activeStale ? (
-                                <Chip color="warning" size="sm" variant="flat">
-                                  陈旧
-                                </Chip>
-                              ) : null}
-                              {resolvedActiveMonitor.enabled !== 1 ? (
-                                <Chip color="default" size="sm" variant="flat">
-                                  已禁用
-                                </Chip>
-                              ) : null}
-                            </div>
-                            <Dropdown>
-                              <DropdownTrigger>
-                                <Button isIconOnly size="sm" variant="flat">
-                                  <MoreVertical className="w-4 h-4" />
-                                </Button>
-                              </DropdownTrigger>
-                              <DropdownMenu>
-                                <DropdownItem
-                                  startContent={<Play className="w-4 h-4" />}
-                                  onPress={() =>
-                                    resolvedActiveMonitorId != null &&
-                                    handleRunMonitor(resolvedActiveMonitorId)
-                                  }
-                                >
-                                  检查
-                                </DropdownItem>
-                                <DropdownItem
-                                  startContent={
-                                    <Activity className="w-4 h-4" />
-                                  }
-                                  onPress={() =>
-                                    resolvedActiveMonitorId != null &&
-                                    openResultsModal(resolvedActiveMonitorId)
-                                  }
-                                >
-                                  记录
-                                </DropdownItem>
-                                <DropdownItem
-                                  startContent={<Edit className="w-4 h-4" />}
-                                  onPress={() =>
-                                    resolvedActiveMonitor &&
-                                    handleOpenEditModal(resolvedActiveMonitor)
-                                  }
-                                >
-                                  编辑
-                                </DropdownItem>
-                                <DropdownItem
-                                  className="text-danger"
-                                  color="danger"
-                                  startContent={<Trash2 className="w-4 h-4" />}
-                                  onPress={() =>
-                                    resolvedActiveMonitorId != null &&
-                                    handleDeleteMonitor(resolvedActiveMonitorId)
-                                  }
-                                >
-                                  删除
-                                </DropdownItem>
-                              </DropdownMenu>
-                            </Dropdown>
-                          </div>
-                        )}
-
-                        {/* Chart area – same h-64 as node metrics */}
-                        {activeLatencyData.length > 0 ? (
-                          <div
-                            ref={latencyTapTooltip.containerRef}
-                            className="h-64"
-                          >
-                            <ResponsiveContainer height="100%" width="100%">
-                              <LineChart
-                                data={activeLatencyData}
-                                onClick={latencyTapTooltip.onChartClick}
-                              >
-                                <CartesianGrid strokeDasharray="3 3" />
-                                <XAxis dataKey="time" fontSize={12} />
-                                <YAxis
-                                  fontSize={12}
-                                  tickFormatter={(v: number) =>
-                                    `${Math.round(v)}ms`
-                                  }
-                                />
-                                <Tooltip
-                                  isAnimationActive={false}
-                                  {...latencyTapTooltip.tooltipProps}
-                                  contentStyle={{
-                                    backgroundColor: "rgba(0,0,0,0.8)",
-                                    border: "none",
-                                    borderRadius: "8px",
-                                  }}
-                                  formatter={(value: unknown) => [
-                                    `${Number(value).toFixed(0)}ms`,
-                                    "延迟",
-                                  ]}
-                                  labelStyle={{ color: "#fff" }}
-                                />
-                                <Line
-                                  activeDot={latencyTapTooltip.activeDot()}
-                                  connectNulls={false}
-                                  dataKey="latency"
-                                  dot={false}
-                                  isAnimationActive={false}
-                                  name="延迟"
-                                  stroke="#10b981"
-                                  strokeWidth={2}
-                                  type="monotone"
-                                />
-                              </LineChart>
-                            </ResponsiveContainer>
-                          </div>
-                        ) : (
-                          <div className="text-center py-8 text-default-500">
-                            暂无检查记录
-                          </div>
-                        )}
-                      </>
-                    ) : (
-                      <div className="text-center py-8 text-default-500">
-                        暂无服务监控，点击&quot;添加监控&quot;创建
-                      </div>
                     )}
-                  </CardBody>
-                </Card>
-              );
-            })()}
+                    <Button
+                      color="primary"
+                      size="sm"
+                      variant="flat"
+                      onPress={() => handleOpenEditModal()}
+                    >
+                      监控
+                    </Button>
+                  </div>
+                </CardHeader>
+                <CardBody className="space-y-4">
+                  {monitorsLoading ? (
+                    <div className="flex justify-center py-8">
+                      <RefreshCw className="w-6 h-6 animate-spin" />
+                    </div>
+                  ) : detailServiceMonitors.length > 0 ? (
+                    <>
+                      {/* Monitor switcher buttons – like metric type tabs */}
+                      <div className="flex flex-wrap gap-2">
+                        {detailServiceMonitors.map((monitor) => {
+                          const lr = getLatestResult(monitor.id);
+                          const statusColor =
+                            monitor.enabled !== 1
+                              ? "default"
+                              : !lr
+                                ? "default"
+                                : lr.success === 1
+                                  ? "success"
+                                  : "danger";
+                          const isActive =
+                            monitor.id === resolvedActiveMonitorId;
+
+                          return (
+                            <Button
+                              key={monitor.id}
+                              color={
+                                isActive ? "primary" : (statusColor as any)
+                              }
+                              size="sm"
+                              variant={isActive ? "solid" : "flat"}
+                              onPress={() => {
+                                setActiveServiceMonitorId(monitor.id);
+                                // Load results for this monitor if not loaded
+                                if (
+                                  !monitorResults[monitor.id] ||
+                                  monitorResults[monitor.id].length <= 1
+                                ) {
+                                  void loadMonitorResults(monitor.id, {
+                                    rangeMs: serviceMonitorRangeMs,
+                                  });
+                                }
+                              }}
+                            >
+                              <div
+                                className={`w-2 h-2 rounded-full shrink-0 mr-1 ${
+                                  monitor.enabled !== 1
+                                    ? "bg-default-300"
+                                    : !lr
+                                      ? "bg-default-400"
+                                      : lr.success === 1
+                                        ? isActive
+                                          ? "bg-white"
+                                          : "bg-success"
+                                        : isActive
+                                          ? "bg-white"
+                                          : "bg-danger"
+                                }`}
+                              />
+                              {monitor.name}
+                            </Button>
+                          );
+                        })}
+                      </div>
+
+                      {/* Active monitor info bar */}
+                      {resolvedActiveMonitor && (
+                        <div className="flex items-center justify-between gap-3 p-3 rounded-lg bg-default-50 dark:bg-default-100/30 border border-divider">
+                          <div className="flex items-center gap-3 min-w-0 flex-wrap">
+                            <Chip color="primary" size="sm" variant="flat">
+                              {resolvedActiveMonitor.type.toUpperCase()}
+                            </Chip>
+                            <span className="font-mono text-xs text-default-500">
+                              {resolvedActiveMonitor.target}
+                            </span>
+                            <span className="text-xs text-default-500">
+                              每秒测试，30秒上报
+                            </span>
+                            {activeLatestResult &&
+                            Number.isFinite(activeLatestResult.latencyMs) ? (
+                              <span className="font-mono text-xs font-semibold text-success">
+                                {activeLatestResult.latencyMs.toFixed(0)}ms
+                              </span>
+                            ) : null}
+                            {activeStale ? (
+                              <Chip color="warning" size="sm" variant="flat">
+                                陈旧
+                              </Chip>
+                            ) : null}
+                            {resolvedActiveMonitor.enabled !== 1 ? (
+                              <Chip color="default" size="sm" variant="flat">
+                                已禁用
+                              </Chip>
+                            ) : null}
+                          </div>
+                          <Dropdown>
+                            <DropdownTrigger>
+                              <Button isIconOnly size="sm" variant="flat">
+                                <MoreVertical className="w-4 h-4" />
+                              </Button>
+                            </DropdownTrigger>
+                            <DropdownMenu>
+                              <DropdownItem
+                                startContent={<Play className="w-4 h-4" />}
+                                onPress={() =>
+                                  resolvedActiveMonitorId != null &&
+                                  handleRunMonitor(resolvedActiveMonitorId)
+                                }
+                              >
+                                检查
+                              </DropdownItem>
+                              <DropdownItem
+                                startContent={<Activity className="w-4 h-4" />}
+                                onPress={() =>
+                                  resolvedActiveMonitorId != null &&
+                                  openResultsModal(resolvedActiveMonitorId)
+                                }
+                              >
+                                记录
+                              </DropdownItem>
+                              <DropdownItem
+                                startContent={<Edit className="w-4 h-4" />}
+                                onPress={() =>
+                                  resolvedActiveMonitor &&
+                                  handleOpenEditModal(resolvedActiveMonitor)
+                                }
+                              >
+                                编辑
+                              </DropdownItem>
+                              <DropdownItem
+                                className="text-danger"
+                                color="danger"
+                                startContent={<Trash2 className="w-4 h-4" />}
+                                onPress={() =>
+                                  resolvedActiveMonitorId != null &&
+                                  handleDeleteMonitor(resolvedActiveMonitorId)
+                                }
+                              >
+                                删除
+                              </DropdownItem>
+                            </DropdownMenu>
+                          </Dropdown>
+                        </div>
+                      )}
+
+                      {/* Chart area – same h-64 as node metrics */}
+                      {activeLatencyData.length > 0 ? (
+                        <div
+                          ref={latencyTapTooltip.containerRef}
+                          className="h-64"
+                        >
+                          <ResponsiveContainer height="100%" width="100%">
+                            <LineChart
+                              data={activeLatencyData}
+                              onClick={latencyTapTooltip.onChartClick}
+                            >
+                              <CartesianGrid strokeDasharray="3 3" />
+                              <XAxis dataKey="time" fontSize={12} />
+                              <YAxis
+                                fontSize={12}
+                                tickFormatter={(v: number) =>
+                                  `${Math.round(v)}ms`
+                                }
+                              />
+                              <Tooltip
+                                  isAnimationActive={false}
+                                {...latencyTapTooltip.tooltipProps}
+                                contentStyle={{
+                                  backgroundColor: "rgba(0,0,0,0.8)",
+                                  border: "none",
+                                  borderRadius: "8px",
+                                }}
+                                formatter={(value: unknown) => [
+                                  `${Number(value).toFixed(0)}ms`,
+                                  "延迟",
+                                ]}
+                                labelStyle={{ color: "#fff" }}
+                              />
+                              <Line
+                                  activeDot={latencyTapTooltip.activeDot()}
+                                connectNulls={false}
+                                dataKey="latency"
+                                dot={false}
+                                  isAnimationActive={false}
+                                name="延迟"
+                                stroke="#10b981"
+                                strokeWidth={2}
+                                type="monotone"
+                              />
+                            </LineChart>
+                          </ResponsiveContainer>
+                        </div>
+                      ) : (
+                        <div className="text-center py-8 text-default-500">
+                          暂无检查记录
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    <div className="text-center py-8 text-default-500">
+                      暂无服务监控，点击&quot;添加监控&quot;创建
+                    </div>
+                  )}
+                </CardBody>
+              </Card>
+            );
+          })()}
         </>
       )}
 

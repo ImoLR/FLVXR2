@@ -33,7 +33,11 @@ import { Input } from "@/shadcn-bridge/heroui/input";
 import { BrandLogo } from "@/components/brand-logo";
 import { SidebarUpdateButton } from "@/components/sidebar-update-button";
 import { SunFilledIcon, MoonFilledIcon } from "@/components/icons";
-import { getMonitorAccess, updatePassword, getStoreStatus } from "@/api";
+import {
+  getMonitorAccess,
+  updatePassword,
+  getStoreStatus,
+} from "@/api";
 import { safeLogout } from "@/utils/logout";
 import { isRestricted } from "@/utils/session";
 import { PROJECT_REPOSITORY_URL, siteConfig } from "@/config/site";
@@ -236,22 +240,7 @@ export default function AdminLayout({
     {
       path: "/landing",
       label: "落地",
-      icon: (
-        <svg
-          aria-hidden="true"
-          className="w-5 h-5"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth={1.8}
-          viewBox="0 0 24 24"
-        >
-          <path
-            d="M12 3v12m-4-4 4 4 4-4M5 15v5h14v-5"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-        </svg>
-      ),
+      icon: <svg aria-hidden="true" className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={1.8} viewBox="0 0 24 24"><path d="M12 3v12m-4-4 4 4 4-4M5 15v5h14v-5" strokeLinecap="round" strokeLinejoin="round" /></svg>,
     },
     {
       path: "/sub",
@@ -996,7 +985,7 @@ export default function AdminLayout({
       </div>
 
       {poweredBadgeVisible && poweredBadgeClear && (
-        <div aria-label="Powered by FLVX" className="flvx-powered-badge">
+        <div className="flvx-powered-badge" aria-label="Powered by FLVX">
           Powered by{" "}
           <a
             href={PROJECT_REPOSITORY_URL}

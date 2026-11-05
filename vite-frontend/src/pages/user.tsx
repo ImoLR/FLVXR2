@@ -1,3 +1,4 @@
+import { LandingUserSettings, LandingUserSettingsHandle } from "@/pages/landing/user-settings";
 import type { UserQuotaHistoryItem } from "@/api/types";
 import type { UserRenewalLog } from "@/types";
 
@@ -28,10 +29,6 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 import { Play, StopCircle } from "lucide-react";
 
-import {
-  LandingUserSettings,
-  LandingUserSettingsHandle,
-} from "@/pages/landing/user-settings";
 import { timestampToCalendarDate, calendarDateToTimestamp } from "@/utils/date";
 import { SearchBar } from "@/components/search-bar";
 import {
@@ -181,8 +178,7 @@ const USER_VIEW_MODE_KEY = "user_view_mode";
 const USER_LIMIT_MAX_VALUE = 99999;
 // Plan 159: 默认速率 upper bound (Mbps), same as the panel's.
 const SERVER_RATE_MAX_MBPS = 100000;
-const USER_POOL_LIMIT_HINT =
-  "转发规则入口与落地节点的入站一起计算（经本面板转发进落地的只算一次）；gost 与 nftables 规则及入口节点共享；nftables 需 fork.13 入口 agent，约每秒更新；留空或 0 表示不限制";
+const USER_POOL_LIMIT_HINT = "转发规则入口与落地节点的入站一起计算（经本面板转发进落地的只算一次）；gost 与 nftables 规则及入口节点共享；nftables 需 fork.13 入口 agent，约每秒更新；留空或 0 表示不限制";
 const sanitizeIntegerDraft = (value: string, max = USER_LIMIT_MAX_VALUE) => {
   const digits = value.replace(/[^\d]/g, "");
 
@@ -891,7 +887,6 @@ export default function UserPage() {
         .then((res) => {
           if (res.code === 0 && res.data) {
             const v = res.data.value;
-
             setRegOpen(v === "1" || v === "true");
           }
         })
@@ -3122,18 +3117,7 @@ export default function UserPage() {
                 </div>
               )}
             </div>
-            {isEdit && userForm.id && (
-              <LandingUserSettings
-                key={userForm.id}
-                ref={landingSettingsRef}
-                defaultRateMbps={Number(userLimitDraft.serverRateMbps || 0)}
-                expiry={userForm.expTime?.getTime() || 0}
-                originalExpiry={
-                  users.find((user) => user.id === userForm.id)?.expTime || 0
-                }
-                userId={userForm.id}
-              />
-            )}
+            {isEdit && userForm.id && <LandingUserSettings key={userForm.id} ref={landingSettingsRef} defaultRateMbps={Number(userLimitDraft.serverRateMbps || 0)} userId={userForm.id} originalExpiry={users.find((user) => user.id === userForm.id)?.expTime || 0} expiry={userForm.expTime?.getTime() || 0} />}
           </ModalBody>
           <ModalFooter>
             <Button onPress={onUserModalClose}>取消</Button>

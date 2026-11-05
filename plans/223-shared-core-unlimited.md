@@ -21,6 +21,7 @@ User 2026-11-06 ~03:00 TW: 「共享服务器在转发面板上 CPU 和内存的
 - [x] Resource numbers (landing list latency before/after)
 - [x] Push, CI green (run 42112240754: Build Agent / Frontend / Go Backend / PostgreSQL Contract all success)
 - [x] Ledger row (ready) + summary (runs/shared-core-unlimited-r2/summary.md)
+- [x] r3: reverted out-of-scope `eslint --fix` reformatting (29 unrelated vite-frontend files back to 5d0cc831); only server-settings.tsx (2 plan hunks) remains; eslint (no-fix) 0 problems in that file, tsc 0, build ok
 
 ## Results (round 2, 11-06 TW)
 - Item 4 re-checked: `internal/landingcustom` has no memory / CPU field at all; `core_memory_mb` / `core_cpu_percent` only appear in the native agent payload (`landing_runtime.go`, `Source != "native"` returns early). Shared push unchanged.
