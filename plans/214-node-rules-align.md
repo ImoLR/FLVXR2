@@ -134,6 +134,15 @@ Approach:
 - [x] Auto-checks: row height == 全局·强制, chip visible 390, no switch/⋯ collapsed,
       actions work, no overlap / h-scroll; other layers + admin page 0 px diff vs r2
 - [x] Gallery: r3 pairs first, older sections below
-- [ ] Trial merge onto 3.0.27-fork.116 (not pushed), report conflicts
-- [ ] Commit, push, CI green
-- [ ] Ledger row → built r3; cleanup; final.md + summary.md
+- [x] Trial merge onto 3.0.27-fork.116 (not pushed), report conflicts — clean, fork.116 touched none of the 5 files
+- [x] Commit, push, CI green (code 45ddc7c7, CI 42017858662 success)
+- [x] Ledger row → built r3; cleanup; final.md + summary.md
+
+r3 results: tsc 0 errors, eslint no new warnings (3 pre-existing in enable-button.tsx), build ok.
+Bundle vs fork.115: +4.85 kB raw / +1.14 kB gzip (vs r2: +0.07 kB / +0.08 kB). Demo 312/312
+checks, 0 page errors, 40 new shots (gallery img-r3/, r2 page kept below): 我的规则 collapsed row
+36 px == 全局·强制 row, chip visible at 390 on every row, no switch / 「⋯」 / button on collapsed
+rows, action pills ≤ 2 lines at 390 (1 line at 1440), toggle → ✗ at once, 编辑 / 上移 / 下移 /
+置顶 / 置底 / 删除 (取消 + 确认) all work, 保存 + discard prompt unchanged; every other layer
+(内置 … 默认出站; default / collapsed / expanded; user + admin; 390 + 1440; light + dark), the
+chain-proxy ✗ layer and the admin 出站与路由 page pixel-identical to r2.
