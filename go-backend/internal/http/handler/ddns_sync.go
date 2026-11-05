@@ -27,6 +27,11 @@ import (
 type ddnsManager struct {
 	mu        sync.Mutex
 	addrs     map[int64]ddns.AgentAddrs
+	// lastAddrs: each node's last reported set, kept while the node is
+	// offline (plan 219). The landing relay-source list reads it, so a node
+	// disconnecting and reconnecting with the same addresses does not change
+	// the list (and the revision of every native landing) twice.
+	lastAddrs map[int64]ddns.AgentAddrs
 	nodeLocks map[int64]*sync.Mutex
 	zones     map[int64]ddnsZoneCache
 	logAt     map[int64]time.Time
@@ -64,6 +69,7 @@ func (h *Handler) ddnsState() *ddnsManager {
 	if h.ddns == nil {
 		h.ddns = &ddnsManager{
 			addrs:     map[int64]ddns.AgentAddrs{},
+			lastAddrs: map[int64]ddns.AgentAddrs{},
 			nodeLocks: map[int64]*sync.Mutex{},
 			zones:     map[int64]ddnsZoneCache{},
 			logAt:     map[int64]time.Time{},
@@ -145,6 +151,7 @@ func (h *Handler) onNodeAddrs(nodeID int64, report ws.NodeAddrs) {
 	m.mu.Lock()
 	old, had := m.addrs[nodeID]
 	m.addrs[nodeID] = addrs
+	m.lastAddrs[nodeID] = addrs
 	m.mu.Unlock()
 	if had && old.Equal(addrs) {
 		return
@@ -265,11 +272,6 @@ func (h *Handler) ddnsSyncNode(ctx context.Context, nodeID int64, force bool) {
 			log.Printf("[ddns] node %d %s %s -> %s", nodeID, rec.RecordType, rec.Domain, desired)
 		}
 		rec.CurrentIP = desired
-		if oldIP != desired {
-			// Plan 149: landing source rules exempt the new address on the
-			// next plan sync (≤ 1 minute) instead of after the cache TTL.
-			h.invalidateLandingExempt()
-		}
 		if !rec.Applied {
 			h.ddnsApply(rec, desired)
 		} else if oldIP != "" && oldIP != desired {

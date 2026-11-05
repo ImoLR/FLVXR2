@@ -610,28 +610,3 @@ func NormalizeProfile(p *Profile, outbounds map[int64]bool) error {
 	}
 	return nil
 }
-
-// NormalizeWhitelist canonicalizes the admin source whitelist.
-func NormalizeWhitelist(in []string) ([]string, error) {
-	out := []string{}
-	for _, v := range in {
-		v = strings.TrimSpace(v)
-		if v == "" {
-			continue
-		}
-		p, err := parseIPOrCIDR(v)
-		if err != nil {
-			return nil, fmt.Errorf("来源白名单 %q 不是 IP 或 CIDR", v)
-		}
-		if p.Bits() == 0 {
-			return nil, errors.New("来源白名单不能包含 0.0.0.0/0 或 ::/0")
-		}
-		out = append(out, p.String())
-	}
-	out = dedupe(out)
-	if len(out) > MaxWhitelistEntries {
-		return nil, fmt.Errorf("来源白名单最多 %d 条", MaxWhitelistEntries)
-	}
-	sort.Strings(out)
-	return out, nil
-}

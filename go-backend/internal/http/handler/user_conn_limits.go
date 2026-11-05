@@ -145,7 +145,9 @@ func (h *Handler) syncUserLandingServersAsync(userID int64) {
 // counted at the rule's entry, so landing Cores exclude it from the user's
 // total (connections and IPs). Names are resolved at most every 10 minutes
 // (failures keep the last addresses); agent-reported addresses (DDNS state)
-// cover nodes with changing IPv6 prefixes. Loopback is always included.
+// cover nodes with changing IPv6 prefixes; a node's last report stays while
+// it is offline (plan 219: no revision churn on reconnects). Loopback is
+// always included.
 const relaySourcesRefresh = 10 * time.Minute
 
 // maxRelaySources bounds the list sent to agents / 妙妙屋 (deduplicated).
@@ -205,7 +207,7 @@ func (h *Handler) landingRelaySources(ctx context.Context) []string {
 	if h.ddns != nil {
 		m := h.ddnsState()
 		m.mu.Lock()
-		for _, a := range m.addrs {
+		for _, a := range m.lastAddrs {
 			for _, ip := range append(append([]string{}, a.V4...), a.V6...) {
 				add(ip)
 			}

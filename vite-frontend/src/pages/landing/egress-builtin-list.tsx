@@ -1,5 +1,4 @@
-import { useEffect, useState } from "react";
-import toast from "react-hot-toast";
+import { useState } from "react";
 import {
   ChevronDown,
   ChevronUp,
@@ -18,16 +17,14 @@ import {
   type AbuseValues,
   type EgressBuiltin,
   type ScanGuardAdmin,
-  saveEgressWhitelist,
-  splitList,
 } from "@/api/landing-egress";
 import { Button } from "@/shadcn-bridge/heroui/button";
-import { Textarea } from "@/shadcn-bridge/heroui/input";
 import { Switch } from "@/shadcn-bridge/heroui/switch";
 
 // Plan 140: the 内置 layer as a list of its real rules, in the rule-list
 // style: the locked safety rule (with its CIDRs), the default anti-abuse
-// rules (admin: global switches) and the source whitelist.
+// rules (admin: global switches) and 禁止端口扫描. Plan 219: the source
+// whitelist row is gone (FLVX nodes are not exempt from source rules).
 // Plan 143: the four 防滥用 rows form one group (SMTP 25, 发信端口,
 // Telnet/SMB, BT); whether a row is in force is a green ✓ / red ✗ at the
 // far right of the row (with the reason as tooltip / small text).
@@ -168,9 +165,6 @@ export function BuiltinRuleList({
   offReasons = {},
   onSwitch,
   switching = false,
-  exemptNodeCount,
-  whitelist,
-  onWhitelistSaved,
   scanGuard,
   onScanSaved,
 }: {
@@ -186,19 +180,12 @@ export function BuiltinRuleList({
   offReasons?: Partial<Record<AbuseKey, AbuseOffReason>>;
   onSwitch?: (next: AbuseValues) => void;
   switching?: boolean;
-  // Admin: FLVX node addresses + the editable admin whitelist.
-  exemptNodeCount?: number;
-  whitelist?: string[];
-  onWhitelistSaved?: (list: string[]) => void;
   // Plan 202: 禁止端口扫描 (admin global view: editable via onScanSaved;
   // node view: read-only with the node's server state).
   scanGuard?: EgressBuiltin["scanGuard"];
   onScanSaved?: (g: ScanGuardAdmin) => void;
 }) {
   const [open, setOpen] = useState(false);
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState((whitelist || []).join("\n"));
-  const [saving, setSaving] = useState(false);
   const anyOn = Object.values(values).some(Boolean);
   // State of one row: in force + the reason shown when it is not.
   const rowState = (key: AbuseKey): { on: boolean; label: string } => {
@@ -218,25 +205,6 @@ export function BuiltinRuleList({
       };
 
     return { on: true, label: "生效中" };
-  };
-
-  useEffect(() => {
-    if (!editing) setDraft((whitelist || []).join("\n"));
-  }, [whitelist, editing]);
-
-  const saveWhitelist = async () => {
-    setSaving(true);
-    const res = await saveEgressWhitelist(splitList(draft));
-
-    setSaving(false);
-    if (res.code !== 0) {
-      toast.error(res.msg || "保存失败");
-
-      return;
-    }
-    toast.success("来源白名单已保存，正在同步");
-    setEditing(false);
-    onWhitelistSaved?.(res.data.whitelist);
   };
 
   return (
@@ -352,91 +320,6 @@ export function BuiltinRuleList({
           onSaved={onScanSaved}
         />
       )}
-      <div className="flex items-start gap-3 p-3">
-        <Lock className="mt-1 shrink-0 text-default-400" size={14} />
-        <div className="min-w-0 flex-1 space-y-1">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="font-medium">来源白名单</span>
-            <Pill tone="green">→ 不受来源规则影响</Pill>
-          </div>
-          {admin && whitelist ? (
-            <>
-              <div className="flex flex-wrap gap-1">
-                <InfoChip
-                  text={`FLVX 节点地址 ${exemptNodeCount ?? 0} 个（自动）`}
-                />
-                <InfoChip
-                  text={`管理员白名单 ${(whitelist || []).length} 条`}
-                />
-              </div>
-              <p className="text-xs text-default-500">
-                来自这些地址的连接不受「来源 IP /
-                来源端口」规则影响（例如禁止大陆直连），经 FLVX
-                节点转发进来的流量自动包含。
-              </p>
-              {editing ? (
-                <div className="space-y-2">
-                  <Textarea
-                    description="每行一个 IP 或 CIDR；保存后自动同步"
-                    label="管理员白名单"
-                    minRows={3}
-                    placeholder={"203.0.113.10\n198.51.100.0/24"}
-                    value={draft}
-                    variant="bordered"
-                    onChange={(event) => setDraft(event.target.value)}
-                  />
-                  <div className="flex justify-end gap-2">
-                    <Button
-                      color="danger"
-                      size="sm"
-                      variant="flat"
-                      onPress={() => {
-                        setEditing(false);
-                        setDraft((whitelist || []).join("\n"));
-                      }}
-                    >
-                      取消
-                    </Button>
-                    <Button
-                      color="success"
-                      isLoading={saving}
-                      size="sm"
-                      onPress={() => void saveWhitelist()}
-                    >
-                      保存白名单
-                    </Button>
-                  </div>
-                </div>
-              ) : (
-                <div className="flex flex-wrap items-center gap-1">
-                  {(whitelist || []).slice(0, 6).map((cidr) => (
-                    <Pill key={cidr} className="font-mono" tone="slate">
-                      {cidr}
-                    </Pill>
-                  ))}
-                  {(whitelist || []).length > 6 && (
-                    <InfoChip text={`等 ${(whitelist || []).length} 条`} />
-                  )}
-                  <Button
-                    className="h-6 min-w-0 px-2 text-xs"
-                    color="primary"
-                    size="sm"
-                    variant="flat"
-                    onPress={() => setEditing(true)}
-                  >
-                    编辑白名单
-                  </Button>
-                </div>
-              )}
-            </>
-          ) : (
-            <p className="text-xs text-default-500">
-              经 FLVX
-              节点转发进来的流量和管理员白名单里的地址，不受来源规则影响。
-            </p>
-          )}
-        </div>
-      </div>
     </div>
   );
 }

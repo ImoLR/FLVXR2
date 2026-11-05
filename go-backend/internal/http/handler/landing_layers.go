@@ -64,7 +64,6 @@ func (h *Handler) compileLandingReport(d *repo.LandingEgressData, mutate func(*r
 	_, geoIP, geoSite, _ := landingEgressSupport(d)
 	in := landingEgressInput(d)
 	in.GeoIP, in.GeoSite = geoIP, geoSite
-	in.Exempt = h.landingExemptSources // cached; status hashes must match the pushed plan
 	if forceNodeRules {
 		// Save checks: judge capacity as if the Core could take them now.
 		in.NodeRules = true

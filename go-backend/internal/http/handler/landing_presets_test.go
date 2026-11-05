@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
@@ -122,8 +123,9 @@ func TestLandingSeededForcedSent(t *testing.T) {
 	if strings.Join(names, ",") != "默认：屏蔽 SMTP 25,默认：屏蔽 BT,屏蔽大陆 IP,屏蔽大陆网站,禁止大陆直连" {
 		t.Fatalf("rules %v", names)
 	}
-	if len(p.ExemptSources) == 0 {
-		t.Fatal("source rule without exempt list")
+	// Plan 219: the source rule travels without an exemption list.
+	if raw, _ := json.Marshal(p); strings.Contains(string(raw), "exempt") {
+		t.Fatalf("plan carries an exemption: %s", raw)
 	}
 	n, _ := e.r.GetLandingNode(1)
 	nv, err := e.h.landingNodeRulesView(n, false)

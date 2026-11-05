@@ -201,8 +201,10 @@ type Node struct {
 	DDNSProviderID int64 `gorm:"column:ddns_provider_id;not null;default:0"`
 	// Plan 149: the public addresses the agent last reported (what ip.sb saw:
 	// the node's real egress, e.g. behind NAT). Never dialed or shown; only
-	// exempted from landing source rules (禁止大陆直连) so forwarded traffic
-	// from this node keeps working.
+	// the chain-upstream guard reads them (plan 108: a 链式代理 upstream must
+	// not be one of our nodes). Plan 219: no longer part of any landing plan
+	// (the source exemption is gone), so a NAT node whose egress flips between
+	// addresses no longer re-pushes every landing.
 	ReportedIPV4 string `gorm:"column:reported_ip_v4;type:varchar(64);not null;default:''" json:"-"`
 	ReportedIPV6 string `gorm:"column:reported_ip_v6;type:varchar(64);not null;default:''" json:"-"`
 	// Plan 154: 节点提示, an admin-written note shown as a ⚠ on the node card.

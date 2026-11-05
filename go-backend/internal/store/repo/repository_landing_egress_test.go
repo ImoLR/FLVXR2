@@ -214,18 +214,10 @@ func TestLandingEgressRepository(t *testing.T) {
 				t.Fatalf("duplicate WARP rows: %d", len(all))
 			}
 
-			// Whitelist and exemption sources.
-			list, err := r.SaveLandingSourceWhitelist([]string{"192.0.2.9", "192.0.2.0/24"})
-			if err != nil || len(list) != 2 {
-				t.Fatalf("whitelist %v %v", list, err)
-			}
-			got, _ := r.GetLandingSourceWhitelist()
-			if strings.Join(got, ",") != "192.0.2.0/24,192.0.2.9/32" {
-				t.Fatalf("stored whitelist %v", got)
-			}
-			hosts, err := r.LandingExemptHosts()
+			// Node addresses for the chain-upstream guard.
+			hosts, err := r.NodeGuardHosts()
 			if err != nil || !containsString(hosts, "203.0.113.1") || !containsString(hosts, "2001:db8::1") || !containsString(hosts, "203.0.113.2") {
-				t.Fatalf("exempt hosts %v %v", hosts, err)
+				t.Fatalf("guard hosts %v %v", hosts, err)
 			}
 
 			// Upstream loop graph: a node override chaining its own server.

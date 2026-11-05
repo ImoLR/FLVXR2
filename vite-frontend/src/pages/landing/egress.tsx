@@ -22,12 +22,10 @@ import {
   outboundTypeLabel,
   proxyProtocolLabel,
   registerEgressWarp,
-  saveEgressWhitelist,
 } from "@/api/landing-egress";
 import { landingDate } from "@/api/landing";
 import { Button } from "@/shadcn-bridge/heroui/button";
 import { Card, CardBody, CardHeader } from "@/shadcn-bridge/heroui/card";
-import { Textarea } from "@/shadcn-bridge/heroui/input";
 import {
   Modal,
   ModalBody,
@@ -82,7 +80,6 @@ export default function LandingEgressTab() {
     text: string;
     run: () => Promise<void>;
   } | null>(null);
-  const [whitelist, setWhitelist] = useState("");
   const [busy, setBusy] = useState("");
 
   const load = useCallback(async () => {
@@ -97,7 +94,6 @@ export default function LandingEgressTab() {
     }
     setError("");
     setOverview(res.data);
-    setWhitelist((res.data.whitelist || []).join("\n"));
   }, []);
 
   useEffect(() => {
@@ -137,14 +133,7 @@ export default function LandingEgressTab() {
           {error}
         </p>
       )}
-      <LandingGlobalRules
-        overview={overview}
-        onSaved={() => void load()}
-        onWhitelistSaved={(list) => {
-          setWhitelist(list.join("\n"));
-          setOverview((prev) => (prev ? { ...prev, whitelist: list } : prev));
-        }}
-      />
+      <LandingGlobalRules overview={overview} onSaved={() => void load()} />
       <div className="grid gap-4 xl:grid-cols-2 xl:items-start">
         <Card>
           <CardHeader className="flex items-start justify-between gap-3">
@@ -415,85 +404,6 @@ export default function LandingEgressTab() {
       </div>
 
       <div className="grid gap-4 xl:grid-cols-2 xl:items-start">
-        <Card>
-          <CardHeader>
-            <div className="min-w-0">
-              <h2 className="font-semibold">来源豁免</h2>
-              <p className="mt-1 text-xs text-default-500">
-                「来源 IP」规则（例如禁止大陆直连）不作用于这些来源
-              </p>
-            </div>
-          </CardHeader>
-          <CardBody className="space-y-4">
-            <div className="space-y-2">
-              <p className="text-sm">
-                FLVX 节点地址：已自动包含全部 {overview.exemptNodeCount}{" "}
-                个，节点增删改后自动更新
-              </p>
-              <div className="flex flex-wrap gap-1">
-                {overview.exemptPreview.map((cidr) => (
-                  <Chip
-                    key={cidr}
-                    className="text-default-600"
-                    size="sm"
-                    variant="bordered"
-                  >
-                    {cidr}
-                  </Chip>
-                ))}
-                {overview.exemptNodeCount > overview.exemptPreview.length && (
-                  <Chip
-                    className="text-default-600"
-                    size="sm"
-                    variant="bordered"
-                  >
-                    等 {overview.exemptNodeCount} 个
-                  </Chip>
-                )}
-              </div>
-            </div>
-            <Textarea
-              description="每行一个 IP 或 CIDR，例如第三方中转的出口地址；保存后约 1 分钟内下发"
-              label="来源白名单"
-              minRows={3}
-              placeholder={"203.0.113.10\n198.51.100.0/24"}
-              value={whitelist}
-              variant="bordered"
-              onChange={(event) => setWhitelist(event.target.value)}
-            />
-            <div className="flex justify-end">
-              <Button
-                color="success"
-                isLoading={busy === "whitelist"}
-                size="sm"
-                onPress={async () => {
-                  setBusy("whitelist");
-                  const res = await saveEgressWhitelist(
-                    whitelist
-                      .split(/[\n,，\s]+/)
-                      .map((v) => v.trim())
-                      .filter(Boolean),
-                  );
-
-                  setBusy("");
-                  if (res.code !== 0) {
-                    toast.error(res.msg);
-
-                    return;
-                  }
-                  setWhitelist(res.data.whitelist.join("\n"));
-                  setOverview((prev) =>
-                    prev ? { ...prev, whitelist: res.data.whitelist } : prev,
-                  );
-                  toast.success("来源白名单已保存");
-                }}
-              >
-                保存白名单
-              </Button>
-            </div>
-          </CardBody>
-        </Card>
-
         <Card>
           <CardHeader>
             <div className="min-w-0">

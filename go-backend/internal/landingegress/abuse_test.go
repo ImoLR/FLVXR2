@@ -52,7 +52,6 @@ func abuseInput(profiles map[int64]Profile, serverProfile int64, nodes ...NodeRe
 			}
 			return PlanOutbound{}, errors.New("missing")
 		},
-		Exempt:  func() ([]string, error) { return nil, nil },
 		GeoIP:   true,
 		GeoSite: true,
 		Abuse:   true,

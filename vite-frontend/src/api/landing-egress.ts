@@ -112,9 +112,6 @@ export interface EgressWarpAccount {
 export interface EgressOverview {
   outbounds: EgressOutbound[];
   profiles: EgressProfile[];
-  whitelist: string[];
-  exemptNodeCount: number;
-  exemptPreview: string[];
   landingNodes: EgressLandingNodeChoice[];
   forwards: EgressForwardChoice[];
   warpAccounts: EgressWarpAccount[];
@@ -412,10 +409,6 @@ export const saveEgressProfile = (p: Partial<EgressProfile>) =>
   });
 export const deleteEgressProfile = (id: number) =>
   Network.post("/landing/egress/profile/delete", { id });
-export const saveEgressWhitelist = (whitelist: string[]) =>
-  Network.post<{ whitelist: string[] }>("/landing/egress/whitelist/save", {
-    whitelist,
-  });
 export const getEgressGlobal = () =>
   Network.post<EgressGlobal>("/landing/egress/global/get", {});
 export const saveEgressGlobal = (g: {

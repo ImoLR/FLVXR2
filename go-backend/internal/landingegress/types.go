@@ -100,7 +100,6 @@ type Plan struct {
 	AllowCoreRestart bool           `json:"allow_core_restart,omitempty"`
 	Outbounds        []PlanOutbound `json:"outbounds"`
 	Rules            []PlanRule     `json:"rules"`
-	ExemptSources    []string       `json:"exempt_sources,omitempty"`
 }
 
 type PlanOutbound struct {
@@ -185,13 +184,11 @@ func (p *Plan) Active() bool { return p != nil && (len(p.Outbounds) > 0 || len(p
 
 // Plan and profile limits (contract landing-egress-v1).
 const (
-	MaxProfileRules     = 64
-	MaxProfileItems     = 2000
-	MaxPlanOutbounds    = 8
-	MaxPlanRules        = 128
-	MaxPlanItems        = 4000
-	MaxExemptSources    = 1024
-	MaxRuleGeoBytes     = 5 << 19 // 2.5 MiB
-	MaxPlanGeoBytes     = 3 << 20 // 3 MiB; the Core API accepts 4 MiB per call
-	MaxWhitelistEntries = 256
+	MaxProfileRules  = 64
+	MaxProfileItems  = 2000
+	MaxPlanOutbounds = 8
+	MaxPlanRules     = 128
+	MaxPlanItems     = 4000
+	MaxRuleGeoBytes  = 5 << 19 // 2.5 MiB
+	MaxPlanGeoBytes  = 3 << 20 // 3 MiB; the Core API accepts 4 MiB per call
 )

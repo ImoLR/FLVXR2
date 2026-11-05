@@ -58,7 +58,6 @@ type CompileInput struct {
 	Nodes            []NodeRef
 	Profiles         map[int64]Profile
 	Resolve          func(outboundID int64) (PlanOutbound, error)
-	Exempt           func() ([]string, error)
 	AllowCoreRestart bool
 	GeoIP, GeoSite   bool
 	// Abuse emits the built-in anti-abuse rules (plan 127) for every node
@@ -822,7 +821,6 @@ func compilePlan(in CompileInput, nodes []NodeRef, forced, deflt []Rule, gdef st
 	chainNotes := in.appendChainRules(plan, nodes)
 	// Limits and capabilities.
 	items, geoBytes := 0, 0
-	sources := false
 	for _, r := range plan.Rules {
 		ip, site := usesGeo(r.IP, r.SourceIP)
 		_, site2 := usesGeo(r.Domain)
@@ -835,7 +833,6 @@ func compilePlan(in CompileInput, nodes []NodeRef, forced, deflt []Rule, gdef st
 		rr := Rule{Domains: r.Domain, IPs: r.IP, SourceIPs: r.SourceIP, Protocols: r.Protocol, Ports: r.Port, SourcePorts: r.SourcePort}
 		items += RuleItems(rr)
 		geoBytes += RuleGeoBytes(rr)
-		sources = sources || len(r.SourceIP) > 0
 	}
 	switch {
 	case len(plan.Outbounds) > MaxPlanOutbounds:
@@ -846,16 +843,6 @@ func compilePlan(in CompileInput, nodes []NodeRef, forced, deflt []Rule, gdef st
 		return nil, warnings, nil, limitError{fmt.Sprintf("同一服务器的匹配条目合计最多 %d 条", MaxPlanItems)}
 	case geoBytes > MaxPlanGeoBytes:
 		return nil, warnings, nil, limitError{"同一服务器上的 geo 分类合计过大（超过 3 MiB），请让节点使用同一个方案或改用更小的分类"}
-	}
-	if sources && in.Exempt != nil {
-		exempt, err := in.Exempt()
-		if err != nil {
-			return nil, warnings, nil, err
-		}
-		if len(exempt) > MaxExemptSources {
-			return nil, warnings, nil, fmt.Errorf("来源豁免地址超过 %d 条", MaxExemptSources)
-		}
-		plan.ExemptSources = exempt
 	}
 	return plan, warnings, chainNotes, nil
 }

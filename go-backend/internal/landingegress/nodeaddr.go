@@ -6,18 +6,20 @@ import (
 	"strings"
 )
 
-// NodeIPv6ExemptBits: an FLVX node's IPv6 address is exempted as its /64
-// (plan 149). Outgoing connections often leave from a temporary (privacy)
-// or another SLAAC address of the same /64 than the one the panel knows, and
-// a /64 belongs to one machine or customer; a missed node address would block
-// forwarded traffic of that node (禁止大陆直连).
-const NodeIPv6ExemptBits = 64
+// NodeIPv6Bits: an FLVX node's IPv6 address counts as its /64. Outgoing
+// connections often leave from another SLAAC address of the same /64 than
+// the one the panel knows, and a /64 belongs to one machine or customer.
+const NodeIPv6Bits = 64
 
-// ExemptSources turns FLVX node addresses (IPs or hostnames) plus the admin
-// whitelist into a sorted CIDR list. Hostnames go through resolve, which the
-// caller caches; unresolvable names are skipped. Node IPv4 addresses are
-// exempt as /32, node IPv6 addresses as their /64; whitelist entries as given.
-func ExemptSources(hosts []string, whitelist []string, resolve func(string) []netip.Addr) []string {
+// NodeAddressPrefixes turns FLVX node addresses (IPs or hostnames) into a
+// sorted CIDR list for the chain-upstream guard (plan 108: a 链式代理 / 外部
+// 节点 upstream must never be one of our nodes). Hostnames go through
+// resolve, which the caller caches; unresolvable names are skipped. IPv4
+// addresses count as /32, IPv6 addresses as their /64.
+//
+// Plan 219: landing plans no longer carry a source exemption list (the
+// former ExemptSources); this helper only serves the guard.
+func NodeAddressPrefixes(hosts []string, resolve func(string) []netip.Addr) []string {
 	set := map[string]bool{}
 	add := func(a netip.Addr) {
 		a = a.Unmap()
@@ -26,7 +28,7 @@ func ExemptSources(hosts []string, whitelist []string, resolve func(string) []ne
 		}
 		bits := a.BitLen()
 		if a.Is6() {
-			bits = NodeIPv6ExemptBits
+			bits = NodeIPv6Bits
 		}
 		p, err := a.Prefix(bits)
 		if err == nil {
@@ -52,11 +54,6 @@ func ExemptSources(hosts []string, whitelist []string, resolve func(string) []ne
 					add(a)
 				}
 			}
-		}
-	}
-	for _, w := range whitelist {
-		if p, err := parseIPOrCIDR(w); err == nil {
-			set[p.String()] = true
 		}
 	}
 	out := make([]string, 0, len(set))
