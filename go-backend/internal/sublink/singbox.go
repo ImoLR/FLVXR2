@@ -216,10 +216,20 @@ func SingBox(nodes []Node, mode string) ([]byte, int) {
 	all := append(groups, outbounds...)
 	all = append(all, jmap{{"type", "direct"}, {"tag", "direct"}})
 
+	// Plan 220: without nodes the select group is only "direct", so a remote
+	// resolver behind it would dial 1.1.1.1 straight from the mainland (times
+	// out) and the rule sets would download from GitHub directly; everything
+	// goes direct anyway, so such a config resolves with CN DoH only.
+	remoteDNS := "dns-remote"
 	dnsServers := []interface{}{
 		jmap{{"type", "https"}, {"tag", "dns-remote"}, {"server", "1.1.1.1"}, {"detour", GroupSelect}},
 		jmap{{"type", "https"}, {"tag", "dns-local"}, {"server", "223.5.5.5"}},
 	}
+	if len(tags) == 0 {
+		remoteDNS = "dns-local"
+		dnsServers = dnsServers[1:]
+	}
+	cn := mode != ModeGlobal && len(tags) > 0
 	dnsRules := []interface{}{}
 	routeRules := []interface{}{
 		jmap{{"action", "sniff"}},
@@ -227,12 +237,12 @@ func SingBox(nodes []Node, mode string) ([]byte, int) {
 		jmap{{"ip_is_private", true}, {"outbound", "direct"}},
 	}
 	route := jmap{}
-	if mode != ModeGlobal {
+	if cn {
 		dnsRules = append(dnsRules, jmap{{"rule_set", "geosite-cn"}, {"server", "dns-local"}})
 		routeRules = append(routeRules, jmap{{"rule_set", []string{"geosite-cn", "geoip-cn"}}, {"outbound", "direct"}})
 	}
 	route.add("rules", routeRules)
-	if mode != ModeGlobal {
+	if cn {
 		route.add("rule_set", []interface{}{
 			jmap{{"type", "remote"}, {"tag", "geosite-cn"}, {"format", "binary"}, {"url", geositeCN}, {"download_detour", GroupSelect}},
 			jmap{{"type", "remote"}, {"tag", "geoip-cn"}, {"format", "binary"}, {"url", geoipCN}, {"download_detour", GroupSelect}},
@@ -246,7 +256,7 @@ func SingBox(nodes []Node, mode string) ([]byte, int) {
 	if len(dnsRules) > 0 {
 		dns.add("rules", dnsRules)
 	}
-	dns.add("final", "dns-remote")
+	dns.add("final", remoteDNS)
 	dns.add("strategy", "prefer_ipv4")
 
 	doc := jmap{

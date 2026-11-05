@@ -229,6 +229,18 @@ func Surge(nodes []Node, mode string, surfboard bool) ([]byte, int) {
 		b.WriteString("skip-proxy = 127.0.0.1, 192.168.0.0/16, 10.0.0.0/8, 172.16.0.0/12, 100.64.0.0/10, localhost, *.local\n")
 	}
 	b.WriteString("dns-server = system, 223.5.5.5, 119.29.29.29\n")
+	if !surfboard {
+		// Plan 220 (as mmwx's Surge profile): IPv6 off like the other
+		// formats; UDP on a policy without UDP relay (HTTP / no-UDP nodes)
+		// is rejected so QUIC falls back to TCP at once instead of going
+		// DIRECT from the mainland and stalling (Surge iOS defaults to
+		// DIRECT); apps asking 8.8.8.8 / 8.8.4.4 directly get Surge's own
+		// DNS; network checks / STUN / consoles keep their real IP.
+		b.WriteString("ipv6 = false\n")
+		b.WriteString("hijack-dns = 8.8.8.8:53, 8.8.4.4:53\n")
+		b.WriteString("udp-policy-not-supported-behaviour = REJECT\n")
+		b.WriteString("always-real-ip = *.msftncsi.com, *.msftconnecttest.com, *.srv.nintendo.net, *.stun.playstation.net, xbox.*.microsoft.com, *.xboxlive.com, stun.*\n")
+	}
 	b.WriteString("proxy-test-url = " + TestURL + "\n")
 	b.WriteString("\n[Proxy]\n")
 	for i := range kept {

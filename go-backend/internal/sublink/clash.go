@@ -238,6 +238,20 @@ var privateCIDRs = []string{
 	"IP-CIDR6,fe80::/10,DIRECT,no-resolve",
 }
 
+// cnDoH: mainland DoH resolvers (AliDNS, DNSPod).
+var cnDoH = []string{"https://223.5.5.5/dns-query", "https://120.53.53.53/dns-query"}
+
+// fakeIPFilter: names that must get their real IP under fake-ip — LAN names,
+// the Windows network check (else Windows shows 「无 Internet」), STUN and
+// game consoles. Plan 220: the list mmwx sends to Stash, plus FLVX's own.
+var fakeIPFilter = []string{
+	"+.lan", "+.local", "localhost.ptlogin2.qq.com",
+	"*.msftncsi.com", "*.msftconnecttest.com",
+	"+.stun.*.*", "+.stun.*.*.*", "+.stun.*.*.*.*", "+.stun.*.*.*.*.*",
+	"lens.l.google.com", "*.n.n.srv.nintendo.net", "+.stun.playstation.net",
+	"xbox.*.*.microsoft.com", "*.*.xboxlive.com",
+}
+
 // Clash renders a mihomo (Clash.Meta) config. 国内直连 is a trimmed mmwx
 // fake-ip template using the client's built-in GEOSITE / GEOIP data (no rule
 // lists downloaded from FLVX); 全部走代理 needs no geo data at all. It returns
@@ -265,22 +279,38 @@ func clashDoc(nodes []Node, mode string, stash bool) (omap, int) {
 			names = append(names, n.Name)
 		}
 	}
+	// Plan 220: from mainland China 1.1.1.1 / 8.8.8.8 DoH time out when
+	// dialled directly, so the foreign resolvers go through the select group
+	// (mihomo "#group" detour) and DIRECT traffic resolves with CN DoH.
+	// Stash has no "#group" detour (only a global follow-rule) and no
+	// direct-nameserver, so it resolves with the CN pair; proxied requests
+	// still carry the domain to the landing (fake-ip). Without nodes the
+	// select group is only DIRECT, so the CN pair is used there as well.
+	nameserver := cnDoH
+	if !stash && len(names) > 0 {
+		nameserver = []string{"https://1.1.1.1/dns-query#" + GroupSelect, "https://8.8.8.8/dns-query#" + GroupSelect}
+	}
 	dns := omap{
 		{"enable", true},
 		{"ipv6", false},
 		{"enhanced-mode", "fake-ip"},
 		{"fake-ip-range", "198.18.0.1/16"},
-		{"fake-ip-filter", []string{"+.lan", "+.local", "localhost.ptlogin2.qq.com"}},
+		{"fake-ip-filter", fakeIPFilter},
 		{"default-nameserver", []string{"223.5.5.5", "119.29.29.29"}},
-		{"nameserver", []string{"https://1.1.1.1/dns-query", "https://8.8.8.8/dns-query"}},
-		{"proxy-server-nameserver", []string{"https://223.5.5.5/dns-query", "https://120.53.53.53/dns-query"}},
+		{"nameserver", nameserver},
 	}
+	if !stash {
+		dns.add("direct-nameserver", cnDoH)
+	}
+	dns.add("proxy-server-nameserver", cnDoH)
 	rules := []string{}
 	if mode == ModeGlobal {
 		rules = append(rules, privateCIDRs...)
 	} else {
-		dns.add("nameserver-policy", omap{{"geosite:cn,private", []string{"https://223.5.5.5/dns-query", "https://120.53.53.53/dns-query"}}})
-		rules = append(rules, "GEOSITE,private,DIRECT", "GEOIP,private,DIRECT,no-resolve", "GEOSITE,cn,DIRECT", "GEOIP,CN,DIRECT")
+		dns.add("nameserver-policy", omap{{"geosite:cn,private", cnDoH}})
+		// no-resolve: a domain outside geosite:cn goes straight to MATCH
+		// instead of being resolved locally first just to test GEOIP.
+		rules = append(rules, "GEOSITE,private,DIRECT", "GEOIP,private,DIRECT,no-resolve", "GEOSITE,cn,DIRECT", "GEOIP,CN,DIRECT,no-resolve")
 	}
 	rules = append(rules, "MATCH,"+GroupSelect)
 	groups := []omap{}
