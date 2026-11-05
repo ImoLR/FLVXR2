@@ -66,7 +66,7 @@ User rule (binding): every state that needs an admin action gets a small ⚠ on 
 - [x] Pick the final style (red ≥ amber in light, not oversized in dark), no clipping / overlap
 - [x] Gates: tsc / build / eslint vs base
 - [x] Re-shoot gallery in place + 「红/黄 三角对比」 close-ups (old vs new red next to amber)
-- [ ] Push, CI green; ledger row 218; final.md / summary.md; cleanup
+- [x] Push, CI green (run 42056670532, code 0fcd0b61); ledger row 218; final.md / summary.md; cleanup
 
 ### Round 2 result
 - Measured visible triangle height (CSS px, ink vs local background): light amber 14 / red r1 11 / red ×1.2 13;
