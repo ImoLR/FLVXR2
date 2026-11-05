@@ -90,6 +90,8 @@ export interface LinkCardLink {
   surge?: string;
   /** plan 193: why a Snell node has no Surge line */
   surgeNote?: string;
+  /** plan 224: the rule's tunnel blocks a protocol feature of the node */
+  blocked?: string;
 }
 
 export function LandingLinkCard({
@@ -125,6 +127,11 @@ export function LandingLinkCard({
           </span>
         )}
       </h3>
+      {link.blocked && (
+        <p className="text-xs font-medium text-warning-600 dark:text-warning-400">
+          ⚠ {link.blocked}，此链接无法连接
+        </p>
+      )}
       {link.url && (
         <p className="break-all rounded bg-default-100 p-2 text-xs">
           {link.url}

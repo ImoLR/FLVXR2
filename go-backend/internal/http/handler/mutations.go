@@ -3251,6 +3251,10 @@ func (h *Handler) forwardCreateWithReq(w http.ResponseWriter, r *http.Request, r
 		response.WriteJSON(w, response.ErrDefault(err.Error()))
 		return
 	}
+	if err := h.landingFilterPreCheck(tunnelID, mode, req); err != nil {
+		response.WriteJSON(w, response.ErrDefault(err.Error()))
+		return
+	}
 	if asInt64(req["landingServerId"], 0) > 0 {
 		lock := &h.landingTargetLocks[uint64(userID)%uint64(len(h.landingTargetLocks))]
 		lock.Lock()
@@ -3273,6 +3277,10 @@ func (h *Handler) forwardCreateWithReq(w http.ResponseWriter, r *http.Request, r
 	}
 	if !isReplay {
 		if err := h.lineMachineTargetError(tunnelID, mode, landingID, explicitLandingTarget(req)); err != nil {
+			response.WriteJSON(w, response.ErrDefault(err.Error()))
+			return
+		}
+		if err := h.landingFilterTargetError(tunnelID, mode, landingID); err != nil {
 			response.WriteJSON(w, response.ErrDefault(err.Error()))
 			return
 		}
@@ -3554,6 +3562,10 @@ func (h *Handler) forwardUpdateWithReq(w http.ResponseWriter, r *http.Request, r
 		response.WriteJSON(w, response.ErrDefault(err.Error()))
 		return
 	}
+	if err := h.landingFilterPreCheck(tunnelID, mode, req); err != nil {
+		response.WriteJSON(w, response.ErrDefault(err.Error()))
+		return
+	}
 	if asInt64(req["landingServerId"], 0) > 0 {
 		lock := &h.landingTargetLocks[uint64(forward.UserID)%uint64(len(h.landingTargetLocks))]
 		lock.Lock()
@@ -3583,6 +3595,10 @@ func (h *Handler) forwardUpdateWithReq(w http.ResponseWriter, r *http.Request, r
 		// Unchanged targets keep working (a rule marked 不合规 stays editable);
 		// any new target or tunnel must follow the 线路机 rules.
 		if err := h.lineMachineTargetError(tunnelID, mode, landingID, explicitLandingTarget(req) || (landingID > 0 && landingID == forward.LandingNodeID)); err != nil {
+			response.WriteJSON(w, response.ErrDefault(err.Error()))
+			return
+		}
+		if err := h.landingFilterTargetError(tunnelID, mode, landingID); err != nil {
 			response.WriteJSON(w, response.ErrDefault(err.Error()))
 			return
 		}
@@ -4384,6 +4400,11 @@ func (h *Handler) forwardBatchChangeTunnel(w http.ResponseWriter, r *http.Reques
 			continue
 		}
 		if err := h.lineMachineTargetError(req.TargetTunnelID, forward.Mode, forward.LandingNodeID, forward.LandingNodeID > 0); err != nil {
+			fail++
+			failures = appendBatchFailure(failures, id, forward.Name, err)
+			continue
+		}
+		if err := h.landingFilterTargetError(req.TargetTunnelID, forward.Mode, forward.LandingNodeID); err != nil {
 			fail++
 			failures = appendBatchFailure(failures, id, forward.Name, err)
 			continue

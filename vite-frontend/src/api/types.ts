@@ -307,6 +307,8 @@ export interface ForwardClientIPsApiData {
 
 export interface UserTunnelApiItem {
   exitRegions?: string[];
+  // Plan 224: what the entry protocol filter blocks ("tls" / "http").
+  blockedFeatures?: string[];
   // name: the tunnel name rendered for this entry ({入口}, plan 152).
   entryGroups?: Array<{ key: string; label: string; region: string; name?: string }>;
   // 线路分组 covering this tunnel's entryGroups keys ([] = all entries).

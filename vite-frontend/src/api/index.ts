@@ -320,6 +320,22 @@ export const updateTunnel = (data: TunnelMutationPayload) =>
   Network.post("/tunnel/update", data);
 export const deleteTunnel = (id: number) =>
   Network.post("/tunnel/delete", { id });
+// Plan 224: rules that stop working once 屏蔽 TLS / HTTP is turned on.
+export interface TunnelFilterAffectedRule {
+  id: number;
+  name: string;
+  userName: string;
+  feature: string;
+}
+export const tunnelFilterAffected = (data: {
+  id: number;
+  tls: number;
+  http: number;
+}) =>
+  Network.post<{ count: number; rules: TunnelFilterAffectedRule[] }>(
+    "/tunnel/filter-affected",
+    data,
+  );
 export const previewTunnelDelete = (id: number) =>
   Network.post<TunnelDeletePreviewApiData>("/tunnel/delete-preview", { id });
 export const deleteTunnelWithForwards = (data: {

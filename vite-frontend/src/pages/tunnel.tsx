@@ -87,6 +87,8 @@ import {
   batchRedeployTunnels,
   previewBatchTunnelDelete,
   previewTunnelDelete,
+  tunnelFilterAffected,
+  type TunnelFilterAffectedRule,
   applyPathTunnel,
   deletePathTunnel,
   getPathTunnelDetail,
@@ -618,6 +620,39 @@ export default function TunnelPage() {
   const diagnosisAbortRef = useRef<AbortController | null>(null);
   // 表单状态
   const [form, setForm] = useState<TunnelForm>(createTunnelFormDefaults());
+  // Plan 224: rules the newly turned-on 屏蔽 TLS / HTTP would break.
+  const [filterAffected, setFilterAffected] = useState<
+    TunnelFilterAffectedRule[]
+  >([]);
+  const savedFilter = tunnels.find((tunnel) => tunnel.id === form.id);
+  const turningOnTLS = form.tls === 1 && savedFilter?.tls !== 1;
+  const turningOnHTTP = form.http === 1 && savedFilter?.http !== 1;
+
+  useEffect(() => {
+    if (
+      !modalOpen ||
+      !isEdit ||
+      !form.id ||
+      (!turningOnTLS && !turningOnHTTP)
+    ) {
+      setFilterAffected([]);
+
+      return;
+    }
+    let disposed = false;
+
+    void tunnelFilterAffected({
+      id: form.id,
+      tls: turningOnTLS ? 1 : 0,
+      http: turningOnHTTP ? 1 : 0,
+    }).then((res) => {
+      if (!disposed && res.code === 0) setFilterAffected(res.data?.rules || []);
+    });
+
+    return () => {
+      disposed = true;
+    };
+  }, [modalOpen, isEdit, form.id, turningOnTLS, turningOnHTTP]);
   // 表单验证错误
   const [errors, setErrors] = useState<{ [key: string]: string }>({});
   // 👇 新增这行：用于暂存正在编辑中的文本框内容，防止逗号被吞
@@ -5633,6 +5668,33 @@ export default function TunnelPage() {
                       仅对 GOST 模式的 TCP 转发生效；UDP 和 nftables
                       模式转发不会过滤。
                     </div>
+                        {filterAffected.length > 0 && (
+                          <div
+                            data-filter-affected
+                            className="text-xs font-medium text-warning-600 dark:text-warning-400 mt-2"
+                          >
+                            ⚠ 开启后此隧道上 {filterAffected.length}{" "}
+                            条规则将无法连接（落地节点协议带{" "}
+                            {Array.from(
+                              new Set(
+                                filterAffected.map((rule) =>
+                                  rule.feature.toUpperCase(),
+                                ),
+                              ),
+                            ).join(" / ")}{" "}
+                            特征）：
+                            {filterAffected
+                              .slice(0, 10)
+                              .map((rule) =>
+                                rule.userName
+                                  ? `${rule.name}（${rule.userName}）`
+                                  : rule.name,
+                              )
+                              .join("、")}
+                            {filterAffected.length > 10 ? " 等" : ""}
+                            。仍可保存，规则不会被修改或删除。
+                          </div>
+                        )}
                   </div>
                 </div>
                 <Alert

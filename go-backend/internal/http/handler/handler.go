@@ -373,6 +373,8 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("/api/v1/tunnel/region", h.tunnelRegionUpdate)
 	mux.HandleFunc("/api/v1/tunnel/delete", h.tunnelDelete)
 	mux.HandleFunc("/api/v1/tunnel/delete-preview", h.tunnelDeletePreview)
+	// Plan 224: tunnel edit warning before 屏蔽 TLS / HTTP is turned on.
+	mux.HandleFunc("/api/v1/tunnel/filter-affected", h.tunnelFilterAffected)
 	mux.HandleFunc("/api/v1/tunnel/delete-with-forwards", h.tunnelDeleteWithForwards)
 	mux.HandleFunc("/api/v1/tunnel/batch-delete-preview", h.tunnelBatchDeletePreview)
 	mux.HandleFunc("/api/v1/tunnel/batch-delete-with-forwards", h.tunnelBatchDeleteWithForwards)

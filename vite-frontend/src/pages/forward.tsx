@@ -212,6 +212,8 @@ export interface Forward {
 }
 interface Tunnel {
   lineMachine?: boolean;
+  // Plan 224: what the entry protocol filter blocks ("tls" / "http").
+  blockedFeatures?: string[];
   chainAvailable?: boolean;
   chainUnavailableReason?: string;
   entryGroups?: Array<{ key: string; label: string; region: string; name?: string }>;
