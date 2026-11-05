@@ -44,6 +44,11 @@ release. Avoid 211's files (node-details, server-settings, shared-caps, user-set
   admin 出站与路由 page pixel-identical (5 sections). Before (fork.115, H5):
   「放行谷歌/苹果」 squeezed to 84 px (user) / 36 px (admin) and cut off.
 - Gallery: http://104.145.236.29:8791/node-rules-align/
+- Merges cleanly with 211 / 212 / 213 (git merge-tree, 0 conflicts); none of 211's
+  files touched.
+- Open: read-only layers show matcher counts only (API sends counts; showing values
+  needs a backend change + a decision whether users may see global rule contents);
+  desktop now defaults to collapsed like H5. Release waits for screenshot approval.
 
 ## Checklist
 - [x] Worktree + branch from fork.115, plan doc
@@ -57,6 +62,6 @@ release. Avoid 211's files (node-details, server-settings, shared-caps, user-set
 - [x] Demo panel seeded like prod + before/after screenshots (H5 390 / desktop 1440,
       light/dark, collapsed/expanded, user/admin), 390 px overlap check
 - [x] Gallery /root/mmwx-preview/node-rules-align/ (index.html, pairs side by side)
-- [ ] Commit, push, CI green
-- [ ] RELEASE-LEDGER row (built — screens pending user approval)
-- [ ] Cleanup demo panel / browsers; final.md + summary.md
+- [x] Commit, push, CI green (316c59fe, CI 41999004686 success)
+- [x] RELEASE-LEDGER row (built — screens pending user approval)
+- [x] Cleanup demo panel / browsers; final.md + summary.md (runs/node-rules-align)
