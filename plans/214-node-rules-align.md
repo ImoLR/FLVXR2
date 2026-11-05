@@ -97,8 +97,8 @@ Approach:
 - [x] Default open state (desktop expanded / H5 collapsed)
 - [x] tsc / build / lint vs fork.115; bundle delta
 - [x] Demo screenshots fork.115 vs r2 (内置 pair first), one-line/overlap/scroll auto-check
-- [ ] Gallery regenerated; commit, push, CI green
-- [ ] Ledger row → built r2; cleanup; final.md + summary.md
+- [x] Gallery regenerated; commit, push, CI green (code 49e84b03, CI 42009005072 success)
+- [x] Ledger row → built r2; cleanup; final.md + summary.md
 
 r2 results: tsc 0 errors, eslint no new warnings (3 pre-existing in enable-button.tsx),
 build ok. Bundle vs fork.115: +4.77 kB raw / +1.02 kB gzip (egress-rule-list +7.6,
