@@ -5,11 +5,11 @@ import { BuiltinCompactRows, BuiltinRuleList } from "./egress-builtin-list";
 import { EgressRuleList } from "./egress-rule-list";
 import { LandingTone, Pill } from "./pill";
 import {
-  CompactRuleRow,
   EmptyLayer,
   LayerStep,
   LayerToggle,
   RuleRows,
+  SummaryRuleRow,
   layerTones,
 } from "./rule-layers";
 
@@ -17,6 +17,7 @@ import {
   EgressRule,
   NodeRulesView,
   getNodeRules,
+  outboundShortLabel,
   saveNodeRules,
 } from "@/api/landing-egress";
 import { useMobileBreakpoint } from "@/hooks/useMobileBreakpoint";
@@ -37,6 +38,15 @@ import { Spinner } from "@/shadcn-bridge/heroui/spinner";
 // is always visible (「暂无」 when empty), rows are one line with the matchers
 // behind 「详情」 (collapsed on H5), and 内置 collapses to one line per rule on
 // H5. Rule semantics, order, editing and saving are unchanged.
+// Plan 214: 内置 stays exactly as in fork.115; every other layer uses an
+// exact clone of the 内置 one-line row (name with ellipsis, short action
+// chip, ✓ / ✗ at the far right, never wrapping) and one 「展开详情」 toggle
+// per layer header instead of a 「详情」 button on every rule. Like 内置 in
+// fork.115, layers start expanded on desktop and collapsed on H5.
+
+type LayerKey = "builtin" | "forced" | "node" | "server" | "default";
+
+const chainOff = "未生效：已开启链式代理，只有封锁规则生效";
 
 const stateChip: Record<
   NodeRulesView["state"],
@@ -69,8 +79,20 @@ export function NodeRulesDialog({
   const [def, setDef] = useState("");
   const [saving, setSaving] = useState(false);
   const [confirmDiscard, setConfirmDiscard] = useState(false);
+  const [openLayers, setOpenLayers] = useState<
+    Partial<Record<LayerKey, boolean>>
+  >({});
   const isMobile = useMobileBreakpoint();
-  const [builtinOpen, setBuiltinOpen] = useState(false);
+  const isOpen = (key: LayerKey) => openLayers[key] ?? !isMobile;
+  const toggle = (key: LayerKey, title: string) => (
+    <LayerToggle
+      layer={title}
+      open={isOpen(key)}
+      onToggle={() =>
+        setOpenLayers((prev) => ({ ...prev, [key]: !isOpen(key) }))
+      }
+    />
+  );
 
   useEffect(() => {
     let disposed = false;
@@ -96,11 +118,16 @@ export function NodeRulesDialog({
     () =>
       (view?.outbounds || [])
         .filter((o) => o.allowed)
-        .map((o) => ({ id: o.id, name: o.name })),
+        .map((o) => ({ id: o.id, name: o.name, short: outboundShortLabel(o) })),
     [view],
   );
   const labelChoices = useMemo(
-    () => (view?.outbounds || []).map((o) => ({ id: o.id, name: o.name })),
+    () =>
+      (view?.outbounds || []).map((o) => ({
+        id: o.id,
+        name: o.name,
+        short: outboundShortLabel(o),
+      })),
     [view],
   );
 
@@ -169,6 +196,9 @@ export function NodeRulesDialog({
   const serverCount = view.server.rules
     ? serverRules.length
     : view.server.ruleCount || 0;
+  // Plan 177: a chained node keeps only the block rules of every layer.
+  const inactiveOf = (action: string) =>
+    chainName && action !== "block" ? chainOff : undefined;
   const builtinOn =
     1 +
     (Object.values(builtinValues).filter(Boolean).length as number) +
@@ -245,31 +275,23 @@ export function NodeRulesDialog({
               aria-label="匹配顺序（从上到下，先命中先生效）"
             >
               <LayerStep
-                aside={
-                  isMobile ? (
-                    <LayerToggle
-                      label={["展开详情", "收起"]}
-                      open={builtinOpen}
-                      onToggle={() => setBuiltinOpen((v) => !v)}
-                    />
-                  ) : undefined
-                }
+                aside={toggle("builtin", "内置")}
                 count={`${builtinOn} 条`}
                 hint="最先匹配，不能放行"
                 index={1}
                 title="内置"
                 tone={layerTones.builtin}
               >
-                {isMobile && !builtinOpen ? (
-                  <BuiltinCompactRows
+                {isOpen("builtin") ? (
+                  <BuiltinRuleList
                     offReasons={builtin.offReasons}
+                    safety={builtin.safety}
                     scanGuard={builtin.scanGuard}
                     values={builtinValues}
                   />
                 ) : (
-                  <BuiltinRuleList
+                  <BuiltinCompactRows
                     offReasons={builtin.offReasons}
-                    safety={builtin.safety}
                     scanGuard={builtin.scanGuard}
                     values={builtinValues}
                   />
@@ -277,6 +299,10 @@ export function NodeRulesDialog({
               </LayerStep>
 
               <LayerStep
+                hintBelow
+                aside={
+                  forced.length ? toggle("forced", "全局·强制") : undefined
+                }
                 count={countText(forced.length)}
                 hint="管理员强制，不能覆盖"
                 index={2}
@@ -286,10 +312,11 @@ export function NodeRulesDialog({
                 {forced.length ? (
                   <RuleRows>
                     {forced.map((rule) => (
-                      <CompactRuleRow
+                      <SummaryRuleRow
                         key={rule.id}
                         locked
-                        defaultOpen={!isMobile}
+                        inactive={inactiveOf(rule.action)}
+                        open={isOpen("forced")}
                         rule={rule}
                       />
                     ))}
@@ -306,6 +333,8 @@ export function NodeRulesDialog({
               </LayerStep>
 
               <LayerStep
+                hintBelow
+                aside={rules.length ? toggle("node", "我的规则") : undefined}
                 count={countText(rules.length)}
                 hint="只作用于这个节点，可覆盖下面的规则"
                 index={3}
@@ -314,7 +343,6 @@ export function NodeRulesDialog({
               >
                 {open || rules.length ? (
                   <EgressRuleList
-                    collapseDetails
                     hideSource
                     presets
                     addHint={
@@ -325,8 +353,11 @@ export function NodeRulesDialog({
                     builtinActive={builtinValues}
                     canAdd={canAdd}
                     choices={choices}
+                    detailsOpen={isOpen("node")}
                     emptyText="还没有规则：按下面的服务器规则和默认出站转发"
+                    inactiveReason={(rule) => inactiveOf(rule.action)}
                     labels={labelChoices}
+                    layout="layer"
                     numberFrom={1}
                     rules={rules}
                     safety={builtin.safety}
@@ -352,15 +383,19 @@ export function NodeRulesDialog({
               </LayerStep>
 
               <LayerStep
+                hintBelow
                 aside={
-                  <Pill
-                    title="服务器的路由方案（没有方案时为默认）"
-                    tone={layerTones.server}
-                  >
-                    {view.server.profileName
-                      ? `${view.server.profileName} · ${view.server.label}`
-                      : view.server.label}
-                  </Pill>
+                  <span className="flex items-center gap-2">
+                    <Pill
+                      title="服务器的路由方案（没有方案时为默认）"
+                      tone={layerTones.server}
+                    >
+                      {view.server.profileName
+                        ? `${view.server.profileName} · ${view.server.label}`
+                        : view.server.label}
+                    </Pill>
+                    {serverRules.length > 0 && toggle("server", "服务器规则")}
+                  </span>
                 }
                 count={countText(serverCount)}
                 hint="可被你的规则覆盖"
@@ -371,10 +406,11 @@ export function NodeRulesDialog({
                 {serverRules.length ? (
                   <RuleRows>
                     {serverRules.map((rule) => (
-                      <CompactRuleRow
+                      <SummaryRuleRow
                         key={`s-${rule.id}`}
-                        defaultOpen={!isMobile}
+                        inactive={inactiveOf(rule.action)}
                         locked={false}
+                        open={isOpen("server")}
                         rule={rule}
                       />
                     ))}
@@ -391,6 +427,12 @@ export function NodeRulesDialog({
               </LayerStep>
 
               <LayerStep
+                hintBelow
+                aside={
+                  globalDefault.length
+                    ? toggle("default", "全局·默认")
+                    : undefined
+                }
                 count={countText(globalDefault.length)}
                 hint="前面都没命中时使用，可被你的规则覆盖"
                 index={5}
@@ -400,10 +442,11 @@ export function NodeRulesDialog({
                 {globalDefault.length ? (
                   <RuleRows>
                     {globalDefault.map((rule) => (
-                      <CompactRuleRow
+                      <SummaryRuleRow
                         key={`d-${rule.id}`}
-                        defaultOpen={!isMobile}
+                        inactive={inactiveOf(rule.action)}
                         locked={false}
+                        open={isOpen("default")}
                         rule={rule}
                       />
                     ))}

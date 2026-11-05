@@ -508,6 +508,21 @@ export const outboundTypeLabel: Record<EgressOutboundType, string> = {
   landing_node: "FLVX 落地节点",
 };
 
+/**
+ * Plan 214: the short outbound name for a rule chip — the same wording the
+ * panel uses for 全局·强制 rules (landingegress.ActionLabel): WARP / 代理 /
+ * FLVX 落地节点 by type, else 强制 IPv4 / 强制 IPv6 / 直连 by IP version.
+ */
+export const outboundShortLabel = (o: {
+  type: EgressOutboundType;
+  ipVersion?: string;
+}) =>
+  o.type !== "direct"
+    ? outboundTypeLabel[o.type] || "直连"
+    : o.ipVersion === "force_ipv4" || o.ipVersion === "force_ipv6"
+      ? ipVersionLabel(o.ipVersion)
+      : "直连";
+
 export const outboundTypeColor: Record<
   EgressOutboundType,
   "success" | "secondary" | "warning" | "primary"

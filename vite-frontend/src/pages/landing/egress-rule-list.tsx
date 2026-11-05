@@ -11,6 +11,13 @@ import {
 } from "lucide-react";
 
 import { StateIcon } from "./egress-builtin-list";
+import {
+  LayerRuleRow,
+  NumberLead,
+  actionWords,
+  editableDetails,
+} from "./layer-rule-row";
+import { RuleRows } from "./rule-layers";
 import { Pill, actionTone } from "./pill";
 import { RuleEditor } from "./egress-rule-editor";
 import { PresetPicker } from "./egress-preset-picker";
@@ -37,7 +44,10 @@ import { Switch } from "@/shadcn-bridge/heroui/switch";
 
 type Move = "top" | "up" | "down" | "bottom";
 
-export type RuleChoice = { id: number; name: string };
+// `short`: the chip form of the outbound (「强制 IPv4」, 「直连」 …) shown on the
+// collapsed 我的规则 row, the same wording 全局·强制 uses; the full name stays
+// in 展开详情 (「命中后」).
+export type RuleChoice = { id: number; name: string; short?: string };
 
 function moveRule(rules: EgressRule[], index: number, move: Move) {
   const next = [...rules];
@@ -65,6 +75,17 @@ export const choiceLabel = (action: string, choices: RuleChoice[]) => {
   return choices.find((o) => o.id === id)?.name || "已删除的出站";
 };
 
+const choiceChip = (action: string, choices: RuleChoice[]) => {
+  const id = action.startsWith("outbound:")
+    ? Number(action.replace("outbound:", ""))
+    : 0;
+
+  return (
+    (id && choices.find((o) => o.id === id)?.short) ||
+    choiceLabel(action, choices)
+  );
+};
+
 export function EgressRuleList({
   rules,
   onChange,
@@ -81,7 +102,9 @@ export function EgressRuleList({
   defaultChoice,
   savePreset = false,
   askOption = false,
-  collapseDetails = false,
+  layout = "list",
+  detailsOpen = false,
+  inactiveReason,
 }: {
   rules: EgressRule[];
   onChange: (rules: EgressRule[]) => void;
@@ -104,16 +127,20 @@ export function EgressRuleList({
   defaultChoice?: number;
   savePreset?: boolean;
   askOption?: boolean;
-  // Plan 149 (路由规则 dialog): on H5 the matcher chips sit behind 「详情」.
-  collapseDetails?: boolean;
+  // Plan 214 (路由规则 dialog): 「layer」 = the shared layer rows of the
+  // dialog (tinted box, ✓ / ✗ at the far right, matchers opened by the
+  // layer's 「展开详情」 = detailsOpen); every control stays the same.
+  layout?: "list" | "layer";
+  detailsOpen?: boolean;
+  // Why an enabled rule does not apply (e.g. 链式代理: only block rules).
+  inactiveReason?: (rule: EgressRule) => string | undefined;
 }) {
   const isMobile = useMobileBreakpoint();
-  const [openDetails, setOpenDetails] = useState<Record<string, boolean>>({});
-  const folded = collapseDetails && isMobile;
   const [editing, setEditing] = useState<{
     index: number;
     rule: EgressRule;
   } | null>(null);
+  const [deleting, setDeleting] = useState<string | null>(null);
 
   const moves = (index: number) =>
     (
@@ -124,6 +151,194 @@ export function EgressRuleList({
         ["bottom", "置底", ChevronsDown, index < rules.length - 1],
       ] as const
     ).filter(([, , , possible]) => possible);
+
+  // Row controls of the list layout: 停用/启用, 置顶…置底 (desktop) or the
+  // 「更多」 menu (H5), 编辑, 删除.
+  const controls = (rule: EgressRule, index: number) => (
+    <>
+      {!rule.enabled && (
+        <StateIcon label="未生效：已停用，不会下发" on={false} />
+      )}
+      <Switch
+        aria-label={rule.enabled ? "停用规则" : "启用规则"}
+        isSelected={rule.enabled}
+        onValueChange={(enabled) =>
+          onChange(rules.map((r, i) => (i === index ? { ...r, enabled } : r)))
+        }
+      />
+      {!isMobile &&
+        (
+          [
+            ["top", "置顶", ChevronsUp, index === 0],
+            ["up", "上移", ChevronUp, index === 0],
+            ["down", "下移", ChevronDown, index === rules.length - 1],
+            ["bottom", "置底", ChevronsDown, index === rules.length - 1],
+          ] as const
+        ).map(([move, label, Icon, disabled]) => (
+          <Button
+            key={move}
+            isIconOnly
+            aria-label={`${label}规则`}
+            isDisabled={disabled}
+            size="sm"
+            title={label}
+            variant="light"
+            onPress={() => onChange(moveRule(rules, index, move))}
+          >
+            <Icon size={16} />
+          </Button>
+        ))}
+      <Button
+        isIconOnly
+        aria-label="编辑规则"
+        color="primary"
+        size="sm"
+        title="编辑"
+        variant="flat"
+        onPress={() => setEditing({ index, rule })}
+      >
+        <Pencil size={16} />
+      </Button>
+      {isMobile ? (
+        <Dropdown placement="bottom-end">
+          <DropdownTrigger>
+            <Button isIconOnly aria-label="更多操作" size="sm" variant="light">
+              <MoreHorizontal size={18} />
+            </Button>
+          </DropdownTrigger>
+          <DropdownMenu aria-label="规则操作">
+            {[
+              ...moves(index).map(([move, label, Icon]) => (
+                <DropdownItem
+                  key={move}
+                  startContent={<Icon size={16} />}
+                  onPress={() => onChange(moveRule(rules, index, move))}
+                >
+                  {label}
+                </DropdownItem>
+              )),
+              <DropdownItem
+                key="delete"
+                color="danger"
+                startContent={<Trash2 size={16} />}
+                onPress={() => onChange(rules.filter((_, i) => i !== index))}
+              >
+                删除
+              </DropdownItem>,
+            ]}
+          </DropdownMenu>
+        </Dropdown>
+      ) : (
+        <Button
+          isIconOnly
+          aria-label="删除规则"
+          color="danger"
+          size="sm"
+          title="删除"
+          variant="flat"
+          onPress={() => onChange(rules.filter((_, i) => i !== index))}
+        >
+          <Trash2 size={16} />
+        </Button>
+      )}
+    </>
+  );
+
+  // Plan 214 r3: 我的规则 actions live in the layer's 「展开详情」, under each
+  // rule's matchers: 启用 switch + flat tinted pills (编辑, 上移…置底, 删除).
+  // The moves that can't happen at the ends are hidden, like the r2 menu.
+  // 删除 asks once inline (still only applied by the dialog's 「保存」).
+  const pill = "h-7 rounded-full px-2.5 gap-1";
+  const layerActions = (rule: EgressRule, index: number) => (
+    <div
+      className="mt-2 flex flex-wrap items-center gap-1.5"
+      data-rule-actions={rule.id}
+    >
+      <span className="mr-1 inline-flex items-center gap-1.5">
+        <Switch
+          aria-label={rule.enabled ? "停用规则" : "启用规则"}
+          id={`rule-enable-${rule.id}`}
+          isSelected={rule.enabled}
+          onValueChange={(enabled) =>
+            onChange(rules.map((r, i) => (i === index ? { ...r, enabled } : r)))
+          }
+        />
+        <label
+          className="cursor-pointer text-xs font-semibold text-default-600"
+          htmlFor={`rule-enable-${rule.id}`}
+        >
+          启用
+        </label>
+      </span>
+      <Button
+        className={pill}
+        color="primary"
+        size="sm"
+        startContent={<Pencil size={14} />}
+        variant="flat"
+        onPress={() => setEditing({ index, rule })}
+      >
+        编辑
+      </Button>
+      {(
+        [
+          ["up", "上移", index > 0],
+          ["down", "下移", index < rules.length - 1],
+          ["top", "置顶", index > 0],
+          ["bottom", "置底", index < rules.length - 1],
+        ] as const
+      )
+        .filter(([, , possible]) => possible)
+        .map(([move, label]) => (
+          // Text only, so the 7 actions fit 2 lines on a 390 px phone.
+          <Button
+            key={move}
+            className={pill}
+            size="sm"
+            variant="flat"
+            onPress={() => onChange(moveRule(rules, index, move))}
+          >
+            {label}
+          </Button>
+        ))}
+      {deleting === rule.id ? (
+        <>
+          <Button
+            className={pill}
+            color="danger"
+            size="sm"
+            startContent={<Trash2 size={14} />}
+            onPress={() => {
+              setDeleting(null);
+              onChange(rules.filter((_, i) => i !== index));
+            }}
+          >
+            确认删除
+          </Button>
+          <Button
+            className={pill}
+            color="danger"
+            size="sm"
+            variant="flat"
+            onPress={() => setDeleting(null)}
+          >
+            取消
+          </Button>
+        </>
+      ) : (
+        <Button
+          className={pill}
+          color="danger"
+          size="sm"
+          startContent={<Trash2 size={14} />}
+          variant="flat"
+          onPress={() => setDeleting(rule.id)}
+        >
+          删除
+        </Button>
+      )}
+    </div>
+  );
 
   return (
     <div className="space-y-2">
@@ -153,53 +368,71 @@ export function EgressRuleList({
           </Button>
         )}
       </div>
-      <div className="divide-y divide-divider rounded-lg border border-divider">
-        {rules.map((rule, index) => (
-          <div
-            key={rule.id}
-            className={`flex flex-col gap-2 p-3 sm:flex-row sm:items-start sm:justify-between ${rule.enabled ? "" : "opacity-60"}`}
-          >
-            <div className="flex min-w-0 flex-1 items-start gap-3">
-              <span className="mt-0.5 w-6 shrink-0 text-right text-sm text-default-400">
-                {numberFrom + index}
-              </span>
-              <div className="min-w-0 flex-1 space-y-1">
-                <div className="flex flex-wrap items-center gap-2">
-                  <span
-                    className={
-                      folded
-                        ? "min-w-0 truncate font-medium"
-                        : "break-all font-medium"
-                    }
-                    title={rule.name || `规则 ${index + 1}`}
-                  >
-                    {rule.name || `规则 ${index + 1}`}
-                  </span>
-                  <Pill tone={actionTone(rule.action)}>
-                    → {choiceLabel(rule.action, labels || choices)}
-                  </Pill>
-                  {folded && ruleAttributeChips(rule).length > 0 && (
-                    <button
-                      aria-expanded={!!openDetails[rule.id]}
-                      className="inline-flex h-6 items-center gap-0.5 rounded-full px-1.5 text-xs text-default-500 hover:bg-default-200/70"
-                      type="button"
-                      onClick={() =>
-                        setOpenDetails((prev) => ({
-                          ...prev,
-                          [rule.id]: !prev[rule.id],
-                        }))
-                      }
+      {layout === "layer" ? (
+        rules.length ? (
+          <RuleRows>
+            {rules.map((rule, index) => {
+              const label = choiceLabel(rule.action, labels || choices);
+              const off = rule.enabled ? inactiveReason?.(rule) : undefined;
+              const state = !rule.enabled
+                ? { on: false, label: "未生效：已停用，不会下发" }
+                : off
+                  ? { on: false, label: off }
+                  : { on: true, label: "已启用" };
+
+              return (
+                <LayerRuleRow
+                  key={rule.id}
+                  // r3: the same row as 全局·强制 (chip on H5 too); the
+                  // switch + actions only under 展开详情.
+                  action={{
+                    label: choiceChip(rule.action, labels || choices),
+                    tone: actionTone(rule.action),
+                  }}
+                  actions={layerActions(rule, index)}
+                  dataKey={rule.id}
+                  details={[
+                    ...editableDetails(rule),
+                    { label: "命中后", value: actionWords(rule.action, label) },
+                  ]}
+                  dim={!state.on}
+                  lead={<NumberLead n={numberFrom + index} />}
+                  name={rule.name || `规则 ${index + 1}`}
+                  offNote={state.on ? undefined : state.label}
+                  open={detailsOpen}
+                  state={state}
+                />
+              );
+            })}
+          </RuleRows>
+        ) : (
+          <p className="rounded-lg bg-default-100/60 px-3 py-2 text-xs text-default-500 dark:bg-default-50/60">
+            {emptyText}
+          </p>
+        )
+      ) : (
+        <div className="divide-y divide-divider rounded-lg border border-divider">
+          {rules.map((rule, index) => (
+            <div
+              key={rule.id}
+              className={`flex flex-col gap-2 p-3 sm:flex-row sm:items-start sm:justify-between ${rule.enabled ? "" : "opacity-60"}`}
+            >
+              <div className="flex min-w-0 flex-1 items-start gap-3">
+                <span className="mt-0.5 w-6 shrink-0 text-right text-sm text-default-400">
+                  {numberFrom + index}
+                </span>
+                <div className="min-w-0 flex-1 space-y-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span
+                      className="break-all font-medium"
+                      title={rule.name || `规则 ${index + 1}`}
                     >
-                      详情
-                      {openDetails[rule.id] ? (
-                        <ChevronUp size={13} />
-                      ) : (
-                        <ChevronDown size={13} />
-                      )}
-                    </button>
-                  )}
-                </div>
-                {(!folded || openDetails[rule.id]) && (
+                      {rule.name || `规则 ${index + 1}`}
+                    </span>
+                    <Pill tone={actionTone(rule.action)}>
+                      → {choiceLabel(rule.action, labels || choices)}
+                    </Pill>
+                  </div>
                   <div className="flex flex-wrap gap-1">
                     {ruleAttributeChips(rule).map((chip) => (
                       <Pill key={chip} tone="slate">
@@ -207,118 +440,20 @@ export function EgressRuleList({
                       </Pill>
                     ))}
                   </div>
-                )}
+                </div>
+              </div>
+              <div className="flex shrink-0 items-center gap-1 self-end sm:self-auto">
+                {controls(rule, index)}
               </div>
             </div>
-            <div className="flex shrink-0 items-center gap-1 self-end sm:self-auto">
-              {!rule.enabled && (
-                <StateIcon label="未生效：已停用，不会下发" on={false} />
-              )}
-              <Switch
-                aria-label={rule.enabled ? "停用规则" : "启用规则"}
-                isSelected={rule.enabled}
-                onValueChange={(enabled) =>
-                  onChange(
-                    rules.map((r, i) => (i === index ? { ...r, enabled } : r)),
-                  )
-                }
-              />
-              {!isMobile &&
-                (
-                  [
-                    ["top", "置顶", ChevronsUp, index === 0],
-                    ["up", "上移", ChevronUp, index === 0],
-                    ["down", "下移", ChevronDown, index === rules.length - 1],
-                    [
-                      "bottom",
-                      "置底",
-                      ChevronsDown,
-                      index === rules.length - 1,
-                    ],
-                  ] as const
-                ).map(([move, label, Icon, disabled]) => (
-                  <Button
-                    key={move}
-                    isIconOnly
-                    aria-label={`${label}规则`}
-                    isDisabled={disabled}
-                    size="sm"
-                    title={label}
-                    variant="light"
-                    onPress={() => onChange(moveRule(rules, index, move))}
-                  >
-                    <Icon size={16} />
-                  </Button>
-                ))}
-              <Button
-                isIconOnly
-                aria-label="编辑规则"
-                color="primary"
-                size="sm"
-                title="编辑"
-                variant="flat"
-                onPress={() => setEditing({ index, rule })}
-              >
-                <Pencil size={16} />
-              </Button>
-              {isMobile ? (
-                <Dropdown placement="bottom-end">
-                  <DropdownTrigger>
-                    <Button
-                      isIconOnly
-                      aria-label="更多操作"
-                      size="sm"
-                      variant="light"
-                    >
-                      <MoreHorizontal size={18} />
-                    </Button>
-                  </DropdownTrigger>
-                  <DropdownMenu aria-label="规则操作">
-                    {[
-                      ...moves(index).map(([move, label, Icon]) => (
-                        <DropdownItem
-                          key={move}
-                          startContent={<Icon size={16} />}
-                          onPress={() => onChange(moveRule(rules, index, move))}
-                        >
-                          {label}
-                        </DropdownItem>
-                      )),
-                      <DropdownItem
-                        key="delete"
-                        color="danger"
-                        startContent={<Trash2 size={16} />}
-                        onPress={() =>
-                          onChange(rules.filter((_, i) => i !== index))
-                        }
-                      >
-                        删除
-                      </DropdownItem>,
-                    ]}
-                  </DropdownMenu>
-                </Dropdown>
-              ) : (
-                <Button
-                  isIconOnly
-                  aria-label="删除规则"
-                  color="danger"
-                  size="sm"
-                  title="删除"
-                  variant="flat"
-                  onPress={() => onChange(rules.filter((_, i) => i !== index))}
-                >
-                  <Trash2 size={16} />
-                </Button>
-              )}
-            </div>
-          </div>
-        ))}
-        {!rules.length && (
-          <p className="p-4 text-center text-sm text-default-500">
-            {emptyText}
-          </p>
-        )}
-      </div>
+          ))}
+          {!rules.length && (
+            <p className="p-4 text-center text-sm text-default-500">
+              {emptyText}
+            </p>
+          )}
+        </div>
+      )}
       {editing && (
         <RuleEditor
           hideNodeScope
