@@ -167,9 +167,9 @@ func relayAuthRelayNodes(state *tunnelCreateState) []int64 {
 	return ids
 }
 
-func (h *Handler) setTunnelRelayAuth(tunnelID int64, enforce bool) relayAuthTunnelResult {
+func (h *Handler) setTunnelRelayAuth(tunnelID int64, enforce bool) (res relayAuthTunnelResult) {
 	start := time.Now()
-	res := relayAuthTunnelResult{TunnelID: tunnelID}
+	res = relayAuthTunnelResult{TunnelID: tunnelID}
 	defer func() { res.ElapsedMs = time.Since(start).Milliseconds() }()
 	flag := 0
 	if enforce {
