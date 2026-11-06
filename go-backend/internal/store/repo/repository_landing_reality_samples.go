@@ -202,7 +202,7 @@ func RealityTrialVerdict(hist []RealitySample, bestOther int) (ok, pending bool,
 	}
 	med := median(ms)
 	if len(ms) >= 2 && hi-lo > RealityJitterLimit(med) {
-		return false, false, fmt.Sprintf("抖动 %d ms", hi-lo)
+		return false, false, fmt.Sprintf("最近 %d 次抖动 %d ms", len(ms), hi-lo)
 	}
 	if len(hist) < RealityTrialMinSamples {
 		return false, true, fmt.Sprintf("还差 %d 次测速", RealityTrialMinSamples-len(hist))

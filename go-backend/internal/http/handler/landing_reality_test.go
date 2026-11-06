@@ -520,7 +520,7 @@ func TestLandingRealityResampleWorstAndTrial(t *testing.T) {
 	if order[0] != "www.ebay.com" || order[1] != "download.gfe.nvidia.com" || order[2] != "www.sony.com" {
 		t.Fatalf("order = %v", order)
 	}
-	if c := rows["portal.citygrainla.com"]; c["trial"] != true || c["trialOk"] == true || c["trialPending"] == true || c["trialReason"] != "抖动 38 ms" || fmt.Sprint(c["samples"]) != "[2 40 3]" || c["worstMs"] != float64(40) {
+	if c := rows["portal.citygrainla.com"]; c["trial"] != true || c["trialOk"] == true || c["trialPending"] == true || c["trialReason"] != "最近 3 次抖动 38 ms" || fmt.Sprint(c["samples"]) != "[2 40 3]" || c["worstMs"] != float64(40) {
 		t.Fatalf("citygrain = %v", c)
 	}
 	if c := rows["www.ebay.com"]; c["trial"] != true || c["trialOk"] == true || c["trialPending"] != true || !strings.Contains(c["trialReason"].(string), "6 小时") {
@@ -661,8 +661,8 @@ func TestRealityTrialDomainAndVerdict(t *testing.T) {
 		{s(0, 5, 0, 6, 7*h, 5), 6, true, false, ""},
 		{s(0, 5, 0, 6), 6, false, true, "还差 1 次测速"},
 		{s(0, 5, 0, 6, 0, 5), 6, false, true, "6 小时后再测一次"},
-		{s(0, 5, 0, 40, 7*h, 5), 6, false, false, "抖动 35 ms"},
-		{s(0, 5, 0, 40), 6, false, false, "抖动 35 ms"}, // unstable already with 2 samples
+		{s(0, 5, 0, 40, 7*h, 5), 6, false, false, "最近 3 次抖动 35 ms"},
+		{s(0, 5, 0, 40), 6, false, false, "最近 2 次抖动 35 ms"}, // unstable already with 2 samples
 		{s(0, 5, 0, -1, 7*h, 5), 6, false, false, "最近 3 次里有 1 次不可用"},
 		{s(0, 20, 0, 21, 7*h, 20), 6, false, false, "比非试用里最快的慢 14 ms"},
 		{s(0, 150, 0, 180, 7*h, 160), 0, true, false, ""}, // far machine: 30 % of 160 = 48 ms allowed
