@@ -230,7 +230,7 @@ func (r *Repository) SyncSharedLandings(shares []landingcustom.Share, now int64)
 				host = c.Hosts.IPv6
 			}
 			if fresh {
-				s = model.LandingServer{Source: "shared", RemoteServerID: c.ID, Name: c.Name, PublicHost: host, PortMin: c.PortMin, PortMax: c.PortMax, FlowType: 2, TrafficRatio: 1, DefaultExpiryMode: "follow_user", MaxNodesPerUser: min(3, c.PortMax-c.PortMin+1), RealityDest: "www.lovelive-anime.jp:443", RealityServerNames: `["www.lovelive-anime.jp"]`, CoreMemoryMB: 256, CoreCPUPercent: 50, Status: "active", Revision: 1, CreatedTime: now}
+				s = model.LandingServer{Source: "shared", RemoteServerID: c.ID, Name: c.Name, PublicHost: host, PortMin: c.PortMin, PortMax: c.PortMax, FlowType: 2, TrafficRatio: 1, DefaultExpiryMode: "follow_user", MaxNodesPerUser: min(3, c.PortMax-c.PortMin+1), RealityDest: "www.lovelive-anime.jp:443", RealityServerNames: `["www.lovelive-anime.jp"]`, Status: "active", Revision: 1, CreatedTime: now}
 				// Only the v1 protocols start enabled; AnyTLS / Snell / Mieru are
 				// opt-in per server in 落地服务器设置 once advertised.
 				b, _ := json.Marshal(c.Protocols)
@@ -290,6 +290,9 @@ func (r *Repository) SyncSharedLandings(shares []landingcustom.Share, now int64)
 			// it); it is no longer copied into FLVX's server total, the node
 			// defaults or the nodes (that made the 「800 (入站)」 node limits).
 			s.MaxConnections = 0
+			// Plan 223: a shared server's Core memory / CPU belong to 妙妙屋
+			// (never sent from FLVX); FLVX keeps 0 / 0 = 不限制.
+			s.CoreMemoryMB, s.CoreCPUPercent = 0, 0
 			if fresh {
 				s.DefaultMaxTotalConnections = LandingDefaultNodeTotal
 			}
@@ -313,6 +316,12 @@ func (r *Repository) SyncSharedLandings(shares []landingcustom.Share, now int64)
 				if err = tx.Create(&s).Error; err != nil {
 					return err
 				}
+				// The model's column defaults (256 / 50) replace zero values
+				// on Create; write the 不限制 zeros explicitly.
+				if err = tx.Model(&model.LandingServer{}).Where("id = ?", s.ID).Updates(map[string]any{"core_memory_mb": 0, "core_cpu_percent": 0}).Error; err != nil {
+					return err
+				}
+				s.CoreMemoryMB, s.CoreCPUPercent = 0, 0
 			} else {
 				if err = tx.Save(&s).Error; err != nil {
 					return err

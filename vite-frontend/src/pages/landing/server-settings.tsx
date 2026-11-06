@@ -155,8 +155,8 @@ export function ServerSettings({
       form.portMin > form.portMax ||
       !form.protocols.length ||
       form.trafficRatio <= 0 ||
-      form.coreMemoryMb < 64 ||
-      form.coreCpuPercent <= 0
+      // Plan 223: shared servers' Core limits are 0 / 0 = 不限制 (由共享方决定).
+      (!isShared && (form.coreMemoryMb < 64 || form.coreCpuPercent <= 0))
     ) {
       toast.error("请检查名称、地址、端口段、协议、倍率和资源上限");
 
@@ -711,7 +711,24 @@ export function ServerSettings({
                 set("availableUntil", dateValue(event.target.value))
               }
             />
-            {server.source !== "shared" && (
+            {isShared ? (
+              <div className="grid grid-cols-2 gap-3">
+                <Input
+                  readOnly
+                  description="由共享方决定"
+                  label="内存上限"
+                  value="不限制"
+                  variant="bordered"
+                />
+                <Input
+                  readOnly
+                  description="由共享方决定"
+                  label="CPU 上限"
+                  value="不限制"
+                  variant="bordered"
+                />
+              </div>
+            ) : (
               <div className="grid grid-cols-2 gap-3">
                 {numberField("内存上限 (MiB)", "coreMemoryMb", 64)}
                 {numberField("CPU 上限 (%)", "coreCpuPercent", 1)}
