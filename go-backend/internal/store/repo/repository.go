@@ -168,6 +168,9 @@ func Open(path string) (*Repository, error) {
 	if _, err := cleanupServerRowOrphans(db); err != nil {
 		log.Printf("[server-row-cleanup] skipped: %v", err)
 	}
+	if _, err := cleanupMonitorPermissionOrphans(db); err != nil {
+		log.Printf("[monitor-permission-cleanup] skipped: %v", err)
+	}
 	// Plan 170: references to deleted 限速规则 (inert, never blocks the start).
 	if _, err := cleanupSpeedLimitOrphans(db); err != nil {
 		log.Printf("[speed-ref-cleanup] skipped: %v", err)
@@ -242,6 +245,9 @@ func OpenPostgres(dsn string) (*Repository, error) {
 	// Never blocks the start (the rows are inert, the next start retries).
 	if _, err := cleanupServerRowOrphans(db); err != nil {
 		log.Printf("[server-row-cleanup] skipped: %v", err)
+	}
+	if _, err := cleanupMonitorPermissionOrphans(db); err != nil {
+		log.Printf("[monitor-permission-cleanup] skipped: %v", err)
 	}
 	// Plan 170: references to deleted 限速规则 (inert, never blocks the start).
 	if _, err := cleanupSpeedLimitOrphans(db); err != nil {
