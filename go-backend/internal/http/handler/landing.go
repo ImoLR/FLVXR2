@@ -115,7 +115,7 @@ func landingServerStatsByID(all []model.LandingNode, servers map[int64]*model.La
 // landingServerUserHidden are server fields a non-admin never receives:
 // admin limits and defaults, core sizing, and 妙妙屋 sync internals. Server-wide
 // aggregates (connections, traffic, other users' nodes) are not added at all.
-var landingServerUserHidden = []string{"chainOnly", "routeProfileId", "egressRestartOk", "egressState", "egressError", "egressReady", "egressCheckedAt", "remoteServerId", "maxConnections", "defaultMaxConnections", "defaultMaxTotalConnections", "connMode", "maxConnMode", "defaultMaxOnlineIps", "defaultTrafficLimitBytes", "defaultUserQuotaBytes", "defaultExpiryMode", "defaultExpiryDays", "defaultExpiresAt", "coreMemoryMb", "coreCpuPercent", "revision", "sharedLastSyncAt", "sharedSyncError", "sharedPushedRevision", "sharedAppliedRevision", "createdTime", "updatedTime"}
+var landingServerUserHidden = []string{"chainOnly", "realityMode", "routeProfileId", "egressRestartOk", "egressState", "egressError", "egressReady", "egressCheckedAt", "remoteServerId", "maxConnections", "defaultMaxConnections", "defaultMaxTotalConnections", "connMode", "maxConnMode", "defaultMaxOnlineIps", "defaultTrafficLimitBytes", "defaultUserQuotaBytes", "defaultExpiryMode", "defaultExpiryDays", "defaultExpiresAt", "coreMemoryMb", "coreCpuPercent", "revision", "sharedLastSyncAt", "sharedSyncError", "sharedPushedRevision", "sharedAppliedRevision", "createdTime", "updatedTime"}
 
 // landingServerView renders one server for an admin, with server-wide
 // aggregates. Lists use landingServerAdminView / landingServerUserView with

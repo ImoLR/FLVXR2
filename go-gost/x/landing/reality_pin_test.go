@@ -161,10 +161,15 @@ func TestPinnerSyncRecheckAndDrop(t *testing.T) {
 	if f.dials["203.0.113.2"] != dials {
 		t.Fatal("sync re-measured a pinned host")
 	}
-	// Not due yet.
+	// Not due yet: only the liveness connect to the pinned IP (no DNS, no
+	// other IPs), and it stays.
 	now = now.Add(5 * time.Hour)
-	if p.recheckDue(context.Background()) || f.dials["203.0.113.2"] != dials {
-		t.Fatal("recheck before 6 h")
+	other := f.dials["203.0.113.1"]
+	if p.recheckDue(context.Background()) || f.dials["203.0.113.2"] != dials+1 || f.dials["203.0.113.1"] != other {
+		t.Fatalf("recheck before 6 h: dials %v", f.dials)
+	}
+	if st := p.statuses(); st[0].CheckedAt != time.Unix(1_800_000_000, 0).UnixMilli() {
+		t.Fatal("liveness rewrote the full-check time")
 	}
 	// 6 h later the pinned IP got 15 ms slower than a new best: stays.
 	now = now.Add(time.Hour)
@@ -422,5 +427,35 @@ func TestProbeConcurrencyAtMostFour(t *testing.T) {
 	}
 	if peak > realityProbeConcurrency || peak < 2 {
 		t.Fatalf("peak concurrency %d", peak)
+	}
+}
+
+func TestPinnerLivenessMovesDeadPinAtOnce(t *testing.T) {
+	f := newFakeNet()
+	f.set("cdn.example.com", map[string]int{"203.0.113.1": 30, "203.0.113.2": 4})
+	now := time.Unix(1_800_000_000, 0)
+	p := &realityPinner{pins: map[pinKey]*RealityPinStatus{}, running: map[pinKey]bool{}, net: f.rn(), now: func() time.Time { return now }}
+	k := pinKey{"cdn.example.com", 443}
+	p.sync(context.Background(), map[pinKey]bool{k: true})
+	if p.address(k.host, 443) != "203.0.113.2" {
+		t.Fatalf("first pin: %+v", p.statuses())
+	}
+	// 10 min later the pinned IP is dead: the liveness connect fails and the
+	// full check moves the pin without waiting for the 6 h re-check.
+	now = now.Add(10 * time.Minute)
+	f.mu.Lock()
+	f.latency["203.0.113.2"] = -1
+	f.mu.Unlock()
+	if !p.recheckDue(context.Background()) || p.address(k.host, 443) != "203.0.113.1" {
+		t.Fatalf("dead pin kept: %+v", p.statuses())
+	}
+	if st := p.statuses(); st[0].CheckedAt != now.UnixMilli() || p.running[k] {
+		t.Fatalf("status after move = %+v running=%v", st, p.running)
+	}
+	// Liveness OK → nothing else measured.
+	before := f.dials["203.0.113.2"]
+	now = now.Add(10 * time.Minute)
+	if p.recheckDue(context.Background()) || f.dials["203.0.113.2"] != before || p.running[k] {
+		t.Fatal("healthy pin re-measured")
 	}
 }

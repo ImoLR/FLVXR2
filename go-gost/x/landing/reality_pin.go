@@ -15,7 +15,8 @@ import (
 // Core resolved it for every new Reality connection — a DNS lottery between
 // near and far CDN edges (+100–150 ms per connection on a far one). Now the
 // guard dials the pinned IP: the fastest public IPv4 of the host by TCP
-// connect time. It is re-checked every 6 h and moves only when the pinned IP
+// connect time. It is re-checked every 6 h (and at once when the 10 min
+// liveness connect to the pinned IP fails) and moves only when the pinned IP
 // fails, leaves the DNS answer, or is ≥ 20 ms slower than the new best. When
 // every IP fails the guard falls back to the host (old behaviour). A move
 // re-adds only the loopback guard inbound: the Core keeps running and user
@@ -106,25 +107,44 @@ func (p *realityPinner) sync(ctx context.Context, want map[pinKey]bool) {
 }
 
 // recheckDue re-checks pins older than realityPinRecheck (in the background,
-// one host at a time) and reports whether any pin moved.
+// one host at a time) and reports whether any pin moved. Pins not due get a
+// liveness check instead: one TCP connect to the pinned IP (every Reality
+// connection goes through it, so a dead pin must not wait 6 h); a failed one
+// triggers the full check at once.
 func (p *realityPinner) recheckDue(ctx context.Context) bool {
 	if p == nil {
 		return false
 	}
 	p.mu.Lock()
-	var due []pinKey
+	var due, live []pinKey
+	liveIP := map[pinKey]string{}
 	now := p.now()
 	for k, pin := range p.pins {
 		if p.running[k] {
 			continue
 		}
 		age := now.Sub(time.UnixMilli(pin.CheckedAt))
-		if age >= realityPinRecheck || (pin.PinnedIP == "" && age >= realityPinRetry) {
+		switch {
+		case age >= realityPinRecheck || (pin.PinnedIP == "" && age >= realityPinRetry):
 			due = append(due, k)
+			p.running[k] = true
+		case pin.PinnedIP != "":
+			live = append(live, k)
+			liveIP[k] = pin.PinnedIP
 			p.running[k] = true
 		}
 	}
 	p.mu.Unlock()
+	sort.Slice(live, func(i, j int) bool { return live[i].host < live[j].host })
+	for _, k := range live {
+		if p.alive(ctx, liveIP[k], k.port) {
+			p.mu.Lock()
+			delete(p.running, k)
+			p.mu.Unlock()
+			continue
+		}
+		due = append(due, k) // still marked running
+	}
 	sort.Slice(due, func(i, j int) bool { return due[i].host < due[j].host })
 	moved := false
 	for _, k := range due {
@@ -133,6 +153,12 @@ func (p *realityPinner) recheckDue(ctx context.Context) bool {
 		}
 	}
 	return moved
+}
+
+// alive is the liveness check: one TCP connect (1 s), closed at once.
+func (p *realityPinner) alive(ctx context.Context, ip string, port int) bool {
+	s := p.net.connectAll(ctx, []string{ip}, port)
+	return len(s) == 1 && s[0].TCPMs >= 0
 }
 
 // check measures host:port and updates its pin; true = the dialed address
@@ -234,9 +260,10 @@ func (m *Manager) pinGuards(ctx context.Context) {
 	}
 }
 
-// runRealityPins re-checks pins every 10 min (each pin is due every 6 h; a
-// failed first pin every 10 min). A move is applied by the next reconcile tick
-// (≤ 10 s): only the guard inbound is re-added.
+// runRealityPins runs every 10 min: a full check per pin every 6 h (a failed
+// first pin every 10 min), otherwise one liveness connect to the pinned IP. A
+// move is applied by the next reconcile tick (≤ 10 s): only the guard inbound
+// is re-added.
 func (m *Manager) runRealityPins(ctx context.Context) {
 	if m.pins == nil {
 		return
