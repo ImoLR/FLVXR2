@@ -52,15 +52,20 @@ export function ChainTargetInput({
       {currentSummary && (
         <div className="flex min-w-0 items-center gap-2 text-sm">
           <span className="shrink-0 text-default-500">当前节点</span>
-          {/* Plan 225 (P2-4): a long host must not widen the dialog. */}
-          <Chip
-            className="min-w-0 max-w-full text-default-600"
-            size="sm"
-            title={currentSummary}
-            variant="bordered"
-          >
-            <span className="block min-w-0 truncate">{currentSummary}</span>
-          </Chip>
+          {/* Plan 225 (P2-4): a long host must not widen the dialog. The
+              w-0 + flex-1 wrapper adds nothing to the form's min-content
+              width (a truncated chip still would), and takes the rest of
+              the row; the chip keeps its natural size up to that. */}
+          <span className="flex w-0 min-w-0 flex-1">
+            <Chip
+              className="min-w-0 max-w-full text-default-600"
+              size="sm"
+              title={currentSummary}
+              variant="bordered"
+            >
+              <span className="block min-w-0 truncate">{currentSummary}</span>
+            </Chip>
+          </span>
         </div>
       )}
       <Textarea
