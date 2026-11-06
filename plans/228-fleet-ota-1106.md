@@ -7,10 +7,12 @@ Priority: low latency / speed first, security balanced, no per-connection pre-wo
 Run dir: /root/flvx-workers/runs/fleet-ota-1106
 
 ## Checklist
-- [ ] Inventory: online agents, versions, SSH paths, rule groups / 最优 pairs
-- [ ] Latency audit (code): relay auth, exit target guard (225), chain 谷歌/苹果 (P1-2), Reality fastest-IP pin (227), landing scan guard / anti-abuse
-- [ ] Baseline before OTA: per-machine agent CPU / RSS / conns; TTFB p50/p90 (leikwan-sh + dev box); rules, 沪台 6, landing links, 12 subs, 救命版 read-only
-- [ ] Per-agent backup + restore-agent.sh
+- [x] Inventory: online agents, versions, SSH paths, rule groups / 最优 pairs
+- [x] Latency audit (code): relay auth, exit target guard (225), chain 谷歌/苹果 (P1-2), Reality fastest-IP pin (227), landing scan guard / anti-abuse
+- [x] Baseline before OTA: per-machine agent CPU / RSS / conns; TTFB p50/p90 (leikwan-sh + dev box); rules, 沪台 6, landing links, 12 subs, 救命版 read-only
+- [x] Per-agent backup + restore-agent.sh
+- [x] Agent fix: target guard lock-free own-IP cache (122→61 ns, 3→0 allocs/conn) → release fork.122
+- [ ] Panel → fork.122 (backup pre-fork122)
 - [ ] 火山广州 OTA → tunnel 80 relay auth on → 利群 rules + AWS HK :10044 no-auth attack test
 - [ ] Canary: one quiet exit + one entry
 - [ ] Groups (≤4, never all hops of one rule group, keep one 最优 twin up), re-check after each
