@@ -177,6 +177,7 @@ type SystemInfo struct {
 	LandingUserLimits      int               `json:"landing_user_limits,omitempty"` // plan 158: per-user landing Core groups + landing-user-* usage
 	LandingScanGuard       int               `json:"landing_scan_guard,omitempty"`  // plan 202: 禁止端口扫描
 	LandingScanSeq         int64             `json:"landing_scan_seq,omitempty"`    // plan 202: highest unrecorded scan hit seq
+	LandingReality         int               `json:"landing_reality,omitempty"`     // plan 227: RealityProbe + reality_pins
 	LeiKwan                *leiKwanReport    `json:"leikwan,omitempty"`
 	EgressIPFamily         string            `json:"egress_ip_family,omitempty"`
 	IPv6RAStatus           *string           `json:"ipv6_ra_status,omitempty"`
@@ -567,7 +568,7 @@ func (s *Server) handleNode(w http.ResponseWriter, r *http.Request, nodeID int64
 						s.recordAddrs(ns, sysInfo.Addrs)
 						s.recordEntryRate(ns, sysInfo.EntryRate)
 						s.recordProtocolBlocks(ns, sysInfo.ProtocolBlocks)
-						_ = s.repo.SetNodeLandingCapabilities(nodeID, sysInfo.LandingCapable, sysInfo.LandingEgress, sysInfo.LandingChain, sysInfo.LandingGuard, sysInfo.LandingConnMode, sysInfo.LandingUserLimits, sysInfo.LandingScanGuard)
+						_ = s.repo.SetNodeLandingCapabilities(nodeID, sysInfo.LandingCapable, sysInfo.LandingEgress, sysInfo.LandingChain, sysInfo.LandingGuard, sysInfo.LandingConnMode, sysInfo.LandingUserLimits, sysInfo.LandingScanGuard, sysInfo.LandingReality)
 						s.recordLandingScan(ns, nodeID, sysInfo.LandingScanSeq)
 						// 缓存服务连接数
 						s.mu.Lock()
@@ -653,7 +654,7 @@ func (s *Server) handleNode(w http.ResponseWriter, r *http.Request, nodeID int64
 				s.recordIPv6RA(ns, sysInfo.IPv6RAStatus, sysInfo.IPv6RADetail)
 				s.recordLeiKwan(ns, sysInfo.LeiKwan)
 				s.recordMachine(nodeID, sysInfo, time.Now())
-				_ = s.repo.SetNodeLandingCapabilities(nodeID, sysInfo.LandingCapable, sysInfo.LandingEgress, sysInfo.LandingChain, sysInfo.LandingGuard, sysInfo.LandingConnMode, sysInfo.LandingUserLimits, sysInfo.LandingScanGuard)
+				_ = s.repo.SetNodeLandingCapabilities(nodeID, sysInfo.LandingCapable, sysInfo.LandingEgress, sysInfo.LandingChain, sysInfo.LandingGuard, sysInfo.LandingConnMode, sysInfo.LandingUserLimits, sysInfo.LandingScanGuard, sysInfo.LandingReality)
 				s.recordLandingScan(ns, nodeID, sysInfo.LandingScanSeq)
 				// 缓存服务连接数
 				s.mu.Lock()

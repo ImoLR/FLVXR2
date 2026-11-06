@@ -604,10 +604,18 @@ func (r *Repository) CreateForwardChain(in ChainCreateInput) (*model.ForwardChai
 		}
 		now := time.Now().UnixMilli()
 		dest, names := "www.lovelive-anime.jp:443", `["www.lovelive-anime.jp"]`
+		picked := false
 		for _, s := range servers {
 			if !s.ChainOnly && s.RealityDest != "" {
-				dest, names = s.RealityDest, s.RealityServerNames
+				dest, names, picked = s.RealityDest, s.RealityServerNames, true
 				break
+			}
+		}
+		// Plan 227: a chain-only exit's own 伪装域名 (自动（最快）测速 from
+		// that machine) before the old fixed fallback.
+		for _, s := range servers {
+			if !picked && s.RealityDest != "" {
+				dest, names, picked = s.RealityDest, s.RealityServerNames, true
 			}
 		}
 		op := "create"

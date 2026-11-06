@@ -84,6 +84,11 @@ type Share struct {
 	// NodeStatus.TCP. Absent = FLVX sends a node total only the old way
 	// (max_connections without conn_mode, when the node has no 入站 limit).
 	NodeTotal *ShareNodeTotal `json:"node_total,omitempty"`
+	// Contract reality-pick-v1 (plan 227): the share's Helper runs 测速
+	// (POST /shares/{id}/reality-probe) / pins Reality dests to the fastest IP
+	// and reports them in status. Absent = 「需要妙妙屋升级后才能测速」.
+	RealityProbe *ShareVersions `json:"reality_probe,omitempty"`
+	RealityPin   *ShareVersions `json:"reality_pin,omitempty"`
 }
 
 // NodeTotalVersion is the landing-node-total contract version FLVX speaks.
@@ -487,6 +492,7 @@ func (s *Share) Sanitize() {
 			s.NodeTotal = nil
 		}
 	}
+	s.RealityProbe, s.RealityPin = sanitizeVersions(s.RealityProbe), sanitizeVersions(s.RealityPin)
 	if s.ScanGuard != nil {
 		versions := []int{}
 		for _, v := range s.ScanGuard.Versions {
@@ -662,6 +668,8 @@ type Status struct {
 	// ScanGuard (landing-scan-guard-v1 §9.3); a malformed or unknown report
 	// is dropped (Client.Status) instead of failing the poll.
 	ScanGuard *ScanGuardReport `json:"scan_guard,omitempty"`
+	// RealityPins (reality-pick-v1 §3), tolerant decode.
+	RealityPins RealityPins `json:"reality_pins,omitempty"`
 }
 
 // UnmarshalJSON never fails: a malformed optional guard object must not stop
@@ -840,6 +848,12 @@ func New(base, token string) (*Client, error) {
 	return &Client{base: base, token: token, http: &http.Client{Timeout: 15 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}, nil
 }
 func (c *Client) request(ctx context.Context, method, path string, body, out any) error {
+	return c.requestWith(ctx, c.http, method, path, body, out)
+}
+
+// requestWith is request on a given HTTP client (a 测速 runs longer than the
+// 15 s default, plan 227).
+func (c *Client) requestWith(ctx context.Context, hc *http.Client, method, path string, body, out any) error {
 	var data []byte
 	var err error
 	if body != nil {
@@ -857,7 +871,7 @@ func (c *Client) request(ctx context.Context, method, path string, body, out any
 	}
 	req.Header.Set("Authorization", "Bearer "+c.token)
 	req.Header.Set("Content-Type", "application/json")
-	resp, err := c.http.Do(req)
+	resp, err := hc.Do(req)
 	// Never expose URL errors, headers, response bodies or structured credentials.
 	if err != nil {
 		return errors.New("妙妙屋连接失败，请检查地址或网络")

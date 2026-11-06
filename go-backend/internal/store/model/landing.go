@@ -100,9 +100,38 @@ type LandingServer struct {
 	// guard state ("" = old agent / not reported, off, on, core_update, error).
 	ScanSeenSeq int64  `gorm:"not null;default:0" json:"-"`
 	ScanState   string `gorm:"not null;default:''" json:"-"`
-	CreatedTime int64  `gorm:"not null" json:"createdTime"`
-	UpdatedTime int64  `gorm:"not null" json:"updatedTime"`
+	// Plan 227 「伪装域名」: RealityMode "auto" (default: after every 测速 the
+	// fastest usable non-blocked candidate becomes RealityDest for NEW nodes)
+	// or "manual" (admin pick). RealityProbe = last 测速 table (JSON results
+	// as reported by the machine), RealityPins = the dest IP pins the agent /
+	// Helper reports (JSON). Existing nodes keep their own dest/serverNames.
+	RealityMode       string `gorm:"type:varchar(16);not null;default:'auto'" json:"realityMode"`
+	RealityProbe      string `gorm:"type:text;not null;default:''" json:"-"`
+	RealityProbedAt   int64  `gorm:"not null;default:0" json:"-"`
+	RealityProbeError string `gorm:"type:text;not null;default:''" json:"-"`
+	RealityPins       string `gorm:"type:text;not null;default:''" json:"-"`
+	RealityPinsAt     int64  `gorm:"not null;default:0" json:"-"`
+	CreatedTime       int64  `gorm:"not null" json:"createdTime"`
+	UpdatedTime       int64  `gorm:"not null" json:"updatedTime"`
 }
+
+// LandingRealityDomain is one Reality 伪装域名 candidate (plan 227): built-in
+// (seeded, cannot be deleted), admin custom, or from 妙妙屋's 「Reality 共享
+// 域名池」. Blocked domains are never probed or picked automatically; the
+// admin can block / unblock any of them. Port 443 is implied.
+type LandingRealityDomain struct {
+	ID          int64  `gorm:"primaryKey;autoIncrement" json:"id"`
+	Domain      string `gorm:"type:varchar(253);not null;uniqueIndex" json:"domain"`
+	Source      string `gorm:"type:varchar(16);not null;default:'custom'" json:"source"` // builtin | custom | pool
+	InPool      bool   `gorm:"not null;default:false" json:"inPool"`
+	Blocked     bool   `gorm:"not null;default:false" json:"blocked"`
+	Note        string `gorm:"type:text;not null;default:''" json:"note"`
+	SortOrder   int    `gorm:"not null;default:0" json:"sortOrder"`
+	CreatedTime int64  `gorm:"not null;default:0" json:"createdTime"`
+	UpdatedTime int64  `gorm:"not null;default:0" json:"updatedTime"`
+}
+
+func (LandingRealityDomain) TableName() string { return "landing_reality_domain" }
 
 func (LandingServer) TableName() string { return "landing_server" }
 

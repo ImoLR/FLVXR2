@@ -185,6 +185,10 @@ func Open(path string) (*Repository, error) {
 	}
 	// Plan 212: when the traffic_daily rollup started (first start only).
 	ensureTrafficDailySince(db)
+	if err := seedLandingRealityDomains(db); err != nil {
+		_ = sqlDB.Close()
+		return nil, fmt.Errorf("seed landing reality domains: %w", err)
+	}
 	resync, err := seedLandingEgressDefaults(db)
 	if err != nil {
 		_ = sqlDB.Close()
@@ -263,6 +267,10 @@ func OpenPostgres(dsn string) (*Repository, error) {
 	}
 	// Plan 212: when the traffic_daily rollup started (first start only).
 	ensureTrafficDailySince(db)
+	if err := seedLandingRealityDomains(db); err != nil {
+		_ = sqlDB.Close()
+		return nil, fmt.Errorf("seed landing reality domains: %w", err)
+	}
 	resync, err := seedLandingEgressDefaults(db)
 	if err != nil {
 		_ = sqlDB.Close()
@@ -298,7 +306,7 @@ func autoMigrateAll(db *gorm.DB) error {
 	nodeTotalMigration := db.Migrator().HasTable(&model.LandingNode{}) && !db.Migrator().HasColumn(&model.LandingNode{}, "max_total_connections")
 
 	models := []interface{}{
-		&model.LandingIntegration{}, &model.LandingServer{}, &model.LandingServerUserGroup{}, &model.LandingServerUser{}, &model.LandingNode{}, &model.LandingUserSetting{}, &model.UserServerQuota{},
+		&model.LandingIntegration{}, &model.LandingServer{}, &model.LandingRealityDomain{}, &model.LandingServerUserGroup{}, &model.LandingServerUser{}, &model.LandingNode{}, &model.LandingUserSetting{}, &model.UserServerQuota{},
 		&model.UserTrafficPool{}, &model.UserTrafficPoolMember{},
 		&model.LandingOutbound{}, &model.LandingRouteProfile{}, &model.LandingWarpAccount{}, &model.LandingEgressSetting{}, &model.LandingEgressPreset{},
 		&model.ForwardChain{}, &model.ForwardChainNode{}, &model.LandingExternalNode{},

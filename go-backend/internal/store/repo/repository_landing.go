@@ -307,6 +307,17 @@ func (r *Repository) SaveLandingServerOpts(s *model.LandingServer, groups []int6
 		s.CoreStaleEpoch, s.CoreUpgradeOK = old.CoreStaleEpoch, old.CoreUpgradeOK
 		// Plan 147: carve record and agent busy-port reports have their own paths.
 		s.RuleCarved, s.NativeBusyPorts = old.RuleCarved, old.NativeBusyPorts
+		// Plan 227: 测速 results and pins come from the machine; in 自动（最快）
+		// the dest follows the 测速, not the form (a stale client keeps the mode).
+		s.RealityProbe, s.RealityProbedAt, s.RealityProbeError = old.RealityProbe, old.RealityProbedAt, old.RealityProbeError
+		s.RealityPins, s.RealityPinsAt = old.RealityPins, old.RealityPinsAt
+		if s.RealityMode == "" {
+			s.RealityMode = old.RealityMode
+		}
+		s.RealityMode = NormalizeRealityMode(s.RealityMode)
+		if s.RealityMode == RealityModeAuto {
+			s.RealityDest, s.RealityServerNames = old.RealityDest, old.RealityServerNames
+		}
 		// Plan 211: 服务器总连接数 is hidden and never enforced by FLVX (a
 		// shared server's own total belongs to 妙妙屋).
 		s.MaxConnections = 0
