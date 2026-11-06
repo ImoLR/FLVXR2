@@ -40,7 +40,8 @@ reaches it over IPv4 and the Core sees those two IPs as **jiuwei's own client IP
 - [x] Inventory adds egress IPs to Nodes (not Native)
 - [x] Relay IP reserve counts each relay node's egress addresses (larger family, ≥ 1) instead of 1 per node
 - [x] Unit tests (merge / expiry / bound / inventory / FillNodePublicIPs / relay slots) + `go test ./...` (25 packages ok incl. contract, 0 FAIL)
-- [ ] Commit + push branch `feature/3.0.27-relay-egress-ips`, ledger row 230 ready (build-only, next batch)
+- [x] Commit + push branch `feature/3.0.27-relay-egress-ips` (f5f550ad), ledger row 230 ready (build-only, next batch)
+- [x] Diagnosis report: /root/flvx-workers/runs/node105-drops/final.md (沪台 outages 10-31 / 11-06, PQS return-path loss 2–7 %, daily 05:03 IP change, this accounting bug)
 - [ ] Release check (next batch worker): Custom `flvx_node_hosts` contains 103.246.219.39 + 114.35.6.24 (hosts
       push once); PQS TW Core group `flvx-user-8` `max_inbound_online_ips` = budget + 2 (was 3) while the Core
       still lists both IPs; panel user/list jiuwei `activeClientIps` = real devices only (was 5/5 with 2 phantom)
