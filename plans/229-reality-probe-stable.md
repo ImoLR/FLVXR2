@@ -1,6 +1,6 @@
 # 229 — Reality 测速多测几次 + 不留 TIME_WAIT + 妙妙屋池小网站「稳定才用」
 
-Branch: `feature/3.0.27-reality-probe-stable` (from prod `3.0.27-fork.121`, tag 57c5bb41). BUILD ONLY — rides the
+Branch: `feature/3.0.27-reality-probe-stable` (from prod `3.0.27-fork.121`, tag 57c5bb41). BUILD ONLY (DONE 11-07 TW) — rides the
 next batch release (panel + agent OTA of the native landings later).
 Run dir: `/root/flvx-workers/runs/reality-probe-stable/`. Contract: `/root/flvx-workers/contracts/reality-pick-v1.md`.
 mmwx side (Helper linger + concurrency 2) = separate worker `helper-probe-quiet`; FLVX works with old and new Helpers.
@@ -114,7 +114,7 @@ top 10 × 2 re-samples (the panel re-samples ≤ 7, so prod is a bit less). `ss`
       `/root/mmwx-preview/reality-probe-stable/preview-*.png`, real report data as history)
 - [x] Tests: go test + contract SQLite + PostgreSQL, agent tests, tsc / build / lint (see 「Tests」)
 - [x] TIME_WAIT proof (lab unit test `TestProbeLeavesNoTimeWait` + NexKR before/after + 18 fleet runs), resource numbers
-- [ ] Push, CI green, ledger row ready, final.md
+- [x] Push, CI green (run 42280002247 on 820e1cfb), ledger row ready, summary.md / final.md in the run dir
 
 ## Tests (r2, 11-07 TW)
 - Backend `go test ./...` with `FLVX_POSTGRES_TEST_DSN` (SQLite + PostgreSQL): 22 packages ok; handler / repo /
