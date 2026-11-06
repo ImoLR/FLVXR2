@@ -69,11 +69,44 @@ Default-blocked (built-in, admin can 解除屏蔽; never probed, never auto-pick
 - [x] Agent: RealityProbe + pin + status + capability; unit tests (pin choice, hysteresis, private filter, probe)
 - [x] Panel: model/migration/seed, candidate API, server mode/probe API, auto pick, daily loop, pin status, shared (r2: shared client on the real Custom v1.4.88 API — async job + poll, float ms, pool error/refreshing)
 - [x] Frontend: global list, server 伪装域名 + 测速 table + pin display
-- [ ] Gates: go test (agent x/landing, backend all), contract SQLite + PostgreSQL, tsc/build/lint, CI green
+- [x] Gates: go test (agent x/landing, backend all), contract SQLite + PostgreSQL, tsc/build/lint, CI green (r2: full suite on release head 57c5bb41 exit 0; CI 42225641280)
 - [x] Lab: netns pin move (pinned IP made unreachable) with the real Core, PID unchanged (fast 12.0.9.11 2.4–3.3 ms → cut → 12.0.9.10 83 ms, same PID/epoch, live VLESS conn kept)
 - [x] Screens phone 390 + desktop 1440 → /root/mmwx-preview/reality-domain-pick/
-- [ ] Wait for mmwx helper-reality-pick final.md + Custom/Helper live (or 6 h → native only)
-- [ ] Release fork.121 (+225b, 226), CI + images + assets, ledger
-- [ ] Baselines, prod backup, panel upgrade, OTA NexKR + Bestvm US (user 11-06 18:40 TW: skip all 4 Breadcloud machines — vendor maintenance, no OTA/SSH/probes)
-- [ ] Proof per online landing server (independent SSH probe, rp- temp VLESS node, a/b/c/d, e in lab), cleanup 0 leftovers
-- [ ] Resources (probe cost/day, agent RSS/CPU NexKR (Breadcloud skipped), TTFB before/after), final.md + summary.md
+- [x] Wait for mmwx helper-reality-pick final.md + Custom/Helper live (r2 final 20:45 TW: 马年 / Dmit T1 / 158 / PQS TW on Helper v0.7.22; Breadcloud US 年付 not upgraded)
+- [x] Release fork.121 (+225b, 226), CI + images + assets, ledger (tag → 57c5bb41, Images 42233865983, Latest, 10 assets)
+- [x] Baselines, prod backup, panel upgrade, OTA NexKR + Bestvm US (user 11-06 18:40 TW: skip all 4 Breadcloud machines — vendor maintenance, no OTA/SSH/probes)
+- [x] Proof per online landing server (independent SSH probe, rp- temp VLESS node, a/b/c/d, e in lab), cleanup 0 leftovers
+- [x] Resources (probe cost/day, agent RSS/CPU NexKR (Breadcloud skipped), TTFB before/after), final.md + summary.md
+
+## r2 additions (11-06 evening)
+- Shared client on the real Custom v1.4.88 API (a37f135d): `targets`, float ms, async job + poll (request waits ≤ 60 s,
+  UI polls `server/reality-probe/status`), pool `error` / `refreshing` (an empty pool while refreshing keeps our rows).
+- Agent (6fac94f5): **10-min liveness connect** to every pinned IP (1 TCP connect, no DNS); a failed one runs the full
+  check at once → a dead pinned IP moves within ≤ 10 min (+ ≤ 10 s reconcile) instead of waiting for the 6 h re-check.
+  Lab (e) re-run through this path (324416b5): 12.0.9.11 cut → 12.0.9.10, same Core PID/epoch, live VLESS conn kept.
+- `realityMode` hidden from the user server view; admin field-set contract updated.
+
+## Rollout (fork.121, 11-06 TW)
+- 22:25 tag 3.0.27-fork.121 → 57c5bb41; Images 42233865983; release Latest, 10 assets = fork.120 set.
+- 22:43 panel fork.120 → fork.121 (rollback `/opt/flvx-svc/rollback/pre-fork121-20261106T144305Z/rollback.sh`).
+- 22:47 OTA NexKR (back in 6 s), 22:48 OTA Bestvm US (5 s); landing Core PIDs unchanged on both.
+- Breadcloud JP / JP2 / US / us年付 skipped (vendor maintenance, user 11-06 18:40 TW).
+
+## Proof (independent probe ON each box: TCP to every IP ×2 ≥ 3 s apart + one TLS handshake, metric = TCP + ClientHello→ServerHello)
+| Server | Picked (panel ms) | Independent: picked ms / rank | Independent #1 (its panel ms) | Pinned IP vs fastest IP |
+|---|---|---|---|---|
+| NexKR (native) | www.tesla.com (5) | 4.95 ms / 28 of 60 (26 within 2 ms of #1) | booking.com 2.83 (7) | 23.49.204.61 1.39 ms = fastest |
+| Boil Hinet 马年 | www.amd.com (7) | 8.74 / 3 of 60 | download.gfe.nvidia.com 4.71 (14) | 184.25.120.122 2.31 vs 1.73 (in hysteresis) |
+| Boil Hinet 158 | download.gfe.nvidia.com (7) | 5.67 / **1** of 60 | same | 210.61.249.41 1.59 vs 1.54 |
+| Dmit T1 | download-installer.cdn.mozilla.net (3) | 2.77 / 23 of 60 (32 within 2 ms) | nus.edu.sg 1.37 (3) | 2a04:4e42::787 0.64 vs 0.46 (Helper pins IPv6 too) |
+| PQS TW | www.airbnb.com (10) | 7.49 / 4 of 57 | www.samsung.com 5.79 (12) | 210.61.249.42 3.58 vs 3.37 (DNS also returns dead .25) |
+| Bestvm US (chain-only) | portal.citygrainla.com (4) | **20.28 / 48 of 60** — pool site, TCP 1–31 ms jitter | www.hult.edu 1.93 (7) | no VLESS node possible (chain-only) |
+- (c) ClientHello→ServerHello on the server (tcpdump, 10 paced new conns): 马年 169.5 ms (old far pin) → **10.1 ms**
+  (TTFB 766 → 624 ms); 158 15.0 ms (near lovelive) → **7.6 ms** (TTFB 665 → 658 ms).
+- (d) block the winner → 测速 → never probed, next pick taken, new temp node carries it: NexKR tesla → www.amd.com (node
+  151), Bestvm US citygrainla → ftp.debian.org; both unblocked afterwards.
+- Churn seen in the first hour: Dmit T1 addons.mozilla.org → download-installer.cdn.mozilla.net (8 min apart), Bestvm US
+  files.pythonhosted.org → portal.citygrainla.com (3 min apart) — new-node default only, existing links untouched.
+- Known weakness: one sample per candidate. Ties at 1 ms resolution and jittery small pool sites (citygrainla) can win.
+  Follow-up (panel only): confirm round for the top 5 (2 more samples), pick by the worst sample.
+
