@@ -30,12 +30,12 @@ func TestConntrackAttributionKeysIPv6BySlash64(t *testing.T) {
 	}
 	const a, b = "2409:8a4c:5c4f:26e1::/64", "2409:8a4c:5c4f:26e2::/64"
 	usage := attributeQuotaFlows(rules, flows)
-	if u := usage[61]; u.connections != 4 || len(u.ips) != 2 || u.ips[a] != 3 || u.ips["198.51.100.1"] != 1 || len(u.addrs[a]) != 3 || u.addrs["198.51.100.1"] != nil {
+	if u := usage[61]; u.connections != 4 || len(u.ips) != 2 || u.ips[a] != 3 || u.ips["198.51.100.1"] != 1 || len(u.addrs) != 3 || u.addrs["198.51.100.1"] != 0 {
 		t.Fatalf("forward 61 = %+v", u)
 	}
 	groups := aggregateQuotaGroups(usage, map[int64]*quotaForward{61: {quota: rules["61/tcp"].Quota}, 62: {quota: rules["62/tcp"].Quota}})
 	g := groups["user-9"]
-	if g.connections != 6 || len(g.ips) != 3 || g.ips[a] != 4 || g.ips[b] != 1 || len(g.addrs[a]) != 3 || g.addrs[a]["2409:8a4c:5c4f:26e1::1"] != 2 {
+	if g.connections != 6 || len(g.ips) != 3 || g.ips[a] != 4 || g.ips[b] != 1 || len(g.addrs) != 4 || g.addrs["2409:8a4c:5c4f:26e1::1"] != 2 {
 		t.Fatalf("group = %+v", g)
 	}
 	// Live attribution (all forwards, every metric report) keeps only keys.

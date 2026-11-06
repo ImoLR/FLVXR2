@@ -21,6 +21,9 @@ const PrefixBits = 64
 // unknown strings still count as one distinct IP each (never zero).
 func Of(raw string) string {
 	s := strings.TrimSpace(raw)
+	if strings.IndexByte(s, ':') < 0 && strings.IndexByte(s, '/') < 0 {
+		return s // IPv4 (or not an IP): its own key, no parse on the hot path
+	}
 	if addr, err := netip.ParseAddr(s); err == nil {
 		if addr.Is4() {
 			return s // already canonical: netip only accepts plain dotted quads
@@ -55,7 +58,11 @@ func ofAddr(addr netip.Addr) string {
 	if addr.Is4() {
 		return addr.String()
 	}
-	return netip.PrefixFrom(addr, PrefixBits).Masked().String()
+	// Same text as netip.PrefixFrom(addr, 64).Masked().String() (the Core's
+	// form), built with one allocation instead of three.
+	var buf [48]byte
+	b := netip.PrefixFrom(addr, PrefixBits).Masked().Addr().AppendTo(buf[:0])
+	return string(append(b, "/64"...))
 }
 
 // OfIP is Of for a net.IP (conntrack flows); nil → "".

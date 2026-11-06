@@ -25,13 +25,12 @@ const (
 )
 
 // quotaUsage is one forward's (or group's) conntrack usage. Plan 231: ips
-// are keyed by ipkey.Of (IPv6 = its /64, like the 妙妙屋 Core); addrs keeps
-// the raw IPv6 addresses behind each /64 key for the group usage report
-// (quota attribution only).
+// are keyed by ipkey.Of (IPv6 = its /64, like the 妙妙屋 Core); addrs counts
+// the raw IPv6 addresses for the group usage report (quota attribution only).
 type quotaUsage struct {
 	connections int
 	ips         map[string]int
-	addrs       map[string]map[string]int
+	addrs       map[string]int
 }
 
 type quotaGate struct {
@@ -467,18 +466,11 @@ func aggregateQuotaGroups(usage map[int64]quotaUsage, forwards map[int64]*quotaF
 		for ip, count := range usage[id].ips {
 			group.ips[ip] += count
 		}
-		for key, raw := range usage[id].addrs {
+		for addr, count := range usage[id].addrs {
 			if group.addrs == nil {
-				group.addrs = make(map[string]map[string]int)
+				group.addrs = make(map[string]int)
 			}
-			inner := group.addrs[key]
-			if inner == nil {
-				inner = make(map[string]int, len(raw))
-				group.addrs[key] = inner
-			}
-			for addr, count := range raw {
-				inner[addr] += count
-			}
+			group.addrs[addr] += count
 		}
 		groups[qf.quota.Group] = group
 	}
@@ -521,14 +513,9 @@ func attributeFlows(rules map[string]*RuleState, flows []*netlink.ConntrackFlow,
 		if !includeUncapped && flow.Forward.SrcIP.To4() == nil {
 			// Raw IPv6 address behind the /64 key: only the group usage report needs it.
 			if item.addrs == nil {
-				item.addrs = make(map[string]map[string]int)
+				item.addrs = make(map[string]int)
 			}
-			inner := item.addrs[key]
-			if inner == nil {
-				inner = make(map[string]int, 1)
-				item.addrs[key] = inner
-			}
-			inner[flow.Forward.SrcIP.String()]++
+			item.addrs[flow.Forward.SrcIP.String()]++
 		}
 		usage[rs.ForwardID] = item
 	}

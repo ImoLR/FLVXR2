@@ -3,6 +3,7 @@ package ipkey
 import (
 	"bytes"
 	"net"
+	"net/netip"
 	"testing"
 )
 
@@ -39,6 +40,12 @@ func TestOfMatchesCoreForm(t *testing.T) {
 	for _, in := range []string{"2001:db8::1", "2001:db8:0:0:ffff::1", "2409:8a4c:5c4f:26e1:abcd::"} {
 		if got := Of(in); got != Of(Of(in)) || got[len(got)-3:] != "/64" {
 			t.Fatalf("Of(%q) = %q", in, got)
+		}
+	}
+	for _, in := range []string{"2001:db8::1", "::1", "fe80::1", "2001:db8:0:0:1::", "ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff", "2409:8a4c:5c4f:26e1:1111:2222:3333:4444"} {
+		core := netip.PrefixFrom(netip.MustParseAddr(in), 64).Masked().String()
+		if got := Of(in); got != core {
+			t.Fatalf("Of(%q) = %q, Core form %q", in, got, core)
 		}
 	}
 	if Of("2001:db8::1") != "2001:db8::/64" {

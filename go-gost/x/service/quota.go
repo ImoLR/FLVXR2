@@ -42,18 +42,19 @@ type QuotaGroupUsage struct {
 
 // Plan 231: client IPs are counted by key (ipkey.Of: IPv4 = the address,
 // IPv6 = its /64, like the 妙妙屋 Core). clientIPs / nftClientIPs / sharedIPs
-// hold keys; addrs / nftAddrs keep the raw IPv6 addresses behind each /64 key
-// only for the usage report (IPv4 keys are their own address).
+// hold keys; addrs / nftAddrs keep the raw IPv6 addresses (flat, one map
+// increment per IPv6 connection) only for the usage report — IPv4 keys are
+// their own address.
 type quotaGroup struct {
 	mu             sync.Mutex
 	maxConnections int
 	maxClientIPs   int
 	connections    int
 	clientIPs      map[string]int
-	addrs          map[string]map[string]int // key → raw IPv6 address → gost connections
+	addrs          map[string]int // raw IPv6 address → gost connections
 	nftConnections int
 	nftClientIPs   map[string]int
-	nftAddrs       map[string]map[string]int // key → raw IPv6 address → conntrack flows
+	nftAddrs       map[string]int // raw IPv6 address → conntrack flows
 	services       int
 	sharedIPs      map[string]struct{} // plan 158: counted elsewhere, never a new IP here
 }
@@ -87,9 +88,9 @@ func (h *NftQuotaGroup) Detach() {
 }
 
 // SetNftQuotaGroupUsage replaces the conntrack snapshot for one node-local
-// group: ips by key (ipkey.Of), addrs = the raw IPv6 addresses per /64 key
-// (report only; nil is fine).
-func SetNftQuotaGroupUsage(group string, connections int, ips map[string]int, addrs map[string]map[string]int) {
+// group: ips by key (ipkey.Of), addrs = the raw IPv6 addresses behind the
+// /64 keys (report only; nil is fine).
+func SetNftQuotaGroupUsage(group string, connections int, ips map[string]int, addrs map[string]int) {
 	quotaGroupRegistry.Lock()
 	g := quotaGroupRegistry.groups[group]
 	quotaGroupRegistry.Unlock()
@@ -102,19 +103,14 @@ func SetNftQuotaGroupUsage(group string, connections int, ips map[string]int, ad
 			copyIPs[ip] = count
 		}
 	}
-	var copyAddrs map[string]map[string]int
-	for key, raw := range addrs {
-		if copyIPs[key] == 0 || len(raw) == 0 {
-			continue
+	var copyAddrs map[string]int
+	for addr, count := range addrs {
+		if count > 0 {
+			if copyAddrs == nil {
+				copyAddrs = make(map[string]int, len(addrs))
+			}
+			copyAddrs[addr] = count
 		}
-		if copyAddrs == nil {
-			copyAddrs = make(map[string]map[string]int, len(addrs))
-		}
-		inner := make(map[string]int, len(raw))
-		for addr, count := range raw {
-			inner[addr] = count
-		}
-		copyAddrs[key] = inner
 	}
 	g.mu.Lock()
 	g.nftConnections = connections
@@ -228,16 +224,11 @@ func (g *quotaGroup) acquire(key, addr string) (reason string, limit int, ok boo
 
 	g.connections++
 	g.clientIPs[key]++
-	if addr != key && addr != "" {
+	if addr != key && ipkey.IsPrefix(key) {
 		if g.addrs == nil {
-			g.addrs = make(map[string]map[string]int)
+			g.addrs = make(map[string]int)
 		}
-		inner := g.addrs[key]
-		if inner == nil {
-			inner = make(map[string]int, 1)
-			g.addrs[key] = inner
-		}
-		inner[addr]++
+		g.addrs[addr]++
 	}
 	return "", 0, true
 }
@@ -255,14 +246,11 @@ func (g *quotaGroup) release(key, addr string) {
 	} else {
 		g.clientIPs[key] = count - 1
 	}
-	if inner := g.addrs[key]; inner != nil {
-		if count := inner[addr]; count <= 1 {
-			delete(inner, addr)
+	if addr != key {
+		if count := g.addrs[addr]; count <= 1 {
+			delete(g.addrs, addr)
 		} else {
-			inner[addr] = count - 1
-		}
-		if len(inner) == 0 {
-			delete(g.addrs, key)
+			g.addrs[addr] = count - 1
 		}
 	}
 	g.mu.Unlock()
@@ -318,27 +306,33 @@ func SetQuotaGroupBudgets(budgets []QuotaGroupBudget) error {
 }
 
 // reportIPsLocked lists the group's raw client addresses (gost + nftables,
-// deduplicated, sorted): a key's raw IPv6 addresses, or the key itself when
-// it has none (IPv4, or a key reported without its addresses). Caller holds g.mu.
+// deduplicated, sorted): the raw IPv6 addresses, the IPv4 keys, and a /64
+// key itself only if none of its addresses is known. Caller holds g.mu.
 func (g *quotaGroup) reportIPsLocked() []string {
-	seen := make(map[string]struct{}, len(g.clientIPs)+len(g.nftClientIPs))
-	out := make([]string, 0, len(g.clientIPs)+len(g.nftClientIPs))
+	seen := make(map[string]struct{}, len(g.clientIPs)+len(g.nftClientIPs)+len(g.addrs)+len(g.nftAddrs))
+	out := make([]string, 0, len(g.clientIPs)+len(g.addrs))
 	add := func(ip string) {
 		if _, ok := seen[ip]; !ok {
 			seen[ip] = struct{}{}
 			out = append(out, ip)
 		}
 	}
-	for _, keys := range []struct {
-		ips   map[string]int
-		addrs map[string]map[string]int
-	}{{g.clientIPs, g.addrs}, {g.nftClientIPs, g.nftAddrs}} {
-		for key := range keys.ips {
-			if inner := keys.addrs[key]; len(inner) > 0 {
-				for addr := range inner {
-					add(addr)
+	var covered map[string]struct{}
+	for _, addrs := range []map[string]int{g.addrs, g.nftAddrs} {
+		for addr := range addrs {
+			add(addr)
+			if covered == nil {
+				covered = make(map[string]struct{}, len(addrs))
+			}
+			covered[ipkey.Of(addr)] = struct{}{}
+		}
+	}
+	for _, keys := range []map[string]int{g.clientIPs, g.nftClientIPs} {
+		for key := range keys {
+			if ipkey.IsPrefix(key) {
+				if _, ok := covered[key]; ok {
+					continue
 				}
-				continue
 			}
 			add(key)
 		}

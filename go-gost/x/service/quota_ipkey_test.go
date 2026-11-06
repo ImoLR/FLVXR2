@@ -134,7 +134,7 @@ func TestNftUsageKeysMergeWithGost(t *testing.T) {
 	s.SetQuotaGroup(group, UnlimitedQuota, 1)
 	handle := AttachNftQuotaGroup(group, UnlimitedQuota, 1)
 	defer handle.Detach()
-	SetNftQuotaGroupUsage(group, 2, map[string]int{v6a: 2}, map[string]map[string]int{v6a: {v6a1: 1, v6a3: 1}})
+	SetNftQuotaGroupUsage(group, 2, map[string]int{v6a: 2}, map[string]int{v6a1: 1, v6a3: 1})
 	defer SetNftQuotaGroupUsage(group, 0, nil, nil)
 	// gost: another address of the same /64 is not a new IP.
 	r := mustAcquire(t, s, v6a2)
