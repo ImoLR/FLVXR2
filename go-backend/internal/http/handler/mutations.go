@@ -1690,6 +1690,8 @@ func (h *Handler) tunnelCreate(w http.ResponseWriter, r *http.Request) {
 		RuleBest:      ruleBest,
 		// Plan 184 「显示地区」 ('' = automatic).
 		RegionOverride: regionOverride,
+		// Plan 225: a new tunnel's relays require its credential from the start.
+		RelayAuth: 1,
 	}
 	if err := tx.Create(&tunnel).Error; err != nil {
 		response.WriteJSON(w, response.Err(-2, err.Error()))
@@ -1710,6 +1712,7 @@ func (h *Handler) tunnelCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	defer unlock()
 	runtimeState.TunnelID = tunnelID
+	runtimeState.RelayAuth = true
 	var federationBindings []repo.FederationTunnelBinding
 	var federationReleaseRefs []federationRuntimeReleaseRef
 	federationBindings, federationReleaseRefs, err = h.applyFederationRuntime(runtimeState, localDomain)
@@ -1907,9 +1910,11 @@ func (h *Handler) tunnelUpdate(w http.ResponseWriter, r *http.Request) {
 	// (read before the transaction: SQLite has one connection).
 	previousRuleBest := 1
 	previousRegionOverride := ""
+	previousRelayAuth := 0
 	if current, curErr := h.getTunnelRecord(id); curErr == nil && current != nil {
 		previousRuleBest = current.RuleBest
 		previousRegionOverride = current.RegionOverride
+		previousRelayAuth = current.RelayAuth
 	}
 	if !regionOverrideSet || req["regionOverride"] == nil {
 		regionOverride = previousRegionOverride
@@ -1928,6 +1933,7 @@ func (h *Handler) tunnelUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 	runtimeState.TunnelID = id
 	runtimeState.IPPreference = ipPreference
+	runtimeState.RelayAuth = previousRelayAuth == 1
 	ruleBest := tunnelRuleBestFromRequest(req, previousRuleBest)
 	runtimeState.RuleBest = ruleBest == 1
 	if ruleBest != previousRuleBest {
@@ -2604,6 +2610,7 @@ func (h *Handler) reconstructTunnelState(tunnelID int64, allowInconsistentPipe .
 		Type:         tunnel.Type,
 		IPPreference: ipPreference,
 		RuleBest:     tunnel.RuleBest == 1,
+		RelayAuth:    tunnel.RelayAuth == 1,
 		InNodes:      make([]tunnelRuntimeNode, 0),
 		ChainHops:    make([][]tunnelRuntimeNode, 0),
 		OutNodes:     make([]tunnelRuntimeNode, 0),
@@ -4880,6 +4887,10 @@ type tunnelCreateState struct {
 	Type         int
 	IPPreference string // "" = auto, "v4" = prefer IPv4, "v6" = prefer IPv6
 	RuleBest     bool   // plan 180 「规则最优」 switch (chain hops may carry destOrder)
+	// RelayAuth: tunnel.relay_auth (plan 225) — middle/exit relays require
+	// the tunnel credential when the tunnel is enforceable.
+	RelayAuth    bool
+	nodeVersions map[int64]string // lazily loaded by relayAuthEnforceable
 	InNodes      []tunnelRuntimeNode
 	ChainHops    [][]tunnelRuntimeNode
 	OutNodes     []tunnelRuntimeNode
@@ -5457,7 +5468,7 @@ func (h *Handler) applyTunnelRuntime(state *tunnelCreateState) ([]int64, []int64
 			}
 			createdChains = append(createdChains, chainNode.NodeID)
 
-			serviceData := buildTunnelChainServiceConfig(state.TunnelID, chainNode, state.Nodes[chainNode.NodeID], len(nextTargets))
+			serviceData := buildTunnelChainServiceConfig(state.TunnelID, chainNode, state.Nodes[chainNode.NodeID], len(nextTargets), h.relayAuthFor(state))
 			if err := h.addTunnelServiceOnNode(chainNode.NodeID, state.TunnelID, serviceData); err != nil {
 				return createdChains, createdServices, fmt.Errorf("转发链节点 %s 下发服务失败: %w", nodeDisplayName(state.Nodes[chainNode.NodeID]), err)
 			}
@@ -5469,7 +5480,7 @@ func (h *Handler) applyTunnelRuntime(state *tunnelCreateState) ([]int64, []int64
 		if node := state.Nodes[outNode.NodeID]; node != nil && node.IsRemote == 1 {
 			continue
 		}
-		serviceData := buildTunnelChainServiceConfig(state.TunnelID, outNode, state.Nodes[outNode.NodeID], 1)
+		serviceData := buildTunnelChainServiceConfig(state.TunnelID, outNode, state.Nodes[outNode.NodeID], 1, h.relayAuthFor(state))
 		if err := h.addTunnelServiceOnNode(outNode.NodeID, state.TunnelID, serviceData); err != nil {
 			return createdChains, createdServices, fmt.Errorf("出口节点 %s 下发服务失败: %w", nodeDisplayName(state.Nodes[outNode.NodeID]), err)
 		}
@@ -5565,7 +5576,7 @@ func isNodeOfflineOrTimeoutError(err error) bool {
 	return shouldDeferTunnelRuntimeApplyError(err)
 }
 
-func buildTunnelChainConfig(tunnelID int64, fromNodeID int64, targets []tunnelRuntimeNode, nodes map[int64]*nodeRecord, ipPreference string) (map[string]interface{}, error) {
+func buildTunnelChainConfig(tunnelID int64, fromNodeID int64, targets []tunnelRuntimeNode, nodes map[int64]*nodeRecord, ipPreference string, auth *relayAuthSpec) (map[string]interface{}, error) {
 	fromNode := nodes[fromNodeID]
 	if fromNode == nil {
 		return nil, errors.New("节点不存在")
@@ -5595,6 +5606,10 @@ func buildTunnelChainConfig(tunnelID int64, fromNodeID int64, targets []tunnelRu
 				"nodelay": true,
 				"udpTTL":  "5s", // ✅ 修复 2: 添加 UDP TTL 默认配置
 			},
+		}
+		// Plan 225: connectors always send the tunnel relay credential.
+		if a := relayConnectorAuth(auth); a != nil {
+			connector["auth"] = a
 		}
 		nodeItems = append(nodeItems, map[string]interface{}{
 			"name":      fmt.Sprintf("node_%d", idx+1),
@@ -5633,7 +5648,7 @@ func buildTunnelChainConfig(tunnelID int64, fromNodeID int64, targets []tunnelRu
 // minute. The rule target forwarder keeps its 600 s.
 const tunnelChainFailTimeout = 60 * time.Second
 
-func buildTunnelChainServiceConfig(tunnelID int64, chainNode tunnelRuntimeNode, node *nodeRecord, nextHopCandidateCount int) []map[string]interface{} {
+func buildTunnelChainServiceConfig(tunnelID int64, chainNode tunnelRuntimeNode, node *nodeRecord, nextHopCandidateCount int, auth *relayAuthSpec) []map[string]interface{} {
 	if node == nil {
 		return nil
 	}
@@ -5649,6 +5664,14 @@ func buildTunnelChainServiceConfig(tunnelID int64, chainNode tunnelRuntimeNode, 
 	}
 	if nextHopCandidateCount > 1 {
 		handlerCfg["retries"] = nextHopCandidateCount - 1
+	}
+	// Plan 225: an enforced tunnel's relays require its credential; its exits
+	// also guard targets (fork.120+ agents; older ones ignore the key).
+	if auth != nil && auth.enforce && auth.user != "" {
+		handlerCfg["auth"] = map[string]interface{}{"username": auth.user, "password": auth.pass}
+		if chainNode.ChainType == 3 {
+			handlerCfg["metadata"].(map[string]interface{})[relayTargetGuardKey] = true
+		}
 	}
 	service := map[string]interface{}{
 		"name":    fmt.Sprintf("%d_tls", tunnelID),

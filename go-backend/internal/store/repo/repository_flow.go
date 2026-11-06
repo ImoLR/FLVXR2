@@ -263,6 +263,7 @@ func (r *Repository) GetTunnelRecord(tunnelID int64) (*model.TunnelRecord, error
 		Type:           t.Type,
 		Status:         t.Status,
 		RuleBest:       t.RuleBest,
+		RelayAuth:      t.RelayAuth,
 		RegionOverride: t.RegionOverride,
 		Flow:           t.Flow,
 		TrafficRatio:   t.TrafficRatio,

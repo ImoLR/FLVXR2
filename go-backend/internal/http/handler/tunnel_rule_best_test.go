@@ -472,7 +472,7 @@ func TestRuleBestSwitchOffChainConfigIdenticalToFork102(t *testing.T) {
 				for _, pref := range []string{"", "v4", "v6"} {
 					state := &tunnelCreateState{TunnelID: tid, Type: 2, IPPreference: pref, Nodes: nodes}
 					// fork.102's tunnelChainConfigFor.
-					want, err := buildTunnelChainConfig(tid, owner.NodeID, h.bestOrderedTargets(tid, owner.NodeID, next), nodes, pref)
+					want, err := buildTunnelChainConfig(tid, owner.NodeID, h.bestOrderedTargets(tid, owner.NodeID, next), nodes, pref, h.relayAuthFor(state))
 					if err != nil {
 						t.Fatal(err)
 					}

@@ -158,7 +158,7 @@ func TestBestPathUsesConnectIPType(t *testing.T) {
 	to := &nodeRecord{ID: 2, ServerIPv4: "192.0.2.2", ServerIPv6: "2001:db8::2"}
 	targets := []tunnelRuntimeNode{{NodeID: 2, Port: 1234, ConnectIP: "198.51.100.99", ConnectIPType: "v4", Strategy: "best"}}
 	nodes := map[int64]*nodeRecord{1: from, 2: to}
-	config, err := buildTunnelChainConfig(1, 1, targets, nodes, "v6")
+	config, err := buildTunnelChainConfig(1, 1, targets, nodes, "v6", nil)
 	data, _ := json.Marshal(config)
 	if err != nil || !strings.Contains(string(data), "198.51.100.99:1234") || !strings.Contains(string(data), `"strategy":"fifo"`) {
 		t.Fatalf("chain: %s %v", data, err)

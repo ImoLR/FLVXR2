@@ -605,7 +605,7 @@ func (h *Handler) bestOrderedTargets(tunnelID, ownerID int64, targets []tunnelRu
 // without destOrder) the config is exactly the plan-165 one.
 func (h *Handler) tunnelChainConfigFor(state *tunnelCreateState, ownerID int64, targets []tunnelRuntimeNode) (map[string]interface{}, error) {
 	ordered := h.bestOrderedTargets(state.TunnelID, ownerID, targets)
-	cfg, err := buildTunnelChainConfig(state.TunnelID, ownerID, ordered, state.Nodes, state.IPPreference)
+	cfg, err := buildTunnelChainConfig(state.TunnelID, ownerID, ordered, state.Nodes, state.IPPreference, h.relayAuthFor(state))
 	if err != nil || !state.RuleBest {
 		return cfg, err
 	}

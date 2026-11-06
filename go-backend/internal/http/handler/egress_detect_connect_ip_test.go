@@ -68,7 +68,7 @@ func TestCustomConnectIPOverridesType(t *testing.T) {
 	nodes := map[int64]*nodeRecord{1: {ID: 1, ServerIPv6: "2001:db8::1"}, 2: {ID: 2, ServerIPv4: "192.0.2.2", ServerIPv6: "2001:db8::2"}}
 	for _, ip := range []string{"198.51.100.22", "2001:db8:99::22"} {
 		targets := []tunnelRuntimeNode{{NodeID: 2, Port: 1302, Protocol: "tls", ConnectIPType: "lan", ConnectIP: ip}}
-		cfg, err := buildTunnelChainConfig(10, 1, targets, nodes, "v6")
+		cfg, err := buildTunnelChainConfig(10, 1, targets, nodes, "v6", nil)
 		data, _ := json.Marshal(cfg)
 		if err != nil || !strings.Contains(string(data), ip) {
 			t.Fatalf("config: %s %v", data, err)

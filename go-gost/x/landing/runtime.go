@@ -122,11 +122,30 @@ type Manager struct {
 	// for minutes during a first download.
 	closeWait atomic.Int64               // default_close_wait_timeout_seconds; 0 = Core default
 	ports     atomic.Pointer[PortsInUse] // public inbound ports of the desired state
+	// inbound: every enabled inbound port of the desired state (public and
+	// 127.0.0.1 chain copies) — the exit relay target guard's allow list
+	// (plan 225). Read without m.mu.
+	inbound atomic.Pointer[map[int]struct{}]
 
 	// Plan 202: 禁止端口扫描 state (m.mu) and the highest unrecorded hit seq
 	// for the lock-free 1 s system info.
 	scan    scanState
 	scanSeq atomic.Int64
+}
+
+// InboundPort reports whether an enabled landing inbound (public or a
+// 127.0.0.1 chain copy) of the desired state listens on port. The Core API
+// port is never a node port.
+func (m *Manager) InboundPort(port int) bool {
+	if m == nil || port <= 0 {
+		return false
+	}
+	p := m.inbound.Load()
+	if p == nil {
+		return false
+	}
+	_, ok := (*p)[port]
+	return ok
 }
 
 // PortsInUse are the public inbound ports of the enabled landing nodes.
@@ -171,6 +190,7 @@ func (m *Manager) Run(ctx context.Context) {
 					m.desired = d
 					m.loaded = true
 					m.ports.Store(d.publicPorts())
+					m.inbound.Store(d.inboundPorts())
 				}
 			}
 		}
@@ -215,6 +235,7 @@ func (m *Manager) Apply(ctx context.Context, d Desired) (Status, error) {
 	m.desired = d
 	m.loaded = true
 	m.ports.Store(d.publicPorts())
+	m.inbound.Store(d.inboundPorts())
 	err := m.reconcile(ctx)
 	m.noteResult(err)
 	m.applyRates()

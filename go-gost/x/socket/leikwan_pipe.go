@@ -98,6 +98,8 @@ func probePipeTransport(ctx context.Context, transport chain.Transporter, addres
 	}
 	// Unsupported command elicits a relay error before routing,
 	// or opening any target connection. This proves the actual landing replied.
+	// Plan 225: a landing whose relay requires the tunnel credential answers
+	// the same probe with StatusUnauthorized — also an FLVX relay reply.
 	request := relay.Request{Version: relay.Version1, Cmd: relay.CmdMask}
 	if _, err = request.WriteTo(secure); err != nil {
 		return err
@@ -106,7 +108,7 @@ func probePipeTransport(ctx context.Context, transport chain.Transporter, addres
 	if _, err = response.ReadFrom(secure); err != nil {
 		return err
 	}
-	if response.Version != relay.Version1 || response.Status != relay.StatusBadRequest {
+	if response.Version != relay.Version1 || (response.Status != relay.StatusBadRequest && response.Status != relay.StatusUnauthorized) {
 		return errors.New("落地未返回有效 FLVX relay 响应")
 	}
 	return nil

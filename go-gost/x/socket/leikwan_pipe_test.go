@@ -95,3 +95,29 @@ func TestLeiKwanPipeProbeMissingChain(t *testing.T) {
 		t.Fatalf("missing chain: %+v %v", data, err)
 	}
 }
+
+// Plan 225: a landing relay that requires the tunnel credential answers the
+// probe with StatusUnauthorized; that is still an FLVX relay reply. Any other
+// status (or version) is not.
+func TestLeiKwanPipeProbeAcceptsAuthProtectedLanding(t *testing.T) {
+	for status, ok := range map[uint8]bool{relay.StatusUnauthorized: true, relay.StatusBadRequest: true, relay.StatusOK: false, relay.StatusForbidden: false} {
+		transport := pipeTestTransport{dial: func(context.Context, string) (net.Conn, error) {
+			client, server := net.Pipe()
+			go func() {
+				defer server.Close()
+				var req relay.Request
+				if _, err := req.ReadFrom(server); err != nil {
+					return
+				}
+				_, _ = (&relay.Response{Version: relay.Version1, Status: status}).WriteTo(server)
+			}()
+			return client, nil
+		}}
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		err := probePipeTransport(ctx, transport, "127.0.0.1:10015")
+		cancel()
+		if (err == nil) != ok {
+			t.Fatalf("status %d: err=%v, want ok=%v", status, err, ok)
+		}
+	}
+}

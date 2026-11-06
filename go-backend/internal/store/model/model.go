@@ -428,6 +428,11 @@ type Tunnel struct {
 	// sections, tunnel page groups); '' = automatic (exit-node region, entry
 	// region for 端口转发). Display only — never changes the route.
 	RegionOverride string `gorm:"column:region_override;type:varchar(8);not null;default:''"`
+	// Plan 225: 1 = the tunnel's middle/exit relay services require the
+	// per-tunnel relay credential (connectors always send it). Existing
+	// tunnels start at 0 and are switched by the ordered rollout
+	// (POST /api/v1/tunnel/relay-auth); new tunnels are created with 1.
+	RelayAuth int `gorm:"column:relay_auth;not null;default:0"`
 }
 
 func (Tunnel) TableName() string { return "tunnel" }
@@ -966,6 +971,8 @@ type TunnelRecord struct {
 	Type     int
 	Status   int
 	RuleBest int // plan 180
+	// RelayAuth: plan 225 relay auth flag (tunnel.relay_auth).
+	RelayAuth int
 	// RegionOverride is the 「显示地区」 (plan 184), '' = automatic.
 	RegionOverride string
 	Flow           int64

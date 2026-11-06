@@ -255,7 +255,7 @@ func (h *Handler) buildTunnelRuntimePlan(state *tunnelCreateState, nodeID int64)
 		if plan.runtimeNode.ChainType == 3 {
 			targetCount = 1
 		}
-		plan.serviceData = buildTunnelChainServiceConfig(state.TunnelID, plan.runtimeNode, node, targetCount)
+		plan.serviceData = buildTunnelChainServiceConfig(state.TunnelID, plan.runtimeNode, node, targetCount, h.relayAuthFor(state))
 	}
 	return plan, nil
 }

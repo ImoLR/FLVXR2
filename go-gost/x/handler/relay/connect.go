@@ -77,6 +77,13 @@ func (h *relayHandler) handleConnect(ctx context.Context, conn net.Conn, network
 		return
 	}
 
+	if h.md.targetGuard && guardedNetwork(network) {
+		log.Debugf("target guard: %s/%s refused", address, network)
+		resp.Status = relay.StatusForbidden
+		resp.WriteTo(conn)
+		return errTargetGuard
+	}
+
 	if h.options.Bypass != nil && h.options.Bypass.Contains(ctx, network, address) {
 		log.Debug("bypass: ", address)
 		resp.Status = relay.StatusForbidden
@@ -111,6 +118,17 @@ func (h *relayHandler) handleConnect(ctx context.Context, conn net.Conn, network
 		resp.Status = relay.StatusNetworkUnreachable
 		resp.WriteTo(conn)
 		return err
+	}
+	if h.md.targetGuard {
+		// Checked on the address actually dialed (after DNS); nothing has
+		// been sent to it yet.
+		if gerr := checkTargetGuard(cc.RemoteAddr()); gerr != nil {
+			cc.Close()
+			log.Debugf("target guard: %s/%s (%v) refused", address, network, cc.RemoteAddr())
+			resp.Status = relay.StatusForbidden
+			resp.WriteTo(conn)
+			return gerr
+		}
 	}
 	defer cc.Close()
 

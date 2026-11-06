@@ -344,7 +344,7 @@ func TestBestPathCreateDefaultsAndRuntimeMapping(t *testing.T) {
 
 func TestChainRevMatchesAcrossAddAndUpdate(t *testing.T) {
 	nodes := map[int64]*nodeRecord{1: {ID: 1, ServerIPv4: "192.0.2.1"}, 2: {ID: 2, ServerIPv4: "192.0.2.2"}, 3: {ID: 3, ServerIPv4: "192.0.2.3"}}
-	data, err := buildTunnelChainConfig(30, 1, []tunnelRuntimeNode{{NodeID: 3, Port: 3, Strategy: "best"}, {NodeID: 2, Port: 2, Strategy: "best"}}, nodes, "")
+	data, err := buildTunnelChainConfig(30, 1, []tunnelRuntimeNode{{NodeID: 3, Port: 3, Strategy: "best"}, {NodeID: 2, Port: 2, Strategy: "best"}}, nodes, "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}

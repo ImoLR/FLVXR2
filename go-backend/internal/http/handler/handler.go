@@ -371,6 +371,8 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("/api/v1/tunnel/delete-preview", h.tunnelDeletePreview)
 	// Plan 224: tunnel edit warning before 屏蔽 TLS / HTTP is turned on.
 	mux.HandleFunc("/api/v1/tunnel/filter-affected", h.tunnelFilterAffected)
+	// Plan 225: ordered tunnel relay auth rollout / status (admin).
+	mux.HandleFunc("/api/v1/tunnel/relay-auth", h.tunnelRelayAuth)
 	mux.HandleFunc("/api/v1/tunnel/delete-with-forwards", h.tunnelDeleteWithForwards)
 	mux.HandleFunc("/api/v1/tunnel/batch-delete-preview", h.tunnelBatchDeletePreview)
 	mux.HandleFunc("/api/v1/tunnel/batch-delete-with-forwards", h.tunnelBatchDeleteWithForwards)

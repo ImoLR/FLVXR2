@@ -35,6 +35,9 @@ type metadata struct {
 
 	limiterRefreshInterval time.Duration
 	limiterCleanupInterval time.Duration
+
+	// targetGuard: FLVX exit target guard (plan 225, target_guard.go).
+	targetGuard bool
 }
 
 func (h *relayHandler) parseMetadata(md mdata.Metadata) (err error) {
@@ -45,6 +48,7 @@ func (h *relayHandler) parseMetadata(md mdata.Metadata) (err error) {
 
 	h.md.enableBind = mdutil.GetBool(md, "bind")
 	h.md.noDelay = mdutil.GetBool(md, "nodelay")
+	h.md.targetGuard = mdutil.GetBool(md, targetGuardKey)
 	h.md.hash = mdutil.GetString(md, "hash")
 
 	h.md.muxCfg = &mux.Config{

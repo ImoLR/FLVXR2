@@ -305,6 +305,19 @@ func (d Desired) publicPorts() *PortsInUse {
 	return p
 }
 
+// inboundPorts: every enabled node port (public and chain copies).
+func (d Desired) inboundPorts() *map[int]struct{} {
+	p := map[int]struct{}{}
+	if d.Enabled {
+		for _, n := range d.Nodes {
+			if n.Enabled && n.Port > 0 {
+				p[n.Port] = struct{}{}
+			}
+		}
+	}
+	return &p
+}
+
 func (n Node) inbound() (map[string]any, error) {
 	listen := "0.0.0.0"
 	if n.Listen != "" {
