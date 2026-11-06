@@ -38,7 +38,9 @@ func (w *WebSocketReporter) handleRealityProbe(data interface{}) (landing.Realit
 	if err := json.Unmarshal(raw, &req); err != nil {
 		return landing.RealityProbeResponse{}, fmt.Errorf("invalid reality probe request")
 	}
-	ctx, cancel := context.WithTimeout(w.ctx, 100*time.Second)
+	// Below the panel's 90 s command timeout (and Cloudflare's 100 s): a
+	// candidate not finished by then is reported as 已取消.
+	ctx, cancel := context.WithTimeout(w.ctx, 80*time.Second)
 	defer cancel()
 	return landing.ProbeReality(ctx, req)
 }

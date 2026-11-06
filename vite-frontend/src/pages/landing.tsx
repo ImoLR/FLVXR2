@@ -1297,6 +1297,7 @@ export default function LandingPage() {
             key={settings.id}
             server={settings}
             onClose={() => setSettings(null)}
+            onProbed={() => void load()}
             onSaved={() => void load()}
           />
         )}

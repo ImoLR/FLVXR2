@@ -141,6 +141,18 @@ export interface LandingServer {
   protocols: LandingProtocol[];
   realityDest: string;
   realityServerNames: string[];
+  /** plan 227: 伪装域名 自动（最快） / 手动. Admin fields below. */
+  realityMode?: RealityMode;
+  realityProbeSupported?: boolean;
+  realityProbeUnsupportedReason?: string;
+  realityProbedAt?: number;
+  realityProbeError?: string;
+  realityProbe?: RealityProbeRow[];
+  realityPinSupported?: boolean;
+  realityPins?: RealityPin[];
+  realityPinsAt?: number;
+  /** set by a 测速 response when 自动 picked a new default */
+  realityPicked?: string;
   availableUntil: number | null;
   coreMemoryMb: number;
   coreCpuPercent: number;
@@ -478,6 +490,10 @@ export const saveLandingServer = (
       ? { routeProfileId: server.routeProfileId, egressRestartConfirmed }
       : {}),
     ...(realityGuard !== undefined ? { realityGuard } : {}),
+    // Plan 227: absent = the panel keeps the stored mode.
+    ...(server.realityMode !== undefined
+      ? { realityMode: server.realityMode }
+      : {}),
     ...(coreUpgradeConfirmed ? { coreUpgradeConfirmed } : {}),
     // Plan 158: the 计算方式 selectors are retired — no connMode/maxConnMode is
     // sent (the server keeps its stored node mode; the total becomes
@@ -538,6 +554,69 @@ export const setLandingNodeStatus = (id: number, disabled: boolean) =>
     id,
     status: disabled ? "disabled" : "active",
   });
+// Plan 227: Reality 伪装域名 candidates (admin) and per-server 测速.
+export type RealityMode = "auto" | "manual";
+export type RealityDomainSource = "builtin" | "custom" | "pool";
+export interface RealityDomain {
+  id: number;
+  domain: string;
+  source: RealityDomainSource;
+  inPool: boolean;
+  blocked: boolean;
+  note: string;
+}
+export interface RealityDomainsView {
+  domains: RealityDomain[];
+  probeCount: number;
+  probeMax: number;
+  customMax: number;
+  poolFetchedAt: number;
+  poolError: string;
+  poolAvailable: boolean;
+}
+export interface RealityProbeRow {
+  target: string;
+  domain: string;
+  feasible: boolean;
+  reason?: string;
+  latencyMs: number;
+  bestIp?: string;
+  ips?: { ip: string; tcp_ms: number }[];
+  serverNames: string[];
+  source: RealityDomainSource | "current";
+  inPool: boolean;
+  blocked: boolean;
+}
+export interface RealityPin {
+  host: string;
+  port?: number;
+  pinned_ip?: string;
+  pinned_ms?: number;
+  best_ip?: string;
+  best_ms?: number;
+  ips?: number;
+  checked_at: number;
+  error?: string;
+}
+export const realityDomains = () =>
+  Network.post<RealityDomainsView>("/landing/reality/domains", {});
+export const addRealityDomain = (domain: string) =>
+  Network.post<RealityDomainsView>("/landing/reality/domain/add", { domain });
+export const deleteRealityDomain = (id: number) =>
+  Network.post<RealityDomainsView>("/landing/reality/domain/delete", { id });
+export const blockRealityDomain = (id: number, blocked: boolean) =>
+  Network.post<RealityDomainsView>("/landing/reality/domain/block", {
+    id,
+    blocked,
+  });
+export const refreshRealityPool = () =>
+  Network.post<RealityDomainsView>("/landing/reality/pool/refresh", {});
+export const probeLandingReality = (id: number) =>
+  Network.post<LandingServer>(
+    "/landing/server/reality-probe",
+    { id },
+    { timeout: 100000 },
+  );
 // Plan 131: admin-only global landing settings and node owner transfer.
 export interface LandingGlobalSettings {
   defaultMaxNodes: number;

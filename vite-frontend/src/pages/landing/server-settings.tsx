@@ -20,6 +20,7 @@ import {
 import { Select, SelectItem } from "@/shadcn-bridge/heroui/select";
 import { Switch } from "@/shadcn-bridge/heroui/switch";
 import { ExtraProtocolSettings } from "@/pages/landing/extra-protocols";
+import { RealityServerSection } from "@/pages/landing/reality-domains";
 import {
   AttentionIcon,
   AttentionList,
@@ -49,10 +50,13 @@ export function ServerSettings({
   server,
   onClose,
   onSaved,
+  onProbed,
 }: {
   server: LandingServer;
   onClose: () => void;
   onSaved: () => void;
+  /** plan 227: a 测速 changed the stored server (refresh the list, keep the dialog). */
+  onProbed?: (server: LandingServer) => void;
 }) {
   const [form, setForm] = useState(server);
   const [groups, setGroups] = useState<UserGroupApiItem[]>([]);
@@ -413,21 +417,14 @@ export function ServerSettings({
               ))}
             </div>
             {form.protocols.includes("vless_reality_vision") && (
-              <>
-                <Input
-                  label="Reality 目标 (host:port)"
-                  value={form.realityDest}
-                  variant="bordered"
-                  onChange={(event) => set("realityDest", event.target.value)}
-                />
-                <Input
-                  description="多个域名用逗号分隔"
-                  label="Reality Server Names"
-                  value={realityNamesInput}
-                  variant="bordered"
-                  onChange={(event) => setRealityNamesInput(event.target.value)}
-                />
-              </>
+              <RealityServerSection
+                form={form}
+                namesInput={realityNamesInput}
+                server={server}
+                set={set}
+                setNamesInput={setRealityNamesInput}
+                onProbed={onProbed ?? (() => undefined)}
+              />
             )}
             <ExtraProtocolSettings form={form} server={server} set={set} />
           </section>

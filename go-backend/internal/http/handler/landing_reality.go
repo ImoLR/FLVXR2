@@ -26,7 +26,7 @@ const (
 	realityProbeRetry    = time.Hour
 	realityPoolEvery     = 6 * time.Hour
 	realityPoolRetry     = time.Hour
-	realityProbeTimeout  = 110 * time.Second
+	realityProbeTimeout  = 90 * time.Second
 	realityProbeTimeoutM = 3000 // ms per candidate TLS handshake
 
 	realityPoolAtKey    = "landing_reality_pool_at"
