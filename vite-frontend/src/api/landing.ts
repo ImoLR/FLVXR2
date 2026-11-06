@@ -153,6 +153,8 @@ export interface LandingServer {
   realityPinsAt?: number;
   /** set by a 测速 response when 自动 picked a new default */
   realityPicked?: string;
+  /** a 测速 still runs (shared servers: the Helper picks it up with its next upload) */
+  realityProbePending?: boolean;
   availableUntil: number | null;
   coreMemoryMb: number;
   coreCpuPercent: number;
@@ -611,6 +613,8 @@ export const blockRealityDomain = (id: number, blocked: boolean) =>
   });
 export const refreshRealityPool = () =>
   Network.post<RealityDomainsView>("/landing/reality/pool/refresh", {});
+export const landingRealityProbeStatus = (id: number) =>
+  Network.post<LandingServer>("/landing/server/reality-probe/status", { id });
 export const probeLandingReality = (id: number) =>
   Network.post<LandingServer>(
     "/landing/server/reality-probe",

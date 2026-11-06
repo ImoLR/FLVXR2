@@ -9,6 +9,7 @@ import {
   blockRealityDomain,
   deleteRealityDomain,
   LandingServer,
+  landingRealityProbeStatus,
   probeLandingReality,
   RealityDomain,
   RealityDomainSource,
@@ -494,7 +495,27 @@ export function RealityServerSection({
 
         return;
       }
-      const next = res.data;
+      let next = res.data;
+
+      // A slower 测速 (妙妙屋 Helper) finishes in the background: poll.
+      for (let i = 0; next.realityProbePending && i < 60; i++) {
+        await new Promise((resolve) => setTimeout(resolve, 5000));
+        const poll = await landingRealityProbeStatus(server.id);
+
+        if (poll.code !== 0) break;
+        next = poll.data;
+      }
+      if (next.realityProbePending) {
+        toast("测速还在进行，稍后重新打开设置查看结果");
+
+        return;
+      }
+      if (next.realityProbeError && next.realityProbedAt === probedAt) {
+        setProbeError(next.realityProbeError);
+        toast.error(next.realityProbeError);
+
+        return;
+      }
 
       setProbe(next.realityProbe || []);
       setProbedAt(next.realityProbedAt || 0);

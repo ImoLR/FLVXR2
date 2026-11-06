@@ -6,8 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
-	"time"
 )
 
 // Contract reality-pick-v1 (plan 227): Reality 伪装域名 测速 from the shared
@@ -45,23 +45,25 @@ func sanitizeVersions(c *ShareVersions) *ShareVersions {
 	return &ShareVersions{Versions: versions}
 }
 
-// RealityProbeRequest is the probe body.
+// RealityProbeRequest is the probe body (Custom v1.4.88: targets host:port,
+// timeout_ms 500–5000).
 type RealityProbeRequest struct {
-	Candidates []string `json:"candidates"`
-	TimeoutMs  int      `json:"timeout_ms,omitempty"`
+	Targets   []string `json:"targets"`
+	TimeoutMs int      `json:"timeout_ms,omitempty"`
 }
 
-// RealityProbeIP / RealityProbeResult mirror contract §1.
+// RealityProbeIP / RealityProbeResult mirror contract §1 (Custom reports
+// milliseconds as floats; -1 = the IP did not answer).
 type RealityProbeIP struct {
-	IP    string `json:"ip"`
-	TCPMs int    `json:"tcp_ms"`
+	IP    string  `json:"ip"`
+	TCPMs float64 `json:"tcp_ms"`
 }
 
 type RealityProbeResult struct {
 	Target         string           `json:"target"`
 	Feasible       bool             `json:"feasible"`
 	Reason         string           `json:"reason,omitempty"`
-	LatencyMs      int              `json:"latency_ms"`
+	LatencyMs      float64          `json:"latency_ms"`
 	BestIP         string           `json:"best_ip,omitempty"`
 	IPs            []RealityProbeIP `json:"ips"`
 	TLS13          bool             `json:"tls13"`
@@ -72,29 +74,40 @@ type RealityProbeResult struct {
 	CertChainBytes int              `json:"cert_chain_bytes"`
 }
 
-// ProbeReality runs a 测速 on the share's machine (sync, ≤ ~100 s).
-func (c *Client) ProbeReality(ctx context.Context, id int64, req RealityProbeRequest) ([]RealityProbeResult, error) {
-	var raw json.RawMessage
-	slow := &http.Client{Timeout: 120 * time.Second, CheckRedirect: c.http.CheckRedirect}
-	if err := c.requestWith(ctx, slow, http.MethodPost, fmt.Sprintf("/shares/%d/reality-probe", id), req, &raw); err != nil {
-		return nil, err
-	}
-	return decodeRealityResults(raw)
+// RealityProbeJob is Custom's probe job: POST /shares/{id}/reality-probe
+// queues it on the share's Helper (picked up with its next upload), GET
+// /shares/{id}/reality-probe/{probe_id} polls it. State queued | running |
+// done | error.
+type RealityProbeJob struct {
+	ProbeID string               `json:"probe_id"`
+	State   string               `json:"state"`
+	Error   string               `json:"error,omitempty"`
+	Results []RealityProbeResult `json:"results"`
 }
 
-// decodeRealityResults accepts {"results":[…]} or a bare list.
-func decodeRealityResults(raw json.RawMessage) ([]RealityProbeResult, error) {
-	var wrapped struct {
-		Results []RealityProbeResult `json:"results"`
+// Finished reports a final state.
+func (j RealityProbeJob) Finished() bool { return j.State == "done" || j.State == "error" }
+
+// StartRealityProbe queues a 测速 on the share's machine.
+func (c *Client) StartRealityProbe(ctx context.Context, id int64, req RealityProbeRequest) (RealityProbeJob, error) {
+	var out RealityProbeJob
+	err := c.request(ctx, http.MethodPost, fmt.Sprintf("/shares/%d/reality-probe", id), req, &out)
+	if err == nil && (out.ProbeID == "" || len(out.ProbeID) > 64) {
+		err = errors.New("妙妙屋测速任务格式错误")
 	}
-	if json.Unmarshal(raw, &wrapped) == nil && wrapped.Results != nil {
-		return sanitizeRealityResults(wrapped.Results), nil
+	out.Results = sanitizeRealityResults(out.Results)
+	return out, err
+}
+
+// RealityProbeStatus polls a queued 测速.
+func (c *Client) RealityProbeStatus(ctx context.Context, id int64, probeID string) (RealityProbeJob, error) {
+	var out RealityProbeJob
+	err := c.request(ctx, http.MethodGet, fmt.Sprintf("/shares/%d/reality-probe/%s", id, url.PathEscape(probeID)), nil, &out)
+	out.Results = sanitizeRealityResults(out.Results)
+	if len(out.Error) > 200 {
+		out.Error = out.Error[:200]
 	}
-	var list []RealityProbeResult
-	if json.Unmarshal(raw, &list) == nil {
-		return sanitizeRealityResults(list), nil
-	}
-	return nil, errors.New("妙妙屋测速结果格式错误")
+	return out, err
 }
 
 func sanitizeRealityResults(in []RealityProbeResult) []RealityProbeResult {
@@ -110,8 +123,8 @@ func sanitizeRealityResults(in []RealityProbeResult) []RealityProbeResult {
 		if len(r.IPs) > 16 {
 			r.IPs = r.IPs[:16]
 		}
-		if len(r.ServerNames) > 16 {
-			r.ServerNames = r.ServerNames[:16]
+		if len(r.ServerNames) > 32 {
+			r.ServerNames = r.ServerNames[:32]
 		}
 		if r.IPs == nil {
 			r.IPs = []RealityProbeIP{}
@@ -127,16 +140,20 @@ func sanitizeRealityResults(in []RealityProbeResult) []RealityProbeResult {
 	return out
 }
 
-// RealityPin is one pinned dest host in share status (contract §3).
+// RealityPin is one pinned dest host in share status (contract §3; Custom
+// reports float milliseconds, Fallback = no IP answered, the first DNS
+// answer is used as before).
 type RealityPin struct {
-	Host      string `json:"host"`
-	Port      int    `json:"port,omitempty"`
-	PinnedIP  string `json:"pinned_ip,omitempty"`
-	PinnedMs  int    `json:"pinned_ms,omitempty"`
-	BestIP    string `json:"best_ip,omitempty"`
-	BestMs    int    `json:"best_ms,omitempty"`
-	CheckedAt int64  `json:"checked_at"`
-	Error     string `json:"error,omitempty"`
+	Host      string   `json:"host"`
+	Port      int      `json:"port,omitempty"`
+	PinnedIP  string   `json:"pinned_ip,omitempty"`
+	PinnedMs  float64  `json:"pinned_ms,omitempty"`
+	BestIP    string   `json:"best_ip,omitempty"`
+	BestMs    float64  `json:"best_ms,omitempty"`
+	CheckedAt int64    `json:"checked_at"`
+	Nodes     []string `json:"nodes,omitempty"`
+	Fallback  bool     `json:"fallback,omitempty"`
+	Error     string   `json:"error,omitempty"`
 }
 
 // RealityPins never fails to decode: a malformed optional report must not
@@ -177,22 +194,31 @@ type RealityPoolDomain struct {
 // RealityPool is GET /reality-pool. Reason explains an empty list (no
 // license, official unreachable); it is not an error.
 type RealityPool struct {
-	Domains   []RealityPoolDomain `json:"domains"`
-	FetchedAt int64               `json:"fetched_at"`
-	Reason    string              `json:"reason,omitempty"`
+	Domains    []RealityPoolDomain `json:"domains"`
+	FetchedAt  int64               `json:"fetched_at"` // 0 = never fetched (refreshing / unavailable)
+	Reason     string              `json:"reason,omitempty"`
+	Refreshing bool                `json:"refreshing,omitempty"`
 }
 
 // UnmarshalJSON accepts domains as objects or plain strings.
 func (p *RealityPool) UnmarshalJSON(b []byte) error {
 	var v struct {
-		Domains   []json.RawMessage `json:"domains"`
-		FetchedAt int64             `json:"fetched_at"`
-		Reason    string            `json:"reason"`
+		Domains    []json.RawMessage `json:"domains"`
+		FetchedAt  int64             `json:"fetched_at"`
+		Reason     string            `json:"reason"`
+		Error      string            `json:"error"`
+		Refreshing bool              `json:"refreshing"`
 	}
 	if err := json.Unmarshal(b, &v); err != nil {
 		return err
 	}
-	p.FetchedAt, p.Reason, p.Domains = v.FetchedAt, v.Reason, nil
+	p.FetchedAt, p.Reason, p.Refreshing, p.Domains = v.FetchedAt, v.Reason, v.Refreshing, nil
+	if p.Reason == "" {
+		p.Reason = v.Error
+	}
+	if len(p.Reason) > 200 {
+		p.Reason = p.Reason[:200]
+	}
 	for _, raw := range v.Domains {
 		var d RealityPoolDomain
 		if json.Unmarshal(raw, &d) != nil || d.Domain == "" {

@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -288,6 +289,9 @@ func TestLandingRealityShared(t *testing.T) {
 	e := newFlowTestEnv(t)
 	var mu sync.Mutex
 	var probeBodies []string
+	polls := 0
+	realitySharedPollEvery = 10 * time.Millisecond
+	t.Cleanup(func() { realitySharedPollEvery = 4 * time.Second })
 	custom := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		mu.Lock()
 		defer mu.Unlock()
@@ -295,10 +299,21 @@ func TestLandingRealityShared(t *testing.T) {
 		case landingcustom.Prefix + "/shares/7/reality-probe":
 			var body map[string]any
 			_ = json.NewDecoder(r.Body).Decode(&body)
-			b, _ := json.Marshal(body["candidates"])
+			b, _ := json.Marshal(body["targets"])
 			probeBodies = append(probeBodies, string(b))
-			res, _ := json.Marshal(map[string]any{"results": []map[string]any{probeRow("www.sony.com:443", true, 9, "203.0.113.9", "www.sony.com", "sony.com"), probeRow("www.dell.com:443", true, 20, "203.0.113.20")}})
-			_, _ = w.Write(res)
+			fmt.Fprint(w, `{"probe_id":"p-1","state":"queued","results":[]}`)
+		case landingcustom.Prefix + "/shares/7/reality-probe/p-1":
+			polls++
+			if polls < 2 {
+				fmt.Fprint(w, `{"probe_id":"p-1","state":"running","results":[]}`)
+				return
+			}
+			// Custom reports float milliseconds.
+			fmt.Fprint(w, `{"probe_id":"p-1","state":"done","results":[`+
+				`{"target":"www.sony.com:443","feasible":true,"latency_ms":8.4,"best_ip":"203.0.113.9","ips":[{"ip":"203.0.113.9","tcp_ms":1.2},{"ip":"203.0.113.99","tcp_ms":-1}],"tls13":true,"x25519":true,"h2":true,"cert_valid":true,"server_names":["www.sony.com","sony.com"]},`+
+				`{"target":"www.dell.com:443","feasible":true,"latency_ms":20.0,"best_ip":"203.0.113.20","ips":[],"tls13":true,"x25519":true,"h2":true,"cert_valid":true,"server_names":[]}]}`)
+		case landingcustom.Prefix + "/shares/7/status":
+			fmt.Fprint(w, `{"applied_revision":0,"core":{"state":"running"},"nodes":[],"collected_at":1,"reality_pins":[{"host":"www.lovelive-anime.jp","pinned_ip":"65.9.180.116","pinned_ms":4.6,"best_ip":"65.9.180.116","best_ms":4.6,"checked_at":5,"nodes":["132"]}]}`)
 		case landingcustom.Prefix + "/reality-pool":
 			fmt.Fprint(w, `{"domains":[{"domain":"www.apple.com"},{"domain":"swdist.apple.com"},{"domain":"www.tesla.com"},{"domain":"www.example.net"},"live.bilibili.com"],"fetched_at":1}`)
 		default:
@@ -330,8 +345,21 @@ func TestLandingRealityShared(t *testing.T) {
 	if view := dataMap(t, out); out.Code != 0 || view["realityDest"] != "www.sony.com:443" || fmt.Sprint(view["realityServerNames"]) != "[www.sony.com sony.com]" {
 		t.Fatalf("shared probe: %+v", out)
 	}
-	if len(probeBodies) != 1 || strings.Contains(probeBodies[0], "microsoft") || !strings.Contains(probeBodies[0], "www.sony.com:443") {
-		t.Fatalf("custom probe bodies = %v", probeBodies)
+	if len(probeBodies) != 1 || strings.Contains(probeBodies[0], "microsoft") || !strings.Contains(probeBodies[0], "www.sony.com:443") || polls != 2 {
+		t.Fatalf("custom probe bodies = %v polls=%d", probeBodies, polls)
+	}
+	s, _ = e.r.GetLandingServer(5)
+	if res := repo.LandingRealityProbeResults(s); len(res) != 2 || res[0].LatencyMs != 9 || res[0].IPs[1].TCPMs != -1 {
+		t.Fatalf("stored shared results = %+v", res)
+	}
+	// Pins ride on the status poll (float ms).
+	client, _ := landingcustom.New(custom.URL, "flvx_fixture")
+	if _, err := e.h.pollSharedLanding(context.Background(), client, *s); err != nil {
+		t.Fatal(err)
+	}
+	s, _ = e.r.GetLandingServer(5)
+	if pins := repo.LandingRealityPins(s); len(pins) != 1 || pins[0].PinnedIP != "65.9.180.116" || pins[0].PinnedMs != 5 {
+		t.Fatalf("shared pins = %+v", pins)
 	}
 	// Pool: risky kinds blocked on arrival, built-ins flagged in_pool.
 	if out := egressCall(t, e.h, "/api/v1/landing/reality/pool/refresh", map[string]any{}, 0); out.Code != 0 {

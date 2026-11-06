@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log"
+	"math"
 	"net"
 	"net/http"
 	"strconv"
@@ -29,11 +30,20 @@ const (
 	realityProbeTimeout  = 90 * time.Second
 	realityProbeTimeoutM = 3000 // ms per candidate TLS handshake
 
+	// Shared servers: Custom queues the job for the Helper's next upload.
+	realitySharedProbeMax = 4 * time.Minute
+	// The HTTP request waits this long, then returns 「测速中」 (Cloudflare
+	// cuts requests at 100 s); the 测速 finishes in the background.
+	realityProbeRequestWait = 60 * time.Second
+
 	realityPoolAtKey    = "landing_reality_pool_at"
 	realityPoolErrorKey = "landing_reality_pool_error"
 
 	realitySharedUnsupported = "共享服务器需要妙妙屋升级后才能测速"
 )
+
+// realitySharedPollEvery is how often a queued shared 测速 is polled (tests shorten it).
+var realitySharedPollEvery = 4 * time.Second
 
 var (
 	realityProbeBusy     sync.Map // server id -> struct{}: one 测速 per server at a time
@@ -44,12 +54,13 @@ var (
 
 func (h *Handler) registerLandingReality(mux *http.ServeMux) {
 	for path, fn := range map[string]http.HandlerFunc{
-		"reality/domains":       h.landingRealityDomains,
-		"reality/domain/add":    h.landingRealityDomainAdd,
-		"reality/domain/delete": h.landingRealityDomainDelete,
-		"reality/domain/block":  h.landingRealityDomainBlock,
-		"reality/pool/refresh":  h.landingRealityPoolRefresh,
-		"server/reality-probe":  h.landingServerRealityProbe,
+		"reality/domains":             h.landingRealityDomains,
+		"reality/domain/add":          h.landingRealityDomainAdd,
+		"reality/domain/delete":       h.landingRealityDomainDelete,
+		"reality/domain/block":        h.landingRealityDomainBlock,
+		"reality/pool/refresh":        h.landingRealityPoolRefresh,
+		"server/reality-probe":        h.landingServerRealityProbe,
+		"server/reality-probe/status": h.landingServerRealityProbeStatus,
 	} {
 		fn := fn
 		mux.HandleFunc("/api/v1/landing/"+path, func(w http.ResponseWriter, r *http.Request) {
@@ -195,6 +206,19 @@ func (h *Handler) refreshRealityPool(ctx context.Context, force bool) error {
 		}
 		return nil
 	}
+	if pool.FetchedAt <= 0 {
+		// Custom has no good list yet (refreshing / official unavailable):
+		// keep ours, show why.
+		msg := pool.Reason
+		if msg == "" && pool.Refreshing {
+			msg = "妙妙屋正在读取域名池，稍后再刷新"
+		}
+		_ = h.repo.UpsertConfig(realityPoolErrorKey, msg, time.Now().UnixMilli())
+		if force && msg != "" {
+			return errors.New(msg)
+		}
+		return nil
+	}
 	domains := make([]string, 0, len(pool.Domains))
 	for _, d := range pool.Domains {
 		domains = append(domains, d.Domain)
@@ -334,6 +358,9 @@ func (h *Handler) realityProbeNative(s *model.LandingServer, targets []string) (
 	return out.Results, nil
 }
 
+// realityProbeShared queues the 测速 on the share's Helper through Custom and
+// polls it (the Helper picks it up with its next upload; Custom expires a job
+// after ~3 min).
 func (h *Handler) realityProbeShared(ctx context.Context, s *model.LandingServer, targets []string) ([]repo.RealityProbeResult, error) {
 	cfg, err := h.repo.GetLandingIntegration()
 	if err != nil {
@@ -343,16 +370,67 @@ func (h *Handler) realityProbeShared(ctx context.Context, s *model.LandingServer
 	if err != nil {
 		return nil, err
 	}
-	pctx, cancel := context.WithTimeout(ctx, realityProbeTimeout)
-	defer cancel()
-	list, err := client.ProbeReality(pctx, s.RemoteServerID, landingcustom.RealityProbeRequest{Candidates: targets, TimeoutMs: realityProbeTimeoutM})
+	job, err := client.StartRealityProbe(ctx, s.RemoteServerID, landingcustom.RealityProbeRequest{Targets: targets, TimeoutMs: realityProbeTimeoutM})
 	if err != nil {
+		var apiErr *landingcustom.APIError
+		if errors.As(err, &apiErr) {
+			switch apiErr.Code {
+			case "probe_busy":
+				return nil, errors.New("妙妙屋那边这台服务器已有测速在进行，请稍后再试")
+			case "helper_outdated":
+				return nil, errors.New(realitySharedUnsupported)
+			}
+		}
 		return nil, errors.New("妙妙屋测速失败：" + err.Error())
 	}
-	raw, _ := json.Marshal(list)
-	var out []repo.RealityProbeResult
-	_ = json.Unmarshal(raw, &out)
-	return out, nil
+	deadline := time.Now().Add(realitySharedProbeMax)
+	for !job.Finished() {
+		if time.Now().After(deadline) {
+			return nil, errors.New("妙妙屋测速超时（Helper 没有按时完成）")
+		}
+		select {
+		case <-ctx.Done():
+			return nil, errors.New("测速已取消")
+		case <-time.After(realitySharedPollEvery):
+		}
+		next, err := client.RealityProbeStatus(ctx, s.RemoteServerID, job.ProbeID)
+		if err != nil {
+			return nil, errors.New("妙妙屋测速失败：" + err.Error())
+		}
+		job = next
+	}
+	if job.State == "error" {
+		msg := job.Error
+		if msg == "" {
+			msg = "未知原因"
+		}
+		return nil, errors.New("妙妙屋测速失败：" + msg)
+	}
+	return sharedRealityResults(job.Results), nil
+}
+
+func msInt(v float64) int {
+	if v < 0 {
+		return -1
+	}
+	return int(math.Ceil(v))
+}
+
+func sharedRealityResults(in []landingcustom.RealityProbeResult) []repo.RealityProbeResult {
+	out := make([]repo.RealityProbeResult, 0, len(in))
+	for _, r := range in {
+		ips := make([]repo.RealityProbeIP, 0, len(r.IPs))
+		for _, ip := range r.IPs {
+			ips = append(ips, repo.RealityProbeIP{IP: ip.IP, TCPMs: msInt(ip.TCPMs)})
+		}
+		lat := msInt(r.LatencyMs)
+		if lat < 0 {
+			lat = 0
+		}
+		out = append(out, repo.RealityProbeResult{Target: r.Target, Feasible: r.Feasible, Reason: r.Reason, LatencyMs: lat, BestIP: r.BestIP, IPs: ips,
+			TLS13: r.TLS13, X25519: r.X25519, H2: r.H2, CertValid: r.CertValid, ServerNames: r.ServerNames, CertChainBytes: r.CertChainBytes})
+	}
+	return out
 }
 
 // realityResultsView annotates a 测速 table with each domain's source and
@@ -394,6 +472,9 @@ func (h *Handler) landingServerRealityView(s model.LandingServer, v map[string]a
 	v["realityPinsAt"] = s.RealityPinsAt
 }
 
+// landingServerRealityProbe starts a 测速 and waits up to a minute; a slower
+// one (shared servers: the Helper picks the job up with its next upload)
+// finishes in the background and the view says realityProbePending.
 func (h *Handler) landingServerRealityProbe(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		ID int64 `json:"id"`
@@ -402,18 +483,58 @@ func (h *Handler) landingServerRealityProbe(w http.ResponseWriter, r *http.Reque
 		landingError(w, err)
 		return
 	}
-	_, rec, err := h.runRealityProbe(r.Context(), req.ID)
-	if err != nil {
+	if _, busy := realityProbeBusy.Load(req.ID); busy {
+		landingError(w, errors.New("这台服务器正在测速，请稍候"))
+		return
+	}
+	type outcome struct {
+		rec repo.RealityProbeRecord
+		err error
+	}
+	done := make(chan outcome, 1)
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), realitySharedProbeMax+30*time.Second)
+		defer cancel()
+		_, rec, err := h.runRealityProbe(ctx, req.ID)
+		done <- outcome{rec, err}
+	}()
+	var picked string
+	select {
+	case o := <-done:
+		if o.err != nil {
+			landingError(w, o.err)
+			return
+		}
+		picked = o.rec.Picked
+	case <-time.After(realityProbeRequestWait):
+	case <-r.Context().Done():
+	}
+	h.writeRealityServerView(w, req.ID, picked)
+}
+
+// landingServerRealityProbeStatus is the 测速中 poll: the admin server view
+// with realityProbePending.
+func (h *Handler) landingServerRealityProbeStatus(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		ID int64 `json:"id"`
+	}
+	if err := landingDecode(r, &req); err != nil {
 		landingError(w, err)
 		return
 	}
-	saved, _ := h.repo.GetLandingServer(req.ID)
+	h.writeRealityServerView(w, req.ID, "")
+}
+
+func (h *Handler) writeRealityServerView(w http.ResponseWriter, id int64, picked string) {
+	saved, _ := h.repo.GetLandingServer(id)
 	if saved == nil {
 		landingError(w, errors.New("落地服务器不存在"))
 		return
 	}
 	view := h.landingServerView(*saved)
-	view["realityPicked"] = rec.Picked
+	view["realityPicked"] = picked
+	_, pending := realityProbeBusy.Load(id)
+	view["realityProbePending"] = pending
 	response.WriteJSON(w, response.OK(view))
 }
 
@@ -477,7 +598,11 @@ func sharedRealityPins(p landingcustom.RealityPins) []repo.RealityPin {
 	}
 	out := make([]repo.RealityPin, 0, len(p))
 	for _, pin := range p {
-		out = append(out, repo.RealityPin{Host: pin.Host, Port: pin.Port, PinnedIP: pin.PinnedIP, PinnedMs: pin.PinnedMs, BestIP: pin.BestIP, BestMs: pin.BestMs, CheckedAt: pin.CheckedAt, Error: pin.Error})
+		p := repo.RealityPin{Host: pin.Host, Port: pin.Port, PinnedIP: pin.PinnedIP, PinnedMs: msInt(pin.PinnedMs), BestIP: pin.BestIP, BestMs: msInt(pin.BestMs), IPs: 0, CheckedAt: pin.CheckedAt, Error: pin.Error}
+		if pin.Fallback && p.Error == "" {
+			p.Error = "没有 IP 连得上，按第一个解析结果"
+		}
+		out = append(out, p)
 	}
 	return out
 }

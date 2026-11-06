@@ -848,12 +848,6 @@ func New(base, token string) (*Client, error) {
 	return &Client{base: base, token: token, http: &http.Client{Timeout: 15 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}, nil
 }
 func (c *Client) request(ctx context.Context, method, path string, body, out any) error {
-	return c.requestWith(ctx, c.http, method, path, body, out)
-}
-
-// requestWith is request on a given HTTP client (a 测速 runs longer than the
-// 15 s default, plan 227).
-func (c *Client) requestWith(ctx context.Context, hc *http.Client, method, path string, body, out any) error {
 	var data []byte
 	var err error
 	if body != nil {
@@ -871,7 +865,7 @@ func (c *Client) requestWith(ctx context.Context, hc *http.Client, method, path 
 	}
 	req.Header.Set("Authorization", "Bearer "+c.token)
 	req.Header.Set("Content-Type", "application/json")
-	resp, err := hc.Do(req)
+	resp, err := c.http.Do(req)
 	// Never expose URL errors, headers, response bodies or structured credentials.
 	if err != nil {
 		return errors.New("妙妙屋连接失败，请检查地址或网络")
