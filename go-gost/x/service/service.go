@@ -27,6 +27,7 @@ import (
 	"github.com/go-gost/core/service"
 	ctxvalue "github.com/go-gost/x/ctx"
 	xnet "github.com/go-gost/x/internal/net"
+	"github.com/go-gost/x/internal/util/ipkey"
 	"github.com/go-gost/x/logsafe"
 	xmetrics "github.com/go-gost/x/metrics"
 	xstats "github.com/go-gost/x/observer/stats"
@@ -232,7 +233,8 @@ func (s *defaultService) CurrentConns() int {
 	return int(s.conns.Load())
 }
 
-// ClientIPCounts returns the active source-IP connection counts for this service.
+// ClientIPCounts returns the active connection counts per client IP key
+// (plan 231: IPv6 = "<net>/64") for this service.
 func (s *defaultService) ClientIPCounts() map[string]int {
 	s.quotaMu.Lock()
 	defer s.quotaMu.Unlock()
@@ -243,39 +245,43 @@ func (s *defaultService) ClientIPCounts() map[string]int {
 	return counts
 }
 
+// acquireConnection applies the rule and group limits to one connection.
+// Plan 231: client IPs count by key (ipkey.Of: IPv6 = its /64, like the
+// 妙妙屋 Core), so privacy addresses rotating inside one /64 are one IP.
 func (s *defaultService) acquireConnection(clientIP string) (release func(), reason string, limit int, ok bool) {
 	maxConns := int(s.maxConns.Load())
 	maxClientIPs := int(s.maxClientIPs.Load())
 	group := s.quotaGroup
+	key := ipkey.Of(clientIP)
 	s.quotaMu.Lock()
 	if maxConns > 0 && int(s.conns.Load()) >= maxConns {
 		s.quotaMu.Unlock()
 		return nil, "rule connections", maxConns, false
 	}
-	if maxClientIPs > 0 && s.clientIPs[clientIP] == 0 && len(s.clientIPs) >= maxClientIPs {
+	if maxClientIPs > 0 && s.clientIPs[key] == 0 && len(s.clientIPs) >= maxClientIPs {
 		s.quotaMu.Unlock()
 		return nil, "rule client IPs", maxClientIPs, false
 	}
-	if reason, limit, ok := group.acquire(clientIP); !ok {
+	if reason, limit, ok := group.acquire(key, clientIP); !ok {
 		s.quotaMu.Unlock()
 		return nil, reason, limit, false
 	}
 	if s.clientIPs == nil {
 		s.clientIPs = make(map[string]int)
 	}
-	s.clientIPs[clientIP]++
+	s.clientIPs[key]++
 	s.conns.Add(1)
 	s.quotaMu.Unlock()
 
 	return func() {
 		s.quotaMu.Lock()
-		if count := s.clientIPs[clientIP]; count <= 1 {
-			delete(s.clientIPs, clientIP)
+		if count := s.clientIPs[key]; count <= 1 {
+			delete(s.clientIPs, key)
 		} else {
-			s.clientIPs[clientIP] = count - 1
+			s.clientIPs[key] = count - 1
 		}
 		s.conns.Add(-1)
-		group.release(clientIP)
+		group.release(key, clientIP)
 		s.quotaMu.Unlock()
 	}, "", 0, true
 }

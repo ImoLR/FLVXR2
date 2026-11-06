@@ -225,6 +225,8 @@ func New(repo *repo.Repository, jwtSecret string, fluxVersion string) *Handler {
 		_, err := h.wsServer.SendCommand(nodeID, "SetQuotaGroups", budgets, 5*time.Second)
 		return err
 	})
+	// Plan 231: agents announcing ipKey get key-form shared IP lists.
+	h.quotaGroups.ipKeyed = h.wsServer.IPKeyCapable
 	h.wsServer.SetNodeOnlineHook(h.onNodeOnline)
 	h.wsServer.SetNodeOfflineHook(h.onNodeOffline)
 	h.wsServer.SetLandingScanHook(h.onLandingScan)

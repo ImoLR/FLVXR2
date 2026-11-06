@@ -4,10 +4,10 @@ package nftables
 
 import (
 	"fmt"
-	"net"
 	"reflect"
 	"time"
 
+	"github.com/go-gost/x/internal/util/ipkey"
 	"github.com/go-gost/x/logsafe"
 	"github.com/go-gost/x/service"
 	"github.com/google/nftables"
@@ -24,9 +24,14 @@ const (
 	quotaPollMaxBackoff = 5 * time.Minute
 )
 
+// quotaUsage is one forward's (or group's) conntrack usage. Plan 231: ips
+// are keyed by ipkey.Of (IPv6 = its /64, like the 妙妙屋 Core); addrs keeps
+// the raw IPv6 addresses behind each /64 key for the group usage report
+// (quota attribution only).
 type quotaUsage struct {
 	connections int
 	ips         map[string]int
+	addrs       map[string]map[string]int
 }
 
 type quotaGate struct {
@@ -241,7 +246,7 @@ func (m *Manager) finishQuotaRemovalLocked(forwardID int64, protocol string) {
 			}
 		}
 		if !found {
-			service.SetNftQuotaGroupUsage(qf.quota.Group, 0, nil)
+			service.SetNftQuotaGroupUsage(qf.quota.Group, 0, nil, nil)
 		}
 	}
 	m.stopQuotaPollIfIdleLocked()
@@ -258,7 +263,10 @@ func chooseQuotaGate(q RuleQuota, usage quotaUsage, group service.QuotaGroupStat
 	return gate
 }
 
+// quotaGateAllows models the kernel gate for a client address (keyed like
+// the sets, plan 231).
 func quotaGateAllows(gate quotaGate, ruleIPs map[string]int, groupIPs map[string]struct{}, ip string) bool {
+	ip = ipkey.Of(ip)
 	if gate.groupConnectionsFull {
 		return false
 	}
@@ -374,7 +382,7 @@ func (m *Manager) reconcileQuotaLocked() error {
 	m.liveUsageAt = time.Now()
 	groupUsage := aggregateQuotaGroups(usage, m.quotaForwards)
 	for group, current := range groupUsage {
-		service.SetNftQuotaGroupUsage(group, current.connections, current.ips)
+		service.SetNftQuotaGroupUsage(group, current.connections, current.ips, current.addrs)
 	}
 	for id, qf := range m.quotaForwards {
 		if !quotaPollNeeded(qf.quota) {
@@ -459,6 +467,19 @@ func aggregateQuotaGroups(usage map[int64]quotaUsage, forwards map[int64]*quotaF
 		for ip, count := range usage[id].ips {
 			group.ips[ip] += count
 		}
+		for key, raw := range usage[id].addrs {
+			if group.addrs == nil {
+				group.addrs = make(map[string]map[string]int)
+			}
+			inner := group.addrs[key]
+			if inner == nil {
+				inner = make(map[string]int, len(raw))
+				group.addrs[key] = inner
+			}
+			for addr, count := range raw {
+				inner[addr] += count
+			}
+		}
 		groups[qf.quota.Group] = group
 	}
 	return groups
@@ -495,7 +516,20 @@ func attributeFlows(rules map[string]*RuleState, flows []*netlink.ConntrackFlow,
 			item.ips = make(map[string]int)
 		}
 		item.connections++
-		item.ips[flow.Forward.SrcIP.String()]++
+		key := ipkey.OfIP(flow.Forward.SrcIP)
+		item.ips[key]++
+		if !includeUncapped && flow.Forward.SrcIP.To4() == nil {
+			// Raw IPv6 address behind the /64 key: only the group usage report needs it.
+			if item.addrs == nil {
+				item.addrs = make(map[string]map[string]int)
+			}
+			inner := item.addrs[key]
+			if inner == nil {
+				inner = make(map[string]int, 1)
+				item.addrs[key] = inner
+			}
+			inner[flow.Forward.SrcIP.String()]++
+		}
 		usage[rs.ForwardID] = item
 	}
 	return usage
@@ -569,25 +603,17 @@ func (m *Manager) syncQuotaGateLocked(qf *quotaForward, gate quotaGate, ruleIPs 
 	return nil
 }
 
-func ipFamily(ip string) string {
-	parsed := net.ParseIP(ip)
-	if parsed == nil {
-		return ""
-	}
-	if parsed.To4() != nil {
-		return "4"
-	}
-	return "6"
-}
+// ipFamily is the set family ("4" / "6") of an IP key or address.
+func ipFamily(ip string) string { return ipkey.Family(ip) }
 
-func quotaIPBytes(ip string) []byte {
-	parsed := net.ParseIP(ip)
-	if parsed.To4() != nil {
-		return parsed.To4()
-	}
-	return parsed.To16()
-}
+// quotaIPBytes is the set element of an IP key: 4 bytes for IPv4, the
+// 16-byte /64 network for IPv6 (plan 231).
+func quotaIPBytes(ip string) []byte { return ipkey.Bytes(ip) }
 
+// quotaIPGateExpressions drops new connections whose source key is not in
+// set. Plan 231: an IPv6 source is masked to its /64 first
+// (ip6 saddr & ffff:ffff:ffff:ffff::, like the mmwx Helper limiter), so the
+// set holds one element per /64.
 func quotaIPGateExpressions(set *nftables.Set, family string) []expr.Any {
 	familyNum := byte(unix.NFPROTO_IPV4)
 	offset, length := uint32(12), uint32(4)
@@ -595,10 +621,15 @@ func quotaIPGateExpressions(set *nftables.Set, family string) []expr.Any {
 		familyNum, offset, length = unix.NFPROTO_IPV6, 8, 16
 	}
 	exprs := ctNewExpressions()
-	return append(exprs,
+	exprs = append(exprs,
 		&expr.Meta{Key: expr.MetaKeyNFPROTO, Register: 1},
 		&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: []byte{familyNum}},
 		&expr.Payload{DestRegister: 1, Base: expr.PayloadBaseNetworkHeader, Offset: offset, Len: length},
+	)
+	if family == "6" {
+		exprs = append(exprs, &expr.Bitwise{SourceRegister: 1, DestRegister: 1, Len: 16, Mask: ipkey.Mask6, Xor: make([]byte, 16)})
+	}
+	return append(exprs,
 		&expr.Lookup{SourceRegister: 1, SetName: set.Name, SetID: set.ID, Invert: true},
 		&expr.Verdict{Kind: expr.VerdictDrop},
 	)

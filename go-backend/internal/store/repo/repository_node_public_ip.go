@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"go-backend/internal/ipkey"
 	"go-backend/internal/store/model"
 )
 
@@ -187,11 +188,20 @@ func mergeEgressHistory(raw string, reported []string, now time.Time) (string, b
 		}
 		return list[i].IP < list[j].IP
 	})
-	kept, perFamily := make([]egressSeen, 0, len(list)), map[bool]int{}
+	// Plan 231: landings count an IPv6 source per /64, so only the newest
+	// address of each /64 is kept (4 distinct /64s, not 4 rotations of one).
+	kept, perFamily, seen64 := make([]egressSeen, 0, len(list)), map[bool]int{}, map[string]bool{}
 	for _, e := range list {
 		v4 := !strings.Contains(e.IP, ":")
 		if perFamily[v4] >= egressHistoryPerFamily {
 			continue
+		}
+		if !v4 {
+			key := ipkey.Of(e.IP)
+			if seen64[key] {
+				continue
+			}
+			seen64[key] = true
 		}
 		perFamily[v4]++
 		kept = append(kept, e)

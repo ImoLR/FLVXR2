@@ -60,6 +60,7 @@ type nodeSession struct {
 	landingRate     int    // handshake capability; >0 = agent shapes user_rates on its landing nodes (plan 161)
 	chainSwap       int    // handshake capability; >0 = UpdateChains swaps a chain without a gap (plan 165)
 	destOrder       int    // handshake capability; >0 = chain hops honour metadata.destOrder (plan 180 规则最优)
+	ipKey           int    // handshake capability; >0 = counts a client IPv6 /64 as one IP, keys sharedIps itself (plan 231)
 	entryRateTc     int    // handshake capability; >0 = entry speed limits via SetEntryRates in the kernel (plan 168)
 	entryRateTcErr  string // the agent's kernel cannot run the shaper (probe reason) → gost / nft fallback
 	entryRateKey    string // last entry rate status recorded (read loop only)
@@ -472,6 +473,9 @@ func (s *Server) handleNode(w http.ResponseWriter, r *http.Request, nodeID int64
 	}
 	if v, err := strconv.Atoi(r.URL.Query().Get("destOrder")); err == nil && v > 0 {
 		ns.destOrder = v
+	}
+	if v, err := strconv.Atoi(r.URL.Query().Get("ipKey")); err == nil && v > 0 {
+		ns.ipKey = v
 	}
 	if v, err := strconv.Atoi(r.URL.Query().Get("entryRateTc")); err == nil && v > 0 {
 		ns.entryRateTc = v
@@ -1089,6 +1093,20 @@ func (s *Server) DestOrderCapable(nodeID int64) bool {
 	defer s.mu.RUnlock()
 	ns := s.nodes[nodeID]
 	return ns != nil && ns.destOrder > 0 && ns.chainSwap > 0
+}
+
+// IPKeyCapable reports whether the node's current agent session counts a
+// client IPv6 /64 as one IP and keys sharedIps entries itself (plan 231,
+// handshake ipKey=1). Older agents compare raw addresses: they get raw
+// shared lists.
+func (s *Server) IPKeyCapable(nodeID int64) bool {
+	if s == nil {
+		return false
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	ns := s.nodes[nodeID]
+	return ns != nil && ns.ipKey > 0
 }
 
 // NodeOnline reports whether the node has a live agent session.

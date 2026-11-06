@@ -5,6 +5,8 @@ import (
 	"sort"
 	"strings"
 	"sync"
+
+	"github.com/go-gost/x/internal/util/ipkey"
 )
 
 // UnlimitedQuota is the wire/config encoding for an unlimited quota-group
@@ -18,6 +20,8 @@ type QuotaGroupBudget struct {
 	// SharedIPs (plan 158): the user's client IPs already counted on other
 	// nodes / landing servers. They may connect here without using one of
 	// this node's MaxClientIPs (用户总 IP 数 counts distinct IPs everywhere).
+	// Plan 231: each entry is normalised to its key (an IPv6 address or
+	// "<net>/64" covers its whole /64), so raw lists from older panels work.
 	SharedIPs []string `json:"sharedIps,omitempty"`
 }
 
@@ -25,23 +29,31 @@ type QuotaGroupBudget struct {
 const maxSharedIPs = 256
 
 type QuotaGroupUsage struct {
-	Group       string   `json:"group"`
-	Connections int      `json:"connections"`
-	ClientIPs   []string `json:"clientIps"`
+	Group       string `json:"group"`
+	Connections int    `json:"connections"`
+	// ClientIPs are the raw client addresses (wire unchanged by plan 231): the
+	// panel keys them itself and builds raw shared lists for older agents.
+	ClientIPs []string `json:"clientIps"`
 	// RelayConnections (plan 158, landing-user-* groups only): inbound on the
 	// landing Core from our own FLVX nodes (forward-rule relays), excluded
 	// from Connections / ClientIPs.
 	RelayConnections int `json:"relayConnections,omitempty"`
 }
 
+// Plan 231: client IPs are counted by key (ipkey.Of: IPv4 = the address,
+// IPv6 = its /64, like the 妙妙屋 Core). clientIPs / nftClientIPs / sharedIPs
+// hold keys; addrs / nftAddrs keep the raw IPv6 addresses behind each /64 key
+// only for the usage report (IPv4 keys are their own address).
 type quotaGroup struct {
 	mu             sync.Mutex
 	maxConnections int
 	maxClientIPs   int
 	connections    int
 	clientIPs      map[string]int
+	addrs          map[string]map[string]int // key → raw IPv6 address → gost connections
 	nftConnections int
 	nftClientIPs   map[string]int
+	nftAddrs       map[string]map[string]int // key → raw IPv6 address → conntrack flows
 	services       int
 	sharedIPs      map[string]struct{} // plan 158: counted elsewhere, never a new IP here
 }
@@ -53,8 +65,9 @@ type QuotaGroupState struct {
 	MaxConnections int
 	MaxClientIPs   int
 	Connections    int
-	// ClientIPs = IPs that may connect while the IP budget is full: the
-	// group's local IPs plus its shared IPs (plan 158).
+	// ClientIPs = IP keys (plan 231: IPv6 = "<net>/64") that may connect
+	// while the IP budget is full: the group's local keys plus its shared
+	// keys (plan 158).
 	ClientIPs map[string]struct{}
 	// CountedIPs = local IPs that use this node's budget (shared ones don't).
 	CountedIPs int
@@ -73,8 +86,10 @@ func (h *NftQuotaGroup) Detach() {
 	}
 }
 
-// SetNftQuotaGroupUsage replaces the conntrack snapshot for one node-local group.
-func SetNftQuotaGroupUsage(group string, connections int, ips map[string]int) {
+// SetNftQuotaGroupUsage replaces the conntrack snapshot for one node-local
+// group: ips by key (ipkey.Of), addrs = the raw IPv6 addresses per /64 key
+// (report only; nil is fine).
+func SetNftQuotaGroupUsage(group string, connections int, ips map[string]int, addrs map[string]map[string]int) {
 	quotaGroupRegistry.Lock()
 	g := quotaGroupRegistry.groups[group]
 	quotaGroupRegistry.Unlock()
@@ -87,9 +102,24 @@ func SetNftQuotaGroupUsage(group string, connections int, ips map[string]int) {
 			copyIPs[ip] = count
 		}
 	}
+	var copyAddrs map[string]map[string]int
+	for key, raw := range addrs {
+		if copyIPs[key] == 0 || len(raw) == 0 {
+			continue
+		}
+		if copyAddrs == nil {
+			copyAddrs = make(map[string]map[string]int, len(addrs))
+		}
+		inner := make(map[string]int, len(raw))
+		for addr, count := range raw {
+			inner[addr] = count
+		}
+		copyAddrs[key] = inner
+	}
 	g.mu.Lock()
 	g.nftConnections = connections
 	g.nftClientIPs = copyIPs
+	g.nftAddrs = copyAddrs
 	g.mu.Unlock()
 }
 
@@ -121,8 +151,8 @@ func GetQuotaGroupState(group string) (QuotaGroupState, bool) {
 	return state, true
 }
 
-// countedIPsLocked counts the distinct local IPs (gost + nftables) that are
-// not shared, i.e. that use this node's IP budget. Caller holds g.mu.
+// countedIPsLocked counts the distinct local IP keys (gost + nftables) that
+// are not shared, i.e. that use this node's IP budget. Caller holds g.mu.
 func (g *quotaGroup) countedIPsLocked() int {
 	n := 0
 	for ip := range g.clientIPs {
@@ -179,7 +209,9 @@ func detachQuotaGroup(g *quotaGroup) {
 	g.mu.Unlock()
 }
 
-func (g *quotaGroup) acquire(clientIP string) (reason string, limit int, ok bool) {
+// acquire admits one connection of the client with key (ipkey.Of) and raw
+// address addr (kept for the report when it differs from key, i.e. IPv6).
+func (g *quotaGroup) acquire(key, addr string) (reason string, limit int, ok bool) {
 	if g == nil {
 		return "", 0, true
 	}
@@ -189,17 +221,28 @@ func (g *quotaGroup) acquire(clientIP string) (reason string, limit int, ok bool
 	if g.maxConnections >= 0 && g.connections+g.nftConnections >= g.maxConnections {
 		return "group connections", g.maxConnections, false
 	}
-	_, shared := g.sharedIPs[clientIP]
-	if g.maxClientIPs >= 0 && !shared && g.clientIPs[clientIP] == 0 && g.nftClientIPs[clientIP] == 0 && g.countedIPsLocked() >= g.maxClientIPs {
+	_, shared := g.sharedIPs[key]
+	if g.maxClientIPs >= 0 && !shared && g.clientIPs[key] == 0 && g.nftClientIPs[key] == 0 && g.countedIPsLocked() >= g.maxClientIPs {
 		return "group client IPs", g.maxClientIPs, false
 	}
 
 	g.connections++
-	g.clientIPs[clientIP]++
+	g.clientIPs[key]++
+	if addr != key && addr != "" {
+		if g.addrs == nil {
+			g.addrs = make(map[string]map[string]int)
+		}
+		inner := g.addrs[key]
+		if inner == nil {
+			inner = make(map[string]int, 1)
+			g.addrs[key] = inner
+		}
+		inner[addr]++
+	}
 	return "", 0, true
 }
 
-func (g *quotaGroup) release(clientIP string) {
+func (g *quotaGroup) release(key, addr string) {
 	if g == nil {
 		return
 	}
@@ -207,10 +250,20 @@ func (g *quotaGroup) release(clientIP string) {
 	if g.connections > 0 {
 		g.connections--
 	}
-	if count := g.clientIPs[clientIP]; count <= 1 {
-		delete(g.clientIPs, clientIP)
+	if count := g.clientIPs[key]; count <= 1 {
+		delete(g.clientIPs, key)
 	} else {
-		g.clientIPs[clientIP] = count - 1
+		g.clientIPs[key] = count - 1
+	}
+	if inner := g.addrs[key]; inner != nil {
+		if count := inner[addr]; count <= 1 {
+			delete(inner, addr)
+		} else {
+			inner[addr] = count - 1
+		}
+		if len(inner) == 0 {
+			delete(g.addrs, key)
+		}
 	}
 	g.mu.Unlock()
 }
@@ -223,8 +276,8 @@ func (g *quotaGroup) setBudgets(maxConnections, maxClientIPs int, shared []strin
 	if len(shared) > 0 {
 		g.sharedIPs = make(map[string]struct{}, len(shared))
 		for _, ip := range shared {
-			if ip = strings.TrimSpace(ip); ip != "" {
-				g.sharedIPs[ip] = struct{}{}
+			if key := ipkey.Of(ip); key != "" {
+				g.sharedIPs[key] = struct{}{}
 			}
 		}
 	}
@@ -264,6 +317,36 @@ func SetQuotaGroupBudgets(budgets []QuotaGroupBudget) error {
 	return nil
 }
 
+// reportIPsLocked lists the group's raw client addresses (gost + nftables,
+// deduplicated, sorted): a key's raw IPv6 addresses, or the key itself when
+// it has none (IPv4, or a key reported without its addresses). Caller holds g.mu.
+func (g *quotaGroup) reportIPsLocked() []string {
+	seen := make(map[string]struct{}, len(g.clientIPs)+len(g.nftClientIPs))
+	out := make([]string, 0, len(g.clientIPs)+len(g.nftClientIPs))
+	add := func(ip string) {
+		if _, ok := seen[ip]; !ok {
+			seen[ip] = struct{}{}
+			out = append(out, ip)
+		}
+	}
+	for _, keys := range []struct {
+		ips   map[string]int
+		addrs map[string]map[string]int
+	}{{g.clientIPs, g.addrs}, {g.nftClientIPs, g.nftAddrs}} {
+		for key := range keys.ips {
+			if inner := keys.addrs[key]; len(inner) > 0 {
+				for addr := range inner {
+					add(addr)
+				}
+				continue
+			}
+			add(key)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
 // QuotaGroupUsages returns a stable snapshot for the panel telemetry report.
 func QuotaGroupUsages() []QuotaGroupUsage {
 	quotaGroupRegistry.Lock()
@@ -288,18 +371,9 @@ func QuotaGroupUsages() []QuotaGroupUsage {
 		usage := QuotaGroupUsage{
 			Group:       item.name,
 			Connections: item.group.connections + item.group.nftConnections,
-			ClientIPs:   make([]string, 0, len(item.group.clientIPs)+len(item.group.nftClientIPs)),
-		}
-		for clientIP := range item.group.clientIPs {
-			usage.ClientIPs = append(usage.ClientIPs, clientIP)
-		}
-		for clientIP := range item.group.nftClientIPs {
-			if item.group.clientIPs[clientIP] == 0 {
-				usage.ClientIPs = append(usage.ClientIPs, clientIP)
-			}
+			ClientIPs:   item.group.reportIPsLocked(),
 		}
 		item.group.mu.Unlock()
-		sort.Strings(usage.ClientIPs)
 		usages = append(usages, usage)
 	}
 	return usages

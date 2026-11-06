@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"go-backend/internal/ipkey"
 	"go-backend/internal/landingcustom"
 	"go-backend/internal/store/model"
 
@@ -215,8 +216,8 @@ func (r *Repository) LoadQuotaPlanExtras() (QuotaPlanExtras, error) {
 }
 
 // relayNodeSlots returns, per relay node, the IP slots it needs at a landing:
-// the number of its known egress addresses (EgressHistoryIPs) of its larger
-// family, at least 1. One query for all relay nodes.
+// the number of its known egress addresses (EgressHistoryIPs; IPv6 per /64)
+// of its larger family, at least 1. One query for all relay nodes.
 func (r *Repository) relayNodeSlots(relays map[ServerQuotaKey]map[int64]bool, now time.Time) (map[int64]int, error) {
 	out := map[int64]int{}
 	ids := []int64{}
@@ -242,16 +243,18 @@ func (r *Repository) relayNodeSlots(relays map[ServerQuotaKey]map[int64]bool, no
 	return out, nil
 }
 
+// relaySlotsFor: one slot per IPv4 and per IPv6 /64 (plan 231: the landing
+// Core counts an IPv6 source per /64) of the larger family, at least 1.
 func relaySlotsFor(egress []string) int {
-	v4, v6 := 0, 0
+	v4, v6 := 0, map[string]bool{}
 	for _, ip := range egress {
 		if strings.Contains(ip, ":") {
-			v6++
+			v6[ipkey.Of(ip)] = true
 		} else {
 			v4++
 		}
 	}
-	return max(v4, v6, 1)
+	return max(v4, len(v6), 1)
 }
 
 // landingRelayNodes maps (user, landing server) to the FLVX nodes that dial

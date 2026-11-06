@@ -3,6 +3,7 @@
 # firewall, conntrack table and interfaces are never touched:
 #
 #   client ns  c0 10.231.1.2 / fd31:1::2  <->  n0 10.231.1.1 / fd31:1::1   node ns (tests run here)
+#              (+ 10.231.1.3, fd31:1::3 = same /64, fd31:1:0:1::2 = a second /64, plan 231)
 #   target ns  t0 10.231.2.2 / fd31:2::2  <->  n1 10.231.2.1 / fd31:2::1
 #
 # Usage (root): ./netns_integration.sh [go test -run regexp]
@@ -32,6 +33,7 @@ ip -n "$C" addr add 10.231.1.2/24 dev c0
 ip -n "$C" addr add 10.231.1.3/24 dev c0
 ip -n "$C" addr add fd31:1::2/64 dev c0 nodad
 ip -n "$C" addr add fd31:1::3/64 dev c0 nodad
+ip -n "$C" addr add fd31:1:0:1::2/64 dev c0 nodad
 ip -n "$C" link set c0 up
 ip -n "$C" route add default via 10.231.1.1
 ip -n "$C" -6 route add default via fd31:1::1
@@ -42,6 +44,7 @@ ip -n "$N" addr add 10.231.2.1/24 dev n1
 ip -n "$N" addr add fd31:2::1/64 dev n1 nodad
 ip -n "$N" link set n0 up
 ip -n "$N" link set n1 up
+ip -n "$N" -6 route add fd31:1:0:1::/64 via fd31:1::2 dev n0
 
 ip -n "$T" addr add 10.231.2.2/24 dev t0
 ip -n "$T" addr add fd31:2::2/64 dev t0 nodad
