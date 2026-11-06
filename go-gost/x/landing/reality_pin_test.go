@@ -1,0 +1,426 @@
+package landing
+
+import (
+	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/tls"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"errors"
+	"math/big"
+	"net"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+)
+
+func samples(kv ...any) []RealityProbeIP {
+	var out []RealityProbeIP
+	for i := 0; i < len(kv); i += 2 {
+		out = append(out, RealityProbeIP{IP: kv[i].(string), TCPMs: kv[i+1].(int)})
+	}
+	return out
+}
+
+func TestChoosePinFastestAndHysteresis(t *testing.T) {
+	k := pinKey{"www.example.com", 443}
+	// First pin: the fastest reachable IP.
+	p := choosePin(k, nil, samples("54.230.70.30", 55, "65.9.180.116", 4, "65.9.180.9", -1), nil)
+	if p.PinnedIP != "65.9.180.116" || p.PinnedMs != 4 || p.BestIP != "65.9.180.116" || p.IPs != 3 {
+		t.Fatalf("first pin = %+v", p)
+	}
+	old := &RealityPinStatus{PinnedIP: "65.9.180.116", PinnedMs: 4}
+	// Pinned IP 19 ms slower than the new best: keep (hysteresis 20 ms).
+	p = choosePin(k, old, samples("65.9.180.116", 25, "65.9.180.20", 6), nil)
+	if p.PinnedIP != "65.9.180.116" || p.PinnedMs != 25 || p.BestIP != "65.9.180.20" || p.BestMs != 6 {
+		t.Fatalf("within hysteresis = %+v", p)
+	}
+	// Exactly 20 ms slower: move.
+	p = choosePin(k, old, samples("65.9.180.116", 26, "65.9.180.20", 6), nil)
+	if p.PinnedIP != "65.9.180.20" {
+		t.Fatalf("at hysteresis = %+v", p)
+	}
+	// Pinned IP fails: move.
+	p = choosePin(k, old, samples("65.9.180.116", -1, "54.230.70.30", 55), nil)
+	if p.PinnedIP != "54.230.70.30" || p.PinnedMs != 55 {
+		t.Fatalf("pinned failed = %+v", p)
+	}
+	// Pinned IP left the DNS answer: move even if the others are slower.
+	p = choosePin(k, old, samples("54.230.70.30", 55), nil)
+	if p.PinnedIP != "54.230.70.30" {
+		t.Fatalf("pinned gone from DNS = %+v", p)
+	}
+	// Every IP fails: no pin (the guard dials the host as before).
+	p = choosePin(k, old, samples("65.9.180.116", -1), nil)
+	if p.PinnedIP != "" || p.Error == "" {
+		t.Fatalf("all failed = %+v", p)
+	}
+	p = choosePin(k, old, nil, errors.New("no such host"))
+	if p.PinnedIP != "" || !strings.Contains(p.Error, "解析失败") {
+		t.Fatalf("lookup failed = %+v", p)
+	}
+}
+
+func TestPublicIPFilter(t *testing.T) {
+	for _, ip := range []string{"10.1.2.3", "127.0.0.1", "100.64.1.1", "192.168.1.1", "172.16.5.5", "169.254.169.254", "0.0.0.0", "224.0.0.1", "198.18.0.5", "240.0.0.1"} {
+		if publicIP(net.ParseIP(ip)) {
+			t.Fatalf("%s accepted as public", ip)
+		}
+	}
+	for _, ip := range []string{"8.8.8.8", "65.9.180.116", "203.0.113.10", "1.1.1.1"} {
+		if !publicIP(net.ParseIP(ip)) {
+			t.Fatalf("%s refused", ip)
+		}
+	}
+}
+
+// fakeNet answers lookups from a table and "connects" with a per-IP latency
+// (-1 = refused), counting dials.
+type fakeNet struct {
+	mu      sync.Mutex
+	answers map[string][]string
+	latency map[string]int
+	dials   map[string]int
+}
+
+func (f *fakeNet) set(host string, ips map[string]int) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.answers[host] = nil
+	for ip, ms := range ips {
+		f.answers[host] = append(f.answers[host], ip)
+		f.latency[ip] = ms
+	}
+}
+
+func (f *fakeNet) rn() realityNet {
+	return realityNet{
+		lookup: func(ctx context.Context, host string) ([]net.IP, error) {
+			f.mu.Lock()
+			defer f.mu.Unlock()
+			ips, ok := f.answers[host]
+			if !ok {
+				return nil, errors.New("no such host")
+			}
+			var out []net.IP
+			for _, ip := range ips {
+				out = append(out, net.ParseIP(ip))
+			}
+			return out, nil
+		},
+		dial: func(ctx context.Context, addr string) (net.Conn, error) {
+			host, _, _ := net.SplitHostPort(addr)
+			f.mu.Lock()
+			ms, ok := f.latency[host]
+			f.dials[host]++
+			f.mu.Unlock()
+			if !ok || ms < 0 {
+				return nil, errors.New("refused")
+			}
+			time.Sleep(time.Duration(ms) * time.Millisecond)
+			c1, c2 := net.Pipe()
+			_ = c2.Close()
+			return c1, nil
+		},
+		public: publicIP,
+	}
+}
+
+func newFakeNet() *fakeNet {
+	return &fakeNet{answers: map[string][]string{}, latency: map[string]int{}, dials: map[string]int{}}
+}
+
+func TestPinnerSyncRecheckAndDrop(t *testing.T) {
+	f := newFakeNet()
+	f.set("cdn.example.com", map[string]int{"203.0.113.1": 60, "203.0.113.2": 5, "10.0.0.9": 0, "203.0.113.3": -1})
+	now := time.Unix(1_800_000_000, 0)
+	var logs []string
+	p := &realityPinner{pins: map[pinKey]*RealityPinStatus{}, running: map[pinKey]bool{}, net: f.rn(), now: func() time.Time { return now },
+		logf: func(format string, args ...any) { logs = append(logs, format) }}
+	k := pinKey{"cdn.example.com", 443}
+	p.sync(context.Background(), map[pinKey]bool{k: true, {"1.2.3.4", 443}: true})
+	if got := p.address("cdn.example.com", 443); got != "203.0.113.2" {
+		t.Fatalf("address = %s", got)
+	}
+	if got := p.address("1.2.3.4", 443); got != "1.2.3.4" {
+		t.Fatalf("ip literal = %s", got)
+	}
+	if f.dials["10.0.0.9"] != 0 {
+		t.Fatal("private IP dialed")
+	}
+	st := p.statuses()
+	if len(st) != 1 || st[0].PinnedIP != "203.0.113.2" || st[0].IPs != 3 || st[0].CheckedAt != now.UnixMilli() || len(logs) != 1 {
+		t.Fatalf("status = %+v logs=%d", st, len(logs))
+	}
+	// A second sync of the same host does not measure again.
+	dials := f.dials["203.0.113.2"]
+	p.sync(context.Background(), map[pinKey]bool{k: true})
+	if f.dials["203.0.113.2"] != dials {
+		t.Fatal("sync re-measured a pinned host")
+	}
+	// Not due yet.
+	now = now.Add(5 * time.Hour)
+	if p.recheckDue(context.Background()) || f.dials["203.0.113.2"] != dials {
+		t.Fatal("recheck before 6 h")
+	}
+	// 6 h later the pinned IP got 15 ms slower than a new best: stays.
+	now = now.Add(time.Hour)
+	f.set("cdn.example.com", map[string]int{"203.0.113.2": 20, "203.0.113.4": 5})
+	if p.recheckDue(context.Background()) || p.address("cdn.example.com", 443) != "203.0.113.2" {
+		t.Fatalf("moved inside hysteresis: %+v", p.statuses())
+	}
+	// Next round the pinned IP is unreachable: moves.
+	now = now.Add(6 * time.Hour)
+	f.set("cdn.example.com", map[string]int{"203.0.113.2": -1, "203.0.113.4": 5})
+	if !p.recheckDue(context.Background()) || p.address("cdn.example.com", 443) != "203.0.113.4" {
+		t.Fatalf("did not move: %+v", p.statuses())
+	}
+	// Host no longer used by any guard: pin dropped.
+	p.sync(context.Background(), map[pinKey]bool{})
+	if len(p.statuses()) != 0 || p.address("cdn.example.com", 443) != "cdn.example.com" {
+		t.Fatal("pin of an unused host kept")
+	}
+}
+
+func TestPinnerFailedFirstPinFallsBackAndRetries(t *testing.T) {
+	f := newFakeNet()
+	f.set("only-private.example.com", map[string]int{"192.168.1.10": 1})
+	now := time.Unix(1_800_000_000, 0)
+	p := &realityPinner{pins: map[pinKey]*RealityPinStatus{}, running: map[pinKey]bool{}, net: f.rn(), now: func() time.Time { return now }}
+	k := pinKey{"only-private.example.com", 443}
+	p.sync(context.Background(), map[pinKey]bool{k: true})
+	if p.address(k.host, 443) != k.host {
+		t.Fatal("private-only host pinned")
+	}
+	if st := p.statuses(); len(st) != 1 || st[0].Error == "" {
+		t.Fatalf("status = %+v", st)
+	}
+	f.set("only-private.example.com", map[string]int{"203.0.113.7": 3})
+	p.sync(context.Background(), map[pinKey]bool{k: true}) // retry not due yet
+	if p.address(k.host, 443) != k.host {
+		t.Fatal("retried too early")
+	}
+	now = now.Add(realityPinRetry)
+	p.sync(context.Background(), map[pinKey]bool{k: true})
+	if p.address(k.host, 443) != "203.0.113.7" {
+		t.Fatalf("retry did not pin: %+v", p.statuses())
+	}
+}
+
+func TestResolvePublicCapsAndFilters(t *testing.T) {
+	f := newFakeNet()
+	ips := map[string]int{"::1": 1, "10.0.0.1": 1}
+	for i := 1; i <= 12; i++ {
+		ips["203.0.113."+itoa(i)] = 1
+	}
+	f.set("many.example.com", ips)
+	got, err := f.rn().resolvePublic(context.Background(), "many.example.com")
+	if err != nil || len(got) != realityMaxIPs {
+		t.Fatalf("got %v %v", got, err)
+	}
+	for _, ip := range got {
+		if !strings.HasPrefix(ip, "203.0.113.") {
+			t.Fatalf("non-public %s", ip)
+		}
+	}
+}
+
+func itoa(i int) string { return big.NewInt(int64(i)).String() }
+
+func TestGuardInboundDialsPinnedAddress(t *testing.T) {
+	g := &guardGroup{Port: 20001, Host: "www.example.com", DestPort: 443, Names: []string{"www.example.com"}}
+	settings := g.inbound()["settings"].(map[string]any)
+	if settings["address"] != "www.example.com" {
+		t.Fatalf("unpinned address = %v", settings["address"])
+	}
+	keyBefore := g.key()
+	g.Addr = "203.0.113.2"
+	settings = g.inbound()["settings"].(map[string]any)
+	if settings["address"] != "203.0.113.2" || settings["port"] != 443 {
+		t.Fatalf("pinned settings = %v", settings)
+	}
+	if g.key() != keyBefore {
+		t.Fatal("pin changed the guard group key")
+	}
+	// The allow rule still matches the node's serverNames (sniffed SNI).
+	rules := g.rules()
+	allow := rules[0].(map[string]any)
+	if d := allow["domain"].([]string); len(d) != 1 || d[0] != "full:www.example.com" {
+		t.Fatalf("allow rule = %v", allow)
+	}
+}
+
+// --- probe ---
+
+type testCA struct {
+	cert *x509.Certificate
+	key  *ecdsa.PrivateKey
+	pool *x509.CertPool
+}
+
+func newTestCA(t *testing.T) *testCA {
+	key, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	tpl := &x509.Certificate{SerialNumber: big.NewInt(1), Subject: pkix.Name{CommonName: "test ca"}, NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().Add(time.Hour),
+		IsCA: true, BasicConstraintsValid: true, KeyUsage: x509.KeyUsageCertSign}
+	der, err := x509.CreateCertificate(rand.Reader, tpl, tpl, &key.PublicKey, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cert, _ := x509.ParseCertificate(der)
+	pool := x509.NewCertPool()
+	pool.AddCert(cert)
+	return &testCA{cert: cert, key: key, pool: pool}
+}
+
+func (ca *testCA) leaf(t *testing.T, names ...string) tls.Certificate {
+	key, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	tpl := &x509.Certificate{SerialNumber: big.NewInt(2), Subject: pkix.Name{CommonName: names[0]}, DNSNames: names, NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().Add(time.Hour),
+		ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}}
+	der, err := x509.CreateCertificate(rand.Reader, tpl, ca.cert, &key.PublicKey, ca.key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return tls.Certificate{Certificate: [][]byte{der}, PrivateKey: key}
+}
+
+// tlsTarget serves TLS handshakes on a local port; dials to the "public" IPs
+// in ips are redirected there.
+func tlsTarget(t *testing.T, cfg *tls.Config) string {
+	ln, err := tls.Listen("tcp", "127.0.0.1:0", cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = ln.Close() })
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			go func() {
+				_ = c.(*tls.Conn).Handshake()
+				_ = c.Close()
+			}()
+		}
+	}()
+	return ln.Addr().String()
+}
+
+func probeNet(f *fakeNet, local string, roots *x509.CertPool) realityNet {
+	rn := f.rn()
+	plain := rn.dial
+	rn.dial = func(ctx context.Context, addr string) (net.Conn, error) {
+		host, _, _ := net.SplitHostPort(addr)
+		f.mu.Lock()
+		ms, ok := f.latency[host]
+		f.mu.Unlock()
+		if ok && ms == 0 { // 0 = the real local TLS target
+			var d net.Dialer
+			return d.DialContext(ctx, "tcp", local)
+		}
+		return plain(ctx, addr)
+	}
+	rn.roots = roots
+	return rn
+}
+
+func TestProbeFeasibleAndReasons(t *testing.T) {
+	ca := newTestCA(t)
+	good := tlsTarget(t, &tls.Config{Certificates: []tls.Certificate{ca.leaf(t, "www.good.test", "good.test", "*.good.test", "cdn.good.test")}, NextProtos: []string{"h2", "http/1.1"}, MinVersion: tls.VersionTLS13})
+	f := newFakeNet()
+	// 203.0.113.1 = the real target (0 ms marker), .2 slow fake, .3 refused.
+	f.set("www.good.test", map[string]int{"203.0.113.1": 0, "203.0.113.2": 40, "203.0.113.3": -1})
+	rn := probeNet(f, good, ca.pool)
+	res, err := rn.probe(context.Background(), RealityProbeRequest{Candidates: []string{"www.good.test", "www.good.test:443", "1.2.3.4", "missing.test", ""}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Results) != 3 {
+		t.Fatalf("results = %+v", res.Results)
+	}
+	r := res.Results[0]
+	if !r.Feasible || r.Target != "www.good.test:443" || r.BestIP != "203.0.113.1" || !r.TLS13 || !r.H2 || !r.X25519 || !r.CertValid || r.LatencyMs <= 0 || len(r.IPs) != 3 {
+		t.Fatalf("good = %+v", r)
+	}
+	if strings.Join(r.ServerNames, ",") != "www.good.test,good.test,cdn.good.test" {
+		t.Fatalf("server names = %v", r.ServerNames)
+	}
+	reasons := res.Results[1].Reason + "|" + res.Results[2].Reason
+	if !strings.Contains(reasons, "需要域名") || !strings.Contains(reasons, "解析失败") {
+		t.Fatalf("reasons = %s", reasons)
+	}
+
+	// Wrong certificate name, no h2, TLS 1.2 only.
+	cases := map[string]struct {
+		cfg    *tls.Config
+		reason string
+	}{
+		"www.badname.test": {&tls.Config{Certificates: []tls.Certificate{ca.leaf(t, "other.test")}, NextProtos: []string{"h2"}}, "证书不可信"},
+		"www.noh2.test":    {&tls.Config{Certificates: []tls.Certificate{ca.leaf(t, "www.noh2.test")}, NextProtos: []string{"http/1.1"}}, "HTTP/2"},
+		"www.tls12.test":   {&tls.Config{Certificates: []tls.Certificate{ca.leaf(t, "www.tls12.test")}, NextProtos: []string{"h2"}, MaxVersion: tls.VersionTLS12}, "TLS 1.3"},
+	}
+	for host, c := range cases {
+		addr := tlsTarget(t, c.cfg)
+		f := newFakeNet()
+		f.set(host, map[string]int{"203.0.113.9": 0})
+		res, err := probeNet(f, addr, ca.pool).probe(context.Background(), RealityProbeRequest{Candidates: []string{host}})
+		if err != nil || len(res.Results) != 1 {
+			t.Fatalf("%s: %v %+v", host, err, res)
+		}
+		if r := res.Results[0]; r.Feasible || !strings.Contains(r.Reason, c.reason) {
+			t.Fatalf("%s: %+v", host, r)
+		}
+	}
+}
+
+func TestProbeLimitsAndOrder(t *testing.T) {
+	var many []string
+	for i := 0; i <= realityProbeMaxCandidates; i++ {
+		many = append(many, "h"+itoa(i)+".example.com")
+	}
+	if _, err := newFakeNet().rn().probe(context.Background(), RealityProbeRequest{Candidates: many}); err == nil {
+		t.Fatal("65 candidates accepted")
+	}
+	results := []RealityProbeResult{{Target: "a", LatencyMs: 0}, {Target: "b", LatencyMs: 30}, {Target: "c", Feasible: true, LatencyMs: 50}, {Target: "d", Feasible: true, LatencyMs: 10}}
+	sortRealityResults(results)
+	var got []string
+	for _, r := range results {
+		got = append(got, r.Target)
+	}
+	if strings.Join(got, "") != "dcba" {
+		t.Fatalf("order = %v", got)
+	}
+}
+
+func TestProbeConcurrencyAtMostFour(t *testing.T) {
+	f := newFakeNet()
+	var mu sync.Mutex
+	cur, peak := 0, 0
+	rn := f.rn()
+	rn.lookup = func(ctx context.Context, host string) ([]net.IP, error) {
+		mu.Lock()
+		cur++
+		if cur > peak {
+			peak = cur
+		}
+		mu.Unlock()
+		time.Sleep(30 * time.Millisecond)
+		mu.Lock()
+		cur--
+		mu.Unlock()
+		return nil, errors.New("no such host")
+	}
+	var c []string
+	for i := 0; i < 12; i++ {
+		c = append(c, "h"+itoa(i)+".example.com")
+	}
+	if _, err := rn.probe(context.Background(), RealityProbeRequest{Candidates: c}); err != nil {
+		t.Fatal(err)
+	}
+	if peak > realityProbeConcurrency || peak < 2 {
+		t.Fatalf("peak concurrency %d", peak)
+	}
+}

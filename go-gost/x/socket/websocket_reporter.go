@@ -58,6 +58,7 @@ type SystemInfo struct {
 	LandingUserLimits      int                       `json:"landing_user_limits,omitempty"`
 	LandingScanGuard       int                       `json:"landing_scan_guard,omitempty"` // plan 202: 禁止端口扫描
 	LandingScanSeq         int64                     `json:"landing_scan_seq,omitempty"`   // plan 202: highest unrecorded scan hit seq (panel syncs at once)
+	LandingReality         int                       `json:"landing_reality,omitempty"`    // plan 227: RealityProbe + reality_pins
 	LeiKwan                *LeiKwanReport            `json:"leikwan,omitempty"`
 	EgressIPFamily         string                    `json:"egress_ip_family,omitempty"`
 	IPv6RAStatus           string                    `json:"ipv6_ra_status"`
@@ -1189,6 +1190,7 @@ func (w *WebSocketReporter) collectSystemInfo() SystemInfo {
 		LandingUserLimits:      landing.UserLimitsVersion,
 		LandingScanGuard:       landing.ScanGuardVersion,
 		LandingScanSeq:         landing.Default().ScanSeq(),
+		LandingReality:         landing.RealityVersion,
 		LeiKwan:                w.leikwan.result(),
 		EgressIPFamily:         w.egress.family(),
 		IPv6RAStatus:           raStatus,
@@ -1608,6 +1610,9 @@ func (w *WebSocketReporter) routeCommand(cmd CommandMessage) {
 	case "SetEntryRates":
 		response.Data, err = w.handleSetEntryRates(cmd.Data)
 		response.Type = "SetEntryRatesResponse"
+	case "RealityProbe":
+		response.Data, err = w.handleRealityProbe(cmd.Data)
+		response.Type = "RealityProbeResponse"
 	case "GetLandingStatus":
 		_ = landing.Default().Counters()
 		response.Data = landing.Default().Status()
