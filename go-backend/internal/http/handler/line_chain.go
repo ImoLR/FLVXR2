@@ -268,6 +268,11 @@ func (h *Handler) chainForbidden() linechain.Forbidden {
 			}
 		}
 	}
+	// Plan 225 (P2-2): the panel host's public addresses (behind Cloudflare
+	// and in a container neither of the above shows them).
+	for _, a := range panelSelfIPs.get() {
+		panel[a.Unmap()] = true
+	}
 	return func(a netip.Addr) (string, bool) {
 		for _, p := range nodes {
 			if p.Contains(a) {
@@ -621,7 +626,7 @@ func (h *Handler) waitChainServers(op chainOp, serverIDs []int64) error {
 		if s != nil {
 			name = s.Name
 		}
-		progress := fmt.Sprintf("正在准备出口「%s」（%d/%d）：首次使用需要安装落地程序，可能需要几十秒…", name, i+1, len(serverIDs))
+		progress := h.chainPrepareProgress(s, name, i+1, len(serverIDs))
 		_ = h.repo.SetForwardChainProgress(op.chainID, progress)
 		step := chainWaitStep
 		last := "节点未响应"
@@ -652,6 +657,26 @@ func (h *Handler) waitChainServers(op chainOp, serverIDs []int64) error {
 		}
 	}
 	return nil
+}
+
+// chainPrepareProgress (plan 225, P2-5): the 「首次使用需要安装落地程序」 hint
+// only when the exit has never run a landing; one quick status read decides.
+func (h *Handler) chainPrepareProgress(s *model.LandingServer, name string, i, n int) string {
+	neutral := fmt.Sprintf("正在准备出口「%s」（%d/%d）…", name, i, n)
+	if s == nil || s.NodeID <= 0 {
+		return neutral
+	}
+	res, err := h.sendNodeCommandWithTimeout(s.NodeID, "GetLandingStatus", map[string]interface{}{}, 3*time.Second, false, false)
+	if err != nil || res.Data == nil {
+		return neutral
+	}
+	if strings.TrimSpace(asString(res.Data["epoch"])) != "" {
+		return fmt.Sprintf("正在更新出口「%s」（%d/%d）…", name, i, n)
+	}
+	if asInt64(res.Data["revision"], 0) > 0 {
+		return fmt.Sprintf("正在启动出口「%s」的落地程序（%d/%d）…", name, i, n)
+	}
+	return fmt.Sprintf("正在准备出口「%s」（%d/%d）：首次使用需要安装落地程序，可能需要几十秒…", name, i, n)
 }
 
 // chainCopiesApplied checks the agent's report for this chain's copies.
@@ -777,7 +802,9 @@ func (h *Handler) chainChangeSteps(op chainOp) error {
 	if op.plan != nil {
 		wait = append(wait, op.plan.AddedServerIDs...)
 	}
-	if op.relink {
+	// Plan 225 (P2-8): a paused rule runs no chain inbound; its new link is
+	// applied when it is resumed.
+	if op.relink && !h.repo.ForwardPaused(chain.ForwardID) {
 		servers, err := h.repo.ChainServerIDs([]int64{op.chainID})
 		if err != nil {
 			return err
@@ -1474,6 +1501,25 @@ func (h *Handler) chainDeleteGuard(forwardID int64) error {
 
 // syncChainServersAsync pushes exits after a delete without delaying the
 // answer; failures converge through the minute loop.
+// syncChainCopiesForForwards (plan 225, P2-8): a chain rule's exit inbounds
+// follow its pause state (ChainCopiesForServer skips paused rules). Pause
+// pushes in the background; resume waits so the inbound exists before the
+// entry resumes. Rules without a chain cost one SELECT.
+func (h *Handler) syncChainCopiesForForwards(forwardIDs []int64, wait bool) {
+	if h == nil || h.repo == nil || len(forwardIDs) == 0 {
+		return
+	}
+	servers, err := h.repo.ChainServerIDsByForwards(forwardIDs)
+	if err != nil || len(servers) == 0 {
+		return
+	}
+	if wait {
+		h.syncChainServers(servers)
+		return
+	}
+	h.syncChainServersAsync(servers)
+}
+
 func (h *Handler) syncChainServersAsync(ids []int64) {
 	if len(ids) == 0 || h == nil || h.repo == nil {
 		return

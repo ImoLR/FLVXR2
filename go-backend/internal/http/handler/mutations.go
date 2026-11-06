@@ -3997,6 +3997,7 @@ func (h *Handler) forwardPause(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_ = h.repo.ClearForwardLandingPause(id)
+	h.syncChainCopiesForForwards([]int64{id}, false) // plan 225: drop its chain inbound
 	response.WriteJSON(w, response.OKEmpty())
 }
 
@@ -4048,6 +4049,8 @@ func (h *Handler) forwardResume(w http.ResponseWriter, r *http.Request) {
 		_ = h.repo.UpdateForwardStatus(id, 1, now)
 	}
 	forward.Status = 1
+	// Plan 225 (P2-8): recreate a chain rule's inbound on the exits first.
+	h.syncChainCopiesForForwards([]int64{id}, true)
 
 	// nftables mode: re-sync rules to resume traffic
 	if strings.EqualFold(forward.Mode, "nftables") || strings.EqualFold(forward.Mode, "wg_path") {
@@ -4079,7 +4082,7 @@ func (h *Handler) forwardDiagnose(w http.ResponseWriter, r *http.Request) {
 	if id <= 0 {
 		return
 	}
-	forward, _, _, err := h.resolveForwardAccess(r, id)
+	forward, _, roleID, err := h.resolveForwardAccess(r, id)
 	if err != nil {
 		if errors.Is(err, errForwardNotFound) {
 			response.WriteJSON(w, response.ErrDefault("转发不存在"))
@@ -4091,6 +4094,9 @@ func (h *Handler) forwardDiagnose(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), diagnosisRequestTimeout)
 	defer cancel()
 	payload, err := h.diagnoseForwardRuntime(ctx, forward)
+	if err == nil && roleID != 0 {
+		redactDiagnosisPayload(payload) // plan 225: node names only
+	}
 	if err != nil {
 		if strings.Contains(err.Error(), "不存在") || strings.Contains(err.Error(), "不能为空") || strings.Contains(err.Error(), "错误") {
 			response.WriteJSON(w, response.ErrDefault(err.Error()))
@@ -4226,6 +4232,7 @@ func (h *Handler) forwardBatchPause(w http.ResponseWriter, r *http.Request) {
 			s++
 		}
 	}
+	h.syncChainCopiesForForwards(ids, false) // plan 225
 	response.WriteJSON(w, response.OK(batchOperationResult{SuccessCount: s, FailCount: f, Failures: failures}))
 }
 
@@ -4309,6 +4316,7 @@ func (h *Handler) forwardBatchResume(w http.ResponseWriter, r *http.Request) {
 			s++
 		}
 	}
+	h.syncChainCopiesForForwards(ids, true) // plan 225
 	response.WriteJSON(w, response.OK(batchOperationResult{SuccessCount: s, FailCount: f, Failures: failures}))
 }
 

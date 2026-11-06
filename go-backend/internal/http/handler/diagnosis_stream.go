@@ -71,17 +71,23 @@ func shouldIgnoreDiagnosisStreamError(err error) bool {
 	return false
 }
 
-func (h *Handler) streamDiagnosisRuntime(ctx context.Context, cancel context.CancelFunc, w http.ResponseWriter, startPayload map[string]interface{}, workItems []diagnosisWorkItem) error {
+func (h *Handler) streamDiagnosisRuntime(ctx context.Context, cancel context.CancelFunc, w http.ResponseWriter, startPayload map[string]interface{}, workItems []diagnosisWorkItem, redact bool) error {
 	flusher, err := prepareDiagnosisStreamResponse(w)
 	if err != nil {
 		return err
 	}
 	encoder := json.NewEncoder(w)
 
+	startItems := h.buildDiagnosisStreamStartItems(workItems)
+	if redact {
+		for _, item := range startItems {
+			redactDiagnosisItem(item)
+		}
+	}
 	payload := map[string]interface{}{
 		"total":     len(workItems),
 		"timestamp": time.Now().UnixMilli(),
-		"items":     h.buildDiagnosisStreamStartItems(workItems),
+		"items":     startItems,
 	}
 	for key, value := range startPayload {
 		payload[key] = value
@@ -94,6 +100,10 @@ func (h *Handler) streamDiagnosisRuntime(ctx context.Context, cancel context.Can
 	emitter := func(index int, item map[string]interface{}, progress diagnosisProgress) {
 		if streamBroken {
 			return
+		}
+		if redact {
+			// The stream owns its own copy: results are not reused after this.
+			redactDiagnosisItem(item)
 		}
 		itemPayload := map[string]interface{}{
 			"index":    index,
@@ -148,7 +158,7 @@ func (h *Handler) tunnelDiagnoseStream(w http.ResponseWriter, r *http.Request) {
 		"tunnelName": tunnelName,
 		"tunnelType": tunnelType,
 	}
-	if err := h.streamDiagnosisRuntime(ctx, cancel, w, startPayload, workItems); err != nil {
+	if err := h.streamDiagnosisRuntime(ctx, cancel, w, startPayload, workItems, false); err != nil {
 		if shouldIgnoreDiagnosisStreamError(err) {
 			return
 		}
@@ -170,7 +180,7 @@ func (h *Handler) forwardDiagnoseStream(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	forward, _, _, err := h.resolveForwardAccess(r, id)
+	forward, _, roleID, err := h.resolveForwardAccess(r, id)
 	if err != nil {
 		if errors.Is(err, errForwardNotFound) {
 			response.WriteJSON(w, response.ErrDefault("转发不存在"))
@@ -196,7 +206,7 @@ func (h *Handler) forwardDiagnoseStream(w http.ResponseWriter, r *http.Request) 
 	startPayload := map[string]interface{}{
 		"forwardName": forwardName,
 	}
-	if err := h.streamDiagnosisRuntime(ctx, cancel, w, startPayload, workItems); err != nil {
+	if err := h.streamDiagnosisRuntime(ctx, cancel, w, startPayload, workItems, roleID != 0); err != nil {
 		if shouldIgnoreDiagnosisStreamError(err) {
 			return
 		}

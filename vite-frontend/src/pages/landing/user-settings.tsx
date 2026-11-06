@@ -253,6 +253,12 @@ export const LandingUserSettings = forwardRef<
   // servers) for the per-server picker and the pools; 可用落地服务器 ticked but
   // not saved yet count as 落地 too. Older panels send no list: keep the old
   // picker (all FLVX nodes + shared servers).
+  // Plan 225 (P2-3): chain-only exits (「我自己的节点」 hosts) are never
+  // granted to users, so they are not offered here.
+  const grantableServers = useMemo(
+    () => allServers.filter((server) => !server.chainOnly),
+    [allServers],
+  );
   const related = useMemo<RelatedServer[] | null>(() => {
     if (!form?.relatedServers) return null;
     const map = new Map<string, RelatedServer>();
@@ -518,7 +524,7 @@ export const LandingUserSettings = forwardRef<
               勾选后该用户可查看并在此服务器创建节点（与服务器「可见用户组」二者满足其一即可）。取消勾选即撤销，已有节点会被停用。
             </p>
             <div className="flex flex-wrap gap-4">
-              {allServers.map((server) => (
+              {grantableServers.map((server) => (
                 <Checkbox
                   key={server.id}
                   isSelected={(form.serverIds || []).includes(server.id)}
@@ -538,7 +544,7 @@ export const LandingUserSettings = forwardRef<
                 </Checkbox>
               ))}
             </div>
-            {allServers.length === 0 && (
+            {grantableServers.length === 0 && (
               <p className="text-sm text-default-500">暂无落地服务器。</p>
             )}
           </div>

@@ -88,6 +88,13 @@ func replaceLandingUserGrantsTx(tx *gorm.DB, userID int64, serverIDs []int64, no
 		if count != int64(len(ids)) {
 			return errors.New("落地服务器不存在")
 		}
+		// Plan 225 (P2-3): chain-only exits (「我自己的节点」 hosts) are never
+		// granted to users; drop them instead of failing the save.
+		var open []int64
+		if err := tx.Model(&model.LandingServer{}).Where("id IN ? AND chain_only = ?", ids, false).Pluck("id", &open).Error; err != nil {
+			return err
+		}
+		ids = open
 	}
 	q := tx.Where("user_id = ?", userID)
 	if len(ids) > 0 {

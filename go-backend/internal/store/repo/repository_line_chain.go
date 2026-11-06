@@ -229,16 +229,49 @@ func (r *Repository) ChainCopiesForServer(serverID int64) ([]ChainCopy, error) {
 		return nil, err
 	}
 	byID := map[int64]model.ForwardChain{}
+	forwardIDs := []int64{}
 	for _, c := range chains {
 		byID[c.ID] = c
+		if c.State == model.ChainStateActive && c.ForwardID > 0 {
+			forwardIDs = append(forwardIDs, c.ForwardID)
+		}
+	}
+	// Plan 225 (P2-8): a paused rule's active copies are not run (no inbound
+	// on the exit while paused); pending copies of a running change are kept.
+	paused := map[int64]bool{}
+	if len(forwardIDs) > 0 {
+		var ids []int64
+		if err := r.db.Model(&model.Forward{}).Where("id IN ? AND status <> ?", forwardIDs, 1).Pluck("id", &ids).Error; err != nil {
+			return nil, err
+		}
+		for _, id := range ids {
+			paused[id] = true
+		}
 	}
 	out := []ChainCopy{}
 	for _, n := range nodes {
-		if c, ok := byID[n.ChainID]; ok && c.Upstream != "" {
-			out = append(out, ChainCopy{Node: n, Chain: c})
+		c, ok := byID[n.ChainID]
+		if !ok || c.Upstream == "" {
+			continue
 		}
+		if c.State == model.ChainStateActive && paused[c.ForwardID] && n.State != model.ChainNodePending {
+			continue
+		}
+		out = append(out, ChainCopy{Node: n, Chain: c})
 	}
 	return out, nil
+}
+
+// ForwardPaused: the rule exists and is not running (status <> 1).
+func (r *Repository) ForwardPaused(forwardID int64) bool {
+	if forwardID <= 0 {
+		return false
+	}
+	var n int64
+	if err := r.db.Model(&model.Forward{}).Where("id = ? AND status <> ?", forwardID, 1).Count(&n).Error; err != nil {
+		return false
+	}
+	return n > 0
 }
 
 // ChainServerIDs lists landing servers hosting copies of the given chains.
@@ -339,7 +372,7 @@ func ensureChainHostTx(tx *gorm.DB, nodeID int64) (*model.LandingServer, error) 
 	if host == "" {
 		host = "127.0.0.1"
 	}
-	s = model.LandingServer{Source: "native", NodeID: nodeID, Name: n.Name, PublicHost: host, PortMin: 30000, PortMax: 39999, FlowType: 2, TrafficRatio: 1, DefaultExpiryMode: "follow_user", MaxNodesPerUser: 3, Protocols: `["vless_reality_vision"]`, RealityDest: "www.lovelive-anime.jp:443", RealityServerNames: `["www.lovelive-anime.jp"]`, CoreMemoryMB: 256, CoreCPUPercent: 50, Status: "active", Revision: 1, ChainOnly: true, CreatedTime: now, UpdatedTime: now}
+	s = model.LandingServer{Source: "native", NodeID: nodeID, Name: n.Name, PublicHost: host, PortMin: 30000, PortMax: 39999, FlowType: 2, TrafficRatio: 1, DefaultExpiryMode: "follow_user", MaxNodesPerUser: 3, Protocols: `["vless_reality_vision"]`, RealityDest: "www.lovelive-anime.jp:443", RealityServerNames: `["www.lovelive-anime.jp"]`, CoreMemoryMB: 256, CoreCPUPercent: ChainOnlyCoreCPUPercent, Status: "active", Revision: 1, ChainOnly: true, CreatedTime: now, UpdatedTime: now}
 	if err := tx.Create(&s).Error; err != nil {
 		return nil, err
 	}
@@ -359,6 +392,10 @@ func usedPortsTx(tx *gorm.DB, s model.LandingServer, skipChain int64) (map[int]b
 		return nil, err
 	}
 	for _, p := range guards {
+		used[p] = true
+	}
+	// Plan 225: ports another program was seen holding on this machine.
+	for p := range nativeBusyPortsFresh(&s, time.Now()) {
 		used[p] = true
 	}
 	return used, nil
@@ -399,8 +436,12 @@ func usedPortsBaseTx(tx *gorm.DB, s model.LandingServer, skipChain int64) (map[i
 }
 
 // chainFreePortTx picks one port free on every server. Public landing servers
-// keep chain ports inside their planned landing range; chain-only servers
-// only avoid everything in use (the listener is loopback-only).
+// prefer chain ports inside their planned landing range; chain-only servers
+// only avoid everything in use (the listener is loopback-only). Plan 225: when
+// the public ranges have no common free port (e.g. Breadcloud US landing
+// 30000-30999 vs Bestvm US rule range 10000-65535), any port free on every
+// exit is used — the chain inbound listens on 127.0.0.1 only, so the public
+// rule / landing ranges do not apply to it.
 func chainFreePortTx(tx *gorm.DB, servers []model.LandingServer, skipChain int64) (int, error) {
 	used := make([]map[int]bool, len(servers))
 	lo, hi := 1024, 65535
@@ -435,7 +476,6 @@ func chainFreePortTx(tx *gorm.DB, servers []model.LandingServer, skipChain int64
 				return p, nil
 			}
 		}
-		return 0, errors.New("出口落地服务器的端口段内没有共同的空闲端口，请联系管理员调整落地端口段")
 	}
 	for _, w := range [][2]int{{30000, 39999}, {40000, 49999}, {20000, 29999}, {50000, 60999}, {10000, 19999}, {1024, 9999}} {
 		for p := w[0]; p <= w[1]; p++ {
@@ -444,7 +484,7 @@ func chainFreePortTx(tx *gorm.DB, servers []model.LandingServer, skipChain int64
 			}
 		}
 	}
-	return 0, errors.New("出口节点没有可用的空闲端口")
+	return 0, errors.New("出口节点没有共同的空闲端口")
 }
 
 func newChainCredentials(c *model.ForwardChain) error {
@@ -813,7 +853,8 @@ func (r *Repository) PrepareChainRetarget(chainID int64, exitNodeIDs []int64) (*
 			if err != nil {
 				return err
 			}
-			if used[c.Port] || (!s.ChainOnly && (c.Port < s.PortMin || c.Port > s.PortMax)) {
+			// Plan 225: a loopback chain port only has to be free there.
+			if used[c.Port] {
 				keep = false
 				break
 			}

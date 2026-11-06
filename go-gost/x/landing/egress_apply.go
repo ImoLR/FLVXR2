@@ -93,10 +93,14 @@ func (m *Manager) effectiveEgress() *Egress {
 	// go before the chain rules that route everything else upstream; so do the
 	// 全局·强制 rules (plan 134). The panel sends both as a prefix of the plan,
 	// so the order of every other node is unchanged.
+	chainOut := make(map[string]string, len(chains))
+	for _, n := range chains {
+		chainOut[n.InboundTag] = chainOutboundTag(n.ID)
+	}
 	if plan != nil {
 		for _, r := range plan.Rules {
 			if r.beforeChains() {
-				rules = append(rules, r)
+				rules = append(rules, chainScopedRules(r, chainOut)...)
 			}
 		}
 	}
@@ -119,6 +123,42 @@ func (m *Manager) effectiveEgress() *Egress {
 	}
 	merged.Rules = rules
 	return merged
+}
+
+// chainScopedRules (plan 225): a rule placed before the chain rules that does
+// not block (e.g. the forced 「放行谷歌/苹果」 direct rule) must not send a
+// chain node's traffic out of this machine: for chain inbounds its outbound
+// becomes that chain's own upstream (one rule per chain node, same match).
+// Block rules and rules without chain inbounds are unchanged.
+func chainScopedRules(r EgressRule, chainOut map[string]string) []EgressRule {
+	if r.Outbound == "block" || len(chainOut) == 0 {
+		return []EgressRule{r}
+	}
+	var keep, chained []string
+	for _, t := range r.InboundTags {
+		if _, ok := chainOut[t]; ok {
+			chained = append(chained, t)
+		} else {
+			keep = append(keep, t)
+		}
+	}
+	if len(chained) == 0 {
+		return []EgressRule{r}
+	}
+	sort.Strings(chained)
+	out := make([]EgressRule, 0, len(chained)+1)
+	if len(keep) > 0 {
+		base := r
+		base.InboundTags = keep
+		out = append(out, base)
+	}
+	for _, t := range chained {
+		c := r
+		c.InboundTags = []string{t}
+		c.Outbound = chainOut[t]
+		out = append(out, c)
+	}
+	return out
 }
 
 // coveredTags lists inbound tags whose routing depends on the plan. Builtin

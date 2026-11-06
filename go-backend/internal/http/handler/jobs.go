@@ -32,6 +32,9 @@ func (h *Handler) StartBackgroundJobs() {
 	h.jobsWG.Add(17)
 	h.jobsMu.Unlock()
 
+	// Plan 225 (P2-2): learn the panel host's public addresses early (one
+	// background request per address family, cached).
+	_ = panelSelfIPs.get()
 	go h.runLandingReconcileLoop(ctx)
 	go h.runChainReconcileLoop(ctx)
 	go h.runSharedLandingLoop(ctx)

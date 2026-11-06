@@ -7796,10 +7796,12 @@ export default function ForwardPage() {
                                               <div className="font-medium text-foreground truncate">
                                                 {result.description}
                                               </div>
-                                              <div className="text-xs text-default-500 truncate">
-                                                {result.targetIp}:
-                                                {result.targetPort}
-                                              </div>
+                                              {result.targetIp ? (
+                                                <div className="text-xs text-default-500 truncate">
+                                                  {result.targetIp}:
+                                                  {result.targetPort}
+                                                </div>
+                                              ) : null}
                                             </div>
                                           </div>
                                         </td>
@@ -7967,9 +7969,11 @@ export default function ForwardPage() {
                                         <div className="font-semibold text-sm text-foreground break-words">
                                           {result.description}
                                         </div>
-                                        <div className="text-xs text-default-500 mt-0.5 break-all">
-                                          {result.targetIp}:{result.targetPort}
-                                        </div>
+                                        {result.targetIp ? (
+                                          <div className="text-xs text-default-500 mt-0.5 break-all">
+                                            {result.targetIp}:{result.targetPort}
+                                          </div>
+                                        ) : null}
                                       </div>
                                       <div
                                         className={`inline-flex items-center justify-center px-2 py-0.5 rounded text-xs font-medium ${isDiagnosing ? "bg-warning-500/10 text-warning-600 dark:text-warning-400" : isSuccess ? "bg-success-500/10 text-success-600 dark:text-success-400" : "bg-danger-500/10 text-danger-600 dark:text-danger-400"}`}

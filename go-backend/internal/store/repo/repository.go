@@ -394,6 +394,9 @@ func autoMigrateAll(db *gorm.DB) error {
 	if err := sharedCoreUnlimitedMigration(db); err != nil {
 		return fmt.Errorf("migrate shared core limits: %w", err)
 	}
+	if err := chainOnlyCoreCPUMigration(db); err != nil {
+		return fmt.Errorf("migrate chain-only core cpu: %w", err)
+	}
 
 	// 执行数据迁移
 	if err := migrateTunnelGroupNew(db); err != nil {

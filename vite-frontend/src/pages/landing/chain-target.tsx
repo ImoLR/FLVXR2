@@ -50,10 +50,16 @@ export function ChainTargetInput({
   return (
     <div className="space-y-2">
       {currentSummary && (
-        <div className="flex flex-wrap items-center gap-2 text-sm">
-          <span className="text-default-500">当前节点</span>
-          <Chip className="text-default-600" size="sm" variant="bordered">
-            {currentSummary}
+        <div className="flex min-w-0 items-center gap-2 text-sm">
+          <span className="shrink-0 text-default-500">当前节点</span>
+          {/* Plan 225 (P2-4): a long host must not widen the dialog. */}
+          <Chip
+            className="min-w-0 max-w-full text-default-600"
+            size="sm"
+            title={currentSummary}
+            variant="bordered"
+          >
+            <span className="block min-w-0 truncate">{currentSummary}</span>
           </Chip>
         </div>
       )}
@@ -78,12 +84,12 @@ export function ChainTargetInput({
         <p className="text-xs text-danger">{parseError}</p>
       )}
       {parsed && !checking && (
-        <div className="flex flex-wrap items-center gap-2 rounded-lg border border-divider p-2 text-sm">
+        <div className="flex min-w-0 flex-wrap items-center gap-2 rounded-lg border border-divider p-2 text-sm">
           <span className="text-default-500">将连接到</span>
           <Chip color="secondary" size="sm" variant="flat">
             {parsed.protocolLabel}
           </Chip>
-          <span className="font-mono text-foreground">
+          <span className="min-w-0 max-w-full break-all font-mono text-foreground">
             {parsed.summary.split(" · ").slice(1).join(" · ")}
           </span>
           {parsed.name && (

@@ -526,3 +526,56 @@ func TestPanelChainUpstreamsAccepted(t *testing.T) {
 	}
 	t.Logf("real Core accepted all %d panel upstreams", len(items))
 }
+
+// Plan 225 (P1-2): a forced non-block rule (「放行谷歌/苹果」 → direct) that
+// covers chain inbounds sends their matches to the chain's own upstream, before
+// the forced cn block rules; normal nodes keep direct; block rules unchanged.
+func TestChainForcedAllowUsesChainUpstream(t *testing.T) {
+	chain5 := chainNode(5, goldenChainUpstreams()[11])
+	chain6 := chainNode(6, goldenChainUpstreams()[11])
+	public := testNode(t, 1)
+	all := []string{public.InboundTag, chain5.InboundTag, chain6.InboundTag}
+	plan := &Egress{Version: 1, Rules: []EgressRule{
+		{Name: "放行谷歌/苹果", InboundTags: all, Domain: []string{"geosite:google@cn", "geosite:apple@cn"}, Outbound: "direct", Builtin: builtinForced},
+		{Name: "屏蔽大陆网站", InboundTags: all, Domain: []string{"geosite:cn"}, Outbound: "block", Builtin: builtinForced},
+	}}
+	m := &Manager{desired: Desired{Revision: 1, Enabled: true, Nodes: []Node{public, chain5, chain6}, Egress: plan}}
+	if err := m.desired.validate(); err != nil {
+		t.Fatal(err)
+	}
+	e := m.effectiveEgress()
+	type row struct {
+		tags []string
+		out  string
+	}
+	var got []row
+	for _, r := range e.Rules {
+		got = append(got, row{r.InboundTags, r.Outbound})
+	}
+	want := []row{
+		{[]string{public.InboundTag}, "direct"},
+		{[]string{chain5.InboundTag}, "flvxc-5"},
+		{[]string{chain6.InboundTag}, "flvxc-6"},
+		{all, "block"},
+		{[]string{chain5.InboundTag}, "flvxc-5"},
+		{[]string{chain6.InboundTag}, "flvxc-6"},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("rules\n got %v\nwant %v", got, want)
+	}
+	for _, r := range e.Rules[:3] {
+		if !reflect.DeepEqual(r.Domain, []string{"geosite:google@cn", "geosite:apple@cn"}) {
+			t.Fatalf("allow copy lost its match: %+v", r)
+		}
+	}
+	if _, err := renderRules(e, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	// Without chain nodes the plan is untouched.
+	m.desired.Nodes = []Node{public}
+	m.desired.Egress.Rules[0].InboundTags = []string{public.InboundTag}
+	m.desired.Egress.Rules[1].InboundTags = []string{public.InboundTag}
+	if got := m.effectiveEgress(); got != m.desired.Egress {
+		t.Fatal("plan without chains must be used as is")
+	}
+}

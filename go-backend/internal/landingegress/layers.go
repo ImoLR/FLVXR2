@@ -8,7 +8,9 @@ import (
 // Plan 134: layered landing routing. Per node, first match wins:
 //
 //  1. 系统内置 (safety + default anti-abuse)
-//  2. 全局·强制 (Global.Forced): every node, incl. line-chain copies
+//  2. 全局·强制 (Global.Forced): every node, incl. line-chain copies (plan 225:
+//     on fork.120+ agents a non-block forced rule sends chain copies to their
+//     own upstream instead of direct)
 //  3. 节点规则 (NodeRef.Rules): the node owner's rules, own inbound tag only
 //  4. 服务器规则: the server profile or the admin node override
 //  5. 全局·默认 (Global.Default): every non-chain node

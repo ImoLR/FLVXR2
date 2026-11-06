@@ -1,6 +1,7 @@
 package repo
 
 import (
+	"database/sql"
 	"errors"
 	"strings"
 	"testing"
@@ -134,6 +135,121 @@ func TestForwardChainLifecycleBothDialects(t *testing.T) {
 			}
 			orphanCount(t, r, "forward_chain", "1 = 1", 0)
 			orphanCount(t, r, "forward_chain_node", "1 = 1", 0)
+		})
+	}
+}
+
+// Plan 225 (P1-1): tunnel 116's shape — exit A has a public landing range
+// 30000-30999 outside its rule range, exit B's rule range 10000-65535 covers
+// that block. The landing ranges share no free port; the loopback chain port
+// falls back to one free on both machines (here below 10000).
+func TestChainFreePortFallsBackOutsidePublicRange(t *testing.T) {
+	for _, dialect := range []string{"sqlite", "postgres"} {
+		t.Run(dialect, func(t *testing.T) {
+			r := orphanTestRepo(t, dialect)
+			now := time.Now().UnixMilli()
+			orphanSeed(t, r, &model.Node{ID: 30, Name: "bc-us", Secret: "s30", ServerIP: "192.0.2.30", Port: "10000-29999,31000-65535", CreatedTime: now, Status: 1, LandingCapable: true, LandingEgress: 1, LandingChain: 1, OwnerUserID: 1})
+			orphanSeed(t, r, &model.Node{ID: 17, Name: "bv-us", Secret: "s17", ServerIP: "192.0.2.17", Port: "10000-65535", CreatedTime: now, Status: 1, LandingCapable: true, LandingEgress: 1, LandingChain: 1, OwnerUserID: 1})
+			orphanSeed(t, r, &model.User{ID: 7, User: "u7", Pwd: "x", RoleID: 1, ExpTime: now + 86400000, Flow: 99999, FlowResetTime: 1, Num: 10, CreatedTime: now, Status: 1})
+			orphanSeed(t, r, &model.Tunnel{ID: 116, Name: "t116", TrafficRatio: 1, Type: 2, Protocol: "tls", Flow: 2, CreatedTime: now, UpdatedTime: now, Status: 1})
+			orphanSeed(t, r, &model.LandingServer{ID: 8, Source: "native", NodeID: 30, Name: "bc-us", PublicHost: "192.0.2.30", PortMin: 30000, PortMax: 30999, FlowType: 2, TrafficRatio: 1, DefaultExpiryMode: "follow_user", MaxNodesPerUser: 3, Protocols: `["ss2022"]`, RealityDest: "a.example.com:443", RealityServerNames: `["a.example.com"]`, CoreMemoryMB: 256, CoreCPUPercent: 50, Status: "active", Revision: 1, CreatedTime: now, UpdatedTime: now})
+			// Something already on 1024 of exit B (a tunnel relay port).
+			orphanSeed(t, r, &model.ChainTunnel{TunnelID: 116, ChainType: "3", NodeID: 17, Port: sql.NullInt64{Int64: 1024, Valid: true}})
+			in := ChainCreateInput{UserID: 7, TunnelID: 116, IdemKey: "idem-key-p11", Upstream: chainUpstream(t, "socks5://9.9.9.9:1080"), ExitNodeIDs: []int64{30, 17}, InFlightAfter: now + 3600000}
+			c, copies, err := r.CreateForwardChain(in)
+			if err != nil {
+				t.Fatalf("create on the 116 shape: %v", err)
+			}
+			if c.Port != 1025 || len(copies) != 2 || copies[0].Port != 1025 || copies[1].Port != 1025 {
+				t.Fatalf("port %d copies %+v", c.Port, copies)
+			}
+			// P2-7: a new chain-only host gets no practical Core CPU cap.
+			var host model.LandingServer
+			if err := r.db.Where("node_id = ? AND chain_only = ?", 17, true).First(&host).Error; err != nil || host.CoreCPUPercent != ChainOnlyCoreCPUPercent {
+				t.Fatalf("chain-only host %+v %v", host, err)
+			}
+			if err := r.ActivateForwardChain(c.ID, 0); err != nil {
+				t.Fatal(err)
+			}
+			// Retarget onto exit B only keeps the (still free) port.
+			plan, err := r.PrepareChainRetarget(c.ID, []int64{17})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if plan.NewPort != c.Port {
+				t.Fatalf("retarget moved a free loopback port to %d", plan.NewPort)
+			}
+		})
+	}
+}
+
+// Plan 225 (P2-8): a paused rule's chain copies are not run; resumed → back.
+// Pending copies of a running change stay. P2-7: the CPU cap migration.
+func TestChainCopiesFollowPauseAndCPUMigration(t *testing.T) {
+	for _, dialect := range []string{"sqlite", "postgres"} {
+		t.Run(dialect, func(t *testing.T) {
+			r := orphanTestRepo(t, dialect)
+			chainRepoSeed(t, r)
+			now := time.Now().UnixMilli()
+			in := ChainCreateInput{UserID: 7, TunnelID: 10, IdemKey: "idem-key-p28", Upstream: chainUpstream(t, "socks5://9.9.9.9:1080"), ExitNodeIDs: []int64{4}, InFlightAfter: now + 3600000}
+			c, copies, err := r.CreateForwardChain(in)
+			if err != nil || len(copies) != 1 {
+				t.Fatalf("create: %v %+v", err, copies)
+			}
+			fwd := model.Forward{UserID: 7, UserName: "u7", Name: "chain", TunnelID: 10, RemoteAddr: "127.0.0.1:1", CreatedTime: now, UpdatedTime: now, Status: 1}
+			orphanSeed(t, r, &fwd)
+			if err := r.ActivateForwardChain(c.ID, fwd.ID); err != nil {
+				t.Fatal(err)
+			}
+			server := copies[0].LandingServerID
+			count := func() int {
+				got, err := r.ChainCopiesForServer(server)
+				if err != nil {
+					t.Fatal(err)
+				}
+				return len(got)
+			}
+			if count() != 1 || r.ForwardPaused(fwd.ID) {
+				t.Fatal("running rule must run its copy")
+			}
+			r.db.Model(&model.Forward{}).Where("id = ?", fwd.ID).Update("status", 0)
+			if count() != 0 || !r.ForwardPaused(fwd.ID) {
+				t.Fatal("paused rule still runs its chain inbound")
+			}
+			// A pending copy (running tunnel change) is applied even while paused.
+			orphanSeed(t, r, &model.ForwardChainNode{ChainID: c.ID, LandingServerID: server, NodeID: 4, Port: c.Port + 1, State: model.ChainNodePending, CreatedTime: now})
+			if count() != 1 {
+				t.Fatal("pending copy of a paused rule dropped")
+			}
+			r.db.Where("chain_id = ? AND state = ?", c.ID, model.ChainNodePending).Delete(&model.ForwardChainNode{})
+			r.db.Model(&model.Forward{}).Where("id = ?", fwd.ID).Update("status", 1)
+			if count() != 1 {
+				t.Fatal("resumed rule did not get its copy back")
+			}
+			// P2-7 migration: old default 50 → 1000 (+revision); an edited value
+			// and public servers stay.
+			r.db.Model(&model.LandingServer{}).Where("id = ?", server).Updates(map[string]any{"core_cpu_percent": 50, "revision": 4})
+			orphanSeed(t, r, &model.LandingServer{Source: "native", NodeID: 3, Name: "pub", PublicHost: "192.0.2.3", PortMin: 30000, PortMax: 30020, FlowType: 2, TrafficRatio: 1, DefaultExpiryMode: "follow_user", MaxNodesPerUser: 3, Protocols: `["ss2022"]`, RealityDest: "a.example.com:443", RealityServerNames: `["a.example.com"]`, CoreMemoryMB: 256, CoreCPUPercent: 50, Status: "active", Revision: 1, CreatedTime: now, UpdatedTime: now})
+			if err := chainOnlyCoreCPUMigration(r.db); err != nil {
+				t.Fatal(err)
+			}
+			var got []model.LandingServer
+			r.db.Order("id ASC").Find(&got)
+			for _, s := range got {
+				switch {
+				case s.ID == server && (s.CoreCPUPercent != ChainOnlyCoreCPUPercent || s.Revision != 5):
+					t.Fatalf("chain-only server not migrated: %+v", s)
+				case s.ID != server && s.CoreCPUPercent != 50:
+					t.Fatalf("public server changed: %+v", s)
+				}
+			}
+			r.db.Model(&model.LandingServer{}).Where("id = ?", server).Update("core_cpu_percent", 300)
+			_ = chainOnlyCoreCPUMigration(r.db)
+			var edited model.LandingServer
+			r.db.First(&edited, server)
+			if edited.CoreCPUPercent != 300 {
+				t.Fatalf("admin-edited cap overwritten: %d", edited.CoreCPUPercent)
+			}
 		})
 	}
 }
