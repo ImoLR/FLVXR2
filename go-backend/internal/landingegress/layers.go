@@ -7,7 +7,7 @@ import (
 
 // Plan 134: layered landing routing. Per node, first match wins:
 //
-//  1. 系统内置 (safety + default anti-abuse + source exemptions)
+//  1. 系统内置 (safety + default anti-abuse)
 //  2. 全局·强制 (Global.Forced): every node, incl. line-chain copies
 //  3. 节点规则 (NodeRef.Rules): the node owner's rules, own inbound tag only
 //  4. 服务器规则: the server profile or the admin node override

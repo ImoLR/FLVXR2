@@ -117,12 +117,9 @@ const fallbackBuiltin: EgressBuiltin = {
 export function LandingGlobalRules({
   overview,
   onSaved,
-  onWhitelistSaved,
 }: {
   overview: EgressOverview;
   onSaved: () => void;
-  // Plan 140: the 内置 list edits the source whitelist in place.
-  onWhitelistSaved?: (list: string[]) => void;
 }) {
   const h5 = useH5Mode();
   const initial: EgressGlobal = overview.global || {
@@ -291,7 +288,6 @@ export function LandingGlobalRules({
               </div>
               <BuiltinRuleList
                 admin
-                exemptNodeCount={overview.exemptNodeCount}
                 profilesOff={builtin.profilesOff}
                 safety={builtin.safety}
                 scanGuard={builtin.scanGuard}
@@ -302,12 +298,10 @@ export function LandingGlobalRules({
                   telnet: !!builtin.telnet,
                   bt: builtin.bt,
                 }}
-                whitelist={overview.whitelist || []}
                 onScanSaved={(scanGuard) =>
                   setBuiltin((cur) => ({ ...cur, scanGuard }))
                 }
                 onSwitch={(next) => void saveBuiltin(next)}
-                onWhitelistSaved={onWhitelistSaved}
               />
             </section>
             <section className="space-y-2">

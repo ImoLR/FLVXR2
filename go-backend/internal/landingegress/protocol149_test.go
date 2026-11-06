@@ -39,11 +39,10 @@ func TestInboundProtocolScope(t *testing.T) {
 			t.Fatalf("%s tags = %s, want %s", name, got, want)
 		}
 	}
-	// Source rules bring the exemption list along.
-	in.Exempt = func() ([]string, error) { return []string{"203.0.113.1/32"}, nil }
-	plan, _ = compileOK(t, in)
-	if strings.Join(plan.ExemptSources, ",") != "203.0.113.1/32" {
-		t.Fatalf("exempt %v", plan.ExemptSources)
+	// Plan 219: 禁止大陆直连 is sent as plain 「source geoip:cn → block」;
+	// no exemption list rides along (FLVX nodes are not exempt).
+	if r, _ := findRule(plan, "禁止大陆直连"); strings.Join(r.SourceIP, ",") != "geoip:cn" || r.Outbound != ActionBlock {
+		t.Fatalf("禁止大陆直连 = %+v", r)
 	}
 
 	// No node with that protocol: the rule is not emitted at all.

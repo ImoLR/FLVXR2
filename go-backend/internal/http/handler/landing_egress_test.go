@@ -103,7 +103,7 @@ func TestLandingEgressAdminOnlyAndValidation(t *testing.T) {
 	e.addUser(2)
 	seedHandlerLanding(t, e, 2, 2, 1)
 	offlineDNS(t, map[string]string{"evil.example.com": "10.1.2.3", "good.example.com": "203.0.113.30"})
-	for _, path := range []string{"overview", "outbound/save", "outbound/delete", "outbound/parse", "profile/save", "profile/delete", "whitelist/save", "warp/register"} {
+	for _, path := range []string{"overview", "outbound/save", "outbound/delete", "outbound/parse", "profile/save", "profile/delete", "warp/register"} {
 		if out := egressCall(t, e.h, "/api/v1/landing/egress/"+path, map[string]any{}, 1); out.Code != 403 {
 			t.Fatalf("%s for a normal user: %+v", path, out)
 		}
@@ -134,9 +134,6 @@ func TestLandingEgressAdminOnlyAndValidation(t *testing.T) {
 	profileID := int64(dataMap(t, out)["id"].(float64))
 	if out := egressCall(t, e.h, "/api/v1/landing/egress/outbound/delete", map[string]any{"id": proxyID}, 0); out.Code == 0 {
 		t.Fatal("outbound used by a profile deleted")
-	}
-	if out := egressCall(t, e.h, "/api/v1/landing/egress/whitelist/save", map[string]any{"whitelist": []string{"0.0.0.0/0"}}, 0); out.Code == 0 {
-		t.Fatal("whole-internet whitelist accepted")
 	}
 
 	// Old agent: no egress capability → assignment refused, prod unchanged.

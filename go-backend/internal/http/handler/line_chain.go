@@ -238,8 +238,8 @@ func cloneReq(req map[string]interface{}) map[string]interface{} {
 // address and every FLVX node address (resolved hostnames included).
 func (h *Handler) chainForbidden() linechain.Forbidden {
 	var nodes []netip.Prefix
-	if hosts, err := h.repo.LandingExemptHosts(); err == nil {
-		for _, cidr := range landingegress.ExemptSources(hosts, nil, h.egressResolve) {
+	if hosts, err := h.repo.NodeGuardHosts(); err == nil {
+		for _, cidr := range landingegress.NodeAddressPrefixes(hosts, h.egressResolve) {
 			if p, err := netip.ParsePrefix(cidr); err == nil {
 				nodes = append(nodes, p)
 			}

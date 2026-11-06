@@ -333,34 +333,11 @@ func (r *Repository) LandingProfileUsage() (map[int64][2]int, error) {
 	return out, nil
 }
 
-func (r *Repository) GetLandingSourceWhitelist() ([]string, error) {
-	var s model.LandingEgressSetting
-	err := r.db.First(&s, 1).Error
-	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return []string{}, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-	out := []string{}
-	_ = json.Unmarshal([]byte(s.SourceWhitelist), &out)
-	return out, nil
-}
-
-func (r *Repository) SaveLandingSourceWhitelist(list []string) ([]string, error) {
-	list, err := landingegress.NormalizeWhitelist(list)
-	if err != nil {
-		return nil, err
-	}
-	raw, _ := json.Marshal(list)
-	s := model.LandingEgressSetting{ID: 1, SourceWhitelist: string(raw), UpdatedTime: time.Now().UnixMilli()}
-	err = r.db.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "id"}}, DoUpdates: clause.AssignmentColumns([]string{"source_whitelist", "updated_time"})}).Create(&s).Error
-	return list, err
-}
-
-// LandingExemptHosts returns every address field of every FLVX node; the
-// handler resolves hostnames (cached) and adds the whitelist.
-func (r *Repository) LandingExemptHosts() ([]string, error) {
+// NodeGuardHosts returns every address field of every FLVX node (incl. the
+// agent-reported egress and DDNS addresses) for the chain-upstream guard
+// (plan 108); the handler resolves hostnames (cached). Plan 219: landing
+// plans no longer use it (no source exemption).
+func (r *Repository) NodeGuardHosts() ([]string, error) {
 	var nodes []model.Node
 	if err := r.db.Select("server_ip", "server_ip_v4", "server_ip_v6", "intranet_ip", "extra_ips", "reported_ip_v4", "reported_ip_v6").Find(&nodes).Error; err != nil {
 		return nil, err
@@ -375,8 +352,8 @@ func (r *Repository) LandingExemptHosts() ([]string, error) {
 			out = append(out, n.ExtraIPs.String)
 		}
 	}
-	// Plan 149: DDNS nodes' current addresses straight from their records, so
-	// a rotated address is exempt without waiting for DNS.
+	// DDNS nodes' current addresses straight from their records, so a rotated
+	// address is guarded without waiting for DNS.
 	var ddns []string
 	if err := r.db.Model(&model.NodeDDNSRecord{}).Where("current_ip <> ''").Pluck("current_ip", &ddns).Error; err != nil {
 		return nil, err

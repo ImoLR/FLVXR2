@@ -156,7 +156,6 @@ func TestCompileGroupsMergesAndScopes(t *testing.T) {
 		2: {ID: 2, Name: "B", DefaultAction: "outbound:5", Rules: append(cnRules(), Rule{ID: "ai", Enabled: true, Domains: []string{"geosite:openai"}, Action: "outbound:6"})},
 	}
 	resolved := map[int64]PlanOutbound{5: {Type: "socks", IPVersion: "system", Server: "203.0.113.9", Port: 1080}}
-	exemptCalls := 0
 	in := CompileInput{
 		ServerProfileID: 1,
 		Nodes:           []NodeRef{{ID: 11, Tag: "flvxl-11"}, {ID: 12, Tag: "flvxl-12", Override: ptr(2)}, {ID: 13, Tag: "flvxl-13", Override: ptr(0)}, {ID: 14, Tag: "flvxl-14"}},
@@ -167,7 +166,6 @@ func TestCompileGroupsMergesAndScopes(t *testing.T) {
 			}
 			return PlanOutbound{}, errors.New("WARP 尚未注册")
 		},
-		Exempt:  func() ([]string, error) { exemptCalls++; return []string{"203.0.113.1/32"}, nil },
 		GeoIP:   true,
 		GeoSite: true,
 	}
@@ -218,8 +216,9 @@ func TestCompileGroupsMergesAndScopes(t *testing.T) {
 	if len(plan.Outbounds) != 1 || plan.Outbounds[0].Tag != "flvxo-5" {
 		t.Fatalf("outbounds = %+v", plan.Outbounds)
 	}
-	if exemptCalls != 1 || len(plan.ExemptSources) != 1 {
-		t.Fatal("exempt sources missing although a source rule exists")
+	// Plan 219: a source rule is sent as is — no exemption list rides along.
+	if raw, _ := json.Marshal(plan); strings.Contains(string(raw), "exempt") {
+		t.Fatalf("plan carries an exemption: %s", raw)
 	}
 	// Geo capability gating (shared servers without geo data).
 	in.GeoSite = false
@@ -227,13 +226,10 @@ func TestCompileGroupsMergesAndScopes(t *testing.T) {
 		t.Fatal("geosite rule accepted without geosite data")
 	}
 	in.GeoSite = true
-	// No source rule → no exemption lookup.
 	profiles[1] = Profile{ID: 1, Name: "A", DefaultAction: ActionDirect, Rules: []Rule{{ID: "p", Enabled: true, Ports: "25", Action: "block"}}}
 	profiles[2] = Profile{ID: 2, Name: "B", DefaultAction: ActionDirect}
-	exemptCalls = 0
-	plan, _, err = Compile(in)
-	if err != nil || exemptCalls != 0 || len(plan.ExemptSources) != 0 {
-		t.Fatalf("exemption fetched without source rules: %v %d", err, exemptCalls)
+	if _, _, err = Compile(in); err != nil {
+		t.Fatal(err)
 	}
 	// Everything on the default → inactive plan.
 	in.ServerProfileID = 0
@@ -319,25 +315,18 @@ func TestParseLink(t *testing.T) {
 	}
 }
 
-func TestExemptSources(t *testing.T) {
+func TestNodeAddressPrefixes(t *testing.T) {
 	resolve := func(host string) []netip.Addr {
 		if host == "node.example.com" {
 			return []netip.Addr{netip.MustParseAddr("198.51.100.20"), netip.MustParseAddr("2001:db8::20")}
 		}
 		return nil
 	}
-	got := ExemptSources([]string{"203.0.113.1", "Node.Example.COM", "", "203.0.113.1", "[2001:db8::1]", "203.0.113.7, 203.0.113.8", "unresolvable.example.org"}, []string{"192.0.2.0/24", "bad", "2001:db8:5::7"}, resolve)
-	// Plan 149: node IPv6 addresses (literal or resolved) are exempt as their
-	// /64; whitelist entries stay exact.
-	want := "192.0.2.0/24,198.51.100.20/32,2001:db8:5::7/128,2001:db8::/64,203.0.113.1/32,203.0.113.7/32,203.0.113.8/32"
+	got := NodeAddressPrefixes([]string{"203.0.113.1", "Node.Example.COM", "", "203.0.113.1", "[2001:db8::1]", "203.0.113.7, 203.0.113.8", "unresolvable.example.org"}, resolve)
+	// Node IPv6 addresses (literal or resolved) count as their /64.
+	want := "198.51.100.20/32,2001:db8::/64,203.0.113.1/32,203.0.113.7/32,203.0.113.8/32"
 	if strings.Join(got, ",") != want {
-		t.Fatalf("exempt = %v", got)
-	}
-	if list, err := NormalizeWhitelist([]string{"1.2.3.4", "10.0.0.0/8", "10.0.0.0/8", " "}); err != nil || strings.Join(list, ",") != "1.2.3.4/32,10.0.0.0/8" {
-		t.Fatalf("whitelist = %v %v", list, err)
-	}
-	if _, err := NormalizeWhitelist([]string{"0.0.0.0/0"}); err == nil {
-		t.Fatal("whole-internet whitelist accepted")
+		t.Fatalf("node prefixes = %v", got)
 	}
 }
 

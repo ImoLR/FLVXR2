@@ -168,9 +168,10 @@ func TestLandingBlockCNPresetEdited(t *testing.T) {
 	}
 }
 
-// Exempt-source inputs: agent-reported egress (written only when changed,
-// DDNS nodes too) and DDNS records' current addresses.
-func TestLandingExemptHosts149(t *testing.T) {
+// Chain-guard inputs (plan 149 columns; plan 219: no longer part of landing
+// plans): agent-reported egress (written only when changed, DDNS nodes too)
+// and DDNS records' current addresses.
+func TestNodeGuardHosts149(t *testing.T) {
 	for _, dialect := range []string{"sqlite", "postgres"} {
 		t.Run(dialect, func(t *testing.T) {
 			r := orphanTestRepo(t, dialect)
@@ -206,7 +207,7 @@ func TestLandingExemptHosts149(t *testing.T) {
 			if err := r.db.First(&n, 720).Error; err != nil || n.ReportedIPV4 != "112.64.1.9" {
 				t.Fatalf("private report overwrote %+v", n)
 			}
-			hosts, err := r.LandingExemptHosts()
+			hosts, err := r.NodeGuardHosts()
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -216,10 +217,10 @@ func TestLandingExemptHosts149(t *testing.T) {
 					t.Fatalf("%s missing from %v", want, hosts)
 				}
 			}
-			exempt := strings.Join(landingegress.ExemptSources(hosts, nil, nil), ",")
+			guarded := strings.Join(landingegress.NodeAddressPrefixes(hosts, nil), ",")
 			for _, want := range []string{"112.64.1.9/32", "2408:8748:a100:59::/64", "240e:b8f:72d:5c04::/64", "101.80.2.3/32"} {
-				if !strings.Contains(exempt, want) {
-					t.Fatalf("%s missing from exempt %s", want, exempt)
+				if !strings.Contains(guarded, want) {
+					t.Fatalf("%s missing from guarded %s", want, guarded)
 				}
 			}
 		})

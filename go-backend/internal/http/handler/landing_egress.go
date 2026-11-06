@@ -28,14 +28,15 @@ type egressDNSEntry struct {
 	at    time.Time
 }
 
-// egressLookup resolves hostnames for exemption lists and upstream checks.
+// egressLookup resolves hostnames for the chain-upstream guard and upstream
+// checks.
 // Tests replace it to stay offline.
 var egressLookup = func(ctx context.Context, host string) ([]netip.Addr, error) {
 	return net.DefaultResolver.LookupNetIP(ctx, "ip", host)
 }
 
 // egressResolve caches answers for 10 minutes and keeps the last good answer
-// when a lookup fails, so node exemptions do not flap on DNS hiccups.
+// when a lookup fails, so the guards do not flap on DNS hiccups.
 func (h *Handler) egressResolve(host string) []netip.Addr {
 	h.egressDNSMu.Lock()
 	if h.egressDNS == nil {
@@ -61,38 +62,6 @@ func (h *Handler) egressResolve(host string) []netip.Addr {
 	h.egressDNS[host] = egressDNSEntry{addrs: addrs, at: time.Now()}
 	h.egressDNSMu.Unlock()
 	return addrs
-}
-
-// landingExemptTTL bounds how often the exempt list is rebuilt (two reads
-// + cached DNS): the shared push compiles every 5 s per server and the
-// native re-push every minute, so an address change (DDNS, agent report,
-// admin edit) reaches every plan within ~1.5 min without per-compile reads.
-const landingExemptTTL = 30 * time.Second
-
-func (h *Handler) landingExemptSources() ([]string, error) {
-	h.egressExemptMu.Lock()
-	defer h.egressExemptMu.Unlock()
-	if h.egressExempt != nil && time.Since(h.egressExemptAt) < landingExemptTTL {
-		return append([]string(nil), h.egressExempt...), nil
-	}
-	hosts, err := h.repo.LandingExemptHosts()
-	if err != nil {
-		return nil, errors.New("读取 FLVX 节点地址失败")
-	}
-	whitelist, err := h.repo.GetLandingSourceWhitelist()
-	if err != nil {
-		return nil, errors.New("读取来源白名单失败")
-	}
-	out := landingegress.ExemptSources(hosts, whitelist, h.egressResolve)
-	h.egressExempt, h.egressExemptAt = out, time.Now()
-	return append([]string(nil), out...), nil
-}
-
-// invalidateLandingExempt drops the cached exempt list (whitelist saves).
-func (h *Handler) invalidateLandingExempt() {
-	h.egressExemptMu.Lock()
-	h.egressExempt = nil
-	h.egressExemptMu.Unlock()
 }
 
 // landingEgressSupport reports whether a server can take an egress plan and
@@ -275,7 +244,6 @@ func (h *Handler) compileLandingEgress(serverID int64) (*landingegress.Plan, []s
 	}
 	in := landingEgressInput(d)
 	in.GeoIP, in.GeoSite = geoIP, geoSite
-	in.Exempt = h.landingExemptSources
 	plan, rep, err := landingegress.CompileLayers(in)
 	warnings := rep.Warnings
 	h.external.setChainNotes(serverID, rep.ChainNotes, err)
@@ -315,7 +283,6 @@ func (h *Handler) validateLandingEgress(serverIDs []int64, mutate func(d *repo.L
 		}
 		in := landingEgressInput(d)
 		in.GeoIP, in.GeoSite = geoIP, geoSite
-		in.Exempt = func() ([]string, error) { return nil, nil }
 		_, rep, err := landingegress.CompileLayers(in)
 		if err != nil {
 			return fmt.Errorf("落地服务器「%s」：%w", d.Server.Name, err)
@@ -326,7 +293,6 @@ func (h *Handler) validateLandingEgress(serverIDs []int64, mutate func(d *repo.L
 			if fresh, err := h.repo.LandingEgressData(id); err == nil && fresh != nil {
 				base := landingEgressInput(fresh)
 				base.GeoIP, base.GeoSite = geoIP, geoSite
-				base.Exempt = in.Exempt
 				if _, prev, err := landingegress.CompileLayers(base); err == nil && len(chainNotesAdded(prev.ChainNotes, rep.ChainNotes, 0)) > 0 {
 					return fmt.Errorf("落地服务器「%s」：改动后放不下已开启的链式代理（每台服务器最多 %d 个不同的出站）", d.Server.Name, landingegress.MaxPlanOutbounds)
 				}
@@ -579,7 +545,7 @@ func landingLabelInput(d *repo.LandingEgressData) landingegress.CompileInput {
 	}
 	in := landingEgressInput(d)
 	in.GeoIP, in.GeoSite = geoIP, geoSite
-	in.Nodes, in.Resolve, in.Exempt = nil, nil, nil
+	in.Nodes, in.Resolve = nil, nil
 	return in
 }
 
@@ -745,7 +711,7 @@ func (h *Handler) registerLandingEgress(mux *http.ServeMux) {
 	routes := map[string]http.HandlerFunc{
 		"overview": h.landingEgressOverview, "outbound/save": h.landingEgressOutboundSave, "outbound/delete": h.landingEgressOutboundDelete,
 		"outbound/parse": h.landingEgressParseLink, "profile/save": h.landingEgressProfileSave, "profile/delete": h.landingEgressProfileDelete,
-		"whitelist/save": h.landingEgressWhitelistSave, "warp/register": h.landingEgressWarpRegister,
+		"warp/register": h.landingEgressWarpRegister,
 		// Plan 134 global rule group and node-rule caps.
 		"global/get": h.landingEgressGlobalGet, "global/save": h.landingEgressGlobalSave, "user-caps/save": h.landingEgressUserCapsSave,
 		// Plan 140: built-in rule switches and the preset library (admin
@@ -788,9 +754,6 @@ func (h *Handler) landingEgressOverview(w http.ResponseWriter, r *http.Request) 
 		landingError(w, err)
 		return
 	}
-	whitelist, _ := h.repo.GetLandingSourceWhitelist()
-	hosts, _ := h.repo.LandingExemptHosts()
-	nodeAddrs := landingegress.ExemptSources(hosts, nil, h.egressResolve)
 	decoded := map[int64]landingegress.Profile{}
 	for _, p := range profiles {
 		decoded[p.ID] = repo.ProfileFromModel(p)
@@ -867,8 +830,7 @@ func (h *Handler) landingEgressOverview(w http.ResponseWriter, r *http.Request) 
 	sort.Strings(ipCodes)
 	sort.Strings(siteCodes)
 	response.WriteJSON(w, response.OK(map[string]any{
-		"outbounds": outViews, "profiles": profileViews, "whitelist": whitelist,
-		"exemptNodeCount": len(nodeAddrs), "exemptPreview": nodeAddrs[:min(len(nodeAddrs), 12)],
+		"outbounds": outViews, "profiles": profileViews,
 		"landingNodes": nodeChoices, "forwards": forwards, "warpAccounts": warpViews,
 		"geo":       map[string]any{"release": landingegress.GeoRelease, "geoip": ipCodes, "geosite": siteCodes},
 		"ssMethods": landingegress.SSMethods(), "global": globalView,
@@ -1071,32 +1033,6 @@ func (h *Handler) landingEgressProfileDelete(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	response.WriteJSON(w, response.OKEmpty())
-}
-
-func (h *Handler) landingEgressWhitelistSave(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Whitelist []string `json:"whitelist"`
-	}
-	if err := landingDecode(r, &req); err != nil {
-		landingError(w, err)
-		return
-	}
-	list, err := h.repo.SaveLandingSourceWhitelist(req.Whitelist)
-	if err != nil {
-		landingError(w, err)
-		return
-	}
-	h.invalidateLandingExempt()
-	// Plans pick the new exemption up on the next sync (≤ 1 minute); push now.
-	servers, _ := h.repo.ListLandingServers(0, true)
-	ids := []int64{}
-	for _, s := range servers {
-		if s.Source == "native" {
-			ids = append(ids, s.ID)
-		}
-	}
-	h.landingEgressSaveAsync(ids)
-	response.WriteJSON(w, response.OK(map[string]any{"whitelist": list}))
 }
 
 func (h *Handler) landingEgressWarpRegister(w http.ResponseWriter, r *http.Request) {

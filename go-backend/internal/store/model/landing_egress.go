@@ -63,6 +63,8 @@ type LandingWarpAccount struct {
 func (LandingWarpAccount) TableName() string { return "landing_warp_account" }
 
 // LandingEgressSetting is a single row (id 1) of global egress settings.
+// SourceWhitelist is unused since plan 219 (来源白名单 removed); the column
+// stays (no destructive migration), new rows keep writing "[]".
 type LandingEgressSetting struct {
 	ID              int64  `gorm:"primaryKey;autoIncrement:false" json:"-"`
 	SourceWhitelist string `gorm:"type:text;not null;default:'[]'" json:"-"`

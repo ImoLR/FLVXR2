@@ -8,9 +8,11 @@ import (
 	"go-backend/internal/landingegress"
 )
 
-// Plan 149: 禁止大陆直连 (seeded, enabled) reaches only SS nodes; forwarded
-// traffic from FLVX nodes stays exempt (configured, NAT-reported, IPv6 /64);
-// a node's 路由规则 view lists only the global rules that apply to it.
+// Plan 149: 禁止大陆直连 (seeded, enabled) reaches only SS nodes; a node's
+// 路由规则 view lists only the global rules that apply to it. Plan 219: FLVX
+// nodes are no longer exempt — a mainland node connecting directly to a
+// landing is blocked like any other mainland source (relayed traffic arrives
+// from an overseas exit), and the 来源白名单 is gone.
 func TestLandingCNDirectScopedToSS(t *testing.T) {
 	e, _ := layersEnv(t)
 	// The shipped seeds (layersEnv starts from the pre-149 disabled state).
@@ -34,19 +36,8 @@ func TestLandingCNDirectScopedToSS(t *testing.T) {
 			t.Fatalf("%s: %+v", name, r)
 		}
 	}
-	exempt := "," + strings.Join(plan.ExemptSources, ",") + ","
-	for _, want := range []string{"112.64.1.9/32", "2408:8748:a100:59::/64", "127.0.0.1/32"} {
-		if !strings.Contains(exempt, ","+want+",") {
-			t.Fatalf("%s not exempt: %v", want, plan.ExemptSources)
-		}
-	}
-	// Whitelist saves drop the cached list at once.
-	if out := egressCall(t, e.h, "/api/v1/landing/egress/whitelist/save", map[string]any{"whitelist": []string{"198.51.100.9"}}, 0); out.Code != 0 {
-		t.Fatal(out)
-	}
-	e.h.WaitEgressSync()
-	if _, plan = compiledHash(t, e.h, 1); !strings.Contains(strings.Join(plan.ExemptSources, ","), "198.51.100.9/32") {
-		t.Fatalf("whitelist not exempt: %v", plan.ExemptSources)
+	if raw, _ := json.Marshal(plan); strings.Contains(string(raw), "exempt") || strings.Contains(string(raw), "112.64.1.9") || strings.Contains(string(raw), "2408:8748") {
+		t.Fatalf("plan exempts FLVX node addresses: %s", raw)
 	}
 	// 路由规则 views: the VLESS node (owner 2) does not list 禁止大陆直连, the
 	// SS node (owner 3) does, with its 节点协议 scope.
