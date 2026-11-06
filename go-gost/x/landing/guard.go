@@ -40,6 +40,16 @@ type guardGroup struct {
 	Host     string
 	DestPort int
 	Names    []string // sorted, lower-case
+	// Addr is what the guard dials: the pinned fastest IP of Host (plan 227)
+	// or Host itself without a pin. Not part of key(): grouping stays by dest.
+	Addr string
+}
+
+func (g *guardGroup) dialAddress() string {
+	if g.Addr != "" {
+		return g.Addr
+	}
+	return g.Host
 }
 
 func (g *guardGroup) key() string {
@@ -67,10 +77,12 @@ func guardOutbound() map[string]any {
 
 // inbound is the loopback helper: TLS sniffing for routing only, so the
 // connection always goes to the configured dest, never to the sniffed name.
+// With a pin (plan 227) the target is the pinned IP: the allow rule still
+// matches the sniffed SNI, and the Core does no DNS lookup per connection.
 func (g *guardGroup) inbound() map[string]any {
 	return map[string]any{
 		"tag": guardTag(g.Port), "listen": "127.0.0.1", "port": g.Port, "protocol": "dokodemo-door",
-		"settings": map[string]any{"address": g.Host, "port": g.DestPort, "network": "tcp"},
+		"settings": map[string]any{"address": g.dialAddress(), "port": g.DestPort, "network": "tcp"},
 		"sniffing": map[string]any{"enabled": true, "destOverride": []string{"tls"}, "routeOnly": true},
 	}
 }

@@ -194,6 +194,9 @@ type Status struct {
 	// ScanGuard (plan 202): the 禁止端口扫描 state and the hits the panel has
 	// not recorded yet; present on agents reporting landing_scan_guard.
 	ScanGuard *ScanStatus `json:"scan_guard,omitempty"`
+	// RealityPins (plan 227): the pinned IP of every guarded Reality dest;
+	// present on agents reporting landing_reality.
+	RealityPins []RealityPinStatus `json:"reality_pins,omitempty"`
 }
 
 func (d *Desired) validate() error {

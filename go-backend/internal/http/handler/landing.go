@@ -23,6 +23,7 @@ func (h *Handler) registerLanding(mux *http.ServeMux) {
 	h.registerLandingExternal(mux)
 	h.registerSubLink(mux)
 	h.registerLandingScan(mux)
+	h.registerLandingReality(mux)
 	for path, fn := range map[string]http.HandlerFunc{"integration/get": h.landingIntegrationGet, "integration/save": h.landingIntegrationSave, "integration/test": h.landingIntegrationTest, "integration/sync": h.landingIntegrationSync, "server/enable": h.landingServerEnable, "server/list": h.landingServerList, "server/save": h.landingServerSave, "node/list": h.landingNodeList, "node/create": h.limitMutation(mutationLanding, h.landingNodeCreate), "node/update": h.limitMutation(mutationLanding, h.landingNodeUpdate), "node/delete": h.limitMutation(mutationLanding, h.landingNodeDelete), "node/links": h.landingNodeLinks, "user/get": h.landingUserGet, "user/save": h.landingUserSave, "settings/get": h.landingSettingsGet, "settings/save": h.landingSettingsSave, "node/transfer": h.limitMutation(mutationLanding, h.landingNodeTransfer), "monitor": h.landingMonitor, "monitor/ips": h.landingMonitorIPs, "node/rules/get": h.landingNodeRulesGet, "node/rules/save": h.limitMutation(mutationLanding, h.landingNodeRulesSave), "preset/list": h.landingPresetList} {
 		mux.HandleFunc("/api/v1/landing/"+path, func(w http.ResponseWriter, r *http.Request) {
 			if r.Method != http.MethodPost {
@@ -114,7 +115,7 @@ func landingServerStatsByID(all []model.LandingNode, servers map[int64]*model.La
 // landingServerUserHidden are server fields a non-admin never receives:
 // admin limits and defaults, core sizing, and 妙妙屋 sync internals. Server-wide
 // aggregates (connections, traffic, other users' nodes) are not added at all.
-var landingServerUserHidden = []string{"chainOnly", "routeProfileId", "egressRestartOk", "egressState", "egressError", "egressReady", "egressCheckedAt", "remoteServerId", "maxConnections", "defaultMaxConnections", "defaultMaxTotalConnections", "connMode", "maxConnMode", "defaultMaxOnlineIps", "defaultTrafficLimitBytes", "defaultUserQuotaBytes", "defaultExpiryMode", "defaultExpiryDays", "defaultExpiresAt", "coreMemoryMb", "coreCpuPercent", "revision", "sharedLastSyncAt", "sharedSyncError", "sharedPushedRevision", "sharedAppliedRevision", "createdTime", "updatedTime"}
+var landingServerUserHidden = []string{"chainOnly", "realityMode", "routeProfileId", "egressRestartOk", "egressState", "egressError", "egressReady", "egressCheckedAt", "remoteServerId", "maxConnections", "defaultMaxConnections", "defaultMaxTotalConnections", "connMode", "maxConnMode", "defaultMaxOnlineIps", "defaultTrafficLimitBytes", "defaultUserQuotaBytes", "defaultExpiryMode", "defaultExpiryDays", "defaultExpiresAt", "coreMemoryMb", "coreCpuPercent", "revision", "sharedLastSyncAt", "sharedSyncError", "sharedPushedRevision", "sharedAppliedRevision", "createdTime", "updatedTime"}
 
 // landingServerView renders one server for an admin, with server-wide
 // aggregates. Lists use landingServerAdminView / landingServerUserView with
@@ -150,6 +151,7 @@ func (h *Handler) landingServerViewWith(s model.LandingServer, admin bool, catal
 	// would have (rule dialog: 新建落地节点 on a 屏蔽 TLS tunnel).
 	v["protocolFilterFeatures"] = repo.LandingServerFilterFeatureMap(&s, repo.LandingFilterProtocols)
 	if admin {
+		h.landingServerRealityView(s, v)
 		groups, _ := h.repo.LandingServerGroupIDs(s.ID)
 		v["userGroupIds"] = groups
 		direct, _ := h.repo.LandingServerDirectUserCount(s.ID)
@@ -611,6 +613,18 @@ func (h *Handler) landingServerSave(w http.ResponseWriter, r *http.Request) {
 	req.LandingServer.Protocols = string(b)
 	b, _ = json.Marshal(req.RealityServerNames)
 	req.LandingServer.RealityServerNames = string(b)
+	// Plan 227: a manual 伪装域名 must not be a 屏蔽 domain (checked only on a
+	// change, so unrelated saves of an older pick keep working).
+	if repo.NormalizeRealityMode(req.LandingServer.RealityMode) == repo.RealityModeManual && req.LandingServer.RealityDest != old.RealityDest {
+		host := req.LandingServer.RealityDest
+		if hh, _, e := net.SplitHostPort(host); e == nil {
+			host = hh
+		}
+		if h.repo.RealityDomainBlocked(host) {
+			landingError(w, errors.New("这个伪装域名已被屏蔽，请先在「全局设置 → Reality 伪装域名」里解除屏蔽"))
+			return
+		}
+	}
 	if err := h.repo.SaveLandingServerOpts(&req.LandingServer, req.UserGroupIDs, repo.LandingServerSaveOptions{ApplyConnModeToNodes: req.ApplyConnModeToNodes, ApplyNodeTotalToNodes: req.ApplyNodeTotalToNodes}); err != nil {
 		landingError(w, err)
 		return

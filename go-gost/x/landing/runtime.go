@@ -131,6 +131,9 @@ type Manager struct {
 	// for the lock-free 1 s system info.
 	scan    scanState
 	scanSeq atomic.Int64
+
+	// Plan 227: fastest-IP pins of the guarded Reality dests (own lock).
+	pins *realityPinner
 }
 
 // InboundPort reports whether an enabled landing inbound (public or a
@@ -156,7 +159,7 @@ type PortsInUse struct {
 
 // NewManager's direct mode is used only by the explicit local test switch.
 func NewManager(dir string, direct bool) *Manager {
-	return &Manager{dir: dir, direct: direct, uid: -1, gid: -1}
+	return &Manager{dir: dir, direct: direct, uid: -1, gid: -1, pins: newRealityPinner()}
 }
 func (m *Manager) binary() string { return filepath.Join(m.dir, "flvx-landing-core") }
 
@@ -179,6 +182,7 @@ func (m *Manager) Run(ctx context.Context) {
 	m.started = true
 	m.mu.Unlock()
 	go m.runBudgetApplier(ctx)
+	go m.runRealityPins(ctx)
 	ticker := time.NewTicker(10 * time.Second)
 	defer ticker.Stop()
 	for {
@@ -302,7 +306,7 @@ func (m *Manager) statusLocked() Status {
 	if rate.State == "" {
 		rate.State = "off"
 	}
-	return Status{Revision: m.desired.Revision, Epoch: m.epoch, CoreVersion: CoreVersion, State: state, Error: m.lastError, Nodes: append([]Counter{}, m.counters...), Egress: &egress, CoreUpdate: m.coreUpdate, NodeErrors: m.nodeErrors(), UserRate: &rate, ScanGuard: m.scanStatus()}
+	return Status{Revision: m.desired.Revision, Epoch: m.epoch, CoreVersion: CoreVersion, State: state, Error: m.lastError, Nodes: append([]Counter{}, m.counters...), Egress: &egress, CoreUpdate: m.coreUpdate, NodeErrors: m.nodeErrors(), UserRate: &rate, ScanGuard: m.scanStatus(), RealityPins: m.pins.statuses()}
 }
 func (m *Manager) Counters() []Counter {
 	// A first install can spend minutes on download mirrors. Cumulative landing

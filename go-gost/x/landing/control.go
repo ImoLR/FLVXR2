@@ -307,6 +307,7 @@ func (m *Manager) reconcile(ctx context.Context) error {
 	}
 	var guardWarnings []string
 	m.guardWant, m.guardByTag, guardWarnings = m.desired.guardGroups()
+	m.pinGuards(ctx)
 	// Outbounds and rules go first: a fresh Core never serves an inbound before
 	// its routing plan is in place. Egress failures are reported separately and
 	// never mark the inbound state as failed.

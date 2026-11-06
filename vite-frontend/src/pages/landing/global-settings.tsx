@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import toast from "react-hot-toast";
 
+import { RealityDomainSettings } from "./reality-domains";
+
 import { getLandingSettings, saveLandingSettings } from "@/api/landing";
 import { Button } from "@/shadcn-bridge/heroui/button";
 import { Input } from "@/shadcn-bridge/heroui/input";
@@ -92,6 +94,10 @@ export function LandingGlobalSettings({ onClose }: { onClose: () => void }) {
                 : "目前没有用户单独设置数量，所有用户都跟随此值。"}
             管理员账号不受总数限制；每台服务器的「每人最多」仍然有效。
           </p>
+          <section className="space-y-2 border-t border-default-200 pt-4">
+            <h3 className="text-sm font-semibold">Reality 伪装域名</h3>
+            <RealityDomainSettings />
+          </section>
         </ModalBody>
         <ModalFooter>
           <Button color="danger" variant="flat" onPress={onClose}>

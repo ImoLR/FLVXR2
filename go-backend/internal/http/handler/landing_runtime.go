@@ -132,6 +132,8 @@ type landingSyncSnapshot struct {
 	UserRate *landingRateReport `json:"user_rate"`
 	// Plan 202: 禁止端口扫描 state + unrecorded hits (landing_scan_guard).
 	ScanGuard *landingScanReport `json:"scan_guard"`
+	// Plan 227: the guard's Reality dest IP pins (landing_reality agents).
+	RealityPins []repo.RealityPin `json:"reality_pins"`
 	// scanAdvanced: hits were recorded; push again right away.
 	scanAdvanced bool
 }
@@ -427,6 +429,14 @@ func (h *Handler) syncNativeLandingServerOnce(serverID int64) (*landingSyncSnaps
 	h.recordNativeEgress(s.ID, snapshot.Egress, egressWarnings, egressErr)
 	if node.LandingScanGuard >= repo.LandingScanGuardVersion {
 		snapshot.scanAdvanced = h.recordNativeScan(s, snapshot.ScanGuard)
+	}
+	if node.LandingReality >= 1 {
+		// omitempty on the agent: no guarded dest = no pins.
+		pins := snapshot.RealityPins
+		if pins == nil {
+			pins = []repo.RealityPin{}
+		}
+		h.recordRealityPins(s.ID, pins)
 	}
 	// Plan 161: the reason a capable agent could not shape (shown on the
 	// user's row); cleared once applied or when nothing is to be applied.

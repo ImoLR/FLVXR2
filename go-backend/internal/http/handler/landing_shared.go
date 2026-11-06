@@ -404,6 +404,14 @@ func (h *Handler) pollSharedLanding(ctx context.Context, client *landingcustom.C
 	if status.Egress != nil {
 		_ = h.repo.RecordLandingEgressStatus(s.ID, status.Egress.State, status.Egress.Error, true, status.Egress.Warnings)
 	}
+	// Plan 227: the Helper's Reality dest IP pins ride on this poll.
+	if repo.SharedLandingCaps(&s).RealityPin.Supports(landingcustom.RealityPinVersion) {
+		pins := sharedRealityPins(status.RealityPins)
+		if pins == nil {
+			pins = []repo.RealityPin{}
+		}
+		h.recordRealityPins(s.ID, pins)
+	}
 	return apply, nil
 }
 func (h *Handler) syncSharedLandingServer(id int64) error {
