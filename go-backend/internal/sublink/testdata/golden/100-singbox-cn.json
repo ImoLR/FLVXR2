@@ -18,6 +18,13 @@
     ],
     "rules": [
       {
+        "domain_suffix": [
+          "msftconnecttest.com",
+          "msftncsi.com"
+        ],
+        "server": "dns-local"
+      },
+      {
         "rule_set": "geosite-cn",
         "server": "dns-local"
       }
@@ -1450,6 +1457,13 @@
         "outbound": "direct"
       },
       {
+        "domain_suffix": [
+          "msftconnecttest.com",
+          "msftncsi.com"
+        ],
+        "outbound": "direct"
+      },
+      {
         "rule_set": [
           "geosite-cn",
           "geoip-cn"
@@ -1462,15 +1476,15 @@
         "type": "remote",
         "tag": "geosite-cn",
         "format": "binary",
-        "url": "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-cn.srs",
-        "download_detour": "节点选择"
+        "url": "https://panel.example/s/rs/geosite-cn.srs",
+        "download_detour": "direct"
       },
       {
         "type": "remote",
         "tag": "geoip-cn",
         "format": "binary",
-        "url": "https://raw.githubusercontent.com/SagerNet/sing-geoip/rule-set/geoip-cn.srs",
-        "download_detour": "节点选择"
+        "url": "https://panel.example/s/rs/geoip-cn.srs",
+        "download_detour": "direct"
       }
     ],
     "final": "节点选择",

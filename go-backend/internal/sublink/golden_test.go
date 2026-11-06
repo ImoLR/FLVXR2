@@ -64,9 +64,9 @@ func TestGoldenV1(t *testing.T) {
 		{"clash-global.yaml", func() ([]byte, int) { return Clash(nodes, ModeGlobal, false) }},
 		{"stash-cn.yaml", func() ([]byte, int) { return Clash(nodes, ModeCNDirect, true) }},
 		{"clash-empty.yaml", func() ([]byte, int) { return Clash(nil, ModeCNDirect, false) }},
-		{"singbox-cn.json", func() ([]byte, int) { return SingBox(nodes, ModeCNDirect) }},
-		{"singbox-global.json", func() ([]byte, int) { return SingBox(nodes, ModeGlobal) }},
-		{"singbox-empty.json", func() ([]byte, int) { return SingBox(nil, ModeCNDirect) }},
+		{"singbox-cn.json", func() ([]byte, int) { return SingBox(nodes, ModeCNDirect, testOrigin) }},
+		{"singbox-global.json", func() ([]byte, int) { return SingBox(nodes, ModeGlobal, testOrigin) }},
+		{"singbox-empty.json", func() ([]byte, int) { return SingBox(nil, ModeCNDirect, testOrigin) }},
 		{"base64.txt", func() ([]byte, int) { return Base64(nodes) }},
 	} {
 		body, _ := c.fn()
@@ -88,7 +88,7 @@ func TestGolden100(t *testing.T) {
 		{"100-clash-cn.yaml", func() ([]byte, int) { return Clash(nodes, ModeCNDirect, false) }},
 		{"100-clash-global.yaml", func() ([]byte, int) { return Clash(nodes, ModeGlobal, false) }},
 		{"100-stash-cn.yaml", func() ([]byte, int) { return Clash(nodes, ModeCNDirect, true) }},
-		{"100-singbox-cn.json", func() ([]byte, int) { return SingBox(nodes, ModeCNDirect) }},
+		{"100-singbox-cn.json", func() ([]byte, int) { return SingBox(nodes, ModeCNDirect, testOrigin) }},
 		{"100-base64.txt", func() ([]byte, int) { return Base64(nodes) }},
 		{"100-surge.conf", func() ([]byte, int) { return Surge(nodes, ModeCNDirect, false) }},
 		{"100-surfboard.conf", func() ([]byte, int) { return Surge(nodes, ModeGlobal, true) }},

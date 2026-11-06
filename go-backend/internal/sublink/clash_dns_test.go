@@ -119,7 +119,7 @@ func TestSingBoxDNSPlan220(t *testing.T) {
 		{"empty", nil, ModeCNDirect, false},
 		{"empty-global", nil, ModeGlobal, false},
 	} {
-		body, _ := SingBox(c.nodes, c.mode)
+		body, _ := SingBox(c.nodes, c.mode, testOrigin)
 		var d doc
 		if err := json.Unmarshal(body, &d); err != nil {
 			t.Fatalf("%s: %v", c.name, err)
@@ -168,5 +168,98 @@ func TestSurgeGeneralPlan220(t *testing.T) {
 	}
 	if !strings.Contains(general(surge), "dns-server = system, 223.5.5.5, 119.29.29.29\n") {
 		t.Errorf("surge dns-server changed")
+	}
+}
+
+// Plan 226: with the node dead or 节点选择 = DIRECT, the fake-ip-filter names
+// still resolve (CN DoH) and the Windows network check goes DIRECT; the
+// sing-box rule sets come from the panel DIRECT.
+func TestNodeDownPlan226(t *testing.T) {
+	type doc struct {
+		DNS struct {
+			Policy map[string][]string `yaml:"nameserver-policy"`
+		} `yaml:"dns"`
+		Rules []string `yaml:"rules"`
+	}
+	covered := map[string]bool{}
+	for _, k := range cnResolved {
+		for _, d := range strings.Split(k, ",") {
+			covered[d] = true
+		}
+	}
+	for _, f := range fakeIPFilter {
+		keep := f == "+.lan" || f == "+.local" || f == "localhost.ptlogin2.qq.com" || f == "lens.l.google.com"
+		if covered[f] == keep {
+			t.Errorf("fake-ip-filter %q: CN DoH policy %v", f, covered[f])
+		}
+	}
+	for _, c := range []struct {
+		name  string
+		nodes []Node
+		mode  string
+		stash bool
+	}{
+		{"clash-cn", goldenNodes(t), ModeCNDirect, false},
+		{"stash-cn", goldenNodes(t), ModeCNDirect, true},
+		{"clash-empty", nil, ModeCNDirect, false},
+		{"clash-global", goldenNodes(t), ModeGlobal, false},
+	} {
+		body, _ := Clash(c.nodes, c.mode, c.stash)
+		var d doc
+		if err := yaml.Unmarshal(body, &d); err != nil {
+			t.Fatalf("%s: %v", c.name, err)
+		}
+		cn := c.mode == ModeCNDirect
+		for _, k := range cnResolved {
+			if got := strings.Join(d.DNS.Policy[k], ","); (got == strings.Join(cnDoH, ",")) != cn {
+				t.Errorf("%s: policy %q = %q", c.name, k, got)
+			}
+		}
+		rules := strings.Join(d.Rules, "\n")
+		if strings.Contains(rules, ncsiDirect[0]+"\n"+ncsiDirect[1]+"\nGEOSITE,cn,DIRECT") != cn || (!cn && strings.Contains(rules, "msft")) {
+			t.Errorf("%s: NCSI rules: %v", c.name, d.Rules)
+		}
+	}
+	type sbDoc struct {
+		DNS struct {
+			Rules []map[string]any `json:"rules"`
+		} `json:"dns"`
+		Route struct {
+			Rules   []map[string]any    `json:"rules"`
+			RuleSet []map[string]string `json:"rule_set"`
+		} `json:"route"`
+	}
+	for _, origin := range []string{testOrigin, ""} {
+		body, _ := SingBox(goldenNodes(t), ModeCNDirect, origin)
+		var d sbDoc
+		if err := json.Unmarshal(body, &d); err != nil {
+			t.Fatal(err)
+		}
+		if len(d.Route.RuleSet) != 2 {
+			t.Fatalf("rule sets %v", d.Route.RuleSet)
+		}
+		for _, rs := range d.Route.RuleSet {
+			wantURL, wantDetour := RuleSetURL(testOrigin, rs["tag"]), "direct"
+			if origin == "" {
+				wantURL, wantDetour = ruleSetUpstream[rs["tag"]], GroupSelect
+			}
+			if rs["url"] != wantURL || rs["download_detour"] != wantDetour {
+				t.Errorf("origin %q: rule set %v", origin, rs)
+			}
+		}
+		ncsi := func(rules []map[string]any, key, want string) bool {
+			for _, r := range rules {
+				if v, _ := json.Marshal(r["domain_suffix"]); string(v) == `["msftconnecttest.com","msftncsi.com"]` {
+					return r[key] == want
+				}
+			}
+			return false
+		}
+		if !ncsi(d.DNS.Rules, "server", "dns-local") || !ncsi(d.Route.Rules, "outbound", "direct") {
+			t.Errorf("sing-box NCSI rules: %v / %v", d.DNS.Rules, d.Route.Rules)
+		}
+	}
+	if body, _ := SingBox(goldenNodes(t), ModeGlobal, testOrigin); strings.Contains(string(body), "msft") || strings.Contains(string(body), "/s/rs/") {
+		t.Error("全部走代理 got 国内直连 rules")
 	}
 }
