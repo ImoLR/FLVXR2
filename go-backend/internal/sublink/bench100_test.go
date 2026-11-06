@@ -20,15 +20,19 @@ func nodes100(t *testing.T) []Node {
 
 // BenchmarkRender100: generator time / allocations for 100 nodes per format
 // (plan 193 before/after numbers).
-func BenchmarkRender100(b *testing.B) {
-	nodes := nodes100(&testing.T{})
+func BenchmarkRender100(b *testing.B) { benchRender(b, nodes100(&testing.T{})) }
+
+// BenchmarkRender1: the same for a one-node subscription (plan 226).
+func BenchmarkRender1(b *testing.B) { benchRender(b, nodes100(&testing.T{})[:1]) }
+
+func benchRender(b *testing.B, nodes []Node) {
 	for _, c := range []struct {
 		name string
 		fn   func() ([]byte, int)
 	}{
 		{"clash", func() ([]byte, int) { return Clash(nodes, ModeCNDirect, false) }},
 		{"stash", func() ([]byte, int) { return Clash(nodes, ModeCNDirect, true) }},
-		{"singbox", func() ([]byte, int) { return SingBox(nodes, ModeCNDirect) }},
+		{"singbox", func() ([]byte, int) { return SingBox(nodes, ModeCNDirect, testOrigin) }},
 		{"base64", func() ([]byte, int) { return Base64(nodes) }},
 		{"surge", func() ([]byte, int) { return Surge(nodes, ModeCNDirect, false) }},
 		{"surfboard", func() ([]byte, int) { return Surge(nodes, ModeCNDirect, true) }},

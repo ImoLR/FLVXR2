@@ -185,6 +185,9 @@ func singBoxOutbound(n Node) (jmap, bool) {
 	return o, true
 }
 
+// ncsiDomains: the Windows network check (plan 226).
+var ncsiDomains = []string{"msftconnecttest.com", "msftncsi.com"}
+
 const (
 	geositeCN = "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-cn.srs"
 	geoipCN   = "https://raw.githubusercontent.com/SagerNet/sing-geoip/rule-set/geoip-cn.srs"
@@ -192,9 +195,12 @@ const (
 
 // SingBox renders a sing-box (1.12+ schema) client config with a TUN and a
 // local mixed inbound. 国内直连 uses SagerNet's geosite-cn / geoip-cn rule
-// sets (downloaded by the client from GitHub through the proxy, not from
-// FLVX). It returns the JSON and how many nodes it contains.
-func SingBox(nodes []Node, mode string) ([]byte, int) {
+// sets; plan 226: the client downloads them DIRECT from the panel at origin
+// (scheme://host the subscription was pulled from, see RuleSets), so a dead
+// node or 节点选择 = direct no longer stops sing-box from starting. origin ""
+// keeps the fork.119 download (GitHub through 节点选择). It returns the JSON
+// and how many nodes it contains.
+func SingBox(nodes []Node, mode, origin string) ([]byte, int) {
 	outbounds := []interface{}{}
 	tags := []string{}
 	for _, n := range nodes {
@@ -238,14 +244,24 @@ func SingBox(nodes []Node, mode string) ([]byte, int) {
 	}
 	route := jmap{}
 	if cn {
-		dnsRules = append(dnsRules, jmap{{"rule_set", "geosite-cn"}, {"server", "dns-local"}})
-		routeRules = append(routeRules, jmap{{"rule_set", []string{"geosite-cn", "geoip-cn"}}, {"outbound", "direct"}})
+		// Plan 226: the Windows network check resolves with CN DoH and goes
+		// DIRECT (through a dead node Windows shows 「无 Internet」).
+		dnsRules = append(dnsRules,
+			jmap{{"domain_suffix", ncsiDomains}, {"server", "dns-local"}},
+			jmap{{"rule_set", "geosite-cn"}, {"server", "dns-local"}})
+		routeRules = append(routeRules,
+			jmap{{"domain_suffix", ncsiDomains}, {"outbound", "direct"}},
+			jmap{{"rule_set", []string{"geosite-cn", "geoip-cn"}}, {"outbound", "direct"}})
 	}
 	route.add("rules", routeRules)
 	if cn {
+		site, ip, detour := geositeCN, geoipCN, GroupSelect
+		if origin != "" {
+			site, ip, detour = RuleSetURL(origin, "geosite-cn"), RuleSetURL(origin, "geoip-cn"), "direct"
+		}
 		route.add("rule_set", []interface{}{
-			jmap{{"type", "remote"}, {"tag", "geosite-cn"}, {"format", "binary"}, {"url", geositeCN}, {"download_detour", GroupSelect}},
-			jmap{{"type", "remote"}, {"tag", "geoip-cn"}, {"format", "binary"}, {"url", geoipCN}, {"download_detour", GroupSelect}},
+			jmap{{"type", "remote"}, {"tag", "geosite-cn"}, {"format", "binary"}, {"url", site}, {"download_detour", detour}},
+			jmap{{"type", "remote"}, {"tag", "geoip-cn"}, {"format", "binary"}, {"url", ip}, {"download_detour", detour}},
 		})
 	}
 	route.add("final", GroupSelect)

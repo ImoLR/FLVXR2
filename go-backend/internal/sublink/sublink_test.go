@@ -173,7 +173,7 @@ func TestClashStructure(t *testing.T) {
 
 func TestSingBoxStructure(t *testing.T) {
 	nodes := sampleNodes(t)
-	out, n := SingBox(nodes, ModeCNDirect)
+	out, n := SingBox(nodes, ModeCNDirect, testOrigin)
 	// snell + mieru are not in sing-box.
 	if n != len(nodes)-2 {
 		t.Fatalf("sing-box nodes %d", n)
@@ -191,7 +191,7 @@ func TestSingBoxStructure(t *testing.T) {
 	if doc.Route["final"] != GroupSelect || doc.Route["rule_set"] == nil {
 		t.Fatalf("route: %v", doc.Route)
 	}
-	global, _ := SingBox(nodes, ModeGlobal)
+	global, _ := SingBox(nodes, ModeGlobal, testOrigin)
 	if strings.Contains(string(global), "rule_set") {
 		t.Fatal("global mode must not use rule sets")
 	}
@@ -293,7 +293,7 @@ func TestRealClients(t *testing.T) {
 	}
 	if bin := os.Getenv("SUBLINK_SINGBOX"); bin != "" {
 		for _, mode := range []string{ModeCNDirect, ModeGlobal} {
-			out, _ := SingBox(nodes, mode)
+			out, _ := SingBox(nodes, mode, testOrigin)
 			f := filepath.Join(dir, "sb-"+mode+".json")
 			_ = os.WriteFile(f, out, 0o600)
 			res, err := exec.Command(bin, "check", "-c", f).CombinedOutput()

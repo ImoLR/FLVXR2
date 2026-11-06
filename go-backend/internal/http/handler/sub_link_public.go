@@ -164,11 +164,14 @@ func (st *subLinkState) subRenderSlot(ctx context.Context) (release func(), ok b
 // Stale external sources are refetched first, outside the render slot (the
 // fetch is network-bound and single-flight per source); the slot covers the
 // database load, resolution and generation. errSubBusy: no slot in time.
-func (h *Handler) subRenderFor(ctx context.Context, s *model.UserSubscription, format, flavor string) (*subRender, error) {
+func (h *Handler) subRenderFor(ctx context.Context, s *model.UserSubscription, format, flavor, origin string) (*subRender, error) {
 	st := h.subState()
 	key := s.Token + "|" + format
 	if flavor != "" {
 		key += "|" + flavor
+	}
+	if format == sublink.FormatSingBox {
+		key += "|" + origin // plan 226: rule sets download from this origin
 	}
 	if v := st.cache.get(key); v != nil {
 		return v, nil
@@ -195,7 +198,7 @@ func (h *Handler) subRenderFor(ctx context.Context, s *model.UserSubscription, f
 	v := &subRender{key: key, subID: s.ID, userID: s.UserID, at: time.Now()}
 	switch format {
 	case sublink.FormatSingBox:
-		v.body, v.nodes = sublink.SingBox(nodes, s.RuleMode)
+		v.body, v.nodes = sublink.SingBox(nodes, s.RuleMode, origin)
 	case sublink.FormatBase64:
 		v.body, v.nodes = sublink.Base64(nodes)
 	case sublink.FormatSurge:
@@ -253,6 +256,15 @@ func queryFormat(t string) (format string, surfboard bool) {
 // value through for /s/) or Cloudflare's CF-Visitor, host as requested.
 // query is appended as is ("" for none).
 func subPublicURL(r *http.Request, token, query string) string {
+	link := subPublicOrigin(r) + "/s/" + token
+	if query != "" {
+		link += "?" + query
+	}
+	return link
+}
+
+// subPublicOrigin is scheme://host of the panel as the client reached it.
+func subPublicOrigin(r *http.Request) string {
 	scheme := "http"
 	if r.TLS != nil {
 		scheme = "https"
@@ -262,11 +274,7 @@ func subPublicURL(r *http.Request, token, query string) string {
 	} else if v := r.Header.Get("CF-Visitor"); strings.Contains(v, `"https"`) {
 		scheme = "https"
 	}
-	link := scheme + "://" + r.Host + "/s/" + token
-	if query != "" {
-		link += "?" + query
-	}
-	return link
+	return scheme + "://" + r.Host
 }
 
 // subPublic serves GET /s/<token> without login. Nothing is logged per
@@ -343,7 +351,7 @@ func (h *Handler) subPublic(w http.ResponseWriter, r *http.Request) {
 	case format == sublink.FormatSurge && (surfboard || client.Surfboard):
 		flavor = subFlavorSurfboard
 	}
-	v, err := h.subRenderFor(r.Context(), s, format, flavor)
+	v, err := h.subRenderFor(r.Context(), s, format, flavor, subPublicOrigin(r))
 	if err != nil {
 		if errors.Is(err, errSubBusy) {
 			st.refusals.Note("busy")
@@ -446,7 +454,7 @@ ul{padding-left:18px;margin:6px 0 0}li{margin:3px 0}
 // subPage is the small page a browser gets: name, node count, the link and
 // a QR code. No node secrets.
 func (h *Handler) subPage(w http.ResponseWriter, r *http.Request, s *model.UserSubscription) {
-	v, err := h.subRenderFor(r.Context(), s, "count", "")
+	v, err := h.subRenderFor(r.Context(), s, "count", "", "")
 	count := 0
 	if err == nil {
 		count = v.nodes

@@ -75,6 +75,9 @@ type subLinkState struct {
 
 	cryptoOnce sync.Once
 	crypto     *security.AESCrypto
+
+	// Plan 226: geosite-cn / geoip-cn for the sing-box config.
+	ruleSets sublink.RuleSets
 }
 
 func (h *Handler) subState() *subLinkState {
@@ -140,6 +143,7 @@ func (h *Handler) registerSubLink(mux *http.ServeMux) {
 		})
 	}
 	mux.HandleFunc("/s/", h.subPublic)
+	mux.HandleFunc(sublink.RuleSetPath, h.subRuleSet)
 }
 
 func subDecode(r *http.Request, v interface{}) error {

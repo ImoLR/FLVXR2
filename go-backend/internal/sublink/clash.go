@@ -252,6 +252,22 @@ var fakeIPFilter = []string{
 	"xbox.*.*.microsoft.com", "*.*.xboxlive.com",
 }
 
+// cnResolved: the fakeIPFilter names that resolve with CN DoH (plan 226).
+// Being outside fake-ip they need a real answer from the client; through
+// `nameserver …#节点选择` that answer fails when the node is dead (and stalls
+// 5 s when 节点选择 = DIRECT, foreign DoH dialled from the mainland). LAN
+// names and Google (lens.l.google.com) keep the default resolvers. Two
+// policy keys, each a plain YAML simple key (≤ 128 bytes, no leading '*').
+var cnResolved = []string{
+	"xbox.*.*.microsoft.com,*.*.xboxlive.com,*.msftncsi.com,*.msftconnecttest.com",
+	"+.stun.*.*,+.stun.*.*.*,+.stun.*.*.*.*,+.stun.*.*.*.*.*,*.n.n.srv.nintendo.net,+.stun.playstation.net",
+}
+
+// ncsiDirect: the Windows network check goes DIRECT (plan 226): it tests the
+// local link, and through a dead node Windows shows 「无 Internet」 even
+// though mainland sites still open. Its Akamai answer is not GEOIP CN.
+var ncsiDirect = []string{"DOMAIN-SUFFIX,msftconnecttest.com,DIRECT", "DOMAIN-SUFFIX,msftncsi.com,DIRECT"}
+
 // Clash renders a mihomo (Clash.Meta) config. 国内直连 is a trimmed mmwx
 // fake-ip template using the client's built-in GEOSITE / GEOIP data (no rule
 // lists downloaded from FLVX); 全部走代理 needs no geo data at all. It returns
@@ -307,10 +323,21 @@ func clashDoc(nodes []Node, mode string, stash bool) (omap, int) {
 	if mode == ModeGlobal {
 		rules = append(rules, privateCIDRs...)
 	} else {
-		dns.add("nameserver-policy", omap{{"geosite:cn,private", cnDoH}})
+		// Plan 226: Stash already resolves everything with CN DoH and is not
+		// a Windows client, so its document stays as it was.
+		policy := omap{{"geosite:cn,private", cnDoH}}
+		if !stash {
+			policy.add(cnResolved[0], cnDoH)
+			policy.add(cnResolved[1], cnDoH)
+		}
+		dns.add("nameserver-policy", policy)
 		// no-resolve: a domain outside geosite:cn goes straight to MATCH
 		// instead of being resolved locally first just to test GEOIP.
-		rules = append(rules, "GEOSITE,private,DIRECT", "GEOIP,private,DIRECT,no-resolve", "GEOSITE,cn,DIRECT", "GEOIP,CN,DIRECT,no-resolve")
+		rules = append(rules, "GEOSITE,private,DIRECT", "GEOIP,private,DIRECT,no-resolve")
+		if !stash {
+			rules = append(rules, ncsiDirect...)
+		}
+		rules = append(rules, "GEOSITE,cn,DIRECT", "GEOIP,CN,DIRECT,no-resolve")
 	}
 	rules = append(rules, "MATCH,"+GroupSelect)
 	groups := []omap{}
