@@ -255,9 +255,22 @@ func TestForwardDiagnosisRespectsTunnelIPPreferenceContract(t *testing.T) {
 	if err != nil {
 		t.Fatalf("generate user token: %v", err)
 	}
+	// Plan 225 (P2-1): the owner (a normal user) sees the hops by node name
+	// only — no hop address or port; the admin sees the resolved addresses.
+	ureq := httptest.NewRequest(http.MethodPost, "/api/v1/forward/diagnose", bytes.NewBufferString(`{"forwardId":`+strconv.FormatInt(forwardID, 10)+`}`))
+	ureq.Header.Set("Authorization", userToken)
+	ures := httptest.NewRecorder()
+	router.ServeHTTP(ures, ureq)
+	if body := ures.Body.String(); strings.Contains(body, "2001:db8:10::20") || strings.Contains(body, "2001:db8:10::30") || strings.Contains(body, "30003") || !strings.Contains(body, `"code":0`) {
+		t.Fatalf("normal user diagnose leaks a hop address: %s", body)
+	}
+	adminToken, err := auth.GenerateToken(1, "admin_user", 0, secret)
+	if err != nil {
+		t.Fatalf("generate admin token: %v", err)
+	}
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/forward/diagnose", bytes.NewBufferString(`{"forwardId":`+strconv.FormatInt(forwardID, 10)+`}`))
-	req.Header.Set("Authorization", userToken)
+	req.Header.Set("Authorization", adminToken)
 	res := httptest.NewRecorder()
 
 	router.ServeHTTP(res, req)
