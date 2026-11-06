@@ -234,11 +234,12 @@ else:
 		t.Fatalf("live VLESS connection did not start: %q", line)
 	}
 
-	// The pinned IP becomes unreachable; 6 h later the re-check moves the pin.
+	// The pinned IP becomes unreachable; the next 10-min liveness connect
+	// fails and the full check moves the pin (no 6 h wait).
 	sh("nft", "add", "table", "ip", "flvxrplab")
 	sh("nft", "add", "chain", "ip", "flvxrplab", "out", "{ type filter hook output priority 0 ; }")
 	sh("nft", "add", "rule", "ip", "flvxrplab", "out", "ip", "daddr", "12.0.9.11", "tcp", "dport", "8443", "drop")
-	clock = clock.Add(realityPinRecheck + time.Minute)
+	clock = clock.Add(10 * time.Minute)
 	if moved := m.pins.recheckDue(ctx); !moved {
 		t.Fatalf("pin did not move: %+v", m.pins.statuses())
 	}
