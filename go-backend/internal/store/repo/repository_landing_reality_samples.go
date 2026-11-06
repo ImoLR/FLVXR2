@@ -179,9 +179,10 @@ func RealityJitterLimit(med int) int {
 
 // RealityTrialVerdict decides whether a 试用 site is stable enough on this
 // machine. bestOther = the fastest non-试用 median of this 测速 (0 = none).
-func RealityTrialVerdict(hist []RealitySample, bestOther int) (ok bool, reason string) {
+// pending = not unstable so far, only too few / too close samples yet.
+func RealityTrialVerdict(hist []RealitySample, bestOther int) (ok, pending bool, reason string) {
 	if len(hist) == 0 {
-		return false, "还没有测速记录"
+		return false, true, "还没有测速记录"
 	}
 	var ms []int
 	failed := 0
@@ -193,7 +194,7 @@ func RealityTrialVerdict(hist []RealitySample, bestOther int) (ok bool, reason s
 		ms = append(ms, s.Ms)
 	}
 	if failed > 0 {
-		return false, fmt.Sprintf("最近 %d 次里有 %d 次不可用", len(hist), failed)
+		return false, false, fmt.Sprintf("最近 %d 次里有 %d 次不可用", len(hist), failed)
 	}
 	lo, hi := ms[0], ms[0]
 	for _, m := range ms {
@@ -201,18 +202,18 @@ func RealityTrialVerdict(hist []RealitySample, bestOther int) (ok bool, reason s
 	}
 	med := median(ms)
 	if len(ms) >= 2 && hi-lo > RealityJitterLimit(med) {
-		return false, fmt.Sprintf("抖动 %d ms", hi-lo)
+		return false, false, fmt.Sprintf("抖动 %d ms", hi-lo)
 	}
 	if len(hist) < RealityTrialMinSamples {
-		return false, fmt.Sprintf("还要再测 %d 次", RealityTrialMinSamples-len(hist))
+		return false, true, fmt.Sprintf("还差 %d 次测速", RealityTrialMinSamples-len(hist))
 	}
 	if time.Duration(hist[len(hist)-1].At-hist[0].At)*time.Second < RealityTrialMinSpan {
-		return false, "要隔 6 小时以上再测一次"
+		return false, true, "6 小时后再测一次"
 	}
 	if bestOther > 0 && med > bestOther+RealityTrialMarginMs {
-		return false, fmt.Sprintf("比非试用里最快的慢 %d ms", med-bestOther)
+		return false, false, fmt.Sprintf("比非试用里最快的慢 %d ms", med-bestOther)
 	}
-	return true, ""
+	return true, false, ""
 }
 
 // RealityPickInfo is what choosing needs besides the results.
@@ -297,7 +298,7 @@ func RealityResampleSet(pass1 []RealityProbeResult, info RealityPickInfo) []stri
 		}
 		qualified := true
 		if info.Trial[host] {
-			qualified, _ = RealityTrialVerdict(info.History.with(host, info.Now.Unix(), []int{res.LatencyMs}), bestOther)
+			qualified, _, _ = RealityTrialVerdict(info.History.with(host, info.Now.Unix(), []int{res.LatencyMs}), bestOther)
 		}
 		switch {
 		case qualified && len(set) < RealityResampleTop:
@@ -385,7 +386,7 @@ func annotateTrial(results []RealityProbeResult, info RealityPickInfo) {
 			continue
 		}
 		results[i].Trial = true
-		results[i].TrialOK, results[i].TrialReason = RealityTrialVerdict(info.History.D[host], bestOther)
+		results[i].TrialOK, results[i].TrialPending, results[i].TrialReason = RealityTrialVerdict(info.History.D[host], bestOther)
 	}
 }
 

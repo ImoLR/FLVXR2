@@ -520,10 +520,10 @@ func TestLandingRealityResampleWorstAndTrial(t *testing.T) {
 	if order[0] != "www.ebay.com" || order[1] != "download.gfe.nvidia.com" || order[2] != "www.sony.com" {
 		t.Fatalf("order = %v", order)
 	}
-	if c := rows["portal.citygrainla.com"]; c["trial"] != true || c["trialOk"] == true || c["trialReason"] != "抖动 38 ms" || fmt.Sprint(c["samples"]) != "[2 40 3]" || c["worstMs"] != float64(40) {
+	if c := rows["portal.citygrainla.com"]; c["trial"] != true || c["trialOk"] == true || c["trialPending"] == true || c["trialReason"] != "抖动 38 ms" || fmt.Sprint(c["samples"]) != "[2 40 3]" || c["worstMs"] != float64(40) {
 		t.Fatalf("citygrain = %v", c)
 	}
-	if c := rows["www.ebay.com"]; c["trial"] != true || c["trialOk"] == true || !strings.Contains(c["trialReason"].(string), "6 小时") {
+	if c := rows["www.ebay.com"]; c["trial"] != true || c["trialOk"] == true || c["trialPending"] != true || !strings.Contains(c["trialReason"].(string), "6 小时") {
 		t.Fatalf("ebay = %v", c)
 	}
 	if c := rows["download.gfe.nvidia.com"]; c["trial"] == true || c["medianMs"] != float64(8) {
@@ -652,22 +652,24 @@ func TestRealityTrialDomainAndVerdict(t *testing.T) {
 		return out
 	}
 	for _, c := range []struct {
-		hist   []repo.RealitySample
-		best   int
-		ok     bool
-		reason string
+		hist    []repo.RealitySample
+		best    int
+		ok      bool
+		pending bool
+		reason  string
 	}{
-		{s(0, 5, 0, 6, 7*h, 5), 6, true, ""},
-		{s(0, 5, 0, 6), 6, false, "还要再测 1 次"},
-		{s(0, 5, 0, 6, 0, 5), 6, false, "要隔 6 小时以上再测一次"},
-		{s(0, 5, 0, 40, 7*h, 5), 6, false, "抖动 35 ms"},
-		{s(0, 5, 0, -1, 7*h, 5), 6, false, "最近 3 次里有 1 次不可用"},
-		{s(0, 20, 0, 21, 7*h, 20), 6, false, "比非试用里最快的慢 14 ms"},
-		{s(0, 150, 0, 180, 7*h, 160), 0, true, ""}, // far machine: 30 % of 160 = 48 ms allowed
+		{s(0, 5, 0, 6, 7*h, 5), 6, true, false, ""},
+		{s(0, 5, 0, 6), 6, false, true, "还差 1 次测速"},
+		{s(0, 5, 0, 6, 0, 5), 6, false, true, "6 小时后再测一次"},
+		{s(0, 5, 0, 40, 7*h, 5), 6, false, false, "抖动 35 ms"},
+		{s(0, 5, 0, 40), 6, false, false, "抖动 35 ms"}, // unstable already with 2 samples
+		{s(0, 5, 0, -1, 7*h, 5), 6, false, false, "最近 3 次里有 1 次不可用"},
+		{s(0, 20, 0, 21, 7*h, 20), 6, false, false, "比非试用里最快的慢 14 ms"},
+		{s(0, 150, 0, 180, 7*h, 160), 0, true, false, ""}, // far machine: 30 % of 160 = 48 ms allowed
 	} {
-		ok, reason := repo.RealityTrialVerdict(c.hist, c.best)
-		if ok != c.ok || reason != c.reason {
-			t.Errorf("%v best=%d → %v %q, want %v %q", c.hist, c.best, ok, reason, c.ok, c.reason)
+		ok, pending, reason := repo.RealityTrialVerdict(c.hist, c.best)
+		if ok != c.ok || pending != c.pending || reason != c.reason {
+			t.Errorf("%v best=%d → %v %v %q, want %v %v %q", c.hist, c.best, ok, pending, reason, c.ok, c.pending, c.reason)
 		}
 	}
 }

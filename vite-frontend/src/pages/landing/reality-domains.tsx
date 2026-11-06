@@ -17,6 +17,8 @@ import {
   RealityMode,
   RealityPin,
   RealityProbeRow,
+  RealityProbeStats,
+  RealityTrialRule,
   realityDomains,
   refreshRealityPool,
 } from "@/api/landing";
@@ -27,6 +29,27 @@ import { Select, SelectItem } from "@/shadcn-bridge/heroui/select";
 // Plan 227: Reality 伪装域名 — the global candidate list (全局设置) and the
 // per-server 「伪装域名」 block (落地服务器设置: 自动（最快）/ 手动, 测速
 // table, the pinned IP of each dest).
+// Plan 229: re-samples (次数 / 抖动), 「试用」 small sites, pacing help text.
+
+const defaultTrialRule: RealityTrialRule = {
+  minSamples: 3,
+  minSpanHours: 6,
+  jitterMs: 10,
+  jitterPct: 30,
+  marginMs: 5,
+  resampleTop: 5,
+  resampleTrial: 2,
+  resampleRounds: 2,
+  resampleGapSec: 5,
+  keep: 8,
+};
+
+const trialRuleText = (r: RealityTrialRule) =>
+  `「试用」= 妙妙屋域名池里的小网站（不是内置那几家大厂，也不属于自动屏蔽的几类）。` +
+  `它要在那台机器上先证明稳定才会被自动选用：至少测 ${r.minSamples} 次、` +
+  `前后跨度 ≥ ${r.minSpanHours} 小时、每次都可用、抖动（最慢 − 最快）不超过 ` +
+  `${r.jitterMs} ms 或中位数的 ${r.jitterPct}%（取大的），而且不比非试用域名里最快的慢 ` +
+  `${r.marginMs} ms 以上。不稳定的会写出原因，只能手动选用。`;
 
 const sourceLabel: Record<RealityDomainSource | "current", string> = {
   builtin: "内置",
@@ -95,6 +118,7 @@ function DomainRow({
         </p>
         <div className="flex flex-wrap items-center gap-1">
           <SourcePills inPool={domain.inPool} source={domain.source} />
+          {domain.trial && !domain.blocked && <Pill tone="amber">试用</Pill>}
           {domain.blocked && <Pill tone="red">已屏蔽</Pill>}
         </div>
         {domain.note && (
@@ -199,6 +223,7 @@ export function RealityDomainSettings() {
   );
   const pool = view.domains.filter((d) => d.source === "pool");
   const poolBlocked = pool.filter((d) => d.blocked).length;
+  const poolTrial = pool.filter((d) => d.trial && !d.blocked).length;
   const row = (d: RealityDomain) => (
     <DomainRow
       key={d.id}
@@ -274,7 +299,13 @@ export function RealityDomainSettings() {
         >
           <span className="min-w-0 truncate">
             妙妙屋域名池 · {pool.length} 个
-            {poolBlocked > 0 && `（${poolBlocked} 个已屏蔽）`}
+            {(poolBlocked > 0 || poolTrial > 0) &&
+              `（${[
+                poolBlocked > 0 ? `${poolBlocked} 个已屏蔽` : "",
+                poolTrial > 0 ? `${poolTrial} 个试用` : "",
+              ]
+                .filter(Boolean)
+                .join("，")}）`}
           </span>
           {poolOpen ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
         </button>
@@ -300,9 +331,40 @@ export function RealityDomainSettings() {
           域名池更新于 {timeText(view.poolFetchedAt)}（每 6 小时自动更新）
         </p>
       )}
+      {poolTrial > 0 && (
+        <p
+          data-reality-trial-rule
+          className="text-xs leading-relaxed text-default-500"
+        >
+          {trialRuleText(view.trialRule || defaultTrialRule)}
+        </p>
+      )}
       {poolOpen && <div className="space-y-1.5">{pool.map(row)}</div>}
     </div>
   );
+}
+
+const msText = (ms: number) => (ms < 0 ? "×" : `${ms}`);
+
+function sampleInfo(row: RealityProbeRow) {
+  const samples = row.samples?.length
+    ? row.samples
+    : row.latencyMs > 0
+      ? [row.latencyMs]
+      : [];
+  const ok = samples.filter((ms) => ms > 0);
+  const jitter = ok.length > 1 ? Math.max(...ok) - Math.min(...ok) : 0;
+  const shown = row.medianMs || row.latencyMs;
+  let title = samples.length
+    ? `本次 ${samples.length} 次：${samples.map(msText).join(" / ")} ms`
+    : "";
+
+  if (row.worstMs && samples.length > 1)
+    title += `；最慢 ${row.worstMs} ms（按它排名）`;
+  if (row.historyCount)
+    title += `；这台机器最近 ${row.historyCount} 次，抖动 ${row.historyJitterMs ?? 0} ms`;
+
+  return { samples, jitter, shown, title };
 }
 
 function ProbeTable({
@@ -325,20 +387,28 @@ function ProbeTable({
 
   return (
     <div data-reality-probe-table className="space-y-1">
-      <div className="hidden grid-cols-[minmax(0,1fr)_88px_64px_120px] gap-2 px-2 text-xs text-default-500 sm:grid">
+      <div className="hidden grid-cols-[minmax(0,1fr)_88px_64px_88px_120px] gap-2 px-2 text-xs text-default-500 sm:grid">
         <span>域名</span>
         <span>可用</span>
         <span className="text-right">握手</span>
+        <span>次数 · 抖动</span>
         <span>最快 IP</span>
       </div>
       {shown.map((row) => {
         const isCurrent = row.target === current;
         const pickable = manual && row.feasible && !row.blocked && !isCurrent;
+        const info = sampleInfo(row);
+        const countText =
+          info.samples.length > 1
+            ? `${info.samples.length} 次 · ${info.jitter} ms`
+            : info.samples.length === 1
+              ? "1 次"
+              : "—";
 
         return (
           <div
             key={row.target}
-            className={`grid grid-cols-[minmax(0,1fr)_auto] gap-x-2 gap-y-0.5 rounded-lg border px-2 py-1.5 text-sm sm:grid-cols-[minmax(0,1fr)_88px_64px_120px] sm:items-center ${
+            className={`grid grid-cols-[minmax(0,1fr)_auto] gap-x-2 gap-y-0.5 rounded-lg border px-2 py-1.5 text-sm sm:grid-cols-[minmax(0,1fr)_88px_64px_88px_120px] sm:items-center ${
               isCurrent
                 ? "border-teal-500/60 bg-teal-500/5"
                 : "border-default-200"
@@ -351,6 +421,11 @@ function ProbeTable({
               </span>
               {isCurrent && <Pill tone="teal">当前</Pill>}
               {row.blocked && <Pill tone="red">已屏蔽</Pill>}
+              {row.trial && !row.blocked && (
+                <Pill tone={row.trialOk ? "green" : "amber"}>
+                  {row.trialOk ? "试用 · 稳定" : "试用"}
+                </Pill>
+              )}
               {pickable && (
                 <Button
                   className="h-6 min-w-0 px-2"
@@ -361,6 +436,18 @@ function ProbeTable({
                 >
                   选用
                 </Button>
+              )}
+              {row.trial && !row.trialOk && row.feasible && !row.blocked && (
+                <span
+                  data-reality-trial-reason
+                  className={`w-full text-xs ${
+                    row.trialPending ? "text-default-400" : "text-warning"
+                  }`}
+                >
+                  {row.trialPending
+                    ? `积累中：${row.trialReason || "还要再测"}`
+                    : `${row.trialReason || "不稳定"}，只能手动选用`}
+                </span>
               )}
             </div>
             <span
@@ -374,8 +461,21 @@ function ProbeTable({
                 {row.feasible ? "可用" : row.reason || "不可用"}
               </span>
             </span>
-            <span className="font-mono text-xs text-default-600 sm:text-right">
-              {row.latencyMs > 0 ? `${row.latencyMs} ms` : "—"}
+            <span
+              className="font-mono text-xs text-default-600 sm:text-right"
+              title={info.title}
+            >
+              {info.shown > 0 ? `${info.shown} ms` : "—"}
+              <span className="text-default-400 sm:hidden">
+                {info.samples.length > 1 && ` · ${countText}`}
+              </span>
+            </span>
+            <span
+              data-reality-samples
+              className="hidden font-mono text-xs text-default-500 sm:block"
+              title={info.title}
+            >
+              {countText}
             </span>
             <span className="truncate text-right font-mono text-xs text-default-500 sm:text-left">
               {row.bestIp || "—"}
@@ -394,6 +494,33 @@ function ProbeTable({
       )}
     </div>
   );
+}
+
+/** How a 测速 runs (exact pacing) and what the last one cost. */
+function probeHowText(
+  rule: RealityTrialRule,
+  shared: boolean,
+  stats?: RealityProbeStats | null,
+) {
+  const how =
+    `测速方式：先把全部域名各测 1 次（每个 IP 连 1 次 TCP，最快的 IP 做 1 次 TLS 握手）；` +
+    `再挑最快的 ${rule.resampleTop} 个（另加最多 ${rule.resampleTrial} 个试用网站）各补测 ${rule.resampleRounds} 次，` +
+    `一次只测一个域名，同一域名两次之间隔 ${rule.resampleGapSec} 秒，按 3 次里最慢的那次排名。` +
+    (shared
+      ? "共享服务器由妙妙屋 Helper 测，同时连接数由 Helper 控制。"
+      : "同一时间最多 2 个连接，连接用 RST 关闭，不留 TIME_WAIT。");
+
+  if (!stats) return how;
+  let last = `上次：${stats.passes} 轮`;
+
+  if (stats.resampled > 0) last += `（补测 ${stats.resampled} 个）`;
+  if (stats.measured && stats.sockets)
+    last += `，共 ${stats.sockets} 个连接，最多同时 ${stats.maxOpen} 个`;
+  last += `，用时 ${Math.max(1, Math.round(stats.durationMs / 1000))} 秒。`;
+  if (!shared && !stats.measured)
+    last += "节点程序升级后才会限制为最多同时 2 个连接、不留 TIME_WAIT。";
+
+  return `${how}${last}`;
 }
 
 function PinList({
@@ -480,6 +607,8 @@ export function RealityServerSection({
   );
   const [probedAt, setProbedAt] = useState(server.realityProbedAt || 0);
   const [probeError, setProbeError] = useState(server.realityProbeError || "");
+  const [probeStats, setProbeStats] = useState(server.realityProbeStats);
+  const rule = server.realityTrialRule || defaultTrialRule;
   const mode: RealityMode = form.realityMode === "manual" ? "manual" : "auto";
   const supported = Boolean(server.realityProbeSupported);
   const shared = server.source === "shared";
@@ -518,6 +647,7 @@ export function RealityServerSection({
       }
 
       setProbe(next.realityProbe || []);
+      setProbeStats(next.realityProbeStats);
       setProbedAt(next.realityProbedAt || 0);
       setProbeError(next.realityProbeError || "");
       if (mode === "auto") {
@@ -557,7 +687,7 @@ export function RealityServerSection({
       <Select
         description={
           mode === "auto"
-            ? "每天在这台机器上测速一次，选最快、可用、没被屏蔽的域名；只影响新建节点"
+            ? "每天在这台机器上测速一次（3 轮），选 3 次里最慢那次也最快、可用、没被屏蔽的域名；试用网站稳定后才会被选；只影响新建节点"
             : "手动指定；已有节点不变"
         }
         label="选择方式"
@@ -615,10 +745,13 @@ export function RealityServerSection({
               setNamesInput(row.serverNames.join(","));
             }}
           />
-          <p className="text-xs text-default-400">
+          <p
+            data-reality-probe-how
+            className="text-xs leading-relaxed text-default-400"
+          >
             测速于 {timeText(probedAt)} · 在
-            {shared ? "这台共享服务器" : "这台机器"}
-            上测：每个 IP 连一次 TCP，最快的 IP 做一次 TLS 握手
+            {shared ? "这台共享服务器" : "这台机器"}上测。
+            {probeHowText(rule, shared, probeStats)}
           </p>
         </>
       )}

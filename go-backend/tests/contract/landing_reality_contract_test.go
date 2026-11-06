@@ -228,7 +228,7 @@ func TestLandingRealityTrialHistoryContract(t *testing.T) {
 				t.Fatalf("history %+v", hist)
 			}
 			for _, res := range repo.LandingRealityProbeResults(s) {
-				if res.Target == "www.ebay.com:443" && (!res.Trial || res.TrialOK || res.TrialReason != "要隔 6 小时以上再测一次") {
+				if res.Target == "www.ebay.com:443" && (!res.Trial || res.TrialOK || res.TrialReason != "6 小时后再测一次" || !res.TrialPending) {
 					t.Fatalf("ebay %+v", res)
 				}
 			}

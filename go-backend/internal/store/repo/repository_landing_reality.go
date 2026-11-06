@@ -353,12 +353,13 @@ type RealityProbeResult struct {
 	// Plan 229 (panel side, stored with the table): this 测速's samples (ms,
 	// -1 = not usable), worst / median of the usable ones, and the 试用
 	// verdict of 妙妙屋池 small sites.
-	Samples     []int  `json:"samples,omitempty"`
-	WorstMs     int    `json:"worst_ms,omitempty"`
-	MedianMs    int    `json:"median_ms,omitempty"`
-	Trial       bool   `json:"trial,omitempty"`
-	TrialOK     bool   `json:"trial_ok,omitempty"`
-	TrialReason string `json:"trial_reason,omitempty"`
+	Samples      []int  `json:"samples,omitempty"`
+	WorstMs      int    `json:"worst_ms,omitempty"`
+	MedianMs     int    `json:"median_ms,omitempty"`
+	Trial        bool   `json:"trial,omitempty"`
+	TrialOK      bool   `json:"trial_ok,omitempty"`
+	TrialPending bool   `json:"trial_pending,omitempty"` // only too few / too close samples so far
+	TrialReason  string `json:"trial_reason,omitempty"`
 }
 
 type RealityProbeIP struct {

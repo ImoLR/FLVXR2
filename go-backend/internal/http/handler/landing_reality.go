@@ -529,7 +529,7 @@ func (h *Handler) realityResultsView(results []repo.RealityProbeResult, history 
 			"bestIp": r.BestIP, "ips": r.IPs, "serverNames": repo.RealityServerNamesFor(host, r.ServerNames),
 			"source": source, "inPool": known && d.InPool, "blocked": known && d.Blocked,
 			"samples": r.Samples, "worstMs": r.WorstMs, "medianMs": r.MedianMs,
-			"trial": r.Trial, "trialOk": r.TrialOK, "trialReason": r.TrialReason,
+			"trial": r.Trial, "trialOk": r.TrialOK, "trialPending": r.TrialPending, "trialReason": r.TrialReason,
 		}
 		if hist := history.D[host]; len(hist) > 0 {
 			row["historyCount"] = len(hist)
@@ -551,6 +551,7 @@ func (h *Handler) landingServerRealityView(s model.LandingServer, v map[string]a
 	history := repo.LandingRealityHistory(&s)
 	v["realityProbe"] = h.realityResultsView(repo.LandingRealityProbeResults(&s), history)
 	v["realityProbeStats"] = history.Stats
+	v["realityTrialRule"] = realityTrialRuleView()
 	v["realityPinSupported"] = h.realityPinSupport(&s)
 	v["realityPins"] = repo.LandingRealityPins(&s)
 	v["realityPinsAt"] = s.RealityPinsAt
