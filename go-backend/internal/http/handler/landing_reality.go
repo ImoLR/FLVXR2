@@ -45,6 +45,10 @@ const (
 // realitySharedPollEvery is how often a queued shared 测速 is polled (tests shorten it).
 var realitySharedPollEvery = 4 * time.Second
 
+// realityResampleGap is the pause before each re-sample pass (plan 229): a
+// domain is measured again ≥ 5 s after its previous sample. Tests shorten it.
+var realityResampleGap = 5 * time.Second
+
 var (
 	realityProbeBusy     sync.Map // server id -> struct{}: one 测速 per server at a time
 	realityProbeAttempts sync.Map // server id -> time.Time of the last failed automatic 测速
@@ -94,8 +98,17 @@ func (h *Handler) realityDomainsView() (map[string]any, error) {
 	}
 	poolAt, _ := strconv.ParseInt(h.realityConfig(realityPoolAtKey), 10, 64)
 	cfg, _ := h.repo.GetLandingIntegration()
+	type domainRow struct {
+		model.LandingRealityDomain
+		Trial bool `json:"trial"` // plan 229: 妙妙屋池 small site, auto-picked only when stable
+	}
+	list := make([]domainRow, 0, len(rows))
+	for _, d := range rows {
+		list = append(list, domainRow{d, repo.RealityTrialDomain(d)})
+	}
 	return map[string]any{
-		"domains":       rows,
+		"domains":       list,
+		"trialRule":     realityTrialRuleView(),
 		"probeCount":    probed,
 		"probeMax":      repo.RealityProbeMaxCandidates,
 		"customMax":     repo.RealityCustomMax,
@@ -320,17 +333,43 @@ func (h *Handler) runRealityProbe(ctx context.Context, serverID int64) ([]repo.R
 	if err != nil {
 		return nil, rec, err
 	}
-	var results []repo.RealityProbeResult
-	if s.Source == "shared" {
-		results, err = h.realityProbeShared(ctx, s, targets)
-	} else {
-		results, err = h.realityProbeNative(s, targets)
-	}
+	began := time.Now()
+	stats := &repo.RealityProbeStats{At: began.UnixMilli(), Linger0: true, Measured: true}
+	pass1, err := h.realityProbePass(ctx, s, targets, false, stats)
 	if err != nil {
-		_, _ = h.repo.RecordLandingRealityProbe(serverID, nil, err.Error())
+		_, _ = h.repo.RecordLandingRealityProbe(serverID, nil, err.Error(), nil)
 		return nil, rec, err
 	}
-	rec, err = h.repo.RecordLandingRealityProbe(serverID, results, "")
+	// Plan 229: the 5 fastest usable domains (+ ≤ 2 试用 contenders) get 2
+	// more samples, one domain at a time, ≥ 5 s apart; the pick ranks them
+	// by their worst sample.
+	var passes [][]repo.RealityProbeResult
+	set := []string{}
+	if info, err := h.repo.RealityPickInfo(serverID); err == nil {
+		set = repo.RealityResampleSet(pass1, info)
+	}
+	for round := 0; round < repo.RealityResampleRounds && len(set) > 0; round++ {
+		select {
+		case <-ctx.Done():
+		case <-time.After(realityResampleGap):
+		}
+		if ctx.Err() != nil {
+			break
+		}
+		res, err := h.realityProbePass(ctx, s, set, true, stats)
+		if err != nil {
+			log.Printf("landing reality server=%d re-sample %d failed: %v", serverID, round+1, err)
+			break
+		}
+		passes = append(passes, res)
+	}
+	stats.Resampled = len(set)
+	if len(passes) == 0 {
+		stats.Resampled = 0
+	}
+	stats.DurationMs = time.Since(began).Milliseconds()
+	results := repo.MergeRealitySamples(pass1, passes)
+	rec, err = h.repo.RecordLandingRealityProbe(serverID, results, "", stats)
 	if err != nil {
 		return nil, rec, err
 	}
@@ -340,22 +379,58 @@ func (h *Handler) runRealityProbe(ctx context.Context, serverID int64) ([]repo.R
 	return results, rec, nil
 }
 
-func (h *Handler) realityProbeNative(s *model.LandingServer, targets []string) ([]repo.RealityProbeResult, error) {
-	res, err := h.sendNodeCommandWithTimeout(s.NodeID, "RealityProbe", map[string]any{"candidates": targets, "timeout_ms": realityProbeTimeoutM}, realityProbeTimeout, false, false)
+// realityProbePass runs one pass on the machine and adds its cost to stats.
+// resample = one domain at a time (agents ≥ landing_reality 2; older agents
+// and Helpers use their own cap).
+func (h *Handler) realityProbePass(ctx context.Context, s *model.LandingServer, targets []string, resample bool, stats *repo.RealityProbeStats) ([]repo.RealityProbeResult, error) {
+	stats.Passes++
+	if s.Source == "shared" {
+		stats.Measured, stats.Linger0 = false, false
+		return h.realityProbeShared(ctx, s, targets)
+	}
+	res, st, err := h.realityProbeNative(s, targets, resample)
 	if err != nil {
-		return nil, errors.New("测速失败：" + err.Error())
+		return nil, err
+	}
+	if st == nil {
+		stats.Measured, stats.Linger0 = false, false
+	} else {
+		stats.Sockets += st.Sockets
+		stats.MaxOpen = max(stats.MaxOpen, st.MaxOpen)
+		stats.Linger0 = stats.Linger0 && st.Linger0
+	}
+	return res, nil
+}
+
+// realityAgentStats is RealityProbeResponse.stats (agent landing_reality ≥ 2).
+type realityAgentStats struct {
+	Sockets    int   `json:"sockets"`
+	MaxOpen    int   `json:"max_open"`
+	DurationMs int64 `json:"duration_ms"`
+	Linger0    bool  `json:"linger0"`
+}
+
+func (h *Handler) realityProbeNative(s *model.LandingServer, targets []string, resample bool) ([]repo.RealityProbeResult, *realityAgentStats, error) {
+	payload := map[string]any{"candidates": targets, "timeout_ms": realityProbeTimeoutM}
+	if resample {
+		payload["concurrency"] = 1
+	}
+	res, err := h.sendNodeCommandWithTimeout(s.NodeID, "RealityProbe", payload, realityProbeTimeout, false, false)
+	if err != nil {
+		return nil, nil, errors.New("测速失败：" + err.Error())
 	}
 	if !res.Success {
-		return nil, errors.New("测速失败：" + res.Message)
+		return nil, nil, errors.New("测速失败：" + res.Message)
 	}
 	raw, _ := json.Marshal(res.Data)
 	var out struct {
 		Results []repo.RealityProbeResult `json:"results"`
+		Stats   *realityAgentStats        `json:"stats"`
 	}
 	if err := json.Unmarshal(raw, &out); err != nil {
-		return nil, errors.New("测速结果格式错误")
+		return nil, nil, errors.New("测速结果格式错误")
 	}
-	return out.Results, nil
+	return out.Results, out.Stats, nil
 }
 
 // realityProbeShared queues the 测速 on the share's Helper through Custom and
@@ -435,7 +510,7 @@ func sharedRealityResults(in []landingcustom.RealityProbeResult) []repo.RealityP
 
 // realityResultsView annotates a 测速 table with each domain's source and
 // block state (admin view).
-func (h *Handler) realityResultsView(results []repo.RealityProbeResult) []map[string]any {
+func (h *Handler) realityResultsView(results []repo.RealityProbeResult, history repo.RealitySampleHistory) []map[string]any {
 	rows, _ := h.repo.ListLandingRealityDomains()
 	byDomain := map[string]model.LandingRealityDomain{}
 	for _, d := range rows {
@@ -449,11 +524,18 @@ func (h *Handler) realityResultsView(results []repo.RealityProbeResult) []map[st
 		if known {
 			source = d.Source
 		}
-		out = append(out, map[string]any{
+		row := map[string]any{
 			"target": r.Target, "domain": host, "feasible": r.Feasible, "reason": r.Reason, "latencyMs": r.LatencyMs,
 			"bestIp": r.BestIP, "ips": r.IPs, "serverNames": repo.RealityServerNamesFor(host, r.ServerNames),
 			"source": source, "inPool": known && d.InPool, "blocked": known && d.Blocked,
-		})
+			"samples": r.Samples, "worstMs": r.WorstMs, "medianMs": r.MedianMs,
+			"trial": r.Trial, "trialOk": r.TrialOK, "trialReason": r.TrialReason,
+		}
+		if hist := history.D[host]; len(hist) > 0 {
+			row["historyCount"] = len(hist)
+			row["historyJitterMs"] = repo.RealityHistoryJitter(hist)
+		}
+		out = append(out, row)
 	}
 	return out
 }
@@ -466,7 +548,9 @@ func (h *Handler) landingServerRealityView(s model.LandingServer, v map[string]a
 	v["realityProbeUnsupportedReason"] = why
 	v["realityProbedAt"] = s.RealityProbedAt
 	v["realityProbeError"] = s.RealityProbeError
-	v["realityProbe"] = h.realityResultsView(repo.LandingRealityProbeResults(&s))
+	history := repo.LandingRealityHistory(&s)
+	v["realityProbe"] = h.realityResultsView(repo.LandingRealityProbeResults(&s), history)
+	v["realityProbeStats"] = history.Stats
 	v["realityPinSupported"] = h.realityPinSupport(&s)
 	v["realityPins"] = repo.LandingRealityPins(&s)
 	v["realityPinsAt"] = s.RealityPinsAt
@@ -493,7 +577,8 @@ func (h *Handler) landingServerRealityProbe(w http.ResponseWriter, r *http.Reque
 	}
 	done := make(chan outcome, 1)
 	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), realitySharedProbeMax+30*time.Second)
+		// Up to 3 passes (plan 229), each bounded on its own.
+		ctx, cancel := context.WithTimeout(context.Background(), 3*realitySharedProbeMax+time.Minute)
 		defer cancel()
 		_, rec, err := h.runRealityProbe(ctx, req.ID)
 		done <- outcome{rec, err}
@@ -539,7 +624,8 @@ func (h *Handler) writeRealityServerView(w http.ResponseWriter, id int64, picked
 }
 
 // runRealityProbeLoop: daily 测速 of servers in 自动（最快）, one server per
-// 10-minute tick (paced; ≤ 64 candidates, ≤ 4 at once on the machine), plus
+// 10-minute tick (paced; ≤ 64 candidates + 2 re-sample passes, ≤ 2 sockets
+// open at once on the machine), plus
 // the 6-hourly pool refresh.
 func (h *Handler) runRealityProbeLoop(ctx context.Context) {
 	defer h.jobsWG.Done()
@@ -605,4 +691,14 @@ func sharedRealityPins(p landingcustom.RealityPins) []repo.RealityPin {
 		out = append(out, p)
 	}
 	return out
+}
+
+// realityTrialRuleView is the 试用 rule for the help text (plan 229).
+func realityTrialRuleView() map[string]any {
+	return map[string]any{
+		"minSamples": repo.RealityTrialMinSamples, "minSpanHours": int(repo.RealityTrialMinSpan / time.Hour),
+		"jitterMs": repo.RealityTrialJitterMs, "jitterPct": repo.RealityTrialJitterPct, "marginMs": repo.RealityTrialMarginMs,
+		"resampleTop": repo.RealityResampleTop, "resampleTrial": repo.RealityResampleTrialMax, "resampleRounds": repo.RealityResampleRounds,
+		"resampleGapSec": int(realityResampleGap / time.Second), "keep": repo.RealitySampleKeep,
+	}
 }

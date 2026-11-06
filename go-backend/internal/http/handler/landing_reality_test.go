@@ -20,22 +20,57 @@ import (
 // realityAgent answers ApplyLandingDesired (with pins) and RealityProbe.
 type realityAgent struct {
 	mu         sync.Mutex
-	candidates [][]string
+	candidates [][]string // pass-1 requests
+	resamples  [][]string // re-sample requests (concurrency 1)
 	results    []map[string]any
-	pins       []map[string]any
-	applies    int
+	// later maps a target to its re-sample latencies (pass 2, pass 3; 0 =
+	// not usable); absent = same as pass 1.
+	later   map[string][]int
+	stats   map[string]any
+	pins    []map[string]any
+	applies int
 }
 
 func newRealityAgent(t *testing.T, e *flowTestEnv) *realityAgent {
 	a := &realityAgent{}
+	realityResampleGap = 0
+	t.Cleanup(func() { realityResampleGap = 5 * time.Second })
 	e.h.nodeCommandSender = func(id int64, method string, data interface{}, _ time.Duration) (ws.CommandResult, error) {
 		a.mu.Lock()
 		defer a.mu.Unlock()
 		switch method {
 		case "RealityProbe":
 			req := data.(map[string]any)
-			a.candidates = append(a.candidates, req["candidates"].([]string))
-			return ws.CommandResult{Success: true, Data: map[string]any{"results": a.results}}, nil
+			cands := req["candidates"].([]string)
+			out := map[string]any{"results": a.results}
+			if a.stats != nil {
+				out["stats"] = a.stats
+			}
+			if req["concurrency"] != 1 {
+				a.candidates = append(a.candidates, cands)
+				return ws.CommandResult{Success: true, Data: out}, nil
+			}
+			pass := len(a.resamples) % 2
+			a.resamples = append(a.resamples, cands)
+			var rows []map[string]any
+			for _, c := range cands {
+				for _, r := range a.results {
+					if r["target"] != c {
+						continue
+					}
+					row := map[string]any{}
+					for k, v := range r {
+						row[k] = v
+					}
+					if seq, ok := a.later[c]; ok {
+						row["latency_ms"] = seq[pass]
+						row["feasible"] = seq[pass] > 0
+					}
+					rows = append(rows, row)
+				}
+			}
+			out["results"] = rows
+			return ws.CommandResult{Success: true, Data: out}, nil
 		case "ApplyLandingDesired":
 			a.applies++
 			payload := data.(map[string]interface{})
@@ -82,8 +117,8 @@ func TestLandingRealityProbeAutoPick(t *testing.T) {
 	if out.Code != 0 {
 		t.Fatalf("probe: %+v", out)
 	}
-	if len(a.candidates) != 1 {
-		t.Fatalf("probes = %d", len(a.candidates))
+	if len(a.candidates) != 1 || len(a.resamples) != 2 || strings.Join(a.resamples[0], ",") != "www.tesla.com:443,www.nvidia.com:443" {
+		t.Fatalf("probes = %v re-samples = %v", a.candidates, a.resamples)
 	}
 	sent := strings.Join(a.candidates[0], ",")
 	for _, want := range []string{"www.lovelive-anime.jp:443", "www.tesla.com:443", "addons.mozilla.org:443"} {
@@ -292,6 +327,8 @@ func TestLandingRealityShared(t *testing.T) {
 	polls := 0
 	realitySharedPollEvery = 10 * time.Millisecond
 	t.Cleanup(func() { realitySharedPollEvery = 4 * time.Second })
+	realityResampleGap = 0
+	t.Cleanup(func() { realityResampleGap = 5 * time.Second })
 	custom := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		mu.Lock()
 		defer mu.Unlock()
@@ -345,12 +382,17 @@ func TestLandingRealityShared(t *testing.T) {
 	if view := dataMap(t, out); out.Code != 0 || view["realityDest"] != "www.sony.com:443" || fmt.Sprint(view["realityServerNames"]) != "[www.sony.com sony.com]" {
 		t.Fatalf("shared probe: %+v", out)
 	}
-	if len(probeBodies) != 1 || strings.Contains(probeBodies[0], "microsoft") || !strings.Contains(probeBodies[0], "www.sony.com:443") || polls != 2 {
+	// Pass 1 = every candidate; 2 re-sample jobs = the usable subset (plan 229).
+	if len(probeBodies) != 3 || strings.Contains(probeBodies[0], "microsoft") || !strings.Contains(probeBodies[0], "www.sony.com:443") || polls != 4 ||
+		probeBodies[1] != `["www.sony.com:443","www.dell.com:443"]` || probeBodies[2] != probeBodies[1] {
 		t.Fatalf("custom probe bodies = %v polls=%d", probeBodies, polls)
 	}
 	s, _ = e.r.GetLandingServer(5)
-	if res := repo.LandingRealityProbeResults(s); len(res) != 2 || res[0].LatencyMs != 9 || res[0].IPs[1].TCPMs != -1 {
+	if res := repo.LandingRealityProbeResults(s); len(res) != 2 || res[0].LatencyMs != 9 || res[0].IPs[1].TCPMs != -1 || fmt.Sprint(res[0].Samples) != "[9 9 9]" || res[0].WorstMs != 9 {
 		t.Fatalf("stored shared results = %+v", res)
+	}
+	if st := repo.LandingRealityHistory(s).Stats; st == nil || st.Passes != 3 || st.Resampled != 2 || st.Measured || st.Linger0 {
+		t.Fatalf("shared stats = %+v", st)
 	}
 	// Pins ride on the status poll (float ms).
 	client, _ := landingcustom.New(custom.URL, "flvx_fixture")
@@ -420,6 +462,212 @@ func TestRealityServerNamesFor(t *testing.T) {
 		}
 		if got := repo.RealityServerNamesFor(parts[0], sans); strings.Join(got, ",") != strings.Join(want, ",") {
 			t.Fatalf("%s: %v want %v", parts[0], got, want)
+		}
+	}
+}
+
+// TestLandingRealityResampleWorstAndTrial (plan 229): the 5 fastest usable
+// domains + ≤ 2 试用 contenders get 2 more samples one domain at a time; the
+// pick is the lowest WORST sample; a 妙妙屋池 small site is picked only after
+// its history is stable (≥ 3 samples over ≥ 6 h, jitter within the limit).
+func TestLandingRealityResampleWorstAndTrial(t *testing.T) {
+	e := newFlowTestEnv(t)
+	realitySeed(t, e)
+	a := newRealityAgent(t, e)
+	if _, err := e.r.ReplaceLandingRealityPool([]string{"portal.citygrainla.com", "www.ebay.com", "download.gfe.nvidia.com"}); err != nil {
+		t.Fatal(err)
+	}
+	a.results = []map[string]any{
+		probeRow("portal.citygrainla.com:443", true, 2, "203.0.113.2", "portal.citygrainla.com"),
+		probeRow("www.ebay.com:443", true, 3, "203.0.113.3", "www.ebay.com"),
+		probeRow("www.tesla.com:443", true, 5, "203.0.113.5", "www.tesla.com"),
+		probeRow("download.gfe.nvidia.com:443", true, 8, "203.0.113.8", "download.gfe.nvidia.com"),
+		probeRow("www.sony.com:443", true, 9, "203.0.113.9", "www.sony.com"),
+		probeRow("www.dell.com:443", true, 10, "203.0.113.10", "www.dell.com"),
+		probeRow("www.intel.com:443", true, 11, "203.0.113.11", "www.intel.com"),
+		probeRow("www.samsung.com:443", true, 12, "203.0.113.12", "www.samsung.com"),
+		probeRow("www.amd.com:443", false, 0, "203.0.113.13"),
+	}
+	a.later = map[string][]int{
+		"portal.citygrainla.com:443":  {40, 3}, // lucky first sample, really jittery
+		"www.ebay.com:443":            {3, 4},
+		"www.tesla.com:443":           {30, 31}, // fast once, slow twice
+		"download.gfe.nvidia.com:443": {8, 9},
+		"www.sony.com:443":            {9, 9},
+		"www.dell.com:443":            {10, 0}, // fails a re-sample → not usable
+	}
+	a.stats = map[string]any{"sockets": 20, "max_open": 2, "duration_ms": 900, "linger0": true}
+	out := egressCall(t, e.h, "/api/v1/landing/server/reality-probe", map[string]any{"id": 1}, 0)
+	if out.Code != 0 {
+		t.Fatalf("probe: %+v", out)
+	}
+	want := "www.tesla.com:443,download.gfe.nvidia.com:443,www.sony.com:443,www.dell.com:443,www.intel.com:443,portal.citygrainla.com:443,www.ebay.com:443"
+	if len(a.resamples) != 2 || strings.Join(a.resamples[0], ",") != want || strings.Join(a.resamples[1], ",") != want {
+		t.Fatalf("re-samples = %v", a.resamples)
+	}
+	view := dataMap(t, out)
+	// nvidia worst 9 (median 8) beats sony worst 9 (median 9); tesla worst 31.
+	if view["realityDest"] != "download.gfe.nvidia.com:443" {
+		t.Fatalf("picked %v", view["realityDest"])
+	}
+	rows := map[string]map[string]any{}
+	var order []string
+	for _, r := range view["realityProbe"].([]any) {
+		m := r.(map[string]any)
+		rows[m["domain"].(string)] = m
+		order = append(order, m["domain"].(string))
+	}
+	if order[0] != "www.ebay.com" || order[1] != "download.gfe.nvidia.com" || order[2] != "www.sony.com" {
+		t.Fatalf("order = %v", order)
+	}
+	if c := rows["portal.citygrainla.com"]; c["trial"] != true || c["trialOk"] == true || c["trialReason"] != "抖动 38 ms" || fmt.Sprint(c["samples"]) != "[2 40 3]" || c["worstMs"] != float64(40) {
+		t.Fatalf("citygrain = %v", c)
+	}
+	if c := rows["www.ebay.com"]; c["trial"] != true || c["trialOk"] == true || !strings.Contains(c["trialReason"].(string), "6 小时") {
+		t.Fatalf("ebay = %v", c)
+	}
+	if c := rows["download.gfe.nvidia.com"]; c["trial"] == true || c["medianMs"] != float64(8) {
+		t.Fatalf("nvidia pool row = %v", c)
+	}
+	if c := rows["www.dell.com"]; c["feasible"] != false || !strings.HasPrefix(c["reason"].(string), "复测不可用") {
+		t.Fatalf("dell = %v", c)
+	}
+	if c := rows["www.samsung.com"]; fmt.Sprint(c["samples"]) != "[12]" {
+		t.Fatalf("samsung = %v", c)
+	}
+	st := view["realityProbeStats"].(map[string]any)
+	if st["passes"] != float64(3) || st["resampled"] != float64(7) || st["sockets"] != float64(60) || st["maxOpen"] != float64(2) || st["linger0"] != true || st["measured"] != true {
+		t.Fatalf("stats = %v", st)
+	}
+	// The domain list marks 试用 rows.
+	dom := dataMap(t, egressCall(t, e.h, "/api/v1/landing/reality/domains", map[string]any{}, 0))
+	trial := map[string]bool{}
+	for _, d := range dom["domains"].([]any) {
+		m := d.(map[string]any)
+		trial[m["domain"].(string)] = m["trial"] == true
+	}
+	if !trial["portal.citygrainla.com"] || !trial["www.ebay.com"] || trial["download.gfe.nvidia.com"] || trial["www.tesla.com"] {
+		t.Fatalf("trial flags = %v", trial)
+	}
+
+	// 7 h later ebay is still 3–4 ms: stable over ≥ 6 h → it may be picked.
+	s, _ := e.r.GetLandingServer(1)
+	hist := repo.LandingRealityHistory(s)
+	for d, list := range hist.D {
+		for i := range list {
+			list[i].At -= 7 * 3600
+		}
+		hist.D[d] = list
+	}
+	raw, _ := json.Marshal(hist)
+	e.exec("UPDATE landing_server SET reality_samples=? WHERE id=1", string(raw))
+	a.later["www.ebay.com:443"] = []int{4, 3}
+	out = egressCall(t, e.h, "/api/v1/landing/server/reality-probe", map[string]any{"id": 1}, 0)
+	if view := dataMap(t, out); out.Code != 0 || view["realityDest"] != "www.ebay.com:443" {
+		t.Fatalf("stable small site not picked: %v", view["realityDest"])
+	}
+	s, _ = e.r.GetLandingServer(1)
+	hist = repo.LandingRealityHistory(s)
+	if n := len(hist.D["www.ebay.com"]); n != 6 {
+		t.Fatalf("ebay history = %d samples", n)
+	}
+	// citygrain stays manual-only: its history still has the 38 ms jitter.
+	for _, r := range repo.LandingRealityProbeResults(s) {
+		if r.Target == "portal.citygrainla.com:443" && (r.TrialOK || r.TrialReason == "") {
+			t.Fatalf("citygrain = %+v", r)
+		}
+	}
+	// Bounded: ≤ 8 samples per domain after many 测速.
+	for i := 0; i < 4; i++ {
+		if out := egressCall(t, e.h, "/api/v1/landing/server/reality-probe", map[string]any{"id": 1}, 0); out.Code != 0 {
+			t.Fatalf("probe %d: %+v", i, out)
+		}
+	}
+	s, _ = e.r.GetLandingServer(1)
+	for d, list := range repo.LandingRealityHistory(s).D {
+		if len(list) > repo.RealitySampleKeep {
+			t.Fatalf("%s: %d samples", d, len(list))
+		}
+	}
+	if len(s.RealitySamples) > 4096 {
+		t.Fatalf("history %d bytes", len(s.RealitySamples))
+	}
+	// A server save keeps the history.
+	if out := egressCall(t, e.h, "/api/v1/landing/server/save", serverSaveBody(t, e, 0, false), 0); out.Code != 0 {
+		t.Fatalf("save: %+v", out)
+	}
+	if s2, _ := e.r.GetLandingServer(1); s2.RealitySamples != s.RealitySamples {
+		t.Fatal("history lost on save")
+	}
+}
+
+// TestLandingRealityOldAgentResampleFails: an agent without stats whose
+// re-sample pass fails still records pass 1 and picks the fastest single sample.
+func TestLandingRealityOldAgentResampleFails(t *testing.T) {
+	e := newFlowTestEnv(t)
+	realitySeed(t, e)
+	a := newRealityAgent(t, e)
+	a.results = []map[string]any{probeRow("www.sony.com:443", true, 9, "203.0.113.9", "www.sony.com"), probeRow("www.dell.com:443", true, 7, "203.0.113.7", "www.dell.com")}
+	inner := e.h.nodeCommandSender
+	calls := 0
+	e.h.nodeCommandSender = func(id int64, method string, data interface{}, d time.Duration) (ws.CommandResult, error) {
+		if method == "RealityProbe" {
+			calls++
+			if calls > 1 {
+				return ws.CommandResult{Success: false, Message: "节点离线"}, nil
+			}
+		}
+		return inner(id, method, data, d)
+	}
+	out := egressCall(t, e.h, "/api/v1/landing/server/reality-probe", map[string]any{"id": 1}, 0)
+	view := dataMap(t, out)
+	if out.Code != 0 || view["realityDest"] != "www.dell.com:443" || calls != 2 {
+		t.Fatalf("picked %v calls=%d", view["realityDest"], calls)
+	}
+	st := view["realityProbeStats"].(map[string]any)
+	if st["passes"] != float64(2) || st["resampled"] != float64(0) || st["measured"] != false {
+		t.Fatalf("stats = %v", st)
+	}
+}
+
+func TestRealityTrialDomainAndVerdict(t *testing.T) {
+	for d, want := range map[string]bool{
+		"portal.citygrainla.com": true, "www.airbnb.com": true, "ftp.debian.org": true, "www.amazon": true,
+		"download.gfe.nvidia.com": false, "download-installer.cdn.mozilla.net": false, "www.sony.co.jp": false, "amd.com": false,
+		"learn.microsoft.com": false, "live.bilibili.com": false,
+	} {
+		if got := repo.RealityTrialDomain(model.LandingRealityDomain{Domain: d, Source: "pool"}); got != want {
+			t.Errorf("%s trial = %v", d, got)
+		}
+	}
+	if repo.RealityTrialDomain(model.LandingRealityDomain{Domain: "portal.citygrainla.com", Source: "custom"}) {
+		t.Error("custom domain is 试用")
+	}
+	h := int64(3600)
+	s := func(kv ...int64) []repo.RealitySample {
+		var out []repo.RealitySample
+		for i := 0; i < len(kv); i += 2 {
+			out = append(out, repo.RealitySample{At: kv[i], Ms: int(kv[i+1])})
+		}
+		return out
+	}
+	for _, c := range []struct {
+		hist   []repo.RealitySample
+		best   int
+		ok     bool
+		reason string
+	}{
+		{s(0, 5, 0, 6, 7*h, 5), 6, true, ""},
+		{s(0, 5, 0, 6), 6, false, "还要再测 1 次"},
+		{s(0, 5, 0, 6, 0, 5), 6, false, "要隔 6 小时以上再测一次"},
+		{s(0, 5, 0, 40, 7*h, 5), 6, false, "抖动 35 ms"},
+		{s(0, 5, 0, -1, 7*h, 5), 6, false, "最近 3 次里有 1 次不可用"},
+		{s(0, 20, 0, 21, 7*h, 20), 6, false, "比非试用里最快的慢 14 ms"},
+		{s(0, 150, 0, 180, 7*h, 160), 0, true, ""}, // far machine: 30 % of 160 = 48 ms allowed
+	} {
+		ok, reason := repo.RealityTrialVerdict(c.hist, c.best)
+		if ok != c.ok || reason != c.reason {
+			t.Errorf("%v best=%d → %v %q, want %v %q", c.hist, c.best, ok, reason, c.ok, c.reason)
 		}
 	}
 }

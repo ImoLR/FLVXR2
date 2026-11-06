@@ -1,6 +1,7 @@
 package contract_test
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -59,7 +60,7 @@ func TestLandingRealityDomainPickContract(t *testing.T) {
 				{Target: "www.dell.com:443", Feasible: true, LatencyMs: 15},
 				{Target: "www.amd.com:443", Feasible: false, Reason: "不支持 TLS 1.3"},
 			}
-			rec, err := r.RecordLandingRealityProbe(1, results, "")
+			rec, err := r.RecordLandingRealityProbe(1, results, "", nil)
 			if err != nil || rec.Picked != "www.sony.com:443" {
 				t.Fatalf("pick %+v %v", rec, err)
 			}
@@ -81,10 +82,10 @@ func TestLandingRealityDomainPickContract(t *testing.T) {
 			if _, err := r.SetLandingRealityDomainBlocked(sony.ID, true); err != nil {
 				t.Fatal(err)
 			}
-			if rec, _ := r.RecordLandingRealityProbe(1, results, ""); rec.Picked != "www.dell.com:443" {
+			if rec, _ := r.RecordLandingRealityProbe(1, results, "", nil); rec.Picked != "www.dell.com:443" {
 				t.Fatalf("after block %+v", rec)
 			}
-			if _, err := r.RecordLandingRealityProbe(1, nil, "节点离线"); err != nil {
+			if _, err := r.RecordLandingRealityProbe(1, nil, "节点离线", nil); err != nil {
 				t.Fatal(err)
 			}
 			s, _ = r.GetLandingServer(1)
@@ -93,7 +94,7 @@ func TestLandingRealityDomainPickContract(t *testing.T) {
 			}
 			// Manual: unchanged.
 			db.Model(&model.LandingServer{}).Where("id = 1").Update("reality_mode", "manual")
-			if rec, _ := r.RecordLandingRealityProbe(1, []repo.RealityProbeResult{{Target: "www.tesla.com:443", Feasible: true, LatencyMs: 1}}, ""); rec.Picked != "" {
+			if rec, _ := r.RecordLandingRealityProbe(1, []repo.RealityProbeResult{{Target: "www.tesla.com:443", Feasible: true, LatencyMs: 1}}, "", nil); rec.Picked != "" {
 				t.Fatalf("manual picked %+v", rec)
 			}
 			// Pool merge + pins.
@@ -181,4 +182,90 @@ func TestLandingRealityMigrationKeepsDest(t *testing.T) {
 		t.Fatalf("seeded %d", len(rows))
 	}
 	_ = os.Remove(path)
+}
+
+// Plan 229 contract (SQLite + PostgreSQL): merged re-samples rank by the worst
+// sample, the per-server history persists in reality_samples (bounded) and a
+// 妙妙屋池 small site is auto-picked only once its history is stable.
+func TestLandingRealityTrialHistoryContract(t *testing.T) {
+	for _, dialect := range []string{"sqlite", "postgres"} {
+		t.Run(dialect, func(t *testing.T) {
+			r := landingContractRepo(t, dialect)
+			now := time.Now().UnixMilli()
+			db := r.DB()
+			if err := db.Create(&model.Node{ID: 2, Name: "n2", Secret: "s2", ServerIP: "203.0.113.2", Port: "1000-2000", CreatedTime: now, Status: 1, LandingCapable: true}).Error; err != nil {
+				t.Fatal(err)
+			}
+			if err := db.Create(&model.LandingServer{ID: 1, Source: "native", NodeID: 2, Name: "s", PublicHost: "203.0.113.2", PortMin: 30000, PortMax: 30099, FlowType: 2, TrafficRatio: 1, Status: "active",
+				Protocols: `["ss2022","vless_reality_vision"]`, RealityDest: "www.lovelive-anime.jp:443", RealityServerNames: `["www.lovelive-anime.jp"]`, CreatedTime: now, UpdatedTime: now}).Error; err != nil {
+				t.Fatal(err)
+			}
+			if _, err := r.ReplaceLandingRealityPool([]string{"www.ebay.com", "portal.citygrainla.com"}); err != nil {
+				t.Fatal(err)
+			}
+			pass1 := []repo.RealityProbeResult{
+				{Target: "www.ebay.com:443", Feasible: true, LatencyMs: 3, ServerNames: []string{"www.ebay.com"}},
+				{Target: "www.tesla.com:443", Feasible: true, LatencyMs: 4, ServerNames: []string{"www.tesla.com"}},
+				{Target: "www.sony.com:443", Feasible: true, LatencyMs: 8, ServerNames: []string{"www.sony.com"}},
+			}
+			info, err := r.RealityPickInfo(1)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if set := strings.Join(repo.RealityResampleSet(pass1, info), ","); set != "www.tesla.com:443,www.sony.com:443,www.ebay.com:443" {
+				t.Fatalf("re-sample set %s", set)
+			}
+			re := []repo.RealityProbeResult{{Target: "www.ebay.com:443", Feasible: true, LatencyMs: 3}, {Target: "www.tesla.com:443", Feasible: true, LatencyMs: 30}, {Target: "www.sony.com:443", Feasible: true, LatencyMs: 8}}
+			merged := repo.MergeRealitySamples(pass1, [][]repo.RealityProbeResult{re, re})
+			stats := &repo.RealityProbeStats{Passes: 3, Resampled: 3, Sockets: 12, MaxOpen: 2, Linger0: true, Measured: true}
+			rec, err := r.RecordLandingRealityProbe(1, merged, "", stats)
+			if err != nil || rec.Picked != "www.sony.com:443" {
+				t.Fatalf("picked %+v %v", rec, err)
+			}
+			s, _ := r.GetLandingServer(1)
+			hist := repo.LandingRealityHistory(s)
+			if len(hist.D["www.ebay.com"]) != 3 || hist.Stats == nil || hist.Stats.Sockets != 12 || !hist.Stats.Linger0 {
+				t.Fatalf("history %+v", hist)
+			}
+			for _, res := range repo.LandingRealityProbeResults(s) {
+				if res.Target == "www.ebay.com:443" && (!res.Trial || res.TrialOK || res.TrialReason != "要隔 6 小时以上再测一次") {
+					t.Fatalf("ebay %+v", res)
+				}
+			}
+			// Same samples 7 h later: ebay is stable → picked.
+			for d, list := range hist.D {
+				for i := range list {
+					list[i].At -= 7 * 3600
+				}
+				hist.D[d] = list
+			}
+			raw, _ := json.Marshal(hist)
+			if err := db.Model(&model.LandingServer{}).Where("id = ?", 1).Update("reality_samples", string(raw)).Error; err != nil {
+				t.Fatal(err)
+			}
+			merged = repo.MergeRealitySamples(pass1, [][]repo.RealityProbeResult{re, re})
+			if rec, err := r.RecordLandingRealityProbe(1, merged, "", nil); err != nil || rec.Picked != "www.ebay.com:443" {
+				t.Fatalf("stable small site %+v %v", rec, err)
+			}
+			for i := 0; i < 3; i++ {
+				if _, err := r.RecordLandingRealityProbe(1, repo.MergeRealitySamples(pass1, [][]repo.RealityProbeResult{re, re}), "", nil); err != nil {
+					t.Fatal(err)
+				}
+			}
+			s, _ = r.GetLandingServer(1)
+			for d, list := range repo.LandingRealityHistory(s).D {
+				if len(list) != repo.RealitySampleKeep {
+					t.Fatalf("%s: %d samples", d, len(list))
+				}
+			}
+			// A failed 测速 keeps table and history.
+			before := s.RealitySamples
+			if _, err := r.RecordLandingRealityProbe(1, nil, "节点离线", nil); err != nil {
+				t.Fatal(err)
+			}
+			if s, _ = r.GetLandingServer(1); s.RealitySamples != before || s.RealityProbeError != "节点离线" {
+				t.Fatal("failed 测速 touched the history")
+			}
+		})
+	}
 }

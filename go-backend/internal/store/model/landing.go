@@ -111,8 +111,12 @@ type LandingServer struct {
 	RealityProbeError string `gorm:"type:text;not null;default:''" json:"-"`
 	RealityPins       string `gorm:"type:text;not null;default:''" json:"-"`
 	RealityPinsAt     int64  `gorm:"not null;default:0" json:"-"`
-	CreatedTime       int64  `gorm:"not null" json:"createdTime"`
-	UpdatedTime       int64  `gorm:"not null" json:"updatedTime"`
+	// Plan 229: per-domain sample history of this machine (last 8 samples per
+	// domain, ≤ 7 days, JSON {v, stats, d: {domain: [[unix_s, ms], …]}}) for
+	// the 试用 stability rule, plus the last 测速's cost.
+	RealitySamples string `gorm:"type:text;not null;default:''" json:"-"`
+	CreatedTime    int64  `gorm:"not null" json:"createdTime"`
+	UpdatedTime    int64  `gorm:"not null" json:"updatedTime"`
 }
 
 // LandingRealityDomain is one Reality 伪装域名 candidate (plan 227): built-in

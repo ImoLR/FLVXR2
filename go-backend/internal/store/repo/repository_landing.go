@@ -311,6 +311,7 @@ func (r *Repository) SaveLandingServerOpts(s *model.LandingServer, groups []int6
 		// the dest follows the 测速, not the form (a stale client keeps the mode).
 		s.RealityProbe, s.RealityProbedAt, s.RealityProbeError = old.RealityProbe, old.RealityProbedAt, old.RealityProbeError
 		s.RealityPins, s.RealityPinsAt = old.RealityPins, old.RealityPinsAt
+		s.RealitySamples = old.RealitySamples // plan 229 history
 		if s.RealityMode == "" {
 			s.RealityMode = old.RealityMode
 		}
@@ -660,6 +661,7 @@ func (r *Repository) SaveLandingUserSettingFull(userID int64, maxNodes int, quot
 		return nil
 	})
 }
+
 // quotaRateAssignments adds the plan-159 速率 columns to a row upsert unless
 // the client did not send them (RateKeep: an existing row keeps its rate).
 func quotaRateAssignments(q model.UserServerQuota, m map[string]interface{}) map[string]interface{} {
