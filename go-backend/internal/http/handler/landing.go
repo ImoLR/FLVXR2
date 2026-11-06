@@ -65,6 +65,8 @@ type landingServerStats struct {
 	// Plan 211: Σ live 入站 (client) connections; connections above is Σ 总
 	// (入站+出站 sockets, incl. TIME_WAIT/CLOSE_WAIT).
 	inbound int
+	// live (plan 218): nodes not being deleted (a share's 禁止端口扫描 state).
+	live int
 }
 
 // landingConnSumMode labels a sum of node connection counts: "inbound" or
@@ -92,6 +94,9 @@ func landingServerStatsByID(all []model.LandingNode, servers map[int64]*model.La
 		}
 		mode := repo.LandingNodeConnMode(&n, servers[n.LandingServerID])
 		st.count++
+		if !n.DeletePending {
+			st.live++
+		}
 		st.connections += repo.LandingLiveConnections(&n)
 		st.modeConnections += repo.LandingModeConnections(&n, mode)
 		st.inbound += repo.LandingModeConnections(&n, repo.LandingConnInbound)
@@ -138,6 +143,7 @@ func (h *Handler) landingServerUserView(s model.LandingServer, catalog landingEg
 func (h *Handler) landingServerViewWith(s model.LandingServer, admin bool, catalog landingEgressCatalog, st *landingServerStats, counts *repo.LandingUserNodeCounts) map[string]interface{} {
 	v := landingMap(s)
 	connAgent := 0 // plan 141: the native agent's landing_conn_mode
+	var agent *model.Node
 	v["protocols"] = jsonStrings(s.Protocols)
 	v["realityServerNames"] = jsonStrings(s.RealityServerNames)
 	if admin {
@@ -173,6 +179,7 @@ func (h *Handler) landingServerViewWith(s model.LandingServer, admin bool, catal
 		}
 	} else {
 		node, _ := h.repo.GetNodeByID(s.NodeID)
+		agent = node
 		v["online"] = node != nil && node.Status == 1
 		v["landingSupported"] = node != nil && node.LandingCapable
 		if node != nil {
@@ -203,6 +210,9 @@ func (h *Handler) landingServerViewWith(s model.LandingServer, admin bool, catal
 	if s.Source == "shared" {
 		v["sharedNotice"] = sharedCoreNotice(&s, st.enabled)
 	}
+	// Plan 218: the server's 禁止端口扫描 state (same as the 内置 per-server
+	// row), read-only, for the card's admin-attention marker.
+	v["scanGuard"] = landingScanCardView(&s, agent, catalog.scanOn != nil && catalog.scanOn(), st.live)
 	v["nodeCount"] = st.count
 	v["connections"] = st.connections
 	// Plan 141: whether the runtime applies 仅入站 (false = old agent / 妙妙屋

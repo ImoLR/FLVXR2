@@ -1,5 +1,5 @@
 import type { MachineView } from "./types";
-import type { ServerEgressView } from "./landing-egress";
+import type { ScanGuardNodeState, ServerEgressView } from "./landing-egress";
 
 import Network from "./network";
 
@@ -134,6 +134,8 @@ export interface LandingServer {
   usedBytes?: number;
   routeProfileId?: number;
   egress?: ServerEgressView;
+  /** plan 218 (admin): this server's 禁止端口扫描 state, same as the 内置 per-server row. */
+  scanGuard?: ScanGuardNodeState;
   egressLabel?: string;
   egressWarnings?: string[];
   // plan 121 defaults for new AnyTLS / Snell / Mieru nodes (shared servers)

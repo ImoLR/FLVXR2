@@ -262,6 +262,17 @@ func landingScanSharedState(s *model.LandingServer, on bool, nodes int) (string,
 	return "pending", "未生效：等待同步到共享服务器"
 }
 
+// landingScanCardView (plan 218): one server's 禁止端口扫描 state for the admin
+// server list, computed exactly like the 内置 per-server row (agent = the
+// native server's node, liveNodes = a share's nodes not being deleted).
+func landingScanCardView(s *model.LandingServer, agent *model.Node, on bool, liveNodes int) map[string]any {
+	state, label := landingScanServerState(s, agent, on)
+	if s != nil && s.Source == "shared" {
+		state, label = landingScanSharedState(s, on, liveNodes)
+	}
+	return map[string]any{"state": state, "label": label}
+}
+
 // landingScanSettingsView is the switch + thresholds part of the views.
 func landingScanSettingsView(g landingegress.ScanGuard) map[string]any {
 	return map[string]any{"on": g.On, "horizontal": g.Horizontal, "horizontalWeb": g.HorizontalWeb, "vertical": g.Vertical, "total": g.Total,
@@ -301,11 +312,8 @@ func (h *Handler) landingScanAdminView() (map[string]any, error) {
 		if s.Source == "native" {
 			agent, _ = h.repo.GetNodeByID(s.NodeID)
 		}
-		state, label := landingScanServerState(s, agent, g.On)
-		if s.Source == "shared" {
-			state, label = landingScanSharedState(s, g.On, sharedNodes[s.ID])
-		}
-		list = append(list, map[string]any{"id": s.ID, "name": s.Name, "source": s.Source, "state": state, "label": label})
+		st := landingScanCardView(s, agent, g.On, sharedNodes[s.ID])
+		list = append(list, map[string]any{"id": s.ID, "name": s.Name, "source": s.Source, "state": st["state"], "label": st["label"]})
 	}
 	view["servers"] = list
 	blocked, events, err := h.repo.LandingScanCounts()

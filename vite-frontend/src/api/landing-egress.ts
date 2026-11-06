@@ -361,6 +361,9 @@ export interface ServerEgressView {
   // needs one confirmed restart; confirmed = waiting for the agent.
   coreUpgradeRequired?: boolean;
   coreUpgradeConfirmed?: boolean;
+  // Plan 218: nodes the agent keeps offline while the routing plan has not
+  // taken effect (parsed from the stored warning).
+  withheldNodes?: number;
 }
 
 // Reality 防盗 (plan 127). state: shared (妙妙屋 Helper without the guard) |

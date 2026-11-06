@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import toast from "react-hot-toast";
 
 import { BuiltinCompactRows, BuiltinRuleList } from "./egress-builtin-list";
@@ -66,12 +66,15 @@ export function NodeRulesDialog({
   chainName,
   onClose,
   onSaved,
+  onScanState,
 }: {
   nodeId: number;
   /** Plan 177: the node's 链式代理 external node (only block rules apply). */
   chainName?: string;
   onClose: () => void;
   onSaved?: () => void;
+  /** Plan 218: the fresh 禁止端口扫描 state of the node's server (admin). */
+  onScanState?: (state?: string) => void;
 }) {
   const [view, setView] = useState<NodeRulesView | null>(null);
   const [error, setError] = useState("");
@@ -94,6 +97,9 @@ export function NodeRulesDialog({
     />
   );
 
+  const scanStateRef = useRef(onScanState);
+
+  scanStateRef.current = onScanState;
   useEffect(() => {
     let disposed = false;
 
@@ -105,6 +111,7 @@ export function NodeRulesDialog({
         return;
       }
       setView(res.data);
+      scanStateRef.current?.(res.data.builtin?.scanGuard?.state);
       setRules(res.data.rules || []);
       setDef(res.data.defaultAction || "");
     });
