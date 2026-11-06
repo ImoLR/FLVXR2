@@ -79,22 +79,28 @@ function DomainRow({
 }) {
   return (
     <div
-      className={`flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg border border-default-200 px-2 py-1.5 ${
+      className={`flex items-start gap-2 rounded-lg border border-default-200 px-2 py-1.5 ${
         domain.blocked ? "bg-default-50" : ""
       }`}
       data-reality-domain={domain.domain}
     >
-      <span
-        className={`min-w-0 flex-1 truncate font-mono text-sm ${
-          domain.blocked ? "text-default-400 line-through" : ""
-        }`}
-        title={domain.domain}
-      >
-        {domain.domain}
-      </span>
-      <div className="flex shrink-0 flex-wrap items-center gap-1">
-        <SourcePills inPool={domain.inPool} source={domain.source} />
-        {domain.blocked && <Pill tone="red">已屏蔽</Pill>}
+      <div className="min-w-0 flex-1 space-y-0.5">
+        <p
+          className={`break-all font-mono text-sm ${
+            domain.blocked ? "text-default-400 line-through" : ""
+          }`}
+        >
+          {domain.domain}
+        </p>
+        <div className="flex flex-wrap items-center gap-1">
+          <SourcePills inPool={domain.inPool} source={domain.source} />
+          {domain.blocked && <Pill tone="red">已屏蔽</Pill>}
+        </div>
+        {domain.note && (
+          <p className="text-xs leading-snug text-default-500">{domain.note}</p>
+        )}
+      </div>
+      <div className="flex shrink-0 flex-col items-end gap-1 sm:flex-row">
         {domain.blocked ? (
           <Button
             color="success"
@@ -128,11 +134,6 @@ function DomainRow({
           </Button>
         )}
       </div>
-      {domain.note && (
-        <p className="w-full text-xs leading-snug text-default-500">
-          {domain.note}
-        </p>
-      )}
     </div>
   );
 }
@@ -314,6 +315,13 @@ function ProbeTable({
   manual: boolean;
   onPick: (row: RealityProbeRow) => void;
 }) {
+  const [all, setAll] = useState(false);
+  const limit = 10;
+  // The current pick always shows, even beyond the first rows.
+  const shown = all
+    ? rows
+    : rows.filter((row, i) => i < limit || row.target === current);
+
   return (
     <div data-reality-probe-table className="space-y-1">
       <div className="hidden grid-cols-[minmax(0,1fr)_88px_64px_120px] gap-2 px-2 text-xs text-default-500 sm:grid">
@@ -322,7 +330,7 @@ function ProbeTable({
         <span className="text-right">握手</span>
         <span>最快 IP</span>
       </div>
-      {rows.map((row) => {
+      {shown.map((row) => {
         const isCurrent = row.target === current;
         const pickable = manual && row.feasible && !row.blocked && !isCurrent;
 
@@ -374,6 +382,15 @@ function ProbeTable({
           </div>
         );
       })}
+      {rows.length > shown.length && (
+        <button
+          className="w-full rounded-lg bg-default-100 px-2 py-1.5 text-sm"
+          type="button"
+          onClick={() => setAll(true)}
+        >
+          展开全部 {rows.length} 个
+        </button>
+      )}
     </div>
   );
 }
@@ -522,7 +539,7 @@ export function RealityServerSection({
             ? "每天在这台机器上测速一次，选最快、可用、没被屏蔽的域名；只影响新建节点"
             : "手动指定；已有节点不变"
         }
-        label="伪装域名"
+        label="选择方式"
         selectedKeys={[mode]}
         onSelectionChange={(keys) => {
           const value = Array.from(keys)[0] as RealityMode | undefined;
