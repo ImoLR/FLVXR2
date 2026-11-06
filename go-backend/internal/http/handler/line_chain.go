@@ -324,6 +324,9 @@ func (h *Handler) checkChainExits(tunnelID int64) (*repo.TunnelLineInfo, error) 
 	if ok, reason := tunnelChainAvailability(info); !ok {
 		return nil, errors.New(reason)
 	}
+	if err := h.chainFilterError(tunnelID); err != nil {
+		return nil, err
+	}
 	for _, e := range info.Exits {
 		if !e.Online {
 			return nil, errors.New("出口节点「" + e.Name + "」离线，暂时无法使用「我自己的节点」，请稍后重试")

@@ -146,6 +146,9 @@ func (h *Handler) landingServerViewWith(s model.LandingServer, admin bool, catal
 	var agent *model.Node
 	v["protocols"] = jsonStrings(s.Protocols)
 	v["realityServerNames"] = jsonStrings(s.RealityServerNames)
+	// Plan 224: per protocol, the entry-filter features a node created now
+	// would have (rule dialog: 新建落地节点 on a 屏蔽 TLS tunnel).
+	v["protocolFilterFeatures"] = repo.LandingServerFilterFeatureMap(&s, repo.LandingFilterProtocols)
 	if admin {
 		groups, _ := h.repo.LandingServerGroupIDs(s.ID)
 		v["userGroupIds"] = groups
@@ -335,6 +338,11 @@ func landingNodeViewData(n model.LandingNode, s *model.LandingServer, u *model.U
 	v["connModePending"] = configured != effective
 	// Plan 147: no 计算方式 choice on a shared server (fixed 入站+出站).
 	v["connModeFixed"] = repo.LandingConnModeFixed(s)
+	// Plan 224: entry-filter features of the node's client traffic (the rule
+	// dialog disables it on tunnels that block them).
+	if f := repo.LandingNodeFilterFeatures(&n); len(f) > 0 {
+		v["filterFeatures"] = f
+	}
 	// Plan 202: why a node is disabled by 禁止端口扫描 (owner + admin).
 	if block := landingScanBlockView(&n); block != nil {
 		v["scanBlock"] = block

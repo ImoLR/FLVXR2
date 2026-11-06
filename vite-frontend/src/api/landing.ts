@@ -64,6 +64,28 @@ export const landingCreatableProtocols = (server: {
       (server.source === "shared" &&
         Boolean(sharedProtocolCap(server, protocol))),
   );
+// Plan 224: a tunnel with 屏蔽 TLS / 屏蔽 HTTP closes connections that show
+// that feature. Which landing protocols show it is decided by the backend
+// (lab-tested) and sent as filterFeatures / protocolFilterFeatures; tunnels
+// send blockedFeatures. The UI only intersects them.
+const filterFeatureLabel = (feature: string) => feature.toUpperCase();
+
+export const landingFeatureBlockedReason = (
+  blocked?: string[],
+  features?: string[],
+) => {
+  const hit = (features || []).find((feature) => blocked?.includes(feature));
+
+  return hit
+    ? `该节点协议带 ${filterFeatureLabel(hit)} 特征，此隧道无法使用`
+    : "";
+};
+
+export const tunnelBlockedHint = (features: string[]) =>
+  features.length
+    ? `此隧道屏蔽了 ${features.map(filterFeatureLabel).join(" / ")} 协议特征`
+    : "";
+
 export const landingServerModeLabel = (mode?: string) =>
   mode === "embedded" ? "内置 Xray" : mode === "external" ? "外置 Xray" : "";
 export interface LandingIntegration {
@@ -85,6 +107,8 @@ export const testLandingIntegration = (data: {
 export const syncLandingIntegration = () =>
   Network.post<LandingIntegration>("/landing/integration/sync", {});
 export interface LandingServer {
+  /** Plan 224: entry-filter features per protocol a new node would have. */
+  protocolFilterFeatures?: Record<string, string[]>;
   sharedCaps?: SharedLandingCaps;
   sharedNotice?: string;
   directUserCount?: number;
@@ -203,6 +227,8 @@ export interface LandingScanBlock {
 }
 
 export interface LandingNode {
+  /** Plan 224: entry-filter features of the node's traffic ("tls" / "http"). */
+  filterFeatures?: string[];
   deletePending?: boolean;
   /** disabled by the panel (user / server stopped, no permission), not by an admin. */
   autoDisabled?: boolean;

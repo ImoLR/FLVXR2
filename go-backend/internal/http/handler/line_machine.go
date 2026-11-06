@@ -149,6 +149,9 @@ func (h *Handler) decorateTunnelLineInfo(items []map[string]interface{}) {
 			continue
 		}
 		ok, reason := tunnelChainAvailability(info)
+		if blocked, _ := item["blockedFeatures"].([]string); ok && stringSliceContains(blocked, repo.FilterFeatureTLS) {
+			ok, reason = false, "此隧道屏蔽了 TLS 协议特征" // plan 224: the chain speaks VLESS Reality
+		}
 		item["chainAvailable"] = ok
 		if !ok {
 			item["chainUnavailableReason"] = reason

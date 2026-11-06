@@ -68,7 +68,7 @@ func TestUserTunnelListPickerGroupsContract(t *testing.T) {
 		}
 		return names
 	}
-	baseKeys := []string{"entryGroups", "exitRegions", "groups", "id", "lineMachine", "chainAvailable", "name", "remark", "trafficRatio", "portRangeMin", "portRangeMax"}
+	baseKeys := []string{"blockedFeatures", "entryGroups", "exitRegions", "groups", "id", "lineMachine", "chainAvailable", "name", "remark", "trafficRatio", "portRangeMin", "portRangeMax"}
 	sort.Strings(baseKeys)
 
 	adminToken, _ := auth.GenerateToken(1, "admin_user", 0, secret)

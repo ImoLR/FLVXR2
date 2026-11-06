@@ -11,6 +11,7 @@ import {
   isLandingExtraProtocol,
   isMieruUdp,
   landingCreatableProtocols,
+  landingFeatureBlockedReason,
   landingProtocolLabel,
   landingProtocolSummary,
   sharedProtocolCap,
@@ -39,6 +40,7 @@ export function CreateLandingNodeDialog({
   ownerId,
   nodes = [],
   lineMachine = false,
+  blockedFeatures = [],
   onClose,
   onCreated,
   onUseNode,
@@ -48,6 +50,8 @@ export function CreateLandingNodeDialog({
   ownerId?: number;
   nodes?: LandingNode[];
   lineMachine?: boolean;
+  /** Plan 224: opened from a rule on a tunnel blocking these features. */
+  blockedFeatures?: string[];
   onClose: () => void;
   onCreated: (node: LandingNode) => void | Promise<void>;
   onUseNode?: (node: LandingNode) => void;
@@ -61,13 +65,30 @@ export function CreateLandingNodeDialog({
       !server.chainOnly &&
       (!lineMachine || server.protocols.includes("vless_reality_vision")),
   );
+  // Plan 224: protocols whose traffic the rule's tunnel would block.
+  const protocolBlockedReason = (
+    target: LandingServer | undefined,
+    item: string,
+  ) =>
+    landingFeatureBlockedReason(
+      blockedFeatures,
+      target?.protocolFilterFeatures?.[item],
+    );
+  const firstProtocol = (target?: LandingServer): LandingProtocol => {
+    if (lineMachine) return "vless_reality_vision";
+    const list = target ? landingCreatableProtocols(target) : [];
+
+    return (
+      list.find((item) => !protocolBlockedReason(target, item)) ||
+      list[0] ||
+      "ss2022"
+    );
+  };
   const firstServer = initialServer || availableServers[0];
   const [serverId, setServerId] = useState(firstServer?.id);
   const [name, setName] = useState("");
   const [protocol, setProtocol] = useState<LandingProtocol>(
-    lineMachine
-      ? "vless_reality_vision"
-      : (firstServer && landingCreatableProtocols(firstServer)[0]) || "ss2022",
+    firstProtocol(firstServer),
   );
   const [userId, setUserId] = useState(ownerId || 0);
   const [ownerOptions, setOwnerOptions] = useState<UserApiItem[]>([]);
@@ -89,6 +110,12 @@ export function CreateLandingNodeDialog({
       )
     : undefined;
   const reuseHint = existing && !allowDuplicate;
+  const protocolOptions = lineMachine
+    ? (["vless_reality_vision"] as LandingProtocol[])
+    : server
+      ? landingCreatableProtocols(server)
+      : [];
+  const blockedReason = protocolBlockedReason(server, protocol);
   const ownerName = nodes.find((node) => node.userId === userId)?.userName;
 
   useEffect(() => {
@@ -153,12 +180,7 @@ export function CreateLandingNodeDialog({
                 );
 
                 setServerId(id);
-                setProtocol(
-                  lineMachine
-                    ? "vless_reality_vision"
-                    : (selected && landingCreatableProtocols(selected)[0]) ||
-                        "ss2022",
-                );
+                setProtocol(firstProtocol(selected));
                 setAllowDuplicate(false);
               }}
             >
@@ -223,7 +245,12 @@ export function CreateLandingNodeDialog({
                 ? "线路机隧道固定使用 VLESS Reality Vision"
                 : undefined
             }
+            disabledKeys={protocolOptions.filter((item) =>
+              protocolBlockedReason(server, item),
+            )}
+            errorMessage={blockedReason || undefined}
             isDisabled={lineMachine}
+            isInvalid={Boolean(blockedReason)}
             label="协议模板"
             selectedKeys={[protocol]}
             variant="bordered"
@@ -232,13 +259,13 @@ export function CreateLandingNodeDialog({
               setAllowDuplicate(false);
             }}
           >
-            {(lineMachine
-              ? ["vless_reality_vision"]
-              : server
-                ? landingCreatableProtocols(server)
-                : []
-            ).map((item) => (
-              <SelectItem key={item}>{landingProtocolLabel(item)}</SelectItem>
+            {protocolOptions.map((item) => (
+              <SelectItem
+                key={item}
+                description={protocolBlockedReason(server, item) || undefined}
+              >
+                {landingProtocolLabel(item)}
+              </SelectItem>
             ))}
           </Select>
           {server && isLandingExtraProtocol(protocol) && (
@@ -333,7 +360,8 @@ export function CreateLandingNodeDialog({
               !server ||
               !name.trim() ||
               landingNameTooLong(name) ||
-              Boolean(reuseHint)
+              Boolean(reuseHint) ||
+              Boolean(blockedReason)
             }
             isLoading={saving}
             variant="flat"

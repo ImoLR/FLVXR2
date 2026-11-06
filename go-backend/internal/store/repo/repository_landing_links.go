@@ -26,6 +26,9 @@ type LandingLink struct {
 	Surge string `json:"surge,omitempty"`
 	// SurgeNote: why a Snell node has no Surge line (plan 193).
 	SurgeNote string `json:"surgeNote,omitempty"`
+	// Blocked (plan 224): the rule's tunnel blocks a protocol feature of the
+	// node, so this 经规则转发 link cannot connect.
+	Blocked string `json:"blocked,omitempty"`
 }
 
 func LandingURL(n model.LandingNode, host string, port int) string {
@@ -71,6 +74,23 @@ func (r *Repository) LandingNodeLinks(n model.LandingNode) ([]LandingLink, error
 	if err := r.db.Where("landing_node_id = ? AND user_id = ?", n.ID, n.UserID).Find(&forwards).Error; err != nil {
 		return nil, err
 	}
+	// Plan 224: one batched read of the rules' tunnel filter flags.
+	blockedBy := map[int64]string{}
+	if features := LandingNodeFilterFeatures(&n); len(features) > 0 && len(forwards) > 0 {
+		ids := make([]int64, 0, len(forwards))
+		for _, f := range forwards {
+			ids = append(ids, f.TunnelID)
+		}
+		var tunnels []model.Tunnel
+		if err := r.db.Select("id, tls, http").Where("id IN ?", ids).Find(&tunnels).Error; err != nil {
+			return nil, err
+		}
+		for _, t := range tunnels {
+			if f := TunnelBlockedFeature(t.TLS, t.HTTP, features); f != "" {
+				blockedBy[t.ID] = TunnelBlocksFeatureMsg(f)
+			}
+		}
+	}
 	for _, f := range forwards {
 		entries, err := r.forwardEntries(f, true)
 		if err != nil {
@@ -83,6 +103,9 @@ func (r *Repository) LandingNodeLinks(n model.LandingNode) ([]LandingLink, error
 			if !seen[key] {
 				seen[key] = true
 				l.ForwardID, l.EntryNodeID = f.ID, e.NodeID
+				if !strings.EqualFold(f.Mode, "nftables") && !strings.EqualFold(f.Mode, "wg_path") {
+					l.Blocked = blockedBy[f.TunnelID]
+				}
 				out = append(out, l)
 			}
 		}

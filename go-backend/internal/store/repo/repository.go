@@ -1554,10 +1554,12 @@ func (r *Repository) listUserAccessibleTunnels(userID int64, withGroups bool) ([
 		Name         string
 		Remark       sql.NullString
 		TrafficRatio float64
+		TLS          int `gorm:"column:tls"`
+		HTTP         int `gorm:"column:http"`
 	}
 	var rows []row
 	err := r.db.Model(&model.UserTunnel{}).
-		Select("tunnel.id, tunnel.name, tunnel.remark, tunnel.traffic_ratio").
+		Select("tunnel.id, tunnel.name, tunnel.remark, tunnel.traffic_ratio, tunnel.tls, tunnel.http").
 		Joins("JOIN tunnel ON tunnel.id = user_tunnel.tunnel_id").
 		Where("user_tunnel.user_id = ? AND tunnel.status = 1", userID).
 		Order("tunnel.inx ASC, tunnel.id ASC").
@@ -1618,6 +1620,8 @@ func (r *Repository) listUserAccessibleTunnels(userID int64, withGroups bool) ([
 			"entryGroups":  info.entryGroupsNamed(false, rw.Name),
 			"exitRegions":  regionMap[rw.ID].ExitRegions,
 		}
+		// Plan 224: what the entry protocol filter blocks (rule dialog).
+		item["blockedFeatures"] = TunnelBlockedFeatures(rw.TLS, rw.HTTP)
 		if withGroups {
 			item["groups"] = buildTunnelPickerGroups(info.EntryNodes, false, restricted, pickerGroups[rw.ID])
 		}
@@ -1650,9 +1654,11 @@ func (r *Repository) listEnabledTunnelSummaries(withGroups bool) ([]map[string]i
 		Name         string
 		Remark       sql.NullString
 		TrafficRatio float64
+		TLS          int `gorm:"column:tls"`
+		HTTP         int `gorm:"column:http"`
 	}
 	var rows []row
-	err := r.db.Model(&model.Tunnel{}).Select("id, name, remark, traffic_ratio").Where("status = 1").Order("inx ASC, id ASC").Find(&rows).Error
+	err := r.db.Model(&model.Tunnel{}).Select("id, name, remark, traffic_ratio, tls, http").Where("status = 1").Order("inx ASC, id ASC").Find(&rows).Error
 	if err != nil {
 		return nil, err
 	}
@@ -1684,6 +1690,8 @@ func (r *Repository) listEnabledTunnelSummaries(withGroups bool) ([]map[string]i
 			"entryGroups":  regionMap[rw.ID].entryGroupsNamed(true, rw.Name),
 			"exitRegions":  regionMap[rw.ID].ExitRegions,
 		}
+		// Plan 224: what the entry protocol filter blocks (rule dialog).
+		item["blockedFeatures"] = TunnelBlockedFeatures(rw.TLS, rw.HTTP)
 		if withGroups {
 			item["groups"] = buildTunnelPickerGroups(regionMap[rw.ID].EntryNodes, true, false, pickerGroups[rw.ID])
 		}

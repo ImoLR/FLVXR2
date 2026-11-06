@@ -4,9 +4,11 @@ import toast from "react-hot-toast";
 import {
   LandingNode,
   LandingServer,
+  landingFeatureBlockedReason,
   landingNodes,
   landingProtocolLabel,
   landingServers,
+  tunnelBlockedHint,
 } from "@/api/landing";
 import {
   OnboardingAnchor,
@@ -33,6 +35,8 @@ export interface LineTunnelInfo {
   lineMachine?: boolean;
   chainAvailable?: boolean;
   chainUnavailableReason?: string;
+  /** Plan 224: features the tunnel's entry filter blocks ("tls" / "http"). */
+  blockedFeatures?: string[];
 }
 
 export function RuleLandingTarget({
@@ -83,6 +87,7 @@ export function RuleLandingTarget({
     };
   }, [mode, userId]);
 
+  const blocked = line?.blockedFeatures || [];
   const disabledReason = (node: LandingNode) => {
     const server = servers.find((item) => item.id === node.landingServerId);
 
@@ -105,8 +110,21 @@ export function RuleLandingTarget({
     if (lineMachine && node.protocol !== "vless_reality_vision")
       return "线路机需要 VLESS Reality Vision";
 
-    return "";
+    return landingFeatureBlockedReason(blocked, node.filterFeatures);
   };
+  // Plan 224: 「此隧道屏蔽了 TLS 协议特征」 whenever 屏蔽 TLS is on; 屏蔽 HTTP
+  // (on most tunnels) is named only when it rules out one of the nodes.
+  const hintFeatures = blocked.filter(
+    (feature) =>
+      feature === "tls" ||
+      nodes.some((node) => node.filterFeatures?.includes(feature)),
+  );
+  const blockedHint = tunnelBlockedHint(hintFeatures);
+  const selectedNode = nodes.find((node) => node.id === value.landingNodeId);
+  const selectedReason = landingFeatureBlockedReason(
+    blocked,
+    selectedNode?.filterFeatures,
+  );
   const groups = Array.from(new Set(nodes.map((node) => node.landingServerId)));
   // Plan 146/169: hint on 「目标类型」 until the user has opened it once.
   const targetHint = useOnboardingHint("targetType");
@@ -209,6 +227,12 @@ export function RuleLandingTarget({
               );
             })}
           </Select>
+          {blockedHint && (
+            <p className="text-xs text-default-500">{blockedHint}</p>
+          )}
+          {selectedReason && (
+            <p className="text-sm text-danger">{selectedReason}</p>
+          )}
           {!loading && !nodes.some((node) => !disabledReason(node)) && (
             <p className="text-sm text-default-500">
               暂无可用的落地节点，可先新建一个。
@@ -240,6 +264,7 @@ export function RuleLandingTarget({
       {creating && (
         <CreateLandingNodeDialog
           key={`${userId}-${lineMachine}`}
+          blockedFeatures={blocked}
           lineMachine={lineMachine}
           nodes={nodes}
           ownerId={userId}
