@@ -56,9 +56,25 @@ from `runs/chain-live-test/final.md`, Bestvm US OTA, Breadcloud US offline check
 - [x] P2-7 Core CPU cap on chain-only servers
 - [x] P2-8 pause removes chain inbound, resume recreates
 - [x] Contract/unit tests (relay auth config, credential absent from APIs, P1-1, P1-2, pause)
-- [ ] Gates: go build/test, SQLite + PostgreSQL contract, tsc/build/lint, screens P2-1/4/5
-- [ ] Ledger check (226), release fork.120, CI + images + assets
-- [ ] Prod: backup, deploy, canary test tunnel, groups with checks, interruption per rule
-- [ ] Bestvm US OTA + scan guard check
-- [ ] Attack re-test (no-auth relay, Core API via relay, billing bypass)
-- [ ] Ledger 已发布, prune backups, final.md + summary.md
+- [x] Gates: go build/test, SQLite + PostgreSQL contract, tsc/build/lint, screens P2-1/4/5
+- [x] Ledger check (226), release fork.120, CI + images + assets
+- [x] Prod: backup, deploy, canary test tunnel, groups with checks, interruption per rule
+- [x] Bestvm US OTA + scan guard check
+- [x] Attack re-test (no-auth relay, Core API via relay, billing bypass)
+- [x] Ledger 已发布, prune backups, final.md + summary.md
+
+## Result (2026-11-06)
+- Released `3.0.27-fork.120` (tag → 3c774fe1; test-only follow-up d466d939 on this branch). CI 42185182618 + Images
+  42185183338 green; release assets = fork.119 set, agent `gost 3.0.27-fork.120`.
+- Gates: go build ok; go vet same as fork.119 (leikwan testapi unkeyed fields); backend suite (SQLite + PostgreSQL)
+  24 packages ok, 1 failure = the old diagnosis test asserting hop IPs for a normal user (the P2-1 change) → test fixed
+  in d466d939 and green; agent landing/socket/relay tests ok; tsc 0; eslint 16 errors = fork.119 baseline.
+- Prod: backup `/opt/flvx-svc/rollback/pre-fork120-20261106T085032Z` (rollback.sh switches relay auth off first),
+  deploy 16:56 TW, canary + 6 groups 17:01–17:17 TW: 37/38 relay tunnels enforced, tunnel 80 (利群管道) waits for
+  火山广州 ≥ fork.120. Measured interruption ≤ 0.25 s per tunnel (1–2 failed 250 ms probes at the switch).
+- Bestvm US OTA fork.103 → fork.120 17:18 TW (back in 5 s), Core upgrade confirmed (no nodes on it), ⚠ gone;
+  禁止端口扫描 has nothing to guard there (chain-only, 0 landing nodes).
+- Attack re-test: no-auth / wrong credential → Unauthorized on every probed exit/middle; Core API via relay refused
+  (Unauthorized; with the credential Forbidden on Bestvm US).
+- P2-4 follow-up (8486afe5, frontend only) built + verified, rides the next batch (ledger 225b).
+- Not done: P2-6 (needs an agent change), PipePing-gated tunnel 80, fleet OTA for the target guard / P1-2.
