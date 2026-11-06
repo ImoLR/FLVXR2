@@ -32,22 +32,30 @@ from `runs/chain-live-test/final.md`, Bestvm US OTA, Breadcloud US offline check
   entry+middle nodes first (diff, must succeed), then flip the flag, then push handlers. enforce=false = rollback path.
 - Rollback: enforce=false for all → image swap to fork.119 → `UPDATE tunnel SET relay_auth=0`.
 
+## Lab results (runs/tunnel-relay-auth/work/lab, 100 ms probes + one 2 MB/s long download)
+- fork.103 agents (prod version): upgrade (connectors) 0 fail; enforce 1 probe (≤0.1 s), long download kept;
+  clean rollback (enforce=false, then fork.119) 0 fail; dirty rollback (direct image swap) 1.6 s outage.
+- fork.120 exit: enforce 0 fail; no-auth/wrong-auth → Unauthorized; right auth → loopback/Core API Forbidden, public OK;
+  dirty rollback 5.0 s outage → rollback.sh switches relay auth off first.
+- P1-2 cannot be panel-only (old agents reject plan rules that name a chain outbound; skipping chain inbounds would let
+  屏蔽大陆网站 block google@cn on chains) → agent-side split in fork.120 (Bestvm US now, others at their next OTA).
+
 ## Tasks
-- [ ] Baselines (business, landing, subs, 救命版, panel CPU/RSS, API latency, agent CPU/RSS/TTFB on one rule)
-- [ ] P0 panel: credential, connector auth, handler auth gated by relay_auth, enforce API, new tunnels = 1
-- [ ] P0 agent: relay target guard (metadata) + PipePing accepts Unauthorized; unit tests
-- [ ] P0 lab: auth connector ↔ no-auth handler; order with live downloads; rollback order; interruption measured
-- [ ] P1-1 chain port pick: loopback port free on all exits, independent of public ranges
-- [ ] P1-2 forced 放行谷歌/苹果 on chain inbounds → chain upstream
-- [ ] P2-1 诊断: non-admins see node names only
-- [ ] P2-2 reject panel host IPs in chain upstream validation
-- [ ] P2-3 hide chain-only landing servers in admin grant list
-- [ ] P2-4 phone edit dialog 「当前节点」 truncation
-- [ ] P2-5 「首次使用需要安装落地程序」 only when an install happens
-- [ ] P2-6 Core idle on chain-only server with 0 chain nodes
-- [ ] P2-7 Core CPU cap on chain-only servers
-- [ ] P2-8 pause removes chain inbound, resume recreates
-- [ ] Contract/unit tests (relay auth config, credential absent from APIs, P1-1, P1-2, pause)
+- [x] Baselines (business, landing, subs, 救命版, panel CPU/RSS, API latency, agent CPU/RSS/TTFB on one rule)
+- [x] P0 panel: credential, connector auth, handler auth gated by relay_auth, enforce API, new tunnels = 1
+- [x] P0 agent: relay target guard (metadata) + PipePing accepts Unauthorized; unit tests
+- [x] P0 lab: auth connector ↔ no-auth handler; order with live downloads; rollback order; interruption measured
+- [x] P1-1 chain port pick: loopback port free on all exits, independent of public ranges
+- [x] P1-2 forced 放行谷歌/苹果 on chain inbounds → chain upstream
+- [x] P2-1 诊断: non-admins see node names only
+- [x] P2-2 reject panel host IPs in chain upstream validation
+- [x] P2-3 hide chain-only landing servers in admin grant list
+- [x] P2-4 phone edit dialog 「当前节点」 truncation
+- [x] P2-5 「首次使用需要安装落地程序」 only when an install happens
+- [x] P2-6 Core idle on chain-only server with 0 chain nodes — NOT doable panel-side (no agent command stops Core; enabled:false keeps it running for final counters) → 还没解决
+- [x] P2-7 Core CPU cap on chain-only servers
+- [x] P2-8 pause removes chain inbound, resume recreates
+- [x] Contract/unit tests (relay auth config, credential absent from APIs, P1-1, P1-2, pause)
 - [ ] Gates: go build/test, SQLite + PostgreSQL contract, tsc/build/lint, screens P2-1/4/5
 - [ ] Ledger check (226), release fork.120, CI + images + assets
 - [ ] Prod: backup, deploy, canary test tunnel, groups with checks, interruption per rule
