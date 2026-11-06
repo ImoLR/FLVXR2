@@ -3,6 +3,7 @@ package repo
 import (
 	"encoding/json"
 	"testing"
+	"time"
 
 	"go-backend/internal/landingcustom"
 	"go-backend/internal/store/model"
@@ -75,6 +76,18 @@ func TestUserServerConnCapsSaveAndPlanInputs(t *testing.T) {
 			}
 			if len(ex.Landing) != 1 || ex.Landing[0].UserID != 501 || ex.Landing[0].NodeID != 601 || ex.Landing[0].Shared || ex.Landing[0].RelayNodes != 2 {
 				t.Fatalf("native slot = %+v, want user 501 on node 601 with 2 relay nodes", ex.Landing)
+			}
+			// Plan 230: entry 603 is a NAT node leaving through two IPv4s (like
+			// Leikwanhost 沪台IPLC) plus one IPv6: it keeps 2 slots, 601 keeps 1.
+			hist, _ := mergeEgressHistory("", []string{"103.246.219.39", "114.35.6.24", "240e:b8f:737:1204::2813"}, time.Now())
+			if err := r.db.Model(&model.Node{}).Where("id = ?", 603).Updates(map[string]any{"reported_ip_v4": "114.35.6.24", "reported_ip_history": hist}).Error; err != nil {
+				t.Fatal(err)
+			}
+			if ex, err = r.LoadQuotaPlanExtras(); err != nil || len(ex.Landing) != 1 || ex.Landing[0].RelayNodes != 3 {
+				t.Fatalf("NAT relay slots = %+v %v, want 3 (2 for the two-egress entry + 1)", ex.Landing, err)
+			}
+			if err := r.db.Model(&model.Node{}).Where("id = ?", 603).Updates(map[string]any{"reported_ip_v4": "", "reported_ip_history": ""}).Error; err != nil {
+				t.Fatal(err)
 			}
 			// A paused node is no slot.
 			if err := r.db.Model(&model.LandingNode{}).Where("id = ?", n.ID).Update("status", "disabled").Error; err != nil {

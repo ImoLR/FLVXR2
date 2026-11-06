@@ -208,6 +208,12 @@ type Node struct {
 	// addresses no longer re-pushes every landing.
 	ReportedIPV4 string `gorm:"column:reported_ip_v4;type:varchar(64);not null;default:''" json:"-"`
 	ReportedIPV6 string `gorm:"column:reported_ip_v6;type:varchar(64);not null;default:''" json:"-"`
+	// Plan 230: every public egress address the agent reported recently (JSON
+	// [{"ip","at"}], bounded, see repo.EgressHistoryIPs). A NAT node such as
+	// Leikwanhost 沪台IPLC leaves through two IPv4s and reported_ip_v4 only
+	// holds the last one; landings must know both to recognise its relayed
+	// connections (user IP / connection limits). Never dialed or shown.
+	ReportedIPHistory string `gorm:"column:reported_ip_history;type:text;not null;default:''" json:"-"`
 	// Plan 154: 节点提示, an admin-written note shown as a ⚠ on the node card.
 	// Admins only: node/list strips it for other roles.
 	AdminNotice string `gorm:"column:admin_notice;type:varchar(512);not null;default:''" json:"-"`

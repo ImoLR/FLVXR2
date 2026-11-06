@@ -1,8 +1,10 @@
 package repo
 
 import (
+	"encoding/json"
 	"errors"
 	"net/netip"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -111,21 +113,141 @@ func nodeReportedIPUpdate(n *model.Node, ipv4, ipv6 string) map[string]interface
 	return out
 }
 
+// Plan 230: the egress history of a node (reported_ip_history). A NAT node
+// can leave through several public addresses (Leikwanhost 沪台IPLC: per flow
+// 103.246.219.39 or 114.35.6.24) while reported_ip_v4 keeps only the last
+// report. A landing counts a connection from an address it does not know as
+// one of our nodes as the user's own client IP, so those two addresses used
+// up two of jiuwei's five 总 IP slots on PQS TW. The history keeps every
+// public address reported within EgressHistoryTTL, at most
+// egressHistoryPerFamily per family (newest kept), and rewrites a known
+// address at most once per egressHistoryRefresh.
+const (
+	EgressHistoryTTL        = 14 * 24 * time.Hour
+	egressHistoryRefresh    = 6 * time.Hour
+	egressHistoryPerFamily  = 4
+	maxEgressHistoryRawSize = 4096
+)
+
+type egressSeen struct {
+	IP string `json:"ip"`
+	At int64  `json:"at"`
+}
+
+func egressAddr(raw string) string {
+	if ip := PublicIPReportAddr(raw, "v4"); ip != "" {
+		return ip
+	}
+	return PublicIPReportAddr(raw, "v6")
+}
+
+func parseEgressHistory(raw string) []egressSeen {
+	var list []egressSeen
+	if strings.TrimSpace(raw) == "" || len(raw) > maxEgressHistoryRawSize || json.Unmarshal([]byte(raw), &list) != nil {
+		return nil
+	}
+	out := make([]egressSeen, 0, len(list))
+	for _, e := range list {
+		if ip := egressAddr(e.IP); ip != "" {
+			out = append(out, egressSeen{IP: ip, At: e.At})
+		}
+	}
+	return out
+}
+
+// mergeEgressHistory adds the reported public addresses to raw and drops
+// expired, future-dated, invalid or surplus entries. It returns the new JSON
+// and whether it differs from raw (i.e. must be written).
+func mergeEgressHistory(raw string, reported []string, now time.Time) (string, bool) {
+	nowMS := now.UnixMilli()
+	cutoff := now.Add(-EgressHistoryTTL).UnixMilli()
+	byIP := map[string]int64{}
+	for _, e := range parseEgressHistory(raw) {
+		if e.At >= cutoff && e.At <= nowMS+time.Hour.Milliseconds() && e.At > byIP[e.IP] {
+			byIP[e.IP] = e.At
+		}
+	}
+	for _, r := range reported {
+		ip := egressAddr(r)
+		if ip == "" {
+			continue
+		}
+		if at, ok := byIP[ip]; !ok || nowMS-at >= egressHistoryRefresh.Milliseconds() {
+			byIP[ip] = nowMS
+		}
+	}
+	list := make([]egressSeen, 0, len(byIP))
+	for ip, at := range byIP {
+		list = append(list, egressSeen{IP: ip, At: at})
+	}
+	// Newest first so the per-family bound keeps the recent ones.
+	sort.Slice(list, func(i, j int) bool {
+		if list[i].At != list[j].At {
+			return list[i].At > list[j].At
+		}
+		return list[i].IP < list[j].IP
+	})
+	kept, perFamily := make([]egressSeen, 0, len(list)), map[bool]int{}
+	for _, e := range list {
+		v4 := !strings.Contains(e.IP, ":")
+		if perFamily[v4] >= egressHistoryPerFamily {
+			continue
+		}
+		perFamily[v4]++
+		kept = append(kept, e)
+	}
+	sort.Slice(kept, func(i, j int) bool { return kept[i].IP < kept[j].IP })
+	out := ""
+	if len(kept) > 0 {
+		b, _ := json.Marshal(kept)
+		out = string(b)
+	}
+	return out, out != raw
+}
+
+// EgressHistoryIPs returns the node's known egress addresses: the current
+// reported_ip_v4 / reported_ip_v6 plus every unexpired history entry, sorted.
+func EgressHistoryIPs(n model.Node, now time.Time) []string {
+	set := map[string]bool{}
+	for _, raw := range []string{n.ReportedIPV4, n.ReportedIPV6} {
+		if ip := egressAddr(raw); ip != "" {
+			set[ip] = true
+		}
+	}
+	cutoff := now.Add(-EgressHistoryTTL).UnixMilli()
+	for _, e := range parseEgressHistory(n.ReportedIPHistory) {
+		if e.At >= cutoff {
+			set[e.IP] = true
+		}
+	}
+	out := make([]string, 0, len(set))
+	for ip := range set {
+		out = append(out, ip)
+	}
+	sort.Strings(out)
+	return out
+}
+
 // FillNodePublicIPs applies an agent report under the fill-empty rule and
 // returns the columns it wrote (none in the common case: one indexed read,
-// no write; plan 149 adds one write when the reported egress changed). The
-// update re-checks emptiness so a concurrent admin edit wins.
+// no write; plan 149 adds one write when the reported egress changed, plan
+// 230 at most one per address per 6 h for the egress history). The update
+// re-checks emptiness so a concurrent admin edit wins.
 func (r *Repository) FillNodePublicIPs(nodeID int64, ipv4, ipv6 string) ([]string, error) {
 	if r == nil || r.db == nil {
 		return nil, errors.New("repository not initialized")
 	}
 	var n model.Node
-	if err := r.db.Select("id", "server_ip", "server_ip_v4", "server_ip_v6", "ddns_enabled", "reported_ip_v4", "reported_ip_v6").First(&n, nodeID).Error; err != nil {
+	if err := r.db.Select("id", "server_ip", "server_ip_v4", "server_ip_v6", "ddns_enabled", "reported_ip_v4", "reported_ip_v6", "reported_ip_history").First(&n, nodeID).Error; err != nil {
 		return nil, err
 	}
-	// Plan 149: remember the reported egress (landing source-rule exemption
-	// only); written only when it changed.
-	if seen := nodeReportedIPUpdate(&n, ipv4, ipv6); len(seen) > 0 {
+	// Plan 149: remember the reported egress; plan 230 also keeps the recent
+	// ones (landing relay sources). Written only when something changed.
+	seen := nodeReportedIPUpdate(&n, ipv4, ipv6)
+	if history, changed := mergeEgressHistory(n.ReportedIPHistory, []string{ipv4, ipv6}, time.Now()); changed {
+		seen["reported_ip_history"] = history
+	}
+	if len(seen) > 0 {
 		if err := r.db.Model(&model.Node{}).Where("id = ?", nodeID).Updates(seen).Error; err != nil {
 			return nil, err
 		}
