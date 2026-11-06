@@ -16,23 +16,36 @@ import (
 
 // Plan 227: Reality 伪装域名 测速 from the landing machine itself (the panel
 // sends RealityProbe) and the fastest-IP pin of guarded Reality dests (see
-// reality_pin.go). RealityVersion is reported as landing_reality: 1 = the
-// RealityProbe command + Status.RealityPins.
-const RealityVersion = 1
+// reality_pin.go). RealityVersion is reported as landing_reality:
+//   - 1 = the RealityProbe command + Status.RealityPins (plan 227);
+//   - 2 = quiet sockets (plan 229): every probe / ping / pin socket is closed
+//     with SO_LINGER 0 (RST, no TIME_WAIT on this machine), at most 2 Reality
+//     sockets are open at once on the machine, RealityProbeRequest.Concurrency
+//     and RealityProbeResponse.Stats.
+const RealityVersion = 2
 
 const (
 	realityProbeMaxCandidates = 64
-	realityProbeConcurrency   = 4 // candidates at once; third-party sites
+	realityProbeConcurrency   = 2 // candidates at once (default and max); third-party sites
+	realityPingConcurrency    = 2 // TCP pings of one host at once
+	realitySocketCap          = 2 // Reality sockets (probe + pin) open at once on the machine
 	realityMaxIPs             = 8 // public IPv4 addresses tried per host
 	realityConnectTimeout     = time.Second
 	realityProbeDefaultTO     = 3 * time.Second
 	realityProbeMaxTO         = 10 * time.Second
 )
 
+// realitySockets is the machine-wide cap shared by the probe and the pins.
+var realitySockets = make(chan struct{}, realitySocketCap)
+
 // RealityProbeRequest is the RealityProbe command payload.
 type RealityProbeRequest struct {
 	Candidates []string `json:"candidates"` // host or host:port (default 443)
 	TimeoutMs  int      `json:"timeout_ms"` // TLS handshake budget per candidate
+	// Concurrency = candidates probed at once: 1 = one domain at a time (the
+	// panel's re-sample passes), 0 / ≥ 2 = realityProbeConcurrency. Agents
+	// before landing_reality 2 ignore it (≤ 4 at once).
+	Concurrency int `json:"concurrency,omitempty"`
 }
 
 // RealityProbeIP is one resolved address of a candidate.
@@ -60,6 +73,15 @@ type RealityProbeResult struct {
 // RealityProbeResponse is the RealityProbe command response.
 type RealityProbeResponse struct {
 	Results []RealityProbeResult `json:"results"`
+	Stats   *RealityProbeStats   `json:"stats,omitempty"` // landing_reality ≥ 2
+}
+
+// RealityProbeStats is what one probe cost on the machine.
+type RealityProbeStats struct {
+	Sockets    int   `json:"sockets"`     // TCP connects attempted (pings + TLS)
+	MaxOpen    int   `json:"max_open"`    // most of this probe's sockets open at once
+	DurationMs int64 `json:"duration_ms"` // whole probe
+	Linger0    bool  `json:"linger0"`     // sockets closed with RST (no TIME_WAIT)
 }
 
 // realityNet is what the probe and the pin use from the network; tests swap it.
@@ -68,6 +90,10 @@ type realityNet struct {
 	dial   func(ctx context.Context, addr string) (net.Conn, error)
 	roots  *x509.CertPool // nil = system roots
 	public func(ip net.IP) bool
+	// sockets caps the Reality sockets open at once (nil = no cap, tests).
+	sockets chan struct{}
+	// count, when set, records this probe's sockets.
+	count *socketCount
 }
 
 func defaultRealityNet() realityNet {
@@ -76,9 +102,92 @@ func defaultRealityNet() realityNet {
 		lookup: func(ctx context.Context, host string) ([]net.IP, error) {
 			return net.DefaultResolver.LookupIP(ctx, "ip4", host)
 		},
-		dial:   func(ctx context.Context, addr string) (net.Conn, error) { return d.DialContext(ctx, "tcp", addr) },
-		public: publicIP,
+		dial:    func(ctx context.Context, addr string) (net.Conn, error) { return d.DialContext(ctx, "tcp", addr) },
+		public:  publicIP,
+		sockets: realitySockets,
 	}
+}
+
+type socketCount struct {
+	mu                sync.Mutex
+	total, open, peak int
+}
+
+func (c *socketCount) add(d int) {
+	if c == nil {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if d > 0 {
+		c.total++
+	}
+	c.open += d
+	if c.open > c.peak {
+		c.peak = c.open
+	}
+}
+
+// quietClose closes a probe socket with SO_LINGER 0: the kernel sends RST and
+// keeps no TIME_WAIT (a normal close by us, the side that closes first, would
+// keep each socket 60 s in TIME_WAIT). Only our own measuring sockets get
+// this; user connections are never touched.
+func quietClose(c net.Conn) {
+	if c == nil {
+		return
+	}
+	setLinger0(c)
+	_ = c.Close()
+}
+
+// realityQuietClose = SO_LINGER 0 on close; only the manual measuring tool
+// turns it off (before / after comparison).
+var realityQuietClose = true
+
+func setLinger0(c net.Conn) {
+	if !realityQuietClose {
+		return
+	}
+	if l, ok := c.(interface{ SetLinger(int) error }); ok {
+		_ = l.SetLinger(0)
+	}
+}
+
+// connect takes a socket slot (machine-wide cap), then dials with timeout.
+// The wait for a slot is not part of the budget or the measured time: start
+// is taken once the slot is ours. done closes the socket with RST and gives
+// the slot back (no-op after an error); the caller must call it.
+func (rn realityNet) connect(ctx context.Context, addr string, timeout time.Duration) (conn net.Conn, start time.Time, done func(), err error) {
+	if rn.sockets != nil {
+		select {
+		case rn.sockets <- struct{}{}:
+		case <-ctx.Done():
+			return nil, time.Time{}, func() {}, ctx.Err()
+		}
+	}
+	release := func() {
+		if rn.sockets != nil {
+			<-rn.sockets
+		}
+	}
+	rn.count.add(1)
+	start = time.Now()
+	dctx, cancel := context.WithTimeout(ctx, timeout)
+	conn, err = rn.dial(dctx, addr)
+	cancel()
+	if err != nil {
+		rn.count.add(-1)
+		release()
+		return nil, start, func() {}, err
+	}
+	var once sync.Once
+	return conn, start, func() {
+		once.Do(func() {
+			quietClose(conn)
+			rn.count.add(-1)
+			release()
+		})
+	}, nil
 }
 
 var blockedNets = func() []*net.IPNet {
@@ -169,29 +278,42 @@ func (rn realityNet) resolvePublic(ctx context.Context, host string) ([]string, 
 	return out, nil
 }
 
-// connectAll measures one TCP connect per IP, all at once (≤ 8, 1 s each).
-// The socket is closed right away: no bytes are sent.
+// connectAll measures one TCP connect per IP (≤ 8, 1 s each), ≤ 2 at once
+// and within the machine-wide socket cap. The socket is closed right away
+// with RST: no bytes are sent, no TIME_WAIT is left.
 func (rn realityNet) connectAll(ctx context.Context, ips []string, port int) []RealityProbeIP {
 	out := make([]RealityProbeIP, len(ips))
+	sem := make(chan struct{}, realityPingConcurrency)
 	var wg sync.WaitGroup
 	for i, ip := range ips {
+		out[i] = RealityProbeIP{IP: ip, TCPMs: -1}
+		select {
+		case sem <- struct{}{}:
+		case <-ctx.Done():
+			wg.Wait()
+			return out
+		}
 		wg.Add(1)
 		go func(i int, ip string) {
 			defer wg.Done()
-			out[i] = RealityProbeIP{IP: ip, TCPMs: -1}
-			cctx, cancel := context.WithTimeout(ctx, realityConnectTimeout)
-			defer cancel()
-			start := time.Now()
-			c, err := rn.dial(cctx, net.JoinHostPort(ip, strconv.Itoa(port)))
-			if err != nil {
-				return
-			}
-			out[i].TCPMs = msCeil(time.Since(start))
-			_ = c.Close()
+			defer func() { <-sem }()
+			out[i].TCPMs = rn.ping(ctx, ip, port)
 		}(i, ip)
 	}
 	wg.Wait()
 	return out
+}
+
+// ping is one TCP connect (1 s from when the socket slot is ours); -1 =
+// failed.
+func (rn realityNet) ping(ctx context.Context, ip string, port int) int {
+	_, start, done, err := rn.connect(ctx, net.JoinHostPort(ip, strconv.Itoa(port)), realityConnectTimeout)
+	if err != nil {
+		return -1
+	}
+	ms := msCeil(time.Since(start))
+	done()
+	return ms
 }
 
 // msCeil rounds up so a sub-millisecond connect still reads as 1 ms (0 would
@@ -257,18 +379,15 @@ func (rn realityNet) probeOne(ctx context.Context, target string, timeout time.D
 		return res
 	}
 	res.BestIP = best
-	hctx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-	start := time.Now()
-	conn, err := rn.dial(hctx, net.JoinHostPort(best, strconv.Itoa(port)))
+	conn, start, done, err := rn.connect(ctx, net.JoinHostPort(best, strconv.Itoa(port)), timeout)
 	if err != nil {
 		res.Reason = "连接失败：" + shortErr(err)
 		return res
 	}
-	defer conn.Close()
-	if deadline, ok := hctx.Deadline(); ok {
-		_ = conn.SetDeadline(deadline)
-	}
+	// Budget = connect + handshake, counted from the slot (like before).
+	hctx, cancel := context.WithDeadline(ctx, start.Add(timeout))
+	defer cancel()
+	_ = conn.SetDeadline(start.Add(timeout))
 	tc := tls.Client(conn, &tls.Config{
 		ServerName:         host,
 		InsecureSkipVerify: true, // verified below against the roots, with and without the name
@@ -276,6 +395,14 @@ func (rn realityNet) probeOne(ctx context.Context, target string, timeout time.D
 		CurvePreferences:   []tls.CurveID{tls.X25519},
 		MinVersion:         tls.VersionTLS12,
 	})
+	// Close: close_notify after a finished handshake (like a browser), then
+	// RST instead of FIN (SO_LINGER 0) → no TIME_WAIT here.
+	defer func() {
+		setLinger0(conn)
+		_ = conn.SetWriteDeadline(time.Now().Add(time.Second))
+		_ = tc.Close()
+		done()
+	}()
 	if err := tc.HandshakeContext(hctx); err != nil {
 		res.Reason = "TLS 握手失败：" + shortErr(err)
 		return res
@@ -328,8 +455,8 @@ func shortErr(err error) string {
 	return s
 }
 
-// ProbeReality probes the candidates, ≤ 4 at once, and returns them feasible
-// first, then by latency (failures last, in request order).
+// ProbeReality probes the candidates, ≤ 2 at once (1 when asked), and returns
+// them feasible first, then by latency (failures last, in request order).
 func ProbeReality(ctx context.Context, req RealityProbeRequest) (RealityProbeResponse, error) {
 	return defaultRealityNet().probe(ctx, req)
 }
@@ -361,8 +488,16 @@ func (rn realityNet) probe(ctx context.Context, req RealityProbeRequest) (Realit
 	if timeout > realityProbeMaxTO {
 		timeout = realityProbeMaxTO
 	}
+	workers := realityProbeConcurrency
+	if req.Concurrency == 1 {
+		workers = 1
+	}
+	if rn.count == nil {
+		rn.count = &socketCount{}
+	}
+	began := time.Now()
 	results := make([]RealityProbeResult, len(targets))
-	sem := make(chan struct{}, realityProbeConcurrency)
+	sem := make(chan struct{}, workers)
 	var wg sync.WaitGroup
 	for i, t := range targets {
 		wg.Add(1)
@@ -380,7 +515,10 @@ func (rn realityNet) probe(ctx context.Context, req RealityProbeRequest) (Realit
 	}
 	wg.Wait()
 	sortRealityResults(results)
-	return RealityProbeResponse{Results: results}, nil
+	rn.count.mu.Lock()
+	stats := &RealityProbeStats{Sockets: rn.count.total, MaxOpen: rn.count.peak, DurationMs: time.Since(began).Milliseconds(), Linger0: realityQuietClose}
+	rn.count.mu.Unlock()
+	return RealityProbeResponse{Results: results, Stats: stats}, nil
 }
 
 func sortRealityResults(results []RealityProbeResult) {
