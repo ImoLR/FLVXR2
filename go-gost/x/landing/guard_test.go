@@ -247,11 +247,18 @@ func TestGlobalLayerMarkersOrderAndFailOpen(t *testing.T) {
 	m := NewManager(t.TempDir(), true)
 	m.desired = d
 	var names []string
-	for _, r := range m.effectiveEgress().Rules {
+	eff := m.effectiveEgress().Rules
+	for _, r := range eff {
 		names = append(names, r.Name)
 	}
-	if got := strings.Join(names, "|"); got != "默认：屏蔽 BT|强制|强制 v4|chain|节点|全局默认|全局默认出站" {
+	// Plan 225 (P1-2): the non-block forced rule is split — the plain node
+	// keeps its outbound, the chain node's match goes to its own upstream.
+	if got := strings.Join(names, "|"); got != "默认：屏蔽 BT|强制|强制 v4|强制 v4|chain|节点|全局默认|全局默认出站" {
 		t.Fatalf("layer order = %s", got)
+	}
+	if eff[2].Outbound != "flvxo-7" || strings.Join(eff[2].InboundTags, ",") != plain.InboundTag ||
+		eff[3].Outbound != chainOutboundTag(chain.ID) || strings.Join(eff[3].InboundTags, ",") != chain.InboundTag {
+		t.Fatalf("forced v4 split = %+v / %+v", eff[2], eff[3])
 	}
 	c := plan.coveredTags()
 	if len(c) != 1 || !c[plain.InboundTag] {
