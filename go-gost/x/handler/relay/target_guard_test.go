@@ -1,8 +1,12 @@
 package relay
 
 import (
+	"errors"
 	"net"
+	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 )
 
 func TestTargetGuard(t *testing.T) {
@@ -70,5 +74,101 @@ func TestTargetGuard(t *testing.T) {
 	}
 	if guardedNetwork("tcp") || guardedNetwork("udp") {
 		t.Error("tcp/udp are checked by address")
+	}
+}
+
+// The own-address set refreshes in the background: a stale set never blocks a
+// connection, and the new addresses are used once the refresh finished.
+func TestTargetGuardOwnAddrsBackgroundRefresh(t *testing.T) {
+	saved := ownAddrs
+	defer func() { ownAddrs = saved }()
+	var mu sync.Mutex
+	cur := "203.0.113.5"
+	release := make(chan struct{})
+	var calls atomic.Int32
+	ownAddrs = &addrCache{load: func() ([]net.Addr, error) {
+		if calls.Add(1) > 1 {
+			<-release // a slow refresh must not block checks
+		}
+		mu.Lock()
+		defer mu.Unlock()
+		return []net.Addr{&net.IPNet{IP: net.ParseIP(cur), Mask: net.CIDRMask(24, 32)}}, nil
+	}}
+	old := &net.TCPAddr{IP: net.ParseIP("203.0.113.5"), Port: 22}
+	nu := &net.TCPAddr{IP: net.ParseIP("198.51.100.7"), Port: 22}
+	if checkTargetGuard(old) == nil {
+		t.Fatal("own address must be refused (first, inline load)")
+	}
+	mu.Lock()
+	cur = "198.51.100.7"
+	mu.Unlock()
+	ownAddrs.at.Store(time.Now().Add(-2 * ownAddrsTTL).UnixNano())
+	done := make(chan struct{})
+	go func() {
+		for i := 0; i < 100; i++ {
+			if checkTargetGuard(old) == nil { // still the previous set
+				t.Error("stale set must stay in use during refresh")
+			}
+		}
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("check blocked behind the refresh")
+	}
+	for wait := time.Now().Add(2 * time.Second); calls.Load() < 2; time.Sleep(time.Millisecond) {
+		if time.Now().After(wait) {
+			t.Fatal("background refresh never started")
+		}
+	}
+	if n := calls.Load(); n != 2 {
+		t.Fatalf("want exactly one background refresh, load calls=%d", n)
+	}
+	close(release)
+	deadline := time.Now().Add(2 * time.Second)
+	for checkTargetGuard(nu) == nil {
+		if time.Now().After(deadline) {
+			t.Fatal("refreshed address not picked up")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if checkTargetGuard(old) != nil {
+		t.Error("old address is no longer own after refresh")
+	}
+}
+
+func TestTargetGuardLoadErrorKeepsSet(t *testing.T) {
+	saved := ownAddrs
+	defer func() { ownAddrs = saved }()
+	fail := false
+	ownAddrs = &addrCache{load: func() ([]net.Addr, error) {
+		if fail {
+			return nil, errors.New("netlink")
+		}
+		return []net.Addr{&net.IPNet{IP: net.ParseIP("203.0.113.5"), Mask: net.CIDRMask(24, 32)}}, nil
+	}}
+	own := &net.TCPAddr{IP: net.ParseIP("203.0.113.5"), Port: 22}
+	if checkTargetGuard(own) == nil {
+		t.Fatal("own address must be refused")
+	}
+	fail = true
+	ownAddrs.refresh()
+	if checkTargetGuard(own) == nil {
+		t.Error("failed reload must keep the previous set")
+	}
+}
+
+func TestTargetGuardTypedNilAndInvalid(t *testing.T) {
+	var tcp *net.TCPAddr
+	var udp *net.UDPAddr
+	if checkTargetGuard(tcp) == nil || checkTargetGuard(udp) == nil {
+		t.Error("typed nil remote must be refused")
+	}
+	if checkTargetGuard(&net.TCPAddr{Port: 80}) == nil {
+		t.Error("address without IP must be refused")
+	}
+	if checkTargetGuard(&net.UnixAddr{Name: "/run/x.sock", Net: "unix"}) == nil {
+		t.Error("non-IP remote must be refused")
 	}
 }

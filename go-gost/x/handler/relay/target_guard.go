@@ -5,6 +5,7 @@ import (
 	"net"
 	"net/netip"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -40,8 +41,8 @@ func checkTargetGuard(remote net.Addr) error {
 	if remote == nil {
 		return errTargetGuard
 	}
-	ap, err := netip.ParseAddrPort(remote.String())
-	if err != nil {
+	ap, ok := addrPortOf(remote)
+	if !ok || !ap.Addr().IsValid() {
 		return errTargetGuard
 	}
 	ip := ap.Addr().Unmap()
@@ -63,34 +64,78 @@ func privateAddr(ip netip.Addr) bool {
 		ip.IsInterfaceLocalMulticast() || (ip.Is4() && cgnat.Contains(ip))
 }
 
+// addrPortOf reads the dialed address without formatting and re-parsing it
+// (no allocation for the usual *net.TCPAddr / *net.UDPAddr).
+func addrPortOf(remote net.Addr) (netip.AddrPort, bool) {
+	switch a := remote.(type) {
+	case *net.TCPAddr:
+		if a == nil {
+			return netip.AddrPort{}, false
+		}
+		return a.AddrPort(), true
+	case *net.UDPAddr:
+		if a == nil {
+			return netip.AddrPort{}, false
+		}
+		return a.AddrPort(), true
+	}
+	ap, err := netip.ParseAddrPort(remote.String())
+	return ap, err == nil
+}
+
 // ownAddrs caches this machine's interface addresses (refreshed every 60 s).
+// Readers never lock: the set is an atomic pointer, and a stale set is
+// refreshed in the background (one goroutine at a time) while connections
+// keep using the previous set. Only the very first check loads it inline.
 var ownAddrs = &addrCache{}
 
+const ownAddrsTTL = 60 * time.Second
+
 type addrCache struct {
-	mu   sync.Mutex
-	at   time.Time
-	set  map[netip.Addr]struct{}
-	load func() ([]net.Addr, error) // tests
+	set        atomic.Pointer[map[netip.Addr]struct{}]
+	at         atomic.Int64 // UnixNano of the last load
+	refreshing atomic.Bool
+	initMu     sync.Mutex
+	load       func() ([]net.Addr, error) // tests
 }
 
 func (c *addrCache) has(ip netip.Addr) bool {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if c.set == nil || time.Since(c.at) > 60*time.Second {
-		load := c.load
-		if load == nil {
-			load = net.InterfaceAddrs
+	s := c.set.Load()
+	if s == nil {
+		c.initMu.Lock()
+		if s = c.set.Load(); s == nil {
+			c.refresh()
+			s = c.set.Load()
 		}
-		set := map[netip.Addr]struct{}{}
-		if addrs, err := load(); err == nil {
-			for _, a := range addrs {
-				if p, err := netip.ParsePrefix(a.String()); err == nil {
-					set[p.Addr().Unmap()] = struct{}{}
-				}
-			}
-		}
-		c.set, c.at = set, time.Now()
+		c.initMu.Unlock()
+	} else if time.Now().UnixNano()-c.at.Load() > int64(ownAddrsTTL) && c.refreshing.CompareAndSwap(false, true) {
+		go func() {
+			defer c.refreshing.Store(false)
+			c.refresh()
+		}()
 	}
-	_, ok := c.set[ip]
+	_, ok := (*s)[ip]
 	return ok
+}
+
+// refresh reloads the interface addresses. On a load error the previous set
+// is kept (an empty set only when there is none yet).
+func (c *addrCache) refresh() {
+	load := c.load
+	if load == nil {
+		load = net.InterfaceAddrs
+	}
+	addrs, err := load()
+	if err != nil && c.set.Load() != nil {
+		c.at.Store(time.Now().UnixNano())
+		return
+	}
+	set := map[netip.Addr]struct{}{}
+	for _, a := range addrs {
+		if p, err := netip.ParsePrefix(a.String()); err == nil {
+			set[p.Addr().Unmap()] = struct{}{}
+		}
+	}
+	c.set.Store(&set)
+	c.at.Store(time.Now().UnixNano())
 }
