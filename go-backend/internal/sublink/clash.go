@@ -323,11 +323,20 @@ func clashDoc(nodes []Node, mode string, stash bool) (omap, int) {
 	if mode == ModeGlobal {
 		rules = append(rules, privateCIDRs...)
 	} else {
-		dns.add("nameserver-policy", omap{{"geosite:cn,private", cnDoH}, {cnResolved[0], cnDoH}, {cnResolved[1], cnDoH}})
+		// Plan 226: Stash already resolves everything with CN DoH and is not
+		// a Windows client, so its document stays as it was.
+		policy := omap{{"geosite:cn,private", cnDoH}}
+		if !stash {
+			policy.add(cnResolved[0], cnDoH)
+			policy.add(cnResolved[1], cnDoH)
+		}
+		dns.add("nameserver-policy", policy)
 		// no-resolve: a domain outside geosite:cn goes straight to MATCH
 		// instead of being resolved locally first just to test GEOIP.
 		rules = append(rules, "GEOSITE,private,DIRECT", "GEOIP,private,DIRECT,no-resolve")
-		rules = append(rules, ncsiDirect...)
+		if !stash {
+			rules = append(rules, ncsiDirect...)
+		}
 		rules = append(rules, "GEOSITE,cn,DIRECT", "GEOIP,CN,DIRECT,no-resolve")
 	}
 	rules = append(rules, "MATCH,"+GroupSelect)

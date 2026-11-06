@@ -209,7 +209,7 @@ func TestNodeDownPlan226(t *testing.T) {
 		if err := yaml.Unmarshal(body, &d); err != nil {
 			t.Fatalf("%s: %v", c.name, err)
 		}
-		cn := c.mode == ModeCNDirect
+		cn := c.mode == ModeCNDirect && !c.stash
 		for _, k := range cnResolved {
 			if got := strings.Join(d.DNS.Policy[k], ","); (got == strings.Join(cnDoH, ",")) != cn {
 				t.Errorf("%s: policy %q = %q", c.name, k, got)
