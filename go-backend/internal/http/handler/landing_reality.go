@@ -540,6 +540,36 @@ func (h *Handler) realityResultsView(results []repo.RealityProbeResult, history 
 	return out
 }
 
+// markRealityPickHeld (plan 233): in 自动 mode, when a faster pickable domain
+// is within RealityPickSwitchMarginMs of the current default, the current row
+// says so (pickHeld, pickHeldBy = that domain, pickHeldGapMs, the two ranking
+// values pickHeldMs / pickHeldByMs). rows are
+// realityResultsView(results) in the same order.
+func (h *Handler) markRealityPickHeld(s model.LandingServer, results []repo.RealityProbeResult, rows []map[string]any) {
+	if repo.NormalizeRealityMode(s.RealityMode) != repo.RealityModeAuto || len(rows) != len(results) {
+		return
+	}
+	blocked := map[string]bool{}
+	for _, row := range rows {
+		if b, _ := row["blocked"].(bool); b {
+			blocked[row["domain"].(string)] = true
+		}
+	}
+	d := repo.DecideRealityPick(results, func(host string) bool { return blocked[host] }, s.RealityDest)
+	if !d.Held {
+		return
+	}
+	for i := range results {
+		if &results[i] == d.Current {
+			rows[i]["pickHeld"] = true
+			rows[i]["pickHeldBy"] = realityHostOf(d.Best.Target)
+			rows[i]["pickHeldGapMs"] = d.GapMs
+			rows[i]["pickHeldMs"] = repo.RealityRankMs(*d.Current)
+			rows[i]["pickHeldByMs"] = repo.RealityRankMs(*d.Best)
+		}
+	}
+}
+
 // landingServerRealityView is the admin part of a server view.
 func (h *Handler) landingServerRealityView(s model.LandingServer, v map[string]any) {
 	ok, why := h.realityProbeSupport(&s)
@@ -549,7 +579,10 @@ func (h *Handler) landingServerRealityView(s model.LandingServer, v map[string]a
 	v["realityProbedAt"] = s.RealityProbedAt
 	v["realityProbeError"] = s.RealityProbeError
 	history := repo.LandingRealityHistory(&s)
-	v["realityProbe"] = h.realityResultsView(repo.LandingRealityProbeResults(&s), history)
+	results := repo.LandingRealityProbeResults(&s)
+	rows := h.realityResultsView(results, history)
+	h.markRealityPickHeld(s, results, rows)
+	v["realityProbe"] = rows
 	v["realityProbeStats"] = history.Stats
 	v["realityTrialRule"] = realityTrialRuleView()
 	v["realityPinSupported"] = h.realityPinSupport(&s)
@@ -701,5 +734,6 @@ func realityTrialRuleView() map[string]any {
 		"jitterMs": repo.RealityTrialJitterMs, "jitterPct": repo.RealityTrialJitterPct, "marginMs": repo.RealityTrialMarginMs,
 		"resampleTop": repo.RealityResampleTop, "resampleTrial": repo.RealityResampleTrialMax, "resampleRounds": repo.RealityResampleRounds,
 		"resampleGapSec": int(realityResampleGap / time.Second), "keep": repo.RealitySampleKeep,
+		"switchMarginMs": repo.RealityPickSwitchMarginMs,
 	}
 }

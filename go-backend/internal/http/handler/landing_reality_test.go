@@ -195,6 +195,97 @@ func TestLandingRealityProbeAutoPick(t *testing.T) {
 	}
 }
 
+// heldRow = the realityProbe row of domain from a server view.
+func heldRow(t *testing.T, view map[string]any, domain string) map[string]any {
+	t.Helper()
+	for _, r := range view["realityProbe"].([]any) {
+		if row := r.(map[string]any); row["domain"] == domain {
+			return row
+		}
+	}
+	t.Fatalf("no row %s", domain)
+	return nil
+}
+
+// TestLandingRealityPickSwitchMargin (plan 233): a later 测速 keeps the
+// current default while the challenger is < 5 ms faster (the view marks the
+// current row 保持), switches at ≥ 5 ms, and at once when the current one is
+// blocked; existing nodes keep their dest throughout.
+func TestLandingRealityPickSwitchMargin(t *testing.T) {
+	e := newFlowTestEnv(t)
+	realitySeed(t, e)
+	a := newRealityAgent(t, e)
+	probe := func() map[string]any {
+		t.Helper()
+		out := egressCall(t, e.h, "/api/v1/landing/server/reality-probe", map[string]any{"id": 1}, 0)
+		if out.Code != 0 {
+			t.Fatalf("probe: %+v", out)
+		}
+		return dataMap(t, out)
+	}
+	a.results = []map[string]any{
+		probeRow("www.tesla.com:443", true, 12, "203.0.113.12", "www.tesla.com"),
+		probeRow("www.nvidia.com:443", true, 30, "203.0.113.30", "www.nvidia.com"),
+	}
+	if view := probe(); view["realityDest"] != "www.tesla.com:443" {
+		t.Fatalf("first pick %v", view["realityDest"])
+	}
+	if rule := e.h.landingServerView(mustServer(t, e)); rule["realityTrialRule"].(map[string]any)["switchMarginMs"] != repo.RealityPickSwitchMarginMs {
+		t.Fatalf("rule view %v", rule["realityTrialRule"])
+	}
+	// nvidia 3 ms faster → keep tesla, marked 保持.
+	a.results[1] = probeRow("www.nvidia.com:443", true, 9, "203.0.113.30", "www.nvidia.com")
+	view := probe()
+	if view["realityDest"] != "www.tesla.com:443" || view["realityPicked"] != "" {
+		t.Fatalf("within margin switched: %v %v", view["realityDest"], view["realityPicked"])
+	}
+	row := heldRow(t, view, "www.tesla.com")
+	if row["pickHeld"] != true || row["pickHeldBy"] != "www.nvidia.com" || row["pickHeldGapMs"] != float64(3) || row["pickHeldMs"] != float64(12) || row["pickHeldByMs"] != float64(9) {
+		t.Fatalf("held row %v", row)
+	}
+	if _, ok := heldRow(t, view, "www.nvidia.com")["pickHeld"]; ok {
+		t.Fatal("challenger marked held")
+	}
+	// nvidia exactly 5 ms faster → switch.
+	a.results[1] = probeRow("www.nvidia.com:443", true, 7, "203.0.113.30", "www.nvidia.com")
+	if view := probe(); view["realityDest"] != "www.nvidia.com:443" || view["realityPicked"] != "www.nvidia.com:443" {
+		t.Fatalf("≥ margin kept: %v", view["realityDest"])
+	}
+	// Blocked current → at once, even though tesla is slower.
+	var nv model.LandingRealityDomain
+	if err := e.r.DB().Where("domain = ?", "www.nvidia.com").First(&nv).Error; err != nil {
+		t.Fatal(err)
+	}
+	if out := egressCall(t, e.h, "/api/v1/landing/reality/domain/block", map[string]any{"id": nv.ID, "blocked": true}, 0); out.Code != 0 {
+		t.Fatalf("block: %+v", out)
+	}
+	if view := probe(); view["realityDest"] != "www.tesla.com:443" {
+		t.Fatalf("blocked current kept: %v", view["realityDest"])
+	}
+	// Existing nodes untouched.
+	for id, dest := range map[int64]string{1: "www.lovelive-anime.jp:443", 2: "www.lovelive-anime.jp:443", 3: "www.example.com:443"} {
+		var n model.LandingNode
+		if err := e.r.DB().First(&n, id).Error; err != nil || n.Dest != dest {
+			t.Fatalf("node %d dest = %q (%v)", id, n.Dest, err)
+		}
+	}
+	// 手动: never held / switched by a 测速.
+	e.exec("UPDATE landing_server SET reality_mode='manual', reality_dest='www.nvidia.com:443' WHERE id=1")
+	a.results[0] = probeRow("www.tesla.com:443", true, 1, "203.0.113.12", "www.tesla.com")
+	if view := probe(); view["realityDest"] != "www.nvidia.com:443" {
+		t.Fatalf("manual changed: %v", view["realityDest"])
+	}
+}
+
+func mustServer(t *testing.T, e *flowTestEnv) model.LandingServer {
+	t.Helper()
+	s, err := e.r.GetLandingServer(1)
+	if err != nil || s == nil {
+		t.Fatal(err)
+	}
+	return *s
+}
+
 // TestLandingRealityPinsFromApply: pins reported with the apply are stored
 // and shown to admins only; an agent without the capability stores nothing.
 func TestLandingRealityPinsFromApply(t *testing.T) {
@@ -325,6 +416,7 @@ func TestLandingRealityShared(t *testing.T) {
 	var mu sync.Mutex
 	var probeBodies []string
 	polls := 0
+	dellMs := "20.0"
 	realitySharedPollEvery = 10 * time.Millisecond
 	t.Cleanup(func() { realitySharedPollEvery = 4 * time.Second })
 	realityResampleGap = 0
@@ -348,7 +440,7 @@ func TestLandingRealityShared(t *testing.T) {
 			// Custom reports float milliseconds.
 			fmt.Fprint(w, `{"probe_id":"p-1","state":"done","results":[`+
 				`{"target":"www.sony.com:443","feasible":true,"latency_ms":8.4,"best_ip":"203.0.113.9","ips":[{"ip":"203.0.113.9","tcp_ms":1.2},{"ip":"203.0.113.99","tcp_ms":-1}],"tls13":true,"x25519":true,"h2":true,"cert_valid":true,"server_names":["www.sony.com","sony.com"]},`+
-				`{"target":"www.dell.com:443","feasible":true,"latency_ms":20.0,"best_ip":"203.0.113.20","ips":[],"tls13":true,"x25519":true,"h2":true,"cert_valid":true,"server_names":[]}]}`)
+				`{"target":"www.dell.com:443","feasible":true,"latency_ms":`+dellMs+`,"best_ip":"203.0.113.20","ips":[],"tls13":true,"x25519":true,"h2":true,"cert_valid":true,"server_names":[]}]}`)
 		case landingcustom.Prefix + "/shares/7/status":
 			fmt.Fprint(w, `{"applied_revision":0,"core":{"state":"running"},"nodes":[],"collected_at":1,"reality_pins":[{"host":"www.lovelive-anime.jp","pinned_ip":"65.9.180.116","pinned_ms":4.6,"best_ip":"65.9.180.116","best_ms":4.6,"checked_at":5,"nodes":["132"]}]}`)
 		case landingcustom.Prefix + "/reality-pool":
@@ -394,6 +486,17 @@ func TestLandingRealityShared(t *testing.T) {
 	if st := repo.LandingRealityHistory(s).Stats; st == nil || st.Passes != 3 || st.Resampled != 2 || st.Measured || st.Linger0 {
 		t.Fatalf("shared stats = %+v", st)
 	}
+	// Plan 233, same rule for shared servers: current dell 12 ms vs sony 9 ms
+	// (< 5 ms apart) → kept and marked 保持.
+	mu.Lock()
+	dellMs = "11.6"
+	mu.Unlock()
+	e.exec("UPDATE landing_server SET reality_dest='www.dell.com:443' WHERE id=5")
+	out = egressCall(t, e.h, "/api/v1/landing/server/reality-probe", map[string]any{"id": 5}, 0)
+	if view := dataMap(t, out); out.Code != 0 || view["realityDest"] != "www.dell.com:443" || heldRow(t, view, "www.dell.com")["pickHeldGapMs"] != float64(3) {
+		t.Fatalf("shared margin: %+v", out)
+	}
+	s, _ = e.r.GetLandingServer(5)
 	// Pins ride on the status poll (float ms).
 	client, _ := landingcustom.New(custom.URL, "flvx_fixture")
 	if _, err := e.h.pollSharedLanding(context.Background(), client, *s); err != nil {

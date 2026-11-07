@@ -451,7 +451,8 @@ type RealityProbeRecord struct {
 // RecordLandingRealityProbe stores a 测速 table (rows as merged by
 // MergeRealitySamples), adds its samples to the server's history, marks the
 // 试用 verdicts and, in auto mode, makes the best usable candidate (see
-// PickRealityResult) the server default for NEW nodes. Existing nodes keep
+// PickRealityResult; switch margin: DecideRealityPick) the server default for
+// NEW nodes. Existing nodes keep
 // their dest; no revision bump (no agent push needed).
 func (r *Repository) RecordLandingRealityProbe(serverID int64, results []RealityProbeResult, probeErr string, stats *RealityProbeStats) (RealityProbeRecord, error) {
 	var rec RealityProbeRecord
@@ -485,7 +486,9 @@ func (r *Repository) RecordLandingRealityProbe(serverID int64, results []Reality
 			updates["reality_samples"] = string(hist)
 		}
 		if probeErr == "" && NormalizeRealityMode(s.RealityMode) == RealityModeAuto {
-			if best := PickRealityResult(results, func(h string) bool { return info.Blocked[h] }); best != nil {
+			// Plan 233: the current default stays unless a challenger is ≥
+			// RealityPickSwitchMarginMs faster or it is not pickable any more.
+			if best := DecideRealityPick(results, func(h string) bool { return info.Blocked[h] }, s.RealityDest).Pick; best != nil {
 				host := realityHost(best.Target)
 				dest := net.JoinHostPort(host, strconv.Itoa(realityTargetPort(best.Target)))
 				names := RealityServerNamesFor(host, best.ServerNames)

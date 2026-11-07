@@ -583,6 +583,8 @@ export interface RealityTrialRule {
   resampleRounds: number;
   resampleGapSec: number;
   keep: number;
+  // Plan 233: 自动 changes the pick only when ≥ this many ms faster.
+  switchMarginMs?: number;
 }
 export interface RealityProbeStats {
   at: number;
@@ -627,6 +629,13 @@ export interface RealityProbeRow {
   trialReason?: string;
   historyCount?: number;
   historyJitterMs?: number;
+  // Plan 233: current 自动 pick kept although pickHeldBy is pickHeldGapMs
+  // faster (< switchMarginMs).
+  pickHeld?: boolean;
+  pickHeldBy?: string;
+  pickHeldGapMs?: number;
+  pickHeldMs?: number;
+  pickHeldByMs?: number;
 }
 export interface RealityPin {
   host: string;

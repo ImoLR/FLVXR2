@@ -3,7 +3,9 @@ package repo
 import (
 	"encoding/json"
 	"fmt"
+	"net"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -397,7 +399,7 @@ func PickRealityResult(results []RealityProbeResult, blocked func(host string) b
 	var best *RealityProbeResult
 	for i := range results {
 		res := &results[i]
-		if !res.Feasible || res.LatencyMs <= 0 || (blocked != nil && blocked(realityHost(res.Target))) || (res.Trial && !res.TrialOK) {
+		if !realityPickable(*res, blocked) {
 			continue
 		}
 		if best == nil || realityRankLess(*res, *best) {
@@ -405,6 +407,78 @@ func PickRealityResult(results []RealityProbeResult, blocked func(host string) b
 		}
 	}
 	return best
+}
+
+// RealityPickSwitchMarginMs (plan 233): in 自动 mode the current server
+// default changes only when a challenger ranks ≥ this many ms faster — the
+// same margin as 「最优」 (handler bestPathSwitchMarginMS). Without it the pick
+// flipped daily between big sites 1 ms apart.
+const RealityPickSwitchMarginMs = 5
+
+// RealityRankMs is the value the margin compares: the worst sample of a
+// re-sampled row, else its single sample (the plan-229 ranking metric).
+func RealityRankMs(r RealityProbeResult) int {
+	if len(r.Samples) > 1 && r.WorstMs > 0 {
+		return r.WorstMs
+	}
+	return r.LatencyMs
+}
+
+// realityPickable = may be chosen automatically: usable, not blocked, not an
+// unproven 试用 site.
+func realityPickable(r RealityProbeResult, blocked func(host string) bool) bool {
+	return r.Feasible && r.LatencyMs > 0 && (blocked == nil || !blocked(realityHost(r.Target))) && (!r.Trial || r.TrialOK)
+}
+
+// RealityPickDecision is DecideRealityPick's outcome.
+type RealityPickDecision struct {
+	Pick    *RealityProbeResult // the server default after this 测速 (nil = leave unchanged)
+	Best    *RealityProbeResult // the fastest pickable row (PickRealityResult), ignoring the margin
+	Current *RealityProbeResult // the row of the current default, if it is in the table
+	Held    bool                // Best is faster, but by < RealityPickSwitchMarginMs: current kept
+	GapMs   int                 // RealityRankMs(Current) − RealityRankMs(Best) when Held (≥ 0)
+}
+
+// DecideRealityPick applies the switch margin (plan 233) to the automatic
+// choice. current = the server's reality_dest ("" = none yet).
+//   - current pickable and Best not ≥ margin faster → keep current (Held when
+//     Best is a different row);
+//   - current missing, unusable, blocked or 试用 no longer 稳定 → Best at once;
+//   - current row 「已取消」 (not measured this time) → Pick nil (unchanged).
+func DecideRealityPick(results []RealityProbeResult, blocked func(host string) bool, current string) RealityPickDecision {
+	var d RealityPickDecision
+	d.Best = PickRealityResult(results, blocked)
+	if key := realityDestKey(current); key != "" {
+		for i := range results {
+			if realityDestKey(results[i].Target) == key {
+				d.Current = &results[i]
+				break
+			}
+		}
+	}
+	d.Pick = d.Best
+	cur := d.Current
+	switch {
+	case cur == nil:
+	case cur.Reason == "已取消":
+		d.Pick = nil // no certificate names measured either: leave dest and names as they are
+	case d.Best == nil || cur == d.Best || !realityPickable(*cur, blocked):
+	default:
+		gap := RealityRankMs(*cur) - RealityRankMs(*d.Best)
+		if gap < RealityPickSwitchMarginMs {
+			d.Pick, d.Held, d.GapMs = cur, true, max(gap, 0)
+		}
+	}
+	return d
+}
+
+// realityDestKey normalises a host[:port] to "host:port" (port 443 default).
+func realityDestKey(target string) string {
+	host := realityHost(target)
+	if host == "" {
+		return ""
+	}
+	return net.JoinHostPort(host, strconv.Itoa(realityTargetPort(target)))
 }
 
 // RealityHistoryJitter = max − min of the usable samples (0 with < 2).
