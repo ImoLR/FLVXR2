@@ -44,8 +44,31 @@ separate, agreed difference — unchanged.)
 - [x] panel: 伪装域名 re-evaluation on save (card + generic config) from the stored 测速 table, counts + log
 - [x] panel tests: lower margin → switch + count, no probe issued; same value → nothing; higher → nothing;
       failover-only change not applied; mutation check
-- [ ] frontend: 「保存后约 1 分钟内生效」 (header + toast); tsc / lint / build; desktop + phone screenshot
-- [ ] gates vs base: go-gost + go-gost/x tests, backend build + tests (+ contract), compare with base logs
+- [x] frontend: 「保存后约 1 分钟内生效」 (header + toast); tsc / lint / build; desktop + phone screenshot
+- [x] gates vs base: go-gost + go-gost/x tests, backend build + tests (+ contract), compare with base logs
 - [x] mmwx contract doc wording check (`reality-pick-v1.md`) — change only if wording is affected → no change: the doc
       describes the share fields and the Helper rule (both unchanged); nothing in it says when FLVX's own agent applies a margin
-- [ ] push branch, ledger row (READY for release-1108), summary
+- [x] push branch, ledger row (READY for release-1108), summary
+
+## Results (2026-11-08 01:20 TW)
+- Commits: 000eb732 agent, 60284cea panel, 9d7e8be7 UI (+ this plan doc). CI Build Check 42394679107 on 9d7e8be7: all 4
+  jobs green (frontend, agent, backend, PostgreSQL contract).
+- New tests: agent `TestPinnerMarginChangeReevaluatesHeldSamples`, `TestPinnerMarginChangeSkipsRunningAndUnpinned`,
+  `TestPinnerCheckHoldsSamples`, `TestApplyMarginChangeMovesPinInSameApply` (0 lookups / 0 dials asserted); handler
+  `TestSwitchMarginRealityDomainSaveAppliesAtOnce` (0 测速 requests asserted, revision / 测速 time unchanged),
+  `TestSwitchMarginRealityDomainGenericConfigAppliesAtOnce`; contract `TestSwitchMarginDomainReapplyContract`
+  (SQLite + PostgreSQL).
+- Mutation checks (each reverted): agent hook removed → 2 agent tests fail; agent same-value guard removed → Apply test
+  fails ("unchanged margin re-evaluated"); panel save hook removed / same-value guard removed / failover filter removed /
+  generic-config hook removed → the matching handler test fails.
+- Gates (logs `/root/flvx-workers/runs/margin-apply-now/gates/head/`, base = plan 236 logs of the same code):
+  backend build + vet ok; backend SQLite 26/26 ok, PostgreSQL 26/26 ok (temporary postgres:18-alpine on tmpfs, removed),
+  0 failures = base; go-gost root ok; go-gost/x: only `TestSocketCapSharedByProbeAndPin` (timing: "peak open sockets = 1")
+  — base fails it 3/9, branch 3/9 → pre-existing flake, not new. Frontend tsc ok, eslint clean, vite build ok.
+- Screens (desktop 1440 + phone 390, card + saved toast, 0 page errors, no horizontal scroll):
+  `/root/mmwx-preview/margin-apply-now/` (index.html).
+- Resource use: no new probe, socket, goroutine or timer. Agent keeps ≤ 8 `{ip, ms}` samples per pinned host in memory;
+  a margin change costs one in-memory pass. Panel: one pass over the active 自动 servers (1 row-locked tx each) only when
+  the 伪装域名 value actually changed.
+- Release: panel (伪装域名 part + text) + native landing agent OTA (目标 IP part). fork.124/125 agents keep the old timing
+  (number used at the next check) until upgraded; shared servers already ~1 min via Helper v0.7.24.
