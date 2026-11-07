@@ -38,8 +38,8 @@ challenger's ranking value is **≥ 5 ms lower** (`RealityPickSwitchMarginMs = 5
 - [x] go test ./... + contract; tsc / build / lint
 - [x] replay Bestvm US stored samples (prod DB read-only copy)
 - [x] screens phone 390 + desktop 1440 light → /root/mmwx-preview/reality-pick-margin/
-- [ ] commit, push, CI green
-- [ ] RELEASE-LEDGER row (待发布, ready, panel only)
+- [x] commit, push, CI green (650c815c, CI Build Check 42349584553 success: backend, PG contract, frontend, agent)
+- [x] RELEASE-LEDGER row (待发布, ready, panel only)
 
 ## Replay — Bestvm US (prod DB read-only copy taken 11-07 ~14:40 TW)
 Stored history = 2 probes since fork.123 (09:03, 09:09 TW). Previous dest before 09:03 = ftp.debian.org:443 (fork.121).
