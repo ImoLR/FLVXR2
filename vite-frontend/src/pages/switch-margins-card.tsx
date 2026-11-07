@@ -119,7 +119,7 @@ export function SwitchMarginsCard() {
         return;
       }
       applyView(res.data);
-      toast.success("自动切换门槛已保存，马上生效");
+      toast.success("自动切换门槛已保存，约 1 分钟内生效");
     } finally {
       setSaving(false);
     }
@@ -251,7 +251,8 @@ export function SwitchMarginsCard() {
           <p className="text-xs text-gray-500 dark:text-gray-400">
             自动选最快时，新的要比当前的快多少才换。数字大：更稳、少来回换；数字小：更贴近最快。0
             =
-            只要更快就换。当前的连不上、被屏蔽或不能用时立刻换，不看这些数字。保存后马上生效。
+            只要更快就换。当前的连不上、被屏蔽或不能用时立刻换，不看这些数字。保存后约
+            1 分钟内生效。
           </p>
         </div>
       </CardHeader>

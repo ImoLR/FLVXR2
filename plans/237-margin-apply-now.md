@@ -38,13 +38,14 @@ separate, agreed difference — unchanged.)
 
 ## Tasks
 - [x] trace the 3 values end to end (table above)
-- [ ] agent: held samples per pin + `setMargin` change hook → one re-evaluation (no probes), log line
-- [ ] agent tests: switch when the new margin allows / no switch when not / same value no-op / running skipped /
+- [x] agent: held samples per pin + `setMargin` change hook → one re-evaluation (no probes), log line
+- [x] agent tests: switch when the new margin allows / no switch when not / same value no-op / running skipped /
       no lookup or dial; Apply path moves the guard address in the same apply; mutation check
-- [ ] panel: 伪装域名 re-evaluation on save (card + generic config) from the stored 测速 table, counts + log
-- [ ] panel tests: lower margin → switch + count, no probe issued; same value → nothing; higher → nothing;
+- [x] panel: 伪装域名 re-evaluation on save (card + generic config) from the stored 测速 table, counts + log
+- [x] panel tests: lower margin → switch + count, no probe issued; same value → nothing; higher → nothing;
       failover-only change not applied; mutation check
 - [ ] frontend: 「保存后约 1 分钟内生效」 (header + toast); tsc / lint / build; desktop + phone screenshot
 - [ ] gates vs base: go-gost + go-gost/x tests, backend build + tests (+ contract), compare with base logs
-- [ ] mmwx contract doc wording check (`reality-pick-v1.md`) — change only if wording is affected
+- [x] mmwx contract doc wording check (`reality-pick-v1.md`) — change only if wording is affected → no change: the doc
+      describes the share fields and the Helper rule (both unchanged); nothing in it says when FLVX's own agent applies a margin
 - [ ] push branch, ledger row (READY for release-1108), summary
