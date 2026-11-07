@@ -472,6 +472,9 @@ func (h *Handler) fallbackForwardPortToDefaultBind(forward *forwardRecord, tunne
 	time.Sleep(150 * time.Millisecond)
 	defaultServices := buildForwardServiceConfigs(serviceBase, forward, tunnel, node, fp.Port, "", tunnelTLSProtocol)
 	h.applyRateRefs(defaultServices, forward, node, h.userRateOnNode(forward.UserID, node), h.entryRatePlanFor(node.ID))
+	if forward.Status != 1 {
+		markServicesPaused(defaultServices) // plan 236
+	}
 	if _, err := h.sendNodeCommand(node.ID, "AddService", defaultServices, true, false); err != nil {
 		return "", err
 	}
