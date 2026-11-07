@@ -43,12 +43,12 @@ adds only enabled nodes after a Core/agent restart).
 - [x] Gates: go build / go test ./... SQLite + PostgreSQL, go-gost + go-gost/x tests (compare with fork.124 base) — backend SQLite + PG all ok; agent x: only pre-existing flaky TestSocketCapSharedByProbeAndPin; branch CI 42377494034 green
 - [x] Lab: real agents fork.124 vs fork.125 + local panel: pause → restart → closed; resume; old agent + new panel
 - [x] Baseline before release (rules, 沪台, landing links, subs, 救命版, panel CPU/RSS, paused-rule ports)
-- [ ] Ledger row 236; push branch + tag; CI + images + assets verified
-- [ ] Panel backup + rollback dir; prune (keep 2); upgrade; re-check
-- [ ] OTA Mkcloud 沪港ixp 新春版 + Mkcloud 沪日ixp 440 (backup first); clot88 ports closed after a post-OTA restart
-- [ ] Fleet check (read-only): no status<>1 rule port listening on any online node
+- [x] Ledger row 236; push branch + tag; CI + images + assets verified (tag → e3d4bfc7, branch CI 42377494034, Images 42378251234, Latest, 10 assets, compose/install pinned, gost sha256 + `-V` fork.125)
+- [x] Panel backup + rollback dir (`/opt/flvx-svc/rollback/pre-fork125-20261107T140216Z`); prune (kept pre-fork124 + pre-fork125); upgrade 22:02:48 TW (9 s); re-check = baseline
+- [x] OTA Mkcloud 沪港ixp 新春版 + Mkcloud 沪日ixp 440 (backup first); post-OTA restart keeps paused ports closed — proven with temp rules `pr-paused-23/32` (clot88 was renewed by an admin at 21:52:59 TW, his 12 rules are running legitimately)
+- [x] Fleet check (read-only): no status<>1 rule port listening on any online node (31/31 online, 29 checked; Nobrand 5cm SSH down, Dmit Echo no key; 0 paused rules left on prod)
 - [x] Landing: expired users' landing nodes stay disabled (code + `TestDisabledLandingNodeStaysClosedAfterRestart`; prod has 0 expired users with landing nodes; shared = panel sends enabled:false, mmwx side not checked)
-- [ ] Ledger → 已发布; temp `pr-` leftovers 0; summary; plan complete
+- [x] Ledger → 已发布; temp `pr-` leftovers 0; summary; plan complete
 
 ## Results
 - Lab (netns, synthetic `pr-*` data), pause → agent restart → 25 s watch → resume:
@@ -59,3 +59,15 @@ adds only enabled nodes after a Core/agent restart).
   | fork.125 / fork.124 | opened at 0.6–0.8 s, closed ~0.1 s later by the reconnect re-pause (1 ListServices + 1 PauseService) | ok |
   | fork.125 / fork.125 | closed (never opened), no re-pause command | ok |
   Editing a paused rule: ≤10 ms window with an old agent, 0 with fork.125.
+- Prod (fork.125 panel):
+  - Old agent fork.123 restart on Mkcloud 沪日ixp 440 with a paused temp rule: port re-opened at +7.2 s (agent start), closed
+    ~0.9 s later by the reconnect re-pause (`repause: node 23: 1 paused rules, re-paused services=2 … commands=2`).
+  - OTA 沪日ixp 440 22:09 (online 5.6 s) and 沪港ixp 新春版 22:12 (6.5 s): paused temp port 0 open samples (692 / 499 samples
+    at 0.1 s); post-OTA `systemctl restart`: 0 open samples, no re-pause command (plan-236 agent reports `paused`);
+    running rules missing ≤0.9 s per restart. Resume after the restarts works; temp rules deleted (0 leftovers).
+  - Business = baseline (15 real rules incl. 6 沪台, 7 landing links 2/2, 10 sub formats same bytes, 救命版 48/49 untouched,
+    runtime objects 304, 0 orphans). Panel CPU 18.9–21.6 → 17.2 s/5 min, RSS 42.9–43.4 → 55.0 MiB (fresh process).
+  - Re-pause cost: nodes without paused rules = 1 DB query, 0 commands; with paused rules: old agent 2 commands
+    (ListServices + one PauseService for all), plan-236 agent 1 (ListServices).
+- Not OTA'd (panel re-pause protects them on every reconnect): every agent except the two Mkcloud machines.
+
