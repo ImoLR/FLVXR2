@@ -40,14 +40,22 @@ adds only enabled nodes after a Core/agent restart).
 - [x] Agent fix + test (`TestPausedServiceStaysClosedAcrossRestartAndUpdate`: fails on fork.124 loader, passes)
 - [x] Panel fix + handler tests (`TestRepause*`, `TestSyncPaused*`: sync tests fail on fork.124) + contract test
       (`TestPausedRuleStaysPausedAcrossAgentRestartContract`: old-agent case fails on fork.124 panel, passes)
-- [ ] Gates: go build / go test ./... SQLite + PostgreSQL, go-gost + go-gost/x tests (compare with fork.124 base)
-- [ ] Lab: real agents fork.124 vs fork.125 + local panel: pause → restart → closed; resume; old agent + new panel
-- [ ] Baseline before release (rules, 沪台, landing links, subs, 救命版, panel CPU/RSS, paused-rule ports)
+- [x] Gates: go build / go test ./... SQLite + PostgreSQL, go-gost + go-gost/x tests (compare with fork.124 base) — backend SQLite + PG all ok; agent x: only pre-existing flaky TestSocketCapSharedByProbeAndPin; branch CI 42377494034 green
+- [x] Lab: real agents fork.124 vs fork.125 + local panel: pause → restart → closed; resume; old agent + new panel
+- [x] Baseline before release (rules, 沪台, landing links, subs, 救命版, panel CPU/RSS, paused-rule ports)
 - [ ] Ledger row 236; push branch + tag; CI + images + assets verified
 - [ ] Panel backup + rollback dir; prune (keep 2); upgrade; re-check
 - [ ] OTA Mkcloud 沪港ixp 新春版 + Mkcloud 沪日ixp 440 (backup first); clot88 ports closed after a post-OTA restart
 - [ ] Fleet check (read-only): no status<>1 rule port listening on any online node
-- [ ] Landing: expired users' landing nodes stay disabled (read-only)
+- [x] Landing: expired users' landing nodes stay disabled (code + `TestDisabledLandingNodeStaysClosedAfterRestart`; prod has 0 expired users with landing nodes; shared = panel sends enabled:false, mmwx side not checked)
 - [ ] Ledger → 已发布; temp `pr-` leftovers 0; summary; plan complete
 
 ## Results
+- Lab (netns, synthetic `pr-*` data), pause → agent restart → 25 s watch → resume:
+  | panel / agent | paused port after restart | resume |
+  |---|---|---|
+  | fork.124 / fork.124 | **open after 0.7 s, stays open** (bug reproduced) | ok |
+  | fork.124 / fork.125 | closed (never opened) | ok |
+  | fork.125 / fork.124 | opened at 0.6–0.8 s, closed ~0.1 s later by the reconnect re-pause (1 ListServices + 1 PauseService) | ok |
+  | fork.125 / fork.125 | closed (never opened), no re-pause command | ok |
+  Editing a paused rule: ≤10 ms window with an old agent, 0 with fork.125.
