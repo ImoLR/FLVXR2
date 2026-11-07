@@ -10,7 +10,6 @@ import (
 
 	corelogger "github.com/go-gost/core/logger"
 	"github.com/go-gost/x/config"
-	"github.com/go-gost/x/config/loader"
 	parser "github.com/go-gost/x/config/parsing/service"
 	xlogger "github.com/go-gost/x/logger"
 	"github.com/go-gost/x/registry"
@@ -41,7 +40,10 @@ func waitListening(t *testing.T, addr string, want bool) {
 }
 
 // restartAgent does what a new agent process does with the saved gost.json:
-// parse it, loader.Load, then Serve every registered service (program.Start).
+// parse it, register every service the way loader.Load does (the loader
+// itself is tested in config/loader; its logger setup cannot run here, other
+// tests of this package store a different logger type), then Serve every
+// registered service (program.Start).
 func restartAgent(t *testing.T) {
 	t.Helper()
 	for name := range registry.ServiceRegistry().GetAll() {
@@ -56,10 +58,15 @@ func restartAgent(t *testing.T) {
 		t.Fatal(err)
 	}
 	config.Set(&cfg)
-	if err := loader.Load(&cfg); err != nil {
-		t.Fatal(err)
+	for _, svcCfg := range cfg.Services {
+		svc, err := parser.ParseServiceOrPaused(svcCfg)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := registry.ServiceRegistry().Register(svcCfg.Name, svc); err != nil {
+			t.Fatal(err)
+		}
 	}
-	corelogger.SetDefault(xlogger.NewLogger(xlogger.LevelOption(corelogger.ErrorLevel), xlogger.OutputOption(io.Discard)))
 	for _, svc := range registry.ServiceRegistry().GetAll() {
 		go svc.Serve()
 	}
@@ -78,7 +85,9 @@ func storedPaused(name string) bool {
 // the loader parsed and served every service of gost.json) and after an
 // UpdateService for the paused rule; ResumeService must still work afterwards.
 func TestPausedServiceStaysClosedAcrossRestartAndUpdate(t *testing.T) {
-	corelogger.SetDefault(xlogger.NewLogger(xlogger.LevelOption(corelogger.ErrorLevel), xlogger.OutputOption(io.Discard)))
+	if corelogger.Default() == nil {
+		corelogger.SetDefault(xlogger.NewLogger(xlogger.LevelOption(corelogger.ErrorLevel), xlogger.OutputOption(io.Discard)))
+	}
 	chdirTemp(t)
 	config.Set(&config.Config{})
 	runtimeRevs.reset()

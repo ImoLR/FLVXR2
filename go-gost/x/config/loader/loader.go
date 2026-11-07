@@ -220,16 +220,12 @@ func register(cfg *config.Config) error {
 	for _, svcCfg := range cfg.Services {
 		// Plan 236: a paused service stays closed across restarts and
 		// reloads; the placeholder keeps its name for Resume/DeleteService.
-		if service_parser.IsPaused(svcCfg) {
-			if err := registry.ServiceRegistry().Register(svcCfg.Name, service_parser.NewPausedService(svcCfg)); err != nil {
-				return err
-			}
-			paused++
-			continue
-		}
-		svc, err := service_parser.ParseService(svcCfg)
+		svc, err := service_parser.ParseServiceOrPaused(svcCfg)
 		if err != nil {
 			return err
+		}
+		if service_parser.IsPausedService(svc) {
+			paused++
 		}
 		if svc != nil {
 			if err := registry.ServiceRegistry().Register(svcCfg.Name, svc); err != nil {
