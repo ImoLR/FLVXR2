@@ -10,6 +10,7 @@ import (
 	"crypto/x509/pkix"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"math/big"
 	"net"
 	"strings"
@@ -553,5 +554,158 @@ func TestApplySetsRealityPinMargin(t *testing.T) {
 	}
 	if _, err := m.Apply(ctx, Desired{Revision: 3, Nodes: []Node{}, RealityPinMarginMs: intp(500)}); err == nil {
 		t.Fatal("out-of-range margin accepted")
+	}
+}
+
+// meteredNet wraps fakeNet and counts every lookup and dial.
+func meteredNet(f *fakeNet, lookups, dials *int) realityNet {
+	rn := f.rn()
+	lookup, dial := rn.lookup, rn.dial
+	rn.lookup = func(ctx context.Context, host string) ([]net.IP, error) {
+		*lookups++
+		return lookup(ctx, host)
+	}
+	rn.dial = func(ctx context.Context, addr string) (net.Conn, error) {
+		*dials++
+		return dial(ctx, addr)
+	}
+	return rn
+}
+
+// Plan 237: a changed 「Reality 目标 IP」 margin re-evaluates the pins once
+// with the samples of their last check (no DNS, no connect): it moves when
+// the new margin allows, stays when not, and the same value does nothing.
+func TestPinnerMarginChangeReevaluatesHeldSamples(t *testing.T) {
+	var lookups, dials int
+	t0 := time.Unix(1_800_000_000, 0)
+	var logs []string
+	p := &realityPinner{pins: map[pinKey]*RealityPinStatus{}, running: map[pinKey]bool{}, net: meteredNet(newFakeNet(), &lookups, &dials),
+		now: func() time.Time { return t0.Add(time.Hour) }, logf: func(format string, args ...any) { logs = append(logs, fmt.Sprintf(format, args...)) }}
+	k := pinKey{"cdn.example.com", 443}
+	held := samples("203.0.113.1", 30, "203.0.113.2", 18, "203.0.113.3", -1)
+	// The last check kept .1 (30 ms) although .2 is 12 ms faster: < 20 ms.
+	p.pins[k] = choosePin(k, &RealityPinStatus{Host: k.host, Port: k.port, PinnedIP: "203.0.113.1"}, held, nil, p.marginMs())
+	p.pins[k].CheckedAt = t0.UnixMilli()
+	p.held = map[pinKey][]RealityProbeIP{k: held}
+	if p.address(k.host, k.port) != "203.0.113.1" {
+		t.Fatalf("setup: %+v", p.pins[k])
+	}
+	// Same value (explicit 20 = the default) and absent: nothing.
+	if p.setMargin(intp(20)) || p.setMargin(nil) || p.address(k.host, k.port) != "203.0.113.1" || len(logs) != 0 {
+		t.Fatalf("same margin re-evaluated: %+v logs=%v", p.pins[k], logs)
+	}
+	// 15 ms: the 12 ms gain still does not reach it → stays.
+	if p.setMargin(intp(15)) || p.address(k.host, k.port) != "203.0.113.1" || len(logs) != 0 {
+		t.Fatalf("moved below the new margin: %+v", p.pins[k])
+	}
+	// 10 ms: 12 ≥ 10 → moves at once to the faster IP, reason faster,
+	// checked_at unchanged (the 6 h re-check schedule does not shift).
+	if !p.setMargin(intp(10)) || p.address(k.host, k.port) != "203.0.113.2" {
+		t.Fatalf("did not move with margin 10: %+v", p.pins[k])
+	}
+	st := p.statuses()[0]
+	if st.MoveReason != realityPinMoveFaster || st.PinnedMs != 18 || st.BestIP != "203.0.113.2" || st.CheckedAt != t0.UnixMilli() || st.IPs != 3 {
+		t.Fatalf("status after the move = %+v", st)
+	}
+	if len(logs) != 1 || !strings.Contains(logs[0], "margin 15 → 10 ms") {
+		t.Fatalf("logs = %v", logs)
+	}
+	// Same 10 again (the 1-minute re-push): nothing.
+	if p.setMargin(intp(10)) || len(logs) != 1 {
+		t.Fatal("same value re-evaluated")
+	}
+	// Back to 20 (raised): the pin is the fastest, never moves back.
+	if p.setMargin(nil) || p.address(k.host, k.port) != "203.0.113.2" || len(logs) != 1 {
+		t.Fatalf("raised margin moved: %+v", p.pins[k])
+	}
+	if lookups != 0 || dials != 0 {
+		t.Fatalf("margin change measured: %d lookups, %d dials", lookups, dials)
+	}
+}
+
+// A host in a running check, a host without a pin and a host without held
+// samples are not touched by a margin change.
+func TestPinnerMarginChangeSkipsRunningAndUnpinned(t *testing.T) {
+	var lookups, dials int
+	p := &realityPinner{pins: map[pinKey]*RealityPinStatus{}, running: map[pinKey]bool{}, net: meteredNet(newFakeNet(), &lookups, &dials), now: time.Now}
+	busy, unpinned, noSamples := pinKey{"a.example.com", 443}, pinKey{"b.example.com", 443}, pinKey{"c.example.com", 443}
+	held := samples("203.0.113.1", 40, "203.0.113.2", 5)
+	p.pins[busy] = &RealityPinStatus{Host: busy.host, Port: 443, PinnedIP: "203.0.113.1", PinnedMs: 40, BestIP: "203.0.113.2", BestMs: 5}
+	p.pins[unpinned] = &RealityPinStatus{Host: unpinned.host, Port: 443, Error: "所有 IP 都连不上"}
+	p.pins[noSamples] = &RealityPinStatus{Host: noSamples.host, Port: 443, PinnedIP: "203.0.113.1", PinnedMs: 40, BestIP: "203.0.113.2", BestMs: 5}
+	p.held = map[pinKey][]RealityProbeIP{busy: held, unpinned: held}
+	p.running[busy] = true
+	if p.setMargin(intp(0)) {
+		t.Fatal("a skipped host moved")
+	}
+	if p.address(busy.host, 443) != "203.0.113.1" || p.address(unpinned.host, 443) != unpinned.host || p.address(noSamples.host, 443) != "203.0.113.1" {
+		t.Fatalf("pins = %+v", p.statuses())
+	}
+	if lookups != 0 || dials != 0 {
+		t.Fatalf("measured: %d lookups, %d dials", lookups, dials)
+	}
+}
+
+// A full check keeps its samples for a later margin change; a dropped host
+// or a failed check drops them.
+func TestPinnerCheckHoldsSamples(t *testing.T) {
+	f := newFakeNet()
+	f.set("cdn.example.com", map[string]int{"203.0.113.1": 3, "203.0.113.2": -1})
+	f.set("dead.example.com", map[string]int{"203.0.113.9": -1})
+	p := newRealityPinner()
+	p.net, p.logf = f.rn(), nil
+	k, dead := pinKey{"cdn.example.com", 443}, pinKey{"dead.example.com", 443}
+	p.sync(context.Background(), map[pinKey]bool{k: true, dead: true})
+	if got := p.held[k]; len(got) != 2 {
+		t.Fatalf("held = %+v", got)
+	}
+	if _, ok := p.held[dead]; ok {
+		t.Fatal("samples held for a host without a pin")
+	}
+	p.sync(context.Background(), map[pinKey]bool{})
+	if len(p.held) != 0 {
+		t.Fatalf("samples of a dropped host kept: %+v", p.held)
+	}
+}
+
+// Plan 237 end to end on the agent: the 1-minute push that carries a lower
+// margin moves the pin in the same Apply (the reconcile right after it sets
+// the guard's address), and the status of that apply already reports the
+// move; the unchanged re-push does nothing.
+func TestApplyMarginChangeMovesPinInSameApply(t *testing.T) {
+	m := NewManager(t.TempDir(), true)
+	var lookups, dials int
+	m.pins.net, m.pins.logf = meteredNet(newFakeNet(), &lookups, &dials), nil
+	ctx := context.Background()
+	k := pinKey{"cdn.example.com", 443}
+	held := samples("203.0.113.1", 30, "203.0.113.2", 18)
+	m.pins.pins[k] = &RealityPinStatus{Host: k.host, Port: 443, PinnedIP: "203.0.113.1", PinnedMs: 30, BestIP: "203.0.113.2", BestMs: 18, IPs: 2, CheckedAt: 1}
+	m.pins.held[k] = held
+	if _, err := m.Apply(ctx, Desired{Revision: 1, Nodes: []Node{}}); err != nil {
+		t.Fatal(err)
+	}
+	if m.pins.address(k.host, 443) != "203.0.113.1" {
+		t.Fatal("default margin moved the pin")
+	}
+	st, err := m.Apply(ctx, Desired{Revision: 2, Nodes: []Node{}, RealityPinMarginMs: intp(10)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.pins.address(k.host, 443) != "203.0.113.2" {
+		t.Fatalf("pin not moved by the pushed margin: %+v", m.pins.statuses())
+	}
+	if len(st.RealityPins) != 1 || st.RealityPins[0].PinnedIP != "203.0.113.2" || st.RealityPins[0].MoveReason != realityPinMoveFaster {
+		t.Fatalf("apply status pins = %+v", st.RealityPins)
+	}
+	// Re-push of the same revision: no re-evaluation.
+	m.pins.pins[k].PinnedIP = "203.0.113.1" // would move again if re-evaluated
+	if _, err := m.Apply(ctx, Desired{Revision: 2, Nodes: []Node{}, RealityPinMarginMs: intp(10)}); err != nil {
+		t.Fatal(err)
+	}
+	if m.pins.address(k.host, 443) != "203.0.113.1" {
+		t.Fatal("unchanged margin re-evaluated")
+	}
+	if lookups != 0 || dials != 0 {
+		t.Fatalf("measured: %d lookups, %d dials", lookups, dials)
 	}
 }

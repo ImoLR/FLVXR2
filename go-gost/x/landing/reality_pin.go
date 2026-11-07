@@ -19,7 +19,9 @@ import (
 // connect time. It is re-checked every 6 h (and at once when the 10 min
 // liveness connect to the pinned IP fails) and moves only when the pinned IP
 // fails, leaves the DNS answer, or is ≥ the margin slower than the new best
-// (plan 234: the panel's 「Reality 目标 IP」 setting, default 20 ms). When
+// (plan 234: the panel's 「Reality 目标 IP」 setting, default 20 ms; plan 237:
+// a changed setting re-evaluates the pins at once with the last check's
+// samples, see setMargin). When
 // every IP fails the guard falls back to the host (old behaviour). A move
 // re-adds only the loopback guard inbound: the Core keeps running and user
 // connections (node inbounds) are not touched.
@@ -67,19 +69,70 @@ type realityPinner struct {
 	logf    func(format string, args ...any)
 	// margin + 1 (ms) from the desired state; 0 = not set → realityPinHysteresis.
 	margin atomic.Int32
+	// held (plan 237): the samples of each pin's last full check (≤ the
+	// host's resolved public IPv4s, memory only) — what a margin change is
+	// re-evaluated with instead of measuring again.
+	held map[pinKey][]RealityProbeIP
 }
 
-// setMargin takes the desired state's margin (nil = the default 20 ms). It
-// applies from the next check; nothing is re-checked because of it.
-func (p *realityPinner) setMargin(ms *int) {
+// setMargin takes the desired state's margin (nil = the default 20 ms). When
+// the margin in force changes (plan 237: like the mmwx Helper, a saved
+// 「Reality 目标 IP」 applies within the 1-minute push), every pin is
+// re-evaluated once with its held samples — no DNS, no connect; the same
+// value (incl. nil vs 20) does nothing. Returns whether a pin moved; the
+// caller's reconcile then re-adds only the moved guard inbounds.
+func (p *realityPinner) setMargin(ms *int) bool {
 	if p == nil {
-		return
+		return false
 	}
-	if ms == nil || *ms < 0 || *ms > realityPinMarginMax {
-		p.margin.Store(0)
-		return
+	var v int32
+	if ms != nil && *ms >= 0 && *ms <= realityPinMarginMax {
+		v = int32(*ms) + 1
 	}
-	p.margin.Store(int32(*ms) + 1)
+	before := p.marginMs()
+	p.margin.Store(v)
+	if after := p.marginMs(); after != before {
+		return p.reevaluate(before, after)
+	}
+	return false
+}
+
+// reevaluate re-runs choosePin on every pinned host's held samples with the
+// new margin (hosts in a running check are skipped: that check reads the new
+// margin itself). A move keeps checked_at — the samples are as old as before,
+// so the 6 h re-check schedule does not shift.
+func (p *realityPinner) reevaluate(before, after int) bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	keys := make([]pinKey, 0, len(p.pins))
+	for k := range p.pins {
+		keys = append(keys, k)
+	}
+	sort.Slice(keys, func(i, j int) bool {
+		if keys[i].host != keys[j].host {
+			return keys[i].host < keys[j].host
+		}
+		return keys[i].port < keys[j].port
+	})
+	moved := false
+	for _, k := range keys {
+		old := p.pins[k]
+		samples := p.held[k]
+		if old == nil || old.PinnedIP == "" || len(samples) == 0 || p.running[k] {
+			continue
+		}
+		next := choosePin(k, old, samples, nil, after)
+		if next.PinnedIP == old.PinnedIP {
+			continue
+		}
+		next.CheckedAt = old.CheckedAt
+		p.pins[k] = next
+		moved = true
+		if p.logf != nil {
+			p.logf("landing reality pin %s: %s → %s (%d ms, best %d ms, %d IPs, margin %d → %d ms, re-evaluated with the last check's samples%s)", net.JoinHostPort(k.host, strconv.Itoa(k.port)), old.PinnedIP, next.PinnedIP, next.PinnedMs, next.BestMs, next.IPs, before, after, moveText(next.MoveReason))
+		}
+	}
+	return moved
 }
 
 // marginMs is the margin in force.
@@ -94,7 +147,7 @@ func (p *realityPinner) marginMs() int {
 }
 
 func newRealityPinner() *realityPinner {
-	return &realityPinner{pins: map[pinKey]*RealityPinStatus{}, running: map[pinKey]bool{}, net: defaultRealityNet(), now: time.Now,
+	return &realityPinner{pins: map[pinKey]*RealityPinStatus{}, running: map[pinKey]bool{}, held: map[pinKey][]RealityProbeIP{}, net: defaultRealityNet(), now: time.Now,
 		logf: func(format string, args ...any) { fmt.Printf(format+"\n", args...) }}
 }
 
@@ -124,6 +177,7 @@ func (p *realityPinner) sync(ctx context.Context, want map[pinKey]bool) {
 	for k := range p.pins {
 		if !want[k] {
 			delete(p.pins, k)
+			delete(p.held, k)
 		}
 	}
 	var fresh []pinKey
@@ -221,6 +275,14 @@ func (p *realityPinner) check(ctx context.Context, k pinKey) bool {
 	next := choosePin(k, old, samples, err, p.marginMs())
 	next.CheckedAt = p.now().UnixMilli()
 	p.pins[k] = next
+	if p.held == nil {
+		p.held = map[pinKey][]RealityProbeIP{}
+	}
+	if next.PinnedIP != "" {
+		p.held[k] = samples // connectAll's fresh slice, never shared
+	} else {
+		delete(p.held, k)
+	}
 	if next.PinnedIP != oldIP && p.logf != nil {
 		from := oldIP
 		if from == "" {

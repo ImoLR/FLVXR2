@@ -238,6 +238,8 @@ func (m *Manager) Apply(ctx context.Context, d Desired) (Status, error) {
 		return Status{}, err
 	}
 	m.desired = d
+	// Plan 237: a changed 目标 IP margin re-evaluates the pins with their
+	// held samples here; the reconcile below re-adds a moved guard at once.
 	m.pins.setMargin(d.RealityPinMarginMs)
 	m.loaded = true
 	m.ports.Store(d.publicPorts())
