@@ -62,7 +62,7 @@ func TestParseNodeExtraIPsAcceptsLegacyLists(t *testing.T) {
 		"":                                {},
 		`["2001:db8::2","192.0.2.9"]`:     {"2001:db8::2", "192.0.2.9"},
 		"192.0.2.9, [2001:db8::2] bad_ip": {"192.0.2.9", "2001:db8::2"},
-		"192.0.2.9,Entry.Example.com":    {"192.0.2.9", "entry.example.com"},
+		"192.0.2.9,Entry.Example.com":     {"192.0.2.9", "entry.example.com"},
 		"10.0.0.5\n10.0.0.5":              {"10.0.0.5"},
 	} {
 		if got := ParseNodeExtraIPs(raw); !reflect.DeepEqual(got, want) {

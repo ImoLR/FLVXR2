@@ -350,6 +350,16 @@ type RealityProbeResult struct {
 	CertValid      bool             `json:"cert_valid"`
 	ServerNames    []string         `json:"server_names"`
 	CertChainBytes int              `json:"cert_chain_bytes"`
+	// Plan 229 (panel side, stored with the table): this 测速's samples (ms,
+	// -1 = not usable), worst / median of the usable ones, and the 试用
+	// verdict of 妙妙屋池 small sites.
+	Samples      []int  `json:"samples,omitempty"`
+	WorstMs      int    `json:"worst_ms,omitempty"`
+	MedianMs     int    `json:"median_ms,omitempty"`
+	Trial        bool   `json:"trial,omitempty"`
+	TrialOK      bool   `json:"trial_ok,omitempty"`
+	TrialPending bool   `json:"trial_pending,omitempty"` // only too few / too close samples so far
+	TrialReason  string `json:"trial_reason,omitempty"`
 }
 
 type RealityProbeIP struct {
@@ -431,25 +441,6 @@ func RealityServerNamesFor(host string, sans []string) []string {
 	return out
 }
 
-// BestRealityResult is the fastest feasible, non-blocked result (results may
-// come in any order).
-func BestRealityResult(results []RealityProbeResult, blocked func(host string) bool) *RealityProbeResult {
-	var best *RealityProbeResult
-	for i := range results {
-		res := &results[i]
-		if !res.Feasible || res.LatencyMs <= 0 {
-			continue
-		}
-		if blocked != nil && blocked(realityHost(res.Target)) {
-			continue
-		}
-		if best == nil || res.LatencyMs < best.LatencyMs {
-			best = res
-		}
-	}
-	return best
-}
-
 // RealityProbeRecord is what RecordLandingRealityProbe changed.
 type RealityProbeRecord struct {
 	Picked      string   // host:port now the server default ("" = unchanged)
@@ -457,34 +448,44 @@ type RealityProbeRecord struct {
 	Previous    string
 }
 
-// RecordLandingRealityProbe stores a 测速 result and, in auto mode, makes the
-// fastest usable non-blocked candidate the server default for NEW nodes.
-// Existing nodes keep their dest; no revision bump (no agent push needed).
-func (r *Repository) RecordLandingRealityProbe(serverID int64, results []RealityProbeResult, probeErr string) (RealityProbeRecord, error) {
+// RecordLandingRealityProbe stores a 测速 table (rows as merged by
+// MergeRealitySamples), adds its samples to the server's history, marks the
+// 试用 verdicts and, in auto mode, makes the best usable candidate (see
+// PickRealityResult) the server default for NEW nodes. Existing nodes keep
+// their dest; no revision bump (no agent push needed).
+func (r *Repository) RecordLandingRealityProbe(serverID int64, results []RealityProbeResult, probeErr string, stats *RealityProbeStats) (RealityProbeRecord, error) {
 	var rec RealityProbeRecord
-	blockedSet := map[string]bool{}
-	var blockedRows []model.LandingRealityDomain
-	if err := r.db.Where("blocked = ?", true).Find(&blockedRows).Error; err != nil {
+	info, err := r.realityDomainSets()
+	if err != nil {
 		return rec, err
 	}
-	for _, b := range blockedRows {
-		blockedSet[b.Domain] = true
-	}
-	raw, _ := json.Marshal(results)
-	err := r.db.Transaction(func(tx *gorm.DB) error {
+	err = r.db.Transaction(func(tx *gorm.DB) error {
 		var s model.LandingServer
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&s, serverID).Error; err != nil {
 			return err
 		}
-		now := time.Now().UnixMilli()
+		now := info.Now.UnixMilli()
 		updates := map[string]any{"reality_probe_error": probeErr}
+		rec.Previous = s.RealityDest
 		if probeErr == "" {
+			info.History = LandingRealityHistory(&s)
+			for _, res := range results {
+				if res.Reason == "已取消" {
+					continue
+				}
+				info.History.add(realityHost(res.Target), info.Now.Unix(), rowSamples(res))
+			}
+			info.History.prune(info.Now)
+			info.History.Stats = stats
+			annotateTrial(results, info)
+			raw, _ := json.Marshal(results)
+			hist, _ := json.Marshal(info.History)
 			updates["reality_probe"] = string(raw)
 			updates["reality_probed_at"] = now
+			updates["reality_samples"] = string(hist)
 		}
-		rec.Previous = s.RealityDest
 		if probeErr == "" && NormalizeRealityMode(s.RealityMode) == RealityModeAuto {
-			if best := BestRealityResult(results, func(h string) bool { return blockedSet[h] }); best != nil {
+			if best := PickRealityResult(results, func(h string) bool { return info.Blocked[h] }); best != nil {
 				host := realityHost(best.Target)
 				dest := net.JoinHostPort(host, strconv.Itoa(realityTargetPort(best.Target)))
 				names := RealityServerNamesFor(host, best.ServerNames)

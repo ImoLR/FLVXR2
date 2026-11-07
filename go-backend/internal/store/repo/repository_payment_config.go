@@ -57,8 +57,8 @@ func (r *Repository) SavePaymentConfig(cfg *model.PaymentConfig) error {
 	}
 
 	return r.db.Model(&model.PaymentConfig{}).Where("channel = ?", cfg.Channel).Updates(map[string]interface{}{
-		"config":   cfg.Config,
-		"enabled":  cfg.Enabled,
+		"config":     cfg.Config,
+		"enabled":    cfg.Enabled,
 		"updated_at": cfg.UpdatedAt,
 	}).Error
 }

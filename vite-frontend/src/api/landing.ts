@@ -148,6 +148,8 @@ export interface LandingServer {
   realityProbedAt?: number;
   realityProbeError?: string;
   realityProbe?: RealityProbeRow[];
+  realityProbeStats?: RealityProbeStats | null;
+  realityTrialRule?: RealityTrialRule;
   realityPinSupported?: boolean;
   realityPins?: RealityPin[];
   realityPinsAt?: number;
@@ -566,9 +568,35 @@ export interface RealityDomain {
   inPool: boolean;
   blocked: boolean;
   note: string;
+  // Plan 229: 妙妙屋池 small site — auto-picked only once stable on a machine.
+  trial?: boolean;
+}
+// Plan 229: the 试用 rule and the re-sample pacing (help text).
+export interface RealityTrialRule {
+  minSamples: number;
+  minSpanHours: number;
+  jitterMs: number;
+  jitterPct: number;
+  marginMs: number;
+  resampleTop: number;
+  resampleTrial: number;
+  resampleRounds: number;
+  resampleGapSec: number;
+  keep: number;
+}
+export interface RealityProbeStats {
+  at: number;
+  passes: number;
+  resampled: number;
+  sockets?: number;
+  maxOpen?: number;
+  durationMs: number;
+  linger0: boolean;
+  measured: boolean;
 }
 export interface RealityDomainsView {
   domains: RealityDomain[];
+  trialRule?: RealityTrialRule;
   probeCount: number;
   probeMax: number;
   customMax: number;
@@ -588,6 +616,17 @@ export interface RealityProbeRow {
   source: RealityDomainSource | "current";
   inPool: boolean;
   blocked: boolean;
+  // Plan 229: this 测速's samples (ms, -1 = not usable), worst / median, the
+  // 试用 verdict and the machine's history of the domain.
+  samples?: number[];
+  worstMs?: number;
+  medianMs?: number;
+  trial?: boolean;
+  trialOk?: boolean;
+  trialPending?: boolean;
+  trialReason?: string;
+  historyCount?: number;
+  historyJitterMs?: number;
 }
 export interface RealityPin {
   host: string;

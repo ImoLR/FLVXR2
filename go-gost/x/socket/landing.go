@@ -27,7 +27,7 @@ func (w *WebSocketReporter) handleApplyLandingDesired(data interface{}) (landing
 }
 
 // handleRealityProbe runs a Reality 伪装域名 测速 from this machine (plan 227):
-// read-only, ≤ 4 candidates at once, one TCP connect per IP + one TLS
+// read-only, ≤ 2 candidates at once (≤ 2 Reality sockets open on the machine, RST close), one TCP connect per IP + one TLS
 // handshake per candidate.
 func (w *WebSocketReporter) handleRealityProbe(data interface{}) (landing.RealityProbeResponse, error) {
 	raw, err := json.Marshal(data)

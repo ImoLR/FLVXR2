@@ -400,7 +400,7 @@ func TestProbeLimitsAndOrder(t *testing.T) {
 	}
 }
 
-func TestProbeConcurrencyAtMostFour(t *testing.T) {
+func TestProbeConcurrencyAtMostTwo(t *testing.T) {
 	f := newFakeNet()
 	var mu sync.Mutex
 	cur, peak := 0, 0
