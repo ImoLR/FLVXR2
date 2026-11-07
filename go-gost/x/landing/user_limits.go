@@ -8,6 +8,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/go-gost/x/internal/util/ipkey"
 )
 
 // Plan 158: per-user landing limits. The panel maps each node of a limited
@@ -280,19 +282,22 @@ func (m *Manager) managementConfig() (mappings, limits []any, blocked []map[stri
 	return mappings, limits, blocked
 }
 
-// relaySet parses the desired relay sources. Caller holds m.mu.
-func (m *Manager) relaySet() map[netip.Addr]bool {
-	out := map[netip.Addr]bool{}
+// relaySet keys the desired relay sources like the Core keys its online IPs
+// (plan 231: IPv4 = the address, IPv6 = its /64; the Core reports an IPv6
+// source as "<net>/64", which never matched a raw relay address before).
+// Caller holds m.mu.
+func (m *Manager) relaySet() map[string]bool {
+	out := map[string]bool{}
 	if m.desired.UserLimits == nil {
 		return out
 	}
 	for _, raw := range m.desired.UserLimits.RelaySources {
 		if ip, err := netip.ParseAddr(raw); err == nil {
-			out[ip.Unmap()] = true
+			out[ipkey.Of(ip.String())] = true
 		}
 	}
 	for _, loop := range []string{"127.0.0.1", "::1"} {
-		out[netip.MustParseAddr(loop)] = true
+		out[ipkey.Of(loop)] = true
 	}
 	return out
 }
@@ -315,18 +320,14 @@ func (m *Manager) recordGroups(snapshot coreSnapshot) {
 		l := groupLive{current: g.InboundCurrent, seenIPs: len(g.InboundOnlineIPs)}
 		direct := []string{}
 		for _, ip := range g.InboundOnlineIPs {
-			addr, err := netip.ParseAddr(strings.Trim(strings.TrimSpace(ip.IP), "[]"))
-			if err == nil && relay[addr.Unmap()] {
+			key := ipkey.Of(ip.IP)
+			if relay[key] {
 				l.relayConns += ip.Connections
 				l.relayIPs++
 				continue
 			}
-			if ip.Connections > 0 && len(direct) < maxUsageIPsPerGroup {
-				if err == nil {
-					direct = append(direct, addr.Unmap().String())
-				} else {
-					direct = append(direct, ip.IP)
-				}
+			if ip.Connections > 0 && len(direct) < maxUsageIPsPerGroup && key != "" {
+				direct = append(direct, key)
 			}
 		}
 		if l.relayConns > l.current {

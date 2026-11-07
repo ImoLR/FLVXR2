@@ -15,6 +15,9 @@ import (
 	"github.com/go-gost/x/service"
 )
 
+// ipv6OtherNet is a client address in a second /64 (netns_integration.sh).
+const ipv6OtherNet = "fd31:1:0:1::2"
+
 const heldQuotaClientPy = `
 import socket, struct, sys
 source, dest, port = sys.argv[1], sys.argv[2], int(sys.argv[3])
@@ -204,6 +207,8 @@ func TestNftQuotaRealConntrackGates(t *testing.T) {
 		a.ping(t)
 	})
 
+	// Plan 231: one IPv6 /64 is one IP (fd31:1::2 and fd31:1::3 share fd31:1::/64,
+	// fd31:1:0:1::2 is another /64).
 	t.Run("IPv6 rule IP cap", func(t *testing.T) {
 		startPyServer(t, targetNS, echoServerPy, targetIP6, "41027")
 		if err := m.AddRule(207, 1, 7, 1, "tcp", 31027, "["+targetIP6+"]:41027", 0, RuleQuota{MaxClientIPs: 1}); err != nil {
@@ -214,13 +219,61 @@ func TestNftQuotaRealConntrackGates(t *testing.T) {
 		if err := m.ReconcileQuota(); err != nil {
 			t.Fatal(err)
 		}
-		if probeQuotaConnection(t, clientNS, "fd31:1::3", 31027) {
-			t.Fatal("second IPv6 source passed rule IP cap")
+		if probeQuotaConnection(t, clientNS, ipv6OtherNet, 31027) {
+			t.Fatal("second IPv6 /64 passed rule IP cap")
+		}
+		if !probeQuotaConnection(t, clientNS, "fd31:1::3", 31027) {
+			t.Fatal("another address of the active /64 was rejected")
 		}
 		if !probeQuotaConnection(t, clientNS, "fd31:1::2", 31027) {
 			t.Fatal("active IPv6 source was rejected")
 		}
 		a.ping(t)
+	})
+
+	t.Run("IPv6 user pool IP budget by /64", func(t *testing.T) {
+		startPyServer(t, targetNS, echoServerPy, targetIP6, "41028")
+		quota := RuleQuota{Group: "user-708", GroupMaxConnections: -1, GroupMaxClientIPs: 1}
+		if err := m.AddRule(208, 1, 708, 1, "tcp", 31028, "["+targetIP6+"]:41028", 0, quota); err != nil {
+			t.Fatal(err)
+		}
+		defer m.RemoveForward(208, "tcp", nil, false)
+		a := holdQuotaConnection(t, clientNS, "fd31:1::2", 31028)
+		b := holdQuotaConnection(t, clientNS, "fd31:1::3", 31028)
+		if err := m.ReconcileQuota(); err != nil {
+			t.Fatal(err)
+		}
+		if state, _ := service.GetQuotaGroupState(quota.Group); state.CountedIPs != 1 || state.Connections != 2 {
+			t.Fatalf("two addresses of one /64 = %+v, want 1 counted IP", state)
+		}
+		reported := []string{}
+		for _, usage := range service.QuotaGroupUsages() {
+			if usage.Group == quota.Group {
+				reported = usage.ClientIPs
+			}
+		}
+		if strings.Join(reported, ",") != "fd31:1::2,fd31:1::3" {
+			t.Fatalf("reported raw addresses = %v", reported)
+		}
+		if probeQuotaConnection(t, clientNS, ipv6OtherNet, 31028) {
+			t.Fatal("second /64 passed a 1-IP pool")
+		}
+		a.ping(t)
+		b.ping(t)
+		// A /64 counted on another node (sharedIps, panel key form) needs no slot here.
+		if err := service.SetQuotaGroupBudgets([]service.QuotaGroupBudget{{Group: quota.Group, MaxConnections: -1, MaxClientIPs: 1, SharedIPs: []string{"fd31:1:0:1::/64"}}}); err != nil {
+			t.Fatal(err)
+		}
+		if err := m.ReconcileQuota(); err != nil {
+			t.Fatal(err)
+		}
+		if !probeQuotaConnection(t, clientNS, ipv6OtherNet, 31028) {
+			t.Fatal("shared /64 was rejected at a full pool")
+		}
+		a.ping(t)
+		if err := service.SetQuotaGroupBudgets([]service.QuotaGroupBudget{{Group: quota.Group, MaxConnections: -1, MaxClientIPs: -1}}); err != nil {
+			t.Fatal(err)
+		}
 	})
 
 	t.Run("UDP rule IP cap", func(t *testing.T) {

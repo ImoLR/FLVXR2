@@ -20,6 +20,12 @@ func decodeCommandData(data interface{}, target interface{}) error {
 
 const maxServiceClientIPs = 500
 
+// ipKeyVersion is the ipKey handshake capability (plan 231): this agent counts
+// a client IPv6 /64 as one IP (rule + group limits, nftables gate) and keys
+// every sharedIps entry it receives; GetServiceClientIPs lists keys
+// ("<net>/64" for IPv6). Quota usage reports keep the raw addresses.
+const ipKeyVersion = 1
+
 type clientIPCount struct {
 	IP          string `json:"ip"`
 	Connections int    `json:"connections"`

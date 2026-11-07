@@ -880,7 +880,10 @@ func buildWebSocketQuery(secret string, version string, http int, tls int, socks
 		// Plan 180: chain hops honour a per-destination node order (规则最优).
 		"&destOrder=" + strconv.Itoa(destOrderVersion) +
 		// Plan 161: per-user 速率 on this machine's landing nodes (kernel).
-		"&landingRate=" + strconv.Itoa(landing.LandingRateVersion)
+		"&landingRate=" + strconv.Itoa(landing.LandingRateVersion) +
+		// Plan 231: client IPs count by key (IPv6 = its /64) and sharedIps
+		// entries are keyed on receipt; clientIps reports stay raw.
+		"&ipKey=" + strconv.Itoa(ipKeyVersion)
 }
 
 // buildWebSocketCandidates returns the primary and the fallback scheme URL of

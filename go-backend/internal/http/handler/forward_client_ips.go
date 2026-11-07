@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"go-backend/internal/http/response"
+	"go-backend/internal/ipkey"
 	"go-backend/internal/ws"
 )
 
@@ -149,14 +150,14 @@ func queryForwardClientIPs(forwardID int64, nodes []forwardIPNode, send func(int
 			if svc.Truncated {
 				result.Truncated = true
 			}
-			if svc.IPCount > result.IPCount {
-				result.IPCount = svc.IPCount
-			}
+			// Plan 231: one row per IP key (an IPv6 /64 is one IP, as the
+			// limits count it); old agents list raw addresses, new ones keys.
 			for _, ip := range svc.IPs {
-				entry := byIP[ip.IP]
+				key := ipkey.Of(ip.IP)
+				entry := byIP[key]
 				if entry == nil {
-					entry = &forwardClientIP{IP: ip.IP}
-					byIP[ip.IP] = entry
+					entry = &forwardClientIP{IP: key}
+					byIP[key] = entry
 				}
 				entry.Connections += ip.Connections
 				if !containsString(entry.Nodes, item.node.Name) {
@@ -170,9 +171,10 @@ func queryForwardClientIPs(forwardID int64, nodes []forwardIPNode, send func(int
 		result.IPs = append(result.IPs, *ip)
 	}
 	sort.Slice(result.IPs, func(i, j int) bool { return result.IPs[i].IP < result.IPs[j].IP })
-	if len(result.IPs) > result.IPCount {
-		result.IPCount = len(result.IPs)
-	}
+	// Distinct keys over all nodes (a truncated agent list makes it a lower
+	// bound, shown as 「至少」; the agents' raw per-service counts would
+	// count one /64 several times on old agents).
+	result.IPCount = len(result.IPs)
 	if len(result.IPs) > 500 {
 		result.IPs = result.IPs[:500]
 		result.Truncated = true

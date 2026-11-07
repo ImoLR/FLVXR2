@@ -51,7 +51,7 @@ func (m *Manager) Close() {
 		}
 	}
 	for group := range groups {
-		service.SetNftQuotaGroupUsage(group, 0, nil)
+		service.SetNftQuotaGroupUsage(group, 0, nil, nil)
 	}
 	for _, qf := range m.quotaForwards {
 		qf.group.Detach()
@@ -129,7 +129,7 @@ func (m *Manager) rebuildLocked() (restored, total int, err error) {
 				inUse = inUse || qf.quota.Group == group
 			}
 			if !inUse {
-				service.SetNftQuotaGroupUsage(group, 0, nil)
+				service.SetNftQuotaGroupUsage(group, 0, nil, nil)
 			}
 		}
 		m.stopQuotaPollIfIdleLocked()

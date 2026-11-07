@@ -540,7 +540,18 @@ func (r *Repository) RecordSharedStatus(id int64, status landingcustom.Status, n
 }
 
 // Host inventories are deliberately credentials-free.
+//
+// Plan 230: Nodes also carries every node's known egress addresses
+// (EgressHistoryIPs): a NAT node dials landings from addresses that are none
+// of its own fields (Leikwanhost 沪台IPLC → 103.246.219.39 / 114.35.6.24), and
+// Nodes is what both landing kinds use as relay sources for the user limits
+// (shared: Custom's flvx_node_hosts → Helper; native: landingRelaySources).
+// Native stays the machines' own addresses only (dual-install detection).
 func (r *Repository) LandingHostInventory() (landingcustom.LandingHosts, error) {
+	return r.landingHostInventoryAt(time.Now())
+}
+
+func (r *Repository) landingHostInventoryAt(now time.Time) (landingcustom.LandingHosts, error) {
 	out := landingcustom.LandingHosts{Native: []string{}, Nodes: []string{}}
 	var nodes []model.Node
 	if err := r.db.Where("is_remote = 0").Find(&nodes).Error; err != nil {
@@ -556,7 +567,8 @@ func (r *Repository) LandingHostInventory() (landingcustom.LandingHosts, error) 
 	}
 	for _, n := range nodes {
 		s, isNative := byNode[n.ID]
-		for host := range landingNodeHosts(s, n) {
+		hosts := landingNodeHosts(s, n)
+		for host := range hosts {
 			if strings.TrimSpace(host) == "" {
 				continue
 			}
@@ -564,6 +576,11 @@ func (r *Repository) LandingHostInventory() (landingcustom.LandingHosts, error) 
 			// Retain disabled native hosts too: their managed Core still belongs to FLVX.
 			if isNative {
 				out.Native = append(out.Native, host)
+			}
+		}
+		for _, ip := range EgressHistoryIPs(n, now) {
+			if !hosts[ip] {
+				out.Nodes = append(out.Nodes, ip)
 			}
 		}
 	}

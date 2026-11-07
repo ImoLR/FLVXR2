@@ -3,7 +3,10 @@ package repo
 import (
 	"errors"
 	"sort"
+	"strings"
+	"time"
 
+	"go-backend/internal/ipkey"
 	"go-backend/internal/landingcustom"
 	"go-backend/internal/store/model"
 
@@ -38,9 +41,12 @@ type QuotaLandingSlot struct {
 	NodeID      int64
 	NodeStatus  int
 	NodeVersion string
-	// RelayNodes = distinct FLVX nodes that dial this user's nodes on this
-	// server for the user's own rules (linked landing targets): each keeps an
-	// IP slot at the Core so a relay is never refused for a new source IP.
+	// RelayNodes = IP slots for the distinct FLVX nodes that dial this user's
+	// nodes on this server for the user's own rules (linked landing targets):
+	// each keeps an IP slot at the Core so a relay is never refused for a new
+	// source IP. Plan 230: a NAT node that leaves through several egress
+	// addresses (Leikwanhost 沪台IPLC: two IPv4s) keeps one slot per address
+	// of its larger family (relaySlotsFor).
 	RelayNodes int
 }
 
@@ -185,13 +191,19 @@ func (r *Repository) LoadQuotaPlanExtras() (QuotaPlanExtras, error) {
 	if err != nil {
 		return out, err
 	}
+	slotsOf, err := r.relayNodeSlots(relays, time.Now())
+	if err != nil {
+		return out, err
+	}
 	for _, p := range pairs {
 		slot, ok := capable[p.LandingServerID]
 		if _, limited := out.Users[p.UserID]; !ok || !limited {
 			continue
 		}
 		slot.UserID = p.UserID
-		slot.RelayNodes = len(relays[ServerQuotaKey{UserID: p.UserID, Kind: "landing", RefID: p.LandingServerID}])
+		for nodeID := range relays[ServerQuotaKey{UserID: p.UserID, Kind: "landing", RefID: p.LandingServerID}] {
+			slot.RelayNodes += max(slotsOf[nodeID], 1)
+		}
 		out.Landing = append(out.Landing, slot)
 	}
 	sort.Slice(out.Landing, func(i, j int) bool {
@@ -201,6 +213,48 @@ func (r *Repository) LoadQuotaPlanExtras() (QuotaPlanExtras, error) {
 		return out.Landing[i].ServerID < out.Landing[j].ServerID
 	})
 	return out, nil
+}
+
+// relayNodeSlots returns, per relay node, the IP slots it needs at a landing:
+// the number of its known egress addresses (EgressHistoryIPs; IPv6 per /64)
+// of its larger family, at least 1. One query for all relay nodes.
+func (r *Repository) relayNodeSlots(relays map[ServerQuotaKey]map[int64]bool, now time.Time) (map[int64]int, error) {
+	out := map[int64]int{}
+	ids := []int64{}
+	seen := map[int64]bool{}
+	for _, nodes := range relays {
+		for id := range nodes {
+			if !seen[id] {
+				seen[id] = true
+				ids = append(ids, id)
+			}
+		}
+	}
+	if len(ids) == 0 {
+		return out, nil
+	}
+	var rows []model.Node
+	if err := r.db.Select("id", "reported_ip_v4", "reported_ip_v6", "reported_ip_history").Where("id IN ?", ids).Find(&rows).Error; err != nil {
+		return out, err
+	}
+	for _, n := range rows {
+		out[n.ID] = relaySlotsFor(EgressHistoryIPs(n, now))
+	}
+	return out, nil
+}
+
+// relaySlotsFor: one slot per IPv4 and per IPv6 /64 (plan 231: the landing
+// Core counts an IPv6 source per /64) of the larger family, at least 1.
+func relaySlotsFor(egress []string) int {
+	v4, v6 := 0, map[string]bool{}
+	for _, ip := range egress {
+		if strings.Contains(ip, ":") {
+			v6[ipkey.Of(ip)] = true
+		} else {
+			v4++
+		}
+	}
+	return max(v4, len(v6), 1)
 }
 
 // landingRelayNodes maps (user, landing server) to the FLVX nodes that dial

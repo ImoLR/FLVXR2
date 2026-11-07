@@ -103,7 +103,7 @@ func TestLiveConntrackAttributionIncludesUncappedForward(t *testing.T) {
 		t.Fatalf("quota-only attribution unexpectedly included unlimited rule: %v", got)
 	}
 	got := attributeLiveFlows(rules, flows)[51]
-	if got.connections != 3 || got.ips["198.51.100.1"] != 2 || got.ips["2001:db8::1"] != 1 {
+	if got.connections != 3 || got.ips["198.51.100.1"] != 2 || got.ips["2001:db8::/64"] != 1 || got.addrs != nil {
 		t.Fatalf("live attribution = %+v", got)
 	}
 }
