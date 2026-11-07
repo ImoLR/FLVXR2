@@ -363,3 +363,155 @@ func TestSwitchMarginGenericConfigKeys(t *testing.T) {
 		t.Fatalf("config list: counts shown or margin missing: %v", out.Data)
 	}
 }
+
+// Plan 237: saving a changed 伪装域名 margin re-runs the 自动 pick at once on
+// the stored 测速 table (no 测速 sent to the machine, no revision bump):
+// it switches when the new margin allows, stays when not, the same value
+// does nothing, a raised margin never switches back, and a failover-only
+// change (current blocked since the 测速) waits for the next 测速 as before.
+func TestSwitchMarginRealityDomainSaveAppliesAtOnce(t *testing.T) {
+	e := newFlowTestEnv(t)
+	realitySeed(t, e)
+	a := newRealityAgent(t, e)
+	probe := func() {
+		t.Helper()
+		if out := egressCall(t, e.h, "/api/v1/landing/server/reality-probe", map[string]any{"id": 1}, 0); out.Code != 0 {
+			t.Fatalf("probe: %+v", out)
+		}
+	}
+	save := func(domain int) {
+		t.Helper()
+		if out := smCall(t, e.h, "/api/v1/config/switch-margins/save", map[string]any{"bestMs": 5, "realityDomainMs": domain, "realityIpMs": 20}, 0); out.Code != 0 {
+			t.Fatalf("save %d: %+v", domain, out)
+		}
+	}
+	a.results = []map[string]any{
+		probeRow("www.tesla.com:443", true, 12, "203.0.113.12", "www.tesla.com"),
+		probeRow("www.nvidia.com:443", true, 9, "203.0.113.30", "www.nvidia.com"),
+	}
+	probe() // lovelive not measured → nvidia (forced, 1 failover)
+	a.results[1] = probeRow("www.nvidia.com:443", true, 30, "203.0.113.30", "www.nvidia.com")
+	probe() // nvidia 30 vs tesla 12: 18 ms ≥ 5 → tesla
+	a.results[1] = probeRow("www.nvidia.com:443", true, 9, "203.0.113.30", "www.nvidia.com")
+	probe() // nvidia 9 vs tesla 12: 3 ms < 5 → held on tesla
+	before := mustServer(t, e)
+	if before.RealityDest != "www.tesla.com:443" {
+		t.Fatalf("setup dest %s", before.RealityDest)
+	}
+	a.mu.Lock()
+	probes := len(a.candidates) + len(a.resamples)
+	a.mu.Unlock()
+	counts := func() repo.AutoSwitchSummary {
+		return e.r.AutoSwitchSummaries(time.Now())[repo.AutoSwitchRealityDomain]
+	}
+	c0 := counts()
+	if c0.Total != 2 || c0.Failover != 1 {
+		t.Fatalf("setup counts %+v", c0)
+	}
+	// Only the stored table changes (as if the last 测速 had measured nvidia
+	// at 1 ms): a re-evaluation at 5 ms would switch now, so saving the same
+	// 5 proves nothing was re-evaluated. 12 ms: the 11 ms gain does not reach it.
+	stored := repo.LandingRealityProbeResults(&before)
+	for i := range stored {
+		if stored[i].Target == "www.nvidia.com:443" {
+			stored[i].LatencyMs, stored[i].WorstMs = 1, 1
+			for j := range stored[i].Samples {
+				stored[i].Samples[j] = 1
+			}
+		}
+	}
+	raw, _ := json.Marshal(stored)
+	if err := e.r.DB().Model(&model.LandingServer{}).Where("id = 1").Update("reality_probe", string(raw)).Error; err != nil {
+		t.Fatal(err)
+	}
+	before = mustServer(t, e)
+	save(5)
+	save(12)
+	if s := mustServer(t, e); s.RealityDest != "www.tesla.com:443" || counts().Total != 2 {
+		t.Fatalf("same value re-evaluated or switched below the margin: %s %+v", s.RealityDest, counts())
+	}
+	// 11 ms: 11 ≥ 11 → nvidia at once (new nodes' default + its names), counted.
+	save(11)
+	s := mustServer(t, e)
+	if s.RealityDest != "www.nvidia.com:443" || s.RealityServerNames != `["www.nvidia.com"]` {
+		t.Fatalf("not applied at once: %s %s", s.RealityDest, s.RealityServerNames)
+	}
+	if c := counts(); c.Total != 3 || c.Failover != 1 {
+		t.Fatalf("counts after the re-evaluation %+v", c)
+	}
+	if s.Revision != before.Revision || s.RealityProbedAt != before.RealityProbedAt || s.RealityProbe != before.RealityProbe {
+		t.Fatalf("re-evaluation bumped the revision or rewrote the 测速 (rev %d→%d, at %d→%d)", before.Revision, s.Revision, before.RealityProbedAt, s.RealityProbedAt)
+	}
+	// Same 11 again, then raised to 20: stays on nvidia (the fastest).
+	save(11)
+	save(20)
+	if s := mustServer(t, e); s.RealityDest != "www.nvidia.com:443" || counts().Total != 3 {
+		t.Fatalf("raised margin switched: %s %+v", s.RealityDest, counts())
+	}
+	// Current blocked since the 测速: a margin change does not fail over
+	// (that stays with the next 测速).
+	rows, err := e.r.ListLandingRealityDomains()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, d := range rows {
+		if d.Domain == "www.nvidia.com" {
+			if _, err := e.r.SetLandingRealityDomainBlocked(d.ID, true); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	save(1)
+	if s := mustServer(t, e); s.RealityDest != "www.nvidia.com:443" || counts().Total != 3 {
+		t.Fatalf("margin change failed over: %s %+v", s.RealityDest, counts())
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if n := len(a.candidates) + len(a.resamples); n != probes {
+		t.Fatalf("saving sent %d 测速 requests", n-probes)
+	}
+}
+
+// The generic config endpoint takes the same path; a 手动 server is never
+// touched.
+func TestSwitchMarginRealityDomainGenericConfigAppliesAtOnce(t *testing.T) {
+	e := newFlowTestEnv(t)
+	realitySeed(t, e)
+	a := newRealityAgent(t, e)
+	a.results = []map[string]any{
+		probeRow("www.tesla.com:443", true, 12, "203.0.113.12", "www.tesla.com"),
+		probeRow("www.nvidia.com:443", true, 30, "203.0.113.30", "www.nvidia.com"),
+	}
+	probe := func() {
+		t.Helper()
+		if out := egressCall(t, e.h, "/api/v1/landing/server/reality-probe", map[string]any{"id": 1}, 0); out.Code != 0 {
+			t.Fatalf("probe: %+v", out)
+		}
+	}
+	probe()
+	a.results[1] = probeRow("www.nvidia.com:443", true, 9, "203.0.113.30", "www.nvidia.com")
+	probe() // held on tesla (3 ms < 5)
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v1/config/update-single", e.h.updateSingleConfig)
+	set := func(v string) {
+		t.Helper()
+		raw, _ := json.Marshal(map[string]string{"name": repo.SwitchMarginRealityDomainKey, "value": v})
+		req := httptest.NewRequest("POST", "/api/v1/config/update-single", bytes.NewReader(raw))
+		req = req.WithContext(context.WithValue(req.Context(), middleware.ClaimsContextKey, auth.Claims{Sub: "1", RoleID: 0}))
+		w := httptest.NewRecorder()
+		mux.ServeHTTP(w, req)
+		if !bytes.Contains(w.Body.Bytes(), []byte(`"code":0`)) {
+			t.Fatalf("update-single %s: %s", v, w.Body.String())
+		}
+	}
+	e.exec("UPDATE landing_server SET reality_mode='manual' WHERE id=1")
+	set("2")
+	if s := mustServer(t, e); s.RealityDest != "www.tesla.com:443" {
+		t.Fatalf("手动 server re-picked: %s", s.RealityDest)
+	}
+	e.exec("UPDATE landing_server SET reality_mode='auto' WHERE id=1")
+	set("1")
+	if s := mustServer(t, e); s.RealityDest != "www.nvidia.com:443" {
+		t.Fatalf("generic config change not applied: %s", s.RealityDest)
+	}
+}

@@ -505,22 +505,78 @@ func (r *Repository) RecordLandingRealityProbe(serverID int64, results []Reality
 			// Plan 233: the current default stays unless a challenger is ≥
 			// the margin (plan 234 setting) faster or it is not pickable any more.
 			decision := DecideRealityPick(results, func(h string) bool { return info.Blocked[h] }, s.RealityDest, margin)
-			if best := decision.Pick; best != nil {
-				host := realityHost(best.Target)
-				dest := net.JoinHostPort(host, strconv.Itoa(realityTargetPort(best.Target)))
-				names := RealityServerNamesFor(host, best.ServerNames)
-				nb, _ := json.Marshal(names)
-				if dest != s.RealityDest || string(nb) != s.RealityServerNames {
-					updates["reality_dest"] = dest
-					updates["reality_server_names"] = string(nb)
-					rec.Picked, rec.ServerNames = dest, names
-				}
-				if prev := realityDestKey(s.RealityDest); prev != "" && prev != realityDestKey(dest) {
-					rec.Switched, rec.Forced = true, decision.Forced
-				}
-			}
+			applyRealityPick(&s, decision, updates, &rec)
 		}
 		return tx.Model(&model.LandingServer{}).Where("id = ?", serverID).Updates(updates).Error
+	})
+	return rec, err
+}
+
+// applyRealityPick turns a pick decision into the server's reality_dest /
+// reality_server_names updates (the default for NEW nodes) and fills rec.
+func applyRealityPick(s *model.LandingServer, decision RealityPickDecision, updates map[string]any, rec *RealityProbeRecord) {
+	best := decision.Pick
+	if best == nil {
+		return
+	}
+	host := realityHost(best.Target)
+	dest := net.JoinHostPort(host, strconv.Itoa(realityTargetPort(best.Target)))
+	names := RealityServerNamesFor(host, best.ServerNames)
+	nb, _ := json.Marshal(names)
+	if dest != s.RealityDest || string(nb) != s.RealityServerNames {
+		updates["reality_dest"] = dest
+		updates["reality_server_names"] = string(nb)
+		rec.Picked, rec.ServerNames = dest, names
+	}
+	if prev := realityDestKey(s.RealityDest); prev != "" && prev != realityDestKey(dest) {
+		rec.Switched, rec.Forced = true, decision.Forced
+	}
+}
+
+// RealityAutoPickServerIDs (plan 237) are the active 自动 servers with a
+// stored 测速 table, i.e. the ones a changed 伪装域名 margin can affect.
+func (r *Repository) RealityAutoPickServerIDs() ([]int64, error) {
+	var ids []int64
+	err := r.db.Model(&model.LandingServer{}).Where("status = ? AND reality_mode <> ? AND reality_probe <> ?", "active", RealityModeManual, "").Order("id asc").Pluck("id", &ids).Error
+	return ids, err
+}
+
+// ReapplyRealityDomainMargin (plan 237) re-runs the 伪装域名 pick of one
+// 自动 server ONCE on its stored 测速 table with a changed margin — no probe,
+// no revision bump (the pick is the default for NEW nodes, as after a 测速).
+// Only what the margin decides is applied: the current default is still
+// pickable and a challenger now beats it by ≥ marginMs. A failover (current
+// not pickable any more, e.g. blocked since) stays with the next 测速, as
+// before; a raised margin never switches.
+func (r *Repository) ReapplyRealityDomainMargin(serverID int64, marginMs int) (RealityProbeRecord, error) {
+	var rec RealityProbeRecord
+	info, err := r.realityDomainSets()
+	if err != nil {
+		return rec, err
+	}
+	err = r.db.Transaction(func(tx *gorm.DB) error {
+		var s model.LandingServer
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&s, serverID).Error; err != nil {
+			return err
+		}
+		if s.Status != "active" || NormalizeRealityMode(s.RealityMode) != RealityModeAuto {
+			return nil
+		}
+		d := DecideRealityPick(LandingRealityProbeResults(&s), func(h string) bool { return info.Blocked[h] }, s.RealityDest, marginMs)
+		if d.Pick == nil || d.Forced || d.Current == nil || d.Pick == d.Current {
+			return nil
+		}
+		next := RealityProbeRecord{Previous: s.RealityDest}
+		updates := map[string]any{}
+		applyRealityPick(&s, d, updates, &next)
+		if !next.Switched || len(updates) == 0 {
+			return nil
+		}
+		if err := tx.Model(&model.LandingServer{}).Where("id = ?", serverID).Updates(updates).Error; err != nil {
+			return err
+		}
+		rec = next
+		return nil
 	})
 	return rec, err
 }

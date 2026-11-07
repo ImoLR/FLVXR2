@@ -116,3 +116,57 @@ func TestSwitchMarginsContract(t *testing.T) {
 		})
 	}
 }
+
+// Plan 237 on SQLite and PostgreSQL: saving a changed 伪装域名 margin re-runs
+// the 自动 pick at once on the stored 测速 table (row-locked, no revision
+// bump); a 手动 server and an unchanged save are left alone.
+func TestSwitchMarginDomainReapplyContract(t *testing.T) {
+	for _, dialect := range []string{"sqlite", "postgres"} {
+		t.Run(dialect, func(t *testing.T) {
+			r := landingContractRepo(t, dialect)
+			const secret = "switch-margins-reapply-contract"
+			h := handler.New(r, secret, "test")
+			h.SetMutationRateLimitEnabled(false)
+			router := httpserver.NewRouter(h, secret, r)
+			admin, _ := auth.GenerateToken(1, "admin", 0, secret)
+			table := `[{"target":"www.tesla.com:443","feasible":true,"latency_ms":12,"server_names":["www.tesla.com"]},` +
+				`{"target":"www.nvidia.com:443","feasible":true,"latency_ms":9,"server_names":["www.nvidia.com"]}]`
+			for _, s := range []*model.LandingServer{
+				{ID: 1, Source: "native", Name: "auto", PublicHost: "203.0.113.1", Status: "active", RealityMode: "auto", RealityDest: "www.tesla.com:443", RealityServerNames: `["www.tesla.com"]`, RealityProbe: table, RealityProbedAt: 1000, Revision: 7},
+				{ID: 2, Source: "native", Name: "manual", PublicHost: "203.0.113.2", Status: "active", RealityMode: "manual", RealityDest: "www.tesla.com:443", RealityServerNames: `["www.tesla.com"]`, RealityProbe: table, RealityProbedAt: 1000, Revision: 7},
+			} {
+				if err := r.DB().Create(s).Error; err != nil {
+					t.Fatal(err)
+				}
+			}
+			save := func(domain int) {
+				t.Helper()
+				if out := requestContractEnvelope(t, router, admin, "/api/v1/config/switch-margins/save", map[string]any{"bestMs": 5, "realityDomainMs": domain, "realityIpMs": 20}); out.Code != 0 {
+					t.Fatalf("save %d: %+v", domain, out)
+				}
+			}
+			dest := func(id int64) *model.LandingServer {
+				t.Helper()
+				s, err := r.GetLandingServer(id)
+				if err != nil || s == nil {
+					t.Fatal(err)
+				}
+				return s
+			}
+			save(5) // the default: unchanged → nothing
+			if s := dest(1); s.RealityDest != "www.tesla.com:443" {
+				t.Fatalf("unchanged save switched: %s", s.RealityDest)
+			}
+			save(3) // 3 ms gain ≥ 3 → nvidia
+			if s := dest(1); s.RealityDest != "www.nvidia.com:443" || s.RealityServerNames != `["www.nvidia.com"]` || s.Revision != 7 || s.RealityProbedAt != 1000 {
+				t.Fatalf("auto server after save: %+v", s)
+			}
+			if s := dest(2); s.RealityDest != "www.tesla.com:443" {
+				t.Fatalf("手动 server re-picked: %s", s.RealityDest)
+			}
+			if c := r.AutoSwitchSummaries(time.Now())[repo.AutoSwitchRealityDomain]; c.Total != 1 || c.Failover != 0 {
+				t.Fatalf("counts %+v", c)
+			}
+		})
+	}
+}

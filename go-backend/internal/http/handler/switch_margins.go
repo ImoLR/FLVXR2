@@ -15,12 +15,17 @@ import (
 // switch margins and how often each switched in the last 7 days.
 //
 //   - 最优线路 (+ 规则最优): read by every 60 s path round from the repo cache;
-//   - Reality 伪装域名: read by every 测速 / server view;
+//   - Reality 伪装域名: read by every 测速 / server view; plan 237: a changed
+//     value also re-runs the pick once on each 自动 server's stored 测速 table
+//     (reapplyRealityDomainMargin), so it does not wait for the daily 测速;
 //   - Reality 目标 IP: sent to native agents (landing_reality ≥ 3) with the
-//     landing desired state by the 1-minute reconcile push, and to shares
-//     whose Helper takes it (reality_pin v2) with the shared desired state.
+//     landing desired state by the 1-minute reconcile push (agents ≥ plan 237
+//     re-evaluate their pins at once with the last check's samples), and to
+//     shares whose Helper takes it (reality_pin v2) with the shared desired
+//     state.
 //
-// Changes apply without a restart.
+// Changes apply without a restart, within about a minute; saving the same
+// values does nothing.
 
 func (h *Handler) registerSwitchMargins(mux *http.ServeMux) {
 	mux.HandleFunc("/api/v1/config/switch-margins", h.switchMarginsGet)
@@ -173,7 +178,45 @@ func (h *Handler) switchMarginsSave(w http.ResponseWriter, r *http.Request) {
 		log.Printf("[switch-margins] saved best=%d ms (was %d) reality_domain=%d ms (was %d) reality_ip=%d ms (was %d)",
 			next.BestMs, prev.BestMs, next.RealityDomainMs, prev.RealityDomainMs, next.RealityIPMs, prev.RealityIPMs)
 	}
+	h.applySwitchMarginChange(prev, next)
 	response.WriteJSON(w, response.OK(h.switchMarginsView(time.Now())))
+}
+
+// applySwitchMarginChange (plan 237) is what a saved margin needs beyond the
+// cache: 最优线路 is read by the next 60 s round and 目标 IP rides the next
+// 1-minute push, but the 伪装域名 pick only ran after a 测速 (daily), so a
+// changed value re-runs it once now. Unchanged values do nothing.
+func (h *Handler) applySwitchMarginChange(prev, next repo.SwitchMargins) {
+	if h == nil || h.repo == nil || prev.RealityDomainMs == next.RealityDomainMs {
+		return
+	}
+	h.reapplyRealityDomainMargin(next.RealityDomainMs)
+}
+
+// reapplyRealityDomainMargin re-runs the 伪装域名 pick of every 自动 server
+// on its stored 测速 table (no probe, no push; repo.ReapplyRealityDomainMargin).
+// A server in a running 测速 is skipped: that 测速 reads the new margin.
+func (h *Handler) reapplyRealityDomainMargin(marginMs int) {
+	ids, err := h.repo.RealityAutoPickServerIDs()
+	if err != nil {
+		log.Printf("[switch-margins] reality domain re-evaluation skipped: %v", err)
+		return
+	}
+	for _, id := range ids {
+		if _, busy := realityProbeBusy.LoadOrStore(id, struct{}{}); busy {
+			continue
+		}
+		rec, err := h.repo.ReapplyRealityDomainMargin(id, marginMs)
+		realityProbeBusy.Delete(id)
+		if err != nil {
+			log.Printf("[switch-margins] reality domain re-evaluation server=%d failed: %v", id, err)
+			continue
+		}
+		if rec.Switched {
+			log.Printf("landing reality server=%d auto dest %s → %s (new nodes only; margin %d ms, last 测速 re-evaluated)", id, rec.Previous, rec.Picked, marginMs)
+			h.recordAutoSwitch(repo.AutoSwitchEvent{Kind: repo.AutoSwitchRealityDomain, Unit: id, Failover: rec.Forced})
+		}
+	}
 }
 
 var errAutoSwitchCountsKey = errors.New("该配置由面板自动维护，不能直接修改")

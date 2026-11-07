@@ -1523,6 +1523,10 @@ func (h *Handler) updateSingleConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	var prevMargins repo.SwitchMargins
+	if repo.IsSwitchMarginKey(name) {
+		prevMargins = h.repo.SwitchMargins()
+	}
 	if err := h.repo.UpsertConfig(name, value, time.Now().UnixMilli()); err != nil {
 		response.WriteJSON(w, response.Err(-2, err.Error()))
 		return
@@ -1530,6 +1534,7 @@ func (h *Handler) updateSingleConfig(w http.ResponseWriter, r *http.Request) {
 	h.noteProbeConfigChange(name)
 	if repo.IsSwitchMarginKey(name) {
 		h.repo.InvalidateSwitchMargins()
+		h.applySwitchMarginChange(prevMargins, h.repo.SwitchMargins())
 	}
 
 	response.WriteJSON(w, response.OKEmpty())
