@@ -173,6 +173,27 @@ func (r *Repository) ListActiveForwardIDsByNode(nodeID int64) ([]int64, error) {
 	return ids, nil
 }
 
+// ListInactiveForwardIDsByNode lists forwards with a port on the node whose
+// status is not 1 (paused for any reason: admin/user pause, expiry, quota,
+// rule expiry, CN block, landing). Plan 236: the reconnect safety net re-pauses
+// what an agent restart may have brought back up.
+func (r *Repository) ListInactiveForwardIDsByNode(nodeID int64) ([]int64, error) {
+	if r == nil || r.db == nil {
+		return nil, errors.New("repository not initialized")
+	}
+	var ids []int64
+	err := r.db.Model(&model.ForwardPort{}).
+		Joins("JOIN forward ON forward.id = forward_port.forward_id").
+		Where("forward_port.node_id = ? AND forward.status <> 1", nodeID).
+		Select("DISTINCT forward_port.forward_id").
+		Order("forward_port.forward_id ASC").
+		Pluck("forward_port.forward_id", &ids).Error
+	if err != nil {
+		return nil, err
+	}
+	return ids, nil
+}
+
 // QuotaGroupTarget describes one user quota pool hosted by an entry node.
 // One row is returned per user/node pair, regardless of how many forwarding
 // services for the user are present on that node.

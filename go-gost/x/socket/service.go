@@ -36,7 +36,8 @@ func createServices(req createServicesRequest) error {
 			return errors.New("service " + name + " already exists")
 		}
 
-		svc, err := parser.ParseService(&serviceConfig)
+		// Plan 236: a paused rule is registered closed.
+		svc, err := parser.ParseServiceOrPaused(&serviceConfig)
 		if err != nil {
 			return errors.New("create service " + name + " failed: " + err.Error())
 		}
@@ -109,6 +110,18 @@ func updateServices(req updateServicesRequest) error {
 			old.Close()
 			// 3. 从注册表移除旧服务
 			registry.ServiceRegistry().Unregister(name)
+		}
+
+		// Plan 236: an update of a paused rule keeps it closed (the stored
+		// config keeps paused: true); its connections end like on PauseService.
+		if parser.IsPaused(serviceConfig) {
+			if old != nil && !parser.IsPausedService(old) && serviceConfig.Addr != "" {
+				_ = kill.ForceClosePortConnections(serviceConfig.Addr)
+			}
+			if err := registry.ServiceRegistry().Register(name, parser.NewPausedService(serviceConfig)); err != nil {
+				return errors.New("service " + name + " already exists")
+			}
+			continue
 		}
 
 		// 4. 解析新服务配置
@@ -363,16 +376,8 @@ func resumeServices(req resumeServicesRequest) error {
 			return errors.New(fmt.Sprintf("service %s configuration not found", name))
 		}
 
-		// 检查是否处于暂停状态
-		paused := false
-		if serviceConfig.Metadata != nil {
-			if pausedVal, exists := serviceConfig.Metadata["paused"]; exists && pausedVal == true {
-				paused = true
-			}
-		}
-
 		// 如果服务没有暂停(即正在运行)，跳过
-		if !paused {
+		if !parser.IsPaused(serviceConfig) {
 			skippedServices = append(skippedServices, name)
 			continue
 		}
@@ -397,13 +402,16 @@ func resumeServices(req resumeServicesRequest) error {
 		str.service.Close()
 		registry.ServiceRegistry().Unregister(str.name)
 
-		// 强制断开端口的所有连接
-		if str.serviceConfig.Addr != "" {
-			_ = kill.ForceClosePortConnections(str.serviceConfig.Addr)
-		}
+		// Plan 236: a placeholder (paused at boot/update) holds no port.
+		if !parser.IsPausedService(str.service) {
+			// 强制断开端口的所有连接
+			if str.serviceConfig.Addr != "" {
+				_ = kill.ForceClosePortConnections(str.serviceConfig.Addr)
+			}
 
-		// 等待端口释放
-		time.Sleep(500 * time.Millisecond)
+			// 等待端口释放
+			time.Sleep(500 * time.Millisecond)
+		}
 
 		// 重新解析并启动服务
 		svc, err := parser.ParseService(str.serviceConfig)

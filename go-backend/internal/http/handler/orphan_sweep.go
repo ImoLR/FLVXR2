@@ -38,6 +38,10 @@ type runtimeInventory struct {
 	// nil Revs = an older agent.
 	Revs map[string]string `json:"revs,omitempty"`
 	Boot string            `json:"boot,omitempty"`
+	// Plan 236 agents: services registered but paused (they do not listen,
+	// also after a restart). nil = an older agent, whose paused services an
+	// agent restart brings back up.
+	Paused []string `json:"paused,omitempty"`
 }
 
 func (i runtimeInventory) objects() []runtimeObject {

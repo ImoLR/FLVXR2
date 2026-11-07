@@ -327,6 +327,12 @@ func (h *Handler) syncForwardServicesWithWarningsOnNode(forward *forwardRecord, 
 	// nftables mode branch
 	if strings.EqualFold(forward.Mode, "nftables") {
 		fmt.Printf("[nft.debug] syncForwardServicesWithWarnings: nft mode branch, forwardID=%d\n", forward.ID)
+		if forward.Status != 1 {
+			// Plan 236: a paused nftables rule is never installed (this
+			// branch used to install it and return before the keep-paused
+			// step below); make sure it is gone instead.
+			return nil, h.deleteNftablesRules(forward, ports)
+		}
 		return nil, h.syncNftablesRules(forward, tunnel, ports, userTunnelID, nodeID > 0)
 	}
 	if h.quotaGroups != nil {
@@ -375,6 +381,12 @@ func (h *Handler) syncForwardServicesWithWarningsOnNode(forward *forwardRecord, 
 		}
 		services := buildForwardServiceConfigs(serviceBase, forward, tunnel, node, fp.Port, strings.TrimSpace(fp.InIP), tunnelTLSProtocol)
 		h.applyRateRefs(services, forward, node, rate, plan)
+		if forward.Status != 1 {
+			// Plan 236: plan-236 agents store a paused rule closed (also
+			// across restarts); older agents serve it until the PauseService
+			// below.
+			markServicesPaused(services)
+		}
 		if plan != nil && nodeID == 0 && forward.Status == 1 && strings.EqualFold(method, "UpdateService") && h.agentRunsServices(node.ID, services) {
 			// Plan 168: a rule edit that only changed its speed changes the
 			// node's entry tree, not the service: no restart, no dropped
@@ -427,6 +439,18 @@ func (h *Handler) syncForwardServicesWithWarningsOnNode(forward *forwardRecord, 
 		}
 	}
 	return warnings, nil
+}
+
+// markServicesPaused sets metadata.paused on service payloads of a paused rule.
+func markServicesPaused(services []map[string]interface{}) {
+	for _, svc := range services {
+		meta, _ := svc["metadata"].(map[string]interface{})
+		if meta == nil {
+			meta = map[string]interface{}{}
+			svc["metadata"] = meta
+		}
+		meta["paused"] = true
+	}
 }
 
 func (h *Handler) fallbackForwardPortToDefaultBind(forward *forwardRecord, tunnel *tunnelRecord, node *nodeRecord, fp forwardPortRecord, serviceBase string, tunnelTLSProtocol bool) (string, error) {

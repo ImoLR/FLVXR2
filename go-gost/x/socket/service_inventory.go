@@ -9,6 +9,8 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/go-gost/x/config"
+	parser "github.com/go-gost/x/config/parsing/service"
 	"github.com/go-gost/x/registry"
 )
 
@@ -20,6 +22,10 @@ type serviceInventory struct {
 	Nftables   []string `json:"nftables"`
 	WGPaths    []string `json:"wgPaths"`
 	WGForwards []string `json:"wgForwards"`
+	// Plan 236: registered services whose config is paused — they do not
+	// listen (this agent keeps paused services closed across restarts). Always
+	// present (maybe empty) so the panel can tell this agent from older ones.
+	Paused []string `json:"paused"`
 	// Plan 138: revisions of the panel-tagged objects applied by this process
 	// ("service:<name>" → rev) and this process' boot id. Older agents send
 	// neither; the panel then redeploys everything on reconnect.
@@ -45,6 +51,7 @@ func (w *WebSocketReporter) listServices() (serviceInventory, error) {
 		Hops:     inventoryNames(registry.HopRegistry().GetAll()),
 		Limiters: inventoryNames(registry.TrafficLimiterRegistry().GetAll()),
 		Nftables: []string{}, WGPaths: []string{}, WGForwards: []string{},
+		Paused: pausedServiceNames(),
 	}
 	if w.nftablesMgr != nil {
 		for _, id := range w.nftablesMgr.ListForwardIDs() {
@@ -99,4 +106,20 @@ func (w *WebSocketReporter) listServices() (serviceInventory, error) {
 	}
 	i.Boot = agentBootID
 	return i, nil
+}
+
+// pausedServiceNames lists registered services whose stored config is paused.
+func pausedServiceNames() []string {
+	names := []string{}
+	cfg := config.Global()
+	if cfg == nil {
+		return names
+	}
+	for _, s := range cfg.Services {
+		if s != nil && parser.IsPaused(s) && registry.ServiceRegistry().IsRegistered(s.Name) {
+			names = append(names, s.Name)
+		}
+	}
+	sort.Strings(names)
+	return names
 }

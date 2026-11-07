@@ -93,6 +93,9 @@ func (h *Handler) applyUserQuotaRelease(release *repo.UserQuotaRelease, now int6
 			continue
 		}
 		if strings.EqualFold(forward.Mode, "nftables") {
+			// Plan 236: the rule is being resumed; a paused (status 0) nft
+			// rule is never installed by the sync.
+			forward.Status = 1
 			_ = h.syncForwardServices(forward, "UpdateService", true)
 		} else {
 			if err := h.controlForwardServices(forward, "ResumeService", false); err != nil {

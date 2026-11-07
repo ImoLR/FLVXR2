@@ -445,6 +445,8 @@ func (h *Handler) listReleases(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) onNodeOnline(nodeID int64) {
+	// Plan 236: first close what an agent restart may have re-opened.
+	go h.repauseInactiveForwardsOnReconnect(nodeID)
 	if err := h.wsServer.SyncPanelIPFamily(nodeID); err != nil {
 		fmt.Printf("node %d panel IP family sync failed: %v\n", nodeID, err)
 	}

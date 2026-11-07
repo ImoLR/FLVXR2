@@ -66,7 +66,7 @@ func createService(ctx *gin.Context) {
 		return
 	}
 
-	svc, err := parser.ParseService(&req.Data)
+	svc, err := parser.ParseServiceOrPaused(&req.Data)
 	if err != nil {
 		writeError(ctx, NewError(http.StatusInternalServerError, ErrCodeFailed, fmt.Sprintf("create service %s failed: %s", name, err.Error())))
 		return
@@ -128,7 +128,7 @@ func createServices(ctx *gin.Context) {
 			return
 		}
 
-		svc, err := parser.ParseService(&serviceConfig)
+		svc, err := parser.ParseServiceOrPaused(&serviceConfig)
 		if err != nil {
 			writeError(ctx, NewError(http.StatusInternalServerError, ErrCodeFailed, fmt.Sprintf("create service %s failed: %s", name, err.Error())))
 			return
@@ -234,7 +234,7 @@ func updateService(ctx *gin.Context) {
 
 	req.Data.Name = name
 
-	svc, err := parser.ParseService(&req.Data)
+	svc, err := parser.ParseServiceOrPaused(&req.Data)
 	if err != nil {
 		writeError(ctx, NewError(http.StatusInternalServerError, ErrCodeFailed, fmt.Sprintf("create service %s failed: %s", name, err.Error())))
 		return
@@ -313,7 +313,7 @@ func updateServices(ctx *gin.Context) {
 		registry.ServiceRegistry().Unregister(name)
 
 		// 4. 解析新服务配置
-		svc, err := parser.ParseService(&serviceConfig)
+		svc, err := parser.ParseServiceOrPaused(&serviceConfig)
 		if err != nil {
 			writeError(ctx, NewError(http.StatusInternalServerError, ErrCodeFailed, fmt.Sprintf("create service %s failed: %s", name, err.Error())))
 			return
