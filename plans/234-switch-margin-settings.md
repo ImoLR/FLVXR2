@@ -62,7 +62,8 @@ them (one number each), compare them, and see whether a value flaps.
 - [x] contract tests SQLite + PostgreSQL
 - [x] go test ./... (backend, go-gost/x landing) + tsc / build / lint
 - [x] screens phone 390 + desktop 1440 light + dark card → /root/mmwx-preview/switch-margin-settings/
-- [ ] push, CI green, ledger 234 (+ 233 included-in-234)
+- [x] push, CI green (Build Check 42355540129 on 0f9ddc77), ledger 234 (+ 233 included-in-234) — status: waiting for
+      the user's look at the screens; release = panel + OTA of native landing agents (old agents keep 20 ms)
 
 ## Results (2026-11-07)
 - Backend `go test ./...` with `FLVX_POSTGRES_TEST_DSN` (temporary postgres:18-alpine container): 26 packages ok, 0 failures;
