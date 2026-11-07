@@ -8,6 +8,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/json"
 	"errors"
 	"math/big"
 	"net"
@@ -28,41 +29,114 @@ func samples(kv ...any) []RealityProbeIP {
 func TestChoosePinFastestAndHysteresis(t *testing.T) {
 	k := pinKey{"www.example.com", 443}
 	// First pin: the fastest reachable IP.
-	p := choosePin(k, nil, samples("54.230.70.30", 55, "65.9.180.116", 4, "65.9.180.9", -1), nil)
+	p := choosePin(k, nil, samples("54.230.70.30", 55, "65.9.180.116", 4, "65.9.180.9", -1), nil, realityPinHysteresis)
 	if p.PinnedIP != "65.9.180.116" || p.PinnedMs != 4 || p.BestIP != "65.9.180.116" || p.IPs != 3 {
 		t.Fatalf("first pin = %+v", p)
 	}
 	old := &RealityPinStatus{PinnedIP: "65.9.180.116", PinnedMs: 4}
 	// Pinned IP 19 ms slower than the new best: keep (hysteresis 20 ms).
-	p = choosePin(k, old, samples("65.9.180.116", 25, "65.9.180.20", 6), nil)
-	if p.PinnedIP != "65.9.180.116" || p.PinnedMs != 25 || p.BestIP != "65.9.180.20" || p.BestMs != 6 {
+	p = choosePin(k, old, samples("65.9.180.116", 25, "65.9.180.20", 6), nil, realityPinHysteresis)
+	if p.PinnedIP != "65.9.180.116" || p.PinnedMs != 25 || p.BestIP != "65.9.180.20" || p.BestMs != 6 || p.MoveReason != "" {
 		t.Fatalf("within hysteresis = %+v", p)
 	}
 	// Exactly 20 ms slower: move.
-	p = choosePin(k, old, samples("65.9.180.116", 26, "65.9.180.20", 6), nil)
-	if p.PinnedIP != "65.9.180.20" {
+	p = choosePin(k, old, samples("65.9.180.116", 26, "65.9.180.20", 6), nil, realityPinHysteresis)
+	if p.PinnedIP != "65.9.180.20" || p.MoveReason != realityPinMoveFaster {
 		t.Fatalf("at hysteresis = %+v", p)
 	}
 	// Pinned IP fails: move.
-	p = choosePin(k, old, samples("65.9.180.116", -1, "54.230.70.30", 55), nil)
-	if p.PinnedIP != "54.230.70.30" || p.PinnedMs != 55 {
+	p = choosePin(k, old, samples("65.9.180.116", -1, "54.230.70.30", 55), nil, realityPinHysteresis)
+	if p.PinnedIP != "54.230.70.30" || p.PinnedMs != 55 || p.MoveReason != realityPinMoveFailover {
 		t.Fatalf("pinned failed = %+v", p)
 	}
 	// Pinned IP left the DNS answer: move even if the others are slower.
-	p = choosePin(k, old, samples("54.230.70.30", 55), nil)
-	if p.PinnedIP != "54.230.70.30" {
+	p = choosePin(k, old, samples("54.230.70.30", 55), nil, realityPinHysteresis)
+	if p.PinnedIP != "54.230.70.30" || p.MoveReason != realityPinMoveFailover {
 		t.Fatalf("pinned gone from DNS = %+v", p)
 	}
 	// Every IP fails: no pin (the guard dials the host as before).
-	p = choosePin(k, old, samples("65.9.180.116", -1), nil)
+	p = choosePin(k, old, samples("65.9.180.116", -1), nil, realityPinHysteresis)
 	if p.PinnedIP != "" || p.Error == "" {
 		t.Fatalf("all failed = %+v", p)
 	}
-	p = choosePin(k, old, nil, errors.New("no such host"))
+	p = choosePin(k, old, nil, errors.New("no such host"), realityPinHysteresis)
 	if p.PinnedIP != "" || !strings.Contains(p.Error, "解析失败") {
 		t.Fatalf("lookup failed = %+v", p)
 	}
 }
+
+// Plan 234: the margin comes from the panel (Desired.reality_pin_margin_ms);
+// absent = 20 ms; 0 = any gain (a tie keeps the pin); a failed / vanished
+// pin moves whatever the margin.
+func TestChoosePinMarginSetting(t *testing.T) {
+	k := pinKey{"www.example.com", 443}
+	old := &RealityPinStatus{PinnedIP: "65.9.180.116", PinnedMs: 10}
+	cases := []struct {
+		margin int
+		want   string
+	}{{0, "65.9.180.20"}, {3, "65.9.180.20"}, {4, "65.9.180.116"}, {20, "65.9.180.116"}, {200, "65.9.180.116"}}
+	for _, c := range cases { // pinned 13 ms, best 10 ms → 3 ms faster
+		p := choosePin(k, old, samples("65.9.180.116", 13, "65.9.180.20", 10), nil, c.margin)
+		if p.PinnedIP != c.want {
+			t.Fatalf("margin %d: pinned %s, want %s", c.margin, p.PinnedIP, c.want)
+		}
+		if (p.PinnedIP != old.PinnedIP) != (p.MoveReason == realityPinMoveFaster) {
+			t.Fatalf("margin %d: move reason %q", c.margin, p.MoveReason)
+		}
+	}
+	if p := choosePin(k, old, samples("65.9.180.116", 10, "65.9.180.20", 10), nil, 0); p.PinnedIP != old.PinnedIP || p.MoveReason != "" {
+		t.Fatalf("margin 0 tie moved: %+v", p)
+	}
+	if p := choosePin(k, old, samples("65.9.180.116", -1, "65.9.180.20", 90), nil, 200); p.PinnedIP != "65.9.180.20" || p.MoveReason != realityPinMoveFailover {
+		t.Fatalf("failover at 200 ms: %+v", p)
+	}
+	if p := choosePin(k, nil, samples("65.9.180.20", 10), nil, 0); p.MoveReason != "" {
+		t.Fatalf("first pin has a move reason: %+v", p)
+	}
+
+	var pin *realityPinner = newRealityPinner()
+	if pin.marginMs() != realityPinHysteresis {
+		t.Fatalf("default margin %d", pin.marginMs())
+	}
+	for _, v := range []int{0, 7, 200} {
+		v := v
+		pin.setMargin(&v)
+		if pin.marginMs() != v {
+			t.Fatalf("pushed %d, in force %d", v, pin.marginMs())
+		}
+	}
+	pin.setMargin(nil) // panel back to the default (field absent)
+	if pin.marginMs() != realityPinHysteresis {
+		t.Fatalf("absent → %d, want 20", pin.marginMs())
+	}
+	bad := 201
+	pin.setMargin(&bad)
+	if pin.marginMs() != realityPinHysteresis {
+		t.Fatalf("out of range → %d", pin.marginMs())
+	}
+}
+
+func TestDesiredRealityPinMargin(t *testing.T) {
+	for _, c := range []struct {
+		v  *int
+		ok bool
+	}{{nil, true}, {intp(0), true}, {intp(35), true}, {intp(200), true}, {intp(-1), false}, {intp(201), false}} {
+		d := Desired{Revision: 1, RealityPinMarginMs: c.v}
+		if err := d.validate(); (err == nil) != c.ok {
+			t.Fatalf("margin %v: err=%v", c.v, err)
+		}
+	}
+	// Older panels never send the field: the JSON stays decodable and absent.
+	var d Desired
+	if err := json.Unmarshal([]byte(`{"revision":1,"enabled":true,"nodes":[]}`), &d); err != nil || d.RealityPinMarginMs != nil {
+		t.Fatalf("absent field: %v %+v", err, d.RealityPinMarginMs)
+	}
+	if err := json.Unmarshal([]byte(`{"revision":1,"enabled":true,"nodes":[],"reality_pin_margin_ms":0}`), &d); err != nil || d.RealityPinMarginMs == nil || *d.RealityPinMarginMs != 0 {
+		t.Fatalf("zero margin: %v %+v", err, d.RealityPinMarginMs)
+	}
+}
+
+func intp(v int) *int { return &v }
 
 func TestPublicIPFilter(t *testing.T) {
 	for _, ip := range []string{"10.1.2.3", "127.0.0.1", "100.64.1.1", "192.168.1.1", "172.16.5.5", "169.254.169.254", "0.0.0.0", "224.0.0.1", "198.18.0.5", "240.0.0.1"} {
@@ -457,5 +531,27 @@ func TestPinnerLivenessMovesDeadPinAtOnce(t *testing.T) {
 	now = now.Add(10 * time.Minute)
 	if p.recheckDue(context.Background()) || f.dials["203.0.113.2"] != before || p.running[k] {
 		t.Fatal("healthy pin re-measured")
+	}
+}
+
+// Plan 234: Apply hands the desired margin to the pinner; a later desired
+// without it (panel back to 20 ms, or an older panel) restores the default.
+func TestApplySetsRealityPinMargin(t *testing.T) {
+	m := NewManager(t.TempDir(), true)
+	ctx := context.Background()
+	if _, err := m.Apply(ctx, Desired{Revision: 1, Nodes: []Node{}, RealityPinMarginMs: intp(7)}); err != nil {
+		t.Fatal(err)
+	}
+	if got := m.pins.marginMs(); got != 7 {
+		t.Fatalf("margin after apply = %d, want 7", got)
+	}
+	if _, err := m.Apply(ctx, Desired{Revision: 2, Nodes: []Node{}}); err != nil {
+		t.Fatal(err)
+	}
+	if got := m.pins.marginMs(); got != realityPinHysteresis {
+		t.Fatalf("margin without the field = %d, want 20", got)
+	}
+	if _, err := m.Apply(ctx, Desired{Revision: 3, Nodes: []Node{}, RealityPinMarginMs: intp(500)}); err == nil {
+		t.Fatal("out-of-range margin accepted")
 	}
 }

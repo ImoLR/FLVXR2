@@ -217,6 +217,9 @@ func New(repo *repo.Repository, jwtSecret string, fluxVersion string) *Handler {
 		nftablesDomainCache: make(map[int64]string),
 		flowUploads:         newFlowUploadDeduper(flowUploadDedupeTTL, flowUploadDedupeMaxEntries),
 	}
+	// Plan 234: 最优 / 规则最优 read the 「自动切换门槛」 setting (repo cache).
+	h.bestPath.margin = h.bestSwitchMargin
+	h.ruleBest.margin = h.bestSwitchMargin
 	h.auth = newAuthGuard(repo.GetUserAuthState)
 	h.wsServer.SetUserState(h.auth.state)
 	h.wsServer.SetUserScopeResolver(h.wsUserScope)
@@ -275,6 +278,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	h.registerDDNS(mux)
 	h.registerProbe(mux)
 	h.registerTelegramBot(mux)
+	h.registerSwitchMargins(mux)
 	mux.HandleFunc(StaleFrontendKickPath, h.staleFrontendKick)
 	mux.HandleFunc("/api/v1/user/login", h.login)
 	mux.HandleFunc("/api/v1/user/logout", h.logout)
@@ -774,7 +778,8 @@ func (h *Handler) getConfigs(w http.ResponseWriter, r *http.Request) {
 	level := h.configVisibility(r)
 	for name := range cfgMap {
 		// Plan 196: tg_bot_* (token, HMAC key) never leave the panel.
-		if repo.IsHiddenConfigKey(name) || (level < 2 && !configKeyVisible(name, level)) {
+		// Plan 234: the switch counts are shown by their own card only.
+		if repo.IsHiddenConfigKey(name) || name == repo.AutoSwitchCountsKey || (level < 2 && !configKeyVisible(name, level)) {
 			delete(cfgMap, name)
 		}
 	}
@@ -1462,6 +1467,9 @@ func (h *Handler) updateConfigs(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		h.noteProbeConfigChange(key)
+		if repo.IsSwitchMarginKey(key) {
+			h.repo.InvalidateSwitchMargins()
+		}
 	}
 
 	response.WriteJSON(w, response.OKEmpty())
@@ -1520,6 +1528,9 @@ func (h *Handler) updateSingleConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.noteProbeConfigChange(name)
+	if repo.IsSwitchMarginKey(name) {
+		h.repo.InvalidateSwitchMargins()
+	}
 
 	response.WriteJSON(w, response.OKEmpty())
 }
@@ -1528,6 +1539,14 @@ func normalizeAndValidateConfigValue(key, value string) (string, error) {
 	switch strings.TrimSpace(key) {
 	case probeTitleKey, probeDomainKey, probeLatencyKey, probeNodesKey, probeGroupsKey, probeGroupModeKey, probeExpiryKey:
 		return normalizeProbeConfigValue(strings.TrimSpace(key), value)
+	case repo.SwitchMarginBestKey, repo.SwitchMarginRealityDomainKey, repo.SwitchMarginRealityIPKey:
+		n, err := repo.ParseSwitchMargin(value)
+		if err != nil {
+			return "", err
+		}
+		return strconv.Itoa(n), nil
+	case repo.AutoSwitchCountsKey:
+		return "", errAutoSwitchCountsKey
 	case repo.LandingDefaultMaxNodesKey:
 		n, err := repo.ParseLandingDefaultMaxNodes(value)
 		if err != nil {

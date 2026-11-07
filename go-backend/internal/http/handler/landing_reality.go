@@ -108,7 +108,7 @@ func (h *Handler) realityDomainsView() (map[string]any, error) {
 	}
 	return map[string]any{
 		"domains":       list,
-		"trialRule":     realityTrialRuleView(),
+		"trialRule":     realityTrialRuleView(h.repo.SwitchMargins().RealityDomainMs),
 		"probeCount":    probed,
 		"probeMax":      repo.RealityProbeMaxCandidates,
 		"customMax":     repo.RealityCustomMax,
@@ -376,6 +376,10 @@ func (h *Handler) runRealityProbe(ctx context.Context, serverID int64) ([]repo.R
 	if rec.Picked != "" {
 		log.Printf("landing reality server=%d auto dest %s → %s (new nodes only)", serverID, rec.Previous, rec.Picked)
 	}
+	if rec.Switched {
+		// Plan 234: 「最近 7 天自动切换」 of Reality 伪装域名.
+		h.recordAutoSwitch(repo.AutoSwitchEvent{Kind: repo.AutoSwitchRealityDomain, Unit: serverID, Failover: rec.Forced})
+	}
 	return results, rec, nil
 }
 
@@ -541,7 +545,7 @@ func (h *Handler) realityResultsView(results []repo.RealityProbeResult, history 
 }
 
 // markRealityPickHeld (plan 233): in 自动 mode, when a faster pickable domain
-// is within RealityPickSwitchMarginMs of the current default, the current row
+// is within the switch margin (plan 234 setting) of the current default, the current row
 // says so (pickHeld, pickHeldBy = that domain, pickHeldGapMs, the two ranking
 // values pickHeldMs / pickHeldByMs). rows are
 // realityResultsView(results) in the same order.
@@ -555,7 +559,7 @@ func (h *Handler) markRealityPickHeld(s model.LandingServer, results []repo.Real
 			blocked[row["domain"].(string)] = true
 		}
 	}
-	d := repo.DecideRealityPick(results, func(host string) bool { return blocked[host] }, s.RealityDest)
+	d := repo.DecideRealityPick(results, func(host string) bool { return blocked[host] }, s.RealityDest, h.repo.SwitchMargins().RealityDomainMs)
 	if !d.Held {
 		return
 	}
@@ -584,7 +588,7 @@ func (h *Handler) landingServerRealityView(s model.LandingServer, v map[string]a
 	h.markRealityPickHeld(s, results, rows)
 	v["realityProbe"] = rows
 	v["realityProbeStats"] = history.Stats
-	v["realityTrialRule"] = realityTrialRuleView()
+	v["realityTrialRule"] = realityTrialRuleView(h.repo.SwitchMargins().RealityDomainMs)
 	v["realityPinSupported"] = h.realityPinSupport(&s)
 	v["realityPins"] = repo.LandingRealityPins(&s)
 	v["realityPinsAt"] = s.RealityPinsAt
@@ -707,9 +711,13 @@ func (h *Handler) recordRealityPins(serverID int64, pins []repo.RealityPin) {
 	if pins == nil {
 		return
 	}
-	if err := h.repo.RecordLandingRealityPins(serverID, pins); err != nil {
+	moves, err := h.repo.RecordLandingRealityPins(serverID, pins)
+	if err != nil {
 		log.Printf("landing reality pins not recorded server=%d: %v", serverID, err)
+		return
 	}
+	// Plan 234: 「最近 7 天自动切换」 of Reality 目标 IP.
+	h.recordAutoSwitch(moves...)
 }
 
 func sharedRealityPins(p landingcustom.RealityPins) []repo.RealityPin {
@@ -718,7 +726,7 @@ func sharedRealityPins(p landingcustom.RealityPins) []repo.RealityPin {
 	}
 	out := make([]repo.RealityPin, 0, len(p))
 	for _, pin := range p {
-		p := repo.RealityPin{Host: pin.Host, Port: pin.Port, PinnedIP: pin.PinnedIP, PinnedMs: msInt(pin.PinnedMs), BestIP: pin.BestIP, BestMs: msInt(pin.BestMs), IPs: 0, CheckedAt: pin.CheckedAt, Error: pin.Error}
+		p := repo.RealityPin{Host: pin.Host, Port: pin.Port, PinnedIP: pin.PinnedIP, PinnedMs: msInt(pin.PinnedMs), BestIP: pin.BestIP, BestMs: msInt(pin.BestMs), IPs: 0, CheckedAt: pin.CheckedAt, Error: pin.Error, MoveReason: pin.MoveReason}
 		if pin.Fallback && p.Error == "" {
 			p.Error = "没有 IP 连得上，按第一个解析结果"
 		}
@@ -727,13 +735,14 @@ func sharedRealityPins(p landingcustom.RealityPins) []repo.RealityPin {
 	return out
 }
 
-// realityTrialRuleView is the 试用 rule for the help text (plan 229).
-func realityTrialRuleView() map[string]any {
+// realityTrialRuleView is the 试用 rule for the help text (plan 229);
+// switchMarginMs = the 伪装域名 margin in force (plan 234 setting).
+func realityTrialRuleView(switchMarginMs int) map[string]any {
 	return map[string]any{
 		"minSamples": repo.RealityTrialMinSamples, "minSpanHours": int(repo.RealityTrialMinSpan / time.Hour),
 		"jitterMs": repo.RealityTrialJitterMs, "jitterPct": repo.RealityTrialJitterPct, "marginMs": repo.RealityTrialMarginMs,
 		"resampleTop": repo.RealityResampleTop, "resampleTrial": repo.RealityResampleTrialMax, "resampleRounds": repo.RealityResampleRounds,
 		"resampleGapSec": int(realityResampleGap / time.Second), "keep": repo.RealitySampleKeep,
-		"switchMarginMs": repo.RealityPickSwitchMarginMs,
+		"switchMarginMs": switchMarginMs,
 	}
 }

@@ -95,6 +95,9 @@ type Repository struct {
 	// landingResync: a startup migration changed compiled landing plans
 	// (plan 143); the handler pushes every landing server once.
 	landingResync atomic.Bool
+	// Plan 234: cached 「自动切换门槛」 and the in-memory switch counts.
+	margins  atomic.Pointer[switchMarginsCache]
+	switches autoSwitchStore
 }
 
 // TakeLandingStartupResync reports (once) that startup migrations changed

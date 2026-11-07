@@ -297,6 +297,8 @@ func (h *Handler) runPathLatencyRound(ctx context.Context) {
 	// Plan 180: rule-level decisions after the tunnel ones, same storm guard.
 	h.runRuleBestRound(plans, results, guard, start, now)
 	h.ruleBest.count(0, 0, ruleBestProbes)
+	// Plan 234: this round's switches → 「最近 7 天自动切换」 (one write, only when any).
+	h.flushAutoSwitches()
 	bestDuration := time.Since(bestStart)
 	// One summary line per hour (was one per minute, ~1.4k lines/day).
 	if last := pathLatencyLoggedAt.Load(); now.Unix()-last >= 3600 {

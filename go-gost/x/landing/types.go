@@ -60,6 +60,11 @@ type Desired struct {
 	// ScanGuard (plan 202): 禁止端口扫描, see scan_guard.go. Only sent to
 	// agents reporting landing_scan_guard.
 	ScanGuard *ScanGuard `json:"scan_guard,omitempty"`
+	// RealityPinMarginMs (plan 234 「自动切换门槛」): a Reality dest's pin moves
+	// to a faster IP only when it is ≥ this many ms faster (0–200; 0 = any
+	// gain). Absent = realityPinHysteresis (20). Only sent to agents
+	// reporting landing_reality ≥ 3, and only when not 20.
+	RealityPinMarginMs *int `json:"reality_pin_margin_ms,omitempty"`
 }
 
 type Node struct {
@@ -211,6 +216,9 @@ func (d *Desired) validate() error {
 	}
 	if d.CoreMemoryMB < 32 || d.CoreMemoryMB > 65536 || d.CoreCPUPercent < 1 || d.CoreCPUPercent > 10000 {
 		return fmt.Errorf("invalid landing resource limits")
+	}
+	if m := d.RealityPinMarginMs; m != nil && (*m < 0 || *m > realityPinMarginMax) {
+		return fmt.Errorf("invalid reality pin margin")
 	}
 	ids, ports := map[int64]bool{}, map[int]bool{}
 	chains := 0

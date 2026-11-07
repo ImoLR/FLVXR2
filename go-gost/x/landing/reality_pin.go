@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -17,14 +18,22 @@ import (
 // guard dials the pinned IP: the fastest public IPv4 of the host by TCP
 // connect time. It is re-checked every 6 h (and at once when the 10 min
 // liveness connect to the pinned IP fails) and moves only when the pinned IP
-// fails, leaves the DNS answer, or is ≥ 20 ms slower than the new best. When
+// fails, leaves the DNS answer, or is ≥ the margin slower than the new best
+// (plan 234: the panel's 「Reality 目标 IP」 setting, default 20 ms). When
 // every IP fails the guard falls back to the host (old behaviour). A move
 // re-adds only the loopback guard inbound: the Core keeps running and user
 // connections (node inbounds) are not touched.
 const (
 	realityPinRecheck    = 6 * time.Hour
-	realityPinHysteresis = 20               // ms
+	realityPinHysteresis = 20               // ms, the default margin (Desired.reality_pin_margin_ms absent)
+	realityPinMarginMax  = 200              // ms, the panel setting's range
 	realityPinRetry      = 10 * time.Minute // after a failed first pin
+)
+
+// Pin move reasons (RealityPinStatus.MoveReason).
+const (
+	realityPinMoveFaster   = "faster"
+	realityPinMoveFailover = "failover"
 )
 
 // RealityPinStatus is one pinned dest host (Status.RealityPins).
@@ -38,6 +47,10 @@ type RealityPinStatus struct {
 	IPs       int    `json:"ips"`        // public IPv4 addresses tried
 	CheckedAt int64  `json:"checked_at"` // unix ms
 	Error     string `json:"error,omitempty"`
+	// MoveReason (plan 234): set when this check moved the pin from another
+	// IP — "faster" (≥ the margin) or "failover" (the pinned IP failed or
+	// left the DNS answer); the panel counts the moves.
+	MoveReason string `json:"move_reason,omitempty"`
 }
 
 type pinKey struct {
@@ -52,6 +65,32 @@ type realityPinner struct {
 	net     realityNet
 	now     func() time.Time
 	logf    func(format string, args ...any)
+	// margin + 1 (ms) from the desired state; 0 = not set → realityPinHysteresis.
+	margin atomic.Int32
+}
+
+// setMargin takes the desired state's margin (nil = the default 20 ms). It
+// applies from the next check; nothing is re-checked because of it.
+func (p *realityPinner) setMargin(ms *int) {
+	if p == nil {
+		return
+	}
+	if ms == nil || *ms < 0 || *ms > realityPinMarginMax {
+		p.margin.Store(0)
+		return
+	}
+	p.margin.Store(int32(*ms) + 1)
+}
+
+// marginMs is the margin in force.
+func (p *realityPinner) marginMs() int {
+	if p == nil {
+		return realityPinHysteresis
+	}
+	if v := p.margin.Load(); v > 0 {
+		return int(v - 1)
+	}
+	return realityPinHysteresis
 }
 
 func newRealityPinner() *realityPinner {
@@ -179,7 +218,7 @@ func (p *realityPinner) check(ctx context.Context, k pinKey) bool {
 	if old != nil {
 		oldIP = old.PinnedIP
 	}
-	next := choosePin(k, old, samples, err)
+	next := choosePin(k, old, samples, err, p.marginMs())
 	next.CheckedAt = p.now().UnixMilli()
 	p.pins[k] = next
 	if next.PinnedIP != oldIP && p.logf != nil {
@@ -191,16 +230,24 @@ func (p *realityPinner) check(ctx context.Context, k pinKey) bool {
 		if to == "" {
 			to = "域名（" + next.Error + "）"
 		}
-		p.logf("landing reality pin %s: %s → %s (%d ms, best %d ms, %d IPs)", net.JoinHostPort(k.host, strconv.Itoa(k.port)), from, to, next.PinnedMs, next.BestMs, next.IPs)
+		p.logf("landing reality pin %s: %s → %s (%d ms, best %d ms, %d IPs, margin %d ms%s)", net.JoinHostPort(k.host, strconv.Itoa(k.port)), from, to, next.PinnedMs, next.BestMs, next.IPs, p.marginMs(), moveText(next.MoveReason))
 	}
 	return next.PinnedIP != oldIP
 }
 
+func moveText(reason string) string {
+	if reason == "" {
+		return ""
+	}
+	return ", " + reason
+}
+
 // choosePin is the pin decision: the fastest reachable IP, unless the current
-// pin is still reachable, still in the DNS answer and less than
-// realityPinHysteresis ms slower than the fastest. No reachable IP → no pin
-// (the guard dials the host, as before plan 227).
-func choosePin(k pinKey, old *RealityPinStatus, samples []RealityProbeIP, lookupErr error) *RealityPinStatus {
+// pin is still reachable, still in the DNS answer and the fastest is not
+// ≥ marginMs faster than it (0 = any gain; a tie keeps the pin). No reachable
+// IP → no pin (the guard dials the host, as before plan 227). A move from
+// another IP gets its MoveReason.
+func choosePin(k pinKey, old *RealityPinStatus, samples []RealityProbeIP, lookupErr error, marginMs int) *RealityPinStatus {
 	next := &RealityPinStatus{Host: k.host, Port: k.port, IPs: len(samples)}
 	if lookupErr != nil {
 		next.Error = "解析失败：" + shortErr(lookupErr)
@@ -214,11 +261,20 @@ func choosePin(k pinKey, old *RealityPinStatus, samples []RealityProbeIP, lookup
 	next.BestIP, next.BestMs = best, bestMs
 	next.PinnedIP, next.PinnedMs = best, bestMs
 	if old != nil && old.PinnedIP != "" {
+		reason := realityPinMoveFailover // failed or left the DNS answer
 		for _, s := range samples {
-			if s.IP == old.PinnedIP && s.TCPMs >= 0 && s.TCPMs-bestMs < realityPinHysteresis {
-				next.PinnedIP, next.PinnedMs = s.IP, s.TCPMs
-				break
+			if s.IP != old.PinnedIP || s.TCPMs < 0 {
+				continue
 			}
+			if gap := s.TCPMs - bestMs; gap <= 0 || gap < marginMs {
+				next.PinnedIP, next.PinnedMs = s.IP, s.TCPMs
+				return next
+			}
+			reason = realityPinMoveFaster
+			break
+		}
+		if next.PinnedIP != old.PinnedIP {
+			next.MoveReason = reason
 		}
 	}
 	return next

@@ -49,6 +49,10 @@ func (h *Handler) StartBackgroundJobs() {
 	go h.runCNLandingCheckLoop(ctx)
 	go h.runCancelExpiredOrdersLoop(ctx)
 	go h.runExpirePackageSubscriptionsLoop(ctx)
+	// Plan 234: load the 「最近 7 天自动切换」 counts before the rounds note any.
+	if err := h.repo.StartAutoSwitchCounts(); err != nil {
+		log.Printf("[switch-margins] counts not loaded: %v", err)
+	}
 	go h.runPathLatencyLoop(ctx)
 	go h.runDDNSLoop(ctx)
 	go h.runEntryRateLoop(ctx)

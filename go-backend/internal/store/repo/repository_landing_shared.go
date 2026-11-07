@@ -346,6 +346,7 @@ func (r *Repository) SyncSharedLandings(shares []landingcustom.Share, now int64)
 // on every caller to bump the server revision.
 func (r *Repository) SharedLandingDesired(id int64, egress *landingegress.Plan) (landingcustom.Desired, error) {
 	out := landingcustom.Desired{Nodes: []landingcustom.Node{}, Egress: egress}
+	pinMargin := r.SwitchMargins().RealityIPMs // read outside the transaction
 	err := r.db.Transaction(func(tx *gorm.DB) error {
 		var s model.LandingServer
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&s, id).Error; err != nil {
@@ -427,11 +428,17 @@ func (r *Repository) SharedLandingDesired(id int64, egress *landingegress.Plan) 
 			sort.Strings(ids)
 			out.ScanGuard = LandingScanPayload(g, ids, s.ScanSeenSeq)
 		}
+		// Plan 234: the Reality 目标 IP margin goes only to a share whose
+		// Helper takes it (reality_pin v2) and only when not the default.
+		if pinMargin != DefaultSwitchMarginRealityIPMs && SharedLandingCaps(&s).RealityPin.Supports(landingcustom.RealityPinMarginVersion) {
+			m := pinMargin
+			out.RealityPinMarginMs = &m
+		}
 		// Without egress / guards the hash input stays the node list (and
 		// with egress only, the same object as before), so upgrading the
 		// panel does not bump revisions of unchanged shares.
 		raw, _ := json.Marshal(out.Nodes)
-		if out.Egress != nil || out.RealityGuard != nil || out.ScanGuard != nil {
+		if out.Egress != nil || out.RealityGuard != nil || out.ScanGuard != nil || out.RealityPinMarginMs != nil {
 			in := map[string]any{"nodes": out.Nodes}
 			if out.Egress != nil {
 				in["egress"] = out.Egress
@@ -441,6 +448,9 @@ func (r *Repository) SharedLandingDesired(id int64, egress *landingegress.Plan) 
 			}
 			if out.ScanGuard != nil {
 				in["scan_guard"] = out.ScanGuard
+			}
+			if out.RealityPinMarginMs != nil {
+				in["reality_pin_margin_ms"] = *out.RealityPinMarginMs
 			}
 			raw, _ = json.Marshal(in)
 		}

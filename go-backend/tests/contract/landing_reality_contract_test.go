@@ -106,8 +106,8 @@ func TestLandingRealityDomainPickContract(t *testing.T) {
 			if !strings.Contains(joined, "www.example.net:443") || strings.Contains(joined, "icloud") || strings.Contains(joined, "www.sony.com") {
 				t.Fatalf("targets %s", joined)
 			}
-			if err := r.RecordLandingRealityPins(1, []repo.RealityPin{{Host: "www.dell.com", PinnedIP: "203.0.113.15", PinnedMs: 3, CheckedAt: now}}); err != nil {
-				t.Fatal(err)
+			if moves, err := r.RecordLandingRealityPins(1, []repo.RealityPin{{Host: "www.dell.com", PinnedIP: "203.0.113.15", PinnedMs: 3, CheckedAt: now}}); err != nil || len(moves) != 0 {
+				t.Fatalf("first pin moves=%v %v", moves, err)
 			}
 			s, _ = r.GetLandingServer(1)
 			at := s.RealityPinsAt
@@ -116,10 +116,23 @@ func TestLandingRealityDomainPickContract(t *testing.T) {
 			}
 			// Same pins again: no write.
 			time.Sleep(5 * time.Millisecond)
-			_ = r.RecordLandingRealityPins(1, []repo.RealityPin{{Host: "www.dell.com", PinnedIP: "203.0.113.15", PinnedMs: 3, CheckedAt: now}})
+			_, _ = r.RecordLandingRealityPins(1, []repo.RealityPin{{Host: "www.dell.com", PinnedIP: "203.0.113.15", PinnedMs: 3, CheckedAt: now}})
 			if s, _ = r.GetLandingServer(1); s.RealityPinsAt != at {
 				t.Fatal("unchanged pins rewritten")
 			}
+			// Plan 234: a re-check (new time) on the same IP is no move; another IP is one, with its reason.
+			if moves, err := r.RecordLandingRealityPins(1, []repo.RealityPin{{Host: "www.dell.com", PinnedIP: "203.0.113.15", PinnedMs: 4, CheckedAt: now + 1}}); err != nil || len(moves) != 0 {
+				t.Fatalf("re-check moves=%v %v", moves, err)
+			}
+			moves, err := r.RecordLandingRealityPins(1, []repo.RealityPin{{Host: "www.dell.com", PinnedIP: "203.0.113.16", PinnedMs: 2, CheckedAt: now + 2, MoveReason: repo.RealityPinMoveFailover}})
+			if err != nil || len(moves) != 1 || !moves[0].Failover || moves[0].Kind != repo.AutoSwitchRealityIP || moves[0].Unit != 1 {
+				t.Fatalf("move %+v %v", moves, err)
+			}
+			if moves, _ := r.RecordLandingRealityPins(1, []repo.RealityPin{{Host: "www.dell.com", PinnedIP: "203.0.113.16", PinnedMs: 2, CheckedAt: now + 2, MoveReason: repo.RealityPinMoveFailover}}); len(moves) != 0 {
+				t.Fatalf("same report counted twice: %+v", moves)
+			}
+			// Restore the pin the rest of the test expects.
+			_, _ = r.RecordLandingRealityPins(1, []repo.RealityPin{{Host: "www.dell.com", PinnedIP: "203.0.113.15", PinnedMs: 3, CheckedAt: now}})
 			due, err := r.RealityAutoDueServers(time.Hour)
 			if err != nil || len(due) != 0 {
 				t.Fatalf("manual server due: %v %v", due, err)

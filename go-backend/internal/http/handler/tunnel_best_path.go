@@ -9,6 +9,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"go-backend/internal/store/repo"
 )
 
 // Plan 165: 「最优」 (strategy `best`) on a tunnel layer with ≥ 2 nodes. For each
@@ -18,16 +20,17 @@ import (
 // is a fifo hop in that order (best first, the rest as backups with the
 // usual maxFails=1 failover; failTimeout 60 s since plan 180 r2, 600 s before).
 //
-// The first place changes only when a challenger is ≥ bestPathSwitchMarginMS
-// faster in bestPathConfirmRounds consecutive rounds, or at once when the
-// current first is unreachable. Only a first-place change is pushed, with
+// The first place changes only when a challenger is ≥ the switch margin
+// (plan 234 「自动切换门槛」 setting, default bestPathSwitchMarginMS) faster in
+// bestPathConfirmRounds consecutive rounds, or at once when the current first
+// is unreachable. Only a first-place change is pushed, with
 // UpdateChains, to that owner only, and only to agents that swap chains
 // without a gap (handshake chainSwap). Decisions live in memory: a panel
 // restart starts from the DB order again; nothing is written per round.
 const (
 	tunnelStrategyBest      = "best"
 	bestRuntimeStrategy     = "fifo"
-	bestPathSwitchMarginMS  = 5.0
+	bestPathSwitchMarginMS  = float64(repo.DefaultSwitchMarginBestMs)
 	bestPathConfirmRounds   = 2
 	bestPathMaxPushRound    = 40
 	bestPathMaxPushNode     = 10
@@ -175,12 +178,23 @@ type bestPathSwitch struct {
 type bestPathManager struct {
 	mu     sync.Mutex
 	states map[bestPathKey]*bestPathState
+	// margin returns the switch margin in ms (plan 234 setting, read from the
+	// repo's cache once per round); nil = bestPathSwitchMarginMS.
+	margin func() float64
 	// Since the last hourly summary.
 	switches, deferred, pushFailures int64
 }
 
 func newBestPathManager() *bestPathManager {
 	return &bestPathManager{states: make(map[bestPathKey]*bestPathState)}
+}
+
+// switchMargin is the margin of this round (read before taking m.mu).
+func (m *bestPathManager) switchMargin() float64 {
+	if m == nil || m.margin == nil {
+		return bestPathSwitchMarginMS
+	}
+	return m.margin()
 }
 
 // order returns a copy of the applied order of one owner (nil = DB order).
@@ -370,6 +384,7 @@ func rankBestCandidates(ownerID int64, layer []chainNodeRecord, edges map[bestPa
 // returns the confirmed first-place changes (not yet applied) and drops the
 // state of every (tunnel, owner) that is no longer a 最优 owner.
 func (m *bestPathManager) evaluate(plans []pathLatencyPlan, results map[pathProbeKey]pathProbeResult, owner func(int64) (online, capable bool), now time.Time) []bestPathSwitch {
+	margin := m.switchMargin()
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	visited := make(map[bestPathKey]bool)
@@ -462,7 +477,7 @@ func (m *bestPathManager) evaluate(plans []pathLatencyPlan, results map[pathProb
 				case st.Activate:
 					sw.Activate = true
 					sw.Gain = cur.CostMS - best.CostMS
-				case cur.CostMS-best.CostMS >= bestPathSwitchMarginMS:
+				case repo.SwitchMarginBeats(cur.CostMS-best.CostMS, margin):
 					st.PendingN++
 					if st.PendingN < bestPathConfirmRounds {
 						continue
@@ -766,6 +781,10 @@ func (h *Handler) applyBestPathSwitch(sw bestPathSwitch) error {
 		return err
 	}
 	h.bestPath.markSwitched(sw.Key, time.Now())
+	if !sw.Activate {
+		// Plan 234: 「最近 7 天自动切换」 (flushed at the end of the round).
+		h.repo.NoteAutoSwitch(repo.AutoSwitchEvent{Kind: repo.AutoSwitchBest, Unit: sw.Key.TunnelID, Failover: sw.Failover})
+	}
 	if sw.Activate {
 		// The push carried the owner's whole chain (incl. any current
 		// per-destination orders), so a cleanup left from the idle time is done.

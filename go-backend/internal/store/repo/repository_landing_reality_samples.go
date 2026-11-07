@@ -411,8 +411,9 @@ func PickRealityResult(results []RealityProbeResult, blocked func(host string) b
 
 // RealityPickSwitchMarginMs (plan 233): in 自动 mode the current server
 // default changes only when a challenger ranks ≥ this many ms faster — the
-// same margin as 「最优」 (handler bestPathSwitchMarginMS). Without it the pick
-// flipped daily between big sites 1 ms apart.
+// same margin as 「最优」. Without it the pick flipped daily between big sites
+// 1 ms apart. Since plan 234 it is the default of the admin setting
+// SwitchMargins().RealityDomainMs (「自动切换门槛」).
 const RealityPickSwitchMarginMs = 5
 
 // RealityRankMs is the value the margin compares: the worst sample of a
@@ -435,17 +436,22 @@ type RealityPickDecision struct {
 	Pick    *RealityProbeResult // the server default after this 测速 (nil = leave unchanged)
 	Best    *RealityProbeResult // the fastest pickable row (PickRealityResult), ignoring the margin
 	Current *RealityProbeResult // the row of the current default, if it is in the table
-	Held    bool                // Best is faster, but by < RealityPickSwitchMarginMs: current kept
+	Held    bool                // Best is faster, but by < the margin: current kept
 	GapMs   int                 // RealityRankMs(Current) − RealityRankMs(Best) when Held (≥ 0)
+	// Forced (plan 234): Pick replaces a current default that was not
+	// pickable any more (missing, unusable, blocked, 试用 lost) — a failover,
+	// switched whatever the margin.
+	Forced bool
 }
 
-// DecideRealityPick applies the switch margin (plan 233) to the automatic
+// DecideRealityPick applies the switch margin (plan 233; marginMs = the
+// plan-234 setting, 0 = any gain, a tie keeps current) to the automatic
 // choice. current = the server's reality_dest ("" = none yet).
 //   - current pickable and Best not ≥ margin faster → keep current (Held when
 //     Best is a different row);
 //   - current missing, unusable, blocked or 试用 no longer 稳定 → Best at once;
 //   - current row 「已取消」 (not measured this time) → Pick nil (unchanged).
-func DecideRealityPick(results []RealityProbeResult, blocked func(host string) bool, current string) RealityPickDecision {
+func DecideRealityPick(results []RealityProbeResult, blocked func(host string) bool, current string, marginMs int) RealityPickDecision {
 	var d RealityPickDecision
 	d.Best = PickRealityResult(results, blocked)
 	if key := realityDestKey(current); key != "" {
@@ -460,12 +466,15 @@ func DecideRealityPick(results []RealityProbeResult, blocked func(host string) b
 	cur := d.Current
 	switch {
 	case cur == nil:
+		d.Forced = current != "" && d.Best != nil
 	case cur.Reason == "已取消":
 		d.Pick = nil // no certificate names measured either: leave dest and names as they are
-	case d.Best == nil || cur == d.Best || !realityPickable(*cur, blocked):
+	case d.Best == nil || cur == d.Best:
+	case !realityPickable(*cur, blocked):
+		d.Forced = true
 	default:
 		gap := RealityRankMs(*cur) - RealityRankMs(*d.Best)
-		if gap < RealityPickSwitchMarginMs {
+		if !SwitchMarginBeats(float64(gap), float64(marginMs)) {
 			d.Pick, d.Held, d.GapMs = cur, true, max(gap, 0)
 		}
 	}

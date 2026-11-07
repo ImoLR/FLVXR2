@@ -192,6 +192,7 @@ func (m *Manager) Run(ctx context.Context) {
 				var d Desired
 				if json.Unmarshal(b, &d) == nil && d.validate() == nil {
 					m.desired = d
+					m.pins.setMargin(d.RealityPinMarginMs)
 					m.loaded = true
 					m.ports.Store(d.publicPorts())
 					m.inbound.Store(d.inboundPorts())
@@ -237,6 +238,7 @@ func (m *Manager) Apply(ctx context.Context, d Desired) (Status, error) {
 		return Status{}, err
 	}
 	m.desired = d
+	m.pins.setMargin(d.RealityPinMarginMs)
 	m.loaded = true
 	m.ports.Store(d.publicPorts())
 	m.inbound.Store(d.inboundPorts())

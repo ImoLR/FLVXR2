@@ -44,6 +44,8 @@ export interface BestPathLayer {
 
 export interface BestPathState {
   layers: BestPathLayer[];
+  /** Plan 234: 最优 switch margin in force (网站配置 → 自动切换门槛). */
+  marginMs?: number;
 }
 
 export const BEST_PATH_HINT =
@@ -94,11 +96,14 @@ export const normalizeBestPathState = (raw: unknown): BestPathState | null => {
 
   if (!Array.isArray(layers) || layers.length === 0) return null;
 
+  const marginMs = (raw as { marginMs?: unknown }).marginMs;
+
   return {
     layers: layers.map((layer: BestPathLayer) => ({
       ...layer,
       items: Array.isArray(layer.items) ? layer.items : [],
     })),
+    marginMs: typeof marginMs === "number" ? marginMs : undefined,
   };
 };
 
@@ -136,7 +141,13 @@ function OwnerRowChip({ item }: { item: BestPathItem }) {
   );
 }
 
-function BestPathLayerChip({ layer }: { layer: BestPathLayer }) {
+function BestPathLayerChip({
+  layer,
+  marginMs = 5,
+}: {
+  layer: BestPathLayer;
+  marginMs?: number;
+}) {
   const tone = statusTone[layer.status] ?? "slate";
   const applied = layer.status === "applied";
   const text = `${layer.label}最优：${layer.summary || "等待探测"}`;
@@ -263,7 +274,9 @@ function BestPathLayerChip({ layer }: { layer: BestPathLayer }) {
                 item.candidates?.[0]?.reachable &&
                 item.candidates[0].nodeId !== item.bestNodeId && (
                   <p className="text-[11px] text-default-400">
-                    更快的不到 5 ms 或还没连续 2 分钟，先不换
+                    {marginMs > 0
+                      ? `更快的不到 ${marginMs} ms 或还没连续 2 分钟，先不换`
+                      : "还没连续 2 分钟更快，先不换"}
                   </p>
                 )}
               {item.switchedAt ? (
@@ -302,7 +315,11 @@ export function BestPathChips({
       className={`flex flex-wrap items-center justify-center gap-1 ${className}`}
     >
       {state.layers.map((layer) => (
-        <BestPathLayerChip key={layer.layer} layer={layer} />
+        <BestPathLayerChip
+          key={layer.layer}
+          layer={layer}
+          marginMs={state.marginMs}
+        />
       ))}
     </div>
   );

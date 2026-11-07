@@ -378,7 +378,17 @@ type RealityPin struct {
 	IPs       int    `json:"ips,omitempty"`
 	CheckedAt int64  `json:"checked_at"`
 	Error     string `json:"error,omitempty"`
+	// MoveReason (plan 234, agents ≥ landing_reality 3): why the last check
+	// moved the pin — "faster" (≥ the IP margin) or "failover" (the pinned IP
+	// failed or left the DNS answer). Absent = no move / older agent / Helper.
+	MoveReason string `json:"move_reason,omitempty"`
 }
+
+// Pin move reasons (agent Status.reality_pins move_reason).
+const (
+	RealityPinMoveFaster   = "faster"
+	RealityPinMoveFailover = "failover"
+)
 
 func realityHost(target string) string {
 	host := strings.ToLower(strings.TrimSpace(target))
@@ -446,6 +456,11 @@ type RealityProbeRecord struct {
 	Picked      string   // host:port now the server default ("" = unchanged)
 	ServerNames []string // with Picked
 	Previous    string
+	// Switched (plan 234): the auto pick replaced a previous default with
+	// another domain (not the first pick, not a server-names refresh);
+	// Forced = it was a failover (previous default not pickable any more).
+	Switched bool
+	Forced   bool
 }
 
 // RecordLandingRealityProbe stores a 测速 table (rows as merged by
@@ -460,6 +475,7 @@ func (r *Repository) RecordLandingRealityProbe(serverID int64, results []Reality
 	if err != nil {
 		return rec, err
 	}
+	margin := r.SwitchMargins().RealityDomainMs
 	err = r.db.Transaction(func(tx *gorm.DB) error {
 		var s model.LandingServer
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&s, serverID).Error; err != nil {
@@ -487,8 +503,9 @@ func (r *Repository) RecordLandingRealityProbe(serverID int64, results []Reality
 		}
 		if probeErr == "" && NormalizeRealityMode(s.RealityMode) == RealityModeAuto {
 			// Plan 233: the current default stays unless a challenger is ≥
-			// RealityPickSwitchMarginMs faster or it is not pickable any more.
-			if best := DecideRealityPick(results, func(h string) bool { return info.Blocked[h] }, s.RealityDest).Pick; best != nil {
+			// the margin (plan 234 setting) faster or it is not pickable any more.
+			decision := DecideRealityPick(results, func(h string) bool { return info.Blocked[h] }, s.RealityDest, margin)
+			if best := decision.Pick; best != nil {
 				host := realityHost(best.Target)
 				dest := net.JoinHostPort(host, strconv.Itoa(realityTargetPort(best.Target)))
 				names := RealityServerNamesFor(host, best.ServerNames)
@@ -498,6 +515,9 @@ func (r *Repository) RecordLandingRealityProbe(serverID int64, results []Reality
 					updates["reality_server_names"] = string(nb)
 					rec.Picked, rec.ServerNames = dest, names
 				}
+				if prev := realityDestKey(s.RealityDest); prev != "" && prev != realityDestKey(dest) {
+					rec.Switched, rec.Forced = true, decision.Forced
+				}
 			}
 		}
 		return tx.Model(&model.LandingServer{}).Where("id = ?", serverID).Updates(updates).Error
@@ -505,14 +525,78 @@ func (r *Repository) RecordLandingRealityProbe(serverID int64, results []Reality
 	return rec, err
 }
 
-// RecordLandingRealityPins stores the reported pins when they changed.
-func (r *Repository) RecordLandingRealityPins(serverID int64, pins []RealityPin) error {
+// RecordLandingRealityPins stores the reported pins when they changed and
+// returns the pin moves against the stored ones (plan 234 switch counts;
+// counted once: the write only succeeds against the pins it compared with).
+func (r *Repository) RecordLandingRealityPins(serverID int64, pins []RealityPin) ([]AutoSwitchEvent, error) {
 	if pins == nil {
 		pins = []RealityPin{}
 	}
-	sort.Slice(pins, func(i, j int) bool { return pins[i].Host < pins[j].Host })
+	for i := range pins {
+		if r := pins[i].MoveReason; r != RealityPinMoveFaster && r != RealityPinMoveFailover {
+			pins[i].MoveReason = ""
+		}
+	}
+	sort.SliceStable(pins, func(i, j int) bool {
+		if pins[i].Host != pins[j].Host {
+			return pins[i].Host < pins[j].Host
+		}
+		if pins[i].Port != pins[j].Port {
+			return pins[i].Port < pins[j].Port
+		}
+		return pins[i].PinnedIP < pins[j].PinnedIP
+	})
 	raw, _ := json.Marshal(pins)
-	return r.db.Model(&model.LandingServer{}).Where("id = ? AND reality_pins <> ?", serverID, string(raw)).Updates(map[string]any{"reality_pins": string(raw), "reality_pins_at": time.Now().UnixMilli()}).Error
+	var rows []model.LandingServer
+	if err := r.db.Select("id", "reality_pins").Where("id = ?", serverID).Limit(1).Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	if len(rows) == 0 || rows[0].RealityPins == string(raw) {
+		return nil, nil
+	}
+	res := r.db.Model(&model.LandingServer{}).Where("id = ? AND reality_pins = ?", serverID, rows[0].RealityPins).Updates(map[string]any{"reality_pins": string(raw), "reality_pins_at": time.Now().UnixMilli()})
+	if res.Error != nil || res.RowsAffected == 0 {
+		return nil, res.Error
+	}
+	return RealityPinMoves(serverID, LandingRealityPins(&rows[0]), pins, time.Now()), nil
+}
+
+// RealityPinMoves are the automatic IP switches between two reports of one
+// server: per dest (host, port) every pinned IP that is new while the dest
+// was already pinned to another one. A first pin, a fallback to the host and
+// a dest that went away are not switches. A Helper may report several IPs per
+// dest (unguarded nodes with live connections move later): nodes catching up
+// with an IP already reported count nothing.
+func RealityPinMoves(serverID int64, old, cur []RealityPin, at time.Time) []AutoSwitchEvent {
+	type key struct {
+		host string
+		port int
+	}
+	k := func(p RealityPin) key { return key{strings.ToLower(strings.TrimSpace(p.Host)), p.Port} }
+	before := map[key]map[string]bool{}
+	for _, p := range old {
+		if p.PinnedIP == "" {
+			continue
+		}
+		if before[k(p)] == nil {
+			before[k(p)] = map[string]bool{}
+		}
+		before[k(p)][p.PinnedIP] = true
+	}
+	var out []AutoSwitchEvent
+	seen := map[key]map[string]bool{}
+	for _, p := range cur {
+		prev := before[k(p)]
+		if p.PinnedIP == "" || len(prev) == 0 || prev[p.PinnedIP] || seen[k(p)][p.PinnedIP] {
+			continue
+		}
+		if seen[k(p)] == nil {
+			seen[k(p)] = map[string]bool{}
+		}
+		seen[k(p)][p.PinnedIP] = true
+		out = append(out, AutoSwitchEvent{Kind: AutoSwitchRealityIP, Unit: serverID, Failover: p.MoveReason == RealityPinMoveFailover, At: at})
+	}
+	return out
 }
 
 func NormalizeRealityMode(m string) string {

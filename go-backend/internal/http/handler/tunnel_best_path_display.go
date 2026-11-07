@@ -58,6 +58,8 @@ type bestPathDisplayLayer struct {
 
 type bestPathDisplayState struct {
 	Layers []bestPathDisplayLayer `json:"layers"`
+	// MarginMs (plan 234): the switch margin in force, for the detail text.
+	MarginMs int `json:"marginMs"`
 }
 
 type bestPathNodeInfo struct {
@@ -164,7 +166,7 @@ func buildBestPathDisplayState(tunnel map[string]interface{}, m *bestPathManager
 	groups := append([][]map[string]interface{}{bestPathRowsOf(tunnel["inNodeId"])}, hops...)
 	groups = append(groups, bestPathRowsOf(tunnel["outNodeId"]))
 	_, pipe := tunnel["leikwanPipeId"]
-	state := &bestPathDisplayState{}
+	state := &bestPathDisplayState{MarginMs: int(m.switchMargin())}
 	for g := 1; g < len(groups); g++ {
 		if !bestPathRowsAreBest(groups[g]) || (pipe && g == 1) {
 			continue

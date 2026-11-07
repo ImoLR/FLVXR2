@@ -613,6 +613,9 @@ type Desired struct {
 	// Desired.scan_guard (enabled, identities, thresholds, seen), sent only
 	// to shares advertising the capability; absent = none of it there.
 	ScanGuard map[string]interface{} `json:"scan_guard,omitempty"`
+	// RealityPinMarginMs (plan 234, reality_pin v2): the 「Reality 目标 IP」
+	// switch margin, sent only when it differs from the default 20 ms.
+	RealityPinMarginMs *int `json:"reality_pin_margin_ms,omitempty"`
 }
 type NodeStatus struct {
 	ID            string     `json:"id"`
