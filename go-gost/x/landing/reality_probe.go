@@ -21,8 +21,10 @@ import (
 //   - 2 = quiet sockets (plan 229): every probe / ping / pin socket is closed
 //     with SO_LINGER 0 (RST, no TIME_WAIT on this machine), at most 2 Reality
 //     sockets are open at once on the machine, RealityProbeRequest.Concurrency
-//     and RealityProbeResponse.Stats.
-const RealityVersion = 2
+//     and RealityProbeResponse.Stats;
+//   - 3 = Desired.reality_pin_margin_ms (plan 234, the admin's 「Reality 目标
+//     IP」 switch margin) and RealityPinStatus.move_reason.
+const RealityVersion = 3
 
 const (
 	realityProbeMaxCandidates = 64

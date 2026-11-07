@@ -9,6 +9,7 @@ import { resetSubLinkSwitchCheck } from "@/api/sub-link";
 import { Card, CardBody, CardHeader } from "@/shadcn-bridge/heroui/card";
 import { DNSProviderCard } from "@/pages/node/dns-provider-card";
 import { ProbeSettingsCard } from "@/pages/probe-settings-card";
+import { SwitchMarginsCard } from "@/pages/switch-margins-card";
 import { TelegramBotCard } from "@/pages/telegram-bot-card";
 import { Input } from "@/shadcn-bridge/heroui/input";
 import { Textarea } from "@/shadcn-bridge/heroui/input";
@@ -1174,6 +1175,8 @@ export default function ConfigPage() {
             </div>
           </CardBody>
         </Card>
+        {/* 自动切换门槛（plan 234） */}
+        <SwitchMarginsCard />
         {/* 公开探针页（plan 187） */}
         <ProbeSettingsCard enabled={configs.login_monitor_link === "true"} />
       </div>

@@ -42,6 +42,7 @@ const defaultTrialRule: RealityTrialRule = {
   resampleRounds: 2,
   resampleGapSec: 5,
   keep: 8,
+  switchMarginMs: 5,
 };
 
 const trialRuleText = (r: RealityTrialRule) =>
@@ -371,11 +372,13 @@ function ProbeTable({
   rows,
   current,
   manual,
+  margin,
   onPick,
 }: {
   rows: RealityProbeRow[];
   current: string;
   manual: boolean;
+  margin: number;
   onPick: (row: RealityProbeRow) => void;
 }) {
   const [all, setAll] = useState(false);
@@ -420,6 +423,19 @@ function ProbeTable({
                 {row.domain}
               </span>
               {isCurrent && <Pill tone="teal">当前</Pill>}
+              {isCurrent && !manual && row.pickHeld && (
+                <span
+                  data-reality-pick-held
+                  className="text-xs text-default-400"
+                  title={`排名第一的 ${row.pickHeldBy || "另一个域名"} ${row.pickHeldByMs ?? "?"} ms，当前 ${row.pickHeldMs ?? "?"} ms，${margin > 0 ? `差不到 ${margin} ms 不换` : "一样快不换"}`}
+                >
+                  {margin > 0 ? (
+                    <>保持（差 &lt; {margin} ms）</>
+                  ) : (
+                    "保持（一样快）"
+                  )}
+                </span>
+              )}
               {row.blocked && <Pill tone="red">已屏蔽</Pill>}
               {row.trial && !row.blocked && (
                 <Pill tone={row.trialOk ? "green" : "amber"}>
@@ -506,6 +522,7 @@ function probeHowText(
     `测速方式：先把全部域名各测 1 次（每个 IP 连 1 次 TCP，最快的 IP 做 1 次 TLS 握手）；` +
     `再挑最快的 ${rule.resampleTop} 个（另加最多 ${rule.resampleTrial} 个试用网站）各补测 ${rule.resampleRounds} 次，` +
     `一次只测一个域名，同一域名两次之间隔 ${rule.resampleGapSec} 秒，按 3 次里最慢的那次排名。` +
+    `自动模式下，别的域名要${(rule.switchMarginMs ?? 5) > 0 ? `快 ${rule.switchMarginMs ?? 5} ms 以上` : "更快"}才换掉当前域名（当前域名不能用或被屏蔽时立刻换；门槛在「网站配置 → 自动切换门槛」）。` +
     (shared
       ? "共享服务器由妙妙屋 Helper 测，同时连接数由 Helper 控制。"
       : "同一时间最多 2 个连接，连接用 RST 关闭，不留 TIME_WAIT。");
@@ -738,6 +755,7 @@ export function RealityServerSection({
           <ProbeTable
             current={form.realityDest}
             manual={mode === "manual"}
+            margin={rule.switchMarginMs ?? 5}
             rows={probe}
             onPick={(row) => {
               set("realityDest", row.target);

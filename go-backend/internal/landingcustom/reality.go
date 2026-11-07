@@ -19,6 +19,11 @@ import (
 const (
 	RealityProbeVersion = 1
 	RealityPinVersion   = 1
+	// RealityPinMarginVersion (plan 234): a share whose reality_pin
+	// capability lists 2 accepts Desired.reality_pin_margin_ms (the Helper's
+	// IP switch margin, 0–200 ms; absent = its built-in 20). Custom rejects
+	// unknown desired fields, so FLVX sends it only to such shares.
+	RealityPinMarginVersion = 2
 )
 
 // ShareVersions is a capability object {"versions":[…]}.
@@ -154,6 +159,9 @@ type RealityPin struct {
 	Nodes     []string `json:"nodes,omitempty"`
 	Fallback  bool     `json:"fallback,omitempty"`
 	Error     string   `json:"error,omitempty"`
+	// MoveReason (plan 234, optional): "faster" / "failover" when the last
+	// check moved the pin; lets FLVX tell failovers apart in its switch counts.
+	MoveReason string `json:"move_reason,omitempty"`
 }
 
 // RealityPins never fails to decode: a malformed optional report must not

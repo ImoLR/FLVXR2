@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"log"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -311,6 +312,16 @@ func (h *Handler) syncNativeLandingServerOnce(serverID int64) (*landingSyncSnaps
 		}
 		connSig += landingScanSig(scanGuard)
 	}
+	// Plan 234: the 「Reality 目标 IP」 switch margin for agents that apply it
+	// (landing_reality >= 3), only when not the default 20 ms (older agents and
+	// the default keep today's payload byte for byte); joins the signature.
+	pinMargin := -1
+	if node.LandingReality >= repo.LandingRealityPinMarginVersion {
+		if m := h.repo.SwitchMargins().RealityIPMs; m != repo.DefaultSwitchMarginRealityIPMs {
+			pinMargin = m
+			connSig += ";pm=" + strconv.Itoa(m)
+		}
+	}
 	revision, err := h.repo.TouchLandingRevision(s.ID, planHash(plan), &connSig)
 	if err != nil {
 		return nil, errors.New("落地服务器状态不可用")
@@ -396,6 +407,9 @@ func (h *Handler) syncNativeLandingServerOnce(serverID int64) (*landingSyncSnaps
 	}
 	if scanGuard != nil {
 		payload["scan_guard"] = scanGuard
+	}
+	if pinMargin >= 0 {
+		payload["reality_pin_margin_ms"] = pinMargin
 	}
 	result, err := h.sendNodeCommandWithTimeout(s.NodeID, "ApplyLandingDesired", payload, 30*time.Second, false, false)
 	if err != nil || !result.Success {

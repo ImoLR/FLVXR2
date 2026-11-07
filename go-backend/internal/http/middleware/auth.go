@@ -193,6 +193,11 @@ func requiresAdmin(path string) bool {
 		return true
 	}
 
+	// Plan 234: 「自动切换门槛」 card.
+	if path == "/api/v1/config/switch-margins" || strings.HasPrefix(path, "/api/v1/config/switch-margins/") {
+		return true
+	}
+
 	// Plan 196: Telegram 通知 bot card.
 	if path == "/api/v1/config/tgbot" || strings.HasPrefix(path, "/api/v1/config/tgbot/") {
 		return true

@@ -106,8 +106,8 @@ func TestLandingRealityDomainPickContract(t *testing.T) {
 			if !strings.Contains(joined, "www.example.net:443") || strings.Contains(joined, "icloud") || strings.Contains(joined, "www.sony.com") {
 				t.Fatalf("targets %s", joined)
 			}
-			if err := r.RecordLandingRealityPins(1, []repo.RealityPin{{Host: "www.dell.com", PinnedIP: "203.0.113.15", PinnedMs: 3, CheckedAt: now}}); err != nil {
-				t.Fatal(err)
+			if moves, err := r.RecordLandingRealityPins(1, []repo.RealityPin{{Host: "www.dell.com", PinnedIP: "203.0.113.15", PinnedMs: 3, CheckedAt: now}}); err != nil || len(moves) != 0 {
+				t.Fatalf("first pin moves=%v %v", moves, err)
 			}
 			s, _ = r.GetLandingServer(1)
 			at := s.RealityPinsAt
@@ -116,10 +116,23 @@ func TestLandingRealityDomainPickContract(t *testing.T) {
 			}
 			// Same pins again: no write.
 			time.Sleep(5 * time.Millisecond)
-			_ = r.RecordLandingRealityPins(1, []repo.RealityPin{{Host: "www.dell.com", PinnedIP: "203.0.113.15", PinnedMs: 3, CheckedAt: now}})
+			_, _ = r.RecordLandingRealityPins(1, []repo.RealityPin{{Host: "www.dell.com", PinnedIP: "203.0.113.15", PinnedMs: 3, CheckedAt: now}})
 			if s, _ = r.GetLandingServer(1); s.RealityPinsAt != at {
 				t.Fatal("unchanged pins rewritten")
 			}
+			// Plan 234: a re-check (new time) on the same IP is no move; another IP is one, with its reason.
+			if moves, err := r.RecordLandingRealityPins(1, []repo.RealityPin{{Host: "www.dell.com", PinnedIP: "203.0.113.15", PinnedMs: 4, CheckedAt: now + 1}}); err != nil || len(moves) != 0 {
+				t.Fatalf("re-check moves=%v %v", moves, err)
+			}
+			moves, err := r.RecordLandingRealityPins(1, []repo.RealityPin{{Host: "www.dell.com", PinnedIP: "203.0.113.16", PinnedMs: 2, CheckedAt: now + 2, MoveReason: repo.RealityPinMoveFailover}})
+			if err != nil || len(moves) != 1 || !moves[0].Failover || moves[0].Kind != repo.AutoSwitchRealityIP || moves[0].Unit != 1 {
+				t.Fatalf("move %+v %v", moves, err)
+			}
+			if moves, _ := r.RecordLandingRealityPins(1, []repo.RealityPin{{Host: "www.dell.com", PinnedIP: "203.0.113.16", PinnedMs: 2, CheckedAt: now + 2, MoveReason: repo.RealityPinMoveFailover}}); len(moves) != 0 {
+				t.Fatalf("same report counted twice: %+v", moves)
+			}
+			// Restore the pin the rest of the test expects.
+			_, _ = r.RecordLandingRealityPins(1, []repo.RealityPin{{Host: "www.dell.com", PinnedIP: "203.0.113.15", PinnedMs: 3, CheckedAt: now}})
 			due, err := r.RealityAutoDueServers(time.Hour)
 			if err != nil || len(due) != 0 {
 				t.Fatalf("manual server due: %v %v", due, err)
@@ -265,6 +278,61 @@ func TestLandingRealityTrialHistoryContract(t *testing.T) {
 			}
 			if s, _ = r.GetLandingServer(1); s.RealitySamples != before || s.RealityProbeError != "节点离线" {
 				t.Fatal("failed 测速 touched the history")
+			}
+		})
+	}
+}
+
+// Plan 233 contract (SQLite + PostgreSQL): in 自动 mode the stored default
+// stays while a challenger is < 5 ms faster, moves at ≥ 5 ms, and at once
+// when the current one fails; existing nodes keep their dest.
+func TestLandingRealityPickMarginContract(t *testing.T) {
+	for _, dialect := range []string{"sqlite", "postgres"} {
+		t.Run(dialect, func(t *testing.T) {
+			r := landingContractRepo(t, dialect)
+			now := time.Now().UnixMilli()
+			db := r.DB()
+			if err := db.Create(&model.Node{ID: 2, Name: "n2", Secret: "s2", ServerIP: "203.0.113.2", Port: "1000-2000", CreatedTime: now, Status: 1, LandingCapable: true}).Error; err != nil {
+				t.Fatal(err)
+			}
+			if err := db.Create(&model.LandingServer{ID: 1, Source: "native", NodeID: 2, Name: "s", PublicHost: "203.0.113.2", PortMin: 30000, PortMax: 30099, FlowType: 2, TrafficRatio: 1, Status: "active",
+				Protocols: `["vless_reality_vision"]`, RealityDest: "www.tesla.com:443", RealityServerNames: `["www.tesla.com"]`, CreatedTime: now, UpdatedTime: now}).Error; err != nil {
+				t.Fatal(err)
+			}
+			old, err := r.CreateLandingNode(1, 1, "old", "vless_reality_vision", true)
+			if err != nil {
+				t.Fatal(err)
+			}
+			row := func(target string, ms ...int) repo.RealityProbeResult {
+				pass1 := []repo.RealityProbeResult{{Target: target, Feasible: true, LatencyMs: ms[0], ServerNames: []string{strings.Split(target, ":")[0]}}}
+				var passes [][]repo.RealityProbeResult
+				for _, m := range ms[1:] {
+					passes = append(passes, []repo.RealityProbeResult{{Target: target, Feasible: m > 0, LatencyMs: m}})
+				}
+				return repo.MergeRealitySamples(pass1, passes)[0]
+			}
+			dest := func() string { s, _ := r.GetLandingServer(1); return s.RealityDest }
+			// Bestvm US shape: 1 ms apart, order flips → tesla stays.
+			for _, rows := range [][]repo.RealityProbeResult{
+				{row("www.sony.com:443", 6, 6, 6), row("www.tesla.com:443", 7, 7, 7)},
+				{row("www.dell.com:443", 6, 6, 6), row("www.sony.com:443", 7, 7, 7), row("www.tesla.com:443", 7, 7, 7)},
+			} {
+				rec, err := r.RecordLandingRealityProbe(1, rows, "", nil)
+				if err != nil || rec.Picked != "" || dest() != "www.tesla.com:443" {
+					t.Fatalf("held pick moved: %+v %v %s", rec, err, dest())
+				}
+			}
+			// ≥ 5 ms faster → switch.
+			if rec, _ := r.RecordLandingRealityProbe(1, []repo.RealityProbeResult{row("www.sony.com:443", 2, 2, 2), row("www.tesla.com:443", 7, 7, 7)}, "", nil); rec.Picked != "www.sony.com:443" || dest() != "www.sony.com:443" {
+				t.Fatalf("margin reached, not switched: %+v %s", rec, dest())
+			}
+			// Current fails a re-sample → at once, even to a 1 ms slower site.
+			if rec, _ := r.RecordLandingRealityProbe(1, []repo.RealityProbeResult{row("www.tesla.com:443", 3, 3, 3), row("www.sony.com:443", 2, 2, 0)}, "", nil); rec.Picked != "www.tesla.com:443" {
+				t.Fatalf("failed current kept: %+v %s", rec, dest())
+			}
+			var n model.LandingNode
+			if err := db.First(&n, old.ID).Error; err != nil || n.Dest != "www.tesla.com:443" || n.ServerNames != old.ServerNames {
+				t.Fatalf("existing node changed: %s %s", n.Dest, n.ServerNames)
 			}
 		})
 	}

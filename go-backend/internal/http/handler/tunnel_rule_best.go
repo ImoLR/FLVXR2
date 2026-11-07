@@ -23,8 +23,9 @@ import (
 //
 //	cost(candidate) = edge(owner→candidate) + best downstream to an exit + exit→destination
 //
-// with the plan 165/179 switch rules (first place changes when ≥ 5 ms faster
-// in 2 consecutive rounds, at once when the current path fails). A
+// with the plan 165/179 switch rules (first place changes when ≥ the plan-234
+// margin (default 5 ms) faster in 2 consecutive rounds, at once when the
+// current path fails). A
 // destination whose decision differs from the tunnel's first place is written
 // into the owner's chain hop as metadata.destOrder (the agent then orders the
 // hop for dials to that destination); equal ⇒ no entry. Only agents with the
@@ -392,6 +393,8 @@ type ruleBestManager struct {
 	// has (rule deleted, destination dead): one cleanup push is due.
 	dirty map[bestPathKey]bool
 	views map[int64]*ruleBestView
+	// margin: the plan-234 switch margin (shared with 最优); nil = bestPathSwitchMarginMS.
+	margin func() float64
 	// Since the last hourly summary.
 	switches, deferred, pushFailures, probes, deadRounds, capped int64
 	retries, autoOff                                             int64
@@ -405,6 +408,13 @@ func newRuleBestManager() *ruleBestManager {
 		dirty:  make(map[bestPathKey]bool),
 		views:  make(map[int64]*ruleBestView),
 	}
+}
+
+func (m *ruleBestManager) switchMargin() float64 {
+	if m == nil || m.margin == nil {
+		return bestPathSwitchMarginMS
+	}
+	return m.margin()
 }
 
 func (m *ruleBestManager) probeDue(key ruleBestDeadKey, now time.Time) bool {
@@ -608,6 +618,7 @@ func (m *ruleBestManager) forgetTunnel(tunnelID int64) {
 // applied) grouped per owner, plus the owners due for a cleanup push, and
 // drops every state that is no longer a rule-best (tunnel, owner, destination).
 func (m *ruleBestManager) evaluate(plans []pathLatencyPlan, results map[pathProbeKey]pathProbeResult, dead, recovered map[ruleBestDeadKey]bool, tunnelOrder func(bestPathKey) []int64, owner func(int64) (online, capable bool), now time.Time) []ruleBestPush {
+	margin := m.switchMargin()
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	visited := make(map[ruleBestKey]bool)
@@ -704,7 +715,7 @@ func (m *ruleBestManager) evaluate(plans []pathLatencyPlan, results map[pathProb
 						continue
 					case !cur.Reachable:
 						sw.Failover = true
-					case cur.CostMS-best.CostMS >= bestPathSwitchMarginMS:
+					case repo.SwitchMarginBeats(cur.CostMS-best.CostMS, margin):
 						st.PendingN++
 						if st.PendingN < bestPathConfirmRounds && !again {
 							continue
@@ -1101,6 +1112,8 @@ func (h *Handler) applyRuleBestPush(p ruleBestPush) error {
 	}
 	h.ruleBest.markPushed(p, time.Now())
 	for _, sw := range p.Switches {
+		// Plan 234: 「最近 7 天自动切换」 (最优线路 incl. 规则最优; flushed per round).
+		h.repo.NoteAutoSwitch(repo.AutoSwitchEvent{Kind: repo.AutoSwitchBest, Unit: sw.Key.TunnelID, Failover: sw.Failover})
 		reason := "faster"
 		from := fmt.Sprintf("%.0fms", sw.FromCost)
 		switch {
