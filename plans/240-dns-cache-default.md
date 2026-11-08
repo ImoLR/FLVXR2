@@ -53,7 +53,7 @@ Turn the plan-239 recipe into product behaviour:
        DNS files md5 identical, resolved / agent PIDs unchanged, no files left
 - [x] 10. Agent check cost: 10 µs (resolv.conf not local) – 0.95 ms (one /proc pass, 263 procs) per 10 min; dnsmasq RSS
        4.3–5.0 MB (cgroup 0.8 MB). go test backend ./... + agent socket/dnscache/landing green; tsc green, eslint = base
-- [ ] 11. Push, CI green, RELEASE-LEDGER 待发布 row; final.md + summary.md (Chinese)
+- [x] 11. Push, CI green (CI Build Check 42470160205 on 1455ba60: frontend, backend, PG contract, agent), RELEASE-LEDGER 待发布 row; final.md + summary.md (Chinese)
 
 ## Release notes (for the chain that ships it)
 - Panel image: node list `dnsCache`, `/node/dns-cache/ensure`, landing-enable trigger. No DB schema change.
