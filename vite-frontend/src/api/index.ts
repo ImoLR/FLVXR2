@@ -68,7 +68,10 @@ import type {
   DiscountCodeItem,
   BalanceLogItem,
   SubscriptionPackageApiItem,
+  NodeDNSCacheEnsureResult,
 } from "./types";
+
+export type { NodeDNSCacheView, NodeDNSCacheEnsureResult } from "./types";
 
 import axios from "axios";
 
@@ -287,6 +290,13 @@ export const upgradeNode = (
     "/node/upgrade",
     { id, version: version || "", channel },
     { timeout: 5 * 60 * 1000 },
+  );
+// Plan 240: 「修复 DNS 缓存」 — runs flvx-dns-cache ensure once on the node (admin only).
+export const ensureNodeDNSCache = (id: number) =>
+  Network.post<NodeDNSCacheEnsureResult>(
+    "/node/dns-cache/ensure",
+    { id },
+    { timeout: 4 * 60 * 1000 },
   );
 export const batchUpgradeNodes = (
   ids: number[],

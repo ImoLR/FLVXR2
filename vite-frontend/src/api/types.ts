@@ -21,6 +21,7 @@ export interface NodeApiItem extends LeiKwanNodeDetection {
   ipv6RaStatus?: "" | "ok" | "warn" | "error";
   ipv6RaDetail?: string;
   ipv6RaCheckedAt?: number;
+  dnsCache?: NodeDNSCacheView | null; // plan 240, admins only; absent = offline / remote
   adminNotice?: string; // 节点提示, admins only (plan 154)
   id: number;
   name: string;
@@ -1113,4 +1114,19 @@ export interface SubscriptionPackageApiItem {
   recommended: number; // 0=否，1=推荐
   createdAt: number;
   updatedAt: number;
+}
+
+// Plan 240: the node's local DNS cache (flvx-dns-cache), from the agent's last local check.
+export interface NodeDNSCacheView {
+  supported: boolean; // false = online agent without plan 240 (未知)
+  mode?: "" | "dnsmasq" | "resolved" | "minimal" | "none";
+  ok: boolean;
+  reason?: string;
+  checkedAt?: number;
+}
+
+export interface NodeDNSCacheEnsureResult {
+  dnsCache?: NodeDNSCacheView | null;
+  summary?: string;
+  output?: string;
 }

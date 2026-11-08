@@ -14,6 +14,8 @@ import { NodeIPv6RABadge } from "./ipv6-ra-badge";
 import { NodeAdminNoticeBadge } from "./admin-notice-badge";
 import { NodeLeiKwanBadge } from "./leikwan-badge";
 import { NodeDDNSBadge } from "./ddns-badge";
+import { NodeDNSCacheAlert } from "./dns-cache-badge";
+import type { NodeDNSCacheView } from "@/api/types";
 import { MachineConnChip } from "./machine-conn";
 import { getNodeRenewalSnapshot, formatNodeRenewalTime } from "./renewal";
 
@@ -63,6 +65,7 @@ interface Node extends LeiKwanNodeDetection {
   ipv6RaStatus?: "" | "ok" | "warn" | "error";
   ipv6RaDetail?: string;
   ipv6RaCheckedAt?: number;
+  dnsCache?: NodeDNSCacheView | null; // plan 240
   port: string;
   tcpListenAddr?: string;
   udpListenAddr?: string;
@@ -306,6 +309,7 @@ function SortableTableRow({
           </span>
           <NodeAdminNoticeBadge notice={node.adminNotice} />
           <NodeIPv6RABadge node={node} />
+          <NodeDNSCacheAlert node={node} />
               <NodeLeiKwanBadge node={node} />
               <NodeDDNSBadge ddns={(node as { ddns?: import("@/api/ddns").NodeDDNSView | null }).ddns} />
         </div>

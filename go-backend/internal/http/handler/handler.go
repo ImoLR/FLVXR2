@@ -62,6 +62,7 @@ type Handler struct {
 
 	tunnelRuntimeLocks sync.Map
 	nodeCommandSender  func(int64, string, interface{}, time.Duration) (ws.CommandResult, error)
+	dnsCache           dnsCacheGuard // plan 240: one 「修复 DNS 缓存」 per node at a time, ≤ 1 / min
 	// runtimeRevsCapable overrides the handshake capability check of the
 	// reconnect diff (plan 138); tests replace it.
 	runtimeRevsCapable func(int64) bool
@@ -335,6 +336,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("/api/v1/node/batch-delete", h.nodeBatchDelete)
 	mux.HandleFunc("/api/v1/node/check-status", h.nodeCheckStatus)
 	mux.HandleFunc("/api/v1/node/upgrade", h.nodeUpgrade)
+	mux.HandleFunc("/api/v1/node/dns-cache/ensure", h.nodeDNSCacheEnsure)
 	mux.HandleFunc("/api/v1/node/batch-upgrade", h.nodeBatchUpgrade)
 	mux.HandleFunc("/api/v1/node/releases", h.listReleases)
 	mux.HandleFunc("/api/v1/node/batch-reset-traffic", h.nodeBatchResetTraffic)
@@ -898,6 +900,10 @@ func (h *Handler) nodeList(w http.ResponseWriter, r *http.Request) {
 		if role == 0 && h.wsServer != nil {
 			if p := h.wsServer.ProtocolBlocks(id); p != nil {
 				item["protocolBlocks"] = p
+			}
+			// Plan 240: local DNS cache state (live session only; absent = offline / remote → 未知).
+			if v := h.wsServer.DNSCache(id); v != nil {
+				item["dnsCache"] = v
 			}
 		}
 	}

@@ -712,6 +712,34 @@ wait_panel_connection() {
   return 1
 }
 
+# Plan 240: 本机 DNS 缓存（flvx-dns-cache 常驻服务，丢包/慢解析器不再卡 5 秒）。
+# 由 agent 程序内置的脚本完成：可用内存不足 / 53 端口被占用时自动改为精简模式（第二个解析器 + 1 秒超时）。
+# 失败只提示一行，不影响安装。跳过：FLVX_DNS_CACHE=0 ./install.sh ...
+setup_dns_cache() {
+  local bin="$INSTALL_DIR/${SERVICE_NAME}" host out rc line log="$INSTALL_DIR/dns-cache-install.log"
+  if [[ "${FLVX_DNS_CACHE:-1}" == "0" ]]; then
+    echo "⏭️ 跳过本机 DNS 缓存（FLVX_DNS_CACHE=0）"
+    return 0
+  fi
+  # 旧版程序没有 dns-cache 子命令（在 / 下探测，旧程序找不到 config.json 会立即退出）
+  if ! (cd / && timeout 5 "$bin" dns-cache version 2>/dev/null) | grep -q '^flvx-dns-cache'; then
+    echo "⏭️ 本版本节点程序不含 DNS 缓存功能，已跳过"
+    return 0
+  fi
+  host="${SERVER_ADDR#*://}"; host="${host%%/*}"
+  echo "🧭 配置本机 DNS 缓存..."
+  out=$(cd / && timeout 300 "$bin" dns-cache ensure --zones "$host" 2>&1); rc=$?
+  printf '%s\n' "$out" > "$log" 2>/dev/null
+  line=$(printf '%s\n' "$out" | grep '^DNS 缓存：' | tail -1)
+  if [[ $rc -eq 0 && -n "$line" ]]; then
+    echo "✅ $line"
+  else
+    [[ -n "$line" ]] || line=$(printf '%s\n' "$out" | grep -v '^\s*$' | tail -1)
+    echo "⚠️ 本机 DNS 缓存未完成（不影响节点使用）：${line:-未知原因}；详情 $log，可在面板「节点」卡片点「修复 DNS 缓存」重试"
+  fi
+  return 0
+}
+
 # 安装功能
 install_service() {
   get_config_params
@@ -802,6 +830,7 @@ EOF
     echo "✅ 服务已启动"
 
     wait_panel_connection "$SERVICE_START_TS"
+    setup_dns_cache
 
     echo "📁 配置目录：$INSTALL_DIR"
     echo "🔧 服务状态：$(systemctl is-active ${SERVICE_NAME})"

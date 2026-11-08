@@ -443,6 +443,8 @@ func (h *Handler) landingServerEnable(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.syncLandingServer(s.ID)
+	// Plan 240: a new native landing gets the local DNS cache too (no-op when already right).
+	h.ensureDNSCacheOnLanding(req.NodeID, r)
 	view := h.landingServerView(*s)
 	// Plan 216: set when 30000-39999 was busy and another block was picked.
 	view["rangeNote"] = note

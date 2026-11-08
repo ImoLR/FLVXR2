@@ -61,6 +61,7 @@ type nodeSession struct {
 	chainSwap       int    // handshake capability; >0 = UpdateChains swaps a chain without a gap (plan 165)
 	destOrder       int    // handshake capability; >0 = chain hops honour metadata.destOrder (plan 180 规则最优)
 	ipKey           int    // handshake capability; >0 = counts a client IPv6 /64 as one IP, keys sharedIps itself (plan 231)
+	dnsCache        int    // handshake capability; >0 = reports dns_cache, runs DNSCacheEnsure (plan 240)
 	entryRateTc     int    // handshake capability; >0 = entry speed limits via SetEntryRates in the kernel (plan 168)
 	entryRateTcErr  string // the agent's kernel cannot run the shaper (probe reason) → gost / nft fallback
 	entryRateKey    string // last entry rate status recorded (read loop only)
@@ -87,6 +88,8 @@ type nodeSession struct {
 	addrsKey   string // last address report handed to the hook (read loop only)
 	// Protocol-filter counters of this session (plan 182, memory only).
 	protocolBlocks atomic.Pointer[ProtocolBlocks]
+	// Plan 240: last dns_cache report of this session (memory only).
+	dnsCacheState atomic.Pointer[DNSCacheReport]
 	// Plan 202: last landing_scan_seq handed to the hook (read loop only).
 	landingScanSeq int64
 }
@@ -204,6 +207,7 @@ type SystemInfo struct {
 	Addrs                  *NodeAddrs        `json:"addrs,omitempty"`           // only when changed (plan 142)
 	EntryRate              *EntryRateReport  `json:"entry_rate,omitempty"`      // only when changed (plan 168)
 	ProtocolBlocks         *ProtocolBlocks   `json:"protocol_blocks,omitempty"` // session start + on change (plan 182)
+	DNSCache               *DNSCacheReport   `json:"dns_cache,omitempty"`       // plan 240, checked ≤ 1 / 10 min on the node
 	NetInSpeed             int64             `json:"net_in_speed"`
 	NetOutSpeed            int64             `json:"net_out_speed"`
 	ServiceName            string            `json:"service_name,omitempty"`
@@ -477,6 +481,9 @@ func (s *Server) handleNode(w http.ResponseWriter, r *http.Request, nodeID int64
 	if v, err := strconv.Atoi(r.URL.Query().Get("ipKey")); err == nil && v > 0 {
 		ns.ipKey = v
 	}
+	if v, err := strconv.Atoi(r.URL.Query().Get("dnsCache")); err == nil && v > 0 {
+		ns.dnsCache = v
+	}
 	if v, err := strconv.Atoi(r.URL.Query().Get("entryRateTc")); err == nil && v > 0 {
 		ns.entryRateTc = v
 		ns.entryRateTcErr = strings.TrimSpace(r.URL.Query().Get("entryRateTcErr"))
@@ -572,6 +579,7 @@ func (s *Server) handleNode(w http.ResponseWriter, r *http.Request, nodeID int64
 						s.recordAddrs(ns, sysInfo.Addrs)
 						s.recordEntryRate(ns, sysInfo.EntryRate)
 						s.recordProtocolBlocks(ns, sysInfo.ProtocolBlocks)
+						s.recordDNSCache(ns, sysInfo.DNSCache)
 						_ = s.repo.SetNodeLandingCapabilities(nodeID, sysInfo.LandingCapable, sysInfo.LandingEgress, sysInfo.LandingChain, sysInfo.LandingGuard, sysInfo.LandingConnMode, sysInfo.LandingUserLimits, sysInfo.LandingScanGuard, sysInfo.LandingReality)
 						s.recordLandingScan(ns, nodeID, sysInfo.LandingScanSeq)
 						// 缓存服务连接数
@@ -658,6 +666,7 @@ func (s *Server) handleNode(w http.ResponseWriter, r *http.Request, nodeID int64
 				s.recordIPv6RA(ns, sysInfo.IPv6RAStatus, sysInfo.IPv6RADetail)
 				s.recordLeiKwan(ns, sysInfo.LeiKwan)
 				s.recordMachine(nodeID, sysInfo, time.Now())
+				s.recordDNSCache(ns, sysInfo.DNSCache)
 				_ = s.repo.SetNodeLandingCapabilities(nodeID, sysInfo.LandingCapable, sysInfo.LandingEgress, sysInfo.LandingChain, sysInfo.LandingGuard, sysInfo.LandingConnMode, sysInfo.LandingUserLimits, sysInfo.LandingScanGuard, sysInfo.LandingReality)
 				s.recordLandingScan(ns, nodeID, sysInfo.LandingScanSeq)
 				// 缓存服务连接数

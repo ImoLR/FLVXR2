@@ -26,6 +26,7 @@ import (
 
 	"github.com/go-gost/x/atomicfile"
 	"github.com/go-gost/x/config"
+	"github.com/go-gost/x/dnscache"
 	"github.com/go-gost/x/internal/util/crypto"
 	"github.com/go-gost/x/landing"
 	"github.com/go-gost/x/logsafe"
@@ -63,6 +64,7 @@ type SystemInfo struct {
 	EgressIPFamily         string                    `json:"egress_ip_family,omitempty"`
 	IPv6RAStatus           string                    `json:"ipv6_ra_status"`
 	IPv6RADetail           string                    `json:"ipv6_ra_detail,omitempty"`
+	DNSCache               *dnscache.Status          `json:"dns_cache,omitempty"` // plan 240: local DNS cache check (≤ 1 / 10 min)
 	Uptime                 uint64                    `json:"uptime"`
 	BytesReceived          uint64                    `json:"bytes_received"`
 	BytesTransmitted       uint64                    `json:"bytes_transmitted"`
@@ -234,6 +236,7 @@ type WebSocketReporter struct {
 	leikwan            leiKwanDetector
 	egress             egressDetector
 	ipv6RA             ipv6RADetector
+	dnsCache           dnsCacheDetector
 	url                string
 	addr               string         // 保存服务器地址
 	secret             string         // 保存密钥
@@ -310,6 +313,7 @@ func (w *WebSocketReporter) Start() {
 	go w.egress.run(w.ctx, (&net.Dialer{}).DialContext)
 	w.ipv6RA.onTick = w.addrs.refresh
 	go w.ipv6RA.run(w.ctx)
+	go w.dnsCache.run(w.ctx)
 	go w.addrs.run(w.ctx)
 	if w.protector != nil {
 		go w.protector.Run(w.ctx)
@@ -883,7 +887,9 @@ func buildWebSocketQuery(secret string, version string, http int, tls int, socks
 		"&landingRate=" + strconv.Itoa(landing.LandingRateVersion) +
 		// Plan 231: client IPs count by key (IPv6 = its /64) and sharedIps
 		// entries are keyed on receipt; clientIps reports stay raw.
-		"&ipKey=" + strconv.Itoa(ipKeyVersion)
+		"&ipKey=" + strconv.Itoa(ipKeyVersion) +
+		// Plan 240: reports dns_cache and runs DNSCacheEnsure.
+		"&dnsCache=" + strconv.Itoa(dnscache.CapVersion)
 }
 
 // buildWebSocketCandidates returns the primary and the fallback scheme URL of
@@ -1198,6 +1204,7 @@ func (w *WebSocketReporter) collectSystemInfo() SystemInfo {
 		EgressIPFamily:         w.egress.family(),
 		IPv6RAStatus:           raStatus,
 		IPv6RADetail:           raDetail,
+		DNSCache:               w.dnsCache.result(),
 		Uptime:                 getUptime(),
 		BytesReceived:          networkStats.BytesReceived,
 		BytesTransmitted:       networkStats.BytesTransmitted,
@@ -1616,6 +1623,9 @@ func (w *WebSocketReporter) routeCommand(cmd CommandMessage) {
 	case "RealityProbe":
 		response.Data, err = w.handleRealityProbe(cmd.Data)
 		response.Type = "RealityProbeResponse"
+	case "DNSCacheEnsure":
+		response.Data, err = w.dnsCache.handleEnsure(w.ctx, cmd.Data)
+		response.Type = "DNSCacheEnsureResponse"
 	case "GetLandingStatus":
 		_ = landing.Default().Counters()
 		response.Data = landing.Default().Status()

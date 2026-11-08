@@ -1,5 +1,9 @@
 import { EnableLandingButton } from "@/pages/landing/enable-button";
-import type { LeiKwanNodeDetection, MachineView } from "@/api/types";
+import type {
+  LeiKwanNodeDetection,
+  MachineView,
+  NodeDNSCacheView,
+} from "@/api/types";
 import type {
   NodeGroupApiItem,
   NodeRegionDetection,
@@ -30,6 +34,11 @@ import { CSS } from "@dnd-kit/utilities";
 import { NodeGroupManager } from "./node/node-group-manager";
 import { NodeDeployModal } from "./node/node-deploy-modal";
 import { NodeIPv6RABadge } from "./node/ipv6-ra-badge";
+import {
+  NodeDNSCacheAlert,
+  NodeDNSCacheRow,
+  hasDNSCacheAttention,
+} from "./node/dns-cache-badge";
 import { NodeAdminNoticeBadge } from "./node/admin-notice-badge";
 import { NodeLeiKwanBadge } from "./node/leikwan-badge";
 import {
@@ -201,6 +210,7 @@ interface Node extends LeiKwanNodeDetection {
   ipv6RaStatus?: "" | "ok" | "warn" | "error";
   ipv6RaDetail?: string;
   ipv6RaCheckedAt?: number;
+  dnsCache?: NodeDNSCacheView | null; // plan 240
   port: string;
   tcpListenAddr?: string;
   udpListenAddr?: string;
@@ -2362,6 +2372,7 @@ export default function NodePage() {
               <NodeAdminNoticeBadge
                 compact={
                   ["ok", "warn", "error"].includes(node.ipv6RaStatus || "") ||
+                  hasDNSCacheAttention(node) ||
                   node.leikwanStatus === "running" ||
                   node.leikwanStatus === "present" ||
                   Boolean(node.ddns?.enabled && node.ddns.status) ||
@@ -2370,6 +2381,7 @@ export default function NodePage() {
                 notice={node.adminNotice}
               />
               <NodeIPv6RABadge node={node} />
+              <NodeDNSCacheAlert node={node} />
               <NodeLeiKwanBadge node={node} />
               <NodeDDNSBadge ddns={node.ddns} />
               {node.lineMachine && (
@@ -2581,6 +2593,7 @@ export default function NodePage() {
                 showLabel={false}
               />
             </div>
+            <NodeDNSCacheRow node={node} />
             {(() => {
               const blocks = protocolBlocksOf(node);
 

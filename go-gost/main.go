@@ -13,6 +13,7 @@ import (
 	"sync"
 
 	"github.com/go-gost/core/logger"
+	"github.com/go-gost/x/dnscache"
 	xlogger "github.com/go-gost/x/logger"
 	"github.com/go-gost/x/panelconn"
 	"github.com/go-gost/x/service"
@@ -102,6 +103,10 @@ func init() {
 }
 
 func main() {
+	// Plan 240: `flvx_agent dns-cache ensure|status|check|rollback` (node installer + admins), before gost flags.
+	if len(os.Args) > 1 && os.Args[1] == "dns-cache" {
+		os.Exit(dnscache.CLI(os.Args[2:]))
+	}
 	flag.Parse()
 
 	if printVersion {
