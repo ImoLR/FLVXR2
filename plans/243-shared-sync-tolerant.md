@@ -37,6 +37,13 @@ every shared card show 同步异常 / offline. Second gap: a share that disappea
   integration error, breaker closed; mass hold → ⚠ field admin-only; revoked + not_found → no error, no more polls).
 - Frontend: `tsc --noEmit`, eslint, prettier clean on the 2 changed files.
 
+## Business baseline (pre, 11-09 21:40 TW) — `runs/shared-sync-tolerant/work/`
+- 4 shared landings active, no error, synced ≤65 s; integration error empty.
+- 45 active rules diagnosed (2 SSH targets skipped): all hops OK except 6/37/69 (non-selected HK exits fail TCP ping to target)
+  and 77/95 (UDP-only targets) — baseline, must look the same after.
+- Landing links (7 nodes): 6 OK (trace 2/2 + 1 MB); node 168 Dmit T1 is Mieru → checker's sing-box has no Mieru client (not an outage).
+- 救命版 44/45 online (阿里深圳 offline), container untouched since 08-15.
+
 ## Checklist
 - [x] Investigate: sync path, status poll, Custom 404 `not_found` semantics, revoked behaviour, prod state (landing_server 2 row already gone)
 - [x] Repo: per-item validation + `SyncSharedLandingList` + vanish tracker + revoke through explicit-revoked branch
@@ -44,7 +51,19 @@ every shared card show 同步异常 / offline. Second gap: a share that disappea
 - [x] Frontend: add-only ⚠ reason for `sharedHold` in `serverAdminAttention`
 - [x] Tests: repo unit + handler tests (each validation rule, vanish 1/4, 3/4, empty, not_found×3, reappear reset, shared path)
 - [x] `go test ./...` green (compare failures with base), frontend build
-- [ ] Commit, push, CI green, ledger row
-- [ ] Tag `3.0.27-fork.128`, release assets verified
-- [ ] Prod backup + prune, upgrade panel, health + business checks (4 shares sync, landing links, rule groups, 救命版)
-- [ ] Ledger → 已发布, memory, plan complete
+- [x] Commit, push, CI green, ledger row (7f12a2a5; CI 42627222572 green; PG variants of the new tests run locally against a temp postgres:18 — CI PG job only runs one contract test)
+- [x] Tag `3.0.27-fork.128`, release assets verified
+- [x] Prod backup + prune, upgrade panel, health + business checks (4 shares sync, landing links, rule groups, 救命版)
+- [x] Ledger → 已发布, memory, plan complete
+
+## Results (11-09 TW)
+- Tag `3.0.27-fork.128` → 7f12a2a5 (annotated). CI 42627222572 green; Images/release 42627910229 green; release Latest,
+  10 assets = fork.127 set, compose/install scripts pinned, gost-amd64 sha256 + `-V` fork.128 (validate-release-128.py ALL OK).
+- Prod backup `/opt/flvx-svc/rollback/pre-fork128-20261109T135415Z` (quick/integrity ok); pruned → kept pre-fork127 + pre-fork128.
+- Panel upgraded 21:54:24 → healthy 21:54:38 TW (frontend build 3.0.27-fork.128-mw9bcqry, 救命版 ro mount ok). No agent OTA.
+  No schema change → rollback = image swap `rollback.sh` (`--restore-db` last resort).
+- After 2 min: 4 shared landings active, no error, synced ≤21 s; integration error empty; 0 `[shared-landing]` log lines
+  (clean list → no-op); 27/27 nodes online; backend 29 MiB RSS, 2.4 % CPU.
+- Business post == pre: 45 rules identical hop-for-hop, counts identical, 6 landing links trace 2/2 + 1 MB, Dmit T1 Mieru
+  node 168 Helper-reported active (checker has no Mieru client), 救命版 44/45 unchanged (started 08-15, restarts 0).
+- landing_server 2 (Breadcloud US 年付) row no longer exists on prod → nothing for the new code to act on.
