@@ -788,6 +788,13 @@ var apiErrorText = map[string]string{
 	"unauthorized":           "妙妙屋接入令牌无效或已撤销",
 }
 
+// IsNotFound: Custom answered 404 with its own `not_found` code (its share row
+// for that server is gone). A bare 404 (proxy, wrong base URL) does not count.
+func IsNotFound(err error) bool {
+	var e *APIError
+	return errors.As(err, &e) && e.Status == http.StatusNotFound && e.Code == "not_found"
+}
+
 func (e *APIError) Error() string {
 	if text, ok := apiErrorText[e.Code]; ok {
 		return text

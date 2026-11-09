@@ -181,6 +181,10 @@ func (h *Handler) landingServerViewWith(s model.LandingServer, admin bool, catal
 		v["sharedAvailable"] = repo.SharedLandingAvailable(&s)
 		if admin {
 			v["egress"] = h.landingServerEgressView(s, 0, catalog)
+			// Plan 243: the mass-vanish guard held this share (admin ⚠).
+			if hold := h.sharedHoldMessage(s.ID); hold != "" {
+				v["sharedHold"] = hold
+			}
 		}
 	} else {
 		node, _ := h.repo.GetNodeByID(s.NodeID)

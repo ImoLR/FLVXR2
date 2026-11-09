@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net"
 	"net/http"
 	"sort"
@@ -22,6 +23,7 @@ type sharedRetry struct {
 	failures int
 	next     time.Time
 	lastErr  string
+	scoped   bool // last failure concerned this one share only (plan 243)
 }
 type sharedLandingState struct {
 	retries             map[string]sharedRetry
@@ -35,14 +37,106 @@ type sharedLandingState struct {
 	userLimitsHash map[int64]string
 	userLimitsAt   map[int64]time.Time
 	userLimitsSeq  map[int64]int64
+	// Plan 243: vanish evidence, the per-server message of the last list round
+	// (item problem / vanish count / mass hold), revoked shares Custom no longer
+	// knows (no more status polls) and what was last logged per server.
+	vanish *repo.SharedVanishTracker
+	issues map[int64]string
+	gone   map[int64]bool
+	logged map[string]string
 }
 
 func (h *Handler) sharedState() *sharedLandingState {
 	if h.sharedLanding == nil {
-		h.sharedLanding = &sharedLandingState{retries: map[string]sharedRetry{}, lastPushRevision: map[int64]int64{}, hostAddresses: map[string][]string{}, userLimitsHash: map[int64]string{}, userLimitsAt: map[int64]time.Time{}, userLimitsSeq: map[int64]int64{}}
+		h.sharedLanding = &sharedLandingState{retries: map[string]sharedRetry{}, lastPushRevision: map[int64]int64{}, hostAddresses: map[string][]string{}, userLimitsHash: map[int64]string{}, userLimitsAt: map[int64]time.Time{}, userLimitsSeq: map[int64]int64{}, vanish: repo.NewSharedVanishTracker(), issues: map[int64]string{}, gone: map[int64]bool{}, logged: map[string]string{}}
 	}
 	return h.sharedLanding
 }
+
+// sharedScopedError: a per-server call that keeps backing off after a failure
+// that concerned only its share (see sharedShareScoped).
+type sharedScopedError struct{ msg string }
+
+func (e *sharedScopedError) Error() string { return e.msg }
+
+// sharedShareScoped (plan 243): Custom answered a per-server call (status /
+// push / user limits) with a verdict about that share only — 404 not_found,
+// 409, 422. Such an answer proves Custom is reachable, so it neither trips the
+// transport breaker nor marks the whole integration (whose error used to show
+// 同步异常 on every shared card); it stays on that server's own error.
+func sharedShareScoped(key string, err error) bool {
+	return strings.Contains(key, ":") && sharedShareVerdict(err)
+}
+func sharedShareVerdict(err error) bool {
+	var api *landingcustom.APIError
+	return errors.As(err, &api) && (api.Status == 409 || api.Status == 422 || landingcustom.IsNotFound(err))
+}
+
+// sharedErrScoped: an error from a per-server call that must not fail the round.
+func sharedErrScoped(err error) bool {
+	var held *sharedScopedError
+	return errors.As(err, &held) || sharedShareVerdict(err)
+}
+
+// noteSharedListReport publishes one successful list round (plan 243): the
+// per-server messages re-applied after polls/pushes, the mass-guard holds the
+// views show as ⚠, and one log line per change (never per round).
+// Called with sharedLandingMu held.
+func (h *Handler) noteSharedListReport(rep repo.SharedListReport) {
+	st := h.sharedState()
+	issues := map[int64]string{}
+	for _, m := range []map[int64]string{rep.Skipped, rep.Missing, rep.Held} {
+		for id, msg := range m {
+			issues[id] = msg
+		}
+	}
+	for id, old := range st.issues {
+		if issues[id] == "" {
+			_ = h.repo.ClearSharedSyncErrorIf(id, old)
+		}
+	}
+	st.issues = issues
+	h.sharedHold.Range(func(k, _ any) bool {
+		if _, ok := rep.Held[k.(int64)]; !ok {
+			h.sharedHold.Delete(k)
+		}
+		return true
+	})
+	for id, msg := range rep.Held {
+		h.sharedHold.Store(id, msg)
+	}
+	current := map[string]string{}
+	for id, msg := range issues {
+		current[fmt.Sprintf("landing_server=%d", id)] = msg
+	}
+	for remote, msg := range rep.SkippedRemote {
+		current[fmt.Sprintf("remote_server=%d", remote)] = msg
+	}
+	for key, msg := range current {
+		if st.logged[key] != msg {
+			log.Printf("[shared-landing] %s: %s", key, msg)
+			st.logged[key] = msg
+		}
+	}
+	for key := range st.logged {
+		if _, ok := current[key]; !ok {
+			log.Printf("[shared-landing] %s: list problem cleared", key)
+			delete(st.logged, key)
+		}
+	}
+	for _, id := range rep.Revoked {
+		log.Printf("[shared-landing] landing_server=%d revoked: share vanished from 妙妙屋 (missing / not_found in %d rounds over >= 3 min)", id, 3)
+	}
+}
+
+// sharedHoldMessage: the mass-guard message for a shared server, if held.
+func (h *Handler) sharedHoldMessage(id int64) string {
+	if v, ok := h.sharedHold.Load(id); ok {
+		return v.(string)
+	}
+	return ""
+}
+
 func sharedBackoff(failures int) time.Duration {
 	return min(15*time.Second*time.Duration(1<<min(max(failures-1, 0), 6)), 10*time.Minute)
 }
@@ -67,6 +161,9 @@ func (h *Handler) sharedAttempt(key string, force, manual bool, fn func() error)
 		if cause == "" {
 			return errors.New("同步异常，正在退避重试")
 		}
+		if keyBlocked && r.scoped {
+			return &sharedScopedError{cause + "（自动重试中）"}
+		}
 		return errors.New(cause + "（自动重试中）")
 	}
 	err := fn()
@@ -78,7 +175,11 @@ func (h *Handler) sharedAttempt(key string, force, manual bool, fn func() error)
 	r.failures++
 	r.next = now.Add(sharedBackoff(r.failures))
 	r.lastErr = err.Error()
+	r.scoped = sharedShareScoped(key, err)
 	state.retries[key] = r
+	if r.scoped {
+		return err // that share's own error only (plan 243)
+	}
 	var api *landingcustom.APIError
 	if !errors.As(err, &api) || (api.Status != 409 && api.Status != 422) {
 		state.offline.failures++
@@ -207,9 +308,11 @@ func (h *Handler) syncSharedIntegration(ctx context.Context, force bool) {
 				if e != nil {
 					return e
 				}
-				if e = h.repo.SyncSharedLandings(shares, now.UnixMilli()); e != nil {
+				report, e := h.repo.SyncSharedLandingList(shares, now.UnixMilli(), st.vanish)
+				if e != nil {
 					return e
 				}
+				h.noteSharedListReport(report)
 				st.lastList = now
 				policyDue = true
 				return nil
@@ -252,33 +355,54 @@ func (h *Handler) syncSharedIntegration(ctx context.Context, force bool) {
 			if ctx.Err() != nil {
 				return
 			}
-			if force || now.UnixMilli()-s.SharedLastSyncAt >= time.Minute.Milliseconds() {
+			revoked := repo.SharedLandingCaps(&s).Status == "revoked"
+			// Plan 243: a revoked share Custom answered not_found for is over;
+			// it is not polled again (until a restart forgets this).
+			if !st.gone[s.ID] && (force || now.UnixMilli()-s.SharedLastSyncAt >= time.Minute.Milliseconds()) {
 				var apply func()
 				e = h.sharedAttempt(fmt.Sprintf("status:%d", s.ID), force, false, func() error {
 					var pollErr error
 					apply, pollErr = h.pollSharedLanding(ctx, client, s)
+					switch {
+					case pollErr == nil:
+						st.vanish.StatusOK(s.ID)
+					case landingcustom.IsNotFound(pollErr) && revoked:
+						st.gone[s.ID] = true
+						_ = h.repo.SetSharedSyncError(s.ID, "")
+						return nil
+					case landingcustom.IsNotFound(pollErr):
+						// Counted here, decided by the next successful list round.
+						st.vanish.NotFound(s.ID, time.Now())
+					}
 					return pollErr
 				})
 				if apply != nil {
 					enforce = append(enforce, apply)
 				}
-				if e == nil {
+				if e == nil && !st.gone[s.ID] {
 					e = h.repo.FinalizeSharedLandingDeletions(s.ID)
 				}
 				if e != nil {
-					err = e
+					if !sharedErrScoped(e) {
+						err = e
+					}
 					_ = h.repo.SetSharedSyncError(s.ID, e.Error())
 				}
 			}
 			// Re-evaluate content even if revision was not bumped by an owner rename or renewal.
-			if e = h.pushSharedLanding(ctx, client, s, force, false); e != nil {
+			if e = h.pushSharedLanding(ctx, client, s, force, false); e != nil && !sharedErrScoped(e) {
 				err = e
 			}
 			// Plan 158: per-user limits of shares that apply them. A failure is
 			// recorded on the integration status (sharedAttempt) and backs off;
 			// the share's usage expires after 2 minutes.
-			if e = h.exchangeSharedUserLimits(ctx, client, s, force); e != nil {
+			if e = h.exchangeSharedUserLimits(ctx, client, s, force); e != nil && !sharedErrScoped(e) {
 				err = e
+			}
+			// Plan 243: the list round's problem for this share (invalid item,
+			// vanish count, mass hold) outlives the poll / push that just ran.
+			if msg := st.issues[s.ID]; msg != "" {
+				_ = h.repo.SetSharedSyncErrorIfDiffers(s.ID, msg)
 			}
 		}
 		if err == nil {

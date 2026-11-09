@@ -37,7 +37,8 @@ export interface AdminAttention {
  * Helper 需升级, its Core restart/upgrade, its guard or scan read errors) —
  * the FLVX admin cannot act on them (the 「共享详情 · 异常」 button already
  * shows 妙妙屋 sync problems). Waiting states (already confirmed, pending
- * sync) are not actions either.
+ * sync) are not actions either. Exception (plan 243): a share held by the
+ * mass-vanish guard — FLVX refused to auto-revoke, its admin must look.
  */
 export function serverAdminAttention(
   server: LandingServer,
@@ -70,6 +71,10 @@ export function serverAdminAttention(
       "error",
       `${egress.withheldNodes} 个落地节点因出站与路由未生效已暂停`,
     );
+  // Plan 243: 妙妙屋 dropped many shares at once; FLVX kept them instead of
+  // revoking, the admin checks 妙妙屋 (the text says why).
+  if (!native && server.sharedHold)
+    add("shared-hold", "error", server.sharedHold, ["defaults"]);
   if (!native) return pack(reasons);
 
   const guard = egress.realityGuard;

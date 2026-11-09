@@ -191,154 +191,308 @@ func capValue(v, limit int64) int64 {
 	return v
 }
 
-// SyncSharedLandings validates a complete response before applying anything.
-// Only an explicit revoked state revokes a share; omissions and transport errors
-// retain user data and the last good desired state.
+// sharedItemProblem validates one share list item on its own (plan 243).
+func sharedItemProblem(c landingcustom.Share) string {
+	switch {
+	case c.PortMin < 1024 || c.PortMax < c.PortMin || c.PortMax > 65535:
+		return "端口段无效"
+	case c.TrafficLimit < 0 || c.TrafficUsed < 0 || c.MaxConnections < 0:
+		return "上限无效"
+	case c.Status != "active" && c.Status != "paused" && c.Status != "revoked":
+		return "状态无效"
+	case len(c.Protocols) == 0:
+		return "未提供协议"
+	case c.Hosts.IPv4 == "" && c.Hosts.IPv6 == "" && c.Hosts.Domain == "":
+		return "地址缺失（妙妙屋端服务器可能已删除）"
+	}
+	return ""
+}
+
+// SharedListReport is what one list round did (plan 243). Ids are
+// landing_server ids unless noted.
+type SharedListReport struct {
+	// Skipped: items rejected on their own; the row keeps its last good config.
+	Skipped map[int64]string
+	// SkippedRemote: rejected items without a FLVX row (remote id, or 0 for a
+	// bad id) — nothing to keep, only logged.
+	SkippedRemote map[int64]string
+	// Missing: known shares absent from this list, still below the threshold.
+	Missing map[int64]string
+	// Held: suspects kept as they are by the mass guard (admin ⚠).
+	Held map[int64]string
+	// Revoked: shares revoked this round because they vanished.
+	Revoked []int64
+}
+
+// SyncSharedLandings applies a share list without vanish tracking (tests and
+// callers that only know explicit states).
 func (r *Repository) SyncSharedLandings(shares []landingcustom.Share, now int64) error {
-	seen := map[int64]bool{}
+	_, err := r.SyncSharedLandingList(shares, now, nil)
+	return err
+}
+
+// SyncSharedLandingList applies one complete share list. Plan 243: every item
+// is validated on its own — an invalid item is skipped (its row keeps the last
+// good config and gets the item's error) while the valid ones still apply, so
+// one broken share can no longer stop the sync of all others. A share revokes
+// on an explicit `revoked` state, or — with a tracker — after it vanished
+// (see SharedVanishTracker); both go through the same revoked branch below.
+// Transport errors never reach here and retain everything as before.
+func (r *Repository) SyncSharedLandingList(shares []landingcustom.Share, now int64, tracker *SharedVanishTracker) (SharedListReport, error) {
+	rep := SharedListReport{Skipped: map[int64]string{}, SkippedRemote: map[int64]string{}, Missing: map[int64]string{}, Held: map[int64]string{}}
+	counts := map[int64]int{}
 	for i := range shares {
 		// Optional landing-protocols-v1 fields are bounded, never fatal.
 		shares[i].Sanitize()
+		if shares[i].ID > 0 {
+			counts[shares[i].ID]++
+		}
 	}
+	present := map[int64]bool{}
+	problems := map[int64]string{} // remote id -> item problem
+	revokeOnly := map[int64]bool{} // remote id: explicit revoked, other fields unusable
+	valid := make([]landingcustom.Share, 0, len(shares))
 	for _, c := range shares {
-		if c.ID <= 0 || seen[c.ID] || c.PortMin < 1024 || c.PortMax < c.PortMin || c.PortMax > 65535 || c.TrafficLimit < 0 || c.TrafficUsed < 0 || c.MaxConnections < 0 || (c.Status != "active" && c.Status != "paused" && c.Status != "revoked") || len(c.Protocols) == 0 {
-			return errors.New("妙妙屋共享列表包含无效上限")
+		if c.ID <= 0 {
+			rep.SkippedRemote[0] = "妙妙屋共享列表包含无效的共享标识，已跳过该项"
+			continue
 		}
-		if c.Hosts.IPv4 == "" && c.Hosts.IPv6 == "" && c.Hosts.Domain == "" {
-			return errors.New("妙妙屋共享地址缺失")
+		present[c.ID] = true
+		if counts[c.ID] > 1 {
+			problems[c.ID] = "妙妙屋共享列表中该共享重复出现，已跳过，保留上次配置"
+			continue
 		}
-		seen[c.ID] = true
+		if p := sharedItemProblem(c); p != "" {
+			if c.Status == "revoked" {
+				// An explicit revocation is honoured even when the rest of the
+				// item is unusable (e.g. its server is already gone).
+				revokeOnly[c.ID] = true
+				continue
+			}
+			problems[c.ID] = "妙妙屋共享数据无效（" + p + "），已跳过，保留上次配置"
+			continue
+		}
+		valid = append(valid, c)
 	}
-	return r.db.Transaction(func(tx *gorm.DB) error {
+	err := r.db.Transaction(func(tx *gorm.DB) error {
 		// Match policy/flow lock order: nodes before their server rows.
 		var locked []model.LandingNode
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("landing_server_id IN (SELECT id FROM landing_server WHERE source = 'shared')").Order("id").Find(&locked).Error; err != nil {
 			return err
 		}
-		for _, c := range shares {
-			var s model.LandingServer
-			err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("source = ? AND remote_server_id = ?", "shared", c.ID).First(&s).Error
-			fresh := errors.Is(err, gorm.ErrRecordNotFound)
-			if err != nil && !fresh {
+		var rows []model.LandingServer
+		if err := tx.Where("source = ?", "shared").Order("id").Find(&rows).Error; err != nil {
+			return err
+		}
+		byRemote := map[int64]model.LandingServer{}
+		var known []model.LandingServer
+		for _, s := range rows {
+			byRemote[s.RemoteServerID] = s
+			if SharedLandingCaps(&s).Status != "revoked" {
+				known = append(known, s)
+			}
+		}
+		// The stored caps with status revoked: what an explicit revocation of
+		// that share would carry, so the apply below changes nothing else.
+		revokedFromStored := func(s model.LandingServer) landingcustom.Share {
+			c := SharedLandingCaps(&s)
+			c.ID, c.Status, c.BusyPorts = s.RemoteServerID, "revoked", SharedBusyPortList(&s)
+			return c
+		}
+		revoking := map[int64]bool{} // remote ids
+		apply := make([]landingcustom.Share, 0, len(valid)+len(revokeOnly))
+		for remoteID := range revokeOnly {
+			if s, ok := byRemote[remoteID]; ok {
+				revoking[remoteID] = true
+				apply = append(apply, revokedFromStored(s))
+			}
+		}
+		if tracker != nil {
+			d := tracker.observe(known, present, len(shares) == 0, time.UnixMilli(now))
+			rep.Held, rep.Missing = d.held, d.missing
+			for _, id := range d.revoke {
+				for _, s := range known {
+					if s.ID == id && !revoking[s.RemoteServerID] {
+						revoking[s.RemoteServerID] = true
+						apply = append(apply, revokedFromStored(s))
+						rep.Revoked = append(rep.Revoked, id)
+					}
+				}
+			}
+		}
+		for _, c := range valid {
+			if !revoking[c.ID] {
+				apply = append(apply, c)
+			}
+		}
+		sort.SliceStable(apply, func(i, j int) bool { return apply[i].ID < apply[j].ID })
+		for _, c := range apply {
+			if err := applySharedShareTx(tx, c, now); err != nil {
 				return err
 			}
-			host := c.Hosts.Domain
-			if host == "" {
-				host = c.Hosts.IPv4
+		}
+		// Skipped items: the row keeps its config and shows the item's problem
+		// (revoked rows stay quiet: they are over).
+		for remoteID, msg := range problems {
+			s, ok := byRemote[remoteID]
+			if !ok {
+				rep.SkippedRemote[remoteID] = msg
+				continue
 			}
-			if host == "" {
-				host = c.Hosts.IPv6
+			if revoking[remoteID] || SharedLandingCaps(&s).Status == "revoked" {
+				continue
 			}
-			if fresh {
-				s = model.LandingServer{Source: "shared", RemoteServerID: c.ID, Name: c.Name, PublicHost: host, PortMin: c.PortMin, PortMax: c.PortMax, FlowType: 2, TrafficRatio: 1, DefaultExpiryMode: "follow_user", MaxNodesPerUser: min(3, c.PortMax-c.PortMin+1), RealityDest: "www.lovelive-anime.jp:443", RealityServerNames: `["www.lovelive-anime.jp"]`, Status: "active", Revision: 1, CreatedTime: now}
-				// Only the v1 protocols start enabled; AnyTLS / Snell / Mieru are
-				// opt-in per server in 落地服务器设置 once advertised.
-				b, _ := json.Marshal(c.Protocols)
-				s.Protocols = string(b)
-				if validLandingHostname(strings.ToLower(c.Hosts.Domain)) {
-					s.AnyTLSServerName = strings.ToLower(c.Hosts.Domain)
-				}
-				normalizeLandingProtocolDefaults(&s)
-			} else {
-				old := SharedLandingCaps(&s)
-				// Plan 159: revocation is the end of a shared server (FLVX keeps
-				// the row for its nodes' history): its per-server rows go with it.
-				if old.Status != "revoked" && c.Status == "revoked" {
-					if err = deleteSharedServerRowsTx(tx, s.ID); err != nil {
-						return err
-					}
-				}
-				if old.ShareUntil != nil && s.AvailableUntil != nil && *old.ShareUntil == *s.AvailableUntil {
-					s.AvailableUntil = c.ShareUntil
-				}
-				// A terminal revocation cannot be resurrected by a stale list response.
-				if old.Status == "revoked" {
-					c.Status = "revoked"
-				}
-				// Follow Custom only while the address is still the one it picked
-				// (e.g. a DDNS IP becomes the domain); keep an admin's own edit.
-				if sharedAutoHost(s.PublicHost, old.Hosts) {
-					s.PublicHost = host
-				}
-				s.PortMin = max(s.PortMin, c.PortMin)
-				s.PortMax = min(s.PortMax, c.PortMax)
-				if s.PortMin > s.PortMax {
-					s.PortMin = c.PortMin
-					s.PortMax = c.PortMax
-				}
-				var ps []string
-				_ = json.Unmarshal([]byte(s.Protocols), &ps)
-				allowed := []string{}
-				for _, p := range ps {
-					// An enabled extra protocol survives a missing capability
-					// (its nodes are withheld until the capability returns).
-					if landingcustom.IsExtraProtocol(p) {
-						allowed = append(allowed, p)
-						continue
-					}
-					for _, cp := range c.Protocols {
-						if p == cp {
-							allowed = append(allowed, p)
-							break
-						}
-					}
-				}
-				b, _ := json.Marshal(allowed)
-				s.Protocols = string(b)
-			}
-			// Plan 211: the share's total stays in SharedCaps (妙妙屋 enforces
-			// it); it is no longer copied into FLVX's server total, the node
-			// defaults or the nodes (that made the 「800 (入站)」 node limits).
-			s.MaxConnections = 0
-			// Plan 223: a shared server's Core memory / CPU belong to 妙妙屋
-			// (never sent from FLVX); FLVX keeps 0 / 0 = 不限制.
-			s.CoreMemoryMB, s.CoreCPUPercent = 0, 0
-			if fresh {
-				s.DefaultMaxTotalConnections = LandingDefaultNodeTotal
-			}
-			s.DefaultTrafficLimitBytes = capValue(s.DefaultTrafficLimitBytes, c.TrafficLimit)
-			s.DefaultUserQuotaBytes = capValue(s.DefaultUserQuotaBytes, c.TrafficLimit)
-			s.MaxNodesPerUser = min(s.MaxNodesPerUser, c.PortMax-c.PortMin+1, 1000)
-			if c.ShareUntil != nil && (s.AvailableUntil == nil || *s.AvailableUntil > *c.ShareUntil) {
-				s.AvailableUntil = c.ShareUntil
-			}
-			busy := c.BusyPorts
-			c.BusyPorts = nil
-			raw, _ := json.Marshal(c)
-			s.SharedCaps = string(raw)
-			s.SharedBusyPorts = ""
-			if len(busy) > 0 {
-				b, _ := json.Marshal(busy)
-				s.SharedBusyPorts = string(b)
-			}
-			s.UpdatedTime = now
-			if fresh {
-				if err = tx.Create(&s).Error; err != nil {
-					return err
-				}
-				// The model's column defaults (256 / 50) replace zero values
-				// on Create; write the 不限制 zeros explicitly.
-				if err = tx.Model(&model.LandingServer{}).Where("id = ?", s.ID).Updates(map[string]any{"core_memory_mb": 0, "core_cpu_percent": 0}).Error; err != nil {
-					return err
-				}
-				s.CoreMemoryMB, s.CoreCPUPercent = 0, 0
-			} else {
-				if err = tx.Save(&s).Error; err != nil {
-					return err
-				}
-			}
-			// Existing overrides remain bounded if the owner tightens their share.
-			if c.TrafficLimit > 0 {
-				if err = tx.Model(&model.LandingNode{}).Where("landing_server_id = ? AND (traffic_limit_bytes = 0 OR traffic_limit_bytes > ?)", s.ID, c.TrafficLimit).Update("traffic_limit_bytes", c.TrafficLimit).Error; err != nil {
-					return err
-				}
-				if err = tx.Model(&model.UserServerQuota{}).Where("server_kind = 'landing' AND server_ref_id = ? AND (limit_bytes = 0 OR limit_bytes > ?)", s.ID, c.TrafficLimit).Update("limit_bytes", c.TrafficLimit).Error; err != nil {
-					return err
-				}
+			rep.Skipped[s.ID] = msg
+		}
+		for id, msg := range mergeSharedIssues(rep.Skipped, rep.Missing, rep.Held) {
+			if err := tx.Model(&model.LandingServer{}).Where("id = ? AND shared_sync_error <> ?", id, msg).Update("shared_sync_error", msg).Error; err != nil {
+				return err
 			}
 		}
 		return nil
 	})
+	if err != nil {
+		return SharedListReport{}, err
+	}
+	return rep, nil
+}
+
+// mergeSharedIssues: the message each server shows for this list round
+// (hold wins over a still-counting vanish, which wins over an item problem).
+func mergeSharedIssues(skipped, missing, held map[int64]string) map[int64]string {
+	out := map[int64]string{}
+	for _, m := range []map[int64]string{skipped, missing, held} {
+		for id, msg := range m {
+			out[id] = msg
+		}
+	}
+	return out
+}
+
+// applySharedShareTx applies one validated item (or an explicit / vanish
+// revocation) to its landing_server row.
+func applySharedShareTx(tx *gorm.DB, c landingcustom.Share, now int64) error {
+	var s model.LandingServer
+	err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("source = ? AND remote_server_id = ?", "shared", c.ID).First(&s).Error
+	fresh := errors.Is(err, gorm.ErrRecordNotFound)
+	if err != nil && !fresh {
+		return err
+	}
+	host := c.Hosts.Domain
+	if host == "" {
+		host = c.Hosts.IPv4
+	}
+	if host == "" {
+		host = c.Hosts.IPv6
+	}
+	if fresh {
+		s = model.LandingServer{Source: "shared", RemoteServerID: c.ID, Name: c.Name, PublicHost: host, PortMin: c.PortMin, PortMax: c.PortMax, FlowType: 2, TrafficRatio: 1, DefaultExpiryMode: "follow_user", MaxNodesPerUser: min(3, c.PortMax-c.PortMin+1), RealityDest: "www.lovelive-anime.jp:443", RealityServerNames: `["www.lovelive-anime.jp"]`, Status: "active", Revision: 1, CreatedTime: now}
+		// Only the v1 protocols start enabled; AnyTLS / Snell / Mieru are
+		// opt-in per server in 落地服务器设置 once advertised.
+		b, _ := json.Marshal(c.Protocols)
+		s.Protocols = string(b)
+		if validLandingHostname(strings.ToLower(c.Hosts.Domain)) {
+			s.AnyTLSServerName = strings.ToLower(c.Hosts.Domain)
+		}
+		normalizeLandingProtocolDefaults(&s)
+	} else {
+		old := SharedLandingCaps(&s)
+		// Plan 159: revocation is the end of a shared server (FLVX keeps
+		// the row for its nodes' history): its per-server rows go with it.
+		if old.Status != "revoked" && c.Status == "revoked" {
+			if err = deleteSharedServerRowsTx(tx, s.ID); err != nil {
+				return err
+			}
+		}
+		if old.ShareUntil != nil && s.AvailableUntil != nil && *old.ShareUntil == *s.AvailableUntil {
+			s.AvailableUntil = c.ShareUntil
+		}
+		// A terminal revocation cannot be resurrected by a stale list response.
+		if old.Status == "revoked" {
+			c.Status = "revoked"
+		}
+		// Follow Custom only while the address is still the one it picked
+		// (e.g. a DDNS IP becomes the domain); keep an admin's own edit.
+		if sharedAutoHost(s.PublicHost, old.Hosts) {
+			s.PublicHost = host
+		}
+		s.PortMin = max(s.PortMin, c.PortMin)
+		s.PortMax = min(s.PortMax, c.PortMax)
+		if s.PortMin > s.PortMax {
+			s.PortMin = c.PortMin
+			s.PortMax = c.PortMax
+		}
+		var ps []string
+		_ = json.Unmarshal([]byte(s.Protocols), &ps)
+		allowed := []string{}
+		for _, p := range ps {
+			// An enabled extra protocol survives a missing capability
+			// (its nodes are withheld until the capability returns).
+			if landingcustom.IsExtraProtocol(p) {
+				allowed = append(allowed, p)
+				continue
+			}
+			for _, cp := range c.Protocols {
+				if p == cp {
+					allowed = append(allowed, p)
+					break
+				}
+			}
+		}
+		b, _ := json.Marshal(allowed)
+		s.Protocols = string(b)
+	}
+	// Plan 211: the share's total stays in SharedCaps (妙妙屋 enforces
+	// it); it is no longer copied into FLVX's server total, the node
+	// defaults or the nodes (that made the 「800 (入站)」 node limits).
+	s.MaxConnections = 0
+	// Plan 223: a shared server's Core memory / CPU belong to 妙妙屋
+	// (never sent from FLVX); FLVX keeps 0 / 0 = 不限制.
+	s.CoreMemoryMB, s.CoreCPUPercent = 0, 0
+	if fresh {
+		s.DefaultMaxTotalConnections = LandingDefaultNodeTotal
+	}
+	s.DefaultTrafficLimitBytes = capValue(s.DefaultTrafficLimitBytes, c.TrafficLimit)
+	s.DefaultUserQuotaBytes = capValue(s.DefaultUserQuotaBytes, c.TrafficLimit)
+	s.MaxNodesPerUser = min(s.MaxNodesPerUser, c.PortMax-c.PortMin+1, 1000)
+	if c.ShareUntil != nil && (s.AvailableUntil == nil || *s.AvailableUntil > *c.ShareUntil) {
+		s.AvailableUntil = c.ShareUntil
+	}
+	busy := c.BusyPorts
+	c.BusyPorts = nil
+	raw, _ := json.Marshal(c)
+	s.SharedCaps = string(raw)
+	s.SharedBusyPorts = ""
+	if len(busy) > 0 {
+		b, _ := json.Marshal(busy)
+		s.SharedBusyPorts = string(b)
+	}
+	s.UpdatedTime = now
+	if fresh {
+		if err = tx.Create(&s).Error; err != nil {
+			return err
+		}
+		// The model's column defaults (256 / 50) replace zero values
+		// on Create; write the 不限制 zeros explicitly.
+		if err = tx.Model(&model.LandingServer{}).Where("id = ?", s.ID).Updates(map[string]any{"core_memory_mb": 0, "core_cpu_percent": 0}).Error; err != nil {
+			return err
+		}
+		s.CoreMemoryMB, s.CoreCPUPercent = 0, 0
+	} else {
+		if err = tx.Save(&s).Error; err != nil {
+			return err
+		}
+	}
+	// Existing overrides remain bounded if the owner tightens their share.
+	if c.TrafficLimit > 0 {
+		if err = tx.Model(&model.LandingNode{}).Where("landing_server_id = ? AND (traffic_limit_bytes = 0 OR traffic_limit_bytes > ?)", s.ID, c.TrafficLimit).Update("traffic_limit_bytes", c.TrafficLimit).Error; err != nil {
+			return err
+		}
+		if err = tx.Model(&model.UserServerQuota{}).Where("server_kind = 'landing' AND server_ref_id = ? AND (limit_bytes = 0 OR limit_bytes > ?)", s.ID, c.TrafficLimit).Update("limit_bytes", c.TrafficLimit).Error; err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // SharedLandingDesired persists a content hash before sending: retrying a timeout
@@ -703,4 +857,16 @@ func (r *Repository) FinalizeSharedLandingDeletions(serverID int64) error {
 		}
 		return nil
 	})
+}
+
+// SetSharedSyncErrorIfDiffers writes a shared server's error only when it
+// changed (plan 243: re-applied every round, normally a no-op).
+func (r *Repository) SetSharedSyncErrorIfDiffers(id int64, message string) error {
+	return r.db.Model(&model.LandingServer{}).Where("id = ? AND shared_sync_error <> ?", id, message).Update("shared_sync_error", message).Error
+}
+
+// ClearSharedSyncErrorIf clears a shared server's error only if it is still
+// the given message (a list problem that went away; newer errors stay).
+func (r *Repository) ClearSharedSyncErrorIf(id int64, message string) error {
+	return r.db.Model(&model.LandingServer{}).Where("id = ? AND shared_sync_error = ?", id, message).Update("shared_sync_error", "").Error
 }

@@ -107,6 +107,9 @@ type Handler struct {
 	landingSyncMu      sync.Mutex
 	sharedLandingMu    sync.Mutex
 	sharedLanding      *sharedLandingState
+	// Plan 243: shares held by the mass-vanish guard (landing_server id ->
+	// message), published by the list round, read lock-free by the views.
+	sharedHold sync.Map
 	landingEgressMu    sync.Mutex // WARP registration
 	egressDNSMu        sync.Mutex
 	egressDNS          map[string]egressDNSEntry

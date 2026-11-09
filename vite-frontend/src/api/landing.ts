@@ -115,6 +115,8 @@ export interface LandingServer {
   sharedLastSyncAt?: number;
   sharedSyncError?: string;
   sharedAvailable?: boolean;
+  /** Plan 243: admin view — share held by the mass-vanish guard (⚠). */
+  sharedHold?: string;
   defaultUserQuotaBytes?: number;
   // plan 108: exit landing set up only for 「我自己的节点」 (admin view)
   chainOnly?: boolean;
