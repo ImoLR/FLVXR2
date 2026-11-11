@@ -37,6 +37,7 @@ import (
 	"github.com/go-gost/x/service"
 	"github.com/go-gost/x/stats"
 	"github.com/go-gost/x/traffic"
+	"github.com/go-gost/x/warmpool"
 	"github.com/gorilla/websocket"
 	"github.com/shirou/gopsutil/v3/cpu"
 	"github.com/shirou/gopsutil/v3/disk"
@@ -92,6 +93,7 @@ type SystemInfo struct {
 	ServiceConnections     map[string]int            `json:"serviceConnections"`
 	ForwardMetrics         []ForwardMetric           `json:"forward_metrics,omitempty"` // 转发规则指标
 	QuotaGroups            []service.QuotaGroupUsage `json:"quotaGroups,omitempty"`
+	WarmPool               *warmpool.Report          `json:"warm_pool,omitempty"` // 预热池计数，每分钟一次（plan 244）
 }
 
 // ProtocolBlockReport (plan 182): connections the protocol filter closed since
@@ -267,6 +269,7 @@ type WebSocketReporter struct {
 	addrsSentSeq       uint64                    // last address report sent on this connection
 	entryRateSentSeq   uint64                    // last entry rate status sent on this connection (plan 168)
 	blocksSent         *ProtocolBlockReport      // last protocol-filter counters sent on this connection (plan 182)
+	warmReportAt       time.Time                 // last warm_pool counters sent (plan 244)
 }
 
 var wsDial = func(ctx context.Context, dialer *websocket.Dialer, rawURL string) (*websocket.Conn, *http.Response, error) {
@@ -889,7 +892,9 @@ func buildWebSocketQuery(secret string, version string, http int, tls int, socks
 		// entries are keyed on receipt; clientIps reports stay raw.
 		"&ipKey=" + strconv.Itoa(ipKeyVersion) +
 		// Plan 240: reports dns_cache and runs DNSCacheEnsure.
-		"&dnsCache=" + strconv.Itoa(dnscache.CapVersion)
+		"&dnsCache=" + strconv.Itoa(dnscache.CapVersion) +
+		// Plan 244: takes SetWarmPools and reports warm_pool (预热池).
+		"&warmPool=" + strconv.Itoa(warmpool.CapVersion)
 }
 
 // buildWebSocketCandidates returns the primary and the fallback scheme URL of
@@ -1232,7 +1237,23 @@ func (w *WebSocketReporter) collectSystemInfo() SystemInfo {
 		ServiceConnections:     w.collectServiceConnections(),
 		ForwardMetrics:         collectForwardMetrics(),
 		QuotaGroups:            quotaGroupUsages(),
+		WarmPool:               w.warmPoolReport(),
 	}
+}
+
+// warmPoolReport (plan 244): the warm pool counters once a minute, nothing
+// when no pool is configured.
+func (w *WebSocketReporter) warmPoolReport() *warmpool.Report {
+	now := time.Now()
+	if !w.warmReportAt.IsZero() && now.Sub(w.warmReportAt) < warmpool.ReportEvery {
+		return nil
+	}
+	r := warmpool.Default.Report()
+	if r == nil {
+		return nil
+	}
+	w.warmReportAt = now
+	return r
 }
 
 // pollNftablesCounters 读取 nftables 转发自上次以来的上下行流量，注入实时速率与流量上报。
@@ -1542,6 +1563,9 @@ func (w *WebSocketReporter) routeCommand(cmd CommandMessage) {
 	case "SetServiceMaxConnections":
 		err = w.handleSetServiceMaxConnections(cmd.Data)
 		response.Type = "SetServiceMaxConnectionsResponse"
+	case "SetWarmPools":
+		response.Data, err = handleSetWarmPools(cmd.Data)
+		response.Type = "SetWarmPoolsResponse"
 	case "SetQuotaGroups":
 		err = w.handleSetQuotaGroups(cmd.Data)
 		response.Type = "SetQuotaGroupsResponse"

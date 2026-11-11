@@ -16,6 +16,7 @@ import (
 	"github.com/go-gost/x/internal/net/dialer"
 	"github.com/go-gost/x/internal/net/udp"
 	xmetrics "github.com/go-gost/x/metrics"
+	"github.com/go-gost/x/warmpool"
 )
 
 var (
@@ -137,12 +138,37 @@ func (r *chainRoute) Dial(ctx context.Context, network, address string, opts ...
 			opt(&options)
 		}
 	}
-	conn, err := r.connect(ctx, options.Logger)
+	conn, lease, err := r.connectWarm(ctx, options.Logger)
 	if err != nil {
 		return nil, err
 	}
 
-	cc, err := r.getNode(len(r.Nodes())-1).Options().Transport.Connect(ctx, conn, network, address)
+	tr := r.getNode(len(r.Nodes()) - 1).Options().Transport
+	if lease != nil {
+		// Plan 244: a pooled conn. Its request is bounded by TCP_USER_TIMEOUT
+		// (dead ≠ slow target); a dead conn is redialed cold in this stream —
+		// no error for the user, no fail mark on the node.
+		lease.ArmConnect()
+		cc, err := tr.Connect(ctx, conn, network, address)
+		lease.Disarm()
+		if err == nil || !warmpool.IsDeadConnErr(err) {
+			lease.Done()
+			if err != nil {
+				conn.Close()
+				return nil, err
+			}
+			return cc, nil
+		}
+		conn.Close()
+		lease.Dead()
+		conn, err = r.connect(ctx, options.Logger)
+		lease.Redialed()
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	cc, err := tr.Connect(ctx, conn, network, address)
 	if err != nil {
 		if conn != nil {
 			conn.Close()
@@ -150,6 +176,58 @@ func (r *chainRoute) Dial(ctx context.Context, network, address string, opts ...
 		return nil, err
 	}
 	return cc, nil
+}
+
+// connectWarm is connect with the warm pool (plan 244): a single-node route
+// of a chain with a pool takes a pooled conn of that node; otherwise it dials
+// cold and records the cold dial for the pool's statistics.
+func (r *chainRoute) connectWarm(ctx context.Context, logger logger.Logger) (net.Conn, *warmpool.Lease, error) {
+	name := r.warmChainName()
+	if name == "" {
+		conn, err := r.connect(ctx, logger)
+		return conn, nil, err
+	}
+	node := r.nodes[0]
+	if lease := warmpool.Default.Take(warmpool.KindChain, name, node.Addr); lease != nil {
+		r.resetChainMarker()
+		return lease.Conn, lease, nil
+	}
+	start := time.Now()
+	conn, err := r.connect(ctx, logger)
+	d := time.Since(start)
+	if err != nil {
+		d = -1
+	}
+	warmpool.Default.NoteMiss(warmpool.KindChain, name, node.Addr, d)
+	return conn, nil, err
+}
+
+// warmChainName: the chain's name when this route can use its warm pool.
+func (r *chainRoute) warmChainName() string {
+	if r == nil || len(r.nodes) != 1 || r.options.Chain == nil {
+		return ""
+	}
+	cn, _ := r.options.Chain.(chainNamer)
+	if cn == nil {
+		return ""
+	}
+	name := cn.Name()
+	if !warmpool.Default.Active(warmpool.KindChain, name) {
+		return ""
+	}
+	if tr := r.nodes[0].Options().Transport; tr == nil || tr.Multiplex() {
+		return ""
+	}
+	return name
+}
+
+// resetChainMarker is what a successful connect does to the chain's marker.
+func (r *chainRoute) resetChainMarker() {
+	if m, ok := r.options.Chain.(selector.Markable); ok && m != nil {
+		if marker := m.Marker(); marker != nil {
+			marker.Reset()
+		}
+	}
 }
 
 func (r *chainRoute) Bind(ctx context.Context, network, address string, opts ...chain.BindOption) (net.Listener, error) {

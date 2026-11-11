@@ -27,6 +27,7 @@ import (
 	xrecorder "github.com/go-gost/x/recorder"
 	"github.com/go-gost/x/registry"
 	forwardStats "github.com/go-gost/x/stats"
+	"github.com/go-gost/x/warmpool"
 )
 
 func init() {
@@ -37,6 +38,7 @@ func init() {
 
 type forwardHandler struct {
 	hop      hop.Hop
+	warm     *warmForwarder
 	md       metadata
 	options  handler.Options
 	recorder recorder.RecorderObject
@@ -76,6 +78,75 @@ func (h *forwardHandler) Init(md md.Metadata) (err error) {
 // Forward implements handler.Forwarder.
 func (h *forwardHandler) Forward(hop hop.Hop) {
 	h.hop = hop
+	// Plan 244: a rule service that dials its targets directly (端口转发, no
+	// chain) can be warmed; the panel decides which ones (SetWarmPools).
+	if h.options.Service != "" && h.options.Router != nil && h.options.Router.Options().Chain == nil && hop != nil {
+		h.warm = &warmForwarder{h: h, hop: hop}
+		warmpool.Default.RegisterForwarder(h.options.Service, h.warm)
+	}
+}
+
+// Close implements io.Closer: the service closed (deleted / paused / updated),
+// its pooled conns go with it.
+func (h *forwardHandler) Close() error {
+	if h.warm != nil {
+		warmpool.Default.UnregisterForwarder(h.options.Service, h.warm)
+	}
+	return nil
+}
+
+// warmForwardFailWindow: forwarder targets keep a fail mark for 600 s (the
+// panel's failTimeout); a marked target is not warmed meanwhile.
+const warmForwardFailWindow = 600 * time.Second
+
+type warmForwarder struct {
+	h   *forwardHandler
+	hop hop.Hop
+}
+
+func (w *warmForwarder) WarmTargets() []warmpool.Target {
+	nl, ok := w.hop.(hop.NodeList)
+	if !ok {
+		return nil
+	}
+	nodes := nl.Nodes()
+	usable := make([]*chain.Node, 0, len(nodes))
+	for _, n := range nodes {
+		if n == nil {
+			continue
+		}
+		if opts := n.Options(); opts != nil && opts.Network != "" && opts.Network != "tcp" {
+			continue
+		}
+		usable = append(usable, n)
+	}
+	return warmpool.NodeTargets(usable, warmForwardFailWindow)
+}
+
+func (w *warmForwarder) WarmDial(ctx context.Context, addr string) (net.Conn, error) {
+	return w.h.options.Router.Dial(ctx, "tcp", addr)
+}
+
+// dialTarget dials one target of a stream: a pooled conn of a warm rule
+// (plan 244) or a cold dial, recorded for the pool's statistics.
+func (h *forwardHandler) dialTarget(ctx context.Context, network, addr string) (net.Conn, bool, error) {
+	warm := h.warm != nil && network == "tcp" && warmpool.Default.Active(warmpool.KindService, h.options.Service)
+	if warm {
+		if lease := warmpool.Default.Take(warmpool.KindService, h.options.Service, addr); lease != nil {
+			lease.Done()
+			return lease.Conn, true, nil
+		}
+	}
+	start := time.Now()
+	cc, err := h.options.Router.Dial(ctx, network, addr)
+	if warm {
+		d := time.Since(start)
+		if err != nil {
+			d = -1
+		}
+		warmpool.Default.NoteMiss(warmpool.KindService, h.options.Service, addr, d)
+	}
+	return cc, false, err
 }
 
 func (h *forwardHandler) Handle(ctx context.Context, conn net.Conn, opts ...handler.HandleOption) (err error) {
@@ -301,7 +372,8 @@ func (h *forwardHandler) Handle(ctx context.Context, conn net.Conn, opts ...hand
 		ro.Host = addr
 
 		var buf bytes.Buffer
-		cc, err = h.options.Router.Dial(ctxvalue.ContextWithBuffer(ctx, &buf), network, addr)
+		var pooled bool
+		cc, pooled, err = h.dialTarget(ctxvalue.ContextWithBuffer(ctx, &buf), network, addr)
 		ro.Route = buf.String()
 		if err != nil {
 			// Mark node as failed for future selections
@@ -315,14 +387,15 @@ func (h *forwardHandler) Handle(ctx context.Context, conn net.Conn, opts ...hand
 			continue
 		}
 
-		// Success - reset marker and proceed
-		if marker := target.Marker(); marker != nil {
+		// Success - reset marker and proceed. A pooled conn (plan 244) says
+		// nothing about the target now, so it leaves the marker alone.
+		if marker := target.Marker(); marker != nil && !pooled {
 			marker.Reset()
 		}
 		defer cc.Close()
 
 		if err := xnet.Transport(conn, cc); err != nil {
-			if marker := target.Marker(); marker != nil {
+			if marker := target.Marker(); marker != nil && !pooled {
 				marker.Mark()
 				h.options.Logger.Debugf("[handler.transport] transport failed, marked node=%s count=%d err=%v",
 					target.Addr, marker.Count(), err)

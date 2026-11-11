@@ -40,6 +40,7 @@ func createChain(req createChainRequest) error {
 		c.Chains = append(c.Chains, &req.Data)
 		return nil
 	})
+	warmChainChanged(name)
 
 	return nil
 }
@@ -110,6 +111,8 @@ func updateChain(req updateChainRequest) error {
 		}
 		return nil
 	})
+	// Plan 244: a 最优 reorder moves the warm pool to the new first node.
+	warmChainChanged(name)
 
 	return nil
 }
@@ -240,6 +243,7 @@ func deleteChain(req deleteChainRequest) error {
 		}
 		return nil
 	})
+	warmChainChanged(name)
 
 	return nil
 }

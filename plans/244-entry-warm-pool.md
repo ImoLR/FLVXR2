@@ -5,7 +5,7 @@ User 2026-11-11: give every FLVX rule's entry machine (线路机) the LeiKwan GZ
 
 - Step 1 (done, report only): measure per real line how much warm saves vs today's cold dial and
   whether idle pooled conns survive. Prod read-only, nothing built or changed.
-- Step 2: build, default off per tunnel. Step 3: live A/B on the chosen lines.
+- Step 2: build (user 11-12: switch per tunnel, default ON, follows the rules). Step 3 (A/B) dropped by the user.
 
 Run dir (raw jsonl, scripts, full tables): `/root/flvx-workers/runs/entry-warm-measure/`
 (`warmprobe.py` = stdlib probe, `orchestrate.py` = scheduler, `analyze.py` → `results.md/json`).
@@ -20,16 +20,35 @@ Run dir (raw jsonl, scripts, full tables): `/root/flvx-workers/runs/entry-warm-m
   - [x] idle lifetime: exit/middle relay, 25 type 1 targets
   - [x] cleanup of /root/flvx-warmtest-1111 on all 11 hosts (verified: no dir, no process)
   - [x] results + recommendation + step-2 design notes in this doc
-- [ ] Step 2: build (default off per tunnel)
-  - [ ] panel: per-tunnel switch `warm_pool` (0 = off, N = pool size), pushed in chain hop metadata
-  - [ ] panel: relay handler `readTimeout: 130s` on tunnels with the pool on (panel-only, no exit OTA)
-  - [ ] agent: pool in `chain/route.go` between Transport.Dial+Handshake and Connect (hop 0 of a
-        route, entries and middles); age-based replacement ≤ 120 s, background refill, dead conn →
-        cold dial in the same stream, never counts as a hop-node failure, rest 60 s after repeated dead
-  - [ ] agent: pooled conns closed unused must not log per-conn errors on either side
-  - [ ] tests: unit (pool age/refill/fallback), contract (panel metadata), resource numbers (RSS/fd)
-  - [ ] OTA only the entries/middles of the chosen tunnels
-- [ ] Step 3: live A/B on chosen lines (warm on/off alternating, same window, user-visible TTFB)
+- [ ] Step 2: build (user decisions 11-12: switch per tunnel, **default ON**, pool only while the
+      tunnel has ≥ 1 active rule, whole path incl. middles, port forwards per rule, speed tag; A/B dropped)
+      — BUILD ONLY + preview gallery, release after the user approves the screens
+  - [ ] design decisions written down (§ Step 2 build below)
+  - [ ] agent `warmpool` package: per owner (chain / rule service) × next-hop addr pools, size 2,
+        agent cap 64, age 90–110 s, idle watcher per conn (peer close seen at once), refill
+        concurrency 1 per key, dial backoff, rest 60 s after 3 dead in a row, young-close (< 20 s)
+        detection → 「目标不支持预热」 30 min, counters only
+  - [ ] agent: type 2 hook in `chain/route.go` (pooled TLS conn → relay Connect; dead conn →
+        cold redial in the same stream, no node fail mark), Bind stays cold
+  - [ ] agent: type 1 hook in `handler/forward/local` (pooled TCP conn per rule target)
+  - [ ] agent: handshake `warmPool=1`, command `SetWarmPools` (full state per node, hot), report
+        `warm_pool` once per 60 s on the existing metric message
+  - [ ] agent: relay handler — conn closed before any request byte is not an error (no log line)
+  - [ ] agent: FLVX landing core `handshake` 4 → 120 s (+ one-time core restart only at the OTA)
+  - [ ] panel: `tunnel.warm_pool` (NOT NULL DEFAULT 1 → existing rows 1, new rows 1), create /
+        update / light toggle endpoint, admin only
+  - [ ] panel: relay services `readTimeout: 130s` (type 2)
+  - [ ] panel: warm reconcile → `SetWarmPools` per capable node (rule create/delete/pause/resume/
+        expiry, tunnel save/toggle/delete, node reconnect, 30 s safety pass)
+  - [ ] panel: stats — 1 h in-memory window, per hop saved = cold avg − warm extra avg, ≥ 10 warm
+        streams, tunnel value over the current path; `warmPoolState` on admin tunnel list
+  - [ ] frontend: 「预热池」 switch in tunnel dialog; tag 预热 −N ms / +N ms / 目标不支持预热 +
+        detail (desktop list + card/H5, light + dark)
+  - [ ] tests: agent unit, panel unit/contract, old-agent compatibility, go test ./... both modules
+  - [ ] local E2E lab (netns: panel + entry + middle + exit + target), resource numbers
+  - [ ] preview gallery :8791 /entry-warm-pool/ (desktop 1366×900 + mobile 390×844, light + dark)
+  - [ ] summary + release notes (DB migration, panel, OTA list, restarts, rollback)
+- ~~Step 3: live A/B~~ — dropped by the user 11-12 (the speed tag replaces it)
 
 ## Method
 

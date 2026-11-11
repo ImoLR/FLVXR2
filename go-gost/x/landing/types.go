@@ -387,6 +387,14 @@ func (n Node) inbound() (map[string]any, error) {
 
 var blockedDestinations = []string{"0.0.0.0/8", "10.0.0.0/8", "100.64.0.0/10", "127.0.0.0/8", "169.254.0.0/16", "172.16.0.0/12", "192.168.0.0/16", "198.18.0.0/15", "224.0.0.0/4", "240.0.0.0/4", "::1/128", "fc00::/7", "fe80::/10", "ff00::/8"}
 
+// landingHandshakeSeconds: how long the Core keeps a connection that has not
+// finished its protocol handshake. Plan 244: 4 → 120 s so that an entry's
+// warm pool (端口转发 to this landing) can hold idle pre-dialed conns (the pool
+// replaces them after 90–110 s). The Core reads it only at start, so it takes
+// effect at the next Core start; there is no hot path and no automatic
+// restart for it. connIdle (300 s, after the handshake) is unchanged.
+const landingHandshakeSeconds = 120
+
 // baseConfig is read only when the Core starts. RoutingService enables hot
 // rule replacement; IPOnDemand resolves a domain at the first IP condition (the
 // safety rule), so no later domain rule can route a name that resolves to a
@@ -398,7 +406,7 @@ func baseConfig(apiPort int) map[string]any {
 		"api":   map[string]any{"tag": "flvxl-api", "listen": net.JoinHostPort("127.0.0.1", strconv.Itoa(apiPort)), "services": []string{"HandlerService", "StatsService", "RoutingService"}},
 		"stats": map[string]any{},
 		"policy": map[string]any{
-			"levels": map[string]any{"0": map[string]any{"handshake": 4, "connIdle": 300, "uplinkOnly": 2, "downlinkOnly": 5}},
+			"levels": map[string]any{"0": map[string]any{"handshake": landingHandshakeSeconds, "connIdle": 300, "uplinkOnly": 2, "downlinkOnly": 5}},
 			"system": map[string]any{"statsInboundUplink": true, "statsInboundDownlink": true},
 		},
 		"inbounds":  []any{},

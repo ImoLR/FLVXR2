@@ -3,6 +3,7 @@ package relay
 import (
 	"context"
 	"errors"
+	"io"
 	"net"
 	"strconv"
 	"time"
@@ -161,7 +162,12 @@ func (h *relayHandler) Handle(ctx context.Context, conn net.Conn, opts ...handle
 
 	req := relay.Request{}
 	xservice.SkipDetection(conn)
-	if _, err := req.ReadFrom(conn); err != nil {
+	if n, err := req.ReadFrom(conn); err != nil {
+		// Plan 244: a conn closed cleanly before its first request byte (an
+		// entry's warm-pool conn retired unused, a port check) is no error.
+		if n == 0 && errors.Is(err, io.EOF) {
+			return nil
+		}
 		return err
 	}
 	xservice.ResetDetection(conn)
