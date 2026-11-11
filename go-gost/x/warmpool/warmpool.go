@@ -1,13 +1,14 @@
 // Package warmpool keeps a few pre-dialed upstream connections (预热池, plan
 // 244) so that the first bytes of a new stream skip the dial.
 //
-// Two kinds of owners, both configured by the panel with SetWarmPools (the
-// full desired state of this agent):
+// Two kinds of owners, both decided by the panel:
 //
-//   - a chain (隧道转发, type 2): conns are TCP + TLS (Transport.Dial +
-//     Handshake) to the chain hop's next node. The relay CONNECT (credential +
-//     target) still runs per stream, so a pooled conn carries neither.
-//   - a rule service (端口转发, type 1): conns are plain TCP to the rule target.
+//   - a chain (隧道转发, type 2), listed by SetWarmPools (the full desired
+//     state of this agent): conns are TCP + TLS (Transport.Dial + Handshake)
+//     to the chain hop's next node. The relay CONNECT (credential + target)
+//     still runs per stream, so a pooled conn carries neither.
+//   - a rule service (端口转发, type 1) whose handler metadata has warmPool:
+//     conns are plain TCP to the rule target, for as long as the service runs.
 //
 // Per owner only the node a stream would use now is warmed (the first node
 // that is not fail-marked, i.e. the 最优 / fifo head) with `size` conns, plus
@@ -74,10 +75,11 @@ const (
 
 func (k Kind) String() string { return string(rune(k)) }
 
-// Config is the full desired state from the panel: owner name → pool size.
+// Config is the panel's full desired state of the chain pools (隧道转发):
+// chain name → pool size. Rule service pools (端口转发) are not part of it:
+// each rule's service config carries its own size (RegisterForwarder).
 type Config struct {
-	Chains   map[string]int `json:"chains"`
-	Services map[string]int `json:"services"`
+	Chains map[string]int `json:"chains"`
 }
 
 // Target is one dial target of an owner, in the owner's current order.
@@ -216,9 +218,9 @@ func (m *Manager) Active(k Kind, name string) bool {
 	return ok
 }
 
-// SetConfig applies the panel's full desired state. Owners not listed lose
-// their pools at once (idle conns closed); new owners are warmed right away.
-// It returns the number of owners configured.
+// SetConfig applies the panel's full desired chain state. Chains not listed
+// lose their pools at once (idle conns closed); new ones are warmed right
+// away. It returns the number of chain owners configured.
 func (m *Manager) SetConfig(cfg Config) int {
 	want := map[ownerKey]int{}
 	add := func(k Kind, items map[string]int) {
@@ -233,12 +235,11 @@ func (m *Manager) SetConfig(cfg Config) int {
 		}
 	}
 	add(KindChain, cfg.Chains)
-	add(KindService, cfg.Services)
 
 	m.mu.Lock()
 	var closing []*pconn
 	for key, o := range m.owners {
-		if _, ok := want[key]; !ok {
+		if _, ok := want[key]; !ok && key.kind == KindChain {
 			closing = append(closing, m.removeOwnerLocked(o)...)
 		}
 	}
@@ -255,7 +256,12 @@ func (m *Manager) SetConfig(cfg Config) int {
 		closing = append(closing, m.evaluateLocked(o)...)
 	}
 	m.ensureTickerLocked()
-	n := len(m.owners)
+	n := 0
+	for key := range m.owners {
+		if key.kind == KindChain {
+			n++
+		}
+	}
 	m.mu.Unlock()
 	closeAll(closing)
 	return n

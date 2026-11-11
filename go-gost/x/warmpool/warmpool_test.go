@@ -526,3 +526,47 @@ func selfSigned(t *testing.T) tls.Certificate {
 	}
 	return tls.Certificate{Certificate: [][]byte{der}, PrivateKey: key}
 }
+
+type fakeForwarder struct {
+	addr  string
+	dials atomic.Int64
+}
+
+func (f *fakeForwarder) WarmTargets() []Target { return []Target{{Addr: f.addr}} }
+func (f *fakeForwarder) WarmDial(ctx context.Context, addr string) (net.Conn, error) {
+	f.dials.Add(1)
+	var d net.Dialer
+	return d.DialContext(ctx, "tcp", addr)
+}
+
+func TestRuleServicePoolFollowsTheService(t *testing.T) {
+	m, _ := newTestManager(t, 64)
+	pe := newPeer(t, nil)
+	f := &fakeForwarder{addr: pe.addr()}
+	m.RegisterForwarder("12_3_39_tcp", f, 2)
+	if !m.Active(KindService, "12_3_39_tcp") {
+		t.Fatal("rule service not active")
+	}
+	waitFor(t, "rule pool filled", func() bool { return pe.open.Load() == 2 })
+	// The panel's chain state does not touch rule pools.
+	m.SetConfig(Config{})
+	time.Sleep(30 * time.Millisecond)
+	if pe.open.Load() != 2 {
+		t.Fatal("SetConfig removed a rule pool")
+	}
+	l := m.Take(KindService, "12_3_39_tcp", pe.addr())
+	if l == nil {
+		t.Fatal("no lease")
+	}
+	l.Done()
+	l.Conn.Close()
+	// A stale unregister (old handler of an updated service) is ignored.
+	m.UnregisterForwarder("12_3_39_tcp", &fakeForwarder{addr: pe.addr()})
+	waitFor(t, "refilled", func() bool { return idle(m) == 2 })
+	// Rule paused / deleted: the service closes, the pool goes at once.
+	m.UnregisterForwarder("12_3_39_tcp", f)
+	waitFor(t, "rule pool closed", func() bool { return pe.open.Load() == 0 })
+	if m.Active(KindService, "12_3_39_tcp") || m.Stats().Live != 0 {
+		t.Fatalf("still active: %+v", m.Stats())
+	}
+}

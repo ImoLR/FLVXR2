@@ -31,6 +31,10 @@ type metadata struct {
 	// 0 means use the total number of available nodes (try all nodes once).
 	// Default: 0 (try all available nodes)
 	maxRetries int
+
+	// warmPool (plan 244): size of the rule's warm pool (端口转发: pre-dialed
+	// TCP conns to the rule target); 0 = off. Set by the panel per rule.
+	warmPool int
 }
 
 func (h *forwardHandler) parseMetadata(md mdata.Metadata) (err error) {
@@ -64,6 +68,7 @@ func (h *forwardHandler) parseMetadata(md mdata.Metadata) (err error) {
 
 	// maxRetries: 0 means try all available nodes (default behavior)
 	h.md.maxRetries = mdutil.GetInt(md, "maxRetries", "retry.max")
+	h.md.warmPool = mdutil.GetInt(md, "warmPool")
 
 	return
 }
