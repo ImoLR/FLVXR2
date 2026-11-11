@@ -1878,6 +1878,7 @@ func (r *Repository) ListTunnels() ([]map[string]interface{}, error) {
 			"inIp":           nullableString(t.InIP),
 			"ipPreference":   t.IPPreference,
 			"ruleBest":       t.RuleBest,
+			"warmPool":       t.WarmPool,
 			"inNodeId":       make([]map[string]interface{}, 0),
 			"outNodeId":      make([]map[string]interface{}, 0),
 			"chainNodes":     make([][]map[string]interface{}, 0),

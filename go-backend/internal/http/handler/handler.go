@@ -43,6 +43,12 @@ type Handler struct {
 	healthCheck      *health.Checker
 	bestPath         *bestPathManager
 	ruleBest         *ruleBestManager // plan 180 「规则最优」 decisions (memory only)
+	warm             *warmPoolManager // plan 244 预热池: last pushed state + 1 h stats (memory only)
+	warmOnce         sync.Once
+	// warmPoolCapableFn / warmPoolNodesFn override the warmPool handshake
+	// lookups in tests.
+	warmPoolCapableFn func(int64) bool
+	warmPoolNodesFn   func() []int64
 	fluxVersion      string
 	cnLandingChecker *cnlanding.Checker
 	quotaGroups      *quotaCoordinator
@@ -215,6 +221,7 @@ func New(repo *repo.Repository, jwtSecret string, fluxVersion string) *Handler {
 		healthCheck:         nil,
 		bestPath:            newBestPathManager(),
 		ruleBest:            newRuleBestManager(),
+		warm:                newWarmPoolManager(),
 		fluxVersion:         fluxVersion,
 		cnLandingChecker:    cnlanding.New(nil),
 		captchaTokens:       make(map[string]int64),
@@ -266,6 +273,7 @@ func New(repo *repo.Repository, jwtSecret string, fluxVersion string) *Handler {
 			Uptime: int64(info.Uptime), TCP: info.TCPConns,
 		})
 		h.quotaGroups.Observe(nodeID, info.QuotaGroups)
+		h.onWarmPoolReport(nodeID, info.WarmPool)
 	})
 	h.nodeGroupHandler = NewNodeGroupHandler(repo)
 	h.nodeTagHandler = NewNodeTagHandler(repo)
@@ -378,6 +386,8 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("/api/v1/tunnel/update", h.tunnelUpdate)
 	// Plan 184: 「显示地区」 only (DB write, no node push).
 	mux.HandleFunc("/api/v1/tunnel/region", h.tunnelRegionUpdate)
+	// Plan 244: 「预热池」 switch only (DB write + SetWarmPools, no redeploy).
+	mux.HandleFunc("/api/v1/tunnel/warm-pool", h.tunnelWarmPoolUpdate)
 	mux.HandleFunc("/api/v1/tunnel/delete", h.tunnelDelete)
 	mux.HandleFunc("/api/v1/tunnel/delete-preview", h.tunnelDeletePreview)
 	// Plan 224: tunnel edit warning before 屏蔽 TLS / HTTP is turned on.
@@ -937,6 +947,7 @@ func (h *Handler) tunnelList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.attachBestPathStatesOrLog(items)
+	h.attachWarmPoolStates(items)
 	response.WriteJSON(w, response.OK(items))
 }
 

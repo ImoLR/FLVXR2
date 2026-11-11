@@ -326,6 +326,10 @@ export const updateTunnelRegion = (data: {
   regionOverride: string;
 }) =>
   Network.post<{ id: number; regionOverride: string }>("/tunnel/region", data);
+
+// Plan 244: 「预热池」 switch only (no redeploy; the pools follow in seconds).
+export const updateTunnelWarmPool = (data: { id: number; warmPool: number }) =>
+  Network.post<{ id: number; warmPool: number }>("/tunnel/warm-pool", data);
 export const updateTunnel = (data: TunnelMutationPayload) =>
   Network.post("/tunnel/update", data);
 export const deleteTunnel = (id: number) =>

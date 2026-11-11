@@ -11,6 +11,7 @@ import (
 // forward, ports and user grants until all nodes have been attempted, including
 // paused rules. One failed node must not prevent cleanup on the others.
 func (h *Handler) cleanupForwardRuntime(forward *forwardRecord) error {
+	defer h.warmPoolsChanged() // plan 244: pools follow the rules
 	ports, err := h.listForwardPorts(forward.ID)
 	if err != nil {
 		return err
@@ -56,6 +57,7 @@ func (h *Handler) cleanupForwardRuntime(forward *forwardRecord) error {
 }
 
 func (h *Handler) cleanupForwardRuntimeBestEffort(forward *forwardRecord) {
+	defer h.warmPoolsChanged() // plan 244: pools follow the rules
 	if err := h.cleanupForwardRuntime(forward); err != nil {
 		log.Printf("[forward-delete] forward %d runtime cleanup: %v", forward.ID, err)
 	}

@@ -169,6 +169,7 @@ func (h *Handler) tunnelBatchDeletePreview(w http.ResponseWriter, r *http.Reques
 }
 
 func (h *Handler) tunnelDeleteWithForwards(w http.ResponseWriter, r *http.Request) {
+	defer h.warmPoolsChanged() // plan 244: pools follow the rules
 	if r.Method != http.MethodPost {
 		response.WriteJSON(w, response.ErrDefault("请求失败"))
 		return

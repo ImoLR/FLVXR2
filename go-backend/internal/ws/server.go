@@ -62,6 +62,7 @@ type nodeSession struct {
 	destOrder       int    // handshake capability; >0 = chain hops honour metadata.destOrder (plan 180 规则最优)
 	ipKey           int    // handshake capability; >0 = counts a client IPv6 /64 as one IP, keys sharedIps itself (plan 231)
 	dnsCache        int    // handshake capability; >0 = reports dns_cache, runs DNSCacheEnsure (plan 240)
+	warmPool        int    // handshake capability; >0 = takes SetWarmPools, reports warm_pool (plan 244)
 	entryRateTc     int    // handshake capability; >0 = entry speed limits via SetEntryRates in the kernel (plan 168)
 	entryRateTcErr  string // the agent's kernel cannot run the shaper (probe reason) → gost / nft fallback
 	entryRateKey    string // last entry rate status recorded (read loop only)
@@ -214,6 +215,40 @@ type SystemInfo struct {
 	ServiceConnections     map[string]int    `json:"serviceConnections"`
 	ForwardMetrics         []ForwardMetric   `json:"forward_metrics,omitempty"`
 	QuotaGroups            []QuotaGroupUsage `json:"quotaGroups,omitempty"`
+	WarmPool               *WarmPoolReport   `json:"warm_pool,omitempty"` // plan 244, ≤ 1 / min
+}
+
+// WarmPoolReport (plan 244 预热池): the agent's pool counters since its
+// previous report (deltas), once a minute while any pool is configured.
+type WarmPoolReport struct {
+	Cap    int                 `json:"cap"`
+	Live   int                 `json:"live"`
+	CapHit bool                `json:"capHit,omitempty"`
+	Keys   []WarmPoolKeyReport `json:"keys"`
+}
+
+// WarmPoolKeyReport: one (owner, target) pool. Kind "c" = chain
+// chains_<tunnel> (隧道转发, Addr = next hop), "s" = rule service (端口转发,
+// Addr = rule target). Cold = full dials (refills + streams that found no
+// pooled conn); warm = streams on a pooled conn, WarmMs = their extra delay.
+type WarmPoolKeyReport struct {
+	Kind    string  `json:"kind"`
+	Owner   string  `json:"owner"`
+	Addr    string  `json:"addr"`
+	Target  bool    `json:"target,omitempty"`
+	Idle    int     `json:"idle,omitempty"`
+	ColdN   int64   `json:"coldN,omitempty"`
+	ColdMs  float64 `json:"coldMs,omitempty"`
+	MissN   int64   `json:"missN,omitempty"`
+	MissMs  float64 `json:"missMs,omitempty"`
+	WarmN   int64   `json:"warmN,omitempty"`
+	WarmMs  float64 `json:"warmMs,omitempty"`
+	DeadN   int64   `json:"deadN,omitempty"`
+	PeerN   int64   `json:"peerN,omitempty"`
+	YoungN  int64   `json:"youngN,omitempty"`
+	FailN   int64   `json:"failN,omitempty"`
+	State   string  `json:"state,omitempty"`
+	AgeCapS int     `json:"ageCapS,omitempty"`
 }
 
 type QuotaGroupUsage struct {
@@ -477,6 +512,9 @@ func (s *Server) handleNode(w http.ResponseWriter, r *http.Request, nodeID int64
 	}
 	if v, err := strconv.Atoi(r.URL.Query().Get("destOrder")); err == nil && v > 0 {
 		ns.destOrder = v
+	}
+	if v, err := strconv.Atoi(r.URL.Query().Get("warmPool")); err == nil && v > 0 {
+		ns.warmPool = v
 	}
 	if v, err := strconv.Atoi(r.URL.Query().Get("ipKey")); err == nil && v > 0 {
 		ns.ipKey = v
@@ -1089,6 +1127,34 @@ func (s *Server) ChainSwapCapable(nodeID int64) bool {
 	defer s.mu.RUnlock()
 	ns := s.nodes[nodeID]
 	return ns != nil && ns.chainSwap > 0
+}
+
+// WarmPoolCapable reports whether the node's current agent session takes
+// SetWarmPools and the per-rule warmPool handler key (plan 244).
+func (s *Server) WarmPoolCapable(nodeID int64) bool {
+	if s == nil {
+		return false
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	ns := s.nodes[nodeID]
+	return ns != nil && ns.warmPool > 0
+}
+
+// WarmPoolNodes lists the connected nodes that are warm-pool capable.
+func (s *Server) WarmPoolNodes() []int64 {
+	if s == nil {
+		return nil
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make([]int64, 0, len(s.nodes))
+	for id, ns := range s.nodes {
+		if ns != nil && ns.warmPool > 0 {
+			out = append(out, id)
+		}
+	}
+	return out
 }
 
 // DestOrderCapable reports whether the node's current agent session honours a

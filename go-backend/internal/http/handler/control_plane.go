@@ -274,6 +274,7 @@ func (h *Handler) syncForwardServicesWithWarnings(forward *forwardRecord, method
 }
 
 func (h *Handler) syncForwardServicesWithWarningsOnNode(forward *forwardRecord, method string, allowFallbackAdd bool, nodeID int64) ([]string, error) {
+	defer h.warmPoolsChanged() // plan 244: pools follow the rules
 	if h == nil || forward == nil {
 		return nil, errors.New("invalid forward sync context")
 	}
@@ -571,6 +572,7 @@ func (h *Handler) deleteForwardServiceBasesOnNode(nodeID int64, bases []string) 
 }
 
 func (h *Handler) controlForwardServices(forward *forwardRecord, commandType string, tolerateNotFound bool) error {
+	defer h.warmPoolsChanged() // plan 244: pools follow the rules
 	if h == nil || forward == nil {
 		return errors.New("invalid forward control context")
 	}

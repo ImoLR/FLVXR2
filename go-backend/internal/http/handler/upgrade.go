@@ -457,6 +457,7 @@ func (h *Handler) onNodeOnline(nodeID int64) {
 	}
 	h.ddnsNodeOnline(nodeID)
 	h.syncNativeLandingOnReconnect(nodeID)
+	h.warmPoolNodeSession(nodeID) // plan 244: send the full 预热池 state again
 }
 
 func (h *Handler) redeployNodeRuntime(nodeID int64) {

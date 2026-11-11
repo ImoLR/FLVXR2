@@ -440,6 +440,11 @@ type Tunnel struct {
 	// tunnels start at 0 and are switched by the ordered rollout
 	// (POST /api/v1/tunnel/relay-auth); new tunnels are created with 1.
 	RelayAuth int `gorm:"column:relay_auth;not null;default:0"`
+	// Plan 244 「预热池」: 1 = entries and middles keep a few pre-dialed
+	// connections to the next hop (端口转发: to each rule target) while the
+	// tunnel has ≥ 1 active rule; 0 = off. NOT NULL DEFAULT 1: the column
+	// migration turns it on for every existing tunnel, new tunnels start on.
+	WarmPool int `gorm:"column:warm_pool;not null;default:1"`
 }
 
 func (Tunnel) TableName() string { return "tunnel" }
@@ -980,6 +985,8 @@ type TunnelRecord struct {
 	RuleBest int // plan 180
 	// RelayAuth: plan 225 relay auth flag (tunnel.relay_auth).
 	RelayAuth int
+	// WarmPool: plan 244 预热池 switch (tunnel.warm_pool).
+	WarmPool int
 	// RegionOverride is the 「显示地区」 (plan 184), '' = automatic.
 	RegionOverride string
 	Flow           int64

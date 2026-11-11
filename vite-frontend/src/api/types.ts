@@ -678,6 +678,7 @@ export interface TunnelMutationPayload {
   blockOther?: number;
   // Plan 184 「显示地区」: '' = automatic; absent on update = keep.
   regionOverride?: string;
+  warmPool?: number; // plan 244 「预热池」 (0 = off, default 1)
 }
 
 export interface UserQuotaResetPayload {

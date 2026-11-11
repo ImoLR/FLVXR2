@@ -42,6 +42,7 @@ export const createTunnelFormDefaults = () => {
     speedId: null as number | null,
     // Plan 180 「规则最优」: on by default.
     ruleBest: 1,
+    warmPool: 1,
     // Plan 184 「显示地区」: '' = automatic (exit-node region).
     regionOverride: "",
   };

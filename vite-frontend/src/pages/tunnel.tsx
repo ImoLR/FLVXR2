@@ -80,6 +80,7 @@ import {
   getTunnelList,
   updateTunnel,
   updateTunnelRegion,
+  updateTunnelWarmPool,
   deleteTunnelWithForwards,
   getNodeList,
   diagnoseTunnel,
@@ -151,6 +152,11 @@ import {
   normalizeBestPathState,
 } from "@/pages/tunnel/best-path-chips";
 import {
+  WarmPoolTag,
+  type WarmPoolState,
+  warmTagPlacement,
+} from "@/pages/tunnel/warm-pool-tag";
+import {
   buildBatchFailureMessage,
   extractBatchFailures,
   extractApiErrorMessage,
@@ -198,6 +204,8 @@ interface Tunnel {
   trafficRatio: number;
   ipPreference?: string;
   ruleBest?: number; // plan 180 「规则最优」
+  warmPool?: number; // plan 244 「预热池」 (0 = off)
+  warmPoolState?: WarmPoolState | null; // plan 244 speed-up tag (admin)
   status: number;
   createdTime: string;
   tunnelGroupId?: number | null;
@@ -319,6 +327,7 @@ interface TunnelForm {
   speedId: number | null;
   // Plan 180 「规则最优」: 1 on (default), 0 off.
   ruleBest?: number;
+  warmPool?: number; // plan 244 「预热池」
   // Plan 184 「显示地区」: '' = automatic.
   regionOverride: string;
 }
@@ -479,10 +488,10 @@ const mapChainNodes = (nodes: any[]) =>
 const REGION_OVERRIDE_AUTO = "auto";
 const REGION_OVERRIDE_OPTIONS = [...REGION_CODES].sort(compareRegions);
 
-// Plan 184: the edit form minus 显示地区 — equal to the opened form means
-// only 显示地区 changed.
+// Plan 184: the edit form minus 显示地区 (and plan 244 预热池) — equal to the
+// opened form means only those changed (saved without a redeploy).
 const tunnelFormSignature = (form: TunnelForm) =>
-  JSON.stringify({ ...form, regionOverride: "" });
+  JSON.stringify({ ...form, regionOverride: "", warmPool: 0 });
 
 const mapTunnelApiItems = (items: any[]): Tunnel[] => {
   return (items || []).map((tunnel) => ({
@@ -593,6 +602,7 @@ export default function TunnelPage() {
   const editBaselineRef = useRef<{
     signature: string;
     regionOverride: string;
+    warmPool: number;
   } | null>(null);
   const [deleteLoading, setDeleteLoading] = useState(false);
   const [deletePreviewLoading, setDeletePreviewLoading] = useState(false);
@@ -1020,6 +1030,7 @@ export default function TunnelPage() {
       blockOther: typeof tunnel.blockOther === "number" ? tunnel.blockOther : 0,
       speedId: tunnel.speedId ?? null,
       ruleBest: tunnel.ruleBest === 0 ? 0 : 1,
+      warmPool: tunnel.warmPool === 0 ? 0 : 1,
       regionOverride: tunnel.regionOverride || "",
     };
 
@@ -1028,6 +1039,7 @@ export default function TunnelPage() {
     editBaselineRef.current = {
       signature: tunnelFormSignature(editForm),
       regionOverride: editForm.regionOverride,
+      warmPool: editForm.warmPool === 0 ? 0 : 1,
     };
     setForm(editForm);
     setErrors({});
@@ -1603,32 +1615,53 @@ export default function TunnelPage() {
   const saveRegionOnly = async (): Promise<boolean> => {
     const base = editBaselineRef.current;
 
+    const warmPool = form.warmPool === 0 ? 0 : 1;
+    const regionChanged = !!base && base.regionOverride !== form.regionOverride;
+    const warmChanged = !!base && base.warmPool !== warmPool;
+
     if (
       !isEdit ||
       !form.id ||
       editingPipe ||
       !base ||
-      base.regionOverride === form.regionOverride ||
+      (!regionChanged && !warmChanged) ||
       base.signature !== tunnelFormSignature(form)
     ) {
       return false;
     }
     setSubmitLoading(true);
     try {
-      const res = await updateTunnelRegion({
-        id: form.id,
-        regionOverride: form.regionOverride,
-      });
+      if (regionChanged) {
+        const res = await updateTunnelRegion({
+          id: form.id,
+          regionOverride: form.regionOverride,
+        });
 
-      if (res.code === 0) {
-        toast.success("显示地区已保存（只改显示，线路未重新下发）");
-        setModalOpen(false);
-        refreshTunnelList(false);
-      } else {
-        toast.error(res.msg || "保存显示地区失败");
+        if (res.code !== 0) {
+          toast.error(res.msg || "保存显示地区失败");
+
+          return true;
+        }
       }
+      if (warmChanged) {
+        // Plan 244: 「预热池」 only — one column + live pool update, no redeploy.
+        const res = await updateTunnelWarmPool({ id: form.id, warmPool });
+
+        if (res.code !== 0) {
+          toast.error(res.msg || "保存预热池开关失败");
+
+          return true;
+        }
+      }
+      toast.success(
+        warmChanged
+          ? "已保存（预热池几秒内生效，线路与规则未重新下发）"
+          : "显示地区已保存（只改显示，线路未重新下发）",
+      );
+      setModalOpen(false);
+      refreshTunnelList(false);
     } catch (error) {
-      toast.error(extractApiErrorMessage(error, "保存显示地区失败"));
+      toast.error(extractApiErrorMessage(error, "保存失败"));
     } finally {
       setSubmitLoading(false);
     }
@@ -3046,7 +3079,7 @@ export default function TunnelPage() {
             </td>
             <td className="py-3 px-4 text-center align-middle">
               <span className="font-medium text-foreground">{outCount}个</span>
-              <BestPathChips className="mt-1" state={tunnel.bestPathState} />
+              {renderBestAndWarm(tunnel, "mt-1")}
             </td>
             <td className="py-3 px-4 text-center align-middle">
               <span className="font-medium text-foreground">
@@ -3141,6 +3174,41 @@ export default function TunnelPage() {
       </SortableListRowItem>
     );
   };
+  // Plan 244: the 最优 chips as before, plus the 「预热」 tag — A (inline):
+  // right after them in the same row; B (line): own small line under them.
+  const renderBestAndWarm = (tunnel: Tunnel, className: string) => {
+    const warm = tunnel.warmPoolState;
+
+    if (!warm) {
+      return (
+        <BestPathChips className={className} state={tunnel.bestPathState} />
+      );
+    }
+    if (warmTagPlacement() === "line") {
+      return (
+        <div
+          className={`space-y-1 ${className}`}
+          data-warm-pool-placement="line"
+        >
+          <BestPathChips state={tunnel.bestPathState} />
+          <div className="flex justify-center">
+            <WarmPoolTag state={warm} />
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <div
+        className={`flex flex-wrap items-center justify-center gap-1 ${className}`}
+        data-warm-pool-placement="inline"
+      >
+        <BestPathChips state={tunnel.bestPathState} />
+        <WarmPoolTag state={warm} />
+      </div>
+    );
+  };
+
   const renderTunnelCard = (tunnel: Tunnel, opts: TunnelCardOptions) => {
     const typeDisplay = getTunnelTypeDisplay(tunnel.type);
     const tunnelTypeChipClassName =
@@ -3332,7 +3400,7 @@ export default function TunnelPage() {
                     </div>
                   </div>
                 </div>
-                <BestPathChips state={tunnel.bestPathState} />
+                {renderBestAndWarm(tunnel, "")}
                 {/* 流量配置 */}
                 <div
                   className={`grid gap-2 ${tunnel.type === 2 && tunnel.ipPreference ? "grid-cols-3" : "grid-cols-2"}`}
@@ -4602,6 +4670,35 @@ export default function TunnelPage() {
                         </SelectItem>
                       ))}
                     </Select>
+                        {/* Plan 244 「预热池」 (admin, default on). */}
+                        {isAdmin && !editingPipe && !wgTunnelMode && (
+                          <div
+                            className="flex items-start justify-between gap-3 self-start rounded-lg bg-amber-500/10 px-3 py-2 dark:bg-amber-400/10"
+                            data-warm-pool-switch={
+                              form.warmPool === 0 ? "off" : "on"
+                            }
+                          >
+                            <div className="min-w-0">
+                              <div className="text-sm font-semibold text-foreground">
+                                预热池
+                              </div>
+                              <p className="text-xs text-default-500">
+                                有规则时提前备好到下一跳的连接，新连接首包更快（端口转发预热到每条规则的目标）。切换不会重新下发线路
+                              </p>
+                            </div>
+                            <Switch
+                              aria-label="预热池"
+                              className="mt-0.5 shrink-0"
+                              isSelected={form.warmPool !== 0}
+                              onValueChange={(on) =>
+                                setForm((prev) => ({
+                                  ...prev,
+                                  warmPool: on ? 1 : 0,
+                                }))
+                              }
+                            />
+                          </div>
+                        )}
                   </div>
                   <Divider />
                   <h3 className="text-lg font-semibold">入口配置</h3>

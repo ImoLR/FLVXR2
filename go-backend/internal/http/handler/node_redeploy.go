@@ -153,6 +153,7 @@ func (h *Handler) scheduleNodeRedeploy(nodeID int64) {
 }
 
 func (h *Handler) onNodeOffline(nodeID int64) {
+	h.warmPoolNodeSession(nodeID) // plan 244
 	// Hooks run asynchronously; an old disconnect must not cancel a new session.
 	if h.nodeRuntimeOnline(nodeID) {
 		return

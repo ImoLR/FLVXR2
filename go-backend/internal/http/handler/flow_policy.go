@@ -290,6 +290,7 @@ func (h *Handler) pauseUserTunnelForwards(userID int64, tunnelID int64, now int6
 }
 
 func (h *Handler) pauseForwardRecords(forwards []forwardRecord, now int64) {
+	defer h.warmPoolsChanged() // plan 244: pools follow the rules
 	for i := range forwards {
 		forward := forwards[i]
 		if strings.EqualFold(forward.Mode, "nftables") {
@@ -496,6 +497,7 @@ func (h *Handler) enforceForwardTrafficLimit(forwardID int64) {
 // user_tunnel id their names carry) are paused and their connections closed, so the
 // forward can be resumed with ResumeService.
 func (h *Handler) pauseForward(forwardID int64, reason string) error {
+	defer h.warmPoolsChanged() // plan 244: pools follow the rules
 	if h == nil || h.repo == nil {
 		return errors.New("invalid handler context")
 	}

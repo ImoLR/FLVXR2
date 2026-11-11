@@ -1510,6 +1510,7 @@ func (h *Handler) nodeCheckStatus(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) tunnelCreate(w http.ResponseWriter, r *http.Request) {
+	defer h.warmPoolsChanged() // plan 244: pools follow the rules
 	if r.Method != http.MethodPost {
 		response.WriteJSON(w, response.ErrDefault("请求失败"))
 		return
@@ -1705,6 +1706,13 @@ func (h *Handler) tunnelCreate(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	// Plan 244 「预热池」: on unless the form turned it off (column default 1).
+	if tunnelWarmPoolFromRequest(req, 1) == 0 {
+		if err := h.repo.SetTunnelWarmPoolTx(tx, tunnelID, 0); err != nil {
+			response.WriteJSON(w, response.Err(-2, err.Error()))
+			return
+		}
+	}
 	unlock, locked := h.tryLockTunnelRuntime(tunnelID)
 	if !locked {
 		response.WriteJSON(w, response.ErrDefault("隧道运行时正在同步，请稍后重试"))
@@ -1829,6 +1837,7 @@ func (h *Handler) tunnelGet(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) tunnelUpdate(w http.ResponseWriter, r *http.Request) {
+	defer h.warmPoolsChanged() // plan 244: pools follow the rules
 	if r.Method != http.MethodPost {
 		response.WriteJSON(w, response.ErrDefault("请求失败"))
 		return
@@ -1911,10 +1920,12 @@ func (h *Handler) tunnelUpdate(w http.ResponseWriter, r *http.Request) {
 	previousRuleBest := 1
 	previousRegionOverride := ""
 	previousRelayAuth := 0
+	previousWarmPool := 1
 	if current, curErr := h.getTunnelRecord(id); curErr == nil && current != nil {
 		previousRuleBest = current.RuleBest
 		previousRegionOverride = current.RegionOverride
 		previousRelayAuth = current.RelayAuth
+		previousWarmPool = current.WarmPool
 	}
 	if !regionOverrideSet || req["regionOverride"] == nil {
 		regionOverride = previousRegionOverride
@@ -1934,6 +1945,14 @@ func (h *Handler) tunnelUpdate(w http.ResponseWriter, r *http.Request) {
 	runtimeState.TunnelID = id
 	runtimeState.IPPreference = ipPreference
 	runtimeState.RelayAuth = previousRelayAuth == 1
+	// Plan 244: the 「预热池」 switch rides a full save too (no runtime effect
+	// here; the pools follow within seconds via SetWarmPools).
+	if warmPool := tunnelWarmPoolFromRequest(req, previousWarmPool); warmPool != previousWarmPool {
+		if err := h.repo.SetTunnelWarmPoolTx(tx, id, warmPool); err != nil {
+			response.WriteJSON(w, response.Err(-2, err.Error()))
+			return
+		}
+	}
 	ruleBest := tunnelRuleBestFromRequest(req, previousRuleBest)
 	runtimeState.RuleBest = ruleBest == 1
 	if ruleBest != previousRuleBest {
@@ -2462,6 +2481,7 @@ func (h *Handler) pickRandomPortForNode(nodeID int64) int {
 }
 
 func (h *Handler) tunnelDelete(w http.ResponseWriter, r *http.Request) {
+	defer h.warmPoolsChanged() // plan 244: pools follow the rules
 	if r.Method != http.MethodPost {
 		response.WriteJSON(w, response.ErrDefault("请求失败"))
 		return
@@ -5668,6 +5688,13 @@ func buildTunnelChainServiceConfig(tunnelID int64, chainNode tunnelRuntimeNode, 
 		"metadata": map[string]interface{}{
 			"nodelay": true,
 			"udpTTL":  "5s", // ✅ 修复 2: 添加 UDP TTL 默认配置
+			// Plan 244 预热池: the previous hop's warm conns (TCP + TLS done,
+			// no relay request yet) may idle up to 110 s; the agent default
+			// (15 s) would close them. Only request-less conns are affected —
+			// the deadline is cleared once the request is read. Set on every
+			// tunnel relay so the switch never has to re-create a service
+			// (an existing key: older agents honour it too, no exit OTA).
+			"readTimeout": warmRelayReadTimeout,
 		},
 	}
 	if nextHopCandidateCount > 1 {
@@ -6083,6 +6110,7 @@ func (h *Handler) deleteTunnelByID(id int64) error {
 }
 
 func (h *Handler) deleteForwardByID(id int64) error {
+	defer h.warmPoolsChanged() // plan 244: pools follow the rules
 	servers, _ := h.repo.ChainServerIDsByForwards([]int64{id})
 	if err := h.repo.DeleteForwardCascade(id); err != nil {
 		return err
