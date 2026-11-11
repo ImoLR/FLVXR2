@@ -7,8 +7,9 @@
 //     state of this agent): conns are TCP + TLS (Transport.Dial + Handshake)
 //     to the chain hop's next node. The relay CONNECT (credential + target)
 //     still runs per stream, so a pooled conn carries neither.
-//   - a rule service (端口转发, type 1) whose handler metadata has warmPool:
-//     conns are plain TCP to the rule target, for as long as the service runs.
+//   - a rule (端口转发, type 1), listed by rule id: its running TCP service's
+//     conns are plain TCP to the rule target, for as long as the service runs
+//     (a paused / deleted rule closes its service and the pool with it).
 //
 // Per owner only the node a stream would use now is warmed (the first node
 // that is not fail-marked, i.e. the 最优 / fifo head) with `size` conns, plus
@@ -29,6 +30,8 @@ import (
 	"math/rand"
 	"net"
 	"sort"
+	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -75,11 +78,12 @@ const (
 
 func (k Kind) String() string { return string(rune(k)) }
 
-// Config is the panel's full desired state of the chain pools (隧道转发):
-// chain name → pool size. Rule service pools (端口转发) are not part of it:
-// each rule's service config carries its own size (RegisterForwarder).
+// Config is the panel's full desired state: chain name → pool size
+// (隧道转发) and rule id → pool size (端口转发; the rule's running TCP
+// service "<rule>_<user>_<userTunnel>_tcp" is warmed).
 type Config struct {
-	Chains map[string]int `json:"chains"`
+	Chains   map[string]int `json:"chains"`
+	Forwards map[string]int `json:"forwards"`
 }
 
 // Target is one dial target of an owner, in the owner's current order.
@@ -147,18 +151,19 @@ type pool struct {
 
 // Manager holds every pool of this agent.
 type Manager struct {
-	mu      sync.Mutex
-	sources map[Kind]Source
-	owners  map[ownerKey]*owner
-	retired []*pool
-	live    int // idle pooled conns + dials in flight
-	cap     int
-	capHit  bool
-	capLog  time.Time
-	active  atomic.Pointer[map[ownerKey]struct{}]
-	stop    chan struct{}
-	rnd     *rand.Rand
-	log     logger.Logger
+	mu       sync.Mutex
+	sources  map[Kind]Source
+	owners   map[ownerKey]*owner
+	forwards map[int64]int // rule id → size from the last SetConfig
+	retired  []*pool
+	live     int // idle pooled conns + dials in flight
+	cap      int
+	capHit   bool
+	capLog   time.Time
+	active   atomic.Pointer[map[ownerKey]struct{}]
+	stop     chan struct{}
+	rnd      *rand.Rand
+	log      logger.Logger
 
 	// test knobs
 	now          func() time.Time
@@ -218,9 +223,9 @@ func (m *Manager) Active(k Kind, name string) bool {
 	return ok
 }
 
-// SetConfig applies the panel's full desired chain state. Chains not listed
-// lose their pools at once (idle conns closed); new ones are warmed right
-// away. It returns the number of chain owners configured.
+// SetConfig applies the panel's full desired state. Owners not listed lose
+// their pools at once (idle conns closed); new ones are warmed right away.
+// It returns the number of owners configured.
 func (m *Manager) SetConfig(cfg Config) int {
 	want := map[ownerKey]int{}
 	add := func(k Kind, items map[string]int) {
@@ -235,11 +240,30 @@ func (m *Manager) SetConfig(cfg Config) int {
 		}
 	}
 	add(KindChain, cfg.Chains)
+	forwards := map[int64]int{}
+	for id, size := range cfg.Forwards {
+		fid, err := strconv.ParseInt(strings.TrimSpace(id), 10, 64)
+		if err != nil || fid <= 0 || size <= 0 {
+			continue
+		}
+		if size > MaxSize {
+			size = MaxSize
+		}
+		forwards[fid] = size
+	}
 
 	m.mu.Lock()
+	m.forwards = forwards
+	if src, _ := m.sources[KindService].(*serviceSource); src != nil {
+		for _, name := range src.names() {
+			if size := forwards[ForwardIDOf(name)]; size > 0 {
+				want[ownerKey{KindService, name}] = size
+			}
+		}
+	}
 	var closing []*pconn
 	for key, o := range m.owners {
-		if _, ok := want[key]; !ok && key.kind == KindChain {
+		if _, ok := want[key]; !ok {
 			closing = append(closing, m.removeOwnerLocked(o)...)
 		}
 	}
@@ -256,15 +280,24 @@ func (m *Manager) SetConfig(cfg Config) int {
 		closing = append(closing, m.evaluateLocked(o)...)
 	}
 	m.ensureTickerLocked()
-	n := 0
-	for key := range m.owners {
-		if key.kind == KindChain {
-			n++
-		}
-	}
+	n := len(m.owners)
 	m.mu.Unlock()
 	closeAll(closing)
 	return n
+}
+
+// ForwardIDOf parses the rule id of a rule service name
+// ("<rule>_<user>_<userTunnel>_tcp"); 0 if it is not one.
+func ForwardIDOf(service string) int64 {
+	i := strings.IndexByte(service, '_')
+	if i <= 0 {
+		return 0
+	}
+	id, err := strconv.ParseInt(service[:i], 10, 64)
+	if err != nil || id <= 0 {
+		return 0
+	}
+	return id
 }
 
 // OwnerChanged re-reads an owner's targets now (chain updated / deleted,

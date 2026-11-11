@@ -539,21 +539,20 @@ func (f *fakeForwarder) WarmDial(ctx context.Context, addr string) (net.Conn, er
 	return d.DialContext(ctx, "tcp", addr)
 }
 
-func TestRuleServicePoolFollowsTheService(t *testing.T) {
+func TestRuleServicePoolFollowsTheRule(t *testing.T) {
 	m, _ := newTestManager(t, 64)
 	pe := newPeer(t, nil)
 	f := &fakeForwarder{addr: pe.addr()}
-	m.RegisterForwarder("12_3_39_tcp", f, 2)
+	m.RegisterForwarder("12_3_39_tcp", f)
+	time.Sleep(20 * time.Millisecond)
+	if m.Active(KindService, "12_3_39_tcp") || pe.accepted.Load() != 0 {
+		t.Fatal("rule warmed before the panel listed it")
+	}
+	m.SetConfig(Config{Forwards: map[string]int{"12": 2}})
 	if !m.Active(KindService, "12_3_39_tcp") {
 		t.Fatal("rule service not active")
 	}
 	waitFor(t, "rule pool filled", func() bool { return pe.open.Load() == 2 })
-	// The panel's chain state does not touch rule pools.
-	m.SetConfig(Config{})
-	time.Sleep(30 * time.Millisecond)
-	if pe.open.Load() != 2 {
-		t.Fatal("SetConfig removed a rule pool")
-	}
 	l := m.Take(KindService, "12_3_39_tcp", pe.addr())
 	if l == nil {
 		t.Fatal("no lease")
@@ -569,4 +568,10 @@ func TestRuleServicePoolFollowsTheService(t *testing.T) {
 	if m.Active(KindService, "12_3_39_tcp") || m.Stats().Live != 0 {
 		t.Fatalf("still active: %+v", m.Stats())
 	}
+	// Resumed: the service starts again and is warmed (still listed).
+	m.RegisterForwarder("12_3_39_tcp", f)
+	waitFor(t, "warm again", func() bool { return pe.open.Load() == 2 })
+	// Switch off: the panel drops the rule, service untouched.
+	m.SetConfig(Config{})
+	waitFor(t, "switch off", func() bool { return pe.open.Load() == 0 })
 }

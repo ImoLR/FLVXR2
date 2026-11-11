@@ -45,16 +45,11 @@ func (s *serviceSource) Dial(ctx context.Context, name, addr string) (net.Conn, 
 	return f.WarmDial(ctx, addr)
 }
 
-// RegisterForwarder: a rule service with `warmPool` started (or was
-// re-created). Its pool lives exactly as long as the service runs: a paused,
-// deleted or updated service unregisters (the panel sends the size with the
-// rule's own service config, so no separate command is needed).
-func (m *Manager) RegisterForwarder(service string, f Forwarder, size int) {
-	if service == "" || f == nil || size <= 0 {
+// RegisterForwarder: a rule TCP service that dials its targets directly
+// started (or was re-created). It is warmed while the panel lists its rule.
+func (m *Manager) RegisterForwarder(service string, f Forwarder) {
+	if service == "" || f == nil {
 		return
-	}
-	if size > MaxSize {
-		size = MaxSize
 	}
 	m.mu.Lock()
 	src, _ := m.sources[KindService].(*serviceSource)
@@ -68,22 +63,25 @@ func (m *Manager) RegisterForwarder(service string, f Forwarder, size int) {
 	}
 	src.m[service] = f
 	src.mu.Unlock()
-	key := ownerKey{KindService, service}
-	o := m.owners[key]
-	if o == nil {
-		o = &owner{key: key, pools: map[string]*pool{}, recent: map[string]time.Time{}}
-		m.owners[key] = o
-		m.publishActiveLocked()
+	var closing []*pconn
+	if size := m.forwards[ForwardIDOf(service)]; size > 0 {
+		key := ownerKey{KindService, service}
+		o := m.owners[key]
+		if o == nil {
+			o = &owner{key: key, pools: map[string]*pool{}, recent: map[string]time.Time{}}
+			m.owners[key] = o
+			m.publishActiveLocked()
+		}
+		o.size = size
+		closing = m.evaluateLocked(o)
+		m.ensureTickerLocked()
 	}
-	o.size = size
-	closing := m.evaluateLocked(o)
-	m.ensureTickerLocked()
 	m.mu.Unlock()
 	closeAll(closing)
 }
 
-// UnregisterForwarder: the rule service closed. Its pooled conns are closed
-// at once.
+// UnregisterForwarder: the rule service closed (rule paused / deleted /
+// updated). Its pooled conns are closed at once.
 func (m *Manager) UnregisterForwarder(service string, f Forwarder) {
 	if service == "" {
 		return
@@ -110,6 +108,16 @@ func (m *Manager) UnregisterForwarder(service string, f Forwarder) {
 	}
 	m.mu.Unlock()
 	closeAll(closing)
+}
+
+func (s *serviceSource) names() []string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make([]string, 0, len(s.m))
+	for name := range s.m {
+		out = append(out, name)
+	}
+	return out
 }
 
 // NodeTargets turns a node list into targets; a node fail-marked within

@@ -39,6 +39,7 @@ func init() {
 type forwardHandler struct {
 	hop      hop.Hop
 	warm     *warmForwarder
+	inited   bool
 	md       metadata
 	options  handler.Options
 	recorder recorder.RecorderObject
@@ -71,6 +72,7 @@ func (h *forwardHandler) Init(md md.Metadata) (err error) {
 	if h.md.certificate != nil && h.md.privateKey != nil {
 		h.certPool = tls_util.NewMemoryCertPool()
 	}
+	h.inited = true
 	h.registerWarm()
 
 	return
@@ -82,19 +84,20 @@ func (h *forwardHandler) Forward(hop hop.Hop) {
 	h.registerWarm()
 }
 
-// registerWarm (plan 244): a rule service that dials its targets directly
-// (端口转发, no chain) and carries `warmPool` gets a warm pool for as long as
-// it runs. The parser calls Forward before Init, so this runs from both and
-// registers once both the targets and the metadata are known.
+// registerWarm (plan 244): a rule TCP service that dials its targets
+// directly (端口转发, no chain) can be warmed while the panel lists its rule
+// (SetWarmPools). The parser calls Forward before Init, so this runs from
+// both and registers once the targets and the metadata are known.
 func (h *forwardHandler) registerWarm() {
-	if h.warm != nil || h.hop == nil || h.md.warmPool <= 0 || h.options.Service == "" {
+	if h.warm != nil || h.hop == nil || !h.inited || !strings.HasSuffix(h.options.Service, "_tcp") {
 		return
 	}
-	if h.options.Router == nil || h.options.Router.Options().Chain != nil || h.md.sniffing {
+	if warmpool.ForwardIDOf(h.options.Service) <= 0 || h.options.Router == nil ||
+		h.options.Router.Options().Chain != nil || h.md.sniffing {
 		return
 	}
 	h.warm = &warmForwarder{h: h, hop: h.hop}
-	warmpool.Default.RegisterForwarder(h.options.Service, h.warm, h.md.warmPool)
+	warmpool.Default.RegisterForwarder(h.options.Service, h.warm)
 }
 
 // Close implements io.Closer: the service closed (deleted / paused / updated),

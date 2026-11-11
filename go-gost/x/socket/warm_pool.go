@@ -8,7 +8,7 @@ import (
 )
 
 // handleSetWarmPools (plan 244): the panel's full desired warm-pool state for
-// this agent — {"chains": {"chains_25": 2}, "services": {"12_3_39_tcp": 2}}.
+// this agent — {"chains": {"chains_25": 2}, "forwards": {"123": 2}}.
 // Applied live: owners not listed lose their pooled conns at once, new ones
 // are warmed within seconds. Nothing is persisted; the panel re-sends the
 // state after every (re)connect.
