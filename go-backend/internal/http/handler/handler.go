@@ -49,9 +49,9 @@ type Handler struct {
 	// lookups in tests.
 	warmPoolCapableFn func(int64) bool
 	warmPoolNodesFn   func() []int64
-	fluxVersion      string
-	cnLandingChecker *cnlanding.Checker
-	quotaGroups      *quotaCoordinator
+	fluxVersion       string
+	cnLandingChecker  *cnlanding.Checker
+	quotaGroups       *quotaCoordinator
 
 	captchaMu     sync.Mutex
 	captchaTokens map[string]int64
@@ -115,13 +115,13 @@ type Handler struct {
 	sharedLanding      *sharedLandingState
 	// Plan 243: shares held by the mass-vanish guard (landing_server id ->
 	// message), published by the list round, read lock-free by the views.
-	sharedHold sync.Map
-	landingEgressMu    sync.Mutex // WARP registration
-	egressDNSMu        sync.Mutex
-	egressDNS          map[string]egressDNSEntry
-	landingWarpAt      time.Time
-	egressSyncWG       sync.WaitGroup  // background syncs after egress edits (tests wait)
-	layerApply         layerApplyState // debounced push after global rule saves (plan 134)
+	sharedHold      sync.Map
+	landingEgressMu sync.Mutex // WARP registration
+	egressDNSMu     sync.Mutex
+	egressDNS       map[string]egressDNSEntry
+	landingWarpAt   time.Time
+	egressSyncWG    sync.WaitGroup  // background syncs after egress edits (tests wait)
+	layerApply      layerApplyState // debounced push after global rule saves (plan 134)
 	// Plan 202: rate limit of the 禁止端口扫描 admin Telegram notices.
 	landingScanNote landingScanNotifier
 	// landingRates keeps the last two committed counters per landing node for the
