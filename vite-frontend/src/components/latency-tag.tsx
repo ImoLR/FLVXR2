@@ -29,13 +29,51 @@ const sizeClass: Record<LatencyTagSize, string> = {
 
 // Nested (B): a slightly stronger tint + hairline ring so the tag stands out
 // on the pill's own tint (green on the green tunnel chip).
-const nestedClass: Record<LatencyTone, string> = {
+// Plan 244: + slate for the grey 「预热」 state (same tint / ring recipe).
+const nestedClass: Record<LatencyTone | "slate", string> = {
   green:
     "bg-green-500/25 ring-1 ring-inset ring-green-600/30 dark:bg-green-400/25 dark:ring-green-300/30",
   amber:
     "bg-amber-500/25 ring-1 ring-inset ring-amber-600/30 dark:bg-amber-400/25 dark:ring-amber-300/30",
   red: "bg-red-500/25 ring-1 ring-inset ring-red-600/30 dark:bg-red-400/25 dark:ring-red-300/30",
+  slate:
+    "bg-slate-500/25 ring-1 ring-inset ring-slate-600/30 dark:bg-slate-400/25 dark:ring-slate-300/30",
 };
+
+/** The tag's classes — shared by LatencyTag and MsTag so both look the same. */
+function msTagClass(
+  tone: LatencyTone | "slate",
+  size: LatencyTagSize,
+  nested: boolean,
+): string {
+  return `inline-flex shrink-0 items-center gap-1 whitespace-nowrap font-semibold ${sizeClass[size]} ${landingToneClass[tone]} ${nested ? nestedClass[tone] : ""}`;
+}
+
+/** Plan 244: the same small ms tag with a caller-chosen colour and text —
+ * the 「预热」 tag's 「−283 ms」 (green = faster, red = slower). Identical
+ * size / radius / font / tint to the 最优 LatencyTag. */
+export function MsTag({
+  text,
+  tone,
+  size = "chip",
+  nested = false,
+  className = "",
+}: {
+  text: string;
+  tone: LatencyTone | "slate";
+  size?: LatencyTagSize;
+  nested?: boolean;
+  className?: string;
+}) {
+  return (
+    <span
+      className={`${msTagClass(tone, size, nested)} ${className}`}
+      data-ms-tag-tone={tone}
+    >
+      {text}
+    </span>
+  );
+}
 
 export function LatencyTag({
   ms,
@@ -54,7 +92,7 @@ export function LatencyTag({
 
   return (
     <span
-      className={`inline-flex shrink-0 items-center gap-1 whitespace-nowrap font-semibold ${sizeClass[size]} ${landingToneClass[tone]} ${nested ? nestedClass[tone] : ""} ${className}`}
+      className={`${msTagClass(tone, size, nested)} ${className}`}
       data-latency-tone={tone}
     >
       {latencyText(ms)}

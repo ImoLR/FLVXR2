@@ -48,6 +48,13 @@ Run dir (raw jsonl, scripts, full tables): `/root/flvx-workers/runs/entry-warm-m
   - [x] local E2E lab (netns: panel + entry + middle + exit + target), resource numbers
   - [x] preview gallery :8791 /entry-warm-pool/ (desktop 1366×900 + mobile 390×844, light + dark)
   - [x] summary + release notes (DB migration, panel, OTA list, restarts, rollback)
+  - [x] UI round 2 (user 11-12 ~16:30 TW): layout B only (预热 on its own line under 最优; variant A +
+        `flvx:warm-tag` override removed from code and gallery)
+  - [x] UI round 2: the ms is its own tag — shared `MsTag` in `components/latency-tag.tsx` (same classes
+        as the 最优 `LatencyTag`, nested style); green −N / red +N (+ 「常被对方断开」) / grey whole pill
+        for 目标不支持预热; detail rows use the same tag (size row)
+  - [x] UI round 2: build + eslint (0 new errors) + gallery re-shot (26 screens incl. close-ups,
+        57/57 checks incl. computed-style equality 预热 ms tag == 最优 ms tag)
 - ~~Step 3: live A/B~~ — dropped by the user 11-12 (the speed tag replaces it)
 
 ## Method
@@ -374,3 +381,22 @@ variants ran); frontend `npm run build` ok, eslint: new files 0 errors (tunnel.t
 base 978fb216, same total). Migration dry-run on a read-only copy of the prod SQLite DB (isolated netns,
 copy deleted after): 50/50 tunnels `warm_pool = 1`, clean start. Gallery: http://104.145.236.29:8791/entry-warm-pool/
 (29 screens, 67/67 checks). Release waits for the user's approval of the screens (A or B).
+
+## UI round 2 (2026-11-12, user decision ~16:30 TW)
+
+- **Layout B**: the 「预热」 tag sits on its own small line under the 最优 chips (desktop list + cards, H5
+  cards, tree view). Variant A (same line) and its preview override (`localStorage flvx:warm-tag`) are
+  removed from the code; the gallery shows only B.
+- **The ms is a small tinted tag, identical to the 最优 ms tag** (plan 184): `components/latency-tag.tsx`
+  gains `MsTag` (caller-chosen text + tone, incl. a slate tone) built from the same class helper as
+  `LatencyTag` — `LatencyTag`'s rendered classes are byte-identical to before, so the 最优 tag is
+  unchanged. The 预热 chip = `⚡ 预热 [−283 ms] ▾` (green chip, nested green ms tag, exactly like
+  `出口最优：Bestvm JP B [37 ms] ▾`); slower = red chip `⚡ 预热 [+12 ms] · 常被对方断开 ▾`;
+  「目标不支持预热」 = grey whole pill (no number). The detail popup's per-hop numbers use the same tag
+  (size `row`, like the 最优 dropdown rows).
+- Checks: `npm run build` ok; eslint on the 3 touched files 1351 problems / 4 errors = same as branch
+  head before the change (the 4 a11y errors are pre-existing in tunnel.tsx); gallery 26 screens
+  (desktop 1366×900 + mobile 390×844, light + dark, 4 close-ups), 57/57 automated checks incl. computed
+  font / height / radius / padding / ring / colour equality of the two ms tags, 0 page errors.
+- Frontend only; no backend / agent change. Build only (not pushed, no tag, no release).
+

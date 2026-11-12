@@ -151,11 +151,7 @@ import {
   type BestPathState,
   normalizeBestPathState,
 } from "@/pages/tunnel/best-path-chips";
-import {
-  WarmPoolTag,
-  type WarmPoolState,
-  warmTagPlacement,
-} from "@/pages/tunnel/warm-pool-tag";
+import { WarmPoolTag, type WarmPoolState } from "@/pages/tunnel/warm-pool-tag";
 import {
   buildBatchFailureMessage,
   extractBatchFailures,
@@ -3174,8 +3170,8 @@ export default function TunnelPage() {
       </SortableListRowItem>
     );
   };
-  // Plan 244: the 最优 chips as before, plus the 「预热」 tag — A (inline):
-  // right after them in the same row; B (line): own small line under them.
+  // Plan 244: the 最优 chips as before, plus the 「预热」 tag on its own small
+  // line under them (user 2026-11-12: layout B).
   const renderBestAndWarm = (tunnel: Tunnel, className: string) => {
     const warm = tunnel.warmPoolState;
 
@@ -3184,27 +3180,13 @@ export default function TunnelPage() {
         <BestPathChips className={className} state={tunnel.bestPathState} />
       );
     }
-    if (warmTagPlacement() === "line") {
-      return (
-        <div
-          className={`space-y-1 ${className}`}
-          data-warm-pool-placement="line"
-        >
-          <BestPathChips state={tunnel.bestPathState} />
-          <div className="flex justify-center">
-            <WarmPoolTag state={warm} />
-          </div>
-        </div>
-      );
-    }
 
     return (
-      <div
-        className={`flex flex-wrap items-center justify-center gap-1 ${className}`}
-        data-warm-pool-placement="inline"
-      >
+      <div className={`space-y-1 ${className}`} data-warm-pool-placement="line">
         <BestPathChips state={tunnel.bestPathState} />
-        <WarmPoolTag state={warm} />
+        <div className="flex justify-center">
+          <WarmPoolTag state={warm} />
+        </div>
       </div>
     );
   };

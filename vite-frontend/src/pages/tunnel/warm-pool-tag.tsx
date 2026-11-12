@@ -1,5 +1,6 @@
 import { ChevronDown, Zap } from "lucide-react";
 
+import { LATENCY_TAG_STYLE, MsTag } from "@/components/latency-tag";
 import { landingToneClass } from "@/pages/landing/pill";
 import {
   Dropdown,
@@ -10,9 +11,10 @@ import {
 // Plan 244 「预热池」: how much the warm pool saves on this tunnel, measured
 // by the pool itself over the last hour (cold = the pool's own refill dials +
 // streams that found it empty; warm = streams that took a pooled conn, incl.
-// the redial when one was dead). A separate tag beside the 最优 chips (which
-// stay exactly as they are); tap / click for the per-hop detail (plan 156:
-// never on hover). Nothing when the switch is off, the tunnel has no active
+// the redial when one was dead). Its own small line under the 最优 chips
+// (user 2026-11-12: layout B; the 最优 chips stay exactly as they are); the ms
+// is its own tinted tag, the same one as the 最优 ms (components/latency-tag);
+// tap / click for the per-hop detail (plan 156: never on hover). Nothing when the switch is off, the tunnel has no active
 // rule or there are fewer than 10 warm streams yet.
 
 export interface WarmPoolHop {
@@ -43,25 +45,6 @@ export interface WarmPoolState {
   windowMin: number;
 }
 
-/** Placement on the tunnel page: "inline" (A) = right after the 最优 chips in
- * the same row; "line" (B) = own small line under them. */
-export type WarmTagPlacement = "inline" | "line";
-
-export const WARM_TAG_PLACEMENT_DEFAULT: WarmTagPlacement = "inline";
-
-/** Preview override (gallery): localStorage `flvx:warm-tag` = inline | line. */
-export function warmTagPlacement(): WarmTagPlacement {
-  try {
-    const v = window.localStorage.getItem("flvx:warm-tag");
-
-    if (v === "inline" || v === "line") return v;
-  } catch {
-    // storage blocked: default
-  }
-
-  return WARM_TAG_PLACEMENT_DEFAULT;
-}
-
 const pillBase =
   "inline-flex max-w-full shrink-0 items-center gap-1 whitespace-nowrap rounded-full px-2 text-xs font-semibold leading-[18px]";
 
@@ -77,16 +60,21 @@ const SHORT_REASON: Record<string, string> = {
   预热连接常被对方断开: "常被对方断开",
 };
 
+// 「−283 ms」 (faster, savedMs ≥ 0) / 「+40 ms」 (slower, savedMs < 0).
+const savedText = (v: number) => `${v >= 0 ? "−" : "+"}${num(v)} ms`;
+
 function tagText(state: WarmPoolState): string {
   switch (state.status) {
     case "faster":
-      return `预热 −${num(state.savedMs)} ms`;
     case "slower":
-      return `预热 +${num(state.savedMs)} ms`;
+      return `预热 ${savedText(state.savedMs)}`;
     default:
       return "目标不支持预热";
   }
 }
+
+// The 最优 chips nest their ms tag inside the pill (plan 184 B) — same here.
+const nestedMs = LATENCY_TAG_STYLE === "nested";
 
 function hopLine(hop: WarmPoolHop): string {
   if (hop.state === "unsupported") {
@@ -106,15 +94,12 @@ function hopLine(hop: WarmPoolHop): string {
   return parts.join(" · ");
 }
 
+// Detail rows: the same tag as the 最优 dropdown rows (size "row").
 function savedTag(v?: number | null) {
   if (v === undefined || v === null) return null;
-  const tone = v >= 0 ? landingToneClass.green : landingToneClass.red;
 
   return (
-    <span className={`${pillBase} ${tone} px-1.5 text-[11px]`}>
-      {v >= 0 ? "−" : "+"}
-      {num(v)} ms
-    </span>
+    <MsTag size="row" text={savedText(v)} tone={v >= 0 ? "green" : "red"} />
   );
 }
 
@@ -134,6 +119,16 @@ export function WarmPoolTag({
         : landingToneClass.slate;
   const text = tagText(state);
   const reason = state.status === "slower" ? state.reason : undefined;
+  // 「预热 [−283 ms]」: the ms is its own tag, like 「出口最优：HK-1 [42 ms]」.
+  const msTag =
+    state.status === "unsupported" ? null : (
+      <MsTag
+        nested={nestedMs}
+        size="chip"
+        text={savedText(state.savedMs)}
+        tone={state.status === "faster" ? "green" : "red"}
+      />
+    );
   const windowText = `近 ${state.windowMin >= 60 ? `${Math.round(state.windowMin / 60)} 小时` : `${state.windowMin} 分钟`}`;
 
   return (
@@ -147,7 +142,14 @@ export function WarmPoolTag({
           onClick={(e) => e.stopPropagation()}
         >
           <Zap aria-hidden className="h-3 w-3 shrink-0" />
-          <span>{text}</span>
+          {msTag ? (
+            <>
+              <span>预热</span>
+              {msTag}
+            </>
+          ) : (
+            <span>{text}</span>
+          )}
           {reason && (
             <span className="font-medium opacity-80">
               · {SHORT_REASON[reason] ?? reason}
