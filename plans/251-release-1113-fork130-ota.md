@@ -19,9 +19,9 @@ Dmit Echo via panel only. 248 `node/upgrade` may return `pending: true` → poll
 - [x] OTA canary Mkcloud 沪日ixp 440 (check 247 dead-target refill not at error level)
 - [x] OTA the rest one host at a time (SSH backup each), report 火山广州 upgrade result (pending → status)
 - [x] verify: nodes / rules unchanged, self-heal log count, 线路机 exits AnyTLS capability
-- [ ] warm idle sleep after ~35 min (per-host idle conns before → after vs 86 → 24 estimate), admin/user tags
+- [x] warm idle sleep after ~35 min (per-host idle conns before → after vs 86 → 24 estimate), admin/user tags
 - [x] plan 250 live test: one AnyTLS 「我自己的节点」 rule on Dmit Nathan tunnel, client connect, delete, Snell/SS2022 rejected
-- [ ] ledger 247–250 → 已发布, prune backups, cache + worktree cleanup, summary, plan complete
+- [x] ledger 247–250 → 已发布, prune backups, cache + worktree cleanup, summary, plan complete
 
 ## Results
 - Merge (11-13 02:02 TW): 3 branches + fork.129 docs merged with no conflicts. Disk 6.3 G free before build.
@@ -67,3 +67,13 @@ Dmit Echo via panel only. 248 `node/upgrade` may return `pending: true` → poll
   minted tokens, 10 users) see only `{status: faster, savedMs, kind, hops: []}` on their own rules (users 7/8/11/16/74),
   nothing else. Admin tunnel page: 101 vmsilo沪日首发 shows warming (= 数据不足).
 - Mkcloud 沪日ixp 440: 0 error-level lines after the OTA (238 per 10 min before = dead-target refills of rules 77/95).
+- Warm idle sleep (03:36 TW, ≥ 38 min after every host's restart; pooled = idle outbound conns that never carried
+  user data, read-only `ss`): total 49 (03:09: 47). Per host: Mkcloud 深港ixp 1 18 (est. 16 → 0, but its tunnels 4 /
+  90 / 105 carry 276–443 streams/h tonight → keys awake, as designed), Mkcloud 沪日ixp 440 11 (est. 4), 新春版 4 (est.
+  4), AWS HK 4 (est. 0), Leikwanhost 沪台IPLC 4 (est. 2), vmsilo 沪日首发 4 (est. 8), Bestvm JP B 2, Dmit Echo 2, all
+  others 0 (Dmit Nathan / Datawave HK 2 / Bestvm HK 年付 had 2 each at fork.129 → 0). Estimate 86 → 24 vs measured ~49:
+  the gap is the 深港ixp 1 + 440 rules that have live traffic now (estimate used the 22:50–23:20 counters).
+- Final (03:38 TW): 29/29 online, bizcheck == pre, self-heal lines 0.
+- Ledger 247 + 248 + 249 + 250 → 已发布 fork.130. Pruned backups (kept pre-fork129 + pre-fork130). Removed worktrees
+  flvxx-warm-idle + flvxx-line-proto (+ this one after the final commit; branches stay), Go build cache, node_modules,
+  dist, temp sing-box/upstream files; temp PG container removed. Disk 8.9 G free.
