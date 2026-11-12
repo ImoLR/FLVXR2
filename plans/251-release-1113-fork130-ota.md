@@ -13,14 +13,14 @@ Dmit Echo via panel only. 248 `node/upgrade` may return `pending: true` → poll
 ## Tasks
 - [x] merge 3 branches (no conflicts) + plan doc; disk ≥ 5 GB
 - [x] gates: go-backend build/vet/test (SQLite + PG), go-gost/x tests, go-gost build, `npm run build`
-- [ ] push branch, CI green, tag `3.0.27-fork.130`, Images workflow, release Latest + assets validated
-- [ ] pre-state snapshot (nodes, rule states, chain/线路机 rules, warm idle conns per host)
-- [ ] panel backup + rollback dir, upgrade /opt/flvx-svc, health + 28 nodes, migration columns
-- [ ] OTA canary Mkcloud 沪日ixp 440 (check 247 dead-target refill not at error level)
+- [x] push branch, CI green, tag `3.0.27-fork.130`, Images workflow, release Latest + assets validated
+- [x] pre-state snapshot (nodes, rule states, chain/线路机 rules, warm idle conns per host)
+- [x] panel backup + rollback dir, upgrade /opt/flvx-svc, health + 28 nodes, migration columns
+- [x] OTA canary Mkcloud 沪日ixp 440 (check 247 dead-target refill not at error level)
 - [ ] OTA the rest one host at a time (SSH backup each), report 火山广州 upgrade result (pending → status)
 - [ ] verify: nodes / rules unchanged, self-heal log count, 线路机 exits AnyTLS capability
 - [ ] warm idle sleep after ~35 min (per-host idle conns before → after vs 86 → 24 estimate), admin/user tags
-- [ ] plan 250 live test: one AnyTLS 「我自己的节点」 rule on Dmit Nathan tunnel, client connect, delete, Snell/SS2022 rejected
+- [x] plan 250 live test: one AnyTLS 「我自己的节点」 rule on Dmit Nathan tunnel, client connect, delete, Snell/SS2022 rejected
 - [ ] ledger 247–250 → 已发布, prune backups, cache + worktree cleanup, summary, plan complete
 
 ## Results
@@ -31,3 +31,20 @@ Dmit Echo via panel only. 248 `node/upgrade` may return `pending: true` → poll
   contract). Local PG (temp postgres:18, repo/handler/contract, -p 1 -timeout 90m) running in background.
 - Pre-state (02:05 TW): 29/29 nodes online (27 × fork.129 incl. new vmsilo 沪美, Nobrand ×2 fork.126), 50 rules (49
   active), 1 forward_chain row; bizcheck pre: 49 active, 3 skipped (SSH targets), not-all-ok rules 6/37/53/69/77/78/84/95.
+- Release: tag `3.0.27-fork.130` (annotated) → 7464438a; Images 43277156320 success; release Latest, asset set = fork.129,
+  compose/install pinned, gost-amd64 sha256 + `-V` ok.
+- Panel 02:27:45–02:27:56 TW fork.129 → fork.130 (healthy, 救命版 mount ro ok). Rollback point
+  `/opt/flvx-svc/rollback/pre-fork130-20261112T181118Z/rollback.sh` (validated SQLite, image tags). Pruned pre-fork128.
+  Migration: forward_chain + inbound_protocol / tls_server_name / password / tls_cert_pem / tls_key_pem / cert_sha256 /
+  prev_inbound; existing chain row 6 (tunnel 116) inbound '' = Reality. 29/29 online after restart.
+- Canary Mkcloud 沪日ixp 440 02:28:25: `node/upgrade` answered in 5 s, state succeeded, back in 7 s. Error-level lines
+  0 since restart (238 in the 10 min before = dead-target refill errors, plan 247 fixed). 12 idle pooled conns.
+- Plan 250 live test (02:32–02:34 TW, tunnel 109 Dmit Nathan → JP, exit Bestvm JP B already fork.130): temporary
+  SOCKS5 upstream with auth on Breadcloud JP2 (panel host + FLVX node IPs are refused as upstream, as designed);
+  admin rule 604 / chain 7 AnyTLS → active in ~2 s, exit Core loopback 127.0.0.1:1024 AnyTLS inbound applied; 复制链接
+  has url + Clash + Surge line; cert sha256 seen through the entry == pinned fingerprint; sing-box 1.14.4 client from the
+  dev box: generate_204 204 (1.1 s), egress IP = upstream; temp sub `?t=surge` has the AnyTLS line, sing-box output has
+  the anytls outbound. SS2022 landing node / landingServerId+snell / +ss2022 on tunnel 109 all refused 「线路机隧道只能
+  使用 VLESS Reality Vision 或 AnyTLS 落地」, nothing created. Cleanup: sub 19, rule 604, chain 7 deleted; exit inbound
+  and desired/applied entries gone; upstream stopped and removed from Breadcloud JP2. Before exits were upgraded the
+  tunnel list showed AnyTLS greyed with 「出口节点「…」的节点程序版本过低」 (gate works).
