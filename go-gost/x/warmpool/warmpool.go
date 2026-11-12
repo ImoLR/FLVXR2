@@ -21,6 +21,12 @@
 // conns young (< 40 s, three generations in a row) are not warmed for 30 min
 // (「目标不支持预热」). The agent holds at most Cap pooled conns.
 //
+// Idle sleep (plan 249): a key with no new stream for 30 min drains to 0 and
+// stops refilling; the next stream on it dials cold (same as no pool) and
+// wakes it (refill at once). Decided locally from the key's own stream
+// times on the 5 s tick — SetWarmPools stays the "allowed" set, sleeping is
+// local state, reported as `sleep` on the key.
+//
 // Only counters are kept: they ride the existing metric message once a
 // minute (Report). Nothing is logged per conn or per stream.
 package warmpool
@@ -67,7 +73,13 @@ const (
 	poolDropAfter     = 10 * time.Minute
 	minAdaptiveMaxAge = 30 * time.Second
 	maxRetired        = 256
+	// IdleSleepAfter: a key with no new stream for this long sleeps (plan 249).
+	IdleSleepAfter = 30 * time.Minute
 )
+
+// idleSleepDefault is what New uses; only the `warmlab` build (local lab)
+// changes it, release builds always use IdleSleepAfter.
+var idleSleepDefault = IdleSleepAfter
 
 // Kind of an owner.
 type Kind byte
@@ -117,6 +129,10 @@ type owner struct {
 	pools  map[string]*pool
 	recent map[string]time.Time
 	absent bool
+	// lastStream: the last stream on any key of the owner (configured =
+	// a stream "now"); a pool created later starts from it, so a 最优 switch
+	// on an idle owner does not warm the new head (plan 249).
+	lastStream time.Time
 }
 
 type counters struct {
@@ -146,6 +162,7 @@ type pool struct {
 	capped           bool
 	lastUse          time.Time
 	created          time.Time
+	sleeping         bool // plan 249: no stream for idleSleep → 0 conns, no refill
 
 	stats counters
 }
@@ -171,6 +188,7 @@ type Manager struct {
 	tick         time.Duration
 	ageMin       time.Duration
 	ageMax       time.Duration
+	idleSleep    time.Duration
 	manualTicker bool
 }
 
@@ -191,6 +209,8 @@ func New(cap int) *Manager {
 		tick:    tickEvery,
 		ageMin:  ageMin,
 		ageMax:  ageMax,
+
+		idleSleep: idleSleepDefault,
 	}
 	empty := map[ownerKey]struct{}{}
 	m.active.Store(&empty)
@@ -271,7 +291,7 @@ func (m *Manager) SetConfig(cfg Config) int {
 	for key, size := range want {
 		o := m.owners[key]
 		if o == nil {
-			o = &owner{key: key, pools: map[string]*pool{}, recent: map[string]time.Time{}}
+			o = &owner{key: key, pools: map[string]*pool{}, recent: map[string]time.Time{}, lastStream: m.now()}
 			m.owners[key] = o
 		}
 		o.size = size
@@ -420,6 +440,7 @@ func (m *Manager) Tick() {
 				p.unsupported = false
 				p.youngStreak = 0
 			}
+			closing = append(closing, m.sleepCheckLocked(p, now)...)
 		}
 		closing = append(closing, m.evaluateLocked(o)...)
 		for addr, p := range o.pools {
@@ -480,8 +501,13 @@ func (m *Manager) evaluateLocked(o *owner) []*pconn {
 	for addr, n := range want {
 		p := o.pools[addr]
 		if p == nil {
-			p = &pool{key: poolKey{o.key, addr}, created: now, lastUse: now}
+			last := o.lastStream
+			if last.IsZero() || last.After(now) {
+				last = now
+			}
+			p = &pool{key: poolKey{o.key, addr}, created: now, lastUse: last}
 			o.pools[addr] = p
+			closing = append(closing, m.sleepCheckLocked(p, now)...)
 		}
 		p.want = n
 	}
@@ -491,8 +517,22 @@ func (m *Manager) evaluateLocked(o *owner) []*pconn {
 	return closing
 }
 
+// sleepCheckLocked puts a key with no stream for idleSleep to sleep: its idle
+// conns are returned for closing and it is not refilled until a stream wakes
+// it (noteUseLocked). Runs on the existing tick, no timer per key.
+func (m *Manager) sleepCheckLocked(p *pool, now time.Time) []*pconn {
+	if p.sleeping || p.removed || m.idleSleep <= 0 || now.Sub(p.lastUse) < m.idleSleep {
+		return nil
+	}
+	p.sleeping = true
+	p.capped = false
+	m.logger().Debugf("warm pool %s %s → %s: no stream for %s, sleeping until the next one",
+		p.key.owner.kind, p.key.owner.name, p.key.addr, m.idleSleep)
+	return m.drainIdleLocked(p)
+}
+
 func (m *Manager) refillLocked(p *pool) {
-	if p.removed || p.dialing > 0 || len(p.idle) >= p.want {
+	if p.removed || p.sleeping || p.dialing > 0 || len(p.idle) >= p.want {
 		return
 	}
 	now := m.now()
@@ -561,7 +601,7 @@ func (m *Manager) dialLoop(p *pool, src Source) {
 		p.stats.coldN++
 		p.stats.coldMs += ms(d)
 		o := m.owners[p.key.owner]
-		if p.removed || o == nil || o.absent || len(p.idle) >= p.want || p.unsupported || now.Before(p.restUntil) {
+		if p.removed || p.sleeping || o == nil || o.absent || len(p.idle) >= p.want || p.unsupported || now.Before(p.restUntil) {
 			p.dialing = 0
 			m.live--
 			m.mu.Unlock()
@@ -741,8 +781,15 @@ func (m *Manager) NoteMiss(k Kind, name, addr string, d time.Duration) {
 func (m *Manager) noteUseLocked(o *owner, addr string, now time.Time) {
 	_, known := o.recent[addr]
 	o.recent[addr] = now
+	o.lastStream = now
 	if p := o.pools[addr]; p != nil {
 		p.lastUse = now
+		if p.sleeping {
+			// Plan 249: this stream dials cold (nothing pooled); the key
+			// refills right away for the next ones.
+			p.sleeping = false
+			m.refillLocked(p)
+		}
 	}
 	if !known && o.pools[addr] == nil {
 		closeLater(m.evaluateLocked(o))
@@ -818,10 +865,11 @@ func (l *Lease) Redialed() {
 
 // Stats is a read-only view for tests and the debug log.
 type Stats struct {
-	Owners int
-	Pools  int
-	Live   int
-	Idle   int
+	Owners   int
+	Pools    int
+	Live     int
+	Idle     int
+	Sleeping int // pools asleep (plan 249)
 }
 
 func (m *Manager) Stats() Stats {
@@ -832,6 +880,9 @@ func (m *Manager) Stats() Stats {
 		s.Pools += len(o.pools)
 		for _, p := range o.pools {
 			s.Idle += len(p.idle)
+			if p.sleeping {
+				s.Sleeping++
+			}
 		}
 	}
 	return s

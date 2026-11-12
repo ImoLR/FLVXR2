@@ -37,6 +37,9 @@ type KeyReport struct {
 	FailN   int64   `json:"failN,omitempty"`  // refill dials that failed
 	State   string  `json:"state,omitempty"`  // rest | unsupported | capped
 	AgeCapS int     `json:"ageCapS,omitempty"`
+	// Sleep (plan 249): no stream for 30 min — 0 conns, not refilled until
+	// the next stream. Absent on older agents (= awake).
+	Sleep bool `json:"sleep,omitempty"`
 }
 
 // Report returns the counters since the previous call (and resets them), or
@@ -67,6 +70,7 @@ func (m *Manager) Report() *Report {
 			PeerN:  p.stats.peerN,
 			YoungN: p.stats.youngN,
 			FailN:  p.stats.failN,
+			Sleep:  p.sleeping && p.want > 0 && !p.removed,
 		}
 		switch {
 		case p.unsupported:

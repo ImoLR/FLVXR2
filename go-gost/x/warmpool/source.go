@@ -68,7 +68,7 @@ func (m *Manager) RegisterForwarder(service string, f Forwarder) {
 		key := ownerKey{KindService, service}
 		o := m.owners[key]
 		if o == nil {
-			o = &owner{key: key, pools: map[string]*pool{}, recent: map[string]time.Time{}}
+			o = &owner{key: key, pools: map[string]*pool{}, recent: map[string]time.Time{}, lastStream: m.now()}
 			m.owners[key] = o
 			m.publishActiveLocked()
 		}
