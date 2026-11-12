@@ -24,7 +24,12 @@ export interface ChainStatus {
   error: string;
   forwardId: number;
   summary: string;
+  /** Plan 250: "vless_reality_vision" | "anytls" */
+  inboundProtocol?: ChainInbound;
 }
+
+/** Plan 250: the exit inbound of a 「我自己的节点」 rule. */
+export type ChainInbound = "vless_reality_vision" | "anytls";
 
 export interface ForwardChainInfo {
   state: "creating" | "active" | "failed";
@@ -36,6 +41,7 @@ export interface ForwardChainInfo {
   upstreamHost: string;
   upstreamPort: number;
   summary: string;
+  inboundProtocol?: ChainInbound;
 }
 
 export interface ChainLink {
@@ -43,6 +49,10 @@ export interface ChainLink {
   url: string;
   entryNodeId: number;
   entryNodeName: string;
+  inboundProtocol?: ChainInbound;
+  /** Plan 250 (AnyTLS): pinned Clash (mihomo) entry and Surge line. */
+  clash?: string;
+  surge?: string;
 }
 
 export const parseChainLink = (link: string) =>

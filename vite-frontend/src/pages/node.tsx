@@ -2389,7 +2389,7 @@ export default function NodePage() {
                   className="shrink-0"
                   color="secondary"
                   size="sm"
-                  title="线路机：作为隧道入口时，规则只能转发到 VLESS Reality Vision 落地或「我自己的节点」"
+                  title="线路机：作为隧道入口时，规则只能转发到 VLESS Reality Vision / AnyTLS 落地或「我自己的节点」"
                   variant="flat"
                 >
                   线路机
@@ -3744,7 +3744,7 @@ export default function NodePage() {
                   <span>线路机</span>
                 </div>
                 <p className="text-xs text-default-500">
-                  公网线路（如 DMIT，非专线/IPLC）。作为隧道入口时，规则只能转发到 VLESS Reality Vision 落地或「我自己的节点」；线路机本身不会承载链式节点。
+                  公网线路（如 DMIT，非专线/IPLC）。作为隧道入口时，规则只能转发到 VLESS Reality Vision / AnyTLS 落地或「我自己的节点」；线路机本身不会承载链式节点。
                 </p>
               </div>
               {(() => {

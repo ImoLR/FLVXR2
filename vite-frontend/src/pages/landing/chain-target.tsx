@@ -1,8 +1,103 @@
 import { useEffect, useRef, useState } from "react";
 
-import { ChainParseResult, parseChainLink } from "@/api/line-chain";
+import { landingToneClass } from "./pill";
+
+import {
+  ChainInbound,
+  ChainParseResult,
+  parseChainLink,
+} from "@/api/line-chain";
 import { Chip } from "@/shadcn-bridge/heroui/chip";
 import { Textarea } from "@/shadcn-bridge/heroui/input";
+
+// Plan 250: the exit inbound the user's client speaks — VLESS Reality
+// (default, recommended) or AnyTLS (Surge has no VLESS). Two tinted pills.
+const INBOUND_OPTIONS: {
+  key: ChainInbound;
+  label: string;
+  tag?: string;
+  tone: "green" | "purple";
+}[] = [
+  {
+    key: "vless_reality_vision",
+    label: "VLESS Reality",
+    tag: "推荐",
+    tone: "green",
+  },
+  { key: "anytls", label: "AnyTLS", tone: "purple" },
+];
+
+export function ChainInboundPicker({
+  value,
+  current,
+  anytlsReason,
+  onChange,
+}: {
+  value: ChainInbound;
+  /** The edited rule's protocol (edit only). */
+  current?: ChainInbound;
+  /** Why AnyTLS is unavailable on this tunnel ("" = available). */
+  anytlsReason?: string;
+  onChange: (value: ChainInbound) => void;
+}) {
+  return (
+    <div className="space-y-1">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="shrink-0 text-sm text-default-500">连接协议</span>
+        <div
+          aria-label="连接协议"
+          className="flex flex-wrap gap-1.5"
+          role="radiogroup"
+        >
+          {INBOUND_OPTIONS.map((option) => {
+            const selected = value === option.key;
+            const disabled =
+              option.key === "anytls" &&
+              Boolean(anytlsReason) &&
+              current !== "anytls";
+
+            return (
+              <button
+                key={option.key}
+                aria-checked={selected}
+                aria-disabled={disabled}
+                className={`inline-flex items-center gap-1 whitespace-nowrap rounded-full px-3 py-1 text-xs font-semibold transition-colors ${
+                  selected
+                    ? `${landingToneClass[option.tone]} ring-1 ring-inset ring-current`
+                    : "bg-slate-500/10 text-default-600 hover:bg-slate-500/20 dark:bg-slate-400/15 dark:text-slate-300"
+                }${disabled ? " cursor-not-allowed opacity-50 hover:bg-slate-500/10" : ""}`}
+                disabled={disabled}
+                role="radio"
+                title={disabled ? anytlsReason : undefined}
+                type="button"
+                onClick={() => onChange(option.key)}
+              >
+                {selected && <span aria-hidden>✓</span>}
+                {option.label}
+                {option.tag && (
+                  <span className="font-normal opacity-80">· {option.tag}</span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+      <p className="text-xs text-default-500">
+        Surge 等不支持 VLESS 的客户端请选 AnyTLS
+      </p>
+      {anytlsReason && current !== "anytls" && (
+        <p className="text-xs text-default-500">
+          AnyTLS 暂不可用：{anytlsReason}
+        </p>
+      )}
+      {current && value !== current && (
+        <p className="text-xs font-medium text-warning-600 dark:text-warning-400">
+          更换协议后你的转发链接会变化，保存后请重新「复制链接」导入客户端
+        </p>
+      )}
+    </div>
+  );
+}
 
 // 「我自己的节点」: the user pastes their own node link; the server parses and
 // validates it and only the protocol and address are shown back.

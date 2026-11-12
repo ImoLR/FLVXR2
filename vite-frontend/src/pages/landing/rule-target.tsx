@@ -14,7 +14,11 @@ import {
   OnboardingAnchor,
   useOnboardingHint,
 } from "@/components/onboarding-ring";
-import { ChainTargetInput } from "@/pages/landing/chain-target";
+import { ChainInbound } from "@/api/line-chain";
+import {
+  ChainInboundPicker,
+  ChainTargetInput,
+} from "@/pages/landing/chain-target";
 import { CreateLandingNodeDialog } from "@/pages/landing/create-node";
 import { Button } from "@/shadcn-bridge/heroui/button";
 import {
@@ -27,14 +31,19 @@ export interface LandingTargetValue {
   targetMode?: "manual" | "node" | "chain";
   landingNodeId?: number;
   chainLink?: string;
+  /** Plan 250: exit inbound of 「我自己的节点」 (default VLESS Reality). */
+  chainInbound?: ChainInbound;
 }
 
-// 线路机 tunnels (plan 108) only allow VLESS Reality Vision landings or the
-// user's own node through the tunnel exit; manual targets are hidden.
+// 线路机 tunnels (plan 108) only allow VLESS Reality Vision or (plan 250)
+// AnyTLS landings, or the user's own node through the tunnel exit; manual
+// targets are hidden.
 export interface LineTunnelInfo {
   lineMachine?: boolean;
   chainAvailable?: boolean;
   chainUnavailableReason?: string;
+  chainAnyTLSAvailable?: boolean;
+  chainAnyTLSUnavailableReason?: string;
   /** Plan 224: features the tunnel's entry filter blocks ("tls" / "http"). */
   blockedFeatures?: string[];
 }
@@ -46,6 +55,7 @@ export function RuleLandingTarget({
   line,
   chainSummary,
   chainError,
+  chainCurrentInbound,
 }: {
   value: LandingTargetValue;
   userId: number;
@@ -53,6 +63,8 @@ export function RuleLandingTarget({
   line?: LineTunnelInfo;
   chainSummary?: string;
   chainError?: string;
+  /** Plan 250: the edited chain rule's current inbound (edit only). */
+  chainCurrentInbound?: ChainInbound;
 }) {
   const [nodes, setNodes] = useState<LandingNode[]>([]);
   const [servers, setServers] = useState<LandingServer[]>([]);
@@ -107,8 +119,12 @@ export function RuleLandingTarget({
       (node.effectiveExpiresAt && node.effectiveExpiresAt <= Date.now())
     )
       return "已停用";
-    if (lineMachine && node.protocol !== "vless_reality_vision")
-      return "线路机需要 VLESS Reality Vision";
+    if (
+      lineMachine &&
+      node.protocol !== "vless_reality_vision" &&
+      node.protocol !== "anytls"
+    )
+      return "线路机需要 VLESS Reality Vision 或 AnyTLS";
 
     return landingFeatureBlockedReason(blocked, node.filterFeatures);
   };
@@ -138,7 +154,7 @@ export function RuleLandingTarget({
       <Select
         description={
           lineMachine
-            ? "线路机隧道只能转发到 VLESS Reality Vision 落地，或经隧道出口连接你自己的节点"
+            ? "线路机隧道只能转发到 VLESS Reality Vision 或 AnyTLS 落地，或经隧道出口连接你自己的节点"
             : undefined
         }
         disabledKeys={lineMachine && !line?.chainAvailable ? ["chain"] : []}
@@ -252,6 +268,18 @@ export function RuleLandingTarget({
             本人落地不重复计入用户总流量，按隧道与落地较贵的费率计费。此规则只使用一个落地目标。
           </p>
         </>
+      )}
+      {mode === "chain" && (
+        <ChainInboundPicker
+          anytlsReason={
+            line?.chainAnyTLSAvailable === false
+              ? line.chainAnyTLSUnavailableReason || "暂不可用"
+              : ""
+          }
+          current={chainCurrentInbound}
+          value={value.chainInbound || "vless_reality_vision"}
+          onChange={(chainInbound) => onChange({ ...value, chainInbound })}
+        />
       )}
       {mode === "chain" && (
         <ChainTargetInput

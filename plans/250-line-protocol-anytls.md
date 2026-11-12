@@ -49,15 +49,15 @@ Gallery :8791 `/line-protocol-anytls/`; release waits for the user's screen appr
 
 - [x] read memory / brief / code (line_machine, line_chain, landing protocols, sublink, agent landing types)
 - [x] verify Core supports AnyTLS inbound; verify Surge anytls syntax in the manual
-- [ ] agent: AnyTLS chain inbound (`anytls` object, inline cert, validation), `ChainVersion` 2, unit tests
-- [ ] panel: model columns + chain create with `chainInbound` (Reality default / AnyTLS), credentials + cert
-- [ ] panel: desired state (AnyTLS copy only to `landing_chain ≥ 2`), egress tags consistent, guard skip
-- [ ] panel: capability gating (tunnel list `chainAnyTLSAvailable` + reason, create / attach / move checks)
-- [ ] panel: 线路机 targets accept AnyTLS landing (pre-check, resolve, filter pre-check, target error,
+- [x] agent: AnyTLS chain inbound (`anytls` object, inline cert, validation), `ChainVersion` 2, unit tests
+- [x] panel: model columns + chain create with `chainInbound` (Reality default / AnyTLS), credentials + cert
+- [x] panel: desired state (AnyTLS copy only to `landing_chain ≥ 2`), egress tags consistent, guard skip
+- [x] panel: capability gating (tunnel list `chainAnyTLSAvailable` + reason, create / attach / move checks)
+- [x] panel: 线路机 targets accept AnyTLS landing (pre-check, resolve, filter pre-check, target error,
       compliance view/ack, messages)
-- [ ] panel: links — 复制链接 (URL + Clash + Surge), subscription node (Extra AnyTLS, pinned), landing
+- [x] panel: links — 复制链接 (URL + Clash + Surge), subscription node (Extra AnyTLS, pinned), landing
       AnyTLS Surge line in 节点链接
-- [ ] panel: edit protocol switch (begin / commit / revert, reconciler)
+- [x] panel: edit protocol switch (begin / commit / revert, reconciler)
 - [ ] backend tests (unit + contract) + `go test ./...` SQLite + PG
 - [ ] frontend: landing picker lists AnyTLS on 线路机; create-node AnyTLS on 线路机; chain protocol pills +
       hint; row badge; chain link dialog for AnyTLS; texts; `npm run build`, eslint 0 new errors
@@ -66,3 +66,42 @@ Gallery :8791 `/line-protocol-anytls/`; release waits for the user's screen appr
 - [ ] gallery :8791 `/line-protocol-anytls/` (desktop 1366×900 + mobile 390×844, light + dark)
 - [ ] push branch, CI green
 - [ ] ledger row 250 (待发布), summary `runs/line-protocol-anytls/summary.md`, cleanup
+
+## Results
+
+### Local lab (netns `ap250*`, no internet, synthetic DB; scripts in `/root/flvx-workers/runs/line-protocol-anytls/lab/`)
+
+client (mihomo 1.19.32 / sing-box 1.14.3 with the **generated** configs) → entry E (线路机, gost) → tunnel (tls
+relay) → exit X → `127.0.0.1:<port>` AnyTLS inbound (pinned landing Core v1.4.83) → chain outbound SOCKS5 →
+the user's node (mihomo SOCKS5) → target. `e2e.py`: **26/26 passed** —
+AnyTLS TCP + UDP (UoT) end to end; wrong certificate pin refused; 复制链接 = anytls:// + Clash + Surge; Surge line
+matches the documented syntax (`anytls, host, port, password=…, sni=…, server-cert-fingerprint-sha256=<64 hex>`,
+manual.nssurge.com policies/anytls + policies/tls; quoted values per profile/format); subscription Surge /
+Surfboard / Clash / Loon / QX all carry the pinned AnyTLS node, Base64 = the link, sing-box outbound (certificate
++ SNI) works end to end; a Reality chain to the same node next to it works (local TLS 1.3 stand-in as the
+伪装目标, the lab has no internet); switching to Reality is refused while that twin exists; after deleting it
+AnyTLS → Reality → AnyTLS on the same rule works and the old AnyTLS credentials stop working.
+
+Resources: one loopback inbound per chain rule per exit (`applied.json` on the exit: exactly the rule's
+`flvxl-<id>`); landing Core RSS 69.0 MB → 68.8 MB after adding the AnyTLS chain (no measurable cost), +16 MB
+for the Reality chain (guard + REALITY). Certificate generated once at create / protocol switch; nothing per
+request; no new loops, probes or goroutines.
+
+### Pre-existing issues found (not changed here)
+
+- `POST /api/v1/forward/list` fails on **PostgreSQL** on the base too (fork.129): `ListForwards` joins the
+  reserved word `user` unquoted (`LEFT JOIN user ON user.id = …` → `syntax error at or near "."`). Prod runs
+  SQLite, so prod is not affected; the new contract test asserts the list part on SQLite only.
+- Agent `TestLandingRealCoreUpgradeRestart` and `TestEgressRealCoreAcceptsRenderedConfig` fail with the pinned
+  Core on this box on the unmodified base too (environment), unrelated to plan 250.
+
+### Release notes (for the release worker)
+
+- Panel: image swap; DB auto-migrate adds 7 `forward_chain` columns (defaults `''` = Reality) → rollback =
+  image swap, no `--restore-db` (older panels ignore the columns; AnyTLS chains created meanwhile would be
+  served as Reality by an older panel → delete/recreate them after a rollback).
+- Agent OTA needed **only for AnyTLS chains**: exits of 线路机 tunnels (prod read-only 11-13: Datawave HK 2,
+  AWS HK, Bestvm HK 年付, Bestvm TW, Datawave TW 1, Bestvm US, Bestvm JP B, Bestvm sg 年付; all
+  `landing_chain 1` today). Until then the AnyTLS pill shows 「出口节点「…」的节点程序版本过低，升级后才能使用
+  AnyTLS」 and nothing changes for Reality chains. AnyTLS **landing nodes** (shared mmwx servers) on 线路机
+  tunnels need no OTA.
