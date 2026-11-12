@@ -46,7 +46,7 @@ Run dir (raw jsonl, scripts, full tables): `/root/flvx-workers/runs/entry-warm-m
         detail (desktop list + card/H5, light + dark)
   - [ ] tests: agent unit, panel unit/contract, old-agent compatibility, go test ./... both modules
   - [ ] local E2E lab (netns: panel + entry + middle + exit + target), resource numbers
-  - [ ] preview gallery :8791 /entry-warm-pool/ (desktop 1366×900 + mobile 390×844, light + dark)
+  - [x] preview gallery :8791 /entry-warm-pool/ (desktop 1366×900 + mobile 390×844, light + dark)
   - [ ] summary + release notes (DB migration, panel, OTA list, restarts, rollback)
 - ~~Step 3: live A/B~~ — dropped by the user 11-12 (the speed tag replaces it)
 

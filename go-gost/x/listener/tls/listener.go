@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"net"
+	"sync"
 	"time"
 
 	"github.com/go-gost/core/limiter"
@@ -100,44 +101,128 @@ func (l *tlsListener) Close() error {
 	return l.ln.Close()
 }
 
+const (
+	silentHandshakeTimeout = 10 * time.Second
+	// Plan 245: handshakes in flight per listener. At the cap the accept loop
+	// waits (kernel backlog), so a listener never holds more than this many
+	// unfinished or undelivered conns.
+	silentMaxHandshakes = 64
+)
+
+type acceptResult struct {
+	conn net.Conn
+	err  error
+}
+
 // silentTLSListener 是一个自定义的TLS监听器，对非TLS连接静默处理
+//
+// Plan 245: the handshake runs in its own goroutine per connection, not
+// inside Accept — one client that never sends a ClientHello (a port scan)
+// used to block every new tunnel connection of this port for up to 10 s,
+// and concurrent connections queued behind each other's handshake RTT.
 type silentTLSListener struct {
 	net.Listener
 	config *tls.Config
 	logger logger.Logger
+
+	results   chan acceptResult // unbuffered: finished conns are handed over one by one
+	sem       chan struct{}     // handshakes in flight (+ waiting for hand-over)
+	done      chan struct{}     // closed by Close
+	dead      chan struct{}     // closed when the inner listener failed for good
+	deadErr   error
+	closeOnce sync.Once
 }
 
 func newSilentTLSListener(inner net.Listener, config *tls.Config, logger logger.Logger) net.Listener {
-	return &silentTLSListener{
+	l := &silentTLSListener{
 		Listener: inner,
 		config:   config,
 		logger:   logger,
+		results:  make(chan acceptResult),
+		sem:      make(chan struct{}, silentMaxHandshakes),
+		done:     make(chan struct{}),
+		dead:     make(chan struct{}),
+	}
+	go l.acceptLoop()
+	return l
+}
+
+func (l *silentTLSListener) acceptLoop() {
+	for {
+		select {
+		case l.sem <- struct{}{}:
+		case <-l.done:
+			return
+		}
+		conn, err := l.Listener.Accept()
+		if err != nil {
+			<-l.sem
+			select {
+			case <-l.done:
+				return
+			default:
+			}
+			if ne, ok := err.(net.Error); ok && ne.Temporary() {
+				// The service loop backs off on a temporary error and
+				// calls Accept again: hand it over, then keep going.
+				select {
+				case l.results <- acceptResult{err: err}:
+					continue
+				case <-l.done:
+					return
+				}
+			}
+			l.deadErr = err
+			close(l.dead)
+			return
+		}
+		go l.handshake(conn)
+	}
+}
+
+func (l *silentTLSListener) handshake(conn net.Conn) {
+	defer func() { <-l.sem }()
+
+	// 创建TLS连接
+	tlsConn := tls.Server(conn, l.config)
+
+	// 设置握手超时
+	tlsConn.SetDeadline(time.Now().Add(silentHandshakeTimeout))
+
+	// 尝试TLS握手（失败静默关闭）
+	if err := tlsConn.Handshake(); err != nil {
+		conn.Close()
+		return
+	}
+
+	// 清除超时设置
+	tlsConn.SetDeadline(time.Time{})
+
+	select {
+	case l.results <- acceptResult{conn: tlsConn}:
+	case <-l.done:
+		tlsConn.Close()
 	}
 }
 
 func (l *silentTLSListener) Accept() (net.Conn, error) {
-	for {
-		conn, err := l.Listener.Accept()
-		if err != nil {
-			return nil, err
+	select {
+	case r := <-l.results:
+		return r.conn, r.err
+	case <-l.done:
+		return nil, net.ErrClosed
+	case <-l.dead:
+		// A conn finished just before the inner listener died still goes out.
+		select {
+		case r := <-l.results:
+			return r.conn, r.err
+		default:
 		}
-
-		// 创建TLS连接
-		tlsConn := tls.Server(conn, l.config)
-
-		// 设置握手超时
-		tlsConn.SetDeadline(time.Now().Add(10 * time.Second))
-
-		// 尝试TLS握手
-		if err := tlsConn.Handshake(); err != nil {
-
-			conn.Close()
-			continue // 继续接受下一个连接
-		}
-
-		// 清除超时设置
-		tlsConn.SetDeadline(time.Time{})
-
-		return tlsConn, nil
+		return nil, l.deadErr
 	}
+}
+
+func (l *silentTLSListener) Close() error {
+	l.closeOnce.Do(func() { close(l.done) })
+	return l.Listener.Close()
 }
