@@ -356,8 +356,9 @@ idle conns after 4 s). Scripts: `/root/flvx-workers/runs/entry-warm-pool/lab/` (
 - **Agents (OTA)**: entries (chain + 端口转发 pools), middles (pools to the exit + quiet close + plan 245),
   exits (quiet close + plan 245), native landing nodes (Core `handshake` 120 s written to the Core config;
   the running Core is **not** restarted — it applies at the next Core start). Agents not yet upgraded: no
-  pool, nothing changes (old middles/exits log one relay error line per retired pooled conn of a new
-  entry, ≈ 1.2 / min per tunnel hop, until they are upgraded).
+  pool, nothing changes (an old middle / exit behind a new entry sees each retired pooled conn as a
+  relay EOF error: the existing aggregated handler-error log writes the first one and then one summary
+  line per 10 min per relay service, until it is upgraded).
 - **Landing Core restart (optional, release-time decision)**: 端口转发 rules whose target is one of our
   native landings show 「目标不支持预热」 until that landing's Core restarts with 120 s (retried every
   30 min, ≈ 6 dials / 30 min / rule). Restarting the Core drops that landing's live connections for a
