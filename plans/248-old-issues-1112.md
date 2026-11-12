@@ -13,7 +13,7 @@ User 11-12 20:50 TW: 「那几个老问题…安排一个修复吧，还是要�
 - [x] 5. 4 a11y lint errors in vite-frontend tunnel.tsx → 0 errors, no visible change
 - [x] 6. Tests: go-backend `go test ./...` (SQLite + PG contract), go-gost + go-gost/x, `npm run build`
 - [x] 7. Ledger row 248 (ready, rides with 247), push branch, CI green
-- [ ] 8. Summary (Chinese) + cleanup
+- [x] 8. Summary (Chinese) + cleanup
 
 ## Notes
 
@@ -98,3 +98,9 @@ User 11-12 20:50 TW: 「那几个老问题…安排一个修复吧，还是要�
 - Watch after release: `[ws] node N status self-heal …` log lines (each one = a stale flag fixed; expected
   rare), stored 在线/离线 vs live sessions after the next panel stall / reconnect wave.
 - Rollback: image swap back to fork.129 (`rollback.sh` of the release); no DB restore needed.
+
+### Build result
+- Branch `fix/3.0.27-old-issues-1112` (247 d2da306b + 248 ac778dce cfb0082a 28bdcdc3 57a33fed bbf5ac85 + docs),
+  CI 43238099973 (57a33fed) and 43239164527 (3024e22b) green: backend, PG contract, frontend, agent.
+- Ledger row 248 = ready, released together with 247. No tag, no release, no prod change.
+- Summary: /root/flvx-workers/runs/old-issues-1112/summary.md
