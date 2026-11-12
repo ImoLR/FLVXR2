@@ -11,8 +11,8 @@ all 26 fork.129 agents, canary Mkcloud 沪日ixp 440, one host at a time, 02:00�
 Dmit Echo via panel only. 248 `node/upgrade` may return `pending: true` → poll `node/upgrade/status`.
 
 ## Tasks
-- [ ] merge 3 branches (no conflicts) + plan doc; disk ≥ 5 GB
-- [ ] gates: go-backend build/vet/test (SQLite + PG), go-gost/x tests, go-gost build, `npm run build`
+- [x] merge 3 branches (no conflicts) + plan doc; disk ≥ 5 GB
+- [x] gates: go-backend build/vet/test (SQLite + PG), go-gost/x tests, go-gost build, `npm run build`
 - [ ] push branch, CI green, tag `3.0.27-fork.130`, Images workflow, release Latest + assets validated
 - [ ] pre-state snapshot (nodes, rule states, chain/线路机 rules, warm idle conns per host)
 - [ ] panel backup + rollback dir, upgrade /opt/flvx-svc, health + 28 nodes, migration columns
@@ -24,3 +24,10 @@ Dmit Echo via panel only. 248 `node/upgrade` may return `pending: true` → poll
 - [ ] ledger 247–250 → 已发布, prune backups, cache + worktree cleanup, summary, plan complete
 
 ## Results
+- Merge (11-13 02:02 TW): 3 branches + fork.129 docs merged with no conflicts. Disk 6.3 G free before build.
+- Gates (02:03–02:09 TW): go-backend build ok, vet only the old RouteRef unkeyed warnings, `go test ./...` all ok
+  (SQLite); go-gost/x warmpool, chain, ctx, handler/forward, landing, handler/relay, socket, listener/tls all ok;
+  go-gost build ok; `npm install --legacy-peer-deps && npm run build` ok. Branch CI 43275808141 green (4 jobs incl. PG
+  contract). Local PG (temp postgres:18, repo/handler/contract, -p 1 -timeout 90m) running in background.
+- Pre-state (02:05 TW): 29/29 nodes online (27 × fork.129 incl. new vmsilo 沪美, Nobrand ×2 fork.126), 50 rules (49
+  active), 1 forward_chain row; bizcheck pre: 49 active, 3 skipped (SSH targets), not-all-ok rules 6/37/53/69/77/78/84/95.
