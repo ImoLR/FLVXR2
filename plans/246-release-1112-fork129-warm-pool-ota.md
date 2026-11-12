@@ -16,8 +16,8 @@ TW. Dmit Echo via panel OTA, never touch its flux_agent. Do NOT restart landing 
 - [x] push branch, branch CI green, tag `3.0.27-fork.129`, Images workflow, release Latest + assets validated
 - [x] panel backup + rollback dir (image swap; DB column additive), upgrade /opt/flvx-svc, health + node state
 - [x] relay services re-pushed with `readTimeout: 130s` in place, no error spam, business check pre == post
-- [ ] OTA canary Mkcloud 沪日ixp 440 + middles/exits of tunnels 25/28 (backup, RSS/fd before/after, pools ≤2 per key)
-- [ ] OTA the rest one host at a time (SSH backup each)
+- [x] OTA canary Mkcloud 沪日ixp 440 + middles/exits of tunnels 25/28 (backup, RSS/fd before/after, pools ≤2 per key)
+- [x] OTA the rest one host at a time (SSH backup each)
 - [ ] Leikwanhost 沪台IPLC watch (LeiKwan conn-limit / errors)
 - [ ] per-host pool counts vs estimate; logs on entry/middle/exit (no per-stream lines)
 - [ ] ~1 h: per-tunnel 预热 tag report vs step-1 numbers; native landing list for `landing-core-restart`
@@ -36,3 +36,12 @@ TW. Dmit Echo via panel OTA, never touch its flux_agent. Do NOT restart landing 
   a simultaneous reconnect; the panel restart cleared it). Redeploy after reconnect: all relay services updated in
   place, failed=0 on every node; Bestvm JP B 18 + Datawave HK 2 26 relay services all `readTimeout: 130s`, agent PIDs
   unchanged (no restart). Business check pre == post (45 rules; same 5 not-all-ok as at fork.128 = target side).
+- OTA 18:28–18:58 TW, one host at a time, SSH backup each (`/root/flvxx-backup-<ts>-pre-fork129/restore-agent.sh`,
+  list in run dir work/backups.txt): canary Mkcloud 沪日ixp 440 (5.7 s) → Bestvm JP B → Datawave HK 2 → Bestvm HK 年付,
+  then 22 more; 26 agents on fork.129, all back in 4.7–12 s (火山广州 312 s: CN download, request timed out at 300 s,
+  agent came up on its own). Skipped Nobrand 5cm IPLC 沪日 + Nobrand IPLC 沪港 (fork.126, user 11-07 leave alone).
+  Agent RSS after restart 48–62 MB (before 25–131 MB), fd +0…+12; landing Core PIDs (Bestvm US 456239, NexKR 2144496)
+  and every flux_agent PID unchanged.
+- Canary pools: 440 → Bestvm JP B t28 middle ×2 + t25 exit ×2 + 端口转发 targets ×2 each; Bestvm JP B (t28 middle) →
+  Datawave HK 2 ×2. Found: refill dials of 2 dead 端口转发 targets (rules 77/95) logged one error line per attempt →
+  fix = plan 247 (feature/3.0.27-warm-dial-quiet d2da306b, build only, next agent release).
