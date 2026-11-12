@@ -45,7 +45,7 @@ Run dir (raw jsonl, scripts, full tables): `/root/flvx-workers/runs/entry-warm-m
   - [x] frontend: 「预热池」 switch in tunnel dialog; tag 预热 −N ms / +N ms / 目标不支持预热 +
         detail (desktop list + card/H5, light + dark)
   - [ ] tests: agent unit, panel unit/contract, old-agent compatibility, go test ./... both modules
-  - [ ] local E2E lab (netns: panel + entry + middle + exit + target), resource numbers
+  - [x] local E2E lab (netns: panel + entry + middle + exit + target), resource numbers
   - [x] preview gallery :8791 /entry-warm-pool/ (desktop 1366×900 + mobile 390×844, light + dark)
   - [ ] summary + release notes (DB migration, panel, OTA list, restarts, rollback)
 - ~~Step 3: live A/B~~ — dropped by the user 11-12 (the speed tag replaces it)
@@ -320,3 +320,49 @@ entries by warm streams; 端口转发 = per rule target. Green 「预热 −N ms
 断开」 when ≥ 5 % of warm streams hit a dead conn), grey 「目标不支持预热」, nothing when off / no active
 rule / not enough samples. Detail (tap / click): 用上预热 % · 冷连接 · 预热多等 · 近 1 小时, one line
 per hop with node names. The 60 s path-latency probe and every 最优 UI are untouched.
+
+## Step 2 local E2E (2026-11-12, netns lab, throwaway panel + agents E/M/X + target, no prod)
+Lab: entry E → middle M → exit X → target T, netem RTT E↔M 50 ms, M↔X 90 ms, X↔T 4 ms; tunnel
+`lab-warm` (2 hops, tls) + 端口转发 tunnel `lab-port` (targets T:9001 keeps idle conns, T:9002 closes
+idle conns after 4 s). Scripts: `/root/flvx-workers/runs/entry-warm-pool/lab/` (`e2e.py`, `loadcmp.py`,
+`silent.py`), results `lab/logs/*.json*`.
+
+| check | result |
+|---|---|
+| first byte, 2-hop tunnel, 30 streams 1.5 s apart: cold (switch off) / warm | p50 578.0 / 295.6 ms (−282 ms = TCP+TLS on both hops), 0 errors |
+| panel tag for that tunnel (1 h window) | 「预热 −283 ms」: E→M −101.5 ms, M→X −181.4 ms, 用上预热 100 % |
+| switch off → pools gone on E and M / switch on → ready | 1.5 s / 1.8 s (no service re-created) |
+| last rule deleted → gone / rule created → ready / pause → gone / resume → ready | 1.6 / 1.8 / 1.6 / 1.8 s |
+| exit agent restart, 20 streams right after | 0 errors (dead pooled conns seen at once by the idle watcher, refilled) |
+| pooled M→X conns black-holed (no FIN/RST), 3 streams | 0 errors; the 2 that took a dead conn paid +3.5 s (TCP_USER_TIMEOUT 3 s + cold redial), counted as warm extra delay |
+| target closing idle conns after 4 s (fresh rule) | 「目标不支持预热」 after 6 dials / ≈ 20 s, then 0 dials (retry after 30 min) |
+| idle refill rate (tcpdump) | pooled conns live 95–100 s, closed by our side → 1.2 dials / min / key; the existing 60 s path-latency probe (connect + RST, ≈ 2.7 / min to each next hop) is separate and unchanged |
+| entry agent with 0 / 10 / 50 warm keys (cap 64 conns hit at 50, one log line) | RSS 56.0 / 56.5 / 59.5 MB, fds 18 / 54 / 178 (incl. the 50 rules' own listeners), goroutines 54 / 123 / 407 |
+| 1000 streams (600 tunnel + 400 port, 10 concurrent), then load rules deleted | fds / goroutines back to baseline (177 / 405 during, 21 / 57 after; baseline + the 4 remaining pooled conns), RSS +3.4 MB heap; M/X unchanged |
+| panel RSS with the stats window (≈ 1000 streams, 50 keys) | 78.5 → 81.6 MB |
+| previous agent (fork.128) as entry | no `SetWarmPools` sent (capability), rule works cold, 0 errors |
+| previous agent (fork.128) as exit | `readTimeout: 130s` honoured: pooled M→X conns alive after 40 s, warm first byte 295 ms |
+| log spam | none: agent logs after the run = start-up lines only; relay "closed before any request" is silent on new agents |
+| concurrency (pool on / off, mean): 1 / 4 / 10 streams in parallel | 296 / 579 · 413 / 585 · 891 / 913 — at 10 the next hop's **serial** TLS accept (pre-existing) was the bottleneck → plan 245 |
+| same after plan 245 (concurrent handshakes) | 296 / 579 · 388 / 579 · 480 / 578 |
+| one silent TCP conn on the middle's relay port (pre-existing bug) | before 245: 1 of 3 cold streams failed (10 s stall), warm max 8.9 s; after: 0 errors, 579 / 297 ms |
+
+## Release notes (for the release after the user approves the screens)
+- **DB**: AutoMigrate adds `tunnel.warm_pool INTEGER NOT NULL DEFAULT 1` (SQLite + PG) → every existing
+  tunnel on. Rollback to fork.128 keeps working with the extra column (it is ignored); no DB restore needed.
+- **Panel**: switch + light endpoint + `SetWarmPools` reconcile + stats/tag. At the panel restart the
+  reconnect diff re-pushes every tunnel relay service once with `readTimeout: 130s` (`UpdateService`:
+  established connections stay, ms listener gap).
+- **Agents (OTA)**: entries (chain + 端口转发 pools), middles (pools to the exit + quiet close + plan 245),
+  exits (quiet close + plan 245), native landing nodes (Core `handshake` 120 s written to the Core config;
+  the running Core is **not** restarted — it applies at the next Core start). Agents not yet upgraded: no
+  pool, nothing changes (old middles/exits log one relay error line per retired pooled conn of a new
+  entry, ≈ 1.2 / min per tunnel hop, until they are upgraded).
+- **Landing Core restart (optional, release-time decision)**: 端口转发 rules whose target is one of our
+  native landings show 「目标不支持预热」 until that landing's Core restarts with 120 s (retried every
+  30 min, ≈ 6 dials / 30 min / rule). Restarting the Core drops that landing's live connections for a
+  few seconds — do it only where such rules exist, or let it happen at the next Core upgrade.
+- **Nothing restarts or drops users** otherwise; the switch / rule changes are hot (no service re-created).
+- **Rollback**: panel image fork.128 (column stays, harmless); agents back to fork.128 by OTA if needed
+  (a new agent under an old panel never gets `SetWarmPools` → no pools; plan 245 and the 120 s Core
+  config stay, both harmless).
