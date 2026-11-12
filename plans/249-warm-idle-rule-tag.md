@@ -61,9 +61,9 @@ no release, no prod change; rides with 247 + 248 in one release (fork.130) after
 - [x] `go test ./...` go-backend (+ PG), go-gost/x, go-gost build; `npm run build`; eslint 0 new errors
 - [x] local lab: pool drains after idle (short timer) and wakes on the next stream; resource numbers
 - [x] prod read-only estimate: rules / keys with no streams in 30 min → idle conns saved
-- [ ] gallery :8791 /warm-idle-rule-tag/ (rules page user + admin, tunnel page 数据不足, desktop + mobile,
+- [x] gallery :8791 /warm-idle-rule-tag/ (rules page user + admin, tunnel page 数据不足, desktop + mobile,
       light + dark, close-up 出口最优 + 预热)
-- [ ] ledger row 249, push branch, CI green, summary
+- [x] ledger row 249, push branch, CI green, summary
 
 ## Results (2026-11-12, build only)
 
@@ -110,3 +110,18 @@ Dmit Echo 2 → 2. Lower bound: a rule with a long stream still carrying bytes c
   数据不足 / numbers as reported; new agent under an old panel = sleeps, the old panel ignores `sleep` (its tag then
   just follows the hour window as before).
 - Rollback: panel image swap (no schema change); agents back by OTA if needed (no state is persisted).
+
+### Gallery
+http://104.145.236.29:8791/warm-idle-rule-tag/ — 28 screens (desktop 1366×900 + mobile 390×844, light + dark): rules page
+as a normal user (demo_user, 6 own rules: only 3 green tags) and as admin (all 11 rules: green ×4, red, 不支持 ×2,
+数据不足 ×2; list / grouped tree / cards / H5), close-ups of 「出口最优」 + 「预热」, the popovers (user one sentence, admin
+数据不足 counts per hop, admin two-hop green), tunnel page with 「预热中 · 数据不足」 and a sleeping tunnel without tag.
+Synthetic seeded panel (names as on prod, documentation addresses) in a loopback-only netns with simulated agents
+that send real warm reports over the agent WebSocket — the tags are what the panel itself returns per viewer; only
+the 最优 data (60 s probe round) is added in the browser. 94/94 automated checks (states per viewer, line placement
+under the 最优 line, rules-page size, ms tag computed style == the 最优 ms tag, user API without hops / names /
+targets / counts), 0 page errors. Scripts (not committed): `runs/warm-idle-rule-tag/demo/`.
+
+### Ledger / CI
+Ledger row 249 added (waits for screen approval; rides with 247 + 248 as fork.130). Branch pushed; CI Build Check
+43246709140 green on 2f5e1519 (the code head; later commits are docs only).
