@@ -1061,6 +1061,8 @@ func (h *Handler) forwardList(w http.ResponseWriter, r *http.Request) {
 
 	// Plan 180: the 最优 pick line of every rule (memory only).
 	h.attachRuleBestPicksOrLog(items, entryNodes)
+	// Plan 249: the 预热 tag of every rule (memory only; users: green only).
+	h.attachForwardWarmPoolStatesOrLog(items, entryNodes, roleID == 0)
 
 	payload := map[string]interface{}{
 		"items": items,

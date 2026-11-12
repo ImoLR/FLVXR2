@@ -38,6 +38,13 @@ import (
 // The agents report counters once a minute (warm_pool on the metric
 // message); the panel keeps the last hour in memory (12 × 5 min buckets,
 // restart = empty) for the tag on the admin tunnel page.
+//
+// Plan 249: a key with no stream for 30 min sleeps on the agent (0 conns,
+// reported `sleep`); a path whose first hop sleeps does not count. Shown:
+// nothing when every path sleeps (or has no stream yet), 「预热中 · 数据不足」
+// (status warming) while a path had streams in the hour but < 10 warm ones,
+// else faster / slower / unsupported as before. The rules page gets the same
+// view per rule (warm_pool_rules.go).
 const (
 	warmPoolSize          = 2
 	warmRelayReadTimeout  = "130s"
@@ -79,6 +86,7 @@ type warmStatEntry struct {
 	target  bool
 	idle    int
 	state   string
+	sleep   bool // plan 249, from the latest report (absent = awake)
 	lastAt  time.Time
 }
 
@@ -301,7 +309,7 @@ func (m *warmPoolManager) ingest(nodeID int64, rep *ws.WarmPoolReport) {
 		b.peerN += k.PeerN
 		b.youngN += k.YoungN
 		b.failN += k.FailN
-		e.target, e.idle, e.state, e.lastAt = k.Target, k.Idle, k.State, now
+		e.target, e.idle, e.state, e.sleep, e.lastAt = k.Target, k.Idle, k.State, k.Sleep, now
 	}
 	// A key the node no longer reports has no pool any more.
 	for key, e := range m.stats {
@@ -309,7 +317,7 @@ func (m *warmPoolManager) ingest(nodeID int64, rep *ws.WarmPoolReport) {
 			continue
 		}
 		if _, ok := seen[key]; !ok {
-			e.target, e.idle, e.state = false, 0, ""
+			e.target, e.idle, e.state, e.sleep = false, 0, "", false
 		}
 	}
 }
@@ -355,6 +363,7 @@ type warmKeyStat struct {
 	sums   warmSums
 	target bool
 	state  string
+	sleep  bool
 }
 
 // snapshot copies the window of every key of the given kind.
@@ -367,7 +376,7 @@ func (m *warmPoolManager) snapshot(kind string) []warmKeyStat {
 		if key.Kind != kind {
 			continue
 		}
-		out = append(out, warmKeyStat{key: key, sums: e.sums(now), target: e.target, state: e.state})
+		out = append(out, warmKeyStat{key: key, sums: e.sums(now), target: e.target, state: e.state, sleep: e.sleep})
 	}
 	sort.Slice(out, func(i, j int) bool {
 		a, b := out[i].key, out[j].key
@@ -399,12 +408,16 @@ type warmPoolHopView struct {
 	DeadN      int64    `json:"deadN,omitempty"`
 	State      string   `json:"state,omitempty"` // unsupported | rest | capped
 	Enough     bool     `json:"enough"`
+	// Plan 249: streams in the window (warm + cold) and whether the key
+	// sleeps now (no stream for 30 min).
+	Streams int64 `json:"streams"`
+	Sleep   bool  `json:"sleep,omitempty"`
 }
 
 // warmPoolView is item["warmPoolState"]; absent when the switch is off, the
 // tunnel has no active rule, or there is nothing to say yet.
 type warmPoolView struct {
-	Status    string            `json:"status"` // faster | slower | unsupported
+	Status    string            `json:"status"` // faster | slower | unsupported | warming (plan 249)
 	SavedMs   float64           `json:"savedMs"`
 	Reason    string            `json:"reason,omitempty"`
 	HitPct    int               `json:"hitPct"`
@@ -414,10 +427,14 @@ type warmPoolView struct {
 	Kind      string            `json:"kind"` // tunnel | forward
 	Hops      []warmPoolHopView `json:"hops"`
 	WindowMin int               `json:"windowMin"`
+	// Plan 249 「预热中 · 数据不足」: streams so far over the awake paths
+	// (WarmN = the warm ones) and the warm streams needed for a value.
+	Streams int64 `json:"streams,omitempty"`
+	MinWarm int   `json:"minWarm"`
 }
 
 func hopFromSums(s warmSums, state string) warmPoolHopView {
-	v := warmPoolHopView{WarmN: s.warmN, DeadN: s.deadN, State: state}
+	v := warmPoolHopView{WarmN: s.warmN, DeadN: s.deadN, State: state, Streams: s.warmN + s.missN}
 	if s.coldN > 0 {
 		v.ColdMs = round1(s.coldMs / float64(s.coldN))
 	}
@@ -437,21 +454,43 @@ func hopFromSums(s warmSums, state string) warmPoolHopView {
 
 func round1(v float64) float64 { return math.Round(v*10) / 10 }
 
+// hopFromKey is hopFromSums of a key plus its sleep state (plan 249).
+func hopFromKey(k *warmKeyStat) warmPoolHopView {
+	v := hopFromSums(k.sums, k.state)
+	v.Sleep = k.sleep
+	return v
+}
+
 // summarize turns per-path hop lists into the tunnel's view. Each path's
 // value is the sum of its hops with enough warm streams; paths (one per
 // entry, or one per rule target) are averaged weighted by warm streams.
+//
+// Plan 249: a path whose first hop sleeps (every stream of the path passes
+// it, so: no stream for 30 min) is listed but does not count. No awake path →
+// nil (nothing shown); awake paths with streams but none with enough warm
+// ones → 「warming」 (预热中 · 数据不足) with the counts so far.
 func summarizeWarmPaths(kind string, paths [][]warmPoolHopView, weights []int64) *warmPoolView {
-	v := &warmPoolView{Kind: kind, WindowMin: int(warmStatBucket * warmStatBuckets / time.Minute), Hops: []warmPoolHopView{}}
+	v := &warmPoolView{Kind: kind, WindowMin: int(warmStatBucket * warmStatBuckets / time.Minute), Hops: []warmPoolHopView{}, MinWarm: warmMinWarmStreams}
 	var total, wsum float64
-	var anyEnough, anyUnsupported, allUnsupported bool
+	var anyEnough, anyUnsupported, allUnsupported, anyAwake bool
 	allUnsupported = true
 	var coldSum, extraSum float64
 	var coldW, extraW, warmN, missEq, deadN int64
+	var streams, warmSoFar int64
 	for i, hops := range paths {
+		if len(hops) == 0 {
+			continue
+		}
+		v.Hops = append(v.Hops, hops...)
+		if hops[0].Sleep {
+			continue
+		}
+		anyAwake = true
+		streams += hops[0].Streams
+		warmSoFar += hops[0].WarmN
 		pathSaved := 0.0
 		enough := false
 		for _, hp := range hops {
-			v.Hops = append(v.Hops, hp)
 			if hp.State == "unsupported" {
 				anyUnsupported = true
 			} else {
@@ -485,12 +524,18 @@ func summarizeWarmPaths(kind string, paths [][]warmPoolHopView, weights []int64)
 			}
 		}
 	}
-	if len(v.Hops) == 0 {
+	if len(v.Hops) == 0 || !anyAwake {
 		return nil
 	}
 	if !anyEnough {
 		if anyUnsupported && allUnsupported {
 			v.Status = "unsupported"
+			return v
+		}
+		if streams > 0 {
+			v.Status = "warming"
+			v.Streams = streams
+			v.WarmN = warmSoFar
 			return v
 		}
 		return nil
@@ -582,6 +627,13 @@ func (h *Handler) tunnelWarmView(tunnelID int64, keys []warmKeyStat, nodeName fu
 	if err != nil || len(rows) == 0 {
 		return nil
 	}
+	return h.tunnelWarmViewOf(rows, byNode, nil, nodeName)
+}
+
+// tunnelWarmViewOf builds the view from the tunnel's chain rows and its keys
+// by node; entries (plan 249, a rule's own entry nodes) limits the paths to
+// those entries, nil = every entry (the tunnel page).
+func (h *Handler) tunnelWarmViewOf(rows []chainNodeRecord, byNode map[int64][]warmKeyStat, entries map[int64]bool, nodeName func(int64) string) *warmPoolView {
 	inNodes, chainHops, outNodes := splitChainNodeGroups(rows)
 	layers := make([][]chainNodeRecord, 0, len(chainHops)+2)
 	layers = append(layers, inNodes)
@@ -621,6 +673,9 @@ func (h *Handler) tunnelWarmView(tunnelID int64, keys []warmKeyStat, nodeName fu
 	var paths [][]warmPoolHopView
 	var weights []int64
 	for _, entry := range inNodes {
+		if entries != nil && !entries[entry.NodeID] {
+			continue
+		}
 		ks := byNode[entry.NodeID]
 		if len(ks) == 0 {
 			continue
@@ -632,7 +687,7 @@ func (h *Handler) tunnelWarmView(tunnelID int64, keys []warmKeyStat, nodeName fu
 			visited[from] = true
 			k := pick(ks)
 			to := nextNode(from, k.key.Addr)
-			hv := hopFromSums(k.sums, k.state)
+			hv := hopFromKey(k)
 			hv.FromNodeID, hv.ToNodeID = from, to
 			hv.From = nodeName(from)
 			if to > 0 {
@@ -720,7 +775,7 @@ func (h *Handler) forwardWarmView(tunnelID int64, keys []warmKeyStat, nodeName f
 		if name == "" {
 			name = fmt.Sprintf("规则 %d", fid)
 		}
-		hv := hopFromSums(k.sums, k.state)
+		hv := hopFromKey(&k)
 		hv.FromNodeID = k.key.NodeID
 		hv.From = name + " · " + nodeName(k.key.NodeID)
 		hv.To = k.key.Addr

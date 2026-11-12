@@ -340,11 +340,12 @@ func TestWarmPoolView(t *testing.T) {
 		t.Fatalf("red view = %+v", v)
 	}
 
-	// Fewer than 10 warm streams: no number.
+	// Fewer than 10 warm streams: no number — plan 249: 「预热中 · 数据不足」
+	// with the counts so far.
 	clock = clock.Add(2 * time.Hour)
 	m.prune()
 	m.ingest(1, warmReport(ws.WarmPoolKeyReport{Kind: "c", Owner: "chains_40", Addr: "192.0.2.2:2040", Target: true, ColdN: 4, ColdMs: 200, WarmN: 9}))
-	if v := e.tunnelView(40); v != nil {
+	if v := e.tunnelView(40); v == nil || v.Status != "warming" || v.WarmN != 9 || v.Streams != 9 || v.MinWarm != 10 || v.Hops[0].SavedMs != nil {
 		t.Fatalf("view with 9 warm streams: %+v", v)
 	}
 	// Switch off → no tag even with samples.
