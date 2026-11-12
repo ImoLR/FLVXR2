@@ -3257,8 +3257,9 @@ export default function TunnelPage() {
               </div>
               {/* 隧道名称和类型 */}
               <div className="flex-1 min-w-0">
-                {/* Plan 248 (a11y): a div button (was h3; preflight resets h3, same look). */}
+                {/* Plan 248 (a11y): a div button (was h3); data-card-title keeps the card-title CSS of h3. */}
                 <div
+                  data-card-title
                   className="font-semibold text-foreground truncate text-sm cursor-pointer hover:bg-default-200/50 rounded px-1 transition-colors w-fit max-w-full"
                   role="button"
                   tabIndex={0}
