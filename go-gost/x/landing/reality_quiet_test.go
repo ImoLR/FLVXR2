@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
@@ -156,24 +157,33 @@ func TestProbeLeavesNoTimeWait(t *testing.T) {
 	}
 }
 
-// countingNet wraps fakeNet dials and tracks how many sockets are open.
-func countingNet(f *fakeNet, sockets chan struct{}) (realityNet, func() int) {
+// countingNet wraps fakeNet dials and tracks how many sockets are open. A
+// socket counts as open from the start of its dial until Close, like a real
+// fd (plan 248: counting only after the dial returned left a window of a few
+// microseconds per socket, so whether two ever overlapped was luck). opened
+// (optional) runs right after a socket started to count.
+func countingNet(f *fakeNet, sockets chan struct{}, opened ...func(addr string)) (realityNet, func() int) {
 	rn := f.rn()
 	var mu sync.Mutex
 	open, peak := 0, 0
 	plain := rn.dial
+	closed := func() { mu.Lock(); open--; mu.Unlock() }
 	rn.dial = func(ctx context.Context, addr string) (net.Conn, error) {
-		c, err := plain(ctx, addr)
-		if err != nil {
-			return nil, err
-		}
 		mu.Lock()
 		open++
 		if open > peak {
 			peak = open
 		}
 		mu.Unlock()
-		return &closeHook{Conn: c, fn: func() { mu.Lock(); open--; mu.Unlock() }}, nil
+		for _, fn := range opened {
+			fn(addr)
+		}
+		c, err := plain(ctx, addr)
+		if err != nil {
+			closed()
+			return nil, err
+		}
+		return &closeHook{Conn: c, fn: closed}, nil
 	}
 	rn.sockets = sockets
 	return rn, func() int { mu.Lock(); defer mu.Unlock(); return peak }
@@ -200,7 +210,29 @@ func TestSocketCapSharedByProbeAndPin(t *testing.T) {
 	}
 	f.set("cdn.example.com", map[string]int{"198.51.100.1": 8, "198.51.100.2": 6, "198.51.100.3": 9, "198.51.100.4": 7})
 	sockets := make(chan struct{}, realitySocketCap)
-	rn, peak := countingNet(f, sockets)
+	// Deterministic overlap (plan 248): the very first socket stays open
+	// until a socket of the other side (probe ↔ pin) is open too, so both
+	// provably used the machine-wide slots at the same time. Only that one
+	// socket waits; the second slot keeps cycling, so the other side gets it.
+	probeOpen, pinOpen := make(chan struct{}), make(chan struct{})
+	var probeOnce, pinOnce sync.Once
+	var first atomic.Bool
+	overlapped := make(chan bool, 1)
+	rn, peak := countingNet(f, sockets, func(addr string) {
+		mine, other, once := probeOpen, pinOpen, &probeOnce
+		if strings.HasPrefix(addr, "198.51.100.") {
+			mine, other, once = pinOpen, probeOpen, &pinOnce
+		}
+		once.Do(func() { close(mine) })
+		if first.CompareAndSwap(false, true) {
+			select {
+			case <-other:
+				overlapped <- true
+			case <-time.After(5 * time.Second):
+				overlapped <- false
+			}
+		}
+	})
 	p := &realityPinner{pins: map[pinKey]*RealityPinStatus{}, running: map[pinKey]bool{}, net: rn, now: time.Now}
 	var wg sync.WaitGroup
 	wg.Add(2)
@@ -219,6 +251,9 @@ func TestSocketCapSharedByProbeAndPin(t *testing.T) {
 		}
 	}()
 	wg.Wait()
+	if !<-overlapped {
+		t.Fatal("probe and pin never had a socket open at the same time")
+	}
 	if got := peak(); got > realitySocketCap || got < 2 {
 		t.Fatalf("peak open sockets = %d (cap %d)", got, realitySocketCap)
 	}

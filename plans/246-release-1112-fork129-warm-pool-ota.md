@@ -13,9 +13,9 @@ TW. Dmit Echo via panel OTA, never touch its flux_agent. Do NOT restart landing 
 
 ## Tasks
 - [x] branch + plan doc, gates (backend build/test, go-gost/x warmpool + tls listener + chain tests, go-gost build), disk ≥ 5 GB
-- [ ] push branch, branch CI green, tag `3.0.27-fork.129`, Images workflow, release Latest + assets validated
-- [ ] panel backup + rollback dir (image swap; DB column additive), upgrade /opt/flvx-svc, health + node state
-- [ ] relay services re-pushed with `readTimeout: 130s` in place, no error spam, business check pre == post
+- [x] push branch, branch CI green, tag `3.0.27-fork.129`, Images workflow, release Latest + assets validated
+- [x] panel backup + rollback dir (image swap; DB column additive), upgrade /opt/flvx-svc, health + node state
+- [x] relay services re-pushed with `readTimeout: 130s` in place, no error spam, business check pre == post
 - [ ] OTA canary Mkcloud 沪日ixp 440 + middles/exits of tunnels 25/28 (backup, RSS/fd before/after, pools ≤2 per key)
 - [ ] OTA the rest one host at a time (SSH backup each)
 - [ ] Leikwanhost 沪台IPLC watch (LeiKwan conn-limit / errors)
@@ -27,3 +27,12 @@ TW. Dmit Echo via panel OTA, never touch its flux_agent. Do NOT restart landing 
 - Gates (11-12 18:10 TW): go-backend build ok, vet only the old RouteRef unkeyed warnings (same as fork.127/128),
   `go test ./...` all ok; go-gost/x warmpool, listener/tls, chain, handler/relay, socket, landing ok; go-gost build ok.
   Disk 9.9 G free.
+- Release: branch CI 43197241775 green (4 jobs incl. PG contract); tag `3.0.27-fork.129` (annotated) → af408eee;
+  Images 43197602297 success; release Latest, assets = fork.128 set, compose/install pinned, gost-amd64 sha256 + `-V` ok.
+- Panel 18:25:23–18:25:34 TW fork.128 → fork.129 (healthy, 救命版 mount ro ok). Rollback point
+  `/opt/flvx-svc/rollback/pre-fork129-20261112T102453Z/rollback.sh` (validated SQLite, image tags). Pruned pre-fork127.
+  Migration: `tunnel.warm_pool INTEGER NOT NULL DEFAULT 1`, 50/50 tunnels = 1. 28/28 nodes online (Mkcloud 沪日ixp 440
+  + Bestvm HK 年付 had shown 离线 since 01:59 TW while their WS was alive — pre-existing offline/online DB write race on
+  a simultaneous reconnect; the panel restart cleared it). Redeploy after reconnect: all relay services updated in
+  place, failed=0 on every node; Bestvm JP B 18 + Datawave HK 2 26 relay services all `readTimeout: 130s`, agent PIDs
+  unchanged (no restart). Business check pre == post (45 rules; same 5 not-all-ok as at fork.128 = target side).

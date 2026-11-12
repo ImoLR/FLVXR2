@@ -1065,6 +1065,17 @@ func (r *Repository) MarkLocalNodesOffline(connected []int64) (int64, error) {
 	return res.RowsAffected, res.Error
 }
 
+// ListLocalOnlineNodeIDs: local (non federation) nodes stored as 在线 (plan 248
+// self-heal against the live agent sessions).
+func (r *Repository) ListLocalOnlineNodeIDs() ([]int64, error) {
+	if r == nil || r.db == nil {
+		return nil, errors.New("repository not initialized")
+	}
+	var ids []int64
+	err := r.db.Model(&model.Node{}).Where("status = 1 AND (is_remote = 0 OR is_remote IS NULL)").Order("id").Pluck("id", &ids).Error
+	return ids, err
+}
+
 // UpdateNodeServiceName 更新节点服务名
 func (r *Repository) UpdateNodeServiceName(nodeID int64, serviceName string) error {
 	if r == nil || r.db == nil {

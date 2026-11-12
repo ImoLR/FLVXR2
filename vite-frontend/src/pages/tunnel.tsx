@@ -3007,10 +3007,19 @@ export default function TunnelPage() {
             <td className="py-3 px-4 align-middle">
               <span
                 className="font-medium text-foreground truncate cursor-pointer hover:bg-default-200/50 rounded px-1 transition-colors w-fit"
+                role="button"
+                tabIndex={0}
                 title={tunnel.name}
                 onClick={(e) => {
                   e.stopPropagation();
                   copyToClipboard(tunnel.name, "隧道名称");
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    copyToClipboard(tunnel.name, "隧道名称");
+                  }
                 }}
               >
                 {tunnel.name}
@@ -3096,10 +3105,19 @@ export default function TunnelPage() {
               {tunnel.remark ? (
                 <div
                   className="text-sm text-default-600 truncate max-w-[140px] cursor-pointer hover:bg-default-200/50 rounded px-1 transition-colors w-fit inline-block"
+                  role="button"
+                  tabIndex={0}
                   title={tunnel.remark}
                   onClick={(e) => {
                     e.stopPropagation();
                     copyToClipboard(tunnel.remark!, "备注");
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      copyToClipboard(tunnel.remark!, "备注");
+                    }
                   }}
                 >
                   {tunnel.remark}
@@ -3239,16 +3257,27 @@ export default function TunnelPage() {
               </div>
               {/* 隧道名称和类型 */}
               <div className="flex-1 min-w-0">
-                <h3
+                {/* Plan 248 (a11y): a div button (was h3); data-card-title keeps the card-title CSS of h3. */}
+                <div
+                  data-card-title
                   className="font-semibold text-foreground truncate text-sm cursor-pointer hover:bg-default-200/50 rounded px-1 transition-colors w-fit max-w-full"
+                  role="button"
+                  tabIndex={0}
                   title={tunnel.name}
                   onClick={(e) => {
                     e.stopPropagation();
                     copyToClipboard(tunnel.name, "隧道名称");
                   }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      copyToClipboard(tunnel.name, "隧道名称");
+                    }
+                  }}
                 >
                   {tunnel.name}
-                </h3>
+                </div>
                 <div className="flex flex-wrap items-center gap-1.5 mt-1">
                   {!!tunnel.leikwanPipeId && (
                     <Chip color="primary" size="sm" variant="flat">
@@ -3473,10 +3502,19 @@ export default function TunnelPage() {
                     </span>
                     <span
                       className="truncate ml-1 cursor-pointer hover:bg-default-200/50 rounded px-1 transition-colors w-fit inline-block"
+                      role="button"
+                      tabIndex={0}
                       title={tunnel.remark}
                       onClick={(e) => {
                         e.stopPropagation();
                         copyToClipboard(tunnel.remark!, "备注");
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          copyToClipboard(tunnel.remark!, "备注");
+                        }
                       }}
                     >
                       {tunnel.remark}

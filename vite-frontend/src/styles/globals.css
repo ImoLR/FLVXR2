@@ -306,14 +306,16 @@ body {
 }
 
 [data-node-card="true"] h3,
-[data-tunnel-card="true"] h3 {
+[data-tunnel-card="true"] h3,
+[data-tunnel-card="true"] [data-card-title] {
   color: #111827;
   font-size: 14px;
   font-weight: 800;
 }
 
 .dark [data-node-card="true"] h3,
-.dark [data-tunnel-card="true"] h3 {
+.dark [data-tunnel-card="true"] h3,
+.dark [data-tunnel-card="true"] [data-card-title] {
   color: #f8fafc;
 }
 
@@ -371,6 +373,7 @@ body {
 [data-slot="card-header"] h1,
 [data-slot="card-header"] h2,
 [data-slot="card-header"] h3,
+[data-slot="card-header"] [data-card-title],
 .flvx-luminous-main h1,
 .flvx-luminous-main h2 {
   letter-spacing: 0;

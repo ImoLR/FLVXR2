@@ -120,6 +120,12 @@ func (s *nodeRedeployScheduler) Stop() {
 }
 
 func (h *Handler) nodeRuntimeOnline(nodeID int64) bool {
+	// Plan 248: a live agent session counts first. The stored flag can lag
+	// behind a reconnect, and the async hooks (an old session's offline hook,
+	// the 10 s reconnect redeploy timer) must not cancel the new session's work.
+	if h.wsServer != nil && h.wsServer.NodeOnline(nodeID) {
+		return true
+	}
 	node, err := h.getNodeRecord(nodeID)
 	return err == nil && node != nil && node.Status == 1
 }

@@ -110,6 +110,21 @@ func LoggerFromContext(ctx context.Context) logger.Logger {
 	return v
 }
 
+// quietDialKey marks a dial the agent makes on its own, with no user stream
+// behind it (plan 247: warm pool refills of 端口转发 rules). The router logs
+// such a dial's failures at debug level only; the pool already counts and
+// rate-limits them (rest 60 s → 5 min) and logs one line per failing streak.
+type quietDialKey struct{}
+
+func ContextWithQuietDial(ctx context.Context) context.Context {
+	return context.WithValue(ctx, quietDialKey{}, true)
+}
+
+func QuietDialFromContext(ctx context.Context) bool {
+	v, _ := ctx.Value(quietDialKey{}).(bool)
+	return v
+}
+
 // excludeNodesKey saves the list of node addresses to exclude during selection.
 // This is used for failover retry logic - when a node fails, it gets added to
 // the exclude list so the next Select() call will skip it.

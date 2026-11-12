@@ -138,7 +138,8 @@ func (w *warmForwarder) WarmTargets() []warmpool.Target {
 }
 
 func (w *warmForwarder) WarmDial(ctx context.Context, addr string) (net.Conn, error) {
-	return w.h.options.Router.Dial(ctx, "tcp", addr)
+	// Plan 247: a refill has no user stream — its dial failures are debug lines.
+	return w.h.options.Router.Dial(ctxvalue.ContextWithQuietDial(ctx), "tcp", addr)
 }
 
 // dialTarget dials one target of a stream: a pooled conn of a warm rule

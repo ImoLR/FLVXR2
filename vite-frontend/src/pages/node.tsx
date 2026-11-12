@@ -1670,7 +1670,11 @@ export default function NodePage() {
         );
 
         if (res.code === 0) {
-          toast.success(`节点升级命令已发送，节点将自动重启`);
+          // Plan 248: the panel answers with the agent's real result
+          // (已升级到 … / 节点仍在升级…); the old text is the fallback.
+          const data = res.data as { message?: string } | undefined;
+
+          toast.success(data?.message || `节点升级命令已发送，节点将自动重启`);
         } else {
           toast.error(res.msg || "升级失败");
         }
