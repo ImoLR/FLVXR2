@@ -52,6 +52,9 @@ func (r *Router) Dial(ctx context.Context, network, address string) (conn net.Co
 	log := r.options.Logger.WithFields(map[string]any{
 		"sid": ctxvalue.SidFromContext(ctx),
 	})
+	if ctxvalue.QuietDialFromContext(ctx) {
+		log = quietLogger{log}
+	}
 
 	conn, err = r.dial(ctx, network, address, log)
 	if err != nil {
@@ -221,3 +224,16 @@ func (c *packetConn) ReadFrom(b []byte) (n int, addr net.Addr, err error) {
 func (c *packetConn) WriteTo(b []byte, addr net.Addr) (n int, err error) {
 	return c.Write(b)
 }
+
+// quietLogger turns warnings and errors into debug lines (plan 247): used for
+// dials without a user stream (warm pool refills), so a dead 端口转发 target
+// does not write an error line for every refill attempt.
+type quietLogger struct{ logger.Logger }
+
+func (l quietLogger) WithFields(m map[string]any) logger.Logger {
+	return quietLogger{l.Logger.WithFields(m)}
+}
+func (l quietLogger) Warn(args ...any)                  { l.Logger.Debug(args...) }
+func (l quietLogger) Warnf(format string, args ...any)  { l.Logger.Debugf(format, args...) }
+func (l quietLogger) Error(args ...any)                 { l.Logger.Debug(args...) }
+func (l quietLogger) Errorf(format string, args ...any) { l.Logger.Debugf(format, args...) }
