@@ -23,26 +23,26 @@ Run dir (raw jsonl, scripts, full tables): `/root/flvx-workers/runs/entry-warm-m
 - [ ] Step 2: build (user decisions 11-12: switch per tunnel, **default ON**, pool only while the
       tunnel has ≥ 1 active rule, whole path incl. middles, port forwards per rule, speed tag; A/B dropped)
       — BUILD ONLY + preview gallery, release after the user approves the screens
-  - [ ] design decisions written down (§ Step 2 build below)
-  - [ ] agent `warmpool` package: per owner (chain / rule service) × next-hop addr pools, size 2,
+  - [x] design decisions written down (§ Step 2 build below)
+  - [x] agent `warmpool` package: per owner (chain / rule service) × next-hop addr pools, size 2,
         agent cap 64, age 90–110 s, idle watcher per conn (peer close seen at once), refill
-        concurrency 1 per key, dial backoff, rest 60 s after 3 dead in a row, young-close (< 20 s)
+        concurrency 1 per key, dial backoff, rest 60 s after 3 dead in a row, young-close (< 40 s, three generations)
         detection → 「目标不支持预热」 30 min, counters only
-  - [ ] agent: type 2 hook in `chain/route.go` (pooled TLS conn → relay Connect; dead conn →
+  - [x] agent: type 2 hook in `chain/route.go` (pooled TLS conn → relay Connect; dead conn →
         cold redial in the same stream, no node fail mark), Bind stays cold
-  - [ ] agent: type 1 hook in `handler/forward/local` (pooled TCP conn per rule target)
-  - [ ] agent: handshake `warmPool=1`, command `SetWarmPools` (full state per node, hot), report
+  - [x] agent: type 1 hook in `handler/forward/local` (pooled TCP conn per rule target)
+  - [x] agent: handshake `warmPool=1`, command `SetWarmPools` (full state per node, hot), report
         `warm_pool` once per 60 s on the existing metric message
-  - [ ] agent: relay handler — conn closed before any request byte is not an error (no log line)
-  - [ ] agent: FLVX landing core `handshake` 4 → 120 s (+ one-time core restart only at the OTA)
-  - [ ] panel: `tunnel.warm_pool` (NOT NULL DEFAULT 1 → existing rows 1, new rows 1), create /
+  - [x] agent: relay handler — conn closed before any request byte is not an error (no log line)
+  - [x] agent: FLVX landing core `handshake` 4 → 120 s (+ one-time core restart only at the OTA)
+  - [x] panel: `tunnel.warm_pool` (NOT NULL DEFAULT 1 → existing rows 1, new rows 1), create /
         update / light toggle endpoint, admin only
-  - [ ] panel: relay services `readTimeout: 130s` (type 2)
-  - [ ] panel: warm reconcile → `SetWarmPools` per capable node (rule create/delete/pause/resume/
+  - [x] panel: relay services `readTimeout: 130s` (type 2)
+  - [x] panel: warm reconcile → `SetWarmPools` per capable node (rule create/delete/pause/resume/
         expiry, tunnel save/toggle/delete, node reconnect, 30 s safety pass)
-  - [ ] panel: stats — 1 h in-memory window, per hop saved = cold avg − warm extra avg, ≥ 10 warm
+  - [x] panel: stats — 1 h in-memory window, per hop saved = cold avg − warm extra avg, ≥ 10 warm
         streams, tunnel value over the current path; `warmPoolState` on admin tunnel list
-  - [ ] frontend: 「预热池」 switch in tunnel dialog; tag 预热 −N ms / +N ms / 目标不支持预热 +
+  - [x] frontend: 「预热池」 switch in tunnel dialog; tag 预热 −N ms / +N ms / 目标不支持预热 +
         detail (desktop list + card/H5, light + dark)
   - [ ] tests: agent unit, panel unit/contract, old-agent compatibility, go test ./... both modules
   - [ ] local E2E lab (netns: panel + entry + middle + exit + target), resource numbers
