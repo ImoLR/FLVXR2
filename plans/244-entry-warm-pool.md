@@ -20,7 +20,7 @@ Run dir (raw jsonl, scripts, full tables): `/root/flvx-workers/runs/entry-warm-m
   - [x] idle lifetime: exit/middle relay, 25 type 1 targets
   - [x] cleanup of /root/flvx-warmtest-1111 on all 11 hosts (verified: no dir, no process)
   - [x] results + recommendation + step-2 design notes in this doc
-- [ ] Step 2: build (user decisions 11-12: switch per tunnel, **default ON**, pool only while the
+- [x] Step 2: build (user decisions 11-12: switch per tunnel, **default ON**, pool only while the
       tunnel has ≥ 1 active rule, whole path incl. middles, port forwards per rule, speed tag; A/B dropped)
       — BUILD ONLY + preview gallery, release after the user approves the screens
   - [x] design decisions written down (§ Step 2 build below)
@@ -44,10 +44,10 @@ Run dir (raw jsonl, scripts, full tables): `/root/flvx-workers/runs/entry-warm-m
         streams, tunnel value over the current path; `warmPoolState` on admin tunnel list
   - [x] frontend: 「预热池」 switch in tunnel dialog; tag 预热 −N ms / +N ms / 目标不支持预热 +
         detail (desktop list + card/H5, light + dark)
-  - [ ] tests: agent unit, panel unit/contract, old-agent compatibility, go test ./... both modules
+  - [x] tests: agent unit, panel unit/contract, old-agent compatibility, go test ./... both modules
   - [x] local E2E lab (netns: panel + entry + middle + exit + target), resource numbers
   - [x] preview gallery :8791 /entry-warm-pool/ (desktop 1366×900 + mobile 390×844, light + dark)
-  - [ ] summary + release notes (DB migration, panel, OTA list, restarts, rollback)
+  - [x] summary + release notes (DB migration, panel, OTA list, restarts, rollback)
 - ~~Step 3: live A/B~~ — dropped by the user 11-12 (the speed tag replaces it)
 
 ## Method
@@ -367,3 +367,10 @@ idle conns after 4 s). Scripts: `/root/flvx-workers/runs/entry-warm-pool/lab/` (
 - **Rollback**: panel image fork.128 (column stays, harmless); agents back to fork.128 by OTA if needed
   (a new agent under an old panel never gets `SetWarmPools` → no pools; plan 245 and the 120 s Core
   config stay, both harmless).
+
+Step 2 tests (final code, 2026-11-12): `go test ./...` go-gost/x exit 0 (incl. the known-flaky
+TestSocketCapSharedByProbeAndPin), go-gost exit 0, go-backend exit 0 with `FLVX_POSTGRES_TEST_DSN` (PG
+variants ran); frontend `npm run build` ok, eslint: new files 0 errors (tunnel.tsx's 4 a11y errors are in
+base 978fb216, same total). Migration dry-run on a read-only copy of the prod SQLite DB (isolated netns,
+copy deleted after): 50/50 tunnels `warm_pool = 1`, clean start. Gallery: http://104.145.236.29:8791/entry-warm-pool/
+(29 screens, 67/67 checks). Release waits for the user's approval of the screens (A or B).

@@ -30,7 +30,7 @@ silent close on failure), hand finished conns to `Accept()` in completion order.
 - [x] unit tests: silent client does not block a real client; garbage conn closed silently; Close
       unblocks Accept + pending handshakes; fatal accept error returned; cap holds
 - [x] lab: 10-concurrent first byte, pool off / on, before → after; a silent conn on the relay port
-- [ ] go test ./... (go-gost/x), summary in plan 244 final report
+- [x] go test ./... (go-gost/x), summary in plan 244 final report
 
 ## Lab result (plan 244 netns lab, E→M 50 ms / M→X 90 ms RTT, 2-hop tunnel, first byte ms)
 | case | before (serial accept) | after (plan 245) |
