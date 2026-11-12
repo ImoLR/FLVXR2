@@ -249,6 +249,9 @@ type WarmPoolKeyReport struct {
 	FailN   int64   `json:"failN,omitempty"`
 	State   string  `json:"state,omitempty"`
 	AgeCapS int     `json:"ageCapS,omitempty"`
+	// Sleep (plan 249): no stream for 30 min — the key holds 0 conns until the
+	// next stream wakes it. Older agents never send it (= awake).
+	Sleep bool `json:"sleep,omitempty"`
 }
 
 type QuotaGroupUsage struct {

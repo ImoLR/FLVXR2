@@ -27,9 +27,9 @@ no release, no prod change; rides with 247 + 248 in one release (fork.130) after
 - [x] agent: test-only idle timer override (build tag `warmlab`, not in release builds)
 - [x] agent tests: sleep after 30 min (fake clock), wake on stream, no refill while sleeping, reconcile
       interplay (SetConfig same / re-add, OwnerChanged), report field
-- [ ] panel: ingest `sleep` (old agent: absent → awake), view states incl. `warming` (数据不足) and sleeping
-- [ ] panel: rule-level view on the forward list (admin full / user green-only minimal), entry-bound rules
-- [ ] panel tests: view states, old-agent compat, rule view user vs admin, entry-bound rule, contract test
+- [x] panel: ingest `sleep` (old agent: absent → awake), view states incl. `warming` (数据不足) and sleeping
+- [x] panel: rule-level view on the forward list (admin full / user green-only minimal), entry-bound rules
+- [x] panel tests: view states, old-agent compat, rule view user vs admin, entry-bound rule, contract test
 - [ ] frontend: 「预热中 · 数据不足」 pill + popover; rules-page tag (tree rows, list rows, cards, H5)
 - [ ] `go test ./...` go-backend (+ PG), go-gost/x, go-gost build; `npm run build`; eslint 0 new errors
 - [ ] local lab: pool drains after idle (short timer) and wakes on the next stream; resource numbers
