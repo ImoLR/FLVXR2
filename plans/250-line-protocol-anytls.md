@@ -58,14 +58,14 @@ Gallery :8791 `/line-protocol-anytls/`; release waits for the user's screen appr
 - [x] panel: links — 复制链接 (URL + Clash + Surge), subscription node (Extra AnyTLS, pinned), landing
       AnyTLS Surge line in 节点链接
 - [x] panel: edit protocol switch (begin / commit / revert, reconciler)
-- [ ] backend tests (unit + contract) + `go test ./...` SQLite + PG
-- [ ] frontend: landing picker lists AnyTLS on 线路机; create-node AnyTLS on 线路机; chain protocol pills +
+- [x] backend tests (unit + contract) + `go test ./...` SQLite + PG
+- [x] frontend: landing picker lists AnyTLS on 线路机; create-node AnyTLS on 线路机; chain protocol pills +
       hint; row badge; chain link dialog for AnyTLS; texts; `npm run build`, eslint 0 new errors
-- [ ] local lab: real AnyTLS chain end-to-end (client → entry → exit loopback AnyTLS → upstream), mihomo /
+- [x] local lab: real AnyTLS chain end-to-end (client → entry → exit loopback AnyTLS → upstream), mihomo /
       sing-box with the generated config; Surge line syntax check
-- [ ] gallery :8791 `/line-protocol-anytls/` (desktop 1366×900 + mobile 390×844, light + dark)
-- [ ] push branch, CI green
-- [ ] ledger row 250 (待发布), summary `runs/line-protocol-anytls/summary.md`, cleanup
+- [x] gallery :8791 `/line-protocol-anytls/` (desktop 1366×900 + mobile 390×844, light + dark)
+- [x] push branch, CI green
+- [x] ledger row 250 (待发布), summary `runs/line-protocol-anytls/summary.md`, cleanup
 
 ## Results
 
@@ -94,6 +94,23 @@ request; no new loops, probes or goroutines.
   SQLite, so prod is not affected; the new contract test asserts the list part on SQLite only.
 - Agent `TestLandingRealCoreUpgradeRestart` and `TestEgressRealCoreAcceptsRenderedConfig` fail with the pinned
   Core on this box on the unmodified base too (environment), unrelated to plan 250.
+
+### Tests
+
+- go-backend `go test ./...` (SQLite + PostgreSQL via `FLVX_POSTGRES_TEST_DSN`): all 26 packages pass
+  (`internal/store/repo` 796 s and `tests/contract` 656 s need `-timeout 90m`; default 10 min times out).
+  New: `line_chain_anytls_test.go` (create / links / subscription, old-agent gating, switch + revert +
+  reconciler + attach, compliance) and contract `line_protocol_anytls_contract_test.go` (线路机 targets via the
+  router, SQLite + PG; forward_chain AnyTLS columns round trip on both). Updated for the intentional
+  behaviour change: `TestLineMachineTargetEnforcement`, `TestLandingTargetLineMachineProtocolAndPortImmutable`
+  (ss2022 on 线路机 is now refused instead of silently switched), `TestSnellSurgeLine` /
+  `TestSharedExtraProtocolsLifecycle` (AnyTLS now has a Surge line).
+- go-gost/x `landing` with the pinned Core (`FLVX_LANDING_TEST_BINARY`): new `chain_anytls_test.go` passes
+  (validation, render, real Core config check, hot add/remove, pinned TLS handshake on loopback only).
+- Frontend: `tsc` clean, `npm run build` OK, eslint on the changed files 0 new errors / 0 new warnings.
+- CI 43252667220 green on f106f02e (backend, frontend, agent, PG contract).
+- Gallery http://104.145.236.29:8791/line-protocol-anytls/ — 30 screens (desktop 1366×900 + H5 390×844,
+  light + dark), 16/16 checks, 0 console errors.
 
 ### Release notes (for the release worker)
 
