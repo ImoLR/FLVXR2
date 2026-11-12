@@ -3,6 +3,7 @@
 package landing
 
 import (
+	"crypto/tls"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -86,6 +87,8 @@ type Node struct {
 	MaxTotalConnections int64   `json:"max_total_connections,omitempty"`
 	SS2022              *SS2022 `json:"ss2022,omitempty"`
 	VLESS               *VLESS  `json:"vless,omitempty"`
+	// AnyTLS (plan 250, ChainVersion 2): only on chain nodes (loopback).
+	AnyTLS *AnyTLS `json:"anytls,omitempty"`
 	// Listen is empty (all addresses) or the loopback address of a chain node.
 	Listen string `json:"listen,omitempty"`
 	// Chain is the private upstream of a chain node (plan 108): everything the
@@ -117,8 +120,14 @@ func validConnMode(mode string) bool { return mode == "" || mode == "total" || m
 
 // ChainVersion is the chain-node schema (listen + chain) this agent applies.
 // Older agents ignore both fields, so the panel only sends chain nodes to
-// agents that report it.
-const ChainVersion = 1
+// agents that report it. Version 2 (plan 250): a chain node may also be an
+// AnyTLS inbound (protocol "anytls" + the anytls object); the panel sends
+// AnyTLS chain nodes only to agents reporting ≥ 2 (an older agent would
+// reject the whole desired state).
+const ChainVersion = 2
+
+// ProtocolAnyTLS is the AnyTLS chain-node protocol (plan 250).
+const ProtocolAnyTLS = "anytls"
 
 // ChainListen is the only listen address a chain node may use: the tunnel's
 // exit relay dials it locally, nothing outside the server can reach it.
@@ -144,6 +153,48 @@ type Reality struct {
 	PrivateKey  string   `json:"private_key"`
 	ShortIDs    []string `json:"short_ids"`
 }
+
+// AnyTLS is an AnyTLS inbound (plan 250): one password user, the Core's
+// default padding, a TLS certificate + key sent inline (never written to a
+// separate file; the Core reads them from the inbound config).
+type AnyTLS struct {
+	Password       string `json:"password"`
+	CertificatePEM string `json:"certificate_pem"`
+	KeyPEM         string `json:"key_pem"`
+}
+
+// validAnyTLSPassword: 16–64 characters A–Z, a–z, 0–9 (the panel generates
+// 24; same rule as mmwx Custom's landing-protocols-v1).
+func validAnyTLSPassword(p string) bool {
+	if len(p) < 16 || len(p) > 64 {
+		return false
+	}
+	for _, r := range p {
+		if !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9') {
+			return false
+		}
+	}
+	return true
+}
+
+func (a *AnyTLS) validate() error {
+	if a == nil {
+		return fmt.Errorf("missing AnyTLS credentials")
+	}
+	if !validAnyTLSPassword(a.Password) {
+		return fmt.Errorf("invalid AnyTLS password")
+	}
+	if _, err := tls.X509KeyPair([]byte(a.CertificatePEM), []byte(a.KeyPEM)); err != nil {
+		return fmt.Errorf("invalid AnyTLS certificate or key")
+	}
+	return nil
+}
+
+// pemLines splits a PEM block into the Core's line-array form.
+func pemLines(data string) []string {
+	return strings.Split(strings.TrimSpace(strings.ReplaceAll(data, "\r\n", "\n")), "\n")
+}
+
 type Counter struct {
 	ID            int64      `json:"id"`
 	InboundTag    string     `json:"inbound_tag"`
@@ -282,10 +333,20 @@ func (n Node) validateChain() error {
 		if n.Listen != "" {
 			return fmt.Errorf("loopback landing node without chain upstream")
 		}
+		if n.Protocol == ProtocolAnyTLS {
+			return fmt.Errorf("AnyTLS is only supported on chain nodes")
+		}
 		return nil
 	}
-	if n.Listen != ChainListen || n.Protocol != "vless_reality_vision" {
-		return fmt.Errorf("chain node must be loopback VLESS Reality Vision")
+	if n.Listen != ChainListen || (n.Protocol != "vless_reality_vision" && n.Protocol != ProtocolAnyTLS) {
+		return fmt.Errorf("chain node must be loopback VLESS Reality Vision or AnyTLS")
+	}
+	if n.Protocol == ProtocolAnyTLS {
+		// Full check (key pair parse) once per desired state, not in inbound(),
+		// which the reconcile tick renders every 10 s.
+		if err := n.AnyTLS.validate(); err != nil {
+			return err
+		}
 	}
 	o := *n.Chain
 	if o.Tag != chainOutboundTag(n.ID) || o.Type == "direct" || o.Type == "wireguard" {
@@ -379,6 +440,18 @@ func (n Node) inbound() (map[string]any, error) {
 		inbound["protocol"] = "vless"
 		inbound["settings"] = map[string]any{"decryption": "none", "clients": []any{map[string]any{"id": v.UUID, "email": n.InboundTag, "flow": "xtls-rprx-vision"}}}
 		inbound["streamSettings"] = map[string]any{"network": "tcp", "security": "reality", "realitySettings": map[string]any{"dest": v.Reality.Dest, "serverNames": v.Reality.ServerNames, "privateKey": v.Reality.PrivateKey, "shortIds": v.Reality.ShortIDs}}
+	case ProtocolAnyTLS:
+		// Plan 250: rendered like mmwx Custom's shared AnyTLS nodes (contract
+		// landing-protocols-v1 §6): default padding (no paddingScheme), the
+		// certificate and key inline, TLS 1.2+, ALPN h2 / http/1.1.
+		a := n.AnyTLS
+		if a == nil || !validAnyTLSPassword(a.Password) || a.CertificatePEM == "" || a.KeyPEM == "" {
+			return nil, fmt.Errorf("invalid AnyTLS credentials")
+		}
+		inbound["protocol"] = ProtocolAnyTLS
+		inbound["settings"] = map[string]any{"users": []any{map[string]any{"password": a.Password, "email": n.InboundTag}}}
+		inbound["streamSettings"] = map[string]any{"network": "tcp", "security": "tls", "tlsSettings": map[string]any{"minVersion": "1.2", "alpn": []string{"h2", "http/1.1"},
+			"certificates": []any{map[string]any{"certificate": pemLines(a.CertificatePEM), "key": pemLines(a.KeyPEM)}}}}
 	default:
 		return nil, fmt.Errorf("unsupported landing protocol")
 	}
