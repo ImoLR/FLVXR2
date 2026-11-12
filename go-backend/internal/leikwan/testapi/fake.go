@@ -45,7 +45,10 @@ func New() *Fake {
 	f.Options.Transports = []string{"tcp", "udp", "tcp+udp"}
 	f.Options.Capabilities.AllowManage = true
 	f.Options.Capabilities.AllowDelete = true
-	for _, r := range []leikwan.RouteRef{{21, "CAN → HKG 广港"}, {24, "SHA → TYO 沪日"}, {29, "CAN → TPE 广台"}, {23, "FOC → TPE 福台"}, {25, "PEK → FRA 京德"}} {
+	for _, r := range []leikwan.RouteRef{
+		{ID: 21, Label: "CAN → HKG 广港"}, {ID: 24, Label: "SHA → TYO 沪日"}, {ID: 29, Label: "CAN → TPE 广台"},
+		{ID: 23, Label: "FOC → TPE 福台"}, {ID: 25, Label: "PEK → FRA 京德"},
+	} {
 		f.Options.Routes = append(f.Options.Routes, leikwan.Route{ID: r.ID, Label: r.Label, Badge: "stable", Transports: map[string]leikwan.Availability{"tcp": {Available: true}, "udp": {Available: true}, "tcp+udp": {Available: true}}})
 	}
 	return f
