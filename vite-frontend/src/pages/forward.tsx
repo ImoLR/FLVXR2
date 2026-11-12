@@ -223,6 +223,9 @@ interface Tunnel {
   blockedFeatures?: string[];
   chainAvailable?: boolean;
   chainUnavailableReason?: string;
+  // Plan 250: the AnyTLS choice of 「我自己的节点」 (older exit agents: off).
+  chainAnyTLSAvailable?: boolean;
+  chainAnyTLSUnavailableReason?: string;
   entryGroups?: Array<{ key: string; label: string; region: string; name?: string }>;
   exitRegions?: string[];
   groups?: TunnelLineGroup[];
@@ -2958,6 +2961,10 @@ export default function ForwardPage() {
       landingNodeId: forward.landingNodeId,
       targetMode: forward.chain ? "chain" : forward.landingNodeId ? "node" : "manual",
       chainLink: "",
+      chainInbound:
+        forward.chain?.inboundProtocol === "anytls"
+          ? "anytls"
+          : "vless_reality_vision",
       interfaceName: forward.interfaceName || "",
       strategy: forward.strategy || "fifo",
       speedId: null, // plan 170: rule speed retired
@@ -2998,6 +3005,10 @@ export default function ForwardPage() {
       landingNodeId: forward.landingNodeId,
       targetMode: forward.chain ? "chain" : forward.landingNodeId ? "node" : "manual",
       chainLink: "",
+      chainInbound:
+        forward.chain?.inboundProtocol === "anytls"
+          ? "anytls"
+          : "vless_reality_vision",
       interfaceName: forward.interfaceName || "",
       strategy: forward.strategy || "fifo",
       speedId: null, // plan 170: rule speed retired
@@ -3249,6 +3260,8 @@ export default function ForwardPage() {
         inPort: form.inPort,
         targetMode: "chain",
         chainLink: (form.chainLink || "").trim(),
+        // Plan 250: VLESS Reality (default) or AnyTLS on the tunnel exits.
+        chainInbound: form.chainInbound || "vless_reality_vision",
         mode: "gost",
         strategy: "fifo",
         maxConnections: form.maxConnections,
@@ -5776,7 +5789,7 @@ export default function ForwardPage() {
                   role="button"
                   size="sm"
                   tabIndex={0}
-                  title={`线路机隧道上目标不是 VLESS Reality Vision 落地或「我自己的节点」的规则；仍在运行，修改目标后即合规。点一下定位到规则${lineNonCompliantCount > 1 ? "，再点跳到下一条" : ""}`}
+                  title={`线路机隧道上目标不是 VLESS Reality Vision / AnyTLS 落地或「我自己的节点」的规则；仍在运行，修改目标后即合规。点一下定位到规则${lineNonCompliantCount > 1 ? "，再点跳到下一条" : ""}`}
                   variant="flat"
                   onClick={handleLineJump}
                   onKeyDown={(e) => {
@@ -6866,7 +6879,7 @@ export default function ForwardPage() {
                   <div className="space-y-4 pb-4">
                     {!(form.mode === "wg_path" && form.wgRuleType === "cidr") && (
                       <>
-                    {form.mode !== "wg_path" && <RuleLandingTarget chainError={form.targetMode === "chain" ? errors.remoteAddr : undefined} chainSummary={editingChain?.summary} line={selectedLineTunnel} value={form} userId={form.userId || tokenUserId || 0} onChange={(target) => { setForm((prev) => ({ ...prev, ...target })); setErrors((prev) => ({ ...prev, remoteAddr: "" })); setChainError(""); }} />}
+                    {form.mode !== "wg_path" && <RuleLandingTarget chainCurrentInbound={editingChain ? (editingChain.inboundProtocol === "anytls" ? "anytls" : "vless_reality_vision") : undefined} chainError={form.targetMode === "chain" ? errors.remoteAddr : undefined} chainSummary={editingChain?.summary} line={selectedLineTunnel} value={form} userId={form.userId || tokenUserId || 0} onChange={(target) => { setForm((prev) => ({ ...prev, ...target })); setErrors((prev) => ({ ...prev, remoteAddr: "" })); setChainError(""); }} />}
                     {form.mode !== "wg_path" && form.targetMode && form.targetMode !== "manual" && form.targetMode !== "chain" && errors.remoteAddr && <p className="text-sm text-danger">{errors.remoteAddr}</p>}
                     {(!form.targetMode || form.targetMode === "manual" || form.mode === "wg_path") && <Textarea
                       description="格式: IP:端口 或 域名:端口，支持多个地址（每行一个）"

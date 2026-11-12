@@ -25,6 +25,7 @@ import (
 
 	"go-backend/internal/landingcustom"
 	"go-backend/internal/store/model"
+	"go-backend/internal/sublink"
 	"gorm.io/gorm"
 )
 
@@ -501,6 +502,12 @@ func LandingClientConfigs(n model.LandingNode, host string, port int, udp bool) 
 		line("  fingerprint: %s", yamlString(n.CertSHA256))
 		line("  client-fingerprint: chrome")
 		line("  udp: %t", udp)
+		// Plan 250: the Surge line (Surge has no VLESS; AnyTLS is its way in),
+		// the same line the Surge subscription renders, certificate pinned.
+		if s, ok := sublink.SurgeLine(sublink.Node{Name: n.Name, Extra: &sublink.Extra{Type: landingcustom.ProtocolAnyTLS, Server: host, Port: port, Password: n.Password, SNI: o.SNI, CertSHA256: n.CertSHA256, UDP: udp}}); ok {
+			surge = s
+		}
+		return strings.TrimRight(b.String(), "\n"), surge, ""
 	case landingcustom.ProtocolSnell:
 		version := o.Version
 		if version == 0 {

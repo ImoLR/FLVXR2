@@ -102,7 +102,8 @@ func (r *Repository) EnsureLandingGuardPorts(serverID int64) (map[string]int, []
 			}
 			for _, c := range copies {
 				ch, ok := byID[c.ChainID]
-				if !ok {
+				// Plan 250: AnyTLS chain copies have no Reality guard.
+				if !ok || ch.ChainInbound() == model.ChainInboundAnyTLS {
 					continue
 				}
 				members = append(members, guardMember{chain: true, id: c.ID, tag: fmt.Sprintf("flvxl-%d", model.ChainAgentIDBase+c.ID), key: guardGroupKey(ch.Dest, ChainServerNames(ch)), port: c.GuardPort})

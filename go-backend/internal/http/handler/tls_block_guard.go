@@ -39,7 +39,7 @@ func (h *Handler) landingFilterPreCheck(tunnelID int64, mode string, req map[str
 	}
 	protocol := defaultString(asString(req["landingProtocol"]), "ss2022")
 	if h.isLineMachineTunnel(tunnelID) {
-		protocol = "vless_reality_vision"
+		protocol = defaultString(asString(req["landingProtocol"]), "vless_reality_vision") // plan 250: Reality or AnyTLS
 	}
 	if f := repo.TunnelBlockedFeature(t.TLS, t.HTTP, repo.LandingServerProtocolFilterFeatures(s, protocol)); f != "" {
 		return errors.New(repo.LandingFeatureBlockedMsg(f))
@@ -67,7 +67,8 @@ func (h *Handler) landingFilterTargetError(tunnelID int64, mode string, landingI
 	return nil
 }
 
-// chainFilterError: 「我自己的节点」 reaches the exit with VLESS Reality.
+// chainFilterError: 「我自己的节点」 reaches the exit with VLESS Reality or
+// AnyTLS (plan 250), both TLS.
 func (h *Handler) chainFilterError(tunnelID int64) error {
 	if h == nil || h.repo == nil || tunnelID <= 0 {
 		return nil

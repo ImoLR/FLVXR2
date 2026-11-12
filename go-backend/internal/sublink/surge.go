@@ -268,3 +268,18 @@ func Surge(nodes []Node, mode string, surfboard bool) ([]byte, int) {
 	}
 	return []byte(b.String()), len(kept)
 }
+
+// SurgeLine is one node as a complete Surge [Proxy] line ("Name = …"),
+// exactly as the Surge profile renders it; ok=false when Surge cannot
+// express the node. Used by the 复制链接 dialogs (plan 250).
+func SurgeLine(n Node) (string, bool) {
+	body, ok := surgeProxy(n, false)
+	if !ok {
+		return "", false
+	}
+	name := lineName(n.Name, false)
+	if name == "" {
+		name = lineName(n.ProtocolLabel()+" "+n.Server(), false)
+	}
+	return name + " = " + body, true
+}

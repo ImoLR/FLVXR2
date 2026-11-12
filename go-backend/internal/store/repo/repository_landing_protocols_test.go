@@ -150,7 +150,8 @@ func TestSharedExtraProtocolsLifecycle(t *testing.T) {
 				t.Fatal(links, err)
 			}
 			if !strings.HasPrefix(links[0].URL, "anytls://"+any.Password+"@154.3.39.138:30003/?insecure=1#") || strings.Contains(links[0].URL, "sni=") ||
-				!strings.Contains(links[0].Clash, `fingerprint: "`+any.CertSHA256+`"`) || !strings.Contains(links[0].Clash, "udp: true") || links[0].Surge != "" {
+				!strings.Contains(links[0].Clash, `fingerprint: "`+any.CertSHA256+`"`) || !strings.Contains(links[0].Clash, "udp: true") ||
+				links[0].Surge != "我的 AnyTLS = anytls, 154.3.39.138, 30003, password=\""+any.Password+"\", server-cert-fingerprint-sha256="+any.CertSHA256 {
 				t.Fatalf("anytls link %+v", links[0])
 			}
 			links, _ = r.LandingNodeLinks(*snell)

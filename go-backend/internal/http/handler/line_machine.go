@@ -9,20 +9,28 @@ import (
 	"strings"
 
 	"go-backend/internal/http/response"
+	"go-backend/internal/landingcustom"
 	"go-backend/internal/store/model"
 	"go-backend/internal/store/repo"
 )
 
 // 线路机 rules (plan 108). A tunnel whose entry is a 线路机 (public-internet
 // line, e.g. DMIT) carries the client's landing protocol across the GFW, so
-// its rules may only target VLESS Reality Vision landing nodes or a chain
-// (「我自己的节点」). Enforced here for every path that sets a rule target,
-// for admins too; the UI only mirrors it.
+// its rules may only target TLS-camouflaged landing nodes — VLESS Reality
+// Vision or (plan 250, for Surge users) AnyTLS — or a chain (「我自己的节点」,
+// Reality or AnyTLS inbound). Snell / SS2022 / Mieru stay forbidden. Enforced
+// here for every path that sets a rule target, for admins too; the UI only
+// mirrors it.
 
 const (
-	lineMachineManualMsg  = "线路机隧道不能手动填写目标地址：请选择 VLESS Reality Vision 落地节点或「我自己的节点」"
-	lineMachineRealityMsg = "线路机隧道只能转发到 VLESS Reality Vision 落地节点"
+	lineMachineManualMsg  = "线路机隧道不能手动填写目标地址：请选择 VLESS Reality Vision 或 AnyTLS 落地节点，或「我自己的节点」"
+	lineMachineRealityMsg = "线路机隧道只能使用 VLESS Reality Vision 或 AnyTLS 落地"
 )
+
+// lineMachineLandingProtocol: the landing protocols a 线路机 rule may target.
+func lineMachineLandingProtocol(p string) bool {
+	return p == "vless_reality_vision" || p == landingcustom.ProtocolAnyTLS
+}
 
 // isLineMachineTunnel reports whether any entry node of the tunnel is a 线路机.
 func (h *Handler) isLineMachineTunnel(tunnelID int64) bool {
@@ -33,13 +41,21 @@ func (h *Handler) isLineMachineTunnel(tunnelID int64) bool {
 	return err == nil && info != nil && info.LineMachine
 }
 
-// lineMachinePreCheck normalizes legacy server targets before lookup/creation:
-// a 线路机 tunnel always uses VLESS Reality Vision.
+// lineMachinePreCheck normalizes server targets before lookup/creation: on a
+// 线路机 tunnel an unset protocol is VLESS Reality Vision (the default), AnyTLS
+// is kept, anything else is refused.
 func (h *Handler) lineMachinePreCheck(tunnelID int64, req map[string]interface{}) error {
 	if req == nil || asInt64(req["landingServerId"], 0) <= 0 || !h.isLineMachineTunnel(tunnelID) {
 		return nil
 	}
-	req["landingProtocol"] = "vless_reality_vision"
+	p := strings.TrimSpace(asString(req["landingProtocol"]))
+	if p == "" {
+		p = "vless_reality_vision"
+	}
+	if !lineMachineLandingProtocol(p) {
+		return errors.New(lineMachineRealityMsg)
+	}
+	req["landingProtocol"] = p
 	return nil
 }
 
@@ -56,7 +72,7 @@ func (h *Handler) lineMachineTargetError(tunnelID int64, mode string, landingID 
 	if err != nil || n == nil {
 		return errors.New("落地节点不存在")
 	}
-	if n.Protocol != "vless_reality_vision" {
+	if !lineMachineLandingProtocol(n.Protocol) {
 		return errors.New(lineMachineRealityMsg)
 	}
 	return nil
@@ -67,12 +83,12 @@ func explicitLandingTarget(req map[string]interface{}) bool {
 }
 
 // forwardLineCompliant: on a 线路机 tunnel a rule is compliant when it is a
-// chain rule or targets a VLESS Reality Vision landing node.
+// chain rule or targets a VLESS Reality Vision or AnyTLS landing node.
 func forwardLineCompliant(f model.Forward, chained bool, landingProtocol map[int64]string) bool {
 	if chained {
 		return true
 	}
-	return f.LandingNodeID > 0 && landingProtocol[f.LandingNodeID] == "vless_reality_vision"
+	return f.LandingNodeID > 0 && lineMachineLandingProtocol(landingProtocol[f.LandingNodeID])
 }
 
 // loopbackTargetError: users must never type loopback/unspecified targets
@@ -119,6 +135,29 @@ func tunnelChainAvailability(info *repo.TunnelLineInfo) (bool, string) {
 	return true, ""
 }
 
+// tunnelChainAnyTLSAvailability (plan 250): an AnyTLS chain inbound also
+// needs every exit's agent to apply it (landing_chain ≥ 2); older agents keep
+// serving Reality chains.
+func tunnelChainAnyTLSAvailability(info *repo.TunnelLineInfo) (bool, string) {
+	if ok, reason := tunnelChainAvailability(info); !ok {
+		return false, reason
+	}
+	for _, e := range info.Exits {
+		if e.LandingChain < repo.ChainAnyTLSVersion {
+			return false, "出口节点「" + e.Name + "」的节点程序版本过低，升级后才能使用 AnyTLS"
+		}
+	}
+	return true, ""
+}
+
+// chainInboundAvailability checks one inbound protocol on a tunnel.
+func chainInboundAvailability(info *repo.TunnelLineInfo, inbound string) (bool, string) {
+	if inbound == model.ChainInboundAnyTLS {
+		return tunnelChainAnyTLSAvailability(info)
+	}
+	return tunnelChainAvailability(info)
+}
+
 // decorateTunnelLineInfo adds lineMachine / chainAvailable to tunnel list
 // items (the rule dialog mirrors the backend rules with them).
 func (h *Handler) decorateTunnelLineInfo(items []map[string]interface{}) {
@@ -156,6 +195,16 @@ func (h *Handler) decorateTunnelLineInfo(items []map[string]interface{}) {
 		if !ok {
 			item["chainUnavailableReason"] = reason
 		}
+		// Plan 250: the AnyTLS choice of 「我自己的节点」 (disabled with a
+		// reason while an exit runs an older agent).
+		anyOK, anyReason := ok, reason
+		if ok {
+			anyOK, anyReason = tunnelChainAnyTLSAvailability(info)
+		}
+		item["chainAnyTLSAvailable"] = anyOK
+		if !anyOK {
+			item["chainAnyTLSUnavailableReason"] = anyReason
+		}
 	}
 }
 
@@ -192,7 +241,7 @@ func (h *Handler) decorateForwardChains(items []map[string]interface{}, admin bo
 		c, chained := chains[id]
 		if chained {
 			item["chain"] = map[string]interface{}{
-				"state": c.State, "op": c.Op, "opStartedAt": c.OpStartedAt, "lastOpAt": c.LastOpAt, "error": c.LastError,
+				"state": c.State, "op": c.Op, "opStartedAt": c.OpStartedAt, "lastOpAt": c.LastOpAt, "error": c.LastError, "inboundProtocol": c.ChainInbound(),
 				"upstreamProtocol": c.UpstreamProtocol, "upstreamHost": c.UpstreamHost, "upstreamPort": c.UpstreamPort,
 				"summary": c.UpstreamProtocol + " · " + net.JoinHostPort(c.UpstreamHost, strconv.Itoa(c.UpstreamPort)),
 			}
@@ -244,7 +293,7 @@ func lineComplianceAckValid(item map[string]interface{}, acks map[int64]string) 
 
 // lineComplianceAckEligible: only a hand-typed target on a 线路机 tunnel can be
 // confirmed — the panel cannot judge its protocol. Landing-node targets are
-// known (not Reality) and chain rules are system-managed.
+// known (not Reality / AnyTLS) and chain rules are system-managed.
 func (h *Handler) lineComplianceAckEligible(f *forwardRecord) error {
 	if f == nil {
 		return errors.New("转发不存在")

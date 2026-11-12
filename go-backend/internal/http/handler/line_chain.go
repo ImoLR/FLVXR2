@@ -228,7 +228,7 @@ func cloneReq(req map[string]interface{}) map[string]interface{} {
 	for k, v := range req {
 		out[k] = v
 	}
-	for _, k := range []string{"targetMode", "chainLink", "idempotencyKey", "landingNodeId", "landingServerId", "landingProtocol"} {
+	for _, k := range []string{"targetMode", "chainLink", "chainInbound", "idempotencyKey", "landingNodeId", "landingServerId", "landingProtocol"} {
 		delete(out, k)
 	}
 	return out
@@ -320,13 +320,14 @@ func (h *Handler) parseChainLink(ctx context.Context, link string) (linechain.Up
 	return up, name, addrs, nil
 }
 
-// checkChainExits verifies the tunnel can host chain nodes right now.
-func (h *Handler) checkChainExits(tunnelID int64) (*repo.TunnelLineInfo, error) {
+// checkChainExits verifies the tunnel can host chain nodes with the given
+// inbound protocol (plan 250) right now.
+func (h *Handler) checkChainExits(tunnelID int64, inbound string) (*repo.TunnelLineInfo, error) {
 	info, err := h.repo.TunnelLineInfo(tunnelID)
 	if err != nil {
 		return nil, err
 	}
-	if ok, reason := tunnelChainAvailability(info); !ok {
+	if ok, reason := chainInboundAvailability(info, inbound); !ok {
 		return nil, errors.New(reason)
 	}
 	if err := h.chainFilterError(tunnelID); err != nil {
@@ -380,7 +381,7 @@ func exitNodeIDs(info *repo.TunnelLineInfo) []int64 {
 func chainStatusView(c *model.ForwardChain) map[string]interface{} {
 	return map[string]interface{}{
 		"chainId": c.ID, "state": c.State, "op": c.Op, "progress": c.Progress, "opStartedAt": c.OpStartedAt,
-		"lastOpAt": c.LastOpAt, "error": c.LastError, "forwardId": c.ForwardID,
+		"lastOpAt": c.LastOpAt, "error": c.LastError, "forwardId": c.ForwardID, "inboundProtocol": c.ChainInbound(),
 		"summary": strings.TrimSpace(c.UpstreamProtocol + " · " + net.JoinHostPort(c.UpstreamHost, strconv.Itoa(c.UpstreamPort))),
 	}
 }
@@ -449,7 +450,13 @@ func (h *Handler) forwardCreateChain(w http.ResponseWriter, r *http.Request, req
 		fail("请填写规则名称")
 		return
 	}
-	info, err := h.checkChainExits(tunnelID)
+	// Plan 250: the exit inbound the user's client speaks (Reality default).
+	inbound, err := repo.NormalizeChainInbound(asString(req["chainInbound"]))
+	if err != nil {
+		fail(err.Error())
+		return
+	}
+	info, err := h.checkChainExits(tunnelID, inbound)
 	if err != nil {
 		fail(err.Error())
 		return
@@ -509,7 +516,7 @@ func (h *Handler) forwardCreateChain(w http.ResponseWriter, r *http.Request, req
 		fail(err.Error())
 		return
 	}
-	chain, _, err := h.repo.CreateForwardChain(repo.ChainCreateInput{UserID: ownerID, TunnelID: tunnelID, IdemKey: idem, Upstream: up, ExitNodeIDs: exitNodeIDs(info), InFlightAfter: now.Add(-chainStaleAfter).UnixMilli(), EnforceRuleLimit: ruleLimitApplies(roleID)})
+	chain, _, err := h.repo.CreateForwardChain(repo.ChainCreateInput{UserID: ownerID, TunnelID: tunnelID, IdemKey: idem, Upstream: up, ExitNodeIDs: exitNodeIDs(info), InFlightAfter: now.Add(-chainStaleAfter).UnixMilli(), EnforceRuleLimit: ruleLimitApplies(roleID), InboundProtocol: inbound})
 	if errors.Is(err, repo.ErrChainIdempotent) && chain != nil {
 		h.chains.refund(ownerID)
 		response.WriteJSON(w, response.OK(chainStatusView(chain)))
@@ -542,6 +549,7 @@ type chainOp struct {
 	deadline  time.Time
 	holdsUser bool
 	relink    bool // an upstream change is part of the operation
+	reproto   bool // an inbound protocol switch is part of it (plan 250)
 	plan      *repo.ChainRetarget
 	tunnelID  int64
 }
@@ -595,6 +603,11 @@ func (h *Handler) rollbackChainChange(op chainOp, reason string) {
 	}
 	if op.relink {
 		if s, err := h.repo.RevertChainUpstreamChange(op.chainID); err == nil {
+			servers = append(servers, s...)
+		}
+	}
+	if op.reproto {
+		if s, err := h.repo.RevertChainInboundChange(op.chainID); err == nil {
 			servers = append(servers, s...)
 		}
 	}
@@ -803,8 +816,8 @@ func (h *Handler) chainChangeSteps(op chainOp) error {
 		wait = append(wait, op.plan.AddedServerIDs...)
 	}
 	// Plan 225 (P2-8): a paused rule runs no chain inbound; its new link is
-	// applied when it is resumed.
-	if op.relink && !h.repo.ForwardPaused(chain.ForwardID) {
+	// applied when it is resumed. Plan 250: same for a protocol switch.
+	if (op.relink || op.reproto) && !h.repo.ForwardPaused(chain.ForwardID) {
 		servers, err := h.repo.ChainServerIDs([]int64{op.chainID})
 		if err != nil {
 			return err
@@ -876,6 +889,11 @@ func (h *Handler) chainChangeSteps(op chainOp) error {
 			return err
 		}
 	}
+	if op.reproto {
+		if err := h.repo.CommitChainInboundChange(op.chainID); err != nil {
+			return err
+		}
+	}
 	_ = h.repo.FinishChainOp(op.chainID, "")
 	h.syncChainServers(servers)
 	return nil
@@ -918,6 +936,20 @@ func (h *Handler) forwardUpdateChainHook(w http.ResponseWriter, r *http.Request,
 	tunnelID := asInt64(req["tunnelId"], forward.TunnelID)
 	link := strings.TrimSpace(asString(req["chainLink"]))
 	now := time.Now()
+	// Plan 250: the inbound protocol; absent = keep the chain's (a new chain
+	// defaults to Reality). A different value switches the user's link.
+	inbound := model.ChainInboundReality
+	if chain != nil {
+		inbound = chain.ChainInbound()
+	}
+	if v := strings.TrimSpace(asString(req["chainInbound"])); v != "" {
+		p, err := repo.NormalizeChainInbound(v)
+		if err != nil {
+			return fail(err.Error())
+		}
+		inbound = p
+	}
+	protoChange := chain != nil && inbound != chain.ChainInbound()
 
 	if chain != nil && !wantChain && targetMode != "" {
 		// Switching to another target type: normal update, then remove the chain.
@@ -933,7 +965,7 @@ func (h *Handler) forwardUpdateChainHook(w http.ResponseWriter, r *http.Request,
 		cw.flushTo(w)
 		return true
 	}
-	if chain != nil && link == "" && tunnelID == forward.TunnelID {
+	if chain != nil && link == "" && tunnelID == forward.TunnelID && !protoChange {
 		// Name, port, limits…: the normal path with the chain target pinned.
 		body := cloneReq(req)
 		body["remoteAddr"] = chainTarget(chain.Port)
@@ -953,7 +985,7 @@ func (h *Handler) forwardUpdateChainHook(w http.ResponseWriter, r *http.Request,
 			return fail("目标隧道不存在或已禁用")
 		}
 	}
-	info, err := h.checkChainExits(tunnelID)
+	info, err := h.checkChainExits(tunnelID, inbound)
 	if err != nil {
 		return fail(err.Error())
 	}
@@ -966,7 +998,7 @@ func (h *Handler) forwardUpdateChainHook(w http.ResponseWriter, r *http.Request,
 	} else if chain == nil {
 		return fail("请粘贴你的节点链接")
 	}
-	if err := h.chains.begin(forward.UserID, roleID != 0 && link != "", now); err != nil {
+	if err := h.chains.begin(forward.UserID, roleID != 0 && (link != "" || protoChange), now); err != nil {
 		return fail(err.Error())
 	}
 	started := false
@@ -984,7 +1016,7 @@ func (h *Handler) forwardUpdateChainHook(w http.ResponseWriter, r *http.Request,
 	op := chainOp{ownerID: forward.UserID, forwardID: id, claims: claims, req: cloneReq(req), deadline: now.Add(chainCreateDeadline), holdsUser: true}
 	if chain == nil {
 		// Convert an existing rule into a chain rule.
-		created, _, err := h.repo.CreateForwardChain(repo.ChainCreateInput{UserID: forward.UserID, TunnelID: tunnelID, Upstream: up, ExitNodeIDs: exitNodeIDs(info), InFlightAfter: now.Add(-chainStaleAfter).UnixMilli(), AttachForwardID: id})
+		created, _, err := h.repo.CreateForwardChain(repo.ChainCreateInput{UserID: forward.UserID, TunnelID: tunnelID, Upstream: up, ExitNodeIDs: exitNodeIDs(info), InFlightAfter: now.Add(-chainStaleAfter).UnixMilli(), AttachForwardID: id, InboundProtocol: inbound})
 		if err != nil {
 			h.chains.refund(forward.UserID)
 			return fail(err.Error())
@@ -1021,6 +1053,14 @@ func (h *Handler) forwardUpdateChainHook(w http.ResponseWriter, r *http.Request,
 		}
 		op.relink = true
 		_ = servers
+	}
+	if protoChange {
+		// After the upstream begin: a failure here rolls both back.
+		op.reproto = true
+		if _, err := h.repo.BeginChainInboundChange(chain.ID, inbound); err != nil {
+			op.reproto = false
+			return finishOnError(err.Error())
+		}
 	}
 	if tunnelID != forward.TunnelID {
 		plan, err := h.repo.PrepareChainRetarget(chain.ID, exitNodeIDs(info))
@@ -1097,7 +1137,7 @@ func (h *Handler) startChainMove(c model.ForwardChain, info *repo.TunnelLineInfo
 	reason := ""
 	if infoErr != nil {
 		reason = infoErr.Error()
-	} else if ok, why := tunnelChainAvailability(info); !ok {
+	} else if ok, why := chainInboundAvailability(info, c.ChainInbound()); !ok {
 		reason = why
 	}
 	if reason != "" {
@@ -1174,7 +1214,7 @@ func (h *Handler) reconcileChains(now time.Time) {
 			resync = append(resync, servers...)
 			log.Printf("chain reconcile: rolled back %s chain=%d", c.Op, c.ID)
 		default:
-			op := chainOp{kind: c.Op, chainID: c.ID, relink: c.PrevUpstream != ""}
+			op := chainOp{kind: c.Op, chainID: c.ID, relink: c.PrevUpstream != "", reproto: c.PrevInbound != ""}
 			if f, err := h.getForwardRecord(c.ForwardID); err == nil && f != nil && f.RemoteAddr != chainTarget(c.Port) {
 				// The rule already switched to the pending copies: commit.
 				if p, ok := parseLoopbackPort(f.RemoteAddr); ok {
@@ -1182,6 +1222,9 @@ func (h *Handler) reconcileChains(now time.Time) {
 					if err := h.repo.CommitChainRetarget(plan, f.TunnelID); err == nil {
 						if op.relink {
 							_ = h.repo.CommitChainUpstreamChange(c.ID)
+						}
+						if op.reproto {
+							_ = h.repo.CommitChainInboundChange(c.ID)
 						}
 						_ = h.repo.FinishChainOp(c.ID, "")
 						servers, _ := h.repo.ChainServerIDs([]int64{c.ID})
@@ -1328,7 +1371,8 @@ func (h *Handler) forwardChainStatus(w http.ResponseWriter, r *http.Request) {
 }
 
 // forwardChainLinks returns the user's link per entry of the rule: VLESS
-// Reality Vision to the tunnel entry address and the rule's port.
+// Reality Vision (or AnyTLS, plan 250) to the tunnel entry address and the
+// rule's port.
 func (h *Handler) forwardChainLinks(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		ForwardID int64 `json:"forwardId"`
@@ -1358,7 +1402,13 @@ func (h *Handler) forwardChainLinks(w http.ResponseWriter, r *http.Request) {
 		if len(entries) > 1 {
 			name = f.Name + " · " + e.NodeName
 		}
-		links = append(links, map[string]interface{}{"name": name, "url": repo.ChainLinkURL(*chain, e.Host, e.Port, name), "entryNodeId": e.NodeID, "entryNodeName": e.NodeName})
+		link := map[string]interface{}{"name": name, "url": repo.ChainLinkURL(*chain, e.Host, e.Port, name), "entryNodeId": e.NodeID, "entryNodeName": e.NodeName, "inboundProtocol": chain.ChainInbound()}
+		// Plan 250: AnyTLS links get the pinned Clash entry + Surge line
+		// (the anytls:// URI cannot carry the certificate pin).
+		if clash, surge := repo.ChainClientConfigs(*chain, e.Host, e.Port, name); clash != "" {
+			link["clash"], link["surge"] = clash, surge
+		}
+		links = append(links, link)
 	}
 	response.WriteJSON(w, response.OK(links))
 }

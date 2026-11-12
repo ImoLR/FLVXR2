@@ -57,13 +57,20 @@ export function CreateLandingNodeDialog({
   onUseNode?: (node: LandingNode) => void;
 }) {
   const admin = isAdmin();
+  // Plan 250: a 线路机 rule may use VLESS Reality Vision or AnyTLS only.
+  const lineProtocols = (target?: LandingServer): LandingProtocol[] =>
+    target
+      ? landingCreatableProtocols(target).filter(
+          (item) => item === "vless_reality_vision" || item === "anytls",
+        )
+      : [];
   const availableServers = servers.filter(
     (server) =>
       server.status === "active" &&
       server.sharedAvailable !== false &&
       (!server.availableUntil || server.availableUntil > Date.now()) &&
       !server.chainOnly &&
-      (!lineMachine || server.protocols.includes("vless_reality_vision")),
+      (!lineMachine || lineProtocols(server).length > 0),
   );
   // Plan 224: protocols whose traffic the rule's tunnel would block.
   const protocolBlockedReason = (
@@ -75,7 +82,14 @@ export function CreateLandingNodeDialog({
       target?.protocolFilterFeatures?.[item],
     );
   const firstProtocol = (target?: LandingServer): LandingProtocol => {
-    if (lineMachine) return "vless_reality_vision";
+    if (lineMachine)
+      return (
+        lineProtocols(target).find(
+          (item) => !protocolBlockedReason(target, item),
+        ) ||
+        lineProtocols(target)[0] ||
+        "vless_reality_vision"
+      );
     const list = target ? landingCreatableProtocols(target) : [];
 
     return (
@@ -111,7 +125,7 @@ export function CreateLandingNodeDialog({
     : undefined;
   const reuseHint = existing && !allowDuplicate;
   const protocolOptions = lineMachine
-    ? (["vless_reality_vision"] as LandingProtocol[])
+    ? lineProtocols(server)
     : server
       ? landingCreatableProtocols(server)
       : [];
@@ -195,7 +209,7 @@ export function CreateLandingNodeDialog({
           {!availableServers.length && (
             <p className="text-sm text-default-500">
               {lineMachine
-                ? "暂无可创建 VLESS Reality Vision 节点的服务器"
+                ? "暂无可创建 VLESS Reality Vision 或 AnyTLS 节点的服务器"
                 : "暂无可创建节点的服务器"}
             </p>
           )}
@@ -242,14 +256,14 @@ export function CreateLandingNodeDialog({
           <Select
             description={
               lineMachine
-                ? "线路机隧道固定使用 VLESS Reality Vision"
+                ? "线路机隧道只能使用 VLESS Reality Vision 或 AnyTLS；Surge 等不支持 VLESS 的客户端请选 AnyTLS"
                 : undefined
             }
             disabledKeys={protocolOptions.filter((item) =>
               protocolBlockedReason(server, item),
             )}
             errorMessage={blockedReason || undefined}
-            isDisabled={lineMachine}
+            isDisabled={lineMachine && protocolOptions.length < 2}
             isInvalid={Boolean(blockedReason)}
             label="协议模板"
             selectedKeys={[protocol]}
@@ -304,7 +318,8 @@ export function CreateLandingNodeDialog({
                   }[protocol]
                 }
                 自动生成，创建后在「节点链接」查看客户端配置（Clash / mihomo
-                {protocol === "snell" ? "、Surge" : ""}）。
+                {protocol === "snell" || protocol === "anytls" ? "、Surge" : ""}
+                ）。
               </p>
             </div>
           )}

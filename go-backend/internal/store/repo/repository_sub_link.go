@@ -311,12 +311,12 @@ func (r *Repository) SubPanelLinks(userID int64, forwardIDs, landingIDs []int64,
 				if len(list) > 1 {
 					name = f.Name + " · " + e.NodeName
 				}
-				uri := ChainLinkURL(*chain, e.Host, e.Port, name)
-				up, _, perr := linechain.ParseLink(uri)
-				if perr != nil {
+				// Plan 250: Reality (vless://) or AnyTLS (pinned Extra).
+				node, ok := ChainSubNode(*chain, e.Host, e.Port, name)
+				if !ok {
 					continue
 				}
-				link.Node = sublink.Node{Name: name, Up: up, URI: uri}
+				link.Node = node
 			} else {
 				n := landingByID[f.LandingNodeID]
 				node, ok := subLandingNode(*n, servers[n.LandingServerID], e.Host, e.Port, f.Name+" · "+e.NodeName)

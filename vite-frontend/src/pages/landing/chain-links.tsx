@@ -43,6 +43,14 @@ export function ForwardLineBadges({ forward }: { forward: ChainRow }) {
           我的节点
         </Chip>
       )}
+      {chain?.inboundProtocol === "anytls" && (
+        <span
+          className="inline-flex items-center whitespace-nowrap rounded-full bg-pink-500/15 px-2 text-[10px] font-semibold leading-[18px] text-pink-700 dark:bg-pink-400/20 dark:text-pink-300"
+          title="连接协议 AnyTLS（Surge 等不支持 VLESS 的客户端可用）"
+        >
+          AnyTLS
+        </span>
+      )}
       {chain && chain.opStartedAt > 0 && (
         <span className="text-xs text-default-500">处理中…</span>
       )}
@@ -58,7 +66,7 @@ export function ForwardLineBadges({ forward }: { forward: ChainRow }) {
         <Chip
           color="warning"
           size="sm"
-          title="线路机隧道只能转发到 VLESS Reality Vision 落地或「我自己的节点」；该规则仍在运行，修改目标后即合规"
+          title="线路机隧道只能转发到 VLESS Reality Vision / AnyTLS 落地或「我自己的节点」；该规则仍在运行，修改目标后即合规"
           variant="flat"
         >
           不合规
@@ -67,7 +75,7 @@ export function ForwardLineBadges({ forward }: { forward: ChainRow }) {
       {forward.lineComplianceAck && !forward.lineNonCompliant && (
         <span
           className="inline-flex items-center whitespace-nowrap rounded-full bg-green-500/15 px-2 text-[10px] font-semibold leading-[18px] text-green-700 dark:bg-green-400/15 dark:text-green-300"
-          title="管理员已确认目标是 VLESS Reality Vision；目标、落地或隧道改了会自动取消"
+          title="管理员已确认目标是 VLESS Reality Vision 或 AnyTLS；目标、落地或隧道改了会自动取消"
         >
           已确认合规
         </span>
@@ -121,7 +129,13 @@ export function ChainLinkButton({
       setQR("");
       // One plain link copies at once; a link-less entry (Snell: client
       // configs only) opens the dialog instead of copying an empty string.
-      if (entries.length === 1 && entries[0].url) {
+      // Plan 250: an AnyTLS chain link opens it too — the anytls:// link
+      // cannot carry the certificate pin, the Clash / Surge configs do.
+      if (
+        entries.length === 1 &&
+        entries[0].url &&
+        !(forward.chain && entries[0].surge)
+      ) {
         const ok = await copyToClipboard(entries[0].url);
 
         if (ok) toast.success("链接已复制");

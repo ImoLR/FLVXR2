@@ -382,6 +382,11 @@ func (h *Handler) syncNativeLandingServerOnce(serverID int64) (*landingSyncSnaps
 			return nil, errors.New("落地服务器状态不可用")
 		}
 		for _, c := range copies {
+			// Plan 250: AnyTLS copies only to agents that apply them (the
+			// egress plan leaves the same copies out, see LandingEgressData).
+			if !repo.ChainCopySupported(c, node.LandingChain) {
+				continue
+			}
 			desired := chainDesiredNode(c)
 			if port := guards[desired["inbound_tag"].(string)]; port > 0 {
 				desired["guard_port"] = port
@@ -508,7 +513,7 @@ func (h *Handler) recordNativeEgress(serverID int64, report *landingEgressReport
 }
 
 // chainDesiredNode renders one chain copy for the agent: loopback VLESS
-// Reality Vision whose only route is the user's node. No limits here: the
+// Reality Vision (or AnyTLS, plan 250) whose only route is the user's node. No limits here: the
 // rule's entry service enforces the user's connection and IP caps.
 func chainDesiredNode(c repo.ChainCopy) map[string]interface{} {
 	id := model.ChainAgentIDBase + c.Node.ID
@@ -519,12 +524,19 @@ func chainDesiredNode(c repo.ChainCopy) map[string]interface{} {
 	}
 	upstream["tag"] = fmt.Sprintf("flvxc-%d", id)
 	upstream["ip_version"] = "system"
-	return map[string]interface{}{
+	out := map[string]interface{}{
 		"id": id, "inbound_tag": fmt.Sprintf("flvxl-%d", id), "protocol": "vless_reality_vision", "port": c.Node.Port, "enabled": true,
 		"max_connections": 0, "max_online_ips": 0, "listen": "127.0.0.1",
-		"vless": map[string]interface{}{"uuid": c.Chain.UUID, "flow": "xtls-rprx-vision", "reality": map[string]interface{}{"dest": c.Chain.Dest, "server_names": repo.ChainServerNames(c.Chain), "private_key": c.Chain.PrivateKey, "short_ids": []string{c.Chain.ShortID}}},
 		"chain": upstream,
 	}
+	if c.Chain.ChainInbound() == model.ChainInboundAnyTLS {
+		// Plan 250 (landing_chain 2): loopback AnyTLS, certificate inline.
+		out["protocol"] = model.ChainInboundAnyTLS
+		out["anytls"] = map[string]interface{}{"password": c.Chain.Password, "certificate_pem": c.Chain.TLSCertPEM, "key_pem": c.Chain.TLSKeyPEM}
+		return out
+	}
+	out["vless"] = map[string]interface{}{"uuid": c.Chain.UUID, "flow": "xtls-rprx-vision", "reality": map[string]interface{}{"dest": c.Chain.Dest, "server_names": repo.ChainServerNames(c.Chain), "private_key": c.Chain.PrivateKey, "short_ids": []string{c.Chain.ShortID}}}
+	return out
 }
 
 // syncNativeLandingOnReconnect (plan 161): an agent that applies the per-user
