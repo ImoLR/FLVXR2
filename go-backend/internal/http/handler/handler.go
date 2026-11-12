@@ -96,6 +96,8 @@ type Handler struct {
 	nodeRedeploy       *nodeRedeployScheduler
 	redeployRetryMu    sync.Mutex
 	redeployPending    map[tunnelNodeKey]*tunnelNodeRetry
+	// Plan 248: agent OTA jobs (follow the agent's progress and reconnect).
+	upgradeJobs agentUpgradeJobs
 
 	nodeGroupHandler *NodeGroupHandler
 	nodeTagHandler   *NodeTagHandler
@@ -243,6 +245,7 @@ func New(repo *repo.Repository, jwtSecret string, fluxVersion string) *Handler {
 	h.quotaGroups.ipKeyed = h.wsServer.IPKeyCapable
 	h.wsServer.SetNodeOnlineHook(h.onNodeOnline)
 	h.wsServer.SetNodeOfflineHook(h.onNodeOffline)
+	h.wsServer.SetUpgradeProgressHook(h.upgradeJobs.progress) // plan 248
 	h.wsServer.SetLandingScanHook(h.onLandingScan)
 	h.wsServer.SetNodeAddrsHook(h.onNodeAddrs)
 	h.wsServer.SetNodeMetricHook(func(nodeID int64, info ws.SystemInfo) {
@@ -349,6 +352,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("/api/v1/node/upgrade", h.nodeUpgrade)
 	mux.HandleFunc("/api/v1/node/dns-cache/ensure", h.nodeDNSCacheEnsure)
 	mux.HandleFunc("/api/v1/node/batch-upgrade", h.nodeBatchUpgrade)
+	mux.HandleFunc("/api/v1/node/upgrade/status", h.nodeUpgradeStatus) // plan 248
 	mux.HandleFunc("/api/v1/node/releases", h.listReleases)
 	mux.HandleFunc("/api/v1/node/batch-reset-traffic", h.nodeBatchResetTraffic)
 	mux.HandleFunc("/api/v1/node/info", h.nodeInfo)

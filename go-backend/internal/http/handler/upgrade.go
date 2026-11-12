@@ -20,7 +20,6 @@ import (
 const (
 	githubRepo     = "ImoLR/FLVXR2"
 	githubHTMLBase = "https://github.com"
-	upgradeTimeout = 5 * time.Minute
 	batchWorkers   = 5
 
 	releaseChannelStable = "stable"
@@ -326,16 +325,31 @@ func (h *Handler) nodeUpgrade(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, err := h.wsServer.SendCommand(req.ID, "UpgradeAgent", agentUpgradeCommandData(version), upgradeTimeout)
+	// Plan 248: the job follows the agent's progress and its reconnect; the
+	// request answers within upgradeHTTPWait (「仍在升级」 when not done yet).
+	job, err := h.upgradeJobs.start(h.wsServer, req.ID, version, nil)
 	if err != nil {
 		response.WriteJSON(w, response.Err(-2, fmt.Sprintf("升级失败：%v", err)))
 		return
 	}
-
-	response.WriteJSON(w, response.OK(map[string]interface{}{
-		"version": version,
-		"message": result.Message,
-	}))
+	snap := h.upgradeJobs.wait(job, upgradeHTTPWait)
+	switch snap.State {
+	case upgradeJobFailed:
+		response.WriteJSON(w, response.Err(-2, "升级失败："+snap.Message))
+	case upgradeJobSucceeded:
+		response.WriteJSON(w, response.OK(map[string]interface{}{
+			"version": version,
+			"message": snap.Message,
+		}))
+	default:
+		response.WriteJSON(w, response.OK(map[string]interface{}{
+			"version": version,
+			"message": upgradePendingMessage(snap),
+			"pending": true,
+			"stage":   snap.Stage,
+			"percent": snap.Percent,
+		}))
+	}
 }
 
 func resolveLatestRelease() (string, error) {
@@ -376,26 +390,34 @@ func (h *Handler) nodeBatchUpgrade(w http.ResponseWriter, r *http.Request) {
 		ID      int64  `json:"id"`
 		Success bool   `json:"success"`
 		Message string `json:"message"`
+		Pending bool   `json:"pending,omitempty"` // plan 248: still upgrading when the request stopped waiting
 	}
 
+	// Plan 248: jobs (batchWorkers at a time) run on after the request
+	// stopped waiting; each one's end reaches the node page.
 	results := make([]upgradeResult, len(req.IDs))
 	sem := make(chan struct{}, batchWorkers)
+	deadline := time.Now().Add(upgradeHTTPWait)
 	var wg sync.WaitGroup
-
 	for i, id := range req.IDs {
+		job, err := h.upgradeJobs.start(h.wsServer, id, version, sem)
+		if err != nil {
+			results[i] = upgradeResult{ID: id, Success: false, Message: err.Error()}
+			continue
+		}
 		wg.Add(1)
-		go func(index int, nodeID int64) {
+		go func(index int, nodeID int64, job *agentUpgradeJob) {
 			defer wg.Done()
-			sem <- struct{}{}
-			defer func() { <-sem }()
-
-			result, err := h.wsServer.SendCommand(nodeID, "UpgradeAgent", agentUpgradeCommandData(version), upgradeTimeout)
-			if err != nil {
-				results[index] = upgradeResult{ID: nodeID, Success: false, Message: err.Error()}
-				return
+			snap := h.upgradeJobs.wait(job, time.Until(deadline))
+			switch snap.State {
+			case upgradeJobFailed:
+				results[index] = upgradeResult{ID: nodeID, Success: false, Message: snap.Message}
+			case upgradeJobSucceeded:
+				results[index] = upgradeResult{ID: nodeID, Success: true, Message: snap.Message}
+			default:
+				results[index] = upgradeResult{ID: nodeID, Success: true, Pending: true, Message: upgradePendingMessage(snap)}
 			}
-			results[index] = upgradeResult{ID: nodeID, Success: true, Message: result.Message}
-		}(i, id)
+		}(i, id, job)
 	}
 	wg.Wait()
 

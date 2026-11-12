@@ -1,6 +1,7 @@
 package ws
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -67,9 +68,11 @@ type nodeSession struct {
 	entryRateTcErr  string // the agent's kernel cannot run the shaper (probe reason) → gost / nft fallback
 	entryRateKey    string // last entry rate status recorded (read loop only)
 	startedAt       time.Time
+	version         string       // agent version from the handshake (plan 248: OTA result)
 	via             string       // how the session reached the panel (Cloudflare colo / direct)
 	lastMsgAt       atomic.Int64 // unix nanos of the last data message (read loop)
 	replacedAt      atomic.Int64 // unix nanos when a newer connection of the node replaced this one
+	statusCheckedAt atomic.Int64 // unix nanos of the last stored-status self-heal check (plan 248)
 	leikwanStatus   string
 	leikwanForwards string
 	egressDetected  string
@@ -121,8 +124,9 @@ type commandResponse struct {
 }
 
 type pendingRequest struct {
-	nodeID int64
-	ch     chan CommandResult
+	nodeID  int64
+	session *nodeSession // the session the command was written to
+	ch      chan CommandResult
 }
 
 const (
@@ -171,6 +175,11 @@ type Server struct {
 	machineStats          map[int64]*MachineSample // nodeID -> latest machine sample (memory only)
 	sessionLog            nodeSessionLogger        // node session close lines (plan 138)
 	commandsSent          sync.Map                 // nodeID -> *atomic.Int64 commands written (reconnect cost)
+	// Plan 248: node.status writes of one node are serialised (see node_status.go).
+	statusLocksMu sync.Mutex
+	statusLocks   map[int64]*sync.Mutex
+	// Plan 248: UpgradeProgress reports of agents (OTA tracking in the handler).
+	onUpgradeProgress func(nodeID int64, p UpgradeProgress)
 }
 
 type SystemInfo struct {
@@ -488,7 +497,7 @@ func (s *Server) handleNode(w http.ResponseWriter, r *http.Request, nodeID int64
 	if strings.TrimSpace(secret) != "" {
 		nodeCrypto, _ = security.NewAESCrypto(secret)
 	}
-	ns := &nodeSession{nodeID: nodeID, secret: secret, conn: cw, crypto: nodeCrypto, startedAt: time.Now(), via: nodeSessionVia(r)}
+	ns := &nodeSession{nodeID: nodeID, secret: secret, conn: cw, crypto: nodeCrypto, startedAt: time.Now(), version: version, via: nodeSessionVia(r)}
 	if v, err := strconv.Atoi(r.URL.Query().Get("runtimeRevs")); err == nil && v > 0 {
 		ns.runtimeRevs = v
 	}
@@ -535,7 +544,11 @@ func (s *Server) handleNode(w http.ResponseWriter, r *http.Request, nodeID int64
 	delete(s.nodeOfflineTime, nodeID)
 	s.mu.Unlock()
 
-	_ = s.repo.UpdateNodeOnline(nodeID, 1, version, httpVal, tlsVal, socksVal, blockOtherVal)
+	// Plan 248: written under the node's status lock, only while this is
+	// still the node's current session (a newer one writes for itself).
+	s.markNodeOnline(ns, func() error {
+		return s.repo.UpdateNodeOnline(nodeID, 1, version, httpVal, tlsVal, socksVal, blockOtherVal)
+	})
 	// Plan 159: remembered for the admin view (offline nodes); one write per
 	// session, only when the capability changed.
 	_ = s.repo.SetNodeUserRateCapability(nodeID, ns.userRate)
@@ -544,7 +557,6 @@ func (s *Server) handleNode(w http.ResponseWriter, r *http.Request, nodeID int64
 	// Plan 168: 0 = older agent (gost / nft path), 1 = tc, 2 = the kernel
 	// cannot (probe reason kept for the admin view).
 	_ = s.repo.SetNodeEntryRateCapability(nodeID, entryRateMode(ns), ns.entryRateTcErr)
-	s.broadcastStatus(nodeID, 1)
 
 	s.mu.RLock()
 	onlineHook := s.onNodeOnline
@@ -555,26 +567,30 @@ func (s *Server) handleNode(w http.ResponseWriter, r *http.Request, nodeID int64
 
 	defer func() {
 		close(done)
-		needOfflineBroadcast := false
+		wasCurrent := false
 		s.mu.Lock()
 		current, ok := s.nodes[nodeID]
-		if ok && current.conn.conn == conn {
+		if ok && current == ns {
 			delete(s.nodes, nodeID)
 			// 记录节点离线时间
 			s.nodeOfflineTime[nodeID] = time.Now().Unix()
-			needOfflineBroadcast = true
+			wasCurrent = true
 		}
 		delete(s.byConn, conn)
 		s.mu.Unlock()
-		if needOfflineBroadcast {
-			s.failPendingForNode(nodeID, "节点连接已断开")
-			_ = s.repo.UpdateNodeStatus(nodeID, 0)
-			s.broadcastStatus(nodeID, 0)
-			s.mu.RLock()
-			offlineHook := s.onNodeOffline
-			s.mu.RUnlock()
-			if offlineHook != nil {
-				go offlineHook(nodeID)
+		if wasCurrent {
+			// Only this session's commands: a newer session that registered
+			// meanwhile keeps its own (plan 248).
+			s.failPendingForSession(ns, "节点连接已断开")
+			// Plan 248: skipped when a newer session registered meanwhile —
+			// it owns the node's status (and the online hooks) now.
+			if s.markNodeOffline(nodeID) {
+				s.mu.RLock()
+				offlineHook := s.onNodeOffline
+				s.mu.RUnlock()
+				if offlineHook != nil {
+					go offlineHook(nodeID)
+				}
 			}
 		}
 		_ = conn.Close()
@@ -610,6 +626,7 @@ func (s *Server) handleNode(w http.ResponseWriter, r *http.Request, nodeID int64
 					var sysInfo SystemInfo
 					sysOK := json.Unmarshal(envelope.Data, &sysInfo) == nil
 					if sysOK {
+						s.maybeHealNodeOnline(ns, time.Now()) // plan 248
 						s.recordEgressDetection(ns, sysInfo.EgressIPFamily)
 						s.recordIPv6RA(ns, sysInfo.IPv6RAStatus, sysInfo.IPv6RADetail)
 						s.recordLeiKwan(ns, sysInfo.LeiKwan)
@@ -687,6 +704,7 @@ func (s *Server) handleNode(w http.ResponseWriter, r *http.Request, nodeID int64
 				continue
 			case "UpgradeProgress":
 				s.broadcastAdminTyped(nodeID, "upgrade_progress", msg)
+				s.reportUpgradeProgress(nodeID, msg) // plan 248: OTA tracking
 				continue
 			default:
 				// Broadcast is a whitelist (metric / status / upgrade
@@ -774,6 +792,12 @@ func looksLikeSystemInfoMessage(msg string) bool {
 }
 
 func (s *Server) SendCommand(nodeID int64, cmdType string, data interface{}, timeout time.Duration) (CommandResult, error) {
+	return s.SendCommandContext(context.Background(), nodeID, cmdType, data, timeout)
+}
+
+// SendCommandContext is SendCommand that also gives up when ctx ends (plan
+// 248: the OTA tracker stops waiting once the agent is back on the target).
+func (s *Server) SendCommandContext(ctx context.Context, nodeID int64, cmdType string, data interface{}, timeout time.Duration) (CommandResult, error) {
 	if s == nil {
 		return CommandResult{}, errors.New("server not initialized")
 	}
@@ -795,7 +819,7 @@ func (s *Server) SendCommand(nodeID int64, cmdType string, data interface{}, tim
 	ch := make(chan CommandResult, 1)
 
 	s.mu.Lock()
-	s.pending[requestID] = pendingRequest{nodeID: nodeID, ch: ch}
+	s.pending[requestID] = pendingRequest{nodeID: nodeID, session: ns, ch: ch}
 	s.mu.Unlock()
 
 	cleanup := func() {
@@ -867,6 +891,9 @@ func (s *Server) SendCommand(nodeID int64, cmdType string, data interface{}, tim
 	case <-time.After(timeout):
 		cleanup()
 		return CommandResult{}, errors.New("等待节点响应超时")
+	case <-ctx.Done():
+		cleanup()
+		return CommandResult{}, ctx.Err()
 	}
 }
 
@@ -929,8 +956,10 @@ func (s *Server) tryResolvePending(nodeID int64, message string) bool {
 	return true
 }
 
-func (s *Server) failPendingForNode(nodeID int64, message string) {
-	if s == nil {
+// failPendingForSession fails the commands written to ns: their replies can no
+// longer arrive on it. Commands of another (newer) session of the node stay.
+func (s *Server) failPendingForSession(ns *nodeSession, message string) {
+	if s == nil || ns == nil {
 		return
 	}
 
@@ -942,7 +971,7 @@ func (s *Server) failPendingForNode(nodeID int64, message string) {
 
 	s.mu.Lock()
 	for id, pr := range s.pending {
-		if pr.nodeID != nodeID {
+		if pr.session != ns {
 			continue
 		}
 		items = append(items, pair{id: id, pr: pr})
@@ -1048,6 +1077,7 @@ func (s *Server) cleanupStaleMetrics(interval time.Duration) {
 			}
 		}
 		s.mu.Unlock()
+		s.healStaleOnline(time.Now()) // plan 248
 	}
 }
 
