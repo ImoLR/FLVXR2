@@ -114,6 +114,14 @@ func TestWarmPoolColumnAndOwners(t *testing.T) {
 			if err != nil || counts[50] != 1 || counts[tn.ID] != 1 {
 				t.Fatalf("active counts %v %v", counts, err)
 			}
+			// A LeiKwan pipe tunnel never warms.
+			if err := r.db.Exec(`INSERT INTO leikwan_pipe(account_id, forward_id, tunnel_id, landing_node_id, landing_port, listen_port, route_id) VALUES(1, 104, 50, 9, 3002, 40001, 1)`).Error; err != nil {
+				t.Fatalf("pipe row: %v", err)
+			}
+			if c, _ := owners(); len(c) != 0 {
+				t.Fatalf("pipe tunnel warmed: %v", c)
+			}
+			r.db.Exec(`DELETE FROM leikwan_pipe`)
 			// Switch off → no owners; tunnel disabled → none.
 			_ = r.SetTunnelWarmPoolTx(nil, 50, 0)
 			_ = r.SetTunnelWarmPoolTx(nil, tn.ID, 0)

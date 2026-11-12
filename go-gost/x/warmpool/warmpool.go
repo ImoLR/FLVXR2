@@ -66,6 +66,7 @@ const (
 	capLogEvery       = 10 * time.Minute
 	poolDropAfter     = 10 * time.Minute
 	minAdaptiveMaxAge = 30 * time.Second
+	maxRetired        = 256
 )
 
 // Kind of an owner.
@@ -342,6 +343,9 @@ func (m *Manager) retirePoolLocked(p *pool) []*pconn {
 	p.removed = true
 	p.want = 0
 	m.retired = append(m.retired, p)
+	if len(m.retired) > maxRetired { // no report for a long time (panel away)
+		m.retired = append([]*pool(nil), m.retired[len(m.retired)-maxRetired:]...)
+	}
 	return closing
 }
 
@@ -831,6 +835,22 @@ func (m *Manager) Stats() Stats {
 		}
 	}
 	return s
+}
+
+// Idle is the number of pooled conns held open right now.
+func (m *Manager) Idle() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	n := 0
+	for _, o := range m.owners {
+		for _, p := range o.pools {
+			n += len(p.idle)
+		}
+	}
+	for _, p := range m.retired {
+		n += len(p.idle)
+	}
+	return n
 }
 
 func (m *Manager) sortedOwnersLocked() []*owner {

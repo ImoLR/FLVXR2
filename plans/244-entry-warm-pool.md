@@ -251,3 +251,72 @@ a row (LeiKwan `rest_s=60`). Refill in the background after each take, bounded c
 
 **Switch.** Per tunnel, default off (`tunnel.warm_pool` = 0/N); panel pushes pool size in the chain
 hop metadata; agent ignores unknown keys on old versions. Size from burst data: see table.
+
+## Step 2 build (2026-11-12) — decisions
+
+**One command, hot.** The panel sends each warm-capable agent (handshake `warmPool=1`) its full
+desired state with `SetWarmPools` — `{"chains": {"chains_<tunnel>": 2}, "forwards": {"<rule id>": 2}}` —
+whenever it changes (rule create / update / delete / pause / resume / expiry / flow pause, tunnel
+save / switch / delete; debounced 1.5 s), after every agent (re)connect, and in a 30 s safety pass that
+pushes only differences. Rule services and chains are **not** changed by the pool at all, so the switch
+and rule changes never re-create a service (no listener gap, no dropped connection) and the reconnect
+diff (plan 138) is untouched. Old agents never receive the command (no capability). The brief's
+"carried with the rule's service push" became "pushed right after it" (≈ 2 s): the rule service config
+stays byte-identical, which is what keeps everything hot.
+- 隧道转发: chains of every entry that serves ≥ 1 active gost rule of the tunnel + all its middles (the
+  whole path); exits have no chain. nftables / WG rules do not count (they do not dial through the chain).
+- 端口转发: one pool per active rule on its entry (`<rule>_<user>_<userTunnel>_tcp` service, TCP only).
+- Switch: `tunnel.warm_pool` NOT NULL DEFAULT 1 (AutoMigrate adds it → every existing tunnel on, new
+  tunnels on); create/update accept `warmPool`; the dialog saves a switch-only change through the light
+  `POST /api/v1/tunnel/warm-pool` (column write + reconcile, no redeploy).
+
+**Relay `readTimeout: 130s` on every tunnel relay service** (middles + exits, type 2), independent of the
+switch, so the switch never touches services. Existing metadata key → old agents honour it, no exit
+OTA. It only affects conns that finished TCP+TLS but sent no relay request (cleared once the request is
+read). At the release, the panel restart reconnects the agents and the reconnect diff re-pushes every
+relay service once with `UpdateService` (re-create: established connections stay, ~ms listener gap —
+same mechanism as every earlier relay config change).
+
+**Agent pool** (`go-gost/x/warmpool`): key = (owner, next-hop addr); owner = chain or rule service. Per
+owner the head (first node not fail-marked in the current order = the 最优 / fifo pick) gets 2 conns,
+up to 2 other nodes that real streams used in the last 5 min get 1 each (round-robin, 规则最优
+per-destination order); a chain update / 最优 reorder re-reads the head at once, old pools drain by age.
+Age 90–110 s; agent cap 64 pooled conns (one Warn line per 10 min when hit); refill concurrency 1 per
+key; dial failures back off 2 / 4 s then rest 60 → 120 → 240 → 300 s; 3 dead-in-use in a row → flush +
+rest 60 s. Each idle conn has a watcher goroutine blocked in Read (no CPU, no traffic): a peer close is
+seen at once; a peer that closes idle conns younger than 40 s three generations in a row (an exit restart
+is one generation) → 「目标不支持预热」 for 30 min; a peer limit ≥ 40 s lowers that key's max age to ¾ of it
+(min 30 s). Type 2: pooled conn → relay CONNECT under TCP_USER_TIMEOUT 3 s; EOF / reset / timeout → close,
+dial cold in the same stream, no node fail mark; relay status errors are passed through (not redialed).
+Type 1: pooled TCP conn handed to the forwarder (a byte the target sent first is kept). Pooled conns never
+touch fail markers or 最优. No per-conn / per-stream logs. New agents: a relay conn closed before its
+first request byte is not an error (no log line).
+
+**Threshold 40 s instead of the brief's 20 s:** a peer that cuts idle conns at 20–40 s would force
+replacements every 15–30 s per conn (4–8 dials / min / key) — not worth it; ≥ 40 s keeps it ≤ ~2.7.
+
+**Native landings:** `go-gost/x/landing` policy `handshake` 4 → 120 s for all FLVX landing cores (the
+policy is global per Core and read only at Core start; per-target values would need restarts on every
+rule change). No hot path exists and the agent does **not** restart the Core: it takes effect at the
+next Core start. Until then pools to those targets detect the 4 s limit and back off
+(「目标不支持预热」, retried every 30 min, ≈ 6 dials / 30 min / key). A release can restart the Core
+once on the landing nodes that are targets of warm 端口转发 rules (drops that landing's live connections
+for a few seconds) — only at the OTA, decided at release time.
+
+**Counting:** pooled conns are outbound on the dialing node and pre-request on the next hop → not counted
+by rule / user connection limits, online-IP limits, landing 入站连接数 (counted per authenticated user)
+or scan detection. The dialing agent subtracts its own idle pooled conns from its `/proc/net`-based
+`tcp_conns` (整机连接数); they stay visible as a small fixed offset on the receiving side (next hop's
+整机连接数 / `tcp_conns`, ≤ 2 per active tunnel hop / rule, ≤ 64 per dialing agent) and in the landing
+port TCP counts (plan 211) for 端口转发 targets on our landings. LeiKwan pipe tunnels never warm (the
+entry dials the local LeiKwan client, which has its own pool and LeiKwan's connection limit).
+
+**Speed tag** (admin tunnel page): agents send counters per key on the existing 1 s metric message once
+a minute (`warm_pool`, deltas); the panel keeps 12 × 5 min buckets in memory (restart = empty).
+Per hop: saved = avg cold dial (refills + pool-miss streams) − avg extra delay of warm streams (≈ 0, or
+the failed attempt + cold redial for a dead conn); needs ≥ 10 warm streams in the hour; tunnel value =
+sum over the current path's hops (entry → middle → exit by the agents' current target), averaged over
+entries by warm streams; 端口转发 = per rule target. Green 「预热 −N ms」, red 「预热 +N ms」 (+ 「常被对方
+断开」 when ≥ 5 % of warm streams hit a dead conn), grey 「目标不支持预热」, nothing when off / no active
+rule / not enough samples. Detail (tap / click): 用上预热 % · 冷连接 · 预热多等 · 近 1 小时, one line
+per hop with node names. The 60 s path-latency probe and every 最优 UI are untouched.

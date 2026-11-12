@@ -20,7 +20,7 @@ type WarmChainOwner struct {
 // 预热池 switch on, the entry nodes that serve ≥ 1 active rule of it (status 1,
 // gost mode — nftables / WG rules do not dial through the chain) and, when
 // any such entry exists, all of the tunnel's middle nodes. Paused, expired
-// and deleted rules do not count.
+// and deleted rules do not count; LeiKwan pipe tunnels never warm.
 func (r *Repository) ListWarmChainOwners() ([]WarmChainOwner, error) {
 	if r == nil || r.db == nil {
 		return nil, errors.New("repository not initialized")
@@ -31,6 +31,9 @@ func (r *Repository) ListWarmChainOwners() ([]WarmChainOwner, error) {
 		Joins("JOIN forward f ON f.id = fp.forward_id").
 		Joins("JOIN tunnel t ON t.id = f.tunnel_id").
 		Where("f.status = 1 AND (f.mode = '' OR f.mode = 'gost') AND t.type = 2 AND t.status = 1 AND t.warm_pool = 1").
+		// A LeiKwan pipe tunnel's entry dials the local LeiKwan client, which
+		// has its own pool and LeiKwan's connection limit: never warm it.
+		Where("t.id NOT IN (SELECT tunnel_id FROM leikwan_pipe WHERE tunnel_id IS NOT NULL)").
 		Scan(&entries).Error
 	if err != nil {
 		return nil, err

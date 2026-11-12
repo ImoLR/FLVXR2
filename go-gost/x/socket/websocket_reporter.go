@@ -2983,6 +2983,11 @@ func getConnectionInfo() ConnectionInfo {
 	connStats, err := psnet.Connections("tcp")
 	if err == nil {
 		connInfo.TCPConns = int64(len(connStats))
+		// Plan 244: this agent's own idle warm-pool conns are not user
+		// connections (the next hop still sees them as inbound).
+		if idle := int64(warmpool.Default.Idle()); idle > 0 && idle <= connInfo.TCPConns {
+			connInfo.TCPConns -= idle
+		}
 	}
 
 	udpStats, err := psnet.Connections("udp")
