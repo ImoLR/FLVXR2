@@ -1002,11 +1002,11 @@ func (h *Handler) landingUserSave(w http.ResponseWriter, r *http.Request) {
 		MaxNodes *int  `json:"maxNodes"`
 		// MaxNodesSource "global" follows the global default; "custom" or
 		// absent with a numeric maxNodes (older clients) sets an own value.
-		MaxNodesSource  string                `json:"maxNodesSource"`
+		MaxNodesSource  string                 `json:"maxNodesSource"`
 		Quotas          []userServerQuotaInput `json:"quotas"`
-		ExtendFixedByMs int64                 `json:"extendFixedByMs"`
-		FixedNodeCount  int                   `json:"fixedNodeCount"`
-		ServerIDs       *[]int64              `json:"serverIds"`
+		ExtendFixedByMs int64                  `json:"extendFixedByMs"`
+		FixedNodeCount  int                    `json:"fixedNodeCount"`
+		ServerIDs       *[]int64               `json:"serverIds"`
 		// Plan 134 node-rule caps: source "global" follows the global
 		// default, "custom" uses the number; absent keeps the current choice.
 		RuleMaxNodeSource  string `json:"ruleMaxNodeSource"`
@@ -1128,7 +1128,11 @@ func (h *Handler) resolveNativeLandingTarget(req map[string]interface{}, userID,
 	if serverID > 0 {
 		protocol := defaultString(asString(req["landingProtocol"]), "ss2022")
 		if h.isLineMachineTunnel(tunnelID) {
-			protocol = "vless_reality_vision"
+			// Plan 250: lineMachinePreCheck already normalized it (Reality
+			// default, AnyTLS kept); anything else is refused here too.
+			if protocol = defaultString(asString(req["landingProtocol"]), "vless_reality_vision"); !lineMachineLandingProtocol(protocol) {
+				return "", 0, 0, errors.New(lineMachineRealityMsg)
+			}
 		}
 		n, created, err := h.repo.ReuseOrCreateLandingNode(userID, serverID, defaultString(asString(req["name"]), "规则落地"), protocol, admin)
 		if err != nil {

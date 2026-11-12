@@ -184,7 +184,12 @@ func TestLandingTargetRollbackOnlyOwnCreation(t *testing.T) {
 
 func TestLandingTargetLineMachineProtocolAndPortImmutable(t *testing.T) {
 	e, s := landingTargetHandlerEnv(t)
-	_, id, created, err := e.h.resolveNativeLandingTarget(map[string]interface{}{"landingServerId": s.ID, "landingProtocol": "ss2022"}, 7, 10, "", false)
+	// Plan 250: a 线路机 tunnel refuses other protocols instead of switching
+	// them silently; unset = VLESS Reality Vision (the default).
+	if _, id, created, err := e.h.resolveNativeLandingTarget(map[string]interface{}{"landingServerId": s.ID, "landingProtocol": "ss2022"}, 7, 10, "", false); err == nil || id != 0 || created != 0 || !strings.Contains(err.Error(), "只能使用 VLESS Reality Vision 或 AnyTLS") {
+		t.Fatalf("line-machine ss2022: id=%d created=%d err=%v", id, created, err)
+	}
+	_, id, created, err := e.h.resolveNativeLandingTarget(map[string]interface{}{"landingServerId": s.ID}, 7, 10, "", false)
 	if err != nil || id == 0 || created != id {
 		t.Fatalf("line-machine creation: id=%d created=%d err=%v", id, created, err)
 	}
@@ -192,7 +197,7 @@ func TestLandingTargetLineMachineProtocolAndPortImmutable(t *testing.T) {
 	if n.Protocol != "vless_reality_vision" {
 		t.Fatalf("line-machine created protocol %s", n.Protocol)
 	}
-	_, reused, created, err := e.h.resolveNativeLandingTarget(map[string]interface{}{"landingServerId": s.ID}, 7, 10, "", false)
+	_, reused, created, err := e.h.resolveNativeLandingTarget(map[string]interface{}{"landingServerId": s.ID, "landingProtocol": "vless_reality_vision"}, 7, 10, "", false)
 	if err != nil || reused != id || created != 0 {
 		t.Fatalf("line-machine reuse: id=%d created=%d err=%v", reused, created, err)
 	}

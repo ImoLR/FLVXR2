@@ -524,6 +524,9 @@ type ChainCreateInput struct {
 	// EnforceRuleLimit checks the owner's 规则数 for a new chain rule (not for
 	// AttachForwardID, which converts an existing rule) under the user lock.
 	EnforceRuleLimit bool
+	// InboundProtocol (plan 250): model.ChainInboundReality (default when
+	// empty) or model.ChainInboundAnyTLS.
+	InboundProtocol string
 }
 
 // CreateForwardChain persists a pending chain and one pending copy per exit,
@@ -562,8 +565,14 @@ func (r *Repository) CreateForwardChain(in ChainCreateInput) (*model.ForwardChai
 			}
 		}
 		hash := in.Upstream.Hash()
+		inbound, err := NormalizeChainInbound(in.InboundProtocol)
+		if err != nil {
+			return err
+		}
+		// Plan 250: one chain per upstream and inbound protocol on a tunnel
+		// (a Reality and an AnyTLS rule to the same node may coexist).
 		var dup model.ForwardChain
-		if err := tx.Where("user_id = ? AND tunnel_id = ? AND upstream_hash = ? AND state IN ?", in.UserID, in.TunnelID, hash, []string{model.ChainStateCreating, model.ChainStateActive}).First(&dup).Error; err == nil {
+		if err := tx.Where("user_id = ? AND tunnel_id = ? AND upstream_hash = ? AND inbound_protocol IN ? AND state IN ?", in.UserID, in.TunnelID, hash, chainInboundValues(inbound), []string{model.ChainStateCreating, model.ChainStateActive}).First(&dup).Error; err == nil {
 			name := ""
 			if dup.ForwardID > 0 {
 				var f model.Forward
@@ -633,6 +642,9 @@ func (r *Repository) CreateForwardChain(in ChainCreateInput) (*model.ForwardChai
 			Upstream: in.Upstream.JSON(), UpstreamProtocol: in.Upstream.ProtocolLabel(), UpstreamHost: in.Upstream.Server, UpstreamPort: in.Upstream.Port, UpstreamHash: hash,
 			IdemKey: in.IdemKey, Op: op, OpStartedAt: now, CreatedTime: now, UpdatedTime: now}
 		if err := newChainCredentials(&chain); err != nil {
+			return err
+		}
+		if err := setChainInbound(&chain, inbound, time.Now()); err != nil {
 			return err
 		}
 		if err := tx.Create(&chain).Error; err != nil {
@@ -708,7 +720,7 @@ func (r *Repository) FailForwardChain(id int64, reason string) ([]int64, error) 
 		if len(reason) > 500 {
 			reason = reason[:500]
 		}
-		if err := tx.Model(&model.ForwardChain{}).Where("id = ?", id).Updates(map[string]interface{}{"state": model.ChainStateFailed, "forward_id": 0, "progress": "", "last_error": reason, "upstream": "", "prev_upstream": "", "private_key": "", "uuid": "", "op": "", "last_op_at": gorm.Expr("op_started_at"), "op_started_at": 0, "updated_time": time.Now().UnixMilli()}).Error; err != nil {
+		if err := tx.Model(&model.ForwardChain{}).Where("id = ?", id).Updates(map[string]interface{}{"state": model.ChainStateFailed, "forward_id": 0, "progress": "", "last_error": reason, "upstream": "", "prev_upstream": "", "private_key": "", "uuid": "", "password": "", "tls_key_pem": "", "prev_inbound": "", "op": "", "last_op_at": gorm.Expr("op_started_at"), "op_started_at": 0, "updated_time": time.Now().UnixMilli()}).Error; err != nil {
 			return err
 		}
 		return bumpServers(tx, servers)
@@ -752,7 +764,7 @@ func (r *Repository) BeginChainUpstreamChange(id int64, u linechain.Upstream) ([
 			return ErrChainInFlight
 		}
 		var dup int64
-		if err := tx.Model(&model.ForwardChain{}).Where("id <> ? AND user_id = ? AND tunnel_id = ? AND upstream_hash = ? AND state IN ?", id, c.UserID, c.TunnelID, u.Hash(), []string{model.ChainStateCreating, model.ChainStateActive}).Count(&dup).Error; err != nil {
+		if err := tx.Model(&model.ForwardChain{}).Where("id <> ? AND user_id = ? AND tunnel_id = ? AND upstream_hash = ? AND inbound_protocol IN ? AND state IN ?", id, c.UserID, c.TunnelID, u.Hash(), chainInboundValues(c.ChainInbound()), []string{model.ChainStateCreating, model.ChainStateActive}).Count(&dup).Error; err != nil {
 			return err
 		}
 		if dup > 0 {
@@ -1140,12 +1152,6 @@ func (r *Repository) ForwardEntryAddresses(forwardID int64) ([]ForwardEntryAddre
 		out = append(out, ForwardEntryAddress{Host: e.Host, Port: e.Port, NodeID: e.NodeID, NodeName: e.NodeName})
 	}
 	return out, nil
-}
-
-// ChainLinkURL is the user's VLESS Reality Vision link through one entry.
-func ChainLinkURL(c model.ForwardChain, host string, port int, name string) string {
-	n := model.LandingNode{Protocol: "vless_reality_vision", UUID: c.UUID, PublicKey: c.PublicKey, ShortID: c.ShortID, ServerNames: c.ServerNames, Name: name}
-	return LandingURL(n, host, port)
 }
 
 // LandingNodeProtocols maps landing node ids to protocols in one query.

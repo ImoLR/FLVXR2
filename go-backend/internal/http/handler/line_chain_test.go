@@ -839,7 +839,9 @@ func TestLineMachineTargetEnforcement(t *testing.T) {
 	e.exec("UPDATE node SET landing_capable = ? WHERE id = 2", true)
 	e.exec("INSERT INTO landing_server_user(landing_server_id, user_id) VALUES (50, 7)")
 	e.exec(`INSERT INTO landing_node(id, user_id, landing_server_id, name, protocol, port, inbound_tag, status, created_time, updated_time) VALUES
-		(90, 7, 50, 'reality', 'vless_reality_vision', 31000, 'flvxl-90', 'active', 1, 1), (91, 7, 50, 'ss', 'ss2022', 31001, 'flvxl-91', 'active', 1, 1)`)
+		(90, 7, 50, 'reality', 'vless_reality_vision', 31000, 'flvxl-90', 'active', 1, 1), (91, 7, 50, 'ss', 'ss2022', 31001, 'flvxl-91', 'active', 1, 1),
+		(92, 7, 50, 'anytls', 'anytls', 31002, 'flvxl-92', 'active', 1, 1), (93, 7, 50, 'snell', 'snell', 31003, 'flvxl-93', 'active', 1, 1),
+		(94, 7, 50, 'mieru', 'mieru', 31004, 'flvxl-94', 'active', 1, 1)`)
 	create := func(uid int64, role int, extra map[string]interface{}) (int, string) {
 		body := map[string]interface{}{"tunnelId": 10, "name": "r", "inPort": 1700, "remoteAddr": "1.1.1.1:443"}
 		if role == 0 {
@@ -860,8 +862,14 @@ func TestLineMachineTargetEnforcement(t *testing.T) {
 	}{
 		"user manual":                  {7, 1, nil, false, "不能手动填写"},
 		"admin manual":                 {1, 0, nil, false, "不能手动填写"},
-		"ss landing node":              {7, 1, map[string]interface{}{"remoteAddr": "", "landingNodeId": 91}, false, "VLESS Reality Vision"},
-		"legacy server forces reality": {7, 1, map[string]interface{}{"remoteAddr": "", "landingServerId": 50, "landingProtocol": "ss2022", "inPort": 1704}, true, ""},
+		"ss landing node":              {7, 1, map[string]interface{}{"remoteAddr": "", "landingNodeId": 91}, false, "VLESS Reality Vision 或 AnyTLS"},
+		"admin ss landing node":        {1, 0, map[string]interface{}{"remoteAddr": "", "landingNodeId": 91}, false, "VLESS Reality Vision 或 AnyTLS"},
+		"snell landing node":           {7, 1, map[string]interface{}{"remoteAddr": "", "landingNodeId": 93}, false, "VLESS Reality Vision 或 AnyTLS"},
+		"admin mieru landing node":     {1, 0, map[string]interface{}{"remoteAddr": "", "landingNodeId": 94}, false, "VLESS Reality Vision 或 AnyTLS"},
+		"anytls landing node":          {7, 1, map[string]interface{}{"remoteAddr": "", "landingNodeId": 92, "inPort": 1705}, true, ""},
+		"legacy ss2022 server refused": {7, 1, map[string]interface{}{"remoteAddr": "", "landingServerId": 50, "landingProtocol": "ss2022", "inPort": 1704}, false, "线路机隧道只能使用 VLESS Reality Vision 或 AnyTLS 落地"},
+		"admin snell server refused":   {1, 0, map[string]interface{}{"remoteAddr": "", "landingServerId": 50, "landingProtocol": "snell", "inPort": 1704}, false, "线路机隧道只能使用 VLESS Reality Vision 或 AnyTLS 落地"},
+		"unset server protocol":        {7, 1, map[string]interface{}{"remoteAddr": "", "landingServerId": 50, "inPort": 1706}, true, ""},
 		"reality landing node":         {7, 1, map[string]interface{}{"remoteAddr": "", "landingNodeId": 90, "inPort": 1701}, true, ""},
 		"auto node reality":            {7, 1, map[string]interface{}{"remoteAddr": "", "landingServerId": 50, "landingProtocol": "vless_reality_vision", "inPort": 1702}, true, ""},
 		"typed own reality node":       {7, 1, map[string]interface{}{"remoteAddr": "192.0.2.2:31000", "inPort": 1703}, false, "不能手动填写"},
@@ -871,8 +879,11 @@ func TestLineMachineTargetEnforcement(t *testing.T) {
 			t.Errorf("%s: code=%d msg=%q", name, code, msg)
 		}
 	}
-	if n := mustQueryInt(t, e.r, "SELECT COUNT(*) FROM landing_node WHERE user_id = 7"); n != 2 {
-		t.Fatalf("legacy server targets did not reuse the Reality node: %d nodes", n)
+	if n := mustQueryInt(t, e.r, "SELECT COUNT(*) FROM landing_node WHERE user_id = 7"); n != 5 {
+		t.Fatalf("server targets did not reuse the Reality node: %d nodes", n)
+	}
+	if n := mustQueryInt(t, e.r, "SELECT COUNT(*) FROM forward WHERE landing_node_id = 90"); n != 3 {
+		t.Fatalf("Reality rules (node, auto node, unset protocol) = %d", n)
 	}
 	// Loopback typed by a user on a normal tunnel.
 	if code, msg, _ := callAs(t, e.h.forwardCreate, 7, 1, map[string]interface{}{"tunnelId": 30, "name": "lo", "remoteAddr": "127.0.0.1:22", "inPort": 1710}); code == 0 || !strings.Contains(msg, "回环") {

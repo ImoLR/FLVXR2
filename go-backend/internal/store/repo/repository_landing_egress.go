@@ -440,6 +440,9 @@ func (r *Repository) LandingEgressData(serverID int64) (*LandingEgressData, erro
 					return nil, err
 				}
 				for _, c := range copies {
+					if !ChainCopySupported(c, n.LandingChain) {
+						continue // plan 250: not in the desired state either
+					}
 					d.ChainTags = append(d.ChainTags, fmt.Sprintf("flvxl-%d", model.ChainAgentIDBase+c.Node.ID))
 				}
 			}

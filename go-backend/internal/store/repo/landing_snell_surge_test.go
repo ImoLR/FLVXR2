@@ -29,7 +29,9 @@ func TestSnellSurgeLine(t *testing.T) {
 			t.Fatalf("%s: surge %q note %q clash %q", c.opts, surge, note, clash)
 		}
 	}
-	if _, surge, note := LandingClientConfigs(model.LandingNode{Protocol: "anytls", Name: "a"}, "203.0.113.9", 1, true); surge != "" || note != "" {
-		t.Fatal("anytls has no Surge line")
+	// Plan 250: AnyTLS has a Surge line (pinned, like the Surge subscription).
+	pin := strings.Repeat("ab", 32)
+	if _, surge, note := LandingClientConfigs(model.LandingNode{Protocol: "anytls", Name: "a", Password: "Abcdefghijklmnop12345678", CertSHA256: pin, ProtocolOpts: `{"sni":"www.example.com"}`}, "203.0.113.9", 1, true); surge != `a = anytls, 203.0.113.9, 1, password="Abcdefghijklmnop12345678", sni=www.example.com, server-cert-fingerprint-sha256=`+pin || note != "" {
+		t.Fatalf("anytls Surge line %q %q", surge, note)
 	}
 }

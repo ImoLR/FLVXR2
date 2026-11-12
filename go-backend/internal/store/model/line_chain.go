@@ -29,6 +29,21 @@ type ForwardChain struct {
 	ShortID     string `gorm:"not null;default:''" json:"-"`
 	Dest        string `gorm:"not null;default:''" json:"-"`
 	ServerNames string `gorm:"type:text;not null;default:'[]'" json:"-"`
+	// InboundProtocol (plan 250) is the exit inbound the user's client speaks:
+	// "" (older rows) or ChainInboundReality = VLESS Reality Vision, or
+	// ChainInboundAnyTLS. AnyTLS uses Password + the self-signed certificate
+	// (CertSHA256 pinned by every client output) for TLSServerName (the SNI,
+	// = the first Reality server name at creation); the Reality columns stay
+	// filled either way.
+	InboundProtocol string `gorm:"not null;default:''" json:"inboundProtocol"`
+	TLSServerName   string `gorm:"not null;default:''" json:"-"`
+	Password        string `gorm:"not null;default:''" json:"-"`
+	TLSCertPEM      string `gorm:"type:text;not null;default:''" json:"-"`
+	TLSKeyPEM       string `gorm:"type:text;not null;default:''" json:"-"`
+	CertSHA256      string `gorm:"not null;default:''" json:"-"`
+	// PrevInbound is the rollback point (JSON of the inbound fields) while an
+	// inbound protocol switch is being applied (plan 250).
+	PrevInbound string `gorm:"type:text;not null;default:''" json:"-"`
 	// Upstream is the typed outbound of the user's node (secret, never sent
 	// to clients); PrevUpstream is the rollback point while a link change
 	// is being applied.
@@ -70,6 +85,20 @@ type ForwardChainNode struct {
 }
 
 func (ForwardChainNode) TableName() string { return "forward_chain_node" }
+
+// Chain inbound protocols (plan 250).
+const (
+	ChainInboundReality = "vless_reality_vision"
+	ChainInboundAnyTLS  = "anytls"
+)
+
+// ChainInbound returns the chain's effective inbound protocol.
+func (c ForwardChain) ChainInbound() string {
+	if c.InboundProtocol == ChainInboundAnyTLS {
+		return ChainInboundAnyTLS
+	}
+	return ChainInboundReality
+}
 
 // ChainAgentIDBase separates chain copy ids from landing node ids in the
 // agent's desired state (both use the flvxl-<id> inbound tag).
