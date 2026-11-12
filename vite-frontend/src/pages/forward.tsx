@@ -10,6 +10,11 @@ import {
   type RuleBestOff,
   type RuleBestPick,
 } from "@/pages/forward/best-pick";
+import { RuleWarmPoolLine } from "@/pages/forward/warm-line";
+import {
+  normalizeWarmPoolState,
+  type WarmPoolState,
+} from "@/pages/tunnel/warm-pool-tag";
 import {
   ChainStatus,
   ForwardChainInfo,
@@ -209,6 +214,8 @@ export interface Forward {
   bestPick?: RuleBestPick | null;
   // Plan 180 r2: admin view only — 「规则最优」 was turned off automatically.
   ruleBestOff?: RuleBestOff | null;
+  // Plan 249: the 预热 tag (users: only a green one of their own rule).
+  warmPoolState?: WarmPoolState | null;
 }
 interface Tunnel {
   lineMachine?: boolean;
@@ -785,6 +792,7 @@ const mapForwardApiItems = (items: ForwardApiItem[]): Forward[] => {
     chain: (forward as any).chain as ForwardChainInfo | undefined,
     bestPick: normalizeRuleBestPick((forward as any).bestPick),
     ruleBestOff: normalizeRuleBestOff((forward as any).ruleBestOff),
+    warmPoolState: normalizeWarmPoolState((forward as any).warmPoolState),
     lineMachine: (forward as any).lineMachine === true,
     lineNonCompliant: (forward as any).lineNonCompliant === true,
     lineComplianceAck: (forward as any).lineComplianceAck === true,
@@ -1226,6 +1234,7 @@ const SortableTableRow = ({
           <ForwardCNBlockedWarning forward={forward} />
           <ForwardLineBadges forward={forward} />
           <RuleBestPickLine pick={forward.bestPick} />
+          <RuleWarmPoolLine state={forward.warmPoolState} />
           <RuleBestOffBadge forwardId={forward.id} off={forward.ruleBestOff} />
         </div>
       </TableCell>
@@ -1541,6 +1550,7 @@ const SortableCompactTableRow = ({
           <ForwardCNBlockedWarning forward={forward} />
           <ForwardLineBadges forward={forward} />
           <RuleBestPickLine pick={forward.bestPick} />
+          <RuleWarmPoolLine state={forward.warmPoolState} />
           <RuleBestOffBadge forwardId={forward.id} off={forward.ruleBestOff} />
         </div>
       </TableCell>
@@ -5426,6 +5436,7 @@ export default function ForwardPage() {
           <ForwardCNBlockedWarning forward={forward} />
           <ForwardLineBadges forward={forward} />
           <RuleBestPickLine pick={forward.bestPick} />
+          <RuleWarmPoolLine state={forward.warmPoolState} />
           <RuleBestOffBadge forwardId={forward.id} off={forward.ruleBestOff} />
         </CardHeader>
         {/* 卡片视图卡片布局显示 */}
