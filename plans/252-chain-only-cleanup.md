@@ -63,8 +63,8 @@ residue by hand.
       old agent, offline, failure backoff, recreate; SQLite + PG 18
 - [x] gates: go-backend build/vet/`go test ./...` (SQLite + PG), go-gost/x tests, go-gost build
 - [x] lab E2E (netns, local agents + pinned Core): create → delete → Core/files/row gone → recreate; old fork.130 agent
-- [ ] push branch, CI green (no tag, no release, no prod change)
-- [ ] ledger row 252 (待发布, ready), summary, cleanup temp files / lab units, plan complete
+- [x] push branch, CI green (no tag, no release, no prod change)
+- [x] ledger row 252 (待发布, ready), summary, cleanup temp files / lab units, plan complete
 
 ## Results
 - Prod read-only DB copy (11-13 16:02 TW): one chain-only server = Bestvm US (server 9, 1 active copy = sunflorian
@@ -93,3 +93,14 @@ residue by hand.
     `work/lab-results-new.json`, `work/lab-results-old.json` (run dir `/root/flvx-workers/runs/chain-only-cleanup`).
   - The first old-pass attempt of round 2 failed at L5 on a lab-script bug — the simulated OTA restarted exit B with
     the fork.130 binary again; fixed in 88e3633f (L4 had passed the same way). No product code changed in round 2.
+- Push + CI (11-13 ~18:30 TW): branch pushed incl. cd269232; CI Build Check green on 763d9bce (run 43409334703).
+- Release ledger row 252 → **READY, rides the next FLVX batch release** (user 11-13: build now, release together later).
+  Needs panel + agent OTA for the exits that host chain-only landings (all 8 线路机 exits at least: Datawave HK 2, AWS
+  HK, Bestvm HK 年付, Bestvm TW, Datawave TW 1, Bestvm US, Bestvm JP B, Bestvm sg 年付); exits not OTA'd keep their
+  server as today (one log line). DB change: none. Restarts: panel container + flvx_agent on OTA'd exits (landing Cores
+  not restarted). Rollback: panel image back to fork.130 (its `landing_chain` checks are all `>=`, 3 is accepted);
+  agents may stay.
+- Cleanup (11-13 ~18:35 TW): lab netns `flvxce`/`flvxcx1`/`flvxcx2`/`flvxcu` + processes + `lch-*` veths gone (no lab
+  units; `rg*`/`flvxrl` untouched), `/root/tmp-work/chain-only-cleanup` (812 MB), prod DB copy `prod-ro-copy.db*` and
+  round 1's temp PG container `flvx-chaincleanup-pg` deleted. Worktree kept for the release. `df -h /`: 7.8 G free.
+- Summary: `/root/flvx-workers/runs/chain-only-cleanup-r2/summary.md` (copy in `runs/chain-only-cleanup/summary.md`).
