@@ -47,6 +47,7 @@ class CleanupLab(chain_lab.Lab):
         self.pass_name = a.pass_name
         self.old_agent = pathlib.Path(a.old_agent) if a.old_agent else None
         self.new_agent = self.agent_bin
+        self.ota_done = False  # pass old: exit B runs the new build after the simulated OTA
 
     def panel(self):
         super().panel()
@@ -75,7 +76,7 @@ class CleanupLab(chain_lab.Lab):
 
     def start_agent(self, name, ns, node_id, secret):
         self.seed_landing_assets(name)
-        if name == "agent-b" and self.pass_name == "old":
+        if name == "agent-b" and self.pass_name == "old" and not self.ota_done:
             self.agent_bin = self.old_agent
             try:
                 return super().start_agent(name, ns, node_id, secret)
@@ -196,16 +197,32 @@ class CleanupLab(chain_lab.Lab):
         final, _ = self.create_chain("own-old", self.ss_link("home"))
         s1, pid1 = self.srv_b(), self.core_pid(NS_B)
         assert s1 and s1["chain_only"] == 1 and pid1
+        agent_b_pid = self.agent_pid("agent-b")
         t_del = self.delete_rule(final["forwardId"])
-        # Long enough for the first sweep + grace + one more sweep.
+        cmds_at_del = len(self.agent_lines("agent-b", "收到命令"))
+        panel_at_del = len(self.panel_lines(""))
+        # First sweep + grace, then the gate's skip line ...
         wait_for("version-gate log line", lambda: self.panel_lines("版本过低"), timeout=REMOVE_WAIT, interval=5)
-        time.sleep(max(0, 14 * 60 - (time.monotonic() - t_del)))
+        t_gate = time.monotonic()
+        cmds_at_gate = len(self.agent_lines("agent-b", "收到命令"))
+        # ... and at least one more full sweep (every 10 min) after it, ≥ 14 min in total.
+        time.sleep(max(0, 14 * 60 - (t_gate - t_del), 11 * 60))
         assert self.srv_b() is not None and self.core_pid(NS_B) == pid1, "old agent's server/Core touched"
+        assert self.agent_pid("agent-b") == agent_b_pid, "agent B restarted"
+        assert self.q("select status from node where id = ?", self.exit_b)[0]["status"] == 1, "agent B offline"
         lines = self.panel_lines("[chain-host]")
         assert len(lines) == 1 and "版本过低" in lines[0], lines
         assert not self.agent_lines("agent-b", "RemoveLandingCore"), "command sent to an old agent"
         unknown = self.agent_lines("agent-b", "未知命令")
-        self.results["L4_old_agent"] = {"kept_minutes": round((time.monotonic() - t_del) / 60, 1), "panel_log": lines, "agent_unknown_command_lines": len(unknown), "core_pid_same": True}
+        cmds_hold = self.agent_lines("agent-b", "收到命令")[cmds_at_gate:]
+        self.results["L4_old_agent"] = {
+            "kept_minutes_after_delete": round((time.monotonic() - t_del) / 60, 1),
+            "minutes_after_skip_line": round((time.monotonic() - t_gate) / 60, 1),
+            "panel_log": lines, "agent_unknown_command_lines": len(unknown), "core_pid_same": True, "agent_pid_same": True,
+            "server_row_kept": self.srv_b(), "landing_files": self.landing_files(),
+            "agent_b_commands_delete_to_skip": cmds_at_gate - cmds_at_del,
+            "agent_b_commands_after_skip": [l.split("收到命令:")[-1].strip() for l in cmds_hold],
+            "panel_log_lines_since_delete": len(self.panel_lines("")) - panel_at_del}
         self.log("L4 old agent kept, one line:", lines[0])
 
         # OTA exit B to this build (the direct-mode Core goes with the old process group).
@@ -215,6 +232,7 @@ class CleanupLab(chain_lab.Lab):
         wait_for("old Core gone", lambda: self.core_pid(NS_B) is None, timeout=20, interval=1)
         self.procs = [(n, q) for n, q in self.procs if n != "agent-b"]
         secret = self.q("select secret from node where id = ?", self.exit_b)[0]["secret"]
+        self.ota_done = True
         self.start_agent("agent-b", NS_B, self.exit_b, secret)
         t_ota = time.monotonic()
         wait_for("agent B reports landing_chain 3", lambda: self.q("select landing_chain, status from node where id = ?", self.exit_b)[0] == {"landing_chain": 3, "status": 1}, timeout=90, interval=2)
@@ -222,7 +240,11 @@ class CleanupLab(chain_lab.Lab):
         wait_for("Core process on B gone", lambda: self.core_pid(NS_B) is None, timeout=20, interval=1)
         lines = self.panel_lines("[chain-host]")
         assert len(lines) == 2 and "removed" in lines[1], lines
-        self.results["L5_after_ota"] = {"removed_seconds_after_ota": round(time.monotonic() - t_ota), "landing_files_left": self.landing_files(), "panel_log": lines}
+        assert self.q("select status from node where id = ?", self.exit_b)[0]["status"] == 1, "agent B offline"
+        self.results["L5_after_ota"] = {"removed_seconds_after_ota": round(time.monotonic() - t_ota), "landing_files_left": self.landing_files(), "panel_log": lines,
+                                        "agent_b_version": self.q("select version, landing_chain from node where id = ?", self.exit_b)[0],
+                                        "agent_b_remove_commands": len(self.agent_lines("agent-b", "RemoveLandingCore")),
+                                        "exit_a_server_kept": self.srv_a()}
         self.log("L5 cleaned after OTA:", lines[1])
 
     def run_pass(self):
