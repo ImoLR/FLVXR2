@@ -94,7 +94,7 @@ A landing user is used to **VLESS Encryption** (Xray 25.8+ `mlkem768x25519plus`:
 - [ ] backend tests (unit + contract) + `go test ./...` SQLite + PG; go-gost/x landing tests (+ real Core)
 - [x] frontend: server 协议模板 switch, create-node list, rule-target picker, chain parse label, node hint;
       `npm run build`, eslint 0 new errors
-- [ ] local lab with the real Core: Xray + mihomo clients, TCP byte-exact, UDP, billing, conn cap, disable,
+- [x] local lab with the real Core: Xray + mihomo clients, TCP byte-exact, UDP, billing, conn cap, disable,
       gost tunnel with TLS/HTTP filter ON, chain Reality → exit → vless_enc upstream, random vs native numbers,
       Core RSS/CPU
 - [ ] gallery :8791 `/landing-vless-enc/` (desktop 1366×900 + mobile 390×844, light + dark)
@@ -103,4 +103,43 @@ A landing user is used to **VLESS Encryption** (Xray 25.8+ `mlkem768x25519plus`:
 
 ## Results
 
-(filled in as tasks complete)
+### Local lab (netns `ve253*`, no internet, synthetic DB; scripts in `/root/flvx-workers/runs/landing-vless-enc/lab/`)
+
+Panel + agents built from this branch; exit / native landing X runs the pinned landing Core (Custom v1.4.83 =
+Core f6f58447); entry E = normal tunnel 「广州专线 屏蔽TLS」 (TLS + HTTP filter on), entry L = 线路机; the user's own
+node = a standalone Core with VLESS Encryption on 11.253.0.20:9443. `e2e.py`: **36/36 passed**:
+
+- Native node created by the user through the API; keys made by the panel; private key never in a response.
+  复制链接 `vless://…?encryption=mlkem768x25519plus.random.0rtt.<pub>&flow=xtls-rprx-vision&security=none&type=tcp`.
+- **Xray 26.3.27** (link) and **mihomo 1.19.32** (generated Clash entry): TCP, 32 MiB download byte-exact, UDP
+  (Vision XUDP) end to end. sing-box 1.14.3 rejects the `encryption` field (`unknown field`) → left out.
+- Billing: counters grew by both downloads (billed 134 MB). Connection cap 入站 2: two sessions up, the third
+  refused; panel shows the live inbound count. Disable cuts the live session and refuses new ones.
+- **0-RTT note**: after the node is re-enabled (inbound re-added) or the Core restarts, each client's first
+  connection with its old 0-RTT ticket is answered with noise and fails once; the client then re-handshakes
+  (1-RTT) and the next connection works (Xray design; mihomo the same). Limit changes did not cause it.
+- **专线 屏蔽 TLS + HTTP**: the rule to the vless_enc node passes (TCP, 32 MiB byte-exact, UDP); Reality on the
+  same tunnel is refused by the panel; control: a TLS handshake through the same entry is cut (filter active).
+- **线路机**: vless_enc node refused for user and admin (plan-250 text). 「我自己的节点」 with the VLESS Encryption
+  link: chain active, client → L → X (Reality) → VLESS Encryption upstream → target: TCP, 32 MiB byte-exact, UDP;
+  the exit's Core config carries the upstream `encryption`.
+
+Throughput / CPU, `random` vs `native` (standalone Core server ↔ Xray client on the lab bridge, Vision on,
+4 × 128 MiB sequential + 4 parallel, 2 runs each; server CPU per GiB moved):
+
+| target | mode | 1 stream | 4 parallel | server CPU s/GiB | client CPU s/GiB |
+|---|---|---|---|---|---|
+| plain HTTP | random | 471–502 MiB/s | 1276–1415 MiB/s | 0.86–0.98 | 2.08–2.22 |
+| plain HTTP | native | 478–485 MiB/s | 1172–1316 MiB/s | 0.88–0.94 | 2.14–2.18 |
+| HTTPS (inner TLS 1.3) | random | 644–860 MiB/s | 1438–1809 MiB/s | 0.56–0.90 | 1.12–1.50 |
+| HTTPS (inner TLS 1.3) | native | 1079–1094 MiB/s | 1732–1810 MiB/s | 0.58–0.68 | 0.50–0.56 |
+
+With inner TLS (most real traffic) `native` lets Vision splice, so `random` costs **≈ 20–40 % single-stream
+throughput** and about 2–3× client CPU in this CPU-bound lab; parallel throughput and server CPU per GiB are
+close. Kept `random` as agreed (all bytes look random, best chance through 专线 protocol filters); on real nodes
+(100 Mbit–1 Gbit) the link, not the CPU, is the limit (1 Gbit/s ≈ 0.12 GiB/s ≈ 0.1 CPU core on the server).
+
+Resources: per inbound ~14 KiB RSS (50 vless_enc inbounds +0.7 MiB) vs ~31 KiB for Reality (+1.5 MiB); per idle
+session ~52 KiB (random) / 57 KiB (native) on a standalone Core, landing Core 27–85 KiB vs Reality 15–152 KiB
+(GC noise; same order); handshake CPU ~0.7 ms per new session (0-RTT). Keys only at node create; no new loops,
+probes or goroutines (the agent renders one more protocol case; the panel adds one column read).
