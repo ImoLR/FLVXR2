@@ -97,7 +97,7 @@ A landing user is used to **VLESS Encryption** (Xray 25.8+ `mlkem768x25519plus`:
 - [x] local lab with the real Core: Xray + mihomo clients, TCP byte-exact, UDP, billing, conn cap, disable,
       gost tunnel with TLS/HTTP filter ON, chain Reality → exit → vless_enc upstream, random vs native numbers,
       Core RSS/CPU
-- [ ] gallery :8791 `/landing-vless-enc/` (desktop 1366×900 + mobile 390×844, light + dark)
+- [x] gallery :8791 `/landing-vless-enc/` (desktop 1366×900 + mobile 390×844, light + dark)
 - [ ] push branch, CI green
 - [ ] ledger row 253 (待发布), summary `runs/landing-vless-enc/summary.md`, cleanup
 
@@ -138,6 +138,12 @@ With inner TLS (most real traffic) `native` lets Vision splice, so `random` cost
 throughput** and about 2–3× client CPU in this CPU-bound lab; parallel throughput and server CPU per GiB are
 close. Kept `random` as agreed (all bytes look random, best chance through 专线 protocol filters); on real nodes
 (100 Mbit–1 Gbit) the link, not the CPU, is the limit (1 Gbit/s ≈ 0.12 GiB/s ≈ 0.1 CPU core on the server).
+
+Gallery: http://104.145.236.29:8791/landing-vless-enc/ — 34 shots (desktop 1366×900 + H5 390×844, light + dark),
+17/17 scripted checks, 0 console errors: 协议模板 switch (native on; shared without cap greyed + reason), node
+details 「客户端」 hint, create dialog info, node row label, 节点链接 (direct + 专线 forward link + Clash + hint),
+rule picker on 「广州专线 屏蔽TLS」 (VLESS Encryption + SS2022 selectable, Reality greyed), 线路机 picker
+(VLESS Encryption greyed 「线路机需要 VLESS Reality Vision 或 AnyTLS」), 「我自己的节点」 parse → VLESS Encryption.
 
 Resources: per inbound ~14 KiB RSS (50 vless_enc inbounds +0.7 MiB) vs ~31 KiB for Reality (+1.5 MiB); per idle
 session ~52 KiB (random) / 57 KiB (native) on a standalone Core, landing Core 27–85 KiB vs Reality 15–152 KiB
