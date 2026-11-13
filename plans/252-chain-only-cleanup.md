@@ -58,12 +58,19 @@ residue by hand.
 ## Tasks
 - [x] read memory + fork.130 notes, map chain-only code paths, prod DB read-only copy (server 9 only, 1 copy, no orphans)
 - [x] agent: `Manager.RemoveCore` + `RemoveLandingCore` command + `ChainVersion` 3 + unit tests
-- [ ] panel: repo idle query / keep reasons / guarded delete; handler cleaner loop + kick + version gate; sync refactor
-- [ ] panel tests: every removal path, keep cases (paused, Bestvm-US-shaped, grants, disabled, route profile…),
+- [x] panel: repo idle query / keep reasons / guarded delete; handler cleaner loop + kick + version gate; sync refactor
+- [x] panel tests: every removal path, keep cases (paused, Bestvm-US-shaped, grants, disabled, route profile…),
       old agent, offline, failure backoff, recreate; SQLite + PG 18
-- [ ] gates: go-backend build/vet/`go test ./...` (SQLite + PG), go-gost/x tests, go-gost build
+- [x] gates: go-backend build/vet/`go test ./...` (SQLite + PG), go-gost/x tests, go-gost build
 - [ ] lab E2E (netns, local agents + pinned Core): create → delete → Core/files/row gone → recreate; old fork.130 agent
 - [ ] push branch, CI green (no tag, no release, no prod change)
 - [ ] ledger row 252 (待发布, ready), summary, cleanup temp files / lab units, plan complete
 
 ## Results
+- Prod read-only DB copy (11-13 16:02 TW): one chain-only server = Bestvm US (server 9, 1 active copy = sunflorian
+  「ATTVPS」 forward 602, tunnel 116); no orphaned chain-only server (plan 251's hand cleanup of Bestvm JP B confirmed).
+  Agents: 27 × landing_chain 2 (fork.130), Nobrand ×2 landing_chain 1 (fork.126) → all would be version-gated until OTA.
+- Gates (11-13 ~16:20–17:05 TW, worktree head 7883595a): go-backend build ok, vet clean (minus old unkeyed warnings),
+  `go test ./...` SQLite 0 failures; PostgreSQL 18 (temp container) repo 350 s / handler 169 s / contract 332 s all ok;
+  go-gost/x `go test ./...` 0 failures; go-gost build ok. New tests: 9 agent (remove_core_test.go), 12 handler
+  (chain_host_cleanup_test.go incl. SQLite+PG dialect), 1 contract (SQLite+PG).
