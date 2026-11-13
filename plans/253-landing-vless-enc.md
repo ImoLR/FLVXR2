@@ -91,15 +91,15 @@ A landing user is used to **VLESS Encryption** (Xray 25.8+ `mlkem768x25519plus`:
 - [x] linechain: parse `encryption=` links, validation, label; chain create / relink gated by exit capability;
       plan-177 chain proxy refuses encrypted upstreams with a reason
 - [x] sublink: Base64 / Clash (`encryption:`) emit, sing-box / Surge / Surfboard / Loon / QX skip
-- [ ] backend tests (unit + contract) + `go test ./...` SQLite + PG; go-gost/x landing tests (+ real Core)
+- [x] backend tests (unit + contract) + `go test ./...` SQLite + PG; go-gost/x landing tests (+ real Core)
 - [x] frontend: server 协议模板 switch, create-node list, rule-target picker, chain parse label, node hint;
       `npm run build`, eslint 0 new errors
 - [x] local lab with the real Core: Xray + mihomo clients, TCP byte-exact, UDP, billing, conn cap, disable,
       gost tunnel with TLS/HTTP filter ON, chain Reality → exit → vless_enc upstream, random vs native numbers,
       Core RSS/CPU
 - [x] gallery :8791 `/landing-vless-enc/` (desktop 1366×900 + mobile 390×844, light + dark)
-- [ ] push branch, CI green
-- [ ] ledger row 253 (待发布), summary `runs/landing-vless-enc/summary.md`, cleanup
+- [x] push branch, CI green
+- [x] ledger row 253 (待发布), summary `runs/landing-vless-enc/summary.md`, cleanup
 
 ## Results
 
@@ -149,3 +149,26 @@ Resources: per inbound ~14 KiB RSS (50 vless_enc inbounds +0.7 MiB) vs ~31 KiB f
 session ~52 KiB (random) / 57 KiB (native) on a standalone Core, landing Core 27–85 KiB vs Reality 15–152 KiB
 (GC noise; same order); handshake CPU ~0.7 ms per new session (0-RTT). Keys only at node create; no new loops,
 probes or goroutines (the agent renders one more protocol case; the panel adds one column read).
+
+### Tests
+
+- go-backend `go test ./...` on SQLite + PostgreSQL 18 (`FLVX_POSTGRES_TEST_DSN`, throwaway container): all
+  packages pass. The first full run failed only `TestLandingUserServerViewContract` (it pins the server-view field
+  set; this plan adds `vlessEncAvailable` / `vlessEncReason` on purpose) → expectation updated, contract package
+  re-run green. New: `internal/vlessenc` (keys, formats, real `xray vlessenc` output with `FLVX_XRAY_BINARY`),
+  `repository_landing_vless_enc_test.go` (native + shared create / switch / withheld / link round trip / every
+  subscription generator, SQLite + PG), `landing_vless_enc_test.go` (native payload + old-agent withhold, 屏蔽 TLS
+  accepted, 线路机 refused, chain upstream gate + exit rollback), contract `TestLandingVLESSEncContract` (router,
+  SQLite + PG).
+- go-gost/x `go test ./...`: 26 packages ok; `vless_enc_test.go` incl. `TestVLESSEncRealCore` with the pinned Core
+  (`FLVX_LANDING_TEST_BINARY`): config accepted, hot add / remove without a Core restart.
+- Frontend: `tsc` clean, `npm run build` ok, eslint on the changed files 0 errors / 0 warnings.
+- CI `CI Build Check` 43424863153 green on the branch.
+
+### Release notes (for the batch worker)
+
+- Panel: additive column `node.landing_vless_enc` (AutoMigrate); rollback = image swap (the column stays unused).
+- Agent OTA: native landing servers that should offer VLESS Encryption; 线路机 exits only when users chain to a
+  VLESS Encryption node. Old agents are safe (never receive vless_enc / encrypted upstreams).
+- Shared servers need mmwx Helper `helper-vless-enc` (cap `vless_enc` v1); FLVX shows the switch greyed until then.
+- Gallery approval pending: http://104.145.236.29:8791/landing-vless-enc/
