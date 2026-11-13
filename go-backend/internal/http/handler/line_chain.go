@@ -628,6 +628,11 @@ func (h *Handler) syncChainServers(ids []int64) {
 			log.Printf("chain sync server=%d pending: %s", id, compactErrorMessage(err.Error()))
 		}
 	}
+	// Plan 252: every chain change ends here; a chain-only exit left without
+	// copies is noted soon and cleaned after the grace period.
+	if len(seen) > 0 {
+		h.chainHosts.kick()
+	}
 }
 
 // waitChainServers pushes each server's desired state until the chain's
@@ -1569,6 +1574,9 @@ func (h *Handler) syncChainCopiesForForwards(forwardIDs []int64, wait bool) {
 	}
 	h.syncChainServersAsync(servers)
 }
+
+// WaitChainSyncs waits for background chain pushes (contract tests).
+func (h *Handler) WaitChainSyncs() { h.chains.wg.Wait() }
 
 func (h *Handler) syncChainServersAsync(ids []int64) {
 	if len(ids) == 0 || h == nil || h.repo == nil {

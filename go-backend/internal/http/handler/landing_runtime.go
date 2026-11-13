@@ -182,6 +182,13 @@ func (h *Handler) syncNativeLandingServer(serverID int64) (*landingSyncSnapshot,
 func (h *Handler) syncNativeLandingServerOnce(serverID int64) (*landingSyncSnapshot, error) {
 	h.landingSyncMu.Lock()
 	defer h.landingSyncMu.Unlock()
+	return h.syncNativeLandingServerLocked(serverID)
+}
+
+// syncNativeLandingServerLocked pushes one native server's desired state;
+// the caller holds landingSyncMu (plan 252: the chain-only cleanup keeps it
+// across push, Core removal and row delete).
+func (h *Handler) syncNativeLandingServerLocked(serverID int64) (*landingSyncSnapshot, error) {
 	s, err := h.repo.GetLandingServer(serverID)
 	if err != nil || s == nil || s.Source != "native" || s.NodeID == 36 {
 		return nil, errors.New("落地服务器状态不可用")

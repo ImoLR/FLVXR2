@@ -1641,6 +1641,9 @@ func (w *WebSocketReporter) routeCommand(cmd CommandMessage) {
 	case "ApplyLandingDesired":
 		response.Data, err = w.handleApplyLandingDesired(cmd.Data)
 		response.Type = "ApplyLandingDesiredResponse"
+	case "RemoveLandingCore":
+		response.Data, err = w.handleRemoveLandingCore(cmd.Data)
+		response.Type = "RemoveLandingCoreResponse"
 	case "SetEntryRates":
 		response.Data, err = w.handleSetEntryRates(cmd.Data)
 		response.Type = "SetEntryRatesResponse"

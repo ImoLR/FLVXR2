@@ -123,8 +123,10 @@ func validConnMode(mode string) bool { return mode == "" || mode == "total" || m
 // agents that report it. Version 2 (plan 250): a chain node may also be an
 // AnyTLS inbound (protocol "anytls" + the anytls object); the panel sends
 // AnyTLS chain nodes only to agents reporting ≥ 2 (an older agent would
-// reject the whole desired state).
-const ChainVersion = 2
+// reject the whole desired state). Version 3 (plan 252): RemoveLandingCore
+// stops and uninstalls the Core of a chain-only exit once the panel has no
+// chain copy left there; the panel sends it only to agents reporting ≥ 3.
+const ChainVersion = 3
 
 // ProtocolAnyTLS is the AnyTLS chain-node protocol (plan 250).
 const ProtocolAnyTLS = "anytls"

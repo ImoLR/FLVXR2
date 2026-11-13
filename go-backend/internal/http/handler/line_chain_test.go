@@ -35,10 +35,15 @@ type chainAgent struct {
 	applyErr  func(nodeID int64) error
 	pingFail  map[int64]string
 	forwardEr func(nodeID int64, method string) error
+	// Plan 252: RemoveLandingCore like the real agent (refused while the
+	// last desired state has nodes or is newer than the request).
+	rev      map[int64]int64
+	removed  map[int64]int
+	removeFn func(nodeID, revision int64) (ws.CommandResult, error, bool)
 }
 
 func newChainAgent() *chainAgent {
-	return &chainAgent{desired: map[int64][]map[string]interface{}{}, applies: map[int64]int{}, pingFail: map[int64]string{}}
+	return &chainAgent{desired: map[int64][]map[string]interface{}{}, applies: map[int64]int{}, pingFail: map[int64]string{}, rev: map[int64]int64{}, removed: map[int64]int{}}
 }
 
 func (a *chainAgent) send(nodeID int64, method string, data interface{}, _ time.Duration) (ws.CommandResult, error) {
@@ -59,6 +64,7 @@ func (a *chainAgent) send(nodeID int64, method string, data interface{}, _ time.
 		a.mu.Lock()
 		a.desired[nodeID] = nodes
 		a.applies[nodeID]++
+		a.rev[nodeID] = asInt64(payload["revision"], 0)
 		a.mu.Unlock()
 		counters := []map[string]interface{}{}
 		for _, n := range nodes {
@@ -69,6 +75,31 @@ func (a *chainAgent) send(nodeID int64, method string, data interface{}, _ time.
 			eg = egress(nodeID)
 		}
 		return ws.CommandResult{Success: true, Data: map[string]interface{}{"revision": payload["revision"], "epoch": "100", "state": "running", "nodes": counters, "egress": eg}}, nil
+	case "RemoveLandingCore":
+		revision := asInt64(data.(map[string]interface{})["revision"], 0)
+		a.mu.Lock()
+		fn := a.removeFn
+		a.mu.Unlock()
+		if fn != nil {
+			if res, err, handled := fn(nodeID, revision); handled {
+				return res, err
+			}
+		}
+		a.mu.Lock()
+		defer a.mu.Unlock()
+		refuse := func(msg string) (ws.CommandResult, error) {
+			return ws.CommandResult{Type: "RemoveLandingCoreResponse", Success: false, Message: msg}, errors.New(msg)
+		}
+		if a.rev[nodeID] > revision {
+			return refuse(fmt.Sprintf("stale landing revision: agent has %d, request %d", a.rev[nodeID], revision))
+		}
+		if n := len(a.desired[nodeID]); n > 0 {
+			return refuse(fmt.Sprintf("landing desired state still has nodes (%d)", n))
+		}
+		a.removed[nodeID]++
+		delete(a.desired, nodeID)
+		a.rev[nodeID] = 0
+		return ws.CommandResult{Type: "RemoveLandingCoreResponse", Success: true, Data: map[string]interface{}{"removed": true, "was_running": true, "unit_removed": true, "files": []interface{}{"flvx-landing-core", "config.json"}, "kept": []interface{}{"entry_rates.json"}}}, nil
 	case "TcpPing":
 		if hasFail {
 			return ws.CommandResult{Success: true, Data: map[string]interface{}{"success": false, "errorMessage": pingFail}}, nil

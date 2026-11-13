@@ -87,6 +87,8 @@ type Manager struct {
 	coreDownload  func(ctx context.Context, direct, path, expected string, limit int64, mode os.FileMode) error
 	hashFile      func(path string) (string, error)
 	systemctl     func(ctx context.Context, args ...string) error
+	unitDir       string // plan 252 test hook: "" = /etc/systemd/system
+	controlDir    string // plan 252 test hook: "" = /etc/systemd/system.control (set-property drop-ins)
 	resourceCheck func(dir string) error
 	now           func() time.Time
 
@@ -510,7 +512,7 @@ func (m *Manager) setup(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	path := "/etc/systemd/system/" + unitName
+	path := m.unitPath()
 	old, _ := os.ReadFile(path)
 	if string(old) != unit {
 		if err := atomicfile.WriteFile(path, []byte(unit), 0644); err != nil {

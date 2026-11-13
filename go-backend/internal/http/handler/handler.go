@@ -145,6 +145,8 @@ type Handler struct {
 	// submit-key dedupe of normal rule creates.
 	chains     chainGuard
 	createIdem idemCache
+	// chainHosts (plan 252): idle chain-only exit landings awaiting cleanup.
+	chainHosts chainHostCleaner
 	// Plan 177 「外部节点」 / 「链式代理」: subscription fetch cache + limits,
 	// and the last compile's per-node chain notes per landing server.
 	external externalState

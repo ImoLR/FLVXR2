@@ -29,7 +29,7 @@ func (h *Handler) StartBackgroundJobs() {
 	ctx, cancel := context.WithCancel(context.Background())
 	h.jobsCancel = cancel
 	h.jobsStarted = true
-	h.jobsWG.Add(19)
+	h.jobsWG.Add(20)
 	h.jobsMu.Unlock()
 
 	// Plan 225 (P2-2): learn the panel host's public addresses early (one
@@ -37,6 +37,7 @@ func (h *Handler) StartBackgroundJobs() {
 	_ = panelSelfIPs.get()
 	go h.runLandingReconcileLoop(ctx)
 	go h.runChainReconcileLoop(ctx)
+	go h.runChainHostCleanupLoop(ctx) // plan 252
 	go h.runSharedLandingLoop(ctx)
 	go h.runTunnelRedeployRetryLoop(ctx)
 	go h.runNodeRegionBackfill(ctx)

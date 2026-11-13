@@ -26,6 +26,26 @@ func (w *WebSocketReporter) handleApplyLandingDesired(data interface{}) (landing
 	return landing.Default().Apply(ctx, desired)
 }
 
+// handleRemoveLandingCore (plan 252) stops and uninstalls the landing Core of
+// a chain-only exit the panel no longer needs; refused while the desired
+// state still has nodes. Bounded below the panel's 90 s command timeout.
+func (w *WebSocketReporter) handleRemoveLandingCore(data interface{}) (landing.RemoveCoreResult, error) {
+	if w.nodeID == 36 {
+		return landing.RemoveCoreResult{}, fmt.Errorf("node 36 cannot host landing services")
+	}
+	raw, err := json.Marshal(data)
+	if err != nil {
+		return landing.RemoveCoreResult{}, err
+	}
+	var req landing.RemoveCoreRequest
+	if err := json.Unmarshal(raw, &req); err != nil {
+		return landing.RemoveCoreResult{}, fmt.Errorf("invalid remove landing core request")
+	}
+	ctx, cancel := context.WithTimeout(w.ctx, 60*time.Second)
+	defer cancel()
+	return landing.Default().RemoveCore(ctx, req)
+}
+
 // handleRealityProbe runs a Reality 伪装域名 测速 from this machine (plan 227):
 // read-only, ≤ 2 candidates at once (≤ 2 Reality sockets open on the machine, RST close), one TCP connect per IP + one TLS
 // handshake per candidate.
