@@ -82,17 +82,17 @@ A landing user is used to **VLESS Encryption** (Xray 25.8+ `mlkem768x25519plus`:
 
 ## Tasks
 
-- [ ] plan doc + contract
-- [ ] landingcustom: `vless_enc` cap + desired object + sanitize
-- [ ] repo: keys (pure Go, xray format), create (native agent cap / shared cap), server switch, withheld, link,
+- [x] plan doc + contract
+- [x] landingcustom: `vless_enc` cap + desired object + sanitize
+- [x] repo: keys (pure Go, xray format), create (native agent cap / shared cap), server switch, withheld, link,
       Clash entry, filter features (none), sub node
-- [ ] native sync + egress + scan guard skip vless_enc for old agents; desired `vless_enc` object
-- [ ] agent: `vless_enc` inbound + `encryption` outbound + capability report
-- [ ] linechain: parse `encryption=` links, validation, label; chain create / relink gated by exit capability;
+- [x] native sync + egress + scan guard skip vless_enc for old agents; desired `vless_enc` object
+- [x] agent: `vless_enc` inbound + `encryption` outbound + capability report
+- [x] linechain: parse `encryption=` links, validation, label; chain create / relink gated by exit capability;
       plan-177 chain proxy refuses encrypted upstreams with a reason
-- [ ] sublink: Base64 / Clash (`encryption:`) emit, sing-box / Surge / Surfboard / Loon / QX skip
+- [x] sublink: Base64 / Clash (`encryption:`) emit, sing-box / Surge / Surfboard / Loon / QX skip
 - [ ] backend tests (unit + contract) + `go test ./...` SQLite + PG; go-gost/x landing tests (+ real Core)
-- [ ] frontend: server 协议模板 switch, create-node list, rule-target picker, chain parse label, node hint;
+- [x] frontend: server 协议模板 switch, create-node list, rule-target picker, chain parse label, node hint;
       `npm run build`, eslint 0 new errors
 - [ ] local lab with the real Core: Xray + mihomo clients, TCP byte-exact, UDP, billing, conn cap, disable,
       gost tunnel with TLS/HTTP filter ON, chain Reality → exit → vless_enc upstream, random vs native numbers,
