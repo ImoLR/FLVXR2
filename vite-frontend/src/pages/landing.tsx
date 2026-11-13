@@ -671,17 +671,27 @@ export default function LandingPage() {
                 ? "管理自有与共享落地服务器、节点和独立限制"
                 : "选择获授权的服务器，创建自己的 SS2022 或 VLESS 节点"}
               {!admin &&
-                servers.some((server) =>
-                  landingCreatableProtocols(server).some(
-                    isLandingExtraProtocol,
-                  ),
-                ) &&
-                "（部分服务器还支持 AnyTLS / Snell / Mieru）"}
-              {!admin &&
-                servers.some((server) =>
-                  landingCreatableProtocols(server).includes("vless_enc"),
-                ) &&
-                "（可用 VLESS Encryption）"}
+                (() => {
+                  // Plan 253: VLESS Encryption joins the same hint.
+                  const more = [
+                    ...(servers.some((server) =>
+                      landingCreatableProtocols(server).some(
+                        isLandingExtraProtocol,
+                      ),
+                    )
+                      ? ["AnyTLS / Snell / Mieru"]
+                      : []),
+                    ...(servers.some((server) =>
+                      landingCreatableProtocols(server).includes("vless_enc"),
+                    )
+                      ? ["VLESS Encryption"]
+                      : []),
+                  ];
+
+                  return more.length
+                    ? `（部分服务器还支持 ${more.join(" / ")}）`
+                    : "";
+                })()}
             </p>
           </div>
           <div className="flex shrink-0 items-center gap-2">
