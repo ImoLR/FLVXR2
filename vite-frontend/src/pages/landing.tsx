@@ -36,6 +36,7 @@ import {
   landingNodes,
   landingProtocolLabel,
   landingProtocolSummary,
+  VLESS_ENC_HINT,
   landingServerModeLabel,
   landingServers,
   landingStatus,
@@ -676,6 +677,11 @@ export default function LandingPage() {
                   ),
                 ) &&
                 "（部分服务器还支持 AnyTLS / Snell / Mieru）"}
+              {!admin &&
+                servers.some((server) =>
+                  landingCreatableProtocols(server).includes("vless_enc"),
+                ) &&
+                "（可用 VLESS Encryption）"}
             </p>
           </div>
           <div className="flex shrink-0 items-center gap-2">
@@ -1402,6 +1408,12 @@ export default function LandingPage() {
                       链接导入（v2rayN、NekoBox、Shadowrocket
                       等）需允许自签证书；下方 Clash / mihomo
                       配置已固定证书指纹，更安全。
+                    </p>
+                  )}
+                  {linksFor?.protocol === "vless_enc" && link.url && (
+                    <p className="text-xs text-default-500">
+                      {VLESS_ENC_HINT}。链接已包含加密参数，Clash Meta 请用
+                      mihomo 1.19.13 或更新版本。
                     </p>
                   )}
                   {linksFor?.protocol === "snell" && !link.url && (

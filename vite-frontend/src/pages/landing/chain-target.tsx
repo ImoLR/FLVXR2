@@ -167,7 +167,7 @@ export function ChainTargetInput({
         description={
           currentSummary
             ? "如需更换节点，粘贴新的链接；留空保持当前节点，你的转发链接不变"
-            : "支持 ss://（含 SS2022）、vless://、vmess://、trojan://、hysteria2://、socks5://、http(s)://"
+            : "支持 ss://（含 SS2022）、vless://（含 VLESS Encryption）、vmess://、trojan://、hysteria2://、socks5://、http(s)://"
         }
         errorMessage={error}
         isInvalid={!!error}

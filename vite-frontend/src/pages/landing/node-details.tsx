@@ -11,6 +11,7 @@ import {
   landingDate,
   landingGB,
   landingProtocolLabel,
+  VLESS_ENC_HINT,
   landingStatus,
   setLandingNodeStatus,
   transferLandingNode,
@@ -153,6 +154,10 @@ export function NodeDetails({
       server?.name || node.serverName || `服务器 ${node.landingServerId}`,
     ],
     ["协议 / 端口", `${landingProtocolLabel(node.protocol)} · ${node.port}`],
+    // Plan 253: which clients can use it.
+    ...(node.protocol === "vless_enc"
+      ? ([["客户端", VLESS_ENC_HINT]] as [string, string][])
+      : []),
     ["倍率", `${effectiveRatio}×`],
     ["流量计算", effectiveFlow === 2 ? "双向" : "单向"],
     [
