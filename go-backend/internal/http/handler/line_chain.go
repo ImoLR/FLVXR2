@@ -501,6 +501,10 @@ func (h *Handler) forwardCreateChain(w http.ResponseWriter, r *http.Request, req
 		fail(err.Error())
 		return
 	}
+	if ok, reason := chainUpstreamAvailability(info, up); !ok {
+		fail(reason)
+		return
+	}
 	if err := h.chains.begin(ownerID, roleID != 0, now); err != nil {
 		fail(err.Error())
 		return
@@ -998,6 +1002,14 @@ func (h *Handler) forwardUpdateChainHook(w http.ResponseWriter, r *http.Request,
 	} else if chain == nil {
 		return fail("请粘贴你的节点链接")
 	}
+	// Plan 253: the (new or kept) user node must be dialable from every exit.
+	effective := up
+	if link == "" && chain != nil {
+		effective, _ = linechain.FromJSON(chain.Upstream)
+	}
+	if ok, reason := chainUpstreamAvailability(info, effective); !ok {
+		return fail(reason)
+	}
 	if err := h.chains.begin(forward.UserID, roleID != 0 && (link != "" || protoChange), now); err != nil {
 		return fail(err.Error())
 	}
@@ -1139,6 +1151,10 @@ func (h *Handler) startChainMove(c model.ForwardChain, info *repo.TunnelLineInfo
 		reason = infoErr.Error()
 	} else if ok, why := chainInboundAvailability(info, c.ChainInbound()); !ok {
 		reason = why
+	} else if up, err := linechain.FromJSON(c.Upstream); err == nil {
+		if ok, why := chainUpstreamAvailability(info, up); !ok {
+			reason = why
+		}
 	}
 	if reason != "" {
 		msg := "隧道出口已变化，「我自己的节点」无法迁移：" + reason

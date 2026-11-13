@@ -245,8 +245,9 @@ func validateLandingServer(s *model.LandingServer, keep map[string]bool) error {
 		if !knownLandingProtocol(p) {
 			return errors.New("协议模板无效")
 		}
-		// Plan 121: the extra protocols need the shared Core of a capable share.
-		if s.Source != "shared" && !(p == "ss2022" || p == "vless_reality_vision") {
+		// Plan 121: the extra protocols need the shared Core of a capable share
+		// (plan 253: VLESS Encryption also runs on native landings).
+		if s.Source != "shared" && !nativeLandingProtocol(p) {
 			return errors.New("AnyTLS / Snell / Mieru 目前只支持妙妙屋共享服务器")
 		}
 	}
@@ -335,6 +336,15 @@ func (r *Repository) SaveLandingServerOpts(s *model.LandingServer, groups []int6
 		}
 		if err := validateLandingServer(s, keep); err != nil {
 			return err
+		}
+		// Plan 253: switching VLESS Encryption on for a native server needs an
+		// agent that runs it (an enabled one stays on across an agent downgrade;
+		// its nodes are withheld from that agent).
+		if s.Source == "native" && !keep[landingcustom.ProtocolVLESSEnc] && landingServerHasProtocol(s, landingcustom.ProtocolVLESSEnc) {
+			var native model.Node
+			if err := tx.Select("id", "landing_vless_enc").First(&native, s.NodeID).Error; err != nil || !NativeVLESSEncSupported(native.LandingVLESSEnc) {
+				return errors.New(VLESSEncAgentReason + "，暂不能启用")
+			}
 		}
 		if s.ChainOnly && len(groups) > 0 {
 			return errors.New("该服务器只用于「我自己的节点」，不对用户开放；如需公开，请在节点页「启用为落地」")
@@ -762,6 +772,7 @@ func (r *Repository) createLandingNode(userID, serverID int64, name, protocol st
 		if s.NodeID == 36 {
 			return errors.New("节点 36 禁止启用落地")
 		}
+		agentVLESSEnc := 0
 		if s.Source == "native" {
 			var native model.Node
 			if err := tx.First(&native, s.NodeID).Error; err != nil {
@@ -770,6 +781,7 @@ func (r *Repository) createLandingNode(userID, serverID int64, name, protocol st
 			if !native.LandingCapable {
 				return errors.New("节点程序需升级")
 			}
+			agentVLESSEnc = native.LandingVLESSEnc
 		} else if !SharedLandingAvailable(&s) {
 			return errors.New("妙妙屋共享已暂停、撤销或额度用完")
 		}
@@ -804,6 +816,11 @@ func (r *Repository) createLandingNode(userID, serverID int64, name, protocol st
 		}
 		if err := checkExtraProtocolCreate(&s, protocol); err != nil {
 			return err
+		}
+		if isVLESSEnc(protocol) {
+			if err := checkVLESSEncCreate(&s, agentVLESSEnc); err != nil {
+				return err
+			}
 		}
 		if reuse {
 			var candidates []model.LandingNode
@@ -886,6 +903,10 @@ func (r *Repository) createLandingNode(userID, serverID int64, name, protocol st
 		}
 		if landingcustom.IsExtraProtocol(n.Protocol) {
 			if err := newExtraLandingCredentials(&n, &s); err != nil {
+				return err
+			}
+		} else if isVLESSEnc(n.Protocol) {
+			if err := newVLESSEncCredentials(&n); err != nil {
 				return err
 			}
 		} else if err := newLandingCredentials(&n); err != nil {
@@ -1093,4 +1114,16 @@ func landingNodeReferenceError(tx *gorm.DB, id int64) error {
 		label += fmt.Sprintf("等 %d 条", count)
 	}
 	return fmt.Errorf("该节点仍被规则 %s 引用，请先删除或修改规则", label)
+}
+
+// landingServerHasProtocol reports whether the server's 协议模板 has p.
+func landingServerHasProtocol(s *model.LandingServer, p string) bool {
+	var ps []string
+	_ = json.Unmarshal([]byte(s.Protocols), &ps)
+	for _, x := range ps {
+		if x == p {
+			return true
+		}
+	}
+	return false
 }

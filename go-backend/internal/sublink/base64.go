@@ -85,6 +85,9 @@ func ShareURI(n Node) string {
 		return "ss://" + base64.RawURLEncoding.EncodeToString([]byte(u.Method+":"+u.Password)) + "@" + addr + frag(n.Name)
 	case "vless":
 		q.Set("encryption", "none")
+		if u.Encrypted() {
+			q.Set("encryption", u.Encryption) // plan 253
+		}
 		transportQuery()
 		if u.Flow != "" {
 			q.Set("flow", u.Flow)

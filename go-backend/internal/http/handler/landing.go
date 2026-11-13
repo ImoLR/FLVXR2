@@ -202,6 +202,21 @@ func (h *Handler) landingServerViewWith(s model.LandingServer, admin bool, catal
 			v["egress"] = h.landingServerEgressView(s, nodeEgress, catalog, nodeGuard)
 		}
 	}
+	// Plan 253: can this server run VLESS Encryption nodes now (native: the
+	// agent; shared: the share's caps)? Drives the 协议模板 switch and the
+	// create dialog; "" reason = available.
+	vlessEncReason := ""
+	if s.Source == "shared" {
+		if _, ok := repo.SharedProtocolCap(&s, landingcustom.ProtocolVLESSEnc); !ok {
+			vlessEncReason = repo.VLESSEncShareReason
+		}
+	} else if agent == nil || !repo.NativeVLESSEncSupported(agent.LandingVLESSEnc) {
+		vlessEncReason = repo.VLESSEncAgentReason
+	}
+	v["vlessEncAvailable"] = vlessEncReason == ""
+	if vlessEncReason != "" {
+		v["vlessEncReason"] = vlessEncReason
+	}
 	// Users only see the read-only summary, never profile internals.
 	v["egressLabel"] = catalog.serverLabel(s)
 	if !admin {
@@ -420,7 +435,7 @@ func landingNodeViewData(n model.LandingNode, s *model.LandingServer, u *model.U
 			v["syncError"] = reason
 		}
 	}
-	if landingcustom.IsExtraProtocol(n.Protocol) {
+	if landingcustom.IsCapProtocol(n.Protocol) {
 		// Non-secret options only; credentials stay in the links endpoint.
 		v["protocolOpts"] = repo.LandingNodeOpts(&n)
 	}

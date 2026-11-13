@@ -16,24 +16,27 @@ import (
 // agent's landing EgressOutbound (go-gost/x/landing), so it is sent as is in
 // the chain node's "chain" field. It holds secrets: never return it to clients.
 type Upstream struct {
-	Tag       string   `json:"tag,omitempty"`
-	Type      string   `json:"type"`
-	IPVersion string   `json:"ip_version"`
-	Server    string   `json:"server"`
-	Port      int      `json:"port"`
-	Username  string   `json:"username,omitempty"`
-	Password  string   `json:"password,omitempty"`
-	Method    string   `json:"method,omitempty"`
-	UUID      string   `json:"uuid,omitempty"`
-	Flow      string   `json:"flow,omitempty"`
-	Reality   *Reality `json:"reality,omitempty"`
-	Network   string   `json:"network,omitempty"`
-	Security  string   `json:"security,omitempty"`
-	TLS       *TLS     `json:"tls,omitempty"`
-	WS        *WS      `json:"ws,omitempty"`
-	GRPC      *GRPC    `json:"grpc,omitempty"`
-	Cipher    string   `json:"cipher,omitempty"`
-	Obfs      string   `json:"obfs,omitempty"`
+	Tag       string `json:"tag,omitempty"`
+	Type      string `json:"type"`
+	IPVersion string `json:"ip_version"`
+	Server    string `json:"server"`
+	Port      int    `json:"port"`
+	Username  string `json:"username,omitempty"`
+	Password  string `json:"password,omitempty"`
+	Method    string `json:"method,omitempty"`
+	UUID      string `json:"uuid,omitempty"`
+	Flow      string `json:"flow,omitempty"`
+	// Encryption (plan 253): the VLESS client "encryption" string
+	// (mlkem768x25519plus.…); empty = none. Agents need landing_vless_enc.
+	Encryption string   `json:"encryption,omitempty"`
+	Reality    *Reality `json:"reality,omitempty"`
+	Network    string   `json:"network,omitempty"`
+	Security   string   `json:"security,omitempty"`
+	TLS        *TLS     `json:"tls,omitempty"`
+	WS         *WS      `json:"ws,omitempty"`
+	GRPC       *GRPC    `json:"grpc,omitempty"`
+	Cipher     string   `json:"cipher,omitempty"`
+	Obfs       string   `json:"obfs,omitempty"`
 }
 
 type Reality struct {
@@ -60,6 +63,9 @@ type GRPC struct {
 	MultiMode   bool   `json:"multi_mode,omitempty"`
 }
 
+// Encrypted reports a VLESS Encryption upstream (plan 253).
+func (u Upstream) Encrypted() bool { return u.Type == "vless" && u.Encryption != "" }
+
 // UDPOnly reports upstreams that cannot be probed with a TCP connect.
 func (u Upstream) UDPOnly() bool { return u.Type == "hysteria2" }
 
@@ -76,6 +82,9 @@ func (u Upstream) ProtocolLabel() string {
 		return "Shadowsocks"
 	case "vless", "vmess", "trojan":
 		name := map[string]string{"vless": "VLESS", "vmess": "VMess", "trojan": "Trojan"}[u.Type]
+		if u.Encrypted() {
+			name = "VLESS Encryption"
+		}
 		switch u.Network {
 		case "ws":
 			name += " WS"

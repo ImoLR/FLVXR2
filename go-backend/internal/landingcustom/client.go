@@ -300,6 +300,17 @@ func IsExtraProtocol(p string) bool {
 	return p == ProtocolAnyTLS || p == ProtocolSnell || p == ProtocolMieru
 }
 
+// ProtocolVLESSEnc (plan 253) is VLESS Encryption (mlkem768x25519plus, raw
+// TCP, no TLS). Unlike the extras it also runs on native FLVX landings; on a
+// share it is advertised through the same ProtocolCaps.
+const ProtocolVLESSEnc = "vless_enc"
+
+// CapProtocols: every protocol a share must advertise in ProtocolCaps.
+var CapProtocols = []string{ProtocolAnyTLS, ProtocolSnell, ProtocolMieru, ProtocolVLESSEnc}
+
+// IsCapProtocol reports whether a share needs a ProtocolCaps entry for p.
+func IsCapProtocol(p string) bool { return IsExtraProtocol(p) || p == ProtocolVLESSEnc }
+
 // ProtocolCaps: Versions are the contract versions the share accepts (FLVX
 // requires 1); Protocols holds one entry per protocol the share's Helper and
 // FLVX Core can render AND account for.
@@ -321,7 +332,7 @@ type ProtocolCap struct {
 
 // Supports returns the capability of protocol p, if advertised under v1.
 func (c *ProtocolCaps) Supports(p string) (ProtocolCap, bool) {
-	if c == nil || !IsExtraProtocol(p) {
+	if c == nil || !IsCapProtocol(p) {
 		return ProtocolCap{}, false
 	}
 	ok := false
@@ -386,12 +397,22 @@ func (s *Share) Sanitize() {
 				caps.Versions = append(caps.Versions, v)
 			}
 		}
-		for _, p := range ExtraProtocols {
+		for _, p := range CapProtocols {
 			cp, ok := s.ProtocolCaps.Protocols[p]
 			if !ok {
 				continue
 			}
 			clean := ProtocolCap{UDP: cp.UDP}
+			if p == ProtocolVLESSEnc {
+				// Plan 253: versions = the vless_enc object versions the Helper
+				// renders; empty = 1. A list without 1 is nothing FLVX can send.
+				if len(cp.Versions) > 0 && !containsInt(cp.Versions, VLESSEncVersion) {
+					continue
+				}
+				if len(cp.Versions) > 0 {
+					clean.Versions = []int{VLESSEncVersion}
+				}
+			}
 			if p == ProtocolSnell {
 				for _, v := range cp.Versions {
 					if (v == 4 || v == 5) && !containsInt(clean.Versions, v) {
@@ -573,6 +594,21 @@ type Node struct {
 	AnyTLS *AnyTLS `json:"anytls,omitempty"`
 	Snell  *Snell  `json:"snell,omitempty"`
 	Mieru  *Mieru  `json:"mieru,omitempty"`
+	// Plan 253: VLESS Encryption, only to shares advertising vless_enc.
+	VLESSEnc *VLESSEnc `json:"vless_enc,omitempty"`
+}
+
+// VLESSEncVersion is the vless_enc object version FLVX sends (plan 253).
+const VLESSEncVersion = 1
+
+// VLESSEnc is a VLESS Encryption inbound (plan 253): one client UUID, flow
+// xtls-rprx-vision (or empty), and the full Xray server "decryption" string
+// (mlkem768x25519plus.<mode>.<ticket>.<keys>); raw TCP, no TLS. The same
+// object goes to native agents.
+type VLESSEnc struct {
+	UUID       string `json:"uuid"`
+	Flow       string `json:"flow"`
+	Decryption string `json:"decryption"`
 }
 
 // AnyTLS over TLS with an FLVX-generated self-signed ECDSA P-256 certificate
@@ -932,7 +968,7 @@ func validationFieldLabel(name string) string {
 		return "协议凭据"
 	}
 	// landing-protocols-v1 reports e.g. "snell.version", "anytls.tls".
-	for _, proto := range ExtraProtocols {
+	for _, proto := range CapProtocols {
 		if name == proto || strings.HasPrefix(name, proto+".") {
 			return "协议凭据"
 		}

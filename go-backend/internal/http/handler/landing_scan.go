@@ -72,14 +72,14 @@ func (h *Handler) registerLandingScan(mux *http.ServeMux) {
 // SS2022 / VLESS nodes of the server while the rule is on) and the highest
 // hit seq the panel recorded. Always sent to such agents, so a switched-off
 // rule still lets the agent hand over and release its pending hits.
-func (h *Handler) landingScanPayload(s *model.LandingServer, nodes []model.LandingNode) (map[string]interface{}, error) {
+func (h *Handler) landingScanPayload(s *model.LandingServer, nodes []model.LandingNode, notSent func(string) bool) (map[string]interface{}, error) {
 	g, err := h.repo.GetLandingScanGuard()
 	if err != nil {
 		return nil, err
 	}
 	ids := []string{}
 	if g.On {
-		ids = repo.NativeLandingScanTargets(nodes, s.ID, landingcustom.IsExtraProtocol)
+		ids = repo.NativeLandingScanTargets(nodes, s.ID, notSent)
 	}
 	return repo.LandingScanPayload(g, ids, s.ScanSeenSeq), nil
 }

@@ -38,6 +38,8 @@ type ChainExit struct {
 	LandingCapable bool   `json:"landingCapable"`
 	LandingChain   int    `json:"landingChain"`
 	IsRemote       bool   `json:"isRemote"`
+	// LandingVLESSEnc (plan 253): the agent dials VLESS Encryption upstreams.
+	LandingVLESSEnc int `json:"landingVlessEnc"`
 }
 
 // TunnelLineInfo describes a tunnel for 线路机 decisions: it is a 线路机 tunnel
@@ -87,7 +89,7 @@ func (r *Repository) TunnelLineInfos(tunnelIDs []int64) (map[int64]*TunnelLineIn
 	nodes := map[int64]model.Node{}
 	if len(ids) > 0 {
 		var list []model.Node
-		if err := r.db.Select("id", "name", "status", "line_machine", "landing_capable", "landing_chain", "is_remote").Where("id IN ?", ids).Find(&list).Error; err != nil {
+		if err := r.db.Select("id", "name", "status", "line_machine", "landing_capable", "landing_chain", "landing_vless_enc", "is_remote").Where("id IN ?", ids).Find(&list).Error; err != nil {
 			return nil, err
 		}
 		for _, n := range list {
@@ -113,7 +115,7 @@ func (r *Repository) TunnelLineInfos(tunnelIDs []int64) (map[int64]*TunnelLineIn
 				continue
 			}
 			seenExit[key] = true
-			info.Exits = append(info.Exits, ChainExit{NodeID: c.NodeID, Name: n.Name, Online: n.Status == 1, LineMachine: n.LineMachine, LandingCapable: n.LandingCapable, LandingChain: n.LandingChain, IsRemote: n.IsRemote != 0})
+			info.Exits = append(info.Exits, ChainExit{NodeID: c.NodeID, Name: n.Name, Online: n.Status == 1, LineMachine: n.LineMachine, LandingCapable: n.LandingCapable, LandingChain: n.LandingChain, LandingVLESSEnc: n.LandingVLESSEnc, IsRemote: n.IsRemote != 0})
 		}
 	}
 	return out, nil

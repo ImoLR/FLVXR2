@@ -37,6 +37,9 @@ type LandingProtocolOpts struct {
 	Obfs      string `json:"obfs,omitempty"`
 	ObfsHost  string `json:"obfsHost,omitempty"`
 	Transport string `json:"transport,omitempty"`
+	// Mode (plan 253, vless_enc): the VLESS Encryption appearance
+	// (native | xorpub | random) fixed at creation.
+	Mode string `json:"mode,omitempty"`
 }
 
 // LandingNodeOpts decodes ProtocolOpts (empty for SS2022 / VLESS nodes).
@@ -47,7 +50,13 @@ func LandingNodeOpts(n *model.LandingNode) LandingProtocolOpts {
 }
 
 func knownLandingProtocol(p string) bool {
-	return p == "ss2022" || p == "vless_reality_vision" || landingcustom.IsExtraProtocol(p)
+	return p == "ss2022" || p == "vless_reality_vision" || landingcustom.IsCapProtocol(p)
+}
+
+// nativeLandingProtocol: protocols a native FLVX landing can run (plan 253
+// adds VLESS Encryption; AnyTLS / Snell / Mieru stay shared-only).
+func nativeLandingProtocol(p string) bool {
+	return p == "ss2022" || p == "vless_reality_vision" || isVLESSEnc(p)
 }
 
 // validLandingHostname accepts a DNS name (not an IP literal) for SNI / obfs.
@@ -131,7 +140,7 @@ func SharedAllowedProtocols(s *model.LandingServer) map[string]bool {
 	for _, p := range c.Protocols {
 		out[p] = true
 	}
-	for _, p := range landingcustom.ExtraProtocols {
+	for _, p := range landingcustom.CapProtocols {
 		if _, ok := c.ProtocolCaps.Supports(p); ok {
 			out[p] = true
 		}
@@ -145,26 +154,37 @@ func SharedAllowedProtocols(s *model.LandingServer) map[string]bool {
 // the egress plan, so the rest of the share keeps syncing; port, credentials
 // and counters stay, and it comes back once the capability returns.
 func LandingNodeWithheld(s *model.LandingServer, n *model.LandingNode) bool {
-	if s == nil || n == nil || !landingcustom.IsExtraProtocol(n.Protocol) {
+	if s == nil || n == nil || !landingcustom.IsCapProtocol(n.Protocol) {
 		return false
 	}
 	return LandingWithheldFunc(s)(n)
 }
 
 // LandingWithheldFunc parses the server's caps once for loops over its nodes.
+// A native vless_enc node counts as applied here (views); what goes to the
+// agent uses LandingWithheldAgentFunc with the agent's version.
 func LandingWithheldFunc(s *model.LandingServer) func(*model.LandingNode) bool {
+	return LandingWithheldAgentFunc(s, LandingVLESSEncVersion)
+}
+
+// LandingWithheldAgentFunc: as LandingWithheldFunc, and (plan 253) a native
+// vless_enc node is withheld from an agent below LandingVLESSEncVersion.
+func LandingWithheldAgentFunc(s *model.LandingServer, agentVLESSEnc int) func(*model.LandingNode) bool {
 	var supported map[string]bool
 	return func(n *model.LandingNode) bool {
-		if s == nil || n == nil || !landingcustom.IsExtraProtocol(n.Protocol) {
+		if s == nil || n == nil || !landingcustom.IsCapProtocol(n.Protocol) {
 			return false
 		}
 		if s.Source != "shared" {
+			if isVLESSEnc(n.Protocol) {
+				return !NativeVLESSEncSupported(agentVLESSEnc)
+			}
 			return true // never valid on native servers
 		}
 		if supported == nil {
 			supported = map[string]bool{}
 			caps := SharedLandingCaps(s)
-			for _, p := range landingcustom.ExtraProtocols {
+			for _, p := range landingcustom.CapProtocols {
 				_, supported[p] = caps.ProtocolCaps.Supports(p)
 			}
 		}
@@ -199,6 +219,8 @@ func LandingProtocolName(p string) string {
 		return "Snell"
 	case landingcustom.ProtocolMieru:
 		return "Mieru"
+	case landingcustom.ProtocolVLESSEnc:
+		return "VLESS Encryption"
 	}
 	return p
 }
@@ -348,6 +370,8 @@ func fillSharedExtraProtocol(n model.LandingNode, d *landingcustom.Node) {
 		d.Snell = &landingcustom.Snell{PSK: n.Password, Version: o.Version, Obfs: obfs, ObfsHost: o.ObfsHost}
 	case landingcustom.ProtocolMieru:
 		d.Mieru = &landingcustom.Mieru{Username: n.Username, Password: n.Password}
+	case landingcustom.ProtocolVLESSEnc:
+		d.VLESSEnc = VLESSEncDesired(n)
 	}
 }
 
@@ -486,6 +510,10 @@ const SnellSurgeNoTLSObfs = "Surge 的 Snell v4/v5 不支持 TLS 混淆，这个
 // share's capability for the protocol.
 func LandingClientConfigs(n model.LandingNode, host string, port int, udp bool) (clash, surge, surgeNote string) {
 	host = strings.Trim(strings.TrimSpace(host), "[]")
+	if isVLESSEnc(n.Protocol) {
+		// Plan 253: mihomo's encryption field; Surge has no VLESS.
+		return vlessEncClash(n, host, port, udp), "", ""
+	}
 	o := LandingNodeOpts(&n)
 	var b strings.Builder
 	line := func(format string, args ...interface{}) { b.WriteString(fmt.Sprintf(format, args...) + "\n") }

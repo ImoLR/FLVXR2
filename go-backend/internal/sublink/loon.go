@@ -106,6 +106,10 @@ func loonProxy(n Node) (string, bool) {
 		}
 		kv("udp", "true")
 	case "vless":
+		// Plan 253: nsloon.app documents no VLESS Encryption parameter.
+		if u.Encrypted() {
+			return "", false
+		}
 		head("VLESS")
 		if !pos(u.UUID) || !transport() {
 			return "", false

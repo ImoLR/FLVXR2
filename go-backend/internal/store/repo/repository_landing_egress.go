@@ -380,6 +380,9 @@ type LandingEgressData struct {
 	Upstreams  map[int64]LandingUpstream
 	NodeEgress int // native agent capability (0 = unsupported)
 	NodeGuard  int // native agent: Reality guard + builtin rules (plan 127)
+	// NodeVLESSEnc: native agent landing_vless_enc (plan 253); its VLESS
+	// Encryption nodes are withheld below version 1.
+	NodeVLESSEnc int
 	// ChainTags: chain copies on this server (plan 108), native only.
 	ChainTags []string
 	// Global is the global rule group (plan 134). NoIPv4 / NoIPv6: the panel
@@ -431,8 +434,8 @@ func (r *Repository) LandingEgressData(serverID int64) (*LandingEgressData, erro
 	}
 	if d.Server.Source == "native" {
 		var n model.Node
-		if err := r.db.Select("id", "landing_egress", "landing_chain", "landing_guard").First(&n, d.Server.NodeID).Error; err == nil {
-			d.NodeEgress, d.NodeGuard = n.LandingEgress, n.LandingGuard
+		if err := r.db.Select("id", "landing_egress", "landing_chain", "landing_guard", "landing_vless_enc").First(&n, d.Server.NodeID).Error; err == nil {
+			d.NodeEgress, d.NodeGuard, d.NodeVLESSEnc = n.LandingEgress, n.LandingGuard, n.LandingVLESSEnc
 			if n.LandingChain >= 1 {
 				// Exactly the copies the desired state carries (syncLandingServer).
 				copies, err := r.ChainCopiesForServer(serverID)
@@ -440,7 +443,7 @@ func (r *Repository) LandingEgressData(serverID int64) (*LandingEgressData, erro
 					return nil, err
 				}
 				for _, c := range copies {
-					if !ChainCopySupported(c, n.LandingChain) {
+					if !ChainCopySupported(c, n.LandingChain, n.LandingVLESSEnc) {
 						continue // plan 250: not in the desired state either
 					}
 					d.ChainTags = append(d.ChainTags, fmt.Sprintf("flvxl-%d", model.ChainAgentIDBase+c.Node.ID))
@@ -924,7 +927,12 @@ func (r *Repository) SetNodeLandingCapabilities(id int64, capable bool, egress i
 	if len(versions) > 5 {
 		realityVersion = versions[5]
 	}
-	return r.db.Model(&model.Node{}).Where("id = ? AND (landing_capable <> ? OR landing_egress <> ? OR landing_chain <> ? OR landing_guard <> ? OR landing_conn_mode <> ? OR landing_user_limits <> ? OR landing_scan_guard <> ? OR landing_reality <> ?)", id, capable, egress, chainVersion, guardVersion, connVersion, userLimitsVersion, scanVersion, realityVersion).Updates(map[string]any{"landing_capable": capable, "landing_egress": egress, "landing_chain": chainVersion, "landing_guard": guardVersion, "landing_conn_mode": connVersion, "landing_user_limits": userLimitsVersion, "landing_scan_guard": scanVersion, "landing_reality": realityVersion}).Error
+	// Plan 253: landing_vless_enc (VLESS Encryption inbound + outbounds).
+	vlessEncVersion := 0
+	if len(versions) > 6 {
+		vlessEncVersion = versions[6]
+	}
+	return r.db.Model(&model.Node{}).Where("id = ? AND (landing_capable <> ? OR landing_egress <> ? OR landing_chain <> ? OR landing_guard <> ? OR landing_conn_mode <> ? OR landing_user_limits <> ? OR landing_scan_guard <> ? OR landing_reality <> ? OR landing_vless_enc <> ?)", id, capable, egress, chainVersion, guardVersion, connVersion, userLimitsVersion, scanVersion, realityVersion, vlessEncVersion).Updates(map[string]any{"landing_capable": capable, "landing_egress": egress, "landing_chain": chainVersion, "landing_guard": guardVersion, "landing_conn_mode": connVersion, "landing_user_limits": userLimitsVersion, "landing_scan_guard": scanVersion, "landing_reality": realityVersion, "landing_vless_enc": vlessEncVersion}).Error
 }
 
 // UserNamesByIDs maps user IDs to login names in one query.

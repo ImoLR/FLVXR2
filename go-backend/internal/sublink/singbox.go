@@ -120,6 +120,11 @@ func singBoxOutbound(n Node) (jmap, bool) {
 		o.add("method", u.Method)
 		o.add("password", u.Password)
 	case "vless":
+		// Plan 253: sing-box has no VLESS Encryption (1.14.3: unknown field
+		// "encryption"), so such nodes are left out.
+		if u.Encrypted() {
+			return nil, false
+		}
 		base("vless")
 		o.add("uuid", u.UUID)
 		o.addIf("flow", u.Flow)

@@ -30,7 +30,9 @@ const (
 )
 
 // LandingFilterProtocols: every landing protocol FLVX offers.
-var LandingFilterProtocols = []string{"ss2022", "vless_reality_vision", landingcustom.ProtocolAnyTLS, landingcustom.ProtocolSnell, landingcustom.ProtocolMieru}
+// Plan 253: VLESS Encryption (random appearance) has no TLS / HTTP feature,
+// like SS2022 — it passes tunnels that block either (lab-tested).
+var LandingFilterProtocols = []string{"ss2022", "vless_reality_vision", landingcustom.ProtocolAnyTLS, landingcustom.ProtocolSnell, landingcustom.ProtocolMieru, landingcustom.ProtocolVLESSEnc}
 
 // LandingFilterFeatures returns the filter features of protocol with the
 // given Snell obfs mode (ignored for other protocols); nil when none.

@@ -154,6 +154,11 @@ func clashProxy(n Node, stash bool) (omap, bool) {
 		p.add("password", u.Password)
 		p.add("udp", true)
 	case "vless":
+		// Plan 253: VLESS Encryption needs mihomo ≥ 1.19.13 ("encryption");
+		// Stash does not document it.
+		if u.Encrypted() && stash {
+			return nil, false
+		}
 		server("vless")
 		p.add("uuid", u.UUID)
 		p.add("udp", true)
@@ -178,6 +183,12 @@ func clashProxy(n Node, stash bool) (omap, bool) {
 			tlsOpts("servername")
 		default:
 			p.add("tls", false)
+			if u.Encrypted() {
+				p.addIf("flow", u.Flow)
+			}
+		}
+		if u.Encrypted() {
+			p.add("encryption", u.Encryption)
 		}
 	case "vmess":
 		server("vmess")
