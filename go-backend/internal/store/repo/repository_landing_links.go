@@ -36,6 +36,9 @@ func LandingURL(n model.LandingNode, host string, port int) string {
 	if landingcustom.IsExtraProtocol(n.Protocol) {
 		return extraLandingURL(n, host, port)
 	}
+	if isVLESSEnc(n.Protocol) {
+		return vlessEncURL(n, host, port)
+	}
 	if n.Protocol == "ss2022" {
 		userinfo := url.QueryEscape(n.Method) + ":" + url.QueryEscape(n.ServerKey+":"+n.UserKey)
 		return "ss://" + strings.ReplaceAll(userinfo, "+", "%20") + "@" + authority + "#" + url.PathEscape(n.Name)
@@ -58,13 +61,13 @@ func (r *Repository) LandingNodeLinks(n model.LandingNode) ([]LandingLink, error
 		return nil, errors.New("落地服务器不存在")
 	}
 	udp := true
-	if landingcustom.IsExtraProtocol(n.Protocol) {
+	if landingcustom.IsExtraProtocol(n.Protocol) || (isVLESSEnc(n.Protocol) && s.Source == "shared") {
 		cp, _ := SharedProtocolCap(s, n.Protocol)
 		udp = cp.UDP
 	}
 	link := func(name, kind, host string, port int) LandingLink {
 		l := LandingLink{Name: name, URL: LandingURL(n, host, port), Kind: kind}
-		if landingcustom.IsExtraProtocol(n.Protocol) {
+		if landingcustom.IsCapProtocol(n.Protocol) {
 			l.Clash, l.Surge, l.SurgeNote = LandingClientConfigs(n, host, port, udp)
 		}
 		return l

@@ -57,9 +57,24 @@ func ChainInboundLabel(c model.ForwardChain) string {
 	return "VLESS Reality"
 }
 
-// ChainCopySupported: an AnyTLS copy only goes to an agent that applies it.
-func ChainCopySupported(c ChainCopy, chainVersion int) bool {
-	return c.Chain.ChainInbound() != model.ChainInboundAnyTLS || chainVersion >= ChainAnyTLSVersion
+// ChainCopySupported: an AnyTLS copy only goes to an agent that applies it,
+// and (plan 253) a copy whose upstream is a VLESS Encryption node only to an
+// agent with landing_vless_enc (an older one would drop "encryption" and
+// dial the node unencrypted, which it refuses).
+func ChainCopySupported(c ChainCopy, chainVersion, vlessEncVersion int) bool {
+	if c.Chain.ChainInbound() == model.ChainInboundAnyTLS && chainVersion < ChainAnyTLSVersion {
+		return false
+	}
+	return !ChainUpstreamEncrypted(c.Chain) || NativeVLESSEncSupported(vlessEncVersion)
+}
+
+// ChainUpstreamEncrypted reports a chain whose user node is VLESS Encryption.
+func ChainUpstreamEncrypted(c model.ForwardChain) bool {
+	if !strings.Contains(c.Upstream, `"encryption"`) {
+		return false
+	}
+	up, err := linechain.FromJSON(c.Upstream)
+	return err == nil && up.Encrypted()
 }
 
 // chainSNI: the AnyTLS SNI of a new chain = its first Reality server name (a

@@ -10,6 +10,7 @@ import (
 
 	"go-backend/internal/http/response"
 	"go-backend/internal/landingcustom"
+	"go-backend/internal/linechain"
 	"go-backend/internal/store/model"
 	"go-backend/internal/store/repo"
 )
@@ -145,6 +146,21 @@ func tunnelChainAnyTLSAvailability(info *repo.TunnelLineInfo) (bool, string) {
 	for _, e := range info.Exits {
 		if e.LandingChain < repo.ChainAnyTLSVersion {
 			return false, "出口节点「" + e.Name + "」的节点程序版本过低，升级后才能使用 AnyTLS"
+		}
+	}
+	return true, ""
+}
+
+// chainUpstreamAvailability (plan 253): a VLESS Encryption user node needs
+// every exit's agent to dial it (landing_vless_enc ≥ 1); an older agent
+// would drop "encryption" and the node would refuse the connection.
+func chainUpstreamAvailability(info *repo.TunnelLineInfo, up linechain.Upstream) (bool, string) {
+	if info == nil || !up.Encrypted() {
+		return true, ""
+	}
+	for _, e := range info.Exits {
+		if !repo.NativeVLESSEncSupported(e.LandingVLESSEnc) {
+			return false, "出口节点「" + e.Name + "」的节点程序版本过低，升级后才能连接 VLESS Encryption 节点"
 		}
 	}
 	return true, ""

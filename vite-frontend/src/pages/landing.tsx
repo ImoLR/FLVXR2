@@ -36,6 +36,7 @@ import {
   landingNodes,
   landingProtocolLabel,
   landingProtocolSummary,
+  VLESS_ENC_HINT,
   landingServerModeLabel,
   landingServers,
   landingStatus,
@@ -670,12 +671,27 @@ export default function LandingPage() {
                 ? "管理自有与共享落地服务器、节点和独立限制"
                 : "选择获授权的服务器，创建自己的 SS2022 或 VLESS 节点"}
               {!admin &&
-                servers.some((server) =>
-                  landingCreatableProtocols(server).some(
-                    isLandingExtraProtocol,
-                  ),
-                ) &&
-                "（部分服务器还支持 AnyTLS / Snell / Mieru）"}
+                (() => {
+                  // Plan 253: VLESS Encryption joins the same hint.
+                  const more = [
+                    ...(servers.some((server) =>
+                      landingCreatableProtocols(server).some(
+                        isLandingExtraProtocol,
+                      ),
+                    )
+                      ? ["AnyTLS / Snell / Mieru"]
+                      : []),
+                    ...(servers.some((server) =>
+                      landingCreatableProtocols(server).includes("vless_enc"),
+                    )
+                      ? ["VLESS Encryption"]
+                      : []),
+                  ];
+
+                  return more.length
+                    ? `（部分服务器还支持 ${more.join(" / ")}）`
+                    : "";
+                })()}
             </p>
           </div>
           <div className="flex shrink-0 items-center gap-2">
@@ -1402,6 +1418,12 @@ export default function LandingPage() {
                       链接导入（v2rayN、NekoBox、Shadowrocket
                       等）需允许自签证书；下方 Clash / mihomo
                       配置已固定证书指纹，更安全。
+                    </p>
+                  )}
+                  {linksFor?.protocol === "vless_enc" && link.url && (
+                    <p className="text-xs text-default-500">
+                      {VLESS_ENC_HINT}。链接已包含加密参数，Clash Meta 请用
+                      mihomo 1.19.13 或更新版本。
                     </p>
                   )}
                   {linksFor?.protocol === "snell" && !link.url && (

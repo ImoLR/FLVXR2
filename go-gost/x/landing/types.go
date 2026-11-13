@@ -89,6 +89,8 @@ type Node struct {
 	VLESS               *VLESS  `json:"vless,omitempty"`
 	// AnyTLS (plan 250, ChainVersion 2): only on chain nodes (loopback).
 	AnyTLS *AnyTLS `json:"anytls,omitempty"`
+	// VLESSEnc (plan 253, landing_vless_enc 1): a public VLESS Encryption node.
+	VLESSEnc *VLESSEnc `json:"vless_enc,omitempty"`
 	// Listen is empty (all addresses) or the loopback address of a chain node.
 	Listen string `json:"listen,omitempty"`
 	// Chain is the private upstream of a chain node (plan 108): everything the
@@ -442,6 +444,11 @@ func (n Node) inbound() (map[string]any, error) {
 		inbound["protocol"] = "vless"
 		inbound["settings"] = map[string]any{"decryption": "none", "clients": []any{map[string]any{"id": v.UUID, "email": n.InboundTag, "flow": "xtls-rprx-vision"}}}
 		inbound["streamSettings"] = map[string]any{"network": "tcp", "security": "reality", "realitySettings": map[string]any{"dest": v.Reality.Dest, "serverNames": v.Reality.ServerNames, "privateKey": v.Reality.PrivateKey, "shortIds": v.Reality.ShortIDs}}
+	case ProtocolVLESSEnc:
+		// Plan 253: never a chain node (validateChain allows Reality / AnyTLS).
+		if err := n.vlessEncInbound(inbound); err != nil {
+			return nil, err
+		}
 	case ProtocolAnyTLS:
 		// Plan 250: rendered like mmwx Custom's shared AnyTLS nodes (contract
 		// landing-protocols-v1 §6): default padding (no paddingScheme), the

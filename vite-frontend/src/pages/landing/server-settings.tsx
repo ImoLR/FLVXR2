@@ -4,7 +4,11 @@ import toast from "react-hot-toast";
 import { SharedCaps } from "./shared-caps";
 
 import { getUserGroupList } from "@/api";
-import { LandingServer, saveLandingServer } from "@/api/landing";
+import {
+  LandingServer,
+  saveLandingServer,
+  vlessEncUnavailableReason,
+} from "@/api/landing";
 import { EgressProfile, egressOverview } from "@/api/landing-egress";
 import { UserGroupApiItem } from "@/api/types";
 import { Button } from "@/shadcn-bridge/heroui/button";
@@ -150,6 +154,8 @@ export function ServerSettings({
     />
   );
 
+  // Plan 253: VLESS Encryption needs the native agent / share capability.
+  const vlessEncReason = vlessEncUnavailableReason(server);
   const save = async () => {
     if (
       !form.name.trim() ||
@@ -415,7 +421,43 @@ export function ServerSettings({
                   {protocol === "ss2022" ? "SS2022" : "VLESS Reality Vision"}
                 </Checkbox>
               ))}
+              <Checkbox
+                data-vless-enc-switch
+                isDisabled={
+                  Boolean(vlessEncReason) &&
+                  !form.protocols.includes("vless_enc")
+                }
+                isSelected={form.protocols.includes("vless_enc")}
+                onValueChange={(checked) =>
+                  set(
+                    "protocols",
+                    checked
+                      ? [...form.protocols, "vless_enc"]
+                      : form.protocols.filter((item) => item !== "vless_enc"),
+                  )
+                }
+              >
+                VLESS Encryption
+              </Checkbox>
             </div>
+            {(form.protocols.includes("vless_enc") || vlessEncReason) && (
+              <p
+                data-vless-enc-note
+                className={`rounded-lg p-2 text-xs ${
+                  vlessEncReason
+                    ? "bg-warning-50 text-warning dark:bg-warning-500/10"
+                    : "bg-default-100 text-default-500"
+                }`}
+              >
+                {vlessEncReason
+                  ? `VLESS Encryption 暂不可用：${vlessEncReason}${
+                      form.protocols.includes("vless_enc")
+                        ? "（已有节点暂停下发，端口和凭据保留）"
+                        : ""
+                    }`
+                  : "VLESS Encryption：抗量子加密、无需 TLS / 伪装域名，可用于普通隧道（含屏蔽 TLS 的专线），线路机不可用。只用于之后新建的节点。"}
+              </p>
+            )}
             {form.protocols.includes("vless_reality_vision") && (
               <RealityServerSection
                 form={form}

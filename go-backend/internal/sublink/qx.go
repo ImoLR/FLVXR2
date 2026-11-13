@@ -125,6 +125,10 @@ func qxProxy(n Node) (string, bool) {
 		}
 		kv("udp-relay", "true")
 	case "vless":
+		// Plan 253: Quantumult X documents only method=none for VLESS.
+		if u.Encrypted() {
+			return "", false
+		}
 		p = append(p, addr("vless"))
 		kv("method", "none")
 		kv("password", u.UUID)

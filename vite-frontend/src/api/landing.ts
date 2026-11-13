@@ -8,7 +8,8 @@ export type LandingProtocol =
   | "vless_reality_vision"
   | "anytls"
   | "snell"
-  | "mieru";
+  | "mieru"
+  | "vless_enc";
 // Plan 121: AnyTLS / Snell / Mieru exist only on 妙妙屋共享 servers that
 // advertise them (contract landing-protocols-v1 `protocol_caps`).
 export const LANDING_EXTRA_PROTOCOLS = ["anytls", "snell", "mieru"] as const;
@@ -23,6 +24,10 @@ export interface LandingProtocolCap {
   obfs?: string[];
   transports?: string[];
 }
+// Plan 253: VLESS Encryption runs on native landings (agent landing_vless_enc)
+// and on shares advertising protocol_caps.protocols.vless_enc.
+export const VLESS_ENC_HINT =
+  "需较新的 Xray / Mihomo 客户端（v2rayN、v2rayNG、Clash Meta 等）；Surge、sing-box 暂不支持";
 export interface SharedLandingCaps {
   status: string;
   port_min: number;
@@ -36,7 +41,9 @@ export interface SharedLandingCaps {
   dual_install: boolean;
   protocol_caps?: {
     versions: number[];
-    protocols: Partial<Record<LandingExtraProtocol, LandingProtocolCap>>;
+    protocols: Partial<
+      Record<LandingExtraProtocol | "vless_enc", LandingProtocolCap>
+    >;
   } | null;
   server_mode?: "embedded" | "external" | "";
 }
@@ -47,22 +54,45 @@ export const sharedProtocolCap = (
 ): LandingProtocolCap | undefined => {
   const caps = server?.sharedCaps?.protocol_caps;
 
-  if (!caps || !caps.versions?.includes(1) || !isLandingExtraProtocol(protocol))
+  if (
+    !caps ||
+    !caps.versions?.includes(1) ||
+    !(isLandingExtraProtocol(protocol) || protocol === "vless_enc")
+  )
     return undefined;
 
   return caps.protocols?.[protocol] || undefined;
+};
+/** Plan 253: why VLESS Encryption is unavailable on a server ("" = usable). */
+export const vlessEncUnavailableReason = (server: {
+  source: string;
+  sharedCaps?: SharedLandingCaps;
+  vlessEncAvailable?: boolean;
+  vlessEncReason?: string;
+}) => {
+  if (server.vlessEncAvailable === false)
+    return server.vlessEncReason || "该服务器暂不支持 VLESS Encryption";
+  if (server.vlessEncAvailable === undefined && server.source === "shared")
+    return sharedProtocolCap(server, "vless_enc")
+      ? ""
+      : "该共享服务器暂不支持 VLESS Encryption（需升级妙妙屋 Helper）";
+
+  return "";
 };
 /** Protocols a node can be created with right now on this server. */
 export const landingCreatableProtocols = (server: {
   source: string;
   protocols: LandingProtocol[];
   sharedCaps?: SharedLandingCaps;
+  vlessEncAvailable?: boolean;
+  vlessEncReason?: string;
 }) =>
-  (server.protocols || []).filter(
-    (protocol) =>
-      !isLandingExtraProtocol(protocol) ||
-      (server.source === "shared" &&
-        Boolean(sharedProtocolCap(server, protocol))),
+  (server.protocols || []).filter((protocol) =>
+    protocol === "vless_enc"
+      ? !vlessEncUnavailableReason(server)
+      : !isLandingExtraProtocol(protocol) ||
+        (server.source === "shared" &&
+          Boolean(sharedProtocolCap(server, protocol))),
   );
 // Plan 224: a tunnel with 屏蔽 TLS / 屏蔽 HTTP closes connections that show
 // that feature. Which landing protocols show it is decided by the backend
@@ -107,6 +137,9 @@ export const testLandingIntegration = (data: {
 export const syncLandingIntegration = () =>
   Network.post<LandingIntegration>("/landing/integration/sync", {});
 export interface LandingServer {
+  /** Plan 253: VLESS Encryption usable now (native agent / share caps). */
+  vlessEncAvailable?: boolean;
+  vlessEncReason?: string;
   /** Plan 224: entry-filter features per protocol a new node would have. */
   protocolFilterFeatures?: Record<string, string[]>;
   sharedCaps?: SharedLandingCaps;
@@ -229,6 +262,8 @@ export interface LandingProtocolOpts {
   obfs?: string;
   obfsHost?: string;
   transport?: string;
+  /** plan 253 vless_enc: native | xorpub | random */
+  mode?: string;
 }
 // Plan 202: why a node is disabled by 禁止端口扫描.
 export interface LandingScanBlock {
@@ -777,13 +812,16 @@ const LANDING_PROTOCOL_LABELS: Record<string, string> = {
   anytls: "AnyTLS",
   snell: "Snell",
   mieru: "Mieru",
+  vless_enc: "VLESS Encryption",
 };
 
 export const landingProtocolLabel = (value: string) =>
   LANDING_PROTOCOL_LABELS[value] ?? "VLESS Reality Vision";
 /** Short label for the narrow H5 protocol column on server cards. */
 export const landingProtocolShortLabel = (value: string) =>
-  LANDING_PROTOCOL_LABELS[value] ?? "VLESS";
+  value === "vless_enc"
+    ? "VLESS Enc"
+    : (LANDING_PROTOCOL_LABELS[value] ?? "VLESS");
 /** Plan 126: Mieru over UDP costs noticeably more server CPU and uploads slower. */
 export const MIERU_UDP_HINT = "UDP 更耗服务器 CPU、上传较慢，一般建议用 TCP";
 export const isMieruUdp = (protocol: string, transport?: string) =>
@@ -803,6 +841,8 @@ export const landingProtocolSummary = (
     }`;
   if (protocol === "mieru")
     return `客户端 ${opts?.transport || "TCP"} 传输（同一端口同时支持 TCP 与 UDP）`;
+  if (protocol === "vless_enc")
+    return "抗量子加密，无需 TLS / 伪装域名（流量全随机）";
 
   return "";
 };

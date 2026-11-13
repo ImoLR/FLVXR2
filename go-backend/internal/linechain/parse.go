@@ -13,6 +13,8 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
+
+	"go-backend/internal/vlessenc"
 )
 
 // MaxLinkLength bounds the pasted link; real share links are far shorter.
@@ -323,10 +325,11 @@ func parseVLESS(raw string) (Upstream, string, error) {
 	if u.User == nil || u.User.Username() == "" {
 		return Upstream{}, "", errors.New("VLESS 链接缺少 UUID")
 	}
-	if e := q.Get("encryption"); e != "" && e != "none" {
-		return Upstream{}, "", errors.New("不支持 VLESS Encryption 链接（encryption 只能为 none）")
-	}
 	up := Upstream{Type: "vless", Server: host, Port: port, UUID: strings.ToLower(u.User.Username()), Flow: q.Get("flow")}
+	// Plan 253: VLESS Encryption (mlkem768x25519plus…); checked in validateFields.
+	if e := q.Get("encryption"); e != "" && e != "none" {
+		up.Encryption = e
+	}
 	if err := transportFromQuery(q, &up, "VLESS"); err != nil {
 		return Upstream{}, "", err
 	}
@@ -650,8 +653,14 @@ func (u Upstream) validateFields() error {
 		if u.Flow != "" && u.Flow != "xtls-rprx-vision" {
 			return errors.New("VLESS 只支持 flow=xtls-rprx-vision")
 		}
-		if u.Flow != "" && (u.Network != "tcp" || u.Security == "none") {
-			return errors.New("xtls-rprx-vision 只能用于 TCP + TLS/Reality")
+		if u.Encryption != "" {
+			if err := vlessenc.ValidateEncryption(u.Encryption); err != nil {
+				return errors.New("VLESS Encryption 参数无效：" + err.Error())
+			}
+		}
+		// Vision needs TLS / Reality, or (plan 253) VLESS Encryption on TCP.
+		if u.Flow != "" && (u.Network != "tcp" || (u.Security == "none" && u.Encryption == "")) {
+			return errors.New("xtls-rprx-vision 只能用于 TCP + TLS/Reality 或 VLESS Encryption")
 		}
 		if u.Security == "reality" {
 			r := u.Reality

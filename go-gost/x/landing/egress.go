@@ -35,18 +35,21 @@ type Egress struct {
 }
 
 type EgressOutbound struct {
-	Tag       string           `json:"tag"`
-	Type      string           `json:"type"`
-	IPVersion string           `json:"ip_version"`
-	Server    string           `json:"server,omitempty"`
-	Port      int              `json:"port,omitempty"`
-	Username  string           `json:"username,omitempty"`
-	Password  string           `json:"password,omitempty"`
-	Method    string           `json:"method,omitempty"`
-	UUID      string           `json:"uuid,omitempty"`
-	Flow      string           `json:"flow,omitempty"`
-	Reality   *EgressReality   `json:"reality,omitempty"`
-	WireGuard *EgressWireGuard `json:"wireguard,omitempty"`
+	Tag       string `json:"tag"`
+	Type      string `json:"type"`
+	IPVersion string `json:"ip_version"`
+	Server    string `json:"server,omitempty"`
+	Port      int    `json:"port,omitempty"`
+	Username  string `json:"username,omitempty"`
+	Password  string `json:"password,omitempty"`
+	Method    string `json:"method,omitempty"`
+	UUID      string `json:"uuid,omitempty"`
+	Flow      string `json:"flow,omitempty"`
+	// Encryption (plan 253): VLESS client "encryption" (mlkem768x25519plus…);
+	// empty renders "none", byte-identical to before.
+	Encryption string           `json:"encryption,omitempty"`
+	Reality    *EgressReality   `json:"reality,omitempty"`
+	WireGuard  *EgressWireGuard `json:"wireguard,omitempty"`
 	// Transport options of chain upstreams (plan 108). Empty values keep the
 	// plan 107 rendering byte for byte: TCP, no TLS, Reality only via Reality.
 	Network  string      `json:"network,omitempty"`  // tcp | ws | grpc
@@ -237,7 +240,8 @@ func (o EgressOutbound) validateTransport(defaultSecurity string, securities ...
 			return fmt.Errorf("security settings without security for %s", o.Tag)
 		}
 	}
-	if o.Flow != "" && (o.Flow != "xtls-rprx-vision" || network != "tcp" || security == "none" || o.Type != "vless") {
+	// Vision needs TLS / Reality, or (plan 253) VLESS Encryption on raw TCP.
+	if o.Flow != "" && (o.Flow != "xtls-rprx-vision" || network != "tcp" || (security == "none" && o.Encryption == "") || o.Type != "vless") {
 		return fmt.Errorf("invalid flow for %s", o.Tag)
 	}
 	return nil
@@ -373,6 +377,9 @@ func (o EgressOutbound) validate() error {
 	}
 	if o.Type != "vless" && o.Type != "vmess" && o.Type != "trojan" && o.Type != "hysteria2" && o.Type != "http" && !o.plainTransport() {
 		return fmt.Errorf("transport options are not supported for %s", o.Tag)
+	}
+	if o.Encryption != "" && (o.Type != "vless" || !validVLESSEncString(o.Encryption, false)) {
+		return fmt.Errorf("invalid VLESS encryption for %s", o.Tag)
 	}
 	proxy := func() error {
 		if !validHost(o.Server) || o.Port < 1 || o.Port > 65535 {
@@ -707,6 +714,9 @@ func (o EgressOutbound) render(local localAddrs) (map[string]any, string) {
 	case "vless":
 		out["protocol"] = "vless"
 		user := map[string]any{"id": o.UUID, "encryption": "none"}
+		if o.Encryption != "" {
+			user["encryption"] = o.Encryption
+		}
 		if o.Flow != "" {
 			user["flow"] = o.Flow
 		}

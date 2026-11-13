@@ -61,6 +61,7 @@ type SystemInfo struct {
 	LandingScanGuard       int                       `json:"landing_scan_guard,omitempty"` // plan 202: 禁止端口扫描
 	LandingScanSeq         int64                     `json:"landing_scan_seq,omitempty"`   // plan 202: highest unrecorded scan hit seq (panel syncs at once)
 	LandingReality         int                       `json:"landing_reality,omitempty"`    // plan 227: RealityProbe + reality_pins
+	LandingVLESSEnc        int                       `json:"landing_vless_enc,omitempty"`  // plan 253: VLESS Encryption inbound + outbounds
 	LeiKwan                *LeiKwanReport            `json:"leikwan,omitempty"`
 	EgressIPFamily         string                    `json:"egress_ip_family,omitempty"`
 	IPv6RAStatus           string                    `json:"ipv6_ra_status"`
@@ -1205,6 +1206,7 @@ func (w *WebSocketReporter) collectSystemInfo() SystemInfo {
 		LandingScanGuard:       landing.ScanGuardVersion,
 		LandingScanSeq:         landing.Default().ScanSeq(),
 		LandingReality:         landing.RealityVersion,
+		LandingVLESSEnc:        landing.VLESSEncVersion,
 		LeiKwan:                w.leikwan.result(),
 		EgressIPFamily:         w.egress.family(),
 		IPv6RAStatus:           raStatus,

@@ -227,9 +227,11 @@ func (h *Handler) syncNativeLandingServerLocked(serverID int64) (*landingSyncSna
 	sentLimits := map[int64]repo.LandingSentLimits{}
 	inboundIDs := []int64{}
 	totalSig := []string{}
+	// Plan 253: VLESS Encryption nodes only to agents that run them.
+	notSent := repo.NativeLandingNotSent(node.LandingVLESSEnc)
 	for i := range nodes {
 		n := &nodes[i]
-		if n.LandingServerID != s.ID || landingcustom.IsExtraProtocol(n.Protocol) {
+		if n.LandingServerID != s.ID || notSent(n.Protocol) {
 			continue
 		}
 		sent := repo.LandingSendLimits(n.MaxConnections, n.MaxTotalConnections, connSupported && repo.LandingNodeConnMode(n, s) == repo.LandingConnInbound, totalSupported)
@@ -265,7 +267,7 @@ func (h *Handler) syncNativeLandingServerLocked(serverID int64) (*landingSyncSna
 		seenOwner := map[int64]bool{}
 		for i := range nodes {
 			n := &nodes[i]
-			if n.LandingServerID == s.ID && !landingcustom.IsExtraProtocol(n.Protocol) && !seenOwner[n.UserID] {
+			if n.LandingServerID == s.ID && !notSent(n.Protocol) && !seenOwner[n.UserID] {
 				seenOwner[n.UserID] = true
 				owners = append(owners, n.UserID)
 			}
@@ -314,7 +316,7 @@ func (h *Handler) syncNativeLandingServerLocked(serverID int64) (*landingSyncSna
 	// the recorded-hit mark) joins the signature.
 	var scanGuard map[string]interface{}
 	if node.LandingScanGuard >= repo.LandingScanGuardVersion {
-		if scanGuard, err = h.landingScanPayload(s, nodes); err != nil {
+		if scanGuard, err = h.landingScanPayload(s, nodes, notSent); err != nil {
 			return nil, errors.New("落地服务器状态不可用")
 		}
 		connSig += landingScanSig(scanGuard)
@@ -346,9 +348,10 @@ func (h *Handler) syncNativeLandingServerLocked(serverID int64) (*landingSyncSna
 	}
 	desiredNodes := []map[string]interface{}{}
 	for _, n := range nodes {
-		// The native agent renders SS2022 / VLESS only (plan 121 protocols are
-		// refused on native servers; never hand the agent one it cannot apply).
-		if n.LandingServerID != s.ID || landingcustom.IsExtraProtocol(n.Protocol) {
+		// The native agent renders SS2022 / VLESS (plan 253: and VLESS
+		// Encryption from landing_vless_enc 1); plan 121 protocols are refused
+		// on native servers. Never hand the agent one it cannot apply.
+		if n.LandingServerID != s.ID || notSent(n.Protocol) {
 			continue
 		}
 		// Plan 177: a chained node on an agent without egress plans would
@@ -379,6 +382,9 @@ func (h *Handler) syncNativeLandingServerLocked(serverID int64) (*landingSyncSna
 				desired["guard_port"] = port
 			}
 		}
+		if n.Protocol == landingcustom.ProtocolVLESSEnc {
+			desired["vless_enc"] = repo.VLESSEncDesired(n)
+		}
 		desiredNodes = append(desiredNodes, desired)
 	}
 	// Chain nodes (plan 108) only go to agents that apply listen + chain;
@@ -391,7 +397,7 @@ func (h *Handler) syncNativeLandingServerLocked(serverID int64) (*landingSyncSna
 		for _, c := range copies {
 			// Plan 250: AnyTLS copies only to agents that apply them (the
 			// egress plan leaves the same copies out, see LandingEgressData).
-			if !repo.ChainCopySupported(c, node.LandingChain) {
+			if !repo.ChainCopySupported(c, node.LandingChain, node.LandingVLESSEnc) {
 				continue
 			}
 			desired := chainDesiredNode(c)

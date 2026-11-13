@@ -14,6 +14,7 @@ import {
   landingFeatureBlockedReason,
   landingProtocolLabel,
   landingProtocolSummary,
+  VLESS_ENC_HINT,
   sharedProtocolCap,
 } from "@/api/landing";
 import { UserApiItem } from "@/api/types";
@@ -320,6 +321,22 @@ export function CreateLandingNodeDialog({
                 自动生成，创建后在「节点链接」查看客户端配置（Clash / mihomo
                 {protocol === "snell" || protocol === "anytls" ? "、Surge" : ""}
                 ）。
+              </p>
+            </div>
+          )}
+          {server && protocol === "vless_enc" && (
+            <div
+              data-vless-enc-info
+              className="space-y-1 rounded-lg border border-divider p-3 text-xs text-default-600"
+            >
+              <p>
+                {landingProtocolLabel(protocol)} ·{" "}
+                {landingProtocolSummary(protocol)}
+              </p>
+              <p>{VLESS_ENC_HINT}。</p>
+              <p className="text-default-500">
+                UUID 与密钥自动生成，创建后在「节点链接」查看链接和 Clash /
+                mihomo 配置。
               </p>
             </div>
           )}

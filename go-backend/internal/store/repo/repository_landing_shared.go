@@ -143,7 +143,7 @@ func validateSharedLandingSettings(s *model.LandingServer, keep map[string]bool)
 		if allowed[p] {
 			continue
 		}
-		if landingcustom.IsExtraProtocol(p) {
+		if landingcustom.IsCapProtocol(p) {
 			if keep[p] {
 				continue
 			}
@@ -426,9 +426,10 @@ func applySharedShareTx(tx *gorm.DB, c landingcustom.Share, now int64) error {
 		_ = json.Unmarshal([]byte(s.Protocols), &ps)
 		allowed := []string{}
 		for _, p := range ps {
-			// An enabled extra protocol survives a missing capability
-			// (its nodes are withheld until the capability returns).
-			if landingcustom.IsExtraProtocol(p) {
+			// An enabled extra protocol (plan 253: or VLESS Encryption)
+			// survives a missing capability (its nodes are withheld until the
+			// capability returns).
+			if landingcustom.IsCapProtocol(p) {
 				allowed = append(allowed, p)
 				continue
 			}

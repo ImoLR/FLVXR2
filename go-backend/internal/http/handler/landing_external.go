@@ -252,6 +252,12 @@ func chainPlanOutbound(up linechain.Upstream, shared bool) (landingegress.PlanOu
 		return po, "外部节点数据损坏，请删除后重新添加"
 	}
 	po.Tag, po.IPVersion = "", "system"
+	// Plan 253: the landing egress plan has no VLESS Encryption outbound yet
+	// (dropping "encryption" would dial the node unencrypted); such external
+	// nodes stay usable in subscriptions and as 「我自己的节点」 upstreams.
+	if up.Encrypted() {
+		return po, "链式代理暂不支持 VLESS Encryption 外部节点"
+	}
 	if !shared {
 		return po, ""
 	}

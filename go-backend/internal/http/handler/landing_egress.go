@@ -191,7 +191,7 @@ func landingEgressInput(d *repo.LandingEgressData) landingegress.CompileInput {
 	in.Markers = d.Server.Source == "native" && d.NodeGuard >= landingegress.LayersVersion
 	in.Outbounds, in.NoIPv4, in.NoIPv6 = d.Outbounds, d.NoIPv4, d.NoIPv6
 	in.AbuseOff = d.Abuse
-	withheld := repo.LandingWithheldFunc(&d.Server)
+	withheld := repo.LandingWithheldAgentFunc(&d.Server, d.NodeVLESSEnc)
 	for _, n := range d.Nodes {
 		// Withheld nodes (plan 121) are not in the desired state either.
 		if n.DeletePending || withheld(&n) {
@@ -220,7 +220,7 @@ func landingNodeRulesReady(d *repo.LandingEgressData) bool {
 // coveredLandingTags lists inbound tags of nodes on a non-default profile.
 func coveredLandingTags(d *repo.LandingEgressData) []string {
 	tags := []string{}
-	withheld := repo.LandingWithheldFunc(&d.Server)
+	withheld := repo.LandingWithheldAgentFunc(&d.Server, d.NodeVLESSEnc)
 	for _, n := range d.Nodes {
 		// Chained nodes (plan 177) are blocked too: never direct by accident.
 		if !n.DeletePending && !withheld(&n) && (landingegress.EffectiveProfile(d.Server.RouteProfileID, n.RouteProfileID) != 0 || n.ChainExternalID > 0) {
@@ -814,8 +814,9 @@ func (h *Handler) landingEgressOverview(w http.ResponseWriter, r *http.Request) 
 	names, _ := h.repo.UserNamesByIDs(userIDs)
 	nodeChoices := []map[string]any{}
 	for _, n := range nodes {
-		// Only SS2022 / VLESS nodes can be an upstream (plan 121).
-		if landingcustom.IsExtraProtocol(n.Protocol) {
+		// Only SS2022 / VLESS Reality nodes can be an upstream (plan 121;
+		// plan 253 VLESS Encryption is not an egress outbound type).
+		if landingcustom.IsCapProtocol(n.Protocol) {
 			continue
 		}
 		nodeChoices = append(nodeChoices, map[string]any{"id": n.ID, "name": n.Name, "serverId": n.LandingServerID, "serverName": serverName[n.LandingServerID], "protocol": n.Protocol, "userName": names[n.UserID], "status": n.Status})
