@@ -62,7 +62,7 @@ residue by hand.
 - [x] panel tests: every removal path, keep cases (paused, Bestvm-US-shaped, grants, disabled, route profile…),
       old agent, offline, failure backoff, recreate; SQLite + PG 18
 - [x] gates: go-backend build/vet/`go test ./...` (SQLite + PG), go-gost/x tests, go-gost build
-- [ ] lab E2E (netns, local agents + pinned Core): create → delete → Core/files/row gone → recreate; old fork.130 agent
+- [x] lab E2E (netns, local agents + pinned Core): create → delete → Core/files/row gone → recreate; old fork.130 agent
 - [ ] push branch, CI green (no tag, no release, no prod change)
 - [ ] ledger row 252 (待发布, ready), summary, cleanup temp files / lab units, plan complete
 
@@ -72,5 +72,24 @@ residue by hand.
   Agents: 27 × landing_chain 2 (fork.130), Nobrand ×2 landing_chain 1 (fork.126) → all would be version-gated until OTA.
 - Gates (11-13 ~16:20–17:05 TW, worktree head 7883595a): go-backend build ok, vet clean (minus old unkeyed warnings),
   `go test ./...` SQLite 0 failures; PostgreSQL 18 (temp container) repo 350 s / handler 169 s / contract 332 s all ok;
-  go-gost/x `go test ./...` 0 failures; go-gost build ok. New tests: 9 agent (remove_core_test.go), 12 handler
+  go-gost/x `go test ./...` 0 failures; go-gost build ok. New tests: 9 agent (remove_core_test.go), 13 handler
   (chain_host_cleanup_test.go incl. SQLite+PG dialect), 1 contract (SQLite+PG).
+- Lab (`scripts/landing-acceptance/chain_cleanup_lab.py`, netns topology of chain_lab.py, real panel timings: first
+  sweep 3 min, kick 30 s, grace 10 min, sweep 10 min; Core in the agent's direct test mode = no systemd unit):
+  - **pass new** (11-13 17:06–17:17 TW, exit B = this build): L1 rule create → chain-only server + Core on B in 1 s,
+    loopback listener + `flvxl-`/`flvxc-` tags, traffic through B ok. L2 rule delete → server row, Core process and its
+    8 files gone **635 s** after the delete (grace 10 min), unknown `operator-notes.txt` kept, exit A's public landing
+    server + Core pid untouched, agent B not restarted and online, exactly one `[chain-host] removed …` line, one
+    `RemoveLandingCore` on B. L3 recreate → new chain-only server + new Core in 1 s, traffic ok, still one log line.
+    (`unit removed=false`: the lab Core has no unit; the unit/drop-in removal path is covered by the agent unit test
+    `TestRemoveCoreSystemdMode` only.)
+  - **pass old** (11-13 17:56–18:27 TW, exit B = fork.130 binary, `landing_chain` 2): L4 rule delete → one line
+    `kept: 节点程序版本过低（landing_chain=2），升级节点后自动清理` 10.5 min after the delete, then held 11 more min
+    (one more full sweep; 21.6 min after the delete): no second line, 0 commands to B after the skip (no retry
+    storm), panel wrote 1 log line in total since the delete, no `RemoveLandingCore` sent, B never saw an unknown
+    command, Core pid / agent pid unchanged, row + Core files kept. L5 simulated OTA (exit B restarted on this build,
+    reports `landing_chain` 3) → the next sweep removed it once, **537 s** after the restart: row + Core + 8 files
+    gone, one `RemoveLandingCore`, `idle 30m0s` in the line, exit A kept. Results:
+    `work/lab-results-new.json`, `work/lab-results-old.json` (run dir `/root/flvx-workers/runs/chain-only-cleanup`).
+  - The first old-pass attempt of round 2 failed at L5 on a lab-script bug — the simulated OTA restarted exit B with
+    the fork.130 binary again; fixed in 88e3633f (L4 had passed the same way). No product code changed in round 2.
