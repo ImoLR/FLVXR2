@@ -343,7 +343,9 @@ func landingChainOutbound(d *repo.LandingEgressData, n model.LandingNode) (*land
 
 // ---------------------------------------------------------------- views
 
-func externalItemView(n model.LandingExternalNode, uses []repo.LandingExternalUse) map[string]interface{} {
+// externalItemView: subUses (plan 256) = how many of the owner's
+// subscriptions contain the node (deleting it is allowed, they lose it).
+func externalItemView(n model.LandingExternalNode, uses []repo.LandingExternalUse, subUses int) map[string]interface{} {
 	up, _ := linechain.FromJSON(n.Upstream)
 	reason := sharedChainReason(up)
 	if uses == nil {
@@ -352,6 +354,7 @@ func externalItemView(n model.LandingExternalNode, uses []repo.LandingExternalUs
 	return map[string]interface{}{
 		"id": n.ID, "name": n.Name, "protocol": n.Protocol, "protocolLabel": up.ProtocolLabel(), "host": n.Host, "port": n.Port,
 		"summary": n.Summary, "udpOnly": up.UDPOnly(), "sharedOk": reason == "", "sharedReason": reason, "inUse": uses, "createdTime": n.CreatedTime,
+		"subUses": subUses,
 	}
 }
 
@@ -395,9 +398,14 @@ func (h *Handler) landingExternalList(w http.ResponseWriter, r *http.Request) {
 		landingError(w, err)
 		return
 	}
+	subUses, err := h.repo.ExternalSubscriptionUses(owner)
+	if err != nil {
+		landingError(w, err)
+		return
+	}
 	items := make([]map[string]interface{}, 0, len(nodes))
 	for _, n := range nodes {
-		items = append(items, externalItemView(n, uses[n.ID]))
+		items = append(items, externalItemView(n, uses[n.ID], subUses[n.ID]))
 	}
 	response.WriteJSON(w, response.OK(map[string]interface{}{"items": items, "cap": cap, "count": len(nodes), "userId": owner}))
 }
@@ -472,7 +480,7 @@ func (h *Handler) landingExternalCreate(w http.ResponseWriter, r *http.Request) 
 		landingError(w, fmt.Errorf("外部节点最多 %d 个，请先删除不用的再添加", cap))
 		return
 	}
-	response.WriteJSON(w, response.OK(externalItemView(res.Created[0], nil)))
+	response.WriteJSON(w, response.OK(externalItemView(res.Created[0], nil, 0)))
 }
 
 func (h *Handler) landingExternalRename(w http.ResponseWriter, r *http.Request) {
@@ -503,6 +511,7 @@ func (h *Handler) landingExternalRename(w http.ResponseWriter, r *http.Request) 
 		landingError(w, err)
 		return
 	}
+	h.subState().cache.purgeUser(owner) // plan 256: subscriptions show the new name at once
 	response.WriteJSON(w, response.OK(map[string]interface{}{"id": req.ID, "name": name}))
 }
 
@@ -529,6 +538,7 @@ func (h *Handler) landingExternalDelete(w http.ResponseWriter, r *http.Request) 
 		landingError(w, repo.ExternalInUseError(uses))
 		return
 	}
+	h.subState().cache.purgeUser(owner) // plan 256: subscriptions drop it at once
 	response.WriteJSON(w, response.OK(map[string]interface{}{"id": req.ID}))
 }
 
@@ -702,7 +712,7 @@ func (h *Handler) landingExternalSubImport(w http.ResponseWriter, r *http.Reques
 	}
 	out := make([]map[string]interface{}, 0, len(created.Created))
 	for _, n := range created.Created {
-		out = append(out, externalItemView(n, nil))
+		out = append(out, externalItemView(n, nil, 0))
 	}
 	response.WriteJSON(w, response.OK(map[string]interface{}{
 		"imported": len(created.Created), "items": out, "duplicates": created.Duplicates, "overCap": created.OverCap, "failed": failed, "cap": cap,

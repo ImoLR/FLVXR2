@@ -33,6 +33,13 @@ func (r *Repository) ListLandingExternalNodes(userID int64) ([]model.LandingExte
 	return out, err
 }
 
+// CountLandingExternalNodes: how many external nodes the user has.
+func (r *Repository) CountLandingExternalNodes(userID int64) (int64, error) {
+	var n int64
+	err := r.db.Model(&model.LandingExternalNode{}).Where("user_id = ?", userID).Count(&n).Error
+	return n, err
+}
+
 // LandingExternalUses lists, per external node of the user, the landing
 // nodes chaining through it (one query).
 func (r *Repository) LandingExternalUses(userID int64) (map[int64][]LandingExternalUse, error) {

@@ -82,7 +82,7 @@ func TestClashDNSPlan220(t *testing.T) {
 		}
 		// The fast writer must keep handling the document (no yaml.v3
 		// fallback on every pull).
-		doc, _ := clashDoc(c.nodes, c.mode, c.stash)
+		doc, _ := clashDoc(c.nodes, c.mode, c.stash, nil, "")
 		if _, ok := writeBlockYAML(doc, 1024); !ok {
 			t.Errorf("%s: block writer refused the document", c.name)
 		}
@@ -241,7 +241,7 @@ func TestNodeDownPlan226(t *testing.T) {
 		for _, rs := range d.Route.RuleSet {
 			wantURL, wantDetour := RuleSetURL(testOrigin, rs["tag"]), "direct"
 			if origin == "" {
-				wantURL, wantDetour = ruleSetUpstream[rs["tag"]], GroupSelect
+				wantURL, wantDetour = upstreamURL(rs["tag"], ExtSRS), GroupSelect
 			}
 			if rs["url"] != wantURL || rs["download_detour"] != wantDetour {
 				t.Errorf("origin %q: rule set %v", origin, rs)

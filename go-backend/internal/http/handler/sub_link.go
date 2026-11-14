@@ -76,8 +76,12 @@ type subLinkState struct {
 	cryptoOnce sync.Once
 	crypto     *security.AESCrypto
 
-	// Plan 226: geosite-cn / geoip-cn for the sing-box config.
+	// Plan 226: geosite-cn / geoip-cn for the sing-box config; plan 256 the
+	// 「分流」 catalog sets.
 	ruleSets sublink.RuleSets
+
+	// Plan 256: 「检测全部」 of the 外部节点 dialog, per user.
+	probeRL *ratelimit.Bucket
 }
 
 func (h *Handler) subState() *subLinkState {
@@ -90,6 +94,7 @@ func (h *Handler) subState() *subLinkState {
 		// Unknown tokens: 10 misses at once, then one per minute per address.
 		s.missRL = &ratelimit.Bucket{Burst: 10, Every: time.Minute, MaxKeys: 10000}
 		s.refusals = ratelimit.Refusals{Name: "sub link"}
+		s.probeRL = &ratelimit.Bucket{Burst: 3, Every: 20 * time.Second, MaxKeys: 10000}
 		s.previews = map[string]*subPreview{}
 		s.flights = map[int64]*subFlight{}
 		s.marked = map[int64]time.Time{}
@@ -123,6 +128,7 @@ func (h *Handler) registerSubLink(mux *http.ServeMux) {
 		"source/create":  h.subSourceCreate,
 		"source/refresh": h.subSourceRefresh,
 		"source/delete":  h.subSourceDelete,
+		"external/probe": h.subExternalProbe,
 	} {
 		fn := fn
 		list := path == "list"
@@ -318,13 +324,16 @@ func (d *subData) resolve(refs []sublink.Ref, max int) ([]sublink.Node, subCount
 		switch ref.Kind {
 		case sublink.RefForwardLink, sublink.RefLandingDirect:
 			if l, ok := d.panelLink(ref); ok {
-				keep(l.Node)
+				n := l.Node
+				n.Key = ref.Key()
+				keep(n)
 				c.Panel++
 				continue
 			}
 		case sublink.RefExternalNode:
 			if e, ok := d.externals[ref.ExternalID]; ok {
 				if n, ok := externalNode(e); ok {
+					n.Key = ref.Key()
 					keep(n)
 					c.External++
 					continue
@@ -334,7 +343,9 @@ func (d *subData) resolve(refs []sublink.Ref, max int) ([]sublink.Node, subCount
 			if _, ok := d.sources[ref.SourceID]; ok {
 				list := d.srcNodes[ref.SourceID]
 				for _, sn := range list {
-					keep(sn.Node())
+					n := sn.Node()
+					n.Key = sublink.Ref{Kind: sublink.RefSourceNode, SourceID: ref.SourceID, Name: sn.Name}.Key()
+					keep(n)
 				}
 				countSrc(ref.SourceID, true, len(list))
 				continue
@@ -344,7 +355,9 @@ func (d *subData) resolve(refs []sublink.Ref, max int) ([]sublink.Node, subCount
 				found := false
 				for _, sn := range d.srcNodes[ref.SourceID] {
 					if sn.Name == ref.Name {
-						keep(sn.Node())
+						n := sn.Node()
+						n.Key = ref.Key()
+						keep(n)
 						countSrc(ref.SourceID, false, 1)
 						found = true
 						break
@@ -428,7 +441,7 @@ func (h *Handler) subList(w http.ResponseWriter, r *http.Request) {
 	}
 	enabled := h.subLinkEnabled()
 	out := map[string]interface{}{"enabled": enabled, "subs": []interface{}{}, "sources": []interface{}{}, "cap": model.MaxSubscriptionsPerUser,
-		"sourceCap": model.MaxSubSourcesPerUser, "maxNodes": model.MaxSubscriptionNodes}
+		"sourceCap": model.MaxSubSourcesPerUser, "maxNodes": model.MaxSubscriptionNodes, "externals": 0}
 	if admin {
 		out["cap"] = 0
 	}
@@ -455,6 +468,10 @@ func (h *Handler) subList(w http.ResponseWriter, r *http.Request) {
 		subFail(w, err)
 		return
 	}
+	// Plan 256: the 「外部节点 (N)」 pill.
+	if n, err := h.repo.CountLandingExternalNodes(uid); err == nil {
+		out["externals"] = n
+	}
 	usedBy := map[int64]int{}
 	views := []interface{}{}
 	for _, s := range subs {
@@ -468,7 +485,8 @@ func (h *Handler) subList(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		views = append(views, map[string]interface{}{"id": s.ID, "name": s.Name, "token": s.Token, "format": s.Format, "ruleMode": s.RuleMode,
-			"counts": counts, "items": len(refs), "lastPullAt": s.LastPullAt, "lastPullClient": s.LastPullClient, "lastPullNodes": s.LastPullNodes, "createdTime": s.CreatedTime})
+			"counts": counts, "items": len(refs), "lastPullAt": s.LastPullAt, "lastPullClient": s.LastPullClient, "lastPullNodes": s.LastPullNodes, "createdTime": s.CreatedTime,
+			"routing": len(sublink.ParseRouting(s.Routing))})
 	}
 	srcViews := []interface{}{}
 	for _, s := range sources {
@@ -494,6 +512,7 @@ func (h *Handler) subPool(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var refs []sublink.Ref
+	routing := sublink.DefaultRouting() // a new subscription starts with the default 分流
 	if req.ID > 0 {
 		s, err := h.repo.GetSubscription(req.ID)
 		if err != nil || s == nil || s.UserID != uid {
@@ -501,6 +520,7 @@ func (h *Handler) subPool(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		refs = sublink.ParseRefs(s.Items)
+		routing = sublink.ParseRouting(s.Routing)
 	}
 	d, err := h.subLoad(r.Context(), uid, refs, true, false)
 	if err != nil {
@@ -552,8 +572,11 @@ func (h *Handler) subPool(w http.ResponseWriter, r *http.Request) {
 		v["nodes"], v["followKey"] = nodes, sublink.Ref{Kind: sublink.RefSourceAll, SourceID: id}.Key()
 		sources = append(sources, v)
 	}
-	// Selected items, in order, with the missing ones marked.
+	// Selected items, in order, with the missing ones marked. rekey: a rule
+	// whose entry address changed is shown under its current key, so a
+	// 分流 exit naming the stored key is moved along.
 	selected := []interface{}{}
+	rekey := map[string]string{}
 	for _, ref := range refs {
 		v := map[string]interface{}{"ref": subRefView(ref), "key": ref.Key()}
 		switch ref.Kind {
@@ -565,6 +588,9 @@ func (h *Handler) subPool(w http.ResponseWriter, r *http.Request) {
 				}
 				v["key"] = l.Ref.Key()
 				v["ref"] = subRefView(l.Ref)
+				if k := ref.Key(); k != l.Ref.Key() {
+					rekey[k] = l.Ref.Key()
+				}
 			} else {
 				v["missing"], v["group"] = true, "rule"
 				if ref.Kind == sublink.RefLandingDirect {
@@ -604,10 +630,30 @@ func (h *Handler) subPool(w http.ResponseWriter, r *http.Request) {
 		}
 		selected = append(selected, v)
 	}
+	if routing == nil {
+		routing = []sublink.RouteEntry{}
+	}
+	for i := range routing {
+		if k, ok := strings.CutPrefix(routing[i].Exit, sublink.ExitNodePrefix); ok && rekey[k] != "" {
+			routing[i].Exit = sublink.ExitNodePrefix + rekey[k]
+		}
+	}
 	response.WriteJSON(w, response.OK(map[string]interface{}{
 		"rules": rules, "landing": landing, "external": externals, "sources": sources, "portForwards": d.panel.PortForwards,
 		"selected": selected, "maxNodes": model.MaxSubscriptionNodes,
+		"routing": routing, "routingCatalog": subRoutingCatalog(), "routingDefaults": sublink.DefaultRouteKeys,
+		"routingLimits": map[string]int{"entries": sublink.MaxRouteEntries, "lines": sublink.MaxRouteLines, "lineLen": sublink.MaxRouteLineLen, "nameLen": sublink.MaxRouteNameLen},
 	}))
+}
+
+// subRoutingCatalog: the builtin 分流 the editor offers (one row per
+// sublink.Catalog entry, so a new category needs no UI work).
+func subRoutingCatalog() []map[string]interface{} {
+	out := make([]map[string]interface{}, 0, len(sublink.Catalog))
+	for _, c := range sublink.Catalog {
+		out = append(out, map[string]interface{}{"key": c.Key, "icon": c.Icon, "name": c.Name, "desc": c.Desc, "exit": c.Exit})
+	}
+	return out
 }
 
 type subSaveReq struct {
@@ -616,11 +662,15 @@ type subSaveReq struct {
 	Format   string        `json:"format"`
 	RuleMode string        `json:"ruleMode"`
 	Items    []sublink.Ref `json:"items"`
+	// Routing: the 分流 list (plan 256); absent = create with the defaults /
+	// update keeps the stored list (an editor from before plan 256).
+	Routing *[]sublink.RouteEntry `json:"routing"`
 }
 
 // subValidate checks a save request against the user's own data: only refs
-// that resolve are kept (other users' ids never do), at most 100 nodes.
-func (h *Handler) subValidate(ctx context.Context, uid int64, req *subSaveReq) ([]sublink.Ref, error) {
+// that resolve are kept (other users' ids never do), at most 100 nodes. The
+// 分流 list (when sent) comes back cleaned as its stored JSON.
+func (h *Handler) subValidate(ctx context.Context, uid int64, req *subSaveReq) ([]sublink.Ref, *string, error) {
 	req.Name = landingsub.CleanName(strings.TrimSpace(req.Name))
 	if req.Name == "" {
 		req.Name = "我的订阅"
@@ -632,16 +682,16 @@ func (h *Handler) subValidate(ctx context.Context, uid int64, req *subSaveReq) (
 		req.RuleMode = sublink.ModeCNDirect
 	}
 	if !sublink.ValidFormat(req.Format) || !sublink.ValidMode(req.RuleMode) {
-		return nil, errors.New("客户端或分流设置无效")
+		return nil, nil, errors.New("客户端或分流设置无效")
 	}
 	refs, err := sublink.CleanRefs(req.Items)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	refs = normalizeRefs(refs)
 	d, err := h.subLoad(ctx, uid, refs, false, false)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	kept := make([]sublink.Ref, 0, len(refs))
 	total := 0
@@ -660,9 +710,42 @@ func (h *Handler) subValidate(ctx context.Context, uid int64, req *subSaveReq) (
 		kept = append(kept, ref)
 	}
 	if total > model.MaxSubscriptionNodes {
-		return nil, fmt.Errorf("每条订阅最多 %d 个节点，现在是 %d 个，如需更多请联系管理员", model.MaxSubscriptionNodes, total)
+		return nil, nil, fmt.Errorf("每条订阅最多 %d 个节点，现在是 %d 个，如需更多请联系管理员", model.MaxSubscriptionNodes, total)
 	}
-	return kept, nil
+	if req.Routing == nil {
+		return kept, nil, nil
+	}
+	// A node: exit must name a node of this subscription: a kept item, or a
+	// node of a followed source (it may come and go with the source).
+	inItems, follow := map[string]bool{}, map[int64]bool{}
+	for _, ref := range kept {
+		inItems[ref.Key()] = true
+		if ref.Kind == sublink.RefSourceAll {
+			follow[ref.SourceID] = true
+		}
+	}
+	inSub := func(k string) bool {
+		if inItems[k] {
+			return true
+		}
+		if rest, ok := strings.CutPrefix(k, "s:"); ok {
+			id, _, _ := strings.Cut(rest, ":")
+			n, err := strconv.ParseInt(id, 10, 64)
+			return err == nil && follow[n]
+		}
+		return false
+	}
+	nodes, _ := d.resolve(kept, model.MaxSubscriptionNodes)
+	names := make(map[string]bool, len(nodes))
+	for _, n := range nodes {
+		names[strings.TrimSpace(n.Name)] = true
+	}
+	routing, err := sublink.CleanRouting(*req.Routing, inSub, names)
+	if err != nil {
+		return nil, nil, err
+	}
+	js := sublink.RoutingJSON(routing)
+	return kept, &js, nil
 }
 
 func subView(s *model.UserSubscription) map[string]interface{} {
@@ -680,10 +763,14 @@ func (h *Handler) subCreate(w http.ResponseWriter, r *http.Request) {
 		subFail(w, err)
 		return
 	}
-	refs, err := h.subValidate(r.Context(), uid, &req)
+	refs, routing, err := h.subValidate(r.Context(), uid, &req)
 	if err != nil {
 		subFail(w, err)
 		return
+	}
+	if routing == nil {
+		js := sublink.RoutingJSON(sublink.DefaultRouting())
+		routing = &js
 	}
 	token, err := sublink.NewToken()
 	if err != nil {
@@ -691,7 +778,7 @@ func (h *Handler) subCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	now := time.Now().UnixMilli()
-	s := &model.UserSubscription{UserID: uid, Name: req.Name, Token: token, Format: req.Format, RuleMode: req.RuleMode, Items: sublink.RefsJSON(refs), CreatedTime: now, UpdatedTime: now}
+	s := &model.UserSubscription{UserID: uid, Name: req.Name, Token: token, Format: req.Format, RuleMode: req.RuleMode, Items: sublink.RefsJSON(refs), Routing: routing, CreatedTime: now, UpdatedTime: now}
 	cap := model.MaxSubscriptionsPerUser
 	if admin {
 		cap = 0
@@ -722,12 +809,12 @@ func (h *Handler) subUpdate(w http.ResponseWriter, r *http.Request) {
 		subFail(w, errors.New("订阅不存在"))
 		return
 	}
-	refs, err := h.subValidate(r.Context(), uid, &req)
+	refs, routing, err := h.subValidate(r.Context(), uid, &req)
 	if err != nil {
 		subFail(w, err)
 		return
 	}
-	if ok, err := h.repo.UpdateSubscription(s.ID, uid, req.Name, req.Format, req.RuleMode, sublink.RefsJSON(refs)); err != nil || !ok {
+	if ok, err := h.repo.UpdateSubscription(s.ID, uid, req.Name, req.Format, req.RuleMode, sublink.RefsJSON(refs), routing); err != nil || !ok {
 		subFail(w, errors.New("保存失败"))
 		return
 	}

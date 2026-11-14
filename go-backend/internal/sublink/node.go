@@ -62,6 +62,9 @@ type Node struct {
 	// URI: the share link FLVX already gives for this node (landing / rule
 	// links); Base64 output uses it with the final name.
 	URI string
+	// Key: the subscription item key the node came from (plan 256 「分流」
+	// node: exits name it); never rendered.
+	Key string
 }
 
 // Extra holds an AnyTLS / Snell / Mieru landing node.

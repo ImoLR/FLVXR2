@@ -94,7 +94,7 @@ func FuzzYAMLString(f *testing.F) {
 func TestClashWriterFallback(t *testing.T) {
 	for _, name := range []string{"a\nb", "a\r", "x\u2028y", "x\u2029", "x\u0085", "bad\xffutf8"} {
 		nodes := []Node{{Name: name, Up: linechain.Upstream{Type: "socks", Server: "203.0.113.9", Port: 1080}}}
-		doc, _ := clashDoc(nodes, ModeGlobal, false)
+		doc, _ := clashDoc(nodes, ModeGlobal, false, nil, "")
 		if _, ok := writeBlockYAML(doc, 64); ok {
 			t.Fatalf("%q: writer must refuse", name)
 		}
@@ -145,7 +145,7 @@ func TestClashWriterMatchesYAMLv3(t *testing.T) {
 	for label, nodes := range sets {
 		for _, mode := range []string{ModeCNDirect, ModeGlobal} {
 			for _, stash := range []bool{false, true} {
-				doc, _ := clashDoc(nodes, mode, stash)
+				doc, _ := clashDoc(nodes, mode, stash, nil, "")
 				compareDoc(t, label+"/"+mode, doc)
 				got, _ := Clash(nodes, mode, stash)
 				if !bytes.Equal(got, clashYAMLv3(doc)) {

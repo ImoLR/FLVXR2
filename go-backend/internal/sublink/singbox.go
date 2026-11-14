@@ -206,13 +206,33 @@ const (
 // keeps the fork.119 download (GitHub through 节点选择). It returns the JSON
 // and how many nodes it contains.
 func SingBox(nodes []Node, mode, origin string) ([]byte, int) {
+	return SingBoxRouted(nodes, mode, origin, nil)
+}
+
+// SingBoxRouted is SingBox with a plan-256 「分流」 list: one selector per
+// entry and route rules after the private rules (the rule sets download
+// DIRECT from the panel at origin). sing-box 1.13 has no block outbound, so a
+// 拒绝 entry is a reject rule without a selector. An empty list renders
+// exactly what SingBox renders.
+func SingBoxRouted(nodes []Node, mode, origin string, routing []RouteEntry) ([]byte, int) {
+	if len(routing) > 0 {
+		nodes = avoidGroupNames(nodes, planRoutes(routing, nil, true))
+	}
 	outbounds := []interface{}{}
 	tags := []string{}
+	var kept []Node
 	for _, n := range nodes {
 		if o, ok := singBoxOutbound(n); ok {
 			outbounds = append(outbounds, o)
 			tags = append(tags, n.Name)
+			if len(routing) > 0 {
+				kept = append(kept, n)
+			}
 		}
+	}
+	var routes []routeGroup
+	if len(routing) > 0 {
+		routes = planRoutes(routing, routeNodeNames(kept, tags), len(tags) > 0)
 	}
 	sel := []string{}
 	if len(tags) > 0 {
@@ -223,6 +243,17 @@ func SingBox(nodes []Node, mode, origin string) ([]byte, int) {
 	groups := []interface{}{jmap{{"type", "selector"}, {"tag", GroupSelect}, {"outbounds", sel}, {"default", sel[0]}}}
 	if len(tags) > 0 {
 		groups = append(groups, jmap{{"type", "urltest"}, {"tag", GroupAuto}, {"outbounds", tags}, {"url", TestURL}, {"interval", "5m"}, {"tolerance", 50}})
+	}
+	auto := ""
+	if len(tags) > 0 {
+		auto = GroupAuto
+	}
+	for _, g := range routes {
+		if g.exit == ExitReject {
+			continue
+		}
+		members := groupMembers(g, GroupSelect, auto, "direct", "", tags)
+		groups = append(groups, jmap{{"type", "selector"}, {"tag", g.name}, {"outbounds", members}, {"default", members[0]}})
 	}
 	all := append(groups, outbounds...)
 	all = append(all, jmap{{"type", "direct"}, {"tag", "direct"}})
@@ -254,20 +285,44 @@ func SingBox(nodes []Node, mode, origin string) ([]byte, int) {
 		dnsRules = append(dnsRules,
 			jmap{{"domain_suffix", ncsiDomains}, {"server", "dns-local"}},
 			jmap{{"rule_set", "geosite-cn"}, {"server", "dns-local"}})
-		routeRules = append(routeRules,
-			jmap{{"domain_suffix", ncsiDomains}, {"outbound", "direct"}},
-			jmap{{"rule_set", []string{"geosite-cn", "geoip-cn"}}, {"outbound", "direct"}})
+		routeRules = append(routeRules, jmap{{"domain_suffix", ncsiDomains}, {"outbound", "direct"}})
+	}
+	routeRules = append(routeRules, singBoxRouteRules(routes)...)
+	if cn {
+		routeRules = append(routeRules, jmap{{"rule_set", []string{"geosite-cn", "geoip-cn"}}, {"outbound", "direct"}})
 	}
 	route.add("rules", routeRules)
+	detour := GroupSelect
+	if origin != "" {
+		detour = "direct"
+	}
+	ruleSets := []interface{}{}
 	if cn {
-		site, ip, detour := geositeCN, geoipCN, GroupSelect
+		site, ip := geositeCN, geoipCN
 		if origin != "" {
-			site, ip, detour = RuleSetURL(origin, "geosite-cn"), RuleSetURL(origin, "geoip-cn"), "direct"
+			site, ip = RuleSetURL(origin, "geosite-cn"), RuleSetURL(origin, "geoip-cn")
 		}
-		route.add("rule_set", []interface{}{
+		ruleSets = append(ruleSets,
 			jmap{{"type", "remote"}, {"tag", "geosite-cn"}, {"format", "binary"}, {"url", site}, {"download_detour", detour}},
 			jmap{{"type", "remote"}, {"tag", "geoip-cn"}, {"format", "binary"}, {"url", ip}, {"download_detour", detour}},
-		})
+		)
+	}
+	seen := map[string]bool{}
+	for _, g := range routes {
+		for _, rs := range g.sets {
+			if seen[rs.ID] {
+				continue
+			}
+			seen[rs.ID] = true
+			url := upstreamURL(rs.ID, ExtSRS)
+			if origin != "" {
+				url = RuleSetURL(origin, rs.ID)
+			}
+			ruleSets = append(ruleSets, jmap{{"type", "remote"}, {"tag", rs.ID}, {"format", "binary"}, {"url", url}, {"download_detour", detour}})
+		}
+	}
+	if len(ruleSets) > 0 {
+		route.add("rule_set", ruleSets)
 	}
 	route.add("final", GroupSelect)
 	route.add("auto_detect_interface", true)
@@ -298,4 +353,50 @@ func SingBox(nodes []Node, mode, origin string) ([]byte, int) {
 	}
 	out.WriteByte('\n')
 	return out.Bytes(), len(tags)
+}
+
+// singBoxRouteRules: the 「分流」 route rules. Domain and IP fields of one
+// rule are ORed by sing-box; IP rules never resolve a domain first.
+func singBoxRouteRules(routes []routeGroup) []interface{} {
+	out := []interface{}{}
+	for _, g := range routes {
+		var rules []jmap
+		if len(g.custom) > 0 {
+			var suffix, full, keyword, cidr []string
+			for _, r := range g.custom {
+				switch r.Kind {
+				case "suffix":
+					suffix = append(suffix, r.Value)
+				case "full":
+					full = append(full, r.Value)
+				case "keyword":
+					keyword = append(keyword, r.Value)
+				case "ip4", "ip6":
+					cidr = append(cidr, r.Value)
+				}
+			}
+			m := jmap{}
+			m.addIf("domain", full)
+			m.addIf("domain_suffix", suffix)
+			m.addIf("domain_keyword", keyword)
+			m.addIf("ip_cidr", cidr)
+			rules = append(rules, m)
+		}
+		if len(g.sets) > 0 {
+			ids := make([]string, 0, len(g.sets))
+			for _, rs := range g.sets {
+				ids = append(ids, rs.ID)
+			}
+			rules = append(rules, jmap{{"rule_set", ids}})
+		}
+		for _, m := range rules {
+			if g.exit == ExitReject {
+				m.add("action", "reject")
+			} else {
+				m.add("outbound", g.name)
+			}
+			out = append(out, m)
+		}
+	}
+	return out
 }

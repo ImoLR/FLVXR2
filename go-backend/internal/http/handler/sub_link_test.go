@@ -481,7 +481,8 @@ func TestMaskSourceURL(t *testing.T) {
 func TestSubSurgeManagedLine(t *testing.T) {
 	e := subEnv(t)
 	seedSubPanel(t, e)
-	sub := dataMap(t, subCall(t, e.h, "create", map[string]any{"name": "s", "items": []any{map[string]any{"kind": "landing_direct", "landingId": 22}}}, 2, 1))
+	// Plan 256: an empty 分流 list (the plan-226/191 output under test).
+	sub := dataMap(t, subCall(t, e.h, "create", map[string]any{"name": "s", "routing": []any{}, "items": []any{map[string]any{"kind": "landing_direct", "landingId": 22}}}, 2, 1))
 	token := sub["token"].(string)
 	pull := func(host, query string, hdr map[string]string) string {
 		mux := http.NewServeMux()

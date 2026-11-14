@@ -213,6 +213,14 @@ func SurgeManagedLine(url string) string {
 // dns-failed rule options. Rules are built in only (GEOIP, no rule sets).
 // It returns the profile and how many nodes it contains.
 func Surge(nodes []Node, mode string, surfboard bool) ([]byte, int) {
+	return SurgeRouted(nodes, mode, surfboard, nil, "")
+}
+
+// SurgeRouted is Surge with a plan-256 「分流」 list: one select group per
+// entry, custom lines inline and the catalog rule sets as RULE-SET lists the
+// panel at origin serves (no origin: catalog entries get no rules). An empty
+// list renders exactly what Surge renders.
+func SurgeRouted(nodes []Node, mode string, surfboard bool, routing []RouteEntry, origin string) ([]byte, int) {
 	kept := make([]Node, 0, len(nodes))
 	bodies := make([]string, 0, len(nodes))
 	for _, n := range nodes {
@@ -222,6 +230,19 @@ func Surge(nodes []Node, mode string, surfboard bool) ([]byte, int) {
 		}
 	}
 	names := lineNames(kept, false)
+	var routes []routeGroup
+	if len(routing) > 0 {
+		pre := planRoutes(routing, nil, true)
+		taken := map[string]bool{}
+		for _, g := range pre {
+			taken[lineName(g.name, false)] = true
+		}
+		names = avoidLineNames(names, taken)
+		routes = planRoutes(routing, routeNodeNames(kept, names), len(kept) > 0)
+		for i := range routes {
+			routes[i].name = lineName(routes[i].name, false)
+		}
+	}
 	var b strings.Builder
 	b.WriteString("[General]\n")
 	if !surfboard {
@@ -254,8 +275,18 @@ func Surge(nodes []Node, mode string, surfboard bool) ([]byte, int) {
 		b.WriteString(GroupSelect + " = select, " + GroupAuto + ", " + list + ", DIRECT\n")
 		b.WriteString(GroupAuto + " = url-test, " + list + ", url=" + TestURL + ", interval=300, tolerance=50\n")
 	}
+	auto := ""
+	if len(kept) > 0 {
+		auto = GroupAuto
+	}
+	for _, g := range routes {
+		b.WriteString(g.name + " = select, " + strings.Join(groupMembers(g, GroupSelect, auto, "DIRECT", "REJECT", names), ", ") + "\n")
+	}
 	b.WriteString("\n[Rule]\n")
 	for _, r := range lanRules(!surfboard) {
+		b.WriteString(r + "\n")
+	}
+	for _, r := range surgeRouteRules(routes, surfboard, origin) {
 		b.WriteString(r + "\n")
 	}
 	if mode != ModeGlobal {
@@ -282,4 +313,71 @@ func SurgeLine(n Node) (string, bool) {
 		name = lineName(n.ProtocolLabel()+" "+n.Server(), false)
 	}
 	return name + " = " + body, true
+}
+
+// surgeRouteRules: the 「分流」 rules (Surfboard documents no no-resolve).
+func surgeRouteRules(routes []routeGroup, surfboard bool, origin string) []string {
+	nr := ",no-resolve"
+	if surfboard {
+		nr = ""
+	}
+	var out []string
+	for _, g := range routes {
+		for _, r := range g.custom {
+			switch r.Kind {
+			case "suffix":
+				out = append(out, "DOMAIN-SUFFIX,"+r.Value+","+g.name)
+			case "full":
+				out = append(out, "DOMAIN,"+r.Value+","+g.name)
+			case "keyword":
+				out = append(out, "DOMAIN-KEYWORD,"+r.Value+","+g.name)
+			case "ip4":
+				out = append(out, "IP-CIDR,"+r.Value+","+g.name+nr)
+			case "ip6":
+				out = append(out, "IP-CIDR6,"+r.Value+","+g.name+nr)
+			}
+		}
+		if origin == "" {
+			continue
+		}
+		for _, s := range g.sets {
+			r := "RULE-SET," + RuleSetFileURL(origin, s.ID, ExtList) + "," + g.name
+			if s.IP {
+				r += nr
+			}
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
+// avoidLineNames renames node names that are taken by a group name.
+func avoidLineNames(names []string, taken map[string]bool) []string {
+	hit := false
+	for _, n := range names {
+		if taken[n] {
+			hit = true
+			break
+		}
+	}
+	if !hit {
+		return names
+	}
+	out := append([]string(nil), names...)
+	used := map[string]bool{}
+	for _, n := range out {
+		used[n] = true
+	}
+	for i, n := range out {
+		if !taken[n] {
+			continue
+		}
+		name := n + " · 节点"
+		for used[name] || taken[name] {
+			name += "'"
+		}
+		used[name] = true
+		out[i] = name
+	}
+	return out
 }

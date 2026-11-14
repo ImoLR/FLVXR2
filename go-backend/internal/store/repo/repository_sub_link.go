@@ -65,13 +65,39 @@ func (r *Repository) CreateSubscription(s *model.UserSubscription, cap int) erro
 	})
 }
 
-// UpdateSubscription changes name / format / rule mode / items of the
-// user's own subscription; false when it does not exist.
-func (r *Repository) UpdateSubscription(id, userID int64, name, format, mode, items string) (bool, error) {
-	res := r.db.Model(&model.UserSubscription{}).Where("id = ? AND user_id = ?", id, userID).Updates(map[string]interface{}{
+// UpdateSubscription changes name / format / rule mode / items (and, when
+// routing is not nil, the 分流 list) of the user's own subscription; false
+// when it does not exist.
+func (r *Repository) UpdateSubscription(id, userID int64, name, format, mode, items string, routing *string) (bool, error) {
+	fields := map[string]interface{}{
 		"name": name, "format": format, "rule_mode": mode, "items": items, "updated_time": time.Now().UnixMilli(),
-	})
+	}
+	if routing != nil {
+		fields["routing"] = *routing
+	}
+	res := r.db.Model(&model.UserSubscription{}).Where("id = ? AND user_id = ?", id, userID).Updates(fields)
 	return res.RowsAffected > 0, res.Error
+}
+
+// ExternalSubscriptionUses counts, per external node of the user, how many
+// of the user's subscriptions reference it (plan 256: one query over the
+// items column, no per-node query).
+func (r *Repository) ExternalSubscriptionUses(userID int64) (map[int64]int, error) {
+	var rows []model.UserSubscription
+	if err := r.db.Select("id", "items").Where("user_id = ?", userID).Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	out := map[int64]int{}
+	for _, s := range rows {
+		seen := map[int64]bool{}
+		for _, ref := range sublink.ParseRefs(s.Items) {
+			if ref.Kind == sublink.RefExternalNode && !seen[ref.ExternalID] {
+				seen[ref.ExternalID] = true
+				out[ref.ExternalID]++
+			}
+		}
+	}
+	return out, nil
 }
 
 func (r *Repository) SetSubscriptionToken(id, userID int64, token string) (bool, error) {

@@ -170,8 +170,9 @@ func (h *Handler) subRenderFor(ctx context.Context, s *model.UserSubscription, f
 	if flavor != "" {
 		key += "|" + flavor
 	}
-	if format == sublink.FormatSingBox {
-		key += "|" + origin // plan 226: rule sets download from this origin
+	routing := sublink.ParseRouting(s.Routing)
+	if format == sublink.FormatSingBox || len(routing) > 0 && (format == sublink.FormatClash || format == sublink.FormatSurge) {
+		key += "|" + origin // plan 226 / 256: rule sets download from this origin
 	}
 	if v := st.cache.get(key); v != nil {
 		return v, nil
@@ -198,11 +199,11 @@ func (h *Handler) subRenderFor(ctx context.Context, s *model.UserSubscription, f
 	v := &subRender{key: key, subID: s.ID, userID: s.UserID, at: time.Now()}
 	switch format {
 	case sublink.FormatSingBox:
-		v.body, v.nodes = sublink.SingBox(nodes, s.RuleMode, origin)
+		v.body, v.nodes = sublink.SingBoxRouted(nodes, s.RuleMode, origin, routing)
 	case sublink.FormatBase64:
 		v.body, v.nodes = sublink.Base64(nodes)
 	case sublink.FormatSurge:
-		v.body, v.nodes = sublink.Surge(nodes, s.RuleMode, flavor == subFlavorSurfboard)
+		v.body, v.nodes = sublink.SurgeRouted(nodes, s.RuleMode, flavor == subFlavorSurfboard, routing, origin)
 	case sublink.FormatLoon:
 		v.body, v.nodes = sublink.Loon(nodes)
 	case sublink.FormatQX:
@@ -210,7 +211,7 @@ func (h *Handler) subRenderFor(ctx context.Context, s *model.UserSubscription, f
 	case "count":
 		v.nodes = len(nodes)
 	default:
-		v.body, v.nodes = sublink.Clash(nodes, s.RuleMode, flavor == subFlavorStash)
+		v.body, v.nodes = sublink.ClashRouted(nodes, s.RuleMode, flavor == subFlavorStash, routing, origin)
 	}
 	st.cache.put(v)
 	return v, nil

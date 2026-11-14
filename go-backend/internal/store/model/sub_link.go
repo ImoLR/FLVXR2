@@ -23,6 +23,9 @@ type UserSubscription struct {
 	LastPullNodes  int    `gorm:"not null;default:0" json:"lastPullNodes"`
 	CreatedTime    int64  `gorm:"not null;default:0" json:"createdTime"`
 	UpdatedTime    int64  `gorm:"not null;default:0" json:"updatedTime"`
+	// Routing (plan 256 「分流」): JSON list of sublink.RouteEntry; NULL (all
+	// subscriptions before plan 256) or [] = no 分流 groups, output as before.
+	Routing *string `gorm:"type:text" json:"-"`
 }
 
 func (UserSubscription) TableName() string { return "user_subscription" }

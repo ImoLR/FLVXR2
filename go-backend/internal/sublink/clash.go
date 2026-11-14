@@ -289,22 +289,48 @@ var ncsiDirect = []string{"DOMAIN-SUFFIX,msftconnecttest.com,DIRECT", "DOMAIN-SU
 // the allocations); a document with a string the writer does not handle
 // (line breaks, invalid UTF-8) goes through yaml.v3 as before.
 func Clash(nodes []Node, mode string, stash bool) ([]byte, int) {
-	doc, n := clashDoc(nodes, mode, stash)
-	if out, ok := writeBlockYAML(doc, 1024+len(nodes)*320); ok {
+	return ClashRouted(nodes, mode, stash, nil, "")
+}
+
+// ClashRouted is Clash with a plan-256 「分流」 list: one select group per
+// entry, its rules after the private / LAN rules and rule-providers (mihomo
+// .mrs, Stash text lists) downloaded DIRECT from the panel at origin. An
+// empty list renders exactly what Clash renders.
+func ClashRouted(nodes []Node, mode string, stash bool, routing []RouteEntry, origin string) ([]byte, int) {
+	doc, n := clashDoc(nodes, mode, stash, routing, origin)
+	hint := 1024 + len(nodes)*320
+	if len(routing) > 0 {
+		hint += 512 + len(routing)*(320+len(nodes)*28)
+	}
+	if out, ok := writeBlockYAML(doc, hint); ok {
 		return out, n
 	}
 	return clashYAMLv3(doc), n
 }
 
 // clashDoc builds the ordered Clash document and its node count.
-func clashDoc(nodes []Node, mode string, stash bool) (omap, int) {
+func clashDoc(nodes []Node, mode string, stash bool, routing []RouteEntry, origin string) (omap, int) {
+	if len(routing) > 0 {
+		nodes = avoidGroupNames(nodes, planRoutes(routing, nil, true))
+	}
 	proxies := make([]omap, 0, len(nodes))
 	names := make([]string, 0, len(nodes))
+	var kept []Node
+	if len(routing) > 0 {
+		kept = make([]Node, 0, len(nodes))
+	}
 	for _, n := range nodes {
 		if p, ok := clashProxy(n, stash); ok {
 			proxies = append(proxies, p)
 			names = append(names, n.Name)
+			if kept != nil {
+				kept = append(kept, n)
+			}
 		}
+	}
+	var routes []routeGroup
+	if len(routing) > 0 {
+		routes = planRoutes(routing, routeNodeNames(kept, names), len(names) > 0)
 	}
 	// Plan 220: from mainland China 1.1.1.1 / 8.8.8.8 DoH time out when
 	// dialled directly, so the foreign resolvers go through the select group
@@ -333,6 +359,7 @@ func clashDoc(nodes []Node, mode string, stash bool) (omap, int) {
 	rules := []string{}
 	if mode == ModeGlobal {
 		rules = append(rules, privateCIDRs...)
+		rules = append(rules, clashRouteRules(routes, stash)...)
 	} else {
 		// Plan 226: Stash already resolves everything with CN DoH and is not
 		// a Windows client, so its document stays as it was.
@@ -348,6 +375,7 @@ func clashDoc(nodes []Node, mode string, stash bool) (omap, int) {
 		if !stash {
 			rules = append(rules, ncsiDirect...)
 		}
+		rules = append(rules, clashRouteRules(routes, stash)...)
 		rules = append(rules, "GEOSITE,cn,DIRECT", "GEOIP,CN,DIRECT,no-resolve")
 	}
 	rules = append(rules, "MATCH,"+GroupSelect)
@@ -362,6 +390,13 @@ func clashDoc(nodes []Node, mode string, stash bool) (omap, int) {
 			omap{{"name", GroupAuto}, {"type", "url-test"}, {"proxies", names}, {"url", TestURL}, {"interval", 300}, {"tolerance", 50}},
 		)
 	}
+	auto := ""
+	if len(names) > 0 {
+		auto = GroupAuto
+	}
+	for _, g := range routes {
+		groups = append(groups, omap{{"name", g.name}, {"type", "select"}, {"proxies", groupMembers(g, GroupSelect, auto, "DIRECT", "REJECT", names)}})
+	}
 	doc := omap{
 		{"mixed-port", 7890},
 		{"allow-lan", false},
@@ -371,9 +406,78 @@ func clashDoc(nodes []Node, mode string, stash bool) (omap, int) {
 		{"dns", dns},
 		{"proxies", proxies},
 		{"proxy-groups", groups},
-		{"rules", rules},
 	}
+	if providers := clashProviders(routes, stash, origin); len(providers) > 0 {
+		doc.add("rule-providers", providers)
+	}
+	doc.add("rules", rules)
 	return doc, len(names)
+}
+
+// clashRouteRules: the 「分流」 rules (custom lines inline, catalog entries
+// through their rule-providers). IP rules never resolve a domain first.
+func clashRouteRules(routes []routeGroup, stash bool) []string {
+	var out []string
+	for _, g := range routes {
+		for _, r := range g.custom {
+			switch r.Kind {
+			case "suffix":
+				out = append(out, "DOMAIN-SUFFIX,"+r.Value+","+g.name)
+			case "full":
+				out = append(out, "DOMAIN,"+r.Value+","+g.name)
+			case "keyword":
+				out = append(out, "DOMAIN-KEYWORD,"+r.Value+","+g.name)
+			case "ip4":
+				out = append(out, "IP-CIDR,"+r.Value+","+g.name+",no-resolve")
+			case "ip6":
+				out = append(out, "IP-CIDR6,"+r.Value+","+g.name+",no-resolve")
+			}
+		}
+		for _, s := range g.sets {
+			r := "RULE-SET," + s.ID + "," + g.name
+			if s.IP {
+				r += ",no-resolve"
+			}
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
+// clashProviders: one rule-provider per referenced rule set. mihomo gets
+// .mrs, Stash its text list (Stash documents mrs only in recent versions).
+// Both download DIRECT from the panel the subscription came from (never a
+// third-party mirror); without an origin (tests) from MetaCubeX through
+// 节点选择.
+func clashProviders(routes []routeGroup, stash bool, origin string) omap {
+	var out omap
+	seen := map[string]bool{}
+	for _, g := range routes {
+		for _, s := range g.sets {
+			if seen[s.ID] {
+				continue
+			}
+			seen[s.ID] = true
+			behavior := "domain"
+			if s.IP {
+				behavior = "ipcidr"
+			}
+			ext, format := ExtMRS, "mrs"
+			if stash {
+				ext, format = ExtText, "text"
+			}
+			url, via := RuleSetFileURL(origin, s.ID, ext), "DIRECT"
+			if origin == "" {
+				url, via = upstreamURL(s.ID, ext), GroupSelect
+			}
+			p := omap{{"type", "http"}, {"behavior", behavior}, {"format", format}, {"url", url}, {"interval", RuleSetInterval}}
+			if !stash {
+				p.add("proxy", via)
+			}
+			out.add(s.ID, p)
+		}
+	}
+	return out
 }
 
 // clashYAMLv3 is the fork.107 encoder (yaml.v3 through omap.MarshalYAML),
