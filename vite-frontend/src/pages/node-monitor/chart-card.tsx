@@ -185,7 +185,18 @@ export const ChartCard = memo(function ChartCard({
   const reqSeq = useRef(0);
 
   const linesKey = chart.lines
-    .map((l) => `${l.id}:${l.paused}:${l.port}:${l.effectiveHost}`)
+    .map((l) =>
+      [
+        l.id,
+        l.paused,
+        l.port,
+        l.effectiveHost,
+        l.label,
+        l.color,
+        l.sourceName,
+        l.targetName,
+      ].join(":"),
+    )
     .join(",");
   const query = useMemo(() => {
     if (view.zoom)
@@ -308,7 +319,10 @@ export const ChartCard = memo(function ChartCard({
 
     return m;
   }, [data]);
-  const lines = chart.lines;
+  // The page reloads the list every 60 s; keep the same lines (and skip the
+  // chart re-render) unless something shown actually changed.
+
+  const lines = useMemo(() => chart.lines, [linesKey]);
   const colors = useMemo(
     () => lines.map((l) => lineColor(l.color, dark)),
     [lines, dark],

@@ -37,6 +37,7 @@ const (
 	lineMonitorPrunePause     = 20 * time.Millisecond
 	lineMonitorCacheTTL       = 60 * time.Second
 	lineMonitorCacheMinRange  = 12 * 3600 // ranges ≥ 12 h are cached briefly
+	lineMonitorCacheMax       = 8
 	lineMonitorMaxEvents      = 200
 	lineMonitorSSHHint        = "请勿使用 SSH 端口（22），频繁连接可能被对方 fail2ban 封禁"
 )
@@ -935,8 +936,13 @@ func (h *Handler) lineMonitorQuery(chartID int64, rangeKey string, reqFrom, reqT
 	data.QueryMs = float64(time.Since(start).Microseconds()) / 1000
 	if long {
 		rt.cacheMu.Lock()
-		if len(rt.cache) > 64 {
-			rt.cache = make(map[string]lineMonitorCacheEntry)
+		for k, e := range rt.cache {
+			if nowTime.Sub(e.at) >= lineMonitorCacheTTL {
+				delete(rt.cache, k)
+			}
+		}
+		if len(rt.cache) >= lineMonitorCacheMax {
+			rt.cache = make(map[string]lineMonitorCacheEntry) // ≤ 8 × ~0.4 MB
 		}
 		rt.cache[key] = lineMonitorCacheEntry{at: nowTime, data: data}
 		rt.cacheMu.Unlock()

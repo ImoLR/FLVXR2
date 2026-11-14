@@ -294,7 +294,7 @@ export function ChartDialog({
                           }
                           size="sm"
                           variant={l.targetType === "node" ? "solid" : "flat"}
-                          onPress={() => update(l.key, { targetType: "node" })}
+                          onPress={() => update(l.key, { targetType: "node", host: l.targetType === "node" ? l.host : "" })}
                         >
                           FLVX 节点
                         </Button>
@@ -309,6 +309,7 @@ export function ChartDialog({
                             update(l.key, {
                               targetType: "custom",
                               targetNodeId: 0,
+                              host: l.targetType === "custom" ? l.host : "",
                             })
                           }
                         >
