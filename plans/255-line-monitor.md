@@ -265,7 +265,7 @@ BPF filter on the listener) adds kernel-level code to a port that exposes nothin
       「端口未开启」, re-run → back; undo command
 - [x] Gallery http://<dev>:8791/line-monitor/ extended (port modes, ✓ / ✗ chips, old-agent state, custom command +
       测试连通) desktop + mobile, light + dark
-- [ ] Push, CI green, ledger row 255, prod setup proposal (below), summary
+- [x] Push, CI green (43603969851), ledger row 255, prod setup proposal (below), summary
 
 ## Part 2 results
 (times 台湾时间 = UTC+8; build only — no tag, no release, no prod change)
@@ -300,7 +300,7 @@ BPF filter on the listener) adds kernel-level code to a port that exposes nothin
   window: busy port stays, idle one closes and leaves the file), per-source cap 20 / 10 s + pace 50/s, yield. `socket`:
   errorKind classification (refused / timeout / unreach / dns), real TcpPing to a refused port → `refused`, 20 pings to a
   check port all succeed, configured (paused) service ports count as in use, yield to services and landing.
-  `go test ./...` in go-gost/x: all ok (final run listed below); go-gost root builds (not changed).
+  `go test ./...` in go-gost/x: all ok (final run on 7fa8b36b); go-gost root builds (not changed).
 - Panel (`line_monitor_port_test.go`, SQLite + PostgreSQL 18): admin-only on the 4 new routes; auto pick skips every used
   port (rules, tunnels, nft, privileged) and the reservation blocks rule auto pick, `HasOtherForwardOnNodePort`, used-port
   maps, federation ports and manual rule ports (message names 线路监测); open + verify from the source, two lines share a
@@ -316,6 +316,9 @@ BPF filter on the listener) adds kernel-level code to a port that exposes nothin
   download / `rm -r`, suggestion range. Contract test: the 4 new routes refused for user / anonymous through the router.
 - Frontend: `npm run build` ok (page chunk 58.4 kB / 18.9 kB gzip), `tsc` clean, eslint 0 errors / 0 warnings in the
   changed files.
+- Final runs on 7fa8b36b: go-gost/x `go test ./...` all ok; go-backend `go test ./...` (SQLite) all ok; handler, contract and
+  repo packages with PostgreSQL 18 (local throwaway container) all ok; CI 43603969851 green (backend, agent, frontend, PG
+  contract).
 
 ### Lab with real agents (netns lm255p2, loopback only, this branch's paneld + 3 agents, 11-14 20:40–20:47)
 - Save chart with 2 auto lines → 黑五 :21017 / Tcscloud :22015 opened (agents log one line each), verify ok 0.1–0.2 ms,
