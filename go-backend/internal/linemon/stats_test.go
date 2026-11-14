@@ -211,3 +211,40 @@ func TestFloatsJSONNull(t *testing.T) {
 		t.Fatalf("json %s", s)
 	}
 }
+
+// Plan 255 part 2: 端口未开启 slots are neither 断流 nor measured for 可用率,
+// end a 断流 run and are not 无数据.
+func TestAccumulatorClosedSlots(t *testing.T) {
+	const from = int64(1_700_000_000)
+	a := NewAccumulator(9, from, from+10*30, 30, 0, from+20*30)
+	statuses := []int{StatusOK, StatusDown, StatusClosed, StatusClosed, StatusDown, StatusOK, StatusClosed, StatusOK, StatusOK, StatusLoss}
+	for i, st := range statuses {
+		ms := 0
+		if st == StatusOK || st == StatusLoss {
+			ms = 100
+		}
+		a.Add(from+int64(i)*30, st, ms)
+	}
+	series, st, events := a.Finish()
+	if st.Closed != 3 || st.Measured != 7 || st.Down != 2 {
+		t.Fatalf("closed %d measured %d down %d", st.Closed, st.Measured, st.Down)
+	}
+	if got := float64(st.Availability); math.Abs(got-500.0/7) > 1e-9 {
+		t.Fatalf("availability %v, want 5/7", got)
+	}
+	if got := float64(st.NoDataPct); got != 0 {
+		t.Fatalf("closed counted as 无数据: %v", got)
+	}
+	if st.DownEvents != 2 || len(events) != 2 {
+		t.Fatalf("closed must split 断流 runs: %d events %+v", st.DownEvents, events)
+	}
+	if series.Closed[2] != 1 || series.Closed[6] != 1 || series.Exp[2] != 1 {
+		t.Fatalf("series closed %v exp %v", series.Closed, series.Exp)
+	}
+	a2 := NewAccumulator(9, from, from+60, 30, 0, from+600)
+	a2.Add(from, StatusClosed, 0)
+	_, st2, _ := a2.Finish()
+	if st2.LastStatus != StatusClosed || st2.Measured != 0 || !math.IsNaN(float64(st2.Availability)) {
+		t.Fatalf("closed only: %+v", st2)
+	}
+}

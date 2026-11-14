@@ -414,7 +414,7 @@ func sharedMachineBusyPorts(tx *gorm.DB, s model.LandingServer) (map[int]bool, e
 			m      interface{}
 			column string
 			where  string
-		}{{&model.ForwardPort{}, "port", "node_id = ?"}, {&model.ChainTunnel{}, "port", "node_id = ? AND port IS NOT NULL"}, {&model.NodeDeployedInbound{}, "listen_port", "node_id = ?"}, {&model.NodeRuntimeResource{}, "port", "node_id = ? AND status <> 'released'"}, {&model.ForwardChainNode{}, "port", "node_id = ?"}} {
+		}{{&model.ForwardPort{}, "port", "node_id = ?"}, {&model.ChainTunnel{}, "port", "node_id = ? AND port IS NOT NULL"}, {&model.NodeDeployedInbound{}, "listen_port", "node_id = ?"}, {&model.NodeRuntimeResource{}, "port", "node_id = ? AND status <> 'released'"}, {&model.ForwardChainNode{}, "port", "node_id = ?"}, {&model.LineMonitorPort{}, "port", "node_id = ?"}} {
 			var ports []int
 			if err := tx.Model(q.m).Where(q.where, n.ID).Pluck(q.column, &ports).Error; err != nil {
 				return nil, err

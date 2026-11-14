@@ -944,7 +944,7 @@ func landingFreePort(tx *gorm.DB, s model.LandingServer) (int, error) {
 		column string
 		where  string
 		id     int64
-	}{{&model.LandingNode{}, "port", "landing_server_id = ?", s.ID}, {&model.ForwardChainNode{}, "port", "landing_server_id = ?", s.ID}, {&model.ForwardPort{}, "port", "node_id = ?", s.NodeID}, {&model.ChainTunnel{}, "port", "node_id = ? AND port IS NOT NULL", s.NodeID}, {&model.NodeDeployedInbound{}, "listen_port", "node_id = ?", s.NodeID}, {&model.NodeRuntimeResource{}, "port", "node_id = ? AND status <> 'released'", s.NodeID}} {
+	}{{&model.LandingNode{}, "port", "landing_server_id = ?", s.ID}, {&model.ForwardChainNode{}, "port", "landing_server_id = ?", s.ID}, {&model.ForwardPort{}, "port", "node_id = ?", s.NodeID}, {&model.ChainTunnel{}, "port", "node_id = ? AND port IS NOT NULL", s.NodeID}, {&model.NodeDeployedInbound{}, "listen_port", "node_id = ?", s.NodeID}, {&model.NodeRuntimeResource{}, "port", "node_id = ? AND status <> 'released'", s.NodeID}, {&model.LineMonitorPort{}, "port", "node_id = ?", s.NodeID}} {
 		if s.Source == "shared" && q.id != s.ID {
 			continue
 		}

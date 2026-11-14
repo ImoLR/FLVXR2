@@ -101,15 +101,24 @@ func (r *Repository) ListLineMonitorChartLines(chartID int64) ([]model.LineMonit
 // removed (their IDs are returned so the caller can delete their samples).
 // lineCap limits the lines of all charts together (checked inside the
 // transaction).
-func (r *Repository) SaveLineMonitorChart(chart *model.LineMonitorChart, lines []model.LineMonitorLine, lineCap int) (removed []int64, err error) {
+//
+// Plan 255 part 2: auto-mode lines get their check port here (kept while the
+// target and mode stay, shared with another auto line of the same node, or
+// picked from the node's rule range; busy = ports agents reported busy), and
+// the check-port rows of every touched node are reconciled in the same
+// transaction (a port no line uses any more turns closing).
+func (r *Repository) SaveLineMonitorChart(chart *model.LineMonitorChart, lines []model.LineMonitorLine, lineCap int, busy map[int64]map[int]bool) (res LineMonitorSaveResult, err error) {
 	if r == nil || r.db == nil {
-		return nil, errors.New("repository not initialized")
+		return res, errors.New("repository not initialized")
 	}
 	if chart == nil {
-		return nil, errors.New("监测图不存在")
+		return res, errors.New("监测图不存在")
 	}
 	now := time.Now().UnixMilli()
+	var removed, verify []int64
+	var touched []int64
 	err = r.db.Transaction(func(tx *gorm.DB) error {
+		removed, verify, touched = nil, nil, nil
 		if chart.ID == 0 {
 			var maxSort struct{ M int }
 			if err := tx.Model(&model.LineMonitorChart{}).Select("COALESCE(MAX(sort), 0) AS m").Scan(&maxSort).Error; err != nil {
@@ -136,6 +145,31 @@ func (r *Repository) SaveLineMonitorChart(chart *model.LineMonitorChart, lines [
 		byID := make(map[int64]model.LineMonitorLine, len(existing))
 		for _, l := range existing {
 			byID[l.ID] = l
+			if l.PortMode == model.LinePortAuto {
+				touched = append(touched, l.TargetNodeID)
+			}
+		}
+		// Check ports of the auto lines (plan 255 part 2).
+		picker := &autoPortPicker{tx: tx, busy: busy, assigned: map[int64]int{}}
+		for i := range lines {
+			l := &lines[i]
+			if l.PortMode != model.LinePortAuto || l.TargetNodeID <= 0 {
+				continue
+			}
+			touched = append(touched, l.TargetNodeID)
+			if old, ok := byID[l.ID]; ok && l.ID > 0 && old.PortMode == model.LinePortAuto && old.TargetNodeID == l.TargetNodeID &&
+				old.Port > 0 && (l.Port == 0 || l.Port == old.Port) {
+				l.Port = old.Port
+				if picker.assigned[l.TargetNodeID] == 0 {
+					picker.assigned[l.TargetNodeID] = old.Port
+				}
+				continue
+			}
+			port, err := picker.pick(l.TargetNodeID)
+			if err != nil {
+				return fmt.Errorf("第 %d 条线路：%v", i+1, err)
+			}
+			l.Port = port
 		}
 		keep := make(map[int64]bool, len(lines))
 		for i := range lines {
@@ -151,10 +185,23 @@ func (r *Repository) SaveLineMonitorChart(chart *model.LineMonitorChart, lines [
 				keep[l.ID] = true
 				l.CreatedTime = old.CreatedTime
 				l.Color = old.Color
-				if err := tx.Model(&model.LineMonitorLine{}).Where("id = ?", l.ID).Updates(map[string]interface{}{
+				upd := map[string]interface{}{
 					"source_node_id": l.SourceNodeID, "target_node_id": l.TargetNodeID, "host": l.Host, "port": l.Port,
 					"label": l.Label, "paused": l.Paused, "sort": l.Sort, "updated_time": now,
-				}).Error; err != nil {
+					"port_mode": l.PortMode, "check_window": l.CheckWindow, "check_allow": l.CheckAllow,
+				}
+				if old.PortMode != l.PortMode || old.TargetNodeID != l.TargetNodeID || old.Port != l.Port || old.SourceNodeID != l.SourceNodeID || old.Host != l.Host {
+					for k, v := range lineCheckReset(now) {
+						upd[k] = v
+					}
+					l.CheckState, l.CheckMsg = "", ""
+					if l.PortMode == model.LinePortAuto {
+						verify = append(verify, l.ID)
+					}
+				} else {
+					l.CheckState, l.CheckMsg, l.CheckAt = old.CheckState, old.CheckMsg, old.CheckAt
+				}
+				if err := tx.Model(&model.LineMonitorLine{}).Where("id = ?", l.ID).Updates(upd).Error; err != nil {
 					return err
 				}
 			}
@@ -191,6 +238,12 @@ func (r *Repository) SaveLineMonitorChart(chart *model.LineMonitorChart, lines [
 			if err := tx.Create(l).Error; err != nil {
 				return err
 			}
+			if l.PortMode == model.LinePortAuto {
+				verify = append(verify, l.ID)
+			}
+		}
+		if err := reconcileLineMonitorPortsTx(tx, touched, now); err != nil {
+			return err
 		}
 		if lineCap > 0 {
 			var total int64
@@ -204,20 +257,32 @@ func (r *Repository) SaveLineMonitorChart(chart *model.LineMonitorChart, lines [
 		return nil
 	})
 	if err != nil {
-		return nil, err
+		return LineMonitorSaveResult{}, err
 	}
-	return removed, nil
+	return LineMonitorSaveResult{Removed: removed, Nodes: uniqueIDs(touched), Verify: verify}, nil
+}
+
+// LineMonitorSaveResult: what a chart save / delete changed.
+type LineMonitorSaveResult struct {
+	Removed []int64 // lines removed (their samples are deleted by the caller)
+	Nodes   []int64 // target nodes whose check ports may have changed (push a sync)
+	Verify  []int64 // auto lines with a new / changed check port (verify from the source)
 }
 
 // DeleteLineMonitorChart removes a chart and its lines; returns the line IDs
 // (their samples are deleted by the caller in batches).
-func (r *Repository) DeleteLineMonitorChart(id int64) ([]int64, error) {
+func (r *Repository) DeleteLineMonitorChart(id int64) (LineMonitorSaveResult, error) {
 	if r == nil || r.db == nil {
-		return nil, errors.New("repository not initialized")
+		return LineMonitorSaveResult{}, errors.New("repository not initialized")
 	}
-	var ids []int64
+	var ids, nodes []int64
 	err := r.db.Transaction(func(tx *gorm.DB) error {
+		ids, nodes = nil, nil
 		if err := tx.Model(&model.LineMonitorLine{}).Where("chart_id = ?", id).Pluck("id", &ids).Error; err != nil {
+			return err
+		}
+		if err := tx.Model(&model.LineMonitorLine{}).Where("chart_id = ? AND port_mode = ?", id, model.LinePortAuto).
+			Distinct("target_node_id").Pluck("target_node_id", &nodes).Error; err != nil {
 			return err
 		}
 		if err := tx.Where("chart_id = ?", id).Delete(&model.LineMonitorLine{}).Error; err != nil {
@@ -230,9 +295,13 @@ func (r *Repository) DeleteLineMonitorChart(id int64) ([]int64, error) {
 		if res.RowsAffected == 0 {
 			return errors.New("监测图不存在")
 		}
-		return nil
+		// Close intent of the check ports only this chart used (same transaction).
+		return reconcileLineMonitorPortsTx(tx, nodes, time.Now().UnixMilli())
 	})
-	return ids, err
+	if err != nil {
+		return LineMonitorSaveResult{}, err
+	}
+	return LineMonitorSaveResult{Removed: ids, Nodes: uniqueIDs(nodes)}, nil
 }
 
 // ReorderLineMonitorCharts stores the display order (ids in order; unknown ids

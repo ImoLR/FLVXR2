@@ -1015,6 +1015,11 @@ func (r *Repository) DeleteNodeCascade(nodeID int64) error {
 		if err := tx.Where("server_kind = ? AND server_ref_id = ?", "node", nodeID).Delete(&model.UserTrafficPoolMember{}).Error; err != nil {
 			return err
 		}
+		// Plan 255: 线路监测 lines from / to the node go with it; its check-port
+		// reservations are dropped, ports other targets kept for them close.
+		if err := deleteLineMonitorForNodeTx(tx, nodeID); err != nil {
+			return err
+		}
 		return tx.Where("id = ?", nodeID).Delete(&model.Node{}).Error
 	})
 }
@@ -1236,6 +1241,14 @@ func (r *Repository) pickNodePortTx(tx *gorm.DB, nodeID int64, allocated map[int
 		return 0, err
 	}
 	for _, p := range landingPorts {
+		used[p] = struct{}{}
+	}
+	// Plan 255: 线路监测 check ports are reserved.
+	monitorPorts, err := lineMonitorPortsOnNodeTx(tx, nodeID)
+	if err != nil {
+		return 0, err
+	}
+	for _, p := range monitorPorts {
 		used[p] = struct{}{}
 	}
 	var available []int
@@ -2369,6 +2382,13 @@ func (r *Repository) GetUsedPortsOnNodeAsMap(nodeID int64) (map[int]bool, error)
 		return nil, err
 	}
 	for _, p := range landingPorts {
+		used[p] = true
+	}
+	monitorPorts, err := lineMonitorPortsOnNodeTx(r.db, nodeID) // plan 255 check ports
+	if err != nil {
+		return nil, err
+	}
+	for _, p := range monitorPorts {
 		used[p] = true
 	}
 	return used, nil

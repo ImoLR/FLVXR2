@@ -86,7 +86,10 @@ type Series struct {
 	OK     []int32 `json:"ok"`
 	Loss   []int32 `json:"loss"`
 	Down   []int32 `json:"down"`
-	Exp    []int32 `json:"exp"` // slots expected (≥ measured); exp − ok − loss − down = 无数据
+	// Closed (plan 255 part 2): 端口未开启 slots (both attempts refused) —
+	// neither 断流 nor measured for 可用率.
+	Closed []int32 `json:"closed"`
+	Exp    []int32 `json:"exp"` // slots expected (≥ measured); exp − ok − loss − down − closed = 无数据
 }
 
 // LineStats are the 统计 numbers of one line over the range.
@@ -107,6 +110,7 @@ type LineStats struct {
 	OK           int64 `json:"ok"`
 	Loss         int64 `json:"loss"`
 	Down         int64 `json:"down"`
+	Closed       int64 `json:"closed"` // 端口未开启 slots (excluded from 可用率 and 断流)
 	DownEvents   int   `json:"downEvents"`
 	// LongestDown in seconds (one down slot = 30 s).
 	LongestDown int64 `json:"longestDown"`
@@ -136,8 +140,8 @@ type Accumulator struct {
 	cnt    []int32
 	lat    []int32
 
-	measured, ok, loss, down int64
-	sum                      float64
+	measured, ok, loss, down, closed int64
+	sum                              float64
 
 	prevTS     int64
 	prevLat    int32
@@ -166,7 +170,7 @@ func NewAccumulator(lineID, from, to, step, created, now int64) *Accumulator {
 		n = 0
 	}
 	a := &Accumulator{lineID: lineID, from: from, to: to, step: step, created: created, now: now, lastMs: math.NaN()}
-	a.series = Series{LineID: lineID, Avg: make(Floats, n), Max: make(Floats, n), OK: make([]int32, n), Loss: make([]int32, n), Down: make([]int32, n), Exp: make([]int32, n)}
+	a.series = Series{LineID: lineID, Avg: make(Floats, n), Max: make(Floats, n), OK: make([]int32, n), Loss: make([]int32, n), Down: make([]int32, n), Closed: make([]int32, n), Exp: make([]int32, n)}
 	a.sums = make([]float64, n)
 	a.cnt = make([]int32, n)
 	return a
@@ -220,6 +224,15 @@ func (a *Accumulator) Add(ts int64, status int, ms10 int) {
 			a.run = &Event{LineID: a.lineID, Start: ts, End: ts + SlotSeconds, Slots: 1}
 		}
 		a.lastDownTS = ts
+	case StatusClosed:
+		// Reachable but nothing listening (an expired check port): not 断流,
+		// not measured for 可用率, ends a 断流 run.
+		a.measured--
+		a.closed++
+		a.series.Closed[i]++
+		a.lastMs = math.NaN()
+		a.havePrev = false
+		a.closeRun()
 	default:
 		a.measured--
 	}
@@ -276,7 +289,7 @@ func (a *Accumulator) Finish() (Series, LineStats, []Event) {
 		}
 		start := a.from + int64(i)*a.step
 		exp := a.expected(start, start+a.step)
-		if got := a.series.OK[i] + a.series.Loss[i] + a.series.Down[i]; got > exp {
+		if got := a.series.OK[i] + a.series.Loss[i] + a.series.Down[i] + a.series.Closed[i]; got > exp {
 			exp = got
 		}
 		a.series.Exp[i] = exp
@@ -285,7 +298,7 @@ func (a *Accumulator) Finish() (Series, LineStats, []Event) {
 	st := LineStats{
 		LineID: a.lineID, LastTS: a.lastTS, LastStatus: a.lastStatus, LastMs: Float(a.lastMs),
 		Avg: Float(math.NaN()), P95: Float(math.NaN()), Jitter: Float(math.NaN()), Availability: Float(math.NaN()), NoDataPct: Float(math.NaN()),
-		Measured: a.measured, Expected: expTotal, OK: a.ok, Loss: a.loss, Down: a.down,
+		Measured: a.measured, Expected: expTotal, OK: a.ok, Loss: a.loss, Down: a.down, Closed: a.closed,
 		DownEvents: a.eventCount, LongestDown: a.longest,
 	}
 	if n := len(a.lat); n > 0 {
@@ -299,7 +312,7 @@ func (a *Accumulator) Finish() (Series, LineStats, []Event) {
 		st.Availability = Float(float64(a.ok+a.loss) * 100 / float64(a.measured))
 	}
 	if expTotal > 0 {
-		st.NoDataPct = Float(float64(expTotal-a.measured) * 100 / float64(expTotal))
+		st.NoDataPct = Float(float64(expTotal-a.measured-a.closed) * 100 / float64(expTotal))
 	}
 	return a.series, st, a.events
 }

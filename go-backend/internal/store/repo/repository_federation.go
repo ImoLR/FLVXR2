@@ -325,6 +325,13 @@ func (r *Repository) ListUsedPortsOnNode(nodeID int64) ([]int, error) {
 			used[p] = struct{}{}
 		}
 	}
+	monitorPorts, err := lineMonitorPortsOnNodeTx(r.db, nodeID) // plan 255 check ports
+	if err != nil {
+		return nil, err
+	}
+	for _, p := range monitorPorts {
+		used[p] = struct{}{}
+	}
 
 	result := make([]int, 0, len(used))
 	for p := range used {

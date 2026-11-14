@@ -64,6 +64,7 @@ type nodeSession struct {
 	ipKey           int    // handshake capability; >0 = counts a client IPv6 /64 as one IP, keys sharedIps itself (plan 231)
 	dnsCache        int    // handshake capability; >0 = reports dns_cache, runs DNSCacheEnsure (plan 240)
 	warmPool        int    // handshake capability; >0 = takes SetWarmPools, reports warm_pool (plan 244)
+	monitorPort     int    // handshake capability; >0 = takes MonitorPort (检测端口) + TcpPing errorKind (plan 255)
 	entryRateTc     int    // handshake capability; >0 = entry speed limits via SetEntryRates in the kernel (plan 168)
 	entryRateTcErr  string // the agent's kernel cannot run the shaper (probe reason) → gost / nft fallback
 	entryRateKey    string // last entry rate status recorded (read loop only)
@@ -528,6 +529,9 @@ func (s *Server) handleNode(w http.ResponseWriter, r *http.Request, nodeID int64
 	}
 	if v, err := strconv.Atoi(r.URL.Query().Get("warmPool")); err == nil && v > 0 {
 		ns.warmPool = v
+	}
+	if v, err := strconv.Atoi(r.URL.Query().Get("monitorPort")); err == nil && v > 0 {
+		ns.monitorPort = v
 	}
 	if v, err := strconv.Atoi(r.URL.Query().Get("ipKey")); err == nil && v > 0 {
 		ns.ipKey = v
@@ -1173,6 +1177,18 @@ func (s *Server) WarmPoolCapable(nodeID int64) bool {
 	defer s.mu.RUnlock()
 	ns := s.nodes[nodeID]
 	return ns != nil && ns.warmPool > 0
+}
+
+// MonitorPortCapable reports whether the node's current agent session takes
+// MonitorPort (plan 255 检测端口, handshake monitorPort=1).
+func (s *Server) MonitorPortCapable(nodeID int64) bool {
+	if s == nil {
+		return false
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	ns := s.nodes[nodeID]
+	return ns != nil && ns.monitorPort > 0
 }
 
 // WarmPoolNodes lists the connected nodes that are warm-pool capable.

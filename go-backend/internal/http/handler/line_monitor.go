@@ -73,6 +73,7 @@ type lineMonitorRuntime struct {
 
 	cleanupRunning atomic.Bool
 	errLogAt       atomic.Int64
+	ports          lineMonitorPortRuntime // plan 255 part 2 检测端口
 	writes         atomic.Int64
 	writeNanos     atomic.Int64
 }
@@ -175,9 +176,19 @@ func (h *Handler) lineMonitorTargets() ([]linemon.Target, bool, error) {
 	}
 	nodes := nodeRecordMap(list)
 	targets := make([]linemon.Target, 0, len(lines))
+	auto := map[int64]int64{}
+	defer func() {
+		pr := h.lineMonPorts()
+		pr.mu.Lock()
+		pr.autoTarget = auto
+		pr.mu.Unlock()
+	}()
 	for _, line := range lines {
 		if line.Paused == 1 {
 			continue
+		}
+		if line.PortMode == model.LinePortAuto && line.TargetNodeID > 0 {
+			auto[line.ID] = line.TargetNodeID
 		}
 		src := nodes[line.SourceNodeID]
 		if src == nil || src.IsRemote == 1 {
@@ -239,7 +250,10 @@ func (h *Handler) lineMonitorProbe(ctx context.Context, t linemon.Target) linemo
 	if reason == "" {
 		reason = "连接失败"
 	}
-	return linemon.Attempt{Kind: linemon.Failed, Reason: shortReason(reason)}
+	// Plan 255 part 2: agents with monitorPort say why (refused = the target
+	// answers but nothing listens → 端口未开启, not 断流).
+	kind := asString(res.Data["errorKind"])
+	return linemon.Attempt{Kind: linemon.Failed, Refused: kind == "refused", ErrKind: kind, Reason: shortReason(reason)}
 }
 
 func (h *Handler) lineMonitorResult(r linemon.Result) {
@@ -262,6 +276,9 @@ func (h *Handler) lineMonitorResult(r linemon.Result) {
 	}
 	rt.mu.Unlock()
 	h.lineMonitorFlush(false)
+	if r.Status == linemon.StatusClosed {
+		h.lineMonitorHeal(r.LineID)
+	}
 }
 
 // lineMonitorFlush writes the buffered samples in one statement every 30 s
@@ -458,6 +475,18 @@ type lineMonitorLineView struct {
 	TargetName    string           `json:"targetName,omitempty"`
 	EffectiveHost string           `json:"effectiveHost"`
 	Live          *lineMonitorLive `json:"live,omitempty"`
+	// CheckPort (plan 255 part 2, auto lines): the reserved port as the
+	// panel and the target agent see it.
+	CheckPort *lineMonitorCheckPortView `json:"checkPort,omitempty"`
+}
+
+type lineMonitorCheckPortView struct {
+	Port         int    `json:"port"`
+	State        string `json:"state"`      // open | closing | "" (not reserved)
+	AgentState   string `json:"agentState"` // "" | open | busy | refused | error
+	AgentMsg     string `json:"agentMsg,omitempty"`
+	TargetOnline bool   `json:"targetOnline"`
+	Capable      bool   `json:"capable"`
 }
 
 type lineMonitorChartView struct {
@@ -488,6 +517,17 @@ func (h *Handler) lineMonitorList(w http.ResponseWriter, r *http.Request) {
 		}
 		nodes = nodeRecordMap(list)
 	}
+	portRows := map[[2]int64]model.LineMonitorPort{}
+	if len(lines) > 0 {
+		rows, err := h.repo.ListLineMonitorPorts(0)
+		if err != nil {
+			response.WriteJSON(w, response.Err(-2, err.Error()))
+			return
+		}
+		for _, r := range rows {
+			portRows[[2]int64{r.NodeID, int64(r.Port)}] = r
+		}
+	}
 	rt := h.lineMon()
 	rt.mu.Lock()
 	live := make(map[int64]lineMonitorLive, len(rt.live))
@@ -510,6 +550,14 @@ func (h *Handler) lineMonitorList(w http.ResponseWriter, r *http.Request) {
 		if lv, ok := live[l.ID]; ok {
 			lv := lv
 			v.Live = &lv
+		}
+		if l.PortMode == model.LinePortAuto && l.TargetNodeID > 0 {
+			cp := &lineMonitorCheckPortView{Port: l.Port, TargetOnline: h.lineMonitorSourceOnline(l.TargetNodeID)}
+			cp.Capable = cp.TargetOnline && h.monitorPortCapable(l.TargetNodeID)
+			if row, ok := portRows[[2]int64{l.TargetNodeID, int64(l.Port)}]; ok {
+				cp.State, cp.AgentState, cp.AgentMsg = row.State, row.AgentState, row.AgentMsg
+			}
+			v.CheckPort = cp
 		}
 		byChart[l.ChartID] = append(byChart[l.ChartID], v)
 	}
@@ -538,6 +586,9 @@ type lineMonitorNodeOption struct {
 	Address string `json:"address"`
 	Online  bool   `json:"online"`
 	Remote  bool   `json:"remote,omitempty"`
+	// CheckPort (plan 255 part 2): the agent takes MonitorPort (only known
+	// while online; an online agent without it needs an OTA).
+	CheckPort bool `json:"checkPort"`
 }
 
 func (h *Handler) lineMonitorOptions(w http.ResponseWriter, r *http.Request) {
@@ -555,10 +606,13 @@ func (h *Handler) lineMonitorOptions(w http.ResponseWriter, r *http.Request) {
 		if addr == "" {
 			addr = firstNonBlank(n.ServerIPv4, n.ServerIPv6)
 		}
-		out = append(out, lineMonitorNodeOption{ID: n.ID, Name: n.Name, Address: addr, Remote: n.IsRemote == 1,
-			Online: n.IsRemote == 0 && h.lineMonitorSourceOnline(n.ID)})
+		o := lineMonitorNodeOption{ID: n.ID, Name: n.Name, Address: addr, Remote: n.IsRemote == 1,
+			Online: n.IsRemote == 0 && h.lineMonitorSourceOnline(n.ID)}
+		o.CheckPort = o.Online && h.monitorPortCapable(n.ID)
+		out = append(out, o)
 	}
-	response.WriteJSON(w, response.OK(map[string]interface{}{"nodes": out, "sshHint": lineMonitorSSHHint}))
+	response.WriteJSON(w, response.OK(map[string]interface{}{"nodes": out, "sshHint": lineMonitorSSHHint,
+		"checkPortUnsupported": lineMonitorUnsupported, "checkWindows": linemon.CheckWindows, "defaultCheckWindow": linemon.DefaultCheckWindow}))
 }
 
 func firstNonBlank(values ...string) string {
@@ -604,6 +658,11 @@ type lineMonitorLineInput struct {
 	Port         int    `json:"port"`
 	Label        string `json:"label"`
 	Paused       bool   `json:"paused"`
+	// Plan 255 part 2: node targets auto | existing | manual; custom targets
+	// keep the 开启命令 options (window hours, only-sources switch).
+	PortMode    string `json:"portMode"`
+	CheckWindow int    `json:"checkWindow"`
+	CheckAllow  bool   `json:"checkAllow"`
 }
 
 type lineMonitorSaveInput struct {
@@ -681,10 +740,40 @@ func validateLineMonitorSave(in lineMonitorSaveInput, nodes map[int64]*nodeRecor
 		if host != "" && !validLineMonitorHost(host) {
 			return "", nil, nil, fmt.Errorf("第 %d 条线路：目标地址格式不正确（只填 IP 或域名，不含端口）", n)
 		}
-		if l.Port <= 0 || l.Port > 65535 {
+		mode := strings.TrimSpace(l.PortMode)
+		window, allow := 0, 0
+		if targetID > 0 {
+			switch mode {
+			case model.LinePortAuto, model.LinePortExisting, model.LinePortManual:
+			case "":
+				mode = model.LinePortManual
+			default:
+				return "", nil, nil, fmt.Errorf("第 %d 条线路：端口方式不正确", n)
+			}
+			if mode == model.LinePortAuto && nodes[targetID].IsRemote == 1 {
+				return "", nil, nil, fmt.Errorf("第 %d 条线路：共享节点不能自动开启检测端口", n)
+			}
+		} else {
+			mode = ""
+			window = l.CheckWindow
+			if window == 0 {
+				window = linemon.DefaultCheckWindow
+			}
+			if !linemon.ValidCheckWindow(window) {
+				return "", nil, nil, fmt.Errorf("第 %d 条线路：自动删除时间不正确", n)
+			}
+			if l.CheckAllow {
+				allow = 1
+			}
+		}
+		if mode == model.LinePortAuto {
+			if l.Port < 0 || l.Port > 65535 {
+				return "", nil, nil, fmt.Errorf("第 %d 条线路：端口范围 1-65535", n)
+			}
+		} else if l.Port <= 0 || l.Port > 65535 {
 			return "", nil, nil, fmt.Errorf("第 %d 条线路：端口范围 1-65535", n)
 		}
-		if l.Port == 22 {
+		if l.Port == 22 && mode != model.LinePortAuto {
 			warnings = append(warnings, fmt.Sprintf("第 %d 条线路：%s", n, lineMonitorSSHHint))
 		}
 		label := strings.TrimSpace(l.Label)
@@ -692,6 +781,9 @@ func validateLineMonitorSave(in lineMonitorSaveInput, nodes map[int64]*nodeRecor
 			return "", nil, nil, fmt.Errorf("第 %d 条线路：备注不能超过 50 个字符", n)
 		}
 		key := fmt.Sprintf("%d|%d|%s|%d", l.SourceNodeID, targetID, strings.ToLower(host), l.Port)
+		if mode == model.LinePortAuto {
+			key = fmt.Sprintf("%d|%d|%s|auto", l.SourceNodeID, targetID, strings.ToLower(host))
+		}
 		if seen[key] {
 			return "", nil, nil, fmt.Errorf("第 %d 条线路与前面的线路重复", n)
 		}
@@ -700,7 +792,8 @@ func validateLineMonitorSave(in lineMonitorSaveInput, nodes map[int64]*nodeRecor
 		if l.Paused {
 			paused = 1
 		}
-		out = append(out, model.LineMonitorLine{ID: l.ID, SourceNodeID: l.SourceNodeID, TargetNodeID: targetID, Host: host, Port: l.Port, Label: label, Paused: paused})
+		out = append(out, model.LineMonitorLine{ID: l.ID, SourceNodeID: l.SourceNodeID, TargetNodeID: targetID, Host: host, Port: l.Port, Label: label, Paused: paused,
+			PortMode: mode, CheckWindow: window, CheckAllow: allow})
 	}
 	return name, out, warnings, nil
 }
@@ -724,18 +817,50 @@ func (h *Handler) lineMonitorChartSave(w http.ResponseWriter, r *http.Request) {
 		response.WriteJSON(w, response.ErrDefault(err.Error()))
 		return
 	}
+	// Plan 255 part 2: a line newly set to auto needs a target agent with
+	// MonitorPort (an offline target is fine: opened on its reconnect).
+	var old map[int64]model.LineMonitorLine
+	if in.ID > 0 {
+		existing, err := h.repo.ListLineMonitorChartLines(in.ID)
+		if err != nil {
+			response.WriteJSON(w, response.Err(-2, err.Error()))
+			return
+		}
+		old = make(map[int64]model.LineMonitorLine, len(existing))
+		for _, l := range existing {
+			old[l.ID] = l
+		}
+	}
+	for i, l := range lines {
+		if l.PortMode != model.LinePortAuto {
+			continue
+		}
+		if o, ok := old[l.ID]; ok && o.PortMode == model.LinePortAuto && o.TargetNodeID == l.TargetNodeID {
+			continue
+		}
+		if h.lineMonitorSourceOnline(l.TargetNodeID) && !h.monitorPortCapable(l.TargetNodeID) {
+			response.WriteJSON(w, response.ErrDefault(fmt.Sprintf("第 %d 条线路：%s", i+1, lineMonitorUnsupported)))
+			return
+		}
+	}
 	chart := &model.LineMonitorChart{ID: in.ID, Name: name}
-	removed, err := h.repo.SaveLineMonitorChart(chart, lines, linemon.MaxLinesTotal)
+	res, err := h.repo.SaveLineMonitorChart(chart, lines, linemon.MaxLinesTotal, h.lineMonPorts().busySnapshot())
 	if err != nil {
 		response.WriteJSON(w, response.ErrDefault(err.Error()))
 		return
 	}
 	h.lineMonitorKick()
-	h.lineMonitorCleanupAsync(removed)
+	h.lineMonitorCleanupAsync(res.Removed)
+	// Open / close the check ports and verify the changed lines (bounded by
+	// the command timeouts: ≤ 8 s push + ≤ 6 s TcpPing).
+	checks := h.lineMonitorApplyPorts(res.Nodes, res.Verify)
 	if warnings == nil {
 		warnings = []string{}
 	}
-	response.WriteJSON(w, response.OK(map[string]interface{}{"id": chart.ID, "warnings": warnings}))
+	if checks == nil {
+		checks = []lineMonitorCheck{}
+	}
+	response.WriteJSON(w, response.OK(map[string]interface{}{"id": chart.ID, "warnings": warnings, "checks": checks}))
 }
 
 func (h *Handler) lineMonitorChartDelete(w http.ResponseWriter, r *http.Request) {
@@ -749,13 +874,15 @@ func (h *Handler) lineMonitorChartDelete(w http.ResponseWriter, r *http.Request)
 		response.WriteJSON(w, response.ErrDefault("参数错误"))
 		return
 	}
-	ids, err := h.repo.DeleteLineMonitorChart(req.ID)
+	res, err := h.repo.DeleteLineMonitorChart(req.ID)
 	if err != nil {
 		response.WriteJSON(w, response.ErrDefault(err.Error()))
 		return
 	}
 	h.lineMonitorKick()
-	h.lineMonitorCleanupAsync(ids)
+	h.lineMonitorCleanupAsync(res.Removed)
+	// Close the check ports no line uses any more (待关闭 until the agent acks).
+	h.lineMonitorApplyPortsAsync(res.Nodes, nil)
 	response.WriteJSON(w, response.OKEmpty())
 }
 
@@ -794,6 +921,13 @@ func (h *Handler) lineMonitorLinePause(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.lineMonitorKick()
+	// Resume: the check port is kept while paused, but the agent closes it
+	// after 24 h without connections — send the list again and verify.
+	if !req.Paused {
+		if l, err := h.repo.GetLineMonitorLine(req.ID); err == nil && l != nil && l.PortMode == model.LinePortAuto && l.TargetNodeID > 0 {
+			h.lineMonitorApplyPortsAsync([]int64{l.TargetNodeID}, []int64{l.ID})
+		}
+	}
 	response.WriteJSON(w, response.OKEmpty())
 }
 

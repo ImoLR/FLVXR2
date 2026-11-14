@@ -29,6 +29,9 @@ const (
 	StatusOK   = 1
 	StatusLoss = 2
 	StatusDown = 3
+	// StatusClosed (plan 255 part 2): both attempts were refused — the target
+	// answers but nothing listens (an expired check port), 「端口未开启」.
+	StatusClosed = 4
 )
 
 // AttemptKind is what one TcpPing attempt told the panel.
@@ -46,9 +49,15 @@ const (
 
 // Attempt is the outcome of one TcpPing command.
 type Attempt struct {
-	Kind   AttemptKind
-	Ms     float64
-	Reason string
+	Kind AttemptKind
+	Ms   float64
+	// Refused (Failed only): the agent reported errorKind "refused" (RST /
+	// ICMP port unreachable). Older agents never set it.
+	Refused bool
+	// ErrKind: the agent's errorKind (refused / timeout / unreach / dns; ""
+	// for older agents).
+	ErrKind string
+	Reason  string
 }
 
 // Classify turns the slot's attempts into a sample status. second is nil when
@@ -56,7 +65,7 @@ type Attempt struct {
 //
 //	first ok                      → ok   (first ms)
 //	first failed, retry ok        → loss (retry ms)
-//	first failed, retry failed    → down
+//	first failed, retry failed    → down (both refused → closed 端口未开启)
 //	first no answer, retry ok     → ok   (retry ms)
 //	anything else                 → gap  (never 断流 / 丢包)
 func Classify(first Attempt, second *Attempt) (status int, ms float64, gap bool) {
@@ -70,6 +79,9 @@ func Classify(first Attempt, second *Attempt) (status int, ms float64, gap bool)
 	case first.Kind == Failed && second.Kind == Connected:
 		return StatusLoss, second.Ms, false
 	case first.Kind == Failed && second.Kind == Failed:
+		if first.Refused && second.Refused {
+			return StatusClosed, 0, false
+		}
 		return StatusDown, 0, false
 	case first.Kind == NoAnswer && second.Kind == Connected:
 		return StatusOK, second.Ms, false
@@ -476,6 +488,8 @@ func (e *Engine) Run(ctx context.Context) {
 				reason = firstNonEmpty(second.Reason, j.first.Reason, "节点未响应")
 			} else if status == StatusDown {
 				reason = firstNonEmpty(second.Reason, j.first.Reason)
+			} else if status == StatusClosed {
+				reason = "连接被拒绝：目标端口没有监听"
 			}
 			finish(st, Result{LineID: j.lineID, TS: j.slotTS, Status: status, Ms: ms, Gap: gap, Reason: reason})
 		}

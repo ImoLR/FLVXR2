@@ -13,6 +13,7 @@ func TestClassify(t *testing.T) {
 	ok2 := Attempt{Kind: Connected, Ms: 45.6}
 	fail := Attempt{Kind: Failed, Reason: "connection refused"}
 	none := Attempt{Kind: NoAnswer, Reason: "等待节点响应超时"}
+	refused := Attempt{Kind: Failed, Refused: true, Reason: "连接被拒绝"}
 	cases := []struct {
 		name   string
 		first  Attempt
@@ -31,6 +32,12 @@ func TestClassify(t *testing.T) {
 		{"no answer twice = gap", none, &none, 0, 0, true},
 		{"fail, no retry = gap", fail, nil, 0, 0, true},
 		{"no answer, no retry = gap", none, nil, 0, 0, true},
+		// plan 255 part 2: refused twice = 端口未开启 (not 断流); mixed = down
+		{"refused refused = closed", refused, &refused, StatusClosed, 0, false},
+		{"refused then timeout = down", refused, &fail, StatusDown, 0, false},
+		{"timeout then refused = down", fail, &refused, StatusDown, 0, false},
+		{"refused then ok = loss", refused, &ok2, StatusLoss, 45.6, false},
+		{"no answer then refused = gap", none, &refused, 0, 0, true},
 	}
 	for _, c := range cases {
 		status, ms, gap := Classify(c.first, c.second)

@@ -92,10 +92,12 @@ type Handler struct {
 	nodeOnlineFn       func(int64) bool
 	// destOrderCapableFn overrides the destOrder handshake check (plan 180).
 	destOrderCapableFn func(int64) bool
-	nodeRedeployMu     sync.Mutex
-	nodeRedeploy       *nodeRedeployScheduler
-	redeployRetryMu    sync.Mutex
-	redeployPending    map[tunnelNodeKey]*tunnelNodeRetry
+	// monitorPortCapableFn overrides the monitorPort handshake check (plan 255 检测端口).
+	monitorPortCapableFn func(int64) bool
+	nodeRedeployMu       sync.Mutex
+	nodeRedeploy         *nodeRedeployScheduler
+	redeployRetryMu      sync.Mutex
+	redeployPending      map[tunnelNodeKey]*tunnelNodeRetry
 	// Plan 248: agent OTA jobs (follow the agent's progress and reconnect).
 	upgradeJobs agentUpgradeJobs
 	// Plan 255 「线路监测」: scheduler, write buffer, live state (memory only).
@@ -348,6 +350,11 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("/api/v1/node/line-monitor/chart/reorder", h.lineMonitorChartReorder)
 	mux.HandleFunc("/api/v1/node/line-monitor/line/pause", h.lineMonitorLinePause)
 	mux.HandleFunc("/api/v1/node/line-monitor/data", h.lineMonitorDataHandler)
+	// Plan 255 part 2 检测端口 (admin only like the rest of /api/v1/node/).
+	mux.HandleFunc("/api/v1/node/line-monitor/check-port/verify", h.lineMonitorCheckPortVerify)
+	mux.HandleFunc("/api/v1/node/line-monitor/check-port/rotate", h.lineMonitorCheckPortRotate)
+	mux.HandleFunc("/api/v1/node/line-monitor/check-port/command", h.lineMonitorCheckPortCommand)
+	mux.HandleFunc("/api/v1/node/line-monitor/check-port/test", h.lineMonitorCheckPortTest)
 	mux.HandleFunc("/api/v1/node/orphan-sweep", h.nodeOrphanSweep)
 	mux.HandleFunc("/api/v1/node/detect-region", h.nodeDetectRegion)
 	mux.HandleFunc("/api/v1/node/create", h.nodeCreate)

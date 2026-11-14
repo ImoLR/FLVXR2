@@ -424,6 +424,7 @@ func usedPortsBaseTx(tx *gorm.DB, s model.LandingServer, skipChain int64) (map[i
 		{&model.ChainTunnel{}, "port", "node_id = ? AND port IS NOT NULL", []interface{}{s.NodeID}},
 		{&model.NodeDeployedInbound{}, "listen_port", "node_id = ?", []interface{}{s.NodeID}},
 		{&model.NodeRuntimeResource{}, "port", "node_id = ? AND status <> 'released'", []interface{}{s.NodeID}},
+		{&model.LineMonitorPort{}, "port", "node_id = ?", []interface{}{s.NodeID}}, // plan 255 check ports
 	}
 	for _, q := range queries {
 		var ports []int

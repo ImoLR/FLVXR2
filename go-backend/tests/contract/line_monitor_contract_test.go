@@ -35,7 +35,8 @@ func TestLineMonitorContract(t *testing.T) {
 		}
 	}
 
-	paths := []string{"list", "options", "ports", "chart/save", "chart/delete", "chart/reorder", "line/pause", "data"}
+	paths := []string{"list", "options", "ports", "chart/save", "chart/delete", "chart/reorder", "line/pause", "data",
+		"check-port/verify", "check-port/rotate", "check-port/command", "check-port/test"} // plan 255 part 2
 	for _, p := range paths {
 		path := "/api/v1/node/line-monitor/" + p
 		req := httptest.NewRequest(http.MethodPost, path, bytes.NewBufferString(`{"chartId":1,"id":1,"nodeId":1}`))
