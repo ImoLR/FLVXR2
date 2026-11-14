@@ -61,14 +61,20 @@ const LIVE_REFRESH_MS = 30_000;
 
 type BucketState = "ok" | "loss" | "down" | "nodata" | "none";
 
-function bucketState(s: LineMonitorSeries, j: number): BucketState {
+// Merged buckets (step > 60 s) mark 丢包 only when ≥ 5 % of the measured
+// slots were 丢包 (one lost probe in a 30-min bucket is noise at 30 天); the
+// tooltip and the stats table keep the exact counts. 断流 is always shown.
+const LOSS_SHOW_RATIO = 0.05;
+
+function bucketState(s: LineMonitorSeries, j: number, step = 30): BucketState {
   const down = s.down[j] ?? 0;
   const loss = s.loss[j] ?? 0;
   const measured = (s.ok[j] ?? 0) + loss + down;
   const exp = s.exp[j] ?? 0;
 
   if (down > 0) return "down";
-  if (loss > 0) return "loss";
+  if (loss > 0 && (step <= 60 || loss >= measured * LOSS_SHOW_RATIO))
+    return "loss";
   if (exp > 0 && measured * 2 < exp) return "nodata";
   if (measured > 0) return "ok";
 
@@ -97,7 +103,8 @@ const niceCeil = (v: number) => {
   if (!Number.isFinite(v) || v <= 0) return 10;
   const exp = Math.pow(10, Math.floor(Math.log10(v)));
   const f = v / exp;
-  const nice = f <= 1 ? 1 : f <= 2 ? 2 : f <= 2.5 ? 2.5 : f <= 5 ? 5 : 10;
+  const nice =
+    [1, 1.2, 1.5, 2, 2.5, 3, 4, 5, 6, 8, 10].find((n) => f <= n) ?? 10;
 
   return nice * exp;
 };
@@ -333,7 +340,7 @@ export const ChartCard = memo(function ChartCard({
       const s = seriesById.get(l.id);
 
       return s
-        ? Array.from({ length: n }, (_, j) => bucketState(s, j))
+        ? Array.from({ length: n }, (_, j) => bucketState(s, j, data.step))
         : new Array<BucketState>(n).fill("none");
     });
     const downRuns = runs(n, (j) => states.some((st) => st[j] === "down"));
@@ -345,7 +352,7 @@ export const ChartCard = memo(function ChartCard({
     );
     const markers: { key: string; t: number; v: number; color: string }[] = [];
 
-    lines.forEach((l) => {
+    lines.forEach((l, li) => {
       const s = seriesById.get(l.id);
 
       if (!s) return;
@@ -360,7 +367,7 @@ export const ChartCard = memo(function ChartCard({
             v,
             color: STATUS_DOWN,
           });
-        else if (s.loss[j] > 0)
+        else if (states[li][j] === "loss")
           markers.push({
             key: `l${l.id}-${j}`,
             t: data.from + j * data.step,
@@ -418,7 +425,7 @@ export const ChartCard = memo(function ChartCard({
             const s = seriesById.get(l.id);
 
             if (!s) return null;
-            const st = bucketState(s, j);
+            const st = bucketState(s, j, data.step);
             const measured = s.ok[j] + s.loss[j] + s.down[j];
             const gap = Math.max(0, s.exp[j] - measured);
 
@@ -470,6 +477,7 @@ export const ChartCard = memo(function ChartCard({
     return (
       <ResponsiveContainer height="100%" width="100%">
         <LineChart
+          accessibilityLayer={false}
           data={model.rows}
           margin={{ top: TOP_INSET, right: RIGHT_INSET, bottom: 0, left: 0 }}
           onClick={handleChartClick}
@@ -653,7 +661,7 @@ export const ChartCard = memo(function ChartCard({
 
   return (
     <Card className="overflow-hidden" data-testid={`lm-chart-${chart.id}`}>
-      <CardHeader className="flex flex-wrap items-center justify-between gap-2">
+      <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2">
         <div className="flex min-w-0 items-center gap-2">
           <h3 className="truncate text-base font-semibold">{chart.name}</h3>
           <Pill tone="purple">{lines.length} 条线路</Pill>
@@ -826,7 +834,7 @@ export const ChartCard = memo(function ChartCard({
                   </Pill>
                 ) : null}
                 <button
-                  className={`shrink-0 rounded-full px-2 text-xs font-semibold leading-[18px] ${landingToneClass[l.paused === 1 ? "green" : "amber"]}`}
+                  className={`shrink-0 rounded-full px-2 text-xs font-semibold leading-[18px] ${landingToneClass[l.paused === 1 ? "green" : "slate"]}`}
                   type="button"
                   onClick={() => onPause(l, l.paused !== 1)}
                 >
@@ -848,7 +856,7 @@ export const ChartCard = memo(function ChartCard({
         ) : (
           <div
             ref={tap.containerRef}
-            className="relative select-none"
+            className="relative select-none [&_g:focus]:outline-none [&_svg:focus]:outline-none"
             data-testid="lm-plot"
             onPointerDown={onPointerDown}
             onPointerLeave={() => {
@@ -1118,7 +1126,7 @@ export const ChartCard = memo(function ChartCard({
             秒后重试一次）。抖动 = 相邻两次测量延迟差的平均值；可用率 = （正常 +
             丢包）÷ 已测量次数，无数据不计入；p95 = 95% 的测量低于该值。
             {data.step > 30
-              ? ` 当前每个点合并 ${fmtDuration(data.step)}，含任一断流的时段一定显示为断流。`
+              ? ` 当前每个点合并 ${fmtDuration(data.step)}：含任一断流的时段一定标红${data.step > 60 ? "，丢包 ≥ 5% 的时段才标黄（准确次数见提示框和统计表）" : ""}。`
               : ""}
           </p>
         )}
