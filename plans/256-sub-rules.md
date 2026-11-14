@@ -93,7 +93,7 @@ waits for the user's screen approval. Design (source of truth): `:8791/sub-rules
 - [x] 10. Real clients: mihomo `-t`, sing-box `check`; mainland run on leikwan-sh (first start downloads via DIRECT, all nodes dead, domains → right groups, CN direct, TTFB vs fork.131)
 - [x] 11. Render cost (100 nodes + 30 entries + 300 lines) vs fork.131, binary size, panel RSS
 - [x] 12. Gallery `/root/mmwx-preview/sub-rules/` (desktop 1366×900 + 390×844, light + dark) + Clash Verge text excerpt
-- [ ] 13. Ledger row 256 (待发布, waits for screen approval), push branch, CI green, summary
+- [x] 13. Ledger row 256 (待发布, waits for screen approval), push branch, CI green, summary
 
 ## Results (11-14 TW, build only)
 - Commits on `feature/3.0.27-sub-rules` (base `3.0.27-fork.131`): backend 4a2b73ff, tests 98d48d24, frontend 990b7308 +
