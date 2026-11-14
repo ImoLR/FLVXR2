@@ -375,7 +375,7 @@ export default function SubLinkPage() {
           />
         ))}
         {isH5 && data?.enabled !== false && data && (
-          <div className="flex gap-2 pt-1">
+          <div className="flex flex-wrap gap-2 pt-1">
             {externalsButton}
             {sourcesButton}
             {newButton}

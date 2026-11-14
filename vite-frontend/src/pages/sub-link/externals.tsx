@@ -130,8 +130,10 @@ export function SubExternalsDialog({
               <ExternalManageList
                 items={items}
                 probes={probes}
+                probing={probing}
                 variant="sub"
                 onChanged={changed}
+                onProbe={() => void probeAll()}
               />
             )}
             <p className="text-xs text-default-500">

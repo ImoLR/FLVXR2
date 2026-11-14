@@ -128,3 +128,46 @@ waits for the user's screen approval. Design (source of truth): `:8791/sub-rules
   chosen exit; pick 直连 for 游戏 to keep downloads off the nodes).
 - 检测全部 measures TCP connect time from the panel (users without a landing have no other vantage point).
 - Saving a `node:` exit whose node is not in the subscription stores 节点选择 (the editor shows that row yellow first).
+
+## H5 展开行（用户 11-14 反馈）
+
+User (11-14 TW, gallery): desktop OK; on H5 the names in some lists are covered by the latency chip / usage tags /
+改名 / 删除 buttons (`externals-h5-light.png`). Rule for mobile lists with per-row actions: a row shows only the name +
+one small protocol chip (+ tiny status dot) and a round ＋ at the far right (− when open); address, latency, usage tags,
+full error text and the action pills live in the expanded area under the row; one row open at a time. Desktop stays
+pixel-identical. Task `sub-rules-h5` (Claude high), same worktree/branch, build only.
+
+- [x] h1. Shared H5 component `ExpandRow` (+ accordion hook, field line, action row) — 52 px row, ellipsis name,
+      short protocol chip, status dot, ＋/− toggle (≥ 40 px tap target), tinted expanded area at the name indent,
+      ≤ 150 ms height animation (none with prefers-reduced-motion), collapsed content inert
+- [x] h2. 外部节点 dialog (订阅) — H5 rows via ExpandRow (地址, 延迟 + 检测, 使用情况, 改名 / 删除, blocked delete
+      disabled with its reason)
+- [x] h3. 落地 链式代理 管理 list — same shared list, H5 only (desktop byte-identical to fork.131)
+- [x] h4. 外部订阅源 dialog — H5 rows: name + 「N 个节点」 + red dot on failed update; expanded: masked URL, 更新状态 /
+      full error, 立即更新, 删除 (+ inline confirm)
+- [x] h5. Editor 「已选」 tab — H5 rows: drag handle + name + type chip; expanded: 协议 + 地址/入口, 来源, 移除;
+      drag keeps working, a drag start closes the open row
+- [x] h6. Sweep the other H5 screens of the 订阅 feature for covered / clipped text and fix
+- [x] h7. `npm run build` + eslint 0 errors (Go untouched)
+- [x] h8. Screens `-v2` (390×844 + 360×780, light + dark, collapsed + expanded, ≥ 30-char name) + desktop re-shots
+      compared with the current gallery files; gallery index section 「H5 展开行」
+- [ ] h9. Commit + push, CI green, ledger row 256 note 「H5 展开行 r2 done」, summary
+
+H5 展开行 results (11-14):
+- `src/components/expand-row.tsx` (ExpandRow / useExpandOne / ExpandChip / ExpandField / ExpandActions / shortProtocol),
+  used by ExternalManageList (订阅「外部节点」 + 落地「链式代理」管理, H5 branch only), 外部订阅源 SourceRow (H5 branch),
+  editor SelectedRow (H5 branch; DndContext onDragStart closes the open row). The 外部节点 「检测」 in the expanded row
+  reuses the existing 检测全部 request (no Go change). A blocked delete (链式代理在用) is disabled on H5 with the reason.
+- Sweep at 360×780 with ≥30-char names found and fixed 3 H5-only overflows: 订阅 list bottom buttons (「新建订阅」 ran
+  off-screen → the row wraps when it doesn't fit), 分流 sheet exit list (long source name pushed the node name out →
+  source capped at 45 % + ellipsis), 分流 row 「· N 条」 hidden behind a long exit node name (now always visible);
+  可选 filter chip with a long source name wrapped to two lines (H5: one line + ellipsis). 可选 / 分流 otherwise unchanged.
+- Checks: H5 90/90 (row geometry: name never overlaps chip/dot/＋, ＋ tap target ≥ 40 px, row ≥ 52 px, short names not
+  cut, no horizontal scroll, accordion, drag reorder closes the open row, reduced motion = no transition), sweep 45/45
+  (incl. a clipped-text detector that flags the old build's sheet overflow), 0 page errors.
+- Desktop: 34 desktop screens shot with the d701e37b build and this build on the same data: 32 byte-identical, 2 differ
+  only in the 「最近拉取：昨天 HH:MM」 text (shot a few minutes apart); 链式代理 desktop still byte-identical to fork.131.
+  (The older gallery desktop files differ from both builds alike — the demo DB changed after they were shot.)
+- Gallery: section 「H5 展开行」 at the top of http://104.145.236.29:8791/sub-rules/ (40 `-v2` H5 screens + 23 sweep
+  `-360-v2` screens; old files kept for before/after).
+- eslint: 0 errors in changed files (full `src` has 90 errors, all in untouched files = already there); `npm run build` ok.

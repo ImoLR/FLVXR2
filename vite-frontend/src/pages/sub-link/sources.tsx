@@ -1,6 +1,14 @@
 import { useState } from "react";
 import toast from "react-hot-toast";
 
+import {
+  ExpandActions,
+  ExpandChip,
+  ExpandField,
+  ExpandRow,
+  useExpandOne,
+} from "@/components/expand-row";
+import { useH5Mode } from "@/hooks/useH5Mode";
 import { Pill } from "@/pages/landing/pill";
 import { Button } from "@/shadcn-bridge/heroui/button";
 import { Input } from "@/shadcn-bridge/heroui/input";
@@ -27,9 +35,12 @@ import {
 function SourceRow({
   source,
   onChanged,
+  h5,
 }: {
   source: SubSource;
   onChanged: () => void;
+  /** H5 (user 11-14): name + 「N 个节点」 + ＋, details in the expanded area */
+  h5?: { open: boolean; onToggle: () => void };
 }) {
   const [refreshing, setRefreshing] = useState(false);
   const [confirm, setConfirm] = useState(false);
@@ -69,6 +80,93 @@ function SourceRow({
     }
   };
   const failed = source.lastError !== "";
+
+  if (h5) {
+    return (
+      <ExpandRow
+        chip={
+          <ExpandChip className="bg-amber-500/15 text-amber-700 dark:bg-amber-400/15 dark:text-amber-300">
+            {source.nodeCount} 个节点
+          </ExpandChip>
+        }
+        name={source.name}
+        nameTitle={source.name}
+        open={h5.open}
+        rowProps={{ "data-sub-source": source.id }}
+        status={failed ? "bad" : undefined}
+        statusTitle={failed ? "上次更新失败" : undefined}
+        onToggle={() => {
+          if (h5.open) setConfirm(false);
+          h5.onToggle();
+        }}
+      >
+        <ExpandField label="地址">{source.urlHint}</ExpandField>
+        <ExpandField label="更新">
+          {failed ? (
+            <span className="text-red-600 dark:text-red-300">
+              上次更新失败（{source.lastError}）
+              {source.lastOkAt
+                ? `，继续用 ${subAgo(source.lastOkAt)}的结果`
+                : ""}
+            </span>
+          ) : (
+            <span>{subAgo(source.lastOkAt)}更新成功</span>
+          )}
+        </ExpandField>
+        <ExpandField label="使用">
+          {source.usedBy > 0 ? `${source.usedBy} 条订阅在用` : "没有订阅在用"}
+        </ExpandField>
+        {confirm ? (
+          <div className="mt-1 space-y-2 rounded-lg bg-red-500/10 px-2.5 py-2 text-xs text-red-700 dark:bg-red-400/10 dark:text-red-300">
+            <p>
+              删除「{source.name}」？
+              {source.usedBy > 0
+                ? `会从 ${source.usedBy} 条订阅里移除它的节点。`
+                : "没有订阅在用它。"}
+            </p>
+            <div className="flex gap-2">
+              <Button
+                color="danger"
+                size="sm"
+                variant="flat"
+                onPress={() => setConfirm(false)}
+              >
+                取消
+              </Button>
+              <Button
+                color="danger"
+                isLoading={deleting}
+                size="sm"
+                onPress={remove}
+              >
+                删除
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <ExpandActions>
+            <Button
+              color="primary"
+              isLoading={refreshing}
+              size="sm"
+              variant="flat"
+              onPress={refresh}
+            >
+              立即更新
+            </Button>
+            <Button
+              color="danger"
+              size="sm"
+              variant="flat"
+              onPress={() => setConfirm(true)}
+            >
+              删除
+            </Button>
+          </ExpandActions>
+        )}
+      </ExpandRow>
+    );
+  }
 
   return (
     <div
@@ -164,6 +262,8 @@ export function SubSourcesDialog({
   const [fetching, setFetching] = useState(false);
   const [saving, setSaving] = useState(false);
   const [preview, setPreview] = useState<SubPreview | null>(null);
+  const isH5 = useH5Mode();
+  const expand = useExpandOne(sources.map((s) => s.id));
   const full = cap > 0 && sources.length >= cap;
   // Plan 200: at the cap 获取 stays clickable and explains (no request).
   const capMsg = `外部订阅最多 ${cap} 个，如需更多请联系管理员`;
@@ -229,11 +329,32 @@ export function SubSourcesDialog({
               还没有订阅源。把机场的订阅地址加进来，就能把它的节点放进你的订阅里。
             </p>
           )}
-          <div className="space-y-2">
-            {sources.map((s) => (
-              <SourceRow key={s.id} source={s} onChanged={onChanged} />
-            ))}
-          </div>
+          {isH5 ? (
+            sources.length > 0 && (
+              <div
+                data-sub-sources-h5
+                className="divide-y divide-divider overflow-hidden rounded-xl border border-divider"
+              >
+                {sources.map((s) => (
+                  <SourceRow
+                    key={s.id}
+                    h5={{
+                      open: expand.open === s.id,
+                      onToggle: () => expand.toggle(s.id),
+                    }}
+                    source={s}
+                    onChanged={onChanged}
+                  />
+                ))}
+              </div>
+            )
+          ) : (
+            <div className="space-y-2">
+              {sources.map((s) => (
+                <SourceRow key={s.id} source={s} onChanged={onChanged} />
+              ))}
+            </div>
+          )}
           <div className="space-y-2">
             <p className="text-sm font-semibold">添加订阅源</p>
             <div className="flex flex-col gap-2 sm:flex-row">

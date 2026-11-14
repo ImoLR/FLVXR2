@@ -362,7 +362,9 @@ function ExitList({
     >
       <span className="min-w-0 flex-1 truncate">{label}</span>
       {detail && (
-        <span className="shrink-0 text-xs text-default-400">{detail}</span>
+        <span className="max-w-[45%] shrink-0 truncate text-xs text-default-400">
+          {detail}
+        </span>
       )}
       {exit === value && <Check className="shrink-0 text-primary" size={16} />}
     </button>
@@ -524,19 +526,19 @@ export function RoutingPanel({
           <span className="w-6 shrink-0 text-center text-lg">{m.icon}</span>
           <span className="min-w-0 flex-1">
             <span className="block truncate text-sm font-medium">{m.name}</span>
-            <span
-              className={`block truncate text-xs font-semibold ${toneClass[
-                v.tone
-              ]
-                .split(" ")
-                .filter(
-                  (c) => c.startsWith("text-") || c.startsWith("dark:text-"),
-                )
-                .join(" ")}`}
-            >
-              {v.label}
+            <span className="flex min-w-0 items-baseline text-xs">
+              <span
+                className={`min-w-0 truncate font-semibold ${toneClass[v.tone]
+                  .split(" ")
+                  .filter(
+                    (c) => c.startsWith("text-") || c.startsWith("dark:text-"),
+                  )
+                  .join(" ")}`}
+              >
+                {v.label}
+              </span>
               {m.custom && (
-                <span className="font-normal text-default-400">
+                <span className="shrink-0 whitespace-pre text-default-400">
                   {" "}
                   · {e.lines?.length || 0} 条
                 </span>

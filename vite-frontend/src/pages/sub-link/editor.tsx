@@ -27,8 +27,15 @@ import {
   normalizeRouting,
 } from "./routing";
 
+import {
+  ExpandActions,
+  ExpandChip,
+  ExpandField,
+  ExpandRow,
+  useExpandOne,
+} from "@/components/expand-row";
 import { AddExternalDialog } from "@/pages/landing/chain-proxy";
-import { Pill } from "@/pages/landing/pill";
+import { Pill, landingToneClass } from "@/pages/landing/pill";
 import { Button } from "@/shadcn-bridge/heroui/button";
 import { Input } from "@/shadcn-bridge/heroui/input";
 import {
@@ -123,12 +130,23 @@ function protocolText(n: { protocol?: string; chain?: boolean }) {
   return `${n.protocol || ""}${n.chain ? "（链式）" : ""}`;
 }
 
+// H5 type chip of the 「已选」 row (user 11-14: name + one small chip).
+const groupChipH5: Record<SubSelected["group"], string> = {
+  rule: "规则",
+  landing: "落地",
+  external: "外部",
+  source: "订阅源",
+  source_all: "整组",
+};
+
 function SelectedRow({
   item,
   onRemove,
+  h5,
 }: {
   item: SubSelected;
   onRemove: () => void;
+  h5?: { open: boolean; onToggle: () => void; detail?: string };
 }) {
   const {
     setNodeRef,
@@ -140,6 +158,93 @@ function SelectedRow({
   } = useSortable({ id: item.key });
   const chip = groupChip[item.group];
   const all = item.group === "source_all";
+
+  if (h5) {
+    const tone = landingToneClass[chip.tone];
+
+    return (
+      <ExpandRow
+        chip={
+          <ExpandChip className={item.missing ? landingToneClass.red : tone}>
+            {item.missing ? "已失效" : groupChipH5[item.group]}
+          </ExpandChip>
+        }
+        className={`border-b border-divider last:border-b-0 ${
+          all ? "bg-amber-500/10 dark:bg-amber-400/10" : ""
+        } ${item.missing ? "bg-red-500/10 dark:bg-red-400/10" : ""}`}
+        leading={
+          <button
+            aria-label="拖动排序"
+            className="-ml-1 flex h-10 w-7 cursor-grab touch-none items-center justify-center text-default-400"
+            type="button"
+            {...attributes}
+            {...listeners}
+          >
+            <GripVertical size={16} />
+          </button>
+        }
+        name={
+          all
+            ? `${item.sourceName} · 全部节点`
+            : item.name || "（已删除的节点）"
+        }
+        nameClassName={
+          item.missing ? "text-red-700 line-through dark:text-red-300" : ""
+        }
+        nameTitle={all ? item.sourceName : item.name}
+        open={h5.open}
+        rowProps={{ "data-sub-selected": item.key }}
+        rowRef={setNodeRef}
+        status={item.missing ? "bad" : undefined}
+        statusTitle={item.missing ? "已失效" : undefined}
+        style={{
+          transform: CSS.Transform.toString(transform),
+          transition,
+          opacity: isDragging ? 0.6 : 1,
+          position: isDragging ? "relative" : undefined,
+          zIndex: isDragging ? 10 : undefined,
+        }}
+        onToggle={h5.onToggle}
+      >
+        {item.missing ? (
+          <ExpandField label="状态">
+            <span className="text-red-600 dark:text-red-300">
+              已失效 · 保存时自动移除
+            </span>
+          </ExpandField>
+        ) : all ? (
+          <ExpandField label="节点">
+            现在 {item.count || 0} 个 · 机场那边增删节点会自动同步
+          </ExpandField>
+        ) : (
+          <>
+            {item.protocol && (
+              <ExpandField label="协议">{protocolText(item)}</ExpandField>
+            )}
+            {h5.detail && (
+              <ExpandField label={item.group === "rule" ? "入口" : "地址"}>
+                {h5.detail}
+              </ExpandField>
+            )}
+          </>
+        )}
+        <ExpandField label="来源">
+          {item.group === "source" || all
+            ? `外部订阅源「${item.sourceName}」`
+            : item.group === "rule"
+              ? "我的转发规则"
+              : item.group === "landing"
+                ? "我的落地节点"
+                : "我的外部节点"}
+        </ExpandField>
+        <ExpandActions>
+          <Button color="danger" size="sm" variant="flat" onPress={onRemove}>
+            移除
+          </Button>
+        </ExpandActions>
+      </ExpandRow>
+    );
+  }
 
   return (
     <div
@@ -274,6 +379,24 @@ export function SubEditor({
   );
 
   const keys = useMemo(() => new Set(selected.map((s) => s.key)), [selected]);
+  // H5 「已选」 rows (user 11-14): one open at a time; the expanded area shows
+  // the address / entry from the pool.
+  const selExpand = useExpandOne(selected.map((s) => s.key));
+  const poolDetail = useMemo(() => {
+    const m = new Map<string, string>();
+
+    if (pool) {
+      for (const n of [
+        ...pool.rules,
+        ...pool.landing,
+        ...pool.external,
+        ...pool.sources.flatMap((x) => x.nodes),
+      ])
+        m.set(n.key, n.detail);
+    }
+
+    return m;
+  }, [pool]);
   const followed = useMemo(
     () =>
       new Set(
@@ -519,7 +642,8 @@ export function SubEditor({
                 filter === f
                   ? "bg-blue-500/15 text-blue-700 dark:bg-blue-400/20 dark:text-blue-300"
                   : "bg-slate-500/10 text-slate-600 dark:bg-slate-400/15 dark:text-slate-300"
-              }`}
+              }${isH5 ? " max-w-[9rem] truncate" : ""}`}
+              title={isH5 ? text : undefined}
               type="button"
               onClick={() => setFilter(f)}
             >
@@ -724,6 +848,7 @@ export function SubEditor({
             collisionDetection={closestCenter}
             sensors={sensors}
             onDragEnd={onDragEnd}
+            onDragStart={() => selExpand.close()}
           >
             <SortableContext
               items={selected.map((s) => s.key)}
@@ -732,6 +857,15 @@ export function SubEditor({
               {selected.map((s) => (
                 <SelectedRow
                   key={s.key}
+                  h5={
+                    isH5
+                      ? {
+                          open: selExpand.open === s.key,
+                          onToggle: () => selExpand.toggle(s.key),
+                          detail: poolDetail.get(s.key),
+                        }
+                      : undefined
+                  }
                   item={s}
                   onRemove={() => remove(s.key)}
                 />
@@ -930,9 +1064,7 @@ export function SubEditor({
             {loadError ? (
               <p className="text-sm text-danger">{loadError}</p>
             ) : view === "routing" && routingOn ? (
-              <div className="min-h-[420px]">
-                {routingPanel}
-              </div>
+              <div className="min-h-[420px]">{routingPanel}</div>
             ) : (
               <div className="grid grid-cols-2 gap-4">
                 {poolColumn}

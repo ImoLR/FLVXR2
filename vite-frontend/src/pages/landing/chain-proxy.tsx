@@ -1,3 +1,5 @@
+import type { ReactNode } from "react";
+
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link2 } from "lucide-react";
 import toast from "react-hot-toast";
@@ -36,6 +38,16 @@ import { Select, SelectItem } from "@/shadcn-bridge/heroui/select";
 import { Spinner } from "@/shadcn-bridge/heroui/spinner";
 import { Tab, Tabs } from "@/shadcn-bridge/heroui/tabs";
 import { SubProbeResult } from "@/api/sub-link";
+import {
+  ExpandActions,
+  ExpandChip,
+  ExpandField,
+  ExpandRow,
+  ExpandStatus,
+  shortProtocol,
+  useExpandOne,
+} from "@/components/expand-row";
+import { useH5Mode } from "@/hooks/useH5Mode";
 
 // Plan 177 「链式代理」: a landing node sends all its traffic out through one
 // of its owner's own external nodes. Small on purpose: one dialog with
@@ -413,18 +425,25 @@ export function ExternalManageList({
   onChanged,
   variant = "chain",
   probes,
+  probing,
+  onProbe,
 }: {
   items: ExternalNode[];
   owner?: number;
   onChanged: () => void;
   variant?: "chain" | "sub";
   probes?: Record<number, SubProbeResult>;
+  /** H5 「检测」 in the expanded row (sub variant: same 检测全部 request) */
+  probing?: boolean;
+  onProbe?: () => void;
 }) {
   const [editing, setEditing] = useState<number | null>(null);
   const [name, setName] = useState("");
   const [busy, setBusy] = useState<number | null>(null);
   const [confirm, setConfirm] = useState<ExternalNode | null>(null);
   const sub = variant === "sub";
+  const isH5 = useH5Mode();
+  const expand = useExpandOne(items.map((item) => item.id));
 
   if (!items.length) {
     return (
@@ -467,43 +486,69 @@ export function ExternalManageList({
     else void remove(item);
   };
 
+  const confirmModal = confirm && (
+    <Modal isOpen size="sm" onClose={() => setConfirm(null)}>
+      <ModalContent>
+        <ModalHeader>删除「{confirm.name}」</ModalHeader>
+        <ModalBody>
+          <p className="text-sm text-default-600">
+            {confirm.subUses}{" "}
+            个订阅里这个节点会变成失效，客户端下次更新订阅后就没有它了。
+          </p>
+        </ModalBody>
+        <ModalFooter>
+          <Button
+            color="danger"
+            variant="flat"
+            onPress={() => setConfirm(null)}
+          >
+            取消
+          </Button>
+          <Button
+            color="danger"
+            isLoading={busy === confirm.id}
+            onPress={async () => {
+              await remove(confirm);
+              setConfirm(null);
+            }}
+          >
+            删除
+          </Button>
+        </ModalFooter>
+      </ModalContent>
+    </Modal>
+  );
+
+  if (isH5) {
+    return (
+      <ExternalManageListH5
+        busy={busy}
+        confirmModal={confirmModal}
+        editing={editing}
+        expand={expand}
+        items={items}
+        name={name}
+        probes={probes}
+        probing={probing}
+        sub={sub}
+        onAskRemove={askRemove}
+        onEdit={(item) => {
+          setEditing(item ? item.id : null);
+          if (item) setName(item.name);
+        }}
+        onName={setName}
+        onProbe={onProbe}
+        onRename={(item) => void rename(item)}
+      />
+    );
+  }
+
   return (
     <div
       data-external-manage
       className={`${sub ? "max-h-[55vh]" : "max-h-64"} divide-y divide-divider overflow-auto rounded-lg border border-divider`}
     >
-      {confirm && (
-        <Modal isOpen size="sm" onClose={() => setConfirm(null)}>
-          <ModalContent>
-            <ModalHeader>删除「{confirm.name}」</ModalHeader>
-            <ModalBody>
-              <p className="text-sm text-default-600">
-                {confirm.subUses}{" "}
-                个订阅里这个节点会变成失效，客户端下次更新订阅后就没有它了。
-              </p>
-            </ModalBody>
-            <ModalFooter>
-              <Button
-                color="danger"
-                variant="flat"
-                onPress={() => setConfirm(null)}
-              >
-                取消
-              </Button>
-              <Button
-                color="danger"
-                isLoading={busy === confirm.id}
-                onPress={async () => {
-                  await remove(confirm);
-                  setConfirm(null);
-                }}
-              >
-                删除
-              </Button>
-            </ModalFooter>
-          </ModalContent>
-        </Modal>
-      )}
+      {confirmModal}
       {items.map((item) => (
         <div
           key={item.id}
@@ -600,6 +645,195 @@ export function ExternalManageList({
           )}
         </div>
       ))}
+    </div>
+  );
+}
+
+function probeStatus(res?: SubProbeResult): ExpandStatus {
+  if (!res || res.udp) return undefined;
+
+  return res.ok ? "ok" : "bad";
+}
+
+function ProbeText({ res }: { res?: SubProbeResult }) {
+  if (!res) return <span className="text-default-500">未检测</span>;
+  if (res.udp)
+    return (
+      <span className="text-default-500">UDP 协议（Hysteria2）无法检测</span>
+    );
+  if (res.ok)
+    return (
+      <span className="font-semibold text-teal-700 dark:text-teal-300">
+        {res.ms} ms
+      </span>
+    );
+
+  return (
+    <span className="text-red-600 dark:text-red-300">
+      {res.error || "不通"}
+    </span>
+  );
+}
+
+/** H5 layout of ExternalManageList (user 11-14): name + protocol chip + ＋. */
+function ExternalManageListH5({
+  items,
+  sub,
+  probes,
+  probing,
+  onProbe,
+  expand,
+  editing,
+  name,
+  busy,
+  confirmModal,
+  onEdit,
+  onName,
+  onRename,
+  onAskRemove,
+}: {
+  items: ExternalNode[];
+  sub: boolean;
+  probes?: Record<number, SubProbeResult>;
+  probing?: boolean;
+  onProbe?: () => void;
+  expand: ReturnType<typeof useExpandOne<number>>;
+  editing: number | null;
+  name: string;
+  busy: number | null;
+  confirmModal: ReactNode;
+  onEdit: (item: ExternalNode | null) => void;
+  onName: (name: string) => void;
+  onRename: (item: ExternalNode) => void;
+  onAskRemove: (item: ExternalNode) => void;
+}) {
+  return (
+    <div
+      data-external-manage
+      className={`${sub ? "max-h-[55vh]" : "max-h-[50vh]"} divide-y divide-divider overflow-auto rounded-lg border border-divider`}
+    >
+      {confirmModal}
+      {items.map((item) => {
+        const res = probes?.[item.id];
+        const chainUsed = item.inUse.length > 0;
+        const short = shortProtocol(item.protocolLabel);
+
+        return (
+          <ExpandRow
+            key={item.id}
+            chip={short ? <ExpandChip>{short}</ExpandChip> : undefined}
+            name={item.name}
+            nameTitle={item.name}
+            open={expand.open === item.id}
+            rowProps={{ "data-external-row": item.id }}
+            status={sub ? probeStatus(res) : undefined}
+            statusTitle={
+              res ? (res.ok ? `${res.ms} ms` : res.error || "不通") : undefined
+            }
+            onToggle={() => {
+              if (editing !== null && editing !== item.id) onEdit(null);
+              expand.toggle(item.id);
+            }}
+          >
+            {short !== item.protocolLabel && (
+              <ExpandField label="协议">{item.protocolLabel}</ExpandField>
+            )}
+            <ExpandField label="地址">
+              {item.host}:{item.port}
+            </ExpandField>
+            {sub && (
+              <ExpandField label="延迟">
+                <span className="inline-flex flex-wrap items-center gap-2">
+                  <ProbeText res={res} />
+                  {onProbe && (
+                    <Button
+                      className="h-6 min-h-6 px-2 text-xs"
+                      color="secondary"
+                      isLoading={probing}
+                      size="sm"
+                      variant="flat"
+                      onPress={onProbe}
+                    >
+                      检测
+                    </Button>
+                  )}
+                </span>
+              </ExpandField>
+            )}
+            {(chainUsed || (sub && (item.subUses || 0) > 0)) && (
+              <ExpandField label="使用">
+                <span className="inline-flex flex-wrap items-center gap-1">
+                  {sub && (item.subUses || 0) > 0 && (
+                    <Pill tone="slate">{item.subUses} 个订阅在用</Pill>
+                  )}
+                  {chainUsed && (
+                    <Pill tone="purple">
+                      链式代理在用 · {item.inUse.map((u) => u.name).join("、")}
+                    </Pill>
+                  )}
+                </span>
+              </ExpandField>
+            )}
+            {editing === item.id ? (
+              <div className="space-y-2 pt-1">
+                <Input
+                  aria-label="名称"
+                  maxLength={40}
+                  size="sm"
+                  value={name}
+                  variant="bordered"
+                  onChange={(e) => onName(e.target.value)}
+                />
+                <ExpandActions>
+                  <Button
+                    color="primary"
+                    isLoading={busy === item.id}
+                    size="sm"
+                    variant="flat"
+                    onPress={() => onRename(item)}
+                  >
+                    保存
+                  </Button>
+                  <Button
+                    color="danger"
+                    size="sm"
+                    variant="flat"
+                    onPress={() => onEdit(null)}
+                  >
+                    取消
+                  </Button>
+                </ExpandActions>
+              </div>
+            ) : (
+              <ExpandActions>
+                <Button
+                  color="primary"
+                  size="sm"
+                  variant="flat"
+                  onPress={() => onEdit(item)}
+                >
+                  改名
+                </Button>
+                <Button
+                  color={chainUsed ? "default" : "danger"}
+                  isDisabled={chainUsed}
+                  isLoading={busy === item.id}
+                  size="sm"
+                  variant="flat"
+                  onPress={() => onAskRemove(item)}
+                >
+                  删除
+                </Button>
+                {chainUsed && (
+                  <span className="text-xs text-default-500">
+                    链式代理在用，不能删
+                  </span>
+                )}
+              </ExpandActions>
+            )}
+          </ExpandRow>
+        );
+      })}
     </div>
   );
 }
