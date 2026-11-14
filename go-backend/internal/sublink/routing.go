@@ -312,8 +312,8 @@ func ParseRouteLine(s string) (RouteRule, string) {
 		}
 		return RouteRule{Kind: "full", Value: d}, ""
 	case "keyword":
-		if !validDomainChars(d, true) {
-			return RouteRule{}, "关键词只能有字母、数字、- _ ."
+		if !validDomainChars(d, true) || len(strings.Trim(d, "-_.")) < 2 {
+			return RouteRule{}, "关键词至少 2 个字，只能有字母、数字、- _ ."
 		}
 		return RouteRule{Kind: "keyword", Value: d}, ""
 	}
@@ -325,7 +325,7 @@ func ParseRouteLine(s string) (RouteRule, string) {
 		}
 	}
 	if kind == "" && !strings.Contains(d, ".") {
-		if !validDomainChars(d, false) {
+		if !validDomainChars(d, false) || len(strings.Trim(d, "-_")) < 2 {
 			return RouteRule{}, "不认识的写法（一行写一个域名、IP 或关键词）"
 		}
 		return RouteRule{Kind: "keyword", Value: d}, ""
@@ -512,8 +512,13 @@ func planRoutes(list []RouteEntry, nodeName map[string]string, haveNodes bool) [
 			bi = i
 			g.name, g.sets = Catalog[i].GroupName(), Catalog[i].Sets
 		case RouteCustom:
-			g.name, g.custom = customIcon+" "+e.Name, routeRules(e.Lines)
-			if len(g.custom) == 0 || strings.TrimSpace(e.Name) == "" {
+			// Checked again: the stored JSON is the only input here.
+			name, err := CleanRouteName(e.Name)
+			if err != nil {
+				continue
+			}
+			g.name, g.custom = customIcon+" "+name, routeRules(e.Lines)
+			if len(g.custom) == 0 {
 				continue
 			}
 		default:

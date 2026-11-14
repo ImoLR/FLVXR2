@@ -1,0 +1,658 @@
+mixed-port: 7890
+allow-lan: false
+mode: rule
+log-level: warning
+unified-delay: true
+dns:
+  enable: true
+  ipv6: false
+  enhanced-mode: fake-ip
+  fake-ip-range: 198.18.0.1/16
+  fake-ip-filter:
+    - +.lan
+    - +.local
+    - localhost.ptlogin2.qq.com
+    - '*.msftncsi.com'
+    - '*.msftconnecttest.com'
+    - +.stun.*.*
+    - +.stun.*.*.*
+    - +.stun.*.*.*.*
+    - +.stun.*.*.*.*.*
+    - lens.l.google.com
+    - '*.n.n.srv.nintendo.net'
+    - +.stun.playstation.net
+    - xbox.*.*.microsoft.com
+    - '*.*.xboxlive.com'
+  default-nameserver:
+    - 223.5.5.5
+    - 119.29.29.29
+  nameserver:
+    - https://1.1.1.1/dns-query#节点选择
+    - https://8.8.8.8/dns-query#节点选择
+  direct-nameserver:
+    - https://223.5.5.5/dns-query
+    - https://120.53.53.53/dns-query
+  proxy-server-nameserver:
+    - https://223.5.5.5/dns-query
+    - https://120.53.53.53/dns-query
+  nameserver-policy:
+    geosite:cn,private:
+      - https://223.5.5.5/dns-query
+      - https://120.53.53.53/dns-query
+    xbox.*.*.microsoft.com,*.*.xboxlive.com,*.msftncsi.com,*.msftconnecttest.com:
+      - https://223.5.5.5/dns-query
+      - https://120.53.53.53/dns-query
+    +.stun.*.*,+.stun.*.*.*,+.stun.*.*.*.*,+.stun.*.*.*.*.*,*.n.n.srv.nintendo.net,+.stun.playstation.net:
+      - https://223.5.5.5/dns-query
+      - https://120.53.53.53/dns-query
+proxies:
+  - name: 沪日440 · 我的落地·东京
+    type: vless
+    server: 203.0.113.21
+    port: 20008
+    uuid: 8a4f3f6e-1c2b-4d5e-9f00-112233445566
+    udp: true
+    network: tcp
+    tls: true
+    flow: xtls-rprx-vision
+    servername: www.microsoft.com
+    reality-opts:
+      public-key: Y5u4vH0Qp6yG9mKZr3QZbqSx2n8Hk8TtZl1u8rH0v0E
+      short-id: 6ba85179e30d4fc2
+    client-fingerprint: chrome
+  - name: 沪日440 · 游戏加速
+    type: ss
+    server: 198.51.100.7
+    port: 20009
+    cipher: 2022-blake3-aes-128-gcm
+    password: MDEyMzQ1Njc4OWFiY2RlZg==:ZmVkY2JhOTg3NjU0MzIxMA==
+    udp: true
+  - name: 东京 AnyTLS
+    type: anytls
+    server: anytls.example.com
+    port: 8443
+    password: p@ss:w/rd
+    sni: anytls.example.com
+    fingerprint: abababababababababababababababababababababababababababababababab
+    client-fingerprint: chrome
+    udp: true
+  - name: 大阪 Snell
+    type: snell
+    server: 203.0.113.30
+    port: 9000
+    psk: snellpsk
+    version: 4
+    udp: true
+    obfs-opts:
+      mode: http
+      host: bing.com
+  - name: 首尔 Mieru
+    type: mieru
+    server: 203.0.113.31
+    port: 9100
+    transport: TCP
+    username: u
+    password: pw
+    multiplexing: MULTIPLEXING_LOW
+  - name: "\U0001F1ED\U0001F1F0 香港 01 · IPLC"
+    type: trojan
+    server: hk1.provider.example
+    port: 443
+    password: secret
+    udp: true
+    network: grpc
+    grpc-opts:
+      grpc-service-name: gun
+    sni: hk1.provider.example
+  - name: "\U0001F1EF\U0001F1F5 日本 02 · 大阪"
+    type: vmess
+    server: jp2.provider.example
+    port: 443
+    uuid: b831381d-6324-4d53-ad4f-8cda48b30811
+    alterId: 0
+    cipher: auto
+    udp: true
+    network: ws
+    ws-opts:
+      path: /ray
+      headers:
+        Host: jp2.provider.example
+    tls: true
+    servername: jp2.provider.example
+  - name: 新加坡 Hy2
+    type: hysteria2
+    server: sg.provider.example
+    port: 8443
+    password: pass
+    obfs: salamander
+    obfs-password: ob
+    sni: sg.provider.example
+    skip-cert-verify: true
+  - name: 我家宽带 Socks
+    type: socks5
+    server: home.example.net
+    port: 1080
+    username: user
+    password: pw
+    udp: true
+  - name: HTTPS 代理
+    type: http
+    server: proxy.example.net
+    port: 8443
+    username: u
+    password: p
+    tls: true
+    sni: proxy.example.net
+  - name: 老 SS
+    type: ss
+    server: 203.0.113.40
+    port: 8388
+    cipher: aes-256-gcm
+    password: pw123
+    udp: true
+  - name: VLESS WS TLS
+    type: vless
+    server: ws.provider.example
+    port: 443
+    uuid: b831381d-6324-4d53-ad4f-8cda48b30811
+    udp: true
+    network: ws
+    ws-opts:
+      path: /ws
+      headers:
+        Host: ws.provider.example
+    tls: true
+    servername: ws.provider.example
+    client-fingerprint: chrome
+  - name: 重名 ①
+    type: ss
+    server: 203.0.113.41
+    port: 1
+    cipher: chacha20-ietf-poly1305
+    password: a
+    udp: true
+  - name: 重名 ②
+    type: ss
+    server: 203.0.113.42
+    port: 2
+    cipher: chacha20-ietf-poly1305
+    password: b
+    udp: true
+  - name: Shadowsocks 203.0.113.43
+    type: ss
+    server: 203.0.113.43
+    port: 3
+    cipher: aes-128-gcm
+    password: c
+    udp: true
+  - name: 节点选择 · 节点
+    type: ss
+    server: 203.0.113.44
+    port: 4
+    cipher: aes-128-gcm
+    password: d
+    udp: true
+  - name: "\U0001F1FA\U0001F1F8 美国, 洛杉矶 = 1"
+    type: trojan
+    server: us.provider.example
+    port: 443
+    password: pw
+    udp: true
+    network: tcp
+    sni: us.provider.example
+  - name: 'HK #2 ; test // x "q"'
+    type: ss
+    server: 203.0.113.50
+    port: 5
+    cipher: aes-128-gcm
+    password: x,y=z
+    udp: true
+proxy-groups:
+  - name: 节点选择
+    type: select
+    proxies:
+      - 自动选择
+      - 沪日440 · 我的落地·东京
+      - 沪日440 · 游戏加速
+      - 东京 AnyTLS
+      - 大阪 Snell
+      - 首尔 Mieru
+      - "\U0001F1ED\U0001F1F0 香港 01 · IPLC"
+      - "\U0001F1EF\U0001F1F5 日本 02 · 大阪"
+      - 新加坡 Hy2
+      - 我家宽带 Socks
+      - HTTPS 代理
+      - 老 SS
+      - VLESS WS TLS
+      - 重名 ①
+      - 重名 ②
+      - Shadowsocks 203.0.113.43
+      - 节点选择 · 节点
+      - "\U0001F1FA\U0001F1F8 美国, 洛杉矶 = 1"
+      - 'HK #2 ; test // x "q"'
+      - DIRECT
+  - name: 自动选择
+    type: url-test
+    proxies:
+      - 沪日440 · 我的落地·东京
+      - 沪日440 · 游戏加速
+      - 东京 AnyTLS
+      - 大阪 Snell
+      - 首尔 Mieru
+      - "\U0001F1ED\U0001F1F0 香港 01 · IPLC"
+      - "\U0001F1EF\U0001F1F5 日本 02 · 大阪"
+      - 新加坡 Hy2
+      - 我家宽带 Socks
+      - HTTPS 代理
+      - 老 SS
+      - VLESS WS TLS
+      - 重名 ①
+      - 重名 ②
+      - Shadowsocks 203.0.113.43
+      - 节点选择 · 节点
+      - "\U0001F1FA\U0001F1F8 美国, 洛杉矶 = 1"
+      - 'HK #2 ; test // x "q"'
+    url: http://cp.cloudflare.com/
+    interval: 300
+    tolerance: 50
+  - name: "\U0001F4CC 公司"
+    type: select
+    proxies:
+      - DIRECT
+      - 节点选择
+      - 自动选择
+      - 沪日440 · 我的落地·东京
+      - 沪日440 · 游戏加速
+      - 东京 AnyTLS
+      - 大阪 Snell
+      - 首尔 Mieru
+      - "\U0001F1ED\U0001F1F0 香港 01 · IPLC"
+      - "\U0001F1EF\U0001F1F5 日本 02 · 大阪"
+      - 新加坡 Hy2
+      - 我家宽带 Socks
+      - HTTPS 代理
+      - 老 SS
+      - VLESS WS TLS
+      - 重名 ①
+      - 重名 ②
+      - Shadowsocks 203.0.113.43
+      - 节点选择 · 节点
+      - "\U0001F1FA\U0001F1F8 美国, 洛杉矶 = 1"
+      - 'HK #2 ; test // x "q"'
+  - name: "\U0001F4CC 巴哈姆特"
+    type: select
+    proxies:
+      - 沪日440 · 我的落地·东京
+      - 节点选择
+      - 自动选择
+      - 沪日440 · 游戏加速
+      - 东京 AnyTLS
+      - 大阪 Snell
+      - 首尔 Mieru
+      - "\U0001F1ED\U0001F1F0 香港 01 · IPLC"
+      - "\U0001F1EF\U0001F1F5 日本 02 · 大阪"
+      - 新加坡 Hy2
+      - 我家宽带 Socks
+      - HTTPS 代理
+      - 老 SS
+      - VLESS WS TLS
+      - 重名 ①
+      - 重名 ②
+      - Shadowsocks 203.0.113.43
+      - 节点选择 · 节点
+      - "\U0001F1FA\U0001F1F8 美国, 洛杉矶 = 1"
+      - 'HK #2 ; test // x "q"'
+      - DIRECT
+  - name: "\U0001F6D1 广告拦截"
+    type: select
+    proxies:
+      - REJECT
+      - 节点选择
+      - 自动选择
+      - 沪日440 · 我的落地·东京
+      - 沪日440 · 游戏加速
+      - 东京 AnyTLS
+      - 大阪 Snell
+      - 首尔 Mieru
+      - "\U0001F1ED\U0001F1F0 香港 01 · IPLC"
+      - "\U0001F1EF\U0001F1F5 日本 02 · 大阪"
+      - 新加坡 Hy2
+      - 我家宽带 Socks
+      - HTTPS 代理
+      - 老 SS
+      - VLESS WS TLS
+      - 重名 ①
+      - 重名 ②
+      - Shadowsocks 203.0.113.43
+      - 节点选择 · 节点
+      - "\U0001F1FA\U0001F1F8 美国, 洛杉矶 = 1"
+      - 'HK #2 ; test // x "q"'
+      - DIRECT
+  - name: "\U0001F916 AI"
+    type: select
+    proxies:
+      - 自动选择
+      - 节点选择
+      - 沪日440 · 我的落地·东京
+      - 沪日440 · 游戏加速
+      - 东京 AnyTLS
+      - 大阪 Snell
+      - 首尔 Mieru
+      - "\U0001F1ED\U0001F1F0 香港 01 · IPLC"
+      - "\U0001F1EF\U0001F1F5 日本 02 · 大阪"
+      - 新加坡 Hy2
+      - 我家宽带 Socks
+      - HTTPS 代理
+      - 老 SS
+      - VLESS WS TLS
+      - 重名 ①
+      - 重名 ②
+      - Shadowsocks 203.0.113.43
+      - 节点选择 · 节点
+      - "\U0001F1FA\U0001F1F8 美国, 洛杉矶 = 1"
+      - 'HK #2 ; test // x "q"'
+      - DIRECT
+  - name: "\U0001F4F9 YouTube"
+    type: select
+    proxies:
+      - 节点选择
+      - 自动选择
+      - 沪日440 · 我的落地·东京
+      - 沪日440 · 游戏加速
+      - 东京 AnyTLS
+      - 大阪 Snell
+      - 首尔 Mieru
+      - "\U0001F1ED\U0001F1F0 香港 01 · IPLC"
+      - "\U0001F1EF\U0001F1F5 日本 02 · 大阪"
+      - 新加坡 Hy2
+      - 我家宽带 Socks
+      - HTTPS 代理
+      - 老 SS
+      - VLESS WS TLS
+      - 重名 ①
+      - 重名 ②
+      - Shadowsocks 203.0.113.43
+      - 节点选择 · 节点
+      - "\U0001F1FA\U0001F1F8 美国, 洛杉矶 = 1"
+      - 'HK #2 ; test // x "q"'
+      - DIRECT
+  - name: "\U0001F3AC 流媒体"
+    type: select
+    proxies:
+      - 节点选择
+      - 自动选择
+      - 沪日440 · 我的落地·东京
+      - 沪日440 · 游戏加速
+      - 东京 AnyTLS
+      - 大阪 Snell
+      - 首尔 Mieru
+      - "\U0001F1ED\U0001F1F0 香港 01 · IPLC"
+      - "\U0001F1EF\U0001F1F5 日本 02 · 大阪"
+      - 新加坡 Hy2
+      - 我家宽带 Socks
+      - HTTPS 代理
+      - 老 SS
+      - VLESS WS TLS
+      - 重名 ①
+      - 重名 ②
+      - Shadowsocks 203.0.113.43
+      - 节点选择 · 节点
+      - "\U0001F1FA\U0001F1F8 美国, 洛杉矶 = 1"
+      - 'HK #2 ; test // x "q"'
+      - DIRECT
+  - name: "\U0001F4F2 Telegram"
+    type: select
+    proxies:
+      - 节点选择
+      - 自动选择
+      - 沪日440 · 我的落地·东京
+      - 沪日440 · 游戏加速
+      - 东京 AnyTLS
+      - 大阪 Snell
+      - 首尔 Mieru
+      - "\U0001F1ED\U0001F1F0 香港 01 · IPLC"
+      - "\U0001F1EF\U0001F1F5 日本 02 · 大阪"
+      - 新加坡 Hy2
+      - 我家宽带 Socks
+      - HTTPS 代理
+      - 老 SS
+      - VLESS WS TLS
+      - 重名 ①
+      - 重名 ②
+      - Shadowsocks 203.0.113.43
+      - 节点选择 · 节点
+      - "\U0001F1FA\U0001F1F8 美国, 洛杉矶 = 1"
+      - 'HK #2 ; test // x "q"'
+      - DIRECT
+  - name: "\U0001F431 GitHub"
+    type: select
+    proxies:
+      - 节点选择
+      - 自动选择
+      - 沪日440 · 我的落地·东京
+      - 沪日440 · 游戏加速
+      - 东京 AnyTLS
+      - 大阪 Snell
+      - 首尔 Mieru
+      - "\U0001F1ED\U0001F1F0 香港 01 · IPLC"
+      - "\U0001F1EF\U0001F1F5 日本 02 · 大阪"
+      - 新加坡 Hy2
+      - 我家宽带 Socks
+      - HTTPS 代理
+      - 老 SS
+      - VLESS WS TLS
+      - 重名 ①
+      - 重名 ②
+      - Shadowsocks 203.0.113.43
+      - 节点选择 · 节点
+      - "\U0001F1FA\U0001F1F8 美国, 洛杉矶 = 1"
+      - 'HK #2 ; test // x "q"'
+      - DIRECT
+  - name: "\U0001F50D 谷歌"
+    type: select
+    proxies:
+      - 节点选择
+      - 自动选择
+      - 沪日440 · 我的落地·东京
+      - 沪日440 · 游戏加速
+      - 东京 AnyTLS
+      - 大阪 Snell
+      - 首尔 Mieru
+      - "\U0001F1ED\U0001F1F0 香港 01 · IPLC"
+      - "\U0001F1EF\U0001F1F5 日本 02 · 大阪"
+      - 新加坡 Hy2
+      - 我家宽带 Socks
+      - HTTPS 代理
+      - 老 SS
+      - VLESS WS TLS
+      - 重名 ①
+      - 重名 ②
+      - Shadowsocks 203.0.113.43
+      - 节点选择 · 节点
+      - "\U0001F1FA\U0001F1F8 美国, 洛杉矶 = 1"
+      - 'HK #2 ; test // x "q"'
+      - DIRECT
+  - name: Ⓜ️ 微软
+    type: select
+    proxies:
+      - DIRECT
+      - 节点选择
+      - 自动选择
+      - 沪日440 · 我的落地·东京
+      - 沪日440 · 游戏加速
+      - 东京 AnyTLS
+      - 大阪 Snell
+      - 首尔 Mieru
+      - "\U0001F1ED\U0001F1F0 香港 01 · IPLC"
+      - "\U0001F1EF\U0001F1F5 日本 02 · 大阪"
+      - 新加坡 Hy2
+      - 我家宽带 Socks
+      - HTTPS 代理
+      - 老 SS
+      - VLESS WS TLS
+      - 重名 ①
+      - 重名 ②
+      - Shadowsocks 203.0.113.43
+      - 节点选择 · 节点
+      - "\U0001F1FA\U0001F1F8 美国, 洛杉矶 = 1"
+      - 'HK #2 ; test // x "q"'
+  - name: "\U0001F34E 苹果"
+    type: select
+    proxies:
+      - DIRECT
+      - 节点选择
+      - 自动选择
+      - 沪日440 · 我的落地·东京
+      - 沪日440 · 游戏加速
+      - 东京 AnyTLS
+      - 大阪 Snell
+      - 首尔 Mieru
+      - "\U0001F1ED\U0001F1F0 香港 01 · IPLC"
+      - "\U0001F1EF\U0001F1F5 日本 02 · 大阪"
+      - 新加坡 Hy2
+      - 我家宽带 Socks
+      - HTTPS 代理
+      - 老 SS
+      - VLESS WS TLS
+      - 重名 ①
+      - 重名 ②
+      - Shadowsocks 203.0.113.43
+      - 节点选择 · 节点
+      - "\U0001F1FA\U0001F1F8 美国, 洛杉矶 = 1"
+      - 'HK #2 ; test // x "q"'
+rule-providers:
+  geosite-ads:
+    type: http
+    behavior: domain
+    format: mrs
+    url: https://panel.example/s/rs/geosite-ads.mrs
+    interval: 86400
+    proxy: DIRECT
+  geosite-ai:
+    type: http
+    behavior: domain
+    format: mrs
+    url: https://panel.example/s/rs/geosite-ai.mrs
+    interval: 86400
+    proxy: DIRECT
+  geosite-youtube:
+    type: http
+    behavior: domain
+    format: mrs
+    url: https://panel.example/s/rs/geosite-youtube.mrs
+    interval: 86400
+    proxy: DIRECT
+  geosite-netflix:
+    type: http
+    behavior: domain
+    format: mrs
+    url: https://panel.example/s/rs/geosite-netflix.mrs
+    interval: 86400
+    proxy: DIRECT
+  geosite-disney:
+    type: http
+    behavior: domain
+    format: mrs
+    url: https://panel.example/s/rs/geosite-disney.mrs
+    interval: 86400
+    proxy: DIRECT
+  geosite-hbo:
+    type: http
+    behavior: domain
+    format: mrs
+    url: https://panel.example/s/rs/geosite-hbo.mrs
+    interval: 86400
+    proxy: DIRECT
+  geosite-primevideo:
+    type: http
+    behavior: domain
+    format: mrs
+    url: https://panel.example/s/rs/geosite-primevideo.mrs
+    interval: 86400
+    proxy: DIRECT
+  geoip-netflix:
+    type: http
+    behavior: ipcidr
+    format: mrs
+    url: https://panel.example/s/rs/geoip-netflix.mrs
+    interval: 86400
+    proxy: DIRECT
+  geosite-telegram:
+    type: http
+    behavior: domain
+    format: mrs
+    url: https://panel.example/s/rs/geosite-telegram.mrs
+    interval: 86400
+    proxy: DIRECT
+  geoip-telegram:
+    type: http
+    behavior: ipcidr
+    format: mrs
+    url: https://panel.example/s/rs/geoip-telegram.mrs
+    interval: 86400
+    proxy: DIRECT
+  geosite-github:
+    type: http
+    behavior: domain
+    format: mrs
+    url: https://panel.example/s/rs/geosite-github.mrs
+    interval: 86400
+    proxy: DIRECT
+  geosite-google:
+    type: http
+    behavior: domain
+    format: mrs
+    url: https://panel.example/s/rs/geosite-google.mrs
+    interval: 86400
+    proxy: DIRECT
+  geoip-google:
+    type: http
+    behavior: ipcidr
+    format: mrs
+    url: https://panel.example/s/rs/geoip-google.mrs
+    interval: 86400
+    proxy: DIRECT
+  geosite-microsoft:
+    type: http
+    behavior: domain
+    format: mrs
+    url: https://panel.example/s/rs/geosite-microsoft.mrs
+    interval: 86400
+    proxy: DIRECT
+  geosite-apple:
+    type: http
+    behavior: domain
+    format: mrs
+    url: https://panel.example/s/rs/geosite-apple.mrs
+    interval: 86400
+    proxy: DIRECT
+rules:
+  - GEOSITE,private,DIRECT
+  - GEOIP,private,DIRECT,no-resolve
+  - DOMAIN-SUFFIX,msftconnecttest.com,DIRECT
+  - DOMAIN-SUFFIX,msftncsi.com,DIRECT
+  - "DOMAIN-SUFFIX,mycompany.com,\U0001F4CC 公司"
+  - "DOMAIN,vpn.corp.example.net,\U0001F4CC 公司"
+  - "DOMAIN-KEYWORD,intranet,\U0001F4CC 公司"
+  - "IP-CIDR,10.8.0.0/16,\U0001F4CC 公司,no-resolve"
+  - "IP-CIDR6,2001:db8::/32,\U0001F4CC 公司,no-resolve"
+  - "DOMAIN-SUFFIX,bahamut.com.tw,\U0001F4CC 巴哈姆特"
+  - "DOMAIN-SUFFIX,gamer.com.tw,\U0001F4CC 巴哈姆特"
+  - "RULE-SET,geosite-ads,\U0001F6D1 广告拦截"
+  - "RULE-SET,geosite-ai,\U0001F916 AI"
+  - "RULE-SET,geosite-youtube,\U0001F4F9 YouTube"
+  - "RULE-SET,geosite-netflix,\U0001F3AC 流媒体"
+  - "RULE-SET,geosite-disney,\U0001F3AC 流媒体"
+  - "RULE-SET,geosite-hbo,\U0001F3AC 流媒体"
+  - "RULE-SET,geosite-primevideo,\U0001F3AC 流媒体"
+  - "RULE-SET,geoip-netflix,\U0001F3AC 流媒体,no-resolve"
+  - "RULE-SET,geosite-telegram,\U0001F4F2 Telegram"
+  - "RULE-SET,geoip-telegram,\U0001F4F2 Telegram,no-resolve"
+  - "RULE-SET,geosite-github,\U0001F431 GitHub"
+  - "RULE-SET,geosite-google,\U0001F50D 谷歌"
+  - "RULE-SET,geoip-google,\U0001F50D 谷歌,no-resolve"
+  - RULE-SET,geosite-microsoft,Ⓜ️ 微软
+  - "RULE-SET,geosite-apple,\U0001F34E 苹果"
+  - GEOSITE,cn,DIRECT
+  - GEOIP,CN,DIRECT,no-resolve
+  - MATCH,节点选择
