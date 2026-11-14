@@ -161,7 +161,9 @@ func TestLineMonitorChartCRUDCapsAndPortHint(t *testing.T) {
 
 		// Edit: rename, drop line 0, keep line 1 (colour 1 stays), add a custom
 		// HiNet target on port 22 → saved with the SSH hint, not refused.
-		e.exec(`INSERT INTO line_monitor_sample(line_id, ts, status, ms10) VALUES(?, 100, 1, 50), (?, 130, 3, 0)`, l0.ID, l0.ID)
+		if err := e.r.InsertLineMonitorSamples([]model.LineMonitorSample{{LineID: l0.ID, TS: 100, Status: 1, Ms10: 50}, {LineID: l0.ID, TS: 130, Status: 3}}); err != nil {
+			t.Fatal(err)
+		}
 		_, warn = e.save(t, map[string]interface{}{"id": id, "name": "AWS HK ⇄ Seednet", "lines": []interface{}{
 			map[string]interface{}{"id": l1.ID, "sourceNodeId": 1, "targetType": "node", "targetNodeId": 3, "port": 30002},
 			lmLine(2, 0, "hinet.example.test", 22),

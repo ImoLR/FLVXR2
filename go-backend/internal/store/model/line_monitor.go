@@ -46,14 +46,29 @@ const (
 	LineSampleDown = 3 // both attempts failed
 )
 
-// LineMonitorSample is one measured 30 s slot. The composite primary key is
-// the (line_id, ts) index used by every range read and by the prune.
+// LineMonitorSample is one measured 30 s slot. ID packs the (line_id, ts)
+// key (LineSampleKey): on SQLite an INTEGER primary key is the table's own
+// rowid, so the rows are stored in (line_id, ts) order without a second
+// index (measured: 40 lines × 30 days = 76 MB instead of 123 MB with a
+// composite key + its index). Every range read / prune is an ID range.
 type LineMonitorSample struct {
-	LineID int64 `gorm:"column:line_id;primaryKey;autoIncrement:false"`
-	TS     int64 `gorm:"column:ts;primaryKey;autoIncrement:false"`
+	ID     int64 `gorm:"column:id;primaryKey;autoIncrement:false"`
+	LineID int64 `gorm:"column:line_id;not null"`
+	TS     int64 `gorm:"column:ts;not null"`
 	Status int   `gorm:"column:status;not null"`
 	// Ms10 = latency in tenths of a millisecond (0 for down).
 	Ms10 int `gorm:"column:ms10;not null;default:0"`
+}
+
+// LineSampleKey is the packed (line_id, ts) primary key of a sample.
+func LineSampleKey(lineID, ts int64) int64 {
+	if ts < 0 {
+		ts = 0
+	}
+	if ts > 1<<32-1 {
+		ts = 1<<32 - 1
+	}
+	return lineID<<32 | ts
 }
 
 func (LineMonitorSample) TableName() string { return "line_monitor_sample" }

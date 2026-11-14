@@ -271,7 +271,7 @@ func (r *Repository) SetLineMonitorLinePaused(id int64, paused bool) error {
 }
 
 // InsertLineMonitorSamples writes one batch (one statement; a slot already
-// stored is kept).
+// stored is kept). The packed key is filled from (LineID, TS).
 func (r *Repository) InsertLineMonitorSamples(samples []model.LineMonitorSample) error {
 	if r == nil || r.db == nil {
 		return errors.New("repository not initialized")
@@ -279,12 +279,15 @@ func (r *Repository) InsertLineMonitorSamples(samples []model.LineMonitorSample)
 	if len(samples) == 0 {
 		return nil
 	}
-	return r.db.Clauses(clause.OnConflict{DoNothing: true}).CreateInBatches(samples, 200).Error
+	for i := range samples {
+		samples[i].ID = model.LineSampleKey(samples[i].LineID, samples[i].TS)
+	}
+	return r.db.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "id"}}, DoNothing: true}).CreateInBatches(samples, 200).Error
 }
 
 // DeleteLineMonitorSamplesBefore deletes at most ~limit samples of one line
-// older than before (ts < before), oldest first, using the (line_id, ts) key.
-// Returns the number of rows deleted; 0 = nothing older is left.
+// older than before (ts < before), oldest first: one primary-key range per
+// batch. Returns the number of rows deleted (< limit = nothing older left).
 func (r *Repository) DeleteLineMonitorSamplesBefore(lineID, before int64, limit int) (int64, error) {
 	if r == nil || r.db == nil {
 		return 0, errors.New("repository not initialized")
@@ -292,37 +295,42 @@ func (r *Repository) DeleteLineMonitorSamplesBefore(lineID, before int64, limit 
 	if limit <= 0 {
 		limit = 2000
 	}
+	lo, hi := model.LineSampleKey(lineID, 0), model.LineSampleKey(lineID, before)
+	if before > 1<<32-1 {
+		hi = model.LineSampleKey(lineID+1, 0)
+	}
 	var edge []int64
-	if err := r.db.Model(&model.LineMonitorSample{}).Where("line_id = ? AND ts < ?", lineID, before).
-		Order("ts ASC").Offset(limit-1).Limit(1).Pluck("ts", &edge).Error; err != nil {
+	if err := r.db.Model(&model.LineMonitorSample{}).Where("id >= ? AND id < ?", lo, hi).
+		Order("id ASC").Offset(limit-1).Limit(1).Pluck("id", &edge).Error; err != nil {
 		return 0, err
 	}
-	q := r.db.Where("line_id = ? AND ts < ?", lineID, before)
 	if len(edge) == 1 {
-		q = q.Where("ts <= ?", edge[0])
+		hi = edge[0] + 1
 	}
-	res := q.Delete(&model.LineMonitorSample{})
+	res := r.db.Where("id >= ? AND id < ?", lo, hi).Delete(&model.LineMonitorSample{})
 	return res.RowsAffected, res.Error
 }
 
 // LineMonitorSampleLineIDs returns the distinct line IDs that have samples
-// (index skip-scan: one seek per line, never a full scan).
+// (one key seek per line, never a full scan).
 func (r *Repository) LineMonitorSampleLineIDs() ([]int64, error) {
 	if r == nil || r.db == nil {
 		return nil, errors.New("repository not initialized")
 	}
 	var out []int64
-	last := int64(-1 << 62)
+	next := int64(0)
 	for i := 0; i < 10000; i++ {
-		var next []int64
-		if err := r.db.Model(&model.LineMonitorSample{}).Where("line_id > ?", last).Order("line_id ASC").Limit(1).Pluck("line_id", &next).Error; err != nil {
+		var ids []int64
+		if err := r.db.Model(&model.LineMonitorSample{}).Where("id >= ?", model.LineSampleKey(next, 0)).
+			Order("id ASC").Limit(1).Pluck("id", &ids).Error; err != nil {
 			return nil, err
 		}
-		if len(next) == 0 {
+		if len(ids) == 0 {
 			break
 		}
-		out = append(out, next[0])
-		last = next[0]
+		line := ids[0] >> 32
+		out = append(out, line)
+		next = line + 1
 	}
 	return out, nil
 }
@@ -335,14 +343,14 @@ type LineMonitorSampleRow struct {
 }
 
 // ReadLineMonitorSamples streams one line's samples with from <= ts < to in ts
-// order to fn (no slice of the whole range is built). Runs on the read-only
-// connection on SQLite.
+// order to fn (no slice of the whole range is built): one primary-key range,
+// on the read-only connection on SQLite.
 func (r *Repository) ReadLineMonitorSamples(lineID, from, to int64, fn func(LineMonitorSampleRow)) error {
 	if r == nil || r.db == nil {
 		return errors.New("repository not initialized")
 	}
 	rows, err := r.lineReadDB().Model(&model.LineMonitorSample{}).Select("ts, status, ms10").
-		Where("line_id = ? AND ts >= ? AND ts < ?", lineID, from, to).Order("ts ASC").Rows()
+		Where("id >= ? AND id < ?", model.LineSampleKey(lineID, from), model.LineSampleKey(lineID, to)).Order("id ASC").Rows()
 	if err != nil {
 		return err
 	}
@@ -355,25 +363,6 @@ func (r *Repository) ReadLineMonitorSamples(lineID, from, to int64, fn func(Line
 		fn(row)
 	}
 	return rows.Err()
-}
-
-// LatestLineMonitorSamples returns the newest sample of each line (one indexed
-// seek per line), for the 当前延迟 after a panel restart.
-func (r *Repository) LatestLineMonitorSamples(lineIDs []int64) (map[int64]model.LineMonitorSample, error) {
-	if r == nil || r.db == nil {
-		return nil, errors.New("repository not initialized")
-	}
-	out := make(map[int64]model.LineMonitorSample, len(lineIDs))
-	for _, id := range lineIDs {
-		var s []model.LineMonitorSample
-		if err := r.lineReadDB().Where("line_id = ?", id).Order("ts DESC").Limit(1).Find(&s).Error; err != nil {
-			return nil, err
-		}
-		if len(s) == 1 {
-			out[id] = s[0]
-		}
-	}
-	return out, nil
 }
 
 // ListLineMonitorNodeRecords returns every node as a NodeRecord (pickers and
