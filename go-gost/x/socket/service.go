@@ -18,6 +18,8 @@ func createServices(req createServicesRequest) error {
 	if len(req.Data) == 0 {
 		return errors.New("services list cannot be empty")
 	}
+	// Plan 255: a check port never blocks a real service.
+	yieldMonitorPortsToServices(req.Data)
 
 	// 第一阶段：验证所有服务配置
 	var parsedServices []struct {
@@ -87,6 +89,7 @@ func updateServices(req updateServicesRequest) error {
 	if len(req.Data) == 0 {
 		return errors.New("services list cannot be empty")
 	}
+	yieldMonitorPortsToServices(req.Data) // plan 255
 
 	// 第一阶段：验证所有服务名称有效性
 	for i := range req.Data {
@@ -381,6 +384,7 @@ func resumeServices(req resumeServicesRequest) error {
 			skippedServices = append(skippedServices, name)
 			continue
 		}
+		yieldMonitorPortsToServices([]config.ServiceConfig{*serviceConfig}) // plan 255
 
 		servicesToResume = append(servicesToResume, struct {
 			name          string

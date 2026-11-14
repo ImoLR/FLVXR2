@@ -21,6 +21,7 @@ func (w *WebSocketReporter) handleApplyLandingDesired(data interface{}) (landing
 	if err := json.Unmarshal(raw, &desired); err != nil {
 		return landing.Status{}, fmt.Errorf("invalid landing desired state")
 	}
+	yieldMonitorPortsToLanding(desired) // plan 255: a check port never blocks a landing inbound
 	ctx, cancel := context.WithTimeout(w.ctx, 25*time.Minute)
 	defer cancel()
 	return landing.Default().Apply(ctx, desired)
