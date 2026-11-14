@@ -151,7 +151,7 @@ pixel-identical. Task `sub-rules-h5` (Claude high), same worktree/branch, build 
 - [x] h7. `npm run build` + eslint 0 errors (Go untouched)
 - [x] h8. Screens `-v2` (390×844 + 360×780, light + dark, collapsed + expanded, ≥ 30-char name) + desktop re-shots
       compared with the current gallery files; gallery index section 「H5 展开行」
-- [ ] h9. Commit + push, CI green, ledger row 256 note 「H5 展开行 r2 done」, summary
+- [x] h9. Commit + push, CI green, ledger row 256 note 「H5 展开行 r2 done」, summary
 
 H5 展开行 results (11-14):
 - `src/components/expand-row.tsx` (ExpandRow / useExpandOne / ExpandChip / ExpandField / ExpandActions / shortProtocol),
@@ -171,3 +171,4 @@ H5 展开行 results (11-14):
 - Gallery: section 「H5 展开行」 at the top of http://104.145.236.29:8791/sub-rules/ (40 `-v2` H5 screens + 23 sweep
   `-360-v2` screens; old files kept for before/after).
 - eslint: 0 errors in changed files (full `src` has 90 errors, all in untouched files = already there); `npm run build` ok.
+- Commit b8a1f8a2 pushed, CI 43606170413 green (backend, agent, frontend, PG contract). Ledger 256 note 「H5 展开行 r2 done」. Build only — waits for the user's screen approval like r1.
