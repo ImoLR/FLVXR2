@@ -19,7 +19,9 @@ func isRoutineCommand(command string) bool {
 	// SetQuotaGroups: the panel's quota coordinator re-sends live budgets
 	// whenever a user's counts move on other nodes (plan 167: it was one
 	// 「收到命令」 line per push, ~1350/h on node 32); failures as above.
-	case "TcpPing", "PipePing", "ServiceMonitorCheck", "GetServiceClientIPs", "ListServices", "ApplyLandingDesired", "SetQuotaGroups":
+	// MonitorPort (plan 255): the panel re-sends the full check-port list on
+	// every reconnect; the manager logs real opens / closes itself.
+	case "TcpPing", "PipePing", "ServiceMonitorCheck", "GetServiceClientIPs", "ListServices", "ApplyLandingDesired", "SetQuotaGroups", "MonitorPort":
 		return true
 	default:
 		return false

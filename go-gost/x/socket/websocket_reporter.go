@@ -31,6 +31,7 @@ import (
 	"github.com/go-gost/x/landing"
 	"github.com/go-gost/x/logsafe"
 	"github.com/go-gost/x/machineprotect"
+	"github.com/go-gost/x/monitorport"
 	"github.com/go-gost/x/nodeaddr"
 	"github.com/go-gost/x/panelconn"
 	"github.com/go-gost/x/registry"
@@ -199,7 +200,11 @@ type TcpPingResponse struct {
 	AverageTime  float64 `json:"averageTime"` // 平均连接时间(ms)
 	PacketLoss   float64 `json:"packetLoss"`  // 连接失败率(%)
 	ErrorMessage string  `json:"errorMessage,omitempty"`
-	RequestId    string  `json:"requestId,omitempty"`
+	// ErrorKind (plan 255): why every attempt failed — refused (reachable,
+	// nothing listening), timeout, unreach or dns; "" when unknown or OK.
+	// Older panels ignore it.
+	ErrorKind string `json:"errorKind,omitempty"`
+	RequestId string `json:"requestId,omitempty"`
 }
 
 // ServiceMonitorCheckRequest service monitor check request.
@@ -895,7 +900,9 @@ func buildWebSocketQuery(secret string, version string, http int, tls int, socks
 		// Plan 240: reports dns_cache and runs DNSCacheEnsure.
 		"&dnsCache=" + strconv.Itoa(dnscache.CapVersion) +
 		// Plan 244: takes SetWarmPools and reports warm_pool (预热池).
-		"&warmPool=" + strconv.Itoa(warmpool.CapVersion)
+		"&warmPool=" + strconv.Itoa(warmpool.CapVersion) +
+		// Plan 255: takes MonitorPort (检测端口) and reports TcpPing errorKind.
+		"&monitorPort=" + strconv.Itoa(monitorport.CapVersion)
 }
 
 // buildWebSocketCandidates returns the primary and the fallback scheme URL of
@@ -1568,6 +1575,9 @@ func (w *WebSocketReporter) routeCommand(cmd CommandMessage) {
 	case "SetWarmPools":
 		response.Data, err = handleSetWarmPools(cmd.Data)
 		response.Type = "SetWarmPoolsResponse"
+	case "MonitorPort": // plan 255 检测端口 (accept-and-close listeners)
+		response.Data, err = w.handleMonitorPort(cmd.Data)
+		response.Type = "MonitorPortResponse"
 	case "SetQuotaGroups":
 		err = w.handleSetQuotaGroups(cmd.Data)
 		response.Type = "SetQuotaGroupsResponse"
@@ -3110,6 +3120,7 @@ func StartWebSocketReporterWithConfig(addr string, secret string, http int, tls 
 	reporter.nodeID = nodeID
 	reporter.serviceName = cfg.ServiceName
 	reporter.initMachineProtection(configDir, configPath)
+	reporter.initMonitorPorts(configDir, configPath)
 
 	// 如果 config.json 中有 node_id，初始化基线管理器
 	if nodeID > 0 {
@@ -3188,7 +3199,7 @@ func (w *WebSocketReporter) handleTcpPing(data interface{}) (TcpPingResponse, er
 	}
 
 	// 执行TCP ping操作
-	avgTime, packetLoss, err := tcpPingHost(req.IP, req.Port, req.Count, req.Timeout)
+	avgTime, packetLoss, kind, err := tcpPingHostKind(req.IP, req.Port, req.Count, req.Timeout)
 
 	response := TcpPingResponse{
 		IP:        req.IP,
@@ -3199,6 +3210,7 @@ func (w *WebSocketReporter) handleTcpPing(data interface{}) (TcpPingResponse, er
 	if err != nil {
 		response.Success = false
 		response.ErrorMessage = err.Error()
+		response.ErrorKind = kind
 	} else {
 		response.Success = true
 		response.AverageTime = avgTime
@@ -3414,8 +3426,16 @@ func icmpPing(target string, timeout time.Duration) (time.Duration, error) {
 
 // tcpPingHost 执行TCP连接测试，返回平均连接时间和失败率
 func tcpPingHost(ip string, port int, count int, timeoutMs int) (float64, float64, error) {
+	avg, loss, _, err := tcpPingHostKind(ip, port, count, timeoutMs)
+	return avg, loss, err
+}
+
+// tcpPingHostKind is tcpPingHost plus the kind of the last failure when every
+// attempt failed.
+func tcpPingHostKind(ip string, port int, count int, timeoutMs int) (float64, float64, string, error) {
 	var totalTime float64
 	var successCount int
+	var lastErr error
 
 	timeout := time.Duration(timeoutMs) * time.Millisecond
 
@@ -3428,10 +3448,10 @@ func tcpPingHost(ip string, port int, count int, timeoutMs int) (float64, float6
 		// Resolve once so repeated attempts do not multiply DNS traffic.
 		addrs, err := net.LookupHost(ip)
 		if err != nil {
-			return 0, 100.0, fmt.Errorf("DNS解析失败: %v", err)
+			return 0, 100.0, pingKindDNS, fmt.Errorf("DNS解析失败: %v", err)
 		}
 		if len(addrs) == 0 {
-			return 0, 100.0, fmt.Errorf("DNS解析未返回任何IP地址")
+			return 0, 100.0, pingKindDNS, fmt.Errorf("DNS解析未返回任何IP地址")
 		}
 
 		// 使用第一个解析到的IP进行测试
@@ -3453,6 +3473,8 @@ func tcpPingHost(ip string, port int, count int, timeoutMs int) (float64, float6
 			conn.Close()
 			totalTime += elapsed.Seconds() * 1000 // 转换为毫秒
 			successCount++
+		} else {
+			lastErr = err
 		}
 
 		// 如果不是最后一次，等待一下再进行下次测试
@@ -3462,13 +3484,17 @@ func tcpPingHost(ip string, port int, count int, timeoutMs int) (float64, float6
 	}
 
 	if successCount == 0 {
-		return 0, 100.0, fmt.Errorf("所有TCP连接尝试都失败")
+		kind := dialErrorKind(lastErr)
+		if kind == pingKindRefused {
+			return 0, 100.0, kind, fmt.Errorf("所有TCP连接尝试都失败（连接被拒绝：目标端口没有监听）")
+		}
+		return 0, 100.0, kind, fmt.Errorf("所有TCP连接尝试都失败")
 	}
 
 	avgTime := totalTime / float64(successCount)
 	packetLoss := float64(count-successCount) / float64(count) * 100
 
-	return avgTime, packetLoss, nil
+	return avgTime, packetLoss, "", nil
 }
 
 // isValidHostname 验证主机名格式

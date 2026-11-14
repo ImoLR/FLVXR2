@@ -2295,6 +2295,11 @@ func (h *Handler) validateForwardPortAvailabilityTx(tx *gorm.DB, node *nodeRecor
 	if h == nil || h.repo == nil || tx == nil || node == nil || port <= 0 {
 		return nil
 	}
+	if reserved, err := h.repo.LineMonitorPortReservedTx(tx, node.ID, port); err != nil {
+		return err
+	} else if reserved {
+		return lineMonitorPortTakenError(node.Name, port)
+	}
 	occupied, err := h.repo.HasOtherForwardOnNodePortTx(tx, node.ID, port, currentForwardID)
 	if err != nil {
 		return err
@@ -6073,12 +6078,15 @@ func (h *Handler) replaceTunnelChainsTx(tx *gorm.DB, tunnelID int64, req map[str
 }
 
 func (h *Handler) deleteNodeByID(id int64) error {
+	// Plan 255: 线路监测 lines from / to the node go with it (same transaction).
+	monitorLines, _ := h.repo.LineMonitorLinesOfNode(id)
 	if err := h.repo.DeleteNodeCascade(id); err != nil {
 		return err
 	}
 	if h.wsServer != nil {
 		h.wsServer.ForgetMachine(id)
 	}
+	h.lineMonitorNodeDeleted(id, monitorLines)
 	return nil
 }
 
@@ -6838,6 +6846,11 @@ func (h *Handler) validateForwardPortAvailability(node *nodeRecord, port int, cu
 	}
 	if landingUsed {
 		return fmt.Errorf("节点 %s 端口 %d 已被落地节点占用", node.Name, port)
+	}
+	if reserved, err := h.repo.LineMonitorPortReserved(node.ID, port); err != nil {
+		return err
+	} else if reserved {
+		return lineMonitorPortTakenError(node.Name, port)
 	}
 	occupied, err := h.repo.HasOtherForwardOnNodePort(node.ID, port, currentForwardID)
 	if err != nil {

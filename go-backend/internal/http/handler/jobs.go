@@ -59,6 +59,9 @@ func (h *Handler) StartBackgroundJobs() {
 	go h.runDDNSLoop(ctx)
 	go h.runEntryRateLoop(ctx)
 	go h.runRealityProbeLoop(ctx)
+	// Plan 255: one goroutine; blocks on its kick channel while no line is active.
+	h.jobsWG.Add(1)
+	go h.runLineMonitorLoop(ctx)
 	h.resyncLandingAfterMigration()
 	// Plan 196: no goroutine unless a bot token + bound chat exist.
 	h.EnableTelegramBot()

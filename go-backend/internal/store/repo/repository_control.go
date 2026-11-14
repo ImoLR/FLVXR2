@@ -292,7 +292,8 @@ func (r *Repository) HasOtherForwardOnNodePortTx(tx *gorm.DB, nodeID int64, port
 			return true, nil
 		}
 	}
-	return false, nil
+	// Plan 255: a 线路监测 check port is reserved as well.
+	return r.LineMonitorPortReservedTx(tx, nodeID, port)
 }
 
 func (r *Repository) GetTunnelOutProtocol(tunnelID int64) (string, error) {

@@ -218,6 +218,7 @@ func landingPortHolders(tx *gorm.DB, nodeID int64, lo, hi int) (map[int][]string
 		{"chain_tunnel", "chain_tunnel.port", "chain_tunnel.port AS port, tunnel.name AS name, chain_tunnel.tunnel_id AS id", "LEFT JOIN tunnel ON tunnel.id = chain_tunnel.tunnel_id", "chain_tunnel.node_id = ? AND chain_tunnel.port IS NOT NULL", "隧道"},
 		{"node_deployed_inbound", "listen_port", "listen_port AS port, display_name AS name, id", "", "node_id = ?", "入站"},
 		{"node_runtime_resource", "port", "port, resource_key AS name, id", "", "node_id = ? AND status <> 'released' AND port > 0", "运行资源"},
+		{"line_monitor_port", "port", "port, state AS name, id", "", "node_id = ?", "线路监测检测端口"}, // plan 255
 	} {
 		db := tx.Table(q.table).Select(q.sel)
 		if q.join != "" {

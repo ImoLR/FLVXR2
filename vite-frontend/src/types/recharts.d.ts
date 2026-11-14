@@ -7,6 +7,9 @@ declare module "recharts" {
   export const YAxis: React.ComponentType<Record<string, unknown>>;
   export const CartesianGrid: React.ComponentType<Record<string, unknown>>;
   export const Tooltip: React.ComponentType<Record<string, unknown>>;
+  // Plan 255 (线路监测): 断流 / 无数据 bands and 丢包 markers.
+  export const ReferenceArea: React.ComponentType<Record<string, unknown>>;
+  export const ReferenceDot: React.ComponentType<Record<string, unknown>>;
   export const ResponsiveContainer: React.ComponentType<
     Record<string, unknown>
   >;
