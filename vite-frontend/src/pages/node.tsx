@@ -12,6 +12,7 @@ import type {
 
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import toast from "react-hot-toast";
+import { useNavigate } from "react-router-dom";
 import {
   DndContext,
   pointerWithin,
@@ -419,6 +420,7 @@ const formatDate = (timestamp: number): string => {
 };
 
 export default function NodePage() {
+  const navigate = useNavigate(); // plan 255: 线路监测 button
   const [nodeList, setNodeList] = useState<Node[]>([]);
   const [nodeOrder, setNodeOrder] = useState<number[]>([]);
   const [loading, setLoading] = useState(false);
@@ -2979,6 +2981,16 @@ export default function NodePage() {
                   onPress={() => setGroupManagerOpen(true)}
                 >
                   分组
+                </Button>
+                {/* Plan 255: 线路监测 (admin-only comparison charts) */}
+                <Button
+                  color="success"
+                  data-testid="node-line-monitor"
+                  size="sm"
+                  variant="flat"
+                  onPress={() => navigate("/node-monitor")}
+                >
+                  线路监测
                 </Button>
                 {/* 新增按钮 */}
                 <Button

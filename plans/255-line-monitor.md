@@ -52,12 +52,12 @@ No per-node probe charts — one admin tool where only the comparison charts the
 - [x] Backend: `internal/linemon` logic (classify, slots, buckets, stats, events) + unit tests
 - [x] Backend: scheduler (one goroutine, ≤ 4 in flight, retry 2 s, spread, idle with no lines, batched writes, hourly
       prune) + tests (classification incl. offline / timeout, retry, jitter + concurrency, pause, prune)
-- [ ] Backend: HTTP API (list / options / ports / chart save / delete / reorder / line pause / data) + contract tests
+- [x] Backend: HTTP API (list / options / ports / chart save / delete / reorder / line pause / data) + contract tests
       (CRUD, admin-only, caps 8 / 40, port 22 hint, bucket keeps down, stats on fixtures)
-- [ ] `go test ./...` (SQLite) + PG variant (local temp postgres)
-- [ ] Frontend: API module, `/node-monitor` lazy page, 节点 toolbar button, empty state, chart dialog, chart with
+- [x] `go test ./...` (SQLite) + PG variant (local temp postgres)
+- [x] Frontend: API module, `/node-monitor` lazy page, 节点 toolbar button, empty state, chart dialog, chart with
       status lanes, range picker + custom + drag-zoom, stats table, 断流记录; H5 + dark
-- [ ] `npm run build`, eslint 0 new errors
+- [x] `npm run build`, eslint 0 new errors
 - [ ] Local lab: real agents in a loopback netns, real 断流 / 丢包 / 无数据; 40-line × 30-day synthetic query time + DB
       size; panel RSS / goroutines / CPU with 40 active lines
 - [ ] Gallery http://<dev>:8791/line-monitor/ (desktop 1366×900 + mobile 390×844, light + dark)

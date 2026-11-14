@@ -13,6 +13,7 @@ export const pageLoaders = {
   landing: () => import("@/pages/landing"),
   subLink: () => import("@/pages/sub-link"),
   node: () => import("@/pages/node"),
+  nodeMonitor: () => import("@/pages/node-monitor"), // plan 255 线路监测 (admin)
   tls: () => import("@/pages/tls"),
   user: () => import("@/pages/user"),
   group: () => import("@/pages/group"),
@@ -38,6 +39,7 @@ export const routePages: Record<string, PageKey> = {
   "/landing": "landing",
   "/sub": "subLink",
   "/node": "node",
+  "/node-monitor": "nodeMonitor",
   "/tls": "tls",
   "/user": "user",
   "/group": "group",

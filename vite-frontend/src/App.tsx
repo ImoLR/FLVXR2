@@ -34,6 +34,7 @@ const {
   landing: LandingPage,
   subLink: SubLinkPage,
   node: NodePage,
+  nodeMonitor: NodeMonitorPage,
   tls: TLSPage,
   user: UserPage,
   group: GroupPage,
@@ -253,6 +254,14 @@ function App() {
           </ProtectedRoute>
         }
         path="/node"
+      />
+      <Route
+        element={
+          <ProtectedRoute>
+            <NodeMonitorPage />
+          </ProtectedRoute>
+        }
+        path="/node-monitor"
       />
       <Route
         element={
