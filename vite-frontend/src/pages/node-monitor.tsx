@@ -12,6 +12,7 @@ import { Activity, ArrowLeft } from "lucide-react";
 
 import { ChartCard } from "./node-monitor/chart-card";
 import { ChartDialog } from "./node-monitor/chart-dialog";
+import { CheckCommandModal, windowText } from "./node-monitor/check-port";
 
 import {
   deleteLineMonitorChart,
@@ -19,6 +20,8 @@ import {
   getLineMonitorOptions,
   pauseLineMonitorLine,
   reorderLineMonitorCharts,
+  rotateLineCheckPort,
+  verifyLineCheckPort,
 } from "@/api/line-monitor";
 import { AnimatedPage } from "@/components/animated-page";
 import { useMobileBreakpoint } from "@/hooks/useMobileBreakpoint";
@@ -51,6 +54,10 @@ export default function NodeMonitorPage() {
   }>({ open: false, chart: null });
   const [deleting, setDeleting] = useState<LineMonitorChart | null>(null);
   const [deleteBusy, setDeleteBusy] = useState(false);
+  // plan 255 part 2 检测端口
+  const [checkBusyId, setCheckBusyId] = useState<number | null>(null);
+  const [commandLine, setCommandLine] = useState<LineMonitorLine | null>(null);
+  const [pausing, setPausing] = useState<LineMonitorLine | null>(null);
 
   const reload = useCallback(async () => {
     const res = await getLineMonitorList();
@@ -112,7 +119,7 @@ export default function NodeMonitorPage() {
     [list, reload],
   );
 
-  const onPause = useCallback(
+  const doPause = useCallback(
     async (line: LineMonitorLine, paused: boolean) => {
       const res = await pauseLineMonitorLine(line.id, paused);
 
@@ -122,6 +129,58 @@ export default function NodeMonitorPage() {
         return;
       }
       toast.success(paused ? "已暂停该线路" : "已恢复该线路");
+      void reload();
+    },
+    [reload],
+  );
+
+  // Pausing a line with a check port asks first: the port expires on its own.
+  const onPause = useCallback(
+    (line: LineMonitorLine, paused: boolean) => {
+      const auto = line.portMode === "auto" && line.targetNodeId > 0;
+      const custom = line.targetNodeId <= 0 && (line.checkWindow ?? 0) > 0;
+
+      if (paused && (auto || custom)) {
+        setPausing(line);
+
+        return;
+      }
+      void doPause(line, paused);
+    },
+    [doPause],
+  );
+
+  const onCheckPort = useCallback(
+    async (line: LineMonitorLine, action: "rotate" | "verify" | "command") => {
+      if (action === "command") {
+        setCommandLine(line);
+
+        return;
+      }
+      setCheckBusyId(line.id);
+      if (action === "verify") {
+        const res = await verifyLineCheckPort(line.id);
+
+        setCheckBusyId(null);
+        if (res.code !== 0) toast.error(res.msg || "操作失败");
+        else if (res.data?.checks?.[0]?.state === "ok")
+          toast.success(`检测端口 :${res.data.checks[0].port} 已开启 ✓`);
+        else toast(res.data?.checks?.[0]?.msg || "已重新发送", { icon: "⚠️" });
+      } else {
+        const res = await rotateLineCheckPort(line.id);
+
+        setCheckBusyId(null);
+        if (res.code !== 0 || !res.data) toast.error(res.msg || "换端口失败");
+        else if (res.data.ok)
+          toast.success(
+            `已换到检测端口 :${res.data.tries[res.data.tries.length - 1]?.port}，从源节点验证通过 ✓`,
+          );
+        else
+          toast(res.data.msg || "换端口没有成功", {
+            icon: "⚠️",
+            duration: 9000,
+          });
+      }
       void reload();
     },
     [reload],
@@ -226,10 +285,12 @@ export default function NodeMonitorPage() {
             <ChartCard
               key={c.id}
               chart={c}
+              checkBusyId={checkBusyId}
               dark={dark}
               index={i}
               isMobile={isMobile}
               total={charts.length}
+              onCheckPort={onCheckPort}
               onDelete={onDelete}
               onEdit={onEdit}
               onMove={onMove}
@@ -289,6 +350,77 @@ export default function NodeMonitorPage() {
                 onPress={confirmDelete}
               >
                 删除
+              </Button>
+            </ModalFooter>
+          </>
+        </ModalContent>
+      </Modal>
+      <CheckCommandModal
+        line={commandLine}
+        sourceIds={
+          commandLine
+            ? Array.from(
+                new Set(
+                  charts
+                    .find((c) => c.id === commandLine.chartId)
+                    ?.lines.filter(
+                      (x) =>
+                        x.targetNodeId <= 0 &&
+                        x.effectiveHost.toLowerCase() ===
+                          commandLine.effectiveHost.toLowerCase() &&
+                        x.port === commandLine.port,
+                    )
+                    .map((x) => x.sourceNodeId) ?? [commandLine.sourceNodeId],
+                ),
+              )
+            : []
+        }
+        onClose={() => setCommandLine(null)}
+      />
+
+      <Modal
+        isOpen={pausing != null}
+        placement="center"
+        size="md"
+        onClose={() => setPausing(null)}
+      >
+        <ModalContent>
+          <>
+            <ModalHeader>
+              <h2 className="text-lg font-bold">暂停线路</h2>
+            </ModalHeader>
+            <ModalBody>
+              {pausing && pausing.targetNodeId <= 0 ? (
+                <p data-testid="lm-pause-warning">
+                  暂停超过 {windowText(pausing.checkWindow || 24)}
+                  ，对方检测端口会自动删除，恢复后需要在目标机器上重新执行开启命令。
+                </p>
+              ) : (
+                <p data-testid="lm-pause-warning">
+                  暂停超过 24
+                  小时，目标节点会自动关闭检测端口；恢复时面板会自动重新开启。
+                </p>
+              )}
+            </ModalBody>
+            <ModalFooter>
+              <Button
+                color="danger"
+                variant="flat"
+                onPress={() => setPausing(null)}
+              >
+                取消
+              </Button>
+              <Button
+                color="primary"
+                data-testid="lm-pause-confirm"
+                onPress={() => {
+                  const l = pausing;
+
+                  setPausing(null);
+                  if (l) void doPause(l, true);
+                }}
+              >
+                暂停
               </Button>
             </ModalFooter>
           </>

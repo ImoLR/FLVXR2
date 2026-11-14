@@ -24,6 +24,8 @@ import { ArrowDown, ArrowUp } from "lucide-react";
 import {
   LIVE_RANGES,
   RANGE_OPTIONS,
+  STATUS_CLOSED_DARK,
+  STATUS_CLOSED_LIGHT,
   STATUS_DOWN,
   STATUS_LOSS,
   STATUS_NODATA_DARK,
@@ -44,6 +46,7 @@ import {
   timeTicks,
   toLocalInput,
 } from "./format";
+import { CLOSED_PILL, CheckPortRows } from "./check-port";
 
 import { getLineMonitorData } from "@/api/line-monitor";
 import { useTapTooltip } from "@/hooks/useTapTooltip";
@@ -59,7 +62,7 @@ const RIGHT_INSET = 12;
 const TOP_INSET = 8;
 const LIVE_REFRESH_MS = 30_000;
 
-type BucketState = "ok" | "loss" | "down" | "nodata" | "none";
+type BucketState = "ok" | "loss" | "down" | "closed" | "nodata" | "none";
 
 // Merged buckets (step > 60 s) mark 丢包 only when ≥ 5 % of the measured
 // slots were 丢包 (one lost probe in a 30-min bucket is noise at 30 天); the
@@ -69,13 +72,16 @@ const LOSS_SHOW_RATIO = 0.05;
 function bucketState(s: LineMonitorSeries, j: number, step = 30): BucketState {
   const down = s.down[j] ?? 0;
   const loss = s.loss[j] ?? 0;
+  const closed = s.closed?.[j] ?? 0;
   const measured = (s.ok[j] ?? 0) + loss + down;
   const exp = s.exp[j] ?? 0;
 
   if (down > 0) return "down";
+  // plan 255 part 2: 端口未开启 (both attempts refused) is not 断流
+  if (closed > 0 && closed >= measured) return "closed";
   if (loss > 0 && (step <= 60 || loss >= measured * LOSS_SHOW_RATIO))
     return "loss";
-  if (exp > 0 && measured * 2 < exp) return "nodata";
+  if (exp > 0 && (measured + closed) * 2 < exp) return "nodata";
   if (measured > 0) return "ok";
 
   return "none";
@@ -113,14 +119,16 @@ function Pill({
   tone,
   children,
   title,
+  className,
 }: {
   tone: LandingTone;
   children: React.ReactNode;
   title?: string;
+  className?: string;
 }) {
   return (
     <span
-      className={`inline-flex max-w-full shrink-0 items-center gap-1 whitespace-nowrap rounded-full px-2 text-xs font-semibold leading-[18px] ${landingToneClass[tone]}`}
+      className={`inline-flex max-w-full shrink-0 items-center gap-1 whitespace-nowrap rounded-full px-2 text-xs font-semibold leading-[18px] ${className ?? landingToneClass[tone]}`}
       title={title}
     >
       {children}
@@ -145,7 +153,12 @@ const statusText = (status: number) =>
       ? "丢包"
       : status === 3
         ? "断流"
-        : "无数据";
+        : status === 4
+          ? "端口未开启"
+          : "无数据";
+
+/** grey-blue pill class for 端口未开启 (plan 255 part 2). */
+const liveClass = (status: number) => (status === 4 ? CLOSED_PILL : undefined);
 
 interface View extends StoredRange {
   /** drag / 断流记录 zoom window (returns to `range` on 重置) */
@@ -162,6 +175,12 @@ interface ChartCardProps {
   onDelete: (chart: LineMonitorChart) => void;
   onMove: (chart: LineMonitorChart, dir: -1 | 1) => void;
   onPause: (line: LineMonitorLine, paused: boolean) => void;
+  /** plan 255 part 2: 换一个端口 / 重新开启 / 复制开启命令 */
+  onCheckPort?: (
+    line: LineMonitorLine,
+    action: "rotate" | "verify" | "command",
+  ) => void;
+  checkBusyId?: number | null;
 }
 
 export const ChartCard = memo(function ChartCard({
@@ -174,6 +193,8 @@ export const ChartCard = memo(function ChartCard({
   onDelete,
   onMove,
   onPause,
+  onCheckPort,
+  checkBusyId = null,
 }: ChartCardProps) {
   const [view, setView] = useState<View>(() => loadRange(chart.id));
   const [data, setData] = useState<LineMonitorData | null>(null);
@@ -421,6 +442,7 @@ export const ChartCard = memo(function ChartCard({
   const surface = dark ? "#18181b" : "#ffffff";
   const gridColor = dark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.07)";
   const nodata = dark ? STATUS_NODATA_DARK : STATUS_NODATA_LIGHT;
+  const closedColor = dark ? STATUS_CLOSED_DARK : STATUS_CLOSED_LIGHT;
 
   const tooltipContent = useCallback(
     ({ label }: { label?: unknown }) => {
@@ -440,8 +462,9 @@ export const ChartCard = memo(function ChartCard({
 
             if (!s) return null;
             const st = bucketState(s, j, data.step);
+            const closed = s.closed?.[j] ?? 0;
             const measured = s.ok[j] + s.loss[j] + s.down[j];
-            const gap = Math.max(0, s.exp[j] - measured);
+            const gap = Math.max(0, s.exp[j] - measured - closed);
 
             return (
               <div key={l.id} className="flex items-start gap-2 py-0.5">
@@ -468,6 +491,11 @@ export const ChartCard = memo(function ChartCard({
                     {s.loss[j] > 0 && (
                       <span style={{ color: "#ffd17a" }}>
                         丢包 {s.loss[j]} 次
+                      </span>
+                    )}
+                    {closed > 0 && (
+                      <span style={{ color: "#a9c4ea" }}>
+                        端口未开启 {closed} 次
                       </span>
                     )}
                     {st !== "none" && gap > 0 && (
@@ -840,7 +868,11 @@ export const ChartCard = memo(function ChartCard({
                 {l.paused === 1 ? (
                   <Pill tone="slate">已暂停</Pill>
                 ) : fresh ? (
-                  <Pill title={lv.reason} tone={liveTone(lv.status)}>
+                  <Pill
+                    className={liveClass(lv.status)}
+                    title={lv.reason}
+                    tone={liveTone(lv.status)}
+                  >
                     {lv.status === 1 || lv.status === 2
                       ? fmtMs(lv.ms)
                       : statusText(lv.status)}
@@ -858,6 +890,24 @@ export const ChartCard = memo(function ChartCard({
             );
           })}
         </div>
+
+        {/* plan 255 part 2: 检测端口 per line */}
+        {onCheckPort && (
+          <CheckPortRows
+            busyId={checkBusyId}
+            colors={colors}
+            lines={lines}
+            live={(l) => {
+              const lv = data?.live?.[String(l.id)] ?? l.live;
+
+              if (l.paused === 1 || !lv || Date.now() / 1000 - lv.ts > 150)
+                return undefined;
+
+              return lv.status;
+            }}
+            onAction={onCheckPort}
+          />
+        )}
 
         {/* chart */}
         {error && !data ? (
@@ -932,6 +982,8 @@ export const ChartCard = memo(function ChartCard({
                             if (kind === "down") style.background = STATUS_DOWN;
                             else if (kind === "loss")
                               style.background = STATUS_LOSS;
+                            else if (kind === "closed")
+                              style.background = closedColor;
                             else
                               style.background = `repeating-linear-gradient(45deg, ${nodata}99 0 2px, transparent 2px 5px)`;
                             out.push(
@@ -1011,6 +1063,13 @@ export const ChartCard = memo(function ChartCard({
               />
               无数据（源节点离线 / 面板未测到，不计入断流）
             </span>
+            <span className="inline-flex items-center gap-1">
+              <span
+                className="h-2 w-3 rounded-sm"
+                style={{ background: closedColor }}
+              />
+              端口未开启（连接被拒绝，不计入断流）
+            </span>
             {!isMobile && <span>拖动图表可放大</span>}
             {error && <span className="text-danger">{error}</span>}
           </div>
@@ -1069,6 +1128,11 @@ export const ChartCard = memo(function ChartCard({
                           <span className="truncate" title={lineTitle(l)}>
                             {l.label || lineTitle(l)}
                           </span>
+                          {s && (s.closed ?? 0) > 0 && (
+                            <Pill className={CLOSED_PILL} tone="slate">
+                              端口未开启 {s.closed} 次
+                            </Pill>
+                          )}
                         </div>
                       </td>
                       <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums">
@@ -1077,6 +1141,7 @@ export const ChartCard = memo(function ChartCard({
                             fmtMs(current.ms)
                           ) : (
                             <Pill
+                              className={liveClass(current.status)}
                               title={current.reason}
                               tone={liveTone(current.status)}
                             >
@@ -1085,6 +1150,10 @@ export const ChartCard = memo(function ChartCard({
                           )
                         ) : s && s.lastStatus === 3 ? (
                           <Pill tone="red">断流</Pill>
+                        ) : s && s.lastStatus === 4 ? (
+                          <Pill className={CLOSED_PILL} tone="slate">
+                            端口未开启
+                          </Pill>
                         ) : (
                           fmtMs(s?.lastMs)
                         )}

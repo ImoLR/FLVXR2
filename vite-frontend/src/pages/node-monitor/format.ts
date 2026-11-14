@@ -37,6 +37,10 @@ export const STATUS_DOWN = "#e5484d";
 export const STATUS_LOSS = "#f5a524";
 export const STATUS_NODATA_LIGHT = "#a1a1aa";
 export const STATUS_NODATA_DARK = "#71717a";
+// Plan 255 part 2: 端口未开启 (target answers, nothing listens) — grey-blue,
+// neither 断流 nor 无数据.
+export const STATUS_CLOSED_LIGHT = "#6f8db8";
+export const STATUS_CLOSED_DARK = "#7f9cc8";
 
 export const RANGE_OPTIONS: {
   key: Exclude<LineMonitorRange, "custom">;
