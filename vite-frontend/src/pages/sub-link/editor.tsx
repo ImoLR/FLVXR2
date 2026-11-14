@@ -20,6 +20,14 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 
+import {
+  DEFAULT_LIMITS,
+  RouteNodeOption,
+  RoutingPanel,
+  normalizeRouting,
+} from "./routing";
+
+import { AddExternalDialog } from "@/pages/landing/chain-proxy";
 import { Pill } from "@/pages/landing/pill";
 import { Button } from "@/shadcn-bridge/heroui/button";
 import { Input } from "@/shadcn-bridge/heroui/input";
@@ -36,6 +44,7 @@ import {
   SubPool,
   SubPoolNode,
   SubPoolSource,
+  SubRouteEntry,
   SubRuleMode,
   SubSelected,
   subCreate,
@@ -46,6 +55,9 @@ import {
 // Plan 185 编辑订阅: left = everything the user can add (grouped by source),
 // right = the ordered list that becomes the subscription. Phones get two
 // tabs (可选 / 已选) with checkboxes and a sticky 取消 / 保存 bar.
+// Plan 256: a 「分流」 tab (desktop 节点 | 分流, phones a third tab); the
+// 国内直连 / 全部走代理 switch is its fixed 「国内网站」 row. The 外部节点
+// group is always shown with 「＋ 添加」.
 
 type Filter = "all" | "rule" | "landing" | "external" | `src:${number}`;
 
@@ -54,10 +66,6 @@ const FORMATS: [SubFormat, string][] = [
   ["clash", "Clash"],
   ["singbox", "sing-box"],
   ["base64", "通用"],
-];
-const MODES: [SubRuleMode, string][] = [
-  ["cn_direct", "国内直连"],
-  ["global", "全部走代理"],
 ];
 
 function Seg<T extends string>({
@@ -223,8 +231,11 @@ export function SubEditor({
   const [selected, setSelected] = useState<SubSelected[]>([]);
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<Filter>("all");
-  const [tab, setTab] = useState<"pool" | "selected">("pool");
+  const [tab, setTab] = useState<"pool" | "selected" | "routing">("pool");
+  const [view, setView] = useState<"nodes" | "routing">("nodes");
   const [saving, setSaving] = useState(false);
+  const [routing, setRouting] = useState<SubRouteEntry[]>([]);
+  const [addingExternal, setAddingExternal] = useState(false);
 
   useEffect(() => {
     void subPool(sub?.id).then((res) => {
@@ -235,8 +246,22 @@ export function SubEditor({
       }
       setPool(res.data);
       setSelected(res.data.selected || []);
+      setRouting(
+        normalizeRouting(res.data.routing || [], res.data.routingCatalog || []),
+      );
     });
   }, [sub?.id]);
+
+  // After 「＋ 添加」 in the 外部节点 group: refresh the pool only (the
+  // unsaved selection and 分流 stay as they are).
+  const reloadPool = async () => {
+    const res = await subPool(sub?.id);
+
+    if (res.code === 0) setPool(res.data);
+  };
+  const routingOn = !!pool?.routingCatalog;
+  const catalog = pool?.routingCatalog || [];
+  const limits = pool?.routingLimits || DEFAULT_LIMITS;
 
   const sensors = useSensors(
     useSensor(MouseSensor, { activationConstraint: { distance: 6 } }),
@@ -268,6 +293,29 @@ export function SubEditor({
   // Plan 197: over-limit hints point to the admin (~4 s toast).
   const capToast = { id: "sub-node-cap", duration: 4000 };
   const capMsg = `每条订阅最多 ${maxNodes} 个节点，如需更多请联系管理员`;
+
+  // 分流 「走哪里 → 某个节点」: the nodes now in the subscription (picked
+  // ones, and every node of a followed source).
+  const nodeOptions: RouteNodeOption[] = useMemo(() => {
+    const out: RouteNodeOption[] = [];
+
+    for (const s of selected) {
+      if (s.missing) continue;
+      if (s.group === "source_all") {
+        const src = pool?.sources.find((x) => x.id === s.ref.sourceId);
+
+        src?.nodes.forEach((n) =>
+          out.push({ key: n.key, name: n.name, detail: src.name }),
+        );
+      } else out.push({ key: s.key, name: s.name || s.key });
+    }
+
+    return out;
+  }, [selected, pool]);
+  const nodeNames = useMemo(
+    () => new Set(nodeOptions.map((n) => n.name.trim())),
+    [nodeOptions],
+  );
 
   const groups: Group[] = useMemo(() => {
     if (!pool) return [];
@@ -316,7 +364,9 @@ export function SubEditor({
     .filter((g) => filter === "all" || g.filter === filter)
     .map((g) => ({ ...g, shown: g.nodes.filter(match) }))
     .filter(
-      (g) => g.shown.length > 0 || (!q && (g.key === "rule" || !!g.source)),
+      (g) =>
+        g.shown.length > 0 ||
+        (!q && (g.key === "rule" || g.key === "external" || !!g.source)),
     );
   const poolTotal = groups.reduce((n, g) => n + g.nodes.length, 0);
 
@@ -419,6 +469,7 @@ export function SubEditor({
         format,
         ruleMode: mode,
         items: selected.filter((s) => !s.missing).map((s) => s.ref),
+        ...(routingOn ? { routing } : {}),
       };
       const res = sub ? await subUpdate(body) : await subCreate(body);
 
@@ -437,7 +488,7 @@ export function SubEditor({
   const filters: [Filter, string][] = [
     ["all", "全部"],
     ...groups
-      .filter((g) => g.nodes.length > 0 || g.source)
+      .filter((g) => g.nodes.length > 0 || g.source || g.key === "external")
       .map((g): [Filter, string] => [
         g.filter,
         `${g.source ? g.source.name : g.key === "rule" ? "规则" : g.key === "landing" ? "落地" : isH5 ? "外部" : "外部节点"}${isH5 ? "" : ` ${g.nodes.length}`}`,
@@ -499,6 +550,17 @@ export function SubEditor({
                 </span>
                 {g.source && !isH5 && <Pill tone="amber">每 6 小时更新</Pill>}
                 <span className="flex-1" />
+                {g.key === "external" && (
+                  <button
+                    data-external-add-open
+                    className="rounded-lg bg-purple-500/15 px-2 py-0.5 text-xs font-semibold text-purple-700 dark:bg-purple-400/20 dark:text-purple-300"
+                    title="粘贴你自己的节点链接，或从订阅导入"
+                    type="button"
+                    onClick={() => setAddingExternal(true)}
+                  >
+                    ＋ 添加
+                  </button>
+                )}
                 {g.source ? (
                   <button
                     className={`rounded-lg px-2 py-0.5 text-xs font-semibold ${
@@ -534,6 +596,11 @@ export function SubEditor({
               {g.key === "rule" && g.nodes.length === 0 && !q && (
                 <p className="border-b border-divider px-3 py-2 text-xs text-default-400">
                   接了落地或「我自己的节点」的规则会出现在这里
+                </p>
+              )}
+              {g.key === "external" && g.nodes.length === 0 && !q && (
+                <p className="border-b border-divider px-3 py-2 text-xs text-default-400">
+                  还没有外部节点，点「＋ 添加」粘贴你自己的节点链接
                 </p>
               )}
               {g.source && g.nodes.length === 0 && (
@@ -676,6 +743,28 @@ export function SubEditor({
     </div>
   );
 
+  const routingPanel = (
+    <RoutingPanel
+      catalog={catalog}
+      defaults={pool?.routingDefaults || []}
+      isH5={isH5}
+      limits={limits}
+      mode={mode}
+      nodeNames={nodeNames}
+      nodeOptions={nodeOptions}
+      routing={routing}
+      onChange={setRouting}
+      onModeChange={setMode}
+    />
+  );
+  const addExternal = addingExternal && (
+    <AddExternalDialog
+      shared={false}
+      onAdded={() => reloadPool()}
+      onClose={() => setAddingExternal(false)}
+    />
+  );
+
   const settings = (
     <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
       <Seg
@@ -684,7 +773,6 @@ export function SubEditor({
         value={format}
         onChange={setFormat}
       />
-      <Seg label="分流" options={MODES} value={mode} onChange={setMode} />
     </div>
   );
   const hint = (
@@ -696,149 +784,184 @@ export function SubEditor({
 
   if (isH5) {
     return (
-      <Modal isOpen size="full" onOpenChange={(o) => !o && onClose()}>
-        <ModalContent className="flex flex-col gap-0 overflow-hidden p-0">
-          <div className="flex items-center gap-1 px-3 pb-2 pt-3">
-            <button
-              aria-label="返回"
-              className="p-1"
-              type="button"
-              onClick={onClose}
-            >
-              <ChevronLeft size={20} />
-            </button>
-            <span className="truncate text-base font-semibold">
-              {sub ? `编辑「${sub.name}」` : "新建订阅"}
-            </span>
-          </div>
-          <div className="space-y-2 px-3 pb-2">
-            <Input
-              aria-label="名称"
-              placeholder="名称（客户端里显示为订阅名）"
-              size="sm"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-            />
-            <div className="space-y-1.5">
-              <Seg
-                label="客户端"
-                options={FORMATS}
-                value={format}
-                onChange={setFormat}
-              />
-              <Seg
-                label="分流"
-                options={MODES}
-                value={mode}
-                onChange={setMode}
-              />
+      <>
+        <Modal isOpen size="full" onOpenChange={(o) => !o && onClose()}>
+          <ModalContent className="flex flex-col gap-0 overflow-hidden p-0">
+            <div className="flex items-center gap-1 px-3 pb-2 pt-3">
+              <button
+                aria-label="返回"
+                className="p-1"
+                type="button"
+                onClick={onClose}
+              >
+                <ChevronLeft size={20} />
+              </button>
+              <span className="truncate text-base font-semibold">
+                {sub ? `编辑「${sub.name}」` : "新建订阅"}
+              </span>
             </div>
-            <div className="flex rounded-xl bg-slate-500/10 p-0.5 dark:bg-slate-400/15">
-              {(
-                [
-                  ["pool", `可选 ${poolTotal}`],
-                  ["selected", `已选 ${nodeTotal}/${maxNodes}`],
-                ] as const
-              ).map(([k, text]) => (
-                <button
-                  key={k}
-                  className={`flex-1 rounded-lg py-1.5 text-sm ${
-                    tab === k
-                      ? "bg-white font-semibold shadow-sm dark:bg-slate-700"
-                      : "text-default-600"
-                  }`}
-                  type="button"
-                  onClick={() => setTab(k)}
-                >
-                  {text}
-                </button>
-              ))}
+            <div className="space-y-2 px-3 pb-2">
+              <Input
+                aria-label="名称"
+                placeholder="名称（客户端里显示为订阅名）"
+                size="sm"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+              />
+              <div className="space-y-1.5">
+                <Seg
+                  label="客户端"
+                  options={FORMATS}
+                  value={format}
+                  onChange={setFormat}
+                />
+              </div>
+              <div className="flex rounded-xl bg-slate-500/10 p-0.5 dark:bg-slate-400/15">
+                {(
+                  [
+                    ["pool", `可选 ${poolTotal}`],
+                    ["selected", `已选 ${nodeTotal}/${maxNodes}`],
+                    ...(routingOn
+                      ? ([["routing", `分流 ${routing.length}`]] as const)
+                      : []),
+                  ] as const
+                ).map(([k, text]) => (
+                  <button
+                    key={k}
+                    className={`flex-1 rounded-lg py-1.5 text-sm ${
+                      tab === k
+                        ? "bg-white font-semibold shadow-sm dark:bg-slate-700"
+                        : "text-default-600"
+                    }`}
+                    data-editor-tab={k}
+                    type="button"
+                    onClick={() => setTab(k)}
+                  >
+                    {text}
+                  </button>
+                ))}
+              </div>
             </div>
-          </div>
-          <div className="flex min-h-0 flex-1 flex-col px-3 pb-2">
-            {loadError ? (
-              <p className="text-sm text-danger">{loadError}</p>
-            ) : tab === "pool" ? (
-              poolColumn
-            ) : (
-              selectedColumn
-            )}
-          </div>
-          <div className="sticky bottom-0 flex gap-2 border-t border-divider bg-content1 px-3 py-2.5">
-            <Button
-              className="flex-1"
-              color="danger"
-              variant="flat"
-              onPress={onClose}
-            >
-              取消
-            </Button>
-            <Button
-              className="flex-[2]"
-              color="success"
-              isDisabled={!pool}
-              isLoading={saving}
-              onPress={save}
-            >
-              保存（{nodeTotal}）
-            </Button>
-          </div>
-        </ModalContent>
-      </Modal>
+            <div className="flex min-h-0 flex-1 flex-col px-3 pb-2">
+              {loadError ? (
+                <p className="text-sm text-danger">{loadError}</p>
+              ) : tab === "pool" ? (
+                poolColumn
+              ) : tab === "routing" ? (
+                routingPanel
+              ) : (
+                selectedColumn
+              )}
+            </div>
+            <div className="sticky bottom-0 flex gap-2 border-t border-divider bg-content1 px-3 py-2.5">
+              <Button
+                className="flex-1"
+                color="danger"
+                variant="flat"
+                onPress={onClose}
+              >
+                取消
+              </Button>
+              <Button
+                className="flex-[2]"
+                color="success"
+                isDisabled={!pool}
+                isLoading={saving}
+                onPress={save}
+              >
+                保存（{nodeTotal}）
+              </Button>
+            </div>
+          </ModalContent>
+        </Modal>
+        {addExternal}
+      </>
     );
   }
 
   return (
-    <Modal
-      isOpen
-      scrollBehavior="inside"
-      size="4xl"
-      onOpenChange={(o) => !o && onClose()}
-    >
-      <ModalContent>
-        <ModalHeader>{sub ? "编辑订阅" : "新建订阅"}</ModalHeader>
-        <ModalBody>
-          <div className="flex flex-wrap items-center gap-3">
-            <Input
-              aria-label="名称"
-              className="w-72"
-              placeholder="订阅名称，例如：日常"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-            />
-            <span className="text-xs text-default-500">
-              名称只给自己看，客户端里显示为订阅名
-            </span>
-          </div>
-          {loadError ? (
-            <p className="text-sm text-danger">{loadError}</p>
-          ) : (
-            <div className="grid grid-cols-2 gap-4">
-              {poolColumn}
-              {selectedColumn}
+    <>
+      <Modal
+        isOpen
+        scrollBehavior="inside"
+        size="4xl"
+        onOpenChange={(o) => !o && onClose()}
+      >
+        <ModalContent>
+          <ModalHeader>{sub ? "编辑订阅" : "新建订阅"}</ModalHeader>
+          <ModalBody>
+            <div className="flex flex-wrap items-center gap-3">
+              <Input
+                aria-label="名称"
+                className="w-72"
+                placeholder="订阅名称，例如：日常"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+              />
+              <span className="text-xs text-default-500">
+                名称只给自己看，客户端里显示为订阅名
+              </span>
             </div>
-          )}
-        </ModalBody>
-        <ModalFooter className="items-center justify-between">
-          <div className="space-y-1">
-            {settings}
-            {hint}
-          </div>
-          <div className="flex gap-2">
-            <Button color="danger" variant="flat" onPress={onClose}>
-              取消
-            </Button>
-            <Button
-              color="success"
-              isDisabled={!pool}
-              isLoading={saving}
-              onPress={save}
-            >
-              保存
-            </Button>
-          </div>
-        </ModalFooter>
-      </ModalContent>
-    </Modal>
+            {routingOn && (
+              <div className="flex gap-1 border-b border-divider">
+                {(
+                  [
+                    ["nodes", "节点", nodeTotal],
+                    ["routing", "分流", routing.length],
+                  ] as const
+                ).map(([k, text, n]) => (
+                  <button
+                    key={k}
+                    className={`-mb-px flex items-center gap-1.5 border-b-2 px-3 pb-2 text-sm ${
+                      view === k
+                        ? "border-primary font-semibold text-foreground"
+                        : "border-transparent text-default-500"
+                    }`}
+                    data-editor-view={k}
+                    type="button"
+                    onClick={() => setView(k)}
+                  >
+                    {text}
+                    <Pill tone={k === "routing" ? "cyan" : "slate"}>{n}</Pill>
+                  </button>
+                ))}
+              </div>
+            )}
+            {loadError ? (
+              <p className="text-sm text-danger">{loadError}</p>
+            ) : view === "routing" && routingOn ? (
+              <div className="flex max-h-[60vh] min-h-[420px] flex-col">
+                {routingPanel}
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 gap-4">
+                {poolColumn}
+                {selectedColumn}
+              </div>
+            )}
+          </ModalBody>
+          <ModalFooter className="items-center justify-between">
+            <div className="space-y-1">
+              {settings}
+              {hint}
+            </div>
+            <div className="flex gap-2">
+              <Button color="danger" variant="flat" onPress={onClose}>
+                取消
+              </Button>
+              <Button
+                color="success"
+                isDisabled={!pool}
+                isLoading={saving}
+                onPress={save}
+              >
+                保存
+              </Button>
+            </div>
+          </ModalFooter>
+        </ModalContent>
+      </Modal>
+      {addExternal}
+    </>
   );
 }

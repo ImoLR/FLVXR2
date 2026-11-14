@@ -49,6 +49,8 @@ export interface SubItem {
   lastPullAt: number;
   lastPullClient: string;
   lastPullNodes: number;
+  /** plan 256: how many 分流 entries (0 = none) */
+  routing?: number;
 }
 
 export interface SubSource {
@@ -70,6 +72,8 @@ export interface SubListData {
   cap: number;
   sourceCap: number;
   maxNodes: number;
+  /** plan 256: the user's 外部节点 count */
+  externals?: number;
 }
 
 export interface SubPoolNode {
@@ -106,6 +110,39 @@ export interface SubPool {
   portForwards: number;
   selected: SubSelected[];
   maxNodes: number;
+  // Plan 256 「分流」 (absent on a panel before plan 256).
+  routing?: SubRouteEntry[];
+  routingCatalog?: SubRouteCategory[];
+  routingDefaults?: string[];
+  routingLimits?: SubRouteLimits;
+}
+
+/**
+ * Plan 256 「分流」: one row of a subscription's list = one group in the
+ * client. exit: select (节点选择) | auto (自动选择) | direct | reject |
+ * node:<item key> (a node of this subscription).
+ */
+export interface SubRouteEntry {
+  type: "builtin" | "custom";
+  key?: string;
+  name?: string;
+  lines?: string[];
+  exit: string;
+}
+
+export interface SubRouteCategory {
+  key: string;
+  icon: string;
+  name: string;
+  desc: string;
+  exit: string;
+}
+
+export interface SubRouteLimits {
+  entries: number;
+  lines: number;
+  lineLen: number;
+  nameLen: number;
 }
 
 export interface SubSaveBody {
@@ -114,6 +151,15 @@ export interface SubSaveBody {
   format: SubFormat;
   ruleMode: SubRuleMode;
   items: SubRef[];
+  routing?: SubRouteEntry[];
+}
+
+export interface SubProbeResult {
+  id: number;
+  ok: boolean;
+  ms?: number;
+  udp?: boolean;
+  error?: string;
 }
 
 export interface SubPreviewItem {
@@ -155,6 +201,13 @@ export const subSourceRefresh = (id: number) =>
   Network.post<SubSource>("/sub/source/refresh", { id });
 export const subSourceDelete = (id: number) =>
   Network.post<{ removedFrom: number }>("/sub/source/delete", { id });
+/** Plan 256 「检测全部」: TCP connect time from the panel to each 外部节点. */
+export const subExternalProbe = () =>
+  Network.post<{ items: SubProbeResult[] }>(
+    "/sub/external/probe",
+    {},
+    { timeout: 40000 },
+  );
 
 /** The public link (the panel origin, also inside the mobile app WebView). */
 export function subLinkURL(token: string) {

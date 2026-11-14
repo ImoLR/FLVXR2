@@ -22,6 +22,8 @@ export interface ExternalNode {
   sharedOk: boolean;
   sharedReason: string;
   inUse: ExternalNodeUse[];
+  /** plan 256: how many of the owner's subscriptions contain it */
+  subUses?: number;
 }
 
 export interface ExternalList {

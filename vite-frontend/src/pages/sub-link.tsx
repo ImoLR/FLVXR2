@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
 import toast from "react-hot-toast";
-import { Download, MoreHorizontal, Plus, RefreshCw } from "lucide-react";
+import { Download, Gem, MoreHorizontal, Plus, RefreshCw } from "lucide-react";
 
 import { SubEditor } from "./sub-link/editor";
+import { SubExternalsDialog } from "./sub-link/externals";
 import { SubSourcesDialog } from "./sub-link/sources";
 
 import { AnimatedPage } from "@/components/animated-page";
@@ -70,6 +71,9 @@ function SubCounts({ sub, compact }: { sub: SubItem; compact: boolean }) {
         </Pill>
       )}
       {empty && <Pill tone="slate">还没有节点，点「编辑」添加</Pill>}
+      {compact && (sub.routing || 0) > 0 && (
+        <Pill tone="cyan">分流 {sub.routing}</Pill>
+      )}
     </div>
   );
 }
@@ -154,6 +158,9 @@ function SubCard({
               <Pill tone={sub.ruleMode === "global" ? "slate" : "teal"}>
                 {subModeLabel[sub.ruleMode]}
               </Pill>
+              {(sub.routing || 0) > 0 && (
+                <Pill tone="cyan">分流 {sub.routing}</Pill>
+              )}
             </>
           )}
         </div>
@@ -209,6 +216,7 @@ export default function SubLinkPage() {
   const [error, setError] = useState("");
   const [editing, setEditing] = useState<SubItem | "new" | null>(null);
   const [sourcesOpen, setSourcesOpen] = useState(false);
+  const [externalsOpen, setExternalsOpen] = useState(false);
   const [qr, setQR] = useState<SubItem | null>(null);
   const [confirm, setConfirm] = useState<Confirm>(null);
   const [busy, setBusy] = useState(false);
@@ -261,6 +269,20 @@ export default function SubLinkPage() {
     }
   };
 
+  // Plan 256: 外部节点 entry for users without a landing node.
+  const externalsButton = (
+    <Button
+      data-sub-externals-open
+      className={isH5 ? "flex-1" : ""}
+      color="secondary"
+      size="sm"
+      startContent={<Gem size={15} />}
+      variant="flat"
+      onPress={() => setExternalsOpen(true)}
+    >
+      外部节点{data?.externals ? ` (${data.externals})` : ""}
+    </Button>
+  );
   const sourcesButton = (
     <Button
       className={isH5 ? "flex-1" : ""}
@@ -309,6 +331,7 @@ export default function SubLinkPage() {
           <div className="flex shrink-0 items-center gap-2">
             {!isH5 && data?.enabled !== false && (
               <>
+                {externalsButton}
                 {sourcesButton}
                 {newButton}
               </>
@@ -353,6 +376,7 @@ export default function SubLinkPage() {
         ))}
         {isH5 && data?.enabled !== false && data && (
           <div className="flex gap-2 pt-1">
+            {externalsButton}
             {sourcesButton}
             {newButton}
           </div>
@@ -368,6 +392,13 @@ export default function SubLinkPage() {
             setEditing(null);
             void load();
           }}
+        />
+      )}
+      {externalsOpen && (
+        <SubExternalsDialog
+          isH5={isH5}
+          onChanged={load}
+          onClose={() => setExternalsOpen(false)}
         />
       )}
       {sourcesOpen && data && (

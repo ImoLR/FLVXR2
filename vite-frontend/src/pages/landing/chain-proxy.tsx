@@ -35,6 +35,7 @@ import { Radio, RadioGroup } from "@/shadcn-bridge/heroui/radio";
 import { Select, SelectItem } from "@/shadcn-bridge/heroui/select";
 import { Spinner } from "@/shadcn-bridge/heroui/spinner";
 import { Tab, Tabs } from "@/shadcn-bridge/heroui/tabs";
+import { SubProbeResult } from "@/api/sub-link";
 
 // Plan 177 「链式代理」: a landing node sends all its traffic out through one
 // of its owner's own external nodes. Small on purpose: one dialog with
@@ -378,23 +379,59 @@ export function ChainProxyDialog({
   );
 }
 
-function ExternalManageList({
+/** 检测 result chip of the 订阅 page's 外部节点 dialog (plan 256). */
+function ProbeChip({ res }: { res?: SubProbeResult }) {
+  if (!res) return null;
+  if (res.udp)
+    return (
+      <Pill title="UDP 协议（Hysteria2）无法用 TCP 检测" tone="slate">
+        UDP 无法检测
+      </Pill>
+    );
+  if (res.ok)
+    return (
+      <Pill title="从面板测的 TCP 连接时间" tone="teal">
+        {res.ms} ms
+      </Pill>
+    );
+
+  return (
+    <Pill title={res.error} tone="red">
+      {res.error === "超时" ? "超时" : "不通"}
+    </Pill>
+  );
+}
+
+/**
+ * The external node list. variant "chain" (default) is the 链式代理 管理
+ * list as before; "sub" (plan 256, 订阅 page) shows 检测 results and who
+ * uses each node as chips, and asks before deleting a node subscriptions use.
+ */
+export function ExternalManageList({
   items,
   owner,
   onChanged,
+  variant = "chain",
+  probes,
 }: {
   items: ExternalNode[];
   owner?: number;
   onChanged: () => void;
+  variant?: "chain" | "sub";
+  probes?: Record<number, SubProbeResult>;
 }) {
   const [editing, setEditing] = useState<number | null>(null);
   const [name, setName] = useState("");
   const [busy, setBusy] = useState<number | null>(null);
+  const [confirm, setConfirm] = useState<ExternalNode | null>(null);
+  const sub = variant === "sub";
 
   if (!items.length) {
     return (
       <p className="rounded-lg border border-divider p-3 text-xs text-default-500">
-        还没有外部节点。
+        {sub
+          ? "还没有外部节点。点「＋ 粘贴链接」把你自己的节点加进来，就能放进订阅了。"
+          : "还没有外部节点。"}
       </p>
     );
   }
@@ -425,14 +462,54 @@ function ExternalManageList({
     toast.success(`已删除「${item.name}」`);
     onChanged();
   };
+  const askRemove = (item: ExternalNode) => {
+    if (sub && !item.inUse.length && (item.subUses || 0) > 0) setConfirm(item);
+    else void remove(item);
+  };
 
   return (
     <div
       data-external-manage
-      className="max-h-64 divide-y divide-divider overflow-auto rounded-lg border border-divider"
+      className={`${sub ? "max-h-[55vh]" : "max-h-64"} divide-y divide-divider overflow-auto rounded-lg border border-divider`}
     >
+      {confirm && (
+        <Modal isOpen size="sm" onClose={() => setConfirm(null)}>
+          <ModalContent>
+            <ModalHeader>删除「{confirm.name}」</ModalHeader>
+            <ModalBody>
+              <p className="text-sm text-default-600">
+                {confirm.subUses}{" "}
+                个订阅里这个节点会变成失效，客户端下次更新订阅后就没有它了。
+              </p>
+            </ModalBody>
+            <ModalFooter>
+              <Button
+                color="danger"
+                variant="flat"
+                onPress={() => setConfirm(null)}
+              >
+                取消
+              </Button>
+              <Button
+                color="danger"
+                isLoading={busy === confirm.id}
+                onPress={async () => {
+                  await remove(confirm);
+                  setConfirm(null);
+                }}
+              >
+                删除
+              </Button>
+            </ModalFooter>
+          </ModalContent>
+        </Modal>
+      )}
       {items.map((item) => (
-        <div key={item.id} className="flex flex-wrap items-center gap-2 p-2">
+        <div
+          key={item.id}
+          className="flex flex-wrap items-center gap-2 p-2"
+          data-external-row={sub ? item.id : undefined}
+        >
           <div className="min-w-0 flex-1">
             {editing === item.id ? (
               <Input
@@ -448,10 +525,27 @@ function ExternalManageList({
             )}
             <p className="truncate text-xs text-default-500">
               {item.protocolLabel} · {item.host}:{item.port}
-              {item.inUse.length > 0 &&
+              {!sub &&
+                item.inUse.length > 0 &&
                 ` · 用于 ${item.inUse.map((u) => u.name).join("、")}`}
             </p>
           </div>
+          {sub && editing !== item.id && (
+            <div className="flex flex-wrap items-center gap-1">
+              <ProbeChip res={probes?.[item.id]} />
+              {(item.subUses || 0) > 0 && (
+                <Pill tone="slate">{item.subUses} 个订阅在用</Pill>
+              )}
+              {item.inUse.length > 0 && (
+                <Pill
+                  title={`落地节点 ${item.inUse.map((u) => u.name).join("、")} 用它做链式代理`}
+                  tone="purple"
+                >
+                  链式代理在用
+                </Pill>
+              )}
+            </div>
+          )}
           {editing === item.id ? (
             <>
               <Button
@@ -486,11 +580,19 @@ function ExternalManageList({
                 改名
               </Button>
               <Button
-                color="danger"
+                className={
+                  sub && item.inUse.length > 0 ? "opacity-60" : undefined
+                }
+                color={sub && item.inUse.length > 0 ? "default" : "danger"}
                 isLoading={busy === item.id}
                 size="sm"
+                title={
+                  sub && item.inUse.length > 0
+                    ? "链式代理在用，要先在落地节点里改回直连"
+                    : undefined
+                }
                 variant="flat"
-                onPress={() => void remove(item)}
+                onPress={() => askRemove(item)}
               >
                 删除
               </Button>
@@ -507,13 +609,15 @@ export function AddExternalDialog({
   shared,
   onAdded,
   onClose,
+  initialTab = "paste",
 }: {
   owner?: number;
   shared: boolean;
   onAdded: (added: ExternalNode[]) => void | Promise<void>;
   onClose: () => void;
+  initialTab?: "paste" | "sub";
 }) {
-  const [tab, setTab] = useState("paste");
+  const [tab, setTab] = useState<string>(initialTab);
 
   return (
     <Modal isOpen scrollBehavior="inside" size="lg" onClose={onClose}>

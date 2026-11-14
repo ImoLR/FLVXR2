@@ -81,11 +81,11 @@ waits for the user's screen approval. Design (source of truth): `:8791/sub-rules
 | Steam interval 2880; `pttracker` key; yaml format with `.mrs` URL | unmaintained details | one interval constant (86400); provider fields generated from one table; golden tests per format |
 
 ## Tasks
-- [ ] 1. Fetch catalog snapshot (MetaCubeX, slow sequential), verify keys in both branches, embed files
-- [ ] 2. `sublink/routing.go`: catalog, entry model, parse/validate/normalize, custom line parser
-- [ ] 3. Rule-set store: catalog ids × formats, queue worker refresh, validation, Surge list derivation; serve `/s/rs/<id>.<ext>`
-- [ ] 4. Clash / Stash / sing-box / Surge rendering with routing; empty routing byte-identical
-- [ ] 5. Model column + repo + handler (pool / save / list / render cache key) + external `subUses` + probe API
+- [x] 1. Fetch catalog snapshot (MetaCubeX, slow sequential), verify keys in both branches, embed files
+- [x] 2. `sublink/routing.go`: catalog, entry model, parse/validate/normalize, custom line parser
+- [x] 3. Rule-set store: catalog ids × formats, queue worker refresh, validation, Surge list derivation; serve `/s/rs/<id>.<ext>`
+- [x] 4. Clash / Stash / sing-box / Surge rendering with routing; empty routing byte-identical
+- [x] 5. Model column + repo + handler (pool / save / list / render cache key) + external `subUses` + probe API
 - [ ] 6. Go tests: golden unchanged, routing per format, caps, validation, injection, fallback, order, ruleset serve/refresh, usage count
 - [ ] 7. Frontend Part A: 外部节点 pill + dialog (reuse), editor 外部节点 group always + 「＋ 添加」
 - [ ] 8. Frontend Part B: 分流 tab (desktop + H5), add dialog (常用 / 自己写), bottom sheet, card chip

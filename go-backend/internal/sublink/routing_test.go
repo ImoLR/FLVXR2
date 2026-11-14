@@ -528,7 +528,7 @@ func TestCleanRouting(t *testing.T) {
 	bad([]RouteEntry{{Type: RouteCustom, Name: "a", Lines: []string{"ok.com", "", "bad line"}}}, "「a」第 3 行「bad line」")
 	bad([]RouteEntry{{Type: RouteCustom, Name: "a", Lines: []string{strings.Repeat("a", 250) + ".com"}}}, "太长了")
 	bad([]RouteEntry{{Type: RouteCustom, Name: strings.Repeat("长", 21), Lines: []string{"a.com"}}}, "最多 20 个字")
-	for _, name := range []string{"a,b", "a，b", `a"b`, "a\nb", "a\tb", "a\\b", "a b"} {
+	for _, name := range []string{"a,b", "a，b", `a"b`, "a\nb", "a\tb", "a\\b", "a\u2028b"} {
 		bad([]RouteEntry{{Type: RouteCustom, Name: name, Lines: []string{"a.com"}}}, "不能有逗号")
 	}
 	for _, name := range []string{"节点选择", "DIRECT", "reject", "AI", "🤖 AI", "谷歌", "Proxy"} {
