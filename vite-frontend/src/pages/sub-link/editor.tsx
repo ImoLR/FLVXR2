@@ -930,7 +930,7 @@ export function SubEditor({
             {loadError ? (
               <p className="text-sm text-danger">{loadError}</p>
             ) : view === "routing" && routingOn ? (
-              <div className="flex max-h-[60vh] min-h-[420px] flex-col">
+              <div className="min-h-[420px]">
                 {routingPanel}
               </div>
             ) : (

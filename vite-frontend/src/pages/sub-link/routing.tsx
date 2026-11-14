@@ -14,6 +14,8 @@ import {
   Dropdown,
   DropdownItem,
   DropdownMenu,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
   DropdownTrigger,
 } from "@/shadcn-bridge/heroui/dropdown";
 import { Input, Textarea } from "@/shadcn-bridge/heroui/input";
@@ -316,6 +318,17 @@ function ExitDropdown({
               </span>
             </DropdownItem>
           )),
+          ...(options.length
+            ? [
+                <DropdownMenuSeparator key="sep" />,
+                <DropdownMenuLabel
+                  key="label"
+                  className="text-xs font-normal text-default-500"
+                >
+                  订阅里的节点
+                </DropdownMenuLabel>,
+              ]
+            : []),
           ...options.map((n) => (
             <DropdownItem key={n.key} onPress={() => onChange(`node:${n.key}`)}>
               <span className="flex w-full max-w-[18rem] items-center gap-2">
@@ -574,17 +587,15 @@ export function RoutingPanel({
           options={nodeOptions}
           onChange={(x) => setExit(i, x)}
         />
-        <Button
-          isIconOnly
+        <button
           aria-label="删除这个分流"
-          className="min-h-7 min-w-7"
-          color="danger"
-          size="sm"
-          variant="flat"
-          onPress={() => remove(i)}
+          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-red-500/10 text-red-600 hover:bg-red-500/20 dark:bg-red-400/15 dark:text-red-300"
+          title="删除这个分流"
+          type="button"
+          onClick={() => remove(i)}
         >
           <X size={14} />
-        </Button>
+        </button>
       </div>
     );
   });
@@ -651,13 +662,18 @@ export function RoutingPanel({
   const sheetEntry = sheet !== null ? routing[sheet] : null;
 
   return (
-    <div data-routing-panel className="flex min-h-0 flex-1 flex-col gap-2">
+    <div
+      data-routing-panel
+      className={isH5 ? "flex min-h-0 flex-1 flex-col gap-2" : "space-y-2"}
+    >
       {!isH5 && (
         <p className="text-xs text-default-500">
           从上往下匹配，列表里每一行就是客户端里的一个分组。不需要的就删掉。
         </p>
       )}
-      <div className="min-h-0 flex-1 overflow-y-auto rounded-2xl border border-divider">
+      <div
+        className={`overflow-y-auto rounded-2xl border border-divider ${isH5 ? "min-h-0 flex-1" : "max-h-[42vh]"}`}
+      >
         {rows}
         {routing.length === 0 && (
           <p className="border-b border-divider px-3 py-4 text-center text-sm text-default-400">
@@ -988,9 +1004,9 @@ function AddRouteDialog({
   const counts = parsed.counts;
   const customForm = (
     <div data-route-custom className="space-y-3">
-      <div className={isH5 ? "space-y-3" : "flex items-start gap-3"}>
+      <div className="space-y-3">
         <Input
-          className={isH5 ? "" : "w-52 shrink-0"}
+          classNames={isH5 ? undefined : { base: "max-w-xs" }}
           label="名字"
           maxLength={limits.nameLen}
           placeholder="例如：公司"
@@ -999,7 +1015,7 @@ function AddRouteDialog({
           variant="bordered"
           onChange={(e) => setName(e.target.value)}
         />
-        <div className="min-w-0 flex-1 space-y-1">
+        <div className="space-y-1">
           <span className="text-xs text-default-500">走哪里</span>
           {exitPicker}
         </div>
@@ -1008,7 +1024,7 @@ function AddRouteDialog({
         className="font-mono text-[13px]"
         label="网站 / IP，一行一个（直接粘贴就行）"
         maxRows={isH5 ? 10 : 8}
-        minRows={4}
+        minRows={isH5 ? 5 : 6}
         placeholder={"mycompany.com\ncorp.example.net\n10.8.0.0/16"}
         value={text}
         variant="bordered"
