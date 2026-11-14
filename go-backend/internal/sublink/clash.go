@@ -311,7 +311,7 @@ func ClashRouted(nodes []Node, mode string, stash bool, routing []RouteEntry, or
 // clashDoc builds the ordered Clash document and its node count.
 func clashDoc(nodes []Node, mode string, stash bool, routing []RouteEntry, origin string) (omap, int) {
 	if len(routing) > 0 {
-		nodes = avoidGroupNames(nodes, planRoutes(routing, nil, true))
+		nodes = avoidGroupNames(nodes, routeGroupNames(routing))
 	}
 	proxies := make([]omap, 0, len(nodes))
 	names := make([]string, 0, len(nodes))

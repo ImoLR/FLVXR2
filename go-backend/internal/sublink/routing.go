@@ -567,16 +567,34 @@ func routeNodeNames(nodes []Node, names []string) map[string]string {
 	return m
 }
 
+// routeGroupNames: the group names a list renders (cheap: no line parsing).
+func routeGroupNames(list []RouteEntry) []string {
+	out := make([]string, 0, len(list))
+	for _, e := range list {
+		switch e.Type {
+		case RouteBuiltin:
+			if c, ok := CategoryByKey(e.Key); ok {
+				out = append(out, c.GroupName())
+			}
+		case RouteCustom:
+			if name, err := CleanRouteName(e.Name); err == nil {
+				out = append(out, customIcon+" "+name)
+			}
+		}
+	}
+	return out
+}
+
 // avoidGroupNames renames nodes whose name is a routing group name (the
 // client would see two things with one name). It returns nodes unchanged
 // when nothing collides, else a renamed copy.
-func avoidGroupNames(nodes []Node, groups []routeGroup) []Node {
+func avoidGroupNames(nodes []Node, groups []string) []Node {
 	if len(groups) == 0 {
 		return nodes
 	}
 	taken := map[string]bool{}
 	for _, g := range groups {
-		taken[g.name] = true
+		taken[g] = true
 	}
 	hit := false
 	for _, n := range nodes {

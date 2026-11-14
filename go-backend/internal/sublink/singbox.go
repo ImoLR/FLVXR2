@@ -216,7 +216,7 @@ func SingBox(nodes []Node, mode, origin string) ([]byte, int) {
 // exactly what SingBox renders.
 func SingBoxRouted(nodes []Node, mode, origin string, routing []RouteEntry) ([]byte, int) {
 	if len(routing) > 0 {
-		nodes = avoidGroupNames(nodes, planRoutes(routing, nil, true))
+		nodes = avoidGroupNames(nodes, routeGroupNames(routing))
 	}
 	outbounds := []interface{}{}
 	tags := []string{}

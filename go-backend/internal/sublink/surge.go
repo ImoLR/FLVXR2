@@ -232,10 +232,9 @@ func SurgeRouted(nodes []Node, mode string, surfboard bool, routing []RouteEntry
 	names := lineNames(kept, false)
 	var routes []routeGroup
 	if len(routing) > 0 {
-		pre := planRoutes(routing, nil, true)
 		taken := map[string]bool{}
-		for _, g := range pre {
-			taken[lineName(g.name, false)] = true
+		for _, g := range routeGroupNames(routing) {
+			taken[lineName(g, false)] = true
 		}
 		names = avoidLineNames(names, taken)
 		routes = planRoutes(routing, routeNodeNames(kept, names), len(kept) > 0)

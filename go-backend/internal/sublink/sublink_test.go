@@ -9,6 +9,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"encoding/pem"
+	"fmt"
 	"math/big"
 	"net/url"
 	"os"
@@ -274,6 +275,12 @@ func TestToken(t *testing.T) {
 // binaries are given (SUBLINK_MIHOMO / SUBLINK_SINGBOX); CI skips it.
 func TestRealClients(t *testing.T) {
 	nodes := sampleNodes(t)
+	for i := range nodes {
+		nodes[i].Key = fmt.Sprintf("e:%d", 100+i)
+	}
+	// Plan 256: every check also runs on the routed config (default 8 + two
+	// custom entries + a node exit + ads).
+	routings := map[string][]RouteEntry{"": nil, "-routed": testRouting(nodes[0].Key)}
 	dir := t.TempDir()
 	if bin := os.Getenv("SUBLINK_MIHOMO"); bin != "" {
 		home := os.Getenv("SUBLINK_MIHOMO_HOME")
@@ -281,26 +288,30 @@ func TestRealClients(t *testing.T) {
 			home = dir
 		}
 		for _, mode := range []string{ModeCNDirect, ModeGlobal} {
-			out, _ := Clash(nodes, mode, false)
-			f := filepath.Join(dir, "clash-"+mode+".yaml")
-			_ = os.WriteFile(f, out, 0o600)
-			res, err := exec.Command(bin, "-t", "-d", home, "-f", f).CombinedOutput()
-			if err != nil {
-				t.Fatalf("mihomo -t %s: %v\n%s", mode, err, res)
+			for suffix, routing := range routings {
+				out, _ := ClashRouted(nodes, mode, false, routing, testOrigin)
+				f := filepath.Join(dir, "clash-"+mode+suffix+".yaml")
+				_ = os.WriteFile(f, out, 0o600)
+				res, err := exec.Command(bin, "-t", "-d", home, "-f", f).CombinedOutput()
+				if err != nil {
+					t.Fatalf("mihomo -t %s%s: %v\n%s", mode, suffix, err, res)
+				}
+				t.Logf("mihomo %s%s: %s", mode, suffix, strings.TrimSpace(lastLine(string(res))))
 			}
-			t.Logf("mihomo %s: %s", mode, strings.TrimSpace(lastLine(string(res))))
 		}
 	}
 	if bin := os.Getenv("SUBLINK_SINGBOX"); bin != "" {
 		for _, mode := range []string{ModeCNDirect, ModeGlobal} {
-			out, _ := SingBox(nodes, mode, testOrigin)
-			f := filepath.Join(dir, "sb-"+mode+".json")
-			_ = os.WriteFile(f, out, 0o600)
-			res, err := exec.Command(bin, "check", "-c", f).CombinedOutput()
-			if err != nil {
-				t.Fatalf("sing-box check %s: %v\n%s", mode, err, res)
+			for suffix, routing := range routings {
+				out, _ := SingBoxRouted(nodes, mode, testOrigin, routing)
+				f := filepath.Join(dir, "sb-"+mode+suffix+".json")
+				_ = os.WriteFile(f, out, 0o600)
+				res, err := exec.Command(bin, "check", "-c", f).CombinedOutput()
+				if err != nil {
+					t.Fatalf("sing-box check %s%s: %v\n%s", mode, suffix, err, res)
+				}
+				t.Logf("sing-box check %s%s: ok %s", mode, suffix, strings.TrimSpace(string(res)))
 			}
-			t.Logf("sing-box check %s: ok %s", mode, strings.TrimSpace(string(res)))
 		}
 	}
 }
