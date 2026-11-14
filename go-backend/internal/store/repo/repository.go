@@ -98,6 +98,10 @@ type Repository struct {
 	// Plan 234: cached 「自动切换门槛」 and the in-memory switch counts.
 	margins  atomic.Pointer[switchMarginsCache]
 	switches autoSwitchStore
+	// Plan 255: SQLite read-only connection for the 线路监测 range reads (WAL
+	// readers never wait for the main single connection, nor block it).
+	// nil on PostgreSQL / in-memory databases → r.db.
+	lineRead *gorm.DB
 }
 
 // TakeLandingStartupResync reports (once) that startup migrations changed
@@ -199,6 +203,7 @@ func Open(path string) (*Repository, error) {
 	}
 	repo := &Repository{db: db}
 	repo.landingResync.Store(resync)
+	repo.lineRead = openLineMonitorReader(path)
 	return repo, nil
 }
 
@@ -287,6 +292,11 @@ func OpenPostgres(dsn string) (*Repository, error) {
 func (r *Repository) Close() error {
 	if r == nil || r.db == nil {
 		return nil
+	}
+	if r.lineRead != nil {
+		if readDB, err := r.lineRead.DB(); err == nil {
+			_ = readDB.Close()
+		}
 	}
 	sqlDB, err := r.db.DB()
 	if err != nil {
@@ -383,6 +393,7 @@ func autoMigrateAll(db *gorm.DB) error {
 		&model.PackageSubscription{},
 		&model.DNSProvider{},
 		&model.NodeDDNSRecord{},
+		&model.LineMonitorChart{}, &model.LineMonitorLine{}, &model.LineMonitorSample{}, // plan 255
 	}
 
 	if db.Dialector.Name() != "sqlite" {

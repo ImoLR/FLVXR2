@@ -98,6 +98,9 @@ type Handler struct {
 	redeployPending    map[tunnelNodeKey]*tunnelNodeRetry
 	// Plan 248: agent OTA jobs (follow the agent's progress and reconnect).
 	upgradeJobs agentUpgradeJobs
+	// Plan 255 「线路监测」: scheduler, write buffer, live state (memory only).
+	lineMonitor          lineMonitorRuntime
+	lineMonitorCleanupWG sync.WaitGroup
 
 	nodeGroupHandler *NodeGroupHandler
 	nodeTagHandler   *NodeTagHandler
@@ -336,6 +339,15 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("/api/v1/user/my-subscription", h.userMySubscription)
 	mux.HandleFunc("/api/v1/user/updatePassword", h.updatePassword)
 	mux.HandleFunc("/api/v1/node/list", h.nodeList)
+	// Plan 255 「线路监测」 (admin only: /api/v1/node/ prefix + handler check).
+	mux.HandleFunc("/api/v1/node/line-monitor/list", h.lineMonitorList)
+	mux.HandleFunc("/api/v1/node/line-monitor/options", h.lineMonitorOptions)
+	mux.HandleFunc("/api/v1/node/line-monitor/ports", h.lineMonitorPorts)
+	mux.HandleFunc("/api/v1/node/line-monitor/chart/save", h.lineMonitorChartSave)
+	mux.HandleFunc("/api/v1/node/line-monitor/chart/delete", h.lineMonitorChartDelete)
+	mux.HandleFunc("/api/v1/node/line-monitor/chart/reorder", h.lineMonitorChartReorder)
+	mux.HandleFunc("/api/v1/node/line-monitor/line/pause", h.lineMonitorLinePause)
+	mux.HandleFunc("/api/v1/node/line-monitor/data", h.lineMonitorDataHandler)
 	mux.HandleFunc("/api/v1/node/orphan-sweep", h.nodeOrphanSweep)
 	mux.HandleFunc("/api/v1/node/detect-region", h.nodeDetectRegion)
 	mux.HandleFunc("/api/v1/node/create", h.nodeCreate)
