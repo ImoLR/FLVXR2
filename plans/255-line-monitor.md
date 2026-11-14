@@ -162,8 +162,9 @@ the target (or picks one) — and nothing may stay open forever once nobody meas
 ## Design (agreed in the brief; deviations are marked ✎ with the reason)
 
 ### A. Target = FLVX node → the panel opens the port through its agent
-- Agent package `go-gost/x/monitorport`: listener = **accept → close (RST, `SO_LINGER 0`) inline in the accept
-  loop**; never reads, never writes, no TLS / protocol / proxy path. One goroutine per open port, no goroutine per
+- Agent package `go-gost/x/monitorport`: listener = **accept → close inline in the accept loop** (normal FIN, ✎ not
+  RST: on a sub-ms path an RST can reach the client before its connect() reports success → a false 「refused」; the
+  panel's TcpPing closes with RST itself, so a measurement leaves no TIME_WAIT on either side); never reads, never writes, no TLS / protocol / proxy path. One goroutine per open port, no goroutine per
   connection (✎ the brief allowed one per conn; closing inline is cheaper and makes "≤ 16 concurrent" hold by
   construction: at most 1 accepted conn per port exists at any time). Accept pace ≤ 50/s per port (token bucket; the
   loop sleeps, the kernel backlog absorbs — the client's connect time is the handshake, so pacing never changes a
@@ -236,7 +237,7 @@ Rows are deleted only after the agent acknowledged a `sync` without them.
 ### E. Security — threat table
 | # | Threat | Defence | Test |
 |---|--------|---------|------|
-| T1 | Port used as a data / proxy path | listener only accepts and closes (RST); no read, no write, no forward code path | `TestListenerNeverWritesOrReads` (client reads EOF/RST, 0 bytes; sent bytes never read) |
+| T1 | Port used as a data / proxy path | listener only accepts and closes; no read, no write, no forward code path | `TestListenerNeverWritesOrReads` (client reads EOF/RST, 0 bytes; sent bytes never read) |
 | T2 | Panel (or a stolen panel channel) opens ports it should not | agent refuses <1024, 22, own service / nft / landing ports, busy ports, > 8 ports | `TestOpenRefusesReservedPorts`, `TestCaps` |
 | T3 | Flood / resource exhaustion on the open port | inline close, ≤ 50 accepts/s per port, per-source cap, bounded source map, no per-conn log | `TestAcceptPaceAndSourceLimit`, fd / goroutine measurement in the lab |
 | T4 | Forgotten port stays open forever | agent 24 h idle net + reconcile on reconnect; custom one-liner self-removes after the window | agent idle test, Debian 12 / 13 container lab |
@@ -250,13 +251,13 @@ Agent-side source allow-list: **skipped** — our nodes' egress IPs are not alwa
 BPF filter on the listener) adds kernel-level code to a port that exposes nothing.
 
 ## Part 2 tasks
-- [ ] Plan section (this)
-- [ ] Agent: `monitorport` package (listener, caps, pace, per-source, idle net, persistence, restore) + `MonitorPort`
+- [x] Plan section (this)
+- [x] Agent: `monitorport` package (listener, caps, pace, per-source, idle net, persistence, restore) + `MonitorPort`
       command + handshake `monitorPort=1` + yield before services / landing + TcpPing `errorKind`; unit tests
-- [ ] Backend: model columns + `line_monitor_port`, repo (pick / reserve / ref-count / closing, node delete paths),
+- [x] Backend: model columns + `line_monitor_port`, repo (pick / reserve / ref-count / closing, node delete paths),
       reservation in every allocator, `sync` push + reconnect + verify + rotate (≤ 3) + heal, sample status 4
       (stats / buckets), custom one-liner generator + suggest + 测试连通, routes; tests SQLite + PostgreSQL
-- [ ] Frontend: port modes, auto chip, OTA-disabled state, custom command panel (window, allow, copy, undo, 测试连通),
+- [x] Frontend: port modes, auto chip, OTA-disabled state, custom command panel (window, allow, copy, undo, 测试连通),
       line-row chips / ⚠ / 换一个端口 / 重新开启, 「端口未开启」 lane + legend + stats, pause confirm; build + eslint
 - [ ] Lab with real agents (open, verify from another node, nft block → 连不上 + 换一个端口, restart → back, delete →
       closed, offline-at-delete → closed after reconnect, stale persisted → closed); fd / goroutine / RSS numbers

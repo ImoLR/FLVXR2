@@ -179,7 +179,8 @@ func CheckPortScript(port, windowHours int, allow []netip.Addr) (install, undo s
 	w(`systemctl daemon-reload`)
 	w(`systemctl enable "flvx-linemon-$P.socket" "flvx-linemon-$P-watch.timer" >/dev/null 2>&1 || { echo "FLVX: systemctl enable 失败" >&2; exit 1; }`)
 	w(`systemctl restart "flvx-linemon-$P.socket" "flvx-linemon-$P-watch.timer"`)
-	w(`echo "FLVX: 检测端口 $P 已开启（$((W / 3600)) 小时没有连接会自动删除）"`)
+	w(`if [ "$W" -ge 3600 ]; then idle="$((W / 3600)) 小时"; else idle="$W 秒"; fi`)
+	w(`echo "FLVX: 检测端口 $P 已开启（$idle 没有连接会自动删除）"`)
 	w(`FLVX_LINEMON`)
 	install = b.String()
 

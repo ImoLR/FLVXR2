@@ -48,7 +48,7 @@ const (
 type lineMonitorPortRuntime struct {
 	mu         sync.Mutex
 	nodeLocks  map[int64]*sync.Mutex
-	busy       map[int64]map[int]time.Time // ports agents reported busy
+	busy       map[int64]map[int]time.Time // ports agents reported busy / a rotate found unreachable (avoided 1 h)
 	healAt     map[int64]time.Time
 	autoTarget map[int64]int64 // auto line → target node (from the engine's last load)
 }
@@ -511,6 +511,8 @@ func (h *Handler) lineMonitorRotate(lineID int64) ([]lineMonitorRotateTry, strin
 	pr := h.lineMonPorts()
 	exclude := map[int]bool{line.Port: true}
 	current := line.Port
+	// A port that just failed is not picked again for an hour (any rotate).
+	pr.markBusy(line.TargetNodeID, line.Port)
 	var tries []lineMonitorRotateTry
 	for i := 0; i < lineMonitorRotateTries; i++ {
 		ex := map[int]bool{}
@@ -544,6 +546,7 @@ func (h *Handler) lineMonitorRotate(lineID int64) ([]lineMonitorRotateTry, strin
 		case model.LineCheckOK:
 			return tries, "", nil
 		case model.LineCheckUnreachable, model.LineCheckRefused, model.LineCheckBusy:
+			pr.markBusy(line.TargetNodeID, c.Port)
 			continue // a port problem: try the next one
 		default:
 			return tries, c.Msg, nil // not about the port (offline / no answer)
