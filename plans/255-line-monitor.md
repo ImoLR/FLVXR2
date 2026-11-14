@@ -259,10 +259,122 @@ BPF filter on the listener) adds kernel-level code to a port that exposes nothin
       (stats / buckets), custom one-liner generator + suggest + 测试连通, routes; tests SQLite + PostgreSQL
 - [x] Frontend: port modes, auto chip, OTA-disabled state, custom command panel (window, allow, copy, undo, 测试连通),
       line-row chips / ⚠ / 换一个端口 / 重新开启, 「端口未开启」 lane + legend + stats, pause confirm; build + eslint
-- [ ] Lab with real agents (open, verify from another node, nft block → 连不上 + 换一个端口, restart → back, delete →
+- [x] Lab with real agents (open, verify from another node, nft block → 连不上 + 换一个端口, restart → back, delete →
       closed, offline-at-delete → closed after reconnect, stale persisted → closed); fd / goroutine / RSS numbers
-- [ ] Debian 12 + Debian 13 systemd containers: one-liner alive with connections, idle → self-removed, panel shows
+- [x] Debian 12 + Debian 13 systemd containers: one-liner alive with connections, idle → self-removed, panel shows
       「端口未开启」, re-run → back; undo command
-- [ ] Gallery http://<dev>:8791/line-monitor/ extended (port modes, ✓ / ✗ chips, old-agent state, custom command +
+- [x] Gallery http://<dev>:8791/line-monitor/ extended (port modes, ✓ / ✗ chips, old-agent state, custom command +
       测试连通) desktop + mobile, light + dark
 - [ ] Push, CI green, ledger row 255, prod setup proposal (below), summary
+
+## Part 2 results
+(times 台湾时间 = UTC+8; build only — no tag, no release, no prod change)
+
+### Code (branch `feature/3.0.27-line-monitor`)
+- 588f58ff agent: `go-gost/x/monitorport/{monitorport,command}.go` (+ tests), `socket/monitor_port.go` (MonitorPort command,
+  in-use check, yield hooks, restore), `socket/tcp_ping_kind.go` (errorKind), handshake `monitorPort=1`, MonitorPort is a quiet
+  routine command (the manager logs only opens / closes / expiries / restores).
+- a3ccdafc panel: `line_monitor_port` table + 6 line columns (auto-migrate), `repository_line_monitor_port.go` (pick, reserve,
+  ref-count, 待关闭, busy move, node delete), reservation in every allocator (rule pick + manual check, tunnel ports,
+  federation, landing / chain / guard / protocol ports, landing holder labels 「线路监测检测端口」), `line_monitor_port.go`
+  (sync push, verify, rotate, heal, reconnect, command, 测试连通), sample status 4, `linemon/checkport.go` (one-liner).
+- cdecfff0 UI: `pages/node-monitor/check-port.tsx` (chips, 开启命令 panel, 测试连通, command modal), port modes in the dialog,
+  端口未开启 lane / tooltip / legend / stats pill, pause confirm. 3c2c543e / 7fa8b36b small fixes (avoid failed ports 1 h, real
+  window in the command's last line, chip falls back to the last stored slot after a panel restart).
+
+### Deviations (✎) and known limits
+- Accept → close with a normal FIN (not RST) — see design A.
+- Lines whose **target** node is deleted are deleted too (a line without its target could only read 断流).
+- 「手动填写」 / 「使用已在监听的端口」 = today's behaviour; only 「自动开启检测端口」 opens something.
+- A firewall that *rejects* (TCP RST / ICMP port-unreachable) reads as 端口未开启, not 断流 — both mean "reachable, refused".
+- An agent restart takes ~5 s before it re-opens its ports (it waits for its own services first): a slot in that window
+  reads 端口未开启 (seen once in the lab), never 断流.
+- A check port under a sustained flood > 50 conn/s keeps the agent at ≤ ~1–3 % CPU, but the kernel backlog can fill and
+  probes on *that* port may then time out (断流) until the flood stops.
+- The command modal's window / allow switch only change the generated command (the line keeps its saved values).
+
+### Tests
+- Agent: `monitorport` 10 tests (`-race`): open / close / list idempotent, <1024 / 22 / >65535 / own service / busy (EADDRINUSE)
+  refused, cap 8, never reads or writes (client gets EOF, 0 bytes), sync closes unlisted, persist + restore after restart (a
+  port taken meanwhile is dropped), restore skipped once the panel synced (stale port never reopens), 24 h idle net (short
+  window: busy port stays, idle one closes and leaves the file), per-source cap 20 / 10 s + pace 50/s, yield. `socket`:
+  errorKind classification (refused / timeout / unreach / dns), real TcpPing to a refused port → `refused`, 20 pings to a
+  check port all succeed, configured (paused) service ports count as in use, yield to services and landing.
+  `go test ./...` in go-gost/x: all ok (final run listed below); go-gost root builds (not changed).
+- Panel (`line_monitor_port_test.go`, SQLite + PostgreSQL 18): admin-only on the 4 new routes; auto pick skips every used
+  port (rules, tunnels, nft, privileged) and the reservation blocks rule auto pick, `HasOtherForwardOnNodePort`, used-port
+  maps, federation ports and manual rule ports (message names 线路监测); open + verify from the source, two lines share a
+  node's port, vendor-blocked → unreachable, 换一个端口 → ok, all blocked → exactly 3 tries + message, tried ports closed;
+  busy port moves the line; old agent → refused with the OTA hint + options flag; offline target → 待开启, opened on reconnect;
+  lifecycle: delete chart with another chart on the same port (kept), pause (kept, no command), resume (re-open), target
+  change (old closed, new opened), auto → manual (closed), offline at delete (待关闭 stays reserved → closed after reconnect),
+  stale agent port → closed by reconnect sync; node delete as source (lines go, target port closes) and as target
+  (reservation dropped, nothing sent); scheduler: refused twice → status 4 (not 断流), heal re-sends once per 10 min;
+  old agents (no errorKind) → 断流; one-liner command (suggest, allow default on static IPs / off with the DDNS host-name
+  source named, window, refusals) and 测试连通 (✓ / refused / offline). `linemon`: classify incl. refused, closed slots
+  (not 断流, not in 可用率, not 无数据, split 断流 runs), script only interpolates integers / netip IPs (diff test), no
+  download / `rm -r`, suggestion range. Contract test: the 4 new routes refused for user / anonymous through the router.
+- Frontend: `npm run build` ok (page chunk 58.4 kB / 18.9 kB gzip), `tsc` clean, eslint 0 errors / 0 warnings in the
+  changed files.
+
+### Lab with real agents (netns lm255p2, loopback only, this branch's paneld + 3 agents, 11-14 20:40–20:47)
+- Save chart with 2 auto lines → 黑五 :21017 / Tcscloud :22015 opened (agents log one line each), verify ok 0.1–0.2 ms,
+  `monitor_ports.json` written.
+- nft drop 21017 (vendor firewall) → verify `unreachable`; 换一个端口 → :21093 ok in 1 try, 21017 closed.
+- nft drop 21000–21099 → 换一个端口 tries 3 ports in 9.0 s, all unreachable, stops with the message; only the last stays.
+- Agent restart → port back 5 s after start (panel sync). Panel stopped + agent restart → the agent restores the port
+  from its own file after 10 s; panel back → verify ok.
+- Tcscloud agent stopped, its line deleted → row 待关闭 (still reserved); stale 22098 written into its file; agent started →
+  sync closes / never opens both, file `[]`, row deleted.
+- Custom target 127.0.0.9:25999 (nothing listening) → samples status 4 only (5 slots), 断流 0, 可用率 none.
+- Delete chart → no listener left, files `[]`, rows 0; delete source node AWS HK → target port closed, rows 0.
+- Panel log: 0 `[line-monitor]` error lines.
+
+### Resources (lab)
+- Agent with 1 check port idle: 17 CPU ticks / 60 s vs 18 for an agent without (no measurable cost); RSS 54 MB, 13 threads,
+  11 fds.
+- Flood 3000 connects in 0.15 s on the check port: RSS +2.5 MB, threads / fds unchanged, accepts paced to 50/s (the backlog
+  drained in ~60 s), a probe sent after it waited in the backlog (pace working), verify ok right after. 500 paced connects
+  (TcpPing-like RST close) cost ~0.1 s CPU (~0.2 ms each) → ≤ ~1 % of a core at the 50/s cap. Normal use = 2 connections /
+  min per line.
+- Panel 41 MB RSS, 8 threads; no new loop (reconnect sync + on-demand only).
+
+### Self-expiring one-liner (Docker systemd containers, Debian 12 = systemd 252, Debian 13 = systemd 257, 11-14 21:51–21:58)
+Both identical: install ok; 12 connections in 180 s keep it (NAccepted 12, state updated), **0 journal lines** for 12
+connections + 9 watchdog runs, 0 errors; no connection → self-removed 163 s later (window 120 s + tick 20 s), journal
+「flvx-linemon 25931: idle 120 s, removed」, 4 units + its state dir gone, foreign `/var/lib/flvx-linemon/foreign.txt`
+and `/etc/systemd/system/keep-me.service` kept; then refused; re-run → connected; undo → gone at once; allow variant
+(`IPAddressAllow=172.17.0.1/32` effective) → host connects, the other container times out (filtered).
+
+### End-to-end chain (branch panel + REAL agent in the Debian 13 container as source → Debian 12 container target)
+Port open → ok 3 / 断流 0; line paused → the target's check port self-removed 71 s later; resumed → **3 slots 端口未开启,
+断流 0, 可用率 100 %**, live status 4, 测试连通 → `refused`; re-run the command → ok again. Panel errors 0.
+
+### Gallery
+http://104.145.236.29:8791/line-monitor/ — part 2 on top (42 new screens: port modes + OTA-disabled state, existing ports
++ scan hint, custom 自动选端口 + 开启命令, 测试连通, ✓ / 连不上 / 待开启 chips, 换一个端口, 端口未开启 lane + stats + tooltip,
+复制开启命令 + 测试连通 ✓/✗, pause confirm), desktop 1366×900 + mobile 390×844, light + dark, 64/64 automatic checks, 0 page
+errors; part 1 screens kept below. Fake documentation addresses only.
+
+### Security assessment (安全评估)
+Someone who finds a check port can open a TCP connection that is closed at once without a byte read or written: no
+protocol, no banner, no data, no proxy, no auth surface — the only thing learnt is "a port is open". Floods cost the agent
+≤ ~1–3 % CPU (pace 50/s, per-source cap, inline close, no per-connection log). The panel cannot be tricked into opening a
+privileged / SSH / in-use port (the agent refuses itself, ≤ 8 ports). The APIs are admin-only; nothing reaches probe /
+sub / share / federation payloads. The one-liner only interpolates integers and re-printed IPs, downloads nothing, runs the
+per-connection service sandboxed (DynamicUser, ProtectSystem=strict, NoNewPrivileges, no capabilities, 8 MB, 5 s) and the
+watchdog only removes its own fixed-name files.
+
+## Prod setup after the release (proposal — NOT done)
+Release = panel (DB auto-migrate: new table `line_monitor_port`, 6 new columns on `line_monitor_line`; rollback = image swap,
+the new table / columns stay inert) + **targeted OTA only**: AWS HK (source: errorKind), Fachost seednet 黑五 and Tcscloud
+Seednet (targets: MonitorPort). Other agents stay.
+1. 线路监测 → 新建监测图 「AWS HK → Seednet」: 源 AWS HK → FLVX 节点 Fachost seednet 黑五 (自动开启检测端口, 备注 黑五);
+   源 AWS HK → FLVX 节点 Tcscloud Seednet (自动开启检测端口, 备注 Tcscloud; its address is the DDNS name, followed
+   automatically). Check the chips: ✓ for both; if one reads 「连不上」 the vendor / home router does not forward that part of
+   the node's rule range → 换一个端口 (≤ 3) or fix the forwarding.
+2. 「Seednet → HiNet」: replace the hand-made socket on mmwx-hinet2 first (its port would otherwise be "in use"):
+   `systemctl disable --now flvx-linemon.socket; rm -f /etc/systemd/system/flvx-linemon.socket /etc/systemd/system/flvx-linemon@.service; systemctl daemon-reload`,
+   then the dialog: 2 lines 源 Fachost seednet 黑五 / 源 Tcscloud Seednet → 自定义地址 `boilhinet2.imgamer.top`, port 25931,
+   window 24 小时, 仅允许来源节点连接 stays off (Tcscloud Seednet is a dynamic IP); 复制开启命令 → paste on mmwx-hinet2 as root
+   → 测试连通 (both ✓) → 保存.
