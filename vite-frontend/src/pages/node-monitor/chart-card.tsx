@@ -898,12 +898,17 @@ export const ChartCard = memo(function ChartCard({
             colors={colors}
             lines={lines}
             live={(l) => {
+              if (l.paused === 1) return undefined;
+              const now = Date.now() / 1000;
               const lv = data?.live?.[String(l.id)] ?? l.live;
 
-              if (l.paused === 1 || !lv || Date.now() / 1000 - lv.ts > 150)
-                return undefined;
+              if (lv && now - lv.ts <= 150) return lv.status;
+              // right after a panel restart: the last stored slot
+              const st = statsById.get(l.id);
 
-              return lv.status;
+              return st && st.lastTs > 0 && now - st.lastTs <= 150
+                ? st.lastStatus
+                : undefined;
             }}
             onAction={onCheckPort}
           />
