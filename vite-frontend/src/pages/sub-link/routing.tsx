@@ -1,6 +1,18 @@
 import { useMemo, useState } from "react";
 import toast from "react-hot-toast";
-import { Check, ChevronDown, ChevronLeft, ChevronRight, X } from "lucide-react";
+import {
+  ArrowRight,
+  Ban,
+  Check,
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  type LucideIcon,
+  Rocket,
+  Server,
+  X,
+  Zap,
+} from "lucide-react";
 
 import {
   SubAdminRoute,
@@ -20,7 +32,7 @@ import {
   ExpandRow,
   useExpandOne,
 } from "@/components/expand-row";
-import { Pill } from "@/pages/landing/pill";
+import { landingToneClass, type LandingTone, Pill } from "@/pages/landing/pill";
 import { Button } from "@/shadcn-bridge/heroui/button";
 import {
   Dropdown,
@@ -46,7 +58,10 @@ import {
 export interface RouteNodeOption {
   key: string;
   name: string;
+  /** desktop only: the source's name (a node of an 外部订阅源) */
   detail?: string;
+  /** where the node comes from (one small tag in the 走哪里 picker) */
+  source?: "rule" | "landing" | "external" | "source";
 }
 
 export const DEFAULT_LIMITS: SubRouteLimits = {
@@ -260,102 +275,264 @@ const toneClass: Record<Tone, string> = {
     "bg-amber-500/15 text-amber-700 dark:bg-amber-400/15 dark:text-amber-300",
 };
 
-const BASE_EXITS: { exit: string; label: string; tone: Tone }[] = [
-  { exit: "select", label: "🚀 节点选择", tone: "blue" },
-  { exit: "auto", label: "⚡ 自动选择", tone: "teal" },
-  { exit: "direct", label: "直连", tone: "green" },
-  { exit: "reject", label: "拒绝", tone: "red" },
+// User 11-15: two kinds of exits, always shown as two groups — 系统策略
+// (the four client built-ins, fixed order, one lucide icon each, the same tone
+// as their chip) and 订阅里的节点 (subscription order, one small source tag).
+const BASE_EXITS: {
+  exit: string;
+  label: string;
+  tone: Tone;
+  Icon: LucideIcon;
+  hint: string;
+}[] = [
+  {
+    exit: "select",
+    label: "节点选择",
+    tone: "blue",
+    Icon: Rocket,
+    hint: "在客户端里手动选",
+  },
+  {
+    exit: "auto",
+    label: "自动选择",
+    tone: "teal",
+    Icon: Zap,
+    hint: "自动挑最快的",
+  },
+  {
+    exit: "direct",
+    label: "直连",
+    tone: "green",
+    Icon: ArrowRight,
+    hint: "不走代理",
+  },
+  { exit: "reject", label: "拒绝", tone: "red", Icon: Ban, hint: "直接断开" },
 ];
+
+const textTone: Record<Tone, string> = {
+  blue: "text-blue-700 dark:text-blue-300",
+  teal: "text-teal-700 dark:text-teal-300",
+  green: "text-green-700 dark:text-green-300",
+  red: "text-red-700 dark:text-red-300",
+  purple: "text-purple-700 dark:text-purple-300",
+  amber: "text-amber-700 dark:text-amber-300",
+};
+
+// Selected pill of the desktop 自己写 form.
+const solidTone: Record<Tone, string> = {
+  blue: "bg-blue-600 text-white",
+  teal: "bg-teal-600 text-white",
+  green: "bg-green-600 text-white",
+  red: "bg-red-600 text-white",
+  purple: "bg-purple-600 text-white",
+  amber: "bg-amber-600 text-white",
+};
+
+// Source tag of a node exit (same words / tones as the 已选 tab).
+const sourceTag: Record<
+  NonNullable<RouteNodeOption["source"]>,
+  { tone: LandingTone; text: string }
+> = {
+  rule: { tone: "green", text: "规则" },
+  landing: { tone: "teal", text: "落地" },
+  external: { tone: "purple", text: "外部节点" },
+  source: { tone: "amber", text: "订阅源" },
+};
 
 interface ExitView {
   label: string;
   tone: Tone;
   missing: boolean;
+  /** 系统策略 icon; a node exit gets the small node marker */
+  Icon?: LucideIcon;
 }
 
 function exitView(exit: string, nodes: Map<string, RouteNodeOption>): ExitView {
   if (exit.startsWith("node:")) {
     const n = nodes.get(exit.slice(5));
 
-    if (n) return { label: n.name, tone: "purple", missing: false };
+    if (n)
+      return { label: n.name, tone: "purple", missing: false, Icon: Server };
 
-    return { label: "节点选择", tone: "amber", missing: true };
+    return { label: "节点选择", tone: "amber", missing: true, Icon: Rocket };
   }
   const b = BASE_EXITS.find((x) => x.exit === exit) || BASE_EXITS[0];
 
-  return {
-    label: b.label.replace(/^\S+ /, ""),
-    tone: b.tone,
-    missing: false,
-  };
+  return { label: b.label, tone: b.tone, missing: false, Icon: b.Icon };
+}
+
+/** 国内网站 (fixed row): 直连 or 走代理. */
+function modeExitView(mode: SubRuleMode): ExitView {
+  return mode === "global"
+    ? { label: "走代理", tone: "blue", missing: false, Icon: Rocket }
+    : { label: "直连", tone: "green", missing: false, Icon: ArrowRight };
 }
 
 function ExitChip({ view, open }: { view: ExitView; open?: boolean }) {
+  const Icon = view.Icon;
+
   return (
     <span
-      className={`inline-flex max-w-[11rem] items-center gap-0.5 rounded-lg px-2 py-0.5 text-xs font-semibold ${toneClass[view.tone]}`}
+      className={`inline-flex max-w-[11rem] items-center gap-1 rounded-lg px-2 py-0.5 text-xs font-semibold ${toneClass[view.tone]}`}
+      data-exit-chip={view.tone}
     >
+      {Icon && <Icon className="shrink-0" size={12} strokeWidth={2.5} />}
       <span className="truncate">{view.label}</span>
-      {open !== false && <ChevronDown className="shrink-0" size={12} />}
+      {open !== false && <ChevronDown className="-ml-0.5 shrink-0" size={12} />}
     </span>
   );
 }
 
-/** Desktop: the coloured 「走哪里 ▾」 chip with a dropdown. */
+/** H5 list rows: the exit as coloured text with the same small icon. */
+function ExitText({ view }: { view: ExitView }) {
+  const Icon = view.Icon;
+
+  return (
+    <span
+      className={`inline-flex min-w-0 items-center gap-1 font-semibold ${textTone[view.tone]}`}
+    >
+      {Icon && <Icon className="shrink-0" size={11} strokeWidth={2.5} />}
+      <span className="min-w-0 truncate">{view.label}</span>
+    </span>
+  );
+}
+
+function SourceTag({ node }: { node: RouteNodeOption }) {
+  if (!node.source) return null;
+  const t = sourceTag[node.source];
+
+  return (
+    <span
+      className={`inline-flex shrink-0 items-center whitespace-nowrap rounded-full px-1.5 text-[11px] font-semibold leading-[18px] ${landingToneClass[t.tone]}`}
+      data-exit-source={node.source}
+    >
+      {t.text}
+    </span>
+  );
+}
+
+const groupHeadClass =
+  "px-3 pb-1 pt-2 text-[11px] font-medium tracking-wide text-default-400";
+
+/** One option row (H5 sheet / desktop menu): icon · label · hint|tag · ✓. */
+function ExitOptionRow({
+  Icon,
+  iconClass,
+  label,
+  hint,
+  tag,
+  detail,
+  on,
+}: {
+  Icon: LucideIcon;
+  iconClass: string;
+  label: string;
+  hint?: string;
+  tag?: React.ReactNode;
+  detail?: string;
+  on: boolean;
+}) {
+  return (
+    <span className="flex w-full min-w-0 items-center gap-2">
+      <Icon className={`shrink-0 ${iconClass}`} size={15} strokeWidth={2.25} />
+      <span className="min-w-0 truncate" title={label}>
+        {label}
+      </span>
+      {hint && (
+        <span className="shrink-0 whitespace-nowrap text-xs text-default-400">
+          {hint}
+        </span>
+      )}
+      <span className="min-w-0 flex-1" />
+      {detail && (
+        <span className="max-w-[6rem] shrink-[3] truncate text-xs text-default-400">
+          {detail}
+        </span>
+      )}
+      {tag}
+      <span className="flex w-4 shrink-0 justify-end">
+        {on && <Check className="text-primary" size={15} />}
+      </span>
+    </span>
+  );
+}
+
+/** Desktop: the coloured 「走哪里 ▾」 chip with a grouped dropdown. */
 function ExitDropdown({
   exit,
   nodes,
   options,
   onChange,
+  trigger,
+  nodesOnly,
 }: {
   exit: string;
   nodes: Map<string, RouteNodeOption>;
   options: RouteNodeOption[];
   onChange: (exit: string) => void;
+  /** default: the exit chip of the current choice */
+  trigger?: React.ReactNode;
+  /** only the 订阅里的节点 group (the 自己写 form has the four as pills) */
+  nodesOnly?: boolean;
 }) {
   return (
-    <Dropdown placement="bottom-end">
+    <Dropdown placement={nodesOnly ? "bottom-start" : "bottom-end"}>
       <DropdownTrigger>
         <button data-route-exit aria-label="走哪里" type="button">
-          <ExitChip view={exitView(exit, nodes)} />
+          {trigger || <ExitChip view={exitView(exit, nodes)} />}
         </button>
       </DropdownTrigger>
       <DropdownMenu aria-label="走哪里">
-        {[
-          ...BASE_EXITS.map((b) => (
-            <DropdownItem key={b.exit} onPress={() => onChange(b.exit)}>
-              <span className="flex w-full items-center gap-2">
-                <span className="flex-1">{b.label}</span>
-                {exit === b.exit && <Check size={14} />}
-              </span>
-            </DropdownItem>
-          )),
-          ...(options.length
-            ? [
-                <DropdownMenuSeparator key="sep" />,
-                <DropdownMenuLabel
-                  key="label"
-                  className="text-xs font-normal text-default-500"
-                >
-                  订阅里的节点
-                </DropdownMenuLabel>,
-              ]
-            : []),
-          ...options.map((n) => (
+        <div data-exit-menu className="w-[22rem] max-w-[calc(100vw-2rem)]">
+          {!nodesOnly && (
+            <>
+              <DropdownMenuLabel
+                className={groupHeadClass}
+                data-exit-group="sys"
+              >
+                系统策略
+              </DropdownMenuLabel>
+              {BASE_EXITS.map((b) => (
+                <DropdownItem key={b.exit} onPress={() => onChange(b.exit)}>
+                  <ExitOptionRow
+                    Icon={b.Icon}
+                    hint={b.hint}
+                    iconClass={textTone[b.tone]}
+                    label={b.label}
+                    on={exit === b.exit}
+                  />
+                </DropdownItem>
+              ))}
+              <DropdownMenuSeparator />
+            </>
+          )}
+          <DropdownMenuLabel className={groupHeadClass} data-exit-group="nodes">
+            订阅里的节点
+          </DropdownMenuLabel>
+          {options.length === 0 && (
+            <p className="px-3 pb-2 pt-0.5 text-xs text-default-400">
+              订阅里还没有节点
+            </p>
+          )}
+          {options.map((n) => (
             <DropdownItem key={n.key} onPress={() => onChange(`node:${n.key}`)}>
-              <span className="flex w-full max-w-[18rem] items-center gap-2">
-                <span className="min-w-0 flex-1 truncate">{n.name}</span>
-                {exit === `node:${n.key}` && <Check size={14} />}
-              </span>
+              <ExitOptionRow
+                Icon={Server}
+                detail={n.detail}
+                iconClass="text-default-400"
+                label={n.name}
+                on={exit === `node:${n.key}`}
+                tag={<SourceTag node={n} />}
+              />
             </DropdownItem>
-          )),
-        ]}
+          ))}
+        </div>
       </DropdownMenu>
     </Dropdown>
   );
 }
 
-/** H5: a list of exits with ✓ (inside the bottom sheet / edit page). */
+/** H5: the grouped list of exits with ✓ (bottom sheet / edit page). */
 function ExitList({
   exit,
   options,
@@ -365,28 +542,65 @@ function ExitList({
   options: RouteNodeOption[];
   onChange: (exit: string) => void;
 }) {
-  const row = (key: string, value: string, label: string, detail?: string) => (
+  const row = (key: string, value: string, body: React.ReactNode) => (
     <button
       key={key}
-      className="flex w-full items-center gap-2 border-b border-divider px-3 py-2.5 text-left text-sm last:border-b-0"
+      className="flex w-full items-center border-b border-divider px-3 py-2.5 text-left text-sm last:border-b-0 active:bg-default-100"
+      data-exit-option={value}
       type="button"
       onClick={() => onChange(value)}
     >
-      <span className="min-w-0 flex-1 truncate">{label}</span>
-      {detail && (
-        <span className="max-w-[45%] shrink-0 truncate text-xs text-default-400">
-          {detail}
-        </span>
-      )}
-      {exit === value && <Check className="shrink-0 text-primary" size={16} />}
+      {body}
     </button>
   );
 
   return (
-    <div className="max-h-[45vh] overflow-y-auto rounded-xl border border-divider">
-      {BASE_EXITS.slice(0, 2).map((b) => row(b.exit, b.exit, b.label))}
-      {options.map((n) => row(n.key, `node:${n.key}`, n.name, n.detail))}
-      {BASE_EXITS.slice(2).map((b) => row(b.exit, b.exit, b.label))}
+    <div data-exit-list className="max-h-[52vh] space-y-2 overflow-y-auto">
+      <div>
+        <p className={`${groupHeadClass} pt-0`} data-exit-group="sys">
+          系统策略
+        </p>
+        <div className="rounded-xl border border-divider">
+          {BASE_EXITS.map((b) =>
+            row(
+              b.exit,
+              b.exit,
+              <ExitOptionRow
+                Icon={b.Icon}
+                hint={b.hint}
+                iconClass={textTone[b.tone]}
+                label={b.label}
+                on={exit === b.exit}
+              />,
+            ),
+          )}
+        </div>
+      </div>
+      <div>
+        <p className={groupHeadClass} data-exit-group="nodes">
+          订阅里的节点
+        </p>
+        <div className="rounded-xl border border-divider">
+          {options.length === 0 && (
+            <p className="px-3 py-2.5 text-xs text-default-400">
+              订阅里还没有节点
+            </p>
+          )}
+          {options.map((n) =>
+            row(
+              n.key,
+              `node:${n.key}`,
+              <ExitOptionRow
+                Icon={Server}
+                iconClass="text-default-400"
+                label={n.name}
+                on={exit === `node:${n.key}`}
+                tag={<SourceTag node={n} />}
+              />,
+            ),
+          )}
+        </div>
+      </div>
     </div>
   );
 }
@@ -682,16 +896,7 @@ export function RoutingPanel({
             onToggle={() => linkRows.toggle(e.ref || 0)}
           >
             <ExpandField label="走哪里">
-              <span
-                className={`font-semibold ${toneClass[v.tone]
-                  .split(" ")
-                  .filter(
-                    (c) => c.startsWith("text-") || c.startsWith("dark:text-"),
-                  )
-                  .join(" ")}`}
-              >
-                {v.label}
-              </span>
+              <ExitText view={v} />
               {missingNote}
             </ExpandField>
             <ExpandField label="规则">
@@ -805,16 +1010,7 @@ export function RoutingPanel({
           <span className="min-w-0 flex-1">
             <span className="block truncate text-sm font-medium">{m.name}</span>
             <span className="flex min-w-0 items-baseline text-xs">
-              <span
-                className={`min-w-0 truncate font-semibold ${toneClass[v.tone]
-                  .split(" ")
-                  .filter(
-                    (c) => c.startsWith("text-") || c.startsWith("dark:text-"),
-                  )
-                  .join(" ")}`}
-              >
-                {v.label}
-              </span>
+              <ExitText view={v} />
               {m.custom && (
                 <span className="shrink-0 whitespace-pre text-default-400">
                   {" "}
@@ -880,10 +1076,7 @@ export function RoutingPanel({
     );
   });
 
-  const modeView: ExitView =
-    mode === "global"
-      ? { label: "走代理", tone: "blue", missing: false }
-      : { label: "直连", tone: "green", missing: false };
+  const modeView = modeExitView(mode);
   const fixed = (
     <>
       <div
@@ -904,18 +1097,26 @@ export function RoutingPanel({
             </button>
           </DropdownTrigger>
           <DropdownMenu aria-label="国内网站走哪里">
-            <DropdownItem onPress={() => onModeChange("cn_direct")}>
-              <span className="flex w-full items-center gap-2">
-                <span className="flex-1">直连</span>
-                {mode !== "global" && <Check size={14} />}
-              </span>
-            </DropdownItem>
-            <DropdownItem onPress={() => onModeChange("global")}>
-              <span className="flex w-full items-center gap-2">
-                <span className="flex-1">走代理（全部走代理）</span>
-                {mode === "global" && <Check size={14} />}
-              </span>
-            </DropdownItem>
+            <div className="w-[16rem]" data-exit-menu="cn">
+              <DropdownItem onPress={() => onModeChange("cn_direct")}>
+                <ExitOptionRow
+                  Icon={ArrowRight}
+                  hint="国内不走代理"
+                  iconClass={textTone.green}
+                  label="直连"
+                  on={mode !== "global"}
+                />
+              </DropdownItem>
+              <DropdownItem onPress={() => onModeChange("global")}>
+                <ExitOptionRow
+                  Icon={Rocket}
+                  hint="全部走代理"
+                  iconClass={textTone.blue}
+                  label="走代理"
+                  on={mode === "global"}
+                />
+              </DropdownItem>
+            </div>
           </DropdownMenu>
         </Dropdown>
         {!isH5 && <span className="w-7 shrink-0" />}
@@ -1097,9 +1298,9 @@ export function RoutingReadOnly({
   const view = (e: SubAdminRoute): ExitView => {
     if (e.exit !== "node") return exitView(e.exit, none);
     if (e.exitMissing || !e.exitName)
-      return { label: "节点选择", tone: "amber", missing: true };
+      return { label: "节点选择", tone: "amber", missing: true, Icon: Rocket };
 
-    return { label: e.exitName, tone: "purple", missing: false };
+    return { label: e.exitName, tone: "purple", missing: false, Icon: Server };
   };
 
   const rows = routing.map((e) => {
@@ -1149,16 +1350,7 @@ export function RoutingReadOnly({
           <span className="min-w-0 flex-1">
             <span className="block truncate text-sm font-medium">{name}</span>
             <span className="flex min-w-0 items-baseline text-xs">
-              <span
-                className={`min-w-0 truncate font-semibold ${toneClass[v.tone]
-                  .split(" ")
-                  .filter(
-                    (x) => x.startsWith("text-") || x.startsWith("dark:text-"),
-                  )
-                  .join(" ")}`}
-              >
-                {v.label}
-              </span>
+              <ExitText view={v} />
               {custom && !link && (
                 <span className="shrink-0 whitespace-pre text-default-400">
                   {" "}
@@ -1203,10 +1395,7 @@ export function RoutingReadOnly({
     );
   });
 
-  const modeView: ExitView =
-    mode === "global"
-      ? { label: "走代理", tone: "blue", missing: false }
-      : { label: "直连", tone: "green", missing: false };
+  const modeView = modeExitView(mode);
 
   return (
     <div
@@ -1492,62 +1681,68 @@ function AddRouteDialog({
     </div>
   );
 
+  const exitNode = exit.startsWith("node:") ? exitView(exit, nodes) : null;
   const exitPicker = isH5 ? (
     <ExitList exit={exit} options={nodeOptions} onChange={setExit} />
   ) : (
-    <div className="flex flex-wrap items-center gap-1.5">
-      {(
-        [
-          ["direct", "直连"],
-          ["select", "节点选择"],
-          ["auto", "自动选择"],
-          ["reject", "拒绝"],
-        ] as const
-      ).map(([v, t]) => (
-        <button
-          key={v}
-          className={`rounded-lg px-2.5 py-1 text-xs font-semibold ${
-            exit === v
-              ? "bg-green-600 text-white"
-              : "bg-slate-500/10 text-slate-600 dark:bg-slate-400/15 dark:text-slate-300"
-          }`}
-          type="button"
-          onClick={() => setExit(v)}
-        >
-          {t}
-        </button>
-      ))}
-      {nodeOptions.length > 0 && (
-        <Dropdown>
-          <DropdownTrigger>
-            <button
-              className={`inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-xs font-semibold ${
-                exit.startsWith("node:")
-                  ? "bg-purple-600 text-white"
-                  : "bg-slate-500/10 text-slate-600 dark:bg-slate-400/15 dark:text-slate-300"
-              }`}
-              type="button"
-            >
-              <span className="max-w-[10rem] truncate">
-                {exit.startsWith("node:")
-                  ? exitView(exit, nodes).label
-                  : "某个节点"}
-              </span>
-              <ChevronDown size={12} />
-            </button>
-          </DropdownTrigger>
-          <DropdownMenu aria-label="某个节点">
-            {nodeOptions.map((n) => (
-              <DropdownItem
-                key={n.key}
-                onPress={() => setExit(`node:${n.key}`)}
+    <div data-exit-form className="space-y-1.5">
+      <div className="flex flex-wrap items-center gap-1.5">
+        <span className="w-[5.5rem] shrink-0 text-[11px] text-default-400">
+          系统策略
+        </span>
+        {BASE_EXITS.map((b) => (
+          <button
+            key={b.exit}
+            className={`inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-xs font-semibold ${
+              exit === b.exit
+                ? solidTone[b.tone]
+                : "bg-slate-500/10 text-slate-600 hover:bg-slate-500/15 dark:bg-slate-400/15 dark:text-slate-300"
+            }`}
+            data-exit-option={b.exit}
+            title={b.hint}
+            type="button"
+            onClick={() => setExit(b.exit)}
+          >
+            <b.Icon
+              className={exit === b.exit ? "" : textTone[b.tone]}
+              size={12}
+              strokeWidth={2.5}
+            />
+            {b.label}
+          </button>
+        ))}
+      </div>
+      <div className="flex flex-wrap items-center gap-1.5">
+        <span className="w-[5.5rem] shrink-0 text-[11px] text-default-400">
+          订阅里的节点
+        </span>
+        {nodeOptions.length === 0 ? (
+          <span className="text-xs text-default-400">订阅里还没有节点</span>
+        ) : (
+          <ExitDropdown
+            nodesOnly
+            exit={exit}
+            nodes={nodes}
+            options={nodeOptions}
+            trigger={
+              <span
+                className={`inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-xs font-semibold ${
+                  exitNode
+                    ? solidTone.purple
+                    : "bg-slate-500/10 text-slate-600 hover:bg-slate-500/15 dark:bg-slate-400/15 dark:text-slate-300"
+                }`}
               >
-                <span className="block max-w-[18rem] truncate">{n.name}</span>
-              </DropdownItem>
-            ))}
-          </DropdownMenu>
-        </Dropdown>
-      )}
+                <Server size={12} strokeWidth={2.5} />
+                <span className="max-w-[12rem] truncate">
+                  {exitNode ? exitNode.label : "选一个节点"}
+                </span>
+                <ChevronDown size={12} />
+              </span>
+            }
+            onChange={setExit}
+          />
+        )}
+      </div>
     </div>
   );
 

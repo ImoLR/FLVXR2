@@ -432,9 +432,20 @@ export function SubEditor({
         const src = pool?.sources.find((x) => x.id === s.ref.sourceId);
 
         src?.nodes.forEach((n) =>
-          out.push({ key: n.key, name: n.name, detail: src.name }),
+          out.push({
+            key: n.key,
+            name: n.name,
+            detail: src.name,
+            source: "source",
+          }),
         );
-      } else out.push({ key: s.key, name: s.name || s.key });
+      } else
+        out.push({
+          key: s.key,
+          name: s.name || s.key,
+          detail: s.group === "source" ? s.sourceName : undefined,
+          source: s.group,
+        });
     }
 
     return out;
