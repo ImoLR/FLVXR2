@@ -243,6 +243,7 @@ export function SubAdminDetailDialog({
       <RoutingReadOnly
         catalog={data.routingCatalog || []}
         isH5={isH5}
+        items={data.items}
         mode={data.ruleMode}
         routing={data.routing}
       />

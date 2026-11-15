@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import toast from "react-hot-toast";
 import {
   ArrowRight,
@@ -9,12 +9,14 @@ import {
   ChevronRight,
   type LucideIcon,
   Rocket,
+  Search,
   Server,
   X,
   Zap,
 } from "lucide-react";
 
 import {
+  SubAdminItem,
   SubAdminRoute,
   SubLinkSet,
   SubRouteCategory,
@@ -339,12 +341,30 @@ const sourceTag: Record<
   source: { tone: "amber", text: "订阅源" },
 };
 
+type NodeSource = NonNullable<RouteNodeOption["source"]>;
+
+// User 11-15 (v4): the small node icon takes the source's colour, like the
+// 系统策略 icons take theirs (规则 green · 落地 teal · 外部节点 purple ·
+// 订阅源 orange). A missing node stays amber.
+const nodeIconTone: Record<NodeSource, string> = {
+  rule: "text-green-600 dark:text-green-400",
+  landing: "text-teal-600 dark:text-teal-400",
+  external: "text-purple-600 dark:text-purple-400",
+  source: "text-orange-600 dark:text-orange-400",
+};
+
+function nodeIconClass(source?: NodeSource) {
+  return source ? nodeIconTone[source] : "text-default-400";
+}
+
 interface ExitView {
   label: string;
   tone: Tone;
   missing: boolean;
   /** 系统策略 icon; a node exit gets the small node marker */
   Icon?: LucideIcon;
+  /** a node exit: its icon in the source's colour */
+  iconClass?: string;
 }
 
 function exitView(exit: string, nodes: Map<string, RouteNodeOption>): ExitView {
@@ -352,7 +372,13 @@ function exitView(exit: string, nodes: Map<string, RouteNodeOption>): ExitView {
     const n = nodes.get(exit.slice(5));
 
     if (n)
-      return { label: n.name, tone: "purple", missing: false, Icon: Server };
+      return {
+        label: n.name,
+        tone: "purple",
+        missing: false,
+        Icon: Server,
+        iconClass: n.source ? nodeIconTone[n.source] : undefined,
+      };
 
     return { label: "节点选择", tone: "amber", missing: true, Icon: Rocket };
   }
@@ -376,7 +402,14 @@ function ExitChip({ view, open }: { view: ExitView; open?: boolean }) {
       className={`inline-flex max-w-[11rem] items-center gap-1 rounded-lg px-2 py-0.5 text-xs font-semibold ${toneClass[view.tone]}`}
       data-exit-chip={view.tone}
     >
-      {Icon && <Icon className="shrink-0" size={12} strokeWidth={2.5} />}
+      {Icon && (
+        <Icon
+          className={`shrink-0 ${view.iconClass || ""}`}
+          data-exit-icon={view.iconClass ? "node" : undefined}
+          size={12}
+          strokeWidth={2.5}
+        />
+      )}
       <span className="truncate">{view.label}</span>
       {open !== false && <ChevronDown className="-ml-0.5 shrink-0" size={12} />}
     </span>
@@ -391,7 +424,13 @@ function ExitText({ view }: { view: ExitView }) {
     <span
       className={`inline-flex min-w-0 items-center gap-1 font-semibold ${textTone[view.tone]}`}
     >
-      {Icon && <Icon className="shrink-0" size={11} strokeWidth={2.5} />}
+      {Icon && (
+        <Icon
+          className={`shrink-0 ${view.iconClass || ""}`}
+          size={11}
+          strokeWidth={2.5}
+        />
+      )}
       <span className="min-w-0 truncate">{view.label}</span>
     </span>
   );
@@ -433,7 +472,10 @@ function ExitOptionRow({
   on: boolean;
 }) {
   return (
-    <span className="flex w-full min-w-0 items-center gap-2">
+    <span
+      className="flex w-full min-w-0 items-center gap-2"
+      data-exit-on={on ? "" : undefined}
+    >
       <Icon className={`shrink-0 ${iconClass}`} size={15} strokeWidth={2.25} />
       <span className="min-w-0 truncate" title={label}>
         {label}
@@ -454,6 +496,198 @@ function ExitOptionRow({
         {on && <Check className="text-primary" size={15} />}
       </span>
     </span>
+  );
+}
+
+// User 11-15 (v4): a subscription may hold up to 300 nodes. 系统策略 stays
+// fixed; only the 订阅里的节点 group scrolls in its own box, the current
+// choice is scrolled into view on open, a 「搜索节点」 box shows when there
+// are more than 8 nodes, and rows render in batches (smooth with 300).
+const NODE_SEARCH_OVER = 8;
+const NODE_BATCH = 60;
+
+function nodeMatches(n: RouteNodeOption, q: string) {
+  if (!q) return true;
+  const tag = n.source ? sourceTag[n.source].text : "";
+
+  return (
+    n.name.toLowerCase().includes(q) ||
+    (n.detail || "").toLowerCase().includes(q) ||
+    tag.includes(q)
+  );
+}
+
+function NodeGroup({
+  exit,
+  options,
+  menu,
+  fill,
+  row,
+}: {
+  exit: string;
+  options: RouteNodeOption[];
+  /** desktop dropdown (Radix menu): keys from the search box stay there */
+  menu?: boolean;
+  /** H5 sheet: the box takes the space left (sheet ≤ 85vh) */
+  fill?: boolean;
+  row: (n: RouteNodeOption, on: boolean) => React.ReactNode;
+}) {
+  const searchable = options.length > NODE_SEARCH_OVER;
+  const [q, setQ] = useState("");
+  const query = q.trim().toLowerCase();
+  const list = useMemo(
+    () => (query ? options.filter((n) => nodeMatches(n, query)) : options),
+    [options, query],
+  );
+  // Rendered window [start, end) of `list`: opens around the current choice,
+  // grows by NODE_BATCH when the box is scrolled near either end.
+  const [win, setWin] = useState(() => {
+    const i = options.findIndex((n) => exit === `node:${n.key}`);
+    const start = i < 0 ? 0 : Math.max(0, i - NODE_BATCH / 3);
+
+    return { start, end: Math.min(options.length, start + NODE_BATCH) };
+  });
+  const boxRef = useRef<HTMLDivElement>(null);
+  const grewTop = useRef<number | null>(null);
+  const autoCentre = useRef(true);
+
+  // Open: centre the current choice in the box (the box only, never the
+  // page) — again while the menu / sheet settles its height, until the user
+  // scrolls or types.
+  useLayoutEffect(() => {
+    const box = boxRef.current;
+
+    if (!box) return;
+    const centre = () => {
+      if (!autoCentre.current) return;
+      const on = box.querySelector<HTMLElement>("[data-exit-on]");
+
+      if (!on) return;
+      const b = box.getBoundingClientRect();
+      const r = on.getBoundingClientRect();
+
+      box.scrollTop += r.top - b.top - (box.clientHeight - r.height) / 2;
+    };
+    const ro = new ResizeObserver(centre);
+    const stop = () => ro.disconnect();
+    const timer = window.setTimeout(stop, 600);
+
+    centre();
+    ro.observe(box);
+    box.addEventListener("wheel", stop, { once: true, passive: true });
+    box.addEventListener("touchstart", stop, { once: true, passive: true });
+
+    return () => {
+      window.clearTimeout(timer);
+      stop();
+    };
+  }, []);
+
+  // After rows were added above, keep the visible rows where they were.
+  useLayoutEffect(() => {
+    const box = boxRef.current;
+
+    if (box && grewTop.current !== null) {
+      box.scrollTop += box.scrollHeight - grewTop.current;
+      grewTop.current = null;
+    }
+  }, [win.start]);
+
+  const more = () => {
+    const box = boxRef.current;
+
+    if (!box) return;
+    if (
+      win.end < list.length &&
+      box.scrollTop + box.clientHeight > box.scrollHeight - 240
+    )
+      setWin((w) => ({ ...w, end: Math.min(list.length, w.end + NODE_BATCH) }));
+    else if (win.start > 0 && box.scrollTop < 240) {
+      grewTop.current = box.scrollHeight;
+      setWin((w) => ({ ...w, start: Math.max(0, w.start - NODE_BATCH) }));
+    }
+  };
+
+  const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (!menu || e.key === "Escape" || e.key === "Tab") return;
+    // Radix would take letters as typeahead and move the focus away.
+    e.stopPropagation();
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      boxRef.current?.querySelector<HTMLElement>("[role=menuitem]")?.focus();
+    }
+  };
+
+  return (
+    <div
+      className={fill ? "flex min-h-0 flex-auto flex-col" : ""}
+      data-exit-nodes={options.length}
+    >
+      <div className="flex items-center justify-between">
+        <p className={groupHeadClass} data-exit-group="nodes">
+          订阅里的节点
+        </p>
+        {searchable && (
+          <span className="px-3 pb-1 pt-2 text-[11px] text-default-400">
+            {query ? `${list.length} / ${options.length}` : options.length} 个
+          </span>
+        )}
+      </div>
+      {searchable && (
+        <div className={`shrink-0 ${menu ? "px-2 pb-1.5" : "pb-2"}`}>
+          <div className="relative">
+            <Search
+              className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-default-400"
+              size={14}
+            />
+            <input
+              data-exit-search
+              aria-label="搜索节点"
+              className={`w-full rounded-lg border border-divider bg-default-50 pl-8 pr-2.5 outline-none placeholder:text-default-400 focus:border-primary dark:bg-default-100/60 ${menu ? "h-8 text-sm" : "h-9 text-base"}`}
+              placeholder="搜索节点"
+              type="search"
+              value={q}
+              onChange={(e) => {
+                autoCentre.current = false;
+                setQ(e.target.value);
+                setWin({ start: 0, end: NODE_BATCH });
+                if (boxRef.current) boxRef.current.scrollTop = 0;
+              }}
+              onKeyDown={onKeyDown}
+            />
+          </div>
+        </div>
+      )}
+      <div
+        ref={boxRef}
+        data-exit-scroll
+        className={`overflow-y-auto overscroll-contain ${
+          menu
+            ? "max-h-[max(8rem,min(55vh,calc(var(--radix-dropdown-menu-content-available-height,100vh)-16rem)))]"
+            : `rounded-xl border border-divider ${fill ? "min-h-0 flex-auto" : "max-h-[40vh]"}`
+        }`}
+        onScroll={more}
+      >
+        {options.length === 0 && (
+          <p
+            className={`text-xs text-default-400 ${menu ? "px-3 pb-2 pt-0.5" : "px-3 py-2.5"}`}
+          >
+            订阅里还没有节点
+          </p>
+        )}
+        {options.length > 0 && list.length === 0 && (
+          <p
+            data-exit-nomatch
+            className="px-3 py-3 text-center text-xs text-default-400"
+          >
+            没有匹配的节点
+          </p>
+        )}
+        {list
+          .slice(win.start, win.end)
+          .map((n) => row(n, exit === `node:${n.key}`))}
+      </div>
+    </div>
   );
 }
 
@@ -506,26 +740,26 @@ function ExitDropdown({
               <DropdownMenuSeparator />
             </>
           )}
-          <DropdownMenuLabel className={groupHeadClass} data-exit-group="nodes">
-            订阅里的节点
-          </DropdownMenuLabel>
-          {options.length === 0 && (
-            <p className="px-3 pb-2 pt-0.5 text-xs text-default-400">
-              订阅里还没有节点
-            </p>
-          )}
-          {options.map((n) => (
-            <DropdownItem key={n.key} onPress={() => onChange(`node:${n.key}`)}>
-              <ExitOptionRow
-                Icon={Server}
-                detail={n.detail}
-                iconClass="text-default-400"
-                label={n.name}
-                on={exit === `node:${n.key}`}
-                tag={<SourceTag node={n} />}
-              />
-            </DropdownItem>
-          ))}
+          <NodeGroup
+            menu
+            exit={exit}
+            options={options}
+            row={(n, on) => (
+              <DropdownItem
+                key={n.key}
+                onPress={() => onChange(`node:${n.key}`)}
+              >
+                <ExitOptionRow
+                  Icon={Server}
+                  detail={n.detail}
+                  iconClass={nodeIconClass(n.source)}
+                  label={n.name}
+                  on={on}
+                  tag={<SourceTag node={n} />}
+                />
+              </DropdownItem>
+            )}
+          />
         </div>
       </DropdownMenu>
     </Dropdown>
@@ -537,10 +771,13 @@ function ExitList({
   exit,
   options,
   onChange,
+  fill,
 }: {
   exit: string;
   options: RouteNodeOption[];
   onChange: (exit: string) => void;
+  /** in the bottom sheet: the node box takes the height left */
+  fill?: boolean;
 }) {
   const row = (key: string, value: string, body: React.ReactNode) => (
     <button
@@ -555,8 +792,11 @@ function ExitList({
   );
 
   return (
-    <div data-exit-list className="max-h-[52vh] space-y-2 overflow-y-auto">
-      <div>
+    <div
+      data-exit-list
+      className={fill ? "flex min-h-0 flex-auto flex-col gap-2" : "space-y-2"}
+    >
+      <div className="shrink-0">
         <p className={`${groupHeadClass} pt-0`} data-exit-group="sys">
           系统策略
         </p>
@@ -576,31 +816,24 @@ function ExitList({
           )}
         </div>
       </div>
-      <div>
-        <p className={groupHeadClass} data-exit-group="nodes">
-          订阅里的节点
-        </p>
-        <div className="rounded-xl border border-divider">
-          {options.length === 0 && (
-            <p className="px-3 py-2.5 text-xs text-default-400">
-              订阅里还没有节点
-            </p>
-          )}
-          {options.map((n) =>
-            row(
-              n.key,
-              `node:${n.key}`,
-              <ExitOptionRow
-                Icon={Server}
-                iconClass="text-default-400"
-                label={n.name}
-                on={exit === `node:${n.key}`}
-                tag={<SourceTag node={n} />}
-              />,
-            ),
-          )}
-        </div>
-      </div>
+      <NodeGroup
+        exit={exit}
+        fill={fill}
+        options={options}
+        row={(n, on) =>
+          row(
+            n.key,
+            `node:${n.key}`,
+            <ExitOptionRow
+              Icon={Server}
+              iconClass={nodeIconClass(n.source)}
+              label={n.name}
+              on={on}
+              tag={<SourceTag node={n} />}
+            />,
+          )
+        }
+      />
     </div>
   );
 }
@@ -616,9 +849,12 @@ function BottomSheet({
 }) {
   return (
     <Modal isOpen onClose={onClose}>
-      <ModalContent className="bottom-0 left-0 right-0 top-auto max-h-[85vh] w-full max-w-none translate-x-0 translate-y-0 gap-3 overflow-y-auto rounded-b-none rounded-t-2xl p-4 pb-6">
-        <div className="mx-auto h-1 w-10 rounded-full bg-default-300" />
-        <p className="text-base font-semibold">{title}</p>
+      <ModalContent
+        data-exit-sheet
+        className="bottom-0 left-0 right-0 top-auto flex max-h-[85vh] w-full max-w-none translate-x-0 translate-y-0 flex-col gap-3 overflow-hidden rounded-b-none rounded-t-2xl p-4 pb-[calc(1.5rem+env(safe-area-inset-bottom))]"
+      >
+        <div className="mx-auto h-1 w-10 shrink-0 rounded-full bg-default-300" />
+        <p className="shrink-0 text-base font-semibold">{title}</p>
         {children}
       </ModalContent>
     </Modal>
@@ -1209,6 +1445,7 @@ export function RoutingPanel({
           onClose={() => setSheet(null)}
         >
           <ExitList
+            fill
             exit={sheetEntry.exit}
             options={nodeOptions}
             onChange={(x) => {
@@ -1217,7 +1454,7 @@ export function RoutingPanel({
             }}
           />
           <Button
-            className="w-full"
+            className="w-full shrink-0"
             color="danger"
             variant="flat"
             onPress={() => {
@@ -1287,20 +1524,41 @@ export function RoutingReadOnly({
   routing,
   mode,
   catalog,
+  items = [],
 }: {
   isH5: boolean;
   routing: SubAdminRoute[];
   mode: SubRuleMode;
   catalog: SubRouteCategory[];
+  /** the subscription's items: a node exit's icon takes its source colour */
+  items?: SubAdminItem[];
 }) {
   const cat = new Map(catalog.map((c) => [c.key, c]));
   const none = new Map<string, RouteNodeOption>();
+  // Node exits arrive by name only: find the source by the picked item of
+  // that name; any other name is a node of a followed source (整组).
+  const srcOf = new Map<string, NodeSource>();
+
+  for (const it of items)
+    if (!it.missing && it.group !== "source_all" && !srcOf.has(it.name))
+      srcOf.set(it.name, it.group);
+  const followsSource = items.some(
+    (it) => it.group === "source_all" && !it.missing,
+  );
   const view = (e: SubAdminRoute): ExitView => {
     if (e.exit !== "node") return exitView(e.exit, none);
     if (e.exitMissing || !e.exitName)
       return { label: "节点选择", tone: "amber", missing: true, Icon: Rocket };
 
-    return { label: e.exitName, tone: "purple", missing: false, Icon: Server };
+    const src = srcOf.get(e.exitName) || (followsSource ? "source" : undefined);
+
+    return {
+      label: e.exitName,
+      tone: "purple",
+      missing: false,
+      Icon: Server,
+      iconClass: src ? nodeIconTone[src] : undefined,
+    };
   };
 
   const rows = routing.map((e) => {

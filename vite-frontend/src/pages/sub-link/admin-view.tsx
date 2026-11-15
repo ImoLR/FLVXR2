@@ -38,7 +38,7 @@ const formatShort: Record<SubFormat, string> = {
   auto: "自动识别",
   clash: "Clash",
   singbox: "sing-box",
-  base64: "通用",
+  base64: "节点链接",
 };
 
 function routingWord(s: SubAdminSub) {
