@@ -108,7 +108,7 @@ byte-identical when no link entry exists.
 - [x] 「国内网站」固定行的选择（直连 / 走代理）用同样的图标；管理员只读视图用同样的 chip
 - [x] npm run build + eslint（改动文件 0 错误）
 - [x] 截图「走哪里分组（v3）」放在 /sub-rules-link/ 最上面（-v3 后缀，手机 390 / 360、桌面 1440、浅色 / 深色）
-- [ ] 提交、推送、CI 绿（含 PG 合约），台账 261 行更新 head commit（仍待发布）
+- [x] 提交、推送、CI 绿（含 PG 合约），台账 261 行更新 head commit（仍待发布）
 
 结果（11-15 TW）：
 - 只改前端 `vite-frontend/src/pages/sub-link/routing.tsx` + `editor.tsx`；Go / API / 数据库没动。节点来源取自「已选」里已有的
@@ -121,4 +121,4 @@ byte-identical when no link entry exists.
 - 截图：/root/mmwx-preview/sub-rules-link/ 最上面「⓪ 走哪里分组（v3）」31 张（-v3 后缀），38/38 自动检查（分组顺序、四个系统策略顺序、
   来源标签顺序、360 宽无横向溢出、长名字截断、选节点后行内显示、选「拒绝」保存后存的就是 reject、空订阅提示、缺失节点、管理员只读
   11 行都有图标且没有选择器），页面报错 0。
-
+- 代码 b71a4001，CI 43702343065 全绿（前端 / 后端 / agent / PG 合约）。只构建，不打 tag、不发布；等用户看 v3 截图同意后和 260 一起发布（fork.135，先合并 fork.134）。
