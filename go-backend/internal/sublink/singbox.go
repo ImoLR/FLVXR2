@@ -232,7 +232,7 @@ func SingBoxRouted(nodes []Node, mode, origin string, routing []RouteEntry) ([]b
 	}
 	var routes []routeGroup
 	if len(routing) > 0 {
-		routes = planRoutes(routing, routeNodeNames(kept, tags), len(tags) > 0)
+		routes = linksFrom(planRoutes(routing, routeNodeNames(kept, tags), len(tags) > 0), origin)
 	}
 	sel := []string{}
 	if len(tags) > 0 {
@@ -320,6 +320,11 @@ func SingBoxRouted(nodes []Node, mode, origin string, routing []RouteEntry) ([]b
 			}
 			ruleSets = append(ruleSets, jmap{{"type", "remote"}, {"tag", rs.ID}, {"format", "binary"}, {"url", url}, {"download_detour", detour}})
 		}
+		if g.link != "" {
+			// Plan 261: the panel serves link sets as source (JSON) rule sets.
+			ruleSets = append(ruleSets, jmap{{"type", "remote"}, {"tag", linkProviderName(g.link)}, {"format", "source"},
+				{"url", LinkFileURL(origin, g.link, ExtLinkJSON)}, {"download_detour", "direct"}})
+		}
 	}
 	if len(ruleSets) > 0 {
 		route.add("rule_set", ruleSets)
@@ -388,6 +393,9 @@ func singBoxRouteRules(routes []routeGroup) []interface{} {
 				ids = append(ids, rs.ID)
 			}
 			rules = append(rules, jmap{{"rule_set", ids}})
+		}
+		if g.link != "" {
+			rules = append(rules, jmap{{"rule_set", []string{linkProviderName(g.link)}}})
 		}
 		for _, m := range rules {
 			if g.exit == ExitReject {

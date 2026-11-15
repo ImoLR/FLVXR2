@@ -196,6 +196,11 @@ func (h *Handler) subRenderFor(ctx context.Context, s *model.UserSubscription, f
 	}
 	nodes, _ := d.resolve(refs, model.MaxSubscriptionNodes)
 	sublink.FinalizeNames(nodes)
+	if format == sublink.FormatClash || format == sublink.FormatSingBox || format == sublink.FormatSurge {
+		// Plan 261: the stored sets of link entries (and a background
+		// refresh of the due ones; never waited for here).
+		h.subLinkResolve(s.UserID, routing)
+	}
 	v := &subRender{key: key, subID: s.ID, userID: s.UserID, at: time.Now()}
 	switch format {
 	case sublink.FormatSingBox:

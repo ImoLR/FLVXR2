@@ -39,35 +39,60 @@ type Fetcher struct {
 	Timeout     time.Duration
 	// AllowAddr overrides the public-address check (test harnesses only).
 	AllowAddr func(netip.Addr) bool
+	// MaxBytes caps the (decoded) body; 0 = MaxBodyBytes (plan 261).
+	MaxBytes int
 }
 
+// Fetch error kinds (FetchError.Kind), for callers that word errors their
+// own way (plan 261 规则集链接).
+const (
+	FetchErrURL      = "url"      // CheckURL refused the address
+	FetchErrBlocked  = "blocked"  // internal / reserved / Forbidden address
+	FetchErrDNS      = "dns"      // the host does not resolve
+	FetchErrRedirect = "redirect" // too many redirects
+	FetchErrStatus   = "status"   // HTTP status outside 2xx (Status)
+	FetchErrSize     = "size"     // body over the cap
+	FetchErrTimeout  = "timeout"
+	FetchErrNetwork  = "network" // anything else
+)
+
+// FetchError is a fetch failure: Error() is the generic user-facing message
+// (internal details are never echoed), Kind a coarse class.
+type FetchError struct {
+	Kind   string
+	Status int
+	msg    string
+}
+
+func (e *FetchError) Error() string { return e.msg }
+
 // errFetch is the generic message; internal details are never echoed.
-func errFetch(msg string) error { return errors.New(msg) }
+func errFetch(kind, msg string) error { return &FetchError{Kind: kind, msg: msg} }
 
 // CheckURL validates a subscription URL before any network access.
 func CheckURL(raw string) (*url.URL, error) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
-		return nil, errFetch("请填写订阅地址")
+		return nil, errFetch(FetchErrURL, "请填写订阅地址")
 	}
 	if len(raw) > MaxURLLength {
-		return nil, errFetch("订阅地址过长")
+		return nil, errFetch(FetchErrURL, "订阅地址过长")
 	}
 	u, err := url.Parse(raw)
 	if err != nil || u.Host == "" {
-		return nil, errFetch("订阅地址无效，请填写 http:// 或 https:// 开头的完整地址")
+		return nil, errFetch(FetchErrURL, "订阅地址无效，请填写 http:// 或 https:// 开头的完整地址")
 	}
 	switch strings.ToLower(u.Scheme) {
 	case "http", "https":
 	default:
-		return nil, errFetch("订阅地址只支持 http:// 或 https://")
+		return nil, errFetch(FetchErrURL, "订阅地址只支持 http:// 或 https://")
 	}
 	if u.User != nil {
-		return nil, errFetch("订阅地址不能包含用户名或密码")
+		return nil, errFetch(FetchErrURL, "订阅地址不能包含用户名或密码")
 	}
 	if p := u.Port(); p != "" {
 		if n, err := strconv.Atoi(p); err != nil || n < 1 || n > 65535 {
-			return nil, errFetch("订阅地址端口无效")
+			return nil, errFetch(FetchErrURL, "订阅地址端口无效")
 		}
 	}
 	return u, nil
@@ -95,7 +120,7 @@ func (f *Fetcher) pick(ctx context.Context, host string) (netip.Addr, error) {
 	host = strings.Trim(host, "[]")
 	if a, err := netip.ParseAddr(host); err == nil {
 		if why, ok := f.allowed(a); !ok {
-			return netip.Addr{}, errFetch("订阅地址指向" + why + "，不能拉取")
+			return netip.Addr{}, errFetch(FetchErrBlocked, "订阅地址指向"+why+"，不能拉取")
 		}
 		return a.Unmap(), nil
 	}
@@ -107,12 +132,12 @@ func (f *Fetcher) pick(ctx context.Context, host string) (netip.Addr, error) {
 	defer cancel()
 	addrs, err := resolver.LookupNetIP(child, "ip", host)
 	if err != nil || len(addrs) == 0 {
-		return netip.Addr{}, errFetch("无法解析订阅地址的域名")
+		return netip.Addr{}, errFetch(FetchErrDNS, "无法解析订阅地址的域名")
 	}
 	var pick netip.Addr
 	for _, a := range addrs {
 		if why, ok := f.allowed(a); !ok {
-			return netip.Addr{}, errFetch("订阅地址指向" + why + "，不能拉取")
+			return netip.Addr{}, errFetch(FetchErrBlocked, "订阅地址指向"+why+"，不能拉取")
 		}
 		if !pick.IsValid() || (a.Unmap().Is4() && !pick.Is4()) {
 			pick = a.Unmap()
@@ -167,7 +192,7 @@ func (f *Fetcher) Fetch(ctx context.Context, raw string) ([]byte, error) {
 		Timeout:   timeout,
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			if len(via) > MaxRedirects {
-				return errFetch("订阅地址跳转次数过多")
+				return errFetch(FetchErrRedirect, "订阅地址跳转次数过多")
 			}
 			if _, err := CheckURL(req.URL.String()); err != nil {
 				return err
@@ -177,7 +202,7 @@ func (f *Fetcher) Fetch(ctx context.Context, raw string) ([]byte, error) {
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
 	if err != nil {
-		return nil, errFetch("订阅地址无效")
+		return nil, errFetch(FetchErrURL, "订阅地址无效")
 	}
 	req.Header.Set("User-Agent", FetchUA)
 	req.Header.Set("Accept", "*/*")
@@ -187,10 +212,15 @@ func (f *Fetcher) Fetch(ctx context.Context, raw string) ([]byte, error) {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		return nil, fmt.Errorf("订阅地址返回 HTTP %d，请检查订阅地址是否有效", resp.StatusCode)
+		return nil, &FetchError{Kind: FetchErrStatus, Status: resp.StatusCode, msg: fmt.Sprintf("订阅地址返回 HTTP %d，请检查订阅地址是否有效", resp.StatusCode)}
 	}
-	if resp.ContentLength > MaxBodyBytes {
-		return nil, errFetch("订阅内容超过 2 MB，无法导入")
+	limit := f.MaxBytes
+	if limit <= 0 {
+		limit = MaxBodyBytes
+	}
+	tooBig := errFetch(FetchErrSize, fmt.Sprintf("订阅内容超过 %d MB，无法导入", limit>>20))
+	if resp.ContentLength > int64(limit) {
+		return nil, tooBig
 	}
 	// Plan 193: one buffer of the announced size (io.ReadAll would double
 	// its way up, ~2x the body in garbage).
@@ -199,12 +229,14 @@ func (f *Fetcher) Fetch(ctx context.Context, raw string) ([]byte, error) {
 		size = int(resp.ContentLength) + bytes.MinRead
 	}
 	buf := bytes.NewBuffer(make([]byte, 0, size))
-	if _, err := buf.ReadFrom(io.LimitReader(resp.Body, MaxBodyBytes+1)); err != nil {
+	// resp.Body is the decoded body (Go's transparent gzip), so the cap
+	// counts decompressed bytes and a gzip bomb stops at limit+1.
+	if _, err := buf.ReadFrom(io.LimitReader(resp.Body, int64(limit)+1)); err != nil {
 		return nil, friendlyFetchError(err)
 	}
 	body := buf.Bytes()
-	if len(body) > MaxBodyBytes {
-		return nil, errFetch("订阅内容超过 2 MB，无法导入")
+	if len(body) > limit {
+		return nil, tooBig
 	}
 	return body, nil
 }
@@ -220,12 +252,13 @@ func friendlyFetchError(err error) error {
 	if errors.As(err, &op) && op.Err != nil {
 		err = op.Err
 	}
+	var fe *FetchError
+	if errors.As(err, &fe) {
+		return fe
+	}
 	msg := err.Error()
-	if strings.HasPrefix(msg, "订阅") || strings.HasPrefix(msg, "无法解析订阅") {
-		return err
-	}
 	if errors.Is(err, context.DeadlineExceeded) || strings.Contains(msg, "timeout") || strings.Contains(msg, "deadline") {
-		return errFetch("拉取订阅超时（10 秒），请稍后重试")
+		return errFetch(FetchErrTimeout, "拉取订阅超时（10 秒），请稍后重试")
 	}
-	return errFetch("拉取订阅失败，请检查订阅地址能否访问")
+	return errFetch(FetchErrNetwork, "拉取订阅失败，请检查订阅地址能否访问")
 }

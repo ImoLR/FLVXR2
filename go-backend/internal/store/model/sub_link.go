@@ -66,3 +66,41 @@ const (
 	MaxSubscriptionNodes    = 100
 	MaxSubSourceNodes       = 100
 )
+
+// UserSubRuleSet (plan 261 「规则集链接」) is a rule list the panel downloaded
+// for a user's 分流 entry and serves at /s/rs/u/<PublicID>.<ext>. Only the
+// validated domain / IP rules are kept (Rules, normalized classical lines);
+// the URL is encrypted like a source URL and never returned. One row per
+// user + URL (URLHash = keyed hash of the URL), shared by every subscription
+// of that user that references it; deleted when nothing references it.
+type UserSubRuleSet struct {
+	ID     int64 `gorm:"primaryKey;autoIncrement" json:"id"`
+	UserID int64 `gorm:"not null;index;uniqueIndex:idx_user_sub_ruleset_user_url,priority:1" json:"userId"`
+	// URLEnc: AES-GCM sealed URL; URLHint: host + masked path for display.
+	URLEnc  string `gorm:"column:url_enc;type:text;not null;default:''" json:"-"`
+	URLHint string `gorm:"column:url_hint;not null;default:''" json:"urlHint"`
+	URLHash string `gorm:"column:url_hash;size:64;not null;default:'';uniqueIndex:idx_user_sub_ruleset_user_url,priority:2" json:"-"`
+	// PublicID: 32 hex chars (128 random bits), the public file name.
+	PublicID string `gorm:"column:public_id;size:32;not null;uniqueIndex" json:"-"`
+	// Rules: one normalized classical line per rule ("DOMAIN-SUFFIX,x").
+	Rules        string `gorm:"type:text;not null;default:''" json:"-"`
+	RuleCount    int    `gorm:"not null;default:0" json:"ruleCount"`
+	CountDomain  int    `gorm:"not null;default:0" json:"countDomain"`
+	CountSuffix  int    `gorm:"not null;default:0" json:"countSuffix"`
+	CountKeyword int    `gorm:"not null;default:0" json:"countKeyword"`
+	CountIP      int    `gorm:"column:count_ip;not null;default:0" json:"countIp"`
+	Ignored      int    `gorm:"not null;default:0" json:"ignored"`
+	ContentHash  string `gorm:"size:64;not null;default:''" json:"-"`
+	// FetchedAt: last successful download; LastTryAt: last attempt (ms).
+	FetchedAt   int64  `gorm:"not null;default:0" json:"fetchedAt"`
+	LastTryAt   int64  `gorm:"not null;default:0" json:"lastTryAt"`
+	LastError   string `gorm:"not null;default:''" json:"lastError"`
+	FailCount   int    `gorm:"not null;default:0" json:"failCount"`
+	CreatedTime int64  `gorm:"not null;default:0" json:"createdTime"`
+	UpdatedTime int64  `gorm:"not null;default:0" json:"updatedTime"`
+}
+
+func (UserSubRuleSet) TableName() string { return "user_sub_ruleset" }
+
+// MaxSubRuleSetsPerUser: stored 规则集链接 sets per account (plan 261).
+const MaxSubRuleSetsPerUser = 10

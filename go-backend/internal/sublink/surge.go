@@ -237,7 +237,7 @@ func SurgeRouted(nodes []Node, mode string, surfboard bool, routing []RouteEntry
 			taken[lineName(g, false)] = true
 		}
 		names = avoidLineNames(names, taken)
-		routes = planRoutes(routing, routeNodeNames(kept, names), len(kept) > 0)
+		routes = linksFrom(planRoutes(routing, routeNodeNames(kept, names), len(kept) > 0), origin)
 		for i := range routes {
 			routes[i].name = lineName(routes[i].name, false)
 		}
@@ -345,6 +345,9 @@ func surgeRouteRules(routes []routeGroup, surfboard bool, origin string) []strin
 				r += nr
 			}
 			out = append(out, r)
+		}
+		if g.link != "" {
+			out = append(out, "RULE-SET,"+LinkFileURL(origin, g.link, ExtLinkList)+","+g.name+nr)
 		}
 	}
 	return out
