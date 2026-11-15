@@ -668,7 +668,10 @@ export function RoutingPanel({
             }
             className={`border-b border-divider ${v.missing ? "bg-amber-500/10" : ""}`}
             leading={
-              <span className="w-6 shrink-0 text-center text-lg">{m.icon}</span>
+              // mr-1.5: the name lines up with the other rows (gap-3).
+              <span className="mr-1.5 w-6 shrink-0 text-center text-lg">
+                {m.icon}
+              </span>
             }
             name={m.name}
             nameTitle={m.name}
