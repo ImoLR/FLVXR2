@@ -11,7 +11,7 @@ Tcscloud Seednet. AWS HK and the rest of the fleet unchanged. HiNet box (mmwx-hi
 
 ## Tasks
 - [x] worktree + ff merge, plan doc (262 = next free on all refs)
-- [ ] gates: go-backend build/vet/test (SQLite + PG 18), go-gost/x tests, go-gost build, `npm run build`
+- [x] gates: go-backend build/vet/test (SQLite + PG 18), go-gost/x tests, go-gost build, `npm run build`
 - [ ] push branch, CI green, tag `3.0.27-fork.134`, Images workflow, release Latest + assets validated
 - [ ] pre-state snapshot (nodes, rules, chains, landing sync, conns on the 2 OTA hosts, line-monitor samples, HiNet
       NAccepted + getpeername count)
@@ -22,3 +22,8 @@ Tcscloud Seednet. AWS HK and the rest of the fleet unchanged. HiNet box (mmwx-hi
 - [ ] ledger 259 → 已发布, memory notes, cleanup worktrees + caches, summary, plan complete
 
 ## Results
+Gates (local, 11-15 16:39–16:55 TW): go-backend build OK, vet 0 non-unkeyed, SQLite `go test ./...` all ok except
+`TestChainUserPolicyPausesWithoutDeleting/expired` once (timing under load from a parallel worker; rerun 10/10 ok; same
+test ok under PG; handler change is line_monitor only). PG 18: repo / handler / contract ok. go-gost/x: `chain
+TestRouteUsesPooledConn` flaky = pre-existing (fork.133 base 4/30 fail vs fork.134 4/30 fail, chain package unchanged);
+rest ok. go-gost build OK, `npm run build` rc=0. CI Build Check 43695523638 green (708f7c5d).
