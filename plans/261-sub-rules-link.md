@@ -50,7 +50,7 @@ byte-identical when no link entry exists.
 - [x] 8. Real-world smoke (≤ 6 URLs, one at a time, ≥ 5 s apart)
 - [x] 9. Gallery /root/mmwx-preview/sub-rules-link/ (desktop + H5 390/360, light + dark)
 - [x] 10. Admin view (plan 260) handling (merge if finished, else follow-up note)
-- [ ] 11. Push + CI green (incl. PG contract), ledger row 261, summary
+- [x] 11. Push + CI green (incl. PG contract), ledger row 261, summary — CI 43698536757 green (frontend, Go backend, PG contract, agent) on 457319d1
 
 ## Results (11-15 TW)
 - Branch `feature/3.0.27-sub-rules-link` (from fork.133) + merge of `feature/3.0.27-sub-admin-view` @ 3427a529
