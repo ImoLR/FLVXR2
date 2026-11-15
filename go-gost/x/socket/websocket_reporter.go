@@ -190,6 +190,12 @@ type TcpPingRequest struct {
 	Count     int    `json:"count"`
 	Timeout   int    `json:"timeout"` // 超时时间(毫秒)
 	RequestId string `json:"requestId,omitempty"`
+	// Graceful (plan 259): close each connected attempt only after the peer
+	// closed it (bounded, see closeProbeConn) instead of an immediate RST.
+	// The panel sets it for line-monitor custom targets (systemd Accept=yes
+	// check ports cannot count a connection reset before it was accepted).
+	// Older panels never send it; older agents ignore it.
+	Graceful bool `json:"graceful,omitempty"`
 }
 
 // TcpPingResponse TCP ping响应结构体
@@ -3199,7 +3205,7 @@ func (w *WebSocketReporter) handleTcpPing(data interface{}) (TcpPingResponse, er
 	}
 
 	// 执行TCP ping操作
-	avgTime, packetLoss, kind, err := tcpPingHostKind(req.IP, req.Port, req.Count, req.Timeout)
+	avgTime, packetLoss, kind, err := tcpPingHostClose(req.IP, req.Port, req.Count, req.Timeout, req.Graceful)
 
 	response := TcpPingResponse{
 		IP:        req.IP,
@@ -3433,6 +3439,12 @@ func tcpPingHost(ip string, port int, count int, timeoutMs int) (float64, float6
 // tcpPingHostKind is tcpPingHost plus the kind of the last failure when every
 // attempt failed.
 func tcpPingHostKind(ip string, port int, count int, timeoutMs int) (float64, float64, string, error) {
+	return tcpPingHostClose(ip, port, count, timeoutMs, false)
+}
+
+// tcpPingHostClose is tcpPingHostKind with the close mode of connected
+// attempts (graceful: plan 259, see closeProbeConn; false = RST as before).
+func tcpPingHostClose(ip string, port int, count int, timeoutMs int, graceful bool) (float64, float64, string, error) {
 	var totalTime float64
 	var successCount int
 	var lastErr error
@@ -3467,10 +3479,7 @@ func tcpPingHostKind(ip string, port int, count int, timeoutMs int) (float64, fl
 		elapsed := time.Since(start)
 
 		if err == nil {
-			if tcpConn, ok := conn.(*net.TCPConn); ok {
-				_ = tcpConn.SetLinger(0)
-			}
-			conn.Close()
+			closeProbeConn(conn, graceful)
 			totalTime += elapsed.Seconds() * 1000 // 转换为毫秒
 			successCount++
 		} else {

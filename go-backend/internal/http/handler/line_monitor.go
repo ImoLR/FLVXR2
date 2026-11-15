@@ -29,7 +29,7 @@ import (
 // probes in flight, samples written in batches, 30 days kept.
 
 const (
-	lineMonitorCommandTimeout = 6 * time.Second // 3 s connect timeout + channel margin
+	lineMonitorCommandTimeout = 6 * time.Second // 3 s connect + ≤ 1 s graceful close (plan 259) + channel margin
 	lineMonitorFlushEvery     = 30 * time.Second
 	lineMonitorFlushRows      = 100
 	lineMonitorBufferCap      = 4000 // samples kept in memory while the DB refuses writes
@@ -198,7 +198,8 @@ func (h *Handler) lineMonitorTargets() ([]linemon.Target, bool, error) {
 		if host == "" || line.Port <= 0 || line.Port > 65535 {
 			continue
 		}
-		targets = append(targets, linemon.Target{LineID: line.ID, NodeID: line.SourceNodeID, Host: host, Port: line.Port})
+		targets = append(targets, linemon.Target{LineID: line.ID, NodeID: line.SourceNodeID, Host: host, Port: line.Port,
+			Graceful: line.TargetNodeID <= 0})
 	}
 	return targets, true, nil
 }
@@ -218,6 +219,11 @@ func (h *Handler) lineMonitorProbe(ctx context.Context, t linemon.Target) linemo
 		return linemon.Attempt{Kind: linemon.NoAnswer, Reason: "面板停止"}
 	}
 	payload := map[string]interface{}{"ip": t.Host, "port": t.Port, "count": 1, "timeout": linemon.PingTimeoutMS}
+	if t.Graceful {
+		// Plan 259: agents with plan 259 close after the peer (≤ 1 s, inside
+		// lineMonitorCommandTimeout); older agents ignore the field (RST).
+		payload["graceful"] = true
+	}
 	var (
 		res ws.CommandResult
 		err error

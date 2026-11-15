@@ -32,6 +32,7 @@ type fakeCheckAgents struct {
 	hosts     map[string]int64 // address → node
 	syncs     map[int64][][]int
 	pings     int
+	pingLog   []string // plan 259: "host:port graceful=<bool>" per TcpPing
 }
 
 func newFakeCheckAgents() *fakeCheckAgents {
@@ -119,10 +120,12 @@ func (f *fakeCheckAgents) send(node int64, cmd string, payload interface{}, _ ti
 	case "TcpPing":
 		f.pings++
 		var req struct {
-			IP   string `json:"ip"`
-			Port int    `json:"port"`
+			IP       string `json:"ip"`
+			Port     int    `json:"port"`
+			Graceful bool   `json:"graceful"`
 		}
 		_ = json.Unmarshal(raw, &req)
+		f.pingLog = append(f.pingLog, fmt.Sprintf("%s:%d graceful=%v", req.IP, req.Port, req.Graceful))
 		target, known := f.hosts[req.IP]
 		switch {
 		case f.blocked[req.Port]:
@@ -597,5 +600,77 @@ func TestCheckPortCommandAndConnectivityTest(t *testing.T) {
 	_ = json.Unmarshal(data, &res)
 	if res.Results[0].OK || res.Results[0].Kind != "refused" || res.Results[1].Kind != "offline" {
 		t.Fatalf("test refused / offline: %s", data)
+	}
+}
+
+// Plan 259: only custom targets (the 复制开启命令 systemd socket) ask the agent
+// for the graceful close; node targets (agent check ports, existing ports)
+// keep the RST close, and the field is absent for them.
+func TestLineMonitorGracefulOnlyForCustomTargets(t *testing.T) {
+	e := newLineMonEnv(t)
+	f := newFakeCheckAgents()
+	f.install(e)
+	f.set(func() { f.hosts["hinet.example.test"] = 99; f.open[99] = map[int]bool{25931: true} })
+	custom := lmLine(3, 0, "hinet.example.test", 25931)
+	custom["checkWindow"] = 24
+	out := e.saveChecks(t, map[string]interface{}{"name": "Seednet → HiNet", "lines": []interface{}{
+		lmAuto(1, 2, 0), lmLine(1, 2, "", 443), custom}})
+	lines := e.chartLines(t, out.ID)
+	if len(lines) != 3 {
+		t.Fatalf("lines %+v", lines)
+	}
+	f.set(func() { f.pingLog = nil })
+	targets, _, err := e.h.lineMonitorTargets()
+	if err != nil || len(targets) != 3 {
+		t.Fatalf("targets %+v %v", targets, err)
+	}
+	for _, tg := range targets {
+		want := tg.Host == "hinet.example.test"
+		if tg.Graceful != want {
+			t.Fatalf("target %+v: graceful %v, want %v", tg, tg.Graceful, want)
+		}
+		if a := e.h.lineMonitorProbe(context.Background(), tg); a.Kind == linemon.NoAnswer {
+			t.Fatalf("probe %+v: %+v", tg, a)
+		}
+	}
+	f.mu.Lock()
+	log := strings.Join(f.pingLog, "\n")
+	f.mu.Unlock()
+	if strings.Count(log, "graceful=true") != 1 || !strings.Contains(log, "hinet.example.test:25931 graceful=true") ||
+		strings.Count(log, "graceful=false") != 2 {
+		t.Fatalf("scheduled probes:\n%s", log)
+	}
+	// The payload of a node target has no graceful key at all (unchanged wire format).
+	var payload map[string]interface{}
+	e.h.nodeCommandSender = func(_ int64, _ string, p interface{}, _ time.Duration) (ws.CommandResult, error) {
+		payload = p.(map[string]interface{})
+		return ws.CommandResult{Success: true, Data: map[string]interface{}{"success": true, "averageTime": 1.0}}, nil
+	}
+	e.h.lineMonitorProbe(context.Background(), linemon.Target{NodeID: 1, Host: "198.51.100.2", Port: 443})
+	if _, ok := payload["graceful"]; ok || len(payload) != 4 {
+		t.Fatalf("node target payload %v", payload)
+	}
+	e.h.lineMonitorProbe(context.Background(), linemon.Target{NodeID: 1, Host: "hinet.example.test", Port: 25931, Graceful: true})
+	if payload["graceful"] != true {
+		t.Fatalf("custom target payload %v", payload)
+	}
+	// 测试连通 (always a custom target) asks for it too.
+	f.install(e)
+	f.set(func() { f.pingLog = nil })
+	code, _, data := lineMonCall(t, e.h.lineMonitorCheckPortTest, 0, map[string]interface{}{"host": "hinet.example.test", "port": 25931, "sourceIds": []int64{1, 2}})
+	f.mu.Lock()
+	log = strings.Join(f.pingLog, "\n")
+	f.mu.Unlock()
+	if code != 0 || strings.Count(log, "graceful=true") != 2 || strings.Contains(log, "graceful=false") {
+		t.Fatalf("测试连通 %d %s:\n%s", code, data, log)
+	}
+	// Verifying an auto check port (agent-side listener) keeps the RST close.
+	f.set(func() { f.pingLog = nil })
+	e.h.lineMonitorVerify([]int64{lines[0].ID})
+	f.mu.Lock()
+	log = strings.Join(f.pingLog, "\n")
+	f.mu.Unlock()
+	if !strings.Contains(log, "graceful=false") || strings.Contains(log, "graceful=true") {
+		t.Fatalf("verify:\n%s", log)
 	}
 }

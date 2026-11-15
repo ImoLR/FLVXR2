@@ -24,6 +24,13 @@ import (
 // time; no new connection for the idle window → it disables, stops and
 // deletes its own 4 units and its state directory (nothing else).
 //
+// Plan 259 fallback: a prober that resets the connection at once (FLVX
+// agents before plan 259, the RST close of TcpPing) is dropped by systemd
+// before NAccepted counts it — systemd logs "getpeername failed" for its
+// socket instead. When NAccepted did not move, the watchdog also counts such
+// journal lines of its own socket unit since the last activity (read-only
+// journalctl -u, at most once per tick), so those probes keep the port too.
+//
 // Only integers and fixed words are interpolated (port, window seconds, IPs
 // re-printed by netip); no label, host or other user text ever appears in the
 // command, and nothing is downloaded.
@@ -163,6 +170,8 @@ func CheckPortScript(port, windowHours int, allow []netip.Addr) (install, undo s
 	w(`[ -f "$S" ] && read -r last_n last_t < "$S" || true`)
 	w(`case "$last_t" in ''|*[!0-9]*) last_t=$now;; esac`)
 	w(`if [ "$n" != "$last_n" ]; then echo "$n $now" > "$S"; exit 0; fi`)
+	w(`# probers that reset at once are not counted in NAccepted; systemd logs getpeername failures for them instead`)
+	w(`if journalctl -q --no-pager -o cat -u "flvx-linemon-$P.socket" --since "@$last_t" 2>/dev/null | grep -q getpeername; then echo "$n $now" > "$S"; exit 0; fi`)
 	w(`[ $((now - last_t)) -ge "$W" ] || exit 0`)
 	w(`if [ "$W" -ge 3600 ]; then idle="$((W / 3600)) h"; else idle="$W s"; fi`)
 	w(`echo "<5>flvx-linemon $P: idle $idle, removed"`)

@@ -95,6 +95,11 @@ type Target struct {
 	NodeID int64 // source node (runs the TcpPing)
 	Host   string
 	Port   int
+	// Graceful (plan 259): custom target — ask the agent to close each
+	// connected attempt after the peer closed it (bounded) instead of with
+	// an immediate RST, so a systemd Accept=yes check port (复制开启命令)
+	// counts the probe. Node targets keep the RST close.
+	Graceful bool
 }
 
 // Result is the final outcome of one slot.

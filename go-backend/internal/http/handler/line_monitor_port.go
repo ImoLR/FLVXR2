@@ -746,7 +746,7 @@ func (h *Handler) lineMonitorCheckPortTest(w http.ResponseWriter, r *http.Reques
 		wg.Add(1)
 		go func(i int, id int64) {
 			defer wg.Done()
-			a := h.lineMonitorProbe(context.Background(), linemon.Target{NodeID: id, Host: host, Port: req.Port})
+			a := h.lineMonitorProbe(context.Background(), linemon.Target{NodeID: id, Host: host, Port: req.Port, Graceful: true})
 			switch {
 			case a.Kind == linemon.Connected:
 				out[i].OK, out[i].Kind, out[i].Ms = true, "ok", linemon.Float(a.Ms)
