@@ -3,6 +3,7 @@ import toast from "react-hot-toast";
 import { Check, ChevronDown, ChevronLeft, ChevronRight, X } from "lucide-react";
 
 import {
+  SubAdminRoute,
   SubRouteCategory,
   SubRouteEntry,
   SubRouteLimits,
@@ -785,6 +786,168 @@ export function RoutingPanel({
           }}
         />
       )}
+    </div>
+  );
+}
+
+// ------------------------------------------------------------ read-only
+
+/**
+ * Plan 260: the same list read-only, for the admin's 「全部用户」 view — no ✕,
+ * no ＋ 添加分流, no 恢复默认 / 全部删除; exits are plain chips. A node exit
+ * arrives as exit "node" + the node's name (ref keys never reach the admin).
+ */
+export function RoutingReadOnly({
+  isH5,
+  routing,
+  mode,
+  catalog,
+}: {
+  isH5: boolean;
+  routing: SubAdminRoute[];
+  mode: SubRuleMode;
+  catalog: SubRouteCategory[];
+}) {
+  const cat = new Map(catalog.map((c) => [c.key, c]));
+  const none = new Map<string, RouteNodeOption>();
+  const view = (e: SubAdminRoute): ExitView => {
+    if (e.exit !== "node") return exitView(e.exit, none);
+    if (e.exitMissing || !e.exitName)
+      return { label: "节点选择", tone: "amber", missing: true };
+
+    return { label: e.exitName, tone: "purple", missing: false };
+  };
+
+  const rows = routing.map((e) => {
+    const custom = e.type === "custom";
+    const c = cat.get(e.key || "");
+    const icon = custom ? CUSTOM_ICON : c?.icon || "";
+    const name = custom ? e.name || "" : c?.name || e.key || "";
+    const desc = custom ? customSummary(e.lines) : c?.desc || "";
+    const v = view(e);
+    const missingNote = v.missing && (
+      <span className="block text-xs text-amber-700 dark:text-amber-300">
+        指定的节点已不在订阅里，已改走节点选择
+      </span>
+    );
+    const key = `${e.type}:${e.key || e.name}`;
+
+    if (isH5) {
+      return (
+        <div
+          key={key}
+          className={`flex w-full items-center gap-3 border-b border-divider px-3 py-2.5 ${v.missing ? "bg-amber-500/10" : ""}`}
+          data-route-row={e.key || e.name}
+        >
+          <span className="w-6 shrink-0 text-center text-lg">{icon}</span>
+          <span className="min-w-0 flex-1">
+            <span className="block truncate text-sm font-medium">{name}</span>
+            <span className="flex min-w-0 items-baseline text-xs">
+              <span
+                className={`min-w-0 truncate font-semibold ${toneClass[v.tone]
+                  .split(" ")
+                  .filter(
+                    (x) => x.startsWith("text-") || x.startsWith("dark:text-"),
+                  )
+                  .join(" ")}`}
+              >
+                {v.label}
+              </span>
+              {custom && (
+                <span className="shrink-0 whitespace-pre text-default-400">
+                  {" "}
+                  · {e.lines?.length || 0} 条
+                </span>
+              )}
+            </span>
+            {missingNote}
+          </span>
+        </div>
+      );
+    }
+
+    return (
+      <div
+        key={key}
+        className={`flex items-center gap-3 border-b border-divider px-3 py-2 ${v.missing ? "bg-amber-500/10" : ""}`}
+        data-route-row={e.key || e.name}
+      >
+        <span className="w-6 shrink-0 text-center text-lg">{icon}</span>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-1.5 text-sm font-medium">
+            <span className="truncate">{name}</span>
+            {custom && <Pill tone="slate">自己写的</Pill>}
+          </div>
+          {desc && (
+            <div
+              className={`truncate text-xs text-default-500 ${custom ? "font-mono" : ""}`}
+              title={custom ? e.lines?.join("\n") : undefined}
+            >
+              {desc}
+            </div>
+          )}
+          {missingNote}
+        </div>
+        <ExitChip open={false} view={v} />
+      </div>
+    );
+  });
+
+  const modeView: ExitView =
+    mode === "global"
+      ? { label: "走代理", tone: "blue", missing: false }
+      : { label: "直连", tone: "green", missing: false };
+
+  return (
+    <div
+      data-routing-readonly
+      className={isH5 ? "flex min-h-0 flex-1 flex-col gap-2" : "space-y-2"}
+    >
+      {!isH5 && (
+        <p className="text-xs text-default-500">
+          从上往下匹配，列表里每一行就是客户端里的一个分组。
+        </p>
+      )}
+      <div
+        className={`overflow-y-auto rounded-2xl border border-divider ${isH5 ? "min-h-0 flex-1" : "max-h-[52vh]"}`}
+      >
+        {rows}
+        {routing.length === 0 && (
+          <p className="border-b border-divider px-3 py-4 text-center text-sm text-default-400">
+            现在没有分流，客户端里只有「节点选择 / 自动选择」两个分组。
+          </p>
+        )}
+        <div
+          className="flex items-center gap-3 border-b border-divider bg-slate-500/5 px-3 py-2.5 dark:bg-slate-400/5"
+          data-route-fixed="cn"
+        >
+          <span className="w-6 shrink-0 text-center text-lg">🇨🇳</span>
+          <div className="min-w-0 flex-1">
+            <div className="text-sm font-medium">国内网站</div>
+            {!isH5 && (
+              <div className="text-xs text-default-400">固定在倒数第二行</div>
+            )}
+          </div>
+          <ExitChip open={false} view={modeView} />
+        </div>
+        <div
+          className="flex items-center gap-3 bg-slate-500/5 px-3 py-2.5 dark:bg-slate-400/5"
+          data-route-fixed="final"
+        >
+          <span className="w-6 shrink-0 text-center text-lg">🌐</span>
+          <div className="min-w-0 flex-1">
+            <div className="text-sm font-medium">其余全部</div>
+            {!isH5 && (
+              <div className="text-xs text-default-400">固定在最后一行</div>
+            )}
+          </div>
+          <ExitChip open={false} view={exitView("select", none)} />
+        </div>
+      </div>
+      <p className="text-xs text-default-400">
+        分流只对 Clash / Stash / sing-box / Surge 生效；Loon、Quantumult
+        X、Shadowrocket、v2rayN 只拿到节点，规则用 App 自己的。
+      </p>
     </div>
   );
 }

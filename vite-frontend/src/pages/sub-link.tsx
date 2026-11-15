@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { Suspense, lazy, useCallback, useEffect, useState } from "react";
 import toast from "react-hot-toast";
 import { Download, Gem, MoreHorizontal, Plus, RefreshCw } from "lucide-react";
 
@@ -25,6 +25,7 @@ import {
   ModalFooter,
   ModalHeader,
 } from "@/shadcn-bridge/heroui/modal";
+import { isAdmin } from "@/utils/auth";
 import {
   SubItem,
   SubListData,
@@ -209,6 +210,62 @@ function SubCard({
 
 type Confirm = { kind: "reset" | "delete"; sub: SubItem } | null;
 
+// Plan 260: admins switch between 我的订阅 and the read-only 「全部用户」
+// view (loaded only when opened); the choice is kept per browser.
+const SubAdminView = lazy(() => import("./sub-link/admin-view"));
+const VIEW_KEY = "flvx_sub_admin_view";
+
+type SubView = "mine" | "all";
+
+function readView(): SubView {
+  try {
+    return localStorage.getItem(VIEW_KEY) === "all" ? "all" : "mine";
+  } catch {
+    return "mine";
+  }
+}
+
+function SubViewSwitch({
+  isH5,
+  value,
+  onChange,
+}: {
+  isH5: boolean;
+  value: SubView;
+  onChange: (v: SubView) => void;
+}) {
+  return (
+    <div
+      data-sub-view-switch
+      className={`${isH5 ? "flex" : "inline-flex"} rounded-xl bg-slate-500/10 p-0.5 dark:bg-slate-400/15`}
+      role="tablist"
+    >
+      {(
+        [
+          ["mine", "我的订阅"],
+          ["all", "全部用户"],
+        ] as const
+      ).map(([k, text]) => (
+        <button
+          key={k}
+          aria-selected={value === k}
+          className={`${isH5 ? "flex-1" : "px-4"} rounded-lg py-1.5 text-sm ${
+            value === k
+              ? "bg-white font-semibold shadow-sm dark:bg-slate-700"
+              : "text-default-600"
+          }`}
+          data-sub-view={k}
+          role="tab"
+          type="button"
+          onClick={() => onChange(k)}
+        >
+          {text}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 export default function SubLinkPage() {
   const isH5 = useH5Mode();
   const [data, setData] = useState<SubListData | null>(null);
@@ -220,6 +277,18 @@ export default function SubLinkPage() {
   const [qr, setQR] = useState<SubItem | null>(null);
   const [confirm, setConfirm] = useState<Confirm>(null);
   const [busy, setBusy] = useState(false);
+  const [admin] = useState(isAdmin);
+  const [view, setView] = useState<SubView>(() =>
+    isAdmin() ? readView() : "mine",
+  );
+  const changeView = (v: SubView) => {
+    setView(v);
+    try {
+      localStorage.setItem(VIEW_KEY, v);
+    } catch {
+      // ignore
+    }
+  };
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -312,74 +381,85 @@ export default function SubLinkPage() {
   return (
     <AnimatedPage className="px-3 py-8 lg:px-6">
       <div className="mx-auto max-w-5xl space-y-3">
-        <div className="flex items-center justify-between gap-3">
-          <div className="min-w-0">
-            <h1 className="text-xl font-semibold">
-              {isH5 ? "订阅" : "我的订阅"}
-            </h1>
-            {data?.enabled !== false && (
-              <p className="mt-1 text-sm text-default-500">
-                一条链接，所有客户端通用
-                {cap > 0
-                  ? ` · 已用 ${subs.length} / ${cap}`
-                  : subs.length
-                    ? ` · ${subs.length} 条`
-                    : ""}
+        {admin && (
+          <SubViewSwitch isH5={isH5} value={view} onChange={changeView} />
+        )}
+        {admin && view === "all" ? (
+          <Suspense fallback={null}>
+            <SubAdminView isH5={isH5} />
+          </Suspense>
+        ) : (
+          <>
+            <div className="flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <h1 className="text-xl font-semibold">
+                  {isH5 ? "订阅" : "我的订阅"}
+                </h1>
+                {data?.enabled !== false && (
+                  <p className="mt-1 text-sm text-default-500">
+                    一条链接，所有客户端通用
+                    {cap > 0
+                      ? ` · 已用 ${subs.length} / ${cap}`
+                      : subs.length
+                        ? ` · ${subs.length} 条`
+                        : ""}
+                  </p>
+                )}
+              </div>
+              <div className="flex shrink-0 items-center gap-2">
+                {!isH5 && data?.enabled !== false && (
+                  <>
+                    {externalsButton}
+                    {sourcesButton}
+                    {newButton}
+                  </>
+                )}
+                <Button
+                  isIconOnly
+                  aria-label="刷新"
+                  isLoading={loading}
+                  size="sm"
+                  variant="flat"
+                  onPress={load}
+                >
+                  <RefreshCw size={16} />
+                </Button>
+              </div>
+            </div>
+            {error && (
+              <p className="rounded-lg bg-danger-50 p-2 text-sm text-danger">
+                {error}
               </p>
             )}
-          </div>
-          <div className="flex shrink-0 items-center gap-2">
-            {!isH5 && data?.enabled !== false && (
-              <>
+            {data?.enabled === false && (
+              <div className="rounded-2xl border border-divider bg-content1 p-6 text-center text-sm text-default-500">
+                订阅功能已被管理员关闭。
+              </div>
+            )}
+            {data?.enabled !== false && data && subs.length === 0 && (
+              <div className="rounded-2xl border border-divider bg-content1 p-6 text-center text-sm text-default-500">
+                还没有订阅。新建一条，把面板里的节点和外部节点放进去，客户端用一条链接就能导入。
+              </div>
+            )}
+            {subs.map((sub) => (
+              <SubCard
+                key={sub.id}
+                isH5={isH5}
+                sub={sub}
+                onDelete={() => setConfirm({ kind: "delete", sub })}
+                onEdit={() => setEditing(sub)}
+                onQR={() => setQR(sub)}
+                onReset={() => setConfirm({ kind: "reset", sub })}
+              />
+            ))}
+            {isH5 && data?.enabled !== false && data && (
+              <div className="flex flex-wrap gap-2 pt-1">
                 {externalsButton}
                 {sourcesButton}
                 {newButton}
-              </>
+              </div>
             )}
-            <Button
-              isIconOnly
-              aria-label="刷新"
-              isLoading={loading}
-              size="sm"
-              variant="flat"
-              onPress={load}
-            >
-              <RefreshCw size={16} />
-            </Button>
-          </div>
-        </div>
-        {error && (
-          <p className="rounded-lg bg-danger-50 p-2 text-sm text-danger">
-            {error}
-          </p>
-        )}
-        {data?.enabled === false && (
-          <div className="rounded-2xl border border-divider bg-content1 p-6 text-center text-sm text-default-500">
-            订阅功能已被管理员关闭。
-          </div>
-        )}
-        {data?.enabled !== false && data && subs.length === 0 && (
-          <div className="rounded-2xl border border-divider bg-content1 p-6 text-center text-sm text-default-500">
-            还没有订阅。新建一条，把面板里的节点和外部节点放进去，客户端用一条链接就能导入。
-          </div>
-        )}
-        {subs.map((sub) => (
-          <SubCard
-            key={sub.id}
-            isH5={isH5}
-            sub={sub}
-            onDelete={() => setConfirm({ kind: "delete", sub })}
-            onEdit={() => setEditing(sub)}
-            onQR={() => setQR(sub)}
-            onReset={() => setConfirm({ kind: "reset", sub })}
-          />
-        ))}
-        {isH5 && data?.enabled !== false && data && (
-          <div className="flex flex-wrap gap-2 pt-1">
-            {externalsButton}
-            {sourcesButton}
-            {newButton}
-          </div>
+          </>
         )}
       </div>
 

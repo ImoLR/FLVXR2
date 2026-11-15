@@ -209,6 +209,109 @@ export const subExternalProbe = () =>
     { timeout: 40000 },
   );
 
+// Plan 260 「全部用户」: the admin's read-only view of every user's
+// subscriptions (no tokens, source URLs, credentials or addresses).
+
+/** none = 未设置 (old output), default = 默认 8 组, custom = 自定义 N 组 */
+export type SubAdminRoutingKind = "none" | "default" | "custom";
+
+export interface SubAdminSub {
+  id: number;
+  name: string;
+  format: SubFormat;
+  ruleMode: SubRuleMode;
+  nodes: number;
+  routing: SubAdminRoutingKind;
+  routingCount: number;
+  lastPullAt: number;
+  lastPullClient: string;
+  lastPullNodes: number;
+  createdTime: number;
+}
+
+export interface SubAdminSource {
+  id: number;
+  name: string;
+  nodes: number;
+  lastOkAt: number;
+  lastFetchAt: number;
+  error: string;
+}
+
+export interface SubAdminUser {
+  id: number;
+  name: string;
+  lastPullAt: number;
+  subs: SubAdminSub[];
+  sources: SubAdminSource[];
+}
+
+export interface SubAdminListData {
+  enabled: boolean;
+  users: SubAdminUser[];
+}
+
+export interface SubAdminItem {
+  group: SubSelected["group"];
+  name: string;
+  protocol?: string;
+  chain?: boolean;
+  sourceName?: string;
+  count?: number;
+  missing?: boolean;
+}
+
+/** One 分流 row; a node exit comes as exit "node" + the node's name. */
+export interface SubAdminRoute {
+  type: "builtin" | "custom";
+  key?: string;
+  name?: string;
+  lines?: string[];
+  exit: string;
+  exitName?: string;
+  exitMissing?: boolean;
+}
+
+export interface SubAdminDetail {
+  id: number;
+  name: string;
+  userId: number;
+  user: string;
+  format: SubFormat;
+  ruleMode: SubRuleMode;
+  createdTime: number;
+  lastPullAt: number;
+  lastPullClient: string;
+  lastPullNodes: number;
+  items: SubAdminItem[];
+  /** null = 未设置分流 (NULL or empty list: the output from before 分流) */
+  routing: SubAdminRoute[] | null;
+  routingKind: SubAdminRoutingKind;
+  routingCatalog: SubRouteCategory[];
+}
+
+export const subAdminList = () =>
+  Network.post<SubAdminListData>("/sub/admin/list", {});
+export const subAdminDetail = (id: number) =>
+  Network.post<SubAdminDetail>("/sub/admin/detail", { id });
+
+/** 「刚刚」「2 小时前」「昨天」「7 天前」; 0 → 「从未拉取」. */
+export function subRelative(ms: number, never = "从未拉取") {
+  if (!ms) return never;
+  const diff = Date.now() - ms;
+
+  if (diff < 60_000) return "刚刚";
+  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)} 分钟前`;
+  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)} 小时前`;
+  const day = (t: number) => new Date(t).setHours(0, 0, 0, 0);
+  const days = Math.max(
+    1,
+    Math.round((day(Date.now()) - day(ms)) / 86_400_000),
+  );
+
+  return days === 1 ? "昨天" : `${days} 天前`;
+}
+
 /** The public link (the panel origin, also inside the mobile app WebView). */
 export function subLinkURL(token: string) {
   let origin = window.location.origin;

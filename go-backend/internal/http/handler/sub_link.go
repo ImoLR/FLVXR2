@@ -129,16 +129,25 @@ func (h *Handler) registerSubLink(mux *http.ServeMux) {
 		"source/refresh": h.subSourceRefresh,
 		"source/delete":  h.subSourceDelete,
 		"external/probe": h.subExternalProbe,
+		// Plan 260: the admin's read-only 「全部用户」 view.
+		"admin/list":   h.subAdminList,
+		"admin/detail": h.subAdminDetail,
 	} {
 		fn := fn
-		list := path == "list"
+		list := path == "list" || path == "admin/list"
+		adminOnly := strings.HasPrefix(path, "admin/")
 		mux.HandleFunc("/api/v1/sub/"+path, func(w http.ResponseWriter, r *http.Request) {
 			if r.Method != http.MethodPost {
 				response.WriteJSON(w, response.Err(405, "仅支持 POST"))
 				return
 			}
-			if _, _, err := userRoleFromRequest(r); err != nil {
+			_, role, err := userRoleFromRequest(r)
+			if err != nil {
 				response.WriteJSON(w, response.Err(401, "无效的token或token已过期"))
+				return
+			}
+			if adminOnly && role != 0 {
+				response.WriteJSON(w, response.Err(403, subAdminDenied))
 				return
 			}
 			if !list && !h.subLinkEnabled() {
