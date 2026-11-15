@@ -415,6 +415,10 @@ func (h *Handler) subLinkFetch(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), subLinkFetchMax+time.Second)
 	rules, err := subLinkDownload(h, ctx, raw)
 	cancel()
+	q := h.subLinks()
+	q.mu.Lock()
+	q.lastHost[urlHost(raw)] = time.Now() // background refreshes keep their gap
+	q.mu.Unlock()
 	if err != nil {
 		subFail(w, err)
 		return

@@ -251,8 +251,14 @@ func validDomain(d string) bool {
 	if len(d) > 253 || !validDomainChars(d, true) || strings.HasPrefix(d, ".") || strings.HasSuffix(d, ".") || strings.Contains(d, "..") {
 		return false
 	}
-	for _, l := range strings.Split(d, ".") {
-		if len(l) > 63 {
+	// Labels ≤ 63 (a scan: no per-call slice, plan 261 parses up to 50 000).
+	n := 0
+	for i := 0; i < len(d); i++ {
+		if d[i] == '.' {
+			n = 0
+			continue
+		}
+		if n++; n > 63 {
 			return false
 		}
 	}

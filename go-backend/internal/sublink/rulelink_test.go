@@ -25,7 +25,7 @@ func linkLines(r *LinkRules) string { return string(LinkText(r.Rules)) }
 func TestParseRuleListShapes(t *testing.T) {
 	for _, c := range []struct {
 		name, in, want string
-		counts     LinkCounts
+		counts         LinkCounts
 	}{
 		{"clash classical", "# comment\nDOMAIN-SUFFIX,google.com,Proxy\nDOMAIN,www.example.com\nDOMAIN-KEYWORD,openai\nIP-CIDR,91.108.4.0/22,Proxy,no-resolve\nIP-CIDR6,2001:b28:f23d::/48,no-resolve\n",
 			"DOMAIN-SUFFIX,google.com\nDOMAIN,www.example.com\nDOMAIN-KEYWORD,openai\nIP-CIDR,91.108.4.0/22\nIP-CIDR6,2001:b28:f23d::/48\n",
@@ -366,5 +366,27 @@ func TestRoutingJSONOldUnchanged(t *testing.T) {
 	old := `[{"type":"custom","name":"公司","lines":["mycompany.com"],"exit":"direct"},{"type":"builtin","key":"ai","exit":"select"}]`
 	if got := RoutingJSON(ParseRouting(&old)); got != old {
 		t.Fatalf("%s", got)
+	}
+}
+
+// BenchmarkParseRuleListMax: a list at both caps (≈4 MiB, 50 000 rules) —
+// the worst a single 获取 / refresh parses.
+func BenchmarkParseRuleListMax(b *testing.B) {
+	var sb strings.Builder
+	for i := 0; i < MaxLinkRules; i++ {
+		fmt.Fprintf(&sb, "DOMAIN-SUFFIX,host-%06d.a-rather-long-example-domain-name-for-bench.com,Proxy\n", i)
+	}
+	body := []byte(sb.String())
+	if len(body) > MaxLinkBytes {
+		b.Fatalf("%d bytes", len(body))
+	}
+	b.ReportAllocs()
+	b.SetBytes(int64(len(body)))
+	for i := 0; i < b.N; i++ {
+		r, err := ParseRuleList(body)
+		if err != nil {
+			b.Fatal(err)
+		}
+		_ = LinkSingBoxJSON(r.Rules)
 	}
 }
