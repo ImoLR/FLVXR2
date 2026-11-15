@@ -68,6 +68,6 @@ exactly as fork.133.
 - [x] Local dev backend (free port, temp DB) + seed ≥5 users fake data
 - [x] Gallery `/root/mmwx-preview/sub-admin-view/` (index + all required screens, light/dark,
       1440×900 / 390×844 / 360×780, long name) + fork.133 before/after compare for 我的订阅
-- [ ] Commit + push, CI green (incl. PG contract)
-- [ ] Ledger row 260 in `/root/flvx-workers/RELEASE-LEDGER.md` (待发布)
-- [ ] Clean temp files / dev servers; summary.md
+- [x] Commit + push, CI green (incl. PG contract) — code 938c2f7a, CI 43694262864 all 4 jobs green
+- [x] Ledger row 260 in `/root/flvx-workers/RELEASE-LEDGER.md` (待发布)
+- [x] Clean temp files / dev servers; summary.md
