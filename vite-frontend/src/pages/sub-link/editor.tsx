@@ -51,6 +51,7 @@ import {
   SubPool,
   SubPoolNode,
   SubPoolSource,
+  SubLinkSet,
   SubRouteEntry,
   SubRuleMode,
   SubSelected,
@@ -340,6 +341,8 @@ export function SubEditor({
   const [view, setView] = useState<"nodes" | "routing">("nodes");
   const [saving, setSaving] = useState(false);
   const [routing, setRouting] = useState<SubRouteEntry[]>([]);
+  // Plan 261: the stored 规则集链接 sets the list's link entries use.
+  const [links, setLinks] = useState<Record<string, SubLinkSet>>({});
   const [addingExternal, setAddingExternal] = useState(false);
 
   useEffect(() => {
@@ -354,6 +357,7 @@ export function SubEditor({
       setRouting(
         normalizeRouting(res.data.routing || [], res.data.routingCatalog || []),
       );
+      setLinks(res.data.routingLinks || {});
     });
   }, [sub?.id]);
 
@@ -883,11 +887,18 @@ export function SubEditor({
       defaults={pool?.routingDefaults || []}
       isH5={isH5}
       limits={limits}
+      links={links}
       mode={mode}
       nodeNames={nodeNames}
       nodeOptions={nodeOptions}
       routing={routing}
       onChange={setRouting}
+      onLinks={(sets) =>
+        setLinks((cur) => ({
+          ...cur,
+          ...Object.fromEntries(sets.map((x) => [String(x.id), x])),
+        }))
+      }
       onModeChange={setMode}
     />
   );

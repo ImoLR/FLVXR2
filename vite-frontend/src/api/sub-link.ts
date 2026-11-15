@@ -115,6 +115,8 @@ export interface SubPool {
   routingCatalog?: SubRouteCategory[];
   routingDefaults?: string[];
   routingLimits?: SubRouteLimits;
+  /** plan 261: the stored 规则集链接 sets of this subscription, by id */
+  routingLinks?: Record<string, SubLinkSet>;
 }
 
 /**
@@ -123,11 +125,37 @@ export interface SubPool {
  * node:<item key> (a node of this subscription).
  */
 export interface SubRouteEntry {
-  type: "builtin" | "custom";
+  type: "builtin" | "custom" | "link";
   key?: string;
   name?: string;
   lines?: string[];
   exit: string;
+  /** plan 261 link entry: the stored rule set (SubLinkSet.id) */
+  ref?: number;
+}
+
+/** Plan 261 「规则集链接」: what the owner sees of a stored set (never the URL). */
+export interface SubLinkCounts {
+  domain: number;
+  suffix: number;
+  keyword: number;
+  ip: number;
+  ignored: number;
+}
+
+export interface SubLinkSet {
+  id: number;
+  urlHint: string;
+  ruleCount: number;
+  counts: SubLinkCounts;
+  fetchedAt: number;
+  lastTryAt: number;
+  lastError: string;
+  failCount: number;
+  /** first rules (获取 / 立即更新 only) */
+  sample?: { kind: "full" | "suffix" | "keyword" | "ip"; value: string }[];
+  /** 立即更新 failed (the last good copy stays) */
+  error?: string;
 }
 
 export interface SubRouteCategory {
@@ -143,6 +171,10 @@ export interface SubRouteLimits {
   lines: number;
   lineLen: number;
   nameLen: number;
+  /** plan 261: link entries per subscription / stored sets per account */
+  links?: number;
+  linkSets?: number;
+  linkRules?: number;
 }
 
 export interface SubSaveBody {
@@ -201,6 +233,12 @@ export const subSourceRefresh = (id: number) =>
   Network.post<SubSource>("/sub/source/refresh", { id });
 export const subSourceDelete = (id: number) =>
   Network.post<{ removedFrom: number }>("/sub/source/delete", { id });
+/** Plan 261 「规则集链接」 获取: the panel downloads, validates and stores it. */
+export const subLinkFetch = (url: string) =>
+  Network.post<SubLinkSet>("/sub/ruleset/fetch", { url }, { timeout: 40000 });
+/** Plan 261 立即更新 (a failure keeps the last good copy, see error). */
+export const subLinkRefresh = (id: number) =>
+  Network.post<SubLinkSet>("/sub/ruleset/refresh", { id }, { timeout: 40000 });
 /** Plan 256 「检测全部」: TCP connect time from the panel to each 外部节点. */
 export const subExternalProbe = () =>
   Network.post<{ items: SubProbeResult[] }>(

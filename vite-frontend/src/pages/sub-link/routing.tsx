@@ -3,11 +3,22 @@ import toast from "react-hot-toast";
 import { Check, ChevronDown, ChevronLeft, ChevronRight, X } from "lucide-react";
 
 import {
+  SubLinkSet,
   SubRouteCategory,
   SubRouteEntry,
   SubRouteLimits,
   SubRuleMode,
+  subAgo,
+  subLinkFetch,
+  subLinkRefresh,
 } from "@/api/sub-link";
+import {
+  ExpandActions,
+  ExpandChip,
+  ExpandField,
+  ExpandRow,
+  useExpandOne,
+} from "@/components/expand-row";
 import { Pill } from "@/pages/landing/pill";
 import { Button } from "@/shadcn-bridge/heroui/button";
 import {
@@ -407,7 +418,8 @@ export function normalizeRouting(
   catalog: SubRouteCategory[],
 ): SubRouteEntry[] {
   const order = new Map(catalog.map((c, i) => [c.key, i]));
-  const custom = list.filter((e) => e.type === "custom");
+  // Plan 261: link entries are 自己写 too (same place in the order).
+  const custom = list.filter((e) => e.type === "custom" || e.type === "link");
   const seen = new Set<string>();
   const builtin = list
     .filter((e) => e.type === "builtin" && order.has(e.key || ""))
@@ -436,6 +448,107 @@ function customSummary(lines: string[] = []) {
   return lines.length > 3 ? `${shown} 等 ${lines.length} 条` : shown;
 }
 
+// ------------------------------------------------------------ links (plan 261)
+
+const LINK_KIND: Record<string, string> = {
+  full: "域名",
+  suffix: "后缀",
+  keyword: "关键词",
+  ip: "IP 段",
+};
+
+/** 「3 小时前更新」 / 「昨天 22:14 更新」. */
+function linkAgo(ms: number) {
+  const a = subAgo(ms);
+
+  if (!a) return "";
+
+  return /(前|刚刚)$/.test(a) ? `${a}更新` : `${a} 更新`;
+}
+
+/** The muted status line of a link entry. */
+export function linkStatus(set?: SubLinkSet): {
+  text: string;
+  bad: boolean;
+  reason?: string;
+} {
+  if (!set) return { text: "规则集已失效，请修改后换个链接", bad: true };
+  if (set.failCount > 0 && set.lastError)
+    return {
+      text: "更新失败，正在使用上次的内容",
+      bad: true,
+      reason: set.lastError,
+    };
+
+  return {
+    text: `${set.ruleCount} 条 · ${linkAgo(set.fetchedAt)}`,
+    bad: false,
+  };
+}
+
+function LinkChip() {
+  return (
+    <Pill className="shrink-0" title="规则集链接（面板代为下载）" tone="cyan">
+      🔗 链接
+    </Pill>
+  );
+}
+
+/** 立即更新 with the toast wording of both places (list H5 / edit dialog). */
+async function refreshLink(
+  id: number,
+  onLinks: (sets: SubLinkSet[]) => void,
+): Promise<void> {
+  const res = await subLinkRefresh(id);
+
+  if (res.code !== 0) {
+    toast.error(res.msg || "更新失败", toastOpts);
+
+    return;
+  }
+  onLinks([res.data]);
+  if (res.data.error)
+    toast.error(`更新失败：${res.data.error}（正在使用上次的内容）`, toastOpts);
+  else toast.success(`已更新，共 ${res.data.ruleCount} 条`, toastOpts);
+}
+
+/** 获取 result: counts line + the first rules. */
+function LinkPreview({ set }: { set: SubLinkSet }) {
+  const c = set.counts;
+
+  return (
+    <div
+      data-route-link-preview
+      className="space-y-1.5 rounded-xl border border-divider bg-default-100/50 px-3 py-2 dark:bg-default-100/30"
+    >
+      <p className="text-xs text-default-600">
+        共 <b className="text-foreground">{set.ruleCount}</b> 条：域名{" "}
+        {c.domain} · 后缀 {c.suffix} · 关键词 {c.keyword} · IP 段 {c.ip}
+        {c.ignored > 0 && (
+          <span className="text-default-400">
+            （忽略 {c.ignored} 行不支持的规则）
+          </span>
+        )}
+      </p>
+      {set.sample && set.sample.length > 0 && (
+        <ul className="space-y-0.5 font-mono text-[12px] text-default-600">
+          {set.sample.map((r) => (
+            <li key={`${r.kind}:${r.value}`} className="flex min-w-0 gap-2">
+              <span className="w-12 shrink-0 text-default-400">
+                {LINK_KIND[r.kind] || r.kind}
+              </span>
+              <span className="min-w-0 truncate">{r.value}</span>
+            </li>
+          ))}
+          {set.ruleCount > set.sample.length && (
+            <li className="text-default-400">…</li>
+          )}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 type Editing = { index: number | null; tab: "pick" | "custom" } | null;
 
 export function RoutingPanel({
@@ -449,6 +562,8 @@ export function RoutingPanel({
   limits,
   nodeOptions,
   nodeNames,
+  links = {},
+  onLinks = () => {},
 }: {
   isH5: boolean;
   routing: SubRouteEntry[];
@@ -460,9 +575,16 @@ export function RoutingPanel({
   limits: SubRouteLimits;
   nodeOptions: RouteNodeOption[];
   nodeNames: Set<string>;
+  /** plan 261: stored sets of the link entries (by id) */
+  links?: Record<string, SubLinkSet>;
+  onLinks?: (sets: SubLinkSet[]) => void;
 }) {
   const [editing, setEditing] = useState<Editing>(null);
   const [sheet, setSheet] = useState<number | null>(null);
+  const [refreshing, setRefreshing] = useState<number | null>(null);
+  const linkRows = useExpandOne(
+    routing.filter((e) => e.type === "link").map((e) => e.ref || 0),
+  );
   const nodes = useMemo(
     () => new Map(nodeOptions.map((n) => [n.key, n])),
     [nodeOptions],
@@ -493,6 +615,13 @@ export function RoutingPanel({
         desc: customSummary(e.lines),
         custom: true,
       };
+    if (e.type === "link")
+      return {
+        icon: CUSTOM_ICON,
+        name: e.name || "",
+        desc: "",
+        custom: true,
+      };
     const c = cat.get(e.key || "");
 
     return {
@@ -511,6 +640,151 @@ export function RoutingPanel({
         指定的节点已不在订阅里，已改走节点选择
       </span>
     );
+
+    if (e.type === "link") {
+      const set = links[String(e.ref)];
+      const st = linkStatus(set);
+      const statusLine = (
+        <span
+          className={`block truncate text-xs ${st.bad ? "text-red-600/80 dark:text-red-300/80" : "text-default-400"}`}
+          data-route-link-status={st.bad ? "bad" : "ok"}
+          title={st.reason}
+        >
+          {st.text}
+        </span>
+      );
+
+      if (isH5) {
+        const open = linkRows.open === (e.ref || 0);
+
+        return (
+          <ExpandRow
+            key={`link:${e.ref}`}
+            chip={
+              <ExpandChip className="bg-cyan-500/15 text-cyan-700 dark:bg-cyan-400/20 dark:text-cyan-300">
+                🔗 链接
+              </ExpandChip>
+            }
+            className={`border-b border-divider ${v.missing ? "bg-amber-500/10" : ""}`}
+            leading={
+              <span className="w-6 shrink-0 text-center text-lg">{m.icon}</span>
+            }
+            name={m.name}
+            nameTitle={m.name}
+            open={open}
+            rowProps={{ "data-route-row": e.name }}
+            status={st.bad ? "bad" : undefined}
+            statusTitle={st.bad ? st.text : undefined}
+            onToggle={() => linkRows.toggle(e.ref || 0)}
+          >
+            <ExpandField label="走哪里">
+              <span
+                className={`font-semibold ${toneClass[v.tone]
+                  .split(" ")
+                  .filter(
+                    (c) => c.startsWith("text-") || c.startsWith("dark:text-"),
+                  )
+                  .join(" ")}`}
+              >
+                {v.label}
+              </span>
+              {missingNote}
+            </ExpandField>
+            <ExpandField label="规则">
+              <span className={st.bad ? "text-red-600 dark:text-red-300" : ""}>
+                {st.text}
+              </span>
+              {st.reason && (
+                <span className="block text-default-500">
+                  原因：{st.reason}
+                </span>
+              )}
+            </ExpandField>
+            {set?.urlHint && (
+              <ExpandField label="地址">
+                <span className="font-mono">{set.urlHint}</span>
+              </ExpandField>
+            )}
+            <ExpandActions>
+              <Button
+                color="primary"
+                size="sm"
+                variant="flat"
+                onPress={() => setEditing({ index: i, tab: "custom" })}
+              >
+                修改
+              </Button>
+              {set && (
+                <Button
+                  color="success"
+                  isLoading={refreshing === e.ref}
+                  size="sm"
+                  variant="flat"
+                  onPress={async () => {
+                    setRefreshing(e.ref || 0);
+                    await refreshLink(set.id, onLinks);
+                    setRefreshing(null);
+                  }}
+                >
+                  立即更新
+                </Button>
+              )}
+              <Button
+                color="danger"
+                size="sm"
+                variant="flat"
+                onPress={() => remove(i)}
+              >
+                删除
+              </Button>
+            </ExpandActions>
+          </ExpandRow>
+        );
+      }
+
+      return (
+        <div
+          key={`link:${e.ref}`}
+          className={`flex items-center gap-3 border-b border-divider px-3 py-2 ${v.missing ? "bg-amber-500/10" : ""}`}
+          data-route-row={e.name}
+        >
+          <span className="w-6 shrink-0 text-center text-lg">{m.icon}</span>
+          <div
+            className="min-w-0 flex-1 cursor-pointer"
+            role="button"
+            tabIndex={0}
+            title="点一下修改"
+            onClick={() => setEditing({ index: i, tab: "custom" })}
+            onKeyDown={(ev) =>
+              ev.key === "Enter" && setEditing({ index: i, tab: "custom" })
+            }
+          >
+            <div className="flex items-center gap-1.5 text-sm font-medium">
+              <span className="truncate">{m.name}</span>
+              <Pill tone="slate">自己写的</Pill>
+              <LinkChip />
+            </div>
+            {statusLine}
+            {missingNote}
+          </div>
+          <ExitDropdown
+            exit={e.exit}
+            nodes={nodes}
+            options={nodeOptions}
+            onChange={(x) => setExit(i, x)}
+          />
+          <button
+            aria-label="删除这个分流"
+            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-red-500/10 text-red-600 hover:bg-red-500/20 dark:bg-red-400/15 dark:text-red-300"
+            title="删除这个分流"
+            type="button"
+            onClick={() => remove(i)}
+          >
+            <X size={14} />
+          </button>
+        </div>
+      );
+    }
 
     if (isH5) {
       return (
@@ -756,8 +1030,13 @@ export function RoutingPanel({
           entry={editingEntry}
           initialTab={editing.tab}
           isH5={isH5}
+          limitLinks={
+            routing.filter((e) => e.type === "link").length -
+            (editingEntry?.type === "link" ? 1 : 0)
+          }
           limits={limits}
           lineTotal={lineTotal - (editingEntry?.lines?.length || 0)}
+          links={links}
           nodeNames={nodeNames}
           nodeOptions={nodeOptions}
           routing={routing}
@@ -770,7 +1049,9 @@ export function RoutingPanel({
                 }
               : undefined
           }
-          onSave={(added) => {
+          onLinks={onLinks}
+          onSave={(added, sets) => {
+            if (sets?.length) onLinks(sets);
             if (editing.index !== null) {
               set(routing.map((e, j) => (j === editing.index ? added[0] : e)));
             } else {
@@ -801,6 +1082,9 @@ function AddRouteDialog({
   lineTotal,
   nodeOptions,
   nodeNames,
+  links,
+  limitLinks,
+  onLinks,
   onSave,
   onDelete,
   onClose,
@@ -814,12 +1098,27 @@ function AddRouteDialog({
   lineTotal: number;
   nodeOptions: RouteNodeOption[];
   nodeNames: Set<string>;
-  onSave: (entries: SubRouteEntry[]) => void;
+  links: Record<string, SubLinkSet>;
+  /** link entries of the list besides this one */
+  limitLinks: number;
+  onLinks: (sets: SubLinkSet[]) => void;
+  onSave: (entries: SubRouteEntry[], sets?: SubLinkSet[]) => void;
   onDelete?: () => void;
   onClose: () => void;
 }) {
   const editing = !!entry;
   const [tab, setTab] = useState<"pick" | "custom">(initialTab);
+  // Plan 261: 自己写 = 手动输入 (the form of plan 256) or 规则集链接.
+  const [source, setSource] = useState<"manual" | "link">(
+    entry?.type === "link" ? "link" : "manual",
+  );
+  const [url, setUrl] = useState("");
+  const [fetching, setFetching] = useState(false);
+  const [fetched, setFetched] = useState<SubLinkSet | null>(null);
+  const [fetchError, setFetchError] = useState("");
+  const [changing, setChanging] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const current = entry?.type === "link" ? links[String(entry.ref)] : undefined;
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [name, setName] = useState(entry?.name || "");
   const [exit, setExit] = useState(entry?.exit || "direct");
@@ -836,20 +1135,77 @@ function AddRouteDialog({
     [nodeOptions],
   );
 
-  const saveCustom = () => {
-    const n = name.trim();
+  const nameError = (n: string) => {
     const bad = checkName(n, limits.nameLen);
 
-    if (bad) return toast.error(bad, toastOpts);
+    if (bad) return bad;
     if (
       catalog.some((c) => c.name === n || `${c.icon} ${c.name}` === n) ||
       RESERVED_NAMES.includes(n.toUpperCase())
     )
-      return toast.error(`「${n}」是内置的名字，请换一个`, toastOpts);
+      return `「${n}」是内置的名字，请换一个`;
     if (nodeNames.has(n) || nodeNames.has(`${CUSTOM_ICON} ${n}`))
-      return toast.error(`「${n}」和订阅里的节点同名，请换一个名字`, toastOpts);
-    if (routing.some((e) => e.type === "custom" && e.name === n && e !== entry))
-      return toast.error(`「${n}」这个名字已经用过了`, toastOpts);
+      return `「${n}」和订阅里的节点同名，请换一个名字`;
+    if (
+      routing.some(
+        (e) =>
+          (e.type === "custom" || e.type === "link") &&
+          e.name === n &&
+          e !== entry,
+      )
+    )
+      return `「${n}」这个名字已经用过了`;
+
+    return "";
+  };
+  const doFetch = async () => {
+    const u = url.trim();
+
+    setFetchError("");
+    if (!/^https?:\/\/\S+$/i.test(u)) {
+      setFetchError("地址无效，请填写 http:// 或 https:// 开头的完整地址");
+
+      return;
+    }
+    setFetching(true);
+    try {
+      const res = await subLinkFetch(u);
+
+      if (res.code !== 0) {
+        setFetched(null);
+        setFetchError(res.msg || "获取失败");
+
+        return;
+      }
+      setFetched(res.data);
+    } finally {
+      setFetching(false);
+    }
+  };
+  const saveLink = () => {
+    const n = name.trim();
+    const bad = nameError(n);
+
+    if (bad) return toast.error(bad, toastOpts);
+    const ref = fetched?.id ?? (entry?.type === "link" ? entry.ref : undefined);
+
+    if (!ref) return toast.error("请先点「获取」", toastOpts);
+    if (routing.some((e) => e.type === "link" && e.ref === ref && e !== entry))
+      return toast.error("这个规则集链接已经在列表里了", toastOpts);
+    const max = limits.links || 5;
+
+    if (entry?.type !== "link" && limitLinks + 1 > max)
+      return toast.error(`每条订阅最多 ${max} 个规则集链接`, toastOpts);
+    onSave(
+      [{ type: "link", name: n, ref, exit }],
+      fetched ? [fetched] : undefined,
+    );
+  };
+  const saveCustom = () => {
+    const n = name.trim();
+    const bad = nameError(n);
+
+    if (bad) return toast.error(bad, toastOpts);
     if (parsed.error) return toast.error(parsed.error, toastOpts);
     if (!parsed.lines.length)
       return toast.error("还没有写网站或 IP", toastOpts);
@@ -1052,7 +1408,165 @@ function AddRouteDialog({
     </div>
   );
 
-  const body = tab === "pick" && !editing ? grid : customForm;
+  const sourceSwitch = !editing && (
+    <div
+      data-route-source
+      className="inline-flex rounded-lg bg-slate-500/10 p-0.5 text-xs dark:bg-slate-400/15"
+    >
+      {(
+        [
+          ["manual", "手动输入"],
+          ["link", "规则集链接"],
+        ] as const
+      ).map(([k, t]) => (
+        <button
+          key={k}
+          className={`rounded-md px-2.5 py-1 ${
+            source === k
+              ? "bg-white font-semibold shadow-sm dark:bg-slate-700"
+              : "text-default-600"
+          }`}
+          data-route-source-tab={k}
+          type="button"
+          onClick={() => setSource(k)}
+        >
+          {t}
+        </button>
+      ))}
+    </div>
+  );
+  const urlForm = (
+    <div className="space-y-1.5">
+      <div className="flex items-end gap-2">
+        <Input
+          data-route-link-url
+          autoComplete="off"
+          classNames={{ base: "min-w-0 flex-1" }}
+          label="规则集地址"
+          placeholder="https://raw.githubusercontent.com/…/Netflix.list"
+          size="sm"
+          value={url}
+          variant="bordered"
+          onChange={(e) => {
+            setUrl(e.target.value);
+            setFetchError("");
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") void doFetch();
+          }}
+        />
+        <Button
+          data-route-link-fetch
+          color="secondary"
+          isDisabled={!url.trim()}
+          isLoading={fetching}
+          size="sm"
+          variant="flat"
+          onPress={() => void doFetch()}
+        >
+          获取
+        </Button>
+      </div>
+      {fetchError && (
+        <p data-route-link-error className="text-xs text-danger">
+          {fetchError}
+        </p>
+      )}
+    </div>
+  );
+  const currentStatus = linkStatus(current);
+  const linkForm = (
+    <div data-route-link className="space-y-3">
+      <div className="space-y-3">
+        <Input
+          classNames={isH5 ? undefined : { base: "max-w-xs" }}
+          label="名字"
+          maxLength={limits.nameLen}
+          placeholder="例如：奈飞"
+          size="sm"
+          value={name}
+          variant="bordered"
+          onChange={(e) => setName(e.target.value)}
+        />
+        <div className="space-y-1">
+          <span className="text-xs text-default-500">走哪里</span>
+          {exitPicker}
+        </div>
+      </div>
+      {editing && !changing ? (
+        <div
+          data-route-link-current
+          className="space-y-2 rounded-xl border border-divider px-3 py-2"
+        >
+          <div className="flex min-w-0 items-center gap-2 text-sm">
+            <LinkChip />
+            <span className="min-w-0 truncate font-mono text-xs text-default-600">
+              {current?.urlHint || "（地址已隐藏）"}
+            </span>
+          </div>
+          <p
+            className={`text-xs ${currentStatus.bad ? "text-red-600 dark:text-red-300" : "text-default-500"}`}
+          >
+            {currentStatus.text}
+            {currentStatus.reason && (
+              <span className="block text-default-500">
+                原因：{currentStatus.reason}
+              </span>
+            )}
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {current && (
+              <Button
+                color="success"
+                isLoading={refreshing}
+                size="sm"
+                variant="flat"
+                onPress={async () => {
+                  setRefreshing(true);
+                  await refreshLink(current.id, onLinks);
+                  setRefreshing(false);
+                }}
+              >
+                立即更新
+              </Button>
+            )}
+            <Button
+              color="primary"
+              size="sm"
+              variant="flat"
+              onPress={() => setChanging(true)}
+            >
+              换链接
+            </Button>
+          </div>
+        </div>
+      ) : (
+        urlForm
+      )}
+      {fetched && <LinkPreview set={fetched} />}
+      <p className="text-xs leading-5 text-default-400">
+        支持 Clash / Surge / Loon / Quantumult X
+        的文本规则集（.list、.txt、.yaml）。面板代为下载并每天更新，客户端从面板下载，不用连
+        GitHub。只保留域名、后缀、关键词和 IP
+        段，规则集里自带的策略不生效，走哪里由你选。
+      </p>
+    </div>
+  );
+  // Editing keeps the entry's own form (a manual entry renders exactly as
+  // before plan 261); only 「＋ 添加分流」 gets the switch.
+  const custom = editing ? (
+    source === "link" ? (
+      linkForm
+    ) : (
+      customForm
+    )
+  ) : (
+    <div className="space-y-3">
+      {sourceSwitch}
+      {source === "link" ? linkForm : customForm}
+    </div>
+  );
+  const body = tab === "pick" && !editing ? grid : custom;
   const pickHint = (
     <span className="min-w-0 flex-1 text-xs text-default-500">
       {isH5
@@ -1089,7 +1603,8 @@ function AddRouteDialog({
         <Button
           className={isH5 ? "flex-[2]" : ""}
           color="success"
-          onPress={saveCustom}
+          isDisabled={source === "link" && !fetched && (!editing || changing)}
+          onPress={source === "link" ? saveLink : saveCustom}
         >
           {editing ? "保存" : "添加"}
         </Button>
