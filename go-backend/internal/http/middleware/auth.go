@@ -189,6 +189,12 @@ func requiresAdmin(path string) bool {
 		return true
 	}
 
+	// Plan 260: the admin's read-only 「全部用户」 subscriptions view (the
+	// handler checks the role again).
+	if strings.HasPrefix(path, "/api/v1/sub/admin/") {
+		return true
+	}
+
 	if path == "/api/v1/config/probe" || strings.HasPrefix(path, "/api/v1/config/probe/") {
 		return true
 	}

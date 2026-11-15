@@ -330,7 +330,7 @@ func clashDoc(nodes []Node, mode string, stash bool, routing []RouteEntry, origi
 	}
 	var routes []routeGroup
 	if len(routing) > 0 {
-		routes = planRoutes(routing, routeNodeNames(kept, names), len(names) > 0)
+		routes = linksFrom(planRoutes(routing, routeNodeNames(kept, names), len(names) > 0), origin)
 	}
 	// Plan 220: from mainland China 1.1.1.1 / 8.8.8.8 DoH time out when
 	// dialled directly, so the foreign resolvers go through the select group
@@ -440,6 +440,11 @@ func clashRouteRules(routes []routeGroup, stash bool) []string {
 			}
 			out = append(out, r)
 		}
+		if g.link != "" {
+			// Plan 261: a link set may mix domains and IP ranges; its IP
+			// rules never resolve a domain first (as 自己写).
+			out = append(out, "RULE-SET,"+linkProviderName(g.link)+","+g.name+",no-resolve")
+		}
 	}
 	return out
 }
@@ -475,6 +480,14 @@ func clashProviders(routes []routeGroup, stash bool, origin string) omap {
 				p.add("proxy", via)
 			}
 			out.add(s.ID, p)
+		}
+		if g.link != "" {
+			// Plan 261: classical text list served by the panel (DIRECT).
+			p := omap{{"type", "http"}, {"behavior", "classical"}, {"format", "text"}, {"url", LinkFileURL(origin, g.link, ExtLinkList)}, {"interval", RuleSetInterval}}
+			if !stash {
+				p.add("proxy", "DIRECT")
+			}
+			out.add(linkProviderName(g.link), p)
 		}
 	}
 	return out

@@ -156,7 +156,8 @@ type Handler struct {
 	// and the last compile's per-node chain notes per landing server.
 	external externalState
 	// subLink: plan 185 subscription links (caches and limits, memory only).
-	subLink subLinkState
+	subLink  subLinkState
+	subLinkQ subLinkQueue // plan 261 规则集链接
 	// probe: plan 187 公开探针 (latest reports, latency rings, snapshot hub;
 	// memory only).
 	probe probeState

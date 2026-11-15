@@ -120,6 +120,27 @@ func (r *Repository) MarkSubscriptionPulled(id, at int64, client string, nodes i
 	}).Error
 }
 
+// ---------------------------------------------------------- admin overview
+
+// AdminSubscriptionRows: every user's subscriptions for the admin's
+// read-only 「全部用户」 view (plan 260) — one query, the token is never
+// loaded.
+func (r *Repository) AdminSubscriptionRows() ([]model.UserSubscription, error) {
+	var rows []model.UserSubscription
+	err := r.db.Select("id", "user_id", "name", "format", "rule_mode", "items", "last_pull_at", "last_pull_client", "last_pull_nodes",
+		"created_time", "routing").Order("id").Find(&rows).Error
+	return rows, err
+}
+
+// AdminSubSourceRows: every external subscription source for the same view —
+// one query, without the sealed URL, its hint or the cached nodes.
+func (r *Repository) AdminSubSourceRows() ([]model.UserSubSource, error) {
+	var rows []model.UserSubSource
+	err := r.db.Select("id", "user_id", "name", "last_ok_at", "last_fetch_at", "last_error", "node_count", "created_time").
+		Order("id").Find(&rows).Error
+	return rows, err
+}
+
 // ---------------------------------------------------------- sources
 
 func (r *Repository) ListSubSources(userID int64) ([]model.UserSubSource, error) {

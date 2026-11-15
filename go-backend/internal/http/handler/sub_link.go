@@ -118,27 +118,38 @@ func (h *Handler) subLinkEnabled() bool {
 
 func (h *Handler) registerSubLink(mux *http.ServeMux) {
 	for path, fn := range map[string]http.HandlerFunc{
-		"list":           h.subList,
-		"pool":           h.subPool,
-		"create":         h.subCreate,
-		"update":         h.subUpdate,
-		"delete":         h.subDelete,
-		"reset":          h.subReset,
-		"source/fetch":   h.subSourceFetch,
-		"source/create":  h.subSourceCreate,
-		"source/refresh": h.subSourceRefresh,
-		"source/delete":  h.subSourceDelete,
-		"external/probe": h.subExternalProbe,
+		"list":            h.subList,
+		"pool":            h.subPool,
+		"create":          h.subCreate,
+		"update":          h.subUpdate,
+		"delete":          h.subDelete,
+		"reset":           h.subReset,
+		"source/fetch":    h.subSourceFetch,
+		"source/create":   h.subSourceCreate,
+		"source/refresh":  h.subSourceRefresh,
+		"source/delete":   h.subSourceDelete,
+		"external/probe":  h.subExternalProbe,
+		"ruleset/fetch":   h.subLinkFetch,
+		"ruleset/refresh": h.subLinkRefreshNow,
+		// Plan 260: the admin's read-only 「全部用户」 view.
+		"admin/list":   h.subAdminList,
+		"admin/detail": h.subAdminDetail,
 	} {
 		fn := fn
-		list := path == "list"
+		list := path == "list" || path == "admin/list"
+		adminOnly := strings.HasPrefix(path, "admin/")
 		mux.HandleFunc("/api/v1/sub/"+path, func(w http.ResponseWriter, r *http.Request) {
 			if r.Method != http.MethodPost {
 				response.WriteJSON(w, response.Err(405, "仅支持 POST"))
 				return
 			}
-			if _, _, err := userRoleFromRequest(r); err != nil {
+			_, role, err := userRoleFromRequest(r)
+			if err != nil {
 				response.WriteJSON(w, response.Err(401, "无效的token或token已过期"))
+				return
+			}
+			if adminOnly && role != 0 {
+				response.WriteJSON(w, response.Err(403, subAdminDenied))
 				return
 			}
 			if !list && !h.subLinkEnabled() {
@@ -449,6 +460,7 @@ func (h *Handler) subList(w http.ResponseWriter, r *http.Request) {
 		response.WriteJSON(w, response.OK(out))
 		return
 	}
+	h.subLinkGC(uid) // plan 261: sets nothing references any more
 	subs, err := h.repo.ListSubscriptions(uid)
 	if err != nil {
 		subFail(w, err)
@@ -642,7 +654,9 @@ func (h *Handler) subPool(w http.ResponseWriter, r *http.Request) {
 		"rules": rules, "landing": landing, "external": externals, "sources": sources, "portForwards": d.panel.PortForwards,
 		"selected": selected, "maxNodes": model.MaxSubscriptionNodes,
 		"routing": routing, "routingCatalog": subRoutingCatalog(), "routingDefaults": sublink.DefaultRouteKeys,
-		"routingLimits": map[string]int{"entries": sublink.MaxRouteEntries, "lines": sublink.MaxRouteLines, "lineLen": sublink.MaxRouteLineLen, "nameLen": sublink.MaxRouteNameLen},
+		"routingLimits": map[string]int{"entries": sublink.MaxRouteEntries, "lines": sublink.MaxRouteLines, "lineLen": sublink.MaxRouteLineLen, "nameLen": sublink.MaxRouteNameLen,
+			"links": sublink.MaxLinkEntries, "linkSets": model.MaxSubRuleSetsPerUser, "linkRules": sublink.MaxLinkRules},
+		"routingLinks": h.subLinkViews(uid, routing),
 	}))
 }
 
@@ -740,7 +754,13 @@ func (h *Handler) subValidate(ctx context.Context, uid int64, req *subSaveReq) (
 	for _, n := range nodes {
 		names[strings.TrimSpace(n.Name)] = true
 	}
-	routing, err := sublink.CleanRouting(*req.Routing, inSub, names)
+	// Plan 261: a link entry must name one of the user's own stored sets.
+	owned, err := h.repo.SubRuleSetsByIDs(uid, subLinkRefs(*req.Routing))
+	if err != nil {
+		return nil, nil, err
+	}
+	linkOK := func(ref int64) bool { _, ok := owned[ref]; return ok }
+	routing, err := sublink.CleanRoutingLinks(*req.Routing, inSub, names, linkOK)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -790,6 +810,7 @@ func (h *Handler) subCreate(w http.ResponseWriter, r *http.Request) {
 		subFail(w, err)
 		return
 	}
+	h.subLinkGC(uid)
 	response.WriteJSON(w, response.OK(subView(s)))
 }
 
@@ -819,6 +840,7 @@ func (h *Handler) subUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.subState().cache.purgeSub(s.ID)
+	h.subLinkGC(uid)
 	s.Name, s.Format, s.RuleMode = req.Name, req.Format, req.RuleMode
 	response.WriteJSON(w, response.OK(subView(s)))
 }
@@ -852,6 +874,7 @@ func (h *Handler) subDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.subState().cache.purgeSub(s.ID)
+	h.subLinkGC(s.UserID)
 	response.WriteJSON(w, response.OKEmpty())
 }
 

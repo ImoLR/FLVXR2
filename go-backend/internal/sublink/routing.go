@@ -22,6 +22,7 @@ import (
 const (
 	RouteBuiltin = "builtin"
 	RouteCustom  = "custom"
+	RouteLink    = "link" // plan 261: 自己写 from a 规则集链接 (Ref = user_sub_ruleset.id)
 
 	ExitSelect     = "select" // 节点选择
 	ExitAuto       = "auto"   // 自动选择
@@ -46,6 +47,17 @@ type RouteEntry struct {
 	Name  string   `json:"name,omitempty"`  // custom: group name without the icon
 	Lines []string `json:"lines,omitempty"` // custom: normalized rule lines
 	Exit  string   `json:"exit"`
+	Ref   int64    `json:"ref,omitempty"` // link: the stored rule set (owner's own)
+
+	// Link: the stored set of a link entry as the renderers need it, filled
+	// in by the handler before rendering (never stored); nil = not
+	// available, the entry is left out.
+	Link *LinkRef `json:"-"`
+}
+
+// LinkRef is what a renderer needs of a link entry's stored set.
+type LinkRef struct {
+	PublicID string // /s/rs/u/<PublicID>.<ext>
 }
 
 // RuleSet is one rule set the panel serves: ID is the public name
@@ -239,8 +251,14 @@ func validDomain(d string) bool {
 	if len(d) > 253 || !validDomainChars(d, true) || strings.HasPrefix(d, ".") || strings.HasSuffix(d, ".") || strings.Contains(d, "..") {
 		return false
 	}
-	for _, l := range strings.Split(d, ".") {
-		if len(l) > 63 {
+	// Labels ≤ 63 (a scan: no per-call slice, plan 261 parses up to 50 000).
+	n := 0
+	for i := 0; i < len(d); i++ {
+		if d[i] == '.' {
+			n = 0
+			continue
+		}
+		if n++; n > 63 {
 			return false
 		}
 	}
@@ -281,6 +299,14 @@ func ParseRouteLine(s string) (RouteRule, string) {
 			s = strings.TrimSpace(s[i+1:])
 		}
 	}
+	return parseRouteValue(kind, s)
+}
+
+// parseRouteValue parses one value of kind full | suffix | keyword | ip, or
+// "" = guess (ParseRouteLine after its prefix). Plan 261: the rules of a
+// 规则集链接 go through here with an explicit kind, so both use the same
+// validators.
+func parseRouteValue(kind, s string) (RouteRule, string) {
 	if kind == "" && strings.Contains(s, "://") {
 		if u, err := url.Parse(s); err == nil && u.Hostname() != "" {
 			s = u.Hostname()
@@ -404,14 +430,53 @@ func routeRules(lines []string) []RouteRule {
 // 节点选择 (the editor shows such a row in yellow before saving). nodeNames
 // are the subscription's node names (custom names may not take one).
 func CleanRouting(in []RouteEntry, inSub func(key string) bool, nodeNames map[string]bool) ([]RouteEntry, error) {
+	return CleanRoutingLinks(in, inSub, nodeNames, nil)
+}
+
+// CleanRoutingLinks is CleanRouting with plan-261 link entries: linkOK
+// reports whether a ref is a stored set of this user (nil = no link entry
+// is accepted). Link entries sit among the custom ones (same name space,
+// same place in the rule order) and count toward MaxRouteEntries, not
+// toward MaxRouteLines; at most MaxLinkEntries, each set once.
+func CleanRoutingLinks(in []RouteEntry, inSub func(key string) bool, nodeNames map[string]bool, linkOK func(ref int64) bool) ([]RouteEntry, error) {
 	if len(in) > MaxRouteEntries {
 		return nil, fmt.Errorf("每条订阅最多 %d 个分流，现在是 %d 个", MaxRouteEntries, len(in))
 	}
 	var custom []RouteEntry
 	builtin := make([]*RouteEntry, len(Catalog))
 	names := map[string]bool{}
+	refs := map[int64]bool{}
 	total := 0
 	for _, e := range in {
+		if e.Type == RouteLink {
+			name, err := CleanRouteName(e.Name)
+			if err != nil {
+				return nil, err
+			}
+			if names[name] {
+				return nil, fmt.Errorf("「%s」这个名字已经用过了", name)
+			}
+			if nodeNames[name] || nodeNames[customIcon+" "+name] {
+				return nil, fmt.Errorf("「%s」和订阅里的节点同名，请换一个名字", name)
+			}
+			names[name] = true
+			if e.Ref <= 0 || linkOK == nil || !linkOK(e.Ref) {
+				return nil, fmt.Errorf("「%s」的规则集链接已失效，请重新获取", name)
+			}
+			if refs[e.Ref] {
+				return nil, fmt.Errorf("「%s」用的规则集链接已经在列表里了", name)
+			}
+			refs[e.Ref] = true
+			if len(refs) > MaxLinkEntries {
+				return nil, fmt.Errorf("每条订阅最多 %d 个规则集链接", MaxLinkEntries)
+			}
+			exit := strings.TrimSpace(e.Exit)
+			if exit == "" {
+				exit = ExitSelect
+			}
+			custom = append(custom, RouteEntry{Type: RouteLink, Name: name, Ref: e.Ref, Exit: exit})
+			continue
+		}
 		exit := strings.TrimSpace(e.Exit)
 		switch e.Type {
 		case RouteBuiltin:
@@ -489,17 +554,20 @@ type routeGroup struct {
 	node   string // exit node name (exit == "node")
 	custom []RouteRule
 	sets   []RuleSet
+	link   string // plan 261: public id of a 规则集链接 set
 }
 
 // planRoutes resolves a stored list against the nodes one format renders.
 // nodeName maps a node key to its rendered name; a node: exit whose node is
 // not rendered falls back to 节点选择, an auto exit without nodes too.
-// Unknown builtins and custom entries without usable lines are skipped.
+// Unknown builtins, custom entries without usable lines and link entries
+// without their stored set (plan 261) are skipped.
 func planRoutes(list []RouteEntry, nodeName map[string]string, haveNodes bool) []routeGroup {
 	out := make([]routeGroup, 0, len(list))
 	// Rule order is fixed: custom entries (list order), then the catalog
 	// order, whatever order the stored list has; each builtin once.
 	builtin := make([]*routeGroup, len(Catalog))
+	links := map[string]bool{}
 	for _, e := range list {
 		g := routeGroup{exit: e.Exit}
 		bi := -1
@@ -521,6 +589,13 @@ func planRoutes(list []RouteEntry, nodeName map[string]string, haveNodes bool) [
 			if len(g.custom) == 0 {
 				continue
 			}
+		case RouteLink:
+			name, err := CleanRouteName(e.Name)
+			if err != nil || e.Link == nil || !ValidLinkID(e.Link.PublicID) || links[e.Link.PublicID] {
+				continue
+			}
+			links[e.Link.PublicID] = true
+			g.name, g.link = customIcon+" "+name, e.Link.PublicID
 		default:
 			continue
 		}
@@ -578,6 +653,10 @@ func routeGroupNames(list []RouteEntry) []string {
 			}
 		case RouteCustom:
 			if name, err := CleanRouteName(e.Name); err == nil {
+				out = append(out, customIcon+" "+name)
+			}
+		case RouteLink:
+			if name, err := CleanRouteName(e.Name); err == nil && e.Link != nil {
 				out = append(out, customIcon+" "+name)
 			}
 		}

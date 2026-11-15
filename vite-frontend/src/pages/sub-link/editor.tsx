@@ -51,6 +51,7 @@ import {
   SubPool,
   SubPoolNode,
   SubPoolSource,
+  SubLinkSet,
   SubRouteEntry,
   SubRuleMode,
   SubSelected,
@@ -72,33 +73,61 @@ const FORMATS: [SubFormat, string][] = [
   ["auto", "自动识别"],
   ["clash", "Clash"],
   ["singbox", "sing-box"],
-  ["base64", "通用"],
+  ["base64", "节点链接"],
 ];
+
+// User 11-15: 「节点链接」 (stored base64) = the plain share links only — no
+// rule config, the client's own rules decide. Not the same as an empty 分流
+// list (that is still a Clash / sing-box config with 国内 → 直连).
+const LINKS_HINT =
+  "只给节点链接，不带分流和规则，由客户端自己的规则决定（v2rayN / Shadowrocket 等）";
+// The saved 分流 stays and applies again under 自动识别 (and to ?t=clash /
+// singbox / surge links); a 节点链接 pull without ?t= never carries it.
+const LINKS_ROUTING_NOTE =
+  "当前格式「节点链接」不带分流；用自动识别时，Clash / sing-box / Surge 等客户端仍会用这里的分流";
+
+/** The muted tinted label chip in front of a segmented setting. */
+function SegLabel({ text }: { text: string }) {
+  return (
+    <span
+      data-seg-label
+      className="inline-flex shrink-0 items-center rounded-md bg-slate-500/15 px-1.5 py-0.5 text-[11px] font-semibold leading-4 text-slate-600 dark:bg-slate-400/20 dark:text-slate-300"
+    >
+      {text}
+    </span>
+  );
+}
 
 function Seg<T extends string>({
   label,
   value,
   options,
   onChange,
+  stacked,
 }: {
   label: string;
   value: T;
   options: [T, string][];
   onChange: (v: T) => void;
+  /** H5: the label on its own line, the options across the full width */
+  stacked?: boolean;
 }) {
   return (
-    <div className="flex items-center gap-2">
-      <span className="shrink-0 text-xs text-default-500">{label}</span>
+    <div
+      className={stacked ? "space-y-1" : "flex items-center gap-3"}
+      data-seg={label}
+    >
+      <SegLabel text={label} />
       <div
         aria-label={label}
-        className="inline-flex rounded-xl bg-slate-500/10 p-0.5 dark:bg-slate-400/15"
+        className={`${stacked ? "flex w-full" : "inline-flex"} rounded-xl bg-slate-500/10 p-0.5 dark:bg-slate-400/15`}
         role="radiogroup"
       >
         {options.map(([v, text]) => (
           <button
             key={v}
             aria-checked={value === v}
-            className={`whitespace-nowrap rounded-lg px-2.5 py-1 text-[13px] ${
+            className={`whitespace-nowrap rounded-lg px-2.5 py-1 text-[13px] ${stacked ? "flex-1" : ""} ${
               value === v
                 ? "bg-white font-semibold text-foreground shadow-sm dark:bg-slate-700"
                 : "text-default-600"
@@ -340,6 +369,8 @@ export function SubEditor({
   const [view, setView] = useState<"nodes" | "routing">("nodes");
   const [saving, setSaving] = useState(false);
   const [routing, setRouting] = useState<SubRouteEntry[]>([]);
+  // Plan 261: the stored 规则集链接 sets the list's link entries use.
+  const [links, setLinks] = useState<Record<string, SubLinkSet>>({});
   const [addingExternal, setAddingExternal] = useState(false);
 
   useEffect(() => {
@@ -354,6 +385,7 @@ export function SubEditor({
       setRouting(
         normalizeRouting(res.data.routing || [], res.data.routingCatalog || []),
       );
+      setLinks(res.data.routingLinks || {});
     });
   }, [sub?.id]);
 
@@ -428,9 +460,20 @@ export function SubEditor({
         const src = pool?.sources.find((x) => x.id === s.ref.sourceId);
 
         src?.nodes.forEach((n) =>
-          out.push({ key: n.key, name: n.name, detail: src.name }),
+          out.push({
+            key: n.key,
+            name: n.name,
+            detail: src.name,
+            source: "source",
+          }),
         );
-      } else out.push({ key: s.key, name: s.name || s.key });
+      } else
+        out.push({
+          key: s.key,
+          name: s.name || s.key,
+          detail: s.group === "source" ? s.sourceName : undefined,
+          source: s.group,
+        });
     }
 
     return out;
@@ -877,17 +920,32 @@ export function SubEditor({
     </div>
   );
 
+  const routingNote = format === "base64" && (
+    <p
+      data-routing-format-note
+      className="mb-2 shrink-0 rounded-lg bg-slate-500/10 px-3 py-2 text-xs text-default-500 dark:bg-slate-400/15"
+    >
+      {LINKS_ROUTING_NOTE}
+    </p>
+  );
   const routingPanel = (
     <RoutingPanel
       catalog={catalog}
       defaults={pool?.routingDefaults || []}
       isH5={isH5}
       limits={limits}
+      links={links}
       mode={mode}
       nodeNames={nodeNames}
       nodeOptions={nodeOptions}
       routing={routing}
       onChange={setRouting}
+      onLinks={(sets) =>
+        setLinks((cur) => ({
+          ...cur,
+          ...Object.fromEntries(sets.map((x) => [String(x.id), x])),
+        }))
+      }
       onModeChange={setMode}
     />
   );
@@ -899,6 +957,11 @@ export function SubEditor({
     />
   );
 
+  const linksHint = format === "base64" && (
+    <p data-format-hint className="text-xs text-default-400">
+      {LINKS_HINT}
+    </p>
+  );
   const settings = (
     <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
       <Seg
@@ -944,11 +1007,13 @@ export function SubEditor({
               />
               <div className="space-y-1.5">
                 <Seg
+                  stacked
                   label="客户端"
                   options={FORMATS}
                   value={format}
                   onChange={setFormat}
                 />
+                {linksHint}
               </div>
               <div className="flex rounded-xl bg-slate-500/10 p-0.5 dark:bg-slate-400/15">
                 {(
@@ -982,7 +1047,10 @@ export function SubEditor({
               ) : tab === "pool" ? (
                 poolColumn
               ) : tab === "routing" ? (
-                routingPanel
+                <>
+                  {routingNote}
+                  {routingPanel}
+                </>
               ) : (
                 selectedColumn
               )}
@@ -1064,7 +1132,10 @@ export function SubEditor({
             {loadError ? (
               <p className="text-sm text-danger">{loadError}</p>
             ) : view === "routing" && routingOn ? (
-              <div className="min-h-[420px]">{routingPanel}</div>
+              <div className="min-h-[420px]">
+                {routingNote}
+                {routingPanel}
+              </div>
             ) : (
               <div className="grid grid-cols-2 gap-4">
                 {poolColumn}
@@ -1075,6 +1146,7 @@ export function SubEditor({
           <ModalFooter className="items-center justify-between">
             <div className="space-y-1">
               {settings}
+              {linksHint}
               {hint}
             </div>
             <div className="flex gap-2">

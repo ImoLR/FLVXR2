@@ -115,6 +115,8 @@ export interface SubPool {
   routingCatalog?: SubRouteCategory[];
   routingDefaults?: string[];
   routingLimits?: SubRouteLimits;
+  /** plan 261: the stored 规则集链接 sets of this subscription, by id */
+  routingLinks?: Record<string, SubLinkSet>;
 }
 
 /**
@@ -123,11 +125,37 @@ export interface SubPool {
  * node:<item key> (a node of this subscription).
  */
 export interface SubRouteEntry {
-  type: "builtin" | "custom";
+  type: "builtin" | "custom" | "link";
   key?: string;
   name?: string;
   lines?: string[];
   exit: string;
+  /** plan 261 link entry: the stored rule set (SubLinkSet.id) */
+  ref?: number;
+}
+
+/** Plan 261 「规则集链接」: what the owner sees of a stored set (never the URL). */
+export interface SubLinkCounts {
+  domain: number;
+  suffix: number;
+  keyword: number;
+  ip: number;
+  ignored: number;
+}
+
+export interface SubLinkSet {
+  id: number;
+  urlHint: string;
+  ruleCount: number;
+  counts: SubLinkCounts;
+  fetchedAt: number;
+  lastTryAt: number;
+  lastError: string;
+  failCount: number;
+  /** first rules (获取 / 立即更新 only) */
+  sample?: { kind: "full" | "suffix" | "keyword" | "ip"; value: string }[];
+  /** 立即更新 failed (the last good copy stays) */
+  error?: string;
 }
 
 export interface SubRouteCategory {
@@ -143,6 +171,10 @@ export interface SubRouteLimits {
   lines: number;
   lineLen: number;
   nameLen: number;
+  /** plan 261: link entries per subscription / stored sets per account */
+  links?: number;
+  linkSets?: number;
+  linkRules?: number;
 }
 
 export interface SubSaveBody {
@@ -201,6 +233,12 @@ export const subSourceRefresh = (id: number) =>
   Network.post<SubSource>("/sub/source/refresh", { id });
 export const subSourceDelete = (id: number) =>
   Network.post<{ removedFrom: number }>("/sub/source/delete", { id });
+/** Plan 261 「规则集链接」 获取: the panel downloads, validates and stores it. */
+export const subLinkFetch = (url: string) =>
+  Network.post<SubLinkSet>("/sub/ruleset/fetch", { url }, { timeout: 40000 });
+/** Plan 261 立即更新 (a failure keeps the last good copy, see error). */
+export const subLinkRefresh = (id: number) =>
+  Network.post<SubLinkSet>("/sub/ruleset/refresh", { id }, { timeout: 40000 });
 /** Plan 256 「检测全部」: TCP connect time from the panel to each 外部节点. */
 export const subExternalProbe = () =>
   Network.post<{ items: SubProbeResult[] }>(
@@ -208,6 +246,114 @@ export const subExternalProbe = () =>
     {},
     { timeout: 40000 },
   );
+
+// Plan 260 「全部用户」: the admin's read-only view of every user's
+// subscriptions (no tokens, source URLs, credentials or addresses).
+
+/** none = 未设置 (old output), default = 默认 8 组, custom = 自定义 N 组 */
+export type SubAdminRoutingKind = "none" | "default" | "custom";
+
+export interface SubAdminSub {
+  id: number;
+  name: string;
+  format: SubFormat;
+  ruleMode: SubRuleMode;
+  nodes: number;
+  routing: SubAdminRoutingKind;
+  routingCount: number;
+  lastPullAt: number;
+  lastPullClient: string;
+  lastPullNodes: number;
+  createdTime: number;
+}
+
+export interface SubAdminSource {
+  id: number;
+  name: string;
+  nodes: number;
+  lastOkAt: number;
+  lastFetchAt: number;
+  error: string;
+}
+
+export interface SubAdminUser {
+  id: number;
+  name: string;
+  lastPullAt: number;
+  subs: SubAdminSub[];
+  sources: SubAdminSource[];
+}
+
+export interface SubAdminListData {
+  enabled: boolean;
+  users: SubAdminUser[];
+}
+
+export interface SubAdminItem {
+  group: SubSelected["group"];
+  name: string;
+  protocol?: string;
+  chain?: boolean;
+  sourceName?: string;
+  count?: number;
+  missing?: boolean;
+}
+
+/** One 分流 row; a node exit comes as exit "node" + the node's name. */
+export interface SubAdminRoute {
+  type: "builtin" | "custom" | "link";
+  key?: string;
+  name?: string;
+  lines?: string[];
+  exit: string;
+  exitName?: string;
+  exitMissing?: boolean;
+  /** plan 261 link entry: count + status only (never the URL) */
+  ruleCount?: number;
+  fetchedAt?: number;
+  linkFailed?: boolean;
+  linkMissing?: boolean;
+}
+
+export interface SubAdminDetail {
+  id: number;
+  name: string;
+  userId: number;
+  user: string;
+  format: SubFormat;
+  ruleMode: SubRuleMode;
+  createdTime: number;
+  lastPullAt: number;
+  lastPullClient: string;
+  lastPullNodes: number;
+  items: SubAdminItem[];
+  /** null = 未设置分流 (NULL or empty list: the output from before 分流) */
+  routing: SubAdminRoute[] | null;
+  routingKind: SubAdminRoutingKind;
+  routingCatalog: SubRouteCategory[];
+}
+
+export const subAdminList = () =>
+  Network.post<SubAdminListData>("/sub/admin/list", {});
+export const subAdminDetail = (id: number) =>
+  Network.post<SubAdminDetail>("/sub/admin/detail", { id });
+
+/** 「刚刚」「2 小时前」「昨天」「7 天前」; 0 → 「从未拉取」. */
+export function subRelative(ms: number, never = "从未拉取") {
+  if (!ms) return never;
+  const diff = Date.now() - ms;
+
+  if (diff < 60_000) return "刚刚";
+  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)} 分钟前`;
+  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)} 小时前`;
+  const day = (t: number) => new Date(t).setHours(0, 0, 0, 0);
+  const days = Math.max(
+    1,
+    Math.round((day(Date.now()) - day(ms)) / 86_400_000),
+  );
+
+  return days === 1 ? "昨天" : `${days} 天前`;
+}
 
 /** The public link (the panel origin, also inside the mobile app WebView). */
 export function subLinkURL(token: string) {
@@ -238,7 +384,7 @@ export const subFormatLabel: Record<SubFormat, string> = {
   auto: "自动识别客户端",
   clash: "Clash",
   singbox: "sing-box",
-  base64: "通用",
+  base64: "节点链接",
 };
 
 export const subModeLabel: Record<SubRuleMode, string> = {

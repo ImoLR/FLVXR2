@@ -197,6 +197,10 @@ func (r *Repository) DeleteUserCascade(userID int64) error {
 		if err := tx.Where("user_id = ?", userID).Delete(&model.UserSubSource{}).Error; err != nil {
 			return err
 		}
+		// Plan 261: the user's 规则集链接 sets.
+		if err := tx.Where("user_id = ?", userID).Delete(&model.UserSubRuleSet{}).Error; err != nil {
+			return err
+		}
 		return tx.Where("id = ?", userID).Delete(&model.User{}).Error
 	})
 }

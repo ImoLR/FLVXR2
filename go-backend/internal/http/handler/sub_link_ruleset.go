@@ -22,6 +22,10 @@ func (h *Handler) subRuleSet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	file := strings.TrimPrefix(r.URL.Path, sublink.RuleSetPath)
+	if rest, ok := strings.CutPrefix(file, "u/"); ok {
+		h.subLinkServe(w, r, rest) // plan 261 规则集链接
+		return
+	}
 	i := strings.LastIndexByte(file, '.')
 	if i <= 0 || strings.Contains(file, "/") {
 		http.NotFound(w, r)
