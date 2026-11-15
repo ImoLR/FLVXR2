@@ -370,8 +370,8 @@ func TestSubLinkSSRF(t *testing.T) {
 		{"http://[fe80::1]/x.list", "不能指向"},
 		{"http://inside.example.net/x.list", "不能指向"},
 		{"http://meta.example.net/x.list", "不能指向"},
-		{"http://ours.example.net/x.list", "不能指向"},  // an FLVX node
-		{"http://198.51.124.200/x.list", "不能指向"},     // the node by IP
+		{"http://ours.example.net/x.list", "不能指向"},     // an FLVX node
+		{"http://198.51.124.200/x.list", "不能指向"},       // the node by IP
 		{"http://" + linkHost + "/to-private", "不能指向"}, // redirect into the LAN
 		{"http://" + linkHost + "/to-loop", "跳转次数太多"},
 		{"http://u:p@" + linkHost + "/x.list", "不能包含用户名或密码"},
@@ -611,5 +611,40 @@ func TestSubLinkServedContentIsNormalized(t *testing.T) {
 				t.Fatalf("%s leaks %q: %s", ext, bad, body)
 			}
 		}
+	}
+}
+
+// Plan 260 + 261: the admin's read-only detail shows a link entry as name +
+// 🔗 + count + status only — never the URL, its hint or the set's ids.
+func TestSubLinkAdminDetailNoURL(t *testing.T) {
+	e, _ := linkEnv(t)
+	data, msg := linkFetch(t, e, 2, linkURL("/netflix.yaml"))
+	if msg != "" {
+		t.Fatal(msg)
+	}
+	id := int64(data["id"].(float64))
+	row := linkSet(t, e, id)
+	sub := dataMap(t, subCall(t, e.h, "create", map[string]any{"name": "s", "items": []any{}, "routing": []any{linkRoute("奈飞", id, "direct")}}, 2, 1))
+	out := subCall(t, e.h, "admin/detail", map[string]any{"id": sub["id"]}, 1, 0)
+	if out.Code != 0 {
+		t.Fatalf("admin detail: %+v", out)
+	}
+	raw, _ := json.Marshal(out.Data)
+	for _, leak := range []string{"TOPSECRET42", linkHost, "netflix.yaml", row.PublicID, row.URLHint, `"ref"`, "urlHint", "netflix.com"} {
+		if strings.Contains(string(raw), leak) {
+			t.Fatalf("admin detail leaks %q: %s", leak, raw)
+		}
+	}
+	r := dataMap(t, out)["routing"].([]any)[0].(map[string]any)
+	if r["type"] != "link" || r["name"] != "奈飞" || r["ruleCount"] != float64(4) || r["fetchedAt"] == nil || r["linkFailed"] != nil {
+		t.Fatalf("admin link row %v", r)
+	}
+	list, _ := json.Marshal(subCall(t, e.h, "admin/list", map[string]any{}, 1, 0).Data)
+	if strings.Contains(string(list), "TOPSECRET42") || strings.Contains(string(list), linkHost) || strings.Contains(string(list), row.PublicID) {
+		t.Fatalf("admin list leaks: %s", list)
+	}
+	// A user is still refused.
+	if out := subCall(t, e.h, "admin/detail", map[string]any{"id": sub["id"]}, 2, 1); out.Code == 0 {
+		t.Fatal("user read admin detail")
 	}
 }
