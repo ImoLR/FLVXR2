@@ -138,7 +138,7 @@ byte-identical when no link entry exists.
 - [x] 选「节点链接」时「分流」页顶部一行灰色提示（分流仍可编辑、仍保存）
 - [x] npm run build + eslint（改动文件 0 错误）
 - [x] 截图「⓪ 节点多 + 图标颜色（v4）」放在 /sub-rules-link/ 最上面（-v4 后缀）
-- [ ] 提交、推送、CI 绿
+- [x] 提交、推送、CI 绿（9c062d46，CI 43704461387 全绿）
 
 结果（11-15 TW）：
 - 前端 `routing.tsx`（NodeGroup：节点组独立滚动框 + 搜索 + 当前选择附近 60 行的窗口渲染，滚到上下边缘各补 60 行；
@@ -152,3 +152,4 @@ byte-identical when no link entry exists.
 - npm run build 通过；eslint 改动文件 0 错误 0 警告。
 - 截图 /root/mmwx-preview/sub-rules-link/ 最上面「⓪ 节点多 + 图标颜色（v4）」48 张（-v4），42/42 检查通过（手机订阅卡片本来不显示格式，
   那一项不适用）。300 个节点打开：手机 CPU 降速 4 倍 150–213 ms，桌面 63–85 ms（当前选择是第 251 个，只渲染 60 行）。
+- 发布：和 260 一起在 fork.135 发布（plan 263，11-15 19:00 TW，只升面板）。
