@@ -24,7 +24,8 @@ import (
 // while the tunnel has ≥ 1 active rule: the panel computes, per agent, the
 // full desired state and sends it with SetWarmPools —
 //
-//	{"chains": {"chains_<tunnel>": 2}, "forwards": {"<rule id>": 2}}
+//	{"chains": {"chains_<tunnel>": 6}, "forwards": {"<rule id>": 6},
+//	 "ceil": 16, "idleSleepS": 21600}
 //
 // chains = 隧道转发: the tunnel's chain on every entry that serves an active
 // rule and on all its middles (the whole path is warm); forwards = 端口转发:
@@ -39,14 +40,34 @@ import (
 // message); the panel keeps the last hour in memory (12 × 5 min buckets,
 // restart = empty) for the tag on the admin tunnel page.
 //
-// Plan 249: a key with no stream for 30 min sleeps on the agent (0 conns,
-// reported `sleep`); a path whose first hop sleeps does not count. Shown:
+// Plan 264 「冗余」: the sizes are the floor (6) of each key's adaptive size on
+// the agent (up to `ceil` 16 by its own stream peaks and misses, refilled with
+// up to 4 dials in flight); `idleSleepS` (6 h) is the idle-sleep time, `cap`
+// (only when below the agent default) a share of the node's 整机连接上限.
+// Those fields go only to warmPool=2 agents; warmPool=1 agents (fixed sizes,
+// max 4) get the floor clamped to 4 and nothing else. Reports carry wakeN /
+// want / peak5s (v2), shown as JSON fields of the hop view only.
+//
+// Plan 249: a key with no stream for its idle time sleeps on the agent (0
+// conns, reported `sleep`); a path whose first hop sleeps does not count. Shown:
 // nothing when every path sleeps (or has no stream yet), 「预热中 · 数据不足」
 // (status warming) while a path had streams in the hour but < 10 warm ones,
 // else faster / slower / unsupported as before. The rules page gets the same
 // view per rule (warm_pool_rules.go).
 const (
-	warmPoolSize          = 2
+	// Plan 264: floor / ceiling of a key's adaptive size, idle sleep (s), and
+	// what warmPool=1 agents can hold per key.
+	warmPoolFloor      = 6
+	warmPoolCeil       = 16
+	warmPoolIdleSleepS = 6 * 60 * 60
+	warmPoolV1MaxSize  = 4
+	// warmPoolAgentCap: the agent's own default cap (pooled conns per agent);
+	// warmPoolMachineShare: pooled conns may use at most 1/5 of a node's
+	// 整机连接上限 (they count there) — sent as `cap` only when lower.
+	warmPoolAgentCap     = 192
+	warmPoolMachineShare = 5
+	warmPoolMinCap       = 8
+
 	warmRelayReadTimeout  = "130s"
 	warmReconcileEvery    = 30 * time.Second
 	warmReconcileDebounce = 1500 * time.Millisecond
@@ -61,6 +82,11 @@ const (
 type warmPoolPayload struct {
 	Chains   map[string]int `json:"chains"`
 	Forwards map[string]int `json:"forwards"`
+	// Plan 264, warmPool=2 agents only (older agents ignore unknown fields
+	// anyway, but they never get them).
+	Ceil       int `json:"ceil,omitempty"`
+	IdleSleepS int `json:"idleSleepS,omitempty"`
+	Cap        int `json:"cap,omitempty"`
 }
 
 func (p warmPoolPayload) signature() string {
@@ -78,6 +104,7 @@ type warmStatKey struct {
 type warmBucket struct {
 	slot                                             int64
 	coldN, missN, warmN, deadN, peerN, youngN, failN int64
+	wakeN                                            int64 // plan 264
 	coldMs, missMs, warmMs                           float64
 }
 
@@ -87,11 +114,14 @@ type warmStatEntry struct {
 	idle    int
 	state   string
 	sleep   bool // plan 249, from the latest report (absent = awake)
+	want    int  // plan 264, latest report (0 = older agent)
+	peak5s  int  // plan 264, latest report
 	lastAt  time.Time
 }
 
 type warmSums struct {
 	coldN, missN, warmN, deadN, peerN, youngN, failN int64
+	wakeN                                            int64
 	coldMs, missMs, warmMs                           float64
 }
 
@@ -214,12 +244,68 @@ func (h *Handler) desiredWarmPools() (map[int64]warmPoolPayload, error) {
 		return p
 	}
 	for _, o := range chains {
-		get(o.NodeID).Chains[fmt.Sprintf("chains_%d", o.TunnelID)] = warmPoolSize
+		get(o.NodeID).Chains[fmt.Sprintf("chains_%d", o.TunnelID)] = warmPoolFloor
 	}
 	for _, o := range forwards {
-		get(o.NodeID).Forwards[strconv.FormatInt(o.ForwardID, 10)] = warmPoolSize
+		get(o.NodeID).Forwards[strconv.FormatInt(o.ForwardID, 10)] = warmPoolFloor
 	}
 	return out, nil
+}
+
+// warmPoolVersion: the node's agent warmPool handshake (0 = none).
+func (h *Handler) warmPoolVersion(nodeID int64) int {
+	if h.warmPoolVersionFn != nil {
+		return h.warmPoolVersionFn(nodeID)
+	}
+	if h.wsServer != nil {
+		if v := h.wsServer.WarmPoolVersion(nodeID); v > 0 {
+			return v
+		}
+	}
+	if h.warmPoolCapable(nodeID) {
+		return 1
+	}
+	return 0
+}
+
+// warmPoolMachineCap (plan 264): the pooled-conn budget of a node with a
+// 整机连接上限 — 1/5 of it, only when below the agent's own cap (0 = none).
+func warmPoolMachineCap(maxTotal int64) int {
+	if maxTotal <= 0 {
+		return 0
+	}
+	budget := maxTotal / warmPoolMachineShare
+	if budget >= warmPoolAgentCap {
+		return 0
+	}
+	if budget < warmPoolMinCap {
+		budget = warmPoolMinCap
+	}
+	return int(budget)
+}
+
+// forAgent shapes the desired state for the node's agent version: v2 gets
+// the floor + plan-264 fields; v1 (fixed sizes, max 4) the floor clamped.
+func (p warmPoolPayload) forAgent(version int, machineMax int64) warmPoolPayload {
+	out := warmPoolPayload{Chains: make(map[string]int, len(p.Chains)), Forwards: make(map[string]int, len(p.Forwards))}
+	clamp := func(n int) int {
+		if version < 2 && n > warmPoolV1MaxSize {
+			return warmPoolV1MaxSize
+		}
+		return n
+	}
+	for k, v := range p.Chains {
+		out.Chains[k] = clamp(v)
+	}
+	for k, v := range p.Forwards {
+		out.Forwards[k] = clamp(v)
+	}
+	if version >= 2 {
+		out.Ceil = warmPoolCeil
+		out.IdleSleepS = warmPoolIdleSleepS
+		out.Cap = warmPoolMachineCap(machineMax)
+	}
+	return out
 }
 
 // reconcileWarmPools pushes SetWarmPools to every capable agent whose state
@@ -238,6 +324,11 @@ func (h *Handler) reconcileWarmPools() []int64 {
 		log.Printf("[warm-pool] desired state: %v", err)
 		return nil
 	}
+	limits, err := h.repo.ListWarmPoolMachineLimits()
+	if err != nil {
+		log.Printf("[warm-pool] machine limits: %v", err)
+		limits = nil
+	}
 	sort.Slice(nodes, func(i, j int) bool { return nodes[i] < nodes[j] })
 	var pushed []int64
 	for _, id := range nodes {
@@ -245,6 +336,7 @@ func (h *Handler) reconcileWarmPools() []int64 {
 		if !ok {
 			p = warmPoolPayload{Chains: map[string]int{}, Forwards: map[string]int{}}
 		}
+		p = p.forAgent(h.warmPoolVersion(id), limits[id])
 		sig := p.signature()
 		m.mu.Lock()
 		last, sent := m.lastSent[id]
@@ -309,7 +401,9 @@ func (m *warmPoolManager) ingest(nodeID int64, rep *ws.WarmPoolReport) {
 		b.peerN += k.PeerN
 		b.youngN += k.YoungN
 		b.failN += k.FailN
+		b.wakeN += k.WakeN
 		e.target, e.idle, e.state, e.sleep, e.lastAt = k.Target, k.Idle, k.State, k.Sleep, now
+		e.want, e.peak5s = k.Want, k.Peak5s
 	}
 	// A key the node no longer reports has no pool any more.
 	for key, e := range m.stats {
@@ -317,7 +411,7 @@ func (m *warmPoolManager) ingest(nodeID int64, rep *ws.WarmPoolReport) {
 			continue
 		}
 		if _, ok := seen[key]; !ok {
-			e.target, e.idle, e.state, e.sleep = false, 0, "", false
+			e.target, e.idle, e.state, e.sleep, e.want, e.peak5s = false, 0, "", false, 0, 0
 		}
 	}
 }
@@ -353,6 +447,7 @@ func (e *warmStatEntry) sums(now time.Time) warmSums {
 		s.peerN += b.peerN
 		s.youngN += b.youngN
 		s.failN += b.failN
+		s.wakeN += b.wakeN
 	}
 	return s
 }
@@ -364,6 +459,8 @@ type warmKeyStat struct {
 	target bool
 	state  string
 	sleep  bool
+	want   int
+	peak5s int
 }
 
 // snapshot copies the window of every key of the given kind.
@@ -376,7 +473,7 @@ func (m *warmPoolManager) snapshot(kind string) []warmKeyStat {
 		if key.Kind != kind {
 			continue
 		}
-		out = append(out, warmKeyStat{key: key, sums: e.sums(now), target: e.target, state: e.state, sleep: e.sleep})
+		out = append(out, warmKeyStat{key: key, sums: e.sums(now), target: e.target, state: e.state, sleep: e.sleep, want: e.want, peak5s: e.peak5s})
 	}
 	sort.Slice(out, func(i, j int) bool {
 		a, b := out[i].key, out[j].key
@@ -412,6 +509,14 @@ type warmPoolHopView struct {
 	// sleeps now (no stream for 30 min).
 	Streams int64 `json:"streams"`
 	Sleep   bool  `json:"sleep,omitempty"`
+	// Plan 264 (JSON only, no UI): misses in the window split into wake
+	// misses (key new / just woken, by design) and burst misses (the awake
+	// pool ran empty; older agents: all misses), plus the key's current
+	// adaptive size and 1 h peak per 5 s from the latest report (0 = older agent).
+	WakeN      int64 `json:"wakeN"`
+	BurstMissN int64 `json:"burstMissN"`
+	Want       int   `json:"want,omitempty"`
+	Peak5s     int   `json:"peak5s,omitempty"`
 }
 
 // warmPoolView is item["warmPoolState"]; absent when the switch is off, the
@@ -434,7 +539,11 @@ type warmPoolView struct {
 }
 
 func hopFromSums(s warmSums, state string) warmPoolHopView {
-	v := warmPoolHopView{WarmN: s.warmN, DeadN: s.deadN, State: state, Streams: s.warmN + s.missN}
+	v := warmPoolHopView{WarmN: s.warmN, DeadN: s.deadN, State: state, Streams: s.warmN + s.missN, WakeN: s.wakeN}
+	if v.WakeN > s.missN {
+		v.WakeN = s.missN
+	}
+	v.BurstMissN = s.missN - v.WakeN
 	if s.coldN > 0 {
 		v.ColdMs = round1(s.coldMs / float64(s.coldN))
 	}
@@ -458,6 +567,7 @@ func round1(v float64) float64 { return math.Round(v*10) / 10 }
 func hopFromKey(k *warmKeyStat) warmPoolHopView {
 	v := hopFromSums(k.sums, k.state)
 	v.Sleep = k.sleep
+	v.Want, v.Peak5s = k.want, k.peak5s
 	return v
 }
 

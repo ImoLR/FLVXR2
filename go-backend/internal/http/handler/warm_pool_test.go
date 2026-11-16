@@ -22,16 +22,17 @@ import (
 // sessions; only warm-capable agents get SetWarmPools.
 type warmEnv struct {
 	*bindEnv
-	capable map[int64]bool
-	fail    map[int64]bool
-	cmu     sync.Mutex
+	capable  map[int64]bool
+	versions map[int64]int // warmPool handshake value (default 2 = plan 264 agent)
+	fail     map[int64]bool
+	cmu      sync.Mutex
 }
 
 func newWarmEnv(t *testing.T, dialect string) *warmEnv {
 	t.Helper()
 	r := sharedLandingTestRepo(t, dialect)
 	be := &bindEnv{t: t, r: r, h: &Handler{repo: r}, now: time.Now().UnixMilli()}
-	e := &warmEnv{bindEnv: be, capable: map[int64]bool{1: true, 2: true, 3: true}, fail: map[int64]bool{}}
+	e := &warmEnv{bindEnv: be, capable: map[int64]bool{1: true, 2: true, 3: true}, versions: map[int64]int{}, fail: map[int64]bool{}}
 	be.h.nodeCommandSender = func(id int64, command string, data interface{}, _ time.Duration) (ws.CommandResult, error) {
 		raw, _ := json.Marshal(data)
 		e.cmu.Lock()
@@ -62,6 +63,17 @@ func newWarmEnv(t *testing.T, dialect string) *warmEnv {
 		return out
 	}
 	be.h.warmPoolCapableFn = func(id int64) bool { e.cmu.Lock(); defer e.cmu.Unlock(); return e.capable[id] }
+	be.h.warmPoolVersionFn = func(id int64) int {
+		e.cmu.Lock()
+		defer e.cmu.Unlock()
+		if !e.capable[id] {
+			return 0
+		}
+		if v, ok := e.versions[id]; ok {
+			return v
+		}
+		return 2
+	}
 	names := map[int64]string{1: "Mkcloud 沪港ixp 新春版", 2: "Bestvm HK 年付", 3: "Bestvm JP B"}
 	for id := int64(1); id <= 3; id++ {
 		be.create(&model.Node{ID: id, Name: names[id], Secret: fmt.Sprintf("s%d", id), ServerIP: fmt.Sprintf("192.0.2.%d", id),
@@ -135,7 +147,7 @@ func TestWarmPoolFollowsRules(t *testing.T) {
 			var r40 struct{ ID int64 }
 			_ = json.Unmarshal(data, &r40)
 			pushed, st := e.reconcile()
-			if fmt.Sprint(pushed) != "[1 2]" || chainsOf(st[1]) != "chains_40=2" || chainsOf(st[2]) != "chains_40=2" {
+			if fmt.Sprint(pushed) != "[1 2]" || chainsOf(st[1]) != "chains_40=6" || chainsOf(st[2]) != "chains_40=6" {
 				t.Fatalf("after rule create: pushed %v state %v", pushed, st)
 			}
 			// The rule's own services and the tunnel's chains carry nothing new.
@@ -155,7 +167,7 @@ func TestWarmPoolFollowsRules(t *testing.T) {
 			var r41 struct{ ID int64 }
 			_ = json.Unmarshal(data, &r41)
 			pushed, st = e.reconcile()
-			want1 := fmt.Sprintf("chains_40=2,f%d=2", r41.ID)
+			want1 := fmt.Sprintf("chains_40=6,f%d=6", r41.ID)
 			if fmt.Sprint(pushed) != "[1]" || chainsOf(st[1]) != want1 {
 				t.Fatalf("after port rule: pushed %v state %v", pushed, st)
 			}
@@ -165,13 +177,13 @@ func TestWarmPoolFollowsRules(t *testing.T) {
 				t.Fatalf("pause: %d %s", code, msg)
 			}
 			pushed, st = e.reconcile()
-			if fmt.Sprint(pushed) != "[1 2]" || chainsOf(st[1]) != fmt.Sprintf("f%d=2", r41.ID) || chainsOf(st[2]) != "" {
+			if fmt.Sprint(pushed) != "[1 2]" || chainsOf(st[1]) != fmt.Sprintf("f%d=6", r41.ID) || chainsOf(st[2]) != "" {
 				t.Fatalf("after pause: pushed %v state %v", pushed, st)
 			}
 			if code, msg, _ := e.call(e.h.forwardResume, "1", 0, fmt.Sprintf(`{"id":%d}`, r40.ID)); code != 0 {
 				t.Fatalf("resume: %d %s", code, msg)
 			}
-			if _, st = e.reconcile(); chainsOf(st[2]) != "chains_40=2" {
+			if _, st = e.reconcile(); chainsOf(st[2]) != "chains_40=6" {
 				t.Fatalf("after resume: %v", st)
 			}
 
@@ -184,7 +196,7 @@ func TestWarmPoolFollowsRules(t *testing.T) {
 				t.Fatalf("switch save sent %d commands itself (want 0, the pools follow)", n)
 			}
 			pushed, st = e.reconcile()
-			if fmt.Sprint(pushed) != "[1 2]" || chainsOf(st[1]) != fmt.Sprintf("f%d=2", r41.ID) || chainsOf(st[2]) != "" {
+			if fmt.Sprint(pushed) != "[1 2]" || chainsOf(st[1]) != fmt.Sprintf("f%d=6", r41.ID) || chainsOf(st[2]) != "" {
 				t.Fatalf("after switch off: pushed %v state %v", pushed, st)
 			}
 			e.mu.Lock()
@@ -200,7 +212,7 @@ func TestWarmPoolFollowsRules(t *testing.T) {
 			if code, _, _ := e.call(e.h.tunnelWarmPoolUpdate, "1", 0, `{"id":40,"warmPool":true}`); code != 0 {
 				t.Fatal("switch on")
 			}
-			if _, st = e.reconcile(); chainsOf(st[2]) != "chains_40=2" {
+			if _, st = e.reconcile(); chainsOf(st[2]) != "chains_40=6" {
 				t.Fatalf("after switch on: %v", st)
 			}
 

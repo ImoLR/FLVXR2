@@ -31,7 +31,7 @@ one dial in flight per key → after a burst the pool refills serially (~2 RTT e
 - [x] Agent: adaptive want (formula, miss growth, slow shrink, floor/ceiling), parallel refill (4, failure waves),
       cap 192 / max 16, idle sleep from payload (default 6 h), CapVersion 2, report wakeN / want / peak5s
 - [x] Agent unit tests (fake clock) + go vet + `go test ./...` in go-gost/x (+ go-gost)
-- [ ] Panel: constants in warm_pool.go (floor 6, ceil 16, idle sleep 21600 s), version-aware payload, ws version getter,
+- [x] Panel: constants in warm_pool.go (floor 6, ceil 16, idle sleep 21600 s), version-aware payload, ws version getter,
       report fields, buckets, hop view fields; per-node budget if a vendor conn limit is known
 - [ ] Panel unit/contract tests + `go test ./...` in go-backend (SQLite + PG) + go vet; `npm run build` untouched
 - [ ] Conn-limited lines check (DB + memory) — findings in this doc

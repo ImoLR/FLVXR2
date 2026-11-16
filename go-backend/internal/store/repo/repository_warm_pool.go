@@ -91,6 +91,29 @@ func (r *Repository) ListWarmForwardOwners() ([]WarmForwardOwner, error) {
 	return out, err
 }
 
+// ListWarmPoolMachineLimits (plan 264): 整机连接上限 (machine_max_total) of
+// every node with 整机保护 on and a limit set — pooled conns count there, so
+// the panel caps each agent's pool at a share of it. One small query per
+// warm-pool reconcile (every 30 s).
+func (r *Repository) ListWarmPoolMachineLimits() (map[int64]int64, error) {
+	if r == nil || r.db == nil {
+		return nil, errors.New("repository not initialized")
+	}
+	var rows []struct {
+		ID              int64 `gorm:"column:id"`
+		MachineMaxTotal int64 `gorm:"column:machine_max_total"`
+	}
+	if err := r.db.Model(&model.Node{}).Select("id, machine_max_total").
+		Where("machine_protect_enabled = ? AND machine_max_total > 0", true).Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+	out := make(map[int64]int64, len(rows))
+	for _, row := range rows {
+		out[row.ID] = row.MachineMaxTotal
+	}
+	return out, nil
+}
+
 // SetTunnelWarmPoolTx sets the 预热池 switch (plan 244); GORM skips a 0 on
 // create because the column has a default, so 0 is always written here.
 func (r *Repository) SetTunnelWarmPoolTx(tx *gorm.DB, tunnelID int64, value int) error {

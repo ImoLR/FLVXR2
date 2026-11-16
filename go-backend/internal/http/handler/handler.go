@@ -45,10 +45,11 @@ type Handler struct {
 	ruleBest         *ruleBestManager // plan 180 「规则最优」 decisions (memory only)
 	warm             *warmPoolManager // plan 244 预热池: last pushed state + 1 h stats (memory only)
 	warmOnce         sync.Once
-	// warmPoolCapableFn / warmPoolNodesFn override the warmPool handshake
-	// lookups in tests.
+	// warmPoolCapableFn / warmPoolNodesFn / warmPoolVersionFn override the
+	// warmPool handshake lookups in tests.
 	warmPoolCapableFn func(int64) bool
 	warmPoolNodesFn   func() []int64
+	warmPoolVersionFn func(int64) int
 	fluxVersion       string
 	cnLandingChecker  *cnlanding.Checker
 	quotaGroups       *quotaCoordinator

@@ -260,9 +260,17 @@ type WarmPoolKeyReport struct {
 	FailN   int64   `json:"failN,omitempty"`
 	State   string  `json:"state,omitempty"`
 	AgeCapS int     `json:"ageCapS,omitempty"`
-	// Sleep (plan 249): no stream for 30 min — the key holds 0 conns until the
-	// next stream wakes it. Older agents never send it (= awake).
+	// Sleep (plan 249): no stream for the idle-sleep time (6 h since plan
+	// 264) — the key holds 0 conns until the next stream wakes it. Older
+	// agents never send it (= awake).
 	Sleep bool `json:"sleep,omitempty"`
+	// Plan 264 (warmPool=2 agents): WakeN = misses (of MissN) while the key
+	// was new / just woken and had no pooled conn yet; Want = conns it aims
+	// for now (adaptive floor … ceiling); Peak5s = most streams in one 5 s
+	// tick over the last hour. Older agents send none of them.
+	WakeN  int64 `json:"wakeN,omitempty"`
+	Want   int   `json:"want,omitempty"`
+	Peak5s int   `json:"peak5s,omitempty"`
 }
 
 type QuotaGroupUsage struct {
@@ -1177,6 +1185,22 @@ func (s *Server) WarmPoolCapable(nodeID int64) bool {
 	defer s.mu.RUnlock()
 	ns := s.nodes[nodeID]
 	return ns != nil && ns.warmPool > 0
+}
+
+// WarmPoolVersion is the node's current agent warmPool handshake value (0 =
+// not capable; 1 = plan 244/249 fixed sizes ≤ 4; 2 = plan 264 adaptive floor
+// / ceiling + idleSleepS / cap).
+func (s *Server) WarmPoolVersion(nodeID int64) int {
+	if s == nil {
+		return 0
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	ns := s.nodes[nodeID]
+	if ns == nil {
+		return 0
+	}
+	return ns.warmPool
 }
 
 // MonitorPortCapable reports whether the node's current agent session takes
