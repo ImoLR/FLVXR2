@@ -486,3 +486,42 @@ func TestLeiKwanHostDumpReports(t *testing.T) {
 		}
 	}
 }
+
+// The panel's own sync JSON (go-backend handler test dump) parses into the
+// agent's types, and the key fingerprints agree (cross-module contract).
+func TestLeiKwanHostPanelSyncJSON(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("testdata", "leikwan-host", "panel-sync.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	fp, _ := os.ReadFile(filepath.Join("testdata", "leikwan-host", "panel-sync.json.fp"))
+	var generic map[string]any
+	_ = json.Unmarshal(raw, &generic)
+	var s LeiKwanHostSync
+	if err := json.Unmarshal(raw, &s); err != nil {
+		t.Fatal(err)
+	}
+	if s.V != 1 || !s.Manage || s.Rev != 7 || s.Force != 2 || !s.Traffic || len(s.Ports) != 2 || len(s.Block) != 1 || s.Desired == nil {
+		t.Fatalf("sync %+v", s)
+	}
+	d := s.Desired
+	if d.Warm.Tokens["backup:263"] != "4" || d.SSFilter.Tokens["263"] != "enforce" || d.Triggers.Tokens["263:return_check"] != "on" ||
+		d.Logswitch.Lines[0] != "263:10018>163.53.52.189:35046" || d.Coalesce.Value != "off" || d.Phone.Rules["19263"] != "163.53.52.189:35046" {
+		t.Fatalf("desired %+v", d)
+	}
+	if got := LKKeyFingerprint(d.SSKeys.Set["263"]); got != string(fp) {
+		t.Fatalf("fingerprint agent %s panel %s", got, fp)
+	}
+	// Through the command path: handleSync decodes the same JSON (as map data).
+	m := lkFixture(t, "baidu")
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go m.runLoop(ctx)
+	rep, err := m.handleSync(ctx, generic)
+	if err != nil || rep == nil {
+		t.Fatalf("handleSync: %v", err)
+	}
+	if rep.Files.SSKeys.FP["263"] != string(fp) || rep.Files.Warm.Tokens["263"] != "10" || rep.Manage.Rev != 7 {
+		t.Fatalf("after sync: keys %v warm %v manage %+v", rep.Files.SSKeys.FP, rep.Files.Warm.Tokens, rep.Manage)
+	}
+}

@@ -1,0 +1,62 @@
+{
+ "v": 1,
+ "manage": true,
+ "rev": 7,
+ "force": 2,
+ "desired": {
+  "warm": {
+   "tokens": {
+    "263": "10",
+    "backup:263": "4",
+    "pace_ms": "100"
+   }
+  },
+  "ssfilter": {
+   "tokens": {
+    "263": "enforce"
+   }
+  },
+  "sskeys": {
+   "set": {
+    "263": {
+     "method": "2022-blake3-aes-128-gcm",
+     "psk": "c2VydmVyMTIzNDU2Nzg5MA==",
+     "users": [
+      "dXNlcjEyMzQ1Njc4OTAxMg=="
+     ]
+    }
+   }
+  },
+  "triggers": {
+   "tokens": {
+    "263:return_check": "on",
+    "timeout": "switch"
+   }
+  },
+  "logswitch": {
+   "lines": [
+    "263:10018\u003e163.53.52.189:35046"
+   ],
+   "recordOnly": []
+  },
+  "coalesce": {
+   "value": "off"
+  },
+  "phone": {
+   "rules": {
+    "19263": "163.53.52.189:35046"
+   },
+   "comments": {
+    "19263": "263 广港"
+   }
+  }
+ },
+ "traffic": true,
+ "ports": [
+  10018,
+  10021
+ ],
+ "block": [
+  10021
+ ]
+}

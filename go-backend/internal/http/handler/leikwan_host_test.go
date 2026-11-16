@@ -1,6 +1,8 @@
 package handler
 
 import (
+	"encoding/json"
+	"os"
 	"testing"
 	"time"
 
@@ -134,4 +136,31 @@ func TestLeiKwanBlockReason(t *testing.T) {
 	if r := leiKwanBlockReason(ok, true, []int64{58}, map[int64]string{58: "百度云广州"}, now); r != "单服务器流量已用完（百度云广州）" {
 		t.Fatal(r)
 	}
+}
+
+// LK_SYNC_DUMP=path writes a managed host's sync payload (the agent's tests
+// parse it: cross-module JSON contract).
+func TestLeiKwanHostSyncDump(t *testing.T) {
+	path := os.Getenv("LK_SYNC_DUMP")
+	if path == "" {
+		t.Skip("LK_SYNC_DUMP not set")
+	}
+	s := lkSync{V: 1, Manage: true, Rev: 7, Force: 2, Traffic: true, Ports: []int{10018, 10021}, Block: []int{10021},
+		Desired: &lkDesired{
+			Warm:      &lkWantTokens{Tokens: map[string]string{"263": "10", "backup:263": "4", "pace_ms": "100"}},
+			SSFilter:  &lkWantTokens{Tokens: map[string]string{"263": "enforce"}},
+			SSKeys:    &lkWantKeys{Set: map[string]lkKeyEntry{"263": {Method: "2022-blake3-aes-128-gcm", PSK: "c2VydmVyMTIzNDU2Nzg5MA==", Users: []string{"dXNlcjEyMzQ1Njc4OTAxMg=="}}}},
+			Triggers:  &lkWantTokens{Tokens: map[string]string{"timeout": "switch", "263:return_check": "on"}},
+			Logswitch: &lkWantLogswitch{Lines: []string{"263:10018>163.53.52.189:35046"}, RecordOnly: []string{}},
+			Coalesce:  &lkWantValue{Value: "off"},
+			Phone:     &lkWantPhone{Rules: map[string]string{"19263": "163.53.52.189:35046"}, Comments: map[string]string{"19263": "263 广港"}},
+		}}
+	raw, _ := json.MarshalIndent(s, "", " ")
+	if err := os.WriteFile(path, raw, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if fp := lkKeyFingerprint(s.Desired.SSKeys.Set["263"]); fp == "" {
+		t.Fatal("no fingerprint")
+	}
+	_ = os.WriteFile(path+".fp", []byte(lkKeyFingerprint(s.Desired.SSKeys.Set["263"])), 0o644)
 }

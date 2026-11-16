@@ -47,6 +47,12 @@ type lkPersist struct {
 	TableCreated int64            `json:"tableCreated"`
 }
 
+// lkWaiter: a sync caller waiting for the first check that saw its sync.
+type lkWaiter struct {
+	seq  int64
+	done chan struct{}
+}
+
 type lkRunner func(ctx context.Context, stdin []byte, name string, args ...string) ([]byte, error)
 
 func lkExec(ctx context.Context, stdin []byte, name string, args ...string) ([]byte, error) {
@@ -86,7 +92,8 @@ type lkHostManager struct {
 	due       bool
 	status    LKManageStatus
 	traffic   *LKTraffic
-	waiters   []chan struct{}
+	waiters   []lkWaiter
+	syncSeq   int64
 	wake      chan struct{}
 	agentVer  struct {
 		stamp string
@@ -886,14 +893,20 @@ func (m *lkHostManager) runLoop(ctx context.Context) {
 func (m *lkHostManager) tick(ctx context.Context) {
 	m.mu.Lock()
 	want := m.want
+	seq := m.syncSeq
 	m.load()
 	m.mu.Unlock()
 	defer func() {
 		m.mu.Lock()
+		keep := m.waiters[:0]
 		for _, w := range m.waiters {
-			close(w)
+			if w.seq <= seq {
+				close(w.done)
+			} else {
+				keep = append(keep, w)
+			}
 		}
-		m.waiters = nil
+		m.waiters = keep
 		m.mu.Unlock()
 	}()
 	if !m.present() {
@@ -959,7 +972,8 @@ func (m *lkHostManager) handleSync(ctx context.Context, data interface{}) (*LeiK
 	done := make(chan struct{})
 	m.mu.Lock()
 	m.want = &s
-	m.waiters = append(m.waiters, done)
+	m.syncSeq++
+	m.waiters = append(m.waiters, lkWaiter{seq: m.syncSeq, done: done})
 	m.mu.Unlock()
 	select {
 	case m.wake <- struct{}{}:
