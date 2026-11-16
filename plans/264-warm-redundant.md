@@ -35,11 +35,11 @@ one dial in flight per key → after a burst the pool refills serially (~2 RTT e
       report fields, buckets, hop view fields; per-node budget if a vendor conn limit is known
 - [x] Panel unit/contract tests + `go test ./...` in go-backend (SQLite + PG) + go vet; `npm run build` untouched
 - [x] Conn-limited lines check (DB + memory) — findings in this doc
-- [ ] Lab: 2-hop path, bursts 6 / 12 / 20, hit rate before (fork.135 agent) vs after, refill time; RSS / fd / goroutines
+- [x] Lab: 2-hop path, bursts 6 / 12 / 20, hit rate before (fork.135 agent) vs after, refill time; RSS / fd / goroutines
       per pooled conn and 16 × 4 keys; handshakes/min
-- [ ] Commit + push, CI green
-- [ ] Release: `maintenance/3.0.27-fork.136-warm-redundant`, tag `3.0.27-fork.136`, CI + Images + Latest assets
-- [ ] Prod panel upgrade (backup + rollback script + prune), verify agents / forwards / warmPoolState / old agents 4 per key
+- [x] Commit + push, CI green
+- [x] Release: `maintenance/3.0.27-fork.136-warm-redundant`, tag `3.0.27-fork.136`, CI + Images + Latest assets
+- [x] Prod panel upgrade (backup + rollback script + prune), verify agents / forwards / warmPoolState / old agents 4 per key
 - [ ] Ledger row 264, OTA target list for the night worker, record.py fields, memory notes
 - [ ] Stats after OTA + evening peak (worker `warm-redundant-stats`)
 
@@ -69,3 +69,42 @@ one dial in flight per key → after a burst the pool refills serially (~2 RTT e
   report JSON, 0 allocs for the accounting); updated sleep tests (30 min → 6 h), backoff test (wave of 2 + 1 retry).
   Panel `warm_pool_redundant_test.go` (payload by agent version incl. upgrade + machine budget, SQLite + PG; budget table;
   hop view wake/burst/want/peak5s incl. old-agent hop; relay no-limit guard); ws `TestWarmPoolVersionFromHandshake`.
+
+### Lab (11-16, runs/warm-redundant/lab, netns, no internet)
+Path client → E (entry) → M (middle) → X (exit) → target; one-way delay E↔M 25 ms, M↔X 45 ms (≈ JP→US-like middle hop);
+cold dial E→M ≈ 100 ms, M→X ≈ 180 ms (TCP + TLS). 4 tunnels E→M→X (4 keys per hop), bursts on one of them.
+A = fork.135 panel + fork.135 agents (2 per key), B = fork.136 panel + fork.135 agents (= prod after the panel-only release,
+4 per key), C = fork.136 panel + plan-264 agent. spaced = 6 bursts 4 s apart; rapid = 4 bursts, next starts 0.25 s after
+the previous finished; overlap = 4 bursts started 0.3 s apart without waiting (refill speed). Hit % per hop from the
+agents' own counters (panel hop view deltas); TTFB both hops warm ≈ 297 ms, cold ≈ 580 ms.
+
+| burst | A spaced / overlap | B spaced / overlap | C spaced / overlap |
+|-------|--------------------|--------------------|--------------------|
+| 6     | 33 % / 29–33 %     | 67 % / 38–50 %     | **100 % / 100 %**  |
+| 12    | 17 % / 15–17 %     | 33 % / 19–25 %     | **100 % / 67–100 %** |
+| 20    | 10 % / 9–10 %      | 20 % / 11–15 %     | **80 % / 45–60 %** (ceiling 16 of 20 by design) |
+
+C after the first 6-burst: want 6 → 11 (peak) → 16 (two bursts in one 5 s tick); refill measured on the agent (lab-only
+`/warm` endpoint, warmlab build tag): 6 conns E→M 202 ms / M→X 389 ms; 16 conns 302–408 ms / 570–746 ms; never more than
+4 dials in flight. Serial refill (fork.135) of the same: 2 × 100 / 2 × 180 ms for 2 conns, 16 conns would be 1.6 s / 2.9 s.
+0 stream errors in all 27 series.
+
+Resources (E agent, plan-264 build, 4 chains + 2 port rules): pools off → 64 pooled E→M conns: +71 fd, +71 goroutines
+(1 fd + 1 goroutine per idle conn), RSS +2.4 MB (≈ 35 KB per conn incl. TLS state); M (inbound 64 + outbound 64):
+RSS +3.8 MB (≈ 30 KB per socket). 5 min with 64 idle pooled conns and no streams: 215 handshakes (43 / min ≈ 0.67 per
+conn per min, age 90–110 s), 601 KB both ways (2.8 KB per handshake with the lab cert). Prod pooled conn (vmsilo 沪日首发
+→ Bestvm JP B, `ss -i`): 1517 B sent + 1910 B received per TLS handshake ≈ 5 KB with headers → ≈ 4.3 MB / day per pooled
+TLS conn; plain-TCP rule pools ≈ 0.4 KB per conn lifetime ≈ 0.35 MB / day.
+
+### Release (11-16)
+- Tag `3.0.27-fork.136` → 4678141f on `maintenance/3.0.27-fork.136-warm-redundant` (= feature head, fork.135 + plan 264).
+  CI 43843768465 / 43843750156 green, Images 43843772804 green, Latest = fork.136, 10 assets, validation ALL OK
+  (compose pinned, install scripts PINNED_VERSION, gost-amd64 sha256, `gost -V` = 3.0.27-fork.136).
+- Prod panel 18:08:55–18:09:05 TW (panel only, no DB change). Backup / rollback
+  `/opt/flvx-svc/rollback/pre-fork136-20261116T100845Z/rollback.sh` (fork.135 image swap); prune kept pre-fork135 + pre-fork136.
+- After: 29/29 nodes online, versions unchanged; 51/51 rules status unchanged; every agent reconnected with the diff
+  redeploy (all unchanged except Mkcloud 深港ixp 1 `tunnels updated=2` — same as the 11-02 prod upgrade log, the
+  memory-only 最优 order re-push, not from this change); old agents now hold 4 idle per key (vmsilo 沪日首发 → Bestvm JP B
+  t92 2 → 4, t102 → 4, Bestvm JP B → Bestvm US → 4); warmPoolState on 8 tunnels with `wakeN` / `burstMissN`; backend
+  healthy, 0 restarts, RSS 72.6 → 38 MiB; no warm-pool errors in the log.
+- Agent OTA: night worker `warm-redundant-ota` 02:00–03:30 TW (targets runs/warm-redundant/ota-targets.md).
