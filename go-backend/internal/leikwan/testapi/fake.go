@@ -36,6 +36,7 @@ type Fake struct {
 	FailCreateAfterSave bool
 	FailPatchAfterSave  bool
 	NextID              int64
+	PortBase            int // > 0: assign the lowest free listen port from here (plan 266 lab)
 	creates             map[string]savedCreate
 }
 
@@ -182,6 +183,15 @@ func (f *Fake) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			port := 11000 + int(f.NextID)
+			if f.PortBase > 0 {
+				// Like the platform: the lowest free listen port from PortBase.
+				used := map[int]bool{}
+				for _, v := range f.Forwards {
+					used[v.ListenPort] = true
+				}
+				for port = f.PortBase; used[port]; port++ {
+				}
+			}
 			if req.ListenPort != nil {
 				port = *req.ListenPort
 			}
