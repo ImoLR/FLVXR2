@@ -51,8 +51,9 @@ worktree `/root/projects/flvxx/flvxx-leikwan-step2`。用户 11-17 ~02:10 台湾
 - [x] 前端：利群入口区（主机状态、接管开关 + 差异、漂移 ⚠、按面板覆盖、采用主机现值）、规则行流量 + 待切换；`npm run build`。
 - [x] `go test ./...`（两个模块）+ go vet + CI 绿；截图画廊 /root/mmwx-preview/leikwan-step2/。
 - [x] 发布：tag 下一个 fork、CI + 镜像 + 资产；面板备份 + 换面板；只 OTA 4 台利群入口机（每台备份 + 回滚）；保留 2 份备份。
-- [ ] 上线：百度云广州（A/B 结束后）接管开 → 语义差异 0、leikwan status、日志、手机端口、SS-2022 实测 → 阿里广州 → 火山广州 → 火山上海；流量统计窗口内开。
-- [ ] 99U 落地节点建好 + 新链接；总结 /root/flvx-workers/runs/leikwan-panel-step2/summary.md + final.md；memory 文本写进 final.md。
+- [x] 上线：百度云广州（A/B 结束后）接管开 → 语义差异 0、leikwan status、日志、手机端口、SS-2022 实测 → 阿里广州 → 火山广州 → 火山上海；流量统计窗口内开。
+  （用户 11-17 05:40 决定后顺序改为 阿里广州 → 火山广州 → 火山上海 → 百度云广州（等 A/B 结束），不受夜间窗口限制。）
+- [x] 99U 落地节点建好 + 新链接；总结 /root/flvx-workers/runs/leikwan-panel-step2/summary.md + final.md；memory 文本写进 final.md。
 
 ## 记录
 - 夹具（11-17 05:5x 台湾只读采集，假密钥同形状）：4 台主机的 unit / warm / ssfilter / sskeys（假）/ coalesce / triggers / 手机备线 / 转发配置与状态
@@ -102,4 +103,12 @@ worktree `/root/projects/flvxx/flvxx-leikwan-step2`。用户 11-17 ~02:10 台湾
 - 99U：在共享落地「Boil HKT 99u」用面板正常路径建了 admin 名下 SS2022 落地节点 194「利群263 99U」:30000、195「利群540 99U」:30001（mmwxc-flvx-core，
   不碰 xray :10016 / lkbk-core :10017 / :10019，PID 不变）；直连实测 3/3（出口 99U）；规则 263 → 194、540 → 195 标「待切换」；三台已接管主机期望不变、没写文件。
   百度云广州不接管时，按「换落地」会被拒（首包过滤保护：「入口机 百度云广州 还没接管…」）。
+- 百度云广州：warm-headroom-r2 07:14 按中止规则提前结束（summary.md 07:2x，unit inactive）；最终值 burst=off、首包合并 off（23:10 已关）；
+  重采夹具（只读）和第一轮夹具完全一样 → 不用改测试数据。整机备份 /root/backup-20261117-072757-before-flvx-takeover；采用主机现值 7 个文件差异 0
+  （另外三台仍 0）；07:28:23 接管开：written 无、文件哈希 + mtime 不变、无 drop-in、7/7 ready；主线 263 / 540 3/3，手机备线口
+  19263/19264/19279/19280/19281/19282 全部 3/3；force 文件强制 540（没用户）走备线 16 s：backup_conns=4 via_front=4、3/3，已撤。
+  07:30:15 流量统计开：540 下载 3 MB → 59 157 / 3 092 157，入账同值，百度云广州单服务器配额同值。
+- 收尾核对 07:3x：4 台 接管 + 流量统计 开、差异 0、无漂移、无写入、无 ⚠、屏蔽规则 0 条；30/30 在线、52 条规则、其他 26 台 agent 版本不变；面板 0 重启。
+  期间 Bestvm sg 年付 / Bestvm HK STD 06:45–06:48 控制通道 pong 超时几次（agent 没重启，重连后 updated 0），是那边网络抖动，和发布无关。
+- 观察（没改）：日志快切切到备线时，那段流量在利群规则（入口机 nft）和 FLVX 备线转发（148/587/595/599/601/619，都是 admin 的）上各计一次。
 
