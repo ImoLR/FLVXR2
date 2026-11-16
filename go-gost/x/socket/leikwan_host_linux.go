@@ -105,9 +105,17 @@ func newLKHostManager(stateDir string) *lkHostManager {
 	if stateDir == "" {
 		stateDir = "/etc/flvx_agent"
 	}
-	return &lkHostManager{root: "/", stateFile: filepath.Join(stateDir, "leikwan-host-state.json"),
+	m := &lkHostManager{root: "/", stateFile: filepath.Join(stateDir, "leikwan-host-state.json"),
 		backupRoot: "/var/lib/flvx-leikwan/backup", now: time.Now, run: lkExec, wake: make(chan struct{}, 1)}
+	if lkLabHook != nil {
+		lkLabHook(m) // build tag leikwanlab only (nil in release builds)
+	}
+	return m
 }
+
+// lkLabHook is set only by leikwan_host_lab.go (build tag leikwanlab): the lab
+// agent reads/writes a fixture copy instead of the real host.
+var lkLabHook func(*lkHostManager)
 
 func (m *lkHostManager) p(name string) string {
 	return filepath.Join(m.root, strings.TrimPrefix(name, "/"))
@@ -653,7 +661,7 @@ func (m *lkHostManager) manage(ctx context.Context, files LKFiles, want *LeiKwan
 				st.Drift = append(st.Drift, f)
 				continue
 			}
-			if lkWindowed(f) && !lkInWindow(now) {
+			if lkWindowed(f) && want.NightOnly && !lkInWindow(now) {
 				st.Pending = append(st.Pending, f)
 				continue
 			}
@@ -819,7 +827,8 @@ func (m *lkHostManager) trafficTick(ctx context.Context, want *LeiKwanHostSync) 
 	if !exists {
 		newCount = nil
 	}
-	if lkInWindow(now) {
+	nightOnly := want != nil && want.NightOnly
+	if !nightOnly || lkInWindow(now) {
 		newCount = wantCount
 	} else if lkPortsKey(newCount) != lkPortsKey(wantCount) {
 		tr.Pending = true
@@ -844,7 +853,7 @@ func (m *lkHostManager) trafficTick(ctx context.Context, want *LeiKwanHostSync) 
 				counters, exists = lkReadCounters(raw)
 			}
 		}
-	case !need && exists && (len(m.persist.BlockPorts) > 0 || lkInWindow(now)):
+	case !need && exists && want != nil && (len(m.persist.BlockPorts) > 0 || !nightOnly || lkInWindow(now)):
 		// Nothing to count or block any more: drop the table (unblocking is
 		// immediate; removing counters waits for the window).
 		if _, err := m.run(ctx, nil, "/usr/sbin/nft", "delete", "table", "inet", lkTable); err != nil {

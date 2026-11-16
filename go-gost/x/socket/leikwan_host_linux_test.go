@@ -294,7 +294,7 @@ func TestLeiKwanHostManageWriteDriftForceWindow(t *testing.T) {
 		ran = append(ran, name+" "+strings.Join(args, " "))
 		return nil, nil
 	}
-	want := &LeiKwanHostSync{V: 1, Manage: true, Rev: 5, Desired: d}
+	want := &LeiKwanHostSync{V: 1, Manage: true, Rev: 5, Desired: d, NightOnly: true}
 	if !m.manage(context.Background(), files, want) {
 		t.Fatal("expected a write")
 	}
@@ -421,7 +421,7 @@ func TestLeiKwanTrafficTable(t *testing.T) {
 		}
 		return nil, nil
 	}
-	want := &LeiKwanHostSync{V: 1, Traffic: true, Ports: []int{10018}}
+	want := &LeiKwanHostSync{V: 1, Traffic: true, Ports: []int{10018}, NightOnly: true}
 	// 14:00 TW: counting waits for the window, nothing is created.
 	if tr := m.trafficTick(context.Background(), want); tr == nil || !tr.Pending || len(scripts) != 0 {
 		t.Fatalf("outside window: %+v %v", tr, scripts)
@@ -534,4 +534,33 @@ func TestLeiKwanTrafficScriptDump(t *testing.T) {
 	}
 	_ = os.WriteFile(filepath.Join(dir, "count.nft"), []byte(lkTrafficScript([]int{10018, 10015, 10021}, nil)), 0o644)
 	_ = os.WriteFile(filepath.Join(dir, "block.nft"), []byte(lkTrafficScript([]int{10018, 10015, 10021}, []int{10015})), 0o644)
+}
+
+// Default (11-17 user: the 利群入口 machines carry no business yet): no
+// night window — the logswitch drop-in and the counter table apply at once.
+func TestLeiKwanHostAnytime(t *testing.T) {
+	m := lkFixture(t, "aliyun-gz")
+	files, _ := m.read()
+	m.load()
+	var ran []string
+	m.run = func(ctx context.Context, stdin []byte, name string, args ...string) ([]byte, error) {
+		ran = append(ran, strings.Join(args, " "))
+		if strings.Join(args, " ") == "-j list table inet flvx_leikwan" {
+			return nil, os.ErrNotExist
+		}
+		return nil, nil
+	}
+	d := lkDesiredFromHost(files)
+	d.Logswitch.Lines = append(d.Logswitch.Lines, "540:10021>163.53.52.189:59349")
+	want := &LeiKwanHostSync{V: 1, Manage: true, Rev: 2, Desired: d, Traffic: true, Ports: []int{10018}}
+	if !m.manage(context.Background(), files, want) || len(m.status.Pending) != 0 {
+		t.Fatalf("pending %v", m.status.Pending)
+	}
+	if tr := m.trafficTick(context.Background(), want); tr == nil || tr.Pending || tr.Epoch == "" {
+		t.Fatalf("traffic %+v", tr)
+	}
+	joined := strings.Join(ran, "|")
+	if !strings.Contains(joined, "restart leikwan-logswitch.service") || !strings.Contains(joined, "-f -") {
+		t.Fatalf("ran %v", ran)
+	}
 }

@@ -195,6 +195,10 @@ type lkSync struct {
 	Traffic bool       `json:"traffic"`
 	Ports   []int      `json:"ports"`
 	Block   []int      `json:"block"`
+	// NightOnly (global 利群 setting nightOnly): restarts / nft changes on the
+	// entry hosts only 02:00–06:00 TW. Off by default (user 11-17: the 利群入口
+	// machines carry no business yet).
+	NightOnly bool `json:"nightOnly,omitempty"`
 }
 
 // ---- normalization (identical to the agent) ----
@@ -967,7 +971,7 @@ func (h *Handler) leiKwanHostSyncPayload(host *model.LeiKwanHost, g *lkGen) (lkS
 			return lkSync{}, nil, err
 		}
 	}
-	s := lkSync{V: 1, Manage: host.Manage == 1 && d != nil, Rev: host.Rev, Force: host.Force, Traffic: host.Traffic == 1, Ports: g.allPorts, Block: []int{}}
+	s := lkSync{V: 1, Manage: host.Manage == 1 && d != nil, Rev: host.Rev, Force: host.Force, Traffic: host.Traffic == 1, Ports: g.allPorts, Block: []int{}, NightOnly: g.global.NightOnly}
 	if s.Ports == nil {
 		s.Ports = []int{}
 	}

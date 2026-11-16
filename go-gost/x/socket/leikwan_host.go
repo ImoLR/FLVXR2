@@ -222,6 +222,9 @@ type LeiKwanHostSync struct {
 	Traffic bool       `json:"traffic"`
 	Ports   []int      `json:"ports"`
 	Block   []int      `json:"block"`
+	// NightOnly: restarts (logswitch), phone nft and counter-table changes
+	// only 02:00–06:00 TW (not 03:45–04:20); false = whenever needed.
+	NightOnly bool `json:"nightOnly,omitempty"`
 }
 
 // ------------------------------------------------------------ normalization

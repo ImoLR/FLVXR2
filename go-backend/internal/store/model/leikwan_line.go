@@ -153,4 +153,7 @@ type LeiKwanGlobalAccel struct {
 	IOError        string            `json:"ioError"`
 	Coalesce       string            `json:"coalesce"`
 	CoalesceByNode map[string]string `json:"coalesceByNode"`
+	// Plan 269: restarts / nft changes on the entry hosts only in the night
+	// window (default off).
+	NightOnly bool `json:"nightOnly,omitempty"`
 }
