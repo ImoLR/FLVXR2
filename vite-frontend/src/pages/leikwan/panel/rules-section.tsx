@@ -695,7 +695,7 @@ function LeiKwanRuleDialog({
           )}
           {mode === "create" && (
             <div className="space-y-1.5 rounded-xl bg-default-100/60 p-3 text-sm dark:bg-default-50/40">
-              <div className="flex flex-wrap items-center gap-2">
+              <div className="flex items-start gap-2">
                 <span className="w-16 shrink-0 text-default-500">入口</span>
                 {opts?.grant ? (
                   <span>
@@ -708,11 +708,11 @@ function LeiKwanRuleDialog({
                   <span className="text-default-400">—</span>
                 )}
               </div>
-              <div className="flex flex-wrap items-center gap-2">
+              <div className="flex items-start gap-2">
                 <span className="w-16 shrink-0 text-default-500">入口端口</span>
                 <span>由利群分配</span>
               </div>
-              <div className="flex flex-wrap items-center gap-2">
+              <div className="flex items-start gap-2">
                 <span className="w-16 shrink-0 text-default-500">备线</span>
                 <span>
                   {opts?.grant?.backupLine

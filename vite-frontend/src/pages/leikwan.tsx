@@ -331,7 +331,7 @@ export default function LeiKwanPage() {
     });
   const forwardActions = (forward: LeiKwanForward) => (
     <div className="flex flex-wrap gap-2">
-      {!forward.pipe ? (
+      {forward.ruleName && !forward.pipe ? null : !forward.pipe ? (
         <Button
           color="primary"
           size="sm"
@@ -386,11 +386,13 @@ export default function LeiKwanPage() {
     </div>
   );
   const managedLabel = (forward: LeiKwanForward) =>
-    forward.pipe?.tunnelId
-      ? `隧道：${forward.tunnelName || `#${forward.pipe.tunnelId}`}`
-      : forward.pipe
-        ? "管道待绑定隧道"
-        : "非 FLVX 管理 · 只读";
+    forward.ruleName && !forward.pipe
+      ? `利群规则：${forward.ruleName}`
+      : forward.pipe?.tunnelId
+        ? `隧道：${forward.tunnelName || `#${forward.pipe.tunnelId}`}`
+        : forward.pipe
+          ? "管道待绑定隧道"
+          : "非 FLVX 管理 · 只读";
 
   if (!admin)
     return (

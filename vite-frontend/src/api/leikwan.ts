@@ -33,6 +33,8 @@ export interface LeiKwanForward {
   updated_at: string;
   pipe?: LeiKwanPipe | null;
   tunnelName?: string;
+  /** Plan 266: registered as a 利群 rule (no pipe takeover then). */
+  ruleName?: string;
 }
 
 export interface LeiKwanRoute {

@@ -44,12 +44,8 @@ export function LeiKwanTunnelsSection() {
     void load();
   }, [load]);
 
-  if (
-    !data ||
-    !data.accountReady ||
-    (data.lines.length === 0 && data.pipes.length === 0)
-  )
-    return null;
+  // Nothing until the first 利群专线 exists: the page stays as it was.
+  if (!data || !data.accountReady || data.lines.length === 0) return null;
 
   return (
     <div className="mb-4" data-leikwan-tunnels="">

@@ -191,12 +191,19 @@ func (h *Handler) leikwanOverview(w http.ResponseWriter, r *http.Request) {
 		leikwan.Forward
 		Pipe       *model.LeiKwanPipe `json:"pipe"`
 		TunnelName string             `json:"tunnelName"`
+		RuleName   string             `json:"ruleName,omitempty"` // plan 266: registered as a 利群 rule
+	}
+	ruleNames := map[int64]string{}
+	if rules, err := h.repo.ListLeiKwanRules(0); err == nil {
+		for _, x := range rules {
+			ruleNames[x.ForwardID] = x.Name
+		}
 	}
 	forwards := make([]forwardView, 0, len(view.Forwards))
 	present := make(map[int64]bool, len(view.Forwards))
 	for _, f := range view.Forwards {
 		present[f.ID] = true
-		item := forwardView{Forward: f}
+		item := forwardView{Forward: f, RuleName: ruleNames[f.ID]}
 		if p, ok := byID[f.ID]; ok {
 			item.Pipe = &p
 			if p.TunnelID != nil {
@@ -340,6 +347,10 @@ func (h *Handler) leikwanTakeover(w http.ResponseWriter, r *http.Request) {
 	_, target, err := h.leiKwanTarget(req.LandingNodeID, req.LandingPort)
 	if err != nil {
 		leiKwanError(w, err)
+		return
+	}
+	if x, _ := h.repo.GetLeiKwanRuleByForward(req.ForwardID); x != nil {
+		leiKwanError(w, fmt.Errorf("该转发已登记为利群规则「%s」，不能再接管为管道", x.Name))
 		return
 	}
 	unlock := h.lockLeiKwanPipe(req.ForwardID)
