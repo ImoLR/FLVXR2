@@ -50,7 +50,7 @@ worktree `/root/projects/flvxx/flvxx-leikwan-step2`。用户 11-17 ~02:10 台湾
 - [x] 面板：99U 落地节点准备 + 换落地带备线（自动 + 链接）+ 密钥 + 待切换标记 + 测试。
 - [x] 前端：利群入口区（主机状态、接管开关 + 差异、漂移 ⚠、按面板覆盖、采用主机现值）、规则行流量 + 待切换；`npm run build`。
 - [x] `go test ./...`（两个模块）+ go vet + CI 绿；截图画廊 /root/mmwx-preview/leikwan-step2/。
-- [ ] 发布：tag 下一个 fork、CI + 镜像 + 资产；面板备份 + 换面板；只 OTA 4 台利群入口机（每台备份 + 回滚）；保留 2 份备份。
+- [x] 发布：tag 下一个 fork、CI + 镜像 + 资产；面板备份 + 换面板；只 OTA 4 台利群入口机（每台备份 + 回滚）；保留 2 份备份。
 - [ ] 上线：百度云广州（A/B 结束后）接管开 → 语义差异 0、leikwan status、日志、手机端口、SS-2022 实测 → 阿里广州 → 火山广州 → 火山上海；流量统计窗口内开。
 - [ ] 99U 落地节点建好 + 新链接；总结 /root/flvx-workers/runs/leikwan-panel-step2/summary.md + final.md；memory 文本写进 final.md。
 
@@ -81,4 +81,25 @@ worktree `/root/projects/flvxx/flvxx-leikwan-step2`。用户 11-17 ~02:10 台湾
 - 测试汇总：go-backend `go test ./...`（带 PG 18）全部 ok；go-gost / go-gost/x 全部 ok（x/socket 改动后单独重跑 ok）；go vet 两个模块 0；
   第一次全量跑时 PG 临时容器（tmpfs 512M）中途崩了导致一批 PG 子测试连不上库，换磁盘目录重跑全部通过（不是代码问题）。
 - 发布：分支 `maintenance/3.0.27-fork.140-leikwan-step2` = feature @ fd638436，tag `3.0.27-fork.140`（11-17 06:00 台湾推送）。
+
+### 第二轮（leikwan-panel-step2-r2，11-17 06:03 台湾起）
+- Images 43965671735 绿，release 3.0.27-fork.140 = Latest、10 个资产；发布包 compose v6 和 fork.139 只差 tag。
+- 回滚检查（生产库副本，--network none）：fork.140 迁移后 fork.139 正常起来、0 重启、52 条规则、7 条利群规则不变；fork.140 在副本上跑满第一次屏蔽检查：0 条屏蔽。
+- 换面板前算的屏蔽清单：7 条利群规则都属于 admin（99999 GB、2056 年到期、启用），没有暂停的单服务器配额 → **现在 0 条会被屏蔽**。
+- 面板：备份 /opt/flvx-svc/rollback/pre-fork140-20261116T221434Z（库 quick/integrity ok）；换面板 06:14:41–06:14:53 台湾；30/30 在线，52 条规则不变，
+  重连 30 台 updated 0 / failed 0，利群表旧列逐行一致（新列默认值），0 重启、0 错误；之后 prune → 只留 pre-fork139 + pre-fork140。
+- OTA（只 4 台利群入口机，先各自 backup-agent-140.sh）：阿里广州 06:17:14（10 s）、火山广州 06:17:45（10 s）、火山上海 06:18:10（8 s）、
+  百度云广州 06:19:09（39 s）→ fork.140；利群文件哈希 + mtime、服务状态都没变（只是 FLVX 自己的 flvx_acct 表重建后顺序变了）；其他 26 台版本不变。
+- host-backup.sh：Debian 12 coreutils 9.1 的 `cp -a --parents` 在新建上级目录时报 No such file → 改成 tar 拷贝（同样的路径 + ultra-forward 单元 + /usr/local/bin/leikwan-* + ultra-client）。
+- 接管上线（各机先整机备份 /root/backup-<时间>-before-flvx-takeover/RESTORE.txt → 采用主机现值 → 差异 0 → 接管开 → 核对 → 流量统计开）：
+  - 阿里广州 06:21:48 接管开：6 个文件全部一致，agent applied rev 3、written 无；文件哈希 + mtime 不变；7/7 ready；主线 263/264 SS-2022 3/3；
+    force 文件强制 263 走备线 17 s：backup_conns=4 via_front=4、3/3 通过，已撤（force_end）。06:23:38 流量统计开：5 MB 下载 → nft u/d = 99 065 / 5 181 877，
+    规则入账同值，阿里广州单服务器配额同值；下一次上报没有重复入账。
+  - 火山广州 06:24:44 接管开：7 个文件（含手机备线 nft）一致、written 无、文件不变；主线 263 3/3，手机备线口 19047（DNAT 到 263 备线）3/3；06:25:24 流量统计开，3 MB → 59 175 / 3 113 625 同值入账。
+  - 火山上海 06:26:17 接管开：2 个文件（logswitch unit、首包合并）一致、written 无、无 drop-in；主线 263 3/3；它的日志快切只记录、备线目标（深港ixp1）从这台连不上（原有，所以从不切）→ 强制备线不适用；
+    06:28:07 流量统计开，2 MB → 40 313 / 2 076 542 同值入账。
+  - 263 规则累计 198 553 / 10 372 044 = 三台计数之和（只计一次）。
+- 99U：在共享落地「Boil HKT 99u」用面板正常路径建了 admin 名下 SS2022 落地节点 194「利群263 99U」:30000、195「利群540 99U」:30001（mmwxc-flvx-core，
+  不碰 xray :10016 / lkbk-core :10017 / :10019，PID 不变）；直连实测 3/3（出口 99U）；规则 263 → 194、540 → 195 标「待切换」；三台已接管主机期望不变、没写文件。
+  百度云广州不接管时，按「换落地」会被拒（首包过滤保护：「入口机 百度云广州 还没接管…」）。
 
