@@ -1,0 +1,12 @@
+table ip leikwan_phone_backup
+delete table ip leikwan_phone_backup
+table ip leikwan_phone_backup {
+  chain pre {
+    type nat hook prerouting priority dstnat - 4; policy accept;
+    tcp dport 19047 counter dnat to 163.53.52.189:35046
+  }
+  chain post {
+    type nat hook postrouting priority srcnat - 4; policy accept;
+    ip daddr 163.53.52.189 tcp dport 35046 ct status dnat counter masquerade
+  }
+}

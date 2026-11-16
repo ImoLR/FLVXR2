@@ -64,6 +64,7 @@ type SystemInfo struct {
 	LandingReality         int                       `json:"landing_reality,omitempty"`    // plan 227: RealityProbe + reality_pins
 	LandingVLESSEnc        int                       `json:"landing_vless_enc,omitempty"`  // plan 253: VLESS Encryption inbound + outbounds
 	LeiKwan                *LeiKwanReport            `json:"leikwan,omitempty"`
+	LeiKwanHost            *LeiKwanHostReport        `json:"leikwanHost,omitempty"` // plan 269: only when due (≤ 1/min, ≥ every 5 min)
 	EgressIPFamily         string                    `json:"egress_ip_family,omitempty"`
 	IPv6RAStatus           string                    `json:"ipv6_ra_status"`
 	IPv6RADetail           string                    `json:"ipv6_ra_detail,omitempty"`
@@ -248,6 +249,7 @@ type WebSocketReporter struct {
 	reconnectRequested bool // guarded by connMutex; reconnectPanel asked for a fresh session
 	routineLogs        logsafe.RoutineLogger
 	leikwan            leiKwanDetector
+	lkHost             *lkHostManager // plan 269 利群主机接管 (nil off linux)
 	egress             egressDetector
 	ipv6RA             ipv6RADetector
 	dnsCache           dnsCacheDetector
@@ -330,6 +332,14 @@ func (w *WebSocketReporter) Start() {
 	go w.ipv6RA.run(w.ctx)
 	go w.dnsCache.run(w.ctx)
 	go w.addrs.run(w.ctx)
+	if w.lkHost == nil {
+		stateDir := "/etc/flvx_agent"
+		if w.configPath != "" {
+			stateDir = filepath.Dir(w.configPath)
+		}
+		w.lkHost = newLKHostManager(stateDir)
+	}
+	go w.lkHost.runLoop(w.ctx)
 	if w.protector != nil {
 		go w.protector.Run(w.ctx)
 	}
@@ -1221,6 +1231,7 @@ func (w *WebSocketReporter) collectSystemInfo() SystemInfo {
 		LandingReality:         landing.RealityVersion,
 		LandingVLESSEnc:        landing.VLESSEncVersion,
 		LeiKwan:                w.leikwan.result(),
+		LeiKwanHost:            w.lkHost.takeReport(),
 		EgressIPFamily:         w.egress.family(),
 		IPv6RAStatus:           raStatus,
 		IPv6RADetail:           raDetail,
@@ -1671,6 +1682,9 @@ func (w *WebSocketReporter) routeCommand(cmd CommandMessage) {
 	case "DNSCacheEnsure":
 		response.Data, err = w.dnsCache.handleEnsure(w.ctx, cmd.Data)
 		response.Type = "DNSCacheEnsureResponse"
+	case "LeiKwanHostSync": // plan 269 利群主机接管 / 流量 / 屏蔽
+		response.Data, err = w.lkHost.handleSync(w.ctx, cmd.Data)
+		response.Type = "LeiKwanHostSyncResponse"
 	case "GetLandingStatus":
 		_ = landing.Default().Counters()
 		response.Data = landing.Default().Status()

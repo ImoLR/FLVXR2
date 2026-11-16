@@ -1,0 +1,14 @@
+263=10
+264=4
+280=4
+282=4
+540=10
+backup:263=4
+backup:264=4
+backup:280=4
+backup:282=4
+backup:540=4
+backup_standby=2
+pace_ms=100
+263:burst=6 264:burst=4 280:burst=4 282:burst=4 backup_burst=4 burst_idle_s=120 warm_cap=64 warm_mem_mb=300
+burst=off

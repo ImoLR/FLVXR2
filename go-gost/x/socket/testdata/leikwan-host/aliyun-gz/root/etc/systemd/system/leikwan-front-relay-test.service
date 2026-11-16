@@ -1,0 +1,47 @@
+[Unit]
+Description=LeiKwan front relay (預熱快切版 v1, build test-ssfilter-coalesce-warmflush-paced: stable front + warm pool + SS2022 first-packet filter + backup warm pool + first-chunk coalescing + warm death report, flush on switch, paced refill)
+After=network-online.target leikwan-client-agent.service leikwan-fast-failover-test.service
+Wants=network-online.target leikwan-fast-failover-test.service
+Conflicts=leikwan-front-relay.service
+# A crash loop stops after 10 starts in 5 min (the unit is then failed and
+# traffic goes straight to the runtimes, as with no front at all).
+StartLimitIntervalSec=300
+StartLimitBurst=10
+
+[Service]
+Type=notify
+Environment=GOMAXPROCS=2
+# Warm pool file, re-read every second: "263=10" = forward 263 keeps 10
+# pre-opened runtime streams. A forward not listed, "=0", or no file = the
+# stable path. Write it atomically (temp file + mv); rm = pools off, no restart.
+Environment=LEIKWAN_FRONT_WARM_FILE=/opt/leikwan-front-test/warm
+# SS2022 first-packet filter: "263=enforce 264=record 280=off" per forward,
+# re-read every second (no file / not listed / off = unchanged path). Keys:
+# root-only 0600 JSON {"263":{"method":…,"psk":…,"users":[…]}}, never logged.
+Environment=LEIKWAN_FRONT_SSFILTER_FILE=/opt/leikwan-front-test/ssfilter
+Environment=LEIKWAN_FRONT_SSKEYS=/etc/leikwan-front-test/sskeys.json
+# First-chunk coalescing (the vendor writes a stream's first byte alone, which
+# breaks xray's SS2022 client): "on" (optionally "budget_ms=2 min=59") or
+# "off", re-read every second; no file = off (unchanged path). One file for
+# the test and the stable front on every host: `leikwan-front-coalesce on|off`.
+Environment=LEIKWAN_FRONT_COALESCE_FILE=/etc/leikwan-front/coalesce
+# The relay exits while the detector's socket does not answer yet (boot):
+# wait for it, at most 10 s, never failing the start.
+ExecStartPre=-/opt/leikwan-front-test/leikwan-front-channel wait-detector
+ExecStart=/opt/leikwan-front-test/leikwan-front-relay
+ExecStopPost=/opt/leikwan-front-test/leikwan-front-relay --cleanup
+WatchdogSec=5
+WatchdogSignal=SIGKILL
+LimitCORE=0
+TimeoutStopSec=3
+# always, not on-failure: SIGTERM is a clean exit (0) for the relay, and a
+# kill or crash must bring it back; `systemctl stop` / the channel switch
+# (Conflicts=) never restart it.
+Restart=always
+RestartSec=3
+LimitNOFILE=65536
+
+# Enabled or disabled only by `leikwan-front-channel test|stable`: the channel
+# chosen last is the one a reboot comes back on (default after install: this one).
+[Install]
+WantedBy=multi-user.target

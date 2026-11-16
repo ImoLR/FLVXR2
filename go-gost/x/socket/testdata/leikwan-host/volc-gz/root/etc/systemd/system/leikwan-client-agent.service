@@ -1,0 +1,15 @@
+[Unit]
+Description=Leikwan Client Agent
+After=network.target
+
+[Service]
+Type=simple
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/usr/bin/python3 /usr/local/bin/leikwan-client-agent.py --config /etc/leikwan-client-agent/config.json run
+Restart=always
+RestartSec=5
+WatchdogSec=180
+NotifyAccess=main
+
+[Install]
+WantedBy=multi-user.target

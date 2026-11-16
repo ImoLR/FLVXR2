@@ -1,0 +1,17 @@
+[Unit]
+Description=LeiKwan fast line failover (預熱快切版 v1, detector test-warm: stable detector + warm-stream report matching)
+After=leikwan-client-agent.service
+Conflicts=leikwan-fast-failover.service
+StartLimitIntervalSec=300
+StartLimitBurst=10
+
+[Service]
+ExecStart=/usr/bin/python3 -B /opt/leikwan-front-test/fast_failover.py --follow
+ExecStopPost=/usr/bin/python3 -B /opt/leikwan-front-test/fast_failover.py --flush
+Restart=always
+RestartSec=2
+
+# Enabled or disabled together with leikwan-front-relay-test by
+# `leikwan-front-channel test|stable` (the channel survives a reboot).
+[Install]
+WantedBy=multi-user.target

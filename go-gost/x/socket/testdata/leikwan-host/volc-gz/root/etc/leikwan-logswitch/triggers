@@ -1,0 +1,20 @@
+# LeiKwan 日志快切 v10 trigger modes, re-read every second (no restart needed).
+#   TRIGGER=switch | record | off        all wired forwards
+#   FORWARD:TRIGGER=switch | record | off   one forward (overrides the line above)
+# timeout     tcp candidate failed ... reason=timeout (the first one switches)
+# warm_death  the test front's "warm death forward=N" line: an idle pooled stream the
+#             runtime side ended (the first one switches)
+# io_error    tcp candidate failed ... reason=io_error (record only for now)
+# record = log "would_switch" only; off = ignore. Older triggers accept switch | record here
+# too (an emergency record-only, like LOGSWITCH_RECORD_ONLY, without a restart).
+timeout=switch
+warm_death=switch
+io_error=record
+# return_check (v11) on | off: before a hold ends, one fresh idle stream to the runtime must
+#             stay up for the last LOGSWITCH_RETURN_CHECK (2.5) s, else stay on, hold doubled
+return_check=off
+# 11-14 23:1x accepted after the Baidu A/B (26 x 30 min): on for the four warm-pool lines
+263:return_check=on
+264:return_check=on
+280:return_check=on
+282:return_check=on

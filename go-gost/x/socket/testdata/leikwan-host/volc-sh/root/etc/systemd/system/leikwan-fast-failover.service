@@ -1,0 +1,12 @@
+[Unit]
+Description=LeiKwan fast line failover (block an Ultra entry whose line closes streams without data)
+After=leikwan-client-agent.service
+
+[Service]
+ExecStart=/usr/bin/python3 /usr/local/lib/leikwan-fast-failover/fast_failover.py --follow
+ExecStopPost=/usr/bin/python3 /usr/local/lib/leikwan-fast-failover/fast_failover.py --flush
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

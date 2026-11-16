@@ -1,0 +1,25 @@
+[Unit]
+Description=LeiKwan TCP front relay
+After=network.target leikwan-fast-failover.service
+Wants=leikwan-fast-failover.service
+
+[Service]
+Type=notify
+Environment=GOMAXPROCS=2
+# First-chunk coalescing (the vendor writes a stream's first byte alone, which
+# breaks xray's SS2022 client): "on" (optionally "budget_ms=2 min=59") or
+# "off", re-read every second; no file = off (unchanged path). One file for
+# the test and the stable front on every host: `leikwan-front-coalesce on|off`.
+Environment=LEIKWAN_FRONT_COALESCE_FILE=/etc/leikwan-front/coalesce
+ExecStart=/usr/local/bin/leikwan-front-relay
+ExecStopPost=/usr/local/bin/leikwan-front-relay --cleanup
+WatchdogSec=5
+WatchdogSignal=SIGKILL
+LimitCORE=0
+TimeoutStopSec=3
+Restart=on-failure
+RestartSec=2
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target

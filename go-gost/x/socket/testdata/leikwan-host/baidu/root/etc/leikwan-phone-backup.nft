@@ -1,0 +1,19 @@
+# LeiKwan phone 日志快切 backups (Android 0.2.12): Baidu GZ port (any source) -> 深港ixp1 shared FLVX backup forward.
+# TCP only. Own table; the logswitch / front / flvx tables are not touched. Loaded by leikwan-phone-backup.service.
+table ip leikwan_phone_backup
+delete table ip leikwan_phone_backup
+table ip leikwan_phone_backup {
+  chain pre {
+    type nat hook prerouting priority dstnat - 4; policy accept;
+    tcp dport 19263 counter dnat to 163.53.52.189:35046 comment "263 广港"
+    tcp dport 19264 counter dnat to 163.53.52.189:40304 comment "264 沪日"
+    tcp dport 19279 counter dnat to 163.53.52.189:52914 comment "279"
+    tcp dport 19280 counter dnat to 163.53.52.189:31070 comment "280 广台"
+    tcp dport 19281 counter dnat to 163.53.52.189:52405 comment "281"
+    tcp dport 19282 counter dnat to 163.53.52.189:31070 comment "282 福台"
+  }
+  chain post {
+    type nat hook postrouting priority srcnat - 4; policy accept;
+    ip daddr 163.53.52.189 tcp dport { 35046, 40304, 52914, 31070, 52405 } ct status dnat counter masquerade
+  }
+}

@@ -21,7 +21,7 @@ func isRoutineCommand(command string) bool {
 	// 「收到命令」 line per push, ~1350/h on node 32); failures as above.
 	// MonitorPort (plan 255): the panel re-sends the full check-port list on
 	// every reconnect; the manager logs real opens / closes itself.
-	case "TcpPing", "PipePing", "ServiceMonitorCheck", "GetServiceClientIPs", "ListServices", "ApplyLandingDesired", "SetQuotaGroups", "MonitorPort":
+	case "TcpPing", "PipePing", "ServiceMonitorCheck", "GetServiceClientIPs", "ListServices", "ApplyLandingDesired", "SetQuotaGroups", "MonitorPort", "LeiKwanHostSync":
 		return true
 	default:
 		return false
@@ -31,7 +31,7 @@ func isRoutineCommand(command string) bool {
 // Only extract target identifiers; never log command bodies or request IDs.
 func routineCommandTarget(cmd CommandMessage) string {
 	switch cmd.Type {
-	case "SetQuotaGroups", "ApplyLandingDesired", "ListServices":
+	case "SetQuotaGroups", "ApplyLandingDesired", "ListServices", "LeiKwanHostSync":
 		// Node-wide commands: no target, and their payload (a budget list,
 		// the landing desired state) is not worth decoding per command.
 		return "node"

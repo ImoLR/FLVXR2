@@ -1,0 +1,37 @@
+[Unit]
+Description=LeiKwan 日志快切 (logswitch v9.1, 預熱快切版 v2): per-forward new TCP to each forward's backup line on one global trigger set (lapsed / no candidate / 2 s reset / 1 s reset / 0 ms close / 1 s eof where the front filters junk / vendor network grace), back after a new lease has settled
+After=network-online.target leikwan-client-agent.service ultra-forward-263.service ultra-forward-264.service ultra-forward-279.service ultra-forward-280.service ultra-forward-281.service ultra-forward-282.service
+Wants=network-online.target
+# A crash loop stops after 10 starts in 5 min (failed = nothing switched; the
+# stop removed the table, so traffic stays on the vendor lines).
+StartLimitIntervalSec=300
+StartLimitBurst=10
+
+[Service]
+Type=simple
+# forward:listen_port>backup_host:backup_port, comma separated
+Environment=LOGSWITCH_LINES=263:10018>163.53.52.189:35046,264:10015>163.53.52.189:40304,279:10019>163.53.52.189:52914,280:10020>163.53.52.189:31070,281:10016>163.53.52.189:52405,282:10017>163.53.52.189:31070
+# Emergency only, ships empty (every trigger acts on every forward):
+# forward:trigger or *:trigger (lapsed | no_candidate | reset2s | reset1s | zero_close | eof1s |
+# grace | grace_fail | grace_failed), comma separated
+# SH 2026-11-11: none of these backups (Mkcloud 深港ixp1 163.53.52.189) is reachable from SH
+# (China Telecom Shanghai: no route after 101.95.225.169) -> every trigger record-only here.
+Environment=LOGSWITCH_RECORD_ONLY=*:lapsed,*:no_candidate,*:reset2s,*:reset1s,*:zero_close,*:eof1s,*:grace,*:grace_fail,*:grace_failed
+Environment=LOGSWITCH_HOLD=30
+# v9: agent 2026.11.8.1 grace lines -> switch (watch = only after a failure, off = as v8)
+Environment=LOGSWITCH_GRACE=switch
+# v9.1: after a new lease stay on until the first good stream or 30 s without a failure (0 = at once)
+Environment=LOGSWITCH_LEASE_SETTLE=30
+Environment=PYTHONUNBUFFERED=1
+# /run/leikwan-logswitch: lines.json for the test front, force file for drills (cleared on stop).
+RuntimeDirectory=leikwan-logswitch
+ExecStart=/usr/bin/python3 /opt/leikwan-logswitch/logswitch.py --follow
+ExecStopPost=/usr/bin/python3 /opt/leikwan-logswitch/logswitch.py --cleanup
+Restart=always
+RestartSec=2
+TimeoutStopSec=3
+
+# Enabled on install: a reboot comes back with it, on either front channel
+# (stable front = its DNAT path, cold). Off for good: systemctl disable --now leikwan-logswitch
+[Install]
+WantedBy=multi-user.target

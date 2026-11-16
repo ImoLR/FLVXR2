@@ -1,0 +1,7 @@
+[Unit]
+Description=LeiKwan per-forward native UDP / external UoT auto switch
+After=leikwan-client-agent.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /root/leikwan-native-udp-patch-v2/udp_mode_guard.py

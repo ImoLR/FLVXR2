@@ -1,0 +1,12 @@
+[Unit]
+Description=LeiKwan phone 日志快切 backups (Android 0.2.12): Baidu 19263/19264/19279/19280/19281/19282 (any source) -> ixp1 163.53.52.189 shared FLVX backup forwards (nft DNAT, TCP only)
+After=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/sbin/nft -f /etc/leikwan-phone-backup.nft
+ExecStop=/usr/sbin/nft delete table ip leikwan_phone_backup
+
+[Install]
+WantedBy=multi-user.target
