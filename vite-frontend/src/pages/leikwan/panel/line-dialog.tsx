@@ -26,6 +26,7 @@ import {
   SectionTitle,
   TriggerList,
 } from "@/pages/leikwan/panel/shared";
+import { BackupTunnelPicker } from "@/pages/leikwan/panel/backup-tunnel";
 
 // Plan 266: new / edit 「利群专线」 tunnel. Only name + LeiKwan route + the
 // 利群加速 defaults — there is no entry field: a user's entry comes from the
@@ -325,26 +326,21 @@ export function LeiKwanLineDialog({
                 </p>
               </div>
             )}
-            <Select
-              label="备线隧道"
-              placeholder="不建备线"
-              selectedKeys={backupTunnelId ? [backupTunnelId] : []}
-              variant="bordered"
-              onSelectionChange={(keys) =>
-                setBackupTunnelId(String(Array.from(keys)[0] || ""))
-              }
-            >
-              {(data?.backupTunnels || [])
-                .filter((t) => t.type === 1)
-                .map((t) => (
-                  <SelectItem key={String(t.id)}>
-                    {`${t.name}${t.entryNames ? ` · 入口 ${t.entryNames}` : ""}`}
-                  </SelectItem>
-                ))}
-            </Select>
-            <p className="-mt-1 text-xs text-default-500">
-              给用户开了备线时，面板在这条端口转发隧道上自动建一条到同一落地的备线（规则「備線·转发号」，归管理员）
-            </p>
+            <BackupTunnelPicker
+              data={data}
+              value={backupTunnelId}
+              onChange={setBackupTunnelId}
+            />
+            {line &&
+              String(line.backupTunnelId || "") !== backupTunnelId &&
+              (line.backupStats?.auto || 0) > 0 && (
+                <p className="rounded-lg bg-amber-500/15 px-3 py-2 text-xs text-amber-700 dark:bg-amber-400/15 dark:text-amber-300">
+                  新规则用新备线。已有的 {line.backupStats?.auto}{" "}
+                  条自动备线不会自己搬：保存后在列表点「按新备线重建」。
+                  {(line.backupStats?.linked || 0) > 0 &&
+                    `导入时链接的 ${line.backupStats?.linked} 条备线不动。`}
+                </p>
+              )}
           </div>
 
           {line && line.hostValues.length > 0 && (

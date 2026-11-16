@@ -93,6 +93,7 @@ export function LeiKwanTunnelsSection() {
             <LeiKwanLinesTable
               data={data}
               h5={h5}
+              onChanged={() => void load()}
               onEdit={(l) => {
                 setEdit(l);
                 setOpen(true);
@@ -172,12 +173,7 @@ export function LeiKwanUserGrantSection({
         <div className="flex flex-wrap items-center gap-1.5 text-sm">
           <Pill tone="teal">主入口 {grant.mainEntryName}</Pill>
           <OnOff label="备线" on={grant.backupLine} />
-          <Pill tone="purple">
-            规则 {grant.ruleCount} / {grant.num || "不限"}
-          </Pill>
-          <Pill tone="slate">
-            {grant.flowGb ? `${grant.flowGb} GB` : "流量不限"}
-          </Pill>
+          <Pill tone="purple">利群规则 {grant.ruleCount} 条</Pill>
         </div>
       ) : (
         <p className="text-xs text-default-500">

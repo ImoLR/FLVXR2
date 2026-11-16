@@ -347,6 +347,7 @@ export function LeiKwanRulesSection() {
                             <AlertTriangle className="text-red-700" size={13} />
                           )}
                           {r.name}
+                          {r.userExpired && <Pill tone="red">已到期</Pill>}
                         </span>
                       }
                       open={expand.open === r.id}
@@ -390,6 +391,14 @@ export function LeiKwanRulesSection() {
                           )}
                           <span className="font-semibold">{r.name}</span>
                           <Pill tone="cyan">主线</Pill>
+                          {r.userExpired && (
+                            <Pill
+                              title="用户已到期：不能新建利群规则"
+                              tone="red"
+                            >
+                              已到期
+                            </Pill>
+                          )}
                           <BackupChip admin={data.admin} rule={r} />
                         </div>
                         <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-default-500">

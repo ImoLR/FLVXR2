@@ -41,11 +41,6 @@ import { Tab, Tabs } from "@/shadcn-bridge/heroui/tabs";
 // 「利群汇聚」 + 利群加速), 利群入口 (node group + read-only host status), 授权
 // (主入口 + 备线 per user) and 导入为规则 (dry-run preview first).
 
-const fmtDate = (ms?: number) =>
-  ms
-    ? new Date(ms).toLocaleDateString("zh-CN", { timeZone: "Asia/Taipei" })
-    : "长期";
-
 export function LeiKwanPanelSection() {
   const h5 = useH5Mode();
   const [tab, setTab] = useState("lines");
@@ -174,6 +169,7 @@ export function LeiKwanPanelSection() {
                 <LeiKwanLinesTable
                   data={data}
                   h5={h5}
+                  onChanged={() => void load()}
                   onEdit={(l) => {
                     setEditLine(l);
                     setLineOpen(true);
@@ -223,7 +219,7 @@ export function LeiKwanPanelSection() {
                   title={`授权 · ${grants.length} 人`}
                 />
                 <div className="overflow-x-auto rounded-xl border border-divider">
-                  <table className="w-full min-w-[640px] text-sm">
+                  <table className="w-full min-w-[480px] text-sm">
                     <thead className="bg-default-100/60 text-xs text-default-500">
                       <tr>
                         <th className="px-3 py-2 text-left font-medium">
@@ -237,12 +233,6 @@ export function LeiKwanPanelSection() {
                         </th>
                         <th className="px-3 py-2 text-left font-medium">
                           规则
-                        </th>
-                        <th className="px-3 py-2 text-left font-medium">
-                          流量
-                        </th>
-                        <th className="px-3 py-2 text-left font-medium">
-                          到期
                         </th>
                         <th className="px-3 py-2 text-right font-medium">
                           操作
@@ -265,12 +255,8 @@ export function LeiKwanPanelSection() {
                             <OnOff on={g.backupLine} />
                           </td>
                           <td className="px-3 py-2.5 tabular-nums">
-                            {g.ruleCount} / {g.num || "不限"}
+                            {g.ruleCount} 条
                           </td>
-                          <td className="px-3 py-2.5">
-                            {g.flowGb ? `${g.flowGb} GB` : "不限"}
-                          </td>
-                          <td className="px-3 py-2.5">{fmtDate(g.expTime)}</td>
                           <td className="space-x-1.5 whitespace-nowrap px-3 py-2.5 text-right">
                             <Button
                               color="primary"

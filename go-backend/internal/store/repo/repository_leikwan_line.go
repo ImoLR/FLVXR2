@@ -300,12 +300,17 @@ func (r *Repository) FindForwardByEntryAddr(host string, port int) (int64, error
 	return 0, nil
 }
 
-// LeiKwanTunnelBrief: the port-forward tunnels offered as 备线隧道.
+// LeiKwanTunnelBrief: a tunnel offered as 备线隧道 (plan 268: any tunnel),
+// with its path (entry → middle hops → exits) and 线路分组.
 type LeiKwanTunnelBrief struct {
-	ID         int64  `json:"id"`
-	Name       string `json:"name"`
-	Type       int    `json:"type"`
-	EntryNames string `json:"entryNames"`
+	ID           int64                   `json:"id"`
+	Name         string                  `json:"name"`
+	Type         int                     `json:"type"`
+	EntryNames   string                  `json:"entryNames"`
+	EntryNodeIDs []int64                 `json:"entryNodeIds"`
+	Hops         []string                `json:"hops"`
+	Exits        []string                `json:"exits"`
+	Groups       []LeiKwanTunnelGroupRef `json:"groups"`
 }
 
 func (r *Repository) ListLeiKwanBackupTunnels() ([]LeiKwanTunnelBrief, error) {
@@ -314,7 +319,7 @@ func (r *Repository) ListLeiKwanBackupTunnels() ([]LeiKwanTunnelBrief, error) {
 		return nil, err
 	}
 	var chains []model.ChainTunnel
-	if err := r.db.Select("tunnel_id, node_id").Where("chain_type = ?", "1").Find(&chains).Error; err != nil {
+	if err := r.db.Select("tunnel_id, chain_type, node_id, inx").Order("tunnel_id, chain_type, inx, id").Find(&chains).Error; err != nil {
 		return nil, err
 	}
 	var nodes []model.Node
@@ -325,15 +330,49 @@ func (r *Repository) ListLeiKwanBackupTunnels() ([]LeiKwanTunnelBrief, error) {
 	for _, n := range nodes {
 		nodeName[n.ID] = n.Name
 	}
-	entries := map[int64][]string{}
+	entries, entryIDs, hops, exits := map[int64][]string{}, map[int64][]int64{}, map[int64][]string{}, map[int64][]string{}
 	for _, c := range chains {
-		entries[c.TunnelID] = append(entries[c.TunnelID], nodeName[c.NodeID])
+		switch c.ChainType {
+		case "1":
+			entries[c.TunnelID] = append(entries[c.TunnelID], nodeName[c.NodeID])
+			entryIDs[c.TunnelID] = append(entryIDs[c.TunnelID], c.NodeID)
+		case "2":
+			hops[c.TunnelID] = append(hops[c.TunnelID], nodeName[c.NodeID])
+		case "3":
+			exits[c.TunnelID] = append(exits[c.TunnelID], nodeName[c.NodeID])
+		}
+	}
+	groups, err := r.LeiKwanTunnelGroups()
+	if err != nil {
+		return nil, err
 	}
 	out := make([]LeiKwanTunnelBrief, 0, len(tunnels))
 	for _, t := range tunnels {
-		out = append(out, LeiKwanTunnelBrief{ID: t.ID, Name: t.Name, Type: t.Type, EntryNames: strings.Join(entries[t.ID], "、")})
+		out = append(out, LeiKwanTunnelBrief{ID: t.ID, Name: t.Name, Type: t.Type, EntryNames: strings.Join(entries[t.ID], "、"),
+			EntryNodeIDs: nonNilIDs(entryIDs[t.ID]), Hops: nonNilNames(hops[t.ID]), Exits: nonNilNames(exits[t.ID]), Groups: nonNilGroups(groups[t.ID])})
 	}
 	return out, nil
+}
+
+func nonNilIDs(v []int64) []int64 {
+	if v == nil {
+		return []int64{}
+	}
+	return v
+}
+
+func nonNilNames(v []string) []string {
+	if v == nil {
+		return []string{}
+	}
+	return v
+}
+
+func nonNilGroups(v []LeiKwanTunnelGroupRef) []LeiKwanTunnelGroupRef {
+	if v == nil {
+		return []LeiKwanTunnelGroupRef{}
+	}
+	return v
 }
 
 // LeiKwanLandingTarget resolves a landing node to its public host:port.
@@ -374,6 +413,57 @@ func (r *Repository) LeiKwanUserNames(ids []int64) map[int64]string {
 		out[u.ID] = u.User
 	}
 	return out
+}
+
+// LeiKwanUsersExpired (plan 268): the users that are expired at nowMs — their
+// 利群 rules show 已到期 like normal rules and no new ones can be created.
+func (r *Repository) LeiKwanUsersExpired(ids []int64, nowMs int64) map[int64]bool {
+	out := map[int64]bool{}
+	if len(ids) == 0 {
+		return out
+	}
+	var users []model.User
+	if err := r.db.Select("id, exp_time").Where("id IN ?", ids).Find(&users).Error; err != nil {
+		return out
+	}
+	for _, u := range users {
+		if u.ExpTime > 0 && u.ExpTime <= nowMs {
+			out[u.ID] = true
+		}
+	}
+	return out
+}
+
+// LeiKwanTunnelGroups (plan 268): the 线路分组 of each tunnel, ordered like
+// the rule picker (inx, id), for the 备线隧道 picker.
+func (r *Repository) LeiKwanTunnelGroups() (map[int64][]LeiKwanTunnelGroupRef, error) {
+	var groups []model.TunnelGroup
+	if err := r.db.Select("id, name, color, inx").Where("status = 1").Order("inx, id").Find(&groups).Error; err != nil {
+		return nil, err
+	}
+	var links []model.TunnelGroupTunnel
+	if err := r.db.Select("tunnel_group_id, tunnel_id").Find(&links).Error; err != nil {
+		return nil, err
+	}
+	byGroup := map[int64][]int64{}
+	for _, l := range links {
+		byGroup[l.TunnelGroupID] = append(byGroup[l.TunnelGroupID], l.TunnelID)
+	}
+	out := map[int64][]LeiKwanTunnelGroupRef{}
+	for i, g := range groups {
+		for _, t := range byGroup[g.ID] {
+			out[t] = append(out[t], LeiKwanTunnelGroupRef{ID: g.ID, Name: g.Name, Color: g.Color, Order: i})
+		}
+	}
+	return out, nil
+}
+
+// LeiKwanTunnelGroupRef is one 线路分组 a tunnel belongs to.
+type LeiKwanTunnelGroupRef struct {
+	ID    int64  `json:"id"`
+	Name  string `json:"name"`
+	Color string `json:"color"`
+	Order int    `json:"order"`
 }
 
 // FindNodeIDByServerIP: the FLVX node with this public address (names only).

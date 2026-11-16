@@ -9,6 +9,7 @@ import {
 import { Button } from "@/shadcn-bridge/heroui/button";
 import { Pill } from "@/pages/landing/pill";
 import { LineChip, PipeChip } from "@/pages/leikwan/panel/shared";
+import { BackupRebuildButton } from "@/pages/leikwan/panel/backup-tunnel";
 
 // Plan 266: the tunnel group 「利群汇聚」 — one row per 利群专线 (route, entry
 // 按授权, the rules on it, 备线隧道, 利群加速 summary) + the pipe-mode tunnel
@@ -37,11 +38,15 @@ export function LeiKwanLinesTable({
   data,
   h5,
   onEdit,
+  onChanged,
 }: {
   data: LeiKwanLineList;
   h5: boolean;
   onEdit: (line: LeiKwanLine) => void;
+  // Plan 268: reload after 「按新备线重建」.
+  onChanged?: () => void;
 }) {
+  const changed = () => onChanged?.();
   const expand = useExpandOne(data.lines.map((l) => l.id));
 
   if (h5) {
@@ -65,6 +70,7 @@ export function LeiKwanLinesTable({
               <AccelPills line={line} />
             </ExpandField>
             <ExpandActions>
+              <BackupRebuildButton line={line} onDone={changed} />
               <Button
                 color="primary"
                 size="sm"
@@ -128,6 +134,11 @@ export function LeiKwanLinesTable({
                 <span className="line-clamp-2">
                   {line.backupTunnelName || "不建"}
                 </span>
+                {(line.backupStats?.stale || 0) > 0 && (
+                  <div className="mt-1">
+                    <BackupRebuildButton line={line} onDone={changed} />
+                  </div>
+                )}
               </td>
               <td className="px-3 py-2.5">
                 <AccelPills line={line} />

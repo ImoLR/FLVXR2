@@ -65,6 +65,8 @@ export default function DashboardPage() {
     fetchQuotaHistory,
     deleteQuotaHistory,
   } = useDashboardData();
+  // Plan 268: 已用规则 = normal rules + 利群 rules (both count toward 总规则数).
+  const usedRules = forwardList.length + (userInfo.leikwanRuleCount || 0);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [historyToDelete, setHistoryToDelete] = useState<number | null>(null);
   const [autoRenewSwitchLoading, setAutoRenewSwitchLoading] = useState(false);
@@ -421,7 +423,7 @@ export default function DashboardPage() {
 
       return totalLimit > 0 ? Math.min((totalUsed / totalLimit) * 100, 100) : 0;
     } else if (type === "forwards") {
-      const totalUsed = forwardList.length;
+      const totalUsed = usedRules;
       const totalLimit = userInfo.num || 0;
 
       // 无限制时返回0%
@@ -700,12 +702,12 @@ export default function DashboardPage() {
                 )}
                 {(userInfo.num || 0) > 0 &&
                 userInfo.num !== 99999 &&
-                forwardList.length > (userInfo.num || 0) ? (
+                usedRules > (userInfo.num || 0) ? (
                   <p
                     className="text-xs text-warning mt-1 truncate"
                     title="已超出规则上限，删除部分规则后才能新建"
                   >
-                    {`${forwardList.length} / ${userInfo.num}（已超出）`}
+                    {`${usedRules} / ${userInfo.num}（已超出）`}
                   </p>
                 ) : (
                   <p className="text-xs text-default-500 mt-1 truncate">
@@ -732,7 +734,7 @@ export default function DashboardPage() {
             }
             iconClassName="bg-orange-100 dark:bg-orange-500/20"
             title="已用规则"
-            value={forwardList.length}
+            value={usedRules}
           />
         </div>
         {!isAdmin && (

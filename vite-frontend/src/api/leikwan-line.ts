@@ -82,6 +82,36 @@ export interface LeiKwanLine {
     ruleName: string;
     values: LeiKwanHostValue[];
   }[];
+  // Plan 268: auto / linked backups and how many 「按新备线重建」 would change.
+  backupStats?: { auto: number; linked: number; stale: number };
+}
+
+// Plan 268: any tunnel can be a line's 备线隧道; path + 线路分组 + the
+// 前置 → backup-entry latency the panel already measured.
+export interface LeiKwanBackupTunnel {
+  id: number;
+  name: string;
+  type: number;
+  entryNames: string;
+  entryNodeIds?: number[];
+  hops?: string[];
+  exits?: string[];
+  groups?: { id: number; name: string; color: string; order: number }[];
+  frontLatency?: {
+    frontId: number;
+    entryId: number;
+    entryName: string;
+    ms: number;
+    ok: boolean;
+    same?: boolean;
+    far?: boolean;
+  }[];
+}
+
+export interface LeiKwanFront {
+  id: number;
+  name: string;
+  grants: number;
 }
 
 export interface LeiKwanQuota {
@@ -109,12 +139,9 @@ export interface LeiKwanLineList {
   }[];
   quota: LeiKwanQuota;
   routes: { id: number; label: string; available: boolean }[];
-  backupTunnels: {
-    id: number;
-    name: string;
-    type: number;
-    entryNames: string;
-  }[];
+  backupTunnels: LeiKwanBackupTunnel[];
+  fronts?: LeiKwanFront[];
+  frontFarMs?: number;
   triggers: LeiKwanTrigger[];
   accountReady: boolean;
 }
@@ -128,9 +155,6 @@ export interface LeiKwanGrant {
   mainEntryHost?: string;
   mainEntryOutsideGroup?: boolean;
   backupLine: boolean;
-  num: number;
-  flowGb: number;
-  expTime: number;
   status: number;
   ruleCount: number;
 }
@@ -161,6 +185,8 @@ export interface LeiKwanRule {
   createdTime: number;
   backupOn: boolean;
   backupError?: string;
+  // Plan 268: the owner's account is past its 到期.
+  userExpired?: boolean;
   landing: {
     kind: "node" | "manual";
     landingNodeId?: number;
@@ -201,6 +227,8 @@ export interface LeiKwanRuleOptions {
   ownerId: number;
   grant?: LeiKwanGrant;
   grantError?: string;
+  // Plan 268: grantError comes from the user's 到期 / 总规则数.
+  userBlocked?: boolean;
   lines: { id: number; name: string; routeLabel: string; backup: boolean }[];
   landings: {
     id: number;
@@ -347,9 +375,6 @@ export const saveLeiKwanGrant = (body: {
   userId: number;
   mainEntryNodeId: number;
   backupLine: boolean;
-  num: number;
-  flowGb: number;
-  expTime: number;
   status?: number;
 }) =>
   lk<{ grant: LeiKwanGrant; movedRules: number; warnings: string[] }>(
@@ -370,6 +395,17 @@ export const applyLeiKwanImport = (forwardIds: number[]) =>
     skipped: string[];
   }>("import/apply", { confirmed: true, forwardIds });
 export const getLeiKwanHosts = () => lk<LeiKwanHostList>("host/list");
+export const rebuildLeiKwanLineBackups = (lineId: number) =>
+  lk<{
+    result: {
+      rebuilt: number;
+      created: number;
+      removed: number;
+      unchanged: number;
+      linked: number;
+    };
+    warnings: string[];
+  }>("line/backup-rebuild", { lineId });
 export const retryLeiKwanBackup = (id: number) =>
   lk("rule/backup-retry", { id });
 

@@ -9,7 +9,6 @@ import toast from "react-hot-toast";
 
 import { saveLeiKwanGrant } from "@/api/leikwan-line";
 import { Button } from "@/shadcn-bridge/heroui/button";
-import { Input } from "@/shadcn-bridge/heroui/input";
 import {
   Modal,
   ModalBody,
@@ -25,14 +24,9 @@ import { LabeledSwitch, QuotaPill } from "@/pages/leikwan/panel/shared";
 // here once for every 利群 line; changing it moves all of the user's 利群 rule
 // addresses (the LeiKwan ports are the same on every entry machine).
 // 备用入口 is parked (user 11-16), so there is no field for it.
-
-const toDate = (ms: number) => {
-  if (!ms) return "";
-  const d = new Date(ms);
-  const p = (n: number) => String(n).padStart(2, "0");
-
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
-};
+// Plan 268 (user 11-17): the grant is only 主入口 + 备线. 利群 rules count
+// toward the user's 总规则数 and follow the user's 到期; traffic is not shown
+// until step 2 measures it.
 
 export function LeiKwanGrantDialog({
   isOpen,
@@ -58,9 +52,6 @@ export function LeiKwanGrantDialog({
   const [userId, setUserId] = useState("");
   const [entry, setEntry] = useState("");
   const [backupLine, setBackupLine] = useState(true);
-  const [num, setNum] = useState("2");
-  const [flow, setFlow] = useState("100");
-  const [exp, setExp] = useState("");
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -68,9 +59,6 @@ export function LeiKwanGrantDialog({
     setUserId(user ? String(user.id) : grant ? String(grant.userId) : "");
     setEntry(grant ? String(grant.mainEntryNodeId) : "");
     setBackupLine(grant ? grant.backupLine : true);
-    setNum(String(grant?.num ?? 2));
-    setFlow(String(grant?.flowGb ?? 100));
-    setExp(toDate(grant?.expTime || 0));
   }, [isOpen, user, grant]);
 
   const entryNode = entries.find((e) => String(e.id) === entry);
@@ -95,9 +83,6 @@ export function LeiKwanGrantDialog({
       userId: uid,
       mainEntryNodeId: eid,
       backupLine,
-      num: parseInt(num || "0", 10) || 0,
-      flowGb: parseInt(flow || "0", 10) || 0,
-      expTime: exp ? new Date(`${exp}T23:59:59`).getTime() : 0,
     });
 
     setSaving(false);
@@ -185,42 +170,17 @@ export function LeiKwanGrantDialog({
               备线 {backupLine ? "开" : "关"}
             </LabeledSwitch>
             <p className="mt-1 text-xs text-default-500">
-              开：这个用户的每条利群规则都自动带一条备线（专线设置的备线隧道，默认深港ixp1，到同一落地）；日志快切时走它。
+              开：这个用户的每条利群规则都自动带一条备线（每条专线自己设的备线隧道，到同一落地）；日志快切时走它，经主入口转发，用户地址不变。
               关：自动备线删掉（导入时链接的现有备线不动）。
             </p>
           </div>
-          <div className="grid grid-cols-3 gap-2">
-            <Input
-              inputMode="numeric"
-              label="规则数"
-              size="sm"
-              value={num}
-              variant="bordered"
-              onChange={(e) => setNum(e.target.value.replace(/\D/g, ""))}
-            />
-            <Input
-              endContent={<span className="text-xs text-default-400">GB</span>}
-              inputMode="numeric"
-              label="流量"
-              size="sm"
-              value={flow}
-              variant="bordered"
-              onChange={(e) => setFlow(e.target.value.replace(/\D/g, ""))}
-            />
-            <Input
-              label="到期"
-              size="sm"
-              type="date"
-              value={exp}
-              variant="bordered"
-              onChange={(e) => setExp(e.target.value)}
-            />
-          </div>
           <div className="flex flex-wrap items-center gap-2 text-xs text-default-500">
             <QuotaPill quota={quota} />
-            名额是整个利群账号共用的；授权时不扣，建规则时才扣。规则数 0 =
-            不限；流量第一步只记录。
+            名额是整个利群账号共用的；授权时不扣，建规则时才扣。
           </div>
+          <p className="text-xs text-default-500">
+            规则数和到期跟用户：利群规则算进用户的总规则数，用户到期后不能再建。
+          </p>
           <p className="text-xs text-default-400">
             备用入口：暂不做（以后再定）。
           </p>

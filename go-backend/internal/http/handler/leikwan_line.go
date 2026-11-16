@@ -47,6 +47,7 @@ func (h *Handler) registerLeiKwanLines(mux *http.ServeMux) {
 		"setting/save": h.leikwanSettingSave, "grant/list": h.leikwanGrantList, "grant/save": h.leikwanGrantSave,
 		"grant/delete": h.leikwanGrantDelete, "import/preview": h.leikwanImportPreview, "import/apply": h.leikwanImportApply,
 		"host/list": h.leikwanHostList, "host/import": h.leikwanHostImport, "rule/backup-retry": h.leikwanRuleBackupRetry,
+		"line/backup-rebuild": h.leikwanLineBackupRebuild,
 	}
 	for path, fn := range admin {
 		fn := fn
@@ -431,6 +432,7 @@ func (h *Handler) leikwanLineList(w http.ResponseWriter, r *http.Request) {
 		tunnelName[t.ID] = t.Name
 	}
 	hosts := h.leiKwanHostContexts()
+	backupStats := h.leiKwanLineBackupStats(lines, rules)
 	byLine := map[int64][]model.LeiKwanRule{}
 	for _, x := range rules {
 		byLine[x.LineID] = append(byLine[x.LineID], x)
@@ -447,6 +449,7 @@ func (h *Handler) leikwanLineList(w http.ResponseWriter, r *http.Request) {
 			"id": l.ID, "name": l.Name, "routeId": l.RouteID, "routeLabel": l.RouteLabel, "transport": l.Transport,
 			"backupTunnelId": l.BackupTunnelID, "backupTunnelName": tunnelName[l.BackupTunnelID], "accel": parseLeiKwanAccel(l.Accel),
 			"inx": l.Inx, "status": l.Status, "ruleCount": len(byLine[l.ID]), "forwardIds": forwardIDs, "hostValues": hostRows,
+			"backupStats": backupStats[l.ID],
 		})
 	}
 	// The pipe-mode tunnels (plan 094) are shown beside the group, not in it.
@@ -478,14 +481,18 @@ func (h *Handler) leikwanLineList(w http.ResponseWriter, r *http.Request) {
 		groupName = group.Name
 	}
 	global := parseLeiKwanGlobal(setting.Global)
+	entryNodes := h.leiKwanEntryNodes(setting.EntryGroupID)
+	fronts := h.leiKwanFronts(entryNodes)
 	response.WriteJSON(w, response.OK(map[string]interface{}{
 		"setting":       map[string]interface{}{"accountId": setting.AccountID, "entryGroupId": setting.EntryGroupID, "entryGroupName": groupName, "groupName": setting.GroupName, "global": global},
-		"entryNodes":    h.leiKwanEntryNodes(setting.EntryGroupID),
+		"entryNodes":    entryNodes,
+		"fronts":        fronts,
+		"frontFarMs":    leiKwanFrontFarMs,
 		"lines":         out,
 		"pipes":         pipes,
 		"quota":         quota,
 		"routes":        routes,
-		"backupTunnels": tunnels,
+		"backupTunnels": h.leiKwanBackupTunnelViews(tunnels, fronts),
 		"triggers":      leiKwanTriggers,
 		"accountReady":  account != nil,
 	}))
@@ -522,9 +529,11 @@ func (h *Handler) leikwanLineSave(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if req.BackupTunnelID > 0 {
+		// Plan 268: any existing tunnel (the admin's own pick, like the rule
+		// picker); the backup's exit is always the rule's landing.
 		t, err := h.getTunnelRecord(req.BackupTunnelID)
-		if err != nil || t == nil || t.Type != 1 {
-			leiKwanError(w, errors.New("备线隧道必须是端口转发隧道"))
+		if err != nil || t == nil {
+			leiKwanError(w, errors.New("备线隧道不存在"))
 			return
 		}
 	}
@@ -647,8 +656,10 @@ func (h *Handler) leikwanSettingSave(w http.ResponseWriter, r *http.Request) {
 // ---- grants (授权：主入口 + 备线) ----
 
 func (h *Handler) leiKwanGrantView(g model.LeiKwanGrant, entries []leiKwanEntryNode, ruleCount int64, userName string) map[string]interface{} {
+	// Plan 268: a grant is only 主入口 + 备线. 规则数 / 到期 come from the user
+	// (总规则数, user expiry); the stored num / flow_gb / exp_time are ignored.
 	v := map[string]interface{}{"id": g.ID, "userId": g.UserID, "userName": userName, "mainEntryNodeId": g.MainEntryNodeID, "backupLine": g.BackupLine == 1,
-		"num": g.Num, "flowGb": g.FlowGB, "expTime": g.ExpTime, "status": g.Status, "ruleCount": ruleCount, "updatedTime": g.UpdatedTime}
+		"status": g.Status, "ruleCount": ruleCount, "updatedTime": g.UpdatedTime}
 	if e := leiKwanEntryByID(entries, g.MainEntryNodeID); e != nil {
 		v["mainEntryName"], v["mainEntryHost"] = e.Name, e.Host
 	} else if n, err := h.repo.GetNodeRecord(g.MainEntryNodeID); err == nil && n != nil {
@@ -687,17 +698,15 @@ func (h *Handler) leikwanGrantSave(w http.ResponseWriter, r *http.Request) {
 		UserID          int64 `json:"userId"`
 		MainEntryNodeID int64 `json:"mainEntryNodeId"`
 		BackupLine      bool  `json:"backupLine"`
-		Num             int   `json:"num"`
-		FlowGB          int64 `json:"flowGb"`
-		ExpTime         int64 `json:"expTime"`
-		Status          *int  `json:"status"`
+		// Plan 268: accepted for old (cached) clients and ignored — the
+		// grant no longer carries 规则数 / 流量 / 到期.
+		Num     json.RawMessage `json:"num"`
+		FlowGB  json.RawMessage `json:"flowGb"`
+		ExpTime json.RawMessage `json:"expTime"`
+		Status  *int            `json:"status"`
 	}
 	if err := leiKwanDecode(r, &req); err != nil {
 		leiKwanError(w, err)
-		return
-	}
-	if req.Num < 0 || req.Num > 1000 || req.FlowGB < 0 || req.ExpTime < 0 {
-		leiKwanError(w, errors.New("规则数、流量或到期时间无效"))
 		return
 	}
 	if u, err := h.repo.GetUserByID(req.UserID); err != nil || u == nil {
@@ -726,7 +735,7 @@ func (h *Handler) leikwanGrantSave(w http.ResponseWriter, r *http.Request) {
 		g = old
 	}
 	prevEntry, prevBackup := g.MainEntryNodeID, g.BackupLine
-	g.MainEntryNodeID, g.BackupLine, g.Num, g.FlowGB, g.ExpTime = req.MainEntryNodeID, map[bool]int{true: 1, false: 0}[req.BackupLine], req.Num, req.FlowGB, req.ExpTime
+	g.MainEntryNodeID, g.BackupLine = req.MainEntryNodeID, map[bool]int{true: 1, false: 0}[req.BackupLine]
 	if req.Status != nil {
 		g.Status = map[bool]int{true: 1, false: 0}[*req.Status == 1]
 	}
@@ -926,6 +935,7 @@ type leiKwanRuleCtx struct {
 	landings map[int64]map[string]interface{}
 	hosts    []leiKwanHostCtx
 	shared   map[int64][]int64
+	expired  map[int64]bool
 }
 
 func (h *Handler) leiKwanRuleContext(rules []model.LeiKwanRule, admin bool) *leiKwanRuleCtx {
@@ -959,6 +969,7 @@ func (h *Handler) leiKwanRuleContext(rules []model.LeiKwanRule, admin bool) *lei
 	}
 	c.backups, _ = h.repo.LeiKwanBackupForwards(ids)
 	c.users = h.repo.LeiKwanUserNames(users)
+	c.expired = h.repo.LeiKwanUsersExpired(users, time.Now().UnixMilli())
 	if admin {
 		c.hosts = h.leiKwanHostContexts()
 	}
@@ -979,6 +990,8 @@ func (h *Handler) leiKwanRuleView(x model.LeiKwanRule, c *leiKwanRuleCtx, admin 
 		"id": x.ID, "name": x.Name, "lineId": x.LineID, "lineName": line.Name, "routeLabel": line.RouteLabel,
 		"listenPort": x.ListenPort, "transport": x.Transport, "status": x.Status, "createdTime": x.CreatedTime,
 		"backupOn": x.BackupForwardID > 0, "backupError": x.BackupError,
+		// Plan 268: the owner's 到期 (shown 已到期 like normal rules).
+		"userExpired": c.expired[x.UserID],
 	}
 	landing := map[string]interface{}{"kind": "manual", "host": x.TargetHost, "port": x.TargetPort}
 	if x.LandingNodeID > 0 {
@@ -1096,9 +1109,7 @@ func leiKwanGrantUsable(g *model.LeiKwanGrant) error {
 	if g.Status != 1 {
 		return errors.New("利群汇聚授权已停用")
 	}
-	if g.ExpTime > 0 && g.ExpTime < time.Now().UnixMilli() {
-		return errors.New("利群汇聚授权已到期")
-	}
+	// Plan 268: no grant-level expiry; the user's own 到期 applies.
 	return nil
 }
 
@@ -1124,6 +1135,10 @@ func (h *Handler) leikwanRuleOptions(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := leiKwanGrantUsable(g); err != nil {
 		out["grantError"] = err.Error()
+	} else if err := h.repo.CheckLeiKwanRuleLimit(owner, time.Now().UnixMilli(), role != 0); err != nil {
+		// Plan 268: the user's 到期 / 总规则数 block a new 利群 rule up front.
+		out["grantError"] = err.Error()
+		out["userBlocked"] = true
 	}
 	lines, _ := h.repo.ListLeiKwanLines()
 	ls := []map[string]interface{}{}
@@ -1218,11 +1233,11 @@ func (h *Handler) leikwanRuleCreate(w http.ResponseWriter, r *http.Request) {
 		leiKwanError(w, err)
 		return
 	}
-	if !admin && g.Num > 0 {
-		if n, _ := h.repo.CountLeiKwanRules(owner); n >= int64(g.Num) {
-			leiKwanError(w, fmt.Errorf("利群规则已达授权上限（%d 条）", g.Num))
-			return
-		}
+	// Plan 268: the user's status / 到期 and 总规则数 (user.num, normal + 利群
+	// rules) like a normal rule; an admin actor is exempt from the count.
+	if err := h.repo.CheckLeiKwanRuleLimit(owner, time.Now().UnixMilli(), ruleLimitApplies(role)); err != nil {
+		leiKwanError(w, err)
+		return
 	}
 	line, err := h.repo.GetLeiKwanLine(req.LineID)
 	if err != nil || line == nil || line.Status != 1 {

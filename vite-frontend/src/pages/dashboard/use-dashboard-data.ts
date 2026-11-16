@@ -31,6 +31,8 @@ export interface DashboardUserInfo {
   inFlow: number;
   outFlow: number;
   num: number;
+  // Plan 268: 利群 rules count toward 总规则数 (已用规则 adds them).
+  leikwanRuleCount?: number;
   expTime?: string | number;
   flowResetTime?: number;
   renewalAmount?: number;
