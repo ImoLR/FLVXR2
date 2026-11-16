@@ -36,6 +36,7 @@ type Fake struct {
 	FailCreateAfterSave bool
 	FailPatchAfterSave  bool
 	NextID              int64
+	PortBase            int // > 0: assign the lowest free listen port from here (plan 266 lab)
 	creates             map[string]savedCreate
 }
 
@@ -182,6 +183,15 @@ func (f *Fake) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			port := 11000 + int(f.NextID)
+			if f.PortBase > 0 {
+				// Like the platform: the lowest free listen port from PortBase.
+				used := map[int]bool{}
+				for _, v := range f.Forwards {
+					used[v.ListenPort] = true
+				}
+				for port = f.PortBase; used[port]; port++ {
+				}
+			}
 			if req.ListenPort != nil {
 				port = *req.ListenPort
 			}
@@ -256,4 +266,38 @@ func (f *Fake) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	fail(w, 404, "not_found")
+}
+
+// SeedReal8 (plan 266) seeds the eight forwards of service 39 as they ran on
+// 2026-11-16 (route, listen port, target from the hosts' /etc/ultra files):
+// quota 8 / 8, so creating one more must be refused.
+func (f *Fake) SeedReal8() {
+	f.Mu.Lock()
+	defer f.Mu.Unlock()
+	route := map[int64]leikwan.RouteRef{}
+	for _, r := range f.Options.Routes {
+		route[r.ID] = leikwan.RouteRef{ID: r.ID, Label: r.Label}
+	}
+	for _, v := range []struct {
+		id, route int64
+		port      int
+		host      string
+		target    int
+		transport string
+	}{
+		{263, 21, 10018, "boilhkt99u.imgamer.top", 10016, "tcp+udp"},
+		{264, 24, 10015, "188.253.118.132", 60061, "tcp+udp"},
+		{279, 21, 10019, "43.199.143.188", 10022, "tcp+udp"},
+		{280, 29, 10020, "boilhinet2.imgamer.top", 12311, "tcp+udp"},
+		{281, 29, 10016, "facseednet.imgamer.top", 10015, "tcp+udp"},
+		{282, 23, 10017, "boilhinet2.imgamer.top", 12311, "tcp+udp"},
+		{318, 21, 10044, "43.199.143.188", 10044, "tcp"},
+		{540, 21, 10021, "boilhkt99u.imgamer.top", 10019, "tcp+udp"},
+	} {
+		f.Forwards[v.id] = leikwan.Forward{ID: v.id, ServiceID: f.ServiceID, Route: route[v.route], ListenPort: v.port, Transport: v.transport, Target: leikwan.Target{Source: "manual", Host: v.host, Port: v.target}, State: "active", Revision: 1, CreatedAt: "2026-11-16 00:00:00", UpdatedAt: "2026-11-16 00:00:00"}
+	}
+	f.Stored = 8
+	if f.NextID < 600 {
+		f.NextID = 600
+	}
 }

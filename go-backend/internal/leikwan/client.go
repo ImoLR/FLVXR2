@@ -108,7 +108,14 @@ type Client struct {
 	readSpacing, writeSpacing, ttl time.Duration
 }
 
+// labBaseURL is only ever set by the build-tagged lab file (leikwanlab);
+// release builds always talk to BaseURL.
+var labBaseURL string
+
 func NewClient(base string, transport http.RoundTripper) *Client {
+	if base == "" && labBaseURL != "" {
+		base = labBaseURL
+	}
 	if base == "" {
 		base = BaseURL
 	}

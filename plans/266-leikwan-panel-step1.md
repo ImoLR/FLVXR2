@@ -1,0 +1,59 @@
+# 266 — 利群专线入面板 第一步（只做出来看效果，BUILD ONLY）
+
+基线：tag `3.0.27-fork.136`（4678141f），分支 `feature/3.0.27-leikwan-panel`，worktree `/root/projects/flvxx/flvxx-leikwan-panel`。
+设计稿 v2 + 用户 11-16 修改（备用入口暂缓；备线放进利群加速、全自动；自建隧道授权入口暂缓）。
+不打 tag、不发布、不改生产面板、不改任何主机、不调用利群真实 API（实验室只用 fake API）。
+
+## 设计要点
+
+- **存储独立**：利群专线 / 规则 / 授权 / 主机状态放新表（`leikwan_line`、`leikwan_rule`、`leikwan_grant`、
+  `leikwan_setting`、`leikwan_host_state`），不写 `tunnel` / `forward` / `forward_port`，所以普通隧道、规则、
+  节点下发、预热池、最优、订阅等所有现有路径完全不受影响（入口机上 LeiKwan 端口不会被 FLVX 下发服务占用）。
+  界面上仍以「隧道（利群专线）」「规则」「授权」呈现。
+- **节点分组「利群入口」**：用现有 `node_group`，`leikwan_setting.entry_group_id` 指向它。
+- **入口在授权时定**：`leikwan_grant`（每用户一行）= 主入口（必选，组内节点）+ 备线开关 + 规则数/流量/到期；
+  `backup_entry_node_id` 只留字段，不做界面。规则地址 = 主入口公网 IP : 利群端口，读时计算，改主入口即全部跟着变。
+  plan 083 的 `tunnel_group_tunnel_entry` 是「用户组 × 隧道」粒度，不适合「每个用户一个主入口」，所以不用。
+- **规则 = 一条利群转发**：经现有有界客户端（限速/缓存/幂等键/ETag）创建、改落地、删除；落地 = 面板落地节点或
+  （仅管理员）手动 host:port；显示「将占用 1 个利群名额」+ 当前名额。
+- **备线（利群加速里，全自动）**：授权开了备线 → 每条利群规则自动建一条 FLVX 端口转发规则（专线设置的备线隧道，
+  默认 深港ixp1 端口转发）到同一落地；名称 `備線·<转发号>`，归管理员（与现有 148/595/… 一致），走普通建规则
+  路径（自动避开利群端口，plan 265 合并后同样生效）；删规则 → 删备线；换落地 → 改备线目标；导入时链接现有备线不新建。
+- **计费**：主线字节 FLVX 第一步看不到（第二步由入口 agent 上报）；备线规则归管理员，不算进用户规则数、
+  不重复计费；授权里的流量额度第一步只保存显示。
+- **利群加速**：专线默认值 + 规则覆盖（预热、日志快切、return_check），全局触发条件只读带来源，入口机状态只读；
+  每项都显示「主机现值」（只读 SSH 快照导入，已去掉密钥）。
+
+## 检查清单
+
+- [x] 读 memory / 设计稿 / 代码；建 worktree；生产库只读复制到 /root/lpk-lab；4 台入口机只读快照（密钥已去除）。
+- [x] 后端：模型 + 迁移（SQLite/PG）、仓储方法、管理员/用户 API（专线、加速、授权、规则、备线、导入、主机状态）。
+- [x] 后端测试：fake API 驱动的契约测试（SQLite + PostgreSQL）；`go test ./...` 与 fork.136 基线对比；go vet。
+- [x] 前端：利群汇聚页（专线/加速/入口组/授权/导入）、隧道页「利群汇聚」组、用户权限弹窗授权、规则页利群区（管理员/用户，桌面 + H5）。
+- [x] `npm run build`；现有页面不变（只加）。
+- [x] 实验室：分支面板 + 生产库副本 + fake 利群 API（真实 8 条），导入 → 授权（主入口 + 备线）→ 用户建规则自动备线 → 换入口 → 删规则备线消失。
+- [x] 截图画廊 /root/mmwx-preview/leikwan-panel/（桌面 + H5 390，浅色 + 深色，中文说明）。
+- [x] 提交、推送、CI 绿；账本 RELEASE-LEDGER 266 行；FLVX memory 266 笔记。
+- [x] 清理实验室 / 临时文件；中文总结 /root/flvx-workers/runs/leikwan-panel-step1/summary.md。
+
+## 记录
+
+- 主机快照（11-16 21:22 台湾，只读 SSH，密钥/token/租约哈希都去掉）：百度云广州 agent 2026.11.15.1 / 核心 11.13.1，
+  阿里广州同上；火山广州、火山上海 10.12.1。前端：前三台测试版 test-ssfilter-coalesce-warmflush-paced + 快切 v4 测试版，
+  火山上海稳定版 + 快切稳定版、日志快切 v9 全部只记录。warm：263=10、264/280/282=4、backup:*=4、standby 2、pace 100；
+  百度另有 540=10（只在百度）。首包合并四台都 on budget_ms=2 min=59。手机备线：百度 19263–19282，火山广州 19047。
+  在线设备名额主机上读不到。清单外发现：日志快切保持 30 s / 新租约稳定 30 s / 宽限 switch / io_error 只记录、
+  选路 auto、救命版 flux_agent（火山广州、火山上海）、flvx-dnscache、稳定版前端装着未启用、百度已切厂商 2026.11。
+- 实验室（unshare -n -m：只有回环，私有 /etc/hosts；scope MemoryMax 1100M；生产库在线备份副本，利群 token 换成假 token）：
+  导入 7 条 + 跳过 318，利群写入 0 次，重复导入 0 条；节点分组「利群入口」= 火山广州/百度云广州/阿里广州/火山上海；
+  管理员授权主入口 百度云广州；用户 test 授权 阿里广州 + 备线（UI 保存）；名额 8/8 时建规则被拦；
+  上限调到 30 后 UI 建规则 → 利群转发 600（端口 10022）+ 自动备线 620（深港ixp1 端口转发 → 同一落地）；
+  改主入口 → 地址 101.96.213.164:10022；换落地 → 利群目标 + 备线目标一起改；删规则 → 600 和 620 都没了；
+  无授权用户规则页不出现利群区；页面 JS 错误 0。截图 54 张：/root/mmwx-preview/leikwan-panel/。
+- 与 fork.137（plan 265 端口跳过）`git merge-tree` 无冲突，未合并（发布时合并）。
+- 测试：新增契约测试 TestLeiKwanLinePanelContract（SQLite + PostgreSQL）+ TestLeiKwanImportPreviewEmptyListsContract；
+  全量 `go test ./...`（带 PG DSN）全部 ok、0 失败（无需对比基线）；`go vet ./...` 0；前端 tsc + eslint（新文件）+ `npm run build` 通过。
+  CI 43888640531 四项全绿（Go Backend / Frontend / Agent / PG Contract）。
+- 清理：/root/lpk-lab（生产库副本、二进制、Chromium）已删；实验室脚本 + 去密钥的主机快照留在
+  /root/flvx-workers/runs/leikwan-panel-step1/lab/。worktree 的 node_modules 留着给下一轮改界面用。
+- 账本 266 行「built, waits for user screen approval」；memory leikwan-panel-step1。

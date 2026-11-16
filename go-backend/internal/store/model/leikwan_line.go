@@ -1,0 +1,146 @@
+package model
+
+// Plan 266 利群专线入面板 (step 1). These tables are deliberately separate from
+// tunnel / forward / forward_port: a 利群 rule is served by the LeiKwan client
+// on the entry machine, so nothing here may ever make FLVX deploy a service on
+// the LeiKwan listen port, and no existing runtime path reads these tables.
+
+// LeiKwanLine is one LeiKwan route offered as a tunnel of the type 「利群专线」.
+// It has no entry nodes: a user's entry comes from their LeiKwanGrant.
+type LeiKwanLine struct {
+	ID         int64  `gorm:"primaryKey;autoIncrement" json:"id"`
+	AccountID  int64  `gorm:"not null;uniqueIndex:idx_leikwan_line_route" json:"accountId"`
+	RouteID    int64  `gorm:"not null;uniqueIndex:idx_leikwan_line_route" json:"routeId"`
+	Name       string `gorm:"type:varchar(100);not null" json:"name"`
+	RouteLabel string `gorm:"type:varchar(100);not null;default:''" json:"routeLabel"`
+	Transport  string `gorm:"type:varchar(10);not null;default:'tcp+udp'" json:"transport"`
+	// BackupTunnelID: the FLVX port-forward tunnel the automatic 备线 of this
+	// line's rules is created on (0 = no automatic backup).
+	BackupTunnelID int64 `gorm:"not null;default:0" json:"backupTunnelId"`
+	// Accel holds the 利群加速 defaults (JSON of LeiKwanAccel).
+	Accel       string `gorm:"type:text;not null;default:''" json:"-"`
+	Inx         int    `gorm:"not null;default:0" json:"inx"`
+	Status      int    `gorm:"not null;default:1" json:"status"`
+	CreatedTime int64  `gorm:"not null;default:0" json:"createdTime"`
+	UpdatedTime int64  `gorm:"not null;default:0" json:"updatedTime"`
+}
+
+func (LeiKwanLine) TableName() string { return "leikwan_line" }
+
+// LeiKwanGrant: the tunnel group 「利群汇聚」 granted to one user. The main entry
+// (a node of the 「利群入口」 node group) is picked here, once for every 利群
+// line; the user's rule addresses follow it.
+type LeiKwanGrant struct {
+	ID              int64 `gorm:"primaryKey;autoIncrement" json:"id"`
+	UserID          int64 `gorm:"not null;uniqueIndex" json:"userId"`
+	MainEntryNodeID int64 `gorm:"not null;default:0" json:"mainEntryNodeId"`
+	// BackupEntryNodeID is reserved for the parked 备用入口 idea (no UI yet).
+	BackupEntryNodeID int64 `gorm:"not null;default:0" json:"backupEntryNodeId"`
+	// BackupLine 1 = every 利群 rule of the user gets an automatic 备线.
+	BackupLine  int   `gorm:"not null;default:1" json:"backupLine"`
+	Num         int   `gorm:"not null;default:0" json:"num"`
+	FlowGB      int64 `gorm:"column:flow_gb;not null;default:0" json:"flowGb"`
+	ExpTime     int64 `gorm:"not null;default:0" json:"expTime"`
+	Status      int   `gorm:"not null;default:1" json:"status"`
+	CreatedTime int64 `gorm:"not null;default:0" json:"createdTime"`
+	UpdatedTime int64 `gorm:"not null;default:0" json:"updatedTime"`
+}
+
+func (LeiKwanGrant) TableName() string { return "leikwan_grant" }
+
+// LeiKwanRule is one LeiKwan forward registered as a rule on a 利群专线.
+type LeiKwanRule struct {
+	ID         int64  `gorm:"primaryKey;autoIncrement" json:"id"`
+	UserID     int64  `gorm:"not null;index" json:"userId"`
+	LineID     int64  `gorm:"not null;index" json:"lineId"`
+	AccountID  int64  `gorm:"not null;default:0" json:"accountId"`
+	ForwardID  int64  `gorm:"not null;uniqueIndex" json:"forwardId"`
+	Name       string `gorm:"type:varchar(100);not null" json:"name"`
+	ListenPort int    `gorm:"not null;default:0" json:"listenPort"`
+	Transport  string `gorm:"type:varchar(10);not null;default:''" json:"transport"`
+	// LandingNodeID > 0: the target is the user's panel landing node
+	// (landing_node.id); 0 = manual host:port (admin only).
+	LandingNodeID int64  `gorm:"not null;default:0" json:"landingNodeId"`
+	TargetHost    string `gorm:"type:varchar(255);not null;default:''" json:"targetHost"`
+	TargetPort    int    `gorm:"not null;default:0" json:"targetPort"`
+	ETag          string `gorm:"type:varchar(100);not null;default:''" json:"-"`
+	// BackupForwardID: the FLVX forward that is this rule's 备线 (0 = none).
+	// BackupMode: auto = created by the panel (deleted with the rule),
+	// linked = an existing forward attached by the import.
+	BackupForwardID int64  `gorm:"not null;default:0;index" json:"backupForwardId"`
+	BackupMode      string `gorm:"type:varchar(10);not null;default:''" json:"backupMode"`
+	BackupError     string `gorm:"type:text;not null;default:''" json:"backupError"`
+	// Accel: per-rule 利群加速 overrides (JSON of LeiKwanRuleAccel).
+	Accel       string `gorm:"type:text;not null;default:''" json:"-"`
+	Source      string `gorm:"type:varchar(10);not null;default:'panel'" json:"source"`
+	Status      int    `gorm:"not null;default:1" json:"status"`
+	CreatedTime int64  `gorm:"not null;default:0" json:"createdTime"`
+	UpdatedTime int64  `gorm:"not null;default:0" json:"updatedTime"`
+}
+
+func (LeiKwanRule) TableName() string { return "leikwan_rule" }
+
+// LeiKwanSetting is the single settings row (ID 1) of the 利群汇聚 group.
+type LeiKwanSetting struct {
+	ID           int64  `gorm:"primaryKey" json:"id"`
+	AccountID    int64  `gorm:"not null;default:0" json:"accountId"`
+	EntryGroupID int64  `gorm:"not null;default:0" json:"entryGroupId"`
+	GroupName    string `gorm:"type:varchar(100);not null;default:'利群汇聚'" json:"groupName"`
+	// Global 利群加速 parts (JSON of LeiKwanGlobalAccel): 日志快切 timings and
+	// the default 首包合并 mode with per-entry-host overrides.
+	Global      string `gorm:"type:text;not null;default:''" json:"-"`
+	UpdatedTime int64  `gorm:"not null;default:0" json:"updatedTime"`
+}
+
+func (LeiKwanSetting) TableName() string { return "leikwan_setting" }
+
+// LeiKwanHostState is the latest read-only status of a 利群入口 machine
+// (step 1: an imported, secret-free SSH snapshot; step 2: agent reports).
+type LeiKwanHostState struct {
+	ID         int64  `gorm:"primaryKey;autoIncrement" json:"id"`
+	NodeID     int64  `gorm:"not null;uniqueIndex" json:"nodeId"`
+	Data       string `gorm:"type:text;not null;default:''" json:"-"`
+	Source     string `gorm:"type:varchar(20);not null;default:''" json:"source"`
+	CapturedAt int64  `gorm:"not null;default:0" json:"capturedAt"`
+}
+
+func (LeiKwanHostState) TableName() string { return "leikwan_host_state" }
+
+// LeiKwanAccel: the 利群加速 defaults of a line.
+type LeiKwanAccel struct {
+	Warm        LeiKwanWarm `json:"warm"`
+	SSFilter    string      `json:"ssFilter"` // enforce | off
+	Logswitch   bool        `json:"logswitch"`
+	ReturnCheck bool        `json:"returnCheck"`
+}
+
+// LeiKwanWarm mirrors the entry front's warm file of one line.
+type LeiKwanWarm struct {
+	Main    int  `json:"main"`    // main-line pool size (0 = off)
+	Backup  int  `json:"backup"`  // backup-line pool size
+	Standby int  `json:"standby"` // backup_standby
+	PaceMs  int  `json:"paceMs"`  // paced refill gap
+	Flush   bool `json:"flush"`   // flush on switch and on return
+	// Burst headroom is under A/B test on 百度云广州; '' = not set.
+	Burst string `json:"burst"`
+}
+
+// LeiKwanRuleAccel: per-rule overrides; nil = the line default.
+type LeiKwanRuleAccel struct {
+	WarmMain    *int    `json:"warmMain,omitempty"`
+	SSFilter    *string `json:"ssFilter,omitempty"`
+	Logswitch   *bool   `json:"logswitch,omitempty"`
+	ReturnCheck *bool   `json:"returnCheck,omitempty"`
+	Note        string  `json:"note,omitempty"`
+}
+
+// LeiKwanGlobalAccel: the global 利群加速 parts.
+type LeiKwanGlobalAccel struct {
+	HoldS          int               `json:"holdS"`
+	LeaseSettleS   int               `json:"leaseSettleS"`
+	Grace          string            `json:"grace"`
+	ReturnCheckS   float64           `json:"returnCheckS"`
+	IOError        string            `json:"ioError"`
+	Coalesce       string            `json:"coalesce"`
+	CoalesceByNode map[string]string `json:"coalesceByNode"`
+}

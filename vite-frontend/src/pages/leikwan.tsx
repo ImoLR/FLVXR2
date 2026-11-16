@@ -27,6 +27,7 @@ import {
 } from "@/api/leikwan";
 import { AnimatedPage } from "@/components/animated-page";
 import { LeiKwanProgressModal } from "@/pages/leikwan/progress-modal";
+import { LeiKwanPanelSection } from "@/pages/leikwan/panel/admin-section";
 import { Alert } from "@/shadcn-bridge/heroui/alert";
 import { Button } from "@/shadcn-bridge/heroui/button";
 import { Card, CardBody, CardHeader } from "@/shadcn-bridge/heroui/card";
@@ -330,7 +331,7 @@ export default function LeiKwanPage() {
     });
   const forwardActions = (forward: LeiKwanForward) => (
     <div className="flex flex-wrap gap-2">
-      {!forward.pipe ? (
+      {forward.ruleName && !forward.pipe ? null : !forward.pipe ? (
         <Button
           color="primary"
           size="sm"
@@ -385,11 +386,13 @@ export default function LeiKwanPage() {
     </div>
   );
   const managedLabel = (forward: LeiKwanForward) =>
-    forward.pipe?.tunnelId
-      ? `隧道：${forward.tunnelName || `#${forward.pipe.tunnelId}`}`
-      : forward.pipe
-        ? "管道待绑定隧道"
-        : "非 FLVX 管理 · 只读";
+    forward.ruleName && !forward.pipe
+      ? `利群规则：${forward.ruleName}`
+      : forward.pipe?.tunnelId
+        ? `隧道：${forward.tunnelName || `#${forward.pipe.tunnelId}`}`
+        : forward.pipe
+          ? "管道待绑定隧道"
+          : "非 FLVX 管理 · 只读";
 
   if (!admin)
     return (
@@ -1145,6 +1148,8 @@ export default function LeiKwanPage() {
           </ModalFooter>
         </ModalContent>
       </Modal>
+      {/* Plan 266: 利群专线入面板 (added below the existing cards). */}
+      <LeiKwanPanelSection />
       <LeiKwanProgressModal
         pipeId={progressPipeId}
         onClose={() => setProgressPipeId(null)}
