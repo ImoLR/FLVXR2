@@ -148,6 +148,7 @@ type Server struct {
 	jwtSecret     string
 	upgrader      websocket.Upgrader
 	onNodeOnline  func(nodeID int64)
+	onLeiKwanHost func(nodeID int64, raw json.RawMessage) // plan 269
 	onNodeOffline func(nodeID int64)
 	onNodeMetric  func(nodeID int64, info SystemInfo)
 	onLandingScan func(nodeID int64)                  // plan 202: new unrecorded scan hit
@@ -195,6 +196,7 @@ type SystemInfo struct {
 	LandingReality         int               `json:"landing_reality,omitempty"`     // plan 227: RealityProbe + reality_pins
 	LandingVLESSEnc        int               `json:"landing_vless_enc,omitempty"`   // plan 253: VLESS Encryption inbound + outbounds
 	LeiKwan                *leiKwanReport    `json:"leikwan,omitempty"`
+	LeiKwanHost            json.RawMessage   `json:"leikwanHost,omitempty"` // plan 269, ≤ 1/min, handed to the handler hook
 	EgressIPFamily         string            `json:"egress_ip_family,omitempty"`
 	IPv6RAStatus           *string           `json:"ipv6_ra_status,omitempty"`
 	IPv6RADetail           string            `json:"ipv6_ra_detail,omitempty"`
@@ -336,6 +338,29 @@ func (s *Server) recordLandingScan(ns *nodeSession, nodeID int64, seq int64) {
 	s.mu.RUnlock()
 	if fn != nil {
 		fn(nodeID)
+	}
+}
+
+// SetLeiKwanHostHook (plan 269) receives the 利群主机 report of an entry agent
+// (sent with the system info only when due, ≤ 1/min).
+func (s *Server) SetLeiKwanHostHook(fn func(nodeID int64, raw json.RawMessage)) {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	s.onLeiKwanHost = fn
+	s.mu.Unlock()
+}
+
+func (s *Server) recordLeiKwanHost(nodeID int64, raw json.RawMessage) {
+	if len(raw) == 0 || len(raw) > 1<<20 {
+		return
+	}
+	s.mu.RLock()
+	fn := s.onLeiKwanHost
+	s.mu.RUnlock()
+	if fn != nil {
+		go fn(nodeID, append(json.RawMessage(nil), raw...))
 	}
 }
 
@@ -646,6 +671,7 @@ func (s *Server) handleNode(w http.ResponseWriter, r *http.Request, nodeID int64
 						s.recordEgressDetection(ns, sysInfo.EgressIPFamily)
 						s.recordIPv6RA(ns, sysInfo.IPv6RAStatus, sysInfo.IPv6RADetail)
 						s.recordLeiKwan(ns, sysInfo.LeiKwan)
+						s.recordLeiKwanHost(nodeID, sysInfo.LeiKwanHost)
 						s.recordMachine(nodeID, sysInfo, time.Now())
 						s.recordAddrs(ns, sysInfo.Addrs)
 						s.recordEntryRate(ns, sysInfo.EntryRate)
@@ -737,6 +763,7 @@ func (s *Server) handleNode(w http.ResponseWriter, r *http.Request, nodeID int64
 				s.recordEgressDetection(ns, sysInfo.EgressIPFamily)
 				s.recordIPv6RA(ns, sysInfo.IPv6RAStatus, sysInfo.IPv6RADetail)
 				s.recordLeiKwan(ns, sysInfo.LeiKwan)
+				s.recordLeiKwanHost(nodeID, sysInfo.LeiKwanHost)
 				s.recordMachine(nodeID, sysInfo, time.Now())
 				s.recordDNSCache(ns, sysInfo.DNSCache)
 				_ = s.repo.SetNodeLandingCapabilities(nodeID, sysInfo.LandingCapable, sysInfo.LandingEgress, sysInfo.LandingChain, sysInfo.LandingGuard, sysInfo.LandingConnMode, sysInfo.LandingUserLimits, sysInfo.LandingScanGuard, sysInfo.LandingReality, sysInfo.LandingVLESSEnc)

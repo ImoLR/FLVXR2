@@ -64,6 +64,7 @@ type Handler struct {
 	jobsCancel  context.CancelFunc
 	jobsStarted bool
 	jobsWG      sync.WaitGroup
+	lkKick      chan struct{} // plan 269: 利群主机 sync loop kick
 
 	systemUpgradeMu sync.Mutex
 
@@ -224,6 +225,7 @@ const (
 
 func New(repo *repo.Repository, jwtSecret string, fluxVersion string) *Handler {
 	h := &Handler{
+		lkKick:              make(chan struct{}, 1),
 		leikwan:             leikwan.NewClient("", nil),
 		repo:                repo,
 		jwtSecret:           jwtSecret,
@@ -256,6 +258,7 @@ func New(repo *repo.Repository, jwtSecret string, fluxVersion string) *Handler {
 	h.wsServer.SetNodeOfflineHook(h.onNodeOffline)
 	h.wsServer.SetUpgradeProgressHook(h.upgradeJobs.progress) // plan 248
 	h.wsServer.SetLandingScanHook(h.onLandingScan)
+	h.wsServer.SetLeiKwanHostHook(h.leiKwanHostIngest) // plan 269
 	h.wsServer.SetNodeAddrsHook(h.onNodeAddrs)
 	h.wsServer.SetNodeMetricHook(func(nodeID int64, info ws.SystemInfo) {
 		metricInfo := metrics.SystemInfo{

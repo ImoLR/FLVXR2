@@ -469,3 +469,20 @@ func TestLeiKwanHostSyncAndReport(t *testing.T) {
 		t.Errorf("unknown version accepted")
 	}
 }
+
+// LK_DUMP_DIR=… go test -run TestLeiKwanHostDumpReports writes the fixture
+// hosts' reports (the panel's contract tests use them as testdata).
+func TestLeiKwanHostDumpReports(t *testing.T) {
+	dir := os.Getenv("LK_DUMP_DIR")
+	if dir == "" {
+		t.Skip("LK_DUMP_DIR not set")
+	}
+	for _, host := range lkFixtureHosts {
+		m := lkFixture(t, host)
+		files, st := m.read()
+		raw, _ := json.MarshalIndent(LeiKwanHostReport{V: 1, At: 1794870000000, State: st, Files: files, Manage: LKManageStatus{}}, "", " ")
+		if err := os.WriteFile(filepath.Join(dir, host+".json"), raw, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+}

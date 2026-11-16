@@ -1,0 +1,141 @@
+{
+ "v": 1,
+ "at": 1794870000000,
+ "state": {
+  "host": "iv-yemhajml8gk36d1hpkr0",
+  "agentVersion": "2026.10.12.1",
+  "coreVersion": "2026.10.12.1",
+  "agentRunning": true,
+  "updateLock": true,
+  "autoUpdateOff": true,
+  "selectionMode": "auto",
+  "nativeUdp": "all",
+  "frontChannel": "stable",
+  "frontBuild": "stable",
+  "fastFailover": "stable",
+  "logswitch": "v9.1",
+  "coalesce": "on budget_ms=2 min=59",
+  "forwards": [
+   {
+    "forwardId": 263,
+    "listenPort": 10018,
+    "target": "boilhkt99u.imgamer.top:10016",
+    "transport": "tcp+udp",
+    "state": "ready",
+    "policy": "active",
+    "udp": "native_udp",
+    "running": true
+   },
+   {
+    "forwardId": 264,
+    "listenPort": 10015,
+    "target": "188.253.118.132:60061",
+    "transport": "tcp+udp",
+    "state": "ready",
+    "policy": "active",
+    "udp": "native_udp",
+    "running": true
+   },
+   {
+    "forwardId": 279,
+    "listenPort": 10019,
+    "target": "43.199.143.188:10022",
+    "transport": "tcp+udp",
+    "state": "ready",
+    "policy": "active",
+    "udp": "native_udp",
+    "running": true
+   },
+   {
+    "forwardId": 280,
+    "listenPort": 10020,
+    "target": "boilhinet2.imgamer.top:12311",
+    "transport": "tcp+udp",
+    "state": "ready",
+    "policy": "active",
+    "udp": "native_udp",
+    "running": true
+   },
+   {
+    "forwardId": 281,
+    "listenPort": 10016,
+    "target": "facseednet.imgamer.top:10015",
+    "transport": "tcp+udp",
+    "state": "ready",
+    "policy": "active",
+    "udp": "native_udp",
+    "running": true
+   },
+   {
+    "forwardId": 282,
+    "listenPort": 10017,
+    "target": "boilhinet2.imgamer.top:12311",
+    "transport": "tcp+udp",
+    "state": "ready",
+    "policy": "active",
+    "udp": "native_udp",
+    "running": true
+   },
+   {
+    "forwardId": 318,
+    "listenPort": 10044,
+    "target": "43.199.143.188:10044",
+    "transport": "tcp",
+    "state": "ready",
+    "policy": "active",
+    "udp": "disabled",
+    "running": true
+   },
+   {
+    "forwardId": 540,
+    "listenPort": 10021,
+    "target": "boilhkt99u.imgamer.top:10019",
+    "transport": "tcp+udp",
+    "state": "ready",
+    "policy": "active",
+    "udp": "native_udp",
+    "running": true
+   }
+  ]
+ },
+ "files": {
+  "logswitch": {
+   "unit": "/etc/systemd/system/leikwan-logswitch.service",
+   "dropIn": "/etc/systemd/system/leikwan-logswitch.service.d/60-flvx-panel.conf",
+   "present": true,
+   "lines": [
+    "263:10018\u003e163.53.52.189:35046",
+    "264:10015\u003e163.53.52.189:40304",
+    "279:10019\u003e163.53.52.189:52914",
+    "280:10020\u003e163.53.52.189:31070",
+    "281:10016\u003e163.53.52.189:52405",
+    "282:10017\u003e163.53.52.189:31070"
+   ],
+   "recordOnly": [
+    "*:eof1s",
+    "*:grace",
+    "*:grace_fail",
+    "*:grace_failed",
+    "*:lapsed",
+    "*:no_candidate",
+    "*:reset1s",
+    "*:reset2s",
+    "*:zero_close"
+   ],
+   "build": "logswitch-v9.1",
+   "hold": "30",
+   "grace": "switch",
+   "leaseSettle": "30"
+  },
+  "coalesce": {
+   "path": "/etc/leikwan-front/coalesce",
+   "present": true,
+   "value": "on budget_ms=2 min=59"
+  }
+ },
+ "manage": {
+  "manage": false,
+  "rev": 0,
+  "force": 0
+ }
+}

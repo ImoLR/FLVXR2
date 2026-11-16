@@ -62,6 +62,9 @@ func (h *Handler) StartBackgroundJobs() {
 	// Plan 255: one goroutine; blocks on its kick channel while no line is active.
 	h.jobsWG.Add(1)
 	go h.runLineMonitorLoop(ctx)
+	// Plan 269: 利群主机 sync + blocks (every 5 min, 4 entry hosts).
+	h.jobsWG.Add(1)
+	go h.runLeiKwanHostLoop(ctx)
 	h.resyncLandingAfterMigration()
 	// Plan 196: no goroutine unless a bot token + bound chat exist.
 	h.EnableTelegramBot()

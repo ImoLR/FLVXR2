@@ -1,0 +1,187 @@
+{
+ "v": 1,
+ "at": 1794870000000,
+ "state": {
+  "host": "iZ7xvhew55siuus7wcokxoZ",
+  "agentVersion": "2026.11.15.1",
+  "coreVersion": "2026.11.13.1",
+  "agentRunning": true,
+  "updateLock": true,
+  "autoUpdateOff": true,
+  "selectionMode": "auto",
+  "nativeUdp": "all",
+  "frontChannel": "test",
+  "frontBuild": "test-ssfilter-coalesce-warmflush-paced",
+  "fastFailover": "test",
+  "logswitch": "v11",
+  "coalesce": "on budget_ms=2 min=59",
+  "forwards": [
+   {
+    "forwardId": 263,
+    "listenPort": 10018,
+    "target": "boilhkt99u.imgamer.top:10016",
+    "transport": "tcp+udp",
+    "state": "ready",
+    "policy": "active",
+    "udp": "native_udp",
+    "running": true
+   },
+   {
+    "forwardId": 264,
+    "listenPort": 10015,
+    "target": "188.253.118.132:60061",
+    "transport": "tcp+udp",
+    "state": "ready",
+    "policy": "active",
+    "udp": "native_udp",
+    "running": true
+   },
+   {
+    "forwardId": 279,
+    "listenPort": 10019,
+    "target": "43.199.143.188:10022",
+    "transport": "tcp+udp",
+    "state": "ready",
+    "policy": "active",
+    "udp": "native_udp",
+    "running": true
+   },
+   {
+    "forwardId": 280,
+    "listenPort": 10020,
+    "target": "boilhinet2.imgamer.top:12311",
+    "transport": "tcp+udp",
+    "state": "ready",
+    "policy": "active",
+    "udp": "native_udp",
+    "running": true
+   },
+   {
+    "forwardId": 281,
+    "listenPort": 10016,
+    "target": "facseednet.imgamer.top:10015",
+    "transport": "tcp+udp",
+    "state": "ready",
+    "policy": "active",
+    "udp": "native_udp",
+    "running": true
+   },
+   {
+    "forwardId": 282,
+    "listenPort": 10017,
+    "target": "boilhinet2.imgamer.top:12311",
+    "transport": "tcp+udp",
+    "state": "ready",
+    "policy": "active",
+    "udp": "native_udp",
+    "running": true
+   },
+   {
+    "forwardId": 318,
+    "listenPort": 10044,
+    "target": "43.199.143.188:10044",
+    "transport": "tcp",
+    "state": "ready",
+    "policy": "active",
+    "udp": "disabled",
+    "running": true
+   },
+   {
+    "forwardId": 540,
+    "listenPort": 10021,
+    "target": "boilhkt99u.imgamer.top:10019",
+    "transport": "tcp+udp",
+    "state": "ready",
+    "policy": "active",
+    "udp": "native_udp",
+    "running": true
+   }
+  ]
+ },
+ "files": {
+  "warm": {
+   "path": "/opt/leikwan-front-test/warm",
+   "present": true,
+   "tokens": {
+    "263": "10",
+    "264": "4",
+    "280": "4",
+    "282": "4",
+    "backup:263": "4",
+    "backup:264": "4",
+    "backup:280": "4",
+    "backup:282": "4",
+    "backup_standby": "2",
+    "pace_ms": "100"
+   }
+  },
+  "ssfilter": {
+   "path": "/opt/leikwan-front-test/ssfilter",
+   "present": true,
+   "tokens": {
+    "263": "enforce",
+    "264": "enforce",
+    "279": "enforce",
+    "280": "enforce",
+    "281": "enforce",
+    "282": "enforce"
+   }
+  },
+  "sskeys": {
+   "path": "/etc/leikwan-front-test/sskeys.json",
+   "present": true,
+   "fp": {
+    "263": "4d7d12f7c0ce83c6",
+    "264": "7d40d606726e859d",
+    "279": "d054249fad0c24ca",
+    "280": "7339759c2028acdc",
+    "281": "1ba94759e8c70da0",
+    "282": "3a996c80b17fb45c"
+   }
+  },
+  "triggers": {
+   "path": "/etc/leikwan-logswitch/triggers",
+   "present": true,
+   "tokens": {
+    "263:return_check": "on",
+    "264:return_check": "on",
+    "280:return_check": "on",
+    "282:return_check": "on",
+    "io_error": "record",
+    "return_check": "off",
+    "timeout": "switch",
+    "warm_death": "switch"
+   }
+  },
+  "logswitch": {
+   "unit": "/etc/systemd/system/leikwan-logswitch.service",
+   "dropIn": "/etc/systemd/system/leikwan-logswitch.service.d/60-flvx-panel.conf",
+   "present": true,
+   "lines": [
+    "263:10018\u003e163.53.52.189:35046",
+    "264:10015\u003e163.53.52.189:40304",
+    "279:10019\u003e163.53.52.189:52914",
+    "280:10020\u003e163.53.52.189:31070",
+    "281:10016\u003e163.53.52.189:52405",
+    "282:10017\u003e163.53.52.189:31070"
+   ],
+   "recordOnly": [],
+   "build": "logswitch-v11",
+   "triggersFile": "/etc/leikwan-logswitch/triggers",
+   "hold": "30",
+   "grace": "switch",
+   "leaseSettle": "30",
+   "returnCheck": "2.5"
+  },
+  "coalesce": {
+   "path": "/etc/leikwan-front/coalesce",
+   "present": true,
+   "value": "on budget_ms=2 min=59"
+  }
+ },
+ "manage": {
+  "manage": false,
+  "rev": 0,
+  "force": 0
+ }
+}

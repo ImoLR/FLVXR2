@@ -48,9 +48,13 @@ func (h *Handler) registerLeiKwanLines(mux *http.ServeMux) {
 		"grant/delete": h.leikwanGrantDelete, "import/preview": h.leikwanImportPreview, "import/apply": h.leikwanImportApply,
 		"host/list": h.leikwanHostList, "host/import": h.leikwanHostImport, "rule/backup-retry": h.leikwanRuleBackupRetry,
 		"line/backup-rebuild": h.leikwanLineBackupRebuild,
+		// Plan 269 利群主机接管 / 流量 / 99U 落地准备.
+		"host/learn": h.leikwanHostLearn, "host/unlearn": h.leikwanHostUnlearn, "host/manage": h.leikwanHostManage,
+		"host/force": h.leikwanHostForce, "host/traffic": h.leikwanHostTraffic, "host/sync": h.leikwanHostSync,
+		"rule/prepare-landing": h.leikwanRulePrepareLanding,
 	}
 	for path, fn := range admin {
-		fn := fn
+		path, fn := path, fn
 		mux.HandleFunc("/api/v1/leikwan/"+path, func(w http.ResponseWriter, r *http.Request) {
 			if _, role, err := userRoleFromRequest(r); err == nil && role != 0 {
 				w.Header().Set("Content-Type", "application/json; charset=utf-8")
@@ -65,6 +69,9 @@ func (h *Handler) registerLeiKwanLines(mux *http.ServeMux) {
 				return
 			}
 			fn(w, r)
+			if lkMutatingPath(path) {
+				h.leiKwanHostKick() // plan 269: hosts follow the panel data
+			}
 		})
 	}
 	// Rules: users (own rules, their grant) and admins.
@@ -72,7 +79,7 @@ func (h *Handler) registerLeiKwanLines(mux *http.ServeMux) {
 		"list": h.leikwanRuleList, "options": h.leikwanRuleOptions, "create": h.leikwanRuleCreate,
 		"update": h.leikwanRuleUpdate, "delete": h.leikwanRuleDelete, "link": h.leikwanRuleLink,
 	} {
-		fn := fn
+		path, fn := path, fn
 		mux.HandleFunc("/api/v1/leikwan-rule/"+path, func(w http.ResponseWriter, r *http.Request) {
 			if _, _, err := userRoleFromRequest(r); err != nil {
 				response.WriteJSON(w, response.Err(401, "未登录或token已过期"))
@@ -84,8 +91,24 @@ func (h *Handler) registerLeiKwanLines(mux *http.ServeMux) {
 				return
 			}
 			fn(w, r)
+			if lkMutatingPath(path) {
+				h.leiKwanHostKick()
+			}
 		})
 	}
+}
+
+// lkMutatingPath: 利群 API calls that may change what the entry hosts get.
+func lkMutatingPath(path string) bool {
+	if strings.HasPrefix(path, "host/") {
+		return false // host/* push themselves
+	}
+	for _, s := range []string{"save", "delete", "create", "update", "apply", "rebuild", "retry", "prepare"} {
+		if strings.Contains(path, s) {
+			return true
+		}
+	}
+	return false
 }
 
 // ---- 利群加速 defaults / parsing ----
@@ -448,6 +471,7 @@ func (h *Handler) leikwanLineList(w http.ResponseWriter, r *http.Request) {
 		out = append(out, map[string]interface{}{
 			"id": l.ID, "name": l.Name, "routeId": l.RouteID, "routeLabel": l.RouteLabel, "transport": l.Transport,
 			"backupTunnelId": l.BackupTunnelID, "backupTunnelName": tunnelName[l.BackupTunnelID], "accel": parseLeiKwanAccel(l.Accel),
+			"flowMode": l.FlowMode, "trafficRatio": l.TrafficRatio, // plan 269
 			"inx": l.Inx, "status": l.Status, "ruleCount": len(byLine[l.ID]), "forwardIds": forwardIDs, "hostValues": hostRows,
 			"backupStats": backupStats[l.ID],
 		})
@@ -509,6 +533,9 @@ func (h *Handler) leikwanLineSave(w http.ResponseWriter, r *http.Request) {
 		Accel          model.LeiKwanAccel `json:"accel"`
 		Inx            int                `json:"inx"`
 		Status         *int               `json:"status"`
+		// Plan 269: billing of the 利群 bytes (nil = unchanged / default 单向 ×1).
+		FlowMode     *int     `json:"flowMode"`
+		TrafficRatio *float64 `json:"trafficRatio"`
 	}
 	if err := leiKwanDecode(r, &req); err != nil {
 		leiKwanError(w, err)
@@ -570,6 +597,26 @@ func (h *Handler) leikwanLineSave(w http.ResponseWriter, r *http.Request) {
 	line.Name, line.RouteID, line.RouteLabel, line.Transport, line.BackupTunnelID, line.Accel, line.Inx = req.Name, req.RouteID, label, req.Transport, req.BackupTunnelID, string(raw), req.Inx
 	if req.Status != nil {
 		line.Status = map[bool]int{true: 1, false: 0}[*req.Status == 1]
+	}
+	if line.FlowMode <= 0 {
+		line.FlowMode = 1
+	}
+	if line.TrafficRatio <= 0 {
+		line.TrafficRatio = 1
+	}
+	if req.FlowMode != nil {
+		if *req.FlowMode != 1 && *req.FlowMode != 2 {
+			leiKwanError(w, errors.New("计费方式只能是单向或双向"))
+			return
+		}
+		line.FlowMode = *req.FlowMode
+	}
+	if req.TrafficRatio != nil {
+		if *req.TrafficRatio <= 0 || *req.TrafficRatio > 100 {
+			leiKwanError(w, errors.New("流量倍率要在 0–100 之间"))
+			return
+		}
+		line.TrafficRatio = *req.TrafficRatio
 	}
 	if err := h.repo.SaveLeiKwanLine(line); err != nil {
 		leiKwanError(w, errors.New("保存利群专线失败"))
@@ -992,6 +1039,18 @@ func (h *Handler) leiKwanRuleView(x model.LeiKwanRule, c *leiKwanRuleCtx, admin 
 		"backupOn": x.BackupForwardID > 0, "backupError": x.BackupError,
 		// Plan 268: the owner's 到期 (shown 已到期 like normal rules).
 		"userExpired": c.expired[x.UserID],
+		// Plan 269: 利群流量 (billed, since the owner's reset) and the block state.
+		"inFlow": x.InFlow, "outFlow": x.OutFlow, "blockReason": x.BlockReason,
+	}
+	if x.PendingLandingNodeID > 0 {
+		p := map[string]interface{}{"landingNodeId": x.PendingLandingNodeID}
+		if n, s, err := h.repo.LeiKwanLandingTarget(x.PendingLandingNodeID); err == nil && n != nil {
+			p["name"], p["protocol"], p["port"] = n.Name, n.Protocol, n.Port
+			if s != nil {
+				p["serverName"], p["host"] = s.Name, s.PublicHost
+			}
+		}
+		v["pendingLanding"] = p
 	}
 	landing := map[string]interface{}{"kind": "manual", "host": x.TargetHost, "port": x.TargetPort}
 	if x.LandingNodeID > 0 {
@@ -1401,6 +1460,10 @@ func (h *Handler) leikwanRuleUpdate(w http.ResponseWriter, r *http.Request) {
 			leiKwanError(w, err)
 			return
 		}
+		if err := h.leiKwanFilterKeyGuard(x, landingID); err != nil {
+			leiKwanError(w, err)
+			return
+		}
 		if host != x.TargetHost || port != x.TargetPort {
 			a, _, tag, err := h.leiKwanFreshForward(r.Context(), x)
 			if err != nil {
@@ -1415,13 +1478,22 @@ func (h *Handler) leikwanRuleUpdate(w http.ResponseWriter, r *http.Request) {
 			h.leikwan.Invalidate(a.Token, a.ServiceID)
 			x.TargetHost, x.TargetPort, x.ETag = f.Target.Host, f.Target.Port, newTag
 			if x.BackupMode == "linked" {
-				// The hand-made backup keeps its old target (hosts and phone
-				// backup ports may use it); the rule gets its own 备线.
-				x.BackupForwardID, x.BackupMode = 0, ""
-				if g, _ := h.repo.GetLeiKwanGrant(x.UserID); g != nil && g.BackupLine == 1 {
-					if err := h.leiKwanCreateBackup(x); err != nil {
+				if n, _ := h.repo.CountLeiKwanRulesByBackup(x.BackupForwardID); n <= 1 {
+					// Plan 269: a linked backup used only by this rule moves with it
+					// (same entry port: hosts' 日志快切 and phone backup ports keep working).
+					if err := h.leiKwanRetargetForward(x.BackupForwardID, leiKwanTargetAddr(*x)); err != nil {
 						x.BackupError = err.Error()
-						warnings = append(warnings, "备线未建好："+err.Error())
+						warnings = append(warnings, "备线目标未改好："+err.Error())
+					}
+				} else {
+					// Shared by other rules (e.g. 280/282): keep it for them; the
+					// rule gets its own automatic 备线.
+					x.BackupForwardID, x.BackupMode = 0, ""
+					if g, _ := h.repo.GetLeiKwanGrant(x.UserID); g != nil && g.BackupLine == 1 {
+						if err := h.leiKwanCreateBackup(x); err != nil {
+							x.BackupError = err.Error()
+							warnings = append(warnings, "备线未建好："+err.Error())
+						}
 					}
 				}
 			} else if err := h.leiKwanRetargetBackup(x); err != nil {
@@ -1430,10 +1502,17 @@ func (h *Handler) leikwanRuleUpdate(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		x.LandingNodeID = landingID
+		if x.PendingLandingNodeID > 0 && x.PendingLandingNodeID == landingID {
+			x.PendingLandingNodeID = 0 // 待切换 done
+		}
 	}
 	if err := h.repo.SaveLeiKwanRule(x); err != nil {
 		leiKwanError(w, errors.New("保存利群规则失败"))
 		return
+	}
+	if req.ChangeTarget {
+		// The first-packet filter key follows at once (not after the 2 s debounce).
+		h.leiKwanHostPushAllAsync()
 	}
 	c := h.leiKwanRuleContext([]model.LeiKwanRule{*x}, admin)
 	response.WriteJSON(w, response.OK(map[string]interface{}{"rule": h.leiKwanRuleView(*x, c, admin), "warnings": warnings}))
@@ -1548,11 +1627,19 @@ func (h *Handler) leikwanHostList(w http.ResponseWriter, r *http.Request) {
 	}
 	counts, _ := h.repo.CountLeiKwanGrantsByEntry()
 	out := make([]map[string]interface{}, 0, len(entries))
+	g, _ := h.newLKGen()
+	attention := 0
 	for _, e := range entries {
 		item := map[string]interface{}{"node": e, "mainEntryUsers": counts[e.ID]}
 		if s, ok := byNode[e.ID]; ok {
 			item["snapshot"], item["source"], item["capturedAt"] = parseLeiKwanHostSnapshot(s.Data), s.Source, s.CapturedAt
 		}
+		// Plan 269: 接管 / drift / traffic switch of this host.
+		mv := h.leiKwanHostManageView(e.ID, g)
+		if a, ok := mv["attention"].([]string); ok && len(a) > 0 {
+			attention++
+		}
+		item["manage"] = mv
 		out = append(out, item)
 	}
 	group, _ := h.repo.GetNodeGroupByID(setting.EntryGroupID)
@@ -1560,7 +1647,7 @@ func (h *Handler) leikwanHostList(w http.ResponseWriter, r *http.Request) {
 	if group != nil {
 		groupName = group.Name
 	}
-	response.WriteJSON(w, response.OK(map[string]interface{}{"entryGroupId": setting.EntryGroupID, "entryGroupName": groupName, "hosts": out, "global": parseLeiKwanGlobal(setting.Global), "triggers": leiKwanTriggers}))
+	response.WriteJSON(w, response.OK(map[string]interface{}{"entryGroupId": setting.EntryGroupID, "entryGroupName": groupName, "hosts": out, "global": parseLeiKwanGlobal(setting.Global), "triggers": leiKwanTriggers, "attention": attention}))
 }
 
 // leikwanHostImport stores a secret-free host snapshot (step 1: taken with a

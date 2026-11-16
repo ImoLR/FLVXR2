@@ -31,13 +31,25 @@ type FlowBatch struct {
 	// PoolFlows are the forward flows of this upload for 共享流量池 accounting
 	// (plan 157); landing counters add theirs inside the transaction.
 	PoolFlows []PoolFlow
+	// Plan 269: billed bytes of 利群 rules and the entry hosts' new counter
+	// baselines (written in the same transaction: a rejected batch bills nothing
+	// and keeps the old baseline, so the next report bills the same bytes once).
+	LeiKwanRules    map[int64]FlowCounterDelta
+	LeiKwanCounters []LeiKwanCounterBase
+}
+
+// LeiKwanCounterBase is the last billed nft counter state of one entry host.
+type LeiKwanCounterBase struct {
+	NodeID   int64
+	Epoch    string
+	Counters string
 }
 
 // Empty reports whether the batch writes nothing.
 func (b FlowBatch) Empty() bool {
 	return len(b.Forwards) == 0 && len(b.Users) == 0 && len(b.UserTunnels) == 0 &&
 		len(b.QuotaUsage) == 0 && len(b.PeerShares) == 0 && len(b.LandingCounters) == 0 && len(b.ServerQuotas) == 0 &&
-		len(b.PoolFlows) == 0
+		len(b.PoolFlows) == 0 && len(b.LeiKwanRules) == 0 && len(b.LeiKwanCounters) == 0
 }
 
 // ApplyFlowBatch writes a whole flow upload in one transaction: either every counter of the
@@ -84,6 +96,15 @@ func (r *Repository) ApplyFlowBatch(batch FlowBatch, now time.Time) (map[int64]*
 		}
 		if err := addFlowCountersTx(tx, &model.UserTunnel{}, batch.UserTunnels); err != nil {
 			return err
+		}
+		if err := addFlowCountersTx(tx, &model.LeiKwanRule{}, batch.LeiKwanRules); err != nil {
+			return err
+		}
+		for _, c := range batch.LeiKwanCounters {
+			if err := tx.Model(&model.LeiKwanHost{}).Where("node_id = ?", c.NodeID).
+				UpdateColumns(map[string]interface{}{"counter_epoch": c.Epoch, "counters": c.Counters}).Error; err != nil {
+				return err
+			}
 		}
 		for _, userID := range sortedFlowKeys(batch.QuotaUsage) {
 			if userID <= 0 {

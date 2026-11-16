@@ -481,6 +481,7 @@ func (h *Handler) onNodeOnline(nodeID int64) {
 	h.syncNativeLandingOnReconnect(nodeID)
 	h.warmPoolNodeSession(nodeID)        // plan 244: send the full 预热池 state again
 	h.lineMonitorPortsNodeOnline(nodeID) // plan 255: full check-port list (closes stale ones)
+	h.leiKwanHostNodeOnline(nodeID)       // plan 269: 利群主机 sync (entry group only)
 }
 
 func (h *Handler) redeployNodeRuntime(nodeID int64) {

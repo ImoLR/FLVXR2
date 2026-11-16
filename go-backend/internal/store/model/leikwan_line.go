@@ -23,6 +23,9 @@ type LeiKwanLine struct {
 	Status      int    `gorm:"not null;default:1" json:"status"`
 	CreatedTime int64  `gorm:"not null;default:0" json:"createdTime"`
 	UpdatedTime int64  `gorm:"not null;default:0" json:"updatedTime"`
+	// Plan 269: billing of the 利群 bytes like a tunnel (1 = 单向, 2 = 双向; ratio).
+	FlowMode     int     `gorm:"not null;default:1" json:"flowMode"`
+	TrafficRatio float64 `gorm:"not null;default:1" json:"trafficRatio"`
 }
 
 func (LeiKwanLine) TableName() string { return "leikwan_line" }
@@ -76,6 +79,13 @@ type LeiKwanRule struct {
 	Status      int    `gorm:"not null;default:1" json:"status"`
 	CreatedTime int64  `gorm:"not null;default:0" json:"createdTime"`
 	UpdatedTime int64  `gorm:"not null;default:0" json:"updatedTime"`
+	// Plan 269: billed bytes since the owner's last reset (entry-host nft
+	// counters × the line's mode/ratio), the current block reason ('' = open)
+	// and a prepared panel landing node waiting for the user's 换落地.
+	InFlow               int64  `gorm:"not null;default:0" json:"inFlow"`
+	OutFlow              int64  `gorm:"not null;default:0" json:"outFlow"`
+	BlockReason          string `gorm:"type:varchar(100);not null;default:''" json:"blockReason"`
+	PendingLandingNodeID int64  `gorm:"not null;default:0" json:"pendingLandingNodeId"`
 }
 
 func (LeiKwanRule) TableName() string { return "leikwan_rule" }

@@ -26,6 +26,7 @@ import (
 
 type lkLineEnv struct {
 	t                  *testing.T
+	h                  *handler.Handler
 	r                  *repo.Repository
 	fake               *testapi.Fake
 	router             http.Handler
@@ -43,7 +44,7 @@ func newLKLineEnv(t *testing.T, dialect string) *lkLineEnv {
 	h.SetLeiKwanClient(leikwan.NewClient(server.URL, nil))
 	mux := http.NewServeMux()
 	h.Register(mux)
-	e := &lkLineEnv{t: t, r: r, fake: fake, router: middleware.JWT(middleware.AuthOptions{JWTSecret: "lk-line"})(mux)}
+	e := &lkLineEnv{t: t, h: h, r: r, fake: fake, router: middleware.JWT(middleware.AuthOptions{JWTSecret: "lk-line"})(mux)}
 	e.admin, _ = auth.GenerateToken(1, "imolr", 0, "lk-line")
 	e.user, _ = auth.GenerateToken(2, "alice", 1, "lk-line")
 	e.other, _ = auth.GenerateToken(3, "bob", 1, "lk-line")
