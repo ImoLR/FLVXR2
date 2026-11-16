@@ -1195,7 +1195,7 @@ func (r *Repository) pickNodePortTx(tx *gorm.DB, nodeID int64, allocated map[int
 	}
 
 	var node model.Node
-	err := tx.Select("port").Where("id = ?", nodeID).First(&node).Error
+	err := tx.Select("port", "leikwan_forwards").Where("id = ?", nodeID).First(&node).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return 0, errors.New("节点不存在")
 	}
@@ -1253,6 +1253,10 @@ func (r *Repository) pickNodePortTx(tx *gorm.DB, nodeID int64, allocated map[int
 		return 0, err
 	}
 	for _, p := range monitorPorts {
+		used[p] = struct{}{}
+	}
+	// Plan 265: ports the node's LeiKwan client listens on (loaded with the node).
+	for p := range LeiKwanReservedFromRaw(node.LeiKwanForwards) {
 		used[p] = struct{}{}
 	}
 	var available []int
@@ -2393,6 +2397,13 @@ func (r *Repository) GetUsedPortsOnNodeAsMap(nodeID int64) (map[int]bool, error)
 		return nil, err
 	}
 	for _, p := range monitorPorts {
+		used[p] = true
+	}
+	leikwanPorts, err := leiKwanReservedPortsTx(r.db, nodeID) // plan 265 LeiKwan client ports
+	if err != nil {
+		return nil, err
+	}
+	for p := range leikwanPorts {
 		used[p] = true
 	}
 	return used, nil

@@ -618,6 +618,12 @@ func (h *Handler) lineMonitorCheckPortCommand(w http.ResponseWriter, r *http.Req
 			if u, err := h.repo.LineMonitorCustomPorts(host); err == nil {
 				used = u
 			}
+			// Plan 265: the host may be one of our nodes running a LeiKwan client.
+			if lk, err := h.repo.LeiKwanReservedPortsByHost(host); err == nil {
+				for p := range lk {
+					used[p] = true
+				}
+			}
 		}
 		p, err := linemon.SuggestCustomPort(used)
 		if err != nil {

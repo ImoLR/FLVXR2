@@ -293,7 +293,12 @@ func (r *Repository) HasOtherForwardOnNodePortTx(tx *gorm.DB, nodeID int64, port
 		}
 	}
 	// Plan 255: a 线路监测 check port is reserved as well.
-	return r.LineMonitorPortReservedTx(tx, nodeID, port)
+	if reserved, err := r.LineMonitorPortReservedTx(tx, nodeID, port); err != nil || reserved {
+		return reserved, err
+	}
+	// Plan 265: so is a port the node's LeiKwan client listens on (unless this
+	// forward already holds it there — nothing existing is moved).
+	return r.LeiKwanPortBlocksForwardTx(tx, nodeID, port, currentForwardID)
 }
 
 func (r *Repository) GetTunnelOutProtocol(tunnelID int64) (string, error) {

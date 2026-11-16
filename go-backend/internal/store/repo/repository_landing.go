@@ -980,6 +980,10 @@ func landingFreePort(tx *gorm.DB, s model.LandingServer) (int, error) {
 		for p := range nativeBusyPortsFresh(&s, time.Now()) {
 			used[p] = true
 		}
+		// Plan 265: ports the machine's LeiKwan client listens on.
+		for p := range LeiKwanReservedFromRaw(node.LeiKwanForwards) {
+			used[p] = true
+		}
 	}
 	for p := s.PortMin; p <= s.PortMax; p++ {
 		if !used[p] {

@@ -400,6 +400,14 @@ func usedPortsTx(tx *gorm.DB, s model.LandingServer, skipChain int64) (map[int]b
 	for p := range nativeBusyPortsFresh(&s, time.Now()) {
 		used[p] = true
 	}
+	// Plan 265: ports the machine's LeiKwan client listens on.
+	leikwan, err := leiKwanReservedPortsTx(tx, s.NodeID)
+	if err != nil {
+		return nil, err
+	}
+	for p := range leikwan {
+		used[p] = true
+	}
 	return used, nil
 }
 

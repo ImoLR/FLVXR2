@@ -91,19 +91,21 @@ func lineMonitorOccupiedPortsTx(tx *gorm.DB, nodeID int64) (map[int]bool, error)
 
 // pickLineMonitorPortTx picks a random free port of the node's rule range
 // (node.port — what the vendor NAT / security group forwards; landing ranges
-// are never used), never 22 or below 1024, not occupied, not in exclude.
+// are never used), never 22 or below 1024, not occupied, not in exclude,
+// not a port the node's LeiKwan client listens on (plan 265).
 func pickLineMonitorPortTx(tx *gorm.DB, nodeID int64, exclude map[int]bool) (int, error) {
 	var node model.Node
-	if err := tx.Select("id", "name", "port").First(&node, nodeID).Error; err != nil {
+	if err := tx.Select("id", "name", "port", "leikwan_forwards").First(&node, nodeID).Error; err != nil {
 		return 0, errors.New("目标节点不存在")
 	}
 	used, err := lineMonitorOccupiedPortsTx(tx, nodeID)
 	if err != nil {
 		return 0, err
 	}
+	leikwan := LeiKwanReservedFromRaw(node.LeiKwanForwards)
 	var free []int
 	for _, p := range parsePortRangeSpec(node.Port) {
-		if p < 1024 || p > 65535 || p == 22 || used[p] || exclude[p] {
+		if p < 1024 || p > 65535 || p == 22 || used[p] || exclude[p] || leikwan[p] {
 			continue
 		}
 		free = append(free, p)

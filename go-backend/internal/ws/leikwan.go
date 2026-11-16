@@ -5,6 +5,8 @@ import (
 	"go-backend/internal/store/model"
 	"log"
 	"sort"
+	"strconv"
+	"sync"
 	"time"
 )
 
@@ -40,4 +42,58 @@ func (s *Server) recordLeiKwan(ns *nodeSession, report *leiKwanReport) {
 		return
 	}
 	ns.leikwanStatus, ns.leikwanForwards = report.Status, data
+	s.logLeiKwanPortConflicts(ns.nodeID, forwards)
+}
+
+// Plan 265: when the LeiKwan client listens on a port the panel already uses
+// on that machine (e.g. LeiKwan added a forward on an FLVX rule's port),
+// nothing is moved; the admin is told once per node/port per window.
+const leiKwanConflictLogEvery = 6 * time.Hour
+
+var leiKwanConflictLog = struct {
+	sync.Mutex
+	at map[string]time.Time
+}{at: map[string]time.Time{}}
+
+func (s *Server) logLeiKwanPortConflicts(nodeID int64, forwards []model.LeiKwanDetectedForward) {
+	if s == nil || s.repo == nil || len(forwards) == 0 {
+		return
+	}
+	ports := make([]int, 0, len(forwards))
+	seen := map[int]bool{}
+	for _, f := range forwards {
+		if !seen[f.ListenPort] {
+			seen[f.ListenPort] = true
+			ports = append(ports, f.ListenPort)
+		}
+	}
+	held, err := s.repo.LeiKwanPortHolders(nodeID, ports)
+	if err != nil || len(held) == 0 {
+		return
+	}
+	for _, p := range leiKwanConflictsToLog(nodeID, held, time.Now()) {
+		log.Printf("node %d: LeiKwan client listens on port %d, which the panel already uses on this node; nothing was moved — change that rule/tunnel port", nodeID, p)
+	}
+}
+
+// leiKwanConflictsToLog: the held ports not logged for this node within the
+// window (the map only keeps entries younger than the window).
+func leiKwanConflictsToLog(nodeID int64, held []int, now time.Time) []int {
+	leiKwanConflictLog.Lock()
+	defer leiKwanConflictLog.Unlock()
+	for k, at := range leiKwanConflictLog.at {
+		if now.Sub(at) >= leiKwanConflictLogEvery {
+			delete(leiKwanConflictLog.at, k)
+		}
+	}
+	var out []int
+	for _, p := range held {
+		key := strconv.FormatInt(nodeID, 10) + ":" + strconv.Itoa(p)
+		if _, ok := leiKwanConflictLog.at[key]; ok {
+			continue
+		}
+		leiKwanConflictLog.at[key] = now
+		out = append(out, p)
+	}
+	return out
 }

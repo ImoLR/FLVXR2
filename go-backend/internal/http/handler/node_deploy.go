@@ -385,8 +385,24 @@ func (h *Handler) saveNodeInboundDeployment(req nodeInboundDeployRequest) (map[s
 	if listenAddr == "" {
 		listenAddr = "127.0.0.1"
 	}
+	// Plan 265: never the machine's LeiKwan client ports (an unchanged port of
+	// an existing inbound keeps saving).
+	leikwan, err := h.repo.LeiKwanReservedPorts(req.NodeID)
+	if err != nil {
+		return nil, err
+	}
 	if req.ListenPort <= 0 || req.ListenPort > 65535 {
-		req.ListenPort = randomPort()
+		req.ListenPort = randomPortAvoiding(leikwan)
+	} else if leikwan[req.ListenPort] {
+		keep := false
+		if req.ID > 0 {
+			if old, oldErr := h.repo.GetNodeDeployedInbound(req.ID); oldErr == nil && old != nil && old.NodeID == req.NodeID && old.ListenPort == req.ListenPort {
+				keep = true
+			}
+		}
+		if !keep {
+			return nil, leiKwanPortTakenError(node.Name, req.ListenPort)
+		}
 	}
 	publishAddr := strings.TrimSpace(req.PublishAddr)
 	if publishAddr == "" {

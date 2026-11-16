@@ -2300,6 +2300,9 @@ func (h *Handler) validateForwardPortAvailabilityTx(tx *gorm.DB, node *nodeRecor
 	} else if reserved {
 		return lineMonitorPortTakenError(node.Name, port)
 	}
+	if err := h.checkLeiKwanForwardPortTx(tx, node, port, currentForwardID); err != nil {
+		return err
+	}
 	occupied, err := h.repo.HasOtherForwardOnNodePortTx(tx, node.ID, port, currentForwardID)
 	if err != nil {
 		return err
@@ -5075,6 +5078,11 @@ func (h *Handler) prepareTunnelCreateState(tx *gorm.DB, req map[string]interface
 			}
 		}
 	}
+	// Plan 265: a typed out / hop port must not be the node's LeiKwan client
+	// port (auto picks already skip them; this tunnel's own ports keep saving).
+	if err := h.checkLeiKwanTunnelPortsTx(tx, state, excludeTunnelID); err != nil {
+		return nil, err
+	}
 
 	return state, nil
 }
@@ -6851,6 +6859,9 @@ func (h *Handler) validateForwardPortAvailability(node *nodeRecord, port int, cu
 		return err
 	} else if reserved {
 		return lineMonitorPortTakenError(node.Name, port)
+	}
+	if err := h.checkLeiKwanForwardPortTx(nil, node, port, currentForwardID); err != nil {
+		return err
 	}
 	occupied, err := h.repo.HasOtherForwardOnNodePort(node.ID, port, currentForwardID)
 	if err != nil {

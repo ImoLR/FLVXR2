@@ -332,6 +332,13 @@ func (r *Repository) ListUsedPortsOnNode(nodeID int64) ([]int, error) {
 	for _, p := range monitorPorts {
 		used[p] = struct{}{}
 	}
+	leikwanPorts, err := leiKwanReservedPortsTx(r.db, nodeID) // plan 265 LeiKwan client ports
+	if err != nil {
+		return nil, err
+	}
+	for p := range leikwanPorts {
+		used[p] = struct{}{}
+	}
 
 	result := make([]int, 0, len(used))
 	for p := range used {

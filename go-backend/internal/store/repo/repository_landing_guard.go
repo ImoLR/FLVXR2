@@ -129,6 +129,12 @@ func (r *Repository) EnsureLandingGuardPorts(serverID int64) (map[string]int, []
 		if err != nil {
 			return err
 		}
+		// Plan 265: new guard ports skip the machine's LeiKwan client ports
+		// (only new picks: a stored guard port is never moved for them).
+		leikwan, err := leiKwanReservedPortsTx(tx, s.NodeID)
+		if err != nil {
+			return err
+		}
 		shared, err := sharedLandingPortsOnNodeHost(tx, s.NodeID)
 		if err != nil {
 			return err
@@ -176,7 +182,7 @@ func (r *Repository) EnsureLandingGuardPorts(serverID int64) (map[string]int, []
 		next := hi
 		alloc := func() int {
 			for ; next >= lo; next-- {
-				if !used[next] && portGroup[next] == "" {
+				if !used[next] && portGroup[next] == "" && !leikwan[next] {
 					p := next
 					next--
 					return p

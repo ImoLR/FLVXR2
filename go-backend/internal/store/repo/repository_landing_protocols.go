@@ -423,6 +423,10 @@ func sharedMachineBusyPorts(tx *gorm.DB, s model.LandingServer) (map[int]bool, e
 				used[p] = true
 			}
 		}
+		// Plan 265: the machine's LeiKwan client ports (row already loaded).
+		for p := range LeiKwanReservedFromRaw(n.LeiKwanForwards) {
+			used[p] = true
+		}
 	}
 	return used, nil
 }
