@@ -48,8 +48,8 @@ worktree `/root/projects/flvxx/flvxx-leikwan-step2`。用户 11-17 ~02:10 台湾
 - [x] 面板：模型 + 迁移、上报入库、期望生成 + 学习主机现值（4 台夹具语义差异 0 的测试）、同步下发。
 - [x] 面板：流量入账（去重）、重置、屏蔽/解除 + 契约测试（SQLite + PostgreSQL）。
 - [x] 面板：99U 落地节点准备 + 换落地带备线（自动 + 链接）+ 密钥 + 待切换标记 + 测试。
-- [ ] 前端：利群入口区（主机状态、接管开关 + 差异、漂移 ⚠、按面板覆盖、采用主机现值）、规则行流量 + 待切换；`npm run build`。
-- [ ] `go test ./...`（两个模块）+ go vet + CI 绿；截图画廊 /root/mmwx-preview/leikwan-step2/。
+- [x] 前端：利群入口区（主机状态、接管开关 + 差异、漂移 ⚠、按面板覆盖、采用主机现值）、规则行流量 + 待切换；`npm run build`。
+- [x] `go test ./...`（两个模块）+ go vet + CI 绿；截图画廊 /root/mmwx-preview/leikwan-step2/。
 - [ ] 发布：tag 下一个 fork、CI + 镜像 + 资产；面板备份 + 换面板；只 OTA 4 台利群入口机（每台备份 + 回滚）；保留 2 份备份。
 - [ ] 上线：百度云广州（A/B 结束后）接管开 → 语义差异 0、leikwan status、日志、手机端口、SS-2022 实测 → 阿里广州 → 火山广州 → 火山上海；流量统计窗口内开。
 - [ ] 99U 落地节点建好 + 新链接；总结 /root/flvx-workers/runs/leikwan-panel-step2/summary.md + final.md；memory 文本写进 final.md。
@@ -73,4 +73,12 @@ worktree `/root/projects/flvxx/flvxx-leikwan-step2`。用户 11-17 ~02:10 台湾
   → agent 的夜间窗口改成面板设置 `nightOnly`（利群全局设置，默认关 = 需要时就做；以后利群上有业务可以打开）；
   发布不等夜里；只 OTA 4 台利群入口机，别的节点不动；百度云广州仍等 warm-headroom-r2 A/B 结束再写。
 - 11-17 05:30 台湾协调员删了旧管道 #318 和隧道 80（用户同意），利群名额 7/8，leikwan_pipe 空。
+- 预热池（含备线池）默认只在规则用户的「主入口」机上开（第一步界面就是这么写的；省连接）；过滤 / 日志快切 / 回查在每台入口机都配。
+  现有各机上的预热由「采用主机现值」记成覆盖值保留（阿里广州 / 火山广州的 263 预热 10 不变）。
+- 界面（子任务 Claude，同一 worktree）：host-manage.tsx 新的「面板接管」区（实时状态、差异弹窗、接管/流量统计开关带确认、按面板覆盖、
+  立即同步、⚠ 列表）、利群入口标签 ⚠、规则行 ↑↓ 流量 / 已暂停 / 待切换 + 「切到新落地」、专线弹窗 流量计算 + 倍率。
+  tsc 0 错、eslint 0、`npm run build` 过；画廊 /root/mmwx-preview/leikwan-step2/（38 张，桌面 + H5 390/360，浅色 + 深色，页面 JS 错误 0）。
+- 测试汇总：go-backend `go test ./...`（带 PG 18）全部 ok；go-gost / go-gost/x 全部 ok（x/socket 改动后单独重跑 ok）；go vet 两个模块 0；
+  第一次全量跑时 PG 临时容器（tmpfs 512M）中途崩了导致一批 PG 子测试连不上库，换磁盘目录重跑全部通过（不是代码问题）。
+- 发布：分支 `maintenance/3.0.27-fork.140-leikwan-step2` = feature @ fd638436，tag `3.0.27-fork.140`（11-17 06:00 台湾推送）。
 
