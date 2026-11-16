@@ -38,6 +38,19 @@ LeiKwan traffic). Prod 11-16: 0 FLVX rows on those ports (checked read-only).
   rules picked in a row get 10000–10014 then 10022–10026 (never 10015–10021 / 10044); the used-port map holds all 8
   LeiKwan ports; the line-monitor check-port pick never lands on them. Copy deleted afterwards.
 
+## Release (11-16 TW)
+- CI 43872987828 / 43873261736 / 43873264874 green; tag `3.0.27-fork.137` → 420921fc on
+  `maintenance/3.0.27-fork.137-leikwan-port-skip` (= fork.136 + this branch, fast-forward); Images 43873584648 green;
+  Latest = fork.137, same 10 assets as fork.136, compose pinned, install scripts PINNED_VERSION ok, gost-amd64 sha ok.
+- Backup `/opt/flvx-svc/rollback/pre-fork137-20261116T132717Z` (DB quick/integrity ok, image tags, rollback.sh);
+  prune → kept pre-fork136 + pre-fork137.
+- Panel swap 21:27:30–21:27:38 TW, healthy, 救命版 read-only mount kept. No agent OTA.
+- After: 30/30 agents reconnected (30 diff syncs, 0 updated / 0 failed / 0 orphans), no offline flaps in 10 min,
+  52 rules running, all counts unchanged, LeiKwan status + 8 ports still shown on the 4 nodes (admin node/list),
+  backend 0 restarts, RSS 29 MiB (was 60 MiB before restart).
+- Note: panel `node/upgrade` only hands out the panel's own version → tonight's warm-redundant OTA installs fork.137
+  agents (go-gost 0-line diff vs fork.136); addendum appended to briefs/warm-redundant-ota.md.
+
 ## Tasks
 - [x] Repo helper `LeiKwanReservedPorts(Tx)` + merge into repo pickers / used-port sets
 - [x] Handler: manual-port rejection (forward, tunnel out/chain hops, node deploy) with grandfathering
@@ -45,8 +58,8 @@ LeiKwan traffic). Prod 11-16: 0 FLVX rows on those ports (checked read-only).
 - [x] WS: rate-limited conflict log when the reserved list changes
 - [x] Tests: repo + handler unit, contract (SQLite + PostgreSQL)
 - [x] go vet, go test ./... (backend), npm run build (untouched)
-- [ ] Commit + push branch, CI green
-- [ ] Release branch `maintenance/3.0.27-fork.137-leikwan-port-skip`, tag `3.0.27-fork.137`, CI + Images + assets
-- [ ] Prod backup + rollback script + prune (keep 2); panel-only upgrade before 01:30 TW
-- [ ] Verify: 30 online, forwards running, rules unchanged, LeiKwan status on 4 nodes, picker dry-check on a prod DB copy
-- [ ] Ledger, memory notes, summary, cleanup
+- [x] Commit + push branch, CI green
+- [x] Release branch `maintenance/3.0.27-fork.137-leikwan-port-skip`, tag `3.0.27-fork.137`, CI + Images + assets
+- [x] Prod backup + rollback script + prune (keep 2); panel-only upgrade before 01:30 TW
+- [x] Verify: 30 online, forwards running, rules unchanged, LeiKwan status on 4 nodes, picker dry-check on a prod DB copy
+- [x] Ledger, memory notes, summary, cleanup
