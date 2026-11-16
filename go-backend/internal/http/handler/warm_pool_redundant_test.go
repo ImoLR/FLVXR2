@@ -157,3 +157,25 @@ func TestWarmPoolViewBurstAndWakeFields(t *testing.T) {
 		t.Fatalf("want kept after the key vanished: %+v", v.Hops[0])
 	}
 }
+
+// Pooled conns land on the next hop's tunnel relay service before any relay
+// request: that service must keep carrying no connection limiter (so 4–16
+// pooled conns per key can never eat a limit), and plan 264 does not touch
+// its handler metadata (a change would re-create relay services and drop
+// live conns at the release).
+func TestWarmRelayServiceHasNoConnLimit(t *testing.T) {
+	node := &nodeRecord{ID: 3, TCPListenAddr: "0.0.0.0"}
+	for _, ct := range []int{2, 3} {
+		svcs := buildTunnelChainServiceConfig(40, tunnelRuntimeNode{NodeID: 3, Port: 3040, ChainType: ct, Protocol: "tls"}, node, 1, nil)
+		raw, _ := json.Marshal(svcs)
+		for _, k := range []string{"limiter", "climiter", "rlimiter", "maxConnections", "groupMaxConnections", "quotaGroup"} {
+			if strings.Contains(string(raw), `"`+k+`"`) {
+				t.Fatalf("chain type %d relay service carries %q: %s", ct, k, raw)
+			}
+		}
+		md := svcs[0]["handler"].(map[string]interface{})["metadata"].(map[string]interface{})
+		if md["readTimeout"] != warmRelayReadTimeout || warmRelayReadTimeout != "130s" {
+			t.Fatalf("relay readTimeout changed: %v", md["readTimeout"])
+		}
+	}
+}
