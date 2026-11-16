@@ -121,8 +121,15 @@ func (h *Handler) leiKwanImportBuild(r *http.Request) (*leiKwanImportPlan, *mode
 	}
 	if len(members) == 0 {
 		seen := map[int64]bool{}
+		candidates := []int64{}
+		if ids, err := h.repo.ListLeiKwanDetectedNodeIDs(); err == nil {
+			candidates = append(candidates, ids...)
+		}
 		for _, hc := range hosts {
-			if n, err := h.repo.GetNodeRecord(hc.nodeID); err == nil && n != nil && !seen[n.ID] {
+			candidates = append(candidates, hc.nodeID)
+		}
+		for _, id := range candidates {
+			if n, err := h.repo.GetNodeRecord(id); err == nil && n != nil && !seen[n.ID] {
 				seen[n.ID] = true
 				members = append(members, map[string]interface{}{"id": n.ID, "name": n.Name, "host": n.ServerIP, "inGroup": false})
 			}

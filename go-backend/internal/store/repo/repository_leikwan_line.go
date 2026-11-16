@@ -397,3 +397,10 @@ func (r *Repository) GetNodeGroupIDForNode(nodeID int64) (int64, error) {
 	}
 	return n.GroupID.Int64, nil
 }
+
+// ListLeiKwanDetectedNodeIDs: nodes whose agent reports a LeiKwan client.
+func (r *Repository) ListLeiKwanDetectedNodeIDs() ([]int64, error) {
+	var ids []int64
+	err := r.db.Model(&model.Node{}).Where("leikwan_status <> ''").Order("id").Pluck("id", &ids).Error
+	return ids, err
+}

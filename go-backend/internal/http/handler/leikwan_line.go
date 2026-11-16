@@ -201,7 +201,18 @@ type leiKwanHostSnapshot struct {
 	Extra               []string             `json:"extra"`
 }
 
-var leiKwanSecretLike = regexp.MustCompile(`[A-Za-z0-9+/=_-]{32,}`)
+var leiKwanSecretRun = regexp.MustCompile(`[A-Za-z0-9+/=_]{24,}`)
+
+// leiKwanSecretLike: a long base64/hex-like run with letters and digits
+// (SS2022 keys, tokens, full hashes). Hyphenated build names don't match.
+func leiKwanSecretLike(raw []byte) bool {
+	for _, m := range leiKwanSecretRun.FindAll(raw, -1) {
+		if bytes.ContainsAny(m, "0123456789") && bytes.IndexFunc(m, func(r rune) bool { return r >= 'A' && r <= 'Z' || r >= 'a' && r <= 'z' }) >= 0 {
+			return true
+		}
+	}
+	return false
+}
 
 func parseLeiKwanHostSnapshot(raw string) *leiKwanHostSnapshot {
 	if strings.TrimSpace(raw) == "" {
@@ -1060,7 +1071,9 @@ func (h *Handler) leikwanRuleList(w http.ResponseWriter, r *http.Request) {
 		for _, l := range c.lines {
 			ls = append(ls, map[string]interface{}{"id": l.ID, "name": l.Name, "routeLabel": l.RouteLabel, "inx": l.Inx})
 		}
-		sort.Slice(ls, func(i, j int) bool { return ls[i]["inx"].(int) < ls[j]["inx"].(int) || ls[i]["inx"].(int) == ls[j]["inx"].(int) && ls[i]["id"].(int64) < ls[j]["id"].(int64) })
+		sort.Slice(ls, func(i, j int) bool {
+			return ls[i]["inx"].(int) < ls[j]["inx"].(int) || ls[i]["inx"].(int) == ls[j]["inx"].(int) && ls[i]["id"].(int64) < ls[j]["id"].(int64)
+		})
 		result["lines"] = ls
 	}
 	response.WriteJSON(w, response.OK(result))
@@ -1553,7 +1566,7 @@ func (h *Handler) leikwanHostImport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	raw, _ := json.Marshal(req.Snapshot)
-	if leiKwanSecretLike.Match(raw) {
+	if leiKwanSecretLike(raw) {
 		leiKwanError(w, errors.New("快照里有疑似密钥的长字符串，已拒绝"))
 		return
 	}
