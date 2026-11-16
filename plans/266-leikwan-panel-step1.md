@@ -28,13 +28,13 @@
 
 - [x] 读 memory / 设计稿 / 代码；建 worktree；生产库只读复制到 /root/lpk-lab；4 台入口机只读快照（密钥已去除）。
 - [x] 后端：模型 + 迁移（SQLite/PG）、仓储方法、管理员/用户 API（专线、加速、授权、规则、备线、导入、主机状态）。
-- [ ] 后端测试：fake API 驱动的契约测试（SQLite + PostgreSQL）；`go test ./...` 与 fork.136 基线对比；go vet。
+- [x] 后端测试：fake API 驱动的契约测试（SQLite + PostgreSQL）；`go test ./...` 与 fork.136 基线对比；go vet。
 - [x] 前端：利群汇聚页（专线/加速/入口组/授权/导入）、隧道页「利群汇聚」组、用户权限弹窗授权、规则页利群区（管理员/用户，桌面 + H5）。
 - [x] `npm run build`；现有页面不变（只加）。
 - [x] 实验室：分支面板 + 生产库副本 + fake 利群 API（真实 8 条），导入 → 授权（主入口 + 备线）→ 用户建规则自动备线 → 换入口 → 删规则备线消失。
-- [ ] 截图画廊 /root/mmwx-preview/leikwan-panel/（桌面 + H5 390，浅色 + 深色，中文说明）。
-- [ ] 提交、推送、CI 绿；账本 RELEASE-LEDGER 266 行；FLVX memory 266 笔记。
-- [ ] 清理实验室 / 临时文件；中文总结 /root/flvx-workers/runs/leikwan-panel-step1/summary.md。
+- [x] 截图画廊 /root/mmwx-preview/leikwan-panel/（桌面 + H5 390，浅色 + 深色，中文说明）。
+- [x] 提交、推送、CI 绿；账本 RELEASE-LEDGER 266 行；FLVX memory 266 笔记。
+- [x] 清理实验室 / 临时文件；中文总结 /root/flvx-workers/runs/leikwan-panel-step1/summary.md。
 
 ## 记录
 
@@ -51,3 +51,9 @@
   改主入口 → 地址 101.96.213.164:10022；换落地 → 利群目标 + 备线目标一起改；删规则 → 600 和 620 都没了；
   无授权用户规则页不出现利群区；页面 JS 错误 0。截图 54 张：/root/mmwx-preview/leikwan-panel/。
 - 与 fork.137（plan 265 端口跳过）`git merge-tree` 无冲突，未合并（发布时合并）。
+- 测试：新增契约测试 TestLeiKwanLinePanelContract（SQLite + PostgreSQL）+ TestLeiKwanImportPreviewEmptyListsContract；
+  全量 `go test ./...`（带 PG DSN）全部 ok、0 失败（无需对比基线）；`go vet ./...` 0；前端 tsc + eslint（新文件）+ `npm run build` 通过。
+  CI 43888640531 四项全绿（Go Backend / Frontend / Agent / PG Contract）。
+- 清理：/root/lpk-lab（生产库副本、二进制、Chromium）已删；实验室脚本 + 去密钥的主机快照留在
+  /root/flvx-workers/runs/leikwan-panel-step1/lab/。worktree 的 node_modules 留着给下一轮改界面用。
+- 账本 266 行「built, waits for user screen approval」；memory leikwan-panel-step1。
