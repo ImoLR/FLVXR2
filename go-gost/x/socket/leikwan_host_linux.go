@@ -783,12 +783,19 @@ func lkReadCounters(raw []byte) (map[string][2]int64, bool) {
 }
 
 func (m *lkHostManager) trafficTick(ctx context.Context, want *LeiKwanHostSync) *LKTraffic {
+	known := m.persist.Epoch != "" || len(m.persist.CountPorts) > 0 || len(m.persist.BlockPorts) > 0
+	if !known && (want == nil || (!want.Traffic && len(want.Block) == 0)) {
+		return nil // nothing to count or block: no nft call at all
+	}
 	var wantCount, wantBlock []int
 	if want != nil {
 		wantBlock = lkCleanPorts(want.Block)
 		if want.Traffic {
 			wantCount = lkCleanPorts(want.Ports)
 		}
+	} else {
+		// Restarted agent, no panel sync yet: keep the table as it is (blocks stay).
+		wantCount, wantBlock = m.persist.CountPorts, m.persist.BlockPorts
 	}
 	now := m.now()
 	tr := &LKTraffic{Epoch: m.persist.Epoch, Ports: map[string][2]int64{}}

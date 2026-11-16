@@ -1008,6 +1008,10 @@ func (h *Handler) leiKwanHostPush(nodeID int64) error {
 	if !h.wsServer.NodeOnline(nodeID) {
 		return errors.New("节点不在线，上线后自动同步")
 	}
+	if host.ReportedAt <= 0 {
+		// Old agents do not know LeiKwanHostSync: wait for the first report.
+		return errors.New("agent 还没上报利群主机状态（需要新版 agent）")
+	}
 	res, err := h.wsServer.SendCommand(nodeID, "LeiKwanHostSync", s, lkSyncTimeout)
 	now := time.Now().UnixMilli()
 	if err != nil {
@@ -1061,7 +1065,10 @@ func (h *Handler) leiKwanHostIngest(nodeID int64, raw json.RawMessage) {
 	}
 	now := time.Now().UnixMilli()
 	trimmed := rep
-	trimmed.Traffic = nil
+	if rep.Traffic != nil {
+		// Keep the table state for the UI; the counters live in counters/epoch.
+		trimmed.Traffic = &lkTrafficView{Epoch: rep.Traffic.Epoch, Blocked: rep.Traffic.Blocked, Pending: rep.Traffic.Pending, Error: rep.Traffic.Error, Ports: map[string][2]int64{}}
+	}
 	stored, _ := json.Marshal(trimmed)
 	_ = h.repo.SaveLeiKwanHostReport(nodeID, string(stored), now)
 	if snap, err := json.Marshal(lkSnapshotFromReport(&rep, now)); err == nil {
@@ -1072,7 +1079,21 @@ func (h *Handler) leiKwanHostIngest(nodeID int64, raw json.RawMessage) {
 			log.Printf("node %d: 利群流量入账失败: %v", nodeID, err)
 		}
 	}
+	// A (re)started agent has no sync yet (or an old one): send it now, at
+	// most every 30 s per node.
+	if rep.Manage.Rev != host.Rev || rep.Manage.Force != host.Force || rep.Manage.Manage != (host.Manage == 1 && host.Profile != "") {
+		if last, ok := lkResync.Load(nodeID); !ok || time.Since(last.(time.Time)) > 30*time.Second {
+			lkResync.Store(nodeID, time.Now())
+			go func() {
+				if err := h.leiKwanHostPush(nodeID); err != nil {
+					log.Printf("node %d: 利群主机同步失败: %v", nodeID, err)
+				}
+			}()
+		}
+	}
 }
+
+var lkResync sync.Map // node id → time of the last report-triggered push
 
 // lkSnapshotFromReport maps the agent report onto the step-1 snapshot shape
 // (the 利群入口 tab and the rules' 「主机现值」 keep working unchanged).
@@ -1224,6 +1245,9 @@ func (h *Handler) leiKwanHostManageView(nodeID int64, g *lkGen) map[string]inter
 	v["reported"] = true
 	v["state"] = rep.State
 	v["agent"] = rep.Manage
+	if rep.Traffic != nil {
+		v["trafficState"] = map[string]interface{}{"counting": rep.Traffic.Epoch != "" && host.Traffic == 1 && !rep.Traffic.Pending, "pending": rep.Traffic.Pending, "blocked": rep.Traffic.Blocked, "error": rep.Traffic.Error}
+	}
 	prof := parseLKProfile(host.Profile)
 	attention := []string{}
 	if prof != nil && g != nil {
