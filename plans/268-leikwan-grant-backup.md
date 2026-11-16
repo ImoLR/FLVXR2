@@ -31,9 +31,9 @@
 - [x] 测试：契约测试（SQLite + PostgreSQL）覆盖授权忽略字段、用户到期拦截、总规则数计入利群、任意隧道、自动备线用专线隧道、
       重建、链接不动；`go test ./...`、`go vet ./...`、`npm run build`；CI 绿。
 - [x] 实验室截图（桌面 + H5 390，浅色 + 深色）→ /root/mmwx-preview/leikwan-grant/。
-- [ ] 发布：分支 + tag fork.139、CI + 镜像 + 资产；等夜间 OTA 结束且 04:20 后换面板；备份 + 回滚脚本，留 2 份；
+- [x] 发布：分支 + tag fork.139、CI + 镜像 + 资产；等夜间 OTA 结束且 04:20 后换面板；备份 + 回滚脚本，留 2 份；
       验证 30 在线、规则数不变、利群汇聚页、导入预览、真实授权弹窗只剩主入口 + 备线。
-- [ ] 账本 268 行、memory（fork-release-and-deploy、leikwan-panel-step1）、总结 runs/leikwan-grant-backup/summary.md。
+- [x] 账本 268 行、memory（fork-release-and-deploy、leikwan-panel-step1）、总结 runs/leikwan-grant-backup/summary.md。
 
 ## 记录
 
@@ -56,3 +56,14 @@
   自动备线搬到新隧道、旧的删掉；linked 7 条全部没变；授权对话框 0 个输入框（只剩主入口下拉 + 开关）；用户到期 → options/create 都提示
   「账号已到期，不能新建利群规则」，规则显示「已到期」；主页 leikwanRuleCount=1；利群写入只有建规则那 1 次；页面 JS 错误 0。
   截图 36 张：/root/mmwx-preview/leikwan-grant/（index.html 中文说明）。
+- 发布（11-17，任务 leikwan-grant-backup-r2）：tag `3.0.27-fork.139` → 6d95b5c9；CI Build Check 两个分支都绿；镜像 run 43935303635 绿
+  （03:13 台湾），Release 3.0.27-fork.139 = Latest，10 个资产（和 fork.138 同一套）。表结构无改动（fork.138..139 没有 model / 迁移 diff）。
+- 换面板：04:20:52–04:21:01 台湾（夜间 OTA 已结束、boil 换 IP 冻结期 03:45–04:20 之后），只换面板，不 OTA。回滚点
+  `/opt/flvx-svc/rollback/pre-fork139-20261116T202045Z/rollback.sh`（换回 fork.138 镜像，库不用动；SQLite 在线备份 quick/integrity ok）。
+  备份只留 2 份：pre-fork138 + pre-fork139。
+- 换后检查：30/30 在线、52 条规则全部状态不变、利群 4 张表逐行相同（没有写入）、4 台利群机仍 运行中、导入预览结果和换前完全一样；
+  利群汇聚页（桌面 + H5 390）无 JS 错误；imolr 授权弹窗 0 个输入框，只剩 主入口（百度云广州）+ 备线开；4 条专线的备线隧道
+  广港 → 测试·263备线、沪日 → mk深港ixp1→HK、广台/福台 → mk深港ixp1→TW，路径行都在；7 条 linked 备线（148/601/619/595/587/599）不变。
+  没有导入、没有新授权/专线/规则、没按「按新备线重建」、没有利群 API 写入。
+
+- 换后 15 分钟：后端日志只有启动那一行（30 个节点等重连），没有 error/panic/离线抖动；容器 healthy、重启 0；04:35 再查 30/30 在线、规则和利群表仍相同。
