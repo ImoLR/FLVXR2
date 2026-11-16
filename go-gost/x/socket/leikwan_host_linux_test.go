@@ -525,3 +525,13 @@ func TestLeiKwanHostPanelSyncJSON(t *testing.T) {
 		t.Fatalf("after sync: keys %v warm %v manage %+v", rep.Files.SSKeys.FP, rep.Files.Warm.Tokens, rep.Manage)
 	}
 }
+
+// LK_NFT_DUMP=dir writes counting / blocking scripts for the netns lab.
+func TestLeiKwanTrafficScriptDump(t *testing.T) {
+	dir := os.Getenv("LK_NFT_DUMP")
+	if dir == "" {
+		t.Skip("LK_NFT_DUMP not set")
+	}
+	_ = os.WriteFile(filepath.Join(dir, "count.nft"), []byte(lkTrafficScript([]int{10018, 10015, 10021}, nil)), 0o644)
+	_ = os.WriteFile(filepath.Join(dir, "block.nft"), []byte(lkTrafficScript([]int{10018, 10015, 10021}, []int{10015})), 0o644)
+}
