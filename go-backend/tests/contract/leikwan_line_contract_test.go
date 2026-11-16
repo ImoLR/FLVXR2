@@ -406,3 +406,15 @@ func (e *lkLineEnv) fakeLimitRefresh() bool {
 	e.ok("/api/v1/leikwan/account/save", e.admin, map[string]interface{}{"id": 1, "name": "利群汇聚 · 服务 39", "serviceId": 39, "token": ""})
 	return true
 }
+
+// After everything is imported the preview still returns arrays (the UI maps them).
+func TestLeiKwanImportPreviewEmptyListsContract(t *testing.T) {
+	e := newLKLineEnv(t, "sqlite")
+	e.ok("/api/v1/leikwan/import/apply", e.admin, map[string]interface{}{"confirmed": true})
+	out, w := e.call("/api/v1/leikwan/import/preview", e.admin, map[string]interface{}{})
+	_ = w
+	data := out.Data.(map[string]interface{})
+	if _, ok := data["lines"].([]interface{}); !ok {
+		t.Fatalf("lines must be an array: %v", data["lines"])
+	}
+}

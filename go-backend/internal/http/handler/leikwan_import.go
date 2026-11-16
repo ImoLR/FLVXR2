@@ -76,7 +76,7 @@ func (h *Handler) leiKwanImportBuild(r *http.Request) (*leiKwanImportPlan, *mode
 	if err != nil {
 		return nil, nil, err
 	}
-	plan := &leiKwanImportPlan{Quota: leiKwanQuota{Limit: view.Options.ForwardLimit, Active: view.Options.ActiveForwardCount}, Notes: []string{}}
+	plan := &leiKwanImportPlan{Quota: leiKwanQuota{Limit: view.Options.ForwardLimit, Active: view.Options.ActiveForwardCount}, Notes: []string{}, Items: []leiKwanImportItem{}, Lines: []leiKwanImportLine{}}
 	pipes, _ := h.repo.ListLeiKwanPipes(a.ID)
 	pipeTunnel := map[int64]string{}
 	for _, p := range pipes {

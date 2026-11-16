@@ -537,7 +537,8 @@ function ImportTab({
   onPreview: () => void;
   onApply: () => void;
 }) {
-  const toImport = plan?.items.filter((i) => i.action === "import") || [];
+  const toImport =
+    (plan?.items || []).filter((i) => i.action === "import") || [];
 
   return (
     <div className="space-y-3 pt-2">
@@ -573,7 +574,7 @@ function ImportTab({
       />
       {plan && (
         <>
-          {plan.notes.map((n) => (
+          {(plan.notes || []).map((n) => (
             <p
               key={n}
               className="rounded-lg bg-amber-500/15 px-3 py-2 text-xs text-amber-700 dark:text-amber-300"
@@ -587,7 +588,7 @@ function ImportTab({
                 节点分组「{plan.entryGroup.name}」
               </div>
               <div className="flex flex-wrap gap-1.5">
-                {plan.entryGroup.nodes.map((n) => (
+                {(plan.entryGroup.nodes || []).map((n) => (
                   <Pill key={n.id} tone={n.inGroup ? "teal" : "amber"}>
                     {n.name}
                     {n.inGroup ? "" : " · 将加入"}
@@ -620,7 +621,7 @@ function ImportTab({
           <div className="space-y-1.5">
             <div className="text-sm font-medium">专线</div>
             <div className="flex flex-wrap gap-2">
-              {plan.lines.map((l) => (
+              {(plan.lines || []).map((l) => (
                 <div
                   key={l.routeId}
                   className="rounded-xl border border-divider px-3 py-2 text-xs"
@@ -662,7 +663,7 @@ function ImportTab({
                 </tr>
               </thead>
               <tbody>
-                {plan.items.map((it) => (
+                {(plan.items || []).map((it) => (
                   <tr
                     key={it.forwardId}
                     className="border-t border-divider align-top"
@@ -673,7 +674,7 @@ function ImportTab({
                         :{it.listenPort}
                       </div>
                     </td>
-                    <td className="px-3 py-2.5">
+                    <td className="whitespace-nowrap px-3 py-2.5">
                       {it.lineName || (
                         <span className="text-default-400">—</span>
                       )}
