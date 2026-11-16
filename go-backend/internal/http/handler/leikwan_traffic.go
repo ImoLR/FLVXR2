@@ -192,7 +192,7 @@ func (h *Handler) planLeiKwanRuleBilling(b *flowIngestBatch, x model.LeiKwanRule
 
 var lkBlockMu sync.Mutex
 
-// leiKwanBlockReason: '' = the rule may run.
+// leiKwanBlockReason: ” = the rule may run.
 func leiKwanBlockReason(u model.User, ok bool, pausedNodes []int64, names map[int64]string, now int64) string {
 	switch {
 	case !ok:

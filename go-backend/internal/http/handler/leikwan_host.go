@@ -1035,7 +1035,9 @@ func (h *Handler) leiKwanHostPush(nodeID int64) error {
 }
 
 // IngestLeiKwanHostReport is the ws hook's entry point (also used by tests).
-func (h *Handler) IngestLeiKwanHostReport(nodeID int64, raw json.RawMessage) { h.leiKwanHostIngest(nodeID, raw) }
+func (h *Handler) IngestLeiKwanHostReport(nodeID int64, raw json.RawMessage) {
+	h.leiKwanHostIngest(nodeID, raw)
+}
 
 // ReconcileLeiKwanBlocks recomputes the 利群 block state now (tests, jobs).
 func (h *Handler) ReconcileLeiKwanBlocks() { h.leiKwanReconcileBlocks() }
