@@ -423,9 +423,12 @@ function HostCard({ host }: { host: LeiKwanHostList["hosts"][number] }) {
         {s ? (
           <span className="text-xs text-default-400">
             快照{" "}
-            {new Date(host.capturedAt || 0).toLocaleString("zh-CN", {
-              timeZone: "Asia/Taipei",
-            })}{" "}
+            {new Date(s.capturedAt || host.capturedAt || 0).toLocaleString(
+              "zh-CN",
+              {
+                timeZone: "Asia/Taipei",
+              },
+            )}{" "}
             台湾
           </span>
         ) : (
