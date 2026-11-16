@@ -29,13 +29,22 @@ LeiKwan traffic). Prod 11-16: 0 FLVX rows on those ports (checked read-only).
 - Reserved list changes: the WS report path logs once per node/port (6 h rate limit) when a LeiKwan port is already
   held by an FLVX allocation; nothing moves.
 
+## Results (build)
+- Gates 11-16 20:58–21:08 TW: `go build`, `go vet` clean, `go test ./...` (SQLite) all ok; PostgreSQL 18
+  repo / handler / ws / contract all ok; the 4 new LeiKwan tests pass on both dialects (8/8 subtests).
+- Mutation check: with the reserved set disabled the new tests fail (auto port 10020, pick 10015, typed port accepted).
+- Frontend: 0 diff vs fork.136; local `npm run build` ok (rc 0).
+- Dry check on a scratch copy of the prod DB (21:1x TW, new code): on 火山广州 / 百度云广州 / 阿里广州 / 火山上海, 20
+  rules picked in a row get 10000–10014 then 10022–10026 (never 10015–10021 / 10044); the used-port map holds all 8
+  LeiKwan ports; the line-monitor check-port pick never lands on them. Copy deleted afterwards.
+
 ## Tasks
-- [ ] Repo helper `LeiKwanReservedPorts(Tx)` + merge into repo pickers / used-port sets
-- [ ] Handler: manual-port rejection (forward, tunnel out/chain hops, node deploy) with grandfathering
-- [ ] Line monitor auto + custom suggestion skip; landing / chain / guard / shared skip
-- [ ] WS: rate-limited conflict log when the reserved list changes
-- [ ] Tests: repo + handler unit, contract (SQLite + PostgreSQL)
-- [ ] go vet, go test ./... (backend), npm run build (untouched)
+- [x] Repo helper `LeiKwanReservedPorts(Tx)` + merge into repo pickers / used-port sets
+- [x] Handler: manual-port rejection (forward, tunnel out/chain hops, node deploy) with grandfathering
+- [x] Line monitor auto + custom suggestion skip; landing / chain / guard / shared skip
+- [x] WS: rate-limited conflict log when the reserved list changes
+- [x] Tests: repo + handler unit, contract (SQLite + PostgreSQL)
+- [x] go vet, go test ./... (backend), npm run build (untouched)
 - [ ] Commit + push branch, CI green
 - [ ] Release branch `maintenance/3.0.27-fork.137-leikwan-port-skip`, tag `3.0.27-fork.137`, CI + Images + assets
 - [ ] Prod backup + rollback script + prune (keep 2); panel-only upgrade before 01:30 TW
