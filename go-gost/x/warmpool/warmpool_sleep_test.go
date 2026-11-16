@@ -10,8 +10,9 @@ import (
 	"time"
 )
 
-// Plan 249: idle sleep — a key with no new stream for 30 min drains to 0 and
-// is not refilled until the next stream (which dials cold and wakes it).
+// Plan 249: idle sleep — a key with no new stream for the idle-sleep time
+// (30 min in plan 249, 6 h since plan 264) drains to 0 and is not refilled
+// until the next stream (which dials cold and wakes it).
 
 type fakeClock struct {
 	mu sync.Mutex
@@ -37,8 +38,8 @@ func newSleepManager(t *testing.T) (*Manager, *fakeSource, *fakeClock) {
 	m, src := newTestManager(t, 64)
 	clk := newFakeClock()
 	m.now = clk.now
-	if m.idleSleep != IdleSleepAfter || IdleSleepAfter != 30*time.Minute {
-		t.Fatalf("idle sleep default = %v / %v, want 30m", m.idleSleep, IdleSleepAfter)
+	if m.idleSleep != IdleSleepAfter || IdleSleepAfter != 6*time.Hour {
+		t.Fatalf("idle sleep default = %v / %v, want 6h", m.idleSleep, IdleSleepAfter)
 	}
 	return m, src, clk
 }
@@ -86,25 +87,25 @@ func onlyKey(t *testing.T, r *Report) KeyReport {
 	return r.Keys[0]
 }
 
-func TestIdleSleepAfter30MinAndWakeOnStream(t *testing.T) {
+func TestIdleSleepAfter6hAndWakeOnStream(t *testing.T) {
 	m, src, clk := newSleepManager(t)
 	pe := newPeer(t, nil)
 	src.set("chains_1", Target{Addr: pe.addr()})
 	m.SetConfig(Config{Chains: map[string]int{"chains_1": 2}})
 	waitFor(t, "filled", func() bool { return idle(m) == 2 })
 
-	// 29 min 55 s without a stream: still warm (conns replaced by age).
-	advance(t, m, clk, 29*time.Minute+55*time.Second)
+	// 5 h 59 min 55 s without a stream: still warm (conns replaced by age).
+	advance(t, m, clk, 6*time.Hour-5*time.Second)
 	if s := m.Stats(); s.Idle != 2 || s.Sleeping != 0 {
-		t.Fatalf("before 30 min: %+v", s)
+		t.Fatalf("before 6 h: %+v", s)
 	}
 	if k := onlyKey(t, m.Report()); k.Sleep || !k.Target {
 		t.Fatalf("awake key reported %+v", k)
 	}
-	// 30 min: asleep, drained to 0, peer sees the conns closed.
+	// 6 h: asleep, drained to 0, peer sees the conns closed.
 	advance(t, m, clk, 5*time.Second)
 	if s := m.Stats(); s.Idle != 0 || s.Sleeping != 1 || s.Live != 0 {
-		t.Fatalf("after 30 min: %+v", s)
+		t.Fatalf("after 6 h: %+v", s)
 	}
 	waitFor(t, "peer saw pool drained", func() bool { return pe.open.Load() == 0 })
 	k := onlyKey(t, m.Report())
@@ -132,7 +133,7 @@ func TestIdleSleepAfter30MinAndWakeOnStream(t *testing.T) {
 	m.NoteMiss(KindChain, "chains_1", pe.addr(), 40*time.Millisecond)
 	waitFor(t, "refilled at once after the wake", func() bool { return idle(m) == 2 })
 	k = onlyKey(t, m.Report())
-	if k.Sleep || k.MissN != 1 || k.Idle != 2 {
+	if k.Sleep || k.MissN != 1 || k.WakeN != 1 || k.Idle != 2 {
 		t.Fatalf("woken key reported %+v", k)
 	}
 	if s := m.Stats(); s.Sleeping != 0 {
@@ -146,8 +147,8 @@ func TestStreamsKeepKeyAwake(t *testing.T) {
 	src.set("chains_1", Target{Addr: pe.addr()})
 	m.SetConfig(Config{Chains: map[string]int{"chains_1": 2}})
 	waitFor(t, "filled", func() bool { return idle(m) == 2 })
-	for i := 0; i < 6; i++ { // a stream every 25 min for 2.5 h
-		advance(t, m, clk, 25*time.Minute)
+	for i := 0; i < 4; i++ { // a stream every 5 h 50 min for ~23 h
+		advance(t, m, clk, 5*time.Hour+50*time.Minute)
 		if l := m.Take(KindChain, "chains_1", pe.addr()); l == nil {
 			t.Fatalf("round %d: no pooled conn on an active key", i)
 		} else {
@@ -157,7 +158,7 @@ func TestStreamsKeepKeyAwake(t *testing.T) {
 		settle(m)
 	}
 	if s := m.Stats(); s.Sleeping != 0 {
-		t.Fatalf("key with streams every 25 min fell asleep: %+v", s)
+		t.Fatalf("key with streams every 5 h 50 min fell asleep: %+v", s)
 	}
 }
 
@@ -169,7 +170,7 @@ func TestSleepingKeyAndReconcile(t *testing.T) {
 	cfg := Config{Chains: map[string]int{"chains_1": 2}}
 	m.SetConfig(cfg)
 	waitFor(t, "filled", func() bool { return idle(m) == 2 })
-	advance(t, m, clk, 31*time.Minute)
+	advance(t, m, clk, 6*time.Hour+time.Minute)
 	if s := m.Stats(); s.Sleeping != 1 || s.Idle != 0 {
 		t.Fatalf("not asleep: %+v", s)
 	}
@@ -242,12 +243,12 @@ func TestDialInFlightWhenFallingAsleepIsDropped(t *testing.T) {
 	t.Cleanup(func() { m.SetConfig(Config{}) })
 	pe := newPeer(t, nil)
 	src.set("chains_1", Target{Addr: pe.addr()})
-	m.SetConfig(Config{Chains: map[string]int{"chains_1": 2}}) // dial 1 waits at the gate
-	clk.add(31 * time.Minute)
-	m.Tick() // falls asleep with the dial in flight
+	m.SetConfig(Config{Chains: map[string]int{"chains_1": 2}}) // both dials (plan 264: parallel) wait at the gate
+	clk.add(6*time.Hour + time.Minute)
+	m.Tick() // falls asleep with the dials in flight
 	close(src.gate)
 	settle(m)
-	waitFor(t, "in-flight conn closed", func() bool { return pe.open.Load() == 0 && pe.accepted.Load() == 1 })
+	waitFor(t, "in-flight conns closed", func() bool { return pe.open.Load() == 0 && pe.accepted.Load() == 2 })
 	if s := m.Stats(); s.Idle != 0 || s.Live != 0 || s.Sleeping != 1 {
 		t.Fatalf("after in-flight dial: %+v", s)
 	}
@@ -264,7 +265,7 @@ func TestRuleServiceKeySleepsAndWakes(t *testing.T) {
 	m.RegisterForwarder("7_2_3_tcp", f)
 	m.SetConfig(Config{Forwards: map[string]int{"7": 2}})
 	waitFor(t, "filled", func() bool { return pe.open.Load() == 2 })
-	clk.add(30 * time.Minute)
+	clk.add(6 * time.Hour)
 	m.Tick()
 	waitFor(t, "drained", func() bool { return pe.open.Load() == 0 })
 	if l := m.Take(KindService, "7_2_3_tcp", pe.addr()); l != nil {

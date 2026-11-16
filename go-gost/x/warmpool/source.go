@@ -72,7 +72,7 @@ func (m *Manager) RegisterForwarder(service string, f Forwarder) {
 			m.owners[key] = o
 			m.publishActiveLocked()
 		}
-		o.size = size
+		o.floor = size
 		closing = m.evaluateLocked(o)
 		m.ensureTickerLocked()
 	}

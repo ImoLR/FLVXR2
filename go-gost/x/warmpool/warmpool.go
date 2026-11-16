@@ -12,20 +12,31 @@
 //     (a paused / deleted rule closes its service and the pool with it).
 //
 // Per owner only the node a stream would use now is warmed (the first node
-// that is not fail-marked, i.e. the 最优 / fifo head) with `size` conns, plus
-// 1 conn for up to 2 other nodes that real streams used in the last 5 min
-// (round-robin, per-destination 规则最优 order). Conns live 90–110 s (the
-// panel gives tunnel relays a 130 s request timeout), are watched while idle
-// (a peer close is seen at once), are refilled in the background with at most
-// one dial per key, and never count as a node failure. Peers that close idle
-// conns young (< 40 s, three generations in a row) are not warmed for 30 min
-// (「目标不支持预热」). The agent holds at most Cap pooled conns.
+// that is not fail-marked, i.e. the 最优 / fifo head), plus 1 conn for up to
+// 2 other nodes that real streams used in the last 5 min (round-robin,
+// per-destination 规则最优 order). Conns live 90–110 s (the panel gives
+// tunnel relays a 130 s request timeout), are watched while idle (a peer
+// close is seen at once), are refilled in the background and never count as
+// a node failure. Peers that close idle conns young (< 40 s, three
+// generations in a row) are not warmed for 30 min (「目标不支持预热」). The
+// agent holds at most Cap pooled conns.
 //
-// Idle sleep (plan 249): a key with no new stream for 30 min drains to 0 and
-// stops refilling; the next stream on it dials cold (same as no pool) and
-// wakes it (refill at once). Decided locally from the key's own stream
-// times on the 5 s tick — SetWarmPools stays the "allowed" set, sleeping is
-// local state, reported as `sleep` on the key.
+// Redundancy (plan 264): the head key's size adapts between the panel's floor
+// (6) and ceiling (16): want = ⌈1.5 × peak5s⌉ + 2, peak5s = the most streams
+// in one 5 s tick over the last hour (12 × 5-min maxima, counted on the
+// existing tick); every stream that finds the awake key empty adds 2 at once;
+// without such a miss the size drops by 1 per 15 min, never below the
+// formula. Refill runs up to 4 dials in flight per key; after a failed dial
+// the key goes back to one dial at a time (backoff / rest as before; a wave of
+// parallel dials failing together counts as one failure).
+//
+// Idle sleep (plan 249, 6 h since plan 264, panel-pushed `idleSleepS`): a key
+// with no new stream for that long drains to 0 and stops refilling; the next
+// stream on it dials cold (same as no pool) and wakes it (refill at once).
+// Misses of a woken (or new) key before its first pooled conn lands are
+// reported apart (`wakeN`). Decided locally from the key's own stream times
+// on the 5 s tick — SetWarmPools stays the "allowed" set, sleeping is local
+// state, reported as `sleep` on the key.
 //
 // Only counters are kept: they ride the existing metric message once a
 // minute (Report). Nothing is logged per conn or per stream.
@@ -46,15 +57,27 @@ import (
 	xlogger "github.com/go-gost/x/logger"
 )
 
-// CapVersion is advertised in the agent handshake (`warmPool=1`): the agent
+// CapVersion is advertised in the agent handshake (`warmPool=N`): the agent
 // takes SetWarmPools and reports `warm_pool`. The panel sends neither to
-// agents without it.
-const CapVersion = 1
+// agents without it. 2 (plan 264): sizes are a floor (adaptive up to `ceil`),
+// `idleSleepS` / `cap` are understood, keys report wakeN / want / peak5s.
+const CapVersion = 2
 
 const (
-	DefaultSize = 2
-	MaxSize     = 4
-	DefaultCap  = 64
+	// MaxSize: the largest floor / ceiling per key (was 4 before plan 264).
+	MaxSize = 16
+	// DefaultCeil: the ceiling when the panel sends none (older panel).
+	DefaultCeil = 16
+	// DefaultCap: pooled conns per agent (idle + dials in flight).
+	DefaultCap = 192
+	MinCap     = 8
+	MaxCap     = 1024
+	// maxDialsPerKey: refill dials in flight per key (plan 264, was 1).
+	maxDialsPerKey = 4
+	growPerMiss    = 2
+	shrinkEvery    = 15 * time.Minute
+	peakSlotLen    = 5 * time.Minute
+	peakSlots      = 12 // = 1 h
 
 	ageMin            = 90 * time.Second
 	ageMax            = 110 * time.Second
@@ -73,13 +96,20 @@ const (
 	poolDropAfter     = 10 * time.Minute
 	minAdaptiveMaxAge = 30 * time.Second
 	maxRetired        = 256
-	// IdleSleepAfter: a key with no new stream for this long sleeps (plan 249).
-	IdleSleepAfter = 30 * time.Minute
+	// IdleSleepAfter: a key with no new stream for this long sleeps (plan
+	// 249; 30 min → 6 h in plan 264). The panel may push another value.
+	IdleSleepAfter = 6 * time.Hour
+	minIdleSleep   = time.Minute
+	maxIdleSleep   = 24 * time.Hour
 )
 
 // idleSleepDefault is what New uses; only the `warmlab` build (local lab)
-// changes it, release builds always use IdleSleepAfter.
-var idleSleepDefault = IdleSleepAfter
+// changes it (and then ignores the panel's value), release builds always use
+// IdleSleepAfter unless the panel pushes `idleSleepS`.
+var (
+	idleSleepDefault = IdleSleepAfter
+	idleSleepLocked  = false
+)
 
 // Kind of an owner.
 type Kind byte
@@ -93,10 +123,16 @@ func (k Kind) String() string { return string(rune(k)) }
 
 // Config is the panel's full desired state: chain name → pool size
 // (隧道转发) and rule id → pool size (端口转发; the rule's running TCP
-// service "<rule>_<user>_<userTunnel>_tcp" is warmed).
+// service "<rule>_<user>_<userTunnel>_tcp" is warmed). Since plan 264 the size
+// is the floor of the key's adaptive size; Ceil / IdleSleepS / Cap are sent
+// only to CapVersion ≥ 2 agents (0 / absent = agent default). Older agents
+// ignore the new fields and read the sizes as fixed (clamped to their max 4).
 type Config struct {
-	Chains   map[string]int `json:"chains"`
-	Forwards map[string]int `json:"forwards"`
+	Chains     map[string]int `json:"chains"`
+	Forwards   map[string]int `json:"forwards"`
+	Ceil       int            `json:"ceil,omitempty"`
+	IdleSleepS int            `json:"idleSleepS,omitempty"`
+	Cap        int            `json:"cap,omitempty"`
 }
 
 // Target is one dial target of an owner, in the owner's current order.
@@ -124,8 +160,10 @@ type poolKey struct {
 }
 
 type owner struct {
-	key    ownerKey
-	size   int
+	key ownerKey
+	// floor: the panel's size for this owner (plan 264: the head key's
+	// adaptive size never goes below it).
+	floor  int
 	pools  map[string]*pool
 	recent map[string]time.Time
 	absent bool
@@ -137,6 +175,7 @@ type owner struct {
 
 type counters struct {
 	coldN, missN, warmN, deadN, peerN, youngN, failN int64
+	wakeN                                            int64 // plan 264: misses while waking (subset of missN)
 	coldMs, missMs, warmMs                           float64
 }
 
@@ -164,6 +203,22 @@ type pool struct {
 	created          time.Time
 	sleeping         bool // plan 249: no stream for idleSleep → 0 conns, no refill
 
+	// Plan 264 redundancy. size: the head key's adaptive size (floor …
+	// ceiling); head: this key is its owner's head (gets size, others 1).
+	size       int
+	head       bool
+	tickN      int               // streams since the last tick
+	peaks      [peakSlots]uint16 // max streams per tick, per 5-min slot
+	peakSlot   int64             // slot number of the newest peaks entry
+	lastMissAt time.Time         // last burst miss (growth)
+	lastShrink time.Time
+	// waking: new or just woken and no pooled conn has landed yet — its
+	// misses are expected (wakeN), not a shortfall.
+	waking bool
+	// failWave: bumped on every counted dial failure; a dial that started
+	// in an older wave (parallel dials failing together) is not counted.
+	failWave uint64
+
 	stats counters
 }
 
@@ -176,6 +231,8 @@ type Manager struct {
 	retired  []*pool
 	live     int // idle pooled conns + dials in flight
 	cap      int
+	baseCap  int // New's cap; the panel's `cap` overrides it while sent
+	ceil     int // plan 264: ceiling of the adaptive size (panel `ceil`)
 	capHit   bool
 	capLog   time.Time
 	active   atomic.Pointer[map[ownerKey]struct{}]
@@ -188,7 +245,8 @@ type Manager struct {
 	tick         time.Duration
 	ageMin       time.Duration
 	ageMax       time.Duration
-	idleSleep    time.Duration
+	idleSleep    time.Duration // default (New / warmlab)
+	idleSleepSet time.Duration // the panel's idleSleepS (0 = not sent)
 	manualTicker bool
 }
 
@@ -204,6 +262,8 @@ func New(cap int) *Manager {
 		sources: map[Kind]Source{KindService: &serviceSource{}},
 		owners:  map[ownerKey]*owner{},
 		cap:     cap,
+		baseCap: cap,
+		ceil:    DefaultCeil,
 		rnd:     rand.New(rand.NewSource(time.Now().UnixNano())),
 		now:     time.Now,
 		tick:    tickEvery,
@@ -274,6 +334,7 @@ func (m *Manager) SetConfig(cfg Config) int {
 	}
 
 	m.mu.Lock()
+	m.applyLimitsLocked(cfg)
 	m.forwards = forwards
 	if src, _ := m.sources[KindService].(*serviceSource); src != nil {
 		for _, name := range src.names() {
@@ -294,7 +355,7 @@ func (m *Manager) SetConfig(cfg Config) int {
 			o = &owner{key: key, pools: map[string]*pool{}, recent: map[string]time.Time{}, lastStream: m.now()}
 			m.owners[key] = o
 		}
-		o.size = size
+		o.floor = size
 	}
 	m.publishActiveLocked()
 	for _, o := range m.owners {
@@ -305,6 +366,55 @@ func (m *Manager) SetConfig(cfg Config) int {
 	m.mu.Unlock()
 	closeAll(closing)
 	return n
+}
+
+// applyLimitsLocked takes the plan-264 fields of a SetWarmPools: ceiling,
+// idle sleep and agent cap (absent = this agent's defaults).
+func (m *Manager) applyLimitsLocked(cfg Config) {
+	m.ceil = DefaultCeil
+	if cfg.Ceil > 0 {
+		m.ceil = cfg.Ceil
+		if m.ceil > MaxSize {
+			m.ceil = MaxSize
+		}
+	}
+	m.idleSleepSet = 0
+	if cfg.IdleSleepS > 0 && !idleSleepLocked {
+		d := time.Duration(cfg.IdleSleepS) * time.Second
+		if d < minIdleSleep {
+			d = minIdleSleep
+		}
+		if d > maxIdleSleep {
+			d = maxIdleSleep
+		}
+		m.idleSleepSet = d
+	}
+	m.cap = m.baseCap
+	if cfg.Cap > 0 {
+		m.cap = cfg.Cap
+		if m.cap < MinCap {
+			m.cap = MinCap
+		}
+		if m.cap > MaxCap {
+			m.cap = MaxCap
+		}
+	}
+}
+
+// idleSleepNowLocked: the idle-sleep time in force (panel value, else default).
+func (m *Manager) idleSleepNowLocked() time.Duration {
+	if m.idleSleepSet > 0 {
+		return m.idleSleepSet
+	}
+	return m.idleSleep
+}
+
+// ceilFor: the ceiling of an owner's head key (never below its floor).
+func (m *Manager) ceilFor(o *owner) int {
+	if o.floor > m.ceil {
+		return o.floor
+	}
+	return m.ceil
 }
 
 // ForwardIDOf parses the rule id of a rule service name
@@ -440,6 +550,7 @@ func (m *Manager) Tick() {
 				p.unsupported = false
 				p.youngStreak = 0
 			}
+			m.adaptLocked(o, p, now)
 			closing = append(closing, m.sleepCheckLocked(p, now)...)
 		}
 		closing = append(closing, m.evaluateLocked(o)...)
@@ -474,7 +585,7 @@ func (m *Manager) evaluateLocked(o *owner) []*pconn {
 			}
 		}
 		if head != "" {
-			want[head] = o.size
+			want[head] = -1 // the head key's adaptive size, set below
 		}
 		extra := 0
 		for _, t := range targets {
@@ -494,6 +605,7 @@ func (m *Manager) evaluateLocked(o *owner) []*pconn {
 	o.absent = !ok
 	for addr, p := range o.pools {
 		p.want = want[addr]
+		p.head = false
 		if !ok {
 			closing = append(closing, m.drainIdleLocked(p)...)
 		}
@@ -505,9 +617,13 @@ func (m *Manager) evaluateLocked(o *owner) []*pconn {
 			if last.IsZero() || last.After(now) {
 				last = now
 			}
-			p = &pool{key: poolKey{o.key, addr}, created: now, lastUse: last}
+			p = &pool{key: poolKey{o.key, addr}, created: now, lastUse: last, size: o.floor, waking: true}
 			o.pools[addr] = p
 			closing = append(closing, m.sleepCheckLocked(p, now)...)
+		}
+		if n < 0 {
+			p.head = true
+			n = m.headSizeLocked(o, p)
 		}
 		p.want = n
 	}
@@ -521,36 +637,165 @@ func (m *Manager) evaluateLocked(o *owner) []*pconn {
 // conns are returned for closing and it is not refilled until a stream wakes
 // it (noteUseLocked). Runs on the existing tick, no timer per key.
 func (m *Manager) sleepCheckLocked(p *pool, now time.Time) []*pconn {
-	if p.sleeping || p.removed || m.idleSleep <= 0 || now.Sub(p.lastUse) < m.idleSleep {
+	idleSleep := m.idleSleepNowLocked()
+	if p.sleeping || p.removed || idleSleep <= 0 || now.Sub(p.lastUse) < idleSleep {
 		return nil
 	}
 	p.sleeping = true
 	p.capped = false
 	m.logger().Debugf("warm pool %s %s → %s: no stream for %s, sleeping until the next one",
-		p.key.owner.kind, p.key.owner.name, p.key.addr, m.idleSleep)
+		p.key.owner.kind, p.key.owner.name, p.key.addr, idleSleep)
 	return m.drainIdleLocked(p)
 }
 
-func (m *Manager) refillLocked(p *pool) {
-	if p.removed || p.sleeping || p.dialing > 0 || len(p.idle) >= p.want {
+// ---- plan 264: adaptive size ----------------------------------------------
+
+// headSizeLocked: the head key's size now, clamped to the owner's floor and
+// ceiling (both may change with every SetWarmPools).
+func (m *Manager) headSizeLocked(o *owner, p *pool) int {
+	ceil := m.ceilFor(o)
+	if p.size < o.floor {
+		p.size = o.floor
+	}
+	if p.size > ceil {
+		p.size = ceil
+	}
+	return p.size
+}
+
+// sizeFormula: max(floor, ⌈1.5 × peak⌉ + 2), clamped to the ceiling.
+func sizeFormula(peak, floor, ceil int) int {
+	n := (3*peak+1)/2 + 2
+	if n < floor {
+		n = floor
+	}
+	if n > ceil {
+		n = ceil
+	}
+	return n
+}
+
+// notePeakLocked folds the streams of the tick that just ended into the
+// 5-min maxima ring (slots older than 1 h are cleared on the way).
+func (p *pool) notePeakLocked(now time.Time) {
+	slot := now.Unix() / int64(peakSlotLen/time.Second)
+	if p.peakSlot == 0 {
+		p.peakSlot = slot
+	}
+	if gap := slot - p.peakSlot; gap > 0 {
+		if gap >= peakSlots {
+			p.peaks = [peakSlots]uint16{}
+		} else {
+			for i := int64(1); i <= gap; i++ {
+				p.peaks[(p.peakSlot+i)%peakSlots] = 0
+			}
+		}
+		p.peakSlot = slot
+	}
+	n := p.tickN
+	if n > 0xffff {
+		n = 0xffff
+	}
+	if i := slot % peakSlots; uint16(n) > p.peaks[i] {
+		p.peaks[i] = uint16(n)
+	}
+	p.tickN = 0
+}
+
+// peak5s: the most streams in one tick over the last hour.
+func (p *pool) peak5s() int {
+	max := 0
+	for _, v := range p.peaks {
+		if int(v) > max {
+			max = int(v)
+		}
+	}
+	return max
+}
+
+// adaptLocked runs once per tick per key: the size grows at once to the
+// formula and shrinks by 1 per 15 min without a miss, never below it.
+func (m *Manager) adaptLocked(o *owner, p *pool, now time.Time) {
+	p.notePeakLocked(now)
+	floor, ceil := o.floor, m.ceilFor(o)
+	f := sizeFormula(p.peak5s(), floor, ceil)
+	switch {
+	case p.size < f:
+		p.size = f
+	case p.size > f:
+		last := p.lastMissAt
+		if p.lastShrink.After(last) {
+			last = p.lastShrink
+		}
+		if now.Sub(last) >= shrinkEvery {
+			p.size--
+			p.lastShrink = now
+		}
+	}
+	if p.size > ceil {
+		p.size = ceil
+	}
+	if p.size < floor {
+		p.size = floor
+	}
+}
+
+// growLocked: a stream found the awake head key empty — 2 more conns at once.
+func (m *Manager) growLocked(o *owner, p *pool, now time.Time) {
+	p.lastMissAt = now
+	if !p.head || p.unsupported || p.capped || now.Before(p.restUntil) {
 		return
 	}
-	now := m.now()
+	p.size += growPerMiss
+	p.want = m.headSizeLocked(o, p)
+	m.refillLocked(p)
+}
+
+// dialSlotsLocked: how many refill dials p may start now — up to 4 in flight
+// while idle + dialing < want; one at a time after a failed dial (until the
+// next success) or while the peer closes young conns.
+func (m *Manager) dialSlotsLocked(p *pool, now time.Time) int {
+	if p.removed || p.sleeping {
+		return 0
+	}
+	need := p.want - len(p.idle) - p.dialing
+	if need <= 0 {
+		p.capped = false
+		return 0
+	}
 	if now.Before(p.restUntil) || p.unsupported || now.Before(p.nextDialAt) {
+		return 0
+	}
+	par := maxDialsPerKey
+	if p.dialFails > 0 || p.restLevel > 0 || p.youngStreak > 0 {
+		par = 1
+	}
+	if free := par - p.dialing; free < need {
+		need = free
+	}
+	return need
+}
+
+func (m *Manager) refillLocked(p *pool) {
+	now := m.now()
+	n := m.dialSlotsLocked(p, now)
+	if n <= 0 {
 		return
 	}
-	if m.live >= m.cap {
-		m.noteCapLocked(p, now)
-		return
-	}
-	p.capped = false
 	src := m.sources[p.key.owner.kind]
 	if src == nil {
 		return
 	}
-	p.dialing = 1
-	m.live++
-	go m.dialLoop(p, src)
+	for ; n > 0; n-- {
+		if m.live >= m.cap {
+			m.noteCapLocked(p, now)
+			return
+		}
+		p.capped = false
+		p.dialing++
+		m.live++
+		go m.dialLoop(p, src, p.failWave)
+	}
 }
 
 // noteCapLocked: p wanted a conn but the agent cap is reached (one log line
@@ -564,7 +809,10 @@ func (m *Manager) noteCapLocked(p *pool, now time.Time) {
 	}
 }
 
-func (m *Manager) dialLoop(p *pool, src Source) {
+// dialLoop runs one refill dial slot (p.dialing and m.live already count it)
+// and keeps going while p still needs conns; wave is p.failWave when the dial
+// started.
+func (m *Manager) dialLoop(p *pool, src Source, wave uint64) {
 	for {
 		ctx, cancel := context.WithTimeout(context.Background(), dialTimeout)
 		t0 := time.Now()
@@ -576,6 +824,15 @@ func (m *Manager) dialLoop(p *pool, src Source) {
 		now := m.now()
 		if err != nil || conn == nil {
 			p.stats.failN++
+			p.dialing--
+			m.live--
+			// Plan 264: parallel dials that were in flight when another one's
+			// failure was counted (or while resting) are the same wave.
+			if wave != p.failWave || now.Before(p.restUntil) {
+				m.mu.Unlock()
+				return
+			}
+			p.failWave++
 			p.dialFails++
 			if p.dialFails >= failsBeforeRest {
 				rest := restFor << uint(p.restLevel)
@@ -591,8 +848,6 @@ func (m *Manager) dialLoop(p *pool, src Source) {
 			} else {
 				p.nextDialAt = now.Add(time.Duration(1<<uint(p.dialFails)) * time.Second)
 			}
-			p.dialing = 0
-			m.live--
 			m.mu.Unlock()
 			return
 		}
@@ -602,7 +857,7 @@ func (m *Manager) dialLoop(p *pool, src Source) {
 		p.stats.coldMs += ms(d)
 		o := m.owners[p.key.owner]
 		if p.removed || p.sleeping || o == nil || o.absent || len(p.idle) >= p.want || p.unsupported || now.Before(p.restUntil) {
-			p.dialing = 0
+			p.dialing--
 			m.live--
 			m.mu.Unlock()
 			closeQuiet(conn)
@@ -610,17 +865,20 @@ func (m *Manager) dialLoop(p *pool, src Source) {
 		}
 		c := &pconn{Conn: conn, p: p, born: now, expire: now.Add(m.ageLocked(p)), done: make(chan struct{})}
 		p.idle = append(p.idle, c)
+		p.waking = false
 		go c.watch(m)
 		// The dial slot became an idle slot (live unchanged).
-		if len(p.idle) < p.want && !now.Before(p.nextDialAt) {
+		p.dialing--
+		if m.dialSlotsLocked(p, now) > 0 {
 			if m.live < m.cap {
+				p.dialing++
 				m.live++
+				wave = p.failWave
 				m.mu.Unlock()
 				continue
 			}
 			m.noteCapLocked(p, now)
 		}
-		p.dialing = 0
 		m.mu.Unlock()
 		return
 	}
@@ -729,6 +987,9 @@ func (m *Manager) Take(k Kind, name, addr string) *Lease {
 	now := m.now()
 	m.noteUseLocked(o, addr, now)
 	p := o.pools[addr]
+	if p != nil {
+		p.tickN++ // plan 264: one per stream (Take runs once per stream)
+	}
 	for p != nil && len(p.idle) > 0 {
 		c := p.idle[0]
 		p.idle[0] = nil
@@ -771,10 +1032,17 @@ func (m *Manager) NoteMiss(k Kind, name, addr string, d time.Duration) {
 	if o == nil {
 		return
 	}
-	m.noteUseLocked(o, addr, m.now())
+	now := m.now()
+	m.noteUseLocked(o, addr, now)
 	if p := o.pools[addr]; p != nil && d >= 0 {
 		p.stats.missN++
 		p.stats.missMs += ms(d)
+		if p.waking {
+			// Plan 264: new / just woken, nothing pooled yet — by design.
+			p.stats.wakeN++
+		} else {
+			m.growLocked(o, p, now)
+		}
 	}
 }
 
@@ -788,6 +1056,7 @@ func (m *Manager) noteUseLocked(o *owner, addr string, now time.Time) {
 			// Plan 249: this stream dials cold (nothing pooled); the key
 			// refills right away for the next ones.
 			p.sleeping = false
+			p.waking = true
 			m.refillLocked(p)
 		}
 	}

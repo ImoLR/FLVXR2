@@ -416,8 +416,9 @@ func TestDialFailuresBackOff(t *testing.T) {
 		m.Tick()
 		time.Sleep(20 * time.Millisecond)
 	}
-	// 2 s timer granularity: at most the first attempt within 2 s.
-	if d := src.dials.Load(); d > 2 {
+	// 2 s timer granularity: the first wave (2 parallel dials, plan 264)
+	// and at most one retry after 2 s.
+	if d := src.dials.Load(); d > 3 {
 		t.Fatalf("%d dials in 2 s against a dead target", d)
 	}
 }
