@@ -41,7 +41,7 @@ one dial in flight per key → after a burst the pool refills serially (~2 RTT e
 - [x] Release: `maintenance/3.0.27-fork.136-warm-redundant`, tag `3.0.27-fork.136`, CI + Images + Latest assets
 - [x] Prod panel upgrade (backup + rollback script + prune), verify agents / forwards / warmPoolState / old agents 4 per key
 - [x] Ledger row 264, OTA target list for the night worker, record.py fields, memory notes
-- [ ] Agent OTA (night worker `warm-redundant-ota`, 02:00–03:30 TW 11-17)
+- [x] Agent OTA (night worker `warm-redundant-ota`, 02:00–03:30 TW 11-17) — done 02:25 TW, 11 hosts → fork.138
 - [ ] Stats after OTA + evening peak (worker `warm-redundant-stats`)
 
 ## Notes
@@ -109,6 +109,21 @@ TLS conn; plain-TCP rule pools ≈ 0.4 KB per conn lifetime ≈ 0.35 MB / day.
   t92 2 → 4, t102 → 4, Bestvm JP B → Bestvm US → 4); warmPoolState on 8 tunnels with `wakeN` / `burstMissN`; backend
   healthy, 0 restarts, RSS 72.6 → 38 MiB; no warm-pool errors in the log.
 - Agent OTA: night worker `warm-redundant-ota` 02:00–03:30 TW (targets runs/warm-redundant/ota-targets.md).
+
+### Agent OTA 11-17 02:02–02:25 TW (worker `warm-redundant-ota`)
+- Version installed = **3.0.27-fork.138** (panel hands out only its own version; `go-gost/` diff fork.136..fork.138 = 0 lines,
+  so this is the plan-264 agent). Panel `node/upgrade` per host, one at a time, SSH backup first
+  (`/root/flvxx-backup-2026111?T18????Z-pre-fork138/restore-agent.sh` on each host; layout-aware: `/etc/flvxx` or `/etc/flvx_agent`).
+- Order + back-online time: Dmit Echo (canary 02:03, 6 s, 5 min watch) → vmsilo 沪日首发 02:07 (8 s) → Bestvm JP B 02:09 (6 s) →
+  vmsilo 沪美 02:12 (10 s) → Datawave HK 2 02:14 (8 s) → Leikwanhost 沪台IPLC 02:15 (7 s) → Mkcloud 沪日ixp 440 02:17 →
+  Dmit Nathan 02:19 (7 s) → Bestvm HK 年付 02:21 (7 s) → AWS HK 02:22 (7 s) → Mkcloud 深港ixp 1 02:24 (7 s). 0 failures, 0 restores.
+- After: 30/30 nodes online; 51/51 rules, chains, tunnels, landing nodes, shared servers unchanged (state.py cmp); every
+  reported hop from an OTA'd node carries `want` (6–13) / `peak5s`; no `capped`; awake keys hold 6 idle (was 4);
+  journals: only the usual reconnect re-push burst, then quiet; error lines = pre-existing kinds (client timeouts, relay unauthorized scans).
+- vmsilo 沪日首发: agent RSS 148 → 66 MB (restart), 53 ESTAB (t92 → Bestvm JP B 14, t102 6, rules 6–7 each);
+  Bestvm JP B: RSS 61 → 58 MB, → Bestvm US 6 + → Datawave HK 2 6.
+- Hops whose target closes idle conns (`unsupported`) and dead targets (`rest`) are re-learned by the new agent after its restart
+  (same as any agent restart). Hit-rate comparison needs daytime traffic → stats worker after the 11-17 evening peak.
 
 ### Prod estimate after the night OTA (resource rule)
 - Pool keys today: 14 chain keys (10 entry + 4 middle) + 27 port-forward rule keys on 11 hosts. With 6 h sleep most keys
