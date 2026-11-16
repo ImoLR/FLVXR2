@@ -136,8 +136,9 @@ func leiKwanHostTakeoverFlow(t *testing.T, dialect string) {
 		t.Fatalf("manage on: %v", on)
 	}
 	// A line change reaches every host that does not pin the value: 广港 warm
-	// 10 → 8 changes 263 on 百度云广州 / 火山广州 / 阿里广州, not 540 (pinned on
-	// 百度云广州), nothing on 火山上海 (no warm file).
+	// 10 → 8 changes 263 on 百度云广州 (the owner's 主入口; warm pools follow the
+	// 主入口), not 540 (pinned on 百度云广州), not 阿里广州 / 火山广州 (their pools
+	// are learned = pinned), nothing on 火山上海 (no warm file).
 	lines := e.ok("/api/v1/leikwan/line/list", e.admin, map[string]interface{}{})
 	var gg map[string]interface{}
 	for _, l := range lines["lines"].([]interface{}) {
@@ -152,8 +153,12 @@ func leiKwanHostTakeoverFlow(t *testing.T, dialect string) {
 	if strings.Join(got, "|") != "- 263=10|+ 263=8" {
 		t.Fatalf("baidu warm diff after line change: %v", got)
 	}
-	if got := lkDiffLines(e.hostView(60)["manage"].(map[string]interface{}), "warm"); strings.Join(got, "|") != "- 263=10|+ 263=8" {
+	// 阿里广州 is not the owner's 主入口: its 263 pool is pinned (learned), unchanged.
+	if got := lkDiffLines(e.hostView(60)["manage"].(map[string]interface{}), "warm"); len(got) != 0 {
 		t.Fatalf("aliyun warm diff: %v", got)
+	}
+	if ov := e.hostView(60)["manage"].(map[string]interface{})["overrides"].(map[string]interface{}); num(ov["263"].(map[string]interface{})["warmMain"]) != 10 {
+		t.Fatalf("aliyun 263 not pinned: %v", ov)
 	}
 	if mv := e.hostView(61)["manage"].(map[string]interface{}); num(mv["diffCount"]) != 0 {
 		t.Fatalf("SH changed by a warm edit: %v", mv["diff"])

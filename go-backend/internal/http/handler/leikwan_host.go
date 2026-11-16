@@ -367,10 +367,19 @@ type lkGen struct {
 	global   model.LeiKwanGlobalAccel
 	blocked  map[int64]bool
 	allPorts []int
+	// mainEntry: user → 主入口 node. The warm pool (pre-opened streams) of a
+	// rule runs only on its owner's 主入口 (the cheap filter / logswitch run on
+	// every entry host); learned host values pin what the hosts run today.
+	mainEntry map[int64]int64
 }
 
 func (h *Handler) newLKGen() (*lkGen, error) {
-	g := &lkGen{lines: map[int64]model.LeiKwanLine{}, backups: map[int64]string{}, byAddr: map[string]int64{}, keys: map[int64]*lkKeyEntry{}, protoOK: map[int64]bool{}, blocked: map[int64]bool{}}
+	g := &lkGen{lines: map[int64]model.LeiKwanLine{}, backups: map[int64]string{}, byAddr: map[string]int64{}, keys: map[int64]*lkKeyEntry{}, protoOK: map[int64]bool{}, blocked: map[int64]bool{}, mainEntry: map[int64]int64{}}
+	if grants, err := h.repo.ListLeiKwanGrants(); err == nil {
+		for _, gr := range grants {
+			g.mainEntry[gr.UserID] = gr.MainEntryNodeID
+		}
+	}
 	lines, err := h.repo.ListLeiKwanLines()
 	if err != nil {
 		return nil, err
@@ -430,13 +439,16 @@ func (h *Handler) newLKGen() (*lkGen, error) {
 }
 
 // generic: the rule's values from panel data only (line default + rule override).
-func (g *lkGen) generic(x model.LeiKwanRule) lkRuleEff {
+func (g *lkGen) generic(x model.LeiKwanRule, nodeID int64) lkRuleEff {
 	line := g.lines[x.LineID]
 	a := parseLeiKwanAccel(line.Accel)
 	o := parseLeiKwanRuleAccel(x.Accel)
 	e := lkRuleEff{WarmMain: a.Warm.Main, SSFilter: a.SSFilter, Backup: g.backups[x.BackupForwardID]}
 	if o.WarmMain != nil {
 		e.WarmMain = *o.WarmMain
+	}
+	if g.mainEntry[x.UserID] != nodeID {
+		e.WarmMain = 0 // not the owner's 主入口: no pre-opened streams here
 	}
 	if o.SSFilter != nil {
 		e.SSFilter = *o.SSFilter
@@ -467,8 +479,8 @@ func (g *lkGen) generic(x model.LeiKwanRule) lkRuleEff {
 	return e
 }
 
-func (g *lkGen) effective(x model.LeiKwanRule, o lkRuleOverride) lkRuleEff {
-	e := g.generic(x)
+func (g *lkGen) effective(x model.LeiKwanRule, o lkRuleOverride, nodeID int64) lkRuleEff {
+	e := g.generic(x, nodeID)
 	line := g.lines[x.LineID]
 	a := parseLeiKwanAccel(line.Accel)
 	ro := parseLeiKwanRuleAccel(x.Accel)
@@ -517,7 +529,7 @@ func (g *lkGen) desired(nodeID int64, p *lkHostProfile) *lkDesired {
 	d := &lkDesired{}
 	effs := make([]lkRuleEff, len(g.rules))
 	for i, x := range g.rules {
-		effs[i] = g.effective(x, p.Rules[strconv.FormatInt(x.ForwardID, 10)])
+		effs[i] = g.effective(x, p.Rules[strconv.FormatInt(x.ForwardID, 10)], nodeID)
 	}
 	if p.Files[lkFileWarm] {
 		t := lkCopy(p.WarmExtra)
@@ -698,7 +710,7 @@ func (g *lkGen) learn(nodeID int64, rep *lkHostReport) (*lkHostProfile, string, 
 	for _, x := range g.rules {
 		fid := strconv.FormatInt(x.ForwardID, 10)
 		var o lkRuleOverride
-		e := g.effective(x, o)
+		e := g.effective(x, o, nodeID)
 		if p.Files[lkFileLogswitch] {
 			backup, wired := hostLines[fid]
 			if wired != e.Logswitch || (wired && backup != e.Backup) {
@@ -708,19 +720,19 @@ func (g *lkGen) learn(nodeID int64, rep *lkHostReport) (*lkHostProfile, string, 
 					b := backup
 					o.Backup = &b
 				}
-				e = g.effective(x, o)
+				e = g.effective(x, o, nodeID)
 			}
 		}
 		if p.Files[lkFileWarm] {
 			hw, _ := strconv.Atoi(warm[fid])
 			if hw != e.WarmMain {
 				o.WarmMain = &hw
-				e = g.effective(x, o)
+				e = g.effective(x, o, nodeID)
 			}
 			hb, _ := strconv.Atoi(warm["backup:"+fid])
 			if hb != e.WarmBackup {
 				o.WarmBackup = &hb
-				e = g.effective(x, o)
+				e = g.effective(x, o, nodeID)
 			}
 		}
 		if p.Files[lkFileSSFilter] {
@@ -734,7 +746,7 @@ func (g *lkGen) learn(nodeID int64, rep *lkHostReport) (*lkHostProfile, string, 
 			}
 			if hs != es {
 				o.SSFilter = &hs
-				e = g.effective(x, o)
+				e = g.effective(x, o, nodeID)
 			}
 		}
 		if p.Files[lkFileTriggers] && e.Logswitch {
@@ -744,7 +756,7 @@ func (g *lkGen) learn(nodeID int64, rep *lkHostReport) (*lkHostProfile, string, 
 			}
 			if hrc != e.ReturnCheck {
 				o.ReturnCheck = &hrc
-				e = g.effective(x, o)
+				e = g.effective(x, o, nodeID)
 			}
 		}
 		if !o.empty() {
@@ -1662,7 +1674,7 @@ func (h *Handler) leiKwanFreezeHostValues(x model.LeiKwanRule) {
 		if p == nil {
 			continue
 		}
-		e := g.effective(x, p.Rules[fid])
+		e := g.effective(x, p.Rules[fid], host.NodeID)
 		keepLine := e.Logswitch && x.BackupMode != "auto"
 		if p.Unmanaged.Warm == nil {
 			p.Unmanaged.Warm = map[string]string{}

@@ -34,6 +34,8 @@ func TestLeiKwanHostSyncPayload(t *testing.T) {
 	must(db.Create(&model.LeiKwanRule{UserID: 1, LineID: 1, ForwardID: 263, Name: "263", ListenPort: 10018, BackupForwardID: 148, BackupMode: "linked", Status: 1}).Error)
 	must(db.Create(&model.LeiKwanRule{UserID: 2, LineID: 1, ForwardID: 540, Name: "540", ListenPort: 10021, BlockReason: "总流量已用完", Status: 1}).Error)
 	must(db.Create(&model.LeiKwanSetting{ID: 1, AccountID: 1, Global: `{"coalesce":"on budget_ms=2 min=59"}`}).Error)
+	must(db.Create(&model.LeiKwanGrant{UserID: 1, MainEntryNodeID: 58, BackupLine: 1, Status: 1}).Error)
+	must(db.Create(&model.LeiKwanGrant{UserID: 2, MainEntryNodeID: 58, BackupLine: 1, Status: 1}).Error)
 	host, err := r.EnsureLeiKwanHost(58)
 	must(err)
 
@@ -70,6 +72,13 @@ func TestLeiKwanHostSyncPayload(t *testing.T) {
 	}
 	if d.Triggers.Tokens["263:return_check"] != "on" || d.Coalesce.Value != "on budget_ms=2 min=59" {
 		t.Fatalf("triggers %v coalesce %v", d.Triggers.Tokens, d.Coalesce)
+	}
+	// Another entry host (not the owners' 主入口): no warm pools there.
+	other, _ := r.EnsureLeiKwanHost(52)
+	other.Profile = host.Profile
+	_, dOther, _ := h.leiKwanHostSyncPayload(other, g)
+	if _, ok := dOther.Warm.Tokens["263"]; ok || dOther.SSFilter.Tokens["263"] != "enforce" || len(dOther.Logswitch.Lines) != 1 {
+		t.Fatalf("non-main entry host: warm %v filter %v lines %v", dOther.Warm.Tokens, dOther.SSFilter.Tokens, dOther.Logswitch.Lines)
 	}
 	s2, _, _ := h.leiKwanHostSyncPayload(host, g)
 	if s2.Rev != 2 {

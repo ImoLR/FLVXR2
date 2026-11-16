@@ -1,6 +1,7 @@
 import type {
   LeiKwanGrant,
   LeiKwanHostList,
+  LeiKwanHostManage,
   LeiKwanImportPlan,
   LeiKwanLine,
   LeiKwanLineList,
@@ -20,8 +21,15 @@ import {
   previewLeiKwanImport,
 } from "@/api/leikwan-line";
 import { useH5Mode } from "@/hooks/useH5Mode";
+import { AttentionIcon } from "@/pages/landing/admin-attention";
 import { Pill } from "@/pages/landing/pill";
 import { LeiKwanGrantDialog } from "@/pages/leikwan/panel/grant-dialog";
+import {
+  HostManageBlock,
+  HostNameMarker,
+  hostAttentionLevel,
+  hostsAttentionLevel,
+} from "@/pages/leikwan/panel/host-manage";
 import { LeiKwanLineDialog } from "@/pages/leikwan/panel/line-dialog";
 import { LeiKwanLinesTable } from "@/pages/leikwan/panel/lines-table";
 import {
@@ -114,6 +122,21 @@ export function LeiKwanPanelSection() {
 
   const lineNames = (data?.lines || []).map((l) => l.name);
   const entries = data?.entryNodes || [];
+  // Plan 269: one host's new 面板接管 view (from a host/* action reply).
+  const patchHost = (nodeId: number, view: LeiKwanHostManage) =>
+    setHosts((cur) => {
+      if (!cur) return cur;
+      const list = cur.hosts.map((x) =>
+        x.node.id === nodeId ? { ...x, manage: view } : x,
+      );
+
+      return {
+        ...cur,
+        hosts: list,
+        attention: list.filter((x) => hostAttentionLevel(x.manage)).length,
+      };
+    });
+  const entryLevel = hostsAttentionLevel(hosts);
 
   return (
     <Card>
@@ -194,8 +217,24 @@ export function LeiKwanPanelSection() {
                 </div>
               </div>
             </Tab>
-            <Tab key="entry" title="利群入口">
-              <EntryTab hosts={hosts} />
+            <Tab
+              key="entry"
+              title={
+                <span
+                  className="inline-flex items-center gap-1.5"
+                  data-attention-tab={entryLevel || undefined}
+                  title={
+                    entryLevel
+                      ? `${hosts?.attention} 台入口机需要处理`
+                      : undefined
+                  }
+                >
+                  利群入口
+                  {entryLevel && <AttentionIcon level={entryLevel} />}
+                </span>
+              }
+            >
+              <EntryTab hosts={hosts} onHostView={patchHost} />
             </Tab>
             <Tab key="grants" title="授权">
               <div className="space-y-3 pt-2">
@@ -338,8 +377,15 @@ export function LeiKwanPanelSection() {
   );
 }
 
-function EntryTab({ hosts }: { hosts: LeiKwanHostList | null }) {
+function EntryTab({
+  hosts,
+  onHostView,
+}: {
+  hosts: LeiKwanHostList | null;
+  onHostView: (nodeId: number, view: LeiKwanHostManage) => void;
+}) {
   if (!hosts) return null;
+  const fromAgent = hosts.hosts.some((h) => h.source === "agent");
 
   return (
     <div className="space-y-3 pt-2">
@@ -387,25 +433,64 @@ function EntryTab({ hosts }: { hosts: LeiKwanHostList | null }) {
         </table>
       </div>
       <p className="text-xs text-default-500">
-        下面是每台入口机现在跑的东西（只读 SSH 快照，密钥已去掉；第二步改由
-        agent 上报）。
+        {fromAgent
+          ? "下面是每台入口机现在跑的东西（agent 上报，密钥不出主机）。"
+          : "下面是每台入口机现在跑的东西（只读 SSH 快照，密钥已去掉；第二步改由 agent 上报）。"}
       </p>
+      {(hosts.attention || 0) > 0 && (
+        <div
+          data-attention-notice
+          className={`flex items-center gap-2 rounded-lg px-3 py-2 text-sm ${
+            hostsAttentionLevel(hosts) === "error"
+              ? "bg-red-500/15 text-red-700 dark:bg-red-400/20 dark:text-red-300"
+              : "bg-amber-500/15 text-amber-700 dark:bg-amber-400/15 dark:text-amber-300"
+          }`}
+        >
+          <AttentionIcon level={hostsAttentionLevel(hosts) || "warn"} />
+          <span className="min-w-0 flex-1">
+            {hosts.attention} 台入口机需要处理：
+            {hosts.hosts
+              .filter((h) => hostAttentionLevel(h.manage))
+              .map((h) => h.node.name)
+              .join("、")}
+          </span>
+        </div>
+      )}
       <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
         {hosts.hosts.map((h) => (
-          <HostCard key={h.node.id} host={h} />
+          <HostCard
+            key={h.node.id}
+            host={h}
+            nightOnly={!!hosts.global?.nightOnly}
+            onView={onHostView}
+          />
         ))}
       </div>
     </div>
   );
 }
 
-function HostCard({ host }: { host: LeiKwanHostList["hosts"][number] }) {
+function HostCard({
+  host,
+  nightOnly,
+  onView,
+}: {
+  host: LeiKwanHostList["hosts"][number];
+  nightOnly: boolean;
+  onView: (nodeId: number, view: LeiKwanHostManage) => void;
+}) {
   const s = host.snapshot;
 
   return (
-    <div className="rounded-xl border border-divider p-3">
+    <div
+      className="rounded-xl border border-divider p-3"
+      data-leikwan-host={host.node.id}
+    >
       <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
-        <span className="font-semibold">{host.node.name}</span>
+        <span className="flex items-center gap-1.5 font-semibold">
+          {host.node.name}
+          <HostNameMarker manage={host.manage} />
+        </span>
         {s ? (
           <span className="text-xs text-default-400">
             快照{" "}
@@ -509,6 +594,7 @@ function HostCard({ host }: { host: LeiKwanHostList["hosts"][number] }) {
           )}
         </div>
       )}
+      <HostManageBlock host={host} nightOnly={nightOnly} onView={onView} />
     </div>
   );
 }

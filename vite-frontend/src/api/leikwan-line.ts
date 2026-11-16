@@ -34,6 +34,9 @@ export interface LeiKwanGlobal {
   ioError: string;
   coalesce: string;
   coalesceByNode: Record<string, string>;
+  // Plan 269: restarts / nft changes on the entry hosts only 02:00–06:00 台湾
+  // (default off: they run right away).
+  nightOnly?: boolean;
 }
 
 export interface LeiKwanHostValue {
@@ -84,6 +87,9 @@ export interface LeiKwanLine {
   }[];
   // Plan 268: auto / linked backups and how many 「按新备线重建」 would change.
   backupStats?: { auto: number; linked: number; stale: number };
+  // Plan 269: 利群流量 billing, same meaning as tunnels (1 单向 / 2 双向).
+  flowMode?: number;
+  trafficRatio?: number;
 }
 
 // Plan 268: any tunnel can be a line's 备线隧道; path + 线路分组 + the
@@ -213,6 +219,21 @@ export interface LeiKwanRule {
   backup?: LeiKwanRuleBackup;
   landingHint?: string;
   hostValues?: LeiKwanHostValue[];
+  // Plan 269: billed 利群流量 since the owner's reset, the block reason
+  // ('' = open) and the prepared panel landing node 「待切换」.
+  inFlow?: number;
+  outFlow?: number;
+  blockReason?: string;
+  pendingLanding?: LeiKwanPendingLanding;
+}
+
+export interface LeiKwanPendingLanding {
+  landingNodeId: number;
+  name?: string;
+  protocol?: string;
+  port?: number;
+  serverName?: string;
+  host?: string;
 }
 
 export interface LeiKwanRuleList {
@@ -287,10 +308,126 @@ export interface LeiKwanHostList {
     snapshot?: LeiKwanHostSnapshot | null;
     source?: string;
     capturedAt?: number;
+    // Plan 269: 面板接管 of this host.
+    manage?: LeiKwanHostManage;
   }[];
   global: LeiKwanGlobal;
   triggers: LeiKwanTrigger[];
+  // Plan 269: hosts that need the admin (⚠ on the 「利群入口」 tab).
+  attention?: number;
 }
+
+// ---- Plan 269: 面板接管 (agent-reported host state + managed files) ----
+
+/** File keys of the managed host files. */
+export type LeiKwanHostFile =
+  | "warm"
+  | "ssfilter"
+  | "sskeys"
+  | "triggers"
+  | "logswitch"
+  | "coalesce"
+  | "phone";
+
+export interface LeiKwanHostLiveForward {
+  forwardId: number;
+  listenPort: number;
+  target?: string;
+  transport?: string;
+  state?: string;
+  policy?: string;
+  udp?: string;
+  running: boolean;
+}
+
+/** The live host state from the entry agent's report. */
+export interface LeiKwanHostLiveState {
+  host?: string;
+  agentVersion?: string;
+  coreVersion?: string;
+  agentRunning: boolean;
+  updateLock: boolean;
+  autoUpdateOff: boolean;
+  selectionMode?: string;
+  nativeUdp?: "all" | "some" | "none" | string;
+  frontChannel?: string;
+  frontBuild?: string;
+  fastFailover?: string;
+  logswitch?: string;
+  coalesce?: string;
+  phonePorts?: number[] | null;
+  forwards?: LeiKwanHostLiveForward[] | null;
+}
+
+/** What the entry agent says about the managed files. */
+export interface LeiKwanHostAgentManage {
+  manage: boolean;
+  rev: number;
+  force: number;
+  applied?: Record<string, number> | null;
+  drift?: string[] | null;
+  pending?: string[] | null;
+  errors?: Record<string, string> | null;
+  written?: Record<string, number> | null;
+  backup?: string;
+}
+
+export interface LeiKwanHostFileDiff {
+  file: LeiKwanHostFile | string;
+  name: string;
+  path?: string;
+  managed: boolean;
+  same: boolean;
+  /** "- x=1" = host now, "+ x=2" = panel; other lines are notes. */
+  lines?: string[] | null;
+  /** Applying needs a logswitch restart / nft change (night window only). */
+  restart?: boolean;
+}
+
+export interface LeiKwanHostOverride {
+  warmMain?: number;
+  warmBackup?: number;
+  ssFilter?: string;
+  logswitch?: boolean;
+  returnCheck?: boolean;
+  backup?: string;
+}
+
+export interface LeiKwanHostManage {
+  manage: boolean;
+  traffic: boolean;
+  learned: boolean;
+  reported: boolean;
+  rev?: number;
+  force?: number;
+  learnedAt?: number;
+  reportedAt?: number;
+  syncedAt?: number;
+  syncError?: string;
+  state?: LeiKwanHostLiveState;
+  agent?: LeiKwanHostAgentManage;
+  trafficState?: {
+    counting: boolean;
+    pending: boolean;
+    blocked?: number[] | null;
+    error?: string;
+  };
+  diff?: LeiKwanHostFileDiff[] | null;
+  diffCount?: number;
+  overrides?: Record<string, LeiKwanHostOverride> | null;
+  profile?: unknown;
+  applying?: boolean;
+  /** Chinese reasons: 漂移 / 写入失败 / 同步失败 / unit 改了还没重启. */
+  attention?: string[] | null;
+  /** Chinese file names waiting for the 02:00–06:00 window. */
+  pending?: string[] | null;
+}
+
+/** host/* replies: the manage view (+ a warning when the push failed). */
+export type LeiKwanHostManageReply = LeiKwanHostManage & {
+  warning?: string;
+  learnedDiff?: LeiKwanHostFileDiff[] | null;
+};
 
 export interface LeiKwanImportItem {
   forwardId: number;
@@ -359,6 +496,8 @@ export const saveLeiKwanLine = (body: {
   accel: LeiKwanAccel;
   inx?: number;
   status?: number;
+  flowMode?: number;
+  trafficRatio?: number;
 }) => lk("line/save", body);
 export const deleteLeiKwanLine = (id: number) => lk("line/delete", { id });
 export const saveLeiKwanSetting = (body: {
@@ -395,6 +534,17 @@ export const applyLeiKwanImport = (forwardIds: number[]) =>
     skipped: string[];
   }>("import/apply", { confirmed: true, forwardIds });
 export const getLeiKwanHosts = () => lk<LeiKwanHostList>("host/list");
+// Plan 269: 面板接管 actions; each returns the host's new manage view.
+export const learnLeiKwanHost = (nodeId: number) =>
+  lk<LeiKwanHostManageReply>("host/learn", { nodeId });
+export const setLeiKwanHostManage = (nodeId: number, manage: boolean) =>
+  lk<LeiKwanHostManageReply>("host/manage", { nodeId, manage });
+export const forceLeiKwanHost = (nodeId: number) =>
+  lk<LeiKwanHostManageReply>("host/force", { nodeId });
+export const setLeiKwanHostTraffic = (nodeId: number, traffic: boolean) =>
+  lk<LeiKwanHostManageReply>("host/traffic", { nodeId, traffic });
+export const syncLeiKwanHost = (nodeId: number) =>
+  lk<LeiKwanHostManageReply>("host/sync", { nodeId });
 export const rebuildLeiKwanLineBackups = (lineId: number) =>
   lk<{
     result: {

@@ -79,6 +79,45 @@ const landingText = (r: LeiKwanRule) =>
     ? `${r.landing.serverName || "落地"} · ${r.landing.name || ""}`
     : `${r.landing.host}:${r.landing.port}`;
 
+// Plan 269: billed 利群流量 of the rule (since the owner's reset).
+function FlowPill({ rule }: { rule: LeiKwanRule }) {
+  if (rule.inFlow === undefined && rule.outFlow === undefined) return null;
+
+  return (
+    <Pill
+      title="利群流量：已按专线的计费方式和倍率，从上次重置算起"
+      tone="purple"
+    >
+      ↑{fmtBytes(rule.inFlow)} ↓{fmtBytes(rule.outFlow)}
+    </Pill>
+  );
+}
+
+// Plan 269: the rule's 利群 port is blocked on the entry hosts.
+function BlockedPill({ rule }: { rule: LeiKwanRule }) {
+  if (!rule.blockReason) return null;
+
+  return (
+    <Pill
+      title={`已暂停：${rule.blockReason}。链接暂时用不了，恢复后自动解除`}
+      tone="red"
+    >
+      已暂停 · {rule.blockReason}
+    </Pill>
+  );
+}
+
+const blockedNote = (r: LeiKwanRule) =>
+  `链接暂时用不了（入口端口已屏蔽、备线一起暂停）：${r.blockReason}；恢复后自动解除`;
+
+const pendingText = (r: LeiKwanRule) => {
+  const p = r.pendingLanding;
+
+  if (!p) return "";
+
+  return `待切换 → ${p.name || `落地 #${p.landingNodeId}`}（${p.serverName || p.host || "—"}:${p.port ?? "—"}）`;
+};
+
 function BackupChip({ rule, admin }: { rule: LeiKwanRule; admin: boolean }) {
   if (rule.backupError)
     return (
@@ -119,6 +158,9 @@ export function LeiKwanRulesSection() {
   const [del, setDel] = useState<LeiKwanRule | null>(null);
   const [keep, setKeep] = useState(false);
   const [busy, setBusy] = useState(false);
+  // Plan 269: 换落地 to the prepared 「待切换」 panel landing node.
+  const [swap, setSwap] = useState<LeiKwanRule | null>(null);
+  const [swapping, setSwapping] = useState(false);
 
   const load = useCallback(async () => {
     const res = await getLeiKwanRules();
@@ -184,6 +226,57 @@ export function LeiKwanRulesSection() {
     setDel(null);
     void load();
   };
+  const doSwap = async () => {
+    const p = swap?.pendingLanding;
+
+    if (!swap || !p) return;
+    setSwapping(true);
+    const res = await updateLeiKwanRule({
+      id: swap.id,
+      changeTarget: true,
+      landingNodeId: p.landingNodeId,
+    });
+
+    setSwapping(false);
+    if (res.code !== 0) {
+      toast.error(res.msg || "换落地失败");
+
+      return;
+    }
+    toast.success(`「${swap.name}」已换落地：点「复制链接」拿新链接更新客户端`);
+    (res.data?.warnings || []).forEach((w) => toast.error(w));
+    setSwap(null);
+    void load();
+  };
+  // H5 (compact): the target as wrapping text under the 「待切换」 label.
+  const pendingBlock = (r: LeiKwanRule, compact = false) =>
+    r.pendingLanding && (
+      <div
+        className="mt-1 flex flex-wrap items-center gap-1.5"
+        data-leikwan-pending={r.id}
+      >
+        {compact ? (
+          <span className="w-full text-amber-700 dark:text-amber-300">
+            {pendingText(r).replace(/^待切换 /, "")}
+          </span>
+        ) : (
+          <Pill
+            title="已准备好的面板落地节点；点「切到新落地」才会换"
+            tone="amber"
+          >
+            {pendingText(r)}
+          </Pill>
+        )}
+        <Button
+          color="warning"
+          size="sm"
+          variant="flat"
+          onPress={() => setSwap(r)}
+        >
+          切到新落地
+        </Button>
+      </div>
+    );
   const retry = async (r: LeiKwanRule) => {
     const res = await retryLeiKwanBackup(r.id);
 
@@ -351,8 +444,12 @@ export function LeiKwanRulesSection() {
                         </span>
                       }
                       open={expand.open === r.id}
-                      status={r.backupOn ? "ok" : undefined}
-                      statusTitle="备线已开"
+                      status={
+                        r.blockReason ? "bad" : r.backupOn ? "ok" : undefined
+                      }
+                      statusTitle={
+                        r.blockReason ? `已暂停：${r.blockReason}` : "备线已开"
+                      }
                       onToggle={() => expand.toggle(r.id)}
                     >
                       <ExpandField label="入口">
@@ -365,6 +462,24 @@ export function LeiKwanRulesSection() {
                         </span>
                       </ExpandField>
                       <ExpandField label="落地">{landingText(r)}</ExpandField>
+                      {r.blockReason && (
+                        <ExpandField label="状态">
+                          <BlockedPill rule={r} />
+                          <div className="mt-0.5 text-red-700 dark:text-red-300">
+                            {blockedNote(r)}
+                          </div>
+                        </ExpandField>
+                      )}
+                      {r.pendingLanding && (
+                        <ExpandField label="待切换">
+                          {pendingBlock(r, true)}
+                        </ExpandField>
+                      )}
+                      {(r.inFlow !== undefined || r.outFlow !== undefined) && (
+                        <ExpandField label="流量">
+                          <FlowPill rule={r} />
+                        </ExpandField>
+                      )}
                       <ExpandField label="备线">
                         <BackupChip admin={data.admin} rule={r} />
                         {!r.backupOn && !r.backupError && "没开"}
@@ -400,11 +515,18 @@ export function LeiKwanRulesSection() {
                             </Pill>
                           )}
                           <BackupChip admin={data.admin} rule={r} />
+                          <BlockedPill rule={r} />
                         </div>
                         <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-default-500">
                           {g.name}
                           {data.admin && adminMeta(r)}
+                          <FlowPill rule={r} />
                         </div>
+                        {r.blockReason && (
+                          <div className="mt-1 max-w-[420px] text-[11px] text-red-700 dark:text-red-300">
+                            {blockedNote(r)}
+                          </div>
+                        )}
                       </div>
                       <div className="min-w-[200px]">
                         <div className="text-[11px] text-default-400">
@@ -426,6 +548,7 @@ export function LeiKwanRulesSection() {
                       <div className="min-w-[180px]">
                         <div className="text-[11px] text-default-400">落地</div>
                         <div className="text-sm">{landingText(r)}</div>
+                        {pendingBlock(r)}
                         {data.admin && r.landingHint && (
                           <div className="max-w-[260px] text-[11px] text-amber-600 dark:text-amber-300">
                             {r.landingHint}
@@ -503,6 +626,64 @@ export function LeiKwanRulesSection() {
               onPress={() => void remove()}
             >
               {keep ? "解除登记" : "删除"}
+            </Button>
+          </ModalFooter>
+        </ModalContent>
+      </Modal>
+      <Modal
+        classNames={{ base: "!w-[calc(100%-24px)] sm:max-w-md rounded-2xl" }}
+        isOpen={!!swap}
+        placement="center"
+        size="md"
+        onClose={() => setSwap(null)}
+      >
+        <ModalContent>
+          <ModalHeader>换落地 · {swap?.name}</ModalHeader>
+          <ModalBody className="space-y-3 text-sm">
+            {swap && swap.pendingLanding && (
+              <div className="space-y-1.5 rounded-xl bg-default-100/60 p-3 dark:bg-default-50/40">
+                <div className="flex items-start gap-2">
+                  <span className="w-12 shrink-0 text-default-500">现在</span>
+                  <span className="min-w-0 break-all">{landingText(swap)}</span>
+                </div>
+                <div className="flex items-start gap-2">
+                  <span className="w-12 shrink-0 text-default-500">换成</span>
+                  <span className="min-w-0 break-all">
+                    <b>
+                      {swap.pendingLanding.serverName || "落地"} ·{" "}
+                      {swap.pendingLanding.name ||
+                        `#${swap.pendingLanding.landingNodeId}`}
+                    </b>
+                    <span className="text-xs text-default-500">
+                      {" "}
+                      {swap.pendingLanding.host || "—"}:
+                      {swap.pendingLanding.port ?? "—"}
+                      {swap.pendingLanding.protocol
+                        ? ` · ${swap.pendingLanding.protocol === "ss2022" ? "SS2022" : swap.pendingLanding.protocol}`
+                        : ""}
+                    </span>
+                  </span>
+                </div>
+              </div>
+            )}
+            <p className="rounded-lg bg-amber-500/15 px-3 py-2 text-amber-700 dark:bg-amber-400/15 dark:text-amber-300">
+              换落地后旧链接（旧密钥）立刻失效；备线和首包过滤密钥一起换；换完到「链接」复制新链接更新客户端。
+            </p>
+            <p className="text-xs text-default-500">
+              入口地址不变；利群那边的目标和备线目标一起改到新落地。
+            </p>
+          </ModalBody>
+          <ModalFooter>
+            <Button color="danger" variant="flat" onPress={() => setSwap(null)}>
+              取消
+            </Button>
+            <Button
+              color="warning"
+              isLoading={swapping}
+              variant="flat"
+              onPress={() => void doSwap()}
+            >
+              换落地
             </Button>
           </ModalFooter>
         </ModalContent>

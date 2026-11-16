@@ -15,6 +15,21 @@ import { BackupRebuildButton } from "@/pages/leikwan/panel/backup-tunnel";
 // 按授权, the rules on it, 备线隧道, 利群加速 summary) + the pipe-mode tunnel
 // of plan 094 shown separately (not in the group). Desktop table, H5 rows.
 
+// Plan 269: 利群流量 billing of the line (单向 / 双向 · 倍率).
+export function FlowModePill({ line }: { line: LeiKwanLine }) {
+  if (line.flowMode === undefined && line.trafficRatio === undefined)
+    return null;
+
+  return (
+    <Pill
+      title="单向：(上传+下载)×倍率；双向：(上传+下载)×倍率×2"
+      tone="purple"
+    >
+      {line.flowMode === 2 ? "双向" : "单向"} ×{line.trafficRatio || 1}
+    </Pill>
+  );
+}
+
 export function AccelPills({ line }: { line: LeiKwanLine }) {
   const a = line.accel;
 
@@ -66,6 +81,12 @@ export function LeiKwanLinesTable({
             <ExpandField label="备线">
               {line.backupTunnelName || "不建"}
             </ExpandField>
+            {(line.flowMode !== undefined ||
+              line.trafficRatio !== undefined) && (
+              <ExpandField label="计费">
+                <FlowModePill line={line} />
+              </ExpandField>
+            )}
             <ExpandField label="加速">
               <AccelPills line={line} />
             </ExpandField>
@@ -121,6 +142,7 @@ export function LeiKwanLinesTable({
                   <span className="font-medium">{line.name}</span>
                   <LineChip />
                   {line.status !== 1 && <Pill tone="slate">已停用</Pill>}
+                  <FlowModePill line={line} />
                 </div>
               </td>
               <td className="whitespace-nowrap px-3 py-2.5">

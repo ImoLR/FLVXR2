@@ -65,9 +65,18 @@ export function LeiKwanLineDialog({
   const [accel, setAccel] = useState<LeiKwanAccel>(defaultAccel);
   const [saving, setSaving] = useState(false);
   const [showTriggers, setShowTriggers] = useState(false);
+  // Plan 269: 利群流量 billing (same meaning as tunnels).
+  const [flowMode, setFlowMode] = useState("1");
+  const [ratio, setRatio] = useState("1");
 
   useEffect(() => {
     if (!isOpen) return;
+    setFlowMode(String(line?.flowMode === 2 ? 2 : 1));
+    setRatio(
+      String(
+        line?.trafficRatio && line.trafficRatio > 0 ? line.trafficRatio : 1,
+      ),
+    );
     setName(line?.name || "");
     setRouteId(line ? String(line.routeId) : "");
     setAccel(line?.accel || defaultAccel);
@@ -125,6 +134,13 @@ export function LeiKwanLineDialog({
 
       return;
     }
+    const trafficRatio = parseFloat(ratio);
+
+    if (!(trafficRatio > 0 && trafficRatio <= 100)) {
+      toast.error("流量倍率要在 0.01 到 100 之间");
+
+      return;
+    }
     setSaving(true);
     const res = await saveLeiKwanLine({
       id: line?.id,
@@ -134,6 +150,8 @@ export function LeiKwanLineDialog({
       backupTunnelId: parseInt(backupTunnelId || "0", 10) || 0,
       accel,
       inx: line?.inx ?? data?.lines.length ?? 0,
+      flowMode: flowMode === "2" ? 2 : 1,
+      trafficRatio,
     });
 
     setSaving(false);
@@ -221,6 +239,34 @@ export function LeiKwanLineDialog({
               这里没有入口可选，建隧道时不用管入口。所在隧道组：
               {data?.setting.groupName || "利群汇聚"}
             </p>
+          </div>
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+            <Select
+              description="单向：(上传+下载)×倍率；双向：(上传+下载)×倍率×2"
+              label="流量计算"
+              selectedKeys={[flowMode]}
+              variant="bordered"
+              onSelectionChange={(keys) => {
+                const k = String(Array.from(keys)[0] || "");
+
+                if (k) setFlowMode(k);
+              }}
+            >
+              <SelectItem key="1">单向计算（上传+下载）</SelectItem>
+              <SelectItem key="2">双向计算（上传+下载）×2</SelectItem>
+            </Select>
+            <Input
+              description="利群流量统计开了的入口机，计进用户总流量时乘这个倍率"
+              label="流量倍率"
+              max={100}
+              min={0.01}
+              placeholder="例如：0.5 或 1 或 2"
+              step="any"
+              type="number"
+              value={ratio}
+              variant="bordered"
+              onChange={(e) => setRatio(e.target.value)}
+            />
           </div>
 
           <div className="space-y-3 rounded-xl border border-divider p-3">
