@@ -386,6 +386,8 @@ func autoMigrateAll(db *gorm.DB) error {
 		&model.LeiKwanAccount{},
 		&model.LeiKwanPipe{},
 		&model.LeiKwanCreate{},
+		&model.LeiKwanLine{}, &model.LeiKwanGrant{}, &model.LeiKwanRule{}, // plan 266
+		&model.LeiKwanSetting{}, &model.LeiKwanHostState{}, // plan 266
 		&model.RedeemCode{},
 		&model.DiscountCode{},
 		&model.SubscriptionPackage{},

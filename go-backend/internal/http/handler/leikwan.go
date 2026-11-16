@@ -32,6 +32,7 @@ func (h *Handler) lockLeiKwanPipe(id int64) func() {
 }
 
 func (h *Handler) registerLeiKwan(mux *http.ServeMux) {
+	h.registerLeiKwanLines(mux) // plan 266
 	for path, fn := range map[string]http.HandlerFunc{
 		"account/list": h.leikwanAccountList, "account/save": h.leikwanAccountSave, "account/delete": h.leikwanAccountDelete,
 		"overview": h.leikwanOverview, "forward/detail": h.leikwanForwardDetail, "pipe/takeover": h.leikwanTakeover,
