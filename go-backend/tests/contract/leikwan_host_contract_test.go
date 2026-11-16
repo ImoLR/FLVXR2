@@ -60,7 +60,8 @@ func lkDiffLines(mv map[string]interface{}, file string) []string {
 	for _, d := range diffs {
 		m := d.(map[string]interface{})
 		if m["file"] == file {
-			for _, l := range m["lines"].([]interface{}) {
+			lines, _ := m["lines"].([]interface{})
+			for _, l := range lines {
 				out = append(out, l.(string))
 			}
 		}
@@ -310,5 +311,21 @@ func leiKwanHostTakeoverFlow(t *testing.T, dialect string) {
 	}
 	if x := rule(263); x.TargetPort != 10016 {
 		t.Fatalf("target changed despite the guard: %d", x.TargetPort)
+	}
+	// 只解除登记 (keep the LeiKwan forward): the hosts keep 279 as it runs today.
+	before279 := strings.Join(lkDiffLines(e.hostView(60)["manage"].(map[string]interface{}), "logswitch"), "|")
+	e.ok("/api/v1/leikwan-rule/delete", e.admin, map[string]interface{}{"id": rule(279).ID, "confirmed": true, "keepLeiKwan": true})
+	for node := range lkHostFixtures {
+		mv := e.hostView(node)["manage"].(map[string]interface{})
+		for _, f := range []string{"warm", "ssfilter", "logswitch", "triggers"} {
+			for _, l := range lkDiffLines(mv, f) {
+				if strings.Contains(l, "279") {
+					t.Fatalf("node %d %s changed for the unregistered 279: %v", node, f, l)
+				}
+			}
+		}
+	}
+	if after := strings.Join(lkDiffLines(e.hostView(60)["manage"].(map[string]interface{}), "logswitch"), "|"); after != before279 {
+		t.Fatalf("aliyun logswitch diff changed: %q → %q", before279, after)
 	}
 }

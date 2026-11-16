@@ -1637,3 +1637,66 @@ func (h *Handler) leikwanRulePrepareLanding(w http.ResponseWriter, r *http.Reque
 	}
 	response.WriteJSON(w, response.OKEmpty())
 }
+
+// leiKwanFreezeHostValues: a rule is unregistered but its LeiKwan forward
+// stays — copy what each learned host runs for it into the host's unmanaged
+// values, so the hosts keep their behaviour. An automatic 备线 is deleted with
+// the rule, so its logswitch line / backup pool / return check are not kept.
+func (h *Handler) leiKwanFreezeHostValues(x model.LeiKwanRule) {
+	g, err := h.newLKGen()
+	if err != nil {
+		return
+	}
+	hosts, err := h.repo.ListLeiKwanHosts()
+	if err != nil {
+		return
+	}
+	fid := strconv.FormatInt(x.ForwardID, 10)
+	for i := range hosts {
+		host := hosts[i]
+		p := parseLKProfile(host.Profile)
+		if p == nil {
+			continue
+		}
+		e := g.effective(x, p.Rules[fid])
+		keepLine := e.Logswitch && x.BackupMode != "auto"
+		if p.Unmanaged.Warm == nil {
+			p.Unmanaged.Warm = map[string]string{}
+		}
+		if p.Unmanaged.SSFilter == nil {
+			p.Unmanaged.SSFilter = map[string]string{}
+		}
+		if p.Unmanaged.Triggers == nil {
+			p.Unmanaged.Triggers = map[string]string{}
+		}
+		if p.Files[lkFileWarm] && e.WarmMain > 0 {
+			p.Unmanaged.Warm[fid] = strconv.Itoa(e.WarmMain)
+			if keepLine && e.WarmBackup > 0 {
+				p.Unmanaged.Warm["backup:"+fid] = strconv.Itoa(e.WarmBackup)
+			}
+		}
+		if p.Files[lkFileSSFilter] && e.SSFilter != "" && e.SSFilter != "off" {
+			p.Unmanaged.SSFilter[fid] = e.SSFilter
+		}
+		if p.Files[lkFileLogswitch] && keepLine && x.ListenPort > 0 {
+			p.Unmanaged.Lines = append(p.Unmanaged.Lines, fmt.Sprintf("%d:%d>%s", x.ForwardID, x.ListenPort, e.Backup))
+			if p.Files[lkFileTriggers] {
+				globalOn := p.TrigGlobal["return_check"] == "on"
+				if e.ReturnCheck && !globalOn {
+					p.Unmanaged.Triggers[fid+":return_check"] = "on"
+				} else if !e.ReturnCheck && globalOn {
+					p.Unmanaged.Triggers[fid+":return_check"] = "off"
+				}
+			}
+		}
+		delete(p.Rules, fid)
+		raw, _ := json.Marshal(p)
+		mu := lkHostLock(host.NodeID)
+		mu.Lock()
+		if cur, err := h.repo.GetLeiKwanHost(host.NodeID); err == nil && cur != nil && cur.Profile == host.Profile {
+			cur.Profile = string(raw)
+			_ = h.repo.SaveLeiKwanHostConfig(cur)
+		}
+		mu.Unlock()
+	}
+}

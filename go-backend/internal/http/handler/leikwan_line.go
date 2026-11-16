@@ -1564,6 +1564,11 @@ func (h *Handler) leikwanRuleDelete(w http.ResponseWriter, r *http.Request) {
 	if x.BackupMode == "linked" && x.BackupForwardID > 0 {
 		backupNote = fmt.Sprintf("导入时链接的备线（规则 #%d）保留为普通规则", x.BackupForwardID)
 	}
+	if req.KeepLeiKwan {
+		// Plan 269: the LeiKwan forward stays on the hosts — keep its 利群加速
+		// there as it is (unmanaged values in each learned host profile).
+		h.leiKwanFreezeHostValues(*x)
+	}
 	if err := h.leiKwanDropBackup(x); err != nil {
 		backupNote = err.Error()
 	}

@@ -461,10 +461,13 @@ func (m *lkHostManager) save() {
 	if err != nil {
 		return
 	}
+	_ = os.MkdirAll(filepath.Dir(m.stateFile), 0o700)
 	tmp := m.stateFile + ".tmp"
-	if err := os.WriteFile(tmp, raw, 0o600); err == nil {
-		_ = os.Rename(tmp, m.stateFile)
+	if err := os.WriteFile(tmp, raw, 0o600); err != nil {
+		fmt.Printf("⚠️ 利群主机接管状态保存失败: %v\n", err)
+		return
 	}
+	_ = os.Rename(tmp, m.stateFile)
 }
 
 // ------------------------------------------------------------ writing

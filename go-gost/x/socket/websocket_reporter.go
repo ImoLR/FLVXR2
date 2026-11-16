@@ -3141,6 +3141,7 @@ func StartWebSocketReporterWithConfig(addr string, secret string, http int, tls 
 	reporter.serviceName = cfg.ServiceName
 	reporter.initMachineProtection(configDir, configPath)
 	reporter.initMonitorPorts(configDir, configPath)
+	reporter.lkHost = newLKHostManager(configDir) // plan 269: state next to the agent config
 
 	// 如果 config.json 中有 node_id，初始化基线管理器
 	if nodeID > 0 {
