@@ -40,7 +40,8 @@ one dial in flight per key → after a burst the pool refills serially (~2 RTT e
 - [x] Commit + push, CI green
 - [x] Release: `maintenance/3.0.27-fork.136-warm-redundant`, tag `3.0.27-fork.136`, CI + Images + Latest assets
 - [x] Prod panel upgrade (backup + rollback script + prune), verify agents / forwards / warmPoolState / old agents 4 per key
-- [ ] Ledger row 264, OTA target list for the night worker, record.py fields, memory notes
+- [x] Ledger row 264, OTA target list for the night worker, record.py fields, memory notes
+- [ ] Agent OTA (night worker `warm-redundant-ota`, 02:00–03:30 TW 11-17)
 - [ ] Stats after OTA + evening peak (worker `warm-redundant-stats`)
 
 ## Notes
@@ -108,3 +109,15 @@ TLS conn; plain-TCP rule pools ≈ 0.4 KB per conn lifetime ≈ 0.35 MB / day.
   t92 2 → 4, t102 → 4, Bestvm JP B → Bestvm US → 4); warmPoolState on 8 tunnels with `wakeN` / `burstMissN`; backend
   healthy, 0 restarts, RSS 72.6 → 38 MiB; no warm-pool errors in the log.
 - Agent OTA: night worker `warm-redundant-ota` 02:00–03:30 TW (targets runs/warm-redundant/ota-targets.md).
+
+### Prod estimate after the night OTA (resource rule)
+- Pool keys today: 14 chain keys (10 entry + 4 middle) + 27 port-forward rule keys on 11 hosts. With 6 h sleep most keys
+  used during the day stay awake: ≈ 30–35 awake × floor 6 + a few bursting keys (沪日首发 → JP / → US both hops, rule
+  「99」) up to 16 → **≈ 200–250 idle pooled conns fleet-wide in the day** (fork.135: ≈ 24–40), fewer at night.
+- Busiest: **vmsilo 沪日首发** ≤ 72 (2 chain keys + rule 99 at 16, 4 rules at 6; typical 40–50) → +72 fd / goroutines,
+  ≈ +2.5 MB RSS, TLS handshakes ≈ 32 × 4.3 MB ≈ 140 MB/day + TCP rule pools ≈ 15 MB/day. **Bestvm JP B** ≈ 22 outbound +
+  ≈ 38 inbound pooled sockets → ≈ 260 MB/day handshake bytes both directions. 整机连接数 stays < 600 of 1000 at the 7-day peak.
+- Fleet handshake traffic ≈ 120 TLS pooled conns × 4.3 MB ≈ 0.5 GB/day. No new timers / goroutines per key / logs per stream.
+- Longer pooled-conn age would cut that: age is capped at 90–110 s by the relay `readTimeout: 130s` on middles/exits.
+  Raising it (e.g. 600 s → age ≈ 540 s, ≈ 5× fewer handshakes) changes relay handler metadata = re-creates every relay
+  service (live conns drop) → only worth it bundled with another planned relay change, in an OTA window. Not done here.
