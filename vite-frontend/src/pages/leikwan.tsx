@@ -27,6 +27,7 @@ import {
 } from "@/api/leikwan";
 import { AnimatedPage } from "@/components/animated-page";
 import { LeiKwanProgressModal } from "@/pages/leikwan/progress-modal";
+import { LeiKwanPanelSection } from "@/pages/leikwan/panel/admin-section";
 import { Alert } from "@/shadcn-bridge/heroui/alert";
 import { Button } from "@/shadcn-bridge/heroui/button";
 import { Card, CardBody, CardHeader } from "@/shadcn-bridge/heroui/card";
@@ -1145,6 +1146,8 @@ export default function LeiKwanPage() {
           </ModalFooter>
         </ModalContent>
       </Modal>
+      {/* Plan 266: 利群专线入面板 (added below the existing cards). */}
+      <LeiKwanPanelSection />
       <LeiKwanProgressModal
         pipeId={progressPipeId}
         onClose={() => setProgressPipeId(null)}
