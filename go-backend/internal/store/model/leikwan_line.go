@@ -179,3 +179,24 @@ type LeiKwanGlobalAccel struct {
 	// rules with AllEntries stay open everywhere). Off by default.
 	EntryLock bool `json:"entryLock,omitempty"`
 }
+
+// LeiKwanUsageSnapshot (plan 273) is the last read of one vendor report of
+// one 利群 account: kind usage (current cycle), previous (last closed cycle),
+// devices or service (services list row: plan, expires_at). Data = trimmed
+// JSON of the leikwan.* type ("" until the first good read); FetchedAt = the
+// last good read, CheckedAt / Error / ErrorCount = the last attempt, NextAt =
+// the next planned attempt (kept across restarts so a back-off survives).
+type LeiKwanUsageSnapshot struct {
+	ID         int64  `gorm:"primaryKey;autoIncrement" json:"id"`
+	AccountID  int64  `gorm:"not null;uniqueIndex:idx_leikwan_usage_snapshot" json:"accountId"`
+	Kind       string `gorm:"type:varchar(20);not null;uniqueIndex:idx_leikwan_usage_snapshot" json:"kind"`
+	ServiceID  int64  `gorm:"not null;default:0" json:"serviceId"`
+	Data       string `gorm:"type:text;not null;default:''" json:"-"`
+	FetchedAt  int64  `gorm:"not null;default:0" json:"fetchedAt"`
+	CheckedAt  int64  `gorm:"not null;default:0" json:"checkedAt"`
+	Error      string `gorm:"type:varchar(200);not null;default:''" json:"error"`
+	ErrorCount int    `gorm:"not null;default:0" json:"errorCount"`
+	NextAt     int64  `gorm:"not null;default:0" json:"nextAt"`
+}
+
+func (LeiKwanUsageSnapshot) TableName() string { return "leikwan_usage_snapshot" }

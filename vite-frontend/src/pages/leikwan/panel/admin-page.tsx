@@ -8,6 +8,7 @@ import type {
   LeiKwanLineList,
   LeiKwanRule,
   LeiKwanRuleList,
+  LeiKwanUsageView,
 } from "@/api/leikwan-line";
 import type { LeiKwanHostItem } from "@/pages/leikwan/panel/host-manage";
 
@@ -31,6 +32,7 @@ import {
   getLeiKwanHosts,
   getLeiKwanLines,
   getLeiKwanRules,
+  getLeiKwanUsage,
 } from "@/api/leikwan-line";
 import { useExpandOne } from "@/components/expand-row";
 import { useH5Mode } from "@/hooks/useH5Mode";
@@ -81,6 +83,13 @@ import {
 import { LeiKwanSettingsModal } from "@/pages/leikwan/panel/settings-modal";
 import { LeiKwanSubDialog } from "@/pages/leikwan/panel/sub-dialog";
 import { OnOff, QuotaPill, fmtBytes } from "@/pages/leikwan/panel/shared";
+import {
+  DevicesCard,
+  DevicesPhoneList,
+  PackageCard,
+  PackagePhoneBlock,
+  VendorFlowPill,
+} from "@/pages/leikwan/panel/usage-parts";
 import { Button } from "@/shadcn-bridge/heroui/button";
 import { Spinner } from "@/shadcn-bridge/heroui/spinner";
 import { getSessionName } from "@/utils/session";
@@ -331,6 +340,7 @@ function AdminRuleRow({
           <BlockedPill rule={r} />
           <FlowPill rule={r} />
           <BackupFlowPill rule={r} />
+          <VendorFlowPill rule={r} />
           <AllEntriesPill actions={actions} rule={r} />
         </div>
         {r.blockReason && (
@@ -578,6 +588,8 @@ export function LeiKwanAdminView() {
   const [drawerHost, setDrawerHost] = useState<number | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [tab, setTab] = useState<"rules" | "grants" | "hosts">("rules");
+  // Plan 273: 套餐流量 + 利群在线设备 (the panel's snapshot of the vendor).
+  const [usage, setUsage] = useState<LeiKwanUsageView | null>(null);
   const [pipeBusy, setPipeBusy] = useState<number | null>(null);
   // Plan 272: 「生成订阅」 dialog.
   const [subOpen, setSubOpen] = useState(false);
@@ -590,11 +602,12 @@ export function LeiKwanAdminView() {
   }, []);
   const load = useCallback(async () => {
     setLoading(true);
-    const [l, hst, g, r] = await Promise.all([
+    const [l, hst, g, r, u] = await Promise.all([
       getLeiKwanLines(),
       getLeiKwanHosts(),
       getLeiKwanGrants(),
       getLeiKwanRules(),
+      getLeiKwanUsage(),
       loadAccounts(),
     ]);
 
@@ -605,6 +618,7 @@ export function LeiKwanAdminView() {
     if (hst.code === 0) setHosts(hst.data);
     if (g.code === 0) setGrants(g.data.grants || []);
     if (r.code === 0) setRules(r.data);
+    if (u.code === 0) setUsage(u.data);
   }, [loadAccounts]);
   const reloadRules = useCallback(() => {
     void load();
@@ -614,6 +628,18 @@ export function LeiKwanAdminView() {
     void load();
   }, [load]);
   usePullToRefresh(load);
+  // Plan 273: the card follows the 5 min vendor reads while the page is open
+  // (a panel-memory read, never a vendor call).
+  useEffect(() => {
+    const t = window.setInterval(() => {
+      if (document.visibilityState !== "visible") return;
+      void getLeiKwanUsage().then((u) => {
+        if (u.code === 0) setUsage(u.data);
+      });
+    }, 120_000);
+
+    return () => window.clearInterval(t);
+  }, []);
   useEffect(() => {
     if (!grantOpen || users.length) return;
     void getAllUsers({}).then((res) => {
@@ -936,6 +962,7 @@ export function LeiKwanAdminView() {
         revoke={revoke}
         setTab={setTab}
         tab={tab}
+        usage={usage}
         onEditGrant={openGrantDialog}
         onEditLine={openLineDialog}
         onHostView={patchHost}
@@ -1047,6 +1074,7 @@ export function LeiKwanAdminView() {
           )}
         </LkCard>
         <div className="flex min-w-0 flex-col gap-4">
+          <PackageCard data={usage} />
           <LkCard className="space-y-3 p-4" data-leikwan-grants="">
             <LkCardTitle
               chip={<Pill tone="purple">{grants.length} 人</Pill>}
@@ -1123,6 +1151,7 @@ export function LeiKwanAdminView() {
               点一台看主机快照：厂商版本、更新锁、日志快切、首包合并、手机备线端口，还有面板接管。
             </p>
           </LkCard>
+          <DevicesCard data={usage} />
           {pipeCard}
         </div>
       </div>
@@ -1153,6 +1182,7 @@ function AdminPhone({
   onHostView,
   onSettings,
   onSub,
+  usage,
 }: {
   headerChips: ReactNode;
   tab: "rules" | "grants" | "hosts";
@@ -1175,7 +1205,10 @@ function AdminPhone({
   onSettings: () => void;
   /** Plan 272: 「生成订阅」 */
   onSub: () => void;
+  /** Plan 273: 套餐流量 block + 利群在线设备 under the 入口机 tab */
+  usage: LeiKwanUsageView | null;
 }) {
+  const [usageOpen, setUsageOpen] = useState(false);
   const [openLine, setOpenLine] = useState<number | null | undefined>(
     undefined,
   );
@@ -1192,6 +1225,11 @@ function AdminPhone({
   return (
     <div className="space-y-3" data-leikwan-admin="h5">
       <div className="flex flex-wrap gap-1.5">{headerChips}</div>
+      <PackagePhoneBlock
+        data={usage}
+        open={usageOpen}
+        onToggle={() => setUsageOpen((o) => !o)}
+      />
       <Button
         className="h-10 w-full"
         color="primary"
@@ -1387,6 +1425,7 @@ function AdminPhone({
                           {r.userExpired && <Pill tone="red">已到期</Pill>}
                           <FlowPill rule={r} />
                           <BackupFlowPill rule={r} />
+                          <VendorFlowPill rule={r} />
                           <AllEntriesPill actions={actions} rule={r} />
                         </LkField>
                         <div className="flex flex-wrap gap-2 pt-1">
@@ -1548,6 +1587,7 @@ function AdminPhone({
               />
             </LkExpandCard>
           ))}
+          <DevicesPhoneList data={usage} />
         </div>
       )}
       {dialogs}

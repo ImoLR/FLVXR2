@@ -38,6 +38,15 @@ type Fake struct {
 	NextID              int64
 	PortBase            int // > 0: assign the lowest free listen port from here (plan 266 lab)
 	creates             map[string]savedCreate
+	// Plan 273 usage / devices / services reads. Raw reports (e.g. the real
+	// 11-17 samples) are served as-is when set; otherwise the fake builds them
+	// from Forwards + ForwardBytes. FailReads > 0 fails every usage / devices
+	// / services read with that status (stale-state screens, back-off tests).
+	UsageReport, PrevReport, DevicesReport, ServicesReport []byte
+	ForwardBytes                                           map[int64][2]int64 // id → in, out
+	NoPrevious                                             bool
+	FailReads                                              int
+	UsageReads, DeviceReads, ServiceReads, PrevReads       int
 }
 
 func New() *Fake {
@@ -102,8 +111,7 @@ func (f *Fake) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		fail(w, status, map[int]string{429: "rate_limited", 409: "route_unavailable", 412: "forward_version_conflict", 422: "validation_failed"}[status])
 		return
 	}
-	if r.URL.Path == "/api/v1/user/services" && r.Method == "GET" {
-		reply(w, 200, map[string]interface{}{"ok": true, "services": []map[string]interface{}{{"id": f.ServiceID, "name": "Fake LeiKwan"}}})
+	if f.serveUsage(w, r) {
 		return
 	}
 	prefix := fmt.Sprintf("/api/v1/user/services/%d/", f.ServiceID)
@@ -300,4 +308,137 @@ func (f *Fake) SeedReal8() {
 	if f.NextID < 600 {
 		f.NextID = 600
 	}
+}
+
+// ---- plan 273: usage / devices / services (read-only) ----
+
+const fakeCycleStart, fakeCycleEnd = "2026-11-04 12:08:03", "2026-12-04 12:08:03"
+
+func rawReply(w http.ResponseWriter, raw []byte) {
+	w.WriteHeader(200)
+	_, _ = w.Write(raw)
+}
+
+// serveUsage answers the plan-273 read endpoints (lock held by ServeHTTP).
+func (f *Fake) serveUsage(w http.ResponseWriter, r *http.Request) bool {
+	usagePath := fmt.Sprintf("/api/v1/user/services/%d/usage", f.ServiceID)
+	switch {
+	case r.URL.Path == "/api/v1/user/services", r.URL.Path == usagePath, r.URL.Path == "/api/v1/user/devices", r.URL.Path == "/api/v1/user/devices/online":
+	default:
+		return false
+	}
+	if r.Method != "GET" {
+		fail(w, 405, "method_not_allowed")
+		return true
+	}
+	if f.FailReads > 0 {
+		if f.FailReads == 429 {
+			w.Header().Set("Retry-After", f.RetryAfter)
+		}
+		fail(w, f.FailReads, map[int]string{401: "user_auth_failed", 429: "rate_limited"}[f.FailReads])
+		return true
+	}
+	switch r.URL.Path {
+	case "/api/v1/user/services":
+		f.ServiceReads++
+		if f.ServicesReport != nil {
+			rawReply(w, f.ServicesReport)
+			return true
+		}
+		u := f.buildUsage(false)
+		reply(w, 200, map[string]interface{}{"ok": true, "services": []map[string]interface{}{{
+			"id": f.ServiceID, "name": "Fake LeiKwan", "status": "active",
+			"plan":                 map[string]interface{}{"id": 12, "name": "1000M 滬日·廣港·京德·廣台·福台 1TB"},
+			"active_forward_count": len(f.Forwards), "forward_limit": f.Options.ForwardLimit,
+			"expires_at": "2026-12-07 23:59:59", "usage": u["usage"],
+		}}})
+	case usagePath:
+		if r.URL.Query().Get("period") == "previous" {
+			f.PrevReads++
+			if f.NoPrevious {
+				fail(w, 404, "usage_period_not_found")
+			} else if f.PrevReport != nil {
+				rawReply(w, f.PrevReport)
+			} else {
+				reply(w, 200, f.buildUsage(true))
+			}
+			return true
+		}
+		f.UsageReads++
+		if f.UsageReport != nil {
+			rawReply(w, f.UsageReport)
+			return true
+		}
+		reply(w, 200, f.buildUsage(false))
+	default:
+		f.DeviceReads++
+		if f.DevicesReport != nil {
+			rawReply(w, f.DevicesReport)
+			return true
+		}
+		reply(w, 200, map[string]interface{}{
+			"ok": true, "online_device_limit": 5, "online_device_count": 2, "available_device_slots": 3,
+			"limit_source": "plan", "online_window_seconds": 180,
+			"clients": []map[string]interface{}{{"client_id": 44, "name": "Default Client", "online_device_limit": 5, "online_device_count": 2, "available_device_slots": 3}},
+			"devices": []map[string]interface{}{
+				{"device_id": "linux-a1", "client_id": 44, "device_name": "Leikwan-Client-Agent/2026.11.15.1", "platform": nil, "os_version": "6.1.0-33-amd64", "client_build": "2026.11.15.1", "ip": "8.134.172.154", "online": true, "state": "online", "can_connect": true, "counts_toward_limit": true, "blocked_until": nil, "first_seen_at": "2026-11-16 10:26:32", "last_seen_at": time.Now().UTC().Format("2006-01-02 15:04:05")},
+				{"device_id": "android-client-44-b2", "client_id": 44, "device_name": "Xiaomi 26067PC09G", "platform": "android-host", "os_version": "15", "client_build": "0.2.3", "ip": "203.0.113.20", "online": true, "state": "online", "can_connect": true, "counts_toward_limit": true, "blocked_until": nil, "first_seen_at": "2026-11-17 11:36:59", "last_seen_at": time.Now().UTC().Format("2006-01-02 15:04:05")},
+			},
+		})
+	}
+	return true
+}
+
+// buildUsage: the plan report from Forwards + ForwardBytes (bytes default
+// to id × 1 MiB in / id × 256 KiB out), 1000 GiB included.
+func (f *Fake) buildUsage(previous bool) map[string]interface{} {
+	start, end := fakeCycleStart, fakeCycleEnd
+	if previous {
+		start, end = "2026-10-04 12:08:03", fakeCycleStart
+	}
+	ids := make([]int64, 0, len(f.Forwards))
+	for id := range f.Forwards {
+		ids = append(ids, id)
+	}
+	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
+	type row = map[string]interface{}
+	rows := []row{}
+	var used int64
+	for _, id := range ids {
+		v := f.Forwards[id]
+		b, ok := f.ForwardBytes[id]
+		if !ok {
+			b = [2]int64{id << 20, id << 18}
+		}
+		if previous {
+			b = [2]int64{b[0] / 2, b[1] / 2}
+		}
+		used += b[0] + b[1]
+		rows = append(rows, row{"forward_id": id, "state": v.State, "listen_port": v.ListenPort, "transport": v.Transport, "native_outbound": false,
+			"route": v.Route, "target": map[string]interface{}{"source": "manual", "host": v.Target.Host, "port": v.Target.Port, "service_id": nil},
+			"bytes_in": b[0], "bytes_out": b[1], "extra_billed_bytes": 0, "total_bytes": b[0] + b[1]})
+	}
+	for _, x := range rows {
+		share := 0.0
+		if used > 0 {
+			share = float64(x["total_bytes"].(int64)) * 100 / float64(used)
+		}
+		x["share_percent"] = float64(int(share*100)) / 100
+	}
+	sort.SliceStable(rows, func(i, j int) bool { return rows[i]["total_bytes"].(int64) > rows[j]["total_bytes"].(int64) })
+	included := int64(1000) << 30
+	remaining := included - used
+	usage := map[string]interface{}{"billing_mode": "monthly_bundle", "used_bytes": used, "included_bytes": included, "remaining_bytes": remaining,
+		"used_percent": float64(int(float64(used)*10000/float64(included))) / 100, "billable_bytes": 0}
+	if !previous {
+		usage["lifetime_used_bytes"] = used * 3
+	}
+	name := "current"
+	if previous {
+		name = "previous"
+	}
+	return map[string]interface{}{"ok": true, "service_id": f.ServiceID, "status": "active",
+		"period": map[string]interface{}{"name": name, "cycle_started_at": start, "cycle_ends_at": end, "counted_since": start, "traffic_reset_at": nil},
+		"usage":  usage, "forwards": rows, "attributed_bytes": used, "unattributed_bytes": 0,
+		"daily": []map[string]interface{}{{"date": start[:10], "bytes_in": used / 2, "bytes_out": used / 2, "extra_billed_bytes": 0, "total_bytes": used}}}
 }

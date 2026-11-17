@@ -261,6 +261,132 @@ export interface LeiKwanRule {
   backupOutFlow?: number;
   backupSharedCount?: number;
   backupSharedWith?: string[];
+  // Plan 273: 利群计费流量 = the vendor's own bytes of this forward in the
+  // current cycle (separate from inFlow/outFlow above). Users: own rules only.
+  vendorFlow?: LeiKwanVendorFlow;
+}
+
+/** Plan 273: one rule's 利群计费流量 (vendor report, every 5 min). */
+export interface LeiKwanVendorFlow {
+  total: number;
+  in: number;
+  out: number;
+  cycleStart?: number | null;
+  cycleEnd?: number | null;
+  updatedAt: number;
+  /** old data or the last vendor read failed */
+  stale: boolean;
+  // admin only
+  extra?: number;
+  share?: number;
+  state?: string;
+  error?: string;
+}
+
+/** Plan 273: when a vendor report was read (ms) and whether it is fresh. */
+export interface LeiKwanUsageStatus {
+  fetchedAt: number;
+  checkedAt: number;
+  nextAt: number;
+  stale: boolean;
+  /** never read yet */
+  pending?: boolean;
+  error?: string;
+  errorCount?: number;
+}
+
+export interface LeiKwanUsageForward {
+  forwardId: number;
+  state: string;
+  listenPort: number;
+  routeLabel: string;
+  totalBytes: number;
+  bytesIn: number;
+  bytesOut: number;
+  extraBilledBytes: number;
+  sharePercent: number;
+  ruleId?: number;
+  ruleName?: string;
+  userName?: string;
+}
+
+export interface LeiKwanDevice {
+  deviceId: string;
+  clientId: number;
+  name: string;
+  platform: string;
+  osVersion: string;
+  clientBuild: string;
+  ip: string;
+  online: boolean;
+  /** online / offline / blocked / banned / kicked */
+  state: string;
+  countsTowardLimit: boolean;
+  blockedUntil?: number | null;
+  firstSeenAt?: number | null;
+  lastSeenAt?: number | null;
+  /** our node with this IP (e.g. 火山上海) */
+  nodeId?: number;
+  nodeName?: string;
+  leikwanEntry?: boolean;
+}
+
+/** Plan 273: POST /leikwan/usage (admin) — 套餐流量 + 利群在线设备. */
+export interface LeiKwanUsageView {
+  accountReady: boolean;
+  note?: string;
+  accountId?: number;
+  accountName?: string;
+  serviceId?: number;
+  pollEverySec?: number;
+  service?: {
+    name: string;
+    planName: string;
+    status: string;
+    expiresAt: number | null;
+    expiresAtRaw: string;
+    forwardLimit: number;
+    activeForwardCount: number;
+  };
+  serviceStatus?: LeiKwanUsageStatus;
+  usage?: {
+    cycleStart: number | null;
+    cycleEnd: number | null;
+    countedSince: number | null;
+    trafficResetAt: number | null;
+    billingMode: string;
+    status: string;
+    usedBytes: number;
+    includedBytes: number;
+    remainingBytes: number | null;
+    usedPercent: number | null;
+    billableBytes: number;
+    lifetimeUsedBytes?: number | null;
+    attributedBytes: number;
+    unattributedBytes: number;
+    forwards: LeiKwanUsageForward[];
+    otherBytes: number;
+    otherForwards: number[];
+    daily: { date: string; totalBytes: number }[];
+  };
+  usageStatus?: LeiKwanUsageStatus;
+  previous?: {
+    cycleStart: number | null;
+    cycleEnd: number | null;
+    usedBytes: number;
+    includedBytes: number;
+    usedPercent: number | null;
+  };
+  previousNone?: boolean;
+  devices?: {
+    limit: number;
+    count: number;
+    slots: number;
+    limitSource: string;
+    windowSec: number;
+    items: LeiKwanDevice[];
+  };
+  devicesStatus?: LeiKwanUsageStatus;
 }
 
 export interface LeiKwanPendingLanding {
@@ -638,6 +764,8 @@ const lkr = <T = unknown>(path: string, body: unknown = {}) =>
   Network.post<T>("/leikwan-rule/" + path, body);
 
 export const getLeiKwanLines = () => lk<LeiKwanLineList>("line/list");
+// Plan 273: 套餐流量 + 利群在线设备 (the panel's last snapshot, no vendor call).
+export const getLeiKwanUsage = () => lk<LeiKwanUsageView>("usage");
 export const saveLeiKwanLine = (body: {
   id?: number;
   name: string;

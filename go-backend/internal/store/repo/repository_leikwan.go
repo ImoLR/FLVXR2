@@ -37,6 +37,10 @@ func (r *Repository) DeleteLeiKwanAccount(id int64) error {
 		if err := tx.Where("account_id = ?", id).Delete(&model.LeiKwanCreate{}).Error; err != nil {
 			return err
 		}
+		// Plan 273: the account's vendor usage / device snapshots go with it.
+		if err := tx.Where("account_id = ?", id).Delete(&model.LeiKwanUsageSnapshot{}).Error; err != nil {
+			return err
+		}
 		return tx.Delete(&model.LeiKwanAccount{}, id).Error
 	})
 }

@@ -56,6 +56,8 @@ func (h *Handler) registerLeiKwanLines(mux *http.ServeMux) {
 		"rule/prepare-landing": h.leikwanRulePrepareLanding,
 		// Plan 272 「所有利群入口都可用」.
 		"rule/all-entries": h.leikwanRuleAllEntries,
+		// Plan 273 套餐流量 + 利群在线设备 (last snapshots, no vendor call).
+		"usage": h.leikwanUsage,
 	}
 	for path, fn := range admin {
 		path, fn := path, fn
@@ -1024,6 +1026,9 @@ type leiKwanRuleCtx struct {
 	allRefs    []repo.LeiKwanBackupRef
 	// Plan 272: 外部节点 landings (name + protocol label).
 	externals map[int64]map[string]interface{}
+	// Plan 273: the vendor's current-cycle report per 利群 account.
+	vendor         map[int64]lkVendorReport
+	settingAccount int64
 }
 
 func (h *Handler) leiKwanRuleContext(rules []model.LeiKwanRule, admin bool) *leiKwanRuleCtx {
@@ -1040,7 +1045,9 @@ func (h *Handler) leiKwanRuleContext(rules []model.LeiKwanRule, admin bool) *lei
 	setting, _ := h.repo.GetLeiKwanSetting()
 	if setting != nil {
 		c.entries = h.leiKwanEntryNodes(setting.EntryGroupID)
+		c.settingAccount = setting.AccountID
 	}
+	c.vendor = h.leiKwanVendorReports(rules, c.settingAccount)
 	ids, users := []int64{}, []int64{}
 	for _, x := range rules {
 		if x.BackupForwardID > 0 {
@@ -1154,6 +1161,17 @@ func (h *Handler) leiKwanRuleView(x model.LeiKwanRule, c *leiKwanRuleCtx, admin 
 		}
 	}
 	v["landing"] = landing
+	// Plan 273: 利群计费流量 = the vendor's own bytes of this forward in the
+	// current cycle (separate from our nft 利群流量 and the 备线 bytes).
+	accountID := x.AccountID
+	if accountID == 0 {
+		accountID = c.settingAccount
+	}
+	if rep, ok := c.vendor[accountID]; ok {
+		if vf := lkRuleVendorFlow(rep.usage, rep.snap, x.ForwardID, admin, time.Now()); vf != nil {
+			v["vendorFlow"] = vf
+		}
+	}
 	if e := c.entryFor(x.UserID); e != nil {
 		v["entry"] = map[string]interface{}{"nodeId": e.ID, "nodeName": e.Name, "host": e.Host, "address": net.JoinHostPort(e.Host, strconv.Itoa(x.ListenPort))}
 	}
