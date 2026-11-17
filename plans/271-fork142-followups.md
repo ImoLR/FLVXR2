@@ -80,7 +80,7 @@ a separate 备线流量 statistic.
 
 - [x] Investigate 1/2/3, write this plan
 - [x] 3: panel + agent constant + comments (tests updated)
-- [ ] 3: note the change time in plans/264-warm-redundant.md (after the release)
+- [x] 3: note the change time in plans/264-warm-redundant.md (feature/3.0.27-warm-redundant @ 1d71330c: 11-17 16:02:40 TW)
 - [x] 2: landingcustom error classes + messages (+ unit test, live refused/timeout/hang-up/502)
 - [x] 2: sharedSyncHealth tracker + logging + view threshold + per-server display + recovery clear (+ probe log)
 - [x] 2: tests SQLite + PG 18 (1 failure → online; ≥3 min → only that server offline; list outage; recovery clears; delete gate still blocks; log rate limit)
@@ -91,9 +91,27 @@ a separate 备线流量 statistic.
 - [x] 1: UI chips (admin + user, desktop + H5, 授权 card + H5 授权 row, user header)
 - [x] go test ./... (go-backend SQLite + PG 18 all ok; repo pkg needs -timeout >10m under load, 460 s alone), go-gost/x (socket TestLeiKwanHostReadFixtures fails on base too; TestLeiKwanHostPanelSyncJSON flaky TempDir race on base 10/24 vs branch 17/24), go vet, npm run build, eslint
 - [x] Screens gallery /root/mmwx-preview/fork142-followups/ (24 PNG, 28/28 lab checks)
-- [ ] Commit, push, CI green; ledger row 271 待发布
-- [ ] Tag 3.0.27-fork.142, Images + 10 assets, Latest
-- [ ] Prod: backup + rollback script, swap, verify (30/30, 52 rules, 利群 tables, redeploy failed=0, chips, shared online)
-- [ ] Prune backups (keep 2), ledger 已发布, memory updates
-- [ ] Watch new [shared-sync] log lines ~60 min → flap cause; stop + disable flvx-mmwx-sync-watch
-- [ ] Summary (runs/fork142-followups/summary.md), plan complete
+- [x] Commit, push, CI green (44041622276); ledger row 271 待发布
+- [x] Tag 3.0.27-fork.142 → b2be15e9 (branch maintenance/3.0.27-fork.142-followups), Images 44041922598, 10 assets, Latest
+- [x] Prod: fork.141 checked on a migrated prod-DB copy; backup + rollback script (pre-fork142-20261117T080231Z); swap 16:02:32–16:02:40 TW; 30/30 online, 52 rules, 利群 tables identical, 30 redeploys updated=0 failed=0, API fields present (all 0 at start → chips hidden), 5 shared servers online, prod UI smoke clean
+- [x] Prune backups (kept pre-fork141 + pre-fork142), ledger 已发布, memory updates
+- [x] Watch new [shared-sync] log lines 16:02–17:03 TW → 0 failures (class unknown, see Results); flvx-mmwx-sync-watch stopped 17:05 TW (transient unit, gone)
+- [x] Summary (runs/fork142-followups/summary.md), plan complete
+
+## Results (11-17, 台湾时间)
+
+- Released `3.0.27-fork.142` (tag → b2be15e9, branch maintenance/3.0.27-fork.142-followups), panel swap 16:02:32–16:02:40,
+  no agent OTA. Rollback `/opt/flvx-svc/rollback/pre-fork142-20261117T080231Z/rollback.sh` (fork.141 image swap; fork.141
+  checked on a migrated prod-DB copy). 30/30 online, 52 rules, 利群 tables identical, 30 redeploys updated=0 failed=0.
+- 备线流量: finding = every 备线 forward is admin-owned → its bytes were billed to the admin (prod: all 7 利群 rules are the
+  admin's, so nothing was mis-billed yet). Fixed for one-owner 备线; counters start at 0 on prod (chips hidden until a 备线
+  carries traffic).
+- 2 h idle sleep: live since 16:02:40 (re-push on reconnect); warm-stats hops asleep 7 (15:50) → 12 (16:50): 5 port-forward
+  keys on Mkcloud 深港ixp 1 / Leikwanhost 沪台IPLC / Mkcloud 沪日ixp 440 went to sleep.
+- Flaps: 0 sync failures 16:02–17:03; earlier ones were bursty (05–06 TW 33, 11 TW 12). All 57 earlier ones were
+  no-HTTP-answer errors; panel → CF edge fast; cloudflared on AWS HK had no reconnect at flap times; origin TTFB 0.7–0.9 s,
+  AWS HK low on memory. Class to be read from `[shared-sync]` at the next burst (note: runs/fork142-followups/mmwx-side-note.md).
+- Tests: go-backend all ok on SQLite + PG 18 (repo package needs `-timeout` > 10 min under parallel load, 460 s alone);
+  go-gost/x: socket TestLeiKwanHostReadFixtures fails on the fork.141 base too; TestLeiKwanHostPanelSyncJSON flaky
+  (TempDir cleanup race) on base 10/24 vs branch 17/24 — socket package unchanged. Lab 28/28 checks, gallery
+  http://104.145.236.29:8791/fork142-followups/.
