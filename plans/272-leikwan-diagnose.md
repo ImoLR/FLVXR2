@@ -81,8 +81,11 @@
       生成订阅说明文字统一、管理员入口行 IP 不带 :5438、旧草稿注释；go-gost/x 两个失败（`TestLeiKwanHostReadFixtures` agent 版本空、
       `TestLeiKwanHostPanelSyncJSON` TempDir 清不掉）在 fork.142 上一样失败（原有问题：夹具 `usr/local/bin` 被 `.gitignore` 的 `bin/` 漏提交；
       测试没等后台循环退出）→ 补夹具存根 + 测试等循环退出，5 次全过。
-- [ ] `go test ./...`（go-backend -timeout 30m，SQLite + PG 18）、go-gost / go-gost/x、go vet、CI 绿。
-- [ ] 实验室 + 画廊 /root/mmwx-preview/leikwan-diagnose-built/（和批准的 PNG 对照）。
+- [x] `go test ./...`（go-backend -timeout 30m，SQLite + PG 18）、go-gost / go-gost/x、go vet、CI 绿。
+      （3a312cdd：vet 两处 0 问题；go-gost/x 27 包全过；go-gost 编译过；go-backend 全过，handler 376 s / repo 709 s / contract 671 s，
+      含 `TestLeiKwanEntryLockSubContract` SQLite + PG；`npm run build` 过，改动文件 eslint 0 错；分支 CI 44063192176 绿。）
+- [x] 实验室 + 画廊 /root/mmwx-preview/leikwan-diagnose-built/（37 张，浅色 + 深色 + H5 390/360；脚本检查 38/38 过；
+      和批准的 PNG 对照一致：用户第一跳一行不带 IP、管理员 ①–④ + 其他利群入口机、第二跳标「估算」、提示卡 15 秒）。
 - [ ] 发布：tag 下一个 fork、CI + 镜像 + 资产；面板备份 + 换面板；生产迁移（只读计数 → 豁免 → entryLock）；
       OTA 4 台利群入口（金丝雀一台先，检查利群转发 / 日志快切 / 预热）；保留 2 份备份。
 - [ ] 验证：节点全在线、规则数不变、利群表除新列外不变、管理员诊断真实规则、aws-hk 测非主入口超时 / 主入口通。
