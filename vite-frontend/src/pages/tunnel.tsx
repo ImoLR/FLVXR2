@@ -44,7 +44,6 @@ import { WGPathManager } from "./tunnel/wg-path-manager";
 
 import { formatLeiKwanTarget, leiKwanNodeHost } from "@/api/leikwan";
 import { LeiKwanProgressModal } from "@/pages/leikwan/progress-modal";
-import { LeiKwanTunnelsSection } from "@/pages/leikwan/panel/tunnels-section";
 import { SearchBar } from "@/components/search-bar";
 import { usePullToRefresh } from "@/hooks/usePullToRefresh";
 import { AnimatedPage } from "@/components/animated-page";
@@ -4182,8 +4181,6 @@ export default function TunnelPage() {
           </>
         )}
       </div>
-      {/* Plan 266: tunnel group 「利群汇聚」 (admin, only once 利群 exists). */}
-      {isAdmin && <LeiKwanTunnelsSection />}
       {tunnels.length > 0 && (
         <div
           aria-label="出口地区筛选"

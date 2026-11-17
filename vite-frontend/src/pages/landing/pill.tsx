@@ -86,21 +86,26 @@ export function Pill({
   className = "",
   icon,
   title,
+  wrap = false,
 }: {
   tone: LandingTone;
   children: ReactNode;
   className?: string;
   icon?: ReactNode;
   title?: string;
+  /** Plan 270: long text wraps inside the pill instead of being cut. */
+  wrap?: boolean;
 }) {
   return (
     <span
-      className={`${pillBase} ${landingToneClass[tone]} ${className}`}
+      className={`${pillBase} ${landingToneClass[tone]} ${wrap ? "!shrink !whitespace-normal py-px" : ""} ${className}`}
       data-landing-pill={tone}
       title={title}
     >
       {icon}
-      <span className="min-w-0 truncate">{children}</span>
+      <span className={wrap ? "min-w-0 break-words" : "min-w-0 truncate"}>
+        {children}
+      </span>
     </span>
   );
 }

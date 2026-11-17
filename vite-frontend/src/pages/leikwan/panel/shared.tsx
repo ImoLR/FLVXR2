@@ -60,13 +60,18 @@ export function OnOff({ on, label }: { on: boolean; label?: string }) {
 export function KV({
   label,
   children,
+  labelClassName = "w-28",
 }: {
   label: string;
   children: ReactNode;
+  /** label column width (H5 rows use a narrower one) */
+  labelClassName?: string;
 }) {
   return (
     <div className="flex items-start gap-3 py-1 text-sm">
-      <span className="w-28 shrink-0 text-default-500">{label}</span>
+      <span className={`${labelClassName} shrink-0 text-default-500`}>
+        {label}
+      </span>
       <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5 break-all">
         {children}
       </div>

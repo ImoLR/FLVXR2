@@ -102,7 +102,6 @@ import {
 } from "@/api";
 import { EditIcon, DeleteIcon, EyeIcon, EyeOffIcon } from "@/components/icons";
 import { PageLoadingState } from "@/components/page-state";
-import { LeiKwanUserGrantSection } from "@/pages/leikwan/panel/tunnels-section";
 import { useLocalStorageState } from "@/hooks/use-local-storage-state";
 import { usePullToRefresh } from "@/hooks/usePullToRefresh";
 import { removeItemsById, replaceItemById } from "@/utils/list-state";
@@ -3699,8 +3698,6 @@ export default function UserPage() {
                   </div>
                 </div>
               </div>
-              {/* Plan 266: grant of the tunnel group 「利群汇聚」 (主入口 + 备线). */}
-              <LeiKwanUserGrantSection user={currentUser} />
             </div>
           </ModalBody>
           <ModalFooter className="justify-end">

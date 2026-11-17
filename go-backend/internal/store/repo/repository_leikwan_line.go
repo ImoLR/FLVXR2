@@ -162,6 +162,14 @@ func (r *Repository) CountLeiKwanRules(userID int64) (int64, error) {
 	return n, err
 }
 
+// CountTunnelForwards (plan 270): rules on a tunnel — the 「旧管道」 card of
+// the 利群汇聚 page shows how many rules still use a pipe-mode tunnel.
+func (r *Repository) CountTunnelForwards(tunnelID int64) (int64, error) {
+	var n int64
+	err := r.db.Model(&model.Forward{}).Where("tunnel_id = ?", tunnelID).Count(&n).Error
+	return n, err
+}
+
 // CountLeiKwanRulesByBackup: rules that use a backup forward (shared backups,
 // e.g. one forward for 280 and 282, are only deleted with the last rule).
 func (r *Repository) CountLeiKwanRulesByBackup(forwardID int64) (int64, error) {

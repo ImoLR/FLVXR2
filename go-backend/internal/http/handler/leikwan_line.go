@@ -78,6 +78,8 @@ func (h *Handler) registerLeiKwanLines(mux *http.ServeMux) {
 	for path, fn := range map[string]http.HandlerFunc{
 		"list": h.leikwanRuleList, "options": h.leikwanRuleOptions, "create": h.leikwanRuleCreate,
 		"update": h.leikwanRuleUpdate, "delete": h.leikwanRuleDelete, "link": h.leikwanRuleLink,
+		// Plan 270: the cheap 「利群汇聚」 nav flag (one indexed read).
+		"access": h.leikwanRuleAccess,
 	} {
 		path, fn := path, fn
 		mux.HandleFunc("/api/v1/leikwan-rule/"+path, func(w http.ResponseWriter, r *http.Request) {
@@ -481,9 +483,12 @@ func (h *Handler) leikwanLineList(w http.ResponseWriter, r *http.Request) {
 	if account != nil {
 		ps, _ := h.repo.ListLeiKwanPipes(account.ID)
 		for _, p := range ps {
-			item := map[string]interface{}{"forwardId": p.ForwardID, "listenPort": p.ListenPort, "routeLabel": p.RouteLabel, "tunnelId": p.TunnelID}
+			// Plan 270: id + etag (delete an unbound pipe) and the tunnel's rule count.
+			item := map[string]interface{}{"id": p.ID, "etag": p.ETag, "forwardId": p.ForwardID, "listenPort": p.ListenPort, "routeLabel": p.RouteLabel, "tunnelId": p.TunnelID}
 			if p.TunnelID != nil {
 				item["tunnelName"] = h.repo.LeiKwanTunnelName(*p.TunnelID)
+				n, _ := h.repo.CountTunnelForwards(*p.TunnelID)
+				item["tunnelRules"] = n
 			}
 			pipes = append(pipes, item)
 		}
@@ -1042,6 +1047,10 @@ func (h *Handler) leiKwanRuleView(x model.LeiKwanRule, c *leiKwanRuleCtx, admin 
 		// Plan 269: 利群流量 (billed, since the owner's reset) and the block state.
 		"inFlow": x.InFlow, "outFlow": x.OutFlow, "blockReason": x.BlockReason,
 	}
+	// Plan 270: users never see the internal 备线 error (it can name forwards).
+	if !admin && x.BackupError != "" {
+		v["backupError"] = "备线还没建好，管理员处理中"
+	}
 	if x.PendingLandingNodeID > 0 {
 		p := map[string]interface{}{"landingNodeId": x.PendingLandingNodeID}
 		if n, s, err := h.repo.LeiKwanLandingTarget(x.PendingLandingNodeID); err == nil && n != nil {
@@ -1124,6 +1133,12 @@ func (h *Handler) leikwanRuleList(w http.ResponseWriter, r *http.Request) {
 	if admin {
 		owner = req.UserID // 0 = every user's rules
 	}
+	// Plan 270: a user without an active grant sees no 利群 rules or lines
+	// (the page and the nav item are only for granted users).
+	if !admin && !h.leiKwanUserGranted(uid) {
+		response.WriteJSON(w, response.OK(map[string]interface{}{"rules": []interface{}{}, "admin": false, "granted": false}))
+		return
+	}
 	rules, err := h.repo.ListLeiKwanRules(owner)
 	if err != nil {
 		leiKwanError(w, errors.New("读取利群规则失败"))
@@ -1134,21 +1149,38 @@ func (h *Handler) leikwanRuleList(w http.ResponseWriter, r *http.Request) {
 	for _, x := range rules {
 		out = append(out, h.leiKwanRuleView(x, c, admin))
 	}
-	result := map[string]interface{}{"rules": out, "admin": admin}
+	result := map[string]interface{}{"rules": out, "admin": admin, "granted": true}
 	if g, ok := c.grants[uid]; ok {
 		result["grant"] = h.leiKwanGrantView(g, c.entries, int64(len(leiKwanOwnRules(rules, uid))), "")
 	}
-	if admin {
-		ls := []map[string]interface{}{}
-		for _, l := range c.lines {
-			ls = append(ls, map[string]interface{}{"id": l.ID, "name": l.Name, "routeLabel": l.RouteLabel, "inx": l.Inx})
+	// Admins get every line; granted users the active ones (「可用专线」) —
+	// name, route and transport only.
+	ls := []map[string]interface{}{}
+	for _, l := range c.lines {
+		if !admin && l.Status != 1 {
+			continue
 		}
-		sort.Slice(ls, func(i, j int) bool {
-			return ls[i]["inx"].(int) < ls[j]["inx"].(int) || ls[i]["inx"].(int) == ls[j]["inx"].(int) && ls[i]["id"].(int64) < ls[j]["id"].(int64)
-		})
-		result["lines"] = ls
+		ls = append(ls, map[string]interface{}{"id": l.ID, "name": l.Name, "routeLabel": l.RouteLabel, "transport": l.Transport, "status": l.Status, "inx": l.Inx})
 	}
+	sort.Slice(ls, func(i, j int) bool {
+		return ls[i]["inx"].(int) < ls[j]["inx"].(int) || ls[i]["inx"].(int) == ls[j]["inx"].(int) && ls[i]["id"].(int64) < ls[j]["id"].(int64)
+	})
+	result["lines"] = ls
 	response.WriteJSON(w, response.OK(result))
+}
+
+// leiKwanUserGranted: the user holds an active 利群 grant (status 1).
+func (h *Handler) leiKwanUserGranted(uid int64) bool {
+	g, err := h.repo.GetLeiKwanGrant(uid)
+	return err == nil && g != nil && g.Status == 1
+}
+
+// leikwanRuleAccess (plan 270): whether the 「利群汇聚」 nav item / page is
+// open for the caller — admins always, users with an active grant.
+func (h *Handler) leikwanRuleAccess(w http.ResponseWriter, r *http.Request) {
+	uid, role, _ := userRoleFromRequest(r)
+	admin := role == 0
+	response.WriteJSON(w, response.OK(map[string]interface{}{"admin": admin, "granted": admin || h.leiKwanUserGranted(uid)}))
 }
 
 func leiKwanOwnRules(rules []model.LeiKwanRule, uid int64) []model.LeiKwanRule {
@@ -1181,6 +1213,17 @@ func (h *Handler) leikwanRuleOptions(w http.ResponseWriter, r *http.Request) {
 	owner := uid
 	if role == 0 && req.UserID > 0 {
 		owner = req.UserID
+	}
+	// Plan 270: no lines, landings or quota (vendor read) without an active grant.
+	if role != 0 && !h.leiKwanUserGranted(uid) {
+		g, _ := h.repo.GetLeiKwanGrant(uid)
+		msg := "没有利群汇聚授权，请联系管理员"
+		if err := leiKwanGrantUsable(g); err != nil {
+			msg = err.Error()
+		}
+		response.WriteJSON(w, response.OK(map[string]interface{}{"admin": false, "ownerId": owner, "grantError": msg,
+			"lines": []interface{}{}, "landings": []interface{}{}, "quota": map[string]interface{}{"limit": 0, "active": 0}}))
+		return
 	}
 	setting, account, _ := h.leiKwanSettingAccount()
 	g, _ := h.repo.GetLeiKwanGrant(owner)

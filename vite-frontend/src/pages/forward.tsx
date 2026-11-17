@@ -61,7 +61,6 @@ import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 
 import { AnimatedPage } from "@/components/animated-page";
-import { LeiKwanRulesSection } from "@/pages/leikwan/panel/rules-section";
 import { SearchBar } from "@/components/search-bar";
 import { Card, CardBody, CardHeader } from "@/shadcn-bridge/heroui/card";
 import { Button } from "@/shadcn-bridge/heroui/button";
@@ -5877,8 +5876,6 @@ export default function ForwardPage() {
           )}
         </div>
       </div>
-      {/* Plan 266: 利群 rules (only with a 利群 grant / rules). */}
-      <LeiKwanRulesSection />
       {/* Plan 163: on desktop 分组 the admin user picker lives in the group
           table headers, which are hidden while the groups are collapsed. */}
       {(isMobile

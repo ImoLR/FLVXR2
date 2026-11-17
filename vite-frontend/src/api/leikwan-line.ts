@@ -1,4 +1,5 @@
 import Network from "@/api/network";
+import { getToken, isAdmin } from "@/utils/auth";
 
 // Plan 266 利群专线入面板 (step 1).
 
@@ -137,11 +138,15 @@ export interface LeiKwanLineList {
   entryNodes: LeiKwanEntryNode[];
   lines: LeiKwanLine[];
   pipes: {
+    // Plan 270: id + etag (delete an unbound pipe), rules on its tunnel.
+    id?: number;
+    etag?: string;
     forwardId: number;
     listenPort: number;
     routeLabel: string;
     tunnelId?: number | null;
     tunnelName?: string;
+    tunnelRules?: number;
   }[];
   quota: LeiKwanQuota;
   routes: { id: number; label: string; available: boolean }[];
@@ -239,8 +244,17 @@ export interface LeiKwanPendingLanding {
 export interface LeiKwanRuleList {
   rules: LeiKwanRule[];
   admin: boolean;
+  // Plan 270: false = no active grant (users get no rules / lines).
+  granted?: boolean;
   grant?: LeiKwanGrant;
-  lines?: { id: number; name: string; routeLabel: string }[];
+  // Admin: every line; granted users: the active ones (「可用专线」).
+  lines?: {
+    id: number;
+    name: string;
+    routeLabel: string;
+    transport?: string;
+    status?: number;
+  }[];
 }
 
 export interface LeiKwanRuleOptions {
@@ -592,3 +606,85 @@ export const newLeiKwanRequestId = () =>
 /** 日志快切 trigger source → tinted pill tone. */
 export const triggerSourceTone = (source: string) =>
   source === "前端信号" ? "teal" : source === "状态文件" ? "amber" : "purple";
+
+// ---- Plan 270: 「利群汇聚」 nav flag (admins always, users with an active grant) ----
+
+const NAV_KEY = "flvx_leikwan_nav";
+const NAV_SEEN_KEY = "flvx_leikwan_nav_seen";
+const NAV_EVENT = "flvxLeiKwanNav";
+
+export const getLeiKwanAccess = () =>
+  lkr<{ admin: boolean; granted: boolean }>("access");
+
+/** Last known flag (instant first paint); false until the first check. */
+export function leiKwanNavCached(): boolean {
+  try {
+    return localStorage.getItem(NAV_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+let navCheck: Promise<boolean> | null = null;
+let navToken: string | null = null;
+
+/**
+ * One access call per page load and login (a new token re-checks); updates
+ * the cache and tells the menus.
+ */
+export function refreshLeiKwanNav(): Promise<boolean> {
+  const token = getToken();
+
+  // Admins always see the item (no request).
+  if (isAdmin()) return Promise.resolve(true);
+  if (!navCheck || token !== navToken) {
+    navToken = token;
+    navCheck = getLeiKwanAccess()
+      .then((res) => {
+        const on = res.code === 0 && !!res.data?.granted;
+
+        try {
+          localStorage.setItem(NAV_KEY, on ? "1" : "0");
+        } catch {
+          // ignore
+        }
+        window.dispatchEvent(new Event(NAV_EVENT));
+
+        return on;
+      })
+      .catch(() => leiKwanNavCached());
+  }
+
+  return navCheck;
+}
+
+/** Subscribe to flag changes (returns the unsubscribe). */
+export function onLeiKwanNav(fn: () => void): () => void {
+  window.addEventListener(NAV_EVENT, fn);
+  window.addEventListener(NAV_SEEN_KEY, fn);
+
+  return () => {
+    window.removeEventListener(NAV_EVENT, fn);
+    window.removeEventListener(NAV_SEEN_KEY, fn);
+  };
+}
+
+/** Users: 「新」 on the nav item until the page was opened once. */
+export function leiKwanNavSeen(): boolean {
+  try {
+    return localStorage.getItem(NAV_SEEN_KEY) === "1";
+  } catch {
+    return true;
+  }
+}
+
+export function markLeiKwanNavSeen() {
+  try {
+    if (localStorage.getItem(NAV_SEEN_KEY) !== "1") {
+      localStorage.setItem(NAV_SEEN_KEY, "1");
+      window.dispatchEvent(new Event(NAV_SEEN_KEY));
+    }
+  } catch {
+    // ignore
+  }
+}

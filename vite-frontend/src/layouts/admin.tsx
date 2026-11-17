@@ -16,6 +16,12 @@ import {
   subMenuSeen,
 } from "@/api/sub-link";
 import {
+  leiKwanNavCached,
+  leiKwanNavSeen,
+  onLeiKwanNav,
+  refreshLeiKwanNav,
+} from "@/api/leikwan-line";
+import {
   Dropdown,
   DropdownTrigger,
   DropdownMenu,
@@ -215,7 +221,7 @@ export default function AdminLayout({
     {
       path: "/leikwan",
       label: "利群汇聚",
-      adminOnly: true,
+      // Plan 270: admins + users with an active 利群 grant (filtered below).
       icon: (
         <svg
           aria-hidden="true"
@@ -627,6 +633,18 @@ export default function AdminLayout({
   // Plan 185: 订阅 menu — hidden when the admin switched it off, 「新」 until opened once.
   const [subEnabled, setSubEnabled] = useState(subLinkEnabledCached);
   const [subSeen, setSubSeen] = useState(subMenuSeen);
+  // Plan 270: 「利群汇聚」 for users with an active grant; 「新」 until opened.
+  const [leikwanNav, setLeikwanNav] = useState(leiKwanNavCached);
+  const [leikwanSeen, setLeikwanSeen] = useState(leiKwanNavSeen);
+
+  useEffect(() => {
+    void refreshLeiKwanNav().then(setLeikwanNav);
+
+    return onLeiKwanNav(() => {
+      setLeikwanNav(leiKwanNavCached());
+      setLeikwanSeen(leiKwanNavSeen());
+    });
+  }, []);
 
   useEffect(() => {
     void refreshSubLinkEnabled().then(setSubEnabled);
@@ -648,6 +666,7 @@ export default function AdminLayout({
       !(item.userOnly && isAdmin) &&
       item.path !== "/tls" &&
       !(item.path === "/sub" && !subEnabled) &&
+      !(item.path === "/leikwan" && !isAdmin && !leikwanNav) &&
       !(item.path === "/monitor" && monitorAllowed !== true) &&
       !(item.path === "/shop" && !isAdmin && !storeEnabled) &&
       !(
@@ -796,6 +815,13 @@ export default function AdminLayout({
                             新
                           </span>
                         )}
+                        {item.path === "/leikwan" &&
+                          !isAdmin &&
+                          !leikwanSeen && (
+                            <span className="relative z-10 ml-2 rounded-md bg-green-500/15 px-1.5 text-[10.5px] font-bold leading-[18px] text-green-700 dark:bg-green-400/15 dark:text-green-300">
+                              新
+                            </span>
+                          )}
                       </div>
                     </motion.button>
                   </li>
