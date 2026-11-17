@@ -16,3 +16,6 @@ func (m *lkHostManager) takeReport() *LeiKwanHostReport { return nil }
 func (m *lkHostManager) handleSync(context.Context, interface{}) (*LeiKwanHostReport, error) {
 	return nil, errors.New("利群主机模块只在 linux 上运行")
 }
+func (m *lkHostManager) handleDiag(context.Context, interface{}) (*LeiKwanDiagResponse, error) {
+	return nil, errors.New("利群主机模块只在 linux 上运行")
+}

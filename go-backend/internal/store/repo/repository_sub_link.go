@@ -54,7 +54,8 @@ func (r *Repository) CreateSubscription(s *model.UserSubscription, cap int) erro
 	return r.db.Transaction(func(tx *gorm.DB) error {
 		if cap > 0 {
 			var n int64
-			if err := tx.Model(&model.UserSubscription{}).Where("user_id = ?", s.UserID).Count(&n).Error; err != nil {
+			// Plan 272: the automatic 「利群汇聚」 subscription is not counted.
+			if err := tx.Model(&model.UserSubscription{}).Where("user_id = ? AND auto_kind = ?", s.UserID, "").Count(&n).Error; err != nil {
 				return err
 			}
 			if n >= int64(cap) {
@@ -63,6 +64,17 @@ func (r *Repository) CreateSubscription(s *model.UserSubscription, cap int) erro
 		}
 		return tx.Create(s).Error
 	})
+}
+
+// GetAutoSubscription returns the user's automatic subscription of a kind
+// (plan 272 "leikwan"), nil when there is none.
+func (r *Repository) GetAutoSubscription(userID int64, kind string) (*model.UserSubscription, error) {
+	var s model.UserSubscription
+	err := r.db.Where("user_id = ? AND auto_kind = ?", userID, kind).Order("id").Limit(1).Find(&s).Error
+	if err != nil || s.ID == 0 {
+		return nil, err
+	}
+	return &s, nil
 }
 
 // UpdateSubscription changes name / format / rule mode / items (and, when
@@ -526,4 +538,10 @@ func (r *Repository) ExternalNodesByIDs(userID int64, ids []int64) ([]model.Land
 	}
 	err := q.Order("id").Find(&rows).Error
 	return rows, err
+}
+
+// SubLandingNode is subLandingNode for the handler (plan 272: a 利群 rule
+// whose landing is a panel node, reached at the 主入口:listen port).
+func SubLandingNode(n model.LandingNode, s *model.LandingServer, host string, port int, name string) (sublink.Node, bool) {
+	return subLandingNode(n, s, host, port, name)
 }

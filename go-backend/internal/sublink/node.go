@@ -130,6 +130,9 @@ const (
 	RefExternalNode  = "external_node"
 	RefSourceNode    = "source_node"
 	RefSourceAll     = "source_all"
+	// Plan 272 利群汇聚: one 利群 rule of the owner, or all of them (follow).
+	RefLeiKwanRule = "leikwan_rule"
+	RefLeiKwanAll  = "leikwan_all"
 )
 
 // Ref points at one node (or a whole source) of the owner.
@@ -141,6 +144,8 @@ type Ref struct {
 	ExternalID int64  `json:"externalId,omitempty"`
 	SourceID   int64  `json:"sourceId,omitempty"`
 	Name       string `json:"name,omitempty"` // source_node: node name
+	// LeiKwanRuleID: leikwan_rule (leikwan_rule.id).
+	LeiKwanRuleID int64 `json:"leikwanRuleId,omitempty"`
 }
 
 // Key identifies a reference (the same node twice is one item).
@@ -156,6 +161,10 @@ func (r Ref) Key() string {
 		return "s:" + strconv.FormatInt(r.SourceID, 10) + ":" + r.Name
 	case RefSourceAll:
 		return "a:" + strconv.FormatInt(r.SourceID, 10)
+	case RefLeiKwanRule:
+		return "k:" + strconv.FormatInt(r.LeiKwanRuleID, 10)
+	case RefLeiKwanAll:
+		return "ka"
 	}
 	return ""
 }
@@ -205,6 +214,12 @@ func CleanRefs(refs []Ref) ([]Ref, error) {
 			if c.SourceID <= 0 {
 				return nil, errors.New("节点引用无效")
 			}
+		case RefLeiKwanRule:
+			c.LeiKwanRuleID = r.LeiKwanRuleID
+			if c.LeiKwanRuleID <= 0 {
+				return nil, errors.New("节点引用无效")
+			}
+		case RefLeiKwanAll:
 		default:
 			return nil, errors.New("节点引用无效")
 		}

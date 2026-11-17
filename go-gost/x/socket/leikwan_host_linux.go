@@ -1005,3 +1005,11 @@ func (m *lkHostManager) handleSync(ctx context.Context, data interface{}) (*LeiK
 	m.lastSent = m.now()
 	return m.report, nil
 }
+
+// handleDiag (plan 272): the one-shot 利群规则诊断 probe on this host.
+func (m *lkHostManager) handleDiag(ctx context.Context, data interface{}) (*LeiKwanDiagResponse, error) {
+	if m == nil {
+		return nil, errors.New("利群主机模块未启用")
+	}
+	return handleLeiKwanDiag(ctx, m.root, data)
+}

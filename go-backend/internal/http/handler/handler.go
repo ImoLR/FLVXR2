@@ -65,6 +65,7 @@ type Handler struct {
 	jobsStarted bool
 	jobsWG      sync.WaitGroup
 	lkKick      chan struct{} // plan 269: 利群主机 sync loop kick
+	lkThrottle  lkThrottle    // plan 272: sub-pull grace checks / 诊断 per user
 
 	systemUpgradeMu sync.Mutex
 

@@ -184,6 +184,8 @@ type subData struct {
 	externals map[int64]model.LandingExternalNode
 	sources   map[int64]model.UserSubSource
 	srcNodes  map[int64][]sublink.SourceNode
+	// Plan 272: the owner's 利群 rules as nodes (nil = not referenced).
+	leikwan *lkSubData
 }
 
 // subCounts summarizes a subscription for its card.
@@ -191,6 +193,7 @@ type subCounts struct {
 	Panel    int              `json:"panel"`
 	External int              `json:"external"`
 	Missing  int              `json:"missing"`
+	LeiKwan  int              `json:"leikwan"`
 	Sources  []subSourceCount `json:"sources"`
 	Total    int              `json:"total"`
 }
@@ -206,8 +209,11 @@ type subSourceCount struct {
 // for the editor). refresh refetches stale external sources inline.
 func (h *Handler) subLoad(ctx context.Context, userID int64, refs []sublink.Ref, all, refresh bool) (*subData, error) {
 	var fwd, land, ext, src []int64
+	wantLK := all
 	for _, ref := range refs {
 		switch ref.Kind {
+		case sublink.RefLeiKwanRule, sublink.RefLeiKwanAll:
+			wantLK = true
 		case sublink.RefForwardLink:
 			fwd = append(fwd, ref.ForwardID)
 		case sublink.RefLandingDirect:
@@ -220,6 +226,9 @@ func (h *Handler) subLoad(ctx context.Context, userID int64, refs []sublink.Ref,
 	}
 	d := &subData{links: map[string]repo.SubPanelLink{}, byEntry: map[string][]repo.SubPanelLink{}, externals: map[int64]model.LandingExternalNode{},
 		sources: map[int64]model.UserSubSource{}, srcNodes: map[int64][]sublink.SourceNode{}}
+	if wantLK {
+		d.leikwan = h.leiKwanSubLoad(userID)
+	}
 	if all || len(fwd)+len(land) > 0 {
 		var fIDs, lIDs []int64
 		if !all {
@@ -361,6 +370,26 @@ func (d *subData) resolve(refs []sublink.Ref, max int) ([]sublink.Node, subCount
 				countSrc(ref.SourceID, true, len(list))
 				continue
 			}
+		case sublink.RefLeiKwanRule:
+			if d.leikwan != nil {
+				if n, ok := d.leikwan.nodes[ref.LeiKwanRuleID]; ok {
+					n.Key = ref.Key()
+					keep(n)
+					c.LeiKwan++
+					continue
+				}
+			}
+		case sublink.RefLeiKwanAll:
+			if d.leikwan != nil && d.leikwan.granted {
+				for _, id := range d.leikwan.ruleIDs() {
+					if n, ok := d.leikwan.nodes[id]; ok {
+						n.Key = sublink.Ref{Kind: sublink.RefLeiKwanRule, LeiKwanRuleID: id}.Key()
+						keep(n)
+						c.LeiKwan++
+					}
+				}
+				continue
+			}
 		case sublink.RefSourceNode:
 			if _, ok := d.sources[ref.SourceID]; ok {
 				found := false
@@ -391,15 +420,22 @@ func (d *subData) resolve(refs []sublink.Ref, max int) ([]sublink.Node, subCount
 // source redundant.
 func normalizeRefs(refs []sublink.Ref) []sublink.Ref {
 	follow := map[int64]bool{}
+	lkAll := false
 	for _, r := range refs {
 		if r.Kind == sublink.RefSourceAll {
 			follow[r.SourceID] = true
+		}
+		if r.Kind == sublink.RefLeiKwanAll {
+			lkAll = true
 		}
 	}
 	out := refs[:0]
 	for _, r := range refs {
 		if r.Kind == sublink.RefSourceNode && follow[r.SourceID] {
 			continue
+		}
+		if r.Kind == sublink.RefLeiKwanRule && lkAll {
+			continue // plan 272: 「全部利群规则」 already has it
 		}
 		out = append(out, r)
 	}
@@ -421,6 +457,8 @@ func subRefView(ref sublink.Ref) map[string]interface{} {
 		v["sourceId"], v["name"] = ref.SourceID, ref.Name
 	case sublink.RefSourceAll:
 		v["sourceId"] = ref.SourceID
+	case sublink.RefLeiKwanRule:
+		v["leikwanRuleId"] = ref.LeiKwanRuleID
 	}
 	return v
 }
@@ -498,7 +536,7 @@ func (h *Handler) subList(w http.ResponseWriter, r *http.Request) {
 		}
 		views = append(views, map[string]interface{}{"id": s.ID, "name": s.Name, "token": s.Token, "format": s.Format, "ruleMode": s.RuleMode,
 			"counts": counts, "items": len(refs), "lastPullAt": s.LastPullAt, "lastPullClient": s.LastPullClient, "lastPullNodes": s.LastPullNodes, "createdTime": s.CreatedTime,
-			"routing": len(sublink.ParseRouting(s.Routing))})
+			"routing": len(sublink.ParseRouting(s.Routing)), "auto": s.AutoKind})
 	}
 	srcViews := []interface{}{}
 	for _, s := range sources {
@@ -584,6 +622,20 @@ func (h *Handler) subPool(w http.ResponseWriter, r *http.Request) {
 		v["nodes"], v["followKey"] = nodes, sublink.Ref{Kind: sublink.RefSourceAll, SourceID: id}.Key()
 		sources = append(sources, v)
 	}
+	// Plan 272 「利群汇聚」: the user's 利群 rules (manual landings greyed).
+	lkItems := []interface{}{}
+	lkGranted := d.leikwan != nil && d.leikwan.granted
+	if lkGranted {
+		for _, x := range d.leikwan.rules {
+			ref := sublink.Ref{Kind: sublink.RefLeiKwanRule, LeiKwanRuleID: x.ID}
+			if n, ok := d.leikwan.nodes[x.ID]; ok {
+				lkItems = append(lkItems, item(ref, n, nodeDetail(n)))
+				continue
+			}
+			lkItems = append(lkItems, map[string]interface{}{"ref": subRefView(ref), "key": ref.Key(), "name": leiKwanSubNodeName(d.leikwan.lines[x.LineID], x),
+				"protocol": "", "detail": "", "disabled": true, "reason": d.leikwan.reasons[x.ID]})
+		}
+	}
 	// Selected items, in order, with the missing ones marked. rekey: a rule
 	// whose entry address changed is shown under its current key, so a
 	// 分流 exit naming the stored key is moved along.
@@ -617,6 +669,24 @@ func (h *Handler) subPool(w http.ResponseWriter, r *http.Request) {
 				v["missing"] = true
 			}
 			v["group"] = "external"
+		case sublink.RefLeiKwanRule:
+			v["group"] = "leikwan"
+			n, ok := sublink.Node{}, false
+			if d.leikwan != nil {
+				n, ok = d.leikwan.nodes[ref.LeiKwanRuleID]
+			}
+			if ok {
+				v["name"], v["protocol"] = n.Name, n.ProtocolLabel()
+			} else {
+				v["missing"] = true
+			}
+		case sublink.RefLeiKwanAll:
+			v["group"], v["name"] = "leikwan_all", "全部利群规则（自动跟随）"
+			if d.leikwan == nil || !d.leikwan.granted {
+				v["missing"] = true
+			} else {
+				v["count"] = len(d.leikwan.nodes)
+			}
 		case sublink.RefSourceAll, sublink.RefSourceNode:
 			s, ok := d.sources[ref.SourceID]
 			v["group"], v["sourceName"] = "source", s.Name
@@ -652,6 +722,7 @@ func (h *Handler) subPool(w http.ResponseWriter, r *http.Request) {
 	}
 	response.WriteJSON(w, response.OK(map[string]interface{}{
 		"rules": rules, "landing": landing, "external": externals, "sources": sources, "portForwards": d.panel.PortForwards,
+		"leikwan": lkItems, "leikwanFollowKey": sublink.Ref{Kind: sublink.RefLeiKwanAll}.Key(), "leikwanGranted": lkGranted,
 		"selected": selected, "maxNodes": model.MaxSubscriptionNodes,
 		"routing": routing, "routingCatalog": subRoutingCatalog(), "routingDefaults": sublink.DefaultRouteKeys,
 		"routingLimits": map[string]int{"entries": sublink.MaxRouteEntries, "lines": sublink.MaxRouteLines, "lineLen": sublink.MaxRouteLineLen, "nameLen": sublink.MaxRouteNameLen,

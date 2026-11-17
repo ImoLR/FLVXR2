@@ -30,8 +30,10 @@ import (
 	"go-backend/internal/http/middleware"
 	"go-backend/internal/http/response"
 	"go-backend/internal/leikwan"
+	"go-backend/internal/linechain"
 	"go-backend/internal/store/model"
 	"go-backend/internal/store/repo"
+	"go-backend/internal/sublink"
 )
 
 // One lock for every 利群 rule / grant write: quota checks (8 slots for the
@@ -52,6 +54,8 @@ func (h *Handler) registerLeiKwanLines(mux *http.ServeMux) {
 		"host/learn": h.leikwanHostLearn, "host/unlearn": h.leikwanHostUnlearn, "host/manage": h.leikwanHostManage,
 		"host/force": h.leikwanHostForce, "host/traffic": h.leikwanHostTraffic, "host/sync": h.leikwanHostSync,
 		"rule/prepare-landing": h.leikwanRulePrepareLanding,
+		// Plan 272 「所有利群入口都可用」.
+		"rule/all-entries": h.leikwanRuleAllEntries,
 	}
 	for path, fn := range admin {
 		path, fn := path, fn
@@ -80,6 +84,8 @@ func (h *Handler) registerLeiKwanLines(mux *http.ServeMux) {
 		"update": h.leikwanRuleUpdate, "delete": h.leikwanRuleDelete, "link": h.leikwanRuleLink,
 		// Plan 270: the cheap 「利群汇聚」 nav flag (one indexed read).
 		"access": h.leikwanRuleAccess,
+		// Plan 272: the automatic 利群汇聚 subscription and 诊断.
+		"sub": h.leikwanRuleSub, "diagnose": h.leikwanRuleDiagnose, "diagnose/stream": h.leikwanRuleDiagnoseStream,
 	} {
 		path, fn := path, fn
 		mux.HandleFunc("/api/v1/leikwan-rule/"+path, func(w http.ResponseWriter, r *http.Request) {
@@ -717,6 +723,16 @@ func (h *Handler) leiKwanGrantView(g model.LeiKwanGrant, entries []leiKwanEntryN
 	} else if n, err := h.repo.GetNodeRecord(g.MainEntryNodeID); err == nil && n != nil {
 		v["mainEntryName"], v["mainEntryHost"], v["mainEntryOutsideGroup"] = n.Name, n.ServerIP, true
 	}
+	v["grace"] = nil
+	if until := g.EntryChangedAt + lkEntryGrace.Milliseconds(); g.PrevEntryNodeID > 0 && until > time.Now().UnixMilli() {
+		name := ""
+		if e := leiKwanEntryByID(entries, g.PrevEntryNodeID); e != nil {
+			name = e.Name
+		} else if n, err := h.repo.GetNodeRecord(g.PrevEntryNodeID); err == nil && n != nil {
+			name = n.Name
+		}
+		v["grace"] = map[string]interface{}{"prevEntryNodeId": g.PrevEntryNodeID, "prevEntryName": name, "changedAt": g.EntryChangedAt, "until": until, "waitingSub": true}
+	}
 	return v
 }
 
@@ -745,7 +761,8 @@ func (h *Handler) leikwanGrantList(w http.ResponseWriter, r *http.Request) {
 		gv["backupFlow"] = leiKwanUserBackupFlow(refs, g.UserID) // plan 271 备线流量
 		out = append(out, gv)
 	}
-	response.WriteJSON(w, response.OK(map[string]interface{}{"grants": out, "entryNodes": entries, "entryGroupId": setting.EntryGroupID}))
+	response.WriteJSON(w, response.OK(map[string]interface{}{"grants": out, "entryNodes": entries, "entryGroupId": setting.EntryGroupID,
+		"entryLock": parseLeiKwanGlobal(setting.Global).EntryLock}))
 }
 
 func (h *Handler) leikwanGrantSave(w http.ResponseWriter, r *http.Request) {
@@ -791,6 +808,14 @@ func (h *Handler) leikwanGrantSave(w http.ResponseWriter, r *http.Request) {
 	}
 	prevEntry, prevBackup := g.MainEntryNodeID, g.BackupLine
 	g.MainEntryNodeID, g.BackupLine = req.MainEntryNodeID, map[bool]int{true: 1, false: 0}[req.BackupLine]
+	if old != nil && prevEntry != g.MainEntryNodeID {
+		// Plan 272: the old 主入口 stays open until the user refreshes a
+		// subscription (or 24 h); only the entry right before this change.
+		g.PrevEntryNodeID, g.EntryChangedAt = prevEntry, time.Now().UnixMilli()
+		if prevEntry == g.MainEntryNodeID || prevEntry <= 0 {
+			g.PrevEntryNodeID = 0
+		}
+	}
 	if req.Status != nil {
 		g.Status = map[bool]int{true: 1, false: 0}[*req.Status == 1]
 	}
@@ -808,6 +833,9 @@ func (h *Handler) leikwanGrantSave(w http.ResponseWriter, r *http.Request) {
 		warnings = append(warnings, h.leiKwanBackupsOn(rules)...)
 	} else if g.BackupLine == 0 && old != nil && prevBackup == 1 {
 		warnings = append(warnings, h.leiKwanBackupsOff(rules)...)
+	}
+	if moved > 0 || (old != nil && prevEntry != g.MainEntryNodeID) {
+		h.leiKwanSubsChanged(g.UserID) // plan 272: subs carry the new 主入口 at once
 	}
 	n, _ := h.repo.CountLeiKwanRules(g.UserID)
 	names := h.repo.LeiKwanUserNames([]int64{g.UserID})
@@ -994,10 +1022,13 @@ type leiKwanRuleCtx struct {
 	// Plan 271: every rule with a 备线 (all users), by 备线 forward id.
 	backupRefs map[int64][]repo.LeiKwanBackupRef
 	allRefs    []repo.LeiKwanBackupRef
+	// Plan 272: 外部节点 landings (name + protocol label).
+	externals map[int64]map[string]interface{}
 }
 
 func (h *Handler) leiKwanRuleContext(rules []model.LeiKwanRule, admin bool) *leiKwanRuleCtx {
-	c := &leiKwanRuleCtx{lines: map[int64]model.LeiKwanLine{}, grants: map[int64]model.LeiKwanGrant{}, landings: map[int64]map[string]interface{}{}, shared: map[int64][]int64{}}
+	c := &leiKwanRuleCtx{lines: map[int64]model.LeiKwanLine{}, grants: map[int64]model.LeiKwanGrant{}, landings: map[int64]map[string]interface{}{}, shared: map[int64][]int64{},
+		externals: map[int64]map[string]interface{}{}}
 	lines, _ := h.repo.ListLeiKwanLines()
 	for _, l := range lines {
 		c.lines[l.ID] = l
@@ -1017,6 +1048,18 @@ func (h *Handler) leiKwanRuleContext(rules []model.LeiKwanRule, admin bool) *lei
 			c.shared[x.BackupForwardID] = append(c.shared[x.BackupForwardID], x.ForwardID)
 		}
 		users = append(users, x.UserID)
+		if x.ExternalNodeID > 0 {
+			if _, ok := c.externals[x.ExternalNodeID]; !ok {
+				if rows, err := h.repo.ExternalNodesByIDs(x.UserID, []int64{x.ExternalNodeID}); err == nil && len(rows) > 0 {
+					e := rows[0]
+					label := e.Protocol
+					if up, err := linechain.FromJSON(e.Upstream); err == nil {
+						label = up.ProtocolLabel()
+					}
+					c.externals[x.ExternalNodeID] = map[string]interface{}{"name": e.Name, "protocol": label}
+				}
+			}
+		}
 		if x.LandingNodeID > 0 {
 			if _, ok := c.landings[x.LandingNodeID]; !ok {
 				if n, s, err := h.repo.LeiKwanLandingTarget(x.LandingNodeID); err == nil {
@@ -1095,6 +1138,13 @@ func (h *Handler) leiKwanRuleView(x model.LeiKwanRule, c *leiKwanRuleCtx, admin 
 		v["pendingLanding"] = p
 	}
 	landing := map[string]interface{}{"kind": "manual", "host": x.TargetHost, "port": x.TargetPort}
+	if x.ExternalNodeID > 0 {
+		landing = map[string]interface{}{"kind": "external", "externalNodeId": x.ExternalNodeID, "host": x.TargetHost, "port": x.TargetPort}
+		for k, val := range c.externals[x.ExternalNodeID] {
+			landing[k] = val
+		}
+	}
+	v["linkKind"] = leiKwanLinkKind(x)
 	if x.LandingNodeID > 0 {
 		landing = map[string]interface{}{"kind": "node", "landingNodeId": x.LandingNodeID, "host": x.TargetHost, "port": x.TargetPort}
 		for k, val := range c.landings[x.LandingNodeID] {
@@ -1111,6 +1161,7 @@ func (h *Handler) leiKwanRuleView(x model.LeiKwanRule, c *leiKwanRuleCtx, admin 
 		return v
 	}
 	v["userId"], v["userName"], v["forwardId"], v["source"] = x.UserID, c.users[x.UserID], x.ForwardID, x.Source
+	v["allEntries"] = x.AllEntries == 1
 	accel := parseLeiKwanAccel(line.Accel)
 	over := parseLeiKwanRuleAccel(x.Accel)
 	eff := map[string]interface{}{"warmMain": accel.Warm.Main, "warmBackup": accel.Warm.Backup, "ssFilter": accel.SSFilter, "logswitch": accel.Logswitch, "returnCheck": accel.ReturnCheck}
@@ -1182,7 +1233,10 @@ func (h *Handler) leikwanRuleList(w http.ResponseWriter, r *http.Request) {
 	for _, x := range rules {
 		out = append(out, h.leiKwanRuleView(x, c, admin))
 	}
-	result := map[string]interface{}{"rules": out, "admin": admin, "granted": true}
+	result := map[string]interface{}{"rules": out, "admin": admin, "granted": true, "subEnabled": h.subLinkEnabled()}
+	if setting, _ := h.repo.GetLeiKwanSetting(); setting != nil {
+		result["entryLock"] = parseLeiKwanGlobal(setting.Global).EntryLock
+	}
 	if g, ok := c.grants[uid]; ok {
 		gv := h.leiKwanGrantView(g, c.entries, int64(len(leiKwanOwnRules(rules, uid))), "")
 		gv["backupFlow"] = leiKwanUserBackupFlow(c.allRefs, uid) // plan 271
@@ -1298,6 +1352,19 @@ func (h *Handler) leikwanRuleOptions(w http.ResponseWriter, r *http.Request) {
 		landings = append(landings, map[string]interface{}{"id": n.ID, "name": n.Name, "protocol": n.Protocol, "serverName": s.Name, "host": s.PublicHost, "port": n.Port})
 	}
 	out["landings"] = landings
+	// Plan 272: the owner's 外部节点 can be a 利群 landing (full link / sub node).
+	externals := []map[string]interface{}{}
+	if rows, err := h.repo.ExternalNodesByIDs(owner, nil); err == nil {
+		for _, e := range rows {
+			up, ok, reason := leiKwanExternalSupported(e)
+			v := map[string]interface{}{"id": e.ID, "name": e.Name, "protocol": up.ProtocolLabel(), "host": e.Host, "port": e.Port, "supported": ok}
+			if !ok {
+				v["reason"] = reason
+			}
+			externals = append(externals, v)
+		}
+	}
+	out["externals"] = externals
 	q, _ := h.leiKwanQuota(r.Context(), account)
 	out["quota"] = q
 	response.WriteJSON(w, response.OK(out))
@@ -1309,9 +1376,29 @@ type leiKwanRuleTargetReq struct {
 	LandingNodeID int64  `json:"landingNodeId"`
 	TargetHost    string `json:"targetHost"`
 	TargetPort    int    `json:"targetPort"`
+	// Plan 272: one of the owner's 外部节点 (target = its server:port).
+	ExternalNodeID int64 `json:"externalNodeId"`
+}
+
+// leiKwanResolveExternal: the owner's 外部节点 as a 利群 target.
+func (h *Handler) leiKwanResolveExternal(id, owner int64) (string, int, error) {
+	rows, err := h.repo.ExternalNodesByIDs(owner, []int64{id})
+	if err != nil || len(rows) == 0 {
+		return "", 0, errors.New("外部节点不存在（只能选规则主人自己的外部节点）")
+	}
+	up, ok, reason := leiKwanExternalSupported(rows[0])
+	if !ok {
+		return "", 0, errors.New("这个外部节点不能用作利群落地：" + reason)
+	}
+	host := strings.Trim(strings.TrimSpace(up.Server), "[]")
+	if leiKwanBadHost(host) || up.Port < 1 || up.Port > 65535 {
+		return "", 0, errors.New("外部节点的地址不能用作利群落地（需要公网地址或域名）")
+	}
+	return host, up.Port, nil
 }
 
 // leiKwanResolveTarget: the user's own panel landing node, or (admin) manual.
+// The 外部节点 case is resolved by the callers (leiKwanResolveExternal).
 func (h *Handler) leiKwanResolveTarget(req leiKwanRuleTargetReq, owner int64, admin bool) (int64, string, int, error) {
 	if req.LandingNodeID > 0 {
 		n, s, err := h.repo.LeiKwanLandingTarget(req.LandingNodeID)
@@ -1386,7 +1473,14 @@ func (h *Handler) leikwanRuleCreate(w http.ResponseWriter, r *http.Request) {
 		leiKwanError(w, err)
 		return
 	}
-	landingID, host, port, err := h.leiKwanResolveTarget(req.leiKwanRuleTargetReq, owner, admin)
+	var landingID int64
+	var host string
+	var port int
+	if req.ExternalNodeID > 0 {
+		host, port, err = h.leiKwanResolveExternal(req.ExternalNodeID, owner)
+	} else {
+		landingID, host, port, err = h.leiKwanResolveTarget(req.leiKwanRuleTargetReq, owner, admin)
+	}
 	if err != nil {
 		leiKwanError(w, err)
 		return
@@ -1448,7 +1542,7 @@ func (h *Handler) leikwanRuleCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	x := &model.LeiKwanRule{UserID: owner, LineID: line.ID, AccountID: a.ID, ForwardID: f.ID, Name: req.Name, ListenPort: f.ListenPort, Transport: f.Transport,
-		LandingNodeID: landingID, TargetHost: host, TargetPort: port, ETag: tag, Source: "panel", Status: 1}
+		LandingNodeID: landingID, TargetHost: host, TargetPort: port, ETag: tag, Source: "panel", Status: 1, ExternalNodeID: req.ExternalNodeID}
 	if err := h.saveLeiKwanRule(x); err != nil {
 		leiKwanError(w, errors.New("利群侧已建好，请重试原请求完成登记"))
 		return
@@ -1462,6 +1556,7 @@ func (h *Handler) leikwanRuleCreate(w http.ResponseWriter, r *http.Request) {
 		}
 		_ = h.saveLeiKwanRule(x)
 	}
+	h.leiKwanSubsChanged(owner) // plan 272: subscriptions show the new rule at once
 	c := h.leiKwanRuleContext([]model.LeiKwanRule{*x}, admin)
 	response.WriteJSON(w, response.OK(map[string]interface{}{"rule": h.leiKwanRuleView(*x, c, admin), "warnings": warnings}))
 }
@@ -1533,7 +1628,15 @@ func (h *Handler) leikwanRuleUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 	warnings := []string{}
 	if req.ChangeTarget {
-		landingID, host, port, err := h.leiKwanResolveTarget(req.leiKwanRuleTargetReq, x.UserID, admin)
+		var landingID int64
+		var host string
+		var port int
+		var err error
+		if req.ExternalNodeID > 0 {
+			host, port, err = h.leiKwanResolveExternal(req.ExternalNodeID, x.UserID)
+		} else {
+			landingID, host, port, err = h.leiKwanResolveTarget(req.leiKwanRuleTargetReq, x.UserID, admin)
+		}
 		if err != nil {
 			leiKwanError(w, err)
 			return
@@ -1579,7 +1682,7 @@ func (h *Handler) leikwanRuleUpdate(w http.ResponseWriter, r *http.Request) {
 				warnings = append(warnings, "备线目标未改好："+err.Error())
 			}
 		}
-		x.LandingNodeID = landingID
+		x.LandingNodeID, x.ExternalNodeID = landingID, req.ExternalNodeID
 		if x.PendingLandingNodeID > 0 && x.PendingLandingNodeID == landingID {
 			x.PendingLandingNodeID = 0 // 待切换 done
 		}
@@ -1592,6 +1695,7 @@ func (h *Handler) leikwanRuleUpdate(w http.ResponseWriter, r *http.Request) {
 		// The first-packet filter key follows at once (not after the 2 s debounce).
 		h.leiKwanHostPushAllAsync()
 	}
+	h.leiKwanSubsChanged(x.UserID)
 	c := h.leiKwanRuleContext([]model.LeiKwanRule{*x}, admin)
 	response.WriteJSON(w, response.OK(map[string]interface{}{"rule": h.leiKwanRuleView(*x, c, admin), "warnings": warnings}))
 }
@@ -1654,6 +1758,7 @@ func (h *Handler) leikwanRuleDelete(w http.ResponseWriter, r *http.Request) {
 		leiKwanError(w, errors.New("删除利群规则记录失败"))
 		return
 	}
+	h.leiKwanSubsChanged(x.UserID)
 	response.WriteJSON(w, response.OK(map[string]interface{}{"backupNote": backupNote}))
 }
 
@@ -1687,6 +1792,12 @@ func (h *Handler) leikwanRuleLink(w http.ResponseWriter, r *http.Request) {
 			cp := *ln
 			cp.Name = x.Name
 			out["url"] = repo.LandingURL(cp, n.ServerIP, x.ListenPort)
+		}
+	} else if x.ExternalNodeID > 0 {
+		if node, err := h.leiKwanRuleNode(*x, strings.Trim(n.ServerIP, "[]"), x.Name); err == nil {
+			out["url"] = sublink.ShareURI(node)
+		} else {
+			out["note"] = err.Error()
 		}
 	} else {
 		out["note"] = "手动落地没有节点链接，只有入口地址"

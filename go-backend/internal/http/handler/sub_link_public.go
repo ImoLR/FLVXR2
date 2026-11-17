@@ -404,6 +404,7 @@ func (h *Handler) subPublic(w http.ResponseWriter, r *http.Request) {
 	hd.Set("Content-Length", strconv.Itoa(len(body)))
 	_, _ = w.Write(body)
 	h.subMarkPulled(s.ID, client.Label, v.nodes, now)
+	h.leiKwanSubPulled(s.UserID, now) // plan 272: ends a 换主入口 grace
 }
 
 // subMarkPulled writes the card's 「最近拉取」 at most once a minute per

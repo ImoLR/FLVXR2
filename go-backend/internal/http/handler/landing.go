@@ -953,7 +953,20 @@ func (h *Handler) landingNodeLinks(w http.ResponseWriter, r *http.Request) {
 		landingError(w, err)
 		return
 	}
-	response.WriteJSON(w, response.OK(links))
+	// Plan 272: the owner's 利群 rules landing here (normal node links).
+	extra := h.leiKwanLandingLinks(*n)
+	if len(extra) == 0 {
+		response.WriteJSON(w, response.OK(links))
+		return
+	}
+	out := make([]interface{}, 0, len(links)+len(extra))
+	for _, l := range links {
+		out = append(out, l)
+	}
+	for _, l := range extra {
+		out = append(out, l)
+	}
+	response.WriteJSON(w, response.OK(out))
 }
 func (h *Handler) landingUserGet(w http.ResponseWriter, r *http.Request) {
 	if !h.ensureAdminAccess(w, r) {

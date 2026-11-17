@@ -371,13 +371,19 @@ type lkGen struct {
 	// rule runs only on its owner's 主入口 (the cheap filter / logswitch run on
 	// every entry host); learned host values pin what the hosts run today.
 	mainEntry map[int64]int64
+	// Plan 272 「只开主入口」: user → the old 主入口 still open in its grace.
+	graceEntry map[int64]int64
 }
 
 func (h *Handler) newLKGen() (*lkGen, error) {
-	g := &lkGen{lines: map[int64]model.LeiKwanLine{}, backups: map[int64]string{}, byAddr: map[string]int64{}, keys: map[int64]*lkKeyEntry{}, protoOK: map[int64]bool{}, blocked: map[int64]bool{}, mainEntry: map[int64]int64{}}
+	g := &lkGen{lines: map[int64]model.LeiKwanLine{}, backups: map[int64]string{}, byAddr: map[string]int64{}, keys: map[int64]*lkKeyEntry{}, protoOK: map[int64]bool{}, blocked: map[int64]bool{}, mainEntry: map[int64]int64{}, graceEntry: map[int64]int64{}}
 	if grants, err := h.repo.ListLeiKwanGrants(); err == nil {
+		cutoff := time.Now().Add(-lkEntryGrace).UnixMilli()
 		for _, gr := range grants {
 			g.mainEntry[gr.UserID] = gr.MainEntryNodeID
+			if gr.PrevEntryNodeID > 0 && gr.EntryChangedAt >= cutoff {
+				g.graceEntry[gr.UserID] = gr.PrevEntryNodeID
+			}
 		}
 	}
 	lines, err := h.repo.ListLeiKwanLines()
@@ -475,6 +481,10 @@ func (g *lkGen) generic(x model.LeiKwanRule, nodeID int64) lkRuleEff {
 			// VLESS / AnyTLS / … clients would look like junk to the SS2022 filter.
 			e.SSFilter = "off"
 		}
+	}
+	if x.ExternalNodeID > 0 {
+		// Plan 272: a 外部节点 landing (keys not on the panel's filter list).
+		e.SSFilter = "off"
 	}
 	return e
 }
@@ -990,13 +1000,50 @@ func (h *Handler) leiKwanHostSyncPayload(host *model.LeiKwanHost, g *lkGen) (lkS
 	if s.Manage {
 		s.Desired = d
 	}
+	s.Block = g.blockFor(host.NodeID)
+	return s, d, nil
+}
+
+// blockFor: the 利群 ports this entry host drops (quota / expiry blocks on
+// every host; plan 272 「只开主入口」 per host).
+func (g *lkGen) blockFor(nodeID int64) []int {
+	out := []int{}
 	for _, x := range g.rules {
-		if g.blocked[x.ID] && x.ListenPort > 0 {
-			s.Block = append(s.Block, x.ListenPort)
+		if (g.blocked[x.ID] || g.entryLocked(x, nodeID)) && x.ListenPort > 0 {
+			out = append(out, x.ListenPort)
 		}
 	}
-	sort.Ints(s.Block)
-	return s, d, nil
+	sort.Ints(out)
+	return out
+}
+
+// LeiKwanHostBlockPorts: what LeiKwanHostSync would block on this host now
+// (tests, diagnostics; no push, no rev change).
+func (h *Handler) LeiKwanHostBlockPorts(nodeID int64) ([]int, error) {
+	g, err := h.newLKGen()
+	if err != nil {
+		return nil, err
+	}
+	return g.blockFor(nodeID), nil
+}
+
+// lkEntryGrace: how long the old 主入口 stays open after a change when the
+// owner does not refresh a subscription earlier (plan 272).
+const lkEntryGrace = 24 * time.Hour
+
+// entryLocked (plan 272 「只开主入口」): the rule's port is closed on this
+// 利群入口 host because it is not the owner's 主入口. Open: lock off, rule
+// exempt (「所有利群入口都可用」), owner without a 主入口, the 主入口 itself,
+// or the previous 主入口 during its grace.
+func (g *lkGen) entryLocked(x model.LeiKwanRule, nodeID int64) bool {
+	if !g.global.EntryLock || x.AllEntries == 1 {
+		return false
+	}
+	main := g.mainEntry[x.UserID]
+	if main <= 0 || main == nodeID {
+		return false
+	}
+	return g.graceEntry[x.UserID] != nodeID
 }
 
 // leiKwanHostPush sends one host its LeiKwanHostSync and ingests the answer.
@@ -1212,6 +1259,10 @@ func (h *Handler) runLeiKwanHostLoop(ctx context.Context) {
 			time.Sleep(2 * time.Second) // let a burst of edits settle
 		}
 		h.leiKwanReconcileBlocks()
+		// Plan 272: graces older than 24 h end here (a sub pull ends them sooner).
+		if n, err := h.repo.ExpireLeiKwanGrantGrace(time.Now().Add(-lkEntryGrace).UnixMilli()); err == nil && n > 0 {
+			log.Printf("利群：%d 个用户的旧主入口宽限已满 24 小时，旧入口停用", n)
+		}
 		for _, id := range h.leiKwanEntryNodeIDs() {
 			if h.wsServer != nil && h.wsServer.NodeOnline(id) {
 				if err := h.leiKwanHostPush(id); err != nil {

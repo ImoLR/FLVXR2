@@ -480,3 +480,18 @@ func landingPortsOnNode(tx *gorm.DB, nodeID int64) ([]int, error) {
 	shared, err := sharedLandingPortsOnNodeHost(tx, nodeID)
 	return append(ports, shared...), err
 }
+
+// LandingClientConfigAt: the plan-121 client configs (Clash / Surge) of a
+// landing node reached at host:port, as on the landing page (plan 272: 利群
+// rules at the 主入口); empty for protocols with a plain share link.
+func LandingClientConfigAt(n model.LandingNode, s *model.LandingServer, host string, port int) (clash, surge, surgeNote string) {
+	if s == nil || !landingcustom.IsCapProtocol(n.Protocol) {
+		return "", "", ""
+	}
+	udp := true
+	if landingcustom.IsExtraProtocol(n.Protocol) || (isVLESSEnc(n.Protocol) && s.Source == "shared") {
+		cp, _ := SharedProtocolCap(s, n.Protocol)
+		udp = cp.UDP
+	}
+	return LandingClientConfigs(n, host, port, udp)
+}

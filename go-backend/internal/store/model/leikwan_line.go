@@ -47,6 +47,11 @@ type LeiKwanGrant struct {
 	Status      int   `gorm:"not null;default:1" json:"status"`
 	CreatedTime int64 `gorm:"not null;default:0" json:"createdTime"`
 	UpdatedTime int64 `gorm:"not null;default:0" json:"updatedTime"`
+	// Plan 272 换主入口宽限: the 主入口 before the last change stays open (when
+	// the global 「只开主入口」 is on) until the user pulled a subscription
+	// after EntryChangedAt, or 24 h; 0 = no grace running.
+	PrevEntryNodeID int64 `gorm:"not null;default:0" json:"prevEntryNodeId"`
+	EntryChangedAt  int64 `gorm:"not null;default:0" json:"entryChangedAt"`
 }
 
 func (LeiKwanGrant) TableName() string { return "leikwan_grant" }
@@ -92,6 +97,13 @@ type LeiKwanRule struct {
 	// the counters.
 	BackupInFlow  int64 `gorm:"not null;default:0" json:"backupInFlow"`
 	BackupOutFlow int64 `gorm:"not null;default:0" json:"backupOutFlow"`
+	// Plan 272: ExternalNodeID > 0 = the target is the owner's 外部节点
+	// (landing_external_node.id, TargetHost/Port = its server:port);
+	// AllEntries 1 = 「所有利群入口都可用」 (admin only; not blocked on the
+	// owner's other 利群入口 when 「只开主入口」 is on). Written by
+	// UpdateColumn only (SaveLeiKwanRule omits it).
+	ExternalNodeID int64 `gorm:"not null;default:0" json:"externalNodeId"`
+	AllEntries     int   `gorm:"not null;default:0" json:"allEntries"`
 }
 
 func (LeiKwanRule) TableName() string { return "leikwan_rule" }
@@ -162,4 +174,8 @@ type LeiKwanGlobalAccel struct {
 	// Plan 269: restarts / nft changes on the entry hosts only in the night
 	// window (default off).
 	NightOnly bool `json:"nightOnly,omitempty"`
+	// Plan 272 「只开主入口」: a rule's port is blocked on the 利群入口 hosts
+	// that are not its owner's 主入口 (old entry: grace until a sub pull / 24 h;
+	// rules with AllEntries stay open everywhere). Off by default.
+	EntryLock bool `json:"entryLock,omitempty"`
 }

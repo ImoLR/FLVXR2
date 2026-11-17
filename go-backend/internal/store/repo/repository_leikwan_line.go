@@ -190,7 +190,8 @@ func (r *Repository) SaveLeiKwanRule(x *model.LeiKwanRule) error {
 		x.CreatedTime = now
 		return r.db.Create(x).Error
 	}
-	res := r.db.Model(x).Select("*").Omit(append([]string{"id"}, leiKwanRuleCounters...)...).Updates(x)
+	// all_entries (plan 272) has its own admin switch (SetLeiKwanRuleAllEntries).
+	res := r.db.Model(x).Select("*").Omit(append([]string{"id", "all_entries"}, leiKwanRuleCounters...)...).Updates(x)
 	if res.Error == nil && res.RowsAffected == 0 {
 		return r.db.Create(x).Error // like Save: a preset id that is not there yet
 	}
@@ -532,4 +533,31 @@ func (r *Repository) ListLeiKwanDetectedNodeIDs() ([]int64, error) {
 	var ids []int64
 	err := r.db.Model(&model.Node{}).Where("leikwan_status = ?", "running").Order("id").Pluck("id", &ids).Error
 	return ids, err
+}
+
+// SetLeiKwanRuleAllEntries switches 「所有利群入口都可用」 (plan 272).
+func (r *Repository) SetLeiKwanRuleAllEntries(id int64, on bool) error {
+	v := 0
+	if on {
+		v = 1
+	}
+	res := r.db.Model(&model.LeiKwanRule{}).Where("id = ?", id).UpdateColumn("all_entries", v)
+	if res.Error == nil && res.RowsAffected == 0 {
+		return errors.New("利群规则不存在")
+	}
+	return res.Error
+}
+
+// EndLeiKwanGrantGrace ends the 换主入口 grace of a user whose subscription
+// was pulled at pulledAt (after the change); true when one ended (plan 272).
+func (r *Repository) EndLeiKwanGrantGrace(userID, pulledAt int64) (bool, error) {
+	res := r.db.Model(&model.LeiKwanGrant{}).Where("user_id = ? AND prev_entry_node_id > 0 AND entry_changed_at < ?", userID, pulledAt).
+		UpdateColumn("prev_entry_node_id", 0)
+	return res.RowsAffected > 0, res.Error
+}
+
+// ExpireLeiKwanGrantGrace ends every grace that started before cutoff.
+func (r *Repository) ExpireLeiKwanGrantGrace(cutoff int64) (int64, error) {
+	res := r.db.Model(&model.LeiKwanGrant{}).Where("prev_entry_node_id > 0 AND entry_changed_at < ?", cutoff).UpdateColumn("prev_entry_node_id", 0)
+	return res.RowsAffected, res.Error
 }
