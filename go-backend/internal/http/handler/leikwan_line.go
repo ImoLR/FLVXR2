@@ -16,6 +16,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"net/http"
 	"net/netip"
@@ -941,7 +942,51 @@ func (h *Handler) leiKwanRetargetBackup(x *model.LeiKwanRule) error {
 	if code != 0 {
 		return errors.New(msg)
 	}
+	x.BackupError = "" // plan 276 (F02): the 备线 follows the landing again
 	return nil
+}
+
+// lkBackupStale starts the 备线 error of a rule whose 备线 could not follow a
+// 换落地 (plan 276, F02): it still points at the old landing.
+const lkBackupStale = "备线还指向旧落地"
+
+func lkBackupStaleError(err error) string {
+	return lkBackupStale + "：" + err.Error()
+}
+
+// leiKwanRepointBackup (plan 276, F02 「重试备线」 on an existing 备线): point it
+// at the rule's current target. An automatic 备线 that cannot be changed is
+// deleted and created again; a linked one is only changed when no other rule
+// shares it. Success clears the error.
+func (h *Handler) leiKwanRepointBackup(x *model.LeiKwanRule) error {
+	if x.BackupMode == "linked" {
+		if n, _ := h.repo.CountLeiKwanRulesByBackup(x.BackupForwardID); n > 1 {
+			views, err := h.repo.LeiKwanBackupForwards([]int64{x.BackupForwardID})
+			if err != nil {
+				return err
+			}
+			if b, ok := views[x.BackupForwardID]; ok && b.RemoteAddr == leiKwanTargetAddr(*x) {
+				x.BackupError = ""
+				return nil
+			}
+			return errors.New("这条备线和其他利群规则共用、目标不同，请在授权里关掉再打开备线")
+		}
+		if err := h.leiKwanRetargetForward(x.BackupForwardID, leiKwanTargetAddr(*x)); err != nil {
+			return err
+		}
+		x.BackupError = ""
+		return nil
+	}
+	err := h.leiKwanRetargetBackup(x)
+	if err == nil {
+		x.BackupError = ""
+		return nil
+	}
+	log.Printf("利群规则 %s：备线改目标失败（%v），删掉重建", x.Name, err)
+	if err := h.leiKwanDropBackup(x); err != nil {
+		return err
+	}
+	return h.leiKwanCreateBackup(x)
 }
 
 func (h *Handler) leiKwanBackupsOn(rules []model.LeiKwanRule) []string {
@@ -996,6 +1041,21 @@ func (h *Handler) leikwanRuleBackupRetry(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	if x.BackupForwardID > 0 {
+		before := x.BackupForwardID
+		if err := h.leiKwanRepointBackup(x); err != nil {
+			if x.BackupForwardID > 0 {
+				x.BackupError = lkBackupStaleError(err)
+			} else {
+				x.BackupError = err.Error()
+			}
+			_ = h.saveLeiKwanRule(x)
+			leiKwanError(w, errors.New("备线未改好："+err.Error()))
+			return
+		}
+		_ = h.saveLeiKwanRule(x)
+		if x.BackupForwardID != before {
+			h.leiKwanHostPushAllAsync() // 日志快切 lines name the new 备线 entry
+		}
 		response.WriteJSON(w, response.OK(map[string]interface{}{"backupForwardId": x.BackupForwardID}))
 		return
 	}
@@ -1113,7 +1173,12 @@ func (h *Handler) leiKwanRuleView(x model.LeiKwanRule, c *leiKwanRuleCtx, admin 
 	// Plan 270: users never see the internal 备线 error (it can name forwards).
 	if !admin && x.BackupError != "" {
 		v["backupError"] = "备线还没建好，管理员处理中"
+		if x.BackupForwardID > 0 && strings.HasPrefix(x.BackupError, lkBackupStale) {
+			v["backupError"] = "备线还指向旧落地，管理员处理中"
+		}
 	}
+	// Plan 276 (F02): the 备线 exists but could not follow the last 换落地.
+	v["backupStale"] = x.BackupForwardID > 0 && strings.HasPrefix(x.BackupError, lkBackupStale)
 	// Plan 271: 备线流量 (billed, since the owner's reset). A 备线 shared with
 	// other rules shows its full bytes on each (no split): backupSharedCount
 	// = the other rules, backupSharedWith = their names (users: own rules only).
@@ -1460,8 +1525,15 @@ func (h *Handler) leikwanRuleCreate(w http.ResponseWriter, r *http.Request) {
 		owner = req.UserID
 	}
 	req.Name = strings.TrimSpace(req.Name)
-	if req.Name == "" || len(req.Name) > 100 || !leiKwanRuleKeyPattern.MatchString(req.RequestID) {
+	switch {
+	case req.Name == "":
 		leiKwanError(w, errors.New("请填写规则名称"))
+		return
+	case len(req.Name) > 100:
+		leiKwanError(w, errors.New("规则名称太长（最多 100 字节，约 33 个汉字）"))
+		return
+	case !leiKwanRuleKeyPattern.MatchString(req.RequestID):
+		leiKwanError(w, errors.New("请求标识无效，请关闭弹窗后重试"))
 		return
 	}
 	leiKwanRuleMu.Lock()
@@ -1627,7 +1699,7 @@ func (h *Handler) leikwanRuleUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 	if name := strings.TrimSpace(req.Name); name != "" {
 		if len(name) > 100 {
-			leiKwanError(w, errors.New("规则名称太长"))
+			leiKwanError(w, errors.New("规则名称太长（最多 100 字节，约 33 个汉字）"))
 			return
 		}
 		x.Name = name
@@ -1681,8 +1753,10 @@ func (h *Handler) leikwanRuleUpdate(w http.ResponseWriter, r *http.Request) {
 					// Plan 269: a linked backup used only by this rule moves with it
 					// (same entry port: hosts' 日志快切 and phone backup ports keep working).
 					if err := h.leiKwanRetargetForward(x.BackupForwardID, leiKwanTargetAddr(*x)); err != nil {
-						x.BackupError = err.Error()
+						x.BackupError = lkBackupStaleError(err)
 						warnings = append(warnings, "备线目标未改好："+err.Error())
+					} else {
+						x.BackupError = "" // plan 276 (F02)
 					}
 				} else {
 					// Shared by other rules (e.g. 280/282): keep it for them; the
@@ -1696,7 +1770,7 @@ func (h *Handler) leikwanRuleUpdate(w http.ResponseWriter, r *http.Request) {
 					}
 				}
 			} else if err := h.leiKwanRetargetBackup(x); err != nil {
-				x.BackupError = err.Error()
+				x.BackupError = lkBackupStaleError(err)
 				warnings = append(warnings, "备线目标未改好："+err.Error())
 			}
 		}
@@ -1744,20 +1818,9 @@ func (h *Handler) leikwanRuleDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !req.KeepLeiKwan {
-		a, _, tag, err := h.leiKwanFreshForward(r.Context(), x)
-		var apiErr *leikwan.APIError
-		switch {
-		case errors.As(err, &apiErr) && apiErr.Status == 404:
-			// Already gone on the LeiKwan side.
-		case err != nil:
+		if err := h.leiKwanDeleteForward(r.Context(), x); err != nil {
 			leiKwanError(w, err)
 			return
-		default:
-			if err := h.leikwan.DeleteForward(r.Context(), a.Token, x.ForwardID, tag); err != nil {
-				leiKwanError(w, err)
-				return
-			}
-			h.leikwan.Invalidate(a.Token, a.ServiceID)
 		}
 	}
 	backupNote := ""
@@ -1780,6 +1843,23 @@ func (h *Handler) leikwanRuleDelete(w http.ResponseWriter, r *http.Request) {
 	response.WriteJSON(w, response.OK(map[string]interface{}{"backupNote": backupNote}))
 }
 
+// leiKwanDeleteForward deletes the rule's LeiKwan forward (already gone = ok).
+func (h *Handler) leiKwanDeleteForward(ctx context.Context, x *model.LeiKwanRule) error {
+	a, _, tag, err := h.leiKwanFreshForward(ctx, x)
+	var apiErr *leikwan.APIError
+	switch {
+	case errors.As(err, &apiErr) && apiErr.Status == 404:
+		return nil // already gone on the LeiKwan side
+	case err != nil:
+		return err
+	}
+	if err := h.leikwan.DeleteForward(ctx, a.Token, x.ForwardID, tag); err != nil {
+		return err
+	}
+	h.leikwan.Invalidate(a.Token, a.ServiceID)
+	return nil
+}
+
 func (h *Handler) leikwanRuleLink(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		ID int64 `json:"id"`
@@ -1796,6 +1876,10 @@ func (h *Handler) leikwanRuleLink(w http.ResponseWriter, r *http.Request) {
 	g, _ := h.repo.GetLeiKwanGrant(x.UserID)
 	if g == nil {
 		leiKwanError(w, errors.New("没有利群汇聚授权，入口未定"))
+		return
+	}
+	if g.Status != 1 {
+		leiKwanError(w, errors.New("利群汇聚授权已停用，没有链接")) // plan 276 (F12)
 		return
 	}
 	n, err := h.repo.GetNodeRecord(g.MainEntryNodeID)

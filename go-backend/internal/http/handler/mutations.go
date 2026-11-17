@@ -359,6 +359,7 @@ func (h *Handler) userUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.reconcileLandingPolicy(time.Now())
+	h.leiKwanBlocksChanged() // plan 276: 利群 blocks follow status / 到期 / 流量 at once
 	quotaLimitsChanged := oldUser == nil || oldUser.MaxConnections != maxConnections || oldUser.MaxClientIps != maxClientIps
 	warnings := make([]string, 0)
 	if _, changed := req["groupIds"]; changed {
@@ -569,6 +570,7 @@ func (h *Handler) userResetFlow(w http.ResponseWriter, r *http.Request) {
 		h.repo.ResetUserFlowByUserTunnel(id)
 	}
 	h.reconcileLandingPolicy(time.Now())
+	h.leiKwanBlocksChanged() // plan 276
 	response.WriteJSON(w, response.OKEmpty())
 }
 
@@ -638,6 +640,7 @@ func (h *Handler) userBatchResetFlow(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.reconcileLandingPolicy(time.Now())
+	h.leiKwanBlocksChanged() // plan 276
 	response.WriteJSON(w, response.OK(map[string]int{
 		"successCount": successCount,
 		"failCount":    failCount,

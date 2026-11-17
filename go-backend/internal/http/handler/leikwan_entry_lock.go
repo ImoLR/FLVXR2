@@ -65,9 +65,10 @@ func (t *lkThrottle) allow(key string, now time.Time, gap time.Duration) bool {
 	return true
 }
 
-// leiKwanSubPulled runs after a subscription body went out: a running
-// 换主入口 grace of the owner ends (the client now has the new address). At
-// most one conditional UPDATE per user per minute.
+// leiKwanSubPulled runs after a subscription body with at least one of the
+// owner's 利群 nodes went out (plan 276: a sub without 利群 nodes does not
+// count): a running 换主入口 grace of the owner ends (the client now has the
+// new address). At most one conditional UPDATE per user per minute.
 func (h *Handler) leiKwanSubPulled(userID int64, now time.Time) {
 	if h == nil || h.repo == nil || userID <= 0 {
 		return

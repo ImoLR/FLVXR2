@@ -71,13 +71,18 @@ func leiKwanDecode(r *http.Request, v interface{}) error {
 func leiKwanError(w http.ResponseWriter, err error) {
 	code := -1
 	var apiErr *leikwan.APIError
+	msg := err.Error()
 	if errors.As(err, &apiErr) {
 		code = apiErr.Status
 		if apiErr.Status == 429 {
 			w.Header().Set("Retry-After", fmt.Sprint(int(apiErr.RetryAfter.Seconds())+1))
 		}
+		// Plan 276 (F11): the vendor's quota refusal in plain words.
+		if apiErr.Status == 409 && apiErr.Code == "forward_quota_exceeded" {
+			msg = "利群名额已满，请联系管理员"
+		}
 	}
-	response.WriteJSON(w, response.Err(code, err.Error()))
+	response.WriteJSON(w, response.Err(code, msg))
 }
 func leiKwanAccountView(a model.LeiKwanAccount) map[string]interface{} {
 	return map[string]interface{}{"id": a.ID, "name": a.Name, "serviceId": a.ServiceID, "tokenConfigured": a.Token != "", "updatedTime": a.UpdatedTime}

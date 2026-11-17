@@ -288,6 +288,7 @@ func (h *Handler) runResetAndExpiryJob(now time.Time) {
 	h.disableExpiredForwards(now.UnixMilli())
 	h.resetNodeMonthlyTraffic(now)
 	h.reconcileLandingPolicy(now)
+	h.leiKwanReconcileBlocks() // plan 276: resets / expiry / renewals of this run
 	h.verifyBalances(now)
 	// Plan 212: day rows older than the retention window.
 	if n, err := h.repo.PurgeTrafficDaily(now); err != nil {

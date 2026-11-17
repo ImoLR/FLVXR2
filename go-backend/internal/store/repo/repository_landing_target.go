@@ -83,6 +83,14 @@ func (r *Repository) LandingNodeListData(nodes []model.LandingNode) (*LandingNod
 	for _, row := range counts {
 		out.ForwardCounts[row.LandingNodeID] = row.Count
 	}
+	// Plan 276 (F05): 利群 rules landing on the node count as rules too.
+	counts = counts[:0]
+	if err := r.db.Model(&model.LeiKwanRule{}).Select("landing_node_id, COUNT(*) AS count").Where("landing_node_id IN ?", ids).Group("landing_node_id").Scan(&counts).Error; err != nil {
+		return nil, err
+	}
+	for _, row := range counts {
+		out.ForwardCounts[row.LandingNodeID] += row.Count
+	}
 	if shared {
 		cfg, err := r.GetLandingIntegration()
 		if err != nil {

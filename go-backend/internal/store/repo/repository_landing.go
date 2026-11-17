@@ -1121,8 +1121,11 @@ func (r *Repository) PrepareLandingNodeDeletion(id int64) (*model.LandingNode, e
 // Keep the refusal bounded even when many rules share one node.
 func landingNodeReferenceError(tx *gorm.DB, id int64) error {
 	var count int64
-	if err := tx.Model(&model.Forward{}).Where("landing_node_id = ?", id).Count(&count).Error; err != nil || count == 0 {
+	if err := tx.Model(&model.Forward{}).Where("landing_node_id = ?", id).Count(&count).Error; err != nil {
 		return err
+	}
+	if count == 0 {
+		return leiKwanLandingReferenceError(tx, id)
 	}
 	var names []string
 	if err := tx.Model(&model.Forward{}).Where("landing_node_id = ?", id).Order("id ASC").Limit(5).Pluck("name", &names).Error; err != nil {
@@ -1133,6 +1136,24 @@ func landingNodeReferenceError(tx *gorm.DB, id int64) error {
 		label += fmt.Sprintf("等 %d 条", count)
 	}
 	return fmt.Errorf("该节点仍被规则 %s 引用，请先删除或修改规则", label)
+}
+
+// leiKwanLandingReferenceError (plan 276, F05): a 利群 rule landing on the
+// node keeps it like a normal rule does.
+func leiKwanLandingReferenceError(tx *gorm.DB, id int64) error {
+	var count int64
+	if err := tx.Model(&model.LeiKwanRule{}).Where("landing_node_id = ?", id).Count(&count).Error; err != nil || count == 0 {
+		return err
+	}
+	var names []string
+	if err := tx.Model(&model.LeiKwanRule{}).Where("landing_node_id = ?", id).Order("id ASC").Limit(5).Pluck("name", &names).Error; err != nil {
+		return err
+	}
+	label := "「" + strings.Join(names, "」、「") + "」"
+	if count > 5 {
+		label += fmt.Sprintf("等 %d 条", count)
+	}
+	return fmt.Errorf("该节点仍被利群规则 %s 用作落地，请先给这些规则换落地或删除规则", label)
 }
 
 // landingServerHasProtocol reports whether the server's 协议模板 has p.

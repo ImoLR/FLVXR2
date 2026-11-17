@@ -218,7 +218,10 @@ func (h *Handler) leiKwanDiagPrepare(r *http.Request) (*lkDiagJob, error) {
 				if s.Source != "shared" && s.NodeID > 0 {
 					j.exitNode = s.NodeID
 				} else {
-					j.exitSkip = "共享落地机上不测出口（妙妙屋那边的机器）"
+					j.exitSkip = "共享落地机上不测出口"
+					if admin {
+						j.exitSkip = "共享落地机上不测出口（妙妙屋那边的机器）"
+					}
 				}
 			}
 			path["landingSub"] = sub
@@ -252,7 +255,7 @@ func (h *Handler) leiKwanDiagPrepare(r *http.Request) (*lkDiagJob, error) {
 		j.items = append(j.items, lkDiagRow("exit", j.landingTitle()+" → 外网", ""))
 	}
 	if x.BackupForwardID > 0 {
-		j.items = append(j.items, lkDiagRow("backup", j.entry.Name+" → 备线 → "+j.landingTitle(), ""))
+		j.items = append(j.items, lkDiagRow("backup", j.backupTitle(""), ""))
 	}
 	for _, e := range j.others {
 		j.items = append(j.items, lkDiagRow("other", e.Name+" → 利群专线", ""))
@@ -560,6 +563,18 @@ func (j *lkDiagJob) runExit(ctx context.Context, idx int) {
 	j.set(idx, it)
 }
 
+// backupTitle: admins see the 备线 tunnel's name; users only 「备线（FLVX 隧道）」
+// (plan 276, F09).
+func (j *lkDiagJob) backupTitle(tunnelName string) string {
+	if !j.admin {
+		return j.entry.Name + " → 备线（FLVX 隧道） → " + j.landingTitle()
+	}
+	if tunnelName != "" {
+		return j.entry.Name + " → " + tunnelName + " → " + j.landingTitle()
+	}
+	return j.entry.Name + " → 备线 → " + j.landingTitle()
+}
+
 func (j *lkDiagJob) redact(s string) string {
 	if j.admin {
 		return s
@@ -569,7 +584,10 @@ func (j *lkDiagJob) redact(s string) string {
 
 func (j *lkDiagJob) runBackup(ctx context.Context, idx int) {
 	h := j.h
-	it := lkDiagRow("backup", j.entry.Name+" → 备线 → "+j.landingTitle(), "")
+	it := lkDiagRow("backup", j.backupTitle(""), "")
+	if !j.admin {
+		it["sub"] = "备线（FLVX 隧道）"
+	}
 	fwd, err := h.getForwardRecord(j.rule.BackupForwardID)
 	if err != nil || fwd == nil {
 		it["message"] = "备线规则不存在"
@@ -581,8 +599,8 @@ func (j *lkDiagJob) runBackup(ctx context.Context, idx int) {
 		v := views[j.rule.BackupForwardID]
 		tunnelName, entryHost, entryPort = v.TunnelName, v.EntryHost, v.EntryPort
 	}
-	if tunnelName != "" {
-		it["title"] = j.entry.Name + " → " + tunnelName + " → " + j.landingTitle()
+	if tunnelName != "" && j.admin {
+		it["title"] = j.backupTitle(tunnelName)
 		it["sub"] = "FLVX 隧道「" + tunnelName + "」"
 	}
 	_, work, err := h.prepareForwardDiagnosis(fwd)
@@ -616,6 +634,10 @@ func (j *lkDiagJob) runBackup(ctx context.Context, idx int) {
 			ok = false
 			if msg == "" {
 				msg = strings.TrimSpace(asString(r["description"]) + " " + asString(r["message"]))
+				if !j.admin {
+					// Plan 276 (F09): hop descriptions name internal nodes / tunnels.
+					msg = strings.TrimSpace("备线有一段不通 " + asString(r["message"]))
+				}
 			}
 			continue
 		}

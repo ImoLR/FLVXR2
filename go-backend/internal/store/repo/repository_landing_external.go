@@ -18,12 +18,37 @@ import (
 // ErrExternalNodeNotFound: missing or not the caller's.
 var ErrExternalNodeNotFound = errors.New("外部节点不存在")
 
-// LandingExternalUse is a landing node that chains through an external node.
+// LandingExternalUse is a landing node that chains through an external node,
+// or (plan 276, Kind "leikwan") a 利群 rule whose landing it is.
 type LandingExternalUse struct {
 	ID              int64  `json:"id"`
 	Name            string `json:"name"`
 	LandingServerID int64  `json:"landingServerId"`
 	ExternalID      int64  `json:"-"`
+	Kind            string `json:"kind,omitempty"`
+}
+
+// LandingExternalUseLeiKwan marks a 利群 rule use (ID = leikwan_rule.id).
+const LandingExternalUseLeiKwan = "leikwan"
+
+// leiKwanExternalUsesTx: the 利群 rules targeting the external nodes (id 0 =
+// every external node of the owner).
+func leiKwanExternalUsesTx(tx *gorm.DB, userID, externalID int64) ([]LandingExternalUse, error) {
+	var rules []model.LeiKwanRule
+	q := tx.Select("id", "name", "external_node_id").Where("external_node_id > 0")
+	if externalID > 0 {
+		q = q.Where("external_node_id = ?", externalID)
+	} else {
+		q = q.Where("user_id = ?", userID)
+	}
+	if err := q.Order("id ASC").Find(&rules).Error; err != nil {
+		return nil, err
+	}
+	out := make([]LandingExternalUse, 0, len(rules))
+	for _, x := range rules {
+		out = append(out, LandingExternalUse{ID: x.ID, Name: x.Name, ExternalID: x.ExternalNodeID, Kind: LandingExternalUseLeiKwan})
+	}
+	return out, nil
 }
 
 // ListLandingExternalNodes returns a user's external nodes (oldest first).
@@ -50,6 +75,13 @@ func (r *Repository) LandingExternalUses(userID int64) (map[int64][]LandingExter
 	out := map[int64][]LandingExternalUse{}
 	for _, n := range rows {
 		out[n.ChainExternalID] = append(out[n.ChainExternalID], LandingExternalUse{ID: n.ID, Name: n.Name, LandingServerID: n.LandingServerID, ExternalID: n.ChainExternalID})
+	}
+	lk, err := leiKwanExternalUsesTx(r.db, userID, 0)
+	if err != nil {
+		return nil, err
+	}
+	for _, u := range lk {
+		out[u.ExternalID] = append(out[u.ExternalID], u)
 	}
 	return out, nil
 }
@@ -172,10 +204,16 @@ func (r *Repository) DeleteLandingExternalNode(id, userID int64) ([]LandingExter
 		if err := tx.Select("id", "name", "landing_server_id").Where("chain_external_id = ?", id).Order("id ASC").Find(&rows).Error; err != nil {
 			return err
 		}
-		if len(rows) > 0 {
-			for _, x := range rows {
-				inUse = append(inUse, LandingExternalUse{ID: x.ID, Name: x.Name, LandingServerID: x.LandingServerID, ExternalID: id})
-			}
+		for _, x := range rows {
+			inUse = append(inUse, LandingExternalUse{ID: x.ID, Name: x.Name, LandingServerID: x.LandingServerID, ExternalID: id})
+		}
+		// Plan 276 (F05): a 利群 rule landing on it keeps it too.
+		lk, err := leiKwanExternalUsesTx(tx, userID, id)
+		if err != nil {
+			return err
+		}
+		inUse = append(inUse, lk...)
+		if len(inUse) > 0 {
 			return nil
 		}
 		return tx.Delete(&model.LandingExternalNode{}, id).Error
@@ -183,17 +221,42 @@ func (r *Repository) DeleteLandingExternalNode(id, userID int64) ([]LandingExter
 	return inUse, err
 }
 
-// ExternalInUseError formats the delete refusal with the landing node names.
+// ExternalInUseError formats the delete refusal with the landing node names
+// (plan 276: and the 利群 rule names).
 func ExternalInUseError(uses []LandingExternalUse) error {
-	names := make([]string, 0, len(uses))
-	for i, u := range uses {
-		if i == 5 {
-			names = append(names, fmt.Sprintf("等 %d 个", len(uses)))
-			break
+	label := func(list []LandingExternalUse, unit string) string {
+		names := make([]string, 0, len(list))
+		for i, u := range list {
+			if i == 5 {
+				names = append(names, fmt.Sprintf("等 %d %s", len(list), unit))
+				break
+			}
+			names = append(names, "「"+u.Name+"」")
 		}
-		names = append(names, "「"+u.Name+"」")
+		return strings.Join(names, "、")
 	}
-	return fmt.Errorf("这个外部节点正被落地节点 %s 用作链式代理，请先把它们改回直连或换一个外部节点再删除", strings.Join(names, "、"))
+	chain, lk := []LandingExternalUse{}, []LandingExternalUse{}
+	for _, u := range uses {
+		if u.Kind == LandingExternalUseLeiKwan {
+			lk = append(lk, u)
+		} else {
+			chain = append(chain, u)
+		}
+	}
+	parts := []string{}
+	if len(chain) > 0 {
+		parts = append(parts, "落地节点 "+label(chain, "个")+" 用作链式代理")
+	}
+	if len(lk) > 0 {
+		parts = append(parts, "利群规则 "+label(lk, "条")+" 用作落地")
+	}
+	fix := "请先把它们改回直连或换一个外部节点再删除"
+	if len(lk) > 0 && len(chain) == 0 {
+		fix = "请先给这些利群规则换落地或删除规则再删除"
+	} else if len(lk) > 0 {
+		fix = "请先把落地节点改回直连、给利群规则换落地（或删除规则）再删除"
+	}
+	return fmt.Errorf("这个外部节点正被%s，%s", strings.Join(parts, "，并被"), fix)
 }
 
 // SetLandingNodeChain switches a landing node's 链式代理 (0 = 直连). The

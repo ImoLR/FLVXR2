@@ -885,6 +885,13 @@ func (h *Handler) userList(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Plan 276: the delete dialog says how many 利群 rules go with the user.
+	if counts, err := h.repo.CountLeiKwanRulesByUser(); err == nil {
+		for _, item := range users {
+			item["leikwanRuleCount"] = counts[asInt64(item["id"], 0)]
+		}
+	}
+
 	keyword := strings.ToLower(strings.TrimSpace(req.Keyword))
 	if keyword != "" {
 		filtered := make([]map[string]interface{}, 0, len(users))

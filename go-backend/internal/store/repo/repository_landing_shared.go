@@ -765,6 +765,10 @@ func (r *Repository) PrepareSharedLandingDeletion(id int64) (*model.LandingNode,
 		if count > 0 {
 			return errors.New("该节点仍被规则引用，请先删除或修改规则")
 		}
+		// Plan 276 (F05): 利群 rules landing on it keep it too.
+		if err := leiKwanLandingReferenceError(tx, id); err != nil {
+			return err
+		}
 		// Custom's 200 is acceptance, not an applied acknowledgement. Retrying must
 		// keep the same omission/revision so an asynchronous Helper can catch up.
 		if n.DeletePending {

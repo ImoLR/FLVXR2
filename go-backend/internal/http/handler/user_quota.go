@@ -145,6 +145,7 @@ func (h *Handler) userQuotaReset(w http.ResponseWriter, r *http.Request) {
 	nowMs := time.Now().UnixMilli()
 	h.applyUserQuotaRelease(release, nowMs)
 	h.reconcileLandingPolicy(time.Now())
+	h.leiKwanBlocksChanged() // plan 276
 	response.WriteJSON(w, response.OKEmpty())
 }
 

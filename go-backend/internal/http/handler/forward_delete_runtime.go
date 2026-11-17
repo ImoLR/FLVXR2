@@ -64,6 +64,10 @@ func (h *Handler) cleanupForwardRuntimeBestEffort(forward *forwardRecord) {
 }
 
 func (h *Handler) deleteUserAndCleanup(userID int64) error {
+	// Plan 276: the user's 利群 rules first; a failed LeiKwan delete keeps the user.
+	if err := h.leiKwanDeleteUserRules(userID); err != nil {
+		return err
+	}
 	ids, err := h.repo.ListForwardIDsByUser(userID)
 	if err != nil {
 		return err

@@ -156,6 +156,21 @@ func (r *Repository) GetLeiKwanRuleByForward(forwardID int64) (*model.LeiKwanRul
 	return &x, err
 }
 
+// CountLeiKwanRulesByUser (plan 276): 利群 rules per owner (user list, the
+// delete dialog says they go with the user).
+func (r *Repository) CountLeiKwanRulesByUser() (map[int64]int64, error) {
+	var rows []struct {
+		UserID int64
+		N      int64
+	}
+	err := r.db.Model(&model.LeiKwanRule{}).Select("user_id, count(*) as n").Group("user_id").Scan(&rows).Error
+	out := map[int64]int64{}
+	for _, row := range rows {
+		out[row.UserID] = row.N
+	}
+	return out, err
+}
+
 func (r *Repository) CountLeiKwanRules(userID int64) (int64, error) {
 	var n int64
 	err := r.db.Model(&model.LeiKwanRule{}).Where("user_id = ?", userID).Count(&n).Error

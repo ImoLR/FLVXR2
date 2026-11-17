@@ -3,6 +3,7 @@ package handler
 import (
 	"encoding/json"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -130,19 +131,26 @@ func TestLeiKwanCounterDeltas(t *testing.T) {
 func TestLeiKwanBlockReason(t *testing.T) {
 	now := time.Now().UnixMilli()
 	ok := model.User{Status: 1, ExpTime: now + 1000, Flow: 10, InFlow: 1}
-	if r := leiKwanBlockReason(ok, true, nil, nil, now); r != "" {
+	if r := leiKwanBlockReason(ok, true, false, nil, nil, now); r != "" {
 		t.Fatalf("ok user blocked: %q", r)
 	}
-	if r := leiKwanBlockReason(model.User{Status: 0, Flow: 10}, true, nil, nil, now); r != "账号已禁用" {
+	if r := leiKwanBlockReason(model.User{Status: 0, Flow: 10}, true, false, nil, nil, now); r != "账号已禁用" {
 		t.Fatal(r)
 	}
-	if r := leiKwanBlockReason(model.User{Status: 1, ExpTime: now - 1, Flow: 10}, true, nil, nil, now); r != "账号已到期" {
+	if r := leiKwanBlockReason(model.User{Status: 1, ExpTime: now - 1, Flow: 10}, true, false, nil, nil, now); r != "账号已到期" {
 		t.Fatal(r)
 	}
-	if r := leiKwanBlockReason(model.User{Status: 1, Flow: 1, InFlow: 2 << 30}, true, nil, nil, now); r != "总流量已用完" {
+	if r := leiKwanBlockReason(model.User{Status: 1, Flow: 1, InFlow: 2 << 30}, true, false, nil, nil, now); r != "总流量已用完" {
 		t.Fatal(r)
 	}
-	if r := leiKwanBlockReason(ok, true, []int64{58}, map[int64]string{58: "百度云广州"}, now); r != "单服务器流量已用完（百度云广州）" {
+	if r := leiKwanBlockReason(ok, true, false, []int64{58}, map[int64]string{58: "百度云广州"}, now); r != "单服务器流量已用完（百度云广州）" {
+		t.Fatal(r)
+	}
+	// Plan 276: a missing owner is blocked, never open; a stopped grant blocks.
+	if r := leiKwanBlockReason(model.User{}, false, false, nil, nil, now); r != "用户已删除" {
+		t.Fatal(r)
+	}
+	if r := leiKwanBlockReason(ok, true, true, nil, nil, now); r != "授权已停用" {
 		t.Fatal(r)
 	}
 }
@@ -172,4 +180,52 @@ func TestLeiKwanHostSyncDump(t *testing.T) {
 		t.Fatal("no fingerprint")
 	}
 	_ = os.WriteFile(path+".fp", []byte(lkKeyFingerprint(s.Desired.SSKeys.Set["263"])), 0o644)
+}
+
+// Plan 276 (F08): keys the host still has but no rule wants are removed;
+// manual-landing rules' keys, unmanaged forwards' keys and keys of forwards
+// still configured on the host stay.
+func TestLeiKwanDesiredForRemovesStaleKeys(t *testing.T) {
+	key := &lkKeyEntry{Method: "2022-blake3-aes-128-gcm", PSK: "cHNr"}
+	g := &lkGen{lines: map[int64]model.LeiKwanLine{1: {ID: 1, Accel: `{"ssFilter":"enforce"}`}}, backups: map[int64]string{}, byAddr: map[string]int64{},
+		keys: map[int64]*lkKeyEntry{501: key}, protoOK: map[int64]bool{501: true}, blocked: map[int64]bool{}, mainEntry: map[int64]int64{}, graceEntry: map[int64]int64{},
+		rules: []model.LeiKwanRule{
+			{ID: 1, UserID: 2, LineID: 1, ForwardID: 263, ListenPort: 10018},                     // manual landing: host key only
+			{ID: 2, UserID: 2, LineID: 1, ForwardID: 601, ListenPort: 10030, LandingNodeID: 501}, // panel key → set
+			{ID: 3, UserID: 2, LineID: 1, ForwardID: 602, ListenPort: 10031, ExternalNodeID: 9},  // switched to a 外部节点 → remove
+		}}
+	p := &lkHostProfile{Files: map[string]bool{lkFileSSKeys: true, lkFileSSFilter: true}, Rules: map[string]lkRuleOverride{},
+		Unmanaged: lkUnmanaged{SSFilter: map[string]string{"318": "enforce"}}}
+	fp := map[string]string{"263": "a", "601": "b", "602": "c", "604": "d", "318": "e", "700": "f"}
+	rep := &lkHostReport{V: 1, Files: lkFilesView{SSKeys: &lkKeysView{Present: true, FP: fp}},
+		State: lkStateView{Forwards: []lkForwardView{{ForwardID: 263}, {ForwardID: 601}, {ForwardID: 602}, {ForwardID: 318}, {ForwardID: 700}}}}
+	d := g.desiredFor(58, p, rep)
+	if _, ok := d.SSKeys.Set["601"]; !ok || len(d.SSKeys.Set) != 1 {
+		t.Fatalf("set: %v", d.SSKeys.Set)
+	}
+	// 602: filter off now; 604: deleted (not on the host any more). 263 (manual),
+	// 318 (unmanaged filter) and 700 (still configured on the host) stay.
+	if got := strings.Join(d.SSKeys.Remove, ","); got != "602,604" {
+		t.Fatalf("remove: %q", got)
+	}
+	// An empty forward list proves nothing: only rule-based removals.
+	rep.State.Forwards = nil
+	if got := strings.Join(g.desiredFor(58, p, rep).SSKeys.Remove, ","); got != "602" {
+		t.Fatalf("remove without host forwards: %q", got)
+	}
+	// The diff shows the removals (the admin sees what the sync will do).
+	diffs := lkDiffFiles(rep.Files, g.desiredFor(58, p, rep))
+	found := false
+	for _, df := range diffs {
+		if df.File == lkFileSSKeys && !df.Same && strings.Contains(strings.Join(df.Lines, "\n"), "- 602 密钥") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("diff: %+v", diffs)
+	}
+	// learn() renders without removals, so a host with stale keys still learns (diff 0).
+	if g.desired(58, p).SSKeys.Remove != nil {
+		t.Fatal("desired() must not remove keys")
+	}
 }

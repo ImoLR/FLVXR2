@@ -192,11 +192,15 @@ func (h *Handler) planLeiKwanRuleBilling(b *flowIngestBatch, x model.LeiKwanRule
 
 var lkBlockMu sync.Mutex
 
-// leiKwanBlockReason: ” = the rule may run.
-func leiKwanBlockReason(u model.User, ok bool, pausedNodes []int64, names map[int64]string, now int64) string {
+// leiKwanBlockReason: ” = the rule may run. Plan 276: a rule whose owner is
+// gone is blocked (「用户已删除」, never open), and a stopped grant (status 0)
+// blocks its rules (「授权已停用」).
+func leiKwanBlockReason(u model.User, ok bool, grantOff bool, pausedNodes []int64, names map[int64]string, now int64) string {
 	switch {
 	case !ok:
-		return ""
+		return "用户已删除"
+	case grantOff:
+		return "授权已停用"
 	case u.Status != 1:
 		return "账号已禁用"
 	case u.ExpTime > 0 && u.ExpTime <= now:
@@ -249,11 +253,25 @@ func (h *Handler) leiKwanReconcileBlocks() {
 		return
 	}
 	names := h.leiKwanNodeNames(entries)
+	grantOff := map[int64]bool{}
+	if grants, err := h.repo.ListLeiKwanGrants(); err == nil {
+		for _, g := range grants {
+			grantOff[g.UserID] = g.Status != 1
+		}
+	}
 	now := time.Now().UnixMilli()
 	changed := false
+	// Plan 276 (F07): automatic 备线 forward id → whether a rule using it
+	// may run (a 备线 runs while any of its rules is open).
+	backupRun := map[int64]bool{}
+	backupRule := map[int64]model.LeiKwanRule{}
 	for _, x := range rules {
 		u, ok := users[x.UserID]
-		reason := leiKwanBlockReason(u, ok, paused[x.UserID], names, now)
+		reason := leiKwanBlockReason(u, ok, grantOff[x.UserID], paused[x.UserID], names, now)
+		if x.BackupMode == "auto" && x.BackupForwardID > 0 {
+			backupRun[x.BackupForwardID] = backupRun[x.BackupForwardID] || reason == ""
+			backupRule[x.BackupForwardID] = x
+		}
 		if reason == x.BlockReason {
 			continue
 		}
@@ -266,17 +284,8 @@ func (h *Handler) leiKwanReconcileBlocks() {
 		} else {
 			log.Printf("利群规则 %s（转发 %d）解除屏蔽", x.Name, x.ForwardID)
 		}
-		if x.BackupMode == "auto" && x.BackupForwardID > 0 {
-			admin := h.repo.FirstAdminUserID()
-			fn := h.forwardResume
-			if reason != "" {
-				fn = h.forwardPause
-			}
-			if code, msg, _ := h.leikwanAdminCall(fn, admin, map[string]interface{}{"id": x.BackupForwardID}); code != 0 {
-				log.Printf("利群规则 %s 的自动备线 %d 暂停/恢复失败: %s", x.Name, x.BackupForwardID, msg)
-			}
-		}
 	}
+	h.leiKwanSyncBackupPause(backupRun, backupRule)
 	if changed {
 		for _, id := range entries {
 			if h.wsServer != nil && h.wsServer.NodeOnline(id) {
@@ -288,4 +297,61 @@ func (h *Handler) leiKwanReconcileBlocks() {
 			}
 		}
 	}
+}
+
+// leiKwanSyncBackupPause (plan 276, F07): every pass makes each automatic
+// 备线 follow its rules' block state — paused while all its rules are
+// blocked, running otherwise. Only a mismatch costs a call, so a pause /
+// resume that failed (entry node offline) is retried on the next pass.
+func (h *Handler) leiKwanSyncBackupPause(run map[int64]bool, byBackup map[int64]model.LeiKwanRule) {
+	if len(run) == 0 {
+		return
+	}
+	ids := make([]int64, 0, len(run))
+	for id := range run {
+		ids = append(ids, id)
+	}
+	views, err := h.repo.LeiKwanBackupForwards(ids)
+	if err != nil {
+		return
+	}
+	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
+	admin := int64(0)
+	for _, id := range ids {
+		v, ok := views[id]
+		if !ok {
+			continue
+		}
+		want := run[id]
+		if (want && v.Status != 0) || (!want && v.Status != 1) {
+			continue
+		}
+		if admin <= 0 {
+			if admin = h.repo.FirstAdminUserID(); admin <= 0 {
+				return
+			}
+		}
+		fn, verb := h.forwardPause, "暂停"
+		if want {
+			fn, verb = h.forwardResume, "恢复"
+		}
+		x := byBackup[id]
+		if code, msg, _ := h.leikwanAdminCall(fn, admin, map[string]interface{}{"id": id}); code != 0 {
+			// One line per 备线 and state every 30 min (the pass repeats each minute).
+			if h.lkThrottle.allow("bk:"+strconv.FormatInt(id, 10)+":"+verb, time.Now(), 30*time.Minute) {
+				log.Printf("利群规则 %s 的自动备线 %d %s失败（下一轮重试）: %s", x.Name, id, verb, msg)
+			}
+			continue
+		}
+		log.Printf("利群规则 %s 的自动备线 %d 已%s", x.Name, id, verb)
+	}
+}
+
+// leiKwanBlocksChanged (plan 276, F06): a user's status / expiry / traffic /
+// limits changed — recompute the 利群 blocks now (pushes only on a change).
+func (h *Handler) leiKwanBlocksChanged() {
+	if h == nil || h.repo == nil {
+		return
+	}
+	go h.leiKwanReconcileBlocks()
 }

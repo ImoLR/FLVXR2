@@ -30,12 +30,15 @@ const (
 )
 
 type subRender struct {
-	key    string
-	body   []byte
-	nodes  int
-	subID  int64
-	userID int64
-	at     time.Time
+	key   string
+	body  []byte
+	nodes int
+	// leikwan (plan 276, F03): the owner's 利群 nodes in this body — only a
+	// pull that carries at least one ends a 换主入口 grace.
+	leikwan int
+	subID   int64
+	userID  int64
+	at      time.Time
 }
 
 type subRenderCache struct {
@@ -196,12 +199,18 @@ func (h *Handler) subRenderFor(ctx context.Context, s *model.UserSubscription, f
 	}
 	nodes, _ := d.resolve(refs, model.MaxSubscriptionNodes)
 	sublink.FinalizeNames(nodes)
+	lkNodes := 0
+	for _, n := range nodes {
+		if strings.HasPrefix(n.Key, "k:") {
+			lkNodes++
+		}
+	}
 	if format == sublink.FormatClash || format == sublink.FormatSingBox || format == sublink.FormatSurge {
 		// Plan 261: the stored sets of link entries (and a background
 		// refresh of the due ones; never waited for here).
 		h.subLinkResolve(s.UserID, routing)
 	}
-	v := &subRender{key: key, subID: s.ID, userID: s.UserID, at: time.Now()}
+	v := &subRender{key: key, subID: s.ID, userID: s.UserID, at: time.Now(), leikwan: lkNodes}
 	switch format {
 	case sublink.FormatSingBox:
 		v.body, v.nodes = sublink.SingBoxRouted(nodes, s.RuleMode, origin, routing)
@@ -404,7 +413,9 @@ func (h *Handler) subPublic(w http.ResponseWriter, r *http.Request) {
 	hd.Set("Content-Length", strconv.Itoa(len(body)))
 	_, _ = w.Write(body)
 	h.subMarkPulled(s.ID, client.Label, v.nodes, now)
-	h.leiKwanSubPulled(s.UserID, now) // plan 272: ends a 换主入口 grace
+	if v.leikwan > 0 {
+		h.leiKwanSubPulled(s.UserID, now) // plan 272: ends a 换主入口 grace (276: only with 利群 nodes)
+	}
 }
 
 // subMarkPulled writes the card's 「最近拉取」 at most once a minute per

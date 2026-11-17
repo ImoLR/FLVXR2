@@ -39,6 +39,7 @@ const (
 	lkFilePhone     = "phone"
 	lkSyncTimeout   = 25 * time.Second
 	lkLoopEvery     = 5 * time.Minute
+	lkBlockEvery    = time.Minute
 )
 
 var lkFileOrder = []string{lkFileWarm, lkFileSSFilter, lkFileSSKeys, lkFileTriggers, lkFileLogswitch, lkFileCoalesce, lkFilePhone}
@@ -631,6 +632,66 @@ func (g *lkGen) desired(nodeID int64, p *lkHostProfile) *lkDesired {
 	return d
 }
 
+// desiredFor (plan 276, F08): desired plus the first-packet filter keys the
+// host still has but no rule wants any more (sskeys "remove"):
+//   - a panel rule whose key the panel supplies (panel landing node / 外部节点)
+//     but whose filter is off on this host (e.g. switched to a 外部节点);
+//   - a forward no panel rule has, not kept as unmanaged (its ssfilter line),
+//     and no longer configured on the host (deleted on the LeiKwan side).
+//
+// Keys of manual-landing rules (only the host has them) and of forwards still
+// on the host are never removed. learn() keeps using desired (no removals).
+func (g *lkGen) desiredFor(nodeID int64, p *lkHostProfile, rep *lkHostReport) *lkDesired {
+	d := g.desired(nodeID, p)
+	if d == nil || d.SSKeys == nil || rep == nil || rep.Files.SSKeys == nil || len(rep.Files.SSKeys.FP) == 0 {
+		return d
+	}
+	byFid := map[string]int{}
+	for i, x := range g.rules {
+		byFid[strconv.FormatInt(x.ForwardID, 10)] = i
+	}
+	onHost := map[string]bool{}
+	for _, f := range rep.State.Forwards {
+		onHost[strconv.FormatInt(f.ForwardID, 10)] = true
+	}
+	// The agent lists at most 64 forwards; an empty or full list says nothing.
+	complete := len(rep.State.Forwards) > 0 && len(rep.State.Forwards) < 64
+	remove := []string{}
+	for fid := range rep.Files.SSKeys.FP {
+		if !lkForwardID.MatchString(fid) {
+			continue
+		}
+		if _, wanted := d.SSKeys.Set[fid]; wanted {
+			continue
+		}
+		if i, ok := byFid[fid]; ok {
+			x := g.rules[i]
+			if x.LandingNodeID <= 0 && x.ExternalNodeID <= 0 {
+				continue // manual landing: the host's key is the only copy
+			}
+			if e := g.effective(x, p.Rules[fid], nodeID); e.SSFilter == "" || e.SSFilter == "off" {
+				remove = append(remove, fid)
+			}
+			continue
+		}
+		if _, kept := p.Unmanaged.SSFilter[fid]; kept {
+			continue
+		}
+		if complete && !onHost[fid] {
+			remove = append(remove, fid)
+		}
+	}
+	sort.Slice(remove, func(i, j int) bool {
+		a, _ := strconv.ParseInt(remove[i], 10, 64)
+		b, _ := strconv.ParseInt(remove[j], 10, 64)
+		return a < b
+	})
+	if len(remove) > 0 {
+		d.SSKeys.Remove = remove
+	}
+	return d
+}
+
 // learn builds the host profile from a report: host-wide values verbatim,
 // per-rule values only where the host differs from the generic ones. The
 // result must render back to exactly what the host has.
@@ -985,7 +1046,7 @@ func lkContains(ids []int64, id int64) bool {
 // changed → rev+1) and returns what the agent gets.
 func (h *Handler) leiKwanHostSyncPayload(host *model.LeiKwanHost, g *lkGen) (lkSync, *lkDesired, error) {
 	prof := parseLKProfile(host.Profile)
-	d := g.desired(host.NodeID, prof)
+	d := g.desiredFor(host.NodeID, prof, parseLKReport(host.Report))
 	if hash := lkHash(d); hash != host.DesiredHash {
 		host.DesiredHash = hash
 		host.Rev++
@@ -1249,10 +1310,18 @@ func (h *Handler) runLeiKwanHostLoop(ctx context.Context) {
 	defer h.jobsWG.Done()
 	timer := time.NewTimer(30 * time.Second)
 	defer timer.Stop()
+	// Plan 276 (F06/F07): a light block pass every minute (DB reads only; a
+	// changed block state pushes the hosts, a 备线 out of step is retried) —
+	// renewals, orders and jobs that do not kick still show within a minute.
+	light := time.NewTicker(lkBlockEvery)
+	defer light.Stop()
 	for {
 		select {
 		case <-ctx.Done():
 			return
+		case <-light.C:
+			h.leiKwanReconcileBlocks()
+			continue
 		case <-timer.C:
 			timer.Reset(lkLoopEvery)
 		case <-h.lkKick:
@@ -1320,7 +1389,7 @@ func (h *Handler) leiKwanHostManageView(nodeID int64, g *lkGen) map[string]inter
 	prof := parseLKProfile(host.Profile)
 	attention := []string{}
 	if prof != nil && g != nil {
-		diffs := lkDiffFiles(rep.Files, g.desired(nodeID, prof))
+		diffs := lkDiffFiles(rep.Files, g.desiredFor(nodeID, prof, rep))
 		v["diff"] = diffs
 		changed := 0
 		for _, d := range diffs {
