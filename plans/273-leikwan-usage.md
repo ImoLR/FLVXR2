@@ -43,10 +43,22 @@ Base: tag `3.0.27-fork.144` → branch `feature/3.0.27-leikwan-usage`
 - [x] Admin H5: 套餐流量 block + devices at the end of the 入口机 tab (＋/− rows; a 4th tab overflowed
       the tab row at 390 px, so the row stays unchanged), chip in the rule ＋ details
 - [x] User desktop + H5: chip on own rules only
-- [ ] go vet / go test ./... / contract / npm run build; CI green on the branch
+- [x] go vet / go test ./... / contract / npm run build; CI green on the branch
 - [x] Lab (fake API with real numbers) + gallery /root/mmwx-preview/leikwan-usage-built/ (:8791)
 - [x] Release brief /root/flvx-workers/briefs/release-leikwan-usage.md (panel only)
-- [ ] Ledger row 273 「built, waits for user screen approval」, summary
+- [x] Ledger row 273 「built, waits for user screen approval」, summary
 
 ## Result
-(filled in at the end)
+BUILT 2026-11-17 ~21:20 TW, **not released** (waits for the user's screen approval).
+- Gallery: http://104.145.236.29:8791/leikwan-usage-built/ (34 PNG; admin desktop light/dark, rule-row close-up,
+  card, devices, H5 390 light/dark + 360, user desktop + H5, stale / 读取失败 state). Lab = real 11-17 vendor reads
+  (read-only GETs, phone IPs scrubbed) via the fake API; lab scripts /root/flvx-workers/runs/leikwan-usage/lab/
+  (setup.sh recreates /root/lk273-lab; 41/41 checks).
+- Poller: ≤ 2 GETs per 2.5 min round per account → 12 usage + 12 devices + 2 services + ≤ 1 previous ≈ 26-27 / hour
+  (unit test over 24 rounds). One goroutine; snapshots ≈ 20 KB in memory; ≤ ~30 small row writes / hour.
+- H5 deviation from the first idea: the device list sits at the end of the 入口机 tab (a 4th 「设备」 tab overflowed
+  the tab row at 390 px); the tab row is unchanged.
+- Tests: go vet clean; go test ./... (FLVX_POSTGRES_TEST_DSN set) all packages ok — internal/store/repo (732 s) and
+  tests/contract (771 s) need `-timeout 30m`/`60m` (the default 10 min ran out, no failing test); npm run build ok;
+  CI Build Check green.
+- Release brief: /root/flvx-workers/briefs/release-leikwan-usage.md (panel only, new table leikwan_usage_snapshot).
