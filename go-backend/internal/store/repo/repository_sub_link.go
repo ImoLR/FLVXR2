@@ -420,10 +420,10 @@ func subLandingNode(n model.LandingNode, s *model.LandingServer, host string, po
 	}
 	host = strings.Trim(strings.TrimSpace(host), "[]")
 	if landingcustom.IsExtraProtocol(n.Protocol) {
-		cp, _ := SharedProtocolCap(s, n.Protocol)
+		// Shared: the share's UDP capability; native AnyTLS (plan 274): UDP on.
 		o := LandingNodeOpts(&n)
 		e := &sublink.Extra{Type: n.Protocol, Server: host, Port: port, Username: n.Username, Password: n.Password, SNI: o.SNI,
-			Version: o.Version, Obfs: o.Obfs, ObfsHost: o.ObfsHost, Transport: o.Transport, UDP: cp.UDP}
+			Version: o.Version, Obfs: o.Obfs, ObfsHost: o.ObfsHost, Transport: o.Transport, UDP: landingProtocolUDP(s, n)}
 		if n.Protocol == landingcustom.ProtocolAnyTLS {
 			e.CertSHA256, e.CertPEM = n.CertSHA256, n.TLSCertPEM
 		}

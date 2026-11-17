@@ -1,8 +1,9 @@
 package repo
 
 // Plan 121 (contract landing-protocols-v1): AnyTLS / Snell / Mieru landing
-// nodes. They exist only on mmwx-shared servers whose share advertises the
-// protocol (Share.ProtocolCaps); native FLVX landings keep SS2022 / VLESS.
+// nodes. Snell / Mieru exist only on mmwx-shared servers whose share
+// advertises the protocol (Share.ProtocolCaps); AnyTLS also runs on native
+// FLVX landings (plan 274, repository_landing_native_anytls.go).
 
 import (
 	"crypto/ecdsa"
@@ -54,9 +55,9 @@ func knownLandingProtocol(p string) bool {
 }
 
 // nativeLandingProtocol: protocols a native FLVX landing can run (plan 253
-// adds VLESS Encryption; AnyTLS / Snell / Mieru stay shared-only).
+// adds VLESS Encryption, plan 274 AnyTLS; Snell / Mieru stay shared-only).
 func nativeLandingProtocol(p string) bool {
-	return p == "ss2022" || p == "vless_reality_vision" || isVLESSEnc(p)
+	return p == "ss2022" || p == "vless_reality_vision" || isVLESSEnc(p) || isAnyTLS(p)
 }
 
 // validLandingHostname accepts a DNS name (not an IP literal) for SNI / obfs.
@@ -161,25 +162,23 @@ func LandingNodeWithheld(s *model.LandingServer, n *model.LandingNode) bool {
 }
 
 // LandingWithheldFunc parses the server's caps once for loops over its nodes.
-// A native vless_enc node counts as applied here (views); what goes to the
-// agent uses LandingWithheldAgentFunc with the agent's version.
+// A native vless_enc / AnyTLS node counts as applied here (views); what goes
+// to the agent uses LandingWithheldAgentFunc with the agent's versions.
 func LandingWithheldFunc(s *model.LandingServer) func(*model.LandingNode) bool {
-	return LandingWithheldAgentFunc(s, LandingVLESSEncVersion)
+	return LandingWithheldAgentFunc(s, allLandingProtocols)
 }
 
-// LandingWithheldAgentFunc: as LandingWithheldFunc, and (plan 253) a native
-// vless_enc node is withheld from an agent below LandingVLESSEncVersion.
-func LandingWithheldAgentFunc(s *model.LandingServer, agentVLESSEnc int) func(*model.LandingNode) bool {
+// LandingWithheldAgentFunc: as LandingWithheldFunc, and a native vless_enc
+// (plan 253) / AnyTLS (plan 274) node is withheld from an agent below
+// LandingVLESSEncVersion / LandingAnyTLSVersion.
+func LandingWithheldAgentFunc(s *model.LandingServer, agent LandingAgentProtocols) func(*model.LandingNode) bool {
 	var supported map[string]bool
 	return func(n *model.LandingNode) bool {
 		if s == nil || n == nil || !landingcustom.IsCapProtocol(n.Protocol) {
 			return false
 		}
 		if s.Source != "shared" {
-			if isVLESSEnc(n.Protocol) {
-				return !NativeVLESSEncSupported(agentVLESSEnc)
-			}
-			return true // never valid on native servers
+			return !agent.nativeSends(n.Protocol) // Snell / Mieru: never valid on native servers
 		}
 		if supported == nil {
 			supported = map[string]bool{}
@@ -226,13 +225,17 @@ func LandingProtocolName(p string) string {
 }
 
 // checkExtraProtocolCreate refuses a new node whose protocol or server
-// defaults the share does not support right now.
+// defaults the share does not support right now (native AnyTLS: plan 274,
+// checked by checkNativeAnyTLSCreate).
 func checkExtraProtocolCreate(s *model.LandingServer, protocol string) error {
 	if !landingcustom.IsExtraProtocol(protocol) {
 		return nil
 	}
 	if s.Source != "shared" {
-		return errors.New("AnyTLS / Snell / Mieru 目前只支持妙妙屋共享服务器")
+		if isAnyTLS(protocol) {
+			return nil
+		}
+		return errors.New("Snell / Mieru 目前只支持妙妙屋共享服务器")
 	}
 	cp, ok := SharedProtocolCap(s, protocol)
 	if !ok {
@@ -331,6 +334,12 @@ func newExtraLandingCredentials(n *model.LandingNode, s *model.LandingServer) er
 			if host := strings.ToLower(strings.Trim(strings.TrimSpace(s.PublicHost), "[]")); validLandingHostname(host) {
 				opts.SNI = host
 			}
+		}
+		if opts.SNI == "" && s.Source == "native" {
+			// Plan 274: like a plan-250 chain AnyTLS inbound, an IP-only native
+			// server sends its first Reality server name, so the ClientHello
+			// (e.g. on a 线路机 entry) carries a real site's name.
+			opts.SNI = nativeAnyTLSDefaultSNI(s)
 		}
 		if n.TLSCertPEM, n.TLSKeyPEM, n.CertSHA256, err = selfSignedLandingCert(anytlsCertName(opts.SNI, s.PublicHost), time.Now()); err != nil {
 			return err

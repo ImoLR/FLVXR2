@@ -77,11 +77,11 @@ func TestGuardGroups(t *testing.T) {
 		t.Fatalf("dest rewrite must not touch the original: %s / %s", gb, ob)
 	}
 	// Nothing user-visible changes: keys, serverNames, shortIds, port, listen.
-	if !strings.Contains(string(gb), `"sockopt":{"customSockopt":[{"level":"6","network":"tcp","opt":"9","system":"linux","type":"int","value":"5"}]}`) {
+	if !strings.Contains(string(gb), `"sockopt":{"customSockopt":[{"level":"6","network":"tcp","opt":"9","system":"linux","type":"int","value":"130"}]}`) {
 		t.Fatalf("guarded inbound must defer accept until the ClientHello: %s", gb)
 	}
 	strip := func(s string) string {
-		s = strings.Replace(s, `,"sockopt":{"customSockopt":[{"level":"6","network":"tcp","opt":"9","system":"linux","type":"int","value":"5"}]}`, "", 1)
+		s = strings.Replace(s, `,"sockopt":{"customSockopt":[{"level":"6","network":"tcp","opt":"9","system":"linux","type":"int","value":"130"}]}`, "", 1)
 		return strings.Replace(strings.Replace(s, `"dest":"127.0.0.1:39999"`, "", 1), `"dest":"www.lovelive-anime.jp:443"`, "", 1)
 	}
 	if strip(string(gb)) != strip(string(ob)) {

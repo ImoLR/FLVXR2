@@ -354,9 +354,9 @@ func portsIn(sorted []int, lo, hi int) bool {
 // no forward / tunnel / inbound / runtime resource on the node uses a port in
 // it (the check applyNativeLandingRange makes). Otherwise the first aligned
 // 1000-port block that lies wholly inside the node's rule range (node.port;
-// empty = unrestricted), leaves some rule ports, holds no used port, no
-// Reality guard port and no other landing's chain-node port, and contains
-// every listener the server already owns (own). note explains a non-default
+// empty = unrestricted), leaves some rule ports, holds no used port, no other
+// server's Reality guard port or chain-node port, and contains every public
+// listener the server already owns (own). note explains a non-default
 // pick. One load of the node's ports, then an in-memory scan.
 func pickNativeLandingRange(tx *gorm.DB, node model.Node, serverID int64, prefLo, prefHi int, own []int) (int, int, string, error) {
 	holders, err := landingPortHolders(tx, node.ID, 0, 0)
@@ -371,7 +371,11 @@ func pickNativeLandingRange(tx *gorm.DB, node model.Node, serverID int64, prefLo
 	for p := range holders {
 		busy[p] = true
 	}
-	guards, err := landingGuardPortsOnNode(tx, node.ID)
+	// Other servers' guard / chain-node ports are busy; the server's own
+	// (a chain-only exit being converted, plan 274) are not: its chain
+	// listeners keep their ports wherever they are, its guards move into the
+	// new range.
+	guards, err := landingGuardPortsOfOthers(tx, node.ID, serverID)
 	if err != nil {
 		return 0, 0, "", err
 	}

@@ -227,8 +227,8 @@ func TestNativeLandingEnableAllBusyNamesHolders(t *testing.T) {
 	}
 }
 
-// Chain-only exit → public: a busy range moves only to a block that still
-// holds the exit's own chain-node listeners.
+// Chain-only exit → public: a busy range moves to a free block; its own
+// chain-node listener inside a block does not make that block busy.
 func TestChainOnlyEnablePicksBlockKeepingOwnPorts(t *testing.T) {
 	r := nativePortsFixture(t, "sqlite", "10000-65535")
 	orphanSeed(t, r, &model.LandingServer{ID: 5, Source: "native", NodeID: 655, Name: "NexKR", PublicHost: "203.0.113.55", PortMin: 30000, PortMax: 39999, ChainOnly: true, Status: "active", FlowType: 2, TrafficRatio: 1, MaxNodesPerUser: 3, CoreMemoryMB: 256, CoreCPUPercent: 50},
@@ -241,16 +241,90 @@ func TestChainOnlyEnablePicksBlockKeepingOwnPorts(t *testing.T) {
 	if s.ChainOnly || s.PortMin != 30000 || s.PortMax != 30999 || note == "" || nodeSpec(t, r, 655) != "10000-29999,31000-65535" {
 		t.Fatalf("chain-only enable: %+v note %q spec %q", s, note, nodeSpec(t, r, 655))
 	}
-	// Own listener outside every free block → refused, nothing changes.
-	r2 := nativePortsFixture(t, "sqlite", "10000-65535")
-	orphanSeed(t, r2, &model.LandingServer{ID: 5, Source: "native", NodeID: 655, Name: "NexKR", PublicHost: "203.0.113.55", PortMin: 30000, PortMax: 39999, ChainOnly: true, Status: "active", FlowType: 2, TrafficRatio: 1, MaxNodesPerUser: 3, CoreMemoryMB: 256, CoreCPUPercent: 50},
-		&model.ForwardChainNode{ChainID: 1, LandingServerID: 5, NodeID: 655, Port: 30005, State: model.ChainNodeActive},
-		&model.ForwardPort{ForwardID: 1, NodeID: 655, Port: 30500})
-	if _, err := r2.EnableLandingServer(655); err == nil {
-		t.Fatal("chain-only enable must not drop its own listener out of range")
+}
+
+// Plan 274 (prod Bestvm US): the chain listeners of a chain-only exit sit at
+// 1024/1025 (outside every 1000 block, plan 225) and the default block is
+// busy → a free block is still picked; the chain rows keep their ports and
+// guard ports move into the new range only through EnsureLandingGuardPorts.
+func TestChainOnlyEnableChainListenersOutsideBlocks(t *testing.T) {
+	for _, dialect := range []string{"sqlite", "postgres"} {
+		t.Run(dialect, func(t *testing.T) {
+			r := nativePortsFixture(t, dialect, "10000-65535")
+			orphanSeed(t, r, &model.LandingServer{ID: 9, Source: "native", NodeID: 655, Name: "Bestvm US", PublicHost: "203.0.113.17", PortMin: 30000, PortMax: 39999, ChainOnly: true, Status: "active", FlowType: 2, TrafficRatio: 1, MaxNodesPerUser: 3, CoreMemoryMB: 256, CoreCPUPercent: 50, Protocols: `["vless_reality_vision"]`},
+				&model.ForwardChainNode{ChainID: 6, LandingServerID: 9, NodeID: 655, Port: 1024, GuardPort: 9999, State: model.ChainNodeActive},
+				&model.ForwardChainNode{ChainID: 8, LandingServerID: 9, NodeID: 655, Port: 1025, State: model.ChainNodeActive},
+				&model.Tunnel{ID: 115, Name: "Dmit Echo -> US"},
+				&model.ChainTunnel{TunnelID: 115, NodeID: 655, ChainType: "3", Port: sql.NullInt64{Int64: 31332, Valid: true}})
+			s, note, err := r.EnableLandingServerNote(655)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if s.ChainOnly || s.PortMin != 30000 || s.PortMax != 30999 || !strings.Contains(note, "端口 31332 被隧道「Dmit Echo -> US」使用") {
+				t.Fatalf("picked %d-%d chainOnly %v note %q", s.PortMin, s.PortMax, s.ChainOnly, note)
+			}
+			if got := nodeSpec(t, r, 655); got != "10000-29999,31000-65535" {
+				t.Fatalf("carve: %q", got)
+			}
+			var chain []model.ForwardChainNode
+			r.db.Order("port").Find(&chain)
+			if len(chain) != 2 || chain[0].Port != 1024 || chain[1].Port != 1025 || chain[0].GuardPort != 9999 {
+				t.Fatalf("chain rows changed: %+v", chain)
+			}
+			stored, _ := r.GetLandingServer(9)
+			if stored.ChainOnly || stored.PortMin != 30000 || stored.PortMax != 30999 {
+				t.Fatalf("stored %+v", stored)
+			}
+		})
 	}
-	cur, _ := r2.GetLandingServer(5)
-	if !cur.ChainOnly || cur.PortMin != 30000 || nodeSpec(t, r2, 655) != "10000-65535" {
+}
+
+// The exit's own Reality guard ports (here 30999 / 30998 inside 30000-30999,
+// like Bestvm US after its first landing node) and its own landing node at
+// 30000 do not make that block busy; another server's guard port still does.
+func TestChainOnlyEnableOwnGuardsNotBusy(t *testing.T) {
+	r := nativePortsFixture(t, "sqlite", "10000-65535")
+	orphanSeed(t, r, &model.LandingServer{ID: 9, Source: "native", NodeID: 655, Name: "Bestvm US", PublicHost: "203.0.113.17", PortMin: 30000, PortMax: 39999, ChainOnly: true, Status: "active", FlowType: 2, TrafficRatio: 1, MaxNodesPerUser: 3, CoreMemoryMB: 256, CoreCPUPercent: 50, Protocols: `["vless_reality_vision"]`},
+		&model.ForwardChainNode{ChainID: 6, LandingServerID: 9, NodeID: 655, Port: 1024, GuardPort: 30999, State: model.ChainNodeActive},
+		&model.LandingNode{ID: 196, UserID: 1, LandingServerID: 9, Name: "Test US", Protocol: "vless_reality_vision", Port: 30000, GuardPort: 30998, Status: "active", InboundTag: "flvxl-196"},
+		&model.Tunnel{ID: 115, Name: "Dmit Echo -> US"},
+		&model.ChainTunnel{TunnelID: 115, NodeID: 655, ChainType: "3", Port: sql.NullInt64{Int64: 31332, Valid: true}})
+	s, _, err := r.EnableLandingServerNote(655)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.ChainOnly || s.PortMin != 30000 || s.PortMax != 30999 {
+		t.Fatalf("picked %d-%d chainOnly %v", s.PortMin, s.PortMax, s.ChainOnly)
+	}
+	// Another server's guard inside 30000-30999 keeps that block busy.
+	r2 := nativePortsFixture(t, "sqlite", "10000-65535")
+	orphanSeed(t, r2, &model.LandingServer{ID: 9, Source: "native", NodeID: 655, Name: "Bestvm US", PublicHost: "203.0.113.17", PortMin: 30000, PortMax: 39999, ChainOnly: true, Status: "active", FlowType: 2, TrafficRatio: 1, MaxNodesPerUser: 3, CoreMemoryMB: 256, CoreCPUPercent: 50, Protocols: `["vless_reality_vision"]`},
+		&model.ForwardChainNode{ChainID: 6, LandingServerID: 9, NodeID: 655, Port: 1024, State: model.ChainNodeActive},
+		&model.ForwardChainNode{ChainID: 7, LandingServerID: 99, NodeID: 655, Port: 2000, GuardPort: 30500, State: model.ChainNodeActive},
+		&model.ChainTunnel{TunnelID: 115, NodeID: 655, ChainType: "3", Port: sql.NullInt64{Int64: 31332, Valid: true}})
+	s2, _, err := r2.EnableLandingServerNote(655)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s2.PortMin != 32000 || s2.PortMax != 32999 {
+		t.Fatalf("other server's guard ignored: picked %d-%d", s2.PortMin, s2.PortMax)
+	}
+}
+
+// A landing-node listener of the exit must still fit the picked block: with
+// it outside every free block the conversion is refused and nothing changes.
+func TestChainOnlyEnableLandingNodeMustFit(t *testing.T) {
+	r := nativePortsFixture(t, "sqlite", "10000-65535")
+	orphanSeed(t, r, &model.LandingServer{ID: 5, Source: "native", NodeID: 655, Name: "NexKR", PublicHost: "203.0.113.55", PortMin: 30000, PortMax: 39999, ChainOnly: true, Status: "active", FlowType: 2, TrafficRatio: 1, MaxNodesPerUser: 3, CoreMemoryMB: 256, CoreCPUPercent: 50},
+		&model.ForwardChainNode{ChainID: 1, LandingServerID: 5, NodeID: 655, Port: 1024, State: model.ChainNodeActive},
+		&model.LandingNode{ID: 77, UserID: 1, LandingServerID: 5, Name: "old", Protocol: "ss2022", Port: 30005, Status: "active", InboundTag: "flvxl-77"},
+		&model.ForwardPort{ForwardID: 1, NodeID: 655, Port: 30500},
+		&model.ForwardPort{ForwardID: 1, NodeID: 655, Port: 34060})
+	if _, err := r.EnableLandingServer(655); err == nil {
+		t.Fatal("chain-only enable must not drop its landing node out of range")
+	}
+	cur, _ := r.GetLandingServer(5)
+	if !cur.ChainOnly || cur.PortMin != 30000 || nodeSpec(t, r, 655) != "10000-65535" {
 		t.Fatalf("refused chain-only enable changed state: %+v", cur)
 	}
 }

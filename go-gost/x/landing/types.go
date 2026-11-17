@@ -87,7 +87,8 @@ type Node struct {
 	MaxTotalConnections int64   `json:"max_total_connections,omitempty"`
 	SS2022              *SS2022 `json:"ss2022,omitempty"`
 	VLESS               *VLESS  `json:"vless,omitempty"`
-	// AnyTLS (plan 250, ChainVersion 2): only on chain nodes (loopback).
+	// AnyTLS (plan 250, ChainVersion 2): chain nodes (loopback); plan 274
+	// (landing_anytls 1): also a public landing node.
 	AnyTLS *AnyTLS `json:"anytls,omitempty"`
 	// VLESSEnc (plan 253, landing_vless_enc 1): a public VLESS Encryption node.
 	VLESSEnc *VLESSEnc `json:"vless_enc,omitempty"`
@@ -130,8 +131,15 @@ func validConnMode(mode string) bool { return mode == "" || mode == "total" || m
 // chain copy left there; the panel sends it only to agents reporting ≥ 3.
 const ChainVersion = 3
 
-// ProtocolAnyTLS is the AnyTLS chain-node protocol (plan 250).
+// ProtocolAnyTLS is the AnyTLS chain-node protocol (plan 250), and since plan
+// 274 also a public landing-node protocol.
 const ProtocolAnyTLS = "anytls"
+
+// AnyTLSVersion is reported as landing_anytls: this agent applies public
+// AnyTLS landing nodes (plan 274; the same inbound as a chain node, listening
+// on all addresses). Older agents reject them together with the whole desired
+// state, so the panel sends them only to agents reporting ≥ 1.
+const AnyTLSVersion = 1
 
 // ChainListen is the only listen address a chain node may use: the tunnel's
 // exit relay dials it locally, nothing outside the server can reach it.
@@ -338,7 +346,9 @@ func (n Node) validateChain() error {
 			return fmt.Errorf("loopback landing node without chain upstream")
 		}
 		if n.Protocol == ProtocolAnyTLS {
-			return fmt.Errorf("AnyTLS is only supported on chain nodes")
+			// Plan 274: a public AnyTLS landing node. Full check (key pair
+			// parse) once per desired state, as for chain nodes.
+			return n.AnyTLS.validate()
 		}
 		return nil
 	}
@@ -459,8 +469,17 @@ func (n Node) inbound() (map[string]any, error) {
 		}
 		inbound["protocol"] = ProtocolAnyTLS
 		inbound["settings"] = map[string]any{"users": []any{map[string]any{"password": a.Password, "email": n.InboundTag}}}
-		inbound["streamSettings"] = map[string]any{"network": "tcp", "security": "tls", "tlsSettings": map[string]any{"minVersion": "1.2", "alpn": []string{"h2", "http/1.1"},
+		stream := map[string]any{"network": "tcp", "security": "tls", "tlsSettings": map[string]any{"minVersion": "1.2", "alpn": []string{"h2", "http/1.1"},
 			"certificates": []any{map[string]any{"certificate": pemLines(a.CertificatePEM), "key": pemLines(a.KeyPEM)}}}}
+		if n.Listen == "" {
+			// Plan 274: a public AnyTLS node (端口转发 rules pre-dial it from
+			// their warm pool) defers accept like a guarded Reality node, so a
+			// silent pooled conn outlasts the pool (the Core's 120 s handshake
+			// starts only with the ClientHello). Loopback chain nodes are dialed
+			// per stream and keep their rendering byte for byte.
+			stream["sockopt"] = deferAcceptSockopt()
+		}
+		inbound["streamSettings"] = stream
 	default:
 		return nil, fmt.Errorf("unsupported landing protocol")
 	}

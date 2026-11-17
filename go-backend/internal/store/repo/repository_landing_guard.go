@@ -34,6 +34,27 @@ func landingGuardPortsOnNode(tx *gorm.DB, nodeID int64) ([]int, error) {
 	return append(ports, chain...), nil
 }
 
+// landingGuardPortsOfOthers: as landingGuardPortsOnNode, without the guard
+// ports of server serverID itself (plan 274: a server's own guards follow its
+// range — EnsureLandingGuardPorts moves them into it — so they never make a
+// block of its own range busy).
+func landingGuardPortsOfOthers(tx *gorm.DB, nodeID, serverID int64) ([]int, error) {
+	if serverID <= 0 {
+		return landingGuardPortsOnNode(tx, nodeID)
+	}
+	var ports []int
+	if err := tx.Model(&model.LandingNode{}).Joins("JOIN landing_server ON landing_server.id = landing_node.landing_server_id").
+		Where("landing_server.node_id = ? AND landing_server.source = ? AND landing_server.id <> ? AND landing_node.guard_port > 0", nodeID, "native", serverID).
+		Pluck("landing_node.guard_port", &ports).Error; err != nil {
+		return nil, err
+	}
+	var chain []int
+	if err := tx.Model(&model.ForwardChainNode{}).Where("node_id = ? AND landing_server_id <> ? AND guard_port > 0", nodeID, serverID).Pluck("guard_port", &chain).Error; err != nil {
+		return nil, err
+	}
+	return append(ports, chain...), nil
+}
+
 func guardGroupKey(dest string, names []string) string {
 	norm := make([]string, 0, len(names))
 	for _, n := range names {

@@ -1171,11 +1171,15 @@ func (r *Repository) ListNodes(opts *ListNodesOptions) ([]map[string]interface{}
 	items := make([]map[string]interface{}, 0, len(nodes))
 	for _, n := range nodes {
 		landingID := int64(0)
+		landingChainOnly := false
 		if landing, err := r.GetLandingServerForNode(n.ID); err == nil && landing != nil {
 			landingID = landing.ID
+			// Plan 274: a chain-only exit (plan 108) is not a public landing
+			// yet; the node page offers 「启用为落地」 (converts it).
+			landingChainOnly = landing.ChainOnly
 		}
 		items = append(items, map[string]interface{}{
-			"landingSupported": n.LandingCapable && n.ID != 36, "landingServerId": landingID, "defaultUserQuotaBytes": n.DefaultUserQuotaBytes,
+			"landingSupported": n.LandingCapable && n.ID != 36, "landingServerId": landingID, "landingChainOnly": landingChainOnly, "defaultUserQuotaBytes": n.DefaultUserQuotaBytes,
 			"lineMachine": n.LineMachine, "landingChain": n.LandingChain,
 			"machineProtectEnabled": n.MachineProtectEnabled, "machineMaxTotal": n.MachineMaxTotal,
 			"machineTwBuckets": n.MachineTWBuckets, "machineCloseWaitSeconds": n.MachineCloseWaitSeconds,

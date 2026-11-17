@@ -112,10 +112,12 @@ func (r *Repository) EnableLandingServerNote(nodeID int64) (*model.LandingServer
 				existing.UpdatedTime = time.Now().UnixMilli()
 				// Now public: reserve its range like a fresh enable (plan 139);
 				// a busy range moves to a free block that still holds the
-				// exit's chain-node / landing-node listeners (plan 216).
+				// exit's landing-node listeners (plan 216). Its chain-node
+				// listeners (127.0.0.1, picked from 1024-65535, plan 225) keep
+				// their ports and never constrain the block (plan 274).
 				lo, hi := activeLandingRange(&existing)
 				if lo > 0 && existing.Source == "native" {
-					own, err := landingServerOwnPorts(tx, existing.ID)
+					own, err := landingServerPublicPorts(tx, existing.ID)
 					if err != nil {
 						return err
 					}
@@ -159,17 +161,16 @@ func (r *Repository) EnableLandingServerNote(nodeID int64) (*model.LandingServer
 	return &s, note, err
 }
 
-// landingServerOwnPorts are the listener ports a landing server already hands
-// out (landing nodes + chain nodes).
-func landingServerOwnPorts(tx *gorm.DB, serverID int64) ([]int, error) {
-	var ports, chain []int
+// landingServerPublicPorts are the public listener ports a landing server
+// already hands out (its landing nodes). Chain-node listeners are loopback
+// only (plan 108) and live anywhere in 1024-65535 (plan 225), so they are not
+// part of the public range (plan 274).
+func landingServerPublicPorts(tx *gorm.DB, serverID int64) ([]int, error) {
+	var ports []int
 	if err := tx.Model(&model.LandingNode{}).Where("landing_server_id = ?", serverID).Pluck("port", &ports).Error; err != nil {
 		return nil, err
 	}
-	if err := tx.Model(&model.ForwardChainNode{}).Where("landing_server_id = ?", serverID).Pluck("port", &chain).Error; err != nil {
-		return nil, err
-	}
-	return append(ports, chain...), nil
+	return ports, nil
 }
 func ValidateLandingServer(s *model.LandingServer) error { return validateLandingServer(s, nil) }
 
@@ -246,9 +247,10 @@ func validateLandingServer(s *model.LandingServer, keep map[string]bool) error {
 			return errors.New("协议模板无效")
 		}
 		// Plan 121: the extra protocols need the shared Core of a capable share
-		// (plan 253: VLESS Encryption also runs on native landings).
+		// (plan 253: VLESS Encryption, plan 274: AnyTLS also run on native
+		// landings).
 		if s.Source != "shared" && !nativeLandingProtocol(p) {
-			return errors.New("AnyTLS / Snell / Mieru 目前只支持妙妙屋共享服务器")
+			return errors.New("Snell / Mieru 目前只支持妙妙屋共享服务器")
 		}
 	}
 	if err := validateLandingProtocolDefaults(s); err != nil {
@@ -337,13 +339,21 @@ func (r *Repository) SaveLandingServerOpts(s *model.LandingServer, groups []int6
 		if err := validateLandingServer(s, keep); err != nil {
 			return err
 		}
-		// Plan 253: switching VLESS Encryption on for a native server needs an
-		// agent that runs it (an enabled one stays on across an agent downgrade;
-		// its nodes are withheld from that agent).
-		if s.Source == "native" && !keep[landingcustom.ProtocolVLESSEnc] && landingServerHasProtocol(s, landingcustom.ProtocolVLESSEnc) {
-			var native model.Node
-			if err := tx.Select("id", "landing_vless_enc").First(&native, s.NodeID).Error; err != nil || !NativeVLESSEncSupported(native.LandingVLESSEnc) {
-				return errors.New(VLESSEncAgentReason + "，暂不能启用")
+		// Plan 253 / 274: switching VLESS Encryption or AnyTLS on for a native
+		// server needs an agent that runs it (an enabled one stays on across an
+		// agent downgrade; its nodes are withheld from that agent).
+		if s.Source == "native" {
+			for _, p := range []string{landingcustom.ProtocolVLESSEnc, landingcustom.ProtocolAnyTLS} {
+				if keep[p] || !landingServerHasProtocol(s, p) {
+					continue
+				}
+				var native model.Node
+				if err := tx.Select("id", "landing_vless_enc", "landing_anytls").First(&native, s.NodeID).Error; err != nil {
+					return errors.New(nativeProtocolAgentReason(p, LandingAgentProtocols{}) + "，暂不能启用")
+				}
+				if reason := nativeProtocolAgentReason(p, NodeLandingProtocols(&native)); reason != "" {
+					return errors.New(reason + "，暂不能启用")
+				}
 			}
 		}
 		if s.ChainOnly && len(groups) > 0 {
@@ -773,6 +783,7 @@ func (r *Repository) createLandingNode(userID, serverID int64, name, protocol st
 			return errors.New("节点 36 禁止启用落地")
 		}
 		agentVLESSEnc := 0
+		var agentCaps LandingAgentProtocols
 		if s.Source == "native" {
 			var native model.Node
 			if err := tx.First(&native, s.NodeID).Error; err != nil {
@@ -782,6 +793,7 @@ func (r *Repository) createLandingNode(userID, serverID int64, name, protocol st
 				return errors.New("节点程序需升级")
 			}
 			agentVLESSEnc = native.LandingVLESSEnc
+			agentCaps = NodeLandingProtocols(&native)
 		} else if !SharedLandingAvailable(&s) {
 			return errors.New("妙妙屋共享已暂停、撤销或额度用完")
 		}
@@ -815,6 +827,9 @@ func (r *Repository) createLandingNode(userID, serverID int64, name, protocol st
 			return errors.New("该服务器未启用此协议")
 		}
 		if err := checkExtraProtocolCreate(&s, protocol); err != nil {
+			return err
+		}
+		if err := checkNativeAnyTLSCreate(&s, protocol, agentCaps); err != nil {
 			return err
 		}
 		if isVLESSEnc(protocol) {

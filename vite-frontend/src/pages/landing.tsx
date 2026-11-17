@@ -24,10 +24,10 @@ import { LandingTone, Pill, ProtocolPill } from "./landing/pill";
 import {
   LandingLink,
   LandingNode,
+  LANDING_EXTRA_PROTOCOLS,
   LandingServer,
   MIERU_UDP_HINT,
   deleteLandingNode,
-  isLandingExtraProtocol,
   isMieruUdp,
   landingCreatableProtocols,
   landingDate,
@@ -674,15 +674,15 @@ export default function LandingPage() {
                 : "选择获授权的服务器，创建自己的 SS2022 或 VLESS 节点"}
               {!admin &&
                 (() => {
-                  // Plan 253: VLESS Encryption joins the same hint.
+                  // Plan 253: VLESS Encryption joins the same hint; plan 274:
+                  // only the extras some server really offers.
+                  const extras = LANDING_EXTRA_PROTOCOLS.filter((protocol) =>
+                    servers.some((server) =>
+                      landingCreatableProtocols(server).includes(protocol),
+                    ),
+                  ).map(landingProtocolLabel);
                   const more = [
-                    ...(servers.some((server) =>
-                      landingCreatableProtocols(server).some(
-                        isLandingExtraProtocol,
-                      ),
-                    )
-                      ? ["AnyTLS / Snell / Mieru"]
-                      : []),
+                    ...(extras.length ? [extras.join(" / ")] : []),
                     ...(servers.some((server) =>
                       landingCreatableProtocols(server).includes("vless_enc"),
                     )

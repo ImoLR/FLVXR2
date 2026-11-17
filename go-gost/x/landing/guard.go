@@ -172,8 +172,25 @@ func guardRules(groups map[int]*guardGroup) []any {
 // the Core's fixed 200 ms sniffing window to see the ClientHello; deferring the
 // accept keeps a ClientHello that arrives late (lost first segment, slow
 // client) inside that window. Clients that never send are accepted after the
-// timeout as before and then closed by REALITY's own handshake timeout.
-const guardDeferAccept = "5"
+// timeout and then closed at once (the guard sees no ClientHello).
+//
+// Plan 274: the timeout must outlast an entry's warm pool (端口转发 to this
+// landing pre-dials silent conns and recycles them at ≤ 110 s, warmpool
+// ageMax), so it is ≥ 130 s, as agreed with mmwx (same value on shared
+// servers). Linux stores it as a SYN-ACK retransmit count (secs_to_retrans,
+// 1 s doubling, TCP_RTO_MAX 120 s): 130 → 8 retransmits, a silent conn is
+// accepted (and closed) only after 1+2+…+64+120 = 247 s (measured in the
+// plan 274 lab). Until then it is a request socket in the listener's queue:
+// never accepted by the Core, so never counted as a connection, an online IP
+// or a scan target. Data (a real ClientHello) is accepted at once, as before.
+const guardDeferAccept = "130"
+
+// deferAcceptSockopt is the stream sockopt that sets guardDeferAccept on an
+// inbound's listener (guarded Reality nodes; plan 274: public AnyTLS nodes,
+// whose clients also always send first, get the same hold).
+func deferAcceptSockopt() map[string]any {
+	return map[string]any{"customSockopt": []any{map[string]any{"system": "linux", "network": "tcp", "level": "6", "opt": "9", "value": guardDeferAccept, "type": "int"}}}
+}
 
 // withGuardDest points a rendered Reality inbound at its guard.
 func withGuardDest(cfg map[string]any, port int) map[string]any {
@@ -192,7 +209,7 @@ func withGuardDest(cfg map[string]any, port int) map[string]any {
 		copyStream[k] = v
 	}
 	copyStream["realitySettings"] = copyReality
-	copyStream["sockopt"] = map[string]any{"customSockopt": []any{map[string]any{"system": "linux", "network": "tcp", "level": "6", "opt": "9", "value": guardDeferAccept, "type": "int"}}}
+	copyStream["sockopt"] = deferAcceptSockopt()
 	out := map[string]any{}
 	for k, v := range cfg {
 		out[k] = v

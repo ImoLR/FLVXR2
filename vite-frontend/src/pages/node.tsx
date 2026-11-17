@@ -226,6 +226,7 @@ interface Node extends LeiKwanNodeDetection {
   canDeploy?: boolean;
   landingSupported?: boolean;
   landingServerId?: number;
+  landingChainOnly?: boolean;
   defaultUserQuotaBytes?: number;
   lineMachine?: boolean;
   landingChain?: number;

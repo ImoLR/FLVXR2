@@ -99,11 +99,12 @@ func TestNativeVLESSEncLanding(t *testing.T) {
 				t.Fatal("Surge has no VLESS")
 			}
 			// What the agent gets: only from landing_vless_enc 1 on.
-			if NativeLandingNotSent(1)("vless_enc") || !NativeLandingNotSent(0)("vless_enc") || NativeLandingNotSent(0)("ss2022") || !NativeLandingNotSent(1)("anytls") {
+			ve1, ve0 := LandingAgentProtocols{VLESSEnc: 1}, LandingAgentProtocols{}
+			if NativeLandingNotSent(ve1)("vless_enc") || !NativeLandingNotSent(ve0)("vless_enc") || NativeLandingNotSent(ve0)("ss2022") || !NativeLandingNotSent(ve1)("anytls") || !NativeLandingNotSent(ve1)("snell") {
 				t.Fatal("native filter")
 			}
 			srv := reloadServer(t, r, s.ID)
-			if LandingWithheldAgentFunc(srv, 1)(n) || !LandingWithheldAgentFunc(srv, 0)(n) || LandingWithheldFunc(srv)(n) {
+			if LandingWithheldAgentFunc(srv, ve1)(n) || !LandingWithheldAgentFunc(srv, ve0)(n) || LandingWithheldFunc(srv)(n) {
 				t.Fatal("native withheld")
 			}
 			d := VLESSEncDesired(*n)

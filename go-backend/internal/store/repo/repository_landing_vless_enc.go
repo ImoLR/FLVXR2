@@ -140,12 +140,10 @@ func newUUIDv4() (string, error) {
 }
 
 // NativeLandingNotSent returns the protocol filter of a native agent: the
-// protocols its desired state must leave out (AnyTLS / Snell / Mieru always,
-// VLESS Encryption below LandingVLESSEncVersion). Scan guard targets, user
-// groups and nodes all use it, so they always describe the same node set.
-func NativeLandingNotSent(agentVLESSEnc int) func(protocol string) bool {
-	vlessEnc := NativeVLESSEncSupported(agentVLESSEnc)
-	return func(p string) bool {
-		return landingcustom.IsExtraProtocol(p) || (isVLESSEnc(p) && !vlessEnc)
-	}
+// protocols its desired state must leave out (Snell / Mieru always, VLESS
+// Encryption below LandingVLESSEncVersion, AnyTLS below LandingAnyTLSVersion,
+// plan 274). Scan guard targets, user groups and nodes all use it, so they
+// always describe the same node set.
+func NativeLandingNotSent(agent LandingAgentProtocols) func(protocol string) bool {
+	return func(p string) bool { return !agent.nativeSends(p) }
 }

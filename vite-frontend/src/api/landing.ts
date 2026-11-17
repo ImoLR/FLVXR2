@@ -69,6 +69,8 @@ export const vlessEncUnavailableReason = (server: {
   sharedCaps?: SharedLandingCaps;
   vlessEncAvailable?: boolean;
   vlessEncReason?: string;
+  anytlsAvailable?: boolean;
+  anytlsReason?: string;
 }) => {
   if (server.vlessEncAvailable === false)
     return server.vlessEncReason || "该服务器暂不支持 VLESS Encryption";
@@ -79,6 +81,15 @@ export const vlessEncUnavailableReason = (server: {
 
   return "";
 };
+/** Plan 274: why AnyTLS is unavailable on a native server ("" = usable). */
+export const nativeAnyTLSUnavailableReason = (server: {
+  source: string;
+  anytlsAvailable?: boolean;
+  anytlsReason?: string;
+}) =>
+  server.source !== "shared" && server.anytlsAvailable === false
+    ? server.anytlsReason || "该服务器暂不支持 AnyTLS"
+    : "";
 /** Protocols a node can be created with right now on this server. */
 export const landingCreatableProtocols = (server: {
   source: string;
@@ -86,13 +97,17 @@ export const landingCreatableProtocols = (server: {
   sharedCaps?: SharedLandingCaps;
   vlessEncAvailable?: boolean;
   vlessEncReason?: string;
+  anytlsAvailable?: boolean;
+  anytlsReason?: string;
 }) =>
   (server.protocols || []).filter((protocol) =>
     protocol === "vless_enc"
       ? !vlessEncUnavailableReason(server)
-      : !isLandingExtraProtocol(protocol) ||
-        (server.source === "shared" &&
-          Boolean(sharedProtocolCap(server, protocol))),
+      : protocol === "anytls" && server.source !== "shared"
+        ? !nativeAnyTLSUnavailableReason(server)
+        : !isLandingExtraProtocol(protocol) ||
+          (server.source === "shared" &&
+            Boolean(sharedProtocolCap(server, protocol))),
   );
 // Plan 224: a tunnel with 屏蔽 TLS / 屏蔽 HTTP closes connections that show
 // that feature. Which landing protocols show it is decided by the backend
@@ -140,6 +155,8 @@ export interface LandingServer {
   /** Plan 253: VLESS Encryption usable now (native agent / share caps). */
   vlessEncAvailable?: boolean;
   vlessEncReason?: string;
+  anytlsAvailable?: boolean;
+  anytlsReason?: string;
   /** Plan 224: entry-filter features per protocol a new node would have. */
   protocolFilterFeatures?: Record<string, string[]>;
   sharedCaps?: SharedLandingCaps;

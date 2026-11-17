@@ -11,6 +11,7 @@ export interface LeiKwanNodeDetection {
 export interface NodeApiItem extends LeiKwanNodeDetection {
   landingSupported?: boolean;
   landingServerId?: number;
+  landingChainOnly?: boolean;
   defaultUserQuotaBytes?: number;
   region?: string;
   regionCity?: string;

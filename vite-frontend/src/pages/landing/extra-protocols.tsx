@@ -4,6 +4,7 @@ import {
   MIERU_UDP_HINT,
   isMieruUdp,
   landingProtocolLabel,
+  nativeAnyTLSUnavailableReason,
   sharedProtocolCap,
 } from "@/api/landing";
 import { Checkbox } from "@/shadcn-bridge/heroui/checkbox";
@@ -12,7 +13,8 @@ import { Select, SelectItem } from "@/shadcn-bridge/heroui/select";
 
 // Plan 121: AnyTLS / Snell / Mieru on 妙妙屋共享 servers. Hidden unless the
 // share advertises them (contract landing-protocols-v1) or one is already
-// enabled; defaults apply to nodes created afterwards.
+// enabled; defaults apply to nodes created afterwards. Plan 274: native
+// servers get the same box with AnyTLS only (their agent must run it).
 export function ExtraProtocolSettings({
   server,
   form,
@@ -22,10 +24,17 @@ export function ExtraProtocolSettings({
   form: LandingServer;
   set: <K extends keyof LandingServer>(key: K, value: LandingServer[K]) => void;
 }) {
-  if (server.source !== "shared") return null;
-  const extras = LANDING_EXTRA_PROTOCOLS.filter(
-    (protocol) =>
-      sharedProtocolCap(server, protocol) || form.protocols.includes(protocol),
+  const shared = server.source === "shared";
+  const anytlsReason = shared ? "" : nativeAnyTLSUnavailableReason(server);
+  // usable: the share advertises it / the native agent runs it (AnyTLS only).
+  const usable = (protocol: string) =>
+    shared
+      ? Boolean(sharedProtocolCap(server, protocol))
+      : protocol === "anytls" && !anytlsReason;
+  const extras = LANDING_EXTRA_PROTOCOLS.filter((protocol) =>
+    shared
+      ? usable(protocol) || form.protocols.includes(protocol)
+      : protocol === "anytls",
   );
 
   if (!extras.length) return null;
@@ -42,10 +51,13 @@ export function ExtraProtocolSettings({
   return (
     <div className="space-y-3 rounded-lg border border-divider p-3">
       <div>
-        <p className="text-sm font-medium">扩展协议（妙妙屋共享）</p>
+        <p className="text-sm font-medium">
+          {shared ? "扩展协议（妙妙屋共享）" : "扩展协议"}
+        </p>
         <p className="text-xs text-default-500">
-          运行在 FLVX 独立的 Core 中，用户、连接数、在线 IP、流量和整机保护都由
-          FLVX 管理，不影响妙妙屋官方已有的入站。
+          {shared
+            ? "运行在 FLVX 独立的 Core 中，用户、连接数、在线 IP、流量和整机保护都由 FLVX 管理，不影响妙妙屋官方已有的入站。"
+            : "和 SS2022 / Reality 节点运行在同一个落地 Core 中，连接数、在线 IP、流量和整机保护照常生效。线路机可用，屏蔽 TLS 的隧道不可用。"}
         </p>
       </div>
       <div className="flex flex-wrap gap-4">
@@ -56,7 +68,7 @@ export function ExtraProtocolSettings({
           return (
             <Checkbox
               key={protocol}
-              isDisabled={!cap && !enabled}
+              isDisabled={!usable(protocol) && !enabled}
               isSelected={enabled}
               onValueChange={(checked) =>
                 set(
@@ -76,22 +88,30 @@ export function ExtraProtocolSettings({
       {extras
         .filter(
           (protocol) =>
-            form.protocols.includes(protocol) &&
-            !sharedProtocolCap(server, protocol),
+            (shared && form.protocols.includes(protocol) && !usable(protocol)) ||
+            (!shared && Boolean(anytlsReason)),
         )
         .map((protocol) => (
           <p
             key={protocol}
             className="rounded-lg bg-warning-50 p-2 text-xs text-warning"
           >
-            妙妙屋端暂不支持 {landingProtocolLabel(protocol)}
-            （该服务器 Helper
-            需升级）：已有节点暂停下发，端口和凭据保留，恢复后自动重新下发。
+            {shared
+              ? `妙妙屋端暂不支持 ${landingProtocolLabel(protocol)}（该服务器 Helper 需升级）：已有节点暂停下发，端口和凭据保留，恢复后自动重新下发。`
+              : `AnyTLS 暂不可用：${anytlsReason}${
+                  form.protocols.includes(protocol)
+                    ? "（已有节点暂停下发，端口和凭据保留）"
+                    : ""
+                }`}
           </p>
         ))}
       {form.protocols.includes("anytls") && (
         <Input
-          description="留空时使用公网地址（域名才发送 SNI）；证书由面板自签，客户端用证书指纹校验"
+          description={
+            shared
+              ? "留空时使用公网地址（域名才发送 SNI）；证书由面板自签，客户端用证书指纹校验"
+              : "留空时：公网地址是域名就用它，否则用 Reality 伪装域名；证书由面板自签，客户端用证书指纹校验"
+          }
           label="AnyTLS SNI（可留空）"
           value={form.anytlsServerName || ""}
           variant="bordered"

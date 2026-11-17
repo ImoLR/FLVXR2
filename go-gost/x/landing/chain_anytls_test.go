@@ -96,11 +96,13 @@ func TestChainAnyTLSValidation(t *testing.T) {
 	}
 	otherCert, _, _ := testAnyTLSCert(t, "other.example.com")
 	mutate := map[string]func(n *Node){
-		"public AnyTLS":        func(n *Node) { n.Listen, n.Chain = "", nil },
-		"missing credentials":  func(n *Node) { n.AnyTLS = nil },
-		"short password":       func(n *Node) { n.AnyTLS.Password = "short" },
-		"password with symbol": func(n *Node) { n.AnyTLS.Password = "Abcdefghijklmnop1234567!" },
-		"missing key":          func(n *Node) { n.AnyTLS.KeyPEM = "" },
+		// Plan 274: a public AnyTLS node (no listen, no chain) is valid now,
+		// see native_anytls_test.go; a loopback one without chain is not.
+		"loopback without chain": func(n *Node) { n.Chain = nil },
+		"missing credentials":    func(n *Node) { n.AnyTLS = nil },
+		"short password":         func(n *Node) { n.AnyTLS.Password = "short" },
+		"password with symbol":   func(n *Node) { n.AnyTLS.Password = "Abcdefghijklmnop1234567!" },
+		"missing key":            func(n *Node) { n.AnyTLS.KeyPEM = "" },
 		"garbage certificate": func(n *Node) {
 			n.AnyTLS.CertificatePEM = "-----BEGIN CERTIFICATE-----\nAAAA\n-----END CERTIFICATE-----\n"
 		},

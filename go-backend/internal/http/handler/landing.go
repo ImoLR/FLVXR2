@@ -221,6 +221,15 @@ func (h *Handler) landingServerViewWith(s model.LandingServer, admin bool, catal
 	if vlessEncReason != "" {
 		v["vlessEncReason"] = vlessEncReason
 	}
+	// Plan 274: AnyTLS on a native server needs an agent that runs it (shared
+	// servers keep deciding from the share's caps).
+	if s.Source != "shared" {
+		ok := agent != nil && repo.NativeAnyTLSSupported(agent.LandingAnyTLS)
+		v["anytlsAvailable"] = ok
+		if !ok {
+			v["anytlsReason"] = repo.AnyTLSAgentReason
+		}
+	}
 	// Users only see the read-only summary, never profile internals.
 	v["egressLabel"] = catalog.serverLabel(s)
 	if !admin {

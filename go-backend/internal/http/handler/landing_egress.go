@@ -191,7 +191,7 @@ func landingEgressInput(d *repo.LandingEgressData) landingegress.CompileInput {
 	in.Markers = d.Server.Source == "native" && d.NodeGuard >= landingegress.LayersVersion
 	in.Outbounds, in.NoIPv4, in.NoIPv6 = d.Outbounds, d.NoIPv4, d.NoIPv6
 	in.AbuseOff = d.Abuse
-	withheld := repo.LandingWithheldAgentFunc(&d.Server, d.NodeVLESSEnc)
+	withheld := repo.LandingWithheldAgentFunc(&d.Server, d.NodeProtocols)
 	for _, n := range d.Nodes {
 		// Withheld nodes (plan 121) are not in the desired state either.
 		if n.DeletePending || withheld(&n) {
@@ -220,7 +220,7 @@ func landingNodeRulesReady(d *repo.LandingEgressData) bool {
 // coveredLandingTags lists inbound tags of nodes on a non-default profile.
 func coveredLandingTags(d *repo.LandingEgressData) []string {
 	tags := []string{}
-	withheld := repo.LandingWithheldAgentFunc(&d.Server, d.NodeVLESSEnc)
+	withheld := repo.LandingWithheldAgentFunc(&d.Server, d.NodeProtocols)
 	for _, n := range d.Nodes {
 		// Chained nodes (plan 177) are blocked too: never direct by accident.
 		if !n.DeletePending && !withheld(&n) && (landingegress.EffectiveProfile(d.Server.RouteProfileID, n.RouteProfileID) != 0 || n.ChainExternalID > 0) {

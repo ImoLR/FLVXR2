@@ -60,11 +60,7 @@ func (r *Repository) LandingNodeLinks(n model.LandingNode) ([]LandingLink, error
 	if s == nil {
 		return nil, errors.New("落地服务器不存在")
 	}
-	udp := true
-	if landingcustom.IsExtraProtocol(n.Protocol) || (isVLESSEnc(n.Protocol) && s.Source == "shared") {
-		cp, _ := SharedProtocolCap(s, n.Protocol)
-		udp = cp.UDP
-	}
+	udp := landingProtocolUDP(s, n)
 	link := func(name, kind, host string, port int) LandingLink {
 		l := LandingLink{Name: name, URL: LandingURL(n, host, port), Kind: kind}
 		if landingcustom.IsCapProtocol(n.Protocol) {
@@ -488,10 +484,5 @@ func LandingClientConfigAt(n model.LandingNode, s *model.LandingServer, host str
 	if s == nil || !landingcustom.IsCapProtocol(n.Protocol) {
 		return "", "", ""
 	}
-	udp := true
-	if landingcustom.IsExtraProtocol(n.Protocol) || (isVLESSEnc(n.Protocol) && s.Source == "shared") {
-		cp, _ := SharedProtocolCap(s, n.Protocol)
-		udp = cp.UDP
-	}
-	return LandingClientConfigs(n, host, port, udp)
+	return LandingClientConfigs(n, host, port, landingProtocolUDP(s, n))
 }

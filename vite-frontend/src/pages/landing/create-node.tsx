@@ -292,7 +292,10 @@ export function CreateLandingNodeDialog({
                     server.anytlsServerName ||
                     (/^[0-9.]+$/.test(server.publicHost) ||
                     server.publicHost.includes(":")
-                      ? ""
+                      ? // Plan 274: native IP-only servers send the Reality name.
+                        server.source === "shared"
+                        ? ""
+                        : server.realityServerNames?.[0] || ""
                       : server.publicHost),
                   version: server.snellVersion,
                   obfs: server.snellObfs,
@@ -305,7 +308,8 @@ export function CreateLandingNodeDialog({
                   {MIERU_UDP_HINT}
                 </p>
               )}
-              {!sharedProtocolCap(server, protocol)?.udp && (
+              {server.source === "shared" &&
+                !sharedProtocolCap(server, protocol)?.udp && (
                 <p>
                   该服务器的 {landingProtocolLabel(protocol)} 暂只支持 TCP。
                 </p>

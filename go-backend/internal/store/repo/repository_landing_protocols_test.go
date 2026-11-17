@@ -251,12 +251,20 @@ func TestExtraProtocolValidation(t *testing.T) {
 	}
 }
 
+// Snell / Mieru stay shared-only; AnyTLS on a native server needs an agent
+// with landing_anytls (plan 274, TestNativeAnyTLSLanding).
 func TestNativeLandingRefusesExtraProtocols(t *testing.T) {
 	r, s := landingRepoFixture(t, "sqlite")
 	x := *s
 	x.Protocols = `["ss2022","anytls"]`
-	if err := r.SaveLandingServer(&x, []int64{701}); err == nil || !strings.Contains(err.Error(), "妙妙屋共享") {
-		t.Fatalf("native accepted anytls: %v", err)
+	if err := r.SaveLandingServer(&x, []int64{701}); err == nil || !strings.Contains(err.Error(), AnyTLSAgentReason) {
+		t.Fatalf("native accepted anytls on an old agent: %v", err)
+	}
+	for _, p := range []string{"snell", "mieru"} {
+		x.Protocols = `["ss2022","` + p + `"]`
+		if err := r.SaveLandingServer(&x, []int64{701}); err == nil || !strings.Contains(err.Error(), "妙妙屋共享") {
+			t.Fatalf("native accepted %s: %v", p, err)
+		}
 	}
 	if _, err := r.CreateLandingNode(501, s.ID, "x", "mieru", false); err == nil {
 		t.Fatal("native created mieru")

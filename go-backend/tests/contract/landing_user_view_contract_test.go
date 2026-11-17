@@ -35,6 +35,10 @@ var landingAdminServerKeysNative = []string{"anytlsServerName", "availableUntil"
 // Plan 211: shared servers also carry the 妙妙屋 share cap (read-only).
 var landingAdminServerKeysShared = append([]string{"busyPortCount", "shareMaxConnections", "sharedAvailable", "sharedCaps", "sharedNotice"}, landingAdminServerKeysNative...)
 
+// Plan 274: native servers also say whether their agent runs AnyTLS (the
+// fixture's agent does not, so the reason is there too).
+var landingAdminServerKeysNativeOnly = append([]string{"anytlsAvailable", "anytlsReason"}, landingAdminServerKeysNative...)
+
 // Plan 132: a non-admin's server list shows only the caller's own node count
 // and how many more they can create (both caps, counted like node creation);
 // server-wide aggregates, admin limits and 妙妙屋 sync internals are absent.
@@ -185,7 +189,7 @@ func TestLandingUserServerViewContract(t *testing.T) {
 
 			// Admin view: same field set as before, server-wide aggregates.
 			adminViews := list(admin)
-			for id, want := range map[int64][]string{native.ID: landingAdminServerKeysNative, shared.ID: landingAdminServerKeysShared} {
+			for id, want := range map[int64][]string{native.ID: landingAdminServerKeysNativeOnly, shared.ID: landingAdminServerKeysShared} {
 				got := []string{}
 				for k := range adminViews[id] {
 					got = append(got, k)

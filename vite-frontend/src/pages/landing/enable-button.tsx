@@ -12,6 +12,7 @@ export function EnableLandingButton({
     id: number;
     landingSupported?: boolean;
     landingServerId?: number;
+    landingChainOnly?: boolean;
     isRemote?: number;
     connectionStatus?: string;
   };
@@ -21,7 +22,9 @@ export function EnableLandingButton({
 
   if (node.isRemote === 1) return null;
   const protectedHost = node.id === 36;
-  const enabled = Boolean(node.landingServerId);
+  // Plan 274: a chain-only exit (「我自己的节点」) is not a public landing yet —
+  // 「启用为落地」 converts it (the backend keeps its chain rules).
+  const enabled = Boolean(node.landingServerId) && !node.landingChainOnly;
 
   return (
     <Button
