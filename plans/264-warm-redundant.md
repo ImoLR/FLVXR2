@@ -136,3 +136,14 @@ TLS conn; plain-TCP rule pools ≈ 0.4 KB per conn lifetime ≈ 0.35 MB / day.
 - Longer pooled-conn age would cut that: age is capped at 90–110 s by the relay `readTimeout: 130s` on middles/exits.
   Raising it (e.g. 600 s → age ≈ 540 s, ≈ 5× fewer handshakes) changes relay handler metadata = re-creates every relay
   service (live conns drop) → only worth it bundled with another planned relay change, in an OTA window. Not done here.
+
+### Idle sleep 6 h → 2 h (plan 271, user 11-17 ~15:00 TW)
+- **Changed 11-17 16:02:40 TW** (panel fork.142 swap 16:02:32–16:02:40 TW): panel `warmPoolIdleSleepS` 21600 → 7200.
+  The panel keeps the last pushed SetWarmPools in memory only, so the restart re-pushed the state to every warmPool=2
+  agent (the 11 fork.138 hosts + the 4 利群入口 on fork.140) on reconnect (30/30 back within ~17 s, redeploys updated=0
+  failed=0, no `SetWarmPools failed` lines). The agent applies `idleSleepS` live (5 s tick); no rule service or chain is
+  re-created. Keys idle for > 2 h went to sleep right after 16:02:40 TW.
+- warmPool=1 agents (fork.130/131/134, Nobrand fork.126 has no pool) never get `idleSleepS` and keep their own 30 min.
+- Agent default `IdleSleepAfter` is 2 h from fork.142 on (no OTA for it; same value as the panel push).
+- **Stats:** wake misses (`wakeN`) after 16:02 TW will be higher by design (a key idle 2–6 h now sleeps and dials its
+  first stream cold). Count them apart from burst misses; compare hours before / after 16:02 TW.
