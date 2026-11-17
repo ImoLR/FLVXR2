@@ -34,10 +34,10 @@ Base: `3.0.27-fork.144` (fea5c139). Branch `feature/3.0.27-native-anytls`, workt
 - [x] 7. Agent: `guardDeferAccept` → 130, effective hold measured on a real kernel; contract-change.md for mmwx.
 - [x] 8. Audit warm pool vs Reality/TLS/AnyTLS (items 5a–d) incl. type-2 loopback dial not pooled.
 - [x] 9. Tests: go-backend `go test ./... -timeout 30m` (compare with base), go-gost/x landing+warmpool, `npm run build`.
-- [ ] 10. Lab e2e: migrated prod-DB copy (offline) + netns data plane: native AnyTLS node + mihomo/sing-box,
+- [x] 10. Lab e2e: migrated prod-DB copy (offline) + netns data plane: native AnyTLS node + mihomo/sing-box,
       regression SS2022/Reality/vless_enc + chain rules of a converted exit; guard hold / warm pool / late ClientHello.
 - [x] 11. Gallery :8791 /native-anytls/ (desktop + H5).
-- [ ] 12. Release next fork (CI, images, Latest assets); prod backup + prune + rollback script; panel upgrade; verify.
+- [x] 12. Release next fork (CI, images, Latest assets); prod backup + prune + rollback script; panel upgrade; verify.
 - [ ] 13. Night window (02:00–06:00 TW): OTA Bestvm US only; enable AnyTLS on server 9; throwaway AnyTLS node test
       with a real client; rule 624 tag state.
 - [ ] 14. RELEASE-LEDGER row 274, memory state line, summary.md.
@@ -56,3 +56,8 @@ Base: `3.0.27-fork.144` (fea5c139). Branch `feature/3.0.27-native-anytls`, workt
 - Lab B (prod-DB copy, offline): node/tunnel/forward/landing APIs identical except new fields, links of all 11 landing nodes
   and all subscriptions identical, prod pre-workaround Bestvm US conversion → 30000-30999 (= hand fix), AnyTLS on server 9,
   fork.144 paneld runs on the migrated DB.
+
+## Release
+- fork.145: tag on 5c837249, Images 44100316195, Latest (10 assets). Prod panel 11-18 00:46:12–00:46:21 TW, rollback
+  /opt/flvx-svc/rollback/pre-fork145-20261117T164611Z/rollback.sh (→ fork.144). 30/30 nodes fresh, 30 redeploys failed=0,
+  57 rules unchanged, Bestvm US chain rows active. Baseline before OTA: idle conn to Bestvm US :30000 closed after 7.6 s.
