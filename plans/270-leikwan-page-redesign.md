@@ -40,8 +40,23 @@ Panel only: no agent OTA, no DB migration.
 - [x] `go test ./...`, go vet, `npm run build`, eslint on touched files
 - [x] Lab screens: admin / granted user / no-grant user; 1440 + 390 + 360 (long name); light + dark → gallery `/leikwan-redesign-built/`
 - [x] Compare with the approved PNGs
-- [ ] Commit, push, CI green
-- [ ] Tag `3.0.27-fork.141`, Images + 10 assets, Latest
-- [ ] Prod backup + rollback script, swap panel, prune backups (keep 2)
-- [ ] Verify: nodes online, rule count, 利群 tables unchanged, page loads for admin
-- [ ] Ledger row 270, memory notes, summary
+- [x] Commit, push, CI green
+- [x] Tag `3.0.27-fork.141`, Images + 10 assets, Latest
+- [x] Prod backup + rollback script, swap panel, prune backups (keep 2)
+- [x] Verify: nodes online, rule count, 利群 tables unchanged, page loads for admin
+- [x] Ledger row 270, memory notes, summary
+
+## Release (11-17 TW)
+- Commit 50e07dc9 on `feature/3.0.27-leikwan-redesign`; CI Build Check 43986317773 green (agent, backend, PG contract, frontend).
+- Tag `3.0.27-fork.141` → 50e07dc9; Build and Push Images 43986553037 green; release Latest, not prerelease,
+  10 assets; compose images `ghcr.io/imolr/flvxr2-svc-*:3.0.27-fork.141`, `PINNED_VERSION="3.0.27-fork.141"`,
+  `REPO="ImoLR/FLVXR2"`, gost-amd64 sha256 matches.
+- Prod panel swap 08:30:05–08:30:12 TW (panel only, no agent OTA, no DB change). Prod compose kept its local
+  救命版 mount; only image tags + FLUX_VERSION changed.
+- Rollback: `/opt/flvx-svc/rollback/pre-fork141-20261117T003004Z/rollback.sh` (fork.140 image swap, DB untouched;
+  `--restore-db` = last resort). Backups kept: pre-fork140 + pre-fork141 (prune removed pre-fork139 + fork.138 images).
+- Verified: version.json fork.141 (local + public domain), backend healthy, 30/30 nodes online, 52 rules, 利群 tables
+  (line / rule / grant / pipe / account / host stable columns) identical before/after, 30 node redeploys failed=0
+  (Bestvm JP B healed one tunnel config on reconnect — normal diff redeploy, path not touched by 270), no panic / error logs, backend RSS ~30 MiB.
+  Prod page (headless, read-only): 4 专线, 7 rules, 4 入口机 运行中, 1 grant, no 旧管道 card, no JS errors.
+  User 「test」 (no grant): access granted=false, list empty, options without lines.
