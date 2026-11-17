@@ -22,8 +22,8 @@ Source: `/root/flvx-workers/runs/leikwan-qa/qa-report.md` (plan 275). Built on `
 - [x] Lab re-run s3/s3b/s8/s19/s22 + F06 timing (`runs/leikwan-qa-fix/lab-story-after.txt`)
 - [x] Gallery /root/mmwx-preview/leikwan-qa-fix/ (18 PNGs)
 - [x] Full `go test ./...` (28/28 packages, SQLite + PostgreSQL; on fork.144 and again after the rebase onto fork.146 — no failures, nothing to compare); branch CI green
-- [ ] Release (after 274 + 273 are done): rebase, tests, tag, CI, prod backup + upgrade, verify
-- [ ] Ledger + memories
+- [x] Release: rebased onto fork.146 after 274 (fork.145) + 273 (fork.146) finished; tag `3.0.27-fork.147` → 6aba41e8, Images 44159473744 green, Latest, 10 assets, gost sha256 ok; prod backup `/opt/flvx-svc/rollback/pre-fork147-20261117T202110Z/` + panel swap 04:21:11–04:21:18 TW (after the 03:45–04:20 window); verified 30/30 nodes reported, 54 rules, 利群 tables + host rev/hash identical, entryLock on with 5 exemptions, AWS HK :10019 only 百度云广州 / :10018 all 4; backups pruned to pre-fork146 + pre-fork147
+- [x] Ledger row 276 → 已发布 (fork.147); memories `fork-release-and-deploy`, `leikwan-diagnose` updated
 
 ## Lab before → after (fork.144 QA run → this branch)
 | Repro | Before (QA) | After |
@@ -45,3 +45,7 @@ Source: `/root/flvx-workers/runs/leikwan-qa/qa-report.md` (plan 275). Built on `
 - R6 agent WS reconnects cluster in the night and on releases — normal.
 - F07 side effect: an automatic 备线 an admin pauses by hand on the 规则 page is resumed within a minute while its rule is open (auto 备线 follow their rule).
 - Resource: the 1 min pass = 4–5 small DB reads (rules, users, quotas, grants, 备线 forwards); host pushes only on a block change.
+
+## Pre-deploy dry run (lab, fresh prod-DB copy, final code, no actions)
+- block reasons all empty; blocks 百度云广州 [] · 阿里广州 / 火山广州 / 火山上海 [10016, 10019] (= prod before);
+- sskeys diff 「same」 on the 3 hosts with a key file (no removal); grants unchanged.
