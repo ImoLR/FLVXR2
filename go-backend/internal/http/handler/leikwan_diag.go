@@ -143,7 +143,6 @@ func lkIngressLabel(endpoint string) string {
 
 // ---- running ----
 
-
 // lkDiagJob: one diagnose run of a rule.
 type lkDiagJob struct {
 	h        *Handler
