@@ -42,7 +42,7 @@ one dial in flight per key → after a burst the pool refills serially (~2 RTT e
 - [x] Prod panel upgrade (backup + rollback script + prune), verify agents / forwards / warmPoolState / old agents 4 per key
 - [x] Ledger row 264, OTA target list for the night worker, record.py fields, memory notes
 - [x] Agent OTA (night worker `warm-redundant-ota`, 02:00–03:30 TW 11-17) — done 02:25 TW, 11 hosts → fork.138
-- [ ] Stats after OTA + evening peak (worker `warm-redundant-stats`)
+- [x] Stats after OTA + evening peak (worker `warm-redundant-stats`) — done 11-18 01:xx TW, report runs/warm-redundant-stats/final.md
 
 ## Notes
 
@@ -147,3 +147,20 @@ TLS conn; plain-TCP rule pools ≈ 0.4 KB per conn lifetime ≈ 0.35 MB / day.
 - Agent default `IdleSleepAfter` is 2 h from fork.142 on (no OTA for it; same value as the panel push).
 - **Stats:** wake misses (`wakeN`) after 16:02 TW will be higher by design (a key idle 2–6 h now sleeps and dials its
   first stream cold). Count them apart from burst misses; compare hours before / after 16:02 TW.
+
+### Stats 11-16 16:55 → 11-18 00:50 TW (worker `warm-redundant-stats`, read-only)
+- Panel 1 h buckets are memory-only: 10 panel restarts (fork.136–145) shorten some hours; evening peak covered 19:16–23:50 TW.
+- Tunnel hops: before 86.0 % → panel-only 93.2 % → after OTA **99.76 %** (18 h, 22 211 streams / 53 misses; 6 h sleep 99.82 %,
+  2 h sleep 99.68 %). Evening peak 11-16 92.2 % (512 misses) → 11-17 **99.58 %** (29). Port forwards to normal targets 99.97 %.
+  dead = 0 everywhere; wake misses after the 2 h sleep change = 0 on normal hops.
+- Only capacity misses: vmsilo 沪日首发 → Bestvm JP B (t92) 13:50 / 19:50 / 20:50 TW = 17 / 22 / 2 at want 16 (ceiling),
+  peak5s 87 / 92 / 71, cold 56 ms. Others = single misses at peak5s ≤ 2 (not size-related).
+- Port-forward targets that close idle conns (agent 不支持, retry every 30 min): test1 third party, PQS TW :30001 (mmwx shared core
+  handshake 4 → fix rolls 11-18 02:00 TW), Boil Hinet :10018 (mmwx official xray handshake 5), AWS HK :10022 (救命版 flux_agent);
+  new rules on Bestvm US Reality :30000 / :30001 hit the landing guard DEFER_ACCEPT 5 s (plan 274 item 4).
+- Pool conns: evening 15 awake keys ≈ 177 (78 TLS + 99 TCP) ≈ 370 MB/day handshakes; day ≈ 117 / 195 MB/day.
+  vmsilo 沪日首发 agent RSS 102 MB (66 after OTA restart, 148 before at long uptime), Bestvm JP B 63 MB.
+- Fixed N per key estimate (same 4-way refill): 6 / 8 / 10 / 12 → +40 / +32 / +24 / +16 misses per 18 h (all on t92), 16 = same as
+  today but 240 conns / ≈ 463 MB/day (+35 %). Recommendation: keep adaptive 6/16; optional later with an agent change: ceiling 24
+  (MaxSize), unsupported retry with floor only + backoff; longer pooled-conn age only bundled with a relay change.
+
