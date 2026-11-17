@@ -515,8 +515,11 @@ func TestLeiKwanHostPanelSyncJSON(t *testing.T) {
 	// Through the command path: handleSync decodes the same JSON (as map data).
 	m := lkFixture(t, "baidu")
 	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	go m.runLoop(ctx)
+	loopDone := make(chan struct{})
+	// The loop must be gone before t.TempDir's cleanup removes its files
+	// (a tick still writing etc/flvx_agent made RemoveAll fail).
+	defer func() { cancel(); <-loopDone }()
+	go func() { defer close(loopDone); m.runLoop(ctx) }()
 	rep, err := m.handleSync(ctx, generic)
 	if err != nil || rep == nil {
 		t.Fatalf("handleSync: %v", err)

@@ -38,6 +38,9 @@ export interface LeiKwanGlobal {
   // Plan 269: restarts / nft changes on the entry hosts only 02:00–06:00 台湾
   // (default off: they run right away).
   nightOnly?: boolean;
+  // Plan 272: 「只开主入口」 — a 利群 rule only connects on its owner's 主入口
+  // (old entry kept until a subscription refresh or 24 h; default off).
+  entryLock?: boolean;
 }
 
 export interface LeiKwanHostValue {
@@ -170,6 +173,17 @@ export interface LeiKwanGrant {
   ruleCount: number;
   // Plan 271: the user's 备线流量 since their reset (a shared 备线 once).
   backupFlow?: number;
+  // Plan 272: the previous 主入口 kept open after a change (until the user
+  // refreshes a subscription, at most until `until`).
+  grace?: LeiKwanGrantGrace | null;
+}
+
+export interface LeiKwanGrantGrace {
+  prevEntryNodeId: number;
+  prevEntryName: string;
+  changedAt: number;
+  until: number;
+  waitingSub: boolean;
 }
 
 export interface LeiKwanRuleBackup {
@@ -201,14 +215,22 @@ export interface LeiKwanRule {
   // Plan 268: the owner's account is past its 到期.
   userExpired?: boolean;
   landing: {
-    kind: "node" | "manual";
+    // Plan 272: "external" = one of the owner's 外部节点 (name = its name,
+    // protocol = a label such as "VLESS Reality").
+    kind: "node" | "manual" | "external";
     landingNodeId?: number;
+    externalNodeId?: number;
     host: string;
     port: number;
     name?: string;
     serverName?: string;
     protocol?: string;
   };
+  // Plan 272: full = a complete node link exists (node / external);
+  // address = manual landing (only the 入口地址).
+  linkKind?: "full" | "address";
+  // Plan 272 (admin only): 「所有利群入口都可用」 exemption from 只开主入口.
+  allEntries?: boolean;
   entry?: { nodeId: number; nodeName: string; host: string; address: string };
   // admin only
   userId?: number;
@@ -264,6 +286,9 @@ export interface LeiKwanRuleList {
     transport?: string;
     status?: number;
   }[];
+  // Plan 272: global 「只开主入口」 on/off and whether the 订阅 feature is on.
+  entryLock?: boolean;
+  subEnabled?: boolean;
 }
 
 export interface LeiKwanRuleOptions {
@@ -283,6 +308,110 @@ export interface LeiKwanRuleOptions {
     port: number;
   }[];
   quota: LeiKwanQuota;
+  // Plan 272: the owner's 外部节点 (unsupported = greyed with the reason).
+  externals?: LeiKwanExternalOption[];
+}
+
+export interface LeiKwanExternalOption {
+  id: number;
+  name: string;
+  protocol: string;
+  host: string;
+  port: number;
+  supported: boolean;
+  reason?: string;
+}
+
+/**
+ * Plan 272 「生成订阅」: the owner's 「利群汇聚」 subscription (an ordinary sub,
+ * created on first use or reused). leikwanNodes = 利群 rules in it now,
+ * manual = 手动落地 rules that cannot be in a sub, total = all its nodes.
+ */
+export interface LeiKwanSub {
+  id: number;
+  token: string;
+  name: string;
+  format: string;
+  ruleMode: string;
+  leikwanNodes: number;
+  total: number;
+  rules: number;
+  manual: number;
+  lastPullAt: number;
+  note: string;
+}
+
+// ---- Plan 272: 利群规则诊断 ----
+
+export type LeiKwanDiagSection = "hop1" | "hop2" | "exit" | "backup" | "other";
+
+export interface LeiKwanDiagItem {
+  section: LeiKwanDiagSection;
+  title: string;
+  sub?: string;
+  /** "tcp" | "udp" | "tcp+udp" | "" — non-empty = the entry in use */
+  inUse?: string;
+  success: boolean;
+  estimate?: boolean;
+  skipped?: boolean;
+  averageTime: number;
+  packetLoss: number;
+  message?: string;
+  diagnosing?: boolean;
+}
+
+export interface LeiKwanDiagPath {
+  entryName: string;
+  entryAddress: string;
+  lineName: string;
+  routeLabel: string;
+  landingName: string;
+  landingSub: string;
+  landingKind: "node" | "manual" | "external";
+}
+
+export interface LeiKwanDiagSummary {
+  hop1Ms?: number;
+  hop2Ms?: number;
+  hop2Estimate: boolean;
+  totalMs?: number;
+  totalSource: "udp" | "tcp" | "";
+  totalAgeS?: number;
+  totalLoss?: number;
+}
+
+export interface LeiKwanDiagProgress {
+  total: number;
+  completed: number;
+  success: number;
+  failed: number;
+}
+
+export interface LeiKwanDiagStart {
+  total: number;
+  timestamp: number;
+  admin: boolean;
+  ruleName: string;
+  path: LeiKwanDiagPath;
+  items: LeiKwanDiagItem[];
+}
+
+export interface LeiKwanDiagDone {
+  progress?: LeiKwanDiagProgress;
+  timedOut: boolean;
+  summary?: LeiKwanDiagSummary;
+  /** the final, authoritative rows (sorted by section) */
+  items?: LeiKwanDiagItem[];
+}
+
+/** Non-stream fallback of the 利群 rule diagnosis. */
+export interface LeiKwanDiagResult {
+  ruleName: string;
+  admin: boolean;
+  path: LeiKwanDiagPath;
+  items: LeiKwanDiagItem[];
+  summary?: LeiKwanDiagSummary;
+  timedOut: boolean;
 }
 
 export interface LeiKwanHostSnapshot {
@@ -532,6 +661,7 @@ export const getLeiKwanGrants = () =>
     grants: LeiKwanGrant[];
     entryNodes: LeiKwanEntryNode[];
     entryGroupId: number;
+    entryLock?: boolean;
   }>("grant/list");
 export const saveLeiKwanGrant = (body: {
   userId: number;
@@ -581,6 +711,9 @@ export const rebuildLeiKwanLineBackups = (lineId: number) =>
   }>("line/backup-rebuild", { lineId });
 export const retryLeiKwanBackup = (id: number) =>
   lk("rule/backup-retry", { id });
+// Plan 272: 「所有利群入口都可用」 on one rule (admin).
+export const setLeiKwanRuleAllEntries = (id: number, on: boolean) =>
+  lk("rule/all-entries", { id, on });
 
 export const getLeiKwanRules = (userId = 0) =>
   lkr<LeiKwanRuleList>("list", { userId });
@@ -592,6 +725,7 @@ export const createLeiKwanRule = (body: {
   landingNodeId?: number;
   targetHost?: string;
   targetPort?: number;
+  externalNodeId?: number;
   userId?: number;
   requestId: string;
 }) => lkr<{ rule: LeiKwanRule; warnings?: string[] }>("create", body);
@@ -602,12 +736,24 @@ export const updateLeiKwanRule = (body: {
   landingNodeId?: number;
   targetHost?: string;
   targetPort?: number;
+  externalNodeId?: number;
   accel?: LeiKwanRuleAccelOverride;
 }) => lkr<{ rule: LeiKwanRule; warnings?: string[] }>("update", body);
 export const deleteLeiKwanRule = (id: number, keepLeiKwan = false) =>
   lkr<{ backupNote?: string }>("delete", { id, confirmed: true, keepLeiKwan });
 export const getLeiKwanRuleLink = (id: number) =>
   lkr<{ address: string; url?: string; note?: string }>("link", { id });
+// Plan 272 「生成订阅」: the owner's 「利群汇聚」 subscription (admins: userId
+// = a granted user; users: themselves).
+export const getLeiKwanRuleSub = (userId?: number) =>
+  lkr<LeiKwanSub>("sub", userId ? { userId } : {});
+// Plan 272: non-stream fallback of 诊断 (the stream lives in diagnosis-stream).
+export const diagnoseLeiKwanRule = (id: number) =>
+  Network.post<LeiKwanDiagResult>(
+    "/leikwan-rule/diagnose",
+    { id },
+    { timeout: 60000 },
+  );
 
 export const newLeiKwanRequestId = () =>
   `r${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`;

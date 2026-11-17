@@ -1,7 +1,13 @@
 import type { TunnelDiagnosisApiItem } from "@/api/types";
+import type {
+  LeiKwanDiagDone,
+  LeiKwanDiagItem,
+  LeiKwanDiagStart,
+} from "@/api/leikwan-line";
 
 import axios from "axios";
 
+import { diagnoseLeiKwanRule } from "@/api/leikwan-line";
 import { clearSession, getToken } from "@/utils/session";
 
 const DIAGNOSIS_STREAM_TIMEOUT_MS = 2 * 60 * 1000;
@@ -22,9 +28,9 @@ export interface DiagnosisStreamProgress {
   timedOut?: boolean;
 }
 
-export interface DiagnosisStreamItemPayload {
+export interface DiagnosisStreamItemPayload<TItem = TunnelDiagnosisApiItem> {
   index: number;
-  result: TunnelDiagnosisApiItem;
+  result: TItem;
   progress: DiagnosisStreamProgress;
 }
 
@@ -35,14 +41,23 @@ export interface DiagnosisStreamRunResult {
   receivedItems: number;
 }
 
-interface DiagnosisStreamCallbacks {
+export interface DiagnosisStreamCallbacks<TItem = TunnelDiagnosisApiItem> {
   onStart?: (payload: RawObject) => void;
-  onItem: (payload: DiagnosisStreamItemPayload) => void;
+  onItem: (payload: DiagnosisStreamItemPayload<TItem>) => void;
   onDone?: (payload: DiagnosisStreamProgress) => void;
   onError?: (message: string) => void;
+  /** Plan 272: the raw data of the done event (e.g. a summary). */
+  onDoneData?: (data: RawObject) => void;
+  /**
+   * Plan 272: the endpoint answered with an error envelope ({code≠0, msg},
+   * e.g. a rate limit) instead of a stream. Without it such a line is
+   * ignored as before.
+   */
+  onEnvelopeError?: (message: string) => void;
 }
 
-interface RunDiagnosisStreamOptions extends DiagnosisStreamCallbacks {
+export interface RunDiagnosisStreamOptions<TItem = TunnelDiagnosisApiItem>
+  extends DiagnosisStreamCallbacks<TItem> {
   path: string;
   body: RawObject;
   signal?: AbortSignal;
@@ -128,7 +143,7 @@ const parseMessage = (err: unknown, fallback: string): string => {
   return fallback;
 };
 
-const runDiagnosisStream = async ({
+export const runDiagnosisStream = async <TItem = TunnelDiagnosisApiItem>({
   path,
   body,
   signal,
@@ -136,7 +151,9 @@ const runDiagnosisStream = async ({
   onItem,
   onDone,
   onError,
-}: RunDiagnosisStreamOptions): Promise<DiagnosisStreamRunResult> => {
+  onDoneData,
+  onEnvelopeError,
+}: RunDiagnosisStreamOptions<TItem>): Promise<DiagnosisStreamRunResult> => {
   if (!isStreamSupported()) {
     return {
       fallback: true,
@@ -245,6 +262,22 @@ const runDiagnosisStream = async ({
       }
 
       const eventType = (parsed.type || "").toLowerCase();
+      const envelope = parsed as RawObject;
+
+      if (
+        !eventType &&
+        onEnvelopeError &&
+        typeof envelope.code === "number" &&
+        envelope.code !== 0
+      ) {
+        onEnvelopeError(
+          typeof envelope.msg === "string" && envelope.msg.trim()
+            ? envelope.msg
+            : "诊断失败",
+        );
+
+        return;
+      }
 
       if (eventType === "start") {
         if (parsed.data && typeof parsed.data === "object") {
@@ -266,7 +299,7 @@ const runDiagnosisStream = async ({
         }
         const itemData = parsed.data as RawObject;
         const index = Number(itemData.index);
-        const result = itemData.result as TunnelDiagnosisApiItem | undefined;
+        const result = itemData.result as TItem | undefined;
 
         if (!Number.isFinite(index) || !result || typeof result !== "object") {
           return;
@@ -301,6 +334,7 @@ const runDiagnosisStream = async ({
         }
         currentProgress = doneProgress;
         onDone?.(doneProgress);
+        onDoneData?.(donePayload);
       }
     };
 
@@ -410,4 +444,69 @@ export const diagnoseForwardStream = (
     signal,
     ...callbacks,
   });
+};
+
+// ---- Plan 272: 利群规则诊断 (NDJSON like the rules page, non-stream fallback) ----
+
+export interface LeiKwanDiagCallbacks {
+  onStart: (data: LeiKwanDiagStart) => void;
+  onItem: (payload: DiagnosisStreamItemPayload<LeiKwanDiagItem>) => void;
+  onDone: (data: LeiKwanDiagDone) => void;
+  /** a request error / rate limit (「诊断太频繁，请 10 秒后再试」) */
+  onError: (message: string) => void;
+}
+
+export const diagnoseLeiKwanRuleStream = async (
+  id: number,
+  callbacks: LeiKwanDiagCallbacks,
+  signal?: AbortSignal,
+): Promise<DiagnosisStreamRunResult> => {
+  const res = await runDiagnosisStream<LeiKwanDiagItem>({
+    path: "/leikwan-rule/diagnose/stream",
+    body: { id },
+    signal,
+    onStart: (data) => callbacks.onStart(data as unknown as LeiKwanDiagStart),
+    onItem: callbacks.onItem,
+    onDoneData: (data) => callbacks.onDone(data as unknown as LeiKwanDiagDone),
+    onError: callbacks.onError,
+    onEnvelopeError: callbacks.onError,
+  });
+
+  if (!res.fallback || signal?.aborted) return res;
+
+  // No stream (old proxy / fetch unsupported): one plain request.
+  const plain = await diagnoseLeiKwanRule(id);
+
+  if (signal?.aborted) return { ...res, fallback: true };
+  if (plain.code !== 0 || !plain.data) {
+    callbacks.onError(plain.msg || "诊断失败");
+
+    return { ...res, fallback: true };
+  }
+  const d = plain.data;
+  const items = d.items || [];
+  const success = items.filter((x) => !x.skipped && x.success).length;
+  const failed = items.filter((x) => !x.skipped && !x.success).length;
+
+  callbacks.onStart({
+    total: items.length,
+    timestamp: Date.now(),
+    admin: d.admin,
+    ruleName: d.ruleName,
+    path: d.path,
+    items,
+  });
+  callbacks.onDone({
+    progress: { total: items.length, completed: items.length, success, failed },
+    timedOut: d.timedOut,
+    summary: d.summary,
+    items,
+  });
+
+  return {
+    fallback: true,
+    completed: true,
+    timedOut: d.timedOut,
+    receivedItems: items.length,
+  };
 };

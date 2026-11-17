@@ -66,6 +66,8 @@ go-gost/ss/
 # OpenCode session metadata
 .entire/
 bin/
+# Plan 272: 利群主机 test fixtures carry a vendor usr/local/bin stub.
+!go-gost/x/socket/testdata/leikwan-host/*/root/usr/local/bin/
 tmp/
 .worktrees/
 *.swp

@@ -12,11 +12,15 @@ import {
   getLeiKwanRuleOptions,
   newLeiKwanRequestId,
   retryLeiKwanBackup,
+  setLeiKwanRuleAllEntries,
   updateLeiKwanRule,
 } from "@/api/leikwan-line";
 import { landingProtocolLabel } from "@/api/landing";
 import { shortProtocol } from "@/components/expand-row";
+import { copyToClipboard } from "@/pages/landing/link-card";
 import { Pill } from "@/pages/landing/pill";
+import { showLeiKwanAddressToast } from "@/pages/leikwan/panel/address-toast";
+import { LeiKwanDiagnoseModal } from "@/pages/leikwan/panel/diagnose-modal";
 import {
   LabeledSwitch,
   QuotaPill,
@@ -31,7 +35,11 @@ import {
   ModalFooter,
   ModalHeader,
 } from "@/shadcn-bridge/heroui/modal";
-import { Select, SelectItem } from "@/shadcn-bridge/heroui/select";
+import {
+  Select,
+  SelectItem,
+  SelectSection,
+} from "@/shadcn-bridge/heroui/select";
 
 // Plan 270: the 利群 rule pieces shared by the admin and the user view of the
 // 利群汇聚 page (moved here from the old 规则-page section of plan 266/269):
@@ -75,7 +83,19 @@ export const protocolLabel = (p?: string, compact = false) => {
 export const landingText = (r: LeiKwanRule) =>
   r.landing.kind === "node"
     ? `${r.landing.serverName || "落地"} · ${r.landing.name || ""}`
-    : `${r.landing.host}:${r.landing.port}`;
+    : r.landing.kind === "external"
+      ? `外部节点 · ${r.landing.name || `${r.landing.host}:${r.landing.port}`}`
+      : `${r.landing.host}:${r.landing.port}`;
+
+/**
+ * Plan 272: the protocol of a 外部节点 landing arrives as a label
+ * (「VLESS Reality」), not a landing protocol key — shorten it only.
+ */
+export const externalProtocol = (p?: string) => shortProtocol(p || "");
+
+/** Plan 272: 「外部节点 · VLESS Reality」 under a 外部节点 landing's name. */
+export const externalNote = (r: LeiKwanRule) =>
+  `外部节点${r.landing.protocol ? ` · ${externalProtocol(r.landing.protocol)}` : ""}`;
 
 /** Tinted pill buttons of the 利群 page (rules-page palette). */
 export const cyanButton =
@@ -262,9 +282,56 @@ export function PendingBlock({
   );
 }
 
+/**
+ * Plan 272 (admin): 「所有利群入口都可用」 on a rule row. Off shows the slate
+ * 「仅主入口」 only while 只开主入口 is on; on always shows the amber
+ * 「所有入口可用」. A click opens the confirm dialog.
+ */
+export function AllEntriesPill({
+  rule,
+  actions,
+}: {
+  rule: LeiKwanRule;
+  actions: LeiKwanRuleActions;
+}) {
+  const on = !!rule.allEntries;
+
+  if (!on && !actions.entryLock) return null;
+
+  return (
+    <button
+      className="inline-flex max-w-full shrink-0 rounded-full focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-amber-500"
+      data-leikwan-all-entries={on ? "on" : "off"}
+      title={
+        on
+          ? "这条规则在所有利群入口机上都能连（不受「只开主入口」限制）；点一下改"
+          : "这条规则只在主人的主入口机上能连；点一下改成所有入口可用"
+      }
+      type="button"
+      onClick={(e) => {
+        e.stopPropagation();
+        actions.openAllEntries(rule);
+      }}
+    >
+      <Pill
+        className="cursor-pointer hover:brightness-95"
+        tone={on ? "amber" : "slate"}
+      >
+        {on ? "所有入口可用" : "仅主入口"}
+      </Pill>
+    </button>
+  );
+}
+
 export interface LeiKwanRuleActions {
   link: (r: LeiKwanRule) => Promise<void>;
   retry: (r: LeiKwanRule) => Promise<void>;
+  /** Plan 272: open the 诊断 dialog (runs once per click). */
+  diagnose: (r: LeiKwanRule) => void;
+  /** Plan 272 (admin): confirm + toggle 「所有利群入口都可用」. */
+  openAllEntries: (r: LeiKwanRule) => void;
+  /** Plan 272: global 「只开主入口」 (from the rule list). */
+  entryLock: boolean;
   openCreate: (lineId?: number) => void;
   openLanding: (r: LeiKwanRule) => void;
   openDelete: (r: LeiKwanRule) => void;
@@ -276,9 +343,12 @@ export interface LeiKwanRuleActions {
 export function useLeiKwanRuleActions({
   admin,
   reload,
+  entryLock = false,
 }: {
   admin: boolean;
   reload: () => void;
+  /** Plan 272: the list's global 「只开主入口」 */
+  entryLock?: boolean;
 }): LeiKwanRuleActions {
   const [dialog, setDialog] = useState<{
     mode: "create" | "landing";
@@ -291,17 +361,42 @@ export function useLeiKwanRuleActions({
   // Plan 269: 换落地 to the prepared 「待切换」 panel landing node.
   const [swap, setSwap] = useState<LeiKwanRule | null>(null);
   const [swapping, setSwapping] = useState(false);
+  // Plan 272: 诊断 dialog + 「所有利群入口都可用」 confirm.
+  const [diag, setDiag] = useState<LeiKwanRule | null>(null);
+  const [allEntries, setAllEntries] = useState<LeiKwanRule | null>(null);
+  const [allBusy, setAllBusy] = useState(false);
 
   const link = useCallback(async (r: LeiKwanRule) => {
     const res = await getLeiKwanRuleLink(r.id);
 
     if (res.code !== 0) toast.error(res.msg || "复制失败");
     else if (res.data.url) await copyText(res.data.url, "链接");
-    else {
-      await copyText(res.data.address, "入口地址");
-      if (res.data.note) toast(res.data.note);
-    }
+    else if (await copyToClipboard(res.data.address))
+      // Plan 272 (design 08): one 15 s card instead of two 2 s toasts.
+      showLeiKwanAddressToast(res.data.address);
+    else toast.error("复制失败");
   }, []);
+  const toggleAllEntries = async () => {
+    const r = allEntries;
+
+    if (!r) return;
+    setAllBusy(true);
+    const res = await setLeiKwanRuleAllEntries(r.id, !r.allEntries);
+
+    setAllBusy(false);
+    if (res.code !== 0) {
+      toast.error(res.msg || "保存失败");
+
+      return;
+    }
+    toast.success(
+      r.allEntries
+        ? `「${r.name}」改成只在主入口能连`
+        : `「${r.name}」所有利群入口都能连了`,
+    );
+    setAllEntries(null);
+    reload();
+  };
   const retry = useCallback(
     async (r: LeiKwanRule) => {
       const res = await retryLeiKwanBackup(r.id);
@@ -455,12 +550,70 @@ export function useLeiKwanRuleActions({
           </ModalFooter>
         </ModalContent>
       </Modal>
+      <LeiKwanDiagnoseModal
+        admin={admin}
+        rule={diag}
+        onClose={() => setDiag(null)}
+      />
+      <Modal
+        classNames={{ base: "!w-[calc(100%-24px)] sm:max-w-md rounded-2xl" }}
+        isOpen={!!allEntries}
+        placement="center"
+        size="md"
+        onClose={() => setAllEntries(null)}
+      >
+        <ModalContent>
+          <ModalHeader>
+            {allEntries?.allEntries ? "改回仅主入口" : "所有利群入口都可用"} ·{" "}
+            {allEntries?.name}
+          </ModalHeader>
+          <ModalBody className="space-y-2 text-sm">
+            {allEntries?.allEntries ? (
+              <p>
+                关掉后这条规则只在主人的主入口机上能连
+                {entryLock
+                  ? "；其他利群入口机上的这个端口会停用。"
+                  : "（设置里「只开主入口」打开后才生效，现在没开）。"}
+              </p>
+            ) : (
+              <p>
+                打开后这条规则在所有利群入口机上都能连（不受「只开主入口」限制）。
+              </p>
+            )}
+            <p className="text-xs text-default-500">
+              {entryLock
+                ? "「只开主入口」现在是开的。"
+                : "「只开主入口」现在没开：所有入口本来都能连，这个设置先记着。"}
+            </p>
+          </ModalBody>
+          <ModalFooter>
+            <Button
+              color="danger"
+              variant="flat"
+              onPress={() => setAllEntries(null)}
+            >
+              取消
+            </Button>
+            <Button
+              color="warning"
+              isLoading={allBusy}
+              variant="flat"
+              onPress={() => void toggleAllEntries()}
+            >
+              {allEntries?.allEntries ? "改回仅主入口" : "打开"}
+            </Button>
+          </ModalFooter>
+        </ModalContent>
+      </Modal>
     </>
   );
 
   return {
     link,
     retry,
+    diagnose: setDiag,
+    openAllEntries: setAllEntries,
+    entryLock,
     openCreate: (lineId?: number) => setDialog({ mode: "create", lineId }),
     openLanding: (r: LeiKwanRule) => setDialog({ mode: "landing", rule: r }),
     openDelete: (r: LeiKwanRule) => {
@@ -472,7 +625,7 @@ export function useLeiKwanRuleActions({
   };
 }
 
-/** 复制链接 (cyan) · 换落地 (blue) · [重试备线] · 删除 (red). */
+/** 复制链接 (cyan) · 诊断 (violet) · 换落地 (blue) · [重试备线] · 删除 (red). */
 export function RuleButtons({
   rule,
   actions,
@@ -488,8 +641,13 @@ export function RuleButtons({
   /** desktop rule rows: small 12 px pills (design btn-sm) */
   compact?: boolean;
 }) {
+  // Plan 272: with 诊断 there are 4–5 buttons; on H5 they wrap into rows
+  // of two (4) or three (5) instead of squeezing into one line.
+  const count = 4 + (admin && rule.backupError ? 1 : 0);
   const f = fill
-    ? "min-w-0 flex-1"
+    ? count >= 5
+      ? "min-w-[calc(33.333%-6px)] flex-1"
+      : "min-w-[calc(50%-4px)] flex-1"
     : compact
       ? "h-7 min-w-0 rounded-lg px-2.5 text-xs"
       : "";
@@ -503,6 +661,16 @@ export function RuleButtons({
         onPress={() => void actions.link(rule)}
       >
         复制链接
+      </Button>
+      <Button
+        className={f}
+        color="secondary"
+        data-leikwan-diagnose-open={rule.id}
+        size="sm"
+        variant="flat"
+        onPress={() => actions.diagnose(rule)}
+      >
+        诊断
       </Button>
       <Button
         className={f}
@@ -574,9 +742,11 @@ function LeiKwanRuleDialog({
     setLanding(
       rule?.landing.kind === "node"
         ? String(rule.landing.landingNodeId)
-        : rule
-          ? "manual"
-          : "",
+        : rule?.landing.kind === "external"
+          ? `ext:${rule.landing.externalNodeId}`
+          : rule
+            ? "manual"
+            : "",
     );
     setHost(rule?.landing.kind === "manual" ? rule.landing.host : "");
     setPort(rule?.landing.kind === "manual" ? String(rule.landing.port) : "");
@@ -592,15 +762,27 @@ function LeiKwanRuleDialog({
 
   const full =
     !!opts && opts.quota.limit > 0 && opts.quota.active >= opts.quota.limit;
+  const externals = opts?.externals || [];
   const save = async () => {
     const manual = landing === "manual";
-    const target = manual
+    // Plan 272: 「外部节点」 options are keyed ext:<id>.
+    const external = landing.startsWith("ext:");
+    const target: {
+      targetHost?: string;
+      targetPort?: number;
+      landingNodeId?: number;
+      externalNodeId?: number;
+    } = manual
       ? { targetHost: host.trim(), targetPort: parseInt(port, 10) || 0 }
-      : { landingNodeId: parseInt(landing, 10) || 0 };
+      : external
+        ? { externalNodeId: parseInt(landing.slice(4), 10) || 0 }
+        : { landingNodeId: parseInt(landing, 10) || 0 };
 
     if (
       mode === "create" &&
-      (!name.trim() || !lineId || (!manual && !target.landingNodeId))
+      (!name.trim() ||
+        !lineId ||
+        (!manual && !target.landingNodeId && !target.externalNodeId))
     ) {
       toast.error("请填写规则名称、选择专线和落地");
 
@@ -681,6 +863,9 @@ function LeiKwanRuleDialog({
             </Select>
           )}
           <Select
+            disabledKeys={externals
+              .filter((x) => !x.supported)
+              .map((x) => `ext:${x.id}`)}
             label="落地"
             placeholder="选择我的落地节点"
             selectedKeys={landing ? [landing] : []}
@@ -705,8 +890,36 @@ function LeiKwanRuleDialog({
                     </SelectItem>,
                   ]
                 : []),
+              // Plan 272: the owner's 外部节点 as a second group.
+              ...(externals.length
+                ? [
+                    <SelectSection
+                      key="externals"
+                      description="自己的外部节点（链接里的服务器换成利群入口地址）"
+                      title="外部节点"
+                    >
+                      {externals.map((x) => (
+                        <SelectItem
+                          key={`ext:${x.id}`}
+                          description={
+                            x.supported ? `${x.host}:${x.port}` : x.reason
+                          }
+                        >
+                          {`外部节点 · ${x.name} · ${externalProtocol(x.protocol)}${
+                            x.supported ? "" : `（${x.reason || "不支持"}）`
+                          }`}
+                        </SelectItem>
+                      ))}
+                    </SelectSection>,
+                  ]
+                : []),
             ]}
           </Select>
+          {landing.startsWith("ext:") && (
+            <p className="-mt-2 text-xs text-default-500">
+              外部节点做落地：利群转发到这个节点的地址，链接里的服务器换成你的利群入口地址，其他不变。
+            </p>
+          )}
           {landing === "manual" && admin && (
             <div className="grid grid-cols-3 gap-2">
               <Input

@@ -84,8 +84,14 @@ export function LandingClientConfig({
 export interface LinkCardLink {
   name: string;
   url: string;
-  /** "direct" = straight to the landing node; anything else runs through a rule. */
-  kind?: "direct" | "forward";
+  /**
+   * "direct" = straight to the landing node; anything else runs through a
+   * rule ("leikwan" = a 利群汇聚 rule, plan 272).
+   */
+  kind?: "direct" | "forward" | "leikwan";
+  /** plan 272 (leikwan): the rule's name and its entry address */
+  ruleName?: string;
+  address?: string;
   clash?: string;
   surge?: string;
   /** plan 193: why a Snell node has no Surge line */
@@ -107,16 +113,18 @@ export function LandingLinkCard({
   children?: ReactNode;
 }) {
   const direct = link.kind === "direct";
-  const address = linkAddress(link.url);
+  // Plan 272: a 利群汇聚 rule's link (violet pill + its entry address).
+  const leikwan = link.kind === "leikwan";
+  const address = (leikwan && link.address) || linkAddress(link.url);
 
   return (
     <div
       className="space-y-2 rounded-lg border border-divider p-3"
-      data-link-card={direct ? "direct" : "forward"}
+      data-link-card={leikwan ? "leikwan" : direct ? "direct" : "forward"}
     >
       <h3 className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 font-medium">
-        <Pill tone={direct ? "green" : "purple"}>
-          {direct ? "直连" : "经规则转发"}
+        <Pill tone={leikwan ? "violet" : direct ? "green" : "purple"}>
+          {leikwan ? "利群汇聚" : direct ? "直连" : "经规则转发"}
         </Pill>
         {!(direct && link.name === "直连") && (
           <span className="min-w-0 break-all">{link.name}</span>
@@ -127,6 +135,9 @@ export function LandingLinkCard({
           </span>
         )}
       </h3>
+      {leikwan && link.ruleName && (
+        <p className="text-xs text-default-500">利群规则「{link.ruleName}」</p>
+      )}
       {link.blocked && (
         <p className="text-xs font-medium text-warning-600 dark:text-warning-400">
           ⚠ {link.blocked}，此链接无法连接

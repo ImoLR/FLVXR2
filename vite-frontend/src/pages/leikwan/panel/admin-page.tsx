@@ -13,7 +13,14 @@ import type { LeiKwanHostItem } from "@/pages/leikwan/panel/host-manage";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { AlertTriangle, Copy, Plus, RefreshCw, Settings } from "lucide-react";
+import {
+  AlertTriangle,
+  Copy,
+  Link2,
+  Plus,
+  RefreshCw,
+  Settings,
+} from "lucide-react";
 import toast from "react-hot-toast";
 
 import { getAllUsers } from "@/api";
@@ -55,6 +62,7 @@ import {
 import { LeiKwanLineDialog } from "@/pages/leikwan/panel/line-dialog";
 import {
   AdminBackupChip,
+  AllEntriesPill,
   BlockedPill,
   BackupFlowPill,
   FlowPill,
@@ -63,12 +71,15 @@ import {
   RuleDot,
   blockedNote,
   copyText,
+  externalNote,
+  externalProtocol,
   protocolLabel,
   routeShort,
   useLeiKwanRuleActions,
   type LeiKwanRuleActions,
 } from "@/pages/leikwan/panel/rule-actions";
 import { LeiKwanSettingsModal } from "@/pages/leikwan/panel/settings-modal";
+import { LeiKwanSubDialog } from "@/pages/leikwan/panel/sub-dialog";
 import { OnOff, QuotaPill, fmtBytes } from "@/pages/leikwan/panel/shared";
 import { Button } from "@/shadcn-bridge/heroui/button";
 import { Spinner } from "@/shadcn-bridge/heroui/spinner";
@@ -196,6 +207,26 @@ function LandingCell({
 }) {
   const manual = rule.landing.kind === "manual";
 
+  // Plan 272: a 外部节点 landing = its name + muted 「外部节点 · 协议」.
+  if (rule.landing.kind === "external")
+    return (
+      <div className="min-w-0 space-y-1">
+        <div
+          className="break-words text-sm"
+          title={`${rule.landing.host}:${rule.landing.port}`}
+        >
+          {rule.landing.name || `${rule.landing.host}:${rule.landing.port}`}
+        </div>
+        <div className="text-xs text-default-500">{externalNote(rule)}</div>
+        <PendingBlock compact rule={rule} onSwap={actions.openSwap} />
+        {rule.landingHint && !rule.pendingLanding && (
+          <div className="text-[11px] text-amber-600 dark:text-amber-300">
+            {rule.landingHint}
+          </div>
+        )}
+      </div>
+    );
+
   return (
     <div className="min-w-0 space-y-1">
       {manual ? (
@@ -300,6 +331,7 @@ function AdminRuleRow({
           <BlockedPill rule={r} />
           <FlowPill rule={r} />
           <BackupFlowPill rule={r} />
+          <AllEntriesPill actions={actions} rule={r} />
         </div>
         {r.blockReason && (
           <div className="text-[11px] text-red-700 dark:text-red-300">
@@ -500,6 +532,30 @@ function GrantChips({ g }: { g: LeiKwanGrant }) {
   );
 }
 
+/** 「MM-DD HH:mm」 of a timestamp (ms, or s from older payloads). */
+function shortTime(t: number) {
+  const d = new Date(t < 1e12 ? t * 1000 : t);
+  const p = (n: number) => String(n).padStart(2, "0");
+
+  return `${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
+/** Plan 272: the old 主入口 kept open after a change (grace). */
+function GracePill({ g }: { g: LeiKwanGrant }) {
+  if (!g.grace) return null;
+
+  return (
+    <Pill
+      wrap
+      title={`换主入口后旧入口「${g.grace.prevEntryName}」暂时保留：这个用户刷新任一订阅后就停用，最晚到 ${shortTime(g.grace.until)}`}
+      tone="amber"
+    >
+      旧入口 {g.grace.prevEntryName || `#${g.grace.prevEntryNodeId}`} 保留中 ·
+      最晚 {shortTime(g.grace.until)}
+    </Pill>
+  );
+}
+
 export function LeiKwanAdminView() {
   const h5 = useH5Mode();
   const navigate = useNavigate();
@@ -523,6 +579,8 @@ export function LeiKwanAdminView() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [tab, setTab] = useState<"rules" | "grants" | "hosts">("rules");
   const [pipeBusy, setPipeBusy] = useState<number | null>(null);
+  // Plan 272: 「生成订阅」 dialog.
+  const [subOpen, setSubOpen] = useState(false);
   const me = getSessionName();
 
   const loadAccounts = useCallback(async () => {
@@ -564,7 +622,13 @@ export function LeiKwanAdminView() {
     });
   }, [grantOpen, users.length]);
 
-  const actions = useLeiKwanRuleActions({ admin: true, reload: reloadRules });
+  // Plan 272: global 「只开主入口」 (rule list; the setting as a fallback).
+  const entryLock = !!(rules?.entryLock ?? data?.setting.global.entryLock);
+  const actions = useLeiKwanRuleActions({
+    admin: true,
+    reload: reloadRules,
+    entryLock,
+  });
 
   const groups = useMemo<LineGroup[]>(() => {
     const byLine = new Map<number, LeiKwanRule[]>();
@@ -780,6 +844,7 @@ export function LeiKwanAdminView() {
       </div>
       <div className="flex flex-wrap gap-1">
         <GrantChips g={g} />
+        <GracePill g={g} />
       </div>
       <div className="flex flex-wrap gap-1.5">
         <Button
@@ -816,6 +881,7 @@ export function LeiKwanAdminView() {
       />
       <LeiKwanGrantDialog
         entries={entries}
+        entryLock={entryLock}
         grant={editGrant}
         isOpen={grantOpen}
         lineNames={(data?.lines || []).map((l) => l.name)}
@@ -836,6 +902,13 @@ export function LeiKwanAdminView() {
         open={settingsOpen}
         onAccountsChanged={() => void load()}
         onClose={() => setSettingsOpen(false)}
+      />
+      <LeiKwanSubDialog
+        admin
+        grants={grants}
+        me={me}
+        open={subOpen}
+        onClose={() => setSubOpen(false)}
       />
     </>
   );
@@ -869,6 +942,7 @@ export function LeiKwanAdminView() {
         onNewGrant={() => openGrantDialog(null)}
         onRevoke={(g) => void doRevoke(g)}
         onSettings={() => setSettingsOpen(true)}
+        onSub={() => setSubOpen(true)}
       />
     );
 
@@ -885,6 +959,19 @@ export function LeiKwanAdminView() {
           <div className="flex flex-wrap gap-1.5">{headerChips}</div>
         </div>
         <div className="flex gap-2">
+          <Button
+            color="primary"
+            isDisabled={grants.length === 0}
+            startContent={<Link2 size={15} />}
+            title={
+              grants.length === 0
+                ? "还没有授权用户"
+                : "一条订阅链接带上全部利群规则（可选用户）"
+            }
+            onPress={() => setSubOpen(true)}
+          >
+            生成订阅
+          </Button>
           <Button
             color="primary"
             isLoading={loading}
@@ -1065,6 +1152,7 @@ function AdminPhone({
   onRevoke,
   onHostView,
   onSettings,
+  onSub,
 }: {
   headerChips: ReactNode;
   tab: "rules" | "grants" | "hosts";
@@ -1085,6 +1173,8 @@ function AdminPhone({
   onRevoke: (g: LeiKwanGrant) => void;
   onHostView: (nodeId: number, view: LeiKwanHostManage) => void;
   onSettings: () => void;
+  /** Plan 272: 「生成订阅」 */
+  onSub: () => void;
 }) {
   const [openLine, setOpenLine] = useState<number | null | undefined>(
     undefined,
@@ -1102,6 +1192,15 @@ function AdminPhone({
   return (
     <div className="space-y-3" data-leikwan-admin="h5">
       <div className="flex flex-wrap gap-1.5">{headerChips}</div>
+      <Button
+        className="h-10 w-full"
+        color="primary"
+        isDisabled={grants.length === 0}
+        startContent={<Link2 size={16} />}
+        onPress={onSub}
+      >
+        生成订阅
+      </Button>
       <div className="flex items-center gap-2">
         <div className="flex min-w-0 flex-1 gap-2 overflow-x-auto">
           <LkTab active={tab === "rules"} onPress={() => setTab("rules")}>
@@ -1240,8 +1339,16 @@ function AdminPhone({
                           >
                             {r.landing.kind === "manual"
                               ? `${r.landing.host}:${r.landing.port}`
-                              : `${r.landing.serverName || "落地"} · ${r.landing.name}`}
+                              : r.landing.kind === "external"
+                                ? r.landing.name ||
+                                  `${r.landing.host}:${r.landing.port}`
+                                : `${r.landing.serverName || "落地"} · ${r.landing.name}`}
                           </span>
+                          {r.landing.kind === "external" && (
+                            <span className="text-xs text-default-500">
+                              {externalNote(r)}
+                            </span>
+                          )}
                         </LkField>
                         {r.pendingLanding && (
                           <LkField label="待切换">
@@ -1270,15 +1377,19 @@ function AdminPhone({
                           >
                             {r.landing.kind === "manual"
                               ? "手动落地"
-                              : protocolLabel(r.landing.protocol)}
+                              : r.landing.kind === "external"
+                                ? externalProtocol(r.landing.protocol) ||
+                                  "外部节点"
+                                : protocolLabel(r.landing.protocol)}
                           </Pill>
                           {r.userName && <Pill tone="slate">{r.userName}</Pill>}
                           {testNote(r) && <Pill tone="amber">测试</Pill>}
                           {r.userExpired && <Pill tone="red">已到期</Pill>}
                           <FlowPill rule={r} />
                           <BackupFlowPill rule={r} />
+                          <AllEntriesPill actions={actions} rule={r} />
                         </LkField>
-                        <div className="flex gap-2 pt-1">
+                        <div className="flex flex-wrap gap-2 pt-1">
                           <RuleButtons admin fill actions={actions} rule={r} />
                         </div>
                       </LkExpandCard>
@@ -1351,6 +1462,11 @@ function AdminPhone({
                 {g.userName === me && <Pill tone="purple">管理员</Pill>}
                 {g.status !== 1 && <Pill tone="slate">已停用</Pill>}
               </LkField>
+              {g.grace && (
+                <LkField label="旧入口">
+                  <GracePill g={g} />
+                </LkField>
+              )}
               {(g.backupFlow || 0) > 0 && (
                 <LkField label="备线流量">
                   <Pill

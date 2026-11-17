@@ -14,12 +14,16 @@ export interface SubRef {
     | "landing_direct"
     | "external_node"
     | "source_node"
-    | "source_all";
+    | "source_all"
+    // plan 272: one 利群汇聚 rule / all of them (follows new rules)
+    | "leikwan_rule"
+    | "leikwan_all";
   forwardId?: number;
   entry?: string;
   landingId?: number;
   externalId?: number;
   sourceId?: number;
+  leikwanRuleId?: number;
   name?: string;
 }
 
@@ -36,6 +40,8 @@ export interface SubCounts {
   missing: number;
   sources: SubSourceCount[];
   total: number;
+  /** plan 272: 利群汇聚 nodes in the subscription */
+  leikwan?: number;
 }
 
 export interface SubItem {
@@ -51,6 +57,8 @@ export interface SubItem {
   lastPullNodes: number;
   /** plan 256: how many 分流 entries (0 = none) */
   routing?: number;
+  /** plan 272: "leikwan" = made by 利群汇聚 「生成订阅」 (an ordinary sub) */
+  auto?: "leikwan" | "";
 }
 
 export interface SubSource {
@@ -83,6 +91,9 @@ export interface SubPoolNode {
   protocol: string;
   detail: string;
   chain?: boolean;
+  /** plan 272 (利群): a 手动落地 rule cannot be in a subscription */
+  disabled?: boolean;
+  reason?: string;
 }
 
 export interface SubPoolSource extends SubSource {
@@ -95,7 +106,14 @@ export interface SubSelected {
   key: string;
   name?: string;
   protocol?: string;
-  group: "rule" | "landing" | "external" | "source" | "source_all";
+  group:
+    | "rule"
+    | "landing"
+    | "external"
+    | "source"
+    | "source_all"
+    | "leikwan"
+    | "leikwan_all";
   sourceName?: string;
   count?: number;
   chain?: boolean;
@@ -117,6 +135,10 @@ export interface SubPool {
   routingLimits?: SubRouteLimits;
   /** plan 261: the stored 规则集链接 sets of this subscription, by id */
   routingLinks?: Record<string, SubLinkSet>;
+  // Plan 272 「利群汇聚」 group (absent / not granted → no group).
+  leikwan?: SubPoolNode[];
+  leikwanFollowKey?: string;
+  leikwanGranted?: boolean;
 }
 
 /**

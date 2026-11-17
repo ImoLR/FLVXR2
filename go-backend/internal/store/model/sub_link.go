@@ -27,8 +27,9 @@ type UserSubscription struct {
 	// subscriptions before plan 256) or [] = no 分流 groups, output as before.
 	Routing *string `gorm:"type:text" json:"-"`
 	// AutoKind (plan 272): "leikwan" = the user's automatic 「利群汇聚」
-	// subscription (follows all their 利群 rules; not counted in the 5-sub cap,
-	// not deletable while the grant is active); "" = an ordinary one.
+	// subscription (follows all their 利群 rules; not counted in the 5-sub cap;
+	// editable and deletable like any sub, 生成订阅 reuses or re-creates it);
+	// "" = an ordinary one.
 	AutoKind string `gorm:"type:varchar(20);not null;default:''" json:"autoKind"`
 }
 

@@ -2,7 +2,7 @@ import type { LeiKwanRule, LeiKwanRuleList } from "@/api/leikwan-line";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Copy, Plus } from "lucide-react";
+import { Copy, Link2, Plus } from "lucide-react";
 import toast from "react-hot-toast";
 
 import {
@@ -31,12 +31,15 @@ import {
   UserBackupChip,
   blockedNote,
   copyText,
+  externalNote,
+  externalProtocol,
   protocolLabel,
   routeShort,
   useLeiKwanRuleActions,
   type LeiKwanRuleActions,
 } from "@/pages/leikwan/panel/rule-actions";
 import { fmtBytes } from "@/pages/leikwan/panel/shared";
+import { LeiKwanSubDialog } from "@/pages/leikwan/panel/sub-dialog";
 import { Button } from "@/shadcn-bridge/heroui/button";
 import { Spinner } from "@/shadcn-bridge/heroui/spinner";
 
@@ -49,8 +52,9 @@ type UserLine = NonNullable<LeiKwanRuleList["lines"]>[number];
 
 const lineShort = (name: string) => name.replace(/^利群·/, "");
 
+// Plan 272: the action column fits 复制链接 · 诊断 · 换落地 · 删除 in one row.
 const RULE_GRID =
-  "grid grid-cols-[minmax(0,1.2fr)_minmax(168px,200px)_minmax(0,1fr)_184px] gap-3";
+  "grid grid-cols-[minmax(0,1.2fr)_minmax(168px,200px)_minmax(0,1fr)_236px] gap-3";
 
 function UserLanding({
   rule,
@@ -65,6 +69,13 @@ function UserLanding({
         <div className="break-all font-mono text-xs">
           {rule.landing.host}:{rule.landing.port}
         </div>
+      ) : rule.landing.kind === "external" ? (
+        <>
+          <div className="break-words text-sm">
+            {rule.landing.name || `${rule.landing.host}:${rule.landing.port}`}
+          </div>
+          <div className="text-xs text-default-500">{externalNote(rule)}</div>
+        </>
       ) : (
         <>
           <div className="break-words text-sm">{rule.landing.name}</div>
@@ -81,6 +92,10 @@ function UserLanding({
 function protocolChip(r: LeiKwanRule, compact = false) {
   return r.landing.kind === "manual" ? (
     <Pill tone="slate">手动</Pill>
+  ) : r.landing.kind === "external" ? (
+    <Pill title={externalNote(r)} tone="pink">
+      {externalProtocol(r.landing.protocol) || "外部节点"}
+    </Pill>
   ) : r.landing.protocol ? (
     <Pill tone="pink">{protocolLabel(r.landing.protocol, compact)}</Pill>
   ) : null;
@@ -91,6 +106,8 @@ export function LeiKwanUserView() {
   const navigate = useNavigate();
   const [data, setData] = useState<LeiKwanRuleList | null>(null);
   const [line, setLine] = useState<number | null>(null);
+  // Plan 272: 「生成订阅」 dialog.
+  const [subOpen, setSubOpen] = useState(false);
 
   const load = useCallback(async () => {
     const res = await getLeiKwanRules();
@@ -120,7 +137,16 @@ export function LeiKwanUserView() {
   const actions = useLeiKwanRuleActions({
     admin: false,
     reload: () => void load(),
+    entryLock: !!data?.entryLock,
   });
+  const subDialog = (
+    <LeiKwanSubDialog
+      admin={false}
+      open={subOpen}
+      onClose={() => setSubOpen(false)}
+    />
+  );
+  const subNote = "推荐用订阅：换入口时刷新订阅即可，不用改地址";
   const rules = useMemo(() => data?.rules || [], [data]);
   const lines = useMemo<UserLine[]>(() => {
     const out = [...(data?.lines || [])];
@@ -205,6 +231,17 @@ export function LeiKwanUserView() {
           <div className="flex flex-wrap gap-1.5">{grantChips}</div>
           <p className="text-xs text-default-500">规则数、流量、到期跟账号走</p>
         </LkCard>
+        <div className="space-y-1">
+          <Button
+            className="h-11 w-full"
+            color="primary"
+            startContent={<Link2 size={16} />}
+            onPress={() => setSubOpen(true)}
+          >
+            生成订阅
+          </Button>
+          <p className="px-1 text-xs text-default-500">{subNote}</p>
+        </div>
         <Button
           className="h-11 w-full"
           color="success"
@@ -265,6 +302,11 @@ export function LeiKwanUserView() {
                   {r.landing.kind === "manual"
                     ? `${r.landing.host}:${r.landing.port}`
                     : r.landing.name}
+                  {r.landing.kind === "external" && (
+                    <span className="text-xs text-default-500">
+                      {externalNote(r)}
+                    </span>
+                  )}
                 </LkField>
                 <LkField label="备线">
                   {r.backupError ? (
@@ -303,7 +345,7 @@ export function LeiKwanUserView() {
                     />
                   </LkField>
                 )}
-                <div className="flex gap-2 pt-1">
+                <div className="flex flex-wrap gap-2 pt-1">
                   <RuleButtons fill actions={actions} admin={false} rule={r} />
                 </div>
               </LkExpandCard>
@@ -313,6 +355,7 @@ export function LeiKwanUserView() {
         ))}
         {groups.length === 0 && noRules}
         {actions.modals}
+        {subDialog}
       </div>
     );
 
@@ -330,15 +373,26 @@ export function LeiKwanUserView() {
             {grantChips}
             <Pill tone="slate">规则数、流量、到期跟账号走</Pill>
           </div>
+          <p className="text-xs text-default-500">{subNote}</p>
         </div>
-        <Button
-          color="success"
-          startContent={<Plus size={15} />}
-          variant="flat"
-          onPress={() => actions.openCreate(line || undefined)}
-        >
-          新增利群规则
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Button
+            color="primary"
+            startContent={<Link2 size={15} />}
+            title="一条订阅链接带上你全部的利群规则"
+            onPress={() => setSubOpen(true)}
+          >
+            生成订阅
+          </Button>
+          <Button
+            color="success"
+            startContent={<Plus size={15} />}
+            variant="flat"
+            onPress={() => actions.openCreate(line || undefined)}
+          >
+            新增利群规则
+          </Button>
+        </div>
       </header>
       <LkCard className="space-y-3 p-4" data-leikwan-lines="">
         <LkCardTitle
@@ -483,6 +537,7 @@ export function LeiKwanUserView() {
         </div>
       </LkCard>
       {actions.modals}
+      {subDialog}
     </div>
   );
 }

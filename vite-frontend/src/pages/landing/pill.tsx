@@ -31,7 +31,9 @@ export type LandingTone =
   | "pink"
   | "cyan"
   | "amber"
-  | "red";
+  | "red"
+  // Plan 272: 利群汇聚 (violet, like the 诊断 / 利群 accents)
+  | "violet";
 
 export const landingToneClass: Record<LandingTone, string> = {
   green:
@@ -46,6 +48,8 @@ export const landingToneClass: Record<LandingTone, string> = {
   amber:
     "bg-amber-500/15 text-amber-700 dark:bg-amber-400/15 dark:text-amber-300",
   red: "bg-red-500/15 text-red-700 dark:bg-red-400/20 dark:text-red-300",
+  violet:
+    "bg-violet-500/15 text-violet-700 dark:bg-violet-400/20 dark:text-violet-300",
 };
 
 const pillBase =

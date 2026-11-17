@@ -38,18 +38,25 @@ export interface SubAdminTarget {
 
 const chipOf: Record<
   SubAdminItem["group"],
-  { tone: "green" | "teal" | "purple" | "amber"; text: string; h5: string }
+  {
+    tone: "green" | "teal" | "purple" | "amber" | "violet";
+    text: string;
+    h5: string;
+  }
 > = {
   rule: { tone: "green", text: "规则", h5: "规则" },
   landing: { tone: "teal", text: "落地", h5: "落地" },
   external: { tone: "purple", text: "外部节点", h5: "外部" },
   source: { tone: "amber", text: "订阅源", h5: "订阅源" },
   source_all: { tone: "amber", text: "整组", h5: "整组" },
+  leikwan: { tone: "violet", text: "利群", h5: "利群" },
+  leikwan_all: { tone: "violet", text: "利群·全部", h5: "利群·全部" },
 };
 
 function itemName(it: SubAdminItem) {
   if (it.group === "source_all")
     return `${it.sourceName || "外部订阅源"} · 整组 ${it.count || 0} 个`;
+  if (it.group === "leikwan_all") return `全部利群规则 · ${it.count || 0} 条`;
 
   return it.name || "（已删除的节点）";
 }
@@ -63,6 +70,8 @@ function sourceText(it: SubAdminItem) {
     return `外部订阅源「${it.sourceName || ""}」`;
   if (it.group === "rule") return "用户的转发规则";
   if (it.group === "landing") return "用户的落地节点";
+  if (it.group === "leikwan" || it.group === "leikwan_all")
+    return "用户的利群汇聚规则";
 
   return "用户的外部节点";
 }

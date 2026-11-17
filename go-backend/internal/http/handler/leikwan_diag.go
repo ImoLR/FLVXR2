@@ -31,6 +31,7 @@ import (
 	"go-backend/internal/geoip"
 	"go-backend/internal/http/response"
 	"go-backend/internal/store/model"
+	"go-backend/internal/ws"
 )
 
 const (
@@ -40,6 +41,10 @@ const (
 	lkDiagPingMs       = 1500
 	lkDiagGap          = 10 * time.Second
 )
+
+// leiKwanLabCommand answers node commands in the leikwanlab build (screens
+// without agents); nil in release builds.
+var leiKwanLabCommand func(nodeID int64, cmd string, data interface{}) (ws.CommandResult, bool)
 
 // lkAgentDiag mirrors the agent's LeiKwanDiagResponse.
 type lkAgentDiag struct {
@@ -139,6 +144,14 @@ func lkIngressLabel(endpoint string) string {
 		}
 	}
 	return strings.Join(parts, " · ")
+}
+
+// lkEndpointHost: the relay ingress IP without its port (always :5438).
+func lkEndpointHost(endpoint string) string {
+	if host, _, err := net.SplitHostPort(endpoint); err == nil {
+		return host
+	}
+	return endpoint
 }
 
 // ---- running ----
@@ -301,7 +314,7 @@ func (j *lkDiagJob) progress() diagnosisProgress {
 // agentDiag runs LeiKwanDiag on one entry host.
 func (j *lkDiagJob) agentDiag(nodeID int64) (*lkAgentDiag, string) {
 	h := j.h
-	if h.wsServer != nil && !h.wsServer.NodeOnline(nodeID) && h.nodeCommandSender == nil {
+	if h.wsServer != nil && !h.wsServer.NodeOnline(nodeID) && h.nodeCommandSender == nil && leiKwanLabCommand == nil {
 		return nil, "入口机不在线"
 	}
 	res, err := h.sendNodeCommandWithTimeout(nodeID, "LeiKwanDiag", map[string]interface{}{"forwardId": j.rule.ForwardID, "count": lkDiagCount, "timeoutMs": lkDiagPingMs},
@@ -333,12 +346,26 @@ func (j *lkDiagJob) agentDiag(nodeID int64) (*lkAgentDiag, string) {
 	return &d, ""
 }
 
-// pick: the ingress the client uses (TCP first), else the fastest reachable.
-func lkDiagPick(d *lkAgentDiag) int {
-	best := -1
-	for i, in := range d.Ingresses {
-		if strings.Contains(in.InUse, "tcp") {
-			return i
+// lkDiagSource: where 全程 comes from — the client's UDP probe (it has loss)
+// or its last TCP selection.
+func lkDiagSource(d *lkAgentDiag) (string, *lkAgentClient) {
+	switch {
+	case d.UDP != nil && d.UDP.RttMs > 0:
+		return "udp", d.UDP
+	case d.TCP != nil && d.TCP.RttMs > 0:
+		return "tcp", d.TCP
+	}
+	return "", nil
+}
+
+// lkDiagPick: the ingress the client uses for that source (so 全程 = 第一跳
+// + 第二跳 on the same path), else any in use, else the fastest reachable.
+func lkDiagPick(d *lkAgentDiag, source string) int {
+	if source != "" {
+		for i, in := range d.Ingresses {
+			if strings.Contains(in.InUse, source) {
+				return i
+			}
 		}
 	}
 	for i, in := range d.Ingresses {
@@ -346,6 +373,7 @@ func lkDiagPick(d *lkAgentDiag) int {
 			return i
 		}
 	}
+	best := -1
 	for i, in := range d.Ingresses {
 		if in.OK && (best < 0 || in.AvgMs < d.Ingresses[best].AvgMs) {
 			best = i
@@ -373,7 +401,8 @@ func (j *lkDiagJob) runHop1(ctx context.Context) {
 		j.set(1, hop2)
 		return
 	}
-	pick := lkDiagPick(d)
+	source, client := lkDiagSource(d)
+	pick := lkDiagPick(d, source)
 	var hop1 float64 = -1
 	if pick >= 0 && d.Ingresses[pick].OK {
 		hop1 = d.Ingresses[pick].AvgMs
@@ -386,7 +415,7 @@ func (j *lkDiagJob) runHop1(ctx context.Context) {
 			j.set(0, it)
 		}
 		for i, in := range d.Ingresses {
-			sub := strings.TrimSpace(strings.Trim(lkIngressLabel(in.Endpoint)+" · "+in.Endpoint, " ·"))
+			sub := strings.TrimSpace(strings.Trim(lkIngressLabel(in.Endpoint)+" · "+lkEndpointHost(in.Endpoint), " ·"))
 			if !in.Offered {
 				sub += "（之前选的入口，已不在当前候选里）"
 			}
@@ -419,16 +448,12 @@ func (j *lkDiagJob) runHop1(ctx context.Context) {
 	}
 	// 全程 = the client's own measurement (UDP probe preferred, it has loss).
 	var total float64 = -1
-	switch {
-	case d.UDP != nil && d.UDP.RttMs > 0:
-		total = d.UDP.RttMs
-		sum["totalSource"], sum["totalAgeS"] = "udp", d.UDP.AgeS
-		if d.UDP.Sent > 0 {
-			sum["totalLoss"] = lkRound(float64(d.UDP.Sent-d.UDP.Recv) * 100 / float64(d.UDP.Sent))
+	if client != nil {
+		total = client.RttMs
+		sum["totalSource"], sum["totalAgeS"] = source, client.AgeS
+		if source == "udp" && client.Sent > 0 {
+			sum["totalLoss"] = lkRound(float64(client.Sent-client.Recv) * 100 / float64(client.Sent))
 		}
-	case d.TCP != nil && d.TCP.RttMs > 0:
-		total = d.TCP.RttMs
-		sum["totalSource"], sum["totalAgeS"] = "tcp", d.TCP.AgeS
 	}
 	hop2 := lkDiagRow("hop2", "利群专线 → "+j.landingTitle(), "")
 	hop2["estimate"] = true
@@ -484,7 +509,7 @@ func (j *lkDiagJob) runOther(ctx context.Context, idx int, e leiKwanEntryNode) {
 	}
 	in := d.Ingresses[best]
 	it["title"] = e.Name + " → 利群入口 " + lkCircled(best)
-	sub := "最快的入口 · " + strings.Trim(lkIngressLabel(in.Endpoint)+" · "+in.Endpoint, " ·")
+	sub := "最快的入口 · " + strings.Trim(lkIngressLabel(in.Endpoint)+" · "+lkEndpointHost(in.Endpoint), " ·")
 	if d.UDP != nil && d.UDP.RttMs > 0 {
 		sub += fmt.Sprintf(" · 客户端全程 %s ms", lkMs(d.UDP.RttMs))
 	} else if d.TCP != nil && d.TCP.RttMs > 0 {
@@ -541,9 +566,10 @@ func (j *lkDiagJob) runBackup(ctx context.Context, idx int) {
 		j.set(idx, it)
 		return
 	}
-	tunnelName := ""
+	tunnelName, entryHost, entryPort := "", "", 0
 	if views, err := h.repo.LeiKwanBackupForwards([]int64{j.rule.BackupForwardID}); err == nil {
-		tunnelName = views[j.rule.BackupForwardID].TunnelName
+		v := views[j.rule.BackupForwardID]
+		tunnelName, entryHost, entryPort = v.TunnelName, v.EntryHost, v.EntryPort
 	}
 	if tunnelName != "" {
 		it["title"] = j.entry.Name + " → " + tunnelName + " → " + j.landingTitle()
@@ -561,6 +587,17 @@ func (j *lkDiagJob) runBackup(ctx context.Context, idx int) {
 	results := h.runDiagnosisWorkItems(ctx, work, nil)
 	ok, sum, loss := true, 0.0, 0.0
 	msg := ""
+	// The 备线 goes through the 主入口 first (logswitch / phone DNAT): 主入口 →
+	// the 备线 forward's entry port.
+	if entryHost != "" && entryPort > 0 {
+		first := []map[string]interface{}{}
+		h.appendPathDiagnosis(&first, map[int64]*nodeRecord{}, j.entry.NodeID, entryHost, entryPort, j.entry.Name+" → 备线入口",
+			map[string]interface{}{}, diagnosisExecOptions{commandTimeout: 12 * time.Second, pingTimeoutMS: 2000, pingCount: 3})
+		if len(first) > 0 {
+			first[0]["description"] = j.entry.Name + " → 备线入口"
+			results = append(first, results...)
+		}
+	}
 	for _, r := range results {
 		if r == nil || asBool(r["exitTest"], false) {
 			continue

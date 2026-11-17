@@ -38,6 +38,7 @@ export function LeiKwanGrantDialog({
   entries,
   quota,
   lineNames,
+  entryLock = false,
 }: {
   isOpen: boolean;
   onClose: () => void;
@@ -48,6 +49,8 @@ export function LeiKwanGrantDialog({
   entries: LeiKwanEntryNode[];
   quota?: LeiKwanQuota;
   lineNames: string[];
+  /** Plan 272: global 「只开主入口」 (the grace note depends on it) */
+  entryLock?: boolean;
 }) {
   const [userId, setUserId] = useState("");
   const [entry, setEntry] = useState("");
@@ -160,6 +163,9 @@ export function LeiKwanGrantDialog({
               换主入口后，这个用户所有利群规则的地址都改成 {entryNode?.host}
               :端口 （共 {grant?.ruleCount || 0}{" "}
               条）。利群那边不用改；用户刷新订阅或重新复制链接即可。
+              {entryLock
+                ? `旧入口 ${grant?.mainEntryName || ""} 会保留到这个用户刷新任一订阅（最多 24 小时），然后停用。`
+                : "旧入口暂时不会停用（设置里「只开主入口」没开）。"}
             </p>
           )}
           <div className="rounded-xl border border-divider p-3">

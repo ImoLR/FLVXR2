@@ -6,8 +6,13 @@ import { Plus, Settings2 } from "lucide-react";
 import toast from "react-hot-toast";
 
 import { deleteLeiKwanAccount, saveLeiKwanAccount } from "@/api/leikwan";
+import { saveLeiKwanSetting } from "@/api/leikwan-line";
 import { Pill } from "@/pages/landing/pill";
-import { SectionTitle, TriggerList } from "@/pages/leikwan/panel/shared";
+import {
+  LabeledSwitch,
+  SectionTitle,
+  TriggerList,
+} from "@/pages/leikwan/panel/shared";
 import { Button } from "@/shadcn-bridge/heroui/button";
 import { Input } from "@/shadcn-bridge/heroui/input";
 import {
@@ -45,7 +50,29 @@ export function LeiKwanSettingsModal({
   const [form, setForm] = useState<AccountForm | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
+  // Plan 272: 「只开主入口」 (saved at once; the shown value until reload).
+  const [lock, setLock] = useState<boolean | null>(null);
+  const [lockSaving, setLockSaving] = useState(false);
   const g = data?.setting.global;
+  const entryLock = lock ?? !!g?.entryLock;
+
+  const saveLock = async (on: boolean) => {
+    if (!g) return;
+    setLockSaving(true);
+    setLock(on);
+    // The whole global payload as it came, only entryLock changed.
+    const res = await saveLeiKwanSetting({ global: { ...g, entryLock: on } });
+
+    setLockSaving(false);
+    if (res.code !== 0) {
+      setLock(null);
+      toast.error(res.msg || "保存失败");
+
+      return;
+    }
+    toast.success(on ? "已打开「只开主入口」" : "已关闭「只开主入口」");
+    onAccountsChanged();
+  };
 
   const save = async () => {
     if (
@@ -99,6 +126,7 @@ export function LeiKwanSettingsModal({
   const close = () => {
     setForm(null);
     setConfirmDelete(null);
+    setLock(null);
     onClose();
   };
 
@@ -279,12 +307,31 @@ export function LeiKwanSettingsModal({
                   <Pill tone={g.nightOnly ? "amber" : "slate"}>
                     主机写入 {g.nightOnly ? "只在 02:00–06:00 台湾" : "随时"}
                   </Pill>
+                  <Pill tone={entryLock ? "amber" : "slate"}>
+                    只开主入口 {entryLock ? "开" : "关"}
+                  </Pill>
                 </div>
                 <p className="text-xs text-default-500">
                   每台入口机自己的首包合并值在「入口机」里看；加入口机 =
                   在节点页把节点拉进分组「
                   {data.setting.entryGroupName || "利群入口"}」。
                 </p>
+                <div
+                  className="rounded-xl border border-divider p-3"
+                  data-leikwan-entry-lock=""
+                >
+                  <LabeledSwitch
+                    isDisabled={lockSaving}
+                    isSelected={entryLock}
+                    onValueChange={(v) => void saveLock(v)}
+                  >
+                    只开主入口
+                  </LabeledSwitch>
+                  <p className="mt-1 text-xs text-default-500">
+                    打开后，利群规则只在规则主人的主入口机上能连；换主入口后旧入口保留到刷新订阅或
+                    24 小时。个别规则可在规则行设成「所有入口可用」。
+                  </p>
+                </div>
               </div>
             </>
           )}

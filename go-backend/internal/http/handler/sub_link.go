@@ -818,6 +818,10 @@ func (h *Handler) subValidate(ctx context.Context, uid int64, req *subSaveReq) (
 			n, err := strconv.ParseInt(id, 10, 64)
 			return err == nil && follow[n]
 		}
+		// Plan 272: a 利群 rule of 「全部利群规则」 (it comes and goes with the rules).
+		if strings.HasPrefix(k, "k:") && inItems[sublink.Ref{Kind: sublink.RefLeiKwanAll}.Key()] {
+			return true
+		}
 		return false
 	}
 	nodes, _ := d.resolve(kept, model.MaxSubscriptionNodes)

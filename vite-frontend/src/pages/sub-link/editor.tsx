@@ -67,7 +67,13 @@ import {
 // 国内直连 / 全部走代理 switch is its fixed 「国内网站」 row. The 外部节点
 // group is always shown with 「＋ 添加」.
 
-type Filter = "all" | "rule" | "landing" | "external" | `src:${number}`;
+type Filter =
+  | "all"
+  | "rule"
+  | "landing"
+  | "external"
+  | "leikwan"
+  | `src:${number}`;
 
 const FORMATS: [SubFormat, string][] = [
   ["auto", "自动识别"],
@@ -146,14 +152,22 @@ function Seg<T extends string>({
 
 const groupChip: Record<
   SubSelected["group"],
-  { tone: "green" | "teal" | "purple" | "amber"; text: string }
+  { tone: "green" | "teal" | "purple" | "amber" | "violet"; text: string }
 > = {
   rule: { tone: "green", text: "规则" },
   landing: { tone: "teal", text: "落地" },
   external: { tone: "purple", text: "外部节点" },
   source: { tone: "amber", text: "" },
   source_all: { tone: "amber", text: "整组" },
+  // Plan 272: 利群汇聚 rules (single / 全部, auto-follow)
+  leikwan: { tone: "violet", text: "利群" },
+  leikwan_all: { tone: "violet", text: "利群·全部" },
 };
+
+// Plan 272: the 「全部利群规则（自动跟随）」 row.
+const LEIKWAN_ALL_NAME = "全部利群规则";
+const leikwanAllNote = (n?: number) =>
+  `现在 ${n || 0} 条 · 新建 / 删除利群规则会自动同步`;
 
 function protocolText(n: { protocol?: string; chain?: boolean }) {
   return `${n.protocol || ""}${n.chain ? "（链式）" : ""}`;
@@ -166,6 +180,8 @@ const groupChipH5: Record<SubSelected["group"], string> = {
   external: "外部",
   source: "订阅源",
   source_all: "整组",
+  leikwan: "利群",
+  leikwan_all: "利群·全部",
 };
 
 function SelectedRow({
@@ -187,6 +203,7 @@ function SelectedRow({
   } = useSortable({ id: item.key });
   const chip = groupChip[item.group];
   const all = item.group === "source_all";
+  const lkAll = item.group === "leikwan_all";
 
   if (h5) {
     const tone = landingToneClass[chip.tone];
@@ -200,7 +217,7 @@ function SelectedRow({
         }
         className={`border-b border-divider last:border-b-0 ${
           all ? "bg-amber-500/10 dark:bg-amber-400/10" : ""
-        } ${item.missing ? "bg-red-500/10 dark:bg-red-400/10" : ""}`}
+        } ${lkAll ? "bg-violet-500/10 dark:bg-violet-400/10" : ""} ${item.missing ? "bg-red-500/10 dark:bg-red-400/10" : ""}`}
         leading={
           <button
             aria-label="拖动排序"
@@ -215,7 +232,9 @@ function SelectedRow({
         name={
           all
             ? `${item.sourceName} · 全部节点`
-            : item.name || "（已删除的节点）"
+            : lkAll
+              ? LEIKWAN_ALL_NAME
+              : item.name || "（已删除的节点）"
         }
         nameClassName={
           item.missing ? "text-red-700 line-through dark:text-red-300" : ""
@@ -245,6 +264,8 @@ function SelectedRow({
           <ExpandField label="节点">
             现在 {item.count || 0} 个 · 机场那边增删节点会自动同步
           </ExpandField>
+        ) : lkAll ? (
+          <ExpandField label="规则">{leikwanAllNote(item.count)}</ExpandField>
         ) : (
           <>
             {item.protocol && (
@@ -264,7 +285,9 @@ function SelectedRow({
               ? "我的转发规则"
               : item.group === "landing"
                 ? "我的落地节点"
-                : "我的外部节点"}
+                : item.group === "leikwan" || lkAll
+                  ? "我的利群汇聚规则"
+                  : "我的外部节点"}
         </ExpandField>
         <ExpandActions>
           <Button color="danger" size="sm" variant="flat" onPress={onRemove}>
@@ -280,7 +303,7 @@ function SelectedRow({
       ref={setNodeRef}
       className={`flex items-center gap-2 border-b border-divider px-3 py-2 last:border-b-0 ${
         all ? "bg-amber-500/10 dark:bg-amber-400/10" : ""
-      } ${item.missing ? "bg-red-500/10 dark:bg-red-400/10" : ""}`}
+      } ${lkAll ? "bg-violet-500/10 dark:bg-violet-400/10" : ""} ${item.missing ? "bg-red-500/10 dark:bg-red-400/10" : ""}`}
       data-sub-selected={item.key}
       style={{
         transform: CSS.Transform.toString(transform),
@@ -305,7 +328,9 @@ function SelectedRow({
         >
           {all
             ? `${item.sourceName} · 全部节点（自动跟随）`
-            : item.name || "（已删除的节点）"}
+            : lkAll
+              ? `${LEIKWAN_ALL_NAME}（自动跟随）`
+              : item.name || "（已删除的节点）"}
         </div>
         <div
           className={`truncate text-xs ${item.missing ? "text-red-600 dark:text-red-300" : "text-default-500"}`}
@@ -314,12 +339,18 @@ function SelectedRow({
             ? "已失效 · 保存时自动移除"
             : all
               ? `现在 ${item.count || 0} 个 · 机场那边增删节点会自动同步`
-              : protocolText(item)}
+              : lkAll
+                ? leikwanAllNote(item.count)
+                : protocolText(item)}
         </div>
       </div>
       {!item.missing && (
         <Pill tone={chip.tone}>
-          {item.group === "source" ? item.sourceName : chip.text}
+          {item.group === "source"
+            ? item.sourceName
+            : lkAll
+              ? `${chip.text} ${item.count || 0}`
+              : chip.text}
         </Pill>
       )}
       <Button
@@ -344,6 +375,8 @@ interface Group {
   nodes: SubPoolNode[];
   source?: SubPoolSource;
   sel: SubSelected["group"];
+  /** plan 272: the 利群汇聚 group (follow toggle instead of 全部加入) */
+  leikwan?: boolean;
 }
 
 export function SubEditor({
@@ -423,6 +456,7 @@ export function SubEditor({
         ...pool.landing,
         ...pool.external,
         ...pool.sources.flatMap((x) => x.nodes),
+        ...(pool.leikwan || []),
       ])
         m.set(n.key, n.detail);
     }
@@ -438,8 +472,20 @@ export function SubEditor({
       ),
     [selected],
   );
+  // Plan 272: 「全部利群规则」 is followed like a source's 整组跟随.
+  const lkFollowKey = pool?.leikwanFollowKey || "ka";
+  const lkFollowed = selected.some(
+    (s) => s.group === "leikwan_all" || s.key === lkFollowKey,
+  );
+  const lkAvailable = (pool?.leikwan || []).filter((n) => !n.disabled);
   const nodeTotal = selected.reduce(
-    (n, s) => n + (s.missing ? 0 : s.group === "source_all" ? s.count || 0 : 1),
+    (n, s) =>
+      n +
+      (s.missing
+        ? 0
+        : s.group === "source_all" || s.group === "leikwan_all"
+          ? s.count || 0
+          : 1),
     0,
   );
   // Plan 193: at most maxNodes (100) nodes per subscription.
@@ -467,6 +513,17 @@ export function SubEditor({
             source: "source",
           }),
         );
+      } else if (s.group === "leikwan_all") {
+        (pool?.leikwan || [])
+          .filter((n) => !n.disabled)
+          .forEach((n) =>
+            out.push({
+              key: n.key,
+              name: n.name,
+              detail: "利群汇聚",
+              source: "leikwan",
+            }),
+          );
       } else
         out.push({
           key: s.key,
@@ -519,6 +576,16 @@ export function SubEditor({
         sel: "source",
       });
     }
+    // Plan 272: 利群汇聚 after the existing groups (granted users only).
+    if (pool.leikwanGranted)
+      out.push({
+        key: "leikwan",
+        title: "利群汇聚",
+        filter: "leikwan",
+        nodes: pool.leikwan || [],
+        sel: "leikwan",
+        leikwan: true,
+      });
 
     return out;
   }, [pool]);
@@ -532,7 +599,11 @@ export function SubEditor({
     .filter(
       (g) =>
         g.shown.length > 0 ||
-        (!q && (g.key === "rule" || g.key === "external" || !!g.source)),
+        (!q &&
+          (g.key === "rule" ||
+            g.key === "external" ||
+            g.key === "leikwan" ||
+            !!g.source)),
     );
   const poolTotal = groups.reduce((n, g) => n + g.nodes.length, 0);
 
@@ -546,6 +617,11 @@ export function SubEditor({
     sourceName: g.source?.name,
   });
   const add = (n: SubPoolNode, g: Group) => {
+    if (n.disabled) {
+      toast.error(n.reason || "这个节点不能放进订阅");
+
+      return;
+    }
     if (!keys.has(n.key) && nodeTotal + 1 > maxNodes) {
       toast.error(capMsg, capToast);
 
@@ -608,6 +684,38 @@ export function SubEditor({
     });
   };
 
+  // Plan 272: 「全部利群规则（自动跟随）」 replaces the single 利群 picks.
+  const toggleLeiKwanFollow = () => {
+    if (!lkFollowed) {
+      const singles = selected.filter(
+        (x) => x.group === "leikwan" && !x.missing,
+      ).length;
+
+      if (nodeTotal - singles + lkAvailable.length > maxNodes) {
+        toast.error(capMsg, capToast);
+
+        return;
+      }
+    }
+    setSelected((cur) => {
+      if (cur.some((x) => x.group === "leikwan_all" || x.key === lkFollowKey))
+        return cur.filter(
+          (x) => !(x.group === "leikwan_all" || x.key === lkFollowKey),
+        );
+
+      return [
+        ...cur.filter((x) => x.group !== "leikwan"),
+        {
+          ref: { kind: "leikwan_all" },
+          key: lkFollowKey,
+          group: "leikwan_all",
+          name: LEIKWAN_ALL_NAME,
+          count: lkAvailable.length,
+        },
+      ];
+    });
+  };
+
   const onDragEnd = (e: DragEndEvent) => {
     if (!e.over || e.active.id === e.over.id) return;
     setSelected((cur) => {
@@ -654,10 +762,16 @@ export function SubEditor({
   const filters: [Filter, string][] = [
     ["all", "全部"],
     ...groups
-      .filter((g) => g.nodes.length > 0 || g.source || g.key === "external")
+      .filter(
+        (g) =>
+          g.nodes.length > 0 ||
+          g.source ||
+          g.key === "external" ||
+          g.key === "leikwan",
+      )
       .map((g): [Filter, string] => [
         g.filter,
-        `${g.source ? g.source.name : g.key === "rule" ? "规则" : g.key === "landing" ? "落地" : isH5 ? "外部" : "外部节点"}${isH5 ? "" : ` ${g.nodes.length}`}`,
+        `${g.source ? g.source.name : g.key === "rule" ? "规则" : g.key === "landing" ? "落地" : g.key === "leikwan" ? (isH5 ? "利群" : "利群汇聚") : isH5 ? "外部" : "外部节点"}${isH5 ? "" : ` ${g.nodes.length}`}`,
       ]),
   ];
 
@@ -699,7 +813,11 @@ export function SubEditor({
         className={`overflow-y-auto ${isH5 ? "flex-1" : "max-h-[52vh] min-h-[320px]"}`}
       >
         {visibleGroups.map((g) => {
-          const follow = g.source ? followed.has(g.source.id) : false;
+          const follow = g.source
+            ? followed.has(g.source.id)
+            : g.leikwan
+              ? lkFollowed
+              : false;
           const allIn =
             !g.source &&
             g.nodes.length > 0 &&
@@ -728,7 +846,27 @@ export function SubEditor({
                     ＋ 添加
                   </button>
                 )}
-                {g.source ? (
+                {g.leikwan ? (
+                  <button
+                    className={`whitespace-nowrap rounded-lg px-2 py-0.5 text-xs font-semibold ${
+                      follow
+                        ? "bg-violet-500/25 text-violet-800 dark:bg-violet-400/25 dark:text-violet-200"
+                        : "bg-violet-500/15 text-violet-700 dark:bg-violet-400/15 dark:text-violet-300"
+                    }`}
+                    data-leikwan-follow={follow ? "on" : "off"}
+                    title="新建的利群规则会自动出现在订阅里（手动落地的除外）"
+                    type="button"
+                    onClick={toggleLeiKwanFollow}
+                  >
+                    {isH5
+                      ? follow
+                        ? "全部跟随 ✓"
+                        : "全部跟随"
+                      : follow
+                        ? "全部利群规则（自动跟随）✓"
+                        : "全部利群规则（自动跟随）"}
+                  </button>
+                ) : g.source ? (
                   <button
                     className={`rounded-lg px-2 py-0.5 text-xs font-semibold ${
                       follow
@@ -770,6 +908,11 @@ export function SubEditor({
                   还没有外部节点，点「＋ 添加」粘贴你自己的节点链接
                 </p>
               )}
+              {g.leikwan && g.nodes.length === 0 && !q && (
+                <p className="border-b border-divider px-3 py-2 text-xs text-default-400">
+                  还没有利群规则：在「利群汇聚」页建好后会出现在这里
+                </p>
+              )}
               {g.source && g.nodes.length === 0 && (
                 <p className="border-b border-divider px-3 py-2 text-xs text-default-400">
                   {g.source.lastError
@@ -778,14 +921,20 @@ export function SubEditor({
                 </p>
               )}
               {g.shown.map((n) => {
-                const inSub = follow || keys.has(n.key);
-                const detail = `${protocolText(n)} · ${n.detail}`;
+                // Plan 272: a disabled 利群 rule (手动落地) is never in the
+                // subscription, followed or not.
+                const off = !!n.disabled;
+                const inSub = (follow && !off) || keys.has(n.key);
+                const detail = `${protocolText(n)} · ${n.detail}${
+                  off && n.reason ? ` · ${n.reason}` : ""
+                }`;
 
                 return isH5 ? (
                   <button
                     key={n.key}
-                    className={`flex w-full items-center gap-3 border-b border-divider px-3 py-2 text-left ${follow ? "opacity-70" : ""}`}
-                    disabled={follow}
+                    className={`flex w-full items-center gap-3 border-b border-divider px-3 py-2 text-left ${follow || off ? "opacity-70" : ""}`}
+                    disabled={follow || off}
+                    title={off ? n.reason : undefined}
                     type="button"
                     onClick={() => toggle(n, g)}
                   >
@@ -808,7 +957,8 @@ export function SubEditor({
                 ) : (
                   <div
                     key={n.key}
-                    className="flex items-center gap-2 border-b border-divider px-3 py-2 last:border-b-0"
+                    className={`flex items-center gap-2 border-b border-divider px-3 py-2 last:border-b-0 ${off ? "opacity-60" : ""}`}
+                    title={off ? n.reason : undefined}
                   >
                     <div className="min-w-0 flex-1">
                       <div className="truncate text-sm">{n.name}</div>
@@ -816,7 +966,11 @@ export function SubEditor({
                         {detail}
                       </div>
                     </div>
-                    {inSub ? (
+                    {off ? (
+                      <span className="shrink-0 text-xs text-default-400">
+                        不能加
+                      </span>
+                    ) : inSub ? (
                       <Button
                         isIconOnly
                         aria-label={follow ? "整组跟随中" : "从订阅移除"}

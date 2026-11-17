@@ -292,6 +292,24 @@ func (h *Handler) subAdminDetail(w http.ResponseWriter, r *http.Request) {
 			for _, sn := range d.srcNodes[ref.SourceID] {
 				nodeName[sublink.Ref{Kind: sublink.RefSourceNode, SourceID: ref.SourceID, Name: sn.Name}.Key()] = sn.Name
 			}
+		case sublink.RefLeiKwanRule: // plan 272
+			it.Group, it.Missing = "leikwan", true
+			if d.leikwan != nil {
+				if n, ok := d.leikwan.nodes[ref.LeiKwanRuleID]; ok {
+					it.Name, it.Protocol, it.Missing = n.Name, n.ProtocolLabel(), false
+					nodeName[ref.Key()] = n.Name
+				}
+			}
+		case sublink.RefLeiKwanAll:
+			it.Group = "leikwan_all"
+			if d.leikwan == nil || !d.leikwan.granted {
+				it.Missing = true
+				break
+			}
+			it.Count = len(d.leikwan.nodes)
+			for id, n := range d.leikwan.nodes {
+				nodeName[sublink.Ref{Kind: sublink.RefLeiKwanRule, LeiKwanRuleID: id}.Key()] = n.Name
+			}
 		case sublink.RefSourceNode:
 			it.Group, it.Name, it.Missing = "source", ref.Name, true
 			src, ok := d.sources[ref.SourceID]

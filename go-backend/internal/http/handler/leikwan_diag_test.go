@@ -96,16 +96,16 @@ func TestLeiKwanDiagnose(t *testing.T) {
 		t.Fatalf("stream: %s", body)
 	}
 	items, sum := done.Data.Items, done.Data.Summary
-	if len(items) != 2 || items[0]["section"] != "hop1" || items[0]["title"] != "百度云广州 → 利群专线" || items[0]["inUse"] != "tcp" || items[0]["averageTime"] != 4.0 {
+	if len(items) != 2 || items[0]["section"] != "hop1" || items[0]["title"] != "百度云广州 → 利群专线" || items[0]["inUse"] != "udp" || items[0]["averageTime"] != 9.0 {
 		t.Fatalf("user 第一跳: %v", items)
 	}
-	if strings.Contains(body, "125.94.47.233") || strings.Contains(body, "203.0.113.8") || strings.Contains(body, "华为云") {
+	if strings.Contains(body, "121.37.28.219") || strings.Contains(body, "203.0.113.8") || strings.Contains(body, "华为云") {
 		t.Fatalf("user sees relay / manual addresses: %s", body)
 	}
-	if h2 := items[1]; h2["section"] != "hop2" || h2["estimate"] != true || h2["averageTime"] != 14.0 || !strings.Contains(h2["sub"].(string), "全程 18 ms − 第一跳 4 ms") {
+	if h2 := items[1]; h2["section"] != "hop2" || h2["estimate"] != true || h2["averageTime"] != 9.0 || !strings.Contains(h2["sub"].(string), "全程 18 ms − 第一跳 9 ms") {
 		t.Fatalf("第二跳 estimate: %v", h2)
 	}
-	if sum["totalMs"] != 18.0 || sum["hop1Ms"] != 4.0 || sum["hop2Ms"] != 14.0 || sum["totalSource"] != "udp" || sum["hop2Estimate"] != true || sum["totalLoss"] != 0.0 {
+	if sum["totalMs"] != 18.0 || sum["hop1Ms"] != 9.0 || sum["hop2Ms"] != 9.0 || sum["totalSource"] != "udp" || sum["hop2Estimate"] != true || sum["totalLoss"] != 0.0 {
 		t.Fatalf("summary: %v", sum)
 	}
 	if calls[60] != 0 || calls[61] != 0 {

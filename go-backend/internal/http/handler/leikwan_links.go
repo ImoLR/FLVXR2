@@ -5,8 +5,8 @@ package handler
 // 主入口), on the landing page 「复制链接」 and for 复制链接 / 复制订阅. A rule
 // has a full link when its landing is a panel landing node or one of the
 // owner's 外部节点; a manual host:port only has the entry address.
-// Normal users get 利群 only as a subscription (their automatic 「利群汇聚」
-// sub): the API never hands them a 利群 node link.
+// Subscriptions are recommended (「生成订阅」: the user's 「利群汇聚」 sub
+// follows 主入口 changes), node links stay available to everyone.
 
 import (
 	"errors"
@@ -28,7 +28,7 @@ import (
 const (
 	lkSubAutoKind = "leikwan"
 	lkSubName     = "利群汇聚"
-	lkSubNote     = "利群建议用订阅：换入口时刷新订阅即可，不用改地址"
+	lkSubNote     = "推荐用订阅：换入口时刷新订阅即可，不用改地址"
 	lkManualNoSub = "手动落地没有完整链接，不能进订阅"
 )
 

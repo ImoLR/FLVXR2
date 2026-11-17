@@ -386,6 +386,8 @@ export default function LandingPage() {
   const [linkError, setLinkError] = useState("");
   const [linksLoading, setLinksLoading] = useState(false);
   const [qr, setQR] = useState("");
+  // Plan 272: 利群汇聚 rule links (kind leikwan) go after the others.
+  const leikwanLinks = links.filter((link) => link.kind === "leikwan");
   const [saving, setSaving] = useState(false);
   const [globalSettings, setGlobalSettings] = useState(false);
   const [rulesFor, setRulesFor] = useState<LandingNode | null>(null);
@@ -1403,10 +1405,15 @@ export default function LandingPage() {
                   共 {links.length} 条链接：直连{" "}
                   {links.filter((link) => link.kind === "direct").length} ·
                   经规则转发{" "}
-                  {links.filter((link) => link.kind !== "direct").length}
+                  {links.filter((link) => link.kind === "forward").length}
+                  {leikwanLinks.length > 0 && ` · 利群 ${leikwanLinks.length}`}
                 </p>
               )}
-              {links.map((link, index) => (
+              {[
+                ...links.filter((link) => link.kind !== "leikwan"),
+                // Plan 272: 利群汇聚 rules on this node, below the others.
+                ...leikwanLinks,
+              ].map((link, index) => (
                 <LandingLinkCard
                   key={`${link.kind}-${index}`}
                   link={link}

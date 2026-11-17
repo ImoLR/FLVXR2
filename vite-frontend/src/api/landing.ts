@@ -361,9 +361,14 @@ export interface LandingNodeChain {
 export interface LandingLink {
   name: string;
   url: string;
-  kind: "direct" | "forward";
+  /** plan 272: "leikwan" = a 利群 rule landing on this node (主入口:端口) */
+  kind: "direct" | "forward" | "leikwan";
   forwardId?: number;
   entryNodeId?: number;
+  /** plan 272 (kind leikwan): the 利群 rule, its name and the entry address */
+  leikwanRuleId?: number;
+  ruleName?: string;
+  address?: string;
   /** plan 121: Clash (mihomo) proxy entry for AnyTLS / Snell / Mieru */
   clash?: string;
   /** plan 121: Surge proxy line (Snell) */

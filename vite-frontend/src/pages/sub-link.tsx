@@ -1,4 +1,5 @@
 import { Suspense, lazy, useCallback, useEffect, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import toast from "react-hot-toast";
 import { Download, Gem, MoreHorizontal, Plus, RefreshCw } from "lucide-react";
 
@@ -45,7 +46,9 @@ import {
 
 function SubCounts({ sub, compact }: { sub: SubItem; compact: boolean }) {
   const c = sub.counts;
-  const empty = c.panel + c.external + c.sources.length + c.missing === 0;
+  const empty =
+    c.panel + c.external + c.sources.length + c.missing + (c.leikwan || 0) ===
+    0;
 
   return (
     <div className="flex flex-wrap gap-1.5">
@@ -57,6 +60,11 @@ function SubCounts({ sub, compact }: { sub: SubItem; compact: boolean }) {
       {c.external > 0 && (
         <Pill tone="purple">
           {compact ? "外部" : "外部节点"} {c.external}
+        </Pill>
+      )}
+      {(c.leikwan || 0) > 0 && (
+        <Pill tone="violet">
+          {compact ? "利群" : "利群规则"} {c.leikwan}
         </Pill>
       )}
       {c.sources.map((s) => (
@@ -153,6 +161,14 @@ function SubCard({
           <span className="mr-1 truncate text-base font-semibold">
             {sub.name}
           </span>
+          {sub.auto === "leikwan" && (
+            <Pill
+              title="利群汇聚页「生成订阅」生成的订阅，可以像别的订阅一样编辑、删除"
+              tone="violet"
+            >
+              利群汇聚
+            </Pill>
+          )}
           {!isH5 && (
             <>
               <Pill tone="purple">{subFormatLabel[sub.format]}</Pill>
@@ -278,8 +294,11 @@ export default function SubLinkPage() {
   const [confirm, setConfirm] = useState<Confirm>(null);
   const [busy, setBusy] = useState(false);
   const [admin] = useState(isAdmin);
+  // Plan 272: /sub?edit=<id> (利群汇聚 「详细设置」) opens that sub's editor.
+  const [params, setParams] = useSearchParams();
+  const editParam = params.get("edit");
   const [view, setView] = useState<SubView>(() =>
-    isAdmin() ? readView() : "mine",
+    isAdmin() && !editParam ? readView() : "mine",
   );
   const changeView = (v: SubView) => {
     setView(v);
@@ -308,6 +327,17 @@ export default function SubLinkPage() {
     markSubMenuSeen();
     void load();
   }, [load]);
+  useEffect(() => {
+    if (!editParam || !data) return;
+    const target = data.subs.find((x) => String(x.id) === editParam);
+    const next = new URLSearchParams(params);
+
+    next.delete("edit");
+    setParams(next, { replace: true });
+    setView("mine");
+    if (target) setEditing(target);
+    else toast.error("没有找到这条订阅");
+  }, [editParam, data]);
 
   const subs = data?.subs || [];
   const cap = data?.cap || 0;

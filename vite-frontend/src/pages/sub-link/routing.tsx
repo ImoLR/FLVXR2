@@ -63,7 +63,7 @@ export interface RouteNodeOption {
   /** desktop only: the source's name (a node of an 外部订阅源) */
   detail?: string;
   /** where the node comes from (one small tag in the 走哪里 picker) */
-  source?: "rule" | "landing" | "external" | "source";
+  source?: "rule" | "landing" | "external" | "source" | "leikwan";
 }
 
 export const DEFAULT_LIMITS: SubRouteLimits = {
@@ -339,6 +339,7 @@ const sourceTag: Record<
   landing: { tone: "teal", text: "落地" },
   external: { tone: "purple", text: "外部节点" },
   source: { tone: "amber", text: "订阅源" },
+  leikwan: { tone: "violet", text: "利群" },
 };
 
 type NodeSource = NonNullable<RouteNodeOption["source"]>;
@@ -351,6 +352,7 @@ const nodeIconTone: Record<NodeSource, string> = {
   landing: "text-teal-600 dark:text-teal-400",
   external: "text-purple-600 dark:text-purple-400",
   source: "text-orange-600 dark:text-orange-400",
+  leikwan: "text-violet-600 dark:text-violet-400",
 };
 
 function nodeIconClass(source?: NodeSource) {
@@ -1540,17 +1542,28 @@ export function RoutingReadOnly({
   const srcOf = new Map<string, NodeSource>();
 
   for (const it of items)
-    if (!it.missing && it.group !== "source_all" && !srcOf.has(it.name))
+    if (
+      !it.missing &&
+      it.group !== "source_all" &&
+      it.group !== "leikwan_all" &&
+      !srcOf.has(it.name)
+    )
       srcOf.set(it.name, it.group);
   const followsSource = items.some(
     (it) => it.group === "source_all" && !it.missing,
+  );
+  // Plan 272: names of a followed 「全部利群规则」 are 利群 nodes.
+  const followsLeiKwan = items.some(
+    (it) => it.group === "leikwan_all" && !it.missing,
   );
   const view = (e: SubAdminRoute): ExitView => {
     if (e.exit !== "node") return exitView(e.exit, none);
     if (e.exitMissing || !e.exitName)
       return { label: "节点选择", tone: "amber", missing: true, Icon: Rocket };
 
-    const src = srcOf.get(e.exitName) || (followsSource ? "source" : undefined);
+    const src =
+      srcOf.get(e.exitName) ||
+      (followsSource ? "source" : followsLeiKwan ? "leikwan" : undefined);
 
     return {
       label: e.exitName,

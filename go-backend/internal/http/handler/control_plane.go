@@ -763,6 +763,11 @@ func (h *Handler) sendNodeCommandWithTimeout(nodeID int64, commandType string, d
 	if timeout <= 0 {
 		timeout = defaultNodeCommandTimeout
 	}
+	if leiKwanLabCommand != nil { // plan 272 lab build only (nil in releases)
+		if res, ok := leiKwanLabCommand(nodeID, commandType, data); ok {
+			return res, nil
+		}
+	}
 
 	h.recentPushes.note(nodeID, commandType, data, time.Now())
 	h.noteEntryRateCommand(nodeID, commandType) // plan 168: re-check the node's entry rate tree

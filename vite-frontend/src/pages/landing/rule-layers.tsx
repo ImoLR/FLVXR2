@@ -28,6 +28,7 @@ const dotClass: Record<LandingTone, string> = {
   cyan: "bg-cyan-600 text-white dark:bg-cyan-400 dark:text-cyan-950",
   amber: "bg-amber-500 text-white dark:bg-amber-400 dark:text-amber-950",
   red: "bg-red-600 text-white dark:bg-red-400 dark:text-red-950",
+  violet: "bg-violet-600 text-white dark:bg-violet-400 dark:text-violet-950",
 };
 
 /** Layer tones of the waterfall (plan-149 palette, no amber / red). */
