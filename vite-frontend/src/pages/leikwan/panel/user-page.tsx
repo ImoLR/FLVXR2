@@ -39,6 +39,7 @@ import {
   type LeiKwanRuleActions,
 } from "@/pages/leikwan/panel/rule-actions";
 import { fmtBytes } from "@/pages/leikwan/panel/shared";
+import { VendorFlowPill } from "@/pages/leikwan/panel/usage-parts";
 import { LeiKwanSubDialog } from "@/pages/leikwan/panel/sub-dialog";
 import { Button } from "@/shadcn-bridge/heroui/button";
 import { Spinner } from "@/shadcn-bridge/heroui/spinner";
@@ -317,10 +318,13 @@ export function LeiKwanUserView() {
                     </Pill>
                   )}
                 </LkField>
-                {(r.inFlow !== undefined || r.outFlow !== undefined) && (
+                {(r.inFlow !== undefined ||
+                  r.outFlow !== undefined ||
+                  r.vendorFlow) && (
                   <LkField label="流量">
                     <FlowPill rule={r} />
                     <BackupFlowPill rule={r} />
+                    <VendorFlowPill rule={r} />
                   </LkField>
                 )}
                 {r.userExpired && (
@@ -491,6 +495,7 @@ export function LeiKwanUserView() {
                       <BlockedPill rule={r} />
                       <FlowPill rule={r} />
                       <BackupFlowPill rule={r} />
+                      <VendorFlowPill rule={r} />
                     </div>
                     {r.blockReason && (
                       <div className="text-[11px] text-red-700 dark:text-red-300">

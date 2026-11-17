@@ -36,15 +36,21 @@ import (
 	"go-backend/internal/store/model"
 )
 
-const (
+// The loop timings are vars only so the leikwanlab build can shorten the
+// first wait / round (screens); release builds never change them.
+var (
+	lkUsageFirstDelay = 45 * time.Second
 	lkUsageRoundEvery = 150 * time.Second
 	lkUsageGap        = 15 * time.Second
-	lkUsageEvery      = 5 * time.Minute
-	lkServiceEvery    = 30 * time.Minute
-	lkPreviousEvery   = 24 * time.Hour
-	lkUsageLongWait   = 30 * time.Minute
-	lkUsagePerRound   = 2
-	lkUsageSlack      = 10 * time.Second
+)
+
+const (
+	lkUsageEvery    = 5 * time.Minute
+	lkServiceEvery  = 30 * time.Minute
+	lkPreviousEvery = 24 * time.Hour
+	lkUsageLongWait = 30 * time.Minute
+	lkUsagePerRound = 2
+	lkUsageSlack    = 10 * time.Second
 )
 
 // Kinds in priority order (a round takes the first two due).
@@ -397,7 +403,7 @@ func (h *Handler) LeiKwanUsageRound(ctx context.Context, now time.Time, gap time
 
 func (h *Handler) runLeiKwanUsageLoop(ctx context.Context) {
 	defer h.jobsWG.Done()
-	timer := time.NewTimer(45 * time.Second)
+	timer := time.NewTimer(lkUsageFirstDelay)
 	defer timer.Stop()
 	for {
 		select {
