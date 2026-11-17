@@ -246,6 +246,7 @@ const normalizeUserItem = (item: Partial<User>): UserWithHistory => {
     baseFlow: Number(item.baseFlow ?? 0),
     speedLimitId: item.speedLimitId ?? null,
     serverRateMbps: Number(item.serverRateMbps ?? 0),
+    leikwanRuleCount: Number(item.leikwanRuleCount ?? 0), // plan 276 (F01)
     quotaHistory: [],
     showHistory: false,
   };
