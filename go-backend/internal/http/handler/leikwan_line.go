@@ -737,10 +737,13 @@ func (h *Handler) leikwanGrantList(w http.ResponseWriter, r *http.Request) {
 		ids = append(ids, g.UserID)
 	}
 	names := h.repo.LeiKwanUserNames(ids)
+	refs, _ := h.repo.ListLeiKwanBackupRefs()
 	out := make([]map[string]interface{}, 0, len(grants))
 	for _, g := range grants {
 		n, _ := h.repo.CountLeiKwanRules(g.UserID)
-		out = append(out, h.leiKwanGrantView(g, entries, n, names[g.UserID]))
+		gv := h.leiKwanGrantView(g, entries, n, names[g.UserID])
+		gv["backupFlow"] = leiKwanUserBackupFlow(refs, g.UserID) // plan 271 备线流量
+		out = append(out, gv)
 	}
 	response.WriteJSON(w, response.OK(map[string]interface{}{"grants": out, "entryNodes": entries, "entryGroupId": setting.EntryGroupID}))
 }
@@ -922,7 +925,7 @@ func (h *Handler) leiKwanBackupsOn(rules []model.LeiKwanRule) []string {
 			x.BackupError = err.Error()
 			warnings = append(warnings, fmt.Sprintf("%s：备线未建好（%s）", x.Name, err.Error()))
 		}
-		_ = h.repo.SaveLeiKwanRule(&x)
+		_ = h.saveLeiKwanRule(&x)
 	}
 	return warnings
 }
@@ -934,7 +937,7 @@ func (h *Handler) leiKwanBackupsOff(rules []model.LeiKwanRule) []string {
 		if x.BackupMode != "auto" {
 			if x.BackupError != "" {
 				x.BackupError = ""
-				_ = h.repo.SaveLeiKwanRule(&x)
+				_ = h.saveLeiKwanRule(&x)
 			}
 			continue
 		}
@@ -942,7 +945,7 @@ func (h *Handler) leiKwanBackupsOff(rules []model.LeiKwanRule) []string {
 			warnings = append(warnings, fmt.Sprintf("%s：%s", x.Name, err.Error()))
 			continue
 		}
-		_ = h.repo.SaveLeiKwanRule(&x)
+		_ = h.saveLeiKwanRule(&x)
 	}
 	return warnings
 }
@@ -968,11 +971,11 @@ func (h *Handler) leikwanRuleBackupRetry(w http.ResponseWriter, r *http.Request)
 	}
 	if err := h.leiKwanCreateBackup(x); err != nil {
 		x.BackupError = err.Error()
-		_ = h.repo.SaveLeiKwanRule(x)
+		_ = h.saveLeiKwanRule(x)
 		leiKwanError(w, errors.New("备线未建好："+err.Error()))
 		return
 	}
-	_ = h.repo.SaveLeiKwanRule(x)
+	_ = h.saveLeiKwanRule(x)
 	response.WriteJSON(w, response.OK(map[string]interface{}{"backupForwardId": x.BackupForwardID}))
 }
 
@@ -988,6 +991,9 @@ type leiKwanRuleCtx struct {
 	hosts    []leiKwanHostCtx
 	shared   map[int64][]int64
 	expired  map[int64]bool
+	// Plan 271: every rule with a 备线 (all users), by 备线 forward id.
+	backupRefs map[int64][]repo.LeiKwanBackupRef
+	allRefs    []repo.LeiKwanBackupRef
 }
 
 func (h *Handler) leiKwanRuleContext(rules []model.LeiKwanRule, admin bool) *leiKwanRuleCtx {
@@ -1020,6 +1026,13 @@ func (h *Handler) leiKwanRuleContext(rules []model.LeiKwanRule, admin bool) *lei
 		}
 	}
 	c.backups, _ = h.repo.LeiKwanBackupForwards(ids)
+	c.backupRefs = map[int64][]repo.LeiKwanBackupRef{}
+	if len(ids) > 0 {
+		c.allRefs, _ = h.repo.ListLeiKwanBackupRefs()
+		for _, r := range c.allRefs {
+			c.backupRefs[r.BackupForwardID] = append(c.backupRefs[r.BackupForwardID], r)
+		}
+	}
 	c.users = h.repo.LeiKwanUserNames(users)
 	c.expired = h.repo.LeiKwanUsersExpired(users, time.Now().UnixMilli())
 	if admin {
@@ -1050,6 +1063,26 @@ func (h *Handler) leiKwanRuleView(x model.LeiKwanRule, c *leiKwanRuleCtx, admin 
 	// Plan 270: users never see the internal 备线 error (it can name forwards).
 	if !admin && x.BackupError != "" {
 		v["backupError"] = "备线还没建好，管理员处理中"
+	}
+	// Plan 271: 备线流量 (billed, since the owner's reset). A 备线 shared with
+	// other rules shows its full bytes on each (no split): backupSharedCount
+	// = the other rules, backupSharedWith = their names (users: own rules only).
+	if x.BackupForwardID > 0 {
+		v["backupInFlow"], v["backupOutFlow"] = x.BackupInFlow, x.BackupOutFlow
+		names := []string{}
+		others := 0
+		for _, r := range c.backupRefs[x.BackupForwardID] {
+			if r.RuleID == x.ID {
+				continue
+			}
+			others++
+			if admin || r.UserID == x.UserID {
+				names = append(names, r.Name)
+			}
+		}
+		if others > 0 {
+			v["backupSharedCount"], v["backupSharedWith"] = others, names
+		}
 	}
 	if x.PendingLandingNodeID > 0 {
 		p := map[string]interface{}{"landingNodeId": x.PendingLandingNodeID}
@@ -1151,7 +1184,9 @@ func (h *Handler) leikwanRuleList(w http.ResponseWriter, r *http.Request) {
 	}
 	result := map[string]interface{}{"rules": out, "admin": admin, "granted": true}
 	if g, ok := c.grants[uid]; ok {
-		result["grant"] = h.leiKwanGrantView(g, c.entries, int64(len(leiKwanOwnRules(rules, uid))), "")
+		gv := h.leiKwanGrantView(g, c.entries, int64(len(leiKwanOwnRules(rules, uid))), "")
+		gv["backupFlow"] = leiKwanUserBackupFlow(c.allRefs, uid) // plan 271
+		result["grant"] = gv
 	}
 	// Admins get every line; granted users the active ones (「可用专线」) —
 	// name, route and transport only.
@@ -1414,7 +1449,7 @@ func (h *Handler) leikwanRuleCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	x := &model.LeiKwanRule{UserID: owner, LineID: line.ID, AccountID: a.ID, ForwardID: f.ID, Name: req.Name, ListenPort: f.ListenPort, Transport: f.Transport,
 		LandingNodeID: landingID, TargetHost: host, TargetPort: port, ETag: tag, Source: "panel", Status: 1}
-	if err := h.repo.SaveLeiKwanRule(x); err != nil {
+	if err := h.saveLeiKwanRule(x); err != nil {
 		leiKwanError(w, errors.New("利群侧已建好，请重试原请求完成登记"))
 		return
 	}
@@ -1425,7 +1460,7 @@ func (h *Handler) leikwanRuleCreate(w http.ResponseWriter, r *http.Request) {
 			x.BackupError = err.Error()
 			warnings = append(warnings, "备线未建好："+err.Error())
 		}
-		_ = h.repo.SaveLeiKwanRule(x)
+		_ = h.saveLeiKwanRule(x)
 	}
 	c := h.leiKwanRuleContext([]model.LeiKwanRule{*x}, admin)
 	response.WriteJSON(w, response.OK(map[string]interface{}{"rule": h.leiKwanRuleView(*x, c, admin), "warnings": warnings}))
@@ -1549,7 +1584,7 @@ func (h *Handler) leikwanRuleUpdate(w http.ResponseWriter, r *http.Request) {
 			x.PendingLandingNodeID = 0 // 待切换 done
 		}
 	}
-	if err := h.repo.SaveLeiKwanRule(x); err != nil {
+	if err := h.saveLeiKwanRule(x); err != nil {
 		leiKwanError(w, errors.New("保存利群规则失败"))
 		return
 	}
@@ -1615,7 +1650,7 @@ func (h *Handler) leikwanRuleDelete(w http.ResponseWriter, r *http.Request) {
 	if err := h.leiKwanDropBackup(x); err != nil {
 		backupNote = err.Error()
 	}
-	if err := h.repo.DeleteLeiKwanRule(x.ID); err != nil {
+	if err := h.deleteLeiKwanRule(x.ID); err != nil {
 		leiKwanError(w, errors.New("删除利群规则记录失败"))
 		return
 	}

@@ -36,6 +36,9 @@ type FlowBatch struct {
 	// and keeps the old baseline, so the next report bills the same bytes once).
 	LeiKwanRules    map[int64]FlowCounterDelta
 	LeiKwanCounters []LeiKwanCounterBase
+	// Plan 271: billed bytes of 备线 forwards per 利群 rule (backup_in_flow /
+	// backup_out_flow), same transaction as the forward counters.
+	LeiKwanBackups map[int64]FlowCounterDelta
 }
 
 // LeiKwanCounterBase is the last billed nft counter state of one entry host.
@@ -49,7 +52,7 @@ type LeiKwanCounterBase struct {
 func (b FlowBatch) Empty() bool {
 	return len(b.Forwards) == 0 && len(b.Users) == 0 && len(b.UserTunnels) == 0 &&
 		len(b.QuotaUsage) == 0 && len(b.PeerShares) == 0 && len(b.LandingCounters) == 0 && len(b.ServerQuotas) == 0 &&
-		len(b.PoolFlows) == 0 && len(b.LeiKwanRules) == 0 && len(b.LeiKwanCounters) == 0
+		len(b.PoolFlows) == 0 && len(b.LeiKwanRules) == 0 && len(b.LeiKwanCounters) == 0 && len(b.LeiKwanBackups) == 0
 }
 
 // ApplyFlowBatch writes a whole flow upload in one transaction: either every counter of the
@@ -99,6 +102,19 @@ func (r *Repository) ApplyFlowBatch(batch FlowBatch, now time.Time) (map[int64]*
 		}
 		if err := addFlowCountersTx(tx, &model.LeiKwanRule{}, batch.LeiKwanRules); err != nil {
 			return err
+		}
+		for _, id := range sortedFlowKeys(batch.LeiKwanBackups) {
+			d := batch.LeiKwanBackups[id]
+			if id <= 0 || (d.In == 0 && d.Out == 0) {
+				continue
+			}
+			if err := tx.Model(&model.LeiKwanRule{}).Where("id = ?", id).
+				UpdateColumns(map[string]interface{}{
+					"backup_in_flow":  gorm.Expr("backup_in_flow + ?", d.In),
+					"backup_out_flow": gorm.Expr("backup_out_flow + ?", d.Out),
+				}).Error; err != nil {
+				return err
+			}
 		}
 		for _, c := range batch.LeiKwanCounters {
 			if err := tx.Model(&model.LeiKwanHost{}).Where("node_id = ?", c.NodeID).

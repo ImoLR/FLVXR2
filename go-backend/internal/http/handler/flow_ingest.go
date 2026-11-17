@@ -366,6 +366,10 @@ func (h *Handler) planForwardFlow(b *flowIngestBatch, c *flowIngestCache, nodeID
 			return err
 		}
 		in, out := billFlowForTunnel(tunnel, upload, download)
+		// Plan 271: a 利群 备线 bills the 利群 rule owner (+ 备线流量 counters).
+		if done, err := h.planLeiKwanBackupFlow(b, c, nodeID, serviceName, forward, upload, download, in, out); err != nil || done {
+			return err
+		}
 		b.addLocalFlow(forward.ID, forward.UserID, userTunnelID, in, out, true, true)
 		if err := h.planLandingForwardBilling(b, forward, nodeID, upload, download, in, out); err != nil {
 			return err

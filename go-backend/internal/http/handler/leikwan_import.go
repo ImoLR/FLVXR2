@@ -539,7 +539,7 @@ func (h *Handler) leikwanImportApply(w http.ResponseWriter, r *http.Request) {
 		if it.BackupForward > 0 {
 			x.BackupForwardID, x.BackupMode = it.BackupForward, "linked"
 		}
-		if err := h.repo.SaveLeiKwanRule(x); err != nil {
+		if err := h.saveLeiKwanRule(x); err != nil {
 			done["skipped"] = append(done["skipped"].([]string), fmt.Sprintf("#%d 登记失败", it.ForwardID))
 			continue
 		}

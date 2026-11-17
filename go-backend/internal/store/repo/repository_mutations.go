@@ -231,9 +231,10 @@ func resetUserForwardsTx(tx *gorm.DB, userID, nowMs, operatorID int64, operatorN
 	if err := resetUserLandingUsageTx(tx, userID, nowMs); err != nil {
 		return err
 	}
-	// Plan 269: 利群 rule traffic resets with every user reset.
+	// Plan 269: 利群 rule traffic resets with every user reset (plan 271: and
+	// the rule's 备线流量).
 	if err := tx.Model(&model.LeiKwanRule{}).Where("user_id = ?", userID).
-		Updates(map[string]interface{}{"in_flow": 0, "out_flow": 0}).Error; err != nil {
+		Updates(map[string]interface{}{"in_flow": 0, "out_flow": 0, "backup_in_flow": 0, "backup_out_flow": 0}).Error; err != nil {
 		return err
 	}
 	if err := tx.Model(&model.Forward{}).Where("user_id = ?", userID).

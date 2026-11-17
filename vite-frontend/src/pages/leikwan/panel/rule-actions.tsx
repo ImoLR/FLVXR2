@@ -95,6 +95,37 @@ export function FlowPill({ rule }: { rule: LeiKwanRule }) {
   );
 }
 
+// Plan 271: 备线流量 of the rule (its 备线 forward, since the owner's
+// reset); nothing while 0. A shared 备线 shows its full bytes (tooltip).
+export function BackupFlowPill({ rule }: { rule: LeiKwanRule }) {
+  const up = rule.backupInFlow || 0;
+  const down = rule.backupOutFlow || 0;
+
+  if (up + down <= 0) return null;
+  const others = rule.backupSharedCount || 0;
+  const names = (rule.backupSharedWith || []).join("、");
+  const shared =
+    others > 0
+      ? `\n这条备线和${names ? `「${names}」` : ""}${
+          names && others > (rule.backupSharedWith || []).length
+            ? `等 ${others} 条规则`
+            : names
+              ? ""
+              : ` ${others} 条其他规则`
+        }共用，显示的是整条备线的流量，没有拆分`
+      : "";
+
+  return (
+    <Pill
+      title={`备线流量：断线切到备线后走的流量（↑${fmtBytes(up)} ↓${fmtBytes(down)}），从上次重置算起，也算进总流量${shared}`}
+      tone="green"
+    >
+      备线 {fmtBytes(up + down)}
+      {others > 0 ? " · 共用" : ""}
+    </Pill>
+  );
+}
+
 // Plan 269: the rule's 利群 port is blocked on the entry hosts.
 export function BlockedPill({ rule }: { rule: LeiKwanRule }) {
   if (!rule.blockReason) return null;

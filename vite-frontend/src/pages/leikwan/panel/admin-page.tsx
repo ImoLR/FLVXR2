@@ -56,6 +56,7 @@ import { LeiKwanLineDialog } from "@/pages/leikwan/panel/line-dialog";
 import {
   AdminBackupChip,
   BlockedPill,
+  BackupFlowPill,
   FlowPill,
   PendingBlock,
   RuleButtons,
@@ -68,7 +69,7 @@ import {
   type LeiKwanRuleActions,
 } from "@/pages/leikwan/panel/rule-actions";
 import { LeiKwanSettingsModal } from "@/pages/leikwan/panel/settings-modal";
-import { OnOff, QuotaPill } from "@/pages/leikwan/panel/shared";
+import { OnOff, QuotaPill, fmtBytes } from "@/pages/leikwan/panel/shared";
 import { Button } from "@/shadcn-bridge/heroui/button";
 import { Spinner } from "@/shadcn-bridge/heroui/spinner";
 import { getSessionName } from "@/utils/session";
@@ -298,6 +299,7 @@ function AdminRuleRow({
           )}
           <BlockedPill rule={r} />
           <FlowPill rule={r} />
+          <BackupFlowPill rule={r} />
         </div>
         {r.blockReason && (
           <div className="text-[11px] text-red-700 dark:text-red-300">
@@ -486,6 +488,14 @@ function GrantChips({ g }: { g: LeiKwanGrant }) {
       <OnOff label="备线" on={g.backupLine} />
       <Pill tone="purple">规则 {g.ruleCount}</Pill>
       {g.status !== 1 && <Pill tone="slate">已停用</Pill>}
+      {(g.backupFlow || 0) > 0 && (
+        <Pill
+          title="这个用户的利群规则走备线用掉的流量，从上次重置算起（共用的备线只算一次）"
+          tone="green"
+        >
+          备线流量 {fmtBytes(g.backupFlow)}
+        </Pill>
+      )}
     </>
   );
 }
@@ -1266,6 +1276,7 @@ function AdminPhone({
                           {testNote(r) && <Pill tone="amber">测试</Pill>}
                           {r.userExpired && <Pill tone="red">已到期</Pill>}
                           <FlowPill rule={r} />
+                          <BackupFlowPill rule={r} />
                         </LkField>
                         <div className="flex gap-2 pt-1">
                           <RuleButtons admin fill actions={actions} rule={r} />
@@ -1340,6 +1351,16 @@ function AdminPhone({
                 {g.userName === me && <Pill tone="purple">管理员</Pill>}
                 {g.status !== 1 && <Pill tone="slate">已停用</Pill>}
               </LkField>
+              {(g.backupFlow || 0) > 0 && (
+                <LkField label="备线流量">
+                  <Pill
+                    title="这个用户的利群规则走备线用掉的流量，从上次重置算起（共用的备线只算一次）"
+                    tone="green"
+                  >
+                    {fmtBytes(g.backupFlow)}
+                  </Pill>
+                </LkField>
+              )}
               <div className="flex gap-2 pt-1">
                 <Button
                   className="min-w-0 flex-1"

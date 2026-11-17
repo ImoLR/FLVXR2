@@ -23,6 +23,7 @@ import {
 } from "@/pages/leikwan/panel/layout-parts";
 import {
   BlockedPill,
+  BackupFlowPill,
   FlowPill,
   PendingBlock,
   RuleButtons,
@@ -35,6 +36,7 @@ import {
   useLeiKwanRuleActions,
   type LeiKwanRuleActions,
 } from "@/pages/leikwan/panel/rule-actions";
+import { fmtBytes } from "@/pages/leikwan/panel/shared";
 import { Button } from "@/shadcn-bridge/heroui/button";
 import { Spinner } from "@/shadcn-bridge/heroui/spinner";
 
@@ -162,6 +164,14 @@ export function LeiKwanUserView() {
       <Pill tone="purple">
         {h5 ? `规则 ${rules.length}` : `利群规则 ${rules.length} 条`}
       </Pill>
+      {g && (g.backupFlow || 0) > 0 && (
+        <Pill
+          title="你的利群规则走备线用掉的流量，从上次重置算起，也算进总流量（共用的备线只算一次）"
+          tone="green"
+        >
+          备线流量 {fmtBytes(g.backupFlow)}
+        </Pill>
+      )}
     </>
   );
   const emptyLine = (id: number) => (
@@ -268,6 +278,7 @@ export function LeiKwanUserView() {
                 {(r.inFlow !== undefined || r.outFlow !== undefined) && (
                   <LkField label="流量">
                     <FlowPill rule={r} />
+                    <BackupFlowPill rule={r} />
                   </LkField>
                 )}
                 {r.userExpired && (
@@ -425,6 +436,7 @@ export function LeiKwanUserView() {
                       {r.userExpired && <Pill tone="red">已到期</Pill>}
                       <BlockedPill rule={r} />
                       <FlowPill rule={r} />
+                      <BackupFlowPill rule={r} />
                     </div>
                     {r.blockReason && (
                       <div className="text-[11px] text-red-700 dark:text-red-300">

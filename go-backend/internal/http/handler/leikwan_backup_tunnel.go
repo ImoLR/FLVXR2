@@ -269,14 +269,14 @@ func (h *Handler) leikwanLineBackupRebuild(w http.ResponseWriter, r *http.Reques
 			} else {
 				res["created"]++
 			}
-			_ = h.repo.SaveLeiKwanRule(&x)
+			_ = h.saveLeiKwanRule(&x)
 		case leiKwanBackupRemove:
 			if err := h.leiKwanDropBackup(&x); err != nil {
 				warnings = append(warnings, fmt.Sprintf("%s：%s", x.Name, err.Error()))
 				continue
 			}
 			res["removed"]++
-			_ = h.repo.SaveLeiKwanRule(&x)
+			_ = h.saveLeiKwanRule(&x)
 		case leiKwanBackupMove:
 			old := x
 			fresh := x
@@ -289,7 +289,7 @@ func (h *Handler) leikwanLineBackupRebuild(w http.ResponseWriter, r *http.Reques
 			if err := h.leiKwanDropBackup(&old); err != nil {
 				warnings = append(warnings, fmt.Sprintf("%s：新备线已建好，旧备线 #%d 未删掉（%s）", x.Name, old.BackupForwardID, err.Error()))
 			}
-			_ = h.repo.SaveLeiKwanRule(&fresh)
+			_ = h.saveLeiKwanRule(&fresh)
 			res["rebuilt"]++
 		}
 	}

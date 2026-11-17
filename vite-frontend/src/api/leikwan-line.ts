@@ -168,6 +168,8 @@ export interface LeiKwanGrant {
   backupLine: boolean;
   status: number;
   ruleCount: number;
+  // Plan 271: the user's 备线流量 since their reset (a shared 备线 once).
+  backupFlow?: number;
 }
 
 export interface LeiKwanRuleBackup {
@@ -230,6 +232,13 @@ export interface LeiKwanRule {
   outFlow?: number;
   blockReason?: string;
   pendingLanding?: LeiKwanPendingLanding;
+  // Plan 271: billed bytes of the rule's 备线 since the owner's reset; a 备线
+  // shared with other rules shows its full bytes (count + names; users get
+  // only their own rules' names).
+  backupInFlow?: number;
+  backupOutFlow?: number;
+  backupSharedCount?: number;
+  backupSharedWith?: string[];
 }
 
 export interface LeiKwanPendingLanding {

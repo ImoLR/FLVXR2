@@ -84,13 +84,13 @@ a separate 备线流量 statistic.
 - [x] 2: landingcustom error classes + messages (+ unit test, live refused/timeout/hang-up/502)
 - [x] 2: sharedSyncHealth tracker + logging + view threshold + per-server display + recovery clear (+ probe log)
 - [x] 2: tests SQLite + PG 18 (1 failure → online; ≥3 min → only that server offline; list outage; recovery clears; delete gate still blocks; log rate limit)
-- [ ] 1: model columns + SaveLeiKwanRule omit + reset + FlowBatch LeiKwanBackups
-- [ ] 1: flow ingest re-attribution + backup counters + owner cache
-- [ ] 1: API fields (rule view, grant view, user grant)
-- [ ] 1: contract tests (owner billed, admin not, reset, shared backup, ambiguous owners)
-- [ ] 1: UI chips (admin + user, desktop + H5, 授权 card, user header)
-- [ ] go test ./... (go-backend SQLite + PG 18 contract, go-gost/x warmpool), go vet, npm run build
-- [ ] Screens gallery /root/mmwx-preview/fork142-followups/ (admin + user, 1440 + 390, light + dark)
+- [x] 1: model columns + SaveLeiKwanRule omit + reset + FlowBatch LeiKwanBackups
+- [x] 1: flow ingest re-attribution + backup counters + owner cache (30 s, dropped on rule save/delete)
+- [x] 1: API fields (rule view, grant view, user grant)
+- [x] 1: contract tests SQLite + PG 18 (owner billed, admin not, quota, shared backup once, ambiguous owners, admin rule, reset, no clobber, APIs)
+- [x] 1: UI chips (admin + user, desktop + H5, 授权 card + H5 授权 row, user header)
+- [x] go test ./... (go-backend SQLite + PG 18 all ok; repo pkg needs -timeout >10m under load, 460 s alone), go-gost/x (socket TestLeiKwanHostReadFixtures fails on base too; TestLeiKwanHostPanelSyncJSON flaky TempDir race on base 10/24 vs branch 17/24), go vet, npm run build, eslint
+- [x] Screens gallery /root/mmwx-preview/fork142-followups/ (24 PNG, 28/28 lab checks)
 - [ ] Commit, push, CI green; ledger row 271 待发布
 - [ ] Tag 3.0.27-fork.142, Images + 10 assets, Latest
 - [ ] Prod: backup + rollback script, swap, verify (30/30, 52 rules, 利群 tables, redeploy failed=0, chips, shared online)

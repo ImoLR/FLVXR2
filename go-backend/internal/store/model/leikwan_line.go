@@ -86,6 +86,12 @@ type LeiKwanRule struct {
 	OutFlow              int64  `gorm:"not null;default:0" json:"outFlow"`
 	BlockReason          string `gorm:"type:varchar(100);not null;default:''" json:"blockReason"`
 	PendingLandingNodeID int64  `gorm:"not null;default:0" json:"pendingLandingNodeId"`
+	// Plan 271 备线流量: billed bytes of the rule's 备线 forward since the
+	// owner's last reset (a shared 备线 adds its full bytes to every rule
+	// using it). Added by the flow batch only; SaveLeiKwanRule never writes
+	// the counters.
+	BackupInFlow  int64 `gorm:"not null;default:0" json:"backupInFlow"`
+	BackupOutFlow int64 `gorm:"not null;default:0" json:"backupOutFlow"`
 }
 
 func (LeiKwanRule) TableName() string { return "leikwan_rule" }

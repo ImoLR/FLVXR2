@@ -129,6 +129,8 @@ type Handler struct {
 	// read by the views without sharedLandingMu.
 	sharedHealthOnce sync.Once
 	sharedHealthSt   *sharedSyncHealth
+	// Plan 271: 备线 forward → 利群 rules (flow ingest bills the rule owner).
+	lkBackups lkBackupIndex
 	landingEgressMu  sync.Mutex // WARP registration
 	egressDNSMu      sync.Mutex
 	egressDNS        map[string]egressDNSEntry

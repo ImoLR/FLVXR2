@@ -178,13 +178,44 @@ func (r *Repository) CountLeiKwanRulesByBackup(forwardID int64) (int64, error) {
 	return n, err
 }
 
+// leiKwanRuleCounters: the billed counters only the flow batch and the user
+// reset write (plan 271) — a handler's read-modify-write of a rule must not
+// put back the bytes it read.
+var leiKwanRuleCounters = []string{"in_flow", "out_flow", "backup_in_flow", "backup_out_flow"}
+
 func (r *Repository) SaveLeiKwanRule(x *model.LeiKwanRule) error {
 	now := time.Now().UnixMilli()
+	x.UpdatedTime = now
 	if x.ID == 0 {
 		x.CreatedTime = now
+		return r.db.Create(x).Error
 	}
-	x.UpdatedTime = now
-	return r.db.Save(x).Error
+	res := r.db.Model(x).Select("*").Omit(append([]string{"id"}, leiKwanRuleCounters...)...).Updates(x)
+	if res.Error == nil && res.RowsAffected == 0 {
+		return r.db.Create(x).Error // like Save: a preset id that is not there yet
+	}
+	return res.Error
+}
+
+// LeiKwanBackupRef: one 利群 rule's link to its 备线 forward (plan 271).
+type LeiKwanBackupRef struct {
+	RuleID          int64
+	UserID          int64
+	ForwardID       int64 // the 利群 forward id (LeiKwan side)
+	Name            string
+	BackupForwardID int64
+	LandingNodeID   int64
+	BackupInFlow    int64
+	BackupOutFlow   int64
+}
+
+// ListLeiKwanBackupRefs: every rule that has a 备线 forward.
+func (r *Repository) ListLeiKwanBackupRefs() ([]LeiKwanBackupRef, error) {
+	out := []LeiKwanBackupRef{}
+	err := r.db.Model(&model.LeiKwanRule{}).
+		Select("id AS rule_id, user_id, forward_id, name, backup_forward_id, landing_node_id, backup_in_flow, backup_out_flow").
+		Where("backup_forward_id > 0").Order("id").Scan(&out).Error
+	return out, err
 }
 
 func (r *Repository) DeleteLeiKwanRule(id int64) error {
