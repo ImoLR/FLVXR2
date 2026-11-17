@@ -91,9 +91,20 @@
       火山广州 / 火山上海（18:56 / 18:52）→ 百度云广州（主入口，18:57），每台利群文件 / 服务 / 7 条转发 ready 前后一致。
 - [x] 生产实测发现：fwd 263 的利群客户端 `active_udp.rtt_ms` = 60000 / 3018（没有 probe 计数，UDP 探测没回应），诊断显示全程 60000 ms。
       修：UDP 有回应的探测才用 UDP，否则用 TCP 选路时的 rtt（64 ms），> 2000 ms 不算；单测 `TestLeiKwanDiagSource` → fork.144（只换面板）。
-- [ ] 发布：tag 下一个 fork、CI + 镜像 + 资产；面板备份 + 换面板；生产迁移（只读计数 → 豁免 → entryLock）；
-      OTA 4 台利群入口（金丝雀一台先，检查利群转发 / 日志快切 / 预热）；保留 2 份备份。
-- [ ] 验证：节点全在线、规则数不变、利群表除新列外不变、管理员诊断真实规则、aws-hk 测非主入口超时 / 主入口通。
-- [ ] 台账 272、memory、summary。
+- [x] fork.144（tag → fea5c139，CI 44070390659 / 44070396038、镜像 44070397368 绿，Latest 10 个资产）：面板 19:16:00–19:16:08 台湾换好，30/30 在线；
+      诊断 263 全程 10 ms（UDP 有探测回应）、第一跳 ①–④ 正常。备份只留 pre-fork143 + pre-fork144（prune）。
+- [x] 生产迁移（19:16 台湾只读复查 4 台：FLVX 按端口计数（11-17 06:2x 起）+ 厂商 leikwan_meter + `ss` + conntrack；非主入口上没有活连接）：
+      豁免「所有利群入口都可用」= 263（阿里广州 52 MB / 火山广州 3 MB / 火山上海 2 MB）、264 / 280 / 282（火山上海厂商计数 125–197 KB）、
+      540（火山上海 13 小时内 24 KB）；279、281 只有扫描级字节 → 不豁免。19:17:22 打开「只开主入口」。
+- [x] 验证：3 台非主入口的 `inet flvx_leikwan` pre/post 只丢 10016 / 10019，百度云广州不丢；aws-hk：:10019 / :10016 百度云广州连上、
+      其他 3 台 5 秒超时；豁免的 :10018 4 台都连上。30/30 在线；利群表除新列外不变（lines / rules 稳定列 / grant / pipe / account / host 哈希一致）；
+      唯一差异 forward 53 → 54 = 管理员 18:51 自己建的 #624「测试 US」（和本次无关）；4 台利群 7 条转发 ready、logswitch / flvxx 运行。
+      agent：4 台利群入口 fork.143，其余 26 台不变（11×138、6×130、5×131、2×134、2×126）；node/upgrade 现在给 fork.144（agent 代码 = fork.143）。
+- [x] 台账 272、memory、summary。
 
 ## 记录
+- 回滚：`/opt/flvx-svc/rollback/pre-fork144-20261117T111559Z/rollback.sh`（→ fork.143）、`pre-fork143-20261117T104444Z/rollback.sh`（→ fork.142，
+  回 fork.142 后「只开主入口」不再生效，所有入口又都能连）；只关「只开主入口」：`runs/leikwan-diagnose-r2/work/migrate.py --undo` 或设置里关开关；
+  agent：4 台 `/root/flvxx-backup-<ts>-pre-fork143/restore-agent.sh`（阿里广州 104541Z、火山上海 105126Z、火山广州 105127Z、百度云广州 105658Z）。
+- 实验室：`runs/leikwan-diagnose-r2/lab/setup.sh` 重建 /root/lk272-lab（生产库只读快照，用完删掉）→ `./run.sh node shots.cjs`。
+
