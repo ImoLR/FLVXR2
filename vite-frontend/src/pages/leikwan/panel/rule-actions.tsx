@@ -100,6 +100,26 @@ export const externalNote = (r: LeiKwanRule) =>
 /** Tinted pill buttons of the 利群 page (rules-page palette). */
 export const cyanButton =
   "bg-cyan-500/15 text-cyan-700 hover:bg-cyan-500/25 dark:bg-cyan-400/15 dark:text-cyan-300 dark:hover:bg-cyan-400/25";
+// Plan 276 (F14): 换落地 as a tinted blue pill (the bridge's primary flat is
+// almost the card colour in dark mode).
+export const blueButton =
+  "bg-blue-500/15 text-blue-700 hover:bg-blue-500/25 dark:bg-blue-400/20 dark:text-blue-200 dark:hover:bg-blue-400/30";
+
+// Plan 276 (F10): the panel stores at most 100 bytes (UTF-8) of a rule name.
+export const RULE_NAME_MAX_BYTES = 100;
+export function clampUtf8(s: string, max = RULE_NAME_MAX_BYTES) {
+  const enc = new TextEncoder();
+
+  if (enc.encode(s).length <= max) return s;
+  let out = "";
+
+  for (const ch of s) {
+    if (enc.encode(out + ch).length > max) break;
+    out += ch;
+  }
+
+  return out;
+}
 
 // Plan 269: billed 利群流量 of the rule (since the owner's reset).
 export function FlowPill({ rule }: { rule: LeiKwanRule }) {
@@ -197,7 +217,7 @@ export function AdminBackupChip({ rule }: { rule: LeiKwanRule }) {
         title={rule.backupError}
         tone="amber"
       >
-        备线未建好
+        {rule.backupStale ? "备线还指向旧落地" : "备线未建好"}
       </Pill>
     );
   const b = rule.backup;
@@ -221,7 +241,7 @@ export function UserBackupChip({ rule }: { rule: LeiKwanRule }) {
   if (rule.backupError)
     return (
       <Pill title={rule.backupError} tone="amber">
-        备线准备中
+        {rule.backupStale ? "备线更新中" : "备线准备中"}
       </Pill>
     );
   if (!rule.backupOn) return null;
@@ -673,8 +693,7 @@ export function RuleButtons({
         诊断
       </Button>
       <Button
-        className={f}
-        color="primary"
+        className={`${blueButton} ${f}`}
         size="sm"
         variant="flat"
         onPress={() => actions.openLanding(rule)}
@@ -836,11 +855,13 @@ function LeiKwanRuleDialog({
             </p>
           )}
           <Input
+            description="最多约 33 个汉字（100 字节）"
             label="规则名称"
+            maxLength={RULE_NAME_MAX_BYTES}
             placeholder="我的广港"
             value={name}
             variant="bordered"
-            onChange={(e) => setName(e.target.value)}
+            onChange={(e) => setName(clampUtf8(e.target.value))}
           />
           {mode === "create" && (
             <Select

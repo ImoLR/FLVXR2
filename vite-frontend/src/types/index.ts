@@ -9,6 +9,8 @@ export interface User {
   id: number;
   name?: string;
   user: string;
+  /** Plan 276: 利群 rules of the user (deleted together with the user). */
+  leikwanRuleCount?: number;
   pwd?: string;
   status: number; // 1-正常，0-禁用
   flow: number; // 流量限制 (GB)

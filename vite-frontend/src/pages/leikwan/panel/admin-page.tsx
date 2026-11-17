@@ -280,14 +280,17 @@ function EntryCopy({ rule }: { rule: LeiKwanRule }) {
       type="button"
       onClick={() => void copyText(rule.entry!.address, "入口地址")}
     >
-      <span className="break-all font-mono text-xs">{rule.entry.address}</span>
+      <span className="whitespace-nowrap font-mono text-xs">
+        {rule.entry.address}
+      </span>
       <Copy className="shrink-0 text-default-400" size={12} />
     </button>
   );
 }
 
+// Plan 276 (F13): the 入口地址 column fits a 15-character IPv4 + port unbroken.
 const RULE_GRID =
-  "grid grid-cols-[minmax(0,1.2fr)_168px_minmax(0,1fr)_184px] gap-2.5";
+  "grid grid-cols-[minmax(0,1.2fr)_184px_minmax(0,1fr)_184px] gap-2.5";
 
 function AdminRuleRow({
   rule: r,
@@ -892,6 +895,11 @@ export function LeiKwanAdminView() {
           {revoke === g.userId ? "确认取消授权" : "取消授权"}
         </Button>
       </div>
+      {revoke === g.userId && (
+        <p className="mt-1.5 text-xs text-amber-700 dark:text-amber-300">
+          取消后这个用户看不到利群汇聚，利群汇聚订阅里的利群节点会消失
+        </p>
+      )}
     </div>
   ));
 
@@ -1537,6 +1545,11 @@ function AdminPhone({
                   {revoke === g.userId ? "确认取消" : "取消授权"}
                 </Button>
               </div>
+              {revoke === g.userId && (
+                <p className="text-xs text-amber-700 dark:text-amber-300">
+                  取消后利群汇聚订阅里的利群节点会消失
+                </p>
+              )}
             </LkExpandCard>
           ))}
           {grants.length === 0 && (

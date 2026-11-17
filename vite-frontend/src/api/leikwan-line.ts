@@ -212,6 +212,9 @@ export interface LeiKwanRule {
   createdTime: number;
   backupOn: boolean;
   backupError?: string;
+  // Plan 276 (F02): the 备线 exists but still points at the old landing (a
+  // 换落地 could not move it); 「重试备线」 moves it.
+  backupStale?: boolean;
   // Plan 268: the owner's account is past its 到期.
   userExpired?: boolean;
   landing: {

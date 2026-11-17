@@ -163,7 +163,7 @@ function SubCard({
           </span>
           {sub.auto === "leikwan" && (
             <Pill
-              title="利群汇聚页「生成订阅」生成的订阅，可以像别的订阅一样编辑、删除"
+              title="利群汇聚页「生成订阅」生成的订阅，可以像别的订阅一样编辑、删除。利群授权取消后，利群汇聚订阅里的利群节点会消失"
               tone="violet"
             >
               利群汇聚
@@ -197,6 +197,11 @@ function SubCard({
       <div className="mt-2">
         <SubCounts compact={isH5} sub={sub} />
       </div>
+      {sub.auto === "leikwan" && sub.counts.missing > 0 && (
+        <p className="mt-1.5 text-xs text-amber-700 dark:text-amber-300">
+          利群授权取消或规则删除后，利群汇聚订阅里的利群节点会消失
+        </p>
+      )}
       {isH5 ? (
         <div className="mt-3 flex gap-2">
           <Button className="flex-1" color="success" size="sm" onPress={copy}>

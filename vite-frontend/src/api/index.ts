@@ -110,7 +110,10 @@ export const getAllUsers = (pageData: UserListQuery = {}) =>
   Network.post<UserApiItem[]>("/user/list", pageData);
 export const updateUser = (data: UserMutationPayload) =>
   Network.post("/user/update", data);
-export const deleteUser = (id: number) => Network.post("/user/delete", { id });
+// Plan 276: a user's 利群 rules are deleted with the user (LeiKwan writes are
+// spaced ~2 s each), so allow more than the default 30 s.
+export const deleteUser = (id: number) =>
+  Network.post("/user/delete", { id }, { timeout: 120000 });
 export const toggleUserAutoRenew = (id: number, autoRenew: number) =>
   Network.post("/user/toggle-auto-renew", { id, autoRenew });
 export const toggleUserAutoBuyTraffic = (
@@ -886,7 +889,7 @@ export const batchRemoveMonitorPermission = (userIds: number[]) =>
   Network.post("/monitor/permission/batch-remove", { userIds });
 
 export const batchDeleteUsers = (ids: number[]) =>
-  Network.post("/user/batch-delete", { ids });
+  Network.post("/user/batch-delete", { ids }, { timeout: 0 });
 
 export const batchResetUserFlow = (ids: number[]) =>
   Network.post("/user/batch-reset", { ids });

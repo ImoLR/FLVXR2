@@ -2,7 +2,7 @@ import type { LeiKwanRule, LeiKwanRuleList } from "@/api/leikwan-line";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Copy, Link2, Plus } from "lucide-react";
+import { AlertTriangle, Copy, Link2, Plus } from "lucide-react";
 import toast from "react-hot-toast";
 
 import {
@@ -56,6 +56,38 @@ const lineShort = (name: string) => name.replace(/^利群·/, "");
 // Plan 272: the action column fits 复制链接 · 诊断 · 换落地 · 删除 in one row.
 const RULE_GRID =
   "grid grid-cols-[minmax(0,1.2fr)_minmax(168px,200px)_minmax(0,1fr)_236px] gap-3";
+
+// Plan 276 (F04): MM-DD HH:mm in the viewer's time zone.
+function fmtGraceUntil(ms: number) {
+  const d = new Date(ms);
+  const p = (n: number) => String(n).padStart(2, "0");
+
+  return `${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
+/** Plan 276 (F04): amber notice while the old 主入口 is still open after a 换主入口. */
+function GraceNotice({ data }: { data: LeiKwanRuleList }) {
+  const g = data.grant;
+  const gr = g?.grace;
+
+  if (!g || !gr || !data.entryLock || gr.until <= Date.now()) return null;
+  const from = gr.prevEntryName || "原入口";
+  const to = g.mainEntryName || "新入口";
+
+  return (
+    <div
+      className="flex items-start gap-2 rounded-xl border border-amber-500/40 bg-amber-500/10 px-3.5 py-2.5 text-sm text-amber-800 dark:border-amber-400/40 dark:bg-amber-400/10 dark:text-amber-200"
+      data-leikwan-grace=""
+      role="status"
+    >
+      <AlertTriangle className="mt-0.5 shrink-0" size={16} />
+      <span className="min-w-0 break-words">
+        主入口已从 <b>{from}</b> 换到 <b>{to}</b>；旧地址最晚{" "}
+        <b>{fmtGraceUntil(gr.until)}</b> 停用。用订阅的刷新一次即可，用节点链接的请重新复制
+      </span>
+    </div>
+  );
+}
 
 function UserLanding({
   rule,
@@ -232,6 +264,7 @@ export function LeiKwanUserView() {
           <div className="flex flex-wrap gap-1.5">{grantChips}</div>
           <p className="text-xs text-default-500">规则数、流量、到期跟账号走</p>
         </LkCard>
+        <GraceNotice data={data} />
         <div className="space-y-1">
           <Button
             className="h-11 w-full"
@@ -398,6 +431,7 @@ export function LeiKwanUserView() {
           </Button>
         </div>
       </header>
+      <GraceNotice data={data} />
       <LkCard className="space-y-3 p-4" data-leikwan-lines="">
         <LkCardTitle
           chip={<Pill tone="teal">{lines.length} 条</Pill>}

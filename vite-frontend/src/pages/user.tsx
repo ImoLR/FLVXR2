@@ -3850,6 +3850,15 @@ export default function UserPage() {
                 <p className="text-small text-default-500 mt-1">
                   此操作不可撤销，用户的所有数据将被永久删除。
                 </p>
+                {(userToDelete?.leikwanRuleCount || 0) > 0 && (
+                  <p
+                    className="mt-2 rounded-lg bg-danger-500/10 px-3 py-2 text-sm text-danger-700 dark:text-danger-300"
+                    data-user-delete-leikwan=""
+                  >
+                    该用户有 {userToDelete?.leikwanRuleCount}{" "}
+                    条利群规则，会一起删除（利群转发 + 备线）
+                  </p>
+                )}
               </div>
             </div>
           </ModalBody>
@@ -4183,6 +4192,18 @@ export default function UserPage() {
               title="警告"
               variant="flat"
             />
+            {batchDeleteUserList.some((u) => (u.leikwanRuleCount || 0) > 0) && (
+              <p
+                className="mt-2 rounded-lg bg-danger-500/10 px-3 py-2 text-sm text-danger-700 dark:text-danger-300"
+                data-user-delete-leikwan=""
+              >
+                {batchDeleteUserList
+                  .filter((u) => (u.leikwanRuleCount || 0) > 0)
+                  .map((u) => `${u.name || u.user} ${u.leikwanRuleCount} 条`)
+                  .join("、")}{" "}
+                利群规则会一起删除（利群转发 + 备线）
+              </p>
+            )}
           </ModalBody>
           <ModalFooter>
             <Button variant="flat" onPress={onBatchDeleteModalClose}>

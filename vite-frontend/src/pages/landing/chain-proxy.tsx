@@ -22,6 +22,9 @@ import {
   externalRename,
   subscriptionFetch,
   subscriptionImport,
+  chainUses,
+  externalInUseNote,
+  leiKwanUses,
 } from "@/api/landing-external";
 import { Button } from "@/shadcn-bridge/heroui/button";
 import { Checkbox } from "@/shadcn-bridge/heroui/checkbox";
@@ -571,8 +574,15 @@ export function ExternalManageList({
             <p className="truncate text-xs text-default-500">
               {item.protocolLabel} · {item.host}:{item.port}
               {!sub &&
-                item.inUse.length > 0 &&
-                ` · 用于 ${item.inUse.map((u) => u.name).join("、")}`}
+                chainUses(item.inUse).length > 0 &&
+                ` · 用于 ${chainUses(item.inUse)
+                  .map((u) => u.name)
+                  .join("、")}`}
+              {!sub &&
+                leiKwanUses(item.inUse).length > 0 &&
+                ` · 利群规则 ${leiKwanUses(item.inUse)
+                  .map((u) => u.name)
+                  .join("、")}`}
             </p>
           </div>
           {sub && editing !== item.id && (
@@ -581,12 +591,24 @@ export function ExternalManageList({
               {(item.subUses || 0) > 0 && (
                 <Pill tone="slate">{item.subUses} 个订阅在用</Pill>
               )}
-              {item.inUse.length > 0 && (
+              {chainUses(item.inUse).length > 0 && (
                 <Pill
-                  title={`落地节点 ${item.inUse.map((u) => u.name).join("、")} 用它做链式代理`}
+                  title={`落地节点 ${chainUses(item.inUse)
+                    .map((u) => u.name)
+                    .join("、")} 用它做链式代理`}
                   tone="purple"
                 >
                   链式代理在用
+                </Pill>
+              )}
+              {leiKwanUses(item.inUse).length > 0 && (
+                <Pill
+                  title={`利群规则 ${leiKwanUses(item.inUse)
+                    .map((u) => u.name)
+                    .join("、")} 用它做落地`}
+                  tone="teal"
+                >
+                  利群规则在用
                 </Pill>
               )}
             </div>
@@ -633,7 +655,7 @@ export function ExternalManageList({
                 size="sm"
                 title={
                   sub && item.inUse.length > 0
-                    ? "链式代理在用，要先在落地节点里改回直连"
+                    ? externalInUseNote(item.inUse)
                     : undefined
                 }
                 variant="flat"
@@ -766,9 +788,20 @@ function ExternalManageListH5({
                   {sub && (item.subUses || 0) > 0 && (
                     <Pill tone="slate">{item.subUses} 个订阅在用</Pill>
                   )}
-                  {chainUsed && (
+                  {chainUses(item.inUse).length > 0 && (
                     <Pill tone="purple">
-                      链式代理在用 · {item.inUse.map((u) => u.name).join("、")}
+                      链式代理在用 ·{" "}
+                      {chainUses(item.inUse)
+                        .map((u) => u.name)
+                        .join("、")}
+                    </Pill>
+                  )}
+                  {leiKwanUses(item.inUse).length > 0 && (
+                    <Pill tone="teal">
+                      利群规则在用 ·{" "}
+                      {leiKwanUses(item.inUse)
+                        .map((u) => u.name)
+                        .join("、")}
                     </Pill>
                   )}
                 </span>
@@ -826,7 +859,9 @@ function ExternalManageListH5({
                 </Button>
                 {chainUsed && (
                   <span className="text-xs text-default-500">
-                    链式代理在用，不能删
+                    {leiKwanUses(item.inUse).length > 0
+                      ? "利群规则在用，不能删"
+                      : "链式代理在用，不能删"}
                   </span>
                 )}
               </ExpandActions>

@@ -7,6 +7,29 @@ export interface ExternalNodeUse {
   id: number;
   name: string;
   landingServerId: number;
+  /** Plan 276: "leikwan" = a 利群 rule landing on it (id = rule id). */
+  kind?: "leikwan";
+}
+
+/** Plan 276: the 链式代理 uses vs the 利群 rules using an 外部节点. */
+export const chainUses = (uses: ExternalNodeUse[]) =>
+  uses.filter((u) => u.kind !== "leikwan");
+export const leiKwanUses = (uses: ExternalNodeUse[]) =>
+  uses.filter((u) => u.kind === "leikwan");
+
+/** Why an 外部节点 cannot be deleted ('' = it can). */
+export function externalInUseNote(uses: ExternalNodeUse[]) {
+  const c = chainUses(uses);
+  const lk = leiKwanUses(uses);
+  const parts: string[] = [];
+
+  if (c.length) parts.push("链式代理在用，要先在落地节点里改回直连");
+  if (lk.length)
+    parts.push(
+      `利群规则 ${lk.map((u) => `「${u.name}」`).join("、")} 用它做落地，要先换落地或删除规则`,
+    );
+
+  return parts.join("；");
 }
 
 export interface ExternalNode {
