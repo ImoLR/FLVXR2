@@ -982,11 +982,19 @@ func (h *Handler) leiKwanRepointBackup(x *model.LeiKwanRule) error {
 		x.BackupError = ""
 		return nil
 	}
-	log.Printf("利群规则 %s：备线改目标失败（%v），删掉重建", x.Name, err)
-	if err := h.leiKwanDropBackup(x); err != nil {
-		return err
+	// Recreate: the new 备线 first, the old one goes only once it exists (a
+	// target that cannot be reached keeps the old 备线 and the error).
+	log.Printf("利群规则 %s：备线改目标失败（%v），重建", x.Name, err)
+	fresh := *x
+	if cerr := h.leiKwanCreateBackup(&fresh); cerr != nil {
+		return cerr
 	}
-	return h.leiKwanCreateBackup(x)
+	old := *x
+	if derr := h.leiKwanDropBackup(&old); derr != nil {
+		log.Printf("利群规则 %s：旧备线 %d 没删掉: %v", x.Name, x.BackupForwardID, derr)
+	}
+	x.BackupForwardID, x.BackupMode, x.BackupError = fresh.BackupForwardID, "auto", ""
+	return nil
 }
 
 func (h *Handler) leiKwanBackupsOn(rules []model.LeiKwanRule) []string {
