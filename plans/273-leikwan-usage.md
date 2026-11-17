@@ -33,18 +33,19 @@ Base: tag `3.0.27-fork.144` → branch `feature/3.0.27-leikwan-usage`
 - [x] Fake API (`testapi`): `/services/{id}/usage` (+ `?period=previous`), `/devices`,
       `/devices/online`, services `expires_at` + usage; lab knobs for errors
 - [x] Model + repo: `leikwan_usage_snapshot` (TableName, no jsonb/serial) + AutoMigrate
-- [x] Poller: rounds, due jobs, back-off, persist, memory cache, exported `PollLeiKwanUsage`
+- [x] Poller: rounds, due jobs, back-off, persist, memory cache, exported `LeiKwanUsageRound`
 - [x] API: admin `/api/v1/leikwan/usage` (card + devices + per-forward); `leikwan-rule/list`
       rules carry `vendorFlow`
 - [x] Unit tests (client decode, poller back-off / spacing) + contract tests (visibility:
       admin / granted owner / other user / no grant)
-- [ ] Frontend types + API call
-- [ ] Admin desktop: 套餐流量 card (right column top), rule-row chip, 利群在线设备 card
-- [ ] Admin H5: 套餐流量 block + 设备 tab (＋/− rows), chip in the rule ＋ details
-- [ ] User desktop + H5: chip on own rules only
+- [x] Frontend types + API call
+- [x] Admin desktop: 套餐流量 card (right column top), rule-row chip, 利群在线设备 card
+- [x] Admin H5: 套餐流量 block + devices at the end of the 入口机 tab (＋/− rows; a 4th tab overflowed
+      the tab row at 390 px, so the row stays unchanged), chip in the rule ＋ details
+- [x] User desktop + H5: chip on own rules only
 - [ ] go vet / go test ./... / contract / npm run build; CI green on the branch
-- [ ] Lab (fake API with real numbers) + gallery /root/mmwx-preview/leikwan-usage-built/ (:8791)
-- [ ] Release brief /root/flvx-workers/briefs/release-leikwan-usage.md (panel only)
+- [x] Lab (fake API with real numbers) + gallery /root/mmwx-preview/leikwan-usage-built/ (:8791)
+- [x] Release brief /root/flvx-workers/briefs/release-leikwan-usage.md (panel only)
 - [ ] Ledger row 273 「built, waits for user screen approval」, summary
 
 ## Result
