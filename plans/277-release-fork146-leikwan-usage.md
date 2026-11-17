@@ -7,7 +7,7 @@ Panel only: go-gost untouched → no agent OTA. DB: + table `leikwan_usage_snaps
 ## Checklist
 - [x] No other release worker running (leikwan-qa-fix waits for this release)
 - [x] Disk check (5.5 GB free), worktree flvxx-rel273, branch maintenance/3.0.27-fork.146-leikwan-usage, merge clean
-- [ ] go vet + go test (go-backend, SQLite + PG contract) + npm run build
+- [x] go vet + go test (go-backend, SQLite + PG contract) + npm run build — all ok (handler 373 s, repo 707 s, contract 650 s; TestLeiKwanUsage* + VisibilityContract sqlite+postgres pass)
 - [ ] Push, tag 3.0.27-fork.146, CI + Images + 10 release assets, Latest
 - [ ] Rollback check on a prod-DB copy (fork.146 migrates, fork.145 starts clean)
 - [ ] Prod backup + rollback script, prune backups (keep 2)
