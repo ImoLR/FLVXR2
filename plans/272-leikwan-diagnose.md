@@ -1,4 +1,4 @@
-# 272 — 利群规则「诊断」+ 复制链接提示 + 旧主入口停用 + 利群进落地链接/订阅 + 利群落地可选外部节点 + 用户只给订阅
+# 272 — 利群规则「诊断」+ 复制链接提示 + 旧主入口停用 + 利群进落地链接/订阅 + 利群落地可选外部节点 + 生成订阅
 
 基线：tag `3.0.27-fork.142`（b2be15e9），分支 `feature/3.0.27-leikwan-diagnose`，worktree `/root/projects/flvxx/flvxx-leikwan-diag`。
 用户 11-17 ~16:30–17:20 台湾批准设计稿 http://104.145.236.29:8791/leikwan-diagnose/（改一处：用户第一跳只看自己的主入口，管理员看全部）。
@@ -17,7 +17,7 @@
 ## 设计
 
 ### 1 复制链接提示（只前端）
-- `rule-actions.tsx` `link()`：管理员复制手动落地规则时只出一条自定义 toast（`toast.custom`，15 s，悬停暂停，点 ✕ / 点一下关闭），
+- `rule-actions.tsx` `link()`：复制手动落地规则（管理员或用户看到的都一样）时只出一条自定义 toast（`toast.custom`，15 s，悬停暂停，点 ✕ / 点一下关闭），
   内容按设计稿 08。不改全局 Toaster 默认值。
 
 ### 2 利群规则诊断
@@ -48,7 +48,7 @@
 
 ### 4 利群规则进落地「复制链接」和订阅
 - 落地 `landing/node/links`：加 kind `leikwan`（主人在这个落地上的利群规则，名字「<专线名> · <主入口名>」，地址 = 主入口:端口）。
-  管理员给完整链接；普通用户不给链接，给 `subToken`（自己的利群汇聚订阅）+ 说明。
+  所有人（管理员和用户）都是普通节点链接（11-17 更正：推荐订阅，但不限制节点链接）。
 - 订阅新 ref：`leikwan_rule {leikwanRuleId}`（key `k:<id>`）、`leikwan_all`（key `ka`，跟随全部利群规则）。拉取时现算：主入口 IP + 监听端口，
   面板落地 → 落地链接换地址；外部节点 → 复制上游、换 server/port，原来是域名的 SNI / ws host 补上原域名。手动落地不可选（灰，写原因），`leikwan_all` 跳过。
 - 订阅编辑器加「利群汇聚」组（单条 + 「全部利群规则（自动跟随）」），只加不改现有组。
@@ -69,14 +69,18 @@
 
 - [x] 读 memory / 设计稿 / 现场（4 台只读），建 worktree + 计划文档。
 - [x] 11-17 ~17:30 协调员转达用户更正第 6 项（推荐订阅、不限制节点链接）：后端 link / 落地链接 / 订阅删除限制都改回，契约文档同步。
-- [ ] 面板：模型新列（grant prev_entry/entry_changed_at、rule all_entries/external_node_id、subscription auto_kind）+ 全局 entryLock。
-- [ ] 面板：按主机屏蔽 + 宽限（订阅拉取钩子 + 24 h）+ 豁免接口 + 授权视图 grace + 契约测试（SQLite + PG）。
-- [ ] agent：LeiKwanDiag 命令 + 单测（夹具）。
-- [ ] 面板：诊断接口（流式 + 兜底）+ 运营商表 + 单测。
-- [ ] 面板：外部节点落地（options / create / update / 备线 / 链接）+ 契约测试。
-- [ ] 面板：订阅 ref leikwan_rule / leikwan_all + 「生成订阅」（建一次、重用）+ 落地链接 leikwan 条目 + 契约测试。
-- [ ] 前端（子代理，同 worktree）：toast、诊断按钮 + 弹窗（桌面 + H5）、生成订阅按钮 + 弹窗 + 详细设置跳订阅编辑器、外部节点落地、
+- [x] 面板：模型新列（grant prev_entry/entry_changed_at、rule all_entries/external_node_id、subscription auto_kind）+ 全局 entryLock。
+- [x] 面板：按主机屏蔽 + 宽限（订阅拉取钩子 + 24 h）+ 豁免接口 + 授权视图 grace + 契约测试（SQLite + PG）。
+- [x] agent：LeiKwanDiag 命令 + 单测（夹具）。
+- [x] 面板：诊断接口（流式 + 兜底）+ 运营商表 + 单测。
+- [x] 面板：外部节点落地（options / create / update / 备线 / 链接）+ 契约测试。
+- [x] 面板：订阅 ref leikwan_rule / leikwan_all + 「生成订阅」（建一次、重用）+ 落地链接 leikwan 条目 + 契约测试。
+- [x] 前端：toast、诊断按钮 + 弹窗（桌面 + H5）、生成订阅按钮 + 弹窗 + 详细设置跳订阅编辑器、外部节点落地、
       豁免开关、宽限提示/chip、entryLock 开关、落地复制链接 leikwan 条目、订阅编辑器利群汇聚组、订阅卡片「利群汇聚」标；`npm run build`、eslint。
+- [x] 第二轮（11-17 18:00 台湾起）：复查第一轮代码（含未提交的 ~1100 行）并提交 3a312cdd；修正：手动落地复制提示对所有人都是一张卡、
+      生成订阅说明文字统一、管理员入口行 IP 不带 :5438、旧草稿注释；go-gost/x 两个失败（`TestLeiKwanHostReadFixtures` agent 版本空、
+      `TestLeiKwanHostPanelSyncJSON` TempDir 清不掉）在 fork.142 上一样失败（原有问题：夹具 `usr/local/bin` 被 `.gitignore` 的 `bin/` 漏提交；
+      测试没等后台循环退出）→ 补夹具存根 + 测试等循环退出，5 次全过。
 - [ ] `go test ./...`（go-backend -timeout 30m，SQLite + PG 18）、go-gost / go-gost/x、go vet、CI 绿。
 - [ ] 实验室 + 画廊 /root/mmwx-preview/leikwan-diagnose-built/（和批准的 PNG 对照）。
 - [ ] 发布：tag 下一个 fork、CI + 镜像 + 资产；面板备份 + 换面板；生产迁移（只读计数 → 豁免 → entryLock）；
