@@ -1,6 +1,6 @@
 # 276 — 利群 QA 修复（F01–F16）
 
-Source: `/root/flvx-workers/runs/leikwan-qa/qa-report.md` (plan 275). Base `3.0.27-fork.144`, branch
+Source: `/root/flvx-workers/runs/leikwan-qa/qa-report.md` (plan 275). Built on `3.0.27-fork.144`, rebased onto `3.0.27-fork.146` (274 = fork.145, 273 = fork.146) for release; branch
 `feature/3.0.27-leikwan-qa-fix`. Panel only (F08 needs no agent change: fork.143+ agents already honour sskeys `remove`).
 
 ## Checklist
@@ -21,7 +21,7 @@ Source: `/root/flvx-workers/runs/leikwan-qa/qa-report.md` (plan 275). Base `3.0.
 - [x] Tests: contract `TestLeiKwanQAFixContract` (SQLite + PostgreSQL), unit `TestLeiKwanDesiredForRemovesStaleKeys` + block reasons, all 利群 contract tests, vet, `npm run build`
 - [x] Lab re-run s3/s3b/s8/s19/s22 + F06 timing (`runs/leikwan-qa-fix/lab-story-after.txt`)
 - [x] Gallery /root/mmwx-preview/leikwan-qa-fix/ (18 PNGs)
-- [ ] Full `go test ./...` vs base; CI green
+- [x] Full `go test ./...` (28/28 packages, SQLite + PostgreSQL; on fork.144 and again after the rebase onto fork.146 — no failures, nothing to compare); branch CI green
 - [ ] Release (after 274 + 273 are done): rebase, tests, tag, CI, prod backup + upgrade, verify
 - [ ] Ledger + memories
 
