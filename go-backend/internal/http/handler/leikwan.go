@@ -137,6 +137,7 @@ func (h *Handler) leikwanAccountSave(w http.ResponseWriter, r *http.Request) {
 		leiKwanError(w, errors.New("保存账号失败"))
 		return
 	}
+	h.lkUsageResetAccount(a.ID) // plan 273: a fixed token ends the back-off
 	response.WriteJSON(w, response.OK(leiKwanAccountView(*a)))
 }
 func (h *Handler) leikwanAccountDelete(w http.ResponseWriter, r *http.Request) {
@@ -151,6 +152,7 @@ func (h *Handler) leikwanAccountDelete(w http.ResponseWriter, r *http.Request) {
 		leiKwanError(w, err)
 		return
 	}
+	h.lkUsageDropAccount(req.ID) // plan 273
 	response.WriteJSON(w, response.OKEmpty())
 }
 func (h *Handler) leiKwanAccount(id int64) (*model.LeiKwanAccount, error) {
