@@ -25,7 +25,7 @@ import (
 // full desired state and sends it with SetWarmPools —
 //
 //	{"chains": {"chains_<tunnel>": 6}, "forwards": {"<rule id>": 6},
-//	 "ceil": 16, "idleSleepS": 21600}
+//	 "ceil": 16, "idleSleepS": 7200}
 //
 // chains = 隧道转发: the tunnel's chain on every entry that serves an active
 // rule and on all its middles (the whole path is warm); forwards = 端口转发:
@@ -42,7 +42,7 @@ import (
 //
 // Plan 264 「冗余」: the sizes are the floor (6) of each key's adaptive size on
 // the agent (up to `ceil` 16 by its own stream peaks and misses, refilled with
-// up to 4 dials in flight); `idleSleepS` (6 h) is the idle-sleep time, `cap`
+// up to 4 dials in flight); `idleSleepS` (2 h since plan 271, was 6 h) is the idle-sleep time, `cap`
 // (only when below the agent default) a share of the node's 整机连接上限.
 // Those fields go only to warmPool=2 agents; warmPool=1 agents (fixed sizes,
 // max 4) get the floor clamped to 4 and nothing else. Reports carry wakeN /
@@ -59,7 +59,7 @@ const (
 	// what warmPool=1 agents can hold per key.
 	warmPoolFloor      = 6
 	warmPoolCeil       = 16
-	warmPoolIdleSleepS = 6 * 60 * 60
+	warmPoolIdleSleepS = 2 * 60 * 60 // plan 271: 6 h → 2 h (user 11-17)
 	warmPoolV1MaxSize  = 4
 	// warmPoolAgentCap: the agent's own default cap (pooled conns per agent);
 	// warmPoolMachineShare: pooled conns may use at most 1/5 of a node's

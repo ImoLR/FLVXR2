@@ -62,7 +62,7 @@ func TestWarmPoolPayloadByAgentVersion(t *testing.T) {
 				}
 			}
 			// New agent: floor 6, ceiling 16, idle sleep 6 h, no cap (1000/5 ≥ 192).
-			if got := chainsOf(st[2]); got != "chains_40=6" || st[2].Ceil != 16 || st[2].IdleSleepS != 21600 || st[2].Cap != 0 {
+			if got := chainsOf(st[2]); got != "chains_40=6" || st[2].Ceil != 16 || st[2].IdleSleepS != 7200 || st[2].Cap != 0 {
 				t.Fatalf("v2 payload %s / %+v", got, st[2])
 			}
 			if strings.Contains(raw[2], `"cap"`) {
@@ -76,7 +76,7 @@ func TestWarmPoolPayloadByAgentVersion(t *testing.T) {
 			e.cmu.Unlock()
 			e.h.warmPoolNodeSession(1)
 			pushed, st = e.reconcile()
-			if fmt.Sprint(pushed) != "[1]" || chainsOf(st[1]) != fmt.Sprintf("chains_40=6,f%d=6", r41.ID) || st[1].Ceil != 16 || st[1].IdleSleepS != 21600 {
+			if fmt.Sprint(pushed) != "[1]" || chainsOf(st[1]) != fmt.Sprintf("chains_40=6,f%d=6", r41.ID) || st[1].Ceil != 16 || st[1].IdleSleepS != 7200 {
 				t.Fatalf("after the entry upgrade: pushed %v %+v", pushed, st[1])
 			}
 

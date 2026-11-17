@@ -199,8 +199,8 @@ func (h *Handler) landingLayerServerStatus(s model.LandingServer) map[string]any
 		out["state"], out["reason"] = "failed", lastErr
 	case s.EgressState == "error":
 		out["state"], out["reason"] = "failed", s.EgressError
-	case s.Source == "shared" && s.SharedSyncError != "":
-		out["state"], out["reason"] = "failed", s.SharedSyncError
+	case s.Source == "shared" && h.sharedLayerSyncError(&s) != "":
+		out["state"], out["reason"] = "failed", h.sharedLayerSyncError(&s)
 	case s.Source == "shared" && s.SharedPushedRevision != s.SharedAppliedRevision:
 		out["state"] = "syncing"
 	default:

@@ -170,13 +170,17 @@ func (h *Handler) landingServerViewWith(s model.LandingServer, admin bool, catal
 			// creatable protocols, UDP hints), not the share's limits or usage.
 			v["sharedCaps"] = map[string]interface{}{"protocol_caps": caps.ProtocolCaps}
 		}
-		if cfg, e := h.repo.GetLandingIntegration(); e == nil && cfg.SyncError != "" {
-			s.SharedSyncError = cfg.SyncError
-			if admin {
-				v["sharedSyncError"] = cfg.SyncError
-			}
+		// Plan 271: a transient sync problem shows only after it lasted 3 min,
+		// and only on the servers it concerns (sharedSyncDisplay).
+		integrationErr := ""
+		if cfg, e := h.repo.GetLandingIntegration(); e == nil {
+			integrationErr = cfg.SyncError
 		}
-		v["online"] = caps.Core.State == "running" && s.SharedSyncError == "" && s.SharedLastSyncAt > time.Now().Add(-2*time.Minute).UnixMilli()
+		syncText, stale := h.sharedSyncDisplay(&s, integrationErr, time.Now())
+		if admin {
+			v["sharedSyncError"] = syncText
+		}
+		v["online"] = caps.Core.State == "running" && syncText == "" && !stale
 		v["landingSupported"] = true
 		v["sharedAvailable"] = repo.SharedLandingAvailable(&s)
 		if admin {
@@ -310,14 +314,16 @@ func (h *Handler) landingNodeView(n model.LandingNode, catalogs ...landingEgress
 	}
 	s, _ := h.repo.GetLandingServer(n.LandingServerID)
 	u, _ := h.repo.GetUserByID(n.UserID)
-	integrationError := ""
+	syncText := ""
 	if s != nil && s.Source == "shared" {
 		if current, err := h.repo.GetLandingNode(n.ID); err == nil && current != nil {
 			n = *current
 		}
+		integrationError := ""
 		if cfg, err := h.repo.GetLandingIntegration(); err == nil {
 			integrationError = cfg.SyncError
 		}
+		syncText, _ = h.sharedSyncDisplay(s, integrationError, time.Now())
 	}
 	supported, totalSupported := false, false
 	if s != nil {
@@ -330,7 +336,7 @@ func (h *Handler) landingNodeView(n model.LandingNode, catalogs ...landingEgress
 		supported = repo.LandingConnModeSupported(s, agent)
 		totalSupported = repo.LandingNodeTotalSupported(s, agent)
 	}
-	view := landingNodeViewData(n, s, u, catalog, integrationError, supported, totalSupported)
+	view := landingNodeViewData(n, s, u, catalog, syncText, supported, totalSupported)
 	if s != nil {
 		h.landingChainViews([]map[string]interface{}{view}, []model.LandingNode{n}, map[int64]*model.LandingServer{s.ID: s}, catalog)
 	}
@@ -340,7 +346,9 @@ func (h *Handler) landingNodeView(n model.LandingNode, catalogs ...landingEgress
 // landingNodeViewData renders one node; connSupported says whether the
 // server's runtime applies 仅入站 (plan 141), totalSupported whether it applies
 // 节点总连接数 next to a 入站 limit (plan 211).
-func landingNodeViewData(n model.LandingNode, s *model.LandingServer, u *model.User, catalog landingEgressCatalog, integrationError string, connSupported, totalSupported bool) map[string]interface{} {
+// sharedSyncText: what the node shows as 「同步异常」 of its shared server
+// (Handler.sharedSyncDisplay, plan 271); ignored for native servers.
+func landingNodeViewData(n model.LandingNode, s *model.LandingServer, u *model.User, catalog landingEgressCatalog, sharedSyncText string, connSupported, totalSupported bool) map[string]interface{} {
 	v := landingMap(n)
 	// Plan 211: both live numbers, always labelled: 入站 = client connections
 	// (known once the runtime reports them), 总 = every socket of the port
@@ -377,10 +385,7 @@ func landingNodeViewData(n model.LandingNode, s *model.LandingServer, u *model.U
 	}
 	if s != nil {
 		if s.Source == "shared" {
-			v["sharedSyncError"] = s.SharedSyncError
-			if integrationError != "" {
-				v["sharedSyncError"] = integrationError
-			}
+			v["sharedSyncError"] = sharedSyncText
 			if status, reason := landingNodeDisplayStatus(&n, s); status != n.Status {
 				v["status"] = status
 				if reason != "" {
@@ -705,9 +710,14 @@ func (h *Handler) landingNodeList(w http.ResponseWriter, r *http.Request) {
 	}
 	out := []map[string]interface{}{}
 	catalog := h.landingEgressCatalog()
+	now := time.Now()
 	for _, n := range nodes {
 		s := data.Servers[n.LandingServerID]
-		view := landingNodeViewData(n, s, data.Users[n.UserID], catalog, data.IntegrationError, data.ConnSupport.Supported(s), data.ConnSupport.TotalSupported(s))
+		syncText := ""
+		if s != nil && s.Source == "shared" {
+			syncText, _ = h.sharedSyncDisplay(s, data.IntegrationError, now)
+		}
+		view := landingNodeViewData(n, s, data.Users[n.UserID], catalog, syncText, data.ConnSupport.Supported(s), data.ConnSupport.TotalSupported(s))
 		view["forwardCount"] = data.ForwardCounts[n.ID]
 		view["serverAvailable"] = data.Allowed[n.ID] && s != nil && !s.ChainOnly && s.Status == "active" && (s.AvailableUntil == nil || *s.AvailableUntil > time.Now().UnixMilli()) && repo.SharedLandingAvailable(s)
 		if role != 0 {

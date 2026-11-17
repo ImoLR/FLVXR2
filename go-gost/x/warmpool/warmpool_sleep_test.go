@@ -11,7 +11,7 @@ import (
 )
 
 // Plan 249: idle sleep — a key with no new stream for the idle-sleep time
-// (30 min in plan 249, 6 h since plan 264) drains to 0 and is not refilled
+// (30 min in plan 249, 6 h in plan 264, 2 h since plan 271) drains to 0 and is not refilled
 // until the next stream (which dials cold and wakes it).
 
 type fakeClock struct {
@@ -38,8 +38,8 @@ func newSleepManager(t *testing.T) (*Manager, *fakeSource, *fakeClock) {
 	m, src := newTestManager(t, 64)
 	clk := newFakeClock()
 	m.now = clk.now
-	if m.idleSleep != IdleSleepAfter || IdleSleepAfter != 6*time.Hour {
-		t.Fatalf("idle sleep default = %v / %v, want 6h", m.idleSleep, IdleSleepAfter)
+	if m.idleSleep != IdleSleepAfter || IdleSleepAfter != 2*time.Hour {
+		t.Fatalf("idle sleep default = %v / %v, want 2h", m.idleSleep, IdleSleepAfter)
 	}
 	return m, src, clk
 }
@@ -87,25 +87,25 @@ func onlyKey(t *testing.T, r *Report) KeyReport {
 	return r.Keys[0]
 }
 
-func TestIdleSleepAfter6hAndWakeOnStream(t *testing.T) {
+func TestIdleSleepAfter2hAndWakeOnStream(t *testing.T) {
 	m, src, clk := newSleepManager(t)
 	pe := newPeer(t, nil)
 	src.set("chains_1", Target{Addr: pe.addr()})
 	m.SetConfig(Config{Chains: map[string]int{"chains_1": 2}})
 	waitFor(t, "filled", func() bool { return idle(m) == 2 })
 
-	// 5 h 59 min 55 s without a stream: still warm (conns replaced by age).
-	advance(t, m, clk, 6*time.Hour-5*time.Second)
+	// 1 h 59 min 55 s without a stream: still warm (conns replaced by age).
+	advance(t, m, clk, 2*time.Hour-5*time.Second)
 	if s := m.Stats(); s.Idle != 2 || s.Sleeping != 0 {
-		t.Fatalf("before 6 h: %+v", s)
+		t.Fatalf("before 2 h: %+v", s)
 	}
 	if k := onlyKey(t, m.Report()); k.Sleep || !k.Target {
 		t.Fatalf("awake key reported %+v", k)
 	}
-	// 6 h: asleep, drained to 0, peer sees the conns closed.
+	// 2 h: asleep, drained to 0, peer sees the conns closed.
 	advance(t, m, clk, 5*time.Second)
 	if s := m.Stats(); s.Idle != 0 || s.Sleeping != 1 || s.Live != 0 {
-		t.Fatalf("after 6 h: %+v", s)
+		t.Fatalf("after 2 h: %+v", s)
 	}
 	waitFor(t, "peer saw pool drained", func() bool { return pe.open.Load() == 0 })
 	k := onlyKey(t, m.Report())
@@ -147,8 +147,8 @@ func TestStreamsKeepKeyAwake(t *testing.T) {
 	src.set("chains_1", Target{Addr: pe.addr()})
 	m.SetConfig(Config{Chains: map[string]int{"chains_1": 2}})
 	waitFor(t, "filled", func() bool { return idle(m) == 2 })
-	for i := 0; i < 4; i++ { // a stream every 5 h 50 min for ~23 h
-		advance(t, m, clk, 5*time.Hour+50*time.Minute)
+	for i := 0; i < 4; i++ { // a stream every 1 h 50 min for ~7 h
+		advance(t, m, clk, time.Hour+50*time.Minute)
 		if l := m.Take(KindChain, "chains_1", pe.addr()); l == nil {
 			t.Fatalf("round %d: no pooled conn on an active key", i)
 		} else {
@@ -158,7 +158,7 @@ func TestStreamsKeepKeyAwake(t *testing.T) {
 		settle(m)
 	}
 	if s := m.Stats(); s.Sleeping != 0 {
-		t.Fatalf("key with streams every 5 h 50 min fell asleep: %+v", s)
+		t.Fatalf("key with streams every 1 h 50 min fell asleep: %+v", s)
 	}
 }
 

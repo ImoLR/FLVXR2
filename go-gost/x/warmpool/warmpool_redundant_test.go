@@ -12,7 +12,7 @@ import (
 )
 
 // Plan 264 「冗余」: adaptive size (floor 6 / ceiling 16), parallel refill
-// (4 per key), failure waves, agent cap 192, idle sleep 6 h / panel value.
+// (4 per key), failure waves, agent cap 192, idle sleep 2 h / panel value.
 
 // holdSource is fakeSource whose dials can be held in flight.
 type holdSource struct {
@@ -499,12 +499,12 @@ func TestIdleSleepPushedByPanel(t *testing.T) {
 	if s := m.Stats(); s.Sleeping != 1 {
 		t.Fatalf("awake after the panel's 10 min: %+v", s)
 	}
-	// Absent (older panel) → agent default 6 h; tiny values clamp to 1 min.
+	// Absent (older panel) → agent default 2 h (plan 271); tiny values clamp to 1 min.
 	m.SetConfig(Config{Chains: map[string]int{"chains_1": 6}})
 	m.mu.Lock()
 	d := m.idleSleepNowLocked()
 	m.mu.Unlock()
-	if d != 6*time.Hour {
+	if d != 2*time.Hour {
 		t.Fatalf("idle sleep without idleSleepS = %v", d)
 	}
 	m.SetConfig(Config{Chains: map[string]int{"chains_1": 6}, IdleSleepS: 3})

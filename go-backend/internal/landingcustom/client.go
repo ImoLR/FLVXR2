@@ -912,13 +912,21 @@ func (c *Client) request(ctx context.Context, method, path string, body, out any
 	req.Header.Set("Authorization", "Bearer "+c.token)
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := c.http.Do(req)
-	// Never expose URL errors, headers, response bodies or structured credentials.
+	// Never expose URL errors, headers, response bodies or structured credentials:
+	// the error carries only its class (plan 271: distinct text per class).
 	if err != nil {
-		return errors.New("妙妙屋连接失败，请检查地址或网络")
+		return &TransportError{Class: classifyTransport(err), cause: err}
 	}
 	defer resp.Body.Close()
 	raw, err := io.ReadAll(io.LimitReader(resp.Body, (4<<20)+1))
-	if err != nil || len(raw) > 4<<20 {
+	if err != nil {
+		class := classifyTransport(err)
+		if class == ClassNet {
+			class = ClassRead
+		}
+		return &TransportError{Class: class, cause: err}
+	}
+	if len(raw) > 4<<20 {
 		return errors.New("妙妙屋响应读取失败")
 	}
 	if resp.StatusCode != http.StatusOK {
@@ -941,7 +949,7 @@ func (c *Client) request(ctx context.Context, method, path string, body, out any
 		return e
 	}
 	if out != nil && json.Unmarshal(raw, out) != nil {
-		return errors.New("妙妙屋响应格式错误")
+		return &TransportError{Class: ClassDecode}
 	}
 	return nil
 }

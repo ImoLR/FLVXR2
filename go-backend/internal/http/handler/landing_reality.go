@@ -449,8 +449,14 @@ func (h *Handler) realityProbeShared(ctx context.Context, s *model.LandingServer
 	if err != nil {
 		return nil, err
 	}
+	// Plan 271: probe requests are logged like the sync (they never change
+	// the server's online state).
+	probeKey := "probe:" + strconv.FormatInt(s.ID, 10)
+	health := h.sharedHealth()
+	started := time.Now()
 	job, err := client.StartRealityProbe(ctx, s.RemoteServerID, landingcustom.RealityProbeRequest{Targets: targets, TimeoutMs: realityProbeTimeoutM})
 	if err != nil {
+		health.fail(probeKey, err, err.Error(), time.Since(started))
 		var apiErr *landingcustom.APIError
 		if errors.As(err, &apiErr) {
 			switch apiErr.Code {
@@ -472,8 +478,10 @@ func (h *Handler) realityProbeShared(ctx context.Context, s *model.LandingServer
 			return nil, errors.New("测速已取消")
 		case <-time.After(realitySharedPollEvery):
 		}
+		polled := time.Now()
 		next, err := client.RealityProbeStatus(ctx, s.RemoteServerID, job.ProbeID)
 		if err != nil {
+			health.fail(probeKey, err, err.Error(), time.Since(polled))
 			return nil, errors.New("妙妙屋测速失败：" + err.Error())
 		}
 		job = next
@@ -485,6 +493,7 @@ func (h *Handler) realityProbeShared(ctx context.Context, s *model.LandingServer
 		}
 		return nil, errors.New("妙妙屋测速失败：" + msg)
 	}
+	health.ok(probeKey)
 	return sharedRealityResults(job.Results), nil
 }
 

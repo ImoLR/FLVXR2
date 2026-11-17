@@ -30,7 +30,8 @@
 // the key goes back to one dial at a time (backoff / rest as before; a wave of
 // parallel dials failing together counts as one failure).
 //
-// Idle sleep (plan 249, 6 h since plan 264, panel-pushed `idleSleepS`): a key
+// Idle sleep (plan 249, 6 h in plan 264, 2 h since plan 271, panel-pushed
+// `idleSleepS`): a key
 // with no new stream for that long drains to 0 and stops refilling; the next
 // stream on it dials cold (same as no pool) and wakes it (refill at once).
 // Misses of a woken (or new) key before its first pooled conn lands are
@@ -97,8 +98,9 @@ const (
 	minAdaptiveMaxAge = 30 * time.Second
 	maxRetired        = 256
 	// IdleSleepAfter: a key with no new stream for this long sleeps (plan
-	// 249; 30 min → 6 h in plan 264). The panel may push another value.
-	IdleSleepAfter = 6 * time.Hour
+	// 249; 30 min → 6 h in plan 264, 2 h in plan 271). The panel may push
+	// another value (fork.142+ panels push 2 h).
+	IdleSleepAfter = 2 * time.Hour
 	minIdleSleep   = time.Minute
 	maxIdleSleep   = 24 * time.Hour
 )

@@ -37,8 +37,8 @@ type KeyReport struct {
 	FailN   int64   `json:"failN,omitempty"`  // refill dials that failed
 	State   string  `json:"state,omitempty"`  // rest | unsupported | capped
 	AgeCapS int     `json:"ageCapS,omitempty"`
-	// Sleep (plan 249): no stream for the idle-sleep time (6 h since plan
-	// 264) — 0 conns, not refilled until the next stream. Absent on older
+	// Sleep (plan 249): no stream for the idle-sleep time (2 h since plan
+	// 271, 6 h in 264) — 0 conns, not refilled until the next stream. Absent on older
 	// agents (= awake).
 	Sleep bool `json:"sleep,omitempty"`
 	// Plan 264 (CapVersion 2): WakeN = the misses (of MissN) while the key

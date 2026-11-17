@@ -153,7 +153,7 @@ func (h *Handler) landingMonitor(w http.ResponseWriter, r *http.Request) {
 		response.WriteJSON(w, response.Err(-2, "落地监控数据读取失败"))
 		return
 	}
-	view := buildLandingMonitorView(data, admin, h.landingRateTracker(), now)
+	view := buildLandingMonitorView(data, admin, h.landingRateTracker(), now, h.sharedHealth())
 	// Whole-machine connections: shared from Custom's status (plan 118),
 	// native from the agent's live machine metric (plan 211, already in memory).
 	nativeNode := make(map[int64]int64, len(data.Servers))
@@ -205,7 +205,12 @@ func ratePtr(v float64) *float64 {
 	return &v
 }
 
-func buildLandingMonitorView(data *repo.LandingMonitorData, admin bool, tracker *landingRateTracker, now time.Time) landingMonitorView {
+// health: plan-271 sync streaks of shared servers (nil in unit tests).
+func buildLandingMonitorView(data *repo.LandingMonitorData, admin bool, tracker *landingRateTracker, now time.Time, health ...*sharedSyncHealth) landingMonitorView {
+	var sh *sharedSyncHealth
+	if len(health) > 0 {
+		sh = health[0]
+	}
 	nowMs := now.UnixMilli()
 	out := landingMonitorView{GeneratedAt: nowMs, Admin: admin, AgeHintMs: landingMonitorAgeHintMs, StaleAfterMs: landingRateStaleAfterMs, Servers: []landingMonitorServerView{}}
 	if data == nil {
@@ -284,14 +289,12 @@ func buildLandingMonitorView(data *repo.LandingMonitorData, admin bool, tracker 
 		}
 		if s.Source == "shared" {
 			caps := repo.SharedLandingCaps(s)
-			syncErr := s.SharedSyncError
-			if data.IntegrationSyncError != "" {
-				syncErr = data.IntegrationSyncError
-			}
+			// Plan 271: same rule as the server card (3 min, per server).
+			syncErr, stale := sharedSyncDisplayWith(sh, s, data.IntegrationSyncError, now)
 			view.CoreState = caps.Core.State
 			view.SyncError = syncErr
 			view.Notice = sharedCoreNotice(s, enabled)
-			view.Online = caps.Core.State == "running" && syncErr == "" && s.SharedLastSyncAt > now.Add(-2*time.Minute).UnixMilli()
+			view.Online = caps.Core.State == "running" && syncErr == "" && !stale
 			if s.SharedCollectedAt > view.SampleAt {
 				view.SampleAt = s.SharedCollectedAt
 			}

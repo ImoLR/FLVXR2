@@ -23,7 +23,8 @@ type sharedRetry struct {
 	failures int
 	next     time.Time
 	lastErr  string
-	scoped   bool // last failure concerned this one share only (plan 243)
+	scoped   bool   // last failure concerned this one share only (plan 243)
+	class    string // plan 271: error class of the last failure (log)
 }
 type sharedLandingState struct {
 	retries             map[string]sharedRetry
@@ -148,8 +149,14 @@ func sharedBackoff(failures int) time.Duration {
 // after a 409/422, but still honours the transport breaker while Custom is
 // unreachable. While backing off, the last real cause is reported instead of a
 // bare retry notice; the text is stable so ticks do not churn the stored error.
+//
+// Plan 271: every real failure and every skipped request is reported to the
+// sync health (log + the 3 min display threshold); a success clears the
+// key's streak and, once the server has no failing request left, the
+// transient error it stored.
 func (h *Handler) sharedAttempt(key string, force, manual bool, fn func() error) error {
 	state := h.sharedState()
+	health := h.sharedHealth()
 	now := time.Now()
 	r := state.retries[key]
 	keyBlocked := now.Before(r.next) && !manual
@@ -158,24 +165,31 @@ func (h *Handler) sharedAttempt(key string, force, manual bool, fn func() error)
 		if !keyBlocked || cause == "" {
 			cause = state.offline.lastErr
 		}
-		if cause == "" {
-			return errors.New("同步异常，正在退避重试")
+		var out error
+		switch {
+		case cause == "":
+			out = errors.New("同步异常，正在退避重试")
+		case keyBlocked && r.scoped:
+			out = &sharedScopedError{cause + "（自动重试中）"}
+		default:
+			out = errors.New(cause + "（自动重试中）")
 		}
-		if keyBlocked && r.scoped {
-			return &sharedScopedError{cause + "（自动重试中）"}
-		}
-		return errors.New(cause + "（自动重试中）")
+		health.skip(key, out.Error(), !keyBlocked, state.offline.class)
+		return out
 	}
 	err := fn()
 	if err == nil {
 		delete(state.retries, key)
 		state.offline = sharedRetry{}
+		h.sharedRecovered(key, health.ok(key))
 		return nil
 	}
+	health.fail(key, err, err.Error(), time.Since(now))
 	r.failures++
 	r.next = now.Add(sharedBackoff(r.failures))
 	r.lastErr = err.Error()
 	r.scoped = sharedShareScoped(key, err)
+	r.class = landingcustom.ErrorClass(err)
 	state.retries[key] = r
 	if r.scoped {
 		return err // that share's own error only (plan 243)
@@ -185,6 +199,7 @@ func (h *Handler) sharedAttempt(key string, force, manual bool, fn func() error)
 		state.offline.failures++
 		state.offline.next = now.Add(sharedBackoff(state.offline.failures))
 		state.offline.lastErr = err.Error()
+		state.offline.class = r.class
 	}
 	_ = h.repo.SetLandingIntegrationResult(err.Error(), 0)
 	return err
