@@ -38,9 +38,9 @@ Base: `3.0.27-fork.144` (fea5c139). Branch `feature/3.0.27-native-anytls`, workt
       regression SS2022/Reality/vless_enc + chain rules of a converted exit; guard hold / warm pool / late ClientHello.
 - [x] 11. Gallery :8791 /native-anytls/ (desktop + H5).
 - [x] 12. Release next fork (CI, images, Latest assets); prod backup + prune + rollback script; panel upgrade; verify.
-- [ ] 13. Night window (02:00–06:00 TW): OTA Bestvm US only; enable AnyTLS on server 9; throwaway AnyTLS node test
+- [x] 13. Night window (02:00–06:00 TW): OTA Bestvm US only; enable AnyTLS on server 9; throwaway AnyTLS node test
       with a real client; rule 624 tag state.
-- [ ] 14. RELEASE-LEDGER row 274, memory state line, summary.md.
+- [x] 14. RELEASE-LEDGER row 274, memory state line, summary.md.
 
 ## Results (build)
 - Unit/contract: go-backend `go test ./... -timeout 30m` (SQLite + PG 18) green after updating two tests that encoded the old
@@ -61,3 +61,15 @@ Base: `3.0.27-fork.144` (fea5c139). Branch `feature/3.0.27-native-anytls`, workt
 - fork.145: tag on 5c837249, Images 44100316195, Latest (10 assets). Prod panel 11-18 00:46:12–00:46:21 TW, rollback
   /opt/flvx-svc/rollback/pre-fork145-20261117T164611Z/rollback.sh (→ fork.144). 30/30 nodes fresh, 30 redeploys failed=0,
   57 rules unchanged, Bestvm US chain rows active. Baseline before OTA: idle conn to Bestvm US :30000 closed after 7.6 s.
+
+## Night OTA (11-18)
+- 02:00:44–02:00:52 TW: OTA **only Bestvm US** fork.131 → fork.145 (panel /node/upgrade, back in 8 s); backup on the node
+  /root/flvxx-backup-20261117T180039Z-pre-fork145 (restore-agent.sh). Landing Core not restarted; the 4 guarded Reality
+  inbounds (landing 196/197/199 + chain 1024) re-added with TCP_DEFER_ACCEPT 130; chain AnyTLS 1025 unchanged; chain rows active.
+- Idle conn to Bestvm US :30000 from the dev box: 7.6 s before → **251.8 s** after (kernel 5.10).
+- Server 9 protocols: user had switched VLESS Encryption off at 01:29 TW → kept off; now ss2022 + Reality + **AnyTLS** (only change).
+- Throwaway admin AnyTLS node (port 30003, SNI nus.edu.sg): mihomo exit IP 155.254.127.160, 204 in 130 ms, UDP DNS OK;
+  sing-box OK; inbound 0.0.0.0 + defer 130; node deleted.
+- Rule 624 「测试 US」: key was asleep (no traffic 2 h); after one wake connect → 「预热中」 (8 pooled conns held as
+  SYN-RECV on Bestvm US, no unsupported / dead after a full generation). 「us vless」 (→ :30001) 100 % hit, deadN 0.
+- Fleet after OTA: 30/30 fresh metrics; agents 11×138, 6×130, 4×131, 4×143, 2×134, 2×126, 1×145.
