@@ -346,14 +346,26 @@ func (j *lkDiagJob) agentDiag(nodeID int64) (*lkAgentDiag, string) {
 	return &d, ""
 }
 
-// lkDiagSource: where 全程 comes from — the client's UDP probe (it has loss)
-// or its last TCP selection.
+// lkDiagMaxClientRtt: a client rtt above this is not a path measurement.
+// Seen on prod (fwd 263, 11-17): active_udp.rtt_ms 60000 and 3018 without
+// probe counters while UDP probes got no answer; latest_tcp said 64 ms.
+const lkDiagMaxClientRtt = 2000.0
+
+func lkDiagClientOK(c *lkAgentClient) bool {
+	return c != nil && c.RttMs > 0 && c.RttMs <= lkDiagMaxClientRtt
+}
+
+// lkDiagSource: where 全程 comes from — the client's UDP probe when it has
+// answered probes (it also gives loss), else its last TCP selection, else a
+// UDP value without probe counters.
 func lkDiagSource(d *lkAgentDiag) (string, *lkAgentClient) {
 	switch {
-	case d.UDP != nil && d.UDP.RttMs > 0:
+	case lkDiagClientOK(d.UDP) && d.UDP.Sent > 0 && d.UDP.Recv > 0:
 		return "udp", d.UDP
-	case d.TCP != nil && d.TCP.RttMs > 0:
+	case lkDiagClientOK(d.TCP):
 		return "tcp", d.TCP
+	case lkDiagClientOK(d.UDP):
+		return "udp", d.UDP
 	}
 	return "", nil
 }
@@ -510,10 +522,8 @@ func (j *lkDiagJob) runOther(ctx context.Context, idx int, e leiKwanEntryNode) {
 	in := d.Ingresses[best]
 	it["title"] = e.Name + " → 利群入口 " + lkCircled(best)
 	sub := "最快的入口 · " + strings.Trim(lkIngressLabel(in.Endpoint)+" · "+lkEndpointHost(in.Endpoint), " ·")
-	if d.UDP != nil && d.UDP.RttMs > 0 {
-		sub += fmt.Sprintf(" · 客户端全程 %s ms", lkMs(d.UDP.RttMs))
-	} else if d.TCP != nil && d.TCP.RttMs > 0 {
-		sub += fmt.Sprintf(" · 客户端全程 %s ms", lkMs(d.TCP.RttMs))
+	if _, client := lkDiagSource(d); client != nil {
+		sub += fmt.Sprintf(" · 客户端全程 %s ms", lkMs(client.RttMs))
 	}
 	it["sub"], it["inUse"], it["success"], it["averageTime"], it["packetLoss"] = sub, in.InUse, true, lkRound(in.AvgMs), in.Loss
 	j.set(idx, it)

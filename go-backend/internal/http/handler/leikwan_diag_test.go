@@ -153,3 +153,31 @@ func TestLeiKwanDiagnose(t *testing.T) {
 		t.Fatalf("manual rule without 备线: %v", out.Data.Items)
 	}
 }
+
+// Prod 11-17 (fwd 263): UDP rtt 60000 / 3018 without probe counters while the
+// TCP selection said 64 ms → 全程 comes from TCP, never the placeholder value.
+func TestLeiKwanDiagSource(t *testing.T) {
+	cases := []struct {
+		name     string
+		tcp, udp *lkAgentClient
+		src      string
+		rtt      float64
+	}{
+		{"udp with probes", &lkAgentClient{RttMs: 12}, &lkAgentClient{RttMs: 10, Sent: 30, Recv: 30}, "udp", 10},
+		{"udp placeholder 60000", &lkAgentClient{RttMs: 64}, &lkAgentClient{RttMs: 60000}, "tcp", 64},
+		{"udp no probes 3018", &lkAgentClient{RttMs: 64}, &lkAgentClient{RttMs: 3018}, "tcp", 64},
+		{"udp no probes, no tcp", nil, &lkAgentClient{RttMs: 40}, "udp", 40},
+		{"udp probes all lost", &lkAgentClient{RttMs: 64}, &lkAgentClient{RttMs: 50, Sent: 30, Recv: 0}, "tcp", 64},
+		{"nothing usable", &lkAgentClient{RttMs: 9000}, &lkAgentClient{RttMs: 60000}, "", 0},
+	}
+	for _, c := range cases {
+		src, cl := lkDiagSource(&lkAgentDiag{TCP: c.tcp, UDP: c.udp})
+		got := 0.0
+		if cl != nil {
+			got = cl.RttMs
+		}
+		if src != c.src || got != c.rtt {
+			t.Errorf("%s: source %q rtt %v, want %q %v", c.name, src, got, c.src, c.rtt)
+		}
+	}
+}
