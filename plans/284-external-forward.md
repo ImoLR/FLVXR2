@@ -54,6 +54,10 @@ Task `external-forward` (11-18 TW, coordinator fa017f57). Base `3.0.27-fork.149`
       now also checks users get no key outside the picker list
 - [x] Round 2: PG run found the 转发 list query broken on PostgreSQL since fork.100 (`LEFT JOIN user` /
       `user.name` — `user` is reserved in PG; prod is SQLite so never seen): quoted as `"user"` (same on SQLite)
+- [x] Round 2: prod moved to `3.0.27-fork.151` (plan 283 quic-block) while building → merged it too (clean;
+      only agent + ws counter + node/tunnel page, nothing plan 284 touches). fork.152 is not on prod → not merged
+- [x] Round 2: picker hint only claims 「只能选 SS、VLESS Encryption」 when TLS + HTTP + SOCKS are all blocked;
+      外部节点 list note mentions forwards
 - [ ] go test ./... (SQLite) + PG contract where touched; npm run build
 - [ ] Push branch, CI green
 - [ ] Screenshot gallery `/root/mmwx-preview/external-forward/`
