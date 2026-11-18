@@ -68,15 +68,15 @@ merged the prod tags released while this was building: `3.0.27-fork.150` (plan 2
 - [x] Ledger row 284, summary (`runs/external-forward-r2/summary.md`), cache cleanup
 
 ## Status
-BUILT 11-18 TW, waiting for the user's look at the gallery. No merge to main, no tag, no release, prod untouched.
+RELEASED 11-19 00:35 TW as 3.0.27-fork.154 (panel only, no OTA). Plan complete.
 
 ## Release (fork.154, task release-external-forward, 11-18/19 TW)
 User approved the screens 11-18 ~23:50 TW (「自动识别」 kept, no changes).
 - [x] Worktree flvxx-rel284 from tag 3.0.27-fork.153, branch maintenance/3.0.27-fork.154-external-forward,
       merged origin/feature/3.0.27-external-forward (clean; no file overlap with plan 285)
 - [x] go vet + go test ./... (SQLite + PG via FLVX_POSTGRES_TEST_DSN, temp postgres:18) + npm run build — all green (handler 365 s, repo 587 s, contract 663 s incl. TestExternalForwardContract/postgres)
-- [ ] Push, tag 3.0.27-fork.154, CI + Images + release assets, Latest
-- [ ] Prod backup + rollback script (→ fork.153), fork.153 verified on a fork.154-migrated prod-DB copy, prune backups
-- [ ] Panel swap before 01:30 TW, OTA hand-off notes (target fork.154)
-- [ ] Post-swap checks (nodes, forwards, 利群, external_node_id = 0, 自动识别 count, sub diff, log 15 min, RSS, UI smoke)
-- [ ] Cleanup worktrees / lab / caches, ledger + memory
+- [x] Push, tag 3.0.27-fork.154 (→ 71271275), CI 44346181501 + Images 44346181345 green, Latest, 10 assets, gost sha256 ok
+- [x] Prod backup + rollback script /opt/flvx-svc/rollback/pre-fork154-20261118T163500Z/rollback.sh (→ fork.153); fork.153 starts clean on a fork.154-migrated prod-DB copy; backups pruned (kept pre-fork153 + pre-fork154)
+- [x] Panel swap 11-19 00:35:00–00:35:08 TW; OTA hand-off notes (target fork.154) in ota-old-agents-1119 + quic-block briefs; quic-block one.sh now uses the panel version instead of a fork.153 pin
+- [x] Post-swap checks: 30/30 nodes online, all forwards running (77 + 1 user-made at 00:37), 利群 tables identical, external_node_id = 0 on all rows, 自动识别 = 0 on prod, 2 subs × base64/clash byte-identical, 0 panel errors in 30 min (only transient mmwx shared-sync resets, all recovered), RSS 41 → 65 MiB, UI smoke desktop + H5: 目标类型 = 手动填写 / 我的面板节点 / 我的外部节点
+- [x] Cleanup worktrees flvxx-284 / flvxx-rel284 + /root/ef284-lab, go-build entries > 24 h, ledger + memory
