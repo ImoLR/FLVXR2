@@ -233,7 +233,7 @@ export function NodeDDNSSection({
           <span className="text-sm font-medium">DDNS</span>
           <p className="text-xs text-default-500">
             开启后节点网卡地址变化时自动更新 Cloudflare 的 A/AAAA 记录（TTL 2
-            分钟，不开代理）；首次同步成功后，节点地址改用域名，之后隧道和规则里的地址不再变。关闭
+            分钟，不开代理）；首次同步成功后，节点地址改用域名，之后隧道和转发里的地址不再变。关闭
             DDNS 或删除节点都不会删除 DNS 记录。
           </p>
         </div>

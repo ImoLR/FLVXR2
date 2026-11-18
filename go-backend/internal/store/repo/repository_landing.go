@@ -1020,7 +1020,7 @@ func landingNoFreePortError(s model.LandingServer, node model.Node, ruleUsed int
 		return fmt.Errorf("落地端口段 %s 已全部被节点「%s」的转发端口段 %s 占用，请在节点编辑里把 %s 从转发端口段中排除，或给落地换一个端口段", rng, node.Name, node.Port, rng)
 	}
 	if ruleUsed > 0 {
-		return fmt.Errorf("落地端口段 %s 无可用端口：其中 %d 个在节点「%s」的转发端口段 %s 内，其余 %d 个已被落地节点、隧道或其他监听占用；请从规则端口段中排除落地端口段或扩大落地端口段", rng, ruleUsed, node.Name, node.Port, total-ruleUsed)
+		return fmt.Errorf("落地端口段 %s 无可用端口：其中 %d 个在节点「%s」的转发端口段 %s 内，其余 %d 个已被落地节点、隧道或其他监听占用；请从转发端口段中排除落地端口段或扩大落地端口段", rng, ruleUsed, node.Name, node.Port, total-ruleUsed)
 	}
 	return fmt.Errorf("落地端口段 %s 的 %d 个端口已全部被落地节点、隧道或节点上的其他监听占用，请扩大落地端口段", rng, total)
 }

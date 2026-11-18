@@ -447,7 +447,7 @@ export function LandingGlobalRules({
             <h3 className="font-medium">用户规则</h3>
             <p className="text-xs text-default-500">
               用户可在「我的节点 →
-              路由规则」为自己的节点添加规则（只作用于该节点）。可单独为某个用户在用户编辑「落地」里改；0
+              设置路由」为自己的节点添加规则（只作用于该节点）。可单独为某个用户在用户编辑「落地」里改；0
               = 不开放；调低不会删除已有规则。当前 {initial.nodesWithRules}{" "}
               个节点设置了节点规则。
             </p>

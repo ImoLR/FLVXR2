@@ -223,7 +223,7 @@ export function WarmPoolTag({
           </div>
           {!detailed ? (
             <p className="text-xs text-default-600 dark:text-default-500">
-              提前建好到下一跳的连接，这条规则的新连接平均快{" "}
+              提前建好到下一跳的连接，这条转发的新连接平均快{" "}
               {num(state.savedMs)} ms（{windowText}实测）
             </p>
           ) : state.status === "warming" ? (

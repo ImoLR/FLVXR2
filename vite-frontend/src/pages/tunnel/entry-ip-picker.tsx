@@ -70,7 +70,7 @@ export function EntryIpPicker({ nodes, value, onChange }: EntryIpPickerProps) {
         </div>
       ))}
       <p className="text-[11px] leading-4 text-default-400">
-        只决定用户看到和复制的入口地址；规则仍在节点所有地址上监听（单独设置了监听IP的除外），都不勾选时使用默认入口地址
+        只决定用户看到和复制的入口地址；转发仍在节点所有地址上监听（单独设置了监听IP的除外），都不勾选时使用默认入口地址
       </p>
     </div>
   );

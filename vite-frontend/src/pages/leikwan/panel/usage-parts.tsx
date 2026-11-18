@@ -271,9 +271,9 @@ function PackageBody({ data }: { data: LeiKwanUsageView }) {
           </Row>
         )}
         {(u.otherBytes > 0 || u.unattributedBytes > 0) && (
-          <Row label="不在规则">
+          <Row label="不在转发">
             <span
-              title={`利群本周期记了流量、但不是现在任何一条利群规则的转发${
+              title={`利群本周期记了流量、但不是现在任何一条利群转发${
                 u.otherForwards.length
                   ? `（${u.otherForwards.map((id) => `#${id}`).join("、")}，多半是本周期删掉的）`
                   : ""

@@ -178,7 +178,7 @@ const USER_VIEW_MODE_KEY = "user_view_mode";
 const USER_LIMIT_MAX_VALUE = 99999;
 // Plan 159: 默认速率 upper bound (Mbps), same as the panel's.
 const SERVER_RATE_MAX_MBPS = 100000;
-const USER_POOL_LIMIT_HINT = "转发规则入口与落地节点的入站一起计算（经本面板转发进落地的只算一次）；gost 与 nftables 规则及入口节点共享；nftables 需 fork.13 入口 agent，约每秒更新；留空或 0 表示不限制";
+const USER_POOL_LIMIT_HINT = "转发入口与落地节点的入站一起计算（经本面板转发进落地的只算一次）；gost 与 nftables 转发及入口节点共享；nftables 需 fork.13 入口 agent，约每秒更新；留空或 0 表示不限制";
 const sanitizeIntegerDraft = (value: string, max = USER_LIMIT_MAX_VALUE) => {
   const digits = value.replace(/[^\d]/g, "");
 
@@ -247,6 +247,7 @@ const normalizeUserItem = (item: Partial<User>): UserWithHistory => {
     speedLimitId: item.speedLimitId ?? null,
     serverRateMbps: Number(item.serverRateMbps ?? 0),
     leikwanRuleCount: Number(item.leikwanRuleCount ?? 0), // plan 276 (F01)
+    leikwanNum: Number(item.leikwanNum ?? 3), // plan 280 利群转发数
     quotaHistory: [],
     showHistory: false,
   };
@@ -355,6 +356,8 @@ export default function UserPage() {
   const [userLimitDraft, setUserLimitDraft] = useState({
     flow: "1000",
     num: "10",
+    // Plan 280: 利群转发数 (default 3, 99999 = 不限 like num).
+    leikwanNum: "3",
     maxConnections: "",
     maxClientIps: "",
     // Plan 159: 默认速率 (Mbps), empty = 不限.
@@ -953,6 +956,7 @@ export default function UserPage() {
     setUserLimitDraft({
       flow: "1000",
       num: "10",
+      leikwanNum: "3",
       maxConnections: "",
       maxClientIps: "",
       serverRateMbps: "",
@@ -1080,6 +1084,7 @@ export default function UserPage() {
     setUserLimitDraft({
       flow: user.flow.toString(),
       num: user.num.toString(),
+      leikwanNum: String(user.leikwanNum ?? 3),
       maxConnections:
         (user.maxConnections ?? 0) > 0 ? String(user.maxConnections) : "",
       maxClientIps:
@@ -1128,9 +1133,11 @@ export default function UserPage() {
       userLimitDraft.flow.trim() === "" ||
       Number(userLimitDraft.flow) < 1 ||
       userLimitDraft.num.trim() === "" ||
-      Number(userLimitDraft.num) < 1
+      Number(userLimitDraft.num) < 1 ||
+      userLimitDraft.leikwanNum.trim() === "" ||
+      Number(userLimitDraft.leikwanNum) < 1
     ) {
-      toast.error("请填写有效的流量限制和规则数量");
+      toast.error("请填写有效的流量限制、总转发数和利群转发数");
 
       return;
     }
@@ -1138,7 +1145,11 @@ export default function UserPage() {
     setUserFormLoading(true);
     try {
       const flow = parseRequiredUserLimit(userLimitDraft.flow, "流量限制");
-      const num = parseRequiredUserLimit(userLimitDraft.num, "规则数量");
+      const num = parseRequiredUserLimit(userLimitDraft.num, "总转发数");
+      const leikwanNum = parseRequiredUserLimit(
+        userLimitDraft.leikwanNum,
+        "利群转发数",
+      );
       const maxConnections = parseOptionalUserLimit(
         userLimitDraft.maxConnections,
         "总连接数限制",
@@ -1155,6 +1166,7 @@ export default function UserPage() {
         ...userForm,
         flow,
         num,
+        leikwanNum,
         maxConnections,
         maxClientIps,
         serverRateMbps,
@@ -1987,7 +1999,7 @@ export default function UserPage() {
                     </span>
                   </TableColumn>
                   <TableColumn className="whitespace-nowrap flex-shrink-0 w-[80px] text-left">
-                    规则数
+                    转发数
                   </TableColumn>
                   <TableColumn className="whitespace-nowrap flex-shrink-0 w-[190px] text-left">
                     实时用量
@@ -2152,7 +2164,7 @@ export default function UserPage() {
                         <TableCell className="whitespace-nowrap">
                           <span
                             className="text-sm text-foreground"
-                            title="用户全部规则、全部入口节点的实时共享池用量"
+                            title="用户全部转发、全部入口节点的实时共享池用量"
                           >
                             {formatUserPoolUsage(user)}
                           </span>
@@ -2542,7 +2554,7 @@ export default function UserPage() {
                             </div>
                             <div className="flex justify-between text-sm items-center">
                               <span className="text-default-600 text-xs">
-                                规则数量
+                                转发数量
                               </span>
                               <span className="font-medium text-xs">
                                 {user.num}个
@@ -2554,7 +2566,7 @@ export default function UserPage() {
                               </span>
                               <span
                                 className="font-medium text-xs"
-                                title="用户全部规则、全部入口节点的实时共享池用量"
+                                title="用户全部转发、全部入口节点的实时共享池用量"
                               >
                                 {formatUserPoolUsage(user)}
                               </span>
@@ -2800,7 +2812,7 @@ export default function UserPage() {
               />
               <Input
                 isRequired
-                label="规则数量"
+                label="总转发数"
                 max="99999"
                 min="1"
                 type="number"
@@ -2809,6 +2821,21 @@ export default function UserPage() {
                   setUserLimitDraft((prev) => ({
                     ...prev,
                     num: sanitizeIntegerDraft(e.target.value),
+                  }))
+                }
+              />
+              <Input
+                isRequired
+                description="只算利群汇聚里的转发，不占总转发数；99999 = 不限"
+                label="利群转发数"
+                max="99999"
+                min="1"
+                type="number"
+                value={userLimitDraft.leikwanNum}
+                onChange={(e) =>
+                  setUserLimitDraft((prev) => ({
+                    ...prev,
+                    leikwanNum: sanitizeIntegerDraft(e.target.value),
                   }))
                 }
               />
@@ -2847,7 +2874,7 @@ export default function UserPage() {
               <div className="space-y-1">
                 <Input
                   data-user-server-rate
-                  description="该用户在每台服务器上所有规则合计的速率，每台服务器各算各的（不是所有服务器加起来）；可在下方「落地 → 服务器限额」逐台修改。留空表示不限"
+                  description="该用户在每台服务器上所有转发合计的速率，每台服务器各算各的（不是所有服务器加起来）；可在下方「落地 → 服务器限额」逐台修改。留空表示不限"
                   endContent={
                     <span className="pointer-events-none text-small text-default-400">
                       Mbps
@@ -3857,7 +3884,7 @@ export default function UserPage() {
                     data-user-delete-leikwan=""
                   >
                     该用户有 {userToDelete?.leikwanRuleCount}{" "}
-                    条利群规则，会一起删除（利群转发 + 备线）
+                    条利群转发，会一起删除（利群那边的转发 + 备线）
                   </p>
                 )}
               </div>
@@ -3905,7 +3932,7 @@ export default function UserPage() {
                   的权限吗？
                 </p>
                 <p className="text-small text-default-500 mt-1">
-                  删除后该用户将无法使用此隧道创建规则，此操作不可撤销。{" "}
+                  删除后该用户将无法使用此隧道添加转发，此操作不可撤销。{" "}
                 </p>
               </div>
             </div>
@@ -3950,7 +3977,7 @@ export default function UserPage() {
                   个隧道权限吗？
                 </p>
                 <p className="text-small text-default-500 mt-1">
-                  删除后该用户将无法使用这些隧道创建规则，此操作不可撤销。
+                  删除后该用户将无法使用这些隧道添加转发，此操作不可撤销。
                 </p>
               </div>
             </div>
@@ -4202,7 +4229,7 @@ export default function UserPage() {
                   .filter((u) => (u.leikwanRuleCount || 0) > 0)
                   .map((u) => `${u.name || u.user} ${u.leikwanRuleCount} 条`)
                   .join("、")}{" "}
-                利群规则会一起删除（利群转发 + 备线）
+                利群转发会一起删除（利群那边的转发 + 备线）
               </p>
             )}
           </ModalBody>

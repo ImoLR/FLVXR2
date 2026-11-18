@@ -38,7 +38,7 @@ export function QuotaPill({ quota }: { quota?: LeiKwanQuota }) {
 
   return (
     <Pill
-      title="名额是整个利群账号共用的；授权时不扣，建规则时才扣"
+      title="名额是整个利群账号共用的；授权时不扣，添加转发时才扣"
       tone={full ? "amber" : "purple"}
     >
       利群名额 {quota.active} / {quota.limit}

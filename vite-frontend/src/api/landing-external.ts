@@ -26,7 +26,7 @@ export function externalInUseNote(uses: ExternalNodeUse[]) {
   if (c.length) parts.push("链式代理在用，要先在落地节点里改回直连");
   if (lk.length)
     parts.push(
-      `利群规则 ${lk.map((u) => `「${u.name}」`).join("、")} 用它做落地，要先换落地或删除规则`,
+      `利群转发 ${lk.map((u) => `「${u.name}」`).join("、")} 用它做落地，要先换落地或删除转发`,
     );
 
   return parts.join("；");

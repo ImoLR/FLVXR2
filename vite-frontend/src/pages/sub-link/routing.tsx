@@ -335,7 +335,7 @@ const sourceTag: Record<
   NonNullable<RouteNodeOption["source"]>,
   { tone: LandingTone; text: string }
 > = {
-  rule: { tone: "green", text: "规则" },
+  rule: { tone: "green", text: "转发" },
   landing: { tone: "teal", text: "落地" },
   external: { tone: "purple", text: "外部节点" },
   source: { tone: "amber", text: "订阅源" },

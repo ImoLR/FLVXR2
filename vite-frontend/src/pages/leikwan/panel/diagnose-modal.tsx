@@ -763,7 +763,7 @@ export function LeiKwanDiagnoseModal({
       <ModalContent data-leikwan-diagnose="">
         <ModalHeader className="flex flex-col gap-1">
           <div className="flex items-start justify-between gap-2">
-            <h2 className="text-xl font-bold">利群规则诊断结果</h2>
+            <h2 className="text-xl font-bold">利群转发诊断结果</h2>
             <button
               aria-label="关闭"
               className="-mr-1 shrink-0 rounded p-1 text-default-400 hover:text-default-600"

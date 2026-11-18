@@ -154,7 +154,7 @@ const groupChip: Record<
   SubSelected["group"],
   { tone: "green" | "teal" | "purple" | "amber" | "violet"; text: string }
 > = {
-  rule: { tone: "green", text: "规则" },
+  rule: { tone: "green", text: "转发" },
   landing: { tone: "teal", text: "落地" },
   external: { tone: "purple", text: "外部节点" },
   source: { tone: "amber", text: "" },
@@ -165,9 +165,9 @@ const groupChip: Record<
 };
 
 // Plan 272: the 「全部利群规则（自动跟随）」 row.
-const LEIKWAN_ALL_NAME = "全部利群规则";
+const LEIKWAN_ALL_NAME = "全部利群转发";
 const leikwanAllNote = (n?: number) =>
-  `现在 ${n || 0} 条 · 新建 / 删除利群规则会自动同步`;
+  `现在 ${n || 0} 条 · 添加 / 删除利群转发会自动同步`;
 
 function protocolText(n: { protocol?: string; chain?: boolean }) {
   return `${n.protocol || ""}${n.chain ? "（链式）" : ""}`;
@@ -175,7 +175,7 @@ function protocolText(n: { protocol?: string; chain?: boolean }) {
 
 // H5 type chip of the 「已选」 row (user 11-14: name + one small chip).
 const groupChipH5: Record<SubSelected["group"], string> = {
-  rule: "规则",
+  rule: "转发",
   landing: "落地",
   external: "外部",
   source: "订阅源",
@@ -265,7 +265,7 @@ function SelectedRow({
             现在 {item.count || 0} 个 · 机场那边增删节点会自动同步
           </ExpandField>
         ) : lkAll ? (
-          <ExpandField label="规则">{leikwanAllNote(item.count)}</ExpandField>
+          <ExpandField label="转发">{leikwanAllNote(item.count)}</ExpandField>
         ) : (
           <>
             {item.protocol && (
@@ -282,11 +282,11 @@ function SelectedRow({
           {item.group === "source" || all
             ? `外部订阅源「${item.sourceName}」`
             : item.group === "rule"
-              ? "我的转发规则"
+              ? "我的转发"
               : item.group === "landing"
                 ? "我的落地节点"
                 : item.group === "leikwan" || lkAll
-                  ? "我的利群汇聚规则"
+                  ? "我的利群转发"
                   : "我的外部节点"}
         </ExpandField>
         <ExpandActions>
@@ -545,7 +545,7 @@ export function SubEditor({
     const out: Group[] = [
       {
         key: "rule",
-        title: "规则 · 我的面板节点",
+        title: "转发 · 我的面板节点",
         filter: "rule",
         nodes: pool.rules,
         sel: "rule",
@@ -771,7 +771,7 @@ export function SubEditor({
       )
       .map((g): [Filter, string] => [
         g.filter,
-        `${g.source ? g.source.name : g.key === "rule" ? "规则" : g.key === "landing" ? "落地" : g.key === "leikwan" ? (isH5 ? "利群" : "利群汇聚") : isH5 ? "外部" : "外部节点"}${isH5 ? "" : ` ${g.nodes.length}`}`,
+        `${g.source ? g.source.name : g.key === "rule" ? "转发" : g.key === "landing" ? "落地" : g.key === "leikwan" ? (isH5 ? "利群" : "利群汇聚") : isH5 ? "外部" : "外部节点"}${isH5 ? "" : ` ${g.nodes.length}`}`,
       ]),
   ];
 
@@ -854,7 +854,7 @@ export function SubEditor({
                         : "bg-violet-500/15 text-violet-700 dark:bg-violet-400/15 dark:text-violet-300"
                     }`}
                     data-leikwan-follow={follow ? "on" : "off"}
-                    title="新建的利群规则会自动出现在订阅里（手动落地的除外）"
+                    title="新添加的利群转发会自动出现在订阅里（手动落地的除外）"
                     type="button"
                     onClick={toggleLeiKwanFollow}
                   >
@@ -863,8 +863,8 @@ export function SubEditor({
                         ? "全部跟随 ✓"
                         : "全部跟随"
                       : follow
-                        ? "全部利群规则（自动跟随）✓"
-                        : "全部利群规则（自动跟随）"}
+                        ? "全部利群转发（自动跟随）✓"
+                        : "全部利群转发（自动跟随）"}
                   </button>
                 ) : g.source ? (
                   <button
@@ -895,12 +895,12 @@ export function SubEditor({
               {g.key === "rule" && (pool?.portForwards || 0) > 0 && !q && (
                 <p className="border-b border-divider px-3 py-1.5 text-xs text-default-400">
                   另有 {pool?.portForwards}{" "}
-                  条普通端口转发规则，没有代理协议，不能放进订阅
+                  条普通端口转发，没有代理协议，不能放进订阅
                 </p>
               )}
               {g.key === "rule" && g.nodes.length === 0 && !q && (
                 <p className="border-b border-divider px-3 py-2 text-xs text-default-400">
-                  接了落地或「我自己的节点」的规则会出现在这里
+                  接了落地或「我自己的节点」的转发会出现在这里
                 </p>
               )}
               {g.key === "external" && g.nodes.length === 0 && !q && (
@@ -910,7 +910,7 @@ export function SubEditor({
               )}
               {g.leikwan && g.nodes.length === 0 && !q && (
                 <p className="border-b border-divider px-3 py-2 text-xs text-default-400">
-                  还没有利群规则：在「利群汇聚」页建好后会出现在这里
+                  还没有利群转发：在「利群汇聚」页添加后会出现在这里
                 </p>
               )}
               {g.source && g.nodes.length === 0 && (

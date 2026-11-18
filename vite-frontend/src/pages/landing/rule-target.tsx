@@ -197,7 +197,7 @@ export function RuleLandingTarget({
               trigger: "max-w-full [&>span]:whitespace-normal",
               listbox: "static min-w-0 max-w-full !max-h-52",
             }}
-            description="只能选择规则所属用户自己的节点"
+            description="只能选择转发所属用户自己的节点"
             disabledKeys={nodes
               .filter(disabledReason)
               .map((node) => String(node.id))}
@@ -264,8 +264,8 @@ export function RuleLandingTarget({
             ＋ 新建落地节点
           </Button>
           <p className="text-xs text-default-500">
-            删除规则不会删除落地节点；一个节点可同时直连和被多条规则使用。
-            本人落地不重复计入用户总流量，按隧道与落地较贵的费率计费。此规则只使用一个落地目标。
+            删除转发不会删除落地节点；一个节点可同时直连和被多条转发使用。
+            本人落地不重复计入用户总流量，按隧道与落地较贵的费率计费。此转发只使用一个落地目标。
           </p>
         </>
       )}

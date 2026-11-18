@@ -62,12 +62,12 @@ export function EnableLandingButton({
 
         if (rangeNote) {
           toast.success(
-            `已启用落地，${rangeNote}；该端口段已从节点规则端口段中排除，请设置可见用户组`,
+            `已启用落地，${rangeNote}；该端口段已从节点转发端口段中排除，请设置可见用户组`,
             { duration: 8000 },
           );
         } else {
           toast.success(
-            `已启用落地，端口 ${response.data.portMin}-${response.data.portMax} 已从节点规则端口段中排除；请设置端口段和可见用户组`,
+            `已启用落地，端口 ${response.data.portMin}-${response.data.portMax} 已从节点转发端口段中排除；请设置端口段和可见用户组`,
           );
         }
         navigate(`/landing?server=${response.data.id}`);

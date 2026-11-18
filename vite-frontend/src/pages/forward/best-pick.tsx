@@ -534,7 +534,7 @@ export function RuleBestOffBadge({
       const res = await reenableRuleBest(forwardId);
 
       if (res.code === 0) {
-        toast.success("已重新开启规则最优，下一轮探测（约 1 分钟内）开始");
+        toast.success("已重新开启转发最优，下一轮探测（约 1 分钟内）开始");
         setDone(true);
         window.dispatchEvent(new Event(RULE_BEST_OFF_CHANGED));
       } else {
@@ -553,25 +553,25 @@ export function RuleBestOffBadge({
       <Dropdown>
         <DropdownTrigger>
           <button
-            aria-label="规则最优已自动关闭，点按查看并重新开启"
+            aria-label="转发最优已自动关闭，点按查看并重新开启"
             className={`${pillBase} ${landingToneClass.amber} cursor-pointer hover:brightness-95 focus-visible:outline-2 focus-visible:outline-offset-1 dark:hover:brightness-110`}
             data-rule-best-off={forwardId}
             type="button"
             onClick={(e) => e.stopPropagation()}
           >
             <TriangleAlert aria-hidden className="h-3 w-3 shrink-0" />
-            <span className="whitespace-nowrap">规则最优已自动关闭</span>
+            <span className="whitespace-nowrap">转发最优已自动关闭</span>
             <ChevronDown aria-hidden className="h-3 w-3 shrink-0" />
           </button>
         </DropdownTrigger>
-        <DropdownMenu aria-label="规则最优已自动关闭">
+        <DropdownMenu aria-label="转发最优已自动关闭">
           <div className="max-w-[86vw] space-y-2 p-2 text-left sm:max-w-sm">
             <p className="whitespace-normal break-words text-xs leading-relaxed text-foreground">
               {off.text}
             </p>
             <p className="text-[11px] text-default-500">
               {when ? `${when} 关闭 · ` : ""}
-              规则仍在运行，按隧道选路；只有管理员能看到
+              转发仍在运行，按隧道选路；只有管理员能看到
             </p>
             <Button
               color="success"
@@ -581,7 +581,7 @@ export function RuleBestOffBadge({
               variant="flat"
               onPress={reenable}
             >
-              重新开启规则最优
+              重新开启转发最优
             </Button>
           </div>
         </DropdownMenu>

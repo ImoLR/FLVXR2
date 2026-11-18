@@ -164,7 +164,7 @@ export function LeiKwanSettingsModal({
             />
             {accounts.length === 0 && !form && (
               <p className="rounded-xl border border-dashed border-divider px-4 py-4 text-center text-sm text-default-500">
-                还没有利群账号：添加 API Token 和服务 ID 后才能建专线和规则。
+                还没有利群账号：添加 API Token 和服务 ID 后才能建专线和转发。
               </p>
             )}
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
@@ -328,8 +328,8 @@ export function LeiKwanSettingsModal({
                     只开主入口
                   </LabeledSwitch>
                   <p className="mt-1 text-xs text-default-500">
-                    打开后，利群规则只在规则主人的主入口机上能连；换主入口后旧入口保留到刷新订阅或
-                    24 小时。个别规则可在规则行设成「所有入口可用」。
+                    打开后，利群转发只在转发主人的主入口机上能连；换主入口后旧入口保留到刷新订阅或
+                    24 小时。个别转发可在转发行设成「所有入口可用」。
                   </p>
                 </div>
               </div>

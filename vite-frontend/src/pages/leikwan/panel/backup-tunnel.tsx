@@ -249,7 +249,7 @@ export function BackupTunnelPicker({
         description={
           selected && !pill?.tunnels.some((t) => t.id === selected.id)
             ? `当前：${selected.name}（在别的线路分组里）`
-            : "任意隧道都可以；备线出口 = 规则的落地"
+            : "任意隧道都可以；备线出口 = 转发的落地"
         }
         label="备线隧道"
         listboxVariant="grouped"
@@ -290,7 +290,7 @@ export function BackupTunnelPicker({
       </Select>
       <BackupPathLines data={data} tunnel={selected} />
       <p className="text-xs text-default-500">
-        备线经主入口转发，用户地址不变。给用户开了备线时，面板在这条隧道上自动建一条到同一落地的备线（规则「備線·转发号」，归管理员）。
+        备线经主入口转发，用户地址不变。给用户开了备线时，面板在这条隧道上自动建一条到同一落地的备线（转发「備線·转发号」，归管理员）。
       </p>
     </div>
   );

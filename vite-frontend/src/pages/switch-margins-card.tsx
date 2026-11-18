@@ -29,7 +29,7 @@ function explain(key: SwitchMarginKey, ms: number, rounds: number): string {
 
   switch (key) {
     case "best":
-      return `「最优」隧道的出口 / 中转：新的要${faster}，并且连续 ${rounds} 轮（约 ${rounds} 分钟）都这样才换。「规则最优」按目标选线路也用这个数字。`;
+      return `「最优」隧道的出口 / 中转：新的要${faster}，并且连续 ${rounds} 轮（约 ${rounds} 分钟）都这样才换。「转发最优」按目标选线路也用这个数字。`;
     case "realityDomain":
       return `落地服务器的自动（最快）模式：测速后，新域名要${faster}才换。只影响以后新建的节点。`;
     case "realityIp":

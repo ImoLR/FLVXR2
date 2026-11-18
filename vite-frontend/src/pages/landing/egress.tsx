@@ -51,7 +51,7 @@ function outboundSummary(o: EgressOutbound, overview: EgressOverview) {
       const n = overview.landingNodes.find((x) => x.id === s.landingNodeId);
       const via = overview.forwards.find((f) => f.id === s.viaForwardId);
 
-      return `${n ? `${n.name} · ${n.serverName}` : "节点已删除"}${via ? ` · 经规则「${via.name}」` : ""}`;
+      return `${n ? `${n.name} · ${n.serverName}` : "节点已删除"}${via ? ` · 经转发「${via.name}」` : ""}`;
     }
   }
 

@@ -193,7 +193,7 @@ export default function AdminLayout({
     },
     {
       path: "/forward",
-      label: "规则",
+      label: "转发",
       icon: (
         <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
           <path

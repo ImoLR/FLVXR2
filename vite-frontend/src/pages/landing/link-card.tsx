@@ -124,7 +124,7 @@ export function LandingLinkCard({
     >
       <h3 className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 font-medium">
         <Pill tone={leikwan ? "violet" : direct ? "green" : "purple"}>
-          {leikwan ? "利群汇聚" : direct ? "直连" : "经规则转发"}
+          {leikwan ? "利群汇聚" : direct ? "直连" : "经转发"}
         </Pill>
         {!(direct && link.name === "直连") && (
           <span className="min-w-0 break-all">{link.name}</span>
@@ -136,7 +136,7 @@ export function LandingLinkCard({
         )}
       </h3>
       {leikwan && link.ruleName && (
-        <p className="text-xs text-default-500">利群规则「{link.ruleName}」</p>
+        <p className="text-xs text-default-500">利群转发「{link.ruleName}」</p>
       )}
       {link.blocked && (
         <p className="text-xs font-medium text-warning-600 dark:text-warning-400">

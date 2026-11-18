@@ -157,7 +157,7 @@ func leiKwanGrantBackupFlow(t *testing.T, dialect string) {
 	e.ok("/api/v1/leikwan-rule/create", e.admin, map[string]interface{}{"lineId": num(gg["id"]), "name": "管理员代建", "landingNodeId": 502, "userId": 2, "requestId": "req-num-0003"})
 	pkg := e.ok("/api/v1/user/package", e.user, map[string]interface{}{})
 	info := pkg["userInfo"].(map[string]interface{})
-	if n := num(info["leikwanRuleCount"]); n != 2 || num(info["leikwanNum"]) != 1 {
+	if n := num(info["leikwanRuleCount"]); n != 2 || num(info["leikwanNum"]) != 1 || info["leikwanGranted"] != true {
 		t.Fatalf("dashboard 利群 count / limit: %v / %v", info["leikwanRuleCount"], info["leikwanNum"])
 	}
 	// An expired user's rules show 已到期.

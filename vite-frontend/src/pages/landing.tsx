@@ -572,8 +572,8 @@ export default function LandingPage() {
           onPress={() => setRulesFor(node)}
         >
           {node.routeRuleCount
-            ? `路由规则（${node.routeRuleCount}）`
-            : "路由规则"}
+            ? `设置路由（${node.routeRuleCount}）`
+            : "设置路由"}
         </Button>
       )}
       {/* Plan 177: 链式代理; muted (but tappable, shows the reason) where the
@@ -605,7 +605,7 @@ export default function LandingPage() {
           );
         }}
       >
-        用于新规则
+        添加转发
         {node.id === hintNode?.id && (
           <OnboardingRing active={useNodeHint.active} />
         )}
@@ -646,7 +646,7 @@ export default function LandingPage() {
     <div className="flex flex-wrap gap-1">
       <NodeStatusPill node={node} />
       {(node.forwardCount || 0) > 0 && (
-        <Pill tone="purple">规则 {node.forwardCount}</Pill>
+        <Pill tone="purple">转发 {node.forwardCount}</Pill>
       )}
       {node.deletePending && <Pill tone="amber">删除中</Pill>}
       {nodeNotes(node)}
@@ -835,7 +835,7 @@ export default function LandingPage() {
                       label: chainNodes ? `链式 · ${chainNodes}` : "链式",
                       node: (
                         <Pill
-                          title={`自动安装，只承载「我自己的节点」链式规则，不对用户开放；在节点页「启用为落地」可转为公开落地${chainNodes ? `；链式节点 ${chainNodes} 个` : ""}`}
+                          title={`自动安装，只承载「我自己的节点」链式转发，不对用户开放；在节点页「启用为落地」可转为公开落地${chainNodes ? `；链式节点 ${chainNodes} 个` : ""}`}
                           tone="purple"
                         >
                           {chainNodes ? `链式 · ${chainNodes}` : "链式"}
@@ -1225,7 +1225,7 @@ export default function LandingPage() {
                             }
                           />
                           {(node.forwardCount || 0) > 0 && (
-                            <Pill tone="purple">规则 {node.forwardCount}</Pill>
+                            <Pill tone="purple">转发 {node.forwardCount}</Pill>
                           )}
                           {node.chain ? (
                             <ChainPill node={node} />
@@ -1404,7 +1404,7 @@ export default function LandingPage() {
                 <p data-links-summary className="text-sm text-default-600">
                   共 {links.length} 条链接：直连{" "}
                   {links.filter((link) => link.kind === "direct").length} ·
-                  经规则转发{" "}
+                  经转发{" "}
                   {links.filter((link) => link.kind === "forward").length}
                   {leikwanLinks.length > 0 && ` · 利群 ${leikwanLinks.length}`}
                 </p>
@@ -1445,7 +1445,7 @@ export default function LandingPage() {
                 !linkError &&
                 !links.some((link) => link.kind === "forward") && (
                   <p className="text-xs text-default-500">
-                    将此节点用于新规则后，每个规则入口会生成一条转发链接。
+                    用此节点添加转发后，每个转发入口会生成一条转发链接。
                   </p>
                 )}
             </ModalBody>

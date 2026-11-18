@@ -418,7 +418,7 @@ func pickNativeLandingRange(tx *gorm.DB, node model.Node, serverID int64, prefLo
 		note := fmt.Sprintf("端口段 %s（%s 有端口被占用：%s）", formatPortRange(lo, hi), formatPortRange(prefLo, prefHi), portHoldersLabel(conflictsIn(used, prefLo, prefHi), holders))
 		return lo, hi, note, nil
 	}
-	return 0, 0, "", fmt.Errorf("节点「%s」找不到空闲的 %d 端口段来启用落地：默认端口段 %s 内%s，其他端口段也有端口被占用或不在节点规则端口段 %s 内。请先修改这些规则或隧道的端口，或在节点编辑里调整规则端口段", node.Name, landingPortBlock, formatPortRange(prefLo, prefHi), portHoldersLabel(conflictsIn(used, prefLo, prefHi), holders), node.Port)
+	return 0, 0, "", fmt.Errorf("节点「%s」找不到空闲的 %d 端口段来启用落地：默认端口段 %s 内%s，其他端口段也有端口被占用或不在节点转发端口段 %s 内。请先修改这些转发或隧道的端口，或在节点编辑里调整转发端口段", node.Name, landingPortBlock, formatPortRange(prefLo, prefHi), portHoldersLabel(conflictsIn(used, prefLo, prefHi), holders), node.Port)
 }
 
 func conflictsIn(sorted []int, lo, hi int) []int {
@@ -458,7 +458,7 @@ func applyNativeLandingRange(tx *gorm.DB, s *model.LandingServer, oldLo, oldHi, 
 			}
 		}
 		if len(bad) > 0 {
-			return fmt.Errorf("落地端口段 %s 内有 %d 个端口已被节点「%s」上的规则或隧道使用：%s。不会移动用户的规则，请换一个落地端口段，或先修改这些规则的端口", formatPortRange(newLo, newHi), len(bad), node.Name, portHoldersLabel(bad, holders))
+			return fmt.Errorf("落地端口段 %s 内有 %d 个端口已被节点「%s」上的转发或隧道使用：%s。不会移动用户的转发，请换一个落地端口段，或先修改这些转发的端口", formatPortRange(newLo, newHi), len(bad), node.Name, portHoldersLabel(bad, holders))
 		}
 	}
 	held := map[int]bool{}
@@ -482,7 +482,7 @@ func applyNativeLandingRange(tx *gorm.DB, s *model.LandingServer, oldLo, oldHi, 
 		return nil
 	}
 	if next == "" {
-		return fmt.Errorf("落地端口段 %s 覆盖了节点「%s」的全部规则端口 %s，请缩小落地端口段", formatPortRange(newLo, newHi), node.Name, node.Port)
+		return fmt.Errorf("落地端口段 %s 覆盖了节点「%s」的全部转发端口 %s，请缩小落地端口段", formatPortRange(newLo, newHi), node.Name, node.Port)
 	}
 	return tx.Model(&model.Node{}).Where("id = ?", node.ID).Update("port", next).Error
 }

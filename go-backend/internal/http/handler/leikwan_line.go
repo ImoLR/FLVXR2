@@ -1333,6 +1333,18 @@ func (h *Handler) leikwanRuleList(w http.ResponseWriter, r *http.Request) {
 		gv["backupFlow"] = leiKwanUserBackupFlow(c.allRefs, uid) // plan 271
 		result["grant"] = gv
 	}
+	// Plan 280: the user's 利群转发数 — the page shows 已用 x / N and greys
+	// 「添加转发」 at the limit (the create itself is checked again).
+	if !admin {
+		if limit, used, err := h.repo.UserLeiKwanRuleLimit(uid); err == nil {
+			unlimited := repo.RuleLimitUnlimited(limit)
+			v := map[string]interface{}{"limit": limit, "used": used, "unlimited": unlimited, "full": !unlimited && used >= int64(limit)}
+			if !unlimited && used >= int64(limit) {
+				v["error"] = (&repo.LeiKwanRuleLimitError{Limit: limit}).Error()
+			}
+			result["ruleLimit"] = v
+		}
+	}
 	// Admins get every line; granted users the active ones (「可用专线」) —
 	// name, route and transport only.
 	ls := []map[string]interface{}{}

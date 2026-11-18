@@ -279,7 +279,7 @@ export function LeiKwanLineDialog({
               <div className="flex items-center gap-2 text-sm font-medium">
                 预热池
                 <span className="text-xs font-normal text-default-500">
-                  只在用到这条规则的主入口上跑，不是组里每台都开
+                  只在这条专线的转发用到的主入口上跑，不是组里每台都开
                 </span>
               </div>
               <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
@@ -333,7 +333,7 @@ export function LeiKwanLineDialog({
                 首包过滤（SS2022）
               </LabeledSwitch>
               <span className="text-xs text-default-500">
-                密钥从规则的落地自动取
+                密钥从转发的落地自动取
               </span>
             </div>
             <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-sm">
@@ -381,7 +381,7 @@ export function LeiKwanLineDialog({
               String(line.backupTunnelId || "") !== backupTunnelId &&
               (line.backupStats?.auto || 0) > 0 && (
                 <p className="rounded-lg bg-amber-500/15 px-3 py-2 text-xs text-amber-700 dark:bg-amber-400/15 dark:text-amber-300">
-                  新规则用新备线。已有的 {line.backupStats?.auto}{" "}
+                  新转发用新备线。已有的 {line.backupStats?.auto}{" "}
                   条自动备线不会自己搬：保存后在列表点「按新备线重建」。
                   {(line.backupStats?.linked || 0) > 0 &&
                     `导入时链接的 ${line.backupStats?.linked} 条备线不动。`}

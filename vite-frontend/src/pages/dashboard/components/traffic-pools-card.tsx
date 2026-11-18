@@ -87,7 +87,7 @@ export function TrafficPoolsCard({ pools }: { pools: TrafficPool[] }) {
                 </p>
                 {pool.paused && (
                   <p className="text-xs text-danger">
-                    经过池内服务器的规则已暂停，到重置日或管理员调高额度后自动恢复
+                    经过池内服务器的转发已暂停，到重置日或管理员调高额度后自动恢复
                   </p>
                 )}
               </div>

@@ -627,7 +627,7 @@ export function HostManageBlock({
         )}
         <p className="text-xs text-default-500">
           接管后：在面板改专线 /
-          规则的加速设置会自动写到这台主机；有人手改主机上的文件会标 ⚠
+          转发的加速设置会自动写到这台主机；有人手改主机上的文件会标 ⚠
           漂移，面板不会自动覆盖。
         </p>
       </Confirm>
@@ -710,9 +710,9 @@ export function HostManageBlock({
         }
       >
         <ul className="list-disc space-y-1 pl-5">
-          <li>只统计利群规则的端口（这台入口机上的利群转发端口）。</li>
+          <li>只统计利群转发的端口（这台入口机上的利群端口）。</li>
           <li>
-            统计到的流量按专线的计费方式和倍率，计进规则所属用户的总流量（和隧道一样）。
+            统计到的流量按专线的计费方式和倍率，计进转发所属用户的总流量（和隧道一样）。
           </li>
           <li>
             {nightOnly

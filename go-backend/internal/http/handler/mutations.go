@@ -6200,7 +6200,7 @@ func parseWGForwardRequest(req map[string]interface{}) (int64, string, string, s
 		ruleType = "port"
 	}
 	if ruleType != "port" && ruleType != "cidr" && ruleType != "local" {
-		return 0, "", "", "", true, errors.New("WG 规则类型无效")
+		return 0, "", "", "", true, errors.New("WG 转发类型无效")
 	}
 	sourceCIDR := strings.TrimSpace(asString(req["sourceCidr"]))
 	targetCIDR := strings.TrimSpace(asString(req["targetCidr"]))

@@ -257,7 +257,7 @@ export function ServerSettings({
               {numberField("结束端口", "portMax", 1024)}
             </div>
             <p className="text-xs text-default-500">
-              端口由系统自动分配，不能与规则端口段或现有监听冲突。
+              端口由系统自动分配，不能与转发端口段或现有监听冲突。
             </p>
             <Select
               label="状态"
@@ -289,7 +289,7 @@ export function ServerSettings({
               {numberField("每人在本服务器最多节点数", "maxNodesPerUser", 1)}
             </div>
             <p className="text-xs text-default-500">
-              落地计入用户同一个总流量。通过本人规则访问时按隧道与落地较贵的费率计费。
+              落地计入用户同一个总流量。通过本人转发访问时按隧道与落地较贵的费率计费。
             </p>
           </section>
           <section className="space-y-3" {...sectionProps("defaults")}>
