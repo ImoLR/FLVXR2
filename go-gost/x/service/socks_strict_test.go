@@ -250,7 +250,7 @@ func TestSOCKSFalsePositiveCorpus(t *testing.T) {
 }
 
 func TestProtocolBlockCountersCountBlocksOnly(t *testing.T) {
-	h0, t0, s0, o0 := ProtocolBlockCounts()
+	h0, t0, s0, o0, q0 := ProtocolBlockCounts()
 	flags := protocolBlockFlags{http: 1, tls: 1, socks: 1}
 	isProtocolBlocked([]byte("GET / HTTP/1.1\r\n\r\n"), flags)
 	isProtocolBlocked([]byte{0x16, 0x03, 0x01, 0x02, 0x00}, flags)
@@ -259,9 +259,9 @@ func TestProtocolBlockCountersCountBlocksOnly(t *testing.T) {
 	isProtocolBlocked(mustHex(t, "0501000000"), flags)                   // not SOCKS, other allowed
 	isProtocolBlocked(mustHex(t, "050100"), protocolBlockFlags{http: 1}) // SOCKS allowed
 	isProtocolBlocked([]byte{0x99, 0x01}, protocolBlockFlags{blockOther: 1})
-	h1, t1, s1, o1 := ProtocolBlockCounts()
-	if h1-h0 != 1 || t1-t0 != 1 || s1-s0 != 2 || o1-o0 != 1 {
-		t.Fatalf("counters delta http=%d tls=%d socks=%d other=%d, want 1/1/2/1", h1-h0, t1-t0, s1-s0, o1-o0)
+	h1, t1, s1, o1, q1 := ProtocolBlockCounts()
+	if h1-h0 != 1 || t1-t0 != 1 || s1-s0 != 2 || o1-o0 != 1 || q1 != q0 {
+		t.Fatalf("counters delta http=%d tls=%d socks=%d other=%d quic=%d, want 1/1/2/1/0", h1-h0, t1-t0, s1-s0, o1-o0, q1-q0)
 	}
 }
 

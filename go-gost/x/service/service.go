@@ -287,6 +287,16 @@ func (s *defaultService) acquireConnection(clientIP string) (release func(), rea
 }
 
 func (s *defaultService) wrapProtocolDetection(conn net.Conn) net.Conn {
+	// Plan 283: a datagram listener's per-client session (forward _udp
+	// services) is never wrapped in the TCP first-read detector; it gets the
+	// per-datagram QUIC check when TLS is blocked, else stays as it is.
+	if us, ok := conn.(quicSession); ok {
+		flags := globalProtocolBlockFlags()
+		if s.options.protocolFilter != nil {
+			flags = *s.options.protocolFilter
+		}
+		return wrapUDPSession(us, flags)
+	}
 	if s.options.protocolFilter != nil {
 		if !s.options.protocolFilter.needsWrap() {
 			return conn
@@ -765,20 +775,24 @@ func handlerErrorClass(err error) string {
 
 // Connections closed by the protocol filter since the agent started, per kind
 // (plan 182). Atomic adds on a block only; the metric report carries them.
+// Plan 283 adds quic: UDP sessions closed because a client sent a QUIC
+// Initial into a forward whose tunnel blocks TLS.
 const (
 	blockKindHTTP = iota
 	blockKindTLS
 	blockKindSOCKS
 	blockKindOther
+	blockKindQUIC
 	blockKinds
 )
 
 var blockCounts [blockKinds]atomic.Uint64
 
 // ProtocolBlockCounts returns the blocked-connection counters since start.
-func ProtocolBlockCounts() (http, tls, socks, other uint64) {
+func ProtocolBlockCounts() (http, tls, socks, other, quic uint64) {
 	return blockCounts[blockKindHTTP].Load(), blockCounts[blockKindTLS].Load(),
-		blockCounts[blockKindSOCKS].Load(), blockCounts[blockKindOther].Load()
+		blockCounts[blockKindSOCKS].Load(), blockCounts[blockKindOther].Load(),
+		blockCounts[blockKindQUIC].Load()
 }
 
 func isProtocolBlocked(data []byte, flags protocolBlockFlags) bool {

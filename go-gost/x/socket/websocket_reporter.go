@@ -103,16 +103,21 @@ type SystemInfo struct {
 // ProtocolBlockReport (plan 182): connections the protocol filter closed since
 // the agent started, per kind. Sent in the first metric of a session and then
 // only when a counter changed (the panel keeps the latest in memory).
+//
+// Plan 283: QUIC = UDP sessions closed for a QUIC Initial (屏蔽 TLS). Always
+// sent by agents that have the check, so the panel shows the number only for
+// them (older agents leave the key out).
 type ProtocolBlockReport struct {
 	HTTP  uint64 `json:"http"`
 	TLS   uint64 `json:"tls"`
 	SOCKS uint64 `json:"socks"`
 	Other uint64 `json:"other"`
+	QUIC  uint64 `json:"quic"`
 }
 
 func (w *WebSocketReporter) protocolBlocksReport() *ProtocolBlockReport {
-	h, t, s, o := service.ProtocolBlockCounts()
-	cur := ProtocolBlockReport{HTTP: h, TLS: t, SOCKS: s, Other: o}
+	h, t, s, o, q := service.ProtocolBlockCounts()
+	cur := ProtocolBlockReport{HTTP: h, TLS: t, SOCKS: s, Other: o, QUIC: q}
 	if w.blocksSent != nil && *w.blocksSent == cur {
 		return nil
 	}

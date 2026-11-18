@@ -166,6 +166,8 @@ interface NodeProtocolBlocks {
   tls: number;
   socks: number;
   other: number;
+  // Plan 283: UDP sessions closed for QUIC (屏蔽 TLS); absent on older agents.
+  quic?: number;
 }
 
 // Plan 182: 「协议拦截」 shows only where the filter is on or has blocked
@@ -179,7 +181,7 @@ const protocolBlocksOf = (node: {
   const p = node.protocolBlocks;
 
   if (!p) return null;
-  const any = p.http + p.tls + p.socks + p.other > 0;
+  const any = p.http + p.tls + p.socks + p.other + (p.quic ?? 0) > 0;
 
   return any || node.http === 1 || node.tls === 1 || node.socks === 1
     ? p
@@ -2609,11 +2611,19 @@ export default function NodePage() {
               return (
                 <div
                   className="flex justify-between items-center gap-2 text-xs text-default-500"
-                  title="协议过滤断开的连接数，自 agent 启动起累计（面板内存，不写库，agent 重启后归零）"
+                  title={
+                    "协议过滤断开的连接数，自 agent 启动起累计（面板内存，不写库，agent 重启后归零）" +
+                    (typeof blocks.quic === "number"
+                      ? "；QUIC = 屏蔽 TLS 的转发上被拦的 UDP QUIC 会话（hy2 / TUIC / HTTP3 等）"
+                      : "")
+                  }
                 >
                   <span className="shrink-0">协议拦截</span>
                   <span className="text-right tabular-nums">
                     SOCKS {blocks.socks} · HTTP {blocks.http} · TLS {blocks.tls}
+                    {typeof blocks.quic === "number"
+                      ? ` · QUIC ${blocks.quic}`
+                      : ""}
                     {blocks.other > 0 ? ` · 其他 ${blocks.other}` : ""}
                     <span className="whitespace-nowrap text-default-400">
                       （自 agent 启动）
