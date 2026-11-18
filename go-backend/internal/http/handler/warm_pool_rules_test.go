@@ -13,7 +13,7 @@ import (
 )
 
 // Plan 249: idle sleep in the views, 「预热中 · 数据不足」 (warming), and the
-// 预热 tag per rule on the forward list (admin full, user green only).
+// 预热 tag per rule on the forward list (plan 285: users = admins).
 
 func entryKey(addr string, k ws.WarmPoolKeyReport) ws.WarmPoolKeyReport {
 	k.Kind, k.Owner, k.Addr, k.Target = "c", "chains_40", addr, true
@@ -193,25 +193,29 @@ func TestForwardWarmPoolRuleView(t *testing.T) {
 				t.Fatalf("port rule 901 view = %+v", v)
 			}
 
-			// User: only green, and only status + ms (no hops, names, targets, counts).
+			// Plan 285: a user sees exactly the admin view (every state, hops,
+			// counts) — every hop here maps to a node, so byte-identical JSON.
+			adminJSON := map[int64]string{}
+			for _, id := range []int64{unbound, bound440, bound1, port900, port901} {
+				raw, _ := json.Marshal(view(items, id))
+				adminJSON[id] = string(raw)
+			}
 			items = build()
 			e.h.attachForwardWarmPoolStates(items, entries, false)
-			for _, id := range []int64{port900} {
-				if got := view(items, id); got != nil {
-					t.Fatalf("user sees non-green tag on %d: %+v", id, got)
-				}
-			}
-			for _, id := range []int64{unbound, bound440, bound1, port901} {
-				uv, ok := view(items, id).(warmPoolUserView)
-				if !ok || uv.Status != "faster" || len(uv.Hops) != 0 {
+			for _, id := range []int64{unbound, bound440, bound1, port900, port901} {
+				uv, ok := view(items, id).(*warmPoolView)
+				if !ok || uv == nil {
 					t.Fatalf("user view of %d = %#v", id, view(items, id))
 				}
-				raw, _ := json.Marshal(uv)
-				for _, leak := range []string{"Mkcloud", "Bestvm", "198.51.100", "192.0.2", "warmN", "streams", "coldMs", "hitPct", "NodeId"} {
-					if strings.Contains(string(raw), leak) {
-						t.Fatalf("user view of %d leaks %q: %s", id, leak, raw)
-					}
+				if raw, _ := json.Marshal(uv); string(raw) != adminJSON[id] {
+					t.Fatalf("user view of %d differs from admin:\n user  %s\n admin %s", id, raw, adminJSON[id])
 				}
+			}
+			if uv, _ := view(items, port900).(*warmPoolView); uv.Status != "unsupported" || uv.Hops[0].To != "198.51.100.8:8388" {
+				t.Fatalf("user port rule 900 (unsupported, own target) = %+v", uv)
+			}
+			if uv, _ := view(items, bound1).(*warmPoolView); len(uv.Hops) != 2 || uv.Hops[1].To != "Bestvm JP B" || uv.HitPct == 0 {
+				t.Fatalf("user 沪港-bound detail = %+v", uv)
 			}
 
 			// A sleeping entry: nothing for its rules; the other entry's rules unchanged.
@@ -239,7 +243,7 @@ func TestForwardWarmPoolRuleView(t *testing.T) {
 				t.Fatal("switch off must hide only tunnel 42's tags")
 			}
 			// Entry-bound rule with < 10 warm streams on every hop of its path:
-			// admins see 数据不足, the user nothing.
+			// admins and (plan 285) the user see 数据不足 with the counts.
 			_ = e.r.SetTunnelWarmPoolTx(nil, 42, 1)
 			e.h.warm = newWarmPoolManager()
 			m = e.h.warm
@@ -255,8 +259,8 @@ func TestForwardWarmPoolRuleView(t *testing.T) {
 			}
 			items = build()
 			e.h.attachForwardWarmPoolStates(items, entries, false)
-			if got := view(items, bound440); got != nil {
-				t.Fatalf("user sees 数据不足: %+v", got)
+			if v, _ := view(items, bound440).(*warmPoolView); v == nil || v.Status != "warming" || v.Streams != 4 || v.WarmN != 3 || v.MinWarm != 10 || len(v.Hops) != 2 {
+				t.Fatalf("user 440-bound warming view = %+v", v)
 			}
 
 			// No pool reported at all: no tag, no DB query needed.
@@ -308,21 +312,86 @@ func TestForwardListCarriesWarmTag(t *testing.T) {
 		t.Fatalf("rule %d not listed", r41.ID)
 		return nil
 	}
-	// 数据不足: admins see it, the rule's owner (role 1) does not.
+	// 数据不足: admins and (plan 285) the rule's owner (role 1) see the same.
 	m.ingest(1, warmReport(ws.WarmPoolKeyReport{Kind: "s", Owner: owner, Addr: "198.51.100.8:8388", Target: true, ColdN: 3, ColdMs: 90, MissN: 1, MissMs: 30, WarmN: 4}))
 	if raw := list(0)["warmPoolState"]; !strings.Contains(string(raw), `"status":"warming"`) {
 		t.Fatalf("admin list warm tag = %s", raw)
 	}
-	if raw, ok := list(1)["warmPoolState"]; ok {
-		t.Fatalf("user list shows 数据不足: %s", raw)
+	if raw, ok := list(1)["warmPoolState"]; !ok || string(raw) != string(list(0)["warmPoolState"]) {
+		t.Fatalf("user list 数据不足 = %s, admin %s", raw, list(0)["warmPoolState"])
 	}
-	// Green: both, the user without detail.
+	// Green: both, the same detail (the hop goes to the user's own target).
 	m.ingest(1, warmReport(ws.WarmPoolKeyReport{Kind: "s", Owner: owner, Addr: "198.51.100.8:8388", Target: true, ColdN: 10, ColdMs: 300, WarmN: 20}))
-	if raw := list(0)["warmPoolState"]; !strings.Contains(string(raw), `"status":"faster"`) || !strings.Contains(string(raw), "198.51.100.8") {
-		t.Fatalf("admin list green tag = %s", raw)
+	admin := list(0)["warmPoolState"]
+	if !strings.Contains(string(admin), `"status":"faster"`) || !strings.Contains(string(admin), "198.51.100.8") {
+		t.Fatalf("admin list green tag = %s", admin)
 	}
-	raw := list(1)["warmPoolState"]
-	if !strings.Contains(string(raw), `"status":"faster"`) || strings.Contains(string(raw), "198.51.100.8") || strings.Contains(string(raw), "Mkcloud") {
-		t.Fatalf("user list green tag = %s", raw)
+	if raw := list(1)["warmPoolState"]; string(raw) != string(admin) {
+		t.Fatalf("user list green tag = %s, admin %s", raw, admin)
+	}
+}
+
+// Plan 285: a 隧道转发 hop whose next node can't be mapped (the agent reports
+// a next-hop address that matches no node of the next layer) shows that
+// address to admins only; a normal user gets 「下一跳」 — never a node IP.
+func TestUserWarmViewHidesUnmappedNodeAddress(t *testing.T) {
+	for _, dialect := range []string{"sqlite", "postgres"} {
+		t.Run(dialect, func(t *testing.T) {
+			e := warmRuleEnv(t, dialect)
+			m := e.h.warmPools()
+			// Entry 1 → middle 2 maps (port 2042); middle 2 reports a next hop
+			// that matches no exit row (stale address / port) → unmapped.
+			m.ingest(1, warmReport(ws.WarmPoolKeyReport{Kind: "c", Owner: "chains_42", Addr: "192.0.2.2:2042", Target: true, Idle: 2, ColdN: 10, ColdMs: 600, WarmN: 50}))
+			m.ingest(2, warmReport(ws.WarmPoolKeyReport{Kind: "c", Owner: "chains_42", Addr: "203.0.113.77:39999", Target: true, Idle: 2, ColdN: 10, ColdMs: 900, WarmN: 53}))
+			// Slower port rule on the same entry: red for both, own target kept.
+			m.ingest(1, warmReport(
+				ws.WarmPoolKeyReport{Kind: "c", Owner: "chains_42", Addr: "192.0.2.2:2042", Target: true},
+				ws.WarmPoolKeyReport{Kind: "s", Owner: "901_7_70_tcp", Addr: "198.51.100.9:443", Target: true, ColdN: 10, ColdMs: 100, WarmN: 20, WarmMs: 600, DeadN: 15}))
+			build := func() []map[string]interface{} {
+				return []map[string]interface{}{ruleItem(802, 42), ruleItem(901, 41)}
+			}
+			entries := map[int64][]int64{802: {1}, 901: {1}}
+			get := func(items []map[string]interface{}, id int64) *warmPoolView {
+				for _, it := range items {
+					if asInt64(it["id"], 0) == id {
+						v, _ := it["warmPoolState"].(*warmPoolView)
+						return v
+					}
+				}
+				return nil
+			}
+
+			adminItems := build()
+			e.h.attachForwardWarmPoolStates(adminItems, entries, true)
+			av := get(adminItems, 802)
+			if av == nil || len(av.Hops) != 2 || av.Hops[1].To != "203.0.113.77:39999" || av.Hops[1].ToNodeID != 0 {
+				t.Fatalf("admin view with an unmapped hop = %+v", av)
+			}
+			userItems := build()
+			e.h.attachForwardWarmPoolStates(userItems, entries, false)
+			uv := get(userItems, 802)
+			if uv == nil || uv.Status != av.Status || uv.SavedMs != av.SavedMs || len(uv.Hops) != 2 {
+				t.Fatalf("user view = %+v (admin %+v)", uv, av)
+			}
+			if uv.Hops[0].To != "Mkcloud 沪港ixp 新春版" && uv.Hops[0].To != av.Hops[0].To {
+				t.Fatalf("user mapped hop changed: %+v", uv.Hops[0])
+			}
+			if uv.Hops[1].To != warmUserUnmappedHop || uv.Hops[1].From != av.Hops[1].From {
+				t.Fatalf("user unmapped hop = %+v", uv.Hops[1])
+			}
+			raw, _ := json.Marshal(uv)
+			if strings.Contains(string(raw), "203.0.113.77") || strings.Contains(string(raw), "192.0.2.") {
+				t.Fatalf("user view leaks a node address: %s", raw)
+			}
+			// The admin view built in its own call is untouched.
+			if av.Hops[1].To != "203.0.113.77:39999" {
+				t.Fatalf("admin view mutated: %+v", av.Hops[1])
+			}
+			// Port rule: slower for both, the user's own target kept.
+			pa, pu := get(adminItems, 901), get(userItems, 901)
+			if pa == nil || pu == nil || pa.Status != "slower" || pu.Status != "slower" || pu.Reason != pa.Reason || pu.Hops[0].To != "198.51.100.9:443" {
+				t.Fatalf("slower port rule admin %+v user %+v", pa, pu)
+			}
+		})
 	}
 }

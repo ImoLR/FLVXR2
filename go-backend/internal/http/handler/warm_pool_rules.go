@@ -17,22 +17,34 @@ import (
 //     every entry of the tunnel = the tunnel's weighted value);
 //   - 端口转发 rule: its own pool (rule service × target, on its entries).
 //
-// Admins get the full view (same states as the tunnel page: faster / slower /
-// unsupported / warming, per-hop detail with node names). Users only get a
-// rule that really got faster — status + ms, no hops, node names, targets or
-// counts (the tunnel stats also hold other users' streams).
+// Everyone gets the full view of the rules they see (same states as the
+// tunnel page: faster / slower / unsupported / warming, per-hop detail with
+// node names). Plan 285 (user 2026-11-18): a normal user sees exactly what an
+// admin sees on their own rule — before, plan 249 gave users only the green
+// 「预热 −N ms」 without detail. One guard (userWarmView): a tunnel hop whose
+// next node could not be mapped never shows the node address the agent
+// reported, only 「下一跳」.
 
-// warmPoolUserView is item["warmPoolState"] for a non-admin viewer.
-type warmPoolUserView struct {
-	Status    string            `json:"status"` // always faster
-	SavedMs   float64           `json:"savedMs"`
-	Kind      string            `json:"kind"`
-	Hops      []warmPoolHopView `json:"hops"` // always empty
-	WindowMin int               `json:"windowMin"`
+// warmUserUnmappedHop: the user-view label of an unmapped tunnel next hop.
+const warmUserUnmappedHop = "下一跳"
+
+// userWarmView: the view for a non-admin viewer = the admin view (a copy),
+// except that a 隧道转发 hop without a mapped next node (To = the agent's
+// "host:port" of a node) is relabelled. 端口转发 hops go to the rule's own
+// target (the user's own data) and stay.
+func userWarmView(v *warmPoolView) *warmPoolView {
+	out := *v
+	out.Hops = make([]warmPoolHopView, len(v.Hops))
+	copy(out.Hops, v.Hops)
+	if out.Kind == "tunnel" {
+		for i := range out.Hops {
+			if out.Hops[i].ToNodeID <= 0 {
+				out.Hops[i].To = warmUserUnmappedHop
+			}
+		}
+	}
+	return &out
 }
-
-// warmUserMinSavedMs: below 1 ms a user would see 「预热 −0 ms」.
-const warmUserMinSavedMs = 1.0
 
 func (h *Handler) attachForwardWarmPoolStatesOrLog(items []map[string]interface{}, entryNodes map[int64][]int64, admin bool) {
 	defer func() {
@@ -168,15 +180,7 @@ func (h *Handler) attachForwardWarmPoolStates(items []map[string]interface{}, en
 			item["warmPoolState"] = view
 			continue
 		}
-		if view.Status == "faster" && view.SavedMs >= warmUserMinSavedMs {
-			item["warmPoolState"] = warmPoolUserView{
-				Status:    view.Status,
-				SavedMs:   view.SavedMs,
-				Kind:      view.Kind,
-				Hops:      []warmPoolHopView{},
-				WindowMin: view.WindowMin,
-			}
-		}
+		item["warmPoolState"] = userWarmView(view)
 	}
 }
 

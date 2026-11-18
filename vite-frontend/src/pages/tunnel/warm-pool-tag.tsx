@@ -21,8 +21,8 @@ import {
 // conns, the next stream wakes it). Nothing when every path sleeps; while
 // a path had streams in the last hour but < 10 warm ones → a light-grey
 // 「预热中 · 数据不足」 pill (detail: the counts so far). The rules page uses
-// the same tag (size "pick" = the rules-page 最优 line size); a normal user
-// only ever gets the green one, without the per-hop detail.
+// the same tag (size "pick" = the rules-page 最优 line size); since plan 285
+// a normal user gets the same states and per-hop detail as an admin.
 
 export interface WarmPoolHop {
   from: string;
@@ -45,7 +45,7 @@ export interface WarmPoolState {
   status: "faster" | "slower" | "unsupported" | "warming";
   savedMs: number;
   reason?: string;
-  // Absent in a normal user's rule view (plan 249: status + ms only).
+  // Absent only from pre-plan-285 user views (plan 249: status + ms only).
   hitPct?: number;
   coldMs?: number;
   extraMs?: number;
@@ -180,7 +180,7 @@ export function WarmPoolTag({
       />
     );
   const windowText = `近 ${state.windowMin >= 60 ? `${Math.round(state.windowMin / 60)} 小时` : `${state.windowMin} 分钟`}`;
-  // A normal user's rule view carries status + ms only (plan 249).
+  // Pre-plan-285 panels sent users status + ms only; kept as a fallback.
   const detailed = typeof state.hitPct === "number";
 
   return (
