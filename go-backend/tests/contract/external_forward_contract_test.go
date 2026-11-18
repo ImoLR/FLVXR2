@@ -3,11 +3,11 @@ package contract_test
 import (
 	"context"
 	"database/sql"
-	"errors"
-	"net/netip"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"net/http/httptest"
+	"net/netip"
 	"strings"
 	"testing"
 	"time"

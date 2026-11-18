@@ -279,6 +279,9 @@ type SubPanelData struct {
 	Links []SubPanelLink
 	// PortForwards: the user's plain port-forward rules (no proxy link).
 	PortForwards int
+	// ExternalNodes (plan 284): all of the user's 外部节点 (loaded anyway for
+	// the port forwards to them), reused by the 外部节点 items of the render.
+	ExternalNodes []model.LandingExternalNode
 }
 
 // SubPanelLinks loads the user's panel links: every rule with an own
@@ -330,6 +333,7 @@ func (r *Repository) SubPanelLinks(userID int64, forwardIDs, landingIDs []int64,
 	if err := r.db.Where("user_id = ?", userID).Order("id ASC").Find(&extNodes).Error; err != nil {
 		return nil, err
 	}
+	out.ExternalNodes = extNodes
 	extCount := len(extNodes)
 	var forwards []model.Forward
 	fq := r.db.Where("user_id = ? AND (landing_node_id > 0 OR id IN ?)", userID, chainForwardIDs)

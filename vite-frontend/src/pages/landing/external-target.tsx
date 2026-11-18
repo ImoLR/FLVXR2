@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import toast from "react-hot-toast";
 
 import {
@@ -73,6 +73,10 @@ export function ExternalTargetPicker({
   const [cap, setCap] = useState(20);
   const [loading, setLoading] = useState(false);
   const [adding, setAdding] = useState(false);
+  // The callback may be a new function every render: keep it out of load's deps.
+  const listLoaded = useRef(onListLoaded);
+
+  listLoaded.current = onListLoaded;
 
   const reasonOf = useCallback(
     (node: ExternalNode) =>
@@ -99,10 +103,10 @@ export function ExternalTargetPicker({
     }
     setItems(res.data.items || []);
     setCap(res.data.cap);
-    onListLoaded?.(res.data.count, res.data.cap);
+    listLoaded.current?.(res.data.count, res.data.cap);
 
     return res.data.items || [];
-  }, [userId, onListLoaded]);
+  }, [userId]);
 
   useEffect(() => {
     void load();
@@ -131,6 +135,7 @@ export function ExternalTargetPicker({
           .map((node) => String(node.id))}
         isDisabled={loading}
         label="我的外部节点"
+        listboxVariant="grouped"
         placeholder={
           loading
             ? "正在加载…"

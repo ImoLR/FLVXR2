@@ -315,7 +315,7 @@ export function RuleLandingTarget({
           onListLoaded={(count, cap) => setExternalFull(cap > 0 && count >= cap)}
         />
       )}
-      {mode === "chain" && chainSummary && !value.chainExternalId && (
+      {mode === "chain" && chainSummary && !value.chainExternalId && !externalFull && (
         <p className="text-xs text-default-500" data-chain-current>
           当前节点：{chainSummary}（不选就保持当前节点，转发链接不变）
         </p>

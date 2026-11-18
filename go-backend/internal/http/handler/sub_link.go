@@ -253,12 +253,24 @@ func (h *Handler) subLoad(ctx context.Context, userID int64, refs []sublink.Ref,
 		if !all {
 			ids = ext
 		}
-		rows, err := h.repo.ExternalNodesByIDs(userID, ids)
-		if err != nil {
-			return nil, err
-		}
-		for _, e := range rows {
-			d.externals[e.ID] = e
+		if d.panel != nil { // plan 284: SubPanelLinks already loaded them all
+			want := map[int64]bool{}
+			for _, id := range ids {
+				want[id] = true
+			}
+			for _, e := range d.panel.ExternalNodes {
+				if ids == nil || want[e.ID] {
+					d.externals[e.ID] = e
+				}
+			}
+		} else {
+			rows, err := h.repo.ExternalNodesByIDs(userID, ids)
+			if err != nil {
+				return nil, err
+			}
+			for _, e := range rows {
+				d.externals[e.ID] = e
+			}
 		}
 	}
 	if all || len(src) > 0 {
