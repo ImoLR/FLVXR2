@@ -9,8 +9,9 @@ import (
 	"gorm.io/gorm/clause"
 )
 
-// RuleLimitUnlimited reports whether a user's rule allowance (user.num, 规则数)
-// means "no limit": 0/negative or the UI's 99999 sentinel.
+// RuleLimitUnlimited reports whether a user's allowance (user.num 总转发数 or
+// user.leikwan_num 利群转发数) means "no limit": 0/negative or the UI's 99999
+// sentinel.
 func RuleLimitUnlimited(num int) bool { return num <= 0 || num >= 99999 }
 
 // RuleLimitError refuses a create that would push the owner past user.num.
@@ -19,7 +20,15 @@ func RuleLimitUnlimited(num int) bool { return num <= 0 || num >= 99999 }
 type RuleLimitError struct{ Limit int }
 
 func (e *RuleLimitError) Error() string {
-	return fmt.Sprintf("已达到规则数上限（%d 条），请删除不用的规则后再新建", e.Limit)
+	return fmt.Sprintf("已达到转发数上限（%d 条），请删除不用的转发后再添加", e.Limit)
+}
+
+// LeiKwanRuleLimitError (plan 280) refuses a new 利群 forward past
+// user.leikwan_num (利群转发数). Existing rows above the limit stay.
+type LeiKwanRuleLimitError struct{ Limit int }
+
+func (e *LeiKwanRuleLimitError) Error() string {
+	return fmt.Sprintf("已达到利群转发数上限（%d 条），请删除不用的利群转发后再添加", e.Limit)
 }
 
 // IsRuleLimitError reports whether err is a RuleLimitError.
@@ -28,33 +37,33 @@ func IsRuleLimitError(err error) bool {
 	return errors.As(err, &target)
 }
 
-// countUserRules counts every rule of the user (any status, chain rules
-// included) plus 「我自己的节点」 creates that have no rule row yet, plus the
-// user's 利群 rules (plan 268: they count toward 总规则数 like normal rules;
-// their automatic 备线 forwards belong to the admin and are not counted).
+// countUserRules counts every forward of the user (any status, chain rules
+// included) plus 「我自己的节点」 creates that have no rule row yet. Plan 280:
+// the user's 利群 rules no longer count here (they have their own
+// 利群转发数, user.leikwan_num); their automatic 备线 forwards belong to the
+// admin and were never counted.
 func countUserRules(db *gorm.DB, userID int64) (int64, error) {
-	var rules, pending, leikwan int64
+	var rules, pending int64
 	if err := db.Model(&model.Forward{}).Where("user_id = ?", userID).Count(&rules).Error; err != nil {
 		return 0, err
 	}
 	if err := db.Model(&model.ForwardChain{}).Where("user_id = ? AND state = ? AND op = ? AND forward_id = 0", userID, model.ChainStateCreating, "create").Count(&pending).Error; err != nil {
 		return 0, err
 	}
-	if err := db.Model(&model.LeiKwanRule{}).Where("user_id = ?", userID).Count(&leikwan).Error; err != nil {
-		return 0, err
-	}
-	return rules + pending + leikwan, nil
+	return rules + pending, nil
 }
 
-// CheckLeiKwanRuleLimit is the 总规则数 check of a new 利群 rule: user status
-// and expiry first (a 利群 rule follows the user's 到期, plan 268), then the
-// same allowance as normal rules (the 利群 rules themselves included).
+// CheckLeiKwanRuleLimit is the check of a new 利群 forward: user status and
+// expiry first (a 利群 rule follows the user's 到期, plan 268), then the
+// user's 利群转发数 (user.leikwan_num, plan 280) against the 利群 rules only.
+// Callers hold leiKwanRuleMu, which serialises every 利群 create, so two
+// concurrent creates of one user cannot overshoot the limit.
 func (r *Repository) CheckLeiKwanRuleLimit(userID int64, nowMs int64, enforceNum bool) error {
 	if r == nil || r.db == nil {
 		return errors.New("repository not initialized")
 	}
 	var u model.User
-	if err := r.db.Select("id", "num", "status", "exp_time").First(&u, userID).Error; err != nil {
+	if err := r.db.Select("id", "leikwan_num", "status", "exp_time").First(&u, userID).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return errors.New("用户不存在")
 		}
@@ -64,12 +73,45 @@ func (r *Repository) CheckLeiKwanRuleLimit(userID int64, nowMs int64, enforceNum
 		return errors.New("账号已禁用")
 	}
 	if u.ExpTime > 0 && u.ExpTime <= nowMs {
-		return errors.New("账号已到期，不能新建利群规则")
+		return errors.New("账号已到期，不能添加利群转发")
 	}
-	if !enforceNum {
+	if !enforceNum || RuleLimitUnlimited(u.LeiKwanNum) {
 		return nil
 	}
-	return ruleLimitCheck(r.db, userID, u.Num, 1)
+	var n int64
+	if err := r.db.Model(&model.LeiKwanRule{}).Where("user_id = ?", userID).Count(&n).Error; err != nil {
+		return err
+	}
+	if n+1 > int64(u.LeiKwanNum) {
+		return &LeiKwanRuleLimitError{Limit: u.LeiKwanNum}
+	}
+	return nil
+}
+
+// UserLeiKwanRuleLimit (plan 280): the user's 利群转发数 and how many 利群
+// forwards they have (the 利群汇聚 user page shows 已用 x / N).
+func (r *Repository) UserLeiKwanRuleLimit(userID int64) (limit int, used int64, err error) {
+	if r == nil || r.db == nil {
+		return 0, 0, errors.New("repository not initialized")
+	}
+	var u model.User
+	if err := r.db.Select("id", "leikwan_num").First(&u, userID).Error; err != nil {
+		return 0, 0, err
+	}
+	if err := r.db.Model(&model.LeiKwanRule{}).Where("user_id = ?", userID).Count(&used).Error; err != nil {
+		return 0, 0, err
+	}
+	return u.LeiKwanNum, used, nil
+}
+
+// SetUserLeiKwanNum (plan 280) stores the user's 利群转发数. A separate
+// update (not part of CreateUser) because the column's DEFAULT 3 would
+// otherwise swallow an explicit 0 (= 不限) on insert.
+func (r *Repository) SetUserLeiKwanNum(userID int64, n int) error {
+	if r == nil || r.db == nil {
+		return errors.New("repository not initialized")
+	}
+	return r.db.Model(&model.User{}).Where("id = ?", userID).Update("leikwan_num", n).Error
 }
 
 func ruleLimitCheck(db *gorm.DB, userID int64, num int, adding int64) error {

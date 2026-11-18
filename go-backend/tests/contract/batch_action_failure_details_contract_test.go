@@ -69,7 +69,7 @@ func TestForwardBatchChangeTunnelReturnsFailureReasonsContract(t *testing.T) {
 	payload := `{"forwardIds":[` + jsonNumber(forwardID) + `],"targetTunnelId":` + jsonNumber(tunnelID) + `}`
 	out := postBatchRequest(t, router, adminToken, "/api/v1/forward/batch-change-tunnel", payload)
 	result := mustBatchResult(t, out)
-	assertBatchFailureNameAndReason(t, result, "change-detail-forward", "规则已在目标隧道中")
+	assertBatchFailureNameAndReason(t, result, "change-detail-forward", "转发已在目标隧道中")
 }
 
 func TestTunnelBatchDeleteReturnsFailureReasonsContract(t *testing.T) {

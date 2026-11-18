@@ -33,7 +33,7 @@ func (h *Handler) forwardBatchResetTraffic(w http.ResponseWriter, r *http.Reques
 	}
 
 	if len(req.ForwardIDs) == 0 {
-		response.WriteJSON(w, response.Err(-1, "请选择至少一个规则"))
+		response.WriteJSON(w, response.Err(-1, "请至少选择一条转发"))
 		return
 	}
 
@@ -55,7 +55,7 @@ func (h *Handler) forwardBatchResetTraffic(w http.ResponseWriter, r *http.Reques
 
 		forward, accessErr := h.ensureForwardAccessByActor(actorUserID, actorRole, forwardID)
 		if accessErr != nil {
-			result.Error = "规则不存在或无权访问"
+			result.Error = "转发不存在或无权访问"
 			results = append(results, result)
 			continue
 		}
@@ -63,7 +63,7 @@ func (h *Handler) forwardBatchResetTraffic(w http.ResponseWriter, r *http.Reques
 			// The admin's per-rule traffic limit is measured on these
 			// counters; a user reset would lift it.
 			result.ForwardName = forward.Name
-			result.Error = "该规则设有管理员流量上限，只有管理员可以归零"
+			result.Error = "该转发设有管理员流量上限，只有管理员可以归零"
 			results = append(results, result)
 			continue
 		}
@@ -120,7 +120,7 @@ func (h *Handler) forwardTrafficResetLogs(w http.ResponseWriter, r *http.Request
 	}
 
 	if req.ForwardID <= 0 {
-		response.WriteJSON(w, response.Err(-1, "规则 ID 无效"))
+		response.WriteJSON(w, response.Err(-1, "转发 ID 无效"))
 		return
 	}
 
@@ -132,7 +132,7 @@ func (h *Handler) forwardTrafficResetLogs(w http.ResponseWriter, r *http.Request
 
 	forward, accessErr := h.ensureForwardAccessByActor(actorUserID, actorRole, req.ForwardID)
 	if accessErr != nil {
-		response.WriteJSON(w, response.Err(403, "无权访问该规则"))
+		response.WriteJSON(w, response.Err(403, "无权访问该转发"))
 		return
 	}
 

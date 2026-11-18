@@ -292,7 +292,7 @@ func (h *Handler) nftFamilyBlockReason(tunnelID int64, nodeIDs []int64, remoteAd
 	rules, entries := h.nftRulePayloads(&forwardRecord{TunnelID: tunnelID, RemoteAddr: remoteAddr, Mode: "nftables"}, tunnel, probe, chainNodes, 0)
 	for _, i := range nftFamilyIssues(rules, entries) {
 		if i.allDead {
-			return i.reason() + "；" + nftNoFamilyChange + "，请单独编辑这条规则（保存时会自动改用 gost）"
+			return i.reason() + "；" + nftNoFamilyChange + "，请单独编辑这条转发（保存时会自动改用 gost）"
 		}
 	}
 	return ""

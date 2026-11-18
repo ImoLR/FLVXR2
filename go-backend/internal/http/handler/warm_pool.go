@@ -883,7 +883,7 @@ func (h *Handler) forwardWarmView(tunnelID int64, keys []warmKeyStat, nodeName f
 			continue
 		}
 		if name == "" {
-			name = fmt.Sprintf("规则 %d", fid)
+			name = fmt.Sprintf("转发 %d", fid)
 		}
 		hv := hopFromKey(&k)
 		hv.FromNodeID = k.key.NodeID

@@ -1724,7 +1724,7 @@ func (h *Handler) leiKwanRetargetForward(forwardID int64, target string) error {
 	}
 	b, ok := views[forwardID]
 	if !ok {
-		return errors.New("备线规则不存在")
+		return errors.New("备线转发不存在")
 	}
 	admin := h.repo.FirstAdminUserID()
 	code, msg, _ := h.leikwanAdminCall(h.forwardUpdate, admin, map[string]interface{}{
@@ -1749,7 +1749,7 @@ func (h *Handler) leikwanRulePrepareLanding(w http.ResponseWriter, r *http.Reque
 	}
 	x, err := h.repo.GetLeiKwanRule(req.ID)
 	if err != nil || x == nil {
-		leiKwanError(w, errors.New("利群规则不存在"))
+		leiKwanError(w, errors.New("利群转发不存在"))
 		return
 	}
 	if req.LandingNodeID > 0 {
@@ -1759,11 +1759,11 @@ func (h *Handler) leikwanRulePrepareLanding(w http.ResponseWriter, r *http.Reque
 			return
 		}
 		if n.UserID != x.UserID {
-			leiKwanError(w, errors.New("落地节点不属于规则的用户"))
+			leiKwanError(w, errors.New("落地节点不属于这条转发的用户"))
 			return
 		}
 		if n.ID == x.LandingNodeID {
-			leiKwanError(w, errors.New("规则已经在这个落地上"))
+			leiKwanError(w, errors.New("转发已经在这个落地上"))
 			return
 		}
 	}

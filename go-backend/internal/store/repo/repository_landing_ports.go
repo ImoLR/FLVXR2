@@ -214,7 +214,7 @@ func landingPortHolders(tx *gorm.DB, nodeID int64, lo, hi int) (map[int][]string
 	for _, q := range []struct {
 		table, port, sel, join, where, kind string
 	}{
-		{"forward_port", "forward_port.port", "forward_port.port AS port, forward.name AS name, forward_port.forward_id AS id", "LEFT JOIN forward ON forward.id = forward_port.forward_id", "forward_port.node_id = ?", "规则"},
+		{"forward_port", "forward_port.port", "forward_port.port AS port, forward.name AS name, forward_port.forward_id AS id", "LEFT JOIN forward ON forward.id = forward_port.forward_id", "forward_port.node_id = ?", "转发"},
 		{"chain_tunnel", "chain_tunnel.port", "chain_tunnel.port AS port, tunnel.name AS name, chain_tunnel.tunnel_id AS id", "LEFT JOIN tunnel ON tunnel.id = chain_tunnel.tunnel_id", "chain_tunnel.node_id = ? AND chain_tunnel.port IS NOT NULL", "隧道"},
 		{"node_deployed_inbound", "listen_port", "listen_port AS port, display_name AS name, id", "", "node_id = ?", "入站"},
 		{"node_runtime_resource", "port", "port, resource_key AS name, id", "", "node_id = ? AND status <> 'released' AND port > 0", "运行资源"},

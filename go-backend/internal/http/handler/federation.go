@@ -918,7 +918,7 @@ func (h *Handler) deleteRemoteNodeWithPreview(preview *remoteNodeDeletePreview) 
 			continue
 		}
 		if err := h.deleteForwardRuntimeAndRecord(item.ID); err != nil {
-			warnings = append(warnings, fmt.Sprintf("规则 %s(%d) 清理运行态失败: %v", item.Name, item.ID, err))
+			warnings = append(warnings, fmt.Sprintf("转发 %s(%d) 清理运行态失败: %v", item.Name, item.ID, err))
 			if dbErr := h.deleteForwardByID(item.ID); dbErr != nil {
 				return result, dbErr
 			}

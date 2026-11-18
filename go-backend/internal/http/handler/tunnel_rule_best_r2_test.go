@@ -293,7 +293,7 @@ func TestRuleBestAutoOffRuntime(t *testing.T) {
 			notices[asInt64(item["id"], 0)] = asString(off["text"])
 		}
 	}
-	if len(notices) != 2 || asInt64(count, -1) != 2 || !strings.Contains(notices[32], "规则「rule-b.example:443」的落地 b.example:443 从所有出口都连不上（已重试 1/3/10/60 分钟），已自动关闭规则最优，请检查出口或落地") {
+	if len(notices) != 2 || asInt64(count, -1) != 2 || !strings.Contains(notices[32], "转发「rule-b.example:443」的落地 b.example:443 从所有出口都连不上（已重试 1/3/10/60 分钟），已自动关闭转发最优，请检查出口或落地") {
 		t.Fatalf("admin notices %v count %v", notices, count)
 	}
 	userItems, userCount := rbListForwards(t, e, false)

@@ -1810,6 +1810,7 @@ func (h *Handler) userPackage(w http.ResponseWriter, r *http.Request) {
 			"inFlow":                  user.InFlow,
 			"outFlow":                 user.OutFlow,
 			"num":                     user.Num,
+			"leikwanNum":              user.LeiKwanNum,
 			"leikwanRuleCount":        h.leiKwanUserRuleCount(user.ID),
 			"expTime":                 user.ExpTime,
 			"flowResetTime":           user.FlowResetTime,

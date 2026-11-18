@@ -201,7 +201,7 @@ func (c *captureWriter) envelope() (int, string, json.RawMessage) {
 		Data json.RawMessage `json:"data"`
 	}
 	if err := json.Unmarshal(c.body.Bytes(), &env); err != nil {
-		return -2, "规则保存结果无法解析", nil
+		return -2, "转发保存结果无法解析", nil
 	}
 	return env.Code, env.Msg, env.Data
 }
@@ -447,7 +447,7 @@ func (h *Handler) forwardCreateChain(w http.ResponseWriter, r *http.Request, req
 	}
 	name := strings.TrimSpace(asString(req["name"]))
 	if name == "" {
-		fail("请填写规则名称")
+		fail("请填写转发名称")
 		return
 	}
 	// Plan 250: the exit inbound the user's client speaks (Reality default).
@@ -749,7 +749,7 @@ func (h *Handler) chainCopiesApplied(chainID, serverID int64, snapshot *landingS
 func (h *Handler) chainCreateSteps(op chainOp) error {
 	chain, err := h.repo.GetForwardChain(op.chainID)
 	if err != nil || chain == nil {
-		return errors.New("链式规则已被删除")
+		return errors.New("链式转发已被删除")
 	}
 	servers, err := h.repo.ChainServerIDs([]int64{op.chainID})
 	if err != nil {
@@ -759,7 +759,7 @@ func (h *Handler) chainCreateSteps(op chainOp) error {
 	if err := h.waitChainServers(op, servers); err != nil {
 		return err
 	}
-	_ = h.repo.SetForwardChainProgress(op.chainID, "正在部署规则…")
+	_ = h.repo.SetForwardChainProgress(op.chainID, "正在部署转发…")
 	target := chainTarget(chain.Port)
 	body := cloneReq(op.req)
 	body["remoteAddr"] = target
@@ -776,7 +776,7 @@ func (h *Handler) chainCreateSteps(op chainOp) error {
 	code, msg, data := cw.envelope()
 	if code != 0 {
 		if msg == "" {
-			msg = "规则保存失败"
+			msg = "转发保存失败"
 		}
 		return errors.New(msg)
 	}
@@ -790,7 +790,7 @@ func (h *Handler) chainCreateSteps(op chainOp) error {
 			forwardID, _ = h.repo.FindChainTargetForward(op.ownerID, chain.TunnelID, target)
 		}
 		if forwardID <= 0 {
-			return errors.New("规则已创建但未找到，请刷新后检查")
+			return errors.New("转发已创建但未找到，请刷新后检查")
 		}
 	}
 	if err := h.repo.ActivateForwardChain(op.chainID, forwardID); err != nil {
@@ -818,7 +818,7 @@ func (h *Handler) deleteChainForwardBestEffort(forwardID int64) {
 func (h *Handler) chainChangeSteps(op chainOp) error {
 	chain, err := h.repo.GetForwardChain(op.chainID)
 	if err != nil || chain == nil {
-		return errors.New("链式规则已被删除")
+		return errors.New("链式转发已被删除")
 	}
 	var wait []int64
 	if op.plan != nil {
@@ -838,7 +838,7 @@ func (h *Handler) chainChangeSteps(op chainOp) error {
 	if err := h.waitChainServers(op, wait); err != nil {
 		return err
 	}
-	_ = h.repo.SetForwardChainProgress(op.chainID, "正在更新规则…")
+	_ = h.repo.SetForwardChainProgress(op.chainID, "正在更新转发…")
 	port := chain.Port
 	if op.plan != nil {
 		port = op.plan.NewPort
@@ -858,7 +858,7 @@ func (h *Handler) chainChangeSteps(op chainOp) error {
 		h.forwardUpdateWithReq(cw, replayRequest(op.claims, "/api/v1/forward/update", target), body)
 		if code, msg, _ := cw.envelope(); code != 0 {
 			if msg == "" {
-				msg = "规则保存失败"
+				msg = "转发保存失败"
 			}
 			return errors.New(msg)
 		}
@@ -933,10 +933,10 @@ func (h *Handler) forwardUpdateChainHook(w http.ResponseWriter, r *http.Request,
 		return false
 	}
 	if chain != nil && chain.OpStartedAt > 0 {
-		return fail("该规则正在处理中，请稍候再试")
+		return fail("该转发正在处理中，请稍候再试")
 	}
 	if chain != nil && chain.State != model.ChainStateActive {
-		return fail("该规则的「我自己的节点」正在处理中，请稍候再试")
+		return fail("该转发的「我自己的节点」正在处理中，请稍候再试")
 	}
 	claims, ok := chainActorClaims(r)
 	if !ok {
@@ -1166,7 +1166,7 @@ func (h *Handler) startChainMove(c model.ForwardChain, info *repo.TunnelLineInfo
 		if c.LastError != msg {
 			_ = h.repo.SetForwardChainError(c.ID, msg)
 		}
-		return "「我自己的节点」规则无法迁移到新的出口：" + reason
+		return "「我自己的节点」转发无法迁移到新的出口：" + reason
 	}
 	if _, err := h.repo.StartChainOp(c.ID, "move"); err != nil {
 		return ""
@@ -1175,7 +1175,7 @@ func (h *Handler) startChainMove(c model.ForwardChain, info *repo.TunnelLineInfo
 	plan, err := h.repo.PrepareChainRetarget(c.ID, exitNodeIDs(info))
 	if err != nil {
 		_ = h.repo.FinishChainOp(c.ID, "隧道出口已变化，「我自己的节点」无法迁移："+err.Error())
-		return "「我自己的节点」规则无法迁移到新的出口：" + err.Error()
+		return "「我自己的节点」转发无法迁移到新的出口：" + err.Error()
 	}
 	op.plan = plan
 	if !h.chains.startDriver(c.ID) {
@@ -1183,7 +1183,7 @@ func (h *Handler) startChainMove(c model.ForwardChain, info *repo.TunnelLineInfo
 		return ""
 	}
 	go h.runChainOp(op)
-	return "「我自己的节点」规则正在迁移到新的出口"
+	return "「我自己的节点」转发正在迁移到新的出口"
 }
 
 // runChainReconcileLoop: startup + every 2 minutes, one batched pass.
@@ -1309,7 +1309,7 @@ func (h *Handler) chainTunnelEditGuard(tunnelID int64, req map[string]interface{
 		return nil
 	}
 	if asInt(req["type"], 1) != 2 || len(asMapSlice(req["outNodeId"])) == 0 {
-		return fmt.Errorf("该隧道上有 %d 条「我自己的节点」规则，隧道必须保留出口节点；请先删除这些规则或把它们换到其他隧道", n)
+		return fmt.Errorf("该隧道上有 %d 条「我自己的节点」转发，隧道必须保留出口节点；请先删除这些转发或把它们换到其他隧道", n)
 	}
 	return nil
 }
@@ -1385,7 +1385,7 @@ func (h *Handler) forwardChainStatus(w http.ResponseWriter, r *http.Request) {
 		chain, err = h.repo.GetForwardChainByForward(req.ForwardID)
 	}
 	if err != nil || chain == nil || !h.ownedChain(r, chain) {
-		response.WriteJSON(w, response.ErrDefault("「我自己的节点」规则不存在"))
+		response.WriteJSON(w, response.ErrDefault("「我自己的节点」转发不存在"))
 		return
 	}
 	response.WriteJSON(w, response.OK(chainStatusView(chain)))
@@ -1404,12 +1404,12 @@ func (h *Handler) forwardChainLinks(w http.ResponseWriter, r *http.Request) {
 	}
 	chain, err := h.repo.GetForwardChainByForward(req.ForwardID)
 	if err != nil || chain == nil || !h.ownedChain(r, chain) || chain.State != model.ChainStateActive {
-		response.WriteJSON(w, response.ErrDefault("「我自己的节点」规则不存在"))
+		response.WriteJSON(w, response.ErrDefault("「我自己的节点」转发不存在"))
 		return
 	}
 	f, err := h.getForwardRecord(req.ForwardID)
 	if err != nil || f == nil {
-		response.WriteJSON(w, response.ErrDefault("规则不存在"))
+		response.WriteJSON(w, response.ErrDefault("转发不存在"))
 		return
 	}
 	entries, err := h.repo.ForwardEntryAddresses(req.ForwardID)
@@ -1565,7 +1565,7 @@ func (h *Handler) chainDeleteGuard(forwardID int64) error {
 		return nil
 	}
 	if c, err := h.repo.GetForwardChainByForward(forwardID); err == nil && c != nil && c.OpStartedAt > 0 {
-		return errors.New("该规则的「我自己的节点」正在处理中，请稍候再删除")
+		return errors.New("该转发的「我自己的节点」正在处理中，请稍候再删除")
 	}
 	return nil
 }

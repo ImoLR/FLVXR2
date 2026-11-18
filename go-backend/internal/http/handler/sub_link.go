@@ -681,7 +681,7 @@ func (h *Handler) subPool(w http.ResponseWriter, r *http.Request) {
 				v["missing"] = true
 			}
 		case sublink.RefLeiKwanAll:
-			v["group"], v["name"] = "leikwan_all", "全部利群规则（自动跟随）"
+			v["group"], v["name"] = "leikwan_all", "全部利群转发（自动跟随）"
 			if d.leikwan == nil || !d.leikwan.granted {
 				v["missing"] = true
 			} else {

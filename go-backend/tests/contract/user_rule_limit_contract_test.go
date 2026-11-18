@@ -107,7 +107,7 @@ func (e *ruleLimitEnv) create(t *testing.T, token, name string, extra map[string
 	return e.call(t, token, "/api/v1/forward/create", body)
 }
 
-const ruleLimitMsg2 = "已达到规则数上限（2 条），请删除不用的规则后再新建"
+const ruleLimitMsg2 = "已达到转发数上限（2 条），请删除不用的转发后再添加"
 
 func TestUserRuleLimitRefusesNewRulesKeepsExisting(t *testing.T) {
 	e := newRuleLimitEnv(t, "sqlite")
@@ -209,7 +209,7 @@ func TestUserRuleLimitConcurrentCreates(t *testing.T) {
 					switch {
 					case out.Code == 0:
 						ok++
-					case strings.Contains(out.Msg, "规则数上限") || out.Msg == "操作太频繁，请稍后再试":
+					case strings.Contains(out.Msg, "转发数上限") || out.Msg == "操作太频繁，请稍后再试":
 					default:
 						t.Fatalf("unexpected refusal: %+v", out)
 					}
@@ -289,5 +289,65 @@ func TestMutationRateLimitRapidFire(t *testing.T) {
 	}
 	if out := e.call(t, tok2, "/api/v1/forward/batch-pause", map[string]interface{}{"ids": ids}); out.Code != 429 {
 		t.Fatalf("31st batch call in a burst admitted: %+v", out)
+	}
+}
+
+// Plan 280: 利群转发数 (leikwanNum) on the admin user API — create default 3,
+// explicit 0 kept (不限), update absent = unchanged, list returns it.
+func TestUserLeiKwanNumAPIContract(t *testing.T) {
+	for _, dialect := range []string{"sqlite", "postgres"} {
+		t.Run(dialect, func(t *testing.T) {
+			e := newRuleLimitEnv(t, dialect)
+			exp := time.Now().Add(30 * 24 * time.Hour).UnixMilli()
+			base := func(name string) map[string]interface{} {
+				return map[string]interface{}{"user": name, "pwd": "pw-123456", "flow": 100, "num": 10, "expTime": exp, "flowResetTime": 1, "status": 1}
+			}
+			if out := e.call(t, e.admin, "/api/v1/user/create", base("lk_default")); out.Code != 0 {
+				t.Fatalf("create default: %+v", out)
+			}
+			zero := base("lk_zero")
+			zero["leikwanNum"] = 0
+			if out := e.call(t, e.admin, "/api/v1/user/create", zero); out.Code != 0 {
+				t.Fatalf("create 0: %+v", out)
+			}
+			list := func() map[string]map[string]interface{} {
+				t.Helper()
+				out := e.call(t, e.admin, "/api/v1/user/list", map[string]interface{}{})
+				if out.Code != 0 {
+					t.Fatalf("list: %+v", out)
+				}
+				got := map[string]map[string]interface{}{}
+				for _, it := range out.Data.([]interface{}) {
+					m := it.(map[string]interface{})
+					got[m["user"].(string)] = m
+				}
+				return got
+			}
+			users := list()
+			if n, ok := users["lk_default"]["leikwanNum"].(float64); !ok || n != 3 {
+				t.Fatalf("default leikwanNum: %v", users["lk_default"])
+			}
+			if n, ok := users["lk_zero"]["leikwanNum"].(float64); !ok || n != 0 {
+				t.Fatalf("explicit 0 swallowed: %v", users["lk_zero"])
+			}
+			id := int64(users["lk_default"]["id"].(float64))
+			upd := base("lk_default")
+			delete(upd, "pwd")
+			upd["id"] = id
+			upd["leikwanNum"] = 5
+			if out := e.call(t, e.admin, "/api/v1/user/update", upd); out.Code != 0 {
+				t.Fatalf("update 5: %+v", out)
+			}
+			if n := list()["lk_default"]["leikwanNum"].(float64); n != 5 {
+				t.Fatalf("update to 5: %v", n)
+			}
+			delete(upd, "leikwanNum")
+			if out := e.call(t, e.admin, "/api/v1/user/update", upd); out.Code != 0 {
+				t.Fatalf("update without leikwanNum: %+v", out)
+			}
+			if n := list()["lk_default"]["leikwanNum"].(float64); n != 5 {
+				t.Fatalf("absent leikwanNum changed it: %v", n)
+			}
+		})
 	}
 }

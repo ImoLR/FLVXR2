@@ -142,10 +142,10 @@ func (h *Handler) planTunnelSplit(req tunnelSplitRequest) (*tunnelSplitPlan, err
 		problems = append(problems, "隧道只有一个入口，不需要拆分")
 	}
 	if s.ForwardsOnNode > 0 {
-		problems = append(problems, fmt.Sprintf("有 %d 条规则在该入口上监听（规则不会被迁移）", s.ForwardsOnNode))
+		problems = append(problems, fmt.Sprintf("有 %d 条转发在该入口上监听（转发不会被迁移）", s.ForwardsOnNode))
 	}
 	if s.BoundToNode > 0 {
-		problems = append(problems, fmt.Sprintf("有 %d 条规则绑定了该入口", s.BoundToNode))
+		problems = append(problems, fmt.Sprintf("有 %d 条转发绑定了该入口", s.BoundToNode))
 	}
 	if s.HasLeiKwanPipe {
 		problems = append(problems, "利群管道隧道不支持拆分")
@@ -590,7 +590,7 @@ func (h *Handler) planTunnelMerge(req tunnelMergeRequest) (*tunnelMergePlan, err
 		problems = append(problems, "两个隧道的中转/出口不一致")
 	}
 	if twin.Forwards > 0 {
-		problems = append(problems, fmt.Sprintf("拆分出的隧道上有 %d 条规则，请先删除或迁移", twin.Forwards))
+		problems = append(problems, fmt.Sprintf("拆分出的隧道上有 %d 条转发，请先删除或迁移", twin.Forwards))
 	}
 	if orig.HasLeiKwanPipe || twin.HasLeiKwanPipe || orig.Federation > 0 || twin.Federation > 0 {
 		problems = append(problems, "利群管道 / 联邦隧道不支持合并")

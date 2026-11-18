@@ -357,7 +357,7 @@ func (h *Handler) leikwanTakeover(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if x, _ := h.repo.GetLeiKwanRuleByForward(req.ForwardID); x != nil {
-		leiKwanError(w, fmt.Errorf("该转发已登记为利群规则「%s」，不能再接管为管道", x.Name))
+		leiKwanError(w, fmt.Errorf("该转发已登记为利群转发「%s」，不能再接管为管道", x.Name))
 		return
 	}
 	unlock := h.lockLeiKwanPipe(req.ForwardID)

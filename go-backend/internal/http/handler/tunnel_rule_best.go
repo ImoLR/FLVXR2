@@ -1168,7 +1168,7 @@ func (h *Handler) applyRuleBestOffs(offs []ruleBestOffEvent, now time.Time) {
 
 // ruleBestOffNotice is the admin notice text of an auto-off rule.
 func ruleBestOffNotice(name, target string) string {
-	return fmt.Sprintf("规则「%s」的落地 %s 从所有出口都连不上（已重试 1/3/10/60 分钟），已自动关闭规则最优，请检查出口或落地", name, target)
+	return fmt.Sprintf("转发「%s」的落地 %s 从所有出口都连不上（已重试 1/3/10/60 分钟），已自动关闭转发最优，请检查出口或落地", name, target)
 }
 
 // decorateRuleBestOff marks the auto-off rules of an admin's rule list

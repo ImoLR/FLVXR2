@@ -515,7 +515,7 @@ func (r *Repository) LineMonitorPortHints(nodeID int64, max int) ([]LineMonitorP
 		return nil, err
 	}
 	for _, f := range rules {
-		add(f.Port, "rule", "规则 "+f.Name)
+		add(f.Port, "rule", "转发 "+f.Name)
 	}
 	return out, nil
 }

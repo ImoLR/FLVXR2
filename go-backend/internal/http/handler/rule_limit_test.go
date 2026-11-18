@@ -20,7 +20,7 @@ func TestChainCreateSharesUserRuleLimit(t *testing.T) {
 	}
 	code, msg, _ := callAs(t, e.h.forwardCreate, 7, 1, chainCreateBody(10, "second", "socks5://9.9.9.9:1080", ""))
 	e.h.chains.wg.Wait()
-	if code == 0 || msg != "已达到规则数上限（1 条），请删除不用的规则后再新建" {
+	if code == 0 || msg != "已达到转发数上限（1 条），请删除不用的转发后再添加" {
 		t.Fatalf("second chain: code=%d msg=%q", code, msg)
 	}
 	if err := e.r.CheckUserRuleLimit(7, 1); !repo.IsRuleLimitError(err) {

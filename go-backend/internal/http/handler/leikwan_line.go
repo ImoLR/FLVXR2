@@ -457,7 +457,7 @@ func (h *Handler) leikwanLineList(w http.ResponseWriter, r *http.Request) {
 	}
 	rules, err := h.repo.ListLeiKwanRules(0)
 	if err != nil {
-		leiKwanError(w, errors.New("读取利群规则失败"))
+		leiKwanError(w, errors.New("读取利群转发失败"))
 		return
 	}
 	tunnels, _ := h.repo.ListLeiKwanBackupTunnels()
@@ -587,7 +587,7 @@ func (h *Handler) leikwanLineSave(w http.ResponseWriter, r *http.Request) {
 		}
 		if old.RouteID != req.RouteID {
 			if rules, _ := h.repo.ListLeiKwanRules(0); leiKwanLineHasRules(rules, old.ID) {
-				leiKwanError(w, errors.New("专线上已有规则，不能更换利群路线"))
+				leiKwanError(w, errors.New("专线上已有转发，不能更换利群路线"))
 				return
 			}
 		}
@@ -891,7 +891,7 @@ func (h *Handler) leiKwanCreateBackup(x *model.LeiKwanRule) error {
 		ID int64 `json:"id"`
 	}
 	if json.Unmarshal(data, &created) != nil || created.ID <= 0 {
-		return errors.New("备线规则创建结果无法解析")
+		return errors.New("备线转发创建结果无法解析")
 	}
 	x.BackupForwardID, x.BackupMode, x.BackupError = created.ID, "auto", ""
 	return nil
@@ -969,7 +969,7 @@ func (h *Handler) leiKwanRepointBackup(x *model.LeiKwanRule) error {
 				x.BackupError = ""
 				return nil
 			}
-			return errors.New("这条备线和其他利群规则共用、目标不同，请在授权里关掉再打开备线")
+			return errors.New("这条备线和其他利群转发共用、目标不同，请在授权里关掉再打开备线")
 		}
 		if err := h.leiKwanRetargetForward(x.BackupForwardID, leiKwanTargetAddr(*x)); err != nil {
 			return err
@@ -1045,7 +1045,7 @@ func (h *Handler) leikwanRuleBackupRetry(w http.ResponseWriter, r *http.Request)
 	defer leiKwanRuleMu.Unlock()
 	x, err := h.repo.GetLeiKwanRule(req.ID)
 	if err != nil || x == nil {
-		leiKwanError(w, errors.New("利群规则不存在"))
+		leiKwanError(w, errors.New("利群转发不存在"))
 		return
 	}
 	if x.BackupForwardID > 0 {
@@ -1316,7 +1316,7 @@ func (h *Handler) leikwanRuleList(w http.ResponseWriter, r *http.Request) {
 	}
 	rules, err := h.repo.ListLeiKwanRules(owner)
 	if err != nil {
-		leiKwanError(w, errors.New("读取利群规则失败"))
+		leiKwanError(w, errors.New("读取利群转发失败"))
 		return
 	}
 	c := h.leiKwanRuleContext(rules, admin)
@@ -1418,9 +1418,13 @@ func (h *Handler) leikwanRuleOptions(w http.ResponseWriter, r *http.Request) {
 	if err := leiKwanGrantUsable(g); err != nil {
 		out["grantError"] = err.Error()
 	} else if err := h.repo.CheckLeiKwanRuleLimit(owner, time.Now().UnixMilli(), role != 0); err != nil {
-		// Plan 268: the user's 到期 / 总规则数 block a new 利群 rule up front.
+		// Plan 268/280: the user's 到期 / 利群转发数 block a new 利群 rule up front.
 		out["grantError"] = err.Error()
 		out["userBlocked"] = true
+	}
+	// Plan 280: 已用 x / N of the owner's 利群转发数 (limit 0 / ≥ 99999 = 不限).
+	if limit, used, err := h.repo.UserLeiKwanRuleLimit(owner); err == nil {
+		out["ruleLimit"] = map[string]interface{}{"limit": limit, "used": used, "unlimited": repo.RuleLimitUnlimited(limit)}
 	}
 	lines, _ := h.repo.ListLeiKwanLines()
 	ls := []map[string]interface{}{}
@@ -1475,7 +1479,7 @@ type leiKwanRuleTargetReq struct {
 func (h *Handler) leiKwanResolveExternal(id, owner int64) (string, int, error) {
 	rows, err := h.repo.ExternalNodesByIDs(owner, []int64{id})
 	if err != nil || len(rows) == 0 {
-		return "", 0, errors.New("外部节点不存在（只能选规则主人自己的外部节点）")
+		return "", 0, errors.New("外部节点不存在（只能选转发主人自己的外部节点）")
 	}
 	up, ok, reason := leiKwanExternalSupported(rows[0])
 	if !ok {
@@ -1535,10 +1539,10 @@ func (h *Handler) leikwanRuleCreate(w http.ResponseWriter, r *http.Request) {
 	req.Name = strings.TrimSpace(req.Name)
 	switch {
 	case req.Name == "":
-		leiKwanError(w, errors.New("请填写规则名称"))
+		leiKwanError(w, errors.New("请填写转发名称"))
 		return
 	case len(req.Name) > 100:
-		leiKwanError(w, errors.New("规则名称太长（最多 100 字节，约 33 个汉字）"))
+		leiKwanError(w, errors.New("转发名称太长（最多 100 字节，约 33 个汉字）"))
 		return
 	case !leiKwanRuleKeyPattern.MatchString(req.RequestID):
 		leiKwanError(w, errors.New("请求标识无效，请关闭弹窗后重试"))
@@ -1555,8 +1559,8 @@ func (h *Handler) leikwanRuleCreate(w http.ResponseWriter, r *http.Request) {
 		leiKwanError(w, err)
 		return
 	}
-	// Plan 268: the user's status / 到期 and 总规则数 (user.num, normal + 利群
-	// rules) like a normal rule; an admin actor is exempt from the count.
+	// Plan 268/280: the user's status / 到期, then 利群转发数 (user.leikwan_num,
+	// 利群 rules only); an admin actor is exempt from the count.
 	if err := h.repo.CheckLeiKwanRuleLimit(owner, time.Now().UnixMilli(), ruleLimitApplies(role)); err != nil {
 		leiKwanError(w, err)
 		return
@@ -1664,7 +1668,7 @@ func (h *Handler) leiKwanRuleAccess(r *http.Request, id int64) (*model.LeiKwanRu
 	uid, role, _ := userRoleFromRequest(r)
 	x, err := h.repo.GetLeiKwanRule(id)
 	if err != nil || x == nil || (role != 0 && x.UserID != uid) {
-		return nil, false, errors.New("利群规则不存在")
+		return nil, false, errors.New("利群转发不存在")
 	}
 	return x, role == 0, nil
 }
@@ -1707,7 +1711,7 @@ func (h *Handler) leikwanRuleUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 	if name := strings.TrimSpace(req.Name); name != "" {
 		if len(name) > 100 {
-			leiKwanError(w, errors.New("规则名称太长（最多 100 字节，约 33 个汉字）"))
+			leiKwanError(w, errors.New("转发名称太长（最多 100 字节，约 33 个汉字）"))
 			return
 		}
 		x.Name = name
@@ -1788,7 +1792,7 @@ func (h *Handler) leikwanRuleUpdate(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if err := h.saveLeiKwanRule(x); err != nil {
-		leiKwanError(w, errors.New("保存利群规则失败"))
+		leiKwanError(w, errors.New("保存利群转发失败"))
 		return
 	}
 	if req.ChangeTarget {
@@ -1833,7 +1837,7 @@ func (h *Handler) leikwanRuleDelete(w http.ResponseWriter, r *http.Request) {
 	}
 	backupNote := ""
 	if x.BackupMode == "linked" && x.BackupForwardID > 0 {
-		backupNote = fmt.Sprintf("导入时链接的备线（规则 #%d）保留为普通规则", x.BackupForwardID)
+		backupNote = fmt.Sprintf("导入时链接的备线（转发 #%d）保留为普通转发", x.BackupForwardID)
 	}
 	if req.KeepLeiKwan {
 		// Plan 269: the LeiKwan forward stays on the hosts — keep its 利群加速
@@ -1844,7 +1848,7 @@ func (h *Handler) leikwanRuleDelete(w http.ResponseWriter, r *http.Request) {
 		backupNote = err.Error()
 	}
 	if err := h.deleteLeiKwanRule(x.ID); err != nil {
-		leiKwanError(w, errors.New("删除利群规则记录失败"))
+		leiKwanError(w, errors.New("删除利群转发记录失败"))
 		return
 	}
 	h.leiKwanSubsChanged(x.UserID)

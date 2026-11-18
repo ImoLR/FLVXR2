@@ -95,7 +95,7 @@ func (r *Repository) SaveLandingOutbound(o *landingegress.Outbound) (*model.Land
 			if o.Settings.ViaForwardID > 0 {
 				var f model.Forward
 				if err := tx.First(&f, o.Settings.ViaForwardID).Error; err != nil || f.LandingNodeID != n.ID {
-					return errors.New("所选规则的目标不是该落地节点")
+					return errors.New("所选转发的目标不是该落地节点")
 				}
 			}
 		}
@@ -553,12 +553,12 @@ func (r *Repository) landingUpstream(nodeID, forwardID int64) LandingUpstream {
 	}
 	var f model.Forward
 	if err := r.db.First(&f, forwardID).Error; err != nil || f.LandingNodeID != nodeID {
-		u.Err = "经由的规则已删除或不再指向该落地节点"
+		u.Err = "经由的转发已删除或不再指向该落地节点"
 		return u
 	}
 	entries, err := r.forwardEntries(f)
 	if err != nil || len(entries) == 0 {
-		u.Err = "经由的规则没有可用入口"
+		u.Err = "经由的转发没有可用入口"
 		return u
 	}
 	// The first entry is the rule's primary entry, as in the landing links.
