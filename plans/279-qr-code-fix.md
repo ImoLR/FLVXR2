@@ -25,11 +25,11 @@ Affected: every panel QR — 落地 节点链接 / 规则页 复制链接 / chai
 - [x] Decode matrix (node script in the run dir, jsQR + ZXing): v1–v20 at both capacity edges + realistic links
 - [x] `npm run build` + eslint on touched files
 - [x] Lab panel + headless screenshots (落地 节点链接 desktop + H5, 订阅链接, 规则页 复制链接), decode the PNGs; gallery `/qr-fix/`
-- [ ] Ledger row 279
-- [ ] Release: push, tag, CI + images + release assets, Latest
-- [ ] Prod backup + rollback script, prune backups, panel swap, health / node checks
-- [ ] Prod check: real 落地 节点链接 QR screenshot decodes to the copied link
-- [ ] OTA brief note, ledger → 已发布, memory, cleanup (worktree, caches)
+- [x] Ledger row 279
+- [x] Release: push, tag, CI + images + release assets, Latest
+- [x] Prod backup + rollback script, prune backups, panel swap, health / node checks
+- [x] Prod check: real 落地 节点链接 QR screenshot decodes to the copied link
+- [x] OTA brief note, ledger → 已发布, memory, cleanup (worktree, caches)
 
 ## Results (before release)
 - Decode matrix (run dir `runs/qr-fix/work/decode-matrix.mjs`, imports `src/utils/qr-matrix.ts`): v1–v20 at both byte
@@ -43,3 +43,14 @@ Affected: every panel QR — 落地 节点链接 / 规则页 复制链接 / chai
   with ZXing Java, ZXing C++ and jsQR. Same dialogs on fork.147: 0/10. Gallery http://104.145.236.29:8791/qr-fix/.
 - `npm run build` ok (qr-code chunk 24.6 kB / 9.4 kB gzip); eslint: 0 new problems (node-deploy-modal keeps its 2
   pre-existing label a11y errors, same at base).
+
+## Release (fork.148)
+- Tag `3.0.27-fork.148` → 7b830a69; CI Build Check + Images (run 44275193150) green; Latest; 10 assets; gost-amd64 sha256 ok.
+- Prod backup `/opt/flvx-svc/rollback/pre-fork148-20261118T093234Z/` (validated DB copy, .env, compose, local image tags);
+  pruned to pre-fork147 + pre-fork148. Swap 17:32:35–17:32:43 TW, panel only, no OTA, no DB change.
+- After: 30/30 nodes online, read-only state snapshot identical, panel log clean, public domain serves fork.148.
+- Prod check (admin, headless, localhost): 落地 节点链接 SS2022 ×2 + 「jp vless」 VLESS Reality (desktop + H5) and 订阅链接
+  (desktop + H5): 14/14 PNGs decode to the exact copied link with ZXing Java, ZXing C++, jsQR (shots kept in the run
+  dir only — they hold real credentials).
+- Rollback: `/opt/flvx-svc/rollback/pre-fork148-20261118T093234Z/rollback.sh` (→ fork.147 images, DB untouched).
+- OTA brief `ota-old-agents-1119.md` noted (fork.148 = fork.147 agent code); ledger row 279 → 已发布; memory updated.
