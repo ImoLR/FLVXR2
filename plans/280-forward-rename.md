@@ -28,9 +28,9 @@ Panel only (go-backend + vite-frontend); go-gost untouched → no agent OTA.
 - [x] Post-build grep: every remaining 「规则」 in UI text is in the keep list
 - [x] Screenshots desktop + 390 px → gallery http://104.145.236.29:8791/forward-rename/
 - [x] Ledger row 280 (built)
-- [ ] Release fork.150: push, tag, CI, images, 10 assets, Latest
-- [ ] Prod: backup + rollback script, previous fork on migrated prod-DB copy, prune, swap, checks
-- [ ] Ledger → 已发布, memory updated, worktree + caches removed
+- [x] Release fork.150: push, tag, CI, images, 10 assets, Latest
+- [x] Prod: backup + rollback script, previous fork on migrated prod-DB copy, prune, swap, checks
+- [x] Ledger → 已发布, memory updated, worktree + caches removed
 
 ## Results (build)
 - `go vet ./...` clean; `go test -p 1 ./...` (SQLite + PG `FLVX_POSTGRES_TEST_DSN`): 28/28 packages ok after updating two
@@ -41,6 +41,18 @@ Panel only (go-backend + vite-frontend); go-gost untouched → no agent OTA.
 - `npm run build` (tsc + vite) ok. Remaining 「规则」 in src (non-comment) = keep list only.
 - Lab (scrubbed prod-DB copy, isolated netns, :18585/:18587): 21 + 8 checks ok, 0 page errors, 20 screenshots
   → http://104.145.236.29:8791/forward-rename/ (IPs / domains masked in the rendered text).
+
+## Release (11-18 TW)
+- Plan 282 (nft-admin-only, urgent) released first as fork.149 → this branch rebased onto it (conflict only in the forward.tsx
+  转发模式 hint; plan 282's WG guard test updated to the 转发 wording) → full re-test 28/28 + vet + npm build on bfd41c95.
+- Tag 3.0.27-fork.150 → bfd41c95; CI 44301423452 + Images 44301427458 green; Latest, 10 assets, gost sha256 ok.
+- Rollback check (runs/forward-rename/work/rbcheck.txt): fork.150 migrates a prod-DB copy (25 users × leikwan_num 3),
+  fork.149 then starts healthy on it, user/list, forward/list, 利群 lists, user/package all code 0.
+- Prod swap 20:32:55–20:33:03 TW (backup /opt/flvx-svc/rollback/pre-fork150-20261118T123237Z; the deploy script's
+  metadata heredoc lost its closing `MD`, so the first run only made the backup — swap done by hand, script fixed).
+- After: 30/30 nodes for 15 min, 0 errors, 0 restarts; state identical except the new column; public version fork.150;
+  normal user (6 forwards) 已用转发 = 6, leikwanNum 3; admin options no grantError (7 利群 rules > 3, exempt).
+  Backend RSS 36 → 45 MiB. Backups pruned to pre-fork149 + pre-fork150. OTA brief 1119 noted (go-gost unchanged).
 
 ## Wording changes (old → new)
 Rule: 「规则」 meaning a forward (Forward rows, chain 「我自己的节点」 rules, 利群 rules, their counts) → 「转发」.
