@@ -17,6 +17,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-gost/x/logsafe"
 	"github.com/quic-go/quic-go"
 )
 
@@ -324,7 +325,7 @@ func TestQUICGuardChecksEveryDatagram(t *testing.T) {
 	small := []byte("hello")
 	sess := &fakeUDPSession{in: [][]byte{small, junk, small, initial, small}}
 	_, _, _, _, q0 := ProtocolBlockCounts()
-	g := wrapUDPSession(sess, protocolBlockFlags{tls: 1})
+	g := wrapUDPSession(sess, protocolBlockFlags{tls: 1}, "156_8_75_udp")
 	buf := make([]byte, 65535)
 	for i, want := range []int{len(small), len(junk), len(small)} {
 		n, err := g.Read(buf)
@@ -359,7 +360,7 @@ func TestWrapUDPSessionOnlyWhenTLSBlocked(t *testing.T) {
 		{protocolBlockFlags{tls: 1}, true},
 		{protocolBlockFlags{http: 1, tls: 1, socks: 1}, true},
 	} {
-		c := wrapUDPSession(sess, tc.flags)
+		c := wrapUDPSession(sess, tc.flags, "1_1_1_udp")
 		_, isGuard := c.(*quicGuardConn)
 		if isGuard != tc.guard || (!tc.guard && c != net.Conn(sess)) {
 			t.Errorf("flags %+v: wrapped %T, want guard=%v", tc.flags, c, tc.guard)
@@ -368,7 +369,7 @@ func TestWrapUDPSessionOnlyWhenTLSBlocked(t *testing.T) {
 	// Flag off: a QUIC Initial passes untouched.
 	initial := quicTestInitial(0xc3, quicVersion1, 8, 0, 0, 1180, 1200)
 	sess.in = [][]byte{initial}
-	c := wrapUDPSession(sess, protocolBlockFlags{http: 1, socks: 1})
+	c := wrapUDPSession(sess, protocolBlockFlags{http: 1, socks: 1}, "1_1_1_udp")
 	if n, err := c.Read(make([]byte, 2048)); n != len(initial) || err != nil {
 		t.Fatalf("flag off: n=%d err=%v", n, err)
 	}
@@ -455,7 +456,7 @@ func benchmarkSessionRead(b *testing.B, size int, guarded bool) {
 	g[0] = 0xd7 // long-header-looking: the guard runs its full check
 	var c net.Conn = &loopSession{g: g}
 	if guarded {
-		c = wrapUDPSession(c.(quicSession), protocolBlockFlags{tls: 1})
+		c = wrapUDPSession(c.(quicSession), protocolBlockFlags{tls: 1}, "bench_udp")
 	}
 	buf := make([]byte, 65535)
 	b.ReportAllocs()
@@ -472,3 +473,18 @@ func BenchmarkUDPSessionRead1350Raw(b *testing.B)     { benchmarkSessionRead(b, 
 func BenchmarkUDPSessionRead1350Guarded(b *testing.B) { benchmarkSessionRead(b, 1350, true) }
 func BenchmarkUDPSessionRead200Raw(b *testing.B)      { benchmarkSessionRead(b, 200, false) }
 func BenchmarkUDPSessionRead200Guarded(b *testing.B)  { benchmarkSessionRead(b, 200, true) }
+
+// The block log names the forward service (one line per service, then a
+// count at most every 10 minutes) so blocked users can be found.
+func TestQUICBlockLogNamesTheForward(t *testing.T) {
+	var lines []string
+	old := blockLogs
+	blockLogs = logsafe.NewEventSummary(func(l string) { lines = append(lines, l) })
+	defer func() { blockLogs = old }()
+	recordQUICBlock("156_8_75_udp")
+	recordQUICBlock("156_8_75_udp")
+	recordQUICBlock("6_3_3_udp")
+	if len(lines) != 2 || !strings.Contains(lines[0], "BLOCK QUIC (hy2/TUIC/HTTP3) 156_8_75_udp") || !strings.Contains(lines[1], "6_3_3_udp") {
+		t.Fatalf("log lines %q", lines)
+	}
+}

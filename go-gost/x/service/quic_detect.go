@@ -114,29 +114,34 @@ type quicSession interface {
 // on long-header-looking datagrams.
 type quicGuardConn struct {
 	quicSession
+	service string
 }
 
 func (c *quicGuardConn) Read(b []byte) (int, error) {
 	n, err := c.quicSession.Read(b)
 	if n >= quicMinInitialDatagram && b[0]&0xC0 == 0xC0 && isQUICInitial(b[:n]) {
-		recordQUICBlock()
+		recordQUICBlock(c.service)
 		c.quicSession.Block()
 		return 0, errConnectionBlocked
 	}
 	return n, err
 }
 
-func recordQUICBlock() {
+// recordQUICBlock counts a blocked UDP session and logs it per forward
+// service (first block at once, then a count at most every 10 minutes), so
+// the admin can tell which forward ran QUIC: the service name is
+// <forwardID>_<userID>_<tunnelID>_udp.
+func recordQUICBlock(service string) {
 	blockCounts[blockKindQUIC].Add(1)
-	blockLogs.Record("quic", "🚫 BLOCK QUIC (hy2/TUIC/HTTP3)")
+	blockLogs.Record("quic|"+service, "🚫 BLOCK QUIC (hy2/TUIC/HTTP3) "+service)
 }
 
 // wrapUDPSession: a filtered forward's UDP session gets the QUIC check when
 // its tunnel blocks TLS, and nothing at all otherwise (HTTP / SOCKS / other
 // detection reads TCP first bytes only; UDP was always passed through).
-func wrapUDPSession(s quicSession, flags protocolBlockFlags) net.Conn {
+func wrapUDPSession(s quicSession, flags protocolBlockFlags, service string) net.Conn {
 	if flags.tls == 1 {
-		return &quicGuardConn{quicSession: s}
+		return &quicGuardConn{quicSession: s, service: service}
 	}
 	return s
 }

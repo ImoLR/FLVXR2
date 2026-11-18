@@ -295,7 +295,7 @@ func (s *defaultService) wrapProtocolDetection(conn net.Conn) net.Conn {
 		if s.options.protocolFilter != nil {
 			flags = *s.options.protocolFilter
 		}
-		return wrapUDPSession(us, flags)
+		return wrapUDPSession(us, flags, s.name)
 	}
 	if s.options.protocolFilter != nil {
 		if !s.options.protocolFilter.needsWrap() {

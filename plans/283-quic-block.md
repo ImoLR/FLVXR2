@@ -148,3 +148,11 @@ per-session queue, not the check. No measurable difference in latency, throughpu
   pre-fork150 + pre-fork151 (prune-backups.sh).
 - go-gost changed → node/upgrade hands out fork.151 agents; plan 278 (11-19 02:00 OTA of 13 old agents) brief got a
   note (its hosts are not entries of 屏蔽 TLS tunnels — nothing is blocked there).
+
+## fork.152 follow-up (same night, before any agent OTA)
+The fork.151 log line said only 「🚫 BLOCK QUIC (hy2/TUIC/HTTP3)」 once per 10 min for the whole agent, so step 9
+(“which tunnels / users get QUIC blocked”) could not be answered. fork.152 keys the summary per forward service and
+names it: 「🚫 BLOCK QUIC (hy2/TUIC/HTTP3) <forwardID>_<userID>_<tunnelID>_udp」 — first block of each forward at once,
+then a count at most every 10 min (EventSummary, ≤ 4096 keys, overflow merged). String built only on a block. No other
+change; panel images identical apart from the version. Released as fork.152 before the 11-19 OTA so no node ever runs
+fork.151 (except via plan 278 if it had started — it had not).
