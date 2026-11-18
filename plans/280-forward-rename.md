@@ -18,19 +18,29 @@ Panel only (go-backend + vite-frontend); go-gost untouched → no agent OTA.
   dashboard userInfo return `leikwanNum`; 利群 options return `ruleLimit {used, limit}`.
 
 ## Checklist
-- [ ] Backend: model column + repo split (countUserRules w/o 利群, CheckLeiKwanRuleLimit vs leikwan_num)
-- [ ] Backend: user create/update/list/dashboard `leikwanNum`; 利群 options `ruleLimit`
-- [ ] Backend: user-facing 规则→转发 strings (forwards only) + contract tests that assert them
-- [ ] Go tests: split counts, at-limit refusal, unlimited sentinel, admin exempt, migration default 3 on existing DB
-- [ ] Frontend wording, file by file (table below) + keep list
-- [ ] Frontend: 用户 edit 利群转发数 (desktop + H5), dashboard 利群转发 x / N, 利群 user page 已用 x / N + disabled add
-- [ ] `npm run build`, `go vet`, `go test ./...` (SQLite + PG)
-- [ ] Post-build grep: every remaining 「规则」 in UI text is in the keep list
-- [ ] Screenshots desktop + 390 px → gallery http://104.145.236.29:8791/forward-rename/
-- [ ] Ledger row 280 (built)
+- [x] Backend: model column + repo split (countUserRules w/o 利群, CheckLeiKwanRuleLimit vs leikwan_num)
+- [x] Backend: user create/update/list/dashboard `leikwanNum`; 利群 options `ruleLimit`
+- [x] Backend: user-facing 规则→转发 strings (forwards only) + contract tests that assert them
+- [x] Go tests: split counts, at-limit refusal, unlimited sentinel, admin exempt, migration default 3 on existing DB
+- [x] Frontend wording, file by file (table below) + keep list
+- [x] Frontend: 用户 edit 利群转发数 (desktop + H5), dashboard 利群转发 x / N, 利群 user page 已用 x / N + disabled add
+- [x] `npm run build`, `go vet`, `go test ./...` (SQLite + PG)
+- [x] Post-build grep: every remaining 「规则」 in UI text is in the keep list
+- [x] Screenshots desktop + 390 px → gallery http://104.145.236.29:8791/forward-rename/
+- [x] Ledger row 280 (built)
 - [ ] Release fork.149: push, tag, CI, images, 10 assets, Latest
 - [ ] Prod: backup + rollback script, previous fork on migrated prod-DB copy, prune, swap, checks
 - [ ] Ledger → 已发布, memory updated, worktree + caches removed
+
+## Results (build)
+- `go vet ./...` clean; `go test -p 1 ./...` (SQLite + PG `FLVX_POSTGRES_TEST_DSN`): 28/28 packages ok after updating two
+  contract asserts that still expected the old wording (TestLeiKwanQAFixContract 规则名称太长/利群规则,
+  TestTunnelSplitEntryPortForwardAndRefusalsContract 规则在该入口上监听) — both caused by this change, not pre-existing.
+- New tests: TestLeiKwanNumSplitFromForwardNum, TestLeiKwanNumMigrationDefault (repo, SQLite + PG),
+  TestUserLeiKwanNumAPIContract (SQLite + PG); TestLeiKwanGrantBackupContract rewritten for the split.
+- `npm run build` (tsc + vite) ok. Remaining 「规则」 in src (non-comment) = keep list only.
+- Lab (scrubbed prod-DB copy, isolated netns, :18585/:18587): 21 + 8 checks ok, 0 page errors, 20 screenshots
+  → http://104.145.236.29:8791/forward-rename/ (IPs / domains masked in the rendered text).
 
 ## Wording changes (old → new)
 Rule: 「规则」 meaning a forward (Forward rows, chain 「我自己的节点」 rules, 利群 rules, their counts) → 「转发」.
