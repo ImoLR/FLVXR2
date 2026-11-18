@@ -21,11 +21,11 @@ WG 隧道 stays admin-only as before.
 - [x] go vet + go test ./... (-timeout 30m) + npm run build
 - [x] Screenshots user/admin 添加转发 desktop + H5 → gallery /nft-admin-only/
 - [x] Ledger row 282
-- [ ] Release fork.N (push, tag, CI, images, assets, Latest)
-- [ ] Prod backup + rollback script + prune, panel upgrade, health checks
-- [ ] Convert the 5 prod nftables forwards (621 canary, 106, 98, 6, 153) to gost via admin API; verify
-- [ ] Filter-hit counter ~20–30 min after conversion
-- [ ] Ledger / briefs / memory updated, worktree + caches cleaned
+- [x] Release fork.N (push, tag, CI, images, assets, Latest)
+- [x] Prod backup + rollback script + prune, panel upgrade, health checks
+- [x] Convert the 5 prod nftables forwards (621 canary, 106, 98, 6, 153) to gost via admin API; verify
+- [x] Filter-hit counter ~20–30 min after conversion
+- [x] Ledger / briefs / memory updated, worktree + caches cleaned
 
 ## Notes
 - Guarded paths: forwardCreateWithReq (also idempotent create + chain replays), forwardUpdateWithReq (also chain edit/detach
@@ -37,3 +37,10 @@ WG 隧道 stays admin-only as before.
   admin-owned rule (it created nft for user 7, which the new rule refuses).
 - Full `go test -p 1 -timeout 30m ./...` (SQLite + PG 18): all ok except that one expected failure, fixed + re-run green.
 - Screenshots: http://104.145.236.29:8791/nft-admin-only/ (lab runs/nft-admin-only/lab, fresh DB).
+- Released fork.149 (tag → 63dd0d4e), Images 44294922413, Latest 10 assets. Prod swap 19:40:54–19:41:03 TW, 30/30
+  redeploy failed=0, state identical. Rollback /opt/flvx-svc/rollback/pre-fork149-20261118T114053Z/rollback.sh.
+- Converted 621 (canary 19:42:15), 106, 98 (Mkcloud 沪日ixp 440), 6, 153 (Mkcloud 深港ixp 1, chain exits Bestvm HK 年付 /
+  Datawave HK 2 listening) → gost 19:42–19:43 TW via admin API; nft rules gone, flvxx listening, TCP ok. 0 nft forwards left.
+  Undo: /root/flvx-workers/runs/nft-admin-only/work/undo-forward-*.json.
+- Filter counters 19:43 → 20:08 TW unchanged on both entries (沪日ixp 440 http 43 / tls 30 / socks 8; 深港ixp 1 29 / 11 / 6);
+  153 and 106 kept passing traffic (KBs), 6 / 98 / 621 idle.
