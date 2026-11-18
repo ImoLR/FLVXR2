@@ -2328,6 +2328,8 @@ func (h *Handler) backupImport(w http.ResponseWriter, r *http.Request) {
 		response.WriteJSON(w, response.ErrDefault(err.Error()))
 		return
 	}
+	// Plan 282: a normal user's rule never comes back as nftables.
+	nftConverted := h.normalizeForwardImportModes(rawJSON, typesToImport)
 
 	result, err := h.repo.ImportRaw(rawJSON, typesToImport)
 	if err != nil {
@@ -2342,6 +2344,9 @@ func (h *Handler) backupImport(w http.ResponseWriter, r *http.Request) {
 	}
 
 	resultMap["auto_backup"] = autoBackup
+	if len(nftConverted) > 0 {
+		resultMap["nftables_to_gost"] = nftConverted
+	}
 	response.WriteJSON(w, response.OK(resultMap))
 }
 

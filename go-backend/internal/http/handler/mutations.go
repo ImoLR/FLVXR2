@@ -3214,6 +3214,10 @@ func (h *Handler) forwardCreateWithReq(w http.ResponseWriter, r *http.Request, r
 		response.WriteJSON(w, response.Err(403, "权限不足，WG 隧道规则仅管理员可创建"))
 		return
 	}
+	if err := h.ensureForwardModeAllowed(mode, roleID, userID); err != nil {
+		response.WriteJSON(w, response.Err(403, err.Error()))
+		return
+	}
 	wgPathID, wgRuleType, sourceCIDR, targetCIDR, snatEnabled, err := parseWGForwardRequest(req)
 	if err != nil {
 		response.WriteJSON(w, response.ErrDefault(err.Error()))
@@ -3505,6 +3509,10 @@ func (h *Handler) forwardUpdateWithReq(w http.ResponseWriter, r *http.Request, r
 	}
 	if mode == "wg_path" && actorRole != 0 {
 		response.WriteJSON(w, response.Err(403, "权限不足，WG 隧道规则仅管理员可更新"))
+		return
+	}
+	if err := h.ensureForwardModeAllowed(mode, actorRole, forward.UserID); err != nil {
+		response.WriteJSON(w, response.Err(403, err.Error()))
 		return
 	}
 	wgPathID, wgRuleType, sourceCIDR, targetCIDR, snatEnabled, err := parseWGForwardRequest(req)
@@ -4456,6 +4464,13 @@ func (h *Handler) forwardBatchChangeTunnel(w http.ResponseWriter, r *http.Reques
 			continue
 		}
 		if _, _, _, err := h.resolveNativeLandingTarget(nil, forward.UserID, req.TargetTunnelID, forward.RemoteAddr, actorRole == 0); err != nil {
+			fail++
+			failures = appendBatchFailure(failures, id, forward.Name, err)
+			continue
+		}
+		if err := h.ensureForwardModeAllowed(forward.Mode, actorRole, forward.UserID); err != nil {
+			// Plan 282: a normal user's nftables rule (made before 282) must be
+			// switched to Gost before it can move onto another tunnel.
 			fail++
 			failures = appendBatchFailure(failures, id, forward.Name, err)
 			continue

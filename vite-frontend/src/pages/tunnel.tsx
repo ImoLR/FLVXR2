@@ -5783,7 +5783,7 @@ export default function TunnelPage() {
                     </div>
                     <div className="text-xs text-warning-600 dark:text-warning-400 mt-2">
                       仅对 GOST 模式的 TCP 转发生效；UDP 和 nftables
-                      模式转发不会过滤。
+                      模式转发不会过滤。普通用户转发只能用 Gost 模式。
                     </div>
                         {filterAffected.length > 0 && (
                           <div

@@ -2892,6 +2892,16 @@ export default function ForwardPage() {
     setChainRunning(false);
   };
   // 新增规则
+  // Plan 282: NFtables bypasses the tunnel 协议过滤, so only an admin's own
+  // rules may use it; any other rule opens (and saves) as Gost.
+  const nftAllowedFor = (ownerId?: number | null) =>
+    isAdmin && (!ownerId || String(ownerId) === String(tokenUserId));
+  const modeForOwner = (
+    mode: Forward["mode"] | undefined,
+    ownerId?: number | null,
+  ): "gost" | "nftables" | "wg_path" =>
+    mode === "nftables" && !nftAllowedFor(ownerId) ? "gost" : mode || "gost";
+  const nftAllowedForOwner = nftAllowedFor(form.userId);
   const handleAdd = () => {
     setIsEdit(false);
     setIsCopy(false);
@@ -2974,7 +2984,7 @@ export default function ForwardPage() {
       expiryTime: forward.expiryTime ?? null,
       speedLimitEnabled: forward.speedLimitEnabled ?? false,
       speedLimit: forward.speedLimit ?? 0,
-      mode: forward.mode || "gost",
+      mode: modeForOwner(forward.mode, forward.userId),
       wgPathId: forward.wgPathId || null,
       wgRuleType: forward.wgRuleType || "port",
       sourceCidr: forward.sourceCidr || "",
@@ -3018,7 +3028,7 @@ export default function ForwardPage() {
       expiryTime: forward.expiryTime ?? null,
       speedLimitEnabled: forward.speedLimitEnabled ?? false,
       speedLimit: forward.speedLimit ?? 0,
-      mode: forward.mode || "gost",
+      mode: modeForOwner(forward.mode, forward.userId),
       wgPathId: forward.wgPathId || null,
       wgRuleType: forward.wgRuleType || "port",
       sourceCidr: forward.sourceCidr || "",
@@ -3379,7 +3389,7 @@ export default function ForwardPage() {
           maxClientIps: form.maxClientIps,
           trafficLimit: form.trafficLimit,
           expiryTime: form.expiryTime,
-          mode: form.mode,
+          mode: modeForOwner(form.mode, form.userId),
           wgPathId: form.wgPathId,
           wgRuleType: form.wgRuleType,
           sourceCidr: form.sourceCidr,
@@ -3405,7 +3415,7 @@ export default function ForwardPage() {
           maxClientIps: form.maxClientIps,
           trafficLimit: form.trafficLimit,
           expiryTime: form.expiryTime,
-          mode: form.mode,
+          mode: modeForOwner(form.mode, form.userId),
           wgPathId: form.wgPathId,
           wgRuleType: form.wgRuleType,
           sourceCidr: form.sourceCidr,
@@ -6671,7 +6681,10 @@ export default function ForwardPage() {
                     {/* 选择隧道 */}
                     {form.mode !== "wg_path" && (
                     <Select
-                      classNames={{ listbox: "md:w-[calc(200%+0.5rem)]" }}
+                      // Plan 282: non-admins have no 转发模式 select, so the
+                      // tunnel picker takes the whole row.
+                      className={isAdmin ? undefined : "md:col-span-2"}
+                      classNames={isAdmin ? { listbox: "md:w-[calc(200%+0.5rem)]" } : undefined}
                       description={
                         <>
                           {isEdit
@@ -6738,20 +6751,25 @@ export default function ForwardPage() {
                       ))}
                     </Select>
                     )}
-                    {/* 转发模式选择 */}
+                    {/* 转发模式选择 — plan 282: admins only; NFtables only for the admin's own rules */}
+                    {isAdmin && (
                     <Select
                       description={
-                        form.mode === "nftables"
-                          ? "内核转发，不能在 IPv4 和 IPv6 之间转换；入口和目标类型不一致时会自动改用 gost"
+                        !nftAllowedForOwner
+                          ? "NFtables 模式仅管理员自己的转发可用；普通用户的转发只能用 Gost 模式（协议过滤只在 Gost 模式生效）"
+                          : form.mode === "nftables"
+                          ? "内核转发，不能在 IPv4 和 IPv6 之间转换；入口和目标类型不一致时会自动改用 gost；协议过滤不生效"
                           : "WG 隧道用于承载出入口和内网转发规则"
                       }
+                      disabledKeys={nftAllowedForOwner ? undefined : ["nftables"]}
                       label="转发模式"
                       selectedKeys={[form.mode]}
                       variant="bordered"
                       onSelectionChange={(keys) => {
                         const selectedKey = Array.from(keys)[0] as string;
                         const nextMode =
-                          selectedKey === "wg_path" && !isAdmin
+                          (selectedKey === "wg_path" && !isAdmin) ||
+                          (selectedKey === "nftables" && !nftAllowedForOwner)
                             ? "gost"
                             : selectedKey;
 
@@ -6767,6 +6785,7 @@ export default function ForwardPage() {
                       <SelectItem key="nftables">NFtables 模式</SelectItem>
                       {isAdmin && <SelectItem key="wg_path">WG 隧道</SelectItem>}
                     </Select>
+                    )}
                   </div>
                   {form.mode === "wg_path" && (
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mb-2">
