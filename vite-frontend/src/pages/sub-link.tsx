@@ -11,7 +11,7 @@ import { AnimatedPage } from "@/components/animated-page";
 import { useH5Mode } from "@/hooks/useH5Mode";
 import { Pill } from "@/pages/landing/pill";
 import { copyToClipboard } from "@/pages/landing/link-card";
-import { OfflineQRCode } from "@/pages/node/node-deploy-modal";
+import { OfflineQRCode } from "@/components/qr-code";
 import { Button } from "@/shadcn-bridge/heroui/button";
 import {
   Dropdown,

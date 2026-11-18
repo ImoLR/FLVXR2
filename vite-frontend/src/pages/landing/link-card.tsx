@@ -6,7 +6,7 @@ import toast from "react-hot-toast";
 import { Pill } from "./pill";
 
 import { Button } from "@/shadcn-bridge/heroui/button";
-import { OfflineQRCode } from "@/pages/node/node-deploy-modal";
+import { OfflineQRCode } from "@/components/qr-code";
 
 // Plan 175: one link card for the 落地 page 「节点链接」 dialog and the rules
 // page 「复制链接」 dialog (tinted 直连 / 经规则转发 pill, name, mono address,

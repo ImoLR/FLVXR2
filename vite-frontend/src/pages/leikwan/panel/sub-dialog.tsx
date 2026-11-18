@@ -16,7 +16,7 @@ import {
 import { useH5Mode } from "@/hooks/useH5Mode";
 import { copyToClipboard } from "@/pages/landing/link-card";
 import { Pill } from "@/pages/landing/pill";
-import { OfflineQRCode } from "@/pages/node/node-deploy-modal";
+import { OfflineQRCode } from "@/components/qr-code";
 import { Button } from "@/shadcn-bridge/heroui/button";
 import {
   Modal,
@@ -188,10 +188,8 @@ export function LeiKwanSubDialog({
                   复制
                 </Button>
               </div>
-              <div
-                className={`flex justify-center ${h5 ? "[&>svg]:h-44 [&>svg]:w-44" : ""}`}
-              >
-                <OfflineQRCode value={url} />
+              <div className="flex justify-center">
+                <OfflineQRCode minSize={h5 ? 176 : 208} value={url} />
               </div>
               <p className="text-center text-xs text-default-500">
                 {sub.note || "推荐用订阅：换入口时刷新订阅即可，不用改地址"}
