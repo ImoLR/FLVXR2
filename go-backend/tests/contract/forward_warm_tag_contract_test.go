@@ -17,9 +17,10 @@ import (
 
 // Plan 249 through the router + agent WebSocket: a warm-capable agent reports
 // its pool counters on the metric message; the forward list carries the 预热
-// tag per rule — admins every state (预热中 · 数据不足 here), the rule's owner
-// only the green one, without node names / targets / counts; a sleeping key
-// shows nothing; the admin tunnel list shows the same 数据不足 state.
+// tag per rule — admins every state (预热中 · 数据不足 here) and, since plan
+// 285, the rule's owner exactly the same view (port rule: the hop goes to the
+// owner's own target); a sleeping key shows nothing; the admin tunnel list
+// shows the same 数据不足 state.
 func TestForwardWarmTagContract(t *testing.T) {
 	const secret = "forward-warm-tag"
 	router, r := setupContractRouter(t, secret)
@@ -136,31 +137,26 @@ func TestForwardWarmTagContract(t *testing.T) {
 		return ""
 	}
 
-	// 4 streams, 3 warm: 预热中 · 数据不足 for admins, nothing for the owner.
+	// 4 streams, 3 warm: 预热中 · 数据不足 for admins and the owner alike.
 	report(`{"kind":"s","owner":"` + owner + `","addr":"198.51.100.8:8388","target":true,"idle":2,"coldN":3,"coldMs":90,"missN":1,"missMs":30,"warmN":3}`)
 	got := waitAdmin(`"status":"warming"`)
 	if !strings.Contains(got, `"streams":4`) || !strings.Contains(got, `"minWarm":10`) || !strings.Contains(got, "198.51.100.8:8388") {
 		t.Fatalf("admin 数据不足 = %s", got)
 	}
-	if got := warmState(user); got != "" {
-		t.Fatalf("owner sees 数据不足: %s", got)
+	if own := warmState(user); own != got {
+		t.Fatalf("owner 数据不足 = %s, admin %s", own, got)
 	}
 	tunnels := requestContractEnvelope(t, router, admin, "/api/v1/tunnel/list", map[string]interface{}{})
 	if body := mustJSON(t, tunnels.Data); !strings.Contains(body, `"status":"warming"`) {
 		t.Fatalf("tunnel list without 数据不足: %s", body)
 	}
 
-	// Enough warm streams: green for both; the owner gets status + ms only.
+	// Enough warm streams: green for both, the same detail (plan 285).
 	report(`{"kind":"s","owner":"` + owner + `","addr":"198.51.100.8:8388","target":true,"idle":2,"coldN":10,"coldMs":300,"warmN":20}`)
-	waitAdmin(`"status":"faster"`)
-	got = warmState(user)
-	if !strings.Contains(got, `"status":"faster"`) || !strings.Contains(got, `"savedMs":`) {
-		t.Fatalf("owner green tag = %s", got)
-	}
-	for _, leak := range []string{"198.51.100", "warm-entry", "warmN", "streams", "coldMs", "hitPct", "NodeId"} {
-		if strings.Contains(got, leak) {
-			t.Fatalf("owner tag leaks %q: %s", leak, got)
-		}
+	got = waitAdmin(`"status":"faster"`)
+	own := warmState(user)
+	if !strings.Contains(own, `"status":"faster"`) || !strings.Contains(own, `"hitPct":`) || own != got {
+		t.Fatalf("owner green tag = %s, admin %s", own, got)
 	}
 
 	// The key sleeps (no stream for 30 min on the agent): nothing.
