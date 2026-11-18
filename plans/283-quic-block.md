@@ -161,3 +161,33 @@ fork.151 (except via plan 278 if it had started — it had not).
   the new line. Prod panel swap 11-18 22:37:00–22:37:09 TW, 30/30 back, public domain fork.152, 0 panel errors.
   Rollback `/opt/flvx-svc/rollback/pre-fork152-20261118T143659Z/rollback.sh` (→ fork.151); backups kept pre-fork151 +
   pre-fork152. Plan 278 brief updated (OTA target fork.152).
+
+## OTA night 1 (11-19) and the Datawave HK 2 false alarm
+- Plan 278 (13 old agents → fork.154) finished 03:04 TW, final.md 03:09. Prod panel by then fork.154 (plans 285 + 284,
+  panel only; go-gost = fork.152) → OTA target fork.154.
+- vmsilo 沪美 (canary, 0 forwards / 0 landings) → fork.154 03:09:49 TW, 11 s back online, 0 error lines, quic counter
+  present. OK.
+- Datawave HK 2 → fork.154 03:14 TW: diagnose / entry RTT unchanged (e.g. #63 70.6 → 70.9 ms, #91 119.7 → 119.7 ms),
+  but the speed test fell 43.6 → 1.9 / 2.0 Mbit/s → ota_host.sh rolled it back to fork.138 (restore-agent.sh), the
+  roll stopped; the coordinator finished the re-check (41.9 Mbit/s) and sent the TG alert 06:05 TW.
+- **Cause = the test, not the agent.** The speed source on the dev box streamed 40 MB as soon as a TCP conn arrived
+  (server speaks first). The entry's warm pool (plan 244/264, on for every 专线 tunnel) pre-dials idle conns to the
+  forward target; each got filled with the stream, the source timed the send out after 30 s and closed it. The pool's
+  idle watcher treats "the peer spoke first" as alive (SSH-banner rule) and stops watching, so the next client got such
+  a conn: ~0.4 MB of buffered data, then EOF. Before the OTA (and at the 06:02 re-check) the pool key happened to be
+  asleep (2 h idle) → cold dial → full speed; right after a restart the key is awake → dirty conns.
+  - Same result on **fork.138** at 06:15 TW (prod, after the rollback, pool awake): 402544 B in 1.67 s, twice.
+  - Lab A/B (fork.154 panel, type 1 屏蔽 HTTP/TLS/SOCKS tunnel, warm pool on): server-first stream, 2nd pull 60 s later
+    → fork.154 508840 B, fork.138 508672 B (both truncated); client-first stream → 40 MB both pulls on both versions.
+    iperf3 TCP (3 rounds, retries for the iperf3 "busy" bug): type 1 median 7815 vs 8059 Mbit/s, type 2 3703 vs 4110
+    (plus an earlier round 4214/2919/4395 vs 3716/3910/3758) — noise, ±10–20 % within each version. Idle CPU / RSS
+    equal (E 30 vs 32 ticks/60 s, 64 vs 63 MB). The only TCP-path diff 138..154 is none: the plan-283 wrapper only
+    matches `quicSession` (Read + Block), implemented solely by the UDP listener's session.
+  - Fixed test: the source waits for the client's first 32 random bytes (≤ 300 s; first byte 0x8d, not HTTP/TLS/SOCKS),
+    like every proxy protocol our forwards carry → Datawave HK 2 (fork.138, pool awake, after the old dirty conns aged
+    out): 40 MB in 7.0 / 7.1 / 7.2 s ≈ 47 Mbit/s, three times in a row.
+  - Real traffic is not affected (SS / VLESS / Reality / hy2 / AnyTLS clients speak first). Pre-existing edge (since
+    plan 244, not changed here): a server-speaks-first target (SSH, SMTP, FTP, MySQL) that later closes an idle pre-auth
+    conn can hand a client a dead pooled conn — follow-up for the warm-pool owner.
+  - TG correction sent 06:3x TW (one message). No agent fix needed → no new release; the 6 remaining hosts go to the
+    panel's version in the 11-20 02:00–06:00 TW window with the fixed check (runs/quic-block/work/ota_host.sh).
