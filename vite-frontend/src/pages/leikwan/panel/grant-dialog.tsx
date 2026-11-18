@@ -96,7 +96,7 @@ export function LeiKwanGrantDialog({
     }
     if (res.data?.movedRules)
       toast.success(
-        `已保存：${res.data.movedRules} 条利群规则的地址改到 ${entryNode?.name}`,
+        `已保存：${res.data.movedRules} 条利群转发的地址改到 ${entryNode?.name}`,
       );
     else toast.success("授权已保存");
     (res.data?.warnings || []).forEach((w) => toast.error(w));
@@ -160,7 +160,7 @@ export function LeiKwanGrantDialog({
           </Select>
           {changedEntry && (
             <p className="-mt-2 rounded-lg bg-amber-500/15 px-3 py-2 text-xs text-amber-700 dark:bg-amber-400/15 dark:text-amber-300">
-              换主入口后，这个用户所有利群规则的地址都改成 {entryNode?.host}
+              换主入口后，这个用户所有利群转发的地址都改成 {entryNode?.host}
               :端口 （共 {grant?.ruleCount || 0}{" "}
               条）。利群那边不用改；用户刷新订阅或重新复制链接即可。
               {entryLock
@@ -176,16 +176,16 @@ export function LeiKwanGrantDialog({
               备线 {backupLine ? "开" : "关"}
             </LabeledSwitch>
             <p className="mt-1 text-xs text-default-500">
-              开：这个用户的每条利群规则都自动带一条备线（每条专线自己设的备线隧道，到同一落地）；日志快切时走它，经主入口转发，用户地址不变。
+              开：这个用户的每条利群转发都自动带一条备线（每条专线自己设的备线隧道，到同一落地）；日志快切时走它，经主入口转发，用户地址不变。
               关：自动备线删掉（导入时链接的现有备线不动）。
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2 text-xs text-default-500">
             <QuotaPill quota={quota} />
-            名额是整个利群账号共用的；授权时不扣，建规则时才扣。
+            名额是整个利群账号共用的；授权时不扣，添加转发时才扣。
           </div>
           <p className="text-xs text-default-500">
-            规则数和到期跟用户：利群规则算进用户的总规则数，用户到期后不能再建。
+            利群转发数和到期跟用户：利群转发数在用户编辑里设，不占总转发数；用户到期后不能再添加。
           </p>
           <p className="text-xs text-default-400">
             备用入口：暂不做（以后再定）。

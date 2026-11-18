@@ -331,7 +331,7 @@ func (h *Handler) resyncForwardsForRate(userID, nodeID int64, oldRate, newRate i
 			continue
 		}
 		if err := h.syncForwardServicesOnNode(forward, nodeID); err != nil {
-			warnings = append(warnings, fmt.Sprintf("规则 %s 速率下发失败: %v", forward.Name, err))
+			warnings = append(warnings, fmt.Sprintf("转发 %s 速率下发失败: %v", forward.Name, err))
 		}
 	}
 	return warnings

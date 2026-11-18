@@ -895,7 +895,7 @@ func (h *Handler) diagnoseWGForwardRuntime(forward *forwardRecord) (map[string]i
 			"interface":  wgInterfaceName(forward.WGPathID),
 		}, 20*time.Second, false, false); err == nil {
 			success = true
-			message = "WG 规则状态正常"
+			message = "WG 转发状态正常"
 		} else {
 			message = err.Error()
 		}
@@ -2222,7 +2222,7 @@ func (h *Handler) syncWGForwardRuleOnNode(forward *forwardRecord, ports []forwar
 		return errors.New("invalid WG forward sync context")
 	}
 	if forward.WGPathID <= 0 {
-		return errors.New("WG 规则缺少 Path")
+		return errors.New("WG 转发缺少 Path")
 	}
 	nodeOrder, err := h.wgPathNodeOrder(forward.WGPathID)
 	if err != nil {
@@ -2286,7 +2286,7 @@ func (h *Handler) syncWGForwardRuleOnNode(forward *forwardRecord, ports []forwar
 			if onlyNodeID == 0 && isNodeOfflineOrTimeoutError(err) {
 				continue
 			}
-			return fmt.Errorf("节点 %s WG 规则下发失败: %w", node.Name, err)
+			return fmt.Errorf("节点 %s WG 转发下发失败: %w", node.Name, err)
 		}
 	}
 	return nil

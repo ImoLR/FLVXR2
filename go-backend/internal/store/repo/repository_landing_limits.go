@@ -272,7 +272,7 @@ func landingNodeForeignRuleError(tx *gorm.DB, id, keepUserID int64) error {
 	if count > 5 {
 		label += fmt.Sprintf("等 %d 条", count)
 	}
-	return fmt.Errorf("该节点仍被原所属用户的规则 %s 引用，请先删除或修改规则后再转移", label)
+	return fmt.Errorf("该节点仍被原所属用户的转发 %s 引用，请先删除或修改转发后再转移", label)
 }
 
 // LandingCustomMaxNodesUserCount counts users with an own total cap (they do

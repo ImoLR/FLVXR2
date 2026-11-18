@@ -143,7 +143,7 @@ func (h *Handler) syncNodeUpdate(oldNode, newNode *model.Node) nodeSyncResult {
 		if listenChanged {
 			forwardIDs, err = h.repo.ListActiveForwardIDsByNode(newNode.ID)
 			if err != nil {
-				fail("node", newNode.ID, newNode.Name, fmt.Errorf("查询待同步规则失败：%w", err))
+				fail("node", newNode.ID, newNode.Name, fmt.Errorf("查询待同步转发失败：%w", err))
 			}
 		}
 		// Rules whose listen IP was rewritten (a removed IP falls back to the

@@ -142,7 +142,7 @@ export function NodeRulesDialog({
     return (
       <Modal isOpen size="xl" onClose={onClose}>
         <ModalContent className="flvx-landing">
-          <ModalHeader>路由规则</ModalHeader>
+          <ModalHeader>设置路由</ModalHeader>
           <ModalBody>
             <div className="flex justify-center p-6">
               {error ? <p className="text-danger">{error}</p> : <Spinner />}
@@ -236,7 +236,7 @@ export function NodeRulesDialog({
       <Modal isOpen scrollBehavior="inside" size="xl" onClose={requestClose}>
         <ModalContent className="flvx-landing">
           <ModalHeader className="flex flex-col gap-1">
-            <span>路由规则 · {view.nodeName}</span>
+            <span>设置路由 · {view.nodeName}</span>
             <span className="text-xs font-normal text-default-500">
               {view.serverName} · 只作用于这个节点
             </span>

@@ -1834,7 +1834,7 @@ export default function NodePage() {
           tunnelsUpdated > 0 ||
             rulesUpdated > 0 ||
             (syncResult?.entryAddressesUpdated ?? 0) > 0
-            ? `节点已更新，已自动同步 ${tunnelsUpdated} 个隧道、${rulesUpdated} 条规则`
+            ? `节点已更新，已自动同步 ${tunnelsUpdated} 个隧道、${rulesUpdated} 条转发`
             : isEdit
               ? "更新成功"
               : "创建成功",
@@ -2396,7 +2396,7 @@ export default function NodePage() {
                   className="shrink-0"
                   color="secondary"
                   size="sm"
-                  title="线路机：作为隧道入口时，规则只能转发到 VLESS Reality Vision / AnyTLS 落地或「我的外部节点」"
+                  title="线路机：作为隧道入口时，转发的目标只能是 VLESS Reality Vision / AnyTLS 落地或「我的外部节点」"
                   variant="flat"
                 >
                   线路机
@@ -3750,7 +3750,7 @@ export default function NodePage() {
                 <SelectItem key="v6">仅 IPv6</SelectItem>
                 <SelectItem key="dual">双栈 (IPv4+IPv6)</SelectItem>
               </Select>
-              <Input label="每个用户默认限额 (GB)" description="0 不限；该用户经过本服务器的规则和落地流量合并计算，随用户流量重置日重置" min="0" step="0.01" type="number" value={String(form.defaultUserQuotaBytes / 1073741824)} variant="bordered" onChange={(event) => setForm((prev) => ({ ...prev, defaultUserQuotaBytes: Math.max(0, Math.round(Number(event.target.value) * 1073741824)) }))} />
+              <Input label="每个用户默认限额 (GB)" description="0 不限；该用户经过本服务器的转发和落地流量合并计算，随用户流量重置日重置" min="0" step="0.01" type="number" value={String(form.defaultUserQuotaBytes / 1073741824)} variant="bordered" onChange={(event) => setForm((prev) => ({ ...prev, defaultUserQuotaBytes: Math.max(0, Math.round(Number(event.target.value) * 1073741824)) }))} />
               <div className="space-y-1">
                 <div className="flex items-center gap-2 text-sm">
                   <Switch
@@ -3761,7 +3761,7 @@ export default function NodePage() {
                   <span>线路机</span>
                 </div>
                 <p className="text-xs text-default-500">
-                  公网线路（如 DMIT，非专线/IPLC）。作为隧道入口时，规则只能转发到 VLESS Reality Vision / AnyTLS 落地或「我的外部节点」；线路机本身不会承载链式节点。
+                  公网线路（如 DMIT，非专线/IPLC）。作为隧道入口时，转发的目标只能是 VLESS Reality Vision / AnyTLS 落地或「我的外部节点」；线路机本身不会承载链式节点。
                 </p>
               </div>
               {(() => {

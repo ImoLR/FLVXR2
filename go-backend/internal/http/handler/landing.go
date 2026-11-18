@@ -848,7 +848,7 @@ func (h *Handler) landingNodeUpdate(w http.ResponseWriter, r *http.Request) {
 		target, ok := allowed[key]
 		if !ok {
 			if key == "protocol" || key == "port" {
-				landingError(w, errors.New("落地节点的协议和端口不可修改，请新建节点后修改规则引用"))
+				landingError(w, errors.New("落地节点的协议和端口不可修改，请新建节点后修改转发引用"))
 				return
 			}
 			landingError(w, errors.New("不支持修改该节点字段"))
@@ -1181,7 +1181,7 @@ func (h *Handler) resolveNativeLandingTarget(req map[string]interface{}, userID,
 				return "", 0, 0, errors.New(lineMachineRealityMsg)
 			}
 		}
-		n, created, err := h.repo.ReuseOrCreateLandingNode(userID, serverID, defaultString(asString(req["name"]), "规则落地"), protocol, admin)
+		n, created, err := h.repo.ReuseOrCreateLandingNode(userID, serverID, defaultString(asString(req["name"]), "转发落地"), protocol, admin)
 		if err != nil {
 			return "", 0, 0, err
 		}

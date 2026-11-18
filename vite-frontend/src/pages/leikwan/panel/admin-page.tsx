@@ -336,7 +336,7 @@ function AdminRuleRow({
             </Pill>
           )}
           {r.userExpired && (
-            <Pill title="用户已到期：不能新建利群规则" tone="red">
+            <Pill title="用户已到期：不能添加利群转发" tone="red">
               已到期
             </Pill>
           )}
@@ -449,14 +449,14 @@ function LineGroupBlock({
         <div className="px-4 pb-3 pl-10 text-xs leading-5 text-default-500">
           {g.rules.length
             ? g.rules.map((r) => r.name).join(" · ")
-            : "还没有规则"}
+            : "还没有转发"}
         </div>
       )}
       {open && (
         <div className="space-y-2 pb-3 pl-8 pr-3 pt-1">
           {g.rules.length > 0 && (
             <div className={`${RULE_GRID} px-2.5 text-xs text-default-500`}>
-              <span>规则</span>
+              <span>转发</span>
               <span>入口地址</span>
               <span>落地</span>
               <span className="text-right">操作</span>
@@ -467,7 +467,7 @@ function LineGroupBlock({
           ))}
           {g.rules.length === 0 && (
             <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-dashed border-divider px-4 py-3 text-sm text-default-500">
-              这条专线还没有规则
+              这条专线还没有转发
               <Button
                 color="success"
                 size="sm"
@@ -475,7 +475,7 @@ function LineGroupBlock({
                 variant="flat"
                 onPress={() => actions.openCreate(g.id)}
               >
-                在这条专线建规则
+                在这条专线添加转发
               </Button>
             </div>
           )}
@@ -531,11 +531,11 @@ function GrantChips({ g }: { g: LeiKwanGrant }) {
         {g.mainEntryOutsideGroup ? " · 不在入口组" : ""}
       </Pill>
       <OnOff label="备线" on={g.backupLine} />
-      <Pill tone="purple">规则 {g.ruleCount}</Pill>
+      <Pill tone="purple">转发 {g.ruleCount}</Pill>
       {g.status !== 1 && <Pill tone="slate">已停用</Pill>}
       {(g.backupFlow || 0) > 0 && (
         <Pill
-          title="这个用户的利群规则走备线用掉的流量，从上次重置算起（共用的备线只算一次）"
+          title="这个用户的利群转发走备线用掉的流量，从上次重置算起（共用的备线只算一次）"
           tone="green"
         >
           备线流量 {fmtBytes(g.backupFlow)}
@@ -799,7 +799,7 @@ export function LeiKwanAdminView() {
         <QuotaPill quota={data?.quota} />
       )}
       <Pill tone="teal">专线 {lineCount}</Pill>
-      <Pill tone="purple">规则 {ruleCount}</Pill>
+      <Pill tone="purple">转发 {ruleCount}</Pill>
       {!h5 && <Pill tone="purple">授权 {grants.length} 人</Pill>}
       <Pill
         icon={entryLevel ? <AttentionIcon level={entryLevel} /> : undefined}
@@ -830,7 +830,7 @@ export function LeiKwanAdminView() {
             </Pill>
             <Pill wrap tone="slate">
               {p.tunnelId
-                ? `隧道「${p.tunnelName || `#${p.tunnelId}`}」${p.tunnelRules ?? 0} 条规则`
+                ? `隧道「${p.tunnelName || `#${p.tunnelId}`}」${p.tunnelRules ?? 0} 条转发`
                 : "管道没绑隧道"}
             </Pill>
           </div>
@@ -888,7 +888,7 @@ export function LeiKwanAdminView() {
           color="danger"
           isDisabled={g.ruleCount > 0}
           size="sm"
-          title={g.ruleCount > 0 ? "先删掉这个用户的利群规则" : undefined}
+          title={g.ruleCount > 0 ? "先删掉这个用户的利群转发" : undefined}
           variant="flat"
           onPress={() => void doRevoke(g)}
         >
@@ -988,7 +988,7 @@ export function LeiKwanAdminView() {
           <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
             <h1 className="text-2xl font-bold">利群汇聚</h1>
             <span className="text-sm text-default-500">
-              利群专线的规则、授权、入口机都在这一页，不进隧道页和规则页
+              利群专线的转发、授权、入口机都在这一页，不进隧道页和转发页
             </span>
           </div>
           <div className="flex flex-wrap gap-1.5">{headerChips}</div>
@@ -1001,7 +1001,7 @@ export function LeiKwanAdminView() {
             title={
               grants.length === 0
                 ? "还没有授权用户"
-                : "一条订阅链接带上全部利群规则（可选用户）"
+                : "一条订阅链接带上全部利群转发（可选用户）"
             }
             onPress={() => setSubOpen(true)}
           >
@@ -1032,7 +1032,7 @@ export function LeiKwanAdminView() {
             <LkCardTitle
               chip={
                 <Pill tone="purple">
-                  {lineCount} 条专线 · {ruleCount} 条规则
+                  {lineCount} 条专线 · {ruleCount} 条转发
                 </Pill>
               }
               right={
@@ -1055,11 +1055,11 @@ export function LeiKwanAdminView() {
                     variant="flat"
                     onPress={() => actions.openCreate()}
                   >
-                    新增利群规则
+                    添加转发
                   </Button>
                 </div>
               }
-              title="专线 · 规则"
+              title="专线 · 转发"
             />
           </div>
           {groups.map((g) => (
@@ -1107,7 +1107,7 @@ export function LeiKwanAdminView() {
               </p>
             )}
             <p className="text-xs leading-relaxed text-default-500">
-              规则数、流量、到期跟用户自己的走；授权只选主入口和备线开关。
+              转发数、流量、到期跟用户自己的走；授权只选主入口和备线开关。
             </p>
           </LkCard>
           <LkCard className="space-y-3 p-4" data-leikwan-hosts="">
@@ -1250,7 +1250,7 @@ function AdminPhone({
       <div className="flex items-center gap-2">
         <div className="flex min-w-0 flex-1 gap-2 overflow-x-auto">
           <LkTab active={tab === "rules"} onPress={() => setTab("rules")}>
-            规则 {ruleCount}
+            转发 {ruleCount}
           </LkTab>
           <LkTab active={tab === "grants"} onPress={() => setTab("grants")}>
             授权 {grants.length}
@@ -1282,7 +1282,7 @@ function AdminPhone({
               variant="flat"
               onPress={() => actions.openCreate()}
             >
-              新增利群规则
+              添加转发
             </Button>
             <Button
               className="h-11"
@@ -1443,14 +1443,14 @@ function AdminPhone({
                     ))}
                     {g.rules.length === 0 && (
                       <div className="flex items-center justify-between gap-2 rounded-xl border border-dashed border-divider px-3 py-2.5 text-sm text-default-500">
-                        还没有规则
+                        还没有转发
                         <Button
                           color="success"
                           size="sm"
                           variant="flat"
                           onPress={() => actions.openCreate(g.id)}
                         >
-                          ＋ 建规则
+                          ＋ 添加转发
                         </Button>
                       </div>
                     )}
@@ -1500,10 +1500,10 @@ function AdminPhone({
               </LkField>
               <LkField label="备线">
                 <Pill tone={g.backupLine ? "green" : "slate"}>
-                  {g.backupLine ? "开 · 每条规则自动带备线" : "关"}
+                  {g.backupLine ? "开 · 每条转发自动带备线" : "关"}
                 </Pill>
               </LkField>
-              <LkField label="规则">
+              <LkField label="转发">
                 <Pill tone="purple">{g.ruleCount} 条</Pill>
                 <Pill tone="slate">数量 / 到期跟账号</Pill>
                 {g.userName === me && <Pill tone="purple">管理员</Pill>}
@@ -1517,7 +1517,7 @@ function AdminPhone({
               {(g.backupFlow || 0) > 0 && (
                 <LkField label="备线流量">
                   <Pill
-                    title="这个用户的利群规则走备线用掉的流量，从上次重置算起（共用的备线只算一次）"
+                    title="这个用户的利群转发走备线用掉的流量，从上次重置算起（共用的备线只算一次）"
                     tone="green"
                   >
                     {fmtBytes(g.backupFlow)}

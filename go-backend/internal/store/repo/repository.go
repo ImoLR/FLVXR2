@@ -1251,7 +1251,7 @@ func (r *Repository) ListUsers() ([]map[string]interface{}, error) {
 		item := map[string]interface{}{
 			"id": u.ID, "user": u.User, "name": u.Name,
 			"roleId": u.RoleID, "status": u.Status,
-			"flow": u.Flow, "num": u.Num, "expTime": u.ExpTime,
+			"flow": u.Flow, "num": u.Num, "leikwanNum": u.LeiKwanNum, "expTime": u.ExpTime,
 			"flowResetTime": u.FlowResetTime, "createdTime": u.CreatedTime,
 			"updatedTime": nullableInt64(u.UpdatedTime),
 			"inFlow":      u.InFlow, "outFlow": u.OutFlow,

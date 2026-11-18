@@ -763,7 +763,7 @@ func (r *Repository) PrepareSharedLandingDeletion(id int64) (*model.LandingNode,
 			return err
 		}
 		if count > 0 {
-			return errors.New("该节点仍被规则引用，请先删除或修改规则")
+			return errors.New("该节点仍被转发引用，请先删除或修改转发")
 		}
 		// Plan 276 (F05): 利群 rules landing on it keep it too.
 		if err := leiKwanLandingReferenceError(tx, id); err != nil {

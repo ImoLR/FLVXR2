@@ -536,7 +536,7 @@ func TestChainHostCleanupDialects(t *testing.T) {
 			if fmt.Sprint(ids) != "[10 11 12]" {
 				t.Fatalf("idle = %v", ids)
 			}
-			for id, want := range map[int64]string{9: "仍有「我的外部节点」规则", 10: "", 11: "有用户授权", 5: "不是仅链式落地服务器", 404: "落地服务器已不存在"} {
+			for id, want := range map[int64]string{9: "仍有「我的外部节点」转发", 10: "", 11: "有用户授权", 5: "不是仅链式落地服务器", 404: "落地服务器已不存在"} {
 				if got, err := r.ChainHostKeepReason(id); err != nil || got != want {
 					t.Fatalf("keep reason %d = %q %v, want %q", id, got, err, want)
 				}

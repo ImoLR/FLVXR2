@@ -418,6 +418,16 @@ export interface LeiKwanRuleList {
   // Plan 272: global 「只开主入口」 on/off and whether the 订阅 feature is on.
   entryLock?: boolean;
   subEnabled?: boolean;
+  // Plan 280: the user's 利群转发数 (users only; limit 0 / ≥ 99999 = 不限).
+  ruleLimit?: LeiKwanRuleLimit;
+}
+
+export interface LeiKwanRuleLimit {
+  limit: number;
+  used: number;
+  unlimited: boolean;
+  full?: boolean;
+  error?: string;
 }
 
 export interface LeiKwanRuleOptions {
@@ -425,8 +435,9 @@ export interface LeiKwanRuleOptions {
   ownerId: number;
   grant?: LeiKwanGrant;
   grantError?: string;
-  // Plan 268: grantError comes from the user's 到期 / 总规则数.
+  // Plan 268/280: grantError comes from the user's 到期 / 利群转发数.
   userBlocked?: boolean;
+  ruleLimit?: LeiKwanRuleLimit;
   lines: { id: number; name: string; routeLabel: string; backup: boolean }[];
   landings: {
     id: number;

@@ -293,7 +293,7 @@ export default function MyHomePage() {
                 </div>                
                 <div className="p-3 bg-warning-50 dark:bg-warning-900/10 rounded-lg">                 
                   <span className="text-sm font-semibold text-foreground">
-                    规则
+                    转发
                   </span>
                   <p className="font-bold text-warning-500 mt-1 text-lg">
                     {subData.package!.maxRules > 0

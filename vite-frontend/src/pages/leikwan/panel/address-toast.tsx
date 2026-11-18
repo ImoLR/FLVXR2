@@ -53,7 +53,7 @@ function AddressToast({ t, address }: { t: Toast; address: string }) {
           </span>
         </div>
         <p className="mt-1 text-slate-600 dark:text-slate-300">
-          这条规则的落地是你自己填的（手动落地），面板没有它的密码，所以生成不了完整链接，只复制了「地址:端口」。
+          这条转发的落地是你自己填的（手动落地），面板没有它的密码，所以生成不了完整链接，只复制了「地址:端口」。
         </p>
         <p className="mt-1 text-slate-600 dark:text-slate-300">
           用法：在客户端里打开你原来连这个落地的节点，只把

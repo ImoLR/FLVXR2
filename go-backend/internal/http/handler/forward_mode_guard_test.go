@@ -91,11 +91,11 @@ func TestForwardNftablesAdminOnly(t *testing.T) {
 
 		// WG 隧道 stays admin-only.
 		code, msg, _ = e.call(e.h.forwardCreate, "7", 1, `{"name":"x","tunnelId":25,"remoteAddr":"1.1.1.1:443","inPort":16006,"mode":"wg_path","wgPathId":1}`)
-		if code == 0 || !strings.Contains(msg, "WG 隧道规则仅管理员") {
+		if code == 0 || !strings.Contains(msg, "WG 隧道转发仅管理员") {
 			t.Fatalf("user wg create: %d %q", code, msg)
 		}
 		code, msg, _ = e.call(e.h.forwardUpdate, "7", 1, fmt.Sprintf(`{"id":%d,"mode":"wg_path","wgPathId":1}`, own))
-		if code == 0 || !strings.Contains(msg, "WG 隧道规则仅管理员") {
+		if code == 0 || !strings.Contains(msg, "WG 隧道转发仅管理员") {
 			t.Fatalf("user wg update: %d %q", code, msg)
 		}
 	})

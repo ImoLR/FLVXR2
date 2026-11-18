@@ -83,7 +83,7 @@ func (h *Handler) checkForwardImportLineMachine(raw map[string]interface{}, type
 		}
 		landingID := asInt64(row["landing_node_id"], asInt64(row["landingNodeId"], 0))
 		if err := h.lineMachineTargetError(tunnelID, asString(row["mode"]), landingID, landingID > 0); err != nil {
-			return fmt.Errorf("规则「%s」：%s", asString(row["name"]), err.Error())
+			return fmt.Errorf("转发「%s」：%s", asString(row["name"]), err.Error())
 		}
 	}
 	return nil

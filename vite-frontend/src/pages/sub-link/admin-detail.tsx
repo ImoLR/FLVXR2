@@ -44,7 +44,7 @@ const chipOf: Record<
     h5: string;
   }
 > = {
-  rule: { tone: "green", text: "规则", h5: "规则" },
+  rule: { tone: "green", text: "转发", h5: "转发" },
   landing: { tone: "teal", text: "落地", h5: "落地" },
   external: { tone: "purple", text: "外部节点", h5: "外部" },
   source: { tone: "amber", text: "订阅源", h5: "订阅源" },
@@ -56,7 +56,7 @@ const chipOf: Record<
 function itemName(it: SubAdminItem) {
   if (it.group === "source_all")
     return `${it.sourceName || "外部订阅源"} · 整组 ${it.count || 0} 个`;
-  if (it.group === "leikwan_all") return `全部利群规则 · ${it.count || 0} 条`;
+  if (it.group === "leikwan_all") return `全部利群转发 · ${it.count || 0} 条`;
 
   return it.name || "（已删除的节点）";
 }
@@ -68,10 +68,10 @@ function protocolText(it: SubAdminItem) {
 function sourceText(it: SubAdminItem) {
   if (it.group === "source" || it.group === "source_all")
     return `外部订阅源「${it.sourceName || ""}」`;
-  if (it.group === "rule") return "用户的转发规则";
+  if (it.group === "rule") return "用户的转发";
   if (it.group === "landing") return "用户的落地节点";
   if (it.group === "leikwan" || it.group === "leikwan_all")
-    return "用户的利群汇聚规则";
+    return "用户的利群转发";
 
   return "用户的外部节点";
 }

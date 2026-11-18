@@ -135,6 +135,11 @@ func (h *Handler) userCreate(w http.ResponseWriter, r *http.Request) {
 		response.WriteJSON(w, response.Err(-2, err.Error()))
 		return
 	}
+	// Plan 280: 利群转发数 (default 3; 0 / 99999 = 不限 like 总转发数).
+	if err := h.repo.SetUserLeiKwanNum(userID, asInt(req["leikwanNum"], 3)); err != nil {
+		response.WriteJSON(w, response.Err(-2, err.Error()))
+		return
+	}
 	// Plan 159: 默认速率 (a new user has no rules yet: nothing to push).
 	if serverRate > 0 {
 		if err := h.repo.SetUserServerRate(userID, serverRate); err != nil {
@@ -292,6 +297,13 @@ func (h *Handler) userUpdate(w http.ResponseWriter, r *http.Request) {
 
 	if hasServerRate {
 		if err := h.repo.SetUserServerRate(id, serverRate); err != nil {
+			response.WriteJSON(w, response.Err(-2, err.Error()))
+			return
+		}
+	}
+	// Plan 280: 利群转发数; absent keeps it (older clients).
+	if v, ok := req["leikwanNum"]; ok && v != nil {
+		if err := h.repo.SetUserLeiKwanNum(id, asInt(v, 3)); err != nil {
 			response.WriteJSON(w, response.Err(-2, err.Error()))
 			return
 		}
@@ -1086,7 +1098,7 @@ func (h *Handler) nodeUpdate(w http.ResponseWriter, r *http.Request) {
 		if lineMachine && !oldNode.LineMachine {
 			// A 线路机 never runs chain nodes (its IP stays pure forwarding).
 			if n, err := h.repo.NodeChainCopyCount(id); err != nil || n > 0 {
-				response.WriteJSON(w, response.ErrDefault("该节点正作为出口承载「我的外部节点」规则，不能设为线路机；请先把它从这些隧道的出口移除"))
+				response.WriteJSON(w, response.ErrDefault("该节点正作为出口承载「我的外部节点」转发，不能设为线路机；请先把它从这些隧道的出口移除"))
 				return
 			}
 		}
@@ -3211,7 +3223,7 @@ func (h *Handler) forwardCreateWithReq(w http.ResponseWriter, r *http.Request, r
 		return
 	}
 	if mode == "wg_path" && roleID != 0 {
-		response.WriteJSON(w, response.Err(403, "权限不足，WG 隧道规则仅管理员可创建"))
+		response.WriteJSON(w, response.Err(403, "权限不足，WG 隧道转发仅管理员可创建"))
 		return
 	}
 	if err := h.ensureForwardModeAllowed(mode, roleID, userID); err != nil {
@@ -3286,7 +3298,7 @@ func (h *Handler) forwardCreateWithReq(w http.ResponseWriter, r *http.Request, r
 	name := asString(req["name"])
 	remoteAddr := asString(req["remoteAddr"])
 	if isReplay && strings.TrimSpace(remoteAddr) != replay.target {
-		response.WriteJSON(w, response.ErrDefault("链式规则目标异常"))
+		response.WriteJSON(w, response.ErrDefault("链式转发目标异常"))
 		return
 	}
 	if err := h.lineMachinePreCheck(tunnelID, req); err != nil {
@@ -3522,7 +3534,7 @@ func (h *Handler) forwardUpdateWithReq(w http.ResponseWriter, r *http.Request, r
 		return
 	}
 	if mode == "wg_path" && actorRole != 0 {
-		response.WriteJSON(w, response.Err(403, "权限不足，WG 隧道规则仅管理员可更新"))
+		response.WriteJSON(w, response.Err(403, "权限不足，WG 隧道转发仅管理员可更新"))
 		return
 	}
 	if err := h.ensureForwardModeAllowed(mode, actorRole, forward.UserID); err != nil {
@@ -3615,7 +3627,7 @@ func (h *Handler) forwardUpdateWithReq(w http.ResponseWriter, r *http.Request, r
 		remoteAddr = forward.RemoteAddr
 	}
 	if isReplay && remoteAddr != replay.target {
-		response.WriteJSON(w, response.ErrDefault("链式规则目标异常"))
+		response.WriteJSON(w, response.ErrDefault("链式转发目标异常"))
 		return
 	}
 	if err := h.lineMachinePreCheck(tunnelID, req); err != nil {
@@ -3663,7 +3675,7 @@ func (h *Handler) forwardUpdateWithReq(w http.ResponseWriter, r *http.Request, r
 		// A chain rule's loopback target is owned by its chain: only the
 		// chain paths (edit dialog, driver) may keep or change it.
 		if chain, _ := h.repo.GetForwardChainByForward(id); chain != nil && remoteAddr == chainTarget(chain.Port) {
-			response.WriteJSON(w, response.ErrDefault("「我的外部节点」规则请在编辑弹窗中修改"))
+			response.WriteJSON(w, response.ErrDefault("「我的外部节点」转发请在编辑弹窗中修改"))
 			return
 		}
 	}
@@ -4479,7 +4491,7 @@ func (h *Handler) forwardBatchChangeTunnel(w http.ResponseWriter, r *http.Reques
 		}
 		if forward.TunnelID == req.TargetTunnelID {
 			fail++
-			failures = appendBatchFailureReason(failures, id, forward.Name, "规则已在目标隧道中")
+			failures = appendBatchFailureReason(failures, id, forward.Name, "转发已在目标隧道中")
 			continue
 		}
 		if actorRole == 0 && forward.UserID != actorUserID {
@@ -4491,7 +4503,7 @@ func (h *Handler) forwardBatchChangeTunnel(w http.ResponseWriter, r *http.Reques
 		}
 		if chain, _ := h.repo.GetForwardChainByForward(id); chain != nil {
 			fail++
-			failures = appendBatchFailureReason(failures, id, forward.Name, "「我的外部节点」规则请在编辑中单独更换隧道")
+			failures = appendBatchFailureReason(failures, id, forward.Name, "「我的外部节点」转发请在编辑中单独更换隧道")
 			continue
 		}
 		if err := h.lineMachineTargetError(req.TargetTunnelID, forward.Mode, forward.LandingNodeID, forward.LandingNodeID > 0); err != nil {
@@ -6235,7 +6247,7 @@ func parseWGForwardRequest(req map[string]interface{}) (int64, string, string, s
 		ruleType = "port"
 	}
 	if ruleType != "port" && ruleType != "cidr" && ruleType != "local" {
-		return 0, "", "", "", true, errors.New("WG 规则类型无效")
+		return 0, "", "", "", true, errors.New("WG 转发类型无效")
 	}
 	sourceCIDR := strings.TrimSpace(asString(req["sourceCidr"]))
 	targetCIDR := strings.TrimSpace(asString(req["targetCidr"]))
@@ -6764,10 +6776,10 @@ func validateForwardRuleCaps(user *model.User, maxConnections, maxClientIps int)
 		return nil
 	}
 	if user.MaxConnections > 0 && maxConnections > user.MaxConnections {
-		return fmt.Errorf("规则连接数限制不能超过用户总连接数限制（%d）", user.MaxConnections)
+		return fmt.Errorf("转发连接数限制不能超过用户总连接数限制（%d）", user.MaxConnections)
 	}
 	if user.MaxClientIps > 0 && maxClientIps > user.MaxClientIps {
-		return fmt.Errorf("规则接入 IP 数限制不能超过用户总接入 IP 数限制（%d）", user.MaxClientIps)
+		return fmt.Errorf("转发接入 IP 数限制不能超过用户总接入 IP 数限制（%d）", user.MaxClientIps)
 	}
 	return nil
 }

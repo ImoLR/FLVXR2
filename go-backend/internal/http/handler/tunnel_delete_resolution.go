@@ -214,7 +214,7 @@ func (h *Handler) tunnelDeleteWithForwards(w http.ResponseWriter, r *http.Reques
 	if len(failures) > 0 {
 		response.WriteJSON(w, response.R{
 			Code: -2,
-			Msg:  "部分规则迁移失败",
+			Msg:  "部分转发迁移失败",
 			TS:   time.Now().UnixMilli(),
 			Data: batchOperationResult{SuccessCount: 0, FailCount: len(failures), Failures: failures},
 		})
@@ -417,12 +417,12 @@ func summarizeTunnelDeleteRuleFailures(failures []batchFailureDetail) string {
 		}
 		name := strings.TrimSpace(failure.Name)
 		if name == "" {
-			name = fmt.Sprintf("规则 #%d", failure.ID)
+			name = fmt.Sprintf("转发 #%d", failure.ID)
 		}
 		parts = append(parts, fmt.Sprintf("%s: %s", name, strings.TrimSpace(failure.Reason)))
 	}
 	if len(failures) > 3 {
-		parts = append(parts, fmt.Sprintf("另有 %d 条规则失败", len(failures)-3))
+		parts = append(parts, fmt.Sprintf("另有 %d 条转发失败", len(failures)-3))
 	}
 	return strings.Join(parts, "；")
 }
@@ -570,7 +570,7 @@ func (h *Handler) planSingleTunnelDeleteForwardMigration(forward *forwardRecord,
 		}
 	}
 	if hasCustomInIP && len(targetEntryNodes) > 1 {
-		return tunnelForwardMigrationPlan{}, errors.New("多入口隧道的转发不支持保留自定义监听IP，请先手动调整该规则")
+		return tunnelForwardMigrationPlan{}, errors.New("多入口隧道的转发不支持保留自定义监听IP，请先手动调整该转发")
 	}
 
 	for _, nodeID := range targetEntryNodes {
@@ -588,7 +588,7 @@ func (h *Handler) planSingleTunnelDeleteForwardMigration(forward *forwardRecord,
 			return tunnelForwardMigrationPlan{}, err
 		}
 		if reservedOnNode, ok := reservedPorts[nodeID]; ok && reservedOnNode[targetPort] {
-			return tunnelForwardMigrationPlan{}, fmt.Errorf("目标隧道入口节点端口 %d 已被本次迁移中的其他规则占用", targetPort)
+			return tunnelForwardMigrationPlan{}, fmt.Errorf("目标隧道入口节点端口 %d 已被本次迁移中的其他转发占用", targetPort)
 		}
 	}
 

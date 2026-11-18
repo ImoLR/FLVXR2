@@ -267,7 +267,7 @@ func ExternalInUseError(uses []LandingExternalUse) error {
 		parts = append(parts, "落地节点 "+label(chain, "个")+" 用作链式代理")
 	}
 	if len(lk) > 0 {
-		parts = append(parts, "利群规则 "+label(lk, "条")+" 用作落地")
+		parts = append(parts, "利群转发 "+label(lk, "条")+" 用作落地")
 	}
 	if len(fw) > 0 {
 		parts = append(parts, "转发 "+label(fw, "条")+" 用作目标")
@@ -279,9 +279,9 @@ func ExternalInUseError(uses []LandingExternalUse) error {
 	case len(fw) > 0:
 		fix = "请先处理上面这些用途（改回直连 / 换落地 / 换目标或删除）再删除"
 	case len(lk) > 0 && len(chain) == 0:
-		fix = "请先给这些利群规则换落地或删除规则再删除"
+		fix = "请先给这些利群转发换落地或删除转发再删除"
 	case len(lk) > 0:
-		fix = "请先把落地节点改回直连、给利群规则换落地（或删除规则）再删除"
+		fix = "请先把落地节点改回直连、给利群转发换落地（或删除转发）再删除"
 	}
 	return fmt.Errorf("这个外部节点正被%s，%s", strings.Join(parts, "，并被"), fix)
 }

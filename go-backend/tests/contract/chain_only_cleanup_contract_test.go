@@ -121,7 +121,7 @@ func runChainOnlyCleanup(t *testing.T, dialect string) {
 	if got := idle(); fmt.Sprint(got) != fmt.Sprint([]int64{servers["Bestvm JP B"]}) {
 		t.Fatalf("idle after delete = %v, want [%d]", got, servers["Bestvm JP B"])
 	}
-	if why, err := r.ChainHostKeepReason(servers["Bestvm US"]); err != nil || why != "仍有「我的外部节点」规则" {
+	if why, err := r.ChainHostKeepReason(servers["Bestvm US"]); err != nil || why != "仍有「我的外部节点」转发" {
 		t.Fatalf("Bestvm US keep reason = %q %v", why, err)
 	}
 	if removed, why, err := r.DeleteIdleChainOnlyServer(servers["Bestvm US"]); err != nil || removed || why == "" {

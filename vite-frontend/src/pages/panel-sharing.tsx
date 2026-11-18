@@ -437,7 +437,7 @@ export default function PanelSharingPage() {
         };
 
         toast.success(
-          `远程节点已删除，删除 ${data.deletedTunnelCount || 0} 条隧道、${data.deletedForwardCount || 0} 条规则，保留 ${data.keptTunnelCount || 0} 条中继隧道`,
+          `远程节点已删除，删除 ${data.deletedTunnelCount || 0} 条隧道、${data.deletedForwardCount || 0} 条转发，保留 ${data.keptTunnelCount || 0} 条中继隧道`,
         );
         if (data.warnings?.length) {
           toast.error(data.warnings[0]);
@@ -1087,7 +1087,7 @@ export default function PanelSharingPage() {
           <ModalBody>
             {deletePreviewLoading ? (
               <div className="rounded-2xl border border-default-200 bg-default-50/80 p-5 text-sm text-default-600">
-                正在分析该远程节点关联的隧道和规则...
+                正在分析该远程节点关联的隧道和转发...
               </div>
             ) : deletePreview ? (
               <div className="space-y-4">
@@ -1099,7 +1099,7 @@ export default function PanelSharingPage() {
                     </div>
                   </div>
                   <div className="rounded-2xl border border-warning-200/70 bg-warning-50/80 p-4 dark:bg-warning-500/10">
-                    <div className="text-xs text-warning-700">删除规则</div>
+                    <div className="text-xs text-warning-700">删除转发</div>
                     <div className="mt-1 text-2xl font-semibold text-warning-700">
                       {deletePreview.deleteForwards.length +
                         deletePreview.deleteTunnels.reduce(
@@ -1137,7 +1137,7 @@ export default function PanelSharingPage() {
                               </div>
                             </div>
                             <div className="rounded-full bg-danger-100 px-2 py-1 text-xs text-danger-700">
-                              {tunnel.forwards.length} 条规则
+                              {tunnel.forwards.length} 条转发
                             </div>
                           </div>
                           {tunnel.forwards.length > 0 && (
@@ -1147,7 +1147,7 @@ export default function PanelSharingPage() {
                                   key={`${tunnel.tunnelId}-${forward.id}`}
                                   className="rounded-full bg-default-100 px-2 py-1 text-xs text-default-600"
                                 >
-                                  {forward.name || `规则 #${forward.id}`}:
+                                  {forward.name || `转发 #${forward.id}`}:
                                   {forward.inPort}
                                 </span>
                               ))}
@@ -1162,7 +1162,7 @@ export default function PanelSharingPage() {
                 {deletePreview.deleteForwards.length > 0 && (
                   <div className="rounded-2xl border border-warning-200/70 bg-warning-50/70 p-4 dark:bg-warning-500/10">
                     <div className="mb-3 text-sm font-semibold text-warning-700">
-                      将一并删除的独立规则
+                      将一并删除的独立转发
                     </div>
                     <div className="flex flex-wrap gap-2">
                       {deletePreview.deleteForwards.map((forward) => (
@@ -1170,7 +1170,7 @@ export default function PanelSharingPage() {
                           key={forward.id}
                           className="rounded-full bg-background/80 px-3 py-1 text-xs text-default-700"
                         >
-                          {forward.name || `规则 #${forward.id}`}:{forward.inPort}
+                          {forward.name || `转发 #${forward.id}`}:{forward.inPort}
                         </span>
                       ))}
                     </div>
@@ -1180,7 +1180,7 @@ export default function PanelSharingPage() {
                 {deletePreview.keepTunnels.length > 0 && (
                   <div className="rounded-2xl border border-primary-200/70 bg-primary-50/70 p-4 dark:bg-primary-500/10">
                     <div className="mb-3 text-sm font-semibold text-primary">
-                      仅移除该远程节点中继引用，隧道与规则保留
+                      仅移除该远程节点中继引用，隧道与转发保留
                     </div>
                     <div className="space-y-2">
                       {deletePreview.keepTunnels.map((tunnel) => (

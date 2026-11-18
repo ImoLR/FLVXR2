@@ -315,10 +315,10 @@ func (h *Handler) lineComplianceAckEligible(f *forwardRecord) error {
 		return errors.New("转发不存在")
 	}
 	if strings.EqualFold(f.Mode, "wg_path") || !h.isLineMachineTunnel(f.TunnelID) {
-		return errors.New("只有线路机隧道上的规则需要确认合规")
+		return errors.New("只有线路机隧道上的转发需要确认合规")
 	}
 	if chain, _ := h.repo.GetForwardChainByForward(f.ID); chain != nil {
-		return errors.New("「我的外部节点」规则由面板管理，不能手动确认合规")
+		return errors.New("「我的外部节点」转发由面板管理，不能手动确认合规")
 	}
 	if f.LandingNodeID > 0 {
 		return errors.New("目标是落地节点，面板已知协议，不能手动确认合规")

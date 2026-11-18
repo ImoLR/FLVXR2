@@ -84,7 +84,7 @@ export function TrafficPoolsEditor({
     <div data-traffic-pools className="space-y-2">
       <h4 className="text-sm font-medium">共享流量池</h4>
       <p className="text-xs text-default-500">
-        池内服务器共用一个流量额度（计费流量，周期跟随用户流量重置日）。同一条流量经过池内多台服务器只算一次，所以池的已用不等于各服务器已用之和。一台服务器只能加入该用户的一个池；池用完后，经过池内服务器的规则和池内服务器上的落地节点会暂停，到重置日或调高限额后自动恢复。
+        池内服务器共用一个流量额度（计费流量，周期跟随用户流量重置日）。同一条流量经过池内多台服务器只算一次，所以池的已用不等于各服务器已用之和。一台服务器只能加入该用户的一个池；池用完后，经过池内服务器的转发和池内服务器上的落地节点会暂停，到重置日或调高限额后自动恢复。
       </p>
       {pools.length === 0 && (
         <p className="text-sm text-default-500">暂无共享流量池。</p>
@@ -148,7 +148,7 @@ export function TrafficPoolsEditor({
               </Button>
             </div>
             {pool.paused && (
-              <Pill tone="red">额度已用完，相关规则与落地节点已暂停</Pill>
+              <Pill tone="red">额度已用完，相关转发与落地节点已暂停</Pill>
             )}
             <div className="flex flex-wrap gap-1.5">
               {pool.members.map((member) => {

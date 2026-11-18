@@ -1168,7 +1168,7 @@ export default function TunnelPage() {
           (tunnel) => tunnel.id === deleteTargetTunnelId,
         ))
     ) {
-      toast.error("请选择替换规则的目标隧道");
+      toast.error("请选择替换转发的目标隧道");
 
       return;
     }
@@ -1231,7 +1231,7 @@ export default function TunnelPage() {
             failures,
             open: true,
             summary: `成功 ${Number(result.successCount ?? 0)} 项，失败 ${Number(result.failCount ?? failures.length)} 项`,
-            title: "规则处理失败",
+            title: "转发处理失败",
           });
         }
         toast.error(response.msg || "删除失败");
@@ -1651,7 +1651,7 @@ export default function TunnelPage() {
       }
       toast.success(
         warmChanged
-          ? "已保存（预热池几秒内生效，线路与规则未重新下发）"
+          ? "已保存（预热池几秒内生效，线路与转发未重新下发）"
           : "显示地区已保存（只改显示，线路未重新下发）",
       );
       setModalOpen(false);
@@ -2356,7 +2356,7 @@ export default function TunnelPage() {
       batchDeleteAction === "replace" &&
       (!batchDeleteTargetTunnelId || batchDeleteReplaceUnavailable)
     ) {
-      toast.error("请选择替换规则的目标隧道");
+      toast.error("请选择替换转发的目标隧道");
 
       return;
     }
@@ -4026,8 +4026,8 @@ export default function TunnelPage() {
     batchDeleteReplacementTunnels.length === 0;
   const batchDeleteConfirmLabel = batchDeleteHasForwardDependencies
     ? batchDeleteAction === "replace"
-      ? `迁移规则后删除这 ${selectedTunnelIdList.length} 条隧道`
-      : `删除规则并删除 ${selectedTunnelIdList.length} 条隧道`
+      ? `迁移转发后删除这 ${selectedTunnelIdList.length} 条隧道`
+      : `删除转发并删除 ${selectedTunnelIdList.length} 条隧道`
     : `删除这 ${selectedTunnelIdList.length} 条隧道`;
 
   if (loading) {
@@ -4703,7 +4703,7 @@ export default function TunnelPage() {
                                 预热池
                               </div>
                               <p className="text-xs text-default-500">
-                                有规则时提前备好到下一跳的连接，新连接首包更快（端口转发预热到每条规则的目标）。切换不会重新下发线路
+                                有转发时提前备好到下一跳的连接，新连接首包更快（端口转发预热到每条转发的目标）。切换不会重新下发线路
                               </p>
                             </div>
                             <Switch
@@ -5650,10 +5650,10 @@ export default function TunnelPage() {
                                 >
                                   <div className="min-w-0">
                                     <div className="text-sm font-semibold text-foreground">
-                                      规则最优
+                                      转发最优
                                     </div>
                                     <p className="text-xs text-default-500">
-                                      开启后，规则会把出口到落地的延迟也算进最优选路
+                                      开启后，转发会把出口到落地的延迟也算进最优选路
                                       {(form.outNodeId?.filter(
                                         (n) => n.nodeId > 0,
                                       ).length ?? 0) < 2
@@ -5662,7 +5662,7 @@ export default function TunnelPage() {
                                     </p>
                                   </div>
                                   <Switch
-                                    aria-label="规则最优"
+                                    aria-label="转发最优"
                                     className="mt-0.5 shrink-0"
                                     isSelected={form.ruleBest !== 0}
                                     onValueChange={(on) =>
@@ -5791,7 +5791,7 @@ export default function TunnelPage() {
                             className="text-xs font-medium text-warning-600 dark:text-warning-400 mt-2"
                           >
                             ⚠ 开启后此隧道上 {filterAffected.length}{" "}
-                            条规则将无法连接（落地节点协议带{" "}
+                            条转发将无法连接（落地节点协议带{" "}
                             {Array.from(
                               new Set(
                                 filterAffected.map((rule) =>
@@ -5809,7 +5809,7 @@ export default function TunnelPage() {
                               )
                               .join("、")}
                             {filterAffected.length > 10 ? " 等" : ""}
-                            。仍可保存，规则不会被修改或删除。
+                            。仍可保存，转发不会被修改或删除。
                           </div>
                         )}
                   </div>
@@ -5866,8 +5866,8 @@ export default function TunnelPage() {
                 <h2 className="text-lg font-bold sm:text-xl">删除隧道</h2>
                 <p className="text-xs font-normal leading-5 text-default-500 sm:text-sm">
                   {tunnelDeletePreview?.tunnelName || tunnelToDelete?.name
-                    ? `即将删除“${tunnelDeletePreview?.tunnelName || tunnelToDelete?.name}”，删除前会先检查是否有关联规则。`
-                    : "删除前会先检查是否有关联规则。"}
+                    ? `即将删除“${tunnelDeletePreview?.tunnelName || tunnelToDelete?.name}”，删除前会先检查是否有关联转发。`
+                    : "删除前会先检查是否有关联转发。"}
                 </p>
               </ModalHeader>
               <ModalBody className="space-y-3 sm:space-y-4">
@@ -5889,21 +5889,21 @@ export default function TunnelPage() {
                 {deletePreviewLoading ? (
                   <div className="flex items-center gap-3 rounded-xl border border-divider bg-content2/40 px-3 py-5 text-sm text-default-600 sm:px-4 sm:py-6">
                     <Spinner size="sm" />
-                    正在检查是否有规则正在使用该隧道...
+                    正在检查是否有转发正在使用该隧道...
                   </div>
                 ) : deleteHasForwardDependencies ? (
                   <>
                     <Alert
                       color="warning"
-                      description={`隧道 \"${tunnelDeletePreview?.tunnelName || tunnelToDelete?.name || ""}\" 当前被 ${deletePreviewForwardCount} 条规则使用。删除前需要先处理这些规则。`}
-                      title="发现关联规则"
+                      description={`隧道 \"${tunnelDeletePreview?.tunnelName || tunnelToDelete?.name || ""}\" 当前被 ${deletePreviewForwardCount} 条转发使用。删除前需要先处理这些转发。`}
+                      title="发现关联转发"
                       variant="flat"
                     />
                     {(tunnelDeletePreview?.sampleForwards?.length ?? 0) > 0 ? (
                       <div className="space-y-3 rounded-xl border border-divider bg-content2/40 p-3 sm:p-4">
                         <div className="flex items-center justify-between gap-3">
                           <h3 className="text-sm font-semibold text-foreground">
-                            关联规则预览
+                            关联转发预览
                           </h3>
                           <span className="text-xs text-default-500">
                             前{" "}
@@ -5941,7 +5941,7 @@ export default function TunnelPage() {
                             {deletePreviewForwardCount -
                               (tunnelDeletePreview?.sampleForwards?.length ??
                                 0)}{" "}
-                            条规则未展开显示。
+                            条转发未展开显示。
                           </p>
                         ) : null}
                       </div>
@@ -5964,19 +5964,19 @@ export default function TunnelPage() {
                       }}
                     >
                       <Radio value="replace">
-                        保留规则，迁移到其他隧道
+                        保留转发，迁移到其他隧道
                         {deleteReplaceUnavailable
                           ? "（当前无可用目标）"
                           : "（推荐）"}
                       </Radio>
                       <Radio value="delete_forwards">
-                        直接删除这些关联规则
+                        直接删除这些关联转发
                       </Radio>
                     </RadioGroup>
                     {deleteReplaceUnavailable ? (
                       <Alert
                         color="warning"
-                        description="没有所有规则主人都有权限的其他启用隧道，只能删除关联规则后再删除该隧道。"
+                        description="没有所有转发主人都有权限的其他启用隧道，只能删除关联转发后再删除该隧道。"
                         variant="flat"
                       />
                     ) : null}
@@ -6006,7 +6006,7 @@ export default function TunnelPage() {
                           ))}
                         </Select>
                         <p className="text-xs text-default-500">
-                          关联规则会迁移到这里。只列出所有规则主人都有权限的隧道，当前要删除的隧道不会出现在可选项里。
+                          关联转发会迁移到这里。只列出所有转发主人都有权限的隧道，当前要删除的隧道不会出现在可选项里。
                         </p>
                       </div>
                     ) : null}
@@ -6014,7 +6014,7 @@ export default function TunnelPage() {
                 ) : (
                   <Alert
                     color="warning"
-                    description={`当前未发现关联规则。确认后将直接删除“${tunnelToDelete?.name || "该隧道"}”，此操作不可撤销。`}
+                    description={`当前未发现关联转发。确认后将直接删除“${tunnelToDelete?.name || "该隧道"}”，此操作不可撤销。`}
                     title="可以直接删除"
                     variant="flat"
                   />
@@ -6618,7 +6618,7 @@ export default function TunnelPage() {
                 <h2 className="text-lg font-bold sm:text-xl">批量删除隧道</h2>
                 <p className="text-xs font-normal leading-5 text-default-500 sm:text-sm">
                   即将删除这 {selectedTunnelIdList.length}{" "}
-                  条隧道，删除前会先检查是否有关联规则。
+                  条隧道，删除前会先检查是否有关联转发。
                 </p>
               </ModalHeader>
               <ModalBody className="space-y-3 sm:space-y-4">
@@ -6644,14 +6644,14 @@ export default function TunnelPage() {
                 {batchDeletePreviewLoading ? (
                   <div className="flex items-center gap-3 rounded-xl border border-divider bg-content2/40 px-3 py-5 text-sm text-default-600 sm:px-4 sm:py-6">
                     <Spinner size="sm" />
-                    正在检查选中隧道是否有关联规则...
+                    正在检查选中隧道是否有关联转发...
                   </div>
                 ) : batchDeleteHasForwardDependencies ? (
                   <>
                     <Alert
                       color="warning"
-                      description={`已选 ${selectedTunnelIdList.length} 条隧道，其中 ${batchDeleteDependentTunnelCount} 条仍被规则使用，共 ${batchDeleteTotalForwardCount} 条规则待处理。${batchDeleteDirectDeleteTunnelCount > 0 ? `其余 ${batchDeleteDirectDeleteTunnelCount} 条会直接删除。` : ""}`}
-                      title="发现关联规则"
+                      description={`已选 ${selectedTunnelIdList.length} 条隧道，其中 ${batchDeleteDependentTunnelCount} 条仍被转发使用，共 ${batchDeleteTotalForwardCount} 条转发待处理。${batchDeleteDirectDeleteTunnelCount > 0 ? `其余 ${batchDeleteDirectDeleteTunnelCount} 条会直接删除。` : ""}`}
+                      title="发现关联转发"
                       variant="flat"
                     />
                     <div className="max-h-64 space-y-3 overflow-y-auto rounded-xl border border-divider bg-content2/40 p-3 sm:max-h-72 sm:p-4">
@@ -6666,7 +6666,7 @@ export default function TunnelPage() {
                                 {item.tunnelName}
                               </p>
                               <p className="mt-1 text-xs text-default-500">
-                                {item.forwardCount} 条规则依赖
+                                {item.forwardCount} 条转发依赖
                               </p>
                             </div>
                             <div className="inline-flex items-center justify-center px-1.5 py-0.5 rounded text-[11px] font-medium bg-warning-500/10 text-warning-600 dark:text-warning-400">
@@ -6700,7 +6700,7 @@ export default function TunnelPage() {
                                   还有{" "}
                                   {item.forwardCount -
                                     item.sampleForwards.length}{" "}
-                                  条规则未展开显示。
+                                  条转发未展开显示。
                                 </p>
                               ) : null}
                             </div>
@@ -6726,19 +6726,19 @@ export default function TunnelPage() {
                       }}
                     >
                       <Radio value="replace">
-                        保留规则，统一迁移到其他隧道
+                        保留转发，统一迁移到其他隧道
                         {batchDeleteReplaceUnavailable
                           ? "（当前无可用目标）"
                           : "（推荐）"}
                       </Radio>
                       <Radio value="delete_forwards">
-                        直接删除这些关联规则
+                        直接删除这些关联转发
                       </Radio>
                     </RadioGroup>
                     {batchDeleteReplaceUnavailable ? (
                       <Alert
                         color="warning"
-                        description="没有所有规则主人都有权限的启用隧道，只能删除关联规则后再删除所选隧道。"
+                        description="没有所有转发主人都有权限的启用隧道，只能删除关联转发后再删除所选隧道。"
                         variant="flat"
                       />
                     ) : null}
@@ -6769,7 +6769,7 @@ export default function TunnelPage() {
                           ))}
                         </Select>
                         <p className="text-xs text-default-500">
-                          所有关联规则都会迁移到这里。只列出所有规则主人都有权限的隧道，删除列表中的隧道不会出现在可选项里。
+                          所有关联转发都会迁移到这里。只列出所有转发主人都有权限的隧道，删除列表中的隧道不会出现在可选项里。
                         </p>
                       </div>
                     ) : null}
@@ -6777,7 +6777,7 @@ export default function TunnelPage() {
                 ) : (
                   <Alert
                     color="warning"
-                    description={`已选 ${selectedTunnelIdList.length} 条隧道，当前未发现关联规则。确认后将直接删除这些隧道，此操作不可撤销。`}
+                    description={`已选 ${selectedTunnelIdList.length} 条隧道，当前未发现关联转发。确认后将直接删除这些隧道，此操作不可撤销。`}
                     title="可以直接删除"
                     variant="flat"
                   />

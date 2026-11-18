@@ -315,7 +315,7 @@ export function ProbeSettingsCard({ enabled }: { enabled: boolean }) {
               任何人都能打开 <span className="font-mono">/tz</span>{" "}
               查看下面勾选的服务器：CPU、内存、硬盘、负载、网速、流量、TCP
               连接数和机器之间的延迟{expiry ? "，以及到期剩余天数" : ""}。
-              不公开 IP、端口、节点编号、程序版本、隧道、规则和用户。
+              不公开 IP、端口、节点编号、程序版本、隧道、转发和用户。
             </p>
           </div>
           <a

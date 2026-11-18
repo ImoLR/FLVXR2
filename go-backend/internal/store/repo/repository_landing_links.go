@@ -362,7 +362,7 @@ func matchLandingTarget(db *gorm.DB, userID, tunnelID int64, remoteAddr string) 
 			}
 			if matched {
 				if len(targets) != 1 {
-					return 0, errors.New("规则包含面板落地节点时只能设置一个目标")
+					return 0, errors.New("转发包含面板落地节点时只能设置一个目标")
 				}
 				if ln.UserID == userID {
 					own = ln.ID
@@ -426,7 +426,7 @@ func (r *Repository) ValidateNodeLandingPortRange(nodeID int64, spec string) err
 		if lo <= 0 || len(portSpansOverlap(parsePortSpans(spec), lo, hi)) == 0 {
 			continue
 		}
-		msg := "端口 " + formatPortRange(lo, hi) + " 已留给落地，请从规则端口段里排除"
+		msg := "端口 " + formatPortRange(lo, hi) + " 已留给落地，请从转发端口段里排除"
 		if hint, _ := landingRuleSpec(spec, "", 0, 0, lo, hi, nil); hint != "" {
 			msg += "（例如改成 " + hint + "）"
 		}
@@ -455,7 +455,7 @@ func (r *Repository) ValidateNodeLandingPortRange(nodeID int64, spec string) err
 	}
 	for _, p := range parsePortRangeSpec(spec) {
 		if reserved[p] {
-			return errors.New("节点规则端口段与已有落地节点端口冲突")
+			return errors.New("节点转发端口段与已有落地节点端口冲突")
 		}
 	}
 	return nil

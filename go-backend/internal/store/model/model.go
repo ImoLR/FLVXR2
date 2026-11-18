@@ -21,7 +21,8 @@ type User struct {
 	OutFlow                 int64         `gorm:"column:out_flow;not null;default:0"`
 	FlowResetTime           int64         `gorm:"column:flow_reset_time;not null"`
 	Num                     int           `gorm:"not null"`
-	Inx                     int           `gorm:"column:inx;default:0"` // 排序索引
+	LeiKwanNum              int           `gorm:"column:leikwan_num;not null;default:3"` // 利群转发数 (plan 280): 利群 forwards only, separate from Num; 0/99999 = 不限
+	Inx                     int           `gorm:"column:inx;default:0"`                  // 排序索引
 	CreatedTime             int64         `gorm:"column:created_time;not null"`
 	UpdatedTime             sql.NullInt64 `gorm:"column:updated_time"`
 	Status                  int           `gorm:"not null"`

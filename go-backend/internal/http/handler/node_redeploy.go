@@ -309,7 +309,7 @@ func (h *Handler) syncTunnelForwardsOnNode(tunnelID, nodeID int64) error {
 	var failures []string
 	for i := range forwards {
 		if err := h.syncForwardServicesOnNode(&forwards[i], nodeID); err != nil {
-			failures = append(failures, fmt.Sprintf("规则 %s(%d): %v", forwards[i].Name, forwards[i].ID, err))
+			failures = append(failures, fmt.Sprintf("转发 %s(%d): %v", forwards[i].Name, forwards[i].ID, err))
 		}
 	}
 	if len(failures) > 0 {

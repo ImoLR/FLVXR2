@@ -66,7 +66,7 @@ func (h *Handler) forwardClientIPs(w http.ResponseWriter, r *http.Request) {
 		ID int64 `json:"id"`
 	}
 	if err := decodeJSON(r.Body, &req); err != nil || req.ID <= 0 {
-		response.WriteJSON(w, response.ErrDefault("无效的规则 ID"))
+		response.WriteJSON(w, response.ErrDefault("无效的转发 ID"))
 		return
 	}
 	forward, err := h.repo.GetForwardRecord(req.ID)
@@ -75,7 +75,7 @@ func (h *Handler) forwardClientIPs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if forward == nil {
-		response.WriteJSON(w, response.ErrDefault("规则不存在"))
+		response.WriteJSON(w, response.ErrDefault("转发不存在"))
 		return
 	}
 	ports, err := h.repo.ListForwardPorts(req.ID)

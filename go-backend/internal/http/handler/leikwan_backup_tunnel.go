@@ -230,7 +230,7 @@ func (h *Handler) leikwanLineBackupRebuild(w http.ResponseWriter, r *http.Reques
 	}
 	all, err := h.repo.ListLeiKwanRules(0)
 	if err != nil {
-		leiKwanError(w, errors.New("读取利群规则失败"))
+		leiKwanError(w, errors.New("读取利群转发失败"))
 		return
 	}
 	rules := []model.LeiKwanRule{}
@@ -245,7 +245,7 @@ func (h *Handler) leikwanLineBackupRebuild(w http.ResponseWriter, r *http.Reques
 	}
 	backups, err := h.repo.LeiKwanBackupForwards(ids)
 	if err != nil {
-		leiKwanError(w, errors.New("读取备线规则失败"))
+		leiKwanError(w, errors.New("读取备线转发失败"))
 		return
 	}
 	grants, _ := h.repo.ListLeiKwanGrants()
@@ -296,8 +296,9 @@ func (h *Handler) leikwanLineBackupRebuild(w http.ResponseWriter, r *http.Reques
 	response.WriteJSON(w, response.OK(map[string]interface{}{"result": res, "warnings": warnings}))
 }
 
-// leiKwanUserRuleCount (plan 268): the user's 利群 rules, which count toward
-// 总规则数 — the dashboard adds them to 已用规则.
+// leiKwanUserRuleCount: the user's 利群 rules. Plan 280: they count only
+// against 利群转发数 (leikwanNum); the dashboard shows 「利群转发 x / N」 next to
+// 已用转发 (which no longer includes them).
 func (h *Handler) leiKwanUserRuleCount(userID int64) int64 {
 	n, err := h.repo.CountLeiKwanRules(userID)
 	if err != nil {

@@ -109,7 +109,7 @@ func SeedPresets() []Preset {
 // Shadowsocks family: SS nodes are meant to be used through FLVX forwarding
 // (a direct SS connection from the mainland burns the landing IP), while
 // VLESS Reality and the other protocols are made for direct use.
-const BlockCNDescription = "三条规则插在最前，默认开启：屏蔽大陆 IP、屏蔽大陆网站、禁止大陆直连。禁止大陆直连只作用于 SS 类节点（SS2022），VLESS Reality 等节点仍可从大陆直连；经 FLVX 规则转发的连接来自 FLVX 节点（及来源白名单），不受影响"
+const BlockCNDescription = "三条规则插在最前，默认开启：屏蔽大陆 IP、屏蔽大陆网站、禁止大陆直连。禁止大陆直连只作用于 SS 类节点（SS2022），VLESS Reality 等节点仍可从大陆直连；经 FLVX 转发的连接来自 FLVX 节点（及来源白名单），不受影响"
 
 // BlockCNRules are the rules of the 「屏蔽中国大陆」 preset.
 func BlockCNRules() []Rule {

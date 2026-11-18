@@ -148,10 +148,10 @@ export function BackupFlowPill({ rule }: { rule: LeiKwanRule }) {
     others > 0
       ? `\n这条备线和${names ? `「${names}」` : ""}${
           names && others > (rule.backupSharedWith || []).length
-            ? `等 ${others} 条规则`
+            ? `等 ${others} 条转发`
             : names
               ? ""
-              : ` ${others} 条其他规则`
+              : ` ${others} 条其他转发`
         }共用，显示的是整条备线的流量，没有拆分`
       : "";
 
@@ -227,7 +227,7 @@ export function AdminBackupChip({ rule }: { rule: LeiKwanRule }) {
 
   return (
     <Pill
-      title={`${b.name || ""} · ${b.tunnelName || ""} · 入口 ${b.entry || "—"} → ${b.remoteAddr || "—"}\n${b.mode === "linked" ? "导入时链接的现有规则" : "面板自动建的"} · 已用 ${fmtBytes((b.inFlow || 0) + (b.outFlow || 0))}`}
+      title={`${b.name || ""} · ${b.tunnelName || ""} · 入口 ${b.entry || "—"} → ${b.remoteAddr || "—"}\n${b.mode === "linked" ? "导入时链接的现有转发" : "面板自动建的"} · 已用 ${fmtBytes((b.inFlow || 0) + (b.outFlow || 0))}`}
       tone={b.missing ? "amber" : "green"}
     >
       备线 #{b.forwardId}
@@ -324,8 +324,8 @@ export function AllEntriesPill({
       data-leikwan-all-entries={on ? "on" : "off"}
       title={
         on
-          ? "这条规则在所有利群入口机上都能连（不受「只开主入口」限制）；点一下改"
-          : "这条规则只在主人的主入口机上能连；点一下改成所有入口可用"
+          ? "这条转发在所有利群入口机上都能连（不受「只开主入口」限制）；点一下改"
+          : "这条转发只在主人的主入口机上能连；点一下改成所有入口可用"
       }
       type="button"
       onClick={(e) => {
@@ -485,7 +485,7 @@ export function useLeiKwanRuleActions({
         onClose={() => setDel(null)}
       >
         <ModalContent>
-          <ModalHeader>删除利群规则</ModalHeader>
+          <ModalHeader>删除利群转发</ModalHeader>
           <ModalBody className="space-y-2 text-sm">
             <p>
               删除「{del?.name}」：利群那边的转发一起删掉，释放 1
@@ -590,14 +590,14 @@ export function useLeiKwanRuleActions({
           <ModalBody className="space-y-2 text-sm">
             {allEntries?.allEntries ? (
               <p>
-                关掉后这条规则只在主人的主入口机上能连
+                关掉后这条转发只在主人的主入口机上能连
                 {entryLock
                   ? "；其他利群入口机上的这个端口会停用。"
                   : "（设置里「只开主入口」打开后才生效，现在没开）。"}
               </p>
             ) : (
               <p>
-                打开后这条规则在所有利群入口机上都能连（不受「只开主入口」限制）。
+                打开后这条转发在所有利群入口机上都能连（不受「只开主入口」限制）。
               </p>
             )}
             <p className="text-xs text-default-500">
@@ -803,7 +803,7 @@ function LeiKwanRuleDialog({
         !lineId ||
         (!manual && !target.landingNodeId && !target.externalNodeId))
     ) {
-      toast.error("请填写规则名称、选择专线和落地");
+      toast.error("请填写转发名称、选择专线和落地");
 
       return;
     }
@@ -829,7 +829,7 @@ function LeiKwanRuleDialog({
 
       return;
     }
-    toast.success(mode === "create" ? "利群规则已建好" : "已换落地");
+    toast.success(mode === "create" ? "利群转发已添加" : "已换落地");
     (res.data?.warnings || []).forEach((w) => toast.error(w));
     onSaved();
     onClose();
@@ -846,7 +846,7 @@ function LeiKwanRuleDialog({
     >
       <ModalContent>
         <ModalHeader>
-          {mode === "create" ? "新增利群规则" : `换落地 · ${rule?.name}`}
+          {mode === "create" ? "添加利群转发" : `换落地 · ${rule?.name}`}
         </ModalHeader>
         <ModalBody className="space-y-4">
           {opts?.grantError && mode === "create" && (
@@ -856,7 +856,7 @@ function LeiKwanRuleDialog({
           )}
           <Input
             description="最多约 33 个汉字（100 字节）"
-            label="规则名称"
+            label="转发名称"
             maxLength={RULE_NAME_MAX_BYTES}
             placeholder="我的广港"
             value={name}
@@ -964,7 +964,7 @@ function LeiKwanRuleDialog({
           {opts && opts.landings.length === 0 && (
             <p className="-mt-2 text-xs text-default-500">
               还没有自己的落地节点：先到「落地」页新建一个 SS2022
-              节点（自己的密钥，别的规则用不了）。
+              节点（自己的密钥，别的转发用不了）。
             </p>
           )}
           {mode === "create" && (
@@ -1005,7 +1005,7 @@ function LeiKwanRuleDialog({
               {full && (
                 <p className="text-xs text-amber-700 dark:text-amber-300">
                   {admin
-                    ? "名额已满，利群名额提升前建不了新规则。"
+                    ? "名额已满，利群名额提升前加不了新转发。"
                     : "利群名额暂时满了，请联系管理员。"}
                 </p>
               )}
@@ -1028,7 +1028,7 @@ function LeiKwanRuleDialog({
             variant="flat"
             onPress={() => void save()}
           >
-            {mode === "create" ? "建规则" : "保存"}
+            {mode === "create" ? "添加" : "保存"}
           </Button>
         </ModalFooter>
       </ModalContent>

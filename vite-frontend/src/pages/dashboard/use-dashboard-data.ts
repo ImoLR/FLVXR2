@@ -31,8 +31,11 @@ export interface DashboardUserInfo {
   inFlow: number;
   outFlow: number;
   num: number;
-  // Plan 268: 利群 rules count toward 总规则数 (已用规则 adds them).
+  // Plan 280: 利群 rules count only toward 利群转发数 (leikwanNum); the
+  // dashboard shows 「利群转发 x / N」 for users with an active grant.
   leikwanRuleCount?: number;
+  leikwanNum?: number;
+  leikwanGranted?: boolean;
   expTime?: string | number;
   flowResetTime?: number;
   renewalAmount?: number;

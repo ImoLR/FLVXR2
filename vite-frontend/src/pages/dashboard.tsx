@@ -65,8 +65,12 @@ export default function DashboardPage() {
     fetchQuotaHistory,
     deleteQuotaHistory,
   } = useDashboardData();
-  // Plan 268: 已用规则 = normal rules + 利群 rules (both count toward 总规则数).
-  const usedRules = forwardList.length + (userInfo.leikwanRuleCount || 0);
+  // Plan 280: 已用转发 = normal forwards only (总转发数); 利群 forwards have
+  // their own 利群转发数, shown as 「利群转发 x / N」 under it.
+  const usedRules = forwardList.length;
+  const leikwanUsed = userInfo.leikwanRuleCount || 0;
+  const leikwanLimit = userInfo.leikwanNum ?? 3;
+  const leikwanUnlimited = leikwanLimit <= 0 || leikwanLimit >= 99999;
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [historyToDelete, setHistoryToDelete] = useState<number | null>(null);
   const [autoRenewSwitchLoading, setAutoRenewSwitchLoading] = useState(false);
@@ -527,7 +531,7 @@ export default function DashboardPage() {
     return (
       <div className="flvx-dashboard-loading px-3 lg:px-6 flex-grow pt-2 lg:pt-4">
         <div className="flvx-dashboard-loading-grid grid grid-cols-2 lg:grid-cols-4 gap-3 lg:gap-4 mb-4">
-          {["已用流量", "已用规则", "总流量", "规则配额"].map((label) => (
+          {["已用流量", "已用转发", "总流量", "转发配额"].map((label) => (
             <Card
               key={label}
               className="flvx-dashboard-skeleton-card border border-gray-200 dark:border-default-200 shadow-md"
@@ -595,7 +599,7 @@ export default function DashboardPage() {
                     // QA F25: an exhausted quota looked like a plain 100 %.
                     <p
                       className="text-xs text-warning truncate"
-                      title="流量已用完：规则会被暂停（下次有流量时立即生效），增加流量或到重置日后恢复"
+                      title="流量已用完：转发会被暂停（下次有流量时立即生效），增加流量或到重置日后恢复"
                     >
                       {`${calculateUsagePercentage("flow").toFixed(1)}%（已用完）`}
                     </p>
@@ -686,7 +690,7 @@ export default function DashboardPage() {
               </svg>
             }
             iconClassName="bg-purple-100 dark:bg-purple-500/20"
-            title="规则配额"
+            title="转发配额"
             value={formatNumber(userInfo.num || 0)}
           />
         </div>
@@ -705,7 +709,7 @@ export default function DashboardPage() {
                 usedRules > (userInfo.num || 0) ? (
                   <p
                     className="text-xs text-warning mt-1 truncate"
-                    title="已超出规则上限，删除部分规则后才能新建"
+                    title="已超出转发上限，删除部分转发后才能添加"
                   >
                     {`${usedRules} / ${userInfo.num}（已超出）`}
                   </p>
@@ -714,6 +718,17 @@ export default function DashboardPage() {
                     {userInfo.num === 99999
                       ? "无限制"
                       : `${calculateUsagePercentage("forwards").toFixed(1)}%`}
+                  </p>
+                )}
+                {!isAdmin && (userInfo.leikwanGranted || leikwanUsed > 0) && (
+                  <p
+                    className={`text-xs mt-0.5 truncate ${!leikwanUnlimited && leikwanUsed > leikwanLimit ? "text-warning" : "text-default-500"}`}
+                    data-leikwan-usage
+                    title="只算利群汇聚里的转发，不占总转发数"
+                  >
+                    {leikwanUnlimited
+                      ? `利群转发 ${leikwanUsed}（不限）`
+                      : `利群转发 ${leikwanUsed} / ${leikwanLimit}`}
                   </p>
                 )}
               </div>
@@ -733,7 +748,7 @@ export default function DashboardPage() {
               </svg>
             }
             iconClassName="bg-orange-100 dark:bg-orange-500/20"
-            title="已用规则"
+            title="已用转发"
             value={usedRules}
           />
         </div>
@@ -1189,7 +1204,7 @@ export default function DashboardPage() {
                         {/* 每条隧道的规则数不再限制（只限制账号总规则数），这里只显示已用 */}
                         <div>
                           <p className="text-sm text-default-600 mb-1">
-                            已用规则
+                            已用转发
                           </p>
                           <p className="font-semibold text-foreground">
                             {getTunnelUsedForwards(tunnel.tunnelId)}

@@ -157,7 +157,7 @@ export function LeiKwanSubDialog({
           {!loading && sub && (
             <>
               <div className="flex flex-wrap gap-1.5">
-                <Pill tone="violet">利群规则 {sub.leikwanNodes} 条</Pill>
+                <Pill tone="violet">利群转发 {sub.leikwanNodes} 条</Pill>
                 {sub.total > sub.leikwanNodes && (
                   <Pill tone="slate">订阅共 {sub.total} 个节点</Pill>
                 )}
@@ -168,7 +168,7 @@ export function LeiKwanSubDialog({
               {sub.manual > 0 && (
                 <p className="rounded-lg bg-amber-500/15 px-3 py-2 text-xs text-amber-700 dark:bg-amber-400/15 dark:text-amber-300">
                   {sub.manual}{" "}
-                  条手动落地规则不能进订阅（面板没有它们的密码），这几条请用「复制链接」。
+                  条手动落地的转发不能进订阅（面板没有它们的密码），这几条请用「复制链接」。
                 </p>
               )}
               <div className="flex items-center gap-2 rounded-xl bg-slate-500/10 px-3 py-2 dark:bg-slate-400/10">

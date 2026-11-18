@@ -27,7 +27,7 @@ func (h *Handler) leikwanRuleAllEntries(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	if req.ID <= 0 {
-		leiKwanError(w, errors.New("利群规则不存在"))
+		leiKwanError(w, errors.New("利群转发不存在"))
 		return
 	}
 	if err := h.repo.SetLeiKwanRuleAllEntries(req.ID, req.On); err != nil {

@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"go-backend/internal/store/model"
-	"go-backend/internal/store/repo"
 )
 
 func TestLeiKwanGrantBackupContract(t *testing.T) {
@@ -126,25 +125,40 @@ func leiKwanGrantBackupFlow(t *testing.T, dialect string) {
 	if _, writes := e.fake.Counts(); writes != 0 {
 		t.Fatalf("refused create wrote to LeiKwan: %d", writes)
 	}
-	e.must(db.Model(&model.User{}).Where("id = 2").Updates(map[string]interface{}{"exp_time": time.Now().Add(24 * time.Hour).UnixMilli(), "num": 1}).Error)
+	// Plan 280: 利群 rules count only against 利群转发数 (leikwan_num), not
+	// against 总转发数 (num). num = the user's normal forwards + 1, leikwan_num 1.
+	var normalForwards int64
+	e.must(db.Model(&model.Forward{}).Where("user_id = 2").Count(&normalForwards).Error)
+	e.must(db.Model(&model.User{}).Where("id = 2").Updates(map[string]interface{}{"exp_time": time.Now().Add(24 * time.Hour).UnixMilli(), "num": normalForwards + 1, "leikwan_num": 1}).Error)
+	if lim, _ := e.ok("/api/v1/leikwan-rule/options", e.user, map[string]interface{}{})["ruleLimit"].(map[string]interface{}); lim == nil || num(lim["limit"]) != 1 || num(lim["used"]) != 0 || lim["unlimited"] != false {
+		t.Fatalf("options ruleLimit before: %v", lim)
+	}
 	created := e.ok("/api/v1/leikwan-rule/create", e.user, map[string]interface{}{"lineId": num(gg["id"]), "name": "我的广港", "landingNodeId": 501, "requestId": "req-num-0001"})
 	rule := created["rule"].(map[string]interface{})
 	if rule["userExpired"] != false {
 		t.Fatalf("fresh user rule shows expired: %v", rule)
 	}
-	// user.num = 1 is now used by the 利群 rule: a second one is refused…
-	if out, _ := e.call("/api/v1/leikwan-rule/create", e.user, map[string]interface{}{"lineId": num(gg["id"]), "name": "第二条", "landingNodeId": 502, "requestId": "req-num-0002"}); out.Code == 0 || !strings.Contains(out.Msg, "规则数上限") {
-		t.Fatalf("second 利群 rule past user.num: %+v", out)
+	// leikwan_num = 1 is used: the options say so up front and a second one is refused…
+	opts = e.ok("/api/v1/leikwan-rule/options", e.user, map[string]interface{}{})
+	if msg, _ := opts["grantError"].(string); msg != "已达到利群转发数上限（1 条），请删除不用的利群转发后再添加" || opts["userBlocked"] != true {
+		t.Fatalf("options at 利群 limit: %v", opts)
 	}
-	// …and so is a normal rule (总规则数 counts 利群 rules).
-	if err := e.r.CheckUserRuleLimit(2, 1); !repo.IsRuleLimitError(err) {
-		t.Fatalf("normal rule limit ignores 利群 rules: %v", err)
+	if lim, _ := opts["ruleLimit"].(map[string]interface{}); lim == nil || num(lim["limit"]) != 1 || num(lim["used"]) != 1 {
+		t.Fatalf("options ruleLimit after: %v", lim)
+	}
+	if out, _ := e.call("/api/v1/leikwan-rule/create", e.user, map[string]interface{}{"lineId": num(gg["id"]), "name": "第二条", "landingNodeId": 502, "requestId": "req-num-0002"}); out.Code == 0 || !strings.Contains(out.Msg, "利群转发数上限") {
+		t.Fatalf("second 利群 rule past user.leikwan_num: %+v", out)
+	}
+	// …while a normal forward still fits 总转发数 (利群 rules are not counted there).
+	if err := e.r.CheckUserRuleLimit(2, 1); err != nil {
+		t.Fatalf("normal forward limit counts 利群 rules: %v", err)
 	}
 	// The admin actor is exempt from the count (not from 到期).
 	e.ok("/api/v1/leikwan-rule/create", e.admin, map[string]interface{}{"lineId": num(gg["id"]), "name": "管理员代建", "landingNodeId": 502, "userId": 2, "requestId": "req-num-0003"})
 	pkg := e.ok("/api/v1/user/package", e.user, map[string]interface{}{})
-	if n := num(pkg["userInfo"].(map[string]interface{})["leikwanRuleCount"]); n != 2 {
-		t.Fatalf("dashboard 利群 rule count: %d", n)
+	info := pkg["userInfo"].(map[string]interface{})
+	if n := num(info["leikwanRuleCount"]); n != 2 || num(info["leikwanNum"]) != 1 || info["leikwanGranted"] != true {
+		t.Fatalf("dashboard 利群 count / limit: %v / %v", info["leikwanRuleCount"], info["leikwanNum"])
 	}
 	// An expired user's rules show 已到期.
 	e.must(db.Model(&model.User{}).Where("id = 2").Update("exp_time", past).Error)

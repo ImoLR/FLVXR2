@@ -146,7 +146,7 @@ export function LeiKwanUserView() {
     const res = await getLeiKwanRules();
 
     if (res.code !== 0) {
-      toast.error(res.msg || "读取利群规则失败");
+      toast.error(res.msg || "读取利群转发失败");
 
       return;
     }
@@ -180,6 +180,14 @@ export function LeiKwanUserView() {
     />
   );
   const subNote = "推荐用订阅：换入口时刷新订阅即可，不用改地址";
+  // Plan 280: 利群转发数 — 已用 x / N next to 添加转发, greyed at the limit.
+  const ruleLimit = data?.ruleLimit;
+  const limitFull = !!ruleLimit?.full;
+  const limitText = ruleLimit
+    ? ruleLimit.unlimited
+      ? `已用 ${ruleLimit.used}（不限）`
+      : `已用 ${ruleLimit.used} / ${ruleLimit.limit}`
+    : "";
   const rules = useMemo(() => data?.rules || [], [data]);
   const lines = useMemo<UserLine[]>(() => {
     const out = [...(data?.lines || [])];
@@ -221,11 +229,11 @@ export function LeiKwanUserView() {
         </Pill>
       )}
       <Pill tone="purple">
-        {h5 ? `规则 ${rules.length}` : `利群规则 ${rules.length} 条`}
+        {h5 ? `转发 ${rules.length}` : `利群转发 ${rules.length} 条`}
       </Pill>
       {g && (g.backupFlow || 0) > 0 && (
         <Pill
-          title="你的利群规则走备线用掉的流量，从上次重置算起，也算进总流量（共用的备线只算一次）"
+          title="你的利群转发走备线用掉的流量，从上次重置算起，也算进总流量（共用的备线只算一次）"
           tone="green"
         >
           备线流量 {fmtBytes(g.backupFlow)}
@@ -239,21 +247,22 @@ export function LeiKwanUserView() {
       className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-dashed border-divider px-4 py-3 text-sm text-default-500"
       data-leikwan-empty-line={id}
     >
-      这条专线上还没有你的规则
+      这条专线上还没有你的转发
       <Button
         color="success"
         size="sm"
         startContent={<Plus size={14} />}
+        isDisabled={limitFull}
         variant="flat"
         onPress={() => actions.openCreate(id)}
       >
-        在这条专线建规则
+        在这条专线添加转发
       </Button>
     </div>
   );
   const noRules = (
     <div className="rounded-xl border border-dashed border-divider px-4 py-5 text-center text-sm text-default-500">
-      还没有利群规则，点「新增利群规则」
+      还没有利群转发，点「添加转发」
     </div>
   );
 
@@ -262,7 +271,7 @@ export function LeiKwanUserView() {
       <div className="space-y-3" data-leikwan-user="h5">
         <LkCard className="space-y-1.5 p-3">
           <div className="flex flex-wrap gap-1.5">{grantChips}</div>
-          <p className="text-xs text-default-500">规则数、流量、到期跟账号走</p>
+          <p className="text-xs text-default-500">转发数、流量、到期跟账号走</p>
         </LkCard>
         <GraceNotice data={data} />
         <div className="space-y-1">
@@ -276,15 +285,26 @@ export function LeiKwanUserView() {
           </Button>
           <p className="px-1 text-xs text-default-500">{subNote}</p>
         </div>
-        <Button
-          className="h-11 w-full"
-          color="success"
-          startContent={<Plus size={16} />}
-          variant="flat"
-          onPress={() => actions.openCreate(line || undefined)}
-        >
-          新增利群规则
-        </Button>
+        <div className="space-y-1">
+          <Button
+            className="h-11 w-full"
+            color="success"
+            isDisabled={limitFull}
+            startContent={<Plus size={16} />}
+            variant="flat"
+            onPress={() => actions.openCreate(line || undefined)}
+          >
+            添加转发
+          </Button>
+          {ruleLimit && (
+            <p
+              className={`px-1 text-xs ${limitFull ? "text-warning-600 dark:text-warning-400" : "text-default-500"}`}
+              data-leikwan-limit=""
+            >
+              {limitFull ? ruleLimit.error : `利群转发${limitText}`}
+            </p>
+          )}
+        </div>
         <div className="flex gap-2 overflow-x-auto pb-0.5">
           <LkTab active={line === null} onPress={() => setLine(null)}>
             全部
@@ -403,12 +423,12 @@ export function LeiKwanUserView() {
           <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
             <h1 className="text-2xl font-bold">利群汇聚</h1>
             <span className="text-sm text-default-500">
-              利群专线的规则在这里建，跟「规则」页分开
+              利群专线的转发在这里添加，跟「转发」页分开
             </span>
           </div>
           <div className="flex flex-wrap gap-1.5">
             {grantChips}
-            <Pill tone="slate">规则数、流量、到期跟账号走</Pill>
+            <Pill tone="slate">转发数、流量、到期跟账号走</Pill>
           </div>
           <p className="text-xs text-default-500">{subNote}</p>
         </div>
@@ -416,26 +436,44 @@ export function LeiKwanUserView() {
           <Button
             color="primary"
             startContent={<Link2 size={15} />}
-            title="一条订阅链接带上你全部的利群规则"
+            title="一条订阅链接带上你全部的利群转发"
             onPress={() => setSubOpen(true)}
           >
             生成订阅
           </Button>
+          {ruleLimit && (
+            <span
+              className="self-center text-xs text-default-500"
+              data-leikwan-limit=""
+              title="利群转发数：只算利群汇聚里的转发，不占总转发数"
+            >
+              {limitText}
+            </span>
+          )}
           <Button
             color="success"
+            isDisabled={limitFull}
             startContent={<Plus size={15} />}
             variant="flat"
             onPress={() => actions.openCreate(line || undefined)}
           >
-            新增利群规则
+            添加转发
           </Button>
         </div>
       </header>
+      {limitFull && (
+        <p
+          className="-mt-3 text-right text-xs text-warning-600 dark:text-warning-400"
+          data-leikwan-limit-full=""
+        >
+          {ruleLimit?.error}
+        </p>
+      )}
       <GraceNotice data={data} />
       <LkCard className="space-y-3 p-4" data-leikwan-lines="">
         <LkCardTitle
           chip={<Pill tone="teal">{lines.length} 条</Pill>}
-          hint="点一条，只看这条专线的规则"
+          hint="点一条，只看这条专线的转发"
           title="可用专线"
         />
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -486,7 +524,7 @@ export function LeiKwanUserView() {
                 入口 = 你的主入口 IP : 利群端口；断线时自动走备线，地址不变
               </span>
             }
-            title="我的利群规则"
+            title="我的利群转发"
           />
         </div>
         <div className="space-y-4 p-4">
@@ -502,7 +540,7 @@ export function LeiKwanUserView() {
                     <Pill tone="purple">{list.length} 条</Pill>
                   </div>
                   <div className={`${RULE_GRID} px-3 text-xs text-default-500`}>
-                    <span>规则</span>
+                    <span>转发</span>
                     <span>入口地址</span>
                     <span>落地</span>
                     <span className="text-right">操作</span>

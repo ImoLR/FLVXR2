@@ -135,7 +135,7 @@ export function ForwardLineBadges({ forward }: { forward: ChainRow }) {
         <Chip
           color="warning"
           size="sm"
-          title="线路机隧道只能转发到 VLESS Reality Vision / AnyTLS 落地或「我的外部节点」；该规则仍在运行，修改目标后即合规"
+          title="线路机隧道只能转发到 VLESS Reality Vision / AnyTLS 落地或「我的外部节点」；该转发仍在运行，修改目标后即合规"
           variant="flat"
         >
           不合规

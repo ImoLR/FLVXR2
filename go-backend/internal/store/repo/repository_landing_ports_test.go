@@ -111,7 +111,7 @@ func TestNativeLandingRangeCarveAndGiveBack(t *testing.T) {
 			orphanSeed(t, r, &model.ForwardPort{ForwardID: 902, NodeID: 655, Port: 45001}, &model.ChainTunnel{TunnelID: 901, NodeID: 655, ChainType: "2", Port: sql.NullInt64{Int64: 45002, Valid: true}})
 			s.PortMin, s.PortMax = 30000, 49999
 			err = r.SaveLandingServer(s, nil)
-			if err == nil || !strings.Contains(err.Error(), "端口 45001 被规则 #902 使用；端口 45002 被隧道 #901 使用") {
+			if err == nil || !strings.Contains(err.Error(), "端口 45001 被转发 #902 使用；端口 45002 被隧道 #901 使用") {
 				t.Fatalf("conflict refusal: %v", err)
 			}
 			if got := nodeSpec(t, r, 655); got != "10000-29999,31000-65535" {
@@ -198,7 +198,7 @@ func TestNativeLandingEnableBlockRules(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if s.PortMin != 34000 || s.PortMax != 34999 || !strings.Contains(note, "规则「日本游戏」") {
+	if s.PortMin != 34000 || s.PortMax != 34999 || !strings.Contains(note, "转发「日本游戏」") {
 		t.Fatalf("picked %d-%d note %q", s.PortMin, s.PortMax, note)
 	}
 }
@@ -214,7 +214,7 @@ func TestNativeLandingEnableAllBusyNamesHolders(t *testing.T) {
 		orphanSeed(t, r, &model.ForwardPort{ForwardID: 8, NodeID: 655, Port: lo + 500})
 	}
 	_, err := r.EnableLandingServer(655)
-	if err == nil || !strings.Contains(err.Error(), "隧道「mk沪港ixp 666m -> US」") || !strings.Contains(err.Error(), "规则「美西」") || !strings.Contains(err.Error(), "NexKR") {
+	if err == nil || !strings.Contains(err.Error(), "隧道「mk沪港ixp 666m -> US」") || !strings.Contains(err.Error(), "转发「美西」") || !strings.Contains(err.Error(), "NexKR") {
 		t.Fatalf("all busy: %v", err)
 	}
 	if got := nodeSpec(t, r, 655); got != "10000-65535" {
@@ -349,7 +349,7 @@ func TestLandingNoFreePortMessage(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err = r.CreateLandingNode(1, s.ID, "x", "ss2022", true)
-	if err == nil || !strings.Contains(err.Error(), "落地端口段 30000-39999 已全部被节点「NexKR」的规则端口段 10000-65535 占用") {
+	if err == nil || !strings.Contains(err.Error(), "落地端口段 30000-39999 已全部被节点「NexKR」的转发端口段 10000-65535 占用") {
 		t.Fatalf("message: %v", err)
 	}
 }

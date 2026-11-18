@@ -70,7 +70,7 @@ func (r *Repository) DeleteLeiKwanLine(id int64) error {
 			return err
 		}
 		if count > 0 {
-			return errors.New("专线上还有利群规则，不能删除")
+			return errors.New("专线上还有利群转发，不能删除")
 		}
 		return tx.Delete(&model.LeiKwanLine{}, id).Error
 	})
@@ -107,7 +107,7 @@ func (r *Repository) DeleteLeiKwanGrant(userID int64) error {
 			return err
 		}
 		if count > 0 {
-			return errors.New("该用户还有利群规则，请先删除规则再取消授权")
+			return errors.New("该用户还有利群转发，请先删除这些转发再取消授权")
 		}
 		return tx.Where("user_id = ?", userID).Delete(&model.LeiKwanGrant{}).Error
 	})
@@ -558,7 +558,7 @@ func (r *Repository) SetLeiKwanRuleAllEntries(id int64, on bool) error {
 	}
 	res := r.db.Model(&model.LeiKwanRule{}).Where("id = ?", id).UpdateColumn("all_entries", v)
 	if res.Error == nil && res.RowsAffected == 0 {
-		return errors.New("利群规则不存在")
+		return errors.New("利群转发不存在")
 	}
 	return res.Error
 }

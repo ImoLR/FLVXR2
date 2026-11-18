@@ -122,8 +122,8 @@ const CONFIG_ITEMS: ConfigItem[] = [
   /* 暂时隐藏精简模式开关
   {
       key: "forward_compact_mode",
-      label: "规则页面精简模式",
-      description: "开启后，规则页面列表使用 2.1.6-alpha8 样式（全局配置）",
+      label: "转发页面精简模式",
+      description: "开启后，转发页面列表使用 2.1.6-alpha8 样式（全局配置）",
       type: "switch",
     },
   */
@@ -156,7 +156,7 @@ const CONFIG_ITEMS: ConfigItem[] = [
     key: "login_monitor_link",
     label: "公开探针页",
     description:
-      "开启后任何人（不用登录）都能打开 /tz 查看服务器状态，登录页右上角也会显示入口；只公开下方「公开探针页」里勾选的服务器，不含 IP、端口和规则",
+      "开启后任何人（不用登录）都能打开 /tz 查看服务器状态，登录页右上角也会显示入口；只公开下方「公开探针页」里勾选的服务器，不含 IP、端口和转发",
     type: "switch",
   },
   {
@@ -1309,7 +1309,7 @@ export default function ConfigPage() {
                 </Select>
                 <span className="text-xs text-gray-500 ml-1">
                   {exportMode === "core"
-                    ? "仅用户/节点/隧道/规则等数据，不包含日志和统计，文件较小，适合快速备份"
+                    ? "仅用户/节点/隧道/转发等数据，不包含日志和统计，文件较小，适合快速备份"
                     : "包含所有表和配置项，文件更大，适合完全备份"}
                 </span>
               </div>

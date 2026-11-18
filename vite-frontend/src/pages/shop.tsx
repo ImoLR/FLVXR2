@@ -349,7 +349,7 @@ export default function ShopPage() {
                       </div>
                           <div className="text-xs text-gray-400 space-y-0.5">
                             <div>
-                              规则 {pkg.maxRules || "不限"} &middot; 连接{" "}
+                              转发 {pkg.maxRules || "不限"} &middot; 连接{" "}
                               {pkg.maxConnections || "不限"}
                             </div>
                           </div>

@@ -341,7 +341,7 @@ func TestChainCreateRefusals(t *testing.T) {
 		{"rule allowance", func(e *flowTestEnv, a *chainAgent) {
 			e.exec("UPDATE user SET num = 1 WHERE id = 7")
 			e.addForward(500, 7, 30)
-		}, chainCreateBody(10, "x", testSSLink, ""), "规则数上限"},
+		}, chainCreateBody(10, "x", testSSLink, ""), "转发数上限"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

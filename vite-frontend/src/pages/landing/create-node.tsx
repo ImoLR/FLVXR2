@@ -229,7 +229,7 @@ export function CreateLandingNodeDialog({
             (ownerId !== undefined ? (
               <Input
                 readOnly
-                description="节点归规则所属用户，按该用户的服务器授权和节点上限检查"
+                description="节点归转发所属用户，按该用户的服务器授权和节点上限检查"
                 label="所属用户"
                 value={ownerName || `用户 ${userId}`}
                 variant="bordered"

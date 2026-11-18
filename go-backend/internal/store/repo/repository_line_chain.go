@@ -24,7 +24,7 @@ const MaxChainCopiesPerServer = 500
 
 var (
 	// ErrChainInFlight: the user already has a chain operation running.
-	ErrChainInFlight = errors.New("正在创建「我的外部节点」规则，请稍候")
+	ErrChainInFlight = errors.New("正在创建「我的外部节点」转发，请稍候")
 	// ErrChainIdempotent wraps a repeated submit; the existing chain is returned.
 	ErrChainIdempotent = errors.New("重复提交")
 )
@@ -592,9 +592,9 @@ func (r *Repository) CreateForwardChain(in ChainCreateInput) (*model.ForwardChai
 				}
 			}
 			if name == "" {
-				return errors.New("这个节点已经在本隧道上建过「我的外部节点」规则（正在创建中），请勿重复创建")
+				return errors.New("这个节点已经在本隧道上建过「我的外部节点」转发（正在创建中），请勿重复创建")
 			}
-			return fmt.Errorf("这个节点已经在本隧道上建过「我的外部节点」规则「%s」，请直接复制那条规则的链接", name)
+			return fmt.Errorf("这个节点已经在本隧道上建过「我的外部节点」转发「%s」，请直接复制那条转发的链接", name)
 		} else if !errors.Is(err, gorm.ErrRecordNotFound) {
 			return err
 		}
@@ -614,7 +614,7 @@ func (r *Repository) CreateForwardChain(in ChainCreateInput) (*model.ForwardChai
 				return err
 			}
 			if n >= MaxChainCopiesPerServer {
-				return errors.New("出口节点上的「我的外部节点」规则已达上限，请联系管理员")
+				return errors.New("出口节点上的「我的外部节点」转发已达上限，请联系管理员")
 			}
 			servers = append(servers, *s)
 		}
@@ -646,7 +646,7 @@ func (r *Repository) CreateForwardChain(in ChainCreateInput) (*model.ForwardChai
 				return err
 			}
 			if existing > 0 {
-				return errors.New("该规则已经是「我的外部节点」规则")
+				return errors.New("该转发已经是「我的外部节点」转发")
 			}
 		}
 		chain = model.ForwardChain{UserID: in.UserID, TunnelID: in.TunnelID, ForwardID: in.AttachForwardID, State: model.ChainStateCreating, Progress: "正在准备出口…", Port: port, Dest: dest, ServerNames: names,
@@ -769,7 +769,7 @@ func (r *Repository) BeginChainUpstreamChange(id int64, u linechain.Upstream) ([
 			return err
 		}
 		if c.State != model.ChainStateActive {
-			return errors.New("链式规则正在处理中，请稍后再试")
+			return errors.New("链式转发正在处理中，请稍后再试")
 		}
 		if c.PrevUpstream != "" {
 			return ErrChainInFlight
@@ -779,7 +779,7 @@ func (r *Repository) BeginChainUpstreamChange(id int64, u linechain.Upstream) ([
 			return err
 		}
 		if dup > 0 {
-			return errors.New("这个节点已经在本隧道上建过另一条「我的外部节点」规则")
+			return errors.New("这个节点已经在本隧道上建过另一条「我的外部节点」转发")
 		}
 		now := time.Now().UnixMilli()
 		if err := tx.Model(&c).Updates(map[string]interface{}{"prev_upstream": c.Upstream, "upstream": u.JSON(), "upstream_protocol": u.ProtocolLabel(), "upstream_host": u.Server, "upstream_port": u.Port, "upstream_hash": u.Hash(), "updated_time": now}).Error; err != nil {
@@ -846,7 +846,7 @@ func (r *Repository) PrepareChainRetarget(chainID int64, exitNodeIDs []int64) (*
 			return err
 		}
 		if c.State != model.ChainStateActive {
-			return errors.New("链式规则正在处理中，请稍后再试")
+			return errors.New("链式转发正在处理中，请稍后再试")
 		}
 		if err := tx.Where("chain_id = ? AND state = ?", chainID, model.ChainNodePending).Delete(&model.ForwardChainNode{}).Error; err != nil {
 			return err
@@ -1010,9 +1010,9 @@ func (r *Repository) FindChainOrphans() ([]ChainOrphan, error) {
 		f, ok := forwards[c.ForwardID]
 		switch {
 		case !ok:
-			out = append(out, ChainOrphan{Kind: "chain", ID: c.ID, Reason: "规则已删除"})
+			out = append(out, ChainOrphan{Kind: "chain", ID: c.ID, Reason: "转发已删除"})
 		case !strings.Contains(f.RemoteAddr, fmt.Sprintf("127.0.0.1:%d", c.Port)) && c.OpStartedAt == 0:
-			out = append(out, ChainOrphan{Kind: "chain", ID: c.ID, Reason: "规则目标已不是该链式节点"})
+			out = append(out, ChainOrphan{Kind: "chain", ID: c.ID, Reason: "转发目标已不是该链式节点"})
 		}
 	}
 	var nodes []model.ForwardChainNode
@@ -1031,9 +1031,9 @@ func (r *Repository) FindChainOrphans() ([]ChainOrphan, error) {
 		c, ok := byID[n.ChainID]
 		switch {
 		case !ok:
-			out = append(out, ChainOrphan{Kind: "chainNode", ID: n.ID, ChainID: n.ChainID, NodeID: n.NodeID, ServerID: n.LandingServerID, Reason: "链式规则已不存在"})
+			out = append(out, ChainOrphan{Kind: "chainNode", ID: n.ID, ChainID: n.ChainID, NodeID: n.NodeID, ServerID: n.LandingServerID, Reason: "链式转发已不存在"})
 		case c.State == model.ChainStateFailed:
-			out = append(out, ChainOrphan{Kind: "chainNode", ID: n.ID, ChainID: n.ChainID, NodeID: n.NodeID, ServerID: n.LandingServerID, Reason: "链式规则创建失败"})
+			out = append(out, ChainOrphan{Kind: "chainNode", ID: n.ID, ChainID: n.ChainID, NodeID: n.NodeID, ServerID: n.LandingServerID, Reason: "链式转发创建失败"})
 		case !servers[n.LandingServerID]:
 			out = append(out, ChainOrphan{Kind: "chainNode", ID: n.ID, ChainID: n.ChainID, NodeID: n.NodeID, ServerID: n.LandingServerID, Reason: "落地服务器已不存在"})
 		}

@@ -23,7 +23,7 @@ func (h *Handler) leiKwanDeleteUserRules(userID int64) error {
 	defer leiKwanRuleMu.Unlock()
 	rules, err := h.repo.ListLeiKwanRules(userID)
 	if err != nil {
-		return errors.New("读取利群规则失败，用户未删除")
+		return errors.New("读取利群转发失败，用户未删除")
 	}
 	for i := range rules {
 		x := &rules[i]
@@ -32,13 +32,13 @@ func (h *Handler) leiKwanDeleteUserRules(userID int64) error {
 		err := h.leiKwanDeleteForward(ctx, x)
 		cancel()
 		if err != nil {
-			return fmt.Errorf("利群规则「%s」删除失败：%s（用户未删除，可重试）", x.Name, err.Error())
+			return fmt.Errorf("利群转发「%s」删除失败：%s（用户未删除，可重试）", x.Name, err.Error())
 		}
 		if err := h.leiKwanDropBackup(x); err != nil {
 			log.Printf("删除用户 %d：利群规则 %s 的备线未删掉: %v", userID, x.Name, err)
 		}
 		if err := h.deleteLeiKwanRule(x.ID); err != nil {
-			return fmt.Errorf("利群规则「%s」记录删除失败（利群转发已删除，用户未删除，可重试）", x.Name)
+			return fmt.Errorf("利群转发「%s」的记录删除失败（利群那边已删除，用户未删除，可重试）", x.Name)
 		}
 		log.Printf("删除用户 %d：利群规则 %s（转发 %d）已一起删除", userID, x.Name, x.ForwardID)
 	}

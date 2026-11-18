@@ -183,7 +183,7 @@ func (r *Repository) BeginChainInboundChange(id int64, protocol string) ([]int64
 			return err
 		}
 		if c.State != model.ChainStateActive {
-			return errors.New("链式规则正在处理中，请稍后再试")
+			return errors.New("链式转发正在处理中，请稍后再试")
 		}
 		if c.PrevInbound != "" {
 			return ErrChainInFlight
@@ -196,7 +196,7 @@ func (r *Repository) BeginChainInboundChange(id int64, protocol string) ([]int64
 			return err
 		}
 		if dup > 0 {
-			return errors.New("这个节点已经在本隧道上建过 " + ChainInboundLabel(model.ForwardChain{InboundProtocol: protocol}) + " 的「我的外部节点」规则")
+			return errors.New("这个节点已经在本隧道上建过 " + ChainInboundLabel(model.ForwardChain{InboundProtocol: protocol}) + " 的「我的外部节点」转发")
 		}
 		prev, _ := json.Marshal(chainInboundSnapshot{Protocol: c.InboundProtocol, ServerName: c.TLSServerName, Password: c.Password, CertPEM: c.TLSCertPEM, KeyPEM: c.TLSKeyPEM, CertSHA256: c.CertSHA256})
 		next := c

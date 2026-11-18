@@ -196,7 +196,7 @@ func (h *Handler) leiKwanDiagPrepare(r *http.Request) (*lkDiagJob, error) {
 	}
 	j.entry = h.leiKwanUserEntry(x.UserID)
 	if j.entry == nil {
-		return nil, errors.New("规则主人还没有主入口，诊断不了")
+		return nil, errors.New("转发主人还没有主入口，诊断不了")
 	}
 	if setting, _ := h.repo.GetLeiKwanSetting(); setting != nil && admin {
 		for _, e := range h.leiKwanEntryNodes(setting.EntryGroupID) {
@@ -590,7 +590,7 @@ func (j *lkDiagJob) runBackup(ctx context.Context, idx int) {
 	}
 	fwd, err := h.getForwardRecord(j.rule.BackupForwardID)
 	if err != nil || fwd == nil {
-		it["message"] = "备线规则不存在"
+		it["message"] = "备线转发不存在"
 		j.set(idx, it)
 		return
 	}

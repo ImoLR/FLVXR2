@@ -581,7 +581,7 @@ export function ExternalManageList({
                   .join("、")}`}
               {!sub &&
                 leiKwanUses(item.inUse).length > 0 &&
-                ` · 利群规则 ${leiKwanUses(item.inUse)
+                ` · 利群转发 ${leiKwanUses(item.inUse)
                   .map((u) => u.name)
                   .join("、")}`}
               {!sub &&
@@ -607,12 +607,12 @@ export function ExternalManageList({
               )}
               {leiKwanUses(item.inUse).length > 0 && (
                 <Pill
-                  title={`利群规则 ${leiKwanUses(item.inUse)
+                  title={`利群转发 ${leiKwanUses(item.inUse)
                     .map((u) => u.name)
                     .join("、")} 用它做落地`}
                   tone="teal"
                 >
-                  利群规则在用
+                  利群转发在用
                 </Pill>
               )}
               {forwardUses(item.inUse).length > 0 && (
@@ -812,7 +812,7 @@ function ExternalManageListH5({
                   )}
                   {leiKwanUses(item.inUse).length > 0 && (
                     <Pill tone="teal">
-                      利群规则在用 ·{" "}
+                      利群转发在用 ·{" "}
                       {leiKwanUses(item.inUse)
                         .map((u) => u.name)
                         .join("、")}
@@ -879,7 +879,7 @@ function ExternalManageListH5({
                 {chainUsed && (
                   <span className="text-xs text-default-500">
                     {leiKwanUses(item.inUse).length > 0
-                      ? "利群规则在用，不能删"
+                      ? "利群转发在用，不能删"
                       : chainUses(item.inUse).length > 0
                         ? "链式代理在用，不能删"
                         : "转发在用，不能删"}

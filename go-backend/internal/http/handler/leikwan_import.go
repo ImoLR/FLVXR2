@@ -192,7 +192,7 @@ func (h *Handler) leiKwanImportBuild(r *http.Request) (*leiKwanImportPlan, *mode
 			continue
 		}
 		if x, _ := h.repo.GetLeiKwanRuleByForward(f.ID); x != nil {
-			item.Action, item.Reason, item.RuleName = "registered", "已经是利群规则", x.Name
+			item.Action, item.Reason, item.RuleName = "registered", "已经是利群转发", x.Name
 			plan.Items = append(plan.Items, item)
 			continue
 		}
@@ -391,7 +391,7 @@ func leiKwanRuleOverrideFromHost(ref *leiKwanHostCtx, hosts []leiKwanHostCtx, li
 	main := s.Warm[key]
 	if test, on := leiKwanTestOnly(hosts, forwardID); test {
 		main = 0
-		o.Note = "测试规则：预热只在 " + strings.Join(on, "、") + " 上手动加过，按测试规则登记为不预热"
+		o.Note = "测试转发：预热只在 " + strings.Join(on, "、") + " 上手动加过，按测试转发登记为不预热"
 	}
 	if main != line.Warm.Main {
 		o.WarmMain = &main

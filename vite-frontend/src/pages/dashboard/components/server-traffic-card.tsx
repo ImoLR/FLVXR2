@@ -46,7 +46,7 @@ function ServerRow({ row }: { row: ServerTrafficRow }) {
         </div>
         {limited && level === "full" && (
           <Pill
-            title="这台服务器的本期流量已用完：经过它的规则会暂停，到重置日或管理员调高额度后恢复"
+            title="这台服务器的本期流量已用完：经过它的转发会暂停，到重置日或管理员调高额度后恢复"
             tone="red"
           >
             已用完
@@ -147,7 +147,7 @@ export default function ServerTrafficCard() {
           ))}
         </div>
         <p className="mt-3 text-xs text-default-500">
-          规则经过的每台服务器都会计入；某台服务器用完后，经过它的规则会暂停，到重置日或管理员调高额度后恢复。
+          转发经过的每台服务器都会计入；某台服务器用完后，经过它的转发会暂停，到重置日或管理员调高额度后恢复。
         </p>
       </CardBody>
     </Card>

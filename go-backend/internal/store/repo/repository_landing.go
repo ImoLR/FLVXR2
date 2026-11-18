@@ -365,7 +365,7 @@ func (r *Repository) SaveLandingServerOpts(s *model.LandingServer, groups []int6
 				return err
 			}
 			if chains > 0 {
-				return fmt.Errorf("该服务器上有 %d 个「我的外部节点」规则的出口节点在使用，不能停用", chains)
+				return fmt.Errorf("该服务器上有 %d 个「我的外部节点」转发的出口节点在使用，不能停用", chains)
 			}
 		}
 		var count int64
@@ -1017,10 +1017,10 @@ func landingNoFreePortError(s model.LandingServer, node model.Node, ruleUsed int
 		return fmt.Errorf("落地端口段 %s 的 %d 个端口已全部被落地节点或这台机器上的其他程序占用，请扩大落地端口段", rng, total)
 	}
 	if ruleUsed >= total {
-		return fmt.Errorf("落地端口段 %s 已全部被节点「%s」的规则端口段 %s 占用，请在节点编辑里把 %s 从规则端口段中排除，或给落地换一个端口段", rng, node.Name, node.Port, rng)
+		return fmt.Errorf("落地端口段 %s 已全部被节点「%s」的转发端口段 %s 占用，请在节点编辑里把 %s 从转发端口段中排除，或给落地换一个端口段", rng, node.Name, node.Port, rng)
 	}
 	if ruleUsed > 0 {
-		return fmt.Errorf("落地端口段 %s 无可用端口：其中 %d 个在节点「%s」的规则端口段 %s 内，其余 %d 个已被落地节点、隧道或其他监听占用；请从规则端口段中排除落地端口段或扩大落地端口段", rng, ruleUsed, node.Name, node.Port, total-ruleUsed)
+		return fmt.Errorf("落地端口段 %s 无可用端口：其中 %d 个在节点「%s」的转发端口段 %s 内，其余 %d 个已被落地节点、隧道或其他监听占用；请从转发端口段中排除落地端口段或扩大落地端口段", rng, ruleUsed, node.Name, node.Port, total-ruleUsed)
 	}
 	return fmt.Errorf("落地端口段 %s 的 %d 个端口已全部被落地节点、隧道或节点上的其他监听占用，请扩大落地端口段", rng, total)
 }
@@ -1135,7 +1135,7 @@ func landingNodeReferenceError(tx *gorm.DB, id int64) error {
 	if count > 5 {
 		label += fmt.Sprintf("等 %d 条", count)
 	}
-	return fmt.Errorf("该节点仍被规则 %s 引用，请先删除或修改规则", label)
+	return fmt.Errorf("该节点仍被转发 %s 引用，请先删除或修改转发", label)
 }
 
 // leiKwanLandingReferenceError (plan 276, F05): a 利群 rule landing on the
@@ -1153,7 +1153,7 @@ func leiKwanLandingReferenceError(tx *gorm.DB, id int64) error {
 	if count > 5 {
 		label += fmt.Sprintf("等 %d 条", count)
 	}
-	return fmt.Errorf("该节点仍被利群规则 %s 用作落地，请先给这些规则换落地或删除规则", label)
+	return fmt.Errorf("该节点仍被利群转发 %s 用作落地，请先给这些转发换落地或删除转发", label)
 }
 
 // landingServerHasProtocol reports whether the server's 协议模板 has p.

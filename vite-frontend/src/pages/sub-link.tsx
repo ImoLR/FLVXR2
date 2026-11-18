@@ -64,7 +64,7 @@ function SubCounts({ sub, compact }: { sub: SubItem; compact: boolean }) {
       )}
       {(c.leikwan || 0) > 0 && (
         <Pill tone="violet">
-          {compact ? "利群" : "利群规则"} {c.leikwan}
+          {compact ? "利群" : "利群转发"} {c.leikwan}
         </Pill>
       )}
       {c.sources.map((s) => (
@@ -199,7 +199,7 @@ function SubCard({
       </div>
       {sub.auto === "leikwan" && sub.counts.missing > 0 && (
         <p className="mt-1.5 text-xs text-amber-700 dark:text-amber-300">
-          利群授权取消或规则删除后，利群汇聚订阅里的利群节点会消失
+          利群授权取消或转发删除后，利群汇聚订阅里的利群节点会消失
         </p>
       )}
       {isH5 ? (

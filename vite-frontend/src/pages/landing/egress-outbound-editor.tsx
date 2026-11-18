@@ -412,9 +412,9 @@ export function OutboundEditor({
                 ))}
               </Select>
               <Select
-                description="选一条目标是该节点的规则，流量先进 FLVX 隧道再到上游节点"
+                description="选一条目标是该节点的转发，流量先进 FLVX 隧道再到上游节点"
                 isDisabled={!s.landingNodeId}
-                label="经由 FLVX 规则（可选）"
+                label="经由 FLVX 转发（可选）"
                 selectedKeys={[String(s.viaForwardId || 0)]}
                 variant="bordered"
                 onSelectionChange={(keys) =>
@@ -422,7 +422,7 @@ export function OutboundEditor({
                 }
               >
                 {[
-                  <SelectItem key="0">不经规则，直接连接该节点</SelectItem>,
+                  <SelectItem key="0">不经转发，直接连接该节点</SelectItem>,
                   ...forwards.map((f) => (
                     <SelectItem key={String(f.id)}>
                       {f.name}
@@ -452,7 +452,7 @@ export function OutboundEditor({
               允许用户使用
             </Checkbox>
             <p className="text-xs text-default-500">
-              勾选后，用户可在自己节点的「路由规则」里选这个出站（规则出站或节点默认出站）。用户只看到名称，看不到地址和凭据；不勾选时用户只能选直连或封锁。
+              勾选后，用户可在自己节点的「设置路由」里选这个出站（规则出站或节点默认出站）。用户只看到名称，看不到地址和凭据；不勾选时用户只能选直连或封锁。
             </p>
           </div>
         </ModalBody>

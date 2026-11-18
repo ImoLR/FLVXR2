@@ -945,7 +945,7 @@ func (r *Repository) DeleteNodeCascade(nodeID int64) error {
 				return err
 			}
 			if chains > 0 {
-				return errors.New("该节点仍承载「我的外部节点」规则，请先删除这些规则或把节点从隧道出口移除")
+				return errors.New("该节点仍承载「我的外部节点」转发，请先删除这些转发或把节点从隧道出口移除")
 			}
 			// A chain-only exit landing (plan 108) is ours alone: it goes
 			// with the node once no chain uses it.
@@ -962,7 +962,7 @@ func (r *Repository) DeleteNodeCascade(nodeID int64) error {
 			label string
 		}{
 			{&model.ChainTunnel{}, "node_id = ?", []interface{}{nodeID}, "隧道"},
-			{&model.ForwardPort{}, "node_id = ?", []interface{}{nodeID}, "规则"},
+			{&model.ForwardPort{}, "node_id = ?", []interface{}{nodeID}, "转发"},
 			{&model.FederationTunnelBinding{}, "node_id = ? AND status = 1", []interface{}{nodeID}, "联邦隧道绑定"},
 			{&model.PathSegment{}, "from_node_id = ? OR to_node_id = ?", []interface{}{nodeID, nodeID}, "WG 隧道路径"},
 			{&model.PeerShare{}, "node_id = ?", []interface{}{nodeID}, "面板共享"},
@@ -3712,7 +3712,7 @@ func nodeInUseError(tx *gorm.DB, nodeID int64, label string, count int64) error 
 	var names []string
 	named := map[string][3]string{ // label -> link table, owner column, owner table
 		"隧道": {"chain_tunnel", "tunnel_id", "tunnel"},
-		"规则": {"forward_port", "forward_id", "forward"},
+		"转发": {"forward_port", "forward_id", "forward"},
 	}
 	if t, ok := named[label]; ok {
 		tx.Table(t[0]+" AS l").Joins("JOIN "+t[2]+" AS o ON o.id = l."+t[1]).
