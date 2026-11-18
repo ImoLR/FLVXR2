@@ -32,7 +32,7 @@ packet header is plaintext and its ClientHello (SNI) can be decrypted by anyone 
 - [x] Lab: real binaries matrix (hy2 plain / salamander, TUIC, curl --http3 / xray QUIC, SS2022 TCP+UDP, VLESS Enc UDP,
       plain UDP, TLS-allowed tunnel) on type 1 + type 2; before/after RTT / iperf3 / CPU
 - [x] Ledger row 283
-- [ ] Release next fork (rebase onto newest tag), CI + assets, prod panel upgrade + rollback
+- [x] Release next fork (rebase onto newest tag), CI + assets, prod panel upgrade + rollback
 - [ ] Night OTA of the entry nodes of tls=1 tunnels (canary first, per-host backup)
 - [ ] Prod tests (temp forward → own hy2 / SS2022 server), our protocols unaffected, temp objects deleted
 - [ ] 1–3 h QUIC counter report
@@ -137,3 +137,14 @@ iperf3 (3 alternating rounds, unpinned; this host also runs prod panel + other w
 | TCP type 2 | 3787 Mbit/s, CPU 49 % | 3976, 49 % |
 Same "recv queue full" drop counts in both (42/44, 43/44, 28/22 per round) — the loss at 38k pkt/s is the existing
 per-session queue, not the check. No measurable difference in latency, throughput or CPU.
+
+## Release (fork.151)
+- Rebased onto fork.150 (plan 280) before the full test run; tag `3.0.27-fork.151` → 827977d4, branch
+  `maintenance/3.0.27-fork.151-quic-block`. CI Build Check green, Images 44312272578 green, Latest, 10 assets,
+  gost-amd64 sha256 ok, `-V` = 3.0.27-fork.151, decompressed binary contains the QUIC block.
+- Prod panel swap 11-18 21:31:00–21:31:11 TW (runs/quic-block/work/deploy-151.sh), no DB change. 30/30 nodes back,
+  state snapshot identical before/after (57 forwards, 利群 tables), public domain serves fork.151, 0 panel errors.
+- Rollback: `/opt/flvx-svc/rollback/pre-fork151-20261118T133058Z/rollback.sh` (image swap → fork.150). Backups kept:
+  pre-fork150 + pre-fork151 (prune-backups.sh).
+- go-gost changed → node/upgrade hands out fork.151 agents; plan 278 (11-19 02:00 OTA of 13 old agents) brief got a
+  note (its hosts are not entries of 屏蔽 TLS tunnels — nothing is blocked there).
