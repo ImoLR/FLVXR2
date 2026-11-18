@@ -13,14 +13,14 @@ target (user's own data) → kept. Node names are fine.
 Scope: panel only (go-backend handler + frontend comments). No DB change, no agent change, no extra queries.
 
 ## Checklist
-- [x] Worktree from fork.151, branch `maintenance/3.0.27-fork.152-warm-tag-user`
+- [x] Worktree from fork.151, branch `maintenance/3.0.27-fork.153-warm-tag-user` (renamed + rebased onto fork.152 — quic-block released fork.152 at 22:37 TW)
 - [x] Backend: non-admins get the full `warmPoolView` (remove user-only view + faster/≥1 ms gate)
 - [x] Backend: address guard for unmapped tunnel hops in the user view
 - [x] Tests: user view = admin view incl. warming / unsupported / slower + hops; unmapped hop never leaks a node IP
 - [x] Frontend: stale plan-249 comments updated (no UI behaviour change needed — dropdown has no admin-only action)
 - [x] `go test ./...` (-timeout 30m) vs base; `npm run build`
 - [x] Lab screenshots (user: faster / slower / 不支持 / 数据不足 + dropdown, desktop + H5; admin unchanged) → gallery
-- [ ] Ledger row 285
+- [x] Ledger row 285
 - [ ] Release fork.N (tag, CI, images, assets, Latest)
 - [ ] Prod backup + rollback script, panel upgrade, health checks
 - [ ] Prod check: rule 641 admin vs test-ns-fx identical; per-state counts before/after; prod screenshots
