@@ -705,7 +705,7 @@ func TestTunnelSplitEntryPortForwardAndRefusalsContract(t *testing.T) {
 				}
 			}
 			// The rules listen on entry A: splitting A off is refused.
-			refuse("rules on entry", map[string]interface{}{"tunnelId": w.tunnel, "entryNodeId": splitEntryA, "name": "x1", "twinName": "x2"}, "规则在该入口上监听")
+			refuse("rules on entry", map[string]interface{}{"tunnelId": w.tunnel, "entryNodeId": splitEntryA, "name": "x1", "twinName": "x2"}, "转发在该入口上监听")
 			refuse("not an entry", map[string]interface{}{"tunnelId": w.tunnel, "entryNodeId": splitHop1, "name": "x1", "twinName": "x2"}, "不是该隧道的入口")
 			refuse("token", map[string]interface{}{"tunnelId": w.tunnel, "entryNodeId": splitEntryB, "name": "{入口} x", "twinName": "x2"}, "{入口}")
 			refuse("duplicate name", map[string]interface{}{"tunnelId": w.tunnel, "entryNodeId": splitEntryB, "name": "x1", "twinName": "later"}, "已被其他隧道使用")

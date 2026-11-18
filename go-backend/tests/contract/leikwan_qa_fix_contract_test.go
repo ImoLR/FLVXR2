@@ -86,7 +86,7 @@ func leiKwanQAFixFlow(t *testing.T, dialect string) {
 	}
 
 	// --- F10: name / requestId messages ---
-	if out, _ := e.call("/api/v1/leikwan-rule/create", e.user, map[string]interface{}{"lineId": lineID, "name": strings.Repeat("利", 34), "landingNodeId": 501, "requestId": "req-qafix-long"}); out.Code == 0 || !strings.Contains(out.Msg, "规则名称太长") {
+	if out, _ := e.call("/api/v1/leikwan-rule/create", e.user, map[string]interface{}{"lineId": lineID, "name": strings.Repeat("利", 34), "landingNodeId": 501, "requestId": "req-qafix-long"}); out.Code == 0 || !strings.Contains(out.Msg, "转发名称太长") {
 		t.Fatalf("long name: %+v", out)
 	}
 	if out, _ := e.call("/api/v1/leikwan-rule/create", e.user, map[string]interface{}{"lineId": lineID, "name": "ok", "landingNodeId": 501, "requestId": "x"}); out.Code == 0 || !strings.Contains(out.Msg, "请求标识无效") {
@@ -94,7 +94,7 @@ func leiKwanQAFixFlow(t *testing.T, dialect string) {
 	}
 
 	// --- F05: 外部节点 / panel landing in use by a 利群 rule ---
-	if out, _ := e.call("/api/v1/landing/external/delete", e.user, map[string]interface{}{"id": ext.ID}); out.Code == 0 || !strings.Contains(out.Msg, "利群规则") || !strings.Contains(out.Msg, "广港到日本") {
+	if out, _ := e.call("/api/v1/landing/external/delete", e.user, map[string]interface{}{"id": ext.ID}); out.Code == 0 || !strings.Contains(out.Msg, "利群转发") || !strings.Contains(out.Msg, "广港到日本") {
 		t.Fatalf("external delete in use: %+v", out)
 	}
 	items := e.ok("/api/v1/landing/external/list", e.user, map[string]interface{}{})["items"].([]interface{})
@@ -105,10 +105,10 @@ func leiKwanQAFixFlow(t *testing.T, dialect string) {
 	if err := e.r.DeleteLandingNode(501); err == nil || !strings.Contains(err.Error(), "我的广港") {
 		t.Fatalf("landing delete in use: %v", err)
 	}
-	if _, err := e.r.PrepareLandingNodeDeletion(501); err == nil || !strings.Contains(err.Error(), "利群规则") {
+	if _, err := e.r.PrepareLandingNodeDeletion(501); err == nil || !strings.Contains(err.Error(), "利群转发") {
 		t.Fatalf("landing prepare delete in use: %v", err)
 	}
-	if _, err := e.r.PrepareSharedLandingDeletion(501); err == nil || !strings.Contains(err.Error(), "利群规则") {
+	if _, err := e.r.PrepareSharedLandingDeletion(501); err == nil || !strings.Contains(err.Error(), "利群转发") {
 		t.Fatalf("shared landing delete in use: %v", err)
 	}
 
