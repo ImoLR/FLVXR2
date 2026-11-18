@@ -1,7 +1,8 @@
 # 284 — 普通转发目标「我的外部节点」+ 目标名称改名 (build + screenshots only)
 
-Task `external-forward` (11-18 TW, coordinator fa017f57). Base `3.0.27-fork.149`, merged `3.0.27-fork.150`
-(plan 280 规则→转发, released while this was building), branch
+Task `external-forward` (11-18 TW, coordinator fa017f57; round 2 `external-forward-r2`). Base `3.0.27-fork.149`,
+merged the prod tags released while this was building: `3.0.27-fork.150` (plan 280 规则→转发 + user.leikwan_num),
+`3.0.27-fork.151` and `3.0.27-fork.152` (plan 283 quic-block), branch
 `feature/3.0.27-external-forward`, worktree `/root/projects/flvxx/flvxx-284`. Panel only, no agent change.
 **Not merged / tagged / released** — the user looks at the screenshots first.
 
@@ -55,10 +56,16 @@ Task `external-forward` (11-18 TW, coordinator fa017f57). Base `3.0.27-fork.149`
 - [x] Round 2: PG run found the 转发 list query broken on PostgreSQL since fork.100 (`LEFT JOIN user` /
       `user.name` — `user` is reserved in PG; prod is SQLite so never seen): quoted as `"user"` (same on SQLite)
 - [x] Round 2: prod moved to `3.0.27-fork.151` (plan 283 quic-block) while building → merged it too (clean;
-      only agent + ws counter + node/tunnel page, nothing plan 284 touches). fork.152 is not on prod → not merged
+      only agent + ws counter + node/tunnel page, nothing plan 284 touches). fork.152 was not on prod yet → later
+      prod moved to fork.152 (agent QUIC log only) → merged it as well (clean, no panel change)
 - [x] Round 2: picker hint only claims 「只能选 SS、VLESS Encryption」 when TLS + HTTP + SOCKS are all blocked;
       外部节点 list note mentions forwards
-- [ ] go test ./... (SQLite) + PG contract where touched; npm run build
-- [ ] Push branch, CI green
-- [ ] Screenshot gallery `/root/mmwx-preview/external-forward/`
-- [ ] Ledger row 284, summary, cache cleanup
+- [x] go test ./... (SQLite) + PG contract where touched; npm run build — SQLite all green (also after the
+      fork.151 merge); PG (temp postgres:18) contract + repo + handler green; `npm run build` ok
+- [x] Push branch, CI green (CI Build Check 44325747555: frontend, backend, PG contract, agent)
+- [x] Screenshot gallery `/root/mmwx-preview/external-forward/` (40 PNG, a–i, desktop 1440 + H5 390, dark for
+      b3 / f; lab = scratch SQLite + isolated netns, 27/27 checks, 0 page errors) — http://104.145.236.29:8791/external-forward/
+- [x] Ledger row 284, summary (`runs/external-forward-r2/summary.md`), cache cleanup
+
+## Status
+BUILT 11-18 TW, waiting for the user's look at the gallery. No merge to main, no tag, no release, prod untouched.
