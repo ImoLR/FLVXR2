@@ -69,3 +69,14 @@ merged the prod tags released while this was building: `3.0.27-fork.150` (plan 2
 
 ## Status
 BUILT 11-18 TW, waiting for the user's look at the gallery. No merge to main, no tag, no release, prod untouched.
+
+## Release (fork.154, task release-external-forward, 11-18/19 TW)
+User approved the screens 11-18 ~23:50 TW (「自动识别」 kept, no changes).
+- [x] Worktree flvxx-rel284 from tag 3.0.27-fork.153, branch maintenance/3.0.27-fork.154-external-forward,
+      merged origin/feature/3.0.27-external-forward (clean; no file overlap with plan 285)
+- [ ] go vet + go test ./... (SQLite + PG via FLVX_POSTGRES_TEST_DSN, temp postgres:18) + npm run build
+- [ ] Push, tag 3.0.27-fork.154, CI + Images + release assets, Latest
+- [ ] Prod backup + rollback script (→ fork.153), fork.153 verified on a fork.154-migrated prod-DB copy, prune backups
+- [ ] Panel swap before 01:30 TW, OTA hand-off notes (target fork.154)
+- [ ] Post-swap checks (nodes, forwards, 利群, external_node_id = 0, 自动识别 count, sub diff, log 15 min, RSS, UI smoke)
+- [ ] Cleanup worktrees / lab / caches, ledger + memory
