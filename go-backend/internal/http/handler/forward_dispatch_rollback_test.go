@@ -21,7 +21,12 @@ func TestForwardCreatePartialDispatchRollback(t *testing.T) {
 				}
 				return nil
 			}
-			code, msg, _ := leiKwanHandlerCall(t, e.h.forwardCreate, map[string]interface{}{"userId": 7, "tunnelId": 10, "name": "failed-create", "remoteAddr": "1.1.1.1:443", "inPort": 1500, "mode": mode})
+			body := map[string]interface{}{"userId": 7, "tunnelId": 10, "name": "failed-create", "remoteAddr": "1.1.1.1:443", "inPort": 1500, "mode": mode}
+			if mode == "nftables" {
+				// Plan 282: nftables only for the admin's own rules.
+				delete(body, "userId")
+			}
+			code, msg, _ := leiKwanHandlerCall(t, e.h.forwardCreate, body)
 			if code == 0 {
 				t.Fatalf("expected failure: %s", msg)
 			}

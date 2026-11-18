@@ -6683,8 +6683,7 @@ export default function ForwardPage() {
                     <Select
                       // Plan 282: non-admins have no 转发模式 select, so the
                       // tunnel picker takes the whole row.
-                      className={isAdmin ? undefined : "md:col-span-2"}
-                      classNames={isAdmin ? { listbox: "md:w-[calc(200%+0.5rem)]" } : undefined}
+                      classNames={isAdmin ? { listbox: "md:w-[calc(200%+0.5rem)]" } : { base: "md:col-span-2" }}
                       description={
                         <>
                           {isEdit
