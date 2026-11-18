@@ -14,15 +14,25 @@ Scope: panel only (go-backend handler + frontend comments). No DB change, no age
 
 ## Checklist
 - [x] Worktree from fork.151, branch `maintenance/3.0.27-fork.152-warm-tag-user`
-- [ ] Backend: non-admins get the full `warmPoolView` (remove user-only view + faster/≥1 ms gate)
-- [ ] Backend: address guard for unmapped tunnel hops in the user view
-- [ ] Tests: user view = admin view incl. warming / unsupported / slower + hops; unmapped hop never leaks a node IP
-- [ ] Frontend: stale plan-249 comments updated (no UI behaviour change needed — dropdown has no admin-only action)
-- [ ] `go test ./...` (-timeout 30m) vs base; `npm run build`
-- [ ] Lab screenshots (user: faster / slower / 不支持 / 数据不足 + dropdown, desktop + H5; admin unchanged) → gallery
+- [x] Backend: non-admins get the full `warmPoolView` (remove user-only view + faster/≥1 ms gate)
+- [x] Backend: address guard for unmapped tunnel hops in the user view
+- [x] Tests: user view = admin view incl. warming / unsupported / slower + hops; unmapped hop never leaks a node IP
+- [x] Frontend: stale plan-249 comments updated (no UI behaviour change needed — dropdown has no admin-only action)
+- [x] `go test ./...` (-timeout 30m) vs base; `npm run build`
+- [x] Lab screenshots (user: faster / slower / 不支持 / 数据不足 + dropdown, desktop + H5; admin unchanged) → gallery
 - [ ] Ledger row 285
 - [ ] Release fork.N (tag, CI, images, assets, Latest)
 - [ ] Prod backup + rollback script, panel upgrade, health checks
 - [ ] Prod check: rule 641 admin vs test-ns-fx identical; per-state counts before/after; prod screenshots
 - [ ] Ledger → 已发布, memory, OTA brief note
 - [ ] Cleanup (worktree, caches)
+
+## Results (build)
+- Backend: `attachForwardWarmPoolStates` gives non-admins `userWarmView(view)` = a copy of the admin view; tunnel hops with
+  `ToNodeID == 0` get `To = 「下一跳」`. Removed `warmPoolUserView` + `warmUserMinSavedMs` (users = admins, incl. −0 ms).
+- Tests: handler `TestForwardWarmPoolRuleView` (user JSON == admin JSON for faster / unsupported / warming), new
+  `TestUserWarmViewHidesUnmappedNodeAddress` (SQLite + PG: admin sees 203.0.113.77:39999, user 「下一跳」, slower port rule
+  identical), `TestForwardListCarriesWarmTag`, contract `TestForwardWarmTagContract` updated (owner == admin).
+  Full `go test ./...` (PG DSN): all ok except the old contract expectation (updated, rerun ok). `npm run build` ok.
+- Lab (synthetic DB + simulated agents, runs/warm-tag-user-parity/lab): 27/27 checks; gallery
+  http://104.145.236.29:8791/warm-tag-user-parity/
