@@ -156,3 +156,8 @@ names it: 「🚫 BLOCK QUIC (hy2/TUIC/HTTP3) <forwardID>_<userID>_<tunnelID>_ud
 then a count at most every 10 min (EventSummary, ≤ 4096 keys, overflow merged). String built only on a block. No other
 change; panel images identical apart from the version. Released as fork.152 before the 11-19 OTA so no node ever runs
 fork.151 (except via plan 278 if it had started — it had not).
+- Released: tag `3.0.27-fork.152` → 6f8a433a (branch `maintenance/3.0.27-fork.152-quic-block`), go-gost/x 27 packages
+  green again, CI Build Check + Images 44323021058 green, Latest, 10 assets, gost sha256 ok, decompressed binary has
+  the new line. Prod panel swap 11-18 22:37:00–22:37:09 TW, 30/30 back, public domain fork.152, 0 panel errors.
+  Rollback `/opt/flvx-svc/rollback/pre-fork152-20261118T143659Z/rollback.sh` (→ fork.151); backups kept pre-fork151 +
+  pre-fork152. Plan 278 brief updated (OTA target fork.152).
