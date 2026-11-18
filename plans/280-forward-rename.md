@@ -1,6 +1,6 @@
 # 280 — 「规则」→「转发」 wording + separate 利群转发数 per user
 
-Base: tag `3.0.27-fork.148` (7b830a69). Branch `maintenance/3.0.27-fork.149-forward-rename`.
+Base: tag `3.0.27-fork.148` (7b830a69). Branch `maintenance/3.0.27-fork.150-forward-rename` (rebased onto fork.149 = plan 282 before release).
 Panel only (go-backend + vite-frontend); go-gost untouched → no agent OTA.
 
 ## User decisions (11-18, voice)
@@ -28,7 +28,7 @@ Panel only (go-backend + vite-frontend); go-gost untouched → no agent OTA.
 - [x] Post-build grep: every remaining 「规则」 in UI text is in the keep list
 - [x] Screenshots desktop + 390 px → gallery http://104.145.236.29:8791/forward-rename/
 - [x] Ledger row 280 (built)
-- [ ] Release fork.149: push, tag, CI, images, 10 assets, Latest
+- [ ] Release fork.150: push, tag, CI, images, 10 assets, Latest
 - [ ] Prod: backup + rollback script, previous fork on migrated prod-DB copy, prune, swap, checks
 - [ ] Ledger → 已发布, memory updated, worktree + caches removed
 
