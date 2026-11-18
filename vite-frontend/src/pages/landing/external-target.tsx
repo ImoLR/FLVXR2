@@ -47,8 +47,12 @@ function passHint(blockedFilters: string[] | undefined) {
   ].filter(Boolean);
 
   if (!names.length) return "";
+  // Only with TLS + HTTP + SOCKS all blocked (and 其它协议 open) is it really
+  // just SS / VLESS Encryption; otherwise point at the greyed rows.
+  if (names.length === 3 && !b.includes("other"))
+    return "此隧道屏蔽了 TLS / HTTP / SOCKS，只能选 SS、VLESS Encryption 这类协议的节点";
 
-  return `此隧道屏蔽了 ${names.join(" / ")}，只能选 SS、VLESS Encryption 这类协议的节点`;
+  return `此隧道屏蔽了 ${names.join(" / ")}，灰色的节点不能用`;
 }
 
 export function ExternalTargetPicker({
