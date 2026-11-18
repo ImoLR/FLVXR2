@@ -83,6 +83,15 @@ func (ln *listener) listenLoop() {
 			bufpool.Put(b)
 			continue
 		}
+		if c.isBlocked() {
+			// Plan 283: the protocol filter blocked this client (QUIC on a
+			// 屏蔽 TLS forward): drop its datagrams. Drops do not refresh the
+			// idle mark, so the entry goes away 1–2 TTLs after the block even
+			// while the client keeps sending, and the next datagram is judged
+			// again in a new session.
+			bufpool.Put(b)
+			continue
+		}
 
 		if err := c.WriteQueue(b[:n]); err != nil {
 			ln.config.Logger.Warn("data discarded: ", err)
@@ -111,7 +120,7 @@ func (ln *listener) Close() error {
 
 func (ln *listener) getConn(raddr net.Addr) *conn {
 	c, ok := ln.connPool.Get(raddr.String())
-	if ok && !c.isClosed() {
+	if ok && (!c.isClosed() || c.isBlocked()) {
 		return c
 	}
 
@@ -134,6 +143,7 @@ type conn struct {
 	remoteAddr net.Addr
 	rc         chan []byte // data receive queue
 	idle       int32       // indicate the connection is idle
+	blocked    int32       // plan 283: closed by the protocol filter, datagrams dropped until idle
 	closed     chan struct{}
 	closeMutex sync.Mutex
 	keepalive  bool
@@ -193,6 +203,19 @@ func (c *conn) Close() error {
 		close(c.closed)
 	}
 	return nil
+}
+
+// Block (plan 283) ends this client's session for the protocol filter: its
+// reader sees net.ErrClosed, and the listener keeps the entry and drops the
+// client's datagrams until the idle check removes it (1–2 TTLs) — no new
+// session (and no new dial) per retransmitted packet.
+func (c *conn) Block() {
+	atomic.StoreInt32(&c.blocked, 1)
+	c.Close()
+}
+
+func (c *conn) isBlocked() bool {
+	return atomic.LoadInt32(&c.blocked) != 0
 }
 
 func (c *conn) isClosed() bool {

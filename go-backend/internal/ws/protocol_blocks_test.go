@@ -95,7 +95,30 @@ func TestProtocolBlocksKeptInMemoryAdminAPIOnly(t *testing.T) {
 		t.Fatalf("counters dropped by a metric without the field: %+v", p)
 	}
 	b, _ := json.Marshal(p)
-	if !strings.Contains(string(b), `"socks":205`) {
+	if !strings.Contains(string(b), `"socks":205`) || strings.Contains(string(b), `"quic"`) {
+		t.Fatalf("json %s (agent without the QUIC check must not show a quic number)", b)
+	}
+	// Plan 283: an agent with the QUIC check always sends quic (0 included).
+	send(`{"type":"metric","data":{"uptime":8,"tcp_conns":7,"protocol_blocks":{"http":1,"tls":2,"socks":205,"other":0,"quic":0}}}`)
+	readMetric()
+	for i := 0; i < 100; i++ {
+		if p = s.ProtocolBlocks(1); p != nil && p.QUIC != nil {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if p == nil || p.QUIC == nil || *p.QUIC != 0 {
+		t.Fatalf("quic 0 not kept: %+v", p)
+	}
+	send(`{"type":"metric","data":{"uptime":9,"tcp_conns":7,"protocol_blocks":{"http":1,"tls":2,"socks":205,"other":0,"quic":3}}}`)
+	readMetric()
+	for i := 0; i < 100; i++ {
+		if p = s.ProtocolBlocks(1); p != nil && p.QUIC != nil && *p.QUIC == 3 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if b, _ = json.Marshal(p); !strings.Contains(string(b), `"quic":3`) {
 		t.Fatalf("json %s", b)
 	}
 	// Session ends → unknown.

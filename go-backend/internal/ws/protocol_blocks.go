@@ -4,11 +4,16 @@ package ws
 // connections closed since the agent started, per kind. Agents send them in
 // the first metric of a session and then only on change; the panel keeps the
 // latest per session in memory (no DB write) for the admin node card.
+//
+// Plan 283: QUIC = UDP sessions closed for a QUIC Initial on a 屏蔽 TLS
+// forward. Only agents with the check send it; nil = older agent (the node
+// card then shows no QUIC number).
 type ProtocolBlocks struct {
-	HTTP  uint64 `json:"http"`
-	TLS   uint64 `json:"tls"`
-	SOCKS uint64 `json:"socks"`
-	Other uint64 `json:"other"`
+	HTTP  uint64  `json:"http"`
+	TLS   uint64  `json:"tls"`
+	SOCKS uint64  `json:"socks"`
+	Other uint64  `json:"other"`
+	QUIC  *uint64 `json:"quic,omitempty"`
 }
 
 func (s *Server) recordProtocolBlocks(ns *nodeSession, p *ProtocolBlocks) {
@@ -16,6 +21,10 @@ func (s *Server) recordProtocolBlocks(ns *nodeSession, p *ProtocolBlocks) {
 		return
 	}
 	v := *p
+	if p.QUIC != nil {
+		q := *p.QUIC
+		v.QUIC = &q
+	}
 	ns.protocolBlocks.Store(&v)
 }
 
