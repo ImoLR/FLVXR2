@@ -585,6 +585,9 @@ func (h *Handler) subPool(w http.ResponseWriter, r *http.Request) {
 		it := item(l.Ref, l.Node, l.Detail)
 		if l.Rule {
 			it["chain"] = l.Chain
+			if l.External != "" { // plan 284: 端口转发 · 外部节点 <名>
+				it["external"], it["externalAuto"] = l.External, l.ExternalAuto
+			}
 			rules = append(rules, it)
 		} else {
 			landing = append(landing, it)
@@ -649,6 +652,9 @@ func (h *Handler) subPool(w http.ResponseWriter, r *http.Request) {
 				v["name"], v["protocol"], v["group"] = l.Node.Name, l.Node.ProtocolLabel(), "landing"
 				if l.Rule {
 					v["group"], v["chain"] = "rule", l.Chain
+					if l.External != "" {
+						v["external"], v["externalAuto"] = l.External, l.ExternalAuto
+					}
 				}
 				v["key"] = l.Ref.Key()
 				v["ref"] = subRefView(l.Ref)

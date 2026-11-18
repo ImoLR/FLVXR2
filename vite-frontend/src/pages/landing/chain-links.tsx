@@ -3,7 +3,12 @@ import toast from "react-hot-toast";
 
 import { LandingLinkCard, LinkCardLink, copyToClipboard } from "./link-card";
 
-import { ForwardChainInfo, getChainLinks } from "@/api/line-chain";
+import {
+  ForwardChainInfo,
+  ForwardExternalInfo,
+  getChainLinks,
+  getExternalForwardLinks,
+} from "@/api/line-chain";
 import {
   OnboardingRing,
   useOnboardingHint,
@@ -26,18 +31,82 @@ interface ChainRow {
   landingNodeId?: number;
   lineNonCompliant?: boolean;
   lineComplianceAck?: boolean;
+  /** Plan 284: the forward's target is one of the owner's 外部节点. */
+  externalNode?: ForwardExternalInfo;
+}
+
+// Plan 284: 「外部节点 · 协议」 tag of a port forward to the user's own node
+// (+ 「自动识别」 for an old 手动填写 forward whose target equals the node).
+export function ForwardExternalBadges({
+  external,
+}: {
+  external?: ForwardExternalInfo;
+}) {
+  if (!external) return null;
+
+  return (
+    <span className="inline-flex flex-wrap items-center gap-1" data-external-badges>
+      <span
+        className="inline-flex items-center whitespace-nowrap rounded-full bg-cyan-500/15 px-2 text-[10px] font-semibold leading-[18px] text-cyan-700 dark:bg-cyan-400/15 dark:text-cyan-300"
+        title={`端口转发到你的外部节点「${external.name}」（${external.address}），复制链接 / 订阅里的地址是入口地址`}
+      >
+        外部节点 · {external.protocolLabel}
+      </span>
+      {external.auto && (
+        <span
+          className="inline-flex items-center whitespace-nowrap rounded-full bg-slate-500/15 px-2 text-[10px] font-semibold leading-[18px] text-slate-600 dark:bg-slate-400/15 dark:text-slate-300"
+          title="手动填写的目标正好是你的外部节点，已自动识别；编辑时选「我的外部节点」可固定下来"
+        >
+          自动识别
+        </span>
+      )}
+      {external.mismatch && (
+        <span
+          className="inline-flex items-center whitespace-nowrap rounded-full bg-amber-500/15 px-2 text-[10px] font-semibold leading-[18px] text-amber-700 dark:bg-amber-400/15 dark:text-amber-300"
+          title={`转发目标和外部节点地址 ${external.address} 不一致，请编辑转发重新选择外部节点`}
+        >
+          ⚠ 地址不一致
+        </span>
+      )}
+      {external.blocked && (
+        <span
+          className="inline-flex items-center whitespace-nowrap rounded-full bg-red-500/15 px-2 text-[10px] font-semibold leading-[18px] text-red-700 dark:bg-red-400/15 dark:text-red-300"
+          title={external.blocked}
+        >
+          ⚠ 隧道屏蔽
+        </span>
+      )}
+    </span>
+  );
 }
 
 // Badges next to a rule name: 「我的节点」 for chain rules (with a busy or
 // error hint), 「不合规」 for rules a 线路机 tunnel no longer allows and (admin
 // only, plan 164) a quiet 「已确认合规」 once an admin confirmed the target.
 export function ForwardLineBadges({ forward }: { forward: ChainRow }) {
-  if (!forward.chain && !forward.lineNonCompliant && !forward.lineComplianceAck)
+  const external = !forward.chain ? forward.externalNode : undefined;
+
+  if (
+    !forward.chain &&
+    !forward.lineNonCompliant &&
+    !forward.lineComplianceAck &&
+    !external
+  )
     return null;
   const chain = forward.chain;
 
   return (
     <div className="mt-1 flex flex-wrap items-center gap-1">
+      {external && <ForwardExternalBadges external={external} />}
+      {external && (
+        <span
+          className="min-w-0 truncate text-xs text-default-500"
+          data-external-target-name
+          title={`目标：外部节点「${external.name}」 ${external.address}`}
+        >
+          → {external.name}
+        </span>
+      )}
       {chain && (
         <Chip color="secondary" size="sm" title={chain.summary} variant="flat">
           我的节点
@@ -66,7 +135,7 @@ export function ForwardLineBadges({ forward }: { forward: ChainRow }) {
         <Chip
           color="warning"
           size="sm"
-          title="线路机隧道只能转发到 VLESS Reality Vision / AnyTLS 落地或「我自己的节点」；该规则仍在运行，修改目标后即合规"
+          title="线路机隧道只能转发到 VLESS Reality Vision / AnyTLS 落地或「我的外部节点」；该规则仍在运行，修改目标后即合规"
           variant="flat"
         >
           不合规
@@ -98,7 +167,7 @@ export function ChainLinkButton({
   const [qr, setQR] = useState("");
   const visible = forward.chain
     ? forward.chain.state === "active"
-    : Boolean(forward.landingNodeId);
+    : Boolean(forward.landingNodeId || forward.externalNode);
   // Plan 146/169: hint until the user has copied a link once (one rule row plays per visit).
   const linkHint = useOnboardingHint("copyLink", { enabled: visible });
 
@@ -107,19 +176,38 @@ export function ChainLinkButton({
   const load = async () => {
     setLoading(true);
     try {
-      const res = forward.chain
-        ? await getChainLinks(forward.id)
-        : await landingLinks(forward.landingNodeId!);
-      // Plan 175: every link of a rule runs through that rule (经规则转发);
-      // chain links carry no kind, landing links keep theirs.
-      const entries: LinkCardLink[] = forward.chain
-        ? (res.data || []).map((link) => ({
-            ...link,
-            kind: "forward" as const,
-          }))
-        : (res.data || []).filter(
-            (link) => "forwardId" in link && link.forwardId === forward.id,
-          );
+      let res: { code: number; msg: string };
+      let entries: LinkCardLink[] = [];
+
+      if (forward.chain) {
+        const r = await getChainLinks(forward.id);
+
+        res = r;
+        // Plan 175: every link of a rule runs through that rule (经规则转发);
+        // chain links carry no kind, landing links keep theirs.
+        entries = (r.data || []).map((link) => ({
+          ...link,
+          kind: "forward" as const,
+        }));
+      } else if (!forward.landingNodeId && forward.externalNode) {
+        // Plan 284: the external node's own link at each entry address.
+        const r = await getExternalForwardLinks(forward.id);
+
+        res = r;
+        entries = (r.data?.links || []).map((link) => ({
+          name: link.name,
+          url: link.url,
+          blocked: link.blocked,
+          kind: "forward" as const,
+        }));
+      } else {
+        const r = await landingLinks(forward.landingNodeId!);
+
+        res = r;
+        entries = (r.data || []).filter(
+          (link) => "forwardId" in link && link.forwardId === forward.id,
+        );
+      }
 
       if (res.code !== 0 || !entries.length) {
         toast.error(res.msg || "链接获取失败");

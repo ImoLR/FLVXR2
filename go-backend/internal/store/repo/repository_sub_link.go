@@ -262,9 +262,14 @@ func (r *Repository) DeleteSubSource(id, userID int64) (bool, []int64, error) {
 type SubPanelLink struct {
 	Ref  sublink.Ref
 	Node sublink.Node
-	// Rule: a rule link (else landing 直连); Chain: 「我自己的节点」 rule.
+	// Rule: a rule link (else landing 直连); Chain: 「我的外部节点」 chain rule
+	// on a 线路机 tunnel.
 	Rule  bool
 	Chain bool
+	// External (plan 284): a port forward to the owner's 外部节点 of that
+	// name; ExternalAuto = recognised by its target (no stored link).
+	External     string
+	ExternalAuto bool
 	// Detail: "入口名 :端口" for rule links, "host:port" for 直连.
 	Detail string
 }
@@ -319,24 +324,56 @@ func (r *Repository) SubPanelLinks(userID int64, forwardIDs, landingIDs []int64,
 		chainByForward[chains[i].ForwardID] = &chains[i]
 		chainForwardIDs = append(chainForwardIDs, chains[i].ForwardID)
 	}
+	// Plan 284: with 外部节点, port forwards to them have links too (stored
+	// link or read-time match), so every rule of the user is looked at.
+	var extNodes []model.LandingExternalNode
+	if err := r.db.Where("user_id = ?", userID).Order("id ASC").Find(&extNodes).Error; err != nil {
+		return nil, err
+	}
+	extCount := len(extNodes)
 	var forwards []model.Forward
 	fq := r.db.Where("user_id = ? AND (landing_node_id > 0 OR id IN ?)", userID, chainForwardIDs)
+	if extCount > 0 {
+		fq = r.db.Where("user_id = ?", userID)
+	}
 	if forwardIDs != nil {
 		fq = fq.Where("id IN ?", append(forwardIDs, 0))
 	}
 	if err := fq.Order("inx, id").Find(&forwards).Error; err != nil {
 		return nil, err
 	}
-	if countPlain {
-		var n int64
-		if err := r.db.Model(&model.Forward{}).Where("user_id = ? AND landing_node_id = 0 AND id NOT IN ?", userID, chainForwardIDs).Count(&n).Error; err != nil {
+	externalOf := map[int64]*ForwardExternal{}
+	if extCount > 0 {
+		chained := map[int64]bool{}
+		for id := range chainByForward {
+			chained[id] = true
+		}
+		got, err := r.forwardExternalsWith(extNodes, forwards, chained)
+		if err != nil {
 			return nil, err
 		}
-		out.PortForwards = int(n)
+		externalOf = got
+	}
+	if countPlain {
+		if extCount > 0 && forwardIDs == nil {
+			n := 0
+			for _, f := range forwards {
+				if f.LandingNodeID == 0 && chainByForward[f.ID] == nil && externalOf[f.ID] == nil {
+					n++
+				}
+			}
+			out.PortForwards = n
+		} else {
+			var n int64
+			if err := r.db.Model(&model.Forward{}).Where("user_id = ? AND landing_node_id = 0 AND id NOT IN ?", userID, chainForwardIDs).Count(&n).Error; err != nil {
+				return nil, err
+			}
+			out.PortForwards = int(n)
+		}
 	}
 	usable := forwards[:0]
 	for _, f := range forwards {
-		if chainByForward[f.ID] != nil || landingByID[f.LandingNodeID] != nil {
+		if chainByForward[f.ID] != nil || landingByID[f.LandingNodeID] != nil || externalOf[f.ID] != nil {
 			usable = append(usable, f)
 		}
 	}
@@ -365,7 +402,13 @@ func (r *Repository) SubPanelLinks(userID int64, forwardIDs, landingIDs []int64,
 			if hostsPerNode[e.NodeID] > 1 {
 				link.Detail = e.NodeName + " · " + addr
 			}
-			if chain != nil {
+			if x := externalOf[f.ID]; x != nil && chain == nil {
+				node, ok := ExternalForwardNode(x, e.Host, e.Port, ExternalForwardNodeName(f.Name, e.NodeName, len(list)))
+				if !ok {
+					continue
+				}
+				link.Node, link.External, link.ExternalAuto = node, x.Node.Name, x.Auto
+			} else if chain != nil {
 				name := f.Name
 				if len(list) > 1 {
 					name = f.Name + " · " + e.NodeName

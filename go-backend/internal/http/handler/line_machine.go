@@ -24,7 +24,7 @@ import (
 // mirrors it.
 
 const (
-	lineMachineManualMsg  = "线路机隧道不能手动填写目标地址：请选择 VLESS Reality Vision 或 AnyTLS 落地节点，或「我自己的节点」"
+	lineMachineManualMsg  = "线路机隧道不能手动填写目标地址：请选择 VLESS Reality Vision 或 AnyTLS 落地节点，或「我的外部节点」"
 	lineMachineRealityMsg = "线路机隧道只能使用 VLESS Reality Vision 或 AnyTLS 落地"
 )
 
@@ -124,13 +124,13 @@ func tunnelChainAvailability(info *repo.TunnelLineInfo) (bool, string) {
 	for _, e := range info.Exits {
 		switch {
 		case e.LineMachine:
-			return false, "出口节点「" + e.Name + "」是线路机，不能承载「我自己的节点」"
+			return false, "出口节点「" + e.Name + "」是线路机，不能承载「我的外部节点」"
 		case e.NodeID == 36:
 			return false, "出口节点「" + e.Name + "」不能承载落地"
 		case e.IsRemote:
-			return false, "出口节点「" + e.Name + "」是远程节点，不能承载「我自己的节点」"
+			return false, "出口节点「" + e.Name + "」是远程节点，不能承载「我的外部节点」"
 		case !e.LandingCapable || e.LandingChain < 1:
-			return false, "出口节点「" + e.Name + "」的节点程序版本过低，需要升级后才能使用「我自己的节点」"
+			return false, "出口节点「" + e.Name + "」的节点程序版本过低，需要升级后才能使用「我的外部节点」"
 		}
 	}
 	return true, ""
@@ -318,7 +318,7 @@ func (h *Handler) lineComplianceAckEligible(f *forwardRecord) error {
 		return errors.New("只有线路机隧道上的规则需要确认合规")
 	}
 	if chain, _ := h.repo.GetForwardChainByForward(f.ID); chain != nil {
-		return errors.New("「我自己的节点」规则由面板管理，不能手动确认合规")
+		return errors.New("「我的外部节点」规则由面板管理，不能手动确认合规")
 	}
 	if f.LandingNodeID > 0 {
 		return errors.New("目标是落地节点，面板已知协议，不能手动确认合规")

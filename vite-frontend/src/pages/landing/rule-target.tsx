@@ -20,6 +20,7 @@ import {
   ChainTargetInput,
 } from "@/pages/landing/chain-target";
 import { CreateLandingNodeDialog } from "@/pages/landing/create-node";
+import { ExternalTargetPicker } from "@/pages/landing/external-target";
 import { Button } from "@/shadcn-bridge/heroui/button";
 import {
   Select,
@@ -28,8 +29,14 @@ import {
 } from "@/shadcn-bridge/heroui/select";
 
 export interface LandingTargetValue {
-  targetMode?: "manual" | "node" | "chain";
+  /** Plan 284: "external" = 「我的外部节点」 on a normal tunnel (plain port
+   *  forward to the node); "chain" = the same choice on a 线路机 tunnel. */
+  targetMode?: "manual" | "node" | "chain" | "external";
   landingNodeId?: number;
+  /** Plan 284: the owner's 外部节点 (normal tunnels). */
+  externalNodeId?: number;
+  /** Plan 284: 线路机 chain from a 外部节点 of the list (else chainLink). */
+  chainExternalId?: number;
   chainLink?: string;
   /** Plan 250: exit inbound of 「我自己的节点」 (default VLESS Reality). */
   chainInbound?: ChainInbound;
@@ -46,6 +53,8 @@ export interface LineTunnelInfo {
   chainAnyTLSUnavailableReason?: string;
   /** Plan 224: features the tunnel's entry filter blocks ("tls" / "http"). */
   blockedFeatures?: string[];
+  /** Plan 284: every filter kind it blocks (tls / quic / http / socks / other). */
+  blockedFilters?: string[];
 }
 
 export function RuleLandingTarget({
@@ -70,6 +79,8 @@ export function RuleLandingTarget({
   const [servers, setServers] = useState<LandingServer[]>([]);
   const [loading, setLoading] = useState(false);
   const [creating, setCreating] = useState(false);
+  // Plan 284: a full 外部节点 list on a 线路机 tunnel → paste box fallback.
+  const [externalFull, setExternalFull] = useState(false);
   const lineMachine = Boolean(line?.lineMachine);
   const mode = value.targetMode || "manual";
 
@@ -170,6 +181,8 @@ export function RuleLandingTarget({
               Array.from(keys)[0],
             ) as LandingTargetValue["targetMode"],
             landingNodeId: undefined,
+            externalNodeId: undefined,
+            chainExternalId: undefined,
             chainLink: "",
           });
         }}
@@ -178,16 +191,26 @@ export function RuleLandingTarget({
           ...(lineMachine
             ? []
             : [<SelectItem key="manual">手动填写</SelectItem>]),
-          <SelectItem key="node">我的落地节点</SelectItem>,
-          ...(lineMachine
-            ? [<SelectItem key="chain">我自己的节点</SelectItem>]
-            : []),
+          <SelectItem key="node">我的面板节点</SelectItem>,
+          lineMachine ? (
+            <SelectItem key="chain">我的外部节点</SelectItem>
+          ) : (
+            <SelectItem key="external">我的外部节点</SelectItem>
+          ),
         ]}
       </Select>
       {lineMachine && !line?.chainAvailable && line?.chainUnavailableReason && (
         <p className="text-xs text-default-500">
-          「我自己的节点」暂不可用：{line.chainUnavailableReason}
+          「我的外部节点」暂不可用：{line.chainUnavailableReason}
         </p>
+      )}
+      {mode === "external" && !lineMachine && (
+        <ExternalTargetPicker
+          blockedFilters={line?.blockedFilters}
+          userId={userId}
+          value={value.externalNodeId}
+          onChange={(externalNodeId) => onChange({ ...value, externalNodeId })}
+        />
       )}
       {mode === "node" && (
         <>
@@ -202,7 +225,7 @@ export function RuleLandingTarget({
               .filter(disabledReason)
               .map((node) => String(node.id))}
             isDisabled={loading}
-            label="我的落地节点"
+            label="我的面板节点"
             listboxVariant="grouped"
             placeholder={loading ? "正在加载…" : "请选择落地节点"}
             selectedKeys={
@@ -282,12 +305,36 @@ export function RuleLandingTarget({
         />
       )}
       {mode === "chain" && (
+        <ExternalTargetPicker
+          chain
+          userId={userId}
+          value={value.chainExternalId}
+          onChange={(chainExternalId) =>
+            onChange({ ...value, chainExternalId, chainLink: "" })
+          }
+          onListLoaded={(count, cap) => setExternalFull(cap > 0 && count >= cap)}
+        />
+      )}
+      {mode === "chain" && chainSummary && !value.chainExternalId && (
+        <p className="text-xs text-default-500" data-chain-current>
+          当前节点：{chainSummary}（不选就保持当前节点，转发链接不变）
+        </p>
+      )}
+      {mode === "chain" && chainError && !(externalFull && !value.chainExternalId) && (
+        <p className="text-sm text-danger">{chainError}</p>
+      )}
+      {mode === "chain" && externalFull && !value.chainExternalId && (
         <ChainTargetInput
           currentSummary={chainSummary}
           error={chainError}
           value={value.chainLink || ""}
           onChange={(chainLink) => onChange({ ...value, chainLink })}
         />
+      )}
+      {mode === "chain" && !(externalFull && !value.chainExternalId) && (
+        <p className="text-xs text-default-500">
+          保存后会在隧道出口为你准备专属节点（首次可能需要几十秒），完成后在转发行点「复制链接」导入客户端。按普通转发计费。
+        </p>
       )}
       {creating && (
         <CreateLandingNodeDialog

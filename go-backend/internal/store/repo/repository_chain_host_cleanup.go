@@ -54,7 +54,7 @@ func chainHostKeepReasonTx(tx *gorm.DB, s model.LandingServer) (string, error) {
 		args   []interface{}
 		reason string
 	}{
-		{&model.ForwardChainNode{}, "landing_server_id = ?", []interface{}{s.ID}, "仍有「我自己的节点」规则"},
+		{&model.ForwardChainNode{}, "landing_server_id = ?", []interface{}{s.ID}, "仍有「我的外部节点」规则"},
 		{&model.LandingNode{}, "landing_server_id = ?", []interface{}{s.ID}, "有落地节点"},
 		{&model.LandingServerUser{}, "landing_server_id = ?", []interface{}{s.ID}, "有用户授权"},
 		{&model.LandingServerUserGroup{}, "landing_server_id = ?", []interface{}{s.ID}, "有用户组授权"},

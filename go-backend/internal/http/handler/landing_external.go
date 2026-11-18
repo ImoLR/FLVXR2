@@ -355,6 +355,9 @@ func externalItemView(n model.LandingExternalNode, uses []repo.LandingExternalUs
 		"id": n.ID, "name": n.Name, "protocol": n.Protocol, "protocolLabel": up.ProtocolLabel(), "host": n.Host, "port": n.Port,
 		"summary": n.Summary, "udpOnly": up.UDPOnly(), "sharedOk": reason == "", "sharedReason": reason, "inUse": uses, "createdTime": n.CreatedTime,
 		"subUses": subUses,
+		// Plan 284: what a tunnel's entry filter sees from its clients
+		// (tls / http / socks / quic / other) — 「我的外部节点」 picker.
+		"filterFeature": up.FilterFeature(),
 	}
 }
 

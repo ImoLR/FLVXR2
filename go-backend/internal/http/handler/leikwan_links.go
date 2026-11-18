@@ -54,27 +54,9 @@ func (h *Handler) leiKwanUserEntry(userID int64) *lkEntry {
 
 // leiKwanRehost points a copied upstream at host:port. A node that was
 // addressed by domain keeps it as TLS SNI / ws Host (the entry is an IP).
+// Plan 284: shared with 「我的外部节点」 forwards (linechain.Rehost).
 func leiKwanRehost(up linechain.Upstream, host string, port int) linechain.Upstream {
-	orig := strings.Trim(strings.TrimSpace(up.Server), "[]")
-	if orig != "" && net.ParseIP(orig) == nil {
-		if up.Security == "tls" || up.TLS != nil {
-			t := linechain.TLS{}
-			if up.TLS != nil {
-				t = *up.TLS
-			}
-			if t.ServerName == "" {
-				t.ServerName = orig
-			}
-			up.TLS = &t
-		}
-		if up.WS != nil && up.WS.Host == "" {
-			ws := *up.WS
-			ws.Host = orig
-			up.WS = &ws
-		}
-	}
-	up.Server, up.Port = host, port
-	return up
+	return linechain.Rehost(up, host, port)
 }
 
 // leiKwanExternalSupported: the 外部节点 can be shared as a link / sub node.

@@ -171,6 +171,7 @@ func (r *Repository) GetForwardRecord(forwardID int64) (*model.ForwardRecord, er
 		EntryNodeIDs:        f.EntryNodeIDs,
 		ID:                  f.ID,
 		LandingNodeID:       f.LandingNodeID,
+		ExternalNodeID:      f.ExternalNodeID,
 		LandingAutoPaused:   f.LandingAutoPaused,
 		UserID:              f.UserID,
 		UserName:            f.UserName,

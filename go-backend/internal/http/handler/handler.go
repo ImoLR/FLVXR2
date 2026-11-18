@@ -449,6 +449,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("/api/v1/tunnel/user/update", h.userTunnelUpdate)
 	mux.HandleFunc("/api/v1/tunnel/user/batch-update-status", h.userTunnelBatchUpdateStatus)
 	h.registerLineChain(mux)
+	h.registerForwardExternal(mux) // plan 284
 	mux.HandleFunc("/api/v1/forward/list", h.forwardList)
 	mux.HandleFunc("/api/v1/forward/client-ips", h.forwardClientIPs)
 	mux.HandleFunc("/api/v1/forward/create", h.limitMutation(mutationForward, h.forwardCreate))
@@ -1114,6 +1115,8 @@ func (h *Handler) forwardList(w http.ResponseWriter, r *http.Request) {
 		// Plan 180 r2: rules whose 「规则最优」 was turned off automatically.
 		payload["ruleBestOffCount"] = h.decorateRuleBestOff(items)
 	}
+	// Plan 284: 「我的外部节点」 targets (after the chain info: chains skip it).
+	h.decorateForwardExternals(items)
 	response.WriteJSON(w, response.OK(payload))
 }
 
@@ -2330,6 +2333,7 @@ func (h *Handler) backupImport(w http.ResponseWriter, r *http.Request) {
 	}
 	// Plan 282: a normal user's rule never comes back as nftables.
 	nftConverted := h.normalizeForwardImportModes(rawJSON, typesToImport)
+	normalizeForwardImportExternals(rawJSON, typesToImport) // plan 284
 
 	result, err := h.repo.ImportRaw(rawJSON, typesToImport)
 	if err != nil {

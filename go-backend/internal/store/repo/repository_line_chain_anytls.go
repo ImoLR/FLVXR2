@@ -26,7 +26,7 @@ import (
 const ChainAnyTLSVersion = 2
 
 // ChainInboundMsg is the error for an unsupported chain inbound protocol.
-const ChainInboundMsg = "「我自己的节点」只能使用 VLESS Reality Vision 或 AnyTLS"
+const ChainInboundMsg = "「我的外部节点」只能使用 VLESS Reality Vision 或 AnyTLS"
 
 // NormalizeChainInbound maps a request value to a chain inbound protocol;
 // empty = VLESS Reality Vision (the default).
@@ -196,7 +196,7 @@ func (r *Repository) BeginChainInboundChange(id int64, protocol string) ([]int64
 			return err
 		}
 		if dup > 0 {
-			return errors.New("这个节点已经在本隧道上建过 " + ChainInboundLabel(model.ForwardChain{InboundProtocol: protocol}) + " 的「我自己的节点」规则")
+			return errors.New("这个节点已经在本隧道上建过 " + ChainInboundLabel(model.ForwardChain{InboundProtocol: protocol}) + " 的「我的外部节点」规则")
 		}
 		prev, _ := json.Marshal(chainInboundSnapshot{Protocol: c.InboundProtocol, ServerName: c.TLSServerName, Password: c.Password, CertPEM: c.TLSCertPEM, KeyPEM: c.TLSKeyPEM, CertSHA256: c.CertSHA256})
 		next := c

@@ -103,11 +103,11 @@ func (g *chainGuard) begin(userID int64, rateLimited bool, now time.Time) error 
 		g.attempts[userID] = recent
 		if len(recent) >= chainRateMax {
 			wait := chainRateWindow - now.Sub(recent[0])
-			return fmt.Errorf("操作太频繁：10 分钟内最多 %d 次创建或修改「我自己的节点」，请 %d 分钟后再试", chainRateMax, int(wait.Minutes())+1)
+			return fmt.Errorf("操作太频繁：10 分钟内最多 %d 次创建或修改「我的外部节点」，请 %d 分钟后再试", chainRateMax, int(wait.Minutes())+1)
 		}
 	}
 	if g.running >= chainMaxRunning {
-		return errors.New("系统正在处理其他「我自己的节点」任务，请稍后再试")
+		return errors.New("系统正在处理其他「我的外部节点」任务，请稍后再试")
 	}
 	g.busy[userID] = true
 	if rateLimited {
@@ -228,7 +228,7 @@ func cloneReq(req map[string]interface{}) map[string]interface{} {
 	for k, v := range req {
 		out[k] = v
 	}
-	for _, k := range []string{"targetMode", "chainLink", "chainInbound", "idempotencyKey", "landingNodeId", "landingServerId", "landingProtocol"} {
+	for _, k := range []string{"targetMode", "chainLink", "chainExternalId", "externalNodeId", "chainInbound", "idempotencyKey", "landingNodeId", "landingServerId", "landingProtocol"} {
 		delete(out, k)
 	}
 	return out
@@ -304,9 +304,44 @@ func (h *Handler) parseChainLink(ctx context.Context, link string) (linechain.Up
 	if err != nil {
 		return up, "", nil, err
 	}
-	addrs, err := linechain.ValidateAddress(ctx, up.Server, h.chainForbidden(), chainResolver)
+	addrs, err := h.validateChainUpstream(ctx, up)
 	if err != nil {
 		return up, "", nil, err
+	}
+	return up, name, addrs, nil
+}
+
+// chainUpstreamFromRequest (plan 284): the user's node of a chain create /
+// relink — chainExternalId (one of the owner's 外部节点, validated exactly
+// like pasting its link) or a pasted chainLink. given = either was sent.
+func (h *Handler) chainUpstreamFromRequest(ctx context.Context, req map[string]interface{}, ownerID int64) (linechain.Upstream, []netip.Addr, bool, error) {
+	if extID := asInt64(req["chainExternalId"], 0); extID > 0 {
+		n, err := h.repo.GetLandingExternalNode(extID, ownerID)
+		if err != nil {
+			return linechain.Upstream{}, nil, true, err
+		}
+		up, ok := repo.ExternalUpstream(*n)
+		if !ok {
+			return linechain.Upstream{}, nil, true, errors.New("外部节点数据无效，请重新粘贴")
+		}
+		up.IPVersion = "system"
+		addrs, err := h.validateChainUpstream(ctx, up)
+		return up, addrs, true, err
+	}
+	link := strings.TrimSpace(asString(req["chainLink"]))
+	if link == "" {
+		return linechain.Upstream{}, nil, false, nil
+	}
+	up, _, addrs, err := h.parseChainLink(ctx, link)
+	return up, addrs, true, err
+}
+
+// validateChainUpstream checks a user node's address for a chain (the
+// chain guard list + the mainland-China target policy).
+func (h *Handler) validateChainUpstream(ctx context.Context, up linechain.Upstream) ([]netip.Addr, error) {
+	addrs, err := linechain.ValidateAddress(ctx, up.Server, h.chainForbidden(), chainResolver)
+	if err != nil {
+		return nil, err
 	}
 	// The mainland-China target policy of normal rules applies to the
 	// user's node; the already validated addresses are checked (no 2nd DNS).
@@ -315,9 +350,9 @@ func (h *Handler) parseChainLink(ctx context.Context, link string) (linechain.Up
 		targets = append(targets, net.JoinHostPort(a.String(), strconv.Itoa(up.Port)))
 	}
 	if err := h.checkForwardLanding(ctx, strings.Join(targets, ","), "gost", ""); err != nil {
-		return up, "", nil, err
+		return nil, err
 	}
-	return up, name, addrs, nil
+	return addrs, nil
 }
 
 // checkChainExits verifies the tunnel can host chain nodes with the given
@@ -335,7 +370,7 @@ func (h *Handler) checkChainExits(tunnelID int64, inbound string) (*repo.TunnelL
 	}
 	for _, e := range info.Exits {
 		if !e.Online {
-			return nil, errors.New("出口节点「" + e.Name + "」离线，暂时无法使用「我自己的节点」，请稍后重试")
+			return nil, errors.New("出口节点「" + e.Name + "」离线，暂时无法使用「我的外部节点」，请稍后重试")
 		}
 	}
 	return info, nil
@@ -408,7 +443,7 @@ func (h *Handler) forwardCreateChain(w http.ResponseWriter, r *http.Request, req
 	}
 	fail := func(msg string) { response.WriteJSON(w, response.ErrDefault(msg)) }
 	if mode := defaultString(asString(req["mode"]), "gost"); mode != "gost" {
-		fail("「我自己的节点」只支持 gost 转发模式")
+		fail("「我的外部节点」只支持 gost 转发模式")
 		return
 	}
 	idem := strings.TrimSpace(asString(req["idempotencyKey"]))
@@ -496,7 +531,10 @@ func (h *Handler) forwardCreateChain(w http.ResponseWriter, r *http.Request, req
 			}
 		}
 	}
-	up, _, addrs, err := h.parseChainLink(r.Context(), asString(req["chainLink"]))
+	up, addrs, given, err := h.chainUpstreamFromRequest(r.Context(), req, ownerID)
+	if err == nil && !given {
+		err = errors.New("请粘贴你的节点链接")
+	}
 	if err != nil {
 		fail(err.Error())
 		return
@@ -534,7 +572,7 @@ func (h *Handler) forwardCreateChain(w http.ResponseWriter, r *http.Request, req
 	if !h.chains.startDriver(chain.ID) {
 		servers, _ := h.repo.FailForwardChain(chain.ID, "系统繁忙")
 		h.syncChainServers(servers)
-		fail("系统正在处理其他「我自己的节点」任务，请稍后再试")
+		fail("系统正在处理其他「我的外部节点」任务，请稍后再试")
 		return
 	}
 	started = true
@@ -707,12 +745,12 @@ func (h *Handler) chainCopiesApplied(chainID, serverID int64, snapshot *landingS
 		return false, "节点未返回落地状态"
 	}
 	if snapshot.Egress == nil {
-		return false, "出口节点程序不支持「我自己的节点」，请先升级"
+		return false, "出口节点程序不支持「我的外部节点」，请先升级"
 	}
 	switch snapshot.Egress.State {
 	case "applied":
 	case "restart_required":
-		return false, "出口的落地程序需要重启一次才能启用「我自己的节点」，请管理员在落地页该服务器的「出站与路由」中确认重启后再试"
+		return false, "出口的落地程序需要重启一次才能启用「我的外部节点」，请管理员在落地页该服务器的「出站与路由」中确认重启后再试"
 	default:
 		reason := strings.TrimSpace(snapshot.Egress.Error)
 		if reason == "" {
@@ -936,14 +974,18 @@ func (h *Handler) forwardUpdateChainHook(w http.ResponseWriter, r *http.Request,
 		return fail("该规则正在处理中，请稍候再试")
 	}
 	if chain != nil && chain.State != model.ChainStateActive {
-		return fail("该规则的「我自己的节点」正在处理中，请稍候再试")
+		return fail("该规则的「我的外部节点」正在处理中，请稍候再试")
 	}
 	claims, ok := chainActorClaims(r)
 	if !ok {
 		return fail("无效的token或token已过期")
 	}
 	tunnelID := asInt64(req["tunnelId"], forward.TunnelID)
+	// Plan 284: a new user node = a pasted link or one of the 外部节点.
 	link := strings.TrimSpace(asString(req["chainLink"]))
+	if link == "" && asInt64(req["chainExternalId"], 0) > 0 {
+		link = "external"
+	}
 	now := time.Now()
 	// Plan 250: the inbound protocol; absent = keep the chain's (a new chain
 	// defaults to Reality). A different value switches the user's link.
@@ -984,7 +1026,7 @@ func (h *Handler) forwardUpdateChainHook(w http.ResponseWriter, r *http.Request,
 		return true
 	}
 	if mode := defaultString(asString(req["mode"]), forward.Mode); mode != "gost" {
-		return fail("「我自己的节点」只支持 gost 转发模式")
+		return fail("「我的外部节点」只支持 gost 转发模式")
 	}
 	if tunnelID != forward.TunnelID {
 		if err := h.ensureTunnelPermission(actorID, roleID, tunnelID); err != nil {
@@ -1001,7 +1043,7 @@ func (h *Handler) forwardUpdateChainHook(w http.ResponseWriter, r *http.Request,
 	var up linechain.Upstream
 	var addrs []netip.Addr
 	if link != "" {
-		if up, _, addrs, err = h.parseChainLink(r.Context(), link); err != nil {
+		if up, addrs, _, err = h.chainUpstreamFromRequest(r.Context(), req, forward.UserID); err != nil {
 			return fail(err.Error())
 		}
 	} else if chain == nil {
@@ -1042,7 +1084,7 @@ func (h *Handler) forwardUpdateChainHook(w http.ResponseWriter, r *http.Request,
 		op.req["tunnelId"] = tunnelID
 		if !h.chains.startDriver(created.ID) {
 			_, _ = h.repo.FailForwardChain(created.ID, "系统繁忙")
-			return fail("系统正在处理其他「我自己的节点」任务，请稍后再试")
+			return fail("系统正在处理其他「我的外部节点」任务，请稍后再试")
 		}
 		started = true
 		go h.runChainOp(op)
@@ -1087,7 +1129,7 @@ func (h *Handler) forwardUpdateChainHook(w http.ResponseWriter, r *http.Request,
 		op.plan, op.tunnelID = plan, tunnelID
 	}
 	if !h.chains.startDriver(chain.ID) {
-		return finishOnError("系统正在处理其他「我自己的节点」任务，请稍后再试")
+		return finishOnError("系统正在处理其他「我的外部节点」任务，请稍后再试")
 	}
 	started = true
 	go h.runChainOp(op)
@@ -1162,11 +1204,11 @@ func (h *Handler) startChainMove(c model.ForwardChain, info *repo.TunnelLineInfo
 		}
 	}
 	if reason != "" {
-		msg := "隧道出口已变化，「我自己的节点」无法迁移：" + reason
+		msg := "隧道出口已变化，「我的外部节点」无法迁移：" + reason
 		if c.LastError != msg {
 			_ = h.repo.SetForwardChainError(c.ID, msg)
 		}
-		return "「我自己的节点」规则无法迁移到新的出口：" + reason
+		return "「我的外部节点」规则无法迁移到新的出口：" + reason
 	}
 	if _, err := h.repo.StartChainOp(c.ID, "move"); err != nil {
 		return ""
@@ -1174,8 +1216,8 @@ func (h *Handler) startChainMove(c model.ForwardChain, info *repo.TunnelLineInfo
 	op := chainOp{kind: "move", chainID: c.ID, ownerID: c.UserID, forwardID: c.ForwardID, deadline: time.Now().Add(chainCreateDeadline)}
 	plan, err := h.repo.PrepareChainRetarget(c.ID, exitNodeIDs(info))
 	if err != nil {
-		_ = h.repo.FinishChainOp(c.ID, "隧道出口已变化，「我自己的节点」无法迁移："+err.Error())
-		return "「我自己的节点」规则无法迁移到新的出口：" + err.Error()
+		_ = h.repo.FinishChainOp(c.ID, "隧道出口已变化，「我的外部节点」无法迁移："+err.Error())
+		return "「我的外部节点」规则无法迁移到新的出口：" + err.Error()
 	}
 	op.plan = plan
 	if !h.chains.startDriver(c.ID) {
@@ -1183,7 +1225,7 @@ func (h *Handler) startChainMove(c model.ForwardChain, info *repo.TunnelLineInfo
 		return ""
 	}
 	go h.runChainOp(op)
-	return "「我自己的节点」规则正在迁移到新的出口"
+	return "「我的外部节点」规则正在迁移到新的出口"
 }
 
 // runChainReconcileLoop: startup + every 2 minutes, one batched pass.
@@ -1309,7 +1351,7 @@ func (h *Handler) chainTunnelEditGuard(tunnelID int64, req map[string]interface{
 		return nil
 	}
 	if asInt(req["type"], 1) != 2 || len(asMapSlice(req["outNodeId"])) == 0 {
-		return fmt.Errorf("该隧道上有 %d 条「我自己的节点」规则，隧道必须保留出口节点；请先删除这些规则或把它们换到其他隧道", n)
+		return fmt.Errorf("该隧道上有 %d 条「我的外部节点」规则，隧道必须保留出口节点；请先删除这些规则或把它们换到其他隧道", n)
 	}
 	return nil
 }
@@ -1385,7 +1427,7 @@ func (h *Handler) forwardChainStatus(w http.ResponseWriter, r *http.Request) {
 		chain, err = h.repo.GetForwardChainByForward(req.ForwardID)
 	}
 	if err != nil || chain == nil || !h.ownedChain(r, chain) {
-		response.WriteJSON(w, response.ErrDefault("「我自己的节点」规则不存在"))
+		response.WriteJSON(w, response.ErrDefault("「我的外部节点」规则不存在"))
 		return
 	}
 	response.WriteJSON(w, response.OK(chainStatusView(chain)))
@@ -1404,7 +1446,7 @@ func (h *Handler) forwardChainLinks(w http.ResponseWriter, r *http.Request) {
 	}
 	chain, err := h.repo.GetForwardChainByForward(req.ForwardID)
 	if err != nil || chain == nil || !h.ownedChain(r, chain) || chain.State != model.ChainStateActive {
-		response.WriteJSON(w, response.ErrDefault("「我自己的节点」规则不存在"))
+		response.WriteJSON(w, response.ErrDefault("「我的外部节点」规则不存在"))
 		return
 	}
 	f, err := h.getForwardRecord(req.ForwardID)
@@ -1565,7 +1607,7 @@ func (h *Handler) chainDeleteGuard(forwardID int64) error {
 		return nil
 	}
 	if c, err := h.repo.GetForwardChainByForward(forwardID); err == nil && c != nil && c.OpStartedAt > 0 {
-		return errors.New("该规则的「我自己的节点」正在处理中，请稍候再删除")
+		return errors.New("该规则的「我的外部节点」正在处理中，请稍候再删除")
 	}
 	return nil
 }

@@ -24,7 +24,7 @@ const MaxChainCopiesPerServer = 500
 
 var (
 	// ErrChainInFlight: the user already has a chain operation running.
-	ErrChainInFlight = errors.New("正在创建「我自己的节点」规则，请稍候")
+	ErrChainInFlight = errors.New("正在创建「我的外部节点」规则，请稍候")
 	// ErrChainIdempotent wraps a repeated submit; the existing chain is returned.
 	ErrChainIdempotent = errors.New("重复提交")
 )
@@ -350,16 +350,16 @@ func ensureChainHostTx(tx *gorm.DB, nodeID int64) (*model.LandingServer, error) 
 		return nil, errors.New("出口节点不存在")
 	}
 	if n.IsRemote != 0 {
-		return nil, errors.New("出口节点「" + n.Name + "」是远程（联邦）节点，不能承载「我自己的节点」")
+		return nil, errors.New("出口节点「" + n.Name + "」是远程（联邦）节点，不能承载「我的外部节点」")
 	}
 	if !n.LandingCapable || n.LandingChain < 1 {
-		return nil, errors.New("出口节点「" + n.Name + "」的节点程序版本过低，不支持「我自己的节点」，请先升级该节点")
+		return nil, errors.New("出口节点「" + n.Name + "」的节点程序版本过低，不支持「我的外部节点」，请先升级该节点")
 	}
 	var s model.LandingServer
 	err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("source = 'native' AND node_id = ?", nodeID).First(&s).Error
 	if err == nil {
 		if s.Status != "active" {
-			return nil, errors.New("出口节点「" + n.Name + "」上的落地已停用，不能承载「我自己的节点」")
+			return nil, errors.New("出口节点「" + n.Name + "」上的落地已停用，不能承载「我的外部节点」")
 		}
 		return &s, nil
 	}
@@ -592,9 +592,9 @@ func (r *Repository) CreateForwardChain(in ChainCreateInput) (*model.ForwardChai
 				}
 			}
 			if name == "" {
-				return errors.New("这个节点已经在本隧道上建过「我自己的节点」规则（正在创建中），请勿重复创建")
+				return errors.New("这个节点已经在本隧道上建过「我的外部节点」规则（正在创建中），请勿重复创建")
 			}
-			return fmt.Errorf("这个节点已经在本隧道上建过「我自己的节点」规则「%s」，请直接复制那条规则的链接", name)
+			return fmt.Errorf("这个节点已经在本隧道上建过「我的外部节点」规则「%s」，请直接复制那条规则的链接", name)
 		} else if !errors.Is(err, gorm.ErrRecordNotFound) {
 			return err
 		}
@@ -614,7 +614,7 @@ func (r *Repository) CreateForwardChain(in ChainCreateInput) (*model.ForwardChai
 				return err
 			}
 			if n >= MaxChainCopiesPerServer {
-				return errors.New("出口节点上的「我自己的节点」规则已达上限，请联系管理员")
+				return errors.New("出口节点上的「我的外部节点」规则已达上限，请联系管理员")
 			}
 			servers = append(servers, *s)
 		}
@@ -646,7 +646,7 @@ func (r *Repository) CreateForwardChain(in ChainCreateInput) (*model.ForwardChai
 				return err
 			}
 			if existing > 0 {
-				return errors.New("该规则已经是「我自己的节点」规则")
+				return errors.New("该规则已经是「我的外部节点」规则")
 			}
 		}
 		chain = model.ForwardChain{UserID: in.UserID, TunnelID: in.TunnelID, ForwardID: in.AttachForwardID, State: model.ChainStateCreating, Progress: "正在准备出口…", Port: port, Dest: dest, ServerNames: names,
@@ -779,7 +779,7 @@ func (r *Repository) BeginChainUpstreamChange(id int64, u linechain.Upstream) ([
 			return err
 		}
 		if dup > 0 {
-			return errors.New("这个节点已经在本隧道上建过另一条「我自己的节点」规则")
+			return errors.New("这个节点已经在本隧道上建过另一条「我的外部节点」规则")
 		}
 		now := time.Now().UnixMilli()
 		if err := tx.Model(&c).Updates(map[string]interface{}{"prev_upstream": c.Upstream, "upstream": u.JSON(), "upstream_protocol": u.ProtocolLabel(), "upstream_host": u.Server, "upstream_port": u.Port, "upstream_hash": u.Hash(), "updated_time": now}).Error; err != nil {

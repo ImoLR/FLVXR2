@@ -100,7 +100,7 @@ export const waitChainOperation = async (
         progress: "",
         opStartedAt: 0,
         lastOpAt: startedAt,
-        error: res.msg || "「我自己的节点」状态读取失败",
+        error: res.msg || "「我的外部节点」状态读取失败",
         forwardId: 0,
         summary: "",
       };
@@ -119,3 +119,35 @@ export const waitChainOperation = async (
 
   return null;
 };
+
+// ---- plan 284: 「我的外部节点」 port forwards (normal tunnels) ----
+
+/** The forward list's 外部节点 info of a forward (no credentials). */
+export interface ForwardExternalInfo {
+  id: number;
+  name: string;
+  protocol: string;
+  protocolLabel: string;
+  address: string;
+  /** recognised by its target (old 手动填写 forward, nothing stored) */
+  auto: boolean;
+  /** linked, but the forward's target is not the node's address any more */
+  mismatch: boolean;
+  /** the tunnel's entry filter blocks the node's protocol */
+  blocked?: string;
+}
+
+export interface ForwardExternalLink {
+  name: string;
+  url: string;
+  kind: string;
+  forwardId: number;
+  entryNodeId: number;
+  blocked?: string;
+}
+
+export const getExternalForwardLinks = (forwardId: number) =>
+  Network.post<{ links: ForwardExternalLink[]; externalNode: ForwardExternalInfo }>(
+    "/forward/external/links",
+    { forwardId },
+  );

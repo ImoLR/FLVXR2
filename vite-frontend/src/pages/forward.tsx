@@ -18,6 +18,7 @@ import {
 import {
   ChainStatus,
   ForwardChainInfo,
+  ForwardExternalInfo,
   createChainForward,
   newSubmitKey,
   updateChainForward,
@@ -203,6 +204,8 @@ export interface Forward {
   cnBlocked?: boolean;
   cnBlockedReason?: string;
   chain?: ForwardChainInfo;
+  /** Plan 284: target = one of the owner's 外部节点 (plain port forward). */
+  externalNode?: ForwardExternalInfo;
   lineMachine?: boolean;
   lineNonCompliant?: boolean;
   // Plan 164: admin view only — an admin confirmed the hand-typed target.
@@ -221,6 +224,8 @@ interface Tunnel {
   lineMachine?: boolean;
   // Plan 224: what the entry protocol filter blocks ("tls" / "http").
   blockedFeatures?: string[];
+  // Plan 284: every filter kind it blocks (「我的外部节点」 picker).
+  blockedFilters?: string[];
   chainAvailable?: boolean;
   chainUnavailableReason?: string;
   // Plan 250: the AnyTLS choice of 「我自己的节点」 (older exit agents: off).
@@ -793,6 +798,10 @@ const mapForwardApiItems = (items: ForwardApiItem[]): Forward[] => {
       ? formatChainTarget((forward as any).chain as ForwardChainInfo)
       : forward.remoteAddr || "",
     chain: (forward as any).chain as ForwardChainInfo | undefined,
+    // Plan 284: the target is one of the owner's 外部节点 (normal tunnels).
+    externalNode: (forward as any).chain
+      ? undefined
+      : ((forward as any).externalNode as ForwardExternalInfo | undefined),
     bestPick: normalizeRuleBestPick((forward as any).bestPick),
     ruleBestOff: normalizeRuleBestOff((forward as any).ruleBestOff),
     warmPoolState: normalizeWarmPoolState((forward as any).warmPoolState),
@@ -2845,11 +2854,14 @@ export default function ForwardPage() {
       }
     }
     if (form.mode !== "wg_path" && form.targetMode === "chain") {
-      if (form.mode !== "gost") newErrors.remoteAddr = "「我自己的节点」只支持 gost 模式";
-      else if (!(form.chainLink || "").trim() && !(isEdit && editingChain))
-        newErrors.remoteAddr = "请粘贴你的节点链接";
+      if (form.mode !== "gost") newErrors.remoteAddr = "「我的外部节点」只支持 gost 模式";
+      else if (!(form.chainLink || "").trim() && !form.chainExternalId && !(isEdit && editingChain))
+        newErrors.remoteAddr = "请选择外部节点，或粘贴新节点";
+    } else if (form.mode !== "wg_path" && form.targetMode === "external") {
+      // Plan 284: a plain port forward to one of the owner's 外部节点.
+      if (!form.externalNodeId) newErrors.remoteAddr = "请选择外部节点";
     } else if (form.mode !== "wg_path" && form.targetMode === "node") {
-      if (!form.landingNodeId) newErrors.remoteAddr = "请选择我的落地节点";
+      if (!form.landingNodeId) newErrors.remoteAddr = "请选择我的面板节点";
     } else if (form.mode === "wg_path" && form.wgRuleType === "cidr") {
       // CIDR 内网转发使用目标网段，不校验落地地址。
     } else if (!form.remoteAddr.trim()) {
@@ -2969,7 +2981,18 @@ export default function ForwardPage() {
       inIp: forward.inIp || "",
       remoteAddr: forward.chain ? "" : forward.remoteAddr.split(",").join("\n"),
       landingNodeId: forward.landingNodeId,
-      targetMode: forward.chain ? "chain" : forward.landingNodeId ? "node" : "manual",
+      targetMode: forward.chain
+        ? "chain"
+        : forward.landingNodeId
+          ? "node"
+          : forward.externalNode && !forward.externalNode.auto
+            ? "external"
+            : "manual",
+      externalNodeId:
+        forward.externalNode && !forward.externalNode.auto
+          ? forward.externalNode.id
+          : undefined,
+      chainExternalId: undefined,
       chainLink: "",
       chainInbound:
         forward.chain?.inboundProtocol === "anytls"
@@ -3013,7 +3036,18 @@ export default function ForwardPage() {
       inIp: forward.inIp || "",
       remoteAddr: forward.chain ? "" : forward.remoteAddr.split(",").join("\n"),
       landingNodeId: forward.landingNodeId,
-      targetMode: forward.chain ? "chain" : forward.landingNodeId ? "node" : "manual",
+      targetMode: forward.chain
+        ? "chain"
+        : forward.landingNodeId
+          ? "node"
+          : forward.externalNode && !forward.externalNode.auto
+            ? "external"
+            : "manual",
+      externalNodeId:
+        forward.externalNode && !forward.externalNode.auto
+          ? forward.externalNode.id
+          : undefined,
+      chainExternalId: undefined,
       chainLink: "",
       chainInbound:
         forward.chain?.inboundProtocol === "anytls"
@@ -3170,11 +3204,19 @@ export default function ForwardPage() {
       const tunnelChanged = prev.tunnelId !== nextTunnelId;
       let targetMode = prev.targetMode;
 
+      let externalNodeId = prev.externalNodeId;
+      let chainExternalId = prev.chainExternalId;
+
       if (prev.mode !== "wg_path") {
         if (nextTunnel?.lineMachine && (!targetMode || targetMode === "manual")) {
           targetMode = nextTunnel.chainAvailable ? "chain" : "node";
+        } else if (nextTunnel?.lineMachine && targetMode === "external") {
+          // Plan 284: the same 「我的外部节点」 choice, as a chain here.
+          targetMode = nextTunnel.chainAvailable ? "chain" : "node";
+          chainExternalId = prev.externalNodeId;
         } else if (!nextTunnel?.lineMachine && targetMode === "chain") {
-          targetMode = "manual";
+          targetMode = prev.chainExternalId ? "external" : "manual";
+          externalNodeId = prev.chainExternalId;
         }
       }
 
@@ -3182,6 +3224,8 @@ export default function ForwardPage() {
         ...prev,
         tunnelId: nextTunnelId,
         targetMode,
+        externalNodeId,
+        chainExternalId,
         inIp: tunnelChanged ? "" : options.includes(prev.inIp) ? prev.inIp : "",
       };
     });
@@ -3269,7 +3313,9 @@ export default function ForwardPage() {
         tunnelId: form.tunnelId,
         inPort: form.inPort,
         targetMode: "chain",
-        chainLink: (form.chainLink || "").trim(),
+        chainLink: form.chainExternalId ? "" : (form.chainLink || "").trim(),
+        // Plan 284: or one of the owner's 外部节点 (resolved by the panel).
+        ...(form.chainExternalId ? { chainExternalId: form.chainExternalId } : {}),
         // Plan 250: VLESS Reality (default) or AnyTLS on the tunnel exits.
         chainInbound: form.chainInbound || "vless_reality_vision",
         mode: "gost",
@@ -3369,9 +3415,12 @@ export default function ForwardPage() {
         .map((addr) => addr.trim())
         .filter((addr) => addr)
         .join(",");
+      // Plan 284: externalNodeId links the forward to a 外部节点 (0 clears it).
       const landingTarget = form.mode !== "wg_path" && form.targetMode === "node"
-        ? { landingNodeId: form.landingNodeId }
-        : {};
+        ? { landingNodeId: form.landingNodeId, externalNodeId: 0 }
+        : form.mode !== "wg_path" && form.targetMode === "external"
+          ? { externalNodeId: form.externalNodeId, targetMode: "external" }
+          : { externalNodeId: 0 };
       const addressCount = processedRemoteAddr.split(",").length;
       let res: { code: number; msg: string };
 
@@ -5652,7 +5701,8 @@ export default function ForwardPage() {
             </Button>
           </div>
           {(forward.chain?.state === "active" ||
-            (!forward.chain && Boolean(forward.landingNodeId))) && (
+            (!forward.chain &&
+              Boolean(forward.landingNodeId || forward.externalNode))) && (
             <div className="mt-1.5 flex">
               <ChainLinkButton className="flex-1 min-h-8" forward={forward} />
             </div>
@@ -5799,7 +5849,7 @@ export default function ForwardPage() {
                   role="button"
                   size="sm"
                   tabIndex={0}
-                  title={`线路机隧道上目标不是 VLESS Reality Vision / AnyTLS 落地或「我自己的节点」的规则；仍在运行，修改目标后即合规。点一下定位到规则${lineNonCompliantCount > 1 ? "，再点跳到下一条" : ""}`}
+                  title={`线路机隧道上目标不是 VLESS Reality Vision / AnyTLS 落地或「我的外部节点」的规则；仍在运行，修改目标后即合规。点一下定位到规则${lineNonCompliantCount > 1 ? "，再点跳到下一条" : ""}`}
                   variant="flat"
                   onClick={handleLineJump}
                   onKeyDown={(e) => {

@@ -1086,7 +1086,7 @@ func (h *Handler) nodeUpdate(w http.ResponseWriter, r *http.Request) {
 		if lineMachine && !oldNode.LineMachine {
 			// A 线路机 never runs chain nodes (its IP stays pure forwarding).
 			if n, err := h.repo.NodeChainCopyCount(id); err != nil || n > 0 {
-				response.WriteJSON(w, response.ErrDefault("该节点正作为出口承载「我自己的节点」规则，不能设为线路机；请先把它从这些隧道的出口移除"))
+				response.WriteJSON(w, response.ErrDefault("该节点正作为出口承载「我的外部节点」规则，不能设为线路机；请先把它从这些隧道的出口移除"))
 				return
 			}
 		}
@@ -3302,7 +3302,21 @@ func (h *Handler) forwardCreateWithReq(w http.ResponseWriter, r *http.Request, r
 		lock.Lock()
 		defer lock.Unlock() // registered before cleanup: rollback finishes before the next lookup
 	}
-	remoteAddr, landingID, createdLandingID, landingErr := h.resolveNativeLandingTarget(req, userID, tunnelID, remoteAddr, roleID == 0)
+	// Plan 284: 「我的外部节点」 — a plain port forward to the owner's node.
+	externalID := int64(0)
+	if !isReplay && asInt64(req["externalNodeId"], 0) > 0 {
+		addr, extErr := h.externalNodeTarget(userID, asInt64(req["externalNodeId"], 0), tunnelID, mode, req)
+		if extErr != nil {
+			response.WriteJSON(w, response.ErrDefault(extErr.Error()))
+			return
+		}
+		remoteAddr, externalID = addr, asInt64(req["externalNodeId"], 0)
+	}
+	var landingID, createdLandingID int64
+	var landingErr error
+	if externalID == 0 {
+		remoteAddr, landingID, createdLandingID, landingErr = h.resolveNativeLandingTarget(req, userID, tunnelID, remoteAddr, roleID == 0)
+	}
 	landingCommitted := false
 	defer func() {
 		if createdLandingID > 0 && !landingCommitted {
@@ -3429,7 +3443,7 @@ func (h *Handler) forwardCreateWithReq(w http.ResponseWriter, r *http.Request, r
 			mode = "gost"
 		}
 	}
-	forwardID, err := h.repo.CreateForwardTx(enforceRuleLimit, userID, userName, name, tunnelID, remoteAddr, defaultString(asString(req["strategy"]), "fifo"), now, inx, entryNodes, port, inIp, nil, maxConnections, maxClientIps, trafficLimit, expiryTime, false, 0, mode, wgPathID, wgRuleType, sourceCIDR, targetCIDR, snatEnabled, entryBinding, landingID)
+	forwardID, err := h.repo.CreateForwardTx(enforceRuleLimit, userID, userName, name, tunnelID, remoteAddr, defaultString(asString(req["strategy"]), "fifo"), now, inx, entryNodes, port, inIp, nil, maxConnections, maxClientIps, trafficLimit, expiryTime, false, 0, mode, wgPathID, wgRuleType, sourceCIDR, targetCIDR, snatEnabled, entryBinding, landingID, externalID)
 	if err != nil {
 		if repo.IsRuleLimitError(err) {
 			response.WriteJSON(w, response.ErrDefault(err.Error()))
@@ -3617,7 +3631,24 @@ func (h *Handler) forwardUpdateWithReq(w http.ResponseWriter, r *http.Request, r
 		lock.Lock()
 		defer lock.Unlock() // registered before cleanup: rollback finishes before the next lookup
 	}
-	remoteAddr, landingID, createdLandingID, landingErr := h.resolveNativeLandingTarget(req, forward.UserID, tunnelID, remoteAddr, actorRole == 0)
+	// Plan 284: 「我的外部节点」 target (externalNodeId > 0 links, 0 clears).
+	reqExternalID := int64(0)
+	if !isReplay {
+		reqExternalID = asInt64(req["externalNodeId"], 0)
+	}
+	if reqExternalID > 0 {
+		addr, extErr := h.externalNodeTarget(forward.UserID, reqExternalID, tunnelID, mode, req)
+		if extErr != nil {
+			response.WriteJSON(w, response.ErrDefault(extErr.Error()))
+			return
+		}
+		remoteAddr = addr
+	}
+	var landingID, createdLandingID int64
+	var landingErr error
+	if reqExternalID == 0 {
+		remoteAddr, landingID, createdLandingID, landingErr = h.resolveNativeLandingTarget(req, forward.UserID, tunnelID, remoteAddr, actorRole == 0)
+	}
 	landingCommitted := false
 	defer func() {
 		if createdLandingID > 0 && !landingCommitted {
@@ -3632,7 +3663,7 @@ func (h *Handler) forwardUpdateWithReq(w http.ResponseWriter, r *http.Request, r
 		// A chain rule's loopback target is owned by its chain: only the
 		// chain paths (edit dialog, driver) may keep or change it.
 		if chain, _ := h.repo.GetForwardChainByForward(id); chain != nil && remoteAddr == chainTarget(chain.Port) {
-			response.WriteJSON(w, response.ErrDefault("「我自己的节点」规则请在编辑弹窗中修改"))
+			response.WriteJSON(w, response.ErrDefault("「我的外部节点」规则请在编辑弹窗中修改"))
 			return
 		}
 	}
@@ -3658,6 +3689,16 @@ func (h *Handler) forwardUpdateWithReq(w http.ResponseWriter, r *http.Request, r
 	if err := h.checkForwardLanding(r.Context(), remoteAddr, mode, targetCIDR); err != nil {
 		response.WriteJSON(w, response.ErrDefault(err.Error()))
 		return
+	}
+	newExternalID := forward.ExternalNodeID
+	if !isReplay {
+		newExternalID = externalTargetForUpdate(req, forward.ExternalNodeID, forward.RemoteAddr, remoteAddr, landingID)
+		if reqExternalID == 0 && (tunnelID != forward.TunnelID || mode != forward.Mode) {
+			if err := h.keptExternalFilterError(forward.UserID, newExternalID, tunnelID, mode); err != nil {
+				response.WriteJSON(w, response.ErrDefault(err.Error()))
+				return
+			}
+		}
 	}
 	strategy := strings.TrimSpace(asString(req["strategy"]))
 	if strategy == "" {
@@ -3774,7 +3815,7 @@ func (h *Handler) forwardUpdateWithReq(w http.ResponseWriter, r *http.Request, r
 			mode = "gost"
 		}
 	}
-	if err := h.repo.UpdateForward(id, name, tunnelID, remoteAddr, strategy, now, newSpeedID, maxConnections, maxClientIps, trafficLimit, newExpiryTime, speedLimitEnabled, speedLimit, mode, wgPathID, wgRuleType, sourceCIDR, targetCIDR, snatEnabled, landingID); err != nil {
+	if err := h.repo.UpdateForward(id, name, tunnelID, remoteAddr, strategy, now, newSpeedID, maxConnections, maxClientIps, trafficLimit, newExpiryTime, speedLimitEnabled, speedLimit, mode, wgPathID, wgRuleType, sourceCIDR, targetCIDR, snatEnabled, landingID, newExternalID); err != nil {
 		response.WriteJSON(w, response.Err(-2, err.Error()))
 		return
 	}
@@ -4450,7 +4491,7 @@ func (h *Handler) forwardBatchChangeTunnel(w http.ResponseWriter, r *http.Reques
 		}
 		if chain, _ := h.repo.GetForwardChainByForward(id); chain != nil {
 			fail++
-			failures = appendBatchFailureReason(failures, id, forward.Name, "「我自己的节点」规则请在编辑中单独更换隧道")
+			failures = appendBatchFailureReason(failures, id, forward.Name, "「我的外部节点」规则请在编辑中单独更换隧道")
 			continue
 		}
 		if err := h.lineMachineTargetError(req.TargetTunnelID, forward.Mode, forward.LandingNodeID, forward.LandingNodeID > 0); err != nil {
@@ -4459,6 +4500,12 @@ func (h *Handler) forwardBatchChangeTunnel(w http.ResponseWriter, r *http.Reques
 			continue
 		}
 		if err := h.landingFilterTargetError(req.TargetTunnelID, forward.Mode, forward.LandingNodeID); err != nil {
+			fail++
+			failures = appendBatchFailure(failures, id, forward.Name, err)
+			continue
+		}
+		// Plan 284: a 「我的外部节点」 forward must pass the new tunnel's filter.
+		if err := h.keptExternalFilterError(forward.UserID, forward.ExternalNodeID, req.TargetTunnelID, forward.Mode); err != nil {
 			fail++
 			failures = appendBatchFailure(failures, id, forward.Name, err)
 			continue
