@@ -103,6 +103,11 @@ type Forward struct {
 	RuleBestOffSig    string `gorm:"column:rule_best_off_sig;type:varchar(80);not null;default:''"`
 	RuleBestOffTarget string `gorm:"column:rule_best_off_target;type:varchar(255);not null;default:''"`
 	RuleBestOffTime   int64  `gorm:"column:rule_best_off_time;not null;default:0"`
+	// ExternalNodeID (plan 284): the forward's target is one of the owner's
+	// 外部节点 (landing_external_node.id; 0 = none). The forward stays a plain
+	// port forward to that node's host:port — this only lets the panel build
+	// 复制链接 / 订阅 links for it and keeps the node from being deleted.
+	ExternalNodeID int64 `gorm:"column:external_node_id;not null;default:0;index"`
 }
 
 func (Forward) TableName() string { return "forward" }
@@ -940,6 +945,7 @@ type ImportResult struct {
 type ForwardRecord struct {
 	LandingAutoPaused  bool
 	LandingNodeID      int64
+	ExternalNodeID     int64 // plan 284
 	ID                 int64
 	UserID             int64
 	UserName           string

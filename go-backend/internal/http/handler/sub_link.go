@@ -253,12 +253,24 @@ func (h *Handler) subLoad(ctx context.Context, userID int64, refs []sublink.Ref,
 		if !all {
 			ids = ext
 		}
-		rows, err := h.repo.ExternalNodesByIDs(userID, ids)
-		if err != nil {
-			return nil, err
-		}
-		for _, e := range rows {
-			d.externals[e.ID] = e
+		if d.panel != nil { // plan 284: SubPanelLinks already loaded them all
+			want := map[int64]bool{}
+			for _, id := range ids {
+				want[id] = true
+			}
+			for _, e := range d.panel.ExternalNodes {
+				if ids == nil || want[e.ID] {
+					d.externals[e.ID] = e
+				}
+			}
+		} else {
+			rows, err := h.repo.ExternalNodesByIDs(userID, ids)
+			if err != nil {
+				return nil, err
+			}
+			for _, e := range rows {
+				d.externals[e.ID] = e
+			}
 		}
 	}
 	if all || len(src) > 0 {
@@ -585,6 +597,9 @@ func (h *Handler) subPool(w http.ResponseWriter, r *http.Request) {
 		it := item(l.Ref, l.Node, l.Detail)
 		if l.Rule {
 			it["chain"] = l.Chain
+			if l.External != "" { // plan 284: 端口转发 · 外部节点 <名>
+				it["external"], it["externalAuto"] = l.External, l.ExternalAuto
+			}
 			rules = append(rules, it)
 		} else {
 			landing = append(landing, it)
@@ -649,6 +664,9 @@ func (h *Handler) subPool(w http.ResponseWriter, r *http.Request) {
 				v["name"], v["protocol"], v["group"] = l.Node.Name, l.Node.ProtocolLabel(), "landing"
 				if l.Rule {
 					v["group"], v["chain"] = "rule", l.Chain
+					if l.External != "" {
+						v["external"], v["externalAuto"] = l.External, l.ExternalAuto
+					}
 				}
 				v["key"] = l.Ref.Key()
 				v["ref"] = subRefView(l.Ref)

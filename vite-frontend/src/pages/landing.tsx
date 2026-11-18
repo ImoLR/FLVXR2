@@ -835,7 +835,7 @@ export default function LandingPage() {
                       label: chainNodes ? `链式 · ${chainNodes}` : "链式",
                       node: (
                         <Pill
-                          title={`自动安装，只承载「我自己的节点」链式转发，不对用户开放；在节点页「启用为落地」可转为公开落地${chainNodes ? `；链式节点 ${chainNodes} 个` : ""}`}
+                          title={`自动安装，只承载「我的外部节点」链式转发，不对用户开放；在节点页「启用为落地」可转为公开落地${chainNodes ? `；链式节点 ${chainNodes} 个` : ""}`}
                           tone="purple"
                         >
                           {chainNodes ? `链式 · ${chainNodes}` : "链式"}

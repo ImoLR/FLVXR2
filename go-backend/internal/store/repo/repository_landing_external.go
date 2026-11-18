@@ -83,6 +83,14 @@ func (r *Repository) LandingExternalUses(userID int64) (map[int64][]LandingExter
 	for _, u := range lk {
 		out[u.ExternalID] = append(out[u.ExternalID], u)
 	}
+	// Plan 284: forwards targeting it (「N 条转发在用」).
+	fw, err := r.ForwardExternalUses(userID)
+	if err != nil {
+		return nil, err
+	}
+	for id, list := range fw {
+		out[id] = append(out[id], list...)
+	}
 	return out, nil
 }
 
@@ -213,6 +221,14 @@ func (r *Repository) DeleteLandingExternalNode(id, userID int64) ([]LandingExter
 			return err
 		}
 		inUse = append(inUse, lk...)
+		// Plan 284: a forward targeting it keeps it too (rename is allowed).
+		var fwds []model.Forward
+		if err := tx.Select("id", "name").Where("external_node_id = ? AND user_id = ? AND landing_node_id = 0", id, userID).Order("id ASC").Find(&fwds).Error; err != nil {
+			return err
+		}
+		for _, f := range fwds {
+			inUse = append(inUse, LandingExternalUse{ID: f.ID, Name: f.Name, ExternalID: id, Kind: LandingExternalUseForward})
+		}
 		if len(inUse) > 0 {
 			return nil
 		}
@@ -235,11 +251,14 @@ func ExternalInUseError(uses []LandingExternalUse) error {
 		}
 		return strings.Join(names, "、")
 	}
-	chain, lk := []LandingExternalUse{}, []LandingExternalUse{}
+	chain, lk, fw := []LandingExternalUse{}, []LandingExternalUse{}, []LandingExternalUse{}
 	for _, u := range uses {
-		if u.Kind == LandingExternalUseLeiKwan {
+		switch u.Kind {
+		case LandingExternalUseLeiKwan:
 			lk = append(lk, u)
-		} else {
+		case LandingExternalUseForward:
+			fw = append(fw, u)
+		default:
 			chain = append(chain, u)
 		}
 	}
@@ -250,10 +269,18 @@ func ExternalInUseError(uses []LandingExternalUse) error {
 	if len(lk) > 0 {
 		parts = append(parts, "利群转发 "+label(lk, "条")+" 用作落地")
 	}
+	if len(fw) > 0 {
+		parts = append(parts, "转发 "+label(fw, "条")+" 用作目标")
+	}
 	fix := "请先把它们改回直连或换一个外部节点再删除"
-	if len(lk) > 0 && len(chain) == 0 {
+	switch {
+	case len(fw) > 0 && len(chain) == 0 && len(lk) == 0:
+		fix = "请先给这些转发换目标或删除转发再删除"
+	case len(fw) > 0:
+		fix = "请先处理上面这些用途（改回直连 / 换落地 / 换目标或删除）再删除"
+	case len(lk) > 0 && len(chain) == 0:
 		fix = "请先给这些利群转发换落地或删除转发再删除"
-	} else if len(lk) > 0 {
+	case len(lk) > 0:
 		fix = "请先把落地节点改回直连、给利群转发换落地（或删除转发）再删除"
 	}
 	return fmt.Errorf("这个外部节点正被%s，%s", strings.Join(parts, "，并被"), fix)

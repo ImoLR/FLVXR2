@@ -68,7 +68,7 @@ func TestUserTunnelListPickerGroupsContract(t *testing.T) {
 		}
 		return names
 	}
-	baseKeys := []string{"blockedFeatures", "entryGroups", "exitRegions", "groups", "id", "lineMachine", "chainAvailable", "name", "remark", "trafficRatio", "portRangeMin", "portRangeMax"}
+	baseKeys := []string{"blockedFeatures", "blockedFilters", "entryGroups", "exitRegions", "groups", "id", "lineMachine", "chainAvailable", "name", "remark", "trafficRatio", "portRangeMin", "portRangeMax"}
 	sort.Strings(baseKeys)
 
 	adminToken, _ := auth.GenerateToken(1, "admin_user", 0, secret)
@@ -92,6 +92,14 @@ func TestUserTunnelListPickerGroupsContract(t *testing.T) {
 	}
 	if strings.Contains(body, "外部组") || strings.Contains(body, "entry-a") {
 		t.Fatalf("user sees a foreign group or node name: %s", body)
+	}
+	// Plan 284: users get the same picker keys (blockedFilters included), nothing admin-only.
+	for _, item := range user {
+		for k := range item {
+			if i := sort.SearchStrings(baseKeys, k); i >= len(baseKeys) || baseKeys[i] != k {
+				t.Fatalf("user item has extra key %s", k)
+			}
+		}
 	}
 	entry := user[0]["entryGroups"].([]interface{})[0].(map[string]interface{})["key"]
 	if got := user[0]["groups"].([]interface{})[0].(map[string]interface{})["entryKeys"]; !reflect.DeepEqual(got, []interface{}{entry}) {

@@ -753,7 +753,7 @@ func TestChainFollowsTunnelExitChanges(t *testing.T) {
 	}
 	// A node that still hosts copies cannot be deleted or made a 线路机.
 	e.exec("DELETE FROM chain_tunnel WHERE node_id = 6")
-	if err := e.h.deleteNodeByID(6); err == nil || !strings.Contains(err.Error(), "我自己的节点") {
+	if err := e.h.deleteNodeByID(6); err == nil || !strings.Contains(err.Error(), "我的外部节点") {
 		t.Fatalf("node with chain copies deleted: %v", err)
 	}
 	code, msg, _ := callAs(t, e.h.nodeUpdate, 1, 0, map[string]interface{}{"id": 3, "name": "AkariHK", "serverIp": "192.0.2.3", "port": "1000-2000", "lineMachine": true})

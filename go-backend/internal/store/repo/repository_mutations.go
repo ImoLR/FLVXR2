@@ -945,7 +945,7 @@ func (r *Repository) DeleteNodeCascade(nodeID int64) error {
 				return err
 			}
 			if chains > 0 {
-				return errors.New("该节点仍承载「我自己的节点」转发，请先删除这些转发或把节点从隧道出口移除")
+				return errors.New("该节点仍承载「我的外部节点」转发，请先删除这些转发或把节点从隧道出口移除")
 			}
 			// A chain-only exit landing (plan 108) is ours alone: it goes
 			// with the node once no chain uses it.
@@ -1479,6 +1479,17 @@ func (r *Repository) UpdateForward(id int64, name string, tunnelID int64, remote
 	if len(landingNodeID) > 0 {
 		updates["landing_node_id"] = landingNodeID[0]
 		landingForAck = landingNodeID[0]
+	}
+	// Plan 284: the optional second id is the 外部节点 target (0 clears it;
+	// a landing target always clears it).
+	if len(landingNodeID) > 1 {
+		ext := landingNodeID[1]
+		if landingNodeID[0] > 0 {
+			ext = 0
+		}
+		updates["external_node_id"] = ext
+	} else if len(landingNodeID) > 0 && landingNodeID[0] > 0 {
+		updates["external_node_id"] = 0
 	}
 	// Plan 164: a changed target drops the 「已确认合规」 confirmation.
 	updates["line_compliance_ack_sig"] = lineAckKeepExpr(tunnelID, remoteAddr, landingForAck)
@@ -3009,6 +3020,9 @@ func (r *Repository) CreateForwardTx(enforceRuleLimit bool, userID int64, userNa
 		}
 		if len(landingNodeID) > 0 {
 			fwd.LandingNodeID = landingNodeID[0]
+		}
+		if len(landingNodeID) > 1 && fwd.LandingNodeID <= 0 {
+			fwd.ExternalNodeID = landingNodeID[1] // plan 284: [landing, external]
 		}
 		if err := tx.Create(&fwd).Error; err != nil {
 			return err

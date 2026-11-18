@@ -169,8 +169,37 @@ const LEIKWAN_ALL_NAME = "全部利群转发";
 const leikwanAllNote = (n?: number) =>
   `现在 ${n || 0} 条 · 添加 / 删除利群转发会自动同步`;
 
-function protocolText(n: { protocol?: string; chain?: boolean }) {
+function protocolText(n: {
+  protocol?: string;
+  chain?: boolean;
+  external?: string;
+  externalAuto?: boolean;
+}) {
+  if (n.external)
+    return `${n.protocol || ""} · 端口转发 · 外部节点 ${n.external}${n.externalAuto ? "（自动识别）" : ""}`;
+
   return `${n.protocol || ""}${n.chain ? "（链式）" : ""}`;
+}
+
+// Plan 284: 「端口转发 · 外部节点 <名>」 (+ 「自动识别」) next to the name.
+function ExternalForwardTag({ n }: { n: SubPoolNode }) {
+  if (!n.external) return null;
+
+  return (
+    <span className="ml-1 inline-flex flex-wrap items-center gap-1 align-middle" data-sub-external-tag>
+      <span className="inline-flex items-center whitespace-nowrap rounded-full bg-cyan-500/15 px-2 text-[10px] font-semibold leading-[18px] text-cyan-700 dark:bg-cyan-400/15 dark:text-cyan-300">
+        端口转发 · 外部节点 {n.external}
+      </span>
+      {n.externalAuto && (
+        <span
+          className="inline-flex items-center whitespace-nowrap rounded-full bg-slate-500/15 px-2 text-[10px] font-semibold leading-[18px] text-slate-600 dark:bg-slate-400/15 dark:text-slate-300"
+          title="这条手动填写的转发，目标正好是你的外部节点，已自动识别"
+        >
+          自动识别
+        </span>
+      )}
+    </span>
+  );
 }
 
 // H5 type chip of the 「已选」 row (user 11-14: name + one small chip).
@@ -613,6 +642,8 @@ export function SubEditor({
     name: n.name,
     protocol: n.protocol,
     chain: n.chain,
+    external: n.external,
+    externalAuto: n.externalAuto,
     group: g.sel,
     sourceName: g.source?.name,
   });
@@ -900,7 +931,7 @@ export function SubEditor({
               )}
               {g.key === "rule" && g.nodes.length === 0 && !q && (
                 <p className="border-b border-divider px-3 py-2 text-xs text-default-400">
-                  接了落地或「我自己的节点」的转发会出现在这里
+                  接了「我的面板节点」或「我的外部节点」的转发会出现在这里
                 </p>
               )}
               {g.key === "external" && g.nodes.length === 0 && !q && (
@@ -925,7 +956,8 @@ export function SubEditor({
                 // subscription, followed or not.
                 const off = !!n.disabled;
                 const inSub = (follow && !off) || keys.has(n.key);
-                const detail = `${protocolText(n)} · ${n.detail}${
+                // Plan 284: the 外部节点 label is a tag next to the name.
+                const detail = `${protocolText({ ...n, external: undefined })} · ${n.detail}${
                   off && n.reason ? ` · ${n.reason}` : ""
                 }`;
 
@@ -949,6 +981,11 @@ export function SubEditor({
                     </span>
                     <span className="min-w-0 flex-1">
                       <span className="block truncate text-sm">{n.name}</span>
+                      {n.external && (
+                        <span className="block">
+                          <ExternalForwardTag n={n} />
+                        </span>
+                      )}
                       <span className="block truncate text-xs text-default-500">
                         {detail}
                       </span>
@@ -961,7 +998,10 @@ export function SubEditor({
                     title={off ? n.reason : undefined}
                   >
                     <div className="min-w-0 flex-1">
-                      <div className="truncate text-sm">{n.name}</div>
+                      <div className="truncate text-sm">
+                        {n.name}
+                        <ExternalForwardTag n={n} />
+                      </div>
                       <div className="truncate text-xs text-default-500">
                         {detail}
                       </div>

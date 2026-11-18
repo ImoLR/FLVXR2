@@ -24,6 +24,7 @@ import {
   subscriptionImport,
   chainUses,
   externalInUseNote,
+  forwardUses,
   leiKwanUses,
 } from "@/api/landing-external";
 import { Button } from "@/shadcn-bridge/heroui/button";
@@ -583,6 +584,9 @@ export function ExternalManageList({
                 ` · 利群转发 ${leiKwanUses(item.inUse)
                   .map((u) => u.name)
                   .join("、")}`}
+              {!sub &&
+                forwardUses(item.inUse).length > 0 &&
+                ` · ${forwardUses(item.inUse).length} 条转发在用`}
             </p>
           </div>
           {sub && editing !== item.id && (
@@ -609,6 +613,16 @@ export function ExternalManageList({
                   tone="teal"
                 >
                   利群转发在用
+                </Pill>
+              )}
+              {forwardUses(item.inUse).length > 0 && (
+                <Pill
+                  title={`转发 ${forwardUses(item.inUse)
+                    .map((u) => `「${u.name}」`)
+                    .join("、")} 的目标是它`}
+                  tone="cyan"
+                >
+                  {forwardUses(item.inUse).length} 条转发在用
                 </Pill>
               )}
             </div>
@@ -804,6 +818,11 @@ function ExternalManageListH5({
                         .join("、")}
                     </Pill>
                   )}
+                  {forwardUses(item.inUse).length > 0 && (
+                    <Pill tone="cyan">
+                      {forwardUses(item.inUse).length} 条转发在用
+                    </Pill>
+                  )}
                 </span>
               </ExpandField>
             )}
@@ -861,7 +880,9 @@ function ExternalManageListH5({
                   <span className="text-xs text-default-500">
                     {leiKwanUses(item.inUse).length > 0
                       ? "利群转发在用，不能删"
-                      : "链式代理在用，不能删"}
+                      : chainUses(item.inUse).length > 0
+                        ? "链式代理在用，不能删"
+                        : "转发在用，不能删"}
                   </span>
                 )}
               </ExpandActions>

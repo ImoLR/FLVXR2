@@ -91,6 +91,10 @@ export interface SubPoolNode {
   protocol: string;
   detail: string;
   chain?: boolean;
+  /** plan 284: a port forward to the user's 外部节点 of this name */
+  external?: string;
+  /** plan 284: recognised by its target (old 手动填写 forward) */
+  externalAuto?: boolean;
   /** plan 272 (利群): a 手动落地 rule cannot be in a subscription */
   disabled?: boolean;
   reason?: string;
@@ -117,6 +121,9 @@ export interface SubSelected {
   sourceName?: string;
   count?: number;
   chain?: boolean;
+  /** plan 284 (see SubPoolNode) */
+  external?: string;
+  externalAuto?: boolean;
   missing?: boolean;
 }
 

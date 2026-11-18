@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"go-backend/internal/landingcustom"
+	"go-backend/internal/linechain"
 	"go-backend/internal/store/model"
 )
 
@@ -26,7 +27,7 @@ const (
 	LandingTLSBlockedMsg  = "此隧道屏蔽了 TLS 协议特征，该节点协议带 TLS 特征，无法使用"
 	LandingHTTPBlockedMsg = "此隧道屏蔽了 HTTP 协议特征，该节点协议带 HTTP 特征，无法使用"
 	// 「我自己的节点」 reaches the tunnel exit with VLESS Reality.
-	ChainTLSBlockedMsg = "此隧道屏蔽了 TLS 协议特征，「我自己的节点」无法使用"
+	ChainTLSBlockedMsg = "此隧道屏蔽了 TLS 协议特征，「我的外部节点」无法使用"
 )
 
 // LandingFilterProtocols: every landing protocol FLVX offers.
@@ -166,6 +167,45 @@ func (r *Repository) TunnelFilterAffectedRules(tunnelID int64, tls, http int) ([
 			out = append(out, TunnelFilterAffectedRule{ID: rw.ID, Name: rw.Name, UserName: rw.UserName, Feature: f})
 		}
 	}
+	// Plan 284: forwards to the owner's 外部节点 (stored links).
+	var exts []struct {
+		ID       int64
+		Name     string
+		UserName string
+		Mode     string
+		Upstream string
+	}
+	if err := r.db.Table("forward").
+		Select("forward.id, forward.name, forward.user_name, forward.mode, landing_external_node.upstream").
+		Joins("JOIN landing_external_node ON landing_external_node.id = forward.external_node_id AND landing_external_node.user_id = forward.user_id").
+		Where("forward.tunnel_id = ? AND forward.external_node_id > 0 AND forward.landing_node_id = 0", tunnelID).
+		Order("forward.id").Scan(&exts).Error; err != nil {
+		return nil, err
+	}
+	for _, x := range exts {
+		if seen[x.ID] || strings.EqualFold(x.Mode, "nftables") || strings.EqualFold(x.Mode, "wg_path") {
+			continue
+		}
+		up, err := linechain.FromJSON(x.Upstream)
+		if err != nil {
+			continue
+		}
+		feature := ""
+		switch up.FilterFeature() {
+		case linechain.FilterTLS, linechain.FilterQUIC:
+			if tls == 1 {
+				feature = FilterFeatureTLS
+			}
+		case linechain.FilterHTTP:
+			if http == 1 {
+				feature = FilterFeatureHTTP
+			}
+		}
+		if feature != "" {
+			seen[x.ID] = true
+			out = append(out, TunnelFilterAffectedRule{ID: x.ID, Name: x.Name, UserName: x.UserName, Feature: feature})
+		}
+	}
 	if tls == 1 {
 		var chains []row
 		if err := r.db.Table("forward_chain").
@@ -183,4 +223,53 @@ func (r *Repository) TunnelFilterAffectedRules(tunnelID int64, tls, http int) ([
 		}
 	}
 	return out, nil
+}
+
+// ---- plan 284: 「我的外部节点」 port forwards ----
+
+// TunnelBlockedFilters lists every entry-filter kind a tunnel blocks, for
+// the user's own nodes (linechain.Filter*): 屏蔽 TLS also drops QUIC
+// (plan 283), 屏蔽其它协议 drops every protocol the filter cannot name.
+func TunnelBlockedFilters(tls, http, socks, other int) []string {
+	out := []string{}
+	if tls == 1 {
+		out = append(out, linechain.FilterTLS, linechain.FilterQUIC)
+	}
+	if http == 1 {
+		out = append(out, linechain.FilterHTTP)
+	}
+	if socks == 1 {
+		out = append(out, linechain.FilterSOCKS)
+	}
+	if other == 1 {
+		out = append(out, linechain.FilterOther)
+	}
+	return out
+}
+
+// ExternalFilterBlockedMsg: why a tunnel with the given flags cannot carry a
+// forward to up ("" = it can).
+func ExternalFilterBlockedMsg(tls, http, socks, other int, up linechain.Upstream) string {
+	f := up.FilterFeature()
+	for _, b := range TunnelBlockedFilters(tls, http, socks, other) {
+		if b == f {
+			return ExternalFilterMsg(f, up.ProtocolLabel())
+		}
+	}
+	return ""
+}
+
+// ExternalFilterMsg is the reject / greyed-out reason for feature f.
+func ExternalFilterMsg(f, label string) string {
+	switch f {
+	case linechain.FilterTLS:
+		return "此隧道屏蔽了 TLS 协议特征，" + label + " 节点无法使用"
+	case linechain.FilterQUIC:
+		return "此隧道屏蔽了 TLS 协议特征（含 QUIC），" + label + " 节点无法使用"
+	case linechain.FilterHTTP:
+		return "此隧道屏蔽了 HTTP 协议特征，" + label + " 节点无法使用"
+	case linechain.FilterSOCKS:
+		return "此隧道屏蔽了 SOCKS 协议特征，" + label + " 节点无法使用"
+	}
+	return "此隧道屏蔽了其它协议，" + label + " 节点无法使用"
 }

@@ -357,7 +357,7 @@ func (r *Repository) SaveLandingServerOpts(s *model.LandingServer, groups []int6
 			}
 		}
 		if s.ChainOnly && len(groups) > 0 {
-			return errors.New("该服务器只用于「我自己的节点」，不对用户开放；如需公开，请在节点页「启用为落地」")
+			return errors.New("该服务器只用于「我的外部节点」，不对用户开放；如需公开，请在节点页「启用为落地」")
 		}
 		if s.Status != "active" {
 			var chains int64
@@ -365,7 +365,7 @@ func (r *Repository) SaveLandingServerOpts(s *model.LandingServer, groups []int6
 				return err
 			}
 			if chains > 0 {
-				return fmt.Errorf("该服务器上有 %d 个「我自己的节点」转发的出口节点在使用，不能停用", chains)
+				return fmt.Errorf("该服务器上有 %d 个「我的外部节点」转发的出口节点在使用，不能停用", chains)
 			}
 		}
 		var count int64
