@@ -35,6 +35,7 @@ import {
   getLeiKwanUsage,
 } from "@/api/leikwan-line";
 import { useExpandOne } from "@/components/expand-row";
+import { useGroupScrollSettle } from "@/hooks/use-group-scroll-settle";
 import { useH5Mode } from "@/hooks/useH5Mode";
 import { usePullToRefresh } from "@/hooks/usePullToRefresh";
 import { AttentionIcon } from "@/pages/landing/admin-attention";
@@ -363,6 +364,9 @@ function AdminRuleRow({
   );
 }
 
+// Plan 287: the 转发 / 隧道 page position correction on a 专线 header tap.
+const lineGroupKey = (id: number) => `lk-line:${id}`;
+
 function LineGroupBlock({
   group: g,
   open,
@@ -383,7 +387,8 @@ function LineGroupBlock({
 
   return (
     <div
-      className="border-b border-divider last:border-b-0"
+      className="flvx-group-anchor border-b border-divider last:border-b-0"
+      data-group-key={lineGroupKey(g.id)}
       data-leikwan-line={g.name}
       data-open={open ? "" : undefined}
     >
@@ -391,6 +396,7 @@ function LineGroupBlock({
       <div
         aria-expanded={open}
         className={`flex cursor-pointer flex-col gap-2 px-4 py-3.5 ${open ? "bg-teal-500/[0.06] dark:bg-teal-400/[0.07]" : "hover:bg-default-50 dark:hover:bg-default-50/30"}`}
+        data-group-header=""
         role="button"
         tabIndex={0}
         onClick={onToggle}
@@ -685,8 +691,11 @@ export function LeiKwanAdminView() {
     return out;
   }, [data, rules]);
   const currentOpen = openLine;
-  const toggleLine = (id: number) =>
+  const queueGroupScroll = useGroupScrollSettle();
+  const toggleLine = (id: number) => {
+    queueGroupScroll(lineGroupKey(id), currentOpen !== id);
     setOpenLine(currentOpen === id ? null : id);
+  };
 
   // Plan 269: one host's new 面板接管 view (from a host/* action reply).
   const patchHost = (nodeId: number, view: LeiKwanHostManage) =>
@@ -1218,6 +1227,7 @@ function AdminPhone({
   // Plan 286 r2: every 专线 starts collapsed (no first-line auto-open).
   const [openLine, setOpenLine] = useState<number | null>(null);
   const currentLine = openLine;
+  const queueGroupScroll = useGroupScrollSettle();
   const ruleExpand = useExpandOne(
     groups.flatMap((g) => g.rules.map((r) => r.id)),
   );
@@ -1296,13 +1306,18 @@ function AdminPhone({
             return (
               <div
                 key={g.id}
-                className="rounded-2xl border border-divider bg-content1"
+                className="flvx-group-anchor rounded-2xl border border-divider bg-content1"
+                data-group-key={lineGroupKey(g.id)}
                 data-leikwan-line={g.name}
               >
                 {/* eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions */}
                 <div
                   className="flex min-h-[52px] cursor-pointer items-center gap-2 px-3 py-2"
-                  onClick={() => setOpenLine(open ? null : g.id)}
+                  data-group-header=""
+                  onClick={() => {
+                    queueGroupScroll(lineGroupKey(g.id), !open);
+                    setOpenLine(open ? null : g.id);
+                  }}
                 >
                   <LkChevron open={open} />
                   <span className="min-w-0 break-words text-[15px] font-semibold">

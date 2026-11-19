@@ -128,6 +128,12 @@ interface NodeListViewProps {
   nodeFilterMode?: any;
   setNodeFilterMode?: (mode: any) => void;
   nodeExpiryStats?: any;
+  /**
+   * Plan 287: 分组 view — the open group's tree line (rules-page look) runs
+   * through the first (checkbox) column, which stays put when the wide table
+   * scrolls sideways; no own frame (the group box is the frame).
+   */
+  treeLine?: boolean;
 }
 function SortableTableRow({
   node,
@@ -149,6 +155,7 @@ function SortableTableRow({
   handleCopyAutoInstallCommand,
   handleViewNodeTrafficLogs,
   handleResetNodeTraffic,
+  treeLine,
 }: any) {
   const [expiryPopoverOpen, setExpiryPopoverOpen] = useState(false);
   const expiryButtonRef = useRef<HTMLButtonElement>(null);
@@ -266,10 +273,13 @@ function SortableTableRow({
       key={node.id}
       ref={setNodeRef}
       className="cursor-default"
+      data-selected={treeLine && selectedIds.has(node.id) ? "" : undefined}
       style={style}
     >
-      <TableCell className={rowBg}>
-        <div className="flex items-center justify-center h-full">
+      <TableCell className={treeLine ? `flvx-rule-tree-cell ${rowBg}` : rowBg}>
+        <div
+          className={`flex items-center h-full${treeLine ? "" : " justify-center"}`}
+        >
           <Checkbox
             isSelected={selectedIds.has(node.id)}
             onValueChange={() => toggleSelect(node.id)}
@@ -799,13 +809,20 @@ export function NodeListView({
   nodeExpiryStats,
   handleViewNodeTrafficLogs,
   handleResetNodeTraffic,
+  treeLine = false,
 }: NodeListViewProps) {
   const isAllSelected =
     displayNodes.length > 0 &&
     displayNodes.every((node) => selectedIds.has(node.id));
 
   return (
-    <div className="overflow-x-auto rounded-xl border border-divider bg-content1 shadow-md">
+    <div
+      className={
+        treeLine
+          ? "flvx-node-tree overflow-x-auto"
+          : "overflow-x-auto rounded-xl border border-divider bg-content1 shadow-md"
+      }
+    >
       <Table
         aria-label="节点列表"
         classNames={{
@@ -816,8 +833,16 @@ export function NodeListView({
         }}
       >
         <TableHeader>
-          <TableColumn className="whitespace-nowrap flex-shrink-0 w-[50px] text-center">
-            <div className="flex items-center justify-center h-full">
+          <TableColumn
+            className={
+              treeLine
+                ? "flvx-rule-tree-cell whitespace-nowrap flex-shrink-0 text-left"
+                : "whitespace-nowrap flex-shrink-0 w-[50px] text-center"
+            }
+          >
+            <div
+              className={`flex items-center h-full${treeLine ? "" : " justify-center"}`}
+            >
               <Checkbox
                 isSelected={isAllSelected}
                 onValueChange={toggleSelectAll}
@@ -1000,6 +1025,7 @@ export function NodeListView({
                   handleCopyAutoInstallCommand,
                   handleViewNodeTrafficLogs,
                   handleResetNodeTraffic,
+                  treeLine,
                 }}
               />
             ))
