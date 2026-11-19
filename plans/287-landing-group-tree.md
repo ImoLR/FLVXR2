@@ -96,9 +96,13 @@ accordion, desktop + phone, matching the 转发 / 隧道 pages.
 - [x] quic-block worker only reading QUIC reports (no host OTA in progress) → panel swap safe
 - [x] Branch `maintenance/3.0.27-fork.156-landing-group-tree` = fork.155 + `--no-ff` merge of the feature head 71a0f8ae
       (tree identical to the CI-green feature head; backend/go-gost identical to fork.155)
-- [ ] `npm run build` + eslint on touched files
-- [ ] Push, tag `3.0.27-fork.156`, CI + Images + 10 release assets, Latest
-- [ ] Prod: baseline (state, RSS, light check), backup + rollback script (→ fork.155), prune backups, image swap
-- [ ] After swap: nodes / forwards / 利群 tables identical, panel log clean 15 min, RSS, light check, read-only prod shots
-      (admin + test-ns-fx, desktop + phone) → gallery 「正式环境」
-- [ ] quic-block brief line, ledger row 287 → 已发布, memories, worktree + caches cleanup
+- [x] `npm run build` + eslint on touched files (13 errors = pre-existing a11y in node.tsx 7 / node-list-view 6; fork.155 had 8 / 6)
+- [x] Push, tag `3.0.27-fork.156` → 512ab25b; CI 44625744455 + Images 44625747003 green, 10 assets, gost sha256 ok, Latest
+- [x] Prod: baseline (state, RSS, light check), backup + rollback script (→ fork.155), prune backups, image swap
+      06:25:58–06:26:05 TW; rollback `/opt/flvx-svc/rollback/pre-fork156-20261119T222558Z/rollback.sh`
+- [x] After swap: nodes / forwards / 利群 tables identical, panel log clean 15 min, RSS, light check, read-only prod shots
+      (admin + test-ns-fx, desktop + phone) → gallery 「正式环境」: 30/30 nodes, 64/64 forwards,
+      利群 identical, light check 5/5 no regression, accordion ok on every list, 0 page errors, 0 blocked writes
+- [x] quic-block brief line, ledger row 287 → 已发布, memories, worktree + caches cleanup
+
+Status: RELEASED fork.156 11-20 06:26 TW (panel only).
