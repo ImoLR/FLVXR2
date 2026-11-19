@@ -2647,21 +2647,29 @@ td.flvx-rule-tree-dim > * {
 .flvx-landing-tree-wrap {
   --flvx-tree-gap: 16px;
   --flvx-tree-pad: 12px;
-  --flvx-tree-leaf-y: 30px;
   padding: var(--flvx-tree-pad) 0 0
     calc(var(--flvx-tree-x) + var(--flvx-tree-elbow) - 1px);
 }
 
 /* Region grids: the column count follows the wrapper width (same tracks as
-   .flvx-card-grid: 342–370px, auto-fill, 16px gap). */
+   .flvx-card-grid: 342–370px, auto-fill, 16px gap). The elbow meets the
+   server name (card header row). */
 .flvx-landing-tree-auto {
+  --flvx-tree-leaf-y: 28px;
   container-type: inline-size;
 }
 
-/* 我的节点 desktop cards inside the teal group box (rules-page line). */
+@media (max-width: 767.98px) {
+  .flvx-landing-tree-auto {
+    --flvx-tree-leaf-y: 26px;
+  }
+}
+
+/* 我的节点 desktop cards inside the teal group box (rules-page line); the
+   elbow meets the node name's first line. */
 .flvx-landing-tree-md2 {
   --flvx-tree-elbow: 11px;
-  --flvx-tree-leaf-y: 27px;
+  --flvx-tree-leaf-y: 34px;
   padding-right: 12px;
   padding-bottom: 12px;
 }

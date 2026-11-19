@@ -67,10 +67,25 @@ accordion, desktop + phone, matching the 转发 / 隧道 pages.
 - [x] D: 利群汇聚 专线 position correction (desktop + H5)
 - [x] `npm run build` + lint (no new eslint problems vs fork.155: node.tsx 8→7 errors / node-list-view 6→6 are
       pre-existing a11y ones; the other touched files 0/0)
-- [ ] Lab (synthetic DB, isolated netns, playwright): every group kind open/close, desktop + 390 + 360, light + dark;
-      line geometry checks (elbows on row-first cards, line ends at last row, no overflow at 360 px)
-- [ ] Lab: scroll settle frames (open low group → header at top; close long group → header stays); forward + tunnel
-      pages scroll exactly as before (same checks on fork.155 dist vs branch dist)
-- [ ] Gallery /root/mmwx-preview/landing-group-tree/ (fork.155 before vs after for the first two)
-- [ ] Commit + push branch
-- [ ] Ledger row 287, memory note, build-cache cleanup, summary
+- [x] Lab (synthetic DB from seed scripts, isolated netns, fork.155 paneld from the released image, playwright):
+      tree-line geometry 266/266 (every group kind; desktop 1440 / 1920 / 1100 / 2600 / 900, phone 390 / 360, light +
+      dark; line under the chevron, one x, no gaps, one elbow per grid row at the card title, rounded end, no overflow;
+      node table tree column stays when the table scrolls sideways). Elbow offsets tuned from measurements
+      (server cards 28 / 26 px, user node cards 34 px).
+- [x] Lab: behaviour 113/113 (every list desktop + phone: all collapsed on entry, open low group → header at top or
+      page end, accordion = only B open, B keeps its spot in the first frame and only moves up, close from pinned
+      header stays / page end, restored open group = no scroll on load, v2 keys dropped, ⚠ 查看 / 查看节点 jumps open
+      one group + own scroll, reduced motion instant, node page old collapse map dropped)
+- [x] Lab: 转发 + 隧道 pages, same sequence on fork.155 dist vs branch dist: settled numbers identical (4/4), screenshots
+      pixel-identical except the sidebar build label (4/4)
+- [x] Gallery /root/mmwx-preview/landing-group-tree/ (51 PNGs, sections A1–A8, B, C, D, E; fork.155 before vs after)
+- [x] Commit + push branch
+- [x] Ledger row 287, memory note, build-cache cleanup, summary
+
+## Notes
+- Lab scripts: /root/flvx-workers/runs/landing-group-tree/lab/ (seed*.py, mock.py, lib.cjs, geo.cjs, scroll.cjs,
+  shots.cjs, e.cjs, make-index.py). Lab data dir /root/lag287-lab deleted after the run.
+- Not changed on purpose: 订阅 H5 ＋/− expand rows (shared expand-row pattern, already one open), 利群汇聚 user page,
+  转发 / 隧道 pages, utils/group-accordion.ts, components/tree-group.tsx.
+- Release: panel only, no DB / backend change. Old localStorage keys are dropped on first load (落地 v2 open sets,
+  节点 `node-group-collapsed-state`), so every group list starts collapsed once after the release.
