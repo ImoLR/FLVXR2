@@ -91,7 +91,23 @@ Checklist:
 - [x] Frontend: user 我的节点 server groups (desktop cards, phone ＋/− rows)
 - [x] Frontend: 利群汇聚 admin 专线 collapsed by default (desktop + H5)
 - [x] `npm run build`, eslint (0 warnings), tsc
-- [ ] go vet + `GOMAXPROCS=2 go test -p 1 ./... -timeout 30m` (SQLite) + PG contract/repo/handler
+- [x] go vet (clean) + `GOMAXPROCS=2 go test -p 1 ./... -timeout 30m` (SQLite): all packages ok except
+      TestForwardWarmTagContract once (timing flake under load, test path untouched; passes 5/5 alone on this branch AND on
+      unmodified fork.154; same flake seen in the fork.138 release) + PG (throwaway postgres:18 container, removed)
+      contract 530 s / repo 453 s / handler 320 s: all ok. CI 44540962805 (feature) + 44544918244 (maintenance) green.
 - [x] Screenshots (第 2 轮 section at the top of the gallery, 20 shots, shots.cjs 47 checks 0 failures, lab runs/landing-admin-groups-r2/lab)
-- [ ] Push, release fork.N (panel only), prod backup + rollback check, swap, checks, Dmit T1 显示地区 = US
-- [ ] Ledger / memory / quic-block hand-off note, cleanup
+- [x] Release fork.155 (panel only): branch maintenance/3.0.27-fork.155-landing-groups = fork.154 + merge of feature
+      @ 85d75a4e (tree identical to the tested head), tag → 619b8341, Images 44544980462, Latest, 10 assets, gost sha256 ok.
+      Rollback check on a prod-DB copy: fork.155 adds the column ('' ×9), fork.154 starts healthy on it, 6 list APIs ok.
+      Backup + swap 22:45:48–22:45:55 TW (rollback /opt/flvx-svc/rollback/pre-fork155-20261119T144548Z/rollback.sh → fork.154),
+      prune (kept pre-fork154 + pre-fork155). Checks: 30/30 nodes, 64/64 forwards, state.py identical (利群 tables incl.),
+      light check (5 busiest forwards diagnose 3/3 + RTT) no regression, RSS 50.7 → 62.1 MiB (fresh start).
+      Dmit T1 显示地区 = US (only prod write) → TW ×4, US ×2, HK, JP, KR. test-ns-fx server list: `region` only.
+      Prod 落地 (admin + user, desktop + H5) and 利群汇聚 open all collapsed (gallery 「已发布」 section).
+- [x] Ledger row 286 → 已发布 (next free fork.156), memory landing-admin-groups + fork-release-and-deploy, quic-block
+      brief.md + resume-1119b.md hand-off line (22:46 TW), cleanup (worktree flvxx-286, lab /root/lag286r2-lab, scratch)
+- [x] Panel log 15 min after the swap (to 23:01 TW): no error / panic / restart; 6 `[shared-sync] class=reset` lines
+      (妙妙屋 connection reset, each recovered in ~17 s, same pattern as right after the fork.154 swap; no shared-sync file
+      touched) → no 离线 shown (plan 271 3-min rule): all 9 servers online, 0 sharedSyncError, 30/30 nodes, 64/64 forwards
+
+Status: RELEASED as fork.155 (11-19 22:45 TW).
