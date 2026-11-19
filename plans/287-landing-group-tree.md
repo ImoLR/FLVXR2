@@ -89,3 +89,16 @@ accordion, desktop + phone, matching the 转发 / 隧道 pages.
   转发 / 隧道 pages, utils/group-accordion.ts, components/tree-group.tsx.
 - Release: panel only, no DB / backend change. Old localStorage keys are dropped on first load (落地 v2 open sets,
   节点 `node-group-collapsed-state`), so every group list starts collapsed once after the release.
+
+## Release (task `release-landing-group-tree`, 11-20 TW, Claude high) — panel only
+- [x] Gallery check (A1 / A3 / A2 phone / C desktop + phone + sideways): line continuous, no overlap, no phone overflow;
+      node table already scrolled sideways at fork.155 (操作 column) → not new. No fix needed.
+- [x] quic-block worker only reading QUIC reports (no host OTA in progress) → panel swap safe
+- [x] Branch `maintenance/3.0.27-fork.156-landing-group-tree` = fork.155 + `--no-ff` merge of the feature head 71a0f8ae
+      (tree identical to the CI-green feature head; backend/go-gost identical to fork.155)
+- [ ] `npm run build` + eslint on touched files
+- [ ] Push, tag `3.0.27-fork.156`, CI + Images + 10 release assets, Latest
+- [ ] Prod: baseline (state, RSS, light check), backup + rollback script (→ fork.155), prune backups, image swap
+- [ ] After swap: nodes / forwards / 利群 tables identical, panel log clean 15 min, RSS, light check, read-only prod shots
+      (admin + test-ns-fx, desktop + phone) → gallery 「正式环境」
+- [ ] quic-block brief line, ledger row 287 → 已发布, memories, worktree + caches cleanup
