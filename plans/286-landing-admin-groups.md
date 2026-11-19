@@ -65,3 +65,33 @@ Status: BUILT, not merged / tagged / released; prod untouched. Release = separat
 - Phones / H5 (`useH5Mode`): rows reuse the rules-page phone tree (`flvx-rule-tree-cards` / `-node`, space-y-3).
 - Lab: /root/flvx-workers/runs/landing-admin-groups/lab (setup.sh, seed.py synthetic DB, fetch.sh real API dump +
   region API smoke test, mock.py demo states, shots.cjs 30+ checks, trunc.cjs / measure.cjs). Data dir /root/lag286-lab.
+
+## Round 2 (11-19 ~22:00 TW, user approved round 1, task `landing-admin-groups-r2`) — build + RELEASE (panel only)
+User asks: every group collapsed by default (server groups too, no single-group exception); 利群汇聚 专线 collapsed by
+default; normal users get the same design (可用落地 region groups, 我的节点 grouped by 落地服务器 + phone ＋/− rows).
+
+Decisions:
+- `useGroupOpenState(key, legacyKeys)` stores only the EXPANDED keys (localStorage, per account:
+  `flvx:landing:{region,user,my-server}-open:v2:u:<uid>`), like the 转发页 (plan 163). Round-1 keys
+  (`flvx:landing:region-groups`, `flvx:landing:user-groups`) are removed on load. Jumps still open their group.
+- Users' server list gets `region` (effective) only; never `regionAuto` / `regionOverride`. Scoping unchanged.
+- User region headers: 离线 / 已停用 pills only (no ⚠ / 待升级). User 我的节点 headers: flag + server name +
+  「N 个节点 · 已用 X GB」 + the same problem pills minus 连接满 (users never see caps). Order = compareRegions then name.
+- User phone rows: dot + name + one protocol tag + ＋/−; details = what the user card shows (no 服务器 / 端口 lines,
+  no 总上限待升级 note); actions unchanged. Desktop keeps the user cards (grid) inside each group.
+- 利群汇聚 admin (desktop + H5): `openLine` starts null. The granted-user page has no collapsible lines → unchanged.
+  No deep link / jump targets a 专线 today (grep), so nothing else to keep.
+
+Checklist:
+- [x] Disk ≥ 5 GB (5.5 GB free at start)
+- [x] Backend: user server list `region` only + handler test (override visible as region, no auto/override keys,
+      only granted servers) + contract field list (`region` moved from userForbidden to userKept)
+- [x] Frontend: expanded-set open state, all groups collapsed, legacy keys cleared
+- [x] Frontend: user 可用落地 region groups (离线 / 已停用 pills)
+- [x] Frontend: user 我的节点 server groups (desktop cards, phone ＋/− rows)
+- [x] Frontend: 利群汇聚 admin 专线 collapsed by default (desktop + H5)
+- [ ] `npm run build`, eslint, tsc
+- [ ] go vet + `GOMAXPROCS=2 go test -p 1 ./... -timeout 30m` (SQLite) + PG contract/repo/handler
+- [ ] Screenshots (第 2 轮 section in the gallery)
+- [ ] Push, release fork.N (panel only), prod backup + rollback check, swap, checks, Dmit T1 显示地区 = US
+- [ ] Ledger / memory / quic-block hand-off note, cleanup

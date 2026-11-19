@@ -177,7 +177,8 @@ func regionList(t *testing.T, e *flowTestEnv, uid int64, role int) map[int64]map
 }
 
 // TestLandingServerRegionView (plan 286): region order override > native
-// node.region > GeoIP of the public host > ”; admin list only; a host
+// node.region > GeoIP of the public host > ”; admins get the trio, users
+// (round 2) the effective region only; a host
 // that hangs never holds the list longer than landingRegionWait.
 func TestLandingServerRegionView(t *testing.T) {
 	e := newFlowTestEnv(t)
@@ -215,15 +216,28 @@ func TestLandingServerRegionView(t *testing.T) {
 	want[4] = [3]string{"SG", "SG", ""}
 	check(regionList(t, e, 1, 0))
 
-	// Users never get the region fields.
+	// Round 2: users get the effective region only (override included),
+	// never regionAuto / regionOverride, and only for granted servers.
+	if err := e.r.DB().Create(&model.LandingServerUser{LandingServerID: 5, UserID: 2}).Error; err != nil {
+		t.Fatal(err)
+	}
 	user := layerCall(t, e.h, "/api/v1/landing/server/list", map[string]any{}, 2, 1)
 	raw, _ := json.Marshal(user.Data)
 	if user.Code != 0 || !strings.Contains(string(raw), `"id":1`) {
 		t.Fatalf("user list: %s", raw)
 	}
-	for _, key := range []string{`"region"`, `"regionAuto"`, `"regionOverride"`} {
+	for _, key := range []string{`"regionAuto"`, `"regionOverride"`} {
 		if strings.Contains(string(raw), key) {
 			t.Fatalf("user view has %s: %s", key, raw)
+		}
+	}
+	users := regionList(t, e, 2, 1)
+	if len(users) != 2 || users[1] == nil || users[5] == nil {
+		t.Fatalf("user sees servers %v, want exactly 1 and 5", users)
+	}
+	for id, w := range map[int64]string{1: "KR", 5: "HK"} {
+		if users[id]["region"] != w {
+			t.Fatalf("user server %d region=%v, want %s", id, users[id]["region"], w)
 		}
 	}
 }

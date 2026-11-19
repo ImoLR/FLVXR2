@@ -24,11 +24,15 @@ import { LandingLinkCard } from "./landing/link-card";
 import { LandingTone, Pill, ProtocolPill } from "./landing/pill";
 import {
   NodeProblemKey,
+  NodeServerGroup,
+  NodeServerHeaderContent,
   NodeUserGroup,
   NodeUserHeaderContent,
   ServerRegionSection,
+  groupNodesByServer,
   groupNodesByUser,
   groupServersByRegion,
+  nodeServerKey,
   nodeUserKey,
   serverRegionKey,
   useGroupOpenState,
@@ -401,7 +405,12 @@ function UsageBar({ node }: { node: LandingNode }) {
 // Plan 286: what a 全部节点 user-group header counts for one node — read from
 // the same helpers as the row (status pill, sync notes, expiry pill, usage
 // bar, connection tone); 即将到期 = the expiry pill's 剩余 ≤ 3 天.
-function nodeProblems(node: LandingNode, now: number): NodeProblemKey[] {
+// Round 2: users' headers skip 连接满 (they never see the caps).
+function nodeProblems(
+  node: LandingNode,
+  now: number,
+  admin: boolean,
+): NodeProblemKey[] {
   const out: NodeProblemKey[] = [];
 
   if (node.deletePending) return out;
@@ -429,7 +438,7 @@ function nodeProblems(node: LandingNode, now: number): NodeProblemKey[] {
     if (ratio >= 1) out.push("quota");
     else if (ratio >= 0.9) out.push("quota90");
   }
-  if (connTone(node, true) === "red") out.push("conn");
+  if (admin && connTone(node, true) === "red") out.push("conn");
 
   return out;
 }
@@ -507,14 +516,17 @@ export default function LandingPage() {
   )
     ? "error"
     : "warn";
-  // Plan 286: admin 落地服务器 region groups (open by default, remembered).
+  // Plan 286: 落地服务器 / 可用落地 region groups. Round 2: users too, and
+  // every group starts collapsed (only the opened ones are remembered, per
+  // browser and account).
+  const groupUserId = JwtUtil.getUserIdFromToken() ?? 0;
   const serverGroups = useMemo(
-    () => (admin ? groupServersByRegion(servers, attentionById) : []),
+    () => groupServersByRegion(servers, attentionById, admin),
     [admin, servers, attentionById],
   );
   const regionOpen = useGroupOpenState(
-    "flvx:landing:region-groups",
-    () => true,
+    `flvx:landing:region-open:v2:u:${groupUserId}`,
+    ["flvx:landing:region-groups"],
   );
   const openRegionOf = regionOpen.open;
   // A server whose group must open once the reloaded list arrives (设置 saved).
@@ -664,28 +676,43 @@ export default function LandingPage() {
   const useNodeHint = useOnboardingHint("useNode", {
     enabled: tab === "nodes" && hintNode?.status === "active",
   });
-  // Plan 286: admin 全部节点 groups by owner (closed by default; a single
-  // owner open), one phone row open at a time, jumps open + flash the row.
+  // Plan 286: admin 全部节点 groups by owner; round 2: a user's 我的节点 by
+  // 落地服务器. All collapsed by default, one phone row open at a time,
+  // jumps open + flash the row.
   const userGroups = useMemo(
     () =>
       admin
         ? groupNodesByUser(nodes, currentUserId ?? 0, (node) =>
-            nodeProblems(node, Date.now()),
+            nodeProblems(node, Date.now(), true),
           )
         : [],
     [admin, nodes, currentUserId],
   );
+  const myServerGroups = useMemo(
+    () =>
+      admin
+        ? []
+        : groupNodesByServer(nodes, servers, (node) =>
+            nodeProblems(node, Date.now(), false),
+          ),
+    [admin, nodes, servers],
+  );
   const userOpen = useGroupOpenState(
-    "flvx:landing:user-groups",
-    () => userGroups.length === 1,
+    `flvx:landing:user-open:v2:u:${groupUserId}`,
+    ["flvx:landing:user-groups"],
+  );
+  const myServerOpen = useGroupOpenState(
+    `flvx:landing:my-server-open:v2:u:${groupUserId}`,
+    [],
   );
   const [openRow, setOpenRow] = useState(0);
   const [flashNodeId, setFlashNodeId] = useState(0);
   const revealNode = (node?: LandingNode | null, keys?: string[]) => {
     setTab("nodes");
-    const targets = keys ?? (node ? [nodeUserKey(node)] : []);
+    const targets =
+      keys ?? (node ? [admin ? nodeUserKey(node) : nodeServerKey(node)] : []);
 
-    if (admin && targets.length) userOpen.open(targets);
+    if (targets.length) (admin ? userOpen : myServerOpen).open(targets);
     if (!node) return;
     window.setTimeout(() => {
       document
@@ -1080,10 +1107,12 @@ export default function LandingPage() {
         />
         {nodeConnText(node, admin)}
       </span>
-      <NodeTotalPending
-        node={node}
-        shared={nodeServer(node)?.source === "shared"}
-      />
+      {admin && (
+        <NodeTotalPending
+          node={node}
+          shared={nodeServer(node)?.source === "shared"}
+        />
+      )}
     </>
   );
   const NODE_COLUMNS: [string, string | undefined][] = [
@@ -1184,9 +1213,9 @@ export default function LandingPage() {
       <dd className="min-w-0 break-words text-sm">{value}</dd>
     </>
   );
-  const nodeRows = (group: NodeUserGroup) => (
+  const nodeRows = (list: LandingNode[]) => (
     <div className="flvx-rule-tree-cards space-y-3 py-2 pr-2">
-      {group.nodes.map((node) => {
+      {list.map((node) => {
         const open = openRow === node.id;
         const toggle = () => setOpenRow(open ? 0 : node.id);
 
@@ -1235,14 +1264,18 @@ export default function LandingPage() {
                 data-landing-node-details=""
               >
                 <dl className="grid grid-cols-[4.5rem_minmax(0,1fr)] gap-x-2 gap-y-2">
-                  {nodeDetail(
-                    "服务器",
-                    node.serverName || nodeServer(node)?.name,
-                  )}
-                  {nodeDetail(
-                    "端口",
-                    <span className="tabular-nums">{node.port}</span>,
-                  )}
+                  {/* Round 2: a user's rows sit in their server's group and
+                      show only what their card shows (no 服务器 / 端口). */}
+                  {admin &&
+                    nodeDetail(
+                      "服务器",
+                      node.serverName || nodeServer(node)?.name,
+                    )}
+                  {admin &&
+                    nodeDetail(
+                      "端口",
+                      <span className="tabular-nums">{node.port}</span>,
+                    )}
                   {nodeDetail(
                     "协议",
                     <>
@@ -1333,7 +1366,7 @@ export default function LandingPage() {
             used={`${landingGB(group.used)} GB`}
           />
         </TreeGroupHeader>
-        {!collapsed && (h5 ? nodeRows(group) : nodeTable(group))}
+        {!collapsed && (h5 ? nodeRows(group.nodes) : nodeTable(group))}
         {!collapsed && <TreeGroupFooter name={group.name} onToggle={toggle} />}
       </div>
     );
@@ -1344,6 +1377,147 @@ export default function LandingPage() {
         {userGroups.length} 个用户 · {nodes.length} 个节点
       </p>
       <div className="space-y-3">{userGroups.map(renderUserGroup)}</div>
+    </div>
+  );
+
+  // A user's node card (plan 149 layout, unchanged); round 2 renders it inside
+  // the 我的节点 server groups on desktop.
+  const renderUserNodeCard = (node: LandingNode) => (
+    <Card
+      key={node.id}
+      data-landing-node-card
+      className={
+        flashNodeId === node.id
+          ? "ring-2 ring-amber-400 transition-shadow"
+          : undefined
+      }
+      data-landing-node-row={node.id}
+    >
+      <CardHeader className="flex flex-row items-start justify-between gap-2">
+        <div className="min-w-0">
+          <h2 className="break-all text-sm font-bold">{node.name}</h2>
+          <p className="mt-1 text-xs text-default-500">
+            {node.serverName ||
+              servers.find((server) => server.id === node.landingServerId)
+                ?.name}{" "}
+            · {landingProtocolLabel(node.protocol)}
+          </p>
+          {node.protocolOpts && (
+            <p className="mt-1 text-xs text-default-500">
+              {landingProtocolSummary(node.protocol, node.protocolOpts)}
+            </p>
+          )}
+          {isMieruUdp(node.protocol, node.protocolOpts?.transport) && (
+            <p className="mt-1 text-xs text-warning-600 dark:text-warning-400">
+              {MIERU_UDP_HINT}
+            </p>
+          )}
+        </div>
+        <div className="flex shrink-0 flex-wrap justify-end gap-1">
+          <NodeStatusPill node={node} />
+          {node.deletePending && <Pill tone="amber">删除中</Pill>}
+        </div>
+      </CardHeader>
+      <CardBody className="space-y-3">
+        {/* Plan 149: one chip row — 剩余 · 连接数 · 规则 · 出站. */}
+        <div
+          data-landing-node-chips
+          className="flex flex-wrap items-center gap-1"
+        >
+          <ExpiryPill node={node} now={now} />
+          <ConnPill
+            admin={admin}
+            node={node}
+            shared={
+              servers.find((item) => item.id === node.landingServerId)
+                ?.source === "shared"
+            }
+          />
+          {(node.forwardCount || 0) > 0 && (
+            <Pill tone="purple">转发 {node.forwardCount}</Pill>
+          )}
+          {node.chain ? (
+            <ChainPill node={node} />
+          ) : (
+            node.egressLabel && (
+              <Pill title={`出站：${node.egressLabel}`} tone="teal">
+                出站：{node.egressLabel}
+              </Pill>
+            )
+          )}
+        </div>
+        <ScanBlockNote
+          admin={admin}
+          node={node}
+          onUnblocked={() => void load()}
+        />
+        {(node.syncError ||
+          node.sharedSyncError ||
+          node.chain?.state === "error" ||
+          (node.status === "pending" && node.pendingReason)) && (
+          <div className="flex flex-wrap gap-1">
+            {nodeNotes(node)}
+            <ChainNote node={node} />
+          </div>
+        )}
+        <div className="text-sm">
+          <p className="flex flex-wrap items-baseline justify-between gap-x-2">
+            <span className="text-xs text-default-500">已用 / 上限</span>
+            <span className="tabular-nums">{usage(node)}</span>
+          </p>
+          <UsageBar node={node} />
+          {node.expiredAt && (
+            <p className="mt-2 text-warning">
+              宽限期结束：
+              {landingDate(node.expiredAt + 7 * 86400000)}
+              ；期内续期可恢复原链接。
+            </p>
+          )}
+        </div>
+        {actions(node)}
+      </CardBody>
+    </Card>
+  );
+  const renderMyServerGroup = (group: NodeServerGroup) => {
+    const collapsed = !myServerOpen.isOpen(group.key);
+    const toggle = () => myServerOpen.toggle(group.key);
+
+    return (
+      <div
+        key={group.key}
+        className={`${treeGroupWrapperClass(collapsed)} flvx-landing-user-group`}
+        data-landing-server-group={group.key}
+      >
+        <TreeGroupHeader
+          className={treeGroupHeaderClass(collapsed)}
+          collapsed={collapsed}
+          onToggle={toggle}
+        >
+          <NodeServerHeaderContent
+            collapsed={collapsed}
+            compact={h5}
+            group={group}
+            used={`${landingGB(group.used)} GB`}
+          />
+        </TreeGroupHeader>
+        {!collapsed &&
+          (h5 ? (
+            nodeRows(group.nodes)
+          ) : (
+            <div className="grid gap-4 py-3 pr-3 md:grid-cols-2">
+              {group.nodes.map(renderUserNodeCard)}
+            </div>
+          ))}
+        {!collapsed && <TreeGroupFooter name={group.name} onToggle={toggle} />}
+      </div>
+    );
+  };
+  const renderMyServerGroups = () => (
+    <div data-landing-server-groups="">
+      <p className="mb-2 px-1 text-xs text-default-500">
+        {myServerGroups.length} 台服务器 · {nodes.length} 个节点
+      </p>
+      <div className="space-y-3">{myServerGroups.map(renderMyServerGroup)}</div>
     </div>
   );
 
@@ -1473,27 +1647,22 @@ export default function LandingPage() {
           <Tab key="servers" title={admin ? "落地服务器" : "可用落地"}>
             {/* Plan 145: same grid as 隧道/节点 cards; auto-rows-fr + h-full
                 cards = every card the same size, also across rows. */}
-            {admin ? (
-              // Plan 286: region groups (open by default), cards unchanged.
-              <div className="mt-4 space-y-4" data-landing-region-groups="">
-                {serverGroups.map((group) => (
-                  <ServerRegionSection
-                    key={group.key}
-                    group={group}
-                    open={regionOpen.isOpen(group.key)}
-                    onToggle={() => regionOpen.toggle(group.key)}
-                  >
-                    <div className="flvx-card-grid mt-3 grid auto-rows-fr gap-4">
-                      {group.servers.map(renderServerCard)}
-                    </div>
-                  </ServerRegionSection>
-                ))}
-              </div>
-            ) : (
-              <div className="flvx-card-grid mt-4 grid auto-rows-fr gap-4">
-                {servers.map(renderServerCard)}
-              </div>
-            )}
+            {/* Plan 286: region groups (round 2: users too, all collapsed
+                by default), cards unchanged. */}
+            <div className="mt-4 space-y-4" data-landing-region-groups="">
+              {serverGroups.map((group) => (
+                <ServerRegionSection
+                  key={group.key}
+                  group={group}
+                  open={regionOpen.isOpen(group.key)}
+                  onToggle={() => regionOpen.toggle(group.key)}
+                >
+                  <div className="flvx-card-grid mt-3 grid auto-rows-fr gap-4">
+                    {group.servers.map(renderServerCard)}
+                  </div>
+                </ServerRegionSection>
+              ))}
+            </div>
             {!loading && !servers.length && (
               <Card className="mt-4">
                 <CardBody className="py-12 text-center text-sm text-default-500">
@@ -1506,117 +1675,8 @@ export default function LandingPage() {
           </Tab>
           <Tab key="nodes" title={admin ? "全部节点" : "我的节点"}>
             <div className="mt-4">
-              {admin && nodes.length > 0 ? (
-                renderAdminNodeGroups()
-              ) : (
-                <div className="grid gap-4 md:grid-cols-2">
-                  {nodes.map((node) => (
-                    <Card key={node.id} data-landing-node-card>
-                      <CardHeader className="flex flex-row items-start justify-between gap-2">
-                        <div className="min-w-0">
-                          <h2 className="break-all text-sm font-bold">
-                            {node.name}
-                          </h2>
-                          <p className="mt-1 text-xs text-default-500">
-                            {node.serverName ||
-                              servers.find(
-                                (server) => server.id === node.landingServerId,
-                              )?.name}{" "}
-                            · {landingProtocolLabel(node.protocol)}
-                          </p>
-                          {node.protocolOpts && (
-                            <p className="mt-1 text-xs text-default-500">
-                              {landingProtocolSummary(
-                                node.protocol,
-                                node.protocolOpts,
-                              )}
-                            </p>
-                          )}
-                          {isMieruUdp(
-                            node.protocol,
-                            node.protocolOpts?.transport,
-                          ) && (
-                            <p className="mt-1 text-xs text-warning-600 dark:text-warning-400">
-                              {MIERU_UDP_HINT}
-                            </p>
-                          )}
-                        </div>
-                        <div className="flex shrink-0 flex-wrap justify-end gap-1">
-                          <NodeStatusPill node={node} />
-                          {node.deletePending && (
-                            <Pill tone="amber">删除中</Pill>
-                          )}
-                        </div>
-                      </CardHeader>
-                      <CardBody className="space-y-3">
-                        {/* Plan 149: one chip row — 剩余 · 连接数 · 规则 · 出站. */}
-                        <div
-                          data-landing-node-chips
-                          className="flex flex-wrap items-center gap-1"
-                        >
-                          <ExpiryPill node={node} now={now} />
-                          <ConnPill
-                            admin={admin}
-                            node={node}
-                            shared={
-                              servers.find(
-                                (item) => item.id === node.landingServerId,
-                              )?.source === "shared"
-                            }
-                          />
-                          {(node.forwardCount || 0) > 0 && (
-                            <Pill tone="purple">转发 {node.forwardCount}</Pill>
-                          )}
-                          {node.chain ? (
-                            <ChainPill node={node} />
-                          ) : (
-                            node.egressLabel && (
-                              <Pill
-                                title={`出站：${node.egressLabel}`}
-                                tone="teal"
-                              >
-                                出站：{node.egressLabel}
-                              </Pill>
-                            )
-                          )}
-                        </div>
-                        <ScanBlockNote
-                          admin={admin}
-                          node={node}
-                          onUnblocked={() => void load()}
-                        />
-                        {(node.syncError ||
-                          node.sharedSyncError ||
-                          node.chain?.state === "error" ||
-                          (node.status === "pending" &&
-                            node.pendingReason)) && (
-                          <div className="flex flex-wrap gap-1">
-                            {nodeNotes(node)}
-                            <ChainNote node={node} />
-                          </div>
-                        )}
-                        <div className="text-sm">
-                          <p className="flex flex-wrap items-baseline justify-between gap-x-2">
-                            <span className="text-xs text-default-500">
-                              已用 / 上限
-                            </span>
-                            <span className="tabular-nums">{usage(node)}</span>
-                          </p>
-                          <UsageBar node={node} />
-                          {node.expiredAt && (
-                            <p className="mt-2 text-warning">
-                              宽限期结束：
-                              {landingDate(node.expiredAt + 7 * 86400000)}
-                              ；期内续期可恢复原链接。
-                            </p>
-                          )}
-                        </div>
-                        {actions(node)}
-                      </CardBody>
-                    </Card>
-                  ))}
-                </div>
-              )}
+              {nodes.length > 0 &&
+                (admin ? renderAdminNodeGroups() : renderMyServerGroups())}
               {!loading && !nodes.length && (
                 <Card>
                   <CardBody className="py-12 text-center text-default-500">

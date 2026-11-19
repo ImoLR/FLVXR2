@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 
-import { useCallback } from "react";
+import { useCallback, useEffect } from "react";
 
 import { LandingTone, Pill } from "./pill";
 import {
@@ -19,47 +19,53 @@ import {
   regionTone,
 } from "@/utils/region";
 
-// Plan 286 — admin 落地 page groups: 落地服务器 by region (open by default),
-// 全部节点 by owner (closed by default). Grouping is client-side over the
-// lists the page already loaded; the open/closed choices are remembered per
-// browser on top of the defaults.
+// Plan 286 — 落地 page groups. Admin: 落地服务器 by region, 全部节点 by owner.
+// Round 2: users get the same look — 可用落地 by region, 我的节点 by 落地服务器 —
+// and every group starts collapsed. Grouping is client-side over the lists the
+// page already loaded.
 
-/** Open / closed state of a set of groups, remembered in localStorage. */
-export function useGroupOpenState(
-  storageKey: string,
-  defaultOpen: (key: string) => boolean,
-) {
-  const [choices, setChoices] = useLocalStorageState<Record<string, boolean>>(
-    storageKey,
-    {},
-  );
-  const safe = choices && typeof choices === "object" ? choices : {};
-  const isOpen = (key: string) =>
-    typeof safe[key] === "boolean" ? safe[key] : defaultOpen(key);
+const expandedList = (value: unknown): string[] =>
+  Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === "string")
+    : [];
+
+/**
+ * Open / closed state of a set of groups. Round 2: only the EXPANDED keys are
+ * stored (per browser, localStorage), so every group — also a new one — starts
+ * collapsed. `legacyKeys` (round-1 open/closed maps, never released) are
+ * removed once.
+ */
+export function useGroupOpenState(storageKey: string, legacyKeys: string[]) {
+  const [stored, setStored] = useLocalStorageState<string[]>(storageKey, []);
+  const legacy = legacyKeys.join("\n");
+
+  useEffect(() => {
+    if (!legacy) return;
+    try {
+      legacy.split("\n").forEach((key) => localStorage.removeItem(key));
+    } catch {}
+  }, [legacy]);
+  const expanded = new Set(expandedList(stored));
+  const isOpen = (key: string) => expanded.has(key);
   const toggle = (key: string) =>
-    setChoices((prev) => {
-      const base = prev && typeof prev === "object" ? prev : {};
-      const current =
-        typeof base[key] === "boolean" ? base[key] : defaultOpen(key);
+    setStored((prev) => {
+      const list = expandedList(prev);
 
-      return { ...base, [key]: !current };
+      return list.includes(key)
+        ? list.filter((item) => item !== key)
+        : [...list, key];
     });
   // Jumps (⚠ 查看, 创建节点 …) open their target group.
   const open = useCallback(
     (keys: string[]) =>
-      setChoices((prev) => {
-        const base = prev && typeof prev === "object" ? prev : {};
+      setStored((prev) => {
+        const list = expandedList(prev);
 
-        if (keys.every((key) => base[key] === true)) return base;
-        const next = { ...base };
+        if (keys.every((key) => list.includes(key))) return prev;
 
-        keys.forEach((key) => {
-          next[key] = true;
-        });
-
-        return next;
+        return [...list, ...keys.filter((key) => !list.includes(key))];
       }),
-    [setChoices],
+    [setStored],
   );
 
   return { isOpen, toggle, open };
@@ -75,6 +81,8 @@ export interface ServerRegionGroup {
   attention: LandingServer[];
   attentionLevel: AttentionLevel;
   upgrade: LandingServer[];
+  /** Users only (round 2): 已停用 servers, as their card says. */
+  disabled: LandingServer[];
 }
 
 export const serverRegionCode = (server: LandingServer) =>
@@ -85,6 +93,7 @@ export const serverRegionKey = (server: LandingServer) =>
 export function groupServersByRegion(
   servers: LandingServer[],
   attentionById: Map<number, AdminAttention | null>,
+  admin: boolean,
 ): ServerRegionGroup[] {
   const groups = new Map<string, ServerRegionGroup>();
 
@@ -101,6 +110,7 @@ export function groupServersByRegion(
         attention: [],
         attentionLevel: "warn",
         upgrade: [],
+        disabled: [],
       };
       groups.set(key, group);
     }
@@ -109,6 +119,12 @@ export function groupServersByRegion(
     // admin's choice, not a problem).
     if (server.status === "active" && !server.online)
       group.offline.push(server);
+    // Users: only what their card shows (离线 / 已停用); ⚠ and 待升级 are
+    // admin states.
+    if (!admin) {
+      if (server.status !== "active") group.disabled.push(server);
+      continue;
+    }
     const attention = attentionById.get(server.id);
 
     if (attention) {
@@ -184,6 +200,11 @@ export function ServerRegionHeader({
             待升级 {group.upgrade.length}
           </Pill>
         )}
+        {group.disabled.length > 0 && (
+          <Pill title={`已停用：${names(group.disabled)}`} tone="slate">
+            已停用 {group.disabled.length}
+          </Pill>
+        )}
       </span>
     </TreeGroupHeader>
   );
@@ -255,6 +276,19 @@ export interface NodeUserGroup {
 
 export const nodeUserKey = (node: LandingNode) => `user:${node.userId}`;
 
+const addProblems = (
+  problems: Map<NodeProblemKey, LandingNode[]>,
+  node: LandingNode,
+  keys: NodeProblemKey[],
+) => {
+  for (const problem of new Set(keys)) {
+    const list = problems.get(problem) || [];
+
+    list.push(node);
+    problems.set(problem, list);
+  }
+};
+
 export function groupNodesByUser(
   nodes: LandingNode[],
   currentUserId: number,
@@ -280,12 +314,7 @@ export function groupNodesByUser(
     }
     group.nodes.push(node);
     group.used += (node.billedIn || 0) + (node.billedOut || 0);
-    for (const problem of new Set(problemsOf(node))) {
-      const list = group.problems.get(problem) || [];
-
-      list.push(node);
-      group.problems.set(problem, list);
-    }
+    addProblems(group.problems, node, problemsOf(node));
   }
   // The signed-in admin first, then other admin accounts, then users by name.
   const rank = (group: NodeUserGroup) =>
@@ -299,7 +328,11 @@ export function groupNodesByUser(
   );
 }
 
-export function NodeProblemPills({ group }: { group: NodeUserGroup }) {
+export function NodeProblemPills({
+  group,
+}: {
+  group: { problems: Map<NodeProblemKey, LandingNode[]> };
+}) {
   return (
     <>
       {NODE_PROBLEMS.map(({ key, tone, label }) => {
@@ -367,6 +400,126 @@ export function NodeUserHeaderContent({
         <div
           className="flex shrink-0 flex-wrap items-center justify-end gap-1.5"
           data-user-summary=""
+        >
+          {hasProblems && <NodeProblemPills group={group} />}
+          <span className="ml-1">{meta}</span>
+        </div>
+      )}
+    </>
+  );
+}
+
+// ------------------------------------------------- user 我的节点 (round 2)
+
+/** A user's own nodes on one 落地服务器 (all nodes are the user's). */
+export interface NodeServerGroup {
+  key: string;
+  serverId: number;
+  name: string;
+  region: string;
+  nodes: LandingNode[];
+  used: number;
+  problems: Map<NodeProblemKey, LandingNode[]>;
+}
+
+export const nodeServerKey = (node: LandingNode) =>
+  `server:${node.landingServerId}`;
+
+export function groupNodesByServer(
+  nodes: LandingNode[],
+  servers: LandingServer[],
+  problemsOf: (node: LandingNode) => NodeProblemKey[],
+): NodeServerGroup[] {
+  const byId = new Map(servers.map((server) => [server.id, server]));
+  const groups = new Map<string, NodeServerGroup>();
+
+  for (const node of nodes) {
+    const key = nodeServerKey(node);
+    let group = groups.get(key);
+
+    if (!group) {
+      const server = byId.get(node.landingServerId);
+
+      group = {
+        key,
+        serverId: node.landingServerId,
+        name:
+          server?.name || node.serverName || `服务器 ${node.landingServerId}`,
+        region: server ? serverRegionCode(server) : "",
+        nodes: [],
+        used: 0,
+        problems: new Map(),
+      };
+      groups.set(key, group);
+    }
+    group.nodes.push(node);
+    group.used += (node.billedIn || 0) + (node.billedOut || 0);
+    addProblems(group.problems, node, problemsOf(node));
+  }
+
+  // Same order as the 可用落地 region groups, then by server name.
+  return [...groups.values()].sort(
+    (a, b) =>
+      compareRegions(a.region, b.region) ||
+      a.name.localeCompare(b.name, "zh-CN") ||
+      a.serverId - b.serverId,
+  );
+}
+
+export function NodeServerHeaderContent({
+  group,
+  collapsed,
+  used,
+  compact,
+}: {
+  group: NodeServerGroup;
+  collapsed: boolean;
+  used: string;
+  /** Phones / H5: meta + problem pills on a second line. */
+  compact: boolean;
+}) {
+  const flag = regionFlag(group.region);
+  const hasProblems = group.problems.size > 0;
+  const meta = (
+    <span className="whitespace-nowrap text-xs text-default-500">
+      {group.nodes.length} 个节点 · 已用 {used}
+    </span>
+  );
+
+  return (
+    <>
+      <div className="flex min-w-0 flex-1 items-center gap-2">
+        <TreeGroupChevron collapsed={collapsed} />
+        <div className="min-w-0 flex-1">
+          <div className="flex min-w-0 items-center gap-1.5">
+            {flag && (
+              <span
+                aria-hidden
+                className="shrink-0 text-base leading-none"
+                title={regionName(group.region)}
+              >
+                {flag}
+              </span>
+            )}
+            <span
+              className={`min-w-0 truncate text-sm ${collapsed ? "font-semibold" : "font-bold"} text-foreground`}
+              title={group.name}
+            >
+              {group.name}
+            </span>
+          </div>
+          {compact && (
+            <div className="mt-0.5 flex min-w-0 flex-wrap items-center gap-1">
+              {meta}
+              {hasProblems && <NodeProblemPills group={group} />}
+            </div>
+          )}
+        </div>
+      </div>
+      {!compact && (
+        <div
+          className="flex shrink-0 flex-wrap items-center justify-end gap-1.5"
+          data-server-summary=""
         >
           {hasProblems && <NodeProblemPills group={group} />}
           <span className="ml-1">{meta}</span>

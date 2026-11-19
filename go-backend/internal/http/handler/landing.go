@@ -547,8 +547,12 @@ func (h *Handler) landingServerList(w http.ResponseWriter, r *http.Request) {
 			landingError(w, err)
 			return
 		}
+		// Plan 286 round 2: users get the effective region only (for the
+		// 可用落地 region groups) — never regionAuto / regionOverride.
+		regions := h.landingServerRegionsFor(ss, landingRegionWait)
 		for _, s := range ss {
 			v := h.landingServerUserView(s, catalog, &counts)
+			v["region"] = regions[s.ID].Region
 			if scanBlock != nil {
 				v["scanCreateBlocked"] = landingegress.ScanCreateMessage(scanBlock.Reason())
 			}

@@ -129,8 +129,9 @@ func TestLandingUserServerViewContract(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			userForbidden := []string{"realityMode", "realityProbe", "realityPins", "realityProbeError", "realityProbeStats", "realityTrialRule", "connections", "billedBytes", "usedBytes", "maxConnections", "defaultMaxConnections", "defaultMaxOnlineIps", "defaultTrafficLimitBytes", "defaultUserQuotaBytes", "busyPortCount", "sharedSyncError", "sharedNotice", "sharedLastSyncAt", "sharedPushedRevision", "sharedAppliedRevision", "coreMemoryMb", "coreCpuPercent", "remoteServerId", "userGroupIds", "directUserCount", "chainNodeCount", "chainOnly", "egress", "routeProfileId", "egressState", "egressError", "region", "regionAuto", "regionOverride"}
-			userKept := []string{"id", "name", "source", "status", "online", "protocols", "protocolFilterFeatures", "flowType", "trafficRatio", "availableUntil", "egressLabel", "nodeCount", "myRemaining", "maxNodesPerUser", "vlessEncAvailable"}
+			userForbidden := []string{"realityMode", "realityProbe", "realityPins", "realityProbeError", "realityProbeStats", "realityTrialRule", "connections", "billedBytes", "usedBytes", "maxConnections", "defaultMaxConnections", "defaultMaxOnlineIps", "defaultTrafficLimitBytes", "defaultUserQuotaBytes", "busyPortCount", "sharedSyncError", "sharedNotice", "sharedLastSyncAt", "sharedPushedRevision", "sharedAppliedRevision", "coreMemoryMb", "coreCpuPercent", "remoteServerId", "userGroupIds", "directUserCount", "chainNodeCount", "chainOnly", "egress", "routeProfileId", "egressState", "egressError", "regionAuto", "regionOverride"}
+			// Plan 286 round 2: users get the effective region (可用落地 region groups).
+			userKept := []string{"id", "name", "source", "status", "online", "protocols", "protocolFilterFeatures", "flowType", "trafficRatio", "availableUntil", "egressLabel", "nodeCount", "myRemaining", "maxNodesPerUser", "vlessEncAvailable", "region"}
 			checkUser := func(v map[string]interface{}, nodeCount, remaining float64) {
 				t.Helper()
 				for _, k := range userForbidden {
