@@ -90,8 +90,8 @@ Checklist:
 - [x] Frontend: user 可用落地 region groups (离线 / 已停用 pills)
 - [x] Frontend: user 我的节点 server groups (desktop cards, phone ＋/− rows)
 - [x] Frontend: 利群汇聚 admin 专线 collapsed by default (desktop + H5)
-- [ ] `npm run build`, eslint, tsc
+- [x] `npm run build`, eslint (0 warnings), tsc
 - [ ] go vet + `GOMAXPROCS=2 go test -p 1 ./... -timeout 30m` (SQLite) + PG contract/repo/handler
-- [ ] Screenshots (第 2 轮 section in the gallery)
+- [x] Screenshots (第 2 轮 section at the top of the gallery, 20 shots, shots.cjs 47 checks 0 failures, lab runs/landing-admin-groups-r2/lab)
 - [ ] Push, release fork.N (panel only), prod backup + rollback check, swap, checks, Dmit T1 显示地区 = US
 - [ ] Ledger / memory / quic-block hand-off note, cleanup
