@@ -2539,3 +2539,74 @@ td.flvx-rule-tree-dim > * {
     padding-right: 6px;
   }
 }
+
+/* Plan 286: admin 落地 page groups.
+   落地服务器 region groups: a slim header row tinted in the region's colour
+   (the 隧道 page region tones, data-region-tone) with a short accent at the
+   left edge; the unchanged card grid sits below. The open header is solid
+   (page colour under the tint) and sticks like the rules-page group header,
+   so mid-scroll the region stays visible. */
+.flvx-landing-region {
+  --flvx-region-tint: 0.08;
+  scroll-margin-top: env(safe-area-inset-top, 0px);
+}
+
+.dark .flvx-landing-region {
+  --flvx-region-tint: 0.13;
+}
+
+.flvx-landing-region-head {
+  min-height: 42px;
+  border-radius: 10px;
+  background-color: var(--content1);
+  background-image: linear-gradient(
+    rgb(var(--flvx-region-rgb) / var(--flvx-region-tint)),
+    rgb(var(--flvx-region-rgb) / var(--flvx-region-tint))
+  );
+  box-shadow:
+    inset 3px 0 0 rgb(var(--flvx-region-rgb) / 0.75),
+    inset 0 0 0 1px rgb(var(--flvx-region-rgb) / 0.16);
+}
+
+.flvx-landing-region-head:hover {
+  --flvx-region-tint: 0.14;
+}
+
+.dark .flvx-landing-region-head:hover {
+  --flvx-region-tint: 0.19;
+}
+
+.flvx-landing-region-count {
+  color: var(--flvx-region-ink);
+}
+
+.flvx-landing-region-head-open {
+  position: sticky;
+  z-index: 20;
+  top: env(safe-area-inset-top, 0px);
+}
+
+@media (min-width: 769px) {
+  .flvx-luminous-main .flvx-landing-region-head-open {
+    top: -24px;
+  }
+}
+
+/* 全部节点 desktop table: the tree column only carries the status dot, so it
+   is narrower than the rules-page checkbox column (the line stays under the
+   group chevron; the dot sits right after the elbow). */
+.flvx-landing-user-group .flvx-landing-node-tree {
+  padding-left: calc(var(--flvx-tree-x) + 14px);
+  padding-right: 0;
+  vertical-align: middle;
+}
+
+/* A row a jump landed on (创建节点 / 查看节点): short amber highlight. */
+.flvx-rule-tree-row.flvx-landing-row-flash > td {
+  background-color: rgba(251, 191, 36, 0.22) !important;
+  transition: background-color 0.3s ease;
+}
+
+.dark .flvx-rule-tree-row.flvx-landing-row-flash > td {
+  background-color: rgba(251, 191, 36, 0.16) !important;
+}

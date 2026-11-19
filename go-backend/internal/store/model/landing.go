@@ -115,6 +115,10 @@ type LandingServer struct {
 	// domain, ≤ 7 days, JSON {v, stats, d: {domain: [[unix_s, ms], …]}}) for
 	// the 试用 stability rule, plus the last 测速's cost.
 	RealitySamples string `gorm:"type:text;not null;default:''" json:"-"`
+	// Plan 286 「显示地区」 of the admin 落地服务器 region groups ('' = automatic:
+	// native node region, else GeoIP of PublicHost). Display only; written
+	// only by /landing/server/region (never by /landing/server/save).
+	RegionOverride string `gorm:"column:region_override;type:varchar(8);not null;default:''" json:"-"`
 	CreatedTime    int64  `gorm:"not null" json:"createdTime"`
 	UpdatedTime    int64  `gorm:"not null" json:"updatedTime"`
 }

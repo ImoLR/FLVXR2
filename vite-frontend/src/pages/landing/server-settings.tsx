@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import toast from "react-hot-toast";
 
 import { SharedCaps } from "./shared-caps";
@@ -7,6 +7,7 @@ import { getUserGroupList } from "@/api";
 import {
   LandingServer,
   saveLandingServer,
+  updateLandingServerRegion,
   vlessEncUnavailableReason,
 } from "@/api/landing";
 import { EgressProfile, egressOverview } from "@/api/landing-egress";
@@ -23,6 +24,7 @@ import {
 } from "@/shadcn-bridge/heroui/modal";
 import { Select, SelectItem } from "@/shadcn-bridge/heroui/select";
 import { Switch } from "@/shadcn-bridge/heroui/switch";
+import { REGION_CODES, compareRegions, regionLabel } from "@/utils/region";
 import { ExtraProtocolSettings } from "@/pages/landing/extra-protocols";
 import { RealityServerSection } from "@/pages/landing/reality-domains";
 import {
@@ -49,6 +51,10 @@ export const dateInput = (value?: number | null) =>
     : "";
 export const dateValue = (value: string) =>
   value ? new Date(value).getTime() : null;
+
+// Plan 286 「显示地区」 options: 自动 + the node / tunnel region list.
+const REGION_AUTO = "auto";
+const REGION_OPTIONS = [...REGION_CODES].sort(compareRegions);
 
 export function ServerSettings({
   server,
@@ -120,6 +126,25 @@ export function ServerSettings({
       .querySelector(`[data-attention-section="${section}"]`)
       ?.scrollIntoView({ behavior: "smooth", block: "start" });
   const scan = !isShared ? server.scanGuard?.state : undefined;
+  // Plan 286: 「显示地区」 — display only, saved through /landing/server/region
+  // (one column, nothing pushed). A region-only change skips the full save.
+  const [regionOverride, setRegionOverride] = useState(
+    server.regionOverride || "",
+  );
+  const regionAutoText = `自动（${server.regionAuto ? regionLabel(server.regionAuto) : "未识别"}）`;
+  const signature = () =>
+    JSON.stringify([
+      form,
+      realityNamesInput,
+      restartConfirmed,
+      coreUpgradeConfirmed,
+      applyConnMode,
+      applyNodeTotal,
+      guardEnabled,
+    ]);
+  const baseline = useRef<string | null>(null);
+
+  if (baseline.current === null) baseline.current = signature();
   const set = <K extends keyof LandingServer>(
     key: K,
     value: LandingServer[K],
@@ -156,7 +181,31 @@ export function ServerSettings({
 
   // Plan 253: VLESS Encryption needs the native agent / share capability.
   const vlessEncReason = vlessEncUnavailableReason(server);
+  const saveRegion = async () => {
+    const res = await updateLandingServerRegion({
+      id: server.id,
+      regionOverride,
+    });
+
+    if (res.code !== 0) toast.error(res.msg || "保存显示地区失败");
+
+    return res.code === 0;
+  };
   const save = async () => {
+    const regionChanged = regionOverride !== (server.regionOverride || "");
+
+    if (regionChanged && signature() === baseline.current) {
+      setSaving(true);
+      const ok = await saveRegion();
+
+      setSaving(false);
+      if (!ok) return;
+      toast.success("显示地区已保存（只改显示，服务器未重新下发）");
+      onSaved();
+      onClose();
+
+      return;
+    }
     if (
       !form.name.trim() ||
       !form.publicHost.trim() ||
@@ -178,6 +227,11 @@ export function ServerSettings({
       return;
     }
     setSaving(true);
+    if (regionChanged && !(await saveRegion())) {
+      setSaving(false);
+
+      return;
+    }
     const response = await saveLandingServer(
       {
         ...form,
@@ -268,6 +322,35 @@ export function ServerSettings({
             >
               <SelectItem key="active">启用</SelectItem>
               <SelectItem key="disabled">停用</SelectItem>
+            </Select>
+            {/* Plan 286: 「显示地区」 — display only, default 自动. */}
+            <Select
+              isSearchable
+              description="落地服务器页按这个地区分组；只改显示，不影响服务器"
+              label="显示地区"
+              searchPlaceholder="搜索地区名称或代码"
+              selectedKeys={[regionOverride || REGION_AUTO]}
+              variant="bordered"
+              onSelectionChange={(keys) => {
+                const selected = Array.from(keys)[0];
+
+                if (selected === undefined) return;
+                setRegionOverride(
+                  String(selected) === REGION_AUTO ? "" : String(selected),
+                );
+              }}
+            >
+              <SelectItem key={REGION_AUTO} textValue={regionAutoText}>
+                {regionAutoText}
+              </SelectItem>
+              {REGION_OPTIONS.map((code) => (
+                <SelectItem
+                  key={code}
+                  textValue={`${regionLabel(code)} (${code})`}
+                >
+                  {regionLabel(code)} ({code})
+                </SelectItem>
+              ))}
             </Select>
           </section>
           <section className="space-y-3">

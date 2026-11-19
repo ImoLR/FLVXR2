@@ -24,6 +24,7 @@ func (h *Handler) registerLanding(mux *http.ServeMux) {
 	h.registerSubLink(mux)
 	h.registerLandingScan(mux)
 	h.registerLandingReality(mux)
+	h.registerLandingRegion(mux)
 	for path, fn := range map[string]http.HandlerFunc{"integration/get": h.landingIntegrationGet, "integration/save": h.landingIntegrationSave, "integration/test": h.landingIntegrationTest, "integration/sync": h.landingIntegrationSync, "server/enable": h.landingServerEnable, "server/list": h.landingServerList, "server/save": h.landingServerSave, "node/list": h.landingNodeList, "node/create": h.limitMutation(mutationLanding, h.landingNodeCreate), "node/update": h.limitMutation(mutationLanding, h.landingNodeUpdate), "node/delete": h.limitMutation(mutationLanding, h.landingNodeDelete), "node/links": h.landingNodeLinks, "user/get": h.landingUserGet, "user/save": h.landingUserSave, "settings/get": h.landingSettingsGet, "settings/save": h.landingSettingsSave, "node/transfer": h.limitMutation(mutationLanding, h.landingNodeTransfer), "monitor": h.landingMonitor, "monitor/ips": h.landingMonitorIPs, "node/rules/get": h.landingNodeRulesGet, "node/rules/save": h.limitMutation(mutationLanding, h.landingNodeRulesSave), "preset/list": h.landingPresetList} {
 		mux.HandleFunc("/api/v1/landing/"+path, func(w http.ResponseWriter, r *http.Request) {
 			if r.Method != http.MethodPost {
@@ -128,7 +129,10 @@ func (h *Handler) landingServerView(s model.LandingServer, catalogs ...landingEg
 		catalog = h.landingEgressCatalog()
 	}
 	all, _ := h.repo.ListLandingNodes(0, true)
-	return h.landingServerAdminView(s, catalog, landingServerStatsByID(all, map[int64]*model.LandingServer{s.ID: &s})[s.ID])
+	v := h.landingServerAdminView(s, catalog, landingServerStatsByID(all, map[int64]*model.LandingServer{s.ID: &s})[s.ID])
+	// Plan 286: cached region only (a changed public host starts its lookup).
+	h.landingServerRegionsFor([]model.LandingServer{s}, 0)[s.ID].apply(v)
+	return v
 }
 
 func (h *Handler) landingServerAdminView(s model.LandingServer, catalog landingEgressCatalog, st *landingServerStats) map[string]interface{} {
@@ -522,8 +526,13 @@ func (h *Handler) landingServerList(w http.ResponseWriter, r *http.Request) {
 			byID[ss[i].ID] = &ss[i]
 		}
 		stats := landingServerStatsByID(all, byID)
+		// Plan 286: region groups — one node query, DNS never holds the list
+		// longer than landingRegionWait (only for never-resolved hosts).
+		regions := h.landingServerRegionsFor(ss, landingRegionWait)
 		for _, s := range ss {
-			out = append(out, h.landingServerAdminView(s, catalog, stats[s.ID]))
+			v := h.landingServerAdminView(s, catalog, stats[s.ID])
+			regions[s.ID].apply(v)
+			out = append(out, v)
 		}
 	} else {
 		counts, err := h.repo.LandingUserNodeCounts(uid)
@@ -731,6 +740,9 @@ func (h *Handler) landingNodeList(w http.ResponseWriter, r *http.Request) {
 		view["serverAvailable"] = data.Allowed[n.ID] && s != nil && !s.ChainOnly && s.Status == "active" && (s.AvailableUntil == nil || *s.AvailableUntil > time.Now().UnixMilli()) && repo.SharedLandingAvailable(s)
 		if role != 0 {
 			hideLandingNodeEgressInternals(view)
+		} else if u := data.Users[n.UserID]; u != nil && u.RoleID == 0 {
+			// Plan 286: 全部节点 user groups put admin-owned nodes first.
+			view["userAdmin"] = true
 		}
 		out = append(out, view)
 	}

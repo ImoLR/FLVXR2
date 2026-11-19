@@ -33,6 +33,11 @@ type Handler struct {
 	// Plan 147: per-node gate for agent public-IP reports.
 	publicIPGateOnce sync.Once
 	publicIPGate     *repo.PublicIPReportGate
+
+	// Plan 286: GeoIP region of 落地服务器 public hosts (admin region groups).
+	landingRegionOnce sync.Once
+	landingRegionC    *landingRegionCache
+
 	auth             authGuard
 	leikwanPipeLocks [64]sync.Mutex
 	leikwan          *leikwan.Client
