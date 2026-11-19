@@ -315,6 +315,8 @@ func (r *Repository) SaveLandingServerOpts(s *model.LandingServer, groups []int6
 		s.RealityProbe, s.RealityProbedAt, s.RealityProbeError = old.RealityProbe, old.RealityProbedAt, old.RealityProbeError
 		s.RealityPins, s.RealityPinsAt = old.RealityPins, old.RealityPinsAt
 		s.RealitySamples = old.RealitySamples // plan 229 history
+		// Plan 286: 「显示地区」 has its own path (SetLandingServerRegionOverride).
+		s.RegionOverride = old.RegionOverride
 		if s.RealityMode == "" {
 			s.RealityMode = old.RealityMode
 		}

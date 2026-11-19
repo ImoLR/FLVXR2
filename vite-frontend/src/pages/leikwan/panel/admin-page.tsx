@@ -580,9 +580,8 @@ export function LeiKwanAdminView() {
   const [users, setUsers] = useState<{ id: number; name: string }[]>([]);
   const [loading, setLoading] = useState(false);
   const [loaded, setLoaded] = useState(false);
-  const [openLine, setOpenLine] = useState<number | null | undefined>(
-    undefined,
-  );
+  // Plan 286 r2: every 专线 starts collapsed (no first-line auto-open).
+  const [openLine, setOpenLine] = useState<number | null>(null);
   const [lineOpen, setLineOpen] = useState(false);
   const [editLine, setEditLine] = useState<LeiKwanLine | null>(null);
   const [grantOpen, setGrantOpen] = useState(false);
@@ -685,8 +684,7 @@ export function LeiKwanAdminView() {
 
     return out;
   }, [data, rules]);
-  const currentOpen =
-    openLine === undefined ? (groups[0]?.id ?? null) : openLine;
+  const currentOpen = openLine;
   const toggleLine = (id: number) =>
     setOpenLine(currentOpen === id ? null : id);
 
@@ -1217,11 +1215,9 @@ function AdminPhone({
   usage: LeiKwanUsageView | null;
 }) {
   const [usageOpen, setUsageOpen] = useState(false);
-  const [openLine, setOpenLine] = useState<number | null | undefined>(
-    undefined,
-  );
-  const currentLine =
-    openLine === undefined ? (groups[0]?.id ?? null) : openLine;
+  // Plan 286 r2: every 专线 starts collapsed (no first-line auto-open).
+  const [openLine, setOpenLine] = useState<number | null>(null);
+  const currentLine = openLine;
   const ruleExpand = useExpandOne(
     groups.flatMap((g) => g.rules.map((r) => r.id)),
   );

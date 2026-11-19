@@ -269,6 +269,14 @@ export interface LandingServer {
   inboundKnown?: boolean;
   nodeTotalSupported?: boolean;
   shareMaxConnections?: number;
+  /**
+   * plan 286 (admin): region group of the 落地服务器 tab — region = effective
+   * (override, else regionAuto), regionAuto = native node region or GeoIP of
+   * publicHost ('' = unknown), regionOverride = 「显示地区」 ('' = 自动).
+   */
+  region?: string;
+  regionAuto?: string;
+  regionOverride?: string;
 }
 /** plan 141: 仅入站 (client connections, like rule 连接数) / 入站+出站 */
 export type LandingConnMode = "total" | "inbound";
@@ -310,6 +318,8 @@ export interface LandingNode {
   id: number;
   userId: number;
   userName?: string;
+  /** plan 286 (admin view): the owner is an admin account. */
+  userAdmin?: boolean;
   landingServerId: number;
   serverName?: string;
   syncError?: string;
@@ -475,6 +485,18 @@ export const landingServers = (userId?: number) =>
     "/landing/server/list",
     userId ? { userId } : {},
   );
+// Plan 286 「显示地区」 of a 落地服务器 ('' = 自动): one column, nothing is
+// pushed to the server (unlike /landing/server/save).
+export const updateLandingServerRegion = (data: {
+  id: number;
+  regionOverride: string;
+}) =>
+  Network.post<{
+    id: number;
+    region: string;
+    regionAuto: string;
+    regionOverride: string;
+  }>("/landing/server/region", data);
 export const enableLandingServer = (nodeId: number) =>
   Network.post<LandingServer>("/landing/server/enable", { nodeId });
 export const saveLandingServer = (

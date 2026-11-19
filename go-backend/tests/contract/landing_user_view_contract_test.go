@@ -30,7 +30,9 @@ import (
 // for the help text), admin only.
 var landingAdminServerKeysNative = []string{"anytlsServerName", "availableUntil", "billedBytes", "chainNodeCount", "chainOnly", "connModeFixed", "connModeSupported", "connMode", "connections", "connectionsMode", "coreCpuPercent", "coreMemoryMb", "createdTime", "defaultExpiresAt", "defaultExpiryDays", "defaultExpiryMode", "defaultMaxConnections", "defaultMaxTotalConnections", "defaultMaxOnlineIps", "defaultTrafficLimitBytes", "defaultUserQuotaBytes", "directUserCount", "egress", "egressCheckedAt", "egressError", "egressLabel", "egressReady", "egressRestartOk", "egressState", "flowType", "id", "inboundConnections", "inboundKnown", "landingSupported", "machineCapOwner", "machineMaxTotal", "maxConnMode", "maxConnModeLegacy", "maxConnections", "maxConnectionsMode", "maxNodesPerUser", "mieruTransport", "name", "nodeCount", "nodeId", "nodeTotalSupported", "online", "portMax", "portMin", "protocolFilterFeatures", "protocols", "publicHost", "realityDest", "realityMode", "realityPinSupported", "realityPins", "realityPinsAt", "realityProbe", "realityProbeError", "realityProbeStats", "realityProbeSupported", "realityProbeUnsupportedReason", "realityProbedAt", "realityServerNames", "realityTrialRule", "remoteServerId", "revision", "routeProfileId", "scanGuard", "sharedAppliedRevision", "sharedLastSyncAt", "sharedPushedRevision", "sharedSyncError", "snellObfs", "snellObfsHost", "snellVersion", "source", "status", "totalConnections", "trafficRatio", "updatedTime", "usedBytes", "userGroupIds",
 	// Plan 253: VLESS Encryption availability (reason only while unavailable).
-	"vlessEncAvailable", "vlessEncReason"}
+	"vlessEncAvailable", "vlessEncReason",
+	// Plan 286: 落地服务器 region groups (effective / automatic / 显示地区), admin only.
+	"region", "regionAuto", "regionOverride"}
 
 // Plan 211: shared servers also carry the 妙妙屋 share cap (read-only).
 var landingAdminServerKeysShared = append([]string{"busyPortCount", "shareMaxConnections", "sharedAvailable", "sharedCaps", "sharedNotice"}, landingAdminServerKeysNative...)
@@ -127,8 +129,9 @@ func TestLandingUserServerViewContract(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			userForbidden := []string{"realityMode", "realityProbe", "realityPins", "realityProbeError", "realityProbeStats", "realityTrialRule", "connections", "billedBytes", "usedBytes", "maxConnections", "defaultMaxConnections", "defaultMaxOnlineIps", "defaultTrafficLimitBytes", "defaultUserQuotaBytes", "busyPortCount", "sharedSyncError", "sharedNotice", "sharedLastSyncAt", "sharedPushedRevision", "sharedAppliedRevision", "coreMemoryMb", "coreCpuPercent", "remoteServerId", "userGroupIds", "directUserCount", "chainNodeCount", "chainOnly", "egress", "routeProfileId", "egressState", "egressError"}
-			userKept := []string{"id", "name", "source", "status", "online", "protocols", "protocolFilterFeatures", "flowType", "trafficRatio", "availableUntil", "egressLabel", "nodeCount", "myRemaining", "maxNodesPerUser", "vlessEncAvailable"}
+			userForbidden := []string{"realityMode", "realityProbe", "realityPins", "realityProbeError", "realityProbeStats", "realityTrialRule", "connections", "billedBytes", "usedBytes", "maxConnections", "defaultMaxConnections", "defaultMaxOnlineIps", "defaultTrafficLimitBytes", "defaultUserQuotaBytes", "busyPortCount", "sharedSyncError", "sharedNotice", "sharedLastSyncAt", "sharedPushedRevision", "sharedAppliedRevision", "coreMemoryMb", "coreCpuPercent", "remoteServerId", "userGroupIds", "directUserCount", "chainNodeCount", "chainOnly", "egress", "routeProfileId", "egressState", "egressError", "regionAuto", "regionOverride"}
+			// Plan 286 round 2: users get the effective region (可用落地 region groups).
+			userKept := []string{"id", "name", "source", "status", "online", "protocols", "protocolFilterFeatures", "flowType", "trafficRatio", "availableUntil", "egressLabel", "nodeCount", "myRemaining", "maxNodesPerUser", "vlessEncAvailable", "region"}
 			checkUser := func(v map[string]interface{}, nodeCount, remaining float64) {
 				t.Helper()
 				for _, k := range userForbidden {
