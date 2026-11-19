@@ -24,19 +24,16 @@ import {
 // and every group starts collapsed. Grouping is client-side over the lists the
 // page already loaded.
 
-const expandedList = (value: unknown): string[] =>
-  Array.isArray(value)
-    ? value.filter((item): item is string => typeof item === "string")
-    : [];
-
 /**
- * Open / closed state of a set of groups. Round 2: only the EXPANDED keys are
- * stored (per browser, localStorage), so every group — also a new one — starts
- * collapsed. `legacyKeys` (round-1 open/closed maps, never released) are
+ * Open / closed state of one group list. Plan 287: an accordion like the
+ * 转发 / 隧道 pages — at most ONE group open per list; opening another one
+ * collapses it. The open key is remembered per browser and account
+ * (localStorage), so a page opened with nothing remembered starts with every
+ * group collapsed (plan 286 rule). `legacyKeys` (older open-set keys) are
  * removed once.
  */
 export function useGroupOpenState(storageKey: string, legacyKeys: string[]) {
-  const [stored, setStored] = useLocalStorageState<string[]>(storageKey, []);
+  const [stored, setStored] = useLocalStorageState<string>(storageKey, "");
   const legacy = legacyKeys.join("\n");
 
   useEffect(() => {
@@ -45,26 +42,16 @@ export function useGroupOpenState(storageKey: string, legacyKeys: string[]) {
       legacy.split("\n").forEach((key) => localStorage.removeItem(key));
     } catch {}
   }, [legacy]);
-  const expanded = new Set(expandedList(stored));
-  const isOpen = (key: string) => expanded.has(key);
+  const openKey = typeof stored === "string" ? stored : "";
+  const isOpen = (key: string) => key !== "" && key === openKey;
   const toggle = (key: string) =>
-    setStored((prev) => {
-      const list = expandedList(prev);
-
-      return list.includes(key)
-        ? list.filter((item) => item !== key)
-        : [...list, key];
-    });
-  // Jumps (⚠ 查看, 创建节点 …) open their target group.
+    setStored((prev) => (prev === key ? "" : key));
+  // Jumps (⚠ 查看, 创建节点 …) open their target group (the first key), the
+  // others collapse.
   const open = useCallback(
-    (keys: string[]) =>
-      setStored((prev) => {
-        const list = expandedList(prev);
-
-        if (keys.every((key) => list.includes(key))) return prev;
-
-        return [...list, ...keys.filter((key) => !list.includes(key))];
-      }),
+    (keys: string[]) => {
+      if (keys[0]) setStored(keys[0]);
+    },
     [setStored],
   );
 
@@ -210,7 +197,11 @@ export function ServerRegionHeader({
   );
 }
 
-/** The region group box: header + (when open) the unchanged card grid. */
+/**
+ * The region group box: header + (when open) the unchanged card grid.
+ * Plan 287: the cards hang off a line from the region chevron (in the region
+ * colour, like the 隧道 page region level) — `cardTree` wraps them.
+ */
 export function ServerRegionSection({
   group,
   open,
@@ -225,6 +216,7 @@ export function ServerRegionSection({
   return (
     <section
       className="flvx-landing-region"
+      data-group-key={group.key}
       data-landing-region-group={group.key}
       data-region-tone={regionTone(group.region)}
     >
@@ -526,5 +518,37 @@ export function NodeServerHeaderContent({
         </div>
       )}
     </>
+  );
+}
+
+// ------------------------------------------------------ card tree (plan 287)
+
+/**
+ * A card grid hanging off the open group header's line (CSS in globals.css,
+ * `flvx-landing-tree-*`): a trunk left of the grid and an elbow into the first
+ * card of every grid row; the grid and the cards themselves are unchanged.
+ * `cols` names the grid's column rule the elbows follow: "auto" = the
+ * `flvx-card-grid` auto-fill tracks (container query on the wrapper), "md2" =
+ * one column, two from the md breakpoint.
+ */
+export function LandingCardTree({
+  cols,
+  gridClassName,
+  items,
+}: {
+  cols: "auto" | "md2";
+  gridClassName: string;
+  items: { key: string | number; node: ReactNode }[];
+}) {
+  return (
+    <div className={`flvx-landing-tree-wrap flvx-landing-tree-${cols}`}>
+      <div className={`flvx-landing-tree-grid ${gridClassName}`}>
+        {items.map((item) => (
+          <div key={item.key} className="flvx-landing-tree-leaf">
+            {item.node}
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }

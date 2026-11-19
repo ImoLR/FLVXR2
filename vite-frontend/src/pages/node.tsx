@@ -151,6 +151,15 @@ import {
 import { useNodeOfflineTimers } from "@/pages/node/use-node-offline-timers";
 import { useNodeRealtime } from "@/pages/node/use-node-realtime";
 import { useLocalStorageState } from "@/hooks/use-local-storage-state";
+import { useGroupScrollSettle } from "@/hooks/use-group-scroll-settle";
+import {
+  TreeGroupChevron,
+  TreeGroupFooter,
+  TreeGroupHeader,
+  treeGroupHeaderClass,
+  treeGroupWrapperClass,
+} from "@/components/tree-group";
+import { JwtUtil } from "@/utils/jwt";
 import { usePullToRefresh } from "@/hooks/usePullToRefresh";
 import { loadStoredOrder, saveOrder } from "@/utils/order-storage";
 // TypeScript 全局类型扩展
@@ -624,9 +633,26 @@ export default function NodePage() {
     "node-view-mode",
     "grid",
   );
-  const [collapsedGroups, setCollapsedGroups] = useLocalStorageState<
-    Record<string, boolean>
-  >("node-group-collapsed-state", {});
+  // Plan 287: the 分组 view is an accordion like 转发 / 隧道 / 落地 — one group
+  // open, remembered per account; every group starts collapsed. The old
+  // per-group collapse map (default: all open) is dropped once.
+  const [openNodeGroup, setOpenNodeGroup] = useLocalStorageState<string>(
+    `flvx:node:group-open:v1:u:${JwtUtil.getUserIdFromToken() ?? 0}`,
+    "",
+  );
+
+  useEffect(() => {
+    try {
+      localStorage.removeItem("node-group-collapsed-state");
+    } catch {}
+  }, []);
+  const queueGroupScroll = useGroupScrollSettle();
+  const toggleNodeGroup = (groupIdStr: string) => {
+    const open = openNodeGroup !== groupIdStr;
+
+    queueGroupScroll(`node-group:${groupIdStr}`, open);
+    setOpenNodeGroup(open ? groupIdStr : "");
+  };
   const [infoPopoverOpenId, setInfoPopoverOpenId] = useState<number | null>(
     null,
   );
@@ -3155,7 +3181,9 @@ export default function NodePage() {
                 </CardBody>
               </Card>
             ) : (
-              <div className="overflow-hidden rounded-xl border border-divider bg-content1 shadow-md">
+              // Plan 287: clip, not hidden — hidden would stop the open
+              // group header from sticking.
+              <div className="overflow-hidden supports-[overflow:clip]:overflow-clip rounded-xl border border-divider bg-content1 shadow-md">
                 <div className="flex items-center justify-between border-b border-divider bg-default-100/40 px-4 py-3">
                   <span className="text-sm font-semibold text-foreground">
                     节点数量
@@ -3169,42 +3197,22 @@ export default function NodePage() {
                     {groupedNodes.map(({ group, nodes }) => {
                       const groupSortableIds = nodes.map((n) => n.id);
                       const groupIdStr = String(group ? group.id : "none");
-                      const isCollapsed = collapsedGroups[groupIdStr];
+                      const isCollapsed = openNodeGroup !== groupIdStr;
+                      const toggle = () => toggleNodeGroup(groupIdStr);
 
                       return (
                         <div
                           key={groupIdStr}
-                          className="overflow-hidden rounded-xl border border-divider/60 bg-content1/80 backdrop-blur shadow-sm hover:shadow-md transition-shadow duration-200"
+                          className={treeGroupWrapperClass(isCollapsed)}
+                          data-group-key={`node-group:${groupIdStr}`}
                         >
-                          <div
-                            className="flex items-center justify-between border-b border-divider bg-default-100/50 hover:bg-default-200/30 px-4 py-2.5 cursor-pointer select-none transition-colors"
-                            onClick={() => {
-                              setCollapsedGroups((prev) => ({
-                                ...prev,
-                                [groupIdStr]: !prev[groupIdStr],
-                              }));
-                            }}
+                          <TreeGroupHeader
+                            className={treeGroupHeaderClass(isCollapsed)}
+                            collapsed={isCollapsed}
+                            onToggle={toggle}
                           >
                             <div className="flex items-center gap-2 min-w-0">
-                              <Button
-                                isIconOnly
-                                className="h-7 w-7 min-w-7 pointer-events-none -ml-1"
-                                size="sm"
-                                variant="flat"
-                              >
-                                <svg
-                                  aria-hidden="true"
-                                  className={`h-4 w-4 transition-transform ${isCollapsed ? "-rotate-90" : "rotate-0"}`}
-                                  fill="none"
-                                  stroke="currentColor"
-                                  strokeLinecap="round"
-                                  strokeLinejoin="round"
-                                  strokeWidth="2"
-                                  viewBox="0 0 24 24"
-                                >
-                                  <path d="m6 9 6 6 6-6" />
-                                </svg>
-                              </Button>
+                              <TreeGroupChevron collapsed={isCollapsed} />
                               {group ? (
                                 <div className="flex items-center gap-2">
                                   <div
@@ -3229,7 +3237,7 @@ export default function NodePage() {
                                 {nodes.length} 个节点
                               </span>
                             </div>
-                          </div>
+                          </TreeGroupHeader>
                           {!isCollapsed && (
                             <div className="">
                               <DndContext
@@ -3243,6 +3251,7 @@ export default function NodePage() {
                                 >
                                   <div className="overflow-x-auto">
                                     <NodeListView
+                                      treeLine
                                       copyToClipboard={copyToClipboard}
                                       displayNodes={nodes}
                                       filterGroupId={filterGroupId}
@@ -3311,6 +3320,12 @@ export default function NodePage() {
                                 </SortableContext>
                               </DndContext>
                             </div>
+                          )}
+                          {!isCollapsed && (
+                            <TreeGroupFooter
+                              name={group ? group.name : "未分组"}
+                              onToggle={toggle}
+                            />
                           )}
                         </div>
                       );

@@ -14,6 +14,7 @@ import {
   treeGroupHeaderClass,
   treeGroupWrapperClass,
 } from "@/components/tree-group";
+import { useGroupScrollSettle } from "@/hooks/use-group-scroll-settle";
 import { landingToneClass } from "@/pages/landing/pill";
 import { Button } from "@/shadcn-bridge/heroui/button";
 import { Input } from "@/shadcn-bridge/heroui/input";
@@ -113,6 +114,8 @@ function PlusMinus({ open }: { open: boolean }) {
   );
 }
 
+const subUserGroupKey = (id: number) => `sub-user:${id}`;
+
 /** Desktop: one user = one group of the rules-page accordion. */
 function UserGroup({
   u,
@@ -126,7 +129,11 @@ function UserGroup({
   onView: (s: SubAdminSub) => void;
 }) {
   return (
-    <div className={treeGroupWrapperClass(!open)} data-admin-user={u.id}>
+    <div
+      className={treeGroupWrapperClass(!open)}
+      data-admin-user={u.id}
+      data-group-key={subUserGroupKey(u.id)}
+    >
       <TreeGroupHeader
         className={treeGroupHeaderClass(!open)}
         collapsed={!open}
@@ -301,6 +308,14 @@ export default function SubAdminView({ isH5 }: { isH5: boolean }) {
   const [q, setQ] = useState("");
   const [openId, setOpenId] = useState<number | null>(null);
   const [viewing, setViewing] = useState<SubAdminTarget | null>(null);
+  // Plan 287: the 转发 / 隧道 page position correction on a header tap — the
+  // tapped header stays where it was while the open user above collapses,
+  // then an opened one glides to the top (utils/group-accordion).
+  const queueGroupScroll = useGroupScrollSettle();
+  const toggleUser = (id: number) => {
+    queueGroupScroll(subUserGroupKey(id), openId !== id);
+    setOpenId((cur) => (cur === id ? null : id));
+  };
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -430,9 +445,7 @@ export default function SubAdminView({ isH5 }: { isH5: boolean }) {
                   key={u.id}
                   open={openId === u.id}
                   u={u}
-                  onToggle={() =>
-                    setOpenId((cur) => (cur === u.id ? null : u.id))
-                  }
+                  onToggle={() => toggleUser(u.id)}
                   onView={view(u)}
                 />
               ))}

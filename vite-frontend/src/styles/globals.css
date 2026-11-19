@@ -2610,3 +2610,263 @@ td.flvx-rule-tree-dim > * {
 .dark .flvx-rule-tree-row.flvx-landing-row-flash > td {
   background-color: rgba(251, 191, 36, 0.16) !important;
 }
+
+/* Plan 287: 落地 page card trees (like the 隧道 page card tree, plan 178).
+   The open group header's line runs down the left of the card grid with an
+   elbow into the first card of every grid row; the first card of the last row
+   ends it with the rounded corner. The grid and cards are unchanged (only
+   indented). Region groups (落地服务器 / 可用落地) draw it in the region colour
+   from the region chevron (the 隧道 page region level); the teal groups
+   (用户 我的节点 desktop cards) in the rules-page teal from the header chevron.
+   --flvx-tree-top = how far a leaf's line reaches up to the one above it (the
+   grid gap; the first card: the wrapper's top padding). Pure CSS. */
+.flvx-landing-region {
+  --flvx-tree-line: rgb(var(--flvx-region-rgb) / 0.45);
+  --flvx-tree-x: 26px;
+  --flvx-tree-elbow: 15px;
+}
+
+@media (max-width: 767.98px) {
+  .flvx-landing-region {
+    --flvx-tree-x: 22px;
+    --flvx-tree-elbow: 9px;
+  }
+}
+
+.flvx-landing-region-head-open::after {
+  content: "";
+  position: absolute;
+  left: calc(var(--flvx-tree-x) - 1px);
+  top: calc(50% + 14px);
+  bottom: -1px;
+  width: 2px;
+  background: var(--flvx-tree-line);
+  pointer-events: none;
+}
+
+.flvx-landing-tree-wrap {
+  --flvx-tree-gap: 16px;
+  --flvx-tree-pad: 12px;
+  --flvx-tree-leaf-y: 30px;
+  padding: var(--flvx-tree-pad) 0 0
+    calc(var(--flvx-tree-x) + var(--flvx-tree-elbow) - 1px);
+}
+
+/* Region grids: the column count follows the wrapper width (same tracks as
+   .flvx-card-grid: 342–370px, auto-fill, 16px gap). */
+.flvx-landing-tree-auto {
+  container-type: inline-size;
+}
+
+/* 我的节点 desktop cards inside the teal group box (rules-page line). */
+.flvx-landing-tree-md2 {
+  --flvx-tree-elbow: 11px;
+  --flvx-tree-leaf-y: 27px;
+  padding-right: 12px;
+  padding-bottom: 12px;
+}
+
+.flvx-landing-tree-leaf {
+  --flvx-tree-top: var(--flvx-tree-gap);
+  position: relative;
+  min-width: 0;
+}
+
+.flvx-landing-tree-leaf:first-child {
+  --flvx-tree-top: var(--flvx-tree-pad);
+}
+
+.flvx-landing-tree-leaf::before {
+  content: "";
+  position: absolute;
+  left: calc(-1 * var(--flvx-tree-elbow));
+  top: calc(-1 * var(--flvx-tree-top));
+  bottom: 0;
+  width: 2px;
+  background: var(--flvx-tree-line);
+  pointer-events: none;
+}
+
+.flvx-landing-tree-leaf::after {
+  content: "";
+  position: absolute;
+  left: calc(-1 * var(--flvx-tree-elbow));
+  top: var(--flvx-tree-leaf-y);
+  width: var(--flvx-tree-elbow);
+  height: 2px;
+  background: var(--flvx-tree-line);
+  pointer-events: none;
+}
+
+.flvx-landing-tree-leaf:last-child::before {
+  bottom: auto;
+  height: calc(var(--flvx-tree-top) + var(--flvx-tree-leaf-y) + 2px);
+  width: var(--flvx-tree-elbow);
+  background: none;
+  border-left: 2px solid var(--flvx-tree-line);
+  border-bottom: 2px solid var(--flvx-tree-line);
+  border-bottom-left-radius: 7px;
+}
+
+.flvx-landing-tree-leaf:last-child::after {
+  display: none;
+}
+
+@container (min-width: 756px) and (max-width: 1141.98px) {
+  .flvx-landing-tree-auto .flvx-landing-tree-leaf:not(:nth-child(2n + 1))::before,
+  .flvx-landing-tree-auto .flvx-landing-tree-leaf:not(:nth-child(2n + 1))::after,
+  .flvx-landing-tree-auto .flvx-landing-tree-leaf:nth-child(2n + 1):nth-last-child(-n + 2)::after {
+    display: none;
+  }
+
+  .flvx-landing-tree-auto .flvx-landing-tree-leaf:nth-child(2n + 1):nth-last-child(-n + 2)::before {
+    bottom: auto;
+    height: calc(var(--flvx-tree-top) + var(--flvx-tree-leaf-y) + 2px);
+    width: var(--flvx-tree-elbow);
+    background: none;
+    border-left: 2px solid var(--flvx-tree-line);
+    border-bottom: 2px solid var(--flvx-tree-line);
+    border-bottom-left-radius: 7px;
+  }
+}
+
+@container (min-width: 1142px) and (max-width: 1527.98px) {
+  .flvx-landing-tree-auto .flvx-landing-tree-leaf:not(:nth-child(3n + 1))::before,
+  .flvx-landing-tree-auto .flvx-landing-tree-leaf:not(:nth-child(3n + 1))::after,
+  .flvx-landing-tree-auto .flvx-landing-tree-leaf:nth-child(3n + 1):nth-last-child(-n + 3)::after {
+    display: none;
+  }
+
+  .flvx-landing-tree-auto .flvx-landing-tree-leaf:nth-child(3n + 1):nth-last-child(-n + 3)::before {
+    bottom: auto;
+    height: calc(var(--flvx-tree-top) + var(--flvx-tree-leaf-y) + 2px);
+    width: var(--flvx-tree-elbow);
+    background: none;
+    border-left: 2px solid var(--flvx-tree-line);
+    border-bottom: 2px solid var(--flvx-tree-line);
+    border-bottom-left-radius: 7px;
+  }
+}
+
+@container (min-width: 1528px) and (max-width: 1913.98px) {
+  .flvx-landing-tree-auto .flvx-landing-tree-leaf:not(:nth-child(4n + 1))::before,
+  .flvx-landing-tree-auto .flvx-landing-tree-leaf:not(:nth-child(4n + 1))::after,
+  .flvx-landing-tree-auto .flvx-landing-tree-leaf:nth-child(4n + 1):nth-last-child(-n + 4)::after {
+    display: none;
+  }
+
+  .flvx-landing-tree-auto .flvx-landing-tree-leaf:nth-child(4n + 1):nth-last-child(-n + 4)::before {
+    bottom: auto;
+    height: calc(var(--flvx-tree-top) + var(--flvx-tree-leaf-y) + 2px);
+    width: var(--flvx-tree-elbow);
+    background: none;
+    border-left: 2px solid var(--flvx-tree-line);
+    border-bottom: 2px solid var(--flvx-tree-line);
+    border-bottom-left-radius: 7px;
+  }
+}
+
+@container (min-width: 1914px) and (max-width: 2299.98px) {
+  .flvx-landing-tree-auto .flvx-landing-tree-leaf:not(:nth-child(5n + 1))::before,
+  .flvx-landing-tree-auto .flvx-landing-tree-leaf:not(:nth-child(5n + 1))::after,
+  .flvx-landing-tree-auto .flvx-landing-tree-leaf:nth-child(5n + 1):nth-last-child(-n + 5)::after {
+    display: none;
+  }
+
+  .flvx-landing-tree-auto .flvx-landing-tree-leaf:nth-child(5n + 1):nth-last-child(-n + 5)::before {
+    bottom: auto;
+    height: calc(var(--flvx-tree-top) + var(--flvx-tree-leaf-y) + 2px);
+    width: var(--flvx-tree-elbow);
+    background: none;
+    border-left: 2px solid var(--flvx-tree-line);
+    border-bottom: 2px solid var(--flvx-tree-line);
+    border-bottom-left-radius: 7px;
+  }
+}
+
+@container (min-width: 2300px) {
+  /* Wider screens keep 6 columns, so the elbows always match the grid. */
+  .flvx-landing-tree-auto .flvx-landing-tree-grid {
+    grid-template-columns: repeat(6, minmax(342px, 370px));
+  }
+
+  .flvx-landing-tree-auto .flvx-landing-tree-leaf:not(:nth-child(6n + 1))::before,
+  .flvx-landing-tree-auto .flvx-landing-tree-leaf:not(:nth-child(6n + 1))::after,
+  .flvx-landing-tree-auto .flvx-landing-tree-leaf:nth-child(6n + 1):nth-last-child(-n + 6)::after {
+    display: none;
+  }
+
+  .flvx-landing-tree-auto .flvx-landing-tree-leaf:nth-child(6n + 1):nth-last-child(-n + 6)::before {
+    bottom: auto;
+    height: calc(var(--flvx-tree-top) + var(--flvx-tree-leaf-y) + 2px);
+    width: var(--flvx-tree-elbow);
+    background: none;
+    border-left: 2px solid var(--flvx-tree-line);
+    border-bottom: 2px solid var(--flvx-tree-line);
+    border-bottom-left-radius: 7px;
+  }
+}
+
+@media (min-width: 768px) {
+  .flvx-landing-tree-md2 .flvx-landing-tree-leaf:not(:nth-child(2n + 1))::before,
+  .flvx-landing-tree-md2 .flvx-landing-tree-leaf:not(:nth-child(2n + 1))::after,
+  .flvx-landing-tree-md2 .flvx-landing-tree-leaf:nth-child(2n + 1):nth-last-child(-n + 2)::after {
+    display: none;
+  }
+
+  .flvx-landing-tree-md2 .flvx-landing-tree-leaf:nth-child(2n + 1):nth-last-child(-n + 2)::before {
+    bottom: auto;
+    height: calc(var(--flvx-tree-top) + var(--flvx-tree-leaf-y) + 2px);
+    width: var(--flvx-tree-elbow);
+    background: none;
+    border-left: 2px solid var(--flvx-tree-line);
+    border-bottom: 2px solid var(--flvx-tree-line);
+    border-bottom-left-radius: 7px;
+  }
+}
+
+/* Plan 287: other group lists using the position correction keep the phone
+   safe area above a header that glides to the top (utils/group-accordion
+   reads scroll-margin-top). */
+.flvx-group-anchor {
+  scroll-margin-top: env(safe-area-inset-top, 0px);
+}
+
+/* Plan 287: 节点 page 分组 view. The node table is wider than the screen and
+   scrolls sideways; its tree column (rules-page line through the checkbox
+   column) stays put with a solid background, so the line never leaves the
+   header chevron. Header / selected / hover tints are layered on top. */
+.flvx-node-tree .flvx-rule-tree-cell {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  background-color: var(--content1);
+}
+
+.flvx-node-tree th.flvx-rule-tree-cell {
+  background-image: linear-gradient(
+    color-mix(in srgb, var(--default-100) 50%, transparent),
+    color-mix(in srgb, var(--default-100) 50%, transparent)
+  );
+}
+
+.flvx-node-tree tr:not([data-selected]):hover > td.flvx-rule-tree-cell {
+  background-image: linear-gradient(
+    color-mix(in srgb, var(--default-50) 80%, transparent),
+    color-mix(in srgb, var(--default-50) 80%, transparent)
+  );
+}
+
+.flvx-node-tree tr[data-selected] > td.flvx-rule-tree-cell {
+  background-image: linear-gradient(
+    color-mix(in srgb, var(--primary-50) 70%, transparent),
+    color-mix(in srgb, var(--primary-50) 70%, transparent)
+  );
+}
+
+.dark .flvx-node-tree tr[data-selected] > td.flvx-rule-tree-cell {
+  background-image: linear-gradient(
+    color-mix(in srgb, var(--primary-900) 40%, transparent),
+    color-mix(in srgb, var(--primary-900) 40%, transparent)
+  );
+}

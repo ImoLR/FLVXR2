@@ -32,6 +32,7 @@ import {
   groupNodesByServer,
   groupNodesByUser,
   groupServersByRegion,
+  LandingCardTree,
   nodeServerKey,
   nodeUserKey,
   serverRegionKey,
@@ -70,6 +71,7 @@ import {
   treeGroupHeaderClass,
   treeGroupWrapperClass,
 } from "@/components/tree-group";
+import { useGroupScrollSettle } from "@/hooks/use-group-scroll-settle";
 import { useH5Mode } from "@/hooks/useH5Mode";
 import { usePullToRefresh } from "@/hooks/usePullToRefresh";
 import { Button } from "@/shadcn-bridge/heroui/button";
@@ -524,11 +526,30 @@ export default function LandingPage() {
     () => groupServersByRegion(servers, attentionById, admin),
     [admin, servers, attentionById],
   );
+  // Plan 287: one open group per list (accordion), v3 keys; the older open
+  // sets are dropped, so every group starts collapsed once.
   const regionOpen = useGroupOpenState(
-    `flvx:landing:region-open:v2:u:${groupUserId}`,
-    ["flvx:landing:region-groups"],
+    `flvx:landing:region-open:v3:u:${groupUserId}`,
+    [
+      "flvx:landing:region-groups",
+      `flvx:landing:region-open:v2:u:${groupUserId}`,
+    ],
   );
   const openRegionOf = regionOpen.open;
+  // Plan 287: the 转发 / 隧道 page position correction (utils/group-accordion)
+  // after a header / footer tap — the tapped header first stays where it was
+  // (a long open group above may just have collapsed: accordion), then an
+  // opened group's header glides to the top; a closed one only scrolls if it
+  // left the screen. Jumps and the restored open group call open() directly
+  // and keep their own scrolling.
+  const queueGroupScroll = useGroupScrollSettle();
+  const toggleGroup = (
+    state: { isOpen: (key: string) => boolean; toggle: (key: string) => void },
+    key: string,
+  ) => {
+    queueGroupScroll(key, !state.isOpen(key));
+    state.toggle(key);
+  };
   // A server whose group must open once the reloaded list arrives (设置 saved).
   const revealServer = useRef(0);
 
@@ -698,12 +719,12 @@ export default function LandingPage() {
     [admin, nodes, servers],
   );
   const userOpen = useGroupOpenState(
-    `flvx:landing:user-open:v2:u:${groupUserId}`,
-    ["flvx:landing:user-groups"],
+    `flvx:landing:user-open:v3:u:${groupUserId}`,
+    ["flvx:landing:user-groups", `flvx:landing:user-open:v2:u:${groupUserId}`],
   );
   const myServerOpen = useGroupOpenState(
-    `flvx:landing:my-server-open:v2:u:${groupUserId}`,
-    [],
+    `flvx:landing:my-server-open:v3:u:${groupUserId}`,
+    [`flvx:landing:my-server-open:v2:u:${groupUserId}`],
   );
   const [openRow, setOpenRow] = useState(0);
   const [flashNodeId, setFlashNodeId] = useState(0);
@@ -1220,125 +1241,128 @@ export default function LandingPage() {
         const toggle = () => setOpenRow(open ? 0 : node.id);
 
         return (
-          <div
-            key={node.id}
-            className={`flvx-rule-tree-node rounded-lg border border-divider bg-content1${flashNodeId === node.id ? " ring-2 ring-amber-400 transition-shadow" : ""}`}
-            data-landing-node-row={node.id}
-            data-open={open ? "true" : "false"}
-          >
+          // Plan 287: the tree node is a plain wrapper (like the rules-page
+          // phone cards), so the line runs unbroken past the row borders.
+          <div key={node.id} className="flvx-rule-tree-node">
             <div
-              aria-expanded={open}
-              className="flex min-h-[50px] cursor-pointer select-none items-center gap-2 pl-3 pr-2"
-              role="button"
-              tabIndex={0}
-              onClick={toggle}
-              onKeyDown={(event) => {
-                if (event.key === "Enter" || event.key === " ") {
-                  event.preventDefault();
-                  toggle();
-                }
-              }}
+              className={`rounded-lg border border-divider bg-content1${flashNodeId === node.id ? " ring-2 ring-amber-400 transition-shadow" : ""}`}
+              data-landing-node-row={node.id}
+              data-open={open ? "true" : "false"}
             >
-              <NodeStatusDot node={node} />
-              <span
-                className="min-w-0 flex-1 truncate text-sm font-medium"
-                title={node.name}
-              >
-                {node.name}
-              </span>
-              <Pill title={landingProtocolLabel(node.protocol)} tone="pink">
-                {landingProtocolShortLabel(node.protocol)}
-              </Pill>
-              <span
-                aria-label={open ? "收起详情" : "展开详情"}
-                className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full ${open ? "bg-slate-500/15 text-slate-600 dark:bg-slate-400/20 dark:text-slate-300" : "bg-teal-500/15 text-teal-700 dark:bg-teal-400/15 dark:text-teal-300"}`}
-                data-landing-node-toggle={open ? "minus" : "plus"}
-                role="img"
-              >
-                {open ? <Minus size={16} /> : <Plus size={16} />}
-              </span>
-            </div>
-            {open && (
               <div
-                className="space-y-3 border-t border-divider px-3 pb-3 pt-2.5"
-                data-landing-node-details=""
+                aria-expanded={open}
+                className="flex min-h-[50px] cursor-pointer select-none items-center gap-2 pl-3 pr-2"
+                role="button"
+                tabIndex={0}
+                onClick={toggle}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    toggle();
+                  }
+                }}
               >
-                <dl className="grid grid-cols-[4.5rem_minmax(0,1fr)] gap-x-2 gap-y-2">
-                  {/* Round 2: a user's rows sit in their server's group and
-                      show only what their card shows (no 服务器 / 端口). */}
-                  {admin &&
-                    nodeDetail(
-                      "服务器",
-                      node.serverName || nodeServer(node)?.name,
-                    )}
-                  {admin &&
-                    nodeDetail(
-                      "端口",
-                      <span className="tabular-nums">{node.port}</span>,
-                    )}
-                  {nodeDetail(
-                    "协议",
-                    <>
-                      <div>{landingProtocolLabel(node.protocol)}</div>
-                      {node.protocolOpts && (
-                        <div className="text-xs text-default-500">
-                          {landingProtocolSummary(
-                            node.protocol,
-                            node.protocolOpts,
-                          )}
-                        </div>
-                      )}
-                      {isMieruUdp(
-                        node.protocol,
-                        node.protocolOpts?.transport,
-                      ) && (
-                        <div className="text-xs text-warning-600 dark:text-warning-400">
-                          {MIERU_UDP_HINT}
-                        </div>
-                      )}
-                    </>,
-                  )}
-                  {node.chain
-                    ? nodeDetail(
-                        "链式",
-                        <div className="flex flex-wrap gap-1">
-                          <ChainPill node={node} />
-                          <ChainNote node={node} />
-                        </div>,
-                      )
-                    : node.egressLabel &&
-                      nodeDetail(
-                        "出站",
-                        <Pill title={`出站：${node.egressLabel}`} tone="teal">
-                          {node.egressLabel}
-                        </Pill>,
-                      )}
-                  {nodeDetail("状态", status(node))}
-                  {nodeDetail(
-                    "已用 / 上限",
-                    <>
-                      <span className="tabular-nums">{usage(node)}</span>
-                      <UsageBar node={node} />
-                    </>,
-                  )}
-                  {nodeDetail("连接", nodeConn(node))}
-                  {nodeDetail(
-                    "到期",
-                    <>
-                      <ExpiryPill node={node} now={now} />
-                      {node.expiredAt && (
-                        <p className="mt-1 text-xs text-warning">
-                          宽限期结束：
-                          {landingDate(node.expiredAt + GRACE_MS)}
-                          ；期内续期可恢复原链接。
-                        </p>
-                      )}
-                    </>,
-                  )}
-                </dl>
-                {actions(node)}
+                <NodeStatusDot node={node} />
+                <span
+                  className="min-w-0 flex-1 truncate text-sm font-medium"
+                  title={node.name}
+                >
+                  {node.name}
+                </span>
+                <Pill title={landingProtocolLabel(node.protocol)} tone="pink">
+                  {landingProtocolShortLabel(node.protocol)}
+                </Pill>
+                <span
+                  aria-label={open ? "收起详情" : "展开详情"}
+                  className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full ${open ? "bg-slate-500/15 text-slate-600 dark:bg-slate-400/20 dark:text-slate-300" : "bg-teal-500/15 text-teal-700 dark:bg-teal-400/15 dark:text-teal-300"}`}
+                  data-landing-node-toggle={open ? "minus" : "plus"}
+                  role="img"
+                >
+                  {open ? <Minus size={16} /> : <Plus size={16} />}
+                </span>
               </div>
-            )}
+              {open && (
+                <div
+                  className="space-y-3 border-t border-divider px-3 pb-3 pt-2.5"
+                  data-landing-node-details=""
+                >
+                  <dl className="grid grid-cols-[4.5rem_minmax(0,1fr)] gap-x-2 gap-y-2">
+                    {/* Round 2: a user's rows sit in their server's group and
+                      show only what their card shows (no 服务器 / 端口). */}
+                    {admin &&
+                      nodeDetail(
+                        "服务器",
+                        node.serverName || nodeServer(node)?.name,
+                      )}
+                    {admin &&
+                      nodeDetail(
+                        "端口",
+                        <span className="tabular-nums">{node.port}</span>,
+                      )}
+                    {nodeDetail(
+                      "协议",
+                      <>
+                        <div>{landingProtocolLabel(node.protocol)}</div>
+                        {node.protocolOpts && (
+                          <div className="text-xs text-default-500">
+                            {landingProtocolSummary(
+                              node.protocol,
+                              node.protocolOpts,
+                            )}
+                          </div>
+                        )}
+                        {isMieruUdp(
+                          node.protocol,
+                          node.protocolOpts?.transport,
+                        ) && (
+                          <div className="text-xs text-warning-600 dark:text-warning-400">
+                            {MIERU_UDP_HINT}
+                          </div>
+                        )}
+                      </>,
+                    )}
+                    {node.chain
+                      ? nodeDetail(
+                          "链式",
+                          <div className="flex flex-wrap gap-1">
+                            <ChainPill node={node} />
+                            <ChainNote node={node} />
+                          </div>,
+                        )
+                      : node.egressLabel &&
+                        nodeDetail(
+                          "出站",
+                          <Pill title={`出站：${node.egressLabel}`} tone="teal">
+                            {node.egressLabel}
+                          </Pill>,
+                        )}
+                    {nodeDetail("状态", status(node))}
+                    {nodeDetail(
+                      "已用 / 上限",
+                      <>
+                        <span className="tabular-nums">{usage(node)}</span>
+                        <UsageBar node={node} />
+                      </>,
+                    )}
+                    {nodeDetail("连接", nodeConn(node))}
+                    {nodeDetail(
+                      "到期",
+                      <>
+                        <ExpiryPill node={node} now={now} />
+                        {node.expiredAt && (
+                          <p className="mt-1 text-xs text-warning">
+                            宽限期结束：
+                            {landingDate(node.expiredAt + GRACE_MS)}
+                            ；期内续期可恢复原链接。
+                          </p>
+                        )}
+                      </>,
+                    )}
+                  </dl>
+                  {actions(node)}
+                </div>
+              )}
+            </div>
           </div>
         );
       })}
@@ -1346,12 +1370,13 @@ export default function LandingPage() {
   );
   const renderUserGroup = (group: NodeUserGroup) => {
     const collapsed = !userOpen.isOpen(group.key);
-    const toggle = () => userOpen.toggle(group.key);
+    const toggle = () => toggleGroup(userOpen, group.key);
 
     return (
       <div
         key={group.key}
         className={`${treeGroupWrapperClass(collapsed)} flvx-landing-user-group`}
+        data-group-key={group.key}
         data-landing-user-group={group.key}
       >
         <TreeGroupHeader
@@ -1480,12 +1505,13 @@ export default function LandingPage() {
   );
   const renderMyServerGroup = (group: NodeServerGroup) => {
     const collapsed = !myServerOpen.isOpen(group.key);
-    const toggle = () => myServerOpen.toggle(group.key);
+    const toggle = () => toggleGroup(myServerOpen, group.key);
 
     return (
       <div
         key={group.key}
         className={`${treeGroupWrapperClass(collapsed)} flvx-landing-user-group`}
+        data-group-key={group.key}
         data-landing-server-group={group.key}
       >
         <TreeGroupHeader
@@ -1504,9 +1530,14 @@ export default function LandingPage() {
           (h5 ? (
             nodeRows(group.nodes)
           ) : (
-            <div className="grid gap-4 py-3 pr-3 md:grid-cols-2">
-              {group.nodes.map(renderUserNodeCard)}
-            </div>
+            <LandingCardTree
+              cols="md2"
+              gridClassName="grid gap-4 md:grid-cols-2"
+              items={group.nodes.map((node) => ({
+                key: node.id,
+                node: renderUserNodeCard(node),
+              }))}
+            />
           ))}
         {!collapsed && <TreeGroupFooter name={group.name} onToggle={toggle} />}
       </div>
@@ -1655,11 +1686,16 @@ export default function LandingPage() {
                   key={group.key}
                   group={group}
                   open={regionOpen.isOpen(group.key)}
-                  onToggle={() => regionOpen.toggle(group.key)}
+                  onToggle={() => toggleGroup(regionOpen, group.key)}
                 >
-                  <div className="flvx-card-grid mt-3 grid auto-rows-fr gap-4">
-                    {group.servers.map(renderServerCard)}
-                  </div>
+                  <LandingCardTree
+                    cols="auto"
+                    gridClassName="flvx-card-grid grid auto-rows-fr gap-4"
+                    items={group.servers.map((server) => ({
+                      key: server.id,
+                      node: renderServerCard(server),
+                    }))}
+                  />
                 </ServerRegionSection>
               ))}
             </div>
