@@ -33,8 +33,8 @@ packet header is plaintext and its ClientHello (SNI) can be decrypted by anyone 
       plain UDP, TLS-allowed tunnel) on type 1 + type 2; before/after RTT / iperf3 / CPU
 - [x] Ledger row 283
 - [x] Release next fork (rebase onto newest tag), CI + assets, prod panel upgrade + rollback
-- [ ] Night OTA of the entry nodes of tls=1 tunnels (canary first, per-host backup)
-- [ ] Prod tests (temp forward → own hy2 / SS2022 server), our protocols unaffected, temp objects deleted
+- [x] Night OTA of the entry nodes of tls=1 tunnels (canary first, per-host backup)
+- [x] Prod tests (temp forward → own hy2 / SS2022 server), our protocols unaffected, temp objects deleted
 - [ ] 1–3 h QUIC counter report
 - [ ] Cleanup (worktree, caches), memory, summary
 
@@ -191,3 +191,44 @@ fork.151 (except via plan 278 if it had started — it had not).
     conn can hand a client a dead pooled conn — follow-up for the warm-pool owner.
   - TG correction sent 06:3x TW (one message). No agent fix needed → no new release; the 6 remaining hosts go to the
     panel's version in the 11-20 02:00–06:00 TW window with the fixed check (runs/quic-block/work/ota_host.sh).
+
+## OTA night 2 (11-20) — all 6 remaining entries → fork.155 (agent code = fork.152)
+Prod panel fork.155 by then (plan 286, panel only). One host at a time with runs/quic-block/work/ota_host.sh (before-check
+→ backup + panel OTA → 60 s warm-up → after-check → compare; re-test on a possible regression), fixed client-first
+speed probe. Boil freeze respected (first host 04:20). 7–8 s back online each, 0 regressions.
+
+| 节点名 | 升级时间 (TW) | 诊断延迟中位 前/后 ms | 入口往返中位 前/后 ms | 速度 前/后 Mbit/s | 转发诊断 通过 前/后 | 结论 |
+|---|---|---|---|---|---|---|
+| vmsilo 沪美 | 11-19 03:09 | — / — | — / — | — / — | 0/0 / 0/0 | ✅ |
+| Datawave HK 2 | 11-20 04:22 | 46.8 / 47.5 | 4.2 / 4.2 | 34.1 / 35.4 | 10/10 / 10/10 | ✅ |
+| Mkcloud 沪日ixp 440 | 11-20 04:30 | 26.2 / 26.1 | 33.0 / 33.0 | 70.8 / 80.1 | 7/10 / 7/10 | ✅ |
+| AWS HK | 11-20 04:38 | 45.4 / 45.9 | 209.8 / 208.1 | 65.0 / 51.1 | 10/10 / 10/10 | ✅ |
+| Leikwanhost 沪台IPLC | 11-20 04:45 | 31.6 / 32.0 | 217.1 / 212.5 | 10.7 / 9.4 | 6/6 / 6/6 | ✅ |
+| Mkcloud 深港ixp 1 | 11-20 04:51 | 28.2 / 27.6 | 4.0 / 4.2 | 65.4 / 65.0 | 10/10 / 10/10 | ✅ |
+| vmsilo 沪日首发 | 11-20 04:58 | 32.6 / 32.6 | 203.8 / 207.7 | 30.6 / 14.7 (复测 25.1) | 10/10 / 10/10 | ✅ |
+
+Notes: 诊断 = median over the host's ≤ 10 busiest forwards (3 runs each); 往返 = TCP connect to the entry port
+(Mkcloud ×2 from 百度云广州, the rest from the dev box — IPv6-only / HK entries). Mkcloud 沪日ixp 440 7/10 both
+before and after: clot88's 学长软银WG (WireGuard, UDP only) and two jp.okonfu.com:6666 forwards never pass a TCP
+diagnose (pre-existing). vmsilo 沪日首发 speed 30.6 → 14.7 → re-test 25.1 (−18 %, inside the rule) and extra pulls
+35.2 / 42.4 Mbit/s; AWS HK 65.0 → 51.1 (−21 %) and extra pulls 54.5 / 59.4 — long-haul dev-box paths, noise.
+Fleet after: 30/30 online, 64 forwards active, versions 14×fork.154, 6×fork.155, 4×fork.143, 3×fork.138, 2×fork.126,
+1×fork.145. Per-host rollback: `/root/flvxx-backup-<ts>-pre-fork154/restore-agent.sh` on each host
+(runs/quic-block/work/backups.txt).
+
+### Prod QUIC test (Mkcloud 沪日ixp 440, client 百度云广州, own servers on the dev box, temp admin forwards)
+| check | before OTA (fork.138) | after OTA (fork.155) |
+|---|---|---|
+| hysteria2 plain, 端口转发 (tunnel 39) | passes (204) | **blocked** |
+| curl --http3 (hy2 masquerade) | passes | **blocked** |
+| hysteria2 plain, 隧道转发 (tunnel 25 → Bestvm JP B) | passes | **blocked** |
+| hysteria2 + Salamander | passes | passes |
+| SS2022 TCP / UDP DNS, 端口转发 | passes / passes | passes / passes |
+| SS2022 TCP / UDP DNS, 隧道转发 | passes / passes | passes / passes |
+| native landing SS2022 (NexKR 「自己用」) TCP / UDP DNS | passes / passes | passes / passes |
+| UDP echo 1200 B p50/p99, 端口转发 | 229.8 / 233.1 ms | 227.8 / 231.5 ms |
+| UDP echo 1200 B p50/p99, 隧道转发 | 220.3 / 235.0 ms | 210.3 / 215.8 ms |
+Node card after: Mkcloud 沪日ixp 440 `quic 3` = these tests only; the agent log named the temp forwards
+(「🚫 BLOCK QUIC (hy2/TUIC/HTTP3) 661_1_39_udp」 …). VLESS Encryption: no prod landing offers it (vless_enc off on every
+server) → covered by the lab only. 线路机 Reality / AnyTLS entries (Dmit Nathan / Dmit Echo) were not changed.
+All 14 temp forwards and the dev-box test servers deleted 05:10 TW; 百度云广州 test dir removed.
