@@ -44,7 +44,7 @@ Admin 落地 page gets hard to scan as servers / nodes grow. Normal-user tabs (�
       TestLandingUserServerViewContract admin field list (the only failure, caused by the 3 new fields — not pre-existing);
       contract package re-run alone: ok (542 s). CI run 44534783016 green (frontend, backend, PG contract, agent).
 - [x] Screenshot gallery `/root/mmwx-preview/landing-admin-groups/` (http://104.145.236.29:8791/landing-admin-groups/,
-      22 shots, shots.cjs 33 checks 0 failures; normal-user 可用落地 / 我的节点 pixel-identical to fork.154)
+      21 shots, shots.cjs 30 checks 0 failures; normal-user 可用落地 / 我的节点 pixel-identical to fork.154)
 - [x] Push branch, ledger row (状态: 已构建，待用户看截图), cleanup (lab data dir, test PG container, scratch, dist),
       summary /root/flvx-workers/runs/landing-admin-groups/summary.md. Worktree kept for the release task
       (vite-frontend/node_modules = symlinks to the main checkout + qrcode from runs/landing-admin-groups/npm-extra).
