@@ -35,8 +35,8 @@ packet header is plaintext and its ClientHello (SNI) can be decrypted by anyone 
 - [x] Release next fork (rebase onto newest tag), CI + assets, prod panel upgrade + rollback
 - [x] Night OTA of the entry nodes of tls=1 tunnels (canary first, per-host backup)
 - [x] Prod tests (temp forward → own hy2 / SS2022 server), our protocols unaffected, temp objects deleted
-- [ ] 1–3 h QUIC counter report
-- [ ] Cleanup (worktree, caches), memory, summary
+- [x] 1–3 h QUIC counter report
+- [x] Cleanup (worktree, caches), memory, summary
 
 ## Where the check sits (and why it covers every UDP entry path)
 Client datagrams of every gost forward enter through one place: the panel builds each forward as a `<id>_udp`
@@ -232,3 +232,15 @@ Node card after: Mkcloud 沪日ixp 440 `quic 3` = these tests only; the agent lo
 (「🚫 BLOCK QUIC (hy2/TUIC/HTTP3) 661_1_39_udp」 …). VLESS Encryption: no prod landing offers it (vless_enc off on every
 server) → covered by the lab only. 线路机 Reality / AnyTLS entries (Dmit Nathan / Dmit Echo) were not changed.
 All 14 temp forwards and the dev-box test servers deleted 05:10 TW; 百度云广州 test dir removed.
+
+## QUIC hits after the OTA (1–3 h)
+Readings 11-20 05:45 / 06:45 / 07:45 TW (node card counters + agent journal lines since 04:20, runs/quic-block/work/
+quic-n2-*.json): only the 3 test blocks on Mkcloud 沪日ixp 440 (temp forwards 661 / 665, deleted); no user forward was
+blocked on any of the 7 entries. A forward named 「hy」 (aminuouz2246885, Mkcloud 深港ixp 1) showed no QUIC in 3 h.
+Users were not contacted; nothing was paused or deleted.
+
+## Done
+- Plan 283 complete: fork.151 + fork.152 released (prod now fork.155, same agent code), all 7 屏蔽 TLS entries run the
+  QUIC check (vmsilo 沪美 fork.154, the other 6 fork.155). Summary: /root/flvx-workers/runs/quic-block/summary.md.
+- Cleanup: worktree flvxx-rel283 removed (branches pushed), lab binaries / prod-test servers / temp forwards / remote
+  test dir deleted; the lab scripts stay in runs/quic-block/lab for reuse.
