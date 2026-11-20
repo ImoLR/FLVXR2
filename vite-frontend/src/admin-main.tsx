@@ -16,10 +16,13 @@ import {
   onServiceWorkerTakeover,
   startFrontendFreshnessWatch,
 } from "@/utils/build-freshness";
+import { forgetStoredGroupOpenState } from "@/utils/forget-group-open";
 
 // The admin / user app (everything except the public probe page, see
 // main.tsx). Unchanged behaviour: service worker, freshness watch, router.
 export function startAdmin() {
+  // Plan 289: open groups are not remembered; drop what older builds stored.
+  forgetStoredGroupOpenState();
   const updateSW = registerSW({
     immediate: true,
     onNeedRefresh() {

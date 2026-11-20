@@ -2592,6 +2592,31 @@ td.flvx-rule-tree-dim > * {
   }
 }
 
+/* Plan 289: the open region group's 「收起 · 地区」 footer — a slim row in the
+   header's region tint (same box look as the header, no accent edge), under
+   the card grid. The pill takes the region colour instead of the teal. */
+.flvx-landing-region-footer {
+  margin-top: 12px;
+  min-height: 36px;
+  border-radius: 10px;
+  cursor: pointer;
+  background-color: var(--content1);
+  background-image: linear-gradient(
+    rgb(var(--flvx-region-rgb) / var(--flvx-region-tint)),
+    rgb(var(--flvx-region-rgb) / var(--flvx-region-tint))
+  );
+  box-shadow: inset 0 0 0 1px rgb(var(--flvx-region-rgb) / 0.16);
+}
+
+.flvx-landing-region-footer .flvx-rule-group-footer-pill {
+  background: rgb(var(--flvx-region-rgb) / 0.14);
+  color: var(--flvx-region-ink);
+}
+
+.flvx-landing-region-footer:hover .flvx-rule-group-footer-pill {
+  background: rgb(var(--flvx-region-rgb) / 0.24);
+}
+
 /* 全部节点 desktop table: the tree column only carries the status dot, so it
    is narrower than the rules-page checkbox column (the line stays under the
    group chevron; the dot sits right after the elbow). */
