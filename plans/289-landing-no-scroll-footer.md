@@ -28,7 +28,7 @@ Base: tag 3.0.27-fork.156 (512ab25b). Branch `feature/3.0.27-landing-no-scroll`.
 - [x] B4 forward.tsx expanded map → in-memory, no local / backend read or write
 - [x] B5 startup cleanup of old keys
 - [x] Build: tsc + lint + `npm run build`
-- [ ] Lab: scrollY per tap on 落地 (admin + user, desktop + 390), footer look, 转发/隧道 glide identical to fork.156,
+- [x] Lab: scrollY per tap on 落地 (admin + user, desktop + 390), footer look, 转发/隧道 glide identical to fork.156,
       navigate-away / reload → all collapsed on every page; gallery /landing-no-scroll/
 - [ ] Release fork.N (tag, CI, Images, assets, Latest)
 - [ ] Prod backup + rollback script + prune, swap between OTA hosts, OTA brief note
