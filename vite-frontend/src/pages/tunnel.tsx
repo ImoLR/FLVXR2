@@ -128,7 +128,6 @@ import {
   splitEntryAddresses,
 } from "@/utils/node-ips";
 import { getRoleId } from "@/utils/session";
-import { JwtUtil } from "@/utils/jwt";
 import {
   buildPendingGroupScroll,
   settleGroupScroll,
@@ -374,9 +373,6 @@ interface TunnelCardOptions {
   hideRegionChip?: boolean;
   hideGroupChip?: boolean;
 }
-// Plan 178: the one open group per grouping mode, per user and browser.
-// Versioned so everyone starts with every group collapsed once.
-const TUNNEL_GROUP_OPEN_KEY_PREFIX = "tunnel-group-open:v1";
 // Plan 178 r3: region boxes get one colour per exit region ("multi",
 // utils/region.ts regionTone). "amber" = the round-2 look (one amber for
 // every region). A build-time choice, not a user setting.
@@ -698,15 +694,14 @@ export default function TunnelPage() {
     [],
   );
   // Plan 178: groups start collapsed and at most one is open (accordion, like
-  // the rules page); the open key is saved per user + grouping mode. Exit-region
-  // sub-groups are open whenever their entry opens (closing one lasts until the
-  // entry closes). While a filter is active every match is open and clicks
-  // only apply to that filter session.
-  const [savedOpenTunnelGroups, setSavedOpenTunnelGroups] =
-    useLocalStorageState<Partial<Record<TunnelGroupingMode, string>>>(
-      `${TUNNEL_GROUP_OPEN_KEY_PREFIX}:u:${JwtUtil.getUserIdFromToken() ?? 0}`,
-      {},
-    );
+  // the rules page); one open key per grouping mode. Plan 289: kept in memory
+  // only — every visit starts with every group collapsed (old stored keys:
+  // utils/forget-group-open). Exit-region sub-groups are open whenever their
+  // entry opens (closing one lasts until the entry closes). While a filter is
+  // active every match is open and clicks only apply to that filter session.
+  const [savedOpenTunnelGroups, setSavedOpenTunnelGroups] = useState<
+    Partial<Record<TunnelGroupingMode, string>>
+  >({});
   const [closedTunnelSubGroups, setClosedTunnelSubGroups] = useState<
     Set<string>
   >(() => new Set());

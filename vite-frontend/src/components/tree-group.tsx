@@ -70,16 +70,25 @@ export const TreeGroupChevron = ({ collapsed }: { collapsed: boolean }) => (
 );
 
 // Plan 173: a clear end of the open group; closes it like the header.
+// Plan 289: variant "region" = the 落地 page region groups (slim row tinted
+// in the region colour, styles/globals.css `flvx-landing-region-footer`).
 export const TreeGroupFooter = ({
   name,
   onToggle,
+  variant = "group",
 }: {
   name: string;
   onToggle: () => void;
+  variant?: "group" | "region";
 }) => (
   <button
     aria-label={`收起 ${name}`}
-    className="flvx-rule-group-footer flex w-full items-center justify-center border-t px-3 py-2"
+    className={
+      variant === "region"
+        ? "flvx-landing-region-footer flex w-full items-center justify-center px-3 py-1.5"
+        : "flvx-rule-group-footer flex w-full items-center justify-center border-t px-3 py-2"
+    }
+    data-group-footer=""
     type="button"
     onClick={onToggle}
   >

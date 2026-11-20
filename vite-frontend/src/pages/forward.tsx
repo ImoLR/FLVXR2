@@ -466,9 +466,10 @@ const FORWARD_POLL_INTERVAL_MS = 15000;
 // every 5 minutes instead of on every list refresh (plan 136 F17).
 const FEDERATION_SHARE_CACHE_MS = 5 * 60 * 1000;
 const FORWARD_GROUP_ORDER_CONFIG_KEY = "forward_group_order_map";
-const FORWARD_GROUP_EXPANDED_CONFIG_KEY = "forward_group_expanded_map";
+// Plan 289: the open group is no longer remembered (component memory only);
+// the old `forward_group_expanded_map` config / `forward-group-expanded:v2`
+// keys are neither read nor written (local keys: utils/forget-group-open).
 const FORWARD_GROUP_ORDER_LOCAL_STORAGE_PREFIX = "forward-group-order";
-const FORWARD_GROUP_EXPANDED_LOCAL_STORAGE_PREFIX = "forward-group-expanded:v2";
 // Pre-163 "collapsed" map (missing = expanded); removed on first load.
 const FORWARD_LEGACY_GROUP_COLLAPSED_LOCAL_STORAGE_PREFIX =
   "forward-group-collapsed";
@@ -554,9 +555,6 @@ const formatTunnelTrafficRatio = (value?: number): string => {
 const buildForwardGroupOrderLocalKey = (tokenUserId: number): string => {
   return `${FORWARD_GROUP_ORDER_LOCAL_STORAGE_PREFIX}:u:${tokenUserId}`;
 };
-const buildForwardGroupExpandedLocalKey = (tokenUserId: number): string => {
-  return `${FORWARD_GROUP_EXPANDED_LOCAL_STORAGE_PREFIX}:u:${tokenUserId}`;
-};
 const buildForwardDisplayModeLocalKey = (tokenUserId: number | null): string => {
   return `${FORWARD_DISPLAY_MODE_LOCAL_STORAGE_PREFIX}:u:${tokenUserId ?? 0}`;
 };
@@ -612,24 +610,6 @@ const parseGroupOrderMap = (raw: string | null): ForwardGroupOrderMap => {
 
     if (keys.length > 0) {
       result[userId] = Array.from(new Set(keys));
-    }
-  });
-
-  return result;
-};
-const parseGroupExpandedMap = (
-  raw: string | null,
-): ForwardGroupExpandedMap => {
-  const parsed = parsePreferenceMap<unknown>(raw);
-
-  if (!parsed) {
-    return {};
-  }
-  const result: ForwardGroupExpandedMap = {};
-
-  Object.entries(parsed).forEach(([key, value]) => {
-    if (value === true) {
-      result[key] = true;
     }
   });
 
@@ -2304,19 +2284,6 @@ export default function ForwardPage() {
       );
     } catch {}
   };
-  const persistGroupExpandedToLocal = (
-    nextExpandedMap: ForwardGroupExpandedMap,
-  ) => {
-    if (tokenUserId === null) {
-      return;
-    }
-    try {
-      localStorage.setItem(
-        buildForwardGroupExpandedLocalKey(tokenUserId),
-        JSON.stringify(nextExpandedMap),
-      );
-    } catch {}
-  };
   const persistGroupOrderToGlobal = async (
     nextOrderMap: ForwardGroupOrderMap,
   ): Promise<void> => {
@@ -2345,51 +2312,18 @@ export default function ForwardPage() {
       toast.error("保存分组排序失败");
     }
   };
-  const persistGroupExpandedToGlobal = async (
-    nextExpandedMap: ForwardGroupExpandedMap,
-  ): Promise<void> => {
-    if (!isAdmin || tokenUserId === null) {
-      return;
-    }
-    try {
-      const currentRes = await getConfigByName(
-        FORWARD_GROUP_EXPANDED_CONFIG_KEY,
-      );
-      const globalMap =
-        parsePreferenceMap<ForwardGroupExpandedMap>(
-          currentRes.code === 0 && typeof currentRes.data?.value === "string"
-            ? currentRes.data.value
-            : null,
-        ) || {};
-
-      globalMap[tokenUserId.toString()] = nextExpandedMap;
-      const saveRes = await updateConfig(
-        FORWARD_GROUP_EXPANDED_CONFIG_KEY,
-        JSON.stringify(globalMap),
-      );
-
-      if (saveRes.code !== 0) {
-        toast.error(saveRes.msg || "保存分组折叠状态失败");
-      }
-    } catch {
-      toast.error("保存分组折叠状态失败");
-    }
-  };
-
   useEffect(() => {
     let cancelled = false;
     const loadGroupPreferences = async () => {
       if (tokenUserId === null) {
         if (!cancelled) {
           setGroupOrderMap({});
-          setExpandedTunnelGroups({});
           setGroupPreferenceHydrated(true);
         }
 
         return;
       }
       let localOrderMap: ForwardGroupOrderMap = {};
-      let localExpandedMap: ForwardGroupExpandedMap = {};
 
       try {
         localOrderMap = parseGroupOrderMap(
@@ -2398,35 +2332,18 @@ export default function ForwardPage() {
       } catch {
         localOrderMap = {};
       }
-      try {
-        localExpandedMap = parseGroupExpandedMap(
-          localStorage.getItem(buildForwardGroupExpandedLocalKey(tokenUserId)),
-        );
-      } catch {
-        localExpandedMap = {};
-      }
       if (isAdmin) {
         try {
-          const [globalOrderRes, globalExpandedRes] = await Promise.all([
-            getConfigByName(FORWARD_GROUP_ORDER_CONFIG_KEY),
-            getConfigByName(FORWARD_GROUP_EXPANDED_CONFIG_KEY),
-          ]);
+          const globalOrderRes = await getConfigByName(
+            FORWARD_GROUP_ORDER_CONFIG_KEY,
+          );
           const globalOrderMap = parsePreferenceMap<ForwardGroupOrderMap>(
             globalOrderRes.code === 0 &&
               typeof globalOrderRes.data?.value === "string"
               ? globalOrderRes.data.value
               : null,
           );
-          const globalExpandedMap =
-            parsePreferenceMap<ForwardGroupExpandedMap>(
-              globalExpandedRes.code === 0 &&
-                typeof globalExpandedRes.data?.value === "string"
-                ? globalExpandedRes.data.value
-                : null,
-            );
           const globalOrderBucket = globalOrderMap?.[tokenUserId.toString()];
-          const globalExpandedBucket =
-            globalExpandedMap?.[tokenUserId.toString()];
 
           if (
             globalOrderBucket &&
@@ -2437,24 +2354,13 @@ export default function ForwardPage() {
               JSON.stringify(globalOrderBucket),
             );
           }
-          if (
-            globalExpandedBucket &&
-            typeof globalExpandedBucket === "object" &&
-            !Array.isArray(globalExpandedBucket)
-          ) {
-            localExpandedMap = parseGroupExpandedMap(
-              JSON.stringify(globalExpandedBucket),
-            );
-          }
         } catch {}
       }
       if (cancelled) {
         return;
       }
       setGroupOrderMap(localOrderMap);
-      setExpandedTunnelGroups(localExpandedMap);
       persistGroupOrderToLocal(localOrderMap);
-      persistGroupExpandedToLocal(localExpandedMap);
       setGroupPreferenceHydrated(true);
     };
 
@@ -5025,9 +4931,8 @@ export default function ForwardPage() {
     setFilterClosedGroups((prev) => (prev.size === 0 ? prev : new Set()));
   }, [groupFilterSignature]);
   // Plan 173: accordion — outside filter mode at most one group is open
-  // (page-wide, admin view across users too). The saved map keeps its format
-  // and holds at most one key; an older map with several open keys shows only
-  // the first one in display order (trimmed on the next click).
+  // (page-wide, admin view across users too). The map holds at most one key.
+  // Plan 289: in component memory only — every visit starts collapsed.
   const savedOpenTunnelGroupKey = useMemo((): string | null => {
     for (const group of groupedForwards) {
       for (const tunnel of group.tunnels) {
@@ -5060,8 +4965,6 @@ export default function ForwardPage() {
       collapseKey === null ? {} : { [collapseKey]: true };
 
     setExpandedTunnelGroups(nextExpandedMap);
-    persistGroupExpandedToLocal(nextExpandedMap);
-    void persistGroupExpandedToGlobal(nextExpandedMap);
   };
   const queueTunnelGroupScroll = (
     collapseKey: string,

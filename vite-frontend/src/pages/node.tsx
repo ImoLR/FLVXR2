@@ -159,7 +159,6 @@ import {
   treeGroupHeaderClass,
   treeGroupWrapperClass,
 } from "@/components/tree-group";
-import { JwtUtil } from "@/utils/jwt";
 import { usePullToRefresh } from "@/hooks/usePullToRefresh";
 import { loadStoredOrder, saveOrder } from "@/utils/order-storage";
 // TypeScript 全局类型扩展
@@ -634,18 +633,9 @@ export default function NodePage() {
     "grid",
   );
   // Plan 287: the 分组 view is an accordion like 转发 / 隧道 / 落地 — one group
-  // open, remembered per account; every group starts collapsed. The old
-  // per-group collapse map (default: all open) is dropped once.
-  const [openNodeGroup, setOpenNodeGroup] = useLocalStorageState<string>(
-    `flvx:node:group-open:v1:u:${JwtUtil.getUserIdFromToken() ?? 0}`,
-    "",
-  );
-
-  useEffect(() => {
-    try {
-      localStorage.removeItem("node-group-collapsed-state");
-    } catch {}
-  }, []);
+  // open. Plan 289: kept in memory only, every visit starts with every group
+  // collapsed (old stored keys: utils/forget-group-open).
+  const [openNodeGroup, setOpenNodeGroup] = useState("");
   const queueGroupScroll = useGroupScrollSettle();
   const toggleNodeGroup = (groupIdStr: string) => {
     const open = openNodeGroup !== groupIdStr;

@@ -71,7 +71,6 @@ import {
   treeGroupHeaderClass,
   treeGroupWrapperClass,
 } from "@/components/tree-group";
-import { useGroupScrollSettle } from "@/hooks/use-group-scroll-settle";
 import { useH5Mode } from "@/hooks/useH5Mode";
 import { usePullToRefresh } from "@/hooks/usePullToRefresh";
 import { Button } from "@/shadcn-bridge/heroui/button";
@@ -518,38 +517,23 @@ export default function LandingPage() {
   )
     ? "error"
     : "warn";
-  // Plan 286: 落地服务器 / 可用落地 region groups. Round 2: users too, and
-  // every group starts collapsed (only the opened ones are remembered, per
-  // browser and account).
-  const groupUserId = JwtUtil.getUserIdFromToken() ?? 0;
+  // Plan 286: 落地服务器 / 可用落地 region groups. Round 2: users too.
+  // Plan 289: every group starts collapsed on every visit (open state is not
+  // remembered).
   const serverGroups = useMemo(
     () => groupServersByRegion(servers, attentionById, admin),
     [admin, servers, attentionById],
   );
-  // Plan 287: one open group per list (accordion), v3 keys; the older open
-  // sets are dropped, so every group starts collapsed once.
-  const regionOpen = useGroupOpenState(
-    `flvx:landing:region-open:v3:u:${groupUserId}`,
-    [
-      "flvx:landing:region-groups",
-      `flvx:landing:region-open:v2:u:${groupUserId}`,
-    ],
-  );
+  // Plan 287: one open group per list (accordion).
+  const regionOpen = useGroupOpenState();
   const openRegionOf = regionOpen.open;
-  // Plan 287: the 转发 / 隧道 page position correction (utils/group-accordion)
-  // after a header / footer tap — the tapped header first stays where it was
-  // (a long open group above may just have collapsed: accordion), then an
-  // opened group's header glides to the top; a closed one only scrolls if it
-  // left the screen. Jumps and the restored open group call open() directly
-  // and keep their own scrolling.
-  const queueGroupScroll = useGroupScrollSettle();
-  const toggleGroup = (
-    state: { isOpen: (key: string) => boolean; toggle: (key: string) => void },
-    key: string,
-  ) => {
-    queueGroupScroll(key, !state.isOpen(key));
+  // Plan 289 (user): no position correction on this page — the groups are
+  // short, and the glide after every tap made the page move up and down. A
+  // header / footer tap only opens / closes (accordion: one open per list);
+  // the page is not scrolled. Jumps (⚠ 查看, 创建节点, 设置 saved, ?server=)
+  // call open() directly and keep their own scrolling.
+  const toggleGroup = (state: { toggle: (key: string) => void }, key: string) =>
     state.toggle(key);
-  };
   // A server whose group must open once the reloaded list arrives (设置 saved).
   const revealServer = useRef(0);
 
@@ -718,14 +702,8 @@ export default function LandingPage() {
           ),
     [admin, nodes, servers],
   );
-  const userOpen = useGroupOpenState(
-    `flvx:landing:user-open:v3:u:${groupUserId}`,
-    ["flvx:landing:user-groups", `flvx:landing:user-open:v2:u:${groupUserId}`],
-  );
-  const myServerOpen = useGroupOpenState(
-    `flvx:landing:my-server-open:v3:u:${groupUserId}`,
-    [`flvx:landing:my-server-open:v2:u:${groupUserId}`],
-  );
+  const userOpen = useGroupOpenState();
+  const myServerOpen = useGroupOpenState();
   const [openRow, setOpenRow] = useState(0);
   const [flashNodeId, setFlashNodeId] = useState(0);
   const revealNode = (node?: LandingNode | null, keys?: string[]) => {

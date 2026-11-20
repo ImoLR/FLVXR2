@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 
-import { useCallback, useEffect } from "react";
+import { useCallback, useState } from "react";
 
 import { LandingTone, Pill } from "./pill";
 import {
@@ -10,8 +10,11 @@ import {
 } from "./admin-attention";
 
 import { LandingNode, LandingServer } from "@/api/landing";
-import { TreeGroupChevron, TreeGroupHeader } from "@/components/tree-group";
-import { useLocalStorageState } from "@/hooks/use-local-storage-state";
+import {
+  TreeGroupChevron,
+  TreeGroupFooter,
+  TreeGroupHeader,
+} from "@/components/tree-group";
 import {
   compareRegions,
   regionFlag,
@@ -27,33 +30,22 @@ import {
 /**
  * Open / closed state of one group list. Plan 287: an accordion like the
  * 转发 / 隧道 pages — at most ONE group open per list; opening another one
- * collapses it. The open key is remembered per browser and account
- * (localStorage), so a page opened with nothing remembered starts with every
- * group collapsed (plan 286 rule). `legacyKeys` (older open-set keys) are
- * removed once.
+ * collapses it. Plan 289 (user): the open group lives in component memory
+ * only — it stays open while the user stays on the page (list reloads, tab
+ * switch, jumps), and every visit (or a browser reload) starts with every
+ * group collapsed. The old stored keys are removed at app start
+ * (utils/forget-group-open).
  */
-export function useGroupOpenState(storageKey: string, legacyKeys: string[]) {
-  const [stored, setStored] = useLocalStorageState<string>(storageKey, "");
-  const legacy = legacyKeys.join("\n");
-
-  useEffect(() => {
-    if (!legacy) return;
-    try {
-      legacy.split("\n").forEach((key) => localStorage.removeItem(key));
-    } catch {}
-  }, [legacy]);
-  const openKey = typeof stored === "string" ? stored : "";
+export function useGroupOpenState() {
+  const [openKey, setOpenKey] = useState("");
   const isOpen = (key: string) => key !== "" && key === openKey;
   const toggle = (key: string) =>
-    setStored((prev) => (prev === key ? "" : key));
+    setOpenKey((prev) => (prev === key ? "" : key));
   // Jumps (⚠ 查看, 创建节点 …) open their target group (the first key), the
   // others collapse.
-  const open = useCallback(
-    (keys: string[]) => {
-      if (keys[0]) setStored(keys[0]);
-    },
-    [setStored],
-  );
+  const open = useCallback((keys: string[]) => {
+    if (keys[0]) setOpenKey(keys[0]);
+  }, []);
 
   return { isOpen, toggle, open };
 }
@@ -201,6 +193,8 @@ export function ServerRegionHeader({
  * The region group box: header + (when open) the unchanged card grid.
  * Plan 287: the cards hang off a line from the region chevron (in the region
  * colour, like the 隧道 page region level) — `cardTree` wraps them.
+ * Plan 289: an open group ends with the 「收起 · 地区」 footer (like the
+ * 全部节点 groups), tinted in the region colour; it closes like the header.
  */
 export function ServerRegionSection({
   group,
@@ -222,6 +216,13 @@ export function ServerRegionSection({
     >
       <ServerRegionHeader group={group} open={open} onToggle={onToggle} />
       {open && children}
+      {open && (
+        <TreeGroupFooter
+          name={regionName(group.region)}
+          variant="region"
+          onToggle={onToggle}
+        />
+      )}
     </section>
   );
 }
