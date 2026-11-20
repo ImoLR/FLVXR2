@@ -30,7 +30,14 @@ Base: tag 3.0.27-fork.156 (512ab25b). Branch `feature/3.0.27-landing-no-scroll`.
 - [x] Build: tsc + lint + `npm run build`
 - [x] Lab: scrollY per tap on 落地 (admin + user, desktop + 390), footer look, 转发/隧道 glide identical to fork.156,
       navigate-away / reload → all collapsed on every page; gallery /landing-no-scroll/
-- [ ] Release fork.N (tag, CI, Images, assets, Latest)
-- [ ] Prod backup + rollback script + prune, swap between OTA hosts, OTA brief note
-- [ ] Prod verify (nodes, forwards, 利群, log 15 min) + read-only prod screenshots
-- [ ] Ledger + memory + cleanup
+- [x] Release fork.157 (tag 3.0.27-fork.157 → 4ba5aca7; CI 44716647586, Images 44716651149, Latest, 10 assets, gost sha256 ok)
+- [x] Prod backup + rollback script + prune, swap 11-20 18:21:44–18:21:53 TW between OTA idle checks, OTA brief note (rollback /opt/flvx-svc/rollback/pre-fork157-20261120T102144Z/rollback.sh)
+- [x] Prod verify: 30/30 nodes (30 redeploys, 0 failed), 64/64 forwards, state identical, light check no regression, log 15 min clean; read-only prod shots (taps 0 scroll frames, 转发 still glides)
+- [x] Ledger + memory + cleanup
+
+## Notes
+- No scroll anchoring help possible: the tapped header becomes `position: sticky` on open, which suppresses browser
+  scroll anchoring by spec (tested `overflow-anchor` variants in the lab: no effect). When a long open group above
+  collapses, the tapped header moves up by that height (natural reflow, instant, no glide).
+- Lab: A 56/56, B 50/50, C 4/4 (scripts /root/flvx-workers/runs/landing-no-scroll-fix/lab/). Gallery
+  http://104.145.236.29:8791/landing-no-scroll/.
