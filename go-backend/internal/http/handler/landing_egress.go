@@ -148,7 +148,7 @@ func resolveLandingOutbound(d *repo.LandingEgressData, id int64) (landingegress.
 			return po, fmt.Errorf("出站「%s」的上游地址无效或是内网地址", o.Name)
 		}
 		if u.Node.Protocol == "ss2022" {
-			po.Type, po.Method, po.Password = "shadowsocks", u.Node.Method, u.Node.ServerKey+":"+u.Node.UserKey
+			po.Type, po.Method, po.Password = "shadowsocks", u.Node.Method, repo.LandingSS2022Password(u.Node)
 		} else {
 			names := jsonStrings(u.Node.ServerNames)
 			sni := ""

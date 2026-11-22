@@ -149,11 +149,17 @@ const maxChainNodes = 1000
 
 func chainOutboundTag(id int64) string { return "flvxc-" + strconv.FormatInt(id, 10) }
 
+// SS2022: UserKey "" (plan 291) is a single-key node — the server key alone is
+// the client password (no EIH), as on landings moved over from mmwx with their
+// credentials unchanged. Panel-made nodes always carry both keys.
 type SS2022 struct {
 	Method    string `json:"method"`
 	ServerKey string `json:"server_key"`
 	UserKey   string `json:"user_key"`
 }
+
+// VLESS: Flow is xtls-rprx-vision, or "" (plan 291) for a moved-over Reality
+// node whose clients use no flow; the inbound client then has no flow either.
 type VLESS struct {
 	UUID    string  `json:"uuid"`
 	Flow    string  `json:"flow"`
@@ -417,21 +423,31 @@ func (n Node) inbound() (map[string]any, error) {
 		if n.SS2022 == nil || n.SS2022.Method != SS2022Method {
 			return nil, fmt.Errorf("invalid SS2022 method")
 		}
-		for _, key := range []string{n.SS2022.ServerKey, n.SS2022.UserKey} {
+		keys := []string{n.SS2022.ServerKey}
+		if n.SS2022.UserKey != "" {
+			keys = append(keys, n.SS2022.UserKey)
+		}
+		for _, key := range keys {
 			b, err := base64.StdEncoding.Strict().DecodeString(key)
 			if err != nil || len(b) != 16 {
 				return nil, fmt.Errorf("SS2022 keys must encode exactly 16 bytes")
 			}
 		}
 		inbound["protocol"] = "shadowsocks"
-		inbound["settings"] = map[string]any{"method": SS2022Method, "password": n.SS2022.ServerKey, "network": "tcp,udp", "clients": []any{map[string]any{"password": n.SS2022.UserKey, "email": n.InboundTag}}}
+		if n.SS2022.UserKey == "" {
+			// Plan 291: single-key server; the email keeps the node's identity
+			// (stats, blocks, limits) the same as the client entry below.
+			inbound["settings"] = map[string]any{"method": SS2022Method, "password": n.SS2022.ServerKey, "network": "tcp,udp", "email": n.InboundTag}
+		} else {
+			inbound["settings"] = map[string]any{"method": SS2022Method, "password": n.SS2022.ServerKey, "network": "tcp,udp", "clients": []any{map[string]any{"password": n.SS2022.UserKey, "email": n.InboundTag}}}
+		}
 		inbound["streamSettings"] = map[string]any{"network": "tcp"}
 	case "vless_reality_vision":
 		if n.VLESS == nil {
 			return nil, fmt.Errorf("missing VLESS credentials")
 		}
 		v := n.VLESS
-		if _, err := uuid.Parse(v.UUID); err != nil || v.Flow != "xtls-rprx-vision" {
+		if _, err := uuid.Parse(v.UUID); err != nil || (v.Flow != "xtls-rprx-vision" && v.Flow != "") {
 			return nil, fmt.Errorf("invalid VLESS credentials")
 		}
 		key, err := base64.RawURLEncoding.Strict().DecodeString(v.Reality.PrivateKey)
@@ -452,7 +468,11 @@ func (n Node) inbound() (map[string]any, error) {
 			}
 		}
 		inbound["protocol"] = "vless"
-		inbound["settings"] = map[string]any{"decryption": "none", "clients": []any{map[string]any{"id": v.UUID, "email": n.InboundTag, "flow": "xtls-rprx-vision"}}}
+		client := map[string]any{"id": v.UUID, "email": n.InboundTag}
+		if v.Flow != "" {
+			client["flow"] = v.Flow
+		}
+		inbound["settings"] = map[string]any{"decryption": "none", "clients": []any{client}}
 		inbound["streamSettings"] = map[string]any{"network": "tcp", "security": "reality", "realitySettings": map[string]any{"dest": v.Reality.Dest, "serverNames": v.Reality.ServerNames, "privateKey": v.Reality.PrivateKey, "shortIds": v.Reality.ShortIDs}}
 	case ProtocolVLESSEnc:
 		// Plan 253: never a chain node (validateChain allows Reality / AnyTLS).

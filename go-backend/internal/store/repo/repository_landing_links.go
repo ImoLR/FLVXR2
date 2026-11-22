@@ -31,6 +31,17 @@ type LandingLink struct {
 	Blocked string `json:"blocked,omitempty"`
 }
 
+// LandingSS2022Password is the client password of an SS2022 node: "server
+// key:user key", or the server key alone on a single-key node (plan 291:
+// moved over from mmwx with its credentials unchanged; the agent renders it
+// without clients).
+func LandingSS2022Password(n model.LandingNode) string {
+	if n.UserKey == "" {
+		return n.ServerKey
+	}
+	return n.ServerKey + ":" + n.UserKey
+}
+
 func LandingURL(n model.LandingNode, host string, port int) string {
 	authority := net.JoinHostPort(strings.Trim(host, "[]"), strconv.Itoa(port))
 	if landingcustom.IsExtraProtocol(n.Protocol) {
@@ -40,7 +51,7 @@ func LandingURL(n model.LandingNode, host string, port int) string {
 		return vlessEncURL(n, host, port)
 	}
 	if n.Protocol == "ss2022" {
-		userinfo := url.QueryEscape(n.Method) + ":" + url.QueryEscape(n.ServerKey+":"+n.UserKey)
+		userinfo := url.QueryEscape(n.Method) + ":" + url.QueryEscape(LandingSS2022Password(n))
 		return "ss://" + strings.ReplaceAll(userinfo, "+", "%20") + "@" + authority + "#" + url.PathEscape(n.Name)
 	}
 	names := []string{}
@@ -49,7 +60,12 @@ func LandingURL(n model.LandingNode, host string, port int) string {
 	if len(names) > 0 {
 		sni = names[0]
 	}
-	q := url.Values{"encryption": {"none"}, "flow": {"xtls-rprx-vision"}, "security": {"reality"}, "sni": {sni}, "fp": {"chrome"}, "pbk": {n.PublicKey}, "sid": {n.ShortID}, "type": {"tcp"}}
+	q := url.Values{"encryption": {"none"}, "security": {"reality"}, "sni": {sni}, "fp": {"chrome"}, "pbk": {n.PublicKey}, "sid": {n.ShortID}, "type": {"tcp"}}
+	// Plan 291: the node's flow (vision on every panel-made node; "" on a
+	// Reality node moved over from mmwx whose clients use no flow).
+	if n.Flow != "" {
+		q.Set("flow", n.Flow)
+	}
 	return "vless://" + n.UUID + "@" + authority + "?" + q.Encode() + "#" + url.PathEscape(n.Name)
 }
 func (r *Repository) LandingNodeLinks(n model.LandingNode) ([]LandingLink, error) {
