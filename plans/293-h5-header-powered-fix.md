@@ -16,10 +16,10 @@ Base: tag 3.0.27-fork.160, branch `fix/3.0.27-h5-header-powered`.
 - [x] Check other H5 pages + desktop profile for the same overlap
 - [x] `npm run build`
 - [x] After screenshots (390 + 360, admin / CJK / long name, light + dark, profile bottom, other page bottom, desktop profile) → gallery
-- [ ] Commit, push, tag next fork, CI + Images + assets + Latest
-- [ ] Prod backup + rollback script, prune backups, swap
-- [ ] Prod checks: nodes, forwards, log 15 min, prod H5 screenshots
-- [ ] Memory + hand-off to manian-to-flvx
+- [x] Commit, push, tag next fork, CI + Images + assets + Latest
+- [x] Prod backup + rollback script, prune backups, swap
+- [x] Prod checks: nodes, forwards, log 15 min, prod H5 screenshots
+- [x] Memory + hand-off to manian-to-flvx
 
 ## Result (lab)
 - Header (390/360): admin unchanged; admin_user and 游戏玩家小明 now shown in full; a 28-char name ellipsizes,
@@ -29,3 +29,12 @@ Base: tag 3.0.27-fork.160, branch `fix/3.0.27-h5-header-powered`.
 - Other H5 pages (dashboard, forward, node, tunnel, user, config): no in-page Powered text, badge unchanged.
 - Desktop 个人中心: no overlap (footer text above, badge at the very bottom) → left unchanged.
 - Gallery: http://104.145.236.29:8791/h5-header-powered-fix/
+
+## Release (done 11-22 23:46 TW)
+- Tag 3.0.27-fork.161 → d8bf4a0a, CI 45038524198 + Images 45038525964 green, Latest, 10 assets, gost sha256 ok.
+- Prod swap 23:46:08–23:46:16 TW (frontend only, no DB change, no OTA). Rollback:
+  /opt/flvx-svc/rollback/pre-fork161-20261122T154607Z/rollback.sh (→ fork.160). Backups kept: pre-fork160 + pre-fork161.
+- Checks: 29/31 nodes online before = after (火山广州 / 火山上海 already offline), 64/64 forwards + 利群 tables
+  identical, 5 busiest forwards diagnose/RTT unchanged, panel log 15 min 0 errors, backend RSS 39.9 → 32.6 MiB.
+- Prod H5 个人中心 390/360/dark: badge gone, overlap false; dashboard badge unchanged.
+- manian-to-flvx brief told: panel = fork.161, OTA target fork.161.
