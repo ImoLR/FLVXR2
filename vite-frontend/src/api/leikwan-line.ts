@@ -883,8 +883,17 @@ export const updateLeiKwanRule = (body: {
 }) => lkr<{ rule: LeiKwanRule; warnings?: string[] }>("update", body);
 export const deleteLeiKwanRule = (id: number, keepLeiKwan = false) =>
   lkr<{ backupNote?: string }>("delete", { id, confirmed: true, keepLeiKwan });
-export const getLeiKwanRuleLink = (id: number) =>
-  lkr<{ address: string; url?: string; note?: string }>("link", { id });
+// Plan 294: `entry` = the selected 入口机 (a node of the 利群入口 group, or
+// "local" = 手机本地 127.0.0.1); omitted = the owner's 主入口 as before.
+export const getLeiKwanRuleLink = (id: number, entry?: number | "local") =>
+  lkr<{ address: string; url?: string; note?: string; entryName?: string }>(
+    "link",
+    entry === "local"
+      ? { id, local: true }
+      : entry
+        ? { id, entryNodeId: entry }
+        : { id },
+  );
 // Plan 272 「生成订阅」: the owner's 「利群汇聚」 subscription (admins: userId
 // = a granted user; users: themselves).
 export const getLeiKwanRuleSub = (userId?: number) =>

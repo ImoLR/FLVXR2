@@ -1,4 +1,5 @@
 import type { LeiKwanRule, LeiKwanRuleList } from "@/api/leikwan-line";
+import type { EntryRuleView } from "@/pages/leikwan/panel/entry-model";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
@@ -14,6 +15,15 @@ import { useExpandOne } from "@/components/expand-row";
 import { useH5Mode } from "@/hooks/useH5Mode";
 import { usePullToRefresh } from "@/hooks/usePullToRefresh";
 import { Pill } from "@/pages/landing/pill";
+import {
+  entryRuleView,
+  useLeiKwanEntries,
+} from "@/pages/leikwan/panel/entry-model";
+import {
+  EntryChips,
+  EntryTile,
+  PhoneDrawer,
+} from "@/pages/leikwan/panel/entry-parts";
 import {
   LkCard,
   LkCardTitle,
@@ -43,6 +53,7 @@ import { VendorFlowPill } from "@/pages/leikwan/panel/usage-parts";
 import { LeiKwanSubDialog } from "@/pages/leikwan/panel/sub-dialog";
 import { Button } from "@/shadcn-bridge/heroui/button";
 import { Spinner } from "@/shadcn-bridge/heroui/spinner";
+import { isAppMode, useAppInfo, usePhoneState } from "@/utils/app-bridge";
 
 // Plan 270: the user view of 利群汇聚 (screens 06–08). Only for users with an
 // active 利群 grant (others are sent back to 主页). Users see their entry, the
@@ -83,7 +94,8 @@ function GraceNotice({ data }: { data: LeiKwanRuleList }) {
       <AlertTriangle className="mt-0.5 shrink-0" size={16} />
       <span className="min-w-0 break-words">
         主入口已从 <b>{from}</b> 换到 <b>{to}</b>；旧地址最晚{" "}
-        <b>{fmtGraceUntil(gr.until)}</b> 停用。用订阅的刷新一次即可，用节点链接的请重新复制
+        <b>{fmtGraceUntil(gr.until)}</b>{" "}
+        停用。用订阅的刷新一次即可，用节点链接的请重新复制
       </span>
     </div>
   );
@@ -141,6 +153,12 @@ export function LeiKwanUserView() {
   const [line, setLine] = useState<number | null>(null);
   // Plan 272: 「生成订阅」 dialog.
   const [subOpen, setSubOpen] = useState(false);
+  // Plan 294: the im.gamer App — 手机本地 next to the own 主入口.
+  const app = isAppMode();
+  const phone = usePhoneState();
+  const appInfo = useAppInfo();
+  const [phoneOpen, setPhoneOpen] = useState(false);
+  const [noGrant, setNoGrant] = useState(false);
 
   const load = useCallback(async () => {
     const res = await getLeiKwanRules();
@@ -153,6 +171,12 @@ export function LeiKwanUserView() {
     if (res.data.granted === false) {
       // No (active) grant: the page is not for this user.
       void refreshLeiKwanNav();
+      // The App shows only this page: say so instead of leaving.
+      if (isAppMode()) {
+        setNoGrant(true);
+
+        return;
+      }
       toast.error("没有利群汇聚授权");
       navigate("/dashboard", { replace: true });
 
@@ -167,17 +191,77 @@ export function LeiKwanUserView() {
   }, [load]);
   usePullToRefresh(load);
 
+  const g0 = data?.grant;
+  const ent = useLeiKwanEntries({
+    app,
+    phone,
+    mainEntryId: g0?.mainEntryNodeId,
+    userEntry: useMemo(
+      () =>
+        g0?.mainEntryNodeId
+          ? {
+              nodeId: g0.mainEntryNodeId,
+              name: g0.mainEntryName || "主入口",
+              host: g0.mainEntryHost || "",
+            }
+          : undefined,
+      [g0?.mainEntryNodeId, g0?.mainEntryName, g0?.mainEntryHost],
+    ),
+  });
+  // Browsers keep the plan-270 rows (the 主入口 only); the App follows the pick.
+  const viewOf = (r: LeiKwanRule): EntryRuleView | null =>
+    app
+      ? entryRuleView(ent.selected, r, {
+          phone,
+          entryLock: !!data?.entryLock,
+        })
+      : null;
   const actions = useLeiKwanRuleActions({
     admin: false,
     reload: () => void load(),
     entryLock: !!data?.entryLock,
+    entry: app ? ent.selected : undefined,
   });
   const subDialog = (
-    <LeiKwanSubDialog
-      admin={false}
-      open={subOpen}
-      onClose={() => setSubOpen(false)}
-    />
+    <>
+      <LeiKwanSubDialog
+        admin={false}
+        entry={app ? ent.selected : undefined}
+        open={subOpen}
+        onClose={() => setSubOpen(false)}
+      />
+      {app && (
+        <PhoneDrawer
+          info={appInfo}
+          open={phoneOpen}
+          phone={phone}
+          rules={data?.rules || []}
+          onClose={() => setPhoneOpen(false)}
+        />
+      )}
+    </>
+  );
+  // Plan 294 (App only): 入口机 = 手机本地 + the own 主入口; tap = select.
+  const entryCard = app && (
+    <LkCard className="space-y-2.5 p-3" data-leikwan-user-entries="">
+      <LkCardTitle
+        hint="点一个 = 选它作入口，转发地址、复制链接、订阅跟着它"
+        title="入口机"
+      />
+      <div className="grid grid-cols-2 gap-2">
+        {ent.options.map((o) => (
+          <EntryTile
+            key={String(o.key)}
+            noDetails={!o.phone}
+            option={o}
+            phone={phone}
+            selected={ent.selected?.key === o.key}
+            onDetails={() => setPhoneOpen(true)}
+            onSelect={() => ent.select(o.key)}
+          />
+        ))}
+      </div>
+    </LkCard>
   );
   const subNote = "推荐用订阅：换入口时刷新订阅即可，不用改地址";
   // Plan 280: 利群转发数 — 已用 x / N next to 添加转发, greyed at the limit.
@@ -208,6 +292,17 @@ export function LeiKwanUserView() {
   const visibleCount = groups.reduce((n, g) => n + g.rules.length, 0);
   const expand = useExpandOne(rules.map((r) => r.id));
   const g = data?.grant;
+
+  if (noGrant)
+    return (
+      <LkCard className="mx-auto max-w-md space-y-2 p-5 text-center">
+        <h1 className="text-lg font-semibold">利群汇聚</h1>
+        <p className="text-sm text-default-500">
+          这个账号还没有利群汇聚授权：请面板管理员在「利群汇聚 →
+          授权」里加上你。
+        </p>
+      </LkCard>
+    );
 
   if (!data)
     return (
@@ -250,9 +345,9 @@ export function LeiKwanUserView() {
       这条专线上还没有你的转发
       <Button
         color="success"
+        isDisabled={limitFull}
         size="sm"
         startContent={<Plus size={14} />}
-        isDisabled={limitFull}
         variant="flat"
         onPress={() => actions.openCreate(id)}
       >
@@ -274,6 +369,7 @@ export function LeiKwanUserView() {
           <p className="text-xs text-default-500">转发数、流量、到期跟账号走</p>
         </LkCard>
         <GraceNotice data={data} />
+        {entryCard}
         <div className="space-y-1">
           <Button
             className="h-11 w-full"
@@ -327,86 +423,99 @@ export function LeiKwanUserView() {
                 {routeShort(l.routeLabel)}
               </Pill>
             </div>
-            {list.map((r) => (
-              <LkExpandCard
-                key={r.id}
-                chip={protocolChip(r, true)}
-                data-leikwan-rule={r.name}
-                dot={<RuleDot rule={r} />}
-                name={r.name}
-                open={expand.open === r.id}
-                onToggle={() => expand.toggle(r.id)}
-              >
-                <LkField label="入口">
-                  {r.entry ? (
-                    <button
-                      className="font-mono text-xs"
-                      type="button"
-                      onClick={() =>
-                        void copyText(r.entry!.address, "入口地址")
-                      }
-                    >
-                      {r.entry.address}
-                    </button>
-                  ) : (
-                    "授权没有主入口"
-                  )}
-                </LkField>
-                <LkField label="落地">
-                  {r.landing.kind === "manual"
-                    ? `${r.landing.host}:${r.landing.port}`
-                    : r.landing.name}
-                  {r.landing.kind === "external" && (
-                    <span className="text-xs text-default-500">
-                      {externalNote(r)}
-                    </span>
-                  )}
-                </LkField>
-                <LkField label="备线">
-                  {r.backupError ? (
-                    <UserBackupChip rule={r} />
-                  ) : (
-                    <Pill tone={r.backupOn ? "green" : "slate"}>
-                      {r.backupOn ? "开 · 断线自动切，地址不变" : "没开"}
-                    </Pill>
-                  )}
-                </LkField>
-                {(r.inFlow !== undefined ||
-                  r.outFlow !== undefined ||
-                  r.vendorFlow) && (
-                  <LkField label="流量">
-                    <FlowPill rule={r} />
-                    <BackupFlowPill rule={r} />
-                    <VendorFlowPill rule={r} />
+            {list.map((r) => {
+              const view = viewOf(r);
+              const address = view?.address || r.entry?.address;
+
+              return (
+                <LkExpandCard
+                  key={r.id}
+                  chip={protocolChip(r, true)}
+                  className={view && !view.open ? "opacity-60" : ""}
+                  data-leikwan-rule={r.name}
+                  dot={<RuleDot rule={r} />}
+                  name={r.name}
+                  open={expand.open === r.id}
+                  onToggle={() => expand.toggle(r.id)}
+                >
+                  <LkField label="入口">
+                    {address ? (
+                      <button
+                        className="font-mono text-xs"
+                        type="button"
+                        onClick={() => void copyText(address, "入口地址")}
+                      >
+                        {address}
+                      </button>
+                    ) : (
+                      "授权没有主入口"
+                    )}
+                    {view && ent.selected && (
+                      <Pill tone="teal">{ent.selected.name}</Pill>
+                    )}
+                    {view && <EntryChips view={view} />}
                   </LkField>
-                )}
-                {r.userExpired && (
-                  <LkField label="到期">
-                    <Pill tone="red">已到期</Pill>
+                  <LkField label="落地">
+                    {r.landing.kind === "manual"
+                      ? `${r.landing.host}:${r.landing.port}`
+                      : r.landing.name}
+                    {r.landing.kind === "external" && (
+                      <span className="text-xs text-default-500">
+                        {externalNote(r)}
+                      </span>
+                    )}
                   </LkField>
-                )}
-                {r.blockReason && (
-                  <LkField label="状态">
-                    <span className="text-red-700 dark:text-red-300">
-                      {blockedNote(r)}
-                    </span>
+                  <LkField label="备线">
+                    {r.backupError ? (
+                      <UserBackupChip rule={r} />
+                    ) : (
+                      <Pill tone={r.backupOn ? "green" : "slate"}>
+                        {r.backupOn ? "开 · 断线自动切，地址不变" : "没开"}
+                      </Pill>
+                    )}
                   </LkField>
-                )}
-                {r.pendingLanding && (
-                  <LkField label="待切换">
-                    <PendingBlock
-                      compact
-                      inField
+                  {(r.inFlow !== undefined ||
+                    r.outFlow !== undefined ||
+                    r.vendorFlow) && (
+                    <LkField label="流量">
+                      <FlowPill rule={r} />
+                      <BackupFlowPill rule={r} />
+                      <VendorFlowPill rule={r} />
+                    </LkField>
+                  )}
+                  {r.userExpired && (
+                    <LkField label="到期">
+                      <Pill tone="red">已到期</Pill>
+                    </LkField>
+                  )}
+                  {r.blockReason && (
+                    <LkField label="状态">
+                      <span className="text-red-700 dark:text-red-300">
+                        {blockedNote(r)}
+                      </span>
+                    </LkField>
+                  )}
+                  {r.pendingLanding && (
+                    <LkField label="待切换">
+                      <PendingBlock
+                        compact
+                        inField
+                        rule={r}
+                        onSwap={actions.openSwap}
+                      />
+                    </LkField>
+                  )}
+                  <div className="flex flex-wrap gap-2 pt-1">
+                    <RuleButtons
+                      fill
+                      actions={actions}
+                      admin={false}
                       rule={r}
-                      onSwap={actions.openSwap}
                     />
-                  </LkField>
-                )}
-                <div className="flex flex-wrap gap-2 pt-1">
-                  <RuleButtons fill actions={actions} admin={false} rule={r} />
-                </div>
-              </LkExpandCard>
-            ))}
+                  </div>
+                </LkExpandCard>
+              );
+            })}
             {list.length === 0 && emptyLine(l.id)}
           </div>
         ))}
@@ -470,6 +579,7 @@ export function LeiKwanUserView() {
         </p>
       )}
       <GraceNotice data={data} />
+      {entryCard}
       <LkCard className="space-y-3 p-4" data-leikwan-lines="">
         <LkCardTitle
           chip={<Pill tone="teal">{lines.length} 条</Pill>}
@@ -547,66 +657,73 @@ export function LeiKwanUserView() {
                   </div>
                 </>
               )}
-              {list.map((r) => (
-                <div
-                  key={r.id}
-                  className={`${RULE_GRID} items-center rounded-xl border border-divider bg-default-50/60 px-3 py-2.5 dark:bg-default-50/30`}
-                  data-leikwan-rule={r.name}
-                >
-                  <div className="min-w-0 space-y-1.5">
-                    <div className="flex items-start gap-1.5">
-                      <RuleDot rule={r} />
-                      <span className="min-w-0 break-words text-sm font-semibold leading-5">
-                        {r.name}
-                      </span>
-                    </div>
-                    <div className="flex flex-wrap gap-1">
-                      <UserBackupChip rule={r} />
-                      {protocolChip(r)}
-                      {r.userExpired && <Pill tone="red">已到期</Pill>}
-                      <BlockedPill rule={r} />
-                      <FlowPill rule={r} />
-                      <BackupFlowPill rule={r} />
-                      <VendorFlowPill rule={r} />
-                    </div>
-                    {r.blockReason && (
-                      <div className="text-[11px] text-red-700 dark:text-red-300">
-                        {blockedNote(r)}
-                      </div>
-                    )}
-                  </div>
-                  <div className="min-w-0">
-                    {r.entry ? (
-                      <button
-                        className="inline-flex max-w-full items-center gap-1.5 rounded-lg bg-default-100 px-2 py-1 hover:bg-default-200 dark:bg-default-100/50"
-                        title="点一下复制"
-                        type="button"
-                        onClick={() =>
-                          void copyText(r.entry!.address, "入口地址")
-                        }
-                      >
-                        <span className="break-all font-mono text-xs">
-                          {r.entry.address}
+              {list.map((r) => {
+                const view = viewOf(r);
+                const address = view?.address || r.entry?.address;
+
+                return (
+                  <div
+                    key={r.id}
+                    className={`${RULE_GRID} items-center rounded-xl border border-divider bg-default-50/60 px-3 py-2.5 dark:bg-default-50/30 ${view && !view.open ? "opacity-60" : ""}`}
+                    data-leikwan-rule={r.name}
+                  >
+                    <div className="min-w-0 space-y-1.5">
+                      <div className="flex items-start gap-1.5">
+                        <RuleDot rule={r} />
+                        <span className="min-w-0 break-words text-sm font-semibold leading-5">
+                          {r.name}
                         </span>
-                        <Copy className="shrink-0 text-default-400" size={12} />
-                      </button>
-                    ) : (
-                      <span className="text-xs text-default-400">
-                        授权没有主入口
-                      </span>
-                    )}
+                      </div>
+                      <div className="flex flex-wrap gap-1">
+                        <UserBackupChip rule={r} />
+                        {protocolChip(r)}
+                        {r.userExpired && <Pill tone="red">已到期</Pill>}
+                        <BlockedPill rule={r} />
+                        <FlowPill rule={r} />
+                        <BackupFlowPill rule={r} />
+                        <VendorFlowPill rule={r} />
+                        {view && <EntryChips view={view} />}
+                      </div>
+                      {r.blockReason && (
+                        <div className="text-[11px] text-red-700 dark:text-red-300">
+                          {blockedNote(r)}
+                        </div>
+                      )}
+                    </div>
+                    <div className="min-w-0">
+                      {address ? (
+                        <button
+                          className="inline-flex max-w-full items-center gap-1.5 rounded-lg bg-default-100 px-2 py-1 hover:bg-default-200 dark:bg-default-100/50"
+                          title="点一下复制"
+                          type="button"
+                          onClick={() => void copyText(address, "入口地址")}
+                        >
+                          <span className="break-all font-mono text-xs">
+                            {address}
+                          </span>
+                          <Copy
+                            className="shrink-0 text-default-400"
+                            size={12}
+                          />
+                        </button>
+                      ) : (
+                        <span className="text-xs text-default-400">
+                          授权没有主入口
+                        </span>
+                      )}
+                    </div>
+                    <UserLanding actions={actions} rule={r} />
+                    <div className="flex flex-wrap justify-end gap-1.5">
+                      <RuleButtons
+                        compact
+                        actions={actions}
+                        admin={false}
+                        rule={r}
+                      />
+                    </div>
                   </div>
-                  <UserLanding actions={actions} rule={r} />
-                  <div className="flex flex-wrap justify-end gap-1.5">
-                    <RuleButtons
-                      compact
-                      actions={actions}
-                      admin={false}
-                      rule={r}
-                    />
-                  </div>
-                </div>
-              ))}
+                );
+              })}
               {list.length === 0 && emptyLine(l.id)}
             </div>
           ))}

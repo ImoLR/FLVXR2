@@ -1887,12 +1887,15 @@ func (h *Handler) leiKwanDeleteForward(ctx context.Context, x *model.LeiKwanRule
 func (h *Handler) leikwanRuleLink(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		ID int64 `json:"id"`
+		// Plan 294: the selected 入口机 (0 / false = the owner's 主入口).
+		EntryNodeID int64 `json:"entryNodeId"`
+		Local       bool  `json:"local"`
 	}
 	if err := leiKwanDecode(r, &req); err != nil {
 		leiKwanError(w, err)
 		return
 	}
-	x, _, err := h.leiKwanRuleAccess(r, req.ID)
+	x, admin, err := h.leiKwanRuleAccess(r, req.ID)
 	if err != nil {
 		leiKwanError(w, err)
 		return
@@ -1906,21 +1909,39 @@ func (h *Handler) leikwanRuleLink(w http.ResponseWriter, r *http.Request) {
 		leiKwanError(w, errors.New("利群汇聚授权已停用，没有链接")) // plan 276 (F12)
 		return
 	}
-	n, err := h.repo.GetNodeRecord(g.MainEntryNodeID)
-	if err != nil || n == nil {
-		leiKwanError(w, errors.New("主入口节点不存在"))
-		return
+	var serverIP, entryName string
+	if pick := (lkEntryPick{Local: req.Local, NodeID: req.EntryNodeID}); pick.set() {
+		e, err := h.leiKwanPickEntry(x.UserID, admin, pick)
+		if err != nil || e == nil {
+			if err == nil {
+				err = errors.New("主入口未定")
+			}
+			leiKwanError(w, err)
+			return
+		}
+		if h.leiKwanPickLocked(*x, e) {
+			leiKwanError(w, errors.New("「只开主入口」开着：这条转发在 "+e.Name+" 上不能连"))
+			return
+		}
+		serverIP, entryName = e.Host, e.Name
+	} else {
+		n, err := h.repo.GetNodeRecord(g.MainEntryNodeID)
+		if err != nil || n == nil {
+			leiKwanError(w, errors.New("主入口节点不存在"))
+			return
+		}
+		serverIP, entryName = n.ServerIP, n.Name
 	}
-	addr := net.JoinHostPort(n.ServerIP, strconv.Itoa(x.ListenPort))
-	out := map[string]interface{}{"address": addr}
+	addr := net.JoinHostPort(strings.Trim(serverIP, "[]"), strconv.Itoa(x.ListenPort))
+	out := map[string]interface{}{"address": addr, "entryName": entryName}
 	if x.LandingNodeID > 0 {
 		if ln, _, err := h.repo.LeiKwanLandingTarget(x.LandingNodeID); err == nil {
 			cp := *ln
 			cp.Name = x.Name
-			out["url"] = repo.LandingURL(cp, n.ServerIP, x.ListenPort)
+			out["url"] = repo.LandingURL(cp, serverIP, x.ListenPort)
 		}
 	} else if x.ExternalNodeID > 0 {
-		if node, err := h.leiKwanRuleNode(*x, strings.Trim(n.ServerIP, "[]"), x.Name); err == nil {
+		if node, err := h.leiKwanRuleNode(*x, strings.Trim(serverIP, "[]"), x.Name); err == nil {
 			out["url"] = sublink.ShareURI(node)
 		} else {
 			out["note"] = err.Error()

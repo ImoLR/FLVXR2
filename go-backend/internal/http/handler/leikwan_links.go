@@ -136,6 +136,12 @@ type lkSubData struct {
 }
 
 func (h *Handler) leiKwanSubLoad(userID int64) *lkSubData {
+	return h.leiKwanSubLoadAt(userID, nil)
+}
+
+// leiKwanSubLoadAt: as leiKwanSubLoad, with the 利群 nodes on `at` (plan 294:
+// the subscription's ?lk= 入口机, nil = the owner's 主入口).
+func (h *Handler) leiKwanSubLoadAt(userID int64, at *lkEntry) *lkSubData {
 	d := &lkSubData{nodes: map[int64]sublink.Node{}, reasons: map[int64]string{}, lines: map[int64]model.LeiKwanLine{}}
 	g, err := h.repo.GetLeiKwanGrant(userID)
 	if err != nil || g == nil || g.Status != 1 {
@@ -152,9 +158,16 @@ func (h *Handler) leiKwanSubLoad(userID int64) *lkSubData {
 		}
 	}
 	entry := h.leiKwanUserEntry(userID)
+	if at != nil {
+		entry = at
+	}
 	for _, x := range d.rules {
 		if entry == nil {
 			d.reasons[x.ID] = "主入口未定"
+			continue
+		}
+		if at != nil && h.leiKwanPickLocked(x, at) {
+			d.reasons[x.ID] = "只开主入口：这条转发在 " + at.Name + " 上不能连"
 			continue
 		}
 		n, err := h.leiKwanRuleNode(x, entry.Host, leiKwanSubNodeName(d.lines[x.LineID], x))

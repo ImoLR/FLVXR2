@@ -1,4 +1,5 @@
 import type { LeiKwanGrant, LeiKwanSub } from "@/api/leikwan-line";
+import type { EntryOption } from "@/pages/leikwan/panel/entry-model";
 
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
@@ -44,10 +45,13 @@ export function LeiKwanSubDialog({
   admin,
   grants = [],
   me,
+  entry,
   onClose,
 }: {
   open: boolean;
   admin: boolean;
+  /** Plan 294: the selected 入口机 (the link's 利群 nodes point at it) */
+  entry?: EntryOption;
   /** admin: the granted users to pick from */
   grants?: LeiKwanGrant[];
   me?: string | null;
@@ -96,15 +100,26 @@ export function LeiKwanSubDialog({
     };
   }, [open, admin, userId]);
 
-  const url = sub ? subLinkURL(sub.token) : "";
+  const owner = grants.find((g) => g.userId === userId);
+  // The 订阅 page edits only the caller's own subscriptions.
+  const own = !admin || !owner || (!!me && owner.userName === me);
+  // Plan 294: ?lk=local (手机本地 127.0.0.1) or ?lk=<node> (another 入口机 of
+  // the admin's own subscription); the owner's 主入口 = the plain link.
+  const lk =
+    entry?.key === "phone"
+      ? "local"
+      : admin &&
+          own &&
+          typeof entry?.key === "number" &&
+          entry.key !== owner?.mainEntryNodeId
+        ? String(entry.key)
+        : "";
+  const url = sub ? subLinkURL(sub.token) + (lk ? `?lk=${lk}` : "") : "";
   const copy = async () => {
     if (!url) return;
     if (await copyToClipboard(url)) toast.success("订阅链接已复制");
     else toast.error("复制失败，请长按二维码下方的链接手动复制");
   };
-  const owner = grants.find((g) => g.userId === userId);
-  // The 订阅 page edits only the caller's own subscriptions.
-  const own = !admin || !owner || (!!me && owner.userName === me);
   const format = (sub?.format || "auto") as SubFormat;
 
   return (
@@ -164,7 +179,18 @@ export function LeiKwanSubDialog({
                 <Pill title={sub.name} tone="slate">
                   {sub.name}
                 </Pill>
+                {entry && (
+                  <Pill tone="teal">
+                    入口 {lk ? entry.name : owner?.mainEntryName || entry.name}
+                  </Pill>
+                )}
               </div>
+              {lk === "local" && (
+                <p className="rounded-lg bg-violet-500/10 px-3 py-2 text-xs text-violet-700 dark:bg-violet-400/15 dark:text-violet-300">
+                  这条链接里的利群节点指向
+                  127.0.0.1（商家端口）：需要本机开着利群客户端，任何开着同一端口的设备都能用。
+                </p>
+              )}
               {sub.manual > 0 && (
                 <p className="rounded-lg bg-amber-500/15 px-3 py-2 text-xs text-amber-700 dark:bg-amber-400/15 dark:text-amber-300">
                   {sub.manual}{" "}
@@ -177,6 +203,7 @@ export function LeiKwanSubDialog({
                   title="完整链接只在复制时给出"
                 >
                   {maskedSubLink(sub.token)}
+                  {lk ? `?lk=${lk}` : ""}
                 </span>
                 <Button
                   color="success"

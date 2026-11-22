@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import type { LeiKwanRule, LeiKwanRuleOptions } from "@/api/leikwan-line";
+import type { EntryOption } from "@/pages/leikwan/panel/entry-model";
 
 import { useCallback, useEffect, useState } from "react";
 import { AlertTriangle } from "lucide-react";
@@ -364,11 +365,14 @@ export function useLeiKwanRuleActions({
   admin,
   reload,
   entryLock = false,
+  entry,
 }: {
   admin: boolean;
   reload: () => void;
   /** Plan 272: the list's global 「只开主入口」 */
   entryLock?: boolean;
+  /** Plan 294: 复制链接 follows the selected 入口机 (手机本地 = 127.0.0.1) */
+  entry?: EntryOption;
 }): LeiKwanRuleActions {
   const [dialog, setDialog] = useState<{
     mode: "create" | "landing";
@@ -386,16 +390,36 @@ export function useLeiKwanRuleActions({
   const [allEntries, setAllEntries] = useState<LeiKwanRule | null>(null);
   const [allBusy, setAllBusy] = useState(false);
 
-  const link = useCallback(async (r: LeiKwanRule) => {
-    const res = await getLeiKwanRuleLink(r.id);
+  const entryKey = entry?.key;
+  const entryName = entry?.name;
+  const link = useCallback(
+    async (r: LeiKwanRule) => {
+      // The owner's 主入口 = the plan-272 request (no entry parameter).
+      const which =
+        entryKey === "phone"
+          ? "local"
+          : typeof entryKey === "number" && entryKey !== r.entry?.nodeId
+            ? entryKey
+            : undefined;
+      const res = await getLeiKwanRuleLink(r.id, which);
 
-    if (res.code !== 0) toast.error(res.msg || "复制失败");
-    else if (res.data.url) await copyText(res.data.url, "链接");
-    else if (await copyToClipboard(res.data.address))
-      // Plan 272 (design 08): one 15 s card instead of two 2 s toasts.
-      showLeiKwanAddressToast(res.data.address);
-    else toast.error("复制失败");
-  }, []);
+      if (res.code !== 0) toast.error(res.msg || "复制失败");
+      else if (res.data.url) {
+        await copyText(
+          res.data.url,
+          which === "local"
+            ? "手机本地链接（127.0.0.1，需要本机开着利群客户端）"
+            : which
+              ? `${entryName || "这个入口"}的链接`
+              : "链接",
+        );
+      } else if (await copyToClipboard(res.data.address))
+        // Plan 272 (design 08): one 15 s card instead of two 2 s toasts.
+        showLeiKwanAddressToast(res.data.address);
+      else toast.error("复制失败");
+    },
+    [entryKey, entryName],
+  );
   const toggleAllEntries = async () => {
     const r = allEntries;
 

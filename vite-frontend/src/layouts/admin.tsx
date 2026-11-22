@@ -41,11 +41,7 @@ import { BrandMark, BrandName, Wordmark } from "@/components/brand-mark";
 import { useSiteName } from "@/hooks/useSiteName";
 import { SidebarUpdateButton } from "@/components/sidebar-update-button";
 import { SunFilledIcon, MoonFilledIcon } from "@/components/icons";
-import {
-  getMonitorAccess,
-  updatePassword,
-  getStoreStatus,
-} from "@/api";
+import { getMonitorAccess, updatePassword, getStoreStatus } from "@/api";
 import { safeLogout } from "@/utils/logout";
 import { isRestricted } from "@/utils/session";
 import { PROJECT_REPOSITORY_URL, siteConfig } from "@/config/site";
@@ -53,6 +49,7 @@ import { useMobileBreakpoint } from "@/hooks/useMobileBreakpoint";
 import { getAdminFlag, getSessionName } from "@/utils/session";
 import { useThemeContext } from "@/themes/context";
 import { usePoweredBadgeClear } from "@/hooks/usePoweredBadgeClear";
+import { APP_HOME, isAppMode } from "@/utils/app-bridge";
 
 interface MenuItem {
   path: string;
@@ -249,7 +246,22 @@ export default function AdminLayout({
     {
       path: "/landing",
       label: "落地",
-      icon: <svg aria-hidden="true" className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={1.8} viewBox="0 0 24 24"><path d="M12 3v12m-4-4 4 4 4-4M5 15v5h14v-5" strokeLinecap="round" strokeLinejoin="round" /></svg>,
+      icon: (
+        <svg
+          aria-hidden="true"
+          className="w-5 h-5"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth={1.8}
+          viewBox="0 0 24 24"
+        >
+          <path
+            d="M12 3v12m-4-4 4 4 4-4M5 15v5h14v-5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
+      ),
     },
     {
       path: "/sub",
@@ -638,6 +650,8 @@ export default function AdminLayout({
   const [subSeen, setSubSeen] = useState(subMenuSeen);
   // Plan 270: 「利群汇聚」 for users with an active grant; 「新」 until opened.
   const [leikwanNav, setLeikwanNav] = useState(leiKwanNavCached);
+  // Plan 294: inside the im.gamer App (bridge injected).
+  const appMode = isAppMode();
   const [leikwanSeen, setLeikwanSeen] = useState(leiKwanNavSeen);
 
   useEffect(() => {
@@ -669,7 +683,9 @@ export default function AdminLayout({
       !(item.userOnly && isAdmin) &&
       item.path !== "/tls" &&
       !(item.path === "/sub" && !subEnabled) &&
-      !(item.path === "/leikwan" && !isAdmin && !leikwanNav) &&
+      !(item.path === "/leikwan" && !isAdmin && !leikwanNav && !appMode) &&
+      // Plan 294: the im.gamer App shows only 利群汇聚 (v0).
+      (!appMode || item.path === APP_HOME) &&
       !(item.path === "/monitor" && monitorAllowed !== true) &&
       !(item.path === "/shop" && !isAdmin && !storeEnabled) &&
       !(

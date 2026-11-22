@@ -227,7 +227,7 @@ func (h *Handler) subLoad(ctx context.Context, userID int64, refs []sublink.Ref,
 	d := &subData{links: map[string]repo.SubPanelLink{}, byEntry: map[string][]repo.SubPanelLink{}, externals: map[int64]model.LandingExternalNode{},
 		sources: map[int64]model.UserSubSource{}, srcNodes: map[int64][]sublink.SourceNode{}}
 	if wantLK {
-		d.leikwan = h.leiKwanSubLoad(userID)
+		d.leikwan = h.leiKwanSubLoadAt(userID, lkEntryFrom(ctx))
 	}
 	if all || len(fwd)+len(land) > 0 {
 		var fIDs, lIDs []int64

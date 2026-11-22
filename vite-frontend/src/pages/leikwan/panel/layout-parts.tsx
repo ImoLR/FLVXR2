@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 
-import { ChevronRight, Minus, Plus } from "lucide-react";
+import { Check, ChevronRight, Minus, Plus } from "lucide-react";
 
 // Plan 270: small layout pieces of the 利群汇聚 page (approved design
 // /leikwan-redesign/): the white card, the H5 tab pills and the H5 ＋/− card
@@ -113,7 +113,11 @@ export function LkToggle({
   );
 }
 
-/** H5 card row: dot + name (wraps) + chip + ＋/−; details below. */
+/**
+ * H5 card row: dot + name (wraps) + chip + ＋/−; details below. Plan 294:
+ * with `onSelect` (入口机 rows) a row tap selects it (teal frame + ✓) and only
+ * the ＋ opens the details.
+ */
 export function LkExpandCard({
   name,
   dot,
@@ -121,6 +125,8 @@ export function LkExpandCard({
   leading,
   open,
   onToggle,
+  onSelect,
+  selected = false,
   children,
   className = "",
   ...rest
@@ -131,12 +137,19 @@ export function LkExpandCard({
   leading?: ReactNode;
   open: boolean;
   onToggle: () => void;
+  onSelect?: () => void;
+  selected?: boolean;
   children: ReactNode;
   className?: string;
 } & Record<`data-${string}`, unknown>) {
   return (
     <div
-      className={`rounded-xl border border-divider bg-content1 ${className}`}
+      className={`rounded-xl border bg-content1 ${
+        selected
+          ? "!border-teal-500 !bg-teal-500/[0.07] ring-2 ring-teal-500/30 dark:!border-teal-400 dark:!bg-teal-400/10"
+          : "border-divider"
+      } ${className}`}
+      data-entry-selected={selected ? "" : undefined}
       data-expand-open={open ? "" : undefined}
       data-expand-row=""
       {...rest}
@@ -145,13 +158,22 @@ export function LkExpandCard({
       {/* eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions */}
       <div
         className="flex min-h-[48px] cursor-pointer select-none items-center gap-2 py-1.5 pl-3 pr-2"
-        onClick={onToggle}
+        onClick={onSelect || onToggle}
       >
         {leading}
         {dot}
         <span className="min-w-0 flex-1 break-words text-sm font-semibold leading-5">
           {name}
         </span>
+        {selected && (
+          <span
+            aria-label="当前入口"
+            className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-teal-600 text-white dark:bg-teal-400 dark:text-teal-950"
+            role="img"
+          >
+            <Check size={11} strokeWidth={3} />
+          </span>
+        )}
         {chip}
         <LkToggle open={open} onToggle={onToggle} />
       </div>

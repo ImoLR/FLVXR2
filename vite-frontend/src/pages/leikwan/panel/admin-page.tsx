@@ -11,6 +11,12 @@ import type {
   LeiKwanUsageView,
 } from "@/api/leikwan-line";
 import type { LeiKwanHostItem } from "@/pages/leikwan/panel/host-manage";
+import type {
+  EntryOption,
+  EntryRuleView,
+  LeiKwanEntries,
+} from "@/pages/leikwan/panel/entry-model";
+import type { AppInfo, PhoneState } from "@/utils/app-bridge";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
@@ -41,6 +47,19 @@ import { usePullToRefresh } from "@/hooks/usePullToRefresh";
 import { AttentionIcon } from "@/pages/landing/admin-attention";
 import { Pill } from "@/pages/landing/pill";
 import { BackupRebuildButton } from "@/pages/leikwan/panel/backup-tunnel";
+import {
+  adminMainEntry,
+  entryRuleView,
+  useLeiKwanEntries,
+} from "@/pages/leikwan/panel/entry-model";
+import {
+  EntryChips,
+  EntryJumpChip,
+  EntryTile,
+  PhoneDetails,
+  PhoneDrawer,
+  phoneSummary,
+} from "@/pages/leikwan/panel/entry-parts";
 import { LeiKwanGrantDialog } from "@/pages/leikwan/panel/grant-dialog";
 import {
   HostDetails,
@@ -94,6 +113,7 @@ import {
 import { Button } from "@/shadcn-bridge/heroui/button";
 import { Spinner } from "@/shadcn-bridge/heroui/spinner";
 import { getSessionName } from "@/utils/session";
+import { isAppMode, useAppInfo, usePhoneState } from "@/utils/app-bridge";
 
 // Plan 270: the admin view of 利群汇聚 — everything 利群 on one page (approved
 // design 11-17, screens 01–05). Desktop: header chips, the 「专线 · 规则」
@@ -134,12 +154,29 @@ function WarmChip({ rule }: { rule: LeiKwanRule }) {
 function LineChips({
   line,
   compact = false,
+  phone = false,
 }: {
   line: LeiKwanLine;
   compact?: boolean;
+  /** Plan 294: 手机本地 selected — the hosts' 备线 / 预热 / 快切 / SS 过滤 do not apply there (hidden) */
+  phone?: boolean;
 }) {
   const a = line.accel;
   const backup = line.backupTunnelName;
+
+  if (phone)
+    return compact ? null : (
+      <>
+        {(line.flowMode !== undefined || line.trafficRatio !== undefined) && (
+          <Pill
+            title="利群流量计费：单向 (上传+下载)×倍率；双向 再 ×2"
+            tone="purple"
+          >
+            {line.flowMode === 2 ? "双向" : "单向"} ×{line.trafficRatio || 1}
+          </Pill>
+        )}
+      </>
+    );
 
   if (compact)
     return (
@@ -270,20 +307,29 @@ function LandingCell({
   );
 }
 
-function EntryCopy({ rule }: { rule: LeiKwanRule }) {
-  if (!rule.entry)
+function EntryCopy({
+  rule,
+  view,
+  entryName,
+}: {
+  rule: LeiKwanRule;
+  /** Plan 294: the selected 入口机's address of this forward */
+  view?: EntryRuleView | null;
+  entryName?: string;
+}) {
+  const address = view ? view.address : rule.entry?.address;
+
+  if (!address)
     return <span className="text-xs text-default-400">授权没有主入口</span>;
 
   return (
     <button
       className="inline-flex max-w-full items-center gap-1.5 rounded-lg bg-default-100 px-2 py-1 text-foreground hover:bg-default-200 dark:bg-default-100/50"
-      title={`入口 ${rule.entry.nodeName} · 点一下复制`}
+      title={`入口 ${entryName || rule.entry?.nodeName || ""} · 点一下复制`}
       type="button"
-      onClick={() => void copyText(rule.entry!.address, "入口地址")}
+      onClick={() => void copyText(address, "入口地址")}
     >
-      <span className="whitespace-nowrap font-mono text-xs">
-        {rule.entry.address}
-      </span>
+      <span className="whitespace-nowrap font-mono text-xs">{address}</span>
       <Copy className="shrink-0 text-default-400" size={12} />
     </button>
   );
@@ -293,18 +339,55 @@ function EntryCopy({ rule }: { rule: LeiKwanRule }) {
 const RULE_GRID =
   "grid grid-cols-[minmax(0,1.2fr)_184px_minmax(0,1fr)_184px] gap-2.5";
 
+/**
+ * Plan 294: the chips that depend on the selected 入口机 (预热 / 快切 / 备线 /
+ * UDP / 本机 state, 「此入口未开」); without an entry the plan-270 chips.
+ * A ⚠ 备线未建好 always shows (panel-side problem).
+ */
+function RuleEntryChips({
+  rule: r,
+  view,
+}: {
+  rule: LeiKwanRule;
+  view?: EntryRuleView | null;
+}) {
+  if (!view)
+    return (
+      <>
+        <AdminBackupChip rule={r} />
+        <WarmChip rule={r} />
+      </>
+    );
+
+  return (
+    <>
+      {r.backupError && <AdminBackupChip rule={r} />}
+      <EntryChips
+        backupChip={r.backupError ? null : <AdminBackupChip rule={r} />}
+        view={view}
+      />
+    </>
+  );
+}
+
 function AdminRuleRow({
   rule: r,
   actions,
+  view,
+  entryName,
 }: {
   rule: LeiKwanRule;
   actions: LeiKwanRuleActions;
+  view?: EntryRuleView | null;
+  entryName?: string;
 }) {
   const test = testNote(r);
+  const closed = !!view && !view.open;
 
   return (
     <div
-      className={`${RULE_GRID} items-center rounded-xl border border-divider bg-default-50/60 px-2.5 py-2.5 dark:bg-default-50/30`}
+      className={`${RULE_GRID} items-center rounded-xl border border-divider bg-default-50/60 px-2.5 py-2.5 dark:bg-default-50/30 ${closed ? "opacity-60" : ""}`}
+      data-entry-closed={closed ? "" : undefined}
       data-leikwan-rule={r.name}
     >
       <div className="min-w-0 space-y-1.5">
@@ -328,8 +411,7 @@ function AdminRuleRow({
           >
             利群 #{r.forwardId}
           </Pill>
-          <AdminBackupChip rule={r} />
-          <WarmChip rule={r} />
+          <RuleEntryChips rule={r} view={view} />
           {r.userName && <Pill tone="slate">{r.userName}</Pill>}
           {test && (
             <Pill title={test} tone="amber">
@@ -354,7 +436,7 @@ function AdminRuleRow({
         )}
       </div>
       <div className="min-w-0">
-        <EntryCopy rule={r} />
+        <EntryCopy entryName={entryName} rule={r} view={view} />
       </div>
       <LandingCell actions={actions} rule={r} />
       <div className="flex flex-wrap justify-end gap-1.5">
@@ -374,6 +456,9 @@ function LineGroupBlock({
   onEdit,
   onChanged,
   actions,
+  viewOf,
+  entryName,
+  entryPhone = false,
 }: {
   group: LineGroup;
   open: boolean;
@@ -381,6 +466,11 @@ function LineGroupBlock({
   onEdit: (l: LeiKwanLine) => void;
   onChanged: () => void;
   actions: LeiKwanRuleActions;
+  /** Plan 294: the selected 入口机's view of a forward */
+  viewOf: (r: LeiKwanRule) => EntryRuleView | null;
+  entryName?: string;
+  /** Plan 294: 手机本地 is the selected entry */
+  entryPhone?: boolean;
 }) {
   const line = g.line;
   const attention = g.rules.some((r) => r.backupError);
@@ -447,7 +537,7 @@ function LineGroupBlock({
         </div>
         {line && (
           <div className="flex flex-wrap gap-1.5 pl-6">
-            <LineChips line={line} />
+            <LineChips line={line} phone={entryPhone} />
           </div>
         )}
       </div>
@@ -469,7 +559,13 @@ function LineGroupBlock({
             </div>
           )}
           {g.rules.map((r) => (
-            <AdminRuleRow key={r.id} actions={actions} rule={r} />
+            <AdminRuleRow
+              key={r.id}
+              actions={actions}
+              entryName={entryName}
+              rule={r}
+              view={viewOf(r)}
+            />
           ))}
           {g.rules.length === 0 && (
             <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-dashed border-divider px-4 py-3 text-sm text-default-500">
@@ -488,39 +584,6 @@ function LineGroupBlock({
         </div>
       )}
     </div>
-  );
-}
-
-function HostTile({
-  host,
-  onOpen,
-}: {
-  host: LeiKwanHostItem;
-  onOpen: () => void;
-}) {
-  return (
-    <button
-      className="flex min-w-0 flex-col gap-1.5 rounded-xl border border-divider bg-default-50/60 p-2.5 text-left transition-colors hover:border-teal-500/40 hover:bg-teal-500/5 dark:bg-default-50/30"
-      data-leikwan-host-tile={host.node.id}
-      type="button"
-      onClick={onOpen}
-    >
-      <span className="flex min-w-0 items-center gap-1.5">
-        <LkDot ok={hostRunning(host)} />
-        <span className="min-w-0 break-words text-[13px] font-semibold">
-          {host.node.name}
-        </span>
-        <HostNameMarker manage={host.manage} />
-      </span>
-      <span className="flex flex-wrap gap-1">
-        <Pill tone={hostRunning(host) ? "green" : "slate"}>
-          {hostStatusText(host)}
-        </Pill>
-        <Pill tone={host.mainEntryUsers > 0 ? "teal" : "slate"}>
-          主入口 {host.mainEntryUsers} 人
-        </Pill>
-      </span>
-    </button>
   );
 }
 
@@ -602,6 +665,11 @@ export function LeiKwanAdminView() {
   // Plan 272: 「生成订阅」 dialog.
   const [subOpen, setSubOpen] = useState(false);
   const me = getSessionName();
+  // Plan 294: the im.gamer App (bridge object injected) adds 手机本地.
+  const app = isAppMode();
+  const phone = usePhoneState();
+  const appInfo = useAppInfo();
+  const [phoneOpen, setPhoneOpen] = useState(false);
 
   const loadAccounts = useCallback(async () => {
     const res = await getLeiKwanAccounts();
@@ -658,10 +726,20 @@ export function LeiKwanAdminView() {
 
   // Plan 272: global 「只开主入口」 (rule list; the setting as a fallback).
   const entryLock = !!(rules?.entryLock ?? data?.setting.global.entryLock);
+  // Plan 294: the selected 入口机 (tile tap); the tree, 复制链接 and 订阅 follow it.
+  const ent = useLeiKwanEntries({
+    app,
+    phone,
+    hosts: hosts?.hosts,
+    mainEntryId: adminMainEntry(grants, me),
+  });
+  const viewOf = (r: LeiKwanRule) =>
+    entryRuleView(ent.selected, r, { phone, entryLock });
   const actions = useLeiKwanRuleActions({
     admin: true,
     reload: reloadRules,
     entryLock,
+    entry: ent.selected,
   });
 
   const groups = useMemo<LineGroup[]>(() => {
@@ -946,11 +1024,22 @@ export function LeiKwanAdminView() {
       />
       <LeiKwanSubDialog
         admin
+        entry={ent.selected}
         grants={grants}
         me={me}
         open={subOpen}
         onClose={() => setSubOpen(false)}
       />
+      {app && (
+        <PhoneDrawer
+          info={appInfo}
+          open={phoneOpen}
+          phone={phone}
+          rules={rules?.rules || []}
+          usage={usage}
+          onClose={() => setPhoneOpen(false)}
+        />
+      )}
     </>
   );
 
@@ -965,7 +1054,9 @@ export function LeiKwanAdminView() {
     return (
       <AdminPhone
         actions={actions}
+        appInfo={appInfo}
         dialogs={dialogs}
+        ent={ent}
         grants={grants}
         groups={groups}
         headerChips={headerChips}
@@ -973,11 +1064,14 @@ export function LeiKwanAdminView() {
         hosts={hosts}
         me={me}
         nightOnly={nightOnly}
+        phone={phone}
         pipeCard={pipeCard}
         revoke={revoke}
+        rules={rules?.rules || []}
         setTab={setTab}
         tab={tab}
         usage={usage}
+        viewOf={viewOf}
         onEditGrant={openGrantDialog}
         onEditLine={openLineDialog}
         onHostView={patchHost}
@@ -1073,8 +1167,11 @@ export function LeiKwanAdminView() {
             <LineGroupBlock
               key={g.id}
               actions={actions}
+              entryName={ent.selected?.name}
+              entryPhone={!!ent.selected?.phone}
               group={g}
               open={currentOpen === g.id}
+              viewOf={viewOf}
               onChanged={() => void load()}
               onEdit={openLineDialog}
               onToggle={() => toggleLine(g.id)}
@@ -1149,11 +1246,18 @@ export function LeiKwanAdminView() {
               </div>
             )}
             <div className="grid grid-cols-2 gap-2">
-              {hostList.map((h) => (
-                <HostTile
-                  key={h.node.id}
-                  host={h}
-                  onOpen={() => setDrawerHost(h.node.id)}
+              {ent.options.map((o) => (
+                <EntryTile
+                  key={String(o.key)}
+                  option={o}
+                  phone={phone}
+                  selected={ent.selected?.key === o.key}
+                  onDetails={() =>
+                    o.phone
+                      ? setPhoneOpen(true)
+                      : setDrawerHost(o.key as number)
+                  }
+                  onSelect={() => ent.select(o.key)}
                 />
               ))}
             </div>
@@ -1163,7 +1267,8 @@ export function LeiKwanAdminView() {
               </p>
             )}
             <p className="text-xs leading-relaxed text-default-500">
-              点一台看主机快照：厂商版本、更新锁、日志快切、首包合并、手机备线端口，还有面板接管。
+              点一台 =
+              选它作入口，左边的转发、复制链接和订阅跟着它；「详情」看主机快照：厂商版本、更新锁、日志快切、首包合并、手机备线端口，还有面板接管。
             </p>
           </LkCard>
           <DevicesCard data={usage} />
@@ -1172,6 +1277,76 @@ export function LeiKwanAdminView() {
       </div>
       {dialogs}
     </div>
+  );
+}
+
+/** Plan 294 (H5, App only): the 手机本地 row of the 入口机 tab. */
+function PhoneRow({
+  option,
+  phone,
+  appInfo,
+  usage,
+  rules,
+  open,
+  selected,
+  onSelect,
+  onToggle,
+}: {
+  option: EntryOption;
+  phone: PhoneState | null;
+  appInfo: AppInfo | null;
+  usage: LeiKwanUsageView | null;
+  rules: LeiKwanRule[];
+  open: boolean;
+  selected: boolean;
+  onSelect: () => void;
+  onToggle: () => void;
+}) {
+  const sum = phoneSummary(phone);
+  const failed = phone?.connection === "failed";
+
+  return (
+    <LkExpandCard
+      chip={<Pill tone={sum.tone}>{sum.text}</Pill>}
+      className={
+        failed && !selected ? "!border-red-500/50 bg-red-500/[0.05]" : ""
+      }
+      data-leikwan-host-row="phone"
+      dot={
+        <span
+          className={`h-2 w-2 shrink-0 rounded-full ${
+            sum.dot === "ok"
+              ? "bg-green-500"
+              : sum.dot === "wait"
+                ? "bg-amber-500"
+                : sum.dot === "bad"
+                  ? "bg-red-500"
+                  : "bg-slate-400"
+          }`}
+        />
+      }
+      name={
+        <span className="inline-flex items-center gap-1">
+          {option.name}
+          <Pill tone="violet">本机</Pill>
+        </span>
+      }
+      open={open}
+      selected={selected}
+      onSelect={() => {
+        onSelect();
+        if (failed && !open) onToggle();
+      }}
+      onToggle={onToggle}
+    >
+      <PhoneDetails
+        compact
+        info={appInfo}
+        phone={phone}
+        rules={rules}
+        usage={usage}
+      />
+    </LkExpandCard>
   );
 }
 
@@ -1198,6 +1373,11 @@ function AdminPhone({
   onSettings,
   onSub,
   usage,
+  ent,
+  phone,
+  appInfo,
+  rules,
+  viewOf,
 }: {
   headerChips: ReactNode;
   tab: "rules" | "grants" | "hosts";
@@ -1222,6 +1402,12 @@ function AdminPhone({
   onSub: () => void;
   /** Plan 273: 套餐流量 block + 利群在线设备 under the 入口机 tab */
   usage: LeiKwanUsageView | null;
+  /** Plan 294: 入口机 selection (+ 手机本地 in the App) */
+  ent: LeiKwanEntries;
+  phone: PhoneState | null;
+  appInfo: AppInfo | null;
+  rules: LeiKwanRule[];
+  viewOf: (r: LeiKwanRule) => EntryRuleView | null;
 }) {
   const [usageOpen, setUsageOpen] = useState(false);
   // Plan 286 r2: every 专线 starts collapsed (no first-line auto-open).
@@ -1232,7 +1418,9 @@ function AdminPhone({
     groups.flatMap((g) => g.rules.map((r) => r.id)),
   );
   const grantExpand = useExpandOne(grants.map((g) => g.userId));
-  const hostExpand = useExpandOne(hostList.map((h) => h.node.id));
+  const hostExpand = useExpandOne<number | string>(
+    ent.options.map((o) => (o.phone ? "phone" : (o.key as number))),
+  );
   const ruleCount = groups.reduce((n, g) => n + g.rules.length, 0);
   const entryLevel = hostsAttentionLevel(hosts);
 
@@ -1280,6 +1468,18 @@ function AdminPhone({
 
       {tab === "rules" && (
         <div className="space-y-3">
+          {ent.selected && (
+            <div className="flex items-center gap-2 px-0.5">
+              <EntryJumpChip
+                option={ent.selected}
+                phone={phone}
+                onPress={() => setTab("hosts")}
+              />
+              <span className="min-w-0 truncate text-xs text-default-500">
+                地址、复制链接、订阅跟着入口
+              </span>
+            </div>
+          )}
           <div className="flex gap-2">
             <Button
               className="h-11 flex-1"
@@ -1341,7 +1541,11 @@ function AdminPhone({
                   <div className="space-y-2 px-2.5 pb-2.5">
                     {g.line && (
                       <div className="flex flex-wrap items-center gap-1 px-0.5">
-                        <LineChips compact line={g.line} />
+                        <LineChips
+                          compact
+                          line={g.line}
+                          phone={!!ent.selected?.phone}
+                        />
                         <button
                           className="ml-auto text-sm font-medium text-primary"
                           type="button"
@@ -1351,107 +1555,141 @@ function AdminPhone({
                         </button>
                       </div>
                     )}
-                    {g.rules.map((r) => (
-                      <LkExpandCard
-                        key={r.id}
-                        chip={<Pill tone="purple">#{r.forwardId}</Pill>}
-                        data-leikwan-rule={r.name}
-                        dot={<RuleDot rule={r} />}
-                        name={
-                          <>
-                            {r.backupError && (
-                              <AlertTriangle
-                                className="mr-1 inline text-red-700"
-                                size={13}
-                              />
+                    {g.rules.map((r) => {
+                      const view = viewOf(r);
+                      const closed = !!view && !view.open;
+
+                      return (
+                        <LkExpandCard
+                          key={r.id}
+                          chip={
+                            closed ? (
+                              <Pill title={view?.closedReason} tone="slate">
+                                此入口未开
+                              </Pill>
+                            ) : (
+                              <Pill tone="purple">#{r.forwardId}</Pill>
+                            )
+                          }
+                          className={closed ? "opacity-60" : ""}
+                          data-entry-closed={closed ? "" : undefined}
+                          data-leikwan-rule={r.name}
+                          dot={<RuleDot rule={r} />}
+                          name={
+                            <>
+                              {r.backupError && (
+                                <AlertTriangle
+                                  className="mr-1 inline text-red-700"
+                                  size={13}
+                                />
+                              )}
+                              {r.name}
+                            </>
+                          }
+                          open={ruleExpand.open === r.id}
+                          onToggle={() => ruleExpand.toggle(r.id)}
+                        >
+                          <LkField label="入口">
+                            {view?.address || r.entry ? (
+                              <button
+                                className="font-mono text-xs"
+                                type="button"
+                                onClick={() =>
+                                  void copyText(
+                                    view?.address || r.entry!.address,
+                                    "入口地址",
+                                  )
+                                }
+                              >
+                                {view?.address || r.entry!.address}
+                              </button>
+                            ) : (
+                              "授权没有主入口"
                             )}
-                            {r.name}
-                          </>
-                        }
-                        open={ruleExpand.open === r.id}
-                        onToggle={() => ruleExpand.toggle(r.id)}
-                      >
-                        <LkField label="入口">
-                          {r.entry ? (
-                            <button
-                              className="font-mono text-xs"
-                              type="button"
-                              onClick={() =>
-                                void copyText(r.entry!.address, "入口地址")
+                            {ent.selected && (
+                              <Pill tone="teal">{ent.selected.name}</Pill>
+                            )}
+                          </LkField>
+                          {closed && (
+                            <LkField label="入口">
+                              <span className="text-xs text-default-500">
+                                {view?.closedReason}
+                              </span>
+                            </LkField>
+                          )}
+                          <LkField label="落地">
+                            <span
+                              className={
+                                r.landing.kind === "manual"
+                                  ? "font-mono text-xs"
+                                  : ""
                               }
                             >
-                              {r.entry.address}
-                            </button>
-                          ) : (
-                            "授权没有主入口"
-                          )}
-                        </LkField>
-                        <LkField label="落地">
-                          <span
-                            className={
-                              r.landing.kind === "manual"
-                                ? "font-mono text-xs"
-                                : ""
-                            }
-                          >
-                            {r.landing.kind === "manual"
-                              ? `${r.landing.host}:${r.landing.port}`
-                              : r.landing.kind === "external"
-                                ? r.landing.name ||
-                                  `${r.landing.host}:${r.landing.port}`
-                                : `${r.landing.serverName || "落地"} · ${r.landing.name}`}
-                          </span>
-                          {r.landing.kind === "external" && (
-                            <span className="text-xs text-default-500">
-                              {externalNote(r)}
+                              {r.landing.kind === "manual"
+                                ? `${r.landing.host}:${r.landing.port}`
+                                : r.landing.kind === "external"
+                                  ? r.landing.name ||
+                                    `${r.landing.host}:${r.landing.port}`
+                                  : `${r.landing.serverName || "落地"} · ${r.landing.name}`}
                             </span>
+                            {r.landing.kind === "external" && (
+                              <span className="text-xs text-default-500">
+                                {externalNote(r)}
+                              </span>
+                            )}
+                          </LkField>
+                          {r.pendingLanding && (
+                            <LkField label="待切换">
+                              <PendingBlock
+                                compact
+                                inField
+                                rule={r}
+                                onSwap={actions.openSwap}
+                              />
+                            </LkField>
                           )}
-                        </LkField>
-                        {r.pendingLanding && (
-                          <LkField label="待切换">
-                            <PendingBlock
-                              compact
-                              inField
+                          {r.blockReason && (
+                            <LkField label="状态">
+                              <span className="text-red-700 dark:text-red-300">
+                                {blockedNote(r)}
+                              </span>
+                            </LkField>
+                          )}
+                          <LkField label="标签">
+                            <RuleEntryChips rule={r} view={view} />
+                            <Pill
+                              tone={
+                                r.landing.kind === "manual" ? "slate" : "pink"
+                              }
+                            >
+                              {r.landing.kind === "manual"
+                                ? "手动落地"
+                                : r.landing.kind === "external"
+                                  ? externalProtocol(r.landing.protocol) ||
+                                    "外部节点"
+                                  : protocolLabel(r.landing.protocol)}
+                            </Pill>
+                            {r.userName && (
+                              <Pill tone="slate">{r.userName}</Pill>
+                            )}
+                            {testNote(r) && <Pill tone="amber">测试</Pill>}
+                            {r.userExpired && <Pill tone="red">已到期</Pill>}
+                            <FlowPill rule={r} />
+                            <BackupFlowPill rule={r} />
+                            <VendorFlowPill rule={r} />
+                            <AllEntriesPill actions={actions} rule={r} />
+                          </LkField>
+                          <div className="flex flex-wrap gap-2 pt-1">
+                            <RuleButtons
+                              admin
+                              fill
+                              actions={actions}
                               rule={r}
-                              onSwap={actions.openSwap}
                             />
-                          </LkField>
-                        )}
-                        {r.blockReason && (
-                          <LkField label="状态">
-                            <span className="text-red-700 dark:text-red-300">
-                              {blockedNote(r)}
-                            </span>
-                          </LkField>
-                        )}
-                        <LkField label="标签">
-                          <AdminBackupChip rule={r} />
-                          <WarmChip rule={r} />
-                          <Pill
-                            tone={
-                              r.landing.kind === "manual" ? "slate" : "pink"
-                            }
-                          >
-                            {r.landing.kind === "manual"
-                              ? "手动落地"
-                              : r.landing.kind === "external"
-                                ? externalProtocol(r.landing.protocol) ||
-                                  "外部节点"
-                                : protocolLabel(r.landing.protocol)}
-                          </Pill>
-                          {r.userName && <Pill tone="slate">{r.userName}</Pill>}
-                          {testNote(r) && <Pill tone="amber">测试</Pill>}
-                          {r.userExpired && <Pill tone="red">已到期</Pill>}
-                          <FlowPill rule={r} />
-                          <BackupFlowPill rule={r} />
-                          <VendorFlowPill rule={r} />
-                          <AllEntriesPill actions={actions} rule={r} />
-                        </LkField>
-                        <div className="flex flex-wrap gap-2 pt-1">
-                          <RuleButtons admin fill actions={actions} rule={r} />
-                        </div>
-                      </LkExpandCard>
-                    ))}
+                          </div>
+                        </LkExpandCard>
+                      );
+                    })}
                     {g.rules.length === 0 && (
                       <div className="flex items-center justify-between gap-2 rounded-xl border border-dashed border-divider px-3 py-2.5 text-sm text-default-500">
                         还没有转发
@@ -1584,6 +1822,25 @@ function AdminPhone({
               加入口机 = 在节点页把节点拉进这个组
             </span>
           </div>
+          <p className="px-1 text-xs text-default-500">
+            点一行 = 选它作入口（转发页跟着它），＋ 看详情
+          </p>
+          {ent.options
+            .filter((o) => o.phone)
+            .map((o) => (
+              <PhoneRow
+                key="phone"
+                appInfo={appInfo}
+                open={hostExpand.open === "phone"}
+                option={o}
+                phone={phone}
+                rules={rules}
+                selected={ent.selected?.key === o.key}
+                usage={usage}
+                onSelect={() => ent.select(o.key)}
+                onToggle={() => hostExpand.toggle("phone")}
+              />
+            ))}
           {hostList.map((h) => (
             <LkExpandCard
               key={h.node.id}
@@ -1601,6 +1858,8 @@ function AdminPhone({
                 </span>
               }
               open={hostExpand.open === h.node.id}
+              selected={ent.selected?.key === h.node.id}
+              onSelect={() => ent.select(h.node.id)}
               onToggle={() => hostExpand.toggle(h.node.id)}
             >
               <HostDetails
