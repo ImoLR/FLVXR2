@@ -16,7 +16,7 @@ branch `fix/3.0.27-leikwan-entry-status`, worktree `/root/projects/flvxx/flvxx-2
 - [x] Backend: switch preview API (user + candidate entry → per-forward keep/lose, from lkRuleEff + profile files)
 - [x] Backend: rule list returns per rule the owner's 主入口 name / online / capability (admin + user)
 - [x] Backend: check lkGen push to old + new host after grant save
-- [ ] Backend tests (attention reason, capabilities, preview, rule entry caps); `go test ./...` vs base failure set
+- [x] Backend tests (attention reason, capabilities, preview, rule entry caps); `go test ./...` vs base failure set
 - [x] Frontend: offline = red dot + 「离线」 on tile, H5 row, drawer, grant options, diagnose / other entry-state spots
 - [x] Frontend: 「换主入口」 on grant row + clickable 主入口 chip → grant dialog; entry options show online/build/capabilities; offline disabled
 - [x] Frontend: dialog preview of the user's forwards on the picked entry
@@ -41,4 +41,6 @@ branch `fix/3.0.27-leikwan-entry-status`, worktree `/root/projects/flvxx/flvxx-2
 - grant/save refuses moving a user onto an offline entry (keeping an offline current entry still saves). The
   existing kick after grant/save still pushes every online 利群入口 (old + new) within ~2 s.
 - Select: the 主入口 picker uses the bridge `grouped` listbox (rich rows; the native select cannot show pills).
+- Tests: 5 new handler tests (leikwan_entry_caps_test.go); `go test ./...` 29 packages ok, 0 failures.
+  Lab (prod-DB snapshot, runs/leikwan-entry-status/lab): 40/40 UI checks; gallery :8791/leikwan-entry-status/.
 - Diagnose wording 「入口机不在线」 → 「入口机离线」.
