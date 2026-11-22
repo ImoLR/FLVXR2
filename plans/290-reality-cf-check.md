@@ -39,10 +39,10 @@ Cloudflare lets anyone reach any CF site through the landing. Today only `www.cl
 - [x] lab (isolated netns, hosts-file fake CF domain): blocked with reason, non-CF untouched, ⚠ for guard-off server;
       screenshots desktop + 390 px → gallery /reality-cf-check/
 - [x] prod pool pre-scan (read-only, DNS only) — expected only www.cloudflare.com
-- [ ] release fork.158: tag, CI + Images + assets, Latest
-- [ ] prod backup + rollback script, prune backups, swap, verify (nodes, forwards, 利群 tables, log 15 min, 5 busiest
+- [x] release fork.158: tag, CI + Images + assets, Latest
+- [x] prod backup + rollback script, prune backups, swap, verify (nodes, forwards, 利群 tables, log 15 min, 5 busiest
       forwards RTT), report pool scan + ⚠ markers
-- [ ] ledger + memory, cleanup
+- [x] ledger + memory, cleanup
 
 ## Results
 - Prod pre-scan 11-22 (read-only DB, DNS from the dev box): 102 candidates = every live dest (all dests are
@@ -58,3 +58,13 @@ Cloudflare lets anyone reach any CF site through the landing. Today only `www.cl
   http://104.145.236.29:8791/reality-cf-check/ (15 PNG, desktop + 390 px).
 - Rollback check on a prod DB copy (isolated netns): fork.158 added cf_hosted / cf_evidence and marked only
   www.cloudflare.com; fork.157 then started cleanly on the same DB. Copy deleted.
+- Release: tag 3.0.27-fork.158 → 8bcb87e9 (branch maintenance/3.0.27-fork.158-reality-cf-check = fork.157 + merge
+  of the feature head df103365, same tree), CI 45021792526, Images 45021794787 green, Latest, 10 assets (same set as
+  fork.157), compose images :3.0.27-fork.158, PINNED_VERSION / REPO ok, gost-amd64 sha256 ok.
+- Prod: backup + rollback `/opt/flvx-svc/rollback/pre-fork158-20261122T123303Z/rollback.sh` (→ fork.157); prune kept
+  pre-fork157 + pre-fork158 (pre-fork156 + fork.155 images removed). Swap 20:33:04–20:33:12 TW.
+  First Cloudflare check 20:36:13 TW: only `www.cloudflare.com` marked (104.16.124.96, panel lookup). realityRisk: no
+  ⚠ on any server (Reality listeners only on Boil Hinet 158 ×1, Bestvm US ×11, Bestvm JP B ×1 — guard on everywhere;
+  no dest on Cloudflare). State before/after identical (29/31 online — 火山广州 / 火山上海 offline before the swap too,
+  64 forwards, 利群 tables), log 15 min clean (only 火山上海 timeouts, offline before), 5 busiest forwards: diagnose
+  3/3 each, latency unchanged (26.5→26.6, 0.8→0.9, 26.6→26.4, 1.0→1.0, 33.2→32.8 ms). Backend RSS 66 MiB after.
