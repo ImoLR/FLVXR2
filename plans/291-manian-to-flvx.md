@@ -64,6 +64,15 @@ Branch `ops/291-manian-to-flvx` (from 3.0.27-fork.157; merges fork.158 of plan 2
       by design, plan 159); its stuck pending node 10 row deleted (backup work/shared3-backup.json).
 - [x] 12. Stopped + disabled mmw-agent, mmwxc-helper, xray, handshake-guard timer (mmwxc-flvx-core unit was removed by
       the share revoke); files kept + tarball; inert nft table mmwxc_machine_protection backed up + deleted.
-- [ ] 13. DDNS via FLVX (verify after the 04:00 IP change); node kit check
-- [ ] 14. Panel logs clean 15 min, traffic counting on new nodes, Reality settings / 域名池 check
-- [ ] 15. Summary + memories
+- [x] 13. DDNS via FLVX: record synced 114.26.132.236 (takeover). 11-23 04:00 boil ran (changeIP 04:00:02) but 马年 kept its
+      IP → follow not observable tonight; daily check timer flvx-manian-ddns-check (04:15 TW, TG alert on mismatch, stops
+      after 11-30). Kit: BBR+fq, conntrack + ctmon (label → FLVX 62), fail2ban fleet, dnsmasq cache already there;
+      added journald flvx-size.conf 200M + wtmp maxsize 50M.
+- [x] 14. Panel logs clean after swap and after cutover (only routine lines; 火山上海 offline before); new nodes count
+      traffic; state identical except fwd 618 (its user, 21:31) and the new sub. Reality: server 14 auto mode default
+      www.amd.com (Akamai, 9 ms) for NEW nodes, guard on; 10017 keeps lovelive (CloudFront, not CF); pool: only
+      www.cloudflare.com flagged CF + blocked.
+- [x] 15. Summary runs/manian-to-flvx/summary.md; memories manian-flvx-node62 (new), dmit-c2-notice-1122,
+      fork-release-and-deploy, MEMORY.md; ledger row 291 → fork.159; ssh inventory row.
+
+**Status: COMPLETE (11-23 04:2x TW).**
