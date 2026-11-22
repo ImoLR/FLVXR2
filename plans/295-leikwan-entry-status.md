@@ -23,9 +23,9 @@ branch `fix/3.0.27-leikwan-entry-status`, worktree `/root/projects/flvxx/flvxx-2
 - [x] Frontend: forward-row chips (预热 / 首包过滤 / 快切 / 手机备线) grey 「入口不支持」 + tooltip; admin + user, desktop + H5; user view shows 主入口 离线
 - [x] `npm run build` clean
 - [x] Lab on prod-DB snapshot (entries online/offline, with/without warm), screenshots desktop + H5 390 light + dark → gallery :8791/leikwan-entry-status/
-- [ ] Release next free fork (162 expected): tag, CI + Images + assets, Latest
-- [ ] Prod backup + rollback script, prune backups, swap, verify (nodes, forwards, 利群 tables, log 15 min, 5 busiest forwards), prod screenshots
-- [ ] Ledger row 295, memories, tell manian-to-flvx brief owner, cleanup lab/worktree
+- [x] Release next free fork (162 expected): tag, CI + Images + assets, Latest
+- [x] Prod backup + rollback script, prune backups, swap, verify (nodes, forwards, 利群 tables, log 15 min, 5 busiest forwards), prod screenshots
+- [x] Ledger row 295, memories, tell manian-to-flvx brief owner, cleanup lab/worktree
 
 ## Notes (as built)
 - Attention: `leiKwanHostManageViewAt` puts 「节点离线」 first (level error, `offlineSince` = node.updated_time of the
@@ -44,3 +44,16 @@ branch `fix/3.0.27-leikwan-entry-status`, worktree `/root/projects/flvxx/flvxx-2
 - Tests: 5 new handler tests (leikwan_entry_caps_test.go); `go test ./...` 29 packages ok, 0 failures.
   Lab (prod-DB snapshot, runs/leikwan-entry-status/lab): 40/40 UI checks; gallery :8791/leikwan-entry-status/.
 - Diagnose wording 「入口机不在线」 → 「入口机离线」.
+
+## Release (DONE 11-23 TW)
+- Tag 3.0.27-fork.162 → f11b9869 (branch fix/3.0.27-leikwan-entry-status from fork.161; feature 6e0cf174).
+  CI 45046894774 + 45047251144 green, Images 45047253350 green, release Latest, 10 assets, PINNED_VERSION /
+  REPO ok, gost-amd64 sha256 ok. go-gost unchanged vs fork.161 → no OTA. No DB schema change.
+- Prod swap 01:21:25–01:21:32 TW (runs/leikwan-entry-status/work/deploy-162.sh). Rollback
+  /opt/flvx-svc/rollback/pre-fork162-20261122T172124Z/rollback.sh (→ fork.161); kept backups pre-fork161 + pre-fork162
+  (prune removed pre-fork160 and the fork.159 images).
+- Verified: state.py before / after / 03:54 recheck identical (29/31 online, 火山广州 + 火山上海 offline as before,
+  64/64 forwards, 利群 rule / grant / line / setting / host tables same); 5 busiest forwards 3/3 diagnose, same
+  latency; panel log 01:21–03:54 TW no panic, all redeploys failed=0 (only 火山上海 connect/pong-timeout flapping,
+  the host/line problem seen since fork.158); prod screenshots in the gallery (read-only, nothing saved).
+- Lab /root/lk295-lab deleted after the release; worktree flvxx-295 removed (branch pushed).
