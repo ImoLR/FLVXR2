@@ -24,14 +24,14 @@ read-only at most; pub 重仓利群 / lab 利群原版 behaviour unchanged.
 - [x] 9. Frontend: H5 「入口：xx」 chip on the 规则 tab → jumps to 入口机
 - [x] 10. Backend: small additive per-entry capability data if needed (no DB migration) + tests
 - [x] 11. Frontend build + backend `go test` for touched packages; push branch (no tag)
-- [ ] 12. Android: worktree + branch `feature/panel-app`, flavor `panel` (applicationId, label im.gamer, brand icon)
-- [ ] 13. Android: first-run panel-address page (https only) + WebView host + origin-locked bridge
-- [ ] 14. Android: bridge → pub connect engine (state, connect/disconnect, auto-connect, warm, log, battery, info)
-- [ ] 15. Android: foreground notification 「手机本地已连接 N/M 条 [断开]」 + panel-unreachable fallback page
-- [ ] 16. Android: Destinations gains exactly the saved panel origin host; tests (origin, bridge, allowlist)
-- [ ] 17. Android: assemblePanelDebug/Release, pub + lab unit tests of touched classes, check-apk-private.py; push branch
-- [ ] 18. Screenshot gallery /root/mmwx-preview/panel-app-v0/ (mocked bridge + native renders)
-- [ ] 19. Summary /root/flvx-workers/runs/panel-app-leikwan-v0/summary.md; plan ticked
+- [x] 12. Android: worktree + branch `feature/panel-app`, flavor `panel` (applicationId, label im.gamer, brand icon)
+- [x] 13. Android: first-run panel-address page (https only) + WebView host + origin-locked bridge
+- [x] 14. Android: bridge → pub connect engine (state, connect/disconnect, auto-connect, warm, log, battery, info)
+- [x] 15. Android: foreground notification 「手机本地已连接 N/M 条 [断开]」 + panel-unreachable fallback page
+- [x] 16. Android: Destinations gains exactly the saved panel origin host; tests (origin, bridge, allowlist)
+- [x] 17. Android: assemblePanelDebug/Release, pub + lab unit tests of touched classes, check-apk-private.py; push branch
+- [x] 18. Screenshot gallery /root/mmwx-preview/panel-app-v0/ (mocked bridge + native renders)
+- [x] 19. Summary /root/flvx-workers/runs/panel-app-leikwan-v0/summary.md; plan ticked
 
 ## Notes / decisions
 - App vs browser = `window.panelApp` (injected by androidx.webkit addWebMessageListener for the saved panel origin
@@ -53,5 +53,21 @@ read-only at most; pub 重仓利群 / lab 利群原版 behaviour unchanged.
 - 手机本地 selected → the 专线 header hides 备线 / 预热 / 快切 / SS 过滤 (host-side features), keeps 单向/双向.
 - Tests: `go test ./internal/http/handler/ ./tests/contract/` ok (new TestLeiKwanEntryPickContract: link local / own / other
   entry, admin vs user, 只开主入口, ?lk= sub + cache split, ?lk pull keeps the 换主入口 grace); tsc + eslint + `npm run build` ok.
+- Android (ImoLR/leikwan-local-bridge `feature/panel-app` @ 37eceda, private): flavor `panel` =
+  `com.localbridge.leikwan.panel`, label im.gamer, versionName 1.0.7-panel / vc 1, androidx.webkit for this flavor
+  only. Shared hooks Edition.screen()/notice(), Destinations.setPanel/panel, RunLog site labels (pub/lab defaults
+  unchanged). Tests: testPanel 28/28; pub 77/77 + lab 77/77 for the touched shared classes. Signed release APK
+  (local only, after the fallback fix a14d4f1) sha256 e98d0601…99a4, `check-apk-private.py --panel` 0 hits. Emulator screenshots via `panel-e2e/v0`.
+- Finding: on the agents' live reports every front (火山广州 / 百度云广州 / 阿里广州 / 火山上海) runs all 7 forwards,
+  540 included; 540 on 阿里广州 only lacks a warm entry (→ grey 不预热). The real 「此入口未开」 today = 279 / 281 on
+  every non-main entry (只开主入口 on, not exempt).
+- Open: a panel with login captcha (Cloudflare Turnstile) cannot log in inside the App (one-origin rule); prod has no
+  captcha configured.
 - Native pages (first-run address, panel-unreachable fallback) = real Android views in the panel flavor;
   screenshots from the CI emulator (panel-e2e/*, no credentials → no vendor call).
+
+## Result (2026-11-23 01:3x TW)
+- Gallery http://104.145.236.29:8791/panel-app-v0/ — 26 PNG: panel pages from this branch's dist on a prod-DB copy in a
+  loopback-only netns (lab scripts /root/flvx-workers/runs/panel-app-leikwan-v0/lab/, 20 Playwright checks OK, the
+  DB copy /root/lk294-lab deleted afterwards) + native pages from CI emulator run 45048650542 (branch panel-e2e/v0).
+- Summary (Chinese): /root/flvx-workers/runs/panel-app-leikwan-v0/summary.md. No tag, no release, no prod change.
