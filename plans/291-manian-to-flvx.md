@@ -31,11 +31,19 @@ Branch `ops/291-manian-to-flvx` (from 3.0.27-fork.157; merges fork.158 of plan 2
 - [x] 2. Lab (FLVX Core 1929c073 + xray 26.3.27 clients, real 马年 credentials): 12311 single-key ✓, 10016 khalilgao ✓
       (imolr key ✗ as expected), 10017 no-flow ✓ (vision client ✗ = same as today), 10018 ✓, wrong key ✗, UDP ✓ ×3.
 - [ ] 3. Release fork.159 (= fork.158 + 291), CI + images + assets, prod panel swap (backup + rollback)
-- [ ] 4. Backups: FLVX prod DB, mmwx pg_dump, host configs; one-command rollback script
-- [ ] 5. FLVX node 「Boil Hinet 马年」 + agent flvxx (answer n to flux_agent migrate) + native landing server
+- [x] 4. Backups: FLVX DB runs/manian-to-flvx/work/flvx-gost.db.pre291-20261122T121027Z (quick_check ok); mmwx pg_dump
+      mmwx-prod /root/backups/pre-manian-flvx-20261122T121351Z/mmwx.dump; host tarball 马年
+      /root/backup-20261122T120806Z-before-flvx-manian/ (+ copy in work/host-backup/); rollback = work/rollback-cutover.py
+- [x] 5. FLVX node 62 「Boil Hinet 马年」 (group 落地, port 40000-65535, expiry 11-27 like mmwx) + agent flvxx fork.157
+      (migrate answered n: flux_agent PID 557 unchanged, official xray PID unchanged) + native landing server 14
+      (range 10016–39999, Core 512 MB / 200 %). DDNS A boilhinet2 source panel + takeover, panel IP family prefer_ipv4
+      (host got SLAAC IPv6 → agent used IPv6 → noaddr) → synced 114.26.132.236.
 - [ ] 6. Baseline per port (direct + entry paths), real clients
-- [ ] 7. leekao + node 95: backup rows, delete (unused)
-- [ ] 8. Cutover idle ports (10017, 10018, 30000, 30001) as soon as ready; busy (12311, 10016) 02:00–03:45 TW
+- [x] 7. leekao + node 95: rows backed up (work/leekao-backup.json; 7-day traffic = probe/test only, no forwards/subs),
+      node 95 deleted (shared, :30001 released), user 26 deleted.
+- [ ] 8. Cutover: 30000 DONE 20:2x TW (mmwx share revoked → FLVX shared Core stopped → native node 212 hot-added, real
+      client OK); 30001 deleted. 10017/10018 share the official xray process with busy 12311/10016 → all four in the
+      02:00–03:45 window (removing them earlier would need an xray restart/edit = touching busy ports).
 - [ ] 9. Verify each port + entry paths + forged-SNI test on 10017; latency/speed vs baseline
 - [ ] 10. khalilgao FLVX subscription with the same links (2 direct + 2 relay external)
 - [ ] 11. mmwx: delete server 5 (Custom server-delete, pg_dump first); FLVX shared server 3 removed
