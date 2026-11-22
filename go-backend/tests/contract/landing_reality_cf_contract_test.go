@@ -80,7 +80,7 @@ func TestLandingRealityCFContract(t *testing.T) {
 				keys = append(keys, k)
 			}
 			sort.Strings(keys)
-			if got := strings.Join(keys, ","); got != "blocked,cfEvidence,cfHosted,cfReason,createdTime,domain,id,inPool,manualBlocked,note,source,sortOrder,trial,updatedTime" {
+			if got := strings.Join(keys, ","); got != "blocked,cfEvidence,cfHosted,cfReason,createdTime,domain,id,inPool,manualBlocked,note,sortOrder,source,trial,updatedTime" {
 				t.Fatalf("row fields %s", got)
 			}
 			if tesla["blocked"] != true || tesla["manualBlocked"] != false || tesla["cfHosted"] != true || !strings.Contains(tesla["cfReason"].(string), "Cloudflare 托管") || tesla["cfEvidence"] != "104.18.1.1（面板解析）" {

@@ -35,8 +35,8 @@ Cloudflare lets anyone reach any CF site through the landing. Today only `www.cl
 - [x] handler: cached resolver, CF check job (add / pool / 6 h loop), manual dest refuse, server `realityRisk` view
 - [x] backend tests: matcher, auto-block / lift / manual kept, probe exclusion, marker conditions; contract for payload
 - [x] frontend: 域名池 row pill + reason, no 解除屏蔽 for CF rows, 测速 table pill, ⚠ reasons
-- [ ] `go vet`, `go test ./...` (compare failures with fork.157), `npm run build`
-- [ ] lab (isolated netns, hosts-file fake CF domain): blocked with reason, non-CF untouched, ⚠ for guard-off server;
+- [x] `go vet`, `go test ./...` (compare failures with fork.157), `npm run build`
+- [x] lab (isolated netns, hosts-file fake CF domain): blocked with reason, non-CF untouched, ⚠ for guard-off server;
       screenshots desktop + 390 px → gallery /reality-cf-check/
 - [x] prod pool pre-scan (read-only, DNS only) — expected only www.cloudflare.com
 - [ ] release fork.158: tag, CI + Images + assets, Latest
@@ -48,3 +48,13 @@ Cloudflare lets anyone reach any CF site through the landing. Today only `www.cl
 - Prod pre-scan 11-22 (read-only DB, DNS from the dev box): 102 candidates = every live dest (all dests are
   candidates), 0 lookup failures, only Cloudflare hit = `www.cloudflare.com` (104.16.123.96 / .124.96), already
   blocked by name. No stored 测速 table / pin of any server shows a Cloudflare IP.
+- Tests: `go vet ./...` clean; `go test -p 1 ./...` (SQLite) all green; PG (postgres:18 throwaway container)
+  repo + handler + contract green after fixing my own new contract test's field-order string (no pre-existing
+  failures this time). `npm run build` ok (PWA precache 49 entries, 930 KiB).
+- Lab (isolated netns, synthetic DB, hosts-file fake domains, real lab panel, no mocks): 30/30 checks — custom
+  cf-lab (104.21.55.66) blocked at add with reason, unblock refused; akamai-lab untouched; pool cf-pool blocked by the
+  loop's first check, fastly-pool untouched; www.cloudflare.com marked next to its name block; ⚠ on the guard-off,
+  CF-dest and shared-no-guard servers only; users see nothing new; no page errors. Gallery
+  http://104.145.236.29:8791/reality-cf-check/ (15 PNG, desktop + 390 px).
+- Rollback check on a prod DB copy (isolated netns): fork.158 added cf_hosted / cf_evidence and marked only
+  www.cloudflare.com; fork.157 then started cleanly on the same DB. Copy deleted.
