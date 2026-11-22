@@ -92,7 +92,7 @@ func (h *Handler) realityDomainsView() (map[string]any, error) {
 	}
 	probed := 0
 	for _, d := range rows {
-		if !d.Blocked && probed < repo.RealityProbeMaxCandidates {
+		if !d.RealityBlocked() && probed < repo.RealityProbeMaxCandidates {
 			probed++
 		}
 	}
@@ -101,10 +101,19 @@ func (h *Handler) realityDomainsView() (map[string]any, error) {
 	type domainRow struct {
 		model.LandingRealityDomain
 		Trial bool `json:"trial"` // plan 229: 妙妙屋池 small site, auto-picked only when stable
+		// Plan 290: blocked = never probed / picked (the admin's block OR
+		// Cloudflare); manualBlocked = the admin's (or risk rule's) own block.
+		Blocked       bool   `json:"blocked"`
+		ManualBlocked bool   `json:"manualBlocked"`
+		CFReason      string `json:"cfReason,omitempty"`
 	}
 	list := make([]domainRow, 0, len(rows))
 	for _, d := range rows {
-		list = append(list, domainRow{d, repo.RealityTrialDomain(d)})
+		row := domainRow{LandingRealityDomain: d, Trial: repo.RealityTrialDomain(d), Blocked: d.RealityBlocked(), ManualBlocked: d.Blocked}
+		if d.CFHosted {
+			row.CFReason = repo.RealityCFReason
+		}
+		list = append(list, row)
 	}
 	return map[string]any{
 		"domains":       list,
@@ -135,10 +144,13 @@ func (h *Handler) landingRealityDomainAdd(w http.ResponseWriter, r *http.Request
 		landingError(w, err)
 		return
 	}
-	if _, err := h.repo.AddLandingRealityDomain(req.Domain); err != nil {
+	row, err := h.repo.AddLandingRealityDomain(req.Domain)
+	if err != nil {
 		landingError(w, err)
 		return
 	}
+	// Plan 290: a domain on Cloudflare is blocked right away.
+	h.realityCFCheckOne(r.Context(), row.Domain)
 	h.landingRealityDomains(w, r)
 }
 
@@ -180,6 +192,13 @@ func (h *Handler) landingRealityPoolRefresh(w http.ResponseWriter, r *http.Reque
 		landingError(w, err)
 		return
 	}
+	// Plan 290: new pool domains are checked for Cloudflare right away
+	// (cached lookups; what does not fit in the request runs with the loop).
+	cctx, ccancel := context.WithTimeout(r.Context(), 20*time.Second)
+	if !h.realityCFCheckAll(cctx, false) {
+		markRealityCFDue()
+	}
+	ccancel()
 	h.landingRealityDomains(w, r)
 }
 
@@ -244,6 +263,7 @@ func (h *Handler) refreshRealityPool(ctx context.Context, force bool) error {
 	_ = h.repo.UpsertConfig(realityPoolErrorKey, pool.Reason, time.Now().UnixMilli())
 	if added > 0 {
 		log.Printf("landing reality pool: %d domains (%d new)", len(domains), added)
+		markRealityCFDue() // plan 290: check the new ones for Cloudflare
 	}
 	return nil
 }
@@ -372,6 +392,10 @@ func (h *Handler) runRealityProbe(ctx context.Context, serverID int64) ([]repo.R
 	rec, err = h.repo.RecordLandingRealityProbe(serverID, results, "", stats)
 	if err != nil {
 		return nil, rec, err
+	}
+	if len(rec.CFHosts) > 0 {
+		// Plan 290: excluded from this pick, rows marked.
+		log.Printf("landing reality server=%d: %d candidate(s) resolved to Cloudflare, excluded", serverID, len(rec.CFHosts))
 	}
 	if rec.Picked != "" {
 		log.Printf("landing reality server=%d auto dest %s → %s (new nodes only)", serverID, rec.Previous, rec.Picked)
@@ -537,10 +561,13 @@ func (h *Handler) realityResultsView(results []repo.RealityProbeResult, history 
 		if known {
 			source = d.Source
 		}
+		// Plan 290: on Cloudflare = the row is marked, or this machine
+		// resolved it to a Cloudflare address (then it was not picked either).
+		cf := (known && d.CFHosted) || repo.RealityResultCFIP(r) != ""
 		row := map[string]any{
 			"target": r.Target, "domain": host, "feasible": r.Feasible, "reason": r.Reason, "latencyMs": r.LatencyMs,
 			"bestIp": r.BestIP, "ips": r.IPs, "serverNames": repo.RealityServerNamesFor(host, r.ServerNames),
-			"source": source, "inPool": known && d.InPool, "blocked": known && d.Blocked,
+			"source": source, "inPool": known && d.InPool, "blocked": (known && d.RealityBlocked()) || cf, "cfHosted": cf,
 			"samples": r.Samples, "worstMs": r.WorstMs, "medianMs": r.MedianMs,
 			"trial": r.Trial, "trialOk": r.TrialOK, "trialPending": r.TrialPending, "trialReason": r.TrialReason,
 		}
@@ -687,6 +714,11 @@ func (h *Handler) runRealityProbeLoop(ctx context.Context) {
 		pctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 		_ = h.refreshRealityPool(pctx, false)
 		cancel()
+		// Plan 290: Cloudflare check every 6 h (first on this first tick, so
+		// the built-in seed and existing rows are covered) and after imports.
+		cctx, ccancel := context.WithTimeout(ctx, 5*time.Minute)
+		h.realityCFCheckIfDue(cctx)
+		ccancel()
 		h.realityProbeDue(ctx)
 		timer.Reset(10 * time.Minute)
 	}

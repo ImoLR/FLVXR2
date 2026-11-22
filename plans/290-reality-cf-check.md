@@ -1,0 +1,50 @@
+# 290 — Reality 域名池: auto-block Cloudflare-hosted domains + admin ⚠ when 防盗 is not in effect
+
+Task `reality-cf-check` (11-22 TW, user: 「这个可以做，但不要影响到转发效率以及延迟」). Base 3.0.27-fork.157,
+branch `feature/3.0.27-reality-cf-check`, release → fork.158 (panel only).
+
+## Why
+DMIT 11-22 notice: proxies whose unauthenticated fallback reaches Cloudflare are abused as botnet C2 relays
+(「偷 CF」). Reality relays every unauthenticated connection to `dest`; Cloudflare routes by SNI, so a dest on
+Cloudflare lets anyone reach any CF site through the landing. Today only `www.cloudflare.com` is blocked, by name.
+
+## Design (control plane only — nothing on the forwarding path)
+- `internal/cfnet`: built-in Cloudflare IPv4 + IPv6 ranges (= api.cloudflare.com/client/v4/ips, etag
+  38f79d050aa027e3be3865e495dcc9bc, checked 11-22). Built-in list is the source of truth; no runtime refresh.
+- `landing_reality_domain` + 2 default columns: `cf_hosted` (bool, default false), `cf_evidence` (text, default '').
+  Effective block = manual `blocked` OR `cf_hosted`; manual blocks are never touched by the check.
+- Evidence = the panel's own A/AAAA lookup (cached 6 h, failures keep the previous verdict) + the IPs the landings
+  already reported (stored 测速 table `reality_probe` IPs/best IP and `reality_pins`, ≤ 48 h old).
+- When: admin add (immediately), pool import (right after), the existing 10-min reality loop every 6 h (incl. the
+  built-in seed rows, first run 3 min after start), and inside every 测速 record (a candidate the landing resolved
+  to a CF IP is excluded from that pick and its row is marked).
+- Lift: a CF-blocked domain is unblocked when the panel lookup succeeds with no CF IP and no fresh landing evidence.
+  A geo-DNS domain that is on Cloudflare only from some landings may flip daily (lifted → next 测速 on that landing
+  re-marks it before its pick), but it is never picked by a landing that resolves it to Cloudflare.
+- Admin cannot unblock a CF-hosted domain (decision: not allowed — refused with the reason; it lifts itself when the
+  domain leaves Cloudflare). A manual 伪装域名 that is CF-hosted is refused on save.
+- Existing nodes are never changed. Admin-only ⚠ (plan 218 `serverAdminAttention`) on the 落地 server card when
+  (a) the server default dest or a live VLESS Reality node's dest is CF-hosted, or (b) the server has live VLESS
+  Reality nodes and 防盗 is not in effect (off / unsupported share / idle while nodes exist / share error) — states
+  already flagged by plan 218 (native restart / error / agent_old) are not duplicated.
+
+## Checklist
+- [x] Worktree from fork.157, plan doc
+- [x] cfnet range matcher + tests (v4/v6 edges)
+- [x] model columns + repo: effective block, verdict apply/lift, landing evidence, probe-record exclusion, unblock refuse
+- [x] handler: cached resolver, CF check job (add / pool / 6 h loop), manual dest refuse, server `realityRisk` view
+- [x] backend tests: matcher, auto-block / lift / manual kept, probe exclusion, marker conditions; contract for payload
+- [x] frontend: 域名池 row pill + reason, no 解除屏蔽 for CF rows, 测速 table pill, ⚠ reasons
+- [ ] `go vet`, `go test ./...` (compare failures with fork.157), `npm run build`
+- [ ] lab (isolated netns, hosts-file fake CF domain): blocked with reason, non-CF untouched, ⚠ for guard-off server;
+      screenshots desktop + 390 px → gallery /reality-cf-check/
+- [x] prod pool pre-scan (read-only, DNS only) — expected only www.cloudflare.com
+- [ ] release fork.158: tag, CI + Images + assets, Latest
+- [ ] prod backup + rollback script, prune backups, swap, verify (nodes, forwards, 利群 tables, log 15 min, 5 busiest
+      forwards RTT), report pool scan + ⚠ markers
+- [ ] ledger + memory, cleanup
+
+## Results
+- Prod pre-scan 11-22 (read-only DB, DNS from the dev box): 102 candidates = every live dest (all dests are
+  candidates), 0 lookup failures, only Cloudflare hit = `www.cloudflare.com` (104.16.123.96 / .124.96), already
+  blocked by name. No stored 测速 table / pin of any server shows a Cloudflare IP.

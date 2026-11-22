@@ -228,6 +228,8 @@ export interface LandingServer {
   egress?: ServerEgressView;
   /** plan 218 (admin): this server's 禁止端口扫描 state, same as the 内置 per-server row. */
   scanGuard?: ScanGuardNodeState;
+  /** plan 290 (admin): Reality dests on Cloudflare / Reality without 防盗 (⚠). */
+  realityRisk?: RealityRisk;
   egressLabel?: string;
   egressWarnings?: string[];
   // plan 121 defaults for new AnyTLS / Snell / Mieru nodes (shared servers)
@@ -651,6 +653,31 @@ export interface RealityDomain {
   note: string;
   // Plan 229: 妙妙屋池 small site — auto-picked only once stable on a machine.
   trial?: boolean;
+  // Plan 290: blocked = never probed / picked (the admin's own block OR
+  // Cloudflare); manualBlocked = the admin's (or risk rule's) block alone;
+  // cfHosted = resolves to Cloudflare (cannot be unblocked; lifts itself).
+  manualBlocked?: boolean;
+  cfHosted?: boolean;
+  cfEvidence?: string;
+  cfReason?: string;
+}
+/** Plan 290 (admin): one Reality dest of a server that is on Cloudflare. */
+export interface RealityCFDest {
+  host: string;
+  /** live Reality listeners (nodes + chain exits) using it */
+  nodes: number;
+  /** the server's default for NEW nodes */
+  default: boolean;
+  evidence: string;
+}
+export interface RealityRisk {
+  /** live VLESS Reality listeners on the server (nodes + chain exits) */
+  listeners: number;
+  /** landingGuardView state (on, off, idle, shared, agent_old, restart, error, pending) */
+  guardState: string;
+  /** listeners > 0 and 防盗 not in effect */
+  guardExposed: boolean;
+  cfDests: RealityCFDest[];
 }
 // Plan 229: the 试用 rule and the re-sample pacing (help text).
 export interface RealityTrialRule {
@@ -699,6 +726,8 @@ export interface RealityProbeRow {
   source: RealityDomainSource | "current";
   inPool: boolean;
   blocked: boolean;
+  /** Plan 290: on Cloudflare (marked, or this machine resolved it there). */
+  cfHosted?: boolean;
   // Plan 229: this 测速's samples (ms, -1 = not usable), worst / median, the
   // 试用 verdict and the machine's history of the domain.
   samples?: number[];

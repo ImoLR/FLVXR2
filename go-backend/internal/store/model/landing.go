@@ -137,7 +137,17 @@ type LandingRealityDomain struct {
 	SortOrder   int    `gorm:"not null;default:0" json:"sortOrder"`
 	CreatedTime int64  `gorm:"not null;default:0" json:"createdTime"`
 	UpdatedTime int64  `gorm:"not null;default:0" json:"updatedTime"`
+	// Plan 290: the domain resolves to Cloudflare (panel lookup or an IP a
+	// landing reported) → blocked automatically, next to the admin's own
+	// Blocked; lifted by the check once it leaves Cloudflare. CFEvidence = the
+	// matching IP and where it was seen.
+	CFHosted   bool   `gorm:"column:cf_hosted;not null;default:false" json:"cfHosted"`
+	CFEvidence string `gorm:"column:cf_evidence;type:text;not null;default:''" json:"cfEvidence"`
 }
+
+// RealityBlocked: never probed / picked — blocked by the admin (or the
+// built-in / pool risk rules) or hosted on Cloudflare (plan 290).
+func (d LandingRealityDomain) RealityBlocked() bool { return d.Blocked || d.CFHosted }
 
 func (LandingRealityDomain) TableName() string { return "landing_reality_domain" }
 
