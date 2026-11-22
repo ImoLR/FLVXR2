@@ -161,7 +161,9 @@ export function EntryTile({
     >
       <span className="flex min-w-0 items-center gap-1.5">
         {ps ? <StateDot dot={ps.dot} /> : h && <LkDot ok={hostRunning(h)} />}
-        <span className="min-w-0 flex-1 break-words text-[13px] font-semibold">
+        <span
+          className={`min-w-0 flex-1 text-[13px] font-semibold ${option.phone ? "whitespace-nowrap" : "break-words"}`}
+        >
           {option.phone && (
             <Smartphone
               aria-hidden="true"
@@ -183,7 +185,9 @@ export function EntryTile({
                 没自动连接
               </Pill>
             ) : (
-              <Pill tone="violet">本机 127.0.0.1</Pill>
+              <Pill title="127.0.0.1（本机的利群客户端）" tone="violet">
+                本机
+              </Pill>
             )}
           </>
         ) : h ? (
