@@ -88,9 +88,13 @@ export default function H5Layout({ children }: { children: React.ReactNode }) {
     () => document.getElementById("h5-main") as HTMLElement | null,
     [],
   );
+  // Plan 293: 个人中心 has its own fixed 「Powered by」 footer (with the
+  // version) right above the bottom nav; the floating badge landed on top
+  // of it. Keep one signature there: the footer.
+  const pageHasOwnSignature = /^\/profile\/?$/.test(location.pathname);
   const poweredBadgeClear = usePoweredBadgeClear(
     getMain,
-    poweredBadgeVisible,
+    poweredBadgeVisible && !pageHasOwnSignature,
     location.pathname,
   );
   const [passwordLoading, setPasswordLoading] = useState(false);
@@ -615,7 +619,7 @@ export default function H5Layout({ children }: { children: React.ReactNode }) {
     <div className="flvx-mobile-shell">
       {/* 顶部导航栏 */}
       <header className="flvx-mobile-topbar">
-        <div className="flex items-center gap-2 sm:gap-3">
+        <div className="flvx-h5-topbar-left flex items-center gap-2 sm:gap-3">
           <button
             className="flvx-h5-icon-button p-1.5 -ml-1.5 text-gray-600 dark:text-gray-300 hover:text-foreground rounded-md active:bg-gray-200 dark:active:bg-gray-800 transition-colors"
             onClick={toggleMobileMenu}
@@ -652,14 +656,17 @@ export default function H5Layout({ children }: { children: React.ReactNode }) {
         </div>
 
         {/* 顶部右侧 - 用户名下拉菜单 */}
-        <div className="flex items-center gap-1">
+        <div className="flvx-h5-topbar-right flex items-center gap-1">
           <Dropdown placement="bottom-end">
             <DropdownTrigger>
               <Button
                 className="flvx-h5-user-button text-sm font-medium text-foreground px-1 sm:px-2 min-w-0 bg-transparent"
                 variant="light"
               >
-                <span className="truncate max-w-[70px] sm:max-w-[120px]">
+                <span
+                  className="flvx-h5-user-name truncate"
+                  title={username}
+                >
                   {username}
                 </span>
                 <svg
@@ -871,7 +878,7 @@ export default function H5Layout({ children }: { children: React.ReactNode }) {
         </button>
       </nav>
 
-      {poweredBadgeVisible && poweredBadgeClear && (
+      {poweredBadgeVisible && !pageHasOwnSignature && poweredBadgeClear && (
         <div aria-label="Powered by im.gamer" className="flvx-powered-badge">
           Powered by{" "}
           <a

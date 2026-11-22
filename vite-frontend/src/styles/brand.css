@@ -69,6 +69,36 @@ a.flvx-h5-brand-name.imgamer-h5-brand .brand-wordmark {
   }
 }
 
+/* Plan 293: H5 header username. The older fixed caps (46–58 px) cut even
+   short names ("admi…"). Now the logo side never shrinks, the right side
+   takes the remaining width, and the name only ellipsizes when it really
+   does not fit. Selectors are one class deeper than the globals.css caps. */
+.flvx-mobile-shell .flvx-mobile-topbar .flvx-h5-topbar-left {
+  flex: 0 0 auto;
+}
+
+.flvx-mobile-shell .flvx-mobile-topbar .flvx-h5-topbar-right {
+  flex: 1 1 auto;
+  min-width: 0;
+  justify-content: flex-end;
+  margin-left: 8px;
+}
+
+.flvx-mobile-shell .flvx-mobile-topbar .flvx-h5-user-button {
+  flex: 0 1 auto;
+  min-width: 0 !important;
+  max-width: 100% !important;
+}
+
+.flvx-mobile-shell .flvx-mobile-topbar .flvx-h5-user-button .flvx-h5-user-name {
+  min-width: 0;
+  max-width: none !important;
+}
+
+.flvx-mobile-shell .flvx-mobile-topbar .flvx-h5-theme-button {
+  flex: 0 0 auto;
+}
+
 /* ───────────────────────── Login page ───────────────────────── */
 
 .imgamer-login-bg {
