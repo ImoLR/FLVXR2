@@ -198,7 +198,7 @@ func (r *Repository) RealityProbeTargets() ([]string, error) {
 	}
 	var out []string
 	for _, d := range rows {
-		if d.Blocked {
+		if d.RealityBlocked() {
 			continue
 		}
 		out = append(out, d.Domain+":443")
@@ -258,10 +258,17 @@ func (r *Repository) DeleteLandingRealityDomain(id int64) error {
 	})
 }
 
+// ErrRealityCFUnblock: plan 290 — a Cloudflare-hosted domain stays blocked
+// (it lifts itself once the domain leaves Cloudflare).
+var ErrRealityCFUnblock = errors.New("这个域名托管在 Cloudflare，不能解除屏蔽：" + RealityCFReason + "。域名离开 Cloudflare 后会自动解除")
+
 func (r *Repository) SetLandingRealityDomainBlocked(id int64, blocked bool) (*model.LandingRealityDomain, error) {
 	var row model.LandingRealityDomain
 	if err := r.db.First(&row, id).Error; err != nil {
 		return nil, errors.New("域名不存在")
+	}
+	if !blocked && row.CFHosted {
+		return nil, ErrRealityCFUnblock
 	}
 	if err := r.db.Model(&row).Updates(map[string]any{"blocked": blocked, "updated_time": time.Now().UnixMilli()}).Error; err != nil {
 		return nil, err
@@ -270,11 +277,23 @@ func (r *Repository) SetLandingRealityDomainBlocked(id int64, blocked bool) (*mo
 	return &row, nil
 }
 
-// RealityDomainBlocked reports whether host is a blocked candidate.
+// RealityDomainBlocked reports whether host is a blocked candidate (by the
+// admin / risk rules, or hosted on Cloudflare).
 func (r *Repository) RealityDomainBlocked(host string) bool {
 	var n int64
-	_ = r.db.Model(&model.LandingRealityDomain{}).Where("domain = ? AND blocked = ?", strings.ToLower(host), true).Count(&n).Error
+	_ = r.db.Model(&model.LandingRealityDomain{}).Where("domain = ? AND (blocked = ? OR cf_hosted = ?)", strings.ToLower(host), true, true).Count(&n).Error
 	return n > 0
+}
+
+// RealityDomainCFHosted reports whether host is a candidate marked as hosted
+// on Cloudflare, with the evidence.
+func (r *Repository) RealityDomainCFHosted(host string) (bool, string) {
+	var rows []model.LandingRealityDomain
+	_ = r.db.Where("domain = ? AND cf_hosted = ?", strings.ToLower(host), true).Limit(1).Find(&rows).Error
+	if len(rows) == 0 {
+		return false, ""
+	}
+	return true, rows[0].CFEvidence
 }
 
 // ReplaceLandingRealityPool applies the current 妙妙屋 pool: new domains are
@@ -461,6 +480,9 @@ type RealityProbeRecord struct {
 	// Forced = it was a failover (previous default not pickable any more).
 	Switched bool
 	Forced   bool
+	// CFHosts (plan 290): candidates of this 测速 the machine resolved to a
+	// Cloudflare address (host → evidence); excluded from the pick.
+	CFHosts map[string]string
 }
 
 // RecordLandingRealityProbe stores a 测速 table (rows as merged by
@@ -485,6 +507,18 @@ func (r *Repository) RecordLandingRealityProbe(serverID int64, results []Reality
 		updates := map[string]any{"reality_probe_error": probeErr}
 		rec.Previous = s.RealityDest
 		if probeErr == "" {
+			// Plan 290: a candidate this machine resolved to a Cloudflare
+			// address is never picked here, and its row is marked (lifting is
+			// the periodic check's job).
+			cf := realityProbeCFHosts(results, s.Name)
+			for host, ev := range cf {
+				if err := tx.Model(&model.LandingRealityDomain{}).Where("domain = ? AND cf_hosted = ?", host, false).
+					Updates(map[string]any{"cf_hosted": true, "cf_evidence": ev, "updated_time": now}).Error; err != nil {
+					return err
+				}
+			}
+			rec.CFHosts = cf
+			info.Blocked = withRealityCF(info.Blocked, cf)
 			info.History = LandingRealityHistory(&s)
 			for _, res := range results {
 				if res.Reason == "已取消" {
@@ -562,7 +596,9 @@ func (r *Repository) ReapplyRealityDomainMargin(serverID int64, marginMs int) (R
 		if s.Status != "active" || NormalizeRealityMode(s.RealityMode) != RealityModeAuto {
 			return nil
 		}
-		d := DecideRealityPick(LandingRealityProbeResults(&s), func(h string) bool { return info.Blocked[h] }, s.RealityDest, marginMs)
+		stored := LandingRealityProbeResults(&s)
+		blocked := withRealityCF(info.Blocked, realityProbeCFHosts(stored, s.Name))
+		d := DecideRealityPick(stored, func(h string) bool { return blocked[h] }, s.RealityDest, marginMs)
 		if d.Pick == nil || d.Forced || d.Current == nil || d.Pick == d.Current {
 			return nil
 		}

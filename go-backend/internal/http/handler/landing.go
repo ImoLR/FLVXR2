@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"log"
@@ -254,6 +255,17 @@ func (h *Handler) landingServerViewWith(s model.LandingServer, admin bool, catal
 	// Plan 218: the server's 禁止端口扫描 state (same as the 内置 per-server
 	// row), read-only, for the card's admin-attention marker.
 	v["scanGuard"] = landingScanCardView(&s, agent, catalog.scanOn != nil && catalog.scanOn(), st.live)
+	// Plan 290: Reality dests on Cloudflare / Reality listeners without 防盗
+	// (admin ⚠; read from stored state, existing nodes are never changed).
+	if s.Source == "shared" {
+		v["realityRisk"] = h.landingRealityRiskView(s)
+	} else {
+		nodeGuard := 0
+		if agent != nil {
+			nodeGuard = agent.LandingGuard
+		}
+		v["realityRisk"] = h.landingRealityRiskView(s, nodeGuard)
+	}
 	v["nodeCount"] = st.count
 	v["connections"] = st.connections
 	// Plan 141: whether the runtime applies 仅入站 (false = old agent / 妙妙屋
@@ -667,6 +679,14 @@ func (h *Handler) landingServerSave(w http.ResponseWriter, r *http.Request) {
 		host := req.LandingServer.RealityDest
 		if hh, _, e := net.SplitHostPort(host); e == nil {
 			host = hh
+		}
+		// Plan 290: never a Cloudflare-hosted dest.
+		cctx, ccancel := context.WithTimeout(r.Context(), 6*time.Second)
+		onCF, _ := h.realityCFHostedNow(cctx, old, host)
+		ccancel()
+		if onCF {
+			landingError(w, errors.New("这个伪装域名托管在 Cloudflare，不能用作 Reality 目标："+repo.RealityCFReason))
+			return
 		}
 		if h.repo.RealityDomainBlocked(host) {
 			landingError(w, errors.New("这个伪装域名已被屏蔽，请先在「全局设置 → Reality 伪装域名」里解除屏蔽"))

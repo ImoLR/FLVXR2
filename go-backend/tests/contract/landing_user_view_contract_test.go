@@ -32,7 +32,9 @@ var landingAdminServerKeysNative = []string{"anytlsServerName", "availableUntil"
 	// Plan 253: VLESS Encryption availability (reason only while unavailable).
 	"vlessEncAvailable", "vlessEncReason",
 	// Plan 286: 落地服务器 region groups (effective / automatic / 显示地区), admin only.
-	"region", "regionAuto", "regionOverride"}
+	"region", "regionAuto", "regionOverride",
+	// Plan 290: Reality dests on Cloudflare / Reality listeners without 防盗 (⚠), admin only.
+	"realityRisk"}
 
 // Plan 211: shared servers also carry the 妙妙屋 share cap (read-only).
 var landingAdminServerKeysShared = append([]string{"busyPortCount", "shareMaxConnections", "sharedAvailable", "sharedCaps", "sharedNotice"}, landingAdminServerKeysNative...)

@@ -247,7 +247,7 @@ func (r *Repository) realityDomainSets() (RealityPickInfo, error) {
 		return info, err
 	}
 	for _, d := range rows {
-		if d.Blocked {
+		if d.RealityBlocked() {
 			info.Blocked[d.Domain] = true
 		}
 		if RealityTrialDomain(d) {
