@@ -681,7 +681,7 @@ func seedData(db *gorm.DB) {
 	}
 	db.Where("id = ?", 1).FirstOrCreate(&adminUser)
 
-	appNameConfig := model.ViteConfig{Name: "app_name", Value: "flvx", Time: time.Now().UnixMilli()}
+	appNameConfig := model.ViteConfig{Name: "app_name", Value: "im.gamer", Time: time.Now().UnixMilli()} // plan 292 brand
 	db.Where("name = ?", "app_name").FirstOrCreate(&appNameConfig)
 	for _, cfg := range []model.ViteConfig{
 		{Name: "payment_enabled", Value: "false", Time: time.Now().UnixMilli()},

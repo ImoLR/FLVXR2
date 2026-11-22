@@ -1,0 +1,396 @@
+/*
+ * Plan 292: im.gamer brand surfaces (wordmark, powered badge, login page).
+ * Colours come from the --brand-* variables set by src/config/brand.ts from
+ * src/config/brand-palette.ts — never hard-code the brand colour here.
+ * The panel interior keeps its blue primary.
+ */
+
+:root {
+  /* Fallbacks until applyBrandVars() runs (mint). */
+  --brand-from: #5ee0b0;
+  --brand-to: #14b8a6;
+  --brand-to-raw: #14b8a6;
+  --brand-accent: #0d9488;
+  --brand-soft: #ddf7ef;
+  --brand-ring: rgba(20, 184, 166, 0.28);
+  --brand-dot: var(--brand-accent);
+  --brand-ink: #0f172a;
+}
+
+.dark {
+  --brand-dot: var(--brand-from);
+  --brand-ink: #f1f5f9;
+}
+
+/* Wordmark: sized by font-size like text, baseline aligned. */
+.brand-wordmark {
+  display: inline-block;
+  flex-shrink: 0;
+  width: auto;
+  height: 0.945em;
+  aspect-ratio: 4416 / 945;
+  overflow: visible;
+  vertical-align: -0.195em;
+}
+
+.brand-ink {
+  color: var(--brand-ink);
+}
+
+/* Powered badge (admin + H5 layouts) */
+.flvx-powered-badge .imgamer-powered-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: #334155;
+  text-decoration: none;
+}
+
+.flvx-powered-badge .imgamer-powered-link .brand-wordmark {
+  font-size: 12px;
+}
+
+.dark .flvx-powered-badge .imgamer-powered-link {
+  color: #f1f5f9;
+}
+
+/* H5 header: logo + wordmark (wider than the old text-only name) */
+a.flvx-h5-brand-name.imgamer-h5-brand {
+  max-width: 170px !important;
+}
+
+a.flvx-h5-brand-name.imgamer-h5-brand .brand-wordmark {
+  font-size: 18px;
+}
+
+@media (max-width: 380px) {
+  a.flvx-h5-brand-name.imgamer-h5-brand .brand-wordmark {
+    font-size: 15px;
+  }
+}
+
+/* ───────────────────────── Login page ───────────────────────── */
+
+.imgamer-login-bg {
+  background:
+    radial-gradient(circle at 12% 8%, var(--brand-soft) 0, transparent 38%),
+    radial-gradient(circle at 92% 92%, #eef6ff 0, transparent 40%),
+    #fff;
+}
+
+.dark .imgamer-login-bg {
+  background: #05070b;
+  background:
+    radial-gradient(
+      circle at 12% 8%,
+      color-mix(in srgb, var(--brand-to-raw) 20%, transparent) 0,
+      transparent 40%
+    ),
+    radial-gradient(circle at 92% 92%, rgba(37, 99, 235, 0.14) 0, transparent 42%),
+    #05070b;
+}
+
+.imgamer-login-nav {
+  height: 60px;
+  border-bottom: 1px solid #eef1f5;
+  background: rgba(255, 255, 255, 0.7);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+.imgamer-login-nav > div {
+  padding: 0 68px;
+}
+
+@media (max-width: 768px) {
+  .imgamer-login-nav > div {
+    padding: 0 16px;
+  }
+}
+
+.dark .imgamer-login-nav {
+  border-bottom-color: rgba(255, 255, 255, 0.08);
+  background: rgba(5, 7, 11, 0.6);
+}
+
+.imgamer-login-card {
+  width: 460px;
+  max-width: 100%;
+  margin: 0 auto;
+  padding: 30px 28px 28px;
+  border-radius: 28px;
+  background: #fff;
+  box-shadow: 0 24px 64px rgba(15, 23, 42, 0.08);
+}
+
+.dark .imgamer-login-card {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(17, 22, 30, 0.92);
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.45);
+}
+
+.imgamer-login-logo {
+  display: block;
+  margin: 0 auto 10px;
+  filter: drop-shadow(0 10px 18px var(--brand-ring));
+}
+
+.imgamer-login-title {
+  margin: 4px 0;
+  font-size: 28px;
+  font-weight: 700;
+  line-height: 1.25;
+  color: #0f172a;
+}
+
+.dark .imgamer-login-title {
+  color: #f8fafc;
+}
+
+.imgamer-login-sub {
+  font-size: 14px;
+  color: #64748b;
+}
+
+.dark .imgamer-login-sub {
+  color: #94a3b8;
+}
+
+/* Tinted chips */
+.imgamer-chip {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.5;
+  white-space: nowrap;
+}
+
+.imgamer-chip-brand {
+  background: var(--brand-soft);
+  color: var(--brand-accent);
+}
+
+.imgamer-chip-green {
+  background: #dcfce7;
+  color: #15803d;
+}
+
+.imgamer-chip-purple {
+  background: #f3e8ff;
+  color: #7e22ce;
+}
+
+.imgamer-chip-amber {
+  background: #fef3c7;
+  color: #b45309;
+}
+
+.dark .imgamer-chip-brand {
+  background: color-mix(in srgb, var(--brand-to-raw) 18%, transparent);
+  color: var(--brand-from);
+}
+
+.dark .imgamer-chip-green {
+  background: rgba(34, 197, 94, 0.16);
+  color: #86efac;
+}
+
+.dark .imgamer-chip-purple {
+  background: rgba(168, 85, 247, 0.18);
+  color: #d8b4fe;
+}
+
+.dark .imgamer-chip-amber {
+  background: rgba(245, 158, 11, 0.16);
+  color: #fcd34d;
+}
+
+/* Fields: tinted chip inside a soft input */
+.imgamer-field {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 52px;
+  padding: 0 8px;
+  border: 1.5px solid transparent;
+  border-radius: 16px;
+  background: #f5f7fb;
+  transition:
+    background-color 0.2s,
+    border-color 0.2s,
+    box-shadow 0.2s;
+}
+
+.imgamer-field:focus-within {
+  border-color: var(--brand-accent);
+  background: #fff;
+  box-shadow: 0 0 0 4px var(--brand-ring);
+}
+
+.imgamer-field[data-invalid="true"] {
+  border-color: #f87171;
+}
+
+.imgamer-field[data-invalid="true"]:focus-within {
+  box-shadow: 0 0 0 4px rgba(248, 113, 113, 0.22);
+}
+
+.imgamer-field[data-disabled="true"] {
+  opacity: 0.6;
+}
+
+.dark .imgamer-field {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.dark .imgamer-field:focus-within {
+  border-color: var(--brand-from);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.imgamer-field .imgamer-chip {
+  padding: 6px 11px;
+}
+
+.imgamer-field input {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: #0f172a;
+  font-size: 15px;
+}
+
+.imgamer-field input::placeholder {
+  color: #a0aabb;
+}
+
+.dark .imgamer-field input {
+  color: #f1f5f9;
+}
+
+.dark .imgamer-field input::placeholder {
+  color: #64748b;
+}
+
+/* Browser autofill keeps the soft field look */
+.imgamer-field input:-webkit-autofill {
+  -webkit-text-fill-color: #0f172a;
+  transition: background-color 9999s ease-out 0s;
+}
+
+.dark .imgamer-field input:-webkit-autofill {
+  -webkit-text-fill-color: #f1f5f9;
+}
+
+.imgamer-eye {
+  display: grid;
+  flex-shrink: 0;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: #94a3b8;
+  cursor: pointer;
+}
+
+.imgamer-eye:hover,
+.imgamer-eye:focus-visible {
+  color: var(--brand-accent);
+  outline: none;
+}
+
+.imgamer-field-error {
+  margin: -6px 4px 10px;
+  font-size: 12px;
+  color: #ef4444;
+}
+
+/* Pill gradient button */
+.imgamer-login-button {
+  display: inline-flex;
+  width: 100%;
+  height: 48px;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 22px;
+  border: 0;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--brand-from), var(--brand-to));
+  box-shadow: 0 10px 22px var(--brand-ring);
+  color: #fff;
+  cursor: pointer;
+  font-size: 16px;
+  font-weight: 800;
+  letter-spacing: 0.2em;
+  transition:
+    transform 0.18s,
+    box-shadow 0.18s,
+    filter 0.18s;
+}
+
+.imgamer-login-button:not(:disabled):hover {
+  transform: translateY(-1px);
+  box-shadow: 0 14px 28px var(--brand-ring);
+}
+
+.imgamer-login-button:focus-visible {
+  outline: none;
+  box-shadow:
+    0 0 0 4px var(--brand-ring),
+    0 10px 22px var(--brand-ring);
+}
+
+.imgamer-login-button:disabled {
+  cursor: default;
+  filter: saturate(0.85);
+  opacity: 0.85;
+}
+
+.imgamer-login-button .imgamer-spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid rgba(255, 255, 255, 0.45);
+  border-top-color: #fff;
+  border-radius: 999px;
+  animation: imgamer-spin 0.8s linear infinite;
+}
+
+@keyframes imgamer-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.imgamer-login-link {
+  border: 0;
+  background: transparent;
+  color: var(--brand-accent);
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.dark .imgamer-login-link {
+  color: var(--brand-from);
+}
+
+.imgamer-login-link:hover {
+  text-decoration: underline;
+}
+
+@media (max-width: 500px) {
+  .imgamer-login-card {
+    padding: 26px 18px 22px;
+  }
+}

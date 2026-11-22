@@ -42,7 +42,7 @@ export function ProbeSettingsCard({ enabled }: { enabled: boolean }) {
   const [loaded, setLoaded] = useState(false);
   const [saving, setSaving] = useState(false);
   const [title, setTitle] = useState("");
-  const [defaultTitle, setDefaultTitle] = useState("FLVX 探针");
+  const [defaultTitle, setDefaultTitle] = useState("im.gamer 探针");
   const [domain, setDomain] = useState("");
   const [latency, setLatency] = useState(true);
   const [expiry, setExpiry] = useState(true);

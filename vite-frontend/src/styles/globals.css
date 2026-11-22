@@ -1,6 +1,7 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "./tailwind-theme.pcss";
+@import "./brand.css";
 
 /* GPU acceleration helper - prevents font blurriness during transforms */
 .gpu-accelerated {

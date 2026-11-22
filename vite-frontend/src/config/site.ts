@@ -1,5 +1,6 @@
 import { getConfigByName, getConfigs } from "@/api";
 import { getToken } from "@/utils/session";
+import { BRAND_FAVICON, BRAND_NAME } from "@/config/brand";
 
 export type SiteConfig = typeof siteConfig;
 
@@ -7,15 +8,19 @@ export type SiteConfig = typeof siteConfig;
 const CACHE_PREFIX = "vite_config_";
 const VERSION = import.meta.env.VITE_APP_VERSION || "dev";
 const APP_VERSION = "1.0.3";
-const DEFAULT_FAVICON = "/favicon.ico";
+// Plan 292: the im.gamer icon of the active palette (versioned path).
+const DEFAULT_FAVICON = BRAND_FAVICON;
 const FAVICON_LINK_ID = "app-favicon";
+
+// Plan 292: fired when the fetched app_name replaces the cached one.
+export const SITE_NAME_CHANGED_EVENT = "flvxSiteNameChanged";
 export const PROJECT_REPOSITORY_URL = "https://github.com/ImoLR/FLVXR2";
 const GITHUB_REPO = PROJECT_REPOSITORY_URL;
 
 const getInitialConfig = () => {
   if (typeof window === "undefined") {
     return {
-      name: "FLVX",
+      name: BRAND_NAME,
       version: VERSION,
       app_version: APP_VERSION,
       github_repo: GITHUB_REPO,
@@ -45,7 +50,7 @@ const getInitialConfig = () => {
   }
 
   return {
-    name: "FLVX",
+    name: BRAND_NAME,
     version: VERSION,
     app_version: APP_VERSION,
     github_repo: GITHUB_REPO,
@@ -330,6 +335,9 @@ export const updateSiteConfig = async (configMap?: Record<string, string>) => {
 
   if (appName && appName !== siteConfig.name) {
     siteConfig.name = appName;
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new Event(SITE_NAME_CHANGED_EVENT));
+    }
   }
 
   siteConfig.app_logo = appLogo;

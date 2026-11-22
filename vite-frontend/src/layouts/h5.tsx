@@ -30,6 +30,8 @@ import {
 } from "@/shadcn-bridge/heroui/modal";
 import { Input } from "@/shadcn-bridge/heroui/input";
 import { BrandLogo } from "@/components/brand-logo";
+import { BrandMark, BrandName, Wordmark } from "@/components/brand-mark";
+import { useSiteName } from "@/hooks/useSiteName";
 import { SunFilledIcon, MoonFilledIcon } from "@/components/icons";
 import {
   getMonitorAccess,
@@ -69,6 +71,7 @@ const POWERED_BADGE_VISIBILITY_EVENT = "flvxPoweredBadgeVisibilityChanged";
 export default function H5Layout({ children }: { children: React.ReactNode }) {
   const navigate = useNavigate();
   const location = useLocation();
+  const siteName = useSiteName();
   const { isOpen, onOpen, onOpenChange } = useDisclosure();
 
   const [isAdmin, setIsAdmin] = useState(false);
@@ -632,13 +635,18 @@ export default function H5Layout({ children }: { children: React.ReactNode }) {
             </svg>
           </button>
           <div className="flex items-center gap-1.5 sm:gap-2">
-            {/* 注释掉左上角 logo <BrandLogo size={20} /> */}
+            {/* Plan 292: logo + im.gamer wordmark */}
             <a
-              className="flvx-h5-brand-name text-sm font-bold truncate max-w-[90px] sm:max-w-none transition-colors cursor-pointer no-underline text-foreground hover:text-primary-600 dark:hover:text-primary-300"
+              className="flvx-h5-brand-name imgamer-h5-brand flex items-center gap-1.5 text-sm font-bold truncate max-w-[140px] sm:max-w-none transition-colors cursor-pointer no-underline text-foreground hover:text-primary-600 dark:hover:text-primary-300"
               href="/dashboard"
               title="返回首页"
             >
-              {siteConfig.name}
+              <BrandLogo size={24} />
+              <BrandName
+                className="brand-ink"
+                name={siteName}
+                textClassName="truncate"
+              />
             </a>
           </div>
         </div>
@@ -864,10 +872,16 @@ export default function H5Layout({ children }: { children: React.ReactNode }) {
       </nav>
 
       {poweredBadgeVisible && poweredBadgeClear && (
-        <div className="flvx-powered-badge" aria-label="Powered by FLVX">
+        <div aria-label="Powered by im.gamer" className="flvx-powered-badge">
           Powered by{" "}
-          <a href={PROJECT_REPOSITORY_URL} rel="noopener noreferrer" target="_blank">
-            FLVX
+          <a
+            className="imgamer-powered-link"
+            href={PROJECT_REPOSITORY_URL}
+            rel="noopener noreferrer"
+            target="_blank"
+          >
+            <BrandMark size={14} />
+            <Wordmark />
           </a>
         </div>
       )}

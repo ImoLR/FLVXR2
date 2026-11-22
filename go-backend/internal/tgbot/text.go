@@ -144,7 +144,7 @@ func ReminderButtons(secret []byte, key string, due int64) [][]Button {
 
 func appName(app string) string {
 	if app = oneLine(app, 40); app == "" {
-		return "FLVX"
+		return "im.gamer" // plan 292 brand
 	}
 	return app
 }

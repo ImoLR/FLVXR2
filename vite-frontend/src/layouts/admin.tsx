@@ -37,6 +37,8 @@ import {
 } from "@/shadcn-bridge/heroui/modal";
 import { Input } from "@/shadcn-bridge/heroui/input";
 import { BrandLogo } from "@/components/brand-logo";
+import { BrandMark, BrandName, Wordmark } from "@/components/brand-mark";
+import { useSiteName } from "@/hooks/useSiteName";
 import { SidebarUpdateButton } from "@/components/sidebar-update-button";
 import { SunFilledIcon, MoonFilledIcon } from "@/components/icons";
 import {
@@ -79,6 +81,7 @@ export default function AdminLayout({
 }) {
   const navigate = useNavigate();
   const location = useLocation();
+  const siteName = useSiteName();
   const { isOpen, onOpen, onOpenChange } = useDisclosure();
 
   const [mobileMenuVisible, setMobileMenuVisible] = useState(false);
@@ -720,11 +723,15 @@ export default function AdminLayout({
             className={`transition-all duration-300 overflow-hidden ${isCollapsed ? "max-w-0 opacity-0 ml-0" : "max-w-[130px] opacity-100 ml-3"}`}
           >
             <a
-              className="text-base font-bold overflow-hidden whitespace-nowrap text-ellipsis transition-colors cursor-pointer no-underline text-foreground hover:text-primary-600 dark:hover:text-primary-300"
+              className="flex items-center text-base font-bold overflow-hidden whitespace-nowrap text-ellipsis transition-colors cursor-pointer no-underline text-foreground hover:text-primary-600 dark:hover:text-primary-300"
               href="/dashboard"
               title="返回首页"
             >
-              {siteConfig.name}
+              <BrandName
+                className="brand-ink text-[19px]"
+                name={siteName}
+                textClassName="truncate"
+              />
             </a>
           </div>
         </div>
@@ -1011,14 +1018,16 @@ export default function AdminLayout({
       </div>
 
       {poweredBadgeVisible && poweredBadgeClear && (
-        <div className="flvx-powered-badge" aria-label="Powered by FLVX">
+        <div aria-label="Powered by im.gamer" className="flvx-powered-badge">
           Powered by{" "}
           <a
+            className="imgamer-powered-link"
             href={PROJECT_REPOSITORY_URL}
             rel="noopener noreferrer"
             target="_blank"
           >
-            FLVX
+            <BrandMark size={14} />
+            <Wordmark />
           </a>
         </div>
       )}

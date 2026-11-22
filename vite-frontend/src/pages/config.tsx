@@ -28,6 +28,7 @@ import {
 } from "@/api";
 // 主题设置暂时放在这里，后续可以独立成一个页面或者组件
 import { isAdmin } from "@/utils/auth";
+import { BrandMark } from "@/components/brand-mark";
 import {
   getCachedConfigs,
   configCache,
@@ -92,7 +93,8 @@ const CONFIG_ITEMS: ConfigItem[] = [
     key: "app_name",
     label: "站点名称",
     placeholder: "请输入站点名称",
-    description: "在浏览器标签页和导航栏显示的站点名称",
+    description:
+      "在浏览器标签页和导航栏显示的站点名称（填 im.gamer 时显示品牌字标）",
     type: "input",
   },
   {
@@ -665,9 +667,7 @@ export default function ConfigPage() {
                   }
                 />
               ) : (
-                <div className="flex h-7 w-7 items-center justify-center rounded-sm bg-default-200 text-[10px] font-semibold text-default-600 dark:bg-default-700 dark:text-default-200">
-                  LOGO
-                </div>
+                <BrandMark size={28} title="默认 Logo" />
               )}
               <span className="truncate text-sm font-semibold text-foreground">
                 {appNamePreview}
@@ -688,7 +688,7 @@ export default function ConfigPage() {
                   }
                 />
               ) : (
-                <div className="h-4 w-4 rounded-sm bg-default-300 dark:bg-default-600" />
+                <BrandMark size={16} title="默认图标" />
               )}
               <span className="truncate text-xs text-default-700 dark:text-default-300">
                 {appNamePreview}
@@ -1156,7 +1156,7 @@ export default function ConfigPage() {
                     底部 Powered 标识
                   </span>
                   <span className="text-xs text-gray-400 dark:text-gray-500">
-                    显示整页底部居中的 Powered by FLVX 浮窗
+                    显示整页底部居中的 Powered by im.gamer 浮窗
                   </span>
                 </div>
                 <div className="flex-shrink-0">

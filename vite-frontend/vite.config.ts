@@ -4,6 +4,26 @@ import { defineConfig, loadEnv, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 import { VitePWA } from "vite-plugin-pwa";
 
+import {
+  BRAND_NAME,
+  BRAND_PALETTE_KEY,
+} from "./src/config/brand-palette";
+
+// Plan 292: brand name + icon folder of the active palette
+// (src/config/brand-palette.ts), filled into index.html placeholders.
+const BRAND_ICON_DIR = `/brand/${BRAND_PALETTE_KEY}`;
+
+const brandHtmlPlugin = (): Plugin => ({
+  name: "imgamer-brand-html",
+  transformIndexHtml: {
+    order: "pre",
+    handler: (html) =>
+      html
+        .replaceAll("%BRAND_NAME%", BRAND_NAME)
+        .replaceAll("%BRAND_ICON_DIR%", BRAND_ICON_DIR),
+  },
+});
+
 // One id per build: written into index.html (<meta name="flvx-build">) and
 // emitted as dist/version.json. A running client whose id differs from the
 // served version.json is stale (see src/utils/build-freshness.ts). Plan 209:
@@ -110,22 +130,24 @@ const adminPreloadPlugin = (): Plugin => ({
 export default defineConfig({
   plugins: [
     react(),
+    brandHtmlPlugin(),
     versionJsonPlugin(),
     adminPreloadPlugin(),
     VitePWA({
       filename: "flvx-sw.js",
       registerType: "autoUpdate",
       injectRegister: "auto",
-      includeAssets: ["favicon.ico"],
+      // Plan 292: the im.gamer icons live under /brand/<palette>/.
+      includeAssets: [`${BRAND_ICON_DIR.slice(1)}/favicon.ico`],
       // Plan 209: the PWA icons (~1 MB of PNGs) are not precached; the
       // browser fetches them itself when the app is installed. Precaching
       // them cost every first visit (and, with the old cache wipe, every
       // release) that megabyte.
       includeManifestIcons: false,
       manifest: {
-        name: "FLVX",
-        short_name: "FLVX",
-        description: "FLVX forwarding management panel",
+        name: BRAND_NAME,
+        short_name: BRAND_NAME,
+        description: `${BRAND_NAME} forwarding panel`,
         theme_color: "#2563eb",
         background_color: "#f6f7fb",
         display: "standalone",
@@ -133,17 +155,17 @@ export default defineConfig({
         scope: "/",
         icons: [
           {
-            src: "pwa-192x192.png",
+            src: `${BRAND_ICON_DIR}/icon-192.png`,
             sizes: "192x192",
             type: "image/png",
           },
           {
-            src: "pwa-512x512.png",
+            src: `${BRAND_ICON_DIR}/icon-512.png`,
             sizes: "512x512",
             type: "image/png",
           },
           {
-            src: "pwa-maskable-512x512.png",
+            src: `${BRAND_ICON_DIR}/icon-maskable-512.png`,
             sizes: "512x512",
             type: "image/png",
             purpose: "maskable",

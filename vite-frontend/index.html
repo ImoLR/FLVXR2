@@ -6,15 +6,15 @@
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-    <meta name="apple-mobile-web-app-title" content="FLVX" />
-    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <meta name="apple-mobile-web-app-title" content="%BRAND_NAME%" />
+    <link rel="apple-touch-icon" href="%BRAND_ICON_DIR%/apple-touch-icon.png" />
     
-    <title>FLVX</title>
+    <title>%BRAND_NAME%</title>
     <script>
       // 防止暗黑模式闪烁：在页面加载前立即应用系统主题
       (function() {
         // 页面最早阶段应用缓存 favicon，避免默认图标闪烁
-        const defaultFavicon = '/favicon.ico';
+        const defaultFavicon = '%BRAND_ICON_DIR%/favicon.ico';
         let cachedFavicon = '';
 
         try {
@@ -234,13 +234,13 @@
         }
       }
     </style>
-    <meta key="title" content="FLVX" property="og:title" />
+    <meta key="title" content="%BRAND_NAME%" property="og:title" />
     <meta
-      content="FLVX"
+      content="%BRAND_NAME%"
       property="og:description"
     />
     <meta
-      content="FLVX"
+      content="%BRAND_NAME%"
       name="description"
     />
     <meta

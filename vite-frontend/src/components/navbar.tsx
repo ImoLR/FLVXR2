@@ -8,7 +8,12 @@ import {
   NavbarContent,
 } from "@/shadcn-bridge/heroui/navbar";
 import { BrandLogo } from "@/components/brand-logo";
-import { siteConfig, getCachedConfig } from "@/config/site";
+import { BrandName } from "@/components/brand-mark";
+import {
+  siteConfig,
+  getCachedConfig,
+  SITE_NAME_CHANGED_EVENT,
+} from "@/config/site";
 import { useWebViewMode } from "@/hooks/useWebViewMode";
 
 export const Navbar = () => {
@@ -56,31 +61,39 @@ export const Navbar = () => {
       } catch {}
     };
 
+    const handleNameChanged = () => setAppName(siteConfig.name);
+
     window.addEventListener("configUpdated", handleConfigUpdate);
+    window.addEventListener(SITE_NAME_CHANGED_EVENT, handleNameChanged);
 
     return () => {
       clearTimeout(timer);
       window.removeEventListener("configUpdated", handleConfigUpdate);
+      window.removeEventListener(SITE_NAME_CHANGED_EVENT, handleNameChanged);
     };
   }, [appName]);
 
   return (
     <>
       <HeroUINavbar
-        className="shrink-0 mt-4"
-        height="40px"
-        maxWidth="xl"
+        className="imgamer-login-nav shrink-0 flex items-center"
+        height="60px"
+        maxWidth="full"
         position="sticky"
       >
         <NavbarContent className="basis-1/5 sm:basis-full" justify="start">
           <NavbarBrand className="gap-2 max-w-fit">
             <Link
-              className="flex justify-start items-center gap-2 max-w-[200px] sm:max-w-none"
+              className="flex justify-start items-center gap-2.5 max-w-[220px] sm:max-w-none"
               color="foreground"
               href="/"
             >
-              <BrandLogo size={24} />
-              <p className="font-bold text-inherit truncate">{appName}</p>
+              <BrandLogo size={30} />
+              <BrandName
+                className="brand-ink text-[20px]"
+                name={appName}
+                textClassName="font-bold truncate"
+              />
             </Link>
           </NavbarBrand>
         </NavbarContent>

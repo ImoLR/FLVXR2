@@ -11,6 +11,7 @@ import {
 import { Button } from "@/shadcn-bridge/heroui/button";
 import { Select, SelectItem } from "@/shadcn-bridge/heroui/select";
 import { Spinner } from "@/shadcn-bridge/heroui/spinner";
+import { Wordmark } from "@/components/brand-mark";
 import { PROJECT_REPOSITORY_URL } from "@/config/site";
 import {
   UPDATE_CHANNEL_CHANGED_EVENT,
@@ -295,12 +296,12 @@ export function VersionFooter({
         <p className={[poweredClassName, "mt-1"].filter(Boolean).join(" ")}>
           Powered by{" "}
           <a
-            className="text-gray-600 dark:text-white hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
+            className="text-slate-700 dark:text-white hover:opacity-80 transition-opacity"
             href={PROJECT_REPOSITORY_URL}
             rel="noopener noreferrer"
             target="_blank"
           >
-            FLVX
+            <Wordmark />
           </a>
         </p>
       </div>

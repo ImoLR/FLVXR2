@@ -279,7 +279,7 @@ func (h *Handler) loadProbeSettings() probeSettings {
 		if app := strings.TrimSpace(cfg[probeAppNameKey]); app != "" {
 			st.Title = truncateRunes(app+" 探针", probeTitleMax)
 		} else {
-			st.Title = "FLVX 探针"
+			st.Title = "im.gamer 探针" // plan 292 brand
 		}
 	}
 	st.Domain = strings.TrimSpace(cfg[probeDomainKey])
@@ -1008,7 +1008,7 @@ func (h *Handler) probeAdminGet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	out := probeAdminSettings{Enabled: st.Enabled, Title: strings.TrimSpace(cfg[probeTitleKey]), Domain: st.Domain, Latency: st.Latency, Nodes: make([]probeAdminNode, 0, len(rows))}
-	out.DefaultTitle = "FLVX 探针"
+	out.DefaultTitle = "im.gamer 探针" // plan 292 brand
 	if app := strings.TrimSpace(cfg[probeAppNameKey]); app != "" {
 		out.DefaultTitle = truncateRunes(app+" 探针", probeTitleMax)
 	}

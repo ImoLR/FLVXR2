@@ -2,7 +2,11 @@
 // chunk; everything else loads the admin / user app. On the 探针专用域名 every
 // route goes to the probe page.
 import "@/styles/globals.css";
+import { applyBrandVars } from "@/config/brand";
 import { currentPageKey, pageLoaders } from "@/routes/page-loaders";
+
+// Plan 292: brand colours as CSS variables before anything renders.
+applyBrandVars();
 
 const PROBE_PATH = /^\/tz(\/|$)/;
 const apiBase = (

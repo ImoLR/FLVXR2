@@ -17,7 +17,7 @@ const defaultTheme: ThemePackage = {
   name: "默认主题",
   author: "FLVX Team",
   version: "1.0.0",
-  description: "FLVX 内置默认蓝色主题",
+  description: "im.gamer 内置默认蓝色主题",
 
   tokens: {
     light: {

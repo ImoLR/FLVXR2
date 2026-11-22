@@ -4,7 +4,6 @@ import toast from "react-hot-toast";
 import { Turnstile } from "@marsidev/react-turnstile";
 import { motion } from "framer-motion";
 
-import { Card, CardBody, CardHeader } from "@/shadcn-bridge/heroui/card";
 import { Input } from "@/shadcn-bridge/heroui/input";
 import { Button } from "@/shadcn-bridge/heroui/button";
 import {
@@ -19,8 +18,10 @@ import {
   siteConfig,
   updateSiteConfig,
 } from "@/config/site";
-import { title } from "@/components/primitives";
+import { BrandLogo } from "@/components/brand-logo";
+import { BrandName } from "@/components/brand-mark";
 import { VersionFooter } from "@/components/version-footer";
+import { useSiteName } from "@/hooks/useSiteName";
 import DefaultLayout from "@/layouts/default";
 import { login, register, LoginData, getConfigByName } from "@/api";
 import { writeLoginSession } from "@/utils/session";
@@ -41,6 +42,8 @@ export default function IndexPage() {
   });
   const [errors, setErrors] = useState<Partial<LoginForm>>({});
   const [loading, setLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const siteName = useSiteName();
   const isWebView = useWebViewMode();
   const navigate = useNavigate();
   const [siteKey, setSiteKey] = useState("");
@@ -251,100 +254,188 @@ export default function IndexPage() {
   };
 
   return (
-    <DefaultLayout>
-      <section className="flex flex-col items-center justify-center gap-4 py-4 sm:py-8 md:py-10 pb-20 min-h-[calc(100dvh-120px)] sm:min-h-[calc(100dvh-200px)]">
-        <motion.div
-          animate={{ opacity: 1, y: 0 }}
-          className="w-full max-w-md px-4 sm:px-0"
-          initial={{ opacity: 0, y: 24 }}
-          transition={{ duration: 0.35, ease: [0.25, 0.46, 0.45, 0.94] }}
-        >
-          <Card className="w-full">
-            <CardHeader className="pb-0 pt-6 px-6 flex-col items-center">
-              <h1 className={title({ size: "sm" })}>登陆</h1>
-              <p className="text-small text-default-500 mt-2">
-                请输入您的账号信息
-              </p>
-            </CardHeader>
-            <CardBody className="px-6 py-6">
-              <div className="flex flex-col gap-4">
-                <Input
-                  errorMessage={errors.username}
-                  isDisabled={loading}
-                  isInvalid={!!errors.username}
-                  label="用户名"
+    <DefaultLayout
+      className="imgamer-login-bg"
+      mainClassName="flex flex-col pt-0 sm:pt-0"
+    >
+      {/* Plan 292: im.gamer login (tag chips in the fields, soft inputs). */}
+      <section className="flex flex-1 flex-col items-center min-h-[calc(100dvh-60px)]">
+        <div className="flex w-full flex-1 items-center justify-center py-5 sm:py-8">
+          <motion.div
+            animate={{ opacity: 1, y: 0 }}
+            className="w-full max-w-[460px]"
+            initial={{ opacity: 0, y: 24 }}
+            transition={{ duration: 0.35, ease: [0.25, 0.46, 0.45, 0.94] }}
+          >
+            <div className="imgamer-login-card">
+              <div className="text-center">
+                <BrandLogo className="imgamer-login-logo" size={76} />
+                <BrandName
+                  className="brand-ink text-[22px]"
+                  name={siteName}
+                  textClassName="font-bold"
+                />
+                <h1 className="imgamer-login-title">登陆</h1>
+                <p className="imgamer-login-sub">请输入您的账号信息</p>
+                <div className="mt-3.5 mb-[22px] flex flex-wrap justify-center gap-1.5">
+                  <span className="imgamer-chip imgamer-chip-brand">
+                    🎮 玩家专线
+                  </span>
+                  <span className="imgamer-chip imgamer-chip-green">
+                    {"\u26A1\uFE0F"} 低延迟
+                  </span>
+                  <span className="imgamer-chip imgamer-chip-purple">
+                    🛡️ 稳定转发
+                  </span>
+                </div>
+              </div>
+
+              <label
+                className="imgamer-field mb-3.5"
+                data-disabled={loading || undefined}
+                data-invalid={!!errors.username || undefined}
+              >
+                <span className="imgamer-chip imgamer-chip-brand">👤 账号</span>
+                <input
+                  aria-invalid={!!errors.username}
+                  aria-label="用户名"
+                  autoCapitalize="none"
+                  autoComplete="username"
+                  disabled={loading}
+                  name="username"
                   placeholder="请输入用户名"
+                  spellCheck={false}
                   value={form.username}
-                  variant="bordered"
                   onChange={(e) =>
                     handleInputChange("username", e.target.value)
                   }
                   onKeyDown={handleKeyPress}
                 />
-                <Input
-                  isDisabled={loading}
-                  isInvalid={!!errors.password}
-                  label="密码"
+              </label>
+              {errors.username ? (
+                <p className="imgamer-field-error" role="alert">
+                  {errors.username}
+                </p>
+              ) : null}
+
+              <label
+                className="imgamer-field mb-3.5"
+                data-disabled={loading || undefined}
+                data-invalid={!!errors.password || undefined}
+              >
+                <span className="imgamer-chip imgamer-chip-amber">🔒 密码</span>
+                <input
+                  aria-invalid={!!errors.password}
+                  aria-label="密码"
+                  autoComplete="current-password"
+                  disabled={loading}
+                  name="password"
                   placeholder="请输入密码"
-                  type="password"
+                  type={showPassword ? "text" : "password"}
                   value={form.password}
-                  variant="bordered"
                   onChange={(e) =>
                     handleInputChange("password", e.target.value)
                   }
                   onKeyDown={handleKeyPress}
                 />
-                <Button
-                  className="mt-2"
-                  color="primary"
-                  disabled={loading}
-                  isLoading={loading}
-                  size="lg"
-                  onPress={handleLogin}
+                <button
+                  aria-label={showPassword ? "隐藏密码" : "显示密码"}
+                  aria-pressed={showPassword}
+                  className="imgamer-eye"
+                  title={showPassword ? "隐藏密码" : "显示密码"}
+                  type="button"
+                  onClick={() => setShowPassword((v) => !v)}
                 >
-                  {loading ? "登录中..." : "登录"}
-                </Button>
-                {captchaEnabled && siteKey && showLoginCaptcha && (
-                  <div className="flex justify-center py-2">
-                    <Turnstile
-                      options={{ theme: getTurnstileTheme() }}
-                      siteKey={siteKey}
-                      onError={() => {
-                        toast.error("验证失败，请刷新重试");
-                        setLoginCaptchaToken("");
-                      }}
-                      onExpire={() => setLoginCaptchaToken("")}
-                      onSuccess={(token) => {
-                        setLoginCaptchaToken(token);
-                        setLoading(true);
-                        void performLogin(token);
-                      }}
-                    />
-                  </div>
-                )}
-                {regEnabled && (
-                  <div className="text-center mt-2">
-                    <button
-                      className="text-sm text-primary hover:underline"
-                      type="button"
-                      onClick={() => setRegisterOpen(true)}
+                  {showPassword ? (
+                    <svg
+                      fill="none"
+                      height="18"
+                      stroke="currentColor"
+                      strokeLinecap="round"
+                      strokeWidth="2"
+                      viewBox="0 0 24 24"
+                      width="18"
                     >
-                      没有账号？立即注册
-                    </button>
-                  </div>
+                      <path d="M3 3l18 18" />
+                      <path d="M10.6 5.1A10.4 10.4 0 0 1 12 5c6.4 0 10 7 10 7a17.6 17.6 0 0 1-3.1 3.9M6.6 6.6C3.8 8.4 2 12 2 12s3.6 7 10 7c1.8 0 3.4-.5 4.7-1.2" />
+                      <path d="M9.9 9.9a3 3 0 0 0 4.2 4.2" />
+                    </svg>
+                  ) : (
+                    <svg
+                      fill="none"
+                      height="18"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      viewBox="0 0 24 24"
+                      width="18"
+                    >
+                      <path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12Z" />
+                      <circle cx="12" cy="12" r="3" />
+                    </svg>
+                  )}
+                </button>
+              </label>
+              {errors.password ? (
+                <p className="imgamer-field-error" role="alert">
+                  {errors.password}
+                </p>
+              ) : null}
+
+              <button
+                className="imgamer-login-button"
+                disabled={loading}
+                type="button"
+                onClick={() => void handleLogin()}
+              >
+                {loading ? (
+                  <>
+                    <span aria-hidden="true" className="imgamer-spinner" />
+                    登录中...
+                  </>
+                ) : (
+                  "登录"
                 )}
-              </div>
-            </CardBody>
-          </Card>
-        </motion.div>
+              </button>
+              {captchaEnabled && siteKey && showLoginCaptcha && (
+                <div className="flex justify-center pt-4">
+                  <Turnstile
+                    options={{ theme: getTurnstileTheme() }}
+                    siteKey={siteKey}
+                    onError={() => {
+                      toast.error("验证失败，请刷新重试");
+                      setLoginCaptchaToken("");
+                    }}
+                    onExpire={() => setLoginCaptchaToken("")}
+                    onSuccess={(token) => {
+                      setLoginCaptchaToken(token);
+                      setLoading(true);
+                      void performLogin(token);
+                    }}
+                  />
+                </div>
+              )}
+              {regEnabled && (
+                <div className="text-center mt-4">
+                  <button
+                    className="imgamer-login-link"
+                    type="button"
+                    onClick={() => setRegisterOpen(true)}
+                  >
+                    没有账号？立即注册
+                  </button>
+                </div>
+              )}
+            </div>
+          </motion.div>
+        </div>
 
         <VersionFooter
-          containerClassName="fixed inset-x-0 bottom-4 text-center py-4"
-          poweredClassName="text-xs text-gray-600 dark:text-white"
+          containerClassName="w-full text-center py-4"
+          poweredClassName="text-[13px] text-slate-600 dark:text-slate-300"
           showUpdateInfo={false}
           updateBadgeClassName="inline-flex items-center h-[18px] px-1.5 rounded-sm bg-green-500/90 text-[10px] font-semibold text-white"
           version={isWebView ? siteConfig.app_version : siteConfig.version}
-          versionClassName="text-xs text-gray-400 dark:text-gray-500 mt-1"
+          versionClassName="text-[13px] text-slate-600 dark:text-slate-400"
         />
 
         <Modal
