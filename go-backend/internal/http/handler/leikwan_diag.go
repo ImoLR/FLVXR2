@@ -318,7 +318,7 @@ func (j *lkDiagJob) progress() diagnosisProgress {
 func (j *lkDiagJob) agentDiag(nodeID int64) (*lkAgentDiag, string) {
 	h := j.h
 	if h.wsServer != nil && !h.wsServer.NodeOnline(nodeID) && h.nodeCommandSender == nil && leiKwanLabCommand == nil {
-		return nil, "入口机不在线"
+		return nil, "入口机离线"
 	}
 	res, err := h.sendNodeCommandWithTimeout(nodeID, "LeiKwanDiag", map[string]interface{}{"forwardId": j.rule.ForwardID, "count": lkDiagCount, "timeoutMs": lkDiagPingMs},
 		lkDiagCmdTimeout, false, false)

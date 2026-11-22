@@ -3,6 +3,16 @@ import type { LeiKwanHostItem } from "@/pages/leikwan/panel/host-manage";
 
 import { Pill } from "@/pages/landing/pill";
 import {
+  CapPills,
+  OfflinePill,
+  hostOnline,
+  hostRunning,
+  hostStatusText,
+  hostStatusTone,
+  offlineText,
+  twShort,
+} from "@/pages/leikwan/panel/entry-state";
+import {
   HostManageBlock,
   HostNameMarker,
 } from "@/pages/leikwan/panel/host-manage";
@@ -21,11 +31,8 @@ import {
 // (接管 switch, diff view, drift ⚠, 流量统计, host reports). Desktop opens it
 // from the 2×2 tile in a modal; H5 shows it inside the ＋/− row.
 
-export const hostRunning = (h: LeiKwanHostItem) =>
-  h.node.leikwanStatus === "running";
-
-export const hostStatusText = (h: LeiKwanHostItem) =>
-  hostRunning(h) ? "运行中" : h.node.leikwanStatus || "未检测到";
+// Plan 295: the state helpers live in entry-state (offline wins).
+export { hostRunning, hostStatusText };
 
 export function HostDetails({
   host,
@@ -46,9 +53,17 @@ export function HostDetails({
     <div className="space-y-2" data-leikwan-host={host.node.id}>
       <div className="flex flex-wrap items-center gap-1.5 text-xs text-default-500">
         <span className="font-mono">{host.node.host}</span>
-        <Pill tone={host.node.online ? "green" : "slate"}>
+        <Pill
+          title={
+            host.node.online ? undefined : offlineText(host.node.offlineSince)
+          }
+          tone={host.node.online ? "green" : "red"}
+        >
           {host.node.online ? "节点在线" : "节点离线"}
         </Pill>
+        {!host.node.online && host.node.offlineSince && (
+          <span>自 {twShort(host.node.offlineSince)} 台湾</span>
+        )}
         <Pill tone="purple">利群转发 {host.node.leikwanForwards} 条</Pill>
         {s ? (
           <span>
@@ -66,9 +81,16 @@ export function HostDetails({
       {s && (
         <div className="divide-y divide-divider/60">
           <KV label="利群客户端" labelClassName={kvw}>
-            <Pill tone={hostRunning(host) ? "green" : "slate"}>
-              {hostStatusText(host)}
-            </Pill>
+            {hostOnline(host) ? (
+              <Pill tone={hostStatusTone(host)}>{hostStatusText(host)}</Pill>
+            ) : (
+              <Pill title="节点离线：这是离线前最后一次快照的状态" tone="slate">
+                快照时{" "}
+                {host.node.leikwanStatus === "running"
+                  ? "运行中"
+                  : host.node.leikwanStatus || "未检测到"}
+              </Pill>
+            )}
             <OnOff label="更新锁" on={s.updateLock} />
             <OnOff label="原生 UDP" on={s.nativeUdp} />
             {s.selectionMode && (
@@ -120,6 +142,11 @@ export function HostDetails({
               接线 {s.lines?.length || 0} 条
             </span>
           </KV>
+          {host.caps && (
+            <KV label="支持功能" labelClassName={kvw}>
+              <CapPills caps={host.caps} />
+            </KV>
+          )}
           <KV label="首包合并" labelClassName={kvw}>
             <Pill tone={s.coalesce.startsWith("on") ? "green" : "slate"}>
               {s.coalesce || "—"}
@@ -167,11 +194,14 @@ export function HostDrawer({
   nightOnly,
   onView,
   onClose,
+  onSetMain,
 }: {
   host: LeiKwanHostItem | null;
   nightOnly: boolean;
   onView: (nodeId: number, view: LeiKwanHostManage) => void;
   onClose: () => void;
+  /** Plan 295: 「设为主入口…」 (pick a granted user in the grant dialog) */
+  onSetMain?: (nodeId: number) => void;
 }) {
   return (
     <Modal
@@ -186,10 +216,13 @@ export function HostDrawer({
         <ModalHeader>
           <span className="flex items-center gap-2">
             <span
-              className={`h-2 w-2 rounded-full ${host && hostRunning(host) ? "bg-green-500" : "bg-slate-400"}`}
+              className={`h-2 w-2 rounded-full ${host && !hostOnline(host) ? "bg-red-500" : host && hostRunning(host) ? "bg-green-500" : "bg-slate-400"}`}
             />
             {host?.node.name}
             {host && <HostNameMarker manage={host.manage} />}
+            {host && !hostOnline(host) && (
+              <OfflinePill since={host.node.offlineSince} />
+            )}
             {host && host.mainEntryUsers > 0 && (
               <Pill tone="teal">主入口 {host.mainEntryUsers} 人</Pill>
             )}
@@ -201,6 +234,21 @@ export function HostDrawer({
           )}
         </ModalBody>
         <ModalFooter>
+          {host && onSetMain && (
+            <Button
+              color="primary"
+              isDisabled={!hostOnline(host)}
+              title={
+                hostOnline(host)
+                  ? "选一个已授权用户，把主入口换到这台"
+                  : "离线的入口不能设为主入口"
+              }
+              variant="flat"
+              onPress={() => onSetMain(host.node.id)}
+            >
+              设为主入口…
+            </Button>
+          )}
           <Button color="danger" variant="flat" onPress={onClose}>
             关闭
           </Button>

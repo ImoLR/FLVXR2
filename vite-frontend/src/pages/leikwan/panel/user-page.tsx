@@ -39,6 +39,7 @@ import {
   type LeiKwanRuleActions,
 } from "@/pages/leikwan/panel/rule-actions";
 import { fmtBytes } from "@/pages/leikwan/panel/shared";
+import { OfflinePill, offlineText } from "@/pages/leikwan/panel/entry-state";
 import { VendorFlowPill } from "@/pages/leikwan/panel/usage-parts";
 import { LeiKwanSubDialog } from "@/pages/leikwan/panel/sub-dialog";
 import { Button } from "@/shadcn-bridge/heroui/button";
@@ -83,7 +84,8 @@ function GraceNotice({ data }: { data: LeiKwanRuleList }) {
       <AlertTriangle className="mt-0.5 shrink-0" size={16} />
       <span className="min-w-0 break-words">
         主入口已从 <b>{from}</b> 换到 <b>{to}</b>；旧地址最晚{" "}
-        <b>{fmtGraceUntil(gr.until)}</b> 停用。用订阅的刷新一次即可，用节点链接的请重新复制
+        <b>{fmtGraceUntil(gr.until)}</b>{" "}
+        停用。用订阅的刷新一次即可，用节点链接的请重新复制
       </span>
     </div>
   );
@@ -219,8 +221,16 @@ export function LeiKwanUserView() {
   const grantChips = (
     <>
       {g && (
-        <Pill title={g.mainEntryHost} tone="teal">
+        <Pill
+          title={
+            g.mainEntryOnline === false
+              ? `${g.mainEntryHost || ""} · ${offlineText(g.mainEntryOfflineSince)}：你的利群转发现在连不上，请联系管理员`
+              : g.mainEntryHost
+          }
+          tone={g.mainEntryOnline === false ? "red" : "teal"}
+        >
           主入口 {g.mainEntryName || "—"}
+          {g.mainEntryOnline === false ? " · 离线" : ""}
         </Pill>
       )}
       {g && (
@@ -250,9 +260,9 @@ export function LeiKwanUserView() {
       这条专线上还没有你的转发
       <Button
         color="success"
+        isDisabled={limitFull}
         size="sm"
         startContent={<Plus size={14} />}
-        isDisabled={limitFull}
         variant="flat"
         onPress={() => actions.openCreate(id)}
       >
@@ -350,6 +360,13 @@ export function LeiKwanUserView() {
                     </button>
                   ) : (
                     "授权没有主入口"
+                  )}
+                  {r.entry?.online === false && (
+                    <OfflinePill
+                      inline
+                      label="主入口离线"
+                      since={r.entry.offlineSince}
+                    />
                   )}
                 </LkField>
                 <LkField label="落地">
@@ -594,6 +611,15 @@ export function LeiKwanUserView() {
                       <span className="text-xs text-default-400">
                         授权没有主入口
                       </span>
+                    )}
+                    {r.entry?.online === false && (
+                      <div className="mt-1">
+                        <OfflinePill
+                          inline
+                          label="主入口离线"
+                          since={r.entry.offlineSince}
+                        />
+                      </div>
                     )}
                   </div>
                   <UserLanding actions={actions} rule={r} />

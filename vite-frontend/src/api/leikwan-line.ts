@@ -61,6 +61,67 @@ export interface LeiKwanEntryNode {
   online: boolean;
   leikwanStatus: string;
   leikwanForwards: number;
+  /** Plan 295: when the node went 离线 (ms; absent = online). */
+  offlineSince?: number;
+}
+
+/** Plan 295: what one 利群入口 can run (its learned profile files). */
+export interface LeiKwanEntryCaps {
+  nodeId: number;
+  name: string;
+  host?: string;
+  online: boolean;
+  offlineSince?: number;
+  /** profile learned (false = the panel does not know, claims nothing) */
+  known: boolean;
+  managed: boolean;
+  front?: string;
+  frontBuild?: string;
+  /** 「稳定版」 / 「测试版」 / 「未知」 */
+  client: string;
+  warm: boolean;
+  ssFilter: boolean;
+  logswitch: boolean;
+  triggers: boolean;
+  phone: boolean;
+  /** 「预热池」「首包过滤」「日志快切」「快切触发」「手机备线」 the host lacks */
+  missing: string[];
+}
+
+/** Plan 295: something a rule wants that its owner's 主入口 cannot run. */
+export interface LeiKwanEntryLimit {
+  key: "warm" | "ssfilter" | "logswitch" | "triggers" | "phone" | string;
+  label: string;
+  why: string;
+}
+
+/** Plan 295: one feature of a forward that changes on the new 主入口. */
+export interface LeiKwanSwitchChange {
+  key: string;
+  label: string;
+  from: string;
+  to: string;
+  lost?: boolean;
+  gain?: boolean;
+  why?: string;
+}
+
+export interface LeiKwanGrantPreview {
+  userId: number;
+  from?: LeiKwanEntryCaps;
+  to: LeiKwanEntryCaps;
+  rules: {
+    id: number;
+    name: string;
+    forwardId: number;
+    lineName: string;
+    changes: LeiKwanSwitchChange[];
+    kept: string[];
+  }[];
+  lostRules: number;
+  gainRules: number;
+  notes: string[];
+  same: boolean;
 }
 
 export interface LeiKwanTrigger {
@@ -168,6 +229,9 @@ export interface LeiKwanGrant {
   mainEntryName?: string;
   mainEntryHost?: string;
   mainEntryOutsideGroup?: boolean;
+  // Plan 295: the 主入口's 在线 / 离线.
+  mainEntryOnline?: boolean;
+  mainEntryOfflineSince?: number;
   backupLine: boolean;
   status: number;
   ruleCount: number;
@@ -234,7 +298,17 @@ export interface LeiKwanRule {
   linkKind?: "full" | "address";
   // Plan 272 (admin only): 「所有利群入口都可用」 exemption from 只开主入口.
   allEntries?: boolean;
-  entry?: { nodeId: number; nodeName: string; host: string; address: string };
+  entry?: {
+    nodeId: number;
+    nodeName: string;
+    host: string;
+    address: string;
+    // Plan 295: the owner's 主入口 在线 / 离线.
+    online?: boolean;
+    offlineSince?: number;
+  };
+  // Plan 295 (admin only): what the owner's 主入口 cannot run for this rule.
+  entryLimits?: LeiKwanEntryLimit[];
   // admin only
   userId?: number;
   userName?: string;
@@ -602,6 +676,8 @@ export interface LeiKwanHostList {
     capturedAt?: number;
     // Plan 269: 面板接管 of this host.
     manage?: LeiKwanHostManage;
+    // Plan 295: what this host can run.
+    caps?: LeiKwanEntryCaps;
   }[];
   global: LeiKwanGlobal;
   triggers: LeiKwanTrigger[];
@@ -709,8 +785,13 @@ export interface LeiKwanHostManage {
   overrides?: Record<string, LeiKwanHostOverride> | null;
   profile?: unknown;
   applying?: boolean;
-  /** Chinese reasons: 漂移 / 写入失败 / 同步失败 / unit 改了还没重启. */
+  /** Chinese reasons: 节点离线 / 漂移 / 写入失败 / 同步失败 / unit 改了还没重启. */
   attention?: string[] | null;
+  /** Plan 295: the backend's ⚠ level (error = offline or a failure). */
+  attentionLevel?: "error" | "warn";
+  /** Plan 295: the node is offline (since offlineSince, ms). */
+  offline?: boolean;
+  offlineSince?: number;
   /** Chinese file names waiting for the 02:00–06:00 window. */
   pending?: string[] | null;
 }
@@ -815,6 +896,11 @@ export const saveLeiKwanGrant = (body: {
     "grant/save",
     body,
   );
+// Plan 295: read-only 换主入口 preview (what each forward keeps / loses).
+export const previewLeiKwanGrant = (body: {
+  userId: number;
+  mainEntryNodeId: number;
+}) => lk<LeiKwanGrantPreview>("grant/preview", body);
 export const deleteLeiKwanGrant = (userId: number) =>
   lk("grant/delete", { userId });
 export const previewLeiKwanImport = () =>

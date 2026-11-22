@@ -52,16 +52,26 @@ export const twTime = (ms?: number) =>
       })} 台湾`
     : "—";
 
-/** ⚠ level of one host: red when something failed, amber otherwise. */
+/** ⚠ level of one host: red when offline or something failed, amber
+ * otherwise. Plan 295: the backend's attentionLevel decides (one helper). */
 export function hostAttentionLevel(
   m?: LeiKwanHostManage | null,
 ): AttentionLevel | null {
   const reasons = m?.attention || [];
 
   if (!reasons.length) return null;
+  if (m?.attentionLevel) return m.attentionLevel;
 
-  return reasons.some((r) => r.includes("失败")) ? "error" : "warn";
+  return reasons.some((r) => r.includes("失败") || r === "节点离线")
+    ? "error"
+    : "warn";
 }
+
+/** Plan 295: 「节点离线」 gets its since-when (台湾). */
+const reasonText = (r: string, m?: LeiKwanHostManage | null) =>
+  r === "节点离线" && m?.offlineSince
+    ? `节点离线（自 ${twTime(m.offlineSince)}）`
+    : r;
 
 /** ⚠ level of the whole 「利群入口」 tab (null = nothing to do). */
 export function hostsAttentionLevel(
@@ -73,14 +83,14 @@ export function hostsAttentionLevel(
   return levels.includes("error") ? "error" : "warn";
 }
 
-const attentionText = (reasons: string[]) =>
-  `需要处理：\n${reasons.map((r) => `• ${r}`).join("\n")}`;
+const attentionText = (reasons: string[], m?: LeiKwanHostManage | null) =>
+  `需要处理：\n${reasons.map((r) => `• ${reasonText(r, m)}`).join("\n")}`;
 
 export function HostNameMarker({ manage }: { manage?: LeiKwanHostManage }) {
   const level = hostAttentionLevel(manage);
 
   if (!level) return null;
-  const text = attentionText(manage?.attention || []);
+  const text = attentionText(manage?.attention || [], manage);
 
   return (
     <span
@@ -411,7 +421,7 @@ export function HostManageBlock({
           </p>
           <ul className="mt-1 list-disc space-y-0.5 pl-5">
             {attention.map((a) => (
-              <li key={a}>{a}</li>
+              <li key={a}>{reasonText(a, m)}</li>
             ))}
           </ul>
           {drift.length > 0 && (

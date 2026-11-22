@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import type { LeiKwanAccount } from "@/api/leikwan";
 import type {
+  LeiKwanEntryCaps,
   LeiKwanGrant,
   LeiKwanHostList,
   LeiKwanHostManage,
@@ -41,13 +42,20 @@ import { usePullToRefresh } from "@/hooks/usePullToRefresh";
 import { AttentionIcon } from "@/pages/landing/admin-attention";
 import { Pill } from "@/pages/landing/pill";
 import { BackupRebuildButton } from "@/pages/leikwan/panel/backup-tunnel";
-import { LeiKwanGrantDialog } from "@/pages/leikwan/panel/grant-dialog";
 import {
-  HostDetails,
-  HostDrawer,
+  EntryLimitPills,
+  OfflinePill,
+  hostOnline,
   hostRunning,
   hostStatusText,
-} from "@/pages/leikwan/panel/host-drawer";
+  hostStatusTone,
+  limitOf,
+} from "@/pages/leikwan/panel/entry-state";
+import {
+  LeiKwanGrantDialog,
+  type LeiKwanGrantDialogMode,
+} from "@/pages/leikwan/panel/grant-dialog";
+import { HostDetails, HostDrawer } from "@/pages/leikwan/panel/host-drawer";
 import {
   HostNameMarker,
   hostAttentionLevel,
@@ -118,6 +126,18 @@ const testNote = (r: LeiKwanRule) =>
 
 function WarmChip({ rule }: { rule: LeiKwanRule }) {
   if (!rule.accel) return null;
+  // Plan 295: the owner's 主入口 has no 预热池 → grey, with the reason.
+  const noWarm = limitOf(rule.entryLimits, "warm");
+
+  if (rule.accel.warmMain > 0 && noWarm)
+    return (
+      <Pill
+        title={`设置是预热 ${rule.accel.warmMain}，但${noWarm.why}：这条转发现在不预热`}
+        tone="slate"
+      >
+        预热 · 入口不支持
+      </Pill>
+    );
 
   return rule.accel.warmMain > 0 ? (
     <Pill title={rule.accelOverride?.note} tone="amber">
@@ -130,13 +150,24 @@ function WarmChip({ rule }: { rule: LeiKwanRule }) {
   );
 }
 
+/** Plan 295 (H5): one line naming what the owner's 主入口 cannot run. */
+const limitsNote = (r: LeiKwanRule) => {
+  const list = r.entryLimits || [];
+  const stable = list.some((l) => l.why.includes("稳定版"));
+
+  return `主入口 ${r.entry?.nodeName || ""} 不支持 ${list.map((l) => l.label).join("、")}${stable ? "（利群客户端是稳定版）" : ""}`;
+};
+
 /** The 利群加速 chips of a 专线 (group header line 2). */
 function LineChips({
   line,
   compact = false,
+  noWarm = [],
 }: {
   line: LeiKwanLine;
   compact?: boolean;
+  /** Plan 295: 利群入口 without a 预热池 (names) */
+  noWarm?: string[];
 }) {
   const a = line.accel;
   const backup = line.backupTunnelName;
@@ -179,6 +210,14 @@ function LineChips({
         </Pill>
       ) : (
         <Pill tone="slate">不预热</Pill>
+      )}
+      {a.warm.main > 0 && noWarm.length > 0 && (
+        <Pill
+          title={`${noWarm.join("、")} 没有预热池：主入口是它们的用户，这条专线的转发不预热`}
+          tone="slate"
+        >
+          {noWarm.length} 台入口不支持预热
+        </Pill>
       )}
       <Pill tone={a.logswitch ? "green" : "slate"}>
         日志快切 {a.logswitch ? "开" : "关"}
@@ -275,6 +314,23 @@ function EntryCopy({ rule }: { rule: LeiKwanRule }) {
     return <span className="text-xs text-default-400">授权没有主入口</span>;
 
   return (
+    <div className="flex min-w-0 flex-col items-start gap-1">
+      <EntryCopyButton rule={rule} />
+      {rule.entry.online === false && (
+        <OfflinePill
+          inline
+          label={`${rule.entry.nodeName} 离线`}
+          since={rule.entry.offlineSince}
+        />
+      )}
+    </div>
+  );
+}
+
+function EntryCopyButton({ rule }: { rule: LeiKwanRule }) {
+  if (!rule.entry) return null;
+
+  return (
     <button
       className="inline-flex max-w-full items-center gap-1.5 rounded-lg bg-default-100 px-2 py-1 text-foreground hover:bg-default-200 dark:bg-default-100/50"
       title={`入口 ${rule.entry.nodeName} · 点一下复制`}
@@ -330,6 +386,7 @@ function AdminRuleRow({
           </Pill>
           <AdminBackupChip rule={r} />
           <WarmChip rule={r} />
+          <EntryLimitPills limits={r.entryLimits} />
           {r.userName && <Pill tone="slate">{r.userName}</Pill>}
           {test && (
             <Pill title={test} tone="amber">
@@ -374,6 +431,7 @@ function LineGroupBlock({
   onEdit,
   onChanged,
   actions,
+  noWarm,
 }: {
   group: LineGroup;
   open: boolean;
@@ -381,6 +439,7 @@ function LineGroupBlock({
   onEdit: (l: LeiKwanLine) => void;
   onChanged: () => void;
   actions: LeiKwanRuleActions;
+  noWarm?: string[];
 }) {
   const line = g.line;
   const attention = g.rules.some((r) => r.backupError);
@@ -447,7 +506,7 @@ function LineGroupBlock({
         </div>
         {line && (
           <div className="flex flex-wrap gap-1.5 pl-6">
-            <LineChips line={line} />
+            <LineChips line={line} noWarm={noWarm} />
           </div>
         )}
       </div>
@@ -506,16 +565,18 @@ function HostTile({
       onClick={onOpen}
     >
       <span className="flex min-w-0 items-center gap-1.5">
-        <LkDot ok={hostRunning(host)} />
+        <LkDot off={!hostOnline(host)} ok={hostRunning(host)} />
         <span className="min-w-0 break-words text-[13px] font-semibold">
           {host.node.name}
         </span>
         <HostNameMarker manage={host.manage} />
       </span>
       <span className="flex flex-wrap gap-1">
-        <Pill tone={hostRunning(host) ? "green" : "slate"}>
-          {hostStatusText(host)}
-        </Pill>
+        {hostOnline(host) ? (
+          <Pill tone={hostStatusTone(host)}>{hostStatusText(host)}</Pill>
+        ) : (
+          <OfflinePill since={host.node.offlineSince} />
+        )}
         <Pill tone={host.mainEntryUsers > 0 ? "teal" : "slate"}>
           主入口 {host.mainEntryUsers} 人
         </Pill>
@@ -526,16 +587,56 @@ function HostTile({
 
 const initial = (name?: string) => (name || "?").slice(0, 1);
 
-function GrantChips({ g }: { g: LeiKwanGrant }) {
+/** Plan 295: the 主入口 chip — red when offline, click = 换主入口. */
+function EntryChip({
+  g,
+  onEntry,
+  prefix = "主入口 ",
+}: {
+  g: LeiKwanGrant;
+  onEntry?: (g: LeiKwanGrant) => void;
+  prefix?: string;
+}) {
+  const off = g.mainEntryOnline === false;
+  const pill = (
+    <Pill
+      title={`${g.mainEntryHost || ""}${off ? " · 离线" : ""}${onEntry ? " · 点一下换主入口" : ""}`}
+      tone={off ? "red" : g.mainEntryOutsideGroup ? "amber" : "teal"}
+    >
+      {prefix}
+      {g.mainEntryName || "—"}
+      {g.mainEntryOutsideGroup ? " · 不在入口组" : ""}
+      {off ? " · 离线" : ""}
+    </Pill>
+  );
+
+  if (!onEntry) return pill;
+
+  return (
+    <button
+      className="inline-flex max-w-full rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+      data-leikwan-entry-chip={g.userName}
+      type="button"
+      onClick={(e) => {
+        e.stopPropagation();
+        onEntry(g);
+      }}
+    >
+      {pill}
+    </button>
+  );
+}
+
+function GrantChips({
+  g,
+  onEntry,
+}: {
+  g: LeiKwanGrant;
+  onEntry?: (g: LeiKwanGrant) => void;
+}) {
   return (
     <>
-      <Pill
-        title={g.mainEntryHost}
-        tone={g.mainEntryOutsideGroup ? "amber" : "teal"}
-      >
-        主入口 {g.mainEntryName || "—"}
-        {g.mainEntryOutsideGroup ? " · 不在入口组" : ""}
-      </Pill>
+      <EntryChip g={g} onEntry={onEntry} />
       <OnOff label="备线" on={g.backupLine} />
       <Pill tone="purple">转发 {g.ruleCount}</Pill>
       {g.status !== 1 && <Pill tone="slate">已停用</Pill>}
@@ -592,6 +693,9 @@ export function LeiKwanAdminView() {
   const [editLine, setEditLine] = useState<LeiKwanLine | null>(null);
   const [grantOpen, setGrantOpen] = useState(false);
   const [editGrant, setEditGrant] = useState<LeiKwanGrant | null>(null);
+  // Plan 295: 换主入口 (grant row / 主入口 chip / host drawer 「设为主入口…」).
+  const [grantMode, setGrantMode] = useState<LeiKwanGrantDialogMode>("grant");
+  const [presetEntry, setPresetEntry] = useState<number | undefined>();
   const [revoke, setRevoke] = useState<number | null>(null);
   const [drawerHost, setDrawerHost] = useState<number | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -713,6 +817,19 @@ export function LeiKwanAdminView() {
     });
   const hostList = hosts?.hosts || [];
   const running = hostList.filter(hostRunning).length;
+  // Plan 295: what each entry can run (grant dialog) + entries without 预热池.
+  const capsById = useMemo(() => {
+    const out: Record<number, LeiKwanEntryCaps> = {};
+
+    (hosts?.hosts || []).forEach((h) => {
+      if (h.caps) out[h.node.id] = h.caps;
+    });
+
+    return out;
+  }, [hosts]);
+  const noWarm = hostList
+    .filter((h) => h.caps?.known && !h.caps.warm)
+    .map((h) => h.node.name);
   const entryLevel = hostsAttentionLevel(hosts);
   const entries = data?.entryNodes || [];
   const account =
@@ -727,8 +844,22 @@ export function LeiKwanAdminView() {
     setEditLine(l);
     setLineOpen(true);
   };
-  const openGrantDialog = (g: LeiKwanGrant | null) => {
+  const openGrantDialog = (
+    g: LeiKwanGrant | null,
+    mode: LeiKwanGrantDialogMode = "grant",
+  ) => {
     setEditGrant(g);
+    setGrantMode(mode);
+    setPresetEntry(undefined);
+    setGrantOpen(true);
+  };
+  const openEntryDialog = (g: LeiKwanGrant) => openGrantDialog(g, "entry");
+  // Host drawer 「设为主入口…」: pick a granted user, this entry preselected.
+  const openSetMain = (nodeId: number) => {
+    setDrawerHost(null);
+    setEditGrant(null);
+    setGrantMode("entry");
+    setPresetEntry(nodeId);
     setGrantOpen(true);
   };
   const doRevoke = async (g: LeiKwanGrant) => {
@@ -879,7 +1010,7 @@ export function LeiKwanAdminView() {
         {g.userName && g.userName === me && <Pill tone="purple">管理员</Pill>}
       </div>
       <div className="flex flex-wrap gap-1">
-        <GrantChips g={g} />
+        <GrantChips g={g} onEntry={openEntryDialog} />
         <GracePill g={g} />
       </div>
       <div className="flex flex-wrap gap-1.5">
@@ -890,6 +1021,15 @@ export function LeiKwanAdminView() {
           onPress={() => openGrantDialog(g)}
         >
           修改
+        </Button>
+        <Button
+          color="secondary"
+          data-leikwan-switch-entry={g.userName}
+          size="sm"
+          variant="flat"
+          onPress={() => openEntryDialog(g)}
+        >
+          换主入口
         </Button>
         <Button
           color="danger"
@@ -921,11 +1061,15 @@ export function LeiKwanAdminView() {
         onSaved={() => void load()}
       />
       <LeiKwanGrantDialog
+        caps={capsById}
         entries={entries}
         entryLock={entryLock}
         grant={editGrant}
+        grants={presetEntry !== undefined ? grants : undefined}
         isOpen={grantOpen}
         lineNames={(data?.lines || []).map((l) => l.name)}
+        mode={grantMode}
+        presetEntry={presetEntry}
         quota={data?.quota}
         users={users}
         onClose={() => setGrantOpen(false)}
@@ -935,6 +1079,7 @@ export function LeiKwanAdminView() {
         host={drawer}
         nightOnly={nightOnly}
         onClose={() => setDrawerHost(null)}
+        onSetMain={grants.length > 0 ? openSetMain : undefined}
         onView={patchHost}
       />
       <LeiKwanSettingsModal
@@ -980,6 +1125,7 @@ export function LeiKwanAdminView() {
         usage={usage}
         onEditGrant={openGrantDialog}
         onEditLine={openLineDialog}
+        onEntryGrant={openEntryDialog}
         onHostView={patchHost}
         onNewGrant={() => openGrantDialog(null)}
         onRevoke={(g) => void doRevoke(g)}
@@ -1074,6 +1220,7 @@ export function LeiKwanAdminView() {
               key={g.id}
               actions={actions}
               group={g}
+              noWarm={noWarm}
               open={currentOpen === g.id}
               onChanged={() => void load()}
               onEdit={openLineDialog}
@@ -1192,6 +1339,7 @@ function AdminPhone({
   dialogs,
   onEditLine,
   onEditGrant,
+  onEntryGrant,
   onNewGrant,
   onRevoke,
   onHostView,
@@ -1214,6 +1362,8 @@ function AdminPhone({
   dialogs: ReactNode;
   onEditLine: (l: LeiKwanLine | null) => void;
   onEditGrant: (g: LeiKwanGrant) => void;
+  /** Plan 295: 换主入口 */
+  onEntryGrant: (g: LeiKwanGrant) => void;
   onNewGrant: () => void;
   onRevoke: (g: LeiKwanGrant) => void;
   onHostView: (nodeId: number, view: LeiKwanHostManage) => void;
@@ -1385,6 +1535,13 @@ function AdminPhone({
                           ) : (
                             "授权没有主入口"
                           )}
+                          {r.entry?.online === false && (
+                            <OfflinePill
+                              inline
+                              label={`主入口 ${r.entry.nodeName} 离线`}
+                              since={r.entry.offlineSince}
+                            />
+                          )}
                         </LkField>
                         <LkField label="落地">
                           <span
@@ -1424,9 +1581,17 @@ function AdminPhone({
                             </span>
                           </LkField>
                         )}
+                        {(r.entryLimits || []).length > 0 && (
+                          <LkField label="说明">
+                            <span className="text-xs text-default-500">
+                              {limitsNote(r)}
+                            </span>
+                          </LkField>
+                        )}
                         <LkField label="标签">
                           <AdminBackupChip rule={r} />
                           <WarmChip rule={r} />
+                          <EntryLimitPills limits={r.entryLimits} />
                           <Pill
                             tone={
                               r.landing.kind === "manual" ? "slate" : "pink"
@@ -1488,11 +1653,7 @@ function AdminPhone({
           {grants.map((g) => (
             <LkExpandCard
               key={g.id}
-              chip={
-                <Pill tone={g.mainEntryOutsideGroup ? "amber" : "teal"}>
-                  {g.mainEntryName || "—"}
-                </Pill>
-              }
+              chip={<EntryChip g={g} prefix="" />}
               data-leikwan-grant-row={g.userName}
               leading={
                 <span className="flex h-[30px] w-[30px] shrink-0 items-center justify-center rounded-full bg-purple-500/15 text-[13px] font-semibold text-purple-700 dark:bg-purple-400/20 dark:text-purple-300">
@@ -1504,9 +1665,7 @@ function AdminPhone({
               onToggle={() => grantExpand.toggle(g.userId)}
             >
               <LkField label="主入口">
-                <Pill tone={g.mainEntryOutsideGroup ? "amber" : "teal"}>
-                  {g.mainEntryName || "—"}
-                </Pill>
+                <EntryChip g={g} prefix="" onEntry={onEntryGrant} />
                 <span className="font-mono text-xs">{g.mainEntryHost}</span>
               </LkField>
               <LkField label="备线">
@@ -1544,6 +1703,16 @@ function AdminPhone({
                   onPress={() => onEditGrant(g)}
                 >
                   修改
+                </Button>
+                <Button
+                  className="min-w-0 flex-1"
+                  color="secondary"
+                  data-leikwan-switch-entry={g.userName}
+                  size="sm"
+                  variant="flat"
+                  onPress={() => onEntryGrant(g)}
+                >
+                  换主入口
                 </Button>
                 <Button
                   className="min-w-0 flex-1"
@@ -1588,12 +1757,23 @@ function AdminPhone({
             <LkExpandCard
               key={h.node.id}
               chip={
-                <Pill tone={h.mainEntryUsers > 0 ? "teal" : "slate"}>
-                  主入口 {h.mainEntryUsers}
-                </Pill>
+                <span className="inline-flex shrink-0 items-center gap-1">
+                  {!hostOnline(h) && (
+                    <OfflinePill since={h.node.offlineSince} />
+                  )}
+                  <Pill tone={h.mainEntryUsers > 0 ? "teal" : "slate"}>
+                    主入口 {h.mainEntryUsers}
+                  </Pill>
+                </span>
               }
               data-leikwan-host-row={h.node.id}
-              dot={<LkDot ok={hostRunning(h)} title={hostStatusText(h)} />}
+              dot={
+                <LkDot
+                  off={!hostOnline(h)}
+                  ok={hostRunning(h)}
+                  title={hostStatusText(h)}
+                />
+              }
               name={
                 <span className="inline-flex items-center gap-1">
                   {h.node.name}

@@ -59,6 +59,8 @@ func (h *Handler) registerLeiKwanLines(mux *http.ServeMux) {
 		"rule/all-entries": h.leikwanRuleAllEntries,
 		// Plan 273 套餐流量 + 利群在线设备 (last snapshots, no vendor call).
 		"usage": h.leikwanUsage,
+		// Plan 295: read-only 换主入口 preview (what each forward keeps / loses).
+		"grant/preview": h.leikwanGrantPreview,
 	}
 	for path, fn := range admin {
 		path, fn := path, fn
@@ -320,6 +322,8 @@ type leiKwanEntryNode struct {
 	Online   bool   `json:"online"`
 	LeiKwan  string `json:"leikwanStatus"`
 	Forwards int    `json:"leikwanForwards"`
+	// Plan 295: when the stored flag went 离线 (node.updated_time; 0 = online).
+	OfflineSince int64 `json:"offlineSince,omitempty"`
 }
 
 func (h *Handler) leiKwanEntryNodes(groupID int64) []leiKwanEntryNode {
@@ -334,7 +338,11 @@ func (h *Handler) leiKwanEntryNodes(groupID int64) []leiKwanEntryNode {
 	for _, n := range nodes {
 		var fw []model.LeiKwanDetectedForward
 		_ = json.Unmarshal([]byte(n.LeiKwanForwards), &fw)
-		out = append(out, leiKwanEntryNode{ID: n.ID, Name: n.Name, Host: n.ServerIP, Online: n.Status == 1, LeiKwan: n.LeiKwanStatus, Forwards: len(fw)})
+		e := leiKwanEntryNode{ID: n.ID, Name: n.Name, Host: n.ServerIP, Online: n.Status == 1, LeiKwan: n.LeiKwanStatus, Forwards: len(fw)}
+		if !e.Online && n.UpdatedTime.Valid {
+			e.OfflineSince = n.UpdatedTime.Int64
+		}
+		out = append(out, e)
 	}
 	return out
 }
@@ -723,8 +731,14 @@ func (h *Handler) leiKwanGrantView(g model.LeiKwanGrant, entries []leiKwanEntryN
 		"status": g.Status, "ruleCount": ruleCount, "updatedTime": g.UpdatedTime}
 	if e := leiKwanEntryByID(entries, g.MainEntryNodeID); e != nil {
 		v["mainEntryName"], v["mainEntryHost"] = e.Name, e.Host
+		// Plan 295: the 主入口's 在线 / 离线 (admin and the user's own view).
+		v["mainEntryOnline"] = e.Online
+		if e.OfflineSince > 0 {
+			v["mainEntryOfflineSince"] = e.OfflineSince
+		}
 	} else if n, err := h.repo.GetNodeRecord(g.MainEntryNodeID); err == nil && n != nil {
 		v["mainEntryName"], v["mainEntryHost"], v["mainEntryOutsideGroup"] = n.Name, n.ServerIP, true
+		v["mainEntryOnline"] = n.Status == 1
 	}
 	v["grace"] = nil
 	if until := g.EntryChangedAt + lkEntryGrace.Milliseconds(); g.PrevEntryNodeID > 0 && until > time.Now().UnixMilli() {
@@ -794,7 +808,8 @@ func (h *Handler) leikwanGrantSave(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	entries := h.leiKwanEntryNodes(setting.EntryGroupID)
-	if leiKwanEntryByID(entries, req.MainEntryNodeID) == nil {
+	entry := leiKwanEntryByID(entries, req.MainEntryNodeID)
+	if entry == nil {
 		leiKwanError(w, errors.New("主入口必须从节点分组「利群入口」里选"))
 		return
 	}
@@ -803,6 +818,12 @@ func (h *Handler) leikwanGrantSave(w http.ResponseWriter, r *http.Request) {
 	old, err := h.repo.GetLeiKwanGrant(req.UserID)
 	if err != nil {
 		leiKwanError(w, errors.New("读取授权失败"))
+		return
+	}
+	// Plan 295: never move a user onto an offline entry (keeping the current
+	// one while it is offline, e.g. to switch 备线, stays possible).
+	if !entry.Online && (old == nil || old.MainEntryNodeID != req.MainEntryNodeID) {
+		leiKwanError(w, fmt.Errorf("入口 %s 离线，不能设为主入口（等它上线再换）", entry.Name))
 		return
 	}
 	g := &model.LeiKwanGrant{UserID: req.UserID, Status: 1}
@@ -1097,6 +1118,8 @@ type leiKwanRuleCtx struct {
 	// Plan 273: the vendor's current-cycle report per 利群 account.
 	vendor         map[int64]lkVendorReport
 	settingAccount int64
+	// Plan 295 (admin): rule id → what the owner's 主入口 cannot run.
+	limits map[int64][]lkCapLimit
 }
 
 func (h *Handler) leiKwanRuleContext(rules []model.LeiKwanRule, admin bool) *leiKwanRuleCtx {
@@ -1155,6 +1178,7 @@ func (h *Handler) leiKwanRuleContext(rules []model.LeiKwanRule, admin bool) *lei
 	c.expired = h.repo.LeiKwanUsersExpired(users, time.Now().UnixMilli())
 	if admin {
 		c.hosts = h.leiKwanHostContexts()
+		c.limits = h.leiKwanRuleEntryLimits(rules, c)
 	}
 	return c
 }
@@ -1246,10 +1270,21 @@ func (h *Handler) leiKwanRuleView(x model.LeiKwanRule, c *leiKwanRuleCtx, admin 
 		}
 	}
 	if e := c.entryFor(x.UserID); e != nil {
-		v["entry"] = map[string]interface{}{"nodeId": e.ID, "nodeName": e.Name, "host": e.Host, "address": net.JoinHostPort(e.Host, strconv.Itoa(x.ListenPort))}
+		ev := map[string]interface{}{"nodeId": e.ID, "nodeName": e.Name, "host": e.Host, "address": net.JoinHostPort(e.Host, strconv.Itoa(x.ListenPort)),
+			// Plan 295: the 主入口's 在线 / 离线 (users see it too, no ⚠).
+			"online": e.Online}
+		if e.OfflineSince > 0 {
+			ev["offlineSince"] = e.OfflineSince
+		}
+		v["entry"] = ev
 	}
 	if !admin {
 		return v
+	}
+	// Plan 295: what the owner's 主入口 cannot run for this rule (预热 /
+	// 首包过滤 / 日志快切 / 快切触发 / 手机备线) — the chips grey out.
+	if l, ok := c.limits[x.ID]; ok {
+		v["entryLimits"] = l
 	}
 	v["userId"], v["userName"], v["forwardId"], v["source"] = x.UserID, c.users[x.UserID], x.ForwardID, x.Source
 	v["allEntries"] = x.AllEntries == 1
@@ -1948,14 +1983,18 @@ func (h *Handler) leikwanHostList(w http.ResponseWriter, r *http.Request) {
 	counts, _ := h.repo.CountLeiKwanGrantsByEntry()
 	out := make([]map[string]interface{}, 0, len(entries))
 	g, _ := h.newLKGen()
+	infos := h.leiKwanEntryInfos(entries)
 	attention := 0
 	for _, e := range entries {
 		item := map[string]interface{}{"node": e, "mainEntryUsers": counts[e.ID]}
 		if s, ok := byNode[e.ID]; ok {
 			item["snapshot"], item["source"], item["capturedAt"] = parseLeiKwanHostSnapshot(s.Data), s.Source, s.CapturedAt
 		}
-		// Plan 269: 接管 / drift / traffic switch of this host.
-		mv := h.leiKwanHostManageView(e.ID, g)
+		// Plan 295: what this host can run (grant dialog, 专线 header note).
+		item["caps"] = infos[e.ID].caps
+		// Plan 269: 接管 / drift / traffic switch of this host (plan 295: an
+		// offline host is one ⚠ 「节点离线」).
+		mv := h.leiKwanHostManageViewAt(e.ID, g, e.Online, e.OfflineSince)
 		if a, ok := mv["attention"].([]string); ok && len(a) > 0 {
 			attention++
 		}

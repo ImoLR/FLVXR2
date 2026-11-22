@@ -1367,17 +1367,63 @@ func parseLKReport(raw string) *lkHostReport {
 	return &r
 }
 
-// leiKwanHostManageView: the 接管 part of one host in host/list.
+// leiKwanHostManageView: the 接管 part of one host (host/* replies).
 func (h *Handler) leiKwanHostManageView(nodeID int64, g *lkGen) map[string]interface{} {
+	online, since := true, int64(0)
+	if n, err := h.repo.GetNodeByID(nodeID); err == nil && n != nil {
+		online = n.Status == 1
+		if !online && n.UpdatedTime.Valid {
+			since = n.UpdatedTime.Int64
+		}
+	}
+	return h.leiKwanHostManageViewAt(nodeID, g, online, since)
+}
+
+// lkAttentionLevel (plan 295): red when the host is offline or something
+// failed, amber otherwise ("" = nothing to do). One place for the UI.
+func lkAttentionLevel(attention []string) string {
+	if len(attention) == 0 {
+		return ""
+	}
+	for _, a := range attention {
+		if a == lkAttnOffline || strings.Contains(a, "失败") {
+			return "error"
+		}
+	}
+	return "warn"
+}
+
+// leiKwanHostManageViewAt: the 接管 part of one host in host/list. Plan 295:
+// an offline host gets the attention reason 「节点离线」 (first) and no
+// 「同步失败」 next to it (a push to an offline node always fails).
+func (h *Handler) leiKwanHostManageViewAt(nodeID int64, g *lkGen, online bool, offlineSince int64) map[string]interface{} {
 	host, _ := h.repo.GetLeiKwanHost(nodeID)
 	v := map[string]interface{}{"manage": false, "traffic": false, "learned": false, "reported": false}
+	if !online {
+		v["offline"] = true
+		if offlineSince > 0 {
+			v["offlineSince"] = offlineSince
+		}
+	}
+	setAttention := func(list []string) {
+		sort.Strings(list)
+		if !online {
+			list = append([]string{lkAttnOffline}, list...)
+		}
+		v["attention"] = list
+		if lvl := lkAttentionLevel(list); lvl != "" {
+			v["attentionLevel"] = lvl
+		}
+	}
 	if host == nil {
+		setAttention([]string{})
 		return v
 	}
 	v["manage"], v["traffic"], v["learned"] = host.Manage == 1, host.Traffic == 1, host.Profile != ""
 	v["rev"], v["force"], v["learnedAt"], v["reportedAt"], v["syncedAt"], v["syncError"] = host.Rev, host.Force, host.LearnedAt, host.ReportedAt, host.SyncedAt, host.SyncError
 	rep := parseLKReport(host.Report)
 	if rep == nil {
+		setAttention([]string{})
 		return v
 	}
 	v["reported"] = true
@@ -1410,14 +1456,13 @@ func (h *Handler) leiKwanHostManageView(nodeID int64, g *lkGen) map[string]inter
 	for f, e := range rep.Manage.Errors {
 		attention = append(attention, lkFileNames[f]+"写入失败："+e)
 	}
-	if host.SyncError != "" && time.Now().UnixMilli()-host.SyncedAt < 15*60*1000 {
+	if online && host.SyncError != "" && time.Now().UnixMilli()-host.SyncedAt < 15*60*1000 {
 		attention = append(attention, "同步失败："+host.SyncError)
 	}
 	if ls := rep.Files.Logswitch; ls != nil && ls.Running != nil {
 		attention = append(attention, "日志快切 unit 改了还没重启")
 	}
-	sort.Strings(attention)
-	v["attention"] = attention
+	setAttention(attention)
 	if len(rep.Manage.Pending) > 0 {
 		names := []string{}
 		for _, f := range rep.Manage.Pending {

@@ -185,11 +185,20 @@ export function LkField({
   );
 }
 
-export function LkDot({ ok = true, title }: { ok?: boolean; title?: string }) {
+export function LkDot({
+  ok = true,
+  off = false,
+  title,
+}: {
+  ok?: boolean;
+  /** Plan 295: offline = red */
+  off?: boolean;
+  title?: string;
+}) {
   return (
     <span
       aria-label={title}
-      className={`h-2 w-2 shrink-0 rounded-full ${ok ? "bg-green-500" : "bg-slate-400"}`}
+      className={`h-2 w-2 shrink-0 rounded-full ${off ? "bg-red-500" : ok ? "bg-green-500" : "bg-slate-400"}`}
       role="img"
       title={title}
     />
