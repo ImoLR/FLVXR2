@@ -39,6 +39,9 @@ export interface AdminAttention {
  * shows 妙妙屋 sync problems). Waiting states (already confirmed, pending
  * sync) are not actions either. Exception (plan 243): a share held by the
  * mass-vanish guard — FLVX refused to auto-revoke, its admin must look.
+ * Exception (plan 290): Reality exposure (dest on Cloudflare, Reality nodes
+ * without 防盗) shows on shared servers too — the FLVX admin decides where
+ * its Reality nodes live.
  */
 export function serverAdminAttention(
   server: LandingServer,
@@ -75,10 +78,15 @@ export function serverAdminAttention(
   // revoking, the admin checks 妙妙屋 (the text says why).
   if (!native && server.sharedHold)
     add("shared-hold", "error", server.sharedHold, ["defaults"]);
-  if (!native) return pack(reasons);
 
   const guard = egress.realityGuard;
   const guardOn = Boolean(guard?.enabled);
+
+  // Plan 290 (both kinds): Reality exposure. Existing nodes are never changed
+  // automatically (that changes users' links), the admin decides.
+  realityRiskReasons(server, native, guardOn, add);
+  if (!native) return pack(reasons);
+
   const scan = server.scanGuard?.state;
 
   if (guardOn && guard?.state === "error")
@@ -155,6 +163,104 @@ export function serverAdminAttention(
     );
 
   return pack(reasons);
+}
+
+const realityExposureText =
+  "会把未认证的连接（任意 SNI）转给伪装目标，别人不用密钥就能借这台落地连到目标 CDN 上的其它网站（DMIT 11-22 公告：在 Cloudflare 上会被当成僵尸网络中转）";
+
+/**
+ * Plan 290: (a) a Reality dest of this server (default for new nodes, or one
+ * live listeners use) is on Cloudflare — red; (b) live Reality listeners
+ * while 防盗 is not in effect — amber. Native restart / error / agent_old of
+ * an enabled guard already have their own reason above, not repeated here.
+ */
+function realityRiskReasons(
+  server: LandingServer,
+  native: boolean,
+  guardOn: boolean,
+  add: (
+    key: string,
+    level: AttentionLevel,
+    text: string,
+    sections?: AttentionSection[],
+  ) => void,
+) {
+  const risk = server.realityRisk;
+
+  if (!risk) return;
+  const cf = risk.cfDests ?? [];
+
+  if (cf.length) {
+    const live = cf.some((d) => d.nodes > 0);
+    const def = cf.some((d) => d.default);
+    const list = cf
+      .map((d) => {
+        const tags = [
+          d.nodes > 0 ? `${d.nodes} 个节点在用` : "",
+          d.default ? "新节点默认" : "",
+        ].filter(Boolean);
+
+        return tags.length ? `${d.host}（${tags.join("，")}）` : d.host;
+      })
+      .join("、");
+    const fix = [
+      def ? "在「伪装域名」里给新节点换一个不在 Cloudflare 的域名" : "",
+      live
+        ? "在用的节点不会自动改（改了用户要更新订阅）：务必开启 Reality 防盗，再按需重建这些节点"
+        : "",
+    ]
+      .filter(Boolean)
+      .join("；");
+
+    add(
+      "reality-cf",
+      "error",
+      `Reality 伪装目标托管在 Cloudflare：${list}。未认证流量可被借道到任意 CF 网站（DMIT 11-22 公告）。处理：${fix}`,
+      def ? ["defaults", "guard"] : ["guard", "defaults"],
+    );
+  }
+
+  const state = risk.guardState;
+
+  if (!risk.guardExposed) return;
+  if (
+    native &&
+    guardOn &&
+    (state === "restart" || state === "error" || state === "agent_old")
+  )
+    return; // plan 218 reasons above already ask for the fix
+  let why = "未生效";
+  let fix = "在「设置 → Reality 防盗」里开启";
+
+  switch (state) {
+    case "off":
+      why = "已关闭";
+      break;
+    case "shared":
+      why = "不可用（这台共享服务器的妙妙屋 Helper 还不支持）";
+      fix = "升级妙妙屋 Helper 后开启，或把 Reality 节点放到支持防盗的服务器";
+      break;
+    case "idle":
+      why = "还没生效（节点没报告受保护的 Reality 节点）";
+      fix = native
+        ? "确认节点在线；开启后通常 1 分钟内生效，一直不生效请检查节点程序"
+        : "等妙妙屋 Helper 上报；一直不生效请检查妙妙屋那边";
+      break;
+    case "error":
+      why = "未生效（妙妙屋 Helper 应用失败）";
+      fix = "检查妙妙屋 Helper 后重新保存";
+      break;
+    case "restart":
+      why = "未生效（落地 Core 需要重启）";
+      fix = "等妙妙屋重启落地 Core";
+      break;
+  }
+  add(
+    "reality-guard-exposed",
+    "warn",
+    `Reality 防盗${why}：${risk.listeners} 个 VLESS Reality 节点${realityExposureText}。处理：${fix}`,
+    ["guard"],
+  );
 }
 
 function pack(reasons: AttentionReason[]): AdminAttention | null {

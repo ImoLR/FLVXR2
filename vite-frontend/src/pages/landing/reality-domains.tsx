@@ -91,6 +91,14 @@ function SourcePills({
   );
 }
 
+// Plan 290: why a Cloudflare-hosted domain is blocked (the server sends the
+// same text as cfReason).
+const cfReasonText =
+  "Cloudflare 托管：未认证流量可被借道到任意 CF 网站（DMIT 11-22 公告）";
+
+const cfPoolHelp =
+  "托管在 Cloudflare 的域名自动屏蔽、不能解除（未认证流量可被借道到任意 CF 网站），离开 Cloudflare 后自动解除。";
+
 function DomainRow({
   domain,
   busy,
@@ -121,13 +129,24 @@ function DomainRow({
           <SourcePills inPool={domain.inPool} source={domain.source} />
           {domain.trial && !domain.blocked && <Pill tone="amber">试用</Pill>}
           {domain.blocked && <Pill tone="red">已屏蔽</Pill>}
+          {domain.cfHosted && <Pill tone="red">Cloudflare</Pill>}
         </div>
+        {domain.cfHosted && (
+          <p
+            className="text-xs leading-snug text-danger"
+            data-reality-cf={domain.domain}
+          >
+            {domain.cfReason || cfReasonText}
+            {domain.cfEvidence ? `。检测到 ${domain.cfEvidence}` : ""}
+            ；离开 Cloudflare 后自动解除
+          </p>
+        )}
         {domain.note && (
           <p className="text-xs leading-snug text-default-500">{domain.note}</p>
         )}
       </div>
       <div className="flex shrink-0 flex-col items-end gap-1 sm:flex-row">
-        {domain.blocked ? (
+        {domain.cfHosted ? null : domain.blocked ? (
           <Button
             color="success"
             isDisabled={busy}
@@ -216,12 +235,18 @@ export function RealityDomainSettings() {
   if (error) return <p className="text-sm text-danger">{error}</p>;
   if (!view) return <p className="text-sm text-default-500">正在读取…</p>;
 
+  // Plan 290: a built-in domain blocked only because it is on Cloudflare
+  // stays in the main list (with its reason), not under 「默认屏蔽」.
+  const cfOnly = (d: RealityDomain) =>
+    Boolean(d.cfHosted) && d.manualBlocked === false;
   const own = view.domains.filter(
-    (d) => d.source !== "pool" && (!d.blocked || d.source === "custom"),
+    (d) =>
+      d.source !== "pool" && (!d.blocked || d.source === "custom" || cfOnly(d)),
   );
   const ownBlocked = view.domains.filter(
-    (d) => d.source === "builtin" && d.blocked,
+    (d) => d.source === "builtin" && d.blocked && !cfOnly(d),
   );
+  const cfDomains = view.domains.filter((d) => d.cfHosted);
   const pool = view.domains.filter((d) => d.source === "pool");
   const poolBlocked = pool.filter((d) => d.blocked).length;
   const poolTrial = pool.filter((d) => d.trial && !d.blocked).length;
@@ -250,7 +275,17 @@ export function RealityDomainSettings() {
         选最快、可用、没被屏蔽的域名给<b>新建</b>
         节点用；已有节点和用户的链接不变。被屏蔽的域名不测速、不会被自动选中。
         现在会测 {view.probeCount} 个（最多 {view.probeMax} 个）。
+        {cfPoolHelp}
       </p>
+      {cfDomains.length > 0 && (
+        <p
+          data-reality-cf-summary
+          className="text-xs leading-relaxed text-danger"
+        >
+          已自动屏蔽 {cfDomains.length} 个 Cloudflare 托管的域名：
+          {cfDomains.map((d) => d.domain).join("、")}
+        </p>
+      )}
       <div className="flex items-start gap-2">
         <Input
           aria-label="添加自定义伪装域名"
@@ -437,6 +472,11 @@ function ProbeTable({
                 </span>
               )}
               {row.blocked && <Pill tone="red">已屏蔽</Pill>}
+              {row.cfHosted && (
+                <Pill title={cfReasonText} tone="red">
+                  Cloudflare
+                </Pill>
+              )}
               {row.trial && !row.blocked && (
                 <Pill tone={row.trialOk ? "green" : "amber"}>
                   {row.trialOk ? "试用 · 稳定" : "试用"}
