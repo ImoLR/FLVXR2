@@ -28,13 +28,13 @@ Panel only: frontend + backend default strings. No DB schema change, no agent ch
 - [x] Icons: favicon.ico (multi-size, now actually shipped in `public/`), apple-touch-icon, pwa-192/512, maskable
 - [x] index.html title / apple-mobile-web-app-title / og / description; PWA manifest name, short_name, theme
 - [x] Other user-visible FLVX brand text (probe default title, TG bot default name, theme description, config page label)
-- [x] Backend defaults: app_name seed `im.gamer`, TG bot fallback name, probe default title; tests updated
+- [x] Backend defaults: app_name seed `im.gamer`, TG bot fallback name, probe default title (no test asserted the old strings)
 - [x] `npm run build`, `go vet` + `go test ./...` (backend touched)
 - [x] Lab run + screenshots (login desktop/390, dark, sidebar expanded/collapsed, H5 header, badge, tab icon) → gallery `built/`, compare with mocks, fix
-- [ ] Release: tag `3.0.27-fork.160`, CI + Images + assets, Latest
-- [ ] Prod backup + rollback script, prune backups, swap, set `app_name` = im.gamer (old `flvx`)
-- [ ] Verify: login page fresh + old-SW browser, nodes online as before, forwards unchanged, log clean 15 min, light check 5 forwards
-- [ ] Memory: `fork-release-and-deploy`, new `imgamer-brand`; summary
+- [x] Release: tag `3.0.27-fork.160`, CI + Images + assets, Latest
+- [x] Prod backup + rollback script, prune backups, swap, set `app_name` = im.gamer (old `flvx`)
+- [x] Verify: login page fresh + old-SW browser, nodes online as before, forwards unchanged, log clean 15 min, light check 5 forwards
+- [x] Memory: `fork-release-and-deploy`, new `imgamer-brand`; summary
 
 ## Results
 - Build: `npm run build` ok; eslint: no new warnings on touched lines (8 remaining = pre-existing fork.159 lines).
@@ -52,3 +52,13 @@ Panel only: frontend + backend default strings. No DB schema change, no agent ch
   install scripts), sub-link ASCII fallback filename `flvx.yaml` (profile-title / filename* use the sub name),
   help / error texts that use FLVX as the system name next to 妙妙屋 (落地 / 利群 / DDNS / node monitor),
   linemon check-port script messages, DDNS record comment, sub fetch UA, code comments.
+- Release: tag `3.0.27-fork.160` → a89a6c8b (branch `maintenance/3.0.27-fork.160-imgamer-brand` = fork.159 + this plan),
+  CI 45032413795 green (incl. PG contract), Images 45032566337 green, Latest, 10 assets, gost-amd64 sha256 ok.
+- Prod swap 11-22 22:41:35–22:41:43 TW (backup + rollback `/opt/flvx-svc/rollback/pre-fork160-20261122T144134Z/`, prune kept
+  pre-fork159 + pre-fork160); `app_name` flvx → im.gamer at 22:41:56 TW (rollback.sh restores flvx).
+- After: state identical to before (64/64 forwards, 利群 tables, users); 5 busiest forwards diagnose 3/3, RTT unchanged;
+  log clean 15 min except 火山上海 timeouts (that node's link drops — it was also offline at the fork.158 / fork.159
+  swaps today; no FLVX tunnels/forwards on it; reconnected 22:45, dropped again 22:46 via Cloudflare AMS).
+  Backend RSS 43.6 → 33.3 MiB. Prod screenshots (fresh browser) + old-SW lab check (fork.159 SW → new build on the
+  first visit, 0.7 s) in the gallery.
+
