@@ -30,7 +30,11 @@ Branch `ops/291-manian-to-flvx` (from 3.0.27-fork.157; merges fork.158 of plan 2
       go-backend `go test ./...` green, go-gost/x landing + socket green, vet clean.
 - [x] 2. Lab (FLVX Core 1929c073 + xray 26.3.27 clients, real 马年 credentials): 12311 single-key ✓, 10016 khalilgao ✓
       (imolr key ✗ as expected), 10017 no-flow ✓ (vision client ✗ = same as today), 10018 ✓, wrong key ✗, UDP ✓ ×3.
-- [ ] 3. Release fork.159 (= fork.158 + 291), CI + images + assets, prod panel swap (backup + rollback)
+- [x] 3. Release fork.159 (tag → ac6897a6 = fork.158 + 291; CI green; Images green after rerun of a stuck frontend job; Latest,
+      10 assets, gost sha256 ok). Prod swap 21:49:01–21:49:08 TW, rollback /opt/flvx-svc/rollback/pre-fork159-20261122T134900Z/
+      (→158); prune kept pre-fork158 + pre-fork159. Light check 5/5 identical; 29/31 online as before. 马年 agent OTA →
+      fork.159 21:50 TW (Core PID unchanged). On-host test 21:52 TW (temp nodes 30001/30002, deleted): single-key ✓,
+      no-flow ✓, forged SNI booking.com → no cert ✓ (official 10017 today returns Booking's cert).
 - [x] 4. Backups: FLVX DB runs/manian-to-flvx/work/flvx-gost.db.pre291-20261122T121027Z (quick_check ok); mmwx pg_dump
       mmwx-prod /root/backups/pre-manian-flvx-20261122T121351Z/mmwx.dump; host tarball 马年
       /root/backup-20261122T120806Z-before-flvx-manian/ (+ copy in work/host-backup/); rollback = work/rollback-cutover.py
