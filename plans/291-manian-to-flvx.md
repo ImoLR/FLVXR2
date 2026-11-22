@@ -42,16 +42,28 @@ Branch `ops/291-manian-to-flvx` (from 3.0.27-fork.157; merges fork.158 of plan 2
       (migrate answered n: flux_agent PID 557 unchanged, official xray PID unchanged) + native landing server 14
       (range 10016–39999, Core 512 MB / 200 %). DDNS A boilhinet2 source panel + takeover, panel IP family prefer_ipv4
       (host got SLAAC IPv6 → agent used IPv6 → noaddr) → synced 114.26.132.236.
-- [ ] 6. Baseline per port (direct + entry paths), real clients
+- [x] 6. Baseline 00:00–00:10 TW (aws-hk 7 paths + baidu-gz 4 paths, xray client, 20× first byte + 10 s speed): all ok
+      except 救命版 72 (火山云广州 → deleted Mkcloud 新春版 hop; broken before, not ours). Speed source Vultr Tokyo
+      started throttling our IP during the run → after-speeds re-measured with DataPacket HK (see summary).
 - [x] 7. leekao + node 95: rows backed up (work/leekao-backup.json; 7-day traffic = probe/test only, no forwards/subs),
       node 95 deleted (shared, :30001 released), user 26 deleted.
-- [ ] 8. Cutover: 30000 DONE 20:2x TW (mmwx share revoked → FLVX shared Core stopped → native node 212 hot-added, real
+- [x] 8. Cutover: 30000 DONE 20:2x TW (mmwx share revoked → FLVX shared Core stopped → native node 212 hot-added, real
       client OK); 30001 deleted. 10017/10018 share the official xray process with busy 12311/10016 → all four in the
       02:00–03:45 window (removing them earlier would need an xray restart/edit = touching busy ports).
-- [ ] 9. Verify each port + entry paths + forged-SNI test on 10017; latency/speed vs baseline
-- [ ] 10. khalilgao FLVX subscription with the same links (2 direct + 2 relay external)
-- [ ] 11. mmwx: delete server 5 (Custom server-delete, pg_dump first); FLVX shared server 3 removed
-- [ ] 12. Stop/disable mmw-agent, mmwxc-helper, official xray, mmwxc-flvx-core, handshake guard (backup kept)
+      **23:50–00:11 TW all four ports had 0 B in 2 min (12311 only idle warm-pool conns) → cut over at once:**
+      00:11:47 official xray stopped, 00:11:53 10016/10017/10018/12311 listening on the FLVX Core (gap ≤ 6 s).
+- [x] 9. Verify: every port + path ok (20/20), p50 within ±3 ms of baseline; speeds 320–374 Mbps direct, 247–266 via
+      救命版 Nathan / JP B, 115–208 via 利群沪台 / Mkcloud 深港 (DataPacket HK). Forged SNI booking.com on 10017 direct
+      and via Dmit Nathan :24775 → no cert; lovelive → real cert.
+- [x] 10. khalilgao FLVX subscription 33 「khalilgao · 马年」 (admin-owned): 10016 + 10017 direct, params identical to
+      mmwx (checked base64 + Clash). Relay links via Dmit Nathan :24775 (救命版) and Leikwan :12821 (FLVX fwd 174) are
+      unchanged but cannot be FLVX sub items (external nodes may not point at FLVX nodes; a forward link needs a
+      landing binding that changes billing/auto-pause) → sent as plain links (work/khalilgao-relay-links.txt).
+- [x] 11. mmwx: server 5 deleted 00:4x TW via Custom server-delete (13/13 steps; nodes 20/65/73/74/123/133/140,
+      empty package 25; package 11 kept with node 132). FLVX shared server 3 = revoked (FLVX keeps revoked rows
+      by design, plan 159); its stuck pending node 10 row deleted (backup work/shared3-backup.json).
+- [x] 12. Stopped + disabled mmw-agent, mmwxc-helper, xray, handshake-guard timer (mmwxc-flvx-core unit was removed by
+      the share revoke); files kept + tarball; inert nft table mmwxc_machine_protection backed up + deleted.
 - [ ] 13. DDNS via FLVX (verify after the 04:00 IP change); node kit check
 - [ ] 14. Panel logs clean 15 min, traffic counting on new nodes, Reality settings / 域名池 check
 - [ ] 15. Summary + memories
