@@ -122,6 +122,16 @@ export interface LeiKwanGrantPreview {
   gainRules: number;
   notes: string[];
   same: boolean;
+  /** Plan 297: the preview is for 手机本地 (im.gamer App, phone-only). */
+  local?: boolean;
+}
+
+/** Plan 297: 手机本地 as the App reports it (preview / rule list). */
+export interface LeiKwanPhoneReq {
+  /** the App's 预热池 switch */
+  warm: boolean;
+  /** the App's version */
+  app?: string;
 }
 
 export interface LeiKwanTrigger {
@@ -224,6 +234,8 @@ export interface LeiKwanLineList {
 export interface LeiKwanGrant {
   id: number;
   userId: number;
+  /** Plan 297 (admin list): the user is an admin (not held by 只开主入口) */
+  ownerAdmin?: boolean;
   userName?: string;
   mainEntryNodeId: number;
   mainEntryName?: string;
@@ -309,6 +321,12 @@ export interface LeiKwanRule {
   };
   // Plan 295 (admin only): what the owner's 主入口 cannot run for this rule.
   entryLimits?: LeiKwanEntryLimit[];
+  // Plan 297 (admin, im.gamer App): the same for 手机本地 (own rules only,
+  // when the list was asked with `phone`).
+  phoneLimits?: LeiKwanEntryLimit[];
+  // Plan 297 (admin view): the owner is an admin — open on every entry
+  // (not held by 「只开主入口」).
+  ownerAdmin?: boolean;
   // admin only
   userId?: number;
   userName?: string;
@@ -553,6 +571,17 @@ export interface LeiKwanSub {
   manual: number;
   lastPullAt: number;
   note: string;
+  /** Plan 297: main = 跟主入口, local = 手机本地 (127.0.0.1) */
+  entryMode?: "main" | "local";
+  /** Plan 297: the owner's subscriptions with 利群 nodes */
+  subs?: {
+    id: number;
+    name: string;
+    entryMode: "main" | "local";
+    auto: string;
+  }[];
+  /** Plan 297: the owner's 主入口 name */
+  mainEntry?: string;
 }
 
 // ---- Plan 272: 利群规则诊断 ----
@@ -900,6 +929,9 @@ export const saveLeiKwanGrant = (body: {
 export const previewLeiKwanGrant = (body: {
   userId: number;
   mainEntryNodeId: number;
+  /** Plan 297: preview 手机本地 instead (mainEntryNodeId ignored) */
+  local?: boolean;
+  phone?: LeiKwanPhoneReq;
 }) => lk<LeiKwanGrantPreview>("grant/preview", body);
 export const deleteLeiKwanGrant = (userId: number) =>
   lk("grant/delete", { userId });
@@ -943,8 +975,9 @@ export const retryLeiKwanBackup = (id: number) =>
 export const setLeiKwanRuleAllEntries = (id: number, on: boolean) =>
   lk("rule/all-entries", { id, on });
 
-export const getLeiKwanRules = (userId = 0) =>
-  lkr<LeiKwanRuleList>("list", { userId });
+// Plan 297: `phone` (im.gamer App only) also asks for phoneLimits.
+export const getLeiKwanRules = (userId = 0, phone?: LeiKwanPhoneReq) =>
+  lkr<LeiKwanRuleList>("list", phone ? { userId, phone } : { userId });
 export const getLeiKwanRuleOptions = (userId = 0) =>
   lkr<LeiKwanRuleOptions>("options", { userId });
 export const createLeiKwanRule = (body: {
@@ -969,12 +1002,21 @@ export const updateLeiKwanRule = (body: {
 }) => lkr<{ rule: LeiKwanRule; warnings?: string[] }>("update", body);
 export const deleteLeiKwanRule = (id: number, keepLeiKwan = false) =>
   lkr<{ backupNote?: string }>("delete", { id, confirmed: true, keepLeiKwan });
-export const getLeiKwanRuleLink = (id: number) =>
-  lkr<{ address: string; url?: string; note?: string }>("link", { id });
+// Plan 297: `local` = 手机本地 (127.0.0.1:<vendor port>, im.gamer App).
+export const getLeiKwanRuleLink = (id: number, local = false) =>
+  lkr<{ address: string; url?: string; note?: string; entryName?: string }>(
+    "link",
+    local ? { id, local: true } : { id },
+  );
 // Plan 272 「生成订阅」: the owner's 「利群汇聚」 subscription (admins: userId
 // = a granted user; users: themselves).
-export const getLeiKwanRuleSub = (userId?: number) =>
-  lkr<LeiKwanSub>("sub", userId ? { userId } : {});
+// Plan 297: entry "local" = the im.gamer App whose entry is 手机本地 (admin,
+// own subs); id = show this sub; action create (new 手机本地 sub) | convert
+// (sub id follows `entry`: local, or the 主入口 when absent).
+export const getLeiKwanRuleSub = (
+  userId?: number,
+  opt: { entry?: "local"; id?: number; action?: "create" | "convert" } = {},
+) => lkr<LeiKwanSub>("sub", userId ? { userId, ...opt } : { ...opt });
 // Plan 272: non-stream fallback of 诊断 (the stream lives in diagnosis-stream).
 export const diagnoseLeiKwanRule = (id: number) =>
   Network.post<LeiKwanDiagResult>(

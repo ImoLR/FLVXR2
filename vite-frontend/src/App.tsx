@@ -21,6 +21,7 @@ import { useH5Mode } from "@/hooks/useH5Mode";
 import { pages } from "@/routes/pages";
 import { FlowChartPlot } from "@/pages/dashboard/flow-chart-lazy";
 import { definePrefetch, pausePrefetch } from "@/utils/idle-prefetch";
+import { APP_HOME, appPathAllowed, isAppMode } from "@/utils/app-bridge";
 
 // Plan 209: every page except the login page is its own chunk (see
 // routes/page-loaders.ts); the layout stays mounted while a page loads.
@@ -85,6 +86,13 @@ const ProtectedRoute = ({
       navigate("/", { replace: true });
     } else if (restricted && !RESTRICTED_PATHS.includes(location.pathname)) {
       navigate("/myhome", { replace: true });
+    } else if (
+      !restricted &&
+      isAppMode() &&
+      !appPathAllowed(location.pathname)
+    ) {
+      // Plan 294: the im.gamer App shows only 利群汇聚 (v0).
+      navigate(APP_HOME, { replace: true });
     }
   }, [authenticated, restricted, location.pathname, navigate]);
 
@@ -123,7 +131,7 @@ const LoginRoute = () => {
       } else if (restricted) {
         navigate("/myhome", { replace: true });
       } else {
-        navigate("/dashboard", { replace: true });
+        navigate(isAppMode() ? APP_HOME : "/dashboard", { replace: true });
       }
     }
   }, [authenticated, restricted, navigate]);

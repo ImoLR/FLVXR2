@@ -27,6 +27,7 @@ import {
   subAdminList,
   subRelative,
 } from "@/api/sub-link";
+import { SubEntryBadge } from "@/pages/sub-link/entry-badge";
 
 // Plan 260 「全部用户」: the admin's read-only overview of every user's
 // subscriptions — summary + search, users as an accordion (latest pull
@@ -173,10 +174,11 @@ function UserGroup({
               data-admin-sub={s.id}
             >
               <span
-                className="w-60 shrink-0 truncate text-sm font-medium"
+                className="flex w-60 shrink-0 items-center gap-1.5 text-sm font-medium"
                 title={s.name}
               >
-                {s.name}
+                <span className="min-w-0 truncate">{s.name}</span>
+                <SubEntryBadge mode={s.entryMode} />
               </span>
               <span className="min-w-0 flex-1 truncate text-xs text-default-500">
                 {subMeta(s)}
@@ -259,6 +261,9 @@ function UserRowH5({
           <div className="flex items-start gap-2">
             <span className="min-w-0 flex-1 break-words text-sm font-medium">
               {s.name}
+              {s.entryMode === "local" && (
+                <SubEntryBadge className="ml-1.5 align-middle" mode="local" />
+              )}
             </span>
             <Button
               className="min-h-7 shrink-0 px-3"

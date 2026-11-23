@@ -173,6 +173,12 @@ func (h *Handler) subRenderFor(ctx context.Context, s *model.UserSubscription, f
 	if flavor != "" {
 		key += "|" + flavor
 	}
+	if s.EntryLocal() {
+		// Plan 297: a 手机本地 subscription renders its 利群 nodes on
+		// 127.0.0.1 (the row's entry_mode; the cache is also purged on change).
+		key += "|lk=local"
+		ctx = subEntryCtx(ctx, s)
+	}
 	routing := sublink.ParseRouting(s.Routing)
 	if format == sublink.FormatSingBox || len(routing) > 0 && (format == sublink.FormatClash || format == sublink.FormatSurge) {
 		key += "|" + origin // plan 226 / 256: rule sets download from this origin
@@ -408,13 +414,16 @@ func (h *Handler) subPublic(w http.ResponseWriter, r *http.Request) {
 	hd.Set("Cache-Control", "no-store")
 	hd.Set("subscription-userinfo", info)
 	hd.Set("profile-update-interval", "12")
-	hd.Set("profile-title", "base64:"+base64.StdEncoding.EncodeToString([]byte(s.Name)))
-	hd.Set("content-disposition", "attachment; filename=\"flvx"+ext+"\"; filename*=UTF-8''"+url.PathEscape(s.Name+ext))
+	title := subClientTitle(s)
+	hd.Set("profile-title", "base64:"+base64.StdEncoding.EncodeToString([]byte(title)))
+	hd.Set("content-disposition", "attachment; filename=\"flvx"+ext+"\"; filename*=UTF-8''"+url.PathEscape(title+ext))
 	hd.Set("Content-Length", strconv.Itoa(len(body)))
 	_, _ = w.Write(body)
 	h.subMarkPulled(s.ID, client.Label, v.nodes, now)
-	if v.leikwan > 0 {
-		h.leiKwanSubPulled(s.UserID, now) // plan 272: ends a 换主入口 grace (276: only with 利群 nodes)
+	if v.leikwan > 0 && !s.EntryLocal() {
+		// plan 272: ends a 换主入口 grace (276: only with 利群 nodes; 297: not
+		// from a 手机本地 sub, whose nodes are not on the new 主入口)
+		h.leiKwanSubPulled(s.UserID, now)
 	}
 }
 
@@ -478,7 +487,7 @@ func (h *Handler) subPage(w http.ResponseWriter, r *http.Request, s *model.UserS
 		count = v.nodes
 	}
 	link := subPublicURL(r, s.Token, "")
-	data := map[string]interface{}{"Name": s.Name, "Count": count, "URL": link}
+	data := map[string]interface{}{"Name": subClientTitle(s), "Count": count, "URL": link}
 	if code, err := qr.Encode(link, qr.M); err == nil {
 		code.Scale = 6
 		data["QR"] = template.URL("data:image/png;base64," + base64.StdEncoding.EncodeToString(code.PNG()))

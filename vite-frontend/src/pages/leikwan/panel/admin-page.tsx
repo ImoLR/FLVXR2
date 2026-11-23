@@ -72,6 +72,23 @@ import {
 } from "@/pages/leikwan/panel/layout-parts";
 import { LeiKwanLineDialog } from "@/pages/leikwan/panel/line-dialog";
 import {
+  PhoneConnectPanel,
+  PhoneDetails,
+  PhoneDrawer,
+  PhoneEntryCopy,
+  PhoneEntryField,
+  PhoneHostRow,
+  PhoneHostTile,
+  PhoneMainChip,
+  PhoneProvider,
+  PhoneWarmChip,
+  phoneLimitsNote,
+  usePhoneCtx,
+  usePhoneEntry,
+  usePhoneRule,
+  type PhoneCtx,
+} from "@/pages/leikwan/panel/phone-entry";
+import {
   AdminBackupChip,
   AllEntriesPill,
   BlockedPill,
@@ -102,12 +119,17 @@ import {
 import { Button } from "@/shadcn-bridge/heroui/button";
 import { Spinner } from "@/shadcn-bridge/heroui/spinner";
 import { getSessionName } from "@/utils/session";
+import { isAppMode } from "@/utils/app-bridge";
 
 // Plan 270: the admin view of 利群汇聚 — everything 利群 on one page (approved
 // design 11-17, screens 01–05). Desktop: header chips, the 「专线 · 规则」
 // tree (one 专线 open at a time) and a right column with 授权 / 入口机 (tiles
 // → host drawer with the plan-269 面板接管 controls) / 旧管道. H5: summary
 // chips + tabs 规则 / 授权 / 入口机 with ＋/− rows (one open per list).
+// Plan 297 (im.gamer App, admin): the same page plus 「手机本地」 — first in
+// 入口机, an option of 换主入口 on the admin's own grant (kept in the App),
+// and while it is the entry: 授权 connect panel + own forward rows on the
+// phone. Browsers: no phone context, the fork.162 page as is.
 
 type Pipe = LeiKwanLineList["pipes"][number];
 
@@ -357,6 +379,8 @@ function AdminRuleRow({
   actions: LeiKwanRuleActions;
 }) {
   const test = testNote(r);
+  // Plan 297: an own forward while 手机本地 is this phone's entry.
+  const pv = usePhoneRule(r);
 
   return (
     <div
@@ -385,8 +409,8 @@ function AdminRuleRow({
             利群 #{r.forwardId}
           </Pill>
           <AdminBackupChip rule={r} />
-          <WarmChip rule={r} />
-          <EntryLimitPills limits={r.entryLimits} />
+          {pv ? <PhoneWarmChip view={pv} /> : <WarmChip rule={r} />}
+          <EntryLimitPills limits={pv ? pv.limits : r.entryLimits} />
           {r.userName && <Pill tone="slate">{r.userName}</Pill>}
           {test && (
             <Pill title={test} tone="amber">
@@ -411,7 +435,7 @@ function AdminRuleRow({
         )}
       </div>
       <div className="min-w-0">
-        <EntryCopy rule={r} />
+        {pv ? <PhoneEntryCopy view={pv} /> : <EntryCopy rule={r} />}
       </div>
       <LandingCell actions={actions} rule={r} />
       <div className="flex flex-wrap justify-end gap-1.5">
@@ -630,13 +654,23 @@ function EntryChip({
 function GrantChips({
   g,
   onEntry,
+  phoneMain = false,
 }: {
   g: LeiKwanGrant;
   onEntry?: (g: LeiKwanGrant) => void;
+  /** Plan 297: this phone's entry is 手机本地 (own grant, App) */
+  phoneMain?: boolean;
 }) {
   return (
     <>
-      <EntryChip g={g} onEntry={onEntry} />
+      {phoneMain ? (
+        <PhoneMainChip
+          serverName={g.mainEntryName}
+          onPress={onEntry ? () => onEntry(g) : undefined}
+        />
+      ) : (
+        <EntryChip g={g} onEntry={onEntry} />
+      )}
       <OnOff label="备线" on={g.backupLine} />
       <Pill tone="purple">转发 {g.ruleCount}</Pill>
       {g.status !== 1 && <Pill tone="slate">已停用</Pill>}
@@ -706,6 +740,9 @@ export function LeiKwanAdminView() {
   // Plan 272: 「生成订阅」 dialog.
   const [subOpen, setSubOpen] = useState(false);
   const me = getSessionName();
+  // Plan 297 (im.gamer App): 手机本地 drawer + 「设为入口…」 preset.
+  const [phoneDrawer, setPhoneDrawer] = useState(false);
+  const [presetPhone, setPresetPhone] = useState(false);
 
   const loadAccounts = useCallback(async () => {
     const res = await getLeiKwanAccounts();
@@ -718,7 +755,8 @@ export function LeiKwanAdminView() {
       getLeiKwanLines(),
       getLeiKwanHosts(),
       getLeiKwanGrants(),
-      getLeiKwanRules(),
+      // Plan 297: the App also asks what 手机本地 cannot run (own rules).
+      getLeiKwanRules(0, isAppMode() ? { warm: false } : undefined),
       getLeiKwanUsage(),
       loadAccounts(),
     ]);
@@ -762,10 +800,39 @@ export function LeiKwanAdminView() {
 
   // Plan 272: global 「只开主入口」 (rule list; the setting as a fallback).
   const entryLock = !!(rules?.entryLock ?? data?.setting.global.entryLock);
+  // Plan 297: 手机本地 — App only, on the admin's own grant.
+  const phone = usePhoneEntry();
+  const myGrant = grants.find((g) => !!me && g.userName === me);
+  const phoneOn = phone.app && !!myGrant;
+  const phoneLocal = phoneOn && phone.local;
+  const openConnect = () => {
+    if (h5) setTab("grants");
+    window.setTimeout(
+      () =>
+        document
+          .getElementById("phone-connect-panel")
+          ?.scrollIntoView({ behavior: "smooth", block: "center" }),
+      60,
+    );
+  };
+  const phoneCtx: PhoneCtx | null = phoneOn
+    ? {
+        state: phone.state,
+        info: phone.info,
+        local: phoneLocal,
+        ownerId: myGrant?.userId,
+        req: phone.req,
+        openDrawer: () => setPhoneDrawer(true),
+        openConnect,
+      }
+    : null;
   const actions = useLeiKwanRuleActions({
     admin: true,
     reload: reloadRules,
     entryLock,
+    localFor: phoneLocal
+      ? (r: LeiKwanRule) => r.userId === myGrant?.userId
+      : undefined,
   });
 
   const groups = useMemo<LineGroup[]>(() => {
@@ -851,6 +918,7 @@ export function LeiKwanAdminView() {
     setEditGrant(g);
     setGrantMode(mode);
     setPresetEntry(undefined);
+    setPresetPhone(false);
     setGrantOpen(true);
   };
   const openEntryDialog = (g: LeiKwanGrant) => openGrantDialog(g, "entry");
@@ -860,6 +928,17 @@ export function LeiKwanAdminView() {
     setEditGrant(null);
     setGrantMode("entry");
     setPresetEntry(nodeId);
+    setPresetPhone(false);
+    setGrantOpen(true);
+  };
+  // Plan 297: 手机本地 drawer 「设为入口…」 = 换主入口 of the own grant.
+  const openSetPhone = () => {
+    if (!myGrant) return;
+    setPhoneDrawer(false);
+    setEditGrant(myGrant);
+    setGrantMode("entry");
+    setPresetEntry(undefined);
+    setPresetPhone(true);
     setGrantOpen(true);
   };
   const doRevoke = async (g: LeiKwanGrant) => {
@@ -1010,7 +1089,11 @@ export function LeiKwanAdminView() {
         {g.userName && g.userName === me && <Pill tone="purple">管理员</Pill>}
       </div>
       <div className="flex flex-wrap gap-1">
-        <GrantChips g={g} onEntry={openEntryDialog} />
+        <GrantChips
+          g={g}
+          phoneMain={phoneLocal && g.userId === myGrant?.userId}
+          onEntry={openEntryDialog}
+        />
         <GracePill g={g} />
       </div>
       <div className="flex flex-wrap gap-1.5">
@@ -1069,7 +1152,9 @@ export function LeiKwanAdminView() {
         isOpen={grantOpen}
         lineNames={(data?.lines || []).map((l) => l.name)}
         mode={grantMode}
+        phone={phoneOn && !!editGrant && editGrant.userId === myGrant?.userId}
         presetEntry={presetEntry}
+        presetPhone={presetPhone}
         quota={data?.quota}
         users={users}
         onClose={() => setGrantOpen(false)}
@@ -1091,11 +1176,24 @@ export function LeiKwanAdminView() {
       />
       <LeiKwanSubDialog
         admin
+        app={phone.app}
         grants={grants}
         me={me}
         open={subOpen}
+        phoneLocal={phoneLocal}
         onClose={() => setSubOpen(false)}
       />
+      {phoneOn && (
+        <PhoneDrawer
+          open={phoneDrawer}
+          rules={(rules?.rules || []).filter(
+            (r) => r.userId === myGrant?.userId,
+          )}
+          usage={usage}
+          onClose={() => setPhoneDrawer(false)}
+          onSetEntry={openSetPhone}
+        />
+      )}
     </>
   );
 
@@ -1106,219 +1204,359 @@ export function LeiKwanAdminView() {
       </div>
     );
 
+  const ownRules = (rules?.rules || []).filter(
+    (r) => r.userId === myGrant?.userId,
+  );
+  const connectPanel = phoneLocal && (
+    <PhoneConnectPanel
+      rules={ownRules}
+      usage={usage}
+      onDetails={() => setPhoneDrawer(true)}
+    />
+  );
+
   if (h5)
     return (
-      <AdminPhone
-        actions={actions}
-        dialogs={dialogs}
-        grants={grants}
-        groups={groups}
-        headerChips={headerChips}
-        hostList={hostList}
-        hosts={hosts}
-        me={me}
-        nightOnly={nightOnly}
-        pipeCard={pipeCard}
-        revoke={revoke}
-        setTab={setTab}
-        tab={tab}
-        usage={usage}
-        onEditGrant={openGrantDialog}
-        onEditLine={openLineDialog}
-        onEntryGrant={openEntryDialog}
-        onHostView={patchHost}
-        onNewGrant={() => openGrantDialog(null)}
-        onRevoke={(g) => void doRevoke(g)}
-        onSettings={() => setSettingsOpen(true)}
-        onSub={() => setSubOpen(true)}
-      />
+      <PhoneProvider value={phoneCtx}>
+        <AdminPhone
+          actions={actions}
+          connectPanel={connectPanel}
+          dialogs={dialogs}
+          grants={grants}
+          groups={groups}
+          headerChips={headerChips}
+          hostList={hostList}
+          hosts={hosts}
+          me={me}
+          myGrantId={myGrant?.userId}
+          nightOnly={nightOnly}
+          ownRules={ownRules}
+          pipeCard={pipeCard}
+          revoke={revoke}
+          setTab={setTab}
+          tab={tab}
+          usage={usage}
+          onEditGrant={openGrantDialog}
+          onEditLine={openLineDialog}
+          onEntryGrant={openEntryDialog}
+          onHostView={patchHost}
+          onNewGrant={() => openGrantDialog(null)}
+          onRevoke={(g) => void doRevoke(g)}
+          onSetPhone={openSetPhone}
+          onSettings={() => setSettingsOpen(true)}
+          onSub={() => setSubOpen(true)}
+        />
+      </PhoneProvider>
     );
 
   return (
-    <div className="space-y-5" data-leikwan-admin="">
-      <header className="flex flex-wrap items-start justify-between gap-4">
-        <div className="min-w-0 space-y-2.5">
-          <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-            <h1 className="text-2xl font-bold">利群汇聚</h1>
-            <span className="text-sm text-default-500">
-              利群专线的转发、授权、入口机都在这一页，不进隧道页和转发页
-            </span>
-          </div>
-          <div className="flex flex-wrap gap-1.5">{headerChips}</div>
-        </div>
-        <div className="flex gap-2">
-          <Button
-            color="primary"
-            isDisabled={grants.length === 0}
-            startContent={<Link2 size={15} />}
-            title={
-              grants.length === 0
-                ? "还没有授权用户"
-                : "一条订阅链接带上全部利群转发（可选用户）"
-            }
-            onPress={() => setSubOpen(true)}
-          >
-            生成订阅
-          </Button>
-          <Button
-            color="primary"
-            isLoading={loading}
-            startContent={!loading && <RefreshCw size={15} />}
-            variant="flat"
-            onPress={() => void load()}
-          >
-            刷新
-          </Button>
-          <Button
-            color="warning"
-            startContent={<Settings size={15} />}
-            variant="flat"
-            onPress={() => setSettingsOpen(true)}
-          >
-            设置
-          </Button>
-        </div>
-      </header>
-      <div className="grid grid-cols-1 items-start gap-5 xl:grid-cols-[minmax(0,1fr)_288px]">
-        <LkCard className="min-w-0 overflow-hidden" data-leikwan-tree="">
-          <div className="border-b border-divider px-4 py-3.5">
-            <LkCardTitle
-              chip={
-                <Pill tone="purple">
-                  {lineCount} 条专线 · {ruleCount} 条转发
-                </Pill>
-              }
-              right={
-                <div className="flex flex-wrap gap-2">
-                  <Button
-                    color="success"
-                    isDisabled={!data?.accountReady}
-                    size="sm"
-                    startContent={<Plus size={14} />}
-                    variant="flat"
-                    onPress={() => openLineDialog(null)}
-                  >
-                    新建专线
-                  </Button>
-                  <Button
-                    color="success"
-                    isDisabled={lineCount === 0}
-                    size="sm"
-                    startContent={<Plus size={14} />}
-                    variant="flat"
-                    onPress={() => actions.openCreate()}
-                  >
-                    添加转发
-                  </Button>
-                </div>
-              }
-              title="专线 · 转发"
-            />
-          </div>
-          {groups.map((g) => (
-            <LineGroupBlock
-              key={g.id}
-              actions={actions}
-              group={g}
-              noWarm={noWarm}
-              open={currentOpen === g.id}
-              onChanged={() => void load()}
-              onEdit={openLineDialog}
-              onToggle={() => toggleLine(g.id)}
-            />
-          ))}
-          {groups.length === 0 && (
-            <div className="px-4 py-8 text-center text-sm text-default-500">
-              {data?.accountReady
-                ? "还没有利群专线：点「新建专线」"
-                : "先在「设置」里添加利群账号和 API Token"}
+    <PhoneProvider value={phoneCtx}>
+      <div className="space-y-5" data-leikwan-admin="">
+        <header className="flex flex-wrap items-start justify-between gap-4">
+          <div className="min-w-0 space-y-2.5">
+            <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+              <h1 className="text-2xl font-bold">利群汇聚</h1>
+              <span className="text-sm text-default-500">
+                利群专线的转发、授权、入口机都在这一页，不进隧道页和转发页
+              </span>
             </div>
-          )}
-        </LkCard>
-        <div className="flex min-w-0 flex-col gap-4">
-          <PackageCard data={usage} />
-          <LkCard className="space-y-3 p-4" data-leikwan-grants="">
-            <LkCardTitle
-              chip={<Pill tone="purple">{grants.length} 人</Pill>}
-              right={
-                <Button
-                  color="success"
-                  isDisabled={!entries.length}
-                  size="sm"
-                  startContent={<Plus size={14} />}
-                  variant="flat"
-                  onPress={() => openGrantDialog(null)}
-                >
-                  授权用户
-                </Button>
+            <div className="flex flex-wrap gap-1.5">{headerChips}</div>
+          </div>
+          <div className="flex gap-2">
+            <Button
+              color="primary"
+              isDisabled={grants.length === 0}
+              startContent={<Link2 size={15} />}
+              title={
+                grants.length === 0
+                  ? "还没有授权用户"
+                  : "一条订阅链接带上全部利群转发（可选用户）"
               }
-              title="授权"
-            />
-            {grantRows}
-            {grants.length === 0 && (
-              <p className="rounded-xl border border-dashed border-divider px-3 py-4 text-center text-sm text-default-500">
-                还没有授权
-              </p>
-            )}
-            <p className="text-xs leading-relaxed text-default-500">
-              转发数、流量、到期跟用户自己的走；授权只选主入口和备线开关。
-            </p>
-          </LkCard>
-          <LkCard className="space-y-3 p-4" data-leikwan-hosts="">
-            <LkCardTitle
-              chip={
-                <>
-                  <Pill tone="teal">
-                    分组「{hosts?.entryGroupName || "利群入口"}」
+              onPress={() => setSubOpen(true)}
+            >
+              生成订阅
+            </Button>
+            <Button
+              color="primary"
+              isLoading={loading}
+              startContent={!loading && <RefreshCw size={15} />}
+              variant="flat"
+              onPress={() => void load()}
+            >
+              刷新
+            </Button>
+            <Button
+              color="warning"
+              startContent={<Settings size={15} />}
+              variant="flat"
+              onPress={() => setSettingsOpen(true)}
+            >
+              设置
+            </Button>
+          </div>
+        </header>
+        <div className="grid grid-cols-1 items-start gap-5 xl:grid-cols-[minmax(0,1fr)_288px]">
+          <LkCard className="min-w-0 overflow-hidden" data-leikwan-tree="">
+            <div className="border-b border-divider px-4 py-3.5">
+              <LkCardTitle
+                chip={
+                  <Pill tone="purple">
+                    {lineCount} 条专线 · {ruleCount} 条转发
                   </Pill>
-                  {entryLevel && <AttentionIcon level={entryLevel} />}
-                </>
-              }
-              title="入口机"
-            />
-            {(hosts?.attention || 0) > 0 && (
-              <div
-                data-attention-notice
-                className={`flex items-center gap-2 rounded-lg px-3 py-2 text-xs ${
-                  entryLevel === "error"
-                    ? "bg-red-500/15 text-red-700 dark:bg-red-400/20 dark:text-red-300"
-                    : "bg-amber-500/15 text-amber-700 dark:bg-amber-400/15 dark:text-amber-300"
-                }`}
-              >
-                <AttentionIcon level={entryLevel || "warn"} />
-                <span className="min-w-0 flex-1">
-                  {hosts?.attention} 台需要处理：
-                  {hostList
-                    .filter((h) => hostAttentionLevel(h.manage))
-                    .map((h) => h.node.name)
-                    .join("、")}
-                </span>
+                }
+                right={
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      color="success"
+                      isDisabled={!data?.accountReady}
+                      size="sm"
+                      startContent={<Plus size={14} />}
+                      variant="flat"
+                      onPress={() => openLineDialog(null)}
+                    >
+                      新建专线
+                    </Button>
+                    <Button
+                      color="success"
+                      isDisabled={lineCount === 0}
+                      size="sm"
+                      startContent={<Plus size={14} />}
+                      variant="flat"
+                      onPress={() => actions.openCreate()}
+                    >
+                      添加转发
+                    </Button>
+                  </div>
+                }
+                title="专线 · 转发"
+              />
+            </div>
+            {groups.map((g) => (
+              <LineGroupBlock
+                key={g.id}
+                actions={actions}
+                group={g}
+                noWarm={noWarm}
+                open={currentOpen === g.id}
+                onChanged={() => void load()}
+                onEdit={openLineDialog}
+                onToggle={() => toggleLine(g.id)}
+              />
+            ))}
+            {groups.length === 0 && (
+              <div className="px-4 py-8 text-center text-sm text-default-500">
+                {data?.accountReady
+                  ? "还没有利群专线：点「新建专线」"
+                  : "先在「设置」里添加利群账号和 API Token"}
               </div>
             )}
-            <div className="grid grid-cols-2 gap-2">
-              {hostList.map((h) => (
-                <HostTile
-                  key={h.node.id}
-                  host={h}
-                  onOpen={() => setDrawerHost(h.node.id)}
-                />
-              ))}
-            </div>
-            {hostList.length === 0 && (
-              <p className="text-sm text-default-500">
-                分组里还没有节点：在节点页把节点拉进这个组
-              </p>
-            )}
-            <p className="text-xs leading-relaxed text-default-500">
-              点一台看主机快照：厂商版本、更新锁、日志快切、首包合并、手机备线端口，还有面板接管。
-            </p>
           </LkCard>
-          <DevicesCard data={usage} />
-          {pipeCard}
+          <div className="flex min-w-0 flex-col gap-4">
+            <PackageCard data={usage} />
+            <LkCard className="space-y-3 p-4" data-leikwan-grants="">
+              <LkCardTitle
+                chip={<Pill tone="purple">{grants.length} 人</Pill>}
+                right={
+                  <Button
+                    color="success"
+                    isDisabled={!entries.length}
+                    size="sm"
+                    startContent={<Plus size={14} />}
+                    variant="flat"
+                    onPress={() => openGrantDialog(null)}
+                  >
+                    授权用户
+                  </Button>
+                }
+                title="授权"
+              />
+              {connectPanel}
+              {grantRows}
+              {grants.length === 0 && (
+                <p className="rounded-xl border border-dashed border-divider px-3 py-4 text-center text-sm text-default-500">
+                  还没有授权
+                </p>
+              )}
+              <p className="text-xs leading-relaxed text-default-500">
+                转发数、流量、到期跟用户自己的走；授权只选主入口和备线开关。
+              </p>
+            </LkCard>
+            <LkCard className="space-y-3 p-4" data-leikwan-hosts="">
+              <LkCardTitle
+                chip={
+                  <>
+                    <Pill tone="teal">
+                      分组「{hosts?.entryGroupName || "利群入口"}」
+                    </Pill>
+                    {entryLevel && <AttentionIcon level={entryLevel} />}
+                  </>
+                }
+                title="入口机"
+              />
+              {(hosts?.attention || 0) > 0 && (
+                <div
+                  data-attention-notice
+                  className={`flex items-center gap-2 rounded-lg px-3 py-2 text-xs ${
+                    entryLevel === "error"
+                      ? "bg-red-500/15 text-red-700 dark:bg-red-400/20 dark:text-red-300"
+                      : "bg-amber-500/15 text-amber-700 dark:bg-amber-400/15 dark:text-amber-300"
+                  }`}
+                >
+                  <AttentionIcon level={entryLevel || "warn"} />
+                  <span className="min-w-0 flex-1">
+                    {hosts?.attention} 台需要处理：
+                    {hostList
+                      .filter((h) => hostAttentionLevel(h.manage))
+                      .map((h) => h.node.name)
+                      .join("、")}
+                  </span>
+                </div>
+              )}
+              <div className="grid grid-cols-2 gap-2">
+                {phoneOn && (
+                  <PhoneHostTile onOpen={() => setPhoneDrawer(true)} />
+                )}
+                {hostList.map((h) => (
+                  <HostTile
+                    key={h.node.id}
+                    host={h}
+                    onOpen={() => setDrawerHost(h.node.id)}
+                  />
+                ))}
+              </div>
+              {hostList.length === 0 && (
+                <p className="text-sm text-default-500">
+                  分组里还没有节点：在节点页把节点拉进这个组
+                </p>
+              )}
+              <p className="text-xs leading-relaxed text-default-500">
+                点一台看主机快照：厂商版本、更新锁、日志快切、首包合并、手机备线端口，还有面板接管。
+              </p>
+            </LkCard>
+            <DevicesCard data={usage} />
+            {pipeCard}
+          </div>
         </div>
+        {dialogs}
       </div>
-      {dialogs}
-    </div>
+    </PhoneProvider>
+  );
+}
+
+/** H5 rule row (＋ = details). Plan 297: own rows follow 手机本地. */
+function AdminRuleCard({
+  rule: r,
+  actions,
+  open,
+  onToggle,
+}: {
+  rule: LeiKwanRule;
+  actions: LeiKwanRuleActions;
+  open: boolean;
+  onToggle: () => void;
+}) {
+  const pv = usePhoneRule(r);
+
+  return (
+    <LkExpandCard
+      chip={<Pill tone="purple">#{r.forwardId}</Pill>}
+      data-leikwan-rule={r.name}
+      dot={<RuleDot rule={r} />}
+      name={
+        <>
+          {r.backupError && (
+            <AlertTriangle className="mr-1 inline text-red-700" size={13} />
+          )}
+          {r.name}
+        </>
+      }
+      open={open}
+      onToggle={onToggle}
+    >
+      <LkField label="入口">
+        {pv ? (
+          <PhoneEntryField view={pv} />
+        ) : r.entry ? (
+          <button
+            className="font-mono text-xs"
+            type="button"
+            onClick={() => void copyText(r.entry!.address, "入口地址")}
+          >
+            {r.entry.address}
+          </button>
+        ) : (
+          "授权没有主入口"
+        )}
+        {!pv && r.entry?.online === false && (
+          <OfflinePill
+            inline
+            label={`主入口 ${r.entry.nodeName} 离线`}
+            since={r.entry.offlineSince}
+          />
+        )}
+      </LkField>
+      <LkField label="落地">
+        <span
+          className={r.landing.kind === "manual" ? "font-mono text-xs" : ""}
+        >
+          {r.landing.kind === "manual"
+            ? `${r.landing.host}:${r.landing.port}`
+            : r.landing.kind === "external"
+              ? r.landing.name || `${r.landing.host}:${r.landing.port}`
+              : `${r.landing.serverName || "落地"} · ${r.landing.name}`}
+        </span>
+        {r.landing.kind === "external" && (
+          <span className="text-xs text-default-500">{externalNote(r)}</span>
+        )}
+      </LkField>
+      {r.pendingLanding && (
+        <LkField label="待切换">
+          <PendingBlock compact inField rule={r} onSwap={actions.openSwap} />
+        </LkField>
+      )}
+      {r.blockReason && (
+        <LkField label="状态">
+          <span className="text-red-700 dark:text-red-300">
+            {blockedNote(r)}
+          </span>
+        </LkField>
+      )}
+      {pv
+        ? pv.limits.length > 0 && (
+            <LkField label="说明">
+              <span className="text-xs text-default-500">
+                {phoneLimitsNote(pv)}
+              </span>
+            </LkField>
+          )
+        : (r.entryLimits || []).length > 0 && (
+            <LkField label="说明">
+              <span className="text-xs text-default-500">{limitsNote(r)}</span>
+            </LkField>
+          )}
+      <LkField label="标签">
+        <AdminBackupChip rule={r} />
+        {pv ? <PhoneWarmChip view={pv} /> : <WarmChip rule={r} />}
+        <EntryLimitPills limits={pv ? pv.limits : r.entryLimits} />
+        <Pill tone={r.landing.kind === "manual" ? "slate" : "pink"}>
+          {r.landing.kind === "manual"
+            ? "手动落地"
+            : r.landing.kind === "external"
+              ? externalProtocol(r.landing.protocol) || "外部节点"
+              : protocolLabel(r.landing.protocol)}
+        </Pill>
+        {r.userName && <Pill tone="slate">{r.userName}</Pill>}
+        {testNote(r) && <Pill tone="amber">测试</Pill>}
+        {r.userExpired && <Pill tone="red">已到期</Pill>}
+        <FlowPill rule={r} />
+        <BackupFlowPill rule={r} />
+        <VendorFlowPill rule={r} />
+        <AllEntriesPill actions={actions} rule={r} />
+      </LkField>
+      <div className="flex flex-wrap gap-2 pt-1">
+        <RuleButtons admin fill actions={actions} rule={r} />
+      </div>
+    </LkExpandCard>
   );
 }
 
@@ -1346,7 +1584,17 @@ function AdminPhone({
   onSettings,
   onSub,
   usage,
+  connectPanel,
+  myGrantId,
+  ownRules,
+  onSetPhone,
 }: {
+  /** Plan 297 (App): 手机本地 connect panel (授权 tab, while it is the entry) */
+  connectPanel?: ReactNode;
+  /** Plan 297: the admin's own grant (手机本地 lives there) */
+  myGrantId?: number;
+  ownRules: LeiKwanRule[];
+  onSetPhone: () => void;
   headerChips: ReactNode;
   tab: "rules" | "grants" | "hosts";
   setTab: (t: "rules" | "grants" | "hosts") => void;
@@ -1382,7 +1630,12 @@ function AdminPhone({
     groups.flatMap((g) => g.rules.map((r) => r.id)),
   );
   const grantExpand = useExpandOne(grants.map((g) => g.userId));
-  const hostExpand = useExpandOne(hostList.map((h) => h.node.id));
+  // Plan 297: 手机本地 = key -1 (App only, first row).
+  const phoneCtx = usePhoneCtx();
+  const hostExpand = useExpandOne([
+    ...(phoneCtx ? [-1] : []),
+    ...hostList.map((h) => h.node.id),
+  ]);
   const ruleCount = groups.reduce((n, g) => n + g.rules.length, 0);
   const entryLevel = hostsAttentionLevel(hosts);
 
@@ -1502,120 +1755,13 @@ function AdminPhone({
                       </div>
                     )}
                     {g.rules.map((r) => (
-                      <LkExpandCard
+                      <AdminRuleCard
                         key={r.id}
-                        chip={<Pill tone="purple">#{r.forwardId}</Pill>}
-                        data-leikwan-rule={r.name}
-                        dot={<RuleDot rule={r} />}
-                        name={
-                          <>
-                            {r.backupError && (
-                              <AlertTriangle
-                                className="mr-1 inline text-red-700"
-                                size={13}
-                              />
-                            )}
-                            {r.name}
-                          </>
-                        }
+                        actions={actions}
                         open={ruleExpand.open === r.id}
+                        rule={r}
                         onToggle={() => ruleExpand.toggle(r.id)}
-                      >
-                        <LkField label="入口">
-                          {r.entry ? (
-                            <button
-                              className="font-mono text-xs"
-                              type="button"
-                              onClick={() =>
-                                void copyText(r.entry!.address, "入口地址")
-                              }
-                            >
-                              {r.entry.address}
-                            </button>
-                          ) : (
-                            "授权没有主入口"
-                          )}
-                          {r.entry?.online === false && (
-                            <OfflinePill
-                              inline
-                              label={`主入口 ${r.entry.nodeName} 离线`}
-                              since={r.entry.offlineSince}
-                            />
-                          )}
-                        </LkField>
-                        <LkField label="落地">
-                          <span
-                            className={
-                              r.landing.kind === "manual"
-                                ? "font-mono text-xs"
-                                : ""
-                            }
-                          >
-                            {r.landing.kind === "manual"
-                              ? `${r.landing.host}:${r.landing.port}`
-                              : r.landing.kind === "external"
-                                ? r.landing.name ||
-                                  `${r.landing.host}:${r.landing.port}`
-                                : `${r.landing.serverName || "落地"} · ${r.landing.name}`}
-                          </span>
-                          {r.landing.kind === "external" && (
-                            <span className="text-xs text-default-500">
-                              {externalNote(r)}
-                            </span>
-                          )}
-                        </LkField>
-                        {r.pendingLanding && (
-                          <LkField label="待切换">
-                            <PendingBlock
-                              compact
-                              inField
-                              rule={r}
-                              onSwap={actions.openSwap}
-                            />
-                          </LkField>
-                        )}
-                        {r.blockReason && (
-                          <LkField label="状态">
-                            <span className="text-red-700 dark:text-red-300">
-                              {blockedNote(r)}
-                            </span>
-                          </LkField>
-                        )}
-                        {(r.entryLimits || []).length > 0 && (
-                          <LkField label="说明">
-                            <span className="text-xs text-default-500">
-                              {limitsNote(r)}
-                            </span>
-                          </LkField>
-                        )}
-                        <LkField label="标签">
-                          <AdminBackupChip rule={r} />
-                          <WarmChip rule={r} />
-                          <EntryLimitPills limits={r.entryLimits} />
-                          <Pill
-                            tone={
-                              r.landing.kind === "manual" ? "slate" : "pink"
-                            }
-                          >
-                            {r.landing.kind === "manual"
-                              ? "手动落地"
-                              : r.landing.kind === "external"
-                                ? externalProtocol(r.landing.protocol) ||
-                                  "外部节点"
-                                : protocolLabel(r.landing.protocol)}
-                          </Pill>
-                          {r.userName && <Pill tone="slate">{r.userName}</Pill>}
-                          {testNote(r) && <Pill tone="amber">测试</Pill>}
-                          {r.userExpired && <Pill tone="red">已到期</Pill>}
-                          <FlowPill rule={r} />
-                          <BackupFlowPill rule={r} />
-                          <VendorFlowPill rule={r} />
-                          <AllEntriesPill actions={actions} rule={r} />
-                        </LkField>
-                        <div className="flex flex-wrap gap-2 pt-1">
-                          <RuleButtons admin fill actions={actions} rule={r} />
-                        </div>
-                      </LkExpandCard>
+                      />
                     ))}
                     {g.rules.length === 0 && (
                       <div className="flex items-center justify-between gap-2 rounded-xl border border-dashed border-divider px-3 py-2.5 text-sm text-default-500">
@@ -1650,10 +1796,17 @@ function AdminPhone({
           >
             授权用户
           </Button>
+          {connectPanel}
           {grants.map((g) => (
             <LkExpandCard
               key={g.id}
-              chip={<EntryChip g={g} prefix="" />}
+              chip={
+                phoneCtx?.local && g.userId === myGrantId ? (
+                  <PhoneMainChip prefix="" />
+                ) : (
+                  <EntryChip g={g} prefix="" />
+                )
+              }
               data-leikwan-grant-row={g.userName}
               leading={
                 <span className="flex h-[30px] w-[30px] shrink-0 items-center justify-center rounded-full bg-purple-500/15 text-[13px] font-semibold text-purple-700 dark:bg-purple-400/20 dark:text-purple-300">
@@ -1665,8 +1818,18 @@ function AdminPhone({
               onToggle={() => grantExpand.toggle(g.userId)}
             >
               <LkField label="主入口">
-                <EntryChip g={g} prefix="" onEntry={onEntryGrant} />
-                <span className="font-mono text-xs">{g.mainEntryHost}</span>
+                {phoneCtx?.local && g.userId === myGrantId ? (
+                  <PhoneMainChip
+                    prefix=""
+                    serverName={g.mainEntryName}
+                    onPress={() => onEntryGrant(g)}
+                  />
+                ) : (
+                  <>
+                    <EntryChip g={g} prefix="" onEntry={onEntryGrant} />
+                    <span className="font-mono text-xs">{g.mainEntryHost}</span>
+                  </>
+                )}
               </LkField>
               <LkField label="备线">
                 <Pill tone={g.backupLine ? "green" : "slate"}>
@@ -1753,6 +1916,19 @@ function AdminPhone({
               加入口机 = 在节点页把节点拉进这个组
             </span>
           </div>
+          {phoneCtx && (
+            <PhoneHostRow
+              open={hostExpand.open === -1}
+              onToggle={() => hostExpand.toggle(-1)}
+            >
+              <PhoneDetails
+                compact
+                rules={ownRules}
+                usage={usage}
+                onSetEntry={onSetPhone}
+              />
+            </PhoneHostRow>
+          )}
           {hostList.map((h) => (
             <LkExpandCard
               key={h.node.id}

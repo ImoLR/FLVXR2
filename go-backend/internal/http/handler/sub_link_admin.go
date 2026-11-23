@@ -34,6 +34,9 @@ type subAdminSub struct {
 	LastPullClient string `json:"lastPullClient"`
 	LastPullNodes  int    `json:"lastPullNodes"`
 	CreatedTime    int64  `json:"createdTime"`
+	// EntryMode (plan 297): "local" = 手机本地 subscription (badge); omitted
+	// for the default main.
+	EntryMode string `json:"entryMode,omitempty"`
 }
 
 type subAdminSource struct {
@@ -179,6 +182,9 @@ func (h *Handler) subAdminList(w http.ResponseWriter, r *http.Request) {
 		u.Subs = append(u.Subs, subAdminSub{ID: s.ID, Name: s.Name, Format: s.Format, RuleMode: s.RuleMode, Nodes: nodes,
 			Routing: subRoutingKind(routing), RoutingCount: len(routing), LastPullAt: s.LastPullAt, LastPullClient: s.LastPullClient,
 			LastPullNodes: s.LastPullNodes, CreatedTime: s.CreatedTime})
+		if s.EntryLocal() {
+			u.Subs[len(u.Subs)-1].EntryMode = model.SubEntryLocal
+		}
 		if s.LastPullAt > u.LastPullAt {
 			u.LastPullAt = s.LastPullAt
 		}
@@ -233,7 +239,7 @@ func (h *Handler) subAdminDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	refs := sublink.ParseRefs(s.Items)
-	d, err := h.subLoad(r.Context(), s.UserID, refs, false, false)
+	d, err := h.subLoad(subEntryCtx(r.Context(), s), s.UserID, refs, false, false)
 	if err != nil {
 		subFail(w, err)
 		return
@@ -359,5 +365,6 @@ func (h *Handler) subAdminDetail(w http.ResponseWriter, r *http.Request) {
 		"id": s.ID, "name": s.Name, "userId": s.UserID, "user": owner, "format": s.Format, "ruleMode": s.RuleMode,
 		"createdTime": s.CreatedTime, "lastPullAt": s.LastPullAt, "lastPullClient": s.LastPullClient, "lastPullNodes": s.LastPullNodes,
 		"items": items, "routing": routing, "routingKind": subRoutingKind(list), "routingCatalog": subRoutingCatalog(),
+		"entryMode": subEntryMode(s),
 	}))
 }

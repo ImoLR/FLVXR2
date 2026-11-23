@@ -29,6 +29,7 @@ import { useWebViewMode } from "@/hooks/useWebViewMode";
 import { resetSubLinkSwitchCheck } from "@/api/sub-link";
 import { checkFrontendBuild } from "@/utils/build-freshness";
 import { prefetchOnIdle } from "@/utils/idle-prefetch";
+import { APP_HOME, isAppMode } from "@/utils/app-bridge";
 
 interface LoginForm {
   username: string;
@@ -167,7 +168,7 @@ export default function IndexPage() {
       invalidateCachedConfigs();
       resetSubLinkSwitchCheck();
       void updateSiteConfig();
-      navigate("/dashboard");
+      navigate(isAppMode() ? APP_HOME : "/dashboard");
       void checkFrontendBuild();
     } catch {
       toast.error("网络错误，请稍后重试");

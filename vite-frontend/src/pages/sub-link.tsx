@@ -40,6 +40,7 @@ import {
   subModeLabel,
   subReset,
 } from "@/api/sub-link";
+import { SubEntryBadge } from "@/pages/sub-link/entry-badge";
 
 // Plan 185 「订阅」: one card per subscription — what is in it (coloured
 // counts), the link (copy / QR) and who pulled it last.
@@ -169,6 +170,7 @@ function SubCard({
               利群汇聚
             </Pill>
           )}
+          <SubEntryBadge mode={sub.entryMode} />
           {!isH5 && (
             <>
               <Pill tone="purple">{subFormatLabel[sub.format]}</Pill>

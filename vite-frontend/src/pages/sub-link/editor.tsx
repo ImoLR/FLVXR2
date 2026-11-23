@@ -46,6 +46,7 @@ import {
   ModalHeader,
 } from "@/shadcn-bridge/heroui/modal";
 import {
+  SubEntryMode,
   SubFormat,
   SubItem,
   SubPool,
@@ -59,6 +60,9 @@ import {
   subPool,
   subUpdate,
 } from "@/api/sub-link";
+import { SubEntryBadge } from "@/pages/sub-link/entry-badge";
+import { isAdmin } from "@/utils/auth";
+import { isAppMode } from "@/utils/app-bridge";
 
 // Plan 185 编辑订阅: left = everything the user can add (grouped by source),
 // right = the ordered list that becomes the subscription. Phones get two
@@ -186,7 +190,10 @@ function ExternalForwardTag({ n }: { n: SubPoolNode }) {
   if (!n.external) return null;
 
   return (
-    <span className="ml-1 inline-flex flex-wrap items-center gap-1 align-middle" data-sub-external-tag>
+    <span
+      data-sub-external-tag
+      className="ml-1 inline-flex flex-wrap items-center gap-1 align-middle"
+    >
       <span className="inline-flex items-center whitespace-nowrap rounded-full bg-cyan-500/15 px-2 text-[10px] font-semibold leading-[18px] text-cyan-700 dark:bg-cyan-400/15 dark:text-cyan-300">
         端口转发 · 外部节点 {n.external}
       </span>
@@ -424,6 +431,12 @@ export function SubEditor({
   const [name, setName] = useState(sub?.name || "");
   const [format, setFormat] = useState<SubFormat>(sub?.format || "auto");
   const [mode, setMode] = useState<SubRuleMode>(sub?.ruleMode || "cn_direct");
+  // Plan 297: the 利群 nodes' entry — 跟主入口 (default) or 手机本地
+  // (127.0.0.1). The row shows for a 手机本地 sub, and in the im.gamer App
+  // for an admin; a browser editing a normal sub sees nothing new.
+  const [entryMode, setEntryMode] = useState<SubEntryMode>(
+    sub?.entryMode === "local" ? "local" : "main",
+  );
   const [selected, setSelected] = useState<SubSelected[]>([]);
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<Filter>("all");
@@ -459,6 +472,9 @@ export function SubEditor({
     if (res.code === 0) setPool(res.data);
   };
   const routingOn = !!pool?.routingCatalog;
+  const entryRow =
+    !!pool?.leikwanGranted &&
+    (sub?.entryMode === "local" || (isAppMode() && isAdmin()));
   const catalog = pool?.routingCatalog || [];
   const limits = pool?.routingLimits || DEFAULT_LIMITS;
 
@@ -775,6 +791,7 @@ export function SubEditor({
         ruleMode: mode,
         items: selected.filter((s) => !s.missing).map((s) => s.ref),
         ...(routingOn ? { routing } : {}),
+        ...(entryRow ? { entryMode } : {}),
       };
       const res = sub ? await subUpdate(body) : await subCreate(body);
 
@@ -1156,6 +1173,35 @@ export function SubEditor({
       {LINKS_HINT}
     </p>
   );
+  const entryControl = entryRow && (
+    <div className="space-y-1" data-sub-entry-row="">
+      <Seg
+        label="利群入口"
+        options={[
+          [
+            "main",
+            `跟主入口${pool?.leikwanMainEntry ? `（${pool.leikwanMainEntry}）` : ""}`,
+          ],
+          ["local", "手机本地"],
+        ]}
+        stacked={isH5}
+        value={entryMode}
+        onChange={setEntryMode}
+      />
+      <p className="flex flex-wrap items-center gap-1 text-xs text-default-400">
+        {entryMode === "local" ? (
+          <>
+            <SubEntryBadge mode="local" />
+            利群节点地址是
+            127.0.0.1:端口，要在开着利群客户端的设备上用（比如装了 App
+            的手机）。
+          </>
+        ) : (
+          "利群节点走主入口，换主入口后刷新订阅即可。"
+        )}
+      </p>
+    </div>
+  );
   const settings = (
     <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
       <Seg
@@ -1164,6 +1210,7 @@ export function SubEditor({
         value={format}
         onChange={setFormat}
       />
+      {entryControl}
     </div>
   );
   const hint = (
@@ -1208,6 +1255,7 @@ export function SubEditor({
                   onChange={setFormat}
                 />
                 {linksHint}
+                {entryControl}
               </div>
               <div className="flex rounded-xl bg-slate-500/10 p-0.5 dark:bg-slate-400/15">
                 {(

@@ -771,11 +771,15 @@ func (h *Handler) leikwanGrantList(w http.ResponseWriter, r *http.Request) {
 	}
 	names := h.repo.LeiKwanUserNames(ids)
 	refs, _ := h.repo.ListLeiKwanBackupRefs()
+	admins, _ := h.repo.AdminUserIDs()
 	out := make([]map[string]interface{}, 0, len(grants))
 	for _, g := range grants {
 		n, _ := h.repo.CountLeiKwanRules(g.UserID)
 		gv := h.leiKwanGrantView(g, entries, n, names[g.UserID])
 		gv["backupFlow"] = leiKwanUserBackupFlow(refs, g.UserID) // plan 271 备线流量
+		if admins[g.UserID] {
+			gv["ownerAdmin"] = true // plan 297: never held by 「只开主入口」
+		}
 		out = append(out, gv)
 	}
 	response.WriteJSON(w, response.OK(map[string]interface{}{"grants": out, "entryNodes": entries, "entryGroupId": setting.EntryGroupID,
@@ -1120,6 +1124,11 @@ type leiKwanRuleCtx struct {
 	settingAccount int64
 	// Plan 295 (admin): rule id → what the owner's 主入口 cannot run.
 	limits map[int64][]lkCapLimit
+	// Plan 297 (admin, App): own rule id → what 手机本地 cannot run.
+	phoneLimits map[int64][]lkCapLimit
+	// Plan 297 (admin view): owners that are admins (never held to one
+	// entry by 「只开主入口」).
+	admins map[int64]bool
 }
 
 func (h *Handler) leiKwanRuleContext(rules []model.LeiKwanRule, admin bool) *leiKwanRuleCtx {
@@ -1179,6 +1188,7 @@ func (h *Handler) leiKwanRuleContext(rules []model.LeiKwanRule, admin bool) *lei
 	if admin {
 		c.hosts = h.leiKwanHostContexts()
 		c.limits = h.leiKwanRuleEntryLimits(rules, c)
+		c.admins, _ = h.repo.AdminUserIDs()
 	}
 	return c
 }
@@ -1286,8 +1296,14 @@ func (h *Handler) leiKwanRuleView(x model.LeiKwanRule, c *leiKwanRuleCtx, admin 
 	if l, ok := c.limits[x.ID]; ok {
 		v["entryLimits"] = l
 	}
+	if l, ok := c.phoneLimits[x.ID]; ok {
+		v["phoneLimits"] = l
+	}
 	v["userId"], v["userName"], v["forwardId"], v["source"] = x.UserID, c.users[x.UserID], x.ForwardID, x.Source
 	v["allEntries"] = x.AllEntries == 1
+	if c.admins[x.UserID] {
+		v["ownerAdmin"] = true // plan 297: open on every entry (not 「只开主入口」)
+	}
 	accel := parseLeiKwanAccel(line.Accel)
 	over := parseLeiKwanRuleAccel(x.Accel)
 	eff := map[string]interface{}{"warmMain": accel.Warm.Main, "warmBackup": accel.Warm.Backup, "ssFilter": accel.SSFilter, "logswitch": accel.Logswitch, "returnCheck": accel.ReturnCheck}
@@ -1336,6 +1352,9 @@ func (h *Handler) leikwanRuleList(w http.ResponseWriter, r *http.Request) {
 	uid, role, _ := userRoleFromRequest(r)
 	var req struct {
 		UserID int64 `json:"userId"`
+		// Plan 297 (im.gamer App, admin): 手机本地 is this phone's entry →
+		// also what it cannot run, per own rule (phoneLimits).
+		Phone *lkPhoneReq `json:"phone"`
 	}
 	_ = leiKwanDecode(r, &req)
 	admin := role == 0
@@ -1355,6 +1374,9 @@ func (h *Handler) leikwanRuleList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	c := h.leiKwanRuleContext(rules, admin)
+	if admin && req.Phone != nil {
+		c.phoneLimits = h.leiKwanRulePhoneLimits(rules, uid, *req.Phone, c)
+	}
 	out := make([]map[string]interface{}, 0, len(rules))
 	for _, x := range rules {
 		out = append(out, h.leiKwanRuleView(x, c, admin))
@@ -1922,6 +1944,8 @@ func (h *Handler) leiKwanDeleteForward(ctx context.Context, x *model.LeiKwanRule
 func (h *Handler) leikwanRuleLink(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		ID int64 `json:"id"`
+		// Plan 294 / 297 (im.gamer App, admin): 手机本地 = 127.0.0.1:<vendor port>.
+		Local bool `json:"local"`
 	}
 	if err := leiKwanDecode(r, &req); err != nil {
 		leiKwanError(w, err)
@@ -1932,6 +1956,12 @@ func (h *Handler) leikwanRuleLink(w http.ResponseWriter, r *http.Request) {
 		leiKwanError(w, err)
 		return
 	}
+	if req.Local {
+		if _, role, _ := userRoleFromRequest(r); role != 0 {
+			leiKwanError(w, errLKLocalAdminOnly)
+			return
+		}
+	}
 	g, _ := h.repo.GetLeiKwanGrant(x.UserID)
 	if g == nil {
 		leiKwanError(w, errors.New("没有利群汇聚授权，入口未定"))
@@ -1941,21 +1971,28 @@ func (h *Handler) leikwanRuleLink(w http.ResponseWriter, r *http.Request) {
 		leiKwanError(w, errors.New("利群汇聚授权已停用，没有链接")) // plan 276 (F12)
 		return
 	}
-	n, err := h.repo.GetNodeRecord(g.MainEntryNodeID)
-	if err != nil || n == nil {
-		leiKwanError(w, errors.New("主入口节点不存在"))
-		return
+	serverIP := lkLocalHost
+	if !req.Local {
+		n, err := h.repo.GetNodeRecord(g.MainEntryNodeID)
+		if err != nil || n == nil {
+			leiKwanError(w, errors.New("主入口节点不存在"))
+			return
+		}
+		serverIP = n.ServerIP
 	}
-	addr := net.JoinHostPort(n.ServerIP, strconv.Itoa(x.ListenPort))
+	addr := net.JoinHostPort(serverIP, strconv.Itoa(x.ListenPort))
 	out := map[string]interface{}{"address": addr}
+	if req.Local {
+		out["entryName"] = lkLocalName
+	}
 	if x.LandingNodeID > 0 {
 		if ln, _, err := h.repo.LeiKwanLandingTarget(x.LandingNodeID); err == nil {
 			cp := *ln
 			cp.Name = x.Name
-			out["url"] = repo.LandingURL(cp, n.ServerIP, x.ListenPort)
+			out["url"] = repo.LandingURL(cp, serverIP, x.ListenPort)
 		}
 	} else if x.ExternalNodeID > 0 {
-		if node, err := h.leiKwanRuleNode(*x, strings.Trim(n.ServerIP, "[]"), x.Name); err == nil {
+		if node, err := h.leiKwanRuleNode(*x, strings.Trim(serverIP, "[]"), x.Name); err == nil {
 			out["url"] = sublink.ShareURI(node)
 		} else {
 			out["note"] = err.Error()

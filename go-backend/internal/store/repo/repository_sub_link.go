@@ -119,6 +119,16 @@ func (r *Repository) SetSubscriptionToken(id, userID int64, token string) (bool,
 	return res.RowsAffected > 0, res.Error
 }
 
+// SetSubscriptionEntryMode (plan 297): the entry the subscription's 利群
+// nodes use (model.SubEntryMain | model.SubEntryLocal); false when the
+// user's subscription does not exist.
+func (r *Repository) SetSubscriptionEntryMode(id, userID int64, mode string) (bool, error) {
+	res := r.db.Model(&model.UserSubscription{}).Where("id = ? AND user_id = ?", id, userID).Updates(map[string]interface{}{
+		"entry_mode": mode, "updated_time": time.Now().UnixMilli(),
+	})
+	return res.RowsAffected > 0, res.Error
+}
+
 func (r *Repository) DeleteSubscription(id, userID int64) (bool, error) {
 	res := r.db.Where("id = ? AND user_id = ?", id, userID).Delete(&model.UserSubscription{})
 	return res.RowsAffected > 0, res.Error
@@ -140,7 +150,7 @@ func (r *Repository) MarkSubscriptionPulled(id, at int64, client string, nodes i
 func (r *Repository) AdminSubscriptionRows() ([]model.UserSubscription, error) {
 	var rows []model.UserSubscription
 	err := r.db.Select("id", "user_id", "name", "format", "rule_mode", "items", "last_pull_at", "last_pull_client", "last_pull_nodes",
-		"created_time", "routing").Order("id").Find(&rows).Error
+		"created_time", "routing", "entry_mode").Order("id").Find(&rows).Error
 	return rows, err
 }
 

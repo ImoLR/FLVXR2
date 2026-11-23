@@ -340,12 +340,21 @@ func (h *Handler) leikwanGrantPreview(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		UserID          int64 `json:"userId"`
 		MainEntryNodeID int64 `json:"mainEntryNodeId"`
+		// Plan 297 (im.gamer App): preview 手机本地 (phone = the App's state).
+		Local bool       `json:"local"`
+		Phone lkPhoneReq `json:"phone"`
 	}
 	if err := leiKwanDecode(r, &req); err != nil {
 		leiKwanError(w, err)
 		return
 	}
-	out, err := h.leiKwanGrantPreview(req.UserID, req.MainEntryNodeID)
+	var out map[string]interface{}
+	var err error
+	if req.Local {
+		out, err = h.leiKwanGrantPreviewPhone(req.UserID, req.Phone)
+	} else {
+		out, err = h.leiKwanGrantPreview(req.UserID, req.MainEntryNodeID)
+	}
 	if err != nil {
 		leiKwanError(w, err)
 		return

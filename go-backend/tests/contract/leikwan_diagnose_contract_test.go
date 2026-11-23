@@ -137,8 +137,9 @@ func leiKwanEntryLockSubFlow(t *testing.T, dialect string) {
 		t.Fatalf("grant list entryLock: %v", gl["entryLock"])
 	}
 	// alice: 主入口 阿里广州 (60) open, every other entry blocked; admin's
-	// imported rules: 主入口 百度云广州 (58).
-	if b := e.blocks(60); b[p1] || b[p2] || !b[p263] {
+	// imported rules (主入口 百度云广州 58): plan 297 — an admin is never held
+	// to one entry, open on every entry host.
+	if b := e.blocks(60); b[p1] || b[p2] || b[p263] {
 		t.Fatalf("阿里广州 blocks: %v", b)
 	}
 	for _, n := range []int64{52, 58, 61} {
@@ -146,19 +147,26 @@ func leiKwanEntryLockSubFlow(t *testing.T, dialect string) {
 			t.Fatalf("node %d must block alice: %v", n, b)
 		}
 	}
-	if b := e.blocks(58); b[p263] {
-		t.Fatalf("admin rule blocked on its 主入口: %v", b)
+	for _, n := range []int64{52, 58, 60, 61} {
+		if b := e.blocks(n); b[p263] {
+			t.Fatalf("admin rule blocked on %d: %v", n, b)
+		}
 	}
-	// Exemption 「所有利群入口都可用」 (admin only).
-	if out, _ := e.call("/api/v1/leikwan/rule/all-entries", e.user, map[string]interface{}{"id": r263.ID, "on": true}); out.Code == 0 {
+	// Exemption 「所有利群入口都可用」 (admin only) on alice's rule.
+	if out, _ := e.call("/api/v1/leikwan/rule/all-entries", e.user, map[string]interface{}{"id": x2.ID, "on": true}); out.Code == 0 {
 		t.Fatal("user set the exemption")
 	}
-	e.ok("/api/v1/leikwan/rule/all-entries", e.admin, map[string]interface{}{"id": r263.ID, "on": true})
+	e.ok("/api/v1/leikwan/rule/all-entries", e.admin, map[string]interface{}{"id": x2.ID, "on": true})
 	for _, n := range []int64{52, 58, 60, 61} {
-		if e.blocks(n)[p263] {
+		if e.blocks(n)[p2] {
 			t.Fatalf("exempt rule blocked on %d", n)
 		}
 	}
+	e.ok("/api/v1/leikwan/rule/all-entries", e.admin, map[string]interface{}{"id": x2.ID, "on": false})
+	if !e.blocks(58)[p2] {
+		t.Fatal("exemption off: alice's rule open on another entry")
+	}
+	e.ok("/api/v1/leikwan/rule/all-entries", e.admin, map[string]interface{}{"id": r263.ID, "on": true})
 	// A rule save keeps the exemption (SaveLeiKwanRule omits it).
 	e.ok("/api/v1/leikwan-rule/update", e.admin, map[string]interface{}{"id": r263.ID, "name": "263 改名"})
 	if adm := e.ok("/api/v1/leikwan-rule/list", e.admin, map[string]interface{}{}); !strings.Contains(fmtRules(adm), "263 改名|true") {

@@ -316,6 +316,22 @@ export function AllEntriesPill({
 }) {
   const on = !!rule.allEntries;
 
+  // Plan 297: an admin's own forwards are never held to one entry by
+  // 「只开主入口」 — a static amber pill, nothing to switch.
+  if (rule.ownerAdmin)
+    return on || actions.entryLock ? (
+      <span
+        className="inline-flex max-w-full shrink-0"
+        data-leikwan-all-entries="admin"
+      >
+        <Pill
+          title="管理员的转发在所有利群入口机上都能连（不受「只开主入口」限制）"
+          tone="amber"
+        >
+          所有入口可用
+        </Pill>
+      </span>
+    ) : null;
   if (!on && !actions.entryLock) return null;
 
   return (
@@ -364,11 +380,14 @@ export function useLeiKwanRuleActions({
   admin,
   reload,
   entryLock = false,
+  localFor,
 }: {
   admin: boolean;
   reload: () => void;
   /** Plan 272: the list's global 「只开主入口」 */
   entryLock?: boolean;
+  /** Plan 297 (im.gamer App): 复制链接 of this rule = 手机本地 127.0.0.1 */
+  localFor?: (r: LeiKwanRule) => boolean;
 }): LeiKwanRuleActions {
   const [dialog, setDialog] = useState<{
     mode: "create" | "landing";
@@ -386,16 +405,24 @@ export function useLeiKwanRuleActions({
   const [allEntries, setAllEntries] = useState<LeiKwanRule | null>(null);
   const [allBusy, setAllBusy] = useState(false);
 
-  const link = useCallback(async (r: LeiKwanRule) => {
-    const res = await getLeiKwanRuleLink(r.id);
+  const link = useCallback(
+    async (r: LeiKwanRule) => {
+      const local = !!localFor?.(r);
+      const res = await getLeiKwanRuleLink(r.id, local);
 
-    if (res.code !== 0) toast.error(res.msg || "复制失败");
-    else if (res.data.url) await copyText(res.data.url, "链接");
-    else if (await copyToClipboard(res.data.address))
-      // Plan 272 (design 08): one 15 s card instead of two 2 s toasts.
-      showLeiKwanAddressToast(res.data.address);
-    else toast.error("复制失败");
-  }, []);
+      if (res.code !== 0) toast.error(res.msg || "复制失败");
+      else if (res.data.url)
+        await copyText(
+          res.data.url,
+          local ? "手机本地链接（127.0.0.1）" : "链接",
+        );
+      else if (await copyToClipboard(res.data.address))
+        // Plan 272 (design 08): one 15 s card instead of two 2 s toasts.
+        showLeiKwanAddressToast(res.data.address);
+      else toast.error("复制失败");
+    },
+    [localFor],
+  );
   const toggleAllEntries = async () => {
     const r = allEntries;
 

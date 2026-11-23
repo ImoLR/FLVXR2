@@ -136,6 +136,12 @@ type lkSubData struct {
 }
 
 func (h *Handler) leiKwanSubLoad(userID int64) *lkSubData {
+	return h.leiKwanSubLoadAt(userID, nil)
+}
+
+// leiKwanSubLoadAt: as leiKwanSubLoad, with the 利群 nodes on `at` (plan 294 /
+// 297: the subscription's ?lk=local = 手机本地 127.0.0.1, nil = the owner's 主入口).
+func (h *Handler) leiKwanSubLoadAt(userID int64, at *lkEntry) *lkSubData {
 	d := &lkSubData{nodes: map[int64]sublink.Node{}, reasons: map[int64]string{}, lines: map[int64]model.LeiKwanLine{}}
 	g, err := h.repo.GetLeiKwanGrant(userID)
 	if err != nil || g == nil || g.Status != 1 {
@@ -152,6 +158,9 @@ func (h *Handler) leiKwanSubLoad(userID int64) *lkSubData {
 		}
 	}
 	entry := h.leiKwanUserEntry(userID)
+	if at != nil {
+		entry = at
+	}
 	for _, x := range d.rules {
 		if entry == nil {
 			d.reasons[x.ID] = "主入口未定"
@@ -234,13 +243,24 @@ func (h *Handler) leiKwanEnsureSub(userID int64) (*model.UserSubscription, error
 	return s, nil
 }
 
-// leikwanRuleSub (POST /api/v1/leikwan-rule/sub {userId?}) — 「生成订阅」: the
-// owner's 利群汇聚 subscription (admins may ask for any granted user), with
-// what it carries now.
+// leikwanRuleSub (POST /api/v1/leikwan-rule/sub {userId?, entry?, id?,
+// action?}) — 「生成订阅」: the owner's 利群汇聚 subscription (admins may ask
+// for any granted user), with what it carries now.
+//
+// Plan 297: a subscription follows the entry it was made / updated under.
+// entry "local" = the im.gamer App whose entry is 手机本地 (admin, own
+// subscriptions only). Without an action the answer is the asked id, else
+// (entry local) the newest 手机本地 subscription, else the 利群汇聚 one.
+// action "create" (local only) = a new 利群汇聚 subscription on 手机本地;
+// "convert" = subscription id now follows `entry` (local → 127.0.0.1, main →
+// the 主入口 again). `subs` lists the owner's subscriptions with 利群 nodes.
 func (h *Handler) leikwanRuleSub(w http.ResponseWriter, r *http.Request) {
 	uid, role, _ := userRoleFromRequest(r)
 	var req struct {
-		UserID int64 `json:"userId"`
+		UserID int64  `json:"userId"`
+		Entry  string `json:"entry"`
+		ID     int64  `json:"id"`
+		Action string `json:"action"`
 	}
 	if err := leiKwanDecode(r, &req); err != nil {
 		leiKwanError(w, err)
@@ -250,12 +270,75 @@ func (h *Handler) leikwanRuleSub(w http.ResponseWriter, r *http.Request) {
 	if role == 0 && req.UserID > 0 {
 		owner = req.UserID
 	}
-	s, err := h.leiKwanEnsureSub(owner)
+	local := req.Entry == model.SubEntryLocal
+	if local && (role != 0 || owner != uid) {
+		leiKwanError(w, errLKLocalAdminOnly)
+		return
+	}
+	auto, err := h.leiKwanEnsureSub(owner)
 	if err != nil {
 		leiKwanError(w, err)
 		return
 	}
-	d, err := h.subLoad(r.Context(), owner, sublink.ParseRefs(s.Items), false, false)
+	subs, err := h.leiKwanOwnerSubs(owner)
+	if err != nil {
+		leiKwanError(w, errors.New("读取订阅失败"))
+		return
+	}
+	pick := func(id int64) *model.UserSubscription {
+		for i := range subs {
+			if subs[i].ID == id {
+				return &subs[i]
+			}
+		}
+		return nil
+	}
+	s := pick(auto.ID)
+	if s == nil {
+		s = auto
+	}
+	switch req.Action {
+	case "create":
+		if !local {
+			leiKwanError(w, errors.New("只有入口是手机本地时才在这里新建订阅"))
+			return
+		}
+		if s, err = h.leiKwanCreateLocalSub(owner, subs); err != nil {
+			leiKwanError(w, err)
+			return
+		}
+		subs = append(subs, *s)
+	case "convert":
+		t := pick(req.ID)
+		if t == nil {
+			leiKwanError(w, errors.New("订阅不存在"))
+			return
+		}
+		mode := model.SubEntryMain
+		if local {
+			mode = model.SubEntryLocal
+		}
+		if t.EntryMode != mode {
+			if ok, err := h.repo.SetSubscriptionEntryMode(t.ID, owner, mode); err != nil || !ok {
+				leiKwanError(w, errors.New("更新订阅失败"))
+				return
+			}
+			t.EntryMode = mode
+			h.subState().cache.purgeSub(t.ID)
+		}
+		s = t
+	default:
+		if t := pick(req.ID); t != nil {
+			s = t
+		} else if local {
+			for i := range subs {
+				if subs[i].EntryLocal() && (!s.EntryLocal() || subs[i].ID > s.ID) {
+					s = &subs[i]
+				}
+			}
+		}
+	}
+	d, err := h.subLoad(subEntryCtx(r.Context(), s), owner, sublink.ParseRefs(s.Items), false, false)
 	if err != nil {
 		leiKwanError(w, errors.New("读取订阅失败"))
 		return
@@ -266,8 +349,71 @@ func (h *Handler) leikwanRuleSub(w http.ResponseWriter, r *http.Request) {
 		rules = len(d.leikwan.rules)
 		manual = rules - len(d.leikwan.nodes)
 	}
+	mainName := ""
+	if e := h.leiKwanUserEntry(owner); e != nil {
+		mainName = e.Name
+	}
+	list := make([]map[string]interface{}, 0, len(subs))
+	for i := range subs {
+		list = append(list, map[string]interface{}{"id": subs[i].ID, "name": subs[i].Name, "entryMode": subEntryMode(&subs[i]), "auto": subs[i].AutoKind})
+	}
 	response.WriteJSON(w, response.OK(map[string]interface{}{"id": s.ID, "token": s.Token, "name": s.Name, "format": s.Format, "ruleMode": s.RuleMode,
-		"leikwanNodes": counts.LeiKwan, "total": counts.Total, "rules": rules, "manual": manual, "lastPullAt": s.LastPullAt, "note": lkSubNote}))
+		"leikwanNodes": counts.LeiKwan, "total": counts.Total, "rules": rules, "manual": manual, "lastPullAt": s.LastPullAt, "note": lkSubNote,
+		"entryMode": subEntryMode(s), "subs": list, "mainEntry": mainName}))
+}
+
+// leiKwanOwnerSubs (plan 297): the owner's subscriptions that carry 利群
+// nodes (the 利群汇聚 one and any with 利群 rules picked), oldest first.
+func (h *Handler) leiKwanOwnerSubs(owner int64) ([]model.UserSubscription, error) {
+	rows, err := h.repo.ListSubscriptions(owner)
+	if err != nil {
+		return nil, err
+	}
+	out := rows[:0]
+	for _, s := range rows {
+		keep := s.AutoKind == lkSubAutoKind
+		for _, ref := range sublink.ParseRefs(s.Items) {
+			if ref.Kind == sublink.RefLeiKwanAll || ref.Kind == sublink.RefLeiKwanRule {
+				keep = true
+				break
+			}
+		}
+		if keep {
+			out = append(out, s)
+		}
+	}
+	return out, nil
+}
+
+// leiKwanCreateLocalSub (plan 297, admin): a new ordinary subscription with
+// every 利群 rule on 手机本地 (127.0.0.1) — 「新建」 in the App's 生成订阅.
+// The name is a plain 「利群汇聚 N」: 「手机本地」 is the badge / client title
+// derived from entry_mode, never part of the editable name.
+func (h *Handler) leiKwanCreateLocalSub(owner int64, have []model.UserSubscription) (*model.UserSubscription, error) {
+	name := lkSubName
+	for n := 2; ; n++ {
+		taken := false
+		for _, x := range have {
+			taken = taken || x.Name == name
+		}
+		if !taken || n > 99 {
+			break
+		}
+		name = lkSubName + " " + strconv.Itoa(n)
+	}
+	token, err := sublink.NewToken()
+	if err != nil {
+		return nil, errors.New("生成订阅链接失败")
+	}
+	now := time.Now().UnixMilli()
+	routing := sublink.RoutingJSON(sublink.DefaultRouting())
+	s := &model.UserSubscription{UserID: owner, Name: name, Token: token, Format: sublink.FormatAuto, RuleMode: sublink.ModeCNDirect,
+		Items: sublink.RefsJSON([]sublink.Ref{{Kind: sublink.RefLeiKwanAll}}), Routing: &routing, CreatedTime: now, UpdatedTime: now,
+		EntryMode: model.SubEntryLocal}
+	if err := h.repo.CreateSubscription(s, 0); err != nil {
+		return nil, errors.New("创建手机本地订阅失败")
+	}
+	return s, nil
 }
 
 // ---- landing page 「复制链接」 ----

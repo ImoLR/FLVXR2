@@ -264,6 +264,20 @@ func (r *Repository) FirstAdminUserID() int64 {
 	return u.ID
 }
 
+// AdminUserIDs (plan 297): every admin account (role 0). Their 利群 rules
+// are never held to one entry by 「只开主入口」.
+func (r *Repository) AdminUserIDs() (map[int64]bool, error) {
+	var ids []int64
+	if err := r.db.Model(&model.User{}).Where("role_id = 0").Pluck("id", &ids).Error; err != nil {
+		return nil, err
+	}
+	out := make(map[int64]bool, len(ids))
+	for _, id := range ids {
+		out[id] = true
+	}
+	return out, nil
+}
+
 // LeiKwanBackupForward is the read-only view of a 备线 forward.
 type LeiKwanBackupForward struct {
 	ID         int64  `json:"id"`
