@@ -167,11 +167,14 @@ func (st *subLinkState) subRenderSlot(ctx context.Context) (release func(), ok b
 // Stale external sources are refetched first, outside the render slot (the
 // fetch is network-bound and single-flight per source); the slot covers the
 // database load, resolution and generation. errSubBusy: no slot in time.
-func (h *Handler) subRenderFor(ctx context.Context, s *model.UserSubscription, format, flavor, origin string) (*subRender, error) {
+func (h *Handler) subRenderFor(ctx context.Context, s *model.UserSubscription, format, flavor, origin string, entryDomains bool) (*subRender, error) {
 	st := h.subState()
 	key := s.Token + "|" + format
 	if flavor != "" {
 		key += "|" + flavor
+	}
+	if !entryDomains && (format == sublink.FormatClash || format == sublink.FormatSingBox) {
+		key += "|v6lit" // plan 302: NekoBox / Hiddify / unknown clients
 	}
 	if s.EntryLocal() {
 		// Plan 297: a 手机本地 subscription renders its 利群 nodes on
@@ -205,6 +208,9 @@ func (h *Handler) subRenderFor(ctx context.Context, s *model.UserSubscription, f
 	}
 	nodes, _ := d.resolve(refs, model.MaxSubscriptionNodes)
 	sublink.FinalizeNames(nodes)
+	if entryDomains {
+		nodes = sublink.UseEntryDomains(nodes)
+	}
 	lkNodes := 0
 	for _, n := range nodes {
 		if strings.HasPrefix(n.Key, "k:") {
@@ -235,6 +241,28 @@ func (h *Handler) subRenderFor(ctx context.Context, s *model.UserSubscription, f
 	}
 	st.cache.put(v)
 	return v, nil
+}
+
+// subEntryClashLabels: Clash-format clients that run mihomo (or Stash) and
+// therefore resolve AAAA-only proxy names (our Clash document needs mihomo:
+// GEOSITE rules, "#group" DoH). NekoBox only imports the proxies and resolves
+// server names with its own IPv6 setting (off by default → IPv4 only).
+var subEntryClashLabels = map[string]bool{
+	"Stash": true, "Clash Verge": true, "FlClash": true, "Clash Nyanpasu": true, "Clash for Android": true,
+	"ClashX": true, "Clash Meta": true, "mihomo": true, "Clash": true,
+}
+
+// subEntryDomains (plan 302): whether this pull writes IPv6-only entry
+// domains (else their current IPv6, as before the domain): mihomo / Stash
+// Clash and the official sing-box apps.
+func subEntryDomains(format string, client sublink.Client) bool {
+	switch format {
+	case sublink.FormatClash:
+		return subEntryClashLabels[client.Label]
+	case sublink.FormatSingBox:
+		return client.Label == "sing-box"
+	}
+	return false
 }
 
 func subPlain(w http.ResponseWriter, code int, msg string) {
@@ -372,7 +400,7 @@ func (h *Handler) subPublic(w http.ResponseWriter, r *http.Request) {
 	case format == sublink.FormatSurge && (surfboard || client.Surfboard):
 		flavor = subFlavorSurfboard
 	}
-	v, err := h.subRenderFor(r.Context(), s, format, flavor, subPublicOrigin(r))
+	v, err := h.subRenderFor(r.Context(), s, format, flavor, subPublicOrigin(r), subEntryDomains(format, client))
 	if err != nil {
 		if errors.Is(err, errSubBusy) {
 			st.refusals.Note("busy")
@@ -481,7 +509,7 @@ ul{padding-left:18px;margin:6px 0 0}li{margin:3px 0}
 // subPage is the small page a browser gets: name, node count, the link and
 // a QR code. No node secrets.
 func (h *Handler) subPage(w http.ResponseWriter, r *http.Request, s *model.UserSubscription) {
-	v, err := h.subRenderFor(r.Context(), s, "count", "", "")
+	v, err := h.subRenderFor(r.Context(), s, "count", "", "", false)
 	count := 0
 	if err == nil {
 		count = v.nodes

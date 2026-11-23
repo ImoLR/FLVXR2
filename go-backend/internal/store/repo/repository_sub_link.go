@@ -397,6 +397,10 @@ func (r *Repository) SubPanelLinks(userID int64, forwardIDs, landingIDs []int64,
 	if err != nil {
 		return nil, err
 	}
+	v6only, err := r.subIPv6OnlyEntryDomains(entries)
+	if err != nil {
+		return nil, err
+	}
 	for _, f := range forwards {
 		list := entries[f.ID]
 		seen := map[string]bool{}
@@ -416,8 +420,15 @@ func (r *Repository) SubPanelLinks(userID int64, forwardIDs, landingIDs []int64,
 			if hostsPerNode[e.NodeID] > 1 {
 				link.Detail = e.NodeName + " · " + addr
 			}
+			// Plan 302: an IPv6-only DDNS entry domain is built on its current
+			// IPv6 (key and detail keep the domain); the renderer writes the
+			// domain only for clients that resolve AAAA-only names.
+			host, entryDomain := e.Host, ""
+			if ip := v6only[e.NodeID][strings.ToLower(strings.Trim(e.Host, "[]"))]; ip != "" {
+				host, entryDomain = ip, strings.Trim(e.Host, "[]")
+			}
 			if x := externalOf[f.ID]; x != nil && chain == nil {
-				node, ok := ExternalForwardNode(x, e.Host, e.Port, ExternalForwardNodeName(f.Name, e.NodeName, len(list)))
+				node, ok := ExternalForwardNode(x, host, e.Port, ExternalForwardNodeName(f.Name, e.NodeName, len(list)))
 				if !ok {
 					continue
 				}
@@ -428,19 +439,20 @@ func (r *Repository) SubPanelLinks(userID int64, forwardIDs, landingIDs []int64,
 					name = f.Name + " · " + e.NodeName
 				}
 				// Plan 250: Reality (vless://) or AnyTLS (pinned Extra).
-				node, ok := ChainSubNode(*chain, e.Host, e.Port, name)
+				node, ok := ChainSubNode(*chain, host, e.Port, name)
 				if !ok {
 					continue
 				}
 				link.Node = node
 			} else {
 				n := landingByID[f.LandingNodeID]
-				node, ok := subLandingNode(*n, servers[n.LandingServerID], e.Host, e.Port, f.Name+" · "+e.NodeName)
+				node, ok := subLandingNode(*n, servers[n.LandingServerID], host, e.Port, f.Name+" · "+e.NodeName)
 				if !ok {
 					continue
 				}
 				link.Node = node
 			}
+			link.Node.EntryDomain = entryDomain
 			out.Links = append(out.Links, link)
 		}
 	}
@@ -465,6 +477,49 @@ func (r *Repository) SubPanelLinks(userID int64, forwardIDs, landingIDs []int64,
 		}
 		out.Links = append(out.Links, SubPanelLink{Ref: sublink.Ref{Kind: sublink.RefLandingDirect, LandingID: n.ID}, Node: node,
 			Detail: net.JoinHostPort(strings.Trim(s.PublicHost, "[]"), strconv.Itoa(n.Port))})
+	}
+	return out, nil
+}
+
+// subIPv6OnlyEntryDomains maps entry node id → lower-case domain → current
+// IPv6 for the entry hosts that are IPv6-only DDNS domains (plan 302): a
+// synced AAAA record with a current IP and no A record of the same name. No
+// query when every entry host is an IP literal.
+func (r *Repository) subIPv6OnlyEntryDomains(entries map[int64][]forwardEntry) (map[int64]map[string]string, error) {
+	seen := map[int64]bool{}
+	for _, list := range entries {
+		for _, e := range list {
+			if net.ParseIP(strings.Trim(e.Host, "[]")) == nil {
+				seen[e.NodeID] = true
+			}
+		}
+	}
+	if len(seen) == 0 {
+		return nil, nil
+	}
+	// All records (a handful): an A record of the name on any node makes it
+	// dual-stack.
+	var recs []model.NodeDDNSRecord
+	if err := r.db.Select("node_id", "domain", "record_type", "current_ip").Find(&recs).Error; err != nil {
+		return nil, err
+	}
+	hasA := map[string]bool{}
+	for _, rec := range recs {
+		if strings.EqualFold(rec.RecordType, "A") {
+			hasA[strings.ToLower(strings.TrimSpace(rec.Domain))] = true
+		}
+	}
+	out := map[int64]map[string]string{}
+	for _, rec := range recs {
+		domain := strings.ToLower(strings.TrimSpace(rec.Domain))
+		ip := net.ParseIP(strings.TrimSpace(rec.CurrentIP))
+		if !seen[rec.NodeID] || !strings.EqualFold(rec.RecordType, "AAAA") || domain == "" || hasA[domain] || ip == nil || ip.To4() != nil {
+			continue
+		}
+		if out[rec.NodeID] == nil {
+			out[rec.NodeID] = map[string]string{}
+		}
+		out[rec.NodeID][domain] = ip.String()
 	}
 	return out, nil
 }

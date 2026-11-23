@@ -65,6 +65,9 @@ type Node struct {
 	// Key: the subscription item key the node came from (plan 256 「分流」
 	// node: exits name it); never rendered.
 	Key string
+	// EntryDomain (plan 302): the server is the current IPv6 literal of this
+	// IPv6-only (AAAA-only) entry domain; see UseEntryDomains.
+	EntryDomain string
 }
 
 // Extra holds an AnyTLS / Snell / Mieru landing node.
