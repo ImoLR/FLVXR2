@@ -59,7 +59,15 @@ export interface SubItem {
   routing?: number;
   /** plan 272: "leikwan" = made by 利群汇聚 「生成订阅」 (an ordinary sub) */
   auto?: "leikwan" | "";
+  /**
+   * Plan 297: which entry the 利群 nodes use — "main" = the owner's 主入口
+   * (default), "local" = 手机本地 127.0.0.1 (badge 「手机本地」).
+   */
+  entryMode?: SubEntryMode;
 }
+
+/** Plan 297: a subscription's entry (main = 跟主入口, local = 手机本地). */
+export type SubEntryMode = "main" | "local";
 
 export interface SubSource {
   id: number;
@@ -146,6 +154,8 @@ export interface SubPool {
   leikwan?: SubPoolNode[];
   leikwanFollowKey?: string;
   leikwanGranted?: boolean;
+  /** Plan 297: the owner's 主入口 name (editor 「入口」 row) */
+  leikwanMainEntry?: string;
 }
 
 /**
@@ -213,6 +223,8 @@ export interface SubSaveBody {
   ruleMode: SubRuleMode;
   items: SubRef[];
   routing?: SubRouteEntry[];
+  /** Plan 297: absent = keep (update) / main (create) */
+  entryMode?: SubEntryMode;
 }
 
 export interface SubProbeResult {
@@ -294,6 +306,8 @@ export interface SubAdminSub {
   lastPullClient: string;
   lastPullNodes: number;
   createdTime: number;
+  /** Plan 297: "local" = 手机本地 subscription (badge) */
+  entryMode?: SubEntryMode;
 }
 
 export interface SubAdminSource {

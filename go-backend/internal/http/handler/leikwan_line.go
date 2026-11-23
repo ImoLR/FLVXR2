@@ -771,11 +771,15 @@ func (h *Handler) leikwanGrantList(w http.ResponseWriter, r *http.Request) {
 	}
 	names := h.repo.LeiKwanUserNames(ids)
 	refs, _ := h.repo.ListLeiKwanBackupRefs()
+	admins, _ := h.repo.AdminUserIDs()
 	out := make([]map[string]interface{}, 0, len(grants))
 	for _, g := range grants {
 		n, _ := h.repo.CountLeiKwanRules(g.UserID)
 		gv := h.leiKwanGrantView(g, entries, n, names[g.UserID])
 		gv["backupFlow"] = leiKwanUserBackupFlow(refs, g.UserID) // plan 271 备线流量
+		if admins[g.UserID] {
+			gv["ownerAdmin"] = true // plan 297: never held by 「只开主入口」
+		}
 		out = append(out, gv)
 	}
 	response.WriteJSON(w, response.OK(map[string]interface{}{"grants": out, "entryNodes": entries, "entryGroupId": setting.EntryGroupID,

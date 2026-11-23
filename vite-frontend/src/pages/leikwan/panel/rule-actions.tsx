@@ -316,6 +316,22 @@ export function AllEntriesPill({
 }) {
   const on = !!rule.allEntries;
 
+  // Plan 297: an admin's own forwards are never held to one entry by
+  // 「只开主入口」 — a static amber pill, nothing to switch.
+  if (rule.ownerAdmin)
+    return on || actions.entryLock ? (
+      <span
+        className="inline-flex max-w-full shrink-0"
+        data-leikwan-all-entries="admin"
+      >
+        <Pill
+          title="管理员的转发在所有利群入口机上都能连（不受「只开主入口」限制）"
+          tone="amber"
+        >
+          所有入口可用
+        </Pill>
+      </span>
+    ) : null;
   if (!on && !actions.entryLock) return null;
 
   return (
@@ -398,7 +414,7 @@ export function useLeiKwanRuleActions({
       else if (res.data.url)
         await copyText(
           res.data.url,
-          local ? "手机本地链接（127.0.0.1，只在这台手机上能连）" : "链接",
+          local ? "手机本地链接（127.0.0.1）" : "链接",
         );
       else if (await copyToClipboard(res.data.address))
         // Plan 272 (design 08): one 15 s card instead of two 2 s toasts.

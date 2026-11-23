@@ -234,6 +234,8 @@ export interface LeiKwanLineList {
 export interface LeiKwanGrant {
   id: number;
   userId: number;
+  /** Plan 297 (admin list): the user is an admin (not held by 只开主入口) */
+  ownerAdmin?: boolean;
   userName?: string;
   mainEntryNodeId: number;
   mainEntryName?: string;
@@ -322,6 +324,9 @@ export interface LeiKwanRule {
   // Plan 297 (admin, im.gamer App): the same for 手机本地 (own rules only,
   // when the list was asked with `phone`).
   phoneLimits?: LeiKwanEntryLimit[];
+  // Plan 297 (admin view): the owner is an admin — open on every entry
+  // (not held by 「只开主入口」).
+  ownerAdmin?: boolean;
   // admin only
   userId?: number;
   userName?: string;
@@ -566,6 +571,17 @@ export interface LeiKwanSub {
   manual: number;
   lastPullAt: number;
   note: string;
+  /** Plan 297: main = 跟主入口, local = 手机本地 (127.0.0.1) */
+  entryMode?: "main" | "local";
+  /** Plan 297: the owner's subscriptions with 利群 nodes */
+  subs?: {
+    id: number;
+    name: string;
+    entryMode: "main" | "local";
+    auto: string;
+  }[];
+  /** Plan 297: the owner's 主入口 name */
+  mainEntry?: string;
 }
 
 // ---- Plan 272: 利群规则诊断 ----
@@ -994,8 +1010,13 @@ export const getLeiKwanRuleLink = (id: number, local = false) =>
   );
 // Plan 272 「生成订阅」: the owner's 「利群汇聚」 subscription (admins: userId
 // = a granted user; users: themselves).
-export const getLeiKwanRuleSub = (userId?: number) =>
-  lkr<LeiKwanSub>("sub", userId ? { userId } : {});
+// Plan 297: entry "local" = the im.gamer App whose entry is 手机本地 (admin,
+// own subs); id = show this sub; action create (new 手机本地 sub) | convert
+// (sub id follows `entry`: local, or the 主入口 when absent).
+export const getLeiKwanRuleSub = (
+  userId?: number,
+  opt: { entry?: "local"; id?: number; action?: "create" | "convert" } = {},
+) => lkr<LeiKwanSub>("sub", userId ? { userId, ...opt } : { ...opt });
 // Plan 272: non-stream fallback of 诊断 (the stream lives in diagnosis-stream).
 export const diagnoseLeiKwanRule = (id: number) =>
   Network.post<LeiKwanDiagResult>(

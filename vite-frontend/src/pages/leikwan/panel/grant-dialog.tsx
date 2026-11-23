@@ -29,7 +29,6 @@ import {
 import {
   PHONE_KEY,
   PHONE_NAME,
-  PHONE_SUB_SWITCH_BACK,
   phoneCaps,
   phoneSummary,
   usePhoneCtx,
@@ -255,7 +254,16 @@ export function LeiKwanGrantDialog({
       setUserId(String(grants[0].userId));
       setBackupLine(grants[0].backupLine);
     }
-  }, [isOpen, user, grant, presetEntry, grants, phoneOn, presetPhone, phoneLocal]);
+  }, [
+    isOpen,
+    user,
+    grant,
+    presetEntry,
+    grants,
+    phoneOn,
+    presetPhone,
+    phoneLocal,
+  ]);
 
   const entryNode = entries.find((e) => String(e.id) === entry);
   const pickedPhone = phoneOn && entry === PHONE_KEY;
@@ -345,10 +353,10 @@ export function LeiKwanGrantDialog({
     if (!phoneSwitch) toast.success("授权已保存");
     else if (pickedPhone)
       toast.success("这台手机的入口换成手机本地（面板里的主入口不变）");
-    else {
-      toast.success(`这台手机换回 ${g.mainEntryName || "主入口"}（面板不用改）`);
-      toast(PHONE_SUB_SWITCH_BACK, { duration: 8000, icon: "📱" });
-    }
+    else
+      toast.success(
+        `这台手机换回 ${g.mainEntryName || "主入口"}（面板不用改）`,
+      );
     onSaved();
     onClose();
   };
@@ -387,10 +395,7 @@ export function LeiKwanGrantDialog({
     else toast.success("授权已保存");
     (res.data?.warnings || []).forEach((w) => toast.error(w));
     // Plan 297: another server entry from 手机本地 also clears the phone choice.
-    if (phoneLocal) {
-      await setPhoneEntry("server").catch(() => undefined);
-      toast(PHONE_SUB_SWITCH_BACK, { duration: 8000, icon: "📱" });
-    }
+    if (phoneLocal) await setPhoneEntry("server").catch(() => undefined);
     onSaved();
     onClose();
   };
@@ -498,26 +503,26 @@ export function LeiKwanGrantDialog({
             {[
               ...(phoneOn ? [phoneOption()] : []),
               ...entries.map((e) => (
-              <SelectItem
-                key={String(e.id)}
-                description={
-                  <EntryOptionDetail
-                    caps={caps?.[e.id]}
-                    current={String(e.id) === String(g?.mainEntryNodeId)}
-                    currentLabel={phoneLocal ? "其他设备在用" : undefined}
-                  />
-                }
-                endContent={
-                  e.online ? (
-                    <Pill tone="green">在线</Pill>
-                  ) : (
-                    <OfflinePill since={e.offlineSince} />
-                  )
-                }
-                textValue={`${e.name} · ${e.host}`}
-              >
-                {`${e.name} · ${e.host}${!e.online || e.leikwanStatus === "running" ? "" : "（利群客户端未检测到）"}`}
-              </SelectItem>
+                <SelectItem
+                  key={String(e.id)}
+                  description={
+                    <EntryOptionDetail
+                      caps={caps?.[e.id]}
+                      current={String(e.id) === String(g?.mainEntryNodeId)}
+                      currentLabel={phoneLocal ? "其他设备在用" : undefined}
+                    />
+                  }
+                  endContent={
+                    e.online ? (
+                      <Pill tone="green">在线</Pill>
+                    ) : (
+                      <OfflinePill since={e.offlineSince} />
+                    )
+                  }
+                  textValue={`${e.name} · ${e.host}`}
+                >
+                  {`${e.name} · ${e.host}${!e.online || e.leikwanStatus === "running" ? "" : "（利群客户端未检测到）"}`}
+                </SelectItem>
               )),
             ]}
           </Select>
@@ -554,7 +559,8 @@ export function LeiKwanGrantDialog({
               data-phone-switch-note=""
             >
               只在这台手机上生效：面板里的主入口还是 {g?.mainEntryName || "—"}
-              ，电脑和别的设备照常走它。这台手机上的利群转发改走 127.0.0.1:端口（复制链接 / 手机专用订阅）。
+              ，电脑和别的设备照常走它。这台手机上的利群转发改走
+              127.0.0.1:端口（复制链接；这时生成的订阅也是手机本地的）。
               {phoneCtx?.state?.autoConnect
                 ? "「打开 App 自动连接」开着：保存后马上连接。"
                 : "保存后在授权里点「连接」。"}
@@ -566,12 +572,12 @@ export function LeiKwanGrantDialog({
               data-phone-switch-note="back"
             >
               这台手机换回 {g?.mainEntryName || "主入口"}
-              ：面板不用改，手机本地会断开。{PHONE_SUB_SWITCH_BACK}。
+              ：面板不用改，手机本地会断开。
             </p>
           )}
           {phoneLocal && changedEntry && (
             <p className="-mt-2 rounded-lg bg-amber-500/15 px-3 py-2 text-xs text-amber-700 dark:bg-amber-400/15 dark:text-amber-300">
-              这台手机也换回服务器入口，手机本地会断开。{PHONE_SUB_SWITCH_BACK}。
+              这台手机也换回服务器入口，手机本地会断开。
             </p>
           )}
           {entryOffline && !changedEntry && (
@@ -585,9 +591,11 @@ export function LeiKwanGrantDialog({
               换主入口后，这个用户所有利群转发的地址都改成 {entryNode?.host}
               :端口 （共 {g?.ruleCount || 0}{" "}
               条）。利群那边不用改；用户刷新订阅或重新复制链接即可。
-              {entryLock
-                ? `旧入口 ${g?.mainEntryName || ""} 会保留到这个用户刷新任一订阅（最多 24 小时），然后停用。`
-                : "旧入口暂时不会停用（设置里「只开主入口」没开）。"}
+              {g?.ownerAdmin
+                ? "管理员的转发不受「只开主入口」限制：旧入口照常能连。"
+                : entryLock
+                  ? `旧入口 ${g?.mainEntryName || ""} 会保留到这个用户刷新任一订阅（最多 24 小时），然后停用。`
+                  : "旧入口暂时不会停用（设置里「只开主入口」没开）。"}
             </p>
           )}
           {(changedEntry || previewPhone) && (

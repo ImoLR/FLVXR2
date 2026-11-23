@@ -314,10 +314,15 @@ export function useAppInfo(): AppInfo | null {
 /** Plan 294: App mode shows only 利群汇聚 (v0); the start page there. */
 export const APP_HOME = "/leikwan";
 
-/** Paths the App's WebView may show (everything else goes to APP_HOME). */
+/**
+ * Paths the App's WebView may show (everything else goes to APP_HOME).
+ * Plan 297: /sub too — reached only from 生成订阅 「详细设置」 (the nav still
+ * shows only 利群汇聚), so a subscription's 利群入口 can be edited in the App.
+ */
 export const appPathAllowed = (path: string) =>
   path === APP_HOME ||
   path.startsWith(APP_HOME + "/") ||
   path === "/" ||
   path === "/login" ||
-  path === "/profile";
+  path === "/profile" ||
+  path === "/sub";

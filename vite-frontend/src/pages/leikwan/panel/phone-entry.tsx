@@ -49,15 +49,13 @@ import {
 //     server 主入口 keeps serving the user's other devices.
 //   - With 手机本地 as the entry: the 授权 card says 主入口 手机本地 + a
 //     connect panel (manual 连接 by default, three tip blocks), forward rows
-//     follow the phone (127.0.0.1, 「手机本地未连接」, its chips), 订阅 adds
-//     a separate 「手机专用订阅」 (?lk=local).
+//     follow the phone (127.0.0.1, 「手机本地未连接」, its chips), and a
+//     subscription made / updated now is a 手机本地 one (entry_mode local).
+//   - Admin only this round (normal users: the web page as is).
 
 export const PHONE_KEY = "phone";
 export const PHONE_NAME = "手机本地";
 export const PHONE_HOST = "127.0.0.1";
-/** Shown once when the App switches back to a server entry. */
-export const PHONE_SUB_SWITCH_BACK =
-  "如果代理客户端里导入的是手机专用订阅，请换回普通订阅";
 
 /** 手机本地 in the plan-295 capability schema (CapPills / ClientPill). */
 export function phoneCaps(info: AppInfo | null): LeiKwanEntryCaps {
@@ -83,8 +81,7 @@ export const phoneConnected = (s: PhoneState | null) =>
   !!s && (s.connection === "connected" || s.connection === "partial");
 
 export const phoneRunning = (s: PhoneState | null) =>
-  !!s &&
-  (s.running ?? (s.connection !== "idle" && s.connection !== "failed"));
+  !!s && (s.running ?? (s.connection !== "idle" && s.connection !== "failed"));
 
 /** Short state of the phone's local link (row, drawer, connect panel). */
 export function phoneSummary(s: PhoneState | null): {
@@ -125,7 +122,9 @@ function PhoneDot({ s }: { s: PhoneState | null }) {
       <span className="h-2 w-2 shrink-0 rounded-full bg-amber-500" role="img" />
     );
 
-  return <LkDot off={d === "bad"} ok={d === "ok"} title={phoneSummary(s).text} />;
+  return (
+    <LkDot off={d === "bad"} ok={d === "ok"} title={phoneSummary(s).text} />
+  );
 }
 
 // ---- page context ----
@@ -180,7 +179,11 @@ export interface PhoneRuleView {
   address: string;
   forward?: PhoneForward;
   /** grey 「手机本地未连接」 / red 失败 / amber 连接中 / null = ready */
-  status: { tone: "slate" | "red" | "amber"; text: string; title?: string } | null;
+  status: {
+    tone: "slate" | "red" | "amber";
+    text: string;
+    title?: string;
+  } | null;
   limits: LeiKwanEntryLimit[];
   warm: { on: boolean; title: string };
 }
@@ -195,7 +198,11 @@ export function usePhoneRule(r: LeiKwanRule): PhoneRuleView | null {
   const ctx = usePhoneCtx();
 
   if (!ctx || !ctx.local) return null;
-  if (ctx.ownerId !== undefined && r.userId !== undefined && r.userId !== ctx.ownerId)
+  if (
+    ctx.ownerId !== undefined &&
+    r.userId !== undefined &&
+    r.userId !== ctx.ownerId
+  )
     return null;
   const s = ctx.state;
   const f = phoneForwardOf(s, r);
@@ -260,7 +267,7 @@ export function PhoneRowStatus({ view }: { view: PhoneRuleView }) {
 
   if (!view.status) return null;
   const pill = (
-    <Pill title={view.status.title} tone={view.status.tone} wrap>
+    <Pill wrap title={view.status.title} tone={view.status.tone}>
       {view.status.text}
     </Pill>
   );
@@ -291,7 +298,7 @@ export function PhoneEntryCopy({ view }: { view: PhoneRuleView }) {
     >
       <button
         className="inline-flex max-w-full items-center gap-1.5 rounded-lg bg-violet-500/10 px-2 py-1 text-foreground hover:bg-violet-500/15 dark:bg-violet-400/10"
-        title="手机本地 · 点一下复制（只在这台手机上能连）"
+        title="手机本地 · 点一下复制（要在开着利群客户端的设备上用）"
         type="button"
         onClick={() => void copyText(view.address, "手机本地地址")}
       >
@@ -363,10 +370,7 @@ export function PhoneMainChip({
         pill
       )}
       {serverName && (
-        <Pill
-          title="面板里的主入口没变：电脑和别的设备照常走它"
-          tone="slate"
-        >
+        <Pill title="面板里的主入口没变：电脑和别的设备照常走它" tone="slate">
           其他设备 {serverName}
         </Pill>
       )}
@@ -399,7 +403,13 @@ function useAct() {
   return { busy, act };
 }
 
-function ConnectButtons({ s, size = "sm" }: { s: PhoneState | null; size?: "sm" | "md" }) {
+function ConnectButtons({
+  s,
+  size = "sm",
+}: {
+  s: PhoneState | null;
+  size?: "sm" | "md";
+}) {
   const { busy, act } = useAct();
 
   if (phoneRunning(s))
@@ -410,9 +420,7 @@ function ConnectButtons({ s, size = "sm" }: { s: PhoneState | null; size?: "sm" 
         isLoading={busy === "disconnect"}
         size={size}
         variant="flat"
-        onPress={() =>
-          void act("disconnect", () => appStateCall("disconnect"))
-        }
+        onPress={() => void act("disconnect", () => appStateCall("disconnect"))}
       >
         断开
       </Button>
@@ -425,7 +433,9 @@ function ConnectButtons({ s, size = "sm" }: { s: PhoneState | null; size?: "sm" 
       isDisabled={!s?.credentials.set}
       isLoading={busy === "connect"}
       size={size}
-      title={s?.credentials.set ? undefined : "先填商家账号（只存在这台手机上）"}
+      title={
+        s?.credentials.set ? undefined : "先填商家账号（只存在这台手机上）"
+      }
       variant="flat"
       onPress={() =>
         void act("connect", () => appStateCall("connect", {}, 30000))
@@ -507,7 +517,8 @@ function BatteryTip({ s }: { s: PhoneState | null }) {
             {s?.battery.hint ? ` ${s.battery.hint}` : ""}
           </p>
           <p className="text-red-700 dark:text-red-300">
-            没设好也可以手动点「连接」；「打开 App 自动连接」要先设好这个才会自动连。
+            没设好也可以手动点「连接」；「打开 App
+            自动连接」要先设好这个才会自动连。
           </p>
         </>
       )}
@@ -516,20 +527,18 @@ function BatteryTip({ s }: { s: PhoneState | null }) {
 }
 
 /** Old App card 2: 节点地址改成 127.0.0.1 (with the per-专线 local ports). */
-function NodeTip({
-  s,
-  rules,
-}: {
-  s: PhoneState | null;
-  rules: LeiKwanRule[];
-}) {
+function NodeTip({ s, rules }: { s: PhoneState | null; rules: LeiKwanRule[] }) {
   const ports = (s?.forwards.length ? s.forwards : [])
     .map((f) => ({
       port: f.localPort,
       name:
         rules.find((r) =>
-          r.forwardId ? r.forwardId === f.forwardId : r.listenPort === f.localPort,
-        )?.name || f.name || `利群 #${f.forwardId}`,
+          r.forwardId
+            ? r.forwardId === f.forwardId
+            : r.listenPort === f.localPort,
+        )?.name ||
+        f.name ||
+        `利群 #${f.forwardId}`,
     }))
     .concat(
       s?.forwards.length
@@ -556,7 +565,7 @@ function NodeTip({
       </div>
       <p>
         <b>其它照落地填</b>
-        ：密码、加密方式、协议、传输这些都和落地一样，不用改。更省事：用「复制链接」或「手机专用订阅」，地址已经是
+        ：密码、加密方式、协议、传输这些都和落地一样，不用改。更省事：用「复制链接」，或在手机本地下「生成订阅」，地址已经是
         127.0.0.1。
       </p>
     </div>
@@ -595,7 +604,8 @@ function BypassTip() {
       </ul>
       <p>
         <b>不要用路由或规则</b>
-        里的「按应用直连 / 绕过」代替：那样它的流量还是先进 VPN，规则没匹配上或客户端重启时就会绕回代理。
+        里的「按应用直连 / 绕过」代替：那样它的流量还是先进
+        VPN，规则没匹配上或客户端重启时就会绕回代理。
       </p>
     </div>
   );
@@ -610,8 +620,7 @@ function stateLine(s: PhoneState | null) {
         连接失败 · {s.error || "原因看运行日志"}
       </span>
     );
-  if (s?.connection === "connecting")
-    return <span>{sum.text}</span>;
+  if (s?.connection === "connecting") return <span>{sum.text}</span>;
 
   return <span>{sum.text}</span>;
 }
@@ -647,7 +656,10 @@ export function PhoneConnectPanel({
       id="phone-connect-panel"
     >
       <div className="flex flex-wrap items-center gap-1.5">
-        <Smartphone className="text-violet-600 dark:text-violet-300" size={15} />
+        <Smartphone
+          className="text-violet-600 dark:text-violet-300"
+          size={15}
+        />
         <span className="text-sm font-semibold">手机本地</span>
         <Pill tone={sum.tone}>{sum.text}</Pill>
         {s?.stage && s.connection === "connecting" && (
@@ -716,7 +728,8 @@ export function PhoneConnectPanel({
           ：名额满了会连不上，先在商家那边下线一台。
         </li>
         <li>
-          这台手机上的其他利群 App（重仓利群、利群原版、官方 App）要先关掉：它们用同样的端口。
+          这台手机上的其他利群 App（重仓利群、利群原版、官方
+          App）要先关掉：它们用同样的端口。
         </li>
         <li>只在这台手机上生效：电脑和别的设备照常走服务器主入口。</li>
       </ul>
@@ -1150,51 +1163,5 @@ export function PhoneDrawer({
         </ModalFooter>
       </ModalContent>
     </Modal>
-  );
-}
-
-/** 订阅: the separate 「手机专用订阅」 (?lk=local) next to the normal one. */
-export function PhoneSubBlock({
-  masked,
-  url,
-}: {
-  masked: string;
-  url: string;
-}) {
-  const copy = async () => {
-    await copyText(url, "手机专用订阅");
-  };
-
-  return (
-    <div
-      className="space-y-2 rounded-xl border border-violet-500/30 bg-violet-500/[0.05] p-3 dark:bg-violet-400/[0.07]"
-      data-phone-sub=""
-    >
-      <div className="flex flex-wrap items-center gap-1.5">
-        <Smartphone className="text-violet-600 dark:text-violet-300" size={14} />
-        <span className="text-sm font-semibold">手机专用订阅</span>
-        <Pill tone="violet">利群节点 → 127.0.0.1</Pill>
-      </div>
-      <div className="flex items-center gap-2 rounded-xl bg-slate-500/10 px-3 py-2 dark:bg-slate-400/10">
-        <span
-          className="min-w-0 flex-1 truncate font-mono text-[13px] text-default-700"
-          title="完整链接只在复制时给出"
-        >
-          {masked}?lk=local
-        </span>
-        <Button
-          color="secondary"
-          size="sm"
-          startContent={<Copy size={14} />}
-          variant="flat"
-          onPress={() => void copy()}
-        >
-          复制
-        </Button>
-      </div>
-      <p className="text-xs leading-5 text-violet-700 dark:text-violet-300">
-        只能在装了 App、并且已连接手机本地的这台手机上用。电脑和别的设备继续用上面的普通订阅。
-      </p>
-    </div>
   );
 }

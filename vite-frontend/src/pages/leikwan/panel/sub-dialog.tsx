@@ -16,7 +16,7 @@ import {
 import { useH5Mode } from "@/hooks/useH5Mode";
 import { copyToClipboard } from "@/pages/landing/link-card";
 import { Pill } from "@/pages/landing/pill";
-import { PhoneSubBlock } from "@/pages/leikwan/panel/phone-entry";
+import { SubEntryBadge } from "@/pages/sub-link/entry-badge";
 import { OfflineQRCode } from "@/components/qr-code";
 import { Button } from "@/shadcn-bridge/heroui/button";
 import {
@@ -34,9 +34,12 @@ import { Spinner } from "@/shadcn-bridge/heroui/spinner";
 // the link (masked like the 订阅 page) + 复制 + QR, how many 利群 rules are in
 // it, and 「详细设置」 → the 订阅 page editor of this sub. Admins pick a granted
 // user (default themselves).
-// Plan 297 (im.gamer App, 手机本地 is this phone's entry): the own
-// subscription also shows a separate 「手机专用订阅」 (?lk=local → the 利群
-// nodes on 127.0.0.1); the normal one stays as it is for other devices.
+// Plan 297: a subscription follows the entry it was made / updated under
+// (entry_mode). The browser shows the 利群汇聚 sub as before; a 手机本地 one
+// carries the badge and 「改成跟主入口」. In the im.gamer App (admin, own
+// subscriptions) while this phone's entry is 手机本地: the newest 手机本地 sub
+// (or 「新建手机本地订阅」 / 「把这条改成手机本地」), and a switcher between the
+// own 利群 subs.
 
 /** Default user of the admin picker: the admin's own grant, else the first. */
 export function defaultSubUser(grants: LeiKwanGrant[], me?: string | null) {
@@ -48,12 +51,15 @@ export function LeiKwanSubDialog({
   admin,
   grants = [],
   me,
+  app = false,
   phoneLocal = false,
   onClose,
 }: {
   open: boolean;
   admin: boolean;
-  /** Plan 297: 手机本地 is this phone's entry (App only) */
+  /** Plan 297: im.gamer App (admin): entry controls on the own subs */
+  app?: boolean;
+  /** Plan 297: this phone's entry is 手机本地 (App only) */
   phoneLocal?: boolean;
   /** admin: the granted users to pick from */
   grants?: LeiKwanGrant[];
@@ -66,14 +72,24 @@ export function LeiKwanSubDialog({
   const [sub, setSub] = useState<LeiKwanSub | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  // Plan 297: the shown sub (App switcher) + a running create / convert.
+  const [pickId, setPickId] = useState<number | undefined>(undefined);
+  const [busy, setBusy] = useState("");
 
   useEffect(() => {
     if (!open) return;
     setSub(null);
     setError("");
+    setPickId(undefined);
     setUserId(admin ? defaultSubUser(grants, me) : undefined);
     // grants only seed the default when the dialog opens
   }, [open, admin]);
+
+  const owner = grants.find((g) => g.userId === userId);
+  // The 订阅 page edits only the caller's own subscriptions.
+  const own = !admin || !owner || (!!me && owner.userName === me);
+  // Plan 297: 手机本地 only on the admin's own subscriptions in the App.
+  const local = phoneLocal && app && admin && own;
 
   useEffect(() => {
     if (!open || (admin && !userId)) return;
@@ -81,7 +97,10 @@ export function LeiKwanSubDialog({
 
     setLoading(true);
     setError("");
-    void getLeiKwanRuleSub(admin ? userId : undefined).then((res) => {
+    void getLeiKwanRuleSub(admin ? userId : undefined, {
+      ...(local ? { entry: "local" as const } : {}),
+      ...(pickId ? { id: pickId } : {}),
+    }).then((res) => {
       if (gone) return;
       setLoading(false);
       if (res.code !== 0 || !res.data) {
@@ -101,7 +120,34 @@ export function LeiKwanSubDialog({
     return () => {
       gone = true;
     };
-  }, [open, admin, userId]);
+  }, [open, admin, userId, local, pickId]);
+
+  // Plan 297: 新建 (手机本地) / 改成手机本地 / 改成跟主入口.
+  const act = async (action: "create" | "convert", toLocal: boolean) => {
+    if (!sub) return;
+    setBusy(action + (toLocal ? "-local" : "-main"));
+    const res = await getLeiKwanRuleSub(admin ? userId : undefined, {
+      action,
+      ...(toLocal ? { entry: "local" as const } : {}),
+      ...(action === "convert" ? { id: sub.id } : {}),
+    });
+
+    setBusy("");
+    if (res.code !== 0 || !res.data) {
+      toast.error(res.msg || "操作失败");
+
+      return;
+    }
+    setSub(res.data);
+    setPickId(res.data.id);
+    toast.success(
+      action === "create"
+        ? "已新建手机本地订阅"
+        : toLocal
+          ? "这条订阅改成手机本地了"
+          : "这条订阅改回跟主入口了",
+    );
+  };
 
   const url = sub ? subLinkURL(sub.token) : "";
   const copy = async () => {
@@ -109,11 +155,10 @@ export function LeiKwanSubDialog({
     if (await copyToClipboard(url)) toast.success("订阅链接已复制");
     else toast.error("复制失败，请长按二维码下方的链接手动复制");
   };
-  const owner = grants.find((g) => g.userId === userId);
-  // The 订阅 page edits only the caller's own subscriptions.
-  const own = !admin || !owner || (!!me && owner.userName === me);
   const format = (sub?.format || "auto") as SubFormat;
-  const phoneSub = phoneLocal && own && !!sub;
+  const subLocal = sub?.entryMode === "local";
+  const mainName = sub?.mainEntry || owner?.mainEntryName || "主入口";
+  const mySubs = (app && own && sub?.subs) || [];
 
   return (
     <Modal
@@ -164,12 +209,86 @@ export function LeiKwanSubDialog({
           )}
           {!loading && sub && (
             <>
-              {phoneSub && (
-                <div className="flex flex-wrap items-center gap-1.5">
-                  <span className="text-sm font-semibold">普通订阅</span>
-                  <span className="text-xs text-default-500">
-                    电脑和别的设备用这个，不变
-                  </span>
+              {mySubs.length > 1 && (
+                <div
+                  className="flex flex-wrap items-center gap-1.5"
+                  data-sub-switcher=""
+                >
+                  <span className="text-xs text-default-500">订阅</span>
+                  {mySubs.map((x) => (
+                    <button
+                      key={x.id}
+                      className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs ${
+                        x.id === sub.id
+                          ? "border-primary bg-primary/10 font-semibold text-foreground"
+                          : "border-divider text-default-600"
+                      }`}
+                      type="button"
+                      onClick={() => setPickId(x.id)}
+                    >
+                      {x.name}
+                      <SubEntryBadge mode={x.entryMode} />
+                    </button>
+                  ))}
+                </div>
+              )}
+              {own && local && !subLocal && (
+                <div
+                  className="space-y-2 rounded-xl border border-violet-500/30 bg-violet-500/[0.05] p-3 text-xs leading-5 text-default-600 dark:bg-violet-400/[0.07]"
+                  data-sub-entry-choice="local"
+                >
+                  <p>
+                    这台手机的入口是<b>手机本地</b>。这条订阅跟主入口（
+                    {mainName}
+                    ），用它的设备（比如电脑）照常走 {mainName}。
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      color="primary"
+                      data-sub-create-local=""
+                      isLoading={busy === "create-local"}
+                      size="sm"
+                      variant="flat"
+                      onPress={() => void act("create", true)}
+                    >
+                      新建手机本地订阅
+                    </Button>
+                    <Button
+                      color="secondary"
+                      data-sub-convert="local"
+                      isLoading={busy === "convert-local"}
+                      size="sm"
+                      variant="flat"
+                      onPress={() => void act("convert", true)}
+                    >
+                      把这条改成手机本地
+                    </Button>
+                  </div>
+                  <p className="text-[11px] text-default-500">
+                    改这条的话，用这条订阅的其他设备刷新后也会变成 127.0.0.1。
+                  </p>
+                </div>
+              )}
+              {own && subLocal && (
+                <div
+                  className="space-y-2 rounded-xl border border-violet-500/30 bg-violet-500/[0.05] p-3 text-xs leading-5 text-default-600 dark:bg-violet-400/[0.07]"
+                  data-sub-entry-choice="main"
+                >
+                  <p>
+                    这是<b>手机本地</b>订阅：利群节点的地址是
+                    127.0.0.1:端口，要在开着利群客户端的设备上用（比如装了 App
+                    的手机）。
+                  </p>
+                  <Button
+                    color="secondary"
+                    data-sub-convert="main"
+                    isLoading={busy === "convert-main"}
+                    size="sm"
+                    variant="flat"
+                    onPress={() => void act("convert", false)}
+                  >
+                    改成跟主入口（{mainName}）
+                  </Button>
                 </div>
               )}
               <div className="flex flex-wrap gap-1.5">
@@ -180,6 +299,7 @@ export function LeiKwanSubDialog({
                 <Pill title={sub.name} tone="slate">
                   {sub.name}
                 </Pill>
+                <SubEntryBadge mode={sub.entryMode} />
               </div>
               {sub.manual > 0 && (
                 <p className="rounded-lg bg-amber-500/15 px-3 py-2 text-xs text-amber-700 dark:bg-amber-400/15 dark:text-amber-300">
@@ -216,12 +336,6 @@ export function LeiKwanSubDialog({
                   : `格式：${subFormatLabel[format] || format}（在「详细设置」里改）`}
                 {sub.lastPullAt ? ` · 最近拉取 ${subAgo(sub.lastPullAt)}` : ""}
               </p>
-              {phoneSub && (
-                <PhoneSubBlock
-                  masked={maskedSubLink(sub.token)}
-                  url={`${url}?lk=local`}
-                />
-              )}
               {!own && (
                 <p className="text-center text-xs text-default-400">
                   这是「{owner?.userName}
