@@ -834,7 +834,7 @@ func (h *Handler) leikwanGrantSave(w http.ResponseWriter, r *http.Request) {
 	if old != nil {
 		g = old
 	}
-	prevEntry, prevBackup := g.MainEntryNodeID, g.BackupLine
+	prevEntry, prevBackup, prevStatus := g.MainEntryNodeID, g.BackupLine, g.Status
 	g.MainEntryNodeID, g.BackupLine = req.MainEntryNodeID, map[bool]int{true: 1, false: 0}[req.BackupLine]
 	if old != nil && prevEntry != g.MainEntryNodeID {
 		// Plan 272: the old 主入口 stays open until the user refreshes a
@@ -862,8 +862,10 @@ func (h *Handler) leikwanGrantSave(w http.ResponseWriter, r *http.Request) {
 	} else if g.BackupLine == 0 && old != nil && prevBackup == 1 {
 		warnings = append(warnings, h.leiKwanBackupsOff(rules)...)
 	}
-	if moved > 0 || (old != nil && prevEntry != g.MainEntryNodeID) {
-		h.leiKwanSubsChanged(g.UserID) // plan 272: subs carry the new 主入口 at once
+	if moved > 0 || (old != nil && (prevEntry != g.MainEntryNodeID || prevStatus != g.Status)) {
+		// plan 272: subs carry the new 主入口 at once; plan 299: 停用 / 启用
+		// too (the 60 s render cache kept serving the 利群 nodes)
+		h.leiKwanSubsChanged(g.UserID)
 	}
 	n, _ := h.repo.CountLeiKwanRules(g.UserID)
 	names := h.repo.LeiKwanUserNames([]int64{g.UserID})

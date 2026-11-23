@@ -5,7 +5,7 @@ Same file in both repos: FLVX `vite-frontend/docs/panel-app-bridge.md` and leikw
 
 ## What it is
 
-The im.gamer Android App (flavor `panel`, applicationId `com.localbridge.leikwan.panel`, 1.0.8-panel / versionCode 2)
+The im.gamer Android App (flavor `panel`, applicationId `com.localbridge.leikwan.panel`, 1.0.9-panel / versionCode 3)
 is a WebView of the owner's own FLVX panel plus the phone's own LeiKwan client (the shared connect engine of 重仓利群:
 BridgeService, leases, warm pool, run log). The panel page drives the phone's local link through this bridge.
 
@@ -18,6 +18,10 @@ the App has one extra entry 「手机本地」** (admin only this round; normal 
 - The local link never depends on the panel: everything the core needs (客户端 ID, Agent Token, vendor leases, run
   log, the entry choice) lives on the phone. If the panel cannot be reached, the App shows a small native fallback page
   with the local status and 断开 / 重连.
+- In App mode the panel registers **no service worker** and unregisters an old one (plan 299, `admin-main.tsx`): an
+  offline load must fail so the fallback page shows (a cached shell would load with every API call failing).
+- While the App is in the background the WebView is paused (`onPause` + `pauseTimers`), so the page does not keep
+  polling the panel; it resumes when the App comes to the front (plan 299, 1.0.9-panel).
 
 ## Transport and security
 
@@ -30,7 +34,8 @@ the App has one extra entry 「手机本地」** (admin only this round; normal 
   (= browser behaviour) and a native notice 「系统 WebView 太旧，手机本地不可用」. There is no fallback interface.
 - The panel origin is entered by the user on the first-run page (https only, no path, no userinfo). It is the only
   new destination: `Destinations.panel(url)` allows exactly that scheme/host/port. The WebView refuses every other
-  network request (`shouldInterceptRequest` → empty 403) and opens other-origin links in the system browser.
+  network request it sees (`shouldInterceptRequest` → empty 403) and opens other-origin links in the system browser
+  (service-worker fetches and WebSockets bypass `shouldInterceptRequest`; the page registers no service worker in App mode).
 - Credentials never cross the bridge: the page can only ask the App to open its native credential dialog.
 
 ## Wire format
@@ -65,7 +70,7 @@ The page sends with `window.panelApp.postMessage(json)` and listens with
 | `shareLog` | – | `{shared: bool}` | Android share sheet (text) |
 | `openBatterySettings` | – | `{opened: bool}` | the 无限制 request dialog / app settings |
 | `editCredentials` | – | `{saved: bool}` | native dialog: 客户端 ID + Agent Token (stored on the phone only) |
-| `changePanel` | – | `{}` | back to the native first-run page (change the panel address) |
+| `changePanel` | – | `{opened: true}` | back to the native first-run page (change the panel address) |
 | `speedTest` | reserved | error `not_implemented` | 本机测速 hook, not built yet |
 
 Error codes: `credentials` (没填客户端 ID / Agent Token), `busy`, `not_implemented`, `bad_request`, `failed` (message

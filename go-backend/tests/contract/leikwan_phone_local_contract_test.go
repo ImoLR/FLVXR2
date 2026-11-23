@@ -226,6 +226,10 @@ func leiKwanPhoneLocalFlow(t *testing.T, dialect string) {
 	if b, _ := e.pullTitle(tok1); !strings.Contains(b, "101.96.213.164") {
 		t.Fatalf("main sub after 换主入口:\n%s", b)
 	}
+	// Plan 299: the 手机本地 sub does not follow 换主入口 (still 127.0.0.1).
+	if b, title := e.pullTitle(tok2); !strings.Contains(b, "server: 127.0.0.1") || !strings.Contains(b, strconv.Itoa(pm)) || strings.Contains(b, "101.96.213.164") || title != "手机用 · 手机本地" {
+		t.Fatalf("local sub after 换主入口 (%s):\n%s", title, b)
+	}
 
 	// --- link / preview / rule list (admin, App) ---
 	l := e.ok("/api/v1/leikwan-rule/link", e.admin, map[string]interface{}{"id": xm.ID, "local": true})
@@ -252,5 +256,35 @@ func leiKwanPhoneLocalFlow(t *testing.T, dialect string) {
 		if _, has := it.(map[string]interface{})["phoneLimits"]; has {
 			t.Fatal("user list carries phoneLimits")
 		}
+	}
+
+	// --- Plan 299 review: deleting a 手机本地 sub, then removing the grant ---
+	s3 := e.ok("/api/v1/leikwan-rule/sub", e.admin, map[string]interface{}{"entry": "local", "action": "create"})
+	tok3, id3 := s3["token"].(string), num(s3["id"])
+	if s3["entryMode"] != "local" || id3 <= id2 {
+		t.Fatalf("second local sub: %v", s3)
+	}
+	e.ok("/api/v1/sub/delete", e.admin, map[string]interface{}{"id": id2})
+	gone := httptest.NewRequest("GET", "/s/"+tok2, nil)
+	gone.Header.Set("User-Agent", "clash-verge/v2.0.0")
+	gw := httptest.NewRecorder()
+	e.router.ServeHTTP(gw, gone)
+	if gw.Code == 200 {
+		t.Fatalf("deleted local sub still served: %d", gw.Code)
+	}
+	if got := e.ok("/api/v1/leikwan-rule/sub", e.admin, map[string]interface{}{"entry": "local"}); num(got["id"]) != id3 || got["entryMode"] != "local" {
+		t.Fatalf("local pick after delete: %v", got)
+	}
+	if got := e.ok("/api/v1/leikwan-rule/sub", e.admin, map[string]interface{}{}); num(got["id"]) != id1 {
+		t.Fatalf("browser pick after delete: %v", got)
+	}
+	// Grant 停用 (delete needs the rules gone first): no 利群 nodes in any
+	// sub, 127.0.0.1 included.
+	e.ok("/api/v1/leikwan/grant/save", e.admin, map[string]interface{}{"userId": 1, "mainEntryNodeId": 52, "backupLine": false, "status": 0})
+	if b, _ := e.pullTitle(tok3); strings.Contains(b, "127.0.0.1") || strings.Contains(b, strconv.Itoa(pm)) {
+		t.Fatalf("local sub without a grant still carries 利群 nodes:\n%s", b)
+	}
+	if b, _ := e.pullTitle(tok1); strings.Contains(b, strconv.Itoa(pm)) {
+		t.Fatalf("main sub without a grant still carries 利群 nodes:\n%s", b)
 	}
 }
