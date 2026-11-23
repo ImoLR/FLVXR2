@@ -8,11 +8,13 @@ package handler
 //     ingress the LeiKwan client was offered (agent command LeiKwanDiag) and
 //     reads which one the client uses. Users see one row (no relay IPs),
 //     admins every ingress. 手机本地: measured on the phone (bridge diag).
-//   - 全程: the LeiKwan client's own rtt (entry status file / phone core).
+//   - 全程: the LeiKwan client's own rtt (entry status file / phone core); it
+//     ends at the line's exit (the vendor probes never reach the landing).
 //   - 专线出口 → 落地: measured on a native landing — the kernel TCP rtt of
 //     the relay exit's inbound connections (agent command LandingPeerRtt).
-//   - 专线入口 → 专线出口: 全程 − the measured hops, labelled 估算. Without a
-//     landing measurement: 专线入口 → 落地 = 全程 − 入口 → 专线入口 (估算).
+//   - 专线入口 → 专线出口: 全程 − 入口段, labelled 估算; the whole path ≈
+//     全程 + 落地段. Without a landing measurement: 专线入口 → 落地 = 全程 −
+//     入口 → 专线入口 (估算, as plan 272).
 //   - 出口测试: panel landing on an FLVX node → the existing TcpPing rotation.
 //   - 备线: the existing rule diagnosis of the 备线 forward, as one row.
 // Only the chosen entry (no 「其他利群入口机」). No new pollers; ≤ 5
@@ -787,10 +789,15 @@ func (j *lkDiagJob) compose() {
 		case hop1 < 0:
 			it["skipped"], it["estimate"], it["message"] = true, false, hop1Why+"，估算不了"
 		default:
-			est := math.Max(0, total-hop1-land)
+			// Prod 11-24 (fork.165, 5 lines): the client's 全程 ends at the
+			// line's exit — its probes never reach the landing (入口段 + 落地段
+			// ≥ 全程 on 3 of 5 lines). So 专线内 = 全程 − 入口段 and the whole
+			// path ≈ 全程 + 落地段.
+			est := math.Max(0, total-hop1)
 			sum["vendorMs"], sum["hop2Estimate"] = lkRound(est), false
+			sum["endToEndMs"] = lkRound(total + land)
 			it["success"], it["averageTime"], it["packetLoss"] = true, lkRound(est), 0.0
-			it["sub"] = fmt.Sprintf("估算：全程 %s ms − 入口段 %s ms − 落地段 %s ms", lkMs(lkRound(total)), lkMs(lkRound(hop1)), lkMs(lkRound(land)))
+			it["sub"] = fmt.Sprintf("估算：全程 %s ms − 入口段 %s ms（全程只到专线出口）", lkMs(lkRound(total)), lkMs(lkRound(hop1)))
 		}
 		j.set(j.iVendor, it)
 	} else {

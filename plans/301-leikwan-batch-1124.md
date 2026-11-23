@@ -89,3 +89,12 @@ return check 2.5 s. The App bundles core 2026.11.13.1.1add2836 (same release, An
 Review fixes during the lab run: the 诊断 body's `phone` part is decoded leniently (the App's diag / tcpPing replies carry
 extra fields such as `count` — the strict decode answered 「请求参数错误」); desktop 诊断 dialog wider (5 path nodes); the
 phone path label 「手机 → 专线入口」; the 手机本地 「快切」 chip only on forwards that are up.
+
+## fork.165 → fork.166 (same night, panel only)
+
+Live after the landing OTA (05:00 TW, 5 lines): with 全程 − 入口段 − 落地段 the vendor part came out ≈0 on 263 / 264 /
+282 (入口段 + 落地段 ≥ 全程), while 全程 − 入口段 alone gives plausible vendor times (广港 6 ms, 沪日 24 ms, 广台 23 ms,
+福台 7 ms). The LeiKwan client's 全程 (UDP probe / TCP selection rtt) ends at the line's exit — its probes never reach
+the landing. Fix: 专线入口 → 专线出口 = 全程 − 入口段 (估算); new summary `endToEndMs` ≈ 全程 + 落地段 (shown as
+「到落地 ≈N ms」); texts say 全程 = 入口机 → 专线出口. Without a landing measurement the old 「专线 → 落地」 estimate
+stays as plan 272 had it. Panel only (no agent change).

@@ -642,6 +642,8 @@ export interface LeiKwanDiagSummary {
   hop1Ms?: number;
   /** Plan 301: 专线入口 → 专线出口 = 全程 − measured hops (估算) */
   vendorMs?: number;
+  /** Plan 301: ≈ 全程 (to the line's exit) + 专线出口 → 落地 */
+  endToEndMs?: number;
   /** Plan 301: 专线出口 → 落地 measured on the landing */
   landingMs?: number;
   landingMeasured?: boolean;

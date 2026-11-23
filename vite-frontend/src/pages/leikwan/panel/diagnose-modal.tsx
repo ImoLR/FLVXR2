@@ -528,11 +528,21 @@ function PathStrip({
         >
           全程 {ms(summary.totalMs)} ms
         </Pill>
+        {measured && summary.endToEndMs !== undefined && (
+          <Pill
+            title="全程（到专线出口）+ 落地机实测的 专线出口 → 落地"
+            tone={latencyTone(summary.endToEndMs)}
+          >
+            到落地 ≈{ms(summary.endToEndMs)} ms
+          </Pill>
+        )}
         <span>
-          = {local ? "手机" : "入口机"} → 落地，利群客户端实测
+          {measured
+            ? `全程 = ${local ? "手机" : "入口机"} → 专线出口，利群客户端实测`
+            : `全程 = ${local ? "手机" : "入口机"} → 利群专线，利群客户端实测`}
           {age > 120 ? `（${Math.round(age / 60)} 分钟前）` : ""}
           {measured
-            ? "；专线内是全程减去实测两段的估算"
+            ? "；专线内 = 全程减入口段（估算），到落地再加上落地机实测的一段"
             : "；专线 → 落地是全程减第一跳的估算"}
         </span>
       </>
@@ -921,7 +931,7 @@ export function LeiKwanDiagnoseModal({
                 }
               />
               <Section
-                desc="利群自己的专线：全程减去实测两段的估算"
+                desc="利群自己的专线：全程（到专线出口）减入口段的估算"
                 h5={h5}
                 items={of("vendor")}
                 title="🔗 利群专线入口 → 专线出口（估算）"

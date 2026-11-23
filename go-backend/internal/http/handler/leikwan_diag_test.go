@@ -172,7 +172,7 @@ func TestLeiKwanDiagSource(t *testing.T) {
 
 // Plan 301 诊断 v2: a native landing measures 专线出口 → 落地 (kernel rtt of the
 // relay exit's connections, FLVX node IPs skipped), 专线入口 → 专线出口 =
-// 全程 − both measured hops (估算); an old landing agent falls back to the
+// 全程 − 入口段 (估算; 全程 ends at the exit), whole path ≈ 全程 + 落地段; an old landing agent falls back to the
 // old 专线 → 落地 estimate; 手机本地 takes the phone's numbers; an admin
 // looking at another user's forward diagnoses it from the admin's own entry.
 func TestLeiKwanDiagnoseV2(t *testing.T) {
@@ -257,7 +257,7 @@ func TestLeiKwanDiagnoseV2(t *testing.T) {
 		return items, out.Data.Summary, out.Data.Path, w.Body.String()
 	}
 
-	// User 2 (主入口 阿里广州): 5 + 6 measured, 40 − 5 − 6 = 29 估算 for the vendor part.
+	// User 2 (主入口 阿里广州): 5 + 6 measured, 40 − 5 = 35 估算 for the vendor part, ≈ 46 end to end.
 	items, sum, path, raw := call(2, 1, map[string]interface{}{"id": 8})
 	if diagOn[60] != 1 || diagOn[58] != 0 {
 		t.Fatalf("user entry: %v", diagOn)
@@ -265,13 +265,13 @@ func TestLeiKwanDiagnoseV2(t *testing.T) {
 	if l := items["landing"]; l["success"] != true || l["averageTime"] != 6.0 || l["title"] != "专线出口 → 利群280" {
 		t.Fatalf("landing hop: %v", l)
 	}
-	if v := items["vendor"]; v["estimate"] != true || v["averageTime"] != 29.0 || !strings.Contains(v["sub"].(string), "全程 40 ms") {
+	if v := items["vendor"]; v["estimate"] != true || v["averageTime"] != 35.0 || !strings.Contains(v["sub"].(string), "全程 40 ms") {
 		t.Fatalf("vendor hop: %v", v)
 	}
 	if _, ok := items["hop2"]; ok {
 		t.Fatalf("combined estimate next to a measured landing: %v", items)
 	}
-	if sum["landingMs"] != 6.0 || sum["vendorMs"] != 29.0 || sum["landingMeasured"] != true || sum["hop2Estimate"] != false || path["landingMeasurable"] != true {
+	if sum["landingMs"] != 6.0 || sum["vendorMs"] != 35.0 || sum["endToEndMs"] != 46.0 || sum["landingMeasured"] != true || sum["hop2Estimate"] != false || path["landingMeasurable"] != true {
 		t.Fatalf("summary: %v %v", sum, path)
 	}
 	if strings.Contains(raw, "118.194.253.206") || strings.Contains(raw, "125.94.47.233") {
@@ -316,8 +316,8 @@ func TestLeiKwanDiagnoseV2(t *testing.T) {
 	if _, ok := items["device"]; ok || path["local"] != true || path["entryName"] != "手机本地" {
 		t.Fatalf("手机本地 path: %v %v", items, path)
 	}
-	if sum["vendorMs"] != 32.0 || sum["totalSource"] != "tcp" {
-		t.Fatalf("phone summary (50 − 12 − 6): %v", sum)
+	if sum["vendorMs"] != 38.0 || sum["totalSource"] != "tcp" {
+		t.Fatalf("phone summary (50 − 12): %v", sum)
 	}
 
 	// App on a server entry: 本机 → 入口 from the phone.
