@@ -1,4 +1,4 @@
-# 302 — Subscriptions with IPv6-only entry domains + node DDNS for 沪日首发 / 沪美
+# 302 — Subscriptions with IPv6-only entry domains + node DDNS for 沪日首发 / 沪美 (DONE 11-24 07:28 TW, fork.167)
 
 Task `entry-domain-1124` (coordinator 22b5afb7, 11-24 TW). Panel only.
 
@@ -50,6 +50,15 @@ return the imgamer.top AAAA (checked with leikwan-hutai-ct.imgamer.top).
 - go test ./... (go-backend): base fork.166 29/29 packages ok, 0 failing tests; this branch 29/29 ok, 0 failing.
 - New test `TestSubEntryIPv6OnlyDomain` fails on fork.166 (NekoBox / Hiddify / Shadowrocket / Surge / unknown get the bare domain) and passes here; `TestUseEntryDomains` + goldens pass (goldens untouched).
 
+## Release + ops (11-24 TW)
+
+- fork.167 → tag on f0541fc1 (code fd4b2161), branch `maintenance/3.0.27-fork.167-entry-domain` = fork.166 + plans 300/301 docs + 302; CI 45273001771, Images 45273121439, Latest, 10 assets, gost sha256 ok. Panel only, no DB change, no OTA.
+- Swap 06:05:10–06:05:18 TW; rollback `/opt/flvx-svc/rollback/pre-fork167-20261123T220510Z/rollback.sh` (→ fork.166). 30/32 online before = after, 63 forwards / 49 tunnels / 8 subs identical, 30 reconnect redeploys failed=0, 5 busiest forwards 3/3 diagnose, latency unchanged.
+- 沪美 (node 59): DDNS on 06:07:54 TW → `vmsilo-humei.imgamer.top` AAAA ::8f (DNS only, TTL 120); 9 tunnels / 7 forwards rewritten, 0 failures.
+- 沪日首发 (node 51): attempt 1 06:41:20 and attempt 2 06:44:20 TW both broke the 沪美 → 沪日首发 hop (tunnels 126–132) with `DNS解析失败 … no such host` on 沪美 and were undone (06:42:2x / 06:46:22 TW; ≈1 + ≈2 min of failing new connections for liuchen / ns-saorana). Cause: NXDOMAIN cached for 30 min (SOA minimum 1800 s) by public resolvers (Google 8.8.8.8/8.8.4.4 still ~40 % NXDOMAIN at 06:47) and 沪美's systemd-resolved, created by lookups of the name before the record existed (incl. a diagnostic dig of mine at ~06:12 TW). Attempt 3 07:14:43 TW only after a clean gate (沪美: 8.8.8.8/8.8.4.4/1.1.1.1/1.0.0.1 × 20 = 0 NXDOMAIN, resolved flushed + 10/10): OK, then a 10-min watch.
+- Each node save reset 沪日首发's `expiry_reminder_dismissed` (UI saves do too) → restored with node/dismiss-expiry-reminder.
+- Verified: CF records; node addresses; mainland AliDNS / DNSPod (UDP + DoH) return only the AAAA; TCP by domain from 阿里深圳 to :50719 / :22942 / :26196; temp subs (liuchen fwd 628, test-ns-fx fwd 641, created + deleted, real subs untouched) via CF: Clash + sing-box = domain, NekoBox / Shadowrocket / Surge = literal, mihomo -t + sing-box 1.12/1.13/1.14 check OK; mihomo URL test from 阿里深圳 via vmsilo-humei 58–64 ms, via vmsilo-huri 56–62 ms.
+
 ## Checklist
 
 - [x] Read memories / brief; worktree `flvxx-302` on `fix/3.0.27-entry-domain` from fork.166
@@ -63,8 +72,8 @@ return the imgamer.top AAAA (checked with leikwan-hutai-ct.imgamer.top).
 - [x] go test ./... compared with base fork.166
 - [x] Wait for leikwan-batch-1124 to finish; merge onto what prod runs
 - [x] Isolated prod-DB lab (paneld in its own netns, loopback only): base fork.166 vs new = 96/96 renders byte-identical (8 subs × 12 UAs); after a simulated switch only subs 28/29 change and only for mihomo / Stash / sing-box (domain), NekoBox / Hiddify / Shadowrocket / v2rayN / Surge / Loon / unknown byte-identical; old code would hand the bare domain to all; mihomo -t + sing-box 1.12/1.13/1.14 check pass
-- [ ] Ledger row, tag next fork, CI + images + release assets
-- [ ] Prod backup + rollback script + prune; upgrade; health + light node check
-- [ ] CF zone: names free, no wildcard; DDNS records on nodes 51 / 59 (main AAAA, source 电信 240e)
-- [ ] Verify: CF records, node addresses, tunnels 126–132 diagnose (hop 沪美 → 沪日首发 by domain), mainland AAAA + TCP, real subs (Clash + sing-box UA) via CF, mihomo -t / sing-box check, mihomo URLTest from 阿里深圳
-- [ ] Summary + user list; plan complete
+- [x] Ledger row, tag next fork, CI + images + release assets
+- [x] Prod backup + rollback script + prune; upgrade; health + light node check
+- [x] CF zone: names free, no wildcard; DDNS records on nodes 51 / 59 (main AAAA, source 电信 240e)
+- [x] Verify: CF records, node addresses, tunnels 126–132 diagnose (hop 沪美 → 沪日首发 by domain), mainland AAAA + TCP, real subs (Clash + sing-box UA) via CF, mihomo -t / sing-box check, mihomo URLTest from 阿里深圳
+- [x] Summary + user list; plan complete (07:28 TW: 15/16 forward diagnose = baseline (WireGuard 682 UDP never diagnosable), 30/32 online, state identical except the DDNS-owned fields; summary runs/entry-domain-1124/summary.md)
