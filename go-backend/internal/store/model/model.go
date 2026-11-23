@@ -961,7 +961,10 @@ type ForwardRecord struct {
 	UserMaxClientIps   int
 	// UserServerConnCaps (plan 158): entry node id → the user's 入站连接数 on
 	// that server (> 0 only); a capped entry joins the user's quota group.
-	UserServerConnCaps  map[int64]int `gorm:"-"`
+	UserServerConnCaps map[int64]int `gorm:"-"`
+	// ExtraUserTunnelIDs (plan 298): user_tunnel ids already deleted by a grant
+	// revoke; runtime cleanup adds them as service-name candidates.
+	ExtraUserTunnelIDs  []int64 `gorm:"-"`
 	TrafficLimit        int64
 	ExpiryTime          sql.NullInt64
 	SpeedLimitEnabled   bool

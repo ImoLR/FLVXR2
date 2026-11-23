@@ -4777,7 +4777,7 @@ func (h *Handler) groupTunnelAssign(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	for _, pair := range revokedPairs {
-		h.cleanupForwardsForUserTunnel(pair.UserID, pair.TunnelID)
+		h.cleanupForwardsForUserTunnel(pair.UserID, pair.TunnelID, pair.UserTunnelID)
 	}
 	_ = h.syncPermissionsByTunnelGroup(req.GroupID)
 	response.WriteJSON(w, response.OK(map[string]interface{}{"warnings": h.reconcileTunnelEntryPermissions(0, 0)}))
@@ -4818,7 +4818,7 @@ func (h *Handler) groupUserAssign(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	for _, pair := range revokedPairs {
-		h.cleanupForwardsForUserTunnel(pair.UserID, pair.TunnelID)
+		h.cleanupForwardsForUserTunnel(pair.UserID, pair.TunnelID, pair.UserTunnelID)
 	}
 	_ = h.syncPermissionsByUserGroup(req.GroupID)
 	response.WriteJSON(w, response.OK(map[string]interface{}{"warnings": h.reconcileTunnelEntryPermissions(0, 0)}))
@@ -4880,7 +4880,7 @@ func (h *Handler) groupPermissionRemove(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	for _, pair := range revokedPairs {
-		h.cleanupForwardsForUserTunnel(pair.UserID, pair.TunnelID)
+		h.cleanupForwardsForUserTunnel(pair.UserID, pair.TunnelID, pair.UserTunnelID)
 	}
 	response.WriteJSON(w, response.OK(map[string]interface{}{"warnings": h.reconcileTunnelEntryPermissions(0, 0)}))
 }
@@ -4936,7 +4936,7 @@ func (h *Handler) groupDelete(w http.ResponseWriter, r *http.Request, table stri
 		return
 	}
 	for _, pair := range revokedPairs {
-		h.cleanupForwardsForUserTunnel(pair.UserID, pair.TunnelID)
+		h.cleanupForwardsForUserTunnel(pair.UserID, pair.TunnelID, pair.UserTunnelID)
 	}
 	response.WriteJSON(w, response.OK(map[string]interface{}{"warnings": h.reconcileTunnelEntryPermissions(0, 0)}))
 }
@@ -6661,7 +6661,9 @@ func (h *Handler) syncUserTunnelForwards(userID, tunnelID int64) error {
 // specific user+tunnel pair. It notifies nodes to remove the runtime services
 // first, then deletes the DB records. This is best-effort: individual failures
 // do not abort the overall cleanup so that remaining forwards are still cleaned.
-func (h *Handler) cleanupForwardsForUserTunnel(userID, tunnelID int64) {
+// revokedUserTunnelIDs (plan 298) are user_tunnel rows a grant revoke already
+// deleted: the services still carry those ids in their names.
+func (h *Handler) cleanupForwardsForUserTunnel(userID, tunnelID int64, revokedUserTunnelIDs ...int64) {
 	if userID <= 0 || tunnelID <= 0 {
 		return
 	}
@@ -6677,6 +6679,7 @@ func (h *Handler) cleanupForwardsForUserTunnel(userID, tunnelID int64) {
 			log.Printf("[forward-delete] forward %d lookup: %v", f.ID, err)
 			continue
 		}
+		forward.ExtraUserTunnelIDs = revokedUserTunnelIDs
 		h.cleanupForwardRuntimeBestEffort(forward)
 		_ = h.deleteForwardByID(f.ID)
 	}

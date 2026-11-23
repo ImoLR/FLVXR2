@@ -2661,6 +2661,10 @@ func (r *Repository) DeleteGroupPermissionByIDTx(tx *gorm.DB, id int64) error {
 type RevokedUserTunnelPair struct {
 	UserID   int64
 	TunnelID int64
+	// UserTunnelID is the deleted user_tunnel row (plan 298): the forwards'
+	// agent services are named <fwd>_<user>_<UserTunnelID>_*, so the cleanup
+	// that runs after the commit still needs it.
+	UserTunnelID int64
 }
 
 func (r *Repository) RevokeGroupGrantsForRemovedUsersTx(tx *gorm.DB, userGroupID int64, previousUserIDs, currentUserIDs []int64) ([]RevokedUserTunnelPair, error) {
@@ -2730,7 +2734,7 @@ func (r *Repository) RevokeGroupGrantsForRemovedUsersTx(tx *gorm.DB, userGroupID
 			if remaining == 0 {
 				var ut model.UserTunnel
 				if lookupErr := tx.Select("user_id", "tunnel_id").Where("id = ?", userTunnelID).First(&ut).Error; lookupErr == nil {
-					revoked = append(revoked, RevokedUserTunnelPair{UserID: ut.UserID, TunnelID: ut.TunnelID})
+					revoked = append(revoked, RevokedUserTunnelPair{UserID: ut.UserID, TunnelID: ut.TunnelID, UserTunnelID: userTunnelID})
 				}
 				if err := tx.Where("id = ?", userTunnelID).Delete(&model.UserTunnel{}).Error; err != nil {
 					return revoked, err
@@ -2806,7 +2810,7 @@ func (r *Repository) RevokeStaleTunnelGroupGrantsTx(tx *gorm.DB, tunnelGroupID i
 		if remaining == 0 {
 			var ut model.UserTunnel
 			if lookupErr := tx.Select("user_id", "tunnel_id").Where("id = ?", userTunnelID).First(&ut).Error; lookupErr == nil {
-				revoked = append(revoked, RevokedUserTunnelPair{UserID: ut.UserID, TunnelID: ut.TunnelID})
+				revoked = append(revoked, RevokedUserTunnelPair{UserID: ut.UserID, TunnelID: ut.TunnelID, UserTunnelID: userTunnelID})
 			}
 			if err := tx.Where("id = ?", userTunnelID).Delete(&model.UserTunnel{}).Error; err != nil {
 				return revoked, err
@@ -2862,7 +2866,7 @@ func (r *Repository) RevokeGroupPermissionPairTx(tx *gorm.DB, userGroupID, tunne
 		if remaining == 0 {
 			var ut model.UserTunnel
 			if lookupErr := tx.Select("user_id", "tunnel_id").Where("id = ?", userTunnelID).First(&ut).Error; lookupErr == nil {
-				revoked = append(revoked, RevokedUserTunnelPair{UserID: ut.UserID, TunnelID: ut.TunnelID})
+				revoked = append(revoked, RevokedUserTunnelPair{UserID: ut.UserID, TunnelID: ut.TunnelID, UserTunnelID: userTunnelID})
 			}
 			if err := tx.Where("id = ?", userTunnelID).Delete(&model.UserTunnel{}).Error; err != nil {
 				return revoked, err

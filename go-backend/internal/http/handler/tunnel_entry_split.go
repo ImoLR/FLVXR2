@@ -455,7 +455,7 @@ func (h *Handler) applyTunnelSplit(r *http.Request, plan *tunnelSplitPlan) error
 
 	// 3. Grants: what /group/tunnel/assign does after a membership change.
 	for _, pair := range res.Revoked {
-		h.cleanupForwardsForUserTunnel(pair.UserID, pair.TunnelID)
+		h.cleanupForwardsForUserTunnel(pair.UserID, pair.TunnelID, pair.UserTunnelID)
 	}
 	for _, groupID := range res.Joined {
 		_ = h.syncPermissionsByTunnelGroup(groupID)

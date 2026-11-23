@@ -557,6 +557,7 @@ func (h *Handler) forwardServiceBaseCandidates(forward *forwardRecord) ([]string
 	candidateTunnelIDs := make([]int64, 0, len(userTunnelIDs)+len(allUserTunnelIDs))
 	candidateTunnelIDs = append(candidateTunnelIDs, userTunnelIDs...)
 	candidateTunnelIDs = append(candidateTunnelIDs, allUserTunnelIDs...)
+	candidateTunnelIDs = append(candidateTunnelIDs, forward.ExtraUserTunnelIDs...)
 	return buildForwardServiceBaseCandidates(forward.ID, forward.UserID, userTunnelID, candidateTunnelIDs), nil
 
 }
