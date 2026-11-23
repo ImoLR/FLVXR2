@@ -823,7 +823,7 @@ export function LeiKwanDiagnoseModal({
       placement="center"
       scrollBehavior="inside"
       // Plan 301: up to 5 path nodes side by side on desktop.
-      size={h5 ? "lg" : "3xl"}
+      size={h5 ? "lg" : "xl"}
       onClose={close}
     >
       <ModalContent data-leikwan-diagnose="">
