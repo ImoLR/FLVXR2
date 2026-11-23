@@ -222,12 +222,20 @@ type lkDiagJob struct {
 
 func (h *Handler) leiKwanDiagPrepare(r *http.Request) (*lkDiagJob, error) {
 	var req struct {
-		ID    int64        `json:"id"`
-		Local bool         `json:"local"`
-		Phone *lkDiagPhone `json:"phone"`
+		ID    int64 `json:"id"`
+		Local bool  `json:"local"`
+		// The App's numbers: read leniently (a newer App may send more fields).
+		Phone json.RawMessage `json:"phone"`
 	}
 	if err := leiKwanDecode(r, &req); err != nil {
 		return nil, err
+	}
+	var phone *lkDiagPhone
+	if len(req.Phone) > 0 && string(req.Phone) != "null" {
+		phone = &lkDiagPhone{}
+		if json.Unmarshal(req.Phone, phone) != nil {
+			return nil, errors.New("请求参数错误")
+		}
 	}
 	x, admin, err := h.leiKwanRuleAccess(r, req.ID)
 	if err != nil {
@@ -240,7 +248,7 @@ func (h *Handler) leiKwanDiagPrepare(r *http.Request) (*lkDiagJob, error) {
 	if !h.lkThrottle.allow("diag:"+strconv.FormatInt(uid, 10), time.Now(), lkDiagGap) {
 		return nil, errors.New("诊断太频繁，请 10 秒后再试")
 	}
-	j := &lkDiagJob{h: h, admin: admin, rule: *x, local: req.Local, phone: req.Phone, hop1Ms: -1, totalMs: -1, landingMs: -1,
+	j := &lkDiagJob{h: h, admin: admin, rule: *x, local: req.Local, phone: phone, hop1Ms: -1, totalMs: -1, landingMs: -1,
 		iDevice: -1, iHop1: -1, iVendor: -1, iLanding: -1, iExit: -1, iBackup: -1}
 	if l, err := h.repo.GetLeiKwanLine(x.LineID); err == nil && l != nil {
 		j.line = *l
@@ -644,27 +652,40 @@ func (j *lkDiagJob) nodeIPs() map[string]bool {
 	return out
 }
 
-// lkPickExit: the busiest public peer that is not an FLVX node.
+// lkPickExit: the 利群 relay exit among the landing port's peers — public,
+// not an FLVX node (备线 tunnel exits, other forwards); the relays sit next to
+// the landing (TW / HK / JP …), so a mainland address (a direct client) only
+// counts when nothing else is there; then the busiest. others = the rest.
 func lkPickExit(peers []lkLandingPeer, skip map[string]bool) (lkLandingPeer, int, bool) {
-	best, others, found := lkLandingPeer{}, 0, false
+	type cand struct {
+		p  lkLandingPeer
+		cn bool
+	}
+	list := []cand{}
 	for _, p := range peers {
 		a, err := netip.ParseAddr(p.IP)
-		if err != nil || skip[a.Unmap().String()] || a.IsLoopback() || a.IsPrivate() || a.IsLinkLocalUnicast() || a.IsUnspecified() {
+		if err != nil {
+			continue
+		}
+		a = a.Unmap()
+		if skip[a.String()] || a.IsLoopback() || a.IsPrivate() || a.IsLinkLocalUnicast() || a.IsUnspecified() {
 			continue
 		}
 		if p.RttMs <= 0 && p.MinRttMs <= 0 {
 			continue
 		}
-		if !found || p.Conns > best.Conns {
-			if found {
-				others++
-			}
-			best, found = p, true
-			continue
-		}
-		others++
+		list = append(list, cand{p: p, cn: geoip.Lookup(a) == "CN"})
 	}
-	return best, others, found
+	if len(list) == 0 {
+		return lkLandingPeer{}, 0, false
+	}
+	sort.SliceStable(list, func(i, j int) bool {
+		if list[i].cn != list[j].cn {
+			return !list[i].cn
+		}
+		return list[i].p.Conns > list[j].p.Conns
+	})
+	return list[0].p, len(list) - 1, true
 }
 
 // runLanding: 专线出口 → 落地 on the native landing (kernel TCP rtt).

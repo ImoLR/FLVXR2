@@ -1081,7 +1081,7 @@ export function PhoneDetails({
                       ? "连接中"
                       : "未连接"}
               </Pill>
-              {f.protect === "logswitch" && (
+              {f.protect === "logswitch" && f.state === "ready" && (
                 <Pill
                   title={
                     f.switched

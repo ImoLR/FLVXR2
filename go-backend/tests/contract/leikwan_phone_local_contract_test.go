@@ -249,8 +249,9 @@ func leiKwanPhoneLocalFlow(t *testing.T, dialect string) {
 		_, has := m["phoneLimits"]
 		limits[num(m["id"])] = has
 	}
-	if !limits[xm.ID] || limits[xa.ID] {
-		t.Fatalf("phoneLimits only on the admin's own rules: %v", limits)
+	// Plan 301: every row follows the chosen entry (手机本地 too), not only the admin's own rules.
+	if !limits[xm.ID] || !limits[xa.ID] {
+		t.Fatalf("phoneLimits on every admin row: %v", limits)
 	}
 	for _, it := range e.ok("/api/v1/leikwan-rule/list", e.user, map[string]interface{}{"phone": map[string]interface{}{"warm": true}})["rules"].([]interface{}) {
 		if _, has := it.(map[string]interface{})["phoneLimits"]; has {

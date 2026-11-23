@@ -306,7 +306,7 @@ func TestLeiKwanDiagnoseV2(t *testing.T) {
 	items, sum, path, _ = call(1, 0, map[string]interface{}{"id": 8, "local": true, "phone": map[string]interface{}{
 		"ingress": map[string]interface{}{"ok": true, "avgMs": 12.0, "loss": 0.0, "inUse": true},
 		"total":   map[string]interface{}{"source": "tcp", "rttMs": 50.0, "ageS": 3},
-		"device":  map[string]interface{}{"ok": true, "avgMs": 99.0}}})
+		"device":  map[string]interface{}{"ok": true, "avgMs": 99.0, "count": 3}}})
 	if diagOn[58]+diagOn[60] != before {
 		t.Fatalf("手机本地 called an entry agent: %v", diagOn)
 	}
@@ -321,7 +321,7 @@ func TestLeiKwanDiagnoseV2(t *testing.T) {
 	}
 
 	// App on a server entry: 本机 → 入口 from the phone.
-	items, sum, path, _ = call(1, 0, map[string]interface{}{"id": 8, "phone": map[string]interface{}{"device": map[string]interface{}{"ok": true, "avgMs": 21.0}}})
+	items, sum, path, _ = call(1, 0, map[string]interface{}{"id": 8, "phone": map[string]interface{}{"device": map[string]interface{}{"ok": true, "avgMs": 21.0, "loss": 0.0, "count": 3}}})
 	if d := items["device"]; d["title"] != "本机 → 百度云广州" || d["averageTime"] != 21.0 || sum["deviceMs"] != 21.0 || path["device"] != true {
 		t.Fatalf("device hop: %v %v", items["device"], sum)
 	}

@@ -577,7 +577,7 @@ function PathStrip({
         />
         <HopArrow
           h5={h5}
-          label="入口 → 专线入口"
+          label={local ? "手机 → 专线入口" : "入口 → 专线入口"}
           pending={pending}
           value={summary?.hop1Ms}
         />
@@ -822,7 +822,8 @@ export function LeiKwanDiagnoseModal({
       isOpen={!!rule}
       placement="center"
       scrollBehavior="inside"
-      size="lg"
+      // Plan 301: up to 5 path nodes side by side on desktop.
+      size={h5 ? "lg" : "3xl"}
       onClose={close}
     >
       <ModalContent data-leikwan-diagnose="">

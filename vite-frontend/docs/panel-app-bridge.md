@@ -6,7 +6,7 @@ plan 301 (1.0.10-panel, 2026-11-24: 手机本地 = the VPS stack — see the las
 
 ## What it is
 
-The im.gamer Android App (flavor `panel`, applicationId `com.localbridge.leikwan.panel`, 1.0.9-panel / versionCode 3)
+The im.gamer Android App (flavor `panel`, applicationId `com.localbridge.leikwan.panel`, 1.0.10-panel / versionCode 4)
 is a WebView of the owner's own FLVX panel plus the phone's own LeiKwan client (the shared connect engine of 重仓利群:
 BridgeService, leases, warm pool, run log). The panel page drives the phone's local link through this bridge.
 
@@ -194,9 +194,9 @@ interface PhonePlan {
 
 | method | params | result | notes |
 |---|---|---|---|
-| `setPlan` | `PhonePlan` | `{applied: bool, forwards: int, ref}` | stored on the phone (prefs `panel_plan`), applied on the next reconcile (no reconnect; fronts swap). Older `updatedAt` than the stored one → `applied: false`. Invalid → `bad_request` |
-| `diag` | `{forwardId}` | `PhoneDiag` | 手机本地 诊断: ≤ 3 TCP handshakes to the relay ingress the core uses (else the fastest current lease entry) and to the 备线; 全程 from the core's status (latest_tcp / active_udp, like the VPS status file). No addresses in the reply |
-| `tcpPing` | `{host, port, count?≤5, timeoutMs?≤3000}` | `{ok, avgMs, loss, count}` | 本机 → 入口 for a server entry: only `host` ∈ plan.entries and `port` ∈ plan.forwards[].port; anything else → `bad_request` (fixed destinations rule) |
+| `setPlan` | `PhonePlan` | `{applied: bool, unchanged: bool, forwards: int, ref, refusedBackups: int}` | stored on the phone (prefs `panel_plan`), applied at once (`settingsChanged`: no reconnect, fronts swap). **Same content as the stored plan (`updatedAt` aside) → `{applied: true, unchanged: true}`, nothing stored, nothing re-applied** (the panel sends it on every page load). Different content with an older `updatedAt` → `applied: false`. Invalid → `bad_request` |
+| `diag` | `{forwardId}` | `PhoneDiag` | 手机本地 诊断: ≤ 3 TCP handshakes (1.5 s each) to the relay ingress the core uses (else the fastest current lease entry) and to the 备线; 全程 from the core's status (latest_tcp / active_udp, like the VPS status file). No addresses in the reply. Off the UI thread, reply ≤ 10 s; one at a time (+ 4 waiting, more → `busy`) |
+| `tcpPing` | `{host, port, count?≤5, timeoutMs?≤3000}` | `{ok, avgMs, loss, count}` | 本机 → 入口 for a server entry: only `host` ∈ plan.entries and `port` ∈ plan.forwards[].port; anything else (or no plan yet) → `bad_request` (fixed destinations rule). `count` clamped 1–5 (default 3), `timeoutMs` 200–3000 (default 1500) |
 
 ```ts
 interface PhoneDiag {
@@ -215,6 +215,36 @@ forwards[i].switched?: boolean;                       // 日志快切: new conne
 forwards[i].backup?: boolean;                         // a 备线 is set for it (from the plan)
 plan?: { ref: string; updatedAt: number; forwards: number } | null;
 ```
+
+Details as built (1.0.10-panel; App repo `app/src/panel/PanelPlan.java`, `PanelPlane.java`, `PanelDiag.java`):
+
+- **Validation** (`bad_request` with a short Chinese reason): `v` = 1; `updatedAt` a whole number > 0; `forwards` an array
+  of ≤ 64, each `forwardId` a whole number > 0 (no duplicates) and `port` 1–65535; a present trigger key must be
+  `switch` / `record` / `off`; `holdS` 1–300, `leaseSettleS` 0–600, `returnCheckS` 0.1–30; booleans must be booleans;
+  `ref` ≤ 32 characters. Clamped instead: `warm` / `backupWarm` / `warm.standby` to 0–16, `warm.paceMs` to 20–2000.
+  Unknown keys are ignored; `burst` is never on (not part of the phone). Missing global values = the engine defaults
+  (Baidu's: hold 30 s, settle 30 s, return check 2.5 s, standby 2, pace 100 ms, bytes4 / zeroFin on, coalesce off).
+- **A 备线 the App will not dial** — a host name, a missing port, or a loopback / unspecified / multicast / link-local /
+  broadcast address — is refused **for that forward only**: it runs as if `logswitch: false` (预热池 with its `warm`),
+  `forwards[i].backup` is false, the reply counts it in `refusedBackups`, the run log gets `DEST_REFUSED · panel_plan`.
+  The rest of the plan applies. An entry whose `host` is not an IP literal is dropped (it can't be pinged).
+- **What runs per forward** (`forwards[i].protect`): `logswitch` = the plan says `logswitch` with a valid `backup` and the
+  forward carries TCP; else `warm` = the 预热池 switch is on and the plan's `warm` > 0 (pool size = that `warm`); else
+  `off` (the core on its own port). A forward the plan does not list (or no plan at all) = 1.0.9-panel: `warm` (4) while
+  the switch is on. 预热池 switch off → `logswitch` keeps running with pools 0; `warm` forwards go `off`.
+  `forwards[i].warm` = pools really run there. A use port another app holds → `state: "failed"` with the reason.
+- **The plan is cleared** when the App's panel address is changed (换面板地址): the new panel sends its own.
+- **Run log**: one `连接保护` line per applied plan (「已应用面板下发的手机方案（参照 ref） · N 条转发」, no addresses);
+  日志快切 on / off / skip / … lines as 利群原版 (at most one a minute per forward and kind).
+- **`diag`**: `state` = that forward's PhoneState state (`ready` / `connecting` / `failed` / `off`); `found` = the plan
+  or the phone knows the forward. `ingress` is left out when there is no current lease entry (not connected);
+  `inUse: false` = the core named no current entry, so the fastest one was measured (one handshake each, the rest on it).
+  `total.source`: `udp` only with answered probes (`probe_sent` > 0 and `probe_received` > 0; then `loss`), else `tcp`;
+  an rtt ≤ 0 or > 2000 ms is no measurement (no `total`); `ageS` = seconds since the core's `selected_at`, -1 unknown.
+  `backup` only when the plan has a 备线 for it. A target that times out is not tried again (the rest count as lost).
+  Errors: `bad_request` (no / bad `forwardId`), `busy`, `failed`.
+- **`loss` is a percentage** (0–100, one decimal) in `diag` and `tcpPing`; `avgMs` has one decimal (0 when none
+  answered); `tcpPing.count` = the handshakes asked for.
 
 Destinations: a plan's `backup` and `entries` addresses are IP literals the owner's own panel designated; the App adds
 exactly those `ip:port` pairs (backups) and `entry ip` + forward ports (tcpPing) to its allowlist and nothing else.
