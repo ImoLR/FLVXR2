@@ -39,9 +39,11 @@ then call `cleanupForwardsForUserTunnel`. `forwardServiceBaseCandidates` builds 
 - [x] Fix (repo pair id, ForwardRecord extra ids, candidates, callers)
 - [x] Tests: group/user/assign, group/tunnel/assign, group/permission/remove, group delete, tunnel/user/remove
 - [x] `go test ./...` (compare failures with fork.162) — 29/29 packages ok, no failures; new test fails 5/6 on fork.162 code (tunnel/user/remove already OK)
-- [ ] Commit, push, tag fork.163, CI + Images + assets, Latest
-- [ ] Prod backup + rollback script, prune, swap
-- [ ] Post-swap: nodes, forwards, log 15 min
-- [ ] Live check with throwaway user/group/forward
-- [ ] Orphan-sweep dry-run all nodes; delete only clear FLVX forward orphans
-- [ ] Memory + ledger, plan marked complete
+- [x] Commit, push, tag fork.163, CI + Images + assets, Latest — fix 611bc087, CI 45168284110, Images 45168315436, Latest, 10 assets, compose images fork.163, PINNED_VERSION/REPO ok, gost sha256 ok
+- [x] Prod backup + rollback script, prune, swap — swap 20:05:26–20:05:33 TW; rollback `/opt/flvx-svc/rollback/pre-fork163-20261123T120526Z/rollback.sh` (→ fork.162); kept pre-fork162 + pre-fork163
+- [x] Post-swap: nodes, forwards, log 15 min — 29/31 online before/after (火山广州 / 火山上海 offline as before), 66/66 forwards + forward_port + 利群 tables identical at 20:06 / 20:07 / 20:21; 5 busiest forwards diag 3/3, no latency regression; log 20:05–20:21 clean (only 火山上海 timeouts); backend RSS 61 → 38 MiB
+- [x] Live check with throwaway user/group/forward — temp user test-revoke-298 (87) + group (14) → tunnel group 13, forward 704 on tunnel 132 entry vmsilo 沪美 :32762 = `704_87_490_tcp/udp`; after `group/user/assign` with no users: forward + user_tunnel gone, port 32762 not listening, no `704_*` in gost.json; temp forward/permission/group/user deleted, 0 leftovers
+- [x] Orphan-sweep dry-run all nodes; delete only clear FLVX forward orphans — 0 orphans / 0 unknown on all 29 online nodes before and after the swap (火山广州 / 火山上海 skipped offline); nothing deleted
+- [x] Memory + ledger, plan marked complete — `fork-release-and-deploy` + MEMORY.md, `vmsilo-hurijp-entry-ipv6-only` (BUG fixed fork.163), RELEASE-LEDGER row 298 → 已发布
+
+**Status: COMPLETE — released as 3.0.27-fork.163, prod upgraded 11-23 20:05 TW.**
