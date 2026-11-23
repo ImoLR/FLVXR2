@@ -45,18 +45,24 @@ return the imgamer.top AAAA (checked with leikwan-hutai-ct.imgamer.top).
 - 复制链接 (forward copy link) shows the domain (the user's goal); NekoBox users
   importing it by hand need IPv6 路由 = 启用.
 
+## Results
+
+- go test ./... (go-backend): base fork.166 29/29 packages ok, 0 failing tests; this branch 29/29 ok, 0 failing.
+- New test `TestSubEntryIPv6OnlyDomain` fails on fork.166 (NekoBox / Hiddify / Shadowrocket / Surge / unknown get the bare domain) and passes here; `TestUseEntryDomains` + goldens pass (goldens untouched).
+
 ## Checklist
 
 - [x] Read memories / brief; worktree `flvxx-302` on `fix/3.0.27-entry-domain` from fork.166
 - [x] Prod read-only: nodes 51/59 addresses, tunnels, forwards, DDNS records, subs (28 = liuchen NekoBox, 29 = test-ns-fx NekoBox)
 - [x] Lab: mihomo 1.19.32/34, sing-box 1.12/1.13/1.14 pass; NekoBox emulation fails; Surge/Stash docs
 - [x] Mainland DNS check (fleet-aliyun-sz)
-- [ ] Code: repo IPv6-only DDNS domain map + literal entry nodes with `EntryDomain`
-- [ ] Code: `sublink.UseEntryDomains`; handler picks domain/literal per client (cache key)
-- [ ] Tests: sublink unit (byte-identical without EntryDomain), handler test (Clash/sing-box domain, NekoBox/Base64/Surge literal, stored literal item resolves after the switch, editor rekey), goldens unchanged
-- [ ] Lab after: mihomo + sing-box with the domain, NekoBox flavour literal
-- [ ] go test ./... compared with base fork.166
-- [ ] Wait for leikwan-batch-1124 to finish; merge onto what prod runs
+- [x] Code: repo IPv6-only DDNS domain map + literal entry nodes with `EntryDomain`
+- [x] Code: `sublink.UseEntryDomains`; handler picks domain/literal per client (cache key)
+- [x] Tests: sublink unit (byte-identical without EntryDomain), handler test (Clash/sing-box domain, NekoBox/Base64/Surge literal, stored literal item resolves after the switch, editor rekey), goldens unchanged
+- [x] Lab after: mihomo + sing-box with the domain, NekoBox flavour literal
+- [x] go test ./... compared with base fork.166
+- [x] Wait for leikwan-batch-1124 to finish; merge onto what prod runs
+- [x] Isolated prod-DB lab (paneld in its own netns, loopback only): base fork.166 vs new = 96/96 renders byte-identical (8 subs × 12 UAs); after a simulated switch only subs 28/29 change and only for mihomo / Stash / sing-box (domain), NekoBox / Hiddify / Shadowrocket / v2rayN / Surge / Loon / unknown byte-identical; old code would hand the bare domain to all; mihomo -t + sing-box 1.12/1.13/1.14 check pass
 - [ ] Ledger row, tag next fork, CI + images + release assets
 - [ ] Prod backup + rollback script + prune; upgrade; health + light node check
 - [ ] CF zone: names free, no wildcard; DDNS records on nodes 51 / 59 (main AAAA, source 电信 240e)
