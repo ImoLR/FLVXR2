@@ -31,9 +31,24 @@ type UserSubscription struct {
 	// editable and deletable like any sub, 生成订阅 reuses or re-creates it);
 	// "" = an ordinary one.
 	AutoKind string `gorm:"type:varchar(20);not null;default:''" json:"autoKind"`
+	// EntryMode (plan 297): which entry the subscription's 利群 nodes use —
+	// "main" (default, every sub before plan 297) = the owner's 主入口 (follows
+	// 换主入口); "local" = 手机本地, 127.0.0.1:<vendor port> (made or updated in
+	// the im.gamer App while this phone's entry was 手机本地; works on any
+	// device running a LeiKwan client on 127.0.0.1). Nothing else changes.
+	EntryMode string `gorm:"type:varchar(10);not null;default:'main'" json:"entryMode"`
 }
 
 func (UserSubscription) TableName() string { return "user_subscription" }
+
+// Sub entry modes (plan 297).
+const (
+	SubEntryMain  = "main"
+	SubEntryLocal = "local"
+)
+
+// EntryLocal: the subscription's 利群 nodes are on 手机本地 (127.0.0.1).
+func (s UserSubscription) EntryLocal() bool { return s.EntryMode == SubEntryLocal }
 
 // UserSubSource is an external subscription (机场) whose nodes can be put into
 // subscriptions. The URL is encrypted at rest and never returned in full;

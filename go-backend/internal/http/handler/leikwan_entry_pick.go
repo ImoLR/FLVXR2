@@ -8,25 +8,21 @@ import (
 	"go-backend/internal/store/model"
 )
 
-// Plan 294 / 297 (im.gamer App): 复制链接 and the 利群汇聚 subscription can
-// point at 手机本地 — 127.0.0.1 = the LeiKwan client on the device itself,
-// same vendor port (no offset). Nothing is stored on the panel: picking
-// 手机本地 is a choice kept in the App (bridge setEntry), the panel only
-// renders on request — the link's `local` flag or the subscription URL's
-// ?lk=local (「手机专用订阅」). Plan 297 dropped round 1's arbitrary entry
-// (entryNodeId / ?lk=<node>): switching to another server entry is the normal
-// 换主入口 (grant/save), as in the browser.
+// Plan 294 / 297 (im.gamer App): 复制链接 and subscriptions can point at
+// 手机本地 — 127.0.0.1 = the LeiKwan client on the device itself, same vendor
+// port (no offset). Which entry a phone uses is the App's own choice (bridge
+// setEntry), never written to the server grant. The panel renders 手机本地 on
+// request only: the link's `local` flag, and a subscription whose entry_mode
+// is "local" (made / updated in the App while its entry was 手机本地). Admin
+// only this round: normal users keep their grant's 主入口.
 
 const (
 	lkLocalHost = "127.0.0.1"
 	lkLocalName = "手机本地"
-	// lkSubEntryQuery is the subscription URL parameter (only "local").
-	lkSubEntryQuery = "lk"
-	lkSubEntryLocal = "local"
 )
 
-// parseLKLocal: ?lk=local (anything else = the owner's 主入口).
-func parseLKLocal(v string) bool { return strings.TrimSpace(v) == lkSubEntryLocal }
+// errLKLocalAdminOnly: 手机本地 is admin-only this round (plan 297).
+var errLKLocalAdminOnly = errors.New("手机本地现在只给管理员用")
 
 // lkLocalEntry: 手机本地 as an entry of the 利群 nodes (never locked by
 // 「只开主入口」: that is the hosts' nft, the phone dials its own loopback).
@@ -34,7 +30,7 @@ func lkLocalEntry() *lkEntry { return &lkEntry{Host: lkLocalHost, Name: lkLocalN
 
 type lkEntryCtxKey struct{}
 
-// withLKEntry carries a subscription's ?lk=local entry into subLoad.
+// withLKEntry carries a 手机本地 subscription's entry into subLoad.
 func withLKEntry(ctx context.Context, e *lkEntry) context.Context {
 	if e == nil {
 		return ctx

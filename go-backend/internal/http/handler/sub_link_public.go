@@ -173,9 +173,11 @@ func (h *Handler) subRenderFor(ctx context.Context, s *model.UserSubscription, f
 	if flavor != "" {
 		key += "|" + flavor
 	}
-	if e := lkEntryFrom(ctx); e != nil {
-		// Plan 294 / 297: ?lk=local renders the 利群 nodes on 手机本地.
-		key += "|lk=" + e.Host
+	if s.EntryLocal() {
+		// Plan 297: a 手机本地 subscription renders its 利群 nodes on
+		// 127.0.0.1 (the row's entry_mode; the cache is also purged on change).
+		key += "|lk=local"
+		ctx = subEntryCtx(ctx, s)
 	}
 	routing := sublink.ParseRouting(s.Routing)
 	if format == sublink.FormatSingBox || len(routing) > 0 && (format == sublink.FormatClash || format == sublink.FormatSurge) {
@@ -370,14 +372,7 @@ func (h *Handler) subPublic(w http.ResponseWriter, r *http.Request) {
 	case format == sublink.FormatSurge && (surfboard || client.Surfboard):
 		flavor = subFlavorSurfboard
 	}
-	// Plan 294 / 297: ?lk=local = 「手机专用订阅」 (the 利群 nodes on 手机本地
-	// 127.0.0.1). Anything else = the 主入口.
-	ctx := r.Context()
-	lkPicked := false
-	if parseLKLocal(r.URL.Query().Get(lkSubEntryQuery)) {
-		ctx, lkPicked = withLKEntry(ctx, lkLocalEntry()), true
-	}
-	v, err := h.subRenderFor(ctx, s, format, flavor, subPublicOrigin(r))
+	v, err := h.subRenderFor(r.Context(), s, format, flavor, subPublicOrigin(r))
 	if err != nil {
 		if errors.Is(err, errSubBusy) {
 			st.refusals.Note("busy")
@@ -395,12 +390,6 @@ func (h *Handler) subPublic(w http.ResponseWriter, r *http.Request) {
 		query := ""
 		if fromQuery {
 			query = "t=" + url.QueryEscape(strings.ToLower(tParam))
-		}
-		if lkPicked {
-			if query != "" {
-				query += "&"
-			}
-			query += lkSubEntryQuery + "=" + lkSubEntryLocal
 		}
 		line := sublink.SurgeManagedLine(subPublicURL(r, s.Token, query))
 		body = make([]byte, 0, len(line)+len(v.body))
@@ -425,14 +414,15 @@ func (h *Handler) subPublic(w http.ResponseWriter, r *http.Request) {
 	hd.Set("Cache-Control", "no-store")
 	hd.Set("subscription-userinfo", info)
 	hd.Set("profile-update-interval", "12")
-	hd.Set("profile-title", "base64:"+base64.StdEncoding.EncodeToString([]byte(s.Name)))
-	hd.Set("content-disposition", "attachment; filename=\"flvx"+ext+"\"; filename*=UTF-8''"+url.PathEscape(s.Name+ext))
+	title := subClientTitle(s)
+	hd.Set("profile-title", "base64:"+base64.StdEncoding.EncodeToString([]byte(title)))
+	hd.Set("content-disposition", "attachment; filename=\"flvx"+ext+"\"; filename*=UTF-8''"+url.PathEscape(title+ext))
 	hd.Set("Content-Length", strconv.Itoa(len(body)))
 	_, _ = w.Write(body)
 	h.subMarkPulled(s.ID, client.Label, v.nodes, now)
-	if v.leikwan > 0 && !lkPicked {
-		// plan 272: ends a 换主入口 grace (276: only with 利群 nodes; 294: not
-		// from a ?lk=local pull, whose nodes are not on the new 主入口)
+	if v.leikwan > 0 && !s.EntryLocal() {
+		// plan 272: ends a 换主入口 grace (276: only with 利群 nodes; 297: not
+		// from a 手机本地 sub, whose nodes are not on the new 主入口)
 		h.leiKwanSubPulled(s.UserID, now)
 	}
 }
@@ -497,7 +487,7 @@ func (h *Handler) subPage(w http.ResponseWriter, r *http.Request, s *model.UserS
 		count = v.nodes
 	}
 	link := subPublicURL(r, s.Token, "")
-	data := map[string]interface{}{"Name": s.Name, "Count": count, "URL": link}
+	data := map[string]interface{}{"Name": subClientTitle(s), "Count": count, "URL": link}
 	if code, err := qr.Encode(link, qr.M); err == nil {
 		code.Scale = 6
 		data["QR"] = template.URL("data:image/png;base64," + base64.StdEncoding.EncodeToString(code.PNG()))

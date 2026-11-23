@@ -374,6 +374,10 @@ type lkGen struct {
 	mainEntry map[int64]int64
 	// Plan 272 「只开主入口」: user → the old 主入口 still open in its grace.
 	graceEntry map[int64]int64
+	// Plan 297: admin accounts — their rules are never held to one entry by
+	// 「只开主入口」 (any / several entries at once; only the vendor client
+	// limits apply).
+	admins map[int64]bool
 }
 
 func (h *Handler) newLKGen() (*lkGen, error) {
@@ -441,6 +445,11 @@ func (h *Handler) newLKGen() (*lkGen, error) {
 	}
 	if g.setting != nil {
 		g.global = parseLeiKwanGlobal(g.setting.Global)
+	}
+	if g.global.EntryLock {
+		if g.admins, err = h.repo.AdminUserIDs(); err != nil {
+			return nil, err
+		}
 	}
 	return g, nil
 }
@@ -1094,10 +1103,10 @@ const lkEntryGrace = 24 * time.Hour
 
 // entryLocked (plan 272 「只开主入口」): the rule's port is closed on this
 // 利群入口 host because it is not the owner's 主入口. Open: lock off, rule
-// exempt (「所有利群入口都可用」), owner without a 主入口, the 主入口 itself,
-// or the previous 主入口 during its grace.
+// exempt (「所有利群入口都可用」), owner is an admin (plan 297), owner without
+// a 主入口, the 主入口 itself, or the previous 主入口 during its grace.
 func (g *lkGen) entryLocked(x model.LeiKwanRule, nodeID int64) bool {
-	if !g.global.EntryLock || x.AllEntries == 1 {
+	if !g.global.EntryLock || x.AllEntries == 1 || g.admins[x.UserID] {
 		return false
 	}
 	main := g.mainEntry[x.UserID]

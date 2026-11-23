@@ -548,7 +548,7 @@ func (h *Handler) subList(w http.ResponseWriter, r *http.Request) {
 		}
 		views = append(views, map[string]interface{}{"id": s.ID, "name": s.Name, "token": s.Token, "format": s.Format, "ruleMode": s.RuleMode,
 			"counts": counts, "items": len(refs), "lastPullAt": s.LastPullAt, "lastPullClient": s.LastPullClient, "lastPullNodes": s.LastPullNodes, "createdTime": s.CreatedTime,
-			"routing": len(sublink.ParseRouting(s.Routing)), "auto": s.AutoKind})
+			"routing": len(sublink.ParseRouting(s.Routing)), "auto": s.AutoKind, "entryMode": subEntryMode(&s)})
 	}
 	srcViews := []interface{}{}
 	for _, s := range sources {
@@ -575,6 +575,7 @@ func (h *Handler) subPool(w http.ResponseWriter, r *http.Request) {
 	}
 	var refs []sublink.Ref
 	routing := sublink.DefaultRouting() // a new subscription starts with the default 分流
+	ctx := r.Context()
 	if req.ID > 0 {
 		s, err := h.repo.GetSubscription(req.ID)
 		if err != nil || s == nil || s.UserID != uid {
@@ -583,8 +584,9 @@ func (h *Handler) subPool(w http.ResponseWriter, r *http.Request) {
 		}
 		refs = sublink.ParseRefs(s.Items)
 		routing = sublink.ParseRouting(s.Routing)
+		ctx = subEntryCtx(ctx, s) // plan 297: a 手机本地 sub shows 127.0.0.1
 	}
-	d, err := h.subLoad(r.Context(), uid, refs, true, false)
+	d, err := h.subLoad(ctx, uid, refs, true, false)
 	if err != nil {
 		subFail(w, err)
 		return
@@ -738,9 +740,16 @@ func (h *Handler) subPool(w http.ResponseWriter, r *http.Request) {
 			routing[i].Exit = sublink.ExitNodePrefix + rekey[k]
 		}
 	}
+	// Plan 297: the 主入口 name for the editor's 「入口」 row (跟主入口 …).
+	lkMainName := ""
+	if lkGranted {
+		if e := h.leiKwanUserEntry(uid); e != nil {
+			lkMainName = e.Name
+		}
+	}
 	response.WriteJSON(w, response.OK(map[string]interface{}{
 		"rules": rules, "landing": landing, "external": externals, "sources": sources, "portForwards": d.panel.PortForwards,
-		"leikwan": lkItems, "leikwanFollowKey": sublink.Ref{Kind: sublink.RefLeiKwanAll}.Key(), "leikwanGranted": lkGranted,
+		"leikwan": lkItems, "leikwanFollowKey": sublink.Ref{Kind: sublink.RefLeiKwanAll}.Key(), "leikwanGranted": lkGranted, "leikwanMainEntry": lkMainName,
 		"selected": selected, "maxNodes": model.MaxSubscriptionNodes,
 		"routing": routing, "routingCatalog": subRoutingCatalog(), "routingDefaults": sublink.DefaultRouteKeys,
 		"routingLimits": map[string]int{"entries": sublink.MaxRouteEntries, "lines": sublink.MaxRouteLines, "lineLen": sublink.MaxRouteLineLen, "nameLen": sublink.MaxRouteNameLen,
@@ -768,6 +777,27 @@ type subSaveReq struct {
 	// Routing: the 分流 list (plan 256); absent = create with the defaults /
 	// update keeps the stored list (an editor from before plan 256).
 	Routing *[]sublink.RouteEntry `json:"routing"`
+	// EntryMode (plan 297): "main" | "local" (手机本地, admin only); absent =
+	// create as main / update keeps the stored mode.
+	EntryMode *string `json:"entryMode"`
+}
+
+// subReqEntryMode (plan 297): the entry mode a save asks for — "" = keep
+// (update) / main (create). 手机本地 is admin-only this round.
+func subReqEntryMode(req *subSaveReq, admin bool) (string, error) {
+	if req.EntryMode == nil {
+		return "", nil
+	}
+	switch *req.EntryMode {
+	case model.SubEntryMain:
+		return model.SubEntryMain, nil
+	case model.SubEntryLocal:
+		if !admin {
+			return "", errLKLocalAdminOnly
+		}
+		return model.SubEntryLocal, nil
+	}
+	return "", errors.New("入口只能是跟主入口或手机本地")
 }
 
 // subValidate checks a save request against the user's own data: only refs
@@ -862,7 +892,36 @@ func (h *Handler) subValidate(ctx context.Context, uid int64, req *subSaveReq) (
 }
 
 func subView(s *model.UserSubscription) map[string]interface{} {
-	return map[string]interface{}{"id": s.ID, "name": s.Name, "token": s.Token, "format": s.Format, "ruleMode": s.RuleMode}
+	return map[string]interface{}{"id": s.ID, "name": s.Name, "token": s.Token, "format": s.Format, "ruleMode": s.RuleMode, "entryMode": subEntryMode(s)}
+}
+
+// subEntryMode (plan 297): the subscription's entry mode for views — "main"
+// (the owner's 主入口) or "local" (手机本地, 127.0.0.1).
+func subEntryMode(s *model.UserSubscription) string {
+	if s != nil && s.EntryLocal() {
+		return model.SubEntryLocal
+	}
+	return model.SubEntryMain
+}
+
+// subClientTitle (plan 297): the title clients show (profile-title, file
+// name, browser page). A 手机本地 subscription gets 「 · 手机本地」, derived
+// from entry_mode (never written into the editable name), so switching the
+// entry back to the 主入口 drops it at once.
+func subClientTitle(s *model.UserSubscription) string {
+	if s.EntryLocal() {
+		return s.Name + " · " + lkLocalName
+	}
+	return s.Name
+}
+
+// subEntryCtx (plan 297): a 手机本地 subscription renders its 利群 nodes on
+// 127.0.0.1 (subLoad reads the entry from the context); main = unchanged.
+func subEntryCtx(ctx context.Context, s *model.UserSubscription) context.Context {
+	if s != nil && s.EntryLocal() {
+		return withLKEntry(ctx, lkLocalEntry())
+	}
+	return ctx
 }
 
 func (h *Handler) subCreate(w http.ResponseWriter, r *http.Request) {
@@ -881,6 +940,14 @@ func (h *Handler) subCreate(w http.ResponseWriter, r *http.Request) {
 		subFail(w, err)
 		return
 	}
+	mode, err := subReqEntryMode(&req, admin)
+	if err != nil {
+		subFail(w, err)
+		return
+	}
+	if mode == "" {
+		mode = model.SubEntryMain
+	}
 	if routing == nil {
 		js := sublink.RoutingJSON(sublink.DefaultRouting())
 		routing = &js
@@ -891,7 +958,8 @@ func (h *Handler) subCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	now := time.Now().UnixMilli()
-	s := &model.UserSubscription{UserID: uid, Name: req.Name, Token: token, Format: req.Format, RuleMode: req.RuleMode, Items: sublink.RefsJSON(refs), Routing: routing, CreatedTime: now, UpdatedTime: now}
+	s := &model.UserSubscription{UserID: uid, Name: req.Name, Token: token, Format: req.Format, RuleMode: req.RuleMode, Items: sublink.RefsJSON(refs), Routing: routing, CreatedTime: now, UpdatedTime: now,
+		EntryMode: mode}
 	cap := model.MaxSubscriptionsPerUser
 	if admin {
 		cap = 0
@@ -913,7 +981,7 @@ func (h *Handler) subUpdate(w http.ResponseWriter, r *http.Request) {
 		subFail(w, err)
 		return
 	}
-	uid, _, err := h.subOwner(r)
+	uid, admin, err := h.subOwner(r)
 	if err != nil {
 		subFail(w, err)
 		return
@@ -928,9 +996,22 @@ func (h *Handler) subUpdate(w http.ResponseWriter, r *http.Request) {
 		subFail(w, err)
 		return
 	}
+	mode, err := subReqEntryMode(&req, admin)
+	if err != nil {
+		subFail(w, err)
+		return
+	}
 	if ok, err := h.repo.UpdateSubscription(s.ID, uid, req.Name, req.Format, req.RuleMode, sublink.RefsJSON(refs), routing); err != nil || !ok {
 		subFail(w, errors.New("保存失败"))
 		return
+	}
+	if mode != "" && mode != subEntryMode(s) {
+		// Plan 297: 手机本地 ↔ 跟主入口 (badge + client title follow at once).
+		if _, err := h.repo.SetSubscriptionEntryMode(s.ID, uid, mode); err != nil {
+			subFail(w, errors.New("保存失败"))
+			return
+		}
+		s.EntryMode = mode
 	}
 	h.subState().cache.purgeSub(s.ID)
 	h.subLinkGC(uid)

@@ -1122,6 +1122,9 @@ type leiKwanRuleCtx struct {
 	limits map[int64][]lkCapLimit
 	// Plan 297 (admin, App): own rule id → what 手机本地 cannot run.
 	phoneLimits map[int64][]lkCapLimit
+	// Plan 297 (admin view): owners that are admins (never held to one
+	// entry by 「只开主入口」).
+	admins map[int64]bool
 }
 
 func (h *Handler) leiKwanRuleContext(rules []model.LeiKwanRule, admin bool) *leiKwanRuleCtx {
@@ -1181,6 +1184,7 @@ func (h *Handler) leiKwanRuleContext(rules []model.LeiKwanRule, admin bool) *lei
 	if admin {
 		c.hosts = h.leiKwanHostContexts()
 		c.limits = h.leiKwanRuleEntryLimits(rules, c)
+		c.admins, _ = h.repo.AdminUserIDs()
 	}
 	return c
 }
@@ -1293,6 +1297,9 @@ func (h *Handler) leiKwanRuleView(x model.LeiKwanRule, c *leiKwanRuleCtx, admin 
 	}
 	v["userId"], v["userName"], v["forwardId"], v["source"] = x.UserID, c.users[x.UserID], x.ForwardID, x.Source
 	v["allEntries"] = x.AllEntries == 1
+	if c.admins[x.UserID] {
+		v["ownerAdmin"] = true // plan 297: open on every entry (not 「只开主入口」)
+	}
 	accel := parseLeiKwanAccel(line.Accel)
 	over := parseLeiKwanRuleAccel(x.Accel)
 	eff := map[string]interface{}{"warmMain": accel.Warm.Main, "warmBackup": accel.Warm.Backup, "ssFilter": accel.SSFilter, "logswitch": accel.Logswitch, "returnCheck": accel.ReturnCheck}
@@ -1933,7 +1940,7 @@ func (h *Handler) leiKwanDeleteForward(ctx context.Context, x *model.LeiKwanRule
 func (h *Handler) leikwanRuleLink(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		ID int64 `json:"id"`
-		// Plan 294 / 297 (im.gamer App): 手机本地 = 127.0.0.1:<vendor port>.
+		// Plan 294 / 297 (im.gamer App, admin): 手机本地 = 127.0.0.1:<vendor port>.
 		Local bool `json:"local"`
 	}
 	if err := leiKwanDecode(r, &req); err != nil {
@@ -1944,6 +1951,12 @@ func (h *Handler) leikwanRuleLink(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		leiKwanError(w, err)
 		return
+	}
+	if req.Local {
+		if _, role, _ := userRoleFromRequest(r); role != 0 {
+			leiKwanError(w, errLKLocalAdminOnly)
+			return
+		}
 	}
 	g, _ := h.repo.GetLeiKwanGrant(x.UserID)
 	if g == nil {
