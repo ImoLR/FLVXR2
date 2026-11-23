@@ -26,7 +26,16 @@ import {
   ClientPill,
   OfflinePill,
 } from "@/pages/leikwan/panel/entry-state";
+import {
+  PHONE_KEY,
+  PHONE_NAME,
+  PHONE_SUB_SWITCH_BACK,
+  phoneCaps,
+  phoneSummary,
+  usePhoneCtx,
+} from "@/pages/leikwan/panel/phone-entry";
 import { LabeledSwitch, QuotaPill } from "@/pages/leikwan/panel/shared";
+import { setPhoneEntry } from "@/utils/app-bridge";
 
 // Plan 266: grant the tunnel group 「利群汇聚」 to one user. The 主入口 is picked
 // here once for every 利群 line; changing it moves all of the user's 利群 rule
@@ -39,21 +48,29 @@ import { LabeledSwitch, QuotaPill } from "@/pages/leikwan/panel/shared";
 // host drawer 「设为主入口…」). Each entry option shows 在线 / 离线, the
 // LeiKwan client and what it can run; offline entries cannot be picked; a
 // different entry shows the backend preview of what each forward keeps / loses.
+// Plan 297 (im.gamer App only, the caller's own grant): one more option
+// 「手机本地」. Picking it is stored in the App (setEntry), never on the
+// server — the server 主入口 stays for the user's other devices. Picking the
+// server 主入口 again only clears the phone choice; another server entry is
+// the normal flow above (and clears the phone choice too).
 
 export type LeiKwanGrantDialogMode = "grant" | "entry";
 
 function EntryOptionDetail({
   caps,
   current,
+  currentLabel = "当前主入口",
 }: {
   caps?: LeiKwanEntryCaps;
   current: boolean;
+  /** Plan 297: 「其他设备在用」 while this phone uses 手机本地 */
+  currentLabel?: string;
 }) {
   if (!caps && !current) return null;
 
   return (
     <span className="mt-1 flex flex-wrap gap-1">
-      {current && <Pill tone="teal">当前主入口</Pill>}
+      {current && <Pill tone="teal">{currentLabel}</Pill>}
       <ClientPill caps={caps} />
       <CapPills caps={caps} />
     </span>
@@ -175,6 +192,8 @@ export function LeiKwanGrantDialog({
   entryLock = false,
   mode = "grant",
   presetEntry,
+  phone = false,
+  presetPhone = false,
 }: {
   isOpen: boolean;
   onClose: () => void;
@@ -195,6 +214,10 @@ export function LeiKwanGrantDialog({
   mode?: LeiKwanGrantDialogMode;
   /** Plan 295: entry to preselect (host drawer 「设为主入口…」) */
   presetEntry?: number;
+  /** Plan 297 (im.gamer App, the caller's own grant): offer 「手机本地」 */
+  phone?: boolean;
+  /** Plan 297: 手机本地 drawer 「设为入口…」 preselects it */
+  presetPhone?: boolean;
 }) {
   const [userId, setUserId] = useState("");
   const [entry, setEntry] = useState("");
@@ -206,6 +229,10 @@ export function LeiKwanGrantDialog({
   const [picked, setPicked] = useState<LeiKwanGrant | null>(null);
   const pickGrant = !grant && !!grants && presetEntry !== undefined;
   const g = grant || picked;
+  // Plan 297: 手机本地 (App only).
+  const phoneCtx = usePhoneCtx();
+  const phoneOn = phone && !!phoneCtx;
+  const phoneLocal = phoneOn && !!phoneCtx?.local;
 
   useEffect(() => {
     if (!isOpen) return;
@@ -213,11 +240,13 @@ export function LeiKwanGrantDialog({
     setPreview(null);
     setUserId(user ? String(user.id) : grant ? String(grant.userId) : "");
     setEntry(
-      presetEntry !== undefined
-        ? String(presetEntry)
-        : grant
-          ? String(grant.mainEntryNodeId)
-          : "",
+      phoneOn && (presetPhone || phoneLocal)
+        ? PHONE_KEY
+        : presetEntry !== undefined
+          ? String(presetEntry)
+          : grant
+            ? String(grant.mainEntryNodeId)
+            : "",
     );
     setBackupLine(grant ? grant.backupLine : true);
     // Plan 295: 「设为主入口…」 with one granted user picks that user.
@@ -226,11 +255,14 @@ export function LeiKwanGrantDialog({
       setUserId(String(grants[0].userId));
       setBackupLine(grants[0].backupLine);
     }
-  }, [isOpen, user, grant, presetEntry, grants]);
+  }, [isOpen, user, grant, presetEntry, grants, phoneOn, presetPhone, phoneLocal]);
 
   const entryNode = entries.find((e) => String(e.id) === entry);
+  const pickedPhone = phoneOn && entry === PHONE_KEY;
   const changedEntry =
-    !!g && entry !== "" && String(g.mainEntryNodeId) !== entry;
+    !!g && entry !== "" && String(g.mainEntryNodeId) !== entry && !pickedPhone;
+  // Plan 297: the phone-only choice changes (nothing written for the entry).
+  const phoneSwitch = phoneOn && pickedPhone !== phoneLocal && !changedEntry;
   const title =
     user?.name ||
     g?.userName ||
@@ -242,8 +274,12 @@ export function LeiKwanGrantDialog({
   const entryOffline = !!entryNode && !entryNode.online;
 
   // Plan 295: the backend preview of the forwards on the picked entry.
+  // Plan 297: also for 手机本地 (the App's capability data).
+  const phoneReq = phoneCtx?.req;
+  const previewPhone = pickedPhone && !phoneLocal;
+
   useEffect(() => {
-    if (!isOpen || !changedEntry || !g) {
+    if (!isOpen || !(changedEntry || previewPhone) || !g) {
       setPreview(null);
 
       return;
@@ -251,10 +287,11 @@ export function LeiKwanGrantDialog({
     let live = true;
 
     setPreviewing(true);
-    void previewLeiKwanGrant({
-      userId: g.userId,
-      mainEntryNodeId: parseInt(entry, 10),
-    }).then((res) => {
+    void previewLeiKwanGrant(
+      previewPhone
+        ? { userId: g.userId, mainEntryNodeId: 0, local: true, phone: phoneReq }
+        : { userId: g.userId, mainEntryNodeId: parseInt(entry, 10) },
+    ).then((res) => {
       if (!live) return;
       setPreviewing(false);
       if (res.code === 0) setPreview(res.data);
@@ -267,7 +304,7 @@ export function LeiKwanGrantDialog({
     return () => {
       live = false;
     };
-  }, [isOpen, changedEntry, entry, g]);
+  }, [isOpen, changedEntry, entry, g, previewPhone, phoneReq?.warm]);
 
   const pickUser = (id: string) => {
     const next = (grants || []).find((x) => String(x.userId) === id) || null;
@@ -277,7 +314,51 @@ export function LeiKwanGrantDialog({
     if (next) setBackupLine(next.backupLine);
   };
 
+  // Plan 297: 手机本地 picked, or back from it to the server 主入口 — the
+  // App keeps the choice; the grant is written only for a 备线 change.
+  const savePhone = async () => {
+    if (!g) return;
+    setSaving(true);
+    if (backupLine !== g.backupLine) {
+      const res = await saveLeiKwanGrant({
+        userId: g.userId,
+        mainEntryNodeId: g.mainEntryNodeId,
+        backupLine,
+      });
+
+      if (res.code !== 0) {
+        setSaving(false);
+        toast.error(res.msg || "保存失败");
+
+        return;
+      }
+    }
+    try {
+      await setPhoneEntry(pickedPhone ? "local" : "server");
+    } catch (e) {
+      setSaving(false);
+      toast.error((e as Error).message || "App 没有完成这个操作");
+
+      return;
+    }
+    setSaving(false);
+    if (!phoneSwitch) toast.success("授权已保存");
+    else if (pickedPhone)
+      toast.success("这台手机的入口换成手机本地（面板里的主入口不变）");
+    else {
+      toast.success(`这台手机换回 ${g.mainEntryName || "主入口"}（面板不用改）`);
+      toast(PHONE_SUB_SWITCH_BACK, { duration: 8000, icon: "📱" });
+    }
+    onSaved();
+    onClose();
+  };
+
   const save = async () => {
+    if (phoneOn && (pickedPhone || (phoneLocal && !changedEntry))) {
+      await savePhone();
+
+      return;
+    }
     const uid = parseInt(userId, 10);
     const eid = parseInt(entry, 10);
 
@@ -305,11 +386,38 @@ export function LeiKwanGrantDialog({
       );
     else toast.success("授权已保存");
     (res.data?.warnings || []).forEach((w) => toast.error(w));
+    // Plan 297: another server entry from 手机本地 also clears the phone choice.
+    if (phoneLocal) {
+      await setPhoneEntry("server").catch(() => undefined);
+      toast(PHONE_SUB_SWITCH_BACK, { duration: 8000, icon: "📱" });
+    }
     onSaved();
     onClose();
   };
 
   const entryTitle = mode === "entry" || pickGrant;
+  // Plan 297: the 「手机本地」 option (App only, first).
+  const phoneOption = () => {
+    const sum = phoneSummary(phoneCtx?.state || null);
+
+    return (
+      <SelectItem
+        key={PHONE_KEY}
+        description={
+          <span className="mt-1 flex flex-wrap gap-1">
+            {phoneLocal && <Pill tone="teal">当前入口</Pill>}
+            <Pill tone="violet">只在这台手机</Pill>
+            <ClientPill caps={phoneCaps(phoneCtx?.info || null)} />
+            <CapPills caps={phoneCaps(phoneCtx?.info || null)} />
+          </span>
+        }
+        endContent={<Pill tone={sum.tone}>{sum.text}</Pill>}
+        textValue={`${PHONE_NAME} · 127.0.0.1`}
+      >
+        {`${PHONE_NAME} · 127.0.0.1`}
+      </SelectItem>
+    );
+  };
 
   return (
     <Modal
@@ -387,13 +495,16 @@ export function LeiKwanGrantDialog({
               setEntry(String(Array.from(keys)[0] || ""))
             }
           >
-            {entries.map((e) => (
+            {[
+              ...(phoneOn ? [phoneOption()] : []),
+              ...entries.map((e) => (
               <SelectItem
                 key={String(e.id)}
                 description={
                   <EntryOptionDetail
                     caps={caps?.[e.id]}
                     current={String(e.id) === String(g?.mainEntryNodeId)}
+                    currentLabel={phoneLocal ? "其他设备在用" : undefined}
                   />
                 }
                 endContent={
@@ -407,7 +518,8 @@ export function LeiKwanGrantDialog({
               >
                 {`${e.name} · ${e.host}${!e.online || e.leikwanStatus === "running" ? "" : "（利群客户端未检测到）"}`}
               </SelectItem>
-            ))}
+              )),
+            ]}
           </Select>
           {entryNode && (
             <div
@@ -422,6 +534,45 @@ export function LeiKwanGrantDialog({
               <ClientPill caps={caps?.[entryNode.id]} />
               <CapPills caps={caps?.[entryNode.id]} />
             </div>
+          )}
+          {pickedPhone && (
+            <div
+              className="-mt-2 flex flex-wrap items-center gap-1"
+              data-leikwan-entry-picked="phone"
+            >
+              <Pill tone="violet">只在这台手机</Pill>
+              <Pill tone={phoneSummary(phoneCtx?.state || null).tone}>
+                {phoneSummary(phoneCtx?.state || null).text}
+              </Pill>
+              <ClientPill caps={phoneCaps(phoneCtx?.info || null)} />
+              <CapPills caps={phoneCaps(phoneCtx?.info || null)} />
+            </div>
+          )}
+          {pickedPhone && !phoneLocal && (
+            <p
+              className="-mt-2 rounded-lg bg-violet-500/10 px-3 py-2 text-xs text-violet-700 dark:bg-violet-400/15 dark:text-violet-300"
+              data-phone-switch-note=""
+            >
+              只在这台手机上生效：面板里的主入口还是 {g?.mainEntryName || "—"}
+              ，电脑和别的设备照常走它。这台手机上的利群转发改走 127.0.0.1:端口（复制链接 / 手机专用订阅）。
+              {phoneCtx?.state?.autoConnect
+                ? "「打开 App 自动连接」开着：保存后马上连接。"
+                : "保存后在授权里点「连接」。"}
+            </p>
+          )}
+          {phoneSwitch && !pickedPhone && (
+            <p
+              className="-mt-2 rounded-lg bg-amber-500/15 px-3 py-2 text-xs text-amber-700 dark:bg-amber-400/15 dark:text-amber-300"
+              data-phone-switch-note="back"
+            >
+              这台手机换回 {g?.mainEntryName || "主入口"}
+              ：面板不用改，手机本地会断开。{PHONE_SUB_SWITCH_BACK}。
+            </p>
+          )}
+          {phoneLocal && changedEntry && (
+            <p className="-mt-2 rounded-lg bg-amber-500/15 px-3 py-2 text-xs text-amber-700 dark:bg-amber-400/15 dark:text-amber-300">
+              这台手机也换回服务器入口，手机本地会断开。{PHONE_SUB_SWITCH_BACK}。
+            </p>
           )}
           {entryOffline && !changedEntry && (
             <p className="-mt-2 rounded-lg bg-red-500/10 px-3 py-2 text-xs text-red-700 dark:bg-red-400/15 dark:text-red-300">
@@ -439,7 +590,7 @@ export function LeiKwanGrantDialog({
                 : "旧入口暂时不会停用（设置里「只开主入口」没开）。"}
             </p>
           )}
-          {changedEntry && (
+          {(changedEntry || previewPhone) && (
             <PreviewBlock
               loading={previewing}
               preview={preview}
@@ -484,7 +635,13 @@ export function LeiKwanGrantDialog({
             variant="flat"
             onPress={() => void save()}
           >
-            {changedEntry ? "保存，换主入口" : "保存授权"}
+            {changedEntry
+              ? "保存，换主入口"
+              : phoneSwitch
+                ? pickedPhone
+                  ? "保存，换到手机本地"
+                  : `保存，换回 ${g?.mainEntryName || "主入口"}`
+                : "保存授权"}
           </Button>
         </ModalFooter>
       </ModalContent>

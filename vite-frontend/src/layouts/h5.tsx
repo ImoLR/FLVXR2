@@ -33,11 +33,7 @@ import { BrandLogo } from "@/components/brand-logo";
 import { BrandMark, BrandName, Wordmark } from "@/components/brand-mark";
 import { useSiteName } from "@/hooks/useSiteName";
 import { SunFilledIcon, MoonFilledIcon } from "@/components/icons";
-import {
-  getMonitorAccess,
-  updatePassword,
-  getStoreStatus,
-} from "@/api";
+import { getMonitorAccess, updatePassword, getStoreStatus } from "@/api";
 import { safeLogout } from "@/utils/logout";
 import { isRestricted } from "@/utils/session";
 import { PROJECT_REPOSITORY_URL, siteConfig } from "@/config/site";
@@ -46,6 +42,7 @@ import { useScrollTopOnPathChange } from "@/hooks/useScrollTopOnPathChange";
 import { useThemeContext } from "@/themes/context";
 import { usePoweredBadgeClear } from "@/hooks/usePoweredBadgeClear";
 import { GlobalPullToRefresh } from "@/components/global-pull-to-refresh";
+import { APP_HOME, isAppMode } from "@/utils/app-bridge";
 
 interface MenuItem {
   path: string;
@@ -175,7 +172,22 @@ export default function H5Layout({ children }: { children: React.ReactNode }) {
     {
       path: "/landing",
       label: "落地",
-      icon: <svg aria-hidden="true" className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={1.8} viewBox="0 0 24 24"><path d="M12 3v12m-4-4 4 4 4-4M5 15v5h14v-5" strokeLinecap="round" strokeLinejoin="round" /></svg>,
+      icon: (
+        <svg
+          aria-hidden="true"
+          className="w-5 h-5"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth={1.8}
+          viewBox="0 0 24 24"
+        >
+          <path
+            d="M12 3v12m-4-4 4 4 4-4M5 15v5h14v-5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
+      ),
     },
     {
       path: "/sub",
@@ -560,6 +572,8 @@ export default function H5Layout({ children }: { children: React.ReactNode }) {
   const [subSeen, setSubSeen] = useState(subMenuSeen);
   // Plan 270: 「利群汇聚」 for users with an active grant; 「新」 until opened.
   const [leikwanNav, setLeikwanNav] = useState(leiKwanNavCached);
+  // Plan 294: inside the im.gamer App (bridge injected).
+  const appMode = isAppMode();
   const [leikwanSeen, setLeikwanSeen] = useState(leiKwanNavSeen);
 
   useEffect(() => {
@@ -591,7 +605,9 @@ export default function H5Layout({ children }: { children: React.ReactNode }) {
       (!item.userOnly || !isAdmin) &&
       item.path !== "/tls" &&
       !(item.path === "/sub" && !subEnabled) &&
-      !(item.path === "/leikwan" && !isAdmin && !leikwanNav) &&
+      !(item.path === "/leikwan" && !isAdmin && !leikwanNav && !appMode) &&
+      // Plan 294: the im.gamer App shows only 利群汇聚 (v0).
+      (!appMode || item.path === APP_HOME) &&
       !(item.path === "/monitor" && monitorAllowed !== true) &&
       !(item.path === "/shop" && !isAdmin && !storeEnabled) &&
       !(
@@ -608,9 +624,11 @@ export default function H5Layout({ children }: { children: React.ReactNode }) {
   const activeItem =
     filteredMenuItems.find((item) => item.path === location.pathname) ||
     filteredMenuItems.find((item) => location.pathname.startsWith(item.path));
-  const primaryMobilePaths = isAdmin
-    ? ["/dashboard", "/forward", "/tunnel", "/node"]
-    : ["/dashboard", "/forward", "/shop", "/myhome"];
+  const primaryMobilePaths = appMode
+    ? [APP_HOME]
+    : isAdmin
+      ? ["/dashboard", "/forward", "/tunnel", "/node"]
+      : ["/dashboard", "/forward", "/shop", "/myhome"];
   const bottomNavItems = primaryMobilePaths
     .map((path) => filteredMenuItems.find((item) => item.path === path))
     .filter(Boolean) as MenuItem[];
@@ -663,10 +681,7 @@ export default function H5Layout({ children }: { children: React.ReactNode }) {
                 className="flvx-h5-user-button text-sm font-medium text-foreground px-1 sm:px-2 min-w-0 bg-transparent"
                 variant="light"
               >
-                <span
-                  className="flvx-h5-user-name truncate"
-                  title={username}
-                >
+                <span className="flvx-h5-user-name truncate" title={username}>
                   {username}
                 </span>
                 <svg
@@ -832,10 +847,7 @@ export default function H5Layout({ children }: { children: React.ReactNode }) {
       </aside>
 
       {/* 主内容区域 */}
-      <main
-        className="flvx-mobile-main"
-        id="h5-main"
-      >
+      <main className="flvx-mobile-main" id="h5-main">
         <GlobalPullToRefresh />
         {children}
         {poweredBadgeVisible && (
@@ -843,7 +855,7 @@ export default function H5Layout({ children }: { children: React.ReactNode }) {
         )}
       </main>
 
-      <nav className="flvx-mobile-bottom-nav" aria-label="移动端主导航">
+      <nav aria-label="移动端主导航" className="flvx-mobile-bottom-nav">
         {bottomNavItems.map((item) => {
           const isActive = location.pathname === item.path;
 
@@ -859,23 +871,25 @@ export default function H5Layout({ children }: { children: React.ReactNode }) {
             </button>
           );
         })}
-        <button
-          className={`flvx-h5-bottom-nav-item ${
-            activeItem &&
-            !bottomNavItems.some((item) => item.path === activeItem.path)
-              ? "is-active"
-              : ""
-          }`}
-          type="button"
-          onClick={toggleMobileMenu}
-        >
-          <span className="flvx-h5-bottom-nav-icon">
-            <svg className="h-5 w-5" fill="currentColor" viewBox="0 0 20 20">
-              <path d="M3 5a2 2 0 114 0 2 2 0 01-4 0zm5 0a2 2 0 114 0 2 2 0 01-4 0zm5 0a2 2 0 114 0 2 2 0 01-4 0zM3 15a2 2 0 114 0 2 2 0 01-4 0zm5 0a2 2 0 114 0 2 2 0 01-4 0zm5 0a2 2 0 114 0 2 2 0 01-4 0z" />
-            </svg>
-          </span>
-          <span className="flvx-h5-bottom-nav-label">更多</span>
-        </button>
+        {!appMode && (
+          <button
+            className={`flvx-h5-bottom-nav-item ${
+              activeItem &&
+              !bottomNavItems.some((item) => item.path === activeItem.path)
+                ? "is-active"
+                : ""
+            }`}
+            type="button"
+            onClick={toggleMobileMenu}
+          >
+            <span className="flvx-h5-bottom-nav-icon">
+              <svg className="h-5 w-5" fill="currentColor" viewBox="0 0 20 20">
+                <path d="M3 5a2 2 0 114 0 2 2 0 01-4 0zm5 0a2 2 0 114 0 2 2 0 01-4 0zm5 0a2 2 0 114 0 2 2 0 01-4 0zM3 15a2 2 0 114 0 2 2 0 01-4 0zm5 0a2 2 0 114 0 2 2 0 01-4 0zm5 0a2 2 0 114 0 2 2 0 01-4 0z" />
+              </svg>
+            </span>
+            <span className="flvx-h5-bottom-nav-label">更多</span>
+          </button>
+        )}
       </nav>
 
       {poweredBadgeVisible && !pageHasOwnSignature && poweredBadgeClear && (

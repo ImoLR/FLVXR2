@@ -173,6 +173,10 @@ func (h *Handler) subRenderFor(ctx context.Context, s *model.UserSubscription, f
 	if flavor != "" {
 		key += "|" + flavor
 	}
+	if e := lkEntryFrom(ctx); e != nil {
+		// Plan 294 / 297: ?lk=local renders the 利群 nodes on 手机本地.
+		key += "|lk=" + e.Host
+	}
 	routing := sublink.ParseRouting(s.Routing)
 	if format == sublink.FormatSingBox || len(routing) > 0 && (format == sublink.FormatClash || format == sublink.FormatSurge) {
 		key += "|" + origin // plan 226 / 256: rule sets download from this origin
@@ -366,7 +370,14 @@ func (h *Handler) subPublic(w http.ResponseWriter, r *http.Request) {
 	case format == sublink.FormatSurge && (surfboard || client.Surfboard):
 		flavor = subFlavorSurfboard
 	}
-	v, err := h.subRenderFor(r.Context(), s, format, flavor, subPublicOrigin(r))
+	// Plan 294 / 297: ?lk=local = 「手机专用订阅」 (the 利群 nodes on 手机本地
+	// 127.0.0.1). Anything else = the 主入口.
+	ctx := r.Context()
+	lkPicked := false
+	if parseLKLocal(r.URL.Query().Get(lkSubEntryQuery)) {
+		ctx, lkPicked = withLKEntry(ctx, lkLocalEntry()), true
+	}
+	v, err := h.subRenderFor(ctx, s, format, flavor, subPublicOrigin(r))
 	if err != nil {
 		if errors.Is(err, errSubBusy) {
 			st.refusals.Note("busy")
@@ -384,6 +395,12 @@ func (h *Handler) subPublic(w http.ResponseWriter, r *http.Request) {
 		query := ""
 		if fromQuery {
 			query = "t=" + url.QueryEscape(strings.ToLower(tParam))
+		}
+		if lkPicked {
+			if query != "" {
+				query += "&"
+			}
+			query += lkSubEntryQuery + "=" + lkSubEntryLocal
 		}
 		line := sublink.SurgeManagedLine(subPublicURL(r, s.Token, query))
 		body = make([]byte, 0, len(line)+len(v.body))
@@ -413,8 +430,10 @@ func (h *Handler) subPublic(w http.ResponseWriter, r *http.Request) {
 	hd.Set("Content-Length", strconv.Itoa(len(body)))
 	_, _ = w.Write(body)
 	h.subMarkPulled(s.ID, client.Label, v.nodes, now)
-	if v.leikwan > 0 {
-		h.leiKwanSubPulled(s.UserID, now) // plan 272: ends a 换主入口 grace (276: only with 利群 nodes)
+	if v.leikwan > 0 && !lkPicked {
+		// plan 272: ends a 换主入口 grace (276: only with 利群 nodes; 294: not
+		// from a ?lk=local pull, whose nodes are not on the new 主入口)
+		h.leiKwanSubPulled(s.UserID, now)
 	}
 }
 

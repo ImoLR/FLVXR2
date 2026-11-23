@@ -16,6 +16,7 @@ import {
 import { useH5Mode } from "@/hooks/useH5Mode";
 import { copyToClipboard } from "@/pages/landing/link-card";
 import { Pill } from "@/pages/landing/pill";
+import { PhoneSubBlock } from "@/pages/leikwan/panel/phone-entry";
 import { OfflineQRCode } from "@/components/qr-code";
 import { Button } from "@/shadcn-bridge/heroui/button";
 import {
@@ -33,6 +34,9 @@ import { Spinner } from "@/shadcn-bridge/heroui/spinner";
 // the link (masked like the 订阅 page) + 复制 + QR, how many 利群 rules are in
 // it, and 「详细设置」 → the 订阅 page editor of this sub. Admins pick a granted
 // user (default themselves).
+// Plan 297 (im.gamer App, 手机本地 is this phone's entry): the own
+// subscription also shows a separate 「手机专用订阅」 (?lk=local → the 利群
+// nodes on 127.0.0.1); the normal one stays as it is for other devices.
 
 /** Default user of the admin picker: the admin's own grant, else the first. */
 export function defaultSubUser(grants: LeiKwanGrant[], me?: string | null) {
@@ -44,10 +48,13 @@ export function LeiKwanSubDialog({
   admin,
   grants = [],
   me,
+  phoneLocal = false,
   onClose,
 }: {
   open: boolean;
   admin: boolean;
+  /** Plan 297: 手机本地 is this phone's entry (App only) */
+  phoneLocal?: boolean;
   /** admin: the granted users to pick from */
   grants?: LeiKwanGrant[];
   me?: string | null;
@@ -106,6 +113,7 @@ export function LeiKwanSubDialog({
   // The 订阅 page edits only the caller's own subscriptions.
   const own = !admin || !owner || (!!me && owner.userName === me);
   const format = (sub?.format || "auto") as SubFormat;
+  const phoneSub = phoneLocal && own && !!sub;
 
   return (
     <Modal
@@ -156,6 +164,14 @@ export function LeiKwanSubDialog({
           )}
           {!loading && sub && (
             <>
+              {phoneSub && (
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <span className="text-sm font-semibold">普通订阅</span>
+                  <span className="text-xs text-default-500">
+                    电脑和别的设备用这个，不变
+                  </span>
+                </div>
+              )}
               <div className="flex flex-wrap gap-1.5">
                 <Pill tone="violet">利群转发 {sub.leikwanNodes} 条</Pill>
                 {sub.total > sub.leikwanNodes && (
@@ -200,6 +216,12 @@ export function LeiKwanSubDialog({
                   : `格式：${subFormatLabel[format] || format}（在「详细设置」里改）`}
                 {sub.lastPullAt ? ` · 最近拉取 ${subAgo(sub.lastPullAt)}` : ""}
               </p>
+              {phoneSub && (
+                <PhoneSubBlock
+                  masked={maskedSubLink(sub.token)}
+                  url={`${url}?lk=local`}
+                />
+              )}
               {!own && (
                 <p className="text-center text-xs text-default-400">
                   这是「{owner?.userName}
