@@ -34,15 +34,15 @@ from tag `3.0.27-fork.164`. One release: panel **fork.165** + App private prerel
 - [x] Backend: 诊断 v2 (hops, landing rtt, no other hosts, `local` mode for 手机本地)
 - [x] Agent: `LandingPeerRtt` command (sock_diag tcp_info of inbound conns on a landing port)
 - [x] Frontend: 诊断 path strip v2 + App phone measurements
-- [ ] App 1.0.10-panel: PanelPlane (日志快切 + 备线 + 预热 from the plan), bridge setPlan / diag / tcpPing,
+- [x] App 1.0.10-panel: PanelPlane (日志快切 + 备线 + 预热 from the plan), bridge setPlan / diag / tcpPing,
       features in AppInfo, PhoneState protect fields; unit tests; lab run
 - [x] lkPhoneCaps / phoneCaps / lkPhoneRuleDiff follow the App's features
 - [x] Tests (panel): go vet clean; go test ./... with PostgreSQL — all packages pass except one contract assertion that pinned the old 「phoneLimits only on own rules」 behaviour (updated to plan 301, re-run ok); npm build + eslint clean; go-gost builds, LandingPeerRtt tests pass
-- [ ] Gallery http://104.145.236.29:8791/leikwan-batch-1124/
-- [ ] Release fork.165 (after plan 300 finished) + prod upgrade + checks
-- [ ] OTA of the native landing nodes used by 利群 forwards (agent change; busy nodes only 02–06 TW)
-- [ ] App private prerelease v1.0.10-panel
-- [ ] Ledger row 301, memories, cleanup
+- [x] Gallery http://104.145.236.29:8791/leikwan-batch-1124/
+- [x] Release fork.165 (after plan 300 finished) + prod upgrade + checks; follow-up fork.166 (诊断 estimate fix)
+- [x] OTA of the native landing nodes used by 利群 forwards (agent change; busy nodes only 02–06 TW)
+- [x] App private prerelease v1.0.10-panel
+- [x] Ledger row 301, memories, cleanup
 
 ## As built (panel)
 
@@ -98,3 +98,27 @@ Live after the landing OTA (05:00 TW, 5 lines): with 全程 − 入口段 − �
 the landing. Fix: 专线入口 → 专线出口 = 全程 − 入口段 (估算); new summary `endToEndMs` ≈ 全程 + 落地段 (shown as
 「到落地 ≈N ms」); texts say 全程 = 入口机 → 专线出口. Without a landing measurement the old 「专线 → 落地」 estimate
 stays as plan 272 had it. Panel only (no agent change).
+
+## Release (11-24 TW)
+
+- **fork.165** tag → d1aa2bca (branch `maintenance/3.0.27-fork.165-leikwan-batch`; the first tag push 66c9036a failed in
+  CI on an npm registry 404 for a just-published recharts 3.11.1 and on `size="3xl"` (not a bridge ModalSize) — fixed,
+  tag moved before any release existed). CI Build Check + Images 45262175988 green, Latest, 10 assets, gost sha256 ok,
+  pins ok. Rollback rehearsed on a prod-DB copy (`--network none`: fork.165 starts, fork.164 starts again, 0 errors).
+  Prod swap **04:54:12–04:54:19 TW**, rollback `/opt/flvx-svc/rollback/pre-fork165-20261123T205412Z/rollback.sh` (→ fork.164).
+- **Landing OTA → fork.165 (window 02–06 TW)**: Boil HKT 99u 04:55:21, Boil Hinet 马年 04:55:52, Fachost seednet 黑五
+  04:56:13, Bestvm JP B 04:56:20 (each back in 7 s). Before/after: all landing nodes active, 利群 诊断 ok, RTT from
+  aws-hk to the landing ports unchanged (19.1/19.6, 2.8/2.9, 48.7/48.7, 21.4/20.9 ms), the 5 busiest tunnel forwards via
+  Bestvm JP B unchanged (#78 fails both before and after — pre-existing), panel light check (5 busiest forwards) same.
+- **fork.166** tag → 65d03dc6 (诊断 estimate fix above), CI 45266891912 green, Latest, 10 assets; rollback rehearsed;
+  prod swap **05:22:42–05:22:49 TW**, rollback `/opt/flvx-svc/rollback/pre-fork166-20261123T212242Z/rollback.sh`
+  (→ fork.165). go-gost of fork.166 = fork.165. Live 诊断 after: 263 入口 3.7 · 专线 ≈6.3 · 落地 6.8 (到落地 ≈16.8),
+  264 30.6 · ≈28.4 · 29.7, 280 3.8 · ≈19.2 · 9.5, 282 18.7 · ≈5.3 · 9.5; 281 has no exit connection while idle
+  (no 预热) → 估算 fallback, as designed. Backups kept: pre-fork165 + pre-fork166 (pre-fork164 pruned; fork.164
+  images stay on ghcr).
+- **App** private prerelease `v1.0.10-panel` (ImoLR/leikwan-local-bridge, branch `feature/panel-app-1.0.10` @ 02ff9cc,
+  vc4, sha256 e24aef3d…65f9d9, privacy check 0 hits). Tests: testPanel 79/79, touched testLab 132/132 (7 env-gated
+  skipped), JVM lab run (fake core + fake 备线 landing: timeout line → new conns on the 备线, return check back).
+  Deferred per the App fast path: full suites both flavors, lint, emulator.
+- Gallery http://104.145.236.29:8791/leikwan-batch-1124/ (before fork.164 / after, web + App mock; lab = prod-DB copy in
+  an isolated netns, deleted afterwards). The 专线-dialog screen did not shoot automatically (toggle just hidden).
