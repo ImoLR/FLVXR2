@@ -1,3 +1,5 @@
+import type { PhonePlan } from "@/utils/app-bridge";
+
 import Network from "@/api/network";
 import { getToken, isAdmin } from "@/utils/auth";
 
@@ -132,6 +134,8 @@ export interface LeiKwanPhoneReq {
   warm: boolean;
   /** the App's version */
   app?: string;
+  /** Plan 301: AppInfo.features (1.0.10-panel runs 日志快切 / 备线 itself) */
+  features?: string[];
 }
 
 export interface LeiKwanTrigger {
@@ -327,6 +331,8 @@ export interface LeiKwanRule {
   // Plan 297 (admin view): the owner is an admin — open on every entry
   // (not held by 「只开主入口」).
   ownerAdmin?: boolean;
+  // Plan 301 (admin): 「只开主入口」 keeps it closed on the shown entry.
+  entryClosed?: boolean;
   // admin only
   userId?: number;
   userName?: string;
@@ -586,7 +592,18 @@ export interface LeiKwanSub {
 
 // ---- Plan 272: 利群规则诊断 ----
 
-export type LeiKwanDiagSection = "hop1" | "hop2" | "exit" | "backup" | "other";
+// Plan 301: device (本机 → 入口), vendor (专线入口 → 专线出口, 估算), landing
+// (专线出口 → 落地, 实测); hop2 = 专线 → 落地 (估算) when the landing is not
+// measured. "other" (other 利群入口 hosts) is gone.
+export type LeiKwanDiagSection =
+  | "device"
+  | "hop1"
+  | "vendor"
+  | "landing"
+  | "hop2"
+  | "exit"
+  | "backup"
+  | "other";
 
 export interface LeiKwanDiagItem {
   section: LeiKwanDiagSection;
@@ -611,10 +628,24 @@ export interface LeiKwanDiagPath {
   landingName: string;
   landingSub: string;
   landingKind: "node" | "manual" | "external";
+  /** Plan 301: 手机本地 is the entry (the path starts at the phone) */
+  local?: boolean;
+  /** Plan 301: 本机 → 入口 was measured by the App */
+  device?: boolean;
+  /** Plan 301: 专线出口 → 落地 can be measured (native landing) */
+  landingMeasurable?: boolean;
 }
 
 export interface LeiKwanDiagSummary {
+  /** Plan 301: 本机 → 入口 (App) */
+  deviceMs?: number;
   hop1Ms?: number;
+  /** Plan 301: 专线入口 → 专线出口 = 全程 − measured hops (估算) */
+  vendorMs?: number;
+  /** Plan 301: 专线出口 → 落地 measured on the landing */
+  landingMs?: number;
+  landingMeasured?: boolean;
+  local?: boolean;
   hop2Ms?: number;
   hop2Estimate: boolean;
   totalMs?: number;
@@ -975,6 +1006,9 @@ export const retryLeiKwanBackup = (id: number) =>
 export const setLeiKwanRuleAllEntries = (id: number, on: boolean) =>
   lk("rule/all-entries", { id, on });
 
+// Plan 301 (admin, im.gamer App): the values 手机本地 runs with (setPlan).
+export const getLeiKwanPhonePlan = () => lk<PhonePlan>("phone/plan", {});
+
 // Plan 297: `phone` (im.gamer App only) also asks for phoneLimits.
 export const getLeiKwanRules = (userId = 0, phone?: LeiKwanPhoneReq) =>
   lkr<LeiKwanRuleList>("list", phone ? { userId, phone } : { userId });
@@ -1018,10 +1052,13 @@ export const getLeiKwanRuleSub = (
   opt: { entry?: "local"; id?: number; action?: "create" | "convert" } = {},
 ) => lkr<LeiKwanSub>("sub", userId ? { userId, ...opt } : { ...opt });
 // Plan 272: non-stream fallback of 诊断 (the stream lives in diagnosis-stream).
-export const diagnoseLeiKwanRule = (id: number) =>
+export const diagnoseLeiKwanRule = (
+  id: number,
+  extra?: { local?: boolean; phone?: unknown },
+) =>
   Network.post<LeiKwanDiagResult>(
     "/leikwan-rule/diagnose",
-    { id },
+    { id, ...(extra || {}) },
     { timeout: 60000 },
   );
 

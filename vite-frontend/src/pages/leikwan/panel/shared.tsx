@@ -123,7 +123,6 @@ export function HostValuesTable({
           <tr>
             <th className="px-2 py-1 text-left font-medium">入口机</th>
             <th className="px-2 py-1 text-left font-medium">预热 主/备</th>
-            <th className="px-2 py-1 text-left font-medium">首包过滤</th>
             <th className="px-2 py-1 text-left font-medium">日志快切</th>
             {!compact && (
               <th className="px-2 py-1 text-left font-medium">切回复查</th>
@@ -137,7 +136,6 @@ export function HostValuesTable({
               <td className="px-2 py-1 tabular-nums">
                 {hv(v.warmMain)} / {hv(v.warmBackup)}
               </td>
-              <td className="px-2 py-1">{v.ssFilter || "—"}</td>
               <td className="px-2 py-1">
                 {v.logswitch ? (
                   <span title={v.backup}>开 → {v.backup}</span>

@@ -6,6 +6,7 @@ import type {
   LeiKwanDiagSummary,
   LeiKwanRule,
 } from "@/api/leikwan-line";
+import type { PhoneDiag, PhoneHop } from "@/utils/app-bridge";
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ChevronRight, Loader2, X } from "lucide-react";
@@ -15,6 +16,9 @@ import { diagnoseLeiKwanRuleStream } from "@/api/diagnosis-stream";
 import { useH5Mode } from "@/hooks/useH5Mode";
 import { getForwardDiagnosisQualityDisplay } from "@/pages/forward/diagnosis";
 import { Pill } from "@/pages/landing/pill";
+import { usePhoneCtx } from "@/pages/leikwan/panel/phone-entry";
+import { appCall, appHas } from "@/utils/app-bridge";
+import { latencyTone } from "@/utils/latency-tone";
 import { Button } from "@/shadcn-bridge/heroui/button";
 import {
   Modal,
@@ -27,10 +31,12 @@ import { Spinner } from "@/shadcn-bridge/heroui/spinner";
 
 // Plan 272 (approved design 02–07): 「利群规则诊断结果」. Runs only on click
 // (no polling): the panel streams start / item / done like the rules page.
-// Path strip 入口机 → 利群专线 → 落地 with the 第一跳 / 第二跳 values and the
-// 全程 the 利群 client measured; tiles; sections 第一跳 / 第二跳 / 出口测试 /
-// 备线 and, for admins, the collapsed 「其他利群入口机」. Desktop = tables,
-// H5 = cards (vertical path strip).
+// Plan 301: the path from the chosen entry only — [本机 →] 入口机 (手机本地:
+// 手机) → 利群专线入口 → 专线出口 → 落地: 本机 → 入口 measured by the App
+// (browsers start at the entry), 入口 → 专线入口 measured on the entry (or
+// the phone), 专线出口 → 落地 measured on the native landing, the vendor part
+// in between = 全程 − measured hops (估算, coloured like every latency tag).
+// No 「其他利群入口机」. Desktop = tables, H5 = cards (vertical path strip).
 
 const routeShort = (label?: string) =>
   (label || "")
@@ -427,12 +433,13 @@ function HopValue({
   if (value === undefined || value === null)
     return <Pill tone="slate">{pending ? "测试中" : "— ms"}</Pill>;
 
+  // Plan 301: estimates use the same ms colours as every latency tag.
   return estimate ? (
-    <Pill title="全程减第一跳的估算" tone="slate">
+    <Pill title="全程减去实测各段的估算" tone={latencyTone(value)}>
       ≈{ms(value)} ms
     </Pill>
   ) : (
-    <Pill tone="green">{ms(value)} ms</Pill>
+    <Pill tone={latencyTone(value)}>{ms(value)} ms</Pill>
   );
 }
 
@@ -460,7 +467,7 @@ function HopArrow({
     );
 
   return (
-    <div className="flex w-24 shrink-0 flex-col items-center">
+    <div className="flex w-20 shrink-0 flex-col items-center">
       <HopValue estimate={estimate} pending={pending} value={value} />
       <div className="relative my-1 h-px w-full bg-default-300 dark:bg-default-500">
         <span className="absolute -right-1 -top-[7px] text-xs text-default-400">
@@ -486,8 +493,13 @@ function PathStrip({
   pending: boolean;
   h5: boolean;
 }) {
-  const est = !!summary?.hop2Estimate;
   const age = summary?.totalAgeS || 0;
+  const local = !!path.local;
+  // Plan 301: 专线出口 → 落地 measured → the vendor part is the estimate;
+  // otherwise one 专线 → 落地 estimate as before.
+  const measured = summary
+    ? !!summary.landingMeasured
+    : !!path.landingMeasurable;
   let total: ReactNode;
 
   if (!summary)
@@ -517,9 +529,11 @@ function PathStrip({
           全程 {ms(summary.totalMs)} ms
         </Pill>
         <span>
-          = 入口机 → 落地，利群客户端实测
+          = {local ? "手机" : "入口机"} → 落地，利群客户端实测
           {age > 120 ? `（${Math.round(age / 60)} 分钟前）` : ""}
-          {est ? "；第二跳是全程减第一跳的估算" : ""}
+          {measured
+            ? "；专线内是全程减去实测两段的估算"
+            : "；专线 → 落地是全程减第一跳的估算"}
         </span>
       </>
     );
@@ -531,37 +545,81 @@ function PathStrip({
     >
       <div
         className={
-          h5 ? "flex flex-col items-stretch gap-1.5" : "flex items-center gap-2"
+          h5
+            ? "flex flex-col items-stretch gap-1.5"
+            : "flex items-center gap-2 overflow-x-auto"
         }
       >
+        {path.device && !local && (
+          <>
+            <PathNode
+              h5={h5}
+              icon="📱"
+              kind="本机"
+              name="这台手机"
+              sub="App 实测"
+            />
+            <HopArrow
+              h5={h5}
+              label="本机 → 入口"
+              pending={pending}
+              value={summary?.deviceMs}
+            />
+          </>
+        )}
         <PathNode
           mono
           h5={h5}
-          icon="🚪"
-          kind="入口机"
-          name={path.entryName}
+          icon={local ? "📱" : "🚪"}
+          kind={local ? "手机本地" : "入口机"}
+          name={local ? "这台手机" : path.entryName}
           sub={path.entryAddress}
         />
         <HopArrow
           h5={h5}
-          label="第一跳"
+          label="入口 → 专线入口"
           pending={pending}
           value={summary?.hop1Ms}
         />
         <PathNode
           h5={h5}
           icon="🔗"
-          kind="利群专线"
+          kind="利群专线入口"
           name={path.lineName}
           sub={routeShort(path.routeLabel)}
         />
-        <HopArrow
-          estimate={est}
-          h5={h5}
-          label="第二跳"
-          pending={pending}
-          value={summary?.hop2Ms}
-        />
+        {measured ? (
+          <>
+            <HopArrow
+              estimate
+              h5={h5}
+              label="专线内"
+              pending={pending}
+              value={summary?.vendorMs}
+            />
+            <PathNode
+              h5={h5}
+              icon="🔀"
+              kind="利群专线出口"
+              name="专线出口"
+              sub="利群那边的出口"
+            />
+            <HopArrow
+              h5={h5}
+              label="出口 → 落地"
+              pending={pending}
+              value={summary?.landingMs}
+            />
+          </>
+        ) : (
+          <HopArrow
+            estimate
+            h5={h5}
+            label="专线 → 落地"
+            pending={pending}
+            value={summary?.hop2Ms}
+          />
+        )}
         <PathNode
           h5={h5}
           icon="🏁"
@@ -630,6 +688,11 @@ export function LeiKwanDiagnoseModal({
   onClose: () => void;
 }) {
   const h5 = useH5Mode();
+  // Plan 301 (im.gamer App): the phone measures its own part of the path.
+  const phoneCtx = usePhoneCtx();
+  const phoneRef = useRef(phoneCtx);
+
+  phoneRef.current = phoneCtx;
   const [state, setState] = useState<DiagState | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -645,6 +708,9 @@ export function LeiKwanDiagnoseModal({
     let failMsg = "";
 
     try {
+      const extra = await phoneMeasure(phoneRef.current, r);
+
+      if (ac.signal.aborted) return;
       const res = await diagnoseLeiKwanRuleStream(
         r.id,
         {
@@ -687,6 +753,7 @@ export function LeiKwanDiagnoseModal({
           },
         },
         ac.signal,
+        extra,
       );
 
       if (ac.signal.aborted) return;
@@ -741,9 +808,7 @@ export function LeiKwanDiagnoseModal({
   const items = state?.items || [];
   const isAdmin = state ? state.admin : admin;
   const of = (s: LeiKwanDiagSection) => items.filter((x) => x.section === s);
-  const hop2 = of("hop2");
-  const hop2Est =
-    !!state?.summary?.hop2Estimate || hop2.some((x) => x.estimate);
+  const local = !!state?.path.local;
   const done = items.filter((x) => !x.diagnosing).length;
   const pct = items.length ? Math.round((done / items.length) * 100) : 0;
   const lineName = state?.path.lineName || rule?.lineName || "";
@@ -835,24 +900,42 @@ export function LeiKwanDiagnoseModal({
               />
               <Tiles items={items} />
               <Section
-                desc={
-                  isAdmin
-                    ? "在入口机上测，到利群专线各入口（客户端自动挑最快的用）"
-                    : "在你的主入口上测"
-                }
+                desc="这台手机连到入口机（TCP 握手，App 实测）"
                 h5={h5}
-                items={of("hop1")}
-                title="🚪 第一跳 · 入口机 → 利群专线"
+                items={of("device")}
+                title="📱 本机 → 入口"
               />
               <Section
                 desc={
-                  hop2Est
-                    ? "落地机上看不到利群出口，用全程减第一跳估算"
-                    : "利群专线出口到你的落地（落地机上实测）"
+                  local
+                    ? "在这台手机上测，到利群专线入口"
+                    : isAdmin
+                      ? "在入口机上测，到利群专线各入口（客户端自动挑最快的用）"
+                      : "在你的入口上测"
                 }
                 h5={h5}
-                items={hop2}
-                title="🔗 第二跳 · 利群专线 → 落地"
+                items={of("hop1")}
+                title={
+                  local ? "📱 手机 → 利群专线入口" : "🚪 入口 → 利群专线入口"
+                }
+              />
+              <Section
+                desc="利群自己的专线：全程减去实测两段的估算"
+                h5={h5}
+                items={of("vendor")}
+                title="🔗 利群专线入口 → 专线出口（估算）"
+              />
+              <Section
+                desc="落地机上实测（内核看到的专线出口连接延迟）"
+                h5={h5}
+                items={of("landing")}
+                title="🏁 专线出口 → 落地"
+              />
+              <Section
+                desc="落地机上测不到专线出口，用全程减第一跳估算"
+                h5={h5}
+                items={of("hop2")}
+                title="🔗 利群专线 → 落地（估算）"
               />
               <Section
                 desc="落地机直连外网（可不看）"
@@ -861,20 +944,15 @@ export function LeiKwanDiagnoseModal({
                 title="🚀 出口测试"
               />
               <Section
-                desc="经主入口、走 FLVX 隧道到同一个落地"
+                desc={
+                  local
+                    ? "手机直接连备线入口，走 FLVX 隧道到同一个落地"
+                    : "经入口、走 FLVX 隧道到同一个落地"
+                }
                 h5={h5}
                 items={of("backup")}
                 title="🛟 备线（断线时自动走）"
               />
-              {isAdmin && (
-                <Section
-                  collapsible
-                  desc="其余利群入口机到利群专线（各取最快的入口），点开看"
-                  h5={h5}
-                  items={of("other")}
-                  title="其他利群入口机"
-                />
-              )}
             </>
           )}
         </ModalBody>
@@ -896,4 +974,55 @@ export function LeiKwanDiagnoseModal({
       </ModalContent>
     </Modal>
   );
+}
+
+/**
+ * Plan 301: what the im.gamer App measures before the panel runs the rest —
+ * 手机本地: 手机 → 专线入口, 全程 and 手机 → 备线入口 (bridge diag); a server
+ * entry: 本机 → 入口 (bridge tcpPing). Browsers: nothing (start at the entry).
+ */
+async function phoneMeasure(
+  ctx: ReturnType<typeof usePhoneCtx>,
+  r: LeiKwanRule,
+): Promise<{ local?: boolean; phone?: unknown } | undefined> {
+  if (!ctx) return undefined;
+  if (ctx.local) {
+    if (!appHas(ctx.info, "diag") || !r.forwardId)
+      return {
+        local: true,
+        phone: { error: "App 太旧：升级到 im.gamer 1.0.10 后在手机上测这一段" },
+      };
+    try {
+      const d = await appCall<PhoneDiag>(
+        "diag",
+        { forwardId: r.forwardId },
+        12000,
+      );
+
+      return {
+        local: true,
+        phone: d.found
+          ? { ingress: d.ingress, total: d.total, backup: d.backup }
+          : { error: "手机本地没有这条转发（还没连接或商家账号不同）" },
+      };
+    } catch (e) {
+      return {
+        local: true,
+        phone: { error: (e as Error).message || "App 没有测到" },
+      };
+    }
+  }
+  if (!appHas(ctx.info, "tcpPing") || !r.entry?.host || !r.listenPort)
+    return undefined;
+  try {
+    const d = await appCall<PhoneHop>(
+      "tcpPing",
+      { host: r.entry.host, port: r.listenPort, count: 3, timeoutMs: 1500 },
+      10000,
+    );
+
+    return { phone: { device: d } };
+  } catch {
+    return undefined; // not a plan entry / old App: start at the entry
+  }
 }

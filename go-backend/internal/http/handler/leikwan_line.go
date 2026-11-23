@@ -61,6 +61,8 @@ func (h *Handler) registerLeiKwanLines(mux *http.ServeMux) {
 		"usage": h.leikwanUsage,
 		// Plan 295: read-only 换主入口 preview (what each forward keeps / loses).
 		"grant/preview": h.leikwanGrantPreview,
+		// Plan 301: the 手机本地 phone plan (values the App's engine runs with).
+		"phone/plan": h.leikwanPhonePlan,
 	}
 	for path, fn := range admin {
 		path, fn := path, fn
@@ -182,7 +184,7 @@ var leiKwanTriggers = []map[string]string{
 	{"key": "reset2s", "name": "2 秒 0 字节重置", "source": "日志"},
 	{"key": "reset1s", "name": "1 秒 0 字节重置", "source": "日志"},
 	{"key": "zero_close", "name": "0 ms 0 字节关闭", "source": "日志"},
-	{"key": "eof1s", "name": "1 秒 0 字节 EOF", "source": "日志", "note": "只在首包过滤 enforce 的线路生效（读前端 ssfilter）"},
+	{"key": "eof1s", "name": "1 秒 0 字节 EOF", "source": "日志", "note": "只在入口机认得出真实客户端的线路上生效"},
 	{"key": "grace", "name": "厂商网络宽限（grace / 续不上）", "source": "日志", "note": "新版厂商 agent 才有"},
 	{"key": "timeout", "name": "候选连接超时（第一次就切）", "source": "日志"},
 	{"key": "warm_death", "name": "预热池连接被断（第一次就切）", "source": "前端信号"},
@@ -1131,9 +1133,26 @@ type leiKwanRuleCtx struct {
 	// Plan 297 (admin view): owners that are admins (never held to one
 	// entry by 「只开主入口」).
 	admins map[int64]bool
+	// Plan 301 (admin list): the viewer's own 主入口 — every row shows that
+	// entry only (0 = each owner's 主入口, as before).
+	viewerEntry int64
+	entryLock   bool
+}
+
+// leiKwanRuleContextFor (plan 301): the admin list shows every row on the
+// admin's own 主入口 (the chosen entry), never a mix of the owners' entries.
+func (h *Handler) leiKwanRuleContextFor(rules []model.LeiKwanRule, admin bool, viewer int64) *leiKwanRuleCtx {
+	if !admin {
+		return h.leiKwanRuleContext(rules, admin)
+	}
+	return h.leiKwanRuleContextView(rules, admin, viewer)
 }
 
 func (h *Handler) leiKwanRuleContext(rules []model.LeiKwanRule, admin bool) *leiKwanRuleCtx {
+	return h.leiKwanRuleContextView(rules, admin, 0)
+}
+
+func (h *Handler) leiKwanRuleContextView(rules []model.LeiKwanRule, admin bool, viewer int64) *leiKwanRuleCtx {
 	c := &leiKwanRuleCtx{lines: map[int64]model.LeiKwanLine{}, grants: map[int64]model.LeiKwanGrant{}, landings: map[int64]map[string]interface{}{}, shared: map[int64][]int64{},
 		externals: map[int64]map[string]interface{}{}}
 	lines, _ := h.repo.ListLeiKwanLines()
@@ -1148,6 +1167,10 @@ func (h *Handler) leiKwanRuleContext(rules []model.LeiKwanRule, admin bool) *lei
 	if setting != nil {
 		c.entries = h.leiKwanEntryNodes(setting.EntryGroupID)
 		c.settingAccount = setting.AccountID
+		c.entryLock = parseLeiKwanGlobal(setting.Global).EntryLock
+	}
+	if g, ok := c.grants[viewer]; ok && viewer > 0 && g.MainEntryNodeID > 0 {
+		c.viewerEntry = g.MainEntryNodeID
 	}
 	c.vendor = h.leiKwanVendorReports(rules, c.settingAccount)
 	ids, users := []int64{}, []int64{}
@@ -1195,12 +1218,36 @@ func (h *Handler) leiKwanRuleContext(rules []model.LeiKwanRule, admin bool) *lei
 	return c
 }
 
+// entryNodeFor: the entry a rule row shows (plan 301: the viewer's own).
+func (c *leiKwanRuleCtx) entryNodeFor(userID int64) int64 {
+	if c.viewerEntry > 0 {
+		return c.viewerEntry
+	}
+	if g, ok := c.grants[userID]; ok {
+		return g.MainEntryNodeID
+	}
+	return 0
+}
+
 func (c *leiKwanRuleCtx) entryFor(userID int64) *leiKwanEntryNode {
-	g, ok := c.grants[userID]
-	if !ok {
+	id := c.entryNodeFor(userID)
+	if id <= 0 {
 		return nil
 	}
-	return leiKwanEntryByID(c.entries, g.MainEntryNodeID)
+	return leiKwanEntryByID(c.entries, id)
+}
+
+// entryClosed (plan 301, admin rows on the viewer's entry): 「只开主入口」
+// keeps this rule's port closed on that entry (lkGen.entryLocked's rule).
+func (c *leiKwanRuleCtx) entryClosed(x model.LeiKwanRule) bool {
+	if c.viewerEntry <= 0 || !c.entryLock || x.AllEntries == 1 || c.admins[x.UserID] {
+		return false
+	}
+	g, ok := c.grants[x.UserID]
+	if !ok || g.MainEntryNodeID <= 0 || g.MainEntryNodeID == c.viewerEntry {
+		return false
+	}
+	return !(g.PrevEntryNodeID == c.viewerEntry && g.EntryChangedAt >= time.Now().Add(-lkEntryGrace).UnixMilli())
 }
 
 func (h *Handler) leiKwanRuleView(x model.LeiKwanRule, c *leiKwanRuleCtx, admin bool) map[string]interface{} {
@@ -1293,8 +1340,11 @@ func (h *Handler) leiKwanRuleView(x model.LeiKwanRule, c *leiKwanRuleCtx, admin 
 	if !admin {
 		return v
 	}
-	// Plan 295: what the owner's 主入口 cannot run for this rule (预热 /
-	// 首包过滤 / 日志快切 / 快切触发 / 手机备线) — the chips grey out.
+	if c.entryClosed(x) {
+		v["entryClosed"] = true
+	}
+	// Plan 295 / 301: what the shown entry cannot run for this rule (预热 /
+	// 日志快切 / 快切触发 / 手机备线) — the chips grey out.
 	if l, ok := c.limits[x.ID]; ok {
 		v["entryLimits"] = l
 	}
@@ -1375,7 +1425,7 @@ func (h *Handler) leikwanRuleList(w http.ResponseWriter, r *http.Request) {
 		leiKwanError(w, errors.New("读取利群转发失败"))
 		return
 	}
-	c := h.leiKwanRuleContext(rules, admin)
+	c := h.leiKwanRuleContextFor(rules, admin, uid)
 	if admin && req.Phone != nil {
 		c.phoneLimits = h.leiKwanRulePhoneLimits(rules, uid, *req.Phone, c)
 	}

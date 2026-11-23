@@ -1,17 +1,23 @@
 package handler
 
-// Plan 272 利群规则「诊断」: 入口机 → 利群专线 → 落地, one-shot on click.
-//   - 第一跳: the owner's 主入口 agent times a TCP handshake to each relay
+// Plan 272 利群规则「诊断」, plan 301 v2: the path from the viewer's chosen
+// entry (server 主入口, or 手机本地 in the im.gamer App), one-shot on click.
+//   - 本机 → 入口 (App, server entry): the phone's own TCP handshakes, sent
+//     along by the page (bridge tcpPing); browsers start at the entry.
+//   - 入口 → 专线入口: the entry agent times a TCP handshake to each relay
 //     ingress the LeiKwan client was offered (agent command LeiKwanDiag) and
-//     reads which one the client uses. Users see one row (their 主入口 → 利群
-//     专线, no relay IPs); admins every ingress plus the other 利群入口 hosts.
-//   - 全程: the LeiKwan client's own rtt on the 主入口 (status file).
-//   - 第二跳: 全程 − 第一跳, always labelled 估算 — the landing cannot see the
-//     line's exit, so there is no honest measurement of it.
+//     reads which one the client uses. Users see one row (no relay IPs),
+//     admins every ingress. 手机本地: measured on the phone (bridge diag).
+//   - 全程: the LeiKwan client's own rtt (entry status file / phone core).
+//   - 专线出口 → 落地: measured on a native landing — the kernel TCP rtt of
+//     the relay exit's inbound connections (agent command LandingPeerRtt).
+//   - 专线入口 → 专线出口: 全程 − the measured hops, labelled 估算. Without a
+//     landing measurement: 专线入口 → 落地 = 全程 − 入口 → 专线入口 (估算).
 //   - 出口测试: panel landing on an FLVX node → the existing TcpPing rotation.
 //   - 备线: the existing rule diagnosis of the 备线 forward, as one row.
-// No new pollers; ≤ 5 handshakes per ingress; per-command and total timeouts;
-// one diagnose per user per 10 s.
+// Only the chosen entry (no 「其他利群入口机」). No new pollers; ≤ 5
+// handshakes per ingress; per-command and total timeouts; one diagnose per
+// user per 10 s.
 
 import (
 	"context"
@@ -156,28 +162,69 @@ func lkEndpointHost(endpoint string) string {
 
 // ---- running ----
 
+// lkDiagPhoneHop: TCP handshakes the im.gamer App made (plan 301).
+type lkDiagPhoneHop struct {
+	OK    bool    `json:"ok"`
+	AvgMs float64 `json:"avgMs"`
+	Loss  float64 `json:"loss"`
+	InUse bool    `json:"inUse"`
+}
+
+// lkDiagPhoneTotal: 全程 as the phone's LeiKwan core reports it.
+type lkDiagPhoneTotal struct {
+	Source string   `json:"source"`
+	RttMs  float64  `json:"rttMs"`
+	AgeS   int64    `json:"ageS"`
+	Loss   *float64 `json:"loss"`
+}
+
+// lkDiagPhone: what the page measured through the App (bridge diag / tcpPing).
+type lkDiagPhone struct {
+	Device  *lkDiagPhoneHop   `json:"device"`  // 本机 → 入口 (server entry)
+	Ingress *lkDiagPhoneHop   `json:"ingress"` // 手机 → 专线入口 (手机本地)
+	Total   *lkDiagPhoneTotal `json:"total"`   // 手机本地 全程
+	Backup  *lkDiagPhoneHop   `json:"backup"`  // 手机 → 备线入口 (手机本地)
+	Error   string            `json:"error"`   // why the App could not measure
+}
+
 // lkDiagJob: one diagnose run of a rule.
 type lkDiagJob struct {
-	h        *Handler
-	admin    bool
-	rule     model.LeiKwanRule
-	line     model.LeiKwanLine
-	entry    *lkEntry
-	others   []leiKwanEntryNode
-	landing  string // landing display name
-	path     map[string]interface{}
-	exitNode int64  // FLVX node of a native landing server (0 = no exit test)
-	exitSkip string // why there is no exit test (panel landing only)
+	h       *Handler
+	admin   bool
+	rule    model.LeiKwanRule
+	line    model.LeiKwanLine
+	entry   *lkEntry
+	local   bool // 手机本地 (the phone is the entry)
+	phone   *lkDiagPhone
+	landing string // landing display name
+	path    map[string]interface{}
+	// exitNode: FLVX node of a native landing server (0 = no exit test).
+	exitNode int64
+	exitSkip string
+	// landingPort: the native landing node's port (0 = 专线出口 → 落地 not
+	// measurable: manual / external / shared landing).
+	landingPort int
+
+	// Row indexes (-1 = none).
+	iDevice, iHop1, iVendor, iLanding, iExit, iBackup int
 
 	mu      sync.Mutex
 	items   []lkDiagItem
 	summary map[string]interface{}
 	emit    func(index int, item lkDiagItem)
+	// Parts for the composition (-1 = not measured).
+	hop1Ms, totalMs, landingMs float64
+	totalSource                string
+	totalAgeS                  int64
+	totalLoss                  *float64
+	hop1Why, landingWhy        string
 }
 
 func (h *Handler) leiKwanDiagPrepare(r *http.Request) (*lkDiagJob, error) {
 	var req struct {
-		ID int64 `json:"id"`
+		ID    int64        `json:"id"`
+		Local bool         `json:"local"`
+		Phone *lkDiagPhone `json:"phone"`
 	}
 	if err := leiKwanDecode(r, &req); err != nil {
 		return nil, err
@@ -187,26 +234,39 @@ func (h *Handler) leiKwanDiagPrepare(r *http.Request) (*lkDiagJob, error) {
 		return nil, err
 	}
 	uid, _, _ := userRoleFromRequest(r)
+	if req.Local && !admin {
+		return nil, errLKLocalAdminOnly
+	}
 	if !h.lkThrottle.allow("diag:"+strconv.FormatInt(uid, 10), time.Now(), lkDiagGap) {
 		return nil, errors.New("诊断太频繁，请 10 秒后再试")
 	}
-	j := &lkDiagJob{h: h, admin: admin, rule: *x}
+	j := &lkDiagJob{h: h, admin: admin, rule: *x, local: req.Local, phone: req.Phone, hop1Ms: -1, totalMs: -1, landingMs: -1,
+		iDevice: -1, iHop1: -1, iVendor: -1, iLanding: -1, iExit: -1, iBackup: -1}
 	if l, err := h.repo.GetLeiKwanLine(x.LineID); err == nil && l != nil {
 		j.line = *l
 	}
-	j.entry = h.leiKwanUserEntry(x.UserID)
-	if j.entry == nil {
-		return nil, errors.New("转发主人还没有主入口，诊断不了")
-	}
-	if setting, _ := h.repo.GetLeiKwanSetting(); setting != nil && admin {
-		for _, e := range h.leiKwanEntryNodes(setting.EntryGroupID) {
-			if e.ID != j.entry.NodeID {
-				j.others = append(j.others, e)
-			}
+	switch {
+	case req.Local:
+		j.entry = lkLocalEntry()
+	default:
+		// Plan 301: the viewer's chosen entry (an admin looking at another
+		// user's forward diagnoses it from the admin's own 主入口).
+		if uid != x.UserID {
+			j.entry = h.leiKwanUserEntry(uid)
+		}
+		if j.entry == nil {
+			j.entry = h.leiKwanUserEntry(x.UserID)
 		}
 	}
+	if j.entry == nil {
+		return nil, errors.New("还没有主入口，诊断不了")
+	}
+	entryName := j.entry.Name
+	if j.local {
+		entryName = "手机"
+	}
 	path := map[string]interface{}{"entryName": j.entry.Name, "entryAddress": net.JoinHostPort(j.entry.Host, strconv.Itoa(x.ListenPort)),
-		"lineName": j.line.Name, "routeLabel": j.line.RouteLabel}
+		"lineName": j.line.Name, "routeLabel": j.line.RouteLabel, "local": j.local}
 	switch {
 	case x.LandingNodeID > 0:
 		path["landingKind"] = "node"
@@ -217,6 +277,9 @@ func (h *Handler) leiKwanDiagPrepare(r *http.Request) (*lkDiagJob, error) {
 				sub = s.Name + " · " + sub
 				if s.Source != "shared" && s.NodeID > 0 {
 					j.exitNode = s.NodeID
+					if n.Port > 0 {
+						j.landingPort = n.Port
+					}
 				} else {
 					j.exitSkip = "共享落地机上不测出口"
 					if admin {
@@ -248,17 +311,30 @@ func (h *Handler) leiKwanDiagPrepare(r *http.Request) (*lkDiagJob, error) {
 	if !admin && x.LandingNodeID == 0 && x.ExternalNodeID == 0 {
 		path["landingName"] = "手动落地"
 	}
+	path["landingMeasurable"] = j.landingPort > 0
+	device := !j.local && j.phone != nil && j.phone.Device != nil
+	path["device"] = device
 	j.path = path
-	// Placeholders: 0 = 第一跳, 1 = 第二跳, then 出口 / 备线 / other hosts.
-	j.items = append(j.items, lkDiagRow("hop1", j.entry.Name+" → 利群专线", ""), lkDiagRow("hop2", "利群专线 → "+j.landingTitle(), ""))
+	// Placeholders in display order.
+	add := func(it lkDiagItem) int {
+		j.items = append(j.items, it)
+		return len(j.items) - 1
+	}
+	if device {
+		j.iDevice = add(lkDiagRow("device", "本机 → "+entryName, ""))
+	}
+	j.iHop1 = add(lkDiagRow("hop1", entryName+" → 利群专线", ""))
+	if j.landingPort > 0 {
+		j.iVendor = add(lkDiagRow("vendor", "利群专线入口 → 专线出口", ""))
+		j.iLanding = add(lkDiagRow("landing", "专线出口 → "+j.landingTitle(), ""))
+	} else {
+		j.iVendor = add(lkDiagRow("hop2", "利群专线 → "+j.landingTitle(), ""))
+	}
 	if x.LandingNodeID > 0 {
-		j.items = append(j.items, lkDiagRow("exit", j.landingTitle()+" → 外网", ""))
+		j.iExit = add(lkDiagRow("exit", j.landingTitle()+" → 外网", ""))
 	}
 	if x.BackupForwardID > 0 {
-		j.items = append(j.items, lkDiagRow("backup", j.backupTitle(""), ""))
-	}
-	for _, e := range j.others {
-		j.items = append(j.items, lkDiagRow("other", e.Name+" → 利群专线", ""))
+		j.iBackup = add(lkDiagRow("backup", j.backupTitle(""), ""))
 	}
 	for _, it := range j.items {
 		it["diagnosing"] = true
@@ -272,6 +348,14 @@ func (j *lkDiagJob) landingTitle() string {
 		return "手动落地"
 	}
 	return j.landing
+}
+
+// entryTitle: the first node of the path (「手机」 on 手机本地).
+func (j *lkDiagJob) entryTitle() string {
+	if j.local {
+		return "手机"
+	}
+	return j.entry.Name
 }
 
 func (j *lkDiagJob) startPayload() map[string]interface{} {
@@ -329,11 +413,10 @@ func (j *lkDiagJob) agentDiag(nodeID int64) (*lkAgentDiag, string) {
 		msg = res.Message
 	}
 	if msg != "" {
-		low := strings.ToLower(msg)
-		if strings.Contains(low, "unknown") || strings.Contains(msg, "未知") || strings.Contains(low, "not support") || strings.Contains(msg, "不支持") {
+		if lkUnknownCommand(msg) {
 			return nil, "入口机 agent 需要升级才能诊断"
 		}
-		if strings.Contains(msg, "超时") || strings.Contains(low, "timeout") {
+		if strings.Contains(msg, "超时") || strings.Contains(strings.ToLower(msg), "timeout") {
 			return nil, "入口机没有及时回应（超时）"
 		}
 		return nil, msg
@@ -347,6 +430,11 @@ func (j *lkDiagJob) agentDiag(nodeID int64) (*lkAgentDiag, string) {
 		return nil, "入口机上没有这条利群转发"
 	}
 	return &d, ""
+}
+
+func lkUnknownCommand(msg string) bool {
+	low := strings.ToLower(msg)
+	return strings.Contains(low, "unknown") || strings.Contains(msg, "未知") || strings.Contains(low, "not support") || strings.Contains(msg, "不支持")
 }
 
 // lkDiagMaxClientRtt: a client rtt above this is not a path measurement.
@@ -374,7 +462,7 @@ func lkDiagSource(d *lkAgentDiag) (string, *lkAgentClient) {
 }
 
 // lkDiagPick: the ingress the client uses for that source (so 全程 = 第一跳
-// + 第二跳 on the same path), else any in use, else the fastest reachable.
+// + the rest on the same path), else any in use, else the fastest reachable.
 func lkDiagPick(d *lkAgentDiag, source string) int {
 	if source != "" {
 		for i, in := range d.Ingresses {
@@ -399,35 +487,55 @@ func lkDiagPick(d *lkAgentDiag, source string) int {
 
 func lkRound(v float64) float64 { return math.Round(v*10) / 10 }
 
+// runDevice: 本机 → 入口, measured by the App (server entry).
+func (j *lkDiagJob) runDevice() {
+	if j.iDevice < 0 {
+		return
+	}
+	d := j.phone.Device
+	it := lkDiagRow("device", "本机 → "+j.entry.Name, "在这台手机上测（TCP 握手）")
+	it["success"], it["averageTime"], it["packetLoss"] = d.OK, lkRound(d.AvgMs), d.Loss
+	if !d.OK {
+		it["message"] = "这台手机连不上入口机"
+	}
+	j.set(j.iDevice, it)
+}
+
+// runHop1: 入口 → 专线入口 (+ 全程). 手机本地: from the phone's numbers.
 func (j *lkDiagJob) runHop1(ctx context.Context) {
+	if j.local {
+		j.phoneHop1()
+		return
+	}
 	d, errMsg := j.agentDiag(j.entry.NodeID)
-	sum := map[string]interface{}{"hop2Estimate": true, "totalSource": ""}
-	defer func() {
-		j.mu.Lock()
-		j.summary = sum
-		j.mu.Unlock()
-	}()
 	if d == nil {
 		it := lkDiagRow("hop1", j.entry.Name+" → 利群专线", "")
 		it["message"] = errMsg
-		j.set(0, it)
-		hop2 := lkDiagRow("hop2", "利群专线 → "+j.landingTitle(), "")
-		hop2["skipped"], hop2["message"] = true, "第一跳没测到，第二跳估算不了"
-		j.set(1, hop2)
+		j.set(j.iHop1, it)
+		j.mu.Lock()
+		j.hop1Why = "第一跳没测到"
+		j.mu.Unlock()
 		return
 	}
 	source, client := lkDiagSource(d)
 	pick := lkDiagPick(d, source)
-	var hop1 float64 = -1
+	j.mu.Lock()
 	if pick >= 0 && d.Ingresses[pick].OK {
-		hop1 = d.Ingresses[pick].AvgMs
-		sum["hop1Ms"] = lkRound(hop1)
+		j.hop1Ms = d.Ingresses[pick].AvgMs
 	}
+	if client != nil {
+		j.totalMs, j.totalSource, j.totalAgeS = client.RttMs, source, client.AgeS
+		if source == "udp" && client.Sent > 0 {
+			loss := lkRound(float64(client.Sent-client.Recv) * 100 / float64(client.Sent))
+			j.totalLoss = &loss
+		}
+	}
+	j.mu.Unlock()
 	if j.admin {
 		if len(d.Ingresses) == 0 {
 			it := lkDiagRow("hop1", j.entry.Name+" → 利群专线", "")
 			it["message"] = "利群客户端现在没有候选入口（转发状态：" + d.State + "）"
-			j.set(0, it)
+			j.set(j.iHop1, it)
 		}
 		for i, in := range d.Ingresses {
 			sub := strings.TrimSpace(strings.Trim(lkIngressLabel(in.Endpoint)+" · "+lkEndpointHost(in.Endpoint), " ·"))
@@ -441,56 +549,68 @@ func (j *lkDiagJob) runHop1(ctx context.Context) {
 			}
 			idx := -1
 			if i == 0 {
-				idx = 0
+				idx = j.iHop1
 			}
 			j.set(idx, it)
 		}
+		return
+	}
+	it := lkDiagRow("hop1", j.entry.Name+" → 利群专线", "在你的主入口上测")
+	if pick >= 0 {
+		in := d.Ingresses[pick]
+		it["inUse"], it["success"], it["averageTime"], it["packetLoss"] = in.InUse, in.OK, lkRound(in.AvgMs), in.Loss
+		if !in.OK {
+			it["message"] = "利群专线入口连不上"
+		}
+		if in.InUse == "" {
+			it["sub"] = "客户端还没选定入口，取最快的一个"
+		}
 	} else {
-		it := lkDiagRow("hop1", j.entry.Name+" → 利群专线", "在你的主入口上测")
-		if pick >= 0 {
-			in := d.Ingresses[pick]
-			it["inUse"], it["success"], it["averageTime"], it["packetLoss"] = in.InUse, in.OK, lkRound(in.AvgMs), in.Loss
-			if !in.OK {
-				it["message"] = "利群专线入口连不上"
-			}
-			if in.InUse == "" {
-				it["sub"] = "客户端还没选定入口，取最快的一个"
-			}
+		it["message"] = "利群客户端现在没有候选入口"
+	}
+	j.set(j.iHop1, it)
+}
+
+// phoneHop1: 手机 → 专线入口 and 全程 from the App (bridge diag).
+func (j *lkDiagJob) phoneHop1() {
+	it := lkDiagRow("hop1", "手机 → 利群专线", "在这台手机上测（手机本地）")
+	p := j.phone
+	if p == nil || p.Ingress == nil {
+		msg := "App 没有测到（要 im.gamer 1.0.10 以上，并且手机本地已连接）"
+		if p != nil && strings.TrimSpace(p.Error) != "" {
+			msg = strings.TrimSpace(p.Error)
+		}
+		it["message"] = msg
+		j.set(j.iHop1, it)
+		j.mu.Lock()
+		j.hop1Why = "第一跳没测到"
+		j.mu.Unlock()
+	} else {
+		in := p.Ingress
+		it["success"], it["averageTime"], it["packetLoss"] = in.OK, lkRound(in.AvgMs), in.Loss
+		if in.InUse {
+			it["inUse"] = "tcp"
 		} else {
-			it["message"] = "利群客户端现在没有候选入口"
+			it["sub"] = "客户端还没选定入口，取最快的一个"
 		}
-		j.set(0, it)
-	}
-	// 全程 = the client's own measurement (UDP probe preferred, it has loss).
-	var total float64 = -1
-	if client != nil {
-		total = client.RttMs
-		sum["totalSource"], sum["totalAgeS"] = source, client.AgeS
-		if source == "udp" && client.Sent > 0 {
-			sum["totalLoss"] = lkRound(float64(client.Sent-client.Recv) * 100 / float64(client.Sent))
+		if !in.OK {
+			it["message"] = "利群专线入口连不上"
+		}
+		j.set(j.iHop1, it)
+		if in.OK {
+			j.mu.Lock()
+			j.hop1Ms = in.AvgMs
+			j.mu.Unlock()
 		}
 	}
-	hop2 := lkDiagRow("hop2", "利群专线 → "+j.landingTitle(), "")
-	hop2["estimate"] = true
-	switch {
-	case total < 0:
-		hop2["skipped"], hop2["estimate"], hop2["message"] = true, false, "利群客户端还没有全程数据，第二跳估算不了"
-	case hop1 < 0:
-		hop2["skipped"], hop2["estimate"], hop2["message"] = true, false, "第一跳没测到，第二跳估算不了"
-	default:
-		sum["totalMs"] = lkRound(total)
-		est := total - hop1
-		if est < 0 {
-			est = 0
+	if p != nil && p.Total != nil && p.Total.RttMs > 0 && p.Total.RttMs <= lkDiagMaxClientRtt {
+		j.mu.Lock()
+		j.totalMs, j.totalSource, j.totalAgeS, j.totalLoss = p.Total.RttMs, p.Total.Source, p.Total.AgeS, p.Total.Loss
+		if j.totalSource != "udp" && j.totalSource != "tcp" {
+			j.totalSource = "tcp"
 		}
-		sum["hop2Ms"] = lkRound(est)
-		hop2["success"], hop2["averageTime"], hop2["packetLoss"] = true, lkRound(est), 0.0
-		hop2["sub"] = fmt.Sprintf("估算：全程 %s ms − 第一跳 %s ms", lkMs(total), lkMs(hop1))
+		j.mu.Unlock()
 	}
-	if total >= 0 {
-		sum["totalMs"] = lkRound(total)
-	}
-	j.set(1, hop2)
 }
 
 func lkMs(v float64) string {
@@ -500,36 +620,186 @@ func lkMs(v float64) string {
 	return strconv.FormatFloat(lkRound(v), 'f', 1, 64)
 }
 
-func (j *lkDiagJob) runOther(ctx context.Context, idx int, e leiKwanEntryNode) {
-	d, errMsg := j.agentDiag(e.ID)
-	it := lkDiagRow("other", e.Name+" → 利群专线", "")
-	if d == nil {
-		it["message"] = errMsg
-		j.set(idx, it)
-		return
+// lkLandingPeer mirrors the agent's LandingPeerRtt peers.
+type lkLandingPeer struct {
+	IP       string  `json:"ip"`
+	Conns    int     `json:"conns"`
+	RttMs    float64 `json:"rttMs"`
+	MinRttMs float64 `json:"minRttMs"`
+}
+
+// lkDiagNodeIPs: every FLVX node address (IP literals): connections from
+// them into the landing are 备线 / other forwards, not the 利群 relay exit.
+func (j *lkDiagJob) nodeIPs() map[string]bool {
+	out := map[string]bool{}
+	hosts, err := j.h.repo.NodeGuardHosts()
+	if err != nil {
+		return out
 	}
-	best := -1
-	for i, in := range d.Ingresses {
-		if in.OK && (best < 0 || in.AvgMs < d.Ingresses[best].AvgMs) {
-			best = i
+	for _, raw := range hosts {
+		if a, err := netip.ParseAddr(strings.Trim(strings.TrimSpace(raw), "[]")); err == nil {
+			out[a.Unmap().String()] = true
 		}
 	}
-	if best < 0 {
-		it["message"] = "这台入口机连不上任何利群入口"
-		if len(d.Ingresses) == 0 {
-			it["message"] = "利群客户端现在没有候选入口"
+	return out
+}
+
+// lkPickExit: the busiest public peer that is not an FLVX node.
+func lkPickExit(peers []lkLandingPeer, skip map[string]bool) (lkLandingPeer, int, bool) {
+	best, others, found := lkLandingPeer{}, 0, false
+	for _, p := range peers {
+		a, err := netip.ParseAddr(p.IP)
+		if err != nil || skip[a.Unmap().String()] || a.IsLoopback() || a.IsPrivate() || a.IsLinkLocalUnicast() || a.IsUnspecified() {
+			continue
 		}
-		j.set(idx, it)
+		if p.RttMs <= 0 && p.MinRttMs <= 0 {
+			continue
+		}
+		if !found || p.Conns > best.Conns {
+			if found {
+				others++
+			}
+			best, found = p, true
+			continue
+		}
+		others++
+	}
+	return best, others, found
+}
+
+// runLanding: 专线出口 → 落地 on the native landing (kernel TCP rtt).
+func (j *lkDiagJob) runLanding(ctx context.Context) {
+	if j.iLanding < 0 {
 		return
 	}
-	in := d.Ingresses[best]
-	it["title"] = e.Name + " → 利群入口 " + lkCircled(best)
-	sub := "最快的入口 · " + strings.Trim(lkIngressLabel(in.Endpoint)+" · "+lkEndpointHost(in.Endpoint), " ·")
-	if _, client := lkDiagSource(d); client != nil {
-		sub += fmt.Sprintf(" · 客户端全程 %s ms", lkMs(client.RttMs))
+	fail := func(why string) {
+		j.mu.Lock()
+		j.landingWhy = why
+		j.mu.Unlock()
 	}
-	it["sub"], it["inUse"], it["success"], it["averageTime"], it["packetLoss"] = sub, in.InUse, true, lkRound(in.AvgMs), in.Loss
-	j.set(idx, it)
+	h := j.h
+	if h.wsServer != nil && !h.wsServer.NodeOnline(j.exitNode) && h.nodeCommandSender == nil && leiKwanLabCommand == nil {
+		fail("落地机离线，这一段没法实测")
+		return
+	}
+	res, err := h.sendNodeCommandWithTimeout(j.exitNode, "LandingPeerRtt", map[string]interface{}{"port": j.landingPort, "max": 16}, 12*time.Second, false, false)
+	msg := ""
+	if err != nil {
+		msg = err.Error()
+	} else if !res.Success {
+		msg = res.Message
+	}
+	if msg != "" {
+		if lkUnknownCommand(msg) {
+			fail("落地机 agent 还没升级，这一段先用估算")
+		} else {
+			fail("落地机没测到：" + j.redact(msg))
+		}
+		return
+	}
+	raw, _ := json.Marshal(res.Data)
+	var d struct {
+		V     int             `json:"v"`
+		Peers []lkLandingPeer `json:"peers"`
+		Total int             `json:"total"`
+	}
+	if json.Unmarshal(raw, &d) != nil || d.V != 1 {
+		fail("落地机 agent 还没升级，这一段先用估算")
+		return
+	}
+	p, others, ok := lkPickExit(d.Peers, j.nodeIPs())
+	if !ok {
+		fail("落地机上现在没有专线出口的连接，这一段用估算")
+		return
+	}
+	ms := p.MinRttMs
+	if ms <= 0 {
+		ms = p.RttMs
+	}
+	sub := "落地机实测（内核 TCP rtt）"
+	if j.admin {
+		label := strings.Trim(lkIngressLabel(p.IP)+" · "+p.IP, " ·")
+		sub = fmt.Sprintf("利群出口 %s · %d 条连接 · 平滑 %s ms", label, p.Conns, lkMs(lkRound(p.RttMs)))
+		if others > 0 {
+			sub += fmt.Sprintf(" · 另有 %d 个来源", others)
+		}
+	}
+	j.mu.Lock()
+	j.landingMs = ms
+	j.mu.Unlock()
+	it := lkDiagRow("landing", "专线出口 → "+j.landingTitle(), sub)
+	it["success"], it["averageTime"], it["packetLoss"] = true, lkRound(ms), 0.0
+	j.set(j.iLanding, it)
+}
+
+// compose fills the estimated hop and the summary once the measured parts
+// are in (called after every part finished or the run timed out).
+func (j *lkDiagJob) compose() {
+	j.mu.Lock()
+	hop1, total, land := j.hop1Ms, j.totalMs, j.landingMs
+	sum := map[string]interface{}{"hop2Estimate": true, "totalSource": "", "local": j.local}
+	if hop1 >= 0 {
+		sum["hop1Ms"] = lkRound(hop1)
+	}
+	if total >= 0 {
+		sum["totalMs"], sum["totalSource"], sum["totalAgeS"] = lkRound(total), j.totalSource, j.totalAgeS
+		if j.totalLoss != nil {
+			sum["totalLoss"] = *j.totalLoss
+		}
+	}
+	if j.iDevice >= 0 && j.phone != nil && j.phone.Device != nil && j.phone.Device.OK {
+		sum["deviceMs"] = lkRound(j.phone.Device.AvgMs)
+	}
+	landingWhy, hop1Why := j.landingWhy, j.hop1Why
+	j.mu.Unlock()
+	noTotal := "利群客户端还没有全程数据，估算不了"
+	if hop1Why == "" {
+		hop1Why = "第一跳没测到"
+	}
+	if land >= 0 {
+		sum["landingMs"], sum["landingMeasured"] = lkRound(land), true
+		it := lkDiagRow("vendor", "利群专线入口 → 专线出口", "")
+		it["estimate"] = true
+		switch {
+		case total < 0:
+			it["skipped"], it["estimate"], it["message"] = true, false, noTotal
+		case hop1 < 0:
+			it["skipped"], it["estimate"], it["message"] = true, false, hop1Why+"，估算不了"
+		default:
+			est := math.Max(0, total-hop1-land)
+			sum["vendorMs"], sum["hop2Estimate"] = lkRound(est), false
+			it["success"], it["averageTime"], it["packetLoss"] = true, lkRound(est), 0.0
+			it["sub"] = fmt.Sprintf("估算：全程 %s ms − 入口段 %s ms − 落地段 %s ms", lkMs(lkRound(total)), lkMs(lkRound(hop1)), lkMs(lkRound(land)))
+		}
+		j.set(j.iVendor, it)
+	} else {
+		it := lkDiagRow("hop2", "利群专线 → "+j.landingTitle(), "")
+		it["estimate"] = true
+		switch {
+		case total < 0:
+			it["skipped"], it["estimate"], it["message"] = true, false, noTotal
+		case hop1 < 0:
+			it["skipped"], it["estimate"], it["message"] = true, false, hop1Why+"，估算不了"
+		default:
+			est := math.Max(0, total-hop1)
+			sum["hop2Ms"] = lkRound(est)
+			it["success"], it["averageTime"], it["packetLoss"] = true, lkRound(est), 0.0
+			it["sub"] = fmt.Sprintf("估算：全程 %s ms − 第一跳 %s ms", lkMs(lkRound(total)), lkMs(lkRound(hop1)))
+		}
+		j.set(j.iVendor, it)
+		if j.iLanding >= 0 {
+			why := landingWhy
+			if why == "" {
+				why = "这一段没测到，用估算"
+			}
+			lr := lkDiagRow("landing", "专线出口 → "+j.landingTitle(), "")
+			lr["skipped"], lr["message"] = true, why
+			j.set(j.iLanding, lr)
+		}
+	}
+	j.mu.Lock()
+	j.summary = sum
+	j.mu.Unlock()
 }
 
 func (j *lkDiagJob) runExit(ctx context.Context, idx int) {
@@ -567,12 +837,12 @@ func (j *lkDiagJob) runExit(ctx context.Context, idx int) {
 // (plan 276, F09).
 func (j *lkDiagJob) backupTitle(tunnelName string) string {
 	if !j.admin {
-		return j.entry.Name + " → 备线（FLVX 隧道） → " + j.landingTitle()
+		return j.entryTitle() + " → 备线（FLVX 隧道） → " + j.landingTitle()
 	}
 	if tunnelName != "" {
-		return j.entry.Name + " → " + tunnelName + " → " + j.landingTitle()
+		return j.entryTitle() + " → " + tunnelName + " → " + j.landingTitle()
 	}
-	return j.entry.Name + " → 备线 → " + j.landingTitle()
+	return j.entryTitle() + " → 备线 → " + j.landingTitle()
 }
 
 func (j *lkDiagJob) redact(s string) string {
@@ -615,9 +885,22 @@ func (j *lkDiagJob) runBackup(ctx context.Context, idx int) {
 	results := h.runDiagnosisWorkItems(ctx, work, nil)
 	ok, sum, loss := true, 0.0, 0.0
 	msg := ""
-	// The 备线 goes through the 主入口 first (logswitch / phone DNAT): 主入口 →
-	// the 备线 forward's entry port.
-	if entryHost != "" && entryPort > 0 {
+	// The 备线 starts at the chosen entry: the 主入口 (logswitch / phone DNAT)
+	// → the 备线 forward's entry port; 手机本地: the phone dials it itself.
+	switch {
+	case j.local:
+		first := map[string]interface{}{"description": "手机 → 备线入口", "success": false, "averageTime": 0.0, "packetLoss": 100.0, "message": "App 没有测到"}
+		if j.phone != nil && j.phone.Backup != nil {
+			b := j.phone.Backup
+			first["success"], first["averageTime"], first["packetLoss"] = b.OK, b.AvgMs, b.Loss
+			if !b.OK {
+				first["message"] = "手机连不上备线入口"
+			} else {
+				delete(first, "message")
+			}
+		}
+		results = append([]map[string]interface{}{first}, results...)
+	case entryHost != "" && entryPort > 0:
 		first := []map[string]interface{}{}
 		h.appendPathDiagnosis(&first, map[int64]*nodeRecord{}, j.entry.NodeID, entryHost, entryPort, j.entry.Name+" → 备线入口",
 			map[string]interface{}{}, diagnosisExecOptions{commandTimeout: 12 * time.Second, pingTimeoutMS: 2000, pingCount: 3})
@@ -656,31 +939,23 @@ func (j *lkDiagJob) runBackup(ctx context.Context, idx int) {
 // run executes every part (in parallel) and returns the final rows + summary.
 func (j *lkDiagJob) run(ctx context.Context) ([]lkDiagItem, map[string]interface{}, bool) {
 	var wg sync.WaitGroup
-	idx := 2
-	exitIdx, backupIdx := -1, -1
-	if j.rule.LandingNodeID > 0 {
-		exitIdx = idx
-		idx++
-	}
-	if j.rule.BackupForwardID > 0 {
-		backupIdx = idx
-		idx++
-	}
-	otherIdx := idx
+	j.runDevice()
 	wg.Add(1)
 	go func() { defer wg.Done(); j.runHop1(ctx) }()
-	if exitIdx >= 0 {
+	if j.iLanding >= 0 {
 		wg.Add(1)
-		go func() { defer wg.Done(); j.runExit(ctx, exitIdx) }()
+		go func() { defer wg.Done(); j.runLanding(ctx) }()
 	}
-	if backupIdx >= 0 {
+	if j.iExit >= 0 {
 		wg.Add(1)
-		go func() { defer wg.Done(); j.runBackup(ctx, backupIdx) }()
+		go func() { defer wg.Done(); j.runExit(ctx, j.iExit) }()
 	}
-	for i, e := range j.others {
+	if j.iBackup >= 0 {
 		wg.Add(1)
-		go func(i int, e leiKwanEntryNode) { defer wg.Done(); j.runOther(ctx, otherIdx+i, e) }(i, e)
+		go func() { defer wg.Done(); j.runBackup(ctx, j.iBackup) }()
 	}
+	// The estimate needs 第一跳 / 全程 / the landing hop: composed once every
+	// part finished (or at the timeout).
 	done := make(chan struct{})
 	go func() { wg.Wait(); close(done) }()
 	timedOut := false
@@ -689,6 +964,7 @@ func (j *lkDiagJob) run(ctx context.Context) ([]lkDiagItem, map[string]interface
 	case <-ctx.Done():
 		timedOut = true
 	}
+	j.compose()
 	j.mu.Lock()
 	defer j.mu.Unlock()
 	for _, it := range j.items {
@@ -700,7 +976,7 @@ func (j *lkDiagJob) run(ctx context.Context) ([]lkDiagItem, map[string]interface
 	items := make([]lkDiagItem, len(j.items))
 	copy(items, j.items)
 	// Display order: sections, then their own order.
-	order := map[string]int{"hop1": 0, "hop2": 1, "exit": 2, "backup": 3, "other": 4}
+	order := map[string]int{"device": 0, "hop1": 1, "vendor": 2, "landing": 3, "hop2": 4, "exit": 5, "backup": 6}
 	sort.SliceStable(items, func(a, b int) bool {
 		return order[fmt.Sprint(items[a]["section"])] < order[fmt.Sprint(items[b]["section"])]
 	})

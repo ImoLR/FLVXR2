@@ -150,7 +150,7 @@ func TestLeiKwanEntryCaps(t *testing.T) {
 	if !sh.Known || sh.Client != "稳定版" || sh.Warm || sh.SSFilter || sh.Triggers || sh.Phone || !sh.Logswitch {
 		t.Fatalf("火山上海 caps %+v", sh)
 	}
-	if strings.Join(sh.Missing, ",") != "预热池,首包过滤,快切触发,手机备线" {
+	if strings.Join(sh.Missing, ",") != "预热池,快切触发,手机备线" { // plan 301: 首包过滤 never listed
 		t.Fatalf("火山上海 missing %v", sh.Missing)
 	}
 	if w := sh.why(lkFileWarm); w != "入口 火山上海 的利群客户端是稳定版，没有预热池" {
@@ -186,7 +186,8 @@ func lkChange(r lkSwitchRule, key string) *lkSwitchChange {
 
 func TestLeiKwanGrantPreview(t *testing.T) {
 	h, _ := lkCapsFixture(t)
-	// 百度云广州 → 火山上海 (stable): 预热 / 首包过滤 / 快切触发 / 手机备线 lost.
+	// 百度云广州 → 火山上海 (stable): 预热 / 快切触发 / 手机备线 lost (plan 301:
+	// 首包过滤 is not compared / listed).
 	out, err := h.leiKwanGrantPreview(1, 61)
 	if err != nil {
 		t.Fatal(err)
@@ -200,9 +201,22 @@ func TestLeiKwanGrantPreview(t *testing.T) {
 	if warm == nil || !warm.Lost || warm.From != "预热 10" || warm.To != "不预热" || warm.Why != "入口 火山上海 的利群客户端是稳定版，没有预热池" {
 		t.Fatalf("263 warm %+v", warm)
 	}
-	for _, key := range []string{lkFileSSFilter, lkFileTriggers, lkFilePhone} {
+	for _, key := range []string{lkFileTriggers, lkFilePhone} {
 		if c := lkChange(r263, key); c == nil || !c.Lost {
 			t.Fatalf("263 %s %+v (changes %+v)", key, c, r263.Changes)
+		}
+	}
+	if c := lkChange(r263, lkFileSSFilter); c != nil {
+		t.Fatalf("263 lists 首包过滤 %+v", c)
+	}
+	for _, x := range rules {
+		for _, c := range x.Changes {
+			if strings.Contains(c.Label+c.From+c.To+c.Why, "首包过滤") {
+				t.Fatalf("preview names 首包过滤: %+v", c)
+			}
+		}
+		if strings.Contains(strings.Join(x.Kept, ","), "首包过滤") {
+			t.Fatalf("preview keeps 首包过滤: %v", x.Kept)
 		}
 	}
 	if !strings.Contains(strings.Join(r263.Kept, ","), "日志快切 开") {
@@ -269,14 +283,14 @@ func TestLeiKwanRuleEntryLimits(t *testing.T) {
 		}
 		return strings.Join(out, ",")
 	}
-	if got := keys(1); got != "warm,ssfilter,triggers,phone" {
+	if got := keys(1); got != "warm,triggers,phone" {
 		t.Fatalf("263 limits %q %+v", got, c.limits[1])
 	}
-	if got := keys(7); got != "ssfilter,triggers" {
+	if got := keys(7); got != "triggers" {
 		t.Fatalf("540 limits %q", got)
 	}
 	v := h.leiKwanRuleView(rules[0], c, true)
-	if l, _ := v["entryLimits"].([]lkCapLimit); len(l) != 4 || l[0].Why != "主入口 火山上海 的利群客户端是稳定版，没有预热池" {
+	if l, _ := v["entryLimits"].([]lkCapLimit); len(l) != 3 || l[0].Why != "主入口 火山上海 的利群客户端是稳定版，没有预热池" {
 		t.Fatalf("view limits %+v", v["entryLimits"])
 	}
 	if e := v["entry"].(map[string]interface{}); e["online"] != false || e["offlineSince"] == nil {
@@ -310,5 +324,91 @@ func TestLeiKwanGrantSaveRefusesOfflineEntry(t *testing.T) {
 	_ = r.SaveLeiKwanGrant(gr)
 	if out := call(`{"userId":1,"mainEntryNodeId":61,"backupLine":true}`); out.Code != 0 {
 		t.Fatalf("keep offline current: %+v", out)
+	}
+}
+
+// Plan 301: the 手机本地 phone plan copies the reference host (imolr's 主入口
+// 百度云广州: all files) per forward as if the phone were the 主入口; the 备线
+// is the 备线 forward's own entry (IP literal); 1.0.10-panel (features) gets
+// the full caps and no limits, 1.0.9-panel keeps 预热池 only; 首包过滤 never
+// appears.
+func TestLeiKwanPhonePlan(t *testing.T) {
+	h, r := lkCapsFixture(t)
+	host, err := r.EnsureLeiKwanHost(58)
+	if err != nil {
+		t.Fatal(err)
+	}
+	host.Profile = `{"files":{"coalesce":true,"logswitch":true,"phone":true,"ssfilter":true,"sskeys":true,"triggers":true,"warm":true},` +
+		`"warmExtra":{"backup_standby":"2","pace_ms":"100","bytes4":"on","zero_fin":"on","burst":"off","263:burst":"6"},` +
+		`"trigGlobal":{"bytes4":"record","io_error":"record","return_check":"off","timeout":"switch","warm_death":"switch"},` +
+		`"rules":{"540":{"warmMain":10}}}`
+	if err := r.SaveLeiKwanHostConfig(host); err != nil {
+		t.Fatal(err)
+	}
+	plan, err := h.leiKwanPhonePlan(1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.V != 1 || plan.Ref != "百度云广州" || len(plan.Forwards) != 3 || plan.UpdatedAt == 0 {
+		t.Fatalf("plan %+v", plan)
+	}
+	g := plan.Global
+	if g.Warm != (lkPhonePlanWarm{Standby: 2, PaceMs: 100, Bytes4: true, ZeroFin: true}) || g.Triggers["bytes4"] != "record" || g.Triggers["timeout"] != "switch" ||
+		g.Triggers["io_error"] != "record" || g.Triggers["warm_death"] != "switch" || g.Triggers["return_check"] != "" || g.HoldS != 30 || g.ReturnCheckS != 2.5 {
+		t.Fatalf("global %+v", g)
+	}
+	by := map[int64]lkPhoneFwd{}
+	for _, f := range plan.Forwards {
+		by[f.ForwardID] = f
+	}
+	if f := by[263]; f != (lkPhoneFwd{ForwardID: 263, Port: 10018, Logswitch: true, Backup: "163.53.52.189:35046", Warm: 10, BackupWarm: 4, ReturnCheck: true}) {
+		t.Fatalf("263 %+v", f)
+	}
+	if f := by[540]; f.Warm != 10 || !f.Logswitch || f.Backup != "163.53.52.189:59349" {
+		t.Fatalf("540 (host-pinned 预热 10) %+v", f)
+	}
+	if len(plan.Entries) != 4 {
+		t.Fatalf("entries %+v", plan.Entries)
+	}
+	raw, _ := json.Marshal(plan)
+	if strings.Contains(string(raw), "ss") && strings.Contains(string(raw), "filter") {
+		t.Fatalf("plan carries the first-packet filter: %s", raw)
+	}
+
+	// Caps: 1.0.9-panel (no features) vs 1.0.10-panel.
+	old := lkPhoneCaps(lkPhoneReq{App: "1.0.9"})
+	if strings.Join(old.caps.Missing, ",") != "日志快切,快切触发,手机备线" || old.caps.Logswitch {
+		t.Fatalf("1.0.9 caps %+v", old.caps)
+	}
+	full := lkPhoneCaps(lkPhoneReq{App: "1.0.10", Warm: true, Features: []string{"warm", "logswitch", "triggers", "backup", "plan", "diag", "tcpPing"}})
+	if len(full.caps.Missing) != 0 || !full.caps.Logswitch || !full.caps.Triggers || !full.caps.Phone || !full.phoneDirect {
+		t.Fatalf("1.0.10 caps %+v", full.caps)
+	}
+	rules, _ := r.ListLeiKwanRules(0)
+	c := h.leiKwanRuleContextFor(rules, true, 1)
+	lim := h.leiKwanRulePhoneLimits(rules, 1, lkPhoneReq{App: "1.0.10", Warm: true, Features: []string{"logswitch", "triggers", "backup"}}, c)
+	for id, l := range lim {
+		if len(l) != 0 {
+			t.Fatalf("1.0.10 rule %d limits %+v", id, l)
+		}
+	}
+	// Preview → 手机本地 with 1.0.10: 263 keeps 日志快切 / 快切触发 / 备线 (手机直连), nothing lost.
+	out, err := h.leiKwanGrantPreviewPhone(1, lkPhoneReq{App: "1.0.10", Warm: true, Features: []string{"logswitch", "triggers", "backup"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out["lostRules"].(int) != 0 {
+		t.Fatalf("1.0.10 preview lost %v: %+v", out["lostRules"], out["rules"])
+	}
+	r263 := lkFindRule(t, out["rules"].([]lkSwitchRule), 263)
+	kept := strings.Join(r263.Kept, ",")
+	if !strings.Contains(kept, "日志快切 开") || !strings.Contains(r263.Changes[0].To+kept, "手机直连备线") {
+		t.Fatalf("263 preview %+v", r263)
+	}
+	// 1.0.9: 日志快切 lost, no 首包过滤 line (this profile has no 手机备线 ports).
+	out, _ = h.leiKwanGrantPreviewPhone(1, lkPhoneReq{App: "1.0.9", Warm: true})
+	r263 = lkFindRule(t, out["rules"].([]lkSwitchRule), 263)
+	if lkChange(r263, lkFileLogswitch) == nil || lkChange(r263, lkFileSSFilter) != nil {
+		t.Fatalf("1.0.9 preview %+v", r263.Changes)
 	}
 }

@@ -1695,6 +1695,9 @@ func (w *WebSocketReporter) routeCommand(cmd CommandMessage) {
 	case "LeiKwanDiag": // plan 272 利群规则诊断 (one-shot, read-only + ≤ 5 handshakes per ingress)
 		response.Data, err = w.lkHost.handleDiag(w.ctx, cmd.Data)
 		response.Type = "LeiKwanDiagResponse"
+	case "LandingPeerRtt": // plan 301 利群诊断 专线出口 → 落地 (one-shot sock_diag, read-only)
+		response.Data, err = handleLandingPeerRtt(cmd.Data)
+		response.Type = "LandingPeerRttResponse"
 	case "GetLandingStatus":
 		_ = landing.Default().Counters()
 		response.Data = landing.Default().Status()

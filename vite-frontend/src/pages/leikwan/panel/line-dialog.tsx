@@ -323,19 +323,7 @@ export function LeiKwanLineDialog({
                 </span>
               </div>
             </div>
-            <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-sm">
-              <LabeledSwitch
-                isSelected={accel.ssFilter === "enforce"}
-                onValueChange={(v) =>
-                  setAccel((a) => ({ ...a, ssFilter: v ? "enforce" : "off" }))
-                }
-              >
-                首包过滤（SS2022）
-              </LabeledSwitch>
-              <span className="text-xs text-default-500">
-                密钥从转发的落地自动取
-              </span>
-            </div>
+            {/* Plan 301: 首包过滤 stays as saved (on; logswitch eof1s needs it) but is not shown. */}
             <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-sm">
               <LabeledSwitch
                 isSelected={accel.logswitch}

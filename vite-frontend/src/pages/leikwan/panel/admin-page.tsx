@@ -7,13 +7,14 @@ import type {
   LeiKwanHostManage,
   LeiKwanLine,
   LeiKwanLineList,
+  LeiKwanPhoneReq,
   LeiKwanRule,
   LeiKwanRuleList,
   LeiKwanUsageView,
 } from "@/api/leikwan-line";
 import type { LeiKwanHostItem } from "@/pages/leikwan/panel/host-manage";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   AlertTriangle,
@@ -48,7 +49,7 @@ import {
   hostOnline,
   hostRunning,
   hostStatusText,
-  hostStatusTone,
+  HostStatusPill,
   limitOf,
 } from "@/pages/leikwan/panel/entry-state";
 import {
@@ -84,6 +85,7 @@ import {
   PhoneWarmChip,
   phoneLimitsNote,
   usePhoneCtx,
+  usePhonePlanSync,
   usePhoneEntry,
   usePhoneRule,
   type PhoneCtx,
@@ -119,7 +121,7 @@ import {
 import { Button } from "@/shadcn-bridge/heroui/button";
 import { Spinner } from "@/shadcn-bridge/heroui/spinner";
 import { getSessionName } from "@/utils/session";
-import { isAppMode } from "@/utils/app-bridge";
+import { appHas, isAppMode } from "@/utils/app-bridge";
 
 // Plan 270: the admin view of 利群汇聚 — everything 利群 on one page (approved
 // design 11-17, screens 01–05). Desktop: header chips, the 「专线 · 规则」
@@ -172,7 +174,23 @@ function WarmChip({ rule }: { rule: LeiKwanRule }) {
   );
 }
 
-/** Plan 295 (H5): one line naming what the owner's 主入口 cannot run. */
+/** Plan 301: 「只开主入口」 keeps this forward closed on the shown entry. */
+function EntryClosedPill({ rule }: { rule: LeiKwanRule }) {
+  const phone = usePhoneCtx();
+
+  if (!rule.entryClosed || phone?.local) return null;
+
+  return (
+    <Pill
+      title="只开主入口：这条转发只在它主人的主入口上能连，这个入口上没开"
+      tone="slate"
+    >
+      这个入口没开
+    </Pill>
+  );
+}
+
+/** Plan 295 (H5): one line naming what the shown entry cannot run. */
 const limitsNote = (r: LeiKwanRule) => {
   const list = r.entryLimits || [];
   const stable = list.some((l) => l.why.includes("稳定版"));
@@ -184,12 +202,9 @@ const limitsNote = (r: LeiKwanRule) => {
 function LineChips({
   line,
   compact = false,
-  noWarm = [],
 }: {
   line: LeiKwanLine;
   compact?: boolean;
-  /** Plan 295: 利群入口 without a 预热池 (names) */
-  noWarm?: string[];
 }) {
   const a = line.accel;
   const backup = line.backupTunnelName;
@@ -233,22 +248,12 @@ function LineChips({
       ) : (
         <Pill tone="slate">不预热</Pill>
       )}
-      {a.warm.main > 0 && noWarm.length > 0 && (
-        <Pill
-          title={`${noWarm.join("、")} 没有预热池：主入口是它们的用户，这条专线的转发不预热`}
-          tone="slate"
-        >
-          {noWarm.length} 台入口不支持预热
-        </Pill>
-      )}
+      {/* Plan 301: no 「N 台入口不支持预热」 here — the rows show the chosen entry only. */}
       <Pill tone={a.logswitch ? "green" : "slate"}>
         日志快切 {a.logswitch ? "开" : "关"}
       </Pill>
       <Pill tone={a.logswitch && a.returnCheck ? "green" : "slate"}>
         切回复查 {a.logswitch && a.returnCheck ? "开" : "关"}
-      </Pill>
-      <Pill tone="slate">
-        SS 过滤 {a.ssFilter === "enforce" ? "强制" : "关"}
       </Pill>
       {(line.flowMode !== undefined || line.trafficRatio !== undefined) && (
         <Pill
@@ -411,6 +416,7 @@ function AdminRuleRow({
           <AdminBackupChip rule={r} />
           {pv ? <PhoneWarmChip view={pv} /> : <WarmChip rule={r} />}
           <EntryLimitPills limits={pv ? pv.limits : r.entryLimits} />
+          <EntryClosedPill rule={r} />
           {r.userName && <Pill tone="slate">{r.userName}</Pill>}
           {test && (
             <Pill title={test} tone="amber">
@@ -455,7 +461,6 @@ function LineGroupBlock({
   onEdit,
   onChanged,
   actions,
-  noWarm,
 }: {
   group: LineGroup;
   open: boolean;
@@ -463,7 +468,6 @@ function LineGroupBlock({
   onEdit: (l: LeiKwanLine) => void;
   onChanged: () => void;
   actions: LeiKwanRuleActions;
-  noWarm?: string[];
 }) {
   const line = g.line;
   const attention = g.rules.some((r) => r.backupError);
@@ -530,7 +534,7 @@ function LineGroupBlock({
         </div>
         {line && (
           <div className="flex flex-wrap gap-1.5 pl-6">
-            <LineChips line={line} noWarm={noWarm} />
+            <LineChips line={line} />
           </div>
         )}
       </div>
@@ -596,14 +600,8 @@ function HostTile({
         <HostNameMarker manage={host.manage} />
       </span>
       <span className="flex flex-wrap gap-1">
-        {hostOnline(host) ? (
-          <Pill tone={hostStatusTone(host)}>{hostStatusText(host)}</Pill>
-        ) : (
-          <OfflinePill since={host.node.offlineSince} />
-        )}
-        <Pill tone={host.mainEntryUsers > 0 ? "teal" : "slate"}>
-          主入口 {host.mainEntryUsers} 人
-        </Pill>
+        {/* Plan 301: one status pill (就绪 / 离线), no 「主入口 N 人」. */}
+        <HostStatusPill host={host} />
       </span>
     </button>
   );
@@ -749,6 +747,8 @@ export function LeiKwanAdminView() {
 
     if (res.code === 0) setAccounts(res.data || []);
   }, []);
+  // Plan 301: the App's capability (features) for phoneLimits.
+  const phoneReqRef = useRef<LeiKwanPhoneReq | null>(null);
   const load = useCallback(async () => {
     setLoading(true);
     const [l, hst, g, r, u] = await Promise.all([
@@ -756,7 +756,10 @@ export function LeiKwanAdminView() {
       getLeiKwanHosts(),
       getLeiKwanGrants(),
       // Plan 297: the App also asks what 手机本地 cannot run (own rules).
-      getLeiKwanRules(0, isAppMode() ? { warm: false } : undefined),
+      getLeiKwanRules(
+        0,
+        isAppMode() ? phoneReqRef.current || { warm: false } : undefined,
+      ),
       getLeiKwanUsage(),
       loadAccounts(),
     ]);
@@ -802,9 +805,23 @@ export function LeiKwanAdminView() {
   const entryLock = !!(rules?.entryLock ?? data?.setting.global.entryLock);
   // Plan 297: 手机本地 — App only, on the admin's own grant.
   const phone = usePhoneEntry();
+  const features = (phone.info?.features || []).join(",");
+
+  phoneReqRef.current = phone.app ? phone.req : null;
+  // Plan 301: once the App says what it runs (1.0.10-panel: 日志快切 / 备线),
+  // the rows' 手机本地 limits follow it (one rules re-read, no polling).
+  useEffect(() => {
+    if (!phone.app || !features) return;
+    void getLeiKwanRules(0, phoneReqRef.current || undefined).then((r) => {
+      if (r.code === 0) setRules(r.data);
+    });
+  }, [phone.app, features]);
   const myGrant = grants.find((g) => !!me && g.userName === me);
   const phoneOn = phone.app && !!myGrant;
   const phoneLocal = phoneOn && phone.local;
+
+  // Plan 301: the App's 日志快切 / 备线 / 预热池 values (whenever the list reloads).
+  usePhonePlanSync(phoneOn && appHas(phone.info, "plan"), rules);
   const openConnect = () => {
     if (h5) setTab("grants");
     window.setTimeout(
@@ -830,9 +847,8 @@ export function LeiKwanAdminView() {
     admin: true,
     reload: reloadRules,
     entryLock,
-    localFor: phoneLocal
-      ? (r: LeiKwanRule) => r.userId === myGrant?.userId
-      : undefined,
+    // Plan 301: every row follows the chosen entry (手机本地 included).
+    localFor: phoneLocal ? () => true : undefined,
   });
 
   const groups = useMemo<LineGroup[]>(() => {
@@ -894,9 +910,6 @@ export function LeiKwanAdminView() {
 
     return out;
   }, [hosts]);
-  const noWarm = hostList
-    .filter((h) => h.caps?.known && !h.caps.warm)
-    .map((h) => h.node.name);
   const entryLevel = hostsAttentionLevel(hosts);
   const entries = data?.entryNodes || [];
   const account =
@@ -1336,7 +1349,6 @@ export function LeiKwanAdminView() {
                 key={g.id}
                 actions={actions}
                 group={g}
-                noWarm={noWarm}
                 open={currentOpen === g.id}
                 onChanged={() => void load()}
                 onEdit={openLineDialog}
@@ -1538,6 +1550,7 @@ function AdminRuleCard({
         <AdminBackupChip rule={r} />
         {pv ? <PhoneWarmChip view={pv} /> : <WarmChip rule={r} />}
         <EntryLimitPills limits={pv ? pv.limits : r.entryLimits} />
+        <EntryClosedPill rule={r} />
         <Pill tone={r.landing.kind === "manual" ? "slate" : "pink"}>
           {r.landing.kind === "manual"
             ? "手动落地"
@@ -1933,13 +1946,9 @@ function AdminPhone({
             <LkExpandCard
               key={h.node.id}
               chip={
+                // Plan 301: one status pill (就绪 / 离线), no 「主入口 N」.
                 <span className="inline-flex shrink-0 items-center gap-1">
-                  {!hostOnline(h) && (
-                    <OfflinePill since={h.node.offlineSince} />
-                  )}
-                  <Pill tone={h.mainEntryUsers > 0 ? "teal" : "slate"}>
-                    主入口 {h.mainEntryUsers}
-                  </Pill>
+                  <HostStatusPill host={h} />
                 </span>
               }
               data-leikwan-host-row={h.node.id}

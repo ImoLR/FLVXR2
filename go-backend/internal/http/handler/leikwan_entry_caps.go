@@ -51,6 +51,8 @@ type lkEntryCaps struct {
 type lkEntryInfo struct {
 	caps lkEntryCaps
 	prof *lkHostProfile
+	// phoneDirect (plan 301): 手机本地 1.0.10-panel dials a rule's 备线 itself.
+	phoneDirect bool
 }
 
 func lkClientLabel(front string) string {
@@ -78,10 +80,12 @@ func lkCapsOf(e leiKwanEntryNode, host *model.LeiKwanHost) lkEntryInfo {
 			c.Known = true
 			c.Warm, c.SSFilter, c.Logswitch = p.Files[lkFileWarm], p.Files[lkFileSSFilter], p.Files[lkFileLogswitch]
 			c.Triggers, c.Phone = p.Files[lkFileTriggers], p.Files[lkFilePhone]
+			// Plan 301: 首包过滤 stays on the hosts (logswitch eof1s needs it) but
+			// is never listed in the UI — ssFilter stays in the JSON only.
 			for _, f := range []struct {
 				ok   bool
 				name string
-			}{{c.Warm, "预热池"}, {c.SSFilter, "首包过滤"}, {c.Logswitch, "日志快切"}, {c.Triggers, "快切触发"}, {c.Phone, "手机备线"}} {
+			}{{c.Warm, "预热池"}, {c.Logswitch, "日志快切"}, {c.Triggers, "快切触发"}, {c.Phone, "手机备线"}} {
 				if !f.ok {
 					c.Missing = append(c.Missing, f.name)
 				}
@@ -114,10 +118,16 @@ func (c lkEntryCaps) whyAs(role, key string) string {
 	case lkFileSSFilter:
 		return who + client + "没有首包过滤"
 	case lkFileLogswitch:
+		if c.Host == lkLocalHost {
+			return who + "（im.gamer App 1.0.9 及更早）没有日志快切，升级 App 后就有"
+		}
 		return who + "上没有日志快切"
 	case lkFileTriggers:
 		return who + "的日志快切没有触发条件文件：切回复查等条件用不了，按客户端自带的条件切"
 	case lkFilePhone:
+		if c.Host == lkLocalHost {
+			return who + "（im.gamer App 1.0.9 及更早）不会自己连备线，升级 App 后就有"
+		}
 		return who + "上没有这条转发的手机备线端口"
 	}
 	return ""
@@ -179,9 +189,7 @@ func (g *lkGen) ruleLimits(x model.LeiKwanRule, info lkEntryInfo, phoneSomewhere
 	if e.WarmMain > 0 && !c.Warm {
 		out = append(out, lkCapLimit{Key: lkFileWarm, Label: "预热", Why: c.whyAs("主入口", lkFileWarm)})
 	}
-	if e.SSFilter != "off" && !c.SSFilter {
-		out = append(out, lkCapLimit{Key: lkFileSSFilter, Label: "首包过滤", Why: c.whyAs("主入口", lkFileSSFilter)})
-	}
+	// Plan 301: no 首包过滤 limit (hidden from the UI; the filter itself is unchanged).
 	if e.Logswitch && x.ListenPort > 0 {
 		if !c.Logswitch {
 			out = append(out, lkCapLimit{Key: lkFileLogswitch, Label: "日志快切", Why: c.whyAs("主入口", lkFileLogswitch)})
@@ -189,7 +197,8 @@ func (g *lkGen) ruleLimits(x model.LeiKwanRule, info lkEntryInfo, phoneSomewhere
 			out = append(out, lkCapLimit{Key: lkFileTriggers, Label: "快切触发", Why: c.whyAs("主入口", lkFileTriggers)})
 		}
 	}
-	if phoneSomewhere && lkPhonePort(info.prof, x) == "" {
+	// Plan 301: 手机本地 1.0.10-panel dials the 备线 itself (no host port).
+	if phoneSomewhere && lkPhonePort(info.prof, x) == "" && !(info.phoneDirect && x.BackupForwardID > 0) {
 		out = append(out, lkCapLimit{Key: lkFilePhone, Label: "手机备线", Why: c.whyAs("主入口", lkFilePhone)})
 	}
 	return out
@@ -248,15 +257,6 @@ func lkWarmText(n int) string {
 	return "不预热"
 }
 
-func lkFilterText(m string) string {
-	switch m {
-	case "off", "":
-		return "首包过滤 关"
-	case "enforce":
-		return "首包过滤 强制"
-	}
-	return "首包过滤 " + m
-}
 
 func lkOnOffText(label string, on bool) string {
 	if on {
@@ -275,6 +275,9 @@ func lkTriggerText(v lkOnHost) string {
 func lkPhoneText(port string) string {
 	if port == "" {
 		return "没有手机备线"
+	}
+	if port == lkPhoneDirectText {
+		return port
 	}
 	return "手机备线 :" + port
 }
@@ -325,7 +328,7 @@ func lkSwitchRuleDiff(from, to lkOnHost, fromCaps, toCaps lkEntryCaps, compare b
 	}
 	p := toCaps
 	add(lkFileWarm, "预热", lkWarmText(from.Warm), lkWarmText(to.Warm), from.Warm > 0, to.Warm > 0, p.Warm)
-	add(lkFileSSFilter, "首包过滤", lkFilterText(from.SSFilter), lkFilterText(to.SSFilter), from.SSFilter != "off", to.SSFilter != "off", p.SSFilter)
+	// Plan 301: 首包过滤 is not compared / listed (hidden from the UI).
 	add(lkFileLogswitch, "日志快切", lkOnOffText("日志快切", from.Logswitch), lkOnOffText("日志快切", to.Logswitch), from.Logswitch, to.Logswitch, p.Logswitch)
 	if (from.Logswitch || !compare) && to.Logswitch {
 		add(lkFileTriggers, "快切触发", lkTriggerText(from), lkTriggerText(to), from.Triggers, to.Triggers, p.Triggers)
@@ -448,11 +451,8 @@ func (h *Handler) leiKwanRuleEntryLimits(rules []model.LeiKwanRule, c *leiKwanRu
 	}
 	out := map[int64][]lkCapLimit{}
 	for _, x := range rules {
-		gr, ok := c.grants[x.UserID]
-		if !ok {
-			continue
-		}
-		info, ok := infos[gr.MainEntryNodeID]
+		// Plan 301: the entry the row shows (the admin's own 主入口).
+		info, ok := infos[c.entryNodeFor(x.UserID)]
 		if !ok {
 			continue
 		}

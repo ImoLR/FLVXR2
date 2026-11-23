@@ -1,7 +1,8 @@
 # im.gamer App ↔ panel bridge (v1)
 
 Same file in both repos: FLVX `vite-frontend/docs/panel-app-bridge.md` and leikwan-local-bridge
-`docs/panel-app-bridge.md`. Change both together. FLVX plan 294 (v0, 2026-11-22), plan 297 (round 2, 2026-11-23).
+`docs/panel-app-bridge.md`. Change both together. FLVX plan 294 (v0, 2026-11-22), plan 297 (round 2, 2026-11-23),
+plan 301 (1.0.10-panel, 2026-11-24: 手机本地 = the VPS stack — see the last section).
 
 ## What it is
 
@@ -156,3 +157,69 @@ The vendor identity (AndroidKeyStore EC key + no_backup files) is per app instal
 im.gamer App is **one more vendor device** on the account, separate from 重仓利群 / 利群原版 on the same phone. The
 drawer shows 商家在线设备 x/y and warns when the account is full. The three apps listen on the same vendor ports:
 run only one of them at a time.
+
+## Plan 301 (1.0.10-panel): 手机本地 runs what the VPS entries run
+
+Until 1.0.9-panel the App's data plane was 重仓利群's (预热池 only). From 1.0.10-panel it is 利群原版's protection
+engine (日志快切 v12 = the Baidu port, LogSwitchRelay; shared source `app/src/protect`) driven by a **phone plan** the
+panel hands out: per forward 日志快切 on/off, the 备线 address, pool sizes and the return check, plus the global
+trigger modes and the v12 pool rules — the same values the panel writes into 百度云广州's files. Still one bridge
+version (`v: 1`); new calls are announced in `AppInfo.features` (1.0.9-panel has none → the panel shows the old caps).
+
+```ts
+interface AppInfo { …; features?: string[] }   // 1.0.10-panel: ["warm","logswitch","triggers","backup","plan","diag","tcpPing"]
+
+interface PhonePlan {
+  v: 1;
+  ref: string;                 // the 利群入口 whose values these are, e.g. "百度云广州" (shown on the phone)
+  updatedAt: number;           // ms; the App keeps the newest it was given
+  global: {
+    triggers: Record<string, "switch" | "record" | "off">;   // LogSwitch.TRIGGERS keys; missing key = App default
+    holdS?: number; leaseSettleS?: number; returnCheckS?: number;
+    warm: { standby: number; paceMs: number; bytes4: boolean; zeroFin: boolean; burst: false };
+    coalesce: boolean;
+  };
+  forwards: {
+    forwardId: number;
+    port: number;              // the vendor port (= local port on 127.0.0.1)
+    logswitch: boolean;        // 日志快切 to `backup`
+    backup: string;            // "ip:port" of the 备线 forward's entry (IP literal only; "" = none)
+    warm: number;              // main pool (0 = no 预热)
+    backupWarm: number;        // backup pool (switched); idle standby = global.warm.standby
+    returnCheck: boolean;
+  }[];
+  entries: { name: string; host: string }[];   // the 利群入口 IPs (tcpPing 本机 → 入口 only)
+}
+```
+
+| method | params | result | notes |
+|---|---|---|---|
+| `setPlan` | `PhonePlan` | `{applied: bool, forwards: int, ref}` | stored on the phone (prefs `panel_plan`), applied on the next reconcile (no reconnect; fronts swap). Older `updatedAt` than the stored one → `applied: false`. Invalid → `bad_request` |
+| `diag` | `{forwardId}` | `PhoneDiag` | 手机本地 诊断: ≤ 3 TCP handshakes to the relay ingress the core uses (else the fastest current lease entry) and to the 备线; 全程 from the core's status (latest_tcp / active_udp, like the VPS status file). No addresses in the reply |
+| `tcpPing` | `{host, port, count?≤5, timeoutMs?≤3000}` | `{ok, avgMs, loss, count}` | 本机 → 入口 for a server entry: only `host` ∈ plan.entries and `port` ∈ plan.forwards[].port; anything else → `bad_request` (fixed destinations rule) |
+
+```ts
+interface PhoneDiag {
+  forwardId: number; found: boolean; state?: string;
+  ingress?: { ok: boolean; avgMs: number; loss: number; inUse: boolean };     // 手机 → 专线入口
+  total?: { source: "udp" | "tcp"; rttMs: number; ageS: number; loss?: number }; // 手机 → 落地 (the core)
+  backup?: { ok: boolean; avgMs: number; loss: number };                       // 手机 → 备线入口
+}
+```
+
+PhoneState additions (1.0.10-panel):
+
+```ts
+forwards[i].protect?: "logswitch" | "warm" | "off";   // what runs in front of the core on that port
+forwards[i].switched?: boolean;                       // 日志快切: new connections go to the 备线 now
+forwards[i].backup?: boolean;                         // a 备线 is set for it (from the plan)
+plan?: { ref: string; updatedAt: number; forwards: number } | null;
+```
+
+Destinations: a plan's `backup` and `entries` addresses are IP literals the owner's own panel designated; the App adds
+exactly those `ip:port` pairs (backups) and `entry ip` + forward ports (tcpPing) to its allowlist and nothing else.
+Names are refused (never resolved). The vendor host, lease entries and loopback are unchanged.
+
+The panel pushes the plan (`POST leikwan/phone/plan`, admin) whenever 利群汇聚 opens in the App and when it changes.
+Without a plan the App runs 预热池 only (as 1.0.9-panel). 首包过滤 is not a phone module and is never shown
+(plan 301: hidden everywhere in the UI; on the phone only this phone's own apps reach the ports, so `eof1s` acts).

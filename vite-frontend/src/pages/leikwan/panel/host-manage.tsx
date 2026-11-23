@@ -118,6 +118,8 @@ const lineClass = (l: string) =>
         : "text-default-500";
 
 /** Per-file semantic diff (host now vs panel). */
+const HIDDEN_FILES = ["ssfilter", "sskeys"];
+
 export function HostDiffFiles({
   diffs,
   onlyChanged = false,
@@ -128,7 +130,10 @@ export function HostDiffFiles({
   /** global 利群 setting: restarts / nft only in the night window */
   nightOnly?: boolean;
 }) {
-  const list = onlyChanged ? diffs.filter((d) => !d.same) : diffs;
+  // Plan 301: the first-packet filter files (ssfilter / sskeys) stay managed
+  // but are never listed (their drift / errors still raise the ⚠).
+  const shown = diffs.filter((d) => !HIDDEN_FILES.includes(d.file));
+  const list = onlyChanged ? shown.filter((d) => !d.same) : shown;
 
   if (!list.length)
     return <p className="text-xs text-default-400">面板没有管这台的文件</p>;
@@ -190,7 +195,7 @@ const overrideText = (o: LeiKwanHostOverride) => {
 
   if (o.warmMain !== undefined || o.warmBackup !== undefined)
     parts.push(`预热 ${o.warmMain ?? "—"}/${o.warmBackup ?? "—"}`);
-  if (o.ssFilter !== undefined) parts.push(`首包过滤 ${o.ssFilter}`);
+  // Plan 301: 首包过滤 is never shown (the value stays on the host).
   if (o.logswitch !== undefined)
     parts.push(`日志快切 ${o.logswitch ? "开" : "关"}`);
   if (o.backup) parts.push(`备线 ${o.backup}`);
@@ -544,7 +549,7 @@ export function HostManageBlock({
       >
         <p>把这台主机现在的值记进面板，接管后不会改主机。</p>
         <p className="text-xs text-default-500">
-          只记和专线默认不同的项（这台自己的预热、首包过滤、日志快切线路、首包合并等）；主机上的文件这一步一个都不动。
+          只记和专线默认不同的项（这台自己的预热、日志快切线路、首包合并等）；主机上的文件这一步一个都不动。
         </p>
       </Confirm>
 

@@ -37,6 +37,12 @@ export interface PhoneForward {
   warm?: boolean | null;
   /** native UDP on this forward */
   udp?: boolean;
+  /** Plan 301 (1.0.10-panel): what runs in front of the core on that port */
+  protect?: "logswitch" | "warm" | "off";
+  /** 日志快切: new connections go to the 备线 now */
+  switched?: boolean;
+  /** a 备线 is set for it (from the phone plan) */
+  backup?: boolean;
 }
 
 export interface PhoneState {
@@ -77,6 +83,8 @@ export interface PhoneState {
   credentials: { set: boolean; clientIdHint?: string };
   /** run log size (bytes, ≤ 2 MiB) */
   logBytes: number;
+  /** Plan 301: the phone plan the App runs with (null = none, 预热池 only) */
+  plan?: { ref: string; updatedAt: number; forwards: number } | null;
 }
 
 export type PhoneEntry = "local" | "server";
@@ -90,7 +98,65 @@ export interface AppInfo {
   origin: string;
   /** reserved calls the App knows but does not implement yet (v0: speedTest) */
   reserved?: string[];
+  /**
+   * Plan 301 (1.0.10-panel): what the App runs / answers —
+   * "warm","logswitch","triggers","backup","plan","diag","tcpPing".
+   */
+  features?: string[];
 }
+
+/** Plan 301: the values the App's 日志快切 / 备线 / 预热池 run with. */
+export interface PhonePlan {
+  v: 1;
+  ref: string;
+  updatedAt: number;
+  global: {
+    triggers: Record<string, "switch" | "record" | "off">;
+    holdS?: number;
+    leaseSettleS?: number;
+    returnCheckS?: number;
+    warm: {
+      standby: number;
+      paceMs: number;
+      bytes4: boolean;
+      zeroFin: boolean;
+      burst: boolean;
+    };
+    coalesce: boolean;
+  };
+  forwards: {
+    forwardId: number;
+    port: number;
+    logswitch: boolean;
+    backup: string;
+    warm: number;
+    backupWarm: number;
+    returnCheck: boolean;
+  }[];
+  entries: { name: string; host: string }[];
+}
+
+/** Plan 301: TCP handshakes the App made (bridge diag / tcpPing). */
+export interface PhoneHop {
+  ok: boolean;
+  avgMs: number;
+  loss: number;
+  inUse?: boolean;
+  count?: number;
+}
+
+export interface PhoneDiag {
+  forwardId: number;
+  found: boolean;
+  state?: string;
+  ingress?: PhoneHop;
+  total?: { source: "udp" | "tcp"; rttMs: number; ageS: number; loss?: number };
+  backup?: PhoneHop;
+}
+
+/** The App announces a plan-301 call / module. */
+export const appHas = (info: AppInfo | null | undefined, f: string) =>
+  !!info?.features?.includes(f);
 
 export interface PhoneLog {
   text: string;
@@ -114,6 +180,10 @@ export type AppMethod =
   // Plan 297: this phone's entry (手机本地 / the server 主入口).
   | "getEntry"
   | "setEntry"
+  // Plan 301 (1.0.10-panel): phone plan + 诊断 measurements.
+  | "setPlan"
+  | "diag"
+  | "tcpPing"
   // Reserved for 本机测速 (not in v0: the App answers not_implemented).
   | "speedTest";
 

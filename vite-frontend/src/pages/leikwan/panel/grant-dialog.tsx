@@ -413,7 +413,7 @@ export function LeiKwanGrantDialog({
             {phoneLocal && <Pill tone="teal">当前入口</Pill>}
             <Pill tone="violet">只在这台手机</Pill>
             <ClientPill caps={phoneCaps(phoneCtx?.info || null)} />
-            <CapPills caps={phoneCaps(phoneCtx?.info || null)} />
+            <CapPills phone caps={phoneCaps(phoneCtx?.info || null)} />
           </span>
         }
         endContent={<Pill tone={sum.tone}>{sum.text}</Pill>}
@@ -550,7 +550,7 @@ export function LeiKwanGrantDialog({
                 {phoneSummary(phoneCtx?.state || null).text}
               </Pill>
               <ClientPill caps={phoneCaps(phoneCtx?.info || null)} />
-              <CapPills caps={phoneCaps(phoneCtx?.info || null)} />
+              <CapPills phone caps={phoneCaps(phoneCtx?.info || null)} />
             </div>
           )}
           {pickedPhone && !phoneLocal && (

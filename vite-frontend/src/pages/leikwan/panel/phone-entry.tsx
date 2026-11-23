@@ -13,7 +13,7 @@ import type {
   PhoneState,
 } from "@/utils/app-bridge";
 
-import { createContext, useContext, useState } from "react";
+import { createContext, useContext, useEffect, useRef, useState } from "react";
 import { Copy, Smartphone } from "lucide-react";
 import toast from "react-hot-toast";
 
@@ -30,8 +30,10 @@ import {
   ModalFooter,
   ModalHeader,
 } from "@/shadcn-bridge/heroui/modal";
+import { getLeiKwanPhonePlan } from "@/api/leikwan-line";
 import {
   appCall,
+  appHas,
   appStateCall,
   isAppMode,
   useAppInfo,
@@ -52,13 +54,26 @@ import {
 //     follow the phone (127.0.0.1, 「手机本地未连接」, its chips), and a
 //     subscription made / updated now is a 手机本地 one (entry_mode local).
 //   - Admin only this round (normal users: the web page as is).
+// Plan 301 (1.0.10-panel): the App runs 利群原版's engine (日志快切 v12 with the
+// VPS triggers, 备线 dialled by the phone itself, 预热池) from the phone plan
+// this page hands it (setPlan, values of the reference 利群入口). AppInfo
+// .features says so → full caps. 首包过滤 is never shown. Every forward row
+// follows the chosen entry; the 入口机 row has one status pill.
 
 export const PHONE_KEY = "phone";
 export const PHONE_NAME = "手机本地";
 export const PHONE_HOST = "127.0.0.1";
 
+/** Plan 301: the App runs the VPS stack (日志快切 + 快切触发 + 备线). */
+export const phoneFull = (info: AppInfo | null | undefined) =>
+  appHas(info, "logswitch") &&
+  appHas(info, "triggers") &&
+  appHas(info, "backup");
+
 /** 手机本地 in the plan-295 capability schema (CapPills / ClientPill). */
 export function phoneCaps(info: AppInfo | null): LeiKwanEntryCaps {
+  const full = phoneFull(info);
+
   return {
     nodeId: 0,
     name: PHONE_NAME,
@@ -69,12 +84,38 @@ export function phoneCaps(info: AppInfo | null): LeiKwanEntryCaps {
     client: "手机 App",
     frontBuild: `im.gamer App${info ? ` ${info.app.version}` : ""}`,
     warm: true,
+    // Plan 301: never rendered (kept for the schema).
     ssFilter: false,
-    logswitch: false,
-    triggers: false,
-    phone: false,
-    missing: ["首包过滤", "日志快切", "快切触发", "手机备线"],
+    logswitch: full,
+    triggers: full,
+    phone: full,
+    missing: full ? [] : ["日志快切", "快切触发", "手机备线"],
   };
+}
+
+/**
+ * Plan 301: the one status pill of the 手机本地 入口机 row / tile — 「就绪」
+ * when connected and every forward is up, 「连接中 x/y」 while forwards come
+ * up, else today's not-connected states (未连接 / 连接失败 / 正在断开).
+ */
+export function phoneEntryPill(s: PhoneState | null): {
+  tone: "green" | "amber" | "red" | "slate";
+  text: string;
+} {
+  if (!s) return { tone: "slate", text: "读取中" };
+  if (s.connection === "connected" && s.total > 0 && s.ready >= s.total)
+    return { tone: "green", text: "就绪" };
+  if (
+    s.connection === "connected" ||
+    s.connection === "partial" ||
+    s.connection === "connecting"
+  )
+    return {
+      tone: "amber",
+      text: s.total ? `连接中 ${s.ready}/${s.total}` : "连接中",
+    };
+
+  return phoneSummary(s);
 }
 
 export const phoneConnected = (s: PhoneState | null) =>
@@ -163,6 +204,7 @@ export function usePhoneEntry() {
   const req: LeiKwanPhoneReq = {
     warm: !!state?.warm.on,
     app: info?.app.version,
+    features: info?.features,
   };
 
   return {
@@ -197,13 +239,8 @@ export const phoneForwardOf = (s: PhoneState | null, r: LeiKwanRule) =>
 export function usePhoneRule(r: LeiKwanRule): PhoneRuleView | null {
   const ctx = usePhoneCtx();
 
+  // Plan 301: every row follows the chosen entry (not only own forwards).
   if (!ctx || !ctx.local) return null;
-  if (
-    ctx.ownerId !== undefined &&
-    r.userId !== undefined &&
-    r.userId !== ctx.ownerId
-  )
-    return null;
   const s = ctx.state;
   const f = phoneForwardOf(s, r);
   let status: PhoneRuleView["status"] = null;
@@ -743,7 +780,8 @@ export function PhoneConnectPanel({
 export function PhoneHostTile({ onOpen }: { onOpen: () => void }) {
   const ctx = usePhoneCtx();
   const s = ctx?.state || null;
-  const sum = phoneSummary(s);
+  // Plan 301: one status pill only.
+  const pill = phoneEntryPill(s);
 
   return (
     <button
@@ -763,10 +801,7 @@ export function PhoneHostTile({ onOpen }: { onOpen: () => void }) {
         />
       </span>
       <span className="flex flex-wrap gap-1">
-        <Pill tone={sum.tone}>{sum.text}</Pill>
-        <Pill tone={ctx?.local ? "teal" : "slate"}>
-          {ctx?.local ? "当前入口" : "未选用"}
-        </Pill>
+        <Pill tone={pill.tone}>{pill.text}</Pill>
       </span>
     </button>
   );
@@ -784,14 +819,14 @@ export function PhoneHostRow({
 }) {
   const ctx = usePhoneCtx();
   const s = ctx?.state || null;
-  const sum = phoneSummary(s);
+  // Plan 301: one status pill only (就绪 / 连接中 x/y / not connected).
+  const pill = phoneEntryPill(s);
 
   return (
     <LkExpandCard
       chip={
         <span className="inline-flex shrink-0 items-center gap-1">
-          <Pill tone={sum.tone}>{sum.text}</Pill>
-          {ctx?.local && <Pill tone="teal">当前入口</Pill>}
+          <Pill tone={pill.tone}>{pill.text}</Pill>
         </span>
       }
       data-leikwan-host-row="phone"
@@ -911,8 +946,27 @@ export function PhoneDetails({
         </KV>
         <KV label="支持功能" labelClassName={kvw}>
           <ClientPill caps={caps} />
-          <CapPills caps={caps} />
+          <CapPills phone caps={caps} />
         </KV>
+        {phoneFull(info) && (
+          <KV label="日志快切" labelClassName={kvw}>
+            {s?.plan ? (
+              <>
+                <Pill
+                  title="触发条件、预热池大小、备线都按面板给这个入口的设置"
+                  tone="green"
+                >
+                  跟 {s.plan.ref || "入口机"} 一样
+                </Pill>
+                <Pill tone="slate">{s.plan.forwards} 条转发</Pill>
+              </>
+            ) : (
+              <Pill title="打开利群汇聚页面时面板会把设置发给 App" tone="amber">
+                还没拿到面板的设置（现在只有预热池）
+              </Pill>
+            )}
+          </KV>
+        )}
         <KV label="预热池" labelClassName={kvw}>
           {s?.warm.supported ? (
             <LabeledSwitch
@@ -1027,6 +1081,18 @@ export function PhoneDetails({
                       ? "连接中"
                       : "未连接"}
               </Pill>
+              {f.protect === "logswitch" && (
+                <Pill
+                  title={
+                    f.switched
+                      ? "日志快切：新连接正走备线"
+                      : "日志快切待命：出故障时新连接改走备线"
+                  }
+                  tone={f.switched ? "amber" : "green"}
+                >
+                  {f.switched ? "正走备线" : "快切"}
+                </Pill>
+              )}
               {f.reason && f.state !== "ready" && (
                 <span className="w-full text-xs text-default-500">
                   {f.reason}
@@ -1164,4 +1230,39 @@ export function PhoneDrawer({
       </ModalContent>
     </Modal>
   );
+}
+
+/**
+ * Plan 301 (admin, App 1.0.10-panel): hand the App the phone plan — the
+ * values 手机本地's 日志快切 / 备线 / 预热池 run with — when 利群汇聚 opens and
+ * after each reload (`rev` changes). One panel read per load, no polling; the
+ * App ignores an unchanged plan.
+ */
+export function usePhonePlanSync(enabled: boolean, rev: unknown) {
+  const last = useRef("");
+
+  useEffect(() => {
+    if (!enabled) return;
+    let stop = false;
+
+    void getLeiKwanPhonePlan().then(async (res) => {
+      if (stop || res.code !== 0 || !res.data) return;
+      const key = JSON.stringify({ ...res.data, updatedAt: 0 });
+
+      if (key === last.current) return;
+      try {
+        await appCall(
+          "setPlan",
+          res.data as unknown as Record<string, unknown>,
+        );
+        last.current = key;
+      } catch {
+        /* an older App: it keeps its 预热池 only */
+      }
+    });
+
+    return () => {
+      stop = true;
+    };
+  }, [enabled, rev]);
 }

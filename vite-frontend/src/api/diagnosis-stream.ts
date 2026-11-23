@@ -460,10 +460,12 @@ export const diagnoseLeiKwanRuleStream = async (
   id: number,
   callbacks: LeiKwanDiagCallbacks,
   signal?: AbortSignal,
+  /** Plan 301 (im.gamer App): 手机本地 + what the phone measured */
+  extra?: { local?: boolean; phone?: unknown },
 ): Promise<DiagnosisStreamRunResult> => {
   const res = await runDiagnosisStream<LeiKwanDiagItem>({
     path: "/leikwan-rule/diagnose/stream",
-    body: { id },
+    body: { id, ...(extra || {}) },
     signal,
     onStart: (data) => callbacks.onStart(data as unknown as LeiKwanDiagStart),
     onItem: callbacks.onItem,
@@ -475,7 +477,7 @@ export const diagnoseLeiKwanRuleStream = async (
   if (!res.fallback || signal?.aborted) return res;
 
   // No stream (old proxy / fetch unsupported): one plain request.
-  const plain = await diagnoseLeiKwanRule(id);
+  const plain = await diagnoseLeiKwanRule(id, extra);
 
   if (signal?.aborted) return { ...res, fallback: true };
   if (plain.code !== 0 || !plain.data) {

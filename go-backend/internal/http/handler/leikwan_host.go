@@ -45,7 +45,9 @@ const (
 var lkFileOrder = []string{lkFileWarm, lkFileSSFilter, lkFileSSKeys, lkFileTriggers, lkFileLogswitch, lkFileCoalesce, lkFilePhone}
 
 var lkFileNames = map[string]string{
-	lkFileWarm: "预热池", lkFileSSFilter: "首包过滤", lkFileSSKeys: "首包过滤密钥", lkFileTriggers: "日志快切触发条件",
+	// Plan 301: 首包过滤 is never named in the UI (it stays on, hidden): its two
+	// files show as internal files only where something is wrong with them.
+	lkFileWarm: "预热池", lkFileSSFilter: "入口内部文件 ssfilter", lkFileSSKeys: "入口内部文件 sskeys", lkFileTriggers: "日志快切触发条件",
 	lkFileLogswitch: "日志快切线路", lkFileCoalesce: "首包合并", lkFilePhone: "手机备线端口",
 }
 
@@ -1764,7 +1766,7 @@ func (h *Handler) leiKwanFilterKeyGuard(x *model.LeiKwanRule, landingID int64) e
 	}
 	if len(blocking) > 0 {
 		sort.Strings(blocking)
-		return fmt.Errorf("入口机 %s 还没接管：首包过滤会挡掉新落地的密钥。先接管这些入口机再换落地", strings.Join(blocking, "、"))
+		return fmt.Errorf("入口机 %s 还没接管：它们不认识新落地的密钥，会挡掉连接。先接管这些入口机再换落地", strings.Join(blocking, "、"))
 	}
 	return nil
 }

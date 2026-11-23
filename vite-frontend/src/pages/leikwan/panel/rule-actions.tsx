@@ -317,21 +317,9 @@ export function AllEntriesPill({
   const on = !!rule.allEntries;
 
   // Plan 297: an admin's own forwards are never held to one entry by
-  // 「只开主入口」 — a static amber pill, nothing to switch.
-  if (rule.ownerAdmin)
-    return on || actions.entryLock ? (
-      <span
-        className="inline-flex max-w-full shrink-0"
-        data-leikwan-all-entries="admin"
-      >
-        <Pill
-          title="管理员的转发在所有利群入口机上都能连（不受「只开主入口」限制）"
-          tone="amber"
-        >
-          所有入口可用
-        </Pill>
-      </span>
-    ) : null;
+  // 「只开主入口」. Plan 301: no static 「所有入口可用」 pill on those rows
+  // (the row shows the chosen entry only; nothing to switch).
+  if (rule.ownerAdmin) return null;
   if (!on && !actions.entryLock) return null;
 
   return (
@@ -576,7 +564,7 @@ export function useLeiKwanRuleActions({
               </div>
             )}
             <p className="rounded-lg bg-amber-500/15 px-3 py-2 text-amber-700 dark:bg-amber-400/15 dark:text-amber-300">
-              换落地后旧链接（旧密钥）立刻失效；备线和首包过滤密钥一起换；换完点「复制链接」拿新链接更新客户端。
+              换落地后旧链接（旧密钥）立刻失效；备线一起换；换完点「复制链接」拿新链接更新客户端。
             </p>
             <p className="text-xs text-default-500">
               入口地址不变；利群那边的目标和备线目标一起改到新落地。

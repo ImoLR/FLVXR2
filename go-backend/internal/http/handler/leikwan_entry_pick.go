@@ -53,24 +53,64 @@ type lkPhoneReq struct {
 	Warm bool `json:"warm"`
 	// App: the App's version (shown as the client build).
 	App string `json:"app"`
+	// Features (plan 301, AppInfo.features): 1.0.10-panel runs 利群原版's
+	// protection engine — "logswitch", "triggers", "backup" (the phone dials
+	// the 备线 forward itself). Empty = 1.0.9-panel (预热池 only).
+	Features []string `json:"features,omitempty"`
 }
 
-// lkPhoneCaps (plan 297): 手机本地 in the plan-295 capability schema. The
-// App's LeiKwan client has its own 预热池 and none of the hosts' designs:
-// no 首包过滤, no 日志快切 / 快切触发, no 手机备线 port.
+func (p lkPhoneReq) has(f string) bool {
+	for _, x := range p.Features {
+		if x == f {
+			return true
+		}
+	}
+	return false
+}
+
+// full: the App runs the VPS stack (日志快切 + 快切触发 + 备线 + 预热池).
+func (p lkPhoneReq) full() bool { return p.has("logswitch") && p.has("triggers") && p.has("backup") }
+
+// lkPhoneCaps (plan 297 / 301): 手机本地 in the plan-295 capability schema.
+// 1.0.9-panel: only its own 预热池. 1.0.10-panel: the same parts as 百度云广州
+// (日志快切 with its triggers, 备线 dialled by the phone itself, 预热池).
+// 首包过滤 is never listed (plan 301).
 func lkPhoneCaps(p lkPhoneReq) lkEntryInfo {
 	build := "im.gamer App"
 	if v := strings.TrimSpace(p.App); v != "" && len(v) <= 40 {
 		build += " " + v
 	}
 	c := lkEntryCaps{Name: lkLocalName, Host: lkLocalHost, Online: true, Known: true, FrontBuild: build,
-		Client: "手机 App", Warm: true, Missing: []string{"首包过滤", "日志快切", "快切触发", "手机备线"}}
-	return lkEntryInfo{caps: c}
+		Client: "手机 App", Warm: true, Missing: []string{"日志快切", "快切触发", "手机备线"}}
+	info := lkEntryInfo{caps: c}
+	if p.full() {
+		info.caps.Logswitch, info.caps.Triggers, info.caps.Phone = true, true, true
+		info.caps.Missing = []string{}
+		info.phoneDirect = true
+	}
+	return info
+}
+
+// lkPhoneDirectText: the 手机本地 备线 (the phone dials the 备线 forward itself).
+const lkPhoneDirectText = "手机直连备线"
+
+// lkPhoneOnHost (plan 301): what 1.0.10-panel runs for a rule — the values
+// the panel hands the phone (lkPhonePlan), with the App's 预热池 switch.
+func (g *lkGen) lkPhoneOnHost(x model.LeiKwanRule, ref lkEntryInfo, warmOn bool) lkOnHost {
+	f := g.phoneForward(x, ref)
+	v := lkOnHost{Known: true, SSFilter: "off", Logswitch: f.Logswitch, Triggers: f.Logswitch, ReturnCheck: f.ReturnCheck}
+	if warmOn {
+		v.Warm = f.Warm
+	}
+	if f.Backup != "" {
+		v.Phone = lkPhoneDirectText
+	}
+	return v
 }
 
 // lkPhoneRuleDiff: a rule on the current 主入口 (from) vs on 手机本地 (the
-// App's 预热池 on/off; nothing else of the hosts' designs). compare=false: no
-// usable current values, only list what 手机本地 runs.
+// App's 预热池 on/off; nothing else of the hosts' designs — 1.0.9-panel).
+// compare=false: no usable current values, only list what 手机本地 runs.
 func lkPhoneRuleDiff(from lkOnHost, to lkEntryCaps, warmOn, compare bool) ([]lkSwitchChange, []string) {
 	changes, kept := []lkSwitchChange{}, []string{}
 	if !compare {
@@ -88,9 +128,7 @@ func lkPhoneRuleDiff(from lkOnHost, to lkEntryCaps, warmOn, compare bool) ([]lkS
 	case warmOn:
 		changes = append(changes, lkSwitchChange{Key: lkFileWarm, Label: "预热", From: "不预热", To: "手机预热池", Gain: true})
 	}
-	if from.SSFilter != "" && from.SSFilter != "off" {
-		changes = append(changes, lkSwitchChange{Key: lkFileSSFilter, Label: "首包过滤", From: lkFilterText(from.SSFilter), To: lkFilterText("off"), Lost: true, Why: to.why(lkFileSSFilter)})
-	}
+	// Plan 301: 首包过滤 is not compared / listed (hidden from the UI).
 	if from.Logswitch {
 		changes = append(changes, lkSwitchChange{Key: lkFileLogswitch, Label: "日志快切", From: lkOnOffText("日志快切", true), To: lkOnOffText("日志快切", false), Lost: true,
 			Why: to.why(lkFileLogswitch) + "：断线时不会自动切到备线"})
@@ -115,7 +153,9 @@ func (h *Handler) leiKwanGrantPreviewPhone(userID int64, p lkPhoneReq) (map[stri
 	if err != nil {
 		return nil, errors.New("读取利群数据失败")
 	}
-	to := lkPhoneCaps(p).caps
+	phone := lkPhoneCaps(p)
+	to := phone.caps
+	ref := h.lkPhoneRef(g, infos, userID)
 	out := map[string]interface{}{"userId": userID, "to": to, "local": true}
 	notes := []string{"手机本地只在这台手机上生效：面板里的主入口不变，这个用户别的设备照常走它。"}
 	cur := g.mainEntry[userID]
@@ -138,7 +178,12 @@ func (h *Handler) leiKwanGrantPreviewPhone(userID int64, p lkPhoneReq) (map[stri
 		if compare {
 			from = g.onHost(x, fromInfo)
 		}
-		sr.Changes, sr.Kept = lkPhoneRuleDiff(from, to, p.Warm, compare)
+		if phone.phoneDirect {
+			// Plan 301: 1.0.10-panel runs the VPS stack with the panel's values.
+			sr.Changes, sr.Kept = lkSwitchRuleDiff(from, g.lkPhoneOnHost(x, ref, p.Warm), fromCaps(fromInfo, hasFrom), to, compare)
+		} else {
+			sr.Changes, sr.Kept = lkPhoneRuleDiff(from, to, p.Warm, compare)
+		}
 		anyLost, anyGain := false, false
 		for _, c := range sr.Changes {
 			anyLost = anyLost || c.Lost
@@ -156,8 +201,8 @@ func (h *Handler) leiKwanGrantPreviewPhone(userID int64, p lkPhoneReq) (map[stri
 	return out, nil
 }
 
-// leiKwanRulePhoneLimits (plan 297, admin list with `phone`): per own rule of
-// the caller what 手机本地 cannot run — the plan-295 entryLimits, computed
+// leiKwanRulePhoneLimits (plan 297, admin list with `phone`): per rule (plan
+// 301: every row, they all follow the chosen entry) what 手机本地 cannot run — the plan-295 entryLimits, computed
 // for the App's client (same ruleLimits, same chips).
 func (h *Handler) leiKwanRulePhoneLimits(rules []model.LeiKwanRule, uid int64, p lkPhoneReq, c *leiKwanRuleCtx) map[int64][]lkCapLimit {
 	if len(rules) == 0 {
@@ -171,9 +216,7 @@ func (h *Handler) leiKwanRulePhoneLimits(rules []model.LeiKwanRule, uid int64, p
 	phone := lkPhoneCaps(p)
 	out := map[int64][]lkCapLimit{}
 	for _, x := range rules {
-		if x.UserID != uid {
-			continue
-		}
+		// Plan 301: every row follows the chosen entry (not only own rules).
 		somewhere := false
 		for _, info := range infos {
 			if lkPhonePort(info.prof, x) != "" {
@@ -184,4 +227,11 @@ func (h *Handler) leiKwanRulePhoneLimits(rules []model.LeiKwanRule, uid int64, p
 		out[x.ID] = g.ruleLimits(x, phone, somewhere)
 	}
 	return out
+}
+
+func fromCaps(info lkEntryInfo, ok bool) lkEntryCaps {
+	if !ok {
+		return lkEntryCaps{}
+	}
+	return info.caps
 }
