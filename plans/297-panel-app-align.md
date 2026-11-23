@@ -70,3 +70,6 @@ lab 利群原版 behaviour and versions unchanged.
 - Finding: on prod all 7 利群 forwards of imolr are 手动落地 → no 利群 node in any subscription (main or 手机本地);
   only 复制链接 (手机本地 → 127.0.0.1:port).
 
+- **Released 11-23 21:38 TW as 3.0.27-fork.164** (plan 299: logic review + fixes, rollback
+  /opt/flvx-svc/rollback/pre-fork164-20261123T133753Z/). App shipped as private prerelease v1.0.9-panel (vc3, App
+  review fixes). 280 / 282 / 264 now on native panel landings → the admin's 利群汇聚 sub carries 3 利群 nodes.
