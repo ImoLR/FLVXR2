@@ -32,14 +32,14 @@ lab 利群原版 behaviour and versions unchanged.
 - [x] 9. Frontend: forward rows follow the phone (127.0.0.1 / 「手机本地未连接」 / chips), 复制链接
 - [x] 10. Frontend: 订阅 — entry badge 「手机本地」 (生成订阅 dialog + 订阅 page), App: new / convert; web: convert back
 - [x] 11. Frontend: AllEntriesPill for admin-owned rules (所有入口可用, static)
-- [ ] 12. Checks: tsc, eslint, `npm run build`; `go test` touched packages + contract tests (vs base)
-- [ ] 13. Android: entry choice (getEntry / setEntry + state), auto-connect default OFF (battery gate for auto only),
+- [x] 12. Checks: tsc, eslint, `npm run build`; `go test` touched packages + contract tests (vs base)
+- [x] 13. Android: entry choice (getEntry / setEntry + state), auto-connect default OFF (battery gate for auto only),
       manual connect with battery restricted, setEntry(server) disconnects; version consistent; tests; signed APK;
       check-apk-private; push branch (no release)
 - [x] 14. Bridge contract `panel-app-bridge.md` updated, identical in both repos
-- [ ] 15. Lab (prod-DB copy, own ports): fork.162 vs branch browser screenshots identical (desktop + 390 H5, admin +
+- [x] 15. Lab (prod-DB copy, own ports): fork.162 vs branch browser screenshots identical (desktop + 390 H5, admin +
       user); web vs App gallery /root/mmwx-preview/panel-app-v1/
-- [ ] 16. Push branch (force), CI Build Check green; summary.md + final.md; lab copies deleted
+- [x] 16. Push branch (force), CI Build Check green; summary.md + final.md; lab copies deleted
 
 ## Notes / decisions
 - Admin unlock: `lkGen.admins` (role 0) → `entryLocked` false; rule / grant views carry `ownerAdmin` → static amber
@@ -54,3 +54,19 @@ lab 利群原版 behaviour and versions unchanged.
 - Android 1.0.8-panel vc2: `entry` pref (server default), auto-connect default off, manual connect without battery
   gate, setEntry(local) + auto on → autoConnect(); setEntry(server) → stop; coming back to the App retries a blocked
   auto-connect. Build env /root/.cache/leikwan-android-build recreated (setup.sh) — delete again at the end.
+- Results: backend `go test ./...` all ok (29 packages); handler + store ok on the final code. Contract package: 4 full
+  runs on the branch, 2 hit `TestForwardWarmTagContract` (after the key's 「sleep」 report the owner still sees the old
+  「faster」 tag); fork.162 3/3 full runs ok; the test alone 10/10 ok on both. It runs before every plan-297 test and
+  calls no changed code; cause = `internal/ws/server.go` handles each agent metric in its own goroutine
+  (`go onMetric(...)`), so two quick reports can apply out of order. Left as an open item (not this plan's code). CI Build Check 45160712767 green
+  (frontend, backend, agent, PG contract). Frontend tsc / eslint / build ok.
+- Android 261dbfd (branch feature/panel-app, pushed, no release): panel tests 30/30, pub + lab shared-class tests 12/12
+  each, signed `imgamer-panel-1.0.8-panel-vc2-release.apk` sha256 1125ef79…ae31 (cert 6a78…0367),
+  check-apk-private --panel 0 hits. Build env recreated then deleted (setup script kept in the run dir).
+- Lab (prod-DB copy, isolated netns, ports 18595–18597; lab-only data: user 9001 labuser with 281, 540 → panel
+  landing 195): browser proof fork.162 vs branch 10 shots — 7 pixel-identical, 3 differ only by the lab vendor-read
+  time and the intended 279 pill 「仅主入口」→「所有入口可用」. Checks 162: 6/6, branch: 26/26, page errors 0.
+  Gallery /root/mmwx-preview/panel-app-v1/. Lab copy + base worktree deleted.
+- Finding: on prod all 7 利群 forwards of imolr are 手动落地 → no 利群 node in any subscription (main or 手机本地);
+  only 复制链接 (手机本地 → 127.0.0.1:port).
+
