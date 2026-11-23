@@ -208,6 +208,8 @@ type Node struct {
 	// Node DDNS (plan 142): records live in node_ddns_record.
 	DDNSEnabled    bool  `gorm:"column:ddns_enabled;not null;default:false"`
 	DDNSProviderID int64 `gorm:"column:ddns_provider_id;not null;default:0"`
+	// 用户专属域名 (plan 303): per-user CNAMEs → the DDNS main domain.
+	UserSubdomainEnabled bool `gorm:"column:user_subdomain_enabled;not null;default:false"`
 	// Plan 149: the public addresses the agent last reported (what ip.sb saw:
 	// the node's real egress, e.g. behind NAT). Never dialed or shown; only
 	// the chain-upstream guard reads them (plan 108: a 链式代理 upstream must

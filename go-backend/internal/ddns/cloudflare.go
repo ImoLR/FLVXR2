@@ -25,8 +25,9 @@ const RecordComment = "FLVX DDNS"
 
 const cloudflareAPI = "https://api.cloudflare.com/client/v4"
 
-// Client talks to the Cloudflare v4 API with a scoped API token. It never
-// deletes records.
+// Client talks to the Cloudflare v4 API with a scoped API token. Node DDNS
+// never deletes records; only per-user CNAMEs (plan 303, comment flvx-user)
+// are deleted, by id, after a read-back (DeleteUserRecord).
 type Client struct {
 	Token   string
 	BaseURL string
@@ -73,6 +74,7 @@ type envelope struct {
 	Info    *struct {
 		Page       int `json:"page"`
 		TotalPages int `json:"total_pages"`
+		TotalCount int `json:"total_count"`
 	} `json:"result_info"`
 }
 
@@ -279,5 +281,109 @@ func (c *Client) UpdateRecord(ctx context.Context, zoneID, recordID, recordType,
 	var out Record
 	_, err := c.do(ctx, http.MethodPut, "/zones/"+url.PathEscape(zoneID)+"/dns_records/"+url.PathEscape(recordID), nil,
 		recordWrite{Type: recordType, Name: strings.ToLower(name), Content: content, TTL: RecordTTL, Proxied: false, Comment: RecordComment}, &out)
+	return out, err
+}
+
+// ---- 用户专属域名 (plan 303) ----
+
+// UserRecordComment marks the per-user CNAMEs. Only records carrying it (and
+// known to the panel database) are ever changed or deleted.
+const UserRecordComment = "flvx-user"
+
+// IsUserRecord: a record written for a 用户专属域名.
+func IsUserRecord(r Record) bool { return strings.HasPrefix(r.Comment, UserRecordComment) }
+
+// CreateUserCNAME creates `name CNAME target` (DNS only, TTL 120, flvx-user).
+func (c *Client) CreateUserCNAME(ctx context.Context, zoneID, name, target string) (Record, error) {
+	var out Record
+	_, err := c.do(ctx, http.MethodPost, "/zones/"+url.PathEscape(zoneID)+"/dns_records", nil,
+		recordWrite{Type: "CNAME", Name: strings.ToLower(name), Content: strings.ToLower(target), TTL: RecordTTL, Proxied: false, Comment: UserRecordComment}, &out)
+	return out, err
+}
+
+// UpdateUserCNAME re-points an existing per-user CNAME.
+func (c *Client) UpdateUserCNAME(ctx context.Context, zoneID, recordID, name, target string) (Record, error) {
+	var out Record
+	_, err := c.do(ctx, http.MethodPut, "/zones/"+url.PathEscape(zoneID)+"/dns_records/"+url.PathEscape(recordID), nil,
+		recordWrite{Type: "CNAME", Name: strings.ToLower(name), Content: strings.ToLower(target), TTL: RecordTTL, Proxied: false, Comment: UserRecordComment}, &out)
+	return out, err
+}
+
+// DeleteRecord removes one record by id. Callers check that the record is a
+// per-user CNAME of theirs first (DeleteUserRecord does).
+func (c *Client) DeleteRecord(ctx context.Context, zoneID, recordID string) error {
+	_, err := c.do(ctx, http.MethodDelete, "/zones/"+url.PathEscape(zoneID)+"/dns_records/"+url.PathEscape(recordID), nil, nil, nil)
+	return err
+}
+
+// ErrNotUserRecord: the record id now holds something the panel did not write.
+var ErrNotUserRecord = errors.New("这条 Cloudflare 记录不是面板创建的专属域名，未删除")
+
+// DeleteUserRecord deletes a per-user CNAME after reading it back: it must
+// still be a CNAME of that name with the flvx-user comment. A record that is
+// already gone counts as deleted.
+func (c *Client) DeleteUserRecord(ctx context.Context, zoneID, recordID, name string) error {
+	cur, err := c.GetRecord(ctx, zoneID, recordID)
+	if err != nil {
+		if IsNotFound(err) {
+			return nil
+		}
+		return err
+	}
+	if cur.Type != "CNAME" || !strings.EqualFold(strings.TrimSuffix(cur.Name, "."), name) || !IsUserRecord(cur) {
+		return ErrNotUserRecord
+	}
+	if err := c.DeleteRecord(ctx, zoneID, recordID); err != nil && !IsNotFound(err) {
+		return err
+	}
+	return nil
+}
+
+// IsNotFound: the record (or zone) does not exist.
+func IsNotFound(err error) bool {
+	var apiErr *APIError
+	return errors.As(err, &apiErr) && (apiErr.Status == http.StatusNotFound || apiErr.Code == 81044)
+}
+
+// IsQuotaError: the zone's record quota is used up.
+func IsQuotaError(err error) bool {
+	var apiErr *APIError
+	return errors.As(err, &apiErr) && (apiErr.Code == 81045 || strings.Contains(strings.ToLower(apiErr.Message), "quota"))
+}
+
+// ZoneRecords lists every record of a zone (100 per page, at most 50 pages)
+// and the zone's total count as reported by Cloudflare.
+func (c *Client) ZoneRecords(ctx context.Context, zoneID string) ([]Record, int, error) {
+	var all []Record
+	total := 0
+	for page := 1; page <= 50; page++ {
+		var recs []Record
+		env, err := c.do(ctx, http.MethodGet, "/zones/"+url.PathEscape(zoneID)+"/dns_records", url.Values{"per_page": {"100"}, "page": {fmt.Sprint(page)}}, nil, &recs)
+		if err != nil {
+			return nil, 0, err
+		}
+		all = append(all, recs...)
+		if env.Info != nil && env.Info.TotalCount > 0 {
+			total = env.Info.TotalCount
+		}
+		if env.Info == nil || env.Info.TotalPages <= page {
+			break
+		}
+	}
+	if total < len(all) {
+		total = len(all)
+	}
+	return all, total, nil
+}
+
+// ZoneUsage is GET /zones/{id}/dns_records/usage (record quota of the zone).
+type ZoneUsage struct {
+	Quota int `json:"record_quota"`
+	Usage int `json:"record_usage"`
+}
+
+func (c *Client) ZoneUsage(ctx context.Context, zoneID string) (ZoneUsage, error) {
+	var out ZoneUsage
+	_, err := c.do(ctx, http.MethodGet, "/zones/"+url.PathEscape(zoneID)+"/dns_records/usage", nil, nil, &out)
 	return out, err
 }

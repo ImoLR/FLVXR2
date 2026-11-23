@@ -84,7 +84,16 @@ func (r *Repository) LandingNodeLinks(n model.LandingNode) ([]LandingLink, error
 		}
 		return l
 	}
-	out := []LandingLink{link("直连", "direct", s.PublicHost, n.Port)}
+	direct := s.PublicHost
+	if s.NodeID > 0 {
+		// Plan 303: a native landing's 直连 uses the owner's 专属域名.
+		if names, err := r.LoadUserEntryNames([]int64{n.UserID}); err == nil {
+			if name, _ := names.Lookup(n.UserID, s.NodeID, s.PublicHost); name != "" {
+				direct = name
+			}
+		}
+	}
+	out := []LandingLink{link("直连", "direct", direct, n.Port)}
 	var forwards []model.Forward
 	if err := r.db.Where("landing_node_id = ? AND user_id = ?", n.ID, n.UserID).Find(&forwards).Error; err != nil {
 		return nil, err
@@ -186,6 +195,16 @@ func (r *Repository) forwardEntries(f model.Forward, allAddresses ...bool) ([]fo
 			host = strings.TrimSpace(fp.InIP.String)
 		}
 		out = append(out, forwardEntry{Host: host, Port: fp.Port, NodeID: entry.ID, NodeName: entry.Name})
+	}
+	if expand && len(out) > 0 {
+		// Plan 303: copy links show the owner's 专属域名 for that entry.
+		if names, err := r.LoadUserEntryNames([]int64{f.UserID}); err == nil && !names.Empty() {
+			for i := range out {
+				if name, _ := names.Lookup(f.UserID, out[i].NodeID, out[i].Host); name != "" {
+					out[i].Host = name
+				}
+			}
+		}
 	}
 	return out, nil
 }

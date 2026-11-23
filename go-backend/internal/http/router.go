@@ -13,7 +13,8 @@ func NewRouter(h *handler.Handler, jwtSecret string, r *repo.Repository) http.Ha
 	h.Register(mux)
 	mux.Handle("/system-info", h.WebSocketHandler())
 
-	wrapped := middleware.Recover(mux)
+	// Plan 303: mutations kick the 用户专属域名 reconcile (debounced).
+	wrapped := middleware.Recover(h.UserSubdomainKicker(mux))
 	wrapped = middleware.JWT(middleware.AuthOptions{JWTSecret: jwtSecret, UserState: h.UserState()})(wrapped)
 	wrapped = middleware.RequestLog(wrapped)
 	wrapped = middleware.CORS(wrapped)

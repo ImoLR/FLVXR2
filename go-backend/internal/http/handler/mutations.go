@@ -936,6 +936,10 @@ func (h *Handler) nodeCreate(w http.ResponseWriter, r *http.Request) {
 				response.WriteJSON(w, response.Err(-2, err.Error()))
 				return
 			}
+			if err := h.saveUserSubdomain(created.ID, ddnsSave); err != nil { // plan 303
+				response.WriteJSON(w, response.Err(-2, err.Error()))
+				return
+			}
 			if ddnsSave.enabled {
 				h.ddnsSyncAsync(created.ID, true)
 			}
@@ -1195,6 +1199,10 @@ func (h *Handler) nodeUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 	if ddnsReq != nil {
 		if err := h.repo.SaveNodeDDNSConfig(id, ddnsEffective.enabled, ddnsEffective.providerID, ddnsEffective.records); err != nil {
+			response.WriteJSON(w, response.Err(-2, err.Error()))
+			return
+		}
+		if err := h.saveUserSubdomain(id, ddnsEffective); err != nil { // plan 303
 			response.WriteJSON(w, response.Err(-2, err.Error()))
 			return
 		}

@@ -116,7 +116,8 @@ type Handler struct {
 	nodeGroupHandler *NodeGroupHandler
 	nodeTagHandler   *NodeTagHandler
 
-	ddns *ddnsManager // node DDNS updater (plan 142), created on first use
+	ddns    *ddnsManager    // node DDNS updater (plan 142), created on first use
+	userSub *userSubManager // 用户专属域名 reconcile (plan 303), created on first use
 
 	nftablesDomainMu    sync.Mutex
 	nftablesDomainCache map[int64]string
@@ -316,6 +317,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	h.registerLeiKwan(mux)
 	h.registerLanding(mux)
 	h.registerDDNS(mux)
+	h.registerUserSubdomain(mux) // plan 303
 	h.registerProbe(mux)
 	h.registerTelegramBot(mux)
 	h.registerSwitchMargins(mux)
@@ -1108,6 +1110,8 @@ func (h *Handler) forwardList(w http.ResponseWriter, r *http.Request) {
 
 	// Plan 180: the 最优 pick line of every rule (memory only).
 	h.attachRuleBestPicksOrLog(items, entryNodes)
+	// Plan 303: each rule's entry address uses its owner's 专属域名.
+	h.userSubRewriteForwardItems(items, entryNodes)
 	// Plan 249: the 预热 tag of every rule (memory only; users: green only).
 	h.attachForwardWarmPoolStatesOrLog(items, entryNodes, roleID == 0)
 
@@ -1786,7 +1790,9 @@ func (h *Handler) userPackage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	forwardOut := make([]map[string]interface{}, 0, len(forwards))
+	pkgNames, _ := h.repo.LoadUserEntryNames([]int64{userID}) // plan 303
 	for _, f := range forwards {
+		f.InIP = pkgNames.RewriteEntryList(userID, nil, f.InIP)
 		item := map[string]interface{}{
 			"id":              f.ID,
 			"name":            f.Name,

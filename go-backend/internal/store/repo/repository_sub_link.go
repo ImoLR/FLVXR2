@@ -401,6 +401,11 @@ func (r *Repository) SubPanelLinks(userID int64, forwardIDs, landingIDs []int64,
 	if err != nil {
 		return nil, err
 	}
+	// Plan 303: the user's own 专属域名 replace the entry nodes' main domains.
+	names, err := r.LoadUserEntryNames([]int64{userID})
+	if err != nil {
+		return nil, err
+	}
 	for _, f := range forwards {
 		list := entries[f.ID]
 		seen := map[string]bool{}
@@ -426,6 +431,15 @@ func (r *Repository) SubPanelLinks(userID int64, forwardIDs, landingIDs []int64,
 			host, entryDomain := e.Host, ""
 			if ip := v6only[e.NodeID][strings.ToLower(strings.Trim(e.Host, "[]"))]; ip != "" {
 				host, entryDomain = ip, strings.Trim(e.Host, "[]")
+			}
+			if name, v6 := names.Lookup(userID, e.NodeID, e.Host); name != "" {
+				// A name on an IPv6-only main domain is IPv6-only too: same
+				// literal-or-name split as plan 302.
+				if v6 != "" {
+					host, entryDomain = v6, name
+				} else {
+					host, entryDomain = name, ""
+				}
 			}
 			if x := externalOf[f.ID]; x != nil && chain == nil {
 				node, ok := ExternalForwardNode(x, host, e.Port, ExternalForwardNodeName(f.Name, e.NodeName, len(list)))
@@ -471,10 +485,21 @@ func (r *Repository) SubPanelLinks(userID int64, forwardIDs, landingIDs []int64,
 		if s == nil {
 			continue
 		}
-		node, ok := subLandingNode(*n, s, s.PublicHost, n.Port, n.Name+"（直连）")
+		host, entryDomain := s.PublicHost, ""
+		if s.NodeID > 0 && !names.Empty() {
+			if name, v6 := names.Lookup(userID, s.NodeID, s.PublicHost); name != "" {
+				if v6 != "" {
+					host, entryDomain = v6, name
+				} else {
+					host = name
+				}
+			}
+		}
+		node, ok := subLandingNode(*n, s, host, n.Port, n.Name+"（直连）")
 		if !ok {
 			continue
 		}
+		node.EntryDomain = entryDomain
 		out.Links = append(out.Links, SubPanelLink{Ref: sublink.Ref{Kind: sublink.RefLandingDirect, LandingID: n.ID}, Node: node,
 			Detail: net.JoinHostPort(strings.Trim(s.PublicHost, "[]"), strconv.Itoa(n.Port))})
 	}
