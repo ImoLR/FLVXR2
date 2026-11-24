@@ -1,4 +1,4 @@
-# 303 — 用户专属域名 (one private CNAME per user per entry node) — ROUND 2 BUILT 11-24 TW (user decisions ~16:40 TW), waiting for screenshot approval
+# 303 — 用户专属域名 (one private CNAME per user per entry node) — ROUND 3 BUILT 11-24 TW (user decision 11-24 evening: never the main domain), waiting for screenshot approval
 
 Task `user-subdomain` (coordinator 22b5afb7, 11-24 TW). BUILD + screenshots only
 (no tag, no release, no prod change). Base: `maintenance/3.0.27-fork.167-entry-domain`
@@ -193,3 +193,97 @@ Overrides round 1 and plan 302 where they differ:
 - Unchanged (not in scope): the landing page rows that show a landing server's
   own public address (its copy link does use the name) and admin-only pages
   (tunnel list, node cards) that show the main domain.
+
+## Round 3 (task `user-subdomain-r3`, 11-24 TW) — user decision 11-24 evening
+
+A user is **never** given the node's main domain (not in subs, copy links,
+forward address, 套餐页, anywhere a non-admin sees): an address copied once is
+never copied again, so a temporary main domain leaks it for good. Overrides
+round 2's 「暂用主域名」 fallback.
+
+Design:
+- **Reserve at once.** Every non-admin user with a forward port / native
+  landing on an effective node (toggle + DDNS + synced main domain) gets his
+  label in the DB right away — in the same request (the kicker runs the
+  reservation after the mutation, before the response leaves), and in every
+  pass. Any user state (到期 / 停用 users start paused). DB only; the zone name
+  comes from memory → existing names → the cached zone list (one short CF call
+  after a restart). Then a fast pass (~0.2 s) creates the CNAME and verifies it
+  by GET (type, name, content) → `status synced`, `ready_at` set.
+- **States handed out** (toggle on): live → the name; not yet verified → the
+  name + tag 「正在就绪」 (user + admin, "usable in a few seconds"); 到期 / 停用 /
+  删除 as round 2. Never verified **and** (zone at the cap → `status capped`, or
+  create failed 3× / config / auth error) → **no address at all**: forward list
+  / 套餐页 show 「入口域名名额已满，请联系管理员」 / 「入口域名创建失败，请联系管理员」,
+  copy links refuse with that text, subs omit the entry; admin sees red ⚠ with
+  the reason. Names that were verified once keep showing (the user already
+  has them) with the tag. No name row yet (the instant before the
+  reservation) → no address, 「正在就绪」.
+- **Cap** applies to CF records only (reservation is free): room = quota − 5 −
+  used; names that were live before go first, then oldest; no room → capped,
+  no CF call; a CF quota error → capped. Room frees → next pass creates →
+  「正在就绪」 → ready.
+- **Failures**: fresh names retry at 5 s / 15 s / 30 s, then the normal
+  backoff; persistent after 3 failures (config / auth error: at once).
+- Frontend polls the forward list every 3 s only while a 「正在就绪」 tag is on
+  screen (max 2 min). Toggle off = fork.168 behaviour; its help text says
+  users then get the main domain / IP.
+
+### Checklist (round 3)
+
+- [x] Model `ready_at` + status `capped`; planner: creates for every non-admin user, no cap; admission order (unit tests)
+- [x] Reservation in the request (kicker) + in the pass; fast kick; CF create + GET verify; fresh-name backoff; capped / persistent failure
+- [x] Hand-out: hidden entries + notices (forward list, 套餐页, copy links, subs, landing links); no main-domain fallback anywhere a user sees
+- [x] Admin views: capped / failed counts + ⚠ from the DB; node dialog states
+- [x] Frontend: 「正在就绪」 tag + hint, notices, admin ⚠, short poll, toggle help text
+- [x] Tests: create → name + 正在就绪 → ready; cap → hidden → freed; CF failure → retries → message → recovery; leak sweep over user endpoints + 13 sub formats (SQLite + PG)
+- [x] Real CF `flvxtest-` timing (create → API verified → 1.1.1.1 / 8.8.8.8), cleaned up
+- [x] go test ./... base vs branch, tsc + eslint + npm run build, CI on the branch
+- [x] Prod-DB copy byte comparison (toggle off)
+- [x] Lab + screenshots refreshed (:8791/user-subdomain/)
+- [x] Ledger row 303 (待发布, new head) + summary
+
+### Results (round 3, 11-24 TW)
+
+- Commits on `feature/3.0.27-user-subdomain` (on top of round 2 971dd45f): fa9ea3a3 backend,
+  b8559861 UI, b71d5fb9 tests, da1e86ca fast kick cuts a running debounce + admin chip /
+  group ⚠, + this doc. Still on fork.167; not released (merge onto fork.168 → fork.169 later).
+- Extra design point found by the real-CF measurement: the API confirms a new record in
+  0.3–0.9 s, but Cloudflare's own DNS servers answer it only after 3.4–4.2 s. A client
+  resolving in between would cache NXDOMAIN for 30 min, so 「正在就绪」 stays until the
+  zone's authoritative servers (from the zone's `name_servers`) answer the name
+  (`ddns.AuthoritativeHas`, one UDP CNAME query per server every 0.4 s, max 15 s, then
+  API-verified counts). Public resolvers are never asked.
+- Real Cloudflare (opt-in TestCloudflareUserCNAMEReadyTimingE2E, flvxtest- names, 2 runs):
+  create 0.19 / 0.72 s, API-verified 0.34 / 0.91 s, authoritative servers 3.4 / 4.0–4.2 s,
+  1.1.1.1 + 8.8.8.8 resolvable 3.7 / 4.5 s (asked only after the authoritative servers
+  answered). Zone back to 39 records both times. Expected panel time from forward create to
+  the tag disappearing: ~0.2 s fast kick + ~4 s Cloudflare + ≤ 3 s page poll ≈ 5–7 s.
+- go test ./... (SQLite + PostgreSQL 18): all 30 packages ok. The first parallel run had
+  PostgreSQL failures only because the throwaway container's tmpfs filled up ("No space
+  left on device": a schema per test bloats the catalog); rerun serially on a disk volume:
+  handler, repo, contract ok. New / changed tests: usersub TestAdmitAndHidden + creates for
+  every non-admin user; TestSubUserSubdomain (13 formats; no-name / capped / failed fresh
+  names omitted; editor keys carry the name); TestUserSubdomainContract quota section
+  (capped → no address, notices, room → same name); TestUserSubdomainReadyContract (new).
+- tsc + eslint (changed files clean) + npm run build ok; CI green on the branch.
+- Prod-DB copy (read-only SQLite backup, isolated netns, fake CF): fork.168 vs branch toggle
+  off 100/104 byte-identical (the same 4 `ipv6: false → true` lines as round 2, subs 28 / 29
+  Clash-type pulls); toggle on 沪日首发 + 沪美: 6 names, only subs 28 / 29 change, all 13
+  formats carry the own name, no main domain / IP anywhere. Copies deleted, hashes kept in
+  /root/us303-lab/prod/keep/*-r3.json.
+- Lab (synthetic data, fake CF with hold / fail / quota): 38/38 checks; gallery
+  http://104.145.236.29:8791/user-subdomain/ (round-3 sections on top).
+
+### Known limits / to decide (round 3)
+
+- Names already handed out once (ready before) are never withheld: when such a name is
+  re-created (续期 / 启用 / toggle back on) and the zone is full or Cloudflare fails, the
+  user keeps the name with a tag (正在就绪 / 名额已满 / 创建失败) — he has it already.
+- A toggled node whose main domain is not synced yet keeps today's hosts (IP) until it is.
+- Sub items stored before the toggle is turned on keep their main-domain key in the DB;
+  the editor shows them under the name (or as missing while withheld — then the stored key
+  is what the editor returns for that missing item; the user already had that domain).
+- The CN-landing check message ("落地地址 <host> → <ip> 位于中国大陆") still names the host;
+  only reachable by targeting a mainland native landing, which is refused anyway.
+
