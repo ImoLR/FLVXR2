@@ -36,9 +36,9 @@ export function NodeUserSubdomainPill({
   if (!v || (!v.toggle && v.active + v.paused === 0)) return null;
   const warn = v.attention;
   const title = [
-    `生效 ${v.active} · 暂停 ${v.paused}`,
+    `生效 ${v.active} · 记录已删除（过期 / 停用）${v.paused}`,
     v.failed ? `同步失败 ${v.failed}` : "",
-    v.capped ? `${v.capped} 个用户因记录数已满改用主域名` : "",
+    v.capped ? `${v.capped} 个用户因记录数已满暂用主域名` : "",
     v.wildcard ? "区域有通配记录" : "",
     v.zoneError,
     v.toggle ? "" : "已关闭（名字保留）",

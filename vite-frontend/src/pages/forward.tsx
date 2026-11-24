@@ -157,6 +157,7 @@ import {
 import { useMobileBreakpoint } from "@/hooks/useMobileBreakpoint";
 import { saveOrder } from "@/utils/order-storage";
 import { JwtUtil } from "@/utils/jwt";
+import { EntryNameTags } from "@/pages/forward/entry-name-tags";
 import { canonicalIp, parseExtraIPs } from "@/utils/node-ips";
 import { timestampToCalendarDate, calendarDateToTimestamp } from "@/utils/date";
 import { MULTI_REGION, compareRegions, exitRegionKey, exitRegionLabel, regionLabel } from "@/utils/region";
@@ -169,6 +170,8 @@ export interface Forward {
   tunnelName: string;
   tunnelTrafficRatio?: number;
   inIp: string;
+  // Plan 303 round 2: host → tag of the owner's 专属域名 in inIp.
+  entryNameTags?: Record<string, string>;
   inPort: number;
   remoteAddr: string;
   interfaceName?: string;
@@ -771,6 +774,10 @@ const mapForwardApiItems = (items: ForwardApiItem[]): Forward[] => {
         : forward.tunnelName || "",
     tunnelTrafficRatio: normalizeTunnelTrafficRatio(forward.tunnelTrafficRatio),
     inIp: forward.inIp || "",
+    // Plan 303 round 2: tags of the owner's 专属域名 in inIp.
+    entryNameTags:
+      ((forward as any).entryNameTags as Record<string, string> | undefined) ||
+      undefined,
     inPort: forward.inPort ?? 0,
     // A chain rule (plan 108) shows the user's own node as its target; the
     // rule's real 127.0.0.1 target is internal.
@@ -1258,6 +1265,7 @@ const SortableTableRow = ({
             {inAddrNoPorts}
           </span>
         </div>
+        <EntryNameTags className="mt-0.5" tags={forward.entryNameTags} />
       </TableCell>
       <TableCell className={`${rowBg}${dim}`}>
         <span
@@ -1585,6 +1593,7 @@ const SortableCompactTableRow = ({
             {inAddrNoPorts}
           </span>
         </div>
+        <EntryNameTags className="mt-0.5" tags={forward.entryNameTags} />
       </TableCell>
       <TableCell className={rowBg}>
         <span
@@ -5467,6 +5476,7 @@ export default function ForwardPage() {
                   </code>
                 </div>
               </div>
+              <EntryNameTags className="px-1" tags={forward.entryNameTags} />
             </div>
             {/* 落地信息区 */}
             <div className="space-y-1">

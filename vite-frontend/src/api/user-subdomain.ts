@@ -61,7 +61,17 @@ export interface UserSubTarget {
 export interface UserSubList {
   items: UserSubItem[];
   history: UserSubItem[];
-  counts: Partial<Record<"active" | "paused" | "retired" | "failed", number>>;
+  counts: Partial<
+    Record<
+      | "active"
+      | "paused"
+      | "retired"
+      | "failed"
+      | "paused_expired"
+      | "paused_disabled",
+      number
+    >
+  >;
   node?: {
     id: number;
     name: string;
@@ -120,8 +130,21 @@ export const syncUserSubdomains = (q: { nodeId?: number; userId?: number }) =>
 export const PAUSE_REASON: Record<string, string> = {
   expired: "到期",
   disabled: "停用",
-  unused: "未使用",
+  unused: "同步中",
   node: "节点已关闭",
+};
+
+/**
+ * Plan 303 round 2: tag next to a handed-out name (node dialog, user edit
+ * section, forward address). 到期 / 停用 = record deleted on purpose, the
+ * name stays and comes back on 续期 / 启用.
+ */
+export const ENTRY_TAG_TEXT: Record<string, string> = {
+  expired: "已过期 · 记录已删除",
+  disabled: "已停用 · 记录已删除",
+  deleted: "已删除 · 不再解析",
+  pending: "同步中",
+  fallback: "暂用主域名",
 };
 
 export const RETIRE_REASON: Record<string, string> = {

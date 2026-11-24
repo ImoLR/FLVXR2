@@ -16,6 +16,7 @@ import {
   treeGroupWrapperClass,
 } from "@/components/tree-group";
 import {
+  ENTRY_TAG_TEXT,
   PAUSE_REASON,
   RETIRE_REASON,
   UserSubItem,
@@ -76,6 +77,12 @@ export function stateChip(item: UserSubItem): {
   if (item.status === "failed")
     return { text: "同步失败", tone: "red", warn: true };
   if (item.state === "paused") {
+    // Round 2: 到期 / 停用 keep the name (still in his links), record deleted.
+    if (item.reason === "expired" || item.reason === "disabled") {
+      return { text: ENTRY_TAG_TEXT[item.reason], tone: "amber" };
+    }
+    if (item.reason === "unused") return { text: "同步中", tone: "cyan" };
+
     return {
       text: `暂停 · ${PAUSE_REASON[item.reason] || item.reason}`,
       tone: "amber",
@@ -156,7 +163,7 @@ function UsesButton({
   const n = item.forwards.length;
   const text =
     n + item.landings === 0
-      ? "未使用"
+      ? "暂无转发"
       : [n ? `${n} 条转发` : "", item.landings ? `${item.landings} 个落地` : ""]
           .filter(Boolean)
           .join(" · ");
@@ -344,7 +351,7 @@ function NameRowH5({
         <PointsTo item={item} mode={mode} />
       </ExpandField>
       <ExpandField label="转发">
-        {item.forwards.length ? <ForwardList item={item} /> : "未使用"}
+        {item.forwards.length ? <ForwardList item={item} /> : "暂无转发"}
       </ExpandField>
       <ExpandField label="同步">
         {item.lastError ? (
@@ -430,11 +437,31 @@ function Summary({
         >
           生效 {c.active || 0}
         </span>
-        <span
-          className={`rounded-full px-2 py-0.5 font-semibold ${landingToneClass.amber}`}
-        >
-          暂停 {c.paused || 0}
-        </span>
+        {c.paused_expired ? (
+          <span
+            className={`rounded-full px-2 py-0.5 font-semibold ${landingToneClass.amber}`}
+          >
+            已过期 {c.paused_expired}
+          </span>
+        ) : null}
+        {c.paused_disabled ? (
+          <span
+            className={`rounded-full px-2 py-0.5 font-semibold ${landingToneClass.amber}`}
+          >
+            已停用 {c.paused_disabled}
+          </span>
+        ) : null}
+        {(c.paused || 0) - (c.paused_expired || 0) - (c.paused_disabled || 0) >
+        0 ? (
+          <span
+            className={`rounded-full px-2 py-0.5 font-semibold ${landingToneClass.amber}`}
+          >
+            暂停{" "}
+            {(c.paused || 0) -
+              (c.paused_expired || 0) -
+              (c.paused_disabled || 0)}
+          </span>
+        ) : null}
         {c.failed ? (
           <span
             className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 font-semibold ${landingToneClass.red}`}
@@ -476,7 +503,8 @@ function Summary({
         <p className="flex items-center gap-1 text-xs text-danger">
           <AttentionIcon level="error" />
           Cloudflare 记录数快满了：{data.capped}{" "}
-          个用户没有分配专属域名，暂时用主域名。删掉不用的记录或升级套餐后自动补上。
+          个用户还没有专属域名，暂时用主域名（不会给
+          IP）。删掉不用的记录或升级套餐后自动补上。
         </p>
       ) : null}
       {zone?.wildcard ? (
@@ -723,7 +751,7 @@ export function UserSubdomainPanel({
             <h4 className="text-sm font-semibold">{title}</h4>
             <p className="text-xs text-default-500">
               这个用户在各入口节点的私人域名（CNAME →
-              节点主域名），只有他自己的订阅、复制链接和转发地址里出现。
+              节点主域名），只有他自己的订阅、复制链接和转发地址里出现。过期或停用时记录删除、名字保留，续期或启用后用原名恢复。
             </p>
           </div>
           <Button
@@ -886,7 +914,7 @@ export function UserSubdomainPanel({
             ) : (
               <p className="text-sm text-default-600">
                 名字立即删除并作废（永不复用）。{confirm?.item.userName}{" "}
-                在这台节点上改用主域名（订阅更新后生效），不再自动分配新名字；需要时在「已作废」里点「重新分配」。
+                的订阅和转发地址里仍是这个名字（不会换成主域名），所以他在这台节点上连不上；不再自动分配新名字。需要时在「已作废」里点「重新分配」。
               </p>
             )}
           </ModalBody>

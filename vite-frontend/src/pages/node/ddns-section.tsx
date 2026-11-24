@@ -502,7 +502,8 @@ function UserSubdomainToggle({
             ) : (
               " 主地址域名"
             )}
-            ，速度不变。订阅、复制链接和转发地址里只显示他自己的名字。停用或到期时删除记录、保留名字，续期后原名恢复；删除用户或不再用这台节点时作废，永不复用。
+            ，速度不变。订阅、复制链接和转发地址里只显示他自己的名字（所有客户端都是，不给
+            IP，也不给主域名）。停用或到期时删除记录、保留名字，续期或启用后几秒内用原名恢复；只有删除用户时作废，永不复用。
           </p>
           {!main ? (
             <p className="text-xs text-warning">
@@ -517,19 +518,20 @@ function UserSubdomainToggle({
           {!on && savedOn && (live?.active || live?.paused) ? (
             <p className="text-xs text-warning">
               关闭后删除这台节点上 {live.active + live.paused}{" "}
-              个专属域名的记录（名字保留，重新开启后恢复），用户改回用主域名。
+              个专属域名的记录（名字保留，重新开启后恢复），用户改回用主域名（只有
+              IPv6 的入口：NekoBox、Surge 等客户端拿到 IP）。
             </p>
           ) : null}
           {savedOn && on && live ? (
             <p className="text-xs text-default-500">
-              生效 {live.active} · 暂停 {live.paused}
+              生效 {live.active} · 记录已删除 {live.paused}
               {live.failed ? (
                 <span className="text-danger"> · 同步失败 {live.failed}</span>
               ) : null}
               {live.capped ? (
                 <span className="text-danger">
                   {" "}
-                  · {live.capped} 个用户因记录数已满改用主域名
+                  · {live.capped} 个用户因记录数已满暂用主域名
                 </span>
               ) : null}
               {live.effective ? "" : " · 等待主地址同步"}
