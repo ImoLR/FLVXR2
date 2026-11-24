@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -235,18 +236,15 @@ func (r *Repository) ListUserSubdomains(nodeID, userID int64, retired bool) ([]m
 // sync status (node list pill). One query.
 type UserSubdomainCount struct {
 	Active, Paused, Failed, Pending int
+	// Round 3: Capped = waiting for room in the zone; Hidden = fresh names
+	// not handed out (capped, or creating keeps failing).
+	Capped, Hidden int
 }
 
 func (r *Repository) UserSubdomainCounts() (map[int64]*UserSubdomainCount, error) {
-	type row struct {
-		NodeID int64
-		State  string
-		Status string
-		N      int
-	}
-	var rows []row
-	if err := r.db.Model(&model.UserSubdomain{}).Select("node_id, state, status, COUNT(*) AS n").
-		Where("state <> ?", model.UserSubdomainRetired).Group("node_id, state, status").Scan(&rows).Error; err != nil {
+	var rows []model.UserSubdomain
+	if err := r.db.Select("id", "node_id", "state", "status", "fail_count", "ready_at").
+		Where("state <> ?", model.UserSubdomainRetired).Find(&rows).Error; err != nil {
 		return nil, err
 	}
 	out := map[int64]*UserSubdomainCount{}
@@ -258,18 +256,23 @@ func (r *Repository) UserSubdomainCounts() (map[int64]*UserSubdomainCount, error
 		}
 		switch x.State {
 		case model.UserSubdomainActive:
-			c.Active += x.N
+			c.Active++
 			switch x.Status {
 			case model.UserSubdomainSyncFailed:
-				c.Failed += x.N
+				c.Failed++
 			case model.UserSubdomainSyncPending:
-				c.Pending += x.N
+				c.Pending++
+			case model.UserSubdomainSyncCapped:
+				c.Capped++
 			}
 		case model.UserSubdomainPaused:
-			c.Paused += x.N
+			c.Paused++
 			if x.Status == model.UserSubdomainSyncFailed {
-				c.Failed += x.N
+				c.Failed++
 			}
+		}
+		if usersub.Hidden(x) {
+			c.Hidden++
 		}
 	}
 	return out, nil
@@ -490,6 +493,37 @@ func (r *Repository) SetNodeUserSubdomain(nodeID int64, enabled bool) error {
 	return r.db.Model(&model.Node{}).Where("id = ?", nodeID).Update("user_subdomain_enabled", enabled).Error
 }
 
+// AnyUserSubdomainToggle: some node has the toggle on (one COUNT).
+func (r *Repository) AnyUserSubdomainToggle() (bool, error) {
+	var n int64
+	if err := r.db.Model(&model.Node{}).Where("user_subdomain_enabled = ?", true).Count(&n).Error; err != nil {
+		return false, err
+	}
+	return n > 0, nil
+}
+
+// UserSubdomainPairTaken: the user already has a live or paused name
+// pointing at the node, or an admin-deleted tombstone for it.
+func (r *Repository) UserSubdomainPairTaken(userID, nodeID int64) (bool, error) {
+	var n int64
+	err := r.db.Model(&model.UserSubdomain{}).
+		Where("user_id = ? AND node_id = ? AND (state <> ? OR blocked = ?)", userID, nodeID, model.UserSubdomainRetired, true).
+		Count(&n).Error
+	return n > 0, err
+}
+
+// UserSubdomainZoneName: the zone name of an existing name in that zone
+// ("" = none yet).
+func (r *Repository) UserSubdomainZoneName(providerID int64, zoneID string) (string, error) {
+	var row model.UserSubdomain
+	err := r.db.Select("label", "domain").Where("provider_id = ? AND zone_id = ? AND domain <> ''", providerID, zoneID).
+		Order("id DESC").Limit(1).Find(&row).Error
+	if err != nil || row.Domain == "" {
+		return "", err
+	}
+	return strings.ToLower(strings.TrimPrefix(row.Domain, row.Label+".")), nil
+}
+
 // AnyUserSubdomainWork: some node has the toggle on, or a name still holds
 // a record / is not retired (the loop has something to look at).
 func (r *Repository) AnyUserSubdomainWork() (bool, error) {
@@ -517,26 +551,62 @@ func (r *Repository) AnyUserSubdomainWork() (bool, error) {
 //     then works again without a refresh
 //   - admin-deleted (删除, blocked tombstone): the dead name (tag deleted) —
 //     he must not fall back to the main domain he could keep using.
-// A user without any name yet on such a node (zone at the record cap, zone
-// not checked yet, the seconds before the next pass) gets the main domain
-// (tag fallback, admin ⚠) — never the IP. Nodes without the toggle keep
-// their hosts as they are.
+// Round 3 (user 11-24 evening): the main domain is never handed to a user,
+// not even before he has a name. Names are reserved at once, so a user
+// normally always has one; it is shown with 「正在就绪」 until its record is
+// verified. A fresh name that cannot get a record (zone at the cap, creating
+// keeps failing) and the instant before the reservation give NO address at
+// all (Hidden: subs omit the entry, lists show why). Nodes without the
+// toggle keep their hosts as they are (fork.168).
 
 // Entry name tags.
 const (
-	UserEntryTagPending  = "pending"  // the record does not exist yet (created within seconds)
+	UserEntryTagPending  = "pending"  // 正在就绪: the record is being created / verified (usable in seconds)
 	UserEntryTagExpired  = "expired"  // 到期: record deleted, name kept
 	UserEntryTagDisabled = "disabled" // 停用: record deleted, name kept
 	UserEntryTagDeleted  = "deleted"  // 删除 by the admin: dead name
-	UserEntryTagFallback = "fallback" // no name yet: the node main domain
+	UserEntryTagCapped   = "capped"   // 入口域名名额已满 (zone at the record cap)
+	UserEntryTagFailed   = "failed"   // 入口域名创建失败 (creating the record keeps failing)
 )
+
+// UserEntryTagMessage: what a user is told when an entry has no address.
+func UserEntryTagMessage(tag string) string {
+	switch tag {
+	case UserEntryTagCapped:
+		return "入口域名名额已满，请联系管理员"
+	case UserEntryTagFailed:
+		return "入口域名创建失败，请联系管理员"
+	default:
+		return "入口域名正在就绪，请几秒后再试"
+	}
+}
+
+// UserEntryHiddenError: every entry of a link was withheld (Hidden).
+type UserEntryHiddenError struct{ Tag string }
+
+func (e *UserEntryHiddenError) Error() string { return UserEntryTagMessage(e.Tag) }
 
 // UserEntryHost is what one entry host becomes for one user.
 type UserEntryHost struct {
-	Host   string // "" = keep the original host
+	Host   string // "" = keep the original host (unless Hidden)
 	Tag    string // see UserEntryTag*; "" = live name
 	V6Only bool   // Host is an AAAA-only name (main domain without A record)
-	Name   bool   // Host is the user's own name (not the fallback main domain)
+	Name   bool   // Host is the user's own name
+	// Hidden (round 3): give no address at all for this entry; Tag says why
+	// (capped / failed / pending = no name yet). Domain / Reason: the
+	// withheld name and its last error (admin views only).
+	Hidden bool
+	Domain string
+	Reason string
+}
+
+// UserEntryNotice: one withheld entry of a forward address list.
+type UserEntryNotice struct {
+	NodeID int64  `json:"nodeId"`
+	Port   int    `json:"port"`
+	Tag    string `json:"tag"`
+	Domain string `json:"domain,omitempty"` // admins only
+	Reason string `json:"reason,omitempty"` // admins only
 }
 
 type userEntryName struct {
@@ -544,6 +614,8 @@ type userEntryName struct {
 	tag    string
 	rank   int // lower wins: live/pending 0, paused 1, deleted 2
 	id     int64
+	hidden bool
+	reason string
 }
 
 // UserEntryNames resolves entry hosts to the owner's name.
@@ -570,20 +642,24 @@ func (x *UserEntryNames) Resolve(userID, nodeID int64, host string) UserEntryHos
 	}
 	m := x.main[nodeID]
 	if n, ok := x.names[userID][nodeID]; ok {
+		if n.hidden {
+			return UserEntryHost{Hidden: true, Tag: n.tag, Domain: n.domain, Reason: n.reason}
+		}
 		return UserEntryHost{Host: n.domain, Tag: n.tag, V6Only: m.V6Only, Name: true}
 	}
 	if x.admins[userID] || userID <= 0 {
 		return UserEntryHost{}
 	}
-	return UserEntryHost{Host: m.Domain, Tag: UserEntryTagFallback, V6Only: m.V6Only}
+	// Round 3: no name yet (the instant before the reservation): nothing.
+	return UserEntryHost{Hidden: true, Tag: UserEntryTagPending}
 }
 
-// Lookup returns the user's own name for an entry host on nodeID ("" = none:
-// keep the host or use the fallback) and its tag.
+// Lookup returns the user's own name for an entry host on nodeID ("" = none)
+// and its tag.
 func (x *UserEntryNames) Lookup(userID, nodeID int64, host string) (name, tag string) {
 	h := x.Resolve(userID, nodeID, host)
 	if !h.Name {
-		return "", ""
+		return "", h.Tag
 	}
 	return h.Host, h.Tag
 }
@@ -635,7 +711,8 @@ func (r *Repository) LoadUserEntryNames(userIDs []int64) (*UserEntryNames, error
 	}
 	x.effective = true
 	q := r.db.Model(&model.UserSubdomain{}).
-		Select("id", "user_id", "node_id", "domain", "state", "reason", "status", "record_id", "blocked", "retired_at").
+		Select("id", "user_id", "node_id", "domain", "state", "reason", "status", "record_id", "blocked", "retired_at",
+			"ready_at", "fail_count", "last_error").
 		Where("node_id IN ? AND (state <> ? OR blocked = ?)", live, model.UserSubdomainRetired, true)
 	aq := r.db.Model(&model.User{}).Where("role_id = 0")
 	if userIDs != nil {
@@ -662,9 +739,23 @@ func (r *Repository) LoadUserEntryNames(userIDs []int64) (*UserEntryNames, error
 			n.rank, n.tag = 1, UserEntryTagExpired
 		case row.State == model.UserSubdomainPaused && row.Reason == model.UserSubdomainReasonDisabled:
 			n.rank, n.tag = 1, UserEntryTagDisabled
-		default: // active, or paused for a node reason that no longer holds (comes back next pass)
-			if !row.Live() {
-				n.tag = UserEntryTagPending
+		case row.Live() && row.ReadyAt > 0:
+			// active, record verified and served by the zone's DNS: the plain name
+		default: // active not live yet, or paused for a node reason that no longer holds (comes back next pass)
+			n.tag = UserEntryTagPending
+			capped := row.Status == model.UserSubdomainSyncCapped
+			failed := row.Status == model.UserSubdomainSyncFailed && row.FailCount >= usersub.FailShow
+			switch {
+			case capped:
+				n.tag = UserEntryTagCapped
+			case failed:
+				n.tag = UserEntryTagFailed
+			}
+			// A fresh name that cannot get its record is withheld; one that
+			// was ready before stays (the user already has it), tagged.
+			n.hidden = usersub.Hidden(row)
+			if capped || failed {
+				n.reason = row.LastError
 			}
 		}
 		if row.Domain == "" {
@@ -688,10 +779,11 @@ func (r *Repository) LoadUserEntryNames(userIDs []int64) (*UserEntryNames, error
 // RewriteEntryList rewrites a "host:port,host:port" forward address list
 // (forward list inIp) for its owner. Hosts are matched per node in nodeIDs
 // (the forward's entry nodes; nil = every node with the toggle on). tags maps
-// a written host → its tag (nil when none).
-func (x *UserEntryNames) RewriteEntryList(userID int64, nodeIDs []int64, list string) (string, map[string]string) {
+// a written host → its tag (nil when none). Round 3: withheld entries are
+// dropped from the list and returned as notices.
+func (x *UserEntryNames) RewriteEntryList(userID int64, nodeIDs []int64, list string) (string, map[string]string, []UserEntryNotice) {
 	if x.Empty() || strings.TrimSpace(list) == "" {
-		return list, nil
+		return list, nil, nil
 	}
 	if nodeIDs == nil {
 		for id := range x.hosts {
@@ -700,19 +792,30 @@ func (x *UserEntryNames) RewriteEntryList(userID int64, nodeIDs []int64, list st
 		sort.Slice(nodeIDs, func(i, j int) bool { return nodeIDs[i] < nodeIDs[j] })
 	}
 	parts := strings.Split(list, ",")
+	kept := make([]string, 0, len(parts))
 	changed := false
 	var tags map[string]string
-	for i, part := range parts {
+	var notices []UserEntryNotice
+	for _, part := range parts {
 		host, port, err := net.SplitHostPort(strings.TrimSpace(part))
 		if err != nil {
+			kept = append(kept, part)
 			continue
 		}
+		out := part
 		for _, nodeID := range nodeIDs {
 			h := x.Resolve(userID, nodeID, host)
+			if h.Hidden {
+				p, _ := strconv.Atoi(port)
+				notices = append(notices, UserEntryNotice{NodeID: nodeID, Port: p, Tag: h.Tag, Domain: h.Domain, Reason: h.Reason})
+				out = ""
+				changed = true
+				break
+			}
 			if h.Host == "" {
 				continue
 			}
-			parts[i] = net.JoinHostPort(h.Host, port)
+			out = net.JoinHostPort(h.Host, port)
 			changed = true
 			if h.Tag != "" {
 				if tags == nil {
@@ -722,9 +825,12 @@ func (x *UserEntryNames) RewriteEntryList(userID int64, nodeIDs []int64, list st
 			}
 			break
 		}
+		if out != "" {
+			kept = append(kept, out)
+		}
 	}
 	if !changed {
-		return list, nil
+		return list, nil, nil
 	}
-	return strings.Join(parts, ","), tags
+	return strings.Join(kept, ","), tags, notices
 }

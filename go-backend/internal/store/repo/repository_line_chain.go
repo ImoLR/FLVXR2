@@ -1154,9 +1154,12 @@ func (r *Repository) ForwardEntryAddresses(forwardID int64) ([]ForwardEntryAddre
 	if err := r.db.First(&f, forwardID).Error; err != nil {
 		return nil, err
 	}
-	entries, err := r.forwardEntries(f, true)
+	entries, withheld, err := r.forwardEntriesNamed(f, true)
 	if err != nil {
 		return nil, err
+	}
+	if err := userEntryWithheldError(len(entries), withheld); err != nil {
+		return nil, err // plan 303 round 3: no address yet → say why
 	}
 	out := make([]ForwardEntryAddress, 0, len(entries))
 	for _, e := range entries {

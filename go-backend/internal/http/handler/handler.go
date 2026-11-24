@@ -1792,7 +1792,10 @@ func (h *Handler) userPackage(w http.ResponseWriter, r *http.Request) {
 	forwardOut := make([]map[string]interface{}, 0, len(forwards))
 	pkgNames, _ := h.repo.LoadUserEntryNames([]int64{userID}) // plan 303
 	for _, f := range forwards {
-		f.InIP, _ = pkgNames.RewriteEntryList(userID, nil, f.InIP)
+		var entryTags map[string]string
+		var notices []repo.UserEntryNotice
+		f.InIP, entryTags, notices = pkgNames.RewriteEntryList(userID, nil, f.InIP)
+		f.RemoteAddr, _, _ = pkgNames.RewriteEntryList(userID, nil, f.RemoteAddr)
 		item := map[string]interface{}{
 			"id":              f.ID,
 			"name":            f.Name,
@@ -1810,6 +1813,14 @@ func (h *Handler) userPackage(w http.ResponseWriter, r *http.Request) {
 		}
 		if f.InPort.Valid {
 			item["inPort"] = f.InPort.Int64
+		}
+		// Plan 303 round 3: 「正在就绪」 next to a fresh name; withheld
+		// entries (no address) with the reason.
+		if tags := userSubVisibleTags(entryTags, false); len(tags) > 0 {
+			item["entryNameTags"] = tags
+		}
+		if len(notices) > 0 {
+			item["entryNotices"] = userSubVisibleNotices(notices, false)
 		}
 		forwardOut = append(forwardOut, item)
 	}

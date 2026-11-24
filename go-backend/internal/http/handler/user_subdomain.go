@@ -5,10 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"go-backend/internal/ddns"
@@ -27,12 +29,22 @@ import (
 // and every 10 minutes; with no toggle on and no record left it does two
 // COUNT queries and nothing else. Only records the database knows (by id,
 // read back first) are ever deleted.
+//
+// Round 3 (user 11-24 evening): a user is never handed the main domain. His
+// name is reserved in the same request that makes him use the node (the
+// kicker reserves before the response leaves), shown at once with
+// 「正在就绪」, and a fast pass creates + verifies the record within seconds.
+// A fresh name that cannot get a record (zone at the cap, creating keeps
+// failing) is not handed out at all (usersub.Hidden).
 
 const (
 	userSubFullEvery   = 10 * time.Minute
 	userSubDebounce    = 5 * time.Second
-	userSubQuotaGuess  = 200 // CF free zones created since 2024-09
+	userSubFastWait    = 200 * time.Millisecond // a name was just reserved: create its record now
+	userSubReserveWait = 4 * time.Second        // in-request reservation budget (zone name lookup)
+	userSubQuotaGuess  = 200                    // CF free zones created since 2024-09
 	userSubZoneTimeout = 20 * time.Second
+	userSubMinWait     = 3 * time.Second
 )
 
 type userSubZone struct {
@@ -50,16 +62,20 @@ type userSubZone struct {
 	// byID / byName: the last listing (drift repair).
 	byID   map[string]ddns.Record
 	byName map[string][]ddns.Record
+	// authIPs (round 3): the zone's authoritative servers (ip:53) — a fresh
+	// name is ready once they answer it.
+	authIPs []string
 }
 
 type userSubNodeWarn struct {
-	Capped  int
-	Waiting int
+	Waiting int // names not reserved yet: the zone name is not known (Cloudflare unreachable)
 }
 
 type userSubManager struct {
 	mu       sync.Mutex
 	run      sync.Mutex
+	reserve  sync.Mutex // one name per (user, node): reservations never overlap
+	fast     atomic.Bool
 	kick     chan struct{}
 	zones    map[string]*userSubZone // provider|zone
 	nodeWarn map[int64]userSubNodeWarn
@@ -69,6 +85,17 @@ type userSubManager struct {
 	debounce time.Duration
 	now      func() time.Time
 	pending  sync.WaitGroup
+	// dnsCheck (tests): replaces the authoritative-server query.
+	dnsCheck func(name string) bool
+}
+
+// SetUserSubdomainDNSCheck replaces the authoritative DNS check of fresh
+// names (contract tests: Cloudflare's edge answering a few seconds late).
+func (h *Handler) SetUserSubdomainDNSCheck(fn func(name string) bool) {
+	m := h.userSubState()
+	m.mu.Lock()
+	m.dnsCheck = fn
+	m.mu.Unlock()
 }
 
 var userSubInit sync.Mutex
@@ -110,6 +137,16 @@ func (h *Handler) userSubKick() {
 	}
 }
 
+// userSubKickFast: a name was just reserved — run the pass almost at once
+// so its record exists within seconds.
+func (h *Handler) userSubKickFast() {
+	if h == nil {
+		return
+	}
+	h.userSubState().fast.Store(true)
+	h.userSubKick()
+}
+
 // UserSubdomainKicker wraps the API mux: after a POST that may change who
 // uses which node (users, forwards, tunnels, groups, nodes, landings,
 // orders…) it kicks the reconcile. Reads are skipped; the 10-minute pass
@@ -119,6 +156,10 @@ func (h *Handler) UserSubdomainKicker(next http.Handler) http.Handler {
 		"/api/v1/package/", "/api/v1/order/", "/api/v1/billing/", "/api/v1/landing/", "/api/v1/leikwan", "/api/v1/backup/",
 		"/api/v1/tunnel-group/", "/api/v1/tunnel-group-new/"}
 	reads := []string{"list", "detail", "get", "info", "stats", "latency", "history", "monitor", "check", "test", "preview", "options", "logs", "search"}
+	// Round 3: read-only POSTs by exact last segment (套餐页, copy links,
+	// payment status polling…) — the kicker now also reserves names.
+	exactReads := map[string]bool{"package": true, "my-subscription": true, "links": true, "ips": true, "client-ips": true, "groups": true,
+		"status": true, "diagnose": true, "feature-status": true}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		next.ServeHTTP(w, r)
 		if r.Method != http.MethodPost {
@@ -139,10 +180,22 @@ func (h *Handler) UserSubdomainKicker(next http.Handler) http.Handler {
 			return
 		}
 		last := strings.ToLower(path[strings.LastIndex(path, "/")+1:])
+		if exactReads[last] {
+			return
+		}
 		for _, word := range reads {
 			if strings.Contains(last, word) {
 				return
 			}
+		}
+		// Round 3: reserve new names now (DB only, before the response
+		// leaves), so the very next list already shows the final name.
+		ctx, cancel := context.WithTimeout(context.Background(), userSubReserveWait)
+		n := h.userSubReserve(ctx)
+		cancel()
+		if n > 0 {
+			h.userSubKickFast()
+			return
 		}
 		h.userSubKick()
 	})
@@ -161,10 +214,14 @@ func (h *Handler) runUserSubdomainLoop(ctx context.Context) {
 			return
 		case <-timer.C:
 		case <-m.kick:
+			wait := m.kickDebounce()
+			if m.fast.Swap(false) && wait > userSubFastWait {
+				wait = userSubFastWait
+			}
 			select {
 			case <-ctx.Done():
 				return
-			case <-time.After(m.kickDebounce()):
+			case <-time.After(wait):
 			}
 			select {
 			case <-m.kick:
@@ -185,8 +242,8 @@ func (h *Handler) runUserSubdomainLoop(ctx context.Context) {
 			}
 		}
 		m.mu.Unlock()
-		if wait < 30*time.Second {
-			wait = 30 * time.Second
+		if wait < userSubMinWait {
+			wait = userSubMinWait
 		}
 		if !timer.Stop() {
 			select {
@@ -253,53 +310,16 @@ func (h *Handler) userSubReconcile(ctx context.Context, full, force bool) {
 		m.mu.Unlock()
 		return
 	}
-	nodes, err := h.repo.ListUserSubdomainNodes()
+	facts, nodes, effective, err := h.userSubFacts(now, true)
 	if err != nil {
-		log.Printf("[user-subdomain] nodes: %v", err)
+		log.Printf("[user-subdomain] %v", err)
 		return
 	}
-	names, err := h.repo.ListUserSubdomainsForPlan()
-	if err != nil {
-		log.Printf("[user-subdomain] names: %v", err)
-		return
-	}
-	facts := &usersub.Facts{Now: now.UnixMilli(), Nodes: map[int64]usersub.Node{}, Room: map[string]int{}, Names: names}
-	effective := []int64{}
-	for id, n := range nodes {
-		un := usersub.Node{ID: id, Enabled: n.Enabled(), MainDomain: n.Main.Domain, MainSynced: n.Main.Synced}
-		if n.Main.ZoneID != "" && n.ProviderID > 0 {
-			un.ZoneKey = userSubZoneKey(n.ProviderID, n.Main.ZoneID)
-		}
-		facts.Nodes[id] = un
-		if un.Effective() {
-			effective = append(effective, id)
-		}
-	}
-	if facts.Usage, err = h.repo.UserSubdomainUsage(effective); err != nil {
-		log.Printf("[user-subdomain] usage: %v", err)
-		return
-	}
-	userIDs := map[int64]bool{}
-	for _, users := range facts.Usage {
-		for uid := range users {
-			userIDs[uid] = true
-		}
-	}
-	for _, n := range names {
-		userIDs[n.UserID] = true
-	}
-	ids := make([]int64, 0, len(userIDs))
-	for id := range userIDs {
-		ids = append(ids, id)
-	}
-	if facts.Users, err = h.repo.UserSubdomainUsers(ids); err != nil {
-		log.Printf("[user-subdomain] users: %v", err)
-		return
-	}
+	names := facts.Names
 
 	// Zones: the effective nodes' zones (creation needs the quota) and the
-	// zones of names still holding a record. Listed on a full pass or when
-	// never seen; failures leave creation waiting.
+	// zones of names holding or wanting a record. Listed on a full pass or
+	// when never seen.
 	type zoneRef struct {
 		providerID int64
 		zoneID     string
@@ -311,7 +331,7 @@ func (h *Handler) userSubReconcile(ctx context.Context, full, force bool) {
 		}
 	}
 	for _, n := range names {
-		if n.RecordID != "" && n.ZoneID != "" {
+		if (n.RecordID != "" || n.State == model.UserSubdomainActive) && n.ZoneID != "" {
 			zoneWant[userSubZoneKey(n.ProviderID, n.ZoneID)] = zoneRef{n.ProviderID, n.ZoneID}
 		}
 	}
@@ -319,14 +339,12 @@ func (h *Handler) userSubReconcile(ctx context.Context, full, force bool) {
 		m.mu.Lock()
 		z := m.zones[key]
 		m.mu.Unlock()
-		if z == nil || z.CheckedAt == 0 || full {
+		// A zone whose last check failed is re-checked after 30 s (fresh
+		// names wait on it); others only on the full pass.
+		retry := z != nil && z.Error != "" && now.Sub(time.UnixMilli(z.CheckedAt)) >= 30*time.Second
+		if z == nil || z.CheckedAt == 0 || full || retry {
 			h.userSubCheckZone(ctx, ref.providerID, ref.zoneID)
 		}
-		m.mu.Lock()
-		if z := m.zones[key]; z != nil && z.CheckedAt > 0 && z.Error == "" {
-			facts.Room[key] = usersub.Room(z.Used, z.Quota)
-		}
-		m.mu.Unlock()
 	}
 
 	plan := usersub.Compute(facts)
@@ -347,38 +365,25 @@ func (h *Handler) userSubReconcile(ctx context.Context, full, force bool) {
 			}
 		}
 	}
-	for _, c := range plan.Creates {
-		if ctx.Err() != nil {
-			break
-		}
-		if err := h.userSubCreateName(c.UserID, nodes[c.NodeID]); err != nil {
-			log.Printf("[user-subdomain] new name user %d node %d: %v", c.UserID, c.NodeID, err)
-		} else {
-			pass.touched[c.UserID] = true // the main-domain fallback becomes his name
-		}
-	}
+	waiting := h.userSubReserveCreates(ctx, nodes, plan.Creates, pass.touched)
 	m.mu.Lock()
 	warn := map[int64]userSubNodeWarn{}
-	for id, n := range plan.Capped {
-		w := warn[id]
-		w.Capped = n
-		warn[id] = w
-	}
-	for id, n := range plan.Waiting {
-		w := warn[id]
-		w.Waiting = n
-		warn[id] = w
+	for id, n := range waiting {
+		warn[id] = userSubNodeWarn{Waiting: n}
 	}
 	m.nodeWarn = warn
 	m.mu.Unlock()
 
-	// Cloudflare side, row by row.
+	// Cloudflare side, row by row: deletes / updates first (they free
+	// room), then the names that need a new record, admitted by the zone's
+	// room (round 3: the cap limits records, never names).
 	rows, err := h.repo.ListUserSubdomainsForPlan()
 	if err != nil {
 		log.Printf("[user-subdomain] reload: %v", err)
 		return
 	}
 	var next time.Time
+	creates := map[string][]model.UserSubdomain{}
 	for i := range rows {
 		if ctx.Err() != nil {
 			break
@@ -391,7 +396,60 @@ func (h *Handler) userSubReconcile(ctx context.Context, full, force bool) {
 			}
 			continue
 		}
+		if h.userSubDesired(pass, row) != "" && row.RecordID == "" {
+			key := userSubZoneKey(row.ProviderID, row.ZoneID)
+			creates[key] = append(creates[key], row)
+			continue
+		}
 		h.userSubSyncRow(ctx, pass, row, full)
+	}
+	zoneKeys := make([]string, 0, len(creates))
+	for k := range creates {
+		zoneKeys = append(zoneKeys, k)
+	}
+	sort.Strings(zoneKeys)
+	for _, key := range zoneKeys {
+		list := creates[key]
+		m.mu.Lock()
+		z := m.zones[key]
+		room, known, zoneErr := 0, false, "区域还没检查"
+		if z != nil && z.CheckedAt > 0 && z.Error == "" && z.Quota > 0 {
+			room, known = usersub.Room(z.Used, z.Quota), true
+		} else if z != nil && z.Error != "" {
+			zoneErr = z.Error
+		}
+		used, quota := 0, 0
+		if z != nil {
+			used, quota = z.Used, z.Quota
+		}
+		m.mu.Unlock()
+		admit, capped, unknown := usersub.Admit(list, room, known)
+		rowOf := make(map[int64]model.UserSubdomain, len(list))
+		for _, row := range list {
+			rowOf[row.ID] = row
+		}
+		for _, id := range admit {
+			if ctx.Err() != nil {
+				break
+			}
+			h.userSubSyncRow(ctx, pass, rowOf[id], full)
+		}
+		for _, id := range capped {
+			h.userSubMarkCapped(pass, rowOf[id], fmt.Sprintf("Cloudflare 记录数已到上限（%d / %d，预留 %d 条给管理员 DDNS）：删除不用的记录或提高上限后自动创建", used, quota, usersub.CapReserve))
+		}
+		for _, id := range unknown {
+			h.userSubFail(pass, rowOf[id], fmt.Errorf("Cloudflare 区域检查失败：%s", zoneErr), now)
+		}
+	}
+	h.userSubConfirm(ctx, pass)
+	rows, _ = h.repo.ListUserSubdomainsForPlan()
+	for _, row := range rows {
+		if row.Status == model.UserSubdomainSyncFailed && row.NextRetryAt > now.UnixMilli() {
+			at := time.UnixMilli(row.NextRetryAt)
+			if next.IsZero() || at.Before(next) {
+				next = at
+			}
+		}
 	}
 	m.mu.Lock()
 	m.nextDue = next
@@ -401,22 +459,166 @@ func (h *Handler) userSubReconcile(ctx context.Context, full, force bool) {
 	}
 }
 
-// userSubCreateName stores a fresh random name for (user, node) in the
-// node main domain's zone. The record is created by the CF pass right after.
-func (h *Handler) userSubCreateName(userID int64, node repo.UserSubdomainNode) error {
+// userSubFacts loads what the planner reads. withNames=false loads only
+// the names (and users) needed to know who still needs one (reservation).
+func (h *Handler) userSubFacts(now time.Time, all bool) (*usersub.Facts, map[int64]repo.UserSubdomainNode, []int64, error) {
+	nodes, err := h.repo.ListUserSubdomainNodes()
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("nodes: %w", err)
+	}
+	facts := &usersub.Facts{Now: now.UnixMilli(), Nodes: map[int64]usersub.Node{}}
+	effective := []int64{}
+	for id, n := range nodes {
+		un := usersub.Node{ID: id, Enabled: n.Enabled(), MainDomain: n.Main.Domain, MainSynced: n.Main.Synced}
+		if n.Main.ZoneID != "" && n.ProviderID > 0 {
+			un.ZoneKey = userSubZoneKey(n.ProviderID, n.Main.ZoneID)
+		}
+		facts.Nodes[id] = un
+		if un.Effective() {
+			effective = append(effective, id)
+		}
+	}
+	sort.Slice(effective, func(i, j int) bool { return effective[i] < effective[j] })
+	if !all && len(effective) == 0 {
+		return facts, nodes, effective, nil
+	}
+	if facts.Usage, err = h.repo.UserSubdomainUsage(effective); err != nil {
+		return nil, nil, nil, fmt.Errorf("usage: %w", err)
+	}
+	if facts.Names, err = h.repo.ListUserSubdomainsForPlan(); err != nil {
+		return nil, nil, nil, fmt.Errorf("names: %w", err)
+	}
+	userIDs := map[int64]bool{}
+	for _, users := range facts.Usage {
+		for uid := range users {
+			userIDs[uid] = true
+		}
+	}
+	if all {
+		for _, n := range facts.Names {
+			userIDs[n.UserID] = true
+		}
+	}
+	if facts.Users, err = h.repo.UserSubdomainUsers(userSubKeys(userIDs)); err != nil {
+		return nil, nil, nil, fmt.Errorf("users: %w", err)
+	}
+	return facts, nodes, effective, nil
+}
+
+// userSubReserve (round 3) gives every non-admin user who uses a node with
+// the toggle on, and has no name there yet, his name now — database only
+// (no Cloudflare call, except the cached zone list once after a restart).
+// Called from the kicker right after a mutation and from every pass.
+// Returns how many names were reserved.
+func (h *Handler) userSubReserve(ctx context.Context) int {
+	if h == nil || h.repo == nil {
+		return 0
+	}
+	if on, err := h.repo.AnyUserSubdomainToggle(); err != nil || !on {
+		return 0
+	}
+	m := h.userSubState()
+	facts, nodes, effective, err := h.userSubFacts(m.now(), false)
+	if err != nil || len(effective) == 0 {
+		return 0
+	}
+	plan := usersub.Compute(facts)
+	if len(plan.Creates) == 0 {
+		return 0
+	}
+	touched := map[int64]bool{}
+	h.userSubReserveCreates(ctx, nodes, plan.Creates, touched)
+	for uid := range touched {
+		h.subState().cache.purgeUser(uid)
+	}
+	return len(touched)
+}
+
+// userSubReserveCreates stores the planned names (one per user / node,
+// re-checked under the reservation lock). Returns node id → names still
+// waiting because the zone name is not known yet.
+func (h *Handler) userSubReserveCreates(ctx context.Context, nodes map[int64]repo.UserSubdomainNode, creates []usersub.Create, touched map[int64]bool) map[int64]int {
+	waiting := map[int64]int{}
+	if len(creates) == 0 {
+		return waiting
+	}
+	m := h.userSubState()
+	m.reserve.Lock()
+	defer m.reserve.Unlock()
+	for _, c := range creates {
+		if ctx.Err() != nil {
+			waiting[c.NodeID]++
+			continue
+		}
+		node := nodes[c.NodeID]
+		zoneName := h.userSubZoneName(ctx, node)
+		if zoneName == "" {
+			waiting[c.NodeID]++
+			continue
+		}
+		if taken, err := h.repo.UserSubdomainPairTaken(c.UserID, c.NodeID); err != nil || taken {
+			continue
+		}
+		if err := h.userSubCreateName(c, node, zoneName); err != nil {
+			log.Printf("[user-subdomain] new name user %d node %d: %v", c.UserID, c.NodeID, err)
+			continue
+		}
+		touched[c.UserID] = true
+	}
+	return waiting
+}
+
+// userSubZoneName: the name of the zone a node's main record lives in —
+// from the last zone check, an existing name in that zone, or the cached
+// zone list (one short Cloudflare call when nothing is cached).
+func (h *Handler) userSubZoneName(ctx context.Context, node repo.UserSubdomainNode) string {
+	if node.Main.ZoneID == "" || node.ProviderID <= 0 {
+		return ""
+	}
 	m := h.userSubState()
 	key := userSubZoneKey(node.ProviderID, node.Main.ZoneID)
 	m.mu.Lock()
 	z := m.zones[key]
-	zoneName := ""
-	var listed map[string][]ddns.Record
+	name := ""
 	if z != nil {
-		zoneName, listed = z.Name, z.byName
+		name = z.Name
 	}
 	m.mu.Unlock()
-	if zoneName == "" {
-		return errors.New("区域未知")
+	if name != "" {
+		return name
 	}
+	if zn, err := h.repo.UserSubdomainZoneName(node.ProviderID, node.Main.ZoneID); err == nil && zn != "" {
+		return zn
+	}
+	provider, err := h.repo.GetDNSProvider(node.ProviderID)
+	if err != nil || provider == nil {
+		return ""
+	}
+	zctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	zones, err := h.ddnsZones(zctx, h.ddnsClient(provider), node.ProviderID)
+	if err != nil {
+		return ""
+	}
+	for _, zz := range zones {
+		if zz.ID == node.Main.ZoneID && strings.HasSuffix(node.Main.Domain, "."+strings.ToLower(zz.Name)) {
+			return strings.ToLower(zz.Name)
+		}
+	}
+	return ""
+}
+
+// userSubCreateName stores a fresh random name for (user, node) in the
+// node main domain's zone. The record is created by the CF pass right after.
+func (h *Handler) userSubCreateName(c usersub.Create, node repo.UserSubdomainNode, zoneName string) error {
+	m := h.userSubState()
+	key := userSubZoneKey(node.ProviderID, node.Main.ZoneID)
+	m.mu.Lock()
+	var listed map[string][]ddns.Record
+	if z := m.zones[key]; z != nil {
+		listed = z.byName
+	}
+	m.mu.Unlock()
 	for attempt := 0; attempt < 8; attempt++ {
 		label := usersub.NewLabel()
 		domain := label + "." + zoneName
@@ -425,14 +627,15 @@ func (h *Handler) userSubCreateName(userID int64, node repo.UserSubdomainNode) e
 		} else if taken || len(listed[domain]) > 0 {
 			continue
 		}
-		row := &model.UserSubdomain{UserID: userID, NodeID: node.ID, OriginNodeID: node.ID, Label: label, Domain: domain,
-			ProviderID: node.ProviderID, ZoneID: node.Main.ZoneID}
+		row := &model.UserSubdomain{UserID: c.UserID, NodeID: node.ID, OriginNodeID: node.ID, Label: label, Domain: domain,
+			ProviderID: node.ProviderID, ZoneID: node.Main.ZoneID, State: c.State, Reason: c.Reason}
 		if err := h.repo.CreateUserSubdomain(row); err != nil {
 			if strings.Contains(strings.ToLower(err.Error()), "unique") || strings.Contains(strings.ToLower(err.Error()), "duplicate") {
 				continue
 			}
 			return err
 		}
+		log.Printf("[user-subdomain] %s reserved for user %d on node %d (%s)", domain, c.UserID, node.ID, c.State)
 		return nil
 	}
 	return errors.New("没有找到空闲的名字")
@@ -468,15 +671,18 @@ func (h *Handler) userSubCheckZone(ctx context.Context, providerID int64, zoneID
 		z.Error = userSubErrText(err)
 		return
 	}
+	var nameServers []string
 	for _, zz := range zones {
 		if zz.ID == zoneID {
 			z.Name = strings.ToLower(zz.Name)
+			nameServers = zz.NameServers
 		}
 	}
 	if z.Name == "" {
 		z.Error = "该 DNS 服务商的 Token 看不到这个区域"
 		return
 	}
+	z.authIPs = userSubAuthIPs(ctx, nameServers)
 	records, total, err := client.ZoneRecords(ctx, zoneID)
 	if err != nil {
 		z.Error = userSubErrText(err)
@@ -514,6 +720,27 @@ func (h *Handler) userSubCheckZone(ctx context.Context, providerID int64, zoneID
 	}
 }
 
+// userSubAuthIPs resolves the zone's name servers (their own names exist:
+// safe to look up) to one IPv4 each.
+func userSubAuthIPs(ctx context.Context, servers []string) []string {
+	out := []string{}
+	for _, ns := range servers {
+		lctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+		ips, err := net.DefaultResolver.LookupIPAddr(lctx, ns)
+		cancel()
+		if err != nil {
+			continue
+		}
+		for _, ip := range ips {
+			if ip.IP.To4() != nil {
+				out = append(out, net.JoinHostPort(ip.IP.String(), "53"))
+				break
+			}
+		}
+	}
+	return out
+}
+
 func userSubErrText(err error) string {
 	if ddns.IsAuthError(err) {
 		return "Cloudflare 拒绝了 API Token（可能已被撤销或更换）：" + err.Error()
@@ -521,16 +748,22 @@ func userSubErrText(err error) string {
 	return err.Error()
 }
 
+// userSubDesired: the CNAME target a name should have now ("" = no record).
+func (h *Handler) userSubDesired(pass *userSubPass, row model.UserSubdomain) string {
+	if row.State != model.UserSubdomainActive {
+		return ""
+	}
+	if n, ok := pass.nodes[row.NodeID]; ok && n.Enabled() && n.Main.Synced {
+		return n.Main.Domain
+	}
+	return ""
+}
+
 // userSubSyncRow brings one name's Cloudflare record in line with its state.
 func (h *Handler) userSubSyncRow(ctx context.Context, pass *userSubPass, row model.UserSubdomain, full bool) {
 	m := h.userSubState()
 	now := m.now()
-	desired := ""
-	if row.State == model.UserSubdomainActive {
-		if n, ok := pass.nodes[row.NodeID]; ok && n.Enabled() && n.Main.Synced {
-			desired = n.Main.Domain
-		}
-	}
+	desired := h.userSubDesired(pass, row)
 	zoneKey := userSubZoneKey(row.ProviderID, row.ZoneID)
 	m.mu.Lock()
 	z := m.zones[zoneKey]
@@ -563,7 +796,7 @@ func (h *Handler) userSubSyncRow(ctx context.Context, pass *userSubPass, row mod
 	}
 	provider, err := h.repo.GetDNSProvider(row.ProviderID)
 	if err != nil || provider == nil {
-		h.userSubFail(row, ddnsConfigErr("DNS 服务商不存在或已删除"), now)
+		h.userSubFail(pass, row, ddnsConfigErr("DNS 服务商不存在或已删除"), now)
 		return
 	}
 	client := h.ddnsClient(provider)
@@ -573,7 +806,7 @@ func (h *Handler) userSubSyncRow(ctx context.Context, pass *userSubPass, row mod
 	if desired == "" {
 		if row.RecordID != "" {
 			if err := client.DeleteUserRecord(ctx, row.ZoneID, row.RecordID, row.Domain); err != nil && !errors.Is(err, ddns.ErrNotUserRecord) {
-				h.userSubFail(row, err, now)
+				h.userSubFail(pass, row, err, now)
 				return
 			}
 		}
@@ -581,7 +814,7 @@ func (h *Handler) userSubSyncRow(ctx context.Context, pass *userSubPass, row mod
 			for _, rec := range listing.byName[strings.ToLower(row.Domain)] {
 				if rec.Type == "CNAME" && ddns.IsUserRecord(rec) && rec.ID != row.RecordID {
 					if err := client.DeleteUserRecord(ctx, row.ZoneID, rec.ID, row.Domain); err != nil && !errors.Is(err, ddns.ErrNotUserRecord) {
-						h.userSubFail(row, err, now)
+						h.userSubFail(pass, row, err, now)
 						return
 					}
 				}
@@ -599,7 +832,7 @@ func (h *Handler) userSubSyncRow(ctx context.Context, pass *userSubPass, row mod
 			m.mu.Unlock()
 			log.Printf("[user-subdomain] %s record deleted (%s %s)", row.Domain, row.State, row.Reason)
 		}
-		if wasLive {
+		if wasLive || usersub.Hidden(row) {
 			pass.touched[row.UserID] = true
 		}
 		return
@@ -608,7 +841,7 @@ func (h *Handler) userSubSyncRow(ctx context.Context, pass *userSubPass, row mod
 	if recordID != "" {
 		if _, err := client.UpdateUserCNAME(ctx, row.ZoneID, recordID, row.Domain, desired); err != nil {
 			if !ddns.IsNotFound(err) {
-				h.userSubFail(row, err, now)
+				h.userSubFail(pass, row, err, now)
 				return
 			}
 			recordID = "" // removed in the dashboard: create it again
@@ -618,7 +851,7 @@ func (h *Handler) userSubSyncRow(ctx context.Context, pass *userSubPass, row mod
 	if recordID == "" {
 		existing, err := client.ListRecords(ctx, row.ZoneID, row.Domain, "")
 		if err != nil {
-			h.userSubFail(row, err, now)
+			h.userSubFail(pass, row, err, now)
 			return
 		}
 		for _, rec := range existing {
@@ -626,33 +859,57 @@ func (h *Handler) userSubSyncRow(ctx context.Context, pass *userSubPass, row mod
 				recordID = rec.ID // ours (left over): adopt
 				continue
 			}
-			h.userSubFail(row, ddnsConfigErr("Cloudflare 里已有同名 %s 记录（不是面板创建的），请「换新名」", rec.Type), now)
+			h.userSubFail(pass, row, ddnsConfigErr("Cloudflare 里已有同名 %s 记录（不是面板创建的），请「换新名」", rec.Type), now)
 			return
 		}
 		if recordID != "" {
 			if _, err := client.UpdateUserCNAME(ctx, row.ZoneID, recordID, row.Domain, desired); err != nil {
-				h.userSubFail(row, err, now)
+				h.userSubFail(pass, row, err, now)
 				return
 			}
 		} else {
 			rec, err := client.CreateUserCNAME(ctx, row.ZoneID, row.Domain, desired)
 			if err != nil {
-				h.userSubFail(row, err, now)
+				if ddns.IsQuotaError(err) {
+					// The zone is fuller than the last listing said: no more
+					// creates in it this pass.
+					m.mu.Lock()
+					if z := m.zones[zoneKey]; z != nil && z.Quota > 0 {
+						z.Used = z.Quota
+					}
+					m.mu.Unlock()
+					h.userSubMarkCapped(pass, row, "Cloudflare 记录数已到上限："+err.Error())
+					return
+				}
+				h.userSubFail(pass, row, err, now)
 				return
 			}
 			recordID, created = rec.ID, true
+			m.mu.Lock()
+			if z := m.zones[zoneKey]; z != nil {
+				z.Used++ // until the next listing
+			}
+			m.mu.Unlock()
 		}
 	}
+	// Round 3: ready only once Cloudflare returns the record by id with the
+	// right type, name and content (never a public resolver: a lookup before
+	// the record exists would cache NXDOMAIN for 30 min).
+	if err := userSubVerify(ctx, client, row.ZoneID, recordID, row.Domain, desired); err != nil {
+		if created {
+			_ = h.repo.UpdateUserSubdomain(row.ID, map[string]interface{}{"record_id": recordID})
+			row.RecordID = recordID
+		}
+		h.userSubFail(pass, row, err, now)
+		return
+	}
+	// A fresh name stays 「正在就绪」 (ready_at 0) until the zone's
+	// authoritative servers answer it (userSubConfirm, end of the pass).
 	_ = h.repo.UpdateUserSubdomain(row.ID, map[string]interface{}{
 		"record_id": recordID, "target": desired, "status": model.UserSubdomainSyncSynced, "last_error": "",
 		"fail_count": 0, "next_retry_at": int64(0), "last_sync_at": now.UnixMilli(),
 	})
 	if created {
-		m.mu.Lock()
-		if z := m.zones[zoneKey]; z != nil {
-			z.Used++ // until the next listing
-		}
-		m.mu.Unlock()
 		log.Printf("[user-subdomain] %s CNAME %s created", row.Domain, desired)
 	} else if row.Target != desired {
 		log.Printf("[user-subdomain] %s CNAME -> %s", row.Domain, desired)
@@ -660,12 +917,131 @@ func (h *Handler) userSubSyncRow(ctx context.Context, pass *userSubPass, row mod
 	pass.touched[row.UserID] = true
 }
 
-func (h *Handler) userSubFail(row model.UserSubdomain, err error, now time.Time) {
+// userSubConfirmWait: how long a fresh name waits for the authoritative
+// servers before it counts as ready anyway (the API already confirmed it).
+const userSubConfirmWait = 15 * time.Second
+
+// userSubConfirm (round 3): fresh names whose record exists (API-verified)
+// become ready once the zone's authoritative servers answer them — measured
+// ~3 s after the API on imgamer.top (11-24). A client resolving in between
+// would get NXDOMAIN cached for 30 min; the tag 「正在就绪」 covers that
+// window. Only the zone's own servers are asked (nothing is cached there),
+// never a public resolver.
+func (h *Handler) userSubConfirm(ctx context.Context, pass *userSubPass) {
+	rows, err := h.repo.ListUserSubdomainsForPlan()
+	if err != nil {
+		return
+	}
+	left := []model.UserSubdomain{}
+	for _, row := range rows {
+		if row.State == model.UserSubdomainActive && row.Live() && row.ReadyAt == 0 {
+			left = append(left, row)
+		}
+	}
+	if len(left) == 0 {
+		return
+	}
+	m := h.userSubState()
+	start := m.now()
+	ready := func(row model.UserSubdomain, how string) {
+		_ = h.repo.UpdateUserSubdomain(row.ID, map[string]interface{}{"ready_at": m.now().UnixMilli()})
+		pass.touched[row.UserID] = true
+		log.Printf("[user-subdomain] %s ready (%s, %v after the pass)", row.Domain, how, m.now().Sub(start).Round(100*time.Millisecond))
+	}
+	for len(left) > 0 && ctx.Err() == nil {
+		next := left[:0]
+		for _, row := range left {
+			switch ok, checked := h.userSubAnswered(ctx, row); {
+			case ok:
+				ready(row, "authoritative DNS answers")
+			case !checked:
+				ready(row, "API-verified; no authoritative server to ask")
+			default:
+				next = append(next, row)
+			}
+		}
+		left = next
+		if len(left) == 0 {
+			return
+		}
+		if m.now().Sub(start) >= userSubConfirmWait {
+			for _, row := range left {
+				ready(row, "API-verified; authoritative DNS still silent after 15 s")
+			}
+			return
+		}
+		select {
+		case <-ctx.Done():
+		case <-time.After(400 * time.Millisecond):
+		}
+	}
+}
+
+// userSubAnswered: every authoritative server of the name's zone serves it.
+// checked=false: no server known (zone not listed, or no name servers).
+func (h *Handler) userSubAnswered(ctx context.Context, row model.UserSubdomain) (ok, checked bool) {
+	m := h.userSubState()
+	m.mu.Lock()
+	check := m.dnsCheck
+	var servers []string
+	if z := m.zones[userSubZoneKey(row.ProviderID, row.ZoneID)]; z != nil {
+		servers = append(servers, z.authIPs...)
+	}
+	m.mu.Unlock()
+	if check != nil {
+		return check(row.Domain), true
+	}
+	if len(servers) == 0 {
+		return false, false
+	}
+	for _, server := range servers {
+		has, err := ddns.AuthoritativeHas(ctx, server, row.Domain)
+		if err != nil || !has {
+			return false, true
+		}
+	}
+	return true, true
+}
+
+// userSubVerify reads the record back through the API.
+func userSubVerify(ctx context.Context, client *ddns.Client, zoneID, recordID, name, target string) error {
+	cur, err := client.GetRecord(ctx, zoneID, recordID)
+	if err != nil {
+		return fmt.Errorf("记录已提交，读回校验失败：%w", err)
+	}
+	if cur.Type != "CNAME" || !strings.EqualFold(strings.TrimSuffix(cur.Name, "."), name) ||
+		!strings.EqualFold(strings.TrimSuffix(cur.Content, "."), target) {
+		return fmt.Errorf("读回的记录不对（%s %s → %s）", cur.Type, cur.Name, cur.Content)
+	}
+	return nil
+}
+
+// userSubFreshBackoff: a fresh name (the user sees 「正在就绪」) is retried
+// quickly, then like any other record.
+func userSubFreshBackoff(fails int) time.Duration {
+	switch fails {
+	case 1:
+		return 5 * time.Second
+	case 2:
+		return 15 * time.Second
+	case 3:
+		return 30 * time.Second
+	}
+	return ddns.Backoff(fails - 2)
+}
+
+func (h *Handler) userSubFail(pass *userSubPass, row model.UserSubdomain, err error, now time.Time) {
 	fails := row.FailCount + 1
 	delay := ddns.Backoff(fails)
+	if row.ReadyAt == 0 {
+		delay = userSubFreshBackoff(fails)
+	}
 	var cfg *ddnsConfigError
 	if errors.As(err, &cfg) || ddns.IsAuthError(err) {
 		delay = time.Hour
+		if fails < usersub.FailShow {
+			fails = usersub.FailShow // no point in 「正在就绪」 for an error that needs the admin
+		}
 	}
 	msg := userSubErrText(err)
 	if ddns.IsQuotaError(err) {
@@ -675,13 +1051,38 @@ func (h *Handler) userSubFail(row model.UserSubdomain, err error, now time.Time)
 		"status": model.UserSubdomainSyncFailed, "last_error": msg, "fail_count": fails,
 		"next_retry_at": now.Add(delay).UnixMilli(),
 	})
-	if fails == 1 || fails%10 == 0 {
+	after := row
+	after.Status, after.FailCount = model.UserSubdomainSyncFailed, fails
+	if pass != nil && usersub.Hidden(after) != usersub.Hidden(row) {
+		pass.touched[row.UserID] = true
+	}
+	if fails == 1 || fails == usersub.FailShow || fails%10 == 0 {
 		log.Printf("[user-subdomain] %s sync failed (%d): %s", row.Domain, fails, msg)
 	}
 }
 
+// userSubMarkCapped: the name waits for room in its zone (no CF call).
+func (h *Handler) userSubMarkCapped(pass *userSubPass, row model.UserSubdomain, msg string) {
+	if row.Status == model.UserSubdomainSyncCapped && row.LastError == msg {
+		return
+	}
+	_ = h.repo.UpdateUserSubdomain(row.ID, map[string]interface{}{
+		"status": model.UserSubdomainSyncCapped, "last_error": msg, "fail_count": 0, "next_retry_at": int64(0),
+	})
+	after := row
+	after.Status = model.UserSubdomainSyncCapped
+	if pass != nil && usersub.Hidden(after) != usersub.Hidden(row) {
+		pass.touched[row.UserID] = true
+	}
+	if row.Status != model.UserSubdomainSyncCapped {
+		log.Printf("[user-subdomain] %s waits for room in the zone: %s", row.Domain, msg)
+	}
+}
+
 // userSubRewriteForwardItems: the forward list's inIp of every rule shows
-// its owner's live name for that entry (one query when nobody has one).
+// its owner's name for that entry (one query when nobody has one). Round 3:
+// entries whose name cannot be handed out yet are dropped from inIp and
+// listed in entryNotices (users: why; admins: + the name and the error).
 func (h *Handler) userSubRewriteForwardItems(items []map[string]interface{}, entryNodes map[int64][]int64, admin bool) {
 	if len(items) == 0 {
 		return
@@ -699,22 +1100,29 @@ func (h *Handler) userSubRewriteForwardItems(items []map[string]interface{}, ent
 		return
 	}
 	for _, item := range items {
-		list, ok := item["inIp"].(string)
-		if !ok || list == "" {
-			continue
-		}
+		list, _ := item["inIp"].(string)
 		id := asInt64(item["id"], 0)
-		rewritten, tags := names.RewriteEntryList(asInt64(item["userId"], 0), entryNodes[id], list)
-		item["inIp"] = rewritten
+		uid := asInt64(item["userId"], 0)
+		rewritten, tags, notices := names.RewriteEntryList(uid, entryNodes[id], list)
+		if list != "" {
+			item["inIp"] = rewritten
+		}
+		// The target of a forward to a native landing on such a node too.
+		if target, ok := item["remoteAddr"].(string); ok && target != "" {
+			item["remoteAddr"], _, _ = names.RewriteEntryList(uid, nil, target)
+		}
 		if tags := userSubVisibleTags(tags, admin); len(tags) > 0 {
-			// Round 2: 「已过期 · 记录已删除」 etc. next to the address.
+			// 「正在就绪」 / 「已过期 · 记录已删除」 etc. next to the address.
 			item["entryNameTags"] = tags
+		}
+		if len(notices) > 0 {
+			item["entryNotices"] = userSubVisibleNotices(notices, admin)
 		}
 	}
 }
 
-// userSubVisibleTags: users see why their own name is dead (到期 / 停用 /
-// 删除); admins also see 同步中 and 暂用主域名 (no name yet).
+// userSubVisibleTags: the tags next to a handed-out name (round 3: users
+// see 「正在就绪」 too — the address is final, usable in a few seconds).
 func userSubVisibleTags(tags map[string]string, admin bool) map[string]string {
 	if len(tags) == 0 {
 		return nil
@@ -722,13 +1130,23 @@ func userSubVisibleTags(tags map[string]string, admin bool) map[string]string {
 	out := map[string]string{}
 	for host, tag := range tags {
 		switch tag {
-		case repo.UserEntryTagExpired, repo.UserEntryTagDisabled, repo.UserEntryTagDeleted:
+		case repo.UserEntryTagExpired, repo.UserEntryTagDisabled, repo.UserEntryTagDeleted, repo.UserEntryTagPending,
+			repo.UserEntryTagCapped, repo.UserEntryTagFailed:
 			out[host] = tag
-		case repo.UserEntryTagPending, repo.UserEntryTagFallback:
-			if admin {
-				out[host] = tag
-			}
 		}
+	}
+	return out
+}
+
+// userSubVisibleNotices: withheld entries; users never get the withheld
+// name or the Cloudflare error text.
+func userSubVisibleNotices(notices []repo.UserEntryNotice, admin bool) []repo.UserEntryNotice {
+	out := make([]repo.UserEntryNotice, 0, len(notices))
+	for _, n := range notices {
+		if !admin {
+			n.Domain, n.Reason = "", ""
+		}
+		out = append(out, n)
 	}
 	return out
 }
@@ -788,6 +1206,7 @@ type userSubNodeView struct {
 	Failed     int    `json:"failed"`
 	Pending    int    `json:"pending"`
 	Capped     int    `json:"capped"`
+	Hidden     int    `json:"hidden"` // round 3: fresh names not handed out (capped / creating keeps failing)
 	Waiting    int    `json:"waiting"`
 	Wildcard   bool   `json:"wildcard"`
 	ZoneError  string `json:"zoneError"`
@@ -845,15 +1264,15 @@ func (h *Handler) userSubNodeViews(nodes []repo.DDNSNodeState, records []model.N
 	}
 	for id, c := range counts {
 		v := view(id)
-		v.Active, v.Paused, v.Failed, v.Pending = c.Active, c.Paused, c.Failed, c.Pending
+		v.Active, v.Paused, v.Failed, v.Pending, v.Capped, v.Hidden = c.Active, c.Paused, c.Failed, c.Pending, c.Capped, c.Hidden
 	}
 	for id, w := range m.nodeWarn {
 		if v := out[id]; v != nil {
-			v.Capped, v.Waiting = w.Capped, w.Waiting
+			v.Waiting = w.Waiting
 		}
 	}
 	for _, v := range out {
-		v.Attention = v.Failed > 0 || v.Capped > 0 || v.Wildcard || v.ZoneError != ""
+		v.Attention = v.Failed > 0 || v.Capped > 0 || v.Hidden > 0 || v.Waiting > 0 || v.Wildcard || v.ZoneError != ""
 	}
 	return out
 }
@@ -894,6 +1313,11 @@ type userSubItemView struct {
 	CreatedTime    int64                `json:"createdTime"`
 	RetiredAt      int64                `json:"retiredAt"`
 	UnusedSince    int64                `json:"unusedSince"`
+	// Round 3: ReadyAt = first verified in Cloudflare (0 = 正在就绪);
+	// Hidden = withheld from the user (no address: capped / keeps failing).
+	ReadyAt   int64 `json:"readyAt"`
+	FailCount int   `json:"failCount"`
+	Hidden    bool  `json:"hidden"`
 }
 
 func (h *Handler) userSubList(w http.ResponseWriter, r *http.Request) {
@@ -950,6 +1374,7 @@ func (h *Handler) userSubListData(nodeID, userID int64, retired bool) (map[strin
 			State: row.State, Reason: row.Reason, Status: row.Status, LastError: row.LastError, LastSyncAt: row.LastSyncAt,
 			NodeID: row.NodeID, NodeName: nodeNames[row.NodeID], OriginNodeID: row.OriginNodeID, OriginNodeName: nodeNames[row.OriginNodeID],
 			Target: row.Target, Blocked: row.Blocked, CreatedTime: row.CreatedTime, RetiredAt: row.RetiredAt, UnusedSince: row.UnusedSince,
+			ReadyAt: row.ReadyAt, FailCount: row.FailCount, Hidden: usersub.Hidden(row),
 			Forwards: uses[[2]int64{row.UserID, row.NodeID}], Landings: landings[[2]int64{row.UserID, row.NodeID}]}
 		if v.Forwards == nil {
 			v.Forwards = []userSubForwardView{}
@@ -980,6 +1405,15 @@ func (h *Handler) userSubListData(nodeID, userID int64, retired bool) (map[strin
 			}
 			if row.Status == model.UserSubdomainSyncFailed {
 				counts["failed"]++
+			}
+			if row.Status == model.UserSubdomainSyncCapped {
+				counts["capped"]++
+			}
+			if v.Hidden {
+				counts["hidden"]++
+			}
+			if row.State == model.UserSubdomainActive && (!row.Live() || row.ReadyAt == 0) && !v.Hidden {
+				counts["readying"]++ // 正在就绪
 			}
 		}
 		items = append(items, v)
@@ -1026,13 +1460,14 @@ func (h *Handler) userSubListData(nodeID, userID int64, retired bool) (map[strin
 		m.mu.Lock()
 		warn := m.nodeWarn[nodeID]
 		m.mu.Unlock()
+		capped := counts["capped"]
 		out["node"] = map[string]interface{}{
 			"id": nodeID, "name": nodeNames[nodeID], "toggle": n.Toggle, "ddnsEnabled": n.DDNSEnabled,
 			"mainDomain": n.Main.Domain, "mainIps": n.Main.IPs, "mainSynced": n.Main.Synced, "v6Only": n.Main.V6Only,
 			"effective": n.Enabled() && n.Main.Domain != "" && n.Main.Synced,
 		}
 		out["zone"] = zone
-		out["capped"], out["waiting"] = warn.Capped, warn.Waiting
+		out["capped"], out["waiting"] = capped, warn.Waiting
 	}
 	return out, nil
 }

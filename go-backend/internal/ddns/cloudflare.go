@@ -181,6 +181,9 @@ type Zone struct {
 	Name        string   `json:"name"`
 	Status      string   `json:"status"`
 	Permissions []string `json:"permissions"`
+	// NameServers: the zone's authoritative servers (plan 303 round 3: a
+	// fresh name is ready once they answer it).
+	NameServers []string `json:"name_servers"`
 }
 
 // CanEditDNS: tokens list their zone permissions; an empty list means unknown

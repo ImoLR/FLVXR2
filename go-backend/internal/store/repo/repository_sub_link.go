@@ -426,13 +426,23 @@ func (r *Repository) SubPanelLinks(userID int64, forwardIDs, landingIDs []int64,
 			// domain only for clients that resolve AAAA-only names.
 			host, entryDomain, aaaaOnly := e.Host, "", false
 			shown := addr
-			if uh := names.Resolve(userID, e.NodeID, e.Host); uh.Host != "" {
+			if uh := names.Resolve(userID, e.NodeID, e.Host); uh.Hidden {
+				// Plan 303 round 3: his name cannot be handed out yet (zone
+				// at the record cap, creating keeps failing, or not reserved
+				// this instant): the entry is left out — never the main
+				// domain, never the IP.
+				continue
+			} else if uh.Host != "" {
 				// Plan 303 round 2: on a node with 用户专属域名 every client
-				// gets the user's own name (or, before he has one, the main
-				// domain) — never the IP, whatever the client resolves. The
-				// key keeps the entry host (stored items stay valid).
+				// gets the user's own name — never the IP, whatever the
+				// client resolves. The key keeps the entry host (stored
+				// items stay valid).
 				host, aaaaOnly = uh.Host, uh.V6Only
 				shown = net.JoinHostPort(uh.Host, strconv.Itoa(e.Port))
+				// Round 3: the editor's key carries the name too (never the
+				// main domain); items stored under the main domain still
+				// resolve (same forward + entry node, see panelLink).
+				link.Ref.Entry = sublink.EntryKey(e.NodeID, uh.Host)
 			} else if ip := v6only[e.NodeID][strings.ToLower(strings.Trim(e.Host, "[]"))]; ip != "" {
 				host, entryDomain = ip, strings.Trim(e.Host, "[]")
 			}
@@ -487,7 +497,9 @@ func (r *Repository) SubPanelLinks(userID int64, forwardIDs, landingIDs []int64,
 		}
 		host, aaaaOnly := s.PublicHost, false
 		if s.NodeID > 0 && !names.Empty() {
-			if uh := names.Resolve(userID, s.NodeID, s.PublicHost); uh.Host != "" {
+			if uh := names.Resolve(userID, s.NodeID, s.PublicHost); uh.Hidden {
+				continue // plan 303 round 3: no address yet → left out
+			} else if uh.Host != "" {
 				host, aaaaOnly = uh.Host, uh.V6Only // plan 303 round 2: every client
 			}
 		}

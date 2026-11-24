@@ -25,6 +25,9 @@ const (
 	UserSubdomainSyncPending = "pending"
 	UserSubdomainSyncSynced  = "synced"
 	UserSubdomainSyncFailed  = "failed"
+	// Round 3: the record waits for room in the zone (record cap guard); no
+	// Cloudflare call is made for it until a pass finds room.
+	UserSubdomainSyncCapped = "capped"
 )
 
 type UserSubdomain struct {
@@ -53,8 +56,13 @@ type UserSubdomain struct {
 	NextRetryAt int64  `gorm:"column:next_retry_at;type:bigint;not null;default:0" json:"nextRetryAt"`
 	UnusedSince int64  `gorm:"column:unused_since;type:bigint;not null;default:0" json:"unusedSince"`
 	RetiredAt   int64  `gorm:"column:retired_at;type:bigint;not null;default:0" json:"retiredAt"`
-	CreatedTime int64  `gorm:"column:created_time;type:bigint;not null;default:0" json:"createdTime"`
-	UpdatedTime int64  `gorm:"column:updated_time;type:bigint;not null;default:0" json:"updatedTime"`
+	// ReadyAt (round 3): when the record was first verified through the
+	// Cloudflare API (0 = never: a fresh name). A fresh name that cannot be
+	// created (cap, persistent failure) is not handed out at all; a name that
+	// was ready once keeps being shown (the user already has it).
+	ReadyAt     int64 `gorm:"column:ready_at;type:bigint;not null;default:0" json:"readyAt"`
+	CreatedTime int64 `gorm:"column:created_time;type:bigint;not null;default:0" json:"createdTime"`
+	UpdatedTime int64 `gorm:"column:updated_time;type:bigint;not null;default:0" json:"updatedTime"`
 }
 
 func (UserSubdomain) TableName() string { return "user_subdomain" }

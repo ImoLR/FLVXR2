@@ -48,9 +48,6 @@ type Facts struct {
 	Users map[int64]User
 	// Names: every non-retired name plus the admin-deleted (blocked) tombstones.
 	Names []model.UserSubdomain
-	// Room: zone key → how many more records may be created (missing key =
-	// unknown → creation waits for the first zone check).
-	Room map[string]int
 }
 
 // Change is a new lifecycle state for one existing name.
@@ -62,19 +59,70 @@ type Change struct {
 	RetiredAt   int64
 }
 
-// Create asks for a new name for (user, node).
+// Create asks for a new name for (user, node), stored in State / Reason
+// (round 3: a 到期 / 停用 user gets his name reserved too, paused).
 type Create struct {
 	UserID int64
 	NodeID int64
+	State  string
+	Reason string
 }
 
 type Plan struct {
 	Changes []Change
 	Creates []Create
-	// Capped: node id → users that got no name because the zone is full.
-	Capped map[int64]int
-	// Waiting: node id → users waiting for the zone's first check.
-	Waiting map[int64]int
+}
+
+// FailShow: a fresh name (never verified) whose record failed this many
+// times is no longer handed out ("入口域名创建失败"); config / auth errors
+// count as FailShow at once.
+const FailShow = 3
+
+// Hidden (round 3): a name that must not be handed out at all — it was never
+// verified in Cloudflare and cannot be created now (zone at the record cap,
+// or creating it keeps failing). Names that were ready once stay visible.
+func Hidden(n model.UserSubdomain) bool {
+	if n.ReadyAt > 0 || n.State == model.UserSubdomainRetired {
+		return false
+	}
+	switch n.Status {
+	case model.UserSubdomainSyncCapped:
+		return true
+	case model.UserSubdomainSyncFailed:
+		return n.FailCount >= FailShow
+	}
+	return false
+}
+
+// Admit decides which names that need a new Cloudflare record may get one
+// now in a zone with room free records (known=false: the zone could not be
+// checked). Names that were ready before go first (their record was counted
+// until it was deleted), then the oldest. Fresh names beyond the room are
+// capped; with an unknown room fresh names wait (unknown) while names that
+// were ready before are tried anyway.
+func Admit(rows []model.UserSubdomain, room int, known bool) (admit, capped, unknown []int64) {
+	sorted := append([]model.UserSubdomain(nil), rows...)
+	sort.SliceStable(sorted, func(i, j int) bool {
+		ri, rj := sorted[i].ReadyAt > 0, sorted[j].ReadyAt > 0
+		if ri != rj {
+			return ri
+		}
+		return sorted[i].ID < sorted[j].ID
+	})
+	for _, n := range sorted {
+		switch {
+		case !known && n.ReadyAt > 0:
+			admit = append(admit, n.ID)
+		case !known:
+			unknown = append(unknown, n.ID)
+		case room > 0:
+			room--
+			admit = append(admit, n.ID)
+		default:
+			capped = append(capped, n.ID)
+		}
+	}
+	return admit, capped, unknown
 }
 
 // Desired returns the lifecycle state a name should be in.
@@ -102,14 +150,17 @@ func Desired(f *Facts, n model.UserSubdomain) (state, reason string, unusedSince
 	return model.UserSubdomainActive, "", 0
 }
 
-// UserActive: a user that may get a new name.
+// UserActive: not an admin, enabled and not expired.
 func UserActive(u User, now int64) bool {
 	return !u.Admin && u.Status == 1 && !(u.ExpTime > 0 && u.ExpTime < now)
 }
 
 // Compute builds the plan. Deterministic: creates are ordered by node, user.
+// Round 3: every non-admin user using an effective node gets his name at
+// once (any state: 到期 / 停用 users get it paused); the record cap only
+// limits Cloudflare records (Admit), never the reservation.
 func Compute(f *Facts) Plan {
-	p := Plan{Capped: map[int64]int{}, Waiting: map[int64]int{}}
+	p := Plan{}
 	have := map[[2]int64]bool{}    // user, target node → a live or paused name
 	blocked := map[[2]int64]bool{} // admin-deleted pairs
 	for _, n := range f.Names {
@@ -137,10 +188,6 @@ func Compute(f *Facts) Plan {
 		nodeIDs = append(nodeIDs, id)
 	}
 	sort.Slice(nodeIDs, func(i, j int) bool { return nodeIDs[i] < nodeIDs[j] })
-	room := map[string]int{}
-	for k, v := range f.Room {
-		room[k] = v
-	}
 	for _, nodeID := range nodeIDs {
 		node := f.Nodes[nodeID]
 		if !node.Effective() {
@@ -154,21 +201,12 @@ func Compute(f *Facts) Plan {
 		for _, uid := range users {
 			u, ok := f.Users[uid]
 			key := [2]int64{uid, nodeID}
-			if !ok || !UserActive(u, f.Now) || have[key] || blocked[key] {
+			if !ok || u.Admin || have[key] || blocked[key] {
 				continue
 			}
-			left, known := room[node.ZoneKey]
-			switch {
-			case node.ZoneKey == "" || !known:
-				p.Waiting[nodeID]++
-				continue
-			case left <= 0:
-				p.Capped[nodeID]++
-				continue
-			}
-			room[node.ZoneKey] = left - 1
 			have[key] = true
-			p.Creates = append(p.Creates, Create{UserID: uid, NodeID: nodeID})
+			state, reason, _ := Desired(f, model.UserSubdomain{UserID: uid, NodeID: nodeID})
+			p.Creates = append(p.Creates, Create{UserID: uid, NodeID: nodeID, State: state, Reason: reason})
 		}
 	}
 	return p

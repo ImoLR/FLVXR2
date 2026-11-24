@@ -85,16 +85,26 @@ func (r *Repository) LandingNodeLinks(n model.LandingNode) ([]LandingLink, error
 		return l
 	}
 	direct := s.PublicHost
+	var withheld []UserEntryHost
+	out := []LandingLink{}
 	if s.NodeID > 0 {
 		// Plan 303: a native landing's 直连 uses the owner's 专属域名.
-		// Round 2: or, before he has one, the main domain — never the IP.
-		if names, err := r.LoadUserEntryNames([]int64{n.UserID}); err == nil {
-			if uh := names.Resolve(n.UserID, s.NodeID, s.PublicHost); uh.Host != "" {
-				direct = uh.Host
-			}
+		// Round 3: never the main domain — withheld while the name cannot
+		// be handed out.
+		names, err := r.LoadUserEntryNames([]int64{n.UserID})
+		if err != nil {
+			return nil, err
+		}
+		if uh := names.Resolve(n.UserID, s.NodeID, s.PublicHost); uh.Hidden {
+			withheld = append(withheld, uh)
+			direct = ""
+		} else if uh.Host != "" {
+			direct = uh.Host
 		}
 	}
-	out := []LandingLink{link("直连", "direct", direct, n.Port)}
+	if direct != "" {
+		out = append(out, link("直连", "direct", direct, n.Port))
+	}
 	var forwards []model.Forward
 	if err := r.db.Where("landing_node_id = ? AND user_id = ?", n.ID, n.UserID).Find(&forwards).Error; err != nil {
 		return nil, err
@@ -117,10 +127,11 @@ func (r *Repository) LandingNodeLinks(n model.LandingNode) ([]LandingLink, error
 		}
 	}
 	for _, f := range forwards {
-		entries, err := r.forwardEntries(f, true)
+		entries, held, err := r.forwardEntriesNamed(f, true)
 		if err != nil {
 			return nil, err
 		}
+		withheld = append(withheld, held...)
 		seen := map[string]bool{}
 		for _, e := range entries {
 			l := link(f.Name+" · "+e.NodeName, "forward", e.Host, e.Port)
@@ -135,6 +146,9 @@ func (r *Repository) LandingNodeLinks(n model.LandingNode) ([]LandingLink, error
 			}
 		}
 	}
+	if err := userEntryWithheldError(len(out), withheld); err != nil {
+		return nil, err
+	}
 	return out, nil
 }
 
@@ -147,9 +161,17 @@ type forwardEntry struct {
 
 // forwardEntries lists a rule's entry addresses (tunnel/port overrides first).
 func (r *Repository) forwardEntries(f model.Forward, allAddresses ...bool) ([]forwardEntry, error) {
+	out, _, err := r.forwardEntriesNamed(f, allAddresses...)
+	return out, err
+}
+
+// forwardEntriesNamed is forwardEntries plus, for copy links (expand), the
+// entries withheld from the owner (plan 303 round 3: his name cannot get a
+// record yet, or he has none at this instant — never the main domain).
+func (r *Repository) forwardEntriesNamed(f model.Forward, allAddresses ...bool) ([]forwardEntry, []UserEntryHost, error) {
 	var ports []model.ForwardPort
 	if err := r.db.Where("forward_id = ?", f.ID).Order("id").Find(&ports).Error; err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	var t model.Tunnel
 	_ = r.db.First(&t, f.TunnelID).Error
@@ -162,7 +184,7 @@ func (r *Repository) forwardEntries(f model.Forward, allAddresses ...bool) ([]fo
 		}
 		var err error
 		if index, err = r.loadEntryHostIndex(f.TunnelID, t.InIP.String, ids); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 	}
 	out := []forwardEntry{}
@@ -197,18 +219,48 @@ func (r *Repository) forwardEntries(f model.Forward, allAddresses ...bool) ([]fo
 		}
 		out = append(out, forwardEntry{Host: host, Port: fp.Port, NodeID: entry.ID, NodeName: entry.Name})
 	}
+	var withheld []UserEntryHost
 	if expand && len(out) > 0 {
-		// Plan 303: copy links show the owner's 专属域名 for that entry
-		// (round 2: or the main domain before he has one — never the IP).
-		if names, err := r.LoadUserEntryNames([]int64{f.UserID}); err == nil && !names.Empty() {
-			for i := range out {
-				if uh := names.Resolve(f.UserID, out[i].NodeID, out[i].Host); uh.Host != "" {
-					out[i].Host = uh.Host
+		// Plan 303: copy links show the owner's 专属域名 for that entry.
+		// Round 3: never the main domain — an entry whose name cannot be
+		// handed out yet is left out (withheld says why).
+		names, err := r.LoadUserEntryNames([]int64{f.UserID})
+		if err != nil {
+			return nil, nil, err
+		}
+		if !names.Empty() {
+			kept := out[:0]
+			for _, e := range out {
+				uh := names.Resolve(f.UserID, e.NodeID, e.Host)
+				if uh.Hidden {
+					withheld = append(withheld, uh)
+					continue
 				}
+				if uh.Host != "" {
+					e.Host = uh.Host
+				}
+				kept = append(kept, e)
 			}
+			out = kept
 		}
 	}
-	return out, nil
+	return out, withheld, nil
+}
+
+// userEntryWithheldError: every entry of a link was withheld → the reason
+// (nil when something is left or nothing was withheld).
+func userEntryWithheldError(left int, withheld []UserEntryHost) error {
+	if left > 0 || len(withheld) == 0 {
+		return nil
+	}
+	tag := withheld[0].Tag
+	for _, w := range withheld {
+		if w.Tag == UserEntryTagCapped || w.Tag == UserEntryTagFailed {
+			tag = w.Tag
+			break
+		}
+	}
+	return &UserEntryHiddenError{Tag: tag}
 }
 
 // entryHostIndex resolves which tunnel entry addresses belong to which entry
