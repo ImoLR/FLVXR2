@@ -2,6 +2,7 @@ package handler
 
 import (
 	"database/sql"
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
@@ -14,11 +15,14 @@ import (
 // Plan 303 round 2 (user 11-24): on a node with 用户专属域名 every client
 // format gets the user's own name — never the node IP, never the node's
 // main domain (plan 302's NekoBox / Surge → IPv6 literal split does not
-// apply there). Before he has a name the main domain is the last resort
-// (never the IP). A name stays in the subscription while 到期 / 停用 /
+// apply there). A name stays in the subscription while 到期 / 停用 /
 // admin-deleted (record gone on purpose). Documents that turn IPv6 off (Clash
 // dns.ipv6, Surge ipv6 = false) turn it on only with an AAAA-only server;
 // other subscriptions are byte-identical. Item keys keep the main domain.
+// Round 3 (user 11-24 evening): the main domain is never a fallback. A fresh
+// name being created (正在就绪) is already in the subscription; no name yet,
+// or a fresh name that cannot get a record (cap, creating keeps failing) →
+// the entry is left out for every client (13 formats).
 func TestSubUserSubdomain(t *testing.T) {
 	e := subEnv(t)
 	seedSubPanel(t, e)
@@ -65,8 +69,9 @@ func TestSubUserSubdomain(t *testing.T) {
 		e.h.subState().cache.purgeSub(id)
 		e.h.subState().cache.purgeSub(plainID)
 	}
-	uas := []string{"clash.meta", "Stash/2.7", "sing-box 1.14.4", "NekoBox/Android/1.4.2", "Hiddify/2.5", "v2rayN/7.10",
-		"Shadowrocket/2070", "Surge iOS/3100", "Loon/3.2", "Quantumult%20X/1.5", "okhttp/4.12"}
+	// The 13 client formats of the round-2 prod comparison.
+	uas := []string{"clash-verge/v2.2.3", "Stash/2.7", "sing-box 1.14.4", "NekoBox/Android/1.4.2", "Hiddify/2.5", "v2rayN/7.10",
+		"v2rayNG/1.9", "Shadowrocket/2070", "Surge iOS/3100", "Surfboard/2.24", "Loon/3.2", "Quantumult%20X/1.5", "okhttp/4.12"}
 	plainBefore := map[string]string{}
 	for _, ua := range uas {
 		plainBefore[ua] = pullTok(plainToken, ua)
@@ -77,7 +82,7 @@ func TestSubUserSubdomain(t *testing.T) {
 	for _, ua := range uas {
 		off[ua] = pull(ua)
 	}
-	if !strings.Contains(off["NekoBox/Android/1.4.2"], v6) || !strings.Contains(off["clash.meta"], "server: "+domain) {
+	if !strings.Contains(off["NekoBox/Android/1.4.2"], v6) || !strings.Contains(off["clash-verge/v2.2.3"], "server: "+domain) {
 		t.Fatalf("plan 302 baseline changed:\n%s", off["NekoBox/Android/1.4.2"])
 	}
 
@@ -98,7 +103,7 @@ func TestSubUserSubdomain(t *testing.T) {
 				t.Errorf("%s/%s lost the other entry", stage, ua)
 			}
 			switch ua {
-			case "clash.meta", "Stash/2.7", "NekoBox/Android/1.4.2", "okhttp/4.12":
+			case "clash-verge/v2.2.3", "Stash/2.7", "NekoBox/Android/1.4.2", "okhttp/4.12":
 				if !strings.Contains(body, "  ipv6: true\n") || strings.Contains(body, "ipv6: false") {
 					t.Errorf("%s/%s: Clash dns.ipv6 not on for an AAAA-only server", stage, ua)
 				}
@@ -115,11 +120,31 @@ func TestSubUserSubdomain(t *testing.T) {
 		}
 	}
 
-	// Toggle on, no name yet (cap / first zone check): the main domain for
-	// every client — last resort, never the IP literal.
+	// The entry is left out for every client: no main domain, no IP, no
+	// name; the other entry stays, IPv6 is not turned on for it.
+	omitted := func(stage string) {
+		t.Helper()
+		for _, ua := range uas {
+			body := pull(ua)
+			for _, leak := range []string{domain, v6, name} {
+				if strings.Contains(body, leak) {
+					t.Errorf("%s/%s: %s in the subscription\n%s", stage, ua, leak, body)
+				}
+			}
+			if !strings.Contains(body, "198.51.100.10") {
+				t.Errorf("%s/%s lost the other entry", stage, ua)
+			}
+			if strings.Contains(body, "ipv6: true") || strings.Contains(body, "ipv6 = true") {
+				t.Errorf("%s/%s: IPv6 turned on without an AAAA-only server", stage, ua)
+			}
+		}
+	}
+
+	// Toggle on, no name row yet (the instant before the reservation):
+	// round 3 — left out, never the main domain.
 	e.r.DB().Model(&model.Node{}).Where("id = ?", 651).Update("user_subdomain_enabled", true)
 	purge()
-	check("fallback", domain)
+	omitted("no name")
 
 	// Live name → the name for every client.
 	row := model.UserSubdomain{UserID: 2, NodeID: 651, OriginNodeID: 651, Label: "k7x2abc", Domain: name, ProviderID: 1, ZoneID: "z1",
@@ -133,19 +158,28 @@ func TestSubUserSubdomain(t *testing.T) {
 	for _, ua := range uas {
 		live[ua] = pull(ua)
 	}
-	// The stored key (main domain) still resolves.
+	// The stored key (main domain) still resolves; round 3: the editor shows
+	// it under the name (the main domain never reaches the user).
 	pool := dataMap(t, subCall(t, e.h, "pool", map[string]any{"id": id}, 2, 1))
 	sel := pool["selected"].([]any)[0].(map[string]any)
-	if want := (sublink.Ref{Kind: sublink.RefForwardLink, ForwardID: 951, Entry: sublink.EntryKey(651, domain)}).Key(); sel["missing"] == true || sel["key"] != want {
+	if want := (sublink.Ref{Kind: sublink.RefForwardLink, ForwardID: 951, Entry: sublink.EntryKey(651, name)}).Key(); sel["missing"] == true || sel["key"] != want {
 		t.Fatalf("selected %v, want key %s", sel, want)
 	}
+	if rawPool, _ := json.Marshal(subCall(t, e.h, "pool", map[string]any{"id": id}, 2, 1)); strings.Contains(string(rawPool), domain) || strings.Contains(string(rawPool), v6) {
+		t.Fatalf("sub editor pool shows the main domain / IP: %s", rawPool)
+	}
 
-	// 到期 / 停用 (record deleted, name kept), a record not created yet, an
-	// admin delete: the same name stays — byte-identical to the live output.
+	// 到期 / 停用 (record deleted, name kept), a fresh record being created
+	// (正在就绪, also after 1–2 failures), a name ready before that waits for
+	// room / keeps failing, an admin delete: the same name stays —
+	// byte-identical to the live output.
 	for _, st := range []map[string]any{
-		{"state": "paused", "reason": "expired", "record_id": "", "target": ""},
+		{"state": "paused", "reason": "expired", "record_id": "", "target": "", "ready_at": 1},
 		{"state": "paused", "reason": "disabled", "record_id": "", "target": ""},
-		{"state": "active", "reason": "", "record_id": "", "status": "pending"},
+		{"state": "active", "reason": "", "record_id": "", "status": "pending", "ready_at": 0},
+		{"state": "active", "status": "failed", "fail_count": 2},
+		{"state": "active", "status": "capped", "fail_count": 0, "ready_at": 1},
+		{"state": "active", "status": "failed", "fail_count": 9, "ready_at": 1},
 		{"state": "retired", "reason": "admin", "blocked": true, "record_id": ""},
 	} {
 		e.r.DB().Model(&model.UserSubdomain{}).Where("id = ?", row.ID).Updates(st)
@@ -156,11 +190,22 @@ func TestSubUserSubdomain(t *testing.T) {
 			}
 		}
 	}
+	// A fresh name (never ready) that waits for room or keeps failing: left
+	// out (round 3) — no address at all.
+	for _, st := range []map[string]any{
+		{"state": "active", "reason": "", "blocked": false, "status": "capped", "fail_count": 0, "ready_at": 0},
+		{"state": "active", "status": "failed", "fail_count": 3, "ready_at": 0},
+	} {
+		e.r.DB().Model(&model.UserSubdomain{}).Where("id = ?", row.ID).Updates(st)
+		purge()
+		omitted(st["status"].(string))
+	}
 	// Retired for another reason (renamed / user gone) without a new name:
-	// back to the main domain (the next pass gives a new name).
-	e.r.DB().Model(&model.UserSubdomain{}).Where("id = ?", row.ID).Updates(map[string]any{"reason": "renamed", "blocked": false})
+	// left out until the next pass reserves one (round 3: no main domain).
+	e.r.DB().Model(&model.UserSubdomain{}).Where("id = ?", row.ID).Updates(map[string]any{"state": "retired", "reason": "renamed", "blocked": false,
+		"status": "synced", "ready_at": 1})
 	purge()
-	check("retired", domain)
+	omitted("retired")
 
 	// Toggle off again → exactly the plan 302 output.
 	e.r.DB().Model(&model.UserSubdomain{}).Where("id = ?", row.ID).Updates(map[string]any{"state": "paused", "reason": "node"})
@@ -174,7 +219,7 @@ func TestSubUserSubdomain(t *testing.T) {
 
 	// Dual-stack main domain → the name for every client, IPv6 stays off.
 	e.r.DB().Model(&model.Node{}).Where("id = ?", 651).Update("user_subdomain_enabled", true)
-	e.r.DB().Model(&model.UserSubdomain{}).Where("id = ?", row.ID).Updates(map[string]any{"state": "active", "reason": "", "record_id": "u1", "status": "synced"})
+	e.r.DB().Model(&model.UserSubdomain{}).Where("id = ?", row.ID).Updates(map[string]any{"state": "active", "reason": "", "record_id": "u1", "status": "synced", "fail_count": 0})
 	e.r.DB().Create(&model.NodeDDNSRecord{NodeID: 651, Domain: domain, RecordType: "A", Role: model.DDNSRoleMain, Source: "panel", CurrentIP: "156.245.192.253", Status: "synced", RecordID: "main2"})
 	purge()
 	for _, ua := range []string{"NekoBox/Android/1.4.2", "Surge iOS/3100", "Shadowrocket/2070"} {

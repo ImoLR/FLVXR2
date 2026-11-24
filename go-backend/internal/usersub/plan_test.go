@@ -25,7 +25,6 @@ func facts() *Facts {
 			4: {ID: 4, Status: 1, ExpTime: now - 1}, // 到期 (job not run yet)
 			5: {ID: 5, Status: 1},
 		},
-		Room: map[string]int{"1|z": 100},
 	}
 }
 
@@ -74,13 +73,23 @@ func TestComputeCreatesAndSkips(t *testing.T) {
 	// user 2 already has a paused name on 59 → no new name there.
 	f.Names = []model.UserSubdomain{name(1, 2, 59, "paused", "disabled")}
 	p := Compute(f)
-	if len(p.Creates) != 1 || p.Creates[0] != (Create{UserID: 2, NodeID: 51}) {
-		t.Fatalf("creates: %+v", p.Creates) // admin 1, 停用 3, 到期 4 skipped; node 60 off
+	// Round 3: every non-admin user using the node gets his name reserved at
+	// once — 停用 3 / 到期 4 paused; admin 1 skipped; node 60 off.
+	want := []Create{{UserID: 2, NodeID: 51, State: "active"}, {UserID: 3, NodeID: 51, State: "paused", Reason: "disabled"},
+		{UserID: 4, NodeID: 51, State: "paused", Reason: "expired"}}
+	if len(p.Creates) != len(want) {
+		t.Fatalf("creates: %+v", p.Creates)
+	}
+	for i := range want {
+		if p.Creates[i] != want[i] {
+			t.Fatalf("create %d: %+v want %+v", i, p.Creates[i], want[i])
+		}
 	}
 	if len(p.Changes) != 1 || p.Changes[0].State != "active" {
 		t.Fatalf("changes: %+v", p.Changes)
 	}
 	// Admin-deleted tombstone blocks a new name for that pair only.
+	f.Usage = map[int64]map[int64]bool{51: {2: true}, 59: {2: true}}
 	f.Names = []model.UserSubdomain{{ID: 3, UserID: 2, NodeID: 51, State: "retired", Reason: "admin", Blocked: true}}
 	p = Compute(f)
 	if len(p.Creates) != 1 || p.Creates[0].NodeID != 59 {
@@ -96,21 +105,41 @@ func TestComputeCreatesAndSkips(t *testing.T) {
 	}
 }
 
-func TestComputeQuota(t *testing.T) {
-	f := facts()
-	f.Usage[51] = map[int64]bool{2: true, 5: true}
-	f.Room["1|z"] = 1
-	p := Compute(f)
-	if len(p.Creates) != 1 || p.Capped[51] != 1 || p.Capped[59] != 1 {
-		t.Fatalf("quota: creates %+v capped %+v", p.Creates, p.Capped)
+// Round 3: the cap limits Cloudflare records, never the reservation.
+func TestAdmitAndHidden(t *testing.T) {
+	rows := []model.UserSubdomain{{ID: 7}, {ID: 3}, {ID: 9, ReadyAt: 5}, {ID: 5}}
+	admit, capped, unknown := Admit(rows, 2, true)
+	if len(admit) != 2 || admit[0] != 9 || admit[1] != 3 || len(capped) != 2 || capped[0] != 5 || capped[1] != 7 || len(unknown) != 0 {
+		t.Fatalf("room 2: %v %v %v", admit, capped, unknown) // ready-before first, then oldest
 	}
-	delete(f.Room, "1|z")
-	p = Compute(f)
-	if len(p.Creates) != 0 || p.Waiting[51] != 2 {
-		t.Fatalf("unknown zone: %+v %+v", p.Creates, p.Waiting)
+	admit, capped, _ = Admit(rows, 0, true)
+	if len(admit) != 0 || len(capped) != 4 {
+		t.Fatalf("room 0: %v %v", admit, capped)
+	}
+	admit, capped, unknown = Admit(rows, 0, false)
+	if len(admit) != 1 || admit[0] != 9 || len(capped) != 0 || len(unknown) != 3 {
+		t.Fatalf("unknown room: %v %v %v", admit, capped, unknown)
 	}
 	if Room(37, 200) != 158 || Room(199, 200) != 0 {
 		t.Fatal("room")
+	}
+	cases := []struct {
+		n    model.UserSubdomain
+		hide bool
+	}{
+		{model.UserSubdomain{State: "active", Status: "pending"}, false},
+		{model.UserSubdomain{State: "active", Status: "capped"}, true},
+		{model.UserSubdomain{State: "active", Status: "failed", FailCount: 2}, false},
+		{model.UserSubdomain{State: "active", Status: "failed", FailCount: FailShow}, true},
+		{model.UserSubdomain{State: "active", Status: "capped", ReadyAt: 1}, false}, // the user already has it
+		{model.UserSubdomain{State: "active", Status: "failed", FailCount: 9, ReadyAt: 1}, false},
+		{model.UserSubdomain{State: "paused", Reason: "expired", Status: "synced"}, false},
+		{model.UserSubdomain{State: "retired", Blocked: true, Status: "capped"}, false},
+	}
+	for i, c := range cases {
+		if Hidden(c.n) != c.hide {
+			t.Errorf("case %d: Hidden=%v", i, !c.hide)
+		}
 	}
 }
 

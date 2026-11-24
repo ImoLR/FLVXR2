@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net"
 	"os"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -288,4 +289,131 @@ func skipDNSName(m []byte, off int) int {
 		}
 	}
 	return len(m)
+}
+
+// Plan 303 round 3: how long a fresh name takes from "create" to usable,
+// against the REAL Cloudflare API (opt-in, same env as above). Order matters
+// — no lookup of the name before the record exists (a resolver would cache
+// NXDOMAIN for the zone's 30-min negative TTL):
+//
+//  1. POST the CNAME, 2. GET it back by id (= the panel's 「正在就绪」 → ready
+//     point), 3. ask the zone's authoritative servers directly (they cache
+//     nothing for anybody) until they answer, 4. only then ask 1.1.1.1 and
+//     8.8.8.8 once, 5. delete; the zone is back to its record count.
+//
+//     FLVX_CF_E2E_TOKEN=… FLVX_CF_E2E_ZONE=imgamer.top FLVX_CF_E2E_TARGET=vmsilo-humei.imgamer.top \
+//     go test ./internal/ddns -run TestCloudflareUserCNAMEReadyTimingE2E -v
+func TestCloudflareUserCNAMEReadyTimingE2E(t *testing.T) {
+	token := os.Getenv("FLVX_CF_E2E_TOKEN")
+	if token == "" {
+		t.Skip("set FLVX_CF_E2E_TOKEN to run against the real Cloudflare API")
+	}
+	zoneName, target := os.Getenv("FLVX_CF_E2E_ZONE"), os.Getenv("FLVX_CF_E2E_TARGET")
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+	c := NewCloudflare(token)
+	zones, err := c.ListZones(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var zoneID string
+	for _, z := range zones {
+		if strings.EqualFold(z.Name, zoneName) {
+			zoneID = z.ID
+		}
+	}
+	if zoneID == "" {
+		t.Fatalf("zone %s not visible", zoneName)
+	}
+	before, _, err := c.ZoneRecords(ctx, zoneID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Authoritative servers of the zone (the apex exists: safe to look up).
+	res := &net.Resolver{PreferGo: true, Dial: func(ctx context.Context, _, _ string) (net.Conn, error) {
+		return (&net.Dialer{Timeout: 5 * time.Second}).DialContext(ctx, "udp", "1.1.1.1:53")
+	}}
+	nss, err := res.LookupNS(ctx, zoneName)
+	if err != nil || len(nss) == 0 {
+		t.Fatalf("NS of %s: %v", zoneName, err)
+	}
+	var auth []string
+	for _, ns := range nss {
+		ips, err := res.LookupIPAddr(ctx, ns.Host)
+		if err == nil {
+			for _, ip := range ips {
+				if ip.IP.To4() != nil {
+					auth = append(auth, net.JoinHostPort(ip.IP.String(), "53"))
+					break
+				}
+			}
+		}
+	}
+	if len(auth) == 0 {
+		t.Fatal("no authoritative server address")
+	}
+	name := "flvxtest-t" + strings.ToLower(time.Now().UTC().Format("0102150405")) + "." + zoneName
+	for _, r := range before {
+		if r.Name == name {
+			t.Fatalf("%s already exists", name)
+		}
+	}
+	recID := ""
+	defer func() {
+		if recID != "" {
+			if err := c.DeleteUserRecord(context.Background(), zoneID, recID, name); err != nil {
+				t.Errorf("cleanup %s: %v", name, err)
+			}
+		}
+		after, _, err := c.ZoneRecords(context.Background(), zoneID)
+		if err != nil || len(after) != len(before) {
+			t.Errorf("record count %d → %d (%v)", len(before), len(after), err)
+		} else {
+			t.Logf("cleanup done; zone back to %d records", len(after))
+		}
+	}()
+
+	t0 := time.Now()
+	rec, err := c.CreateUserCNAME(ctx, zoneID, name, target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	recID = rec.ID
+	created := time.Since(t0)
+	cur, err := c.GetRecord(ctx, zoneID, rec.ID)
+	if err != nil || cur.Type != "CNAME" || !strings.EqualFold(strings.TrimSuffix(cur.Content, "."), target) {
+		t.Fatalf("read-back: %+v %v", cur, err)
+	}
+	verified := time.Since(t0)
+	authAt := map[string]time.Duration{}
+	for time.Since(t0) < 60*time.Second && len(authAt) < len(auth) {
+		for _, server := range auth {
+			if _, done := authAt[server]; done {
+				continue
+			}
+			// The panel's own check (AuthoritativeHas, CNAME query, no recursion).
+			if has, err := AuthoritativeHas(ctx, server, name); err == nil && has {
+				authAt[server] = time.Since(t0)
+			}
+		}
+		time.Sleep(250 * time.Millisecond)
+	}
+	if len(authAt) < len(auth) {
+		t.Fatalf("authoritative servers %v did not all answer within 60 s: %v", auth, authAt)
+	}
+	public := map[string]string{}
+	for _, server := range []string{"1.1.1.1:53", "8.8.8.8:53"} {
+		ans, err := dnsQueryAAAA(server, name)
+		switch {
+		case err != nil:
+			public[server] = err.Error()
+		case ans.rcode != 0 || ans.answers < 1:
+			public[server] = "rcode " + strconv.Itoa(ans.rcode)
+			t.Errorf("%s: %s not resolvable after the authoritative servers answered: rcode %d", server, name, ans.rcode)
+		default:
+			public[server] = "ok at " + time.Since(t0).Round(time.Millisecond).String() + ", ttl " + strconv.Itoa(int(ans.ttl))
+		}
+	}
+	t.Logf("%s: create %v, API-verified %v, authoritative %v, public %v",
+		name, created.Round(time.Millisecond), verified.Round(time.Millisecond), authAt, public)
 }

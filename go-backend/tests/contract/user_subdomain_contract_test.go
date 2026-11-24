@@ -35,6 +35,12 @@ type usFakeCF struct {
 	quota   int
 	deleted []string
 	writes  int
+	// Round 3 test controls: gate (non-nil) holds every create until it is
+	// closed; failCreates makes the next creates answer 500; gets counts
+	// read-backs by id (verification).
+	gate        chan struct{}
+	failCreates int
+	gets        int
 }
 
 func newUSFakeCF() *usFakeCF {
@@ -78,6 +84,14 @@ func (f *usFakeCF) userCNAMEs() map[string]string {
 }
 
 func (f *usFakeCF) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodPost && r.URL.Path == "/zones/z1/dns_records" {
+		f.mu.Lock()
+		gate := f.gate
+		f.mu.Unlock()
+		if gate != nil {
+			<-gate
+		}
+	}
 	w.Header().Set("Content-Type", "application/json")
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -135,6 +149,11 @@ func (f *usFakeCF) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case p == "/zones/z1/dns_records" && r.Method == http.MethodPost:
 		var body map[string]interface{}
 		_ = json.NewDecoder(r.Body).Decode(&body)
+		if f.failCreates > 0 {
+			f.failCreates--
+			fail(502, 1302, "Bad gateway")
+			return
+		}
 		if len(f.recs) >= f.quota {
 			fail(400, 81045, "Record quota exceeded.")
 			return
@@ -151,6 +170,7 @@ func (f *usFakeCF) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		switch r.Method {
 		case http.MethodGet:
+			f.gets++
 			ok(rec, nil)
 		case http.MethodPut:
 			var body map[string]interface{}
@@ -299,7 +319,7 @@ func TestUserSubdomainContract(t *testing.T) {
 			// Node list pill + detail list.
 			nl := call(admin, "node/list", map[string]interface{}{})
 			raw, _ = json.Marshal(nl)
-			if !strings.Contains(string(raw), `"userSubdomain":{"active":2,`) || !strings.Contains(string(raw), `"effective":true,"failed":0,"mainDomain":"vmsilo-huri.imgamer.top"`) {
+			if !strings.Contains(string(raw), `"userSubdomain":{"active":2,`) || !strings.Contains(string(raw), `"effective":true,"failed":0,"hidden":0,"mainDomain":"vmsilo-huri.imgamer.top"`) {
 				t.Fatalf("node list pill: %.1500s", raw)
 			}
 			detail := call(admin, "node/user-subdomain/list", map[string]interface{}{"nodeId": 51})
@@ -309,7 +329,8 @@ func TestUserSubdomainContract(t *testing.T) {
 			}
 			prov := call(admin, "node/ddns/provider/list", map[string]interface{}{"stats": true})
 			raw, _ = json.Marshal(prov)
-			if !strings.Contains(string(raw), `"names":2`) || !strings.Contains(string(raw), `"used":6`) {
+			// Round 3: the 停用 user's name is reserved too (paused, no record).
+			if !strings.Contains(string(raw), `"names":3`) || !strings.Contains(string(raw), `"used":6`) {
 				t.Fatalf("provider stats: %.900s", raw)
 			}
 
@@ -450,32 +471,44 @@ func TestUserSubdomainContract(t *testing.T) {
 				t.Fatalf("toggle on again: %+v", got)
 			}
 
-			// 10. Quota: full zone → no new name, node ⚠ capped.
+			// 10. Quota: full zone → the name is reserved but gets no record
+			// (capped); round 3: no address at all for that user, never the
+			// main domain; admin ⚠ with the name and the reason.
 			fake.mu.Lock()
 			fake.quota = len(fake.recs) + usersub.CapReserve
 			fake.mu.Unlock()
 			mustCreate(&model.User{ID: 804, User: "late", Pwd: "x", RoleID: 1, ExpTime: now + 30*86400000, Flow: 100, FlowResetTime: 1, Num: 10, Status: 1})
 			fwd(804, "late", 51, 30003)
 			reconcile()
-			if rows := names("user_id = 804"); len(rows) != 0 {
-				t.Fatalf("created past the cap: %+v", rows)
+			late := names("user_id = 804")
+			if len(late) != 1 || late[0].Status != "capped" || late[0].RecordID != "" || len(fake.byName(late[0].Domain)) != 0 || !usersub.Hidden(late[0]) {
+				t.Fatalf("past the cap: %+v", late)
 			}
-			// No name yet: the main domain (never the IP), ⚠ tag for the admin only.
 			list = call(admin, "forward/list", map[string]interface{}{})
 			raw, _ = json.Marshal(list)
-			if !strings.Contains(string(raw), "vmsilo-huri.imgamer.top:30003") || !strings.Contains(string(raw), `"vmsilo-huri.imgamer.top":"fallback"`) {
-				t.Fatalf("fallback not tagged for the admin: %.1500s", raw)
+			if strings.Contains(string(raw), "top:30003") || !strings.Contains(string(raw), `"entryNotices":[{"domain":"`+late[0].Domain+`","nodeId":51,"port":30003,"reason":"Cloudflare 记录数已到上限`) {
+				i := strings.Index(string(raw), `"name":"late"`)
+				t.Fatalf("capped entry for the admin: %s", string(raw)[max(0, i-1500):i+200])
 			}
 			lateTok, _ := auth.GenerateToken(804, "late", 1, secret)
 			list = call(lateTok, "forward/list", map[string]interface{}{})
 			raw, _ = json.Marshal(list)
-			if !strings.Contains(string(raw), "vmsilo-huri.imgamer.top:30003") || strings.Contains(string(raw), "entryNameTags") {
-				t.Fatalf("fallback for the user: %.900s", raw)
+			if strings.Contains(string(raw), "top:30003") || strings.Contains(string(raw), late[0].Domain) || strings.Contains(string(raw), "vmsilo-huri") ||
+				!strings.Contains(string(raw), `"entryNotices":[{"nodeId":51,"port":30003,"tag":"capped"}]`) {
+				t.Fatalf("capped entry for the user: %.900s", raw)
 			}
 			nl = call(admin, "node/list", map[string]interface{}{})
 			raw, _ = json.Marshal(nl)
-			if !strings.Contains(string(raw), `"capped":1`) || !strings.Contains(string(raw), `"attention":true`) {
+			if !strings.Contains(string(raw), `"capped":1`) || !strings.Contains(string(raw), `"hidden":1`) || !strings.Contains(string(raw), `"attention":true`) {
 				t.Fatalf("cap not shown: %.1500s", raw)
+			}
+			// Room again (quota raised) → the same name gets its record.
+			fake.mu.Lock()
+			fake.quota = 200
+			fake.mu.Unlock()
+			reconcile()
+			if got := names("user_id = 804"); len(got) != 1 || got[0].Domain != late[0].Domain || !got[0].Live() || got[0].ReadyAt == 0 {
+				t.Fatalf("after the cap freed: %+v", got)
 			}
 
 			// Drift: a record removed in the dashboard comes back on the full pass.
