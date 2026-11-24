@@ -1,4 +1,4 @@
-# 304 — Native landing port picker skips ports used on the host (+ warm-tag test flake)
+# 304 — Native landing port picker skips ports used on the host (+ warm-tag test flake) (DONE 11-24 17:20 TW, fork.168)
 
 Task `landing-port-skip-host` (coordinator 1218a2c5, 11-24 TW). Panel only (backend), no DB change, no OTA.
 Branch `maintenance/3.0.27-fork.168-port-skip` from fork.167 (46847063). Release = `3.0.27-fork.168`.
@@ -65,6 +65,29 @@ still saw 「faster」. Fix: wait for an empty tag when the wanted tag is empty.
   new: probe 38889 (taken) + 38890 (free) → node 38890, moves 0, one push, native_busy_ports {38889}.
   Same on server 15 and 16.
 
+## Release (11-24)
+
+- Commits 6faab90d (feature) + b7dd9470 (flake fix); tag `3.0.27-fork.168` → b7dd9470, branch
+  `maintenance/3.0.27-fork.168-port-skip`. CI 45359723110 + Images 45359725669 green; release Latest,
+  not prerelease, 10 assets, gost amd64/arm64 sha256 OK, compose images + PINNED_VERSION = fork.168.
+  go-gost and frontend code unchanged → no OTA.
+- Prod swap 17:08:54–17:09:03 TW (prod compose kept — it has the old-panel DB mount — only image tags
+  changed). Rollback `/opt/flvx-svc/rollback/pre-fork168-20261124T090852Z/rollback.sh` (→ fork.167).
+  Backups kept: pre-fork167 + pre-fork168 (prune also removed pre-fork166 and the scratch DB of the
+  separate `del-fanscool-1124` op).
+- After: 30/32 online as before (火山上海 / 火山广州 offline before), 49 tunnels / 8 subs, landing nodes
+  unchanged, 30 redeploys failed=0, no error lines. Forwards 63 → 60 = user fanscool deleted ~17:00 TW by
+  the separate `del-fanscool-1124` op (already gone in the pre-swap backup), not this release.
+- 5 busiest forwards (90 / 625 / 631 / 644 / 660): diagnose 3/3 before and after, latency equal
+  (e.g. #90 26.6 → 27.5 ms, #660 58.1 → 57.2 ms), aws-hk RTT p50 within ±8 ms.
+- Live proof on Boil HKT 99u (17:13 TW): temporary `127.0.0.1:30001` listener → admin test node
+  「plan304-probe-test」 created on **30002** (moves 0, no error, 1.6 s), log
+  `landing server=15: ports [30001] are in use by another program …`; test node deleted right after
+  (inbound gone, landing core not restarted), listener stopped. Left behind: server 15
+  native_busy_ports {30001} until ~11-25 17:13 TW (picker skips 30001 on 99u until then; harmless).
+- Read-only: on both hosts `127.0.0.1:38889` connects (taken) and `127.0.0.1:30001` is refused (free),
+  i.e. what the agent's TcpPing sees.
+
 ## Checklist
 
 - [x] Read plan 147 / 216 code, agent commands (TcpPing, MonitorPort), prod state (ss on 99u / Fachost, DB)
@@ -74,7 +97,7 @@ still saw 「faster」. Fix: wait for an empty tag when the wanted tag is empty.
 - [x] Prod-DB-copy lab: servers 15 / 16 with the real port set, ports below 38889 filled → pick skips 38889
 - [x] Fix `TestForwardWarmTagContract` (reproduce before, stable after)
 - [x] Full backend tests vs fork.167 base (compare failure sets)
-- [ ] Commit, push, tag `3.0.27-fork.168`, CI + Images green, 10 assets, gost sha256
-- [ ] Prod: baseline (nodes, forwards, 5 busiest diagnose + RTT), backup + rollback.sh, prune, swap
-- [ ] Prod verify: health, 30/32 online, 63 forwards, light node check, live probe proof on 99u / Fachost
-- [ ] Ledger row 304 → 已发布, memory updates, plan marked complete
+- [x] Commit, push, tag `3.0.27-fork.168`, CI + Images green, 10 assets, gost sha256
+- [x] Prod: baseline (nodes, forwards, 5 busiest diagnose + RTT), backup + rollback.sh, prune, swap
+- [x] Prod verify: health, 30/32 online, forwards (60 — see release notes), light node check, live probe proof on 99u
+- [x] Ledger row 304 → 已发布, memory updates, plan marked complete
