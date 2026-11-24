@@ -23,7 +23,8 @@ import (
 // Plan 303 — 用户专属域名 through the full router (real JWTs), SQLite +
 // PostgreSQL, against a stateful fake Cloudflare zone: names created for
 // users on toggled nodes, paused (record deleted, name kept) on 停用 / 到期,
-// back with the same name, retired on delete / unused, 改指 / 换新名 / 删除 /
+// back with the same name, retired on delete (never for "no forward on the
+// node", round 2), 改指 / 换新名 / 删除 /
 // 重新分配, toggle off/on, wildcard refusal, quota cap, hand-out in the
 // forward list, and records the panel did not write are never touched.
 
@@ -285,8 +286,8 @@ func TestUserSubdomainContract(t *testing.T) {
 				t.Fatalf("admin forward list: %.900s", raw)
 			}
 			x, _ := r.LoadUserEntryNames([]int64{801})
-			if name, v6 := x.Lookup(801, 51, "vmsilo-huri.imgamer.top"); name != fan.Domain || v6 != "240e:96c:7100:1fe:1c8:c8aa:4ecc:e4" {
-				t.Fatalf("lookup (IPv6-only main → literal for plan 302 clients): %q %q", name, v6)
+			if uh := x.Resolve(801, 51, "vmsilo-huri.imgamer.top"); uh.Host != fan.Domain || !uh.V6Only || !uh.Name || uh.Tag != "" {
+				t.Fatalf("resolve (IPv6-only main → the name for every client): %+v", uh)
 			}
 			if name, _ := x.Lookup(801, 51, "[240e:96c:7100:1fe:1c8:c8aa:4ecc:e4]"); name != fan.Domain {
 				t.Fatalf("lookup literal entry: %q", name)
@@ -329,10 +330,11 @@ func TestUserSubdomainContract(t *testing.T) {
 			if got := names("id = ?", fan.ID)[0]; got.State != "paused" || got.Reason != "expired" || len(fake.byName(fan.Domain)) != 0 {
 				t.Fatalf("expired: %+v", got)
 			}
+			// Round 2: the name stays (record deleted on purpose), tagged.
 			list = call(userTok, "forward/list", map[string]interface{}{})
 			raw, _ = json.Marshal(list)
-			if strings.Contains(string(raw), fan.Domain) {
-				t.Fatal("paused name still handed out")
+			if !strings.Contains(string(raw), fan.Domain+":52168") || !strings.Contains(string(raw), `"entryNameTags":{"`+fan.Domain+`":"expired"}`) || strings.Contains(string(raw), "vmsilo-huri.imgamer.top:52168") {
+				t.Fatalf("expired name not kept + tagged: %.900s", raw)
 			}
 			db.Model(&model.User{}).Where("id = 801").Update("exp_time", now+30*86400000)
 			reconcile()
@@ -403,23 +405,25 @@ func TestUserSubdomainContract(t *testing.T) {
 			if code(out) != 0 || len(names("user_id = 802 AND node_id = 51 AND state <> ?", "retired")) != 0 || len(fake.byName(fresh[0].Domain)) != 0 {
 				t.Fatalf("admin delete: %+v", out)
 			}
+			// Round 2: he keeps the dead name (tag deleted), never the main domain.
+			list = call(admin, "forward/list", map[string]interface{}{})
+			raw, _ = json.Marshal(list)
+			if !strings.Contains(string(raw), fresh[0].Domain+":60099") || !strings.Contains(string(raw), `"`+fresh[0].Domain+`":"deleted"`) || strings.Contains(string(raw), "vmsilo-huri.imgamer.top:60099") {
+				t.Fatalf("admin-deleted name not kept: %.1200s", raw)
+			}
 			out = call(admin, "node/user-subdomain/allow", map[string]interface{}{"id": fresh[0].ID})
 			again := names("user_id = 802 AND node_id = 51 AND state = ?", "active")
 			if code(out) != 0 || len(again) != 1 || again[0].Domain == fresh[0].Domain || !again[0].Live() {
 				t.Fatalf("allow: %+v %+v", out, again)
 			}
 
-			// 7. Last forward on the node gone → paused at once, retired after 24 h.
+			// 7. Round 2: the last forward on the node gone → the name stays
+			// live (no pause / retire while the user exists and is active).
 			db.Where("forward_id = ?", f802).Delete(&model.ForwardPort{})
 			db.Where("id = ?", f802).Delete(&model.Forward{})
 			reconcile()
-			if got := names("id = ?", again[0].ID)[0]; got.State != "paused" || got.Reason != "unused" || got.UnusedSince == 0 || len(fake.byName(got.Domain)) != 0 {
-				t.Fatalf("unused: %+v", got)
-			}
-			db.Model(&model.UserSubdomain{}).Where("id = ?", again[0].ID).Update("unused_since", now-usersub.UnusedGraceMs-1000)
-			reconcile()
-			if got := names("id = ?", again[0].ID)[0]; got.State != "retired" || got.Reason != "unused" {
-				t.Fatalf("unused retired: %+v", got)
+			if got := names("id = ?", again[0].ID)[0]; !got.Live() || got.Reason != "" || len(fake.byName(got.Domain)) != 1 {
+				t.Fatalf("no forward on the node: %+v", got)
 			}
 
 			// 8. User deleted → retired, record gone, label never reused.
@@ -455,6 +459,18 @@ func TestUserSubdomainContract(t *testing.T) {
 			reconcile()
 			if rows := names("user_id = 804"); len(rows) != 0 {
 				t.Fatalf("created past the cap: %+v", rows)
+			}
+			// No name yet: the main domain (never the IP), ⚠ tag for the admin only.
+			list = call(admin, "forward/list", map[string]interface{}{})
+			raw, _ = json.Marshal(list)
+			if !strings.Contains(string(raw), "vmsilo-huri.imgamer.top:30003") || !strings.Contains(string(raw), `"vmsilo-huri.imgamer.top":"fallback"`) {
+				t.Fatalf("fallback not tagged for the admin: %.1500s", raw)
+			}
+			lateTok, _ := auth.GenerateToken(804, "late", 1, secret)
+			list = call(lateTok, "forward/list", map[string]interface{}{})
+			raw, _ = json.Marshal(list)
+			if !strings.Contains(string(raw), "vmsilo-huri.imgamer.top:30003") || strings.Contains(string(raw), "entryNameTags") {
+				t.Fatalf("fallback for the user: %.900s", raw)
 			}
 			nl = call(admin, "node/list", map[string]interface{}{})
 			raw, _ = json.Marshal(nl)
