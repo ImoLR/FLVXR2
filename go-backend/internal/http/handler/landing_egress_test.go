@@ -67,6 +67,9 @@ type capturedApply struct {
 func egressAgent(t *testing.T, e *flowTestEnv, ready bool) *capturedApply {
 	c := &capturedApply{}
 	e.h.nodeCommandSender = func(id int64, method string, data interface{}, _ time.Duration) (ws.CommandResult, error) {
+		if method == "TcpPing" { // plan 304 port check before a create: nothing listens
+			return ws.CommandResult{Success: true, Data: map[string]interface{}{"success": false, "errorKind": "refused"}}, nil
+		}
 		if method != "ApplyLandingDesired" {
 			t.Fatalf("unexpected command %s", method)
 		}

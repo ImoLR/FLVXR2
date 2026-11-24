@@ -105,6 +105,23 @@ func formatNativeBusyPorts(busy map[int]int64, now time.Time) string {
 	return string(b)
 }
 
+// mergeNativeBusyPorts stamps ports as busy now; a port stamped less than
+// landingBusyPortRefresh ago keeps its stamp (no write per report). It
+// reports whether anything changed.
+func mergeNativeBusyPorts(busy map[int]int64, ports []int, now time.Time) bool {
+	changed := false
+	for _, p := range ports {
+		if p <= 0 || p > 65535 {
+			continue
+		}
+		if at, ok := busy[p]; !ok || now.UnixMilli()-at >= landingBusyPortRefresh.Milliseconds() {
+			busy[p] = now.UnixMilli()
+			changed = true
+		}
+	}
+	return changed
+}
+
 // nativeBusyPortsFresh are the reported busy ports the picker skips now.
 func nativeBusyPortsFresh(s *model.LandingServer, now time.Time) map[int]bool {
 	out := map[int]bool{}
@@ -163,17 +180,13 @@ func (r *Repository) ApplyNativeLandingNodeErrors(serverID int64, reports []Land
 			byID[rep.ID] = rep
 		}
 		busy := nativeBusyPorts(&s)
-		busyChanged := false
+		var reported []int
 		for _, rep := range reports {
-			if rep.Code != LandingNodeErrPortInUse || rep.Port <= 0 {
-				continue
-			}
-			if at, ok := busy[rep.Port]; !ok || now.UnixMilli()-at >= landingBusyPortRefresh.Milliseconds() {
-				busy[rep.Port] = now.UnixMilli()
-				busyChanged = true
+			if rep.Code == LandingNodeErrPortInUse {
+				reported = append(reported, rep.Port)
 			}
 		}
-		if busyChanged {
+		if mergeNativeBusyPorts(busy, reported, now) {
 			s.NativeBusyPorts = formatNativeBusyPorts(busy, now)
 			if err := tx.Model(&model.LandingServer{}).Where("id = ?", s.ID).Update("native_busy_ports", s.NativeBusyPorts).Error; err != nil {
 				return err

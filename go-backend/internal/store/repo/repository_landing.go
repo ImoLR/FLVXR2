@@ -942,10 +942,26 @@ func (r *Repository) createLandingNode(userID, serverID int64, name, protocol st
 	return &n, created && err == nil, err
 }
 func landingFreePort(tx *gorm.DB, s model.LandingServer) (int, error) {
+	used, node, ruleUsed, err := landingUsedPorts(tx, s)
+	if err != nil {
+		return 0, err
+	}
+	for p := s.PortMin; p <= s.PortMax; p++ {
+		if !used[p] {
+			return p, nil
+		}
+	}
+	return 0, landingNoFreePortError(s, node, ruleUsed)
+}
+
+// landingUsedPorts: every port the landing picker must not hand out on this
+// server, the native node row and how many of them the node's rule range
+// covers (for the "range exhausted" message).
+func landingUsedPorts(tx *gorm.DB, s model.LandingServer) (map[int]bool, model.Node, int, error) {
 	var node model.Node
 	if s.Source == "native" {
 		if err := tx.First(&node, s.NodeID).Error; err != nil {
-			return 0, err
+			return nil, node, 0, err
 		}
 	}
 	used := map[int]bool{}
@@ -970,7 +986,7 @@ func landingFreePort(tx *gorm.DB, s model.LandingServer) (int, error) {
 		}
 		var ports []int
 		if err := tx.Model(q.m).Where(q.where, q.id).Pluck(q.column, &ports).Error; err != nil {
-			return 0, err
+			return nil, node, 0, err
 		}
 		for _, p := range ports {
 			used[p] = true
@@ -979,7 +995,7 @@ func landingFreePort(tx *gorm.DB, s model.LandingServer) (int, error) {
 	if s.Source == "shared" {
 		busy, err := sharedMachineBusyPorts(tx, s)
 		if err != nil {
-			return 0, err
+			return nil, node, 0, err
 		}
 		for p := range busy {
 			used[p] = true
@@ -988,12 +1004,13 @@ func landingFreePort(tx *gorm.DB, s model.LandingServer) (int, error) {
 		// Reality guard listeners (plan 127) occupy loopback ports too.
 		guards, err := landingGuardPortsOnNode(tx, s.NodeID)
 		if err != nil {
-			return 0, err
+			return nil, node, 0, err
 		}
 		for _, p := range guards {
 			used[p] = true
 		}
-		// Plan 147: ports the agent reported taken by another program.
+		// Plan 147: ports the agent reported taken by another program;
+		// plan 304: also the ones the pre-allocation probe found taken.
 		for p := range nativeBusyPortsFresh(&s, time.Now()) {
 			used[p] = true
 		}
@@ -1002,12 +1019,7 @@ func landingFreePort(tx *gorm.DB, s model.LandingServer) (int, error) {
 			used[p] = true
 		}
 	}
-	for p := s.PortMin; p <= s.PortMax; p++ {
-		if !used[p] {
-			return p, nil
-		}
-	}
-	return 0, landingNoFreePortError(s, node, ruleUsed)
+	return used, node, ruleUsed, nil
 }
 
 // landingNoFreePortError says concretely why a landing range is exhausted

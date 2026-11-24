@@ -788,6 +788,8 @@ func (h *Handler) landingNodeCreate(w http.ResponseWriter, r *http.Request) {
 	if role == 0 && req.UserID > 0 {
 		uid = req.UserID
 	}
+	// Plan 304: skip ports another program on the machine listens on.
+	h.probeLandingCreate(uid, req.LandingServerID, role == 0)
 	n, err := h.repo.CreateLandingNode(uid, req.LandingServerID, req.Name, req.Protocol, role == 0)
 	if err != nil {
 		landingError(w, err)
@@ -1217,6 +1219,7 @@ func (h *Handler) resolveNativeLandingTarget(req map[string]interface{}, userID,
 				return "", 0, 0, errors.New(lineMachineRealityMsg)
 			}
 		}
+		h.probeLandingCreate(userID, serverID, admin) // plan 304
 		n, created, err := h.repo.ReuseOrCreateLandingNode(userID, serverID, defaultString(asString(req["name"]), "转发落地"), protocol, admin)
 		if err != nil {
 			return "", 0, 0, err

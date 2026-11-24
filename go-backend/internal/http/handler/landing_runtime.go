@@ -168,6 +168,11 @@ func (h *Handler) syncNativeLandingServer(serverID int64) (*landingSyncSnapshot,
 	if err != nil || snapshot == nil {
 		return snapshot, false, err
 	}
+	// Plan 304: fresh nodes are about to move off a busy port — check their
+	// new ports on the machine first (read-only count, no probe otherwise).
+	if n, err := h.repo.NativeLandingMovableCount(serverID, snapshot.NodeErrors, time.Now()); err == nil && n > 0 {
+		h.probeNativeLandingPorts(serverID, n)
+	}
 	moved, err := h.repo.ApplyNativeLandingNodeErrors(serverID, snapshot.NodeErrors, time.Now())
 	if err != nil {
 		log.Printf("landing node errors not recorded server=%d: %v", serverID, err)
