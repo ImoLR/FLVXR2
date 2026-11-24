@@ -64,6 +64,9 @@ export function stateChip(item: UserSubItem): {
   tone: Tone;
   warn?: boolean;
 } {
+  if (item.moved === "out" && item.state !== "retired") {
+    return { text: "已改指", tone: "slate" };
+  }
   if (item.state === "retired") {
     return {
       text: `已作废 · ${RETIRE_REASON[item.reason] || item.reason}`,
@@ -159,7 +162,7 @@ function UsesButton({
           .join(" · ");
 
   if (n === 0) {
-    return <span className="text-xs text-default-500">{text}</span>;
+    return <span className="pl-5 text-xs text-default-500">{text}</span>;
   }
 
   return (
@@ -626,7 +629,7 @@ export function UserSubdomainPanel({
       <p className="py-3 text-center text-sm text-default-500">
         {query ? "没有匹配的用户" : "还没有专属域名"}
       </p>
-    ) : isH5 ? (
+    ) : isH5 || mode === "user" ? (
       <div className="space-y-2">
         {items.map((it) => (
           <NameRowH5
@@ -638,14 +641,6 @@ export function UserSubdomainPanel({
             onToggle={() => h5.toggle(it.id)}
           />
         ))}
-      </div>
-    ) : mode === "user" ? (
-      <div className="flvx-rule-group rounded-lg border border-divider">
-        <div className="flvx-rule-tree-cards py-1.5 pr-2">
-          {items.map((it) => (
-            <NameLine key={it.id} actions={actions} item={it} mode={mode} />
-          ))}
-        </div>
       </div>
     ) : (
       <div className="space-y-2">
@@ -748,15 +743,16 @@ export function UserSubdomainPanel({
         <Summary data={data} syncing={syncing} onSync={sync} />
       ) : null}
       {mode === "node" && (data.items.length > 6 || query) ? (
-        <Input
-          aria-label="搜索用户"
-          className={isH5 ? "w-full" : "w-60"}
-          placeholder="搜索用户或名字"
-          size="sm"
-          value={query}
-          variant="bordered"
-          onChange={(e) => setQuery(e.target.value)}
-        />
+        <div className={isH5 ? "w-full" : "w-64"}>
+          <Input
+            aria-label="搜索用户"
+            placeholder="搜索用户或名字"
+            size="sm"
+            value={query}
+            variant="bordered"
+            onChange={(e) => setQuery(e.target.value)}
+          />
+        </div>
       ) : null}
       {list}
       {retired > 0 ? (

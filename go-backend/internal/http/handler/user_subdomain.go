@@ -411,11 +411,6 @@ func (h *Handler) userSubCreateName(userID int64, node repo.UserSubdomainNode) e
 			}
 			return err
 		}
-		m.mu.Lock()
-		if z := m.zones[key]; z != nil {
-			z.Used++ // until the next listing
-		}
-		m.mu.Unlock()
 		return nil
 	}
 	return errors.New("没有找到空闲的名字")
@@ -631,6 +626,11 @@ func (h *Handler) userSubSyncRow(ctx context.Context, pass *userSubPass, row mod
 		"fail_count": 0, "next_retry_at": int64(0), "last_sync_at": now.UnixMilli(),
 	})
 	if created {
+		m.mu.Lock()
+		if z := m.zones[zoneKey]; z != nil {
+			z.Used++ // until the next listing
+		}
+		m.mu.Unlock()
 		log.Printf("[user-subdomain] %s CNAME %s created", row.Domain, desired)
 	} else if row.Target != desired {
 		log.Printf("[user-subdomain] %s CNAME -> %s", row.Domain, desired)
@@ -967,6 +967,13 @@ func (h *Handler) userSubListData(nodeID, userID int64, retired bool) (map[strin
 			cp.byID, cp.byName = nil, nil
 			zone = &cp
 		}
+		m.mu.Unlock()
+		if zone != nil {
+			if byZone, err := h.repo.UserSubdomainZoneRecordCounts(); err == nil {
+				zone.UserRecords = byZone[repo.UserSubdomainZone{ProviderID: n.ProviderID, ZoneID: n.Main.ZoneID}]
+			}
+		}
+		m.mu.Lock()
 		warn := m.nodeWarn[nodeID]
 		m.mu.Unlock()
 		out["node"] = map[string]interface{}{
@@ -1133,6 +1140,12 @@ func (h *Handler) userSubSyncNow(w http.ResponseWriter, r *http.Request) {
 // (2 calls each, admin page only).
 func (h *Handler) userSubProviderStats(ctx context.Context, providers []model.DNSProvider) map[int64]map[string]interface{} {
 	counts, _ := h.repo.UserSubdomainProviderCounts()
+	zoneCounts := map[string]int{}
+	if byZone, err := h.repo.UserSubdomainZoneRecordCounts(); err == nil {
+		for k, n := range byZone {
+			zoneCounts[userSubZoneKey(k.ProviderID, k.ZoneID)] = n
+		}
+	}
 	m := h.userSubState()
 	out := map[int64]map[string]interface{}{}
 	for _, p := range providers {
@@ -1159,6 +1172,7 @@ func (h *Handler) userSubProviderStats(ctx context.Context, providers []model.DN
 				if cur = m.zones[key]; cur != nil {
 					cp := *cur
 					cp.byID, cp.byName = nil, nil
+					cp.UserRecords = zoneCounts[key] // the panel's own count, always current
 					list = append(list, cp)
 				}
 				m.mu.Unlock()

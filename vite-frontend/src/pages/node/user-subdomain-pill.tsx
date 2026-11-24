@@ -71,7 +71,7 @@ export function NodeUserSubdomainPill({
       <Modal
         isOpen={open}
         scrollBehavior="inside"
-        size={isH5 ? "full" : "4xl"}
+        size="4xl"
         onOpenChange={setOpen}
       >
         <ModalContent data-user-sub-dialog>

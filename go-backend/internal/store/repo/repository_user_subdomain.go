@@ -295,6 +295,31 @@ func (r *Repository) UserSubdomainProviderCounts() (map[int64][2]int, error) {
 	return out, nil
 }
 
+// UserSubdomainZone keys a DNS zone of a provider.
+type UserSubdomainZone struct {
+	ProviderID int64
+	ZoneID     string
+}
+
+// UserSubdomainZoneRecordCounts: names holding a Cloudflare record, per zone.
+func (r *Repository) UserSubdomainZoneRecordCounts() (map[UserSubdomainZone]int, error) {
+	type row struct {
+		ProviderID int64
+		ZoneID     string
+		N          int
+	}
+	var rows []row
+	if err := r.db.Model(&model.UserSubdomain{}).Select("provider_id, zone_id, COUNT(*) AS n").
+		Where("record_id <> ''").Group("provider_id, zone_id").Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+	out := map[UserSubdomainZone]int{}
+	for _, x := range rows {
+		out[UserSubdomainZone{x.ProviderID, x.ZoneID}] = x.N
+	}
+	return out, nil
+}
+
 func (r *Repository) GetUserSubdomain(id int64) (*model.UserSubdomain, error) {
 	var row model.UserSubdomain
 	if err := r.db.Where("id = ?", id).First(&row).Error; err != nil {
