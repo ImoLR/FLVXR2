@@ -13,7 +13,7 @@ const (
 	// Pause reasons.
 	UserSubdomainReasonExpired  = "expired"  // 到期
 	UserSubdomainReasonDisabled = "disabled" // 停用
-	UserSubdomainReasonUnused   = "unused"   // no forward / landing on the node (retired after a grace period)
+	UserSubdomainReasonUnused   = "unused"   // round 1 only (no longer set: a name does not pause when its user has no forward on the node)
 	UserSubdomainReasonNode     = "node"     // node toggle off or no synced main domain
 	// Retire reasons.
 	UserSubdomainReasonUserDeleted = "user_deleted"

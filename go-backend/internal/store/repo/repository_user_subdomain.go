@@ -3,6 +3,7 @@ package repo
 import (
 	"errors"
 	"net"
+	"sort"
 	"strings"
 	"time"
 
@@ -506,129 +507,224 @@ func (r *Repository) AnyUserSubdomainWork() (bool, error) {
 }
 
 // ---- hand-out: the owner's name instead of the node main domain ----
+//
+// Round 2 (user 11-24): on a node whose toggle is on (and main domain
+// synced) a user never sees the node IP or its main domain once he has a
+// name. His name is handed out whatever its Cloudflare state:
+//   - active (record live, or about to be created / re-created: tag pending)
+//   - paused 到期 / 停用: the record is deleted on purpose, the name stays
+//     (tag expired / disabled) so the client is dead until 续期 / 启用 and
+//     then works again without a refresh
+//   - admin-deleted (删除, blocked tombstone): the dead name (tag deleted) —
+//     he must not fall back to the main domain he could keep using.
+// A user without any name yet on such a node (zone at the record cap, zone
+// not checked yet, the seconds before the next pass) gets the main domain
+// (tag fallback, admin ⚠) — never the IP. Nodes without the toggle keep
+// their hosts as they are.
 
-// UserEntryNames resolves entry hosts to the owner's live name.
-type UserEntryNames struct {
-	names map[int64]map[int64]string  // user → node → domain
-	hosts map[int64]map[string]bool   // node → hosts a name replaces
-	main  map[int64]UserSubdomainMain // node → main domain info
+// Entry name tags.
+const (
+	UserEntryTagPending  = "pending"  // the record does not exist yet (created within seconds)
+	UserEntryTagExpired  = "expired"  // 到期: record deleted, name kept
+	UserEntryTagDisabled = "disabled" // 停用: record deleted, name kept
+	UserEntryTagDeleted  = "deleted"  // 删除 by the admin: dead name
+	UserEntryTagFallback = "fallback" // no name yet: the node main domain
+)
+
+// UserEntryHost is what one entry host becomes for one user.
+type UserEntryHost struct {
+	Host   string // "" = keep the original host
+	Tag    string // see UserEntryTag*; "" = live name
+	V6Only bool   // Host is an AAAA-only name (main domain without A record)
+	Name   bool   // Host is the user's own name (not the fallback main domain)
 }
 
-// Lookup returns the user's name for an entry host on nodeID ("" = keep
-// the host). v6 is the current IPv6 when the main domain is IPv6-only
-// (plan 302: subscriptions keep that literal for clients that cannot
-// resolve AAAA-only names).
-func (x *UserEntryNames) Lookup(userID, nodeID int64, host string) (name, v6 string) {
-	if x == nil {
-		return "", ""
-	}
-	name = x.names[userID][nodeID]
-	if name == "" {
-		return "", ""
-	}
+type userEntryName struct {
+	domain string
+	tag    string
+	rank   int // lower wins: live/pending 0, paused 1, deleted 2
+	id     int64
+}
+
+// UserEntryNames resolves entry hosts to the owner's name.
+type UserEntryNames struct {
+	names     map[int64]map[int64]userEntryName // user → node → name
+	hosts     map[int64]map[string]bool         // node → hosts a name replaces
+	main      map[int64]UserSubdomainMain       // node → main domain info
+	admins    map[int64]bool                    // users that never get a name
+	effective bool                              // some node has the toggle on
+}
+
+func normEntryHost(host string) string {
 	h := strings.ToLower(strings.Trim(strings.TrimSpace(host), "[]"))
 	if ip := net.ParseIP(h); ip != nil {
 		h = ip.String()
 	}
-	if !x.hosts[nodeID][h] {
-		return "", ""
-	}
-	m := x.main[nodeID]
-	if m.V6Only {
-		return name, m.V6
-	}
-	return name, ""
+	return h
 }
 
-// Empty: no user has a live name (callers skip all host work).
-func (x *UserEntryNames) Empty() bool { return x == nil || len(x.names) == 0 }
+// Resolve: the host this user is given for an entry host on nodeID.
+func (x *UserEntryNames) Resolve(userID, nodeID int64, host string) UserEntryHost {
+	if x == nil || !x.hosts[nodeID][normEntryHost(host)] {
+		return UserEntryHost{}
+	}
+	m := x.main[nodeID]
+	if n, ok := x.names[userID][nodeID]; ok {
+		return UserEntryHost{Host: n.domain, Tag: n.tag, V6Only: m.V6Only, Name: true}
+	}
+	if x.admins[userID] || userID <= 0 {
+		return UserEntryHost{}
+	}
+	return UserEntryHost{Host: m.Domain, Tag: UserEntryTagFallback, V6Only: m.V6Only}
+}
 
-// LoadUserEntryNames loads the live names of the given users (nil = all
-// users) on nodes with the toggle on. One query when nobody has a name.
+// Lookup returns the user's own name for an entry host on nodeID ("" = none:
+// keep the host or use the fallback) and its tag.
+func (x *UserEntryNames) Lookup(userID, nodeID int64, host string) (name, tag string) {
+	h := x.Resolve(userID, nodeID, host)
+	if !h.Name {
+		return "", ""
+	}
+	return h.Host, h.Tag
+}
+
+// Empty: no node has the toggle on (callers skip all host work).
+func (x *UserEntryNames) Empty() bool { return x == nil || !x.effective }
+
+// LoadUserEntryNames loads the handed-out names of the given users (nil =
+// all users) on nodes with the toggle on. One query when no node has it on.
 func (r *Repository) LoadUserEntryNames(userIDs []int64) (*UserEntryNames, error) {
 	if r == nil || r.db == nil {
 		return nil, nil
 	}
-	q := r.db.Model(&model.UserSubdomain{}).Select("user_subdomain.user_id", "user_subdomain.node_id", "user_subdomain.domain", "user_subdomain.id").
-		Joins("JOIN node ON node.id = user_subdomain.node_id").
-		Where("user_subdomain.state = ? AND user_subdomain.status = ? AND user_subdomain.record_id <> '' AND node.user_subdomain_enabled = ? AND node.ddns_enabled = ?",
-			model.UserSubdomainActive, model.UserSubdomainSyncSynced, true, true)
-	if userIDs != nil {
-		if len(userIDs) == 0 {
-			return &UserEntryNames{}, nil
-		}
-		q = q.Where("user_subdomain.user_id IN ?", userIDs)
+	x := &UserEntryNames{names: map[int64]map[int64]userEntryName{}, hosts: map[int64]map[string]bool{},
+		main: map[int64]UserSubdomainMain{}, admins: map[int64]bool{}}
+	if userIDs != nil && len(userIDs) == 0 {
+		return x, nil
 	}
-	var rows []model.UserSubdomain
-	if err := q.Order("user_subdomain.id ASC").Find(&rows).Error; err != nil {
+	var nodeIDs []int64
+	if err := r.db.Model(&model.Node{}).Where("user_subdomain_enabled = ? AND ddns_enabled = ?", true, true).
+		Order("id ASC").Pluck("id", &nodeIDs).Error; err != nil {
 		return nil, err
 	}
-	x := &UserEntryNames{names: map[int64]map[int64]string{}, hosts: map[int64]map[string]bool{}, main: map[int64]UserSubdomainMain{}}
-	if len(rows) == 0 {
+	if len(nodeIDs) == 0 {
 		return x, nil
 	}
 	recs, hasA, err := r.ddnsRecordsByNode()
 	if err != nil {
 		return nil, err
 	}
-	for _, row := range rows {
-		if _, ok := x.main[row.NodeID]; !ok {
-			m := UserSubdomainMainOf(recs[row.NodeID], hasA)
-			x.main[row.NodeID] = m
-			hosts := map[string]bool{}
-			if m.Domain != "" {
-				hosts[m.Domain] = true
-				for _, ip := range m.IPs {
-					if p := net.ParseIP(ip); p != nil {
-						hosts[p.String()] = true
-					}
-				}
-			}
-			x.hosts[row.NodeID] = hosts
+	live := []int64{}
+	for _, id := range nodeIDs {
+		m := UserSubdomainMainOf(recs[id], hasA)
+		if m.Domain == "" || !m.Synced {
+			continue // not effective: hosts stay as they are
 		}
-		if x.main[row.NodeID].Domain == "" {
+		x.main[id] = m
+		hosts := map[string]bool{m.Domain: true}
+		for _, ip := range m.IPs {
+			if p := net.ParseIP(ip); p != nil {
+				hosts[p.String()] = true
+			}
+		}
+		x.hosts[id] = hosts
+		live = append(live, id)
+	}
+	if len(live) == 0 {
+		return x, nil
+	}
+	x.effective = true
+	q := r.db.Model(&model.UserSubdomain{}).
+		Select("id", "user_id", "node_id", "domain", "state", "reason", "status", "record_id", "blocked", "retired_at").
+		Where("node_id IN ? AND (state <> ? OR blocked = ?)", live, model.UserSubdomainRetired, true)
+	aq := r.db.Model(&model.User{}).Where("role_id = 0")
+	if userIDs != nil {
+		q = q.Where("user_id IN ?", userIDs)
+		aq = aq.Where("id IN ?", userIDs)
+	}
+	var rows []model.UserSubdomain
+	if err := q.Order("id ASC").Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	var admins []int64
+	if err := aq.Pluck("id", &admins).Error; err != nil {
+		return nil, err
+	}
+	for _, id := range admins {
+		x.admins[id] = true
+	}
+	for _, row := range rows {
+		n := userEntryName{domain: row.Domain, id: row.ID}
+		switch {
+		case row.State == model.UserSubdomainRetired: // blocked tombstone
+			n.rank, n.tag = 2, UserEntryTagDeleted
+		case row.State == model.UserSubdomainPaused && row.Reason == model.UserSubdomainReasonExpired:
+			n.rank, n.tag = 1, UserEntryTagExpired
+		case row.State == model.UserSubdomainPaused && row.Reason == model.UserSubdomainReasonDisabled:
+			n.rank, n.tag = 1, UserEntryTagDisabled
+		default: // active, or paused for a node reason that no longer holds (comes back next pass)
+			if !row.Live() {
+				n.tag = UserEntryTagPending
+			}
+		}
+		if row.Domain == "" {
 			continue
 		}
-		if x.names[row.UserID] == nil {
-			x.names[row.UserID] = map[int64]string{}
+		byNode := x.names[row.UserID]
+		if byNode == nil {
+			byNode = map[int64]userEntryName{}
+			x.names[row.UserID] = byNode
 		}
-		if x.names[row.UserID][row.NodeID] == "" { // oldest live name wins (a moved-in name before a later own one)
-			x.names[row.UserID][row.NodeID] = row.Domain
+		cur, ok := byNode[row.NodeID]
+		// Best rank wins; among live names the oldest (a moved-in name before
+		// a later own one); among tombstones the newest.
+		if !ok || n.rank < cur.rank || n.rank == cur.rank && n.rank == 2 && n.id > cur.id {
+			byNode[row.NodeID] = n
 		}
 	}
 	return x, nil
 }
 
 // RewriteEntryList rewrites a "host:port,host:port" forward address list
-// (forward list inIp) with the owner's names. Hosts are matched per node
-// in nodeIDs (the forward's entry nodes).
-func (x *UserEntryNames) RewriteEntryList(userID int64, nodeIDs []int64, list string) string {
-	if x.Empty() || x.names[userID] == nil || strings.TrimSpace(list) == "" {
-		return list
+// (forward list inIp) for its owner. Hosts are matched per node in nodeIDs
+// (the forward's entry nodes; nil = every node with the toggle on). tags maps
+// a written host → its tag (nil when none).
+func (x *UserEntryNames) RewriteEntryList(userID int64, nodeIDs []int64, list string) (string, map[string]string) {
+	if x.Empty() || strings.TrimSpace(list) == "" {
+		return list, nil
 	}
 	if nodeIDs == nil {
-		// Main domains are unique per node: try every node the user has a name on.
-		for id := range x.names[userID] {
+		for id := range x.hosts {
 			nodeIDs = append(nodeIDs, id)
 		}
+		sort.Slice(nodeIDs, func(i, j int) bool { return nodeIDs[i] < nodeIDs[j] })
 	}
 	parts := strings.Split(list, ",")
 	changed := false
+	var tags map[string]string
 	for i, part := range parts {
 		host, port, err := net.SplitHostPort(strings.TrimSpace(part))
 		if err != nil {
 			continue
 		}
 		for _, nodeID := range nodeIDs {
-			if name, _ := x.Lookup(userID, nodeID, host); name != "" {
-				parts[i] = net.JoinHostPort(name, port)
-				changed = true
-				break
+			h := x.Resolve(userID, nodeID, host)
+			if h.Host == "" {
+				continue
 			}
+			parts[i] = net.JoinHostPort(h.Host, port)
+			changed = true
+			if h.Tag != "" {
+				if tags == nil {
+					tags = map[string]string{}
+				}
+				tags[h.Host] = h.Tag
+			}
+			break
 		}
 	}
 	if !changed {
-		return list
+		return list, nil
 	}
-	return strings.Join(parts, ",")
+	return strings.Join(parts, ","), tags
 }

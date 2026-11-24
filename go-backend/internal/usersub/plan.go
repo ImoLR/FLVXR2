@@ -11,11 +11,6 @@ import (
 	"go-backend/internal/store/model"
 )
 
-// UnusedGrace: a name whose user left the node is paused at once (record
-// deleted) and retired only after this long, so a forward that is deleted
-// and created again (or a group swap) gives the user back the same name.
-const UnusedGraceMs = int64(24 * 60 * 60 * 1000)
-
 // CapReserve: records kept free for the admin's own DDNS records.
 const CapReserve = 5
 
@@ -47,7 +42,8 @@ type User struct {
 type Facts struct {
 	Now   int64
 	Nodes map[int64]Node
-	// Usage: node id → user ids with a forward port / native landing node on it.
+	// Usage: node id → user ids with a forward port / native landing node on
+	// it (only these get a new name; an existing name does not need it).
 	Usage map[int64]map[int64]bool
 	Users map[int64]User
 	// Names: every non-retired name plus the admin-deleted (blocked) tombstones.
@@ -92,18 +88,11 @@ func Desired(f *Facts, n model.UserSubdomain) (state, reason string, unusedSince
 		return model.UserSubdomainRetired, model.UserSubdomainReasonNodeDeleted, 0
 	}
 	if !node.Effective() {
-		return model.UserSubdomainPaused, model.UserSubdomainReasonNode, n.UnusedSince
+		return model.UserSubdomainPaused, model.UserSubdomainReasonNode, 0
 	}
-	if !f.Usage[n.NodeID][n.UserID] {
-		since := n.UnusedSince
-		if since == 0 {
-			since = f.Now
-		}
-		if f.Now-since >= UnusedGraceMs {
-			return model.UserSubdomainRetired, model.UserSubdomainReasonUnused, since
-		}
-		return model.UserSubdomainPaused, model.UserSubdomainReasonUnused, since
-	}
+	// Round 2 (user 11-24): no pause for "no forwards on this node" — the
+	// name lives while its user exists and is not expired / disabled (a
+	// round-1 paused(unused) row comes back to active).
 	if u.ExpTime > 0 && u.ExpTime < f.Now {
 		return model.UserSubdomainPaused, model.UserSubdomainReasonExpired, 0
 	}

@@ -88,6 +88,12 @@ func (h *Handler) userSubState() *userSubManager {
 	return h.userSub
 }
 
+func (m *userSubManager) kickDebounce() time.Duration {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.debounce
+}
+
 func userSubZoneKey(providerID int64, zoneID string) string {
 	return fmt.Sprintf("%d|%s", providerID, zoneID)
 }
@@ -158,7 +164,7 @@ func (h *Handler) runUserSubdomainLoop(ctx context.Context) {
 			select {
 			case <-ctx.Done():
 				return
-			case <-time.After(m.debounce):
+			case <-time.After(m.kickDebounce()):
 			}
 			select {
 			case <-m.kick:
@@ -190,6 +196,20 @@ func (h *Handler) runUserSubdomainLoop(ctx context.Context) {
 		}
 		timer.Reset(wait)
 	}
+}
+
+// StartUserSubdomainLoop runs only the 专属域名 loop with the given kick
+// debounce (contract tests: 续期 / 启用 through the API and the kicker);
+// stop cancels it and waits for the running pass.
+func (h *Handler) StartUserSubdomainLoop(debounce time.Duration) (stop func()) {
+	m := h.userSubState()
+	m.mu.Lock()
+	m.debounce = debounce
+	m.mu.Unlock()
+	ctx, cancel := context.WithCancel(context.Background())
+	h.jobsWG.Add(1)
+	go h.runUserSubdomainLoop(ctx)
+	return func() { cancel(); h.jobsWG.Wait() }
 }
 
 // UserSubdomainReconcileNow runs one pass synchronously (tests, admin).
@@ -333,6 +353,8 @@ func (h *Handler) userSubReconcile(ctx context.Context, full, force bool) {
 		}
 		if err := h.userSubCreateName(c.UserID, nodes[c.NodeID]); err != nil {
 			log.Printf("[user-subdomain] new name user %d node %d: %v", c.UserID, c.NodeID, err)
+		} else {
+			pass.touched[c.UserID] = true // the main-domain fallback becomes his name
 		}
 	}
 	m.mu.Lock()
@@ -660,7 +682,7 @@ func (h *Handler) userSubFail(row model.UserSubdomain, err error, now time.Time)
 
 // userSubRewriteForwardItems: the forward list's inIp of every rule shows
 // its owner's live name for that entry (one query when nobody has one).
-func (h *Handler) userSubRewriteForwardItems(items []map[string]interface{}, entryNodes map[int64][]int64) {
+func (h *Handler) userSubRewriteForwardItems(items []map[string]interface{}, entryNodes map[int64][]int64, admin bool) {
 	if len(items) == 0 {
 		return
 	}
@@ -682,8 +704,33 @@ func (h *Handler) userSubRewriteForwardItems(items []map[string]interface{}, ent
 			continue
 		}
 		id := asInt64(item["id"], 0)
-		item["inIp"] = names.RewriteEntryList(asInt64(item["userId"], 0), entryNodes[id], list)
+		rewritten, tags := names.RewriteEntryList(asInt64(item["userId"], 0), entryNodes[id], list)
+		item["inIp"] = rewritten
+		if tags := userSubVisibleTags(tags, admin); len(tags) > 0 {
+			// Round 2: 「已过期 · 记录已删除」 etc. next to the address.
+			item["entryNameTags"] = tags
+		}
 	}
+}
+
+// userSubVisibleTags: users see why their own name is dead (到期 / 停用 /
+// 删除); admins also see 同步中 and 暂用主域名 (no name yet).
+func userSubVisibleTags(tags map[string]string, admin bool) map[string]string {
+	if len(tags) == 0 {
+		return nil
+	}
+	out := map[string]string{}
+	for host, tag := range tags {
+		switch tag {
+		case repo.UserEntryTagExpired, repo.UserEntryTagDisabled, repo.UserEntryTagDeleted:
+			out[host] = tag
+		case repo.UserEntryTagPending, repo.UserEntryTagFallback:
+			if admin {
+				out[host] = tag
+			}
+		}
+	}
+	return out
 }
 
 // ---- node save (DDNS section toggle) ----
@@ -928,6 +975,9 @@ func (h *Handler) userSubListData(nodeID, userID int64, retired bool) (map[strin
 		}
 		if v.Moved != "out" {
 			counts[row.State]++
+			if row.State == model.UserSubdomainPaused && (row.Reason == model.UserSubdomainReasonExpired || row.Reason == model.UserSubdomainReasonDisabled) {
+				counts["paused_"+row.Reason]++ // round 2 header: 已过期 N · 已停用 M
+			}
 			if row.Status == model.UserSubdomainSyncFailed {
 				counts["failed"]++
 			}
@@ -1086,7 +1136,8 @@ func (h *Handler) userSubRename(w http.ResponseWriter, r *http.Request) {
 }
 
 // 删除: retired for good; no new name for this user on this node until
-// 重新分配 (the user's links fall back to the node main domain).
+// 重新分配. Round 2: his links keep the dead name (tag deleted) — they do not
+// fall back to the node main domain, so 删除 really drops him.
 func (h *Handler) userSubDelete(w http.ResponseWriter, r *http.Request) {
 	h.userSubAction(w, r, func(row *model.UserSubdomain, _ map[string]interface{}) error {
 		if row.State == model.UserSubdomainRetired {

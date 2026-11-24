@@ -256,7 +256,13 @@ func SurgeRouted(nodes []Node, mode string, surfboard bool, routing []RouteEntry
 		// DIRECT from the mainland and stalling (Surge iOS defaults to
 		// DIRECT); apps asking 8.8.8.8 / 8.8.4.4 directly get Surge's own
 		// DNS; network checks / STUN / consoles keep their real IP.
-		b.WriteString("ipv6 = false\n")
+		// Plan 303 round 2: an AAAA-only server (a user's 专属域名 on an
+		// IPv6-only entry) needs Surge to query AAAA records.
+		if AnyAAAAOnly(kept) {
+			b.WriteString("ipv6 = true\n")
+		} else {
+			b.WriteString("ipv6 = false\n")
+		}
 		b.WriteString("hijack-dns = 8.8.8.8:53, 8.8.4.4:53\n")
 		b.WriteString("udp-policy-not-supported-behaviour = REJECT\n")
 		b.WriteString("always-real-ip = *.msftncsi.com, *.msftconnecttest.com, *.srv.nintendo.net, *.stun.playstation.net, xbox.*.microsoft.com, *.xboxlive.com, stun.*\n")

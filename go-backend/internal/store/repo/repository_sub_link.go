@@ -421,25 +421,24 @@ func (r *Repository) SubPanelLinks(userID int64, forwardIDs, landingIDs []int64,
 			}
 			seen[addr] = true
 			link := SubPanelLink{Rule: true, Chain: chain != nil, Ref: sublink.Ref{Kind: sublink.RefForwardLink, ForwardID: f.ID, Entry: sublink.EntryKey(e.NodeID, e.Host)}}
-			link.Detail = e.NodeName + " :" + strconv.Itoa(e.Port)
-			if hostsPerNode[e.NodeID] > 1 {
-				link.Detail = e.NodeName + " · " + addr
-			}
 			// Plan 302: an IPv6-only DDNS entry domain is built on its current
 			// IPv6 (key and detail keep the domain); the renderer writes the
 			// domain only for clients that resolve AAAA-only names.
-			host, entryDomain := e.Host, ""
-			if ip := v6only[e.NodeID][strings.ToLower(strings.Trim(e.Host, "[]"))]; ip != "" {
+			host, entryDomain, aaaaOnly := e.Host, "", false
+			shown := addr
+			if uh := names.Resolve(userID, e.NodeID, e.Host); uh.Host != "" {
+				// Plan 303 round 2: on a node with 用户专属域名 every client
+				// gets the user's own name (or, before he has one, the main
+				// domain) — never the IP, whatever the client resolves. The
+				// key keeps the entry host (stored items stay valid).
+				host, aaaaOnly = uh.Host, uh.V6Only
+				shown = net.JoinHostPort(uh.Host, strconv.Itoa(e.Port))
+			} else if ip := v6only[e.NodeID][strings.ToLower(strings.Trim(e.Host, "[]"))]; ip != "" {
 				host, entryDomain = ip, strings.Trim(e.Host, "[]")
 			}
-			if name, v6 := names.Lookup(userID, e.NodeID, e.Host); name != "" {
-				// A name on an IPv6-only main domain is IPv6-only too: same
-				// literal-or-name split as plan 302.
-				if v6 != "" {
-					host, entryDomain = v6, name
-				} else {
-					host, entryDomain = name, ""
-				}
+			link.Detail = e.NodeName + " :" + strconv.Itoa(e.Port)
+			if hostsPerNode[e.NodeID] > 1 {
+				link.Detail = e.NodeName + " · " + shown
 			}
 			if x := externalOf[f.ID]; x != nil && chain == nil {
 				node, ok := ExternalForwardNode(x, host, e.Port, ExternalForwardNodeName(f.Name, e.NodeName, len(list)))
@@ -467,6 +466,7 @@ func (r *Repository) SubPanelLinks(userID int64, forwardIDs, landingIDs []int64,
 				link.Node = node
 			}
 			link.Node.EntryDomain = entryDomain
+			link.Node.AAAAOnly = aaaaOnly
 			out.Links = append(out.Links, link)
 		}
 	}
@@ -485,23 +485,19 @@ func (r *Repository) SubPanelLinks(userID int64, forwardIDs, landingIDs []int64,
 		if s == nil {
 			continue
 		}
-		host, entryDomain := s.PublicHost, ""
+		host, aaaaOnly := s.PublicHost, false
 		if s.NodeID > 0 && !names.Empty() {
-			if name, v6 := names.Lookup(userID, s.NodeID, s.PublicHost); name != "" {
-				if v6 != "" {
-					host, entryDomain = v6, name
-				} else {
-					host = name
-				}
+			if uh := names.Resolve(userID, s.NodeID, s.PublicHost); uh.Host != "" {
+				host, aaaaOnly = uh.Host, uh.V6Only // plan 303 round 2: every client
 			}
 		}
 		node, ok := subLandingNode(*n, s, host, n.Port, n.Name+"（直连）")
 		if !ok {
 			continue
 		}
-		node.EntryDomain = entryDomain
+		node.AAAAOnly = aaaaOnly
 		out.Links = append(out.Links, SubPanelLink{Ref: sublink.Ref{Kind: sublink.RefLandingDirect, LandingID: n.ID}, Node: node,
-			Detail: net.JoinHostPort(strings.Trim(s.PublicHost, "[]"), strconv.Itoa(n.Port))})
+			Detail: net.JoinHostPort(strings.Trim(host, "[]"), strconv.Itoa(n.Port))})
 	}
 	return out, nil
 }

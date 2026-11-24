@@ -109,6 +109,10 @@ func (h *Handler) completePayment(orderNo, txHash string) {
 		return
 	}
 
+	// Plan 303 round 2: a paid package / renewal brings a paused 专属域名
+	// back within seconds (the callback path is outside the kicker's prefixes).
+	defer h.userSubKick()
+
 	if err := h.repo.UpdateOrderStatus(order.ID, 1); err != nil {
 		return
 	}

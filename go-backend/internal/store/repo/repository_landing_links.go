@@ -87,9 +87,10 @@ func (r *Repository) LandingNodeLinks(n model.LandingNode) ([]LandingLink, error
 	direct := s.PublicHost
 	if s.NodeID > 0 {
 		// Plan 303: a native landing's 直连 uses the owner's 专属域名.
+		// Round 2: or, before he has one, the main domain — never the IP.
 		if names, err := r.LoadUserEntryNames([]int64{n.UserID}); err == nil {
-			if name, _ := names.Lookup(n.UserID, s.NodeID, s.PublicHost); name != "" {
-				direct = name
+			if uh := names.Resolve(n.UserID, s.NodeID, s.PublicHost); uh.Host != "" {
+				direct = uh.Host
 			}
 		}
 	}
@@ -197,11 +198,12 @@ func (r *Repository) forwardEntries(f model.Forward, allAddresses ...bool) ([]fo
 		out = append(out, forwardEntry{Host: host, Port: fp.Port, NodeID: entry.ID, NodeName: entry.Name})
 	}
 	if expand && len(out) > 0 {
-		// Plan 303: copy links show the owner's 专属域名 for that entry.
+		// Plan 303: copy links show the owner's 专属域名 for that entry
+		// (round 2: or the main domain before he has one — never the IP).
 		if names, err := r.LoadUserEntryNames([]int64{f.UserID}); err == nil && !names.Empty() {
 			for i := range out {
-				if name, _ := names.Lookup(f.UserID, out[i].NodeID, out[i].Host); name != "" {
-					out[i].Host = name
+				if uh := names.Resolve(f.UserID, out[i].NodeID, out[i].Host); uh.Host != "" {
+					out[i].Host = uh.Host
 				}
 			}
 		}

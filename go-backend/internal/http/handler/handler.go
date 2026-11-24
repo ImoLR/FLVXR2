@@ -1111,7 +1111,7 @@ func (h *Handler) forwardList(w http.ResponseWriter, r *http.Request) {
 	// Plan 180: the 最优 pick line of every rule (memory only).
 	h.attachRuleBestPicksOrLog(items, entryNodes)
 	// Plan 303: each rule's entry address uses its owner's 专属域名.
-	h.userSubRewriteForwardItems(items, entryNodes)
+	h.userSubRewriteForwardItems(items, entryNodes, roleID == 0)
 	// Plan 249: the 预热 tag of every rule (memory only; users: green only).
 	h.attachForwardWarmPoolStatesOrLog(items, entryNodes, roleID == 0)
 
@@ -1792,7 +1792,7 @@ func (h *Handler) userPackage(w http.ResponseWriter, r *http.Request) {
 	forwardOut := make([]map[string]interface{}, 0, len(forwards))
 	pkgNames, _ := h.repo.LoadUserEntryNames([]int64{userID}) // plan 303
 	for _, f := range forwards {
-		f.InIP = pkgNames.RewriteEntryList(userID, nil, f.InIP)
+		f.InIP, _ = pkgNames.RewriteEntryList(userID, nil, f.InIP)
 		item := map[string]interface{}{
 			"id":              f.ID,
 			"name":            f.Name,

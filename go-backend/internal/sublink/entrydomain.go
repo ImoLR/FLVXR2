@@ -34,6 +34,7 @@ func UseEntryDomains(nodes []Node) []Node {
 		} else {
 			out[i].Up.Server = n.EntryDomain
 		}
+		out[i].AAAAOnly = true
 	}
 	if out == nil {
 		return nodes
