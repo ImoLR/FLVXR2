@@ -503,8 +503,14 @@ function UserSubdomainToggle({
               " 主地址域名"
             )}
             ，速度不变。订阅、复制链接和转发地址里只显示他自己的名字（所有客户端都是，不给
-            IP，也不给主域名）。停用或到期时删除记录、保留名字，续期或启用后几秒内用原名恢复；只有删除用户时作废，永不复用。
+            IP，也不给主域名）。新转发一建好就显示最终的名字，标「正在就绪」，几秒后可用；Cloudflare
+            名额满了或创建失败时，用户看不到这台节点的地址，只看到「请联系管理员」。停用或到期时删除记录、保留名字，续期或启用后几秒内用原名恢复；只有删除用户时作废，永不复用。
           </p>
+          {!on ? (
+            <p className="text-xs text-default-500">
+              关闭时（默认）：用户拿到这台节点的主域名或 IP，和现在一样。
+            </p>
+          ) : null}
           {!main ? (
             <p className="text-xs text-warning">
               需要一条「主地址」记录才能开启（专属域名都指向它）
@@ -531,7 +537,13 @@ function UserSubdomainToggle({
               {live.capped ? (
                 <span className="text-danger">
                   {" "}
-                  · {live.capped} 个用户因记录数已满暂用主域名
+                  · {live.capped} 个名字等 Cloudflare 名额
+                </span>
+              ) : null}
+              {(live.hidden || 0) > 0 ? (
+                <span className="text-danger">
+                  {" "}
+                  · {live.hidden} 个用户看不到地址
                 </span>
               ) : null}
               {live.effective ? "" : " · 等待主地址同步"}

@@ -74,6 +74,14 @@ export function stateChip(item: UserSubItem): {
       tone: "slate",
     };
   }
+  // Round 3: a fresh name that cannot get its record is withheld from the
+  // user (no address at all) — say so.
+  if (item.hidden && item.status === "capped")
+    return { text: "名额已满 · 用户看不到地址", tone: "red", warn: true };
+  if (item.hidden)
+    return { text: "创建失败 · 用户看不到地址", tone: "red", warn: true };
+  if (item.status === "capped" && item.state === "active")
+    return { text: "等名额 · 记录未建", tone: "red", warn: true };
   if (item.status === "failed")
     return { text: "同步失败", tone: "red", warn: true };
   if (item.state === "paused") {
@@ -88,7 +96,8 @@ export function stateChip(item: UserSubItem): {
       tone: "amber",
     };
   }
-  if (item.status === "pending") return { text: "同步中", tone: "cyan" };
+  if (item.status === "pending" || (item.state === "active" && !item.readyAt))
+    return { text: item.readyAt ? "同步中" : "正在就绪", tone: "cyan" };
 
   return { text: "生效", tone: "green" };
 }
@@ -100,7 +109,11 @@ function StateChip({ item }: { item: UserSubItem }) {
     <span
       className={`inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full px-2 py-0.5 text-[11px] font-semibold leading-4 ${landingToneClass[c.tone]}`}
       data-user-sub-state={
-        item.state + (item.status === "failed" ? "-failed" : "")
+        item.state +
+        (item.status === "failed" || item.status === "capped"
+          ? `-${item.status}`
+          : "") +
+        (item.hidden ? "-hidden" : "")
       }
       title={item.lastError || undefined}
     >
@@ -462,12 +475,27 @@ function Summary({
               (c.paused_disabled || 0)}
           </span>
         ) : null}
+        {c.readying ? (
+          <span
+            className={`rounded-full px-2 py-0.5 font-semibold ${landingToneClass.cyan}`}
+          >
+            正在就绪 {c.readying}
+          </span>
+        ) : null}
         {c.failed ? (
           <span
             className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 font-semibold ${landingToneClass.red}`}
           >
             <AttentionIcon className="h-3.5 w-3.5" level="error" />
             同步失败 {c.failed}
+          </span>
+        ) : null}
+        {c.capped ? (
+          <span
+            className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 font-semibold ${landingToneClass.red}`}
+          >
+            <AttentionIcon className="h-3.5 w-3.5" level="error" />
+            等名额 {c.capped}
           </span>
         ) : null}
         {zone ? (
@@ -502,9 +530,23 @@ function Summary({
       {data.capped ? (
         <p className="flex items-center gap-1 text-xs text-danger">
           <AttentionIcon level="error" />
-          Cloudflare 记录数快满了：{data.capped}{" "}
-          个用户还没有专属域名，暂时用主域名（不会给
-          IP）。删掉不用的记录或升级套餐后自动补上。
+          Cloudflare 记录数已到上限：{data.capped}{" "}
+          个专属域名建不了记录。这些用户看不到这台节点的入口地址（只显示「入口域名名额已满，请联系管理员」，不会给主域名或
+          IP）。删掉不用的记录或提高上限后自动创建。
+        </p>
+      ) : null}
+      {(c.hidden || 0) - (data.capped || 0) > 0 ? (
+        <p className="flex items-center gap-1 text-xs text-danger">
+          <AttentionIcon level="error" />
+          {(c.hidden || 0) - (data.capped || 0)}{" "}
+          个专属域名多次创建失败：这些用户看不到这台节点的入口地址（只显示「入口域名创建失败，请联系管理员」）。看名字上的原因，修好后点「立即同步」。
+        </p>
+      ) : null}
+      {data.waiting ? (
+        <p className="flex items-center gap-1 text-xs text-danger">
+          <AttentionIcon level="error" />
+          {data.waiting} 个用户的专属域名还没分配：Cloudflare
+          暂时连不上（区域未知），这些用户暂时看不到入口地址。
         </p>
       ) : null}
       {zone?.wildcard ? (

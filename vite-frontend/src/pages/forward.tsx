@@ -157,7 +157,12 @@ import {
 import { useMobileBreakpoint } from "@/hooks/useMobileBreakpoint";
 import { saveOrder } from "@/utils/order-storage";
 import { JwtUtil } from "@/utils/jwt";
-import { EntryNameTags } from "@/pages/forward/entry-name-tags";
+import {
+  EntryNameTags,
+  EntryNotices,
+  hasReadyingEntry,
+  type EntryNotice,
+} from "@/pages/forward/entry-name-tags";
 import { canonicalIp, parseExtraIPs } from "@/utils/node-ips";
 import { timestampToCalendarDate, calendarDateToTimestamp } from "@/utils/date";
 import { MULTI_REGION, compareRegions, exitRegionKey, exitRegionLabel, regionLabel } from "@/utils/region";
@@ -172,6 +177,8 @@ export interface Forward {
   inIp: string;
   // Plan 303 round 2: host → tag of the owner's 专属域名 in inIp.
   entryNameTags?: Record<string, string>;
+  // Plan 303 round 3: entries withheld from inIp (no address yet) and why.
+  entryNotices?: EntryNotice[];
   inPort: number;
   remoteAddr: string;
   interfaceName?: string;
@@ -778,6 +785,8 @@ const mapForwardApiItems = (items: ForwardApiItem[]): Forward[] => {
     entryNameTags:
       ((forward as any).entryNameTags as Record<string, string> | undefined) ||
       undefined,
+    entryNotices:
+      ((forward as any).entryNotices as EntryNotice[] | undefined) || undefined,
     inPort: forward.inPort ?? 0,
     // A chain rule (plan 108) shows the user's own node as its target; the
     // rule's real 127.0.0.1 target is internal.
@@ -1146,7 +1155,13 @@ const SortableTableRow = ({
   // checkbox, drag handle, 状态 and 操作 stay at full strength); only the cell
   // content fades, so zebra / hover / selection tints stay even.
   const dim = forward.status === 0 ? " flvx-rule-tree-dim" : "";
-  const rawInIp = forward.inIp ? forward.inIp.replace(/\s/g, "") : "默认 IP";
+  // Plan 303 round 3: every entry withheld (no address yet) → no 「默认 IP」.
+  const withheldOnly = !forward.inIp && (forward.entryNotices?.length ?? 0) > 0;
+  const rawInIp = forward.inIp
+    ? forward.inIp.replace(/\s/g, "")
+    : withheldOnly
+      ? ""
+      : "默认 IP";
   const inAddrNoPorts =
     rawInIp === "默认 IP"
       ? rawInIp
@@ -1155,7 +1170,9 @@ const SortableTableRow = ({
           .map((ip: string) => ip.trim().replace(/:\d+$/, ""))
           .join(",");
   const inAddrWithPorts =
-    rawInIp === "默认 IP"
+    withheldOnly
+    ? ""
+    : rawInIp === "默认 IP"
       ? `默认 IP:${forward.inPort}`
       : rawInIp
           .split(",")
@@ -1247,10 +1264,11 @@ const SortableTableRow = ({
             viewBox="0 0 24 24"
             onClick={(e) => {
               e.stopPropagation();
-              copyToClipboard(
-                inAddrWithPorts.split(",").join("\n"),
-                "完整入口",
-              );
+              if (inAddrWithPorts)
+                copyToClipboard(
+                  inAddrWithPorts.split(",").join("\n"),
+                  "完整入口",
+                );
             }}
           >
             <path d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" />
@@ -1259,13 +1277,19 @@ const SortableTableRow = ({
             className="text-sm font-medium text-foreground cursor-pointer hover:bg-default-200/50 rounded px-1 transition-colors truncate max-w-[100px] inline-block"
             title={inAddrNoPorts}
             onClick={() =>
+              inAddrNoPorts &&
               copyToClipboard(inAddrNoPorts.split(",").join("\n"), "入口地址")
             }
           >
-            {inAddrNoPorts}
+            {inAddrNoPorts || "—"}
           </span>
         </div>
         <EntryNameTags className="mt-0.5" tags={forward.entryNameTags} />
+        <EntryNotices
+          admin={isAdmin}
+          className="mt-0.5"
+          notices={forward.entryNotices}
+        />
       </TableCell>
       <TableCell className={`${rowBg}${dim}`}>
         <span
@@ -1468,7 +1492,13 @@ const SortableCompactTableRow = ({
   const rowBg = selectedIds.has(forward.id)
     ? "bg-primary-50/70 dark:bg-primary-900/40"
     : "";
-  const rawInIp = forward.inIp ? forward.inIp.replace(/\s/g, "") : "默认IP";
+  // Plan 303 round 3: every entry withheld (no address yet) → no 「默认IP」.
+  const withheldOnly = !forward.inIp && (forward.entryNotices?.length ?? 0) > 0;
+  const rawInIp = forward.inIp
+    ? forward.inIp.replace(/\s/g, "")
+    : withheldOnly
+      ? ""
+      : "默认IP";
   const inAddrNoPorts =
     rawInIp === "默认IP"
       ? rawInIp
@@ -1477,7 +1507,9 @@ const SortableCompactTableRow = ({
           .map((ip: string) => ip.trim().replace(/:\d+$/, ""))
           .join(",");
   const inAddrWithPorts =
-    rawInIp === "默认IP"
+    withheldOnly
+    ? ""
+    : rawInIp === "默认IP"
       ? `默认IP:${forward.inPort}`
       : rawInIp
           .split(",")
@@ -1575,10 +1607,11 @@ const SortableCompactTableRow = ({
             viewBox="0 0 24 24"
             onClick={(e) => {
               e.stopPropagation();
-              copyToClipboard(
-                inAddrWithPorts.split(",").join("\n"),
-                "完整入口",
-              );
+              if (inAddrWithPorts)
+                copyToClipboard(
+                  inAddrWithPorts.split(",").join("\n"),
+                  "完整入口",
+                );
             }}
           >
             <path d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" />
@@ -1587,13 +1620,19 @@ const SortableCompactTableRow = ({
             className="text-sm font-medium text-foreground cursor-pointer hover:bg-default-200/50 rounded px-1 transition-colors truncate max-w-[100px] inline-block"
             title={inAddrNoPorts}
             onClick={() =>
+              inAddrNoPorts &&
               copyToClipboard(inAddrNoPorts.split(",").join("\n"), "入口地址")
             }
           >
-            {inAddrNoPorts}
+            {inAddrNoPorts || "—"}
           </span>
         </div>
         <EntryNameTags className="mt-0.5" tags={forward.entryNameTags} />
+        <EntryNotices
+          admin={isAdmin}
+          className="mt-0.5"
+          notices={forward.entryNotices}
+        />
       </TableCell>
       <TableCell className={rowBg}>
         <span
@@ -2732,6 +2771,31 @@ export default function ForwardPage() {
       window.removeEventListener(RULE_BEST_OFF_CHANGED, onRuleBestChanged);
     };
   }, [loading, refreshForwardList]);
+  // Plan 303 round 3: while a 「正在就绪」 tag / notice is on screen, refresh
+  // every 3 s (at most 2 min) so it disappears on its own; no polling
+  // otherwise (the 15 s connection refresh above stays as it is).
+  const readyingShown = useMemo(
+    () => forwards.some((f) => hasReadyingEntry(f)),
+    [forwards],
+  );
+
+  useEffect(() => {
+    if (!readyingShown) return;
+    let ticks = 0;
+    const timer = window.setInterval(() => {
+      ticks += 1;
+      if (ticks > 40) {
+        window.clearInterval(timer);
+
+        return;
+      }
+      if (!document.hidden && !isTogglingRef.current) {
+        refreshForwardList(false);
+      }
+    }, 3000);
+
+    return () => window.clearInterval(timer);
+  }, [readyingShown, refreshForwardList]);
   // 表单验证
   const validateForm = (): boolean => {
     const newErrors: { [key: string]: string } = {};
@@ -5298,7 +5362,14 @@ export default function ForwardPage() {
     listeners?: any,
     inTunnelGroup = false,
   ) => {
-    const rawInIp = forward.inIp ? forward.inIp.replace(/\s/g, "") : "默认IP";
+    // Plan 303 round 3: every entry withheld (no address yet) → no 「默认IP」.
+    const withheldOnly =
+      !forward.inIp && (forward.entryNotices?.length ?? 0) > 0;
+    const rawInIp = forward.inIp
+      ? forward.inIp.replace(/\s/g, "")
+      : withheldOnly
+        ? ""
+        : "默认IP";
     const inAddrNoPorts =
       rawInIp === "默认IP"
         ? rawInIp
@@ -5307,7 +5378,9 @@ export default function ForwardPage() {
             .map((ip: string) => ip.trim().replace(/:\d+$/, ""))
             .join(",");
     const inAddrWithPorts =
-      rawInIp === "默认IP"
+      withheldOnly
+      ? ""
+      : rawInIp === "默认IP"
         ? `默认IP:${forward.inPort}`
         : rawInIp
             .split(",")
@@ -5455,13 +5528,14 @@ export default function ForwardPage() {
                       className="text-xs font-medium text-foreground font-bold truncate block flex-1 cursor-pointer max-w-[100px] max-md:max-w-none max-md:min-w-0 max-md:whitespace-normal max-md:break-all"
                       title={inAddrNoPorts}
                       onClick={() =>
+                        inAddrNoPorts &&
                         copyToClipboard(
                           inAddrNoPorts.split(",").join("\n"),
                           "入口地址",
                         )
                       }
                     >
-                      {inAddrNoPorts}
+                      {inAddrNoPorts || "—"}
                     </code>
                   </div>
                 </div>
@@ -5477,6 +5551,11 @@ export default function ForwardPage() {
                 </div>
               </div>
               <EntryNameTags className="px-1" tags={forward.entryNameTags} />
+              <EntryNotices
+                admin={isAdmin}
+                className="px-1"
+                notices={forward.entryNotices}
+              />
             </div>
             {/* 落地信息区 */}
             <div className="space-y-1">

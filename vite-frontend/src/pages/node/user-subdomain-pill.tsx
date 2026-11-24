@@ -38,7 +38,9 @@ export function NodeUserSubdomainPill({
   const title = [
     `生效 ${v.active} · 记录已删除（过期 / 停用）${v.paused}`,
     v.failed ? `同步失败 ${v.failed}` : "",
-    v.capped ? `${v.capped} 个用户因记录数已满暂用主域名` : "",
+    v.capped ? `${v.capped} 个名字等 Cloudflare 名额` : "",
+    v.hidden ? `${v.hidden} 个用户看不到入口地址（名额已满 / 创建失败）` : "",
+    v.waiting ? `${v.waiting} 个用户还没分配到名字` : "",
     v.wildcard ? "区域有通配记录" : "",
     v.zoneError,
     v.toggle ? "" : "已关闭（名字保留）",
