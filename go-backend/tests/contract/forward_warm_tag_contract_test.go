@@ -124,11 +124,16 @@ func TestForwardWarmTagContract(t *testing.T) {
 		t.Fatalf("rule %d not in the list for this viewer", fid)
 		return ""
 	}
+	// The panel applies each agent metric in its own goroutine (ws server
+	// `go onMetric`), so a report is visible a moment after send() returns.
+	// want "" waits for no tag at all (strings.Contains(x, "") is always
+	// true and used to return before the report landed: plan 304 flake).
 	waitAdmin := func(want string) string {
 		t.Helper()
 		var got string
 		for i := 0; i < 200; i++ {
-			if got = warmState(admin); strings.Contains(got, want) || (want == "" && got == "") {
+			got = warmState(admin)
+			if (want == "" && got == "") || (want != "" && strings.Contains(got, want)) {
 				return got
 			}
 			time.Sleep(10 * time.Millisecond)
