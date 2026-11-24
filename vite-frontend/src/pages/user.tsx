@@ -104,6 +104,8 @@ import { EditIcon, DeleteIcon, EyeIcon, EyeOffIcon } from "@/components/icons";
 import { PageLoadingState } from "@/components/page-state";
 import { useLocalStorageState } from "@/hooks/use-local-storage-state";
 import { usePullToRefresh } from "@/hooks/usePullToRefresh";
+import { useH5Mode } from "@/hooks/useH5Mode";
+import { UserSubdomainPanel } from "@/pages/node/user-subdomain-panel";
 import { removeItemsById, replaceItemById } from "@/utils/list-state";
 import {
   DUPLEX_FLOW_LIMIT_HINT,
@@ -272,6 +274,7 @@ const normalizeUserTunnelItem = (item: Partial<UserTunnel>): UserTunnel => {
 };
 
 export default function UserPage() {
+  const isH5UserSub = useH5Mode(); // plan 303 专属域名 section
   // 视图模式状态
   const [viewMode, setViewMode] = useState<"card" | "list">(() => {
     const stored = localStorage.getItem(USER_VIEW_MODE_KEY);
@@ -3146,6 +3149,9 @@ export default function UserPage() {
               )}
             </div>
             {isEdit && userForm.id && <LandingUserSettings key={userForm.id} ref={landingSettingsRef} defaultRateMbps={Number(userLimitDraft.serverRateMbps || 0)} userId={userForm.id} originalExpiry={users.find((user) => user.id === userForm.id)?.expTime || 0} expiry={userForm.expTime?.getTime() || 0} />}
+            {isEdit && userForm.id ? (
+              <UserSubdomainPanel key={`user-sub-${userForm.id}`} hideWhenEmpty isH5={isH5UserSub} title="专属域名" userId={userForm.id} />
+            ) : null}
           </ModalBody>
           <ModalFooter>
             <Button onPress={onUserModalClose}>取消</Button>

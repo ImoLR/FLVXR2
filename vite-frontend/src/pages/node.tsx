@@ -138,6 +138,7 @@ import {
   validateDDNS,
 } from "@/pages/node/ddns-section";
 import { NodeDDNSBadge } from "@/pages/node/ddns-badge";
+import { NodeUserSubdomainPill } from "@/pages/node/user-subdomain-pill";
 import {
   getNodeRenewalSnapshot,
   normalizeNodeRenewalCycle,
@@ -2409,6 +2410,7 @@ export default function NodePage() {
               <NodeDNSCacheAlert node={node} />
               <NodeLeiKwanBadge node={node} />
               <NodeDDNSBadge ddns={node.ddns} />
+              <NodeUserSubdomainPill ddns={node.ddns} nodeId={node.id} nodeName={node.name} />
               {node.lineMachine && (
                 <Chip
                   className="shrink-0"

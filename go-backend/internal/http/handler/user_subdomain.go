@@ -935,11 +935,20 @@ func (h *Handler) userSubListData(nodeID, userID int64, retired bool) (map[strin
 		items = append(items, v)
 	}
 	out := map[string]interface{}{"items": items, "history": history, "counts": counts}
-	if nodeID > 0 {
-		nodes, err := h.repo.ListUserSubdomainNodes()
-		if err != nil {
-			return nil, err
+	nodes, err := h.repo.ListUserSubdomainNodes()
+	if err != nil {
+		return nil, err
+	}
+	// 改指 targets: nodes with the toggle on and a synced main domain.
+	targets := []map[string]interface{}{}
+	for _, n := range nodes {
+		if n.Enabled() && n.Main.Domain != "" && n.Main.Synced {
+			targets = append(targets, map[string]interface{}{"id": n.ID, "name": n.Name, "mainDomain": n.Main.Domain})
 		}
+	}
+	sort.Slice(targets, func(i, j int) bool { return targets[i]["id"].(int64) < targets[j]["id"].(int64) })
+	out["targets"] = targets
+	if nodeID > 0 {
 		n, ok := nodes[nodeID]
 		if !ok {
 			// toggle off and no names: read the node's main domain directly
