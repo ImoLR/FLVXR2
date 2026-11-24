@@ -1,4 +1,4 @@
-# 303 — 用户专属域名 (one private CNAME per user per entry node) — BUILT 11-24 TW, waiting for screenshot approval
+# 303 — 用户专属域名 (one private CNAME per user per entry node) — ROUND 2 BUILT 11-24 TW (user decisions ~16:40 TW), waiting for screenshot approval
 
 Task `user-subdomain` (coordinator 22b5afb7, 11-24 TW). BUILD + screenshots only
 (no tag, no release, no prod change). Base: `maintenance/3.0.27-fork.167-entry-domain`
@@ -111,3 +111,85 @@ User deleted / no longer on the node → record deleted, name retired forever.
   group swap keeps the same name). Toggle off → paused (names kept, restored on).
 - Admins get no names. 删除 blocks auto re-create for that user/node until 重新分配.
 - 5 records reserved below the CF quota for admin DDNS records.
+
+## Round 2 (task `user-subdomain-r2`, 11-24 TW) — user decisions ~16:40 TW
+
+Overrides round 1 and plan 302 where they differ:
+1. A user with a name on a node never gets the node IP or the node's main
+   DDNS domain: every client format gets the user's own name. Generated
+   configs that turn IPv6 off (Clash `dns.ipv6`, Surge `ipv6 = false`) turn it
+   on only when the sub contains an AAAA-only domain; other subs are
+   byte-identical. Users turn IPv6 on in their client themselves.
+2. 到期 / 停用 = record deleted, name kept and still handed out (dead on
+   purpose), tagged 「已过期 · 记录已删除」 / 「已停用 · 记录已删除」 in the
+   node dialog, the user edit section and the forward address. 续期 / 启用 →
+   same name recreated within seconds (kick). Only deleting the user retires it.
+3. No pause for "no forwards on this node": a name lives while its user exists
+   and is not expired / disabled.
+4. CF negative TTL (SOA minimum) check, read-only.
+
+### Checklist (round 2)
+
+- [x] Planner: drop the unused → paused → retired rule (legacy rows → active)
+- [x] Hand-out: name for active (any sync state) + paused 到期/停用 + admin-deleted (dead name); no name on an effective node → main domain (never IP) + admin ⚠
+- [x] Subs: the name for every client; AAAA-only flag → Clash dns.ipv6 / Surge ipv6 on; byte-identical otherwise
+- [x] Forward list / package / copy links / sub editor detail: same rule + entry name tags
+- [x] Kick on payment completion (renew via shop)
+- [x] Frontend: tags in dialog, user section, forward address; remove 未使用 / 24 h texts; fallback ⚠
+- [x] Tests: planner, sub per client, lifecycle contract SQLite + PG (fake CF), real-CF flvxtest- pass
+- [x] CF SOA negative TTL check (read-only)
+- [x] go test ./... base vs branch, tsc + npm run build, CI on the branch
+- [x] Lab + screenshots refreshed (:8791/user-subdomain/)
+- [x] Ledger row 303 (待发布, head updated) + summary
+
+### Results (round 2, 11-24 TW)
+
+- Commits: d7194e68 backend, 77b7ee20 UI, 163aa607 tests (+ this doc). CI 45364807962 green
+  (frontend, backend, agent, PostgreSQL contract). Branch
+  `feature/3.0.27-user-subdomain`, still on fork.167; not released.
+- Hand-out rules (who gets what on a node with the toggle on):
+  live / pending name → the name; 到期 / 停用 → the same name (record deleted,
+  tag); admin 删除 → the dead name (tag 已删除 · 不再解析); no name yet (zone at the
+  cap, first zone check, the ≤ 5 s before the pass) → the main domain, admin ⚠
+  「暂用主域名」 (never the IP). Toggle off → plan 302 as on fork.167 (mihomo /
+  Stash / sing-box: main domain; NekoBox / Surge / Base64 … on an IPv6-only
+  entry: the IPv6 literal). Nodes without a DDNS domain: unchanged (IP).
+- go test ./... (SQLite + PostgreSQL 18 contract): 29/30 packages ok; the one
+  failure `TestChainHostOldAgentWaitsForUpgrade/landing_chain=1` is a timing
+  flake that also fails on unmodified fork.167 (-cpu 1 ×60: branch 32/120,
+  fork.167 41/120 failing subtests; alone it passes 3/3). New / changed:
+  usersub planner, TestSubUserSubdomain (11 clients), TestUserSubdomainContract,
+  TestUserSubdomainLifecycleContract (API + loop: 续期 / 启用 back in ~77 ms with a
+  50 ms debounce; prod debounce 5 s), opt-in real-CF TestCloudflareUserCNAMERenewE2E.
+- tsc + eslint (changed files) + npm run build ok.
+- Real Cloudflare (zone imgamer.top, Free plan): flvxtest-r… created → deleted →
+  created again under the same name → 1.1.1.1 and 8.8.8.8 answer CNAME + AAAA
+  (TTL 120) → deleted; zone back to 39 records. NXDOMAIN demo (name looked up
+  while deleted, then recreated): 1.1.1.1 / 8.8.8.8 answered NXDOMAIN with
+  negative TTL 1800 s but resolved 12 s after the recreate (from this host);
+  AliDNS 223.5.5.5 / DNSPod 119.29.29.29 cap the negative TTL at 600 s and kept
+  NXDOMAIN 92 s after the recreate.
+- SOA check (read-only GET /zones/{id}/dns_settings): soa.min_ttl 1800, soa.ttl
+  3600, live SOA minimum 1800. API range for min_ttl is 60–86400, but Cloudflare
+  docs: only Enterprise accounts can change SOA values → imgamer.top (Free)
+  cannot be set to 60 s. Not changed.
+- Prod-DB copy lab (netns, loopback only; 8 subs × 13 UAs = 104 renders):
+  fork.167 vs branch toggle off: 100 byte-identical, 4 differ only in
+  `ipv6: false → true` (subs 28 liuchen / 29 test-ns-fx as mihomo / Stash —
+  they already hold an AAAA-only main domain; both users pull with NekoBox,
+  whose output is unchanged). Toggle on for 沪日首发 / 沪美 (6 names): only subs
+  28 / 29 change, all 13 clients → own name + IPv6 on. Prod data copies deleted
+  after the run (hash index kept in /root/us303-lab/prod/keep).
+- Lab (fake CF, synthetic data): 56/56 checks, gallery :8791/user-subdomain/.
+
+### Known limits / to decide (round 2)
+
+- Renewal delay comes from resolvers that looked the name up while it was
+  deleted: up to 30 min (Google / CF / ISP honouring SOA 1800), AliDNS / DNSPod
+  up to 10 min. Cannot be lowered on the Free plan.
+- fanscool no longer exists on prod: 4 manual users (ns-robot, ns-lingmeng on
+  沪日首发; ns-saorana, ns-summer-ovo on 沪美) + 2 NekoBox subs (test-ns-fx, liuchen)
+  → 6 names, CF 39 → 45 / 200.
+- Unchanged (not in scope): the landing page rows that show a landing server's
+  own public address (its copy link does use the name) and admin-only pages
+  (tunnel list, node cards) that show the main domain.
