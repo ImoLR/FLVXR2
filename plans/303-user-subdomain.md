@@ -1,4 +1,4 @@
-# 303 — 用户专属域名 (one private CNAME per user per entry node)
+# 303 — 用户专属域名 (one private CNAME per user per entry node) — BUILT 11-24 TW, waiting for screenshot approval
 
 Task `user-subdomain` (coordinator 22b5afb7, 11-24 TW). BUILD + screenshots only
 (no tag, no release, no prod change). Base: `maintenance/3.0.27-fork.167-entry-domain`
@@ -61,17 +61,53 @@ User deleted / no longer on the node → record deleted, name retired forever.
 
 ## Checklist
 
-- [ ] Model + migration (`user_subdomain`, `node.user_subdomain_enabled`)
-- [ ] CF client: CNAME create/update, delete, zone record list (paged), usage
-- [ ] Desired-state planner (pure) + unit tests
-- [ ] Reconcile engine (kick + 10 min loop, CF apply, backoff, ⚠ state)
-- [ ] Node save: toggle + wildcard / main-domain validation
-- [ ] Hand-out: subs, 复制链接 (landing / chain / external), forward list + package inIp, landing 直连
-- [ ] Admin API: list (node / user), 改指, 换新名, 删除, 重新分配, 立即同步
-- [ ] Node list view + provider list stats
-- [ ] Frontend: DDNS toggle, node pill, drawer, user edit section, provider card line
-- [ ] Contract tests (SQLite + PG) with fake CF API
-- [ ] go test ./... base vs branch, npm build
-- [ ] Lab (fake CF) + screenshots → gallery :8791/user-subdomain/
-- [ ] One real CF end-to-end check (`flvxtest-` name, deleted afterwards)
-- [ ] Ledger row 待发布 + summary
+- [x] Model + migration (`user_subdomain`, `node.user_subdomain_enabled`)
+- [x] CF client: CNAME create/update, delete, zone record list (paged), usage
+- [x] Desired-state planner (pure) + unit tests
+- [x] Reconcile engine (kick + 10 min loop, CF apply, backoff, ⚠ state)
+- [x] Node save: toggle + wildcard / main-domain validation
+- [x] Hand-out: subs, 复制链接 (landing / chain / external), forward list + package inIp, landing 直连
+- [x] Admin API: list (node / user), 改指, 换新名, 删除, 重新分配, 立即同步
+- [x] Node list view + provider list stats
+- [x] Frontend: DDNS toggle, node pill, drawer, user edit section, provider card line
+- [x] Contract tests (SQLite + PG) with fake CF API
+- [x] go test ./... base vs branch, npm build
+- [x] Lab (fake CF) + screenshots → gallery :8791/user-subdomain/
+- [x] One real CF end-to-end check (`flvxtest-` name, deleted afterwards)
+- [x] Ledger row 待发布 + summary
+- [ ] Release (after the user approves the screenshots) + turn the toggle on for 沪日首发 / 沪美
+
+## Results (11-24 TW)
+
+- Commits on `feature/3.0.27-user-subdomain` (base fork.167 46847063): cc6ff2ba backend,
+  c82d0fdc UI, 2cbed542 count/dialog fixes, e5fc9343 opt-in real-CF e2e test, + this doc.
+- go test ./... : base fork.167 29/29 packages ok (SQLite); branch 30/30 ok with
+  PostgreSQL contract tests on (throwaway postgres:18), 0 failing tests.
+  New: internal/usersub (planner), tests/contract TestUserSubdomainContract (SQLite + PG,
+  stateful fake CF: create, 停用/启用, 到期/续期, wildcard refusal, 改指, 换新名, 删除 +
+  重新分配, unused → paused → retired after 24 h, user delete, toggle off/on, quota cap,
+  drift repair, foreign records never touched, labels never reused),
+  handler TestSubUserSubdomain (sub output: mihomo / Stash / sing-box get the name,
+  NekoBox / Hiddify / Base64 / Surge / unknown byte-identical literal on an IPv6-only
+  main domain; dual-stack → name for all; keys unchanged; paused → main domain).
+- npm run build ok (tsc clean, eslint clean on the new files).
+- Lab (/root/us303-lab: netns loopback only, fake CF with a 37-record zone, synthetic
+  users named like prod): 33/33 checks; gallery http://104.145.236.29:8791/user-subdomain/.
+- Real Cloudflare (one check): zone imgamer.top 39 records, quota 200 via
+  /dns_records/usage, no wildcard; flvxtest-1124001436.imgamer.top CNAME created
+  (DNS only, TTL 120, comment flvx-user), re-pointed, deleted; DeleteUserRecord on
+  vmsilo-huri.imgamer.top refused (record untouched); zone back to 39.
+
+## Known limits / decisions to confirm
+
+- IPv6-only entries (沪日首发 / 沪美): a name on an AAAA-only main domain is AAAA-only,
+  so plan 302's split applies — NekoBox (default IPv6 路由 off), Surge, Base64 apps and
+  unknown clients keep the IPv6 literal in their subscription. Deleting their name does
+  not stop those clients; only mihomo / Stash / sing-box subscriptions and hand-typed
+  names benefit. Both current sub users there (test-ns-fx, liuchen) use NekoBox.
+- 暂停 deletes the record: on 续期 / 启用 resolvers that cached NXDOMAIN (SOA min 1800 s)
+  may need up to 30 min before the name works again for that user.
+- Unused → paused at once, retired after 24 h (a deleted + re-created forward or a
+  group swap keeps the same name). Toggle off → paused (names kept, restored on).
+- Admins get no names. 删除 blocks auto re-create for that user/node until 重新分配.
+- 5 records reserved below the CF quota for admin DDNS records.
