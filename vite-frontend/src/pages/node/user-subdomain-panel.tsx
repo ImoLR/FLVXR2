@@ -82,6 +82,10 @@ export function stateChip(item: UserSubItem): {
     return { text: "创建失败 · 用户看不到地址", tone: "red", warn: true };
   if (item.status === "capped" && item.state === "active")
     return { text: "等名额 · 记录未建", tone: "red", warn: true };
+  // A fresh name whose first tries failed: the user still sees 「正在就绪」
+  // (the reason is in the tooltip; withheld after 3 failures, above).
+  if (item.status === "failed" && item.state === "active" && !item.readyAt)
+    return { text: "正在就绪 · 重试中", tone: "amber" };
   if (item.status === "failed")
     return { text: "同步失败", tone: "red", warn: true };
   if (item.state === "paused") {
@@ -720,7 +724,11 @@ export function UserSubdomainPanel({
           const live = g.items.filter(
             (it) => it.state === "active" && it.moved !== "out",
           ).length;
-          const warn = g.items.some((it) => it.status === "failed");
+          // Round 3: a withheld or capped name needs the admin too.
+          const warn = g.items.some(
+            (it) =>
+              it.status === "failed" || it.status === "capped" || it.hidden,
+          );
 
           return (
             <div

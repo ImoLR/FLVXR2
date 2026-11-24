@@ -104,7 +104,9 @@ func runUserSubdomainReady(t *testing.T, dialect string) {
 	defer server.Close()
 	stopNode := startMockNodeSession(t, server.URL, entry.Secret)
 	defer stopNode()
-	stopLoop := h.StartUserSubdomainLoop(50 * time.Millisecond)
+	// A realistic debounce for ordinary kicks: a reserved name must not wait
+	// it out (fast kick).
+	stopLoop := h.StartUserSubdomainLoop(2 * time.Second)
 	defer stopLoop()
 
 	admin, _ := auth.GenerateToken(1, "admin", 0, secret)
@@ -422,8 +424,15 @@ func runUserSubdomainReady(t *testing.T, dialect string) {
 	fake.mu.Lock()
 	fake.failCreates = 1000
 	fake.mu.Unlock()
+	// An ordinary mutation first (starts a 2 s debounce), then the forward.
+	if c, raw := call(admin, "user/update", map[string]interface{}{"id": 801, "user": "ns-robot", "flow": 99999, "num": 99,
+		"expTime": now + 30*86400000, "flowResetTime": 1, "status": 1}); c != 0 {
+		t.Fatalf("user/update: %s", raw)
+	}
 	createForward(804, "日本")
-	waitFor("first failure", func() bool { return nameOf(804).FailCount >= 1 })
+	if took := waitFor("first failure", func() bool { return nameOf(804).FailCount >= 1 }); took > 1500*time.Millisecond {
+		t.Fatalf("the reserved name waited out the ordinary debounce: first Cloudflare attempt after %v", took)
+	}
 	sao := nameOf(804)
 	if usersub.Hidden(sao) {
 		t.Fatalf("hidden after one failure: %+v", sao)

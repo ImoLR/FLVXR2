@@ -77,6 +77,7 @@ type userSubManager struct {
 	reserve  sync.Mutex // one name per (user, node): reservations never overlap
 	fast     atomic.Bool
 	kick     chan struct{}
+	fastKick chan struct{}           // cuts a running debounce short
 	zones    map[string]*userSubZone // provider|zone
 	nodeWarn map[int64]userSubNodeWarn
 	lastFull time.Time
@@ -106,6 +107,7 @@ func (h *Handler) userSubState() *userSubManager {
 	if h.userSub == nil {
 		h.userSub = &userSubManager{
 			kick:     make(chan struct{}, 1),
+			fastKick: make(chan struct{}, 1),
 			zones:    map[string]*userSubZone{},
 			nodeWarn: map[int64]userSubNodeWarn{},
 			debounce: userSubDebounce,
@@ -143,7 +145,12 @@ func (h *Handler) userSubKickFast() {
 	if h == nil {
 		return
 	}
-	h.userSubState().fast.Store(true)
+	m := h.userSubState()
+	m.fast.Store(true)
+	select {
+	case m.fastKick <- struct{}{}:
+	default:
+	}
 	h.userSubKick()
 }
 
@@ -218,10 +225,25 @@ func (h *Handler) runUserSubdomainLoop(ctx context.Context) {
 			if m.fast.Swap(false) && wait > userSubFastWait {
 				wait = userSubFastWait
 			}
+			// A name reserved during a normal debounce must not wait it out.
+			debounce := time.NewTimer(wait)
 			select {
 			case <-ctx.Done():
+				debounce.Stop()
 				return
-			case <-time.After(wait):
+			case <-debounce.C:
+			case <-m.fastKick:
+				debounce.Stop()
+				select {
+				case <-ctx.Done():
+					return
+				case <-time.After(userSubFastWait):
+				}
+			}
+			m.fast.Store(false)
+			select {
+			case <-m.fastKick:
+			default:
 			}
 			select {
 			case <-m.kick:
