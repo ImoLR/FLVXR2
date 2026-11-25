@@ -121,3 +121,81 @@ still the client's current path, so round 1's 10-minute cap hid the right number
 - [x] Push, CI green
 - [x] Summary `runs/leikwan-rule-latency-r2/summary.md`; RELEASE-LEDGER row 310 updated
 
+
+## Round 3 (11-26 TW, task leikwan-latency-landing — user decision 11-26 ~05:45 TW)
+User (after a long discussion, measured facts in memory leikwan-rule-latency): rows show **到落地**, the 专线
+header shows **端内**, and 线路监测 gets a 「利群专线端内」 chart of every 专线. Still BUILD ONLY (ships with 311).
+
+### Design
+- **Agent** (`go-gost/x/socket/leikwan_seg_linux.go`, inside the existing 1-min 利群 host tick, no new goroutine):
+  for each forward with a UDP selection the ingress is resolved like 诊断 (`active_udp.selection_ref` →
+  `offered.json`, else `lines.json`); then ONE netlink socket per tick, per distinct ingress port two
+  `SOCK_DIAG_BY_FAMILY` dumps (AF_INET + AF_INET6) with a kernel bytecode filter `dport ≥ p && dport ≤ p`,
+  `ESTABLISHED` only, `INET_DIAG_INFO` → `tcpi_rtt` / `tcpi_min_rtt`; sockets to the exact ingress IP:port are
+  grouped → `forwards[].seg = {endpoint, ms (lower median srtt), minMs, conns, err}`; `state.rtt = 2`.
+  No probe, no new connection, no `ss` subprocess. `lkReportKey` ignores seg (rides along with the reports that go out
+  anyway, ~2 min). Conns 0 = the in-use ingress has no connection now → no 入口段 (gap).
+- **Panel per-minute 利群 pass** (`leikwan_land.go`, memory only, starts :05 of every minute):
+  - 专线出口 → 落地: per native landing port of a 利群 rule (manual / external / shared landings skipped) the exit =
+    `lkExitCands(LandingPeerRtt)[0]` (the 诊断 pick; FLVX node IPs = 备线 exits excluded), re-read ≤ every 10 min
+    (every 2 min while no exit is known or the echo fails — exits rotate); ONE `ServiceMonitorCheck` icmp echo a
+    minute per (landing node, exit IP) pair, deduped across rules, ≤ 4 in flight; offline landings skipped.
+    Exit never answers / no answer for > 5 min → the connection rtt (min_rtt) marked ≈; a single lost echo keeps
+    the last answer ≤ 5 min. Errors logged ≤ 1 / 10 min, nothing per minute.
+  - 端内 readings: every online 利群入口 with a fresh plan-310-r3 report → per forward with UDP 全程 (lkClientPick
+    = udp) and seg conns > 0: 端内 = max(0, UDP − 入口段). Auto pick per 专线 = the reading of the last pick while
+    it exists (no host / forward jumps), else the freshest 全程.
+  - 线路监测 samples for the 「利群专线端内」 lines (below).
+- **Rule rows** (`leikwan_rule_latency.go`): `latency = {ms = totalMs + landMs, src, ageS, totalMs, landMs, landAgeS,
+  approx}` — only UDP 全程 (latest_tcp is a user connection that already includes the landing) + a landing value;
+  otherwise no tag (`latencyNote` keeps the reason for the API only). `landLatency` (出口 → 落地 alone) for the App.
+  Note: 诊断 (306) shows 到落地 = max(全程 + n, 入口段 + C); the row uses the user's definition 全程 + n.
+- **专线 header** (admin line list `endIn`): the auto pick → 「端内 X ms」 amber (like 诊断), hover: 全程 − 入口段,
+  入口机, rule (+ 利群 #id admin), ingress label, age, number of readings. No reading → no tag.
+- **App 手机本地 rows**: 本机 → 落地 = the phone's own UDP 全程 + landLatency. The bridge has no handshake-free value
+  today (`diag` = TCP handshakes, r2 finding), so the panel reads an optional `PhoneForward.total` from getState
+  (no extra bridge call); **needs an App update** that fills it from the core's status — until then no tag there.
+- **线路监测 kind 「利群专线端内」** (`line_monitor_endin.go`): `line_monitor_line.kind = 'lk_endin'` +
+  `leikwan_line_id`; `source_node_id` = fixed 利群入口 or 0 = auto. Never a TcpPing target. One sample a minute
+  (status ok, ms10 = 端内) + its parts in the new table `line_monitor_part` (same packed key: total10, seg10,
+  via_node), written by the existing batched flush, pruned with the samples (same key range). No reading = no
+  sample = 无数据 (never 断流). Charts with such a line use ≥ 60 s buckets (per-line slot in `linemon.Accumulator`).
+  Data API adds per bucket `total / seg / via` + `viaNames`; tooltip 「全程 X − 入口段 Y · 入口机 Z」; stats show
+  「—」 for 可用率 / 丢包 / 断流. Page button 「+ 利群专线端内」 = new chart prefilled with every active 专线 (auto).
+
+### Prod numbers (read-only 11-26 TW)
+- 专线 (leikwan_line): 1 利群·广港 (CAN→HKG), 2 利群·沪日 (SHA→TYO), 3 利群·广台 (CAN→TPE), 4 利群·福台 (FOC→TPE).
+- 6 rules, all native landings on their own ports: 263 → 99u :30000, 264 → JP B :31004, 280 → 马年 :10020,
+  281 → Fachost :30000, 282 → 马年 :10019, 615 → Fachost :30001 → **≤ 6 (landing, exit) pairs = ≤ 6 ICMP echoes / min**
+  (1 packet each way), LandingPeerRtt (passive) ≈ 6 per 10 min (+ retries while an exit is unknown / silent).
+- 利群入口 connections: 阿里广州 75 ESTABLISHED, 19 to :5438; 百度云广州 95 / 27 → per tick 2 filtered dumps return
+  ~20–30 sockets; ≤ 12 small /run file reads (offered / lines json). In-use ingress of 263 on 阿里广州 had 10
+  connections, srtt 1.9–3.2 ms (lower median ≈ 2.5); 280's in-use ingress 2 connections, 5.7–5.9 ms.
+- DB: no new per-minute writes for rows / header; the 「利群专线端内」 chart (4 lines) adds 4 samples + 4 parts a
+  minute in one batch → ≈ 173 k rows each table over 30 days (a few MB).
+
+### Release needs
+- Panel (frontend + backend) + **agent OTA of the 利群入口** 百度云广州 58 + 阿里广州 60 (火山广州 52 / 火山上海 61 offline);
+  **landing nodes need nothing** (LandingPeerRtt + ServiceMonitorCheck icmp are already used by 诊断 on all four
+  landing machines: Boil HKT 99u 63, Bestvm JP B 18, Boil Hinet 马年 62, Fachost seednet 黑五 45).
+- **DB change: yes** — AutoMigrate adds `line_monitor_line.kind` + `leikwan_line_id` (defaults '' / 0) and the new
+  table `line_monitor_part`; no data migration.
+- Between the panel swap and the OTA: today's 利群入口 agents (fork.143) report no rtt / seg → rows show no tag and
+  headers no 端内 (诊断 keeps working). After the OTA: rows show 到落地 with the next host report (≤ 2 min; the
+  landing pass already runs), headers 端内 likewise; old (r2-only) agents would give rows but no 端内.
+- **Post-release data op (release worker)**: 节点 → 线路监测 → 「+ 利群专线端内」 → check the 4 lines (广港 / 沪日 /
+  广台 / 福台, 入口机 自动) → 保存. Or API: `POST /api/v1/node/line-monitor/chart/save`
+  `{"name":"利群专线端内","lines":[{"kind":"lk_endin","leikwanLineId":1,"sourceNodeId":0},{"kind":"lk_endin","leikwanLineId":2,"sourceNodeId":0},{"kind":"lk_endin","leikwanLineId":3,"sourceNodeId":0},{"kind":"lk_endin","leikwanLineId":4,"sourceNodeId":0}]}`
+  (admin token). Only after the 利群入口 OTA (otherwise the chart stays 无数据). Uses 4 of the 40 line slots (4 used today).
+
+### Tasks (round 3)
+- [x] Agent: ingress of the UDP selection, 入口段 via kernel-filtered sock_diag, seg in the report, rtt = 2
+- [x] Agent tests: netlink request bytes, message parse (v4 / v4-mapped / foreign seq / non-ESTABLISHED / error / truncated), stats, report read with fake dump (offer + lines.json, no conn, unknown ref, dump error, report key), real loopback dump
+- [x] Panel: per-minute 利群 pass (exits, echoes, ≈, hold, offline), 到落地 rows + landLatency, header endIn
+- [x] Panel: 线路监测 kind (model, part table, save / validate, list / options, passive samples, query slot + parts, prune)
+- [x] Handler tests (TestLeiKwanLandTick / TestLeiKwanEndIn / TestLeiKwanRuleLatencyLanding, r2 tests → r3) + contract (TestLeiKwanEndInContract, TestLeiKwanRuleLatencyContract r3; SQLite + PG)
+- [x] UI: rows / H5 field / user page / 手机本地 / header 端内 / 线路监测 dialog + one-click + tooltip + stats
+- [x] npm run build + eslint (touched files) + tsc
+- [x] Lab screenshots (第 3 轮) → gallery
+- [ ] Push, CI green
+- [ ] Summary, RELEASE-LEDGER row 310

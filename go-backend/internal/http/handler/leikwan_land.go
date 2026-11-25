@@ -326,12 +326,18 @@ func (h *Handler) lkLandExits(ctx context.Context, rules []model.LeiKwanRule, no
 				rt.ports[k] = p
 			}
 			p.seenAt = now
-			due := now.Sub(p.peersAt) >= lkLandPeersEvery
-			if !due && now.Sub(p.tried) >= lkLandPeersRetry {
-				if !p.haveExit {
+			// Re-read at most every 2 min (a failing read too): every 10 min,
+			// while no exit is known, or when an exit that answered ping
+			// stopped answering (it may have rotated). An exit that never
+			// answers ping is only re-read every 10 min.
+			due := false
+			if now.Sub(p.tried) >= lkLandPeersRetry {
+				switch {
+				case now.Sub(p.peersAt) >= lkLandPeersEvery, !p.haveExit:
 					due = true
-				} else if pg := rt.pings[lkPingKey{k.Node, p.exit.IP}]; pg != nil && pg.noAnswer {
-					due = true // the exit may have rotated
+				default:
+					pg := rt.pings[lkPingKey{k.Node, p.exit.IP}]
+					due = pg != nil && pg.noAnswer && !pg.okAt.IsZero()
 				}
 			}
 			if due {
@@ -342,9 +348,15 @@ func (h *Handler) lkLandExits(ctx context.Context, rules []model.LeiKwanRule, no
 				if peers, ok := h.lkLandPeers(k); ok {
 					list := lkExitCands(peers, skip)
 					rt.mu.Lock()
+					old := p.exit.IP
 					p.peersAt, p.haveExit = now, len(list) > 0
 					if p.haveExit {
 						p.exit = list[0]
+						// Same exit, silent past the hold → from now on it is an
+						// exit that does not answer ping (≈, 10-min re-reads).
+						if pg := rt.pings[lkPingKey{k.Node, old}]; p.exit.IP == old && pg != nil && pg.noAnswer && now.Sub(pg.okAt) > lkLandHoldOK {
+							pg.okAt = time.Time{}
+						}
 					}
 					rt.mu.Unlock()
 				}

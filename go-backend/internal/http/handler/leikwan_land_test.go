@@ -155,26 +155,24 @@ func TestLeiKwanLandTick(t *testing.T) {
 	if lab.peerCalls[10020] != 1 || lab.peerCalls[30001] != 1 || lab.echoes["210.61.104.139"] != 2 || lab.echoes["202.5.245.92"] != 2 {
 		t.Fatalf("minute 2: peers %v echoes %v", lab.peerCalls, lab.echoes)
 	}
-	// Two landing ports with the same exit IP on one node share the echo.
-	lab.peers[10019] = []map[string]interface{}{{"ip": "210.61.104.139", "conns": 1, "rttMs": 24.0}}
 	lab.mu.Unlock()
-	// Minute 3: the non-answering exit is re-read (2 min retry); the 广台
-	// exit loses its echo → the last answer is kept (≤ 5 min).
+	// Minute 3: an exit that never answered ping (30001) is not re-read early
+	// (10 min); the 广台 exit loses its echo → the last answer is kept ≤ 5 min.
 	lab.mu.Lock()
 	delete(lab.ping, "210.61.104.139")
 	lab.mu.Unlock()
 	h.leiKwanLandTick(context.Background(), t0.Add(2*time.Minute))
 	lab.mu.Lock()
-	if lab.peerCalls[30001] != 2 || lab.peerCalls[10020] != 1 {
+	if lab.peerCalls[30001] != 1 || lab.peerCalls[10020] != 1 {
 		t.Fatalf("minute 3 peers %v", lab.peerCalls)
 	}
 	lab.mu.Unlock()
 	if v, _ := land(4, t0.Add(2*time.Minute)); v == nil || v.Ms != 5.5 || v.Approx || v.AgeS != 60 {
 		t.Fatalf("held echo %+v", v)
 	}
-	// No answer for > 5 min → the connection rtt (min_rtt), ≈; the port is
-	// re-read meanwhile (the exit may have rotated) and the shared IP is
-	// echoed once per minute.
+	// No answer for > 5 min → the connection rtt (min_rtt), ≈. Meanwhile 10020
+	// is re-read every 2 min (its exit used to answer: it may have rotated) —
+	// minutes 4, 6, 8 — then the same silent exit counts as one without ping.
 	for m := 3; m <= 7; m++ {
 		h.leiKwanLandTick(context.Background(), t0.Add(time.Duration(m)*time.Minute))
 	}
@@ -182,12 +180,29 @@ func TestLeiKwanLandTick(t *testing.T) {
 		t.Fatalf("no echo for 6 min %+v", v)
 	}
 	lab.mu.Lock()
-	if lab.peerCalls[10020] < 2 {
-		t.Fatalf("10020 not re-read after failed echoes: %v", lab.peerCalls)
+	if lab.peerCalls[10020] != 4 || lab.peerCalls[30001] != 1 {
+		t.Fatalf("re-reads after failed echoes: %v", lab.peerCalls)
+	}
+	lab.mu.Unlock()
+	for m := 8; m <= 9; m++ {
+		h.leiKwanLandTick(context.Background(), t0.Add(time.Duration(m)*time.Minute))
+	}
+	lab.mu.Lock()
+	if lab.peerCalls[10020] != 4 {
+		t.Fatalf("silent exit still re-read every 2 min: %v", lab.peerCalls)
+	}
+	// Minute 10: the 10-min refresh (all ports read at t0). 10019's exit is
+	// now the same IP as 10020's on the same node → one echo for both.
+	lab.peers[10019] = []map[string]interface{}{{"ip": "210.61.104.139", "conns": 1, "rttMs": 24.0}}
+	lab.mu.Unlock()
+	h.leiKwanLandTick(context.Background(), t0.Add(10*time.Minute))
+	lab.mu.Lock()
+	if lab.peerCalls[30001] != 2 || lab.peerCalls[10019] != 2 {
+		t.Fatalf("10-min refresh: %v", lab.peerCalls)
 	}
 	echoes := lab.echoes["210.61.104.139"]
 	lab.mu.Unlock()
-	h.leiKwanLandTick(context.Background(), t0.Add(8*time.Minute))
+	h.leiKwanLandTick(context.Background(), t0.Add(11*time.Minute))
 	lab.mu.Lock()
 	if got := lab.echoes["210.61.104.139"] - echoes; got != 1 {
 		t.Fatalf("shared exit IP echoed %d times in one minute", got)
@@ -196,8 +211,8 @@ func TestLeiKwanLandTick(t *testing.T) {
 	lab.offline[62] = true
 	before := lab.echoes["210.61.104.139"]
 	lab.mu.Unlock()
-	h.leiKwanLandTick(context.Background(), t0.Add(9*time.Minute))
-	if v, why := land(4, t0.Add(9*time.Minute)); v != nil || why != lkLandOffline {
+	h.leiKwanLandTick(context.Background(), t0.Add(12*time.Minute))
+	if v, why := land(4, t0.Add(12*time.Minute)); v != nil || why != lkLandOffline {
 		t.Fatalf("offline %+v %q", v, why)
 	}
 	lab.mu.Lock()
