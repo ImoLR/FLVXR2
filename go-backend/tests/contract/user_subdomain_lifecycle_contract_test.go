@@ -113,7 +113,7 @@ func TestUserSubdomainLifecycleContract(t *testing.T) {
 			// Toggle on through the node editor → the kick creates both names.
 			if c, raw := call(admin, "node/update", map[string]interface{}{"id": 51, "name": "vmsilo 沪日首发",
 				"serverIpV4": "", "serverIpV6": mainDomain, "port": "10000-65535", "tcpListenAddr": "[::]", "udpListenAddr": "[::]",
-				"ddns": map[string]interface{}{"enabled": true, "providerId": 1, "userSubdomain": true, "records": []interface{}{
+				"ddns": map[string]interface{}{"enabled": true, "providerId": 1, "userSubdomain": true, "userSubdomainKeep": false, "records": []interface{}{
 					map[string]interface{}{"domain": mainDomain, "type": "AAAA", "role": "main", "source": "ct"},
 				}}}); c != 0 {
 				t.Fatalf("toggle on: %s", raw)

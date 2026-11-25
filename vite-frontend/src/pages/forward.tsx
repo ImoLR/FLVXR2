@@ -158,6 +158,7 @@ import { useMobileBreakpoint } from "@/hooks/useMobileBreakpoint";
 import { saveOrder } from "@/utils/order-storage";
 import { JwtUtil } from "@/utils/jwt";
 import {
+  EntryKeptTag,
   EntryNameTags,
   EntryNotices,
   hasReadyingEntry,
@@ -179,6 +180,8 @@ export interface Forward {
   entryNameTags?: Record<string, string>;
   // Plan 303 round 3: entries withheld from inIp (no address yet) and why.
   entryNotices?: EntryNotice[];
+  // Plan 305 (admins only): entry nodes this forward keeps its old address on.
+  entryKeptNodes?: number[];
   inPort: number;
   remoteAddr: string;
   interfaceName?: string;
@@ -787,6 +790,8 @@ const mapForwardApiItems = (items: ForwardApiItem[]): Forward[] => {
       undefined,
     entryNotices:
       ((forward as any).entryNotices as EntryNotice[] | undefined) || undefined,
+    entryKeptNodes:
+      ((forward as any).entryKeptNodes as number[] | undefined) || undefined,
     inPort: forward.inPort ?? 0,
     // A chain rule (plan 108) shows the user's own node as its target; the
     // rule's real 127.0.0.1 target is internal.
@@ -1285,6 +1290,11 @@ const SortableTableRow = ({
           </span>
         </div>
         <EntryNameTags className="mt-0.5" tags={forward.entryNameTags} />
+        <EntryKeptTag
+          admin={isAdmin}
+          className="mt-0.5"
+          nodes={forward.entryKeptNodes}
+        />
         <EntryNotices
           admin={isAdmin}
           className="mt-0.5"
@@ -1628,6 +1638,11 @@ const SortableCompactTableRow = ({
           </span>
         </div>
         <EntryNameTags className="mt-0.5" tags={forward.entryNameTags} />
+        <EntryKeptTag
+          admin={isAdmin}
+          className="mt-0.5"
+          nodes={forward.entryKeptNodes}
+        />
         <EntryNotices
           admin={isAdmin}
           className="mt-0.5"
@@ -5551,6 +5566,11 @@ export default function ForwardPage() {
                 </div>
               </div>
               <EntryNameTags className="px-1" tags={forward.entryNameTags} />
+              <EntryKeptTag
+                admin={isAdmin}
+                className="px-1"
+                nodes={forward.entryKeptNodes}
+              />
               <EntryNotices
                 admin={isAdmin}
                 className="px-1"

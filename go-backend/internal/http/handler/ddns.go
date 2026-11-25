@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net"
 	"net/http"
 	"strings"
@@ -395,6 +396,10 @@ type ddnsRequest struct {
 	Records    []ddnsRequestRecord `json:"records"`
 	// UserSubdomain (plan 303): 「用户专属域名」; nil = unchanged.
 	UserSubdomain *bool `json:"userSubdomain"`
+	// UserSubdomainKeep (plan 305): 「已有转发保持原地址」 when the toggle goes
+	// on — forwards / landings already on the node keep their address; nil =
+	// true (the default), false = every forward moves to names.
+	UserSubdomainKeep *bool `json:"userSubdomainKeep"`
 }
 
 // parseDDNSRequest reads the optional `ddns` object of a node save; nil
@@ -422,6 +427,8 @@ type ddnsPlan struct {
 	records    []model.NodeDDNSRecord
 	// userSubdomain (plan 303): nil = keep the stored toggle.
 	userSubdomain *bool
+	// userSubdomainKeep (plan 305): nil = true.
+	userSubdomainKeep *bool
 }
 
 // saveUserSubdomain stores the plan's 「用户专属域名」 toggle (DDNS off turns
@@ -434,6 +441,21 @@ func (h *Handler) saveUserSubdomain(nodeID int64, plan *ddnsPlan) error {
 		return nil
 	}
 	on := plan.enabled && plan.userSubdomain != nil && *plan.userSubdomain
+	if on {
+		// Plan 305: off → on stores the node's keep set in the same
+		// transaction as the toggle (已有转发保持原地址, default on), before
+		// any pass can hand out a name.
+		if cur, err := h.repo.GetNodeByID(nodeID); err == nil && cur != nil && !cur.UserSubdomainEnabled {
+			keep := plan.userSubdomainKeep == nil || *plan.userSubdomainKeep
+			fwd, land, err := h.repo.EnableNodeUserSubdomain(nodeID, keep)
+			if err != nil {
+				return err
+			}
+			log.Printf("[user-subdomain] node %d toggle on: keep=%v (%d forwards, %d landings keep their address)", nodeID, keep, fwd, land)
+			h.userSubKick()
+			return nil
+		}
+	}
 	if err := h.repo.SetNodeUserSubdomain(nodeID, on); err != nil {
 		return err
 	}
@@ -486,7 +508,7 @@ func (h *Handler) ddnsPanelHosts(r *http.Request) []string {
 // changed records are checked against Cloudflare (zone, CNAME, existing
 // records pointing elsewhere / proxied unless 「接管已有记录」).
 func (h *Handler) validateDDNSRequest(ctx context.Context, r *http.Request, nodeID int64, req *ddnsRequest, known []string) (*ddnsPlan, error) {
-	plan := &ddnsPlan{enabled: req.Enabled, providerID: req.ProviderID, userSubdomain: req.UserSubdomain}
+	plan := &ddnsPlan{enabled: req.Enabled, providerID: req.ProviderID, userSubdomain: req.UserSubdomain, userSubdomainKeep: req.UserSubdomainKeep}
 	if len(req.Records) > repo.MaxNodeDDNSRecords {
 		return nil, fmt.Errorf("每个节点最多 %d 条 DDNS 记录", repo.MaxNodeDDNSRecords)
 	}

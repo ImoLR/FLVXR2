@@ -55,6 +55,8 @@ export interface NodeDDNSPayload {
   records: DDNSRecordPayload[];
   /** plan 303 「用户专属域名」 */
   userSubdomain?: boolean;
+  /** plan 305 「已有转发保持原地址」 when the toggle goes on (default true). */
+  userSubdomainKeep?: boolean;
 }
 
 export interface DDNSRecordView extends DDNSRecordPayload {

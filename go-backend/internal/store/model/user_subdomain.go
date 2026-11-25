@@ -60,12 +60,40 @@ type UserSubdomain struct {
 	// Cloudflare API (0 = never: a fresh name). A fresh name that cannot be
 	// created (cap, persistent failure) is not handed out at all; a name that
 	// was ready once keeps being shown (the user already has it).
-	ReadyAt     int64 `gorm:"column:ready_at;type:bigint;not null;default:0" json:"readyAt"`
-	CreatedTime int64 `gorm:"column:created_time;type:bigint;not null;default:0" json:"createdTime"`
-	UpdatedTime int64 `gorm:"column:updated_time;type:bigint;not null;default:0" json:"updatedTime"`
+	ReadyAt int64 `gorm:"column:ready_at;type:bigint;not null;default:0" json:"readyAt"`
+	// RecordDomain (plan 305): the node DDNS domain this name points at;
+	// "" = the node's main domain (plan 303 names, 改指). A node with several
+	// DDNS domains (Leikwanhost 沪台IPLC: 电信 -ct main + 联通 -cu extra)
+	// gives each user one name per domain.
+	RecordDomain string `gorm:"column:record_domain;type:varchar(253);not null;default:''" json:"recordDomain"`
+	CreatedTime  int64  `gorm:"column:created_time;type:bigint;not null;default:0" json:"createdTime"`
+	UpdatedTime  int64  `gorm:"column:updated_time;type:bigint;not null;default:0" json:"updatedTime"`
 }
 
 func (UserSubdomain) TableName() string { return "user_subdomain" }
+
+// 已有转发保持原地址 (plan 305): when the 用户专属域名 toggle of a node goes on
+// with this choice, every forward with a port on the node and every native
+// landing node on it at that moment is listed here and keeps the address it
+// had (no name, subscriptions unchanged) for as long as it exists. Only
+// forwards / landings created later get names. RefCreated is the created_time
+// of the forward / landing node: a deleted and recreated one is new.
+const (
+	UserSubdomainKeepForward = "forward"
+	UserSubdomainKeepLanding = "landing"
+)
+
+type UserSubdomainKeep struct {
+	ID          int64  `gorm:"primaryKey;autoIncrement" json:"id"`
+	NodeID      int64  `gorm:"column:node_id;not null;uniqueIndex:idx_user_subdomain_keep,priority:1" json:"nodeId"`
+	Kind        string `gorm:"type:varchar(8);not null;uniqueIndex:idx_user_subdomain_keep,priority:2" json:"kind"`
+	RefID       int64  `gorm:"column:ref_id;not null;uniqueIndex:idx_user_subdomain_keep,priority:3" json:"refId"`
+	RefCreated  int64  `gorm:"column:ref_created;type:bigint;not null;default:0" json:"refCreated"`
+	UserID      int64  `gorm:"column:user_id;not null;default:0;index" json:"userId"`
+	CreatedTime int64  `gorm:"column:created_time;type:bigint;not null;default:0" json:"createdTime"`
+}
+
+func (UserSubdomainKeep) TableName() string { return "user_subdomain_keep" }
 
 // Live: the CF record exists and may be handed out to the user.
 func (s UserSubdomain) Live() bool {

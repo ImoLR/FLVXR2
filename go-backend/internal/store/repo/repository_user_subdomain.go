@@ -82,6 +82,8 @@ type UserSubdomainNode struct {
 	DDNSEnabled bool
 	ProviderID  int64
 	Main        UserSubdomainMain
+	// Targets (plan 305): every DDNS domain names point at (main first).
+	Targets []UserSubdomainTarget
 }
 
 // Enabled: toggle and DDNS both on.
@@ -111,7 +113,7 @@ func (r *Repository) ListUserSubdomainNodes() (map[int64]UserSubdomainNode, erro
 	}
 	for _, n := range nodes {
 		out[n.ID] = UserSubdomainNode{ID: n.ID, Name: n.Name, Toggle: n.UserSubdomainEnabled, DDNSEnabled: n.DDNSEnabled,
-			ProviderID: n.DDNSProviderID, Main: UserSubdomainMainOf(recs[n.ID], hasA)}
+			ProviderID: n.DDNSProviderID, Main: UserSubdomainMainOf(recs[n.ID], hasA), Targets: UserSubdomainTargetsOf(recs[n.ID], hasA)}
 	}
 	return out, nil
 }
@@ -134,38 +136,38 @@ func (r *Repository) ddnsRecordsByNode() (map[int64][]model.NodeDDNSRecord, map[
 
 // UserSubdomainUsage maps node id → user ids that use the node as an entry
 // (a forward port on it) or as a native landing (a landing node on its
-// server). 2 queries.
+// server). Plan 305: forwards / landing nodes kept on their old address
+// (已有转发保持原地址) do not count — they never get a name. 3 queries.
 func (r *Repository) UserSubdomainUsage(nodeIDs []int64) (map[int64]map[int64]bool, error) {
 	out := map[int64]map[int64]bool{}
 	if len(nodeIDs) == 0 {
 		return out, nil
 	}
-	type row struct {
-		NodeID int64
-		UserID int64
+	keep, err := r.loadUserSubdomainKeep(nodeIDs, nil)
+	if err != nil {
+		return nil, err
 	}
-	add := func(rows []row) {
+	add := func(rows []userSubdomainKeepRow, kind string) {
 		for _, x := range rows {
+			if keep.has(x.NodeID, kind, x.RefID, x.Created) {
+				continue
+			}
 			if out[x.NodeID] == nil {
 				out[x.NodeID] = map[int64]bool{}
 			}
 			out[x.NodeID][x.UserID] = true
 		}
 	}
-	var fwd []row
-	if err := r.db.Table("forward_port").Select("DISTINCT forward_port.node_id AS node_id, forward.user_id AS user_id").
-		Joins("JOIN forward ON forward.id = forward_port.forward_id").
-		Where("forward_port.node_id IN ?", nodeIDs).Scan(&fwd).Error; err != nil {
+	fwd, err := userSubdomainForwardsOn(r.db, nodeIDs)
+	if err != nil {
 		return nil, err
 	}
-	add(fwd)
-	var land []row
-	if err := r.db.Table("landing_node").Select("DISTINCT landing_server.node_id AS node_id, landing_node.user_id AS user_id").
-		Joins("JOIN landing_server ON landing_server.id = landing_node.landing_server_id").
-		Where("landing_server.node_id IN ? AND landing_node.delete_pending = ?", nodeIDs, false).Scan(&land).Error; err != nil {
+	add(fwd, model.UserSubdomainKeepForward)
+	land, err := userSubdomainLandingsOn(r.db, nodeIDs, false)
+	if err != nil {
 		return nil, err
 	}
-	add(land)
+	add(land, model.UserSubdomainKeepLanding)
 	return out, nil
 }
 
@@ -436,6 +438,8 @@ type UserSubdomainForward struct {
 	ID   int64  `json:"id"`
 	Name string `json:"name"`
 	Port int    `json:"port"`
+	// Kept (plan 305): 保持原地址 — this forward keeps the node address.
+	Kept bool `json:"kept,omitempty"`
 }
 
 // UserSubdomainForwardUses: per (user, node), the user's forwards with a
@@ -446,16 +450,21 @@ func (r *Repository) UserSubdomainForwardUses(userIDs, nodeIDs []int64) (map[[2]
 	if len(userIDs) == 0 || len(nodeIDs) == 0 {
 		return fwd, land, nil
 	}
+	keep, err := r.loadUserSubdomainKeep(nodeIDs, userIDs)
+	if err != nil {
+		return nil, nil, err
+	}
 	type row struct {
-		UserID int64
-		NodeID int64
-		ID     int64
-		Name   string
-		Port   int
+		UserID  int64
+		NodeID  int64
+		ID      int64
+		Name    string
+		Port    int
+		Created int64
 	}
 	var rows []row
 	if err := r.db.Table("forward_port").
-		Select("forward.user_id AS user_id, forward_port.node_id AS node_id, forward.id AS id, forward.name AS name, forward_port.port AS port").
+		Select("forward.user_id AS user_id, forward_port.node_id AS node_id, forward.id AS id, forward.name AS name, forward_port.port AS port, forward.created_time AS created").
 		Joins("JOIN forward ON forward.id = forward_port.forward_id").
 		Where("forward.user_id IN ? AND forward_port.node_id IN ?", userIDs, nodeIDs).
 		Order("forward.inx ASC, forward.id ASC").Scan(&rows).Error; err != nil {
@@ -468,7 +477,8 @@ func (r *Repository) UserSubdomainForwardUses(userIDs, nodeIDs []int64) (map[[2]
 			continue
 		}
 		seen[[3]int64{x.UserID, x.NodeID, x.ID}] = true
-		fwd[k] = append(fwd[k], UserSubdomainForward{ID: x.ID, Name: x.Name, Port: x.Port})
+		fwd[k] = append(fwd[k], UserSubdomainForward{ID: x.ID, Name: x.Name, Port: x.Port,
+			Kept: keep.has(x.NodeID, model.UserSubdomainKeepForward, x.ID, x.Created)})
 	}
 	type lrow struct {
 		UserID int64
@@ -503,11 +513,12 @@ func (r *Repository) AnyUserSubdomainToggle() (bool, error) {
 }
 
 // UserSubdomainPairTaken: the user already has a live or paused name
-// pointing at the node, or an admin-deleted tombstone for it.
-func (r *Repository) UserSubdomainPairTaken(userID, nodeID int64) (bool, error) {
+// pointing at the node's DDNS record (plan 305: "" = main), or an
+// admin-deleted tombstone for it.
+func (r *Repository) UserSubdomainPairTaken(userID, nodeID int64, record string) (bool, error) {
 	var n int64
 	err := r.db.Model(&model.UserSubdomain{}).
-		Where("user_id = ? AND node_id = ? AND (state <> ? OR blocked = ?)", userID, nodeID, model.UserSubdomainRetired, true).
+		Where("user_id = ? AND node_id = ? AND record_domain = ? AND (state <> ? OR blocked = ?)", userID, nodeID, record, model.UserSubdomainRetired, true).
 		Count(&n).Error
 	return n > 0, err
 }
@@ -620,11 +631,17 @@ type userEntryName struct {
 
 // UserEntryNames resolves entry hosts to the owner's name.
 type UserEntryNames struct {
-	names     map[int64]map[int64]userEntryName // user → node → name
-	hosts     map[int64]map[string]bool         // node → hosts a name replaces
-	main      map[int64]UserSubdomainMain       // node → main domain info
-	admins    map[int64]bool                    // users that never get a name
-	effective bool                              // some node has the toggle on
+	names map[int64]map[int64]map[string]userEntryName // user → node → record key → name
+	// hosts: node → host (DDNS domain or its current IP) → record key.
+	hosts   map[int64]map[string]string
+	targets map[int64]map[string]UserSubdomainTarget // node → record key → target
+	admins  map[int64]bool                           // users that never get a name
+	// Plan 305 (已有转发保持原地址): node → kept forward / landing node ids,
+	// and node → users holding any of them.
+	keptForward map[int64]map[int64]bool
+	keptLanding map[int64]map[int64]bool
+	keptUser    map[int64]map[int64]bool
+	effective   bool // some node has the toggle on
 }
 
 func normEntryHost(host string) string {
@@ -635,22 +652,69 @@ func normEntryHost(host string) string {
 	return h
 }
 
-// Resolve: the host this user is given for an entry host on nodeID.
+// Resolve: the host this user is given for an entry host on nodeID outside
+// any forward / landing node (the landing server list). Plan 305: a user
+// whose forwards / landings on the node all keep the old address (and who
+// has no name for this record) sees the host as before.
 func (x *UserEntryNames) Resolve(userID, nodeID int64, host string) UserEntryHost {
-	if x == nil || !x.hosts[nodeID][normEntryHost(host)] {
+	if x == nil {
 		return UserEntryHost{}
 	}
-	m := x.main[nodeID]
-	if n, ok := x.names[userID][nodeID]; ok {
+	return x.resolve(userID, nodeID, host, x.keptUser[nodeID][userID])
+}
+
+// ResolveForward: the host the owner of forward forwardID is given for its
+// entry host on nodeID. A kept forward (已有转发保持原地址) keeps it as is.
+func (x *UserEntryNames) ResolveForward(userID, nodeID, forwardID int64, host string) UserEntryHost {
+	if x == nil {
+		return UserEntryHost{}
+	}
+	if forwardID > 0 && x.keptForward[nodeID][forwardID] {
+		return UserEntryHost{}
+	}
+	if forwardID <= 0 {
+		return x.Resolve(userID, nodeID, host)
+	}
+	return x.resolve(userID, nodeID, host, false)
+}
+
+// ResolveLanding: the host the owner of native landing node landingID is
+// given for its server's public host on nodeID (直连).
+func (x *UserEntryNames) ResolveLanding(userID, nodeID, landingID int64, host string) UserEntryHost {
+	if x == nil {
+		return UserEntryHost{}
+	}
+	if landingID > 0 && x.keptLanding[nodeID][landingID] {
+		return UserEntryHost{}
+	}
+	if landingID <= 0 {
+		return x.Resolve(userID, nodeID, host)
+	}
+	return x.resolve(userID, nodeID, host, false)
+}
+
+// Kept: forward forwardID keeps its old address on nodeID (admin tag).
+func (x *UserEntryNames) Kept(nodeID, forwardID int64) bool {
+	return x != nil && x.keptForward[nodeID][forwardID]
+}
+
+func (x *UserEntryNames) resolve(userID, nodeID int64, host string, keepIfNameless bool) UserEntryHost {
+	key, ok := x.hosts[nodeID][normEntryHost(host)]
+	if !ok {
+		return UserEntryHost{}
+	}
+	t := x.targets[nodeID][key]
+	if n, ok := x.names[userID][nodeID][key]; ok {
 		if n.hidden {
 			return UserEntryHost{Hidden: true, Tag: n.tag, Domain: n.domain, Reason: n.reason}
 		}
-		return UserEntryHost{Host: n.domain, Tag: n.tag, V6Only: m.V6Only, Name: true}
+		return UserEntryHost{Host: n.domain, Tag: n.tag, V6Only: t.V6Only, Name: true}
 	}
-	if x.admins[userID] || userID <= 0 {
+	if x.admins[userID] || userID <= 0 || keepIfNameless {
 		return UserEntryHost{}
 	}
-	// Round 3: no name yet (the instant before the reservation): nothing.
+	// Round 3: no name yet (the instant before the reservation, or the DDNS
+	// record is not in Cloudflare yet): nothing — never the node's domain.
 	return UserEntryHost{Hidden: true, Tag: UserEntryTagPending}
 }
 
@@ -669,12 +733,15 @@ func (x *UserEntryNames) Empty() bool { return x == nil || !x.effective }
 
 // LoadUserEntryNames loads the handed-out names of the given users (nil =
 // all users) on nodes with the toggle on. One query when no node has it on.
+// Plan 305: every DDNS domain of such a node (and its current IPs) maps to
+// the user's name for that domain; the node's keep set comes along.
 func (r *Repository) LoadUserEntryNames(userIDs []int64) (*UserEntryNames, error) {
 	if r == nil || r.db == nil {
 		return nil, nil
 	}
-	x := &UserEntryNames{names: map[int64]map[int64]userEntryName{}, hosts: map[int64]map[string]bool{},
-		main: map[int64]UserSubdomainMain{}, admins: map[int64]bool{}}
+	x := &UserEntryNames{names: map[int64]map[int64]map[string]userEntryName{}, hosts: map[int64]map[string]string{},
+		targets: map[int64]map[string]UserSubdomainTarget{}, admins: map[int64]bool{},
+		keptForward: map[int64]map[int64]bool{}, keptLanding: map[int64]map[int64]bool{}, keptUser: map[int64]map[int64]bool{}}
 	if userIDs != nil && len(userIDs) == 0 {
 		return x, nil
 	}
@@ -696,14 +763,24 @@ func (r *Repository) LoadUserEntryNames(userIDs []int64) (*UserEntryNames, error
 		if m.Domain == "" || !m.Synced {
 			continue // not effective: hosts stay as they are
 		}
-		x.main[id] = m
-		hosts := map[string]bool{m.Domain: true}
-		for _, ip := range m.IPs {
-			if p := net.ParseIP(ip); p != nil {
-				hosts[p.String()] = true
+		hosts := map[string]string{}
+		targets := map[string]UserSubdomainTarget{}
+		for _, t := range UserSubdomainTargetsOf(recs[id], hasA) {
+			targets[t.Key] = t
+			// Every DDNS domain is replaced, synced or not: a domain whose
+			// record is not in Cloudflare yet has no name yet → withheld.
+			if _, dup := hosts[t.Domain]; !dup {
+				hosts[t.Domain] = t.Key
+			}
+			for _, ip := range t.IPs {
+				if p := net.ParseIP(ip); p != nil {
+					if _, dup := hosts[p.String()]; !dup {
+						hosts[p.String()] = t.Key
+					}
+				}
 			}
 		}
-		x.hosts[id] = hosts
+		x.hosts[id], x.targets[id] = hosts, targets
 		live = append(live, id)
 	}
 	if len(live) == 0 {
@@ -711,7 +788,7 @@ func (r *Repository) LoadUserEntryNames(userIDs []int64) (*UserEntryNames, error
 	}
 	x.effective = true
 	q := r.db.Model(&model.UserSubdomain{}).
-		Select("id", "user_id", "node_id", "domain", "state", "reason", "status", "record_id", "blocked", "retired_at",
+		Select("id", "user_id", "node_id", "record_domain", "domain", "state", "reason", "status", "record_id", "blocked", "retired_at",
 			"ready_at", "fail_count", "last_error").
 		Where("node_id IN ? AND (state <> ? OR blocked = ?)", live, model.UserSubdomainRetired, true)
 	aq := r.db.Model(&model.User{}).Where("role_id = 0")
@@ -729,6 +806,31 @@ func (r *Repository) LoadUserEntryNames(userIDs []int64) (*UserEntryNames, error
 	}
 	for _, id := range admins {
 		x.admins[id] = true
+	}
+	kept, _, err := r.liveUserSubdomainKeep(live)
+	if err != nil {
+		return nil, err
+	}
+	wanted := map[int64]bool{}
+	for _, id := range userIDs {
+		wanted[id] = true
+	}
+	for _, k := range kept {
+		if userIDs != nil && !wanted[k.UserID] {
+			continue
+		}
+		set := x.keptForward
+		if k.Kind == model.UserSubdomainKeepLanding {
+			set = x.keptLanding
+		}
+		if set[k.NodeID] == nil {
+			set[k.NodeID] = map[int64]bool{}
+		}
+		set[k.NodeID][k.RefID] = true
+		if x.keptUser[k.NodeID] == nil {
+			x.keptUser[k.NodeID] = map[int64]bool{}
+		}
+		x.keptUser[k.NodeID][k.UserID] = true
 	}
 	for _, row := range rows {
 		n := userEntryName{domain: row.Domain, id: row.ID}
@@ -763,14 +865,19 @@ func (r *Repository) LoadUserEntryNames(userIDs []int64) (*UserEntryNames, error
 		}
 		byNode := x.names[row.UserID]
 		if byNode == nil {
-			byNode = map[int64]userEntryName{}
+			byNode = map[int64]map[string]userEntryName{}
 			x.names[row.UserID] = byNode
 		}
-		cur, ok := byNode[row.NodeID]
+		byKey := byNode[row.NodeID]
+		if byKey == nil {
+			byKey = map[string]userEntryName{}
+			byNode[row.NodeID] = byKey
+		}
+		cur, ok := byKey[row.RecordDomain]
 		// Best rank wins; among live names the oldest (a moved-in name before
 		// a later own one); among tombstones the newest.
 		if !ok || n.rank < cur.rank || n.rank == cur.rank && n.rank == 2 && n.id > cur.id {
-			byNode[row.NodeID] = n
+			byKey[row.RecordDomain] = n
 		}
 	}
 	return x, nil
@@ -780,8 +887,10 @@ func (r *Repository) LoadUserEntryNames(userIDs []int64) (*UserEntryNames, error
 // (forward list inIp) for its owner. Hosts are matched per node in nodeIDs
 // (the forward's entry nodes; nil = every node with the toggle on). tags maps
 // a written host → its tag (nil when none). Round 3: withheld entries are
-// dropped from the list and returned as notices.
-func (x *UserEntryNames) RewriteEntryList(userID int64, nodeIDs []int64, list string) (string, map[string]string, []UserEntryNotice) {
+// dropped from the list and returned as notices. Plan 305: forwardID is the
+// forward the list belongs to (a kept one keeps its hosts; 0 = not a
+// forward's own entries, e.g. the target of a forward to a native landing).
+func (x *UserEntryNames) RewriteEntryList(userID, forwardID int64, nodeIDs []int64, list string) (string, map[string]string, []UserEntryNotice) {
 	if x.Empty() || strings.TrimSpace(list) == "" {
 		return list, nil, nil
 	}
@@ -804,7 +913,7 @@ func (x *UserEntryNames) RewriteEntryList(userID int64, nodeIDs []int64, list st
 		}
 		out := part
 		for _, nodeID := range nodeIDs {
-			h := x.Resolve(userID, nodeID, host)
+			h := x.ResolveForward(userID, nodeID, forwardID, host)
 			if h.Hidden {
 				p, _ := strconv.Atoi(port)
 				notices = append(notices, UserEntryNotice{NodeID: nodeID, Port: p, Tag: h.Tag, Domain: h.Domain, Reason: h.Reason})

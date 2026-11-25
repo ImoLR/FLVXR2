@@ -95,7 +95,7 @@ func (r *Repository) LandingNodeLinks(n model.LandingNode) ([]LandingLink, error
 		if err != nil {
 			return nil, err
 		}
-		if uh := names.Resolve(n.UserID, s.NodeID, s.PublicHost); uh.Hidden {
+		if uh := names.ResolveLanding(n.UserID, s.NodeID, n.ID, s.PublicHost); uh.Hidden {
 			withheld = append(withheld, uh)
 			direct = ""
 		} else if uh.Host != "" {
@@ -231,7 +231,7 @@ func (r *Repository) forwardEntriesNamed(f model.Forward, allAddresses ...bool) 
 		if !names.Empty() {
 			kept := out[:0]
 			for _, e := range out {
-				uh := names.Resolve(f.UserID, e.NodeID, e.Host)
+				uh := names.ResolveForward(f.UserID, e.NodeID, f.ID, e.Host)
 				if uh.Hidden {
 					withheld = append(withheld, uh)
 					continue

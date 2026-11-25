@@ -332,6 +332,12 @@ func (h *Handler) userSubReconcile(ctx context.Context, full, force bool) {
 		m.mu.Unlock()
 		return
 	}
+	if full {
+		// Plan 305: keep rows of deleted / recreated forwards go away.
+		if err := h.repo.PruneUserSubdomainKeep(); err != nil {
+			log.Printf("[user-subdomain] keep prune: %v", err)
+		}
+	}
 	facts, nodes, effective, err := h.userSubFacts(now, true)
 	if err != nil {
 		log.Printf("[user-subdomain] %v", err)
@@ -492,6 +498,10 @@ func (h *Handler) userSubFacts(now time.Time, all bool) (*usersub.Facts, map[int
 	effective := []int64{}
 	for id, n := range nodes {
 		un := usersub.Node{ID: id, Enabled: n.Enabled(), MainDomain: n.Main.Domain, MainSynced: n.Main.Synced}
+		// Plan 305: one name per DDNS domain of the node (main first).
+		for _, t := range n.Targets {
+			un.Records = append(un.Records, usersub.Record{Key: t.Key, Domain: t.Domain, Synced: t.Synced})
+		}
 		if n.Main.ZoneID != "" && n.ProviderID > 0 {
 			un.ZoneKey = userSubZoneKey(n.ProviderID, n.Main.ZoneID)
 		}
@@ -578,11 +588,11 @@ func (h *Handler) userSubReserveCreates(ctx context.Context, nodes map[int64]rep
 			waiting[c.NodeID]++
 			continue
 		}
-		if taken, err := h.repo.UserSubdomainPairTaken(c.UserID, c.NodeID); err != nil || taken {
+		if taken, err := h.repo.UserSubdomainPairTaken(c.UserID, c.NodeID, c.RecordKey); err != nil || taken {
 			continue
 		}
 		if err := h.userSubCreateName(c, node, zoneName); err != nil {
-			log.Printf("[user-subdomain] new name user %d node %d: %v", c.UserID, c.NodeID, err)
+			log.Printf("[user-subdomain] new name user %d node %d record %q: %v", c.UserID, c.NodeID, c.RecordKey, err)
 			continue
 		}
 		touched[c.UserID] = true
@@ -650,14 +660,14 @@ func (h *Handler) userSubCreateName(c usersub.Create, node repo.UserSubdomainNod
 			continue
 		}
 		row := &model.UserSubdomain{UserID: c.UserID, NodeID: node.ID, OriginNodeID: node.ID, Label: label, Domain: domain,
-			ProviderID: node.ProviderID, ZoneID: node.Main.ZoneID, State: c.State, Reason: c.Reason}
+			ProviderID: node.ProviderID, ZoneID: node.Main.ZoneID, State: c.State, Reason: c.Reason, RecordDomain: c.RecordKey}
 		if err := h.repo.CreateUserSubdomain(row); err != nil {
 			if strings.Contains(strings.ToLower(err.Error()), "unique") || strings.Contains(strings.ToLower(err.Error()), "duplicate") {
 				continue
 			}
 			return err
 		}
-		log.Printf("[user-subdomain] %s reserved for user %d on node %d (%s)", domain, c.UserID, node.ID, c.State)
+		log.Printf("[user-subdomain] %s reserved for user %d on node %d → %s (%s)", domain, c.UserID, node.ID, h.userSubTargetDomain(node, c.RecordKey), c.State)
 		return nil
 	}
 	return errors.New("没有找到空闲的名字")
@@ -771,12 +781,26 @@ func userSubErrText(err error) string {
 }
 
 // userSubDesired: the CNAME target a name should have now ("" = no record).
+// Plan 305: the DDNS domain of the name's record (main when "").
 func (h *Handler) userSubDesired(pass *userSubPass, row model.UserSubdomain) string {
 	if row.State != model.UserSubdomainActive {
 		return ""
 	}
-	if n, ok := pass.nodes[row.NodeID]; ok && n.Enabled() && n.Main.Synced {
-		return n.Main.Domain
+	n, ok := pass.nodes[row.NodeID]
+	if !ok || !n.Enabled() || !n.Main.Synced {
+		return ""
+	}
+	if t, ok := n.Target(row.RecordDomain); ok && t.Synced {
+		return t.Domain
+	}
+	return ""
+}
+
+// userSubTargetDomain: the domain a name for this record key points at
+// (logs; "" = gone).
+func (h *Handler) userSubTargetDomain(n repo.UserSubdomainNode, key string) string {
+	if t, ok := n.Target(key); ok {
+		return t.Domain
 	}
 	return ""
 }
@@ -1125,13 +1149,26 @@ func (h *Handler) userSubRewriteForwardItems(items []map[string]interface{}, ent
 		list, _ := item["inIp"].(string)
 		id := asInt64(item["id"], 0)
 		uid := asInt64(item["userId"], 0)
-		rewritten, tags, notices := names.RewriteEntryList(uid, entryNodes[id], list)
+		rewritten, tags, notices := names.RewriteEntryList(uid, id, entryNodes[id], list)
 		if list != "" {
 			item["inIp"] = rewritten
 		}
 		// The target of a forward to a native landing on such a node too.
 		if target, ok := item["remoteAddr"].(string); ok && target != "" {
-			item["remoteAddr"], _, _ = names.RewriteEntryList(uid, nil, target)
+			item["remoteAddr"], _, _ = names.RewriteEntryList(uid, 0, nil, target)
+		}
+		// Plan 305: 「保持原地址」 (admins only) — the forward keeps the
+		// node address on these entry nodes (已有转发保持原地址).
+		if admin {
+			var kept []int64
+			for _, nodeID := range entryNodes[id] {
+				if names.Kept(nodeID, id) {
+					kept = append(kept, nodeID)
+				}
+			}
+			if len(kept) > 0 {
+				item["entryKeptNodes"] = kept
+			}
 		}
 		if tags := userSubVisibleTags(tags, admin); len(tags) > 0 {
 			// 「正在就绪」 / 「已过期 · 记录已删除」 etc. next to the address.
@@ -1193,18 +1230,9 @@ func (h *Handler) validateUserSubdomainToggle(ctx context.Context, nodeID int64,
 	if main == "" {
 		return errors.New("「用户专属域名」需要一条「主地址」DDNS 记录（专属域名都指向它）")
 	}
-	// Guard (fork.169): names replace the main domain only, so on a node with
-	// several DDNS domains (e.g. 电信 + 联通) the other domains would still be
-	// handed out to users. Refused until per-record names exist (plan 305).
-	domains := map[string]bool{}
-	for _, rec := range plan.records {
-		if d := strings.ToLower(strings.TrimSpace(rec.Domain)); d != "" {
-			domains[d] = true
-		}
-	}
-	if len(domains) > 1 {
-		return fmt.Errorf("这台节点有 %d 个 DDNS 域名：「用户专属域名」目前只支持只有一个 DDNS 域名的节点", len(domains))
-	}
+	// Plan 305: a node with several DDNS domains (电信 + 联通) gives each
+	// user one name per domain (the fork.169 refusal is gone); every hand-out
+	// path maps each domain to its own name (LoadUserEntryNames).
 	if nodeID > 0 {
 		if n, err := h.repo.GetNodeByID(nodeID); err == nil && n != nil && n.UserSubdomainEnabled && n.DDNSProviderID == plan.providerID {
 			return nil // already on: no Cloudflare round trip on unrelated edits
@@ -1245,6 +1273,26 @@ type userSubNodeView struct {
 	Wildcard   bool   `json:"wildcard"`
 	ZoneError  string `json:"zoneError"`
 	Attention  bool   `json:"attention"`
+	// Plan 305: the DDNS domains names point at (several: one name each)
+	// and the forwards / landings kept on their old address.
+	Records []userSubRecordView `json:"records,omitempty"`
+	Kept    int                 `json:"kept"`
+}
+
+// userSubRecordView: one DDNS domain user names point at (admin views).
+type userSubRecordView struct {
+	Key    string `json:"key"` // "" = main
+	Domain string `json:"domain"`
+	Label  string `json:"label"` // 电信 / 联通 / 移动 / 主地址 / 附加地址
+	Synced bool   `json:"synced"`
+}
+
+func userSubRecordViews(targets []repo.UserSubdomainTarget) []userSubRecordView {
+	out := make([]userSubRecordView, 0, len(targets))
+	for _, t := range targets {
+		out = append(out, userSubRecordView{Key: t.Key, Domain: t.Domain, Label: repo.UserSubdomainTargetLabel(t), Synced: t.Synced})
+	}
+	return out
 }
 
 // userSubNodeViews: the node list pill data (one query + memory).
@@ -1260,6 +1308,7 @@ func (h *Handler) userSubNodeViews(nodes []repo.DDNSNodeState, records []model.N
 	if len(counts) == 0 && len(toggled) == 0 {
 		return nil
 	}
+	kept, _ := h.repo.UserSubdomainKeptCounts()
 	m := h.userSubState()
 	byNode := map[int64][]model.NodeDDNSRecord{}
 	for _, rec := range records {
@@ -1286,6 +1335,10 @@ func (h *Handler) userSubNodeViews(nodes []repo.DDNSNodeState, records []model.N
 		main := repo.UserSubdomainMainOf(byNode[id], nil)
 		v.MainDomain = main.Domain
 		v.Effective = ddnsOn[id] && main.Domain != "" && main.Synced
+		if targets := repo.UserSubdomainTargetsOf(byNode[id], nil); len(targets) > 1 {
+			v.Records = userSubRecordViews(targets)
+		}
+		v.Kept = kept[id]
 		if main.ZoneID != "" {
 			for _, n := range nodes {
 				if n.ID == id {
@@ -1352,6 +1405,11 @@ type userSubItemView struct {
 	ReadyAt   int64 `json:"readyAt"`
 	FailCount int   `json:"failCount"`
 	Hidden    bool  `json:"hidden"`
+	// Plan 305: the DDNS record the name points at ("" = main) and its
+	// label (电信 / 联通 …) on nodes with several DDNS domains.
+	RecordDomain string `json:"recordDomain"`
+	RecordLabel  string `json:"recordLabel"`
+	TargetDomain string `json:"targetDomain"`
 }
 
 func (h *Handler) userSubList(w http.ResponseWriter, r *http.Request) {
@@ -1400,6 +1458,10 @@ func (h *Handler) userSubListData(nodeID, userID int64, retired bool) (map[strin
 	if err != nil {
 		return nil, err
 	}
+	nodes, err := h.repo.ListUserSubdomainNodes()
+	if err != nil {
+		return nil, err
+	}
 	items := []userSubItemView{}
 	history := []userSubItemView{}
 	counts := map[string]int{}
@@ -1412,6 +1474,15 @@ func (h *Handler) userSubListData(nodeID, userID int64, retired bool) (map[strin
 			Forwards: uses[[2]int64{row.UserID, row.NodeID}], Landings: landings[[2]int64{row.UserID, row.NodeID}]}
 		if v.Forwards == nil {
 			v.Forwards = []userSubForwardView{}
+		}
+		v.RecordDomain = row.RecordDomain
+		if n, ok := nodes[row.NodeID]; ok {
+			if t, ok := n.Target(row.RecordDomain); ok {
+				v.TargetDomain = t.Domain
+				if len(n.Targets) > 1 {
+					v.RecordLabel = repo.UserSubdomainTargetLabel(t)
+				}
+			}
 		}
 		if v.UserName == "" {
 			v.UserName = fmt.Sprintf("（已删除用户 #%d）", row.UserID)
@@ -1453,10 +1524,6 @@ func (h *Handler) userSubListData(nodeID, userID int64, retired bool) (map[strin
 		items = append(items, v)
 	}
 	out := map[string]interface{}{"items": items, "history": history, "counts": counts}
-	nodes, err := h.repo.ListUserSubdomainNodes()
-	if err != nil {
-		return nil, err
-	}
 	// 改指 targets: nodes with the toggle on and a synced main domain.
 	targets := []map[string]interface{}{}
 	for _, n := range nodes {
@@ -1472,6 +1539,7 @@ func (h *Handler) userSubListData(nodeID, userID int64, retired bool) (map[strin
 			// toggle off and no names: read the node's main domain directly
 			if records, err := h.repo.GetNodeDDNSRecords(nodeID); err == nil {
 				n.Main = repo.UserSubdomainMainOf(records, nil)
+				n.Targets = repo.UserSubdomainTargetsOf(records, nil)
 			}
 			if node, err := h.repo.GetNodeByID(nodeID); err == nil && node != nil {
 				n.ID, n.Name, n.DDNSEnabled, n.ProviderID = node.ID, node.Name, node.DDNSEnabled, node.DDNSProviderID
@@ -1495,10 +1563,16 @@ func (h *Handler) userSubListData(nodeID, userID int64, retired bool) (map[strin
 		warn := m.nodeWarn[nodeID]
 		m.mu.Unlock()
 		capped := counts["capped"]
+		// Plan 305: 已有转发保持原地址 — the forwards keeping the node address.
+		keptFwd, keptLand, err := h.repo.UserSubdomainKeptOn(nodeID)
+		if err != nil {
+			return nil, err
+		}
 		out["node"] = map[string]interface{}{
 			"id": nodeID, "name": nodeNames[nodeID], "toggle": n.Toggle, "ddnsEnabled": n.DDNSEnabled,
 			"mainDomain": n.Main.Domain, "mainIps": n.Main.IPs, "mainSynced": n.Main.Synced, "v6Only": n.Main.V6Only,
 			"effective": n.Enabled() && n.Main.Domain != "" && n.Main.Synced,
+			"records":   userSubRecordViews(n.Targets), "keptForwards": keptFwd, "keptLandings": keptLand,
 		}
 		out["zone"] = zone
 		out["capped"], out["waiting"] = capped, warn.Waiting
@@ -1570,8 +1644,9 @@ func (h *Handler) userSubRepoint(w http.ResponseWriter, r *http.Request) {
 		if !usage[target][row.UserID] {
 			return fmt.Errorf("该用户在「%s」上没有转发：先给他建好同端口的转发再改指，否则客户端连不上", n.Name)
 		}
+		// Plan 305: a moved name points at the target node's main domain.
 		return h.repo.UpdateUserSubdomain(row.ID, map[string]interface{}{
-			"node_id": target, "status": model.UserSubdomainSyncPending, "next_retry_at": int64(0), "fail_count": 0, "unused_since": int64(0),
+			"node_id": target, "record_domain": "", "status": model.UserSubdomainSyncPending, "next_retry_at": int64(0), "fail_count": 0, "unused_since": int64(0),
 		})
 	})
 }
@@ -1598,7 +1673,8 @@ func (h *Handler) userSubRename(w http.ResponseWriter, r *http.Request) {
 				return err
 			}
 			return h.repo.CreateUserSubdomain(&model.UserSubdomain{UserID: row.UserID, NodeID: row.NodeID, OriginNodeID: row.OriginNodeID,
-				Label: label, Domain: label + "." + zoneName, ProviderID: row.ProviderID, ZoneID: row.ZoneID, State: row.State, Reason: row.Reason})
+				Label: label, Domain: label + "." + zoneName, ProviderID: row.ProviderID, ZoneID: row.ZoneID, State: row.State, Reason: row.Reason,
+				RecordDomain: row.RecordDomain})
 		}
 		return errors.New("没有找到空闲的名字")
 	})

@@ -1794,8 +1794,8 @@ func (h *Handler) userPackage(w http.ResponseWriter, r *http.Request) {
 	for _, f := range forwards {
 		var entryTags map[string]string
 		var notices []repo.UserEntryNotice
-		f.InIP, entryTags, notices = pkgNames.RewriteEntryList(userID, nil, f.InIP)
-		f.RemoteAddr, _, _ = pkgNames.RewriteEntryList(userID, nil, f.RemoteAddr)
+		f.InIP, entryTags, notices = pkgNames.RewriteEntryList(userID, f.ID, nil, f.InIP)
+		f.RemoteAddr, _, _ = pkgNames.RewriteEntryList(userID, 0, nil, f.RemoteAddr)
 		item := map[string]interface{}{
 			"id":              f.ID,
 			"name":            f.Name,

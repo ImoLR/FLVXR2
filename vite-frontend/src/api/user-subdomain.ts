@@ -11,6 +11,26 @@ export interface UserSubForward {
   id: number;
   name: string;
   port: number;
+  /** plan 305: 保持原地址 — keeps the node address (no name). */
+  kept?: boolean;
+}
+
+/** Plan 305: one DDNS domain user names point at (several → one name each). */
+export interface UserSubRecord {
+  key: string;
+  domain: string;
+  /** 电信 / 联通 / 移动 / 主地址 / 附加地址 */
+  label: string;
+  synced: boolean;
+}
+
+/** Plan 305: a forward kept on its old address (已有转发保持原地址). */
+export interface UserSubKeptForward {
+  forwardId: number;
+  name: string;
+  userId: number;
+  userName: string;
+  port: number;
 }
 
 export interface UserSubItem {
@@ -43,6 +63,10 @@ export interface UserSubItem {
   failCount: number;
   /** Round 3: withheld from the user — no address at all (名额已满 / 创建失败). */
   hidden: boolean;
+  /** Plan 305: the DDNS record ("" = main), its label on multi-record nodes, its domain. */
+  recordDomain?: string;
+  recordLabel?: string;
+  targetDomain?: string;
 }
 
 export interface UserSubZone {
@@ -91,6 +115,10 @@ export interface UserSubList {
     mainSynced: boolean;
     v6Only: boolean;
     effective: boolean;
+    /** plan 305 */
+    records?: UserSubRecord[];
+    keptForwards?: UserSubKeptForward[];
+    keptLandings?: number;
   };
   zone?: UserSubZone | null;
   capped?: number;
@@ -114,6 +142,9 @@ export interface UserSubNodeView {
   wildcard: boolean;
   zoneError: string;
   attention: boolean;
+  /** plan 305: DDNS domains (only when several) and kept forwards / landings. */
+  records?: UserSubRecord[];
+  kept?: number;
 }
 
 export const listUserSubdomains = (q: {

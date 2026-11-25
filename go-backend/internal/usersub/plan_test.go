@@ -157,3 +157,44 @@ func TestNewLabel(t *testing.T) {
 		t.Fatalf("labels repeat too often: %d", len(seen))
 	}
 }
+
+// Plan 305: a node with several DDNS domains (沪台 电信 -ct main + 联通 -cu
+// extra) gives each user one name per synced domain; a name for a domain the
+// node lost (or not synced) pauses; blocked slots are per domain.
+func TestMultiRecordNames(t *testing.T) {
+	f := &Facts{Now: now,
+		Nodes: map[int64]Node{48: {ID: 48, Enabled: true, MainDomain: "leikwan-hutai-ct.imgamer.top", MainSynced: true, ZoneKey: "1|z",
+			Records: []Record{{Key: "", Domain: "leikwan-hutai-ct.imgamer.top", Synced: true}, {Key: "leikwan-hutai-cu.imgamer.top", Domain: "leikwan-hutai-cu.imgamer.top", Synced: true},
+				{Key: "spare.imgamer.top", Domain: "spare.imgamer.top", Synced: false}}}},
+		Usage: map[int64]map[int64]bool{48: {2: true, 1: true}},
+		Users: map[int64]User{1: {ID: 1, Admin: true, Status: 1}, 2: {ID: 2, Status: 1}, 5: {ID: 5, Status: 1}},
+	}
+	p := Compute(f)
+	if len(p.Creates) != 2 || p.Creates[0].RecordKey != "" || p.Creates[1].RecordKey != "leikwan-hutai-cu.imgamer.top" || p.Creates[0].UserID != 2 {
+		t.Fatalf("creates: %+v", p.Creates)
+	}
+	// Has the 电信 name already → only the 联通 one; a blocked 联通 slot → none.
+	ct := model.UserSubdomain{ID: 1, UserID: 2, NodeID: 48, State: "active", Label: "a"}
+	f.Names = []model.UserSubdomain{ct}
+	if p := Compute(f); len(p.Creates) != 1 || p.Creates[0].RecordKey != "leikwan-hutai-cu.imgamer.top" {
+		t.Fatalf("second name: %+v", p.Creates)
+	}
+	f.Names = append(f.Names, model.UserSubdomain{ID: 2, UserID: 2, NodeID: 48, RecordDomain: "leikwan-hutai-cu.imgamer.top", State: "retired", Blocked: true, Label: "b"})
+	if p := Compute(f); len(p.Creates) != 0 {
+		t.Fatalf("blocked 联通 slot: %+v", p.Creates)
+	}
+	// A name for a domain the node no longer has / not synced → paused(node).
+	for _, key := range []string{"gone.imgamer.top", "spare.imgamer.top"} {
+		if st, rs, _ := Desired(f, model.UserSubdomain{UserID: 2, NodeID: 48, RecordDomain: key, State: "active"}); st != "paused" || rs != "node" {
+			t.Fatalf("%s: %s %s", key, st, rs)
+		}
+	}
+	if st, _, _ := Desired(f, model.UserSubdomain{UserID: 2, NodeID: 48, RecordDomain: "leikwan-hutai-cu.imgamer.top", State: "active"}); st != "active" {
+		t.Fatalf("联通 name: %s", st)
+	}
+	// Kept forwards are not in Usage: nobody on the node → no names.
+	f.Names, f.Usage = nil, map[int64]map[int64]bool{}
+	if p := Compute(f); len(p.Creates) != 0 {
+		t.Fatalf("no usage: %+v", p.Creates)
+	}
+}

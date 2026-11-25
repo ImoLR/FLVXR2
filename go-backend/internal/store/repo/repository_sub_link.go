@@ -426,7 +426,7 @@ func (r *Repository) SubPanelLinks(userID int64, forwardIDs, landingIDs []int64,
 			// domain only for clients that resolve AAAA-only names.
 			host, entryDomain, aaaaOnly := e.Host, "", false
 			shown := addr
-			if uh := names.Resolve(userID, e.NodeID, e.Host); uh.Hidden {
+			if uh := names.ResolveForward(userID, e.NodeID, f.ID, e.Host); uh.Hidden {
 				// Plan 303 round 3: his name cannot be handed out yet (zone
 				// at the record cap, creating keeps failing, or not reserved
 				// this instant): the entry is left out — never the main
@@ -497,7 +497,7 @@ func (r *Repository) SubPanelLinks(userID int64, forwardIDs, landingIDs []int64,
 		}
 		host, aaaaOnly := s.PublicHost, false
 		if s.NodeID > 0 && !names.Empty() {
-			if uh := names.Resolve(userID, s.NodeID, s.PublicHost); uh.Hidden {
+			if uh := names.ResolveLanding(userID, s.NodeID, n.ID, s.PublicHost); uh.Hidden {
 				continue // plan 303 round 3: no address yet → left out
 			} else if uh.Host != "" {
 				host, aaaaOnly = uh.Host, uh.V6Only // plan 303 round 2: every client

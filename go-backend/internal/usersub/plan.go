@@ -26,10 +26,39 @@ type Node struct {
 	// ZoneKey groups nodes sharing one DNS zone (provider + zone) for the
 	// record quota; "" = unknown yet.
 	ZoneKey string
+	// Records (plan 305): the DDNS domains names point at — the main domain
+	// (Key "") first, then every other DDNS domain of the node (Key = that
+	// domain). nil = the main domain only.
+	Records []Record
+}
+
+// Record is one DDNS domain of a node a user name may point at.
+type Record struct {
+	Key    string // "" = the main domain
+	Domain string
+	Synced bool // its record exists in Cloudflare (a CNAME to it resolves)
 }
 
 // Effective: names on this node may have a live record.
 func (n Node) Effective() bool { return n.Enabled && n.MainDomain != "" && n.MainSynced }
+
+// Targets: the node's name targets (main first).
+func (n Node) Targets() []Record {
+	if len(n.Records) == 0 {
+		return []Record{{Key: "", Domain: n.MainDomain, Synced: n.MainSynced}}
+	}
+	return n.Records
+}
+
+// Target: the record a name with this key points at (ok=false: gone).
+func (n Node) Target(key string) (Record, bool) {
+	for _, r := range n.Targets() {
+		if r.Key == key {
+			return r, true
+		}
+	}
+	return Record{}, false
+}
 
 type User struct {
 	ID      int64
@@ -44,6 +73,8 @@ type Facts struct {
 	Nodes map[int64]Node
 	// Usage: node id → user ids with a forward port / native landing node on
 	// it (only these get a new name; an existing name does not need it).
+	// Plan 305: forwards / landings kept on their old address (已有转发保持原
+	// 地址) do not count.
 	Usage map[int64]map[int64]bool
 	Users map[int64]User
 	// Names: every non-retired name plus the admin-deleted (blocked) tombstones.
@@ -59,13 +90,22 @@ type Change struct {
 	RetiredAt   int64
 }
 
-// Create asks for a new name for (user, node), stored in State / Reason
-// (round 3: a 到期 / 停用 user gets his name reserved too, paused).
+// Create asks for a new name for (user, node, record), stored in State /
+// Reason (round 3: a 到期 / 停用 user gets his name reserved too, paused).
 type Create struct {
 	UserID int64
 	NodeID int64
-	State  string
-	Reason string
+	// RecordKey (plan 305): the DDNS domain the name points at ("" = main).
+	RecordKey string
+	State     string
+	Reason    string
+}
+
+// PairKey identifies one name slot: user, node, DDNS record ("" = main).
+type PairKey struct {
+	UserID int64
+	NodeID int64
+	Record string
 }
 
 type Plan struct {
@@ -138,6 +178,11 @@ func Desired(f *Facts, n model.UserSubdomain) (state, reason string, unusedSince
 	if !node.Effective() {
 		return model.UserSubdomainPaused, model.UserSubdomainReasonNode, 0
 	}
+	// Plan 305: a name for a DDNS domain the node no longer has (or whose
+	// record is not in Cloudflare yet) has nothing to point at.
+	if rec, ok := node.Target(n.RecordDomain); !ok || !rec.Synced || rec.Domain == "" {
+		return model.UserSubdomainPaused, model.UserSubdomainReasonNode, 0
+	}
 	// Round 2 (user 11-24): no pause for "no forwards on this node" — the
 	// name lives while its user exists and is not expired / disabled (a
 	// round-1 paused(unused) row comes back to active).
@@ -155,24 +200,26 @@ func UserActive(u User, now int64) bool {
 	return !u.Admin && u.Status == 1 && !(u.ExpTime > 0 && u.ExpTime < now)
 }
 
-// Compute builds the plan. Deterministic: creates are ordered by node, user.
+// Compute builds the plan. Deterministic: creates are ordered by node, user,
+// record (main first).
 // Round 3: every non-admin user using an effective node gets his name at
 // once (any state: 到期 / 停用 users get it paused); the record cap only
 // limits Cloudflare records (Admit), never the reservation.
 func Compute(f *Facts) Plan {
 	p := Plan{}
-	have := map[[2]int64]bool{}    // user, target node → a live or paused name
-	blocked := map[[2]int64]bool{} // admin-deleted pairs
+	have := map[PairKey]bool{}    // user, target node, record → a live or paused name
+	blocked := map[PairKey]bool{} // admin-deleted slots
 	for _, n := range f.Names {
+		key := PairKey{n.UserID, n.NodeID, n.RecordDomain}
 		if n.State == model.UserSubdomainRetired {
 			if n.Blocked {
-				blocked[[2]int64{n.UserID, n.NodeID}] = true
+				blocked[key] = true
 			}
 			continue
 		}
 		state, reason, since := Desired(f, n)
 		if state != model.UserSubdomainRetired {
-			have[[2]int64{n.UserID, n.NodeID}] = true
+			have[key] = true
 		}
 		if state == n.State && reason == n.Reason && since == n.UnusedSince {
 			continue
@@ -200,13 +247,19 @@ func Compute(f *Facts) Plan {
 		sort.Slice(users, func(i, j int) bool { return users[i] < users[j] })
 		for _, uid := range users {
 			u, ok := f.Users[uid]
-			key := [2]int64{uid, nodeID}
-			if !ok || u.Admin || have[key] || blocked[key] {
+			if !ok || u.Admin {
 				continue
 			}
-			have[key] = true
-			state, reason, _ := Desired(f, model.UserSubdomain{UserID: uid, NodeID: nodeID})
-			p.Creates = append(p.Creates, Create{UserID: uid, NodeID: nodeID, State: state, Reason: reason})
+			// Plan 305: one name per DDNS domain of the node (synced ones).
+			for _, rec := range node.Targets() {
+				key := PairKey{uid, nodeID, rec.Key}
+				if !rec.Synced || rec.Domain == "" || have[key] || blocked[key] {
+					continue
+				}
+				have[key] = true
+				state, reason, _ := Desired(f, model.UserSubdomain{UserID: uid, NodeID: nodeID, RecordDomain: rec.Key})
+				p.Creates = append(p.Creates, Create{UserID: uid, NodeID: nodeID, RecordKey: rec.Key, State: state, Reason: reason})
+			}
 		}
 	}
 	return p

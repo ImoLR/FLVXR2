@@ -150,3 +150,30 @@ export const hasReadyingEntry = (f: {
 }) =>
   Object.values(f.entryNameTags || {}).some((t) => t === "pending") ||
   (f.entryNotices || []).some((n) => n.tag === "pending");
+
+/**
+ * Plan 305: 「保持原地址」 (admins only) — the forward existed before the
+ * node's 用户专属域名 went on and keeps the node address (no name).
+ */
+export function EntryKeptTag({
+  admin,
+  nodes,
+  className = "",
+}: {
+  admin: boolean;
+  nodes?: number[];
+  className?: string;
+}) {
+  if (!admin || !nodes?.length) return null;
+
+  return (
+    <div data-entry-kept className={`flex flex-wrap gap-1 ${className}`}>
+      <span
+        className="rounded-full bg-default-200/70 px-1.5 text-[10px] text-default-500"
+        title="开启「用户专属域名」前就有的转发：继续用节点原来的地址（已有转发保持原地址）"
+      >
+        保持原地址
+      </span>
+    </div>
+  );
+}

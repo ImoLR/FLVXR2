@@ -398,6 +398,7 @@ func autoMigrateAll(db *gorm.DB) error {
 		&model.DNSProvider{},
 		&model.NodeDDNSRecord{},
 		&model.UserSubdomain{}, // plan 303
+		&model.UserSubdomainKeep{}, // plan 305
 		&model.LineMonitorChart{}, &model.LineMonitorLine{}, &model.LineMonitorSample{}, // plan 255
 		&model.LineMonitorPort{}, // plan 255 part 2 检测端口
 	}

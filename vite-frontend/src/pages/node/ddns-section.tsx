@@ -47,6 +47,11 @@ export const ddnsFromView = (view?: NodeDDNSView | null): NodeDDNSPayload =>
       }
     : emptyDDNS();
 
+/** Plan 305: how a DDNS record is named next to user names (like the panel). */
+export const userSubRecordLabel = (source: string, role: string): string =>
+  ({ ct: "电信", cu: "联通", cm: "移动" })[source] ||
+  (role === "main" ? "主地址" : "附加地址");
+
 /** Plan 303: the domain user names point at (AAAA 主地址 first, like the panel). */
 export const userSubMainDomain = (ddns: NodeDDNSPayload): string =>
   ddnsMainDomain(ddns, "AAAA") || ddnsMainDomain(ddns, "A");
@@ -477,6 +482,17 @@ function UserSubdomainToggle({
   const on = Boolean(value.userSubdomain);
   const live = view?.userSubdomain;
   const savedOn = Boolean(live?.toggle);
+  // Plan 305: every DDNS domain of the node gets its own name per user.
+  const domains = value.enabled
+    ? Array.from(
+        new Map(
+          value.records
+            .filter((r) => r.domain.trim())
+            .map((r) => [r.domain.trim().toLowerCase(), r] as const),
+        ).values(),
+      )
+    : [];
+  const keep = value.userSubdomainKeep !== false;
 
   return (
     <div
@@ -516,9 +532,47 @@ function UserSubdomainToggle({
               需要一条「主地址」记录才能开启（专属域名都指向它）
             </p>
           ) : null}
+          {domains.length > 1 ? (
+            <p
+              className="text-xs text-default-500"
+              data-testid="user-subdomain-multi"
+            >
+              这台节点有 {domains.length} 个 DDNS
+              域名：每个用户每个域名各一个名字（
+              {domains
+                .map(
+                  (r) =>
+                    `${userSubRecordLabel(r.source, r.role)} → ${r.domain.trim()}`,
+                )
+                .join("，")}
+              ）。不是 DDNS 的入口地址（例如线路商自己的域名）保持原样。
+            </p>
+          ) : null}
           {on && !savedOn ? (
             <p className="text-xs text-default-500">
               保存后开始分配：Cloudflare 里有 *.区域 通配记录时不能开启。
+            </p>
+          ) : null}
+          {on && !savedOn ? (
+            <div data-testid="user-subdomain-keep">
+              <Checkbox
+                isSelected={keep}
+                onValueChange={(next) =>
+                  onChange({ ...value, userSubdomainKeep: next })
+                }
+              >
+                <span className="text-xs">已有转发保持原地址</span>
+              </Checkbox>
+              <p className="pl-6 text-xs text-default-500">
+                {keep
+                  ? "打开时：现在已经在这台节点上的转发一直用原来的地址，订阅不变；只有以后新建的转发用专属域名（只给建了新转发的用户分配名字）。"
+                  : "关闭时：现有转发也全部改用用户的专属域名（订阅会变，手动填地址的用户要换成新名字）。"}
+              </p>
+            </div>
+          ) : null}
+          {savedOn && on && (live?.kept || 0) > 0 ? (
+            <p className="text-xs text-default-500">
+              保持原地址：{live?.kept} 条开启前就有的转发 / 落地继续用原地址。
             </p>
           ) : null}
           {!on && savedOn && (live?.active || live?.paused) ? (

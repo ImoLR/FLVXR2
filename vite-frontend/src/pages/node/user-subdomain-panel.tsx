@@ -212,9 +212,38 @@ function ForwardList({ item }: { item: UserSubItem }) {
         >
           <span className="max-w-[12rem] truncate">{f.name}</span>
           <span className="font-mono">:{f.port}</span>
+          {f.kept ? <KeptTag /> : null}
         </span>
       ))}
     </div>
+  );
+}
+
+/** Plan 305: 「保持原地址」 — the forward keeps the node address (admin only). */
+export function KeptTag() {
+  return (
+    <span
+      data-kept-tag
+      className="rounded-full bg-default-200/70 px-1.5 text-[10px] text-default-500"
+      title="开启「用户专属域名」前就有的转发：继续用节点原来的地址，不用专属域名"
+    >
+      保持原地址
+    </span>
+  );
+}
+
+/** Plan 305: which DDNS record a name points at (电信 / 联通 …). */
+function RecordChip({ item }: { item: UserSubItem }) {
+  if (!item.recordLabel) return null;
+
+  return (
+    <span
+      className={`inline-flex shrink-0 items-center rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${landingToneClass.slate}`}
+      data-user-sub-record={item.id}
+      title={`CNAME → ${item.targetDomain || item.recordDomain || ""}`}
+    >
+      {item.recordLabel}
+    </span>
   );
 }
 
@@ -291,6 +320,7 @@ function NameLine({
         >
           {item.domain}
         </span>
+        <RecordChip item={item} />
         <StateChip item={item} />
         <span className="flex w-36 min-w-0 shrink-0 items-center text-xs">
           <PointsTo item={item} mode={mode} />
@@ -351,6 +381,7 @@ function NameRowH5({
           <span className="shrink-0 font-mono text-xs font-normal text-default-500">
             {item.label}
           </span>
+          <RecordChip item={item} />
         </span>
       }
       nameTitle={`${lead} · ${item.domain}`}
@@ -360,6 +391,11 @@ function NameRowH5({
     >
       <ExpandField label="名字">
         <span className="font-mono">{item.domain}</span>
+        {item.recordLabel ? (
+          <span className="ml-1 text-xs text-default-500">
+            （{item.recordLabel} → {item.targetDomain}）
+          </span>
+        ) : null}
       </ExpandField>
       <ExpandField label="状态">
         <StateChip item={item} />
@@ -446,6 +482,54 @@ function Summary({
               仅 IPv6
             </span>
           ) : null}
+        </div>
+      ) : null}
+      {node?.records && node.records.length > 1 ? (
+        <div
+          data-user-sub-records
+          className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-default-600"
+        >
+          <span className="text-default-500">
+            {node.records.length} 个 DDNS 域名，每个用户各一个名字：
+          </span>
+          {node.records.map((r) => (
+            <span
+              key={r.key || "main"}
+              className="inline-flex items-center gap-1"
+            >
+              <span
+                className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${landingToneClass.slate}`}
+              >
+                {r.label}
+              </span>
+              <span className="font-mono">{r.domain}</span>
+              {r.synced ? null : (
+                <span className="text-warning">（未同步）</span>
+              )}
+            </span>
+          ))}
+        </div>
+      ) : null}
+      {node?.keptForwards?.length || node?.keptLandings ? (
+        <div data-user-sub-kept className="space-y-1 text-xs">
+          <div className="text-default-500">
+            保持原地址（开启前就有，继续用原来的地址，不分配名字）：
+            {node.keptForwards?.length || 0} 条转发
+            {node.keptLandings ? ` · ${node.keptLandings} 个落地` : ""}
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {(node.keptForwards || []).map((f) => (
+              <span
+                key={f.forwardId}
+                className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] ${landingToneClass.slate}`}
+              >
+                <span className="text-default-500">{f.userName}</span>
+                <span className="max-w-[12rem] truncate">{f.name}</span>
+                <span className="font-mono">:{f.port}</span>
+                <KeptTag />
+              </span>
+            ))}
+          </div>
         </div>
       ) : null}
       <div className="flex flex-wrap items-center gap-2 text-xs">
