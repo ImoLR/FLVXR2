@@ -112,8 +112,15 @@ export const fmtPct = (v: number | null | undefined, digits = 2) =>
     ? "—"
     : `${v >= 99.995 && v < 100 ? "99.99" : v.toFixed(v === 100 || v === 0 ? 0 : digits)}%`;
 
-/** 「AWS HK → Fachost seednet 黑五」 (label wins when set). */
+/** Plan 310 r3: a 「利群专线端内」 line (passive, from the 利群入口 reports). */
+export const isEndInLine = (l?: Pick<LineMonitorLine, "kind"> | null) =>
+  l?.kind === "lk_endin";
+
+/** 「AWS HK → Fachost seednet 黑五」 (label wins when set); 端内 lines
+ * 「利群·广港 端内」 (+ the fixed 利群入口). */
 export const lineTitle = (l: LineMonitorLine) => {
+  if (isEndInLine(l))
+    return `${l.leikwanLineName || `专线 ${l.leikwanLineId}`} 端内${l.sourceNodeId > 0 ? `（${l.sourceName || `节点 ${l.sourceNodeId}`}）` : ""}`;
   const target =
     l.targetNodeId > 0
       ? l.targetName || `节点 ${l.targetNodeId}`
@@ -123,7 +130,9 @@ export const lineTitle = (l: LineMonitorLine) => {
 };
 
 export const lineSubtitle = (l: LineMonitorLine) =>
-  `${l.effectiveHost || "—"}:${l.port}`;
+  isEndInLine(l)
+    ? `全程 − 入口段 · ${l.sourceNodeId > 0 ? "固定入口机" : "入口机自动"} · 每分钟`
+    : `${l.effectiveHost || "—"}:${l.port}`;
 
 // Time ticks at whole local minutes / hours / days.
 const TICK_STEPS = [

@@ -37,6 +37,7 @@ import {
   fmtMs,
   fmtPct,
   fromLocalInput,
+  isEndInLine,
   lineColor,
   lineSubtitle,
   lineTitle,
@@ -503,6 +504,14 @@ export const ChartCard = memo(function ChartCard({
                     )}
                     {st === "none" && <span className="text-white/60">—</span>}
                   </div>
+                  {isEndInLine(l) && s.total?.[j] != null && (
+                    <div className="text-white/70">
+                      全程 {fmtMs(s.total[j])} − 入口段 {fmtMs(s.seg?.[j])}
+                      {s.via?.[j]
+                        ? ` · 入口机 ${data.viaNames?.[String(s.via[j])] || `节点 ${s.via[j]}`}`
+                        : ""}
+                    </div>
+                  )}
                 </div>
               </div>
             );
@@ -1173,10 +1182,12 @@ export const ChartCard = memo(function ChartCard({
                         {fmtMs(s?.jitter)}
                       </td>
                       <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums">
-                        {fmtPct(s?.availability)}
+                        {isEndInLine(l) ? "—" : fmtPct(s?.availability)}
                       </td>
                       <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums">
-                        {s && s.loss > 0 ? (
+                        {isEndInLine(l) ? (
+                          "—"
+                        ) : s && s.loss > 0 ? (
                           <span className="text-amber-600 dark:text-amber-300">
                             {s.loss}
                           </span>
@@ -1185,7 +1196,9 @@ export const ChartCard = memo(function ChartCard({
                         )}
                       </td>
                       <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums">
-                        {s && s.downEvents > 0 ? (
+                        {isEndInLine(l) ? (
+                          "—"
+                        ) : s && s.downEvents > 0 ? (
                           <span className="font-semibold text-red-600 dark:text-red-400">
                             {s.downEvents}
                           </span>
@@ -1210,9 +1223,13 @@ export const ChartCard = memo(function ChartCard({
         )}
         {data && (
           <p className="text-xs text-default-400">
-            每 {data.slot} 秒从源节点 TCP 连接目标一次（超时 3 秒，失败 2
-            秒后重试一次）。抖动 = 相邻两次测量延迟差的平均值；可用率 = （正常 +
-            丢包）÷ 已测量次数，无数据不计入；p95 = 95% 的测量低于该值。
+            {lines.some(isEndInLine)
+              ? "利群专线端内 = 全程（利群客户端 UDP 选线测的）− 入口段（入口机到在用入口已有连接的内核延迟），每分钟从利群入口的上报读一次，不发探测；没有读数的分钟是无数据，不算断流。"
+              : ""}
+            {lines.some((x) => !isEndInLine(x)) &&
+              `${lines.some(isEndInLine) ? "其它线路" : ""}每 30 秒从源节点 TCP 连接目标一次（超时 3 秒，失败 2 秒后重试一次）。`}
+            抖动 = 相邻两次测量延迟差的平均值；可用率 = （正常 + 丢包）÷
+            已测量次数，无数据不计入；p95 = 95% 的测量低于该值。
             {data.step > 30
               ? ` 当前每个点合并 ${fmtDuration(data.step)}：含任一断流的时段一定标红${data.step > 60 ? "，丢包 ≥ 5% 的时段才标黄（准确次数见提示框和统计表）" : ""}。`
               : ""}

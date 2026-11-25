@@ -584,7 +584,7 @@ export function LeiKwanUserView() {
                       </span>
                     </div>
                     <div className="flex flex-wrap gap-1">
-                      {/* Plan 310: 全程 tag (入口机 → 利群专线出口). */}
+                      {/* Plan 310 r3: 到落地 tag (none without a landing value). */}
                       <RuleLatencyTag rule={r} />
                       <UserBackupChip rule={r} />
                       {protocolChip(r)}
