@@ -105,7 +105,7 @@ entry's switch triggers (zero_close / eof1s). So:
 - [x] Release brief `/root/flvx-workers/briefs/release-leikwan-diag-inline.md` (fork.171, panel only, no OTA, no DB
       change); ledger row 306 → 待发布 (screens)
 - [x] Summary `/root/flvx-workers/runs/leikwan-diag-inline/summary.md`
-- [ ] Release — user approved the round-2 screens (「可以发布」, 11-25 night); released as **fork.173** (fork.171/172
+- [x] Release — user approved the round-2 screens (「可以发布」, 11-25 night); released as **fork.173** (fork.171/172
       taken by plan 307) — see 「Release (fork.173)」 below
 
 ## Open points (user decides)
@@ -175,8 +175,19 @@ Panel only (no agent OTA, no DB change). Rollback = image swap back to fork.172.
 - [x] Branch + merge onto fork.172 (43e83d5e)
 - [x] go vet; `go test -timeout 40m ./...` (SQLite) all packages ok (handler 260 s, contract 222 s), incl.
       TestLeiKwanDiagEndIn / SharedLanding / PickExitFor / Diagnose / DiagnoseV2; `npm run build` ok
-- [ ] Push, tag 3.0.27-fork.173, CI + Images green, 10 assets, Latest, gost sha256
-- [ ] Prod backup `pre-fork173-<UTC>` + prune (keep 2)
-- [ ] Wait for the plan 309 ops worker to finish, then swap backend + frontend, FLUX_VERSION
-- [ ] Verify: health, nodes, tables unchanged, log 15 min, 6 × 诊断 via admin API, ICMP checks on landings, UI smoke
-- [ ] Cleanup flvxx-306 worktree, /root/lk306-lab, /root/lk306-base; ledger, memory
+- [x] Push, tag 3.0.27-fork.173 (→ 7f9e9307), CI Build Check 45646993735 + 45647852871 green, Images 45647012658
+      (builds green; 「Create Release」 hit GitHub 422 on a sha256 upload, then HTTP 500 during the GitHub incident 11-25
+      ~16:00 UTC → partial release deleted (tag kept), job re-run 16:21 UTC → success), Latest, 10 assets, gost sha256 ok,
+      compose images + PINNED_VERSION fork.173
+- [x] Prod backup `/opt/flvx-svc/rollback/pre-fork173-20261125T155837Z` (compose/.env, gost.db.validated quick_check ok +
+      counts, local image tags, rollback.sh → fork.172) + prune (kept pre-fork172 + pre-fork173)
+- [x] Plan 309 ops worker was already inactive → swap 11-25 23:58:37–23:58:45 TW, FLUX_VERSION fork.173
+- [x] Verify: health ok, 30/32 nodes online as before (火山上海 / 火山广州 offline before too), node/forward/tunnel/landing/
+      利群 rule + grant rows identical, 30 reconnect redeploys failed=0, log 15 min clean (only one timeout each from
+      Lightlayer TW right at the restart and 火山上海), 5 busiest forwards unchanged; 6 × 诊断 via admin API:
+      广港 端内 7.4 / 出口→落地 3.5 / 到落地 16.5; 沪日 29 / 1.5 / 61.5 (was 87.6); 广台 Hinet 19 / 5.5 / 28.5 (was 43.8);
+      福台 Hinet 7.4 / 10.5 / 35.5; 福台 Seednet 0 / 11.5 / 40.5 — every line one exit (no range); 广台 Seednet: no exit
+      connection on its landing at that moment → estimate fallback (same on fork.172). Normal-user view can't be
+      exercised on prod (no normal user owns a 利群 rule) — unit test + lab cover it. UI smoke desktop + H5 390 (广台 Hinet,
+      沪日) matches the round-2 gallery. Landing agents (马年, 99u, JP B, Fachost) no errors (they don't log the checks).
+- [x] Cleanup flvxx-306 worktree, /root/lk306-lab, /root/lk306-base; ledger, memory
