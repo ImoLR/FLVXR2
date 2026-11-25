@@ -2310,6 +2310,12 @@ export default function NodePage() {
                     <button
                       aria-label="查看节点信息"
                       className={`relative flex h-7 w-7 items-center justify-center rounded-full border border-divider/80 bg-background/95 text-default-500 shadow-sm transition hover:border-default-300 hover:text-foreground focus-visible:border-default-300 focus-visible:text-foreground focus-visible:outline-none ${infoPopoverOpenId === node.id ? "border-default-300 text-foreground" : ""}`}
+                      title={[
+                        hasRemark ? "备注" : "",
+                        hasExpiryInfo ? "到期时间" : "",
+                      ]
+                        .filter(Boolean)
+                        .join(" · ")}
                       type="button"
                       onClick={(e) => {
                         e.stopPropagation();
@@ -2346,14 +2352,45 @@ export default function NodePage() {
 
                     {/* 👇 核心魔法：直接让【有内容的窄胶囊】当外壳，彻底消灭那个【没内容的宽空壳】！ */}
                     <div
-                      className={`absolute z-[60] w-auto whitespace-nowrap flex items-center gap-4 rounded-xl border border-divider/80 bg-background/98 p-2 pl-3 shadow-xl backdrop-blur transition-all duration-150 ${infoPopoverOpenId === node.id ? "visible opacity-100 pointer-events-auto" : "invisible opacity-0 pointer-events-none"} ${infoPlacement === "bottom" ? "right-0 top-[calc(100%+0.75rem)] translate-y-1" : "right-[calc(100%+0.75rem)] top-1/2 -translate-y-1/2 translate-x-1"}`}
+                      className={`absolute z-[60] ${hasRemark ? "w-max max-w-[min(18rem,calc(100vw-3rem))] flex flex-col items-stretch gap-2" : "w-auto whitespace-nowrap flex items-center gap-4"} rounded-xl border border-divider/80 bg-background/98 p-2 pl-3 shadow-xl backdrop-blur transition-all duration-150 ${infoPopoverOpenId === node.id ? "visible opacity-100 pointer-events-auto" : "invisible opacity-0 pointer-events-none"} ${infoPlacement === "bottom" ? "right-0 top-[calc(100%+0.75rem)] translate-y-1" : hasRemark ? "right-[calc(100%+0.75rem)] top-0 translate-x-1" : "right-[calc(100%+0.75rem)] top-1/2 -translate-y-1/2 translate-x-1"}`}
+                      data-node-info-popover="true"
                       onClick={(e) => {
                         e.stopPropagation();
                         e.nativeEvent.stopImmediatePropagation();
                       }}
                     >
+                      {/* Plan 311: the red dot means 「有备注」, so the popover shows it too. */}
+                      {hasRemark && (
+                        <div
+                          className="max-h-48 overflow-y-auto pr-1 text-xs leading-5 text-default-500"
+                          data-node-info-remark="true"
+                        >
+                          <span className="font-medium text-red-500">
+                            备注：
+                          </span>
+                          <span
+                            className="cursor-pointer whitespace-pre-line break-words rounded px-1 text-default-700 transition-colors hover:bg-default-200/50"
+                            role="button"
+                            tabIndex={0}
+                            title="点击复制备注"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              copyToClipboard(node.remark!.trim(), "备注");
+                            }}
+                            onKeyDown={(e) => {
+                              if (e.key !== "Enter" && e.key !== " ") return;
+                              e.preventDefault();
+                              copyToClipboard(node.remark!.trim(), "备注");
+                            }}
+                          >
+                            {node.remark!.trim()}
+                          </span>
+                        </div>
+                      )}
                       {hasExpiryInfo && (
-                        <>
+                        <div
+                          className={`flex items-center gap-4 whitespace-nowrap ${hasRemark ? "border-t border-divider/60 pt-2" : ""}`}
+                        >
                           <span className="text-xs font-medium text-default-700 tracking-wide">
                             {formatNodeRenewalTime(expiryMeta.nextDueTime)}
                           </span>
@@ -2369,14 +2406,14 @@ export default function NodePage() {
                           >
                             更新周期
                           </button>
-                        </>
+                        </div>
                       )}
                     </div>
                   </div>
                 )}
               </div>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex min-w-0 items-center gap-2">
               <span
                 className={`h-2.5 w-2.5 rounded-full flex-shrink-0 ${
                   connectionStatusMeta.color === "success"
@@ -2407,6 +2444,20 @@ export default function NodePage() {
                 }
                 notice={node.adminNotice}
               />
+            </div>
+            {/* Plan 311: the small tags live on the region line (wrapping), so the
+                name row keeps its full width for the name. */}
+            <div
+              className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs text-default-500"
+              data-node-tag-line="true"
+            >
+              <span className="min-w-0">
+                {node.region ? regionLabel(node.region) : (
+                  <Chip className="bg-default-100 text-default-500" color="default" size="sm" variant="flat">
+                    未设置地区
+                  </Chip>
+                )}{node.regionCity ? ` · ${node.regionCity}` : ""}
+              </span>
               <NodeIPv6RABadge node={node} />
               <NodeDNSCacheAlert node={node} />
               <NodeLeiKwanBadge node={node} />
@@ -2423,13 +2474,6 @@ export default function NodePage() {
                   线路机
                 </Chip>
               )}
-            </div>
-            <div className="text-xs text-default-500">
-              {node.region ? regionLabel(node.region) : (
-                <Chip className="bg-default-100 text-default-500" color="default" size="sm" variant="flat">
-                  未设置地区
-                </Chip>
-              )}{node.regionCity ? ` · ${node.regionCity}` : ""}
             </div>
           </div>
         </CardHeader>

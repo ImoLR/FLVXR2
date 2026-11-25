@@ -320,22 +320,29 @@ function SortableTableRow({
             {node.name}
           </span>
           <NodeAdminNoticeBadge notice={node.adminNotice} />
+        </div>
+        {/* Plan 311: small tags on the region line (same as the card), so they
+            never push the node name out. */}
+        <div
+          className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-default-500"
+          data-node-tag-line="true"
+        >
+          <span>
+            {node.region ? regionLabel(node.region) : (
+              <Chip className="bg-default-100 text-default-500" color="default" size="sm" variant="flat">
+                未设置地区
+              </Chip>
+            )}{node.regionCity ? ` · ${node.regionCity}` : ""}
+          </span>
           <NodeIPv6RABadge node={node} />
           <NodeDNSCacheAlert node={node} />
-              <NodeLeiKwanBadge node={node} />
-              <NodeDDNSBadge ddns={(node as { ddns?: import("@/api/ddns").NodeDDNSView | null }).ddns} />
-              <NodeUserSubdomainPill
-                ddns={(node as { ddns?: import("@/api/ddns").NodeDDNSView | null }).ddns}
-                nodeId={node.id}
-                nodeName={node.name}
-              />
-        </div>
-        <div className="mt-1 text-xs text-default-500">
-          {node.region ? regionLabel(node.region) : (
-            <Chip className="bg-default-100 text-default-500" color="default" size="sm" variant="flat">
-              未设置地区
-            </Chip>
-          )}{node.regionCity ? ` · ${node.regionCity}` : ""}
+          <NodeLeiKwanBadge node={node} />
+          <NodeDDNSBadge ddns={(node as { ddns?: import("@/api/ddns").NodeDDNSView | null }).ddns} />
+          <NodeUserSubdomainPill
+            ddns={(node as { ddns?: import("@/api/ddns").NodeDDNSView | null }).ddns}
+            nodeId={node.id}
+            nodeName={node.name}
+          />
         </div>
         {machineOf ? (
           <div className="mt-1">
