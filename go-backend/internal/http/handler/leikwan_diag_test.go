@@ -172,7 +172,7 @@ func TestLeiKwanDiagSource(t *testing.T) {
 
 // Plan 301 诊断 v2: a native landing measures 专线出口 → 落地 (kernel rtt of the
 // relay exit's connections, FLVX node IPs skipped), 专线入口 → 专线出口 =
-// 全程 − 入口段 (估算; 全程 ends at the exit), whole path ≈ 全程 + 落地段; an old landing agent falls back to the
+// 全程 − 入口段 (plan 306 r2: 「端内」, a plain number; 全程 ends at the exit), whole path ≈ 全程 + 落地段; an old landing agent falls back to the
 // old 专线 → 落地 estimate; 手机本地 takes the phone's numbers; an admin
 // looking at another user's forward diagnoses it from the admin's own entry.
 func TestLeiKwanDiagnoseV2(t *testing.T) {
@@ -257,7 +257,7 @@ func TestLeiKwanDiagnoseV2(t *testing.T) {
 		return items, out.Data.Summary, out.Data.Path, w.Body.String()
 	}
 
-	// User 2 (主入口 阿里广州): 5 + 6 measured, 40 − 5 = 35 估算 for the vendor part, ≈ 46 end to end.
+	// User 2 (主入口 阿里广州): 5 + 6 measured, 40 − 5 = 35 = 端内 (plan 306 r2: not 估算), 46 end to end.
 	items, sum, path, raw := call(2, 1, map[string]interface{}{"id": 8})
 	if diagOn[60] != 1 || diagOn[58] != 0 {
 		t.Fatalf("user entry: %v", diagOn)
@@ -265,7 +265,7 @@ func TestLeiKwanDiagnoseV2(t *testing.T) {
 	if l := items["landing"]; l["success"] != true || l["averageTime"] != 6.0 || l["title"] != "专线出口 → 利群280" {
 		t.Fatalf("landing hop: %v", l)
 	}
-	if v := items["vendor"]; v["estimate"] != true || v["averageTime"] != 35.0 || !strings.Contains(v["sub"].(string), "全程 40 ms") {
+	if v := items["vendor"]; v["estimate"] != nil || v["success"] != true || v["averageTime"] != 35.0 || !strings.Contains(v["sub"].(string), "全程 40 ms") || endInLabel(v) != "端内 35 ms" {
 		t.Fatalf("vendor hop: %v", v)
 	}
 	if _, ok := items["hop2"]; ok {

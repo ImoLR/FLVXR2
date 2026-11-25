@@ -36,7 +36,9 @@ import { Spinner } from "@/shadcn-bridge/heroui/spinner";
 // 手机) → 利群专线入口 → 专线出口 → 落地: 本机 → 入口 measured by the App
 // (browsers start at the entry), 入口 → 专线入口 measured on the entry (or
 // the phone), 专线出口 → 落地 measured on the native landing, the vendor part
-// in between = 全程 − measured hops (估算, coloured like every latency tag).
+// in between = 全程 − measured hops. Plan 306 r2: with a measured landing that
+// part is 「端内」 (a plain number + tag 「端内 X ms」 for everyone, no 估算 / ≈);
+// without one, 专线 → 落地 stays the 估算 of plan 272.
 // No 「其他利群入口机」. Desktop = tables, H5 = cards (vertical path strip).
 
 const routeShort = (label?: string) =>
@@ -146,7 +148,19 @@ const ms = (v?: number) => Math.round(v || 0);
 const msText = (v?: number, max?: number) =>
   max !== undefined && ms(max) > ms(v) ? `${ms(v)}–${ms(max)}` : `${ms(v)}`;
 
-/** Plan 306: 「含端内 18 ms」 — the part of the 专线 behind the exit IP. */
+/** Plan 306 r2: 端内 numbers — one decimal under 10 ms (「0.4」), whole above
+ * (same as the backend's 「端内 X ms」 tag). */
+const msFine1 = (v?: number) => {
+  const x = v || 0;
+
+  return x < 9.95 ? String(Math.round(x * 10) / 10) : String(Math.round(x));
+};
+const msFine = (v?: number, max?: number) =>
+  max !== undefined && msFine1(max) !== msFine1(v)
+    ? `${msFine1(v)}–${msFine1(max)}`
+    : msFine1(v);
+
+/** Plan 306 r2: 「端内 19 ms」 on the 利群专线入口 → 专线出口 row (every user). */
 function EndInPill({ e }: { e?: LeiKwanDiagEndIn }) {
   if (!e) return null;
 
@@ -211,7 +225,10 @@ function DesktopRow({ item }: { item: LeiKwanDiagItem }) {
         {ok || state === "estimate" ? (
           <span className="font-semibold text-primary">
             {state === "estimate" ? "≈" : ""}
-            {msText(item.averageTime, item.averageMaxMs)}
+            {(item.endIn ? msFine : msText)(
+              item.averageTime,
+              item.averageMaxMs,
+            )}
           </span>
         ) : (
           <Dash />
@@ -284,7 +301,11 @@ function PhoneCard({ item }: { item: LeiKwanDiagItem }) {
             <div className="text-default-500">延迟</div>
             <div className="font-semibold text-primary">
               {est ? "≈" : ""}
-              {msText(item.averageTime, item.averageMaxMs)} ms
+              {(item.endIn ? msFine : msText)(
+                item.averageTime,
+                item.averageMaxMs,
+              )}{" "}
+              ms
             </div>
           </div>
           <div>
@@ -447,25 +468,29 @@ function HopValue({
   value,
   max,
   estimate,
+  fine,
   pending,
 }: {
   value?: number;
   /** Plan 306: upper end of a range (shared landing) */
   max?: number;
   estimate?: boolean;
+  /** Plan 306 r2: 端内 — one decimal under 10 ms */
+  fine?: boolean;
   pending: boolean;
 }) {
   if (value === undefined || value === null)
     return <Pill tone="slate">{pending ? "测试中" : "— ms"}</Pill>;
   const tone = latencyTone(max ?? value);
+  const text = (fine ? msFine : msText)(value, max);
 
   // Plan 301: estimates use the same ms colours as every latency tag.
   return estimate ? (
     <Pill title="全程减去实测各段的估算" tone={tone}>
-      ≈{msText(value, max)} ms
+      ≈{text} ms
     </Pill>
   ) : (
-    <Pill tone={tone}>{msText(value, max)} ms</Pill>
+    <Pill tone={tone}>{text} ms</Pill>
   );
 }
 
@@ -474,18 +499,17 @@ function HopArrow({
   value,
   max,
   estimate,
+  fine,
   pending,
   h5,
-  extra,
 }: {
   label: string;
   value?: number;
   max?: number;
   estimate?: boolean;
+  fine?: boolean;
   pending: boolean;
   h5: boolean;
-  /** Plan 306: the 「含端内」 tag under / after the arrow */
-  extra?: ReactNode;
 }) {
   if (h5)
     return (
@@ -494,20 +518,24 @@ function HopArrow({
         {label}
         <HopValue
           estimate={estimate}
+          fine={fine}
           max={max}
           pending={pending}
           value={value}
         />
         {estimate && value !== undefined && <Pill tone="amber">估算</Pill>}
-        {extra}
       </div>
     );
 
   return (
-    <div
-      className={`flex shrink-0 flex-col items-center ${extra ? "w-24" : "w-20"}`}
-    >
-      <HopValue estimate={estimate} max={max} pending={pending} value={value} />
+    <div className="flex w-20 shrink-0 flex-col items-center">
+      <HopValue
+        estimate={estimate}
+        fine={fine}
+        max={max}
+        pending={pending}
+        value={value}
+      />
       <div className="relative my-1 h-px w-full bg-default-300 dark:bg-default-500">
         <span className="absolute -right-1 -top-[7px] text-xs text-default-400">
           ▶
@@ -517,7 +545,6 @@ function HopArrow({
         {label}
         {estimate ? "·估算" : ""}
       </span>
-      {extra && <div className="mt-0.5">{extra}</div>}
     </div>
   );
 }
@@ -571,13 +598,14 @@ function PathStrip({
         {measured && summary.endToEndMs !== undefined && (
           <Pill
             title={
-              summary.endInMs !== undefined
-                ? "入口段 + 专线内（含端内）+ 落地机实测的 专线出口 → 落地（ping 出口）"
-                : "全程（到专线出口）+ 落地机实测的 专线出口 → 落地"
+              summary.landingPing
+                ? "入口段 + 端内 + 专线出口 → 落地（落地机 ping 出口）"
+                : "入口段 + 端内 + 专线出口 → 落地（出口不回 ping，用落地机看到的连接延迟，可能偏高）"
             }
             tone={latencyTone(summary.endToEndMaxMs ?? summary.endToEndMs)}
           >
-            到落地 ≈{msText(summary.endToEndMs, summary.endToEndMaxMs)} ms
+            到落地 {summary.landingPing ? "" : "≈"}
+            {msText(summary.endToEndMs, summary.endToEndMaxMs)} ms
           </Pill>
         )}
         <span>
@@ -586,11 +614,8 @@ function PathStrip({
             : `全程 = ${local ? "手机" : "入口机"} → 利群专线，利群客户端实测`}
           {age > 120 ? `（${Math.round(age / 60)} 分钟前）` : ""}
           {measured
-            ? "；专线内 = 全程减入口段（估算），到落地再加上落地机实测的一段"
+            ? "；端内 = 全程减入口段，到落地 = 入口段 + 端内 + 出口 → 落地"
             : "；专线 → 落地是全程减第一跳的估算"}
-          {measured && summary.endInMs !== undefined
-            ? "；端内（出口 IP 后面利群内部的一段）已经算在专线内，不重复加"
-            : ""}
         </span>
       </>
     );
@@ -648,13 +673,12 @@ function PathStrip({
         {measured ? (
           <>
             <HopArrow
-              estimate
-              extra={<EndInPill e={summary?.endIn} />}
+              fine
               h5={h5}
-              label="专线内"
-              max={summary?.vendorMaxMs}
+              label="端内"
+              max={summary?.endInMaxMs ?? summary?.vendorMaxMs}
               pending={pending}
-              value={summary?.vendorMs}
+              value={summary?.endInMs ?? summary?.vendorMs}
             />
             <PathNode
               h5={h5}
@@ -981,13 +1005,13 @@ export function LeiKwanDiagnoseModal({
                 }
               />
               <Section
-                desc="利群自己的专线：全程（到专线出口）减入口段的估算"
+                desc="端内：利群专线自己的一段，全程（到专线出口）减入口段"
                 h5={h5}
                 items={of("vendor")}
-                title="🔗 利群专线入口 → 专线出口（估算）"
+                title="🔗 利群专线入口 → 专线出口"
               />
               <Section
-                desc="落地机上实测（ping 专线出口；出口 IP 后面利群内部的一段算端内，在专线里）"
+                desc="落地机上实测（ping 专线出口）"
                 h5={h5}
                 items={of("landing")}
                 title="🏁 专线出口 → 落地"

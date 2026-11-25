@@ -12,9 +12,11 @@ package handler
 //     ends at the line's exit (the vendor probes never reach the landing).
 //   - 专线出口 → 落地: measured on a native landing — the kernel TCP rtt of
 //     the relay exit's inbound connections (agent command LandingPeerRtt).
-//   - 专线入口 → 专线出口: 全程 − 入口段, labelled 估算; the whole path ≈
-//     全程 + 落地段. Without a landing measurement: 专线入口 → 落地 = 全程 −
-//     入口 → 专线入口 (估算, as plan 272).
+//   - 专线入口 → 专线出口 = 「端内」 (plan 306 r2, the user's word for the
+//     line's own entry → exit delay): 全程 − 入口段, a plain number with the
+//     tag 「端内 X ms」 for every user; 到落地 = 入口段 + 端内 + 专线出口 → 落地.
+//     Without a landing measurement: 专线入口 → 落地 = 全程 − 入口 → 专线入口
+//     (估算, as plan 272).
 //   - 出口测试: panel landing on an FLVX node → the existing TcpPing rotation.
 //   - 备线: the existing rule diagnosis of the 备线 forward, as one row.
 // Only the chosen entry (no 「其他利群入口机」). No new pollers; ≤ 5
@@ -723,18 +725,19 @@ func lkExitCands(peers []lkLandingPeer, skip map[string]bool) []lkLandingPeer {
 // 广港 / 沪日 / 广台 the TCP is held by a vendor relay right behind the 专线入口
 // and carried inside the vendor to the exit IP (a front), so C = 专线 + the
 // network; on 福台 the exit is the relay itself (C ≈ ping). The landing's ping
-// to the exit IP (n) is the network part; 端内 = C − n is part of the 专线 —
-// the vendor's own 全程 already ends at the exit front. So:
-//   专线出口 → 落地 = n;  专线内 = max(全程 − 入口段, 端内);
-//   到落地 = 入口段 + 专线内 + n  (= max(全程 + n, 入口段 + C), matched the real
-//   round trip through the line within ≈ 3 ms; 全程 + C counted the 专线 twice).
+// to the exit IP (n) is the network part; C − n (behind()) is part of the 专线
+// — the vendor's own 全程 already ends at the exit front. So:
+//   专线出口 → 落地 = n;  端内 (= the whole 专线入口 → 专线出口) = max(全程 −
+//   入口段, C − n);  到落地 = 入口段 + 端内 + n  (= max(全程 + n, 入口段 + C),
+//   matched the real round trip through the line within ≈ 3 ms; 全程 + C
+//   counted the 专线 twice). Round 2 (user 11-25 night): 「端内 X ms」 for every
+//   user and any value, never 估算 / ≈.
 
 const (
 	lkExitPings       = 3
 	lkExitPingGap     = 150 * time.Millisecond
 	lkExitMaxPinged   = 4   // sources pinged on a landing shared by several 利群 rules
-	lkEndInShowMs     = 3.0 // below: noise (ping is whole ms, 全程 rounded) → 「端内 ≈0」 for admins only
-	lkEndInSlackMs    = 5.0 // a source whose 端内 is longer than the line's 专线 + this is another line's
+	lkEndInSlackMs    = 5.0 // a source whose C − n is longer than the line's 端内 + this is another line's
 	lkExitAgreeMs     = 3.0 // sources closer than this give one answer
 	lkExitPingTimeout = 2   // seconds per echo
 )
@@ -753,8 +756,9 @@ func (c lkExitCand) connMs() float64 {
 	return c.RttMs
 }
 
-// endIn: the part of the connection rtt inside the vendor (behind the exit IP).
-func (c lkExitCand) endIn() float64 { return math.Max(0, c.connMs()-c.PingMs) }
+// behind: the part of the connection rtt inside the vendor (behind the exit
+// IP, C − n); a piece of the line's 端内, never added on top.
+func (c lkExitCand) behind() float64 { return math.Max(0, c.connMs()-c.PingMs) }
 
 // pingExit: ICMP from the landing node to an exit IP through the agents'
 // existing ServiceMonitorCheck (no OTA), lkExitPings echoes one at a time;
@@ -796,15 +800,15 @@ func (j *lkDiagJob) pingExit(ctx context.Context, ip string) float64 {
 // lkExitPick: what compose() shows for the landing hop.
 type lkExitPick struct {
 	sel      []lkExitCand // one = unambiguous; several = a range (shared landing)
-	dropped  int          // sources dropped on a shared landing (端内 longer than this line's 专线)
+	dropped  int          // sources dropped on a shared landing (C − n longer than this line's 端内)
 	noPing   bool         // the exit did not answer ping → today's numbers (C as 出口 → 落地)
 	noneFits bool         // shared landing: no source looks like this line's
 	alone    bool         // shared landing with one source only: it may be the other line's
 }
 
 // lkPickExitFor chooses among the pinged sources. est = 全程 − 入口段 (< 0
-// unknown). Not shared: the busiest. Shared: sources whose 端内 fits in this
-// line's 专线; one (or all within lkExitAgreeMs) → that, else all of them.
+// unknown). Not shared: the busiest. Shared: sources whose C − n fits in this
+// line's 端内; one (or all within lkExitAgreeMs) → that, else all of them.
 func lkPickExitFor(cands []lkExitCand, shared bool, est float64) lkExitPick {
 	if len(cands) == 0 {
 		return lkExitPick{}
@@ -821,7 +825,7 @@ func lkPickExitFor(cands []lkExitCand, shared bool, est float64) lkExitPick {
 			continue
 		}
 		answered++
-		if est >= 0 && c.endIn() > est+lkEndInSlackMs {
+		if est >= 0 && c.behind() > est+lkEndInSlackMs {
 			continue
 		}
 		fit = append(fit, c)
@@ -832,10 +836,10 @@ func lkPickExitFor(cands []lkExitCand, shared bool, est float64) lkExitPick {
 	case len(fit) == 0:
 		return lkExitPick{noneFits: true, dropped: answered}
 	}
-	minN, maxN, minX, maxX := fit[0].PingMs, fit[0].PingMs, fit[0].endIn(), fit[0].endIn()
+	minN, maxN, minX, maxX := fit[0].PingMs, fit[0].PingMs, fit[0].behind(), fit[0].behind()
 	for _, c := range fit[1:] {
 		minN, maxN = math.Min(minN, c.PingMs), math.Max(maxN, c.PingMs)
-		minX, maxX = math.Min(minX, c.endIn()), math.Max(maxX, c.endIn())
+		minX, maxX = math.Min(minX, c.behind()), math.Max(maxX, c.behind())
 	}
 	p := lkExitPick{sel: fit, dropped: answered - len(fit), alone: answered == 1}
 	if maxN-minN <= lkExitAgreeMs && maxX-minX <= lkExitAgreeMs {
@@ -864,24 +868,27 @@ func (s lkSpan) put(m map[string]interface{}, key, maxKey string) {
 	}
 }
 
-func (s lkSpan) text() string {
-	if math.Round(s.hi) > math.Round(s.lo) {
-		return fmt.Sprintf("%d–%d", int(math.Round(s.lo)), int(math.Round(s.hi)))
+// lkTagMs: 「0.4」 / 「4.7」 under 10 ms (one decimal), 「19」 above.
+func lkTagMs(v float64) string {
+	if v < 9.95 {
+		return lkMs(lkRound(v))
 	}
-	return strconv.Itoa(int(math.Round(s.lo)))
+	return strconv.Itoa(int(math.Round(v)))
 }
 
-// endInTag: the 「含端内」 tag on the 专线 (nil = not shown).
-func (j *lkDiagJob) endInTag(x lkSpan) map[string]interface{} {
-	if x.hi < lkEndInShowMs {
-		if !j.admin {
-			return nil
-		}
-		return map[string]interface{}{"label": "端内 ≈0", "tone": "slate",
-			"title": "落地连接的延迟 ≈ 落地机 ping 出口：连接就接在出口这台机器上，利群内部没有额外的一段"}
+// tagText: a range only when put() writes one (whole ms apart).
+func (s lkSpan) tagText() string {
+	if math.Round(s.hi) > math.Round(s.lo) {
+		return lkTagMs(s.lo) + "–" + lkTagMs(s.hi)
 	}
-	return map[string]interface{}{"label": "含端内 " + x.text() + " ms", "tone": "amber",
-		"title": "端内 = 落地机看到的连接延迟 − 落地机 ping 出口：连接其实接在出口 IP 后面利群内部的中转上。这段算在专线里（全程已经包含），不另外加"}
+	return lkTagMs(s.lo)
+}
+
+// endInTag: 「端内 X ms」 on the 专线入口 → 专线出口 row and the path strip —
+// for every user, whatever the value (round 2: no 估算 / ≈ / hiding).
+func endInTag(x lkSpan) map[string]interface{} {
+	return map[string]interface{}{"label": "端内 " + x.tagText() + " ms", "tone": "amber",
+		"title": "端内 = 利群专线入口 → 专线出口（全程减入口段）"}
 }
 
 // exitLabel: 「Zenlayer · 台湾 · 103.167.50.69」 (admin only).
@@ -989,10 +996,10 @@ func (j *lkDiagJob) landingRows(p lkExitPick, others int) {
 	}
 	c := p.sel[0]
 	if p.noPing {
-		// Today's numbers: the connection rtt (it may contain 端内).
-		sub := "落地机实测（内核 TCP rtt；出口不回 ping，可能含利群内部的一段）"
+		// Today's numbers: the connection rtt (it may hold part of the 端内).
+		sub := "落地机实测（连接延迟；出口不回 ping，可能偏高）"
 		if j.admin {
-			sub = fmt.Sprintf("利群出口 %s · %d 条连接 · 平滑 %s ms · 出口不回 ping，分不出端内", lkExitLabel(c.IP), c.Conns, lkMs(lkRound(c.RttMs)))
+			sub = fmt.Sprintf("利群出口 %s · %d 条连接 · 平滑 %s ms · 出口不回 ping，用的是连接延迟", lkExitLabel(c.IP), c.Conns, lkMs(lkRound(c.RttMs)))
 			if others > 0 {
 				sub += fmt.Sprintf(" · 另有 %d 个来源", others)
 			}
@@ -1003,21 +1010,21 @@ func (j *lkDiagJob) landingRows(p lkExitPick, others int) {
 		return
 	}
 	srcLine := func(c lkExitCand) string {
-		return fmt.Sprintf("%s · ping %s ms · 连接 %s ms（含端内 %s）· %d 条连接", lkExitLabel(c.IP),
-			lkMs(lkRound(c.PingMs)), lkMs(lkRound(c.connMs())), lkMs(math.Round(c.endIn())), c.Conns)
+		return fmt.Sprintf("%s · ping %s ms · 连接 %s ms · %d 条连接", lkExitLabel(c.IP),
+			lkMs(lkRound(c.PingMs)), lkMs(lkRound(c.connMs())), c.Conns)
 	}
 	if len(p.sel) == 1 {
 		sub := "落地机实测（ping 专线出口）"
 		if p.alone {
-			sub = "落地机实测（ping 专线出口；" + shareNote() + "，现在只有一个来源，不一定是这条线的）"
+			sub = "落地机 ping 专线出口；" + shareNote() + "，不一定是这条线的出口"
 		}
 		if j.admin {
 			sub = "利群出口 " + srcLine(c)
 			switch {
 			case p.alone:
-				sub += " · " + shareNote() + "，现在只有这一个来源，不一定是这条线的"
+				sub += " · " + shareNote() + "，现在只有这一个来源，不一定是这条线的出口"
 			case p.dropped > 0:
-				sub += fmt.Sprintf(" · %s，按端内排除了 %d 个属于别的线路的来源", shareNote(), p.dropped)
+				sub += fmt.Sprintf(" · %s，排除了 %d 个别的线路的来源", shareNote(), p.dropped)
 			case len(j.sharedWith) > 0:
 				sub += " · " + shareNote() + "，其余来源和这个差不多"
 			}
@@ -1032,7 +1039,7 @@ func (j *lkDiagJob) landingRows(p lkExitPick, others int) {
 	}
 	// Shared landing, several plausible sources: show the range honestly.
 	n := lkSpanOf(p.sel, func(c lkExitCand) float64 { return c.PingMs })
-	sub := shareNote() + "，分不清这条线用的是哪个出口（ping 专线出口 " + n.text() + " ms）"
+	sub := shareNote() + "，分不清是哪个出口，显示范围"
 	it := lkDiagRow("landing", title, sub)
 	it["success"], it["packetLoss"], it["ambiguous"] = true, 0.0, true
 	n.put(it, "averageTime", "averageMaxMs")
@@ -1088,13 +1095,13 @@ func (j *lkDiagJob) compose() {
 	}
 	if land >= 0 {
 		sum["landingMeasured"] = true
+		// Round 2: this row is 「端内」 — a plain number, not 估算.
 		it := lkDiagRow("vendor", "利群专线入口 → 专线出口", "")
-		it["estimate"] = true
-		// The parts per picked source: n = 出口 → 落地, x = 端内; the old
-		// numbers (n = connection rtt, no 端内) when the exit does not answer
+		// The parts per picked source: n = 出口 → 落地, x = C − n; the old
+		// numbers (n = connection rtt, x = 0) when the exit does not answer
 		// ping or there is no source list.
 		nOf := func(c lkExitCand) float64 { return c.PingMs }
-		xOf := func(c lkExitCand) float64 { return c.endIn() }
+		xOf := func(c lkExitCand) float64 { return c.behind() }
 		sel := pick.sel
 		if len(sel) == 0 || pick.noPing {
 			c := lkExitCand{lkLandingPeer: lkLandingPeer{MinRttMs: land}, PingMs: land}
@@ -1104,43 +1111,39 @@ func (j *lkDiagJob) compose() {
 			sel = []lkExitCand{c}
 			nOf = func(c lkExitCand) float64 { return c.connMs() }
 			xOf = func(lkExitCand) float64 { return 0 }
+		} else {
+			sum["landingPing"] = true // 出口 → 落地 = the landing's ping to the exit
 		}
 		lkSpanOf(sel, nOf).put(sum, "landingMs", "landingMaxMs")
 		if len(sel) > 1 {
 			sum["landingAmbiguous"] = true
 		}
-		x := lkSpanOf(sel, xOf)
-		if !pick.noPing && len(pick.sel) > 0 {
-			x.put(sum, "endInMs", "endInMaxMs")
-		}
 		switch {
 		case total < 0:
-			it["skipped"], it["estimate"], it["message"] = true, false, noTotal
+			it["skipped"], it["message"] = true, "利群客户端还没有全程数据，算不出端内"
 		case hop1 < 0:
-			it["skipped"], it["estimate"], it["message"] = true, false, hop1Why+"，估算不了"
+			it["skipped"], it["message"] = true, hop1Why+"，算不出端内"
 		default:
 			// Prod 11-24 (fork.165): the client's 全程 ends at the line's exit
 			// front — its probes never reach the landing. Plan 306 (11-25, real
 			// round trips through all six lines): the landing's connection rtt
-			// also holds the 专线 (端内 = C − n), so 专线内 = max(全程 − 入口段,
-			// 端内) and 到落地 = 入口段 + 专线内 + 出口 → 落地 (not 全程 + C).
-			vendor := lkSpanOf(sel, func(c lkExitCand) float64 { return math.Max(est, xOf(c)) })
+			// also holds the 专线 (C − n), so 端内 = max(全程 − 入口段, C − n)
+			// and 到落地 = 入口段 + 端内 + 出口 → 落地 (not 全程 + C).
+			endIn := lkSpanOf(sel, func(c lkExitCand) float64 { return math.Max(est, xOf(c)) })
 			e2e := lkSpanOf(sel, func(c lkExitCand) float64 { return hop1 + math.Max(est, xOf(c)) + nOf(c) })
-			vendor.put(sum, "vendorMs", "vendorMaxMs")
+			endIn.put(sum, "vendorMs", "vendorMaxMs")
+			endIn.put(sum, "endInMs", "endInMaxMs")
 			e2e.put(sum, "endToEndMs", "endToEndMaxMs")
 			sum["hop2Estimate"] = false
 			it["success"], it["packetLoss"] = true, 0.0
-			vendor.put(it, "averageTime", "averageMaxMs")
-			it["sub"] = fmt.Sprintf("估算：全程 %s ms − 入口段 %s ms（全程只到专线出口）", lkMs(lkRound(total)), lkMs(lkRound(hop1)))
-			if vendor.hi > est+0.5 {
-				it["sub"] = fmt.Sprintf("全程 %s ms − 入口段 %s ms = %s ms，落地实测的端内更长，按端内算", lkMs(lkRound(total)), lkMs(lkRound(hop1)), lkMs(lkRound(est)))
+			endIn.put(it, "averageTime", "averageMaxMs")
+			it["sub"] = fmt.Sprintf("全程 %s ms − 入口段 %s ms", lkMs(lkRound(total)), lkMs(lkRound(hop1)))
+			if endIn.hi > est+0.5 {
+				it["sub"] = fmt.Sprintf("全程 %s ms − 入口段 %s ms = %s ms，落地机测到这段更长，按 %s ms 算",
+					lkMs(lkRound(total)), lkMs(lkRound(hop1)), lkMs(lkRound(est)), endIn.tagText())
 			}
-		}
-		if !pick.noPing && len(pick.sel) > 0 {
-			if tag := j.endInTag(x); tag != nil {
-				it["endIn"] = tag
-				sum["endIn"] = tag
-			}
+			tag := endInTag(endIn)
+			it["endIn"], sum["endIn"] = tag, tag
 		}
 		j.set(j.iVendor, it)
 	} else {
