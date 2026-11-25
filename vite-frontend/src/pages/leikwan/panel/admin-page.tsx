@@ -91,6 +91,11 @@ import {
   type PhoneCtx,
 } from "@/pages/leikwan/panel/phone-entry";
 import {
+  LineLatencyTag,
+  RuleLatencyField,
+  RuleLatencyTag,
+} from "@/pages/leikwan/panel/rule-latency";
+import {
   AdminBackupChip,
   AllEntriesPill,
   BlockedPill,
@@ -407,12 +412,9 @@ function AdminRuleRow({
           </span>
         </div>
         <div className="flex flex-wrap gap-1">
-          <Pill
-            title={r.source === "import" ? "导入时登记的利群转发" : undefined}
-            tone="purple"
-          >
-            利群 #{r.forwardId}
-          </Pill>
+          {/* Plan 310: 全程 tag (the 利群 # number is in its hover text);
+              手机本地 rows have no entry value. */}
+          {!pv && <RuleLatencyTag rule={r} />}
           <AdminBackupChip rule={r} />
           {pv ? <PhoneWarmChip view={pv} /> : <WarmChip rule={r} />}
           <EntryLimitPills limits={pv ? pv.limits : r.entryLimits} />
@@ -471,6 +473,8 @@ function LineGroupBlock({
 }) {
   const line = g.line;
   const attention = g.rules.some((r) => r.backupError);
+  // Plan 310: 手机本地 rows show no entry value (nor does the header tag).
+  const phoneLocal = !!usePhoneCtx()?.local;
 
   return (
     <div
@@ -503,6 +507,7 @@ function LineGroupBlock({
             </Pill>
             {line && <Pill tone="pink">{line.transport}</Pill>}
             <Pill tone="purple">{g.rules.length} 条</Pill>
+            <LineLatencyTag phoneLocal={phoneLocal} rules={g.rules} />
             {line && line.status !== 1 && <Pill tone="slate">已停用</Pill>}
             {attention && (
               <AlertTriangle
@@ -1471,7 +1476,7 @@ function AdminRuleCard({
 
   return (
     <LkExpandCard
-      chip={<Pill tone="purple">#{r.forwardId}</Pill>}
+      chip={pv ? undefined : <RuleLatencyTag rule={r} />}
       data-leikwan-rule={r.name}
       dot={<RuleDot rule={r} />}
       name={
@@ -1521,6 +1526,8 @@ function AdminRuleCard({
           <span className="text-xs text-default-500">{externalNote(r)}</span>
         )}
       </LkField>
+      {/* Plan 310: what the row's tag measures / why it is grey. */}
+      {!pv && <RuleLatencyField rule={r} />}
       {r.pendingLanding && (
         <LkField label="待切换">
           <PendingBlock compact inField rule={r} onSwap={actions.openSwap} />
@@ -1742,6 +1749,10 @@ function AdminPhone({
                   <Pill title={g.route} tone="teal">
                     {routeShort(g.route)}
                   </Pill>
+                  <LineLatencyTag
+                    phoneLocal={!!phoneCtx?.local}
+                    rules={g.rules}
+                  />
                   {g.rules.some((r) => r.backupError) && (
                     <AlertTriangle
                       className="shrink-0 text-red-700"

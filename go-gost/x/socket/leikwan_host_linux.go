@@ -336,6 +336,8 @@ func (m *lkHostManager) read() (LKFiles, LKHostState) {
 	}
 	cfgs, _ := filepath.Glob(m.p("etc/ultra/forward-*.json"))
 	native, udp := 0, 0
+	now := m.now()
+	state.Rtt = lkHostRttVersion
 	for _, name := range cfgs {
 		raw, err := os.ReadFile(name)
 		if err != nil || len(raw) > lkMaxFile {
@@ -360,9 +362,13 @@ func (m *lkHostManager) read() (LKFiles, LKHostState) {
 				Att    struct {
 					FP string `json:"fingerprint"`
 				} `json:"runtime_attestation"`
+				// Plan 310: the client's own measurement (same fields as 诊断).
+				RttTCP *lkDiagSel `json:"latest_tcp"`
+				RttUDP *lkDiagSel `json:"active_udp"`
 			}
 			if json.Unmarshal(raw, &st) == nil {
 				fw.State, fw.Policy, fw.UDP = st.State, st.Policy, st.UDP
+				fw.RttTCP, fw.RttUDP = lkDiagClient(st.RttTCP, now), lkDiagClient(st.RttUDP, now)
 				if state.CoreVersion == "" && st.Att.FP != "" {
 					parts := strings.Split(st.Att.FP, ".")
 					if len(parts) > 4 {

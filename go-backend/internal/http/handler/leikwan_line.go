@@ -1137,6 +1137,8 @@ type leiKwanRuleCtx struct {
 	// entry only (0 = each owner's 主入口, as before).
 	viewerEntry int64
 	entryLock   bool
+	// Plan 310: latest host report (client rtt) of every shown entry.
+	rtts map[int64]*lkHostRtt
 }
 
 // leiKwanRuleContextFor (plan 301): the admin list shows every row on the
@@ -1210,6 +1212,14 @@ func (h *Handler) leiKwanRuleContextView(rules []model.LeiKwanRule, admin bool, 
 	}
 	c.users = h.repo.LeiKwanUserNames(users)
 	c.expired = h.repo.LeiKwanUsersExpired(users, time.Now().UnixMilli())
+	// Plan 310: the shown entries' latest reports (one read, no writes).
+	shown := map[int64]bool{}
+	for _, x := range rules {
+		if id := c.entryNodeFor(x.UserID); id > 0 {
+			shown[id] = true
+		}
+	}
+	c.rtts = h.leiKwanHostRtts(shown)
 	if admin {
 		c.hosts = h.leiKwanHostContexts()
 		c.limits = h.leiKwanRuleEntryLimits(rules, c)
@@ -1328,7 +1338,19 @@ func (h *Handler) leiKwanRuleView(x model.LeiKwanRule, c *leiKwanRuleCtx, admin 
 			v["vendorFlow"] = vf
 		}
 	}
-	if e := c.entryFor(x.UserID); e != nil {
+	e := c.entryFor(x.UserID)
+	// Plan 310: the 全程 tag (入口机 → 利群专线出口) of the shown entry, or why
+	// there is none (admin + the owner; never the forward of anyone else).
+	var hr *lkHostRtt
+	if e != nil {
+		hr = c.rtts[e.ID]
+	}
+	if lat, note := lkRuleLatencyFor(e, hr, x.ForwardID, time.Now()); lat != nil {
+		v["latency"] = lat
+	} else {
+		v["latencyNote"] = note
+	}
+	if e != nil {
 		ev := map[string]interface{}{"nodeId": e.ID, "nodeName": e.Name, "host": e.Host, "address": net.JoinHostPort(e.Host, strconv.Itoa(x.ListenPort)),
 			// Plan 295: the 主入口's 在线 / 离线 (users see it too, no ⚠).
 			"online": e.Online}

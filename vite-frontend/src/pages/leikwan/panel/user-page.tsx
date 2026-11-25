@@ -42,6 +42,10 @@ import { fmtBytes } from "@/pages/leikwan/panel/shared";
 import { OfflinePill, offlineText } from "@/pages/leikwan/panel/entry-state";
 import { VendorFlowPill } from "@/pages/leikwan/panel/usage-parts";
 import { LeiKwanSubDialog } from "@/pages/leikwan/panel/sub-dialog";
+import {
+  RuleLatencyField,
+  RuleLatencyTag,
+} from "@/pages/leikwan/panel/rule-latency";
 import { Button } from "@/shadcn-bridge/heroui/button";
 import { Spinner } from "@/shadcn-bridge/heroui/spinner";
 
@@ -369,6 +373,8 @@ export function LeiKwanUserView() {
                     />
                   )}
                 </LkField>
+                {/* Plan 310: the row keeps one chip (protocol); 全程 here. */}
+                <RuleLatencyField rule={r} />
                 <LkField label="落地">
                   {r.landing.kind === "manual"
                     ? `${r.landing.host}:${r.landing.port}`
@@ -578,6 +584,8 @@ export function LeiKwanUserView() {
                       </span>
                     </div>
                     <div className="flex flex-wrap gap-1">
+                      {/* Plan 310: 全程 tag (入口机 → 利群专线出口). */}
+                      <RuleLatencyTag rule={r} />
                       <UserBackupChip rule={r} />
                       {protocolChip(r)}
                       {r.userExpired && <Pill tone="red">已到期</Pill>}

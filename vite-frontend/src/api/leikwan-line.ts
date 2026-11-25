@@ -280,6 +280,14 @@ export interface LeiKwanRuleBackup {
   sharedWith?: number[];
 }
 
+/** Plan 310: a rule's 全程 latency tag value. */
+export interface LeiKwanRuleLatency {
+  ms: number;
+  src: "udp" | "tcp";
+  /** seconds since the client measured it (as of the list call) */
+  ageS: number;
+}
+
 export interface LeiKwanRule {
   id: number;
   name: string;
@@ -333,6 +341,11 @@ export interface LeiKwanRule {
   ownerAdmin?: boolean;
   // Plan 301 (admin): 「只开主入口」 keeps it closed on the shown entry.
   entryClosed?: boolean;
+  // Plan 310 (admin + owner): 全程 of the shown entry (入口机 → 利群专线出口,
+  // the LeiKwan client's own measurement, from the entry's latest report) —
+  // or latencyNote = why there is none (入口机离线 / agent 需要升级 / …).
+  latency?: LeiKwanRuleLatency;
+  latencyNote?: string;
   // admin only
   userId?: number;
   userName?: string;
