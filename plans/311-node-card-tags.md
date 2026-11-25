@@ -28,8 +28,8 @@ release waits for the user's OK on the screenshots, then joins the next batch wi
       desktop + 390 px, light + dark; long name + many tags, no tags, popover 备注+到期 / 只备注 / 只到期; list view
 - [x] Overflow check (no horizontal overflow in narrow cards / 390 px)
 - [x] Gallery /root/mmwx-preview/node-card-tags/ (http://104.145.236.29:8791/node-card-tags/)
-- [ ] Commit + push branch `feature/3.0.27-node-card-tags`, CI green
-- [ ] Ledger row 311 (待发布, waits for screenshot OK), summary, cleanup (lab servers stopped, build leftovers)
+- [x] Commit + push branch `feature/3.0.27-node-card-tags`, CI green (code abca2163, CI 45662746868 success)
+- [x] Ledger row 311 (待发布, waits for screenshot OK), summary, cleanup (lab servers stopped, build leftovers)
 
 ## Notes (build)
 - H5 pre-existing bug found and fixed: `.flvx-mobile-main .rounded-xl.border { width: 100% !important }` (mobile glass
