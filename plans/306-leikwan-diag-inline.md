@@ -99,9 +99,19 @@ entry's switch triggers (zero_close / eof1s). So:
       build tag): before (fork.170 + the same replay) / after / no-ping numbers via the real API
 - [x] Screenshot gallery desktop / H5 390 / App WebView 360, admin + normal user (lab user 「demo」), 广台 Hinet +
       福台 Hinet (+ 沪日, 广港), before vs after → http://104.145.236.29:8791/leikwan-diag-inline/
-- [ ] `go test ./...` (compare with base) + frontend build/lint; push; CI green
-- [ ] Release brief `briefs/release-leikwan-diag-inline.md`; ledger row 306 → 待发布 (screens)
-- [ ] Summary `/root/flvx-workers/runs/leikwan-diag-inline/summary.md`
+- [x] `go test -timeout 40m ./...` (SQLite) all packages ok, no failures (handler 276 s, contract 229 s); go vet;
+      `npm run build` (tsc + vite) + eslint clean; pushed 31a021ad, CI Build Check 45611590248 green (backend,
+      agent, frontend, PostgreSQL contract)
+- [x] Release brief `/root/flvx-workers/briefs/release-leikwan-diag-inline.md` (fork.171, panel only, no OTA, no DB
+      change); ledger row 306 → 待发布 (screens)
+- [x] Summary `/root/flvx-workers/runs/leikwan-diag-inline/summary.md`
+- [ ] Release fork.171 — **waits for the user's OK on the screenshots** (release worker ticks this)
+
+## Open points (user decides)
+* Give each 利群 rule its own landing port so the exit can always be told apart (today 280/282 and 281/615 share).
+* 「端内 ≈0」 is shown to admins only (users see no tag below 3 ms).
+* Read-only side effects of the measurement: 6 prod 诊断 calls, a few pings / TCP handshakes per exit IP from the
+  four landings, a dozen HTTP requests through each line (imolr's rules); temp files on 阿里广州 removed.
 
 ## Resource efficiency
 On click only (no poller): +1 `LandingPeerRtt` (as before) + 3 ICMP echoes per exit source (1 source; ≤ 4 on
