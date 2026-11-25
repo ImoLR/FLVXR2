@@ -171,3 +171,25 @@ func TestStaticSource(t *testing.T) {
 		t.Fatalf("static vs report: %q %v", ip, ok)
 	}
 }
+
+// Plan 307: 「节点上报的出口 IPv4」 — A only; the caller passes the node's
+// reported_ip_v4 as the panelIP argument (public IPv4 only).
+func TestReportedSource(t *testing.T) {
+	if _, err := ValidateSource("A", SourceReported, ""); err != nil {
+		t.Fatalf("A reported: %v", err)
+	}
+	if _, err := ValidateSource("AAAA", SourceReported, ""); err == nil {
+		t.Fatal("AAAA reported accepted")
+	}
+	if NeedsAgentReport("A", SourceReported) {
+		t.Fatal("reported needs no interface report")
+	}
+	if ip, ok := SelectAddress("A", SourceReported, "", AgentAddrs{V4: []string{"198.18.0.1"}}, "123.204.25.103"); !ok || ip != "123.204.25.103" {
+		t.Fatalf("reported: %q %v", ip, ok)
+	}
+	for _, bad := range []string{"", "10.0.0.2", "2001:b011:b000:a452:be24:11ff:fe6b:1823"} {
+		if ip, ok := SelectAddress("A", SourceReported, "", AgentAddrs{}, bad); ok {
+			t.Fatalf("reported %q gave %q", bad, ip)
+		}
+	}
+}

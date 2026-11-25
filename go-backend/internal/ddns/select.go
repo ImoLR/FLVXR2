@@ -22,6 +22,11 @@ const (
 	// prefix field), A or AAAA. No agent report needed — the record also
 	// exists while the node is offline.
 	SourceStatic = "static"
+	// SourceReported (plan 307): A — the egress IPv4 the agent last reported
+	// (its own public-IP check, node.reported_ip_v4). For nodes that reach the
+	// panel over IPv6 and have no public IPv4 on a NIC (NAT, dynamic). The
+	// caller passes that address in SelectAddress's panelIP argument.
+	SourceReported = "reported"
 )
 
 // MaxReportedAddrs caps one family of an agent report.
@@ -159,7 +164,7 @@ func ValidateSource(recordType, source, prefix string) (string, error) {
 		}
 		return "", fmt.Errorf("AAAA 记录的地址来源无效：%s", source)
 	case "A":
-		if source == SourcePanel || source == SourceIface {
+		if source == SourcePanel || source == SourceIface || source == SourceReported {
 			return "", nil
 		}
 		return "", fmt.Errorf("A 记录的地址来源无效：%s", source)
@@ -199,7 +204,7 @@ func NeedsAgentReport(recordType, source string) bool {
 	if source == SourceStatic {
 		return false
 	}
-	return !(recordType == "A" && source == SourcePanel)
+	return !(recordType == "A" && (source == SourcePanel || source == SourceReported))
 }
 
 // SelectAddress picks the address a record should point to. ok=false means
@@ -210,7 +215,7 @@ func SelectAddress(recordType, source, prefix string, addrs AgentAddrs, panelIP 
 		return ip, err == nil
 	}
 	if recordType == "A" {
-		if source == SourcePanel {
+		if source == SourcePanel || source == SourceReported {
 			ip, err := netip.ParseAddr(strings.TrimSpace(panelIP))
 			if err == nil && PublicIPv4(ip) {
 				return ip.Unmap().String(), true

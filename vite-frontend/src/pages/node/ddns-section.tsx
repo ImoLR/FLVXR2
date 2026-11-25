@@ -86,10 +86,11 @@ export const SOURCE_LABELS: Record<DDNSSource, string> = {
   panel: "面板看到的出口 IPv4",
   iface: "网卡公网 IPv4",
   static: "固定 IP（手动填写）",
+  reported: "节点上报的出口 IPv4",
 };
 
 const V6_SOURCES: DDNSSource[] = ["auto", "ct", "cu", "cm", "prefix", "static"];
-const V4_SOURCES: DDNSSource[] = ["panel", "iface", "static"];
+const V4_SOURCES: DDNSSource[] = ["panel", "iface", "reported", "static"];
 
 export const STATUS_META: Record<
   DDNSStatus,

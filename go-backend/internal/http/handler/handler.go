@@ -274,6 +274,7 @@ func New(repo *repo.Repository, jwtSecret string, fluxVersion string) *Handler {
 	h.wsServer.SetLandingScanHook(h.onLandingScan)
 	h.wsServer.SetLeiKwanHostHook(h.leiKwanHostIngest) // plan 269
 	h.wsServer.SetNodeAddrsHook(h.onNodeAddrs)
+	h.wsServer.SetPublicIPHook(h.onNodePublicIPReport) // plan 307
 	h.wsServer.SetNodeMetricHook(func(nodeID int64, info ws.SystemInfo) {
 		metricInfo := metrics.SystemInfo{
 			Uptime:                 info.Uptime,
@@ -2714,6 +2715,7 @@ func (h *Handler) applyNodePublicIPReport(nodeID int64, ipv4, ipv6 string) []str
 		log.Printf("node %d public ip report not applied: %v", nodeID, err)
 		return []string{}
 	}
+	h.onNodePublicIPReport(nodeID) // plan 307
 	if len(filled) > 0 {
 		log.Printf("node %d public ip report filled empty %s", nodeID, strings.Join(filled, ","))
 	}

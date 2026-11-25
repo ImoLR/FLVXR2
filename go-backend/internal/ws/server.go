@@ -153,6 +153,7 @@ type Server struct {
 	onNodeMetric  func(nodeID int64, info SystemInfo)
 	onLandingScan func(nodeID int64)                  // plan 202: new unrecorded scan hit
 	onNodeAddrs   func(nodeID int64, addrs NodeAddrs) // plan 142
+	onPublicIP    func(nodeID int64)                  // plan 307
 
 	mu                    sync.RWMutex
 	clients               clientRegistry

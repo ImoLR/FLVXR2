@@ -521,3 +521,60 @@ func TestNodeDDNSProviderChangeResetsRecordIDs(t *testing.T) {
 		t.Fatalf("after provider change: %+v", rec)
 	}
 }
+
+// Plan 307: 保持节点地址 + 「节点上报的出口 IPv4」 (Fachost seednet: the agent
+// reaches the panel over IPv6, no public IPv4 on a NIC, dynamic IPv4). The
+// record follows the agent's own egress report; the node address, tunnels
+// and listen IPs are never touched; a new report re-syncs the record.
+func TestNodeDDNSReportedSourceKeepAddress(t *testing.T) {
+	l := newDDNSLab(t)
+	l.clientIP = "2001:b011:b000:a452:be24:11ff:fe6b:1823"
+	l.exec(`UPDATE node SET reported_ip_v4 = '123.204.25.103' WHERE id = 23`)
+	before := *l.node()
+	inIP := l.tunnelInIP(25)
+	const dom = "fachost-seednet.imgamer.top"
+	cfg := map[string]interface{}{"enabled": true, "providerId": 1, "keepAddress": true, "records": []interface{}{
+		map[string]interface{}{"domain": dom, "type": "A", "role": "main", "source": "reported"},
+	}}
+	if code, msg, _ := adminPost(t, l.h.nodeUpdate, l.node48Body(cfg)); code != 0 {
+		t.Fatalf("save: %d %s", code, msg)
+	}
+	l.wait()
+	rec := l.records()[dom]
+	if rec.Status != model.DDNSStatusSynced || rec.CurrentIP != "123.204.25.103" || rec.Applied {
+		t.Fatalf("record = %+v", rec)
+	}
+	if got := l.cf.find(dom, "A"); len(got) != 1 || got[0].Content != "123.204.25.103" {
+		t.Fatalf("cloudflare = %+v", got)
+	}
+	same := func(stage string) {
+		t.Helper()
+		n := l.node()
+		if n.ServerIP != before.ServerIP || n.ServerIPV4 != before.ServerIPV4 || n.ServerIPV6 != before.ServerIPV6 || n.ExtraIPs != before.ExtraIPs {
+			t.Fatalf("%s: node address changed: %+v → %+v", stage, before, n)
+		}
+		if l.tunnelInIP(25) != inIP || l.rewrites() != 0 || l.commandCount() != 0 {
+			t.Fatalf("%s: tunnels touched (in_ip %q rewrites %d commands %d)", stage, l.tunnelInIP(25), l.rewrites(), l.commandCount())
+		}
+	}
+	same("first sync")
+	views, _ := l.h.ddnsNodeViews()
+	if views[23].Status != model.DDNSStatusSynced || !views[23].KeepAddress {
+		t.Fatalf("badge = %+v", views[23])
+	}
+	// The IPv4 changes: the agent's next report moves the record.
+	l.h.applyNodePublicIPReport(23, "123.204.3.232", "")
+	l.wait()
+	if rec := l.records()[dom]; rec.CurrentIP != "123.204.3.232" || rec.Status != model.DDNSStatusSynced {
+		t.Fatalf("after the report: %+v", rec)
+	}
+	if got := l.cf.find(dom, "A"); len(got) != 1 || got[0].Content != "123.204.3.232" {
+		t.Fatalf("cloudflare after the report = %+v", got)
+	}
+	same("after the report")
+	// The same source refused for AAAA.
+	cfg["records"] = []interface{}{map[string]interface{}{"domain": dom, "type": "AAAA", "role": "main", "source": "reported"}}
+	if code, _, _ := adminPost(t, l.h.nodeUpdate, l.node48Body(cfg)); code == 0 {
+		t.Fatal("AAAA with reported accepted")
+	}
+}

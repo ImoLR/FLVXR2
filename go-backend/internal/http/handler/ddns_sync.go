@@ -161,6 +161,25 @@ func (h *Handler) onNodeAddrs(nodeID int64, report ws.NodeAddrs) {
 
 func (h *Handler) ddnsNodeOnline(nodeID int64) { h.ddnsSyncAsync(nodeID, false) }
 
+// onNodePublicIPReport (plan 307): an agent public-IP report went through
+// the gate — a node whose DDNS record follows 「节点上报的出口 IPv4」 syncs
+// (a no-op without a Cloudflare call when the address is unchanged).
+func (h *Handler) onNodePublicIPReport(nodeID int64) {
+	if h == nil || h.repo == nil {
+		return
+	}
+	records, err := h.repo.GetNodeDDNSRecords(nodeID)
+	if err != nil {
+		return
+	}
+	for _, rec := range records {
+		if rec.Source == ddns.SourceReported {
+			h.ddnsSyncAsync(nodeID, false)
+			return
+		}
+	}
+}
+
 func (h *Handler) ddnsNodeOffline(nodeID int64) {
 	if h.nodeRuntimeOnline(nodeID) {
 		return
@@ -215,7 +234,11 @@ func (h *Handler) ddnsSyncNode(ctx context.Context, nodeID int64, force bool) {
 	online, addrReport, clientIP := h.ddnsSession(nodeID)
 	addrs, haveAddrs := m.addrsOf(nodeID)
 	for _, rec := range records {
-		desired, ok := ddns.SelectAddress(rec.RecordType, rec.Source, rec.SourcePrefix, addrs, clientIP)
+		seenIP := clientIP
+		if rec.Source == ddns.SourceReported {
+			seenIP = node.ReportedIPV4 // plan 307: the agent's own egress report
+		}
+		desired, ok := ddns.SelectAddress(rec.RecordType, rec.Source, rec.SourcePrefix, addrs, seenIP)
 		if !ok {
 			if !online {
 				// Keep the last known state while the node is away; move a
@@ -291,6 +314,8 @@ func ddnsNoAddrText(rec model.NodeDDNSRecord) string {
 		return "面板看到的连接不是公网 IPv4（可能经 IPv6 连接面板）"
 	case ddns.SourceIface:
 		return "节点网卡上没有公网 IPv4（NAT 机器请选「面板看到的出口 IPv4」）"
+	case ddns.SourceReported:
+		return "节点还没有上报出口 IPv4（节点在线后会自动上报）"
 	case ddns.SourceCT:
 		return "节点没有电信 240e 开头的 IPv6"
 	case ddns.SourceCU:

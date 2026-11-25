@@ -39,7 +39,9 @@ export type DDNSSource =
   | "panel"
   | "iface"
   /** plan 307: 固定 IP (the IP is in `prefix`) */
-  | "static";
+  | "static"
+  /** plan 307: the egress IPv4 the node reports itself (A) */
+  | "reported";
 export type DDNSStatus = "pending" | "synced" | "failed" | "upgrade" | "noaddr";
 
 export interface DDNSRecordPayload {
