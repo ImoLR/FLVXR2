@@ -1,4 +1,4 @@
-# 305 — 用户专属域名: one name per DDNS record + 已有转发保持原地址 (release 303 as fork.169, 305 as fork.170, turn on Leikwanhost 沪台IPLC)
+# 305 — RELEASED 11-25 18:03 TW as fork.170 (沪台 on, 保持原地址) — 用户专属域名: one name per DDNS record + 已有转发保持原地址 (release 303 as fork.169, 305 as fork.170, turn on Leikwanhost 沪台IPLC)
 
 Task `user-subdomain-release` (coordinator 1218a2c5, 11-25 TW, Claude xhigh).
 User 11-25: 「直接發佈」 for 303, and the 沪台 rules below (voice).
@@ -103,7 +103,21 @@ Part B result (11-25 TW):
 - Gallery `:8791/user-subdomain/` section 「305」 (24/24 lab checks).
 
 ### C
-- [ ] Push, CI, tag 3.0.27-fork.170, Images, assets
-- [ ] Rehearsal on prod-DB copy, backup, swap, light check
-- [ ] Toggle on 沪台 with keep ON; verify 0 names + byte-identical subs/addresses
-- [ ] Ledger, memory (fork-release-and-deploy, entry-domains), summary
+- [x] Push, CI, tag 3.0.27-fork.170, Images, assets
+- [x] Rehearsal on prod-DB copy, backup, swap, light check
+- [x] Toggle on 沪台 with keep ON; verify 0 names + byte-identical subs/addresses
+- [x] Ledger, memory (fork-release-and-deploy, entry-domains), summary
+
+Part C result (11-25 TW): tag 3.0.27-fork.170 → 5ad3bbe6 (CI 45588971118, Images 45589267093, Latest,
+10 assets, gost sha256 ok). Rehearsal: fork.170 migrates a prod-DB copy (+ record_domain, + keep
+table), fork.169 starts clean on it. Swap 18:03:37–18:03:45 TW; 31 redeploys failed=0; users'
+entry views identical across the swap; 5 busiest forwards no regression. 18:05:37 TW 沪台 toggle on
+through node/update (the dialog's payload, records unchanged, `userSubdomainKeep: true`; expiry
+reminder re-dismissed): 0 names, 6 forwards kept (110/113/173/174 imolr, 156 @jiuwei, 347 usb2);
+@jiuwei / usb2 API views identical, admin list only gains the grey tag; prod snapshots before/after
+rendered in the isolated lab: 104/104 subscriptions byte-identical; forwards 156 / 347 diagnose ok.
+No live test forward (admins never get names; the real-Cloudflare test covered the CNAME path).
+Rollback: `/opt/flvx-svc/rollback/pre-fork170-20261125T100337Z/rollback.sh` (switches 用户专属域名 off
+on nodes with a keep set or several DDNS domains first, then fork.169); toggle only: node edit →
+DDNS → 用户专属域名 off. vmsilo 沪日首发 / 沪美 still off — when the coordinator turns them on,
+untick 「已有转发保持原地址」 (API `userSubdomainKeep: false`) for the full migration planned in 303.
