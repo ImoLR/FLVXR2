@@ -372,34 +372,3 @@ func (r *Repository) UserSubdomainKeptOn(nodeID int64) ([]UserSubdomainKeptForwa
 	}
 	return out, landings, nil
 }
-
-// KeptForwardNodes (admin forward list tag 「保持原地址」): forward id → the
-// nodes with the toggle on it is kept on.
-func (r *Repository) KeptForwardNodes(forwardIDs []int64) (map[int64][]int64, error) {
-	out := map[int64][]int64{}
-	if len(forwardIDs) == 0 {
-		return out, nil
-	}
-	on, err := r.ListUserSubdomainToggleNodes()
-	if err != nil || len(on) == 0 {
-		return out, err
-	}
-	var rows []model.UserSubdomainKeep
-	if err := r.db.Where("kind = ? AND ref_id IN ?", model.UserSubdomainKeepForward, forwardIDs).Order("node_id").Find(&rows).Error; err != nil || len(rows) == 0 {
-		return out, err
-	}
-	var fs []model.Forward
-	if err := r.db.Select("id", "created_time").Where("id IN ?", forwardIDs).Find(&fs).Error; err != nil {
-		return nil, err
-	}
-	created := map[int64]int64{}
-	for _, f := range fs {
-		created[f.ID] = f.CreatedTime
-	}
-	for _, x := range rows {
-		if c, ok := created[x.RefID]; ok && c == x.RefCreated && on[x.NodeID] {
-			out[x.RefID] = append(out[x.RefID], x.NodeID)
-		}
-	}
-	return out, nil
-}
