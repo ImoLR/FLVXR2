@@ -1193,6 +1193,18 @@ func (h *Handler) validateUserSubdomainToggle(ctx context.Context, nodeID int64,
 	if main == "" {
 		return errors.New("「用户专属域名」需要一条「主地址」DDNS 记录（专属域名都指向它）")
 	}
+	// Guard (fork.169): names replace the main domain only, so on a node with
+	// several DDNS domains (e.g. 电信 + 联通) the other domains would still be
+	// handed out to users. Refused until per-record names exist (plan 305).
+	domains := map[string]bool{}
+	for _, rec := range plan.records {
+		if d := strings.ToLower(strings.TrimSpace(rec.Domain)); d != "" {
+			domains[d] = true
+		}
+	}
+	if len(domains) > 1 {
+		return fmt.Errorf("这台节点有 %d 个 DDNS 域名：「用户专属域名」目前只支持只有一个 DDNS 域名的节点", len(domains))
+	}
 	if nodeID > 0 {
 		if n, err := h.repo.GetNodeByID(nodeID); err == nil && n != nil && n.UserSubdomainEnabled && n.DDNSProviderID == plan.providerID {
 			return nil // already on: no Cloudflare round trip on unrelated edits

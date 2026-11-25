@@ -378,6 +378,22 @@ func TestUserSubdomainContract(t *testing.T) {
 			if rows := names("node_id = 59 AND state = ?", "active"); len(rows) != 0 {
 				t.Fatalf("nobody uses 沪美 yet: %+v", rows)
 			}
+			// Guard (fork.169): a second DDNS domain (电信 + 联通 like 沪台)
+			// is refused while names cover the main domain only.
+			multi := call(admin, "node/update", map[string]interface{}{"id": 59, "name": "vmsilo 沪美",
+				"serverIpV4": "", "serverIpV6": "vmsilo-humei.imgamer.top", "port": "10000-65535", "tcpListenAddr": "[::]", "udpListenAddr": "[::]",
+				"ddns": map[string]interface{}{"enabled": true, "providerId": 1, "userSubdomain": true, "records": []interface{}{
+					map[string]interface{}{"domain": "vmsilo-humei.imgamer.top", "type": "AAAA", "role": "main", "source": "ct"},
+					map[string]interface{}{"domain": "vmsilo-humei-cu.imgamer.top", "type": "AAAA", "role": "extra", "source": "cu"},
+				}}})
+			if code(multi) == 0 || !strings.Contains(fmt.Sprint(multi["msg"]), "DDNS 域名") {
+				t.Fatalf("multi-domain toggle not refused: %+v", multi)
+			}
+			var recs59 int64
+			db.Model(&model.NodeDDNSRecord{}).Where("node_id = 59").Count(&recs59)
+			if recs59 != 1 {
+				t.Fatalf("refused save still wrote records: %d", recs59)
+			}
 
 			// 4. 改指 ns-robot → 沪美: refused without a forward there, then OK.
 			out := call(admin, "node/user-subdomain/repoint", map[string]interface{}{"id": robot.ID, "nodeId": 59})
