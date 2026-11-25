@@ -44,6 +44,7 @@ export const ddnsFromView = (view?: NodeDDNSView | null): NodeDDNSPayload =>
           takeover: r.takeover,
         })),
         userSubdomain: Boolean(view.userSubdomain?.toggle),
+        keepAddress: Boolean(view.keepAddress),
       }
     : emptyDDNS();
 
@@ -55,6 +56,15 @@ export const userSubRecordLabel = (source: string, role: string): string =>
 /** Plan 303: the domain user names point at (AAAA 主地址 first, like the panel). */
 export const userSubMainDomain = (ddns: NodeDDNSPayload): string =>
   ddnsMainDomain(ddns, "AAAA") || ddnsMainDomain(ddns, "A");
+
+/**
+ * Plan 307: the domain that owns (replaces) a node address field — none with
+ * 「保持节点地址」, where the admin keeps typing the address himself.
+ */
+export const ddnsOwnedDomain = (
+  ddns: NodeDDNSPayload,
+  type: DDNSRecordType,
+): string => (ddns.keepAddress ? "" : ddnsMainDomain(ddns, type));
 
 /** Domain of the 主地址 record of a family while DDNS is on. */
 export const ddnsMainDomain = (
@@ -75,10 +85,11 @@ export const SOURCE_LABELS: Record<DDNSSource, string> = {
   prefix: "自定义前缀",
   panel: "面板看到的出口 IPv4",
   iface: "网卡公网 IPv4",
+  static: "固定 IP（手动填写）",
 };
 
-const V6_SOURCES: DDNSSource[] = ["auto", "ct", "cu", "cm", "prefix"];
-const V4_SOURCES: DDNSSource[] = ["panel", "iface"];
+const V6_SOURCES: DDNSSource[] = ["auto", "ct", "cu", "cm", "prefix", "static"];
+const V4_SOURCES: DDNSSource[] = ["panel", "iface", "static"];
 
 export const STATUS_META: Record<
   DDNSStatus,
@@ -118,6 +129,15 @@ export const validateDDNS = (ddns: NodeDDNSPayload): string => {
     }
     if (r.source === "prefix" && !r.prefix.trim())
       return `${domain}：请填写自定义前缀`;
+    if (r.source === "static") {
+      const ip = r.prefix.trim().replace(/^\[|\]$/g, "");
+      const v4 = /^(\d{1,3})(\.\d{1,3}){3}$/.test(ip);
+      const v6 = ip.includes(":") && /^[0-9a-fA-F:.]+$/.test(ip);
+
+      if (!ip) return `${domain}：请填写固定 IP`;
+      if (r.type === "A" ? !v4 : !v6)
+        return `${domain}：固定 IP 必须是${r.type === "A" ? " IPv4" : " IPv6"} 地址`;
+    }
   }
 
   return "";
@@ -359,6 +379,19 @@ export function NodeDDNSSection({
                       variant="bordered"
                       onChange={(e) => setRecord(i, { prefix: e.target.value })}
                     />
+                  ) : rec.source === "static" ? (
+                    <Input
+                      data-testid="ddns-static-ip"
+                      description="不随节点变化；节点离线也能同步"
+                      label="固定 IP"
+                      placeholder={
+                        rec.type === "A" ? "例如：203.0.113.10" : "例如：2001:db8::10"
+                      }
+                      size="sm"
+                      value={rec.prefix}
+                      variant="bordered"
+                      onChange={(e) => setRecord(i, { prefix: e.target.value })}
+                    />
                   ) : (
                     <p className="self-center text-xs text-default-500">
                       {rec.role === "main"
@@ -403,7 +436,9 @@ export function NodeDDNSSection({
                     </span>
                     <span>TTL：{state.ttl ? `${state.ttl} 秒` : "—"}</span>
                     <span>上次同步：{fmtTime(state.lastSyncAt)}</span>
-                    {!state.applied && state.status === "synced" ? (
+                    {!state.applied &&
+                    !value.keepAddress &&
+                    state.status === "synced" ? (
                       <span>节点地址即将改为该域名</span>
                     ) : null}
                     {state.lastError ? (
@@ -451,6 +486,19 @@ export function NodeDDNSSection({
               {agentLine}
             </p>
           ) : null}
+          <div data-testid="ddns-keep-address">
+            <Checkbox
+              isSelected={Boolean(value.keepAddress)}
+              onValueChange={(keepAddress) => onChange({ ...value, keepAddress })}
+            >
+              <span className="text-sm">保持节点地址（不改成域名）</span>
+            </Checkbox>
+            <p className="ml-7 text-xs text-default-500">
+              {value.keepAddress
+                ? "节点地址、隧道和其他节点连它的方式都不变，只同步 DNS 记录；开了「用户专属域名」时，用户看到的这个节点地址换成他自己的域名。"
+                : "不勾：首次同步成功后，节点地址改用域名（会重新下发经过它的隧道）。"}
+            </p>
+          </div>
           <UserSubdomainToggle value={value} view={view} onChange={onChange} />
           {error ? <p className="text-xs text-danger">{error}</p> : null}
         </div>

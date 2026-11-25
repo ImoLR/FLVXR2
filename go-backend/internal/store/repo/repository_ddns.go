@@ -156,6 +156,8 @@ type DDNSNodeState struct {
 	ID             int64 `gorm:"column:id"`
 	DDNSEnabled    bool  `gorm:"column:ddns_enabled"`
 	DDNSProviderID int64 `gorm:"column:ddns_provider_id"`
+	// KeepAddress (plan 307): 「保持节点地址」.
+	KeepAddress bool `gorm:"column:ddns_keep_address"`
 }
 
 // ListDDNSNodes returns the DDNS columns of every node with DDNS on.
@@ -164,9 +166,17 @@ func (r *Repository) ListDDNSNodes() ([]DDNSNodeState, error) {
 		return nil, errors.New("repository not initialized")
 	}
 	var out []DDNSNodeState
-	err := r.db.Model(&model.Node{}).Select("id, ddns_enabled, ddns_provider_id").
+	err := r.db.Model(&model.Node{}).Select("id, ddns_enabled, ddns_provider_id, ddns_keep_address").
 		Where("ddns_enabled = ?", true).Order("id ASC").Scan(&out).Error
 	return out, err
+}
+
+// SetNodeDDNSKeepAddress stores 「保持节点地址」 (plan 307).
+func (r *Repository) SetNodeDDNSKeepAddress(nodeID int64, keep bool) error {
+	if r == nil || r.db == nil {
+		return errors.New("repository not initialized")
+	}
+	return r.db.Model(&model.Node{}).Where("id = ?", nodeID).Update("ddns_keep_address", keep).Error
 }
 
 // FindDDNSRecordOwner returns the node owning domain+type, 0 when free.

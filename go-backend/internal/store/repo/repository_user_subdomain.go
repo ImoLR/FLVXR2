@@ -757,6 +757,10 @@ func (r *Repository) LoadUserEntryNames(userIDs []int64) (*UserEntryNames, error
 	if err != nil {
 		return nil, err
 	}
+	aliases, err := r.userSubdomainAddressAliases(nodeIDs, recs)
+	if err != nil {
+		return nil, err
+	}
 	live := []int64{}
 	for _, id := range nodeIDs {
 		m := UserSubdomainMainOf(recs[id], hasA)
@@ -776,6 +780,18 @@ func (r *Repository) LoadUserEntryNames(userIDs []int64) (*UserEntryNames, error
 				if p := net.ParseIP(ip); p != nil {
 					if _, dup := hosts[p.String()]; !dup {
 						hosts[p.String()] = t.Key
+					}
+				}
+			}
+		}
+		// Plan 307 「保持节点地址」: the node's own address (a hostname we do
+		// not own, e.g. a vendor or an older shared name) stands for the main
+		// record of its family.
+		for host, domain := range aliases[id] {
+			for key, t := range targets {
+				if t.Domain == domain {
+					if _, dup := hosts[host]; !dup {
+						hosts[host] = key
 					}
 				}
 			}
@@ -881,6 +897,49 @@ func (r *Repository) LoadUserEntryNames(userIDs []int64) (*UserEntryNames, error
 		}
 	}
 	return x, nil
+}
+
+// userSubdomainAddressAliases (plan 307): for nodes with 「保持节点地址」, the
+// node's v4 / v6 address field when it is a hostname (not an IP literal and
+// not one of the node's DDNS domains) → the domain of the main record of the
+// same family. IP literals map only through a record's own IP, never by
+// guess (a node whose record points elsewhere keeps its literal). 1 query.
+func (r *Repository) userSubdomainAddressAliases(nodeIDs []int64, recs map[int64][]model.NodeDDNSRecord) (map[int64]map[string]string, error) {
+	out := map[int64]map[string]string{}
+	if len(nodeIDs) == 0 {
+		return out, nil
+	}
+	var nodes []model.Node
+	if err := r.db.Select("id", "server_ip", "server_ip_v4", "server_ip_v6", "ddns_keep_address").
+		Where("id IN ? AND ddns_keep_address = ?", nodeIDs, true).Find(&nodes).Error; err != nil {
+		return nil, err
+	}
+	for _, n := range nodes {
+		own := map[string]bool{}
+		mainOf := map[string]string{}
+		for _, rec := range recs[n.ID] {
+			d := strings.ToLower(strings.TrimSpace(rec.Domain))
+			own[d] = true
+			if rec.Role == model.DDNSRoleMain {
+				mainOf[strings.ToUpper(rec.RecordType)] = d
+			}
+		}
+		add := func(field, family string) {
+			host := normEntryHost(field)
+			if host == "" || net.ParseIP(host) != nil || own[host] || mainOf[family] == "" {
+				return
+			}
+			if out[n.ID] == nil {
+				out[n.ID] = map[string]string{}
+			}
+			if _, dup := out[n.ID][host]; !dup {
+				out[n.ID][host] = mainOf[family]
+			}
+		}
+		add(n.ServerIPV4.String, "A")
+		add(n.ServerIPV6.String, "AAAA")
+	}
+	return out, nil
 }
 
 // RewriteEntryList rewrites a "host:port,host:port" forward address list

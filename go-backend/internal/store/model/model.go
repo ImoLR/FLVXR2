@@ -208,6 +208,10 @@ type Node struct {
 	// Node DDNS (plan 142): records live in node_ddns_record.
 	DDNSEnabled    bool  `gorm:"column:ddns_enabled;not null;default:false"`
 	DDNSProviderID int64 `gorm:"column:ddns_provider_id;not null;default:0"`
+	// DDNSKeepAddress (plan 307): 「保持节点地址」 — the records are kept in
+	// Cloudflare but the node address is never switched to the domain (hops,
+	// tunnels and the App keep dialing what they dial today).
+	DDNSKeepAddress bool `gorm:"column:ddns_keep_address;not null;default:false"`
 	// 用户专属域名 (plan 303): per-user CNAMEs → the DDNS main domain.
 	UserSubdomainEnabled bool `gorm:"column:user_subdomain_enabled;not null;default:false"`
 	// Plan 149: the public addresses the agent last reported (what ip.sb saw:

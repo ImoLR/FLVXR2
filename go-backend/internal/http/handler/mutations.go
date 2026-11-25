@@ -936,6 +936,10 @@ func (h *Handler) nodeCreate(w http.ResponseWriter, r *http.Request) {
 				response.WriteJSON(w, response.Err(-2, err.Error()))
 				return
 			}
+			if err := h.repo.SetNodeDDNSKeepAddress(created.ID, ddnsSave.keepAddress); err != nil { // plan 307
+				response.WriteJSON(w, response.Err(-2, err.Error()))
+				return
+			}
 			if err := h.saveUserSubdomain(created.ID, ddnsSave); err != nil { // plan 303
 				response.WriteJSON(w, response.Err(-2, err.Error()))
 				return
@@ -1010,7 +1014,8 @@ func (h *Handler) nodeUpdate(w http.ResponseWriter, r *http.Request) {
 		}
 		ddnsEffective = ddnsPlanFromDB(oldNode, records)
 	}
-	if ddnsEffective != nil && ddnsEffective.enabled {
+	// Plan 307 「保持节点地址」: the address fields stay the admin's.
+	if ddnsEffective != nil && ddnsEffective.enabled && !ddnsEffective.keepAddress {
 		v4, v6, extras := ddnsOwnedFields(ddnsEffective, oldNode, asString(req["serverIpV4"]), asString(req["serverIpV6"]), asString(req["extraIPs"]))
 		ownedServerIP := (ddnsEffective.mainDomain("A") != "" && repo.SameNodeAddress(oldNode.ServerIP, oldNode.ServerIPV4.String)) ||
 			(ddnsEffective.mainDomain("AAAA") != "" && repo.SameNodeAddress(oldNode.ServerIP, oldNode.ServerIPV6.String))
@@ -1201,6 +1206,12 @@ func (h *Handler) nodeUpdate(w http.ResponseWriter, r *http.Request) {
 		if err := h.repo.SaveNodeDDNSConfig(id, ddnsEffective.enabled, ddnsEffective.providerID, ddnsEffective.records); err != nil {
 			response.WriteJSON(w, response.Err(-2, err.Error()))
 			return
+		}
+		if ddnsEffective.keepAddress != oldNode.DDNSKeepAddress { // plan 307
+			if err := h.repo.SetNodeDDNSKeepAddress(id, ddnsEffective.keepAddress); err != nil {
+				response.WriteJSON(w, response.Err(-2, err.Error()))
+				return
+			}
 		}
 		if err := h.saveUserSubdomain(id, ddnsEffective); err != nil { // plan 303
 			response.WriteJSON(w, response.Err(-2, err.Error()))
@@ -3504,10 +3515,13 @@ func (h *Handler) forwardUpdate(w http.ResponseWriter, r *http.Request) {
 		response.WriteJSON(w, response.ErrDefault("请求参数错误"))
 		return
 	}
-	if h.forwardUpdateChainHook(w, r, req) {
-		return
-	}
-	h.forwardUpdateWithReq(w, r, req)
+	// Plan 307: a saved edit moves a kept forward to its owner's 专属域名.
+	h.userSubEditSave(w, model.UserSubdomainKeepForward, asInt64(req["id"], 0), func(w http.ResponseWriter) {
+		if h.forwardUpdateChainHook(w, r, req) {
+			return
+		}
+		h.forwardUpdateWithReq(w, r, req)
+	})
 }
 
 // forwardUpdateWithReq is the rule update path after decoding.

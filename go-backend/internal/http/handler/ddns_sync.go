@@ -245,7 +245,7 @@ func (h *Handler) ddnsSyncNode(ctx context.Context, nodeID int64, force bool) {
 		changed := desired != rec.CurrentIP || !synced
 		driftDue := synced && now.Sub(time.UnixMilli(rec.LastCheckAt)) >= ddns.DriftCheckEvery
 		if !force && !changed && !driftDue {
-			if !rec.Applied {
+			if !rec.Applied && !node.DDNSKeepAddress {
 				h.ddnsApply(rec, desired)
 			}
 			continue
@@ -272,9 +272,13 @@ func (h *Handler) ddnsSyncNode(ctx context.Context, nodeID int64, force bool) {
 			log.Printf("[ddns] node %d %s %s -> %s", nodeID, rec.RecordType, rec.Domain, desired)
 		}
 		rec.CurrentIP = desired
-		if !rec.Applied {
+		switch {
+		case node.DDNSKeepAddress:
+			// Plan 307 「保持节点地址」: only the record follows the address;
+			// node fields, tunnels and listen IPs stay as the admin set them.
+		case !rec.Applied:
 			h.ddnsApply(rec, desired)
-		} else if oldIP != "" && oldIP != desired {
+		case oldIP != "" && oldIP != desired:
 			h.ddnsRewriteBind(nodeID, oldIP, desired)
 		}
 	}

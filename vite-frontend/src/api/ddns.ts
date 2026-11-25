@@ -37,7 +37,9 @@ export type DDNSSource =
   | "cm"
   | "prefix"
   | "panel"
-  | "iface";
+  | "iface"
+  /** plan 307: 固定 IP (the IP is in `prefix`) */
+  | "static";
 export type DDNSStatus = "pending" | "synced" | "failed" | "upgrade" | "noaddr";
 
 export interface DDNSRecordPayload {
@@ -57,6 +59,8 @@ export interface NodeDDNSPayload {
   userSubdomain?: boolean;
   /** plan 305 「已有转发保持原地址」 when the toggle goes on (default true). */
   userSubdomainKeep?: boolean;
+  /** plan 307 「保持节点地址」: never switch the node address to the domain. */
+  keepAddress?: boolean;
 }
 
 export interface DDNSRecordView extends DDNSRecordPayload {
@@ -80,6 +84,8 @@ export interface NodeDDNSView {
   agentAddrs: { v4: string[]; v6: string[] } | null;
   panelIp: string;
   records: DDNSRecordView[];
+  /** plan 307 「保持节点地址」 */
+  keepAddress?: boolean;
   /** plan 303: 「专属域名 N」 pill; absent when unused */
   userSubdomain?: UserSubNodeView | null;
 }

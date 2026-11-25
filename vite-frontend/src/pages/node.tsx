@@ -133,6 +133,7 @@ import {
   NodeDDNSSection,
   ddnsFromView,
   ddnsMainDomain,
+  ddnsOwnedDomain,
   ddnsOwnedHint,
   emptyDDNS,
   validateDDNS,
@@ -3608,7 +3609,7 @@ export default function NodePage() {
                 </DatePicker>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {ddnsMainDomain(form.ddns, "A") ? (
+                {ddnsOwnedDomain(form.ddns, "A") ? (
                   <Input
                     readOnly
                     classNames={{ inputWrapper: "bg-default-100" }}
@@ -3664,7 +3665,7 @@ export default function NodePage() {
                     setForm((prev) => ({ ...prev, intranetIp: e.target.value }))
                   }
                 />
-                {ddnsMainDomain(form.ddns, "AAAA") ? (
+                {ddnsOwnedDomain(form.ddns, "AAAA") ? (
                   <Input
                     readOnly
                     classNames={{ inputWrapper: "bg-default-100" }}

@@ -372,3 +372,14 @@ func (r *Repository) UserSubdomainKeptOn(nodeID int64) ([]UserSubdomainKeptForwa
 	}
 	return out, landings, nil
 }
+
+// DropUserSubdomainKeep (plan 307) removes a forward's / native landing
+// node's keep rows on every node: its edit dialog was saved, so from now on
+// it uses the owner's 专属域名 like a new one. Returns the rows removed.
+func (r *Repository) DropUserSubdomainKeep(kind string, refID int64) (int64, error) {
+	if r == nil || r.db == nil || refID <= 0 {
+		return 0, nil
+	}
+	res := r.db.Where("kind = ? AND ref_id = ?", kind, refID).Delete(&model.UserSubdomainKeep{})
+	return res.RowsAffected, res.Error
+}

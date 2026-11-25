@@ -133,3 +133,41 @@ func TestZoneForPicksLongestSuffix(t *testing.T) {
 		t.Fatal("api error text")
 	}
 }
+
+// Plan 307: 「固定 IP」 — the typed IP, canonical, family-checked, public
+// only; no agent report needed and also chosen while the node is offline.
+func TestStaticSource(t *testing.T) {
+	cases := []struct {
+		typ, in, want string
+		ok            bool
+	}{
+		{"A", " 120.253.251.132 ", "120.253.251.132", true},
+		{"A", "::ffff:120.253.251.132", "120.253.251.132", true},
+		{"A", "10.7.177.91", "", false},
+		{"A", "100.64.1.1", "", false},
+		{"A", "2407:cdc0:d003:2c06:badb:71b:f533:104d", "", false},
+		{"A", "", "", false},
+		{"A", "dmitnathan.imgamer.top", "", false},
+		{"AAAA", "[2407:CDC0:D003:2C06:BADB:71B:F533:104D]", "2407:cdc0:d003:2c06:badb:71b:f533:104d", true},
+		{"AAAA", "185.36.192.124", "", false},
+		{"AAAA", "fe80::1", "", false},
+		{"AAAA", "2001:db8::1", "", false},
+	}
+	for _, c := range cases {
+		got, err := ValidateSource(c.typ, SourceStatic, c.in)
+		if (err == nil) != c.ok || got != c.want {
+			t.Errorf("ValidateSource(%s, static, %q) = %q, %v; want %q ok=%v", c.typ, c.in, got, err, c.want, c.ok)
+		}
+		ip, ok := SelectAddress(c.typ, SourceStatic, c.in, AgentAddrs{}, "")
+		if ok != c.ok || ip != c.want {
+			t.Errorf("SelectAddress(%s, static, %q) = %q, %v", c.typ, c.in, ip, ok)
+		}
+	}
+	if NeedsAgentReport("A", SourceStatic) || NeedsAgentReport("AAAA", SourceStatic) {
+		t.Fatal("static needs no agent report")
+	}
+	// The panel-seen / reported addresses never override the typed IP.
+	if ip, ok := SelectAddress("A", SourceStatic, "120.253.251.132", AgentAddrs{V4: []string{"87.86.22.15"}}, "87.86.22.15"); !ok || ip != "120.253.251.132" {
+		t.Fatalf("static vs report: %q %v", ip, ok)
+	}
+}

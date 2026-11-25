@@ -400,6 +400,9 @@ type ddnsRequest struct {
 	// on — forwards / landings already on the node keep their address; nil =
 	// true (the default), false = every forward moves to names.
 	UserSubdomainKeep *bool `json:"userSubdomainKeep"`
+	// KeepAddress (plan 307): 「保持节点地址」 — never switch the node address
+	// to the domain; nil = unchanged (a new node: off).
+	KeepAddress *bool `json:"keepAddress"`
 }
 
 // parseDDNSRequest reads the optional `ddns` object of a node save; nil
@@ -429,6 +432,8 @@ type ddnsPlan struct {
 	userSubdomain *bool
 	// userSubdomainKeep (plan 305): nil = true.
 	userSubdomainKeep *bool
+	// keepAddress (plan 307): 「保持节点地址」 (resolved: request, else stored).
+	keepAddress bool
 }
 
 // saveUserSubdomain stores the plan's 「用户专属域名」 toggle (DDNS off turns
@@ -477,7 +482,7 @@ func (p *ddnsPlan) mainDomain(recordType string) string {
 }
 
 func ddnsPlanFromDB(node *model.Node, records []model.NodeDDNSRecord) *ddnsPlan {
-	return &ddnsPlan{enabled: node.DDNSEnabled, providerID: node.DDNSProviderID, records: records}
+	return &ddnsPlan{enabled: node.DDNSEnabled, providerID: node.DDNSProviderID, records: records, keepAddress: node.DDNSKeepAddress}
 }
 
 func (h *Handler) ddnsPanelHosts(r *http.Request) []string {
@@ -509,6 +514,13 @@ func (h *Handler) ddnsPanelHosts(r *http.Request) []string {
 // records pointing elsewhere / proxied unless 「接管已有记录」).
 func (h *Handler) validateDDNSRequest(ctx context.Context, r *http.Request, nodeID int64, req *ddnsRequest, known []string) (*ddnsPlan, error) {
 	plan := &ddnsPlan{enabled: req.Enabled, providerID: req.ProviderID, userSubdomain: req.UserSubdomain, userSubdomainKeep: req.UserSubdomainKeep}
+	if req.KeepAddress != nil {
+		plan.keepAddress = *req.KeepAddress
+	} else if nodeID > 0 {
+		if n, err := h.repo.GetNodeByID(nodeID); err == nil && n != nil {
+			plan.keepAddress = n.DDNSKeepAddress
+		}
+	}
 	if len(req.Records) > repo.MaxNodeDDNSRecords {
 		return nil, fmt.Errorf("每个节点最多 %d 条 DDNS 记录", repo.MaxNodeDDNSRecords)
 	}
@@ -668,7 +680,8 @@ func (h *Handler) ddnsKnownAddresses(nodeID int64, fields ...string) []string {
 // a main record keeps the stored field (it becomes the domain after the
 // first sync); applied extra domains stay in the extra list.
 func ddnsOwnedFields(plan *ddnsPlan, oldNode *model.Node, v4, v6, extras string) (string, string, string) {
-	if plan == nil || !plan.enabled {
+	if plan == nil || !plan.enabled || plan.keepAddress {
+		// Plan 307 「保持节点地址」: DDNS owns no address field.
 		return v4, v6, extras
 	}
 	// Edit: a stored value stays (an IP until the first sync switches it, the
@@ -715,6 +728,9 @@ func ddnsOwnedFields(plan *ddnsPlan, oldNode *model.Node, v4, v6, extras string)
 
 // markAppliedAtCreate: a new node whose main field got the domain directly.
 func (p *ddnsPlan) markAppliedAtCreate(v4, v6 string) {
+	if p.keepAddress {
+		return
+	}
 	for i := range p.records {
 		rec := &p.records[i]
 		if rec.Role != model.DDNSRoleMain {
@@ -746,7 +762,9 @@ type ddnsRecordView struct {
 }
 
 type ddnsNodeView struct {
-	Enabled      bool             `json:"enabled"`
+	Enabled bool `json:"enabled"`
+	// KeepAddress (plan 307): 「保持节点地址」.
+	KeepAddress  bool             `json:"keepAddress"`
 	ProviderID   int64            `json:"providerId"`
 	ProviderName string           `json:"providerName"`
 	Status       string           `json:"status"`
@@ -793,6 +811,7 @@ func (h *Handler) ddnsNodeViews() (map[int64]*ddnsNodeView, error) {
 	for _, n := range nodes {
 		v := view(n.ID)
 		v.Enabled, v.ProviderID, v.ProviderName = true, n.DDNSProviderID, names[n.DDNSProviderID]
+		v.KeepAddress = n.KeepAddress
 	}
 	for _, rec := range records {
 		v := view(rec.NodeID)
@@ -826,7 +845,8 @@ func ddnsNodeStatus(v *ddnsNodeView) string {
 		case model.DDNSStatusUpgrade:
 			status = model.DDNSStatusUpgrade
 		case model.DDNSStatusSynced:
-			if !rec.Applied && status == model.DDNSStatusSynced {
+			// Plan 307: with 「保持节点地址」 nothing waits for the switch.
+			if !rec.Applied && !v.KeepAddress && status == model.DDNSStatusSynced {
 				status = model.DDNSStatusPending
 			}
 		default:

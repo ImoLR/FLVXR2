@@ -866,6 +866,11 @@ func (h *Handler) landingNodeUpdate(w http.ResponseWriter, r *http.Request) {
 		landingError(w, err)
 		return
 	}
+	keys := make([]string, 0, len(req))
+	for k := range req {
+		keys = append(keys, k)
+	}
+	edited := landingNodeEditFields(keys) // plan 307: the edit dialog, not 停用 / 启用
 	allowed := map[string]interface{}{"name": &n.Name, "maxConnections": &n.MaxConnections, "maxTotalConnections": &n.MaxTotalConnections, "maxOnlineIps": &n.MaxOnlineIPs, "trafficLimitBytes": &n.TrafficLimitBytes, "flowType": &n.FlowType, "trafficRatio": &n.TrafficRatio, "connMode": &n.ConnMode, "expiryMode": &n.ExpiryMode, "expiresAt": &n.ExpiresAt, "status": &n.Status}
 	profileChanged := false
 	var profileID *int64
@@ -934,6 +939,10 @@ func (h *Handler) landingNodeUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 	h.reconcileLandingPolicy(time.Now())
 	h.syncLandingServer(n.LandingServerID)
+	if edited {
+		// Plan 307: a saved edit moves a kept landing node to its owner's 专属域名.
+		h.userSubDropKeep(model.UserSubdomainKeepLanding, n.ID)
+	}
 	response.WriteJSON(w, response.OK(h.landingNodeView(*n)))
 }
 func (h *Handler) landingNodeDelete(w http.ResponseWriter, r *http.Request) {

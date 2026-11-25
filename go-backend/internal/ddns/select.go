@@ -18,6 +18,10 @@ const (
 	SourcePrefix = "prefix" // AAAA: custom prefix (CIDR or hex prefix)
 	SourcePanel  = "panel"  // A: IPv4 the panel sees on the agent connection
 	SourceIface  = "iface"  // A: first public IPv4 on a NIC (agent report)
+	// SourceStatic (plan 307): a fixed IP typed by the admin (kept in the
+	// prefix field), A or AAAA. No agent report needed — the record also
+	// exists while the node is offline.
+	SourceStatic = "static"
 )
 
 // MaxReportedAddrs caps one family of an agent report.
@@ -129,6 +133,9 @@ var hexPrefixRe = regexp.MustCompile(`^[0-9a-f:]{2,39}$`)
 // returns the canonical prefix text.
 func ValidateSource(recordType, source, prefix string) (string, error) {
 	prefix = strings.ToLower(strings.TrimSpace(prefix))
+	if source == SourceStatic {
+		return validateStaticIP(recordType, prefix)
+	}
 	switch recordType {
 	case "AAAA":
 		switch source {
@@ -160,15 +167,48 @@ func ValidateSource(recordType, source, prefix string) (string, error) {
 	return "", fmt.Errorf("记录类型只能是 A 或 AAAA")
 }
 
+// validateStaticIP (plan 307): a 「固定 IP」 record holds one public IP of
+// its own family; returns the canonical text.
+func validateStaticIP(recordType, value string) (string, error) {
+	if recordType != "A" && recordType != "AAAA" {
+		return "", fmt.Errorf("记录类型只能是 A 或 AAAA")
+	}
+	value = strings.Trim(strings.TrimSpace(value), "[]")
+	if value == "" {
+		return "", errors.New("固定 IP 不能为空")
+	}
+	ip, err := netip.ParseAddr(value)
+	if err != nil || ip.Zone() != "" {
+		return "", fmt.Errorf("固定 IP「%s」不是有效的 IP 地址", value)
+	}
+	if recordType == "A" {
+		if !ip.Unmap().Is4() || !PublicIPv4(ip) {
+			return "", fmt.Errorf("A 记录的固定 IP「%s」必须是公网 IPv4", value)
+		}
+		return ip.Unmap().String(), nil
+	}
+	if !PublicIPv6(ip) {
+		return "", fmt.Errorf("AAAA 记录的固定 IP「%s」必须是公网 IPv6", value)
+	}
+	return ip.String(), nil
+}
+
 // NeedsAgentReport: sources that read the agent's interface addresses (an
 // old agent cannot serve them).
 func NeedsAgentReport(recordType, source string) bool {
+	if source == SourceStatic {
+		return false
+	}
 	return !(recordType == "A" && source == SourcePanel)
 }
 
 // SelectAddress picks the address a record should point to. ok=false means
 // nothing matches (the caller keeps the record as it is).
 func SelectAddress(recordType, source, prefix string, addrs AgentAddrs, panelIP string) (string, bool) {
+	if source == SourceStatic {
+		ip, err := validateStaticIP(recordType, prefix)
+		return ip, err == nil
+	}
 	if recordType == "A" {
 		if source == SourcePanel {
 			ip, err := netip.ParseAddr(strings.TrimSpace(panelIP))
