@@ -109,7 +109,7 @@ entry's switch triggers (zero_close / eof1s). So:
 
 ## Open points (user decides)
 * Give each 利群 rule its own landing port so the exit can always be told apart (today 280/282 and 281/615 share).
-* 「端内 ≈0」 is shown to admins only (users see no tag below 3 ms).
+* ~~「端内 ≈0」 admin only~~ — round 2: 「端内 X ms」 for everyone, any value.
 * Read-only side effects of the measurement: 6 prod 诊断 calls, a few pings / TCP handshakes per exit IP from the
   four landings, a dozen HTTP requests through each line (imolr's rules); temp files on 阿里广州 removed.
 
@@ -117,3 +117,52 @@ entry's switch triggers (zero_close / eof1s). So:
 On click only (no poller): +1 `LandingPeerRtt` (as before) + 3 ICMP echoes per exit source (1 source; ≤ 4 on
 a shared landing), one at a time per source, 150 ms apart, 2 s timeout each, all inside the 40 s budget. No
 new connections on the line, nothing kept on the nodes.
+
+## Round 2 — 「端内」 wording (user 11-25 night, after the round-1 screens)
+Task `leikwan-diag-inline-r2` (coordinator 2fdace98). Still BUILD + screens only, no tag / release / prod change.
+User decisions (voice, paraphrased by the coordinator):
+1. 「端内」 = the whole 利群专线入口 → 专线出口 segment (industry wording: the line's own entry → exit delay). Value =
+   round-1 专线内 = max(全程 − 入口段, landing conn rtt − ping), clamp ≥ 0 (in practice 全程 − 入口段).
+2. No 「估算」 / 「≈」 / 「含端内」 for it: a small tag 「端内 X ms」, just the number. The round-1 conn − ping 「含端内」 tag
+   is gone from the UI (admin debug sub-text keeps the plain ping / 连接 numbers only).
+3. Shown to every user (admin + normal) whatever the value: 「端内 0.4 ms」 (one decimal under 10 ms); no < 3 ms hiding,
+   no grey 「端内 ≈0」.
+4. Other rows keep their honest reason texts (landing offline / old agent / no exit connection / no 全程 → skipped),
+   but no 「估算」 on a 端内 or 出口 → 落地 number. Path strip 「专线内」 → 「端内」 with the same number.
+5. 到落地 = 入口段 + 端内 + 出口 → 落地 (unchanged from round 1).
+6. Shared-landing exit pick unchanged (no port split this round); its UI text = one short plain line.
+
+### Tasks (round 2)
+- [x] Backend: 端内 tag from the 专线 value (all users, any value, 1 decimal < 10 ms), vendor row not 估算, texts
+      without 估算 / 含端内, shared-landing one-liner; tag also when the exit does not answer ping
+- [x] Frontend: no 估算 / ≈ on the 端内 row + path hop 「端内」, section title / desc / path note reworded,
+      到落地 without ≈ when 出口 → 落地 is the ping
+- [x] Unit tests: tag text, tiny values (0.4), normal user sees it, no 估算 / 含端内 in 端内 / 出口 → 落地 rows
+- [x] go vet + go test ./... (SQLite) all ok (handler 269 s, contract 225 s); npm run build + eslint/prettier clean
+- [x] Lab re-shoot: desktop / H5 390 / App 360 × admin / normal user × 广港 / 沪日 / 广台 Hinet / 福台 Hinet
+      (+ 广台 / 福台 Seednet desktop admin, + no-ping fallback) → gallery (改前 kept)
+- [x] Push 83edb77a, CI Build Check 45619880482 green (backend, agent, frontend, PostgreSQL contract);
+      trial merge onto 3.0.27-fork.172 (prod since 11-25 20:46 TW) clean → release as fork.173
+- [x] Release brief + summary `runs/leikwan-diag-inline-r2/summary.md`
+
+### What changed (round 2)
+* Backend `leikwan_diag.go`: the 利群专线入口 → 专线出口 row is 「端内」 = max(全程 − 入口段, C − n) (as round 1's 专线内),
+  `success` instead of `estimate`, sub 「全程 X ms − 入口段 Y ms」; tag `endIn` = 「端内 X ms」 (amber) on the row and in
+  the summary for **every** user and any value — `lkTagMs`: one decimal under 10 ms (「端内 0.4 ms」), whole above;
+  also when the exit does not answer ping (then 出口 → 落地 = conn rtt as before). `summary.endInMs` = the 端内 (=
+  `vendorMs`); new `summary.landingPing` (出口 → 落地 is the ping). Removed: the conn − ping 「含端内」 tag, the < 3 ms
+  hiding and the admin grey 「端内 ≈0」; admin source lines keep 「ping X ms · 连接 Y ms」 only. Skips on that row say
+  「…，算不出端内」 instead of 「估算不了」. Shared landing: range sub = 「这台落地机还接了别的利群线路，分不清是哪个出口，
+  显示范围」 (admin: 「还接着「name」」), alone = 「…，不一定是这条线的出口」, dropped = 「排除了 N 个别的线路的来源」.
+  Exit pick logic unchanged (C − n vs the line's 端内 + 5 ms).
+* Frontend `diagnose-modal.tsx`: section 「🔗 利群专线入口 → 专线出口」 (no 「（估算）」), desc 「端内：利群专线自己的一段，
+  全程（到专线出口）减入口段」; landing desc 「落地机上实测（ping 专线出口）」; path hop 「专线内 · 估算」 → 「端内」 with the
+  same number (one decimal under 10 ms); 到落地 pill without 「≈」 when `landingPing` (kept only in the no-ping fallback);
+  path note 「端内 = 全程减入口段，到落地 = 入口段 + 端内 + 出口 → 落地」. Unused round-1 `extra` prop removed.
+* Lab replay (same 11-25 inputs), shown values: 广港 端内 12 / 出口→落地 3.5 / 到落地 18.5 (19); 沪日 31.1 (31) / 1.5 /
+  64.5 (65); 广台 Hinet 18.2 (18) / 6.5–9.5 / 28.5–31.5 (29–32); 广台 Seednet 18.1 (18) / 11.5 / 33.5 (34); 福台 Hinet
+  10.6 (11) / 9.5 / 44.5 (45); 福台 Seednet 4.7 / 11.5 / 38.5 (39). No-ping fallback: 端内 same, 出口→落地 = conn rtt,
+  到落地 ≈ as fork.170.
+* Lab: `/root/flvx-workers/runs/leikwan-diag-inline-r2/lab/` (copy of round 1's; demo user also owns 广港 + 沪日; sets
+  d/h/a × admin/user; `chain.sh`; gallery keeps round 1's 改前 PNGs, adds the missing ones from a fork.170 re-run).
+  Chrome was OOM-killed once by host memory pressure (another worker's docker build) → the App sets were re-shot.
