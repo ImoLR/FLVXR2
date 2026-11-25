@@ -82,3 +82,16 @@ Boil Hinet 158 hands off. No panel release.
   (e2e 28.4 ms, landing 8.4 ms, 备线 148 10.6 ms). 救命版 node 60 / tunnel 89 「t1」 status 1, 0 forwards, :51378
   listening, flux_agent PID 502 untouched. Diff table: runs/hkt99u-to-flvx-r2/work/diff-after.md.
 - R9: /root/custom-api-309.sh removed from mmwx-prod; mmwx backups pruned to 2 newest; prune-backups.sh run.
+
+## Round 3 — tests only (user: 「正常测试都做，不用等夜里窗口」)
+Task `hkt99u-to-flvx-r3`, run dir `/root/flvx-workers/runs/hkt99u-to-flvx-r3/`. Measure only: no config change, no restart.
+- [x] T1. Post-change tests (11-25 23:45–23:52 TW) — all normal, no regression, no alert:
+  - DDNS: node 63 `boil-hkt99u` (main) + `boilhkt99u` (extra, takeover) synced 58.152.255.186; CF API both A
+    58.152.255.186 TTL 120 unproxied, record ids match; node address unchanged.
+  - Real SS2022 requests (5× generate_204 + exit IP + one 30 MB download), exit 58.152.255.186 on all:
+    via 263 (aliyun-sz → 百度云广州 :10018) 5/5, 173 Mbps; via 备线 148 (aliyun-sz → Mkcloud 深港ixp 1 :35046) 5/5,
+    146 Mbps; direct (aws-hk → :30000) 5/5, 181 Mbps. Before (11-24, 10 MB): direct 115/132, via 263 140/151.
+  - 诊断 263 ×3: 8/8 each, e2e 13 ms; 148 516 (cold) / 11.1 / 11.3 ms. RTT aws-hk → :30000 p50 3.5 / max 11.0 ms (before 2.9/2.7).
+  - Host: node 63 online fork.165; landing 「利群263 99U」 active; :30000 tcp+udp; Core RSS ~123 MB (MemoryMax 384 MB,
+    CPU 100 %), not restarted since 11-24 00:32; flvx_machine_protection present; 10015/10016/10018 closed; 救命版
+    node 60 / tunnel 89 OK, flux_agent PID 502 untouched. No fresh pre-change baseline existed (see summary).
