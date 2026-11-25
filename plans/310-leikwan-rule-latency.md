@@ -29,7 +29,8 @@ Dropped by the user himself: a 「端内」 line monitor (「这个监测还是�
   repo/DB change. Each rule (admin + user list, users only their own, never `forwardId`) gets
   `latency {ms, src, ageS}` for the shown entry (`entry.nodeId`) or `latencyNote`:
   授权没有主入口 / 入口机离线 / 还没有数据（入口机最近没有上报） / 入口机 agent 需要升级 /
-  入口机上没有这条利群转发 / 利群客户端还没有数据 / 利群客户端很久没有新数据 (> 10 min).
+  入口机上没有这条利群转发 / 利群客户端还没有数据 (round 1 also had 利群客户端很久没有新数据 > 10 min —
+  dropped in round 2, see below).
   Fresh = report ≤ 3 min old (traffic counting on) or ≤ 7 min (off). `ageS` = report age + client age.
 - **UI** (`pages/leikwan/panel/rule-latency.tsx`):
   - admin desktop row: 「利群 #id」 pill → `RuleLatencyTag`; admin H5 card: `#id` chip → the tag, plus a
@@ -39,8 +40,9 @@ Dropped by the user himself: a 「端内」 line monitor (「这个监测还是�
   - 专线 header (admin desktop + H5): `LineLatencyTag` = lowest value among the rules that have one,
     hover: which rule / which 入口机 / N of M rules have a value; no values → no tag;
   - tag text 「62 ms」, tone = `latencyTone` (< 100 green, 100–180 amber, > 180 red) via `MsTag`; no
-    value = grey 「— ms」; hover: 「全程：入口机 X → 利群专线出口，利群客户端实测（UDP 探测），面板约每 2
-    分钟更新 · N 秒前 · 利群 #263 · 导入时登记的利群转发」 (number + import note only here, admin only);
+    value = grey 「— ms」; hover (round 2 wording): 「全程：入口机 X → 利群专线出口 · 利群客户端选线时测的（UDP）
+    · 3 小时前 · 利群 #263 · 导入时登记的利群转发 · 面板读数约每 2 分钟刷新」 (number + import note only
+    here, admin only);
   - 手机本地 rows (`usePhoneRule` → `pv`): **no tag** and the header ignores them — the App bridge has
     no cheap call for the phone's 全程: `diag` makes ≤ 3 TCP handshakes to the ingress + ≤ 3 to the 备线
     per call (bridge contract), so polling it per rule would be a background per-item probe. A cheap
@@ -93,3 +95,29 @@ for both TCP and UDP (read-only check 01:10 TW).
 - No DB change (reads the already stored `leikwan_host.report`).
 - Old agents / before the OTA: every row grey 「— ms」 = 「入口机 agent 需要升级」, 专线 header no tag;
   诊断 「在用」 works with the panel alone. Offline hosts stay 「入口机离线」 until they come back + OTA.
+
+## Round 2 (11-26 TW, task leikwan-rule-latency-r2 — brief A3)
+Prod sample (coordinator, read-only, 阿里广州 fwd 263): `active_udp` = 30 UDP probes taken **once** when the
+LeiKwan client selects a path (`selected_at` unchanged for > 5 min, can stay so for hours while the path is
+kept); `latest_tcp` = the latest user TCP connection (jumps 16–108 ms with traffic). An old UDP value is
+still the client's current path, so round 1's 10-minute cap hid the right number.
+- Backend (`leikwan_rule_latency.go`): **no age cap on the client value** — `lkLatencyMaxAgeS = 600` and
+  `lkLatStale` 「利群客户端很久没有新数据」 removed. The tag is shown whenever the host report is fresh
+  (3 / 7 min, online, plan-310 agent — unchanged); `ageS` = report age + the client's `ageS` (from
+  `selected_at`) as before, so an old pick shows e.g. 3 h. **TCP fallback: no limit either** — kept simple:
+  it is only used when there is no usable UDP, it is the client's latest real measurement, and the hover
+  shows its true age (an hour-old TCP value reads 「1 小时前」, not as live). UDP-first pick = `lkClientPick`
+  unchanged; 诊断 unchanged.
+- UI (`rule-latency.tsx`): hover / H5 「延迟」 line no longer claim 「面板约每 2 分钟更新」 for the
+  measurement. UDP 「利群客户端选线时测的（UDP）」, TCP 「利群客户端最近一条连接（TCP）」, then the age
+  (秒 / 分钟 / 小时 / 天前, floored), then (admin) 利群 #id + 导入时登记的利群转发, then a short trailing
+  「面板读数约每 2 分钟刷新」. Same for the 专线 header tag. File header comment updated.
+- [x] Backend: drop the 10-min cap (UDP + TCP), keep report freshness / online / new-agent checks
+- [x] Unit tests: UDP 3 h old + fresh report → shown, ageS ≈ 3 h; old TCP fallback shown; stale report → none
+- [x] UI wording (row tag, 专线 header, H5 「延迟」 line) + age text for hours / days
+- [x] go test handler + `TestLeiKwanRuleLatencyContract` (SQLite + PG) ok; npm build + eslint ok
+- [x] Re-shot the changed screens (admin desktop / H5, user desktop / H5; 广台 Hinet = UDP picked 3 h 14 min
+      ago → 「3 小时前」), gallery marks them 「第 2 轮重拍」 (diag / App / old-agent screens unchanged)
+- [x] Push, CI green
+- [x] Summary `runs/leikwan-rule-latency-r2/summary.md`; RELEASE-LEDGER row 310 updated
+

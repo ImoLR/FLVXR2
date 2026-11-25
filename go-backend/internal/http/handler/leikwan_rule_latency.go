@@ -8,6 +8,13 @@ package handler
 // writes, dials or agent calls. Agents ≥ plan 310 put the client's
 // latest_tcp / active_udp of each forward into the report; the pick (UDP vs
 // TCP + the 2000 ms sanity cap) is lkClientPick, the same as 诊断.
+//
+// Round 2: no age cap on the client's value. active_udp is measured ONCE when
+// the client selects a path (selected_at can stay unchanged for hours while
+// the path is kept) — an old UDP value is still the client's current path, so
+// it is shown with its real age. latest_tcp (TCP fallback) is the last user
+// connection; an old one is likewise the client's latest measurement and also
+// carries its age. The only freshness rule is the host report's (3 / 7 min).
 
 import (
 	"encoding/json"
@@ -27,9 +34,6 @@ type lkRuleLatency struct {
 const (
 	lkLatencyFreshTraffic = 3 * time.Minute
 	lkLatencyFreshIdle    = 7 * time.Minute
-	// A client value older than this (forward stopped / client stuck) is not
-	// shown as the current latency.
-	lkLatencyMaxAgeS = 600
 )
 
 // Notes the UI shows in the grey 「— ms」 tag.
@@ -40,7 +44,6 @@ const (
 	lkLatOldAgent  = "入口机 agent 需要升级"
 	lkLatNoForward = "入口机上没有这条利群转发"
 	lkLatNoClient  = "利群客户端还没有数据"
-	lkLatStale     = "利群客户端很久没有新数据"
 )
 
 // lkHostRtt: what the rule list needs from one entry's latest report.
@@ -109,9 +112,6 @@ func lkRuleLatencyFor(e *leiKwanEntryNode, hr *lkHostRtt, forwardID int64, now t
 	}
 	if c.AgeS > 0 {
 		age += c.AgeS
-	}
-	if age > lkLatencyMaxAgeS {
-		return nil, lkLatStale
 	}
 	return &lkRuleLatency{Ms: lkRound(c.RttMs), Src: src, AgeS: age}, ""
 }

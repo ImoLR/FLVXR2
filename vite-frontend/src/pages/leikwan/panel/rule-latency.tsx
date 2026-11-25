@@ -8,16 +8,30 @@ import { latencyText, latencyTone } from "@/utils/latency-tone";
 // 入口机 → 利群专线出口, the LeiKwan client's own measurement from the entry's
 // latest host report (NOT to the 落地). Colours = the shared latency scale
 // (utils/latency-tone.ts); no value = grey 「— ms」 with the reason on hover.
+// The measurement is the client's own: UDP = taken once when the client
+// selected the path (can be hours old and still the current path), TCP = the
+// client's latest connection; the age shown is the measurement's age. The
+// panel only re-reads it with each entry report (~2 min).
 // 手机本地 rows (the phone is the entry) show no tag: the App bridge has no
 // cheap call for the phone client's 全程 (its `diag` makes TCP handshakes).
 
-const ageText = (s: number) =>
-  s < 60
-    ? `${Math.max(0, Math.round(s))} 秒前`
-    : `${Math.round(s / 60)} 分钟前`;
+/** 「12 秒前」 / 「5 分钟前」 / 「3 小时前」 / 「2 天前」 (floored). */
+const ageText = (s: number) => {
+  const v = Math.max(0, Math.floor(s));
+
+  if (v < 60) return `${v} 秒前`;
+  if (v < 3600) return `${Math.floor(v / 60)} 分钟前`;
+  if (v < 86400) return `${Math.floor(v / 3600)} 小时前`;
+
+  return `${Math.floor(v / 86400)} 天前`;
+};
 
 const srcText = (l: LeiKwanRuleLatency) =>
-  l.src === "udp" ? "UDP 探测" : "TCP 最近一次";
+  l.src === "udp"
+    ? "利群客户端选线时测的（UDP）"
+    : "利群客户端最近一条连接（TCP）";
+
+const PANEL_NOTE = "面板读数约每 2 分钟刷新";
 
 /** The hover text of a rule's tag (the forward number lives only here). */
 export function ruleLatencyTitle(r: LeiKwanRule): string {
@@ -35,9 +49,11 @@ export function ruleLatencyTitle(r: LeiKwanRule): string {
     ].join(" · ");
 
   return [
-    `全程：${entry} → 利群专线出口，利群客户端实测（${srcText(l)}），面板约每 2 分钟更新`,
+    `全程：${entry} → 利群专线出口`,
+    srcText(l),
     ageText(l.ageS),
     ...tail,
+    PANEL_NOTE,
   ].join(" · ");
 }
 
@@ -81,9 +97,11 @@ export function LineLatencyTag({
     ? `入口机 ${best.entry.nodeName}`
     : "入口机";
   const title = [
-    `本专线最低全程 ${latencyText(l.ms)}：${best.name}（${entry} → 利群专线出口，利群客户端实测）`,
-    `${rules.length} 条转发里 ${withValue.length} 条有数据`,
+    `本专线最低全程 ${latencyText(l.ms)}：${best.name}（${entry} → 利群专线出口）`,
+    srcText(l),
     ageText(l.ageS),
+    `${rules.length} 条转发里 ${withValue.length} 条有数据`,
+    PANEL_NOTE,
   ].join(" · ");
 
   return (
@@ -107,7 +125,7 @@ export function RuleLatencyField({ rule: r }: { rule: LeiKwanRule }) {
       <RuleLatencyTag rule={r} />
       <span className="break-normal text-xs text-default-500">
         {l
-          ? `入口机 → 利群专线出口，利群客户端实测 · ${ageText(l.ageS)}`
+          ? `入口机 → 利群专线出口 · ${srcText(l)} · ${ageText(l.ageS)}`
           : r.latencyNote || "还没有数据"}
       </span>
     </LkField>

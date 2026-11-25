@@ -7,7 +7,8 @@ import (
 )
 
 // Plan 310: the rule latency tag — same UDP/TCP pick + 2000 ms cap as 诊断,
-// fresh reports only, a reason when there is no value.
+// fresh reports only (no cap on the client value's own age, round 2), a
+// reason when there is no value.
 func TestLeiKwanRuleLatencyFor(t *testing.T) {
 	now := time.Now()
 	online := &leiKwanEntryNode{ID: 58, Name: "百度云广州", Online: true}
@@ -41,7 +42,9 @@ func TestLeiKwanRuleLatencyFor(t *testing.T) {
 		{"old agent", online, host(0, lkLatencyFreshTraffic, 0, fw(nil, nil)), 263, 0, "", lkLatOldAgent},
 		{"forward not on the host", online, host(0, lkLatencyFreshTraffic, 1, fw(udp, tcp)), 264, 0, "", lkLatNoForward},
 		{"rule without forward", online, host(0, lkLatencyFreshTraffic, 1, fw(udp, tcp)), 0, 0, "", lkLatNoForward},
-		{"client value too old", online, host(0, lkLatencyFreshTraffic, 1, fw(&lkAgentClient{RttMs: 40, Sent: 3, Recv: 3, AgeS: 900}, nil)), 263, 0, "", lkLatStale},
+		{"udp measured 3 h ago, fresh report → shown", online, host(30*time.Second, lkLatencyFreshTraffic, 1, fw(&lkAgentClient{RttMs: 40, Sent: 30, Recv: 30, AgeS: 3 * 3600}, tcp)), 263, 40, "udp", ""},
+		{"old tcp fallback still shown", online, host(0, lkLatencyFreshTraffic, 1, fw(&lkAgentClient{RttMs: 60000}, &lkAgentClient{RttMs: 64, AgeS: 2 * 86400})), 263, 64, "tcp", ""},
+		{"udp 3 h old but stale report → none", online, host(4*time.Minute, lkLatencyFreshTraffic, 1, fw(&lkAgentClient{RttMs: 40, Sent: 30, Recv: 30, AgeS: 3 * 3600}, nil)), 263, 0, "", lkLatNoReport},
 	}
 	for _, c := range cases {
 		lat, note := lkRuleLatencyFor(c.e, c.hr, c.fid, now)
@@ -59,6 +62,12 @@ func TestLeiKwanRuleLatencyFor(t *testing.T) {
 	lat, _ := lkRuleLatencyFor(online, host(40*time.Second, lkLatencyFreshTraffic, 1, fw(udp, tcp)), 263, now)
 	if lat == nil || lat.AgeS < 44 || lat.AgeS > 46 {
 		t.Fatalf("age %+v", lat)
+	}
+	// Round 2: an old UDP pick keeps its real age (selected_at + report age).
+	old := &lkAgentClient{RttMs: 11, Sent: 30, Recv: 30, AgeS: 3 * 3600}
+	lat, _ = lkRuleLatencyFor(online, host(60*time.Second, lkLatencyFreshTraffic, 1, fw(old, tcp)), 263, now)
+	if lat == nil || lat.Src != "udp" || lat.AgeS < 3*3600+59 || lat.AgeS > 3*3600+61 {
+		t.Fatalf("old udp age %+v", lat)
 	}
 }
 
