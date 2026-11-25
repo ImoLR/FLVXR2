@@ -70,7 +70,26 @@ for both TCP and UDP (read-only check 01:10 TW).
 - [x] UI: admin desktop row + H5 card tag, 专线 header min tag, user page rows, 手机本地 none
 - [x] UI: 诊断 「在用」 filled tag (desktop + H5)
 - [x] Report cadence measured on prod (read-only) and written above
-- [ ] go test (socket, backend handler + contract, SQLite; PG), npm build + tsc + lint
-- [ ] Screenshots gallery `/root/mmwx-preview/leikwan-latency-tag/`
-- [ ] Push branch, CI green
-- [ ] Summary (what a release needs)
+- [x] go test (socket, backend handler + contract, SQLite; PG), npm build + tsc + lint
+- [x] Screenshots gallery `/root/mmwx-preview/leikwan-latency-tag/`
+- [x] Push branch, CI green
+- [x] Summary (what a release needs)
+
+## Results (11-26 TW)
+- `go-gost/x/socket` all ok (incl. new `TestLeiKwanHostReadClientRtt`); `go vet ./socket/` ok; `go-gost`
+  linux build ok (a windows build fails in `x/landing` `syscall.Statfs` — unrelated, CI builds linux only).
+- `go-backend` `go test ./...` with `FLVX_POSTGRES_TEST_DSN` (SQLite + PostgreSQL): all packages ok except
+  one `TestTLSBlockGuardContract/sqlite` failure = pre-existing flake (hard-coded port 20050 in a 1000-port
+  range where earlier forwards get random ports; base 671aa669 fails the same way 1/150, head 0/150).
+  New `TestLeiKwanRuleLatencyFor` / `TestLeiKwanRuleLatencyView` / `TestLeiKwanRuleLatencyContract` ok.
+- `vite-frontend` `npm run build` (tsc + vite) ok; eslint on the touched files 0 errors.
+- CI run 45667341143 (1bbd5a8a) green: frontend, backend, agent, PostgreSQL contract.
+- Lab (prod-DB copy, isolated netns, fake rtt reports): 21 screens, gallery
+  http://104.145.236.29:8791/leikwan-latency-tag/ — the App mock made no `diag` bridge calls.
+
+## Release needs (not done here)
+- Panel (frontend + backend) **and** agent OTA of the 利群入口 hosts: 百度云广州 (58, online),
+  阿里广州 (60, online), 火山广州 (52, offline), 火山上海 (61, offline) — all on fork.143 today.
+- No DB change (reads the already stored `leikwan_host.report`).
+- Old agents / before the OTA: every row grey 「— ms」 = 「入口机 agent 需要升级」, 专线 header no tag;
+  诊断 「在用」 works with the panel alone. Offline hosts stay 「入口机离线」 until they come back + OTA.
