@@ -3,6 +3,7 @@
 package handler
 
 import (
+	"encoding/json"
 	"fmt"
 	"hash/fnv"
 	"os"
@@ -42,8 +43,51 @@ func init() {
 		return int(h.Sum32())
 	}
 	ingress := []string{"125.94.47.233:5438", "106.75.132.155:5438", "43.139.9.158:5438", "121.37.28.219:5438"}
+	// Plan 306: FLVX_LEIKWAN_LAB_LIVE=<file.json> replays numbers measured on
+	// prod — {"diag": {"<forwardId>": LeiKwanDiag data}, "peers": {"<node>:<port>":
+	// [LandingPeerRtt peers]}, "ping": {"<node>": {"<ip>": ms}}}; a missing
+	// ping (or FLVX_LEIKWAN_LAB_NOPING=1) times out like an exit that does not
+	// answer. Without it ServiceMonitorCheck answers 1–9 ms per IP.
+	var live struct {
+		Diag  map[string]map[string]interface{} `json:"diag"`
+		Peers map[string][]interface{}          `json:"peers"`
+		Ping  map[string]map[string]float64     `json:"ping"`
+	}
+	if f := os.Getenv("FLVX_LEIKWAN_LAB_LIVE"); f != "" {
+		if raw, err := os.ReadFile(f); err == nil {
+			_ = json.Unmarshal(raw, &live)
+		}
+	}
+	noPing := os.Getenv("FLVX_LEIKWAN_LAB_NOPING") == "1"
 	leiKwanLabCommand = func(nodeID int64, cmd string, data interface{}) (ws.CommandResult, bool) {
 		m, _ := data.(map[string]interface{})
+		switch cmd {
+		case "ServiceMonitorCheck":
+			ip := fmt.Sprint(m["target"])
+			timeout := ws.CommandResult{Success: true, Data: map[string]interface{}{"success": false, "latencyMs": 2000.0, "errorMessage": "i/o timeout"}}
+			if noPing || fmt.Sprint(m["type"]) != "icmp" {
+				return timeout, true
+			}
+			ms := float64(1 + hash(ip)%9)
+			if live.Ping != nil {
+				v, ok := live.Ping[fmt.Sprint(nodeID)][ip]
+				if !ok || v < 0 {
+					return timeout, true
+				}
+				ms = float64(int(v)) // the agent reports whole ms
+			}
+			return ws.CommandResult{Success: true, Data: map[string]interface{}{"success": true, "latencyMs": ms}}, true
+		}
+		if cmd == "LeiKwanDiag" && live.Diag != nil {
+			if d, ok := live.Diag[fmt.Sprint(m["forwardId"])]; ok {
+				return ws.CommandResult{Success: true, Data: d}, true
+			}
+		}
+		if cmd == "LandingPeerRtt" && live.Peers != nil {
+			if p, ok := live.Peers[fmt.Sprintf("%d:%v", nodeID, m["port"])]; ok {
+				return ws.CommandResult{Success: true, Data: map[string]interface{}{"v": 1, "port": m["port"], "total": len(p), "peers": p}}, true
+			}
+		}
 		switch cmd {
 		case "LeiKwanDiag":
 			if old[fmt.Sprint(nodeID)] {

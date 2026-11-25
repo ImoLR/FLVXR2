@@ -156,6 +156,17 @@ func (r *Repository) GetLeiKwanRuleByForward(forwardID int64) (*model.LeiKwanRul
 	return &x, err
 }
 
+// LeiKwanRulesOnLanding (plan 306): the other 利群 rules on one landing node —
+// their relay exits all connect to the same landing port.
+func (r *Repository) LeiKwanRulesOnLanding(landingNodeID, exceptID int64) ([]model.LeiKwanRule, error) {
+	out := []model.LeiKwanRule{}
+	if landingNodeID <= 0 {
+		return out, nil
+	}
+	err := r.db.Select("id", "name", "user_id", "line_id").Where("landing_node_id = ? AND id <> ?", landingNodeID, exceptID).Order("id").Find(&out).Error
+	return out, err
+}
+
 // CountLeiKwanRulesByUser (plan 276): 利群 rules per owner (user list, the
 // delete dialog says they go with the user).
 func (r *Repository) CountLeiKwanRulesByUser() (map[int64]int64, error) {
