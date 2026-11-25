@@ -68,6 +68,21 @@ type Node struct {
 	// EntryDomain (plan 302): the server is the current IPv6 literal of this
 	// IPv6-only (AAAA-only) entry domain; see UseEntryDomains.
 	EntryDomain string
+	// AAAAOnly (plan 303 round 2): the server is a domain with only an AAAA
+	// record (a user's 专属域名 or a plan 302 entry domain once written). A
+	// document that turns IPv6 off for its client (Clash dns.ipv6, Surge
+	// ipv6 = false) turns it on when it holds such a node; see AnyAAAAOnly.
+	AAAAOnly bool
+}
+
+// AnyAAAAOnly: some node's server is an AAAA-only domain.
+func AnyAAAAOnly(nodes []Node) bool {
+	for i := range nodes {
+		if nodes[i].AAAAOnly {
+			return true
+		}
+	}
+	return false
 }
 
 // Extra holds an AnyTLS / Snell / Mieru landing node.

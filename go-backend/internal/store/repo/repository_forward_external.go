@@ -252,9 +252,12 @@ func ExternalForwardNode(x *ForwardExternal, host string, port int, name string)
 // 复制链接 of 面板节点 forwards), the node's own link with server/port set to
 // the entry. Blocked is set when the tunnel filter blocks the protocol.
 func (r *Repository) ForwardExternalLinks(f model.Forward, x *ForwardExternal) ([]LandingLink, error) {
-	entries, err := r.forwardEntries(f, true)
+	entries, withheld, err := r.forwardEntriesNamed(f, true)
 	if err != nil {
 		return nil, err
+	}
+	if err := userEntryWithheldError(len(entries), withheld); err != nil {
+		return nil, err // plan 303 round 3: no address yet → say why
 	}
 	out := []LandingLink{}
 	seen := map[string]bool{}

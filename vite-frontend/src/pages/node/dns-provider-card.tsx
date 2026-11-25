@@ -11,6 +11,7 @@ import {
   type DNSProviderTestResult,
   type DNSProviderView,
 } from "@/api/ddns";
+import { AttentionIcon } from "@/pages/landing/admin-attention";
 import { Button } from "@/shadcn-bridge/heroui/button";
 import { Card, CardBody, CardHeader } from "@/shadcn-bridge/heroui/card";
 import { Chip } from "@/shadcn-bridge/heroui/chip";
@@ -162,6 +163,15 @@ export function DNSProviderCard() {
       if (res.code === 0) setProviders(res.data || []);
     } finally {
       setLoading(false);
+    }
+    // Plan 303: zone record use / quota + 专属域名 count (Cloudflare calls,
+    // so it comes second and fills the line in when ready).
+    try {
+      const res = await listDNSProviders(true);
+
+      if (res.code === 0 && res.data) setProviders(res.data);
+    } catch {
+      // the card works without the line
     }
   }, []);
 
@@ -335,6 +345,7 @@ export function DNSProviderCard() {
                     {p.tokenError}
                   </span>
                 ) : null}
+                <ProviderRecordLine p={p} />
               </div>
               {rowTests[p.id] ? (
                 <TestResultBox result={rowTests[p.id]} />
@@ -485,5 +496,45 @@ export function DNSProviderCard() {
         </ModalContent>
       </Modal>
     </Card>
+  );
+}
+
+/** Plan 303: 「记录 37 / 200 · 专属域名 25」 per zone, ⚠ above 80 %. */
+function ProviderRecordLine({ p }: { p: DNSProviderView }) {
+  const us = p.userSubdomain;
+
+  if (!us) return null;
+
+  return (
+    <>
+      {us.zones.map((z) => {
+        const near = z.quota > 0 && z.used / z.quota > 0.8;
+
+        return (
+          <span
+            key={z.name || z.providerId}
+            className={`flex items-center gap-1 sm:col-span-2 ${near || z.error ? "text-danger" : ""}`}
+            data-testid="dns-provider-records"
+            title={
+              z.quotaGuess
+                ? "Cloudflare 没有返回上限，按免费版 200 条估计"
+                : undefined
+            }
+          >
+            {near || z.error || z.wildcard ? (
+              <AttentionIcon className="h-3.5 w-3.5" level="error" />
+            ) : null}
+            {z.name}：记录 {z.used} / {z.quota}
+            {z.quotaGuess ? "（估）" : ""} · 专属域名 {z.userRecords}
+            {near ? " · 快到上限，新用户会改用主域名" : ""}
+            {z.wildcard ? ` · 有通配记录 *.${z.name}` : ""}
+            {z.error ? ` · ${z.error}` : ""}
+          </span>
+        );
+      })}
+      {us.zones.length === 0 && us.names > 0 ? (
+        <span className="sm:col-span-2">专属域名 {us.withRecord}</span>
+      ) : null}
+    </>
   );
 }

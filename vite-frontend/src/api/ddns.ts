@@ -1,3 +1,5 @@
+import type { UserSubNodeView, UserSubZone } from "./user-subdomain";
+
 import Network from "./network";
 
 // Node DDNS (plan 142). The API token is never sent back by the panel: the
@@ -14,6 +16,8 @@ export interface DNSProviderView {
   tokenError: string;
   zones: string[];
   usedBy: number;
+  /** plan 303: only with listDNSProviders(true) (the DNS 服务商 card) */
+  userSubdomain?: { zones: UserSubZone[]; names: number; withRecord: number };
 }
 
 export interface DNSProviderTestResult {
@@ -49,6 +53,8 @@ export interface NodeDDNSPayload {
   enabled: boolean;
   providerId: number;
   records: DDNSRecordPayload[];
+  /** plan 303 「用户专属域名」 */
+  userSubdomain?: boolean;
 }
 
 export interface DDNSRecordView extends DDNSRecordPayload {
@@ -72,10 +78,16 @@ export interface NodeDDNSView {
   agentAddrs: { v4: string[]; v6: string[] } | null;
   panelIp: string;
   records: DDNSRecordView[];
+  /** plan 303: 「专属域名 N」 pill; absent when unused */
+  userSubdomain?: UserSubNodeView | null;
 }
 
-export const listDNSProviders = () =>
-  Network.post<DNSProviderView[]>("/node/ddns/provider/list", {});
+export const listDNSProviders = (stats = false) =>
+  Network.post<DNSProviderView[]>(
+    "/node/ddns/provider/list",
+    stats ? { stats: true } : {},
+    stats ? { timeout: 40000 } : undefined,
+  );
 export const createDNSProvider = (data: {
   name: string;
   providerType: "cloudflare";

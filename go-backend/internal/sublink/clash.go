@@ -319,10 +319,12 @@ func clashDoc(nodes []Node, mode string, stash bool, routing []RouteEntry, origi
 	if len(routing) > 0 {
 		kept = make([]Node, 0, len(nodes))
 	}
+	aaaaOnly := false
 	for _, n := range nodes {
 		if p, ok := clashProxy(n, stash); ok {
 			proxies = append(proxies, p)
 			names = append(names, n.Name)
+			aaaaOnly = aaaaOnly || n.AAAAOnly
 			if kept != nil {
 				kept = append(kept, n)
 			}
@@ -345,7 +347,7 @@ func clashDoc(nodes []Node, mode string, stash bool, routing []RouteEntry, origi
 	}
 	dns := omap{
 		{"enable", true},
-		{"ipv6", false},
+		{"ipv6", aaaaOnly}, // plan 303 round 2: on only with an AAAA-only server
 		{"enhanced-mode", "fake-ip"},
 		{"fake-ip-range", "198.18.0.1/16"},
 		{"fake-ip-filter", fakeIPFilter},

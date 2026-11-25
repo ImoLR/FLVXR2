@@ -1478,3 +1478,9 @@ func (h *Handler) subRefreshStale(ctx context.Context, rows map[int64]model.User
 	}
 	return out
 }
+
+// SetSubPullBurst raises the per-subscription pull allowance (contract
+// tests that pull every client format many times; production keeps 60/h).
+func (h *Handler) SetSubPullBurst(burst int) {
+	h.subState().tokenRL = &ratelimit.Bucket{Burst: float64(burst), Every: time.Millisecond, MaxKeys: 10000}
+}

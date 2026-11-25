@@ -14,6 +14,7 @@ import { NodeIPv6RABadge } from "./ipv6-ra-badge";
 import { NodeAdminNoticeBadge } from "./admin-notice-badge";
 import { NodeLeiKwanBadge } from "./leikwan-badge";
 import { NodeDDNSBadge } from "./ddns-badge";
+import { NodeUserSubdomainPill } from "./user-subdomain-pill";
 import { NodeDNSCacheAlert } from "./dns-cache-badge";
 import type { NodeDNSCacheView } from "@/api/types";
 import { MachineConnChip } from "./machine-conn";
@@ -323,6 +324,11 @@ function SortableTableRow({
           <NodeDNSCacheAlert node={node} />
               <NodeLeiKwanBadge node={node} />
               <NodeDDNSBadge ddns={(node as { ddns?: import("@/api/ddns").NodeDDNSView | null }).ddns} />
+              <NodeUserSubdomainPill
+                ddns={(node as { ddns?: import("@/api/ddns").NodeDDNSView | null }).ddns}
+                nodeId={node.id}
+                nodeName={node.name}
+              />
         </div>
         <div className="mt-1 text-xs text-default-500">
           {node.region ? regionLabel(node.region) : (

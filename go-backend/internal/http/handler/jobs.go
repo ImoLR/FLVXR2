@@ -68,6 +68,9 @@ func (h *Handler) StartBackgroundJobs() {
 	// Plan 273: 利群套餐流量 / 设备 reads (≤ 2 per 2.5 min round per account).
 	h.jobsWG.Add(1)
 	go h.runLeiKwanUsageLoop(ctx)
+	// Plan 303: 用户专属域名 (kicks + every 10 min; idle = 2 COUNT queries).
+	h.jobsWG.Add(1)
+	go h.runUserSubdomainLoop(ctx)
 	h.resyncLandingAfterMigration()
 	// Plan 196: no goroutine unless a bot token + bound chat exist.
 	h.EnableTelegramBot()
@@ -433,6 +436,9 @@ func (h *Handler) disableExpiredUsers(nowMs int64) {
 		}
 		_ = h.repo.DisableUser(userID)
 		h.invalidateUserAuth(userID)
+	}
+	if len(userIDs) > 0 {
+		h.userSubKick() // plan 303: 到期 → their 专属域名 pause
 	}
 }
 

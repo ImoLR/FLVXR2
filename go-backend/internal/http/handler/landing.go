@@ -562,9 +562,19 @@ func (h *Handler) landingServerList(w http.ResponseWriter, r *http.Request) {
 		// Plan 286 round 2: users get the effective region only (for the
 		// 可用落地 region groups) — never regionAuto / regionOverride.
 		regions := h.landingServerRegionsFor(ss, landingRegionWait)
+		// Plan 303 round 3: a native server on a node with 用户专属域名 shows
+		// the user's own name (or nothing yet) — never the main domain.
+		names, _ := h.repo.LoadUserEntryNames([]int64{uid})
 		for _, s := range ss {
 			v := h.landingServerUserView(s, catalog, &counts)
 			v["region"] = regions[s.ID].Region
+			if s.NodeID > 0 && !names.Empty() {
+				if uh := names.Resolve(uid, s.NodeID, s.PublicHost); uh.Hidden {
+					v["publicHost"] = ""
+				} else if uh.Host != "" {
+					v["publicHost"] = uh.Host
+				}
+			}
 			if scanBlock != nil {
 				v["scanCreateBlocked"] = landingegress.ScanCreateMessage(scanBlock.Reason())
 			}

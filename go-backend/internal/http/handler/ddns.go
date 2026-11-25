@@ -54,9 +54,25 @@ func (h *Handler) ddnsProviderList(w http.ResponseWriter, r *http.Request) {
 	}
 	usage, _ := h.repo.DNSProviderUsage()
 	now := h.ddnsState().now()
+	// Plan 303: {"stats": true} (the DNS 服务商 card) adds zone record use /
+	// quota and the 专属域名 count; the node form leaves it out (no CF call).
+	var req struct {
+		Stats bool `json:"stats"`
+	}
+	_ = decodeJSON(r.Body, &req)
+	var stats map[int64]map[string]interface{}
+	if req.Stats {
+		ctx, cancel := context.WithTimeout(r.Context(), 25*time.Second)
+		stats = h.userSubProviderStats(ctx, providers)
+		cancel()
+	}
 	out := make([]map[string]interface{}, 0, len(providers))
 	for _, p := range providers {
-		out = append(out, ddnsProviderView(p, usage[p.ID]))
+		view := ddnsProviderView(p, usage[p.ID])
+		if s := stats[p.ID]; s != nil {
+			view["userSubdomain"] = s
+		}
+		out = append(out, view)
 		// Token validity is re-checked at most once a day, in the background.
 		if dnsProviderToken(&p) != "" && now.Sub(time.UnixMilli(p.TokenCheckedAt)) >= ddnsTokenRecheckEvery {
 			h.ddnsCheckTokenAsync(p.ID)
@@ -377,6 +393,8 @@ type ddnsRequest struct {
 	Enabled    bool                `json:"enabled"`
 	ProviderID int64               `json:"providerId"`
 	Records    []ddnsRequestRecord `json:"records"`
+	// UserSubdomain (plan 303): 「用户专属域名」; nil = unchanged.
+	UserSubdomain *bool `json:"userSubdomain"`
 }
 
 // parseDDNSRequest reads the optional `ddns` object of a node save; nil
@@ -402,6 +420,25 @@ type ddnsPlan struct {
 	enabled    bool
 	providerID int64
 	records    []model.NodeDDNSRecord
+	// userSubdomain (plan 303): nil = keep the stored toggle.
+	userSubdomain *bool
+}
+
+// saveUserSubdomain stores the plan's 「用户专属域名」 toggle (DDNS off turns
+// it off) and kicks the reconcile.
+func (h *Handler) saveUserSubdomain(nodeID int64, plan *ddnsPlan) error {
+	if plan == nil {
+		return nil
+	}
+	if plan.userSubdomain == nil && plan.enabled {
+		return nil
+	}
+	on := plan.enabled && plan.userSubdomain != nil && *plan.userSubdomain
+	if err := h.repo.SetNodeUserSubdomain(nodeID, on); err != nil {
+		return err
+	}
+	h.userSubKick()
+	return nil
 }
 
 // mainDomain returns the domain of the main record of a family ("A"/"AAAA").
@@ -449,7 +486,7 @@ func (h *Handler) ddnsPanelHosts(r *http.Request) []string {
 // changed records are checked against Cloudflare (zone, CNAME, existing
 // records pointing elsewhere / proxied unless 「接管已有记录」).
 func (h *Handler) validateDDNSRequest(ctx context.Context, r *http.Request, nodeID int64, req *ddnsRequest, known []string) (*ddnsPlan, error) {
-	plan := &ddnsPlan{enabled: req.Enabled, providerID: req.ProviderID}
+	plan := &ddnsPlan{enabled: req.Enabled, providerID: req.ProviderID, userSubdomain: req.UserSubdomain}
 	if len(req.Records) > repo.MaxNodeDDNSRecords {
 		return nil, fmt.Errorf("每个节点最多 %d 条 DDNS 记录", repo.MaxNodeDDNSRecords)
 	}
@@ -515,6 +552,9 @@ func (h *Handler) validateDDNSRequest(ctx context.Context, r *http.Request, node
 	}
 	if !req.Enabled {
 		return plan, nil
+	}
+	if err := h.validateUserSubdomainToggle(ctx, nodeID, plan); err != nil {
+		return nil, err
 	}
 	provider, err := h.repo.GetDNSProvider(req.ProviderID)
 	if err != nil {
@@ -693,6 +733,8 @@ type ddnsNodeView struct {
 	AgentAddrs   *ddns.AgentAddrs `json:"agentAddrs"`
 	PanelIP      string           `json:"panelIp"`
 	Records      []ddnsRecordView `json:"records"`
+	// UserSubdomain (plan 303): 「专属域名 N」 pill; nil when unused.
+	UserSubdomain *userSubNodeView `json:"userSubdomain,omitempty"`
 }
 
 // ddnsNodeViews builds the DDNS part of the node list: 3 queries in total.
@@ -741,6 +783,9 @@ func (h *Handler) ddnsNodeViews() (map[int64]*ddnsNodeView, error) {
 	}
 	for _, v := range out {
 		v.Status = ddnsNodeStatus(v)
+	}
+	for id, us := range h.userSubNodeViews(nodes, records) {
+		view(id).UserSubdomain = us
 	}
 	return out, nil
 }

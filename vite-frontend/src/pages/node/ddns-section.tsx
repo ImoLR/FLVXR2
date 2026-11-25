@@ -27,6 +27,7 @@ export const emptyDDNS = (): NodeDDNSPayload => ({
   enabled: false,
   providerId: 0,
   records: [],
+  userSubdomain: false,
 });
 
 export const ddnsFromView = (view?: NodeDDNSView | null): NodeDDNSPayload =>
@@ -42,8 +43,13 @@ export const ddnsFromView = (view?: NodeDDNSView | null): NodeDDNSPayload =>
           prefix: r.prefix || "",
           takeover: r.takeover,
         })),
+        userSubdomain: Boolean(view.userSubdomain?.toggle),
       }
     : emptyDDNS();
+
+/** Plan 303: the domain user names point at (AAAA 主地址 first, like the panel). */
+export const userSubMainDomain = (ddns: NodeDDNSPayload): string =>
+  ddnsMainDomain(ddns, "AAAA") || ddnsMainDomain(ddns, "A");
 
 /** Domain of the 主地址 record of a family while DDNS is on. */
 export const ddnsMainDomain = (
@@ -440,6 +446,7 @@ export function NodeDDNSSection({
               {agentLine}
             </p>
           ) : null}
+          <UserSubdomainToggle value={value} view={view} onChange={onChange} />
           {error ? <p className="text-xs text-danger">{error}</p> : null}
         </div>
       ) : view?.records.length ? (
@@ -448,6 +455,102 @@ export function NodeDDNSSection({
           不再自动更新，记录仍保留在 Cloudflare。
         </p>
       ) : null}
+    </div>
+  );
+}
+
+/**
+ * Plan 303 「用户专属域名」 (add-only, under the records): every user on this
+ * node gets their own random name, a CNAME to the main domain. Needs a 主地址
+ * record; the panel refuses it on a zone with a wildcard record.
+ */
+function UserSubdomainToggle({
+  value,
+  view,
+  onChange,
+}: {
+  value: NodeDDNSPayload;
+  view?: NodeDDNSView | null;
+  onChange: (next: NodeDDNSPayload) => void;
+}) {
+  const main = userSubMainDomain(value).toLowerCase();
+  const on = Boolean(value.userSubdomain);
+  const live = view?.userSubdomain;
+  const savedOn = Boolean(live?.toggle);
+
+  return (
+    <div
+      className="space-y-1.5 rounded-lg border border-divider bg-default-50 p-2.5 dark:bg-default-100/40"
+      data-testid="user-subdomain-toggle"
+    >
+      <div className="flex items-start gap-3">
+        <Switch
+          aria-label="用户专属域名"
+          isDisabled={!main && !on}
+          isSelected={on}
+          size="sm"
+          onValueChange={(next) => onChange({ ...value, userSubdomain: next })}
+        />
+        <div className="min-w-0 space-y-1">
+          <span className="text-sm font-medium">用户专属域名</span>
+          <p className="text-xs text-default-500">
+            每个用这台节点的用户各有一个随机名字（例如
+            <span className="font-mono"> k7x2abc.imgamer.top</span>），CNAME
+            指向
+            {main ? (
+              <span className="font-mono text-foreground"> {main}</span>
+            ) : (
+              " 主地址域名"
+            )}
+            ，速度不变。订阅、复制链接和转发地址里只显示他自己的名字（所有客户端都是，不给
+            IP，也不给主域名）。新转发一建好就显示最终的名字，标「正在就绪」，几秒后可用；Cloudflare
+            名额满了或创建失败时，用户看不到这台节点的地址，只看到「请联系管理员」。停用或到期时删除记录、保留名字，续期或启用后几秒内用原名恢复；只有删除用户时作废，永不复用。
+          </p>
+          {!on ? (
+            <p className="text-xs text-default-500">
+              关闭时（默认）：用户拿到这台节点的主域名或 IP，和现在一样。
+            </p>
+          ) : null}
+          {!main ? (
+            <p className="text-xs text-warning">
+              需要一条「主地址」记录才能开启（专属域名都指向它）
+            </p>
+          ) : null}
+          {on && !savedOn ? (
+            <p className="text-xs text-default-500">
+              保存后开始分配：Cloudflare 里有 *.区域 通配记录时不能开启。
+            </p>
+          ) : null}
+          {!on && savedOn && (live?.active || live?.paused) ? (
+            <p className="text-xs text-warning">
+              关闭后删除这台节点上 {live.active + live.paused}{" "}
+              个专属域名的记录（名字保留，重新开启后恢复），用户改回用主域名（只有
+              IPv6 的入口：NekoBox、Surge 等客户端拿到 IP）。
+            </p>
+          ) : null}
+          {savedOn && on && live ? (
+            <p className="text-xs text-default-500">
+              生效 {live.active} · 记录已删除 {live.paused}
+              {live.failed ? (
+                <span className="text-danger"> · 同步失败 {live.failed}</span>
+              ) : null}
+              {live.capped ? (
+                <span className="text-danger">
+                  {" "}
+                  · {live.capped} 个名字等 Cloudflare 名额
+                </span>
+              ) : null}
+              {(live.hidden || 0) > 0 ? (
+                <span className="text-danger">
+                  {" "}
+                  · {live.hidden} 个用户看不到地址
+                </span>
+              ) : null}
+              {live.effective ? "" : " · 等待主地址同步"}
+            </p>
+          ) : null}
+        </div>
+      </div>
     </div>
   );
 }
