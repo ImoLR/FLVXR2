@@ -1,4 +1,4 @@
-# 303 — 用户专属域名 (one private CNAME per user per entry node) — ROUND 3 BUILT 11-24 TW (user decision 11-24 evening: never the main domain), waiting for screenshot approval
+# 303 — 用户专属域名 (one private CNAME per user per entry node) — RELEASED 11-25 17:37 TW as fork.169 (toggles all off; plan 305)
 
 Task `user-subdomain` (coordinator 22b5afb7, 11-24 TW). BUILD + screenshots only
 (no tag, no release, no prod change). Base: `maintenance/3.0.27-fork.167-entry-domain`

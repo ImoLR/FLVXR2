@@ -46,13 +46,21 @@ User 11-25: 「直接發佈」 for 303, and the 沪台 rules below (voice).
 ### A
 - [x] Worktree + merge 303 onto fork.168 (clean)
 - [x] Guard: multi-domain node toggle refused (+ contract test)
-- [ ] go test ./... SQLite + PG
-- [ ] tsc + npm run build
-- [ ] Prod-DB copy: fork.168 vs fork.169 subs (100/104 expected, same 4 ipv6 lines)
-- [ ] Push branch, CI green, tag 3.0.27-fork.169, Images, 10 assets, sha256
-- [ ] Migration rehearsal on prod-DB copy (fork.169 migrates, fork.168 starts clean)
-- [ ] Baseline (5 busiest forwards diagnose + RTT), backup, swap, light check
-- [ ] Ledger row 303 → 已发布 fork.169
+- [x] go test ./... SQLite + PG
+- [x] tsc + npm run build
+- [x] Prod-DB copy: fork.168 vs fork.169 subs (100/104 expected, same 4 ipv6 lines)
+- [x] Push branch, CI green, tag 3.0.27-fork.169, Images, 10 assets, sha256
+- [x] Migration rehearsal on prod-DB copy (fork.169 migrates, fork.168 starts clean)
+- [x] Baseline (5 busiest forwards diagnose + RTT), backup, swap, light check
+- [x] Ledger row 303 → 已发布 fork.169
+
+Part A result (11-25 17:37 TW): prod = fork.169 (tag → 2f2abfe2). go test ./... SQLite + PG
+30/30 packages ok (contract needs `-timeout` > 10 min with PG); tsc + build ok; CI 45582352531,
+Images 45584254857, 10 assets, gost sha256 ok. Prod-DB copy: subs 100/104 byte-identical (the 4 =
+liuchen / test-ns-fx Clash/Stash `ipv6: false → true`, as in 303 r3), 56/56 user API views identical.
+Rehearsal: fork.169 migrates the copy, fork.168 starts clean on it. Swap 17:37:33–17:37:41 TW;
+31/32 online, 64 forwards / 49 tunnels / 8 subs unchanged, 31 redeploys failed=0, 5 busiest forwards
+no regression. All toggles off, 0 names. Rollback `/opt/flvx-svc/rollback/pre-fork169-20261125T093732Z/`.
 
 ### B
 - [ ] Model: user_subdomain.record_domain, user_subdomain_keep table
