@@ -615,9 +615,22 @@ export interface LeiKwanDiagItem {
   estimate?: boolean;
   skipped?: boolean;
   averageTime: number;
+  /** Plan 306: upper end of a range (shared landing, several plausible exits) */
+  averageMaxMs?: number;
+  /** Plan 306: shared landing — the row shows a range, not one exit */
+  ambiguous?: boolean;
+  /** Plan 306 r2: 「端内 19 ms」 tag on the 利群专线入口 → 专线出口 row (every user) */
+  endIn?: LeiKwanDiagEndIn;
   packetLoss: number;
   message?: string;
   diagnosing?: boolean;
+}
+
+/** Plan 306: ready-made 端内 tag (r2: always amber, shown to everyone). */
+export interface LeiKwanDiagEndIn {
+  label: string;
+  tone: "amber" | "slate";
+  title: string;
 }
 
 export interface LeiKwanDiagPath {
@@ -644,9 +657,20 @@ export interface LeiKwanDiagSummary {
   vendorMs?: number;
   /** Plan 301: ≈ 全程 (to the line's exit) + 专线出口 → 落地 */
   endToEndMs?: number;
-  /** Plan 301: 专线出口 → 落地 measured on the landing */
+  /** Plan 301: 专线出口 → 落地 measured on the landing (plan 306: its ping to the exit IP) */
   landingMs?: number;
   landingMeasured?: boolean;
+  /** Plan 306: upper ends of the ranges on a shared landing */
+  landingMaxMs?: number;
+  vendorMaxMs?: number;
+  endToEndMaxMs?: number;
+  landingAmbiguous?: boolean;
+  /** Plan 306 r2: 端内 = the whole 利群专线入口 → 专线出口 (= vendorMs) */
+  endInMs?: number;
+  endInMaxMs?: number;
+  endIn?: LeiKwanDiagEndIn;
+  /** Plan 306 r2: 专线出口 → 落地 is the landing's ping (else the conn rtt) */
+  landingPing?: boolean;
   local?: boolean;
   hop2Ms?: number;
   hop2Estimate: boolean;
