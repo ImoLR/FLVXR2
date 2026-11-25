@@ -52,6 +52,7 @@ func lkFixture(t *testing.T, host string) *lkHostManager {
 	m.run = func(ctx context.Context, stdin []byte, name string, args ...string) ([]byte, error) {
 		return nil, os.ErrNotExist
 	}
+	m.segDump = func([]int) ([]lkSegSock, error) { return nil, nil } // plan 310 r3: no real connection table
 	return m
 }
 

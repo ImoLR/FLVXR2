@@ -189,6 +189,7 @@ func (r *Repository) SaveLineMonitorChart(chart *model.LineMonitorChart, lines [
 					"source_node_id": l.SourceNodeID, "target_node_id": l.TargetNodeID, "host": l.Host, "port": l.Port,
 					"label": l.Label, "paused": l.Paused, "sort": l.Sort, "updated_time": now,
 					"port_mode": l.PortMode, "check_window": l.CheckWindow, "check_allow": l.CheckAllow,
+					"kind": l.Kind, "leikwan_line_id": l.LeiKwanLineID, // plan 310 r3
 				}
 				if old.PortMode != l.PortMode || old.TargetNodeID != l.TargetNodeID || old.Port != l.Port || old.SourceNodeID != l.SourceNodeID || old.Host != l.Host {
 					for k, v := range lineCheckReset(now) {
@@ -348,10 +349,24 @@ func (r *Repository) InsertLineMonitorSamples(samples []model.LineMonitorSample)
 	if len(samples) == 0 {
 		return nil
 	}
+	var parts []model.LineMonitorPart
 	for i := range samples {
 		samples[i].ID = model.LineSampleKey(samples[i].LineID, samples[i].TS)
+		if p := samples[i].Part; p != nil {
+			p.ID = samples[i].ID
+			parts = append(parts, *p)
+		}
 	}
-	return r.db.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "id"}}, DoNothing: true}).CreateInBatches(samples, 200).Error
+	if len(parts) == 0 {
+		return r.db.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "id"}}, DoNothing: true}).CreateInBatches(samples, 200).Error
+	}
+	// Plan 310 r3: an 端内 sample and its parts in one transaction.
+	return r.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "id"}}, DoNothing: true}).CreateInBatches(samples, 200).Error; err != nil {
+			return err
+		}
+		return tx.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "id"}}, DoNothing: true}).CreateInBatches(parts, 200).Error
+	})
 }
 
 // DeleteLineMonitorSamplesBefore deletes at most ~limit samples of one line
@@ -377,6 +392,13 @@ func (r *Repository) DeleteLineMonitorSamplesBefore(lineID, before int64, limit 
 		hi = edge[0] + 1
 	}
 	res := r.db.Where("id >= ? AND id < ?", lo, hi).Delete(&model.LineMonitorSample{})
+	if res.Error == nil {
+		// Plan 310 r3: the parts of 端内 samples share the key range (an empty
+		// primary-key range for TCP lines).
+		if err := r.db.Where("id >= ? AND id < ?", lo, hi).Delete(&model.LineMonitorPart{}).Error; err != nil {
+			return res.RowsAffected, err
+		}
+	}
 	return res.RowsAffected, res.Error
 }
 
@@ -429,6 +451,38 @@ func (r *Repository) ReadLineMonitorSamples(lineID, from, to int64, fn func(Line
 		if err := rows.Scan(&row.TS, &row.Status, &row.Ms10); err != nil {
 			return err
 		}
+		fn(row)
+	}
+	return rows.Err()
+}
+
+// LineMonitorPartRow is one 端内 sample's parts (plan 310 r3).
+type LineMonitorPartRow struct {
+	TS      int64
+	Total10 int
+	Seg10   int
+	ViaNode int64
+}
+
+// ReadLineMonitorParts streams one 端内 line's parts with from <= ts < to in
+// ts order (one primary-key range, like ReadLineMonitorSamples).
+func (r *Repository) ReadLineMonitorParts(lineID, from, to int64, fn func(LineMonitorPartRow)) error {
+	if r == nil || r.db == nil {
+		return errors.New("repository not initialized")
+	}
+	rows, err := r.lineReadDB().Model(&model.LineMonitorPart{}).Select("id, total10, seg10, via_node").
+		Where("id >= ? AND id < ?", model.LineSampleKey(lineID, from), model.LineSampleKey(lineID, to)).Order("id ASC").Rows()
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id int64
+		var row LineMonitorPartRow
+		if err := rows.Scan(&id, &row.Total10, &row.Seg10, &row.ViaNode); err != nil {
+			return err
+		}
+		row.TS = id & (1<<32 - 1)
 		fn(row)
 	}
 	return rows.Err()

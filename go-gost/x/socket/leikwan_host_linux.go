@@ -80,6 +80,9 @@ type lkHostManager struct {
 	backupRoot string
 	now        func() time.Time
 	run        lkRunner
+	// segDump lists the ESTABLISHED TCP sockets to the given remote ports
+	// (plan 310 r3 入口段; sock_diag, tests swap it).
+	segDump func(ports []int) ([]lkSegSock, error)
 
 	mu        sync.Mutex
 	want      *LeiKwanHostSync
@@ -106,7 +109,7 @@ func newLKHostManager(stateDir string) *lkHostManager {
 		stateDir = "/etc/flvx_agent"
 	}
 	m := &lkHostManager{root: "/", stateFile: filepath.Join(stateDir, "leikwan-host-state.json"),
-		backupRoot: "/var/lib/flvx-leikwan/backup", now: time.Now, run: lkExec, wake: make(chan struct{}, 1)}
+		backupRoot: "/var/lib/flvx-leikwan/backup", now: time.Now, run: lkExec, segDump: lkSegDump, wake: make(chan struct{}, 1)}
 	if lkLabHook != nil {
 		lkLabHook(m) // build tag leikwanlab only (nil in release builds)
 	}
@@ -369,6 +372,13 @@ func (m *lkHostManager) read() (LKFiles, LKHostState) {
 			if json.Unmarshal(raw, &st) == nil {
 				fw.State, fw.Policy, fw.UDP = st.State, st.Policy, st.UDP
 				fw.RttTCP, fw.RttUDP = lkDiagClient(st.RttTCP, now), lkDiagClient(st.RttUDP, now)
+				// Plan 310 r3: the ingress of the UDP selection (its 入口段 is
+				// filled in below, one connection-table read per tick).
+				if fw.RttUDP != nil && st.RttUDP.Ref != "" {
+					if ep := m.ingressFor(cfg.ID, st.RttUDP.Ref); ep != "" {
+						fw.Seg = &LKEntrySeg{Endpoint: ep}
+					}
+				}
 				if state.CoreVersion == "" && st.Att.FP != "" {
 					parts := strings.Split(st.Att.FP, ".")
 					if len(parts) > 4 {
@@ -390,6 +400,7 @@ func (m *lkHostManager) read() (LKFiles, LKHostState) {
 		}
 	}
 	sort.Slice(state.Forwards, func(i, j int) bool { return state.Forwards[i].ForwardID < state.Forwards[j].ForwardID })
+	m.fillEntrySegs(state.Forwards)
 	switch {
 	case udp == 0:
 	case native == udp:

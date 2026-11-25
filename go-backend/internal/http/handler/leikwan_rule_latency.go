@@ -15,17 +15,28 @@ package handler
 // it is shown with its real age. latest_tcp (TCP fallback) is the last user
 // connection; an old one is likewise the client's latest measurement and also
 // carries its age. The only freshness rule is the host report's (3 / 7 min).
+//
+// Round 3 (user 11-26): the row shows 到落地 = 全程 (UDP only: latest_tcp is a
+// user connection that already includes the landing) + 专线出口 → 落地 (the
+// landing's ping of the exit, leikwan_land.go). No landing value (手动落地 /
+// 外部节点 / landing offline / no exit known) or no UDP 全程 → no tag at all
+// (latencyNote still says why, for the API only). landLatency (出口 → 落地
+// alone) also goes out for the App's 手机本地 rows (phone 全程 + this).
 
 import (
 	"encoding/json"
 	"time"
 )
 
-// lkRuleLatency is the tag value of one rule row.
+// lkRuleLatency is the tag value of one rule row (round 3: 到落地).
 type lkRuleLatency struct {
-	Ms   float64 `json:"ms"`
-	Src  string  `json:"src"`  // "udp" | "tcp"
-	AgeS int64   `json:"ageS"` // seconds since the client measured it (as of this list)
+	Ms       float64 `json:"ms"`       // 到落地 = TotalMs + LandMs
+	Src      string  `json:"src"`      // "udp"
+	AgeS     int64   `json:"ageS"`     // seconds since the client measured 全程 (as of this list)
+	TotalMs  float64 `json:"totalMs"`  // 全程: 入口机 → 利群专线出口
+	LandMs   float64 `json:"landMs"`   // 专线出口 → 落地
+	LandAgeS int64   `json:"landAgeS"` // age of the landing value
+	Approx   bool    `json:"approx,omitempty"`
 }
 
 // Report cadence of a 利群入口 (agent lkHostManager.tick, see plan 310):
@@ -44,6 +55,7 @@ const (
 	lkLatOldAgent  = "入口机 agent 需要升级"
 	lkLatNoForward = "入口机上没有这条利群转发"
 	lkLatNoClient  = "利群客户端还没有数据"
+	lkLatNoUDP     = "利群客户端没有 UDP 全程"
 )
 
 // lkHostRtt: what the rule list needs from one entry's latest report.
@@ -86,8 +98,9 @@ func (h *Handler) leiKwanHostRtts(nodes map[int64]bool) map[int64]*lkHostRtt {
 	return out
 }
 
-// lkRuleLatencyFor: the tag value, or the reason there is none.
-func lkRuleLatencyFor(e *leiKwanEntryNode, hr *lkHostRtt, forwardID int64, now time.Time) (*lkRuleLatency, string) {
+// lkRuleLatencyFor: the tag value (到落地), or the reason there is none.
+// land / landWhy = 专线出口 → 落地 of the rule (lkLandFor).
+func lkRuleLatencyFor(e *leiKwanEntryNode, hr *lkHostRtt, forwardID int64, land *lkLandValue, landWhy string, now time.Time) (*lkRuleLatency, string) {
 	switch {
 	case e == nil:
 		return nil, lkLatNoEntry
@@ -106,6 +119,15 @@ func lkRuleLatencyFor(e *leiKwanEntryNode, hr *lkHostRtt, forwardID int64, now t
 	if c == nil {
 		return nil, lkLatNoClient
 	}
+	if src != "udp" {
+		return nil, lkLatNoUDP
+	}
+	if land == nil {
+		if landWhy == "" {
+			landWhy = lkLandPending
+		}
+		return nil, landWhy
+	}
 	age := now.Sub(time.UnixMilli(hr.reportedAt)).Milliseconds() / 1000
 	if age < 0 {
 		age = 0
@@ -113,5 +135,6 @@ func lkRuleLatencyFor(e *leiKwanEntryNode, hr *lkHostRtt, forwardID int64, now t
 	if c.AgeS > 0 {
 		age += c.AgeS
 	}
-	return &lkRuleLatency{Ms: lkRound(c.RttMs), Src: src, AgeS: age}, ""
+	total := lkRound(c.RttMs)
+	return &lkRuleLatency{Ms: lkRound(total + land.Ms), Src: src, AgeS: age, TotalMs: total, LandMs: land.Ms, LandAgeS: land.AgeS, Approx: land.Approx}, ""
 }

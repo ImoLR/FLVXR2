@@ -132,10 +132,28 @@ type LKForward struct {
 	// same rule as 诊断 (lkDiagSource), so the two always agree.
 	RttTCP *LKDiagClient `json:"rttTcp,omitempty"`
 	RttUDP *LKDiagClient `json:"rttUdp,omitempty"`
+	// Plan 310 r3: 入口段 of the ingress the client's UDP selection uses
+	// (端内 = rttUdp − seg on the panel). nil = no UDP selection / its
+	// ingress is unknown.
+	Seg *LKEntrySeg `json:"seg,omitempty"`
 }
 
-// lkHostRttVersion (LKHostState.Rtt): this agent reports rttTcp / rttUdp.
-const lkHostRttVersion = 1
+// LKEntrySeg (plan 310 r3): 入口段 = the kernel's smoothed rtt (tcp_info,
+// sock_diag) of the TCP connections this host already has to that ingress —
+// the LeiKwan client keeps long-lived connections to its ingresses. Read-only:
+// no probe, no new connection. Conns 0 = no connection to it right now (no
+// 入口段 this minute).
+type LKEntrySeg struct {
+	Endpoint string  `json:"endpoint"`        // ingress "IP:port"
+	Ms       float64 `json:"ms,omitempty"`    // lower median srtt of those connections
+	MinMs    float64 `json:"minMs,omitempty"` // lowest srtt
+	Conns    int     `json:"conns"`
+	Err      string  `json:"err,omitempty"` // the connection table could not be read
+}
+
+// lkHostRttVersion (LKHostState.Rtt): 1 = this agent reports rttTcp /
+// rttUdp; 2 = also seg (plan 310 r3).
+const lkHostRttVersion = 2
 
 // LKHostState: secret-free status of the LeiKwan stack on this host.
 type LKHostState struct {
@@ -155,7 +173,7 @@ type LKHostState struct {
 	PhonePorts    []int       `json:"phonePorts,omitempty"`
 	Forwards      []LKForward `json:"forwards"`
 	// Plan 310: lkHostRttVersion when the forwards carry the client rtt
-	// (0 = older agent: the panel shows 「入口机 agent 需要升级」).
+	// (0 = older agent: no tag; 1 = rtt only, no 入口段 → no 端内).
 	Rtt int `json:"rtt,omitempty"`
 }
 
@@ -848,7 +866,7 @@ func lkReportKey(r *LeiKwanHostReport) string {
 		fw := make([]LKForward, len(c.State.Forwards))
 		copy(fw, c.State.Forwards)
 		for i := range fw {
-			fw[i].RttTCP, fw[i].RttUDP = nil, nil
+			fw[i].RttTCP, fw[i].RttUDP, fw[i].Seg = nil, nil, nil // r3: 入口段 too
 		}
 		c.State.Forwards = fw
 	}

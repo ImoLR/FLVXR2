@@ -5,7 +5,10 @@ package contract_test
 // normal ingest; the admin list and the owner's list show the 全程 of the
 // row's entry (UDP with probes, else TCP; bogus UDP 60000 dropped like 诊断),
 // old agents / offline entries give a reason, users see only their own rules
-// and never the forward number.
+// and never the forward number. Round 3: the tag is 到落地 (UDP 全程 + 专线出口
+// → 落地); the imported rules have manual landings → no tag, the reason only
+// (the landing part is covered by the handler tests: contract handlers have
+// no agents to ping from).
 
 import (
 	"testing"
@@ -63,15 +66,14 @@ func leiKwanRuleLatencyFlow(t *testing.T, dialect string) {
 		263: {"rttUdp": map[string]interface{}{"rttMs": 11, "p95Ms": 12, "sent": 30, "recv": 30, "ageS": 6}, "rttTcp": map[string]interface{}{"rttMs": 107, "ageS": 30}},
 		264: {"rttUdp": map[string]interface{}{"rttMs": 60000, "ageS": 2}, "rttTcp": map[string]interface{}{"rttMs": 64, "ageS": 9}},
 	})))
+	e.h.RunLeiKwanLandPass()
 	list = e.ok("/api/v1/leikwan-rule/list", e.admin, map[string]interface{}{})["rules"].([]interface{})
 	for _, c := range []struct {
 		rule model.LeiKwanRule
-		ms   float64
-		src  string
-	}{{r263, 11, "udp"}, {r264, 64, "tcp"}} {
+		note string
+	}{{r263, "手动落地，没有落地延迟"}, {r264, "利群客户端没有 UDP 全程"}} {
 		m := lkRuleByForward(t, list, c.rule.Name)
-		lat, _ := m["latency"].(map[string]interface{})
-		if lat == nil || lat["ms"] != c.ms || lat["src"] != c.src || num(lat["ageS"]) < 6 || m["latencyNote"] != nil {
+		if m["latency"] != nil || m["landLatency"] != nil || m["latencyNote"] != c.note {
 			t.Fatalf("%s: %v %v", c.rule.Name, m["latency"], m["latencyNote"])
 		}
 	}
@@ -91,7 +93,7 @@ func leiKwanRuleLatencyFlow(t *testing.T, dialect string) {
 		264: {"rttUdp": map[string]interface{}{"rttMs": 60, "sent": 30, "recv": 30, "ageS": 3}},
 	})))
 	m = e.ok("/api/v1/leikwan-rule/list", e.user, map[string]interface{}{})["rules"].([]interface{})[0].(map[string]interface{})
-	if lat, _ := m["latency"].(map[string]interface{}); lat == nil || lat["ms"] != 60.0 || lat["src"] != "udp" || m["forwardId"] != nil {
+	if m["latency"] != nil || m["latencyNote"] != "手动落地，没有落地延迟" || m["forwardId"] != nil {
 		t.Fatalf("alice latency: %v", m)
 	}
 	if out, data := e.call("/api/v1/leikwan-rule/list", e.other, map[string]interface{}{}); out.Code != 0 || len(data["rules"].([]interface{})) != 0 {

@@ -495,6 +495,8 @@ func (h *Handler) leikwanLineList(w http.ResponseWriter, r *http.Request) {
 			"flowMode": l.FlowMode, "trafficRatio": l.TrafficRatio, // plan 269
 			"inx": l.Inx, "status": l.Status, "ruleCount": len(byLine[l.ID]), "forwardIds": forwardIDs, "hostValues": hostRows,
 			"backupStats": backupStats[l.ID],
+			// Plan 310 r3: 「端内 X ms」 on the 专线 header (nil = no reading).
+			"endIn": h.lkLineEndIn(l.ID, true, time.Now()),
 		})
 	}
 	// The pipe-mode tunnels (plan 094) are shown beside the group, not in it.
@@ -1345,7 +1347,13 @@ func (h *Handler) leiKwanRuleView(x model.LeiKwanRule, c *leiKwanRuleCtx, admin 
 	if e != nil {
 		hr = c.rtts[e.ID]
 	}
-	if lat, note := lkRuleLatencyFor(e, hr, x.ForwardID, time.Now()); lat != nil {
+	// Round 3: 到落地 (全程 + 专线出口 → 落地); landLatency alone for the App's
+	// 手机本地 rows (the phone's own 全程 + this).
+	land, landWhy := h.lkLandFor(x, time.Now())
+	if land != nil {
+		v["landLatency"] = land
+	}
+	if lat, note := lkRuleLatencyFor(e, hr, x.ForwardID, land, landWhy, time.Now()); lat != nil {
 		v["latency"] = lat
 	} else {
 		v["latencyNote"] = note

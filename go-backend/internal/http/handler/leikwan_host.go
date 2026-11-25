@@ -116,7 +116,23 @@ type lkForwardView struct {
 	// rule list picks with lkClientPick like 诊断).
 	RttTCP *lkAgentClient `json:"rttTcp,omitempty"`
 	RttUDP *lkAgentClient `json:"rttUdp,omitempty"`
+	// Plan 310 r3 (agent state.rtt ≥ 2): 入口段 of the UDP selection's ingress
+	// (kernel srtt of the client's connections to it; conns 0 = none now).
+	Seg *lkAgentSeg `json:"seg,omitempty"`
 }
+
+// lkAgentSeg mirrors the agent's LKEntrySeg.
+type lkAgentSeg struct {
+	Endpoint string  `json:"endpoint"`
+	Ms       float64 `json:"ms,omitempty"`
+	MinMs    float64 `json:"minMs,omitempty"`
+	Conns    int     `json:"conns"`
+	Err      string  `json:"err,omitempty"`
+}
+
+// lkHostSegVersion: state.rtt of agents that report seg (plan 310 r3).
+const lkHostSegVersion = 2
+
 type lkStateView struct {
 	Host          string          `json:"host,omitempty"`
 	AgentVersion  string          `json:"agentVersion,omitempty"`
