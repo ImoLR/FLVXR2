@@ -105,7 +105,8 @@ entry's switch triggers (zero_close / eof1s). So:
 - [x] Release brief `/root/flvx-workers/briefs/release-leikwan-diag-inline.md` (fork.171, panel only, no OTA, no DB
       change); ledger row 306 → 待发布 (screens)
 - [x] Summary `/root/flvx-workers/runs/leikwan-diag-inline/summary.md`
-- [ ] Release fork.171 — **waits for the user's OK on the screenshots** (release worker ticks this)
+- [ ] Release — user approved the round-2 screens (「可以发布」, 11-25 night); released as **fork.173** (fork.171/172
+      taken by plan 307) — see 「Release (fork.173)」 below
 
 ## Open points (user decides)
 * Give each 利群 rule its own landing port so the exit can always be told apart (today 280/282 and 281/615 share).
@@ -166,3 +167,16 @@ User decisions (voice, paraphrased by the coordinator):
 * Lab: `/root/flvx-workers/runs/leikwan-diag-inline-r2/lab/` (copy of round 1's; demo user also owns 广港 + 沪日; sets
   d/h/a × admin/user; `chain.sh`; gallery keeps round 1's 改前 PNGs, adds the missing ones from a fork.170 re-run).
   Chrome was OOM-killed once by host memory pressure (another worker's docker build) → the App sets were re-shot.
+
+## Release (fork.173)
+User OK on the round-2 screens (11-25 night). fork.171 / fork.172 went to plan 307 → branch
+`maintenance/3.0.27-fork.173-diag-inline` = fork.172 branch head d90a60a3 + merge of the 306 branch (caff19e9), no conflicts.
+Panel only (no agent OTA, no DB change). Rollback = image swap back to fork.172.
+- [x] Branch + merge onto fork.172 (43e83d5e)
+- [x] go vet; `go test -timeout 40m ./...` (SQLite) all packages ok (handler 260 s, contract 222 s), incl.
+      TestLeiKwanDiagEndIn / SharedLanding / PickExitFor / Diagnose / DiagnoseV2; `npm run build` ok
+- [ ] Push, tag 3.0.27-fork.173, CI + Images green, 10 assets, Latest, gost sha256
+- [ ] Prod backup `pre-fork173-<UTC>` + prune (keep 2)
+- [ ] Wait for the plan 309 ops worker to finish, then swap backend + frontend, FLUX_VERSION
+- [ ] Verify: health, nodes, tables unchanged, log 15 min, 6 × 诊断 via admin API, ICMP checks on landings, UI smoke
+- [ ] Cleanup flvxx-306 worktree, /root/lk306-lab, /root/lk306-base; ledger, memory
