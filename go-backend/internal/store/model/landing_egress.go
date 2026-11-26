@@ -92,6 +92,10 @@ type LandingEgressSetting struct {
 	// a 内置 rule) and the thresholds (0 = default: 横向 100 IPs / 60 s, 80/443
 	// 500, 纵向 30 ports / 60 s, 总量 1000 IPs / 5 min).
 	BuiltinScanGuard  *bool `gorm:"column:builtin_scan_guard" json:"-"`
+	// Plan 316: 「屏蔽本机厂商官网」 global switch (NULL = on) and the admin's
+	// vendor list as JSON ('' = the built-in seed list).
+	BuiltinVendor *bool  `gorm:"column:builtin_vendor" json:"-"`
+	Vendors       string `gorm:"column:vendors;type:text;not null;default:''" json:"-"`
 	ScanHorizontal    int   `gorm:"column:scan_horizontal;not null;default:0" json:"-"`
 	ScanHorizontalWeb int   `gorm:"column:scan_horizontal_web;not null;default:0" json:"-"`
 	ScanVertical      int   `gorm:"column:scan_vertical;not null;default:0" json:"-"`

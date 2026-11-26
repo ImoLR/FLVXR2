@@ -88,6 +88,13 @@ type CompileInput struct {
 	Outbounds map[int64]Outbound
 	NoIPv4    bool
 	NoIPv6    bool
+	// Plan 316 「屏蔽本机厂商官网」: the server's vendor (nil = none or the
+	// global switch is off). Emitted as the very first plan rule over every
+	// node (and ChainTags when Builtin), with the same readiness as Abuse.
+	// VendorMarker: the agent understands BuiltinVendor (landing_guard >=
+	// VendorVersion; SNI / Host match); otherwise BuiltinAbuse when Builtin.
+	Vendor       *Vendor
+	VendorMarker bool
 }
 
 // Report says what of the layered input did not make it into the plan.
@@ -770,6 +777,43 @@ func compilePlan(in CompileInput, nodes []NodeRef, forced, deflt []Rule, gdef st
 				}
 				plan.Rules = append(defaults, plan.Rules...)
 				layers = append(make([]int, len(defaults)), layers...)
+			}
+		}
+	}
+	// Plan 316: the vendor rule goes in front of everything (also the 防滥用
+	// defaults), so no layer, allow rule or user rule comes before it.
+	if in.Abuse && in.Vendor != nil && len(in.Vendor.Domains) > 0 {
+		set := map[string]bool{}
+		for _, n := range nodes {
+			set[n.Tag] = true
+		}
+		if in.Builtin {
+			for _, t := range in.ChainTags {
+				set[t] = true
+			}
+		}
+		tags := make([]string, 0, len(set))
+		for t := range set {
+			tags = append(tags, t)
+		}
+		sort.Strings(tags)
+		if len(tags) > 0 {
+			if len(plan.Rules)+1 > MaxPlanRules {
+				if layered {
+					return nil, nil, nil, limitError{fmt.Sprintf("同一服务器的规则合计最多 %d 条", MaxPlanRules)}
+				}
+				warnings = append(warnings, "该服务器的规则数已满，内置规则「屏蔽本机厂商官网」未下发")
+			} else {
+				r := VendorPlanRule(*in.Vendor)
+				r.InboundTags = tags
+				switch {
+				case in.VendorMarker:
+					r.Builtin = BuiltinVendor
+				case in.Builtin:
+					r.Builtin = BuiltinAbuse
+				}
+				plan.Rules = append([]PlanRule{r}, plan.Rules...)
+				layers = append([]int{layerServer}, layers...)
 			}
 		}
 	}

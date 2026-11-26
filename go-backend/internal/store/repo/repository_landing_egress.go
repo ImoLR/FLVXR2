@@ -396,6 +396,12 @@ type LandingEgressData struct {
 	Abuse landingegress.AbuseSwitches
 	// Externals (plan 177): the external nodes chained nodes use, by ID.
 	Externals map[int64]model.LandingExternalNode
+	// Plan 316 「屏蔽本机厂商官网」: VendorInfo = the server's vendor (nil =
+	// 未设置 / unknown key), Vendor = the same when the global switch is on
+	// (what the compiler uses), VendorOn = the global switch.
+	VendorInfo *landingegress.Vendor
+	Vendor     *landingegress.Vendor
+	VendorOn   bool
 }
 
 // LandingEgressActions lists every action a server's plan can reference:
@@ -454,6 +460,18 @@ func (r *Repository) LandingEgressData(serverID int64) (*LandingEgressData, erro
 	}
 	if d.Global, d.Abuse, _, err = landingSettings(r.db); err != nil {
 		return nil, err
+	}
+	// Plan 316: the server's vendor (nil = none, unknown or switched off).
+	vs, err := landingVendorSettings(r.db)
+	if err != nil {
+		return nil, err
+	}
+	d.VendorOn = vs.On
+	if v, ok := landingegress.FindVendor(vs.Vendors, d.Server.Vendor); ok {
+		d.VendorInfo = &v
+		if vs.On {
+			d.Vendor = &v
+		}
 	}
 	var chainIDs []int64
 	for _, n := range d.Nodes {

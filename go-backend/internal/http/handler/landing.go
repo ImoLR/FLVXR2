@@ -156,6 +156,11 @@ func (h *Handler) landingServerViewWith(s model.LandingServer, admin bool, catal
 	// would have (rule dialog: 新建落地节点 on a 屏蔽 TLS tunnel).
 	v["protocolFilterFeatures"] = repo.LandingServerFilterFeatureMap(&s, repo.LandingFilterProtocols)
 	if admin {
+		landingServerVendorView(s, v, catalog)
+	} else {
+		delete(v, "vendor")
+	}
+	if admin {
 		h.landingServerRealityView(s, v)
 		groups, _ := h.repo.LandingServerGroupIDs(s.ID)
 		v["userGroupIds"] = groups
@@ -620,6 +625,8 @@ func (h *Handler) landingServerSave(w http.ResponseWriter, r *http.Request) {
 		// client never resets it) and 「同时应用到现有 N 个节点」.
 		DefaultMaxTotalConnections *int `json:"defaultMaxTotalConnections"`
 		ApplyNodeTotalToNodes      bool `json:"applyNodeTotalToNodes"`
+		// Plan 316 VPS 厂商, shadowed (absent = keep).
+		Vendor *string `json:"vendor"`
 	}
 	if err := landingDecode(r, &req); err != nil {
 		landingError(w, err)
@@ -630,7 +637,14 @@ func (h *Handler) landingServerSave(w http.ResponseWriter, r *http.Request) {
 		landingError(w, errors.New("落地服务器不存在"))
 		return
 	}
-	// Validate the outbound/routing assignment before saving anything else.
+	if req.Vendor != nil && strings.TrimSpace(*req.Vendor) != "" {
+		vs, err := h.repo.GetLandingVendorSettings()
+		if _, ok := landingegress.FindVendor(vs.Vendors, strings.ToLower(strings.TrimSpace(*req.Vendor))); err != nil || !ok {
+			landingError(w, errors.New("厂商不存在"))
+			return
+		}
+	}
+		// Validate the outbound/routing assignment before saving anything else.
 	profileID := old.RouteProfileID
 	if req.ProfileID != nil {
 		profileID = *req.ProfileID
@@ -730,7 +744,13 @@ func (h *Handler) landingServerSave(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if req.CoreUpgradeConfirmed && old.Source == "native" && old.CoreStaleEpoch != "" {
+	if req.Vendor != nil {
+		if err := h.setLandingServerVendor(req.ID, old.Vendor, *req.Vendor); err != nil {
+			landingError(w, err)
+			return
+		}
+	}
+		if req.CoreUpgradeConfirmed && old.Source == "native" && old.CoreStaleEpoch != "" {
 		if err := h.repo.SetLandingCoreUpgrade(req.ID); err != nil {
 			landingError(w, err)
 			return

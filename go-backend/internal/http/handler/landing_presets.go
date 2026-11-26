@@ -28,6 +28,11 @@ func (h *Handler) landingBuiltinAdminView(abuse landingegress.AbuseSwitches) (ma
 	for _, k := range landingegress.AbuseKeys {
 		view[k] = abuse.On(k)
 	}
+	vendor, err := h.landingVendorAdminView()
+	if err != nil {
+		return nil, err
+	}
+	view["vendor"] = vendor
 	return view, nil
 }
 
@@ -54,6 +59,7 @@ func landingBuiltinNodeView(d *repo.LandingEgressData, profileID int64, ready bo
 		}
 	}
 	view["offReasons"] = reasons
+	view["vendor"] = landingVendorNodeView(d, ready)
 	return view
 }
 

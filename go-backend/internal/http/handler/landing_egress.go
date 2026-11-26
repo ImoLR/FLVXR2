@@ -191,6 +191,10 @@ func landingEgressInput(d *repo.LandingEgressData) landingegress.CompileInput {
 	in.Markers = d.Server.Source == "native" && d.NodeGuard >= landingegress.LayersVersion
 	in.Outbounds, in.NoIPv4, in.NoIPv6 = d.Outbounds, d.NoIPv4, d.NoIPv6
 	in.AbuseOff = d.Abuse
+	// Plan 316: 屏蔽本机厂商官网 (nil = no vendor / switched off). Agents with
+	// landing_guard >= VendorVersion also match the sniffed SNI / Host.
+	in.Vendor = d.Vendor
+	in.VendorMarker = d.Server.Source == "native" && d.NodeGuard >= landingegress.VendorVersion
 	withheld := repo.LandingWithheldAgentFunc(&d.Server, d.NodeProtocols)
 	for _, n := range d.Nodes {
 		// Withheld nodes (plan 121) are not in the desired state either.
@@ -476,6 +480,8 @@ type landingEgressCatalog struct {
 	// scanOn (plan 218): the global 禁止端口扫描 switch, read at most once per
 	// request (admin server cards show each server's state).
 	scanOn func() bool
+	// vendors (plan 316): the vendor list + switch, read at most once.
+	vendors func() repo.LandingVendorSettings
 }
 
 func (h *Handler) landingEgressCatalog() landingEgressCatalog {
@@ -495,6 +501,12 @@ func (h *Handler) landingEgressCatalog() landingEgressCatalog {
 	var scanOn bool
 	c := landingEgressCatalog{settings: settings, nodeFacts: nodeFacts, inputs: map[int64]landingegress.CompileInput{}}
 	c.abuse = func() landingegress.AbuseSwitches { _, sw := settings(); return sw }
+	var vendorOnce sync.Once
+	var vendors repo.LandingVendorSettings
+	c.vendors = func() repo.LandingVendorSettings {
+		vendorOnce.Do(func() { vendors, _ = h.repo.GetLandingVendorSettings() })
+		return vendors
+	}
 	c.scanOn = func() bool {
 		scanOnce.Do(func() {
 			g, err := h.repo.GetLandingScanGuard()
@@ -718,6 +730,8 @@ func (h *Handler) registerLandingEgress(mux *http.ServeMux) {
 		// writes; the list for everyone is /api/v1/landing/preset/list).
 		"builtin/save": h.landingEgressBuiltinSave, "preset/save": h.landingPresetSave,
 		"preset/delete": h.landingPresetDelete, "preset/reorder": h.landingPresetReorder, "preset/restore": h.landingPresetRestore,
+		// Plan 316 屏蔽本机厂商官网: vendor list + switch, per-server vendor.
+		"vendor/save": h.landingVendorSave, "vendor/assign": h.landingVendorAssign,
 	}
 	for path, fn := range routes {
 		fn := fn

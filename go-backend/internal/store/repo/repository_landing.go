@@ -304,6 +304,7 @@ func (r *Repository) SaveLandingServerOpts(s *model.LandingServer, groups []int6
 		s.RouteProfileID, s.EgressHash, s.EgressRestartOK = old.RouteProfileID, old.EgressHash, old.EgressRestartOK
 		s.EgressState, s.EgressError, s.EgressReady, s.EgressCheckedAt, s.EgressWarnings = old.EgressState, old.EgressError, old.EgressReady, old.EgressCheckedAt, old.EgressWarnings
 		s.ChainOnly = old.ChainOnly
+		s.Vendor = old.Vendor // plan 316: own API path
 		// The Reality guard switch has its own path (SetLandingRealityGuard).
 		s.RealityGuardOff, s.GuardState, s.GuardNodes = old.RealityGuardOff, old.GuardState, old.GuardNodes
 		// Plan 129: the Core upgrade report / confirmation have their own paths.
