@@ -140,7 +140,8 @@ part C untouched. Gallery: new top section 「v3 简洁版」 on /root/mmwx-prev
   chip row again (no route row). Rule rows, desktop and normal users unchanged.
 - **B layer 1** (`phone-cards.tsx`): the old App's cards ported — 2-column grid (3 columns on desktop), card =
   tinted badge (amber battery / blue server / teal split) + one chip (电池 未设置 / ✓ 已设置, others 必看) + face
-  (max 2 lines). Ring = `OnboardingRing` (plan 146/169 component, lap + rest) on the first untapped card, not while
+  (max 2 lines, whole words: breaks only at 电池设为 | 「无限制」, 节点地址 | 127.0.0.1, 分应用代理 | 里绕过 — the
+  first shots broke 「无限 / 制」 and 「绕 / 过」 at 360 / 125 %). Ring = `OnboardingRing` (plan 146/169 component, lap + rest) on the first untapped card, not while
   a sheet is open or cards leave / reflow. Sheets = bottom sheet on phones (centred dialog ≥ 640 px) with r2's tip
   texts (battery: 我知道了 + 去设置; node: 127.0.0.1 + per-forward port table; bypass: client list).
   Shatter = 5 × 3 cells → 30 triangles, each a `clip-path` copy of the card in a fixed layer, Web Animations
@@ -154,8 +155,9 @@ part C untouched. Gallery: new top section 「v3 简洁版」 on /root/mmwx-prev
   connects by itself).
 - **B layer 3**: connecting = the App's real four steps (读取账号 / 连接商家 / 等待商家授权 / 启动入口 — the words
   1.0.10-panel sends in `stage`; the brief's 「申请线路授权 / 确认本地入口」 are not App stages) with the time on
-  the current step; failed = one red line 「连接失败：…」 + code; connected / partial = 「已连接 7/7 · 21:02 起」 and
-  one row per forward (name without 利群, 127.0.0.1:port, ONE pill: 失败 / 正走备线 / 快切 (= ready with 日志快切
+  the current step; failed = one red line 「连接失败：…」 + code (only if the message lacks it); connected / partial = 「已连接 7/7 · 21:02 起」 and
+  one row per forward (name without 利群 on top, 127.0.0.1:port small under it — on one line 「广台 Seed…」 was cut at
+  360 px — and ONE pill on the right: 失败 / 正走备线 / 快切 (= ready with 日志快切
   armed) / 就绪 (ready, no 快切) / 连接中 / 未连接; a failed forward shows its reason under it). Idle = nothing.
   Device limit: one amber line only when the vendor count is full and this phone is not connected (when connected
   the phone holds one of the slots itself).
@@ -163,6 +165,11 @@ part C untouched. Gallery: new top section 「v3 简洁版」 on /root/mmwx-prev
   运行日志 (size, 查看 / 复制 / 分享), device name + 换面板地址. Removed: checklist, 快捷设置, the three notes,
   「更多」, the r2 「用之前看一下」 block and its `flvx_phone_ok_once` / `flvx_phone_bypass_ok` flags (old keys
   stay in storage, unused).
+- **Desktop App mode** (same card in the narrow 授权 column): always 2 card columns (a viewport `sm:grid-cols-3`
+  squeezed 3 cards into ~230 px and the chips spilled out — fixed in the second commit); the header subtitle
+  「这台手机用哪个入口」 truncates instead of pushing the gear to a second line.
+- **Lab data**: the fake vendor reports 4 / 5 devices for the gallery (prod-like 5 / 5 shot separately), so the
+  device-full line shows only in its own shots.
 - **入口机 → 手机本地**: compact labels 92 px + nowrap (「利群客户端」 one line at 360 / 125 %); version pill
   「App 1.0.10-panel」 (versionCode moved into its title) — no ellipsis.
 
@@ -177,5 +184,21 @@ part C untouched. Gallery: new top section 「v3 简洁版」 on /root/mmwx-prev
 - [x] B gear sheet (自动连接, 预热池, 运行日志, 换面板地址); checklist / 快捷设置 / notes / 更多 removed
 - [x] 入口机 → 手机本地 360 / 125 % nits
 - [ ] tsc + eslint (changed files) + npm build
-- [ ] Shots (360 / 390 × 100 / 125 %) + browser proof vs fork.174 + gallery 「v3 简洁版」 section
+- [x] Shots (360 / 390 × 100 / 125 %) + browser proof vs fork.174 + gallery 「v3 简洁版」 section
 - [ ] Commit, push, CI green; ledger row 315 head; summary
+
+### Round 3 tests
+- `tsc --noEmit` ok; eslint on the 7 changed / new files: 0 problems; `npm run build` ok; CI Build Check
+  45852510374 green on e1bd5e8c. Go untouched (no Go run).
+- Lab `/root/flvx-workers/runs/app-grant-simple/lab` (fresh read-only prod-DB snapshot, `unshare -n`, branch
+  paneld = fork.174 leikwan API, mocked App bridge, 100 % / 125 % text emulation), 0 page errors in every pass:
+  - A: every prod 专线 header one line, 52 px, route pill complete, bubble inside — slack 57–60 / 18–23 / 87–90 /
+    48–53 px at 360·100 / 360·125 / 390·100 / 390·125 % (phone browser 360·125 % the same).
+  - B behaviour: 连接 without account → only `editCredentials` (no connect); battery not 无限制 → quick-fix sheet,
+    no connect call; 我知道了 → 30 shards, the next card gets the ring, 2 → 1 card; battery flips to 无限制 → card
+    gone, flag set, still gone after reload with the battery back to 「not 无限制」; reduced motion → 0 shards,
+    card removed; server entry → no gear; 入口机 → 手机本地 labels all one line and no cut pill at 360 / 390 × 125 %.
+  - Browser proof vs fork.174 (same DB / backend): 授权 + 入口机 desktop cards and H5 授权 pixel-identical, H5 入口机
+    only 「更新于 HH:MM」; page text identical on all four.
+- Gallery: section 「v3 简洁版」 on top of http://104.145.236.29:8791/app-grant-entry/ (64 images in v3/, old r1 / r2
+  sections below; previous index kept as index-r2.html).

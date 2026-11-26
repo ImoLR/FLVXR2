@@ -564,7 +564,7 @@ export function PhoneFirstRun({
 
   return (
     <div ref={wrapRef} className="pb-4" data-phone-cards="">
-      <div className="grid grid-cols-2 gap-2.5 sm:max-w-xl sm:grid-cols-3">
+      <div className="grid max-w-md grid-cols-2 gap-2.5">
         {cards.map((k) => {
           const set = k === "battery" && unrestricted;
           const chip = k === "battery" ? (set ? "已设置" : "未设置") : "必看";

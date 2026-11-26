@@ -107,13 +107,15 @@ export function MyEntryCard({
       data-phone-my-entry={local ? "local" : "server"}
       id="phone-my-entry"
     >
-      <div className="flex flex-wrap items-center gap-1.5">
+      <div className="flex items-center gap-1.5">
         <Smartphone
-          className="text-violet-600 dark:text-violet-300"
+          className="shrink-0 text-violet-600 dark:text-violet-300"
           size={15}
         />
-        <span className="text-sm font-semibold">我的入口</span>
-        <span className="text-xs text-default-500">这台手机用哪个入口</span>
+        <span className="shrink-0 text-sm font-semibold">我的入口</span>
+        <span className="min-w-0 truncate text-xs text-default-500">
+          这台手机用哪个入口
+        </span>
         {local && (
           <button
             aria-label="手机本地设置"
