@@ -12,9 +12,9 @@ OTA: only the 利群入口 hosts 百度云广州 + 阿里广州 (火山广州 / 
 ## Checklist
 - [x] Disk ≥ 5 GB (go-build entries > 6 h + npm cache: 3.0 → 7.3 GB free)
 - [x] Worktree + branch, merge 310 + 311 (no conflicts)
-- [ ] go vet + go test ./... (SQLite) on merged head; PG run of touched packages
-- [ ] go-gost/x ./socket/ tests; npm run build
-- [ ] Rollback rehearsal on prod-DB copy (174 migrates, 173 starts clean on migrated copy)
+- [x] go vet + go test ./... (SQLite) on merged head; PG run of touched packages
+- [x] go-gost/x ./socket/ tests; npm run build
+- [x] Rollback rehearsal on prod-DB copy (174 migrates, 173 starts clean on migrated copy)
 - [ ] Push branch, annotated tag, CI + Images green, 10 assets, Latest, gost sha256
 - [ ] Prod backup pre-fork174 + prune (keep 2)
 - [ ] Panel swap + verify (health, nodes, forwards/tunnels/利群/subs, log 15 min, 节点 cards desktop + 390)
@@ -33,3 +33,5 @@ OTA: only the 利群入口 hosts 百度云广州 + 阿里广州 (火山广州 / 
   subs 8), quick_check ok. fork.173 then starts healthy on the migrated copy, no errors (only no-network DNS noise).
   With a 4-line 「利群专线端内」 chart inserted (kind lk_endin, source 0), fork.173 ran 150 s without errors: its
   probe loop skips lines with no source node / port 0, so after a rollback that chart just shows no data.
+- PG (`FLVX_POSTGRES_TEST_DSN`, `-p 1 -timeout 40m`): handler 450 s, linemon, repo 559 s, contract 672 s — all ok.
+  `npm run build` ok. Branch CI 45793118086 green. No failures, so no base comparison needed.
