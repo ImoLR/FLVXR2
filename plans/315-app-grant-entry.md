@@ -246,9 +246,20 @@ frontend), DB AutoMigrate adds nullable `user_subscription.entry_names`; no agen
   (isolated netns; 8 subs × 13 client UAs: 174 vs 175 104/104, 174 on the migrated copy 104/104; column added, all NULL;
   create with entryNames false → column 0, names lose the entry suffix (e.g. 「沪日 · vmsilo 沪美」 → 「沪日」), omitted → NULL
   = today's names; toggling an existing sub off → on gives the original bytes back)
-- [ ] Push branch, annotated tag, CI + Images green, 10 assets, Latest, gost sha256 ok
-- [ ] Prod rollback dir pre-fork175-*, prune backups (keep 2)
-- [ ] Swap images + FLUX_VERSION; health, nodes, forwards / tunnels / 利群 unchanged
-- [ ] All prod subscriptions via CF before / after identical; log clean 15 min
-- [ ] 利群汇聚 desktop + 390 px, browser 授权 / 入口机 unchanged, 订阅 editor switch (existing ON, new OFF; temp sub deleted)
-- [ ] Cleanup (315 lab dirs, worktree), ledger, memory, summary
+- [x] Push branch, annotated tag, CI + Images green, 10 assets, Latest, gost sha256 ok
+  (tag → 9f2f32cf; CI 45895415222 green; Images 45895417621: frontend job hung ~1 h → cancelled + rerun failed jobs →
+  green; Latest, 10 assets, gost amd64/arm64 sha256 ok)
+- [x] Prod rollback dir pre-fork175-*, prune backups (keep 2)
+  (/opt/flvx-svc/rollback/pre-fork175-20261126T221943Z, rollback.sh → fork.174 image swap; kept pre-fork174 + pre-fork175)
+- [x] Swap images + FLUX_VERSION; health, nodes, forwards / tunnels / 利群 unchanged
+  (swap 11-27 06:19:44–06:19:52 TW; health 200; online 31/33 before and after (火山上海 / 火山广州 offline before);
+  state + address / tunnel / 利群 snapshots identical; column added, all 8 subs NULL)
+- [x] All prod subscriptions via CF before / after identical; log clean 15 min
+  (8 subs × 13 client UAs through https://flvxx.imgamer.top: 104/104 identical; the subs' 最后拉取 fields restored afterwards;
+  log 06:19:50–06:35 TW: 62 reconnect redeploys failed=0, only 火山上海 timeouts + the pre-existing 妙妙屋 server 6 sync error)
+- [x] 利群汇聚 desktop + 390 px, browser 授权 / 入口机 unchanged, 订阅 editor switch (existing ON, new OFF; temp sub deleted)
+  (collapsed headers without 端内, 52 px on 390; opened: 端内 right edge = 到落地 right edge on 390, left edge = 到落地
+  left edge on desktop; 授权 / 入口机 text identical except the 「更新于」 clock; switch 27/33 on, new off; nothing saved)
+- [x] Cleanup (315 lab dirs, worktree), ledger, memory, summary
+  (lab dirs of app-grant-entry / -simple / -v4 + /root/flvx-tmp/r175 removed; worktree flvxx-315 removed after this push,
+  node_modules link removed, target untouched; ledger row 315 → 已发布; memories updated)
