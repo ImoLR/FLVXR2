@@ -7,8 +7,8 @@ worktree `/root/projects/flvxx/flvxx-315`. Gallery `/root/mmwx-preview/app-grant
 
 ## A. 「端内」 tag breaks the 专线 header on phones
 - H5 `AdminPhone` 专线 header: the name never wraps (nowrap, no shrink), the header stays one line at 360 px /
-  130 % text. 端内 moves into the right cluster, just before the count bubble.
-- If it does not fit at 360 px / 130 %, the route pill leaves the H5 header and goes to the expanded area's
+  125 % text (the user's phone font). 端内 moves into the right cluster, just before the count bubble.
+- If it does not fit at 360 px / 125 %, the route pill leaves the H5 header and goes to the expanded area's
   chip row (`LineChips`). Alternative rendered for comparison: 端内 as a small second line under the name.
 - Check the other plan 306/310 tags on H5 (rule rows 到落地, 诊断) for the same wrap.
 
@@ -42,18 +42,24 @@ worktree `/root/projects/flvxx/flvxx-315`. Gallery `/root/mmwx-preview/app-grant
 - [x] Screenshots + browser-unchanged pixel check + gallery
 - [x] Push, CI green (CI Build Check 45831993601 on da84f021)
 - [x] Ledger row 315, summary
+- [x] r2: re-shoot phone screens at 100 % + 125 % (360 / 390), re-measure A at 125 %, re-run browser proof, gallery
 
 ## Decisions
 - **A, recommended layout built**: H5 header = chevron + name (nowrap, no shrink) + ⚠ + spacer + 「端内」 + count;
   the route pill moved to the first chip row of the opened 专线 (H5 only; with no line data a single route pill
-  row). Measured in the lab: fork.174 names break into 2 lines at 390 px / 100 % and 4–5 lines (one character
-  each) at 115–130 %; the branch keeps 1 line (header 52 px) at 360 / 390 × 100 / 115 / 130 %. The alternative
+  row). Measured in the lab (r2, text 100 % / 125 % = the user's phone font): fork.174 names break into 2 lines
+  at 390 / 100 % (header 61 px), 3–4 lines at 360 / 100 % (84–106 px) and 5 lines (one character each, header
+  157 px) at 360 and 390 / 125 %; the branch keeps every 专线 name on 1 line, header 52 px, one row, count bubble
+  inside the card, no overflow at 360 / 390 × 100 / 125 %. The alternative
   (端内 as a small second line under the name, route pill kept) also fits — rendered as a mock only. Chosen the
   recommended one: 端内 stays the same readable amber pill as 诊断 / desktop, and the header width no longer
   depends on the route label. Desktop: name `whitespace-nowrap` only (no visible change).
-- **A, rule rows**: at 360 px / 130 % 「🇹🇼 利群广台 Hinet」 wrapped next to its 到落地 tag. Name and tag now
+- **A, rule rows**: fork.174 wraps the rule name next to its 到落地 tag (2 lines: 「…Seednet」 at 360 / 100 %
+  and 390 / 125 %, both 广台 rules at 360 / 125 %). Name and tag now
   sit in one wrapping row: the name keeps words whole (`word-break: keep-all`), the tag stays right of it when
-  it fits and drops under it (right-aligned) when not. 诊断: no name squeeze, unchanged.
+  it fits and drops under it (right-aligned) when not — r2: names 1 line at all four sizes, tag right of the name at
+  390 / 100 %, under it where it does not fit (360 / 125 % both rules), never outside the card. 诊断: no name
+  squeeze at 100 / 125 %, unchanged.
 - **B**: 「我的入口」 is the first card of 授权 (H5 tab and desktop card), App + admin's own grant only. Picking
   手机本地 / the server 主入口 calls `setEntry` at once (phone-only, as the old 换主入口 path; same toasts, page
   reload so rows / phone plan follow; auto-connect is the App's own reaction to setEntry). Another server entry
@@ -94,4 +100,13 @@ worktree `/root/projects/flvxx/flvxx-315`. Gallery `/root/mmwx-preview/app-grant
 - Frontend: `tsc --noEmit` ok, eslint on changed files ok, `npm run build` ok; CI Build Check green.
 - Lab (`/root/flvx-workers/runs/app-grant-entry/lab`, prod-DB copy in `unshare -n`, fork.174 vs branch
   binaries + dists, mocked App bridge, WebView textZoom emulated by scaling font-size declarations):
-  gallery http://104.145.236.29:8791/app-grant-entry/ (57 images).
+  gallery http://104.145.236.29:8791/app-grant-entry/.
+- Round 2 (11-26, docs only, no code change): phone shots re-taken at exactly two text scales, **100 % and
+  125 %** (125 % = the user's phone font; 115 % / 130 % dropped and deleted), 360 and 390 px for every A header /
+  open line / rule row / alternative / 诊断 and every B 手机本地 state (first, connecting, starting, connected,
+  failed) and 入口机 → 手机本地, before (fork.174) / after pairs where a before exists; desktop unchanged
+  (87 images). Measurements above are from r2. Browser-unchanged proof re-run (100 %): 授权 / 入口机 desktop
+  cards and H5 授权 pixel-identical, H5 入口机 only the 「更新于 HH:MM」 label, page text identical on all three;
+  desktop 专线树 differs only by the live 端内 value and ≤ 2/255 background-gradient noise. 125 % showed no
+  layout break (cosmetic only: 「利群客户端」 label wraps to 2 lines and the App version pill truncates with …
+  in 入口机 → 手机本地 at 360 / 125 %).
