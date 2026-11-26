@@ -202,3 +202,33 @@ part C untouched. Gallery: new top section 「v3 简洁版」 on /root/mmwx-prev
     only 「更新于 HH:MM」; page text identical on all four.
 - Gallery: section 「v3 简洁版」 on top of http://104.145.236.29:8791/app-grant-entry/ (64 images in v3/, old r1 / r2
   sections below; previous index kept as index-r2.html).
+
+## Round 4 — 「v4」 (user 11-26 night after the v3 shots)
+Brief /root/flvx-workers/briefs/app-grant-v4.md. Build + screenshots only (no release / OTA / prod change); part C
+untouched. Gallery: new top section 「v4」 on /root/mmwx-preview/app-grant-entry/ (v3 and older below).
+
+- A: 专线 collapsed header = fork.173's again (name as stored WITH 「利群·」, route pill, count; no 端内) on H5 and
+  desktop (undo r1 nowrap / r3 prefix strip, compact pills, header 端内). 端内 moves into the opened 专线: H5 = the
+  chip row's right end, right edge on the forward cards' 到落地 tags (same pill size, same tooltip); desktop = the
+  转发 column of the opened 专线, left edge on the rows' 到落地 tags.
+- B: 商家账号 = 4th first-run card (电池 → 商家账号 → 节点 → 分应用代理, 2 × 2): tap → the App's account dialog,
+  leaves only when the account is really saved (live), never back; 127.0.0.1 sheet leads with bold
+  「推荐使用订阅：订阅里的节点地址已经是 127.0.0.1」; connect = small bar (dot + 未连接 / 连接中 / 已连接 …, mint flat
+  连接 / red flat 断开) that glides up as cards leave; 连接 with something missing → one quick-fix sheet.
+
+### Round 4 checklist
+- [x] A: H5 + desktop header back to fork.173 (端内 out); 端内 in the opened 专线 aligned with 到落地 tags
+- [x] A: drop r3 helpers (routeTight, LineEndInTag compact)
+- [x] B: 商家账号 card (live set → ✓ 已填 → shatter, retired unseen if already set), 2 × 2 grid
+- [x] B: 127.0.0.1 card face 「节点 127.0.0.1」 + sheet text (+ 生成订阅 button)
+- [x] B: connect bar (dot + word + mint 连接 / red 断开), reflow end without a jump
+- [x] B: quick-fix sheet for missing account and / or battery; 商家账号 row in the gear sheet
+- [x] tsc + eslint (changed files) + npm build
+- [x] Shots (360 / 390 × 100 / 125 %) + fork.173-look header proof + browser proof + gallery 「v4」
+  (r2 worker app-grant-v4-r2: 61 shots on 315 + fork.174 run, 0 errors. Collapsed H5 header = fork.174 minus its
+  header 端内 pixel-identical at 360/390 × 100/125 %; every name one line, header 52 px at 360/125 % — no nowrap
+  needed. Desktop tree: same layout (only ≤2/255 background-gradient noise). Opened: 端内 edge diff 0 px vs every
+  到落地 tag, same 18 px pill / font. Browser without App: 授权 + 入口机, H5 + desktop, identical text; pixels
+  identical except the 「更新于」 clock on the H5 入口机 tab. Bar glides 94–108 px over 19 eased frames; 30 shards;
+  reduced motion = no shards; server entry = no cards / gear.)
+- [x] Commit, push, CI green; ledger row 315 head; summary — code ef98223e (CI 45862372500 green)
