@@ -34,7 +34,9 @@ var landingAdminServerKeysNative = []string{"anytlsServerName", "availableUntil"
 	// Plan 286: 落地服务器 region groups (effective / automatic / 显示地区), admin only.
 	"region", "regionAuto", "regionOverride",
 	// Plan 290: Reality dests on Cloudflare / Reality listeners without 防盗 (⚠), admin only.
-	"realityRisk"}
+	"realityRisk",
+	// Plan 316: 屏蔽本机厂商官网 — VPS 厂商 (key, suggestion when unset, switch, SNI agent, choices), admin only.
+	"vendor", "vendorOn", "vendorOptions", "vendorSni", "vendorSuggest"}
 
 // Plan 211: shared servers also carry the 妙妙屋 share cap (read-only).
 var landingAdminServerKeysShared = append([]string{"busyPortCount", "shareMaxConnections", "sharedAvailable", "sharedCaps", "sharedNotice"}, landingAdminServerKeysNative...)
@@ -131,7 +133,7 @@ func TestLandingUserServerViewContract(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			userForbidden := []string{"realityMode", "realityProbe", "realityPins", "realityProbeError", "realityProbeStats", "realityTrialRule", "connections", "billedBytes", "usedBytes", "maxConnections", "defaultMaxConnections", "defaultMaxOnlineIps", "defaultTrafficLimitBytes", "defaultUserQuotaBytes", "busyPortCount", "sharedSyncError", "sharedNotice", "sharedLastSyncAt", "sharedPushedRevision", "sharedAppliedRevision", "coreMemoryMb", "coreCpuPercent", "remoteServerId", "userGroupIds", "directUserCount", "chainNodeCount", "chainOnly", "egress", "routeProfileId", "egressState", "egressError", "regionAuto", "regionOverride"}
+			userForbidden := []string{"realityMode", "realityProbe", "realityPins", "realityProbeError", "realityProbeStats", "realityTrialRule", "connections", "billedBytes", "usedBytes", "maxConnections", "defaultMaxConnections", "defaultMaxOnlineIps", "defaultTrafficLimitBytes", "defaultUserQuotaBytes", "busyPortCount", "sharedSyncError", "sharedNotice", "sharedLastSyncAt", "sharedPushedRevision", "sharedAppliedRevision", "coreMemoryMb", "coreCpuPercent", "remoteServerId", "userGroupIds", "directUserCount", "chainNodeCount", "chainOnly", "egress", "routeProfileId", "egressState", "egressError", "regionAuto", "regionOverride", "vendor", "vendorName", "vendorOn", "vendorOptions", "vendorSni", "vendorSuggest"}
 			// Plan 286 round 2: users get the effective region (可用落地 region groups).
 			userKept := []string{"id", "name", "source", "status", "online", "protocols", "protocolFilterFeatures", "flowType", "trafficRatio", "availableUntil", "egressLabel", "nodeCount", "myRemaining", "maxNodesPerUser", "vlessEncAvailable", "region"}
 			checkUser := func(v map[string]interface{}, nodeCount, remaining float64) {
