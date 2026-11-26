@@ -298,10 +298,15 @@ export function LandingGlobalRules({
                   telnet: !!builtin.telnet,
                   bt: builtin.bt,
                 }}
+                vendor={builtin.vendor}
                 onScanSaved={(scanGuard) =>
                   setBuiltin((cur) => ({ ...cur, scanGuard }))
                 }
                 onSwitch={(next) => void saveBuiltin(next)}
+                onVendorSaved={(g) => {
+                  if (g.builtin) setBuiltin(g.builtin);
+                  setServers(g.servers || []);
+                }}
               />
             </section>
             <section className="space-y-2">

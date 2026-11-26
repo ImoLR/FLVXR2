@@ -10,12 +10,14 @@ import {
 
 import { Pill } from "./pill";
 import { ScanGuardCompactRow, ScanGuardSection } from "./scan-guard";
+import { VendorBlockSection, VendorCompactRow } from "./vendor-block";
 
 import {
   type AbuseKey,
   type AbuseOffReason,
   type AbuseValues,
   type EgressBuiltin,
+  type EgressGlobal,
   type ScanGuardAdmin,
 } from "@/api/landing-egress";
 import { Button } from "@/shadcn-bridge/heroui/button";
@@ -96,11 +98,14 @@ export function BuiltinCompactRows({
   values,
   offReasons = {},
   scanGuard,
+  vendor,
 }: {
   values: AbuseValues;
   offReasons?: Partial<Record<AbuseKey, AbuseOffReason>>;
   // Plan 202: the 禁止端口扫描 line (node view).
   scanGuard?: EgressBuiltin["scanGuard"];
+  // Plan 316: the 屏蔽本机厂商官网 line (node view).
+  vendor?: EgressBuiltin["vendor"];
 }) {
   const rows: { key: string; name: string; on: boolean; label: string }[] = [
     {
@@ -135,6 +140,7 @@ export function BuiltinCompactRows({
           <StateIcon label={row.label} on={row.on} />
         </div>
       ))}
+      {vendor && <VendorCompactRow vendor={vendor} />}
       {scanGuard && <ScanGuardCompactRow guard={scanGuard} />}
     </div>
   );
@@ -167,6 +173,8 @@ export function BuiltinRuleList({
   switching = false,
   scanGuard,
   onScanSaved,
+  vendor,
+  onVendorSaved,
 }: {
   safety: string[];
   // admin: the global switches; read-only: whether each applies here.
@@ -184,6 +192,10 @@ export function BuiltinRuleList({
   // node view: read-only with the node's server state).
   scanGuard?: EgressBuiltin["scanGuard"];
   onScanSaved?: (g: ScanGuardAdmin) => void;
+  // Plan 316: 屏蔽本机厂商官网 (admin global view: editable via
+  // onVendorSaved; node view: read-only with the server's vendor).
+  vendor?: EgressBuiltin["vendor"];
+  onVendorSaved?: (g: EgressGlobal) => void;
 }) {
   const [open, setOpen] = useState(false);
   const anyOn = Object.values(values).some(Boolean);
@@ -312,6 +324,13 @@ export function BuiltinRuleList({
           {profilesOff.map((p) => p.name).join("、")}
           ），使用这些方案的节点不受上面的防滥用规则限制
         </p>
+      )}
+      {vendor && (
+        <VendorBlockSection
+          admin={admin && Boolean(onVendorSaved)}
+          vendor={vendor}
+          onSaved={onVendorSaved}
+        />
       )}
       {scanGuard && (
         <ScanGuardSection

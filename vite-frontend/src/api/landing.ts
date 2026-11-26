@@ -152,6 +152,14 @@ export const testLandingIntegration = (data: {
 export const syncLandingIntegration = () =>
   Network.post<LandingIntegration>("/landing/integration/sync", {});
 export interface LandingServer {
+  /** Plan 316 屏蔽本机厂商官网 (admin): vendor key ("" = 未设置), its name,
+   * a name-based suggestion, the global switch, SNI support, the choices. */
+  vendor?: string;
+  vendorName?: string;
+  vendorSuggest?: string;
+  vendorOn?: boolean;
+  vendorSni?: boolean;
+  vendorOptions?: { key: string; name: string; domains: string[] }[];
   /** Plan 253: VLESS Encryption usable now (native agent / share caps). */
   vlessEncAvailable?: boolean;
   vlessEncReason?: string;
@@ -577,6 +585,8 @@ export const saveLandingServer = (
       ? { routeProfileId: server.routeProfileId, egressRestartConfirmed }
       : {}),
     ...(realityGuard !== undefined ? { realityGuard } : {}),
+    // Plan 316: absent = the panel keeps the stored vendor.
+    ...(server.vendor !== undefined ? { vendor: server.vendor } : {}),
     // Plan 227: absent = the panel keeps the stored mode.
     ...(server.realityMode !== undefined
       ? { realityMode: server.realityMode }

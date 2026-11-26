@@ -209,7 +209,8 @@ export function NodeRulesDialog({
   const builtinOn =
     1 +
     (Object.values(builtinValues).filter(Boolean).length as number) +
-    (builtin.scanGuard?.state === "on" ? 1 : 0);
+    (builtin.scanGuard?.state === "on" ? 1 : 0) +
+    (builtin.vendor?.on ? 1 : 0);
 
   const save = async () => {
     setSaving(true);
@@ -295,12 +296,14 @@ export function NodeRulesDialog({
                     safety={builtin.safety}
                     scanGuard={builtin.scanGuard}
                     values={builtinValues}
+                    vendor={builtin.vendor}
                   />
                 ) : (
                   <BuiltinCompactRows
                     offReasons={builtin.offReasons}
                     scanGuard={builtin.scanGuard}
                     values={builtinValues}
+                    vendor={builtin.vendor}
                   />
                 )}
               </LayerStep>

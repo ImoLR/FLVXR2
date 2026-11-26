@@ -580,6 +580,68 @@ export function ServerSettings({
                 )),
               ]}
             </Select>
+            {/* Plan 316: 屏蔽本机厂商官网 — this server's VPS vendor. */}
+            {server.vendorOptions && (
+              <div data-vendor-select className="space-y-1">
+                <Select
+                  description="内置规则「屏蔽本机厂商官网」只屏蔽这家厂商自己的官网、客户中心和面板；未设置 = 不屏蔽"
+                  label="VPS 厂商"
+                  selectedKeys={[form.vendor || "-"]}
+                  variant="bordered"
+                  onSelectionChange={(keys) => {
+                    const k = String(Array.from(keys)[0] ?? "");
+
+                    if (!k) return;
+                    set("vendor", k === "-" ? "" : k);
+                  }}
+                >
+                  {[
+                    <SelectItem key="-">未设置（不屏蔽）</SelectItem>,
+                    ...server.vendorOptions.map((v) => (
+                      <SelectItem key={v.key} textValue={v.name}>
+                        {v.name}
+                      </SelectItem>
+                    )),
+                  ]}
+                </Select>
+                {!form.vendor && (
+                  <p className="text-xs text-warning">
+                    {mark("vendor-unset")}
+                    未设置厂商，屏蔽本机厂商官网在这台服务器上不生效
+                    {server.vendorSuggest && (
+                      <>
+                        {"；"}
+                        <button
+                          className="underline"
+                          type="button"
+                          onClick={() => set("vendor", server.vendorSuggest)}
+                        >
+                          按名称建议选「
+                          {
+                            server.vendorOptions.find(
+                              (v) => v.key === server.vendorSuggest,
+                            )?.name
+                          }
+                          」
+                        </button>
+                      </>
+                    )}
+                  </p>
+                )}
+                {form.vendor && (
+                  <p className="text-xs text-default-500">
+                    屏蔽：
+                    {server.vendorOptions
+                      .find((v) => v.key === form.vendor)
+                      ?.domains.join("、")}
+                    （含子域名）
+                    {isShared || !server.vendorSni
+                      ? "；按访问的域名匹配"
+                      : "；按域名和 TLS SNI / HTTP Host 匹配"}
+                  </p>
+                )}
+              </div>
+            )}
             {needsRestart && (
               <div className="space-y-2 rounded-lg bg-warning-50 p-3 text-xs text-warning">
                 <p>

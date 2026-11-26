@@ -164,6 +164,51 @@ export interface EgressBuiltin extends AbuseValues {
   // Plan 202: 禁止端口扫描 (admin view: settings + servers; node view:
   // settings + whether it works on the node's server).
   scanGuard?: ScanGuardAdmin & Partial<ScanGuardNodeState>;
+  // Plan 316: 屏蔽本机厂商官网 (admin view: switch + list + servers; node
+  // view: whether it applies to the node's server).
+  vendor?: VendorBlockAdmin & Partial<VendorBlockNode>;
+}
+
+// Plan 316 「屏蔽本机厂商官网」: every landing blocks its own VPS vendor's
+// sites (website / client area / billing / panel). Domains cover subdomains.
+export interface LandingVendor {
+  key: string;
+  name: string;
+  domains: string[];
+  remark?: string;
+  aliases?: string[];
+}
+
+export interface VendorBlockServer {
+  id: number;
+  name: string;
+  source: "native" | "shared" | string;
+  nodes: number;
+  vendor: string;
+  vendorName?: string;
+  suggest?: string;
+  // The server's agent also matches the sniffed SNI / Host (plan-316 agent).
+  sni: boolean;
+}
+
+export interface VendorBlockAdmin {
+  on: boolean;
+  vendors?: LandingVendor[];
+  custom?: boolean;
+  servers?: VendorBlockServer[];
+  unset?: number;
+}
+
+// Why the node row is not in force: switched off globally, no vendor set on
+// the server, or the server cannot apply rules yet.
+export type VendorOffReason = "global" | "unset" | "pending";
+
+export interface VendorBlockNode {
+  on: boolean;
+  name?: string;
+  domains?: string[];
+  sni: boolean;
+  offReason?: VendorOffReason;
 }
 
 // Plan 202 「禁止端口扫描」 (FLVX-native landing nodes; plan 205: also mmwx
@@ -426,6 +471,16 @@ export const saveEgressUserCaps = (perNode: number, total: number) =>
   );
 export const saveEgressBuiltin = (values: AbuseValues) =>
   Network.post<EgressGlobal>("/landing/egress/builtin/save", values);
+// Plan 316: vendor list and/or the global switch (absent = keep).
+export const saveLandingVendors = (v: {
+  on?: boolean;
+  vendors?: LandingVendor[];
+}) => Network.post<EgressGlobal>("/landing/egress/vendor/save", v);
+export const assignLandingVendor = (serverId: number, vendor: string) =>
+  Network.post<EgressGlobal>("/landing/egress/vendor/assign", {
+    serverId,
+    vendor,
+  });
 export const getNodeRules = (id: number) =>
   Network.post<NodeRulesView>("/landing/node/rules/get", { id });
 export const saveNodeRules = (

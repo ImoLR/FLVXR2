@@ -85,6 +85,20 @@ export function serverAdminAttention(
   // Plan 290 (both kinds): Reality exposure. Existing nodes are never changed
   // automatically (that changes users' links), the admin decides.
   realityRiskReasons(server, native, guardOn, add);
+  // Plan 316 (both kinds): 屏蔽本机厂商官网 needs this server's vendor.
+  if (server.vendorOn && server.vendorOptions && !server.vendor) {
+    const hint = server.vendorOptions.find(
+      (v) => v.key === server.vendorSuggest,
+    )?.name;
+
+    add(
+      "vendor-unset",
+      "warn",
+      hint
+        ? `未设置厂商：屏蔽本机厂商官网未生效（建议：${hint}），在「出站与路由」里选择`
+        : "未设置厂商：屏蔽本机厂商官网未生效，在「出站与路由」里选择",
+    );
+  }
   if (!native) return pack(reasons);
 
   const scan = server.scanGuard?.state;
