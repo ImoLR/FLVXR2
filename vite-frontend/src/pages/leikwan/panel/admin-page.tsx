@@ -107,12 +107,10 @@ import {
   RuleDot,
   blockedNote,
   copyText,
-  dropLeiKwan,
   externalNote,
   externalProtocol,
   protocolLabel,
   routeShort,
-  routeTight,
   useLeiKwanRuleActions,
   type LeiKwanRuleActions,
 } from "@/pages/leikwan/panel/rule-actions";
@@ -502,16 +500,12 @@ function LineGroupBlock({
         <div className="flex items-center justify-between gap-3">
           <div className="flex min-w-0 flex-wrap items-center gap-2">
             <LkChevron open={open} />
-            {/* Plan 315: the 专线 name never breaks inside. */}
-            <span className="whitespace-nowrap text-[15px] font-semibold">
-              {g.name}
-            </span>
+            <span className="text-[15px] font-semibold">{g.name}</span>
             <Pill title={g.route} tone="teal">
               {routeShort(g.route)}
             </Pill>
             {line && <Pill tone="pink">{line.transport}</Pill>}
             <Pill tone="purple">{g.rules.length} 条</Pill>
-            <LineEndInTag endIn={line?.endIn} />
             {line && line.status !== 1 && <Pill tone="slate">已停用</Pill>}
             {attention && (
               <AlertTriangle
@@ -556,6 +550,19 @@ function LineGroupBlock({
       )}
       {open && (
         <div className="space-y-2 pb-3 pl-8 pr-3 pt-1">
+          {/* Plan 315 r4 (user 11-26): 「端内」 left the header — the opened
+              专线 shows it in the 转发 column, same pill size and left edge as
+              the 到落地 tags of the rows below (1 px = their border). */}
+          {g.rules.length > 0 && line?.endIn && (
+            <div
+              className={`${RULE_GRID} px-[11px]`}
+              data-leikwan-line-endin-row=""
+            >
+              <span className="flex">
+                <LineEndInTag endIn={line.endIn} />
+              </span>
+            </div>
+          )}
           {g.rules.length > 0 && (
             <div className={`${RULE_GRID} px-2.5 text-xs text-default-500`}>
               <span>转发</span>
@@ -1231,6 +1238,7 @@ export function LeiKwanAdminView() {
       rules={ownRules}
       usage={usage}
       onChanged={() => void load()}
+      onSub={() => setSubOpen(true)}
       onSwitchServer={openSwitchServer}
     />
   );
@@ -1738,49 +1746,33 @@ function AdminPhone({
               >
                 {/* eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions */}
                 <div
-                  className="flex min-h-[52px] cursor-pointer items-center gap-1.5 px-2.5 py-2"
+                  className="flex min-h-[52px] cursor-pointer items-center gap-2 px-3 py-2"
                   data-group-header=""
                   onClick={() => {
                     queueGroupScroll(lineGroupKey(g.id), !open);
                     setOpenLine(open ? null : g.id);
                   }}
                 >
-                  {/* Plan 315 r3 (user 11-26): ONE line at 360 px / 125 %
-                      text — chevron, the name without 「利群·」 (display
-                      only), a compact route pill, 端内, ⚠, the count. The
-                      name and 端内 never shrink; only the route pill may
-                      cut (…) as a last resort, the bubble stays inside.
-                      Measured: 18–23 px left at 360 px / 125 % (room for
-                      the ⚠ too). */}
+                  {/* Plan 315 r4 (user 11-26): the header is fork.173's again
+                      (name as stored, route pill, count); 端内 sits in the
+                      opened 专线 below. */}
                   <LkChevron open={open} />
                   <span
-                    className="flex min-w-0 flex-1 items-center gap-1 overflow-hidden"
-                    data-leikwan-line-head=""
+                    className="min-w-0 break-words text-[15px] font-semibold"
+                    data-leikwan-line-name=""
                   >
-                    <span
-                      className="shrink-0 whitespace-nowrap text-[15px] font-semibold"
-                      data-leikwan-line-name=""
-                      title={g.name}
-                    >
-                      {dropLeiKwan(g.name)}
-                    </span>
-                    <span
-                      className="inline-flex min-w-0 shrink items-center rounded-full bg-teal-500/15 px-1 text-[10px] font-semibold leading-[18px] text-teal-700 dark:bg-teal-400/15 dark:text-teal-300"
-                      data-leikwan-line-route=""
-                      title={g.route}
-                    >
-                      <span className="min-w-0 truncate">
-                        {routeTight(g.route)}
-                      </span>
-                    </span>
-                    <LineEndInTag compact endIn={g.line?.endIn} />
-                    {g.rules.some((r) => r.backupError) && (
-                      <AlertTriangle
-                        className="shrink-0 text-red-700"
-                        size={14}
-                      />
-                    )}
+                    {g.name}
                   </span>
+                  <Pill title={g.route} tone="teal">
+                    {routeShort(g.route)}
+                  </Pill>
+                  {g.rules.some((r) => r.backupError) && (
+                    <AlertTriangle
+                      className="shrink-0 text-red-700"
+                      size={14}
+                    />
+                  )}
+                  <span className="flex-1" />
                   <span className="flex h-7 min-w-7 shrink-0 items-center justify-center rounded-full bg-purple-500/15 px-1.5 text-xs font-semibold text-purple-700 dark:bg-purple-400/20 dark:text-purple-300">
                     {g.rules.length}
                   </span>
@@ -1788,15 +1780,28 @@ function AdminPhone({
                 {open && (
                   <div className="space-y-2 px-2.5 pb-2.5">
                     {g.line && (
-                      <div className="flex flex-wrap items-center gap-1 px-0.5">
+                      // Plan 315 r4: 「编辑专线 · 端内」 at the right end of
+                      // the chip row (wrapping under the chips when they do
+                      // not fit); 端内's right edge on the 到落地 tags of the
+                      // forward cards below (their border 1 + padding 8 +
+                      // ＋/− 32 + gap 8 = 49 px = row padding 2 + 47 margin).
+                      <div
+                        className="flex flex-wrap items-center gap-1 px-0.5"
+                        data-leikwan-line-inner=""
+                      >
                         <LineChips compact line={g.line} />
-                        <button
-                          className="ml-auto text-sm font-medium text-primary"
-                          type="button"
-                          onClick={() => onEditLine(g.line!)}
+                        <span
+                          className={`ml-auto flex items-center gap-2 ${g.line.endIn ? "mr-[47px]" : ""}`}
                         >
-                          编辑专线
-                        </button>
+                          <button
+                            className="text-sm font-medium text-primary"
+                            type="button"
+                            onClick={() => onEditLine(g.line!)}
+                          >
+                            编辑专线
+                          </button>
+                          <LineEndInTag endIn={g.line.endIn} />
+                        </span>
                       </div>
                     )}
                     {g.rules.map((r) => (

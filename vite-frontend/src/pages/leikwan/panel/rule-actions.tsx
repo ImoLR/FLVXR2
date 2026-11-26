@@ -84,10 +84,6 @@ export const dropLeiKwan = (name?: string) => {
   return m ? (m[1] || "") + n.slice(m[0].length) : n;
 };
 
-/** 「CAN → HKG」 → 「CAN→HKG」 (plan 315 r3: the H5 专线 header pill). */
-export const routeTight = (label?: string) =>
-  routeShort(label).replace(/\s*→\s*/g, "→");
-
 /** 「SS2022」, 「VLESS Reality」, 「AnyTLS」… (compact: 「Reality」). */
 export const protocolLabel = (p?: string, compact = false) => {
   if (!p) return "";

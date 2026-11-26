@@ -8,6 +8,7 @@ import {
   AlertTriangle,
   BatteryCharging,
   Check,
+  KeyRound,
   Server,
   Split,
 } from "lucide-react";
@@ -41,10 +42,17 @@ import { appCall } from "@/utils/app-bridge";
 //   - state in the WebView's localStorage (this phone only, try/catch);
 //     prefers-reduced-motion → a short fade, no shatter, no glide.
 // All gone → layer 1 takes no space.
+// Plan 315 r4 (user 11-26): + 「填写商家账号」 as the 2nd card (2 × 2 grid on a
+// phone): a tap opens the App's own account dialog (no sheet); it shatters
+// only when the account really is saved (live credentials.set), like the
+// battery card, and never comes back. The 127.0.0.1 card leads with the
+// subscription (its addresses already are 127.0.0.1).
 
-type CardKey = "battery" | "node" | "bypass";
+type CardKey = "battery" | "cred" | "node" | "bypass";
+/** The cards that leave by themselves once the phone state says so. */
+type LiveKey = "battery" | "cred";
 
-const ORDER: CardKey[] = ["battery", "node", "bypass"];
+const ORDER: CardKey[] = ["battery", "cred", "node", "bypass"];
 const DONE = (k: CardKey) => `flvx_phone_card_done_${k}`;
 const SEEN = (k: CardKey) => `flvx_phone_card_seen_${k}`;
 
@@ -74,7 +82,8 @@ const reducedMotion = () => {
 
 const FACE: Record<CardKey, string> = {
   battery: "电池设为「无限制」",
-  node: "节点地址 127.0.0.1",
+  cred: "填写商家账号",
+  node: "节点 127.0.0.1",
   bypass: "分应用代理里绕过",
 };
 
@@ -84,7 +93,8 @@ const FACE: Record<CardKey, string> = {
  */
 const FACE_PARTS: Record<CardKey, string[]> = {
   battery: ["电池设为", "「无限制」"],
-  node: ["节点地址 ", "127.0.0.1"],
+  cred: ["填写", "商家账号"],
+  node: ["节点 ", "127.0.0.1"],
   bypass: ["分应用代理", "里绕过"],
 };
 
@@ -92,6 +102,11 @@ const TONE: Record<CardKey, { badge: string; chip: string }> = {
   battery: {
     badge:
       "bg-amber-500/15 text-amber-700 dark:bg-amber-400/15 dark:text-amber-300",
+    chip: "bg-amber-500/15 text-amber-700 dark:bg-amber-400/15 dark:text-amber-300",
+  },
+  cred: {
+    badge:
+      "bg-violet-500/15 text-violet-700 dark:bg-violet-400/20 dark:text-violet-300",
     chip: "bg-amber-500/15 text-amber-700 dark:bg-amber-400/15 dark:text-amber-300",
   },
   node: {
@@ -108,6 +123,7 @@ const TONE: Record<CardKey, { badge: string; chip: string }> = {
 
 const ICON: Record<CardKey, ReactNode> = {
   battery: <BatteryCharging size={16} />,
+  cred: <KeyRound size={16} />,
   node: <Server size={16} />,
   bypass: <Split size={16} />,
 };
@@ -195,45 +211,31 @@ function NodeSheetBody({ s, rules }: { s: PhoneState; rules: LeiKwanRule[] }) {
 
   return (
     <>
-      <p>
-        在代理客户端（NekoBox、FlClash、v2rayNG 等）的节点里，
-        <b className="text-foreground">只改两项</b>：
+      <p
+        className="text-[15px] font-semibold leading-6 text-foreground"
+        data-phone-sheet-lead=""
+      >
+        推荐使用订阅：订阅里的节点地址已经是 127.0.0.1
       </p>
-      <div className="space-y-1.5 rounded-xl bg-default-100 px-3 py-2.5 dark:bg-default-100/60">
-        <div className="flex items-baseline gap-3">
-          <span className="w-24 shrink-0 text-xs text-default-500">
-            服务器 / 地址
-          </span>
-          <span className="select-text font-mono text-sm font-medium text-foreground">
-            127.0.0.1
-          </span>
-        </div>
-        <div className="flex items-start gap-3">
-          <span className="w-24 shrink-0 pt-0.5 text-xs text-default-500">
-            端口
-          </span>
-          <div className="min-w-0 flex-1 space-y-0.5">
-            {ports.map((p) => (
-              <div
-                key={`${p.port}-${p.name}`}
-                className="flex items-baseline justify-between gap-2"
-              >
-                <span className="min-w-0 truncate text-xs">
-                  {dropLeiKwan(p.name)}
-                </span>
-                <span className="select-text font-mono text-sm font-medium text-foreground">
-                  {p.port}
-                </span>
-              </div>
-            ))}
-          </div>
+      <div className="space-y-1.5 text-xs leading-5 text-default-500">
+        <p>
+          手动改也行：服务器填 <span className="font-mono">127.0.0.1</span>
+          ，端口按下表，其它照落地。
+        </p>
+        <div className="space-y-0.5 rounded-xl bg-default-100 px-3 py-2 dark:bg-default-100/60">
+          {ports.map((p) => (
+            <div
+              key={`${p.port}-${p.name}`}
+              className="flex items-baseline justify-between gap-2"
+            >
+              <span className="min-w-0 truncate">{dropLeiKwan(p.name)}</span>
+              <span className="select-text font-mono font-medium text-default-700">
+                {p.port}
+              </span>
+            </div>
+          ))}
         </div>
       </div>
-      <p>
-        <b className="text-foreground">其它照落地填</b>
-        ：密码、加密方式、协议、传输这些都和落地一样，不用改。更省事：在手机本地下「生成订阅」，地址已经是
-        127.0.0.1。
-      </p>
     </>
   );
 }
@@ -274,6 +276,7 @@ function BypassSheetBody() {
 
 const SHEET_TITLE: Record<CardKey, string> = {
   battery: "电池设为「无限制」",
+  cred: "商家账号",
   node: "节点地址改成 127.0.0.1",
   bypass: "分应用代理里绕过 im.gamer",
 };
@@ -427,14 +430,22 @@ function shatter(card: HTMLElement, reflow: () => void): boolean {
 export function PhoneFirstRun({
   s,
   rules,
+  onCredentials,
+  onSub,
 }: {
   s: PhoneState;
   rules: LeiKwanRule[];
+  /** the App's own 商家账号 dialog */
+  onCredentials: () => void;
+  /** 利群汇聚 「生成订阅」 (the 127.0.0.1 sheet's button) */
+  onSub?: () => void;
 }) {
   const unrestricted = !!s.battery.unrestricted;
+  const credSet = !!s.credentials.set;
   const [cards, setCards] = useState<CardKey[]>(() => {
-    // 「无限制」 already: the battery card retires for good, unseen.
+    // 「无限制」 / account saved already: that card retires for good, unseen.
     if (unrestricted) lsSet(DONE("battery"));
+    if (credSet) lsSet(DONE("cred"));
 
     return ORDER.filter((k) => !lsOn(DONE(k)));
   });
@@ -474,9 +485,11 @@ export function PhoneFirstRun({
     const h1 = rest.length ? wrap.offsetHeight : 0;
 
     wrap.style.overflow = "hidden";
+    // The last card: hold 0 px until the block unmounts (no 16 px jump).
     const grow = wrap.animate([{ height: `${h0}px` }, { height: `${h1}px` }], {
       duration: REFLOW_MS,
       easing: EASE,
+      fill: rest.length ? "none" : "forwards",
     });
 
     for (const k of rest) {
@@ -525,16 +538,22 @@ export function PhoneFirstRun({
     window.setTimeout(() => start(key), delayMs);
   };
 
-  // The battery turned 「无限制」 with its card on screen: ✓ 已设置, then it
-  // breaks away (once; it never comes back).
-  useEffect(() => {
-    if (!unrestricted) return;
-    lsSet(DONE("battery"));
-    if (cardsRef.current.includes("battery") && !leaving.includes("battery")) {
-      setSheet((k) => (k === "battery" ? null : k));
-      leave("battery", 650);
+  // The battery turned 「无限制」 / the account got saved with its card on
+  // screen: ✓ 已设置 / 已填, then it breaks away (once; never comes back).
+  const settle = (key: LiveKey) => {
+    lsSet(DONE(key));
+    if (cardsRef.current.includes(key) && !leaving.includes(key)) {
+      setSheet((k) => (k === key ? null : k));
+      leave(key, 650);
     }
+  };
+
+  useEffect(() => {
+    if (unrestricted) settle("battery");
   }, [unrestricted]);
+  useEffect(() => {
+    if (credSet) settle("cred");
+  }, [credSet]);
 
   const tap = (key: CardKey) => {
     if (leaving.includes(key)) return;
@@ -543,13 +562,19 @@ export function PhoneFirstRun({
       lsSet(SEEN(key));
       setSeen((v) => [...v, key]);
     }
+    // 商家账号: straight to the App's dialog, no sheet.
+    if (key === "cred") {
+      onCredentials();
+
+      return;
+    }
     setView(key);
     setSheet(key);
   };
   const ok = (key: CardKey) => {
     setSheet(null);
     // 节点 / 分应用代理 go for good; the battery card waits for 「无限制」.
-    if (key === "battery") return;
+    if (key === "battery" || key === "cred") return;
     lsSet(DONE(key));
     leave(key, 200);
   };
@@ -566,8 +591,18 @@ export function PhoneFirstRun({
     <div ref={wrapRef} className="pb-4" data-phone-cards="">
       <div className="grid max-w-md grid-cols-2 gap-2.5">
         {cards.map((k) => {
-          const set = k === "battery" && unrestricted;
-          const chip = k === "battery" ? (set ? "已设置" : "未设置") : "必看";
+          const live = k === "battery" || k === "cred";
+          const set = k === "battery" ? unrestricted : k === "cred" && credSet;
+          const chip =
+            k === "battery"
+              ? set
+                ? "已设置"
+                : "未设置"
+              : k === "cred"
+                ? set
+                  ? "已填"
+                  : "未填"
+                : "必看";
 
           return (
             <button
@@ -592,7 +627,7 @@ export function PhoneFirstRun({
                 <span
                   className={`inline-flex shrink-0 items-center gap-0.5 whitespace-nowrap rounded-full px-2 text-[11px] font-semibold leading-[18px] ${set ? chipGreen : TONE[k].chip}`}
                 >
-                  {k === "battery" &&
+                  {live &&
                     (set ? (
                       <Check size={11} strokeWidth={3} />
                     ) : (
@@ -638,6 +673,29 @@ export function PhoneFirstRun({
                 }}
               >
                 去设置
+              </Button>
+            </>
+          ) : view === "node" && onSub ? (
+            <>
+              <Button
+                className="h-11 flex-1"
+                color="secondary"
+                data-phone-sheet-sub=""
+                variant="flat"
+                onPress={() => {
+                  ok("node");
+                  onSub();
+                }}
+              >
+                生成订阅
+              </Button>
+              <Button
+                className="h-11 flex-1 font-semibold"
+                color="primary"
+                data-phone-sheet-ok=""
+                onPress={() => ok("node")}
+              >
+                我知道了
               </Button>
             </>
           ) : (

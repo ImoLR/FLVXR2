@@ -51,6 +51,7 @@ export function MyEntryCard({
   usage,
   onChanged,
   onSwitchServer,
+  onSub,
 }: {
   /** the admin's own grant */
   grant: LeiKwanGrant;
@@ -62,6 +63,8 @@ export function MyEntryCard({
   onChanged: () => void;
   /** another server entry: 换主入口 preset to it */
   onSwitchServer: (nodeId: number) => void;
+  /** 利群汇聚 「生成订阅」 */
+  onSub?: () => void;
 }) {
   const ctx = usePhoneCtx();
   const [busy, setBusy] = useState(false);
@@ -170,7 +173,7 @@ export function MyEntryCard({
       </Select>
       {local ? (
         <>
-          <PhoneSetupPanel rules={rules} usage={usage} />
+          <PhoneSetupPanel rules={rules} usage={usage} onSub={onSub} />
           <PhoneGearSheet open={gear} onClose={() => setGear(false)} />
         </>
       ) : (

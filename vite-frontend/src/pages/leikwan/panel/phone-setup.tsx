@@ -1,8 +1,9 @@
 import type { LeiKwanRule, LeiKwanUsageView } from "@/api/leikwan-line";
 import type { PhoneForward, PhoneLog, PhoneState } from "@/utils/app-bridge";
+import type { ReactNode } from "react";
 
 import { useEffect, useRef, useState } from "react";
-import { ChevronRight } from "lucide-react";
+import { AlertTriangle } from "lucide-react";
 
 import { Pill } from "@/pages/landing/pill";
 import { PhoneFirstRun, PhoneSheet } from "@/pages/leikwan/panel/phone-cards";
@@ -29,6 +30,12 @@ import { appCall, appStateCall } from "@/utils/app-bridge";
 //      The vendor device limit: one amber line, only when it is full.
 // 打开 App 自动连接 / 预热池 / 运行日志 / 换面板地址 sit behind the gear of the
 // 我的入口 card (PhoneGearSheet).
+// Plan 315 r4 (user 11-26): 商家账号 became the 2nd first-run card (and a row
+// of the gear sheet); layer 2 is a small connect bar — status dot + word on
+// the left, a mint flat 连接 (red flat 断开) on the right — that glides up as
+// the cards leave. 连接 with no account and / or the battery not 「无限制」 →
+// one quick-fix sheet naming what is missing (填商家账号; 去设置 + 仍然连接
+// only when the account is there).
 
 /** The old App's connect steps (BridgeService stages, panel flavor words). */
 const STEPS = ["读取账号", "连接商家", "等待商家授权", "启动入口"];
@@ -271,9 +278,12 @@ function PhoneStatus({ s, rules }: { s: PhoneState; rules: LeiKwanRule[] }) {
 export function PhoneSetupPanel({
   rules,
   usage,
+  onSub,
 }: {
   rules: LeiKwanRule[];
   usage?: LeiKwanUsageView | null;
+  /** 利群汇聚 「生成订阅」 (from the 127.0.0.1 card) */
+  onSub?: () => void;
 }) {
   const ctx = usePhoneCtx();
   const s = ctx?.state || null;
@@ -293,18 +303,20 @@ export function PhoneSetupPanel({
     );
 
     setCredBusy(false);
+    // The state event of the save may come just after the reply.
+    await new Promise((res) => window.setTimeout(res, 200));
 
-    return !!r?.saved;
+    return !!r?.saved || !!live.current?.credentials.set;
   };
 
   // Back from the battery settings with 「无限制」 set: go on connecting.
   useEffect(() => {
-    if (fix && waitBattery && s?.battery.unrestricted) {
+    if (fix && waitBattery && s?.battery.unrestricted && s.credentials.set) {
       setFix(false);
       setWaitBattery(false);
       void doConnect();
     }
-  }, [fix, waitBattery, s?.battery.unrestricted]);
+  }, [fix, waitBattery, s?.battery.unrestricted, s?.credentials.set]);
 
   if (!ctx?.local) return null;
   if (!s)
@@ -314,62 +326,68 @@ export function PhoneSetupPanel({
       </p>
     );
   const running = phoneRunning(s);
-  const cred = s.credentials.set;
   const dev = usage?.devices;
   const full =
     !!dev && dev.limit > 0 && dev.count >= dev.limit && !phoneConnected(s);
+  const needCred = !s.credentials.set;
+  const needBattery = !s.battery.unrestricted;
+  const bar = barState(s);
 
-  const connect = async () => {
-    if (!live.current?.credentials.set) {
-      const saved = await editCredentials();
+  // Plan 315 r4: 连接 with something missing → the quick-fix sheet first.
+  const connect = () => {
+    const cur = live.current;
 
-      // The state event of the save may come just after the reply.
-      await new Promise((r) => window.setTimeout(r, 200));
-      if (!saved && !live.current?.credentials.set) return;
-    }
-    if (!live.current?.battery.unrestricted) {
+    if (!cur?.credentials.set || !cur.battery.unrestricted) {
       setWaitBattery(false);
       setFix(true);
 
       return;
     }
-    await doConnect();
+    void doConnect();
+  };
+  // The sheet's 填商家账号: once saved, connect (battery fine) or the sheet
+  // stays with what is still missing.
+  const fixCredentials = async () => {
+    const saved = await editCredentials();
+
+    if (!saved) return;
+    if (live.current?.battery.unrestricted) {
+      setFix(false);
+      void doConnect();
+    }
   };
 
   return (
     <div data-phone-connect-panel="" id="phone-connect-panel">
-      <PhoneFirstRun rules={rules} s={s} />
+      <PhoneFirstRun
+        rules={rules}
+        s={s}
+        onCredentials={() => void editCredentials()}
+        onSub={onSub}
+      />
 
-      <div className="flex items-center gap-3" data-phone-connect-row="">
-        <button
-          className="flex min-w-0 shrink items-center gap-0.5 rounded-xl py-1 pr-1 text-left disabled:opacity-60"
-          data-phone-cred={cred ? "set" : "unset"}
-          disabled={credBusy}
-          type="button"
-          onClick={() => void editCredentials()}
-        >
-          {cred ? (
-            <span className="flex min-w-0 flex-col">
-              <span className="text-[11px] leading-4 text-default-500">
-                商家账号
-              </span>
-              <span className="truncate text-[13px] font-medium leading-5 text-foreground">
-                已填
-                {s.credentials.clientIdHint
-                  ? ` ·…${s.credentials.clientIdHint}`
-                  : ""}
-              </span>
-            </span>
-          ) : (
-            <span className="whitespace-nowrap text-[13px] font-semibold text-amber-700 dark:text-amber-300">
-              填写商家账号
-            </span>
+      {/* Layer 2 (r4): a small connect bar — state on the left, the button
+          on the right (mint, flat; 断开 red flat). */}
+      <div
+        className="flex min-h-[52px] items-center gap-2.5 rounded-2xl bg-content1 py-2 pl-3.5 pr-2 shadow-[0_1px_3px_rgba(15,23,42,0.08)] ring-1 ring-black/[0.04] dark:bg-default-100 dark:ring-white/[0.06]"
+        data-phone-connect-bar={bar.key}
+      >
+        <span className="relative flex h-2.5 w-2.5 shrink-0">
+          {bar.pulse && (
+            <span
+              className={`absolute inline-flex h-full w-full animate-ping rounded-full opacity-60 ${bar.dot}`}
+            />
           )}
-          <ChevronRight className="shrink-0 text-default-400" size={15} />
-        </button>
+          <span
+            className={`relative inline-flex h-2.5 w-2.5 rounded-full ${bar.dot}`}
+          />
+        </span>
+        <span className="min-w-0 flex-1 truncate text-sm font-semibold text-foreground">
+          {bar.text}
+        </span>
         {running ? (
           <Button
-            className="h-11 flex-1 text-[15px] font-semibold"
+            className="h-9 shrink-0 rounded-full px-5 text-sm font-semibold"
             color="danger"
             data-phone-disconnect=""
             isLoading={busy === "disconnect"}
@@ -382,11 +400,12 @@ export function PhoneSetupPanel({
           </Button>
         ) : (
           <Button
-            className="h-11 flex-1 text-[15px] font-semibold"
-            color="primary"
+            className="h-9 shrink-0 rounded-full bg-teal-500/15 px-5 text-sm font-semibold text-teal-700 hover:bg-teal-500/25 dark:bg-teal-400/15 dark:text-teal-300 dark:hover:bg-teal-400/25"
+            color="success"
             data-phone-connect=""
             isLoading={busy === "connect" || credBusy}
-            onPress={() => void connect()}
+            variant="flat"
+            onPress={connect}
           >
             连接
           </Button>
@@ -408,54 +427,132 @@ export function PhoneSetupPanel({
 
       <PhoneSheet
         footer={
-          <>
-            <Button
-              className="h-11 flex-1"
-              color="default"
-              data-phone-fix-anyway=""
-              variant="flat"
-              onPress={() => {
-                setFix(false);
-                setWaitBattery(false);
-                void doConnect();
-              }}
-            >
-              仍然连接
-            </Button>
+          needCred ? (
             <Button
               className="h-11 flex-1 font-semibold"
               color="primary"
-              data-phone-fix-go=""
-              onPress={() => {
-                setWaitBattery(true);
-                void run(appCall("openBatterySettings"));
-              }}
+              data-phone-fix-cred=""
+              isLoading={credBusy}
+              onPress={() => void fixCredentials()}
             >
-              去设置
+              填商家账号
             </Button>
-          </>
+          ) : (
+            <>
+              <Button
+                className="h-11 flex-1"
+                color="default"
+                data-phone-fix-anyway=""
+                variant="flat"
+                onPress={() => {
+                  setFix(false);
+                  setWaitBattery(false);
+                  void doConnect();
+                }}
+              >
+                仍然连接
+              </Button>
+              <Button
+                className="h-11 flex-1 font-semibold"
+                color="primary"
+                data-phone-fix-go=""
+                onPress={() => {
+                  setWaitBattery(true);
+                  void run(appCall("openBatterySettings"));
+                }}
+              >
+                去设置
+              </Button>
+            </>
+          )
         }
-        name="battery-fix"
+        name={
+          needCred ? (needBattery ? "fix-both" : "fix-cred") : "battery-fix"
+        }
         open={fix}
-        title="电池没设成「无限制」"
+        title={needCred && needBattery ? "连接前还差两步" : "连接前还差一步"}
         onClose={() => {
           setFix(false);
           setWaitBattery(false);
         }}
       >
-        <p>锁屏后系统可能关掉本地端口，代理客户端会断开。</p>
-        {s.battery.hint && (
-          <p className="text-xs text-amber-700 dark:text-amber-300">
-            {s.battery.hint}
-          </p>
+        {needCred && (
+          <FixItem title="先填商家账号">没有商家账号连不上利群。</FixItem>
         )}
-        <p className="text-xs text-default-500">设好回来会自动接着连接。</p>
+        {needBattery && (
+          <FixItem title="先设置电池「无限制」">
+            不设的话，锁屏后系统可能关掉本地端口，代理客户端会断开。
+            {s.battery.hint && (
+              <span className="mt-1 block text-amber-700 dark:text-amber-300">
+                {s.battery.hint}
+              </span>
+            )}
+          </FixItem>
+        )}
+        <p className="text-xs text-default-500">
+          {needCred && needBattery
+            ? "先填账号，再去设置电池；都好了自动连接。"
+            : needCred
+              ? "填好就自动连接。"
+              : "设好回来会自动接着连接。"}
+        </p>
       </PhoneSheet>
     </div>
   );
 }
 
-/** The gear of 我的入口 (手机本地): 自动连接, 预热池, 运行日志, 换面板地址. */
+/** One missing thing in the quick-fix sheet. */
+function FixItem({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <div className="flex gap-2.5 rounded-xl bg-amber-500/[0.08] px-3 py-2.5 dark:bg-amber-400/10">
+      <AlertTriangle
+        className="mt-0.5 shrink-0 text-amber-600 dark:text-amber-300"
+        size={15}
+      />
+      <div className="min-w-0 text-xs leading-5 text-default-600">
+        <div className="text-sm font-semibold text-foreground">{title}</div>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+/** The connect bar's dot + word (r4). */
+function barState(s: PhoneState): {
+  key: string;
+  text: string;
+  dot: string;
+  pulse?: boolean;
+} {
+  switch (s.connection) {
+    case "connecting":
+      return {
+        key: "connecting",
+        text: "连接中…",
+        dot: "bg-amber-500",
+        pulse: true,
+      };
+    case "connected":
+      return s.ready < s.total
+        ? { key: "partial", text: "部分已连接", dot: "bg-amber-500" }
+        : { key: "connected", text: "已连接", dot: "bg-green-500" };
+    case "partial":
+      return { key: "partial", text: "部分已连接", dot: "bg-amber-500" };
+    case "failed":
+      return { key: "failed", text: "连接失败", dot: "bg-red-500" };
+    case "disconnecting":
+      return {
+        key: "disconnecting",
+        text: "正在断开…",
+        dot: "bg-slate-400",
+        pulse: true,
+      };
+    default:
+      return { key: "idle", text: "未连接", dot: "bg-slate-400" };
+  }
+}
+
+/** The gear of 我的入口 (手机本地): 自动连接, 预热池, 运行日志, 商家账号, 换面板地址. */
 export function PhoneGearSheet({
   open,
   onClose,
@@ -567,6 +664,25 @@ export function PhoneGearSheet({
               {log.text}
             </pre>
           )}
+        </div>
+        {/* Plan 315 r4: the account left the connect row (it is a first-run
+            card now); changing it later lives here. */}
+        <div className="flex items-center gap-2 py-3" data-phone-gear-cred="">
+          <span className="text-sm text-foreground">商家账号</span>
+          <span className="min-w-0 truncate text-xs text-default-500">
+            {s?.credentials.set
+              ? `已填${s.credentials.clientIdHint ? ` ·…${s.credentials.clientIdHint}` : ""}`
+              : "未填"}
+          </span>
+          <span className="flex-1" />
+          <Button
+            color="primary"
+            size="sm"
+            variant="flat"
+            onPress={() => void run(appCall("editCredentials", {}, 600000))}
+          >
+            {s?.credentials.set ? "修改" : "填写"}
+          </Button>
         </div>
         <div className="flex items-center gap-2 pt-3 text-xs text-default-500">
           {ctx?.info && (

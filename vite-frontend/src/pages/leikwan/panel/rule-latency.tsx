@@ -157,14 +157,12 @@ export function RuleLatencyField({
   );
 }
 
-/** 专线 header: 「端内 X ms」 (amber like 诊断) — nothing without a reading. */
+/** 「端内 X ms」 (amber like 诊断; plan 315 r4: in the opened 专线, lined up
+ * with the 到落地 tags) — nothing without a reading. */
 export function LineEndInTag({
   endIn: e,
-  compact = false,
 }: {
   endIn?: LeiKwanLineEndIn | null;
-  /** Plan 315 r3: the H5 专线 header (tighter pill, 11 px text) */
-  compact?: boolean;
 }) {
   if (!e) return null;
   const title = [
@@ -185,9 +183,7 @@ export function LineEndInTag({
       data-leikwan-line-endin=""
       title={title.join(" · ")}
     >
-      <Pill className={compact ? "!px-1.5 !text-[11px]" : ""} tone="amber">
-        端内 {fineMs(e.ms)} ms
-      </Pill>
+      <Pill tone="amber">端内 {fineMs(e.ms)} ms</Pill>
     </span>
   );
 }
