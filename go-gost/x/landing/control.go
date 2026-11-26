@@ -384,9 +384,17 @@ func (m *Manager) reconcile(ctx context.Context) error {
 	}
 	m.noteGuards()
 	wanted := map[string]string{}
+	// Plan 316: names each inbound's sniffing may override = the vendor names
+	// the plan wants for it ∩ those the applied routing already blocks.
+	vendorWant := vendorSets(m.effectiveEgress())
+	wantSniff := map[string][]string{}
 	for _, n := range m.desired.Nodes {
 		if m.desired.Enabled && n.Enabled && !m.withheld[n.InboundTag] {
 			cfg, _ := n.inbound()
+			if hosts := sniffOverride(vendorWant[n.InboundTag], m.applied.VendorRules[n.InboundTag]); len(hosts) > 0 {
+				cfg = withVendorSniff(cfg, hosts)
+				wantSniff[n.InboundTag] = hosts
+			}
 			if port, ok := m.guardByTag[n.InboundTag]; ok && m.guardOn[port] && guardWanted[guardTag(port)] {
 				cfg = withGuardDest(cfg, port)
 			}
@@ -422,6 +430,7 @@ func (m *Manager) reconcile(ctx context.Context) error {
 		}
 		delete(present, tag)
 		delete(m.applied.Inbounds, tag)
+		delete(m.applied.VendorSniff, tag)
 		if err := m.writeJSON("applied.json", m.applied); err != nil {
 			return err
 		}
@@ -449,7 +458,18 @@ func (m *Manager) reconcile(ctx context.Context) error {
 		if !m.inboundRetryDue(tag, cfg, now) {
 			continue
 		}
+		// Recorded before the add (a crash leaves the routing blocking more,
+		// never less); dropped again when the add fails.
+		if hosts := wantSniff[tag]; len(hosts) > 0 {
+			if m.applied.VendorSniff == nil {
+				m.applied.VendorSniff = map[string][]string{}
+			}
+			m.applied.VendorSniff[tag] = hosts
+		} else {
+			delete(m.applied.VendorSniff, tag)
+		}
 		if err := m.addInbound(ctx, tag, cfg); err != nil {
+			delete(m.applied.VendorSniff, tag)
 			if ctx.Err() != nil {
 				return err
 			}

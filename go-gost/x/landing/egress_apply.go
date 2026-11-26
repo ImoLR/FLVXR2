@@ -232,10 +232,12 @@ type renderedPlan struct {
 	warnings  []string
 	hash      string
 	covered   map[string]bool
+	// vendor (plan 316): the vendor names per tag these rules block.
+	vendor map[string][]string
 }
 
 func (m *Manager) renderEgress(ctx context.Context, e *Egress, guards map[int]*guardGroup) (renderedPlan, error) {
-	p := renderedPlan{outbounds: map[string]string{}, covered: e.coveredTags()}
+	p := renderedPlan{outbounds: map[string]string{}, covered: e.coveredTags(), vendor: vendorSets(e)}
 	if len(guards) > 0 {
 		p.outbounds[guardOutboundTag] = canonical(guardOutbound())
 	}
@@ -338,7 +340,9 @@ func (m *Manager) listOutboundTags(ctx context.Context) (map[string]bool, error)
 // new snapshot (after an allowed one-time restart) and the error state; on
 // error the previous rules stay in place.
 func (m *Manager) applyEgress(ctx context.Context, snapshot coreSnapshot) (coreSnapshot, error) {
-	plan := m.effectiveEgress()
+	// Plan 316: keep blocking the vendor names applied inbounds still
+	// override until they are re-added without them.
+	plan := withVendorTransition(m.effectiveEgress(), m.applied.VendorSniff)
 	active := plan.active()
 	m.egress = EgressStatus{State: "none"}
 	// Guards are on only once their rules are in the applied rule set.
@@ -360,6 +364,7 @@ func (m *Manager) applyEgress(ctx context.Context, snapshot coreSnapshot) (coreS
 			// An old Core cannot hold our rules; nothing to remove. Guarded
 			// nodes keep their real dest until the Core restarts (fail-open).
 			m.applied.Egress, m.applied.Outbounds, m.applied.EgressTags = "", nil, nil
+			m.applied.VendorRules = nil
 			return snapshot, nil
 		}
 		if plan.AllowCoreRestart && m.restartedRevision != m.desired.Revision {
@@ -396,6 +401,9 @@ func (m *Manager) applyEgress(ctx context.Context, snapshot coreSnapshot) (coreS
 	rendered := c.plan
 	m.egress.Warnings = rendered.warnings
 	if rendered.hash == m.applied.Egress {
+		// The Core holds exactly these rules (also right after an agent
+		// upgrade, whose applied.json has no vendor record yet).
+		m.applied.VendorRules = rendered.vendor
 		m.egress.State, m.egress.Applied = "applied", rendered.hash
 		if !active {
 			m.egress.State, m.egress.Applied = "none", ""
@@ -452,6 +460,7 @@ func (m *Manager) applyEgress(ctx context.Context, snapshot coreSnapshot) (coreS
 	}
 	sort.Strings(covered)
 	m.applied.Egress, m.applied.Outbounds, m.applied.EgressTags = rendered.hash, rendered.outbounds, covered
+	m.applied.VendorRules = rendered.vendor
 	if !needRules {
 		m.applied.Egress, m.applied.Outbounds, m.applied.EgressTags = "", nil, nil
 	} else if !active {

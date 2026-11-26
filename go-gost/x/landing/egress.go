@@ -126,7 +126,7 @@ const (
 
 // beforeChains: builtin rules the agent renders ahead of the chain rules.
 func (r EgressRule) beforeChains() bool {
-	return r.Builtin == builtinAbuse || r.Builtin == builtinForced
+	return r.Builtin == builtinAbuse || r.Builtin == builtinForced || r.Builtin == builtinVendor
 }
 
 func (e *Egress) active() bool { return e != nil && (len(e.Outbounds) > 0 || len(e.Rules) > 0) }
@@ -600,6 +600,10 @@ func (e *Egress) validate(nodeTags map[string]bool) error {
 			if r.Outbound != "block" {
 				return fmt.Errorf("rule %d: invalid builtin rule", i+1)
 			}
+		case builtinVendor:
+			if err := r.validateVendorRule(); err != nil {
+				return fmt.Errorf("rule %d: %w", i+1, err)
+			}
 		default:
 			return fmt.Errorf("rule %d: invalid builtin rule", i+1)
 		}
@@ -965,7 +969,21 @@ func renderRules(e *Egress, read geoIPReader, memo *sourceMemo) ([]any, error) {
 	}
 	exempt := newDualSet(exemptPrefixes)
 	exemptKey := strings.Join(exempt.cidrs(), ",")
+	// Plan 316: vendor rules right after the safety rule, before anything
+	// else (their names may override the routing domain from SNI / Host).
+	order := make([]int, 0, len(e.Rules))
 	for i, r := range e.Rules {
+		if r.Builtin == builtinVendor {
+			order = append(order, i)
+		}
+	}
+	for i, r := range e.Rules {
+		if r.Builtin != builtinVendor {
+			order = append(order, i)
+		}
+	}
+	for _, i := range order {
+		r := e.Rules[i]
 		rule := map[string]any{"type": "field", "ruleTag": "flvxr-" + strconv.Itoa(i+1), "outboundTag": r.Outbound, "inboundTag": sortedCopy(r.InboundTags)}
 		if len(r.Domain) > 0 {
 			rule["domain"] = r.Domain

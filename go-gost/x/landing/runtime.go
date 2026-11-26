@@ -47,6 +47,11 @@ type appliedState struct {
 	Egress     string            `json:"egress,omitempty"`
 	Outbounds  map[string]string `json:"outbounds,omitempty"`
 	EgressTags []string          `json:"egress_tags,omitempty"`
+	// Plan 316: per inbound tag, the vendor names the applied routing blocks
+	// (VendorRules) and the names its applied sniffing may override
+	// (VendorSniff); VendorSniff[t] ⊆ VendorRules[t] at all times.
+	VendorRules map[string][]string `json:"vendor_rules,omitempty"`
+	VendorSniff map[string][]string `json:"vendor_sniff,omitempty"`
 }
 type Manager struct {
 	mu        sync.Mutex

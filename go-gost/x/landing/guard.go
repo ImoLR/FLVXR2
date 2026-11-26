@@ -29,7 +29,10 @@ import (
 // Version 2 (plan 134) adds the global layer markers "forced" (any outbound,
 // rendered before chain rules) and "global" (any outbound, kept in place);
 // neither withholds a node when the plan cannot be applied.
-const GuardVersion = 2
+// Version 3 (plan 316) adds the builtin "vendor" rule (屏蔽本机厂商官网):
+// block only, rendered right after the safety rule, never withholding, and
+// its names also match the sniffed TLS SNI / HTTP Host (see vendor.go).
+const GuardVersion = 3
 
 const guardTagPrefix = "flvxg-"
 
