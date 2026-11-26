@@ -232,3 +232,23 @@ untouched. Gallery: new top section 「v4」 on /root/mmwx-preview/app-grant-ent
   identical except the 「更新于」 clock on the H5 入口机 tab. Bar glides 94–108 px over 19 eased frames; 30 shards;
   reduced motion = no shards; server entry = no cards / gear.)
 - [x] Commit, push, CI green; ledger row 315 head; summary — code ef98223e (CI 45862372500 green)
+
+## Release — fork.175 (user approved v4 11-27 「可以，没什么问题，先发布吧」)
+Task `release-fork175` (Claude high). Release branch `maintenance/3.0.27-fork.175-app-grant-entry` = feature head
+2458af9f (fast-forward from fork.174 e604e65d) + release docs; tag `3.0.27-fork.175`. Panel only (backend +
+frontend), DB AutoMigrate adds nullable `user_subscription.entry_names`; no agent OTA; no App change.
+
+### Release checklist
+- [x] Disk ≥ 5 GB free (5.4 GB); no other release worker running
+- [x] go vet + go test ./... (SQLite) on the release head; PG handler/repo/contract `-p 1 -timeout 40m`; npm build
+  (vet rc 0; SQLite all ok; PG handler 448 s / repo 557 s / contract 629 s ok; npm build ok)
+- [x] Prod-DB copy: 175 migrates; every existing subscription byte-identical to 174 in every format; new sub = fixed names; 174 starts clean on the migrated copy
+  (isolated netns; 8 subs × 13 client UAs: 174 vs 175 104/104, 174 on the migrated copy 104/104; column added, all NULL;
+  create with entryNames false → column 0, names lose the entry suffix (e.g. 「沪日 · vmsilo 沪美」 → 「沪日」), omitted → NULL
+  = today's names; toggling an existing sub off → on gives the original bytes back)
+- [ ] Push branch, annotated tag, CI + Images green, 10 assets, Latest, gost sha256 ok
+- [ ] Prod rollback dir pre-fork175-*, prune backups (keep 2)
+- [ ] Swap images + FLUX_VERSION; health, nodes, forwards / tunnels / 利群 unchanged
+- [ ] All prod subscriptions via CF before / after identical; log clean 15 min
+- [ ] 利群汇聚 desktop + 390 px, browser 授权 / 入口机 unchanged, 订阅 editor switch (existing ON, new OFF; temp sub deleted)
+- [ ] Cleanup (315 lab dirs, worktree), ledger, memory, summary
