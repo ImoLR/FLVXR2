@@ -185,11 +185,11 @@ part C untouched. Gallery: new top section 「v3 简洁版」 on /root/mmwx-prev
 - [x] 入口机 → 手机本地 360 / 125 % nits
 - [ ] tsc + eslint (changed files) + npm build
 - [x] Shots (360 / 390 × 100 / 125 %) + browser proof vs fork.174 + gallery 「v3 简洁版」 section
-- [ ] Commit, push, CI green; ledger row 315 head; summary
+- [x] Commit, push, CI green (45852510374 on e1bd5e8c, 45854586829 on 8b943a13); ledger row 315 head; summary
 
 ### Round 3 tests
 - `tsc --noEmit` ok; eslint on the 7 changed / new files: 0 problems; `npm run build` ok; CI Build Check
-  45852510374 green on e1bd5e8c. Go untouched (no Go run).
+  45852510374 green on e1bd5e8c, 45854586829 green on 8b943a13. Go untouched (no Go run).
 - Lab `/root/flvx-workers/runs/app-grant-simple/lab` (fresh read-only prod-DB snapshot, `unshare -n`, branch
   paneld = fork.174 leikwan API, mocked App bridge, 100 % / 125 % text emulation), 0 page errors in every pass:
   - A: every prod 专线 header one line, 52 px, route pill complete, bubble inside — slack 57–60 / 18–23 / 87–90 /
