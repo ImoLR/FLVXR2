@@ -130,7 +130,18 @@ def http(c, a):
     except Exception:
         pass
     c.close()
+def echo(c, a):
+    c.settimeout(120)
+    try:
+        while True:
+            d = c.recv(64)
+            if not d: break
+            c.sendall(d)
+    except Exception:
+        pass
+    c.close()
 threading.Thread(target=serve, args=(8080, http), daemon=True).start()
+threading.Thread(target=serve, args=(9100, echo), daemon=True).start()
 serve(8443, tls)
 `
 	if err := os.WriteFile(filepath.Join(base, "target.py"), []byte(target), 0644); err != nil {
@@ -182,6 +193,7 @@ serve(8443, tls)
 		{"ip-tls", "12.0.1.2", 8443}, {"ip-http", "12.0.1.2", 8080},
 		{"dom-dmit", "www.dmit.io", 8443}, {"dom-host", "act.dmithost.net", 8443}, {"dom-allowed", "allowed.test", 8443},
 		{"dom-internal", "internal.test", 8443}, {"ip-internal", "10.77.0.2", 8443},
+		{"ip-echo", "12.0.1.2", 9100},
 	}
 	var inbounds, rules []any
 	for i, r := range routes {
@@ -292,11 +304,33 @@ print(json.dumps(out))
 		{"dom-internal-sni-vendor", "dom-internal", "tls", "www.dmit.io", "blocked"},
 		{"ip-internal-sni-vendor", "ip-internal", "tls", "www.dmit.io", "blocked"},
 	})
+	// A connection open across the inbound re-add (sniffing changes) — does
+	// it survive? (Recorded; the Core keeps accepted TCP conns.)
+	hold := exec.Command("ip", "netns", "exec", "flvxvb-c", "python3", "-c", fmt.Sprintf(`import socket, sys, time
+c = socket.create_connection(("127.0.0.1", %d), timeout=5); c.settimeout(5)
+c.sendall(b"a"); print("first", c.recv(8)); sys.stdout.flush()
+time.sleep(6)
+try:
+    c.sendall(b"b"); print("after", c.recv(8))
+except Exception as e:
+    print("after-error", e)
+`, portOf["ip-echo"]))
+	holdOut, _ := os.Create(filepath.Join(base, "hold.out"))
+	hold.Stdout, hold.Stderr = holdOut, holdOut
+	if err := hold.Start(); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(2 * time.Second)
 	// Phase 2: the older "abuse" marker (agents before plan 316): the
 	// requested domain is refused, SNI by IP is not matched.
 	old := vendor
 	old.Builtin = builtinAbuse
+	reAdd := time.Now()
 	apply(2, old, bt, allow)
+	results["inbound_readd_ms"] = time.Since(reAdd).Milliseconds()
+	_ = hold.Wait()
+	holdB, _ := os.ReadFile(filepath.Join(base, "hold.out"))
+	results["hold_across_readd"] = strings.TrimSpace(string(holdB))
 	if strings.Contains(m.applied.Inbounds["flvxl-1"], `regexp:(?s)^`) {
 		t.Fatalf("abuse-marked vendor rule kept the sniff override")
 	}
